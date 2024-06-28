@@ -1,4 +1,6 @@
-# patsubst 处理所有在 C_SOURCES 字列中的字（一列文件名），如果它的 结尾是 '.c'，就用 '.o' 把 '.c' 取代
+# Makefile -- Uinxed 编译文件（基于 GPL-3.0 开源协议）
+# Copyright © 2020 ViudiraTech
+
 C_SOURCES = $(shell find . -name "*.c")
 C_OBJECTS = $(patsubst %.c, %.o, $(C_SOURCES))
 S_SOURCES = $(shell find . -name "*.s")
@@ -16,40 +18,43 @@ ASM_FLAGS = -f elf -g -F stabs
 
 all: link system.iso
 
-# The automatic variable `$<' is just the first prerequisite
 .c.o:
-	@echo 编译代码文件 $< ...
+	@echo Compiling Code Files $< ...
 	$(CC) $(C_FLAGS) $< -o $@
 
 .s.o:
-	@echo 编译汇编文件 $< ...
+	@echo Compiling Assembly $< ...
 	$(ASM) $(ASM_FLAGS) $<
 
 link:$(S_OBJECTS) $(C_OBJECTS)
-	@echo 链接内核文件...
+	@echo Linking kernel...
 	$(LD) $(LD_FLAGS) $(S_OBJECTS) $(C_OBJECTS) -o UxImage
+
+.PHONY:iso
+system.iso:UxImage
+	@echo Packing ISO file...
+	mkdir -p iso/boot/grub
+	cp $< iso/boot/
+
+	echo 'set timeout=3' > iso/boot/grub/grub.cfg
+	echo 'set default=0' >> iso/boot/grub/grub.cfg
+
+	echo 'menuentry "Uinxed"{' >> iso/boot/grub/grub.cfg
+	echo '	multiboot /boot/UxImage' >> iso/boot/grub/grub.cfg
+	echo '	boot' >> iso/boot/grub/grub.cfg
+	echo '}' >> iso/boot/grub/grub.cfg
+
+	grub-mkrescue --output=$@ iso
+	rm -rf iso
 
 .PHONY:clean
 clean:
 	$(RM) -f $(S_OBJECTS) $(C_OBJECTS) UxImage system.iso
 
-.PHONY:iso
-system.iso:UxImage
-	mkdir -p iso/boot/grub
-	cp $< iso/boot/
-	echo 'set timeout=3' > iso/boot/grub/grub.cfg
-	echo 'set default=0' >> iso/boot/grub/grub.cfg
-	echo 'menuentry "system"{' >> iso/boot/grub/grub.cfg
-	echo '	multiboot /boot/UxImage' >> iso/boot/grub/grub.cfg
-	echo '	boot' >> iso/boot/grub/grub.cfg
-	echo '}' >> iso/boot/grub/grub.cfg
-	grub-mkrescue --output=$@ iso
-	rm -rf iso
-
 .PHONY:qemu_iso
-qemu_iso:
+run:
 	$(QEMU) -cdrom system.iso
 
 .PHONY:qemu_kernel
-qemu_kernel:
+runk:
 	$(QEMU) -kernel UxImage
