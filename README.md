@@ -19,7 +19,5 @@ Uinxed内核是一款与Linux相似的x86内核，目前仅仅是简单的几个
 ## 版权声明
 
 本Uinxed内核项目所有商为ViudiraTech。
-
 内核源码为GPL-3.0开源协议
-
 Copyright © 2020 ViudiraTech，保留所有权力。
