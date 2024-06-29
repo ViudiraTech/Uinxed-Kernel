@@ -1,3 +1,7 @@
+// string.h -- 基础内存操作和字符串处理的内联函数库头文件（基于 GPL-3.0 开源协议）
+// Copyright © 2020 ViudiraTech，保留所有权利。
+// 源于 小严awa 撰写于 2024-6-27.
+
 #ifndef INCLUDE_STRING_H_
 #define INCLUDE_STRING_H_
 

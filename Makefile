@@ -1,5 +1,6 @@
 # Makefile -- Uinxed 编译文件（基于 GPL-3.0 开源协议）
 # Copyright © 2020 ViudiraTech
+# 源于 小严awa 撰写于 2024-6-23.
 
 C_SOURCES = $(shell find . -name "*.c")
 C_OBJECTS = $(patsubst %.c, %.o, $(C_SOURCES))
