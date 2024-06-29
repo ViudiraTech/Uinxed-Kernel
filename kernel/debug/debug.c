@@ -37,7 +37,7 @@ void print_cur_status()
 
 void panic(const char *msg)
 {
-	printk("*** System panic: %s\n", msg);
+	printk("*** Kernel panic: %s\n", msg);
 	print_stack_trace();
 	printk("***\n");
 	

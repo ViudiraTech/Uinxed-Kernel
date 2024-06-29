@@ -15,13 +15,7 @@ void kernel_init()
 
 	console_clear();
 
-	console_write("Hello, Uinxed Kernel!\n");
-	printk("printk done\n");
-
-	console_write("Testing IDT...\n");
-	asm volatile("int $0x3");
-
-	for(;;){
-		asm volatile("hlt");
-	}
+	printk("Uinxed-Kernel V1.0\n");
+	printk("Copyright 2020 ViudiraTech.\n\n");
+	panic("No operation!");
 }
