@@ -3,7 +3,6 @@
 // 源于 MicroFish 撰写于 2024-6-29.
 
 #include "cmos.h"
-#include "common.h"
 
 /* 从CMOS存储器中读取数据 */
 unsigned char read_cmos(unsigned char p)
