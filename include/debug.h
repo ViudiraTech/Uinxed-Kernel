@@ -7,11 +7,11 @@
 
 #include "console.h"
 
-#define assert(x, info)				\
+#define assert(x, info)		\
 	do {					\
 		if (!(x)) {			\
-			panic(info);		\
-		}				\
+			panic(info);	\
+		}					\
 	} while (0)
 
 /* 初始化 Debug 信息 */

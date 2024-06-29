@@ -33,9 +33,9 @@ typedef __INT32_TYPE__	int32_t;
 typedef __UINT32_TYPE__	uint32_t;
 typedef __INT64_TYPE__	int64_t;
 typedef __UINT64_TYPE__	uint64_t;
-typedef float		float32_t;
-typedef double		float64_t;
-typedef __float128	float128_t;
+typedef float			float32_t;
+typedef double			float64_t;
+typedef __float128		float128_t;
 
 typedef int8_t     i8;
 typedef uint8_t    u8;

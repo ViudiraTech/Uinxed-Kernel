@@ -28,7 +28,7 @@ void init_gdt()
 	gdt_ptr.base = (uint32_t)&gdt_entries;
 
 	/* 采用 Intel 平坦模型 */
-	gdt_set_gate(0, 0, 0, 0, 0);				// 按照 Intel 文档要求，第一个描述符必须全 0
+	gdt_set_gate(0, 0, 0, 0, 0);					// 按照 Intel 文档要求，第一个描述符必须全 0
 	gdt_set_gate(1, 0, 0xFFFFFFFF, 0x9A, 0xCF);		// 指令段
 	gdt_set_gate(2, 0, 0xFFFFFFFF, 0x92, 0xCF);		// 数据段
 	gdt_set_gate(3, 0, 0xFFFFFFFF, 0xFA, 0xCF);		// 用户模式代码段

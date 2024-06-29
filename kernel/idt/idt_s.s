@@ -15,8 +15,8 @@ idt_flush:
 [GLOBAL isr%1]
 isr%1:
 	cli					; 首先关闭中断
-	push 0					; push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
-	push %1					; push 中断号
+	push 0				; push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+	push %1				; push 中断号
 	jmp isr_common_stub
 %endmacro
 
@@ -25,7 +25,7 @@ isr%1:
 [GLOBAL isr%1]
 isr%1:
 	cli					; 关闭中断
-	push %1					; push 中断号
+	push %1				; push 中断号
 	jmp isr_common_stub
 %endmacro
 
@@ -76,7 +76,7 @@ isr_common_stub:
 	mov ax, ds
 	push eax			; 保存数据段描述符
 
-	mov ax, 0x10			; 加载内核数据段描述符表
+	mov ax, 0x10		; 加载内核数据段描述符表
 	mov ds, ax
 	mov es, ax
 	mov fs, ax
@@ -84,7 +84,7 @@ isr_common_stub:
 	mov ss, ax
 
 	push esp			; 此时的 esp 寄存器的值等价于 pt_regs 结构体的指针
-	call isr_handler		; 在 C 语言代码里
+	call isr_handler	; 在 C 语言代码里
 	add esp, 4			; 清除压入的参数
 
 	pop ebx				; 恢复原来的数据段描述符
@@ -134,7 +134,7 @@ irq_common_stub:
 	mov ax, ds
 	push eax			; 保存数据段描述符
 
-	mov ax, 0x10			; 加载内核数据段描述符
+	mov ax, 0x10		; 加载内核数据段描述符
 	mov ds, ax
 	mov es, ax
 	mov fs, ax

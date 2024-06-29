@@ -77,12 +77,12 @@ static int skip_atoi(const char **s)
 }
 
 #define ZEROPAD		1	// pad with zero
-#define SIGN	 	2   	// unsigned/signed long
+#define SIGN	 	2   // unsigned/signed long
 #define PLUS    	4	// show plus
-#define SPACE	  	8   	// space if plus
-#define LEFT	 	16  	// left justified
-#define SPECIAL		32  	// 0x
-#define SMALL	  	64  	// use 'abcdef' instead of 'ABCDEF'
+#define SPACE	  	8   // space if plus
+#define LEFT	 	16  // left justified
+#define SPECIAL		32  // 0x
+#define SMALL	  	64  // use 'abcdef' instead of 'ABCDEF'
 
 #define do_div(n,base) ({ \
 		int __res; \
@@ -182,8 +182,8 @@ static int vsprintf(char *buff, const char *format, va_list args)
 
 	int flags;			// flags to number()
 
-	int field_width;		// width of output field
-	int precision;			// min. # of digits for integers; max number of chars for from string
+	int field_width;	// width of output field
+	int precision;		// min. # of digits for integers; max number of chars for from string
 
 	for (str = buff ; *format ; ++format) {
 		if (*format != '%') {
