@@ -2,6 +2,8 @@
 // Copyright © 2020 ViudiraTech，保留所有权利。
 // 源于 MicroFish 撰写于 2024-6-29.
 
+#include "beep.h"
+
 /* 设置板载蜂鸣器状态 */
 void system_beep(int hertz)
 {

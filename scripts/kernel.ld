@@ -42,4 +42,5 @@ SECTIONS
 	}
 
 	/DISCARD/ : { *(.comment) *(.eh_frame) }
+	end = .; _end = .; __end = .;
 }
