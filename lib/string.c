@@ -5,6 +5,22 @@
 #include "string.h"
 #include "types.h"
 
+int memcmp(const void* buffer1,const void* buffer2,size_t  count)
+{
+	if(!count) {
+		return 0;
+	}
+
+	/* 当比较位数不为0时，且每位数据相等时，移动指针 */
+	while(count-- && *(char*)buffer1 == *(char*)buffer2) {
+		buffer1 = (char*)buffer1 + 1; // 转换类型，移动指针
+		buffer2 = (char*)buffer2 + 1;
+	}
+
+	/*返回超过比较位数之后 比较的大小 */
+	return( *((uint8_t *)buffer1) - *((uint8_t *)buffer2) );    
+}
+
 inline void memcpy(uint8_t *dest, const uint8_t *src, uint32_t len)
 {
 	uint8_t *sr = src;
