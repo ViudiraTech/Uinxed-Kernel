@@ -8,10 +8,10 @@
 #include "console.h"
 
 #define assert(x, info)				\
-	do {							\
-		if (!(x)) {					\
-			panic(info);			\
-		}							\
+	do {					\
+		if (!(x)) {			\
+			panic(info);		\
+		}				\
 	} while (0)
 
 /* 初始化 Debug 信息 */
@@ -27,8 +27,7 @@ void print_cur_status();
 void printk(const char *format, ...);
 
 /* 内核的打印函数 带颜色 */
-void printk_color(real_color_t back, real_color_t fore, const char *format,
-                  ...);
+void printk_color(real_color_t back, real_color_t fore, const char *format, ...);
 
 /* 打印SUCCESS信息 */
 void print_succ(char *str);

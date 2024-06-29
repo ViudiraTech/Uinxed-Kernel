@@ -18,9 +18,9 @@ static void move_cursor()
 	/* 屏幕是80字节宽 */
 	uint16_t cursorLocation = cursor_y * 80 + cursor_x;
 
-	outb(0x3D4, 14);					// 告诉 VGA 我们要设置光标的高字节
+	outb(0x3D4, 14);			// 告诉 VGA 我们要设置光标的高字节
 	outb(0x3D5, cursorLocation >> 8);	// 发送高8位
-	outb(0x3D4, 15);					// 告诉 VGA 我们要设置光标的低字节
+	outb(0x3D4, 15);			// 告诉 VGA 我们要设置光标的低字节
 	outb(0x3D5, cursorLocation);		// 发送低8位
 }
 

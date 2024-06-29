@@ -7,7 +7,7 @@
 #include "debug.h"
 #include "idt.h"
 
-// 从 idt.h 迁移 开始
+/* 从 idt.h 迁移 开始 */
 
 /* 注册一个中断处理函数 */
 void register_interrupt_handler(uint8_t n, interrupt_handler_t h);

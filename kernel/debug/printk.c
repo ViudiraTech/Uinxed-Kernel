@@ -76,9 +76,9 @@ static int skip_atoi(const char **s)
 	return i;
 }
 
-#define ZEROPAD		1		// pad with zero
+#define ZEROPAD		1	// pad with zero
 #define SIGN	 	2   	// unsigned/signed long
-#define PLUS    	4		// show plus
+#define PLUS    	4	// show plus
 #define SPACE	  	8   	// space if plus
 #define LEFT	 	16  	// left justified
 #define SPECIAL		32  	// 0x
@@ -180,7 +180,7 @@ static int vsprintf(char *buff, const char *format, va_list args)
 	char *s;
 	int *ip;
 
-	int flags;				// flags to number()
+	int flags;			// flags to number()
 
 	int field_width;		// width of output field
 	int precision;			// min. # of digits for integers; max number of chars for from string
@@ -193,7 +193,7 @@ static int vsprintf(char *buff, const char *format, va_list args)
 
 		flags = 0;
 		repeat:
-			++format;		// this also skips first '%'
+			++format;	// this also skips first '%'
 		switch (*format) {
 				case '-': flags |= LEFT;
 					goto repeat;

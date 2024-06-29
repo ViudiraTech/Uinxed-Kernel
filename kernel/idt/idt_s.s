@@ -14,9 +14,9 @@ idt_flush:
 %macro ISR_NOERRCODE 1
 [GLOBAL isr%1]
 isr%1:
-	cli							; 首先关闭中断
-	push 0						; push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
-	push %1						; push 中断号
+	cli					; 首先关闭中断
+	push 0					; push 无效的中断错误代码(起到占位作用，便于所有isr函数统一清栈)
+	push %1					; push 中断号
 	jmp isr_common_stub
 %endmacro
 
@@ -24,8 +24,8 @@ isr%1:
 %macro ISR_ERRCODE 1
 [GLOBAL isr%1]
 isr%1:
-	cli							; 关闭中断
-	push %1						; push 中断号
+	cli					; 关闭中断
+	push %1					; push 中断号
 	jmp isr_common_stub
 %endmacro
 
@@ -72,30 +72,30 @@ ISR_NOERRCODE 255
 
 ; 中断服务程序
 isr_common_stub:
-	pusha					; Pushes edi, esi, ebp, esp, ebx, edx, ecx, eax
+	pusha				; Pushes edi, esi, ebp, esp, ebx, edx, ecx, eax
 	mov ax, ds
-	push eax				; 保存数据段描述符
-	
+	push eax			; 保存数据段描述符
+
 	mov ax, 0x10			; 加载内核数据段描述符表
 	mov ds, ax
 	mov es, ax
 	mov fs, ax
 	mov gs, ax
 	mov ss, ax
-	
-	push esp				; 此时的 esp 寄存器的值等价于 pt_regs 结构体的指针
+
+	push esp			; 此时的 esp 寄存器的值等价于 pt_regs 结构体的指针
 	call isr_handler		; 在 C 语言代码里
-	add esp, 4				; 清除压入的参数
-	
-	pop ebx					; 恢复原来的数据段描述符
+	add esp, 4			; 清除压入的参数
+
+	pop ebx				; 恢复原来的数据段描述符
 	mov ds, bx
 	mov es, bx
 	mov fs, bx
 	mov gs, bx
 	mov ss, bx
-	
-	popa					; Pops edi, esi, ebp, esp, ebx, edx, ecx, eax
-	add esp, 8				; 清理栈里的 error code 和 ISR
+
+	popa				; Pops edi, esi, ebp, esp, ebx, edx, ecx, eax
+	add esp, 8			; 清理栈里的 error code 和 ISR
 	iret
 .end:
 
@@ -129,30 +129,30 @@ IRQ  15,    47 	; IDE1 传输控制使用
 [GLOBAL irq_common_stub]
 [EXTERN irq_handler]
 irq_common_stub:
-	pusha					; pushes edi, esi, ebp, esp, ebx, edx, ecx, eax
-	
+	pusha				; pushes edi, esi, ebp, esp, ebx, edx, ecx, eax
+
 	mov ax, ds
-	push eax				; 保存数据段描述符
-	
+	push eax			; 保存数据段描述符
+
 	mov ax, 0x10			; 加载内核数据段描述符
 	mov ds, ax
 	mov es, ax
 	mov fs, ax
 	mov gs, ax
 	mov ss, ax
-	
+
 	push esp
 	call irq_handler
 	add esp, 4
-	
-	pop ebx					; 恢复原来的数据段描述符
+
+	pop ebx				; 恢复原来的数据段描述符
 	mov ds, bx
 	mov es, bx
 	mov fs, bx
 	mov gs, bx
 	mov ss, bx
-	
-	popa					; Pops edi,esi,ebp...
-	add esp, 8				; 清理压栈的 错误代码 和 ISR 编号
-	iret					; 出栈 CS, EIP, EFLAGS, SS, ESP
+
+	popa				; Pops edi,esi,ebp...
+	add esp, 8			; 清理压栈的 错误代码 和 ISR 编号
+	iret				; 出栈 CS, EIP, EFLAGS, SS, ESP
 .end:

@@ -2,8 +2,6 @@
 ; Copyright © 2020 ViudiraTech，保留所有权利。
 ; 源于 小严awa 撰写于 2024-6-23.
 
-; -----------------------------------------------------------------------------
-
 ; Multiboot 魔数，由规范决定的
 MBOOT_HEADER_MAGIC	EQU	0x1BADB002
 
@@ -33,43 +31,37 @@ MBOOT_CHECKSUM		EQU	-(MBOOT_HEADER_MAGIC+MBOOT_HEADER_FLAGS)
 ; 我们只使用到这些就够了，更多的详细说明请参阅 GNU 相关文档
 ; -----------------------------------------------------------
 
-; -----------------------------------------------------------------------------
-
-[BITS 32]   						; 所有代码以 32-bit 的方式编译
-SECTION .text   					; 代码段从这里开始
+[BITS 32]					; 所有代码以 32-bit 的方式编译
+SECTION .text					; 代码段从这里开始
 
 ; 在代码段的起始位置设置符合 Multiboot 规范的标记
 
 DD MBOOT_HEADER_MAGIC				; GRUB 会通过这个魔数判断该映像是否支持
 DD MBOOT_HEADER_FLAGS				; GRUB 的一些加载时选项，其详细注释在定义处
-DD MBOOT_CHECKSUM					; 检测数值，其含义在定义处
+DD MBOOT_CHECKSUM				; 检测数值，其含义在定义处
 
-[GLOBAL start]						; 向外部声明内核代码入口，此处提供该声明给链接器
+[GLOBAL start]					; 向外部声明内核代码入口，此处提供该声明给链接器
 [GLOBAL glb_mboot_ptr]				; 向外部声明 struct multiboot * 变量
 [EXTERN kernel_init]				; 声明内核 C 代码的初始化函数
 
 start:
-    CLI								; 此时还没有设置好保护模式的中断处理，所以必须关闭中断
-    MOV ESP, STACK_TOP				; 设置内核栈地址
-    MOV EBP, 0						; 帧指针修改为0
-    AND ESP, 0FFFFFFF0H				; 栈地址按照16字节对齐
-    MOV [glb_mboot_ptr], EBX 		; 将 ebx 中存储的指针存入全局变量
-    CALL kernel_init      			; 调用内核初始化函数
+	CLI					; 此时还没有设置好保护模式的中断处理，所以必须关闭中断
+	MOV ESP, STACK_TOP			; 设置内核栈地址
+	MOV EBP, 0				; 帧指针修改为0
+	AND ESP, 0FFFFFFF0H			; 栈地址按照16字节对齐
+	MOV [glb_mboot_ptr], EBX		; 将 ebx 中存储的指针存入全局变量
+	CALL kernel_init			; 调用内核初始化函数
 
 stop:
-    HLT              				; 停机指令，可以降低 CPU 功耗
-    JMP stop         				; 到这里结束，关机什么的后面再说
+	HLT					; 停机指令，可以降低 CPU 功耗
+	JMP stop				; 到这里结束，关机什么的后面再说
 
-;-----------------------------------------------------------------------------
-
-SECTION .bss						; 未初始化的数据段从这里开始
+SECTION .bss					; 未初始化的数据段从这里开始
 
 stack:
-    RESB 32768						; 这里作为内核栈
+	RESB 32768				; 这里作为内核栈
 
-glb_mboot_ptr:						; 全局的 multiboot 结构体指针
+glb_mboot_ptr:					; 全局的 multiboot 结构体指针
 	RESB 4
 
 STACK_TOP EQU $-stack-1				; 内核栈顶，$ 符指代是当前地址
-
-;-----------------------------------------------------------------------------
