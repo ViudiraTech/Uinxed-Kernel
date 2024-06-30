@@ -221,6 +221,7 @@ void isr_handler(pt_regs *regs)
 }
 
 /* 注册一个中断处理函数 */
+/* 使用qemu通过grub启动内核后，此函数每使用一次都要等很久 */
 void register_interrupt_handler(uint8_t n, interrupt_handler_t h)
 {
 	interrupt_handlers[n] = h;
