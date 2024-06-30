@@ -1,6 +1,13 @@
-// types.h -- 基本系统数据类型头文件（基于 GPL-3.0 开源协议）
-// Copyright © 2020 ViudiraTech，保留所有权利。
-// 源于 copi143 撰写于 2024-6-29.
+/*
+ *
+ *		types.h
+ *		基本系统数据类型头文件
+ *
+ *		2024/6/29 By copi143
+ *		基于 GPL-3.0 开源协议
+ *		Copyright © 2020 ViudiraTech，保留所有权利。
+ *
+ */
 
 #pragma once
 
@@ -66,6 +73,8 @@ typedef _Complex __INT64_TYPE__  cint64_t;
 typedef _Complex __UINT64_TYPE__ cuint64_t;
 typedef _Complex float           cfloat32_t;
 typedef _Complex double          cfloat64_t;
+
+// Rainy101112: 咳咳我在这里提一下 记得把FPU做了 不然这么多浮点数定义也是白写
 
 typedef i8 sbyte;
 typedef u8 byte;

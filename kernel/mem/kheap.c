@@ -1,6 +1,13 @@
-// kheap.c -- 内核内存分配器（基于 GPL-3.0 开源协议）
-// Copyright © 2020 ViudiraTech，保留所有权利。
-// 源于 XIAOYI12 撰写于 2024-6-30.
+/*
+ *
+ *		kheap.c
+ *		内核内存分配器
+ *
+ *		2024/6/30 By XIAOYI12
+ *		基于 GPL-3.0 开源协议
+ *		Copyright © 2020 ViudiraTech，保留所有权利。
+ *
+ */
 
 #include "memory.h"
 #include "printk.h"

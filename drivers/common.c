@@ -1,6 +1,13 @@
-// common.c -- 通用设备驱动（基于 GPL-3.0 开源协议）
-// Copyright © 2020 ViudiraTech，保留所有权利。
-// 源于 小严awa 撰写于 2024-6-27.
+/*
+ *
+ *		common.c
+ *		通用设备IO驱动
+ *
+ *		2024/6/27 By Rainy101112
+ *		基于 GPL-3.0 开源协议
+ *		Copyright © 2020 ViudiraTech，保留所有权利。
+ *
+ */
 
 #include "common.h"
 

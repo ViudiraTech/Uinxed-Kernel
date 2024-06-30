@@ -1,6 +1,13 @@
-// gdt.c -- 设置全局描述符程序（基于 GPL-3.0 开源协议）
-// Copyright © 2020 ViudiraTech，保留所有权利。
-// 源于 小严awa 撰写于 2024-6-27.
+/*
+ *
+ *		gdt.c
+ *		设置全局描述符程序
+ *
+ *		2024/6/27 By Rainy101112
+ *		基于 GPL-3.0 开源协议
+ *		Copyright © 2020 ViudiraTech，保留所有权利。
+ *
+ */
 
 #include "gdt.h"
 #include "string.h"

@@ -1,7 +1,12 @@
-/* 
- * kernel.ld -- 针对 kernel 格式所写的链接脚本（基于 GPL-3.0 开源协议）
- * Copyright © 2020 ViudiraTech，保留所有权利。
- * 源于 小严awa 撰写于 2024-6-23.
+/*
+ *
+ *		kernel.ld
+ *		针对 kernel 格式所写的链接脚本
+ *
+ *		2024/6/23 By Rainy101112
+ *		基于 GPL-3.0 开源协议
+ *		Copyright © 2020 ViudiraTech，保留所有权利。
+ *
  */
 
 ENTRY(start)

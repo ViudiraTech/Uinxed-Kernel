@@ -1,6 +1,13 @@
-// console.c -- VGA文字模式下的控制台驱动程序（基于 GPL-3.0 开源协议）
-// Copyright © 2020 ViudiraTech，保留所有权利。
-// 源于 小严awa 撰写于 2024-6-27.
+/*
+ *
+ *		console.c
+ *		VGA文字模式下的控制台驱动
+ *
+ *		2024/6/27 By Rainy101112
+ *		基于 GPL-3.0 开源协议
+ *		Copyright © 2020 ViudiraTech，保留所有权利。
+ *
+ */
 
 #include "console.h"
 

@@ -1,6 +1,13 @@
-// elf.h -- 处理ELF格式头文件（基于 GPL-3.0 开源协议）
-// Copyright © 2020 ViudiraTech，保留所有权利。
-// 源于 小严awa 撰写于 2024-6-27.
+/*
+ *
+ *		elf.h
+ *		处理ELF格式头文件
+ *
+ *		2024/6/27 By Rainy101112
+ *		基于 GPL-3.0 开源协议
+ *		Copyright © 2020 ViudiraTech，保留所有权利。
+ *
+ */
 
 #ifndef INCLUDE_ELF_H_
 #define INCLUDE_ELF_H_
@@ -39,10 +46,10 @@ struct elf_symbol_t {
 /* ELF 信息 */
 typedef
 struct elf_t {
-	elf_symbol_t *symtab;
-	uint32_t     symtabsz;
-	const char   *strtab;
-	uint32_t     strtabsz;
+	elf_symbol_t	*symtab;
+	uint32_t		symtabsz;
+	const char		*strtab;
+	uint32_t		strtabsz;
 } elf_t;
 
 /* 从 multiboot_t 结构获取ELF信息 */
