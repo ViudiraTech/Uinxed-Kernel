@@ -205,6 +205,8 @@ page_directory_t *clone_directory(page_directory_t *src)
 
 void init_page()
 {
+	print_doing("Initializing memory paging.\r"); // 提示用户正在初始化内存分页，并回到行首等待覆盖
+	
 	uint32_t mem_end_page = 0xFFFFFFFF; // 4GB 页
 
 	nframes = mem_end_page / 0x1000;
@@ -237,5 +239,7 @@ void init_page()
 
 	program_break = (void *) KHEAP_START;
 	program_break_end = (void *) (KHEAP_START + KHEAP_INITIAL_SIZE);
+
+	print_succ("Memory paging initialized successfully.\n"); // 提示用户已经完成初始化内存分页
 }
 

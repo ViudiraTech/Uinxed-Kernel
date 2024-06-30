@@ -103,6 +103,13 @@ void console_putc_color(char c, real_color_t back, real_color_t fore)
 	move_cursor();
 }
 
+/* 屏幕打印一个空行 */
+void console_write_newline(void)
+{
+	cursor_x = 0;
+	cursor_y++;
+}
+
 /* 屏幕打印一个以 \0 结尾的字符串（默认黑底白字） */
 void console_write(char *cstr)
 {

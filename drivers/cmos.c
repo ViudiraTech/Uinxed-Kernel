@@ -109,15 +109,15 @@ static void get_cpu_address_sizes(cpu_t *c)
 }
 
 /* 打印CPU信息 */
-void print_cpu_id()
+void print_cpu_id(void)
 {
 	cpu_t *c = (cpu_t *) kmalloc(sizeof(cpu_t));
 	get_vendor_name(c);
 	get_model_name(c);
 	get_cpu_address_sizes(c);
-	printk("CPU Vendor:            %s\n", c->vendor);
-	printk("CPU Name:              %s\n", c->model_name);
-	printk("CPU Cache:             %d\n",c->phys_bits);
-	printk("CPU Virtual Address:   0x%x\n",c->virt_bits);
+	printk("CPU Vendor:           %s\n", c->vendor);
+	printk("CPU Name:             %s\n", c->model_name);
+	printk("CPU Cache:            %d\n",c->phys_bits);
+	printk("CPU Virtual Address:  0x%x\n\n",c->virt_bits); // 打印完当前CPU信息后会自动帮忙打印一个空行
 	kfree(c);
 }

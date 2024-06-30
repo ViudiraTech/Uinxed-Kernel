@@ -14,14 +14,19 @@ uint32_t placement_address = (uint32_t) & end;
 
 void kernel_init()
 {
-	init_gdt();
-	init_idt();
-	init_page();
+	console_clear(); // 清屏
 
-	console_clear();
+	printk("Uinxed-Kernel V1.0\n");				// 打印内核信息
+	printk("Copyright 2020 ViudiraTech.\n\n");	// 打印版权信息
 
-	printk("Uinxed-Kernel V1.0\n");
-	printk("Copyright 2020 ViudiraTech.\n\n");
+	print_info("Initializing operating system kernel components.\n"); // 提示用户正在初始化内核
 
-	panic("No operation!");
+	init_gdt();		// 初始化gdt
+	init_idt();		// 初始化idt
+	init_page();	// 初始化内存分页
+
+	console_write_newline();	// 打印一个空行，和上面的信息保持隔离
+
+	print_cpu_id();				// 打印当前CPU的信息
+	panic("No operation!");		// 因为内核无事可做，直接panic
 }

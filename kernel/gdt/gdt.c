@@ -36,6 +36,8 @@ void init_gdt()
 
 	/* 加载全局描述符表地址到 GPTR 寄存器 */
 	gdt_flush((uint32_t)&gdt_ptr);
+
+	print_succ("Global Descriptor Table initialized successfully.\n"); // 提示用户gdt初始化完成
 }
 
 /* 全局描述符表构造函数，根据下标构造 */

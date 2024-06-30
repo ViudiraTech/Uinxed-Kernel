@@ -193,6 +193,8 @@ void init_idt()
 
 	/* 更新设置中断描述符表 */
 	idt_flush((uint32_t)&idt_ptr);
+
+	print_succ("Interrupt Descriptor Table initialized successfully.\n"); // 提示用户idt初始化完成
 }
 
 /* 设置中断描述符 */
