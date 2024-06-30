@@ -76,6 +76,7 @@ static void cpuid(unsigned int op, unsigned int *eax, unsigned int *ebx, unsigne
 				: "memory");
 }
 
+/* 获取CPU厂商名称 */
 static void get_vendor_name(cpu_t *c)
 {
 	int cpuid_level;
@@ -87,6 +88,7 @@ static void get_vendor_name(cpu_t *c)
 	c->vendor = x86_vendor_id;
 }
 
+/* CPU型号名称 */
 static void get_model_name(cpu_t *c)
 {
 	unsigned int *v = (unsigned int *) c->model_name;
@@ -96,6 +98,7 @@ static void get_model_name(cpu_t *c)
 	c->model_name[48] = 0;
 }
 
+/* 获取CPU地址大小 */
 static void get_cpu_address_sizes(cpu_t *c)
 {
 	unsigned int eax, ebx, ecx, edx;
@@ -105,6 +108,7 @@ static void get_cpu_address_sizes(cpu_t *c)
 	c->phys_bits = eax & 0xff;
 }
 
+/* 打印CPU信息 */
 void print_cpu_id()
 {
 	cpu_t *c = (cpu_t *) kmalloc(sizeof(cpu_t));

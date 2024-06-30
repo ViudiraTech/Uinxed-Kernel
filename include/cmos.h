@@ -13,7 +13,7 @@ unsigned int get_day_of_week();
 unsigned int get_mon_hex();
 unsigned int get_year();
 
-void print_cpu_id();
+void print_cpu_id(); // 打印CPU信息
 
 typedef struct {
     char* vendor;
