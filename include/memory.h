@@ -50,7 +50,7 @@ void init_page();
 page_t *get_page(uint32_t address, int make, page_directory_t *dir);
 
 void kfree(void *block);
-uint32_t kmalloc_i_ap(uint32_t size, uint32_t *phys); //该malloc的内存不可回收, 谨慎使用
+uint32_t kmalloc_i_ap(uint32_t size, uint32_t *phys); // 该malloc的内存不可回收, 谨慎使用
 uint32_t kmalloc_a(uint32_t size);
 uint32_t kmalloc_p(uint32_t size, uint32_t *phys);
 uint32_t kmalloc_ap(uint32_t size, uint32_t *phys);

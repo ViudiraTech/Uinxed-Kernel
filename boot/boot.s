@@ -5,7 +5,7 @@
 ; Multiboot 魔数，由规范决定的
 MBOOT_HEADER_MAGIC	EQU	0x1BADB002
 
-; 0号位表示所有的引导模块将按页（4KB）边界对齐
+; 0号位表示所有的引导模块将按页(4KB)边界对齐
 MBOOT_PAGE_ALIGN	EQU	1 << 0
 
 ; 1号位通过 Multiboot 信息结构的 mem_* 域包括可用内存的信息

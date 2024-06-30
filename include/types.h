@@ -1,5 +1,8 @@
+// types.h -- 基本系统数据类型头文件（基于 GPL-3.0 开源协议）
+// Copyright © 2020 ViudiraTech，保留所有权利。
+// 源于 copi143 撰写于 2024-6-29.
+
 #pragma once
-// Copyright © 2020 copi143，保留所有权利。
 
 #ifdef __cplusplus
 extern "C" {

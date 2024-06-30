@@ -17,7 +17,7 @@ int memcmp(const void* buffer1,const void* buffer2,size_t  count)
 		buffer2 = (char*)buffer2 + 1;
 	}
 
-	/*返回超过比较位数之后 比较的大小 */
+	/* 返回超过比较位数之后 比较的大小 */
 	return( *((uint8_t *)buffer1) - *((uint8_t *)buffer2) );    
 }
 
