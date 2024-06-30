@@ -36,6 +36,8 @@ void kernel_init()
 
 	console_write_newline();	// 打印一个空行，和上面的信息保持隔离
 
-	print_cpu_id();				// 打印当前CPU的信息
-	panic("No operation!");		// 因为内核无事可做，直接panic
+	print_cpu_id();				// 打印当前CPU的信息	
+
+	enable_intr();
+	shell();
 }

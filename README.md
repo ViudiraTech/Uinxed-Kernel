@@ -16,6 +16,20 @@ Uinxed内核是一款与Linux相似的x86内核，目前仅仅是简单的几个
 3. 编译后会生成两个文件：UxImage和system.iso，这两个文件分别为内核文件和带grub引导的镜像文件。
 4. 输入“make clean”清理编译物，输入“make run”即可通过qemu测试启动iso镜像，输入“make runk”可以通过qemu测试内核文件启动。
 
+# 贡献者排名
+
+1.Rainy101112（30份源代码）
+2.MicroFish（7份源代码）
+3.XIAOYI12（4份源代码）
+4.copi143（1份）
+
+提交次数仅代表个人初次上传份数，不代表修改、整理等次数。
+
+# 项目所使用的开源代码
+
+Hurlex-Kernel: http://wiki.0xffffff.org/
+CoolPotOS: https://github.com/xiaoyi1212/CoolPotOS
+
 ## 版权声明
 
 本Uinxed内核项目所有商为ViudiraTech。
