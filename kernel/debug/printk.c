@@ -9,21 +9,32 @@
 
 static int vsprintf(char *buff, const char *format, va_list args);
 
-void print_succ(char *str){
+void print_succ(char *str)
+{
 	printk_color(rc_black, rc_white, "[");
-	printk_color(rc_black, rc_green, "SUCCESS");
+	printk_color(rc_black, rc_green, " SUCCESS ");
 	printk_color(rc_black, rc_white, "]");
 	printk(" %s\n", str);
 }
 
-void print_warn(char *str){
+void print_info(char *str)
+{
 	printk_color(rc_black, rc_white, "[");
-	printk_color(rc_black, rc_light_brown, "WARNING");
+	printk_color(rc_black, rc_white, " INFO ");
 	printk_color(rc_black, rc_white, "]");
 	printk(" %s\n", str);
 }
 
-void print_erro(char *str){
+void print_warn(char *str)
+{
+	printk_color(rc_black, rc_white, "[");
+	printk_color(rc_black, rc_light_brown, " WARNING ");
+	printk_color(rc_black, rc_white, "]");
+	printk(" %s\n", str);
+}
+
+void print_erro(char *str)
+{
 	printk_color(rc_black, rc_white, "[");
 	printk_color(rc_black, rc_red, " ERROR ");
 	printk_color(rc_black, rc_white, "]");
