@@ -63,20 +63,20 @@ static void readline(char *buf, int cnt, int prompt_len)
 			case '\n':
 			case '\r':
 				*pos = 0; // 读完了，好耶！
-				console_putc_color('\n', rc_black, rc_white); // 只打印一个\n
+				printk("\n");
 				return;
 
 			case '\b':
-				if (buf[0] != '\b') { // 哥们怎么全删完了
-					--pos; // 退回上一个字符
-					--buf_idx; // 更新字符索引
-					console_putc_color('\b', rc_black, rc_white); // 打印一个\b
+				if (buf[0] != '\b') {	// 哥们怎么全删完了
+					--pos;				// 退回上一个字符
+					--buf_idx;			// 更新字符索引
+					printk("\b");		// 打印一个退格
 				}
 				break;
 
 			default:
 				/* 其他 */
-				console_putc_color(*pos, rc_black, rc_white);
+				printk("%c", *pos);
 				pos++;
 				if (buf_idx - prompt_len < cnt) { // 确保不超过输入限制
 					buf_idx++;
@@ -87,10 +87,10 @@ static void readline(char *buf, int cnt, int prompt_len)
 
 void shell_help(int argc, char *argv)
 {
-	console_write("Help list:\n");
-	console_write("clear -- Clean the screen\n");
-	console_write("help -- Show help information\n");
-	console_write("cpuid -- Get CPU information\n\n");
+	printk("Help list:\n");
+	printk("clear -- Clean the screen\n");
+	printk("help -- Show help information\n");
+	printk("cpuid -- Get CPU information\n\n");
 	return;
 }
 
@@ -122,8 +122,8 @@ int find_cmd(char *cmd)
 
 void shell()
 {
-	console_write("Basic shell program v1.0\n");
-	console_write("Type 'help' for help.\n\n");
+	printk("Basic shell program v1.0\n");
+	printk("Type 'help' for help.\n\n");
 
 	char *prompt_len = "Shell-[Kernel:Ring0]-# ";			// 提示符，可自行修改
 	uint8_t cmd[MAX_COMMAND_LEN];
@@ -131,7 +131,7 @@ void shell()
 	int argc = -1;
 
 	while (true) {
-		console_write(prompt_len);							// 打印提示符
+		printk(prompt_len);									// 打印提示符
 
 		memset(cmd, 0, MAX_COMMAND_LEN);					// 清空上轮输入
 		readline(cmd, MAX_COMMAND_LEN, strlen(prompt_len));	// 读入一行
@@ -145,14 +145,14 @@ void shell()
 			print_erro("shell: number of arguments exceed MAX_ARG_NR(30)");
 			continue;
 		} else if (argc == 0) {
-			console_write("\n");
+			console_write_newline();
 			continue;
 		}
 
 		int cmd_index = find_cmd(argv[0]);
 		if (cmd_index < 0) {
 			/* 找不到该命令 */
-			console_write("Command not found.\n\n");
+			printk("Command not found.\n\n");
 		} else {
 			builtin_cmds[cmd_index].func(argc);
 		}

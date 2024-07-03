@@ -36,7 +36,7 @@ void kernel_init()
 
 	console_write_newline();	// 打印一个空行，和上面的信息保持隔离
 
-	print_cpu_id();				// 打印当前CPU的信息	
+	print_cpu_id();				// 打印当前CPU的信息
 
 	enable_intr();
 	shell();
