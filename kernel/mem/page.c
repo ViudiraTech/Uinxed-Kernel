@@ -212,7 +212,7 @@ page_directory_t *clone_directory(page_directory_t *src)
 
 void init_page()
 {
-	print_doing("Initializing memory paging.\r"); // 提示用户正在初始化内存分页，并回到行首等待覆盖
+	print_doing("Initializing memory paging...\r"); // 提示用户正在初始化内存分页，并回到行首等待覆盖
 	
 	uint32_t mem_end_page = 0xFFFFFFFF; // 4GB 页
 

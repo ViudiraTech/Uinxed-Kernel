@@ -102,7 +102,9 @@ extern void idt_flush(uint32_t);
 
 /* 初始化中断描述符表 */
 void init_idt()
-{	
+{
+	print_doing("Initializing the interrupt descriptor table...\r"); // 提示用户正在初始化中断描述符表，并回到行首等待覆盖
+
 	/* 重新映射 IRQ 表 */
 	/* 两片级联的 Intel 8259A 芯片 */
 	/* 主片端口 0x20 0x21 */

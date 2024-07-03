@@ -70,6 +70,7 @@ static void set_leds()
 
 void init_keyboard()
 {
+	print_doing("Initializing keyboard interface...\r"); // 提示用户正在初始化键盘接口，并回到行首等待覆盖
 	uint32_t *keybuf = (uint32_t *) kmalloc(128);
 	uint32_t *dkey_buf = (uint32_t *) kmalloc(128);
 	fifo_init(&keyfifo, 32, keybuf);

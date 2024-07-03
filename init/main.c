@@ -33,6 +33,7 @@ void kernel_init()
 	init_idt();			// 初始化idt
 	init_keyboard();	// 初始化键盘驱动
 	init_page();		// 初始化内存分页
+	init_pci();			// 初始化PCI设备
 
 	console_write_newline();	// 打印一个空行，和上面的信息保持隔离
 

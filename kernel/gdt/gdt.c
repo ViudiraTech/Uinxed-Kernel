@@ -30,6 +30,8 @@ extern uint32_t stack;
 /* 初始化全局描述符表 */
 void init_gdt()
 {
+	print_doing("Initializing the global descriptor table...\r"); // 提示用户正在初始化全局描述符表，并回到行首等待覆盖
+
 	/* 全局描述符表界限 e.g. 从 0 开始，所以总长要 - 1 */
 	gdt_ptr.limit = sizeof(gdt_entry_t) * GDT_LENGTH - 1;
 	gdt_ptr.base = (uint32_t)&gdt_entries;
