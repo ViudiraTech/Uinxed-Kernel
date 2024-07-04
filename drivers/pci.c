@@ -124,7 +124,7 @@ void pci_config(unsigned int bus, unsigned int f, unsigned int equipment, unsign
 
 void init_pci()
 {
-	print_doing("Initializing PCI device...\r"); // 提示用户正在初始化PCI设备，并回到行首等待覆盖
+	print_busy("Initializing PCI device...\r"); // 提示用户正在初始化PCI设备，并回到行首等待覆盖
 	int PCI_NUM = 0;
 
 	PCI_ADDR_BASE = kmalloc(1 * 1024 * 1024);

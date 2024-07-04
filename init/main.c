@@ -27,7 +27,7 @@ void kernel_init()
 	printk("Uinxed-Kernel V1.0\n");				// 打印内核信息
 	printk("Copyright 2020 ViudiraTech.\n\n");	// 打印版权信息
 
-	print_info("Initializing operating system kernel components.\n"); // 提示用户正在初始化内核
+	printk("Initializing operating system kernel components.\n"); // 提示用户正在初始化内核
 
 	init_gdt();			// 初始化gdt
 	init_idt();			// 初始化idt
