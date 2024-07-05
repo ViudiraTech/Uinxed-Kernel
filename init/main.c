@@ -35,8 +35,10 @@ void kernel_init()
 	init_page();		// 初始化内存分页
 	init_pci();			// 初始化PCI设备
 
-	console_write_newline();	// 打印一个空行，和上面的信息保持隔离
+	init_timer(1);		// 初始化定时器
+	init_pit();			// 初始化PIT
 
+	console_write_newline();	// 打印一个空行，和上面的信息保持隔离
 	print_cpu_id();				// 打印当前CPU的信息
 
 	enable_intr();
