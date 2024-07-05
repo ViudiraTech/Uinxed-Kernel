@@ -35,7 +35,7 @@ enum real_color {
 } real_color_t;
 
 /* 清屏操作 */
-void console_clear();
+void console_clear(void);
 
 /* 屏幕输出一个字符（带颜色） */
 void console_putc_color(char c, real_color_t back, real_color_t fore);

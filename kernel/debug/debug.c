@@ -12,17 +12,17 @@
 #include "debug.h"
 #include "elf.h"
 
-static void print_stack_trace();
+static void print_stack_trace(void);
 
 static elf_t kernel_elf;
 
-void init_debug()
+void init_debug(void)
 {
 	/* 从 GRUB 提供的信息中获取到内核符号表和代码地址信息 */
 	kernel_elf = elf_from_multiboot(glb_mboot_ptr);
 }
 
-void print_cur_status()
+void print_cur_status(void)
 {
 	static int round = 0;
 	uint16_t reg1, reg2, reg3, reg4;
@@ -52,7 +52,7 @@ void panic(const char *msg)
 	while(1);
 }
 
-void print_stack_trace()
+void print_stack_trace(void)
 {
 	uint32_t *ebp, *eip;
 

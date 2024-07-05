@@ -47,7 +47,7 @@ static uint32_t test_frame(uint32_t frame_addr)
 	return (frames[idx] & (0x1 << off));
 }
 
-uint32_t first_frame()
+uint32_t first_frame(void)
 {
 	for (int i = 0; i < INDEX_FROM_BIT(nframes); i++) {
 		if (frames[i] != 0xffffffff) {
@@ -80,6 +80,7 @@ void alloc_frame(page_t *page, int is_kernel, int is_writable)
 		page->frame = idx;
 	}
 }
+
 void alloc_frame_line(page_t *page, unsigned line,int is_kernel, int is_writable)
 {
 	set_frame(line);
@@ -136,7 +137,6 @@ page_t *get_page(uint32_t address, int make, page_directory_t *dir)
 		return &dir->tables[table_idx]->pages[address % 1024];
 	} else return 0;
 }
-
 
 void page_fault(pt_regs *regs)
 {
@@ -210,7 +210,7 @@ page_directory_t *clone_directory(page_directory_t *src)
 	return dir;
 }
 
-void init_page()
+void init_page(void)
 {
 	print_busy("Initializing memory paging...\r"); // 提示用户正在初始化内存分页，并回到行首等待覆盖
 	
@@ -249,4 +249,3 @@ void init_page()
 
 	print_succ("Memory paging initialized successfully.\n"); // 提示用户已经完成初始化内存分页
 }
-

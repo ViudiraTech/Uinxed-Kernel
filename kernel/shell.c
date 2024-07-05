@@ -120,7 +120,7 @@ int find_cmd(char *cmd)
 	return -1;
 }
 
-void shell()
+void shell(void)
 {
 	printk("Basic shell program v1.0\n");
 	printk("Type 'help' for help.\n\n");

@@ -26,7 +26,7 @@ static int num_lock;
 static int scroll_lock;
 static int column;
 
-static void keyboard_read();
+static void keyboard_read(void);
 
 fifo_t keyfifo, decoded_key;
 extern uint32_t keymap[];
@@ -37,7 +37,7 @@ void keyboard_handler(pt_regs *regs)
 	keyboard_read();
 }
 
-static void kb_wait()
+static void kb_wait(void)
 {
 	uint8_t kb_stat;
 
@@ -46,7 +46,7 @@ static void kb_wait()
 	} while (kb_stat & 0x02);
 }
 
-static void kb_ack()
+static void kb_ack(void)
 {
 	uint8_t kb_read;
 
@@ -55,7 +55,7 @@ static void kb_ack()
 	} while (kb_read != KB_ACK);
 }
 
-static void set_leds()
+static void set_leds(void)
 {
 	uint8_t leds = (caps_lock << 2) | (num_lock << 1) | scroll_lock;
 
@@ -68,7 +68,7 @@ static void set_leds()
 	kb_ack();
 }
 
-void init_keyboard()
+void init_keyboard(void)
 {
 	print_busy("Initializing keyboard interface...\r"); // 提示用户正在初始化键盘接口，并回到行首等待覆盖
 	uint32_t *keybuf = (uint32_t *) kmalloc(128);
@@ -91,7 +91,7 @@ void init_keyboard()
 	print_succ("Keyboard interface initialized successfully.\n");
 }
 
-static uint8_t get_scancode()
+static uint8_t get_scancode(void)
 {
 	uint8_t scan_code;
 	asm("cli");
@@ -119,7 +119,7 @@ static void in_process(uint32_t key)
 	}
 }
 
-static void keyboard_read()
+static void keyboard_read(void)
 {
 	uint8_t scan_code;
 	int make;

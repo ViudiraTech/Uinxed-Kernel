@@ -53,7 +53,7 @@ typedef union header {
 	ALIGN stub;
 } header_t;
 
-void init_page();
+void init_page(void);
 page_t *get_page(uint32_t address, int make, page_directory_t *dir);
 
 void kfree(void *block);

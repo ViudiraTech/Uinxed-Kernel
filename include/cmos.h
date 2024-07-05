@@ -12,15 +12,15 @@
 #ifndef INCLUDE_CMOS_H_
 #define INCLUDE_CMOS_H_
 
-unsigned int get_hour_hex();							// 获取当前小时的HEX
-unsigned int get_min_hex();								// 获取当前分钟的HEX
-unsigned int get_sec_hex();								// 获取当前秒钟的HEX
-unsigned int get_day_of_month();						// 获取当前月中日
-unsigned int get_day_of_week();							// 获取当前周中日的HEX
-unsigned int get_mon_hex();								// 获取当前月份的HEX
-unsigned int get_year();								// 获取当前年份
+unsigned int get_hour_hex(void);							// 获取当前小时的HEX
+unsigned int get_min_hex(void);								// 获取当前分钟的HEX
+unsigned int get_sec_hex(void);								// 获取当前秒钟的HEX
+unsigned int get_day_of_month(void);						// 获取当前月中日
+unsigned int get_day_of_week(void);							// 获取当前周中日的HEX
+unsigned int get_mon_hex(void);								// 获取当前月份的HEX
+unsigned int get_year(void);								// 获取当前年份
 
-void print_cpu_id(void); 								// 打印CPU信息
+void print_cpu_id(void);									// 打印CPU信息
 
 typedef struct {
 	char* vendor;

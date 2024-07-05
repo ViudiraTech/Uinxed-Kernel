@@ -23,7 +23,7 @@ uint8_t		inb(uint16_t port);						// 端口读（8位）
 uint16_t	inw(uint16_t port);						// 端口读（16位）
 uint32_t	inl(uint16_t port);						// 端口读（32位）
 
-void enable_intr();									// 开启中断
-void disable_intr();								// 关闭中断
+void enable_intr(void);									// 开启中断
+void disable_intr(void);								// 关闭中断
 
 #endif // INCLUDE_COMMON_H_

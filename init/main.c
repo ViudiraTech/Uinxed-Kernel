@@ -20,7 +20,7 @@
 extern uint32_t end;
 uint32_t placement_address = (uint32_t) & end;
 
-void kernel_init()
+void kernel_init(void)
 {
 	console_clear(); // 清屏
 

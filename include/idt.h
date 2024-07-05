@@ -15,7 +15,7 @@
 #include "types.h"
 
 // 初始化中断描述符表 */
-void init_idt();
+void init_idt(void);
 
 /* 中断描述符 */
 typedef

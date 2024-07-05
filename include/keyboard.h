@@ -16,7 +16,7 @@
 
 extern fifo_t keyfifo, decoded_key;
 
-void init_keyboard();							// 键盘初始化函数
+void init_keyboard(void);							// 键盘初始化函数
 
 #define NR_SCAN_CODES	0x80
 #define MAP_COLS		3

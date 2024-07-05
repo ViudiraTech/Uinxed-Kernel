@@ -33,7 +33,7 @@ struct gdt_ptr_t {
 } __attribute__((packed)) gdt_ptr_t;
 
 /* 初始化全局描述符表 */
-void init_gdt();
+void init_gdt(void);
 
 /* GDT 加载到 GDTR 的函数[汇编实现] */
 extern void gdt_flush(uint32_t);

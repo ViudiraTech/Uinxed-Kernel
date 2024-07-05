@@ -122,7 +122,7 @@ void pci_config(unsigned int bus, unsigned int f, unsigned int equipment, unsign
 	outl(PCI_COMMAND_PORT, cmd);
 }
 
-void init_pci()
+void init_pci(void)
 {
 	print_busy("Initializing PCI device...\r"); // 提示用户正在初始化PCI设备，并回到行首等待覆盖
 	int PCI_NUM = 0;

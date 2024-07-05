@@ -54,13 +54,13 @@ inline uint32_t inl(uint16_t port)
 }
 
 /* 开启中断 */
-void enable_intr()
+void enable_intr(void)
 {
 	asm volatile ("sti");
 }
 
 /* 关闭中断 */
-void disable_intr()
+void disable_intr(void)
 {
 	asm volatile ("cli" ::: "memory");
 }

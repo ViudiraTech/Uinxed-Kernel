@@ -63,6 +63,6 @@ uint32_t read_bar_n(uint8_t bus, uint8_t device, uint8_t function, uint8_t bar_n
 uint32_t read_pci(uint8_t bus, uint8_t device, uint8_t function, uint8_t registeroffset);
 base_address_register get_base_address_register(uint8_t bus, uint8_t device, uint8_t function, uint8_t bar);
 void pci_config(unsigned int bus, unsigned int f, unsigned int equipment, unsigned int adder);
-void init_pci();
+void init_pci(void);
 
 #endif // INCLUDE_PCI_H_

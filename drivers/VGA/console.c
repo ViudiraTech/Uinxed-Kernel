@@ -19,7 +19,7 @@ static uint8_t cursor_x = 0;
 static uint8_t cursor_y = 0;
 
 /* 移动光标 */
-static void move_cursor()
+static void move_cursor(void)
 {
 	/* 屏幕是80字节宽 */
 	uint16_t cursorLocation = cursor_y * 80 + cursor_x;
@@ -31,7 +31,7 @@ static void move_cursor()
 }
 
 /* 屏幕滚动操作 */
-static void scroll()
+static void scroll(void)
 {
 	/* attribute_byte 被构造出一个黑底白字的描述格式 */
 	uint8_t attribute_byte = (0 << 4) | (15 & 0x0F);
@@ -56,7 +56,7 @@ static void scroll()
 }
 
 /* 清屏操作 */
-void console_clear()
+void console_clear(void)
 {
 	uint8_t attribute_byte = (0 << 4) | (15 & 0x0F);
 	uint16_t blank = 0x20 | (attribute_byte << 8);

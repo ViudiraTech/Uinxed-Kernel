@@ -28,7 +28,7 @@ static void gdt_set_gate(int32_t num, uint32_t base,
 extern uint32_t stack;
 
 /* 初始化全局描述符表 */
-void init_gdt()
+void init_gdt(void)
 {
 	print_busy("Initializing the global descriptor table...\r"); // 提示用户正在初始化全局描述符表，并回到行首等待覆盖
 
