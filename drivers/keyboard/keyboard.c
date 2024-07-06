@@ -14,6 +14,7 @@
 #include "common.h"
 #include "idt.h"
 
+static int ack_failed = 0;
 static int code_with_E0 = 0;
 static int shift_l;
 static int shift_r;
@@ -49,9 +50,15 @@ static void kb_wait(void)
 static void kb_ack(void)
 {
 	uint8_t kb_read;
+	int count = 0; // 定义计数器变量
 
 	do {
 		kb_read = inb(KB_DATA);
+
+		if (++count >= 10) {
+			ack_failed = 1;
+			break;
+		}
 	} while (kb_read != KB_ACK);
 }
 
@@ -70,7 +77,7 @@ static void set_leds(void)
 
 void init_keyboard(void)
 {
-	print_busy("Initializing keyboard interface...\r"); // 提示用户正在初始化键盘接口，并回到行首等待覆盖
+	print_busy("Initializing PS/2 keyboard controller...\r"); // 提示用户正在初始化键盘接口，并回到行首等待覆盖
 	uint32_t *keybuf = (uint32_t *) kmalloc(128);
 	uint32_t *dkey_buf = (uint32_t *) kmalloc(128);
 	fifo_init(&keyfifo, 32, keybuf);
@@ -88,7 +95,10 @@ void init_keyboard(void)
 
 	register_interrupt_handler(IRQ1, &keyboard_handler);
 	
-	print_succ("Keyboard interface initialized successfully.\n");
+	if (ack_failed == 0)
+		print_succ("PS/2 keyboard controller initialized successfully.\n");
+	else
+		print_erro("No ACK from the PS/2 keyboard controller were detected.\n");
 }
 
 static uint8_t get_scancode(void)
