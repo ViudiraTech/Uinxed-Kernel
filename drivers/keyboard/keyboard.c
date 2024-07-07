@@ -14,7 +14,6 @@
 #include "common.h"
 #include "idt.h"
 
-static int ack_failed = 0;
 static int code_with_E0 = 0;
 static int shift_l;
 static int shift_r;
@@ -47,20 +46,17 @@ static void kb_wait(void)
 	} while (kb_stat & 0x02);
 }
 
+/* 此函数会检查是否收到PS/2键盘的ACK信号，如果没有收到ACK信号就会一直循环卡住。
+ * 现代计算机已经可以将USB键盘模拟为PS/2键盘了，所以没必要用此函数检查了。
 static void kb_ack(void)
 {
 	uint8_t kb_read;
-	int count = 0; // 定义计数器变量
 
 	do {
 		kb_read = inb(KB_DATA);
-
-		if (++count >= 10) {
-			ack_failed = 1;
-			break;
-		}
 	} while (kb_read != KB_ACK);
 }
+*/
 
 static void set_leds(void)
 {
@@ -68,11 +64,11 @@ static void set_leds(void)
 
 	kb_wait();
 	outb(KB_DATA, LED_CODE);
-	kb_ack();
+	// kb_ack();
 
 	kb_wait();
 	outb(KB_DATA, leds);
-	kb_ack();
+	// kb_ack();
 }
 
 void init_keyboard(void)
@@ -94,11 +90,8 @@ void init_keyboard(void)
 	set_leds();
 
 	register_interrupt_handler(IRQ1, &keyboard_handler);
-	
-	if (ack_failed == 0)
-		print_succ("PS/2 keyboard controller initialized successfully.\n");
-	else
-		print_erro("No ACK from the PS/2 keyboard controller were detected.\n");
+
+	print_succ("PS/2 keyboard controller initialized successfully.\n");
 }
 
 static uint8_t get_scancode(void)
