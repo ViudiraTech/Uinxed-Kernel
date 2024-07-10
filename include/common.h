@@ -15,15 +15,15 @@
 #include "types.h"
 #include "string.h"
 
-void		outb(uint16_t port, uint8_t value);		// 端口写（8位）
-void		outw(uint16_t port, uint16_t value);	// 端口写（16位）
-void		outl(uint16_t port, uint32_t value);	// 端口写（32位）
+void outb(uint16_t port, uint8_t value);	// 端口写（8位）
+void outw(uint16_t port, uint16_t value);	// 端口写（16位）
+void outl(uint16_t port, uint32_t value);	// 端口写（32位）
 
-uint8_t		inb(uint16_t port);						// 端口读（8位）
-uint16_t	inw(uint16_t port);						// 端口读（16位）
-uint32_t	inl(uint16_t port);						// 端口读（32位）
+uint8_t inb(uint16_t port);					// 端口读（8位）
+uint16_t inw(uint16_t port);				// 端口读（16位）
+uint32_t inl(uint16_t port);				// 端口读（32位）
 
-void enable_intr(void);									// 开启中断
-void disable_intr(void);								// 关闭中断
+void enable_intr(void);						// 开启中断
+void disable_intr(void);					// 关闭中断
 
 #endif // INCLUDE_COMMON_H_

@@ -16,7 +16,7 @@
 
 extern fifo_t keyfifo, decoded_key;
 
-void init_keyboard(void);							// 键盘初始化函数
+void init_keyboard(void); // 键盘初始化函数
 
 #define NR_SCAN_CODES	0x80
 #define MAP_COLS		3
@@ -83,7 +83,7 @@ void init_keyboard(void);							// 键盘初始化函数
 #define SLEEP			(0x2A + FLAG_EXT)
 #define WAKE			(0x2B + FLAG_EXT)
 
-#define PAD_SLASH		(0x2C + FLAG_EXT)		// 小键盘
+#define PAD_SLASH		(0x2C + FLAG_EXT) // 小键盘
 #define PAD_STAR 		(0x2D + FLAG_EXT)
 #define PAD_MINUS		(0x2E + FLAG_EXT)
 #define PAD_PLUS		(0x2F + FLAG_EXT)
