@@ -40,9 +40,14 @@ void kernel_init(void)
 	init_timer(1);		// 初始化定时器
 	init_pit();			// 初始化PIT
 
+	enable_intr();		// 开启中断
+
+	system_beep(1000);	// 初始化完毕后蜂鸣
+	sleep(10);
+	system_beep(0);
+
 	console_write_newline();	// 打印一个空行，和上面的信息保持隔离
 	print_cpu_id();				// 打印当前CPU的信息
 
-	enable_intr();
-	shell();
+	shell(); // 进入简易的shell程序方便调试
 }
