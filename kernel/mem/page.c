@@ -150,19 +150,18 @@ void page_fault(pt_regs *regs)
 	int reserved = regs->err_code & 0x8;		// 写入CPU保留位
 	int id = regs->err_code & 0x10;				// 由取指引起
 
-	printk("[ERROR]: Page fault |");
+	print_erro("Page fault! ");
 	if (present) {
-		printk("Type: present;\n\taddress: %x  \n", faulting_address);
+		printk("Type: present Address: %x", faulting_address);
 	} else if (rw) {
-		printk("Type: read-only;\n\taddress: %x", faulting_address);
+		printk("Type: read-only Address: %x", faulting_address);
 	} else if (us) {
-		printk("Type: user-mode;\n\taddres: %x", faulting_address);
+		printk("Type: user-mode Addres: %x", faulting_address);
 	} else if (reserved) {
-		printk("Type: reserved;\n\taddress: %x", faulting_address);
+		printk("Type: reserved Address: %x", faulting_address);
 	} else if (id) {
-		printk("Type: decode address;\n\taddress: %x\n", faulting_address);
+		printk("Type: decode address Address: %x", faulting_address);
 	}
-	printk(" ======= Kernel Error ======= \n");
 	while (1) asm("hlt");
 }
 
