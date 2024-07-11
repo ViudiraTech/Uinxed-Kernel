@@ -34,6 +34,7 @@ void kernel_init(void)
 	init_keyboard();	// 初始化键盘驱动
 	init_page();		// 初始化内存分页
 	init_pci();			// 初始化PCI设备
+	block_init();		// 初始化块设备
 
 	init_timer(1);		// 初始化定时器
 	init_pit();			// 初始化PIT

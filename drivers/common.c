@@ -53,6 +53,26 @@ inline uint32_t inl(uint16_t port)
 	return ret;
 }
 
+inline void insl(uint32_t port, void *addr, int cnt)
+{
+	asm volatile (
+                  "cld;"
+                  "repne; insl;"
+                  : "=D" (addr), "=c" (cnt)
+                  : "d" (port), "0" (addr), "1" (cnt)
+                  : "memory", "cc");
+}
+
+inline void outsl(uint32_t port, const void *addr, int cnt)
+{
+	asm volatile (
+                  "cld;"
+                  "repne; outsl;"
+                  : "=S" (addr), "=c" (cnt)
+                  : "d" (port), "0" (addr), "1" (cnt)
+                  : "memory", "cc");
+}
+
 /* 开启中断 */
 void enable_intr(void)
 {
