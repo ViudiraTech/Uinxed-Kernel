@@ -87,10 +87,13 @@ static void readline(char *buf, int cnt, int prompt_len)
 
 void shell_help(int argc, char *argv)
 {
-	printk("Help list:\n");
-	printk("clear -- Clean the screen\n");
-	printk("help -- Show help information\n");
-	printk("cpuid -- Get CPU information\n\n");
+	printk("+---------+------------------------------+\n"
+           "| Command |   Command description        |\n"
+           "+---------+------------------------------+\n"
+           "|  help   |  Display this help tip.      |\n"
+           "|  clear  |  Clear the screen.           |\n"
+           "|  cpuid  |  Lists the CPU information.  |\n"
+           "+---------+------------------------------+\n\n");
 	return;
 }
 

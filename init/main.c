@@ -31,9 +31,10 @@ void kernel_init(void)
 
 	init_gdt();			// 初始化gdt
 	init_idt();			// 初始化idt
-	init_keyboard();	// 初始化键盘驱动
 	init_page();		// 初始化内存分页
 	init_pci();			// 初始化PCI设备
+	init_serial();		// 初始化计算机串口
+	init_keyboard();	// 初始化键盘驱动
 	block_init();		// 初始化块设备
 
 	init_timer(1);		// 初始化定时器
