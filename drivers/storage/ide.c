@@ -16,6 +16,20 @@
 #include "debug.h"
 #include "ide.h"
 
+/* IDE 设备结构 */
+block_t ide_main_dev = {
+	.name = "IDE_MAIN",
+	.block_size = SECTSIZE,
+	.ops = {
+		.init = &ide_init,
+		.device_valid = &ide_device_valid,
+		.get_desc = &ide_get_desc,
+		.get_nr_block = &ide_get_nr_block,
+		.request = &ide_request,
+		.ioctl = ide_ioctl
+	}
+};
+
 /* 等待IDE设备可用 */
 int32_t ide_wait_ready(uint16_t iobase, bool check_error)
 {

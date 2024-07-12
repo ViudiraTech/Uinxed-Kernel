@@ -12,7 +12,7 @@
 #ifndef INCLUDE_IDE_H_
 #define INCLUDE_IDE_H_
 
-#define SECTSIZE  512 // 默认扇区大小
+#define SECTSIZE 512 // 默认扇区大小
 
 /*
  * bit 7 = 1  控制器忙		* bit 6 = 1  驱动器就绪
@@ -91,19 +91,5 @@ static struct ide_device {
 	uint32_t size;						// 扇区数量
 	char desc[IDE_DESC_LEN+1];			// IDE设备描述
 } ide_device;
-
-/* IDE 设备结构 */
-block_t ide_main_dev = {
-	.name = "IDE_MAIN",
-	.block_size = SECTSIZE,
-	.ops = {
-		.init = &ide_init,
-		.device_valid = &ide_device_valid,
-		.get_desc = &ide_get_desc,
-		.get_nr_block = &ide_get_nr_block,
-		.request = &ide_request,
-		.ioctl = ide_ioctl
-	}
-};
 
 #endif // INCLUDE_IDE_H_
