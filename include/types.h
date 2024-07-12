@@ -22,8 +22,8 @@ extern "C" {
 
 #ifndef __cplusplus
 #	define bool		_Bool
-#	define true		((bool)1)
-#	define false	((bool)0)
+#	define true		1
+#	define false	0
 #endif
 
 #undef INT8_MIN

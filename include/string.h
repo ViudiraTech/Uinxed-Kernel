@@ -26,6 +26,9 @@ void memset(void *dest, uint8_t val, uint32_t len);
 /* 将目标内存区域的前len个字节设置为0 */
 void bzero(void *dest, uint32_t len);
 
+/* 清除一个字符数组s的内存 */
+void memclean(char *s, int len);
+
 /* 比较两个字符串 */
 int strcmp(const char *str1, const char *str2);
 
@@ -40,5 +43,17 @@ char *strcat(char *dest, const char *src);
 
 /* 返回字符串src的长度 */
 int strlen(const char *src);
+
+/* 删除字符串中指定位置的字符 */
+void delete_char(char *str, int pos);
+
+/* 在字符串的指定位置插入一个字符 */
+void insert_char(char *str, int pos, char ch);
+
+/* 在字符串的指定位置插入另一个字符串 */
+void insert_str(char *str, char *insert_str, int pos);
+
+/* 将字符串中的所有小写字母转换为大写字母 */
+void strtoupper(char *str);
 
 #endif // INCLUDE_STRING_H_

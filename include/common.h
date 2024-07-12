@@ -23,7 +23,10 @@ uint8_t inb(uint16_t port);					// 端口读（8位）
 uint16_t inw(uint16_t port);				// 端口读（16位）
 uint32_t inl(uint16_t port);				// 端口读（32位）
 
+/* 从I/O端口批量地读取数据到内存 */
 void insl(uint32_t port, void *addr, int cnt);
+
+/* 从内存批量地写入数据到I/O端口 */
 void outsl(uint32_t port, const void *addr, int cnt);
 
 void enable_intr(void);						// 开启中断

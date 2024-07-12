@@ -53,6 +53,7 @@ inline uint32_t inl(uint16_t port)
 	return ret;
 }
 
+/* 从I/O端口批量地读取数据到内存 */
 inline void insl(uint32_t port, void *addr, int cnt)
 {
 	asm volatile("cld;"
@@ -62,6 +63,7 @@ inline void insl(uint32_t port, void *addr, int cnt)
                  : "memory", "cc");
 }
 
+/* 从内存批量地写入数据到I/O端口 */
 inline void outsl(uint32_t port, const void *addr, int cnt)
 {
 	asm volatile("cld;"

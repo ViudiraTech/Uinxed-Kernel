@@ -55,6 +55,16 @@ inline void bzero(void *dest, uint32_t len)
 	memset(dest, 0, len);
 }
 
+/* 清除一个字符数组s的内存 */
+void memclean(char *s, int len)
+{
+    int i;
+    for (i = 0; i != len; i++) {
+        s[i] = 0;
+    }
+    return;
+}
+
 /* 比较两个字符串 */
 inline int strcmp(const char *dest, const char *src)
 {
@@ -124,4 +134,42 @@ inline int strlen(const char *src)
 
 	while (*eos++);
 	return (eos - src - 1);
+}
+
+/* 删除字符串中指定位置的字符 */
+void delete_char(char *str, int pos)
+{
+    int i;
+    for (i = pos; i < strlen(str); i++) {
+        str[i] = str[i + 1];
+    }
+}
+
+/* 在字符串的指定位置插入一个字符 */
+void insert_char(char *str, int pos, char ch)
+{
+    int i;
+    for (i = strlen(str); i >= pos; i--) {
+        str[i + 1] = str[i];
+    }
+    str[pos] = ch;
+}
+
+/* 在字符串的指定位置插入另一个字符串 */
+void insert_str(char *str, char *insert_str, int pos)
+{
+    for (int i = 0; i < strlen(insert_str); i++) {
+        insert_char(str, pos + i, insert_str[i]);
+    }
+}
+
+/* 将字符串中的所有小写字母转换为大写字母 */
+void strtoupper(char *str)
+{
+    while (*str != '\0') {
+        if (*str >= 'a' && *str <= 'z') {
+            *str -= 32;
+        }
+        str++;
+    }
 }

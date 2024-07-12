@@ -36,6 +36,7 @@ void kernel_init(void)
 	init_serial();		// 初始化计算机串口
 	init_keyboard();	// 初始化键盘驱动
 	block_init();		// 初始化块设备
+	init_vfs();			// 初始化虚拟文件系统
 
 	init_timer(1);		// 初始化定时器
 	init_pit();			// 初始化PIT
