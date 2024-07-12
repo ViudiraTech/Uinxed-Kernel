@@ -137,8 +137,8 @@ void init_idt(void)
 
 	bzero((uint8_t *)&interrupt_handlers, sizeof(interrupt_handler_t) * 256);
 
-	idt_ptr.limit = sizeof(idt_entry_t) * 256 - 1;
-	idt_ptr.base  = (uint32_t)&idt_entries;
+	idt_ptr.limit	= sizeof(idt_entry_t) * 256 - 1;
+	idt_ptr.base	= (uint32_t)&idt_entries;
 
 	bzero((uint8_t *)&idt_entries, sizeof(idt_entry_t) * 256);
 

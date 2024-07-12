@@ -18,6 +18,7 @@ extern uint32_t end;
 static uint32_t placement_address = (uint32_t) &end;
 void *program_break, *program_break_end;
 
+/* 分配内存，同时返回物理地址 */
 uint32_t kmalloc_i_ap(uint32_t size, uint32_t *phys)
 {
 	if ((placement_address & 0x00000FFF)) {
@@ -31,6 +32,7 @@ uint32_t kmalloc_i_ap(uint32_t size, uint32_t *phys)
 	return tmp;
 }
 
+/* 分配内存并可选择对齐和返回物理地址 */
 static uint32_t kmalloc_int(size_t sz, uint32_t align, uint32_t *phys)
 {
 	if (program_break) {
@@ -47,33 +49,38 @@ static uint32_t kmalloc_int(size_t sz, uint32_t align, uint32_t *phys)
 		placement_address &= 0xFFFFF000;
 		placement_address += 0x1000;
 	}
-	if (phys) *phys = placement_address;
-	uint32_t tmp = placement_address;
+	if (phys) *phys	= placement_address;
+	uint32_t tmp	= placement_address;
 	placement_address += sz;
 
 	return tmp;
 }
 
+/* 分配对齐的内存 */
 uint32_t kmalloc_a(uint32_t size)
 {
 	return kmalloc_int(size, 1, 0);
 }
 
+/* 分配内存并返回物理地址 */
 uint32_t kmalloc_p(uint32_t size, uint32_t *phys)
 {
 	return kmalloc_int(size, 0, phys);
 }
 
+/* 分配对齐的内存并返回物理地址 */
 uint32_t kmalloc_ap(uint32_t size, uint32_t *phys)
 {
 	return kmalloc_int(size, 1, phys);
 }
 
+/* 分配内存，不返回物理地址 */
 uint32_t kmalloc(uint32_t size)
 {
 	return kmalloc_int(size, 0, 0);
 }
 
+/* 改变进程的堆栈大小 */
 void *ksbrk(int incr)
 {
 	if (program_break == 0 || program_break + incr >= program_break_end) return (void *) -1;
@@ -94,6 +101,7 @@ static header_t *get_free_block(size_t size)
 	return NULL;
 }
 
+/* 尝试在现有的内存块中找到足够大的空闲块 */
 void *alloc(size_t size)
 {
 	uint32_t total_size;
@@ -112,12 +120,13 @@ void *alloc(size_t size)
 	header->s.size = size;
 	header->s.is_free = 0;
 	header->s.next = NULL;
-	if (!head) head = header;
-	if (tail) tail->s.next = header;
+	if (!head)	head = header;
+	if (tail)	tail->s.next = header;
 	tail = header;
 	return (void *) (header + 1);
 }
 
+/* 将内存块标记为空闲并尝试将其与相邻的空闲块合并 */
 void kfree(void *block)
 {
 	header_t *header, *tmp;

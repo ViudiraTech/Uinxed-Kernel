@@ -12,7 +12,8 @@
 #include "string.h"
 #include "types.h"
 
-int memcmp(const void* buffer1,const void* buffer2,size_t  count)
+/* 比较两个内存区域的前count个字节 */
+int memcmp(const void* buffer1,const void* buffer2,size_t count)
 {
 	if(!count) {
 		return 0;
@@ -28,6 +29,7 @@ int memcmp(const void* buffer1,const void* buffer2,size_t  count)
 	return( *((uint8_t *)buffer1) - *((uint8_t *)buffer2) );    
 }
 
+/* 将len个字节从源地址复制到目标地址 */
 inline void memcpy(uint8_t *dest, const uint8_t *src, uint32_t len)
 {
 	uint8_t *sr = src;
@@ -39,6 +41,7 @@ inline void memcpy(uint8_t *dest, const uint8_t *src, uint32_t len)
 	}
 }
 
+/* 将目标内存区域的前len个字节设置为值val */
 inline void memset(void *dest, uint8_t val, uint32_t len)
 {
 	for (uint8_t *dst = (uint8_t *)dest; len != 0; len--) {
@@ -46,11 +49,13 @@ inline void memset(void *dest, uint8_t val, uint32_t len)
 	}
 }
 
+/* 将目标内存区域的前len个字节设置为0 */
 inline void bzero(void *dest, uint32_t len)
 {
 	memset(dest, 0, len);
 }
 
+/* 比较两个字符串 */
 inline int strcmp(const char *dest, const char *src)
 {
 	int ret = 0 ;
@@ -70,6 +75,7 @@ inline int strcmp(const char *dest, const char *src)
 	return ret;
 }
 
+/* 将字符串src复制到dest */
 inline char *strcpy(char *dest, const char *src)
 {
 	char *tmp = dest;
@@ -82,6 +88,7 @@ inline char *strcpy(char *dest, const char *src)
 	return tmp;
 }
 
+/* 将字符串的前len个字符复制到dest */
 char *strncpy(char *dest, const char *src, uint32_t len)
 {
 	char *dst = dest;
@@ -97,6 +104,7 @@ char *strncpy(char *dest, const char *src, uint32_t len)
 	return dst;
 }
 
+/* 将字符串src连接到dest的末尾 */
 inline char *strcat(char *dest, const char *src)
 {
 	char *cp = dest;
@@ -109,6 +117,7 @@ inline char *strcat(char *dest, const char *src)
 	return dest;
 }
 
+/* 返回字符串src的长度 */
 inline int strlen(const char *src)
 {
 	const char *eos = src;

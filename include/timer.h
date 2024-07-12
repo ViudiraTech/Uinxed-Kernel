@@ -32,14 +32,31 @@ struct TIMERCTL {
 	struct TIMER timers0[MAX_TIMER];
 };
 
+/* 根据传入的定时器频率初始化定时器 */
 void init_timer(uint32_t timer);
+
+/* 释放指定的定时器 */
 void timer_free(struct TIMER *timer);
+
+/* 初始化定时器 */
 void timer_init(struct TIMER *timer, struct FIFO8 *fifo, unsigned char data);
+
+/* 设置定时器的超时时间 */
 void timer_settime(struct TIMER *timer, unsigned int timeout);
+
+/* 实现sleep函数的内部逻辑 */
 void clock_sleep(uint32_t timer);
+
+/* 使当前进程休眠指定的时间 */
 void sleep(uint32_t timer);
+
+/* 分配一个定时器结构体 */
 struct TIMER *timer_alloc(void);
+
+/* 获取当前时间戳 */
 unsigned int time(void);
+
+/* 初始化可编程间隔定时器 */
 void init_pit(void);
 
 #endif // INCLUDE_TIMER_H_

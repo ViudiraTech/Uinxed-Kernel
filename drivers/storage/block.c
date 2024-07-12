@@ -37,7 +37,7 @@ void block_init(void)
 
 	print_succ("Found IDE Driver:");
 	printk(" %u(sectors) Desc: %s\n",
-	       ide_dev->ops.get_nr_block(), ide_dev->ops.get_desc());
+            ide_dev->ops.get_nr_block(), ide_dev->ops.get_desc());
 
 	if (read_mbr_info(ide_dev) != 0) {
 		print_erro("Read MBR Info Error!\n");

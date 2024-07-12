@@ -53,16 +53,37 @@ struct pci_config_space_public {
     unsigned char	MaxLatency;
 };
 
-uint32_t pci_read_command_status(uint8_t bus, uint8_t slot, uint8_t func);
-void PCI_GET_DEVICE(uint16_t vendor_id, uint16_t device_id, uint8_t* bus, uint8_t* slot, uint8_t* func);
-uint32_t pci_get_port_base(uint8_t bus, uint8_t slot, uint8_t func);
+/* 获取PCI设备的中断号 */
 uint8_t pci_get_drive_irq(uint8_t bus, uint8_t slot, uint8_t func);
-void pci_write_command_status(uint8_t bus, uint8_t slot, uint8_t func, uint32_t value);
-void write_pci(uint8_t bus, uint8_t device, uint8_t function, uint8_t registeroffset, uint32_t value);
+
+/* 获取PCI设备的I/O端口基地址 */
+uint32_t pci_get_port_base(uint8_t bus, uint8_t slot, uint8_t func);
+
+/* 根据供应商ID和设备ID查找PCI设备 */
+void PCI_GET_DEVICE(uint16_t vendor_id, uint16_t device_id, uint8_t* bus, uint8_t* slot, uint8_t* func);
+
+/* 读取第n个基地址寄存器的值 */
 uint32_t read_bar_n(uint8_t bus, uint8_t device, uint8_t function, uint8_t bar_n);
+
+/* 向PCI设备寄存器写入值 */
+void write_pci(uint8_t bus, uint8_t device, uint8_t function, uint8_t registeroffset, uint32_t value);
+
+/* 读取PCI设备的命令状态寄存器 */
+uint32_t pci_read_command_status(uint8_t bus, uint8_t slot, uint8_t func);
+
+/* 向PCI设备的命令状态寄存器写入值 */
+void pci_write_command_status(uint8_t bus, uint8_t slot, uint8_t func, uint32_t value);
+
+/* 从PCI设备寄存器读取值 */
 uint32_t read_pci(uint8_t bus, uint8_t device, uint8_t function, uint8_t registeroffset);
+
+/* 获取基地址寄存器的详细信息 */
 base_address_register get_base_address_register(uint8_t bus, uint8_t device, uint8_t function, uint8_t bar);
+
+/* 配置PCI设备 */
 void pci_config(unsigned int bus, unsigned int f, unsigned int equipment, unsigned int adder);
+
+/* 初始化PCI设备 */
 void init_pci(void);
 
 #endif // INCLUDE_PCI_H_

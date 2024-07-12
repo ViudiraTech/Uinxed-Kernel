@@ -17,9 +17,10 @@
 #include "string.h"
 #include "cmos.h"
 
-#define MAX_COMMAND_LEN 100
-#define MAX_ARG_NR 30
+#define MAX_COMMAND_LEN	100
+#define MAX_ARG_NR		30
 
+/* 从FIFO中读取一个按键事件 */
 static int read_key_blocking(char *buf)
 {
 	while (fifo_status(&decoded_key) == 0);
@@ -27,6 +28,7 @@ static int read_key_blocking(char *buf)
 	return 0;
 }
 
+/* 解析命令行字符串 */
 static int cmd_parse(uint8_t *cmd_str, uint8_t **argv, uint8_t token) // 用uint8_t是因为" "使用8位整数
 {
 	int arg_idx = 0;
@@ -34,10 +36,10 @@ static int cmd_parse(uint8_t *cmd_str, uint8_t **argv, uint8_t token) // 用uint
 	while (arg_idx < MAX_ARG_NR) {
 		argv[arg_idx] = NULL;
 		arg_idx++;
-	} // end of while
+	}
 
 	uint8_t *next = cmd_str;					// 下一个字符
-	int argc = 0;								// 这就是要返回的argc了
+	int	argc = 0;								// 这就是要返回的argc了
 
 	while (*next) {								// 循环到结束为止
 		while (*next == token) next++;			// 多个token就只保留第一个，windows cmd就是这么处理的
@@ -53,6 +55,7 @@ static int cmd_parse(uint8_t *cmd_str, uint8_t **argv, uint8_t token) // 用uint
 	return argc;
 }
 
+/* 读取一行文本 */
 static void readline(char *buf, int cnt, int prompt_len)
 {
 	char *pos = buf;
@@ -65,7 +68,6 @@ static void readline(char *buf, int cnt, int prompt_len)
 				*pos = 0; // 读完了，好耶！
 				printk("\n");
 				return;
-
 			case '\b':
 				if (buf[0] != '\b') {	// 哥们怎么全删完了
 					--pos;				// 退回上一个字符
@@ -73,7 +75,6 @@ static void readline(char *buf, int cnt, int prompt_len)
 					printk("\b");		// 打印一个退格
 				}
 				break;
-
 			default:
 				/* 其他 */
 				printk("%c", *pos);
@@ -85,6 +86,7 @@ static void readline(char *buf, int cnt, int prompt_len)
 	}
 }
 
+/* help命令 */
 void shell_help(int argc, char *argv)
 {
 	printk("+---------+------------------------------+\n"
@@ -112,6 +114,7 @@ builtin_cmd_t builtin_cmds[] = {
 /* 内建命令数量 */
 const static int builtin_cmd_num = sizeof(builtin_cmds) / sizeof(builtin_cmd_t);
 
+/* 在预定义的命令数组中查找给定的命令字符串 */
 int find_cmd(char *cmd)
 {
 	for (int i = 0; i < builtin_cmd_num; ++i)
@@ -123,6 +126,7 @@ int find_cmd(char *cmd)
 	return -1;
 }
 
+/* shell主程序 */
 void shell(void)
 {
 	printk("Basic shell program v1.0\n");

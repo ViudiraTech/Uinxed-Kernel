@@ -13,12 +13,12 @@
 
 void fifo_init(fifo_t *fifo, int size, uint32_t *buf)
 {
-	fifo->size = size;
-	fifo->buf = buf;
-	fifo->free = size;
-	fifo->flags = 0;
-	fifo->p = 0;
-	fifo->q = 0;
+	fifo->size	= size;
+	fifo->buf	= buf;
+	fifo->free	= size;
+	fifo->flags	= 0;
+	fifo->p		= 0;
+	fifo->q		= 0;
 }
 
 int fifo_put(fifo_t *fifo, uint32_t data)

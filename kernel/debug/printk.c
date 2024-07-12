@@ -16,6 +16,7 @@
 
 static int vsprintf(char *buff, const char *format, va_list args);
 
+/* 打印带有”[ ** ]“的字符串 */
 void print_busy(char *str)
 {
 	printk_color(rc_black, rc_white, "[");
@@ -24,6 +25,7 @@ void print_busy(char *str)
 	printk("%s", str);
 }
 
+/* 打印带有”[ OK ]“的字符串 */
 void print_succ(char *str)
 {
 	printk_color(rc_black, rc_white, "[");
@@ -32,6 +34,7 @@ void print_succ(char *str)
 	printk("%s", str);
 }
 
+/* 打印带有”[ WARN ]“的字符串 */
 void print_warn(char *str)
 {
 	printk_color(rc_black, rc_white, "[");
@@ -40,6 +43,7 @@ void print_warn(char *str)
 	printk("%s", str);
 }
 
+/* 打印带有”[ ERRO ]“的字符串 */
 void print_erro(char *str)
 {
 	printk_color(rc_black, rc_white, "[");
@@ -48,7 +52,7 @@ void print_erro(char *str)
 	printk("%s", str);
 }
 
-
+/* 内核打印字符串 */
 void printk(const char *format, ...)
 {
 	/* 避免频繁创建临时变量，内核的栈很宝贵 */
@@ -65,6 +69,7 @@ void printk(const char *format, ...)
 	console_write(buff);
 }
 
+/* 内核打印带颜色的字符串 */
 void printk_color(real_color_t back, real_color_t fore, const char *format, ...)
 {
 	/* 避免频繁创建临时变量，内核的栈很宝贵 */
@@ -83,6 +88,7 @@ void printk_color(real_color_t back, real_color_t fore, const char *format, ...)
 
 #define is_digit(c)	((c) >= '0' && (c) <= '9')
 
+/* 跳过字符串中的数字并将这些连续数字的值返回 */
 static int skip_atoi(const char **s)
 {
 	int i = 0;
@@ -107,6 +113,7 @@ static int skip_atoi(const char **s)
 		__asm__("divl %4":"=a" (n),"=d" (__res):"0" (n),"1" (0),"r" (base)); \
 		__res; })
 
+/* 将整数格式化为字符串 */
 static char *number(char *str, int num, int base, int size, int precision, int type)
 {
 	char c, sign, tmp[36];
@@ -190,6 +197,7 @@ static char *number(char *str, int num, int base, int size, int precision, int t
 	return str;
 }
 
+/* 格式化字符串并将其输出到一个字符数组中 */
 static int vsprintf(char *buff, const char *format, va_list args)
 {
 	int len;

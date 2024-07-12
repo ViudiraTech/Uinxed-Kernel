@@ -16,11 +16,13 @@
 
 unsigned int PCI_ADDR_BASE;
 
+/* 获取PCI设备的中断号 */
 uint8_t pci_get_drive_irq(uint8_t bus, uint8_t slot, uint8_t func)
 {
 	return (uint8_t)read_pci(bus, slot, func, 0x3c);
 }
 
+/* 获取PCI设备的I/O端口基地址 */
 uint32_t pci_get_port_base(uint8_t bus, uint8_t slot, uint8_t func)
 {
 	uint32_t io_port = 0;
@@ -33,6 +35,7 @@ uint32_t pci_get_port_base(uint8_t bus, uint8_t slot, uint8_t func)
 	return io_port;
 }
 
+/* 根据供应商ID和设备ID查找PCI设备 */
 void PCI_GET_DEVICE(uint16_t vendor_id, uint16_t device_id, uint8_t* bus, uint8_t* slot, uint8_t* func)
 {
 	unsigned char* pci_drive = PCI_ADDR_BASE;
@@ -53,39 +56,45 @@ void PCI_GET_DEVICE(uint16_t vendor_id, uint16_t device_id, uint8_t* bus, uint8_
 	}
 }
 
+/* 读取第n个基地址寄存器的值 */
 uint32_t read_bar_n(uint8_t bus, uint8_t device, uint8_t function, uint8_t bar_n)
 {
 	uint32_t bar_offset = 0x10 + 4 * bar_n;
 	return read_pci(bus, device, function, bar_offset);
 }
 
+/* 向PCI设备寄存器写入值 */
 void write_pci(uint8_t bus, uint8_t device, uint8_t function, uint8_t registeroffset, uint32_t value)
 {
 	uint32_t id = 1 << 31 | ((bus & 0xff) << 16) | ((device & 0x1f) << 11) |
-             ((function & 0x07) << 8) | (registeroffset & 0xfc);
+                        ((function & 0x07) << 8) | (registeroffset & 0xfc);
 	outl(PCI_COMMAND_PORT, id);
 	outl(PCI_DATA_PORT, value);
 }
 
+/* 读取PCI设备的命令状态寄存器 */
 uint32_t pci_read_command_status(uint8_t bus, uint8_t slot, uint8_t func)
 {
 	return read_pci(bus, slot, func, 0x04);
 }
 
+/* 向PCI设备的命令状态寄存器写入值 */
 void pci_write_command_status(uint8_t bus, uint8_t slot, uint8_t func, uint32_t value)
 {
 	write_pci(bus, slot, func, 0x04, value);
 }
 
+/* 从PCI设备寄存器读取值 */
 uint32_t read_pci(uint8_t bus, uint8_t device, uint8_t function, uint8_t registeroffset)
 {
 	uint32_t id = 1 << 31 | ((bus & 0xff) << 16) | ((device & 0x1f) << 11) |
-             ((function & 0x07) << 8) | (registeroffset & 0xfc);
+                        ((function & 0x07) << 8) | (registeroffset & 0xfc);
 	outl(PCI_COMMAND_PORT, id);
 	uint32_t result = inl(PCI_DATA_PORT);
 	return result >> (8 * (registeroffset % 4));
 }
 
+/* 获取基地址寄存器的详细信息 */
 base_address_register get_base_address_register(uint8_t bus, uint8_t device, uint8_t function, uint8_t bar)
 {
 	base_address_register result;
@@ -114,14 +123,16 @@ base_address_register get_base_address_register(uint8_t bus, uint8_t device, uin
 	return result;
 }
 
+/* 配置PCI设备 */
 void pci_config(unsigned int bus, unsigned int f, unsigned int equipment, unsigned int adder)
 {
 	unsigned int cmd = 0;
 	cmd = 0x80000000 + (unsigned int)adder + ((unsigned int)f << 8) +
-          ((unsigned int)equipment << 11) + ((unsigned int)bus << 16);
+           ((unsigned int)equipment << 11) + ((unsigned int)bus << 16);
 	outl(PCI_COMMAND_PORT, cmd);
 }
 
+/* 初始化PCI设备 */
 void init_pci(void)
 {
 	print_busy("Initializing PCI device...\r"); // 提示用户正在初始化PCI设备，并回到行首等待覆盖
@@ -158,8 +169,7 @@ void init_pci(void)
 							PCI_DATA1 = PCI_DATA1 + 4;
 						}
 						for (uint8_t barNum = 0; barNum < 6; barNum++) {
-							base_address_register bar =
-                                                        get_base_address_register(BUS, Equipment, F, barNum);
+							base_address_register bar = get_base_address_register(BUS, Equipment, F, barNum);
 							if (bar.address && (bar.type == input_output)) {
 								PCI_DATA1 += 4;
 								int i = ((uint32_t)(bar.address));

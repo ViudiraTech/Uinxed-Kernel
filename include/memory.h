@@ -53,16 +53,34 @@ typedef union header {
 	ALIGN stub;
 } header_t;
 
+/* 初始化内存分页 */
 void init_page(void);
+
+/* 获取给定虚拟地址对应的页表项 */
 page_t *get_page(uint32_t address, int make, page_directory_t *dir);
 
+/* 将内存块标记为空闲并尝试将其与相邻的空闲块合并 */
 void kfree(void *block);
+
+/* 分配内存，同时返回物理地址 */
 uint32_t kmalloc_i_ap(uint32_t size, uint32_t *phys); // 该malloc的内存不可回收, 谨慎使用
+
+/* 分配对齐的内存 */
 uint32_t kmalloc_a(uint32_t size);
+
+/* 分配内存并返回物理地址 */
 uint32_t kmalloc_p(uint32_t size, uint32_t *phys);
+
+/* 分配对齐的内存并返回物理地址 */
 uint32_t kmalloc_ap(uint32_t size, uint32_t *phys);
+
+/* 分配内存，不返回物理地址 */
 uint32_t kmalloc(uint32_t size);
+
+/* 改变进程的堆栈大小 */
 void *ksbrk(int incr);
+
+/* 尝试在现有的内存块中找到足够大的空闲块 */
 void *alloc(size_t size);
 
 #endif

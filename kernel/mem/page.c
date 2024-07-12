@@ -14,8 +14,8 @@
 #include "printk.h"
 #include "idt.h"
 
-page_directory_t *kernel_directory = 0;		// 内核用页目录
-page_directory_t *current_directory = 0;	// 当前页目录
+page_directory_t *kernel_directory	= 0;	// 内核用页目录
+page_directory_t *current_directory	= 0;	// 当前页目录
 
 uint32_t *frames;
 uint32_t nframes;
@@ -23,30 +23,34 @@ uint32_t nframes;
 extern uint32_t placement_address;
 extern void *program_break, *program_break_end;
 
+/* 标记一个帧为已使用 */
 static void set_frame(uint32_t frame_addr)
 {
-	uint32_t frame = frame_addr / 0x1000;
-	uint32_t idx = INDEX_FROM_BIT(frame);
-	uint32_t off = OFFSET_FROM_BIT(frame);
+	uint32_t frame	= frame_addr / 0x1000;
+	uint32_t idx	= INDEX_FROM_BIT(frame);
+	uint32_t off	= OFFSET_FROM_BIT(frame);
 	frames[idx] |= (0x1 << off);
 }
 
+/* 将一个帧标记为未使用状态 */
 static void clear_frame(uint32_t frame_addr)
 {
-	uint32_t frame = frame_addr / 0x1000;
-	uint32_t idx = INDEX_FROM_BIT(frame);
-	uint32_t off = OFFSET_FROM_BIT(frame);
+	uint32_t frame	= frame_addr / 0x1000;
+	uint32_t idx	= INDEX_FROM_BIT(frame);
+	uint32_t off	= OFFSET_FROM_BIT(frame);
 	frames[idx] &= ~(0x1 << off);
 }
 
+/* 将帧位图中对应帧的位清除为0 */
 static uint32_t test_frame(uint32_t frame_addr)
 {
-	uint32_t frame = frame_addr / 0x1000;
-	uint32_t idx = INDEX_FROM_BIT(frame);
-	uint32_t off = OFFSET_FROM_BIT(frame);
+	uint32_t frame	= frame_addr / 0x1000;
+	uint32_t idx	= INDEX_FROM_BIT(frame);
+	uint32_t off	= OFFSET_FROM_BIT(frame);
 	return (frames[idx] & (0x1 << off));
 }
 
+/* 清除帧位图中的特定位 */
 uint32_t first_frame(void)
 {
 	for (int i = 0; i < INDEX_FROM_BIT(nframes); i++) {
@@ -62,6 +66,7 @@ uint32_t first_frame(void)
 	return (uint32_t) - 1;
 }
 
+/* 分配一个帧给一个页表项 */
 void alloc_frame(page_t *page, int is_kernel, int is_writable)
 {
 	if (page->frame) return;
@@ -72,24 +77,25 @@ void alloc_frame(page_t *page, int is_kernel, int is_writable)
 			asm("cli");
 			for (;;)asm("hlt");
 		}
-
 		set_frame(idx * 0x1000);
-		page->present = 1;				// 现在这个页存在了
-		page->rw = is_writable ? 1 : 0; // 是否可写由is_writable决定
-		page->user = is_kernel ? 0 : 1; // 是否为用户态由is_kernel决定
-		page->frame = idx;
+		page->present	= 1;					// 现在这个页存在了
+		page->rw		= is_writable ? 1 : 0;	// 是否可写由is_writable决定
+		page->user		= is_kernel ? 0 : 1;	// 是否为用户态由is_kernel决定
+		page->frame		= idx;
 	}
 }
 
+/* 手动分配特定帧给页表项 */
 void alloc_frame_line(page_t *page, unsigned line,int is_kernel, int is_writable)
 {
 	set_frame(line);
-	page->present = 1;				// 现在这个页存在了
-	page->rw = is_writable ? 1 : 0; // 是否可写由is_writable决定
-	page->user = is_kernel ? 0 : 1; // 是否为用户态由is_kernel决定
-	page->frame = line / 0x1000;
+	page->present	= 1;						// 现在这个页存在了
+	page->rw		= is_writable ? 1 : 0;		// 是否可写由is_writable决定
+	page->user		= is_kernel ? 0 : 1;		// 是否为用户态由is_kernel决定
+	page->frame		= line / 0x1000;
 }
 
+/* 释放页表项所占用的帧 */
 void free_frame(page_t *page)
 {
 	uint32_t frame = page->frame;
@@ -100,18 +106,21 @@ void free_frame(page_t *page)
 	}
 }
 
+/* 刷新当前CPU的TLB并更新当前正在使用的页目录 */
 void page_flush(page_directory_t *dir)
 {
 	asm volatile("invlpg (%0)" ::"r"(&dir->tablesPhysical));
 	current_directory = dir;
 }
 
+/* 切换当前进程的页目录 */
 void page_switch(page_directory_t *dir)
 {
 	current_directory = dir;
 	asm volatile("mov %0, %%cr3" : : "r"(&dir->tablesPhysical));
 }
 
+/* 切换当前进程的页目录 */
 void switch_page_directory(page_directory_t *dir)
 {
 	current_directory = dir;
@@ -123,6 +132,7 @@ void switch_page_directory(page_directory_t *dir)
 	asm volatile("mov %0, %%cr0" : : "r"(cr0));
 }
 
+/* 获取给定虚拟地址对应的页表项 */
 page_t *get_page(uint32_t address, int make, page_directory_t *dir)
 {
 
@@ -138,6 +148,7 @@ page_t *get_page(uint32_t address, int make, page_directory_t *dir)
 	} else return 0;
 }
 
+/* 页错误处理 */
 void page_fault(pt_regs *regs)
 {
 	asm("cli");
@@ -165,6 +176,7 @@ void page_fault(pt_regs *regs)
 	while (1) asm("hlt");
 }
 
+/* 克隆一个页面表 */
 static page_table_t *clone_table(page_table_t *src, uint32_t *physAddr)
 {
 	page_table_t *table = (page_table_t *) kmalloc_ap(sizeof(page_table_t), physAddr);
@@ -175,16 +187,17 @@ static page_table_t *clone_table(page_table_t *src, uint32_t *physAddr)
 		if (!src->pages[i].frame)
 			continue;
 		alloc_frame(&table->pages[i], 0, 0);
-		if (src->pages[i].present) table->pages[i].present = 1;
-		if (src->pages[i].rw) table->pages[i].rw = 1;
-		if (src->pages[i].user) table->pages[i].user = 1;
-		if (src->pages[i].accessed)table->pages[i].accessed = 1;
-		if (src->pages[i].dirty) table->pages[i].dirty = 1;
+		if (src->pages[i].present)	table->pages[i].present = 1;
+		if (src->pages[i].rw)		table->pages[i].rw = 1;
+		if (src->pages[i].user)		table->pages[i].user = 1;
+		if (src->pages[i].accessed)	table->pages[i].accessed = 1;
+		if (src->pages[i].dirty)	table->pages[i].dirty = 1;
 		copy_page_physical(src->pages[i].frame * 0x1000, table->pages[i].frame * 0x1000);
 	}
 	return table;
 }
 
+/* 克隆页目录 */
 page_directory_t *clone_directory(page_directory_t *src)
 {
 	uint32_t phys;
@@ -209,6 +222,7 @@ page_directory_t *clone_directory(page_directory_t *src)
 	return dir;
 }
 
+/* 初始化内存分页 */
 void init_page(void)
 {
 	print_busy("Initializing memory paging...\r"); // 提示用户正在初始化内存分页，并回到行首等待覆盖

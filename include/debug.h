@@ -24,7 +24,7 @@
 /* 初始化 Debug 信息 */
 void init_debug(void);
 
-/* 打印当前的函数调用栈信息 */
+/* 内核恐慌 */
 void panic(const char *msg);
 
 /* 打印当前的段存器值 */

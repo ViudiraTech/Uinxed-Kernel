@@ -21,9 +21,9 @@ extern "C" {
 #endif
 
 #ifndef __cplusplus
-#	define bool  _Bool
-#	define true  ((bool)1)
-#	define false ((bool)0)
+#	define bool		_Bool
+#	define true		((bool)1)
+#	define false	((bool)0)
 #endif
 
 #undef INT8_MIN
@@ -52,39 +52,39 @@ extern "C" {
 #define INT64_MAX	__INT64_MAX__
 #define UINT64_MAX	__UINT64_MAX__
 
-#define I8_MIN	__INT8_MIN__
-#define I8_MAX	__INT8_MAX__
-#define U8_MAX	__UINT8_MAX__
-#define I16_MIN	__INT16_MIN__
-#define I16_MAX	__INT16_MAX__
-#define U16_MAX	__UINT16_MAX__
-#define I32_MIN	__INT32_MIN__
-#define I32_MAX	__INT32_MAX__
-#define U32_MAX	__UINT32_MAX__
-#define I64_MIN	__INT64_MIN__
-#define I64_MAX	__INT64_MAX__
-#define U64_MAX	__UINT64_MAX__
+#define I8_MIN		__INT8_MIN__
+#define I8_MAX		__INT8_MAX__
+#define U8_MAX		__UINT8_MAX__
+#define I16_MIN		__INT16_MIN__
+#define I16_MAX		__INT16_MAX__
+#define U16_MAX		__UINT16_MAX__
+#define I32_MIN		__INT32_MIN__
+#define I32_MAX		__INT32_MAX__
+#define U32_MAX		__UINT32_MAX__
+#define I64_MIN		__INT64_MIN__
+#define I64_MAX		__INT64_MAX__
+#define U64_MAX		__UINT64_MAX__
 
 typedef __INTPTR_TYPE__		intptr_t;
 typedef __UINTPTR_TYPE__	uintptr_t;
 typedef __INTPTR_TYPE__		ssize_t;
 typedef __UINTPTR_TYPE__	size_t;
 
-typedef unsigned char	uchar;
-typedef unsigned short	ushort;
-typedef unsigned int	uint;
-typedef unsigned long	ulong;
+typedef unsigned char		uchar;
+typedef unsigned short		ushort;
+typedef unsigned int		uint;
+typedef unsigned long		ulong;
 
-typedef __INT8_TYPE__	int8_t;
-typedef __UINT8_TYPE__	uint8_t;
-typedef __INT16_TYPE__	int16_t;
-typedef __UINT16_TYPE__	uint16_t;
-typedef __INT32_TYPE__	int32_t;
-typedef __UINT32_TYPE__	uint32_t;
-typedef __INT64_TYPE__	int64_t;
-typedef __UINT64_TYPE__	uint64_t;
-typedef float			float32_t;
-typedef double			float64_t;
+typedef __INT8_TYPE__		int8_t;
+typedef __UINT8_TYPE__		uint8_t;
+typedef __INT16_TYPE__		int16_t;
+typedef __UINT16_TYPE__		uint16_t;
+typedef __INT32_TYPE__		int32_t;
+typedef __UINT32_TYPE__		uint32_t;
+typedef __INT64_TYPE__		int64_t;
+typedef __UINT64_TYPE__		uint64_t;
+typedef float				float32_t;
+typedef double				float64_t;
 
 typedef int8_t		i8;
 typedef uint8_t		u8;

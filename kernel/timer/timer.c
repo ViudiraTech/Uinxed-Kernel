@@ -19,6 +19,7 @@ uint32_t tick = 0;
 extern struct task_struct *current;
 struct TIMERCTL timerctl;
 
+/* 获取当前时间戳 */
 unsigned int time(void)
 {
 	unsigned int t;
@@ -28,6 +29,7 @@ unsigned int time(void)
 	return t;
 }
 
+/* 定时器中断处理函数 */
 static void timer_handle(pt_regs *regs)
 {
 	disable_intr();
@@ -35,11 +37,13 @@ static void timer_handle(pt_regs *regs)
 	enable_intr();
 }
 
+/* 使当前进程休眠指定的时间 */
 void sleep(uint32_t timer)
 {
 	clock_sleep(timer);
 }
 
+/* 实现sleep函数的内部逻辑 */
 void clock_sleep(uint32_t timer)
 {
 	uint32_t sleep = tick + timer;
@@ -49,6 +53,7 @@ void clock_sleep(uint32_t timer)
 	}
 }
 
+/* 初始化可编程间隔定时器 */
 void init_pit(void)
 {
 	outb(0x43, 0x34);
@@ -62,14 +67,15 @@ void init_pit(void)
 		timerctl.timers0[i].flags = 0;	// 没有使用
 	}
 	t = timer_alloc();					// 取得一个
-	t->timeout = 0xffffffff;
-	t->flags = TIMER_FLAGS_USING;
-	t->next = 0;						// 末尾
-	timerctl.t0 = t;					// 因为现在只有哨兵，所以他就在最前面
-	timerctl.next = 0xffffffff;			// 因为只有哨兵，所以下一个超时时刻就是哨兵的时刻
+	t->timeout		= 0xffffffff;
+	t->flags		= TIMER_FLAGS_USING;
+	t->next			= 0;				// 末尾
+	timerctl.t0		= t;				// 因为现在只有哨兵，所以他就在最前面
+	timerctl.next	= 0xffffffff;		// 因为只有哨兵，所以下一个超时时刻就是哨兵的时刻
 	return;
 }
 
+/* 根据传入的定时器频率初始化定时器 */
 void init_timer(uint32_t timer)
 {
 	register_interrupt_handler(IRQ0, &timer_handle);
@@ -84,6 +90,7 @@ void init_timer(uint32_t timer)
 	outb(0x40, h);
 }
 
+/* 分配一个定时器结构体 */
 struct TIMER *timer_alloc(void)
 {
 	int i;
@@ -97,6 +104,7 @@ struct TIMER *timer_alloc(void)
 	return 0; // 没找到
 }
 
+/* 释放指定的定时器 */
 void timer_free(struct TIMER *timer)
 {
 	timer->flags = 0; // 未使用
@@ -104,6 +112,7 @@ void timer_free(struct TIMER *timer)
 	return;
 }
 
+/* 初始化定时器 */
 void timer_init(struct TIMER *timer, struct FIFO8 *fifo, unsigned char data)
 {
 	timer->fifo = fifo;
@@ -111,12 +120,13 @@ void timer_init(struct TIMER *timer, struct FIFO8 *fifo, unsigned char data)
 	return;
 }
 
+/* 设置定时器的超时时间 */
 void timer_settime(struct TIMER *timer, unsigned int timeout)
 {
 	int e;
 	struct TIMER *t, *s;
-	timer->timeout = timeout + timerctl.count;
-	timer->flags = TIMER_FLAGS_USING;
+	timer->timeout	= timeout + timerctl.count;
+	timer->flags	= TIMER_FLAGS_USING;
 	e = io_load_eflags();
 	t = timerctl.t0;
 	if (timer->timeout <= t->timeout) {

@@ -75,12 +75,12 @@ static void cpuid(unsigned int op, unsigned int *eax, unsigned int *ebx, unsigne
 	*eax = op;
 	*ecx = 0;
 	asm volatile("cpuid"
-				: "=a" (*eax),				//输出参数
-				"=b" (*ebx),
-				"=c" (*ecx),
-				"=d" (*edx)
-				: "0" (*eax), "2" (*ecx)	//输入参数
-				: "memory");
+                 : "=a" (*eax),				//输出参数
+                 "=b"	(*ebx),
+                 "=c"	(*ecx),
+                 "=d"	(*edx)
+                 : "0"	(*eax), "2" (*ecx)	//输入参数
+                 : "memory");
 }
 
 /* 获取CPU厂商名称 */
@@ -89,9 +89,9 @@ static void get_vendor_name(cpu_t *c)
 	int cpuid_level;
 	char x86_vendor_id[16] = {0};
 	cpuid(0x00000000, (unsigned int *) &cpuid_level,
-			(unsigned int *) &x86_vendor_id[0],
-			(unsigned int *) &x86_vendor_id[8],
-			(unsigned int *) &x86_vendor_id[4]);
+                      (unsigned int *) &x86_vendor_id[0],
+                      (unsigned int *) &x86_vendor_id[8],
+                      (unsigned int *) &x86_vendor_id[4]);
 	c->vendor = x86_vendor_id;
 }
 
@@ -99,9 +99,9 @@ static void get_vendor_name(cpu_t *c)
 static void get_model_name(cpu_t *c)
 {
 	unsigned int *v = (unsigned int *) c->model_name;
-	cpuid(0x80000002, &v[0], &v[1], &v[2], &v[3]);
-	cpuid(0x80000003, &v[4], &v[5], &v[6], &v[7]);
-	cpuid(0x80000004, &v[8], &v[9], &v[10], &v[11]);
+	cpuid(0x80000002, &v[0], &v[1], &v[2],	&v[3]);
+	cpuid(0x80000003, &v[4], &v[5], &v[6],	&v[7]);
+	cpuid(0x80000004, &v[8], &v[9], &v[10],	&v[11]);
 	c->model_name[48] = 0;
 }
 

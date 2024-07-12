@@ -20,9 +20,7 @@
 int32_t ide_wait_ready(uint16_t iobase, bool check_error)
 {
 	int r = 0;
-	while ((r = inb(iobase + ISA_STATUS)) & IDE_BSY) {
-		// Waiting ... Do nothing ...
-	}
+	while ((r = inb(iobase + ISA_STATUS)) & IDE_BSY) {}
 	if (check_error && (r & (IDE_DF | IDE_ERR)) != 0) {
 		return -1;
 	}
@@ -40,7 +38,12 @@ int ide_init(void)
 {
 	ide_wait_ready(IOBASE, 0);
 
-	/* 1: 选择要操作的设备 */
+	/* 1: 选择要操作的设备
+	 * 0xE0 代表IDE Primary Master	(IDE 0.0)
+	 * 0xF0 代表IDE Primary Slave	(IDE 0.1)
+	 * 0xC0 代表IDE Secondary Master	(IDE 1.0)
+	 * 0xD0 代表IDE Secondary Slave	(IDE 1.1)
+	 */
 	outb(IOBASE + ISA_SDH, 0xE0);
 	ide_wait_ready(IOBASE, 0);
 
@@ -66,8 +69,7 @@ int ide_init(void)
 	/* 检查设备使用48-bits还是28-bits地址 */
 	if (cmdsets & (1 << 26)) {
 		sectors = *(uint32_t *)(ident + IDE_IDENT_MAX_LBA_EXT);
-	}
-	else {
+	} else {
 		sectors = *(uint32_t *)(ident + IDE_IDENT_MAX_LBA);
 	}
 	ide_device.sets = cmdsets;
@@ -81,8 +83,7 @@ int ide_init(void)
 	for (i = 0; i < length; i += 2) {
 		desc[i] = data[i+1];
 		desc[i+1] = data[i];
-	}
-	do {
+	} do {
 		desc[i] = '\0';
 	} while (i-- > 0 && desc[i] == ' ');
 	return 0;

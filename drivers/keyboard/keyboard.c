@@ -79,13 +79,13 @@ void init_keyboard(void)
 	fifo_init(&keyfifo, 32, keybuf);
 	fifo_init(&decoded_key, 32, dkey_buf);
 
-	shift_l = shift_r = 0;
-	alt_l   = alt_r   = 0;
-	ctrl_l  = ctrl_r  = 0;
+	shift_l	= shift_r	= 0;
+	alt_l	= alt_r		= 0;
+	ctrl_l	= ctrl_r	= 0;
 
-	caps_lock   = 0;
+	caps_lock	= 0;
 	num_lock	= 1;
-	scroll_lock = 0;
+	scroll_lock	= 0;
 
 	set_leds();
 
@@ -134,7 +134,7 @@ static void keyboard_read(void)
 		code_with_E0 = 0;
 
 		scan_code = get_scancode();
-		
+
 		if (scan_code == 0xE1) {
 			int i;
 			uint8_t pausebrk_scode[] = {0xE1, 0x1D, 0x45, 0xE1, 0x9D, 0xC5};
@@ -145,7 +145,6 @@ static void keyboard_read(void)
 					break;
 				}
 			}
-
 			if (is_pausebreak) key = PAUSEBREAK;
 		} else if (scan_code == 0xE0) {
 			scan_code = get_scancode();
@@ -157,7 +156,6 @@ static void keyboard_read(void)
 					}
 				}
 			}
-
 			if (scan_code == 0xB7) {
 				if (get_scancode() == 0xE0) {
 					if (get_scancode() == 0xAA) {
@@ -166,7 +164,6 @@ static void keyboard_read(void)
 					}
 				}
 			}
-
 			if (key == 0) {
 				code_with_E0 = 1;
 			}
@@ -184,7 +181,6 @@ static void keyboard_read(void)
 					caps = !caps;
 				}
 			}
-
 			if (caps) {
 				column = 1;
 			}
@@ -234,7 +230,6 @@ static void keyboard_read(void)
 				default:
 					break;
 			}
-
 			if (make) {
 				int pad = 0;
 
