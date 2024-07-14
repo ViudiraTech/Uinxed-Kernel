@@ -12,8 +12,6 @@
 #include "debug.h"
 #include "elf.h"
 
-static void print_stack_trace(void);
-
 static elf_t kernel_elf;
 
 /* 初始化 Debug 信息 */
@@ -66,4 +64,26 @@ void print_stack_trace(void)
 		printk("   [0x%x] %s\n", *eip, elf_lookup_symbol(*eip, &kernel_elf));
 		ebp = (uint32_t*)*ebp;
 	}
+}
+
+/* 强制阻塞 */
+void spin(char *name)
+{
+	printk("spinning in %s ...", name);
+	while(1) {asm("hlt");}
+}
+
+/* 断言失败 */
+void assertion_failure(char *exp, char *file, char *base, int line)
+{
+	printk("assert(%s) failed!\n"
+           "file: %s\n"
+           "base: %s\n"
+           "line: %d\n\n",
+           exp, file, base, line);
+
+	spin("assertion_failure()");
+
+	/* 不可能走到这里，否则出错 */
+	asm volatile("ud2");
 }

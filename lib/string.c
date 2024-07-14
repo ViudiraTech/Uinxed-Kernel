@@ -127,6 +127,17 @@ inline char *strcat(char *dest, const char *src)
 	return dest;
 }
 
+/* 查找字符串中的一个字符并返回该字符在字符串中第一次出现的位置 */
+char *strchr(char *str, int c)
+{
+	for (; *str != 0; ++str) {
+		if (*str == c) {
+			return str;
+		}
+	}
+	return NULL;
+}
+
 /* 返回字符串src的长度 */
 inline int strlen(const char *src)
 {
@@ -172,4 +183,13 @@ void strtoupper(char *str)
         }
         str++;
     }
+}
+
+/* 从文件件路径中获取文件名 */
+char *get_filename(char *path)
+{
+    int x =strlen(path);
+	char ch = '/';
+	char *filename = strchr(path, ch) + 1;
+	return filename;
 }

@@ -138,8 +138,8 @@ int ide_request(io_request_t *req)
 /* 读取指定IDE设备若干扇区 */
 int ide_read_secs(uint32_t secno, void *dst, uint32_t nsecs)
 {
-	assert(nsecs <= MAX_NSECS && ide_device.valid == 1, "nsecs or ide error!");
-	assert(secno < MAX_DISK_NSECS && secno + nsecs <= MAX_DISK_NSECS, "secno error!");
+	assert(nsecs <= MAX_NSECS && ide_device.valid == 1);
+	assert(secno < MAX_DISK_NSECS && secno + nsecs <= MAX_DISK_NSECS);
 
 	ide_wait_ready(IOBASE, 0);
 
@@ -164,8 +164,8 @@ int ide_read_secs(uint32_t secno, void *dst, uint32_t nsecs)
 /* 写入指定IDE设备若干扇区 */
 int ide_write_secs(uint32_t secno, const void *src, uint32_t nsecs)
 {
-	assert(nsecs <= MAX_NSECS && ide_device.valid == 1, "nsecs or ide error");
-	assert(secno < MAX_DISK_NSECS && secno + nsecs <= MAX_DISK_NSECS, "secno error!");
+	assert(nsecs <= MAX_NSECS && ide_device.valid == 1);
+	assert(secno < MAX_DISK_NSECS && secno + nsecs <= MAX_DISK_NSECS);
 
 	ide_wait_ready(IOBASE, 0);
 

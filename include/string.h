@@ -41,6 +41,9 @@ char *strncpy(char *dest, const char *src, uint32_t len);
 /* 将字符串src连接到dest的末尾 */
 char *strcat(char *dest, const char *src);
 
+/* 查找字符串中的一个字符并返回该字符在字符串中第一次出现的位置 */
+char *strchr(char *str, int c);
+
 /* 返回字符串src的长度 */
 int strlen(const char *src);
 
@@ -55,5 +58,8 @@ void insert_str(char *str, char *insert_str, int pos);
 
 /* 将字符串中的所有小写字母转换为大写字母 */
 void strtoupper(char *str);
+
+/* 从文件件路径中获取文件名 */
+char *get_filename(char *path);
 
 #endif // INCLUDE_STRING_H_

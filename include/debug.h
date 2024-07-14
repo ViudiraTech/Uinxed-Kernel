@@ -14,35 +14,27 @@
 
 #include "console.h"
 
-#define assert(x, info)		\
-	do {					\
-		if (!(x)) {			\
-			panic(info);	\
-		}					\
-	} while (0)
+#define assert(exp)	\
+    if (exp);		\
+    else			\
+		assertion_failure(#exp, __FILE__, get_filename(__FILE__), __LINE__)
 
 /* 初始化 Debug 信息 */
 void init_debug(void);
 
+/* 打印当前的段存器值 */
+void print_cur_status(void);
+
 /* 内核恐慌 */
 void panic(const char *msg);
 
-/* 打印当前的段存器值 */
-void print_cur_status();
+/* 打印内核堆栈跟踪 */
+void print_stack_trace(void);
 
-/* 内核的打印函数 */
-void printk(const char *format, ...);
+/* 强制阻塞 */
+void spin(char *name);
 
-/* 内核的打印函数 带颜色 */
-void printk_color(real_color_t back, real_color_t fore, const char *format, ...);
-
-/* 打印SUCCESS信息 */
-void print_succ(char *str);
-
-/* 打印WARNING信息 */
-void print_warn(char *str);
-
-/* 打印 ERROR 信息 */
-void print_erro(char *str);
+/* 断言失败 */
+void assertion_failure(char *exp, char *file, char *base, int line);
 
 #endif // INCLUDE_DEBUG_H_
