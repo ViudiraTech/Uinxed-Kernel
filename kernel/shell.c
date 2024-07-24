@@ -92,9 +92,9 @@ void shell_help(int argc, char *argv)
 	printk("+---------+------------------------------+\n"
            "| Command |   Command description        |\n"
            "+---------+------------------------------+\n"
-           "|  help   |  Display this help tip.      |\n"
+           "|  help   |  Show help like this.        |\n"
            "|  clear  |  Clear the screen.           |\n"
-           "|  cpuid  |  Lists the CPU information.  |\n"
+           "|  cpuid  |  List for CPU information.   |\n"
            "+---------+------------------------------+\n\n");
 	return;
 }

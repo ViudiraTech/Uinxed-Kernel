@@ -16,6 +16,7 @@
 #include "printk.h"
 #include "memory.h"
 #include "keyboard.h"
+#include "uinxed.h"
 
 extern uint32_t end;
 uint32_t placement_address = (uint32_t) & end;
@@ -24,11 +25,11 @@ void kernel_init(void)
 {
 	console_clear(); // 清屏
 
-	printk("Uinxed-Kernel V1.0\n");				// 打印内核信息
-	printk("Copyright 2020 ViudiraTech.\n");	// 打印版权信息
-	printk("This version compiles at "__DATE__" "__TIME__"\n\n");	// 打印编译日期时间
+	printk("Uinxed-Kernel "KERNL_VERS"(build-%d)\n", KERNL_BUID);		// 打印内核信息
+	printk(PROJK_COPY"\n");												// 打印版权信息
+	printk("This version compiles at "BUILD_DATE" "BUILD_TIME"\n\n");	// 打印编译日期时间
 
-	printk("Initializing operating system kernel components.\n");	// 提示用户正在初始化内核
+	printk("Initializing operating system kernel components.\n");		// 提示用户正在初始化内核
 
 	init_gdt();			// 初始化gdt
 	init_idt();			// 初始化idt
