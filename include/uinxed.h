@@ -15,7 +15,7 @@
 #define BUILD_DATE __DATE__
 #define BUILD_TIME __TIME__
 #define KERNL_VERS "v0.0.240724" // Version format: v[VERSION].[PACK].YYMMDD
-#define KERNL_BUID 53
+#define KERNL_BUID 54
 #define PROJK_COPY "Copyright 2020 ViudiraTech. All Rights Reserved."
 
 #endif // INCLUDE_UINXED_H_
