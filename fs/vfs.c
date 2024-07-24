@@ -133,7 +133,7 @@ bool vfs_unmount_disk(uint8_t drive)
 /* 读取文件 */
 bool vfs_readfile(char *path, char *buffer)
 {
-	char *new_path = kmalloc(strlen(path) + 1);
+	char *new_path = (char *)kmalloc(strlen(path) + 1);
 	strcpy(new_path, path);
 	vfs_t *vfs = ParsePath(new_path);
 	if (vfs == NULL) {
@@ -148,7 +148,7 @@ bool vfs_readfile(char *path, char *buffer)
 /* 写入文件 */
 bool vfs_writefile(char *path, char *buffer, int size)
 {
-	char *new_path = kmalloc(strlen(path) + 1);
+	char *new_path = (char *)kmalloc(strlen(path) + 1);
 	strcpy(new_path, path);
 	vfs_t *vfs = ParsePath(new_path);
 	if (vfs == NULL) {
@@ -163,7 +163,7 @@ bool vfs_writefile(char *path, char *buffer, int size)
 /* 获取文件大小 */
 uint32_t vfs_filesize(char *filename)
 {
-	char *new_path = kmalloc(strlen(filename) + 1);
+	char *new_path = (char *)kmalloc(strlen(filename) + 1);
 	strcpy(new_path, filename);
 	vfs_t *vfs = ParsePath(new_path);
 	if (vfs == NULL) {
@@ -182,7 +182,7 @@ List *vfs_listfile(char *dictpath)
 	if (strcmp(dictpath, "") == 0) {
 		return vfs_now->ListFile(vfs_now, dictpath);
 	} else {
-		char *new_path = kmalloc(strlen(dictpath) + 1);
+		char *new_path = (char *)kmalloc(strlen(dictpath) + 1);
 		strcpy(new_path, dictpath);
 		vfs_t *vfs = ParsePath(new_path);
 		if (vfs == NULL) {
@@ -198,7 +198,7 @@ List *vfs_listfile(char *dictpath)
 /* 删除文件 */
 bool vfs_delfile(char *filename)
 {
-	char *new_path = kmalloc(strlen(filename) + 1);
+	char *new_path = (char *)kmalloc(strlen(filename) + 1);
 	strcpy(new_path, filename);
 	vfs_t *vfs = ParsePath(new_path);
 	if (vfs == NULL) {
@@ -213,7 +213,7 @@ bool vfs_delfile(char *filename)
 /* 改变当前工作目录 */
 bool vfs_change_path(char *dictName)
 {
-	char *buf = kmalloc(strlen(dictName) + 1);
+	char *buf = (char *)kmalloc(strlen(dictName) + 1);
 	char *r = buf;
 	memcpy(buf, dictName, strlen(dictName) + 1);
 	int i = 0;
@@ -249,7 +249,7 @@ bool vfs_change_path(char *dictName)
 /* 删除目录 */
 bool vfs_deldir(char *dictname)
 {
-	char *new_path = kmalloc(strlen(dictname) + 1);
+	char *new_path = (char *)kmalloc(strlen(dictname) + 1);
 	strcpy(new_path, dictname);
 	vfs_t *vfs = ParsePath(new_path);
 	if (vfs == NULL) {
@@ -264,7 +264,7 @@ bool vfs_deldir(char *dictname)
 /* 创建文件 */
 bool vfs_createfile(char *filename)
 {
-	char *new_path = kmalloc(strlen(filename) + 1);
+	char *new_path = (char *)kmalloc(strlen(filename) + 1);
 	strcpy(new_path, filename);
 	vfs_t *vfs = ParsePath(new_path);
 	if (vfs == NULL) {
@@ -279,7 +279,7 @@ bool vfs_createfile(char *filename)
 /* 创建目录 */
 bool vfs_createdict(char *filename)
 {
-	char *new_path = kmalloc(strlen(filename) + 1);
+	char *new_path = (char *)kmalloc(strlen(filename) + 1);
 	memclean(new_path, strlen(filename) + 1);
 	strcpy(new_path, filename);
 	vfs_t *vfs = ParsePath(new_path);
@@ -295,7 +295,7 @@ bool vfs_createdict(char *filename)
 /* 重命名文件 */
 bool vfs_renamefile(char *filename, char *filename_of_new)
 {
-	char *new_path = kmalloc(strlen(filename) + 1);
+	char *new_path = (char *)kmalloc(strlen(filename) + 1);
 	strcpy(new_path, filename);
 	vfs_t *vfs = ParsePath(new_path);
 	if (vfs == NULL) {
@@ -310,7 +310,7 @@ bool vfs_renamefile(char *filename, char *filename_of_new)
 /* 设置文件属性 */
 bool vfs_attrib(char *filename, ftype type)
 {
-	char *new_path = kmalloc(strlen(filename) + 1);
+	char *new_path = (char *)kmalloc(strlen(filename) + 1);
 	strcpy(new_path, filename);
 	vfs_t *vfs = ParsePath(new_path);
 	if (vfs == NULL) {
@@ -336,7 +336,7 @@ bool vfs_format(uint8_t disk_number, char *FSName)
 /* 获取文件信息 */
 vfs_file *vfs_fileinfo(char *filename)
 {
-	char *new_path = kmalloc(strlen(filename) + 1);
+	char *new_path = (char *)kmalloc(strlen(filename) + 1);
 	memclean(new_path,strlen(filename) + 1);
 	strcpy(new_path, filename);
 	vfs_t *vfs = ParsePath(new_path);

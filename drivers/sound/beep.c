@@ -9,6 +9,9 @@
  *
  */
 
+#include "beep.h"
+#include "common.h"
+
 /* 设置板载蜂鸣器状态 */
 void system_beep(int hertz)
 {

@@ -13,9 +13,7 @@
 #include "string.h"
 #include "debug.h"
 #include "idt.h"
-
-/* 注册一个中断处理函数 */
-void register_interrupt_handler(uint8_t n, interrupt_handler_t h);
+#include "printk.h"
 
 /* 调用中断处理函数 */
 void isr_handler(pt_regs *regs);

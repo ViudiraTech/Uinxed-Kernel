@@ -13,6 +13,8 @@
 #include "fifo.h"
 #include "common.h"
 #include "idt.h"
+#include "printk.h"
+#include "memory.h"
 
 static int code_with_E0 = 0;
 static int shift_l;

@@ -16,6 +16,7 @@
 #include "types.h"
 #include "string.h"
 #include "cmos.h"
+#include "printk.h"
 
 #define MAX_COMMAND_LEN	100
 #define MAX_ARG_NR		30

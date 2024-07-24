@@ -11,6 +11,7 @@
 
 #include "gdt.h"
 #include "string.h"
+#include "printk.h"
 
 /* 全局描述符表长度 */
 #define GDT_LENGTH 5

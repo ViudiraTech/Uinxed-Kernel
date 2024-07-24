@@ -17,9 +17,18 @@
 #include "memory.h"
 #include "keyboard.h"
 #include "uinxed.h"
+#include "pci.h"
+#include "serial.h"
+#include "block.h"
+#include "vfs.h"
+#include "timer.h"
+#include "beep.h"
+#include "cmos.h"
 
 extern uint32_t end;
 uint32_t placement_address = (uint32_t) & end;
+
+void shell(void); // 声明shell程序入口函数
 
 void kernel_init(void)
 {

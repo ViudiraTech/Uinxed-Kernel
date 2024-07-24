@@ -14,9 +14,6 @@
 
 #include "types.h"
 
-// 初始化中断描述符表 */
-void init_idt(void);
-
 /* 中断描述符 */
 typedef
 struct idt_entry_t {
@@ -75,5 +72,11 @@ typedef void (*interrupt_handler_t)(pt_regs *);
 #define	IRQ13	45	// 协处理器使用
 #define	IRQ14	46	// IDE0 传输控制使用
 #define	IRQ15	47	// IDE1 传输控制使用
+
+/* 初始化中断描述符表 */
+void init_idt(void);
+
+/* 注册一个中断处理函数 */
+void register_interrupt_handler(uint8_t n, interrupt_handler_t h);
 
 #endif // INCLUDE_IDT_H_
