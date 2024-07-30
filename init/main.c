@@ -24,6 +24,7 @@
 #include "timer.h"
 #include "beep.h"
 #include "cmos.h"
+#include "vgafont.h"
 
 extern uint32_t end;
 uint32_t placement_address = (uint32_t) & end;
@@ -53,6 +54,8 @@ void kernel_init(void)
 	init_pit();			// 初始化PIT
 
 	enable_intr();		// 开启中断
+
+	init_kfont();	// 设置内核字体
 
 	system_beep(1000);	// 初始化完毕后蜂鸣
 	sleep(10);

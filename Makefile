@@ -9,10 +9,11 @@
 #
 # =====================================================
 
-C_SOURCES = $(shell find . -name "*.c")
-C_OBJECTS = $(patsubst %.c, %.o, $(C_SOURCES))
-S_SOURCES = $(shell find . -name "*.s")
-S_OBJECTS = $(patsubst %.s, %.o, $(S_SOURCES))
+C_SOURCES		= $(shell find . -name "*.c")
+C_OBJECTS		= $(patsubst %.c, %.o, $(C_SOURCES))
+S_SOURCES		= $(shell find . -name "*.s")
+S_OBJECTS		= $(patsubst %.s, %.o, $(S_SOURCES))
+KFONT_OBJECTS	= kernel/fonts/SongFont.obj
 
 CC = gcc
 LD = ld
@@ -43,7 +44,7 @@ info:
 link:$(S_OBJECTS) $(C_OBJECTS)
 	@echo
 	@echo "\033[32m[Link]\033[0m" Linking kernel...
-	@$(LD) $(LD_FLAGS) $(S_OBJECTS) $(C_OBJECTS) -o UxImage
+	@$(LD) $(LD_FLAGS) $(S_OBJECTS) $(C_OBJECTS) $(KFONT_OBJECTS) -o UxImage
 
 .PHONY:iso
 Uinxed.iso:UxImage
