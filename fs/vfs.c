@@ -215,7 +215,7 @@ bool vfs_change_path(char *dictName)
 {
 	char *buf = (char *)kmalloc(strlen(dictName) + 1);
 	char *r = buf;
-	memcpy(buf, dictName, strlen(dictName) + 1);
+	memcpy((uint8_t *)buf, (const uint8_t *)dictName, strlen(dictName) + 1);
 	int i = 0;
 	if (buf[i] == '/' || buf[i] == '\\') {
 		if (!vfs_now->cd(vfs_now, "/")) {
@@ -374,7 +374,7 @@ bool vfs_change_disk(uint8_t drive)
 {
 	if (vfs_now != NULL) {
 		while (FindForCount(1, vfs_now->path) != NULL) {
-			kfree(FindForCount(vfs_now->path->ctl->all, vfs_now->path)->val);
+			kfree((void *)FindForCount(vfs_now->path->ctl->all, vfs_now->path)->val);
 			DeleteVal(vfs_now->path->ctl->all, vfs_now->path);
 		}
 		kfree(vfs_now->cache);
@@ -387,8 +387,8 @@ bool vfs_change_disk(uint8_t drive)
 		return false; // 没有mount
 	}
 
-	vfs_now = kmalloc(sizeof(vfs_t));
-	memcpy(vfs_now, f, sizeof(vfs_t));
+	vfs_now = (vfs_t *)kmalloc(sizeof(vfs_t));
+	memcpy((uint8_t *)vfs_now, (const uint8_t *)f, sizeof(vfs_t));
 	f->CopyCache(vfs_now, f);
 	vfs_now->path = NewList();
 	vfs_now->cd(vfs_now, "/");

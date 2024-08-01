@@ -23,12 +23,12 @@ struct List* FindForCount(size_t count, struct List* Obj)
 {
 	int count_last = GetLastCount(Obj);
 	struct List *p = Obj, *q = Obj->ctl->end;
-	if (count > count_last)
+	if ((size_t)count > (size_t)count_last)
 		return (List*)NULL;
 	for (int i = 0, j = count_last;; i++, j--) {
-		if (i == count) {
+		if (i == (int)count) {
 			return p;
-		} else if (j == count) {
+		} else if (j >= 0 && (size_t)j == count) {
 			return q;
 		}
 		p = p->next;

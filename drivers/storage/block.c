@@ -52,10 +52,10 @@ int add_block(block_t *bdev)
 		if (strcmp(p->name, bdev->name) == 0) {
 			return -1;
 		}
-		p = p->next;
+		bdev->next = (struct block_dev *)block_devs;
 	}
 
-	bdev->next = block_devs;
+	bdev->next = (struct block_dev *)block_devs;
 	block_devs = bdev;
 	return 0;
 }

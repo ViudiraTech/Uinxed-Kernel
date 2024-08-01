@@ -1,7 +1,7 @@
 /*
  *
  *		common.c
- *		通用设备IO驱动
+ *		常见设备驱动
  *
  *		2024/6/27 By Rainy101112
  *		基于 GPL-3.0 开源协议
@@ -83,4 +83,10 @@ void enable_intr(void)
 void disable_intr(void)
 {
 	asm volatile("cli" ::: "memory");
+}
+
+/* 内核停机 */
+void krn_halt(void)
+{
+	while(1) {asm("hlt");}
 }

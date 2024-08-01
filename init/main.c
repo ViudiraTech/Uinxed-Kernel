@@ -41,28 +41,29 @@ void kernel_init(void)
 
 	printk("Initializing operating system kernel components.\n");		// 提示用户正在初始化内核
 
-	init_gdt();			// 初始化gdt
-	init_idt();			// 初始化idt
-	init_page();		// 初始化内存分页
-	init_pci();			// 初始化PCI设备
-	init_serial();		// 初始化计算机串口
-	init_keyboard();	// 初始化键盘驱动
-	block_init();		// 初始化块设备
-	init_vfs();			// 初始化虚拟文件系统
+	init_gdt();					// 初始化gdt
+	init_idt();					// 初始化idt
+	ISR_registe_Handle();		// 注册ISR处理
+	init_page();				// 初始化内存分页
+	init_pci();					// 初始化PCI设备
+	init_serial();				// 初始化计算机串口
+	init_keyboard();			// 初始化键盘驱动
+	block_init();				// 初始化块设备
+	init_vfs();					// 初始化虚拟文件系统
 
-	init_timer(1);		// 初始化定时器
-	init_pit();			// 初始化PIT
+	init_timer(1);				// 初始化定时器
+	init_pit();					// 初始化PIT
 
-	enable_intr();		// 开启中断
+	enable_intr();				// 开启中断
 
-	init_kfont();	// 设置内核字体
+	init_kfont();				// 设置内核字体
 
-	system_beep(1000);	// 初始化完毕后蜂鸣
+	system_beep(1000);			// 初始化完毕后蜂鸣
 	sleep(10);
 	system_beep(0);
 
 	console_write_newline();	// 打印一个空行，和上面的信息保持隔离
 	print_cpu_id();				// 打印当前CPU的信息
 
-	shell(); // 进入简易的shell程序方便调试
+	shell();					// 进入简易的shell程序方便调试
 }

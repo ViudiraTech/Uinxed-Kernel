@@ -57,16 +57,16 @@ static int cmd_parse(uint8_t *cmd_str, uint8_t **argv, uint8_t token) // 用uint
 }
 
 /* 读取一行文本 */
-static void readline(char *buf, int cnt, int prompt_len)
+static void readline(uint8_t *buf, int cnt, int prompt_len)
 {
-	char *pos = buf;
+	uint8_t *pos = buf;
 	int buf_idx = 0;
 
-	while (read_key_blocking(pos) != -1 && buf_idx < cnt) { // 没打够字符并且不出错
+	while (read_key_blocking((char *)pos) != -1 && buf_idx < cnt) { // 没打够字符并且不出错
 		switch (*pos) {
 			case '\n':
 			case '\r':
-				*pos = 0; // 读完了，好耶！
+				*pos = 0;				// 读完了，好耶！
 				printk("\n");
 				return;
 			case '\b':
@@ -116,11 +116,11 @@ builtin_cmd_t builtin_cmds[] = {
 const static int builtin_cmd_num = sizeof(builtin_cmds) / sizeof(builtin_cmd_t);
 
 /* 在预定义的命令数组中查找给定的命令字符串 */
-int find_cmd(char *cmd)
+int find_cmd(uint8_t *cmd)
 {
 	for (int i = 0; i < builtin_cmd_num; ++i)
 	{
-		if (strcmp(cmd, builtin_cmds[i].name) == 0){
+		if (strcmp((const char *)cmd, builtin_cmds[i].name) == 0){
 			return i;
 		}
 	}

@@ -1,7 +1,7 @@
 /*
  *
  *		common.h
- *		通用设备IO驱动头文件
+ *		常见设备驱动
  *
  *		2024/6/27 By Rainy101112
  *		基于 GPL-3.0 开源协议
@@ -31,5 +31,7 @@ void outsl(uint32_t port, const void *addr, int cnt);
 
 void enable_intr(void);						// 开启中断
 void disable_intr(void);					// 关闭中断
+
+void krn_halt(void);						// 内核停机
 
 #endif // INCLUDE_COMMON_H_

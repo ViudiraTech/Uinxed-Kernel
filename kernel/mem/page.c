@@ -13,6 +13,7 @@
 #include "string.h"
 #include "printk.h"
 #include "idt.h"
+#include "common.h"
 
 page_directory_t *kernel_directory	= 0;	// 内核用页目录
 page_directory_t *current_directory	= 0;	// 当前页目录
@@ -53,7 +54,7 @@ static uint32_t test_frame(uint32_t frame_addr)
 /* 清除帧位图中的特定位 */
 uint32_t first_frame(void)
 {
-	for (int i = 0; i < INDEX_FROM_BIT(nframes); i++) {
+	for (unsigned int i = 0; i < INDEX_FROM_BIT(nframes); i++) {
 		if (frames[i] != 0xffffffff) {
 			for (int j = 0; j < 32; j++) {
 				uint32_t toTest = 0x1 << j;
@@ -74,8 +75,8 @@ void alloc_frame(page_t *page, int is_kernel, int is_writable)
 		uint32_t idx = first_frame();
 		if (idx == (uint32_t) - 1) {
 			printk("FRAMES_FREE_ERROR: Cannot free frames!\n");
-			asm("cli");
-			for (;;)asm("hlt");
+			disable_intr();
+			krn_halt();
 		}
 		set_frame(idx * 0x1000);
 		page->present	= 1;					// 现在这个页存在了
@@ -173,7 +174,7 @@ void page_fault(pt_regs *regs)
 	} else if (id) {
 		printk("Type: decode address Address: %x", faulting_address);
 	}
-	while (1) asm("hlt");
+	krn_halt();
 }
 
 /* 克隆一个页面表 */
@@ -244,13 +245,13 @@ void init_page(void)
 	int i = 0;
 
 
-	while (i < placement_address + 0x30000) {
+	while (i < (int)(placement_address + 0x30000)) {
 		/* 内核部分对ring3而言可读不可写 | 无偏移页表映射 */
 		alloc_frame(get_page(i, 1, kernel_directory), 0, 0);
 		i += 0x1000;
 	}
     
-	for (int i = KHEAP_START; i < KHEAP_START + KHEAP_INITIAL_SIZE; i++) {
+	for (unsigned int i = (unsigned int)KHEAP_START; i < (unsigned int)(KHEAP_START + KHEAP_INITIAL_SIZE); i++) {
 		alloc_frame(get_page(i, 1, kernel_directory), 0, 0);
 	}
 

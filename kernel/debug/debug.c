@@ -12,6 +12,7 @@
 #include "debug.h"
 #include "elf.h"
 #include "printk.h"
+#include "common.h"
 
 static elf_t kernel_elf;
 
@@ -51,7 +52,7 @@ void panic(const char *msg)
 	printk("***\n");
 	
 	/* 致命错误发生后打印栈信息后停止在这里 */
-	while(1) {asm("hlt");}
+	krn_halt();
 }
 
 /* 打印内核堆栈跟踪 */
@@ -71,7 +72,7 @@ void print_stack_trace(void)
 void spin(char *name)
 {
 	printk("spinning in %s ...", name);
-	while(1) {asm("hlt");}
+	krn_halt();
 }
 
 /* 断言失败 */

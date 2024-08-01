@@ -99,9 +99,9 @@ void init_keyboard(void)
 static uint8_t get_scancode(void)
 {
 	uint8_t scan_code;
-	asm("cli");
+	disable_intr();
 	scan_code = fifo_get(&keyfifo);
-	asm("sti");
+	enable_intr();
 	return scan_code;
 }
 

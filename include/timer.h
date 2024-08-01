@@ -32,6 +32,9 @@ struct TIMERCTL {
 	struct TIMER timers0[MAX_TIMER];
 };
 
+int io_load_eflags(void);
+void io_store_eflags(int e);
+
 /* 根据传入的定时器频率初始化定时器 */
 void init_timer(uint32_t timer);
 

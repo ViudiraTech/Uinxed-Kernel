@@ -10,6 +10,7 @@
  */
 
 #include "vgafont.h"
+#include "common.h"
 
 #define VGA_AC_INDEX		0x3C0
 #define VGA_AC_WRITE		0x3C0
@@ -32,7 +33,7 @@
 #define VGA_NUM_GC_REGS		9
 #define VGA_NUM_AC_REGS		21
 #define VGA_NUM_REGS		(1 + VGA_NUM_SEQ_REGS + VGA_NUM_CRTC_REGS + VGA_NUM_GC_REGS + VGA_NUM_AC_REGS)
-#define _vmemwr(DS, DO, S, N) memcpy((char *)((DS)*16 + (DO)), S, N)
+#define _vmemwr(DS, DO, S, N) memcpy((uint8_t *)((DS)*16 + (DO)), S, N)
 
 void pokeb(int setmentaddr, int offset, char value)
 {
@@ -143,13 +144,13 @@ void write_font(unsigned char *buf, unsigned font_height)
 
 void set_font(char *fontbuf)
 {
-	unsigned rows, cols, ht, i;
+	unsigned rows, cols, ht;
 	cols = 80;
 	rows = 25;
 	ht = 16;
 
 	/* 设置字库 */
-	write_font(fontbuf, 16);
+	write_font((unsigned char *)fontbuf, 16);
 	pokew(0x40, 0x4A, cols);			// 屏幕上的列
 	pokew(0x40, 0x4C, cols * rows * 2);	// 帧缓冲器大小
 	pokew(0x40, 0x50, 0);				// 光标位置

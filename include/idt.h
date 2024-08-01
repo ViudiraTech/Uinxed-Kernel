@@ -79,4 +79,7 @@ void init_idt(void);
 /* 注册一个中断处理函数 */
 void register_interrupt_handler(uint8_t n, interrupt_handler_t h);
 
+/* ISR处理 */
+void ISR_registe_Handle(void);
+
 #endif // INCLUDE_IDT_H_

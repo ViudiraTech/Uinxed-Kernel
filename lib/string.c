@@ -32,7 +32,7 @@ int memcmp(const void* buffer1,const void* buffer2,size_t count)
 /* 将len个字节从源地址复制到目标地址 */
 inline void memcpy(uint8_t *dest, const uint8_t *src, uint32_t len)
 {
-	uint8_t *sr = src;
+	uint8_t *sr = (uint8_t *)src;
 	uint8_t *dst = dest;
 
 	while (len != 0) {
@@ -188,7 +188,6 @@ void strtoupper(char *str)
 /* 从文件件路径中获取文件名 */
 char *get_filename(char *path)
 {
-    int x =strlen(path);
 	char ch = '/';
 	char *filename = strchr(path, ch) + 1;
 	return filename;

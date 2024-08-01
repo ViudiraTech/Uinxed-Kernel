@@ -53,6 +53,8 @@ typedef union header {
 	ALIGN stub;
 } header_t;
 
+void copy_page_physical(uintptr_t src, uintptr_t dst);
+
 /* 初始化内存分页 */
 void init_page(void);
 

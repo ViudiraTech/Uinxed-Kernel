@@ -38,7 +38,7 @@ uint32_t pci_get_port_base(uint8_t bus, uint8_t slot, uint8_t func)
 /* 根据供应商ID和设备ID查找PCI设备 */
 void PCI_GET_DEVICE(uint16_t vendor_id, uint16_t device_id, uint8_t* bus, uint8_t* slot, uint8_t* func)
 {
-	unsigned char* pci_drive = PCI_ADDR_BASE;
+	unsigned char* pci_drive = (unsigned char*)PCI_ADDR_BASE;
 	for (;; pci_drive += 0x110 + 4) {
 		if (pci_drive[0] == 0xff) {
 			struct pci_config_space_public* pci_config_space_puclic;
@@ -140,7 +140,7 @@ void init_pci(void)
 
 	PCI_ADDR_BASE = kmalloc(1 * 1024 * 1024);
 	unsigned int i, BUS, Equipment, F, ADDER, *i1;
-	unsigned char *PCI_DATA = PCI_ADDR_BASE, *PCI_DATA1;
+	unsigned char *PCI_DATA = (unsigned char *)PCI_ADDR_BASE, *PCI_DATA1;
 
 	for (BUS = 0; BUS < 256; BUS++) {						// 查询总线
 		for (Equipment = 0; Equipment < 32; Equipment++) {	// 查询设备
@@ -164,8 +164,8 @@ void init_pci(void)
 						for (ADDER = 0; ADDER < 256; ADDER = ADDER + 4) {
 							pci_config(BUS, F, Equipment, ADDER);
 							i = inl(PCI_DATA_PORT);
-							i1 = i;
-							memcpy(PCI_DATA1, &i, 4);
+							i1 = (unsigned int *)i;
+							memcpy(PCI_DATA1, (const uint8_t *)&i, 4);
 							PCI_DATA1 = PCI_DATA1 + 4;
 						}
 						for (uint8_t barNum = 0; barNum < 6; barNum++) {
@@ -173,7 +173,7 @@ void init_pci(void)
 							if (bar.address && (bar.type == input_output)) {
 								PCI_DATA1 += 4;
 								int i = ((uint32_t)(bar.address));
-								memcpy(PCI_DATA1, &i, 4);
+								memcpy(PCI_DATA1, (const uint8_t *)&i, 4);
 								PCI_NUM++;
 							}
 						}

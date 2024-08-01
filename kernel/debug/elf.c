@@ -21,7 +21,7 @@ elf_t elf_from_multiboot(multiboot_t *mb)
 	elf_section_header_t *sh = (elf_section_header_t *)mb->addr;
     
 	uint32_t shstrtab = sh[mb->shndx].addr;
-	for (i = 0; i < mb->num; i++) {
+	for (i = 0; i < (int)mb->num; i++) {
 		const char *name = (const char *)(shstrtab + sh[i].name);
 
 		/* 在 GRUB 提供的 multiboot 信息中寻找 */
@@ -42,7 +42,7 @@ elf_t elf_from_multiboot(multiboot_t *mb)
 const char *elf_lookup_symbol(uint32_t addr, elf_t *elf)
 {
 	int i;
-	for (i = 0; i < (elf->symtabsz / sizeof(elf_symbol_t)); i++) {
+	for (uint32_t i = 0; i < (elf->symtabsz / sizeof(elf_symbol_t)); i++) {
 		if (ELF32_ST_TYPE(elf->symtab[i].info) != 0x2) {
 			continue;
 		}

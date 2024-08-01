@@ -10,6 +10,7 @@
  */
 
 #include "console.h"
+#include "common.h"
 
 /* VGA 的显示缓冲的起点是0xB8000 */
 static uint16_t *video_memory = (uint16_t *)0xB8000;
