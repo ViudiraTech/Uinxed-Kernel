@@ -16,6 +16,7 @@
 #include "types.h"
 #include "string.h"
 #include "cmos.h"
+#include "pci.h"
 #include "printk.h"
 
 #define MAX_COMMAND_LEN	100
@@ -88,15 +89,23 @@ static void readline(uint8_t *buf, int cnt, int prompt_len)
 }
 
 /* help命令 */
-void shell_help(int argc, char *argv)
+void shell_help(void)
 {
 	printk("+---------+------------------------------+\n"
            "| Command |   Command description        |\n"
            "+---------+------------------------------+\n"
-           "|  help   |  Show help like this.        |\n"
-           "|  clear  |  Clear the screen.           |\n"
-           "|  cpuid  |  List for CPU information.   |\n"
+           "|  help   | Show help like this.         |\n"
+           "|  clear  | Clear the screen.            |\n"
+           "|  cpuid  | List for CPU information.    |\n"
+           "|  lspci  | List for All the PCI device. |\n"
            "+---------+------------------------------+\n\n");
+	return;
+}
+
+void shell_lspci(void)
+{
+	pci_device_info();
+	printk("\n");
 	return;
 }
 
@@ -107,13 +116,14 @@ typedef struct builtin_cmd
 } builtin_cmd_t;
 
 builtin_cmd_t builtin_cmds[] = {
-	{"clear", console_clear},
-	{"help", shell_help},
-	{"cpuid", print_cpu_id}
+	{"clear", (void (*)(int))console_clear},
+	{"help", (void (*)(int))shell_help},
+	{"cpuid", (void (*)(int))print_cpu_id},
+	{"lspci", (void (*)(int))shell_lspci}
 };
 
 /* 内建命令数量 */
-const static int builtin_cmd_num = sizeof(builtin_cmds) / sizeof(builtin_cmd_t);
+static const int builtin_cmd_num = sizeof(builtin_cmds) / sizeof(builtin_cmd_t);
 
 /* 在预定义的命令数组中查找给定的命令字符串 */
 int find_cmd(uint8_t *cmd)

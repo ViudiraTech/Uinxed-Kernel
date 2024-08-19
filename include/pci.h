@@ -12,10 +12,16 @@
 #ifndef INCLUDE_PCI_H_
 #define INCLUDE_PCI_H_
 
-#define PCI_COMMAND_PORT 0xCF8
-#define PCI_DATA_PORT 0xCFC
-#define mem_mapping 0
-#define input_output 1
+#define PCI_CONF_VENDOR		0X0 // Vendor ID
+#define PCI_CONF_DEVICE		0X2 // Device ID
+#define PCI_CONF_COMMAND	0x4 // Command
+#define PCI_CONF_STATUS		0x6 // Status
+#define PCI_CONF_REVISION	0x8 // Revision ID
+
+#define PCI_COMMAND_PORT	0xCF8
+#define PCI_DATA_PORT		0xCFC
+#define mem_mapping			0
+#define input_output		1
 
 #include "types.h"
 
@@ -82,6 +88,12 @@ base_address_register get_base_address_register(uint8_t bus, uint8_t device, uin
 
 /* 配置PCI设备 */
 void pci_config(unsigned int bus, unsigned int f, unsigned int equipment, unsigned int adder);
+
+/* 根据类代码返回设备类别名称 */
+char *pci_classname(uint32_t classcode);
+
+/* PCI设备信息 */
+void pci_device_info(void);
 
 /* 初始化PCI设备 */
 void init_pci(void);

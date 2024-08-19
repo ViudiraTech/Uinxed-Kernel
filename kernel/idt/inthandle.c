@@ -175,28 +175,28 @@ void ISR_19_handle(void)
 void ISR_registe_Handle(void)
 {
 	print_busy("Registering ISR handles...\r");
-	register_interrupt_handler(0, ISR_0_handle);
-	register_interrupt_handler(1, ISR_1_handle);
-	register_interrupt_handler(2, ISR_2_handle);
-	register_interrupt_handler(3, ISR_3_handle);
-	register_interrupt_handler(4, ISR_4_handle);
-	register_interrupt_handler(5, ISR_5_handle);
-	register_interrupt_handler(6, ISR_6_handle);
-	register_interrupt_handler(7, ISR_7_handle);
-	register_interrupt_handler(8, ISR_8_handle);
-	register_interrupt_handler(9, ISR_9_handle);
-	register_interrupt_handler(10, ISR_10_handle);
-	register_interrupt_handler(11, ISR_11_handle);
-	register_interrupt_handler(12, ISR_12_handle);
-	register_interrupt_handler(13, ISR_13_handle);
+	register_interrupt_handler(0, (interrupt_handler_t)ISR_0_handle);
+	register_interrupt_handler(1, (interrupt_handler_t)ISR_1_handle);
+	register_interrupt_handler(2, (interrupt_handler_t)ISR_2_handle);
+	register_interrupt_handler(3, (interrupt_handler_t)ISR_3_handle);
+	register_interrupt_handler(4, (interrupt_handler_t)ISR_4_handle);
+	register_interrupt_handler(5, (interrupt_handler_t)ISR_5_handle);
+	register_interrupt_handler(6, (interrupt_handler_t)ISR_6_handle);
+	register_interrupt_handler(7, (interrupt_handler_t)ISR_7_handle);
+	register_interrupt_handler(8, (interrupt_handler_t)ISR_8_handle);
+	register_interrupt_handler(9, (interrupt_handler_t)ISR_9_handle);
+	register_interrupt_handler(10, (interrupt_handler_t)ISR_10_handle);
+	register_interrupt_handler(11, (interrupt_handler_t)ISR_11_handle);
+	register_interrupt_handler(12, (interrupt_handler_t)ISR_12_handle);
+	register_interrupt_handler(13, (interrupt_handler_t)ISR_13_handle);
 	
 	/* ISR 14 will be define by pagine program */
 	/* ISR 15 CPU reserved */
 	
-	register_interrupt_handler(16, ISR_16_handle);
-	register_interrupt_handler(17, ISR_17_handle);
-	register_interrupt_handler(18, ISR_18_handle);
-	register_interrupt_handler(19, ISR_19_handle);
+	register_interrupt_handler(16, (interrupt_handler_t)ISR_16_handle);
+	register_interrupt_handler(17, (interrupt_handler_t)ISR_17_handle);
+	register_interrupt_handler(18, (interrupt_handler_t)ISR_18_handle);
+	register_interrupt_handler(19, (interrupt_handler_t)ISR_19_handle);
 
 	print_succ("The ISR handle was registered successfully.\n");
 }
