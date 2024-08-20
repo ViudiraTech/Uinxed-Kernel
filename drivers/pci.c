@@ -244,6 +244,7 @@ void pci_device_info(void)
 {
 	unsigned int BUS, Equipment, F;
 	printk("+----------------------------------------------------------------------------\n");
+	printk("|Bus  Slot  Func  VendorID  DeviceID  ClassCode  Name\n");
 
 	for (BUS = 0; BUS < 256; BUS++) {
 		for (Equipment = 0; Equipment < 32; Equipment++) {
@@ -251,11 +252,16 @@ void pci_device_info(void)
 				pci_config(BUS, F, Equipment, 0);
 				if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
 					/* 读取class_code */
-					uint32_t value = read_pci(BUS, Equipment, F, PCI_CONF_REVISION);
-					uint32_t class_code = value >> 8;
+					uint32_t value_c = read_pci(BUS, Equipment, F, PCI_CONF_REVISION);
+					uint32_t class_code = value_c >> 8;
+
+					uint16_t value_v = read_pci(BUS, Equipment, F, PCI_CONF_VENDOR);
+					uint16_t value_d = read_pci(BUS, Equipment, F, PCI_CONF_DEVICE);
+					uint16_t vendor_id = value_v & 0xffff;
+					uint16_t device_id = value_d & 0xffff;
 
 					/* 打印PCI设备信息 */
-					printk("|Bus: %d, Slot: %d, Function: %d, Class Code: 0x%X, Name:%s\n", BUS, Equipment, F, class_code, pci_classname(class_code));
+					printk("|%02d   %02d    %02d    0x%04X    0x%04X    0x%X    %s\n", BUS, Equipment, F, vendor_id, device_id,class_code, pci_classname(class_code));
 				}
 			}
 		}
