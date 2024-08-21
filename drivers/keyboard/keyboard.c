@@ -107,6 +107,8 @@ static uint8_t get_scancode(void)
 
 static void in_process(uint32_t key)
 {
+	// char output[2] = {0, 0};
+
 	if (!(key & FLAG_EXT)) {
 		fifo_put(&decoded_key, key);
 	} else {

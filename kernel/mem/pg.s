@@ -25,3 +25,4 @@ copy_page_physical:
 	mov cr0, edx			; 禁用分页
 
 	mov edx, 1024			; 1024*4比特 = 4096比特
+

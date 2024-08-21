@@ -66,6 +66,7 @@ void console_clear(void)
 	for (i = 0; i < 80 * 25; i++) {
 		video_memory[i] = blank;
 	}
+
 	cursor_x = 0;
 	cursor_y = 0;
 	move_cursor();
@@ -163,6 +164,7 @@ void console_write_dec(uint32_t n, real_color_t back, real_color_t fore)
 		console_putc_color('0', back, fore);
 		return;
 	}
+
 	uint32_t acc = n;
 	char c[32];
 	int i = 0;

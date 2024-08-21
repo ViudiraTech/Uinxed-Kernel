@@ -29,7 +29,7 @@ int init_serial(void)
 	if (inb(SERIAL_PORT + 0) != 0xAE) {
 		return 1;
 	}
-
+	
 	/* 如果串口没有故障，将其设置为正常运行模式 */
 	/* (非环回，启用IRQ，启用OUT#1和OUT#2位) */
 	outb(SERIAL_PORT + 4, 0x0F);

@@ -15,19 +15,19 @@
 #include "types.h"
 #include "block.h"
 
-#define SECTION_SIZE		512				// 扇区大小
-#define MBR_CODE_LENGTH		446				// MBR代码长度
-#define PARTITION_SIZE		16				// 分区表项大小
-#define PARTITION_COUNT		4				// 分区表项目个数
+#define SECTION_SIZE		512	// 扇区大小
+#define MBR_CODE_LENGTH		446	// MBR代码长度
+#define PARTITION_SIZE		16	// 分区表项大小
+#define PARTITION_COUNT		4	// 分区表项目个数
 
 typedef
 struct partition_info_t {
-	uint8_t active_flag;					// 活动分区标记(0x0表示非活动,0x80表示活动)
-	uint8_t start_chs[3];					// 起始磁头号+扇区号+柱面号。磁头号1字节;扇区号2字节低6位;柱面号2字节高2位+3字节
-	uint8_t partition_type;					// 分区类型
-	uint8_t end_chs[3];						// 结束磁头号,含义同起始磁头号
-	uint32_t start_sector;					// 逻辑起始扇区号
-	uint32_t nr_sectors;					// 所占用扇区数
+	uint8_t active_flag;		// 活动分区标记(0x0表示非活动,0x80表示活动)
+	uint8_t start_chs[3];		// 起始磁头号+扇区号+柱面号。磁头号1字节;扇区号2字节低6位;柱面号2字节高2位+3字节
+	uint8_t partition_type;		// 分区类型
+	uint8_t end_chs[3];			// 结束磁头号,含义同起始磁头号
+	uint32_t start_sector;		// 逻辑起始扇区号
+	uint32_t nr_sectors;		// 所占用扇区数
 } __attribute__((packed)) partition_info_t;
 
 typedef
