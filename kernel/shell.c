@@ -15,7 +15,7 @@
 #include "debug.h"
 #include "types.h"
 #include "string.h"
-#include "cmos.h"
+#include "cpu.h"
 #include "pci.h"
 #include "printk.h"
 
@@ -123,7 +123,7 @@ typedef struct builtin_cmd
 builtin_cmd_t builtin_cmds[] = {
 	{"clear", (void (*)(int))console_clear},
 	{"help", (void (*)(int))shell_help},
-	{"cpuid", (void (*)(int))print_cpu_id},
+	{"cpuid", (void (*)(int))print_cpu_info},
 	{"lspci", (void (*)(int))shell_lspci},
 	{"hltst", (void (*)(int))shell_hltst}
 };

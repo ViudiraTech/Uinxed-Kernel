@@ -23,7 +23,7 @@
 #include "vfs.h"
 #include "timer.h"
 #include "beep.h"
-#include "cmos.h"
+#include "cpu.h"
 #include "vgafont.h"
 #include "multiboot.h"
 
@@ -64,7 +64,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	system_beep(0);
 
 	console_write_newline();	// 打印一个空行，和上面的信息保持隔离
-	print_cpu_id();				// 打印当前CPU的信息
+	print_cpu_info();			// 打印当前CPU的信息
 
 	shell();					// 进入简易的shell程序方便调试
 }

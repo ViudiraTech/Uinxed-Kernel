@@ -20,15 +20,6 @@ unsigned int get_day_of_week(void);				// 获取当前周中日的HEX
 unsigned int get_mon_hex(void);					// 获取当前月份的HEX
 unsigned int get_year(void);					// 获取当前年份
 
-void print_cpu_id(void);						// 打印CPU信息
-
-typedef struct {
-	char* vendor;
-	char model_name[64];
-	unsigned int virt_bits;
-	unsigned int phys_bits;
-}cpu_t;
-
 #define cmos_index		0x70
 #define cmos_data		0x71
 #define CMOS_CUR_SEC	0x0						// CMOS当前秒(BCD)
