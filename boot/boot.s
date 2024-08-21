@@ -10,21 +10,21 @@
 ; =====================================================
 
 ; Multiboot 魔数，由规范决定的
-MBOOT_HEADER_MAGIC	EQU	0x1BADB002
+MBOOT_HEADER_MAGIC EQU 0x1BADB002
 
 ; 0号位表示所有的引导模块将按页(4KB)边界对齐
-MBOOT_PAGE_ALIGN	EQU	1 << 0
+MBOOT_PAGE_ALIGN EQU 1 << 0
 
 ; 1号位通过 Multiboot 信息结构的 mem_* 域包括可用内存的信息
 ; （告诉GRUB把内存空间的信息包含在 Multiboot 信息结构中）
-MBOOT_MEM_INFO		EQU	1 << 1    
+MBOOT_MEM_INFO EQU 1 << 1    
 
 ; 定义我们使用的 Multiboot 的标记
-MBOOT_HEADER_FLAGS	EQU	MBOOT_PAGE_ALIGN | MBOOT_MEM_INFO
+MBOOT_HEADER_FLAGS EQU MBOOT_PAGE_ALIGN | MBOOT_MEM_INFO
 
 ; 域 checksum 是一个32位的无符号值，当与其他的 magic 域（也就是 magic 和 flags）
 ; 相加时，要求其结果必须是32位的无符号值0（即 magic + flags + checksum = 0）
-MBOOT_CHECKSUM		EQU	-(MBOOT_HEADER_MAGIC+MBOOT_HEADER_FLAGS)
+MBOOT_CHECKSUM EQU -(MBOOT_HEADER_MAGIC+MBOOT_HEADER_FLAGS)
 
 ; 符合 Multiboot 规范的 OS 映象需要这样一个 magic Multiboot 头
 ; Multiboot 头的分布必须如下表所示：
@@ -57,6 +57,7 @@ start:
 	MOV EBP, 0						; 帧指针修改为0
 	AND ESP, 0FFFFFFF0H				; 栈地址按照16字节对齐
 	MOV [glb_mboot_ptr], EBX		; 将 ebx 中存储的指针存入全局变量
+	PUSH EBX						; 将 ebx 中存储的指针压栈
 	CALL kernel_init				; 调用内核初始化函数
 
 stop:

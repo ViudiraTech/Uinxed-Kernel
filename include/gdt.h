@@ -28,8 +28,8 @@ struct gdt_entry_t {
 /* GDTR */
 typedef
 struct gdt_ptr_t {
-	uint16_t limit;     	// 全局描述符表限长
-	uint32_t base;      	// 全局描述符表 32 位基地址
+	uint16_t limit;			// 全局描述符表限长
+	uint32_t base; 			// 全局描述符表 32 位基地址
 } __attribute__((packed)) gdt_ptr_t;
 
 /* 初始化全局描述符表 */

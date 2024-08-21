@@ -25,8 +25,8 @@
 #define VGA_GC_INDEX		0x3CE
 #define VGA_GC_DATA			0x3CF
 
-#define VGA_CRTC_INDEX		0x3D4 /* 0x3B4 */
-#define VGA_CRTC_DATA		0x3D5 /* 0x3B5 */
+#define VGA_CRTC_INDEX		0x3D4 //0x3B4
+#define VGA_CRTC_DATA		0x3D5 //0x3B5
 #define VGA_INSTAT_READ		0x3DA
 #define VGA_NUM_SEQ_REGS	5
 #define VGA_NUM_CRTC_REGS	25
@@ -151,13 +151,13 @@ void set_font(char *fontbuf)
 
 	/* 设置字库 */
 	write_font((unsigned char *)fontbuf, 16);
-	pokew(0x40, 0x4A, cols);			// 屏幕上的列
-	pokew(0x40, 0x4C, cols * rows * 2);	// 帧缓冲器大小
-	pokew(0x40, 0x50, 0);				// 光标位置
-	pokeb(0x40, 0x60, ht - 1);			// 光标形状
+	pokew(0x40, 0x4A, cols);				// 屏幕上的列
+	pokew(0x40, 0x4C, cols * rows * 2);		// 帧缓冲器大小
+	pokew(0x40, 0x50, 0);					// 光标位置
+	pokeb(0x40, 0x60, ht - 1);				// 光标形状
 	pokeb(0x40, 0x61, ht - 2);
-	pokeb(0x40, 0x84, rows - 1);		// 屏幕上的行数 - 1
-	pokeb(0x40, 0x85, ht);				// 字符高度
+	pokeb(0x40, 0x84, rows - 1);			// 屏幕上的行数 - 1
+	pokeb(0x40, 0x85, ht);					// 字符高度
 }
 
 void init_kfont()

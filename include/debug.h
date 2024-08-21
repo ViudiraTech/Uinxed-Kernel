@@ -15,8 +15,8 @@
 #include "console.h"
 
 #define assert(exp)	\
-    if (exp);		\
-    else			\
+	if (exp);		\
+	else			\
 		assertion_failure(#exp, __FILE__, get_filename(__FILE__), __LINE__)
 
 /* 初始化 Debug 信息 */
