@@ -136,7 +136,6 @@ void switch_page_directory(page_directory_t *dir)
 /* 获取给定虚拟地址对应的页表项 */
 page_t *get_page(uint32_t address, int make, page_directory_t *dir)
 {
-
 	address /= 0x1000;
 	uint32_t table_idx = address / 1024;
 	if (dir->tables[table_idx]) return &dir->tables[table_idx]->pages[address % 1024];
@@ -224,10 +223,10 @@ page_directory_t *clone_directory(page_directory_t *src)
 }
 
 /* 初始化内存分页 */
-void init_page(void)
+void init_page(multiboot_t *mboot)
 {
 	print_busy("Initializing memory paging...\r"); // 提示用户正在初始化内存分页，并回到行首等待覆盖
-	
+
 	uint32_t mem_end_page = 0xFFFFFFFF; // 4GB 页
 
 	nframes = mem_end_page / 0x1000;
@@ -244,17 +243,19 @@ void init_page(void)
 	current_directory = kernel_directory;
 	int i = 0;
 
-
 	while (i < (int)(placement_address + 0x30000)) {
 		/* 内核部分对ring3而言可读不可写 | 无偏移页表映射 */
 		alloc_frame(get_page(i, 1, kernel_directory), 0, 0);
 		i += 0x1000;
 	}
-    
+    unsigned int j = mboot->framebuffer_addr,size = mboot->framebuffer_height * mboot->framebuffer_width*mboot->framebuffer_bpp;
+    while (j <= mboot->framebuffer_addr + size){
+        alloc_frame_line(get_page(j,1,kernel_directory),j,0,1);
+        j += 0x1000;
+    }
 	for (unsigned int i = (unsigned int)KHEAP_START; i < (unsigned int)(KHEAP_START + KHEAP_INITIAL_SIZE); i++) {
 		alloc_frame(get_page(i, 1, kernel_directory), 0, 0);
 	}
-
 	register_interrupt_handler(14, page_fault);
 	switch_page_directory(kernel_directory);
 

@@ -28,7 +28,6 @@ uint32_t kmalloc_i_ap(uint32_t size, uint32_t *phys)
 	if (phys) *phys = placement_address;
 	uint32_t tmp = placement_address;
 	placement_address += size;
-
 	return tmp;
 }
 
@@ -52,7 +51,6 @@ static uint32_t kmalloc_int(size_t sz, uint32_t align, uint32_t *phys)
 	if (phys) *phys	= placement_address;
 	uint32_t tmp	= placement_address;
 	placement_address += sz;
-
 	return tmp;
 }
 

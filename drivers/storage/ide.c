@@ -50,14 +50,18 @@ const char *ide_get_desc(void)
 /* 初始化IDE设备 */
 int ide_init(void)
 {
+	/* 检测计算机是否拥有IDE控制器 */
+	if (inb(IOBASE + ISA_STATUS) == 0xFF) {
+		return -1;
+	}
 	ide_wait_ready(IOBASE, 0);
 
 	/* 1: 选择要操作的设备
-	 * 0xE0 代表IDE Primary Master	(IDE 0.0)
-	 * 0xF0 代表IDE Primary Slave	(IDE 0.1)
-	 * 0xC0 代表IDE Secondary Master	(IDE 1.0)
-	 * 0xD0 代表IDE Secondary Slave	(IDE 1.1)
-	 */
+	* 0xE0 代表IDE Primary Master	(IDE 0.0)
+	* 0xF0 代表IDE Primary Slave	(IDE 0.1)
+	* 0xC0 代表IDE Secondary Master	(IDE 1.0)
+	* 0xD0 代表IDE Secondary Slave	(IDE 1.1)
+	*/
 	outb(IOBASE + ISA_SDH, 0xE0);
 	ide_wait_ready(IOBASE, 0);
 
@@ -69,7 +73,6 @@ int ide_init(void)
 	if (inb(IOBASE + ISA_STATUS) == 0 || ide_wait_ready(IOBASE, 1) != 0) {
 		return -1;
 	}
-
 	ide_device.valid = 1;
 
 	/* 读取IDE设备信息 */

@@ -39,7 +39,6 @@ static int cmd_parse(uint8_t *cmd_str, uint8_t **argv, uint8_t token) // 用uint
 		argv[arg_idx] = NULL;
 		arg_idx++;
 	}
-
 	uint8_t *next = cmd_str;					// 下一个字符
 	int	argc = 0;								// 这就是要返回的argc了
 
@@ -92,12 +91,13 @@ static void readline(uint8_t *buf, int cnt, int prompt_len)
 void shell_help(void)
 {
 	printk("+---------+------------------------------+\n"
-           "| Command |   Command description        |\n"
+           "| Command | Command description          |\n"
            "+---------+------------------------------+\n"
-           "|  help   | Show help like this.         |\n"
-           "|  clear  | Clear the screen.            |\n"
-           "|  cpuid  | List for CPU information.    |\n"
-           "|  lspci  | List for All the PCI device. |\n"
+           "| help    | Show help like this.         |\n"
+           "| clear   | Clear the screen.            |\n"
+           "| cpuid   | List for CPU information.    |\n"
+           "| lspci   | List for All the PCI device. |\n"
+           "| hltst   | Test the Kernel-Panic.       |\n"
            "+---------+------------------------------+\n\n");
 	return;
 }
@@ -107,6 +107,11 @@ void shell_lspci(void)
 	pci_device_info();
 	printk("\n");
 	return;
+}
+
+void shell_hltst(void)
+{
+	panic("Test the Kernel-Panic.");
 }
 
 typedef struct builtin_cmd
@@ -119,7 +124,8 @@ builtin_cmd_t builtin_cmds[] = {
 	{"clear", (void (*)(int))console_clear},
 	{"help", (void (*)(int))shell_help},
 	{"cpuid", (void (*)(int))print_cpu_id},
-	{"lspci", (void (*)(int))shell_lspci}
+	{"lspci", (void (*)(int))shell_lspci},
+	{"hltst", (void (*)(int))shell_hltst}
 };
 
 /* 内建命令数量 */

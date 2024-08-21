@@ -41,7 +41,7 @@ int fifo_get(fifo_t *fifo)
 {
 	int data;
 
-	if (fifo->free == fifo->size) return -	1;
+	if (fifo->free == fifo->size) return - 1;
 
 	data = fifo->buf[fifo->q];
 	fifo->q++;

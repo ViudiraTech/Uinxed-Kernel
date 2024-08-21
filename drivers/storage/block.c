@@ -27,17 +27,15 @@ void block_init(void)
 		print_warn("Main IDE Device Not Found!\n");
 		return;
 	}
-
 	add_block(ide_dev);
 
 	if (!ide_dev->ops.device_valid()) {
 		print_erro("Main IDE Device Error!\n");
 		return;
 	}
-
 	print_succ("Found IDE Driver:");
 	printk(" %u(sectors) Desc: %s\n",
-            ide_dev->ops.get_nr_block(), ide_dev->ops.get_desc());
+           ide_dev->ops.get_nr_block(), ide_dev->ops.get_desc());
 
 	if (read_mbr_info(ide_dev) != 0) {
 		print_erro("Read MBR Info Error!\n");
@@ -54,7 +52,6 @@ int add_block(block_t *bdev)
 		}
 		bdev->next = (struct block_dev *)block_devs;
 	}
-
 	bdev->next = (struct block_dev *)block_devs;
 	block_devs = bdev;
 	return 0;

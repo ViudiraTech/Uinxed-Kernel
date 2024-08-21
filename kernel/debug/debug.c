@@ -47,10 +47,10 @@ void print_cur_status(void)
 /* 内核恐慌 */
 void panic(const char *msg)
 {
-	printk("*** Kernel panic: %s\n", msg);
+	printk("*** Kernel-Panic: %s\n", msg);
 	print_stack_trace();
 	printk("***\n");
-	
+
 	/* 致命错误发生后打印栈信息后停止在这里 */
 	krn_halt();
 }

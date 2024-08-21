@@ -161,7 +161,7 @@ uint32_t read_bar_n(uint8_t bus, uint8_t device, uint8_t function, uint8_t bar_n
 void write_pci(uint8_t bus, uint8_t device, uint8_t function, uint8_t registeroffset, uint32_t value)
 {
 	uint32_t id = 1 << 31 | ((bus & 0xff) << 16) | ((device & 0x1f) << 11) |
-                        ((function & 0x07) << 8) | (registeroffset & 0xfc);
+                            ((function & 0x07) << 8) | (registeroffset & 0xfc);
 	outl(PCI_COMMAND_PORT, id);
 	outl(PCI_DATA_PORT, value);
 }
@@ -182,7 +182,7 @@ void pci_write_command_status(uint8_t bus, uint8_t slot, uint8_t func, uint32_t 
 uint32_t read_pci(uint8_t bus, uint8_t device, uint8_t function, uint8_t registeroffset)
 {
 	uint32_t id = 1 << 31 | ((bus & 0xff) << 16) | ((device & 0x1f) << 11) |
-                        ((function & 0x07) << 8) | (registeroffset & 0xfc);
+                            ((function & 0x07) << 8) | (registeroffset & 0xfc);
 	outl(PCI_COMMAND_PORT, id);
 	uint32_t result = inl(PCI_DATA_PORT);
 	return result >> (8 * (registeroffset % 4));
@@ -222,7 +222,7 @@ void pci_config(unsigned int bus, unsigned int f, unsigned int equipment, unsign
 {
 	unsigned int cmd = 0;
 	cmd = 0x80000000 + (unsigned int)adder + ((unsigned int)f << 8) +
-           ((unsigned int)equipment << 11) + ((unsigned int)bus << 16);
+                       ((unsigned int)equipment << 11) + ((unsigned int)bus << 16);
 	outl(PCI_COMMAND_PORT, cmd);
 }
 
@@ -254,14 +254,14 @@ void pci_device_info(void)
 					/* 读取class_code */
 					uint32_t value_c = read_pci(BUS, Equipment, F, PCI_CONF_REVISION);
 					uint32_t class_code = value_c >> 8;
-
+	
 					uint16_t value_v = read_pci(BUS, Equipment, F, PCI_CONF_VENDOR);
 					uint16_t value_d = read_pci(BUS, Equipment, F, PCI_CONF_DEVICE);
 					uint16_t vendor_id = value_v & 0xffff;
 					uint16_t device_id = value_d & 0xffff;
-
+	
 					/* 打印PCI设备信息 */
-					printk("|%02d   %02d    %02d    0x%04X    0x%04X    0x%X    %s\n", BUS, Equipment, F, vendor_id, device_id,class_code, pci_classname(class_code));
+					printk("|%03d  %02d    %02d    0x%04X    0x%04X    0x%06X   %s\n", BUS, Equipment, F, vendor_id, device_id, class_code, pci_classname(class_code));
 				}
 			}
 		}

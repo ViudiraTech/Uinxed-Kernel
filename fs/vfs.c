@@ -96,7 +96,6 @@ bool vfs_mount_disk(uint8_t disk_number, uint8_t drive)
 			return false;
 		}
 	}
-
 	vfs_t *seat = findSeat(vfsMount_Stl);
 	if (!seat) {
 		printk("can not find a seat of vfsMount_Stl(it's full)\n");
@@ -381,12 +380,10 @@ bool vfs_change_disk(uint8_t drive)
 		DeleteList(vfs_now->path);
 		kfree(vfs_now);
 	}
-
 	vfs_t *f;
 	if (!(f = drive2fs(drive))) {
 		return false; // 没有mount
 	}
-
 	vfs_now = (vfs_t *)kmalloc(sizeof(vfs_t));
 	memcpy((uint8_t *)vfs_now, (const uint8_t *)f, sizeof(vfs_t));
 	f->CopyCache(vfs_now, f);
