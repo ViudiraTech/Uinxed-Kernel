@@ -45,7 +45,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	init_gdt();					// 初始化gdt
 	init_idt();					// 初始化idt
 	ISR_registe_Handle();		// 注册ISR处理
-	init_page(glb_mboot_ptr);	// 初始化内存分页
+	init_page();				// 初始化内存分页
 	init_pci();					// 初始化PCI设备
 	init_serial();				// 初始化计算机串口
 	init_keyboard();			// 初始化键盘驱动
