@@ -36,6 +36,9 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 {
 	console_clear(); // 清屏
 
+	if ((glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower) / 1024 + 1 < 16) {
+		panic("OUT_OF_MEMORY");
+	}
 	printk("Uinxed-Kernel "KERNL_VERS"(build-%d)\n", KERNL_BUID);		// 打印内核信息
 	printk(PROJK_COPY"\n");												// 打印版权信息
 	printk("This version compiles at "BUILD_DATE" "BUILD_TIME"\n\n");	// 打印编译日期时间

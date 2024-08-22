@@ -84,4 +84,4 @@ void *ksbrk(int incr);
 /* 尝试在现有的内存块中找到足够大的空闲块 */
 void *alloc(size_t size);
 
-#endif
+#endif // UINXED_KERNEL_MEMORY_H
