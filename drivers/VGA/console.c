@@ -71,6 +71,21 @@ void console_clear(void)
 	move_cursor();
 }
 
+/* 清屏操作（带颜色） */
+void console_clear_color(real_color_t back, real_color_t fore)
+{
+	uint8_t attribute_byte = (back << 4) | (fore & 0x0F);
+	uint16_t blank = 0x20 | (attribute_byte << 8);
+
+	int i;
+	for (i = 0; i < 80 * 25; i++) {
+		video_memory[i] = blank;
+	}
+	cursor_x = 0;
+	cursor_y = 0;
+	move_cursor();
+}
+
 /* 屏幕输出一个字符（带颜色） */
 void console_putc_color(char c, real_color_t back, real_color_t fore)
 {
