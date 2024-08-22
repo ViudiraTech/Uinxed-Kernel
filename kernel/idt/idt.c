@@ -81,8 +81,6 @@ void irq15(void); 		// IDE1 传输控制使用
 /* 32～255 用户自定义异常 */
 void isr255(void);
 
-// 从 idt.h 迁移 结束
-
 /* 中断描述符表 */
 idt_entry_t idt_entries[256];
 
@@ -225,7 +223,8 @@ void isr_handler(pt_regs *regs)
 	if (interrupt_handlers[regs->int_no]) {
 		interrupt_handlers[regs->int_no](regs);
 	} else {
-		printk_color(rc_black, rc_blue, "Unhandled interrupt: %d\n", regs->int_no);
+		print_warn("Unhandled interrupt: ");
+		printk("0x%02X\n", regs->int_no);
 	}
 }
 

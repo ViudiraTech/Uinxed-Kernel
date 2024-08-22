@@ -14,8 +14,6 @@
 #include "vargs.h"
 #include "printk.h"
 
-static int vsprintf(char *buff, const char *format, va_list args);
-
 /* 打印带有”[ ** ]“的字符串 */
 void print_busy(char *str)
 {
@@ -194,7 +192,7 @@ static char *number(char *str, int num, int base, int size, int precision, int t
 }
 
 /* 格式化字符串并将其输出到一个字符数组中 */
-static int vsprintf(char *buff, const char *format, va_list args)
+int vsprintf(char *buff, const char *format, va_list args)
 {
 	int len;
 	int i;
@@ -340,4 +338,13 @@ static int vsprintf(char *buff, const char *format, va_list args)
 	}
 	*str = '\0';
 	return (str -buff);
+}
+
+/* 将格式化的输出存储在字符数组中 */
+void sprintf(char *str,const char *fmt, ...)
+{
+	va_list arg;
+	va_start(arg,fmt);
+	vsprintf(str,fmt,arg);
+	va_end(arg);
 }

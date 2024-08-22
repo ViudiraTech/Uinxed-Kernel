@@ -111,7 +111,7 @@ void shell_lspci(void)
 
 void shell_hltst(void)
 {
-	panic("Test the Kernel-Panic.");
+	panic("TEST_KERNEL_PANIC");
 }
 
 typedef struct builtin_cmd

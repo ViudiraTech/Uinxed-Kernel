@@ -14,6 +14,7 @@
 #include "printk.h"
 #include "idt.h"
 #include "common.h"
+#include "debug.h"
 
 page_directory_t *kernel_directory	= 0;	// 内核用页目录
 page_directory_t *current_directory	= 0;	// 当前页目录
@@ -74,9 +75,7 @@ void alloc_frame(page_t *page, int is_kernel, int is_writable)
 	else {
 		uint32_t idx = first_frame();
 		if (idx == (uint32_t) - 1) {
-			printk("FRAMES_FREE_ERROR: Cannot free frames!\n");
-			disable_intr();
-			krn_halt();
+			panic("FRAMES_FREE_ERROR-CannotFreeFrames");
 		}
 		set_frame(idx * 0x1000);
 		page->present	= 1;					// 现在这个页存在了
@@ -155,23 +154,28 @@ void page_fault(pt_regs *regs)
 	uint32_t faulting_address;
 	asm volatile("mov %%cr2, %0" : "=r" (faulting_address));
 
+	char s[50];
 	int present = !(regs->err_code & 0x1);		// 页不存在
 	int rw = regs->err_code & 0x2;				// 只读页被写入
 	int us = regs->err_code & 0x4;				// 用户态写入内核页
 	int reserved = regs->err_code & 0x8;		// 写入CPU保留位
 	int id = regs->err_code & 0x10;				// 由取指引起
 
-	print_erro("Page fault! ");
 	if (present) {
-		printk("Type: present Address: %x", faulting_address);
+		sprintf(s, "PAGE_FAULT-Present-Address: 0x%8X", faulting_address);
+		panic(s);
 	} else if (rw) {
-		printk("Type: read-only Address: %x", faulting_address);
+		sprintf(s, "PAGE_FAULT-ReadOnly-Address: 0x%8X", faulting_address);
+		panic(s);
 	} else if (us) {
-		printk("Type: user-mode Addres: %x", faulting_address);
+		sprintf(s, "PAGE_FAULT-UserMode-Address: 0x%8X", faulting_address);
+		panic(s);
 	} else if (reserved) {
-		printk("Type: reserved Address: %x", faulting_address);
+		sprintf(s, "PAGE_FAULT-Reserved-Address: 0x%8X", faulting_address);
+		panic(s);
 	} else if (id) {
-		printk("Type: decode address Address: %x", faulting_address);
+		sprintf(s, "PAGE_FAULT-DecodeAddress-Address: 0x%8X", faulting_address);
+		panic(s);
 	}
 	krn_halt();
 }

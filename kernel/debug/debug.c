@@ -63,9 +63,9 @@ void panic(const char *msg)
 	printk_color(rc_blue, rc_white, "    2.Check the compatibility of the kernel with the hardware.\n");
 	printk_color(rc_blue, rc_white, "    3.Seek help from a professional.\n\n");
 	printk_color(rc_blue, rc_white, "Technical information:\n");
-	printk_color(rc_blue, rc_white, "\n*** STOP - Kernel-Panic: %s\nEIP:    ", msg);
+	printk_color(rc_blue, rc_white, "\n*** STOP - Kernel-Panic: %s\n\nEIP:    ", msg);
 	for (int i = 0; i < 5; i++) {
-		printk_color(rc_blue, rc_white, "[0x%X: %s]", eips[ps++], syname[sy++]);
+		printk_color(rc_blue, rc_white, "[0x%06X: %s]", eips[ps++], syname[sy++]);
 	}
 	printk_color(rc_blue, rc_white, "\nSTATUS: [RING: %d][CS: %d][DS: %d][ES: %d][SS: %d]\n", ring, regs1, regs2, regs3, regs4);
 	krn_halt();
