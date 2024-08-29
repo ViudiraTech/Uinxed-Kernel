@@ -11,6 +11,10 @@
 
 #include "console.h"
 #include "common.h"
+#include "serial.h"
+
+/* 输出控制台到串口设备 */
+#define OUT_CONSOLE_OF_SERIAL 1
 
 /* VGA 的显示缓冲的起点是0xB8000 */
 static uint16_t *video_memory = (uint16_t *)0xB8000;
@@ -117,6 +121,10 @@ void console_putc_color(char c, real_color_t back, real_color_t fore)
 		cursor_x = 0;
 		cursor_y ++;
 	}
+
+#if OUT_CONSOLE_OF_SERIAL
+	write_serial(c); // 输出控制台到串口设备
+#endif
 
 	/* 如果需要的话滚动屏幕显示 */
 	scroll();
