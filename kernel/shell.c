@@ -119,10 +119,10 @@ void shell_hltst(void)
 
 void shell_cetsl(int argc, char *argv[])
 {
-	if (strcmp(argv[1], "1") == 0) {
+	if (strcmp(argv[1], "1") == 0 || strcmp(argv[1], "true") == 0) {
 		console_to_serial = true;
 		printk("console_to_serial: Enable\n");
-	} else if (strcmp(argv[1], "0") == 0) {
+	} else if (strcmp(argv[1], "0") == 0 || strcmp(argv[1], "false") == 0) {
 		console_to_serial = false;
 		printk("console_to_serial: Disable\n");
 	} else {
