@@ -22,6 +22,8 @@
 #define MAX_COMMAND_LEN	100
 #define MAX_ARG_NR		30
 
+bool console_to_serial = false;
+
 /* 从FIFO中读取一个按键事件 */
 static int read_key_blocking(char *buf)
 {
@@ -90,15 +92,16 @@ static void readline(uint8_t *buf, int cnt, int prompt_len)
 /* help命令 */
 void shell_help(void)
 {
-	printk("+---------+------------------------------+\n"
-           "| Command | Command description          |\n"
-           "+---------+------------------------------+\n"
-           "| help    | Show help like this.         |\n"
-           "| clear   | Clear the screen.            |\n"
-           "| cpuid   | List for CPU information.    |\n"
-           "| lspci   | List for All the PCI device. |\n"
-           "| hltst   | Test the Kernel-Panic.       |\n"
-           "+---------+------------------------------+\n\n");
+	printk("+---------+---------------------------------------+\n"
+           "| Command | Command description                   |\n"
+           "+---------+---------------------------------------+\n"
+           "| help    | Show help like this.                  |\n"
+           "| clear   | Clear the screen.                     |\n"
+           "| cpuid   | List for CPU information.             |\n"
+           "| lspci   | List for All the PCI device.          |\n"
+           "| hltst   | Test the Kernel-Panic.                |\n"
+           "| cetsl   | Enable/Disable serial console output. |\n"
+           "+---------+---------------------------------------+\n\n");
 	return;
 }
 
@@ -114,18 +117,34 @@ void shell_hltst(void)
 	panic("TEST_KERNEL_PANIC");
 }
 
+void shell_cetsl(int argc, char *argv[])
+{
+	if (strcmp(argv[1], "1") == 0) {
+		console_to_serial = true;
+		printk("console_to_serial: Enable\n");
+	} else if (strcmp(argv[1], "0") == 0) {
+		console_to_serial = false;
+		printk("console_to_serial: Disable\n");
+	} else {
+		printk("Usage: %s [BOOLEAN]\n", argv[0]);
+	}
+	printk("\n");
+	return;
+}
+
 typedef struct builtin_cmd
 {
 	char *name;
-	void (*func)(int argc);
+	void (*func)(int, char **);
 } builtin_cmd_t;
 
 builtin_cmd_t builtin_cmds[] = {
-	{"clear", (void (*)(int))console_clear},
-	{"help", (void (*)(int))shell_help},
-	{"cpuid", (void (*)(int))print_cpu_info},
-	{"lspci", (void (*)(int))shell_lspci},
-	{"hltst", (void (*)(int))shell_hltst}
+	{"clear", (void (*)(int, char **))console_clear},
+	{"help", (void (*)(int, char **))shell_help},
+	{"cpuid", (void (*)(int, char **))print_cpu_info},
+	{"lspci", (void (*)(int, char **))shell_lspci},
+	{"hltst", (void (*)(int, char **))shell_hltst},
+	{"cetsl", shell_cetsl}
 };
 
 /* 内建命令数量 */
@@ -178,7 +197,7 @@ void shell(void)
 			/* 找不到该命令 */
 			printk("Command not found.\n\n");
 		} else {
-			builtin_cmds[cmd_index].func(argc);
+			builtin_cmds[cmd_index].func(argc, (char **)argv);
 		}
 	}
 }
