@@ -19,6 +19,13 @@
 	else			\
 		assertion_failure(#exp, __FILE__, get_filename(__FILE__), __LINE__)
 
+#define assertx(x, info)	\
+	do {					\
+		if (!(x)) {			\
+			panic(info);	\
+		}					\
+	} while (0)
+
 /* 初始化 Debug 信息 */
 void init_debug(void);
 

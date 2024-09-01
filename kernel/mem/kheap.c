@@ -18,6 +18,12 @@ extern uint32_t end;
 static uint32_t placement_address = (uint32_t) &end;
 void *program_break, *program_break_end;
 
+/* 开启分页机制后的内核栈 */
+char kern_stack[STACK_SIZE] __attribute__ ((aligned(16)));
+
+/* 栈顶 */
+uint32_t kern_stack_top = ((uint32_t)kern_stack + STACK_SIZE);
+
 /* 分配内存，同时返回物理地址 */
 uint32_t kmalloc_i_ap(uint32_t size, uint32_t *phys)
 {

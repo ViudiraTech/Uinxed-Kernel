@@ -14,6 +14,7 @@
 #include "cmos.h"
 #include "printk.h"
 #include "idt.h"
+#include "sched.h"
 
 uint32_t tick = 0;
 extern struct task_struct *current;
@@ -34,6 +35,7 @@ static void timer_handle(pt_regs *regs)
 {
 	disable_intr();
 	tick++;
+	schedule();
 	enable_intr();
 }
 
