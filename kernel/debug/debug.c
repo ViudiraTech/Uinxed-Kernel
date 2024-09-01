@@ -44,7 +44,7 @@ void print_cur_status(uint16_t* ring, uint16_t* regs1, uint16_t* regs2, uint16_t
 	++round;
 }
 
-/* 内核恐慌 */
+/* 内核异常 */
 void panic(const char *msg)
 {
 	uint16_t ring = 0, regs1 = 0, regs2 = 0, regs3 = 0, regs4 = 0;

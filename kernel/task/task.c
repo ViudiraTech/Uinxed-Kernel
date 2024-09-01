@@ -25,7 +25,7 @@ int32_t kernel_thread(int (*fn)(void *), void *arg)
 {
 	struct task_struct *new_task = (struct task_struct *)kmalloc(STACK_SIZE);
 	
-	assertx(new_task != NULL, "kern_thread: kmalloc error");
+	assertx(new_task != NULL, "KERNEL_THREAD_KMALLOC_ERROR");
 
 	/* 将栈低端结构信息初始化为 0 */ 
 	bzero(new_task, sizeof(struct task_struct));
@@ -49,7 +49,7 @@ int32_t kernel_thread(int (*fn)(void *), void *arg)
 	
 	/* 找到当前进任务队列，插入到末尾 */
 	struct task_struct *tail = running_proc_head;
-	assertx(tail != NULL, "Must init sched!");
+	assertx(tail != NULL, "MUST_INIT_SCHED");
 
 	while (tail->next != running_proc_head) {
 		tail = tail->next;
