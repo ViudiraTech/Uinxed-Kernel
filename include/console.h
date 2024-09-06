@@ -58,4 +58,7 @@ void console_write_hex(uint32_t n, real_color_t back, real_color_t fore);
 /* 屏幕输出一个十进制的整型数 */
 void console_write_dec(uint32_t n, real_color_t back, real_color_t fore);
 
+/* 屏幕输出映射到串口 */
+void console_to_serial(int op);
+
 #endif // INCLUDE_CONSOLE_H_

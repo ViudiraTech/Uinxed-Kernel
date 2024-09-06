@@ -43,8 +43,10 @@ int kthread_shell(void *arg)
 /* 内核入口 */
 void kernel_init(multiboot_t *glb_mboot_ptr)
 {
-	console_clear(); // 清屏
+	console_to_serial(1);		// 输出内核启动日志到串口
+	console_clear();			// 清屏
 
+	/* 检测内存是否达到最低要求 */
 	if ((glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower) / 1024 + 1 < 16) {
 		panic("OUT_OF_MEMORY");
 	}
@@ -79,5 +81,6 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	console_write_newline();	// 打印一个空行，和上面的信息保持隔离
 	print_cpu_info();			// 打印当前CPU的信息
 
+	console_to_serial(0);		// 停止输出内核启动日志到串口
 	kernel_thread(kthread_shell, NULL);
 }

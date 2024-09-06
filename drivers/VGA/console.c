@@ -12,8 +12,9 @@
 #include "console.h"
 #include "common.h"
 #include "serial.h"
+#include "printk.h"
 
-int console_to_serial = 0;
+int console_serial = 0;
 
 /* VGA 的显示缓冲的起点是0xB8000 */
 static uint16_t *video_memory = (uint16_t *)0xB8000;
@@ -121,7 +122,7 @@ void console_putc_color(char c, real_color_t back, real_color_t fore)
 		cursor_y ++;
 	}
 
-	if (console_to_serial == 1) write_serial(c); // 输出控制台到串口设备
+	if (console_serial == 1) write_serial(c); // 输出控制台到串口设备
 
 	/* 如果需要的话滚动屏幕显示 */
 	scroll();
@@ -133,8 +134,7 @@ void console_putc_color(char c, real_color_t back, real_color_t fore)
 /* 屏幕打印一个空行 */
 void console_write_newline(void)
 {
-	cursor_x = 0;
-	cursor_y++;
+	printk("\n");
 }
 
 /* 屏幕打印一个以 \0 结尾的字符串（默认黑底白字） */
@@ -201,4 +201,13 @@ void console_write_dec(uint32_t n, real_color_t back, real_color_t fore)
 		c2[i--] = c[j++];
 	}
 	console_write_color(c2, back, fore);
+}
+
+/* 屏幕输出映射到串口 */
+void console_to_serial(int op)
+{
+	if (op == 1)
+		console_serial = 1;
+	else
+		console_serial = 0;
 }

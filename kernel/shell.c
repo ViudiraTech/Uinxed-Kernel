@@ -118,13 +118,11 @@ void shell_hltst(void)
 void shell_cetsl(int argc, char *argv[])
 {
 	if (strcmp(argv[1], "1") == 0 || strcmp(argv[1], "true") == 0) {
-		extern int console_to_serial;
-		console_to_serial = 1;
-		printk("console_to_serial: Enable\n");
+		console_to_serial(1);
+		printk("The kernel console has been output to the serial port.\n");
 	} else if (strcmp(argv[1], "0") == 0 || strcmp(argv[1], "false") == 0) {
-		extern int console_to_serial;
-		console_to_serial = 0;
-		printk("console_to_serial: Disable\n");
+		console_to_serial(0);
+		printk("Stopped outputting the kernel console to the serial port.\n");
 	} else {
 		printk("Usage: %s [BOOLEAN]\n", argv[0]);
 	}
