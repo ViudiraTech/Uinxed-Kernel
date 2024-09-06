@@ -13,6 +13,8 @@
 #include "common.h"
 #include "serial.h"
 
+int console_to_serial = 0;
+
 /* VGA 的显示缓冲的起点是0xB8000 */
 static uint16_t *video_memory = (uint16_t *)0xB8000;
 
@@ -119,8 +121,7 @@ void console_putc_color(char c, real_color_t back, real_color_t fore)
 		cursor_y ++;
 	}
 
-	extern bool console_to_serial;
-	if (console_to_serial == true) write_serial(c); // 输出控制台到串口设备
+	if (console_to_serial == 1) write_serial(c); // 输出控制台到串口设备
 
 	/* 如果需要的话滚动屏幕显示 */
 	scroll();

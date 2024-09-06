@@ -22,8 +22,6 @@
 #define MAX_COMMAND_LEN	100
 #define MAX_ARG_NR		30
 
-bool console_to_serial = false;
-
 /* 从FIFO中读取一个按键事件 */
 static int read_key_blocking(char *buf)
 {
@@ -120,10 +118,12 @@ void shell_hltst(void)
 void shell_cetsl(int argc, char *argv[])
 {
 	if (strcmp(argv[1], "1") == 0 || strcmp(argv[1], "true") == 0) {
-		console_to_serial = true;
+		extern int console_to_serial;
+		console_to_serial = 1;
 		printk("console_to_serial: Enable\n");
 	} else if (strcmp(argv[1], "0") == 0 || strcmp(argv[1], "false") == 0) {
-		console_to_serial = false;
+		extern int console_to_serial;
+		console_to_serial = 0;
 		printk("console_to_serial: Disable\n");
 	} else {
 		printk("Usage: %s [BOOLEAN]\n", argv[0]);
