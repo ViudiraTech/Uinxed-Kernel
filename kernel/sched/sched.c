@@ -37,6 +37,7 @@ void init_sched(void)
 	current->pid = now_pid++;
 	current->stack = current;	// 该成员指向栈低地址
 	current->mm = NULL;			// 内核线程不需要该成员
+	current->name = "Uinxed-Kernel";	// 内核进程名称
 
 	/* 单向循环链表 */
 	current->next = current;

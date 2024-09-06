@@ -21,7 +21,7 @@
 pid_t now_pid = 0;
 
 /* 内核进程创建 */
-int32_t kernel_thread(int (*fn)(void *), void *arg)
+int32_t kernel_thread(int (*fn)(void *), void *arg, char *name)
 {
 	struct task_struct *new_task = (struct task_struct *)kmalloc(STACK_SIZE);
 	
@@ -34,6 +34,7 @@ int32_t kernel_thread(int (*fn)(void *), void *arg)
 	new_task->stack = current;
 	new_task->pid = now_pid++;
 	new_task->mm = NULL;
+	new_task->name = name;
 
 	uint32_t *stack_top = (uint32_t *)((uint32_t)new_task + STACK_SIZE);
 
@@ -65,4 +66,41 @@ void kthread_exit(void)
 	register uint32_t val asm ("eax");
 	printk("Thread exited with value %d\n", val);
 	while (1);
+}
+
+/* 打印当前的所有进程 */
+void print_task(struct task_struct *base, struct task_struct *cur)
+{
+	if (cur->pid == base->pid) {
+		switch (cur->state) {
+			case TASK_RUNNABLE:
+				printk("|%-30s %02d  %-s %d\n", cur->name, cur->pid, "Running");
+				break;
+			case TASK_SLEEPING:
+				printk("|%-30s %02d  %-s %d\n", cur->name, cur->pid, "Sleeping");
+				break;
+			case TASK_UNINIT:
+				printk("|%-30s %02d  %-s %d\n", cur->name, cur->pid, "Init");
+				break;
+			case TASK_ZOMBIE:
+				printk("|%-30s %02d  %-s %d\n", cur->name, cur->pid, "Zombie");
+				break;
+		}
+	} else {
+		switch (cur->state) {
+			case TASK_RUNNABLE:
+				printk("|%-30s %02d  %-s %d\n", cur->name, cur->pid, "Running");
+				break;
+			case TASK_SLEEPING:
+				printk("|%-30s %02d  %-s %d\n", cur->name, cur->pid, "Sleeping");
+				break;
+			case TASK_UNINIT:
+				printk("|%-30s %02d  %-s %d\n", cur->name, cur->pid, "Init");
+				break;
+			case TASK_ZOMBIE:
+				printk("|%-30s %02d  %-s %d\n", cur->name, cur->pid, "Zombie");
+				break;
+		}
+	print_task(base, cur->next);
+	}
 }

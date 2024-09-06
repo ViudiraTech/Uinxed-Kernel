@@ -82,5 +82,5 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	print_cpu_info();			// 打印当前CPU的信息
 
 	console_to_serial(0);		// 停止输出内核启动日志到串口
-	kernel_thread(kthread_shell, NULL);
+	kernel_thread(kthread_shell, NULL, "Basic shell program");
 }

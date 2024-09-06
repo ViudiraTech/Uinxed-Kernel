@@ -46,6 +46,7 @@ struct mm_struct {
 struct task_struct {
 	volatile task_state state;	// 进程当前状态
 	pid_t pid;					// 进程标识符
+	char *name;					// 进程名
 	void *stack;				// 进程的内核栈地址
 	struct mm_struct *mm;		// 当前进程的内存地址映像
 	struct context context;		// 进程切换需要的上下文信息
@@ -56,9 +57,12 @@ struct task_struct {
 extern pid_t now_pid;
 
 /* 内核进程创建 */
-int32_t kernel_thread(int (*fn)(void *), void *arg);
+int32_t kernel_thread(int (*fn)(void *), void *arg, char *name);
 
 /* 进程退出函数 */
 void kthread_exit(void);
+
+/* 打印当前的所有进程 */
+void print_task(struct task_struct *base, struct task_struct *cur);
 
 #endif // INCLUDE_TASK_H_

@@ -18,6 +18,8 @@
 #include "cpu.h"
 #include "pci.h"
 #include "printk.h"
+#include "task.h"
+#include "sched.h"
 
 #define MAX_COMMAND_LEN	100
 #define MAX_ARG_NR		30
@@ -97,6 +99,7 @@ void shell_help(void)
            "| clear   | Clear the screen.                     |\n"
            "| cpuid   | List for CPU information.             |\n"
            "| lspci   | List for All the PCI device.          |\n"
+           "| proc    | List for all task processes.          |\n"
            "| hltst   | Test the Kernel-Panic.                |\n"
            "| cetsl   | Enable/Disable serial console output. |\n"
            "+---------+---------------------------------------+\n\n");
@@ -107,6 +110,15 @@ void shell_lspci(void)
 {
 	pci_device_info();
 	printk("\n");
+	return;
+}
+
+void shell_proc(void)
+{
+	printk("+---------------------------------------------------------\n");
+	printk("|Name                           PID Status  MemUsage\n");
+	print_task(current, current->next);
+	printk("+---------------------------------------------------------\n\n");
 	return;
 }
 
@@ -141,6 +153,7 @@ builtin_cmd_t builtin_cmds[] = {
 	{"help", (void (*)(int, char **))shell_help},
 	{"cpuid", (void (*)(int, char **))print_cpu_info},
 	{"lspci", (void (*)(int, char **))shell_lspci},
+	{"proc", (void (*)(int, char **))shell_proc},
 	{"hltst", (void (*)(int, char **))shell_hltst},
 	{"cetsl", shell_cetsl}
 };
