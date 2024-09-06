@@ -71,8 +71,16 @@ clean:
 
 .PHONY:qemu_iso
 run:
-	$(QEMU) -cdrom Uinxed.iso
+	$(QEMU) -cdrom Uinxed.iso -serial stdio
+
+.PHONY:qemu_iso_debug
+run_db:
+	$(QEMU) -cdrom Uinxed.iso -serial stdio -d in_asm
 
 .PHONY:qemu_kernel
 runk:
-	$(QEMU) -kernel UxImage
+	$(QEMU) -kernel UxImage -serial stdio
+
+.PHONY:qemu_kernel_debug
+runk_db:
+	$(QEMU) -kernel UxImage -serial stdio -d in_asm
