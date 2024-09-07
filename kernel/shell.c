@@ -131,8 +131,14 @@ void shell_hltst(void)
 
 void shell_taskkill(int argc, char *argv[])
 {
+	int value = atoi(argv[1]);
+
 	if (argc > 1) {
-		task_kill(atoi(argv[1]));
+		if (value == 0 && (argv[1][0] != '0' || argv[1][1] != '\0')) {
+			printk("Argument is not an integer.\n");
+		} else if (argc > 1) {
+			task_kill(value);
+		}
 	} else {
 		printk("Usage: %s [PID]\n", argv[0]);
 	}
