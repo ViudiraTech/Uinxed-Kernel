@@ -10,6 +10,7 @@
  */
 
 #include "gdt.h"
+#include "common.h"
 #include "memory.h"
 #include "task.h"
 #include "sched.h"
@@ -65,52 +66,102 @@ void kthread_exit(void)
 {
 	register uint32_t val asm ("eax");
 	printk("Task [PID: %d] exited with value %d\n", current->pid, val);
+	task_kill(current->pid);
 	while (1);
 }
 
 /* 打印当前的所有进程 */
-int print_task(struct task_struct *base, struct task_struct *cur)
+void print_task(struct task_struct *base, struct task_struct *cur)
 {
-	int i = 1;
 	if (cur->pid == base->pid) {
 		switch (cur->state) {
 			case TASK_RUNNABLE:
 				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Running");
-				i++;
 				break;
 			case TASK_SLEEPING:
 				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Sleeping");
-				i++;
 				break;
 			case TASK_UNINIT:
 				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Init");
-				i++;
 				break;
 			case TASK_ZOMBIE:
 				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Zombie");
-				i++;
 				break;
 		}
 	} else {
 		switch (cur->state) {
 			case TASK_RUNNABLE:
 				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Running");
-				i++;
 				break;
 			case TASK_SLEEPING:
 				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Sleeping");
-				i++;
 				break;
 			case TASK_UNINIT:
 				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Init");
-				i++;
 				break;
 			case TASK_ZOMBIE:
 				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Zombie");
-				i++;
 				break;
 		}
 		print_task(base, cur->next);
 	}
-	return i;
+}
+
+/* 查找特定pid的结构体 */
+static void found_task(int pid, struct task_struct *head, struct task_struct *base,
+                       struct task_struct **argv, int first)
+{
+	struct task_struct *t = base;
+	if (t == NULL) {
+		argv = NULL;
+		return;
+	}
+	if (t->pid == (pid_t)pid) {
+		*argv = t;
+		return;
+	} else {
+		if (!first)
+			if (head->pid == t->pid) {
+				argv = NULL;
+				return;
+			}
+		found_task(pid, head, t->next, argv, 0);
+	}
+}
+
+/* 传回特定pid的结构体 */
+struct task_struct *found_task_pid(int pid)
+{
+	struct task_struct *argv = NULL;
+	found_task(pid, running_proc_head, running_proc_head, &argv, 1);
+	if (argv == NULL) {
+		return NULL;
+	}
+	return argv;
+}
+
+/* 杀死指定进程 */
+void task_kill(int pid)
+{
+	disable_intr();
+	struct task_struct *argv = found_task_pid(pid);
+	if (argv == NULL) {
+		printk("Cannot found task PID: %d\n", pid);
+		enable_intr();
+		return;
+	}
+	argv->state = TASK_DEATH;
+	printk("Taskkill process PID: %d,Name: %s\n", argv->pid, argv->name);
+	kfree(argv);
+	struct task_struct *head = running_proc_head;
+	struct task_struct *last = NULL;
+	while (1) {
+		if (head->pid == argv->pid) {
+			last->next = argv->next;
+			enable_intr();
+			return;
+		}
+		last = head;
+		head = head->next;
+	}
 }

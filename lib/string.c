@@ -187,3 +187,20 @@ char *get_filename(char *path)
 	char *filename = strchr(path, ch) + 1;
 	return filename;
 }
+
+/* 将字符串数字转换为整数数字 */
+int atoi(char* pstr)
+{
+	int ret_integer = 0;
+	int integer_sign = 1;
+
+	if (*pstr == '-') integer_sign = -1;
+	if (*pstr == '-' || *pstr == '+') pstr++;
+
+	while (*pstr >= '0' && *pstr <= '9') {
+		ret_integer = ret_integer * 10 + *pstr - '0';
+		pstr++;
+	}
+	ret_integer = integer_sign * ret_integer;
+	return ret_integer;
+}

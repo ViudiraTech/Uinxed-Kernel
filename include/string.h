@@ -62,4 +62,7 @@ void strtoupper(char *str);
 /* 从文件件路径中获取文件名 */
 char *get_filename(char *path);
 
+/* 将字符串数字转换为整数数字 */
+int atoi(char* pstr);
+
 #endif // INCLUDE_STRING_H_

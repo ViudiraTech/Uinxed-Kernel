@@ -92,17 +92,18 @@ static void readline(uint8_t *buf, int cnt, int prompt_len)
 /* help命令 */
 void shell_help(void)
 {
-	printk("+---------+---------------------------------------+\n"
-           "| Command | Command description                   |\n"
-           "+---------+---------------------------------------+\n"
-           "| help    | Show help like this.                  |\n"
-           "| clear   | Clear the screen.                     |\n"
-           "| cpuid   | List for CPU information.             |\n"
-           "| lspci   | List for All the PCI device.          |\n"
-           "| proc    | List for all task processes.          |\n"
-           "| hltst   | Test the Kernel-Panic.                |\n"
-           "| cetsl   | Enable/Disable serial console output. |\n"
-           "+---------+---------------------------------------+\n\n");
+	printk("+----------+---------------------------------------+\n"
+           "| Command  | Command description                   |\n"
+           "+----------+---------------------------------------+\n"
+           "| help     | Show help like this.                  |\n"
+           "| clear    | Clear the screen.                     |\n"
+           "| cpuid    | List for CPU information.             |\n"
+           "| lspci    | List for All the PCI device.          |\n"
+           "| proc     | List for all task processes.          |\n"
+           "| hltst    | Test the Kernel-Panic.                |\n"
+           "| taskkill | Kill task which is running.           |\n"
+           "| cetsl    | Enable/Disable serial console output. |\n"
+           "+----------+---------------------------------------+\n\n");
 	return;
 }
 
@@ -117,8 +118,7 @@ void shell_proc(void)
 {
 	printk("+---------------------------------------------------------\n");
 	printk("|Name                           PID Status   MemUsage\n");
-	int i = print_task(current, current->next);
-	printk("|Number of processes: %d\n", i);
+	print_task(current, current->next);
 	printk("+---------------------------------------------------------\n\n");
 	return;
 }
@@ -126,6 +126,17 @@ void shell_proc(void)
 void shell_hltst(void)
 {
 	panic("TEST_KERNEL_PANIC");
+}
+
+void shell_taskkill(int argc, char *argv[])
+{
+	if (argc > 1) {
+		task_kill(atoi(argv[1]));
+	} else {
+		printk("Usage: %s [PID]\n", argv[0]);
+	}
+	printk("\n");
+	return;
 }
 
 void shell_cetsl(int argc, char *argv[])
@@ -156,6 +167,7 @@ builtin_cmd_t builtin_cmds[] = {
 	{"lspci", (void (*)(int, char **))shell_lspci},
 	{"proc", (void (*)(int, char **))shell_proc},
 	{"hltst", (void (*)(int, char **))shell_hltst},
+	{"taskkill", (void (*)(int, char **))shell_taskkill},
 	{"cetsl", shell_cetsl}
 };
 
