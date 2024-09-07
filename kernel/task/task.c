@@ -71,7 +71,7 @@ void kthread_exit(void)
 }
 
 /* 打印当前的所有进程 */
-void print_task(struct task_struct *base, struct task_struct *cur)
+int print_task(struct task_struct *base, struct task_struct *cur, int count)
 {
 	if (cur->pid == base->pid) {
 		switch (cur->state) {
@@ -88,6 +88,7 @@ void print_task(struct task_struct *base, struct task_struct *cur)
 				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Zombie");
 				break;
 		}
+		count++;
 	} else {
 		switch (cur->state) {
 			case TASK_RUNNABLE:
@@ -103,8 +104,10 @@ void print_task(struct task_struct *base, struct task_struct *cur)
 				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Zombie");
 				break;
 		}
-		print_task(base, cur->next);
+		count++;
+		count = print_task(base, cur->next, count);
 	}
+	return count;
 }
 
 /* 查找特定pid的结构体 */
@@ -151,7 +154,7 @@ void task_kill(int pid)
 		return;
 	}
 	argv->state = TASK_DEATH;
-	printk("Taskkill process PID: %d,Name: %s\n", argv->pid, argv->name);
+	printk("Task [Name: %s][PID: %d] Stopped.\n", argv->name, argv->pid);
 	kfree(argv);
 	struct task_struct *head = running_proc_head;
 	struct task_struct *last = NULL;

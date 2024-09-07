@@ -64,7 +64,7 @@ int32_t kernel_thread(int (*fn)(void *), void *arg, char *name);
 void kthread_exit(void);
 
 /* 打印当前的所有进程 */
-void print_task(struct task_struct *base, struct task_struct *cur);
+int print_task(struct task_struct *base, struct task_struct *cur, int count);
 
 /* 传回特定pid的结构体 */
 struct task_struct *found_task_pid(int pid);
