@@ -64,7 +64,7 @@ int32_t kernel_thread(int (*fn)(void *), void *arg, char *name)
 void kthread_exit(void)
 {
 	register uint32_t val asm ("eax");
-	printk("Thread exited with value %d\n", val);
+	printk("Task [PID: %d] exited with value %d\n", current->pid, val);
 	while (1);
 }
 
@@ -74,31 +74,31 @@ void print_task(struct task_struct *base, struct task_struct *cur)
 	if (cur->pid == base->pid) {
 		switch (cur->state) {
 			case TASK_RUNNABLE:
-				printk("|%-30s %02d  %-s %d\n", cur->name, cur->pid, "Running");
+				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Running");
 				break;
 			case TASK_SLEEPING:
-				printk("|%-30s %02d  %-s %d\n", cur->name, cur->pid, "Sleeping");
+				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Sleeping");
 				break;
 			case TASK_UNINIT:
-				printk("|%-30s %02d  %-s %d\n", cur->name, cur->pid, "Init");
+				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Init");
 				break;
 			case TASK_ZOMBIE:
-				printk("|%-30s %02d  %-s %d\n", cur->name, cur->pid, "Zombie");
+				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Zombie");
 				break;
 		}
 	} else {
 		switch (cur->state) {
 			case TASK_RUNNABLE:
-				printk("|%-30s %02d  %-s %d\n", cur->name, cur->pid, "Running");
+				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Running");
 				break;
 			case TASK_SLEEPING:
-				printk("|%-30s %02d  %-s %d\n", cur->name, cur->pid, "Sleeping");
+				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Sleeping");
 				break;
 			case TASK_UNINIT:
-				printk("|%-30s %02d  %-s %d\n", cur->name, cur->pid, "Init");
+				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Init");
 				break;
 			case TASK_ZOMBIE:
-				printk("|%-30s %02d  %-s %d\n", cur->name, cur->pid, "Zombie");
+				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Zombie");
 				break;
 		}
 	print_task(base, cur->next);

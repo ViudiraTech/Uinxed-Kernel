@@ -116,7 +116,7 @@ void shell_lspci(void)
 void shell_proc(void)
 {
 	printk("+---------------------------------------------------------\n");
-	printk("|Name                           PID Status  MemUsage\n");
+	printk("|Name                           PID Status   MemUsage\n");
 	print_task(current, current->next);
 	printk("+---------------------------------------------------------\n\n");
 	return;
