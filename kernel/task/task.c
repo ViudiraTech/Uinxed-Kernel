@@ -69,38 +69,48 @@ void kthread_exit(void)
 }
 
 /* 打印当前的所有进程 */
-void print_task(struct task_struct *base, struct task_struct *cur)
+int print_task(struct task_struct *base, struct task_struct *cur)
 {
+	int i = 1;
 	if (cur->pid == base->pid) {
 		switch (cur->state) {
 			case TASK_RUNNABLE:
 				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Running");
+				i++;
 				break;
 			case TASK_SLEEPING:
 				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Sleeping");
+				i++;
 				break;
 			case TASK_UNINIT:
 				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Init");
+				i++;
 				break;
 			case TASK_ZOMBIE:
 				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Zombie");
+				i++;
 				break;
 		}
 	} else {
 		switch (cur->state) {
 			case TASK_RUNNABLE:
 				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Running");
+				i++;
 				break;
 			case TASK_SLEEPING:
 				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Sleeping");
+				i++;
 				break;
 			case TASK_UNINIT:
 				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Init");
+				i++;
 				break;
 			case TASK_ZOMBIE:
 				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Zombie");
+				i++;
 				break;
 		}
-	print_task(base, cur->next);
+		print_task(base, cur->next);
 	}
+	return i;
 }

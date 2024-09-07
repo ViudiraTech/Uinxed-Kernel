@@ -117,7 +117,8 @@ void shell_proc(void)
 {
 	printk("+---------------------------------------------------------\n");
 	printk("|Name                           PID Status   MemUsage\n");
-	print_task(current, current->next);
+	int i = print_task(current, current->next);
+	printk("|Number of processes: %d\n", i);
 	printk("+---------------------------------------------------------\n\n");
 	return;
 }
