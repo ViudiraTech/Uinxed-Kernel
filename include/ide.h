@@ -12,6 +12,8 @@
 #ifndef INCLUDE_IDE_H_
 #define INCLUDE_IDE_H_
 
+#include "block.h"
+
 #define SECTSIZE 512 // 默认扇区大小
 
 /*
@@ -59,6 +61,8 @@
 #define IDE_IDENT_MAX_LBA_EXT	200
 
 #define IDE_DESC_LEN			40			// IDE设备描述信息尺寸
+
+extern int no_ide_controller;
 
 /* 初始化IDE设备 */
 int ide_init(void);

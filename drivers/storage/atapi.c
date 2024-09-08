@@ -10,6 +10,7 @@
  */
 
 #include "atapi.h"
+#include "ide.h"
 
 /* 这段代码会延迟400纳秒 */
 static void ata_io_wait(const uint8_t p)
@@ -23,6 +24,10 @@ static void ata_io_wait(const uint8_t p)
 /* 从LBA到指针来读光盘扇区 */
 int read_cdrom(uint16_t port, bool slave, uint32_t lba, uint32_t sectors, uint16_t *buffer)
 {
+	if (no_ide_controller) {
+		printk("The IDE optical drive could not be found.\n");
+		return 1;
+	}
 	volatile uint8_t read_cmd[12] = {0xA8, 0,
                                     (lba >> 0x18) & 0xFF, (lba >> 0x10) & 0xFF, (lba >> 0x08) & 0xFF,
                                     (lba >> 0x00) & 0xFF,

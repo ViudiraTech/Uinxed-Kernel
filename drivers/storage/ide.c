@@ -16,6 +16,8 @@
 #include "debug.h"
 #include "ide.h"
 
+int no_ide_controller = 0;
+
 /* IDE 设备结构 */
 block_t ide_main_dev = {
 	.name = "IDE_MAIN",
@@ -52,7 +54,8 @@ int ide_init(void)
 {
 	/* 检测计算机是否拥有IDE控制器 */
 	if (inb(IOBASE + ISA_STATUS) == 0xFF) {
-		return -1;
+		no_ide_controller = 1;
+		return -2;
 	}
 	ide_wait_ready(IOBASE, 0);
 

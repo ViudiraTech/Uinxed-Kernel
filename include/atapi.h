@@ -14,6 +14,7 @@
 
 #include "types.h"
 #include "common.h"
+#include "printk.h"
 
 /* 便捷的寄存器编号的定义 */
 #define DATA 0

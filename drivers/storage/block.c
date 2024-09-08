@@ -26,6 +26,9 @@ void block_init(void)
 	if (ide_dev->ops.init() == -1) {
 		print_warn("Main IDE Device Not Found!\n");
 		return;
+	} else if (ide_dev->ops.init() == -2) {
+		print_warn("The IDE controller could not be found!\n");
+		return;
 	}
 	add_block(ide_dev);
 
