@@ -21,11 +21,11 @@
 1. 将源码PULL到本地。
 2. 在已PULL到本地的项目源码根目录内执行make命名，即可开始编译。
 3. 编译后会生成两个文件：UxImage和system.iso，这两个文件分别为内核文件和带grub引导的镜像文件。
-4. 输入“make clean”清理编译物，输入“make run”即可通过qemu测试启动iso镜像，输入“make runk”可以通过qemu测试内核文件启动。
+4. 输入“make clean”清理编译物，输入“make run”即可通过qemu测试启动iso镜像，输入“make runk”可以通过qemu测试内核文件启动，”make run-db“和”make runk-db“可以调出对应启动模式的调试（控制台显示汇编代码）
 
 # 贡献者排名
 
-1. Rainy101112	（35份）
+1. Rainy101112	（37份）
 2. MicroFish	（26份）
 3. XIAOYI12		（4份）
 4. wrhmade		（2份）
