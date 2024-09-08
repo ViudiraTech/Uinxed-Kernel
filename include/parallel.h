@@ -17,6 +17,10 @@
 #define LPT1_PORT_STATUS	LPT1_PORT_BASE + 1	// 并行状态接口
 #define LPT1_PORT_CONTROL	LPT1_PORT_BASE + 2	// 并行控制接口
 
+/* 等待并行端口准备好 */
+void wait_parallel_ready(void);
+
+/* 写并行端口 */
 void parallel_write(unsigned char c);
 
 #endif // INCLUDE_PARALLEL_H_

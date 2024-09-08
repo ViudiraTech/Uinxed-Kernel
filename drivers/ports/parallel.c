@@ -13,6 +13,7 @@
 #include "common.h"
 #include "parallel.h"
 
+/* 等待并行端口准备好 */
 void wait_parallel_ready(void)
 {
 	while (!inb(LPT1_PORT_STATUS) & 0x80) {
@@ -20,6 +21,7 @@ void wait_parallel_ready(void)
 	}
 }
 
+/* 写并行端口 */
 void parallel_write(unsigned char c)
 {
 	unsigned char lControl;
