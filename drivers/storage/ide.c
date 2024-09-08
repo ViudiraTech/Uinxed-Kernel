@@ -12,7 +12,6 @@
 #include "types.h"
 #include "common.h"
 #include "printk.h"
-#include "block.h"
 #include "debug.h"
 #include "ide.h"
 
