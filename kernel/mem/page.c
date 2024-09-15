@@ -227,7 +227,7 @@ page_directory_t *clone_directory(page_directory_t *src)
 }
 
 /* 初始化内存分页 */
-void init_page(void)
+void init_page(multiboot_t *mboot)
 {
 	print_busy("Initializing memory paging...\r"); // 提示用户正在初始化内存分页，并回到行首等待覆盖
 
@@ -252,6 +252,12 @@ void init_page(void)
 		alloc_frame(get_page(i, 1, kernel_directory), 0, 0);
 		i += 0x1000;
 	}
+
+    unsigned int j = mboot->framebuffer_addr,size = mboot->framebuffer_height * mboot->framebuffer_width*mboot->framebuffer_bpp;
+    while (j <= mboot->framebuffer_addr + size){
+        alloc_frame_line(get_page(j,1,kernel_directory),j,0,1);
+        j += 0x1000;
+    }
 	for (unsigned int i = (unsigned int)KHEAP_START; i < (unsigned int)(KHEAP_START + KHEAP_INITIAL_SIZE); i++) {
 		alloc_frame(get_page(i, 1, kernel_directory), 0, 0);
 	}

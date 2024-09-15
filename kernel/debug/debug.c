@@ -21,7 +21,7 @@ static elf_t kernel_elf;
 void init_debug(void)
 {
 	/* 从 GRUB 提供的信息中获取到内核符号表和代码地址信息 */
-	kernel_elf = elf_from_multiboot(glb_mboot_ptr);
+	kernel_elf = elf_from_multiboot((multiboot_elf_section_header_table_t *)glb_mboot_ptr);
 }
 
 /* 打印当前的段存器值 */

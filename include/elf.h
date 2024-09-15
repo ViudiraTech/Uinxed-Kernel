@@ -53,7 +53,7 @@ struct elf_t {
 } elf_t;
 
 /* 从 multiboot_t 结构获取ELF信息 */
-elf_t elf_from_multiboot(multiboot_t *mb);
+elf_t elf_from_multiboot(multiboot_elf_section_header_table_t *mb);
 
 /* 查看ELF的符号信息 */
 const char *elf_lookup_symbol(uint32_t addr, elf_t *elf);

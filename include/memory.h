@@ -22,6 +22,7 @@
 typedef char ALIGN[16];
 
 #include "types.h"
+#include "multiboot.h"
 
 typedef struct page {
 	uint32_t present: 1;
@@ -55,7 +56,7 @@ typedef union header {
 void copy_page_physical(uintptr_t src, uintptr_t dst);
 
 /* 初始化内存分页 */
-void init_page(void);
+void init_page(multiboot_t *mboot);
 
 /* 获取给定虚拟地址对应的页表项 */
 page_t *get_page(uint32_t address, int make, page_directory_t *dir);

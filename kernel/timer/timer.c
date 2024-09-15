@@ -49,9 +49,9 @@ void sleep(uint32_t timer)
 void clock_sleep(uint32_t timer)
 {
 	uint32_t sleep = tick + timer;
-	while(1){
+	while (1) {
 		printk("");
-		if(tick >= sleep) break;
+		if (tick >= sleep) break;
 	}
 }
 
