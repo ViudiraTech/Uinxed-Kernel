@@ -20,6 +20,7 @@
 #include "printk.h"
 #include "task.h"
 #include "sched.h"
+#include "uinxed.h"
 
 #define MAX_COMMAND_LEN	100
 #define MAX_ARG_NR		30
@@ -102,6 +103,7 @@ void shell_help(void)
            "| proc     | List for all task processes.          |\n"
            "| hltst    | Test the Kernel-Panic.                |\n"
            "| taskkill | Kill task which is running.           |\n"
+           "| uname    | Show unix name.                       |\n"
            "| cetsl    | Enable/Disable serial console output. |\n"
            "+----------+---------------------------------------+\n\n");
 	return;
@@ -146,6 +148,31 @@ void shell_taskkill(int argc, char *argv[])
 	return;
 }
 
+void shell_uname(int argc, char *argv[])
+{
+	if (argc > 1) {
+		if (strcmp(argv[1], "-a") == 0) {
+			printk("Uinxed-Kernel %s Build %d %s UTC %s x86 Uinxed\n", KERNL_VERS, KERNL_BUID, BUILD_TIME, BUILD_DATE);
+		} else if (strcmp(argv[1], "-m") == 0) {
+			printk("x86\n");
+		} else if (strcmp(argv[1], "-v") == 0) {
+			printk("%s Build %d %s UTC %s\n", KERNL_VERS, KERNL_BUID, BUILD_TIME, BUILD_DATE);
+		} else if (strcmp(argv[1], "-o") == 0) {
+			printk("Uinxed\n");
+		} else {
+			printk("uname: invalid option -- '%s'\n", argv[1]);
+		}
+	} else {
+		printk("Usage: %s [OPTION]\n", argv[0]);
+		printk("       -a print all information.\n");
+		printk("       -m print the machine hardware name.\n");
+		printk("       -v print the kernel version.\n");
+		printk("       -o print the operating system.\n");
+	}
+	printk("\n");
+	return;
+}
+
 void shell_cetsl(int argc, char *argv[])
 {
 	if (strcmp(argv[1], "1") == 0 || strcmp(argv[1], "true") == 0) {
@@ -175,6 +202,7 @@ builtin_cmd_t builtin_cmds[] = {
 	{"proc", (void (*)(int, char **))shell_proc},
 	{"hltst", (void (*)(int, char **))shell_hltst},
 	{"taskkill", (void (*)(int, char **))shell_taskkill},
+	{"uname", (void (*)(int, char **))shell_uname},
 	{"cetsl", shell_cetsl}
 };
 
