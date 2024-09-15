@@ -46,7 +46,7 @@ const char *elf_lookup_symbol(uint32_t addr, elf_t *elf)
 		if (ELF32_ST_TYPE(elf->symtab[i].info) != 0x2) {
 			continue;
 		}
-	
+
 		/* 通过函数调用地址查到函数的名字 */
 		if ( (addr >= elf->symtab[i].value) && (addr < (elf->symtab[i].value + elf->symtab[i].size)) ) {
 			return (const char *)((uint32_t)elf->strtab + elf->symtab[i].name);
