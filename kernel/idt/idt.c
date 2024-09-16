@@ -213,7 +213,7 @@ static void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags
 
 	/* 先留下 0x60 这个魔数，以后实现用户态时候 */
 	/* 这个与运算可以设置中断门的特权级别为 3 */
-	// 你这不是或运算吗
+	// 你这不是或运算吗 <- 我勒个千年老评论啊(From MicroFish)
 	idt_entries[num].flags = flags; // | 0x60
 }
 

@@ -12,10 +12,9 @@
 #include "idt.h"
 #include "debug.h"
 #include "printk.h"
-#include "console.h"
 #include "common.h"
 
-#define printk_panic(str) printk_color(rc_black, rc_red, "[KERISR]"); printk(str);
+#define printk_panic(str) printk_color(0xff0000, "[KERISR]"); printk(str);
 
 /*
  *

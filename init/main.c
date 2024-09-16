@@ -11,7 +11,6 @@
 
 #include "idt.h"
 #include "gdt.h"
-#include "console.h"
 #include "debug.h"
 #include "printk.h"
 #include "memory.h"
@@ -24,7 +23,7 @@
 #include "timer.h"
 #include "beep.h"
 #include "cpu.h"
-#include "vgafont.h"
+#include "vbe.h"
 #include "multiboot.h"
 #include "task.h"
 #include "sched.h"
@@ -43,8 +42,8 @@ int kthread_shell(void *arg)
 /* 内核入口 */
 void kernel_init(multiboot_t *glb_mboot_ptr)
 {
-	console_to_serial(1);		// 输出内核启动日志到串口
-	console_clear();			// 清屏
+	vbe_to_serial(1);								// 输出内核启动日志到串口
+	init_vbe(glb_mboot_ptr, 0x292929, 0xffffff);	// 初始化图形模式
 
 	/* 检测内存是否达到最低要求 */
 	if ((glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower) / 1024 + 1 < 16) {
@@ -72,15 +71,13 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 
 	enable_intr();				// 开启中断
 
-	init_kfont();				// 设置内核字体
-
 	system_beep(1000);			// 初始化完毕后蜂鸣
 	sleep(10);
 	system_beep(0);
 
-	console_write_newline();	// 打印一个空行，和上面的信息保持隔离
+	vbe_write_newline();		// 打印一个空行，和上面的信息保持隔离
 	print_cpu_info();			// 打印当前CPU的信息
 
-	console_to_serial(0);		// 停止输出内核启动日志到串口
+	vbe_to_serial(0);			// 停止输出内核启动日志到串口
 	kernel_thread(kthread_shell, NULL, "Basic shell program");
 }

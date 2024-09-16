@@ -9,7 +9,7 @@
  *
  */
 
-#include "console.h"
+#include "vbe.h"
 #include "string.h"
 #include "vargs.h"
 #include "printk.h"
@@ -17,36 +17,36 @@
 /* 打印带有”[ ** ]“的字符串 */
 void print_busy(char *str)
 {
-	printk_color(rc_black, rc_white, "[");
-	printk_color(rc_black, rc_white, " ** ");
-	printk_color(rc_black, rc_white, "]");
+	printk("[");
+	printk_color(0xffffff, " ** ");
+	printk("]");
 	printk("%s", str);
 }
 
 /* 打印带有”[ OK ]“的字符串 */
 void print_succ(char *str)
 {
-	printk_color(rc_black, rc_white, "[");
-	printk_color(rc_black, rc_green, " OK ");
-	printk_color(rc_black, rc_white, "]");
+	printk("[");
+	printk_color(0x00ff00, " OK ");
+	printk("]");
 	printk("%s", str);
 }
 
 /* 打印带有”[ WARN ]“的字符串 */
 void print_warn(char *str)
 {
-	printk_color(rc_black, rc_white, "[");
-	printk_color(rc_black, rc_light_brown, "WARN");
-	printk_color(rc_black, rc_white, "]");
+	printk("[");
+	printk_color(0xffff00, "WARN");
+	printk("]");
 	printk("%s", str);
 }
 
 /* 打印带有”[ ERRO ]“的字符串 */
 void print_erro(char *str)
 {
-	printk_color(rc_black, rc_white, "[");
-	printk_color(rc_black, rc_red, "ERRO");
-	printk_color(rc_black, rc_white, "]");
+	printk("[");
+	printk_color(0xff0000, "ERRO");
+	printk("]");
 	printk("%s", str);
 }
 
@@ -63,12 +63,11 @@ void printk(const char *format, ...)
 	va_end(args);
 
 	buff[i] = '\0';
-
-	console_write(buff);
+	vbe_put_string(buff);
 }
 
 /* 内核打印带颜色的字符串 */
-void printk_color(real_color_t back, real_color_t fore, const char *format, ...)
+void printk_color(int fore, const char *format, ...)
 {
 	/* 避免频繁创建临时变量，内核的栈很宝贵 */
 	static char buff[1024];
@@ -80,8 +79,7 @@ void printk_color(real_color_t back, real_color_t fore, const char *format, ...)
 	va_end(args);
 
 	buff[i] = '\0';
-
-	console_write_color(buff, back, fore);
+	vbe_put_string_color(buff, fore);
 }
 
 #define is_digit(c)	((c) >= '0' && (c) <= '9')

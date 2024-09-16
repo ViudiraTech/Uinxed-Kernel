@@ -13,7 +13,7 @@
 #include "elf.h"
 #include "printk.h"
 #include "common.h"
-#include "console.h"
+#include "vbe.h"
 
 static elf_t kernel_elf;
 
@@ -54,20 +54,20 @@ void panic(const char *msg)
 	print_cur_status(&ring, &regs1, &regs2, &regs3, &regs4);
 	print_stack_trace(eips, syname);
 
-	console_clear_color(rc_blue, rc_white);
-	printk_color(rc_blue, rc_white, "Your kernel has encountered a fatal error.\n");
-	printk_color(rc_blue, rc_white, "We've shut down the kernel to keep you and the kernel safe.\n");
-	printk_color(rc_blue, rc_white, "If you want to resume use, restart your computer.\n\n");
-	printk_color(rc_blue, rc_white, "If you encounter this interface again, perform the following steps:\n");
-	printk_color(rc_blue, rc_white, "    1.Remove the most recent hardware device or faulty device.\n");
-	printk_color(rc_blue, rc_white, "    2.Check the compatibility of the kernel with the hardware.\n");
-	printk_color(rc_blue, rc_white, "    3.Seek help from a professional.\n\n");
-	printk_color(rc_blue, rc_white, "Technical information:\n");
-	printk_color(rc_blue, rc_white, "\n*** STOP - Kernel-Panic: %s\n\nEIP:    ", msg);
+	vbe_clear_color(0x000000ff);
+	printk("Your kernel has encountered a fatal error.\n");
+	printk("We've shut down the kernel to keep you and the kernel safe.\n");
+	printk("If you want to resume use, restart your computer.\n\n");
+	printk("If you encounter this interface again, perform the following steps:\n");
+	printk("    1.Remove the most recent hardware device or faulty device.\n");
+	printk("    2.Check the compatibility of the kernel with the hardware.\n");
+	printk("    3.Seek help from a professional.\n\n");
+	printk("Technical information:\n");
+	printk("\n*** STOP - Kernel-Panic: %s\n\nEIP:    ", msg);
 	for (int i = 0; i < 5; i++) {
-		printk_color(rc_blue, rc_white, "[0x%06X: %s]", eips[ps++], syname[sy++]);
+		printk("[0x%06X: %s]", eips[ps++], syname[sy++]);
 	}
-	printk_color(rc_blue, rc_white, "\nSTATUS: [RING: %d][CS: %d][DS: %d][ES: %d][SS: %d]\n", ring, regs1, regs2, regs3, regs4);
+	printk("\nSTATUS: [RING: %d][CS: %d][DS: %d][ES: %d][SS: %d]\n", ring, regs1, regs2, regs3, regs4);
 	krn_halt();
 }
 

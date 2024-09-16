@@ -11,7 +11,7 @@
 
 #include "fifo.h"
 #include "keyboard.h"
-#include "console.h"
+#include "vbe.h"
 #include "debug.h"
 #include "types.h"
 #include "string.h"
@@ -109,6 +109,12 @@ void shell_help(void)
 	return;
 }
 
+void shell_clear(void)
+{
+	vbe_clear();
+	return;
+}
+
 void shell_lspci(void)
 {
 	pci_device_info();
@@ -176,10 +182,10 @@ void shell_uname(int argc, char *argv[])
 void shell_cetsl(int argc, char *argv[])
 {
 	if (strcmp(argv[1], "1") == 0 || strcmp(argv[1], "true") == 0) {
-		console_to_serial(1);
+		vbe_to_serial(1);
 		printk("The kernel console has been output to the serial port.\n");
 	} else if (strcmp(argv[1], "0") == 0 || strcmp(argv[1], "false") == 0) {
-		console_to_serial(0);
+		vbe_to_serial(0);
 		printk("Stopped outputting the kernel console to the serial port.\n");
 	} else {
 		printk("Usage: %s [BOOLEAN]\n", argv[0]);
@@ -195,7 +201,7 @@ typedef struct builtin_cmd
 } builtin_cmd_t;
 
 builtin_cmd_t builtin_cmds[] = {
-	{"clear", (void (*)(int, char **))console_clear},
+	{"clear", (void (*)(int, char **))shell_clear},
 	{"help", (void (*)(int, char **))shell_help},
 	{"cpuid", (void (*)(int, char **))print_cpu_info},
 	{"lspci", (void (*)(int, char **))shell_lspci},
@@ -247,7 +253,7 @@ void shell(void)
 			print_erro("shell: number of arguments exceed MAX_ARG_NR(30)");
 			continue;
 		} else if (argc == 0) {
-			console_write_newline();
+			vbe_write_newline();
 			continue;
 		}
 

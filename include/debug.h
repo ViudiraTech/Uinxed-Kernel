@@ -12,7 +12,7 @@
 #ifndef INCLUDE_DEBUG_H_
 #define INCLUDE_DEBUG_H_
 
-#include "console.h"
+#include "types.h"
 
 #define assert(exp)	\
 	if (exp);		\

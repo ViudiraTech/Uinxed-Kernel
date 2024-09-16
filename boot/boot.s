@@ -19,12 +19,15 @@ MBOOT_PAGE_ALIGN EQU 1 << 0
 ; （告诉GRUB把内存空间的信息包含在 Multiboot 信息结构中）
 MBOOT_MEM_INFO EQU 1 << 1    
 
+; 2号位通过 Multiboot 设置图形模式
+MBOOT_GRAPH_MODE EQU 1 << 2
+
 ; 定义我们使用的 Multiboot 的标记
-MBOOT_HEADER_FLAGS EQU MBOOT_PAGE_ALIGN | MBOOT_MEM_INFO
+MBOOT_HEADER_FLAGS EQU MBOOT_PAGE_ALIGN | MBOOT_MEM_INFO | MBOOT_GRAPH_MODE
 
 ; 域 checksum 是一个32位的无符号值，当与其他的 magic 域（也就是 magic 和 flags）
 ; 相加时，要求其结果必须是32位的无符号值0（即 magic + flags + checksum = 0）
-MBOOT_CHECKSUM EQU -(MBOOT_HEADER_MAGIC+MBOOT_HEADER_FLAGS)
+MBOOT_CHECKSUM EQU -(MBOOT_HEADER_MAGIC + MBOOT_HEADER_FLAGS)
 
 ; 符合 Multiboot 规范的 OS 映象需要这样一个 magic Multiboot 头
 ; Multiboot 头的分布必须如下表所示：
@@ -46,6 +49,11 @@ SECTION .text						; 代码段从这里开始
 DD MBOOT_HEADER_MAGIC				; GRUB 会通过这个魔数判断该映像是否支持
 DD MBOOT_HEADER_FLAGS				; GRUB 的一些加载时选项，其详细注释在定义处
 DD MBOOT_CHECKSUM					; 检测数值，其含义在定义处
+
+DD 0, 0, 0, 0, 0, 0
+DD 1024	; width宽度
+DD 768	; height高度
+DD 32	; bpp
 
 [GLOBAL start]						; 向外部声明内核代码入口，此处提供该声明给链接器
 [GLOBAL glb_mboot_ptr]				; 向外部声明 struct multiboot * 变量
