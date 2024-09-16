@@ -9,6 +9,8 @@
  *
  */
 
+#pragma GCC optimize(3,"Ofast","inline")
+
 #include "memory.h"
 #include "string.h"
 #include "printk.h"
