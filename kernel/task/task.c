@@ -152,6 +152,10 @@ void task_kill(int pid)
 		printk("Cannot found task PID: %d\n", pid);
 		enable_intr();
 		return;
+	} else if (argv->pid == 0) {
+		printk("Taskkill cannot terminate kernel processes.\n");
+		enable_intr();
+		return;
 	}
 	argv->state = TASK_DEATH;
 	printk("Task [Name: %s][PID: %d] Stopped.\n", argv->name, argv->pid);
