@@ -14,6 +14,22 @@
 
 #include "types.h"
 
+#define MAX_PRECISION (10)
+
+static const double rounders[MAX_PRECISION + 1] = {
+	0.5,				// 0
+	0.05,				// 1
+	0.005,				// 2
+	0.0005,				// 3
+	0.00005,			// 4
+	0.000005,			// 5
+	0.0000005,			// 6
+	0.00000005,			// 7
+	0.000000005,		// 8
+	0.0000000005,		// 9
+	0.00000000005		// 10
+};
+
 /* 比较两个内存区域的前count个字节 */
 int memcmp(const void* buffer1,const void* buffer2,size_t  count);
 
@@ -64,5 +80,8 @@ char *get_filename(char *path);
 
 /* 将字符串数字转换为整数数字 */
 int atoi(char* pstr);
+
+/* 把浮点数转换成字符数组 */
+char *ftoa(double f, char *buf, int precision);
 
 #endif // INCLUDE_STRING_H_

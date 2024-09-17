@@ -315,6 +315,9 @@ int vsprintf(char *buff, const char *format, va_list args)
 			str = number(str, va_arg(args, unsigned long), 10,
 				field_width, precision, flags);
 			break;
+		case 'f':
+			str = ftoa(va_arg(args, double), str, precision);
+			break;
 		case 'b':
 			str = number(str, va_arg(args, unsigned long), 2,
 				field_width, precision, flags);
