@@ -35,6 +35,7 @@ int32_t kernel_thread(int (*fn)(void *), void *arg, char *name)
 	new_task->stack = current;
 	new_task->pid = now_pid++;
 	new_task->mm = NULL;
+	new_task->fpu_flag = 0;
 	new_task->name = name;
 
 	uint32_t *stack_top = (uint32_t *)((uint32_t)new_task + STACK_SIZE);

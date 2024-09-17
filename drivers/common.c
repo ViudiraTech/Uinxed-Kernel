@@ -91,6 +91,20 @@ inline void outsl(uint32_t port, const void *addr, int cnt)
                  : "memory", "cc");
 }
 
+/* 获取当前的CR0寄存器的值 */
+uint32_t get_cr0(void)
+{
+	uint32_t cr0;
+	asm volatile("mov %%cr0, %0" : "=r"(cr0));
+	return cr0;
+}
+
+/* 将值写入CR0寄存器 */
+void set_cr0(uint32_t cr0)
+{
+	asm volatile("mov %0, %%cr0" : : "r"(cr0));
+}
+
 /* 开启中断 */
 void enable_intr(void)
 {

@@ -90,12 +90,7 @@ void ISR_6_handle(void)
 	krn_halt();
 }
 
-void ISR_7_handle(void)
-{
-	printk_panic("Kernel exception: #NM\n");
-	printk_panic("System halted\n");
-	krn_halt();
-}
+/* ISR 7 will be define by fpu program */
 
 void ISR_8_handle(void)
 {
@@ -181,7 +176,9 @@ void ISR_registe_Handle(void)
 	register_interrupt_handler(4, (interrupt_handler_t)ISR_4_handle);
 	register_interrupt_handler(5, (interrupt_handler_t)ISR_5_handle);
 	register_interrupt_handler(6, (interrupt_handler_t)ISR_6_handle);
-	register_interrupt_handler(7, (interrupt_handler_t)ISR_7_handle);
+
+	/* ISR 7 will be define by fpu program */
+
 	register_interrupt_handler(8, (interrupt_handler_t)ISR_8_handle);
 	register_interrupt_handler(9, (interrupt_handler_t)ISR_9_handle);
 	register_interrupt_handler(10, (interrupt_handler_t)ISR_10_handle);

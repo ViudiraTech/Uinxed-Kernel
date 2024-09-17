@@ -35,6 +35,12 @@ void insl(uint32_t port, void *addr, int cnt);
 /* 从内存批量地写入数据到I/O端口（32位） */
 void outsl(uint32_t port, const void *addr, int cnt);
 
+/* 获取当前的CR0寄存器的值 */
+uint32_t get_cr0(void);
+
+/* 将值写入CR0寄存器 */
+void set_cr0(uint32_t cr0);
+
 void enable_intr(void);						// 开启中断
 void disable_intr(void);					// 关闭中断
 

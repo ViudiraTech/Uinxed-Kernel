@@ -25,14 +25,30 @@ enum task_state {
 	TASK_DEATH = 4		// 死亡状态
 } task_state;
 
+/* 浮点单元的寄存器状态 */
+typedef struct __attribute__((packed)) fpu_regs {
+	uint16_t	control;
+	uint16_t	RESERVED1;
+	uint16_t	status;
+	uint16_t	RESERVED2;
+	uint16_t	tag;
+	uint16_t	RESERVED3;
+	uint32_t	fip0;
+	uint32_t	fop0;
+	uint32_t	fdp0;
+	uint32_t	fdp1;
+	uint8_t		regs[80];
+} fpu_regs_t;
+
 /* 内核进程的上下文切换保存的信息 */
 struct context {
-	uint32_t esp;
-	uint32_t ebp;
-	uint32_t ebx;
-	uint32_t esi;
-	uint32_t edi;
-	uint32_t eflags;
+	uint32_t	esp;
+	uint32_t	ebp;
+	uint32_t	ebx;
+	uint32_t	esi;
+	uint32_t	edi;
+	uint32_t	eflags;
+	fpu_regs_t	fpu_regs;
 };
 
 typedef uint32_t pgd_t;
@@ -49,6 +65,7 @@ struct task_struct {
 	pid_t pid;					// 进程标识符
 	char *name;					// 进程名
 	void *stack;				// 进程的内核栈地址
+	bool fpu_flag;				// 是否使用 FPU
 	struct mm_struct *mm;		// 当前进程的内存地址映像
 	struct context context;		// 进程切换需要的上下文信息
 	struct task_struct *next;	// 链表指针
