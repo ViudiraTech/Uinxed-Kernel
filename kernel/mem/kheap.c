@@ -15,7 +15,7 @@
 header_t *head = NULL, *tail = NULL; // 内存块链表
 extern page_directory_t *current_directory;
 extern uint32_t end;
-static uint32_t placement_address = (uint32_t) &end;
+uint32_t placement_address = (uint32_t) & end;
 void *program_break, *program_break_end;
 
 /* 开启分页机制后的内核栈 */

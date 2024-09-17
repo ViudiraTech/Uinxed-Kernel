@@ -28,9 +28,6 @@
 #include "task.h"
 #include "sched.h"
 
-extern uint32_t end;
-uint32_t placement_address = (uint32_t) & end;
-
 void shell(void); // 声明shell程序入口
 
 /* 内核shell进程 */
