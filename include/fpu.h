@@ -3,7 +3,7 @@
  *		fpu.h
  *		fpu浮点协处理器头文件
  *
- *		2024/9/17 By _min0911
+ *		2024/9/17 By min0911Y
  *		基于 GPL-3.0 开源协议
  *		Copyright © 2020 ViudiraTech，保留所有权利。
  *
