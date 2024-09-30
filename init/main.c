@@ -28,8 +28,10 @@
 #include "task.h"
 #include "fpu.h"
 #include "sched.h"
+#include "bmp.h"
 
-void shell(void); // 声明shell程序入口
+extern uint8_t klogo[];	// 声明内核Logo数据
+void shell(void);		// 声明shell程序入口
 
 /* 内核shell进程 */
 int kthread_shell(void *arg)
@@ -41,12 +43,13 @@ int kthread_shell(void *arg)
 void kernel_init(multiboot_t *glb_mboot_ptr)
 {
 	vbe_to_serial(1);								// 输出内核启动日志到串口
-	init_vbe(glb_mboot_ptr, 0x292929, 0xffffff);	// 初始化图形模式
+	init_vbe(glb_mboot_ptr, 0x1c1c1c, 0xffffff);	// 初始化图形模式
 
 	/* 检测内存是否达到最低要求 */
 	if ((glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower) / 1024 + 1 < 16) {
 		panic("OUT_OF_MEMORY");
 	}
+	bmp_analysis((Bmp *)klogo, 799, 25, 1);								// 显示内核Logo
 	printk("Uinxed-Kernel "KERNL_VERS"(build-%d)\n", KERNL_BUID);		// 打印内核信息
 	printk(PROJK_COPY"\n");												// 打印版权信息
 	printk("This version compiles at "BUILD_DATE" "BUILD_TIME"\n\n");	// 打印编译日期时间
