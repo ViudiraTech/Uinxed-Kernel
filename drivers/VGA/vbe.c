@@ -84,7 +84,7 @@ void vbe_draw_pixel(uint32_t x, uint32_t y, uint32_t color)
 	if (x >= width || y >= height) {
 		return;
 	}
-	color = (color & 0xff) << 16 | (color & 0xff00) | (color & 0xff0000) >> 16;
+	color = (color & 0xff) | (color & 0xff00) | (color & 0xff0000);
 	uint32_t  *p = (uint32_t *)screen + y * width + x;
 	*p = color;
 }
