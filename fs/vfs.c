@@ -353,7 +353,7 @@ vfs_file *get_cur_file(char* filename)
 {
 	vfs_file *file = NULL;
 	List *ls = vfs_listfile("");
-	strtoupper(filename);
+	strupr(filename);
 	for (int i = 1; FindForCount(i, ls) != NULL; i++) {
 		vfs_file *d = (vfs_file *) FindForCount(i, ls)->val;
 		if(strcmp(d->name, filename) == 0){

@@ -169,15 +169,30 @@ void insert_str(char *str, char *insert_str, int pos)
 	}
 }
 
-/* 将字符串中的所有小写字母转换为大写字母 */
-void strtoupper(char *str)
+/* 将字符串中的所有字母转换为大写 */
+char *strupr(char *src)
 {
-	while (*str != '\0') {
-		if (*str >= 'a' && *str <= 'z') {
-			*str -= 32;
-		}
-		str++;
+	while (*src != '\0')
+	{
+		if (*src >= 'a' && *src <= 'z')
+			*src -= 32;
+		src++;
 	}
+	return src;
+}
+
+/* 将字符串中的所有字母转换为小写 */
+char *strlwr(char *src)
+{
+	while (*src != '\0')
+	{
+		if (*src > 'A' && *src <= 'Z'){
+			//*src += 0x20; 
+			*src += 32;
+		}
+		src++;
+	}
+	return src;
 }
 
 /* 从文件件路径中获取文件名 */

@@ -72,8 +72,11 @@ void insert_char(char *str, int pos, char ch);
 /* 在字符串的指定位置插入另一个字符串 */
 void insert_str(char *str, char *insert_str, int pos);
 
-/* 将字符串中的所有小写字母转换为大写字母 */
-void strtoupper(char *str);
+/* 将字符串中的所有字母转换为大写 */
+char *strupr(char *src);
+
+/* 将字符串中的所有字母转换为小写 */
+char *strlwr(char *src);
 
 /* 从文件件路径中获取文件名 */
 char *get_filename(char *path);
