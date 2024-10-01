@@ -103,7 +103,7 @@ void vbe_draw_rect(int x0, int y0, int x1, int y1, int color)
 /* 在图形界面指定坐标上显示字符 */
 void vbe_draw_char(char c, int32_t x, int32_t y, int color)
 {
-	uint8_t *font = bafont;
+	uint8_t *font = ascfont;
 	font += c * 16;
 
 	for (int i = 0; i < 16; i++) {

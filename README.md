@@ -14,19 +14,19 @@
 ## 编译要求
 
 1. 必须是Linux系统，例如Debian、Ubuntu等。
-2. 必须安装好gcc、make、nasm和xorriso工具，如果需要测试，请安装qemu虚拟机。
+2. 必须安装好gcc、make、nasm和grub-pc、xorriso工具，如果需要测试，请安装qemu虚拟机。
 
 ## 编译指南
 
 1. 将源码PULL到本地。
-2. 在已PULL到本地的项目源码根目录内执行make命名，即可开始编译。
+2. 在已PULL到本地的项目源码根目录内执行make命令，即可开始编译。
 3. 编译后会生成两个文件：UxImage和system.iso，这两个文件分别为内核文件和带grub引导的镜像文件。
-4. 输入“make clean”清理编译物，输入“make run”即可通过qemu测试启动iso镜像，输入“make runk”可以通过qemu测试内核文件启动，”make run-db“和”make runk-db“可以调出对应启动模式的调试（控制台显示汇编代码）
+4. 输入“make clean”清理所有中间文件及UxImage和镜像，输入“make run”即可通过qemu测试启动iso镜像，输入“make runk”可以通过qemu测试内核文件启动，”make run-db“和”make runk-db“可以调出对应启动模式的调试（控制台显示汇编代码）
 
 # 贡献者排名
 
 1. Rainy101112	（39份）
-2. MicroFish	（33份）
+2. MicroFish	（35份）
 3. XIAOYI12		（4份）
 4. min0911Y		（2份）
 5. copi143		（1份）
@@ -48,4 +48,4 @@ CoolPotOS: https://github.com/xiaoyi1212/CoolPotOS
 
 本Uinxed内核项目所有商为ViudiraTech。
 内核源码为GPL-3.0开源协议
-Copyright © 2020 ViudiraTech，保留所有权力。
+Copyright © 2020 ViudiraTech，保留所有权利。
