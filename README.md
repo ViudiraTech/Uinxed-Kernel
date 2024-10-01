@@ -26,7 +26,7 @@
 # 贡献者排名
 
 1. Rainy101112	（39份）
-2. MicroFish	（35份）
+2. MicroFish	（37份）
 3. XIAOYI12		（4份）
 4. min0911Y		（2份）
 5. copi143		（1份）

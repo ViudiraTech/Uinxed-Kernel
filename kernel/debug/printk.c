@@ -11,6 +11,7 @@
 
 #include "vbe.h"
 #include "string.h"
+#include "stdlib.h"
 #include "vargs.h"
 #include "printk.h"
 

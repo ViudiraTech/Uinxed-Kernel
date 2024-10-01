@@ -14,7 +14,7 @@
 #include "vbe.h"
 #include "debug.h"
 #include "types.h"
-#include "string.h"
+#include "stdlib.h"
 #include "cpu.h"
 #include "pci.h"
 #include "printk.h"
