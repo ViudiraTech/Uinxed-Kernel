@@ -143,9 +143,19 @@ int ide_request(io_request_t *req)
 /* 读取指定IDE设备若干扇区 */
 int ide_read_secs(uint32_t secno, void *dst, uint32_t nsecs)
 {
-	assertx(nsecs <= MAX_NSECS && ide_device.valid == 1, "IDE_ERROR-NSECS_OR_IDE_ERROR");
-	assertx(secno < MAX_DISK_NSECS && secno + nsecs <= MAX_DISK_NSECS, "IDE_ERROR-SECNO_ERROR");
-
+	if (no_ide_controller) {
+		printk("The IDE optical drive could not be found.\n");
+		return 0;
+	} else if (!ide_device.valid) {
+		printk("Main IDE Device Not Found!\n");
+		return 0;
+	} else if (nsecs >= MAX_NSECS) {
+		printk("The maximum number of operating sectors of the IDE is exceeded.\n");
+		return 0;
+	} else if (secno + nsecs >= MAX_DISK_NSECS) {
+		printk("The maximum sector number of the IDE is exceeded.\n");
+		return 0;
+	}
 	ide_wait_ready(IOBASE, 0);
 
 	outb(IOCTRL + ISA_CTRL, 0);
@@ -169,9 +179,19 @@ int ide_read_secs(uint32_t secno, void *dst, uint32_t nsecs)
 /* 写入指定IDE设备若干扇区 */
 int ide_write_secs(uint32_t secno, const void *src, uint32_t nsecs)
 {
-	assertx(nsecs <= MAX_NSECS && ide_device.valid == 1, "IDE_ERROR-NSECS_OR_IDE_ERROR");
-	assertx(secno < MAX_DISK_NSECS && secno + nsecs <= MAX_DISK_NSECS, "IDE_ERROR-SECNO_ERROR");
-
+	if (no_ide_controller) {
+		printk("The IDE optical drive could not be found.\n");
+		return 0;
+	} else if (!ide_device.valid) {
+		printk("Main IDE Device Not Found!\n");
+		return 0;
+	} else if (nsecs >= MAX_NSECS) {
+		printk("The maximum number of operating sectors of the IDE is exceeded.\n");
+		return 0;
+	} else if (secno + nsecs >= MAX_DISK_NSECS) {
+		printk("The maximum sector number of the IDE is exceeded.\n");
+		return 0;
+	}
 	ide_wait_ready(IOBASE, 0);
 
 	outb(IOCTRL + ISA_CTRL, 0);
