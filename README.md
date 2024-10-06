@@ -1,6 +1,6 @@
 # 欢迎来到 Uinxed 内核项目
 
-![](https://img.shields.io/badge/License-GPLv3-blue) ![](https://img.shields.io/badge/Language-3-orange) ![](https://img.shields.io/badge/hardware-x86-green)
+![](https://img.shields.io/badge/License-GPLv3-blue) ![](https://img.shields.io/badge/Language-3-orange) ![](https://img.shields.io/badge/hardware-x86-green) ![](https://img.shields.io/badge/firmware-BIOS-yellow)
 
 ## 简介
 
