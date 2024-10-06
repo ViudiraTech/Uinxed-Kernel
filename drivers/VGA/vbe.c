@@ -118,7 +118,7 @@ void vbe_draw_char(char c, int32_t x, int32_t y, int color)
 /* 在图形界面指定坐标上打印字符 */
 void vbe_put_char(char c, int color)
 {
-	if (vbe_serial == 1) write_serial(c); // 输出控制台到串口设备
+	// if (vbe_serial == 1) write_serial(c); // 输出控制台到串口设备（此处会导致某些计算机异常卡顿）
 	if (c == '\n') {
 		vbe_scroll();
 		cx = 0;
