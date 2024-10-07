@@ -25,9 +25,7 @@ pid_t now_pid = 0;
 int32_t kernel_thread(int (*fn)(void *), void *arg, char *name)
 {
 	struct task_struct *new_task = (struct task_struct *)kmalloc(STACK_SIZE);
-
-	if (new_task = NULL)
-		panic(P008);
+	assertx(new_task != NULL, P008);
 
 	/* 将栈低端结构信息初始化为 0 */ 
 	bzero(new_task, sizeof(struct task_struct));
@@ -50,11 +48,10 @@ int32_t kernel_thread(int (*fn)(void *), void *arg, char *name)
 	/* 设置新任务的标志寄存器未屏蔽中断,很重要 */
 	new_task->context.eflags = 0x200;
 	new_task->next = running_proc_head;
-	
+
 	/* 找到当前进任务队列，插入到末尾 */
 	struct task_struct *tail = running_proc_head;
-	if (tail = NULL)
-		panic(P009);
+	assertx(tail != NULL, P009);
 
 	while (tail->next != running_proc_head) {
 		tail = tail->next;
