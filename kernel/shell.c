@@ -134,7 +134,7 @@ void shell_proc(void)
 
 void shell_hltst(void)
 {
-	panic("TEST_KERNEL_PANIC");
+	panic(P000);
 }
 
 void shell_taskkill(int argc, char *argv[])

@@ -14,17 +14,23 @@
 
 #include "types.h"
 
-#define assert(exp)	\
-	if (exp);		\
-	else			\
-		assertion_failure(#exp, __FILE__, get_filename(__FILE__), __LINE__)
+#define assert(exp) \
+	if (!exp) assertion_failure(#exp, __FILE__, get_filename(__FILE__), __LINE__)
 
-#define assertx(x, info)	\
-	do {					\
-		if (!(x)) {			\
-			panic(info);	\
-		}					\
-	} while (0)
+#define assertx(x, info) \
+	if (!x) panic(info);
+
+#define PFFF "UNKNOWN_ERROR"
+#define P000 "TEST_KERNEL_PANIC"
+#define P001 "OUT_OF_MEMORY"
+#define P002 "FRAMES_FREE_ERROR-CannotFreeFrames"
+#define P003 "PAGE_FAULT-Present-Address:"
+#define P004 "PAGE_FAULT-ReadOnly-Address:"
+#define P005 "PAGE_FAULT-UserMode-Address:"
+#define P006 "PAGE_FAULT-Reserved-Address:"
+#define P007 "PAGE_FAULT-DecodeAddress-Address:"
+#define P008 "KERNEL_THREAD_KMALLOC_ERROR"
+#define P009 "MUST_INIT_SCHED"
 
 /* 初始化 Debug 信息 */
 void init_debug(void);

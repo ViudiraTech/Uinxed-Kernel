@@ -78,7 +78,7 @@ void alloc_frame(page_t *page, int is_kernel, int is_writable)
 	else {
 		uint32_t idx = first_frame();
 		if (idx == (uint32_t) - 1) {
-			panic("FRAMES_FREE_ERROR-CannotFreeFrames");
+			panic(P002);
 		}
 		set_frame(idx * 0x1000);
 		page->present	= 1;					// 现在这个页存在了
@@ -165,19 +165,19 @@ void page_fault(pt_regs *regs)
 	int id = regs->err_code & 0x10;				// 由取指引起
 
 	if (present) {
-		sprintf(s, "PAGE_FAULT-Present-Address: 0x%8X", faulting_address);
+		sprintf(s, "%s 0x%8X", P003, faulting_address);
 		panic(s);
 	} else if (rw) {
-		sprintf(s, "PAGE_FAULT-ReadOnly-Address: 0x%8X", faulting_address);
+		sprintf(s, "%s 0x%8X", P004, faulting_address);
 		panic(s);
 	} else if (us) {
-		sprintf(s, "PAGE_FAULT-UserMode-Address: 0x%8X", faulting_address);
+		sprintf(s, "%s 0x%8X", P005, faulting_address);
 		panic(s);
 	} else if (reserved) {
-		sprintf(s, "PAGE_FAULT-Reserved-Address: 0x%8X", faulting_address);
+		sprintf(s, "%s 0x%8X", P006, faulting_address);
 		panic(s);
 	} else if (id) {
-		sprintf(s, "PAGE_FAULT-DecodeAddress-Address: 0x%8X", faulting_address);
+		sprintf(s, "%s 0x%8X", P007, faulting_address);
 		panic(s);
 	}
 	krn_halt();

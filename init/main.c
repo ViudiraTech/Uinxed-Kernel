@@ -47,7 +47,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 
 	/* 检测内存是否达到最低要求 */
 	if ((glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower) / 1024 + 1 < 16) {
-		panic("OUT_OF_MEMORY");
+		panic(P001);
 	}
 	bmp_analysis((Bmp *)klogo, 799, 25, 1);								// 显示内核Logo
 	printk("Uinxed-Kernel "KERNL_VERS"(build-%d)\n", KERNL_BUID);		// 打印内核信息
