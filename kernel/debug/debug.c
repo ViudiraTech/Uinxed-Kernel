@@ -54,7 +54,7 @@ void panic(const char *msg)
 	print_cur_status(&ring, &regs1, &regs2, &regs3, &regs4);
 	print_stack_trace(eips, syname);
 
-	vbe_clear_color(0x000000ff);
+	vbe_clear_color(0x000080);
 	printk("Your kernel has encountered a fatal error.\n");
 	printk("We've shut down the kernel to keep you and the kernel safe.\n");
 	printk("If you want to resume use, restart your computer.\n\n");
