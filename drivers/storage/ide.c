@@ -48,6 +48,12 @@ const char *ide_get_desc(void)
 	return (const char *)(ide_device.desc);
 }
 
+/* 获取IDE设备扇区大小 */
+int ide_get_size(void)
+{
+	return ide_device.size;
+}
+
 /* 初始化IDE设备 */
 int ide_init(void)
 {

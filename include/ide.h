@@ -73,6 +73,9 @@ bool ide_device_valid(void);
 /* 获取IDE设备描述 */
 const char *ide_get_desc(void);
 
+/* 获取IDE设备扇区大小 */
+int ide_get_size(void);
+
 /* 获得设备默认块数量 */
 int ide_get_nr_block(void);
 
