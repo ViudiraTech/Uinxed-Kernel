@@ -17,7 +17,6 @@
 
 /* 调用中断处理函数 */
 void isr_handler(pt_regs *regs);
-void inthandler21(int *esp);
 
 /* IRQ 处理函数 */
 void irq_handler(pt_regs *regs);

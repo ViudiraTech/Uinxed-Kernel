@@ -24,6 +24,9 @@ void vbe_clear(void);
 /* VBE图形模式清屏（带颜色） */
 void vbe_clear_color(int color);
 
+/* 同步清屏 */
+void screen_clear(void);
+
 /* 打印一个空行 */
 void vbe_write_newline(void);
 
@@ -52,10 +55,10 @@ void vbe_put_string_color(const char *str, int color);
 void vbe_to_serial(int op);
 
 /* 设置前景色 */
-void set_fore_color(int color);
+void vbe_set_fore_color(int color);
 
 /* 设置背景色 */
-void set_back_color(int color);
+void vbe_set_back_color(int color);
 
 /* 初始化VBE图形模式 */
 void init_vbe(multiboot_t *info, int back, int fore);

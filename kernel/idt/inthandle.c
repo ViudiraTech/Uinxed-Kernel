@@ -14,7 +14,7 @@
 #include "printk.h"
 #include "common.h"
 
-#define printk_panic(str) printk_color(0xff0000, "[KERISR]"); printk(str);
+#define printk_panic(str) printk("\033[31m[KERISR]\033[0m"); printk(str);
 
 /*
  *

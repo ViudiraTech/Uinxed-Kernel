@@ -104,6 +104,7 @@ void shell_help(void)
            "| hltst    | Test the Kernel-Panic.                |\n"
            "| taskkill | Kill task which is running.           |\n"
            "| uname    | Show unix name.                       |\n"
+           "| flushing | Test screen flushing.                 |\n"
            "| cetsl    | Enable/Disable serial console output. |\n"
            "+----------+---------------------------------------+\n\n");
 	return;
@@ -111,7 +112,7 @@ void shell_help(void)
 
 void shell_clear(void)
 {
-	vbe_clear();
+	screen_clear();
 	return;
 }
 
@@ -194,6 +195,31 @@ void shell_cetsl(int argc, char *argv[])
 	return;
 }
 
+void shell_flushing(int argc, char *argv[])
+{
+	if (argc > 1) {
+		int flushtime = atoi(argv[1]);
+		if (flushtime > 0) {
+			static char* conversation_list = "\033[31m[TESTFLUSH] Hello! This is a flushing test!!\n\033[0m"
+                                             "\033[32m[TESTFLUSH] A quick fox jump over a lazy dog.\n\033[0m"
+                                             "\033[33m[TESTFLUSH] Success is not the end, failure is not the death.\033[0m\n"
+                                             "\033[34m[TESTFLUSH] Believe!\n\033[0m"
+                                             "\033[35m[TESTFLUSH] I love apples, but I don't like bananas.\n\033[0m"
+                                             "\033[36m[TESTFLUSH] Uinxed-Kernel - ViudiraTech - Microfish & Rainy101112 & XIAOYI12 ...\n\033[0m"
+                                             "\033[37m[TESTFLUSH] Open source on github!!\n\033[0m";
+			for (int times = 0; times <= flushtime; times++) {
+				printk("%s", conversation_list);
+			}
+		}
+		printk("\n");
+		return;
+	} else {
+		printk("Usage: %s [flush time]\n", argv[0]);
+		printk("\n");
+		return;
+	}
+}
+
 typedef struct builtin_cmd
 {
 	char *name;
@@ -209,6 +235,7 @@ builtin_cmd_t builtin_cmds[] = {
 	{"hltst", (void (*)(int, char **))shell_hltst},
 	{"taskkill", (void (*)(int, char **))shell_taskkill},
 	{"uname", (void (*)(int, char **))shell_uname},
+	{"flushing", (void (*)(int, char **))shell_flushing},
 	{"cetsl", shell_cetsl}
 };
 

@@ -15,6 +15,7 @@
 #include "vbe.h"
 #include "string.h"
 #include "serial.h"
+#include "printk.h"
 
 uint32_t width, height;
 uint32_t c_width, c_height;			// 字符绘制总宽高
@@ -30,6 +31,9 @@ extern uint8_t bafont[];
 
 int vbe_status = 0;
 int vbe_serial = 0;
+int terminalMode = 0;
+// 0 vbe
+// 1 OS-Terminal
 
 /* VBE图形模式清屏（默认颜色） */
 void vbe_clear(void)
@@ -45,7 +49,7 @@ void vbe_clear(void)
 /* VBE图形模式清屏（带颜色） */
 void vbe_clear_color(int color)
 {
-	set_back_color(color);
+	vbe_set_back_color(color);
 	for (uint32_t i = 0; i < (width * (height)); i++) {
 		screen[i] = color;
 	}
@@ -54,12 +58,17 @@ void vbe_clear_color(int color)
 	cx = cy = 0;
 }
 
+/* 同步清屏 */
+void screen_clear(void)
+{
+	printk("\033[2J\033[0m");
+	vbe_clear();
+}
+
 /* 打印一个空行 */
 void vbe_write_newline(void)
 {
-	vbe_scroll();
-	cx = 0;
-	cy++;
+	printk("\n");
 }
 
 /* VBE图形模式屏幕滚动操作 */
@@ -174,13 +183,13 @@ void vbe_to_serial(int op)
 }
 
 /* 设置前景色 */
-void set_fore_color(int color)
+void vbe_set_fore_color(int color)
 {
 	fore_color = color;
 }
 
 /* 设置背景色 */
-void set_back_color(int color)
+void vbe_set_back_color(int color)
 {
 	back_color = color;
 }
@@ -194,8 +203,8 @@ void init_vbe(multiboot_t *info, int back, int fore)
 	screen	= (uint32_t *)(uintptr_t)info->framebuffer_addr;
 	width	= info->framebuffer_width;
 	height	= info->framebuffer_height;
-	set_fore_color(fore);
-	set_back_color(back);
+	vbe_set_fore_color(fore);
+	vbe_set_back_color(back);
 	c_width = width / 9;
 	c_height = height / 16;
 	vbe_clear();

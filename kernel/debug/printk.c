@@ -15,11 +15,85 @@
 #include "vargs.h"
 #include "printk.h"
 
+extern void terminal_write_bstr(char *buff);
+
+/* VBE */
+
+/* 打印带有”[ ** ]“的字符串 */
+void vbe_print_busy(char *str)
+{
+	vbe_printk("[");
+	vbe_printk_color(0xffffff, " ** ");
+	vbe_printk("]");
+	vbe_printk("%s", str);
+}
+
+/* 打印带有”[ OK ]“的字符串 */
+void vbe_print_succ(char *str)
+{
+	vbe_printk("[");
+	vbe_printk_color(0x00ff00, " OK ");
+	vbe_printk("]");
+	vbe_printk("%s", str);
+}
+
+/* 打印带有”[ WARN ]“的字符串 */
+void vbe_print_warn(char *str)
+{
+	vbe_printk("[");
+	vbe_printk_color(0xffff00, "WARN");
+	vbe_printk("]");
+	vbe_printk("%s", str);
+}
+
+/* 打印带有”[ ERRO ]“的字符串 */
+void vbe_print_erro(char *str)
+{
+	vbe_printk("[");
+	vbe_printk_color(0xff0000, "ERRO");
+	vbe_printk("]");
+	vbe_printk("%s", str);
+}
+
+/* 内核打印字符串 */
+void vbe_printk(const char *format, ...)
+{
+	/* 避免频繁创建临时变量，内核的栈很宝贵 */
+	static char buff[1024];
+	va_list args;
+	int i;
+
+	va_start(args, format);
+	i = vsprintf(buff, format, args);
+	va_end(args);
+
+	buff[i] = '\0';
+	vbe_put_string(buff);
+}
+
+/* 内核打印带颜色的字符串 */
+void vbe_printk_color(int fore, const char *format, ...)
+{
+	/* 避免频繁创建临时变量，内核的栈很宝贵 */
+	static char buff[1024];
+	va_list args;
+	int i;
+
+	va_start(args, format);
+	i = vsprintf(buff, format, args);
+	va_end(args);
+
+	buff[i] = '\0';
+	vbe_put_string_color(buff, fore);
+}
+
+/* OS-Terminal */
+
 /* 打印带有”[ ** ]“的字符串 */
 void print_busy(char *str)
 {
 	printk("[");
-	printk_color(0xffffff, " ** ");
+	printk(" ** ");
 	printk("]");
 	printk("%s", str);
 }
@@ -28,7 +102,7 @@ void print_busy(char *str)
 void print_succ(char *str)
 {
 	printk("[");
-	printk_color(0x00ff00, " OK ");
+	printk("\033[32m OK \033[0m");
 	printk("]");
 	printk("%s", str);
 }
@@ -37,7 +111,7 @@ void print_succ(char *str)
 void print_warn(char *str)
 {
 	printk("[");
-	printk_color(0xffff00, "WARN");
+	printk("\033[33mWARN\033[0m");
 	printk("]");
 	printk("%s", str);
 }
@@ -46,7 +120,7 @@ void print_warn(char *str)
 void print_erro(char *str)
 {
 	printk("[");
-	printk_color(0xff0000, "ERRO");
+	printk("\033[31mERRO\033[0m");
 	printk("]");
 	printk("%s", str);
 }
@@ -64,23 +138,7 @@ void printk(const char *format, ...)
 	va_end(args);
 
 	buff[i] = '\0';
-	vbe_put_string(buff);
-}
-
-/* 内核打印带颜色的字符串 */
-void printk_color(int fore, const char *format, ...)
-{
-	/* 避免频繁创建临时变量，内核的栈很宝贵 */
-	static char buff[1024];
-	va_list args;
-	int i;
-
-	va_start(args, format);
-	i = vsprintf(buff, format, args);
-	va_end(args);
-
-	buff[i] = '\0';
-	vbe_put_string_color(buff, fore);
+	terminal_write_bstr(buff);
 }
 
 #define is_digit(c)	((c) >= '0' && (c) <= '9')

@@ -117,6 +117,8 @@ static void in_process(uint32_t key)
 				break;
 			case BACKSPACE:
 				fifo_put(&decoded_key, '\b');
+				fifo_put(&decoded_key, ' ');
+				fifo_put(&decoded_key, '\b');
 				break;
 		}
 	}

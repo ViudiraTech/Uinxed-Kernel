@@ -11,11 +11,24 @@
 
 #include "vargs.h"
 
+/* VBE */
+
 /* 内核打印字符串 */
-void printk(const char *format, ...);
+void vbe_printk(const char *format, ...);
 
 /* 内核打印带颜色的字符串 */
-void printk_color(int fore, const char *format, ...);
+void vbe_printk_color(int fore, const char *format, ...);
+
+/* 带前缀的打印函数 */
+void vbe_print_busy(char *str); // 打印带有”[ ** ]“的字符串
+void vbe_print_succ(char *str); // 打印带有”[ OK ]“的字符串
+void vbe_print_warn(char *str); // 打印带有”[WARN]“的字符串
+void vbe_print_erro(char *str); // 打印带有”[ERRO]“的字符串
+
+/* OS-Terminal */
+
+/* 内核打印字符串 */
+void printk(const char *format, ...);
 
 /* 带前缀的打印函数 */
 void print_busy(char *str); // 打印带有”[ ** ]“的字符串

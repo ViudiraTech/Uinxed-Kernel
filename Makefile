@@ -43,7 +43,7 @@ info:
 link:$(S_OBJECTS) $(C_OBJECTS)
 	@echo
 	@echo "\033[32m[Link]\033[0m" Linking kernel...
-	@$(LD) $(LD_FLAGS) $(S_OBJECTS) $(C_OBJECTS) ./lib/klogo.obj -o UxImage
+	@$(LD) $(LD_FLAGS) $(S_OBJECTS) $(C_OBJECTS) ./lib/klogo.obj ./lib/lib_os_terminal.a -o UxImage
 
 .PHONY:iso
 Uinxed.iso:UxImage

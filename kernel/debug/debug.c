@@ -55,19 +55,19 @@ void panic(const char *msg)
 	print_stack_trace(eips, syname);
 
 	vbe_clear_color(0x000080);
-	printk("Your kernel has encountered a fatal error.\n");
-	printk("We've shut down the kernel to keep you and the kernel safe.\n");
-	printk("If you want to resume use, restart your computer.\n\n");
-	printk("If you encounter this interface again, perform the following steps:\n");
-	printk("    1.Remove the most recent hardware device or faulty device.\n");
-	printk("    2.Check the compatibility of the kernel with the hardware.\n");
-	printk("    3.Seek help from a professional.\n\n");
-	printk("Technical information:\n");
-	printk("\n*** STOP - Kernel-Panic: %s\n\nEIP:    ", msg);
+	vbe_printk("Your kernel has encountered a fatal error.\n");
+	vbe_printk("We've shut down the kernel to keep you and the kernel safe.\n");
+	vbe_printk("If you want to resume use, restart your computer.\n\n");
+	vbe_printk("If you encounter this interface again, perform the following steps:\n");
+	vbe_printk("    1.Remove the most recent hardware device or faulty device.\n");
+	vbe_printk("    2.Check the compatibility of the kernel with the hardware.\n");
+	vbe_printk("    3.Seek help from a professional.\n\n");
+	vbe_printk("Technical information:\n");
+	vbe_printk("\n*** STOP - Kernel-Panic: %s\n\nEIP:    ", msg);
 	for (int i = 0; i < 5; i++) {
-		printk("[0x%06X: %s]", eips[ps++], syname[sy++]);
+		vbe_printk("[0x%06X: %s]", eips[ps++], syname[sy++]);
 	}
-	printk("\nSTATUS: [RING: %d][CS: %d][DS: %d][ES: %d][SS: %d]\n", ring, regs1, regs2, regs3, regs4);
+	vbe_printk("\nSTATUS: [RING: %d][CS: %d][DS: %d][ES: %d][SS: %d]\n", ring, regs1, regs2, regs3, regs4);
 	krn_halt();
 }
 
