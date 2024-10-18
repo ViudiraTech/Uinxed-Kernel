@@ -260,16 +260,18 @@ void shell(void)
 	printk("Basic shell program v1.0\n");
 	printk("Type 'help' for help.\n\n");
 
-	char *prompt_len = "Shell-[Kernel:Ring0]-# ";			// 提示符，可自行修改
+	char *prompt_l1 = "┌─ \033[32m[Uinxed]\033[0m-\033[34m[Shell]\033[0m:\033[34m[Ring-0]\033[0m";
+	char *prompt_l2 = "└─ # ";
 	uint8_t cmd[MAX_COMMAND_LEN];
 	uint8_t *argv[MAX_ARG_NR];
 	int argc = -1;
 
 	while (true) {
-		printk(prompt_len);									// 打印提示符
+		printk("%s\n", prompt_l1);							// 打印提示符
+		printk(prompt_l2);									// 打印提示符
 
 		memset(cmd, 0, MAX_COMMAND_LEN);					// 清空上轮输入
-		readline(cmd, MAX_COMMAND_LEN, strlen(prompt_len));	// 读入一行
+		readline(cmd, MAX_COMMAND_LEN, strlen(prompt_l2));	// 读入一行
 
 		/* com就是完整的命令 */
 		if (cmd[0] == 0) continue;							// 只有一个回车，continue
