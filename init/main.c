@@ -34,7 +34,6 @@ extern int terminalMode;	// 声明terminal模式切换
 extern uint8_t klogo[];		// 声明内核Logo数据
 
 void shell(void);			// 声明shell程序入口
-void init_terminal(int);	// 声明terminal初始化函数
 
 /* 内核shell进程 */
 int kthread_shell(void *arg)
@@ -47,8 +46,6 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 {
 	vbe_to_serial(1);								// 输出内核启动日志到串口
 	init_vbe(glb_mboot_ptr, 0x151515, 0xffffff);	// 初始化图形模式
-	init_terminal(1);								// 初始化terminal
-	terminalMode = 1;								// 开启terminal
 
 	/* 检测内存是否达到最低要求 */
 	if ((glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower) / 1024 + 1 < 16) {

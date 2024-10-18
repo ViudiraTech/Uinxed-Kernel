@@ -15,7 +15,7 @@
 #include "vargs.h"
 #include "printk.h"
 
-extern void terminal_write_bstr(char *buff);
+extern void terminal_advance_state(char *buff);
 
 /* VBE */
 
@@ -138,7 +138,7 @@ void printk(const char *format, ...)
 	va_end(args);
 
 	buff[i] = '\0';
-	terminal_write_bstr(buff);
+	terminal_advance_state(buff);
 }
 
 #define is_digit(c)	((c) >= '0' && (c) <= '9')

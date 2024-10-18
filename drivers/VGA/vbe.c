@@ -16,6 +16,7 @@
 #include "string.h"
 #include "serial.h"
 #include "printk.h"
+#include "memory.h"
 
 uint32_t width, height;
 uint32_t c_width, c_height;			// 字符绘制总宽高
@@ -28,6 +29,10 @@ uint32_t *char_buffer;
 extern uint8_t ascfont[];
 extern uint8_t plfont[];
 extern uint8_t bafont[];
+
+/* 声明terminal初始化函数 */
+extern bool terminal_init(unsigned int width, unsigned int height,
+                          uint32_t *screen, uint32_t (*malloc)(uint32_t), void (*free)(void*));
 
 int vbe_status = 0;
 int vbe_serial = 0;
@@ -208,4 +213,7 @@ void init_vbe(multiboot_t *info, int back, int fore)
 	c_width = width / 9;
 	c_height = height / 16;
 	vbe_clear();
+
+	terminal_init(width, height, screen, kmalloc, kfree);	// 初始化terminal
+	terminalMode = 1;										// 开启terminal
 }
