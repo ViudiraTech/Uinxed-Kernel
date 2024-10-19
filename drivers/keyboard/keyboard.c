@@ -120,8 +120,9 @@ static void in_process(uint32_t key)
 			case LEFT:
 			case UP:
 			case RIGHT:
-			case DOWN:
-				// fifo_put(&decoded_key,key);
+            case DOWN:
+            case TAB:
+				fifo_put(&decoded_key,key);
 				break;
 		}
 	}
