@@ -5,7 +5,7 @@
  *
  *		2024/6/29 By copi143
  *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，保留所有权利。
+ *		Copyright © 2020 ViudiraTech，保留最终解释权。
  *
  */
 

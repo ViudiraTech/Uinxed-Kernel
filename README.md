@@ -55,4 +55,4 @@
 
 本Uinxed内核项目所有商为ViudiraTech。
 内核源码为GPL-3.0开源协议
-Copyright © 2020 ViudiraTech，保留所有权利。
+Copyright © 2020 ViudiraTech，保留最终解释权。
