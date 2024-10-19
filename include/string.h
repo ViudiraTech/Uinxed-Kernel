@@ -15,7 +15,7 @@
 #include "types.h"
 
 /* 比较两个内存区域的前count个字节 */
-int memcmp(const void *buffer1, const void *buffer2, size_t count);
+int memcmp(const void* buffer1,const void* buffer2,size_t  count);
 
 /* 将len个字节从源地址复制到目标地址 */
 void memcpy(uint8_t *dest, const uint8_t *src, uint32_t len);
@@ -62,10 +62,10 @@ char *strupr(char *src);
 /* 将字符串中的所有字母转换为小写 */
 char *strlwr(char *src);
 
-/* 复制一个字符串并返回新字符串的地址 */
+/* 拷贝字符串副本并返回 */
 void *strdup(const char *s);
 
-/* 计算字符串s1和s2的前n个字符的比较结果 */
+/* 比较指定长度两个字符串的大小 */
 int strncmp(const char *s1, const char *s2, size_t n);
 
 #endif // INCLUDE_STRING_H_

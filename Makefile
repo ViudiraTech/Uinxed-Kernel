@@ -14,13 +14,15 @@ C_OBJECTS		= $(patsubst %.c, %.o, $(C_SOURCES))
 S_SOURCES		= $(shell find . -name "*.s")
 S_OBJECTS		= $(patsubst %.s, %.o, $(S_SOURCES))
 
+OTHER_OBJECTS	= ./lib/klogo.lib ./lib/lib_os_terminal.lib ./lib/pl_readline.lib
+
 CC = gcc
 LD = ld
 ASM = nasm
 RM = rm
 QEMU = qemu-system-x86_64
 
-C_FLAGS = -c -W -m32 -ggdb -g3 -nostdinc -fno-pic -fno-builtin -fno-stack-protector -Wimplicit-fallthrough=0 -I include -I pl_readline/include
+C_FLAGS = -c -W -m32 -ggdb -g3 -nostdinc -fno-pic -fno-builtin -fno-stack-protector -Wimplicit-fallthrough=0 -I include
 LD_FLAGS = -T scripts/kernel.ld -m elf_i386 -nostdlib
 ASM_FLAGS = -f elf -g -F stabs
 
@@ -43,7 +45,7 @@ info:
 link:$(S_OBJECTS) $(C_OBJECTS)
 	@echo
 	@echo "\033[32m[Link]\033[0m" Linking kernel...
-	@$(LD) $(LD_FLAGS) $(S_OBJECTS) $(C_OBJECTS) ./lib/klogo.lib ./lib/lib_os_terminal.lib -o UxImage
+	@$(LD) $(LD_FLAGS) $(S_OBJECTS) $(C_OBJECTS) $(OTHER_OBJECTS) -o UxImage
 
 .PHONY:iso
 Uinxed.iso:UxImage

@@ -11,6 +11,7 @@
 
 #include "memory.h"
 #include "printk.h"
+#include "string.h"
 
 header_t *head = NULL, *tail = NULL; // 内存块链表
 extern page_directory_t *current_directory;
@@ -84,6 +85,19 @@ uint32_t kmalloc(uint32_t size)
 	return kmalloc_int(size, 0, 0);
 }
 
+/* 重新调整内存块 */
+void *krealloc(void *block, size_t size)
+{
+	header_t *header, *tmp;
+	if (!block) return NULL;
+	header = (header_t *)block - 1;
+	void *new_block = (void *)kmalloc(size);
+	if (!new_block) return NULL;
+	memcpy(new_block, block, header->s.size);
+	kfree(block);
+	return new_block;
+}
+
 /* 改变进程的堆栈大小 */
 void *ksbrk(int incr)
 {
@@ -152,16 +166,4 @@ void kfree(void *block)
 		return;
 	}
 	header->s.is_free = 1;
-}
-void *krealloc(void *block, size_t size) {
-  header_t *header, *tmp;
-  if (!block)
-    return;
-  header = (header_t *)block - 1;
-  void *new_block = (void *)kmalloc(size);
-  if (!new_block)
-    return NULL;
-  memcpy(new_block, block, header->s.size);
-  kfree(block);
-  return new_block;
 }
