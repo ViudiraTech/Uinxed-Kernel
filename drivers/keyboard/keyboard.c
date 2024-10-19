@@ -34,20 +34,18 @@ static void keyboard_read(void);
 fifo_t keyfifo, decoded_key;
 extern uint32_t keymap[];
 
-void keyboard_handler(pt_regs *regs)
-{
-	uint8_t c = inb(KB_DATA);
-	fifo_put(&keyfifo, c);
-	keyboard_read();
+void keyboard_handler(pt_regs *regs) {
+    uint8_t c = inb(KB_DATA);
+    fifo_put(&keyfifo, c);
+    keyboard_read();
 }
 
-static void kb_wait(void)
-{
-	uint8_t kb_stat;
+static void kb_wait(void) {
+    uint8_t kb_stat;
 
-	do {
-		kb_stat = inb(KB_CMD);
-	} while (kb_stat & 0x02);
+    do {
+        kb_stat = inb(KB_CMD);
+    } while (kb_stat & 0x02);
 }
 
 /* 此函数会检查是否收到PS/2键盘的ACK信号，如果没有收到ACK信号就会一直循环卡住。
@@ -122,8 +120,9 @@ static void in_process(uint32_t key)
 			case LEFT:
 			case UP:
 			case RIGHT:
-			case DOWN:
-				// fifo_put(&decoded_key,key);
+            case DOWN:
+            case TAB:
+				fifo_put(&decoded_key,key);
 				break;
 		}
 	}
