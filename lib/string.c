@@ -11,6 +11,8 @@
 
 #include "string.h"
 #include "types.h"
+#include "memory.h"
+
 
 /* 比较两个内存区域的前count个字节 */
 int memcmp(const void* buffer1,const void* buffer2,size_t count)
@@ -159,6 +161,26 @@ void insert_char(char *str, int pos, char ch)
 		str[i + 1] = str[i];
 	}
 	str[pos] = ch;
+}
+void *strdup(const char *s) {
+  size_t len = strlen(s) + 1;
+  void *p = kmalloc(len);
+  if (p != NULL)
+    memcpy(p, s, len);
+  return p;
+}
+
+int strncmp(const char *s1, const char *s2, size_t n) {
+  const unsigned char *p1 = (const unsigned char *)s1,
+                      *p2 = (const unsigned char *)s2;
+  while (n-- > 0) {
+    if (*p1 != *p2)
+      return *p1 - *p2;
+    if (*p1 == '\0')
+      return 0;
+    p1++, p2++;
+  }
+  return 0;
 }
 
 /* 在字符串的指定位置插入另一个字符串 */

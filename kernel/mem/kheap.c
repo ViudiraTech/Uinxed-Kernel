@@ -153,3 +153,15 @@ void kfree(void *block)
 	}
 	header->s.is_free = 1;
 }
+void *krealloc(void *block, size_t size) {
+  header_t *header, *tmp;
+  if (!block)
+    return;
+  header = (header_t *)block - 1;
+  void *new_block = (void *)kmalloc(size);
+  if (!new_block)
+    return NULL;
+  memcpy(new_block, block, header->s.size);
+  kfree(block);
+  return new_block;
+}
