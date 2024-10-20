@@ -29,9 +29,7 @@
 #include "fpu.h"
 #include "sched.h"
 #include "bmp.h"
-
-extern int terminalMode;	// 声明terminal模式切换
-extern uint8_t klogo[];		// 声明内核Logo数据
+#include "klogo.lib.h"
 
 void shell(void);			// 声明shell程序入口
 

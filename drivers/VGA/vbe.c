@@ -17,6 +17,7 @@
 #include "serial.h"
 #include "printk.h"
 #include "memory.h"
+#include "lib_os_terminal.lib.h"
 
 uint32_t width, height;
 uint32_t c_width, c_height;			// 字符绘制总宽高
@@ -30,15 +31,11 @@ extern uint8_t ascfont[];
 extern uint8_t plfont[];
 extern uint8_t bafont[];
 
-/* 声明terminal初始化函数 */
-extern bool terminal_init(unsigned int width, unsigned int height,
-                          uint32_t *screen, uint32_t (*malloc)(uint32_t), void (*free)(void*));
-
 int vbe_status = 0;
 int vbe_serial = 0;
 int terminalMode = 0;
-// 0 vbe
-// 1 OS-Terminal
+/* 0 vbe */
+/* 1 OS-Terminal */
 
 /* VBE图形模式清屏（默认颜色） */
 void vbe_clear(void)

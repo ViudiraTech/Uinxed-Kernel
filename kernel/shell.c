@@ -22,45 +22,11 @@
 #include "sched.h"
 #include "uinxed.h"
 #include "list.h"
+#include "pl_readline.lib.h"
+#include "lib_os_terminal.lib.h"
 
-#define MAX_COMMAND_LEN				100
-#define MAX_ARG_NR					30
-
-#define PL_READLINE_KEY_UP			0xff00
-#define PL_READLINE_KEY_DOWN		0xff01
-#define PL_READLINE_KEY_LEFT		0xff02
-#define PL_READLINE_KEY_RIGHT		0xff03
-#define PL_READLINE_KEY_ENTER		'\n'
-#define PL_READLINE_KEY_TAB			'\t'
-#define PL_READLINE_KEY_BACKSPACE	'\b'
-
-typedef struct pl_readline_word {
-	char *word;
-	bool first;
-	char sep;
-} pl_readline_word;
-
-typedef struct pl_readline_words {
-	int len;
-	int max_len;
-	pl_readline_word *words;
-} *pl_readline_words_t;
-
-typedef struct pl_readline {
-	int (*pl_readline_hal_getch)(void);
-	void (*pl_readline_hal_putch)(int ch);
-	void (*pl_readline_hal_flush)(void);
-	void (*pl_readline_get_words)(char *buf, pl_readline_words_t words);
-	List history;
-} *pl_readline_t;
-
-extern void terminal_advance_state_single(int ch);
-extern int pl_readline(pl_readline_t self, char *prompt, char *buffer, size_t len);
-extern int pl_readline_word_maker_add(char *word, pl_readline_words_t words,
-                                      bool is_first, char sep);
-extern pl_readline_t pl_readline_init(int (*pl_readline_hal_getch)(void), void (*pl_readline_hal_putch)(int ch),
-                                      void (*pl_readline_hal_flush)(void),
-                                      void (*pl_readline_get_words)(char *buf, pl_readline_words_t words));
+#define MAX_COMMAND_LEN	100
+#define MAX_ARG_NR		30
 
 /* 从FIFO中读取一个按键事件 */
 static int read_key_blocking(char *buf)

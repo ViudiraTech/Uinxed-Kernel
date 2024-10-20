@@ -14,8 +14,7 @@
 #include "stdlib.h"
 #include "vargs.h"
 #include "printk.h"
-
-extern void terminal_advance_state(char *buff);
+#include "lib_os_terminal.lib.h"
 
 /* VBE */
 
