@@ -22,7 +22,6 @@
 #include "sched.h"
 #include "uinxed.h"
 #include "list.h"
-#include "vfs.h"
 #include "pl_readline.lib.h"
 #include "lib_os_terminal.lib.h"
 
@@ -109,8 +108,8 @@ void shell_help(void)
            "| taskkill | Kill task which is running.           |\n"
            "| uname    | Show unix name.                       |\n"
            "| flushing | Test screen flushing.                 |\n"
+           "| echo     | String output.                        |\n"
            "| cetsl    | Enable/Disable serial console output. |\n"
-           "| echo     | Echo.                                 |\n"
            "+----------+---------------------------------------+\n\n");
 	return;
 }
@@ -118,15 +117,6 @@ void shell_help(void)
 void shell_clear(void)
 {
 	screen_clear();
-	return;
-}
-
-void shell_echo(int argc, char *argv[])
-{
-	for(int i=1; i < argc; i++){
-		printk("%s ",argv[i]);
-	}
-	printk("\n");
 	return;
 }
 
@@ -194,21 +184,6 @@ void shell_uname(int argc, char *argv[])
 	return;
 }
 
-void shell_cetsl(int argc, char *argv[])
-{
-	if (strcmp(argv[1], "1") == 0 || strcmp(argv[1], "true") == 0) {
-		vbe_to_serial(1);
-		printk("The kernel console has been output to the serial port.\n");
-	} else if (strcmp(argv[1], "0") == 0 || strcmp(argv[1], "false") == 0) {
-		vbe_to_serial(0);
-		printk("Stopped outputting the kernel console to the serial port.\n");
-	} else {
-		printk("Usage: %s [BOOLEAN]\n", argv[0]);
-	}
-	printk("\n");
-	return;
-}
-
 void shell_flushing(int argc, char *argv[])
 {
 	if (argc > 1) {
@@ -234,6 +209,30 @@ void shell_flushing(int argc, char *argv[])
 	}
 }
 
+void shell_echo(int argc, char *argv[])
+{
+	for(int i=1; i < argc; i++){
+		printk("%s ",argv[i]);
+	}
+	printk("\n");
+	return;
+}
+
+void shell_cetsl(int argc, char *argv[])
+{
+	if (strcmp(argv[1], "1") == 0 || strcmp(argv[1], "true") == 0) {
+		vbe_to_serial(1);
+		printk("The kernel console has been output to the serial port.\n");
+	} else if (strcmp(argv[1], "0") == 0 || strcmp(argv[1], "false") == 0) {
+		vbe_to_serial(0);
+		printk("Stopped outputting the kernel console to the serial port.\n");
+	} else {
+		printk("Usage: %s [BOOLEAN]\n", argv[0]);
+	}
+	printk("\n");
+	return;
+}
+
 typedef struct builtin_cmd
 {
 	char *name;
@@ -250,8 +249,8 @@ builtin_cmd_t builtin_cmds[] = {
 	{"taskkill", (void (*)(int, char **))shell_taskkill},
 	{"uname", (void (*)(int, char **))shell_uname},
 	{"flushing", (void (*)(int, char **))shell_flushing},
-	{"cetsl", shell_cetsl},
-	{"echo", (void (*)(int, char **))shell_echo}
+	{"echo", (void (*)(int, char **))shell_echo},
+	{"cetsl", shell_cetsl}
 };
 
 /* 内建命令数量 */
