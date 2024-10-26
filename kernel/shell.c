@@ -22,6 +22,7 @@
 #include "sched.h"
 #include "uinxed.h"
 #include "list.h"
+#include "vfs.h"
 #include "pl_readline.lib.h"
 #include "lib_os_terminal.lib.h"
 
@@ -109,6 +110,7 @@ void shell_help(void)
            "| uname    | Show unix name.                       |\n"
            "| flushing | Test screen flushing.                 |\n"
            "| cetsl    | Enable/Disable serial console output. |\n"
+           "| echo     | Echo.                                 |\n"
            "+----------+---------------------------------------+\n\n");
 	return;
 }
@@ -116,6 +118,15 @@ void shell_help(void)
 void shell_clear(void)
 {
 	screen_clear();
+	return;
+}
+
+void shell_echo(int argc, char *argv[])
+{
+	for(int i=1; i < argc; i++){
+		printk("%s ",argv[i]);
+	}
+	printk("\n");
 	return;
 }
 
@@ -239,7 +250,8 @@ builtin_cmd_t builtin_cmds[] = {
 	{"taskkill", (void (*)(int, char **))shell_taskkill},
 	{"uname", (void (*)(int, char **))shell_uname},
 	{"flushing", (void (*)(int, char **))shell_flushing},
-	{"cetsl", shell_cetsl}
+	{"cetsl", shell_cetsl},
+	{"echo", (void (*)(int, char **))shell_echo}
 };
 
 /* 内建命令数量 */
