@@ -92,6 +92,9 @@ void pci_config(unsigned int bus, unsigned int f, unsigned int equipment, unsign
 /* 根据类代码返回设备类别名称 */
 char *pci_classname(uint32_t classcode);
 
+/* 查找相应设备的ClassCode */
+int pci_find_class(uint32_t class_code);
+
 /* PCI设备信息 */
 void pci_device_info(void);
 
