@@ -101,6 +101,7 @@ static uint8_t get_scancode(void)
 	uint8_t scan_code;
 	disable_intr();
 	scan_code = fifo_get(&keyfifo);
+	terminal_handle_keyboard(scan_code);
 	return scan_code;
 }
 
