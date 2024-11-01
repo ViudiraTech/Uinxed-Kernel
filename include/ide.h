@@ -62,8 +62,6 @@
 
 #define IDE_DESC_LEN			40			// IDE设备描述信息尺寸
 
-extern int no_ide_controller;
-
 /* 初始化IDE设备 */
 int ide_init(void);
 
@@ -75,6 +73,12 @@ const char *ide_get_desc(void);
 
 /* 获取IDE设备扇区大小 */
 int ide_get_size(void);
+
+/* 检查是否存在IDE控制器 */
+int check_ide_controller(void);
+
+/* 检查是否存在IDE设备 */
+int check_ide_device(void);
 
 /* 获得设备默认块数量 */
 int ide_get_nr_block(void);

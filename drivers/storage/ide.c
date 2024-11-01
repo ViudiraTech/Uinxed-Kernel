@@ -54,6 +54,26 @@ int ide_get_size(void)
 	return ide_device.size;
 }
 
+/* 检查是否存在IDE控制器 */
+int check_ide_controller(void)
+{
+	if (no_ide_controller) {
+		return 0;
+	} else {
+		return 1;
+	}
+}
+
+/* 检查是否存在IDE设备 */
+int check_ide_device(void)
+{
+	if (!ide_device.valid) {
+		return 0;
+	} else {
+		return 1;
+	}
+}
+
 /* 初始化IDE设备 */
 int ide_init(void)
 {

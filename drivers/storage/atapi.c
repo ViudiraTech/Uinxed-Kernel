@@ -24,7 +24,7 @@ static void ata_io_wait(const uint8_t p)
 /* 从LBA到指针来读光盘扇区 */
 int read_cdrom(uint16_t port, bool slave, uint32_t lba, uint32_t sectors, uint16_t *buffer)
 {
-	if (no_ide_controller) {
+	if (!check_ide_controller) {
 		printk("The IDE optical drive could not be found.\n");
 		return 1;
 	}
