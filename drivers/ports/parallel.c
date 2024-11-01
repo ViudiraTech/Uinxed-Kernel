@@ -25,7 +25,6 @@ void wait_parallel_ready(void)
 void parallel_write(unsigned char c)
 {
 	unsigned char lControl;
-
 	wait_parallel_ready();
 
 	outb(LPT1_PORT_BASE, c);
@@ -35,4 +34,22 @@ void parallel_write(unsigned char c)
 	outb(LPT1_PORT_CONTROL, lControl);
 
 	wait_parallel_ready();
+}
+
+/* 写并行端口字符串 */
+void parallel_write_string(const char *str)
+{
+	while (*str) {
+		unsigned char lControl;
+		wait_parallel_ready();
+
+		outb(LPT1_PORT_BASE, *str);
+		lControl = inb(LPT1_PORT_CONTROL);
+		outb(LPT1_PORT_CONTROL, lControl | 1);
+		sleep(10);
+		outb(LPT1_PORT_CONTROL, lControl);
+
+		wait_parallel_ready();
+		str++;
+	}
 }

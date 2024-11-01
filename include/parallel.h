@@ -23,4 +23,7 @@ void wait_parallel_ready(void);
 /* 写并行端口 */
 void parallel_write(unsigned char c);
 
+/* 写并行端口字符串 */
+void parallel_write_string(const char *str);
+
 #endif // INCLUDE_PARALLEL_H_

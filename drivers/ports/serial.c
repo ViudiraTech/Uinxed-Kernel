@@ -61,3 +61,14 @@ void write_serial(char a)
 	while (is_transmit_empty() == 0);
 	outb(SERIAL_PORT, a);
 }
+
+/* 写串口字符串 */
+void write_serial_string(const char *str)
+{
+	while (*str)
+	{
+		while (is_transmit_empty() == 0);
+		outb(SERIAL_PORT, *str);
+		str++;
+	}
+}
