@@ -16,6 +16,7 @@
 #include "memory.h"
 #include "printk.h"
 #include "math.h"
+#include "lib_os_terminal.lib.h"
 
 static int code_with_E0 = 0;
 static int shift_l;
