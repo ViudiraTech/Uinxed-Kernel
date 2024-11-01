@@ -12,6 +12,8 @@
 #ifndef INCLUDE_LIB_OS_TERMINAL_LIB_H_
 #define INCLUDE_LIB_OS_TERMINAL_LIB_H_
 
+#define TERMINAL_EMBEDDED_FONT
+
 #include "types.h"
 
 typedef struct TerminalPalette {
@@ -20,15 +22,24 @@ typedef struct TerminalPalette {
 	uint32_t ansi_colors[16];
 } TerminalPalette;
 
+#if defined(TERMINAL_EMBEDDED_FONT)
+extern bool terminal_init(unsigned int width, unsigned int height, uint32_t *screen, float font_size,
+                          uint32_t (*malloc)(uint32_t), void (*free)(void*), void (*serial_print)(const char*));
+#endif
+
+#if !defined(TERMINAL_EMBEDDED_FONT)
+extern bool terminal_init(unsigned int width, unsigned int height, uint32_t *screen, const uint8_t *font_buffer,
+                          unsigned int font_buffer_size, float font_size, uint32_t (*malloc)(uint32_t),
+                          void (*free)(void*), void (*serial_print)(const char*));
+#endif
+
 extern void terminal_destroy(void);
 extern void terminal_flush(void);
 extern void terminal_set_auto_flush(unsigned int auto_flush);
 extern void terminal_advance_state(const char *s);
 extern void terminal_advance_state_single(char c);
-extern const char *terminal_handle_keyboard(unsigned char scancode);
 extern void terminal_set_color_scheme(unsigned int palette_index);
 extern void terminal_set_custom_color_scheme(struct TerminalPalette palette);
-extern bool terminal_init(unsigned int width, unsigned int height,
-                          uint32_t *screen, uint32_t (*malloc)(uint32_t), void (*free)(void*));
+extern const char *terminal_handle_keyboard(uint8_t scancode);
 
 #endif // INCLUDE_LIB_OS_TERMINAL_LIB_H_
