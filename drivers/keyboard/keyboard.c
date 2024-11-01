@@ -102,7 +102,7 @@ static uint8_t get_scancode(void)
 	uint8_t scan_code;
 	disable_intr();
 	scan_code = fifo_get(&keyfifo);
-	terminal_handle_keyboard(scan_code);
+	// terminal_handle_keyboard(scan_code); // 此代码会导致滚屏死机，在OST修复之前先注释掉此功能
 	return scan_code;
 }
 
