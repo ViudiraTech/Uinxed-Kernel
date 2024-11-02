@@ -24,7 +24,7 @@ void vbe_clear(void);
 /* VBE图形模式清屏（带颜色） */
 void vbe_clear_color(int color);
 
-/* 同步清屏 */
+/* OS-Terminal清屏 */
 void screen_clear(void);
 
 /* 打印一个空行 */
