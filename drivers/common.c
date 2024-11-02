@@ -91,6 +91,29 @@ inline void outsl(uint32_t port, const void *addr, int cnt)
                  : "memory", "cc");
 }
 
+/* 加载eflags寄存器 */
+inline uint32_t load_eflags(void)
+{
+	uint32_t eflags;
+	asm volatile("pushf\n\t"
+                 "pop %0"
+                 : "=g"(eflags)
+                 :
+                 : "memory");
+	return eflags;
+}
+
+/* 存储eflags寄存器 */
+inline void store_eflags(uint32_t eflags)
+{
+	asm volatile("push %0\n\t"
+                 "popf"
+                 :
+                 : "r" (eflags)
+                 : "memory", "cc"
+	);
+}
+
 /* 获取当前的CR0寄存器的值 */
 uint32_t get_cr0(void)
 {

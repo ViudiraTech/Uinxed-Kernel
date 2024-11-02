@@ -35,6 +35,12 @@ void insl(uint32_t port, void *addr, int cnt);
 /* 从内存批量地写入数据到I/O端口（32位） */
 void outsl(uint32_t port, const void *addr, int cnt);
 
+/* 加载eflags寄存器 */
+uint32_t load_eflags(void);
+
+/* 存储eflags寄存器 */
+void store_eflags(uint32_t eflags);
+
 /* 获取当前的CR0寄存器的值 */
 uint32_t get_cr0(void);
 

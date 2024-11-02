@@ -129,14 +129,14 @@ void timer_settime(struct TIMER *timer, unsigned int timeout)
 	struct TIMER *t, *s;
 	timer->timeout	= timeout + timerctl.count;
 	timer->flags	= TIMER_FLAGS_USING;
-	e = io_load_eflags();
+	e = load_eflags();
 	t = timerctl.t0;
 	if (timer->timeout <= t->timeout) {
 		/* 插入最前面的情况 */
 		timerctl.t0 = timer;
 		timer->next = t; // 下面是设定t
 		timerctl.next = timer->timeout;
-		io_store_eflags(e);
+		store_eflags(e);
 		return;
 	}
 	for (;;) {
@@ -146,7 +146,7 @@ void timer_settime(struct TIMER *timer, unsigned int timeout)
 			/* 插入s和t之间的情况 */
 			s->next = timer; // s下一个是timer
 			timer->next = t; // timer的下一个是t
-			io_store_eflags(e);
+			store_eflags(e);
 			return;
 		}
 	}
