@@ -22,6 +22,8 @@
 #include "sched.h"
 #include "uinxed.h"
 #include "list.h"
+#include "acpi.h"
+#include "timer.h"
 #include "pl_readline.lib.h"
 #include "lib_os_terminal.lib.h"
 
@@ -109,6 +111,8 @@ void shell_help(void)
            "| uname    | Show unix name.                       |\n"
            "| flushing | Test screen flushing.                 |\n"
            "| echo     | String output.                        |\n"
+           "| poweroff | Power off your computer.              |\n"
+           "| reboot   | Reboot the system.                    |\n"
            "| cetsl    | Enable/Disable serial console output. |\n"
            "+----------+---------------------------------------+\n\n");
 	return;
@@ -218,6 +222,20 @@ void shell_echo(int argc, char *argv[])
 	return;
 }
 
+void shell_poweroff(void)
+{
+	printk("The computer is about to be shut down!");
+	sleep(200);
+	power_off();
+}
+
+void shell_reboot(void)
+{
+	printk("The computer is about to be reboot!");
+	sleep(200);
+	power_reset();
+}
+
 void shell_cetsl(int argc, char *argv[])
 {
 	if (strcmp(argv[1], "1") == 0 || strcmp(argv[1], "true") == 0) {
@@ -250,6 +268,8 @@ builtin_cmd_t builtin_cmds[] = {
 	{"uname", (void (*)(int, char **))shell_uname},
 	{"flushing", (void (*)(int, char **))shell_flushing},
 	{"echo", (void (*)(int, char **))shell_echo},
+	{"poweroff", (void (*)(int, char **))shell_poweroff},
+	{"reboot", (void (*)(int, char **))shell_reboot},
 	{"cetsl", shell_cetsl}
 };
 

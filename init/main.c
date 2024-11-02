@@ -61,7 +61,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	init_gdt();						// 初始化gdt
 	init_idt();						// 初始化idt
 	ISR_registe_Handle();			// 注册ISR处理
-	acpi_init();
+	acpi_init();					// 初始化ACPI
 	init_page(glb_mboot_ptr);		// 初始化内存分页
 	init_fpu();						// 初始化FPU
 	init_pci();						// 初始化PCI设备
