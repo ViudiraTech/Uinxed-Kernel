@@ -60,11 +60,11 @@ void vbe_clear_color(int color)
 	cx = cy = 0;
 }
 
-/* 同步清屏 */
+/* OS-Terminal清屏 */
 void screen_clear(void)
 {
 	printk("\033[2J\033[0m");
-	vbe_clear();
+	// vbe_clear();
 }
 
 /* 打印一个空行 */
