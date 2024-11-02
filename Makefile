@@ -27,6 +27,7 @@ LD_FLAGS = -T scripts/kernel.ld -m elf_i386 -nostdlib
 ASM_FLAGS = -f elf -g -F stabs
 
 all: info link Uinxed.iso
+theme: info link themeiso
 
 info:
 	@echo Uinxed-Kernel Compile Script.
@@ -63,6 +64,34 @@ Uinxed.iso:UxImage
 	@echo '}' >> iso/boot/grub/grub.cfg
 
 	@grub-mkrescue --output=$@ iso
+	@rm -rf iso
+	@echo "\033[32m[Done]\033[0m" Compilation complete.
+
+.PHONY: themeiso
+themeiso: UxImage
+	@echo
+	@echo "\033[32m[ISO]\033[0m" Packing ISO file with theme...
+	@mkdir -p iso/boot/grub
+	@cp $< iso/boot/
+	@cp -r boot/resource iso/boot/
+
+	@echo 'set timeout=3' > iso/boot/grub/grub.cfg
+	@echo 'set default=0' >> iso/boot/grub/grub.cfg
+
+	@echo 'insmod all_video' >> iso/boot/grub/grub.cfg
+	@echo 'insmod gfxterm' >> iso/boot/grub/grub.cfg
+	@echo 'terminal_output gfxterm' >> iso/boot/grub/grub.cfg
+	@echo 'set gfxpayload=keep' >> iso/boot/grub/grub.cfg
+	@echo 'insmod png' >> iso/boot/grub/grub.cfg
+	@echo 'font=unicode' >> iso/boot/grub/grub.cfg
+	@echo 'set theme=(cd)/boot/resource/theme.txt' >> iso/boot/grub/grub.cfg
+
+	@echo 'menuentry "Uinxed"{' >> iso/boot/grub/grub.cfg
+	@echo '	multiboot /boot/UxImage' >> iso/boot/grub/grub.cfg
+	@echo '	boot' >> iso/boot/grub/grub.cfg
+	@echo '}' >> iso/boot/grub/grub.cfg
+
+	@grub-mkrescue --output=Uinxed.iso iso
 	@rm -rf iso
 	@echo "\033[32m[Done]\033[0m" Compilation complete.
 

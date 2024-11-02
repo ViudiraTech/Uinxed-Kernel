@@ -1,0 +1,56 @@
+title-text: "GNU GRUB - Uinxed-Kernel Boot"
+desktop-image: "(cd)/boot/resource/splash.png"
+terminal-left: "0"
+terminal-top: "0"
+terminal-border: "0"
+terminal-width: "100%"
+terminal-height: "100%"
+
++ boot_menu {
+	left = 40
+	top = 40%
+	width = 250
+	height = 35%
+	item_color = "#cccccc"
+	selected_item_color = "#ffffff"
+	icon_width = 36
+	icon_height = 36
+	item_icon_space = 20
+	item_height = 40
+	item_padding = 2
+	item_spacing = 30
+	selected_item_pixmap_style = "select_*.png"
+}
+
++ label {
+	left = 120 
+	top = 80%
+	align = "center"
+	text = "Use the UP and DOWN keys to select which entry is highlighted."
+	color = "#cccccc"
+}
+
++ label {
+	left = 120 
+	top = 83%
+	align = "center"
+	text = "Press enter to boot the selected OS, 'e' to edit the commands"
+	color = "#cccccc"
+}
+
++ label {
+	left = 120 
+	top = 86%
+	align = "center"
+	text = "before booting or 'c' for a command-line."
+	color = "#cccccc"
+}
+
++ label {
+	left = 120
+	top = 89%
+	align = "center"
+	id = "__timeout__"
+	text = "The highlighted entry will be executed automatically in %ds."
+	color = "#cccccc"
+}
