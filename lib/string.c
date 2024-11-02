@@ -14,20 +14,15 @@
 #include "memory.h"
 
 /* 比较两个内存区域的前count个字节 */
-int memcmp(const void* buffer1,const void* buffer2,size_t count)
+inline int memcmp(const void *buffer1, const void *buffer2, size_t count)
 {
-	if(!count) {
-		return 0;
-	}
-
-	/* 当比较位数不为0时，且每位数据相等时，移动指针 */
-	while(count-- && *(char*)buffer1 == *(char*)buffer2) {
-		buffer1 = (char*)buffer1 + 1; // 转换类型，移动指针
-		buffer2 = (char*)buffer2 + 1;
-	}
-
-	/* 返回超过比较位数之后 比较的大小 */
-	return( *((uint8_t *)buffer1) - *((uint8_t *)buffer2) );    
+    const char *a = buffer1;
+    const char *b = buffer2;
+    while (count-- > 0) {
+        if (*a != *b) return *a > *b ? 1 : -1;
+        a++, b++;
+    }
+    return 0;
 }
 
 /* 将len个字节从源地址复制到目标地址 */

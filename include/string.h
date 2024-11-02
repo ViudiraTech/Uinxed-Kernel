@@ -15,7 +15,7 @@
 #include "types.h"
 
 /* 比较两个内存区域的前count个字节 */
-int memcmp(const void* buffer1,const void* buffer2,size_t  count);
+int memcmp(const void *buffer1, const void *buffer2, size_t count);
 
 /* 将len个字节从源地址复制到目标地址 */
 void memcpy(uint8_t *dest, const uint8_t *src, uint32_t len);
