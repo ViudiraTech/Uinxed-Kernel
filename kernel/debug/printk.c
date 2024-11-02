@@ -14,6 +14,7 @@
 #include "stdlib.h"
 #include "vargs.h"
 #include "printk.h"
+#include "common.h"
 #include "lib_os_terminal.lib.h"
 
 /* VBE */
@@ -129,6 +130,7 @@ void printk(const char *format, ...)
 {
 	/* 避免频繁创建临时变量，内核的栈很宝贵 */
 	static char buff[1024];
+	uint32_t eflags = load_eflags();
 	va_list args;
 	int i;
 
@@ -137,7 +139,10 @@ void printk(const char *format, ...)
 	va_end(args);
 
 	buff[i] = '\0';
+
+	if (eflags & (1 << 9)) disable_intr();
 	terminal_advance_state(buff);
+	if (eflags & (1 << 9)) enable_intr();
 }
 
 #define is_digit(c)	((c) >= '0' && (c) <= '9')

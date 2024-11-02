@@ -40,6 +40,6 @@ extern void terminal_advance_state(const char *s);
 extern void terminal_advance_state_single(char c);
 extern void terminal_set_color_scheme(unsigned int palette_index);
 extern void terminal_set_custom_color_scheme(struct TerminalPalette palette);
-extern const char *terminal_handle_keyboard(uint8_t scancode);
+extern bool terminal_handle_keyboard(uint8_t scancode, char *buffer);
 
 #endif // INCLUDE_LIB_OS_TERMINAL_LIB_H_

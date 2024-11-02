@@ -291,7 +291,9 @@ static int plreadln_getch(void)
 
 static void plreadln_putch(int ch)
 {
+	disable_intr();
 	terminal_advance_state_single(ch);
+	enable_intr();
 }
 
 static void handle_tab(char *buf, pl_readline_words_t words)
