@@ -51,8 +51,23 @@ void panic(const char *msg)
 	uint32_t eips[5];
 	const char *syname[5];
 	int ps = 0, sy = 0;
+	volatile size_t eax, ebx, ecx, edx, esi, edi, ebp, esp;
+	volatile size_t fs, gs;
+
 	print_cur_status(&ring, &regs1, &regs2, &regs3, &regs4);
 	print_stack_trace(eips, syname);
+
+	asm("mov %%eax, %0\n\t" : "=r"(eax));
+	asm("mov %%ebx, %0\n\t" : "=r"(ebx));
+	asm("mov %%ecx, %0\n\t" : "=r"(ecx));
+	asm("mov %%edx, %0\n\t" : "=r"(edx));
+	asm("mov %%esi, %0\n\t" : "=r"(esi));
+	asm("mov %%edi, %0\n\t" : "=r"(edi));
+	asm("mov %%ebp, %0\n\t" : "=r"(ebp));
+	asm("mov %%esp, %0\n\t" : "=r"(esp));
+
+	asm("mov %%fs, %0\n\t" : "=r"(fs));
+	asm("mov %%gs, %0\n\t" : "=r"(gs));
 
 	vbe_clear_color(0x000080);
 	vbe_printk("Your kernel has encountered a fatal error.\n");
@@ -65,9 +80,13 @@ void panic(const char *msg)
 	vbe_printk("Technical information:\n");
 	vbe_printk("\n*** STOP - Kernel-Panic: %s\n\nEIP:    ", msg);
 	for (int i = 0; i < 5; i++) {
-		vbe_printk("[0x%06X: %s]", eips[ps++], syname[sy++]);
+		vbe_printk("[0x%08X: %s]", eips[ps++], syname[sy++]);
 	}
-	vbe_printk("\nSTATUS: [RING: %d][CS: %d][DS: %d][ES: %d][SS: %d]\n", ring, regs1, regs2, regs3, regs4);
+	vbe_printk("\nEAX:    [0x%08X] EBX: [0x%08X] ECX: [0x%08X]\n", eax, ebx, ecx);
+	vbe_printk("EDX:    [0x%08X] ESI: [0x%08X] EDI: [0x%08X]\n", edx, esi, edi);
+	vbe_printk("EBP:    [0x%08X] ESP: [0x%08X] EFL: [0x%08X]\n", ebp, esp, load_eflags());
+	vbe_printk("FS:     [0x%04X]     GS:  [0x%04X]\n", fs, gs);
+	vbe_printk("\nSTATUS: [RING: 0x%04X][CS: 0x%04X][DS: 0x%04X][ES: 0x%04X][SS: 0x%04X]\n", ring, regs1, regs2, regs3, regs4);
 	krn_halt();
 }
 
