@@ -79,7 +79,7 @@ int check_ide_device(void)
 int ide_init(void)
 {
 	/* 检测计算机是否拥有IDE控制器 */
-	if (!pci_find_class(0x010180)) {
+	if (!pci_find_name("IDE Controller")) {
 		no_ide_controller = 1;
 		return -2;
 	}
