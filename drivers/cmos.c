@@ -28,6 +28,19 @@ unsigned char read_cmos(unsigned char p)
 	return data;
 }
 
+/* 写入数据到CMOS存储器 */
+void write_cmos(unsigned char p, unsigned char data)
+{
+	/* 发送CMOS寄存器索引 */
+	outb(cmos_index, p);
+
+	/* 写入数据到CMOS数据寄存器 */
+	outb(cmos_data, data);
+
+	/* 发送0x80到CMOS索引寄存器，可能是用于重置或终止读取的信号 */
+	outb(cmos_index, 0x80);
+}
+
 /* 获取当前小时的十六进制表示 */
 unsigned int get_hour_hex(void)
 {
