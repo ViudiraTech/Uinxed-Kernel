@@ -280,7 +280,7 @@ char *pci_classname(uint32_t classcode)
 	return "Unknown device";
 }
 
-/* 查找相应设备的ClassCode */
+/* 按ClassCode查找相应设备 */
 int pci_find_class(uint32_t class_code)
 {
 	unsigned int BUS, Equipment, F;
@@ -294,6 +294,29 @@ int pci_find_class(uint32_t class_code)
 					uint32_t value_c = read_pci(BUS, Equipment, F, PCI_CONF_REVISION);
 					uint32_t found_class_code = value_c >> 8;
 					if (found_class_code == class_code) {
+						return 1;
+					}
+				}
+			}
+		}
+	}
+	return 0;
+}
+
+/* 按名查找相应设备 */
+int pci_find_name(const char *name)
+{
+	unsigned int BUS, Equipment, F;
+
+	for (BUS = 0; BUS < 256; BUS++) {
+		for (Equipment = 0; Equipment < 32; Equipment++) {
+			for (F = 0; F < 8; F++) {
+				pci_config(BUS, F, Equipment, 0);
+				if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
+					/* 读取class_code */
+					uint32_t value_c = read_pci(BUS, Equipment, F, PCI_CONF_REVISION);
+					uint32_t found_class_code = value_c >> 8;
+					if (strcmp(pci_classname(found_class_code), name) == 0) {
 						return 1;
 					}
 				}
