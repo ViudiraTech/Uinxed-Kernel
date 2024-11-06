@@ -311,9 +311,10 @@ static int plreadln_getch(void)
 
 static void plreadln_putch(int ch)
 {
-	disable_intr();
+	uint32_t eflags = load_eflags();
+	if (eflags & (1 << 9)) disable_intr();
 	terminal_advance_state_single(ch);
-	enable_intr();
+	if (eflags & (1 << 9)) enable_intr();
 }
 
 static void handle_tab(char *buf, pl_readline_words_t words)
