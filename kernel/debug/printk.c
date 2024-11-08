@@ -94,7 +94,7 @@ void print_busy(char *str)
 {
 	printk("[");
 	printk(" ** ");
-	printk("]");
+	printk("] ");
 	printk("%s", str);
 }
 
@@ -103,7 +103,7 @@ void print_succ(char *str)
 {
 	printk("[");
 	printk("\033[32m OK \033[0m");
-	printk("]");
+	printk("] ");
 	printk("%s", str);
 }
 
@@ -112,7 +112,7 @@ void print_warn(char *str)
 {
 	printk("[");
 	printk("\033[33mWARN\033[0m");
-	printk("]");
+	printk("] ");
 	printk("%s", str);
 }
 
@@ -121,7 +121,7 @@ void print_erro(char *str)
 {
 	printk("[");
 	printk("\033[31mERRO\033[0m");
-	printk("]");
+	printk("] ");
 	printk("%s", str);
 }
 
@@ -142,6 +142,15 @@ void printk(const char *format, ...)
 
 	if (eflags & (1 << 9)) disable_intr();
 	terminal_advance_state(buff);
+	if (eflags & (1 << 9)) enable_intr();
+}
+
+/* 内核打印字符 */
+void putchar(char ch)
+{
+	uint32_t eflags = load_eflags();
+	if (eflags & (1 << 9)) disable_intr();
+	terminal_advance_state_single(ch);
 	if (eflags & (1 << 9)) enable_intr();
 }
 

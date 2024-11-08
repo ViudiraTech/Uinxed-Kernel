@@ -17,6 +17,7 @@ SECTIONS
 
 	.text :
 	{
+		*(.multiboot)
 		*(.text)
 		. = ALIGN(4096);
 	}

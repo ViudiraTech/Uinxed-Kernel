@@ -30,14 +30,6 @@
 #define MAX_COMMAND_LEN	100
 #define MAX_ARG_NR		30
 
-/* 从FIFO中读取一个按键事件 */
-static int read_key_blocking(char *buf)
-{
-	while (fifo_status(&decoded_key) == 0);
-	*buf++ = fifo_get(&decoded_key);
-	return 0;
-}
-
 /* 解析命令行字符串 */
 static int cmd_parse(uint8_t *cmd_str, uint8_t **argv, uint8_t token) // 用uint8_t是因为" "使用8位整数
 {
@@ -62,37 +54,6 @@ static int cmd_parse(uint8_t *cmd_str, uint8_t **argv, uint8_t token) // 用uint
 		argc++; // argc增一，如果最后一个字符是空格时不提前退出，argc会错误地被多加1
 	}
 	return argc;
-}
-
-/* 读取一行文本 */
-static void readline(uint8_t *buf, int cnt, int prompt_len)
-{
-	uint8_t *pos = buf;
-	int buf_idx = 0;
-
-	while (read_key_blocking((char *)pos) != -1 && buf_idx < cnt) { // 没打够字符并且不出错
-		switch (*pos) {
-			case '\n':
-			case '\r':
-				*pos = 0;				// 读完了，好耶！
-				printk("\n");
-				return;
-			case '\b':
-				if (buf[0] != '\b') {	// 哥们怎么全删完了
-					--pos;				// 退回上一个字符
-					--buf_idx;			// 更新字符索引
-					printk("\b");		// 打印一个退格
-				}
-				break;
-			default:
-				/* 其他 */
-				printk("%c", *pos);
-				pos++;
-				if (buf_idx - prompt_len < cnt) { // 确保不超过输入限制
-					buf_idx++;
-				}
-		}
-	}
 }
 
 /* help命令 */
@@ -290,30 +251,41 @@ int find_cmd(uint8_t *cmd)
 
 static int plreadln_getch(void)
 {
-	while (fifo_status(&decoded_key) == 0);
-	int ch = fifo_get(&decoded_key);
-	if (ch == '\n')
+	while (fifo_status(&terminal_key) == 0);
+	int ch = fifo_get(&terminal_key);
+	if (ch == 0x0d) {
 		return PL_READLINE_KEY_ENTER;
-	if (ch == TAB)
-		return PL_READLINE_KEY_TAB;
-	if (ch == '\b')
+	}
+	if (ch == 0x7f) {
 		return PL_READLINE_KEY_BACKSPACE;
-	if (ch == DOWN)
-		return PL_READLINE_KEY_DOWN;
-	if (ch == UP)
-		return PL_READLINE_KEY_UP;
-	if (ch == LEFT)
-		return PL_READLINE_KEY_LEFT;
-	if (ch == RIGHT)
-		return PL_READLINE_KEY_RIGHT;
+	}
+	if (ch == 0x9) {
+		return PL_READLINE_KEY_TAB;
+	}
+	if (ch == 0x1b) {
+		ch = plreadln_getch();
+		if (ch == 0x5b) {
+			ch = plreadln_getch();
+			switch (ch) {
+			case 0x41:
+				return PL_READLINE_KEY_UP;
+			case 0x42:
+				return PL_READLINE_KEY_DOWN;
+			case 0x43:
+				return PL_READLINE_KEY_RIGHT;
+			case 0x44:
+				return PL_READLINE_KEY_LEFT;
+			default:
+				return -1;
+			}
+		}
+	}
 	return ch;
 }
 
 static void plreadln_putch(int ch)
 {
-	disable_intr();
-	terminal_advance_state_single(ch);
-	enable_intr();
+	putchar(ch);
 }
 
 static void handle_tab(char *buf, pl_readline_words_t words)
@@ -323,7 +295,7 @@ static void handle_tab(char *buf, pl_readline_words_t words)
 	}
 }
 
-static void pl_readline_hal_flush(void)
+static void plreadln_flush(void)
 {
 	/* Nothing */
 }
@@ -340,7 +312,7 @@ void shell(void)
 	int argc = -1;
 
 	pl_readline_t pl;
-	pl = pl_readline_init(plreadln_getch, plreadln_putch, pl_readline_hal_flush, handle_tab);
+	pl = pl_readline_init(plreadln_getch, plreadln_putch, plreadln_flush, handle_tab);
 
 	while (true) {
 		memset(cmd, 0, MAX_COMMAND_LEN);					// 清空上轮输入

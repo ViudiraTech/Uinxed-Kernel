@@ -41,6 +41,19 @@ int kthread_shell(void *arg)
 	shell();
 }
 
+/* Terminal手动刷新线程 */
+int terminal_manual_flush(void *arg)
+{
+	terminal_set_auto_flush(0);
+	while (1) {
+		uint32_t eflags = load_eflags();
+		if (eflags & (1 << 9)) disable_intr();
+			terminal_flush();
+		if (eflags & (1 << 9)) enable_intr();
+			asm volatile("hlt");
+	}
+}
+
 /* 内核入口 */
 void kernel_init(multiboot_t *glb_mboot_ptr)
 {
@@ -85,5 +98,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 
 	terminal_set_color_scheme(0);	// 重置终端主题
 	vbe_to_serial(0);				// 停止输出内核启动日志到串口
+
 	kernel_thread(kthread_shell, NULL, "Basic shell program");
+	kernel_thread(terminal_manual_flush, NULL, "Terminal manual flush");
 }

@@ -30,6 +30,9 @@ void vbe_print_erro(char *str); // 打印带有”[ERRO]“的字符串
 /* 内核打印字符串 */
 void printk(const char *format, ...);
 
+/* 内核打印字符 */
+void putchar(char ch);
+
 /* 带前缀的打印函数 */
 void print_busy(char *str); // 打印带有”[ ** ]“的字符串
 void print_succ(char *str); // 打印带有”[ OK ]“的字符串
