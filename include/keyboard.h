@@ -18,9 +18,9 @@ extern fifo_t terminal_key;
 
 void init_keyboard(void); // 键盘初始化函数
 
-#define KB_DATA			0x60
-#define KB_CMD			0x64
-#define LED_CODE		0xED
-#define KB_ACK			0xFA
+#define KB_DATA		0x60
+#define KB_CMD		0x64
+#define LED_CODE	0xED
+#define KB_ACK		0xFA
 
 #endif // INCLUDE_KEYBPOARD_H_

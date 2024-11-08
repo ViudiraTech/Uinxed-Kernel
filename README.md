@@ -30,29 +30,24 @@
    - 由于内核需读取GRUB信息，直接用qemu启动内核文件可能无法正常进入。除特殊需求，一般推荐使用“make run”命令启动。
    - “make run-db”和“make runk-db”可以调出对应启动模式的调试（控制台显示汇编代码）。
 
-# 贡献者排名
+# 贡献者名单
 
-1. **Rainy101112**	（41份）
-2. **MicroFish**	（38份）
-3. **XIAOYI12**		（4份）
-4. **min0911Y**		（2份）
-5. **copi143**		（1份）
+1. **MicroFish**
+2. **min0911Y**
+3. **wenxuanjun**
+4. **copi143**
+5. **Hiernymus**
+6. **wrhmade**
 
-括弧内仅仅代表初次上传并且未删除的代码等文件数量，不包括修改、整理等。
-
-# 全部源码被移除的贡献者
-
-1. **wrhmade**
-
-源码因过旧、BUG、或不需要等其他原因被移除，排名仅代表顺序。
-
-# 项目所使用的开源代码
+# 项目所使用的开源代码或项目
 
 - Hurlex-Kernel: [http://wiki.0xffffff.org/](http://wiki.0xffffff.org/)
 - CoolPotOS: [https://github.com/xiaoyi1212/CoolPotOS](https://github.com/xiaoyi1212/CoolPotOS)
+- libos-terminal: [https://github.com/plos-clan/libos-terminal](https://github.com/plos-clan/libos-terminal)
+- pl_readline: [https://github.com/plos-clan/pl_readline](https://github.com/plos-clan/pl_readline)
 
 ## 版权声明
 
-本Uinxed内核项目所有商为ViudiraTech。
+本Uinxed内核项目发起组织为ViudiraTech。
 内核源码为GPL-3.0开源协议
 Copyright © 2020 ViudiraTech，保留最终解释权。

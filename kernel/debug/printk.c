@@ -24,7 +24,7 @@ void vbe_print_busy(char *str)
 {
 	vbe_printk("[");
 	vbe_printk_color(0xffffff, " ** ");
-	vbe_printk("]");
+	vbe_printk("] ");
 	vbe_printk("%s", str);
 }
 
@@ -33,7 +33,7 @@ void vbe_print_succ(char *str)
 {
 	vbe_printk("[");
 	vbe_printk_color(0x00ff00, " OK ");
-	vbe_printk("]");
+	vbe_printk("] ");
 	vbe_printk("%s", str);
 }
 
@@ -42,7 +42,7 @@ void vbe_print_warn(char *str)
 {
 	vbe_printk("[");
 	vbe_printk_color(0xffff00, "WARN");
-	vbe_printk("]");
+	vbe_printk("] ");
 	vbe_printk("%s", str);
 }
 
@@ -51,7 +51,7 @@ void vbe_print_erro(char *str)
 {
 	vbe_printk("[");
 	vbe_printk_color(0xff0000, "ERRO");
-	vbe_printk("]");
+	vbe_printk("] ");
 	vbe_printk("%s", str);
 }
 
@@ -125,6 +125,15 @@ void print_erro(char *str)
 	printk("%s", str);
 }
 
+/* 内核打印字符 */
+void putchar(char ch)
+{
+	uint32_t eflags = load_eflags();
+	if (eflags & (1 << 9)) disable_intr();
+	terminal_advance_state_single(ch);
+	if (eflags & (1 << 9)) enable_intr();
+}
+
 /* 内核打印字符串 */
 void printk(const char *format, ...)
 {
@@ -142,15 +151,6 @@ void printk(const char *format, ...)
 
 	if (eflags & (1 << 9)) disable_intr();
 	terminal_advance_state(buff);
-	if (eflags & (1 << 9)) enable_intr();
-}
-
-/* 内核打印字符 */
-void putchar(char ch)
-{
-	uint32_t eflags = load_eflags();
-	if (eflags & (1 << 9)) disable_intr();
-	terminal_advance_state_single(ch);
 	if (eflags & (1 << 9)) enable_intr();
 }
 

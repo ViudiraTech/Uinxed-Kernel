@@ -10,6 +10,7 @@
  */
 
 #include "keyboard.h"
+#include "common.h"
 #include "fifo.h"
 #include "idt.h"
 #include "memory.h"
@@ -37,7 +38,6 @@ void keyboard_handler(pt_regs *regs)
 static void kb_wait(void)
 {
 	uint8_t kb_stat;
-
 	do {
 		kb_stat = inb(KB_CMD);
 	} while (kb_stat & 0x02);
