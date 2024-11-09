@@ -14,16 +14,15 @@ C_OBJECTS		= $(patsubst %.c, %.o, $(C_SOURCES))
 S_SOURCES		= $(shell find . -name "*.s")
 S_OBJECTS		= $(patsubst %.s, %.o, $(S_SOURCES))
 
-OTHER_OBJECTS	= ./lib/klogo.lib ./lib/lib_os_terminal.lib ./lib/pl_readline.lib
+OTHER_OBJECTS	= ./lib/klogo.lib ./lib/libos_terminal.lib ./lib/pl_readline.lib
 
 CC = gcc
 LD = ld
 ASM = nasm
 RM = rm
 QEMU = qemu-system-x86_64
-
-C_FLAGS = -c -W -m32 -g -nostdinc -fno-pic -fno-builtin -fno-stack-protector -Wimplicit-fallthrough=0 -I include -O3 -flto -ffat-lto-objects
-LD_FLAGS = -T scripts/kernel.ld -m elf_i386 -nostdlib
+C_FLAGS = -I include -c -m32 -O3 -g -nostdinc -fno-pic -fno-builtin -fno-stack-protector -DNDEBUG
+LD_FLAGS = -T scripts/kernel.ld -m elf_i386 --strip-all
 ASM_FLAGS = -f elf -g -F stabs
 
 all: info link Uinxed.iso
@@ -63,7 +62,7 @@ Uinxed.iso:UxImage
 	@echo '	boot' >> iso/boot/grub/grub.cfg
 	@echo '}' >> iso/boot/grub/grub.cfg
 
-	@grub-mkrescue --output=$@ iso
+	@grub-mkrescue --install-modules="normal multiboot" --locales="" --output=$@ iso
 	@rm -rf iso
 	@echo "\033[32m[Done]\033[0m" Compilation complete.
 
