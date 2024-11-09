@@ -21,7 +21,7 @@
 ## 编译指南
 
 1. **获取源码**：将源码PULL到本地。
-2. **编译**：在已PULL到本地的项目源码根目录内执行make命令，即可开始编译，执行make theme命令可以编译出带grub主题的iso。
+2. **编译**：在已PULL到本地的项目源码根目录内执行make命令，即可开始编译，执行make theme命令可以编译出带grub主题的iso，执行make limine编译出带limine引导的iso。
 3. **编译结果**：编译后会生成两个文件：UxImage和system.iso，这两个文件分别为内核文件和带grub引导的镜像文件。
 4. **清理与测试**：
    - 输入“make clean”清理所有中间文件及UxImage和镜像。
@@ -33,11 +33,12 @@
 # 贡献者名单
 
 1. **MicroFish**
-2. **min0911Y**
-3. **wenxuanjun**
-4. **copi143**
-5. **Hiernymus**
-6. **wrhmade**
+2. **Rainy101112**
+3. **min0911Y**
+4. **wenxuanjun**
+5. **copi143**
+6. **Hiernymus**
+7. **wrhmade**
 
 # 项目所使用的开源代码或项目
 
