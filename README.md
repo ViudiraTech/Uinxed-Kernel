@@ -21,13 +21,13 @@
 ## 编译指南
 
 1. **获取源码**：将源码PULL到本地。
-2. **编译**：在已PULL到本地的项目源码根目录内执行make命令，即可开始编译，执行make theme命令可以编译出带grub主题的iso，执行make limine编译出带limine引导的iso。
-3. **编译结果**：编译后会生成两个文件：UxImage和system.iso，这两个文件分别为内核文件和带grub引导的镜像文件。
+2. **编译**：在已PULL到本地的项目源码根目录内执行make命令即可开始编译，执行make grub编译出grub引导的iso。
+3. **编译结果**：编译后会生成两个文件：UxImage和Uinxed.iso，这两个文件分别为内核文件和带引导的镜像文件。
 4. **清理与测试**：
    - 输入“make clean”清理所有中间文件及UxImage和镜像。
    - 输入“make run”即可通过qemu测试启动iso镜像。
    - 输入“make runk”可以通过qemu测试内核文件启动。
-   - 由于内核需读取GRUB信息，直接用qemu启动内核文件可能无法正常进入。除特殊需求，一般推荐使用“make run”命令启动。
+   - 由于内核需读取multiboot信息，直接用qemu启动内核文件可能无法正常进入。除特殊需求，一般推荐使用“make run”命令启动。
    - “make run-db”和“make runk-db”可以调出对应启动模式的调试（控制台显示汇编代码）。
 
 # 贡献者名单

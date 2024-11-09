@@ -16,18 +16,17 @@ S_OBJECTS		= $(patsubst %.s, %.o, $(S_SOURCES))
 
 OTHER_OBJECTS	= ./lib/klogo.lib ./lib/libos_terminal.lib ./lib/pl_readline.lib
 
-CC = gcc
-LD = ld
-ASM = nasm
-RM = rm
-QEMU = qemu-system-x86_64
-C_FLAGS = -I include -c -m32 -O3 -g -nostdinc -fno-pic -fno-builtin -fno-stack-protector -DNDEBUG
-LD_FLAGS = -T scripts/kernel.ld -m elf_i386 --strip-all
-ASM_FLAGS = -f elf -g -F stabs
+CC				= gcc
+LD				= ld
+ASM				= nasm
+RM				= rm
+QEMU			= qemu-system-x86_64
+C_FLAGS			= -I include -c -m32 -O3 -g -nostdinc -fno-pic -fno-builtin -fno-stack-protector -DNDEBUG
+LD_FLAGS		= -T scripts/kernel.ld -m elf_i386 --strip-all
+ASM_FLAGS		= -f elf -g -F stabs
 
-all: info link Uinxed.iso
-theme: info link themeiso
-limine: info link limineiso
+all: info link limine_iso
+grub: info link grub_iso
 
 info:
 	@echo Uinxed-Kernel Compile Script.
@@ -48,55 +47,28 @@ link:$(S_OBJECTS) $(C_OBJECTS)
 	@echo "\033[32m[Link]\033[0m" Linking kernel...
 	@$(LD) $(LD_FLAGS) $(S_OBJECTS) $(C_OBJECTS) $(OTHER_OBJECTS) -o UxImage
 
-.PHONY:iso
-Uinxed.iso:UxImage
-	@echo
-	@echo "\033[32m[ISO]\033[0m" Packing ISO file...
-	@mkdir -p iso/boot/grub
-	@cp $< iso/boot/
-
-	@echo 'set timeout=3' > iso/boot/grub/grub.cfg
-	@echo 'set default=0' >> iso/boot/grub/grub.cfg
-
-	@echo 'menuentry "Uinxed"{' >> iso/boot/grub/grub.cfg
-	@echo '	multiboot /boot/UxImage' >> iso/boot/grub/grub.cfg
-	@echo '	boot' >> iso/boot/grub/grub.cfg
-	@echo '}' >> iso/boot/grub/grub.cfg
-
-	@grub-mkrescue --locales="" --output=$@ iso
-	@rm -rf iso
-	@echo "\033[32m[Done]\033[0m" Compilation complete.
-
-.PHONY:limineiso
-limineiso:UxImage
+.PHONY:limine
+limine_iso:UxImage
 	@echo
 	@echo "\033[32m[ISO]\033[0m" Packing ISO file...
 	@mkdir iso
-	@cp -r boot/limine iso
+	@mkdir iso/boot
+	@cp -r boot/limine/* iso/boot
 	@cp $< iso
 
-	xorriso -as mkisofs -b limine/limine-bios-cd.bin -no-emul-boot -boot-info-table iso -o Uinxed.iso
+	@xorriso -as mkisofs -b boot/limine-bios-cd.bin -no-emul-boot -boot-info-table iso -o Uinxed.iso
 	@rm -rf iso
 	@echo "\033[32m[Done]\033[0m" Compilation complete.
 
-.PHONY: themeiso
-themeiso: UxImage
+.PHONY:grub
+grub_iso:UxImage
 	@echo
-	@echo "\033[32m[ISO]\033[0m" Packing ISO file with theme...
+	@echo "\033[32m[ISO]\033[0m" Packing ISO file...
 	@mkdir -p iso/boot/grub
 	@cp $< iso/boot/
-	@cp -r boot/resource iso/boot/
 
 	@echo 'set timeout=3' > iso/boot/grub/grub.cfg
 	@echo 'set default=0' >> iso/boot/grub/grub.cfg
-
-	@echo 'insmod all_video' >> iso/boot/grub/grub.cfg
-	@echo 'insmod gfxterm' >> iso/boot/grub/grub.cfg
-	@echo 'terminal_output gfxterm' >> iso/boot/grub/grub.cfg
-	@echo 'set gfxpayload=keep' >> iso/boot/grub/grub.cfg
-	@echo 'insmod png' >> iso/boot/grub/grub.cfg
-	@echo 'font=unicode' >> iso/boot/grub/grub.cfg
-	@echo 'set theme=(cd)/boot/resource/theme.txt' >> iso/boot/grub/grub.cfg
 
 	@echo 'menuentry "Uinxed"{' >> iso/boot/grub/grub.cfg
 	@echo '	multiboot /boot/UxImage' >> iso/boot/grub/grub.cfg
