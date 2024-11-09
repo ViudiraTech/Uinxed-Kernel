@@ -18,8 +18,10 @@
 #include "debug.h"
 #include "printk.h"
 
+extern page_directory_t *kernel_directory;
+
 /* 全局 pid 值 */
-pid_t now_pid = 0;
+int now_pid = 0;
 
 /* 内核进程创建 */
 int32_t kernel_thread(int (*fn)(void *), void *arg, char *name)
@@ -33,9 +35,15 @@ int32_t kernel_thread(int (*fn)(void *), void *arg, char *name)
 	new_task->state = TASK_RUNNABLE;
 	new_task->stack = current;
 	new_task->pid = now_pid++;
-	new_task->mm = NULL;
+	new_task->pgd_dir = kernel_directory;
+	new_task->mem_size = 0;
 	new_task->fpu_flag = 0;
 	new_task->name = name;
+
+	extern void *program_break;
+	extern void *program_break_end;
+	new_task->program_break = (uint32_t)program_break;
+	new_task->program_break_end = (uint32_t)program_break_end;
 
 	uint32_t *stack_top = (uint32_t *)((uint32_t)new_task + STACK_SIZE);
 
@@ -119,7 +127,7 @@ static void found_task(int pid, struct task_struct *head, struct task_struct *ba
 		argv = NULL;
 		return;
 	}
-	if (t->pid == (pid_t)pid) {
+	if (t->pid == pid) {
 		*argv = t;
 		return;
 	} else {
@@ -171,4 +179,30 @@ void task_kill(int pid)
 		last = head;
 		head = head->next;
 	}
+}
+
+/* 杀死全部进程 */
+void kill_all_task(void)
+{
+	struct task_struct *head = running_proc_head;
+	while (1) {
+		head = head->next;
+		if (head == NULL || head->pid == running_proc_head->pid) {
+			return;
+		}
+		if (head->pid == current->pid) continue;
+		task_kill(head->pid);
+	}
+}
+
+/* 使进程陷入等待 */
+void wait_task(struct task_struct *task)
+{
+    task->state = TASK_SLEEPING;
+}
+
+/* 使进程回归运行 */
+void start_task(struct task_struct *task)
+{
+    task->state = TASK_RUNNABLE;
 }
