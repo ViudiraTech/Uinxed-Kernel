@@ -103,7 +103,7 @@ themeiso: UxImage
 	@echo '	boot' >> iso/boot/grub/grub.cfg
 	@echo '}' >> iso/boot/grub/grub.cfg
 
-	@grub-mkrescue --output=Uinxed.iso iso
+	@grub-mkrescue --locales="" --output=Uinxed.iso iso
 	@rm -rf iso
 	@echo "\033[32m[Done]\033[0m" Compilation complete.
 
