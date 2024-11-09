@@ -58,6 +58,15 @@ void copy_page_physical(uintptr_t src, uintptr_t dst);
 /* 初始化内存分页 */
 void init_page(multiboot_t *mboot);
 
+/* 刷新当前CPU的TLB并更新当前正在使用的页目录 */
+void page_flush(page_directory_t *dir);
+
+/* 切换当前进程的页目录 */
+void page_switch(page_directory_t *dir);
+
+/* 切换当前进程的页目录 */
+void switch_page_directory(page_directory_t *dir);
+
 /* 获取给定虚拟地址对应的页表项 */
 page_t *get_page(uint32_t address, int make, page_directory_t *dir);
 
