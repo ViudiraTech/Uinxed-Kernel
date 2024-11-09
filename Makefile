@@ -52,11 +52,10 @@ limine_iso:UxImage
 	@echo
 	@echo "\033[32m[ISO]\033[0m" Packing ISO file...
 	@mkdir iso
-	@mkdir iso/boot
-	@cp -r boot/limine/* iso/boot
+	@cp -r boot/limine iso
 	@cp $< iso
 
-	@xorriso -as mkisofs -b boot/limine-bios-cd.bin -no-emul-boot -boot-info-table iso -o Uinxed.iso
+	@xorriso -as mkisofs -b limine/limine-bios-cd.bin -no-emul-boot -boot-info-table iso -o Uinxed.iso
 	@rm -rf iso
 	@echo "\033[32m[Done]\033[0m" Compilation complete.
 
