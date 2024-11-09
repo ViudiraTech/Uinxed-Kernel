@@ -27,6 +27,7 @@ ASM_FLAGS = -f elf -g -F stabs
 
 all: info link Uinxed.iso
 theme: info link themeiso
+limine: info link limineiso
 
 info:
 	@echo Uinxed-Kernel Compile Script.
@@ -63,6 +64,18 @@ Uinxed.iso:UxImage
 	@echo '}' >> iso/boot/grub/grub.cfg
 
 	@grub-mkrescue --install-modules="normal multiboot" --locales="" --output=$@ iso
+	@rm -rf iso
+	@echo "\033[32m[Done]\033[0m" Compilation complete.
+
+.PHONY:limineiso
+limineiso:UxImage
+	@echo
+	@echo "\033[32m[ISO]\033[0m" Packing ISO file...
+	@mkdir iso
+	@cp -r boot/limine iso
+	@cp $< iso
+
+	xorriso -as mkisofs -b limine/limine-bios-cd.bin -no-emul-boot -boot-info-table iso -o Uinxed.iso
 	@rm -rf iso
 	@echo "\033[32m[Done]\033[0m" Compilation complete.
 
