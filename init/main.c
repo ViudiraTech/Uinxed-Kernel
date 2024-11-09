@@ -48,9 +48,9 @@ int terminal_manual_flush(void *arg)
 	while (1) {
 		uint32_t eflags = load_eflags();
 		if (eflags & (1 << 9)) disable_intr();
-			terminal_flush();
+		terminal_flush();
 		if (eflags & (1 << 9)) enable_intr();
-			asm volatile("hlt");
+		asm volatile("hlt");
 	}
 }
 
@@ -65,7 +65,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 		panic(P001);
 	}
 	bmp_analysis((Bmp *)klogo, 799, 25, 1);								// 显示内核Logo
-	printk("Uinxed-Kernel "KERNL_VERS"(build-%d)\n", KERNL_BUID);		// 打印内核信息
+	printk("Uinxed-Kernel "KERNL_VERS" (build-%d)\n", KERNL_BUID);		// 打印内核信息
 	printk(PROJK_COPY"\n");												// 打印版权信息
 	printk("This version compiles at "BUILD_DATE" "BUILD_TIME"\n\n");	// 打印编译日期时间
 

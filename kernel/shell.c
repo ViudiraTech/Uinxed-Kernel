@@ -306,7 +306,7 @@ void shell(void)
 	printk("Basic shell program v1.0\n");
 	printk("Type 'help' for help.\n\n");
 
-	char *prompt = "┌─ \033[32m[Uinxed]\033[0m-\033[34m[Shell]\033[0m:\033[34m[Ring-0]\033[0m\n└─ # ";
+	char *prompt = "┌─ \033[1;32m[Uinxed]\033[37m-\033[34m[Shell]\033[37m-\033[33m[Ring-0]\033[37m\n└─ #\033[0m ";
 	uint8_t cmd[MAX_COMMAND_LEN];
 	uint8_t *argv[MAX_ARG_NR];
 	int argc = -1;
