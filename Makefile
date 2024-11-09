@@ -62,7 +62,7 @@ Uinxed.iso:UxImage
 	@echo '	boot' >> iso/boot/grub/grub.cfg
 	@echo '}' >> iso/boot/grub/grub.cfg
 
-	@grub-mkrescue --install-modules="normal multiboot" --locales="" --output=$@ iso
+	@grub-mkrescue --locales="" --output=$@ iso
 	@rm -rf iso
 	@echo "\033[32m[Done]\033[0m" Compilation complete.
 
