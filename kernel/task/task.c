@@ -24,7 +24,7 @@ extern page_directory_t *kernel_directory;
 int now_pid = 0;
 
 /* 内核进程创建 */
-int32_t kernel_thread(int (*fn)(void *), void *arg, char *name)
+int32_t kernel_thread(int (*fn)(void *), void *arg, char *name, int level)
 {
 	struct task_struct *new_task = (struct task_struct *)kmalloc(STACK_SIZE);
 	assertx(new_task != NULL, P008);
@@ -32,6 +32,7 @@ int32_t kernel_thread(int (*fn)(void *), void *arg, char *name)
 	/* 将栈低端结构信息初始化为 0 */ 
 	bzero(new_task, sizeof(struct task_struct));
 
+	new_task->level = level;
 	new_task->state = TASK_RUNNABLE;
 	new_task->stack = current;
 	new_task->pid = now_pid++;
@@ -81,35 +82,39 @@ void kthread_exit(void)
 /* 打印当前的所有进程 */
 int print_task(struct task_struct *base, struct task_struct *cur, int count)
 {
+	char *level_name;
+	if (cur->level == 0) level_name = "Kernel processes";
+	if (cur->level == 1) level_name = "Service process";
+	if (cur->level == 2) level_name = "User processes";
 	if (cur->pid == base->pid) {
 		switch (cur->state) {
 			case TASK_RUNNABLE:
-				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Running");
+				printk("|%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Running", level_name);
 				break;
 			case TASK_SLEEPING:
-				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Sleeping");
+				printk("|%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Sleeping", level_name);
 				break;
 			case TASK_UNINIT:
-				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Init");
+				printk("|%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Init", level_name);
 				break;
 			case TASK_ZOMBIE:
-				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Zombie");
+				printk("|%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Zombie", level_name);
 				break;
 		}
 		count++;
 	} else {
 		switch (cur->state) {
 			case TASK_RUNNABLE:
-				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Running");
+				printk("|%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Running", level_name);
 				break;
 			case TASK_SLEEPING:
-				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Sleeping");
+				printk("|%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Sleeping", level_name);
 				break;
 			case TASK_UNINIT:
-				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Init");
+				printk("|%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Init", level_name);
 				break;
 			case TASK_ZOMBIE:
-				printk("|%-30s %02d  %-8s %d\n", cur->name, cur->pid, "Zombie");
+				printk("|%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Zombie", level_name);
 				break;
 		}
 		count++;
@@ -160,7 +165,7 @@ void task_kill(int pid)
 		printk("Cannot found task PID: %d\n", pid);
 		enable_intr();
 		return;
-	} else if (argv->pid == 0) {
+	} else if (argv->level == KERNEL_TASK) {
 		printk("Taskkill cannot terminate kernel processes.\n");
 		enable_intr();
 		return;

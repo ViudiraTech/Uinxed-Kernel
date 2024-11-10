@@ -25,6 +25,14 @@ enum task_state {
 	TASK_DEATH = 4		// 死亡状态
 } task_state;
 
+/* 进程级别描述 */
+typedef
+enum task_level {
+	KERNEL_TASK = 0,	// 内核进程
+	SERVICE_TASK= 1,	// 服务进程
+	USER_TASK = 2		// 用户进程
+} task_level;
+
 /* 浮点单元的寄存器状态 */
 typedef struct __attribute__((packed)) fpu_regs {
 	uint16_t	control;
@@ -53,6 +61,7 @@ struct context {
 
 /* 进程控制块 PCB */
 struct task_struct {
+	int level;					// 进程级别（0-内核进程 1-服务进程 2-用户进程）
 	volatile task_state state;	// 进程当前状态
 	int pid;					// 进程标识符
 	int mem_size;				// 内存利用率
@@ -70,7 +79,7 @@ struct task_struct {
 extern int now_pid;
 
 /* 内核进程创建 */
-int32_t kernel_thread(int (*fn)(void *), void *arg, char *name);
+int32_t kernel_thread(int (*fn)(void *), void *arg, char *name, int level);
 
 /* 进程退出函数 */
 void kthread_exit(void);

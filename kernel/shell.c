@@ -95,7 +95,7 @@ void shell_lspci(void)
 void shell_proc(void)
 {
 	printk("+---------------------------------------------------------\n");
-	printk("|Name                           PID Status   MemUsage\n");
+	printk("|Name                           PID Status   Task Level\n");
 	int i = print_task(current, current->next, 0);
 	printk("|Number of processes: %d\n", i);
 	printk("+---------------------------------------------------------\n\n");

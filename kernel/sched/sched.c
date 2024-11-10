@@ -36,6 +36,7 @@ void init_sched(void)
 	/* 为当前执行流创建信息结构体 该结构位于当前执行流的栈最低端 */
 	current = (struct task_struct *)(kern_stack_top - STACK_SIZE);
 
+	current->level = KERNEL_TASK;
 	current->state = TASK_RUNNABLE;
 	current->pid = now_pid++;
 	current->stack = current;			// 该成员指向栈低地址
