@@ -21,7 +21,8 @@ LD				= ld
 ASM				= nasm
 RM				= rm
 QEMU			= qemu-system-x86_64
-C_FLAGS			= -I include -c -m32 -O3 -g -nostdinc -fno-pic -fno-builtin -fno-stack-protector -DNDEBUG
+C_FLAGS			= -c -I include -m32 -O3 -g -Wall -Wextra -Wpedantic -DNDEBUG
+C_FLAGS			+= -nostdinc -fno-pic -fno-builtin -fno-stack-protector
 LD_FLAGS		= -T scripts/kernel.ld -m elf_i386 --strip-all
 ASM_FLAGS		= -f elf -g -F stabs
 

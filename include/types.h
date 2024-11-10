@@ -97,21 +97,6 @@ typedef uint64_t					u64;
 typedef float32_t					f32;
 typedef float64_t					f64;
 
-typedef _Complex float				cfloat;
-typedef _Complex double				cdouble;
-typedef _Complex double				complex;
-
-typedef _Complex __INT8_TYPE__		cint8_t;
-typedef _Complex __UINT8_TYPE__		cuint8_t;
-typedef _Complex __INT16_TYPE__		cint16_t;
-typedef _Complex __UINT16_TYPE__	cuint16_t;
-typedef _Complex __INT32_TYPE__		cint32_t;
-typedef _Complex __UINT32_TYPE__	cuint32_t;
-typedef _Complex __INT64_TYPE__		cint64_t;
-typedef _Complex __UINT64_TYPE__	cuint64_t;
-typedef _Complex float				cfloat32_t;
-typedef _Complex double				cfloat64_t;
-
 typedef i8 sbyte;
 typedef u8 byte;
 
