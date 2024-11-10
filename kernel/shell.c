@@ -59,23 +59,23 @@ static int cmd_parse(uint8_t *cmd_str, uint8_t **argv, uint8_t token) // 用uint
 /* help命令 */
 void shell_help(void)
 {
-	printk("+----------+---------------------------------------+\n"
-           "| Command  | Command description                   |\n"
-           "+----------+---------------------------------------+\n"
-           "| help     | Show help like this.                  |\n"
-           "| clear    | Clear the screen.                     |\n"
-           "| cpuid    | List for CPU information.             |\n"
-           "| lspci    | List for All the PCI device.          |\n"
-           "| proc     | List for all task processes.          |\n"
-           "| hltst    | Test the Kernel-Panic.                |\n"
-           "| taskkill | Kill task which is running.           |\n"
-           "| uname    | Show unix name.                       |\n"
-           "| flushing | Test screen flushing.                 |\n"
-           "| echo     | String output.                        |\n"
-           "| poweroff | Power off your computer.              |\n"
-           "| reboot   | Reboot the system.                    |\n"
-           "| cetsl    | Enable/Disable serial console output. |\n"
-           "+----------+---------------------------------------+\n\n");
+	printk("┏━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n"
+           "┃ Command  ┃ Command description                   ┃\n"
+           "┣━━━━━━━━━━╋━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n"
+           "┃ help     ┃ Show help like this.                  ┃\n"
+           "┃ clear    ┃ Clear the screen.                     ┃\n"
+           "┃ cpuid    ┃ List for CPU information.             ┃\n"
+           "┃ lspci    ┃ List for All the PCI device.          ┃\n"
+           "┃ proc     ┃ List for all task processes.          ┃\n"
+           "┃ hltst    ┃ Test the Kernel-Panic.                ┃\n"
+           "┃ taskkill ┃ Kill task which is running.           ┃\n"
+           "┃ uname    ┃ Show unix name.                       ┃\n"
+           "┃ flushing ┃ Test screen flushing.                 ┃\n"
+           "┃ echo     ┃ String output.                        ┃\n"
+           "┃ poweroff ┃ Power off your computer.              ┃\n"
+           "┃ reboot   ┃ Reboot the system.                    ┃\n"
+           "┃ cetsl    ┃ Enable/Disable serial console output. ┃\n"
+           "┗━━━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n");
 	return;
 }
 
@@ -94,11 +94,11 @@ void shell_lspci(void)
 
 void shell_proc(void)
 {
-	printk("+---------------------------------------------------------\n");
-	printk("|Name                           PID Status   Task Level\n");
+	printk("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+	printk("┃Name                           PID Status   Task Level\n");
 	int i = print_task(current, current->next, 0);
-	printk("|Number of processes: %d\n", i);
-	printk("+---------------------------------------------------------\n\n");
+	printk("┃\n┃Number of processes: %d\n", i);
+	printk("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
 	return;
 }
 

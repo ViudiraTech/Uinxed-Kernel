@@ -89,32 +89,32 @@ int print_task(struct task_struct *base, struct task_struct *cur, int count)
 	if (cur->pid == base->pid) {
 		switch (cur->state) {
 			case TASK_RUNNABLE:
-				printk("|%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Running", level_name);
+				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Running", level_name);
 				break;
 			case TASK_SLEEPING:
-				printk("|%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Sleeping", level_name);
+				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Sleeping", level_name);
 				break;
 			case TASK_UNINIT:
-				printk("|%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Init", level_name);
+				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Init", level_name);
 				break;
 			case TASK_ZOMBIE:
-				printk("|%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Zombie", level_name);
+				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Zombie", level_name);
 				break;
 		}
 		count++;
 	} else {
 		switch (cur->state) {
 			case TASK_RUNNABLE:
-				printk("|%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Running", level_name);
+				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Running", level_name);
 				break;
 			case TASK_SLEEPING:
-				printk("|%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Sleeping", level_name);
+				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Sleeping", level_name);
 				break;
 			case TASK_UNINIT:
-				printk("|%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Init", level_name);
+				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Init", level_name);
 				break;
 			case TASK_ZOMBIE:
-				printk("|%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Zombie", level_name);
+				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Zombie", level_name);
 				break;
 		}
 		count++;
