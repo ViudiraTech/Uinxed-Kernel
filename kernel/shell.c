@@ -264,17 +264,29 @@ static int plreadln_getch(void)
 	}
 	if (ch == 0x1b) {
 		ch = plreadln_getch();
-		if (ch == 0x5b) {
+		if (ch == '[') {
 			ch = plreadln_getch();
 			switch (ch) {
-			case 0x41:
+			case 'A':
 				return PL_READLINE_KEY_UP;
-			case 0x42:
+			case 'B':
 				return PL_READLINE_KEY_DOWN;
-			case 0x43:
+			case 'C':
 				return PL_READLINE_KEY_RIGHT;
-			case 0x44:
+			case 'D':
 				return PL_READLINE_KEY_LEFT;
+			case 'H':
+				return PL_READLINE_KEY_HOME;
+			case 'F':
+				return PL_READLINE_KEY_END;
+			case '5':
+				if (plreadln_getch() == '~')
+					return PL_READLINE_KEY_PAGE_UP;
+				break;
+			case '6':
+				if (plreadln_getch() == '~')
+				    return PL_READLINE_KEY_PAGE_DOWN;
+				break;
 			default:
 				return -1;
 			}
