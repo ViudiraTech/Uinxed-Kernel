@@ -6,6 +6,8 @@
 
 此项目是一个基于GPL-3.0开源协议的操作系统内核开发项目，名为Uinxed-Kernel。它由MicroFish和Rainy101112等人于2024年发起并持续开发。Uinxed内核项目遵循开源精神，旨在创建一个自由、透明、任何人都可以使用和修改的操作系统内核。
 
+本项目因使用了带有GPL的源码，所以不得不使用GPL协议。但我们保证我们绝对开放，并且不会制造任何种族歧视和政治偏见，我们欢迎任何人提交源码和建议。
+
 ## 项目特点
 
 1. **自由使用**：任何人都可以自由地使用Uinxed内核，无论是个人学习、研究还是商业用途。
@@ -15,13 +17,39 @@
 
 ## 编译要求
 
-1. **操作系统**：必须是Linux系统，例如Debian、Ubuntu等。
-2. **工具安装**：必须安装好gcc、make、nasm和grub-pc、xorriso工具。如果需要测试，请安装qemu虚拟机。
+1. **操作系统**：需要在Unix环境（例如FreeBSD、Linux、macOS，Windows平台可安装WSL或CygWin）中进行编译。
+2. **工具安装**：需要安装好gcc、make、nasm和grub-pc、xorriso工具。如果需要测试，请安装qemu虚拟机。
+
+### 工具安装方法：
+
+Debian & Ubuntu & Kali
+''' Shell
+
+      sudo apt update
+      sudo apt install gcc make nasm grub-pc xorriso qemu-system
+      
+'''
+
+ArchLinux
+''' Shell
+
+      pacman -Syu
+      pacman -S gcc make nasm grub-pc xorriso qemu-system
+
+'''
+
+AlpineLinux
+''' Shell
+
+      sudo apk update
+      sudo apk add gcc make nasm grub-pc xorriso qemu-system
+
+'''
 
 ## 编译指南
 
-1. **获取源码**：将源码PULL到本地。
-2. **编译**：在已PULL到本地的项目源码根目录内执行make命令即可开始编译，执行make grub编译出grub引导的iso。
+1. **获取源码**：将源码clone到本地。
+2. **编译**：在已clone到本地的项目源码根目录内执行make命令即可开始编译，执行make grub编译出grub引导的iso。
 3. **编译结果**：编译后会生成两个文件：UxImage和Uinxed.iso，这两个文件分别为内核文件和带引导的镜像文件。
 4. **清理与测试**：
    - 输入“make clean”清理所有中间文件及UxImage和镜像。
@@ -46,6 +74,10 @@
 - CoolPotOS: [https://github.com/xiaoyi1212/CoolPotOS](https://github.com/xiaoyi1212/CoolPotOS)
 - libos-terminal: [https://github.com/plos-clan/libos-terminal](https://github.com/plos-clan/libos-terminal)
 - pl_readline: [https://github.com/plos-clan/pl_readline](https://github.com/plos-clan/pl_readline)
+
+# 参考的网站
+
+- OSDev: [https://wiki.osdev.org/](https://wiki.osdev.org)
 
 ## 版权声明
 
