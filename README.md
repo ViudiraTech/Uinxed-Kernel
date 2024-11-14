@@ -22,29 +22,22 @@
 
 ### 工具安装方法：
 
-Debian & Ubuntu & Kali
-''' Shell
+**Debian & Ubuntu & Kali**
+```bash
+sudo apt update
+sudo apt install gcc make nasm grub-pc xorriso qemu-system
+```
 
-      sudo apt update
-      sudo apt install gcc make nasm grub-pc xorriso qemu-system
-      
-'''
+**ArchLinux**
+```bash
+pacman -Sy gcc make nasm grub-pc xorriso qemu-system
+```
 
-ArchLinux
-''' Shell
-
-      pacman -Syu
-      pacman -S gcc make nasm grub-pc xorriso qemu-system
-
-'''
-
-AlpineLinux
-''' Shell
-
-      sudo apk update
-      sudo apk add gcc make nasm grub-pc xorriso qemu-system
-
-'''
+**Alpine**
+```bash
+sudo apk update
+sudo apk add gcc make nasm grub-pc xorriso qemu-system
+```
 
 ## 编译指南
 
