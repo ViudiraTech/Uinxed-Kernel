@@ -13,6 +13,7 @@
 #define INCLUDE_STDLIB_H_
 
 #include "types.h"
+#include "printk.h"
 
 #define MAX_PRECISION (10)
 
@@ -35,6 +36,8 @@ void delay(uint32_t count);
 
 /* 阻塞函数 */
 void hang(void);
+
+bool isspace(int c);
 
 /* 判断是否是数字 */
 bool isdigit(int c);
