@@ -29,16 +29,16 @@
 #define M_SQRT1_2		0.70710678118654752440
 
 /* IEEE 754 classication */
-#define	_FPCLASS_SNAN	0x0001	/* Signaling "Not a Number" */
-#define	_FPCLASS_QNAN	0x0002	/* Quiet "Not a Number" */
-#define	_FPCLASS_NINF	0x0004	/* Negative Infinity */
-#define	_FPCLASS_NN		0x0008	/* Negative Normal */
-#define	_FPCLASS_ND		0x0010	/* Negative Denormal */
-#define	_FPCLASS_NZ		0x0020	/* Negative Zero */
-#define	_FPCLASS_PZ		0x0040	/* Positive Zero */
-#define	_FPCLASS_PD		0x0080	/* Positive Denormal */
-#define	_FPCLASS_PN		0x0100	/* Positive Normal */
-#define	_FPCLASS_PINF	0x0200	/* Positive Infinity */
+#define	_FPCLASS_SNAN	0x0001 /* Signaling "Not a Number" */
+#define	_FPCLASS_QNAN	0x0002 /* Quiet "Not a Number" */
+#define	_FPCLASS_NINF	0x0004 /* Negative Infinity */
+#define	_FPCLASS_NN		0x0008 /* Negative Normal */
+#define	_FPCLASS_ND		0x0010 /* Negative Denormal */
+#define	_FPCLASS_NZ		0x0020 /* Negative Zero */
+#define	_FPCLASS_PZ		0x0040 /* Positive Zero */
+#define	_FPCLASS_PD		0x0080 /* Positive Denormal */
+#define	_FPCLASS_PN		0x0100 /* Positive Normal */
+#define	_FPCLASS_PINF	0x0200 /* Positive Infinity */
 
 double sin(double x);
 double cos(double x);
@@ -124,10 +124,10 @@ int fpclass(double);
 
 /* 7.12.3.1 */
 /*
-	 Return values for fpclassify.
-	 These are based on Intel x87 fpu condition codes
-	 in the high byte of status word and differ from
-	 the return values for MS IEEE 754 extension _fpclass()
+	Return values for fpclassify.
+	These are based on Intel x87 fpu condition codes
+	in the high byte of status word and differ from
+	the return values for MS IEEE 754 extension _fpclass()
 */
 #define FP_NAN			0x0100
 #define FP_NORMAL		0x0400
@@ -148,8 +148,7 @@ int __fpclassifyf(float);
 int __fpclassify(double);
 
 /* 7.12.3.4 */
-/* We don't need to worry about truncation here:
-	 A NaN stays a NaN. */
+/* We don't need to worry about truncation here: A NaN stays a NaN. */
 
 int __isnan(double);
 int __isnanf(float);

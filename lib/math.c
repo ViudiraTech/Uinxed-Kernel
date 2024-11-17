@@ -60,36 +60,37 @@ double sqrt(double x)
  * These functions have been create by AI, may cause some bugs.
  */
 
-double sinh(double x){
+double sinh(double x)
+{
     double e_x = exp(x); 
     double e_neg_x = exp(-x);
-
     return (e_x - e_neg_x) / 2.0;
 }
 
-double cosh(double x){
+double cosh(double x)
+{
     double e_x = exp(x);
     double e_neg_x = exp(-x);
     return (e_x + e_neg_x) / 2.0;
 }
 
-double tanh(double x){
+double tanh(double x)
+{
     double e_x = exp(x);
     double e_neg_x = exp(-x);
     return (e_x - e_neg_x) / (e_x + e_neg_x);
 }
 
-double asin(double x){
+double asin(double x)
+{
     if (x < -1 || x > 1) {
         return NAN;
     }
-
     double y = x;
     double delta;
     const double tolerance = 1e-7;
     const double pi = 3.14159265358979323846;
     const double pi_over_2 = pi / 2;
-
     while (1) {
         double y1 = (1 - y * y) > 0 ? sqrt(1 - y * y) : 0;
         delta = (x - y / y1) / (1 + y * y / (y1 * y1));
@@ -99,25 +100,24 @@ double asin(double x){
             break;
         }
     }
-
     return y + (x < 0 ? -pi_over_2 : pi_over_2);
 }
 
-double acos(double x){
+double acos(double x)
+{
     double sqrtPart = sqrt(1 - x * x);
     double atanPart;
-
     if (x >= 0) {
         atanPart = atan(sqrtPart / x);
     } else {
         atanPart = atan(sqrtPart / -x);
         atanPart = M_PI - atanPart;
     }
-
     return M_PI_2 - atanPart;
 }
 
-double atan(double x){
+double atan(double x)
+{
     double term = x;
     double sum = 0.0;
     int n = 1;
@@ -129,7 +129,8 @@ double atan(double x){
     return sum;
 }
 
-double atan2(double y, double x){
+double atan2(double y, double x)
+{
     double result;
     if (x == 0) {
         if (y > 0) {
@@ -151,21 +152,21 @@ double atan2(double y, double x){
     return result;
 }
 
-double exp(double x){
+double exp(double x)
+{
     double sum = 1.0;
     double term = 1.0;
     int i = 1;
-
     do {
         term *= x / i;
         sum += term;
         i++;
     } while (term > 1e-7);
-
     return sum;
 }
 
-double log(double x){
+double log(double x)
+{
     if (x <= 0) {
         return NAN;
     }
@@ -180,26 +181,26 @@ double log(double x){
     return sum;
 }
 
-double log10(double x){
+double log10(double x)
+{
     return log(x) / log(10);
 }
 
-double pow(double x, double y){
+double pow(double x, double y)
+{
     double result = 1.0;
     int i;
-
     if (y < 0) {
         x = 1 / x;
         y = -y;
     }
-
     for (i = 0; i < y; i++) {
         result *= x;
     }
-
     return result;
 }
-double ceil(double x){
+double ceil(double x)
+{
     if (x > 0) {
         return ceil(x);
     } else {
@@ -207,16 +208,15 @@ double ceil(double x){
     }
 }
 
-double floor(double x){
+double floor(double x)
+{
     union {
         double d;
         uint64_t ui;
     } u = {x};
-
     int sign = u.ui >> 63;
     int exponent = (int)((u.ui >> 52) & 0x7ff) - 0x3ff;
     uint64_t mantissa = u.ui & 0xfffffffffffff;
-
     if (exponent < 0) {
         return sign ? -1 : 0;
     } else if (exponent == 0) {
@@ -229,27 +229,33 @@ double floor(double x){
     }
 }
 
-float fabsf(float x){
+float fabsf(float x)
+{
     return (x < 0.0f) ? -x : x;
 }
 
-long double fabsl(long double x){
+long double fabsl(long double x)
+{
     return (x < 0.0L) ? -x : x;
 }
 
-double fabs(double x){
+double fabs(double x)
+{
     return (x < 0.0) ? -x : x;
 }
 
-int abs(int x){
+int abs(int x)
+{
     return x < 0 ? -x : x;
 }
 
-long labs(long x){
+long labs(long x)
+{
     return x < 0 ? -x : x;
 }
 
-double atof(const char *str){
+double atof(const char *str)
+{
     double result = 0.0;
     double factor = 1.0;
     int sign = 1;
@@ -261,12 +267,10 @@ double atof(const char *str){
         sign = (*p == '-') ? -1 : 1;
         p++;
     }
-
     while (isdigit((unsigned char)*p)) {
         result = result * 10.0 + (*p - '0');
         p++;
     }
-
     if (*p == '.') {
         p++;
         double decimal = 0.1;
@@ -276,7 +280,6 @@ double atof(const char *str){
             p++;
         }
     }
-
     if (*p == 'e' || *p == 'E') {
         p++;
         int expSign = 1;
@@ -291,7 +294,6 @@ double atof(const char *str){
         }
         factor = expSign == 1 ? pow(10.0, exponent) : pow(10.0, -exponent);
     }
-
     return sign * result * factor;
 }
 
@@ -307,19 +309,22 @@ double log2(double x)
 	return x;
 }
 
-double nan(const char *tagp){
+double nan(const char *tagp)
+{
     uint64_t nan_bits = 0x7ff8000000000000ULL;
     return *(double *)&nan_bits;
 }
 
-float nanf(const char *tagp){
+float nanf(const char *tagp)
+{
     uint32_t nan_bits = 0x7FC00000;
     float result;
     memcpy((uint8_t*)&result, (uint8_t*)&nan_bits, sizeof(result));
     return result;
 }
 
-long double nanl(const char *tagp){
+long double nanl(const char *tagp)
+{
     uint64_t nan_bits_high = 0x7FF8000000000000ULL;
     uint64_t nan_bits_low = 0;
     long double result;
