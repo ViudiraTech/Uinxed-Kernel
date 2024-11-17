@@ -168,7 +168,7 @@ void shell_flushing(int argc, char *argv[])
 		printk("\n");
 		return;
 	} else {
-		printk("Usage: %s [flush time]\n", argv[0]);
+		printk("Usage: %s [COUNT]\n", argv[0]);
 		printk("\n");
 		return;
 	}
@@ -185,14 +185,14 @@ void shell_echo(int argc, char *argv[])
 
 void shell_poweroff(void)
 {
-	printk("The computer is about to be shut down!");
+	printk("The system is going to power off NOW!");
 	sleep(200);
 	power_off();
 }
 
 void shell_reboot(void)
 {
-	printk("The computer is about to be reboot!");
+	printk("The system is going to reboot NOW!");
 	sleep(200);
 	power_reset();
 }
