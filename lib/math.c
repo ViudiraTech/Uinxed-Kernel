@@ -329,6 +329,6 @@ long double nanl(const char *tagp)
     uint64_t nan_bits_low = 0;
     long double result;
     memcpy((uint8_t*)&result, (uint8_t*)&nan_bits_high, sizeof(nan_bits_high));
-    memcpy((char *)&result + sizeof(nan_bits_high), (uint8_t*)&nan_bits_low, sizeof(nan_bits_low));
+    memcpy((uint8_t*)((char *)&result + sizeof(nan_bits_high)), (uint8_t*)&nan_bits_low, sizeof(nan_bits_low));
     return result;
 }

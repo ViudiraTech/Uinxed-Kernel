@@ -14,6 +14,7 @@
 #include "printk.h"
 #include "common.h"
 #include "vbe.h"
+#include "lib_os_terminal.lib.h"
 
 static elf_t kernel_elf;
 
@@ -47,6 +48,8 @@ void print_cur_status(uint16_t* ring, uint16_t* regs1, uint16_t* regs2, uint16_t
 /* 内核异常 */
 void panic(const char *msg)
 {
+	terminal_destroy();
+
 	uint16_t ring = 0, regs1 = 0, regs2 = 0, regs3 = 0, regs4 = 0;
 	uint32_t eips[5];
 	const char *syname[5];

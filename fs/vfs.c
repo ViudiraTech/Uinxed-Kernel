@@ -78,6 +78,8 @@ static vfs_t *check_disk_fs(uint8_t disk_number)
 	return NULL;
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
 /* 将一个字符串插入到另一个字符串中的指定位置 */
 static void insert_str1(char *str, char *insert_str1, int pos)
 {
@@ -85,6 +87,7 @@ static void insert_str1(char *str, char *insert_str1, int pos)
 		insert_char(str, pos + i, insert_str1[i]);
 	}
 }
+#pragma GCC diagnostic pop
 
 /* 挂载指定驱动器号的磁盘 */
 bool vfs_mount_disk(uint8_t disk_number, uint8_t drive)

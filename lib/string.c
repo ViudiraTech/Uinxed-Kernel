@@ -196,7 +196,7 @@ void *strdup(const char *s)
 {
 	size_t len = strlen(s) + 1;
 	void *p = (void *)kmalloc(len);
-	if (p != NULL) memcpy(p, s, len);
+	if (p != NULL) memcpy(p, (uint8_t *)s, len);
 	return p;
 }
 

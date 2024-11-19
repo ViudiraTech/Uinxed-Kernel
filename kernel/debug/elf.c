@@ -41,7 +41,6 @@ elf_t elf_from_multiboot(multiboot_elf_section_header_table_t *mb)
 /* 查看ELF的符号信息 */
 const char *elf_lookup_symbol(uint32_t addr, elf_t *elf)
 {
-	int i;
 	for (uint32_t i = 0; i < (elf->symtabsz / sizeof(elf_symbol_t)); i++) {
 		if (ELF32_ST_TYPE(elf->symtab[i].info) != 0x2) {
 			continue;

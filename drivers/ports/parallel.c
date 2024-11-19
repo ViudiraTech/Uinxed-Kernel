@@ -16,7 +16,7 @@
 /* 等待并行端口准备好 */
 void wait_parallel_ready(void)
 {
-	while (!inb(LPT1_PORT_STATUS) & 0x80) {
+	while ((!inb(LPT1_PORT_STATUS)) & 0x80) {
 		sleep(10);
 	}
 }
