@@ -311,8 +311,13 @@ double log2(double x)
 
 double nan(const char *tagp)
 {
-    uint64_t nan_bits = 0x7ff8000000000000ULL;
-    return *(double *)&nan_bits;
+    union {
+        uint64_t nan_bits;
+        double result;
+    } u;
+    
+    u.nan_bits = 0x7ff8000000000000ULL;
+    return u.result;
 }
 
 float nanf(const char *tagp)

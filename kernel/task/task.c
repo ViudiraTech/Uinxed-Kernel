@@ -100,6 +100,9 @@ int print_task(struct task_struct *base, struct task_struct *cur, int count)
 			case TASK_ZOMBIE:
 				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Zombie", level_name);
 				break;
+			case TASK_DEATH:
+				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Death", level_name);
+				break;
 		}
 		count++;
 	} else {
@@ -115,6 +118,9 @@ int print_task(struct task_struct *base, struct task_struct *cur, int count)
 				break;
 			case TASK_ZOMBIE:
 				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Zombie", level_name);
+				break;
+			case TASK_DEATH:
+				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Death", level_name);
 				break;
 		}
 		count++;
