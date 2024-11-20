@@ -45,7 +45,7 @@ int fat16_format(void)
 	hdr.BS_jmpBoot[1] = 0x3c;
 	hdr.BS_jmpBoot[2] = 0x90;
 
-	strcpy(hdr.BS_OEMName, "TUTORIAL");
+	strcpy((char *)hdr.BS_OEMName, "TUTORIAL");
 
 	hdr.BPB_BytsPerSec = 512;
 	hdr.BPB_SecPerClust = 1;
@@ -70,8 +70,8 @@ int fat16_format(void)
 	hdr.BS_BootSig = 0x29;
 	hdr.BS_VolID = 0;
 
-	strcpy(hdr.BS_VolLab, "UxDISK");
-	strcpy(hdr.BS_FileSysType, "FAT16   ");
+	strcpy((char *)hdr.BS_VolLab, "UxDISK");
+	strcpy((char *)hdr.BS_FileSysType, "FAT16   ");
 	memset(hdr.BS_BootCode, 0, 448);
 	memcpy(hdr.BS_BootCode, default_boot_code, sizeof(default_boot_code));
 
@@ -101,8 +101,8 @@ int fat16_lfn2sfn(const char *lfn, char *sfn)
 	char *name = (char *) kmalloc(10);
 	char *ext = NULL;
 	if (len_ext > 0) ext = (char *) kmalloc(5);
-	memcpy(name, lfn, len_name);
-	if (ext) memcpy(ext, lfn + last_dot + 1, len_ext);
+	memcpy((uint8_t *)name, (uint8_t *)lfn, len_name);
+	if (ext) memcpy((uint8_t *)ext, (uint8_t *)(lfn + last_dot + 1), len_ext);
 	if (name[0] == 0xe5) name[0] = 0x05;
 	for (int i = 0; i < len_name; i++) {
 		if (name[i] == '.') return -1;
@@ -164,8 +164,8 @@ int fat16_create_file(fileinfo_t *finfo, char *filename)
 		kfree(root_dir);
 		return -1;
 	}
-	memcpy(root_dir[free_slot].name, sfn, 8);
-	memcpy(root_dir[free_slot].ext, sfn + 8, 3);
+	memcpy(root_dir[free_slot].name, (uint8_t *)sfn, 8);
+	memcpy(root_dir[free_slot].ext, (uint8_t *)(sfn + 8), 3);
 	root_dir[free_slot].type = 0x20;
 	root_dir[free_slot].clustno = 0;
 	root_dir[free_slot].size = 0;
@@ -256,7 +256,7 @@ int fat16_read_file(fileinfo_t *finfo, void *buf)
 	char *clust = (char *) kmalloc(512);
 	do {
 		read_nth_clust(clustno, clust);
-		memcpy(buf, clust, 512);
+		memcpy(buf, (uint8_t *)clust, 512);
 		buf += 512;
 		clustno = get_nth_fat(clustno);
 		if (clustno >= 0xFFF8) break;

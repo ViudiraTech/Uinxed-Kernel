@@ -39,6 +39,7 @@ void shell(void);			// 声明shell程序入口
 int kthread_shell(void *arg)
 {
 	shell();
+	return 0;
 }
 
 /* Terminal手动刷新线程 */

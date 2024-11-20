@@ -40,7 +40,7 @@ uint32_t hpetPeriod = 0;
 void acpi_init(void)
 {
 	print_busy("Initializing Advanced Configuration and Power Interface...\r"); // 提示用户正在初始化ACPI，并回到行首等待覆盖
-	int state = acpi_sys_init();
+	acpi_sys_init();
 	acpi_enable_flag = !acpi_enable();
 	hpet_initialize();
 	acpi_power_init();
@@ -52,17 +52,16 @@ int acpi_sys_init(void)
 {
 	uint32_t **p;
 	uint32_t entrys;
-	uint32_t dsdtlen;
 
 	rsdt = (acpi_rsdt_t *) AcpiGetRSDPtr();
-	if (!rsdt || acpi_check_header(rsdt, "RSDT") < 0) {
+	if (!rsdt || acpi_check_header(rsdt, (uint8_t*)"RSDT") < 0) {
 		print_warn("Unable to find Advanced Configuration and Power Interface.\n");
 		return false;
 	}
 	entrys = rsdt->length - HEADER_SIZE / 4;
 	p = &(rsdt->entry);
 	while (entrys--) {
-		if (!acpi_check_header(*p, "FACP")) {
+		if (!acpi_check_header(*p, (uint8_t*)"FACP")) {
 			facp = (acpi_facp_t *) *p;
 
 			ACPI_ENABLE = facp->ACPI_ENABLE;
@@ -84,7 +83,7 @@ int acpi_sys_init(void)
 			uint8_t * S5Addr;
 			uint32_t dsdtlen;
 
-			if (!acpi_check_header(facp->DSDT, "DSDT")) {
+			if (!acpi_check_header(facp->DSDT, (uint8_t*)"DSDT")) {
 				S5Addr = &(facp->DSDT->definition_block);
 				dsdtlen = facp->DSDT->length - HEADER_SIZE;
 				while (dsdtlen--) {
@@ -121,6 +120,7 @@ int acpi_sys_init(void)
 		++p;
 	}
 	print_warn("Advanced Configuration and Power Interface: There is no valid FACP\n");
+	return -1;
 }
 
 /* 启用ACPI */
@@ -161,18 +161,18 @@ int acpi_enable(void)
 int acpi_disable(void)
 {
 	int i;
-	if (!inw((uint16_t)(uintptr_t)PM1a_CNT) &SCI_EN)
+	if ((!inw((uint16_t)(uintptr_t)PM1a_CNT)) & SCI_EN)
 	return 0;
 	if (SMI_CMD || ACPI_DISABLE) {
 		outb((uint16_t)
 		SMI_CMD, ACPI_DISABLE);
 		for (i = 0; i < 300; i++) {
-			if (!inw((uint16_t)(uintptr_t)PM1a_CNT) &SCI_EN)
+			if ((!inw((uint16_t)(uintptr_t)PM1a_CNT)) & SCI_EN)
 			break;
 			clock_sleep(5);
 		}
 		for (i = 0; i < 300; i++) {
-			if (!inw((uint16_t)(uintptr_t)PM1b_CNT) &SCI_EN)
+			if ((!inw((uint16_t)(uintptr_t)PM1b_CNT)) & SCI_EN)
 			break;
 			clock_sleep(5);
 		}
@@ -252,7 +252,6 @@ void power_off(void)
 /* 重启系统 */
 void power_reset(void)
 {
-	uint8_t val;
 	if (!SCI_EN)
 		return;
 	while (1) {
@@ -274,8 +273,12 @@ uint8_t *AcpiGetRSDPtr(void)
 			return (uint8_t *)rsdt;
 		}
 	}
-	ebda = *(uint16_t * )
-	0x40E;
+
+	#pragma GCC diagnostic push
+	#pragma GCC diagnostic ignored "-Warray-bounds"
+	ebda = *(uint16_t *) 0x40E;
+	#pragma GCC diagnostic pop
+	
 	ebda = ebda * 0x10 & 0xfffff;
 	for (addr = (uint32_t *)ebda; addr < (uint32_t * )(ebda + 1024); addr += 0x10 / sizeof(addr)) {
 		rsdt = (uint32_t *)AcpiCheckRSDPtr(addr);
@@ -347,7 +350,7 @@ uint32_t AcpiGetMadtBase(void)
 	uint32_t **p = &(rsdt->entry);
 	acpi_madt_t *madt = NULL;
 	while (--entrys) {
-		if (!acpi_check_header(*p, "APIC")) {
+		if (!acpi_check_header(*p, (uint8_t*)"APIC")) {
 			madt = (acpi_madt_t *) *p;
 			return (uint32_t)madt;
 		}

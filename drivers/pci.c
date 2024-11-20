@@ -363,7 +363,7 @@ void init_pci(void)
 	int PCI_NUM = 0;
 
 	PCI_ADDR_BASE = kmalloc(1 * 1024 * 1024);
-	unsigned int i, BUS, Equipment, F, ADDER, *i1;
+	unsigned int i, BUS, Equipment, F, ADDER;
 	unsigned char *PCI_DATA = (unsigned char *)PCI_ADDR_BASE, *PCI_DATA1;
 
 	for (BUS = 0; BUS < 256; BUS++) {						// 查询总线
@@ -388,7 +388,6 @@ void init_pci(void)
 						for (ADDER = 0; ADDER < 256; ADDER = ADDER + 4) {
 							pci_config(BUS, F, Equipment, ADDER);
 							i = inl(PCI_DATA_PORT);
-							i1 = (unsigned int *)i;
 							memcpy(PCI_DATA1, (const uint8_t *)&i, 4);
 							PCI_DATA1 = PCI_DATA1 + 4;
 						}

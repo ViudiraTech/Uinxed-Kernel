@@ -46,6 +46,8 @@ static void clear_frame(uint32_t frame_addr)
 	frames[idx] &= ~(0x1 << off);
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
 /* 将帧位图中对应帧的位清除为0 */
 static uint32_t test_frame(uint32_t frame_addr)
 {
@@ -54,6 +56,7 @@ static uint32_t test_frame(uint32_t frame_addr)
 	uint32_t off	= OFFSET_FROM_BIT(frame);
 	return (frames[idx] & (0x1 << off));
 }
+#pragma GCC diagnostic pop
 
 /* 清除帧位图中的特定位 */
 uint32_t first_frame(void)

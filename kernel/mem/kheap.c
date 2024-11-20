@@ -88,7 +88,7 @@ uint32_t kmalloc(uint32_t size)
 /* 重新调整内存块 */
 void *krealloc(void *block, size_t size)
 {
-	header_t *header, *tmp;
+	header_t *header;
 	if (!block) return NULL;
 	header = (header_t *)block - 1;
 	void *new_block = (void *)kmalloc(size);
