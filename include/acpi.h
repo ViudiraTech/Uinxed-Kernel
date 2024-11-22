@@ -310,7 +310,7 @@ uint8_t *AcpiGetRSDPtr(void);
 int acpi_check_header(void *ptr, uint8_t *sign);
 
 /* 查找ACPI表 */
-unsigned int acpi_find_table(char *Signature);
+unsigned int acpi_find_table(const char *Signature);
 
 /* 检查RSD PTR */
 uint8_t *AcpiCheckRSDPtr(void *ptr);

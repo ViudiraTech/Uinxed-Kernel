@@ -45,7 +45,7 @@ void panic(const char *msg);
 void print_stack_trace(uint32_t *eips, const char **syname);
 
 /* 强制阻塞 */
-void spin(char *name);
+void spin(const char *name);
 
 /* 断言失败 */
 void assertion_failure(char *exp, char *file, char *base, int line);

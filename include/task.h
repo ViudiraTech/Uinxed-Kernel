@@ -65,10 +65,10 @@ struct task_struct {
 	volatile task_state state;	// 进程当前状态
 	int pid;					// 进程标识符
 	int mem_size;				// 内存利用率
-	char *name;					// 进程名
+	const char *name;			// 进程名
 	void *stack;				// 进程的内核栈地址
-	uint32_t program_break;       // 进程堆基址
-	uint32_t program_break_end;   // 进程堆尾
+	uint32_t program_break;		// 进程堆基址
+	uint32_t program_break_end;	// 进程堆尾
 	page_directory_t *pgd_dir;	// 进程页表
 	bool fpu_flag;				// 是否使用 FPU
 	struct context context;		// 进程切换需要的上下文信息
@@ -79,7 +79,7 @@ struct task_struct {
 extern int now_pid;
 
 /* 内核进程创建 */
-int32_t kernel_thread(int (*fn)(void *), void *arg, char *name, int level);
+int32_t kernel_thread(int (*fn)(void *), void *arg, const char *name, int level);
 
 /* 进程退出函数 */
 void kthread_exit(void);

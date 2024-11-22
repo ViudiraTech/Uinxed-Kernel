@@ -47,10 +47,10 @@ void console_putc_color(char c, real_color_t back, real_color_t fore);
 void console_write_newline(void);
 
 /* 屏幕打印一个以 \0 结尾的字符串（默认黑底白字） */
-void console_write(char *cstr);
+void console_write(const char *cstr);
 
 /* 屏幕打印一个以 \0 结尾的字符串（带颜色） */
-void console_write_color(char *cstr, real_color_t back, real_color_t fore);
+void console_write_color(const char *cstr, real_color_t back, real_color_t fore);
 
 /* 屏幕输出一个十六进制的整型数 */
 void console_write_hex(uint32_t n, real_color_t back, real_color_t fore);

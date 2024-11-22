@@ -42,7 +42,7 @@ typedef struct vfs_t {
 	int disk_number;
 	uint8_t drive; // 大写（必须）
 	vfs_file *(*FileInfo)(struct vfs_t *vfs, char *filename);
-	struct List *(*ListFile)(struct vfs_t *vfs, char *dictpath);
+	struct List *(*ListFile)(struct vfs_t *vfs, const char *dictpath);
 	bool (*ReadFile)(struct vfs_t *vfs, char *path, char *buffer);
 	bool (*WriteFile)(struct vfs_t *vfs, char *path, char *buffer, int size);
 	bool (*DelFile)(struct vfs_t *vfs, char *path);
@@ -55,7 +55,7 @@ typedef struct vfs_t {
 	void (*InitFs)(struct vfs_t *vfs, uint8_t disk_number);
 	void (*DeleteFs)(struct vfs_t *vfs);
 	bool (*Check)(uint8_t disk_number);
-	bool (*cd)(struct vfs_t *vfs, char *dictName);
+	bool (*cd)(struct vfs_t *vfs, const char *dictName);
 	int (*FileSize)(struct vfs_t *vfs, char *filename);
 	void (*CopyCache)(struct vfs_t *dest, struct vfs_t *src);
 	int flag;
@@ -86,7 +86,7 @@ bool vfs_writefile(char *path, char *buffer, int size);
 uint32_t vfs_filesize(char *filename);
 
 /* 列出目录中的文件 */
-List *vfs_listfile(char *dictpath);
+List *vfs_listfile(const char *dictpath);
 
 /* 删除文件 */
 bool vfs_delfile(char *filename);

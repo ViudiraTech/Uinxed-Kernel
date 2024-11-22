@@ -178,7 +178,7 @@ uint32_t vfs_filesize(char *filename)
 }
 
 /* 列出目录中的文件 */
-List *vfs_listfile(char *dictpath)
+List *vfs_listfile(const char *dictpath)
 {
 	/* dictpath == "" 则表示当前路径 */
 	if (strcmp(dictpath, "") == 0) {

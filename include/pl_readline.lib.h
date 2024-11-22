@@ -64,10 +64,10 @@ typedef struct pl_readline_runtime {
 } pl_readline_runtime;
 
 extern pl_readline_words_t pl_readline_word_maker_init(void);
-extern int pl_readline(pl_readline_t self, char *prompt, char *buffer, size_t len);
+extern int pl_readline(pl_readline_t self, const char *prompt, char *buffer, size_t len);
 extern void pl_readline_insert_char_and_view(pl_readline_t self, char ch, pl_readline_runtime *rt);
 extern void pl_readline_insert_char(char *str, char ch, int idx);
-extern int pl_readline_word_maker_add(char *word, pl_readline_words_t words, bool is_first, char sep);
+extern int pl_readline_word_maker_add(const char *word, pl_readline_words_t words, bool is_first, char sep);
 extern void pl_readline_print(pl_readline_t self, char *str);
 extern void pl_readline_intellisense_insert(pl_readline_t self, pl_readline_runtime *rt, pl_readline_word words);
 extern void pl_readline_word_maker_destroy(pl_readline_words_t words);

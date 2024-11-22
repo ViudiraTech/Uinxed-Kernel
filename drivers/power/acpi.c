@@ -305,7 +305,7 @@ int acpi_check_header(void *ptr, uint8_t *sign)
 }
 
 /* 查找ACPI表 */
-unsigned int acpi_find_table(char *Signature)
+unsigned int acpi_find_table(const char *Signature)
 {
 	uint8_t * ptr, *ptr2;
 	uint32_t len;
@@ -325,7 +325,7 @@ unsigned int acpi_find_table(char *Signature)
 /* 检查RSD PTR */
 uint8_t *AcpiCheckRSDPtr(void *ptr)
 {
-	char *sign = "RSD PTR ";
+	const char *sign = "RSD PTR ";
 	acpi_rsdptr_t *rsdp = ptr;
 	uint8_t * bptr = ptr;
 	uint32_t i = 0;

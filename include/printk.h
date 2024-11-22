@@ -20,10 +20,10 @@ void vbe_printk(const char *format, ...);
 void vbe_printk_color(int fore, const char *format, ...);
 
 /* 带前缀的打印函数 */
-void vbe_print_busy(char *str); // 打印带有”[ ** ]“的字符串
-void vbe_print_succ(char *str); // 打印带有”[ OK ]“的字符串
-void vbe_print_warn(char *str); // 打印带有”[WARN]“的字符串
-void vbe_print_erro(char *str); // 打印带有”[ERRO]“的字符串
+void vbe_print_busy(const char *str); // 打印带有”[ ** ]“的字符串
+void vbe_print_succ(const char *str); // 打印带有”[ OK ]“的字符串
+void vbe_print_warn(const char *str); // 打印带有”[WARN]“的字符串
+void vbe_print_erro(const char *str); // 打印带有”[ERRO]“的字符串
 
 /* OS-Terminal */
 
@@ -34,10 +34,10 @@ void putchar(char ch);
 void printk(const char *format, ...);
 
 /* 带前缀的打印函数 */
-void print_busy(char *str); // 打印带有”[ ** ]“的字符串
-void print_succ(char *str); // 打印带有”[ OK ]“的字符串
-void print_warn(char *str); // 打印带有”[WARN]“的字符串
-void print_erro(char *str); // 打印带有”[ERRO]“的字符串
+void print_busy(const char *str); // 打印带有”[ ** ]“的字符串
+void print_succ(const char *str); // 打印带有”[ OK ]“的字符串
+void print_warn(const char *str); // 打印带有”[WARN]“的字符串
+void print_erro(const char *str); // 打印带有”[ERRO]“的字符串
 
 /* 格式化字符串并将其输出到一个字符数组中 */
 int vsprintf(char *buff, const char *format, va_list args);

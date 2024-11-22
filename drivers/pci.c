@@ -17,7 +17,7 @@
 struct
 {
 	uint32_t classcode;
-	char *name;
+	const char *name;
 } pci_classnames[] = {
 	{0x000000, "Non-VGA-Compatible Unclassified Device"},
 	{0x000100, "VGA-Compatible Unclassified Device"},
@@ -268,7 +268,7 @@ void pci_config(unsigned int bus, unsigned int f, unsigned int equipment, unsign
 }
 
 /* 根据类代码返回设备类别名称 */
-char *pci_classname(uint32_t classcode)
+const char *pci_classname(uint32_t classcode)
 {
 	for (size_t i = 0; pci_classnames[i].name != NULL; i++)
 	{

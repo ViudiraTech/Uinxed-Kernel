@@ -24,7 +24,7 @@ extern page_directory_t *kernel_directory;
 int now_pid = 0;
 
 /* 内核进程创建 */
-int32_t kernel_thread(int (*fn)(void *), void *arg, char *name, int level)
+int32_t kernel_thread(int (*fn)(void *), void *arg, const char *name, int level)
 {
 	struct task_struct *new_task = (struct task_struct *)kmalloc(STACK_SIZE);
 	assertx(new_task != NULL, P008);
@@ -82,7 +82,7 @@ void kthread_exit(void)
 /* 打印当前的所有进程 */
 int print_task(struct task_struct *base, struct task_struct *cur, int count)
 {
-	char *level_name;
+	const char *level_name;
 	if (cur->level == 0) level_name = "Kernel processes";
 	if (cur->level == 1) level_name = "Service process";
 	if (cur->level == 2) level_name = "User processes";

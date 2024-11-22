@@ -20,7 +20,7 @@
 /* VBE */
 
 /* 打印带有”[ ** ]“的字符串 */
-void vbe_print_busy(char *str)
+void vbe_print_busy(const char *str)
 {
 	vbe_printk("[");
 	vbe_printk_color(0xffffff, " ** ");
@@ -29,7 +29,7 @@ void vbe_print_busy(char *str)
 }
 
 /* 打印带有”[ OK ]“的字符串 */
-void vbe_print_succ(char *str)
+void vbe_print_succ(const char *str)
 {
 	vbe_printk("[");
 	vbe_printk_color(0x00ff00, " OK ");
@@ -38,7 +38,7 @@ void vbe_print_succ(char *str)
 }
 
 /* 打印带有”[ WARN ]“的字符串 */
-void vbe_print_warn(char *str)
+void vbe_print_warn(const char *str)
 {
 	vbe_printk("[");
 	vbe_printk_color(0xffff00, "WARN");
@@ -47,7 +47,7 @@ void vbe_print_warn(char *str)
 }
 
 /* 打印带有”[ ERRO ]“的字符串 */
-void vbe_print_erro(char *str)
+void vbe_print_erro(const char *str)
 {
 	vbe_printk("[");
 	vbe_printk_color(0xff0000, "ERRO");
@@ -90,7 +90,7 @@ void vbe_printk_color(int fore, const char *format, ...)
 /* OS-Terminal */
 
 /* 打印带有”[ ** ]“的字符串 */
-void print_busy(char *str)
+void print_busy(const char *str)
 {
 	printk("[");
 	printk(" ** ");
@@ -99,7 +99,7 @@ void print_busy(char *str)
 }
 
 /* 打印带有”[ OK ]“的字符串 */
-void print_succ(char *str)
+void print_succ(const char *str)
 {
 	printk("[");
 	printk("\033[32m OK \033[0m");
@@ -108,7 +108,7 @@ void print_succ(char *str)
 }
 
 /* 打印带有”[ WARN ]“的字符串 */
-void print_warn(char *str)
+void print_warn(const char *str)
 {
 	printk("[");
 	printk("\033[33mWARN\033[0m");
@@ -117,7 +117,7 @@ void print_warn(char *str)
 }
 
 /* 打印带有”[ ERRO ]“的字符串 */
-void print_erro(char *str)
+void print_erro(const char *str)
 {
 	printk("[");
 	printk("\033[31mERRO\033[0m");

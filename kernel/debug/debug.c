@@ -109,7 +109,7 @@ void print_stack_trace(uint32_t *eips, const char **syname)
 }
 
 /* 强制阻塞 */
-void spin(char *name)
+void spin(const char *name)
 {
 	printk("spinning in %s ...", name);
 	krn_halt();

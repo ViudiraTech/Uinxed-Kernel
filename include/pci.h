@@ -90,7 +90,7 @@ base_address_register get_base_address_register(uint8_t bus, uint8_t device, uin
 void pci_config(unsigned int bus, unsigned int f, unsigned int equipment, unsigned int adder);
 
 /* 根据类代码返回设备类别名称 */
-char *pci_classname(uint32_t classcode);
+const char *pci_classname(uint32_t classcode);
 
 /* 按ClassCode查找相应设备 */
 int pci_find_class(uint32_t class_code);

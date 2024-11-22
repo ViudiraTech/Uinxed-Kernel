@@ -154,13 +154,13 @@ void shell_flushing(int argc, char *argv[])
 	if (argc > 1) {
 		int flushtime = atoi(argv[1]);
 		if (flushtime > 0) {
-			static char* conversation_list = "\033[31m[TESTFLUSH] Hello! This is a flushing test!!\n\033[0m"
-                                             "\033[32m[TESTFLUSH] A quick fox jump over a lazy dog.\n\033[0m"
-                                             "\033[33m[TESTFLUSH] Success is not the end, failure is not the death.\033[0m\n"
-                                             "\033[34m[TESTFLUSH] Believe!\n\033[0m"
-                                             "\033[35m[TESTFLUSH] I love apples, but I don't like bananas.\n\033[0m"
-                                             "\033[36m[TESTFLUSH] Uinxed-Kernel - ViudiraTech - Microfish & Rainy101112 & XIAOYI12 ...\n\033[0m"
-                                             "\033[37m[TESTFLUSH] Open source on github!!\n\033[0m";
+			const static char* conversation_list = "\033[31m[TESTFLUSH] Hello! This is a flushing test!!\n\033[0m"
+                                                   "\033[32m[TESTFLUSH] A quick fox jump over a lazy dog.\n\033[0m"
+                                                   "\033[33m[TESTFLUSH] Success is not the end, failure is not the death.\033[0m\n"
+                                                   "\033[34m[TESTFLUSH] Believe!\n\033[0m"
+                                                   "\033[35m[TESTFLUSH] I love apples, but I don't like bananas.\n\033[0m"
+                                                   "\033[36m[TESTFLUSH] Uinxed-Kernel - ViudiraTech - Microfish & Rainy101112 & XIAOYI12 ...\n\033[0m"
+                                                   "\033[37m[TESTFLUSH] Open source on github!!\n\033[0m";
 			for (int times = 0; times <= flushtime; times++) {
 				printk("%s", conversation_list);
 			}
@@ -214,7 +214,7 @@ void shell_cetsl(int argc, char *argv[])
 
 typedef struct builtin_cmd
 {
-	char *name;
+	const char *name;
 	void (*func)(int, char **);
 } builtin_cmd_t;
 
@@ -318,7 +318,7 @@ void shell(void)
 	printk("Basic shell program v1.0\n");
 	printk("Type 'help' for help.\n\n");
 
-	char *prompt = "┌─ \033[1;32m[Uinxed]\033[37m-\033[34m[Shell]\033[37m-\033[33m[Ring-0]\033[37m\n└─ #\033[0m ";
+	const char *prompt = "┌─ \033[1;32m[Uinxed]\033[37m-\033[34m[Shell]\033[37m-\033[33m[Ring-0]\033[37m\n└─ #\033[0m ";
 	uint8_t cmd[MAX_COMMAND_LEN];
 	uint8_t *argv[MAX_ARG_NR];
 	int argc = -1;
