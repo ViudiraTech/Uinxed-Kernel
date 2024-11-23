@@ -211,6 +211,11 @@ void init_vbe(multiboot_t *info, int back, int fore)
 	c_height = height / 16;
 	vbe_clear();
 
-	terminal_init(width, height, screen, 10.0, kmalloc, kfree, write_serial_string);	// 初始化terminal
-	terminalMode = 1;																	// 开启terminal
+	TerminalDisplay display = {
+		.width = width,
+		.height = height,
+		.address = screen
+	};
+	terminal_init(&display, 10.0, (void *)kmalloc, kfree, write_serial_string);	// 初始化terminal
+	terminalMode = 1;															// 开启terminal
 }

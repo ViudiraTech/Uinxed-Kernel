@@ -16,6 +16,19 @@
 
 #include "types.h"
 
+typedef enum TerminalInitResult {
+	Success,
+	MallocIsNull,
+	FreeIsNull,
+	FontBufferIsNull,
+} TerminalInitResult;
+
+typedef struct TerminalDisplay {
+	size_t width;
+	size_t height;
+	uint32_t *address;
+} TerminalDisplay;
+
 typedef struct TerminalPalette {
 	uint32_t foreground;
 	uint32_t background;
@@ -23,22 +36,23 @@ typedef struct TerminalPalette {
 } TerminalPalette;
 
 #if defined(TERMINAL_EMBEDDED_FONT)
-extern bool terminal_init(unsigned int width, unsigned int height, uint32_t *screen, float font_size,
-                          uint32_t (*malloc)(uint32_t), void (*free)(void*), void (*serial_print)(const char*));
+extern enum TerminalInitResult terminal_init(const struct TerminalDisplay *display, float font_size, void *(*malloc)(size_t),
+                                             void (*free)(void*), void (*serial_print)(const char*));
 #endif
 
 #if !defined(TERMINAL_EMBEDDED_FONT)
-extern bool terminal_init(unsigned int width, unsigned int height, uint32_t *screen, const uint8_t *font_buffer,
-                          unsigned int font_buffer_size, float font_size, uint32_t (*malloc)(uint32_t),
-                          void (*free)(void*), void (*serial_print)(const char*));
+extern enum TerminalInitResult terminal_init(const struct TerminalDisplay *display, const uint8_t *font_buffer, size_t font_buffer_size,
+                                             float font_size, void *(*malloc)(size_t), void (*free)(void*), void (*serial_print)(const char*));
 #endif
 
 extern void terminal_destroy(void);
 extern void terminal_flush(void);
-extern void terminal_set_auto_flush(unsigned int auto_flush);
+extern void terminal_set_auto_flush(size_t auto_flush);
 extern void terminal_advance_state(const char *s);
 extern void terminal_advance_state_single(char c);
-extern void terminal_set_color_scheme(unsigned int palette_index);
+extern void terminal_set_bell_handler(void (*handler)(void));
+extern void terminal_set_history_size(size_t size);
+extern void terminal_set_color_scheme(size_t palette_index);
 extern void terminal_set_custom_color_scheme(struct TerminalPalette palette);
 extern bool terminal_handle_keyboard(uint8_t scancode, char *buffer);
 
