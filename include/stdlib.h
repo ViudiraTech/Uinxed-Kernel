@@ -37,12 +37,6 @@ void delay(uint32_t count);
 /* 阻塞函数 */
 void hang(void);
 
-/* 判断是否是空白字符 */
-bool isspace(int c);
-
-/* 判断是否是数字 */
-bool isdigit(int c);
-
 /* 将字符串数字转换为整数数字 */
 int atoi(char* pstr);
 

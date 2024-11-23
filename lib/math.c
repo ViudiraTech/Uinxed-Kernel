@@ -13,6 +13,7 @@
 #include "types.h"
 #include "stdlib.h"
 #include "string.h"
+#include "ctypes.h"
 
 /* sin运算 */
 double sin(double x)
