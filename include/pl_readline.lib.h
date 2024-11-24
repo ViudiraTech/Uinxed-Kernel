@@ -47,7 +47,7 @@ typedef struct pl_readline {
 	void (*pl_readline_hal_putch)(int ch);									// 输出函数
 	void (*pl_readline_hal_flush)(void);									// 刷新函数
 	void (*pl_readline_get_words)(char *buf, pl_readline_words_t words);	// 获取词组列表
-	List history;															// 历史记录列表
+	list_t history;															// 历史记录列表
 } *pl_readline_t;
 
 typedef struct pl_readline_runtime {

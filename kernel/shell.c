@@ -21,7 +21,6 @@
 #include "task.h"
 #include "sched.h"
 #include "uinxed.h"
-#include "list.h"
 #include "acpi.h"
 #include "timer.h"
 #include "pl_readline.lib.h"

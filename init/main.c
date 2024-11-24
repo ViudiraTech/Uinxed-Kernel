@@ -19,7 +19,6 @@
 #include "pci.h"
 #include "serial.h"
 #include "block.h"
-#include "vfs.h"
 #include "timer.h"
 #include "beep.h"
 #include "cpu.h"
@@ -33,7 +32,7 @@
 #include "klogo.lib.h"
 #include "lib_os_terminal.lib.h"
 
-void shell(void);			// 声明shell程序入口
+void shell(void); // 声明shell程序入口
 
 /* 内核shell进程 */
 int kthread_shell(void *arg)
@@ -83,7 +82,6 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	init_keyboard();				// 初始化键盘驱动
 	init_sched();					// 初始化多任务
 	block_init();					// 初始化块设备
-	init_vfs();						// 初始化虚拟文件系统
 
 	init_timer(1);					// 初始化定时器
 	init_pit();						// 初始化PIT
