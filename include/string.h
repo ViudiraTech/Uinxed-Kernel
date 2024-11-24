@@ -68,4 +68,7 @@ void *strdup(const char *s);
 /* 比较指定长度两个字符串的大小 */
 int strncmp(const char *s1, const char *s2, size_t n);
 
+/* 字符串相等判断 */
+int streq(const char *s1, const char *s2);
+
 #endif // INCLUDE_STRING_H_

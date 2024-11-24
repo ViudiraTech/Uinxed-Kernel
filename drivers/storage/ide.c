@@ -15,8 +15,21 @@
 #include "debug.h"
 #include "ide.h"
 #include "pci.h"
+#include "vdisk.h"
 
 int no_ide_controller = 0;
+
+/* 传递给vdisk的读接口 */
+static void vdisk_ide_read(int drive, uint8_t *buffer, uint32_t number, uint32_t lba)
+{
+	ide_read_secs(lba, buffer, number);
+}
+
+/* 传递给vdisk的写接口 */
+static void vdisk_ide_write(int drive, uint8_t *buffer, uint32_t number, uint32_t lba)
+{
+	ide_write_secs(lba, buffer, number);
+}
 
 /* IDE 设备结构 */
 block_t ide_main_dev = {
@@ -132,6 +145,14 @@ int ide_init(void)
 	} do {
 		desc[i] = '\0';
 	} while (i-- > 0 && desc[i] == ' ');
+	vdisk vd;
+	vd.flag = 1;
+	vd.Read = vdisk_ide_read;
+	vd.Write = vdisk_ide_write;
+	vd.sector_size = 0x200; // 512
+	vd.size = ide_device.size * vd.sector_size;
+	sprintf(vd.DriveName,"ide");
+	register_vdisk(vd);
 	return 0;
 }
 

@@ -31,6 +31,11 @@
 #include "acpi.h"
 #include "klogo.lib.h"
 #include "lib_os_terminal.lib.h"
+#include "vdisk.h"
+#include "devfs.h"
+#include "fat.h"
+#include "list.h"
+#include "vfs.h"
 
 void shell(void); // 声明shell程序入口
 
@@ -82,6 +87,13 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	init_keyboard();				// 初始化键盘驱动
 	init_sched();					// 初始化多任务
 	block_init();					// 初始化块设备
+
+	vbe_write_newline();			// 打印一个空行，和上面的信息保持隔离
+
+	vfs_init();						// 初始化虚拟文件系统
+
+	devfs_regist();					// 注册devfs
+	fatfs_regist();					// 注册fatfs
 
 	init_timer(1);					// 初始化定时器
 	init_pit();						// 初始化PIT

@@ -23,10 +23,11 @@ void block_init(void)
 	print_busy("Init IDE Driver ...\r");
 
 	block_t *ide_dev = &ide_main_dev;
-	if (ide_dev->ops.init() == -1) {
+	int status = ide_dev->ops.init();
+	if (status == -1) {
 		print_warn("Main IDE Device Not Found!\n");
 		return;
-	} else if (ide_dev->ops.init() == -2) {
+	} else if (status == -2) {
 		print_warn("The IDE controller could not be found!\n");
 		return;
 	}

@@ -212,3 +212,9 @@ int strncmp(const char *s1, const char *s2, size_t n)
 	}
 	return 0;
 }
+
+/* 字符串相等判断 */
+int streq(const char *s1, const char *s2)
+{
+	return strcmp(s1, s2) == 0;
+}
