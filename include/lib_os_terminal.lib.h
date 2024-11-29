@@ -48,12 +48,13 @@ extern enum TerminalInitResult terminal_init(const struct TerminalDisplay *displ
 extern void terminal_destroy(void);
 extern void terminal_flush(void);
 extern void terminal_set_auto_flush(size_t auto_flush);
-extern void terminal_advance_state(const char *s);
-extern void terminal_advance_state_single(char c);
+extern void terminal_process(const char *s);
+extern void terminal_process_char(char c);
 extern void terminal_set_bell_handler(void (*handler)(void));
 extern void terminal_set_history_size(size_t size);
 extern void terminal_set_color_scheme(size_t palette_index);
 extern void terminal_set_custom_color_scheme(struct TerminalPalette palette);
 extern bool terminal_handle_keyboard(uint8_t scancode, char *buffer);
+extern void terminal_set_nature_scroll(bool mode);
 
 #endif // INCLUDE_LIB_OS_TERMINAL_LIB_H_

@@ -9,9 +9,6 @@
  *
  */
 
-/* 大量操作内存的场景需要开启O3优化来保持流畅 */
-#pragma GCC optimize(3,"Ofast","inline")
-
 #include "vbe.h"
 #include "string.h"
 #include "serial.h"

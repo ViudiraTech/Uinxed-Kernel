@@ -74,7 +74,14 @@ void shell_help(void)
            "┃ poweroff ┃ Power off your computer.              ┃\n"
            "┃ reboot   ┃ Reboot the system.                    ┃\n"
            "┃ cetsl    ┃ Enable/Disable serial console output. ┃\n"
-           "┗━━━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n");
+           "┗━━━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n");
+	printk("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n"
+           "┃ OST Shortcut key                ┃ Instructions                    ┃\n"
+           "┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╋━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┫\n"
+           "┃ Ctrl+Shift+(F1~F8)              ┃ Switch to different theme.      ┃\n"
+           "┃ Ctrl+Shift+(ArrowUp/ArrowDown)  ┃ Scroll up/down history.         ┃\n"
+           "┃ Ctrl+Shift+(PageUP/PageDown)    ┃ Scroll up/down history by page. ┃\n"
+           "┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n\n");
 	return;
 }
 

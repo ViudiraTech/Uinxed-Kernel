@@ -130,7 +130,7 @@ void putchar(char ch)
 {
 	uint32_t eflags = load_eflags();
 	if (eflags & (1 << 9)) disable_intr();
-	terminal_advance_state_single(ch);
+	terminal_process_char(ch);
 	if (eflags & (1 << 9)) enable_intr();
 }
 
@@ -150,7 +150,7 @@ void printk(const char *format, ...)
 	buff[i] = '\0';
 
 	if (eflags & (1 << 9)) disable_intr();
-	terminal_advance_state(buff);
+	terminal_process(buff);
 	if (eflags & (1 << 9)) enable_intr();
 }
 
