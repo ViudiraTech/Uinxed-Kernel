@@ -151,7 +151,7 @@ int ide_init(void)
 	vd.Write = vdisk_ide_write;
 	vd.sector_size = 0x200; // 512
 	vd.size = ide_device.size * vd.sector_size;
-	sprintf(vd.DriveName,"ide");
+	sprintf(vd.DriveName,"sda");
 	register_vdisk(vd);
 	return 0;
 }
