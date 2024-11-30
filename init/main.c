@@ -36,6 +36,7 @@
 #include "fat.h"
 #include "list.h"
 #include "vfs.h"
+#include "file.h"
 
 void shell(void); // 声明shell程序入口
 
@@ -91,9 +92,9 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	vbe_write_newline();			// 打印一个空行，和上面的信息保持隔离
 
 	vfs_init();						// 初始化虚拟文件系统
-
 	devfs_regist();					// 注册devfs
 	fatfs_regist();					// 注册fatfs
+	file_init();					// 文件操作抽象层初始化
 
 	init_timer(1);					// 初始化定时器
 	init_pit();						// 初始化PIT
