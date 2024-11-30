@@ -24,49 +24,49 @@ QEMU			= qemu-system-x86_64
 
 C_FLAGS			= -Wall -Werror -Wcast-align -Winline -Wwrite-strings \
                   -c -I include -m32 -O3 -g -DNDEBUG -nostdinc -fno-pic \
-                  -fno-builtin -fno-stack-protector
+                  -fno-builtin -fno-stack-protector -std=gnu23
 
 LD_FLAGS		= -T scripts/kernel.ld -m elf_i386 --strip-all
 ASM_FLAGS		= -f elf -g -F stabs
 
-all: info link limine_iso
-grub: info link grub_iso
+all: info UxImage limine_iso
+grub: info UxImage grub_iso
 
 info:
-	@echo Uinxed-Kernel Compile Script.
-	@echo Copyright 2020 ViudiraTech. All Rights Reserved.
-	@echo Based on the GPL-3.0 open source license.
+	@printf "Uinxed-Kernel Compile Script.\n"
+	@printf "Copyright 2020 ViudiraTech. All Rights Reserved.\n"
+	@printf "Based on the GPL-3.0 open source license.\n"
 	@echo
 
 .c.o:
-	@echo "\033[32m[Build]\033[0m" Compiling Code Files $< ...
+	@printf "\033[1;32m[Build]\033[0m Compiling Code Files $< ...\n"
 	@$(CC) $(C_FLAGS) $< -o $@
 
 .s.o:
-	@echo "\033[32m[Build]\033[0m" Compiling Assembly $< ...
+	@printf "\033[1;32m[Build]\033[0m Compiling Assembly $< ...\n"
 	@$(ASM) $(ASM_FLAGS) $<
 
-link:$(S_OBJECTS) $(C_OBJECTS)
+UxImage: $(S_OBJECTS) $(C_OBJECTS)
 	@echo
-	@echo "\033[32m[Link]\033[0m" Linking kernel...
+	@printf "\033[1;32m[Link]\033[0m Linking kernel...\n"
 	@$(LD) $(LD_FLAGS) $(S_OBJECTS) $(C_OBJECTS) $(OTHER_OBJECTS) -o UxImage
 
 .PHONY:limine
-limine_iso:UxImage
+limine_iso: UxImage
 	@echo
-	@echo "\033[32m[ISO]\033[0m" Packing ISO file...
+	@printf "\033[1;32m[ISO]\033[0m Packing ISO file...\n"
 	@mkdir iso
 	@cp -r boot/limine iso
 	@cp $< iso
 
 	@xorriso -as mkisofs -b limine/limine-bios-cd.bin -no-emul-boot -boot-info-table iso -o Uinxed.iso
 	@rm -rf iso
-	@echo "\033[32m[Done]\033[0m" Compilation complete.
+	@printf "\033[1;32m[Done]\033[0m Compilation complete.\n"
 
 .PHONY:grub
-grub_iso:UxImage
+grub_iso: UxImage
 	@echo
-	@echo "\033[32m[ISO]\033[0m" Packing ISO file...
+	@printf "\033[1;32m[ISO]\033[0m Packing ISO file...\n"
 	@mkdir -p iso/boot/grub
 	@cp $< iso/boot/
 
@@ -80,7 +80,7 @@ grub_iso:UxImage
 
 	@grub-mkrescue --locales="" --output=Uinxed.iso iso
 	@rm -rf iso
-	@echo "\033[32m[Done]\033[0m" Compilation complete.
+	@printf "\033[1;32m[Done]\033[0m Compilation complete.\n"
 
 .PHONY:clean
 clean:
