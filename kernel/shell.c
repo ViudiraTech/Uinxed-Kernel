@@ -23,6 +23,7 @@
 #include "uinxed.h"
 #include "acpi.h"
 #include "timer.h"
+#include "file.h"
 #include "pl_readline.lib.h"
 #include "lib_os_terminal.lib.h"
 
@@ -324,7 +325,7 @@ void shell(void)
 	printk("Basic shell program v1.0\n");
 	printk("Type 'help' for help.\n\n");
 
-	const char *prompt = "┌─ \033[1;32m[Uinxed]\033[37m-\033[34m[Shell]\033[37m-\033[33m[Ring-0]\033[37m\n└─ #\033[0m ";
+	char prompt[128];
 	uint8_t cmd[MAX_COMMAND_LEN];
 	uint8_t *argv[MAX_ARG_NR];
 	int argc = -1;
@@ -334,6 +335,7 @@ void shell(void)
 
 	while (true) {
 		memset(cmd, 0, MAX_COMMAND_LEN);					// 清空上轮输入
+		sprintf(prompt, "┌─ \033[1;32m[Uinxed]\033[37m-\033[34m[Shell]\033[37m-\033[33m[%s]\033[37m\n└─ #\033[0m ", vfs_node_to_path(working_dir));
 		pl_readline(pl, prompt, (char *)cmd, MAX_COMMAND_LEN);
 
 		/* com就是完整的命令 */
