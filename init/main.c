@@ -95,6 +95,12 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	devfs_regist();					// 注册devfs
 	fatfs_regist();					// 注册fatfs
 	file_init();					// 文件操作抽象层初始化
+	if (vfs_do_search(vfs_open("/dev"), "sda")) {
+		vfs_mount("/dev/sda", vfs_open("/"));
+		print_succ("Root filesystem mounted ('/dev/sda' -> '/')\n");
+	} else {
+		print_warn("The root file system could not be mounted.\n");
+	}
 
 	init_timer(1);					// 初始化定时器
 	init_pit();						// 初始化PIT
