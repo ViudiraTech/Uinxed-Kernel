@@ -47,6 +47,15 @@ uint32_t get_cr0(void);
 /* 将值写入CR0寄存器 */
 void set_cr0(uint32_t cr0);
 
+/* 检查当前CPU是否支持MSR */
+bool cpu_has_msr(void);
+
+/* 读取指定的MSR值 */
+void cpu_get_msr(uint32_t msr, uint32_t *lo, uint32_t *hi);
+
+/* 设置指定的MSR值 */
+void cpu_set_msr(uint32_t msr, uint32_t lo, uint32_t hi);
+
 void enable_intr(void);						// 开启中断
 void disable_intr(void);					// 关闭中断
 

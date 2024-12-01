@@ -10,6 +10,7 @@
  */
 
 #include "common.h"
+#include "cpu.h"
 
 /* 端口写（8位） */
 inline void outb(uint16_t port, uint8_t value)
@@ -126,6 +127,26 @@ uint32_t get_cr0(void)
 void set_cr0(uint32_t cr0)
 {
 	asm volatile("mov %0, %%cr0" : : "r"(cr0));
+}
+
+/* 检查当前CPU是否支持MSR */
+bool cpu_has_msr(void)
+{
+	static uint32_t a, b, c, d; // eax, ebx, ecx, edx
+	cpuid(1, &a, &b, &c, &d);
+	return d & (1 << 5);
+}
+
+/* 读取指定的MSR值 */
+void cpu_get_msr(uint32_t msr, uint32_t *lo, uint32_t *hi)
+{
+	asm volatile("rdmsr" : "=a"(*lo), "=d"(*hi) : "c"(msr));
+}
+
+/* 设置指定的MSR值 */
+void cpu_set_msr(uint32_t msr, uint32_t lo, uint32_t hi)
+{
+	asm volatile("wrmsr" : : "a"(lo), "d"(hi), "c"(msr));
 }
 
 /* 开启中断 */
