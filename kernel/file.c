@@ -52,3 +52,58 @@ char *vfs_node_to_path(vfs_node_t node)
 		return path;
 	}
 }
+
+/* 切换工作目录 */
+int file_cd(const char *path)
+{
+	char *s = (char *)path;
+	char *wd = vfs_node_to_path(working_dir);
+	if (s[strlen(s) - 1] == '/' && strlen(s) > 1) { s[strlen(s) - 1] = '\0'; }
+	if (streq(s, ".")) return 0;
+	if (streq(s, "..")) {
+		if (streq(wd, "/")) return -1;
+		char *n = wd + strlen(wd);
+		while (*--n != '/' && n != wd) {}
+		*n = '\0';
+		if (strlen(wd) == 0) strcpy(wd, "/");
+		working_dir = vfs_open(wd);
+		return 0;
+	}
+	char *old = strdup(wd);
+	if (s[0] == '/') {
+		strcpy(wd, s);
+		working_dir = vfs_open(wd);
+	} else {
+		if (streq(wd, "/")) {
+			sprintf(wd, "%s%s", wd, s);
+			working_dir = vfs_open(wd);
+		} else {
+			sprintf(wd, "%s/%s", wd, s);
+			working_dir = vfs_open(wd);
+		}
+	}
+	if (vfs_open(wd) == NULL) {
+		sprintf(wd, "%s", old);
+		working_dir = vfs_open(wd);
+		kfree(old);
+		return -1;
+	}
+	kfree(old);
+	return 0;
+}
+
+/* 列出制定目录下的文件 */
+int file_ls(const char *path)
+{
+	vfs_node_t p = vfs_open(path);
+	if (p) {
+		list_foreach(p->child, i) {
+			vfs_node_t c = (vfs_node_t)i->data;
+			printk("%s ", c->name);
+		}
+		printk("\n");
+		return 0;
+	} else {
+		return -1;
+	}
+}

@@ -74,6 +74,8 @@ void shell_help(void)
            "┃ echo     ┃ String output.                        ┃\n"
            "┃ poweroff ┃ Power off your computer.              ┃\n"
            "┃ reboot   ┃ Reboot the system.                    ┃\n"
+           "┃ cd       ┃ Change the working directory.         ┃\n"
+           "┃ ls       ┃ Lists the current directory files.    ┃\n"
            "┃ cetsl    ┃ Enable/Disable serial console output. ┃\n"
            "┗━━━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n");
 	printk("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n"
@@ -204,6 +206,26 @@ void shell_reboot(void)
 	power_reset();
 }
 
+void shell_cd(int argc, char *argv[])
+{
+	if (argc > 1) {
+		if (file_cd(argv[1]) == -1) printk("Not such file or directory\n");
+	}
+	printk("\n");
+	return;
+}
+
+void shell_ls(int argc, char *argv[])
+{
+	if (argc > 1) {
+		if (file_ls(argv[1]) == -1) printk("Not such file or directory\n");
+	} else {
+		file_ls(vfs_node_to_path(working_dir));
+	}
+	printk("\n");
+	return;
+}
+
 void shell_cetsl(int argc, char *argv[])
 {
 	if (strcmp(argv[1], "1") == 0 || strcmp(argv[1], "true") == 0) {
@@ -238,6 +260,8 @@ builtin_cmd_t builtin_cmds[] = {
 	{"echo", (void (*)(int, char **))shell_echo},
 	{"poweroff", (void (*)(int, char **))shell_poweroff},
 	{"reboot", (void (*)(int, char **))shell_reboot},
+	{"cd", (void (*)(int, char **))shell_cd},
+	{"ls", (void (*)(int, char **))shell_ls},
 	{"cetsl", shell_cetsl}
 };
 
