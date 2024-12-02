@@ -60,6 +60,8 @@ sudo apk add gcc make nasm grub-pc xorriso qemu-system
 5. **copi143**
 6. **Hiernymus**
 7. **wrhmade**
+8. **Vinbe Wan**
+9. **xiaoyi1212**
 
 # 项目所使用的开源代码或项目
 
