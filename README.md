@@ -64,7 +64,7 @@ sudo apk add gcc make nasm grub-pc xorriso qemu-system
 # 项目所使用的开源代码或项目
 
 - Hurlex-Kernel: [http://wiki.0xffffff.org/](http://wiki.0xffffff.org/)
-- CoolPotOS: [https://github.com/xiaoyi1212/CoolPotOS](https://github.com/xiaoyi1212/CoolPotOS)
+- CoolPotOS: [https://github.com/xiaoyi1212/CoolPotOS](https://github.com/plos-clan/CoolPotOS)
 - libos-terminal: [https://github.com/plos-clan/libos-terminal](https://github.com/plos-clan/libos-terminal)
 - pl_readline: [https://github.com/plos-clan/pl_readline](https://github.com/plos-clan/pl_readline)
 
