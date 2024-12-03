@@ -114,23 +114,20 @@ void init_ide(void)
 	register_vdisk(vd);
 
 	print_succ("Found IDE Driver: ");
-	printk("%u(sectors) Desc: %s\n", ide_get_nr_block(), ide_get_desc());
+	printk("%s %d(MiB) %u(sectors)\n", ide_get_desc(), (ide_get_size() * 512 / (1024 * 1024)), ide_get_size());
 }
 
 /* 获取IDE设备描述 */
 char *ide_get_desc(void)
 {
-	return ide_device.desc;
+	if (ide_device_valid()) {
+		return ide_device.desc;
+	}
+	return NULL;
 }
 
 /* 获取IDE设备扇区大小 */
 int ide_get_size(void)
-{
-	return ide_device.size;
-}
-
-/* 获得设备默认块数量 */
-int ide_get_nr_block(void)
 {
 	if (ide_device_valid()) {
 		return ide_device.size;
