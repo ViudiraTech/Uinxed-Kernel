@@ -9,7 +9,6 @@
  *
  */
 
-#include "types.h"
 #include "common.h"
 #include "printk.h"
 #include "debug.h"
@@ -31,22 +30,8 @@ static void vdisk_ide_write(int drive, uint8_t *buffer, uint32_t number, uint32_
 	ide_write_secs(lba, buffer, number);
 }
 
-/* IDE 设备结构 */
-block_t ide_main_dev = {
-	.name = "IDE_MAIN",
-	.block_size = SECTSIZE,
-	.ops = {
-		.init = &ide_init,
-		.device_valid = &ide_device_valid,
-		.get_desc = &ide_get_desc,
-		.get_nr_block = &ide_get_nr_block,
-		.request = &ide_request,
-		.ioctl = ide_ioctl
-	}
-};
-
 /* 等待IDE设备可用 */
-int32_t ide_wait_ready(uint16_t iobase, bool check_error)
+static int32_t ide_wait_ready(uint16_t iobase, bool check_error)
 {
 	int r = 0;
 	while ((r = inb(iobase + ISA_STATUS)) & IDE_BSY) {}
@@ -56,45 +41,16 @@ int32_t ide_wait_ready(uint16_t iobase, bool check_error)
 	return 0;
 }
 
-/* 获取IDE设备描述 */
-const char *ide_get_desc(void)
-{
-	return (const char *)(ide_device.desc);
-}
-
-/* 获取IDE设备扇区大小 */
-int ide_get_size(void)
-{
-	return ide_device.size;
-}
-
-/* 检查是否存在IDE控制器 */
-int check_ide_controller(void)
-{
-	if (no_ide_controller) {
-		return 0;
-	} else {
-		return 1;
-	}
-}
-
-/* 检查是否存在IDE设备 */
-int check_ide_device(void)
-{
-	if (!ide_device.valid) {
-		return 0;
-	} else {
-		return 1;
-	}
-}
-
 /* 初始化IDE设备 */
-int ide_init(void)
+void init_ide(void)
 {
+	print_busy("Init IDE Driver ...\r");
+
 	/* 检测计算机是否拥有IDE控制器 */
 	if (!pci_find_name("IDE Controller")) {
 		no_ide_controller = 1;
-		return -2;
+		print_warn("The IDE controller could not be found!\n");
+		return;
 	}
 	ide_wait_ready(IOBASE, 0);
 
@@ -113,7 +69,8 @@ int ide_init(void)
 
 	/* 3: 检查设备是否存在 */
 	if (inb(IOBASE + ISA_STATUS) == 0 || ide_wait_ready(IOBASE, 1) != 0) {
-		return -1;
+		print_warn("Main IDE Device Not Found!\n");
+		return;
 	}
 	ide_device.valid = 1;
 
@@ -145,6 +102,8 @@ int ide_init(void)
 	} do {
 		desc[i] = '\0';
 	} while (i-- > 0 && desc[i] == ' ');
+
+	/* 注册到vdisk */
 	vdisk vd;
 	vd.flag = 1;
 	vd.Read = vdisk_ide_read;
@@ -153,13 +112,21 @@ int ide_init(void)
 	vd.size = ide_device.size * vd.sector_size;
 	sprintf(vd.DriveName,"sda");
 	register_vdisk(vd);
-	return 0;
+
+	print_succ("Found IDE Driver: ");
+	printk("%u(sectors) Desc: %s\n", ide_get_nr_block(), ide_get_desc());
 }
 
-/* 检测指定IDE设备是否可用 */
-bool ide_device_valid(void)
+/* 获取IDE设备描述 */
+char *ide_get_desc(void)
 {
-	return ide_device.valid == 1;
+	return ide_device.desc;
+}
+
+/* 获取IDE设备扇区大小 */
+int ide_get_size(void)
+{
+	return ide_device.size;
 }
 
 /* 获得设备默认块数量 */
@@ -171,21 +138,20 @@ int ide_get_nr_block(void)
 	return 0;
 }
 
-/* 设备操作请求 */
-int ide_request(io_request_t *req)
+/* 检测是否存在IDE控制器 */
+int check_ide_controller(void)
 {
-	if (req->io_type == IO_READ) {
-		if (req->bsize < SECTSIZE * req->nsecs) {
-			return -1;
-		}
-		return ide_read_secs(req->secno, req->buffer ,req->nsecs);
-	} else if (req->io_type == IO_WRITE) {
-		if (req->bsize < SECTSIZE * req->nsecs) {
-			return -1;
-		}
-		return ide_write_secs(req->secno, req->buffer ,req->nsecs);
+	if (no_ide_controller) {
+		return 0;
+	} else {
+		return 1;
 	}
-	return -1;
+}
+
+/* 检测IDE设备是否可用 */
+int ide_device_valid(void)
+{
+	return ide_device.valid == 1;
 }
 
 /* 读取指定IDE设备若干扇区 */
@@ -258,13 +224,4 @@ int ide_write_secs(uint32_t secno, const void *src, uint32_t nsecs)
 		outsl(IOBASE, src, SECTSIZE / sizeof(uint32_t));
 	}
 	return ret;
-}
-
-/* IDE设备选项设置 */
-int ide_ioctl(int op, int flag)
-{
-	if (op != 0 && flag != 0) {
-		return -1;
-	}
-	return 0;
 }

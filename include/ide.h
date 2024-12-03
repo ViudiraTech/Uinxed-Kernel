@@ -12,7 +12,7 @@
 #ifndef INCLUDE_IDE_H_
 #define INCLUDE_IDE_H_
 
-#include "block.h"
+#include "types.h"
 
 #define SECTSIZE 512 // 默认扇区大小
 
@@ -63,37 +63,28 @@
 #define IDE_DESC_LEN			40			// IDE设备描述信息尺寸
 
 /* 初始化IDE设备 */
-int ide_init(void);
-
-/* 检测IDE设备是否可用 */
-bool ide_device_valid(void);
+void init_ide(void);
 
 /* 获取IDE设备描述 */
-const char *ide_get_desc(void);
+char *ide_get_desc(void);
 
 /* 获取IDE设备扇区大小 */
 int ide_get_size(void);
 
-/* 检查是否存在IDE控制器 */
-int check_ide_controller(void);
-
-/* 检查是否存在IDE设备 */
-int check_ide_device(void);
-
 /* 获得设备默认块数量 */
 int ide_get_nr_block(void);
 
-/* 设备操作请求 */
-int ide_request(io_request_t *req);
+/* 检测是否存在IDE控制器 */
+int check_ide_controller(void);
+
+/* 检测IDE设备是否可用 */
+int ide_device_valid(void);
 
 /* 读取IDE设备若干扇区 */
 int ide_read_secs(uint32_t secno, void *dst, uint32_t nsecs);
 
 /* 写入IDE设备若干扇区 */
 int ide_write_secs(uint32_t secno, const void *src, uint32_t nsecs);
-
-/* IDE设备选项设置 */
-int ide_ioctl(int op, int flag);
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-variable"

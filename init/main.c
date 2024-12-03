@@ -18,7 +18,7 @@
 #include "uinxed.h"
 #include "pci.h"
 #include "serial.h"
-#include "block.h"
+#include "ide.h"
 #include "timer.h"
 #include "beep.h"
 #include "cpu.h"
@@ -77,8 +77,8 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 
 	printk("Initializing operating system kernel components.\n");		// 提示用户正在初始化内核
 
-	init_gdt();						// 初始化gdt
-	init_idt();						// 初始化idt
+	init_gdt();						// 初始化GDT
+	init_idt();						// 初始化IDT
 	ISR_registe_Handle();			// 注册ISR处理
 	acpi_init();					// 初始化ACPI
 	init_page(glb_mboot_ptr);		// 初始化内存分页
@@ -87,7 +87,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	init_serial();					// 初始化计算机串口
 	init_keyboard();				// 初始化键盘驱动
 	init_sched();					// 初始化多任务
-	block_init();					// 初始化块设备
+	init_ide();						// 初始化IDE
 
 	vbe_write_newline();			// 打印一个空行，和上面的信息保持隔离
 
