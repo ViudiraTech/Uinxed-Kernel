@@ -3,7 +3,7 @@
  *		i2c.h
  *		I2C总线通信协议头文件
  *
- *		2024/12/1 By MicroFish
+ *		2024/12/1 By Vinbe Wan
  *		基于 GPL-3.0 开源协议
  *		Copyright © 2020 ViudiraTech，保留最终解释权。
  *
