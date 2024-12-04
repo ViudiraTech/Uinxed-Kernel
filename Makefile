@@ -14,7 +14,7 @@ C_OBJECTS		= $(patsubst %.c, %.o, $(C_SOURCES))
 S_SOURCES		= $(shell find . -name "*.s")
 S_OBJECTS		= $(patsubst %.s, %.o, $(S_SOURCES))
 
-OTHER_OBJECTS	= ./lib/klogo.lib ./lib/libos_terminal.lib ./lib/pl_readline.lib
+OTHER_OBJECTS	= ./lib/klogo.lib ./lib/libos_terminal.lib ./lib/pl_readline.lib ./lib/libelf_parse.lib
 
 CC				= gcc
 LD				= ld
