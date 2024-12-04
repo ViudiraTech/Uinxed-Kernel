@@ -17,13 +17,13 @@
 #include "common.h"
 
 /* 可调度进程链表 */
-struct task_struct *running_proc_head = NULL;
+struct task_struct *running_proc_head = 0;
 
 /* 等待进程链表 */
-struct task_struct *wait_proc_head = NULL;
+struct task_struct *wait_proc_head = 0;
 
 /* 当前运行的任务 */
-struct task_struct *current = NULL;
+struct task_struct *current = 0;
 
 extern page_directory_t *kernel_directory;
 extern uint32_t kern_stack_top;

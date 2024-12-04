@@ -24,7 +24,7 @@
 #define DMA_MODE_BLOCK		0x80 // 块 DMA 传输；
 #define DMA_MODE_CASCADE	0xC0 // 级联模式(用于级联另一个 DMA 控制器)；
 
-void isa_dma_mask(u8 channel, bool mask);
+void isa_dma_mask(u8 channel, int mask);
 void isa_dma_addr(u8 channel, void *addr);
 void isa_dma_size(u8 channel, u32 size);
 void isa_dma_reset(u8 channel);

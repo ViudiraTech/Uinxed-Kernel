@@ -36,7 +36,7 @@ static int cmd_parse(uint8_t *cmd_str, uint8_t **argv, uint8_t token) // 用uint
 	int arg_idx = 0;
 
 	while (arg_idx < MAX_ARG_NR) {
-		argv[arg_idx] = NULL;
+		argv[arg_idx] = 0;
 		arg_idx++;
 	}
 	uint8_t *next = cmd_str;					// 下一个字符
@@ -334,7 +334,7 @@ static void plreadln_putch(int ch)
 static void handle_tab(char *buf, pl_readline_words_t words)
 {
 	for (int i = 0; i < builtin_cmd_num; ++i) {
-		pl_readline_word_maker_add(builtin_cmds[i].name, words, true, ' ');
+		pl_readline_word_maker_add(builtin_cmds[i].name, words, 1, ' ');
 	}
 }
 
@@ -357,7 +357,7 @@ void shell(void)
 	pl_readline_t pl;
 	pl = pl_readline_init(plreadln_getch, plreadln_putch, plreadln_flush, handle_tab);
 
-	while (true) {
+	while (1) {
 		memset(cmd, 0, MAX_COMMAND_LEN);					// 清空上轮输入
 		sprintf(prompt, "┌─ \033[1;32m[Uinxed]\033[37m-\033[34m[Shell]\033[37m-\033[33m[%s]\033[37m\n└─ #\033[0m ", vfs_node_to_path(working_dir));
 		pl_readline(pl, prompt, (char *)cmd, MAX_COMMAND_LEN);

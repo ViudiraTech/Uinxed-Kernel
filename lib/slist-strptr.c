@@ -20,10 +20,10 @@
 slist_sp_t slist_sp_alloc(const char *key, void *val)
 {
 	slist_sp_t node = kmalloc(sizeof(*node));
-	if (node == NULL) return NULL;
-	node->key  = key ? strdup(key) : NULL;
+	if (node == 0) return 0;
+	node->key  = key ? strdup(key) : 0;
 	node->val  = val;
-	node->next = NULL;
+	node->next = 0;
 	return node;
 }
 
@@ -31,7 +31,7 @@ slist_sp_t slist_sp_alloc(const char *key, void *val)
 
 void slist_sp_free(slist_sp_t list)
 {
-	while (list != NULL) {
+	while (list != 0) {
 		slist_sp_t next = list->next;
 		kfree(list->key);
 		kfree(list);
@@ -41,7 +41,7 @@ void slist_sp_free(slist_sp_t list)
 
 void slist_sp_free_with(slist_sp_t list, void (*free_value)(void *))
 {
-	while (list != NULL) {
+	while (list != 0) {
 		slist_sp_t next = list->next;
 		kfree(list->key);
 		free_value(list->val);
@@ -53,12 +53,12 @@ void slist_sp_free_with(slist_sp_t list, void (*free_value)(void *))
 slist_sp_t slist_sp_append(slist_sp_t list, const char *key, void *val)
 {
 	slist_sp_t node = slist_sp_alloc(key, val);
-	if (node == NULL) return list;
-	if (list == NULL) {
+	if (node == 0) return list;
+	if (list == 0) {
 		list = node;
 	} else {
 		slist_sp_t current = list;
-		while (current->next != NULL) {
+		while (current->next != 0) {
 			current = current->next;
 		}
 		current->next = node;
@@ -69,7 +69,7 @@ slist_sp_t slist_sp_append(slist_sp_t list, const char *key, void *val)
 slist_sp_t slist_sp_prepend(slist_sp_t list, const char *key, void *val)
 {
 	slist_sp_t node = slist_sp_alloc(key, val);
-	if (node == NULL) return list;
+	if (node == 0) return list;
 	node->next = list;
 	list       = node;
 	return list;
@@ -80,7 +80,7 @@ void *slist_sp_get(slist_sp_t list, const char *key)
 	for (slist_sp_t current = list; current; current = current->next) {
 		if (streq(current->key, key)) return current->val;
 	}
-	return NULL;
+	return 0;
 }
 
 slist_sp_t slist_sp_get_node(slist_sp_t list, const char *key)
@@ -88,18 +88,18 @@ slist_sp_t slist_sp_get_node(slist_sp_t list, const char *key)
 	for (slist_sp_t current = list; current; current = current->next) {
 		if (streq(current->key, key)) return current;
 	}
-	return NULL;
+	return 0;
 }
 
-bool slist_sp_search(slist_sp_t list, void *val, const char **key)
+int slist_sp_search(slist_sp_t list, void *val, const char **key)
 {
 	for (slist_sp_t current = list; current; current = current->next) {
 		if (current->val == val) {
 			if (key) *key = current->key;
-			return true;
+			return 1;
 		}
 	}
-	return false;
+	return 0;
 }
 
 slist_sp_t slist_sp_search_node(slist_sp_t list, void *val)
@@ -107,12 +107,12 @@ slist_sp_t slist_sp_search_node(slist_sp_t list, void *val)
 	for (slist_sp_t current = list; current; current = current->next) {
 		if (current->val == val) return current;
 	}
-	return NULL;
+	return 0;
 }
 
 slist_sp_t slist_sp_delete(slist_sp_t list, const char *key)
 {
-	if (list == NULL) return NULL;
+	if (list == NULL) return 0;
 	if (streq(list->key, key)) {
 		slist_sp_t temp = list;
 		list            = list->next;
@@ -121,7 +121,7 @@ slist_sp_t slist_sp_delete(slist_sp_t list, const char *key)
 		return list;
 	}
 	slist_sp_t prev = list;
-	for (slist_sp_t current = list->next; current != NULL; current = current->next) {
+	for (slist_sp_t current = list->next; current != 0; current = current->next) {
 		if (streq(current->key, key)) {
 			prev->next = current->next;
 			kfree(current->key);
@@ -135,7 +135,7 @@ slist_sp_t slist_sp_delete(slist_sp_t list, const char *key)
 
 slist_sp_t slist_sp_delete_with(slist_sp_t list, const char *key, void (*free_value)(void *))
 {
-	if (list == NULL) return NULL;
+	if (list == 0) return 0;
 	if (streq(list->key, key)) {
 		slist_sp_t temp = list;
 		list            = list->next;
@@ -145,7 +145,7 @@ slist_sp_t slist_sp_delete_with(slist_sp_t list, const char *key, void (*free_va
 		return list;
 	}
 	slist_sp_t prev = list;
-	for (slist_sp_t current = list->next; current != NULL; current = current->next) {
+	for (slist_sp_t current = list->next; current != 0; current = current->next) {
 		if (streq(current->key, key)) {
 			prev->next = current->next;
 			kfree(current->key);
@@ -160,7 +160,7 @@ slist_sp_t slist_sp_delete_with(slist_sp_t list, const char *key, void (*free_va
 
 slist_sp_t slist_sp_delete_node(slist_sp_t list, slist_sp_t node)
 {
-	if (list == NULL || node == NULL) return list;
+	if (list == 0 || node == 0) return list;
 	if (list == node) {
 		slist_sp_t temp = list;
 		list            = list->next;
@@ -169,7 +169,7 @@ slist_sp_t slist_sp_delete_node(slist_sp_t list, slist_sp_t node)
 		return list;
 	}
 	slist_sp_t prev = list;
-	for (slist_sp_t current = list->next; current != NULL; current = current->next) {
+	for (slist_sp_t current = list->next; current != 0; current = current->next) {
 		if (current == node) {
 			prev->next = current->next;
 			kfree(current->key);
@@ -183,7 +183,7 @@ slist_sp_t slist_sp_delete_node(slist_sp_t list, slist_sp_t node)
 
 slist_sp_t slist_sp_delete_node_with(slist_sp_t list, slist_sp_t node, void (*free_value)(void *))
 {
-	if (list == NULL || node == NULL) return list;
+	if (list == 0 || node == 0) return list;
 	if (list == node) {
 		slist_sp_t temp = list;
 		list            = list->next;
@@ -193,7 +193,7 @@ slist_sp_t slist_sp_delete_node_with(slist_sp_t list, slist_sp_t node, void (*fr
 		return list;
 	}
 	slist_sp_t prev = list;
-	for (slist_sp_t current = list->next; current != NULL; current = current->next) {
+	for (slist_sp_t current = list->next; current != 0; current = current->next) {
 		if (current == node) {
 			prev->next = current->next;
 			kfree(current->key);
@@ -210,7 +210,7 @@ size_t slist_sp_length(slist_sp_t slist_sp)
 {
 	size_t count   = 0;
 	slist_sp_t current = slist_sp;
-	while (current != NULL) {
+	while (current != 0) {
 		count++;
 		current = current->next;
 	}
@@ -220,7 +220,7 @@ size_t slist_sp_length(slist_sp_t slist_sp)
 void slist_sp_print(slist_sp_t slist_sp)
 {
 	slist_sp_t current = slist_sp;
-	while (current != NULL) {
+	while (current != 0) {
 		printk("%p -> ", current->val);
 		current = current->next;
 	}

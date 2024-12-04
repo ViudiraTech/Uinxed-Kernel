@@ -48,7 +48,7 @@ uint32_t get_cr0(void);
 void set_cr0(uint32_t cr0);
 
 /* 检查当前CPU是否支持MSR */
-bool cpu_has_msr(void);
+int cpu_has_msr(void);
 
 /* 读取指定的MSR值 */
 void cpu_get_msr(uint32_t msr, uint32_t *lo, uint32_t *hi);

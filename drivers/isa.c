@@ -140,7 +140,7 @@ static uint8_t DMA_PAGE[] = {
 #define ISA_DMA0_CHAN2_PAGE	0x81
 
 /* 设置 DMA 掩码 */
-void isa_dma_mask(uint8_t channel, bool mask)
+void isa_dma_mask(uint8_t channel, int mask)
 {
 	uint16_t port = DMA_MASK1[channel];
 	uint8_t data = channel % 4;

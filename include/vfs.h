@@ -67,8 +67,8 @@ struct vfs_node { 			//vfs节点
 struct fd {
 	void *file;
 	size_t offset;
-	bool readable;
-	bool writeable;
+	int readable;
+	int writeable;
 };
 
 extern struct vfs_callback vfs_empty_callback;
@@ -89,6 +89,6 @@ int vfs_write(vfs_node_t file, void *addr, size_t offset, size_t size);	// 写�
 int vfs_mount(const char* src, vfs_node_t node);						// 挂载指定设备至指定节点
 int vfs_unmount(const char* path);										// 卸载指定设备的挂载点
 vfs_node_t get_rootdir(void);												// 获取根节点
-bool vfs_init(void);
+int vfs_init(void);
 
 #endif // INCLUDE_VFS_H_

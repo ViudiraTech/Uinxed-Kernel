@@ -12,7 +12,7 @@
 #include "bmp.h"
 #include "vbe.h"
 
-void bmp_analysis(Bmp *bmp, uint32_t x, uint32_t y, bool isTransparent)
+void bmp_analysis(Bmp *bmp, uint32_t x, uint32_t y, int isTransparent)
 {
 	if (bmp->magic != 0x4d42 || bmp->bitsPerPixel != 24)
 		return;

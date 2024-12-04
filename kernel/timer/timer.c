@@ -99,7 +99,7 @@ struct TIMER *timer_alloc(void)
 	for (i = 0; i < MAX_TIMER; i++) {
 		if (timerctl.timers0[i].flags == 0) {
 			timerctl.timers0[i].flags = TIMER_FLAGS_ALLOC;
-			timerctl.timers0[i].waiter = NULL;
+			timerctl.timers0[i].waiter = 0;
 			return &timerctl.timers0[i];
 		}
 	}
@@ -110,7 +110,7 @@ struct TIMER *timer_alloc(void)
 void timer_free(struct TIMER *timer)
 {
 	timer->flags = 0; // 未使用
-	timer->waiter = NULL;
+	timer->waiter = 0;
 	return;
 }
 

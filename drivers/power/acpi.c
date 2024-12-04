@@ -33,7 +33,7 @@ acpi_facp_t *facp; // fixed ACPI table
 int acpi_enable_flag;
 uint8_t *rsdp_address;
 
-HpetInfo *hpetInfo = NULL;
+HpetInfo *hpetInfo = 0;
 uint32_t hpetPeriod = 0;
 
 /* 初始化高级配置与电源接口（ACPI） */
@@ -56,7 +56,7 @@ int acpi_sys_init(void)
 	rsdt = (acpi_rsdt_t *) AcpiGetRSDPtr();
 	if (!rsdt || acpi_check_header(rsdt, (uint8_t*)"RSDT") < 0) {
 		print_warn("Unable to find Advanced Configuration and Power Interface.\n");
-		return false;
+		return 0;
 	}
 	entrys = rsdt->length - HEADER_SIZE / 4;
 	p = &(rsdt->entry);
@@ -115,7 +115,7 @@ int acpi_sys_init(void)
 			} else {
 				print_warn("Advanced Configuration and Power Interface: No DSDT Table found!\n");
 			}
-			return true;
+			return 1;
 		}
 		++p;
 	}
@@ -286,7 +286,7 @@ uint8_t *AcpiGetRSDPtr(void)
 			return (uint8_t *)rsdt;
 		}
 	}
-	return NULL;
+	return 0;
 }
 
 /* 检查ACPI表头 */
@@ -340,7 +340,7 @@ uint8_t *AcpiCheckRSDPtr(void *ptr)
 			return (uint8_t * ) rsdp->rsdt;
 		}
 	}
-	return NULL;
+	return 0;
 }
 
 /* 获取多处理器系统的中断控制器表基地址 */
@@ -348,7 +348,7 @@ uint32_t AcpiGetMadtBase(void)
 {
 	uint32_t entrys = rsdt->length - HEADER_SIZE / 4;
 	uint32_t **p = &(rsdt->entry);
-	acpi_madt_t *madt = NULL;
+	acpi_madt_t *madt = 0;
 	while (--entrys) {
 		if (!acpi_check_header(*p, (uint8_t*)"APIC")) {
 			madt = (acpi_madt_t *) *p;
@@ -362,7 +362,7 @@ uint32_t AcpiGetMadtBase(void)
 /* 获取纳秒级时间 */
 uint32_t nano_time(void)
 {
-	if(hpetInfo == NULL) return 0;
+	if(hpetInfo == 0) return 0;
 	uint32_t mcv =  hpetInfo->mainCounterValue;
 	return mcv * hpetPeriod;
 }

@@ -15,7 +15,7 @@
 #include "types.h"
 #include "printk.h"
 
-vfs_node_t working_dir = NULL; // 当前工作目录
+vfs_node_t working_dir = 0; // 当前工作目录
 
 /* 文件操作抽象层初始化 */
 void file_init(void)
@@ -27,21 +27,21 @@ void file_init(void)
 /* 将vfs_node_t结构体路径转为字符串 */
 char *vfs_node_to_path(vfs_node_t node)
 {
-	if (node == NULL) {
-		return NULL;
+	if (node == 0) {
+		return 0;
 	}
-	if (node->parent == NULL) {
+	if (node->parent == 0) {
 		char* path = strdup("/");
 		return path;
 	} else {
 		char* parent_path = vfs_node_to_path(node->parent);
-		if (parent_path == NULL) {
-			return NULL;
+		if (parent_path == 0) {
+			return 0;
 		}
 		char* path = (char *)kmalloc(strlen(parent_path) + strlen(node->name) + 2);
-		if (path == NULL) {
+		if (path == 0) {
 			kfree(parent_path);
-			return NULL;
+			return 0;
 		}
 		strcpy(path, parent_path);
 		if (strcmp(parent_path, "/") != 0) {
@@ -82,7 +82,7 @@ int file_cd(const char *path)
 			working_dir = vfs_open(wd);
 		}
 	}
-	if (vfs_open(wd) == NULL) {
+	if (vfs_open(wd) == 0) {
 		sprintf(wd, "%s", old);
 		working_dir = vfs_open(wd);
 		kfree(old);

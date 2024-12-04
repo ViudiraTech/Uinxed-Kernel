@@ -31,7 +31,7 @@ static void vdisk_ide_write(int drive, uint8_t *buffer, uint32_t number, uint32_
 }
 
 /* 等待IDE设备可用 */
-static int32_t ide_wait_ready(uint16_t iobase, bool check_error)
+static int32_t ide_wait_ready(uint16_t iobase, int check_error)
 {
 	int r = 0;
 	while ((r = inb(iobase + ISA_STATUS)) & IDE_BSY) {}
@@ -123,7 +123,7 @@ char *ide_get_desc(void)
 	if (ide_device_valid()) {
 		return ide_device.desc;
 	}
-	return NULL;
+	return 0;
 }
 
 /* 获取IDE设备扇区大小 */

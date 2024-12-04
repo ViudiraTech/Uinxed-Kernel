@@ -40,7 +40,7 @@ rbtree_sp_t rbtree_sp_alloc(const char *key, void *value);
 void rbtree_sp_free(rbtree_sp_t root) ;
 void rbtree_sp_free_with(rbtree_sp_t root, void (*free_value)(void *)) ;
 void *rbtree_sp_get(rbtree_sp_t root, const char *key) ;
-bool rbtree_sp_search(rbtree_sp_t root, void *value, const char **key) ;
+int rbtree_sp_search(rbtree_sp_t root, void *value, const char **key) ;
 rbtree_sp_t rbtree_sp_insert(rbtree_sp_t root, const char *key, void *value);
 rbtree_sp_t rbtree_sp_delete(rbtree_sp_t root, const char *key);
 void rbtree_sp_print_inorder(rbtree_sp_t root) ;

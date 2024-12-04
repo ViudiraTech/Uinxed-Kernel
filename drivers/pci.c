@@ -146,7 +146,7 @@ struct
 	{0x111000, "Communication Synchronizer"},
 	{0x112000, "Signal Processing Management"},
 	{0x118000, "Other Signal Processing Controller"},
-	{0x000000, NULL}
+	{0x000000, 0}
 };
 
 unsigned int PCI_ADDR_BASE;
@@ -270,7 +270,7 @@ void pci_config(unsigned int bus, unsigned int f, unsigned int equipment, unsign
 /* 根据类代码返回设备类别名称 */
 const char *pci_classname(uint32_t classcode)
 {
-	for (size_t i = 0; pci_classnames[i].name != NULL; i++)
+	for (size_t i = 0; pci_classnames[i].name != 0; i++)
 	{
 		if (pci_classnames[i].classcode == classcode)
 			return pci_classnames[i].name;

@@ -49,7 +49,7 @@ int devfs_mount(const char* src, vfs_node_t node)
 	if(src) return -1;
 	node->fsid = devfs_id;
 	for (int i = 0; have_vdisk(i); i++) {
-		vfs_child_append(node, vdisk_ctl[i].DriveName, NULL);
+		vfs_child_append(node, vdisk_ctl[i].DriveName, 0);
 		rbtree_sp_insert(dev_rbtree, vdisk_ctl[i].DriveName, (void *)i);
 	}
 	return 0;
@@ -125,14 +125,14 @@ void devfs_regist(void)
 	devfs_id = vfs_regist("devfs", &callbacks);
 	vfs_mkdir("/dev");
 	device_fs_node = vfs_open("/dev");
-	vfs_mount(NULL, device_fs_node);
+	vfs_mount(0, device_fs_node);
 	print_succ("Device File System initialize.\n");
 }
 
 int dev_get_sector_size(char *path)
 {
 	vfs_node_t node = vfs_open(path);
-	if (node == NULL) return -1;
+	if (node == 0) return -1;
 	if (node->fsid != devfs_id) return -1; //不是devfs
 	int dev_id      = (int)node->handle;
 	int sector_size = vdisk_ctl[dev_id].sector_size;
@@ -142,7 +142,7 @@ int dev_get_sector_size(char *path)
 int dev_get_size(char *path)
 {
 	vfs_node_t node = vfs_open(path);
-	if (node == NULL) return -1;
+	if (node == 0) return -1;
 	if (node->fsid != devfs_id) return -1; //不是devfs
 	int dev_id = (int)node->handle;
 	int size   = disk_Size(dev_id);
@@ -152,7 +152,7 @@ int dev_get_size(char *path)
 int dev_get_type(char *path)
 {
 	vfs_node_t node = vfs_open(path);
-	if (node == NULL) return -1;
+	if (node == 0) return -1;
 	if (node->fsid != devfs_id) return -1; //不是devfs
 	int dev_id = (int)node->handle;
 	int type   = vdisk_ctl[dev_id].flag;

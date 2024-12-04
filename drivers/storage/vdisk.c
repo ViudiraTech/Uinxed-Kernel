@@ -68,7 +68,7 @@ int rw_vdisk(int drive, uint32_t lba, uint8_t *buffer, uint32_t number, int read
 	}
 }
 
-bool have_vdisk(int drive)
+int have_vdisk(int drive)
 {
 	int indx = drive;
 	// printk("drive=%c\n",drive);
@@ -83,8 +83,8 @@ bool have_vdisk(int drive)
 }
 
 /* 基于vdisk的通用读写 */
-static uint8_t *drive_name[16] = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                                  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+static uint8_t *drive_name[16] = {0, 0, 0, 0, 0, 0, 0, 0,
+                                  0, 0, 0, 0, 0, 0, 0, 0};
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-variable"
@@ -94,16 +94,16 @@ static uint8_t drive_buf[16][256];
 
 #pragma GCC diagnostic pop
 
-bool set_drive(uint8_t *name)
+int set_drive(uint8_t *name)
 {
 	for (int i = 0; i != 16; i++) {
-		if (drive_name[i] == NULL) {
+		if (drive_name[i] == 0) {
 			drive_name[i] = name;
 			//cir_queue8_init(&drive_fifo[i], 256, drive_buf[i]);
-			return true;
+			return 1;
 		}
 	}
-	return false;
+	return 0;
 }
 
 uint32_t get_drive_code(uint8_t *name)
@@ -114,18 +114,18 @@ uint32_t get_drive_code(uint8_t *name)
 	return 16;
 }
 
-bool drive_semaphore_take(uint32_t drive_code)
+int drive_semaphore_take(uint32_t drive_code)
 {
-	return true;
+	return 1;
 	/*
-	 * if (drive_code >= 16) { return true; }
+	 * if (drive_code >= 16) { return 1; }
 	 * cir_queue8_put(&drive_fifo[drive_code], get_tid(current_task()));
 	 * // printk("FIFO: %d PUT: %d STATUS: %d\n", drive_code, Get_Tid(current_task()),
 	 * //		fifo8_status(&drive_fifo[drive_code]));
 	 * while (drive_buf[drive_code][drive_fifo[drive_code].head] != get_tid(current_task())) {
 	 * 	// printk("Waiting....\n");
 	 * }
-	 * return true;
+	 * return 1;
 	 */
 }
 
@@ -172,7 +172,7 @@ uint32_t disk_Size(int drive)
 	return 0;
 }
 
-bool DiskReady(int drive)
+int DiskReady(int drive)
 {
 	return have_vdisk(drive);
 }

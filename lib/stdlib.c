@@ -21,7 +21,7 @@ void delay(uint32_t count)
 /* 阻塞函数 */
 void hang(void)
 {
-	while (true) printk("");
+	while (1) printk("");
 }
 
 /* 将字符串数字转换为整数数字 */

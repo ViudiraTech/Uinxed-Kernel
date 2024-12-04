@@ -30,7 +30,7 @@
 #define error(msg) printk("[FatErr]: %s\n",msg)
 
 static FATFS volume[10];
-static vfs_node_t drive_number_mapping[10] = {NULL};
+static vfs_node_t drive_number_mapping[10] = {0};
 static int fatfs_id = 0;
 typedef struct file {
 	char *path;
@@ -40,14 +40,14 @@ typedef struct file {
 static int alloc_number(void)
 {
 	for (int i = 0; i < 10; i++)
-		if (drive_number_mapping[i] == NULL) return i;
+		if (drive_number_mapping[i] == 0) return i;
 	error("No available drive number");
 	return -1;
 }
 
 vfs_node_t fatfs_get_node_by_number(int number)
 {
-	if (number < 0 || number >= 10) return NULL;
+	if (number < 0 || number >= 10) return 0;
 	return drive_number_mapping[number];
 }
 
@@ -77,7 +77,7 @@ int fatfs_mkfile(void *parent, const char* name, vfs_node_t node)
 
 int fatfs_readfile(file_t file, void *addr, size_t offset, size_t size)
 {
-	if (file == NULL || addr == NULL) return -1;
+	if (file == 0 || addr == 0) return -1;
 	FRESULT res;
 	res = f_lseek(file->handle, offset);
 	if (res != FR_OK) return -1;
@@ -89,7 +89,7 @@ int fatfs_readfile(file_t file, void *addr, size_t offset, size_t size)
 
 int fatfs_writefile(file_t file, const void *addr, size_t offset, size_t size)
 {
-	if (file == NULL || addr == NULL) return -1;
+	if (file == 0 || addr == 0) return -1;
 	FRESULT res;
 	res = f_lseek(file->handle, offset);
 	if (res != FR_OK) return -1;
@@ -105,7 +105,7 @@ void fatfs_open(void *parent, const char* name, vfs_node_t node)
 	char  *new_path = kmalloc(strlen(p->path) + strlen(name) + 1 + 1);
 	file_t new      = kmalloc(sizeof(struct file));
 	sprintf(new_path, "%s/%s", p->path, name);
-	void   *fp = NULL;
+	void   *fp = 0;
 	FILINFO fno;
 	FRESULT res = f_stat(new_path, &fno);
 	assert(res == FR_OK);
@@ -120,7 +120,7 @@ void fatfs_open(void *parent, const char* name, vfs_node_t node)
 			res = f_readdir(fp, &fno);
 			//为空时表示所有项目读取完毕，跳出
 			if (res != FR_OK || fno.fname[0] == 0) break;
-			vfs_child_append(node, fno.fname, NULL);
+			vfs_child_append(node, fno.fname, 0);
 		}
 	} else {
 		node->type = file_block;
@@ -129,7 +129,7 @@ void fatfs_open(void *parent, const char* name, vfs_node_t node)
 		node->size = f_size((FIL *)fp);
 		assert(res == FR_OK);
 	}
-	assert(fp != NULL);
+	assert(fp != 0);
 	new->handle  = fp;
 	new->path    = new_path;
 	node->handle = new;
@@ -157,14 +157,14 @@ int fatfs_mount(const char* src, vfs_node_t node)
 	int drive = alloc_number();
 	assert(drive != -1);
 	drive_number_mapping[drive] = vfs_open(src);
-	assert(drive_number_mapping[drive] != NULL);
+	assert(drive_number_mapping[drive] != 0);
 	char *path = kmalloc(3);
 	bzero(path, 0);
 	sprintf(path, "%d:", drive);
 	FRESULT r = f_mount(&volume[drive], path, 1);
 	if (r != FR_OK) {
 		vfs_close(drive_number_mapping[drive]);
-		drive_number_mapping[drive] = NULL;
+		drive_number_mapping[drive] = 0;
 		kfree(path);
 		return -1;
 	}
@@ -181,7 +181,7 @@ int fatfs_mount(const char* src, vfs_node_t node)
 		res = f_readdir(h, &fno);
 		//为空时表示所有项目读取完毕，跳出
 		if (res != FR_OK || fno.fname[0] == 0) break;
-		vfs_child_append(node, fno.fname, NULL);
+		vfs_child_append(node, fno.fname, 0);
 	}
 	node->handle = f;
 	return 0;
@@ -191,7 +191,7 @@ void fatfs_unmount(void *root)
 {
 	file_t f                     = root;
 	int    number                = f->path[0] - '0';
-	drive_number_mapping[number] = NULL;
+	drive_number_mapping[number] = 0;
 	f_closedir(f->handle);
 	f_unmount(f->path);
 	kfree(f->path);

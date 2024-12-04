@@ -29,7 +29,7 @@ slist_sp_t slist_sp_append(slist_sp_t list, const char *key, void *val);
 slist_sp_t slist_sp_prepend(slist_sp_t list, const char *key, void *val);
 void *slist_sp_get(slist_sp_t list, const char *key);
 slist_sp_t slist_sp_get_node(slist_sp_t list, const char *key);
-bool slist_sp_search(slist_sp_t list, void *val, const char **key);
+int slist_sp_search(slist_sp_t list, void *val, const char **key);
 slist_sp_t slist_sp_search_node(slist_sp_t list, void *val);
 slist_sp_t slist_sp_delete(slist_sp_t list, const char *key);
 slist_sp_t slist_sp_delete_with(slist_sp_t list, const char *key, void (*free_value)(void *));

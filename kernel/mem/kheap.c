@@ -13,7 +13,7 @@
 #include "printk.h"
 #include "string.h"
 
-header_t *head = NULL, *tail = NULL; // 内存块链表
+header_t *head = 0, *tail = 0; // 内存块链表
 extern page_directory_t *current_directory;
 extern uint32_t end;
 uint32_t placement_address = (uint32_t) & end;
@@ -89,10 +89,10 @@ uint32_t kmalloc(uint32_t size)
 void *krealloc(void *block, size_t size)
 {
 	header_t *header;
-	if (!block) return NULL;
+	if (!block) return 0;
 	header = (header_t *)block - 1;
 	void *new_block = (void *)kmalloc(size);
-	if (!new_block) return NULL;
+	if (!new_block) return 0;
 	memcpy(new_block, block, header->s.size);
 	kfree(block);
 	return new_block;
@@ -116,7 +116,7 @@ static header_t *get_free_block(size_t size)
 		if (curr->s.is_free && curr->s.size >= size) return curr;
 		curr = curr->s.next;
 	}
-	return NULL;
+	return 0;
 }
 
 /* 尝试在现有的内存块中找到足够大的空闲块 */
@@ -125,7 +125,7 @@ void *alloc(size_t size)
 	uint32_t total_size;
 	void *block;
 	header_t *header;
-	if (!size) return NULL;
+	if (!size) return 0;
 	header = get_free_block(size);
 	if (header) {
 		header->s.is_free = 0;
@@ -133,11 +133,11 @@ void *alloc(size_t size)
 	}
 	total_size = sizeof(header_t) + size;
 	block = ksbrk(total_size);
-	if (block == (void *) -1) return NULL;
+	if (block == (void *) -1) return 0;
 	header = block;
 	header->s.size = size;
 	header->s.is_free = 0;
-	header->s.next = NULL;
+	header->s.next = 0;
 	if (!head)	head = header;
 	if (tail)	tail->s.next = header;
 	tail = header;
@@ -151,12 +151,12 @@ void kfree(void *block)
 	if (!block) return;
 	header = (header_t *) block - 1;
 	if ((char *) block + header->s.size == program_break) {
-		if (head == tail) head = tail = NULL;
+		if (head == tail) head = tail = 0;
 		else {
 			tmp = head;
 			while (tmp) {
 				if (tmp->s.next == tail) {
-					tmp->s.next = NULL;
+					tmp->s.next = 0;
 					tail = tmp;
 				}
 				tmp = tmp->s.next;

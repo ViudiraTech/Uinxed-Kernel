@@ -27,7 +27,7 @@ int now_pid = 0;
 int32_t kernel_thread(int (*fn)(void *), void *arg, const char *name, int level)
 {
 	struct task_struct *new_task = (struct task_struct *)kmalloc(STACK_SIZE);
-	assertx(new_task != NULL, P008);
+	assertx(new_task != 0, P008);
 
 	/* 将栈低端结构信息初始化为 0 */ 
 	bzero(new_task, sizeof(struct task_struct));
@@ -60,7 +60,7 @@ int32_t kernel_thread(int (*fn)(void *), void *arg, const char *name, int level)
 
 	/* 找到当前进任务队列，插入到末尾 */
 	struct task_struct *tail = running_proc_head;
-	assertx(tail != NULL, P009);
+	assertx(tail != 0, P009);
 
 	while (tail->next != running_proc_head) {
 		tail = tail->next;
@@ -134,8 +134,8 @@ static void found_task(int pid, struct task_struct *head, struct task_struct *ba
                        struct task_struct **argv, int first)
 {
 	struct task_struct *t = base;
-	if (t == NULL) {
-		argv = NULL;
+	if (t == 0) {
+		argv = 0;
 		return;
 	}
 	if (t->pid == pid) {
@@ -144,7 +144,7 @@ static void found_task(int pid, struct task_struct *head, struct task_struct *ba
 	} else {
 		if (!first)
 			if (head->pid == t->pid) {
-				argv = NULL;
+				argv = 0;
 				return;
 			}
 		found_task(pid, head, t->next, argv, 0);
@@ -154,10 +154,10 @@ static void found_task(int pid, struct task_struct *head, struct task_struct *ba
 /* 传回特定pid的结构体 */
 struct task_struct *found_task_pid(int pid)
 {
-	struct task_struct *argv = NULL;
+	struct task_struct *argv = 0;
 	found_task(pid, running_proc_head, running_proc_head, &argv, 1);
-	if (argv == NULL) {
-		return NULL;
+	if (argv == 0) {
+		return 0;
 	}
 	return argv;
 }
@@ -167,7 +167,7 @@ void task_kill(int pid)
 {
 	disable_intr();
 	struct task_struct *argv = found_task_pid(pid);
-	if (argv == NULL) {
+	if (argv == 0) {
 		printk("Cannot found task PID: %d\n", pid);
 		enable_intr();
 		return;
@@ -180,7 +180,7 @@ void task_kill(int pid)
 	printk("Task [Name: %s][PID: %d] Stopped.\n", argv->name, argv->pid);
 	kfree(argv);
 	struct task_struct *head = running_proc_head;
-	struct task_struct *last = NULL;
+	struct task_struct *last = 0;
 	while (1) {
 		if (head->pid == argv->pid) {
 			last->next = argv->next;
@@ -198,7 +198,7 @@ void kill_all_task(void)
 	struct task_struct *head = running_proc_head;
 	while (1) {
 		head = head->next;
-		if (head == NULL || head->pid == running_proc_head->pid) {
+		if (head == 0 || head->pid == running_proc_head->pid) {
 			return;
 		}
 		if (head->pid == current->pid) continue;

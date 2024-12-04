@@ -32,9 +32,9 @@ int  logout_vdisk(int drive);
  * 读取指定硬盘设备 (不推荐调用) 现已由devfs取代读取措施
  */
 int  rw_vdisk(int drive, uint32_t lba, uint8_t *buffer, uint32_t number, int read);
-bool have_vdisk(int drive);
+int have_vdisk(int drive);
 uint32_t disk_Size(int drive);
-bool DiskReady(int drive);
+int DiskReady(int drive);
 void Disk_Write(uint32_t lba, uint32_t number, const void *buffer, int drive);
 void Disk_Read(uint32_t lba, uint32_t number, void *buffer,int drive);
 int  getReadyDisk(void);

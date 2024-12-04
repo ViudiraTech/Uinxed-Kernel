@@ -54,7 +54,7 @@ extern void terminal_set_bell_handler(void (*handler)(void));
 extern void terminal_set_history_size(size_t size);
 extern void terminal_set_color_scheme(size_t palette_index);
 extern void terminal_set_custom_color_scheme(struct TerminalPalette palette);
-extern bool terminal_handle_keyboard(uint8_t scancode, char *buffer);
-extern void terminal_set_nature_scroll(bool mode);
+extern int terminal_handle_keyboard(uint8_t scancode, char *buffer);
+extern void terminal_set_nature_scroll(int mode);
 
 #endif // INCLUDE_LIB_OS_TERMINAL_LIB_H_

@@ -130,7 +130,7 @@ void set_cr0(uint32_t cr0)
 }
 
 /* 检查当前CPU是否支持MSR */
-bool cpu_has_msr(void)
+int cpu_has_msr(void)
 {
 	static uint32_t a, b, c, d; // eax, ebx, ecx, edx
 	cpuid(1, &a, &b, &c, &d);

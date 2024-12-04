@@ -126,7 +126,7 @@ char *strchr(char *str, int c)
 			return str;
 		}
 	}
-	return NULL;
+	return 0;
 }
 
 /* 返回字符串src的长度 */
@@ -196,7 +196,7 @@ void *strdup(const char *s)
 {
 	size_t len = strlen(s) + 1;
 	void *p = (void *)kmalloc(len);
-	if (p != NULL) memcpy(p, (uint8_t *)s, len);
+	if (p != 0) memcpy(p, (uint8_t *)s, len);
 	return p;
 }
 
