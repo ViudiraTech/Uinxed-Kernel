@@ -21,6 +21,9 @@
 #	define QUEUE_IMPLEMENTATION
 #endif
 
+typedef void (*free_t)(void *ptr);
+typedef void *(*alloc_t)(size_t size);
+
 /**
  *\struct Node
  *\brief 队列节点结构
