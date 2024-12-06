@@ -14,14 +14,11 @@
 #include "elf.h"
 #include "printk.h"
 
-extern page_directory_t *current_directory;
-void alloc_frame(page_t *page, int is_kernel, int is_writable);
-
 void segment_callback(struct ElfSegment segment)
 {
 	page_directory_t *pg_dir = current_directory;
 	for (size_t i = segment.address; i < segment.address + segment.size; i += 4096) {
-		alloc_frame(get_page(i,1,pg_dir), 0, 1);
+		alloc_frame(get_page(i, 1, pg_dir), 0, 1);
 	}
 	memcpy((void*)segment.address,segment.data,segment.size);
 }

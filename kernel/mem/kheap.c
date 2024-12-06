@@ -14,8 +14,7 @@
 #include "string.h"
 
 header_t *head = 0, *tail = 0; // 内存块链表
-extern page_directory_t *current_directory;
-extern uint32_t end;
+
 uint32_t placement_address = (uint32_t) & end;
 void *program_break, *program_break_end;
 

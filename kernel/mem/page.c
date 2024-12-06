@@ -22,9 +22,6 @@ page_directory_t *current_directory	= 0;	// 当前页目录
 uint32_t *frames;
 uint32_t nframes;
 
-extern uint32_t placement_address;
-extern void *program_break, *program_break_end;
-
 /* 标记一个帧为已使用 */
 static void set_frame(uint32_t frame_addr)
 {

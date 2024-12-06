@@ -18,8 +18,6 @@
 #include "debug.h"
 #include "printk.h"
 
-extern page_directory_t *kernel_directory;
-
 /* 全局 pid 值 */
 int now_pid = 0;
 
@@ -41,8 +39,6 @@ int32_t kernel_thread(int (*fn)(void *), void *arg, const char *name, int level)
 	new_task->fpu_flag = 0;
 	new_task->name = name;
 
-	extern void *program_break;
-	extern void *program_break_end;
 	new_task->program_break = (uint32_t)program_break;
 	new_task->program_break_end = (uint32_t)program_break_end;
 

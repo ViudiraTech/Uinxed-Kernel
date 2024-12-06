@@ -25,9 +25,6 @@ struct task_struct *wait_proc_head = 0;
 /* 当前运行的任务 */
 struct task_struct *current = 0;
 
-extern page_directory_t *kernel_directory;
-extern uint32_t kern_stack_top;
-
 /* 初始化任务调度 */
 void init_sched(void)
 {
@@ -45,8 +42,6 @@ void init_sched(void)
 	current->name = "Uinxed-Kernel";	// 内核进程名称
 	current->fpu_flag = 0;				// 还没使用FPU
 
-	extern void *program_break;
-	extern void *program_break_end;
 	current->program_break = (uint32_t)program_break;
 	current->program_break_end = (uint32_t)program_break_end;
 

@@ -17,7 +17,6 @@
 #include "sched.h"
 
 uint32_t tick = 0;
-extern struct task_struct *current;
 struct TIMERCTL timerctl;
 
 /* 获取当前时间戳 */
