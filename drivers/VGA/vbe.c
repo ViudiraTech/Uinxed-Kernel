@@ -193,6 +193,18 @@ void vbe_set_back_color(int color)
 	back_color = color;
 }
 
+/* 获取VBE宽 */
+uint32_t vbe_get_width(void)
+{
+	return width;
+}
+
+/* 获取VBE高 */
+uint32_t vbe_get_height(void)
+{
+	return height;
+}
+
 /* 初始化VBE图形模式 */
 void init_vbe(multiboot_t *info, int back, int fore)
 {

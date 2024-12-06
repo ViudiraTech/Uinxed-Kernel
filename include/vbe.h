@@ -60,6 +60,12 @@ void vbe_set_fore_color(int color);
 /* 设置背景色 */
 void vbe_set_back_color(int color);
 
+/* 获取VBE宽 */
+uint32_t vbe_get_width(void);
+
+/* 获取VBE高 */
+uint32_t vbe_get_height(void);
+
 /* 初始化VBE图形模式 */
 void init_vbe(multiboot_t *info, int back, int fore);
 
