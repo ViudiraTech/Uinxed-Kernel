@@ -15,6 +15,7 @@
 #include "printk.h"
 #include "memory.h"
 #include "keyboard.h"
+#include "mouse.h"
 #include "uinxed.h"
 #include "pci.h"
 #include "serial.h"
@@ -86,6 +87,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	init_pci();						// 初始化PCI设备
 	init_serial();					// 初始化计算机串口
 	init_keyboard();				// 初始化键盘驱动
+	mouse_init();					// 初始化鼠标驱动
 	init_sched();					// 初始化多任务
 	init_ide();						// 初始化IDE
 
