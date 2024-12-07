@@ -86,9 +86,11 @@ int file_cd(const char *path)
 		sprintf(wd, "%s", old);
 		working_dir = vfs_open(wd);
 		kfree(old);
+		kfree(wd);
 		return -1;
 	}
 	kfree(old);
+	kfree(wd);
 	return 0;
 }
 
