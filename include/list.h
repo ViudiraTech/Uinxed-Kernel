@@ -159,7 +159,7 @@ extern size_t list_length(list_t list);
 #ifdef LIST_IMPLEMENTATION
 
 void kfree(void *block);
-uint32_t kmalloc(uint32_t size);
+void *kmalloc(size_t nbytes);
 
 static list_t list_alloc(void *data)
 {

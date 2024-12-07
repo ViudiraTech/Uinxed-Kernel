@@ -362,7 +362,7 @@ void init_pci(void)
 	print_busy("Initializing PCI device...\r"); // 提示用户正在初始化PCI设备，并回到行首等待覆盖
 	int PCI_NUM = 0;
 
-	PCI_ADDR_BASE = kmalloc(1 * 1024 * 1024);
+	PCI_ADDR_BASE = (unsigned int)kmalloc(1 * 1024 * 1024);
 	unsigned int i, BUS, Equipment, F, ADDER;
 	unsigned char *PCI_DATA = (unsigned char *)PCI_ADDR_BASE, *PCI_DATA1;
 

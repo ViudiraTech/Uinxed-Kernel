@@ -31,6 +31,7 @@
 #define P007 "PAGE_FAULT-DecodeAddress-Address:"
 #define P008 "KERNEL_THREAD_KMALLOC_ERROR"
 #define P009 "MUST_INIT_SCHED"
+#define P010 "CANNOT_ALLOC_KERNEL_HEAP-KERNEL_HEAP_END:"
 
 /* 初始化 Debug 信息 */
 void init_debug(void);
