@@ -16,6 +16,7 @@
 #include "common.h"
 #include "debug.h"
 #include "fifo.h"
+#include "sched.h"
 
 page_directory_t *kernel_directory	= 0;	// 内核用页目录
 page_directory_t *current_directory	= 0;	// 当前页目录
@@ -153,20 +154,26 @@ void put_directory(page_directory_t *dir)
 /* 释放一个页目录 */
 void free_pages(void)
 {
-	int ii;
+	disable_scheduler();
+	uint32_t ii;
 	do {
 		ii = fifo8_get(fifo);
-		if(ii == -1) return;
+		if (ii == -1 || ii == 0) {
+			break;
+		}
 		page_directory_t *dir = (page_directory_t *)ii;
 		for (int i = 0; i < 1024; i++) {
 			page_table_t *table = dir->tables[i];
+			if (table == NULL) continue;
 			for (int j = 0; j < 1024; j++) {
 				page_t page = table->pages[i];
 				free_frame(&page);
 			}
+			kfree(table);
 		}
 		kfree(dir);
 	} while (1);
+	enable_scheduler();
 }
 
 /* 初始化一个用于存储空闲页目录的FIFO */
