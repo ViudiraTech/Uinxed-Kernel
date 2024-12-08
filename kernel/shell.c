@@ -76,6 +76,7 @@ void shell_help(void)
            "┃ reboot   ┃ Reboot the system.                    ┃\n"
            "┃ cd       ┃ Change the working directory.         ┃\n"
            "┃ ls       ┃ Lists the current directory files.    ┃\n"
+           "┃ free     ┃ Displays the memory status.           ┃\n"
            "┃ cetsl    ┃ Enable/Disable serial console output. ┃\n"
            "┗━━━━━━━━━━┻━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n");
 	printk("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n"
@@ -226,6 +227,15 @@ void shell_ls(int argc, char *argv[])
 	return;
 }
 
+void shell_free(void)
+{
+	printk("       total    used    free\n");
+	printk("Mem: %07d %07d %07d\n", (glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower), (get_kernel_memory_usage() / 1024),
+                                    (glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower) - (get_kernel_memory_usage() / 1024));
+	printk("\n");
+	return;
+}
+
 void shell_cetsl(int argc, char *argv[])
 {
 	if (strcmp(argv[1], "1") == 0 || strcmp(argv[1], "true") == 0) {
@@ -262,6 +272,7 @@ builtin_cmd_t builtin_cmds[] = {
 	{"reboot", (void (*)(int, char **))shell_reboot},
 	{"cd", (void (*)(int, char **))shell_cd},
 	{"ls", (void (*)(int, char **))shell_ls},
+	{"free", (void (*)(int, char **))shell_free},
 	{"cetsl", shell_cetsl}
 };
 
