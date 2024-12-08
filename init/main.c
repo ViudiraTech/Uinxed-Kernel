@@ -119,6 +119,8 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	terminal_set_color_scheme(0);	// 重置终端主题
 	vbe_to_serial(0);				// 停止输出内核启动日志到串口
 
+	enable_scheduler();				// 启用调度
+
 	kernel_thread(kthread_shell, 0, "Basic shell program", USER_TASK);
 	kernel_thread(terminal_manual_flush, 0, "Terminal manual flush", SERVICE_TASK);
 }

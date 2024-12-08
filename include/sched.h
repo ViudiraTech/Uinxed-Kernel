@@ -26,6 +26,12 @@ extern struct task_struct *current;
 /* 初始化任务调度 */
 void init_sched(void);
 
+/* 允许进程调度 */
+void enable_scheduler(void);
+
+/* 停止进程调度 */
+void disable_scheduler(void);
+
 /* 任务调度 */
 void schedule(void);
 

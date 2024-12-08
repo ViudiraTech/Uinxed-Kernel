@@ -71,6 +71,8 @@ struct task_struct {
 	uint32_t program_break_end;	// 进程堆尾
 	page_directory_t *pgd_dir;	// 进程页表
 	int fpu_flag;				// 是否使用 FPU
+	uint32_t cpu_clock;			// CPU运行时间片
+	uint32_t sche_time;			// 进程剩余的可运行时间片
 	struct context context;		// 进程切换需要的上下文信息
 	struct task_struct *next;	// 链表指针
 };

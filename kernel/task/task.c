@@ -38,6 +38,8 @@ int32_t kernel_thread(int (*fn)(void *), void *arg, const char *name, int level)
 	new_task->mem_size = 0;
 	new_task->fpu_flag = 0;
 	new_task->name = name;
+	new_task->cpu_clock = 0;
+	new_task->sche_time = 1;
 
 	new_task->program_break = (uint32_t)program_break;
 	new_task->program_break_end = (uint32_t)program_break_end;
@@ -162,30 +164,36 @@ struct task_struct *found_task_pid(int pid)
 void task_kill(int pid)
 {
 	disable_intr();
+	disable_scheduler();
 	struct task_struct *argv = found_task_pid(pid);
 	if (argv == 0) {
 		printk("Cannot found task PID: %d\n", pid);
 		enable_intr();
+		enable_scheduler();
 		return;
 	} else if (argv->level == KERNEL_TASK) {
 		printk("Taskkill cannot terminate kernel processes.\n");
 		enable_intr();
+		enable_scheduler();
 		return;
 	}
 	argv->state = TASK_DEATH;
-	printk("Task [Name: %s][PID: %d] Stopped.\n", argv->name, argv->pid);
 	put_directory(argv->pgd_dir);
-	kfree(argv);
+	printk("Task [Name: %s][PID: %d] Stopped.\n", argv->name, argv->pid);
 	struct task_struct *head = running_proc_head;
 	struct task_struct *last = 0;
 	while (1) {
 		if (head->pid == argv->pid) {
 			last->next = argv->next;
+			kfree(argv);
 			enable_intr();
+			enable_scheduler();
 			return;
 		}
 		last = head;
 		head = head->next;
+		enable_intr();
+		enable_scheduler();
 	}
 }
 

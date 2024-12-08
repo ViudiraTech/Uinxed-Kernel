@@ -25,6 +25,9 @@ struct task_struct *wait_proc_head = 0;
 /* 当前运行的任务 */
 struct task_struct *current = 0;
 
+/* 调度标志位 */
+int can_sche = 0;
+
 /* 初始化任务调度 */
 void init_sched(void)
 {
@@ -41,6 +44,8 @@ void init_sched(void)
 	current->mem_size = 0;
 	current->name = "Uinxed-Kernel";	// 内核进程名称
 	current->fpu_flag = 0;				// 还没使用FPU
+	current->cpu_clock = 0;
+	current->sche_time = 1;
 
 	current->program_break = (uint32_t)program_break;
 	current->program_break_end = (uint32_t)program_break_end;
@@ -52,18 +57,42 @@ void init_sched(void)
 	print_succ("Multi-task initialized.   \n");
 }
 
+/* 允许进程调度 */
+void enable_scheduler(void)
+{
+	can_sche = 1;
+}
+
+/* 停止进程调度 */
+void disable_scheduler(void)
+{
+	can_sche = 0;
+}
+
 /* 任务调度 */
 void schedule(void)
 {
-	if (current) {
+	disable_intr();
+	if (current && can_sche) {
+		if(current->state == TASK_DEATH) {
+			current = running_proc_head;
+		}
+		current->cpu_clock++;
 		change_task_to(current->next);
 	}
+	enable_intr();
 }
 
 /* 任务切换准备 */
 void change_task_to(struct task_struct *next)
 {
+	if (current->sche_time > 1) {
+		current->sche_time--;
+		return;
+	}
 	if (current != next) {
+		if (next == NULL) next = running_proc_head;
+		current->sche_time = 1;
 		struct task_struct *prev = current;
 		current = next;
 		switch_page_directory(current->pgd_dir);
