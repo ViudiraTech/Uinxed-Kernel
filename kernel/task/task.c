@@ -34,7 +34,7 @@ int32_t kernel_thread(int (*fn)(void *), void *arg, const char *name, int level)
 	new_task->state = TASK_RUNNABLE;
 	new_task->stack = current;
 	new_task->pid = now_pid++;
-	new_task->pgd_dir = clone_directory(kernel_directory);
+	new_task->pgd_dir = kernel_directory;
 	new_task->mem_size = 0;
 	new_task->fpu_flag = 0;
 	new_task->name = name;
@@ -178,7 +178,6 @@ void task_kill(int pid)
 		return;
 	}
 	argv->state = TASK_DEATH;
-	put_directory(argv->pgd_dir);
 	printk("Task [Name: %s][PID: %d] Stopped.\n", argv->name, argv->pid);
 	struct task_struct *head = running_proc_head;
 	struct task_struct *last = 0;

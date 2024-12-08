@@ -48,19 +48,6 @@ int kthread_shell(void *arg)
 	return 0;
 }
 
-/* Terminal手动刷新线程 */
-int terminal_manual_flush(void *arg)
-{
-	terminal_set_auto_flush(0);
-	while (1) {
-		uint32_t eflags = load_eflags();
-		if (eflags & (1 << 9)) disable_intr();
-		terminal_flush();
-		if (eflags & (1 << 9)) enable_intr();
-		asm volatile("hlt");
-	}
-}
-
 /* 内核入口 */
 void kernel_init(multiboot_t *glb_mboot_ptr)
 {
@@ -83,6 +70,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	ISR_registe_Handle();			// 注册ISR处理
 	acpi_init();					// 初始化ACPI
 	init_page(glb_mboot_ptr);		// 初始化内存分页
+	setup_free_page();				// 初始化用于页目录FIFO
 	init_fpu();						// 初始化FPU
 	init_pci();						// 初始化PCI设备
 	init_serial();					// 初始化计算机串口
@@ -122,5 +110,20 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	enable_scheduler();				// 启用调度
 
 	kernel_thread(kthread_shell, 0, "Basic shell program", USER_TASK);
-	kernel_thread(terminal_manual_flush, 0, "Terminal manual flush", SERVICE_TASK);
+
+	/* 内核运行时 */
+	terminal_set_auto_flush(0);
+	while (1) {
+		/* OST刷新 */
+		uint32_t eflags = load_eflags();
+		if (eflags & (1 << 9)) disable_intr();
+		terminal_flush();
+		if (eflags & (1 << 9)) enable_intr();
+
+		/* 释放FIFO中的页目录 */
+		free_pages();
+
+		/* 停机一次 */
+		asm volatile("hlt");
+	}
 }

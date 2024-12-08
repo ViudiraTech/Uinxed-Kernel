@@ -34,7 +34,7 @@ static void timer_handle(pt_regs *regs)
 {
 	disable_intr();
 	tick++;
-	schedule();
+	schedule(regs);
 	enable_intr();
 }
 

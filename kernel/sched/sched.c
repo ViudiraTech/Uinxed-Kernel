@@ -34,7 +34,7 @@ void init_sched(void)
 	print_busy("Initializing multi-task...\r");
 
 	/* 为当前执行流创建信息结构体 该结构位于当前执行流的栈最低端 */
-	current = (struct task_struct *)(kern_stack_top - STACK_SIZE);
+	current = kmalloc(sizeof(struct task_struct));
 
 	current->level = KERNEL_TASK;
 	current->state = TASK_RUNNABLE;
@@ -46,6 +46,7 @@ void init_sched(void)
 	current->fpu_flag = 0;				// 还没使用FPU
 	current->cpu_clock = 0;
 	current->sche_time = 1;
+	current->context.esp = (uint32_t )current->stack;
 
 	current->program_break = (uint32_t)program_break;
 	current->program_break_end = (uint32_t)program_break_end;
@@ -70,21 +71,18 @@ void disable_scheduler(void)
 }
 
 /* 任务调度 */
-void schedule(void)
+void schedule(pt_regs *regs)
 {
 	disable_intr();
 	if (current && can_sche) {
-		if(current->state == TASK_DEATH) {
-			current = running_proc_head;
-		}
 		current->cpu_clock++;
-		change_task_to(current->next);
+		change_task_to(current->next, regs);
 	}
 	enable_intr();
 }
 
 /* 任务切换准备 */
-void change_task_to(struct task_struct *next)
+void change_task_to(struct task_struct *next, pt_regs *regs)
 {
 	if (current->sche_time > 1) {
 		current->sche_time--;
@@ -102,6 +100,19 @@ void change_task_to(struct task_struct *next)
 			asm volatile("fnsave (%%eax) \n" ::"a"(&(current->context.fpu_regs)) : "memory");
 		}
 		set_cr0(get_cr0() | (1 << 2) | (1 << 3));
+
+		prev->context.eip = regs->eip;
+		prev->context.ds = regs->ds;
+		prev->context.cs = regs->cs;
+		prev->context.eax = regs->eax;
+		prev->context.ss = regs->ss;
+
 		switch_to(&(prev->context), &(current->context));
+
+		regs->ds = current->context.ds;
+		regs->cs = current->context.cs;
+		regs->eip = current->context.eip;
+		regs->eax = current->context.eax;
+		regs->ss = current->context.ss;
 	}
 }
