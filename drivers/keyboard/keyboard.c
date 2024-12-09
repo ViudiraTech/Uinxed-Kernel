@@ -26,11 +26,12 @@ fifo_t terminal_key;
 void keyboard_handler(pt_regs *regs)
 {
 	uint8_t scan_code = inb(KB_DATA);
-	char buffer[8] = {0};
+	const uint8_t *p = terminal_handle_keyboard(scan_code);
 	disable_intr();
-	if (terminal_handle_keyboard(scan_code, buffer)) {
-		for (int i = 0; buffer[i]; i++) {
-			fifo_put(&terminal_key, buffer[i]);
+	if (p != 0) {
+		while (*p != '\0') {
+			fifo_put(&terminal_key, *p);
+			p++;
 		}
 	}
 }
