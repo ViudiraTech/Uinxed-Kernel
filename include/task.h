@@ -91,6 +91,9 @@ extern int now_pid;
 /* 内核进程创建 */
 int32_t kernel_thread(int (*fn)(void *), void *arg, const char *name, int level);
 
+/* ELF进程创建 */
+int32_t elf_thread(const char* path, void *arg, const char *name, int level);
+
 /* 进程退出函数 */
 void kthread_exit(void);
 

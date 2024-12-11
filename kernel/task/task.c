@@ -17,6 +17,8 @@
 #include "string.h"
 #include "debug.h"
 #include "printk.h"
+#include "elf.h"
+#include "vfs.h"
 
 /* 全局 pid 值 */
 int now_pid = 0;
@@ -66,6 +68,22 @@ int32_t kernel_thread(int (*fn)(void *), void *arg, const char *name, int level)
 	tail->next = new_task;
 
 	return new_task->pid;
+}
+
+/* ELF进程创建 */
+int32_t elf_thread(const char* path, void *arg, const char *name, int level)
+{
+	vfs_node_t elfile = vfs_open(path);
+	if (elfile == 0) return -1;
+
+	uint8_t *data = kmalloc(elfile->size);
+	if (vfs_read(elfile, data, 0, elfile->size) == -1) {
+		vfs_close(elfile);
+		return -1;
+	}
+	uint32_t _start = elf_load(elfile->size, data);
+	kfree(data);
+	return kernel_thread((void *)_start, arg, name, level);
 }
 
 /* 进程退出函数 */
