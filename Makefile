@@ -34,7 +34,7 @@ grub: info UxImage grub_iso
 
 info:
 	@printf "Uinxed-Kernel Compile Script.\n"
-	@printf "Copyright 2020 ViudiraTech. All Rights Reserved.\n"
+	@printf "Copyright 2020 ViudiraTech. All rights interpretation reserved.\n"
 	@printf "Based on the GPL-3.0 open source license.\n"
 	@echo
 
