@@ -25,3 +25,19 @@ copy_page_physical:
 	mov cr0, edx			; 禁用分页
 
 	mov edx, 1024			; 1024*4比特 = 4096比特
+
+.loop:
+	mov eax, [ebx]			; 在源地址处获取字
+	mov [ecx], eax			; 将其存储在 dest 地址
+	add ebx, 4				; 源地址 += sizeof(word)
+	add ecx, 4				; 目标地址 += sizeof(word)
+	dec edx
+	jnz .loop
+
+	mov edx, cr0			; 再次获取控制寄存器
+	or edx, 0x80000000
+	mov cr0, edx			; 启用分页
+
+	popf					; 将 EFLAGS 出栈
+	pop ebx					; 取回 EBX 的原始值
+	ret
