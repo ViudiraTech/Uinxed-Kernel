@@ -48,6 +48,8 @@ void init_sched(void)
 	current->sche_time = 1;
 	current->context.esp = (uint32_t )current->stack;
 
+	for (int i = 0; i < 255; i++)current->file_table[i] = 0;
+
 	current->program_break = (uint32_t)program_break;
 	current->program_break_end = (uint32_t)program_break_end;
 

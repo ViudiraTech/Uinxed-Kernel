@@ -18,7 +18,6 @@
 #include "debug.h"
 #include "printk.h"
 #include "elf.h"
-#include "vfs.h"
 
 /* 全局 pid 值 */
 int now_pid = 0;
@@ -42,6 +41,8 @@ int32_t kernel_thread(int (*fn)(void *), void *arg, const char *name, int level)
 	new_task->name = name;
 	new_task->cpu_clock = 0;
 	new_task->sche_time = 1;
+
+	for (int i = 0; i < 255; i++)new_task->file_table[i] = 0;
 
 	new_task->program_break = (uint32_t)program_break;
 	new_task->program_break_end = (uint32_t)program_break_end;
@@ -83,7 +84,58 @@ int32_t elf_thread(const char* path, void *arg, const char *name, int level)
 	}
 	uint32_t _start = elf_load(elfile->size, data);
 	kfree(data);
-	return kernel_thread((void *)_start, arg, name, level);
+
+	struct task_struct *new_task = (struct task_struct *)kmalloc(STACK_SIZE);
+	assertx(new_task != 0, P008);
+
+	/* 将栈低端结构信息初始化为 0 */ 
+	bzero(new_task, sizeof(struct task_struct));
+
+	new_task->level = level;
+	new_task->state = TASK_RUNNABLE;
+	new_task->stack = current;
+	new_task->pid = now_pid++;
+	new_task->pgd_dir = kernel_directory;
+	new_task->mem_size = 0;
+	new_task->fpu_flag = 0;
+	new_task->name = name;
+	new_task->cpu_clock = 0;
+	new_task->sche_time = 1;
+	new_task->exe_file = elfile;
+
+	for (int i = 0; i < 255; i++)new_task->file_table[i] = 0;
+
+	new_task->program_break = (uint32_t)program_break;
+	new_task->program_break_end = (uint32_t)program_break_end;
+
+	uint32_t *stack_top = (uint32_t *)((uint32_t)new_task + STACK_SIZE);
+
+	*(--stack_top) = (uint32_t)arg;
+	*(--stack_top) = (uint32_t)kthread_exit;
+	*(--stack_top) = (uint32_t)_start;
+
+	new_task->context.esp = (uint32_t)new_task + STACK_SIZE - sizeof(uint32_t) * 3;
+
+	/* 设置新任务的标志寄存器未屏蔽中断,很重要 */
+	new_task->context.eflags = 0x200;
+	new_task->next = running_proc_head;
+
+	/* 找到当前进任务队列，插入到末尾 */
+	struct task_struct *tail = running_proc_head;
+	assertx(tail != 0, P009);
+
+	while (tail->next != running_proc_head) {
+		tail = tail->next;
+	}
+	tail->next = new_task;
+
+	return new_task->pid;
+}
+
+/* 获得当前进程 */
+struct task_struct *get_current_proc(void)
+{
+    return current;
 }
 
 /* 进程退出函数 */
@@ -195,6 +247,13 @@ void task_kill(int pid)
 		enable_scheduler();
 		return;
 	}
+	for (int i = 0; i < 255; i++){
+		cfile_t file = argv->file_table[i];
+		if(file != 0){
+			vfs_close(file->handle);
+		}
+	}
+	vfs_close(argv->exe_file);
 	argv->state = TASK_DEATH;
 	printk("Task [Name: %s][PID: %d] Stopped.\n", argv->name, argv->pid);
 	struct task_struct *head = running_proc_head;
@@ -209,8 +268,6 @@ void task_kill(int pid)
 		}
 		last = head;
 		head = head->next;
-		enable_intr();
-		enable_scheduler();
 	}
 }
 

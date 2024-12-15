@@ -14,6 +14,8 @@
 
 #include "types.h"
 #include "memory.h"
+#include "syscall.h"
+#include "vfs.h"
 
 /* 进程状态描述 */
 typedef
@@ -78,6 +80,8 @@ struct task_struct {
 	uint32_t program_break;		// 进程堆基址
 	uint32_t program_break_end;	// 进程堆尾
 	page_directory_t *pgd_dir;	// 进程页表
+	cfile_t file_table[255];	// 进程文件句柄表
+	vfs_node_t exe_file;		// 可执行文件
 	int fpu_flag;				// 是否使用 FPU
 	uint32_t cpu_clock;			// CPU运行时间片
 	uint32_t sche_time;			// 进程剩余的可运行时间片
@@ -93,6 +97,9 @@ int32_t kernel_thread(int (*fn)(void *), void *arg, const char *name, int level)
 
 /* ELF进程创建 */
 int32_t elf_thread(const char* path, void *arg, const char *name, int level);
+
+/* 获得当前进程 */
+struct task_struct *get_current_proc(void);
 
 /* 进程退出函数 */
 void kthread_exit(void);
