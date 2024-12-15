@@ -38,6 +38,7 @@
 #include "list.h"
 #include "vfs.h"
 #include "file.h"
+#include "syscall.h"
 
 void shell(void); // 声明shell程序入口
 
@@ -77,6 +78,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	init_keyboard();				// 初始化键盘驱动
 	mouse_init();					// 初始化鼠标驱动
 	init_sched();					// 初始化多任务
+	syscall_init();					// 初始化系统调用
 	init_ide();						// 初始化IDE
 
 	vbe_write_newline();			// 打印一个空行，和上面的信息保持隔离

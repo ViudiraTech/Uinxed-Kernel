@@ -15,12 +15,6 @@
 #include "idt.h"
 #include "printk.h"
 
-/* 调用中断处理函数 */
-void isr_handler(pt_regs *regs);
-
-/* IRQ 处理函数 */
-void irq_handler(pt_regs *regs);
-
 /* 声明中断处理函数 0-19 属于 CPU 的异常中断 */
 /* ISR:中断服务程序(interrupt service routine) */
 void isr0(void); 		// 0 #DE 除 0 异常
@@ -78,7 +72,7 @@ void irq14(void); 		// IDE0 传输控制使用
 void irq15(void); 		// IDE1 传输控制使用
 
 /* 32～255 用户自定义异常 */
-void isr255(void);
+void isr128(void);
 
 /* 中断描述符表 */
 idt_entry_t idt_entries[256];
@@ -88,12 +82,6 @@ idt_ptr_t idt_ptr;
 
 /* 中断处理函数的指针数组 */
 interrupt_handler_t interrupt_handlers[256];
-
-/* 设置中断描述符 */
-static void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags);
-
-/* 声明加载 IDTR 的函数 */
-extern void idt_flush(uint32_t);
 
 /* 初始化中断描述符表 */
 void init_idt(void)
@@ -192,8 +180,8 @@ void init_idt(void)
 	SET_IRQ(15);
 #undef SET_IRQ
 
-	/* 255 将来用于实现系统调用 */
-	idt_set_gate(255, (uint32_t)isr255, 0x08, 0x8E);
+	/* 系统调用 */
+	idt_use_reg(128, (uint32_t)isr128);
 
 	/* 更新设置中断描述符表 */
 	idt_flush((uint32_t)&idt_ptr);
@@ -202,7 +190,7 @@ void init_idt(void)
 }
 
 /* 设置中断描述符 */
-static void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags)
+void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags)
 {
 	idt_entries[num].base_lo = base & 0xFFFF;
 	idt_entries[num].base_hi = (base >> 16) & 0xFFFF;
@@ -214,6 +202,17 @@ static void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags
 	/* 这个与运算可以设置中断门的特权级别为 3 */
 	// 你这不是或运算吗 <- 我勒个千年老评论啊(From MicroFish)
 	idt_entries[num].flags = flags; // | 0x60
+}
+
+/* 设置用户中断描述符 */
+void idt_use_reg(uint8_t num, uint32_t base)
+{
+	idt_entries[num].base_lo = base & 0xFFFF;
+	idt_entries[num].base_hi = (base >> 16) & 0xFFFF;
+
+	idt_entries[num].sel = 0x08;
+	idt_entries[num].always0 = 0;
+	idt_entries[num].flags = 0x8E | 0x60;
 }
 
 /* 调用中断处理函数 */

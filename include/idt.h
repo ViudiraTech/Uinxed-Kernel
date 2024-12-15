@@ -73,13 +73,28 @@ typedef void (*interrupt_handler_t)(pt_regs *);
 #define	IRQ14	46		// IDE0 传输控制使用
 #define	IRQ15	47		// IDE1 传输控制使用
 
+/* 声明加载 IDTR 的函数 */
+extern void idt_flush(uint32_t);
+
 /* 初始化中断描述符表 */
 void init_idt(void);
 
 /* 注册一个中断处理函数 */
 void register_interrupt_handler(uint8_t n, interrupt_handler_t h);
 
+/* 设置中断描述符 */
+void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags);
+
+/* 设置用户中断描述符 */
+void idt_use_reg(uint8_t num, uint32_t base);
+
 /* ISR处理 */
 void ISR_registe_Handle(void);
+
+/* 中断处理函数 */
+void isr_handler(pt_regs *regs);
+
+/* IRQ处理函数 */
+void irq_handler(pt_regs *regs);
 
 #endif // INCLUDE_IDT_H_

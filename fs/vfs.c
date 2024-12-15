@@ -37,7 +37,7 @@ finline char *pathtok(char **sp)
 	if (*s == '\0') return 0;
 	for (; *e != '\0' && *e != '/'; e++) {}
 	*sp = e + (*e != '\0' ? 1 : 0);
-	*e  = '\0';
+	*e = '\0';
 	return s;
 }
 
@@ -73,9 +73,9 @@ static vfs_node_t vfs_child_find(vfs_node_t parent, const char* name)
 int vfs_mkdir(const char* name)
 {
 	if (name[0] != '/') return -1;
-	char *path	 = strdup(name + 1);
+	char *path = strdup(name + 1);
 	char *save_ptr = path;
-	vfs_node_t current  = rootdir;
+	vfs_node_t current = rootdir;
 	for (char *buf = pathtok(&save_ptr); buf; buf = pathtok(&save_ptr)) {
 		vfs_node_t father = current;
 		if (streq(buf, ".")) {
@@ -109,9 +109,9 @@ int vfs_mkdir(const char* name)
 int vfs_mkfile(const char* name)
 {
 	if (name[0] != '/') return -1;
-	char *path	 = strdup(name + 1);
+	char *path = strdup(name + 1);
 	char *save_ptr = path;
-	vfs_node_t current  = rootdir;
+	vfs_node_t current = rootdir;
 	char *filename = path + strlen(path);
 	while (*--filename != '/' && filename != path) {}
 	*filename++ = '\0';
@@ -167,7 +167,7 @@ vfs_node_t vfs_open(const char* str)
 	char *path = strdup(str + 1);
 	if (path == 0) return 0;
 	char *save_ptr = path;
-	vfs_node_t current  = rootdir;
+	vfs_node_t current = rootdir;
 	for (char *buf = pathtok(&save_ptr); buf; buf = pathtok(&save_ptr)) {
 		//vfs_node_t father = current;
 		if (streq(buf, ".")) {
@@ -212,10 +212,10 @@ vfs_node_t vfs_node_alloc(vfs_node_t parent, const char* name)
 	if (node == 0) return 0;
 	memset(node, 0, sizeof(struct vfs_node));
 	node->parent = parent;
-	node->name   = name ? strdup(name) : 0;
-	node->type   = file_none;
-	node->fsid   = parent ? parent->fsid : 0;
-	node->root   = parent ? parent->root : node;
+	node->name = name ? strdup(name) : 0;
+	node->type = file_none;
+	node->fsid = parent ? parent->fsid : 0;
+	node->root = parent ? parent->root : node;
 	if (parent) list_prepend(parent->child, node);
 	return node;
 }
@@ -282,15 +282,14 @@ int vfs_unmount(const char* path)
 	if (node->fsid == 0) return -1;
 	if (node->parent) {
 		vfs_node_t cur = node;
-		node		   = node->parent;
+		node = node->parent;
 		if (cur->root == cur) {
 			vfs_free_child(cur);
 			callbackof(cur, unmount)(cur->handle);
-			cur->fsid   = node->fsid; // 交给上级
-			cur->root   = node->root;
+			cur->fsid = node->fsid; // 交给上级
+			cur->root = node->root;
 			cur->handle = 0;
-			cur->child  = 0;
-			// cur->type   = file_none;
+			cur->child = 0;
 			if (cur->fsid) do_update(cur);
 			return 0;
 		}

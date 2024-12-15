@@ -53,7 +53,7 @@ vfs_node_t fatfs_get_node_by_number(int number)
 
 int fatfs_mkdir(void *parent, const char* name, vfs_node_t node)
 {
-	file_t p        = parent;
+	file_t p = parent;
 	char  *new_path = kmalloc(strlen(p->path) + strlen(name) + 1 + 1);
 	sprintf(new_path, "%s/%s", p->path, name);
 	FRESULT res = f_mkdir(new_path);
@@ -64,10 +64,10 @@ int fatfs_mkdir(void *parent, const char* name, vfs_node_t node)
 
 int fatfs_mkfile(void *parent, const char* name, vfs_node_t node)
 {
-	file_t p        = parent;
+	file_t p = parent;
 	char  *new_path = kmalloc(strlen(p->path) + strlen(name) + 1 + 1);
 	sprintf(new_path, "%s/%s", p->path, name);
-	FIL     fp;
+	FIL fp;
 	FRESULT res = f_open(&fp, new_path, FA_CREATE_NEW);
 	f_close(&fp);
 	kfree(new_path);
@@ -101,19 +101,19 @@ int fatfs_writefile(file_t file, const void *addr, size_t offset, size_t size)
 
 void fatfs_open(void *parent, const char* name, vfs_node_t node)
 {
-	file_t p        = parent;
-	char  *new_path = kmalloc(strlen(p->path) + strlen(name) + 1 + 1);
-	file_t new      = kmalloc(sizeof(struct file));
+	file_t p = parent;
+	char *new_path = kmalloc(strlen(p->path) + strlen(name) + 1 + 1);
+	file_t new = kmalloc(sizeof(struct file));
 	sprintf(new_path, "%s/%s", p->path, name);
-	void   *fp = 0;
+	void *fp = 0;
 	FILINFO fno;
 	FRESULT res = f_stat(new_path, &fno);
 	assert(res == FR_OK);
 	if (fno.fattrib & AM_DIR) {
 		//node.
 		node->type = file_dir;
-		fp         = kmalloc(sizeof(DIR));
-		res        = f_opendir(fp, new_path);
+		fp = kmalloc(sizeof(DIR));
+		res = f_opendir(fp, new_path);
 		assert(res == FR_OK);
 		for (;;) {
 			//读取目录下的内容，再读会自动读下一个文件
@@ -124,14 +124,14 @@ void fatfs_open(void *parent, const char* name, vfs_node_t node)
 		}
 	} else {
 		node->type = file_block;
-		fp         = kmalloc(sizeof(FIL));
-		res        = f_open(fp, new_path, FA_READ | FA_WRITE);
+		fp = kmalloc(sizeof(FIL));
+		res = f_open(fp, new_path, FA_READ | FA_WRITE);
 		node->size = f_size((FIL *)fp);
 		assert(res == FR_OK);
 	}
 	assert(fp != 0);
-	new->handle  = fp;
-	new->path    = new_path;
+	new->handle = fp;
+	new->path = new_path;
 	node->handle = new;
 }
 
@@ -169,10 +169,10 @@ int fatfs_mount(const char* src, vfs_node_t node)
 		return -1;
 	}
 	file_t f = kmalloc(sizeof(struct file));
-	f->path  = path;
-	DIR *h   = kmalloc(sizeof(DIR));
+	f->path = path;
+	DIR *h = kmalloc(sizeof(DIR));
 	f_opendir(h, path);
-	f->handle  = h;
+	f->handle = h;
 	node->fsid = fatfs_id;
 	FILINFO fno;
 	FRESULT res;
@@ -189,8 +189,8 @@ int fatfs_mount(const char* src, vfs_node_t node)
 
 void fatfs_unmount(void *root)
 {
-	file_t f                     = root;
-	int    number                = f->path[0] - '0';
+	file_t f = root;
+	int number = f->path[0] - '0';
 	drive_number_mapping[number] = 0;
 	f_closedir(f->handle);
 	f_unmount(f->path);
@@ -216,15 +216,15 @@ int fatfs_stat(void *handle, vfs_node_t node)
 }
 
 static struct vfs_callback callbacks = {
-	.mount   = fatfs_mount,
+	.mount = fatfs_mount,
 	.unmount = fatfs_unmount,
-	.open    = fatfs_open,
-	.close   = (vfs_close_t)fatfs_close,
-	.read    = (vfs_read_t)fatfs_readfile,
-	.write   = (vfs_write_t)fatfs_writefile,
-	.mkdir   = fatfs_mkdir,
-	.mkfile  = fatfs_mkfile,
-	.stat    = fatfs_stat,
+	.open = fatfs_open,
+	.close = (vfs_close_t)fatfs_close,
+	.read = (vfs_read_t)fatfs_readfile,
+	.write = (vfs_write_t)fatfs_writefile,
+	.mkdir = fatfs_mkdir,
+	.mkfile = fatfs_mkfile,
+	.stat = fatfs_stat,
 };
 
 void fatfs_regist(void)
