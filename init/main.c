@@ -39,6 +39,7 @@
 #include "vfs.h"
 #include "file.h"
 #include "syscall.h"
+#include "tty.h"
 
 void shell(void); // 声明shell程序入口
 
@@ -111,6 +112,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 
 	enable_scheduler();				// 启用调度
 
+	printk("Terminal Uinxed tty%d\n", get_boot_tty());
 	kernel_thread(kthread_shell, 0, "Basic shell program", USER_TASK);
 
 	/* 内核运行时 */
