@@ -90,15 +90,6 @@ static uint32_t syscall_posix_read(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32
 	return ret;
 }
 
-/* POSIX规范-文件大小 */
-static uint32_t syscall_posix_sizex(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
-{
-	if (ebx < 0 || ebx == 1 || ebx == 2)return -1;
-	cfile_t file = get_current_proc()->file_table[ebx];
-	if (file == 0)return -1;
-	return file->handle->size;
-}
-
 /* 发送格式化输出到标准输出 */
 static uint32_t syscall_printf(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
@@ -107,9 +98,22 @@ static uint32_t syscall_printf(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_
 }
 
 /* 发送字符到标准输出 */
-static uint32_t syscall_putc(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
+static uint32_t syscall_putchar(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
 {
 	putchar(ebx);
+	return 0;
+}
+
+/* 分配内存并返回地址 */
+static uint32_t syscall_malloc(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
+{
+	return (uint32_t)kmalloc(ebx);
+}
+
+/* 释放分配的内存并合并 */
+static uint32_t syscall_free(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
+{
+	kfree((void *)ebx);
 	return 0;
 }
 
@@ -118,9 +122,10 @@ syscall_t syscall_handlers[MAX_SYSCALLS] = {
 	[1] = syscall_posix_open,
 	[2] = syscall_posix_close,
 	[3] = syscall_posix_read,
-	[4] = syscall_posix_sizex,
-	[5] = syscall_printf,
-	[6] = syscall_putc
+	[4] = syscall_printf,
+	[5] = syscall_putchar,
+	[6] = syscall_malloc,
+	[7] = syscall_free
 };
 
 /* 系统调用处理 */
