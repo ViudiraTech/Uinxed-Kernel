@@ -47,6 +47,7 @@ unsigned int get_hour_hex(void)
 	return BCD_HEX(read_cmos(CMOS_CUR_HOUR));
 }
 
+/* 获取当前分钟的十六进制表示 */
 unsigned int get_min_hex(void)
 {
 	return BCD_HEX(read_cmos(CMOS_CUR_MIN));

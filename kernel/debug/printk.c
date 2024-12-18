@@ -15,6 +15,7 @@
 #include "vargs.h"
 #include "printk.h"
 #include "common.h"
+#include "cmos.h"
 #include "lib_os_terminal.lib.h"
 
 /* VBE */
@@ -51,6 +52,15 @@ void vbe_print_erro(const char *str)
 {
 	vbe_printk("[");
 	vbe_printk_color(0xff0000, "ERRO");
+	vbe_printk("] ");
+	vbe_printk("%s", str);
+}
+
+/* 打印带有"[HH:MM:SS]"的字符串 */
+void vbe_print_time(const char *str)
+{
+	vbe_printk("[");
+	vbe_printk("%02d:%02d:%02d", get_hour_hex(), get_min_hex(), get_sec_hex());
 	vbe_printk("] ");
 	vbe_printk("%s", str);
 }
@@ -121,6 +131,15 @@ void print_erro(const char *str)
 {
 	printk("[");
 	printk("\033[31mERRO\033[0m");
+	printk("] ");
+	printk("%s", str);
+}
+
+/* 打印带有"[HH:MM:SS]"的字符串 */
+void print_time(const char *str)
+{
+	printk("[");
+	printk("%02d:%02d:%02d", get_hour_hex(), get_min_hex(), get_sec_hex());
 	printk("] ");
 	printk("%s", str);
 }

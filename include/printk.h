@@ -24,6 +24,7 @@ void vbe_print_busy(const char *str); // 打印带有”[ ** ]“的字符串
 void vbe_print_succ(const char *str); // 打印带有”[ OK ]“的字符串
 void vbe_print_warn(const char *str); // 打印带有”[WARN]“的字符串
 void vbe_print_erro(const char *str); // 打印带有”[ERRO]“的字符串
+void vbe_print_time(const char *str); // 打印带有"[HH:MM:SS]"的字符串
 
 /* OS-Terminal */
 
@@ -38,6 +39,7 @@ void print_busy(const char *str); // 打印带有”[ ** ]“的字符串
 void print_succ(const char *str); // 打印带有”[ OK ]“的字符串
 void print_warn(const char *str); // 打印带有”[WARN]“的字符串
 void print_erro(const char *str); // 打印带有”[ERRO]“的字符串
+void print_time(const char *str); // 打印带有"[HH:MM:SS]"的字符串
 
 /* 格式化字符串并将其输出到一个字符数组中 */
 int vsprintf(char *buff, const char *format, va_list args);
