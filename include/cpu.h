@@ -34,4 +34,7 @@ void get_cpu_address_sizes(cpu_t *c);
 /* 打印CPU信息 */
 void print_cpu_info(void);
 
+/* 获取CPU信息 */
+void get_cpu_info(char **VENDOR, char **MODEL_NAME, int *PHYS_BITS, int *VIRT_BITS);
+
 #endif // INCLUDE_CPU_H_

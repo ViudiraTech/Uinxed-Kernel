@@ -71,3 +71,17 @@ void print_cpu_info(void)
 	printk("CPU Virtual Address:  0x%x\n\n",c->virt_bits); // 打印完当前CPU信息后会自动帮忙打印一个空行
 	kfree(c);
 }
+
+/* 获取CPU信息 */
+void get_cpu_info(char **VENDOR, char **MODEL_NAME, int *PHYS_BITS, int *VIRT_BITS)
+{
+	cpu_t *c = (cpu_t *)kmalloc(sizeof(cpu_t));
+	get_vendor_name(c);
+	get_model_name(c);
+	get_cpu_address_sizes(c);
+	*VENDOR = c->vendor;
+	*MODEL_NAME = c->model_name;
+	*PHYS_BITS = c->phys_bits;
+	*VIRT_BITS = c->virt_bits;
+	kfree(c);
+}
