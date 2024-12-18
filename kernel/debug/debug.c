@@ -25,7 +25,7 @@ void init_debug(void)
 	kernel_elf = elf_from_multiboot((multiboot_elf_section_header_table_t *)glb_mboot_ptr);
 }
 
-/* 打印当前的段存器值 */
+/* 当前的段存器值 */
 void print_cur_status(uint16_t* ring, uint16_t* regs1, uint16_t* regs2, uint16_t* regs3, uint16_t* regs4)
 {
 	static int round = 0;
@@ -93,7 +93,7 @@ void panic(const char *msg)
 	krn_halt();
 }
 
-/* 打印内核堆栈跟踪 */
+/* 内核堆栈跟踪 */
 void print_stack_trace(uint32_t *eips, const char **syname)
 {
 	uint32_t *ebp, *eip;

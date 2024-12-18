@@ -284,9 +284,6 @@ void init_page(multiboot_t *multiboot)
 	uint32_t mem_end_page = 0xFFFFFFFF; // 4GB Page
 	nframes = mem_end_page / PAGE_SIZE;
 
-	program_break_end = program_break + 0x300000 + 1 + KHEAP_INITIAL_SIZE;
-	memset(program_break, 0, program_break_end - program_break);
-
 	frames = (uint32_t *)kmalloc(INDEX_FROM_BIT(nframes));
 	memset(frames, 0, INDEX_FROM_BIT(nframes));
 
