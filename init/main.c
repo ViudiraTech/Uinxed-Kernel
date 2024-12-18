@@ -56,7 +56,6 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	program_break_end = program_break + 0x300000 + 1 + KHEAP_INITIAL_SIZE;
 	memset(program_break, 0, program_break_end - program_break);
 
-	vbe_to_serial(1);								// 输出内核启动日志到串口
 	init_vbe(glb_mboot_ptr, 0x151515, 0xffffff);	// 初始化图形模式
 
 	/* 检测内存是否达到最低要求 */
@@ -68,7 +67,9 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	printk(PROJK_COPY"\n");												// 打印版权信息
 	printk("This version compiles at "BUILD_DATE" "BUILD_TIME"\n\n");	// 打印编译日期时间
 
-	printk("Initializing operating system kernel components.\n");		// 提示用户正在初始化内核
+	printk("KernelArea: 0x00000000 - 0x%08X | GraphicsBuffer: 0x%08X\n", program_break_end,
+                                                                         glb_mboot_ptr->framebuffer_addr);
+	print_time("Initializing operating system kernel components.\n\n");	// 提示用户正在初始化内核
 
 	init_gdt();						// 初始化GDT
 	init_idt();						// 初始化IDT
@@ -97,11 +98,16 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	} else {
 		print_warn("The root file system could not be mounted.\n");
 	}
-
 	init_timer(1);					// 初始化定时器
 	init_pit();						// 初始化PIT
 
+	terminal_set_color_scheme(3);	// 重置终端主题		
+
 	enable_intr();					// 开启中断
+	enable_scheduler();				// 启用调度
+
+	vbe_write_newline();
+	print_time("The kernel components of the operating system are initialized.\n");
 
 	system_beep(1000);				// 初始化完毕后蜂鸣
 	sleep(10);
@@ -109,11 +115,6 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 
 	vbe_write_newline();			// 打印一个空行，和上面的信息保持隔离
 	print_cpu_info();				// 打印当前CPU的信息
-
-	terminal_set_color_scheme(0);	// 重置终端主题
-	vbe_to_serial(0);				// 停止输出内核启动日志到串口
-
-	enable_scheduler();				// 启用调度
 
 	printk("Terminal Uinxed tty%d\n", get_boot_tty());
 	kernel_thread(kthread_shell, 0, "Basic shell program", USER_TASK);
