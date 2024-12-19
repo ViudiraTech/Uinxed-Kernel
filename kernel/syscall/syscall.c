@@ -125,7 +125,7 @@ static uint32_t syscall_mount(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t es
 }
 
 /* 释放挂载的设备 */
-static uint32_t syscall_unmount(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
+static uint32_t syscall_umount(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
 {
 	return vfs_unmount((const char *)ebx);
 }
@@ -140,7 +140,7 @@ syscall_t syscall_handlers[MAX_SYSCALLS] = {
 	[6] = syscall_malloc,
 	[7] = syscall_free,
 	[8] = syscall_mount,
-	[9] = syscall_unmount
+	[9] = syscall_umount
 };
 
 /* 系统调用处理 */
