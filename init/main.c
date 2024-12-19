@@ -62,7 +62,11 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	if ((glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower) / 1024 + 1 < 32) {
 		panic(P001);
 	}
-	bmp_analysis((Bmp *)klogo, 799, 25, 1);								// 显示内核Logo
+
+#ifdef SHOW_START_LOGO
+	bmp_analysis((Bmp *)klogo, vbe_get_width() - 225, 25, 1);			// 显示内核Logo
+#endif // SHOW_START_LOGO
+
 	printk("Uinxed-Kernel "KERNL_VERS" (build-%d)\n", KERNL_BUID);		// 打印内核信息
 	printk(PROJK_COPY"\n");												// 打印版权信息
 	printk("This version compiles at "BUILD_DATE" "BUILD_TIME"\n\n");	// 打印编译日期时间
@@ -117,7 +121,20 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	print_cpu_info();				// 打印当前CPU的信息
 
 	printk("Terminal Uinxed tty%d\n", get_boot_tty());
+
+#ifdef DEBUG_SHELL
 	kernel_thread(kthread_shell, 0, "Basic shell program", USER_TASK);
+#else
+	if (vfs_do_search(vfs_open("/"), "sbin")) {
+		if (vfs_do_search(vfs_open("/sbin"), "init")) {
+			elf_thread("/sbin/init", 0, "init", USER_TASK);
+		} else {
+			print_warn("Unable to find '/sbin/init'\n");
+		}
+	} else {
+		print_warn("Unable to find '/sbin/init'\n");
+	}
+#endif // DEBUG_SHELL
 
 	/* 内核运行时 */
 	terminal_set_auto_flush(0);
