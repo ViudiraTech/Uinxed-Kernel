@@ -16,6 +16,7 @@
 #include "types.h"
 #include "task.h"
 #include "vfs.h"
+#include "acpi.h"
 
 typedef enum oflags {
 	O_RDONLY,
@@ -130,6 +131,20 @@ static uint32_t syscall_umount(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t e
 	return vfs_unmount((const char *)ebx);
 }
 
+/* 关闭电源 */
+static uint32_t syscall_poweroff(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
+{
+	power_off();
+	return 0;
+}
+
+/* 重启计算机 */
+static uint32_t syscall_reboot(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
+{
+	power_reset();
+	return 0;
+}
+
 /* 系统调用表 */
 syscall_t syscall_handlers[MAX_SYSCALLS] = {
 	[1] = syscall_posix_open,
@@ -140,7 +155,9 @@ syscall_t syscall_handlers[MAX_SYSCALLS] = {
 	[6] = syscall_malloc,
 	[7] = syscall_free,
 	[8] = syscall_mount,
-	[9] = syscall_umount
+	[9] = syscall_umount,
+	[10] = syscall_poweroff,
+	[11] = syscall_reboot
 };
 
 /* 系统调用处理 */
