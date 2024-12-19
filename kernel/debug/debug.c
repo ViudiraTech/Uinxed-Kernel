@@ -14,6 +14,8 @@
 #include "printk.h"
 #include "common.h"
 #include "vbe.h"
+#include "cpu.h"
+#include "sched.h"
 #include "lib_os_terminal.lib.h"
 
 static elf_t kernel_elf;
@@ -54,9 +56,12 @@ void panic(const char *msg)
 	uint32_t eips[5];
 	const char *syname[5];
 	int ps = 0, sy = 0;
+	char *vendor, *model_name;
+	int phys_bits, virt_bits;
 	volatile size_t eax, ebx, ecx, edx, esi, edi, ebp, esp;
 	volatile size_t fs, gs;
 
+	get_cpu_info(&vendor, &model_name, &phys_bits, &virt_bits);
 	print_cur_status(&ring, &regs1, &regs2, &regs3, &regs4);
 	print_stack_trace(eips, syname);
 
@@ -81,7 +86,10 @@ void panic(const char *msg)
 	vbe_printk("    2.Check the compatibility of the kernel with the hardware.\n");
 	vbe_printk("    3.Seek help from a professional.\n\n");
 	vbe_printk("Technical information:\n");
-	vbe_printk("\n*** STOP - Kernel-Panic: %s\n\nEIP:    ", msg);
+	vbe_printk("\n*** STOP - Kernel-Panic: %s\n\n", msg);
+	vbe_printk("CPUID: %s %s | phy/virt: %d/%d bits\n", vendor, model_name, phys_bits, virt_bits);
+	vbe_printk("Current Task: %s | PID: %d\n\n", current->name, current->pid);
+	vbe_printk("EIP:    ");
 	for (int i = 0; i < 5; i++) {
 		vbe_printk("[0x%08X: %s]", eips[ps++], syname[sy++]);
 	}
