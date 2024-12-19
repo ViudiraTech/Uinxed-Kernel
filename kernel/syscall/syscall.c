@@ -15,6 +15,7 @@
 #include "sched.h"
 #include "types.h"
 #include "task.h"
+#include "vfs.h"
 
 typedef enum oflags {
 	O_RDONLY,
@@ -117,6 +118,18 @@ static uint32_t syscall_free(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi
 	return 0;
 }
 
+/* 挂载设备到文件夹 */
+static uint32_t syscall_mount(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
+{
+	return vfs_mount((const char *)ebx, vfs_open((const char *)ecx));
+}
+
+/* 释放挂载的设备 */
+static uint32_t syscall_unmount(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
+{
+	return vfs_unmount((const char *)ebx);
+}
+
 /* 系统调用表 */
 syscall_t syscall_handlers[MAX_SYSCALLS] = {
 	[1] = syscall_posix_open,
@@ -125,7 +138,9 @@ syscall_t syscall_handlers[MAX_SYSCALLS] = {
 	[4] = syscall_printf,
 	[5] = syscall_putchar,
 	[6] = syscall_malloc,
-	[7] = syscall_free
+	[7] = syscall_free,
+	[8] = syscall_mount,
+	[9] = syscall_unmount
 };
 
 /* 系统调用处理 */
