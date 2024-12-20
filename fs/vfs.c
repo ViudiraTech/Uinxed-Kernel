@@ -52,9 +52,7 @@ finline void do_open(vfs_node_t file)
 
 finline void do_update(vfs_node_t file)
 {
-	//assert(file->fsid != 0 || file->type != file_none);
 	if (file->type == file_none || file->handle == 0) do_open(file);
-	//assert(file->type != file_none);
 }
 
 vfs_node_t vfs_child_append(vfs_node_t parent, const char* name, void *handle)
@@ -169,7 +167,6 @@ vfs_node_t vfs_open(const char* str)
 	char *save_ptr = path;
 	vfs_node_t current = rootdir;
 	for (char *buf = pathtok(&save_ptr); buf; buf = pathtok(&save_ptr)) {
-		//vfs_node_t father = current;
 		if (streq(buf, ".")) {
 			goto upd;
 		} else if (streq(buf, "..")) {
@@ -196,10 +193,6 @@ void vfs_update(vfs_node_t node)
 {
 	do_update(node);
 }
-
-// void vfs_deinit() {
-//	// @todo 目前并不支持
-// }
 
 vfs_node_t get_rootdir(void)
 {
@@ -248,9 +241,7 @@ int vfs_mount(const char* src, vfs_node_t node)
 {
 	if (node == 0) return -1;
 	if (node->type != file_dir) return -1;
-	//void *handle = 0;
 	for (int i = 1; i < fs_nextid; i++) {
-		// printf("trying %d", i);
 		if (fs_callbacks[i]->mount(src, node) == 0) {
 			node->fsid = i;
 			node->root = node;
@@ -274,7 +265,7 @@ int vfs_write(vfs_node_t file, void *addr, size_t offset, size_t size)
 	return callbackof(file, write)(file->handle, addr, offset, size);
 }
 
-int vfs_unmount(const char* path)
+int vfs_umount(const char* path)
 {
 	vfs_node_t node = vfs_open(path);
 	if (node == 0) return -1;
@@ -285,7 +276,7 @@ int vfs_unmount(const char* path)
 		node = node->parent;
 		if (cur->root == cur) {
 			vfs_free_child(cur);
-			callbackof(cur, unmount)(cur->handle);
+			callbackof(cur, umount)(cur->handle);
 			cur->fsid = node->fsid; // 交给上级
 			cur->root = node->root;
 			cur->handle = 0;

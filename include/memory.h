@@ -9,8 +9,8 @@
  *
  */
 
-#ifndef UINXED_KERNEL_MEMORY_H
-#define UINXED_KERNEL_MEMORY_H
+#ifndef INCLUDE_MEMORY_H_
+#define INCLUDE_MEMORY_H_
 
 #include "multiboot.h"
 #include "types.h"
@@ -124,4 +124,4 @@ size_t kmalloc_usable_size(void *cp);
 /* 重新分配内存区域 */
 void *krealloc(void *cp, size_t nbytes);
 
-#endif // UINXED_KERNEL_MEMORY_H
+#endif // INCLUDE_MEMORY_H_

@@ -9,22 +9,15 @@
  *
  */
 
-#pragma once
+#ifndef INCLUDE_TYPE_H_
+#define INCLUDE_TYPE_H_
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#define null	0
+#define NULL	0
 
-#ifndef __cplusplus
-#	define null 0
-#	define NULL 0
-#endif
-
-#ifndef __cplusplus
-#	define bool		_Bool
-#	define true		1
-#	define false	0
-#endif
+#define bool	_Bool
+#define true	1
+#define false	0
 
 #undef INT8_MIN
 #undef INT8_MAX
@@ -102,6 +95,4 @@ typedef u8 byte;
 
 typedef const char *cstr;
 
-#ifdef __cplusplus
-}
-#endif
+#endif // INCLUDE_TYPE_H_

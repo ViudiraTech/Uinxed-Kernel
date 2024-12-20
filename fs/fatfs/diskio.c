@@ -90,7 +90,7 @@ DRESULT disk_ioctl(uint8_t  pdrv, /* Physical drive nmuber (0..) */
 
   switch (cmd) {
   case GET_SECTOR_SIZE: *(uint16_t *)buff = 2048; return RES_OK;
-  case GET_SECTOR_COUNT: *(uint32_t *)buff = disk_Size(pdrv + 0x41); return RES_OK;
+  case GET_SECTOR_COUNT: *(uint32_t *)buff = disk_size(pdrv + 0x41); return RES_OK;
   case GET_BLOCK_SIZE: *(uint16_t *)buff = 0; return RES_OK;
   default: break;
   }

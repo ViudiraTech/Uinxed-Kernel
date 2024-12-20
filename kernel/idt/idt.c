@@ -92,7 +92,7 @@ void init_idt(void)
 	/* 两片级联的 Intel 8259A 芯片 */
 	/* 主片端口 0x20 0x21 */
 	/* 从片端口 0xA0 0xA1 */
-	
+
 	/* 初始化主片、从片 */
 	/* 0001 0001 */
 	outb(0x20, 0x11);
@@ -245,7 +245,7 @@ void irq_handler(pt_regs *regs)
 	}
 	/* 发送重设信号给主片 */
 	outb(0x20, 0x20);
-
+	
 	if (interrupt_handlers[regs->int_no]) {
 		interrupt_handlers[regs->int_no](regs);
 	}

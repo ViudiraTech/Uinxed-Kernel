@@ -55,11 +55,11 @@ void init_ide(void)
 	ide_wait_ready(IOBASE, 0);
 
 	/* 1: 选择要操作的设备
-	* 0xE0 代表IDE Primary Master	(IDE 0.0)
-	* 0xF0 代表IDE Primary Slave	(IDE 0.1)
-	* 0xC0 代表IDE Secondary Master	(IDE 1.0)
-	* 0xD0 代表IDE Secondary Slave	(IDE 1.1)
-	*/
+     * 0xE0 代表IDE Primary Master		(IDE 0.0)
+     * 0xF0 代表IDE Primary Slave		(IDE 0.1)
+     * 0xC0 代表IDE Secondary Master	(IDE 1.0)
+     * 0xD0 代表IDE Secondary Slave		(IDE 1.1)
+     */
 	outb(IOBASE + ISA_SDH, 0xE0);
 	ide_wait_ready(IOBASE, 0);
 

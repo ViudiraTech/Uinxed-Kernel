@@ -37,13 +37,13 @@
 void init_debug(void);
 
 /* 打印当前的段存器值 */
-void print_cur_status(uint16_t* ring, uint16_t* regs1, uint16_t* regs2, uint16_t* regs3, uint16_t* regs4);
+void get_cur_status(uint16_t* ring, uint16_t* regs1, uint16_t* regs2, uint16_t* regs3, uint16_t* regs4);
 
-/* 内核恐慌 */
+/* 内核异常 */
 void panic(const char *msg);
 
 /* 打印内核堆栈跟踪 */
-void print_stack_trace(uint32_t *eips, const char **syname);
+void get_stack_trace(uint32_t *eips, const char **syname);
 
 /* 强制阻塞 */
 void spin(const char *name);

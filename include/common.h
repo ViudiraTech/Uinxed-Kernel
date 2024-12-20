@@ -56,9 +56,8 @@ void cpu_get_msr(uint32_t msr, uint32_t *lo, uint32_t *hi);
 /* 设置指定的MSR值 */
 void cpu_set_msr(uint32_t msr, uint32_t lo, uint32_t hi);
 
-void enable_intr(void);						// 开启中断
-void disable_intr(void);					// 关闭中断
-
-void krn_halt(void);						// 内核停机
+void enable_intr(void);		// 开启中断
+void disable_intr(void);	// 关闭中断
+void krn_halt(void);		// 内核停机
 
 #endif // INCLUDE_COMMON_H_

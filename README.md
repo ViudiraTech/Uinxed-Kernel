@@ -20,7 +20,7 @@
 1. **操作系统**：需要在Unix环境（例如FreeBSD、Linux、macOS，Windows平台可安装WSL或CygWin）中进行编译。
 2. **工具安装**：需要安装好gcc、make、nasm和grub-pc、xorriso工具。如果需要测试，请安装qemu虚拟机。
 
-### 工具安装方法：
+## 工具安装方法：
 
 **Debian & Ubuntu & Kali**
 ```bash
@@ -51,7 +51,7 @@ sudo apk add gcc make nasm grub-pc xorriso qemu-system
    - 由于内核需读取multiboot信息，直接用qemu启动内核文件可能无法正常进入。除特殊需求，一般推荐使用“make run”命令启动。
    - “make run-db”和“make runk-db”可以调出对应启动模式的调试（控制台显示汇编代码）。
 
-# 贡献者名单
+## 贡献者名单
 
 1. **MicroFish**
 2. **Rainy101112**
@@ -63,16 +63,20 @@ sudo apk add gcc make nasm grub-pc xorriso qemu-system
 8. **Vinbe Wan**
 9. **xiaoyi1212**
 
-# 项目所使用的开源代码或项目
+## 项目所使用的开源代码或项目
 
 - Hurlex-Kernel: [http://wiki.0xffffff.org/](http://wiki.0xffffff.org/)
 - CoolPotOS: [https://github.com/xiaoyi1212/CoolPotOS](https://github.com/plos-clan/CoolPotOS)
 - libos-terminal: [https://github.com/plos-clan/libos-terminal](https://github.com/plos-clan/libos-terminal)
 - pl_readline: [https://github.com/plos-clan/pl_readline](https://github.com/plos-clan/pl_readline)
 
-# 参考的网站
+## 参考的网站
 
 - OSDev: [https://wiki.osdev.org/](https://wiki.osdev.org)
+
+## 外部链接
+
+- UxSDK: [https://github.com/ViudiraTech/UxSDK](https://github.com/ViudiraTech/UxSDK)
 
 ## 版权声明
 

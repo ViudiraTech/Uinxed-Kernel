@@ -185,10 +185,10 @@ void ISR_registe_Handle(void)
 	register_interrupt_handler(11, (interrupt_handler_t)ISR_11_handle);
 	register_interrupt_handler(12, (interrupt_handler_t)ISR_12_handle);
 	register_interrupt_handler(13, (interrupt_handler_t)ISR_13_handle);
-	
+
 	/* ISR 14 will be define by pagine program */
 	/* ISR 15 CPU reserved */
-	
+
 	register_interrupt_handler(16, (interrupt_handler_t)ISR_16_handle);
 	register_interrupt_handler(17, (interrupt_handler_t)ISR_17_handle);
 	register_interrupt_handler(18, (interrupt_handler_t)ISR_18_handle);

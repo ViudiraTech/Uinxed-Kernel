@@ -133,7 +133,7 @@ int acpi_enable(void)
 	if (SMI_CMD && ACPI_ENABLE) {
 		outb((uint16_t)
 		SMI_CMD, ACPI_ENABLE);
-	
+
 		for (i = 0; i < 300; i++) {
 			if (inw((uint32_t) PM1a_CNT) & SCI_EN) {
 				break;
@@ -268,7 +268,7 @@ uint8_t *AcpiGetRSDPtr(void)
 	uint32_t ebda;
 
 	for (addr = (uint32_t *) 0x000E0000; addr < (uint32_t *) 0x00100000; addr += 0x10 / sizeof(addr)) {
-		rsdt = (uint32_t *)AcpiCheckRSDPtr(addr);
+         rsdt = (uint32_t *)AcpiCheckRSDPtr(addr);
 		if (rsdt) {
 			return (uint8_t *)rsdt;
 		}
@@ -278,7 +278,7 @@ uint8_t *AcpiGetRSDPtr(void)
 	#pragma GCC diagnostic ignored "-Warray-bounds"
 	ebda = *(uint16_t *) 0x40E;
 	#pragma GCC diagnostic pop
-	
+
 	ebda = ebda * 0x10 & 0xfffff;
 	for (addr = (uint32_t *)ebda; addr < (uint32_t * )(ebda + 1024); addr += 0x10 / sizeof(addr)) {
 		rsdt = (uint32_t *)AcpiCheckRSDPtr(addr);
@@ -292,7 +292,7 @@ uint8_t *AcpiGetRSDPtr(void)
 /* 检查ACPI表头 */
 int acpi_check_header(void *ptr, uint8_t *sign)
 {
-	uint8_t * bptr = ptr;
+	uint8_t *bptr = ptr;
 	uint32_t len = *(bptr + 4);
 	uint8_t checksum = 0;
 	if (!memcmp(bptr, sign, 4)) {
@@ -309,12 +309,11 @@ unsigned int acpi_find_table(const char *Signature)
 {
 	uint8_t * ptr, *ptr2;
 	uint32_t len;
-	uint8_t * rsdt_t = (uint8_t *)
-	rsdt;
+	uint8_t * rsdt_t = (uint8_t *)rsdt;
 	for (len = *((uint32_t *)(rsdt_t + 4)), ptr2 = rsdt_t + 36; ptr2 < rsdt_t + len;
-         ptr2 += (*(uint8_t *)rsdt_t == 'X') ? 8 : 4) {
+		ptr2 += (*(uint8_t *)rsdt_t == 'X') ? 8 : 4) {
 		ptr = (uint8_t * )(uintptr_t)(rsdt_t[0] == 'X' ? *((uint64_t *) ptr2)
-													: *((uint32_t *) ptr2));
+              : *((uint32_t *) ptr2));
 		if (!memcmp(ptr, Signature, 4)) {
 			return (unsigned) ptr;
 		}

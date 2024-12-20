@@ -17,6 +17,7 @@
 
 vdisk vdisk_ctl[26];
 
+/* 初始化虚拟磁盘 */
 void vdisk_init(void)
 {
 	for (int i = 0; i < 26; i++) {
@@ -25,6 +26,7 @@ void vdisk_init(void)
 	print_succ("VDisk interface initialize.\n");
 }
 
+/* 注册一个新的虚拟磁盘 */
 int register_vdisk(vdisk vd)
 {
 	for (int i = 0; i < 26; i++) {
@@ -36,6 +38,7 @@ int register_vdisk(vdisk vd)
 	return 0; // 注册失败
 }
 
+/* 注销虚拟磁盘 */
 int logout_vdisk(int drive)
 {
 	int indx = drive;
@@ -50,6 +53,7 @@ int logout_vdisk(int drive)
 	}
 }
 
+/* 对虚拟磁盘读写 */
 int rw_vdisk(int drive, uint32_t lba, uint8_t *buffer, uint32_t number, int read)
 {
 	int indx = drive;
@@ -68,10 +72,10 @@ int rw_vdisk(int drive, uint32_t lba, uint8_t *buffer, uint32_t number, int read
 	}
 }
 
+/* 检查指定驱动器是否已被注册 */
 int have_vdisk(int drive)
 {
 	int indx = drive;
-	// printk("drive=%c\n",drive);
 	if (indx > 26) {
 		return 0;					// 失败
 	}
@@ -94,18 +98,19 @@ static uint8_t drive_buf[16][256];
 
 #pragma GCC diagnostic pop
 
+/* 为虚拟磁盘设置一个名称 */
 int set_drive(uint8_t *name)
 {
 	for (int i = 0; i != 16; i++) {
 		if (drive_name[i] == 0) {
 			drive_name[i] = name;
-			//cir_queue8_init(&drive_fifo[i], 256, drive_buf[i]);
 			return 1;
 		}
 	}
 	return 0;
 }
 
+/* 根据磁盘名返回磁盘号码 */
 uint32_t get_drive_code(uint8_t *name)
 {
 	for (int i = 0; i != 16; i++) {
@@ -114,6 +119,7 @@ uint32_t get_drive_code(uint8_t *name)
 	return 16;
 }
 
+/* 获取驱动器的信号量 */
 int drive_semaphore_take(uint32_t drive_code)
 {
 	return 1;
@@ -129,6 +135,7 @@ int drive_semaphore_take(uint32_t drive_code)
 	 */
 }
 
+/* 释放驱动器的信号量 */
 void drive_semaphore_give(uint32_t drive_code)
 {
 	return;
@@ -144,11 +151,11 @@ void drive_semaphore_give(uint32_t drive_code)
 
 #define SECTORS_ONCE 8
 
+/* 从虚拟磁盘读取数据 */
 void Disk_Read(uint32_t lba, uint32_t number, void *buffer, int drive)
 {
 	if (have_vdisk(drive)) {
 		if (drive_semaphore_take(get_drive_code((uint8_t *)"DISK_DRIVE"))) {
-			// printk("*buffer(%d %d) = %02x\n",lba,number,*(uint8_t *)buffer);
 			for (int i = 0; i < number; i += SECTORS_ONCE) {
 				int sectors = ((number - i) >= SECTORS_ONCE) ? SECTORS_ONCE : (number - i);
 				rw_vdisk(drive, lba + i, (uint8_t *)((uint32_t)buffer + i * vdisk_ctl[drive].sector_size), sectors,
@@ -159,7 +166,8 @@ void Disk_Read(uint32_t lba, uint32_t number, void *buffer, int drive)
 	}
 }
 
-uint32_t disk_Size(int drive)
+/* 获取指定虚拟磁盘的总大小 */
+uint32_t disk_size(int drive)
 {
 	uint8_t drive1 = drive;
 	if (have_vdisk(drive1)) {
@@ -168,26 +176,26 @@ uint32_t disk_Size(int drive)
 	} else {
 		return 0;
 	}
-	
 	return 0;
 }
 
+/* 检查虚拟磁盘是否就绪 */
 int DiskReady(int drive)
 {
 	return have_vdisk(drive);
 }
 
+/* 获取一个就绪的虚拟磁盘 */
 int getReadyDisk(void)
 {
 	return 0;
 }
 
+/* 向虚拟磁盘写入数据 */
 void Disk_Write(uint32_t lba, uint32_t number, const void *buffer, int drive)
 {
-	//  printk("%d\n",lba);
 	if (have_vdisk(drive)) {
 		if (drive_semaphore_take(get_drive_code((uint8_t *)"DISK_DRIVE"))) {
-			// printk("*buffer(%d %d) = %02x\n",lba,number,*(uint8_t *)buffer);
 			for (int i = 0; i < number; i += SECTORS_ONCE) {
 				int sectors = ((number - i) >= SECTORS_ONCE) ? SECTORS_ONCE : (number - i);
 				rw_vdisk(drive, lba + i, (uint8_t *)((uint32_t)buffer + i * vdisk_ctl[drive].sector_size), sectors,

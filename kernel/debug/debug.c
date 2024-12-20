@@ -28,7 +28,7 @@ void init_debug(void)
 }
 
 /* 当前的段存器值 */
-void print_cur_status(uint16_t* ring, uint16_t* regs1, uint16_t* regs2, uint16_t* regs3, uint16_t* regs4)
+void get_cur_status(uint16_t* ring, uint16_t* regs1, uint16_t* regs2, uint16_t* regs3, uint16_t* regs4)
 {
 	static int round = 0;
 	uint16_t reg1, reg2, reg3, reg4;
@@ -62,8 +62,8 @@ void panic(const char *msg)
 	volatile size_t fs, gs;
 
 	get_cpu_info(&vendor, &model_name, &phys_bits, &virt_bits);
-	print_cur_status(&ring, &regs1, &regs2, &regs3, &regs4);
-	print_stack_trace(eips, syname);
+	get_cur_status(&ring, &regs1, &regs2, &regs3, &regs4);
+	get_stack_trace(eips, syname);
 
 	asm("mov %%eax, %0\n\t" : "=r"(eax));
 	asm("mov %%ebx, %0\n\t" : "=r"(ebx));
@@ -102,7 +102,7 @@ void panic(const char *msg)
 }
 
 /* 内核堆栈跟踪 */
-void print_stack_trace(uint32_t *eips, const char **syname)
+void get_stack_trace(uint32_t *eips, const char **syname)
 {
 	uint32_t *ebp, *eip;
 	int ps = 0, sy = 0;

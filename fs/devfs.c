@@ -15,7 +15,6 @@
 #include "debug.h"
 #include "memory.h"
 #include "rbtree-strptr.h"
-//#include "rbtree.h"
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wint-conversion"
@@ -24,7 +23,7 @@
 #define PADDING_UP(size, to) PADDING_DOWN((size_t)(size) + (size_t)(to) - (size_t)1, to)
 
 int devfs_id = 0;
-extern vdisk vdisk_ctl[26]; // core/vdisk.c
+extern vdisk vdisk_ctl[26];
 rbtree_sp_t  dev_rbtree;
 vfs_node_t device_fs_node;
 
@@ -105,12 +104,12 @@ static void devfs_open(void *parent,const char* name, vfs_node_t node)
 {
 	node->handle = rbtree_sp_get(dev_rbtree, name);
 	node->type = file_block;
-	node->size = disk_Size((int)node->handle);
+	node->size = disk_size((int)node->handle);
 }
 
 static struct vfs_callback callbacks = {
 	.mount = devfs_mount,
-	.unmount = (void *)dummy,
+	.umount = (void *)dummy,
 	.mkdir = devfs_mkdir,
 	.mkfile = (void *)dummy,
 	.open = devfs_open,
@@ -133,7 +132,7 @@ int dev_get_sector_size(char *path)
 {
 	vfs_node_t node = vfs_open(path);
 	if (node == 0) return -1;
-	if (node->fsid != devfs_id) return -1; //不是devfs
+	if (node->fsid != devfs_id) return -1; // 不是devfs
 	int dev_id = (int)node->handle;
 	int sector_size = vdisk_ctl[dev_id].sector_size;
 	return sector_size;
@@ -143,9 +142,9 @@ int dev_get_size(char *path)
 {
 	vfs_node_t node = vfs_open(path);
 	if (node == 0) return -1;
-	if (node->fsid != devfs_id) return -1; //不是devfs
+	if (node->fsid != devfs_id) return -1; // 不是devfs
 	int dev_id = (int)node->handle;
-	int size = disk_Size(dev_id);
+	int size = disk_size(dev_id);
 	return size;
 }
 
@@ -153,7 +152,7 @@ int dev_get_type(char *path)
 {
 	vfs_node_t node = vfs_open(path);
 	if (node == 0) return -1;
-	if (node->fsid != devfs_id) return -1; //不是devfs
+	if (node->fsid != devfs_id) return -1; // 不是devfs
 	int dev_id = (int)node->handle;
 	int type = vdisk_ctl[dev_id].flag;
 	return type;

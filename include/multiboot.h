@@ -9,6 +9,9 @@
  *
  */
 
+#ifndef INCLUDE_MULTIBOOT_H_
+#define INCLUDE_MULTIBOOT_H_
+
 #include "types.h"
 
 /* multiboot.h - Multiboot header file. */
@@ -31,9 +34,6 @@
  *  WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
  *  IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-
-#ifndef MULTIBOOT_HEADER
-#define MULTIBOOT_HEADER				1
 
 /* How many bytes from the start of the file we search for the header. */
 #define MULTIBOOT_SEARCH				8192
@@ -177,8 +177,7 @@ struct multiboot
 	multiboot_uint32_t mods_count;
 	multiboot_uint32_t mods_addr;
 
-	union
-	{
+	union {
 		multiboot_aout_symbol_table_t aout_sym;
 		multiboot_elf_section_header_table_t elf_sec;
 	} u;
@@ -213,19 +212,18 @@ struct multiboot
 	multiboot_uint32_t framebuffer_width;
 	multiboot_uint32_t framebuffer_height;
 	multiboot_uint8_t framebuffer_bpp;
+
 #define MULTIBOOT_FRAMEBUFFER_TYPE_INDEXED	0
 #define MULTIBOOT_FRAMEBUFFER_TYPE_RGB		1
 #define MULTIBOOT_FRAMEBUFFER_TYPE_EGA_TEXT	2
+
 	multiboot_uint8_t framebuffer_type;
-	union
-	{
-		struct
-		{
+	union {
+		struct {
 			multiboot_uint32_t framebuffer_palette_addr;
 			multiboot_uint16_t framebuffer_palette_num_colors;
 		};
-		struct
-		{
+		struct {
 			multiboot_uint8_t framebuffer_red_field_position;
 			multiboot_uint8_t framebuffer_red_mask_size;
 			multiboot_uint8_t framebuffer_green_field_position;
@@ -249,11 +247,13 @@ struct mmap_entry_t
 	multiboot_uint32_t size;
 	multiboot_uint64_t addr;
 	multiboot_uint64_t len;
+
 #define MULTIBOOT_MEMORY_AVAILABLE			1
 #define MULTIBOOT_MEMORY_RESERVED			2
 #define MULTIBOOT_MEMORY_ACPI_RECLAIMABLE	3
 #define MULTIBOOT_MEMORY_NVS				4
 #define MULTIBOOT_MEMORY_BADRAM				5
+
 	multiboot_uint32_t type;
 } __attribute__((packed));
 typedef struct mmap_entry mmap_entry_t;
@@ -293,6 +293,6 @@ extern multiboot_t *mboot_ptr_tmp;
 /* 内核页表建立后的指针 */
 extern multiboot_t *glb_mboot_ptr;
 
-#endif // ! ASM_FILE
+#endif // ASM_FILE
 
-#endif // ! MULTIBOOT_HEADER
+#endif // INCLUDE_MULTIBOOT_H_

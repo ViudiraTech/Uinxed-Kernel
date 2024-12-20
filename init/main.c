@@ -129,10 +129,10 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 		if (vfs_do_search(vfs_open("/sbin"), "init")) {
 			elf_thread("/sbin/init", 0, "init", USER_TASK);
 		} else {
-			print_warn("Unable to find '/sbin/init'\n");
+			print_erro("No working init found '/sbin/init'.\n");
 		}
 	} else {
-		print_warn("Unable to find '/sbin/init'\n");
+		print_erro("No working init found '/sbin/init'.\n");
 	}
 #endif // DEBUG_SHELL
 

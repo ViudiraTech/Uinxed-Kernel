@@ -24,10 +24,19 @@
 #define DMA_MODE_BLOCK		0x80 // 块 DMA 传输；
 #define DMA_MODE_CASCADE	0xC0 // 级联模式(用于级联另一个 DMA 控制器)；
 
-void isa_dma_mask(u8 channel, int mask);
-void isa_dma_addr(u8 channel, void *addr);
-void isa_dma_size(u8 channel, u32 size);
-void isa_dma_reset(u8 channel);
-void isa_dma_mode(u8 channel, u8 mode);
+/* 设置 DMA 掩码 */
+void isa_dma_mask(uint8_t channel, int mask);
+
+/* 设置起始地址 */
+void isa_dma_addr(uint8_t channel, void *addr);
+
+/* 设置传输大小 */
+void isa_dma_size(uint8_t channel, uint32_t size);
+
+/* 设置 DMA 模式 */
+void isa_dma_mode(uint8_t channel, uint8_t mode);
+
+/* 重置 DMA */
+void isa_dma_reset(uint8_t channel);
 
 #endif // INCLUDE_ISA_H_

@@ -63,19 +63,19 @@ typedef struct pl_readline_runtime {
 	char *intellisense_word;	// 智能补全词组
 } pl_readline_runtime;
 
-extern pl_readline_words_t pl_readline_word_maker_init(void);
-extern int pl_readline(pl_readline_t self, const char *prompt, char *buffer, size_t len);
-extern void pl_readline_insert_char_and_view(pl_readline_t self, char ch, pl_readline_runtime *rt);
-extern void pl_readline_insert_char(char *str, char ch, int idx);
-extern int pl_readline_word_maker_add(const char *word, pl_readline_words_t words, int is_first, char sep);
-extern void pl_readline_print(pl_readline_t self, char *str);
-extern void pl_readline_intellisense_insert(pl_readline_t self, pl_readline_runtime *rt, pl_readline_word words);
-extern void pl_readline_word_maker_destroy(pl_readline_words_t words);
-extern void pl_readline_next_line(pl_readline_t self, pl_readline_runtime *rt);
-extern int pl_readline_handle_key(pl_readline_t self, int ch, pl_readline_runtime *rt);
-extern void pl_readline_uninit(pl_readline_t self);
-extern pl_readline_word pl_readline_intellisense(pl_readline_t self, pl_readline_runtime *rt, pl_readline_words_t words);
-extern pl_readline_t pl_readline_init(int (*pl_readline_hal_getch)(void), void (*pl_readline_hal_putch)(int ch),
-                                      void (*pl_readline_hal_flush)(void), void (*pl_readline_get_words)(char *buf, pl_readline_words_t words));
+pl_readline_words_t pl_readline_word_maker_init(void);
+int pl_readline(pl_readline_t self, const char *prompt, char *buffer, size_t len);
+void pl_readline_insert_char_and_view(pl_readline_t self, char ch, pl_readline_runtime *rt);
+void pl_readline_insert_char(char *str, char ch, int idx);
+int pl_readline_word_maker_add(const char *word, pl_readline_words_t words, int is_first, char sep);
+void pl_readline_print(pl_readline_t self, char *str);
+void pl_readline_intellisense_insert(pl_readline_t self, pl_readline_runtime *rt, pl_readline_word words);
+void pl_readline_word_maker_destroy(pl_readline_words_t words);
+void pl_readline_next_line(pl_readline_t self, pl_readline_runtime *rt);
+int pl_readline_handle_key(pl_readline_t self, int ch, pl_readline_runtime *rt);
+void pl_readline_uninit(pl_readline_t self);
+pl_readline_word pl_readline_intellisense(pl_readline_t self, pl_readline_runtime *rt, pl_readline_words_t words);
+pl_readline_t pl_readline_init(int (*pl_readline_hal_getch)(void), void (*pl_readline_hal_putch)(int ch),
+                               void (*pl_readline_hal_flush)(void), void (*pl_readline_get_words)(char *buf, pl_readline_words_t words));
 
 #endif // INCLUDE_PL_READLINE_LIB_H_

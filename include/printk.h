@@ -9,6 +9,9 @@
  *
  */
 
+#ifndef INCLUDE_PRINTK_H_
+#define INCLUDE_PRINTK_H_
+
 #include "vargs.h"
 
 /* VBE */
@@ -46,3 +49,5 @@ int vsprintf(char *buff, const char *format, va_list args);
 
 /* 将格式化的输出存储在字符数组中 */
 void sprintf(char *str,const char *fmt, ...);
+
+#endif // INCLUDE_PRINTK_H_

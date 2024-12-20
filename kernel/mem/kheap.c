@@ -200,7 +200,7 @@ void *krealloc(void *cp, size_t nbytes)
 	union overhead *op;
 	char *res;
 	int was_alloced = 0;
-	
+
 	if (cp == 0)
 		return (kmalloc(nbytes));
 	if (nbytes == 0) {
@@ -230,15 +230,15 @@ void *krealloc(void *cp, size_t nbytes)
 				i += pagesz - sizeof(*op) - RSLOP;
 		}
 		if (nbytes <= onb && nbytes > i) {
-			return (cp);
+			return cp;
 		} else
 			kfree(cp);
 	}
 	if ((res = kmalloc(nbytes)) == 0)
-		return (0);
+		return 0;
 	if (cp != res)
 		bcopy(cp, (uint8_t *)res, (nbytes < onb) ? nbytes : onb);
-	return (res);
+	return res;
 }
 
 /* 查找特定内存块所在的bucket */
@@ -251,9 +251,9 @@ static int findbucket(union overhead *freep, int srchlen)
 		j = 0;
 		for (p = nextf[i]; p && j != srchlen; p = p->ov_next) {
 			if (p == freep)
-				return (i);
+				return i;
 			j++;
 		}
 	}
-	return (-1);
+	return -1;
 }

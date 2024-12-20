@@ -23,6 +23,7 @@ static int scroll_lock;
 
 fifo_t terminal_key;
 
+/* 键盘中断处理 */
 void keyboard_handler(pt_regs *regs)
 {
 	uint8_t scan_code = inb(KB_DATA);
@@ -36,6 +37,7 @@ void keyboard_handler(pt_regs *regs)
 	}
 }
 
+/* 等待键盘控制器 */
 static void kb_wait(void)
 {
 	uint8_t kb_stat;
@@ -44,6 +46,7 @@ static void kb_wait(void)
 	} while (kb_stat & 0x02);
 }
 
+/* 设置键盘LED */
 static void set_leds(void)
 {
 	uint8_t leds = (caps_lock << 2) | (num_lock << 1) | scroll_lock;
@@ -55,6 +58,14 @@ static void set_leds(void)
 	outb(KB_DATA, leds);
 }
 
+/* 等待键盘传来的字符 */
+void getch(char *ch)
+{
+	while (fifo_status(&terminal_key) == 0);
+	*ch = fifo_get(&terminal_key);
+}
+
+/* 初始化键盘驱动器 */
 void init_keyboard(void)
 {
 	print_busy("Initializing PS/2 keyboard controller...\r"); // 提示用户正在初始化键盘接口，并回到行首等待覆盖

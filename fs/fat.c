@@ -26,7 +26,7 @@
 			printk("Assertion failed, %s line:%d\n", __FILE__, __LINE__); \
 		} \
 	} while (0)
-		
+
 #define error(msg) printk("[FatErr]: %s\n",msg)
 
 static FATFS volume[10];
@@ -110,15 +110,15 @@ void fatfs_open(void *parent, const char* name, vfs_node_t node)
 	FRESULT res = f_stat(new_path, &fno);
 	assert(res == FR_OK);
 	if (fno.fattrib & AM_DIR) {
-		//node.
 		node->type = file_dir;
 		fp = kmalloc(sizeof(DIR));
 		res = f_opendir(fp, new_path);
 		assert(res == FR_OK);
 		for (;;) {
-			//读取目录下的内容，再读会自动读下一个文件
+			/* 读取目录下的内容，再读会自动读下一个文件 */
 			res = f_readdir(fp, &fno);
-			//为空时表示所有项目读取完毕，跳出
+
+			/* 为空时表示所有项目读取完毕，跳出 */
 			if (res != FR_OK || fno.fname[0] == 0) break;
 			vfs_child_append(node, fno.fname, 0);
 		}
@@ -177,9 +177,10 @@ int fatfs_mount(const char* src, vfs_node_t node)
 	FILINFO fno;
 	FRESULT res;
 	for (;;) {
-		//读取目录下的内容，再读会自动读下一个文件
+		/* 读取目录下的内容，再读会自动读下一个文件 */
 		res = f_readdir(h, &fno);
-		//为空时表示所有项目读取完毕，跳出
+
+		/* 为空时表示所有项目读取完毕，跳出 */
 		if (res != FR_OK || fno.fname[0] == 0) break;
 		vfs_child_append(node, fno.fname, 0);
 	}
@@ -187,13 +188,13 @@ int fatfs_mount(const char* src, vfs_node_t node)
 	return 0;
 }
 
-void fatfs_unmount(void *root)
+void fatfs_umount(void *root)
 {
 	file_t f = root;
 	int number = f->path[0] - '0';
 	drive_number_mapping[number] = 0;
 	f_closedir(f->handle);
-	f_unmount(f->path);
+	f_umount(f->path);
 	kfree(f->path);
 	kfree(f->handle);
 	kfree(f);
@@ -210,14 +211,13 @@ int fatfs_stat(void *handle, vfs_node_t node)
 	} else {
 		node->type = file_block;
 		node->size = fno.fsize;
-		// node->createtime = fno.ftime
 	}
 	return 0;
 }
 
 static struct vfs_callback callbacks = {
 	.mount = fatfs_mount,
-	.unmount = fatfs_unmount,
+	.umount = fatfs_umount,
 	.open = fatfs_open,
 	.close = (vfs_close_t)fatfs_close,
 	.read = (vfs_read_t)fatfs_readfile,

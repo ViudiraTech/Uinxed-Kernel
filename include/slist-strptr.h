@@ -39,5 +39,5 @@ size_t slist_sp_length(slist_sp_t list);
 void slist_sp_print(slist_sp_t list);
 
 #define slist_sp_foreach(list, node) for (slist_sp_t node = (list); node; node = node->next)
-
+	
 #endif // INCLUDE_SLIST_STRPTR_H_

@@ -80,10 +80,10 @@ static uint32_t syscall_posix_read(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32
 	char *filebuf = (char *)buffer;
 	char *retbuf = (char *)ecx;
 
-	if(edx > file->handle->size){
+	if (edx > file->handle->size) {
 		memcpy((uint8_t *)retbuf, (const uint8_t *)filebuf, file->handle->size);
 		ret = file->pos += file->handle->size;
-	}else{
+	} else {
 		memcpy((uint8_t *)retbuf, (const uint8_t *)filebuf, edx);
 		ret = file->pos += edx;
 	}
@@ -128,7 +128,7 @@ static uint32_t syscall_mount(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t es
 /* 释放挂载的设备 */
 static uint32_t syscall_umount(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
 {
-	return vfs_unmount((const char *)ebx);
+	return vfs_umount((const char *)ebx);
 }
 
 /* 关闭电源 */

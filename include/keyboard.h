@@ -16,7 +16,8 @@
 
 extern fifo_t terminal_key;
 
-void init_keyboard(void); // 键盘初始化函数
+void getch(char *ch);		// 等待键盘传来的字符
+void init_keyboard(void);	// 初始化键盘驱动器
 
 #define KB_DATA		0x60
 #define KB_CMD		0x64

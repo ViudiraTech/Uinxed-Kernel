@@ -88,10 +88,10 @@ int ide_write_secs(uint32_t secno, const void *src, uint32_t nsecs);
 
 /* IDE设备信息 */
 static struct ide_device {
-	uint8_t valid;							// 是否可用
-	uint32_t sets;							// 命令支持
-	uint32_t size;							// 扇区数量
-	char desc[IDE_DESC_LEN+1];				// IDE设备描述
+	uint8_t valid;				// 是否可用
+	uint32_t sets;				// 命令支持
+	uint32_t size;				// 扇区数量
+	char desc[IDE_DESC_LEN+1];	// IDE设备描述
 } ide_device;
 
 #pragma GCC diagnostic pop

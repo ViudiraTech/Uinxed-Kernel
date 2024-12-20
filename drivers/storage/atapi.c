@@ -29,11 +29,11 @@ int read_cdrom(uint16_t port, int slave, uint32_t lba, uint32_t sectors, uint16_
 		return 1;
 	}
 	volatile uint8_t read_cmd[12] = {0xA8, 0,
-                                    (lba >> 0x18) & 0xFF, (lba >> 0x10) & 0xFF, (lba >> 0x08) & 0xFF,
-                                    (lba >> 0x00) & 0xFF,
-                                    (sectors >> 0x18) & 0xFF, (sectors >> 0x10) & 0xFF, (sectors >> 0x08) & 0xFF,
-                                    (sectors >> 0x00) & 0xFF,
-                                    0, 0};
+                                     (lba >> 0x18) & 0xFF, (lba >> 0x10) & 0xFF, (lba >> 0x08) & 0xFF,
+                                     (lba >> 0x00) & 0xFF,
+                                     (sectors >> 0x18) & 0xFF, (sectors >> 0x10) & 0xFF, (sectors >> 0x08) & 0xFF,
+                                     (sectors >> 0x00) & 0xFF,
+                                     0, 0};
 
 	outb(port + DRIVE_SELECT, 0xA0 & (slave << 4)); // 选择驱动器
 	ata_io_wait(port);

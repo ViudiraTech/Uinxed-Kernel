@@ -135,7 +135,7 @@ int32_t elf_thread(const char* path, void *arg, const char *name, int level)
 /* 获得当前进程 */
 struct task_struct *get_current_proc(void)
 {
-    return current;
+	return current;
 }
 
 /* 进程退出函数 */
@@ -288,11 +288,11 @@ void kill_all_task(void)
 /* 使进程陷入等待 */
 void wait_task(struct task_struct *task)
 {
-    task->state = TASK_SLEEPING;
+	task->state = TASK_SLEEPING;
 }
 
 /* 使进程回归运行 */
 void start_task(struct task_struct *task)
 {
-    task->state = TASK_RUNNABLE;
+	task->state = TASK_RUNNABLE;
 }

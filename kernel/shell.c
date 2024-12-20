@@ -293,8 +293,8 @@ int find_cmd(uint8_t *cmd)
 
 static int plreadln_getch(void)
 {
-	while (fifo_status(&terminal_key) == 0);
-	int ch = fifo_get(&terminal_key);
+	char ch;
+	getch(&ch);
 	if (ch == 0x0d) {
 		return PL_READLINE_KEY_ENTER;
 	}
@@ -327,7 +327,7 @@ static int plreadln_getch(void)
 				break;
 			case '6':
 				if (plreadln_getch() == '~')
-				    return PL_READLINE_KEY_PAGE_DOWN;
+					return PL_READLINE_KEY_PAGE_DOWN;
 				break;
 			default:
 				return -1;

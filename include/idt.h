@@ -22,7 +22,7 @@ struct idt_entry_t {
 	uint8_t  always0;	// 置 0 段
 	uint8_t  flags;		// 一些标志，文档有解释
 	uint16_t base_hi;	// 中断处理函数地址 31～16 位
-}__attribute__((packed)) idt_entry_t;
+} __attribute__((packed)) idt_entry_t;
 
 /* IDTR */
 typedef

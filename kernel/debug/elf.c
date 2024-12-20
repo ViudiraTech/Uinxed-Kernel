@@ -14,6 +14,7 @@
 #include "elf.h"
 #include "printk.h"
 
+/* 回调函数 */
 void segment_callback(struct ElfSegment segment)
 {
 	page_directory_t *pg_dir = current_directory;
@@ -23,6 +24,7 @@ void segment_callback(struct ElfSegment segment)
 	memcpy((void*)segment.address,segment.data,segment.size);
 }
 
+/* ELF加载并返回入口 */
 uint32_t elf_load(size_t elf_size,uint8_t *elf_data)
 {
 	struct ElfParseResult result = parse_elf(elf_data, elf_size, segment_callback);
@@ -58,7 +60,7 @@ elf_t elf_from_multiboot(multiboot_elf_section_header_table_t *mb)
 	uint32_t shstrtab = sh[mb->shndx].addr;
 	for (i = 0; i < (int)mb->num; i++) {
 		const char *name = (const char *)(shstrtab + sh[i].name);
-	
+
 		/* 在 GRUB 提供的 multiboot 信息中寻找 */
 		/* 内核 ELF 格式所提取的字符串表和符号表 */
 		if (strcmp(name, ".strtab") == 0) {

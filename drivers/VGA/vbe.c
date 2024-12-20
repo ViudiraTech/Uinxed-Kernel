@@ -61,7 +61,6 @@ void vbe_clear_color(int color)
 void screen_clear(void)
 {
 	printk("\033[H\033[2J\033[3J");
-	// vbe_clear();
 }
 
 /* 打印一个空行 */

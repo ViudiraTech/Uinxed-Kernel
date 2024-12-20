@@ -17,7 +17,7 @@ typedef struct {
 	char model_name[64];
 	unsigned int virt_bits;
 	unsigned int phys_bits;
-}cpu_t;
+} cpu_t;
 
 /* 获取CPUID */
 void cpuid(unsigned int op, unsigned int *eax, unsigned int *ebx, unsigned int *ecx, unsigned int *edx);

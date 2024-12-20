@@ -121,7 +121,6 @@ void console_putc_color(char c, real_color_t back, real_color_t fore)
 		cursor_x = 0;
 		cursor_y ++;
 	}
-
 	if (console_serial == 1) write_serial(c); // 输出控制台到串口设备
 
 	/* 如果需要的话滚动屏幕显示 */

@@ -17,7 +17,7 @@
 
 typedef struct vfs_node *vfs_node_t;
 typedef int (*vfs_mount_t)(const char* src, vfs_node_t node);
-typedef void (*vfs_unmount_t)(void *root);
+typedef void (*vfs_umount_t)(void *root);
 typedef void (*vfs_open_t)(void *parent,const char* name, vfs_node_t node);
 typedef void (*vfs_close_t)(void *current);
 typedef void (*vfs_resize_t)(void *current, uint64_t size);
@@ -36,7 +36,7 @@ enum {
 
 typedef struct vfs_callback {
 	vfs_mount_t mount;
-	vfs_unmount_t unmount;
+	vfs_umount_t umount;
 	vfs_open_t open;
 	vfs_close_t close;
 	vfs_read_t read;
@@ -87,8 +87,8 @@ void vfs_free_child(vfs_node_t vfs);
 int vfs_read(vfs_node_t file, void *addr, size_t offset, size_t size);	// 读取节点数据
 int vfs_write(vfs_node_t file, void *addr, size_t offset, size_t size);	// 写入节点
 int vfs_mount(const char* src, vfs_node_t node);						// 挂载指定设备至指定节点
-int vfs_unmount(const char* path);										// 卸载指定设备的挂载点
-vfs_node_t get_rootdir(void);												// 获取根节点
+int vfs_umount(const char* path);										// 卸载指定设备的挂载点
+vfs_node_t get_rootdir(void);											// 获取根节点
 int vfs_init(void);
 
 #endif // INCLUDE_VFS_H_

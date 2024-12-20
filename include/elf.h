@@ -54,7 +54,10 @@ struct elf_t {
 	uint32_t		strtabsz;
 } elf_t;
 
+/* 回调函数 */
 void segment_callback(struct ElfSegment segment);
+
+/* ELF加载并返回入口 */
 uint32_t elf_load(size_t elf_size,uint8_t *elf_data);
 
 /* 从 multiboot_t 结构获取ELF信息 */

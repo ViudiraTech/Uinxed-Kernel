@@ -193,7 +193,7 @@ uint32_t get_kernel_memory_usage(void)
 /* 页错误处理 */
 void page_fault(pt_regs *regs)
 {
-	asm("cli");
+	disable_intr();
 	uint32_t faulting_address;
 	asm volatile("mov %%cr2, %0" : "=r" (faulting_address));
 
@@ -303,7 +303,7 @@ void init_page(multiboot_t *multiboot)
 	}
 	uint32_t j = multiboot->framebuffer_addr,
                  size = multiboot->framebuffer_height * multiboot->framebuffer_width*multiboot->framebuffer_bpp;
-	while (j <= multiboot->framebuffer_addr + size){ // VBE显存缓冲区映射
+	while (j <= multiboot->framebuffer_addr + size) { // VBE显存缓冲区映射
 		alloc_frame_line(get_page(j,1,kernel_directory),j,0,1);
 		j += 0x1000;
 	}
