@@ -29,8 +29,7 @@ C_FLAGS			= -Wall -Werror -Wcast-align -Winline -Wwrite-strings \
 LD_FLAGS		= -T scripts/kernel.ld -m elf_i386 --strip-all
 ASM_FLAGS		= -f elf -g -F stabs
 
-all: info UxImage limine_iso
-grub: info UxImage grub_iso
+all: info UxImage grub_iso
 
 info:
 	@printf "Uinxed-Kernel Compile Script.\n"
@@ -51,19 +50,7 @@ UxImage: $(S_OBJECTS) $(C_OBJECTS)
 	@printf "\033[1;32m[Link]\033[0m Linking kernel...\n"
 	@$(LD) $(LD_FLAGS) $(S_OBJECTS) $(C_OBJECTS) $(OTHER_OBJECTS) -o UxImage
 
-.PHONY:limine
-limine_iso: UxImage
-	@echo
-	@printf "\033[1;32m[ISO]\033[0m Packing ISO file...\n"
-	@mkdir iso
-	@cp -r boot/limine iso
-	@cp $< iso
-
-	@xorriso -as mkisofs -b limine/limine-bios-cd.bin -no-emul-boot -boot-info-table iso -o Uinxed.iso
-	@rm -rf iso
-	@printf "\033[1;32m[Done]\033[0m Compilation complete.\n"
-
-.PHONY:grub
+.PHONY:iso
 grub_iso: UxImage
 	@echo
 	@printf "\033[1;32m[ISO]\033[0m Packing ISO file...\n"
@@ -74,7 +61,7 @@ grub_iso: UxImage
 	@echo 'set default=0' >> iso/boot/grub/grub.cfg
 
 	@echo 'menuentry "Uinxed"{' >> iso/boot/grub/grub.cfg
-	@echo '	multiboot /boot/UxImage' >> iso/boot/grub/grub.cfg
+	@echo '	multiboot /boot/UxImage tty=1' >> iso/boot/grub/grub.cfg
 	@echo '	boot' >> iso/boot/grub/grub.cfg
 	@echo '}' >> iso/boot/grub/grub.cfg
 
