@@ -124,13 +124,12 @@ void spin(const char *name)
 }
 
 /* 断言失败 */
-void assertion_failure(char *exp, char *file, char *base, int line)
+void assertion_failure(const char *exp, const char *file, int line)
 {
 	printk("assert(%s) failed!\n"
            "file: %s\n"
-           "base: %s\n"
            "line: %d\n\n",
-           exp, file, base, line);
+           exp, file, line);
 
 	spin("assertion_failure()");
 

@@ -15,7 +15,7 @@
 #include "types.h"
 
 #define assert(exp) \
-	if (!exp) assertion_failure(#exp, __FILE__, get_filename(__FILE__), __LINE__)
+	if (!exp) assertion_failure(#exp, __FILE__, __LINE__)
 
 #define assertx(x, info) \
 	if (!x) panic(info);
@@ -49,6 +49,6 @@ void get_stack_trace(uint32_t *eips, const char **syname);
 void spin(const char *name);
 
 /* 断言失败 */
-void assertion_failure(char *exp, char *file, char *base, int line);
+void assertion_failure(const char *exp, const char *file, int line);
 
 #endif // INCLUDE_DEBUG_H_
