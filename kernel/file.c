@@ -24,50 +24,33 @@ void file_init(void)
 	print_succ("File abstraction working is initialize.\n");
 }
 
-/* 构建目录 */
-static void build_path(vfs_node_t node, char *path, int path_len)
-{
-	if (node == 0) return;
-	if (node != node->root) {
-		build_path(node->parent, path, path_len);
-	}
-	if (node->name != 0 && strlen(node->name) > 0) {
-		char temp[128];
-		sprintf(temp, "/%s", node->name);
-		int temp_len = strlen(temp);
-		if (path_len + temp_len < 128) {
-			memcpy((uint8_t *)path + path_len, (const uint8_t *)temp, temp_len + 1);
-		} else {
-			path[0] = '\0';
-			return;
-		}
-	}
-}
-
 /* 将vfs_node_t结构体路径转为字符串 */
 char *vfs_node_to_path(vfs_node_t node)
 {
-	if (node == 0 || node->root == 0) {
+	if (node == 0) {
 		return 0;
 	}
-	char *path = kmalloc(128);
-	if (path == 0) {
-		return 0;
-	}
-	path[0] = '\0';
-	build_path(node, path, 0);
-	if (path[0] == '\0' || path[0] != '/') {
-		char *new_path = kmalloc(128);
-		if (new_path == 0) {
-			kfree(path);
+	if (node->parent == 0) {
+		char* path = strdup("/");
+		return path;
+	} else {
+		char* parent_path = vfs_node_to_path(node->parent);
+		if (parent_path == 0) {
 			return 0;
 		}
-		new_path[0] = '/';
-		strcpy(new_path + 1, path);
-		kfree(path);
-		path = new_path;
+		char* path = (char *)kmalloc(strlen(parent_path) + strlen(node->name) + 2);
+		if (path == 0) {
+			kfree(parent_path);
+			return 0;
+		}
+		strcpy(path, parent_path);
+		if (strcmp(parent_path, "/") != 0) {
+			strcat(path, "/");
+		}
+		strcat(path, node->name);
+		kfree(parent_path);
+		return path;
 	}
-	return path;
 }
 
 /* 切换工作目录 */
