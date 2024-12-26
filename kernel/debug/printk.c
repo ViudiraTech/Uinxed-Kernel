@@ -16,7 +16,7 @@
 #include "printk.h"
 #include "common.h"
 #include "cmos.h"
-#include "lib_os_terminal.lib.h"
+#include "os_terminal.lib.h"
 
 /* VBE */
 
@@ -112,7 +112,7 @@ void print_busy(const char *str)
 void print_succ(const char *str)
 {
 	printk("[");
-	printk("\033[32m   OK   \033[0m");
+	printk("\033[32m OK \033[0m");
 	printk("] ");
 	printk("%s", str);
 }
@@ -121,7 +121,7 @@ void print_succ(const char *str)
 void print_warn(const char *str)
 {
 	printk("[");
-	printk("\033[33m  WARN  \033[0m");
+	printk("\033[33mWARN\033[0m");
 	printk("] ");
 	printk("%s", str);
 }
@@ -130,7 +130,7 @@ void print_warn(const char *str)
 void print_erro(const char *str)
 {
 	printk("[");
-	printk("\033[31m  ERRO  \033[0m");
+	printk("\033[31mERRO\033[0m");
 	printk("] ");
 	printk("%s", str);
 }
@@ -145,7 +145,7 @@ void print_time(const char *str)
 }
 
 /* 内核打印字符 */
-void putchar(char ch)
+void putchar(int ch)
 {
 	uint32_t eflags = load_eflags();
 	if (eflags & (1 << 9)) disable_intr();

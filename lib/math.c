@@ -18,7 +18,7 @@
 /* sin运算 */
 double sin(double x)
 {
-	asm volatile("fldl %0 \n"
+	__asm__ __volatile__("fldl %0 \n"
                  "fsin \n"
                  "fstpl %0\n"
                  : "+m"(x));
@@ -28,7 +28,7 @@ double sin(double x)
 /* cos运算 */
 double cos(double x)
 {
-	asm volatile("fldl %0 \n"
+	__asm__ __volatile__("fldl %0 \n"
                  "fcos \n"
                  "fstpl %0\n"
                  : "+m"(x));
@@ -38,7 +38,7 @@ double cos(double x)
 /* tan运算 */
 double tan(double x)
 {
-	asm volatile("fldl %0 \n"
+	__asm__ __volatile__("fldl %0 \n"
                  "fptan \n"
                  "fstpl %0\n"
                  "fstpl %0\n"
@@ -49,7 +49,7 @@ double tan(double x)
 /* sqrt运算 */
 double sqrt(double x)
 {
-	asm volatile("fldl %0 \n"
+	__asm__ __volatile__("fldl %0 \n"
                  "fsqrt \n"
                  "fstpl %0\n"
                  : "+m"(x));
@@ -301,7 +301,7 @@ double atof(const char *str)
 /* log2运算 */
 double log2(double x)
 {
-	asm volatile("fld1 \n"
+	__asm__ __volatile__("fld1 \n"
                  "fldl %0 \n"
                  "fyl2x \n"
                  "fwait \n"

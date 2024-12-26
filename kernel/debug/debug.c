@@ -16,7 +16,7 @@
 #include "vbe.h"
 #include "cpu.h"
 #include "sched.h"
-#include "lib_os_terminal.lib.h"
+#include "os_terminal.lib.h"
 
 static elf_t kernel_elf;
 
@@ -33,7 +33,7 @@ void get_cur_status(uint16_t* ring, uint16_t* regs1, uint16_t* regs2, uint16_t* 
 	static int round = 0;
 	uint16_t reg1, reg2, reg3, reg4;
 
-	asm volatile("mov %%cs, %0;"
+	__asm__ __volatile__("mov %%cs, %0;"
                  "mov %%ds, %1;"
                  "mov %%es, %2;"
                  "mov %%ss, %3;"
@@ -65,17 +65,17 @@ void panic(const char *msg)
 	get_cur_status(&ring, &regs1, &regs2, &regs3, &regs4);
 	get_stack_trace(eips, syname);
 
-	asm("mov %%eax, %0\n\t" : "=r"(eax));
-	asm("mov %%ebx, %0\n\t" : "=r"(ebx));
-	asm("mov %%ecx, %0\n\t" : "=r"(ecx));
-	asm("mov %%edx, %0\n\t" : "=r"(edx));
-	asm("mov %%esi, %0\n\t" : "=r"(esi));
-	asm("mov %%edi, %0\n\t" : "=r"(edi));
-	asm("mov %%ebp, %0\n\t" : "=r"(ebp));
-	asm("mov %%esp, %0\n\t" : "=r"(esp));
+	__asm__("mov %%eax, %0\n\t" : "=r"(eax));
+	__asm__("mov %%ebx, %0\n\t" : "=r"(ebx));
+	__asm__("mov %%ecx, %0\n\t" : "=r"(ecx));
+	__asm__("mov %%edx, %0\n\t" : "=r"(edx));
+	__asm__("mov %%esi, %0\n\t" : "=r"(esi));
+	__asm__("mov %%edi, %0\n\t" : "=r"(edi));
+	__asm__("mov %%ebp, %0\n\t" : "=r"(ebp));
+	__asm__("mov %%esp, %0\n\t" : "=r"(esp));
 
-	asm("mov %%fs, %0\n\t" : "=r"(fs));
-	asm("mov %%gs, %0\n\t" : "=r"(gs));
+	__asm__("mov %%fs, %0\n\t" : "=r"(fs));
+	__asm__("mov %%gs, %0\n\t" : "=r"(gs));
 
 	vbe_clear_color(0x000080);
 	vbe_printk("Your kernel has encountered a fatal error.\n");
@@ -107,7 +107,7 @@ void get_stack_trace(uint32_t *eips, const char **syname)
 	uint32_t *ebp, *eip;
 	int ps = 0, sy = 0;
 
-	asm volatile("mov %%ebp, %0" : "=r" (ebp));
+	__asm__ __volatile__("mov %%ebp, %0" : "=r" (ebp));
 	while (ebp) {
 		eip = ebp + 1;
 		eips[ps++] = *eip;
@@ -134,5 +134,5 @@ void assertion_failure(const char *exp, const char *file, int line)
 	spin("assertion_failure()");
 
 	/* 不可能走到这里，否则出错 */
-	asm volatile("ud2");
+	__asm__ __volatile__("ud2");
 }

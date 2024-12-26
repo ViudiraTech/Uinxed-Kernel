@@ -99,7 +99,7 @@ void change_task_to(struct task_struct *next, pt_regs *regs)
 		set_kernel_stack((uintptr_t)current->stack + STACK_SIZE);
 		set_cr0(get_cr0() & ~((1 << 2) | (1 << 3)));
 		if (current->fpu_flag) {
-			asm volatile("fnsave (%%eax) \n" ::"a"(&(current->context.fpu_regs)) : "memory");
+			__asm__ __volatile__("fnsave (%%eax) \n" ::"a"(&(current->context.fpu_regs)) : "memory");
 		}
 		set_cr0(get_cr0() | (1 << 2) | (1 << 3));
 

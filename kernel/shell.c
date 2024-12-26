@@ -25,7 +25,7 @@
 #include "timer.h"
 #include "file.h"
 #include "pl_readline.lib.h"
-#include "lib_os_terminal.lib.h"
+#include "os_terminal.lib.h"
 
 #define MAX_COMMAND_LEN	100
 #define MAX_ARG_NR		30

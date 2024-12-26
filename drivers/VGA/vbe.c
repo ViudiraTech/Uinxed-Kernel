@@ -14,7 +14,7 @@
 #include "serial.h"
 #include "printk.h"
 #include "memory.h"
-#include "lib_os_terminal.lib.h"
+#include "os_terminal.lib.h"
 
 uint32_t width, height;
 uint32_t c_width, c_height;			// 字符绘制总宽高
@@ -224,6 +224,8 @@ void init_vbe(multiboot_t *info, int back, int fore)
 		.height = height,
 		.address = screen
 	};
-	terminal_init(&display, 9.5, (void *)kmalloc, kfree, write_serial_string);	// 初始化terminal
-	terminalMode = 1;															// 开启terminal
+	terminal_init(&display, 9.5, (void *)kmalloc, kfree, write_serial_string);
+	terminal_set_auto_crnl(true);
+
+	terminalMode = 1;
 }

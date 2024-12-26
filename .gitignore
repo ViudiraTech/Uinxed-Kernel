@@ -19,7 +19,6 @@
 *.pch
 
 # Libraries
-*.a
 *.la
 *.lo
 
@@ -55,3 +54,8 @@ dkms.conf
 # Kernel Target Files
 UxImage
 Uinxed.iso
+
+# Xmake cache
+.xmake/
+build/
+CMakeLists.txt

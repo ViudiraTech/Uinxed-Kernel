@@ -15,7 +15,7 @@
 #include "idt.h"
 #include "memory.h"
 #include "printk.h"
-#include "lib_os_terminal.lib.h"
+#include "os_terminal.lib.h"
 
 static int caps_lock;
 static int num_lock;
@@ -27,7 +27,7 @@ fifo_t terminal_key;
 void keyboard_handler(pt_regs *regs)
 {
 	uint8_t scan_code = inb(KB_DATA);
-	const uint8_t *p = terminal_handle_keyboard(scan_code);
+	const char *p = terminal_handle_keyboard(scan_code);
 	disable_intr();
 	if (p != 0) {
 		while (*p != '\0') {
