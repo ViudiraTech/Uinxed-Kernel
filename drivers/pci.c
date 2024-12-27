@@ -280,6 +280,25 @@ const char *pci_classname(uint32_t classcode)
 	return "Unknown device";
 }
 
+int pci_find(int (*callback)(unsigned int, unsigned int, unsigned int, void *), void *data)
+{
+	unsigned int BUS, Equipment, F;
+
+	for (BUS = 0; BUS < 256; BUS++) {
+		for (Equipment = 0; Equipment < 32; Equipment++) {
+			for (F = 0; F < 8; F++) {
+				pci_config(BUS, F, Equipment, 0);
+				if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
+					if (callback(BUS, Equipment, F, data)) {
+						return 1;
+					}
+				}
+			}
+		}
+	}
+	return 0;
+}
+
 /* 按ClassCode查找相应设备 */
 int pci_find_class(uint32_t class_code)
 {

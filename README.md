@@ -48,7 +48,6 @@ sudo apk add gcc make nasm grub-pc xorriso qemu-system
    - 输入“make clean”清理所有中间文件及UxImage和镜像。
    - 输入“make run”即可通过qemu测试启动iso镜像。
    - 输入“make runk”可以通过qemu测试内核文件启动。
-   - 由于内核需读取multiboot信息，直接用qemu启动内核文件可能无法正常进入。除特殊需求，一般推荐使用“make run”命令启动。
    - “make run-db”和“make runk-db”可以调出对应启动模式的调试（控制台显示汇编代码）。
 
 ## 贡献者名单
