@@ -18,35 +18,37 @@
 ## 编译要求
 
 1. **操作系统**：需要在Unix环境（例如FreeBSD、Linux、macOS，Windows平台可安装WSL或CygWin）中进行编译。
-2. **工具安装**：需要安装好gcc、make、nasm和grub-pc、xorriso工具。如果需要测试，请安装qemu虚拟机。
+2. **工具安装**：需要安装好gcc、nasm和grub-pc、xorriso工具。编译工具按自己喜好选择make或者xmake。如果需要测试，请安装qemu虚拟机。
 
 ## 工具安装方法：
 
 **Debian & Ubuntu & Kali**
 ```bash
 sudo apt update
-sudo apt install gcc make nasm grub-pc xorriso qemu-system
+sudo apt install gcc make xmake nasm grub-pc xorriso qemu-system
 ```
 
 **ArchLinux**
 ```bash
-pacman -Sy gcc make nasm grub-pc xorriso qemu-system
+pacman -Sy gcc make xmake nasm grub-pc xorriso qemu-system
 ```
 
 **Alpine**
 ```bash
 sudo apk update
-sudo apk add gcc make nasm grub-pc xorriso qemu-system
+sudo apk add gcc make xmake nasm grub-pc xorriso qemu-system
 ```
 
 ## 编译指南
 
 1. **获取源码**：将源码clone到本地。
-2. **编译**：在已clone到本地的项目源码根目录内执行make命令即可开始编译，执行make grub编译出grub引导的iso。
-3. **编译结果**：编译后会生成两个文件：UxImage和Uinxed.iso，这两个文件分别为内核文件和带引导的镜像文件。
+2. **编译**：在已clone到本地的项目源码根目录内执行make或者xmake命令即可开始编译。
+3. **编译结果**：编译后会生成两个文件：UxImage和Uinxed.iso（通过xmake编译的会生成在./build/），这两个文件分别为内核文件和带引导的镜像文件。
 4. **清理与测试**：
-   - 输入“make clean”清理所有中间文件及UxImage和镜像。
-   - 输入“make run”即可通过qemu测试启动iso镜像。
+   - 输入“make clean” or “xmake clean”清理所有中间文件及UxImage和镜像。
+   - （xmake编译后需要用xmake clean清理，make编译用make clean清理，为防止玄学事情发生，务必这样做！）
+   - （xmake编译后通过xmake clean会残留一个./build/文件夹，目的是防止测试时误删用户文件，请在提交前将他删除！）
+   - 输入“make run” or “xmake run”即可通过qemu测试启动iso镜像。
    - 输入“make runk”可以通过qemu测试内核文件启动。
    - “make run-db”和“make runk-db”可以调出对应启动模式的调试（控制台显示汇编代码）。
 
@@ -61,6 +63,7 @@ sudo apk add gcc make nasm grub-pc xorriso qemu-system
 7. **wrhmade**
 8. **Vinbe Wan**
 9. **xiaoyi1212**
+10. **ywx2012**
 
 ## 项目所使用的开源代码或项目
 
