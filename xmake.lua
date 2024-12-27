@@ -53,9 +53,8 @@ target("iso")
 
 	on_run(function (target)
 		local misc = "-serial stdio"
-		local speaker = " -audiodev pa,id=speaker -machine pcspk-audiodev=speaker "
-		local kvm = " -enable-kvm"
-		local flags = misc..speaker..kvm
+		local speaker = " -audiodev pa,id=speaker -machine pcspk-audiodev=speaker"
+		local flags = misc..speaker
 
 		os.exec("qemu-system-i386 -cdrom $(buildir)/Uinxed.iso %s", flags)
 	end)
