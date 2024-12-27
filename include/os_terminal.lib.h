@@ -17,22 +17,22 @@
 #include "types.h"
 
 typedef enum TerminalInitResult {
-  Success,
-  MallocIsNull,
-  FreeIsNull,
-  FontBufferIsNull,
+	Success,
+	MallocIsNull,
+	FreeIsNull,
+	FontBufferIsNull,
 } TerminalInitResult;
 
 typedef struct TerminalDisplay {
-  size_t width;
-  size_t height;
-  uint32_t *address;
+	size_t width;
+	size_t height;
+	uint32_t *address;
 } TerminalDisplay;
 
 typedef struct TerminalPalette {
-  uint32_t foreground;
-  uint32_t background;
-  uint32_t ansi_colors[16];
+	uint32_t foreground;
+	uint32_t background;
+	uint32_t ansi_colors[16];
 } TerminalPalette;
 
 #if defined(TERMINAL_EMBEDDED_FONT)

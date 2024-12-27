@@ -57,7 +57,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	program_break_end = program_break + 0x300000 + 1 + KHEAP_INITIAL_SIZE;
 	memset(program_break, 0, program_break_end - program_break);
 
-	init_bochs(glb_mboot_ptr);
+	init_bochs(glb_mboot_ptr);						// 初始化bochs图形模式
 	init_vbe(glb_mboot_ptr, 0x151515, 0xffffff);	// 初始化图形模式
 
 	/* 检测内存是否达到最低要求 */

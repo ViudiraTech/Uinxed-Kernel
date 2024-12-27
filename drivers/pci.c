@@ -280,7 +280,8 @@ const char *pci_classname(uint32_t classcode)
 	return "Unknown device";
 }
 
-int pci_find(int (*callback)(unsigned int, unsigned int, unsigned int, void *), void *data)
+/* 根据函数指针寻找PCI设备 */
+int pointer_pci_find(int (*callback)(unsigned int, unsigned int, unsigned int, void *), void *data)
 {
 	unsigned int BUS, Equipment, F;
 

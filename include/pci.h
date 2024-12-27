@@ -92,7 +92,8 @@ void pci_config(unsigned int bus, unsigned int f, unsigned int equipment, unsign
 /* 根据类代码返回设备类别名称 */
 const char *pci_classname(uint32_t classcode);
 
-int pci_find(int (*)(unsigned int, unsigned int, unsigned int, void *), void *data);
+/* 根据函数指针寻找PCI设备 */
+int pointer_pci_find(int (*)(unsigned int, unsigned int, unsigned int, void *), void *data);
 
 /* 按ClassCode查找相应设备 */
 int pci_find_class(uint32_t class_code);

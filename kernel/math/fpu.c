@@ -30,8 +30,8 @@ void fpu_handler(pt_regs *regs)
 	set_cr0(get_cr0() & ~((1 << 2) | (1 << 3)));
 	if (!current->fpu_flag) {
 		__asm__ __volatile__("fnclex \n"
-                     "fninit \n" ::
-                     : "memory");
+                             "fninit \n" ::
+                             : "memory");
 		memset(&(current->context.fpu_regs), 0, sizeof(fpu_regs_t));
 	} else {
 		__asm__ __volatile__("frstor (%%eax) \n" ::"a"(&(current->context.fpu_regs)) : "memory");

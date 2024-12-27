@@ -21,4 +21,3 @@ jobs:
 
     - name: Build Kernel
       run: make
-

@@ -19,12 +19,12 @@ void cpuid(unsigned int op, unsigned int *eax, unsigned int *ebx, unsigned int *
 	*eax = op;
 	*ecx = 0;
 	__asm__ __volatile__("cpuid"
-                 : "=a"	(*eax),				//输出参数
-                 "=b"	(*ebx),
-                 "=c"	(*ecx),
-                 "=d"	(*edx)
-                 : "0"	(*eax), "2" (*ecx)	//输入参数
-                 : "memory");
+                         : "=a"	(*eax),				//输出参数
+                         "=b"	(*ebx),
+                         "=c"	(*ecx),
+                         "=d"	(*edx)
+                         : "0"	(*eax), "2" (*ecx)	//输入参数
+                         : "memory");
 }
 
 /* 获取CPU厂商名称 */

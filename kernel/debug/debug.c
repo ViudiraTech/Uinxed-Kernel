@@ -34,10 +34,10 @@ void get_cur_status(uint16_t* ring, uint16_t* regs1, uint16_t* regs2, uint16_t* 
 	uint16_t reg1, reg2, reg3, reg4;
 
 	__asm__ __volatile__("mov %%cs, %0;"
-                 "mov %%ds, %1;"
-                 "mov %%es, %2;"
-                 "mov %%ss, %3;"
-                 : "=m"(reg1), "=m"(reg2), "=m"(reg3), "=m"(reg4));
+                         "mov %%ds, %1;"
+                         "mov %%es, %2;"
+                         "mov %%ss, %3;"
+                         : "=m"(reg1), "=m"(reg2), "=m"(reg3), "=m"(reg4));
 
 	*ring = reg1 & 0x3;
 	*regs1 = reg1;

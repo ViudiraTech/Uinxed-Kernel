@@ -19,9 +19,9 @@
 double sin(double x)
 {
 	__asm__ __volatile__("fldl %0 \n"
-                 "fsin \n"
-                 "fstpl %0\n"
-                 : "+m"(x));
+                         "fsin \n"
+                         "fstpl %0\n"
+                         : "+m"(x));
 	return x;
 }
 
@@ -29,9 +29,9 @@ double sin(double x)
 double cos(double x)
 {
 	__asm__ __volatile__("fldl %0 \n"
-                 "fcos \n"
-                 "fstpl %0\n"
-                 : "+m"(x));
+                         "fcos \n"
+                         "fstpl %0\n"
+                         : "+m"(x));
 	return x;
 }
 
@@ -39,10 +39,10 @@ double cos(double x)
 double tan(double x)
 {
 	__asm__ __volatile__("fldl %0 \n"
-                 "fptan \n"
-                 "fstpl %0\n"
-                 "fstpl %0\n"
-                 : "+m"(x));
+                         "fptan \n"
+                         "fstpl %0\n"
+                         "fstpl %0\n"
+                         : "+m"(x));
 	return x;
 }
 
@@ -50,9 +50,9 @@ double tan(double x)
 double sqrt(double x)
 {
 	__asm__ __volatile__("fldl %0 \n"
-                 "fsqrt \n"
-                 "fstpl %0\n"
-                 : "+m"(x));
+						 "fsqrt \n"
+						 "fstpl %0\n"
+						 : "+m"(x));
 	return x;
 }
 
@@ -302,11 +302,11 @@ double atof(const char *str)
 double log2(double x)
 {
 	__asm__ __volatile__("fld1 \n"
-                 "fldl %0 \n"
-                 "fyl2x \n"
-                 "fwait \n"
-                 "fstpl %0\n"
-                 : "+m"(x));
+                         "fldl %0 \n"
+                         "fyl2x \n"
+                         "fwait \n"
+                         "fstpl %0\n"
+                         : "+m"(x));
 	return x;
 }
 

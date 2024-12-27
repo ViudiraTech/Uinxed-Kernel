@@ -1,3 +1,14 @@
+/*
+ *
+ *		bochs.c
+ *		bochs图形模式驱动
+ *
+ *		2024/12/27 By ywx2012
+ *		基于 GPL-3.0 开源协议
+ *		Copyright © 2020 ViudiraTech，保留最终解释权。
+ *
+ */
+
 #include "common.h"
 #include "pci.h"
 #include "bochs.h"
@@ -10,8 +21,7 @@
 #define VBE_INDEX_BPP 0x3
 #define VBE_INDEX_ENABLE 0x4
 
-static
-int find_bochs_address(unsigned int BUS, unsigned int Equipment, unsigned int F, void *data)
+static int find_bochs_address(unsigned int BUS, unsigned int Equipment, unsigned int F, void *data)
 {
 	multiboot_t *info = (multiboot_t *)data;
 	uint32_t value_c = read_pci(BUS, Equipment, F, PCI_CONF_REVISION);
@@ -22,7 +32,7 @@ int find_bochs_address(unsigned int BUS, unsigned int Equipment, unsigned int F,
 	uint16_t device_id = value_d & 0xffff;
 	if (((class_code >> 16) != 0x03) || (vendor_id != 0x1234) || (device_id != 0x1111)) {
 		return 0;
-        }
+	}
 	outw(VBE_INDEX_PORT, VBE_INDEX_ID);
 	if (inw(VBE_DATA_PORT) < 0xb0c0) {
 		return 0;
@@ -56,7 +66,7 @@ void init_bochs(multiboot_t *info)
 	}
 	info->framebuffer_width = 1024;
 	info->framebuffer_height = 768;
-	if (pci_find(find_bochs_address, info)) {
+	if (pointer_pci_find(find_bochs_address, info)) {
 		info->flags |= MULTIBOOT_INFO_FRAMEBUFFER_INFO;
 	}
 }
