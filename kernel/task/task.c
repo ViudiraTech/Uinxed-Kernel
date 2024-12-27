@@ -141,7 +141,7 @@ struct task_struct *get_current_proc(void)
 /* 进程退出函数 */
 void kthread_exit(void)
 {
-	register uint32_t val asm ("eax");
+	register uint32_t val __asm__("eax");
 	printk("Task [PID: %d] exited with value %d\n", current->pid, val);
 	task_kill(current->pid);
 	while (1);

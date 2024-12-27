@@ -32,7 +32,7 @@ void vbe_print_time(const char *str); // 打印带有"[HH:MM:SS]"的字符串
 /* OS-Terminal */
 
 /* 内核打印字符 */
-void putchar(char ch);
+void putchar(int ch);
 
 /* 内核打印字符串 */
 void printk(const char *format, ...);

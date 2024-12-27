@@ -62,7 +62,7 @@ static uint32_t test_frame(uint32_t frame_addr)
 /* 清除帧位图中的特定位 */
 uint32_t first_frame(void)
 {
-	for (int i = 0; i < INDEX_FROM_BIT(0xFFFFFFFF / PAGE_SIZE); i++) {
+	for (size_t i = 0; i < INDEX_FROM_BIT(0xFFFFFFFF / PAGE_SIZE); i++) {
 		if (frames[i] != 0xffffffff) {
 			for (int j = 0; j < 32; j++) {
 				uint32_t toTest = 0x1U << j;
@@ -123,7 +123,7 @@ void free_frame(page_t *page)
 void switch_page_directory(page_directory_t *dir)
 {
 	current_directory = dir;
-	asm volatile("mov %0, %%cr3" : : "r"(&dir->table_phy));
+	__asm__ __volatile__("mov %0, %%cr3" : : "r"(&dir->table_phy));
 }
 
 /* 获取给定虚拟地址对应的页表项 */
@@ -155,7 +155,7 @@ void put_directory(page_directory_t *dir)
 void free_pages(void)
 {
 	disable_scheduler();
-	uint32_t ii;
+	int ii;
 	do {
 		ii = fifo8_get(fifo);
 		if (ii == -1 || ii == 0) {
@@ -195,7 +195,7 @@ void page_fault(pt_regs *regs)
 {
 	disable_intr();
 	uint32_t faulting_address;
-	asm volatile("mov %%cr2, %0" : "=r" (faulting_address));
+	__asm__ __volatile__("mov %%cr2, %0" : "=r" (faulting_address));
 
 	char s[50];
 	int present = !(regs->err_code & 0x1);		// 页不存在
@@ -271,9 +271,9 @@ page_directory_t *clone_directory(page_directory_t *src)
 static void open_page(void)
 {
 	uint32_t cr0;
-	asm volatile("mov %%cr0, %0" : "=b"(cr0));
+	__asm__ __volatile__("mov %%cr0, %0" : "=b"(cr0));
 	cr0 |= 0x80000000;
-	asm volatile("mov %0, %%cr0" : : "b"(cr0));
+	__asm__ __volatile__("mov %0, %%cr0" : : "b"(cr0));
 }
 
 /* 初始化内存分页 */

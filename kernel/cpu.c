@@ -18,7 +18,7 @@ void cpuid(unsigned int op, unsigned int *eax, unsigned int *ebx, unsigned int *
 {
 	*eax = op;
 	*ecx = 0;
-	asm volatile("cpuid"
+	__asm__ __volatile__("cpuid"
                  : "=a"	(*eax),				//输出参数
                  "=b"	(*ebx),
                  "=c"	(*ecx),

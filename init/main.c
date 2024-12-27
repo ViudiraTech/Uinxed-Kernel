@@ -31,7 +31,7 @@
 #include "bmp.h"
 #include "acpi.h"
 #include "klogo.lib.h"
-#include "lib_os_terminal.lib.h"
+#include "os_terminal.lib.h"
 #include "vdisk.h"
 #include "devfs.h"
 #include "fat.h"
@@ -149,6 +149,6 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 		free_pages();
 
 		/* 停机一次 */
-		asm volatile("hlt");
+		__asm__ __volatile__("hlt");
 	}
 }

@@ -164,12 +164,12 @@ syscall_t syscall_handlers[MAX_SYSCALLS] = {
 unsigned int syscall(void)
 {
 	volatile unsigned int eax, ebx, ecx, edx, esi, edi;
-	asm("mov %%eax, %0\n\t" : "=r"(eax));
-	asm("mov %%ebx, %0\n\t" : "=r"(ebx));
-	asm("mov %%ecx, %0\n\t" : "=r"(ecx));
-	asm("mov %%edx, %0\n\t" : "=r"(edx));
-	asm("mov %%esi, %0\n\t" : "=r"(esi));
-	asm("mov %%edi, %0\n\t" : "=r"(edi));
+	__asm__("mov %%eax, %0\n\t" : "=r"(eax));
+	__asm__("mov %%ebx, %0\n\t" : "=r"(ebx));
+	__asm__("mov %%ecx, %0\n\t" : "=r"(ecx));
+	__asm__("mov %%edx, %0\n\t" : "=r"(edx));
+	__asm__("mov %%esi, %0\n\t" : "=r"(esi));
+	__asm__("mov %%edi, %0\n\t" : "=r"(edi));
 	if (0 <= eax && eax < MAX_SYSCALLS && syscall_handlers[eax] != 0) {
 		eax = ((syscall_t)syscall_handlers[eax])(ebx, ecx, edx, esi, edi);
 	} else {

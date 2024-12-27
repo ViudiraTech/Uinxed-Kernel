@@ -46,7 +46,7 @@ void init_gdt(void)
 	gdt_set_gate(3, 0, 0xFFFFFFFF, 0xFA, 0xCF);		// 用户模式代码段
 	gdt_set_gate(4, 0, 0xFFFFFFFF, 0xF2, 0xCF);		// 用户模式数据段
 
-	register uint32_t esp asm("esp");
+	register uint32_t esp __asm__("esp");
 	write_tss(5, 0x10, esp);
 
 	/* 加载全局描述符表地址到 GPTR 寄存器 */
