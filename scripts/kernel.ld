@@ -18,18 +18,18 @@ SECTIONS
 	.text :
 	{
 		*(.multiboot)
-		*(.text)
+		*(.text .text.*)
 		. = ALIGN(4096);
 	}
 	.data :
 	{
-		*(.data)
-		*(.rodata)
+		*(.data .data.*)
+		*(.rodata .rodata.*)
 		. = ALIGN(4096);
 	}
 	.bss :
 	{
-		*(.bss)
+		*(.bss .bss.*)
 		. = ALIGN(4096);
 	}
 	.stab :
