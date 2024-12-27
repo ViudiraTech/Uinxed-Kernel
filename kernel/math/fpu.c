@@ -21,7 +21,7 @@ void init_fpu(void)
 	register_interrupt_handler(7, fpu_handler);
 	__asm__ __volatile__("fninit");
 	set_cr0(get_cr0() | (1 << 2) | (1 << 3) | (1 << 5));
-	print_succ("The FPU coprocessor is initialized.           \n");
+	print_succ("The FPU coprocessor is initialized.               \n");
 }
 
 /* FPU中断 */

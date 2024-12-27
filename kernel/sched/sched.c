@@ -57,7 +57,7 @@ void init_sched(void)
 	current->next = current;
 
 	running_proc_head = current;
-	print_succ("Multi-task initialized.   \n");
+	print_succ("Multi-task initialized.       \n");
 }
 
 /* 允许进程调度 */

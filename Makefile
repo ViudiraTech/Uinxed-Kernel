@@ -24,6 +24,7 @@ QEMU			= qemu-system-x86_64
 
 C_FLAGS			= -Wall -Werror -Wcast-align -Winline -Wwrite-strings \
                   -c -I include -m32 -O3 -g -DNDEBUG -nostdinc -fno-pic \
+				  -mno-mmx -mno-sse -mno-sse2 \
                   -fno-builtin -fno-stack-protector
 
 LD_FLAGS		= -T scripts/kernel.ld -m elf_i386 --strip-all
@@ -75,16 +76,16 @@ clean:
 
 .PHONY:qemu_iso
 run:
-	$(QEMU) -cdrom Uinxed.iso -serial stdio
+	$(QEMU) -cdrom Uinxed.iso -serial stdio -audiodev pa,id=speaker -machine pcspk-audiodev=speaker
 
 .PHONY:qemu_iso_debug
 run_db:
-	$(QEMU) -cdrom Uinxed.iso -serial stdio -d in_asm
+	$(QEMU) -cdrom Uinxed.iso -serial stdio -d in_asm -audiodev pa,id=speaker -machine pcspk-audiodev=speaker
 
 .PHONY:qemu_kernel
 runk:
-	$(QEMU) -kernel UxImage -serial stdio
+	$(QEMU) -kernel UxImage -serial stdio -audiodev pa,id=speaker -machine pcspk-audiodev=speaker
 
 .PHONY:qemu_kernel_debug
 runk_db:
-	$(QEMU) -kernel UxImage -serial stdio -d in_asm
+	$(QEMU) -kernel UxImage -serial stdio -d in_asm -audiodev pa,id=speaker -machine pcspk-audiodev=speaker
