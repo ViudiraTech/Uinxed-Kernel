@@ -17,7 +17,25 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Install packages
-      run: sudo apt-get install --no-install-recommends mtools nasm xorriso
+      run: sudo apt-get update -y && sudo apt-get -y install --no-install-recommends mtools nasm xorriso imagemagick qemu-system-x86
 
     - name: Build Kernel
       run: make
+
+    - name: Run and take screenshot
+      shell: bash
+      run: |
+        exec 3<> <(cat)
+        qemu-system-x86_64 -net none -boot reboot-timeout=0 -action reboot=shutdown -serial none -chardev stdio,id=mon1 -mon chardev=mon1,mode=control -display vnc=:0 -audiodev none,id=speaker -machine pcspk-audiodev=speaker -kernel UxImage -append clear <&3 &
+        sleep 10
+        echo '{ "execute": "qmp_capabilities", "arguments": { } }' >&3
+        echo '{ "execute": "screendump", "arguments": { "filename": "/tmp/screenshot.ppm" } }' >&3
+        sleep 2
+        echo '{ "execute": "quit" }' >&3
+        convert /tmp/screenshot.ppm /tmp/screenshot.png
+        convert /tmp/screenshot.png -fill white +opaque '#121212' /tmp/mono.png
+        base64 /tmp/mono.png
+
+    - name: Compare screenshot
+      shell: bash
+      run: diff <(convert screenshot.png rgb:-) <(convert /tmp/screenshot.png rgb:-)
