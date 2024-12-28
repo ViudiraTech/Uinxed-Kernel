@@ -374,7 +374,7 @@ void shell(const char *cmdline)
 	pl = pl_readline_init(plreadln_getch, plreadln_putch, plreadln_flush, handle_tab);
 
 	while (1) {
-		while (cmd[0] == 0) {							// 只有一个回车
+		while (cmd[0] == 0) { // 只有一个回车
 			sprintf(prompt, "┌─ \033[1;32m[Uinxed]\033[37m-\033[34m[Shell]\033[37m-\033[33m[%s]\033[37m\n└─ #\033[0m ", vfs_node_to_path(working_dir));
 			pl_readline(pl, prompt, (char *)cmd, MAX_COMMAND_LEN);
 		}
@@ -398,6 +398,6 @@ void shell(const char *cmdline)
 		} else {
 			builtin_cmds[cmd_index].func(argc, (char **)argv);
 		}
-		memset(cmd, 0, MAX_COMMAND_LEN);					// 清空本轮输入
+		memset(cmd, 0, MAX_COMMAND_LEN); // 清空本轮输入
 	}
 }

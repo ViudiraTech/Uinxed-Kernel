@@ -17,7 +17,7 @@ else
   Q=@
 endif
 
-BUILDDIR ?= build
+BUILDDIR		?= build
 
 C_SOURCES		:= $(shell find * -name "*.c")
 S_SOURCES		:= $(shell find * -name "*.s")

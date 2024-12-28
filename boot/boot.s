@@ -42,7 +42,7 @@ MBOOT_CHECKSUM EQU -(MBOOT_HEADER_MAGIC + MBOOT_HEADER_FLAGS)
 ; -----------------------------------------------------------
 
 [BITS 32]							; 所有代码以 32-bit 的方式编译
-SECTION .multiboot						; Multiboot段从这里开始
+SECTION .multiboot					; Multiboot段从这里开始
 
 DD MBOOT_HEADER_MAGIC				; GRUB 会通过这个魔数判断该映像是否支持
 DD MBOOT_HEADER_FLAGS				; GRUB 的一些加载时选项，其详细注释在定义处
@@ -69,7 +69,7 @@ start:
 
 stop:
 	HLT								; 停机指令，可以降低 CPU 功耗
-	JMP stop						; 到这里结束，关机什么的后面再说
+	JMP stop						; 掉出内核，陷入死循环
 
 SECTION .bss						; 未初始化的数据段从这里开始
 

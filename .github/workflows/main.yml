@@ -38,4 +38,4 @@ jobs:
 
     - name: Compare screenshot
       shell: bash
-      run: diff <(convert screenshot.png rgb:-) <(convert /tmp/screenshot.png rgb:-)
+      run: diff <(convert .github/workflows/screenshot.png rgb:-) <(convert /tmp/screenshot.png rgb:-)
