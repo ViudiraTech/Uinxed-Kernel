@@ -9,20 +9,30 @@
 #
 # =====================================================
 
-C_SOURCES		= $(shell find . -name "*.c")
-C_OBJECTS		= $(patsubst %.c, %.o, $(C_SOURCES))
-S_SOURCES		= $(shell find . -name "*.s")
-S_OBJECTS		= $(patsubst %.s, %.o, $(S_SOURCES))
+ifeq ($(VERBOSE), 1)
+  V=
+  Q=
+else
+  V=@printf "\033[1;32m[Build]\033[0m $@ ...\n";
+  Q=@
+endif
 
-OTHER_OBJECTS	= ./lib/libklogo.a ./lib/libos_terminal.a ./lib/libpl_readline.a ./lib/libelf_parse.a
+BUILDDIR ?= build
+
+C_SOURCES		:= $(shell find * -name "*.c")
+S_SOURCES		:= $(shell find * -name "*.s")
+OBJS			:= $(C_SOURCES:%.c=$(BUILDDIR)/%.o) $(S_SOURCES:%.s=$(BUILDDIR)/%.o)
+DEPS			:= $(OBJS:%.o=%.d)
+LIBS			:= $(wildcard lib/lib*.a)
 
 CC				= gcc
 LD				= ld
 ASM				= nasm
 RM				= rm
 QEMU			= qemu-system-x86_64
+QEMU_FLAGS		= -serial stdio -audiodev pa,id=speaker -machine pcspk-audiodev=speaker
 
-C_FLAGS			= -Wall -Werror -Wcast-align -Winline -Wwrite-strings \
+C_FLAGS			= -MMD -Wall -Werror -Wcast-align -Winline -Wwrite-strings \
                   -c -I include -m32 -O3 -g -DNDEBUG -nostdinc -fno-pic \
 				  -mno-mmx -mno-sse -mno-sse2 \
                   -fno-builtin -fno-stack-protector
@@ -30,29 +40,31 @@ C_FLAGS			= -Wall -Werror -Wcast-align -Winline -Wwrite-strings \
 LD_FLAGS		= -T scripts/kernel.ld -m elf_i386 --strip-all
 ASM_FLAGS		= -f elf -g -F stabs
 
-all: info UxImage grub_iso
+all: info Uinxed.iso
 
+.PHONY: info
 info:
 	@printf "Uinxed-Kernel Compile Script.\n"
 	@printf "Copyright 2020 ViudiraTech. All rights interpretation reserved.\n"
 	@printf "Based on the GPL-3.0 open source license.\n"
 	@echo
 
-.c.o:
-	@printf "\033[1;32m[Build]\033[0m Compiling Code Files $< ...\n"
-	@$(CC) $(C_FLAGS) $< -o $@
+makedirs:
+	$(Q)mkdir -p $(dir $(OBJS))
 
-.s.o:
-	@printf "\033[1;32m[Build]\033[0m Compiling Assembly $< ...\n"
-	@$(ASM) $(ASM_FLAGS) $<
+$(BUILDDIR)/%.o: %.c | makedirs
+	$(V)$(CC) $(C_FLAGS) -o $@ $<
 
-UxImage: $(S_OBJECTS) $(C_OBJECTS)
-	@echo
-	@printf "\033[1;32m[Link]\033[0m Linking kernel...\n"
-	@$(LD) $(LD_FLAGS) $(S_OBJECTS) $(C_OBJECTS) $(OTHER_OBJECTS) -o UxImage
+$(BUILDDIR)/%.o: %.s | makedirs
+	$(V)$(ASM) $(ASM_FLAGS) -o $@ $<
 
-.PHONY:iso
-grub_iso: UxImage
+UxImage: $(OBJS) $(LIBS)
+	$(V)$(LD) $(LD_FLAGS) -o $@ $^
+
+.PHONY: grub_iso
+grub_iso: Uinxed.iso
+
+Uinxed.iso: UxImage
 	@echo
 	@printf "\033[1;32m[ISO]\033[0m Packing ISO file...\n"
 	@mkdir -p iso/boot/grub
@@ -70,22 +82,26 @@ grub_iso: UxImage
 	@rm -rf iso
 	@printf "\033[1;32m[Done]\033[0m Compilation complete.\n"
 
-.PHONY:clean
+.PHONY: clean
 clean:
-	$(RM) -f $(S_OBJECTS) $(C_OBJECTS) UxImage Uinxed.iso
+	$(Q)$(RM) -f $(OBJS) $(DEPS) UxImage Uinxed.iso
 
-.PHONY:qemu_iso
-run:
-	$(QEMU) -cdrom Uinxed.iso -serial stdio -audiodev pa,id=speaker -machine pcspk-audiodev=speaker
+.PHONY: run
+run: Uinxed.iso
+	$(QEMU) $(QEMU_FLAGS) -cdrom Uinxed.iso
 
-.PHONY:qemu_iso_debug
-run_db:
-	$(QEMU) -cdrom Uinxed.iso -serial stdio -d in_asm -audiodev pa,id=speaker -machine pcspk-audiodev=speaker
+.PHONY: run_db
+run_db: Uinxed.iso
+	$(QEMU) $(QEMU_FLAGS) -cdrom Uinxed.iso -d in_asm
 
-.PHONY:qemu_kernel
-runk:
-	$(QEMU) -kernel UxImage -serial stdio -audiodev pa,id=speaker -machine pcspk-audiodev=speaker
+.PHONY: runk
+runk: UxImage
+	$(QEMU) $(QEMU_FLAGS) -kernel UxImage
 
-.PHONY:qemu_kernel_debug
-runk_db:
-	$(QEMU) -kernel UxImage -serial stdio -d in_asm -audiodev pa,id=speaker -machine pcspk-audiodev=speaker
+.PHONY: runk_db
+runk_db: UxImage
+	$(QEMU) $(QEMU_FLAGS) -kernel UxImage -d in_asm
+
+.PRECIOUS: $(OBJS)
+
+-include $(DEPS)
