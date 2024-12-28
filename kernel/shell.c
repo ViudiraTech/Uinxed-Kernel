@@ -355,7 +355,7 @@ static void plreadln_flush(void)
 }
 
 /* shell主程序 */
-void shell(void)
+void shell(const char *cmdline)
 {
 	printk("Basic shell program v1.0\n");
 	printk("Type 'help' for help.\n\n");
@@ -364,17 +364,22 @@ void shell(void)
 	uint8_t cmd[MAX_COMMAND_LEN];
 	uint8_t *argv[MAX_ARG_NR];
 	int argc = -1;
+	if (cmdline) {
+		strcpy((char *)cmd, cmdline);
+	} else {
+		memset(cmd, 0, MAX_COMMAND_LEN);
+	}
 
 	pl_readline_t pl;
 	pl = pl_readline_init(plreadln_getch, plreadln_putch, plreadln_flush, handle_tab);
 
 	while (1) {
-		memset(cmd, 0, MAX_COMMAND_LEN);					// 清空上轮输入
-		sprintf(prompt, "┌─ \033[1;32m[Uinxed]\033[37m-\033[34m[Shell]\033[37m-\033[33m[%s]\033[37m\n└─ #\033[0m ", vfs_node_to_path(working_dir));
-		pl_readline(pl, prompt, (char *)cmd, MAX_COMMAND_LEN);
+		while (cmd[0] == 0) {							// 只有一个回车
+			sprintf(prompt, "┌─ \033[1;32m[Uinxed]\033[37m-\033[34m[Shell]\033[37m-\033[33m[%s]\033[37m\n└─ #\033[0m ", vfs_node_to_path(working_dir));
+			pl_readline(pl, prompt, (char *)cmd, MAX_COMMAND_LEN);
+		}
 
 		/* com就是完整的命令 */
-		if (cmd[0] == 0) continue;							// 只有一个回车，continue
 		argc = cmd_parse(cmd, argv, ' ');
 
 		/* argc, argv 都拿到了 */
@@ -393,5 +398,6 @@ void shell(void)
 		} else {
 			builtin_cmds[cmd_index].func(argc, (char **)argv);
 		}
+		memset(cmd, 0, MAX_COMMAND_LEN);					// 清空本轮输入
 	}
 }
