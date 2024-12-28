@@ -42,9 +42,7 @@ MBOOT_CHECKSUM EQU -(MBOOT_HEADER_MAGIC + MBOOT_HEADER_FLAGS)
 ; -----------------------------------------------------------
 
 [BITS 32]							; 所有代码以 32-bit 的方式编译
-SECTION .text						; 代码段从这里开始
-
-; 在代码段的起始位置设置符合 Multiboot 规范的标记
+SECTION .multiboot						; Multiboot段从这里开始
 
 DD MBOOT_HEADER_MAGIC				; GRUB 会通过这个魔数判断该映像是否支持
 DD MBOOT_HEADER_FLAGS				; GRUB 的一些加载时选项，其详细注释在定义处
@@ -55,6 +53,7 @@ DD 1024	; width宽度
 DD 768	; height高度
 DD 32	; bpp
 
+SECTION .text						; 代码段从这里开始
 [GLOBAL start]						; 向外部声明内核代码入口，此处提供该声明给链接器
 [GLOBAL glb_mboot_ptr]				; 向外部声明 struct multiboot * 变量
 [EXTERN kernel_init]				; 声明内核 C 代码的初始化函数
