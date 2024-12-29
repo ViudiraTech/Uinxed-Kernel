@@ -17,6 +17,8 @@
 #include "task.h"
 #include "vfs.h"
 #include "acpi.h"
+#include "timer.h"
+#include "beep.h"
 
 typedef enum oflags {
 	O_RDONLY,
@@ -26,7 +28,7 @@ typedef enum oflags {
 } oflags_t;
 
 /* POSIX规范-打开文件 */
-static uint32_t syscall_posix_open(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
+static uint32_t syscall_posix_open(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	enable_intr();
 	char *name = (char *)ebx;
@@ -51,7 +53,7 @@ static uint32_t syscall_posix_open(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32
 }
 
 /* POSIX规范-关闭文件 */
-static uint32_t syscall_posix_close(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
+static uint32_t syscall_posix_close(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	for (int i = 3; i < 255; i++) {
 		if (i == ebx) {
@@ -66,7 +68,7 @@ static uint32_t syscall_posix_close(uint32_t ebx,uint32_t ecx,uint32_t edx,uint3
 }
 
 /* POSIX规范-读取文件 */
-static uint32_t syscall_posix_read(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
+static uint32_t syscall_posix_read(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	enable_intr();
 	if (ebx < 0 || ebx == 1 || ebx == 2)return -1;
@@ -100,48 +102,62 @@ static uint32_t syscall_printf(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_
 }
 
 /* 发送字符到标准输出 */
-static uint32_t syscall_putchar(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
+static uint32_t syscall_putchar(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	putchar(ebx);
 	return 0;
 }
 
 /* 分配内存并返回地址 */
-static uint32_t syscall_malloc(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
+static uint32_t syscall_malloc(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	return (uint32_t)kmalloc(ebx);
 }
 
 /* 释放分配的内存并合并 */
-static uint32_t syscall_free(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
+static uint32_t syscall_free(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	kfree((void *)ebx);
 	return 0;
 }
 
 /* 挂载设备到文件夹 */
-static uint32_t syscall_mount(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
+static uint32_t syscall_mount(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	return vfs_mount((const char *)ebx, vfs_open((const char *)ecx));
 }
 
 /* 释放挂载的设备 */
-static uint32_t syscall_umount(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
+static uint32_t syscall_umount(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	return vfs_umount((const char *)ebx);
 }
 
 /* 关闭电源 */
-static uint32_t syscall_poweroff(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
+static uint32_t syscall_poweroff(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	power_off();
 	return 0;
 }
 
 /* 重启计算机 */
-static uint32_t syscall_reboot(uint32_t ebx,uint32_t ecx,uint32_t edx,uint32_t esi,uint32_t edi)
+static uint32_t syscall_reboot(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	power_reset();
+	return 0;
+}
+
+/* 使进程延迟 */
+static uint32_t syscall_sleep(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
+{
+	sleep(ebx);
+	return 0;
+}
+
+/* 蜂鸣器控制 */
+static uint32_t syscall_beep(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
+{
+	system_beep(ebx);
 	return 0;
 }
 
@@ -157,7 +173,9 @@ syscall_t syscall_handlers[MAX_SYSCALLS] = {
 	[8] = syscall_mount,
 	[9] = syscall_umount,
 	[10] = syscall_poweroff,
-	[11] = syscall_reboot
+	[11] = syscall_reboot,
+	[12] = syscall_sleep,
+	[13] = syscall_beep
 };
 
 /* 系统调用处理 */
