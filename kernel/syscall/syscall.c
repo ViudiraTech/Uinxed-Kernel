@@ -94,6 +94,15 @@ static uint32_t syscall_posix_read(uint32_t ebx, uint32_t ecx, uint32_t edx, uin
 	return ret;
 }
 
+/* POSIX规范-获取文件大小 */
+static uint32_t syscall_posix_size(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
+{
+	if (ebx < 0 || ebx == 1 || ebx == 2) return -1;
+	cfile_t file = get_current_proc()->file_table[ebx];
+	if (file == 0) return -1;
+	return file->handle->size;
+}
+
 /* 发送格式化输出到标准输出 */
 static uint32_t syscall_printf(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
@@ -166,16 +175,17 @@ syscall_t syscall_handlers[MAX_SYSCALLS] = {
 	[1] = syscall_posix_open,
 	[2] = syscall_posix_close,
 	[3] = syscall_posix_read,
-	[4] = syscall_printf,
-	[5] = syscall_putchar,
-	[6] = syscall_malloc,
-	[7] = syscall_free,
-	[8] = syscall_mount,
-	[9] = syscall_umount,
-	[10] = syscall_poweroff,
-	[11] = syscall_reboot,
-	[12] = syscall_sleep,
-	[13] = syscall_beep
+	[4] = syscall_posix_size,
+	[5] = syscall_printf,
+	[6] = syscall_putchar,
+	[7] = syscall_malloc,
+	[8] = syscall_free,
+	[9] = syscall_mount,
+	[10] = syscall_umount,
+	[11] = syscall_poweroff,
+	[12] = syscall_reboot,
+	[13] = syscall_sleep,
+	[14] = syscall_beep
 };
 
 /* 系统调用处理 */
