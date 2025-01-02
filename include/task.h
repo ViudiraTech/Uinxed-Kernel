@@ -105,7 +105,7 @@ struct task_struct *get_current_proc(void);
 void kthread_exit(void);
 
 /* 打印当前的所有进程 */
-int print_task(struct task_struct *base, struct task_struct *cur, int count);
+int print_task(void);
 
 /* 传回特定pid的结构体 */
 struct task_struct *found_task_pid(int pid);

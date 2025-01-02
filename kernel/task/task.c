@@ -35,7 +35,7 @@ int32_t kernel_thread(int (*fn)(void *), void *arg, const char *name, int level)
 	new_task->state = TASK_RUNNABLE;
 	new_task->stack = current;
 	new_task->pid = now_pid++;
-	new_task->pgd_dir = kernel_directory;
+	new_task->pgd_dir = clone_directory(kernel_directory);
 	new_task->mem_size = 0;
 	new_task->fpu_flag = 0;
 	new_task->name = name;
@@ -95,7 +95,7 @@ int32_t elf_thread(const char* path, void *arg, const char *name, int level)
 	new_task->state = TASK_RUNNABLE;
 	new_task->stack = current;
 	new_task->pid = now_pid++;
-	new_task->pgd_dir = kernel_directory;
+	new_task->pgd_dir = clone_directory(kernel_directory);
 	new_task->mem_size = 0;
 	new_task->fpu_flag = 0;
 	new_task->name = name;
@@ -148,53 +148,22 @@ void kthread_exit(void)
 }
 
 /* 打印当前的所有进程 */
-int print_task(struct task_struct *base, struct task_struct *cur, int count)
+int print_task(void)
 {
-	const char *level_name;
-	if (cur->level == 0) level_name = "Kernel processes";
-	if (cur->level == 1) level_name = "Service process";
-	if (cur->level == 2) level_name = "User processes";
-	if (cur->pid == base->pid) {
-		switch (cur->state) {
-			case TASK_RUNNABLE:
-				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Running", level_name);
-				break;
-			case TASK_SLEEPING:
-				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Sleeping", level_name);
-				break;
-			case TASK_UNINIT:
-				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Init", level_name);
-				break;
-			case TASK_ZOMBIE:
-				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Zombie", level_name);
-				break;
-			case TASK_DEATH:
-				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Death", level_name);
-				break;
-		}
-		count++;
-	} else {
-		switch (cur->state) {
-			case TASK_RUNNABLE:
-				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Running", level_name);
-				break;
-			case TASK_SLEEPING:
-				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Sleeping", level_name);
-				break;
-			case TASK_UNINIT:
-				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Init", level_name);
-				break;
-			case TASK_ZOMBIE:
-				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Zombie", level_name);
-				break;
-			case TASK_DEATH:
-				printk("┃%-30s %02d  %-8s %s\n", cur->name, cur->pid, "Death", level_name);
-				break;
-		}
-		count++;
-		count = print_task(base, cur->next, count);
+	struct task_struct *pcb = running_proc_head;
+	int p = 0;
+	printk("PID NAME                     RAM(byte)  Level             Time\n");
+	while (1) {
+		p++;
+		printk("%-3d %-24s %-10d %-17s %d\n", pcb->pid, pcb->name,
+                                              pcb->program_break_end - pcb->program_break,
+                                              pcb->level == KERNEL_TASK ? "Kernel Process" :
+                                              pcb->level == SERVICE_TASK ? "Service Process" : "User Process",
+                                              pcb->cpu_clock);
+		pcb = pcb->next;
+		if (pcb->next != running_proc_head) break;
 	}
-	return count;
+	return p;
 }
 
 /* 查找特定pid的结构体 */
@@ -254,6 +223,7 @@ void task_kill(int pid)
 		}
 	}
 	vfs_close(argv->exe_file);
+	put_directory(argv->pgd_dir);
 	argv->state = TASK_DEATH;
 	printk("Task [Name: %s][PID: %d] Stopped.\n", argv->name, argv->pid);
 	struct task_struct *head = running_proc_head;

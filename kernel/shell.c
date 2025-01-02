@@ -104,11 +104,8 @@ void shell_lspci(void)
 
 void shell_proc(void)
 {
-	printk("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-	printk("┃Name                           PID Status   Task Level\n");
-	int i = print_task(current, current->next, 0);
-	printk("┃\n┃Number of processes: %d\n", i);
-	printk("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+	int p = print_task();
+	printk("\nProcess number: %d\n\n", p);
 	return;
 }
 
@@ -229,9 +226,9 @@ void shell_ls(int argc, char *argv[])
 
 void shell_free(void)
 {
-	printk("       total    used    free\n");
-	printk("Mem: %07d %07d %07d\n", (glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower), (get_kernel_memory_usage() / 1024),
-                                    (glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower) - (get_kernel_memory_usage() / 1024));
+	printk("       total    used     free\n");
+	printk("Mem:   %-9d%-9d%d\n", (glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower), (get_kernel_memory_usage() / 1024),
+                                  (glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower) - (get_kernel_memory_usage() / 1024));
 	printk("\n");
 	return;
 }

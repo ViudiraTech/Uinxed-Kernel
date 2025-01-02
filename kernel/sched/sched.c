@@ -77,6 +77,9 @@ void schedule(pt_regs *regs)
 {
 	disable_intr();
 	if (current && can_sche) {
+		if (current->state != TASK_RUNNABLE) {
+			current = running_proc_head;
+		}
 		current->cpu_clock++;
 		change_task_to(current->next, regs);
 	}
