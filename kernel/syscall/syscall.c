@@ -170,6 +170,12 @@ static uint32_t syscall_beep(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t 
 	return 0;
 }
 
+/* 获取当前进程PID */
+static uint32_t syscall_getpid(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
+{
+	return get_current_proc()->pid;
+}
+
 /* 系统调用表 */
 syscall_t syscall_handlers[MAX_SYSCALLS] = {
 	[1] = syscall_posix_open,
@@ -185,7 +191,8 @@ syscall_t syscall_handlers[MAX_SYSCALLS] = {
 	[11] = syscall_poweroff,
 	[12] = syscall_reboot,
 	[13] = syscall_sleep,
-	[14] = syscall_beep
+	[14] = syscall_beep,
+	[15] = syscall_getpid
 };
 
 /* 系统调用处理 */

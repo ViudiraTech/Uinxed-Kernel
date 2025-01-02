@@ -24,7 +24,7 @@
 void vbe_print_busy(const char *str)
 {
 	vbe_printk("[");
-	vbe_printk_color(0xffffff, "   **   ");
+	vbe_printk_color(0xffffff, " ** ");
 	vbe_printk("] ");
 	vbe_printk("%s", str);
 }
@@ -33,7 +33,7 @@ void vbe_print_busy(const char *str)
 void vbe_print_succ(const char *str)
 {
 	vbe_printk("[");
-	vbe_printk_color(0x00ff00, "   OK   ");
+	vbe_printk_color(0x00ff00, " OK ");
 	vbe_printk("] ");
 	vbe_printk("%s", str);
 }
@@ -42,7 +42,7 @@ void vbe_print_succ(const char *str)
 void vbe_print_warn(const char *str)
 {
 	vbe_printk("[");
-	vbe_printk_color(0xffff00, "  WARN  ");
+	vbe_printk_color(0xffff00, "WARN");
 	vbe_printk("] ");
 	vbe_printk("%s", str);
 }
@@ -51,7 +51,7 @@ void vbe_print_warn(const char *str)
 void vbe_print_erro(const char *str)
 {
 	vbe_printk("[");
-	vbe_printk_color(0xff0000, "  ERRO  ");
+	vbe_printk_color(0xff0000, "ERRO");
 	vbe_printk("] ");
 	vbe_printk("%s", str);
 }
@@ -103,7 +103,7 @@ void vbe_printk_color(int fore, const char *format, ...)
 void print_busy(const char *str)
 {
 	printk("[");
-	printk("   **   ");
+	printk(" ** ");
 	printk("] ");
 	printk("%s", str);
 }
