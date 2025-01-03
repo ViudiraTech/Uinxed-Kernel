@@ -109,7 +109,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	init_timer(1);					// 初始化定时器
 	init_pit();						// 初始化PIT
 
-	terminal_set_color_scheme(3);	// 重置终端主题		
+	terminal_set_color_scheme(3);	// 重置终端主题
 
 	enable_intr();					// 开启中断
 	enable_scheduler();				// 启用调度

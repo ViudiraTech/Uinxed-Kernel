@@ -28,6 +28,10 @@
 #define INDEX_FROM_BIT(a) (a / (8*4))
 #define OFFSET_FROM_BIT(a) (a % (8*4))
 
+#define page_line(ptr) do { \
+	alloc_frame_line(get_page((uint32_t)ptr, 1, current_directory), (uint32_t)ptr, 1, 1);                       \
+} while(0)
+
 typedef struct page {
 	uint8_t present: 1;
 	uint8_t rw: 1;
