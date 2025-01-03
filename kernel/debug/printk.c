@@ -9,7 +9,6 @@
  *
  */
 
-#include "vbe.h"
 #include "string.h"
 #include "stdlib.h"
 #include "vargs.h"
@@ -17,87 +16,6 @@
 #include "common.h"
 #include "cmos.h"
 #include "tty.h"
-
-/* VBE */
-
-/* 打印带有”[ ** ]“的字符串 */
-void vbe_print_busy(const char *str)
-{
-	vbe_printk("[");
-	vbe_printk_color(0xffffff, " ** ");
-	vbe_printk("] ");
-	vbe_printk("%s", str);
-}
-
-/* 打印带有”[ OK ]“的字符串 */
-void vbe_print_succ(const char *str)
-{
-	vbe_printk("[");
-	vbe_printk_color(0x00ff00, " OK ");
-	vbe_printk("] ");
-	vbe_printk("%s", str);
-}
-
-/* 打印带有”[ WARN ]“的字符串 */
-void vbe_print_warn(const char *str)
-{
-	vbe_printk("[");
-	vbe_printk_color(0xffff00, "WARN");
-	vbe_printk("] ");
-	vbe_printk("%s", str);
-}
-
-/* 打印带有”[ ERRO ]“的字符串 */
-void vbe_print_erro(const char *str)
-{
-	vbe_printk("[");
-	vbe_printk_color(0xff0000, "ERRO");
-	vbe_printk("] ");
-	vbe_printk("%s", str);
-}
-
-/* 打印带有"[HH:MM:SS]"的字符串 */
-void vbe_print_time(const char *str)
-{
-	vbe_printk("[");
-	vbe_printk("%02d:%02d:%02d", get_hour_hex(), get_min_hex(), get_sec_hex());
-	vbe_printk("] ");
-	vbe_printk("%s", str);
-}
-
-/* 内核打印字符串 */
-void vbe_printk(const char *format, ...)
-{
-	/* 避免频繁创建临时变量，内核的栈很宝贵 */
-	static char buff[1024];
-	va_list args;
-	int i;
-
-	va_start(args, format);
-	i = vsprintf(buff, format, args);
-	va_end(args);
-
-	buff[i] = '\0';
-	vbe_put_string(buff);
-}
-
-/* 内核打印带颜色的字符串 */
-void vbe_printk_color(int fore, const char *format, ...)
-{
-	/* 避免频繁创建临时变量，内核的栈很宝贵 */
-	static char buff[1024];
-	va_list args;
-	int i;
-
-	va_start(args, format);
-	i = vsprintf(buff, format, args);
-	va_end(args);
-
-	buff[i] = '\0';
-	vbe_put_string_color(buff, fore);
-}
-
-/* OS-Terminal */
 
 /* 打印带有”[ ** ]“的字符串 */
 void print_busy(const char *str)
