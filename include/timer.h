@@ -53,8 +53,8 @@ void sleep(uint32_t timer);
 /* 分配一个定时器结构体 */
 struct TIMER *timer_alloc(void);
 
-/* 获取当前时间戳 */
-unsigned int time(void);
+/* 获取当前秒（带小数后六位） */
+double get_current_second(void);
 
 /* 初始化可编程间隔定时器 */
 void init_pit(void);

@@ -19,14 +19,14 @@
 volatile uint32_t tick = 0;
 struct TIMERCTL timerctl;
 
-/* 获取当前时间戳 */
-unsigned int time(void)
+/* 获取当前秒（带小数后六位） */
+double get_current_second(void)
 {
-	unsigned int t;
-	t = get_year() * get_mon_hex() * get_day_of_month() * get_hour_hex() * get_min_hex() * get_sec_hex() + timerctl.count + timerctl.next;
-	t |= (int)timerctl.t0;
-	t |= get_day_of_week();
-	return t;
+	unsigned int current_second = get_sec_hex();
+	unsigned int current_tick = tick;
+	double fractional_part = (double)current_tick / 1000.0;
+	double current_second_with_fraction = current_second + fractional_part;
+	return current_second_with_fraction;
 }
 
 /* 定时器中断处理函数 */
