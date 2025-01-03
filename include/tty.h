@@ -49,4 +49,10 @@ typedef struct tty_device {
 /* 获取启动时传入的tty号 */
 int get_boot_tty(void);
 
+/* 打印日志字符到TTY */
+void tty_print_logch(const char ch);
+
+/* 打印日志字符串到TTY */
+void tty_print_logstr(const char *str);
+
 #endif // INCLUDE_TTY_H_

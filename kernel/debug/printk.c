@@ -16,7 +16,7 @@
 #include "printk.h"
 #include "common.h"
 #include "cmos.h"
-#include "os_terminal.lib.h"
+#include "tty.h"
 
 /* VBE */
 
@@ -147,10 +147,7 @@ void print_time(const char *str)
 /* 内核打印字符 */
 void putchar(int ch)
 {
-	uint32_t eflags = load_eflags();
-	if (eflags & (1 << 9)) disable_intr();
-	terminal_process_char(ch);
-	if (eflags & (1 << 9)) enable_intr();
+	tty_print_logch(ch);
 }
 
 /* 内核打印字符串 */
@@ -158,7 +155,6 @@ void printk(const char *format, ...)
 {
 	/* 避免频繁创建临时变量，内核的栈很宝贵 */
 	static char buff[1024];
-	uint32_t eflags = load_eflags();
 	va_list args;
 	int i;
 
@@ -168,9 +164,7 @@ void printk(const char *format, ...)
 
 	buff[i] = '\0';
 
-	if (eflags & (1 << 9)) disable_intr();
-	terminal_process(buff);
-	if (eflags & (1 << 9)) enable_intr();
+	tty_print_logstr(buff);
 }
 
 #define is_digit(c)	((c) >= '0' && (c) <= '9')

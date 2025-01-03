@@ -13,6 +13,9 @@
 #include "multiboot.h"
 #include "stdlib.h"
 #include "memory.h"
+#include "serial.h"
+#include "common.h"
+#include "os_terminal.lib.h"
 
 int default_tty = 1;
 
@@ -81,4 +84,30 @@ int get_boot_tty(void)
 	}
 	kfree(bootargv);
 	return 1;
+}
+
+/* 打印日志字符到TTY */
+void tty_print_logch(const char ch)
+{
+	uint32_t eflags = load_eflags();
+	if (get_boot_tty() == 0) {
+		write_serial(ch);
+	} else if (get_boot_tty() == 1) {
+		if (eflags & (1 << 9)) disable_intr();
+		terminal_process_char(ch);
+		if (eflags & (1 << 9)) enable_intr();
+	}
+}
+
+/* 打印日志字符串到TTY */
+void tty_print_logstr(const char *str)
+{
+	uint32_t eflags = load_eflags();
+	if (get_boot_tty() == 0) {
+		write_serial_string(str);
+	} else if (get_boot_tty() == 1) {
+		if (eflags & (1 << 9)) disable_intr();
+		terminal_process(str);
+		if (eflags & (1 << 9)) enable_intr();
+	}
 }
