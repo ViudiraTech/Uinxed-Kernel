@@ -130,14 +130,18 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	kernel_thread(kthread_shell, (void *)((glb_mboot_ptr->flags & MULTIBOOT_INFO_CMDLINE) ? glb_mboot_ptr->cmdline : 0),
                   "Basic shell program", USER_TASK);
 #else
-	if (vfs_do_search(vfs_open("/"), "sbin")) {
-		if (vfs_do_search(vfs_open("/sbin"), "init")) {
-			elf_thread("/sbin/init", 0, "init", USER_TASK);
+	if (vfs_do_search(vfs_open("/dev"), "sda")) {
+		if (vfs_do_search(vfs_open("/"), "sbin")) {
+			if (vfs_do_search(vfs_open("/sbin"), "init")) {
+				elf_thread("/sbin/init", 0, "init", USER_TASK);
+			} else {
+				panic("No working init found.");
+			}
 		} else {
-			print_erro("No working init found '/sbin/init'.\n");
+			panic("No working init found.");
 		}
 	} else {
-		print_erro("No working init found '/sbin/init'.\n");
+		panic("VFS: Unable to mount root fs on unkown-block(0,0)");
 	}
 #endif // DEBUG_SHELL
 

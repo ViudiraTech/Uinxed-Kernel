@@ -59,7 +59,7 @@ void panic(const char *format, ...)
 	buff[i] = '\0';
 
 	print_time("Kernel panic - not syncing: ");
-	printk("%s\n", buff);
+	printk("%s", buff);
 	krn_halt();
 }
 
