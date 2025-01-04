@@ -427,6 +427,6 @@ void init_pci(void)
 			}
 		}
 	}
-	print_succ("PCI devices initialized successfully,Total devices loaded: ");
+	print_succ("PCI devices initialized successfully | Total devices loaded: ");
 	printk("%d\n", PCI_NUM);
 }

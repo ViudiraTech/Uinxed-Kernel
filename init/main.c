@@ -87,7 +87,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	setup_free_page();				// 初始化用于页目录FIFO
 	init_fpu();						// 初始化FPU
 	init_pci();						// 初始化PCI设备
-	init_serial();					// 初始化计算机串口
+	init_serial(9600);				// 初始化计算机串口
 	init_keyboard();				// 初始化键盘驱动
 	mouse_init();					// 初始化鼠标驱动
 	init_sched();					// 初始化多任务
