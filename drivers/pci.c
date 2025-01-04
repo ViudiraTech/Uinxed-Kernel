@@ -350,8 +350,8 @@ int pci_find_name(const char *name)
 void pci_device_info(void)
 {
 	unsigned int BUS, Equipment, F;
-	printk("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-	printk("┃Bus  Slot  Func  VendorID  DeviceID  ClassCode  Name\n");
+	printk("+-------------------------------------------------------------------------\n");
+	printk("|Bus  Slot  Func  VendorID  DeviceID  ClassCode  Name\n");
 
 	for (BUS = 0; BUS < 256; BUS++) {
 		for (Equipment = 0; Equipment < 32; Equipment++) {
@@ -368,12 +368,12 @@ void pci_device_info(void)
 					uint16_t device_id = value_d & 0xffff;
 
 					/* 打印PCI设备信息 */
-					printk("┃%03d  %02d    %02d    0x%04X    0x%04X    0x%06X   %s\n", BUS, Equipment, F, vendor_id, device_id, class_code, pci_classname(class_code));
+					printk("|%03d  %02d    %02d    0x%04X    0x%04X    0x%06X   %s\n", BUS, Equipment, F, vendor_id, device_id, class_code, pci_classname(class_code));
 				}
 			}
 		}
 	}
-	printk("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+	printk("+-------------------------------------------------------------------------\n");
 }
 
 /* 初始化PCI设备 */
