@@ -40,7 +40,7 @@ void init_debug(void);
 void get_cur_status(uint16_t* ring, uint16_t* regs1, uint16_t* regs2, uint16_t* regs3, uint16_t* regs4);
 
 /* 内核异常 */
-void panic(const char *msg);
+void panic(const char *format, ...);
 
 /* 打印内核堆栈跟踪 */
 void get_stack_trace(uint32_t *eips, const char **syname);

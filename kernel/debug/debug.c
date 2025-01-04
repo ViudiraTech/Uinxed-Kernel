@@ -13,10 +13,7 @@
 #include "elf.h"
 #include "printk.h"
 #include "common.h"
-#include "vbe.h"
-#include "cpu.h"
-#include "sched.h"
-#include "os_terminal.lib.h"
+#include "vargs.h"
 
 static elf_t kernel_elf;
 
@@ -48,10 +45,21 @@ void get_cur_status(uint16_t* ring, uint16_t* regs1, uint16_t* regs2, uint16_t* 
 }
 
 /* 内核异常 */
-void panic(const char *msg)
+void panic(const char *format, ...)
 {
+	/* 避免频繁创建临时变量，内核的栈很宝贵 */
+	static char buff[1024];
+	va_list args;
+	int i;
+
+	va_start(args, format);
+	i = vsprintf(buff, format, args);
+	va_end(args);
+
+	buff[i] = '\0';
+
 	print_time("Kernel panic - not syncing: ");
-	printk("%s\n", msg);
+	printk("%s\n", buff);
 	krn_halt();
 }
 
