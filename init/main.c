@@ -124,7 +124,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	vbe_write_newline();			// 打印一个空行，和上面的信息保持隔离
 	print_cpu_info();				// 打印当前CPU的信息
 
-	printk("Terminal Uinxed tty%d\n", get_boot_tty());
+	printk("Terminal Uinxed %s\n", get_boot_tty());
 
 #ifdef DEBUG_SHELL
 	kernel_thread(kthread_shell, (void *)((glb_mboot_ptr->flags & MULTIBOOT_INFO_CMDLINE) ? glb_mboot_ptr->cmdline : 0),

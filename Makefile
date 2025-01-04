@@ -74,7 +74,7 @@ Uinxed.iso: UxImage
 	@echo 'set default=0' >> iso/boot/grub/grub.cfg
 
 	@echo 'menuentry "Uinxed"{' >> iso/boot/grub/grub.cfg
-	@echo '	multiboot /boot/UxImage tty=1' >> iso/boot/grub/grub.cfg
+	@echo '	multiboot /boot/UxImage console=tty0' >> iso/boot/grub/grub.cfg
 	@echo '	boot' >> iso/boot/grub/grub.cfg
 	@echo '}' >> iso/boot/grub/grub.cfg
 
