@@ -71,6 +71,7 @@ sudo apk add gcc make xmake nasm grub-pc xorriso qemu-system
 - CoolPotOS: [https://github.com/xiaoyi1212/CoolPotOS](https://github.com/plos-clan/CoolPotOS)
 - libos-terminal: [https://github.com/plos-clan/libos-terminal](https://github.com/plos-clan/libos-terminal)
 - pl_readline: [https://github.com/plos-clan/pl_readline](https://github.com/plos-clan/pl_readline)
+- FatFS FileSystem: [http://elm-chan.org/fsw/ff/](http://elm-chan.org/fsw/ff/00index_e.html)
 
 ## 参考的网站
 
