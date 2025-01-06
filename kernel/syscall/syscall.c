@@ -28,7 +28,7 @@ typedef enum oflags {
 } oflags_t;
 
 /* POSIX规范-打开文件 */
-static uint32_t syscall_posix_open(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
+static uint32_t syscall_open(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	enable_intr();
 	char *name = (char *)ebx;
@@ -53,7 +53,7 @@ static uint32_t syscall_posix_open(uint32_t ebx, uint32_t ecx, uint32_t edx, uin
 }
 
 /* POSIX规范-关闭文件 */
-static uint32_t syscall_posix_close(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
+static uint32_t syscall_close(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	for (int i = 3; i < 255; i++) {
 		if (i == ebx) {
@@ -68,7 +68,7 @@ static uint32_t syscall_posix_close(uint32_t ebx, uint32_t ecx, uint32_t edx, ui
 }
 
 /* POSIX规范-读取文件 */
-static uint32_t syscall_posix_read(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
+static uint32_t syscall_read(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	enable_intr();
 	if (ebx < 0 || ebx == 1 || ebx == 2)return -1;
@@ -95,7 +95,7 @@ static uint32_t syscall_posix_read(uint32_t ebx, uint32_t ecx, uint32_t edx, uin
 }
 
 /* POSIX规范-获取文件大小 */
-static uint32_t syscall_posix_size(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
+static uint32_t syscall_size(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	if (ebx < 0 || ebx == 1 || ebx == 2) return -1;
 	cfile_t file = get_current_proc()->file_table[ebx];
@@ -176,12 +176,20 @@ static uint32_t syscall_getpid(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_
 	return get_current_proc()->pid;
 }
 
+/* 退出进程 */
+static uint32_t syscall_exit(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
+{
+	__asm__("movl %0, %%eax" : : "r"(ebx) : "eax");
+	kthread_exit();
+	return 0;
+}
+
 /* 系统调用表 */
 syscall_t syscall_handlers[MAX_SYSCALLS] = {
-	[1] = syscall_posix_open,
-	[2] = syscall_posix_close,
-	[3] = syscall_posix_read,
-	[4] = syscall_posix_size,
+	[1] = syscall_open,
+	[2] = syscall_close,
+	[3] = syscall_read,
+	[4] = syscall_size,
 	[5] = syscall_printf,
 	[6] = syscall_putchar,
 	[7] = syscall_malloc,
@@ -192,7 +200,8 @@ syscall_t syscall_handlers[MAX_SYSCALLS] = {
 	[12] = syscall_reboot,
 	[13] = syscall_sleep,
 	[14] = syscall_beep,
-	[15] = syscall_getpid
+	[15] = syscall_getpid,
+	[16] = syscall_exit
 };
 
 /* 系统调用处理 */
