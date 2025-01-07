@@ -15,7 +15,7 @@
 #include "keyboard.h"
 #include "vbe.h"
 
-struct MOUSE_DEC *mdec;
+struct MOUSE_DEC mdec;
 unsigned char dat;
 int MOUSEX, MOUSEY, MOUSEBTN;
 int mx, my;
@@ -33,49 +33,49 @@ static void kb_wait(void)
 static int mouse_decode(void)
 {
 	/* 根据当前阶段处理接收到的数据 */
-	if (mdec->phase == 0) {
+	if (mdec.phase == 0) {
 		/* 等待鼠标发送0xfa的阶段 */
 		if (dat == 0xfa) {
-			mdec->phase = 1;
+			mdec.phase = 1;
 		}
 		return 0;
 	}
-	if (mdec->phase == 1) {
+	if (mdec.phase == 1) {
 		/* 等待鼠标第一字节数据的阶段 */
 		if ((dat & 0xc8) == 0x08) {
-			mdec->buf[0] = dat;
-			mdec->phase = 2;
+			mdec.buf[0] = dat;
+			mdec.phase = 2;
 		}
 		return 0;
 	}
-	if (mdec->phase == 2) {
+	if (mdec.phase == 2) {
 		/* 等待鼠标第二字节数据的阶段 */
-		mdec->buf[1] = dat;
-		mdec->phase = 3;
+		mdec.buf[1] = dat;
+		mdec.phase = 3;
 		return 0;
 	}
-	if (mdec->phase == 3) {
+	if (mdec.phase == 3) {
 		/* 等待鼠标第三字节数据的阶段 */
-		mdec->buf[2] = dat;
-		mdec->phase = 1;
+		mdec.buf[2] = dat;
+		mdec.phase = 1;
 
 		/* 解码按钮状态 */
-		mdec->btn = mdec->buf[0] & 0x07;
+		mdec.btn = mdec.buf[0] & 0x07;
 
 		/* 解码x和y坐标 */
-		mdec->x = mdec->buf[1];
-		mdec->y = mdec->buf[2];
+		mdec.x = mdec.buf[1];
+		mdec.y = mdec.buf[2];
 
 		/* 如果某一位被设置，则将坐标扩展为负数 */
-		if ((mdec->buf[0] & 0x10) != 0) {
-			mdec->x |= 0xffffff00;
+		if ((mdec.buf[0] & 0x10) != 0) {
+			mdec.x |= 0xffffff00;
 		}
-		if ((mdec->buf[0] & 0x20) != 0) {
-			mdec->y |= 0xffffff00;
+		if ((mdec.buf[0] & 0x20) != 0) {
+			mdec.y |= 0xffffff00;
 		}
 
 		/* 鼠标的y方向与画面符号相反，进行转换 */
-		mdec->y = -mdec->y;
+		mdec.y = -mdec.y;
 		return 1;
 	}
 	return -1;
@@ -86,8 +86,8 @@ void mouse_handler(pt_regs *reg)
 {
 	dat = inb(0x60);
 	if (mouse_decode() != 0) {
-		mx += mdec->x;
-		my += mdec->y;
+		mx += mdec.x;
+		my += mdec.y;
 		if (mx < 0) {
 			mx = 0;
 		}
@@ -102,7 +102,7 @@ void mouse_handler(pt_regs *reg)
 		}
 		MOUSEX = mx;
 		MOUSEY = my;
-		MOUSEBTN = mdec->btn;
+		MOUSEBTN = mdec.btn;
 	}
 }
 
@@ -122,7 +122,7 @@ void mouse_init(void)
 	outb(KB_DATA, 0xf4);
 
 	register_interrupt_handler(0x20 + 12, &mouse_handler);
-	mdec->phase = 0;
+	mdec.phase = 0;
 
 	print_succ("PS/2 mouse controller initialized successfully.\n");
 }

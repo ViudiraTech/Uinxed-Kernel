@@ -72,7 +72,7 @@ void putchar(int ch)
 void printk(const char *format, ...)
 {
 	/* 避免频繁创建临时变量，内核的栈很宝贵 */
-	static char buff[1024];
+	static char buff[2048];
 	va_list args;
 	int i;
 

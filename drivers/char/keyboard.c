@@ -61,7 +61,11 @@ static void set_leds(void)
 /* 等待键盘传来的字符 */
 void getch(char *ch)
 {
-	while (fifo_status(&terminal_key) == 0);
+	while (fifo_status(&terminal_key) == 0) {
+		enable_intr();
+		__asm__("hlt");
+		disable_intr();
+	}
 	*ch = fifo_get(&terminal_key);
 }
 
