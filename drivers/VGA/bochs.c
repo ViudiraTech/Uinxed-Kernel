@@ -12,6 +12,8 @@
 #include "common.h"
 #include "pci.h"
 #include "bochs.h"
+#include "boot.h"
+#include "multiboot.h"
 
 #define VBE_INDEX_PORT 0x01ce
 #define VBE_DATA_PORT 0x01cf
@@ -23,7 +25,7 @@
 
 static int find_bochs_address(unsigned int BUS, unsigned int Equipment, unsigned int F, void *data)
 {
-	multiboot_t *info = (multiboot_t *)data;
+	struct boot_info *info = (struct boot_info *)data;
 	uint32_t value_c = read_pci(BUS, Equipment, F, PCI_CONF_REVISION);
 	uint32_t class_code = value_c >> 8;
 	uint16_t value_v = read_pci(BUS, Equipment, F, PCI_CONF_VENDOR);
@@ -48,25 +50,17 @@ static int find_bochs_address(unsigned int BUS, unsigned int Equipment, unsigned
 	void *addr = get_base_address_register(BUS, Equipment, F, 0).address;
 	info->framebuffer_addr = (uint32_t)addr;
 	info->framebuffer_pitch = info->framebuffer_width*4;
-	info->framebuffer_bpp = 32;
 	info->framebuffer_type = MULTIBOOT_FRAMEBUFFER_TYPE_RGB;
-	info->framebuffer_red_field_position = 16;
-	info->framebuffer_red_mask_size = 8;
-	info->framebuffer_green_field_position = 8;
-	info->framebuffer_green_mask_size = 8;
-	info->framebuffer_blue_field_position = 0;
-	info->framebuffer_blue_mask_size = 8;
+	info->framebuffer_bpp = 32;
 	return 1;
 }
 
-void init_bochs(multiboot_t *info)
+void init_bochs()
 {
-	if (info->flags & MULTIBOOT_INFO_FRAMEBUFFER_INFO) {
+	if (boot_info.framebuffer_bpp) {
 		return;
 	}
-	info->framebuffer_width = 1024;
-	info->framebuffer_height = 768;
-	if (pointer_pci_find(find_bochs_address, info)) {
-		info->flags |= MULTIBOOT_INFO_FRAMEBUFFER_INFO;
-	}
+	boot_info.framebuffer_width = 1024;
+	boot_info.framebuffer_height = 768;
+	pointer_pci_find(find_bochs_address, &boot_info);
 }

@@ -242,7 +242,7 @@ struct multiboot_color
 	multiboot_uint8_t blue;
 };
 
-struct mmap_entry_t
+struct mmap_entry
 {
 	multiboot_uint32_t size;
 	multiboot_uint64_t addr;
@@ -285,13 +285,6 @@ struct multiboot_apm_info
 	multiboot_uint16_t cseg_16_len;
 	multiboot_uint16_t dseg_len;
 };
-
-/* 声明全局的 multiboot_t * 指针 */
-/* 内核未建立分页机制前暂存的指针 */
-extern multiboot_t *mboot_ptr_tmp;
-
-/* 内核页表建立后的指针 */
-extern multiboot_t *glb_mboot_ptr;
 
 #endif // ASM_FILE
 

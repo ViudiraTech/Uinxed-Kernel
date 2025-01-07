@@ -34,12 +34,9 @@ void enable_scheduler(void);
 void disable_scheduler(void);
 
 /* 任务调度 */
-void schedule(pt_regs *regs);
+void schedule();
 
 /* 任务切换准备 */
-void change_task_to(struct task_struct *next, pt_regs *regs);
-
-/* 任务切换 */
-void switch_to(struct context *prev, struct context *next);
+void change_task_to(struct task_struct *next);
 
 #endif // INCLUDE_SCHED_H_

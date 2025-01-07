@@ -33,25 +33,23 @@ void init_sched(void)
 {
 	print_busy("Initializing multi-task...\r");
 
+	uintptr_t *page_directory = (uintptr_t *)CURRENT_PD_BASE;
+
 	/* 为当前执行流创建信息结构体 该结构位于当前执行流的栈最低端 */
 	current = kmalloc(sizeof(struct task_struct));
-
 	current->level = KERNEL_TASK;
 	current->state = TASK_RUNNABLE;
 	current->pid = now_pid++;
-	current->stack = current;			// 该成员指向栈低地址
-	current->pgd_dir = kernel_directory;
+
+	/* page directory 最后一项是自己指向自己 */
+	current->pgd_dir = PT_ADDRESS(page_directory[1023]);
 	current->mem_size = 0;
 	current->name = "Uinxed-Kernel";	// 内核进程名称
 	current->fpu_flag = 0;				// 还没使用FPU
 	current->cpu_clock = 0;
 	current->sche_time = 1;
-	current->context.esp = (uint32_t )current->stack;
 
 	for (int i = 0; i < 255; i++)current->file_table[i] = 0;
-
-	current->program_break = (uint32_t)program_break;
-	current->program_break_end = (uint32_t)program_break_end;
 
 	/* 单向循环链表 */
 	current->next = current;
@@ -73,21 +71,26 @@ void disable_scheduler(void)
 }
 
 /* 任务调度 */
-void schedule(pt_regs *regs)
+void schedule()
 {
-	disable_intr();
 	if (current && can_sche) {
 		if (current->state != TASK_RUNNABLE) {
 			current = running_proc_head;
 		}
 		current->cpu_clock++;
-		change_task_to(current->next, regs);
+		change_task_to(current->next);
 	}
-	enable_intr();
+}
+
+__attribute__((noipa,naked,fastcall)) // 切换页表后，完成longjmp之前，esp还没改过来，所以必须naked
+static void resume()
+{
+	__asm__("mov %0, %%cr3" : : "a"(current->pgd_dir));
+	__builtin_longjmp(current->jmp_buf, 1);
 }
 
 /* 任务切换准备 */
-void change_task_to(struct task_struct *next, pt_regs *regs)
+void change_task_to(struct task_struct *next)
 {
 	if (current->sche_time > 1) {
 		current->sche_time--;
@@ -96,28 +99,22 @@ void change_task_to(struct task_struct *next, pt_regs *regs)
 	if (current != next) {
 		if (next == NULL) next = running_proc_head;
 		current->sche_time = 1;
-		struct task_struct *prev = current;
-		current = next;
-		switch_page_directory(current->pgd_dir);
-		set_kernel_stack((uintptr_t)current->stack + STACK_SIZE);
-		set_cr0(get_cr0() & ~((1 << 2) | (1 << 3)));
+		fpu_regs_t fpu = {0};
+		/* 保存FPU状态 */
 		if (current->fpu_flag) {
-			__asm__ __volatile__("fnsave (%%eax) \n" ::"a"(&(current->context.fpu_regs)) : "memory");
+			__asm__ ("fnsave %0" :: "m"(fpu) : "memory");
+			/* 设置CR0.EM 禁用FPU */
+			set_cr0(get_cr0() | (1 << 2));
 		}
-		set_cr0(get_cr0() | (1 << 2) | (1 << 3));
-
-		prev->context.eip = regs->eip;
-		prev->context.ds = regs->ds;
-		prev->context.cs = regs->cs;
-		prev->context.eax = regs->eax;
-		prev->context.ss = regs->ss;
-
-		switch_to(&(prev->context), &(current->context));
-
-		regs->ds = current->context.ds;
-		regs->cs = current->context.cs;
-		regs->eip = current->context.eip;
-		regs->eax = current->context.eax;
-		regs->ss = current->context.ss;
+		if (!__builtin_setjmp(current->jmp_buf)) {
+			current = next;
+			resume();
+			panic(PFFF);
+		}
+		/* 恢复FPU状态 */
+		if (current->fpu_flag) {
+			set_cr0(get_cr0() & ~((1 << 2)));
+			__asm__ ("frstor %0" :: "m"(fpu) : "memory");
+		}
 	}
 }

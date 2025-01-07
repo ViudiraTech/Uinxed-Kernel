@@ -10,7 +10,7 @@
  */
 
 #include "tty.h"
-#include "multiboot.h"
+#include "boot.h"
 #include "stdlib.h"
 #include "memory.h"
 #include "serial.h"
@@ -57,7 +57,7 @@ static int arg_parse(uint8_t *arg_str, uint8_t **argv, uint8_t token)
 char *get_boot_tty(void)
 {
 	uint8_t *arg_based;
-	arg_based = (unsigned char *)glb_mboot_ptr->cmdline;
+	arg_based = (unsigned char *)boot_info.cmdline;
 
 	int i = 0;
 	uint8_t bootarg[256] = {0};

@@ -60,42 +60,18 @@ typedef struct tss_table {
 	uint16_t iomap_base;
 } tss_entry;
 
-typedef struct intr_frame_t {
-	unsigned edi;
-	unsigned esi;
-	unsigned ebp;
-	unsigned esp_dummy;
-
-	unsigned ebx;
-	unsigned edx;
-	unsigned ecx;
-	unsigned eax;
-
-	unsigned gs;
-	unsigned fs;
-	unsigned es;
-	unsigned ds;
-
-	unsigned eip;
-	unsigned cs;
-	unsigned eflags;
-	unsigned esp;
-	unsigned ss;
-} intr_frame_t;
+#define KERNEL_CS_INDEX 1
+#define KERNEL_SS_INDEX (KERNEL_CS_INDEX+1)
+#define USER_CS_INDEX 3
+#define USER_SS_INDEX (USER_CS_INDEX+1)
+#define KERNEL_CS (KERNEL_CS_INDEX<<3)
+#define KERNEL_SS (KERNEL_SS_INDEX<<3)
+#define USER_CS ((USER_CS_INDEX<<3)|0x3)
+#define USER_SS ((USER_SS_INDEX<<3)|0x3)
+#define TSS_INDEX 5
+#define TSS (TSS_INDEX<<3)
 
 /* 初始化全局描述符表 */
 void init_gdt(void);
-
-/* 设置任务状态段并将其写入全局描述符表 */
-void write_tss(int32_t num, uint16_t ss0, uint32_t esp0);
-
-/* 设置任务状态段 */
-void set_kernel_stack(uintptr_t stack);
-
-/* 设置任务状态段中的ss0字段 */
-void set_tss_ss0(uintptr_t ss);
-
-/* GDT 加载到 GDTR 的函数[汇编实现] */
-extern void gdt_flush(uint32_t);
 
 #endif // INCLUDE_GDT_H_

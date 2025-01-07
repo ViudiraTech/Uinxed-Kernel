@@ -50,25 +50,6 @@ typedef struct __attribute__((packed)) fpu_regs {
 	uint8_t		regs[80];
 } fpu_regs_t;
 
-/* 内核进程的上下文切换保存的信息 */
-struct context {
-	uint32_t esp;
-	uint32_t ebp;
-	uint32_t ebx;
-	uint32_t esi;
-	uint32_t edi;
-	uint32_t ecx;
-	uint32_t edx;
-	uint32_t eflags;
-
-	uint32_t eax;
-	uint32_t eip;
-	uint32_t ds;
-	uint32_t cs;
-	uint32_t ss;
-	fpu_regs_t fpu_regs;
-};
-
 /* 进程控制块 PCB */
 struct task_struct {
 	int level;					// 进程级别（0-内核进程 1-服务进程 2-用户进程）
@@ -76,16 +57,19 @@ struct task_struct {
 	int pid;					// 进程标识符
 	int mem_size;				// 内存利用率
 	const char *name;			// 进程名
-	void *stack;				// 进程的内核栈地址
-	uint32_t program_break;		// 进程堆基址
-	uint32_t program_break_end;	// 进程堆尾
-	page_directory_t *pgd_dir;	// 进程页表
+	uintptr_t pgd_dir;	// 进程页表
 	cfile_t file_table[255];	// 进程文件句柄表
-	vfs_node_t exe_file;		// 可执行文件
+	union {
+		vfs_node_t exe_file;		// 可执行文件
+		int (*fn)(void *);
+	};
+	void *arg;
 	int fpu_flag;				// 是否使用 FPU
 	uint32_t cpu_clock;			// CPU运行时间片
-	uint32_t sche_time;			// 进程剩余的可运行时间片
-	struct context context;		// 进程切换需要的上下文信息
+	uint32_t sche_time;			// 进程剩余的可运行时间片c
+	uintptr_t jmp_buf[5];		// 进程切换需要的上下文信息
+	uintptr_t kill_eip;		// 杀进程切换到这个eip
+	int exit_status;		// 进程退出状态码
 	struct task_struct *next;	// 链表指针
 };
 

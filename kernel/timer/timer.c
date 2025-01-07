@@ -30,12 +30,10 @@ double get_current_second(void)
 }
 
 /* 定时器中断处理函数 */
-static void timer_handle(pt_regs *regs)
+static void timer_handle(struct interrupt_frame *frame)
 {
-	disable_intr();
 	tick++;
-	schedule(regs);
-	enable_intr();
+	schedule();
 }
 
 /* 使当前进程休眠指定的时间 */
@@ -49,7 +47,9 @@ void clock_sleep(uint32_t timer)
 {
 	uint32_t sleep = tick + timer;
 	while (1) {
+		enable_intr();
 		__asm__ ("hlt");
+		disable_intr();
 		if (tick >= sleep) break;
 	}
 }

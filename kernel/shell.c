@@ -9,6 +9,7 @@
  *
  */
 
+#include "boot.h"
 #include "fifo.h"
 #include "keyboard.h"
 #include "vbe.h"
@@ -227,8 +228,8 @@ void shell_ls(int argc, char *argv[])
 void shell_free(void)
 {
 	printk("       total    used     free\n");
-	printk("Mem:   %-9d%-9d%d\n", (glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower), (get_kernel_memory_usage() / 1024),
-                                  (glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower) - (get_kernel_memory_usage() / 1024));
+	printk("Mem:   %-9d%-9d%d\n", (boot_info.mem_upper + boot_info.mem_lower), (get_kernel_memory_usage() / 1024),
+                                  (boot_info.mem_upper + boot_info.mem_lower) - (get_kernel_memory_usage() / 1024));
 	printk("\n");
 	return;
 }
@@ -348,7 +349,7 @@ static void handle_tab(char *buf, pl_readline_words_t words)
 
 static void plreadln_flush(void)
 {
-	/* Nothing */
+	terminal_flush();
 }
 
 /* shell主程序 */

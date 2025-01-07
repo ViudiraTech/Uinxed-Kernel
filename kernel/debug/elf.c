@@ -17,9 +17,8 @@
 /* 回调函数 */
 void segment_callback(struct ElfSegment segment)
 {
-	page_directory_t *pg_dir = current_directory;
 	for (size_t i = segment.address; i < segment.address + segment.size; i += 4096) {
-		alloc_frame(get_page(i, 1, pg_dir), 0, 1);
+		page_alloc(i, PT_W|PT_U);
 	}
 	memcpy((void*)segment.address,segment.data,segment.size);
 }
@@ -48,31 +47,6 @@ uint32_t elf_load(size_t elf_size,uint8_t *elf_data)
 			break;
 	}
 	return 0;
-}
-
-/* 从 multiboot_t 结构获取ELF信息 */
-elf_t elf_from_multiboot(multiboot_elf_section_header_table_t *mb)
-{
-	int i;
-	elf_t elf;
-	elf_section_header_t *sh = (elf_section_header_t *)mb->addr;
-
-	uint32_t shstrtab = sh[mb->shndx].addr;
-	for (i = 0; i < (int)mb->num; i++) {
-		const char *name = (const char *)(shstrtab + sh[i].name);
-
-		/* 在 GRUB 提供的 multiboot 信息中寻找 */
-		/* 内核 ELF 格式所提取的字符串表和符号表 */
-		if (strcmp(name, ".strtab") == 0) {
-			elf.strtab = (const char *)sh[i].addr;
-			elf.strtabsz = sh[i].size;
-		}
-		if (strcmp(name, ".symtab") == 0) {
-			elf.symtab = (elf_symbol_t*)sh[i].addr;
-			elf.symtabsz = sh[i].size;
-		}
-	}
-	return elf;
 }
 
 /* 查看ELF的符号信息 */

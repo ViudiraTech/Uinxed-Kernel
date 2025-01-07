@@ -14,116 +14,155 @@
 #include "string.h"
 #include "debug.h"
 
-#define getpagesize() PAGE_SIZE
-#define MAGIC 0xef
-#define RMAGIC 0x5555
-#define RSLOP 0
-#define NBUCKETS 30
-#define bcopy(a, b, c) memcpy(b,a,c)
 #define ASSERT(S)
 
-static int realloc_srchlen = 4;
-extern uint32_t kh_usage_memory_byte;
+/* 基于BSD 4.2 malloc() 的设计
+ * 总共有 NBUCKETS (30) 个bucket。这里把bucket序号记作i，从0开始编号
+ * bucket i里所有块长度都是 2^(i+3) 个字节
+ * 不开启 range check (#ifdef RCHECK) 时
+ * 每个块的可用长度为 2^(i+3) - 4
+ * 每个块开头四个字节用于存放块元信息
+ * 未分配时是指向下一个可用块的指针
+ * 分配时只有前两个字节有用
+ * - 第一个字节为 MAGIC (0xff)
+ * - 第二个字节为 ov_index 即bucket序号i
+ * 后两个字节用于保证返回的指针是四个字节对齐的
+ *            ┌────────────────────────────────┐
+ *            │<-    2^(ov_index+3) bytes    ->│
+ *            │┌─────┬─ ov_next (when free)    │
+ *            ├┴┬─┬─┬┴┬─┬─┬─┬─┬────────────────┤
+ * when used: └┬┴┬┴┬┴┬┴┬┴─┴─┴┬┴────────────────┘
+ *  ov_magic ──┘ │ │ │ └─────┴─ ov_magic
+ *  ov_index ────┘ └─┴─ ov_size
+ *                 #ifdef RCHECK
+ * 开启 range check 时，在可用区域头尾各放四个字节 RMAGIC (0x55555555)
+ * 可用长度为 2^(i+3) - 12
+ */
+/*
+ * malloc.c (Caltech) 2/21/82
+ * Chris Kingsley, kingsley@cit-20.
+ *
+ * This is a very fast storage allocator.  It allocates blocks of a small
+ * number of different sizes, and keeps free lists of each size.  Blocks that
+ * don't exactly fit are passed up to the next larger size.  In this
+ * implementation, the available sizes are 2^n-4 (or 2^n-12) bytes long.
+ * This is designed for use in a program that uses vast quantities of memory,
+ * but bombs when it runs out.
+ */
 
+/*
+ * The overhead on a block is at least 4 bytes.  When free, this space
+ * contains a pointer to the next free block, and the bottom two bits must
+ * be zero.  When in use, the first byte is set to MAGIC, and the second
+ * byte is the size index.  The remaining bytes are for alignment.
+ * If range checking is enabled and the size of the block fits
+ * in two bytes, then the top two bytes hold the size of the requested block
+ * plus the range checking words, and the header word MINUS ONE.
+ */
+union overhead {
+	union overhead *ov_next;	/* when free */
+	struct {
+		uint8_t ov_magic;	/* magic number */
+		uint8_t ov_index;	/* bucket # */
+#ifdef RCHECK
+		uint16_t ov_size;	/* actual block size */
+		uint32_t ov_magic;	/* range magic number */
+#endif
+	};
+};
+
+#define MAGIC	0xff			/* magic # on accounting info */
+#define RMAGIC	0x55555555		/* magic # on range info */
+#ifdef RCHECK
+#define RSLOP	sizeof(uint32_t)
+#else
+#define RSLOP	0
+#endif
+
+/*
+ * nextf[i] is the pointer to the next free block of size 2^(i+3).  The
+ * smallest allocatable block is 8 bytes.  The overhead information
+ * precedes the data area returned to the user.
+ */
+#define NBUCKETS 30
 static union overhead *nextf[NBUCKETS];
-static void morecore(int bucket);
-static int findbucket(union overhead *freep, int srchlen);
-static int pagesz;
-static int pagebucket;
 
-void *program_break = (void*)0x3e0000;
-void *program_break_end;
 
-/* 开启分页机制后的内核栈 */
-char kern_stack[STACK_SIZE] __attribute__ ((aligned(16)));
+#ifdef MSTATS
+/*
+ * nmalloc[i] is the difference between the number of mallocs and frees
+ * for a given block size.
+ */
+static size_t nmalloc[NBUCKETS];
+#endif
 
-/* 栈顶 */
-uint32_t kern_stack_top = ((uint32_t)kern_stack + STACK_SIZE);
+static void morecore(size_t bucket);
+
+uintptr_t program_break;
+uintptr_t program_break_end = KERNEL_STACK_BASE;
 
 /* 内核堆扩容措施 */
-static void *sbrk(int incr)
+static void *sbrk(size_t incr)
 {
-	if (program_break == 0) {
-		return (void *) -1;
+	uintptr_t next_program_break = program_break + incr;
+	if (next_program_break >= program_break_end)
+		return (void*)-1;
+	void *result = (void *)program_break;
+	for ( ; program_break < next_program_break; program_break += PAGE_SIZE) {
+		page_alloc(program_break, PT_W);
 	}
-	if (program_break + incr >= program_break_end) {
-		ral:
-		if(program_break_end >= (void*)0x01bf8f7d) goto alloc_error;
-		if ((uint32_t) program_break_end < USER_AREA_START) {
-			uint32_t ai = (uint32_t)program_break_end;
-			for (; ai < (uint32_t)program_break_end + PAGE_SIZE * 10;) {
-				alloc_frame(get_page(ai, 1, kernel_directory), 1, 0);
-				ai += PAGE_SIZE;
-			}
-			program_break_end = (void *) ai;
-			if (program_break + incr >= program_break_end) {
-				goto ral;
-			}
-		} else {
-			alloc_error:
-			char *s = 0;
-			sprintf(s, "%s 0x%08X", P010, program_break_end);
-			panic(s);
-			return (void *) -1;
-		}
-	}
-	void *prev_break = program_break;
-	program_break += incr;
-	return prev_break;
+	memset(result, 0, incr);
+	return result;
 }
 
 /* 分配内存并返回地址 */
 void *kmalloc(size_t nbytes)
 {
-	register union overhead *op;
-	register int bucket;
-	register long n;
-	register unsigned amt;
-	if (pagesz == 0) {
-		pagesz = n = getpagesize();
-		op = (union overhead *) sbrk(0);
-		n = n - sizeof(*op) - ((long) op & (n - 1));
-		if (n < 0)
-			n += pagesz;
-		if (n) {
-			if (sbrk(n) == (char *) -1) {
-				return (0);
-			}
-		}
-		bucket = 0;
-		amt = 8;
-		while (pagesz > amt) {
-			amt <<= 1;
-			bucket++;
-		}
-		pagebucket = bucket;
-	}
-	if (nbytes <= (n = pagesz - sizeof(*op) - RSLOP)) {
-		amt = 8;
-		bucket = 0;
-		n = -((long) sizeof(*op) + RSLOP);
-	} else {
-		amt = pagesz;
-		bucket = pagebucket;
-	}
-	while (nbytes > amt + n) {
-		amt <<= 1;
-		if (amt == 0) {
-			return (0);
-		}
+	/*
+	 * Convert amount of memory requested into
+	 * closest block size stored in hash buckets
+	 * which satisfies request.  Account for
+	 * space used per block for accounting.
+	 */
+	/* 注: #define RCHECK 导致sizeof(union overhead)变大 */
+	nbytes += sizeof(union overhead) + RSLOP;
+	nbytes = (nbytes + 3) &~ 3; /* 整4字节 */
+
+	size_t bucket = 0;
+	size_t shiftr = (nbytes - 1) >> 2;
+	/* apart from this loop, this is O(1) */
+	while (shiftr >>= 1)
 		bucket++;
-	}
-	if ((op = nextf[bucket]) == 0) {
+
+	/*
+	 * If nothing in hash bucket right now,
+	 * request more memory from the system.
+	 */
+	if (nextf[bucket] == NULL)
 		morecore(bucket);
-		if ((op = nextf[bucket]) == 0) {
-			return (0);
-		}
-	}
-	nextf[bucket] = op->ov_next;
-	op->ov_magic = MAGIC;
-	op->ov_index = bucket;
-	kh_usage_memory_byte += bucket;
-	return ((char *) (op + 1));
+	union overhead *p = nextf[bucket];
+	if (p == NULL)
+		return NULL;
+	/* remove from linked list */
+	nextf[bucket] = nextf[bucket]->ov_next;
+	p->ov_magic = MAGIC;
+	p->ov_index= bucket;
+#ifdef MSTATS
+	nmalloc[bucket]++;
+#endif
+#ifdef RCHECK
+	/*
+	 * Record allocated size of block and
+	 * bound space with magic numbers.
+	 */
+	/* 就算申请0字节，nbytes也大于0。因此ov_size里可以填nbytes-1 */
+	if (nbytes <= 0x10000)
+		p->ov_size = nbytes - 1;
+	p->ov_rmagic = RMAGIC;
+	*((uint32_t *)((uintptr_t)p + nbytes - RSLOP)) = RMAGIC;
+#endif
+	kh_usage_memory_byte += 1UL << (bucket + 3);
+	return ((char *)(p + 1));
 }
 
 /* 分配内存并返回清零后的内存地址 */
@@ -135,125 +174,110 @@ void *kcalloc(size_t nelem, size_t elsize)
 }
 
 /* 分配更多的空间给内存分配器 */
-static void morecore(int bucket)
+static void morecore(size_t bucket)
 {
-	register union overhead *op;
-	register long sz;
-	long amt;
-	int nblks;
-
-	sz = 1 << (bucket + 3);
-	if (sz <= 0)
+	if (nextf[bucket])
 		return;
-	if (sz < pagesz) {
-		amt = pagesz;
-		nblks = amt / sz;
+
+	size_t sz = 1 << (bucket + 3);
+	size_t nblks;
+	size_t amt;
+
+	/* 这里对祖传代码进行简化，至少分配一整页 */
+	if (sz < PAGE_SIZE) {
+		amt = PAGE_SIZE;
+		nblks = PAGE_SIZE / sz;
 	} else {
-		amt = sz + pagesz;
+		amt = sz;
 		nblks = 1;
 	}
-	op = (union overhead *) sbrk(amt);
-	if ((long) op == -1)
+
+	union overhead *op = (union overhead *) sbrk(amt);
+	if (op == (void *)-1)
 		return;
+
+	/*
+	 * Add new memory allocated to that on
+	 * free list for this hash bucket.
+	 */
 	nextf[bucket] = op;
 	while (--nblks > 0) {
-		op->ov_next = (union overhead *) ((size_t) op + sz);
-		op = (union overhead *) ((size_t) op + sz);
+		op->ov_next = (union overhead *)((uintptr_t)op + sz);
+		op = (union overhead *)((uintptr_t)op + sz);
 	}
+	op->ov_next = NULL;
 }
 
 /* 释放分配的内存并合并 */
 void kfree(void *cp)
 {
-	register long size;
-	register union overhead *op;
-
-	if (cp == 0)
+	if (cp == NULL)
 		return;
-	op = (union overhead *) ((size_t) cp - sizeof(union overhead));
+	union overhead *op = (union overhead *)((uintptr_t)cp - sizeof(union overhead));
+	ASSERT(op->ov_magic == MAGIC);		/* make sure it was in use */
 	if (op->ov_magic != MAGIC)
-		return;
-	size = op->ov_index;
-	ASSERT(size < NBUCKETS);
-	op->ov_next = nextf[size];
-	nextf[size] = op;
-	kh_usage_memory_byte -= size;
+		return;			/* sanity */
+#ifdef RCHECK
+	ASSERT(op->ov_rmagic == RMAGIC);
+	if (op->ov_index <= 13)
+		ASSERT(*(uint32_t *)((uintptr_t)op + op->ov_size + 1 - RSLOP) == RMAGIC);
+#endif
+	ASSERT(op->ov_index < NBUCKETS);
+	size_t bucket = op->ov_index;
+	op->ov_next = nextf[bucket];
+	nextf[bucket] = op;
+#ifdef MSTATS
+	nmalloc[bucket]--;
+#endif
+	kh_usage_memory_byte -= 1UL << (bucket + 3);
 }
 
 /* 计算分配的内存块的实际可用大小 */
 size_t kmalloc_usable_size(void *cp)
 {
-	register union overhead *op;
-	if (cp == 0)
+	if (cp == NULL)
 		return 0;
-	op = (union overhead *) ((size_t) cp - sizeof(union overhead));
+	register union overhead *op;
+	op = ((union overhead *)cp) - 1;
 	if (op->ov_magic != MAGIC)
 		return 0;
-	return op->ov_index;
+	size_t i = op->ov_index;
+	return (1 << (i+3)) - sizeof(union overhead) - RSLOP;
 }
 
 /* 重新分配内存区域 */
 void *krealloc(void *cp, size_t nbytes)
 {
-	register unsigned long onb;
-	register long i;
-	union overhead *op;
-	char *res;
-	int was_alloced = 0;
-
-	if (cp == 0)
+	if (cp == NULL)
 		return (kmalloc(nbytes));
-	if (nbytes == 0) {
-		kfree(cp);
-		return 0;
+
+	union overhead *op = (union overhead *)((uintptr_t)cp - sizeof(union overhead));
+	if (op->ov_magic != MAGIC) {
+		/* V7的realloc有点特殊，文档里是这么说的
+		 * Realloc also works if ptr points to a block freed since the last call of malloc, realloc or calloc;
+		 * thus sequences of free, malloc and realloc can exploit the search strategy of malloc to do storage compaction.
+		 * 4.2BSD的realloc为了兼容这种行为增加了一些代码
+		 * C语言标准早已经不支持这种做法了，因此在这里把这部分代码删了，不作判断直接出错
+		 */
+		ASSERT(0);
+		return NULL;
 	}
-	op = (union overhead *) ((size_t) cp - sizeof(union overhead));
-	if (op->ov_magic == MAGIC) {
-		was_alloced++;
-		i = op->ov_index;
-	} else {
-		if ((i = findbucket(op, 1)) < 0 &&
-			(i = findbucket(op, realloc_srchlen)) < 0)
-			i = NBUCKETS;
+
+	size_t i = op->ov_index;
+	size_t bytes_required = nbytes + sizeof(union overhead) + RSLOP;
+	/* avoid the copy if same size block */
+	if ((bytes_required <= (1 << (i + 3))) && (bytes_required > (1 << (i + 2))))
+		return cp;
+
+	void *res = kmalloc(nbytes);
+	if (res == NULL) {
+		/* 根据C语言标准，除非malloc成功，不能对传入的区域进行写操作 */
+		/* 这里只能直接返回空指针 */
+		return NULL;
 	}
-	onb = 1 << (i + 3);
-	if (onb < pagesz)
-		onb -= sizeof(*op) + RSLOP;
-	else
-		onb += pagesz - sizeof(*op) - RSLOP;
-	if (was_alloced) {
-		if (i) {
-			i = 1 << (i + 2);
-			if (i < pagesz)
-				i -= sizeof(*op) + RSLOP;
-			else
-				i += pagesz - sizeof(*op) - RSLOP;
-		}
-		if (nbytes <= onb && nbytes > i) {
-			return cp;
-		} else
-			kfree(cp);
-	}
-	if ((res = kmalloc(nbytes)) == 0)
-		return 0;
-	if (cp != res)
-		bcopy(cp, (uint8_t *)res, (nbytes < onb) ? nbytes : onb);
+	size_t old_nbytes = kmalloc_usable_size(cp);
+	/* realloc既可能扩容也可能缩容，*/
+	memcpy(res, cp, (nbytes<old_nbytes)?nbytes:old_nbytes);
+	kfree(cp);
 	return res;
-}
-
-/* 查找特定内存块所在的bucket */
-static int findbucket(union overhead *freep, int srchlen)
-{
-	register union overhead *p;
-	register int i, j;
-
-	for (i = 0; i < NBUCKETS; i++) {
-		j = 0;
-		for (p = nextf[i]; p && j != srchlen; p = p->ov_next) {
-			if (p == freep)
-				return i;
-			j++;
-		}
-	}
-	return -1;
 }

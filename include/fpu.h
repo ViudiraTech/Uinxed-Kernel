@@ -12,12 +12,7 @@
 #ifndef INCLUDE_FPU_H_
 #define INCLUDE_FPU_H_
 
-#include "idt.h"
-
 /* 初始化FPU */
 void init_fpu(void);
-
-/* FPU中断 */
-void fpu_handler(pt_regs *regs);
 
 #endif // INCLUDE_FPU_H_

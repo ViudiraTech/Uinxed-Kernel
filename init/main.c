@@ -25,6 +25,7 @@
 #include "cpu.h"
 #include "bochs.h"
 #include "vbe.h"
+#include "boot.h"
 #include "multiboot.h"
 #include "task.h"
 #include "fpu.h"
@@ -42,6 +43,8 @@
 #include "syscall.h"
 #include "tty.h"
 
+struct boot_info boot_info = {0};
+
 void shell(const char *); // 声明shell程序入口
 
 /* 内核shell进程 */
@@ -54,16 +57,17 @@ int kthread_shell(void *arg)
 }
 
 /* 内核入口 */
-void kernel_init(multiboot_t *glb_mboot_ptr)
+void kernel_init()
 {
-	program_break_end = program_break + 0x300000 + 1 + KHEAP_INITIAL_SIZE;
-	memset(program_break, 0, program_break_end - program_break);
+	// 因为gdtr指向的位置是bootloader决定的，保险起见先初始化gdt
+	init_gdt();						// 初始化GDT
+	init_page();
 
-	init_bochs(glb_mboot_ptr);						// 初始化bochs图形模式
-	init_vbe(glb_mboot_ptr, 0x151515, 0xffffff);	// 初始化图形模式
+	init_bochs();						// 初始化bochs图形模式
+	init_vbe(0x151515, 0xffffff);	// 初始化图形模式
 
 	/* 检测内存是否达到最低要求 */
-	if ((glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower) / 1024 + 1 < 32) {
+	if ((boot_info.mem_upper + boot_info.mem_lower) / 1024 + 1 < 32) {
 		panic(P001);
 	}
 
@@ -75,25 +79,19 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	printk(PROJK_COPY"\n");												// 打印版权信息
 	printk("This version compiles at "BUILD_DATE" "BUILD_TIME"\n\n");	// 打印编译日期时间
 
-	printk("KernelArea: 0x00000000 - 0x%08X | GraphicsBuffer: 0x%08X\n", program_break_end,
-                                                                         glb_mboot_ptr->framebuffer_addr);
+	printk("KernelArea: 0x%08X - 0x%08X | GraphicsBuffer: 0x%08X\n", __kernel_start, program_break, boot_info.framebuffer_addr);
 	print_time("Initializing operating system kernel components.\n\n");	// 提示用户正在初始化内核
 
-	init_gdt();						// 初始化GDT
 	init_idt();						// 初始化IDT
-	ISR_registe_Handle();			// 注册ISR处理
 	acpi_init();					// 初始化ACPI
-	init_page(glb_mboot_ptr);		// 初始化内存分页
-	setup_free_page();				// 初始化用于页目录FIFO
-	init_fpu();						// 初始化FPU
 	init_pci();						// 初始化PCI设备
 	init_serial(9600);				// 初始化计算机串口
 	init_keyboard();				// 初始化键盘驱动
 	mouse_init();					// 初始化鼠标驱动
+
 	init_sched();					// 初始化多任务
 	syscall_init();					// 初始化系统调用
 	init_ide();						// 初始化IDE
-
 	vbe_write_newline();			// 打印一个空行，和上面的信息保持隔离
 
 	vfs_init();						// 初始化虚拟文件系统
@@ -108,10 +106,8 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	}
 	init_timer(1);					// 初始化定时器
 	init_pit();						// 初始化PIT
-
 	terminal_set_color_scheme(3);	// 重置终端主题
 
-	enable_intr();					// 开启中断
 	enable_scheduler();				// 启用调度
 
 	vbe_write_newline();
@@ -127,8 +123,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	printk("Terminal Uinxed %s\n", get_boot_tty());
 
 #ifdef DEBUG_SHELL
-	kernel_thread(kthread_shell, (void *)((glb_mboot_ptr->flags & MULTIBOOT_INFO_CMDLINE) ? glb_mboot_ptr->cmdline : 0),
-                  "Basic shell program", USER_TASK);
+	kernel_thread(kthread_shell, (void *)boot_info.cmdline, "Basic shell program", USER_TASK);
 #else
 	if (vfs_do_search(vfs_open("/dev"), "sda")) {
 		if (vfs_do_search(vfs_open("/"), "sbin")) {
@@ -148,16 +143,11 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	/* 内核运行时 */
 	terminal_set_auto_flush(0);
 	while (1) {
-		/* OST刷新 */
-		uint32_t eflags = load_eflags();
-		if (eflags & (1 << 9)) disable_intr();
-		terminal_flush();
-		if (eflags & (1 << 9)) enable_intr();
-
-		/* 释放FIFO中的页目录 */
-		free_pages();
-
+		enable_intr();
 		/* 停机一次 */
 		__asm__ __volatile__("hlt");
+		disable_intr();
+		/* OST刷新 */
+		terminal_flush();
 	}
 }

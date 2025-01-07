@@ -19,25 +19,23 @@ endif
 
 BUILDDIR		?= build
 
-C_SOURCES		:= $(shell find * -name "*.c")
-S_SOURCES		:= $(shell find * -name "*.s")
-OBJS			:= $(C_SOURCES:%.c=$(BUILDDIR)/%.o) $(S_SOURCES:%.s=$(BUILDDIR)/%.o)
+C_SOURCES		:= $(filter-out lib/math.c,$(shell find * -name "*.c"))
+OBJS			:= $(C_SOURCES:%.c=$(BUILDDIR)/%.o)
 DEPS			:= $(OBJS:%.o=%.d)
 LIBS			:= $(wildcard lib/lib*.a)
 
 CC				= gcc
 LD				= ld
-ASM				= nasm
 RM				= rm
 QEMU			= qemu-system-x86_64
 QEMU_FLAGS		= -serial stdio -audiodev pa,id=speaker -machine pcspk-audiodev=speaker
 
-C_FLAGS			= -MMD -Wall -Werror -Wcast-align -Winline -Wwrite-strings \
+C_FLAGS			= -MMD -Wall -Werror -Wattributes -Wcast-align -Winline -Wwrite-strings \
                   -c -I include -m32 -O3 -g -DNDEBUG -nostdinc -fno-pic \
-				  -mno-mmx -mno-sse -mno-sse2 \
+				  -mgeneral-regs-only \
                   -fno-builtin -fno-stack-protector
 
-LD_FLAGS		= -T scripts/kernel.ld -m elf_i386 --strip-all
+LD_FLAGS		= -T scripts/kernel.ld -m elf_i386
 ASM_FLAGS		= -f elf -g -F stabs
 
 all: info Uinxed.iso
@@ -54,9 +52,6 @@ makedirs:
 
 $(BUILDDIR)/%.o: %.c | makedirs
 	$(V)$(CC) $(C_FLAGS) -o $@ $<
-
-$(BUILDDIR)/%.o: %.s | makedirs
-	$(V)$(ASM) $(ASM_FLAGS) -o $@ $<
 
 UxImage: $(OBJS) $(LIBS)
 	$(V)$(LD) $(LD_FLAGS) -o $@ $^

@@ -10,6 +10,7 @@
  */
 
 #include "memory.h"
+#include "boot.h"
 #include "string.h"
 #include "printk.h"
 #include "idt.h"
@@ -18,170 +19,85 @@
 #include "fifo.h"
 #include "sched.h"
 
-page_directory_t *kernel_directory	= 0;	// 内核用页目录
-page_directory_t *current_directory	= 0;	// 当前页目录
+uintptr_t align_down(uintptr_t addr, uintptr_t size) {
+	return addr-addr%size;
+}
 
-uint32_t *frames;
-uint32_t nframes;
+uintptr_t align_up(uintptr_t addr, uintptr_t size) {
+	return align_down(addr+size-1, size);
+}
 
-struct FIFO8 *fifo;
 uint32_t kh_usage_memory_byte = 0;
 
-/* 标记一个帧为已使用 */
-static void set_frame(uint32_t frame_addr)
+void page_map(uintptr_t vaddr, uintptr_t entry)
 {
-	uint32_t frame = frame_addr / PAGE_SIZE;
-	uint32_t idx = INDEX_FROM_BIT(frame);
-	uint32_t off = OFFSET_FROM_BIT(frame);
-	frames[idx] |= (0x1U << off);
-}
+	uintptr_t index = vaddr >> HUGE_PAGE_SHIFT;
+	uintptr_t *page_directory = (uintptr_t *)CURRENT_PD_BASE;
+	uintptr_t *page_table = (uintptr_t *)CURRENT_PT_BASE;
 
-/* 将一个帧标记为未使用状态 */
-static void clear_frame(uint32_t frame_addr)
-{
-	uint32_t frame = frame_addr / PAGE_SIZE;
-	uint32_t idx = INDEX_FROM_BIT(frame);
-	uint32_t off = OFFSET_FROM_BIT(frame);
-	frames[idx] &= ~(0x1U << off);
-}
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-function"
-
-/* 将帧位图中对应帧的位清除为0 */
-static uint32_t test_frame(uint32_t frame_addr)
-{
-	uint32_t frame = frame_addr / PAGE_SIZE;
-	uint32_t idx = INDEX_FROM_BIT(frame);
-	uint32_t off = OFFSET_FROM_BIT(frame);
-	return (frames[idx] & (0x1U << off));
-}
-
-#pragma GCC diagnostic pop
-
-/* 清除帧位图中的特定位 */
-uint32_t first_frame(void)
-{
-	for (size_t i = 0; i < INDEX_FROM_BIT(0xFFFFFFFF / PAGE_SIZE); i++) {
-		if (frames[i] != 0xffffffff) {
-			for (int j = 0; j < 32; j++) {
-				uint32_t toTest = 0x1U << j;
-				if (!(frames[i] & toTest)) {
-					return i * 4 * 8 + j;
-				}
-			}
-		}
-	}
-	return (uint32_t) - 1;
-}
-
-/* 分配一个帧给一个页表项 */
-void alloc_frame(page_t *page, int is_kernel, int is_writable)
-{
-	if (page->present) {
-		return;
-	}
-	else {
-		uint32_t idx = first_frame();
-		if (idx == (uint32_t) - 1) {
+	if (!(page_directory[index] & PT_P)) {
+		uintptr_t flags = entry & (PT_W|PT_U);
+		uintptr_t paddr = frame_alloc(1);
+		if (!(paddr & FRAMEINFO_NONNULL))
 			panic(P002);
+		page_directory[index] = PT_ADDRESS(paddr)|PT_P|flags;
+		uintptr_t base = index << 10;
+		for (uintptr_t i=base; i<base+1024; ++i)
+			page_table[i] = 0;
 		}
-		set_frame(idx * PAGE_SIZE);
-		memset(page,0,4);
-		page->present = 1;				// 现在这个页存在了
-		page->rw = is_writable ? 1 : 0;	// 是否可写由is_writable决定
-		page->user = is_kernel ? 0 : 1;	// 是否为用户态由is_kernel决定
-		page->frame = idx;
-	}
+	if (!(page_table[vaddr>>PAGE_SHIFT] & PT_P))
+		page_table[vaddr>>PAGE_SHIFT] = entry|PT_P;
 }
 
-/* 手动分配特定帧给页表项 */
-void alloc_frame_line(page_t *page, uint32_t line,int is_kernel, int is_writable)
+void page_alloc(uintptr_t vaddr, uintptr_t flags)
 {
-	set_frame(line);
-	memset(page, 0, 4);
-
-	page->present = 1;				// 现在这个页存在了
-	page->rw = is_writable ? 1 : 0;	// 是否可写由is_writable决定
-	page->user = is_kernel ? 0 : 1;	// 是否为用户态由is_kernel决定
-	page->frame = line / PAGE_SIZE;
+	uintptr_t paddr = frame_alloc(1);
+	if (!(paddr & FRAMEINFO_NONNULL))
+		panic(P001);
+	page_map(vaddr, PT_ADDRESS(paddr)|flags);
 }
 
-/* 释放页表项所占用的帧 */
-void free_frame(page_t *page)
-{
-	uint32_t frame = page->frame;
-	if (!frame) return;
-	else {
-		page->present = 0;
-		clear_frame(frame);
-		page->frame = 0x0;
-	}
+void *page_map_kernel_range(uintptr_t start, uintptr_t end, uintptr_t flags) {
+	uintptr_t aligned_start = align_down(start, PAGE_SIZE);
+	uintptr_t aligned_end = align_up(end, PAGE_SIZE);
+	uintptr_t size = aligned_end-aligned_start;
+	if (program_break + size > program_break_end)
+		panic(P001);
+
+	program_break_end -= size;
+
+	for (uintptr_t offset=0; offset<size; offset+=PAGE_SIZE)
+		page_map(program_break_end+offset, (aligned_start+offset)|flags);
+
+	return (void *)(program_break_end + (start - aligned_start));
 }
 
-/* 切换当前进程的页目录 */
-void switch_page_directory(page_directory_t *dir)
+static void scratch_page_map(uintptr_t vaddr, uintptr_t entry)
 {
-	current_directory = dir;
-	__asm__ __volatile__("mov %0, %%cr3" : : "r"(&dir->table_phy));
-}
+	uintptr_t index = vaddr >> HUGE_PAGE_SHIFT;
+	uintptr_t *page_directory = (uintptr_t *)SCRATCH_PD_BASE;
+	uintptr_t *page_table = (uintptr_t *)SCRATCH_PT_BASE;
 
-/* 获取给定虚拟地址对应的页表项 */
-page_t *get_page(uint32_t address, int make, page_directory_t *dir)
-{
-	address /= PAGE_SIZE;
-	uint32_t table_idx = address / 1024;
-
-	if (dir->tables[table_idx]){
-		page_t *pgg = &dir->tables[table_idx]->pages[address % 1024];
-		return pgg;
-	}else if (make) {
-		uint32_t tmp;
-		tmp = (uint32_t )(dir->tables[table_idx] = (page_table_t*)kmalloc(sizeof(page_table_t)));
-		memset((void *)dir->tables[table_idx], 0, PAGE_SIZE);
-		dir->table_phy[table_idx] = tmp | 0x7;
-		page_t *pgg = &dir->tables[table_idx]->pages[address % 1024];
-		return pgg;
-	} else return 0;
-}
-
-/* 将页目录放入FIFO中 */
-void put_directory(page_directory_t *dir)
-{
-	fifo8_put(fifo, (uint8_t)(intptr_t)dir);
-}
-
-/* 释放一个页目录 */
-void free_pages(void)
-{
-	disable_scheduler();
-	int ii;
-	do {
-		ii = fifo8_get(fifo);
-		if (ii == -1 || ii == 0) {
-			break;
+	if (!(page_directory[index] & PT_P)) {
+		uintptr_t flags = entry & (PT_W|PT_U);
+		uintptr_t paddr = frame_alloc(1);
+		if (!(paddr & FRAMEINFO_NONNULL))
+			panic(P002);
+		page_directory[index] = PT_ADDRESS(paddr)|PT_P|flags;
+		uintptr_t base = index << 10;
+		for (uintptr_t i=base; i<base+1024; ++i)
+			page_table[i] = 0;
 		}
-		page_directory_t *dir = (page_directory_t *)ii;
-		for (int i = 0; i < 1024; i++) {
-			page_table_t *table = dir->tables[i];
-			if (table == NULL) continue;
-			for (int j = 0; j < 1024; j++) {
-				page_t page = table->pages[i];
-				free_frame(&page);
-			}
-			kfree(table);
-		}
-		kfree(dir);
-	} while (1);
-	enable_scheduler();
+	if (!(page_table[vaddr>>PAGE_SHIFT] & PT_P))
+		page_table[vaddr>>PAGE_SHIFT] = entry|PT_P;
 }
 
-/* 初始化一个用于存储空闲页目录的FIFO */
-void setup_free_page(void)
+static void scratch_page_alloc(uintptr_t vaddr, uintptr_t flags)
 {
-	fifo = kmalloc(sizeof(struct FIFO));
-	uint8_t *buf = kmalloc(sizeof(uint32_t) * MAX_FREE_QUEUE);
-	fifo8_init(fifo,sizeof(uint32_t) * MAX_FREE_QUEUE, buf);
+	uintptr_t paddr = frame_alloc(1);
+	if (!(paddr & FRAMEINFO_NONNULL))
+		panic(P001);
+	scratch_page_map(vaddr, PT_ADDRESS(paddr)|flags);
 }
 
 /* 返回内核使用的内存量 */
@@ -191,18 +107,18 @@ uint32_t get_kernel_memory_usage(void)
 }
 
 /* 页错误处理 */
-void page_fault(pt_regs *regs)
+__attribute__((interrupt))
+void page_fault(struct interrupt_frame *frame, uintptr_t error_code)
 {
-	disable_intr();
 	uint32_t faulting_address;
 	__asm__ __volatile__("mov %%cr2, %0" : "=r" (faulting_address));
 
 	char s[50];
-	int present = !(regs->err_code & 0x1);		// 页不存在
-	int rw = regs->err_code & 0x2;				// 只读页被写入
-	int us = regs->err_code & 0x4;				// 用户态写入内核页
-	int reserved = regs->err_code & 0x8;		// 写入CPU保留位
-	int id = regs->err_code & 0x10;				// 由取指引起
+	int present = !(error_code & 0x1);		// 页不存在
+	int rw = error_code & 0x2;				// 只读页被写入
+	int us = error_code & 0x4;				// 用户态写入内核页
+	int reserved = error_code & 0x8;		// 写入CPU保留位
+	int id = error_code & 0x10;				// 由取指引起
 
 	if (present) {
 		sprintf(s, "%s 0x%08X", P003, faulting_address);
@@ -223,93 +139,46 @@ void page_fault(pt_regs *regs)
 	krn_halt();
 }
 
-/* 克隆一个页面表 */
-static page_table_t *clone_table(page_table_t *src, uint32_t *physAddr)
+/* 新建页目录 */
+uintptr_t create_directory(void)
 {
-	page_table_t *table = (page_table_t *)kmalloc(sizeof(page_table_t));
-	*physAddr = (uint32_t )table;
-	memset(table, 0, sizeof(page_directory_t));
+	uintptr_t paddr = frame_alloc(1);
+	if (!(paddr & FRAMEINFO_NONNULL))
+		panic(P001);
 
-	int i;
-	for (i = 0; i < 1024; i++) {
-		if (!src->pages[i].frame)
-			continue;
-		alloc_frame(&table->pages[i], 0, 0);
-		if (src->pages[i].present) table->pages[i].present = 1;
-		if (src->pages[i].rw) table->pages[i].rw = 1;
-		if (src->pages[i].user) table->pages[i].user = 1;
-		if (src->pages[i].accessed)table->pages[i].accessed = 1;
-		if (src->pages[i].dirty) table->pages[i].dirty = 1;
-		copy_page_physical(src->pages[i].frame * 0x1000, table->pages[i].frame * 0x1000);
-	}
-	return table;
-}
+	uintptr_t *current_pd = (uintptr_t *)CURRENT_PD_BASE;
+	current_pd[1022] = PT_ADDRESS(paddr)|PT_P|PT_W;
 
-/* 克隆页目录 */
-page_directory_t *clone_directory(page_directory_t *src)
-{
-	page_directory_t *dir = (page_directory_t *)kmalloc(sizeof(page_directory_t));
-	memset(dir, 0, sizeof(page_directory_t));
+	/* 自指页表 */
+	uintptr_t *scratch_pd = (uintptr_t *)SCRATCH_PD_BASE;
+	scratch_pd[1023] = PT_ADDRESS(paddr)|PT_P|PT_W;
 
-	int i;
-	for (i = 0; i < 1024; i++) {
-		if (!src->tables[i])
-			continue;
-		if (kernel_directory->tables[i] == src->tables[i]) {
-			dir->tables[i] = src->tables[i];
-			dir->table_phy[i] = src->table_phy[i];
-		} else {
-			uint32_t phys;
-			dir->tables[i] = clone_table((page_table_t *)src->tables[i], &phys);
-			dir->table_phy[i] = phys | 0x07;
-		}
-	}
-	return dir;
-}
+	uintptr_t kernel_base=(uintptr_t)__kernel_start;
 
-/* 打开分页机制 */
-static void open_page(void)
-{
-	uint32_t cr0;
-	__asm__ __volatile__("mov %%cr0, %0" : "=b"(cr0));
-	cr0 |= 0x80000000;
-	__asm__ __volatile__("mov %0, %%cr0" : : "b"(cr0));
+	/* 所有page_directory共用的页表 */
+	for (uintptr_t addr=kernel_base; addr<KERNEL_STACK_BASE; addr+=HUGE_PAGE_SIZE)
+		scratch_pd[addr>>HUGE_PAGE_SHIFT] = current_pd[addr>>HUGE_PAGE_SHIFT];
+
+	for (uintptr_t addr=KERNEL_STACK_TOP-KERNEL_STACK_SIZE; addr<KERNEL_STACK_TOP; addr+=PAGE_SIZE)
+		scratch_page_alloc(addr, PT_W);
+
+	return PT_ADDRESS(paddr);
 }
 
 /* 初始化内存分页 */
-void init_page(multiboot_t *multiboot)
+void init_page(void)
 {
-	print_busy("Initializing memory paging...\r"); // 提示用户正在初始化内存分页，并回到行首等待覆盖
+	init_frame();
+	uintptr_t *page_table = (uintptr_t *)CURRENT_PT_BASE;
 
-	uint32_t mem_end_page = 0xFFFFFFFF; // 4GB Page
-	nframes = mem_end_page / PAGE_SIZE;
+	/* 用户态地址空间 */
+	for (uintptr_t addr=0; addr<(uintptr_t)__kernel_start; addr+=HUGE_PAGE_SIZE)
+		kernel_directory[addr>>HUGE_PAGE_SHIFT] = 0;
 
-	frames = (uint32_t *)kmalloc(INDEX_FROM_BIT(nframes));
-	memset(frames, 0, INDEX_FROM_BIT(nframes));
+	/* 预留而没用到的内核态地址空间 */
+	for (uintptr_t addr=program_break; addr<KERNEL_STACK_BASE; addr+=PAGE_SIZE)
+		page_table[addr >> PAGE_SHIFT] = 0;
 
-	kernel_directory = (page_directory_t *)kmalloc(sizeof(page_directory_t));
-	memset(kernel_directory, 0, sizeof(page_directory_t));
-
-	int i = 0;
-	while (i < (int)program_break_end) {
-		/*
-         * 内核部分对ring3而言不可读不可写
-         * 无偏移页表映射
-         * 因为刚开始分配, 所以内核线性地址与物理地址对应
-         */
-		page_t *p = get_page(i, 1, kernel_directory);
-		alloc_frame(p, 1, 1);
-		i += PAGE_SIZE;
-	}
-	uint32_t j = multiboot->framebuffer_addr,
-                 size = multiboot->framebuffer_height * multiboot->framebuffer_width*multiboot->framebuffer_bpp;
-	while (j <= multiboot->framebuffer_addr + size) { // VBE显存缓冲区映射
-		alloc_frame_line(get_page(j,1,kernel_directory),j,0,1);
-		j += 0x1000;
-	}
-	register_interrupt_handler(14, page_fault);
-	switch_page_directory(kernel_directory);
-	open_page();
-	print_succ("Memory paging initialized successfully | Memory size: "); // 提示用户已经完成初始化内存分页
-	printk("%dMiB\n", (glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower) / 1024 + 1);
+	/* 直接清空TLB，免得一页页改了 */
+	__asm__("mov %0, %%cr3" : : "r"(VMA2LMA(kernel_directory)));
 }

@@ -23,12 +23,10 @@
 int now_pid = 0;
 
 /* 进程创建 */
-static int32_t new_task(int (*fn)(void *), void *arg, const char *name, int level, vfs_node_t exefile)
+static struct task_struct *new_task(void *arg, const char *name, int level)
 {
-	struct task_struct *task_pcb = (struct task_struct *)kmalloc(STACK_SIZE);
-	assertx(task_pcb != 0, P008);
-
-	/* 将栈低端结构信息初始化为 0 */
+	struct task_struct *task_pcb = (struct task_struct *)kmalloc(sizeof(struct task_struct));
+	assertx(task_pcb != NULL, P008);
 	bzero(task_pcb, sizeof(struct task_struct));
 
 	task_pcb->level = level;
@@ -36,28 +34,19 @@ static int32_t new_task(int (*fn)(void *), void *arg, const char *name, int leve
 	task_pcb->pid = now_pid++;
 	task_pcb->mem_size = 0;
 	task_pcb->name = name;
-	task_pcb->stack = current;
-	task_pcb->program_break = (uint32_t)program_break;
-	task_pcb->program_break_end = (uint32_t)program_break_end;
-	task_pcb->pgd_dir = clone_directory(kernel_directory);
+	task_pcb->pgd_dir = create_directory();
+	task_pcb->exit_status = -1;
 
-	for (int i = 0; i < 255; i++)task_pcb->file_table[i] = 0;
+	for (int i = 0; i < 255; i++) task_pcb->file_table[i] = 0;
 
-	task_pcb->exe_file = exefile;
 	task_pcb->fpu_flag = 0;
 	task_pcb->cpu_clock = 0;
 	task_pcb->sche_time = 1;
 
-	uint32_t *stack_top = (uint32_t *)((uint32_t)task_pcb + STACK_SIZE);
+	task_pcb->arg = arg;
+	task_pcb->jmp_buf[0] = 0; // EBP
+	task_pcb->jmp_buf[2] = KERNEL_STACK_TOP; // ESP
 
-	*(--stack_top) = (uint32_t)arg;
-	*(--stack_top) = (uint32_t)kthread_exit;
-	*(--stack_top) = (uint32_t)fn;
-
-	task_pcb->context.esp = (uint32_t)task_pcb + STACK_SIZE - sizeof(uint32_t) * 3;
-
-	/* 设置新任务的标志寄存器未屏蔽中断,很重要 */
-	task_pcb->context.eflags = 0x200;
 	task_pcb->next = running_proc_head;
 
 	/* 找到当前进任务队列，插入到末尾 */
@@ -69,13 +58,51 @@ static int32_t new_task(int (*fn)(void *), void *arg, const char *name, int leve
 	}
 	tail->next = task_pcb;
 
-	return task_pcb->pid;
+	return task_pcb;
+}
+
+/* 进程退出函数 */
+void kthread_exit(void)
+{
+	current->state = TASK_ZOMBIE;
+	printk("Task [PID: %d] exited with value %d\n", current->pid, current->exit_status);
+	schedule();
+}
+
+static void kernel_thread_start(void)
+{
+	current->exit_status = current->fn(current->arg);
+	kthread_exit();
 }
 
 /* 内核进程创建 */
 int32_t kernel_thread(int (*fn)(void *), void *arg, const char *name, int level)
 {
-	return new_task(fn, arg, name, level, 0);
+	struct task_struct *task_pcb = new_task(arg, name, level);
+	task_pcb->fn = fn;
+	task_pcb->jmp_buf[1] = (uintptr_t)kernel_thread_start; // EIP
+	task_pcb->kill_eip = (uintptr_t)kthread_exit;
+	return task_pcb->pid;
+}
+
+static void elf_thread_exit(void)
+{
+	vfs_close(current->exe_file);
+	kthread_exit();
+}
+
+static void elf_thread_start(void)
+{
+	vfs_node_t elfile = current->exe_file;
+	uint8_t *data = kmalloc(elfile->size);
+	if (vfs_read(elfile, data, 0, elfile->size) != -1) {
+		int (*fn)(void *) = (int (*)(void *))elf_load(elfile->size, data);
+		kfree(data);
+		current->exit_status = fn(current->arg);
+	} else {
+		kfree(data);
+	}
+	elf_thread_exit();
 }
 
 /* ELF进程创建 */
@@ -84,30 +111,18 @@ int32_t elf_thread(const char* path, void *arg, const char *name, int level)
 	vfs_node_t elfile = vfs_open(path);
 	if (elfile == 0) return -1;
 
-	uint8_t *data = kmalloc(elfile->size);
-	if (vfs_read(elfile, data, 0, elfile->size) == -1) {
-		vfs_close(elfile);
-		return -1;
-	}
-	uint32_t _start = elf_load(elfile->size, data);
-	kfree(data);
+	struct task_struct *task_pcb = new_task(arg, name, level);
+	task_pcb->exe_file = elfile;
+	task_pcb->jmp_buf[1] = (uintptr_t)elf_thread_start; // EIP
+	task_pcb->kill_eip = (uintptr_t)elf_thread_exit;
 
-	return new_task((void *)_start, arg, name, level, elfile);
+	return task_pcb->pid;
 }
 
 /* 获得当前进程 */
 struct task_struct *get_current_proc(void)
 {
 	return current;
-}
-
-/* 进程退出函数 */
-void kthread_exit(void)
-{
-	register uint32_t val __asm__("eax");
-	printk("Task [PID: %d] exited with value %d\n", current->pid, val);
-	task_kill(current->pid);
-	while (1);
 }
 
 /* 打印当前的所有进程 */
@@ -118,8 +133,7 @@ int print_task(void)
 	printk("PID NAME                     RAM(byte)  Level             Time\n");
 	while (1) {
 		p++;
-		printk("%-3d %-24s %-10d %-17s %d\n", pcb->pid, pcb->name,
-                                              pcb->program_break_end - pcb->program_break,
+		printk("%-3d %-24s %-17s %d\n", pcb->pid, pcb->name,
                                               pcb->level == KERNEL_TASK ? "Kernel Process" :
                                               pcb->level == SERVICE_TASK ? "Service Process" : "User Process",
                                               pcb->cpu_clock);
@@ -165,42 +179,21 @@ struct task_struct *found_task_pid(int pid)
 /* 杀死指定进程 */
 void task_kill(int pid)
 {
-	disable_intr();
-	disable_scheduler();
 	struct task_struct *argv = found_task_pid(pid);
 	if (argv == 0) {
 		printk("Cannot found task PID: %d\n", pid);
-		enable_intr();
-		enable_scheduler();
 		return;
 	} else if (argv->level == KERNEL_TASK) {
 		printk("Taskkill cannot terminate kernel processes.\n");
-		enable_intr();
-		enable_scheduler();
 		return;
 	}
+
+	argv->jmp_buf[1] = argv->kill_eip;
 	for (int i = 0; i < 255; i++){
 		cfile_t file = argv->file_table[i];
 		if(file != 0){
 			vfs_close(file->handle);
 		}
-	}
-	vfs_close(argv->exe_file);
-	put_directory(argv->pgd_dir);
-	argv->state = TASK_DEATH;
-	printk("Task [Name: %s][PID: %d] Stopped.\n", argv->name, argv->pid);
-	struct task_struct *head = running_proc_head;
-	struct task_struct *last = 0;
-	while (1) {
-		if (head->pid == argv->pid) {
-			last->next = argv->next;
-			kfree(argv);
-			enable_intr();
-			enable_scheduler();
-			return;
-		}
-		last = head;
-		head = head->next;
 	}
 }
 

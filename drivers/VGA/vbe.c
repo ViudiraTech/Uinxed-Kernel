@@ -10,6 +10,7 @@
  */
 
 #include "vbe.h"
+#include "boot.h"
 #include "string.h"
 #include "serial.h"
 #include "printk.h"
@@ -205,14 +206,17 @@ uint32_t vbe_get_height(void)
 }
 
 /* 初始化VBE图形模式 */
-void init_vbe(multiboot_t *info, int back, int fore)
+void init_vbe(int back, int fore)
 {
+	uintptr_t start = boot_info.framebuffer_addr;
+	uintptr_t size = boot_info.framebuffer_pitch * boot_info.framebuffer_height;
+	screen = (uint32_t *)page_map_kernel_range(start, start+size, PT_W);
+
 	vbe_status = 1;
 	x = 2;
 	y = cx	= cy = 0;
-	screen	= (uint32_t *)(uintptr_t)info->framebuffer_addr;
-	width	= info->framebuffer_width;
-	height	= info->framebuffer_height;
+	width	= boot_info.framebuffer_width;
+	height	= boot_info.framebuffer_height;
 	vbe_set_fore_color(fore);
 	vbe_set_back_color(back);
 	c_width = width / 9;

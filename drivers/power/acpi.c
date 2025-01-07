@@ -10,6 +10,7 @@
  */
 
 #include "acpi.h"
+#include "boot.h"
 #include "printk.h"
 #include "common.h"
 #include "timer.h"
@@ -28,8 +29,11 @@ uint16_t SCI_EN;
 uint32_t PM1a_EVT_BLK;
 uint32_t PM1b_EVT_BLK;
 
-acpi_rsdt_t *rsdt; // root system descript table
-acpi_facp_t *facp; // fixed ACPI table
+void *acpi_base = NULL;
+uintptr_t acpi_start = 0;
+uintptr_t acpi_end = 0;
+acpi_rsdt_t *rsdt = NULL; // root system descript table
+acpi_facp_t *facp = NULL; // fixed ACPI table
 
 int acpi_enable_flag;
 uint8_t *rsdp_address;
@@ -48,83 +52,82 @@ void acpi_init(void)
 	print_succ("The Advanced Configuration and Power Interface initialization is successful.\n");
 }
 
+static void *acpi_locate(uintptr_t addr) {
+  if ((addr >= acpi_start) && (addr < acpi_end))
+    return (void *)(((uintptr_t)acpi_base) + (addr - acpi_start));
+  return NULL;
+}
+
 /* 系统ACPI初始化 */
 int acpi_sys_init(void)
 {
-	uint32_t **p;
-	uint32_t entrys;
+	acpi_start = boot_info.acpi.start;
+	acpi_end = boot_info.acpi.end;
+	if (acpi_start < acpi_end)
+		acpi_base = page_map_kernel_range(acpi_start, acpi_end, 0);
 
-	rsdt = (acpi_rsdt_t *) AcpiGetRSDPtr();
-	page_line(rsdt);
-	if (!rsdt || acpi_check_header(rsdt, (uint8_t*)"RSDT") < 0) {
+	rsdt = (acpi_rsdt_t *)acpi_locate(boot_info.rsdt);
+	if (acpi_check_header(rsdt, "RSDT") < 0) {
 		print_warn("Unable to find Advanced Configuration and Power Interface.\n");
 		return 0;
 	}
-	entrys = rsdt->length - HEADER_SIZE / 4;
-	p = &(rsdt->entry);
-	while (entrys--) {
-		page_line(*p);
-		if (!acpi_check_header(*p, (uint8_t*)"FACP")) {
-			facp = (acpi_facp_t *) *p;
 
-			ACPI_ENABLE = facp->ACPI_ENABLE;
-			ACPI_DISABLE = facp->ACPI_DISABLE;
+	facp = (acpi_facp_t *)acpi_find_table("FACP");
+	if (facp == NULL) {
+		print_warn("Advanced Configuration and Power Interface: There is no valid FACP\n");
+		return -1;
+	}
 
-			SMI_CMD = facp->SMI_CMD;
+	ACPI_ENABLE = facp->ACPI_ENABLE;
+	ACPI_DISABLE = facp->ACPI_DISABLE;
 
-			PM1a_CNT = (uint32_t *)facp->PM1a_CNT_BLK;
-			PM1b_CNT = (uint32_t *)facp->PM1b_CNT_BLK;
+	SMI_CMD = facp->SMI_CMD;
 
-			PM1_CNT_LEN = facp->PM1_CNT_LEN;
+	PM1a_CNT = (uint32_t *)facp->PM1a_CNT_BLK;
+	PM1b_CNT = (uint32_t *)facp->PM1b_CNT_BLK;
 
-			PM1a_EVT_BLK = facp->PM1b_EVT_BLK;
-			PM1b_EVT_BLK = facp->PM1b_EVT_BLK;
+	PM1_CNT_LEN = facp->PM1_CNT_LEN;
 
-			SLP_EN = 1 << 13;
-			SCI_EN = 1;
+	PM1a_EVT_BLK = facp->PM1b_EVT_BLK;
+	PM1b_EVT_BLK = facp->PM1b_EVT_BLK;
 
-			uint8_t * S5Addr;
-			uint32_t dsdtlen;
-			page_line(facp->DSDT);
+	SLP_EN = 1 << 13;
+	SCI_EN = 1;
 
-			if (!acpi_check_header(facp->DSDT, (uint8_t*)"DSDT")) {
-				S5Addr = &(facp->DSDT->definition_block);
-				dsdtlen = facp->DSDT->length - HEADER_SIZE;
-				while (dsdtlen--) {
-					if (!memcmp(S5Addr, "_S5_", 4)) {
-						break;
-					}
+	acpi_dsdt_t *dsdt = (acpi_dsdt_t *)acpi_locate(facp->DSDT);
+	if (acpi_check_header(dsdt, "DSDT") < 0) {
+		print_warn("Advanced Configuration and Power Interface: No DSDT Table found!\n");
+	} else {
+		uint32_t dsdtlen = (dsdt->length - sizeof(*dsdt))/sizeof(dsdt->definition_block[0]);
+		uint8_t *S5Addr = dsdt->definition_block;
+		while (dsdtlen--) {
+			if (!memcmp(S5Addr, "_S5_", 4)) {
+				break;
+			}
+			S5Addr++;
+		}
+		if (dsdtlen) {
+			if (*(S5Addr - 1) == 0x08 || (*(S5Addr - 2) == 0x08 && *(S5Addr - 1) == '\\')) {
+				S5Addr += 5;
+				S5Addr += ((*S5Addr & 0xC0) >> 6) + 2;
+				if (*S5Addr == 0x0A) {
 					S5Addr++;
 				}
-				if (dsdtlen) {
-					if (*(S5Addr - 1) == 0x08 || (*(S5Addr - 2) == 0x08 && *(S5Addr - 1) == '\\')) {
-						S5Addr += 5;
-						S5Addr += ((*S5Addr & 0xC0) >> 6) + 2;
-						if (*S5Addr == 0x0A) {
-							S5Addr++;
-						}
-						SLP_TYPa = *(S5Addr) << 10;
-						S5Addr++;
-						if (*S5Addr == 0x0A) {
-							S5Addr++;
-						}
-						SLP_TYPb = *(S5Addr) << 10;
-						S5Addr++;
-					} else {
-						print_warn("Advanced Configuration and Power Interface: _S5 Parse error!\n");
-					}
-				} else {
-					print_warn("Advanced Configuration and Power Interface: _S5 Not present!\n");
+				SLP_TYPa = *(S5Addr) << 10;
+				S5Addr++;
+				if (*S5Addr == 0x0A) {
+					S5Addr++;
 				}
+				SLP_TYPb = *(S5Addr) << 10;
+				S5Addr++;
 			} else {
-				print_warn("Advanced Configuration and Power Interface: No DSDT Table found!\n");
+				print_warn("Advanced Configuration and Power Interface: _S5 Parse error!\n");
 			}
-			return 1;
+		} else {
+			print_warn("Advanced Configuration and Power Interface: _S5 Not present!\n");
 		}
-		++p;
 	}
-	print_warn("Advanced Configuration and Power Interface: There is no valid FACP\n");
-	return -1;
+	return 1;
 }
 
 /* 启用ACPI */
@@ -192,9 +195,12 @@ int acpi_disable(void)
 /* 初始化高精度事件计时器（HPET） */
 void hpet_initialize(void)
 {
-	HPET *hpet = (HPET *)(unsigned long)acpi_find_table("HPET");
-	hpetInfo = (HpetInfo *) hpet->hpetAddress.address;
-	page_line(hpetInfo);
+	HPET *hpet = (HPET *)acpi_find_table("HPET");
+	/* lower 32-bit */
+	uint32_t addr = hpet->hpetAddress.address & 0xFFFFFFFFUL;
+	/* consumes 1K of system memory, regardless of how many
+	 * comparators are actually implemented by the hardware */
+	hpetInfo = (HpetInfo *)page_map_kernel_range(addr, addr+1024, PT_W);
 	uint32_t counterClockPeriod = hpetInfo->generalCapabilities >> 32;
 	hpetPeriod = counterClockPeriod / 1000000;
 	hpetInfo->generalConfiguration |= 1;
@@ -217,9 +223,8 @@ void acpi_power_init(void)
 }
 
 /* ACPI电源管理中断处理程序 */
-void acpi_power_handler(pt_regs *irq)
+void acpi_power_handler(struct interrupt_frame *frame)
 {
-	disable_intr();
 	uint16_t status = inw((uint32_t) PM1a_EVT_BLK);
 
 	outw((uint32_t) PM1a_EVT_BLK, status &= ~(1 << 8));
@@ -229,7 +234,6 @@ void acpi_power_handler(pt_regs *irq)
 		return;
 	}
 	if (!PM1b_EVT_BLK){
-		enable_intr();
 		return;
 	}
 	status = inw((uint32_t) PM1b_EVT_BLK);
@@ -238,7 +242,6 @@ void acpi_power_handler(pt_regs *irq)
 		power_off(); // By rainy101112 2024-11-02 注意这边现在其实不完善，以后需要加上把所有进程杀掉
 		return;
 	}
-	enable_intr();
 }
 
 /* 关闭电源 */
@@ -265,38 +268,11 @@ void power_reset(void)
 	}
 }
 
-/* 获取ACPI RSD PTR地址 */
-uint8_t *AcpiGetRSDPtr(void)
-{
-	uint32_t *addr;
-	uint32_t *rsdt;
-	uint32_t ebda;
-
-	for (addr = (uint32_t *) 0x000E0000; addr < (uint32_t *) 0x00100000; addr += 0x10 / sizeof(addr)) {
-         rsdt = (uint32_t *)AcpiCheckRSDPtr(addr);
-		if (rsdt) {
-			return (uint8_t *)rsdt;
-		}
-	}
-
-	#pragma GCC diagnostic push
-	#pragma GCC diagnostic ignored "-Warray-bounds"
-	ebda = *(uint16_t *) 0x40E;
-	#pragma GCC diagnostic pop
-
-	ebda = ebda * 0x10 & 0xfffff;
-	for (addr = (uint32_t *)ebda; addr < (uint32_t * )(ebda + 1024); addr += 0x10 / sizeof(addr)) {
-		rsdt = (uint32_t *)AcpiCheckRSDPtr(addr);
-		if (rsdt) {
-			return (uint8_t *)rsdt;
-		}
-	}
-	return 0;
-}
-
 /* 检查ACPI表头 */
-int acpi_check_header(void *ptr, uint8_t *sign)
+int acpi_check_header(void *ptr, const char *sign)
 {
+	if (ptr == NULL)
+		return -1;
 	uint8_t *bptr = ptr;
 	uint32_t len = *(bptr + 4);
 	uint8_t checksum = 0;
@@ -310,57 +286,22 @@ int acpi_check_header(void *ptr, uint8_t *sign)
 }
 
 /* 查找ACPI表 */
-unsigned int acpi_find_table(const char *Signature)
+void *acpi_find_table(const char *Signature)
 {
-	uint8_t * ptr, *ptr2;
-	uint32_t len;
-	uint8_t * rsdt_t = (uint8_t *)rsdt;
-	for (len = *((uint32_t *)(rsdt_t + 4)), ptr2 = rsdt_t + 36; ptr2 < rsdt_t + len;
-		ptr2 += (*(uint8_t *)rsdt_t == 'X') ? 8 : 4) {
-		ptr = (uint8_t * )(uintptr_t)(rsdt_t[0] == 'X' ? *((uint64_t *) ptr2)
-              : *((uint32_t *) ptr2));
-		if (!memcmp(ptr, Signature, 4)) {
-			return (unsigned) ptr;
-		}
+	size_t n = (rsdt->length - sizeof(*rsdt))/sizeof(rsdt->entry[0]);
+	for (size_t i=0; i<n; ++i) {
+		void *header = acpi_locate(rsdt->entry[i]);
+		if (acpi_check_header(header, Signature) < 0)
+			continue;
+		return header;
 	}
-	return 0;
-}
-
-/* 检查RSD PTR */
-uint8_t *AcpiCheckRSDPtr(void *ptr)
-{
-	const char *sign = "RSD PTR ";
-	acpi_rsdptr_t *rsdp = ptr;
-	uint8_t * bptr = ptr;
-	uint32_t i = 0;
-	uint8_t check = 0;
-	if (!memcmp(sign, bptr, 8)) {
-		rsdp_address = bptr;
-		for (i = 0; i < sizeof(acpi_rsdptr_t); i++) {
-			check += *bptr;
-			bptr++;
-		}
-		if (!check) {
-			return (uint8_t * ) rsdp->rsdt;
-		}
-	}
-	return 0;
+	return NULL;
 }
 
 /* 获取多处理器系统的中断控制器表基地址 */
-uint32_t AcpiGetMadtBase(void)
+void *AcpiGetMadtBase(void)
 {
-	uint32_t entrys = rsdt->length - HEADER_SIZE / 4;
-	uint32_t **p = &(rsdt->entry);
-	acpi_madt_t *madt = 0;
-	while (--entrys) {
-		if (!acpi_check_header(*p, (uint8_t*)"APIC")) {
-			madt = (acpi_madt_t *) *p;
-			return (uint32_t)madt;
-		}
-		p++;
-	}
-	return 0;
+	return acpi_find_table("APIC");
 }
 
 /* 获取纳秒级时间 */

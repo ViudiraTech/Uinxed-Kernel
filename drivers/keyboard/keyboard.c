@@ -24,11 +24,10 @@ static int scroll_lock;
 fifo_t terminal_key;
 
 /* 键盘中断处理 */
-void keyboard_handler(pt_regs *regs)
+void keyboard_handler(struct interrupt_frame *frame)
 {
 	uint8_t scan_code = inb(KB_DATA);
 	const char *p = terminal_handle_keyboard(scan_code);
-	disable_intr();
 	if (p != 0) {
 		while (*p != '\0') {
 			fifo_put(&terminal_key, *p);
@@ -61,7 +60,11 @@ static void set_leds(void)
 /* 等待键盘传来的字符 */
 void getch(char *ch)
 {
-	while (fifo_status(&terminal_key) == 0);
+	while (fifo_status(&terminal_key) == 0) {
+		enable_intr();
+		__asm__("hlt");
+		disable_intr();
+	}
 	*ch = fifo_get(&terminal_key);
 }
 
