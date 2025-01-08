@@ -21,6 +21,7 @@
 #include "serial.h"
 #include "parallel.h"
 #include "ide.h"
+#include "fdc.h"
 #include "timer.h"
 #include "beep.h"
 #include "cpu.h"
@@ -95,6 +96,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	mouse_init();					// 初始化鼠标驱动
 	init_sched();					// 初始化多任务
 	syscall_init();					// 初始化系统调用
+	floppy_init();					// 初始化软盘控制器
 	init_ide();						// 初始化IDE
 
 	vbe_write_newline();			// 打印一个空行，和上面的信息保持隔离
