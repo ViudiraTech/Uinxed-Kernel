@@ -15,9 +15,23 @@
 #include "memory.h"
 #include "serial.h"
 #include "common.h"
+#include "vdisk.h"
+#include "keyboard.h"
 #include "os_terminal.lib.h"
 
 int default_tty = 1;
+
+/* 传递给vdisk的读接口 */
+static void vdisk_tty0_read(int drive, uint8_t *buffer, uint32_t number, uint32_t lba)
+{
+	*buffer = fifo_get(&terminal_key);
+}
+
+/* 传递给vdisk的写接口 */
+static void vdisk_tty0_write(int drive, uint8_t *buffer, uint32_t number, uint32_t lba)
+{
+	tty_print_logstr((const char *)buffer);
+}
 
 static unsigned int u8strlen(char *str)
 {
@@ -109,4 +123,22 @@ void tty_print_logstr(const char *str)
 		terminal_process(str);
 		if (eflags & (1 << 9)) enable_intr();
 	}
+}
+
+/* 初始化tty设备 */
+void init_tty(void)
+{
+	print_busy("Initializing teletype device...\r"); // 提示用户正在初始化tty设备，并回到行首等待覆盖
+
+	/* 注册到vdisk */
+	vdisk vd;
+	vd.flag = 1;
+	vd.Read = vdisk_tty0_read;
+	vd.Write = vdisk_tty0_write;
+	vd.sector_size = 1;
+	vd.size = 1;
+	sprintf(vd.DriveName,"tty0");
+	register_vdisk(vd);
+
+	print_succ("Teletype device initialized successfully.\n");
 }

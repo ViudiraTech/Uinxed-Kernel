@@ -110,7 +110,7 @@ void init_ide(void)
 	vd.Write = vdisk_ide_write;
 	vd.sector_size = 0x200; // 512
 	vd.size = ide_device.size * vd.sector_size;
-	sprintf(vd.DriveName,"sda");
+	sprintf(vd.DriveName,"hda");
 	register_vdisk(vd);
 
 	print_succ("Found IDE Driver: ");

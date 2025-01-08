@@ -19,6 +19,7 @@
 #include "uinxed.h"
 #include "pci.h"
 #include "serial.h"
+#include "parallel.h"
 #include "ide.h"
 #include "timer.h"
 #include "beep.h"
@@ -88,7 +89,9 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	init_fpu();						// 初始化FPU
 	init_pci();						// 初始化PCI设备
 	init_serial(9600);				// 初始化计算机串口
+	init_parallel();				// 初始化计算机并口LPT
 	init_keyboard();				// 初始化键盘驱动
+	init_tty();						// 初始化电传打字设备
 	mouse_init();					// 初始化鼠标驱动
 	init_sched();					// 初始化多任务
 	syscall_init();					// 初始化系统调用
@@ -100,9 +103,9 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	devfs_regist();					// 注册devfs
 	fatfs_regist();					// 注册fatfs
 	file_init();					// 文件操作抽象层初始化
-	if (vfs_do_search(vfs_open("/dev"), "sda")) {
-		vfs_mount("/dev/sda", vfs_open("/"));
-		print_succ("Root filesystem mounted ('/dev/sda' -> '/')\n");
+	if (vfs_do_search(vfs_open("/dev"), "hda")) {
+		vfs_mount("/dev/hda", vfs_open("/"));
+		print_succ("Root filesystem mounted ('/dev/hda' -> '/')\n");
 	} else {
 		print_warn("The root file system could not be mounted.\n");
 	}

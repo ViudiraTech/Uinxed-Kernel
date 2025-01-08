@@ -46,6 +46,9 @@ typedef struct tty_device {
 	char name[50];
 } tty_t;
 
+/* 初始化tty设备 */
+void init_tty(void);
+
 /* 获取启动时传入的tty号 */
 char *get_boot_tty(void);
 
