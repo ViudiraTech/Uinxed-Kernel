@@ -49,7 +49,7 @@ int devfs_mount(const char* src, vfs_node_t node)
 	node->fsid = devfs_id;
 	for (int i = 0; have_vdisk(i); i++) {
 		vfs_child_append(node, vdisk_ctl[i].DriveName, 0);
-		rbtree_sp_insert(dev_rbtree, vdisk_ctl[i].DriveName, (void *)i);
+		dev_rbtree = rbtree_sp_insert(dev_rbtree, vdisk_ctl[i].DriveName, (void *)i);
 	}
 	return 0;
 }
