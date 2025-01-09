@@ -64,10 +64,15 @@ static int getbyte(void)
 }
 
 /* 等待软盘控制器中断 */
-static void wait_floppy_interrupt(void)
+static int wait_floppy_interrupt(void)
 {
+	int timeout = 128;
+
 	enable_intr();
-	while(!floppy_int_count);
+	while (!floppy_int_count && timeout--);
+
+	if (timeout <= 0) return 1;
+
 	statsz = 0; // 清空状态
 
 	while ((statsz < 7) && (inb(FDC_MSR) & (1 << 4))) {
@@ -80,6 +85,7 @@ static void wait_floppy_interrupt(void)
 	fdc_track = getbyte();
 
 	floppy_int_count = 0;
+	return 0;
 }
 
 /* 软盘控制器SEEK */
@@ -138,7 +144,7 @@ void recalibrate(void)
 }
 
 /* 复位软驱 */
-void reset(void)
+int reset(void)
 {
 	/* 停止软盘电机并禁用IRQ和DMA传输 */
 	outb(FDC_DOR, 0);
@@ -154,7 +160,7 @@ void reset(void)
 	outb(FDC_DOR, 0x0c);
 
 	/* 重置软盘驱动器将会引发一个中断了，我们需要进行处理 */
-	wait_floppy_interrupt(); // 等待软盘驱动器的中断发生
+	if (wait_floppy_interrupt()) return 1;
 
 	/* 指定软盘驱动器定时（不使用在实模式时BIOS设定的操作） */
 	sendbyte(CMD_SPECIFY);
@@ -165,6 +171,7 @@ void reset(void)
 	recalibrate();
 
 	dchange = 0;
+	return 0;
 }
 
 /* 软盘控制器读写 */
@@ -311,7 +318,12 @@ void floppy_init(void)
 	}
 
 	register_interrupt_handler(0x26, &flint);
-	reset(); // 重置软盘驱动器
+
+	if (reset()) {
+		print_warn("The floppy disk controller interrupt timed out.\n");
+		return;
+	}
+
 	sendbyte(CMD_VERSION); // 获取软盘版本
 
 	vdisk vd;

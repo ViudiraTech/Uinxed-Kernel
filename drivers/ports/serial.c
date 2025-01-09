@@ -44,7 +44,8 @@ void init_serial(int baud_rate)
 
 	/* 检查串口是否有问题（即：与发送的字节不一样） */
 	if (inb(SERIAL_PORT + 0) != 0xAE) {
-		print_erro("RS-232 controller data is abnormal.\n");
+		print_warn("RS-232 controller data is abnormal.\n");
+		return;
 	}
 
 	/* 如果串口没有故障，将其设置为正常运行模式 */

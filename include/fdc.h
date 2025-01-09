@@ -63,7 +63,7 @@ void motoroff(void);
 void recalibrate(void);
 
 /* 复位软驱 */
-void reset(void);
+int reset(void);
 
 /* 读一个扇区 */
 int read_block(int block, byte *blockbuff, uint64_t nosectors);
