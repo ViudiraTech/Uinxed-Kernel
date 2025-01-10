@@ -96,16 +96,17 @@ void change_task_to(struct task_struct *next, pt_regs *regs)
 	if (current != next) {
 		if (next == NULL) next = running_proc_head;
 		current->sche_time = 1;
+		uint32_t cr0 = get_cr0();
+		if (!(cr0 & (1 << 3))) {
+			// CR0.TS 为零，说明进程用过FPU了，需要保存
+			__asm__ ("fnsave %0" : : "m"(current->context.fpu_regs) : "memory");
+			/* 设置CR0.TS FPU操作将产生#NM */
+			set_cr0(cr0 | (1 << 3));
+		}
 		struct task_struct *prev = current;
 		current = next;
 		switch_page_directory(current->pgd_dir);
 		set_kernel_stack((uintptr_t)current->stack + STACK_SIZE);
-		set_cr0(get_cr0() & ~((1 << 2) | (1 << 3)));
-		if (current->fpu_flag) {
-			__asm__ __volatile__("fnsave (%%eax) \n" ::"a"(&(current->context.fpu_regs)) : "memory");
-		}
-		set_cr0(get_cr0() | (1 << 2) | (1 << 3));
-
 		prev->context.eip = regs->eip;
 		prev->context.ds = regs->ds;
 		prev->context.cs = regs->cs;
