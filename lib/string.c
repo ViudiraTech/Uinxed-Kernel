@@ -129,6 +129,16 @@ char *strchr(char *str, int c)
 	return 0;
 }
 
+/* 查找字符串中的一个字符并返回该字符在字符串中第一次出现的位置，找不到返回空指针 */
+char *strchrnul(const char* s, int c)
+{
+	char* p = (char*)s;
+	while (*p && *p != (char)c) {
+		p++;
+	}
+	return p;
+}
+
 /* 返回字符串src的长度 */
 inline int strlen(const char *src)
 {

@@ -38,6 +38,7 @@
 #include "vdisk.h"
 #include "devfs.h"
 #include "fat.h"
+#include "iso9660.h"
 #include "list.h"
 #include "vfs.h"
 #include "file.h"
@@ -104,6 +105,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	vfs_init();						// 初始化虚拟文件系统
 	devfs_regist();					// 注册devfs
 	fatfs_regist();					// 注册fatfs
+	iso9660_regist();				// 注册iso9660
 	file_init();					// 文件操作抽象层初始化
 	if (vfs_do_search(vfs_open("/dev"), "hda")) {
 		vfs_mount("/dev/hda", vfs_open("/"));
@@ -135,7 +137,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	kernel_thread(kthread_shell, (void *)((glb_mboot_ptr->flags & MULTIBOOT_INFO_CMDLINE) ? glb_mboot_ptr->cmdline : 0),
                   "Basic shell program", USER_TASK);
 #else
-	if (vfs_do_search(vfs_open("/dev"), "sda")) {
+	if (vfs_do_search(vfs_open("/dev"), "hda")) {
 		if (vfs_do_search(vfs_open("/"), "sbin")) {
 			if (vfs_do_search(vfs_open("/sbin"), "init")) {
 				elf_thread("/sbin/init", 0, "init", USER_TASK);
