@@ -191,7 +191,7 @@ uint32_t get_kernel_memory_usage(void)
 }
 
 /* 页错误处理 */
-void page_fault(pt_regs *regs)
+static void page_fault(pt_regs *regs)
 {
 	disable_intr();
 	uint32_t faulting_address;
@@ -307,7 +307,7 @@ void init_page(multiboot_t *multiboot)
 		alloc_frame_line(get_page(j,1,kernel_directory),j,0,1);
 		j += 0x1000;
 	}
-	register_interrupt_handler(14, page_fault);
+	register_interrupt_handler(0xe, &page_fault);
 	switch_page_directory(kernel_directory);
 	open_page();
 	print_succ("Memory paging initialized successfully | Memory size: "); // 提示用户已经完成初始化内存分页

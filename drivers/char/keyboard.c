@@ -24,7 +24,7 @@ static int scroll_lock;
 fifo_t terminal_key;
 
 /* 键盘中断处理 */
-void keyboard_handler(pt_regs *regs)
+static void keyboard_handler(pt_regs *regs)
 {
 	uint8_t scan_code = inb(KB_DATA);
 	const char *p = terminal_handle_keyboard(scan_code);
@@ -79,6 +79,6 @@ void init_keyboard(void)
 	scroll_lock = 0;
 
 	set_leds();
-	register_interrupt_handler(IRQ1, &keyboard_handler);
+	register_interrupt_handler(0x21, &keyboard_handler);
 	print_succ("PS/2 keyboard controller initialized successfully.\n");
 }

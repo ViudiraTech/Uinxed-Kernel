@@ -92,8 +92,8 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 {
 	int j, k, count = 0, info = 0;
 	uint8_t detected[4] = {0};  // 标记每个设备是否已经被检测过
-	register_interrupt_handler(0x2f, ide_irq);
-	register_interrupt_handler(0x2e, ide_irq);
+	register_interrupt_handler(0x2f, &ide_irq);
+	register_interrupt_handler(0x2e, &ide_irq);
 
 	for (int i = 0; i < 4; i++) {
 		ide_devices[i].Reserved = 0;

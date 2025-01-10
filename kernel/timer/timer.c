@@ -79,7 +79,7 @@ void init_pit(void)
 /* 根据传入的定时器频率初始化定时器 */
 void init_timer(uint32_t timer)
 {
-	register_interrupt_handler(IRQ0, &timer_handle);
+	register_interrupt_handler(0x20, &timer_handle);
 	uint32_t divisor = 1193180 / timer;
 
 	outb(0x43, 0x36); // 频率

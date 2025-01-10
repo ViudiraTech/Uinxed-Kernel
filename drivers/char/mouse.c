@@ -82,7 +82,7 @@ static int mouse_decode(void)
 }
 
 /* 鼠标中断处理 */
-void mouse_handler(pt_regs *reg)
+static void mouse_handler(pt_regs *reg)
 {
 	dat = inb(0x60);
 	if (mouse_decode() != 0) {
@@ -121,7 +121,7 @@ void mouse_init(void)
 	kb_wait();
 	outb(KB_DATA, 0xf4);
 
-	register_interrupt_handler(0x20 + 12, &mouse_handler);
+	register_interrupt_handler(0x2c, &mouse_handler);
 	mdec.phase = 0;
 
 	print_succ("PS/2 mouse controller initialized successfully.\n");

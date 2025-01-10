@@ -294,9 +294,6 @@ void hpet_initialize(void);
 /* 初始化ACPI电源管理 */
 void acpi_power_init(void);
 
-/* ACPI电源管理中断处理程序 */
-void acpi_power_handler(pt_regs *irq);
-
 /* 关闭电源 */
 void power_off(void);
 

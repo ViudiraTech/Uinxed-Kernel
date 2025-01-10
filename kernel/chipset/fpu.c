@@ -26,23 +26,8 @@
  * 保存好之后立即设置CR0.TS
  */
 
-/* 初始化FPU */
-void init_fpu(void)
-{
-	print_busy("Initializing FPU floating-point coprocessor...\r");
-	register_interrupt_handler(7, fpu_handler);
-
-	/*
-	 * CR0.EM: 0x00000004 禁用FPU
-	 * CR0.TS: 0x00000008
-	 * CR0.NE: 0x00000020 FPU直接产生异常而不是外部中断
-	 */
-	set_cr0((get_cr0() & ~(1 << 2)) | (1 << 3) | (1 << 5));
-	print_succ("The FPU coprocessor is initialized.               \n");
-}
-
 /* FPU中断 */
-void fpu_handler(pt_regs *regs)
+static void fpu_handler(pt_regs *regs)
 {
 	set_cr0(get_cr0() & ~(1 << 3));
 	if (!current->fpu_flag) {
@@ -51,4 +36,19 @@ void fpu_handler(pt_regs *regs)
 	} else {
 		__asm__ ("frstor %0" : :"m"(current->context.fpu_regs) : "memory");
 	}
+}
+
+/* 初始化FPU */
+void init_fpu(void)
+{
+	print_busy("Initializing FPU floating-point coprocessor...\r");
+	register_interrupt_handler(0x7, &fpu_handler);
+
+	/*
+	 * CR0.EM: 0x00000004 禁用FPU
+	 * CR0.TS: 0x00000008
+	 * CR0.NE: 0x00000020 FPU直接产生异常而不是外部中断
+	 */
+	set_cr0((get_cr0() & ~(1 << 2)) | (1 << 3) | (1 << 5));
+	print_succ("The FPU coprocessor is initialized.               \n");
 }

@@ -41,49 +41,49 @@
  *
  */
 
-void ISR_0_handle(void)
+static void ISR_0_handle(void)
 {
 	printk_panic("Kernel exception: #DE\n");
 	printk_panic("System halted\n");
 	krn_halt();
 }
 
-void ISR_1_handle(void)
+static void ISR_1_handle(void)
 {
 	printk_panic("Kernel exception: #DB\n");
 	printk_panic("System halted\n");
 	krn_halt();
 }
 
-void ISR_2_handle(void)
+static void ISR_2_handle(void)
 {
 	printk_panic("Kernel fatal error: NMI\n");
 	printk_panic("System halted\n");
 	krn_halt();
 }
 
-void ISR_3_handle(void)
+static void ISR_3_handle(void)
 {
 	printk_panic("Kernel breakpoint exception: BP\n");
 	printk_panic("System halted\n");
 	krn_halt();
 }
 
-void ISR_4_handle(void)
+static void ISR_4_handle(void)
 {
 	printk_panic("Kernel exception: #OF OverFlow\n");
 	printk_panic("System halted\n");
 	krn_halt();
 }
 
-void ISR_5_handle(void)
+static void ISR_5_handle(void)
 {
 	printk_panic("Kernel exception: #BR\n");
 	printk_panic("System halted\n");
 	krn_halt();
 }
 
-void ISR_6_handle(void)
+static void ISR_6_handle(void)
 {
 	printk_panic("Kernel exception: #UD\n");
 	printk_panic("System halted\n");
@@ -92,42 +92,42 @@ void ISR_6_handle(void)
 
 /* ISR 7 will be define by fpu program */
 
-void ISR_8_handle(void)
+static void ISR_8_handle(void)
 {
 	printk_panic("Kernel exception: #DF\n");
 	printk_panic("System halted\n");
 	krn_halt();
 }
 
-void ISR_9_handle(void)
+static void ISR_9_handle(void)
 {
 	printk_panic("Kernel exception: Coprocessor Segment Overrun\n");
 	printk_panic("System halted\n");
 	krn_halt();
 }
 
-void ISR_10_handle(void)
+static void ISR_10_handle(void)
 {
 	printk_panic("Kernel exception: #TS\n");
 	printk_panic("System halted\n");
 	krn_halt();
 }
 
-void ISR_11_handle(void)
+static void ISR_11_handle(void)
 {
 	printk_panic("Kernel exception: #NP\n");
 	printk_panic("System halted\n");
 	krn_halt();
 }
 
-void ISR_12_handle(void)
+static void ISR_12_handle(void)
 {
 	printk_panic("Kernel exception: #SS\n");
 	printk_panic("System halted\n");
 	krn_halt();
 }
 
-void ISR_13_handle(void)
+static void ISR_13_handle(void)
 {
 	printk_panic("Kernel exception: #GP\n");
 	printk_panic("System halted\n");
@@ -138,28 +138,28 @@ void ISR_13_handle(void)
 
 /* ISR 15 CPU reserved */
 
-void ISR_16_handle(void)
+static void ISR_16_handle(void)
 {
 	printk_panic("Kernel exception: #MF\n");
 	printk_panic("System halted\n");
 	krn_halt();
 }
 
-void ISR_17_handle(void)
+static void ISR_17_handle(void)
 {
 	printk_panic("Kernel exception: #AC\n");
 	printk_panic("System halted\n");
 	krn_halt();
 }
 
-void ISR_18_handle(void)
+static void ISR_18_handle(void)
 {
 	printk_panic("Kernel exception: #MC\n");
 	printk_panic("System halted\n");
 	krn_halt();
 }
 
-void ISR_19_handle(void)
+static void ISR_19_handle(void)
 {
 	printk_panic("Kernel exception: #XM\n");
 	printk_panic("System halted\n");
@@ -169,30 +169,30 @@ void ISR_19_handle(void)
 void ISR_registe_Handle(void)
 {
 	print_busy("Registering ISR handles...\r");
-	register_interrupt_handler(0, (interrupt_handler_t)ISR_0_handle);
-	register_interrupt_handler(1, (interrupt_handler_t)ISR_1_handle);
-	register_interrupt_handler(2, (interrupt_handler_t)ISR_2_handle);
-	register_interrupt_handler(3, (interrupt_handler_t)ISR_3_handle);
-	register_interrupt_handler(4, (interrupt_handler_t)ISR_4_handle);
-	register_interrupt_handler(5, (interrupt_handler_t)ISR_5_handle);
-	register_interrupt_handler(6, (interrupt_handler_t)ISR_6_handle);
+	register_interrupt_handler(0x0, (interrupt_handler_t)ISR_0_handle);
+	register_interrupt_handler(0x1, (interrupt_handler_t)ISR_1_handle);
+	register_interrupt_handler(0x2, (interrupt_handler_t)ISR_2_handle);
+	register_interrupt_handler(0x3, (interrupt_handler_t)ISR_3_handle);
+	register_interrupt_handler(0x4, (interrupt_handler_t)ISR_4_handle);
+	register_interrupt_handler(0x5, (interrupt_handler_t)ISR_5_handle);
+	register_interrupt_handler(0x6, (interrupt_handler_t)ISR_6_handle);
 
 	/* ISR 7 will be define by fpu program */
 
-	register_interrupt_handler(8, (interrupt_handler_t)ISR_8_handle);
-	register_interrupt_handler(9, (interrupt_handler_t)ISR_9_handle);
-	register_interrupt_handler(10, (interrupt_handler_t)ISR_10_handle);
-	register_interrupt_handler(11, (interrupt_handler_t)ISR_11_handle);
-	register_interrupt_handler(12, (interrupt_handler_t)ISR_12_handle);
-	register_interrupt_handler(13, (interrupt_handler_t)ISR_13_handle);
+	register_interrupt_handler(0x8, (interrupt_handler_t)ISR_8_handle);
+	register_interrupt_handler(0x9, (interrupt_handler_t)ISR_9_handle);
+	register_interrupt_handler(0xa, (interrupt_handler_t)ISR_10_handle);
+	register_interrupt_handler(0xb, (interrupt_handler_t)ISR_11_handle);
+	register_interrupt_handler(0xc, (interrupt_handler_t)ISR_12_handle);
+	register_interrupt_handler(0xd, (interrupt_handler_t)ISR_13_handle);
 
 	/* ISR 14 will be define by pagine program */
 	/* ISR 15 CPU reserved */
 
-	register_interrupt_handler(16, (interrupt_handler_t)ISR_16_handle);
-	register_interrupt_handler(17, (interrupt_handler_t)ISR_17_handle);
-	register_interrupt_handler(18, (interrupt_handler_t)ISR_18_handle);
-	register_interrupt_handler(19, (interrupt_handler_t)ISR_19_handle);
+	register_interrupt_handler(0x10, (interrupt_handler_t)ISR_16_handle);
+	register_interrupt_handler(0x11, (interrupt_handler_t)ISR_17_handle);
+	register_interrupt_handler(0x12, (interrupt_handler_t)ISR_18_handle);
+	register_interrupt_handler(0x13, (interrupt_handler_t)ISR_19_handle);
 
 	print_succ("The ISR handle was registered successfully.\n");
 }

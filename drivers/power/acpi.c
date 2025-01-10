@@ -200,24 +200,8 @@ void hpet_initialize(void)
 	hpetInfo->generalConfiguration |= 1;
 }
 
-/* 初始化ACPI电源管理 */
-void acpi_power_init(void)
-{
-	if (!facp) return;
-	uint8_t len = facp->PM1_EVT_LEN / 2;
-	uint32_t *PM1a_ENABLE_REG = (uint32_t *)facp->PM1a_EVT_BLK + len;
-	uint32_t *PM1b_ENABLE_REG = (uint32_t *)facp->PM1b_EVT_BLK + len;
-	if ((size_t)PM1b_ENABLE_REG == (size_t)len)
-		PM1b_ENABLE_REG = 0;
-	outw((uint16_t)(uintptr_t)PM1a_ENABLE_REG, (1 << 8));
-	if (PM1b_ENABLE_REG) {
-		outw((uint16_t)(uintptr_t)PM1b_ENABLE_REG, (uint8_t)(1 << 8));
-	}
-	register_interrupt_handler(facp->SCI_INT + 0x20, acpi_power_handler);
-}
-
 /* ACPI电源管理中断处理程序 */
-void acpi_power_handler(pt_regs *irq)
+static void acpi_power_handler(pt_regs *irq)
 {
 	disable_intr();
 	uint16_t status = inw((uint32_t) PM1a_EVT_BLK);
@@ -239,6 +223,22 @@ void acpi_power_handler(pt_regs *irq)
 		return;
 	}
 	enable_intr();
+}
+
+/* 初始化ACPI电源管理 */
+void acpi_power_init(void)
+{
+	if (!facp) return;
+	uint8_t len = facp->PM1_EVT_LEN / 2;
+	uint32_t *PM1a_ENABLE_REG = (uint32_t *)facp->PM1a_EVT_BLK + len;
+	uint32_t *PM1b_ENABLE_REG = (uint32_t *)facp->PM1b_EVT_BLK + len;
+	if ((size_t)PM1b_ENABLE_REG == (size_t)len)
+		PM1b_ENABLE_REG = 0;
+	outw((uint16_t)(uintptr_t)PM1a_ENABLE_REG, (1 << 8));
+	if (PM1b_ENABLE_REG) {
+		outw((uint16_t)(uintptr_t)PM1b_ENABLE_REG, (uint8_t)(1 << 8));
+	}
+	register_interrupt_handler(facp->SCI_INT + 0x20, &acpi_power_handler);
 }
 
 /* 关闭电源 */
