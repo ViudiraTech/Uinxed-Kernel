@@ -25,15 +25,17 @@
  * 这样切换进程时，根据CR0.TS是否为0，就知道是否需要保存FPU寄存器了
  * 保存好之后立即设置CR0.TS
  */
+
 /* 初始化FPU */
 void init_fpu(void)
 {
 	print_busy("Initializing FPU floating-point coprocessor...\r");
 	register_interrupt_handler(7, fpu_handler);
+
 	/*
-	 * CR0.EM: 0x00000004  禁用FPU
+	 * CR0.EM: 0x00000004 禁用FPU
 	 * CR0.TS: 0x00000008
-	 * CR0.NE: 0x00000020  FPU直接产生异常而不是外部中断
+	 * CR0.NE: 0x00000020 FPU直接产生异常而不是外部中断
 	 */
 	set_cr0((get_cr0() & ~(1 << 2)) | (1 << 3) | (1 << 5));
 	print_succ("The FPU coprocessor is initialized.               \n");

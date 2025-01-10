@@ -98,8 +98,9 @@ void change_task_to(struct task_struct *next, pt_regs *regs)
 		current->sche_time = 1;
 		uint32_t cr0 = get_cr0();
 		if (!(cr0 & (1 << 3))) {
-			// CR0.TS 为零，说明进程用过FPU了，需要保存
+			/* CR0.TS 为零，说明进程用过FPU了，需要保存 */
 			__asm__ ("fnsave %0" : : "m"(current->context.fpu_regs) : "memory");
+
 			/* 设置CR0.TS FPU操作将产生#NM */
 			set_cr0(cr0 | (1 << 3));
 		}
