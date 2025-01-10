@@ -1,7 +1,7 @@
 /*
  *
  *		cmos.h
- *		cmos存储器驱动头文件
+ *		cmos存储器头文件
  *
  *		2024/6/29 By MicroFish
  *		基于 GPL-3.0 开源协议

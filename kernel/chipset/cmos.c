@@ -1,7 +1,7 @@
 /*
  *
  *		cmos.c
- *		cmos存储器驱动
+ *		cmos存储器
  *
  *		2024/6/29 By MicroFish
  *		基于 GPL-3.0 开源协议

@@ -436,7 +436,7 @@ uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint16_t s
 	ide_write(channel, ATA_REG_LBA2, (words * 2) >> 8);
 	ide_write(channel, ATA_REG_COMMAND, ATA_CMD_PACKET);
 
-	if ((err = ide_polling(channel, 1)) != NULL) return err;
+	if ((err = ide_polling(channel, 1)) != 0) return err;
 
 	uint16_t *_atapi_packet = (uint16_t *)atapi_packet;
 	for (int i = 0; i < 6; i++) {
@@ -446,7 +446,7 @@ uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint16_t s
 	uint16_t *_word = (uint16_t *)edi;
 	for (i = 0; i < numsects; i++) {
 		ide_wait_irq();
-		if ((err = ide_polling(channel, 1)) != NULL) return err;
+		if ((err = ide_polling(channel, 1)) != 0) return err;
 		for (int h = 0; h < words; h++) {
 			uint16_t a = inw(bus);
 			_word[i * words + h] = a;
