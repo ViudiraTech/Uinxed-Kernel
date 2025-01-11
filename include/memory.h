@@ -12,103 +12,65 @@
 #ifndef INCLUDE_MEMORY_H_
 #define INCLUDE_MEMORY_H_
 
-#include "multiboot.h"
 #include "types.h"
 
-#define PAGE_SIZE 4096
-#define MAX_FREE_QUEUE 64
+uintptr_t align_down(uintptr_t addr, uintptr_t size);
+uintptr_t align_up(uintptr_t addr, uintptr_t size);
 
-#define KHEAP_INITIAL_SIZE 0xf00000
-#define STACK_SIZE 32768
+#define PAGE_SIZE 4096
+#define PAGE_SHIFT 12
+#define HUGE_PAGE_SIZE 0x400000
+#define HUGE_PAGE_SHIFT 22
+
+#define PT_P  0x01
+#define PT_W  0x02
+#define PT_U  0x04
+#define PT_PS 0x80
+#define PT_WT 0x08
+#define PT_CD 0x10
+#define PT_ADDRESS(x) ((x)&0xfffff000)
+#define PT_ENTRIES (PAGE_SIZE/sizeof(uintptr_t))
+
+/* 参考 boot.h 里的说明 */
+#define CURRENT_PD_BASE   0xFFFFF000UL
+#define SCRATCH_PD_BASE   0xFFFFE000UL
+#define CURRENT_PT_BASE   0xFFC00000UL
+#define SCRATCH_PT_BASE   0xFF800000UL
+#define KERNEL_STACK_BASE 0xFF000000UL
+#define KERNEL_STACK_TOP  0xFF800000UL
+#define KERNEL_STACK_SIZE 32768
 
 #define USER_STACK_TOP 0xb2000000
 #define USER_AREA_START 0x90000000
 #define USER_AREA_SIZE 0x2000000
 
-#define INDEX_FROM_BIT(a) (a / (8*4))
-#define OFFSET_FROM_BIT(a) (a % (8*4))
+#define FRAMEINFO_NONNULL 0x01
 
-#define page_line(ptr) do { \
-	alloc_frame_line(get_page((uint32_t)ptr, 1, current_directory), (uint32_t)ptr, 1, 1);                       \
-} while(0)
+uintptr_t frame_alloc(size_t npages);
+void frame_free(uintptr_t addr);
 
-typedef struct page {
-	uint8_t present: 1;
-	uint8_t rw: 1;
-	uint8_t user:1;
-	uint8_t pwt:1;
-	uint8_t pcd:1;
-	uint8_t accessed: 1;
-	uint8_t dirty: 1;
-	uint8_t pat: 1;
-	uint8_t global: 1;
-	uint8_t ignored: 3;
-	uint32_t frame: 20;
-} __attribute__((packed)) page_t;
+extern uintptr_t program_break;
+extern uintptr_t program_break_end;
 
-typedef struct page_table {
-	page_t pages[1024];
-} __attribute__((packed)) page_table_t;
+void page_map(uintptr_t vaddr, uintptr_t entry);
+void page_alloc(uintptr_t vaddr, uintptr_t flags);
+void *page_map_kernel_range(uintptr_t start, uintptr_t end, uintptr_t flags);
 
-typedef struct page_directory {
-	page_table_t *tables[1024];
-	uint32_t table_phy[1024];
-	uint32_t physicalAddr;
-} __attribute__((packed)) page_directory_t;
-
-union overhead {
-	union overhead *ov_next;
-	struct {
-		unsigned char ovu_magic;
-		unsigned char ovu_index;
-	} ovu;
-	#define ov_magic ovu.ovu_magic
-	#define ov_index ovu.ovu_index
-	#define ov_rmagic ovu.ovu_rmagic
-	#define ov_size ovu.ovu_size
-};
-
-extern void *program_break;
-extern void *program_break_end;
-extern char kern_stack[STACK_SIZE] __attribute__ ((aligned(16)));
-extern uint32_t kern_stack_top;
-extern page_directory_t *kernel_directory;
-extern page_directory_t *current_directory;
-
-void copy_page_physical(uintptr_t src, uintptr_t dst);
-
-/* 清除帧位图中的特定位 */
-uint32_t first_frame(void);
-
-/* 分配一个帧给一个页表项 */
-void alloc_frame(page_t *page, int is_kernel, int is_writable);
-
-/* 手动分配特定帧给页表项 */
-void alloc_frame_line(page_t *page, uint32_t line,int is_kernel, int is_writable);
-
-/* 释放页表项所占用的帧 */
-void free_frame(page_t *page);
-
-/* 切换当前进程的页目录 */
-void switch_page_directory(page_directory_t *dir);
-
-/* 获取给定虚拟地址对应的页表项 */
-page_t *get_page(uint32_t address, int make, page_directory_t *dir);
-
-/* 释放一个页目录 */
-void free_directory(page_directory_t *dir);
-
-/* 初始化一个用于存储空闲页目录的FIFO */
-void setup_free_page(void);
+extern size_t kh_usage_memory_byte;
 
 /* 返回内核使用的内存量 */
 uint32_t get_kernel_memory_usage(void);
 
-/* 克隆页目录 */
-page_directory_t *clone_directory(page_directory_t *src);
+/* 释放一个页目录 */
+void free_directory(uintptr_t dir);
+
+/* 新建页目录 */
+uintptr_t create_directory(void);
+
+void init_frame(void);
 
 /* 初始化内存分页 */
-void init_page(multiboot_t *multiboot);
+void init_page(void);
 
 /* 分配内存并返回地址 */
 void *kmalloc(size_t nbytes);

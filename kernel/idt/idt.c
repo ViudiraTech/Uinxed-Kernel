@@ -168,7 +168,7 @@ void init_idt(void)
 	idt_ptr.base	= (uint32_t)&idt_entries;
 
 	/* 0-32:  用于 CPU 的中断处理 */
-#define SET_ISR(N) idt_set_gate(N, (uint32_t)ISR_##N##_handle, 0x08, 0x8E)
+#define SET_ISR(N) idt_set_gate(N, (uint32_t)ISR_##N##_handle, KERNEL_CS, 0x8E)
 	SET_ISR( 0);
 	SET_ISR( 1);
 	SET_ISR( 2);
@@ -184,7 +184,7 @@ void init_idt(void)
 	SET_ISR(12);
 	SET_ISR(13);
 	/* ISR 14 will be define by paging program */
-	idt_set_gate(14, (uint32_t)page_fault, 0x08, 0x8E);
+	idt_set_gate(14, (uint32_t)page_fault, KERNEL_CS, 0x8E);
 	SET_ISR(16);
 	SET_ISR(17);
 	SET_ISR(18);
@@ -193,7 +193,7 @@ void init_idt(void)
 	SET_ISR(21);
 #undef SET_ISR
 
-#define SET_IRQ(N) idt_set_gate(32 + N, (uint32_t)IRQ_##N##_handle, 0x08, 0x8E)
+#define SET_IRQ(N) idt_set_gate(32 + N, (uint32_t)IRQ_##N##_handle, KERNEL_CS, 0x8E)
 	SET_IRQ( 0);
 	SET_IRQ( 1);
 	SET_IRQ( 2);
@@ -236,7 +236,7 @@ void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags)
 /* 设置用户中断描述符 */
 void idt_use_reg(uint8_t num, interrupt_handler_t h)
 {
-	idt_set_gate(num, (uintptr_t)h, 0x08, 0x8E | 0x60);
+	idt_set_gate(num, (uintptr_t)h, KERNEL_CS, 0x8E | 0x60);
 }
 
 /* 注册一个中断处理函数 */
@@ -248,6 +248,6 @@ void register_interrupt_handler(uint8_t n, interrupt_handler_t h)
 		irq_handlers[irq] = h;
 		irq_enable(irq);
 	} else {
-		idt_set_gate(n, (uintptr_t)h, 0x08, 0x8E);
+		idt_set_gate(n, (uintptr_t)h, KERNEL_CS, 0x8E);
 	}
 }

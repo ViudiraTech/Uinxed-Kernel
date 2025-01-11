@@ -16,6 +16,7 @@
 #include "common.h"
 #include "cmos.h"
 #include "tty.h"
+#include "debug.h"
 
 /* 打印带有”[ ** ]“的字符串 */
 void print_busy(const char *str)
@@ -79,6 +80,8 @@ void printk(const char *format, ...)
 	va_start(args, format);
 	i = vsprintf(buff, format, args);
 	va_end(args);
+
+	if (i+1 > sizeof(buff)) panic(PFFF);
 
 	buff[i] = '\0';
 

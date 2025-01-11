@@ -9,6 +9,7 @@
  *
  */
 
+#include "boot.h"
 #include "fifo.h"
 #include "keyboard.h"
 #include "vbe.h"
@@ -116,9 +117,8 @@ void shell_hltst(void)
 
 void shell_taskkill(int argc, char *argv[])
 {
-	int value = atoi(argv[1]);
-
 	if (argc > 1) {
+		int value = atoi(argv[1]);
 		if (value == 0 && (argv[1][0] != '0' || argv[1][1] != '\0')) {
 			printk("Argument is not an integer.\n");
 		} else if (argc > 1) {
@@ -227,8 +227,8 @@ void shell_ls(int argc, char *argv[])
 void shell_free(void)
 {
 	printk("       total    used     free\n");
-	printk("Mem:   %-9d%-9d%d\n", (glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower), (get_kernel_memory_usage() / 1024),
-                                  (glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower) - (get_kernel_memory_usage() / 1024));
+	printk("Mem:   %-9d%-9d%d\n", (boot_info.mem_upper + boot_info.mem_lower), (get_kernel_memory_usage() / 1024),
+                                  (boot_info.mem_upper + boot_info.mem_lower) - (get_kernel_memory_usage() / 1024));
 	printk("\n");
 	return;
 }

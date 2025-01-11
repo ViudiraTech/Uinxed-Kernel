@@ -56,7 +56,7 @@ typedef struct
 	uint32_t oem_revision;
 	uint32_t creator_id;
 	uint32_t creator_revision;
-	uint32_t *entry;
+	uint32_t entry[];
 } acpi_rsdt_t;
 #pragma pack(pop)
 
@@ -71,7 +71,7 @@ typedef struct
 	uint8_t oem_tableid[8];
 	uint32_t oem_revision;
 	uint32_t creator_id;
-	uint8_t definition_block;
+	uint8_t definition_block[];
 } acpi_dsdt_t;
 #pragma pack(pop)
 
@@ -89,7 +89,7 @@ typedef struct
 	uint32_t creator_revision;
 
 	uint32_t FIRMWARE_CTRL;
-	acpi_dsdt_t *DSDT;
+	uint32_t DSDT;
 
 	uint8_t unused0;
 
@@ -300,20 +300,14 @@ void power_off(void);
 /* 重启系统 */
 void power_reset(void);
 
-/* 获取ACPI RSD PTR地址 */
-uint8_t *AcpiGetRSDPtr(void);
-
 /* 检查ACPI表头 */
-int acpi_check_header(void *ptr, uint8_t *sign);
+int acpi_check_header(void *ptr, const char *sign);
 
 /* 查找ACPI表 */
-unsigned int acpi_find_table(const char *Signature);
-
-/* 检查RSD PTR */
-uint8_t *AcpiCheckRSDPtr(void *ptr);
+void *acpi_find_table(const char *Signature);
 
 /* 获取多处理器系统的中断控制器表基地址 */
-uint32_t AcpiGetMadtBase(void);
+void *AcpiGetMadtBase(void);
 
 /* 获取纳秒级时间 */
 uint32_t nano_time(void);

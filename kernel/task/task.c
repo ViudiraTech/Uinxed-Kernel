@@ -25,10 +25,8 @@ int now_pid = 0;
 /* 进程创建 */
 static struct task_struct *new_task(void *arg, const char *name, int level)
 {
-	struct task_struct *task_pcb = (struct task_struct *)kmalloc(STACK_SIZE);
-	assertx(task_pcb != 0, P008);
-
-	/* 将栈低端结构信息初始化为 0 */
+	struct task_struct *task_pcb = (struct task_struct *)kmalloc(sizeof(struct task_struct));
+	assertx(task_pcb != NULL, P008);
 	bzero(task_pcb, sizeof(struct task_struct));
 
 	task_pcb->level = level;
@@ -36,26 +34,28 @@ static struct task_struct *new_task(void *arg, const char *name, int level)
 	task_pcb->pid = now_pid++;
 	task_pcb->mem_size = 0;
 	task_pcb->name = name;
-	task_pcb->pgd_dir = clone_directory(kernel_directory);
+	task_pcb->pgd_dir = create_directory();
 
-	for (int i = 0; i < 255; i++)task_pcb->file_table[i] = 0;
+	for (int i = 0; i < 255; i++) task_pcb->file_table[i] = 0;
 
 	task_pcb->fpu_flag = 0;
 	task_pcb->cpu_clock = 0;
 	task_pcb->sche_time = 1;
 
 	task_pcb->arg = arg;
-	uint32_t *stack_top = (uint32_t *)((uint32_t)task_pcb + STACK_SIZE);
-	task_pcb->context.jmp_buf[2] = (uint32_t)stack_top; // ESP
+	task_pcb->context.jmp_buf[0] = 0; // EBP
+	task_pcb->context.jmp_buf[2] = KERNEL_STACK_TOP; // ESP
 	task_pcb->context.kill_eip = (uint32_t)kthread_exit;
 
 	/* 插入到任务队列末尾 */
 	ilist_insert_before(&running_proc_list, &(task_pcb->running_list));
 	queue_task(task_pcb);
+
 	return task_pcb;
 }
 
-static void kernel_thread_start(void) {
+static void kernel_thread_start(void)
+{
 	current->exit_status = current->fn(current->arg);
 	kthread_exit();
 }

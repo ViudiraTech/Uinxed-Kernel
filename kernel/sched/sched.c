@@ -50,13 +50,14 @@ void init_sched(void)
 	idle = kernel_thread(idle_loop, NULL, "idle", KERNEL_TASK);
 	ilist_remove(&idle->wait_list);
 
+	uintptr_t *page_directory = (uintptr_t *)CURRENT_PD_BASE;
 	/* 为当前执行流创建信息结构体 该结构位于当前执行流的栈最低端 */
 	current = kmalloc(sizeof(struct task_struct));
-
 	current->level = KERNEL_TASK;
 	current->state = TASK_RUNNABLE;
 	current->pid = now_pid++;
-	current->pgd_dir = kernel_directory;
+	/* page directory 最后一项是自己指向自己 */
+	current->pgd_dir = PT_ADDRESS(page_directory[1023]);
 	current->mem_size = 0;
 	current->name = "Uinxed-Kernel";	// 内核进程名称
 	current->fpu_flag = 0;				// 还没使用FPU
@@ -99,7 +100,7 @@ struct task_struct *schedule(void)
 __attribute__((noipa,naked)) // 切换页表后，完成longjmp之前，esp还没改过来，所以必须naked
 static void resume()
 {
-	__asm__("mov %0, %%cr3" : : "r"(&(current->pgd_dir->table_phy)));
+	__asm__("mov %0, %%cr3" : : "r"(current->pgd_dir));
 	if (current->exit_status < 0)
 		current->context.jmp_buf[1] = current->context.kill_eip;
 	__builtin_longjmp(current->context.jmp_buf, 1);

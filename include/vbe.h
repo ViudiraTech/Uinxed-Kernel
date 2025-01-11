@@ -13,7 +13,6 @@
 #define INCLUDE_VBE_H_
 
 #include "types.h"
-#include "multiboot.h"
 
 // RRRRR GGGGGG BBBBB
 #define SVGA_24TO16BPP(x) ((x & 0xF80000) >> 8) | ((x & 0xFC00) >> 5) | ((x & 0xF8) >> 3)
@@ -67,6 +66,6 @@ uint32_t vbe_get_width(void);
 uint32_t vbe_get_height(void);
 
 /* 初始化VBE图形模式 */
-void init_vbe(multiboot_t *info, int back, int fore);
+void init_vbe(int back, int fore);
 
 #endif // INCLUDE_VBE_H_

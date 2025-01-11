@@ -65,7 +65,7 @@ struct task_struct {
 	int pid;					// 进程标识符
 	int mem_size;				// 内存利用率
 	const char *name;			// 进程名
-	page_directory_t *pgd_dir;	// 进程页表
+	uintptr_t pgd_dir;	// 进程页表
 	cfile_t file_table[255];	// 进程文件句柄表
 	union {
 		int (*fn)(void *);

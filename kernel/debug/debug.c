@@ -10,18 +10,25 @@
  */
 
 #include "debug.h"
+#include "boot.h"
+#include "memory.h"
 #include "elf.h"
 #include "printk.h"
 #include "common.h"
 #include "vargs.h"
 
-static elf_t kernel_elf;
+static elf_t kernel_elf = {0};
 
 /* 初始化 Debug 信息 */
 void init_debug(void)
 {
-	/* 从 GRUB 提供的信息中获取到内核符号表和代码地址信息 */
-	kernel_elf = elf_from_multiboot((multiboot_elf_section_header_table_t *)glb_mboot_ptr);
+	kernel_elf.symtabsz = boot_info.symtab.end - boot_info.symtab.start;
+	if (kernel_elf.symtabsz > 0)
+		kernel_elf.symtab = (elf_symbol_t *)page_map_kernel_range(boot_info.symtab.start, boot_info.symtab.end, 0);
+
+	kernel_elf.strtabsz = boot_info.strtab.end - boot_info.strtab.start;
+	if (kernel_elf.strtabsz > 0)
+		kernel_elf.strtab = (const char *)page_map_kernel_range(boot_info.strtab.start, boot_info.strtab.end, 0);
 }
 
 /* 当前的段存器值 */

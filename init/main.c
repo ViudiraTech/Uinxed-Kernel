@@ -27,6 +27,7 @@
 #include "cpu.h"
 #include "bochs.h"
 #include "vbe.h"
+#include "boot.h"
 #include "multiboot.h"
 #include "task.h"
 #include "fpu.h"
@@ -45,6 +46,8 @@
 #include "syscall.h"
 #include "tty.h"
 
+struct boot_info boot_info = {0};
+
 void shell(const char *); // 声明shell程序入口
 
 /* 内核shell进程 */
@@ -57,16 +60,17 @@ int kthread_shell(void *arg)
 }
 
 /* 内核入口 */
-void kernel_init(multiboot_t *glb_mboot_ptr)
+void kernel_init()
 {
-	program_break_end = program_break + 0x300000 + 1 + KHEAP_INITIAL_SIZE;
-	memset(program_break, 0, program_break_end - program_break);
+	// 因为gdtr指向的位置是bootloader决定的，保险起见先初始化gdt
+	init_gdt();						// 初始化GDT
+	init_page();
 
-	init_bochs(glb_mboot_ptr);						// 初始化bochs图形模式
-	init_vbe(glb_mboot_ptr, 0x151515, 0xffffff);	// 初始化图形模式
+	init_bochs();						// 初始化bochs图形模式
+	init_vbe(0x151515, 0xffffff);	// 初始化图形模式
 
 	/* 检测内存是否达到最低要求 */
-	if ((glb_mboot_ptr->mem_upper + glb_mboot_ptr->mem_lower) / 1024 + 1 < 32) {
+	if ((boot_info.mem_upper + boot_info.mem_lower) / 1024 + 1 < 32) {
 		panic(P001);
 	}
 
@@ -78,15 +82,11 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	printk(PROJK_COPY"\n");												// 打印版权信息
 	printk("This version compiles at "BUILD_DATE" "BUILD_TIME"\n\n");	// 打印编译日期时间
 
-	printk("KernelArea: 0x00000000 - 0x%08X | GraphicsBuffer: 0x%08X\n", program_break_end,
-                                                                         glb_mboot_ptr->framebuffer_addr);
+	printk("KernelArea: 0x%08X - 0x%08X | GraphicsBuffer: 0x%08X\n", __kernel_start, program_break, boot_info.framebuffer_addr);
 	print_time("Initializing operating system kernel components.\n\n");	// 提示用户正在初始化内核
 
-	init_gdt();						// 初始化GDT
 	init_idt();						// 初始化IDT
 	acpi_init();					// 初始化ACPI
-	init_page(glb_mboot_ptr);		// 初始化内存分页
-	setup_free_page();				// 初始化用于页目录FIFO
 	init_fpu();						// 初始化FPU
 	init_pci();						// 初始化PCI设备
 	init_serial(9600);				// 初始化计算机串口
@@ -130,8 +130,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	printk("Terminal Uinxed %s\n", get_boot_tty());
 
 #ifdef DEBUG_SHELL
-	kernel_thread(kthread_shell, (void *)((glb_mboot_ptr->flags & MULTIBOOT_INFO_CMDLINE) ? glb_mboot_ptr->cmdline : 0),
-                  "Basic shell program", USER_TASK);
+	kernel_thread(kthread_shell, (void *)boot_info.cmdline, "Basic shell program", USER_TASK);
 #else
 	if (vfs_do_search(vfs_open("/dev"), "hda")) {
 		if (vfs_do_search(vfs_open("/"), "sbin")) {
