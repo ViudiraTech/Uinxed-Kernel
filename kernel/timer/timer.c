@@ -19,6 +19,8 @@
 volatile uint32_t tick = 0;
 struct TIMERCTL timerctl;
 
+static struct ilist_node timer_proc_list;
+
 /* 获取当前秒（带小数后六位） */
 double get_current_second(void)
 {
@@ -30,12 +32,12 @@ double get_current_second(void)
 }
 
 /* 定时器中断处理函数 */
-static void timer_handle(pt_regs *regs)
+static void timer_handle(struct interrupt_frame *frame)
 {
-	disable_intr();
 	tick++;
-	schedule(regs);
-	enable_intr();
+	queue_task_list(&timer_proc_list);
+	queue_task(current);
+	yield();
 }
 
 /* 使当前进程休眠指定的时间 */
@@ -49,7 +51,8 @@ void clock_sleep(uint32_t timer)
 {
 	uint32_t sleep = tick + timer;
 	while (1) {
-		__asm__ ("hlt");
+		ilist_insert_before(&timer_proc_list, &(current->wait_list));
+		yield();
 		if (tick >= sleep) break;
 	}
 }
@@ -79,7 +82,8 @@ void init_pit(void)
 /* 根据传入的定时器频率初始化定时器 */
 void init_timer(uint32_t timer)
 {
-	register_interrupt_handler(0x20, &timer_handle);
+	ilist_init(&timer_proc_list);
+	register_interrupt_handler(IRQ0, &timer_handle);
 	uint32_t divisor = 1193180 / timer;
 
 	outb(0x43, 0x36); // 频率

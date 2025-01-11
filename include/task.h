@@ -16,6 +16,7 @@
 #include "memory.h"
 #include "syscall.h"
 #include "vfs.h"
+#include "ilist.h"
 
 /* 进程状态描述 */
 typedef
@@ -52,20 +53,8 @@ typedef struct __attribute__((packed)) fpu_regs {
 
 /* 内核进程的上下文切换保存的信息 */
 struct context {
-	uint32_t esp;
-	uint32_t ebp;
-	uint32_t ebx;
-	uint32_t esi;
-	uint32_t edi;
-	uint32_t ecx;
-	uint32_t edx;
-	uint32_t eflags;
-
-	uint32_t eax;
-	uint32_t eip;
-	uint32_t ds;
-	uint32_t cs;
-	uint32_t ss;
+	uint32_t jmp_buf[5];
+	uint32_t kill_eip;
 	fpu_regs_t fpu_regs;
 };
 
@@ -76,24 +65,27 @@ struct task_struct {
 	int pid;					// 进程标识符
 	int mem_size;				// 内存利用率
 	const char *name;			// 进程名
-	void *stack;				// 进程的内核栈地址
-	uint32_t program_break;		// 进程堆基址
-	uint32_t program_break_end;	// 进程堆尾
 	page_directory_t *pgd_dir;	// 进程页表
 	cfile_t file_table[255];	// 进程文件句柄表
-	vfs_node_t exe_file;		// 可执行文件
+	union {
+		int (*fn)(void *);
+		vfs_node_t exe_file;		// 可执行文件
+	};
+	void *arg;
+	int exit_status;
 	int fpu_flag;				// 是否使用 FPU
 	uint32_t cpu_clock;			// CPU运行时间片
 	uint32_t sche_time;			// 进程剩余的可运行时间片
 	struct context context;		// 进程切换需要的上下文信息
-	struct task_struct *next;	// 链表指针
+	struct ilist_node running_list;
+	struct ilist_node wait_list;
 };
 
 /* 全局 pid 值 */
 extern int now_pid;
 
 /* 内核进程创建 */
-int32_t kernel_thread(int (*fn)(void *), void *arg, const char *name, int level);
+struct task_struct *kernel_thread(int (*fn)(void *), void *arg, const char *name, int level);
 
 /* ELF进程创建 */
 int32_t elf_thread(const char* path, void *arg, const char *name, int level);

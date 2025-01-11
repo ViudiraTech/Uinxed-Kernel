@@ -102,26 +102,20 @@ char *get_boot_tty(void)
 /* 打印日志字符到TTY */
 void tty_print_logch(const char ch)
 {
-	uint32_t eflags = load_eflags();
 	if (strcmp(get_boot_tty(), "ttyS0") == 0) {
 		write_serial(ch);
 	} else if (strcmp(get_boot_tty(), "tty0") == 0) {
-		if (eflags & (1 << 9)) disable_intr();
 		terminal_process_char(ch);
-		if (eflags & (1 << 9)) enable_intr();
 	}
 }
 
 /* 打印日志字符串到TTY */
 void tty_print_logstr(const char *str)
 {
-	uint32_t eflags = load_eflags();
 	if (strcmp(get_boot_tty(), "ttyS0") == 0) {
 		write_serial_string(str);
 	} else if (strcmp(get_boot_tty(), "tty0") == 0) {
-		if (eflags & (1 << 9)) disable_intr();
 		terminal_process(str);
-		if (eflags & (1 << 9)) enable_intr();
 	}
 }
 

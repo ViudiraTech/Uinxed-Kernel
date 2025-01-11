@@ -31,29 +31,16 @@ struct idt_ptr_t {
 	uint32_t base;		// 基址
 } __attribute__((packed)) idt_ptr_t;
 
-/* 寄存器类型 */
-typedef
-struct pt_regs_t {
-	uint32_t ds;		// 用于保存用户的数据段描述符
-	uint32_t edi;		// 从 edi 到 eax 由 pusha 指令压入
-	uint32_t esi; 
-	uint32_t ebp;
-	uint32_t esp;
-	uint32_t ebx;
-	uint32_t edx;
-	uint32_t ecx;
-	uint32_t eax;
-	uint32_t int_no;	// 中断号
-	uint32_t err_code;	// 错误代码(有中断错误代码的中断会由CPU压入)
-	uint32_t eip;		// 以下由处理器自动压入
-	uint32_t cs; 		
-	uint32_t eflags;
-	uint32_t useresp;
-	uint32_t ss;
-} pt_regs;
+struct interrupt_frame {
+	uintptr_t ip;
+	uintptr_t cs;
+	uintptr_t flags;
+	uintptr_t ss;
+	uintptr_t sp;
+};
 
 /* 定义中断处理函数指针 */
-typedef void (*interrupt_handler_t)(pt_regs *);
+typedef void (*interrupt_handler_t)(struct interrupt_frame *);
 
 /* 定义IRQ */
 #define	IRQ0	32 // 电脑系统计时器
@@ -73,9 +60,6 @@ typedef void (*interrupt_handler_t)(pt_regs *);
 #define	IRQ14	46 // IDE0 传输控制使用
 #define	IRQ15	47 // IDE1 传输控制使用
 
-/* 声明加载 IDTR 的函数 */
-extern void idt_flush(uint32_t);
-
 /* 初始化中断描述符表 */
 void init_idt(void);
 
@@ -86,15 +70,9 @@ void register_interrupt_handler(uint8_t n, interrupt_handler_t h);
 void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags);
 
 /* 设置用户中断描述符 */
-void idt_use_reg(uint8_t num, uint32_t base);
+void idt_use_reg(uint8_t num, interrupt_handler_t h);
 
-/* ISR处理 */
-void ISR_registe_Handle(void);
-
-/* 中断处理函数 */
-void isr_handler(pt_regs *regs);
-
-/* IRQ处理函数 */
-void irq_handler(pt_regs *regs);
+__attribute__((interrupt))
+void page_fault(struct interrupt_frame *frame, uintptr_t error_code);
 
 #endif // INCLUDE_IDT_H_

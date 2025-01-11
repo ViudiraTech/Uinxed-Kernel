@@ -164,6 +164,5 @@ void disable_intr(void)
 /* 内核停机 */
 void krn_halt(void)
 {
-	disable_intr();
 	while(1) {__asm__("hlt");}
 }

@@ -16,6 +16,7 @@
 #include "string.h"
 #include "common.h"
 #include "dma.h"
+#include "timer.h"
 
 volatile int floppy_int_count = 0;
 
@@ -68,8 +69,9 @@ static int wait_floppy_interrupt(void)
 {
 	int timeout = 128;
 
-	enable_intr();
-	while (!floppy_int_count && timeout--);
+	while (!floppy_int_count && timeout--) {
+		clock_sleep(1);
+	}
 
 	if (timeout <= 0) return 1;
 
@@ -283,7 +285,7 @@ int write_block(int block, byte *blockbuff, uint64_t nosectors)
 }
 
 /* 软驱中断处理 */
-static void flint(pt_regs *regs)
+static void flint(struct interrupt_frame *frame)
 {
 	floppy_int_count = 1; // 设置中断计数器为1，代表中断已经发生（或者是系统已经收到了中断）
 }

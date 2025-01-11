@@ -14,12 +14,13 @@
 
 #include "task.h"
 #include "idt.h"
+#include "ilist.h"
 
 /* 可调度进程链表 */
-extern struct task_struct *running_proc_head;
+extern struct ilist_node running_proc_list;
 
 /* 等待进程链表 */
-extern struct task_struct *wait_proc_head;
+extern struct ilist_node wait_proc_list;
 
 /* 当前运行的任务 */
 extern struct task_struct *current;
@@ -34,12 +35,15 @@ void enable_scheduler(void);
 void disable_scheduler(void);
 
 /* 任务调度 */
-void schedule(pt_regs *regs);
-
-/* 任务切换准备 */
-void change_task_to(struct task_struct *next, pt_regs *regs);
+struct task_struct *schedule(void);
 
 /* 任务切换 */
-void switch_to(struct context *prev, struct context *next);
+void change_task_to(struct task_struct *next);
+
+void yield(void);
+
+void queue_task(struct task_struct *pcb);
+
+void queue_task_list(struct ilist_node *list);
 
 #endif // INCLUDE_SCHED_H_

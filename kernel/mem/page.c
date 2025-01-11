@@ -145,35 +145,19 @@ page_t *get_page(uint32_t address, int make, page_directory_t *dir)
 	} else return 0;
 }
 
-/* 将页目录放入FIFO中 */
-void put_directory(page_directory_t *dir)
-{
-	fifo8_put(fifo, (uint8_t)(intptr_t)dir);
-}
-
 /* 释放一个页目录 */
-void free_pages(void)
+void free_directory(page_directory_t *dir)
 {
-	disable_scheduler();
-	int ii;
-	do {
-		ii = fifo8_get(fifo);
-		if (ii == -1 || ii == 0) {
-			break;
+	for (int i = 0; i < 1024; i++) {
+		page_table_t *table = dir->tables[i];
+		if (table == NULL) continue;
+		for (int j = 0; j < 1024; j++) {
+			page_t page = table->pages[i];
+			free_frame(&page);
 		}
-		page_directory_t *dir = (page_directory_t *)ii;
-		for (int i = 0; i < 1024; i++) {
-			page_table_t *table = dir->tables[i];
-			if (table == NULL) continue;
-			for (int j = 0; j < 1024; j++) {
-				page_t page = table->pages[i];
-				free_frame(&page);
-			}
-			kfree(table);
-		}
-		kfree(dir);
-	} while (1);
-	enable_scheduler();
+		kfree(table);
+	}
+	kfree(dir);
 }
 
 /* 初始化一个用于存储空闲页目录的FIFO */
@@ -191,18 +175,18 @@ uint32_t get_kernel_memory_usage(void)
 }
 
 /* 页错误处理 */
-static void page_fault(pt_regs *regs)
+__attribute__((interrupt))
+void page_fault(struct interrupt_frame *frame, uintptr_t error_code)
 {
-	disable_intr();
 	uint32_t faulting_address;
 	__asm__ __volatile__("mov %%cr2, %0" : "=r" (faulting_address));
 
 	char s[50];
-	int present = !(regs->err_code & 0x1);		// 页不存在
-	int rw = regs->err_code & 0x2;				// 只读页被写入
-	int us = regs->err_code & 0x4;				// 用户态写入内核页
-	int reserved = regs->err_code & 0x8;		// 写入CPU保留位
-	int id = regs->err_code & 0x10;				// 由取指引起
+	int present = !(error_code & 0x1);		// 页不存在
+	int rw = error_code & 0x2;				// 只读页被写入
+	int us = error_code & 0x4;				// 用户态写入内核页
+	int reserved = error_code & 0x8;		// 写入CPU保留位
+	int id = error_code & 0x10;				// 由取指引起
 
 	if (present) {
 		sprintf(s, "%s 0x%08X", P003, faulting_address);
@@ -307,7 +291,6 @@ void init_page(multiboot_t *multiboot)
 		alloc_frame_line(get_page(j,1,kernel_directory),j,0,1);
 		j += 0x1000;
 	}
-	register_interrupt_handler(0xe, &page_fault);
 	switch_page_directory(kernel_directory);
 	open_page();
 	print_succ("Memory paging initialized successfully | Memory size: "); // 提示用户已经完成初始化内存分页

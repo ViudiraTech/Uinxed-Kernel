@@ -16,6 +16,7 @@
 #include "memory.h"
 #include "printk.h"
 #include "os_terminal.lib.h"
+#include "sched.h"
 
 static int caps_lock;
 static int num_lock;
@@ -23,17 +24,19 @@ static int scroll_lock;
 
 fifo_t terminal_key;
 
+static struct ilist_node kb_proc_list;
+
 /* 键盘中断处理 */
-static void keyboard_handler(pt_regs *regs)
+static void keyboard_handler(struct interrupt_frame *frame)
 {
 	uint8_t scan_code = inb(KB_DATA);
 	const char *p = terminal_handle_keyboard(scan_code);
-	disable_intr();
 	if (p != 0) {
 		while (*p != '\0') {
 			fifo_put(&terminal_key, *p);
 			p++;
 		}
+		queue_task_list(&kb_proc_list);
 	}
 }
 
@@ -62,7 +65,8 @@ static void set_leds(void)
 void getch(char *ch)
 {
 	while (fifo_status(&terminal_key) == 0) {
-		__asm__("hlt");
+		ilist_insert_before(&kb_proc_list, &(current->wait_list));
+		yield();
 	}
 	*ch = fifo_get(&terminal_key);
 }
@@ -71,6 +75,7 @@ void getch(char *ch)
 void init_keyboard(void)
 {
 	print_busy("Initializing PS/2 keyboard controller...\r"); // 提示用户正在初始化键盘接口，并回到行首等待覆盖
+	ilist_init(&kb_proc_list);
 	uint32_t *term_buf = (uint32_t *)kmalloc(128);
 	fifo_init(&terminal_key, 32, term_buf);
 
