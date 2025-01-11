@@ -27,9 +27,6 @@ struct cfile_posix {
 };
 typedef struct cfile_posix *cfile_t;
 
-/* 系统调用处理 */
-void asm_syscall_handler(pt_regs *regs);
-
 /* 初始化系统调用 */
 void syscall_init(void);
 

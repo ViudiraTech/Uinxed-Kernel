@@ -16,11 +16,14 @@
 #include "memory.h"
 #include "idt.h"
 #include "vdisk.h"
+#include "sched.h"
 
 static uint8_t atapi_packet[12] = {0xA8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 static int package[2];
 uint8_t ide_buf[2048] = {0};
 int drive_mapping[26] = {0};
+
+static struct ilist_node ide_proc_list;
 
 volatile static uint8_t ide_irq_invoked = 0;
 static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t BAR3, uint32_t BAR4);
@@ -60,6 +63,7 @@ static void Write(int drive, uint8_t *buffer, uint32_t number, uint32_t lba)
 void init_ide(void)
 {
 	print_busy("Init IDE/ATAPI Driver...\r");
+	ilist_init(&ide_proc_list);
 
 	/* 检测计算机是否拥有IDE控制器 */
 	if (!pci_find_name("IDE Controller")) {
@@ -77,14 +81,20 @@ void init_ide(void)
 /* 等待IDE中断被触发 */
 static void ide_wait_irq(void)
 {
-	while (!ide_irq_invoked);
+	while (!ide_irq_invoked) {
+		ilist_insert_before(&ide_proc_list, &(current->wait_list));
+		yield();
+	}
 	ide_irq_invoked = 0;
 }
 
 /* IDE中断处理函数 */
-static void ide_irq(pt_regs *reg)
+static void ide_irq(struct interrupt_frame *frame)
 {
 	ide_irq_invoked = 1;
+	queue_task_list(&ide_proc_list);
+	queue_task(current);
+	yield();
 }
 
 /* 设置IDE */

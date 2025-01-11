@@ -95,11 +95,8 @@ void switch_page_directory(page_directory_t *dir);
 /* 获取给定虚拟地址对应的页表项 */
 page_t *get_page(uint32_t address, int make, page_directory_t *dir);
 
-/* 将页目录放入FIFO中 */
-void put_directory(page_directory_t *dir);
-
 /* 释放一个页目录 */
-void free_pages(void);
+void free_directory(page_directory_t *dir);
 
 /* 初始化一个用于存储空闲页目录的FIFO */
 void setup_free_page(void);

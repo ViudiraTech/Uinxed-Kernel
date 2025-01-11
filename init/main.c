@@ -84,7 +84,6 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 
 	init_gdt();						// 初始化GDT
 	init_idt();						// 初始化IDT
-	ISR_registe_Handle();			// 注册ISR处理
 	acpi_init();					// 初始化ACPI
 	init_page(glb_mboot_ptr);		// 初始化内存分页
 	setup_free_page();				// 初始化用于页目录FIFO
@@ -97,6 +96,8 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	mouse_init();					// 初始化鼠标驱动
 	init_sched();					// 初始化多任务
 	syscall_init();					// 初始化系统调用
+	init_timer(1);					// 初始化定时器
+	init_pit();						// 初始化PIT
 	floppy_init();					// 初始化软盘控制器
 	init_ide();						// 初始化IDE
 
@@ -113,13 +114,8 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	} else {
 		print_warn("The root file system could not be mounted.\n");
 	}
-	init_timer(1);					// 初始化定时器
-	init_pit();						// 初始化PIT
 
 	terminal_set_color_scheme(3);	// 重置终端主题
-
-	enable_intr();					// 开启中断
-	enable_scheduler();				// 启用调度
 
 	vbe_write_newline();
 	print_time("The kernel components of the operating system are initialized.\n");
@@ -152,19 +148,5 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	}
 #endif // DEBUG_SHELL
 
-	/* 内核运行时 */
-	terminal_set_auto_flush(0);
-	while (1) {
-		/* OST刷新 */
-		uint32_t eflags = load_eflags();
-		if (eflags & (1 << 9)) disable_intr();
-		terminal_flush();
-		if (eflags & (1 << 9)) enable_intr();
-
-		/* 释放FIFO中的页目录 */
-		free_pages();
-
-		/* 停机一次 */
-		__asm__ __volatile__("hlt");
-	}
+	yield();
 }

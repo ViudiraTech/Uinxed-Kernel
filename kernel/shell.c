@@ -348,7 +348,7 @@ static void handle_tab(char *buf, pl_readline_words_t words)
 
 static void plreadln_flush(void)
 {
-	/* Nothing */
+	terminal_flush();
 }
 
 /* shell主程序 */
