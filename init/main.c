@@ -153,14 +153,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 #endif // DEBUG_SHELL
 
 	/* 内核运行时 */
-	terminal_set_auto_flush(0);
 	while (1) {
-		/* OST刷新 */
-		uint32_t eflags = load_eflags();
-		if (eflags & (1 << 9)) disable_intr();
-		terminal_flush();
-		if (eflags & (1 << 9)) enable_intr();
-
 		/* 释放FIFO中的页目录 */
 		free_pages();
 
