@@ -201,9 +201,8 @@ void hpet_initialize(void)
 }
 
 /* ACPI电源管理中断处理程序 */
-static void acpi_power_handler(pt_regs *irq)
+static void acpi_power_handler(struct interrupt_frame *frame)
 {
-	disable_intr();
 	uint16_t status = inw((uint32_t) PM1a_EVT_BLK);
 
 	outw((uint32_t) PM1a_EVT_BLK, status &= ~(1 << 8));
@@ -213,7 +212,6 @@ static void acpi_power_handler(pt_regs *irq)
 		return;
 	}
 	if (!PM1b_EVT_BLK){
-		enable_intr();
 		return;
 	}
 	status = inw((uint32_t) PM1b_EVT_BLK);
@@ -222,7 +220,6 @@ static void acpi_power_handler(pt_regs *irq)
 		power_off(); // By rainy101112 2024-11-02 注意这边现在其实不完善，以后需要加上把所有进程杀掉
 		return;
 	}
-	enable_intr();
 }
 
 /* 初始化ACPI电源管理 */

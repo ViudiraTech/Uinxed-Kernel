@@ -13,75 +13,118 @@
 #include "string.h"
 #include "debug.h"
 #include "idt.h"
+#include "gdt.h"
 #include "printk.h"
 
-/* 声明中断处理函数 0-19 属于 CPU 的异常中断 */
-/* ISR:中断服务程序(interrupt service routine) */
-void isr0(void); 		// 0 #DE 除 0 异常
-void isr1(void); 		// 1 #DB 调试异常
-void isr2(void); 		// 2 NMI
-void isr3(void); 		// 3 BP 断点异常
-void isr4(void); 		// 4 #OF 溢出
-void isr5(void); 		// 5 #BR 对数组的引用超出边界
-void isr6(void); 		// 6 #UD 无效或未定义的操作码
-void isr7(void); 		// 7 #NM 设备不可用（无数学协处理器）
-void isr8(void); 		// 8 #DF 双重故障（有错误代码）
-void isr9(void); 		// 9 协处理器跨段操作
-void isr10(void); 		// 10 #TS 无效TSS（有错误代码）
-void isr11(void); 		// 11 #NP 段不存在（有错误代码）
-void isr12(void); 		// 12 #SS 栈错误（有错误代码）
-void isr13(void); 		// 13 #GP 常规保护（有错误代码）
-void isr14(void); 		// 14 #PF 页故障（有错误代码）
-void isr15(void); 		// 15 CPU 保留
-void isr16(void); 		// 16 #MF 浮点处理单元错误
-void isr17(void); 		// 17 #AC 对齐检查
-void isr18(void); 		// 18 #MC 机器检查
-void isr19(void); 		// 19 #XM SIMD（单指令多数据）浮点异常
+#define printk_panic(str, ...) printk("\033[31m[KERISR]\033[0m"); printk(str, ##__VA_ARGS__);
 
-/* 20-31 Intel 保留 */
-void isr20(void);
-void isr21(void);
-void isr22(void);
-void isr23(void);
-void isr24(void);
-void isr25(void);
-void isr26(void);
-void isr27(void);
-void isr28(void);
-void isr29(void);
-void isr30(void);
-void isr31(void);
+static void exception_panic(const char *name, struct interrupt_frame *frame, uintptr_t error_code)
+{
+	printk_panic("Kernel exception %s: %08x\n", name, error_code);
+	printk("EIP: %08x\nCS: %x\nEFLAGS: %08x\n", frame->ip, frame->cs, frame->flags);
 
-/* 声明 IRQ 函数 */
-/* IRQ:中断请求(Interrupt Request) */
-void irq0(void);		// 电脑系统计时器
-void irq1(void); 		// 键盘
-void irq2(void); 		// 与 IRQ9 相接，MPU-401 MD 使用
-void irq3(void); 		// 串口设备
-void irq4(void); 		// 串口设备
-void irq5(void); 		// 建议声卡使用
-void irq6(void); 		// 软驱传输控制使用
-void irq7(void); 		// 打印机传输控制使用
-void irq8(void); 		// 即时时钟
-void irq9(void); 		// 与 IRQ2 相接，可设定给其他硬件
-void irq10(void); 		// 建议网卡使用
-void irq11(void); 		// 建议 AGP 显卡使用
-void irq12(void); 		// 接 PS/2 鼠标，也可设定给其他硬件
-void irq13(void); 		// 协处理器使用
-void irq14(void); 		// IDE0 传输控制使用
-void irq15(void); 		// IDE1 传输控制使用
+	printk_panic("System halted\n");
+	krn_halt();
+}
+
+#define ISR_NOERRCODE(n, name)                        \
+__attribute__ ((interrupt))                           \
+void ISR_##n##_handle(struct interrupt_frame *frame)  \
+{                                                     \
+	exception_panic(name, frame, 0);              \
+}
+
+#define ISR_ERRCODE(n, name)                          \
+__attribute__ ((interrupt))                           \
+void ISR_##n##_handle(struct interrupt_frame *frame,  \
+                      uintptr_t error_code)           \
+{                                                     \
+	exception_panic(name, frame, error_code);     \
+}
+
+ISR_NOERRCODE(0, "#DE")  // 0 #DE 除 0 异常
+ISR_NOERRCODE(1, "#DB")  // 1 #DB 调试异常
+ISR_NOERRCODE(2, "NMI")  // 2 NMI
+ISR_NOERRCODE(3, "#BP")  // 3 #BP 断点异常
+ISR_NOERRCODE(4, "#OF")  // 4 #OF 溢出
+ISR_NOERRCODE(5, "#BR")  // 5 #BR 对数组的引用超出边界
+ISR_NOERRCODE(6, "#UD")  // 6 #UD 无效或未定义的操作码
+ISR_NOERRCODE(7, "#NM")  // 7 #NM 设备不可用（无数学协处理器）
+ISR_ERRCODE(8, "#DF")    // 8 #DF 双重故障（有错误代码）
+ISR_NOERRCODE(9, "CSO")  // 9 协处理器跨段操作
+ISR_ERRCODE(10, "#TS")   // 10 #TS 无效TSS（有错误代码）
+ISR_ERRCODE(11, "#NP")   // 11 #NP 段不存在（有错误代码）
+ISR_ERRCODE(12, "#SS")   // 12 #SS 栈错误（有错误代码）
+ISR_ERRCODE(13, "#GP")   // 13 #GP 常规保护（有错误代码）
+ISR_ERRCODE(14, "PF")    // 14 #PF 页故障（有错误代码）
+ISR_NOERRCODE(16, "MF")  // 16 #MF 浮点处理单元错误
+ISR_ERRCODE(17, "#AC")   // 17 #AC 对齐检查
+ISR_NOERRCODE(18, "#MC") // 18 #MC 机器检查
+ISR_NOERRCODE(19, "#XM") // 19 #XM SIMD（单指令多数据）浮点异常
+ISR_NOERRCODE(20, "#VE") // 20 #VE
+ISR_ERRCODE(21, "#CP")   // 21 #CP
+
+static int irq_acknowledge(uint8_t irq)
+{
+	uint16_t port = (irq<8)?0x20:0xA0;
+	/* 读ISR */
+	outb(port, 0x0B);
+	uint8_t isr = inb(port);
+	uint8_t mask = (1 << (irq % 8))&0xFF;
+	int is_servicing = (isr&mask)?1:0;
+
+	if (is_servicing)
+		outb(port, 0x60|(irq % 8)); // EOI
+	if (port == 0xA0)
+		outb(port, 0x60|2); // 从片默认接到IRQ2上
+	return is_servicing;
+}
+
+static void irq_enable(uint8_t irq) {
+	uint16_t port = (irq<8)?0x21:0xA1;
+	uint8_t mask = inb(port);
+	uint8_t clear = (1 << (irq % 8))&0xFF;
+	mask ^= mask & clear;
+	outb(port, mask);
+}
 
 /* 32～255 用户自定义异常 */
-void isr128(void);
+
+/* IRQ处理函数的指针数组 */
+interrupt_handler_t irq_handlers[32] = {0};
+
+/* 声明 IRQ 函数 */
+#define IRQ(n)                                                 \
+__attribute__ ((interrupt))                                    \
+void IRQ_##n##_handle(struct interrupt_frame *frame)           \
+{                                                              \
+	if (irq_acknowledge(n))                                \
+		irq_handlers[n](frame);                        \
+}
+
+/* IRQ:中断请求(Interrupt Request) */
+IRQ(0);		// 电脑系统计时器
+IRQ(1);		// 键盘
+IRQ(2);		// 默认由从片占据，别用
+IRQ(3);		// 串口设备
+IRQ(4);		// 串口设备
+IRQ(5);		// 建议声卡使用
+IRQ(6);		// 软驱传输控制使用
+IRQ(7);		// 打印机传输控制使用
+IRQ(8);		// 即时时钟
+IRQ(9);		// 与 IRQ2 相接，可设定给其他硬件
+IRQ(10);		// 建议网卡使用
+IRQ(11);		// 建议 AGP 显卡使用
+IRQ(12);		// 接 PS/2 鼠标，也可设定给其他硬件
+IRQ(13);		// 协处理器使用
+IRQ(14);		// IDE0 传输控制使用
+IRQ(15);		// IDE1 传输控制使用
 
 /* 中断描述符表 */
-idt_entry_t idt_entries[256];
+idt_entry_t idt_entries[256] = {0};
 
 /* IDTR */
-idt_ptr_t idt_ptr;
-
-/* 中断处理函数的指针数组 */
-interrupt_handler_t interrupt_handlers[256];
+idt_ptr_t idt_ptr = {0};
 
 /* 初始化中断描述符表 */
 void init_idt(void)
@@ -114,19 +157,18 @@ void init_idt(void)
 	outb(0x21, 0x01);
 	outb(0xA1, 0x01);
 
-	/* 设置主从片允许中断 */
-	outb(0x21, 0x0);
-	outb(0xA1, 0x0);
+	/* 处理不了的就别接收了 */
+	outb(0x21, 0xff);
+	outb(0xA1, 0xff);
 
-	bzero((uint8_t *)&interrupt_handlers, sizeof(interrupt_handler_t) * 256);
+	/* 主片接收来自从片的中断 */
+	irq_enable(0x02);
 
 	idt_ptr.limit	= sizeof(idt_entry_t) * 256 - 1;
 	idt_ptr.base	= (uint32_t)&idt_entries;
 
-	bzero((uint8_t *)&idt_entries, sizeof(idt_entry_t) * 256);
-
 	/* 0-32:  用于 CPU 的中断处理 */
-#define SET_ISR(N) idt_set_gate(N, (uint32_t)isr##N, 0x08, 0x8E)
+#define SET_ISR(N) idt_set_gate(N, (uint32_t)ISR_##N##_handle, 0x08, 0x8E)
 	SET_ISR( 0);
 	SET_ISR( 1);
 	SET_ISR( 2);
@@ -141,27 +183,17 @@ void init_idt(void)
 	SET_ISR(11);
 	SET_ISR(12);
 	SET_ISR(13);
-	SET_ISR(14);
-	SET_ISR(15);
+	/* ISR 14 will be define by paging program */
+	idt_set_gate(14, (uint32_t)page_fault, 0x08, 0x8E);
 	SET_ISR(16);
 	SET_ISR(17);
 	SET_ISR(18);
 	SET_ISR(19);
 	SET_ISR(20);
 	SET_ISR(21);
-	SET_ISR(22);
-	SET_ISR(23);
-	SET_ISR(24);
-	SET_ISR(25);
-	SET_ISR(26);
-	SET_ISR(27);
-	SET_ISR(28);
-	SET_ISR(29);
-	SET_ISR(30);
-	SET_ISR(31);
 #undef SET_ISR
 
-#define SET_IRQ(N) idt_set_gate(32 + N, (uint32_t)irq##N, 0x08, 0x8E)
+#define SET_IRQ(N) idt_set_gate(32 + N, (uint32_t)IRQ_##N##_handle, 0x08, 0x8E)
 	SET_IRQ( 0);
 	SET_IRQ( 1);
 	SET_IRQ( 2);
@@ -180,11 +212,8 @@ void init_idt(void)
 	SET_IRQ(15);
 #undef SET_IRQ
 
-	/* 系统调用 */
-	idt_use_reg(128, (uint32_t)isr128);
-
 	/* 更新设置中断描述符表 */
-	idt_flush((uint32_t)&idt_ptr);
+	__asm__("lidt %0" :: "m"(idt_ptr));
 
 	print_succ("Interrupt Descriptor Table initialized successfully.\n"); // 提示用户idt初始化完成
 }
@@ -205,48 +234,20 @@ void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags)
 }
 
 /* 设置用户中断描述符 */
-void idt_use_reg(uint8_t num, uint32_t base)
+void idt_use_reg(uint8_t num, interrupt_handler_t h)
 {
-	idt_entries[num].base_lo = base & 0xFFFF;
-	idt_entries[num].base_hi = (base >> 16) & 0xFFFF;
-
-	idt_entries[num].sel = 0x08;
-	idt_entries[num].always0 = 0;
-	idt_entries[num].flags = 0x8E | 0x60;
-}
-
-/* 调用中断处理函数 */
-void isr_handler(pt_regs *regs)
-{
-	if (interrupt_handlers[regs->int_no]) {
-		interrupt_handlers[regs->int_no](regs);
-	} else {
-		print_warn("Unhandled interrupt: ");
-		printk("0x%02X\n", regs->int_no);
-	}
+	idt_set_gate(num, (uintptr_t)h, 0x08, 0x8E | 0x60);
 }
 
 /* 注册一个中断处理函数 */
 void register_interrupt_handler(uint8_t n, interrupt_handler_t h)
 {
-	interrupt_handlers[n] = h;
-}
-
-/* IRQ 处理函数 */
-void irq_handler(pt_regs *regs)
-{
-	/* 发送中断结束信号给 PICs */
-	/* 按照我们的设置，从 32 号中断起为用户自定义中断 */
-	/* 因为单片的 Intel 8259A 芯片只能处理 8 级中断 */
-	/* 故大于等于 40 的中断号是由从片处理的 */
-	if (regs->int_no >= 40) {
-		/* 发送重设信号给从片 */
-		outb(0xA0, 0x20);
-	}
-	/* 发送重设信号给主片 */
-	outb(0x20, 0x20);
-	
-	if (interrupt_handlers[regs->int_no]) {
-		interrupt_handlers[regs->int_no](regs);
+	if ((n >= 0x20) && (n < 0x30))
+	{
+		uint8_t irq = n - 0x20;
+		irq_handlers[irq] = h;
+		irq_enable(irq);
+	} else {
+		idt_set_gate(n, (uintptr_t)h, 0x08, 0x8E);
 	}
 }
