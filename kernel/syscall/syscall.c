@@ -19,6 +19,7 @@
 #include "acpi.h"
 #include "timer.h"
 #include "beep.h"
+#include "keyboard.h"
 
 typedef enum oflags {
 	O_RDONLY,
@@ -27,7 +28,7 @@ typedef enum oflags {
 	O_CREAT = 4
 } oflags_t;
 
-/* POSIX规范-打开文件 */
+/* 打开文件 */
 static uint32_t syscall_open(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	enable_intr();
@@ -52,7 +53,7 @@ static uint32_t syscall_open(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t 
 	return -1;
 }
 
-/* POSIX规范-关闭文件 */
+/* 关闭文件 */
 static uint32_t syscall_close(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	for (int i = 3; i < 255; i++) {
@@ -67,7 +68,7 @@ static uint32_t syscall_close(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t
 	return -1;
 }
 
-/* POSIX规范-读取文件 */
+/* 读取文件 */
 static uint32_t syscall_read(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	enable_intr();
@@ -94,7 +95,7 @@ static uint32_t syscall_read(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t 
 	return ret;
 }
 
-/* POSIX规范-获取文件大小 */
+/* 获取文件大小 */
 static uint32_t syscall_size(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	if (ebx < 0 || ebx == 1 || ebx == 2) return -1;
@@ -115,6 +116,17 @@ static uint32_t syscall_putchar(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32
 {
 	putchar(ebx);
 	return 0;
+}
+
+/* 获取字符从标准输入 */
+static uint32_t syscall_getch(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
+{
+	while (fifo_status(&terminal_key) == 0) {
+		enable_intr();
+		__asm__("hlt");
+		disable_intr();
+	}
+	return fifo_get(&terminal_key);
 }
 
 /* 分配内存并返回地址 */
@@ -192,16 +204,17 @@ syscall_t syscall_handlers[MAX_SYSCALLS] = {
 	[4] = syscall_size,
 	[5] = syscall_printf,
 	[6] = syscall_putchar,
-	[7] = syscall_malloc,
-	[8] = syscall_free,
-	[9] = syscall_mount,
-	[10] = syscall_umount,
-	[11] = syscall_poweroff,
-	[12] = syscall_reboot,
-	[13] = syscall_sleep,
-	[14] = syscall_beep,
-	[15] = syscall_getpid,
-	[16] = syscall_exit
+	[7] = syscall_getch,
+	[8] = syscall_malloc,
+	[9] = syscall_free,
+	[10] = syscall_mount,
+	[11] = syscall_umount,
+	[12] = syscall_poweroff,
+	[13] = syscall_reboot,
+	[14] = syscall_sleep,
+	[15] = syscall_beep,
+	[16] = syscall_getpid,
+	[17] = syscall_exit
 };
 
 /* 系统调用处理 */
