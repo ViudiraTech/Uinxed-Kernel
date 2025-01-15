@@ -224,7 +224,7 @@ void init_vbe(multiboot_t *info, int back, int fore)
 		.height = height,
 		.address = screen
 	};
-	terminal_init(&display, 9.5, (void *)kmalloc, kfree, write_serial_string);
+	terminal_init(&display, 9.0, (void *)kmalloc, kfree, write_serial_string);
 	terminal_set_auto_crnl(true);
 
 	terminalMode = 1;
