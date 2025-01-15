@@ -71,7 +71,7 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	}
 
 #ifdef SHOW_START_LOGO
-	bmp_analysis((Bmp *)klogo, vbe_get_width() - 225, 25, 1);			// 显示内核Logo
+	bmp_analysis((Bmp *)klogo, vbe_get_width() - 193, 25, 1);			// 显示内核Logo
 #endif // SHOW_START_LOGO
 
 	printk("Uinxed-Kernel "KERNL_VERS" (build-%d)\n", KERNL_BUID);		// 打印内核信息
