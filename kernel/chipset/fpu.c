@@ -27,7 +27,8 @@
  */
 
 /* FPU中断 */
-static void fpu_handler(pt_regs *regs)
+__attribute__((interrupt))
+static void fpu_handler(struct interrupt_frame *frame)
 {
 	set_cr0(get_cr0() & ~(1 << 3));
 	if (!current->fpu_flag) {

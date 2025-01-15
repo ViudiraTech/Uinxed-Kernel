@@ -31,7 +31,6 @@ typedef enum oflags {
 /* 打开文件 */
 static uint32_t syscall_open(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
-	enable_intr();
 	char *name = (char *)ebx;
 	if (ecx & O_CREAT) {
 		int status = vfs_mkfile(name);
@@ -71,7 +70,6 @@ static uint32_t syscall_close(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t
 /* 读取文件 */
 static uint32_t syscall_read(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
-	enable_intr();
 	if (ebx < 0 || ebx == 1 || ebx == 2)return -1;
 	cfile_t file = get_current_proc()->file_table[ebx];
 	if (file == 0)return -1;
@@ -79,7 +77,6 @@ static uint32_t syscall_read(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t 
 	char* buffer = kmalloc(file->handle->size);
 	if (vfs_read(file->handle, buffer, 0, file->handle->size) == -1)return -1;
 	int ret = 0;
-	disable_intr();
 	char *filebuf = (char *)buffer;
 	char *retbuf = (char *)ecx;
 
@@ -91,7 +88,6 @@ static uint32_t syscall_read(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t 
 		ret = file->pos += edx;
 	}
 	kfree(buffer);
-	enable_intr();
 	return ret;
 }
 
@@ -122,9 +118,7 @@ static uint32_t syscall_putchar(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32
 static uint32_t syscall_getch(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	while (fifo_status(&terminal_key) == 0) {
-		enable_intr();
-		__asm__("hlt");
-		disable_intr();
+		yield();
 	}
 	return fifo_get(&terminal_key);
 }
@@ -191,7 +185,7 @@ static uint32_t syscall_getpid(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_
 /* 退出进程 */
 static uint32_t syscall_exit(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
-	__asm__("movl %0, %%eax" : : "r"(ebx) : "eax");
+	current->exit_status = (int)ebx;
 	kthread_exit();
 	return 0;
 }
@@ -218,27 +212,23 @@ syscall_t syscall_handlers[MAX_SYSCALLS] = {
 };
 
 /* 系统调用处理 */
-unsigned int syscall(void)
+__attribute__((interrupt))
+void syscall(struct interrupt_frame *frame)
 {
-	volatile unsigned int eax, ebx, ecx, edx, esi, edi;
-	__asm__("mov %%eax, %0\n\t" : "=r"(eax));
-	__asm__("mov %%ebx, %0\n\t" : "=r"(ebx));
-	__asm__("mov %%ecx, %0\n\t" : "=r"(ecx));
-	__asm__("mov %%edx, %0\n\t" : "=r"(edx));
-	__asm__("mov %%esi, %0\n\t" : "=r"(esi));
-	__asm__("mov %%edi, %0\n\t" : "=r"(edi));
+	uintptr_t eax, ebx, ecx, edx, esi, edi;
+	__asm__("" : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx), "=S"(esi), "=D"(edi));
 	if (0 <= eax && eax < MAX_SYSCALLS && syscall_handlers[eax] != 0) {
 		eax = ((syscall_t)syscall_handlers[eax])(ebx, ecx, edx, esi, edi);
 	} else {
 		eax = -1;
 	}
-	return eax;
+	__asm__("" : : "a"(eax));
 }
 
 /* 初始化系统调用 */
 void syscall_init(void)
 {
 	print_busy("Setting up system calls...\r");
-	idt_use_reg(0x80, (uint32_t)asm_syscall_handler);
+	idt_use_reg(0x80, syscall);
 	print_succ("The system call setup is complete.\n");
 }

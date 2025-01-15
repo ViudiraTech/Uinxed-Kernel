@@ -42,8 +42,6 @@ void dma_start(byte mode, byte channel, void *address, unsigned int size)
 	uint16_t offset = (channel > 4 ? addr / 2 : addr) & 0xffff;
 	size = (channel > 4 ? size / 2 : size) - 1;
 
-	disable_intr();
-
 	/* 设置DMA通道，以便我们可以正确传输数据，这很简单，只要我们用I/O操作告诉DMA控制器就行了 */
 	/* 我们将使用这个通道（DMA_channel） */
 	outb(MASK_REG[channel], 0x04 | (channel % 4));
@@ -67,9 +65,6 @@ void dma_start(byte mode, byte channel, void *address, unsigned int size)
 
 	/* 现在我们该做的东西已经全部做完了，所以启用DMA_channel */
 	outb(MASK_REG[channel], (channel % 4));
-
-	// 重新让CPU能够接收到中断
-	enable_intr();
 }
 
 /* 使用DMA发送数据 */

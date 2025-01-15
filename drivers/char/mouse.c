@@ -82,7 +82,7 @@ static int mouse_decode(void)
 }
 
 /* 鼠标中断处理 */
-static void mouse_handler(pt_regs *reg)
+static void mouse_handler(struct interrupt_frame *frame)
 {
 	dat = inb(0x60);
 	if (mouse_decode() != 0) {
