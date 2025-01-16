@@ -22,9 +22,9 @@
 #include "keyboard.h"
 
 typedef enum oflags {
-	O_RDONLY,
-	O_WRONLY,
-	O_RDWR,
+	O_RDONLY = 0,
+	O_WRONLY = 1,
+	O_RDWR = 2,
 	O_CREAT = 4
 } oflags_t;
 
@@ -35,9 +35,10 @@ static uint32_t syscall_open(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t 
 	char *name = (char *)ebx;
 	if (ecx & O_CREAT) {
 		int status = vfs_mkfile(name);
-		if (status == -1)goto error;
+		if (status == -1) goto error;
 	}
 	vfs_node_t r = vfs_open(name);
+
 	if (r == 0) goto error;
 	for (int i = 3; i < 255; i++) {
 		if (get_current_proc()->file_table[i] == 0) {
@@ -49,7 +50,7 @@ static uint32_t syscall_open(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t 
 			return i;
 		}
 	}
-	error:
+error:
 	return -1;
 }
 
@@ -72,12 +73,14 @@ static uint32_t syscall_close(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t
 static uint32_t syscall_read(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
 {
 	enable_intr();
-	if (ebx < 0 || ebx == 1 || ebx == 2)return -1;
+	if (ebx < 0 || ebx == 1 || ebx == 2) return -1;
 	cfile_t file = get_current_proc()->file_table[ebx];
-	if (file == 0)return -1;
-	if (file->flags == O_WRONLY)return -1;
+	if (file == 0) return -1;
+	if ((file->flags & O_WRONLY) == O_WRONLY) return -1; // 只写模式下不允许读
+
 	char* buffer = kmalloc(file->handle->size);
 	if (vfs_read(file->handle, buffer, 0, file->handle->size) == -1)return -1;
+
 	int ret = 0;
 	disable_intr();
 	char *filebuf = (char *)buffer;
@@ -89,6 +92,29 @@ static uint32_t syscall_read(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t 
 	} else {
 		memcpy((uint8_t *)retbuf, (const uint8_t *)filebuf, edx);
 		ret = file->pos += edx;
+	}
+	kfree(buffer);
+	enable_intr();
+	return ret;
+}
+
+/* 写入文件 */
+static uint32_t syscall_write(uint32_t ebx, uint32_t ecx, uint32_t edx, uint32_t esi, uint32_t edi)
+{
+	enable_intr();
+	if (ebx < 0 || ebx == 1 || ebx == 2) return -1;
+	cfile_t file = get_current_proc()->file_table[ebx];
+
+	if (file == 0) return -1;
+	if ((file->flags & O_RDONLY) == O_RDONLY) return -1; // 只读模式下不允许写
+	char* buffer = kmalloc(edx);
+	if (buffer == 0) return -1;
+
+	char *src = (char *)ecx;
+	memcpy((uint8_t *)buffer, (const uint8_t *)src, edx);
+	int ret = vfs_write(file->handle, buffer, file->pos, edx);
+	if (ret != -1) {
+		file->pos += edx;
 	}
 	kfree(buffer);
 	enable_intr();
@@ -201,20 +227,21 @@ syscall_t syscall_handlers[MAX_SYSCALLS] = {
 	[1] = syscall_open,
 	[2] = syscall_close,
 	[3] = syscall_read,
-	[4] = syscall_size,
-	[5] = syscall_printf,
-	[6] = syscall_putchar,
-	[7] = syscall_getch,
-	[8] = syscall_malloc,
-	[9] = syscall_free,
-	[10] = syscall_mount,
-	[11] = syscall_umount,
-	[12] = syscall_poweroff,
-	[13] = syscall_reboot,
-	[14] = syscall_sleep,
-	[15] = syscall_beep,
-	[16] = syscall_getpid,
-	[17] = syscall_exit
+	[4] = syscall_write,
+	[5] = syscall_size,
+	[6] = syscall_printf,
+	[7] = syscall_putchar,
+	[8] = syscall_getch,
+	[9] = syscall_malloc,
+	[10] = syscall_free,
+	[11] = syscall_mount,
+	[12] = syscall_umount,
+	[13] = syscall_poweroff,
+	[14] = syscall_reboot,
+	[15] = syscall_sleep,
+	[16] = syscall_beep,
+	[17] = syscall_getpid,
+	[18] = syscall_exit
 };
 
 /* 系统调用处理 */
