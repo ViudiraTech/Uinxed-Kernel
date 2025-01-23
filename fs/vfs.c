@@ -111,30 +111,33 @@ int vfs_mkfile(const char* name)
 	char *save_ptr = path;
 	vfs_node_t current = rootdir;
 	char *filename = path + strlen(path);
-	while (*--filename != '/' && filename != path) {}
-	*filename++ = '\0';
+
+	while (*--filename != '/' && filename != path);
+	if (filename != path) {
+		*filename++ = '\0';
+	} else {
+		goto create;
+	}
+
 	if (strlen(path) == 0) {
 		kfree(path);
 		return -1;
 	}
-	for (char *buf = pathtok(&save_ptr); buf; buf = pathtok(&save_ptr)) {
-		if (streq(buf, ".")) {
-			goto go;
-		} else if (streq(buf, "..")) {
-			if (current->parent && current->type == file_dir) {
+	for (const char *buf = pathtok(&save_ptr); buf; buf = pathtok(&save_ptr)) {
+		if (streq(buf, ".")) continue;
+		if (streq(buf, "..")) {
+			if (!current->parent || current->type != file_dir) goto err;
 				current = current->parent;
-				goto go;
-			} else {
-				goto err;
+				continue;
 			}
-		}
 		current = vfs_child_find(current, buf);
-		go:
-		if (current == 0 || current->type != file_dir) goto err;
+		if (current == null || current->type != file_dir) goto err;
 	}
-	vfs_node_t node = vfs_child_append(current, filename, 0);
+create:
+	vfs_node_t node = vfs_child_append(current, filename, null);
 	node->type = file_block;
 	callbackof(current, mkfile)(current->handle, filename, node);
+
 	kfree(path);
 	return 0;
 err:
