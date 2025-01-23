@@ -384,14 +384,13 @@ void shell(const char *cmdline)
 			print_erro("shell: number of arguments exceed MAX_ARG_NR(30)");
 			continue;
 		} else if (argc == 0) {
-			vbe_write_newline();
-			continue;
+			printk("\0");
 		}
 
 		int cmd_index = find_cmd(argv[0]);
 		if (cmd_index < 0) {
 			/* 找不到该命令 */
-			printk("Command not found.\n\n");
+			if (argc != 0) printk("Command not found.\n\n");
 		} else {
 			builtin_cmds[cmd_index].func(argc, (char **)argv);
 		}
