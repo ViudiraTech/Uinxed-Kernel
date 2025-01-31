@@ -1,0 +1,25 @@
+mainmenu "Uinxed-Kernel"
+
+menu "General setup"
+menu "Kernel debugging"
+
+config DEBUG_SHELL
+	bool "Enable kernel built-in debugging shell"
+	default n
+	help
+		"Enable kernel built-in debugging shell."
+
+endmenu
+endmenu
+
+menu "Device drivers"
+menu "Graphics support"
+
+config SHOW_START_LOGO
+	bool "Bootup logo"
+	default y
+	help
+		"Show kernel logo on kernel initializing. Logo file at lib/libklogo.a. Format: bitmap image."
+
+endmenu
+endmenu

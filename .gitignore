@@ -1,4 +1,9 @@
+# Visual Studio Code
 .vscode/*
+
+# Kconfig
+.config
+.config.old
 
 # Prerequisites
 *.d

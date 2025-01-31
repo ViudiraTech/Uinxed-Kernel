@@ -25,18 +25,18 @@
 **Debian & Ubuntu & Kali**
 ```bash
 sudo apt update
-sudo apt install gcc make xmake nasm grub-pc xorriso qemu-system
+sudo apt install gcc make xmake nasm grub-pc xorriso qemu-system kconfig-frontends python3-kconfiglib
 ```
 
 **ArchLinux**
 ```bash
-pacman -Sy gcc make xmake nasm grub-pc xorriso qemu-system
+pacman -Sy gcc make xmake nasm grub-pc xorriso qemu-system kconfig-frontends python3-kconfiglib
 ```
 
 **Alpine**
 ```bash
 sudo apk update
-sudo apk add gcc make xmake nasm grub-pc xorriso qemu-system
+sudo apk add gcc make xmake nasm grub-pc xorriso qemu-system kconfig-frontends python3-kconfiglib
 ```
 
 ## 编译指南

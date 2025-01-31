@@ -44,6 +44,7 @@
 #include "file.h"
 #include "syscall.h"
 #include "tty.h"
+#include "autoconfig.h"
 
 void shell(const char *); // 声明shell程序入口
 

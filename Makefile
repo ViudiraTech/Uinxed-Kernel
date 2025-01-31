@@ -82,9 +82,14 @@ Uinxed.iso: UxImage
 	@rm -rf iso
 	@printf "\033[1;32m[Done]\033[0m Compilation complete.\n"
 
+.PHONY: config
+menuconfig:
+	@kconfig-mconf Kconfig
+	@python3 kconfig.py
+
 .PHONY: clean
 clean:
-	$(Q)$(RM) -f $(OBJS) $(DEPS) UxImage Uinxed.iso
+	$(Q)$(RM) -f $(OBJS) $(DEPS) UxImage Uinxed.iso .config .config.old
 
 .PHONY: run
 run: Uinxed.iso
