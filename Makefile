@@ -85,7 +85,7 @@ Uinxed.iso: UxImage
 .PHONY: config
 menuconfig:
 	@kconfig-mconf Kconfig
-	@python3 kconfig.py
+	@python3 Kconfig.py
 
 .PHONY: clean
 clean:
