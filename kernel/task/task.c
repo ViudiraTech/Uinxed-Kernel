@@ -23,7 +23,7 @@
 int now_pid = 0;
 
 /* 进程创建 */
-static int32_t new_task(int (*fn)(void *), void *arg, const char *name, int level, vfs_node_t exefile)
+static int32_t new_task(int (*fn)(void **), void **arg, const char *name, int level, vfs_node_t exefile)
 {
 	struct task_struct *task_pcb = (struct task_struct *)kmalloc(STACK_SIZE);
 	assertx(task_pcb != 0, P008);
@@ -73,13 +73,13 @@ static int32_t new_task(int (*fn)(void *), void *arg, const char *name, int leve
 }
 
 /* 内核进程创建 */
-int32_t kernel_thread(int (*fn)(void *), void *arg, const char *name, int level)
+int32_t kernel_thread(int (*fn)(void **), void **arg, const char *name, int level)
 {
 	return new_task(fn, arg, name, level, 0);
 }
 
 /* ELF进程创建 */
-int32_t elf_thread(const char* path, void *arg, const char *name, int level)
+int32_t execv_thread(const char* path, void **arg, const char *name, int level)
 {
 	vfs_node_t elfile = vfs_open(path);
 	if (elfile == 0) return -1;

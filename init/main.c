@@ -49,9 +49,9 @@
 void shell(const char *); // 声明shell程序入口
 
 /* 内核shell进程 */
-int kthread_shell(void *arg)
+int kthread_shell(void *arg[])
 {
-	char *cmdline = strchr((char *)arg, ' ');
+	char *cmdline = strchr((char *)arg[0], ' ');
 	if (cmdline) ++cmdline;
 	shell(cmdline);
 	return 0;
@@ -135,13 +135,13 @@ void kernel_init(multiboot_t *glb_mboot_ptr)
 	printk("Terminal Uinxed %s\n", get_boot_tty());
 
 #ifdef DEBUG_SHELL
-	kernel_thread(kthread_shell, (void *)((glb_mboot_ptr->flags & MULTIBOOT_INFO_CMDLINE) ? glb_mboot_ptr->cmdline : 0),
-                  "Basic shell program", USER_TASK);
+	multiboot_uint32_t arg[] = {(glb_mboot_ptr->flags & MULTIBOOT_INFO_CMDLINE) ? glb_mboot_ptr->cmdline : 0};
+	kernel_thread(kthread_shell, (void *)arg, "Basic shell program", USER_TASK);
 #else
 	if (vfs_do_search(vfs_open("/dev"), "hda")) {
 		if (vfs_do_search(vfs_open("/"), "sbin")) {
 			if (vfs_do_search(vfs_open("/sbin"), "init")) {
-				elf_thread("/sbin/init", 0, "init", USER_TASK);
+				execv_thread("/sbin/init", 0, "init", USER_TASK);
 			} else {
 				panic("No working init found.");
 			}

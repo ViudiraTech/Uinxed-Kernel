@@ -93,10 +93,10 @@ struct task_struct {
 extern int now_pid;
 
 /* 内核进程创建 */
-int32_t kernel_thread(int (*fn)(void *), void *arg, const char *name, int level);
+int32_t kernel_thread(int (*fn)(void **), void **arg, const char *name, int level);
 
 /* ELF进程创建 */
-int32_t elf_thread(const char* path, void *arg, const char *name, int level);
+int32_t execv_thread(const char* path, void **arg, const char *name, int level);
 
 /* 获得当前进程 */
 struct task_struct *get_current_proc(void);
