@@ -86,10 +86,16 @@ int32_t execv_thread(const char* path, void **arg, const char *name, int level)
 
 	uint8_t *data = kmalloc(elfile->size);
 	if (vfs_read(elfile, data, 0, elfile->size) == -1) {
+		kfree(data);
 		vfs_close(elfile);
 		return -1;
 	}
 	uint32_t _start = elf_load(elfile->size, data);
+	if (_start == 0) {
+		kfree(data);
+		vfs_close(elfile);
+		return -1;
+	}
 	kfree(data);
 
 	return new_task((void *)_start, arg, name, level, elfile);

@@ -25,26 +25,21 @@ void segment_callback(struct ElfSegment segment)
 }
 
 /* ELF加载并返回入口 */
-uint32_t elf_load(size_t elf_size,uint8_t *elf_data)
+uint32_t elf_load(size_t elf_size, uint8_t *elf_data)
 {
 	struct ElfParseResult result = parse_elf(elf_data, elf_size, segment_callback);
 	switch (result.tag) {
 		case EntryPoint:
 			return result.entry_point;
 		case InvalidElfData:
-			printk("Invalid ELF data.\n");
 			break;
 		case ElfContainsNoSegments:
-			printk("ELF contains no segments.\n");
 			break;
 		case FailedToGetSegmentData:
-			printk("Failed to get segment data.\n");
 			break;
 		case AllocFunctionNotProvided:
-			printk("Allocation function not provided.\n");
 			break;
 		default:
-			printk("Unknown error.\n");
 			break;
 	}
 	return 0;
