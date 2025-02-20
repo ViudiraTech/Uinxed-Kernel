@@ -6,7 +6,7 @@
 #
 #		2025/01/31 By Rainy101112
 #		基于 GPL-3.0 开源协议
-#		Copyright © 2020 ViudiraTech，保留最终解释权。
+#		Copyright © 2020 ViudiraTech，开放所有权利。
 #
 #
 # -------------------------------------------------
@@ -45,7 +45,7 @@ def generate_config(kconfig_file, config_in, header_out):
 		header_file.write(" *\n")
 		header_file.write(f" *		{formatted_date} By Kconfig.py\n")
 		header_file.write(" *		基于 GPL-3.0 开源协议\n")
-		header_file.write(" *		Copyright © 2020 ViudiraTech，保留最终解释权。\n")
+		header_file.write(" *		Copyright © 2020 ViudiraTech，开放所有权利。\n")
 		header_file.write(" *\n")
 		header_file.write(" */\n\n")
 

@@ -64,6 +64,7 @@ sudo apk add gcc make xmake nasm grub-pc xorriso qemu-system kconfig-frontends p
 8. **Vinbe Wan**
 9. **xiaoyi1212**
 10. **ywx2012**
+11. **zhongzhihao**
 
 ## 项目所使用的开源代码或项目
 
@@ -85,4 +86,4 @@ sudo apk add gcc make xmake nasm grub-pc xorriso qemu-system kconfig-frontends p
 
 本Uinxed内核项目发起组织为ViudiraTech。
 内核源码为GPL-3.0开源协议
-Copyright © 2020 ViudiraTech，保留最终解释权。
+Copyright © 2020 ViudiraTech，开放所有权利。

@@ -5,7 +5,7 @@
  *
  *		2024/7/23 By Rainy101112
  *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，保留最终解释权。
+ *		Copyright © 2020 ViudiraTech，开放所有权利。
  *
  */
 
@@ -16,6 +16,6 @@
 #define BUILD_TIME __TIME__
 #define KERNL_VERS "v0.0.2502012" // Version format: v[VERSION].[PACK].YYMMDDF
 #define KERNL_BUID 341
-#define PROJK_COPY "Copyright 2020 ViudiraTech. All rights interpretation reserved."
+#define PROJK_COPY "Copyright 2020 ViudiraTech. Open all rights."
 
 #endif // INCLUDE_UINXED_H_

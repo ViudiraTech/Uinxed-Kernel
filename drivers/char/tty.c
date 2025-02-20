@@ -5,7 +5,7 @@
  *
  *		2024/12/17 By Rainy101112
  *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，保留最终解释权。
+ *		Copyright © 2020 ViudiraTech，开放所有权利。
  *
  */
 

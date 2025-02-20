@@ -3,7 +3,7 @@
  * 		vfs.c
  * 		文件系统抽象层
  * 
- * 		2024/11/23 By Rainy101112
+ * 		2024/11/23 By 开放所有权利
  * 		基于MIT协议 兼容GPL-3.0
  * 		Copyright plos-clan by min0911Y & zhouzhihao & copi143
  * 
