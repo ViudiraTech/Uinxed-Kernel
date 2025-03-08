@@ -22,9 +22,9 @@
 #define SPECIAL		32	// 0x
 #define SMALL		64	// use 'abcdef' instead of 'ABCDEF'
 
-#define do_div(n, base) ({														\
-        int __res;																\
-        __asm__("divl %4" : "=a"(n), "=d"(__res) : "0"(n), "1"(0), "r"(base));	\
+#define do_div(n, base) ({																\
+        int64_t __res;																	\
+        __asm__("divq %4" : "=a"(n), "=d"(__res) : "0"(n), "1"(0), "r"((int64_t)base));	\
         __res; })
 
 /* 判断是否是数字 */
@@ -37,6 +37,6 @@ int atoi(char *pstr);
 int skip_atoi(const char **s);
 
 /* 将整数格式化为字符串 */
-char *number(char *str, int num, int base, int size, int precision, int type);
+char *number(char *str, int64_t num, int base, int size, int precision, int type);
 
 #endif // INCLUDE_STDLIB_H_

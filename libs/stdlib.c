@@ -46,9 +46,9 @@ int skip_atoi(const char **s)
 }
 
 /* 将整数格式化为字符串 */
-char *number(char *str, int num, int base, int size, int precision, int type)
+char *number(char *str, int64_t num, int base, int size, int precision, int type)
 {
-	char c, sign, tmp[36];
+	char c, sign, tmp[65];
 	const char *digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 	int i;
 

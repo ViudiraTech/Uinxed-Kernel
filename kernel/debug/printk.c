@@ -187,7 +187,7 @@ int vsprintf(char *buff, const char *format, va_list args)
 			break;
 		case 'p':
 			if (field_width == -1) {
-				field_width = 8;
+				field_width = 16;
 				flags |= ZEROPAD;
 			}
 			str = number(str, (unsigned long)va_arg(args, void *), 16, field_width, precision, flags);
