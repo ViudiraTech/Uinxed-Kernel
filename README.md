@@ -18,7 +18,7 @@
 ## 编译要求
 
 1. **操作系统**：需要在Unix环境（例如FreeBSD、Linux、macOS，Windows平台可安装WSL或CygWin）中进行编译。
-2. **工具安装**：需要安装好gcc、nasm和xorriso工具。编译工具选择make。如果需要测试，请安装qemu虚拟机或其他虚拟化软件。
+2. **工具安装**：需要安装好gcc、gnu-as和xorriso等工具。构建管理工具使用make。如果需要测试，请安装qemu虚拟机或其他虚拟化软件。
 3. **启动测试**：需要准备好TianoCore UEFI OVMF固件或其他适用于QEMU的固件。当然你可以使用其他支持模拟UEFI的虚拟化软件。
 
 ## 工具安装方法：
