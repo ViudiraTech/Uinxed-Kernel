@@ -60,7 +60,7 @@ void ioapic_add(uint8_t vector, uint32_t irq)
 }
 
 /* 写本地APIC寄存器 */
-void lapic_write(uint32_t reg, uint64_t value)
+void lapic_write(uint32_t reg, uint32_t value)
 {
 	if (x2apic_mode) {
 		wrmsr(0x800 + (reg >> 4), value);
@@ -81,8 +81,7 @@ uint32_t lapic_read(uint32_t reg)
 /* 获取当前处理器的本地APIC ID */
 uint64_t lapic_id(void)
 {
-	uint32_t phy_id = lapic_read(LAPIC_REG_ID);
-	return x2apic_mode ? phy_id : (phy_id >> 24);
+	return lapic_read(LAPIC_REG_ID);
 }
 
 /* 初始化本地APIC */
@@ -98,7 +97,6 @@ void local_apic_init(void)
 	lapic_write(LAPIC_REG_TIMER, IRQ_32);
 	lapic_write(LAPIC_REG_SPURIOUS, 0xff | 1 << 8);
 	lapic_write(LAPIC_REG_TIMER_DIV, 11);
-	lapic_write(LAPIC_REG_TIMER_INITCNT, 0);
 
 	uint64_t b = nanoTime();
 	lapic_write(LAPIC_REG_TIMER_INITCNT, ~((uint32_t)0));
@@ -145,7 +143,7 @@ void send_ipi(uint32_t apic_id, uint32_t command)
 /* 初始化APIC */
 void apic_init(MADT *madt)
 {
-	lapic_address = madt->local_apic_address;
+	lapic_address = (uint64_t)phys_to_virt(madt->local_apic_address);
 	plogk("Local APIC: Base address 0x%016x\n", lapic_address);
 
 	uint64_t current = 0;

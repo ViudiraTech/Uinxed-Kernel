@@ -15,7 +15,7 @@
 #define BUILD_DATE __DATE__			// 编译日期
 #define BUILD_TIME __TIME__			// 编译时间
 #define KERNL_VERS "0.0.250308"		// 版本格式: v[主版本].[补丁版本].[年月日]
-#define TODAY_SUBM 1				// 一天内第几批次提交
+#define TODAY_SUBM 2				// 一天内第几批次提交
 
 /* 编译器判断 */
 #if defined(__clang__)

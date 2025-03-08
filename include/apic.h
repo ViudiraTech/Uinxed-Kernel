@@ -74,7 +74,7 @@ uint32_t ioapic_read(uint32_t reg);
 void ioapic_add(uint8_t vector, uint32_t irq);
 
 /* 写本地APIC寄存器 */
-void lapic_write(uint32_t reg, uint64_t value);
+void lapic_write(uint32_t reg, uint32_t value);
 
 /* 读本地APIC寄存器 */
 uint32_t lapic_read(uint32_t reg);
