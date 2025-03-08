@@ -33,8 +33,8 @@ void kernel_entry(void)
 {
 	video_init();			// 初始化视频驱动
 
-	plogk("Uinxed version %s (%s version %s) #%d %s %s\n",
-          KERNL_VERS, COMPILER_NAME, COMPILER_VERSION, TODAY_SUBM, BUILD_DATE, BUILD_TIME);
+	plogk("Uinxed version %s (%s version %s) #1 SMP %s %s\n",
+          KERNL_VERS, COMPILER_NAME, COMPILER_VERSION, BUILD_DATE, BUILD_TIME);
 	plogk("Video memory address: 0x%08x | Resolution: %dx%d\n",
           get_framebuffer()->address, get_framebuffer()->width, get_framebuffer()->height);
 

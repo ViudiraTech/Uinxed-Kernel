@@ -1,75 +1,133 @@
-# 欢迎来到 Uinxed 内核项目
+# 欢迎来到 Uinxed-Kernel 项目
 
-![](https://img.shields.io/badge/License-GPLv3-blue) ![](https://img.shields.io/badge/Language-3-orange) ![](https://img.shields.io/badge/hardware-x64-green) ![](https://img.shields.io/badge/firmware-UEFI-yellow)
+![](https://img.shields.io/badge/License-GPLv3-blue) ![](https://img.shields.io/badge/Language-2-orange) ![](https://img.shields.io/badge/hardware-x64-green) ![](https://img.shields.io/badge/firmware-UEFI-yellow)
 
-## 简介
+## 概述 💡
 
-此项目是一个基于GPL-3.0开源协议的UEFI x64类Unix内核开发项目，名为Uinxed-Kernel。它由MicroFish和Rainy101112等人于2024年发起并持续开发。Uinxed内核项目遵循开源精神，旨在创建一个自由、透明、任何人都可以使用和修改的操作系统内核。
+Uinxed是一个从零开始开发的类Unix操作系统内核，专注于现代计算机架构和先进的系统设计理念。该项目旨在构建一个高效、稳定、可扩展的操作系统内核，同时保持代码的清晰性和可维护性。
 
-本项目因使用了带有GPL的源码，所以不得不使用GPL协议。但我们保证我们绝对开放，并且不会制造任何种族歧视和政治偏见，我们欢迎任何人提交源码和建议。
+## 核心特性 🌟
 
-## 项目特点
+- **x86_64架构支持**：针对现代64位x86处理器进行优化
+- **UEFI启动**：采用UEFI作为启动方式，支持现代硬件平台
+- **内存管理**：
+  - 物理内存帧分配器
+  - 虚拟内存页管理
+  - 高半区内存映射(HHDM)
+- **中断管理**：
+  - 完整的中断描述符表(IDT)实现
+  - 高级可编程中断控制器(APIC)支持
+- **系统管理**：
+  - ACPI支持
+  - 高精度事件计时器(HPET)
 
-1. **自由使用**：任何人都可以自由地使用Uinxed内核，无论是个人学习、研究还是商业用途。
-2. **开源协作**：项目鼓励社区参与，任何人都可以为项目贡献代码或提供反馈。
-3. **GPL-3.0协议**：遵循GPL-3.0协议，确保了项目的开源性和自由传播，要求所有基于Uinxed的衍生作品也必须开源。
-4. **持续更新**：项目团队定期更新内核，修复bug，添加新功能，提高内核性能和稳定性。
+## 开发环境准备 🛠️
 
-## 编译要求
+### 必需工具
 
-1. **操作系统**：需要在Unix环境（例如FreeBSD、Linux、macOS，Windows平台可安装WSL或CygWin）中进行编译。
-2. **工具安装**：需要安装好gcc、gnu-as和xorriso等工具。构建管理工具使用make。如果需要测试，请安装qemu虚拟机或其他虚拟化软件。
-3. **启动测试**：需要准备好TianoCore UEFI OVMF固件或其他适用于QEMU的固件。当然你可以使用其他支持模拟UEFI的虚拟化软件。
+1. **Make**：用于构建项目
+2. **GCC**：推荐使用GCC Version 13.3.0+
+3. **QEMU**：用于模拟测试
+4. **Xorriso**：用于构建ISO镜像文件
 
-## 工具安装方法：
+### 安装步骤
 
 **Debian & Ubuntu & Kali**
 ```bash
 sudo apt update
-sudo apt install gcc nasm xorriso make qemu-system
+sudo apt install make gcc qemu-system xorriso
 ```
 
 **ArchLinux**
 ```bash
-pacman -Sy gcc nasm xorriso make qemu-system
+pacman -Sy make gcc qemu-system xorriso
 ```
 
 **Alpine**
 ```bash
 sudo apk update
-sudo apk add gcc nasm xorriso make qemu-system
+sudo apk add make gcc qemu-system xorriso
 ```
 
-## 编译指南
+## 编译指南 📖
 
-1. **获取源码**：将源码clone到本地。
-2. **编译**：在已clone到本地的项目源码根目录内执行make命令即可开始编译。
-3. **编译结果**：编译后会生成两个文件：UxImage和Uinxed-x64.iso，这两个文件分别为内核文件和带UEFI引导的镜像文件。
-4. **清理与测试**：
-   - 输入“make clean”清理所有中间文件及UxImage和镜像。
-   - 输入“make run”即可通过qemu测试启动iso镜像。
-   - 输入“make run-db”即可调出调试（控制台显示汇编代码）。
+### 克隆项目
 
-## 贡献者名单
+```bash
+git clone https://github.com/FengHeting/Uinxed-x86_64.git
+cd Uinxed-x86_64
+```
 
-1. **MicroFish**
-2. **Rainy101112**
+### 开始编译
 
-## 项目所使用的开源代码或项目
+```bash
+make
+```
 
-- Hurlex-Kernel: [http://wiki.0xffffff.org/](http://wiki.0xffffff.org/)
-- CoolPotOS: [https://github.com/xiaoyi1212/CoolPotOS](https://github.com/plos-clan/CoolPotOS)
+## 运行测试 🏃‍♂️
 
-## 参考的网站
+### 虚拟机运行
 
-- OSDev: [https://wiki.osdev.org/](https://wiki.osdev.org)
+```bash
+make run
+```
 
-## 外部链接
+### 实际硬件运行
 
-- UxSDK: [https://github.com/ViudiraTech/UxSDK](https://github.com/ViudiraTech/UxSDK)
+1. 将U盘或硬盘转为GPT分区表，并创建一个ESP分区。
+2. 将项目目录./assets/Limine中的efi文件夹拷贝进ESP分区。
+3. 将编译出来的内核（UxImage）拷贝进您ESP分区下的./efi/boot/中。
+4. 通过实体机启动（必须为64位UEFI模式，且CSM为关闭）
 
-## 版权声明
+## 项目结构 📁
 
-本Uinxed内核项目发起组织为ViudiraTech。
-内核源码为GPL-3.0开源协议
-Copyright © 2020 ViudiraTech，基于GPLv3协议。
+```
+Uinxed-x86_64/
+├── .git/          # 版本管理
+├── assets/        # 引导和脚本
+├── devices/       # 设备驱动
+├── include/       # 头部文件
+├── init/          # 代码入口
+├── kernel/        # 内核部分
+├── libs/          # 库文件
+├── .gitignore     # 忽略规则
+├── LICENSE        # 开源协议
+├── Makefile       # 构建脚本
+└── README.md      # 项目介绍
+```
+
+```
+Uinxed-x86_64/
+├── UxImage        # 内核文件
+└── Uinxed-x64.iso # 可启动镜像
+```
+
+## 贡献指南 🤝
+
+欢迎贡献代码！请遵循以下步骤：
+
+1. fork项目仓库
+2. 创建新分支进行开发
+3. 代码文件署名
+4. 提交Pull Request
+5. 等待代码审查和合并
+
+## 核心开发者 👨‍💻
+
+1. MicroFish：主开发/策划/管理
+2. Rainy101112：副开发/策划/管理
+3. suhuajun：测试/修BUG
+4. XIAOYI12：协开发者
+
+## 项目所使用的开源代码或项目 🎈
+
+- Hurlex-Kernel：[http://wiki.0xffffff.org/](http://wiki.0xffffff.org/)
+- CoolPotOS：[https://github.com/xiaoyi1212/CoolPotOS](https://github.com/plos-clan/CoolPotOS)
+
+## 许可证 📜
+
+本项目采用GPL-3.0开源协议，详情请参阅LICENSE文件。
+
+## 联系方式 📩
+
+QQ：2609948707 | 3585302907
