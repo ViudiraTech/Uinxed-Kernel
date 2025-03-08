@@ -1,0 +1,86 @@
+/*
+ *
+ *		acpi.c
+ *		高级配置和电源管理接口
+ *
+ *		2025/2/16 By MicroFish
+ *		基于 GPL-3.0 开源协议
+ *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *
+ */
+
+#include "acpi.h"
+#include "apic.h"
+#include "string.h"
+#include "printk.h"
+#include "limine.h"
+#include "hhdm.h"
+
+XSDT *xsdt;
+
+__attribute__((used, section(".limine_requests")))
+static __volatile__ struct limine_rsdp_request rsdp_request = {
+	.id = LIMINE_RSDP_REQUEST,
+	.revision = 0
+};
+
+/* 在XSDT中查找对应的ACPI表 */
+void *find_table(const char *name)
+{
+	uint64_t entry_count = (xsdt->h.Length - 32) / 8;
+	uint64_t *t = (uint64_t *)((char *)xsdt + __builtin_offsetof(XSDT, PointerToOtherSDT));
+	plogk("ACPI: Searching for table '%.4s' in XSDT.\n", name);
+
+	for (uint64_t i = 0; i < entry_count; i++) {
+		uint64_t ptr = (uint64_t) phys_to_virt((uint64_t)*(t + i));
+		uint8_t signa[5] = {0};
+		memcpy(signa, ((struct ACPISDTHeader *)ptr)->Signature, 4);
+		if (memcmp(signa, name, 4) == 0) {
+			plogk("ACPI: Found table '%.4s' at 0x%016x\n", name, ptr);
+			return (void *)ptr;
+		}
+	}
+	plogk("ACPI: Table '%.4s' not found in XSDT\n", name);
+	return 0;
+}
+
+/* 初始化ACPI */
+void acpi_init(void)
+{
+	struct limine_rsdp_response *response = rsdp_request.response;
+	RSDP *rsdp = (RSDP *)response->address;
+	if (rsdp == 0) {
+		plogk("ACPI: RSDP not found.\n");
+		return;
+	}
+	plogk("ACPI: RSDP found at 0x%016x\n", (unsigned long long)rsdp);
+
+	xsdt = (XSDT *)rsdp->xsdt_address;
+	if (xsdt == 0) {
+		plogk("ACPI: XSDT not found.\n");
+		return;
+	}
+	xsdt = (XSDT *)phys_to_virt((uint64_t)xsdt);
+	plogk("ACPI: XSDT found at 0x%016x\n", (unsigned long long)xsdt);
+
+	void *hpet = find_table("HPET");
+	if (hpet == 0) {
+		plogk("ACPI: HPET table not found.\n");
+		return;
+	} else
+		hpet_init(hpet);
+
+	void *apic = find_table("APIC");
+	if (apic == 0) {
+		plogk("ACPI: APIC table not found.\n");
+		return;
+	} else
+		apic_init(apic);
+
+	void* facp = find_table("FACP");
+	if(facp == 0) {
+		plogk("ACPI: FACP table not found.\n");
+		return;
+	} else
+		facp_init(facp);
+}
