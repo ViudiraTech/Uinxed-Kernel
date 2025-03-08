@@ -27,6 +27,7 @@
 #include "cpu.h"
 #include "interrupt.h"
 #include "serial.h"
+#include "smbios.h"
 
 /* 内核入口 */
 void kernel_entry(void)
@@ -37,6 +38,7 @@ void kernel_entry(void)
           KERNL_VERS, COMPILER_NAME, COMPILER_VERSION, BUILD_DATE, BUILD_TIME);
 	plogk("Video memory address: 0x%08x | Resolution: %dx%d\n",
           get_framebuffer()->address, get_framebuffer()->width, get_framebuffer()->height);
+	plogk("SMBIOS %d.%d.0 present.\n",smbios_major_version(), smbios_minor_version());
 
 	init_hhdm();			// 初始化高半区内存映射
 	init_frame();			// 初始化内存帧
