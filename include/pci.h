@@ -64,7 +64,7 @@ void pci_config(uint32_t bus, uint32_t slot, uint32_t func, uint32_t addr);
 void pci_found_device(uint32_t vendor_id, uint32_t device_id, uint32_t *bus, uint32_t *slot, uint32_t *func);
 
 /* 根据类代码返回设备名称 */
-char *pci_classname(uint32_t classcode);
+const char *pci_classname(uint32_t classcode);
 
 /* 按ClassCode查找相应设备 */
 int pci_find_class(uint32_t class_code);

@@ -266,13 +266,13 @@ void pci_found_device(uint32_t vendor_id, uint32_t device_id, uint32_t *bus, uin
 }
 
 /* 根据类代码返回设备名称 */
-char *pci_classname(uint32_t classcode)
+const char *pci_classname(uint32_t classcode)
 {
 	for (unsigned long i = 0; pci_classnames[i].name != 0; i++) {
 		if (pci_classnames[i].classcode == classcode)
-			return (char *)pci_classnames[i].name;
+			return pci_classnames[i].name;
 		if (pci_classnames[i].classcode == (classcode & 0xFFFF00))
-			return (char *)pci_classnames[i].name;
+			return pci_classnames[i].name;
 	}
 	return "Unknown device";
 }
