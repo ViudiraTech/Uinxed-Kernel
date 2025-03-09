@@ -46,6 +46,6 @@ typedef struct registers {
 extern void (*empty_handle[256])(interrupt_frame_t *frame);
 
 /* 注册ISR中断处理 */
-void ISR_registe_Handle(void);
+void isr_registe_handle(void);
 
 #endif // INCLUDE_INTERRUPT_H_

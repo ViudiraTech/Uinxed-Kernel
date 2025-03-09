@@ -29,6 +29,7 @@
 #include "serial.h"
 #include "smbios.h"
 #include "pci.h"
+#include "cmdline.h"
 
 /* 内核入口 */
 void kernel_entry(void)
@@ -37,18 +38,19 @@ void kernel_entry(void)
 
 	plogk("Uinxed version %s (%s version %s) #1 SMP %s %s\n",
           KERNL_VERS, COMPILER_NAME, COMPILER_VERSION, BUILD_DATE, BUILD_TIME);
-	plogk("Video memory address: 0x%08x | Resolution: %dx%d\n",
+	plogk("Framebuffer address at 0x%016x, resolution: %dx%d\n",
           get_framebuffer()->address, get_framebuffer()->width, get_framebuffer()->height);
+	plogk("Command line: %s\n", get_cmdline());
 	plogk("SMBIOS %d.%d.0 present.\n",smbios_major_version(), smbios_minor_version());
 
-	init_hhdm();			// 初始化高半区内存映射
-	init_frame();			// 初始化内存帧
-	init_heap();			// 初始化内存堆
 	init_gdt();				// 初始化全局描述符
 	init_idt();				// 初始化中断描述符
-	ISR_registe_Handle();	// 注册ISR中断处理
+	init_frame();			// 初始化内存帧
 	page_init();			// 初始化内存页
+	init_hhdm();			// 初始化高半区内存映射
+	init_heap();			// 初始化内存堆
 	acpi_init();			// 初始化ACPI
+	isr_registe_handle();	// 注册ISR中断处理
 	pci_init();				// 初始化PCI
 	init_serial(9600);		// 初始化串口
 	enable_intr();

@@ -127,7 +127,7 @@ __attribute__((interrupt)) static void ISR_19_handle(interrupt_frame_t *frame)
 }
 
 /* 注册ISR中断处理 */
-void ISR_registe_Handle(void)
+void isr_registe_handle(void)
 {
 	register_interrupt_handler(ISR_0, (void *)ISR_0_handle, 0, 0x8e);
 	register_interrupt_handler(ISR_1, (void *)ISR_1_handle, 0, 0x8e);
