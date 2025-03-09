@@ -30,7 +30,7 @@ void init_serial(int baud_rate)
 
 	/* 检查串口是否有问题（即：与发送的字节不一样） */
 	if (inb(SERIAL_PORT + 0) != 0xAE) {
-		plogk("Serial: Test failed.\n");
+		plogk("Serial: Serial port test failed.\n");
 		return;
 	}
 

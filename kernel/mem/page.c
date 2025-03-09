@@ -150,13 +150,13 @@ void page_map_range_to(page_directory_t *directory, uint64_t frame, uint64_t len
 void page_init(void)
 {
 	page_table_t *kernel_page_table = (page_table_t *)phys_to_virt(get_cr3());
-	plogk("Kernel Page Table base address: 0x%016x\n", (unsigned long long)kernel_page_table);
+	plogk("Page: Kernel page table base at 0x%016x (CR3 = 0x%016x)\n", kernel_page_table, get_cr3());
 
 	kernel_page_dir = (page_directory_t){.table = kernel_page_table};
-	plogk("Kernel Page Directory initialized at 0x%016x\n", (unsigned long long)kernel_page_dir.table);
+	plogk("Page: Kernel page directory initialized.\n");
 
 	register_interrupt_handler(ISR_14, (void *)page_fault_handle, 0, 0x8e);
 
 	current_directory = &kernel_page_dir;
-	plogk("Current Page Directory set to 0x%016x\n", (unsigned long long)current_directory->table);
+	plogk("Page: Current directory set to kernel (0x%08x)\n", current_directory->table);
 }

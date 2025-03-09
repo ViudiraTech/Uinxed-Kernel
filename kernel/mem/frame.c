@@ -31,7 +31,7 @@ void init_frame(void)
 		struct limine_memmap_entry *region = memory_map->entries[i];
 		if (region->type == LIMINE_MEMMAP_USABLE) {
 			memory_size = region->base + region->length;
-			plogk("Frame Allocator: Found usable memory region at base 0x%08x, length 0x%08x\n", region->base, region->length);
+			plogk("Frame: Found maximum usable region at 0x%016x (size 0x%016x)\n", region->base, region->length);
 			break;
 		}
 	}
@@ -42,12 +42,13 @@ void init_frame(void)
 		struct limine_memmap_entry *region = memory_map->entries[i];
 		if (region->type == LIMINE_MEMMAP_USABLE && region->length >= bitmap_size) {
 			bitmap_address = region->base;
-			plogk("Frame Allocator: Bitmap allocated at base 0x%08x, size 0x%08x\n", bitmap_address, bitmap_size);
 			break;
 		}
 	}
-	if (!bitmap_address) {
-		plogk("Frame Allocator: Failed to allocate bitmap memory!\n");
+	if (bitmap_address) {
+		plogk("Frame: Bitmap allocated at 0x%016x (size 0x%08x pages)\n", bitmap_address, bitmap_size / 8);
+	} else {
+		plogk("Frame: Failed to allocate bitmap memory!\n");
 		return;
 	}
 	Bitmap *bitmap = &frame_allocator.bitmap;
@@ -61,17 +62,18 @@ void init_frame(void)
 			unsigned long frame_count = region->length / 4096;
 			origin_frames += frame_count;
 			bitmap_set_range(bitmap, start_frame, start_frame + frame_count, 1);
-			plogk("Frame Allocator: Marked %06lu frames starting at frame %06lu as usable\n", frame_count, start_frame);
+			plogk("Frame: Marked 0x%06x frames from 0x%016x as usable.\n", frame_count, region->base);
 		}
 	}
 	unsigned long bitmap_frame_start = bitmap_address / 4096;
 	unsigned long bitmap_frame_count = (bitmap_size + 4095) / 4096;
 	unsigned long bitmap_frame_end = bitmap_frame_start + bitmap_frame_count;
 	bitmap_set_range(bitmap, bitmap_frame_start, bitmap_frame_end, 0);
-	plogk("Frame Allocator: Reserved %06lu frames for bitmap starting at frame %06lu\n", bitmap_frame_count, bitmap_frame_start);
+	plogk("Frame: Reserved 0x%04x frames for bitmap at 0x%016x\n", bitmap_frame_count, bitmap_address);
 	frame_allocator.origin_frames = origin_frames;
 	frame_allocator.usable_frames = origin_frames - bitmap_frame_count;
-	plogk("Frame Allocator: %lu frames\n", origin_frames);
+    plogk("Frame: Total physical frames: 0x%08x (%d MiB)\n", origin_frames, (origin_frames * 4096) >> 20);
+    plogk("Frame: Available frames after bitmap: 0x%08x (%d MiB)\n", frame_allocator.usable_frames, (frame_allocator.usable_frames * 4096) >> 20);
 }
 
 /* 分配内存帧 */

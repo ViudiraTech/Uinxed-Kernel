@@ -22,8 +22,7 @@ void init_heap(void)
 	unsigned long heap_size = 0x400000; // 4MB
 
 	heap_init(heap_base, heap_size);
-	plogk("Heap: Initialized kernel heap at base 0x%08x, size 0x%08x (%u MiB)\n",
-          (unsigned long long)heap_base, heap_size, heap_size / (1024 * 1024));
+	plogk("Heap: Heap base set to 0x%016x, size %d bytes.\n", heap_base, heap_size);
 }
 
 /* 分配一块空内存 */

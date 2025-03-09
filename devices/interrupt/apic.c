@@ -90,9 +90,9 @@ void local_apic_init(void)
 	x2apic_mode = (smp_request.response->flags & 1) != 0;
 
 	if (x2apic_mode)
-		plogk("Local APIC: x2APIC\n");
+		plogk("ACPI: LAPIC = x2APIC\n");
 	else
-		plogk("Local APIC: xAPIC\n");
+		plogk("ACPI: LAPIC = xAPIC\n");
 
 	lapic_write(LAPIC_REG_TIMER, IRQ_32);
 	lapic_write(LAPIC_REG_SPURIOUS, 0xff | 1 << 8);
@@ -144,7 +144,7 @@ void send_ipi(uint32_t apic_id, uint32_t command)
 void apic_init(MADT *madt)
 {
 	lapic_address = (uint64_t)phys_to_virt(madt->local_apic_address);
-	plogk("Local APIC: Base address 0x%016x\n", lapic_address);
+	plogk("ACIP: LAPIC Base address 0x%016x\n", lapic_address);
 
 	uint64_t current = 0;
 	for (;;) {
@@ -155,7 +155,7 @@ void apic_init(MADT *madt)
 		if (header->entry_type == MADT_APIC_IO) {
 			MadtIOApic *ioapic = (MadtIOApic *)((uint64_t)(&madt->entries) + current);
 			ioapic_address = ioapic->address;
-			plogk("I/O APIC: Found at address 0x%016x\n", ioapic_address);
+			plogk("ACIP: IOAPIC Found at address 0x%016x\n", ioapic_address);
 		}
 		current += (uint64_t)header->length;
 	}

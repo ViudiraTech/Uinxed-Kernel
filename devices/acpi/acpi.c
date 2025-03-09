@@ -29,14 +29,13 @@ void *find_table(const char *name)
 {
 	uint64_t entry_count = (xsdt->h.Length - 32) / 8;
 	uint64_t *t = (uint64_t *)((char *)xsdt + __builtin_offsetof(XSDT, PointerToOtherSDT));
-	plogk("ACPI: Searching for table '%.4s' in XSDT.\n", name);
 
 	for (uint64_t i = 0; i < entry_count; i++) {
 		uint64_t ptr = (uint64_t) phys_to_virt((uint64_t)*(t + i));
 		uint8_t signa[5] = {0};
 		memcpy(signa, ((struct ACPISDTHeader *)ptr)->Signature, 4);
 		if (memcmp(signa, name, 4) == 0) {
-			plogk("ACPI: Found table '%.4s' at 0x%016x\n", name, ptr);
+			plogk("ACPI: %.4s 0x%016x\n", name, ptr);
 			return (void *)ptr;
 		}
 	}
@@ -53,7 +52,7 @@ void acpi_init(void)
 		plogk("ACPI: RSDP not found.\n");
 		return;
 	}
-	plogk("ACPI: RSDP found at 0x%016x\n", (unsigned long long)rsdp);
+	plogk("ACPI: RSDP 0x%016x\n", (unsigned long long)rsdp);
 
 	xsdt = (XSDT *)rsdp->xsdt_address;
 	if (xsdt == 0) {
@@ -61,7 +60,7 @@ void acpi_init(void)
 		return;
 	}
 	xsdt = (XSDT *)phys_to_virt((uint64_t)xsdt);
-	plogk("ACPI: XSDT found at 0x%016x\n", (unsigned long long)xsdt);
+	plogk("ACPI: XSDT 0x%016x\n", (unsigned long long)xsdt);
 
 	void *hpet = find_table("HPET");
 	if (hpet == 0) {

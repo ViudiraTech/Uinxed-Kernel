@@ -66,9 +66,9 @@ void init_idt(void)
 	idt_pointer.size = (uint16_t)sizeof(idt_entries) - 1;
 	idt_pointer.ptr = &idt_entries;
 
-	plogk("IDT: Base address: 0x%016x, Size: 0x%04x\n", (unsigned long long)idt_pointer.ptr, idt_pointer.size);
-
 	__asm__ __volatile__("lidt %0" :: "m"(idt_pointer) : "memory");
+	plogk("IDT: IDT initialized at 0x%016x (limit: 0x%04x)\n", idt_entries, idt_pointer.size);
+	plogk("IDT: Loaded IDTR with base = 0x%016x, limit = %d\n", idt_pointer.ptr, idt_pointer.size + 1);
 
 	for (int i = 0; i < 256; i++) {
 		register_interrupt_handler(i, empty_handle[i], 0, 0x8e);

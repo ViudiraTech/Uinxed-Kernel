@@ -309,9 +309,11 @@ void pci_init(void)
 				pci_config(bus, slot, func, 0);
 				if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
 					PCI_NUM++;
+					uint32_t value_c = read_pci(bus, slot, func, PCI_CONF_REVISION);
+					plogk("PCI: Found device (bus %03d, slot %02d, func %01d) Device Name: %s\n", bus, slot, func, pci_classname(value_c >> 8));
 				}
 			}
 		}
 	}
-	plogk("PCI device loaded: %d\n", PCI_NUM);
+	plogk("PCI: Found %d devices.\n", PCI_NUM);
 }

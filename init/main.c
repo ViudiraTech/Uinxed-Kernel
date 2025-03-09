@@ -55,6 +55,7 @@ void kernel_entry(void)
 	init_serial(9600);		// 初始化串口
 	enable_intr();
 
-	plogk("CPU: %s %s | phy/virt: %d/%d bits.\n", get_vendor_name(), get_model_name(), get_cpu_phys_bits(), get_cpu_virt_bits());
+	plogk("CPU: %s %s\n", get_vendor_name(), get_model_name());
+	plogk("CPU: phy/virt: %d/%d bits.\n", get_cpu_phys_bits(), get_cpu_virt_bits());
 	while (1) __asm__("hlt");
 }

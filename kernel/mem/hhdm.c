@@ -25,7 +25,8 @@ uint64_t physical_memory_offset = 0;
 void init_hhdm(void)
 {
 	physical_memory_offset = hhdm_request.response->offset;
-	plogk("HHDM: Initialized high half direct map with offset: 0x%016x\n", physical_memory_offset);
+	plogk("HHDM: High Half Direct Mapping active.\n");
+	plogk("HHDM: Physical offset = 0x%016x\n", physical_memory_offset);
 }
 
 /* 获取物理内存偏移量 */

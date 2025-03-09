@@ -33,11 +33,11 @@ void facp_init(acpi_facp_t *facp0)
 
 	dsdt_table_t *dsdtTable = (dsdt_table_t*)(uint64_t)facp->dsdt;
 	if (dsdtTable == 0) {
-		plogk("FACP: DSDT table not found.\n");
+		plogk("ACPI: DSDT table not found.\n");
 		return;
 	} else {
 		dsdtTable = phys_to_virt((uint64_t)dsdtTable);
-		plogk("FACP: DSDT table found at 0x%016x\n", (unsigned long long)dsdtTable);
+		plogk("ACPI: DSDT 0x%016x\n", dsdtTable);
 	}
 	if (!memcmp(dsdtTable->signature, "DSDT", 4)) {
 		S5Addr = &(dsdtTable->definition_block);
@@ -65,24 +65,24 @@ void facp_init(acpi_facp_t *facp0)
 				}
 				SLP_TYPb = *(S5Addr) << 10;
 				S5Addr++;
-				plogk("FACP: SLP_TYPa = 0x%04x, SLP_TYPb = 0x%04x\n", SLP_TYPa, SLP_TYPb);
+				plogk("ACPI: SLP_TYPa = 0x%04x, SLP_TYPb = 0x%04x\n", SLP_TYPa, SLP_TYPb);
 			}
 		} else {
-			plogk("FACP: _S5_ not found in DSDT.\n");
+			plogk("ACPI: _S5_ not found in DSDT.\n");
 		}
 	} else {
-		plogk("FACP: Invalid DSDT signature.\n");
+		plogk("ACPI: Invalid DSDT signature.\n");
 	}
 	if (inw(facp->pm1a_cnt_blk) & SCI_EN) {
-		plogk("FACP: SCI already enabled.\n");
+		plogk("ACPI: SCI already enabled.\n");
 		return;
 	}
 	if (SMI_CMD && facp->acpi_enable) {
-		plogk("FACP: Enabling ACPI via SMI command.\n");
+		plogk("ACPI: Enabling ACPI via SMI command.\n");
 		outb(SMI_CMD, facp->acpi_enable);
 		for (i = 0; i < 300; i++){
 			if (inw(facp->pm1a_cnt_blk) & SCI_EN) {
-				plogk("FACP: ACPI enabled successfully.\n");
+				plogk("ACPI: ACPI enabled successfully.\n");
 				break;
 			}
 			usleep(5);
@@ -90,14 +90,14 @@ void facp_init(acpi_facp_t *facp0)
 		if (facp->pm1b_cnt_blk) {
 			for (int i = 0; i < 300; i++) {
 				if (inw(facp->pm1b_cnt_blk) & SCI_EN) {
-					plogk("FACP: ACPI enabled successfully.\n");
+					plogk("ACPI: ACPI enabled successfully.\n");
 					break;
 				}
 				usleep(5);
 			}
 		}
 		if (i < 300) {
-			plogk("FACP: ACPI enable failed.\n");
+			plogk("ACPI: ACPI enable failed.\n");
 			return;
 		}
 	}
