@@ -28,6 +28,7 @@
 #include "interrupt.h"
 #include "serial.h"
 #include "smbios.h"
+#include "pci.h"
 
 /* 内核入口 */
 void kernel_entry(void)
@@ -48,6 +49,7 @@ void kernel_entry(void)
 	ISR_registe_Handle();	// 注册ISR中断处理
 	page_init();			// 初始化内存页
 	acpi_init();			// 初始化ACPI
+	pci_init();				// 初始化PCI
 	init_serial(9600);		// 初始化串口
 	enable_intr();
 
