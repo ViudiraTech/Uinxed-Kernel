@@ -66,7 +66,7 @@ void tss_init(void)
 
 	plogk("TSS: TSS descriptor configured (addr: 0x%016x, limit: 0x%04x)\n", &tss0, sizeof(tss_t)-1);
 	plogk("TSS: IST0 stack set to 0x%016x\n", tss0.ist[0]);
-	__asm__ __volatile__("ltr %[offset];" :: [offset] "rm"(0x28) : "memory");
+	__asm__ __volatile__("ltr %w[offset]" : : [offset] "rm" ((uint16_t)0x28) : "memory");
 	plogk("TSS: TR register loaded with selector 0x%04x\n", 0x28);
 }
 
