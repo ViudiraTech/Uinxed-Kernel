@@ -26,6 +26,7 @@ uint64_t width;				// 屏幕长
 uint64_t height;			// 屏幕宽
 uint64_t stride;			// 帧缓冲区行间距
 uint32_t *buffer;			// 显存
+uint32_t *back_buffer;		// 显存缓冲区
 
 int32_t x, y;				// 当前光标的绝对位置
 int32_t cx, cy;				// 当前光标的字符位置
@@ -41,10 +42,11 @@ void video_init(void)
 		krn_halt();
 	}
 	struct limine_framebuffer *framebuffer = framebuffer_request.response->framebuffers[0];
-	buffer	= framebuffer->address;
-	width	= framebuffer->width;
-	height	= framebuffer->height;
-	stride	= framebuffer->pitch / 4;
+	buffer		= framebuffer->address;
+	width		= framebuffer->width;
+	height		= framebuffer->height;
+	stride		= framebuffer->pitch / 4;
+	back_buffer	= buffer;
 
 	x = 2;
 	y = cx = cy = 0;
@@ -66,24 +68,26 @@ struct limine_framebuffer *get_framebuffer(void)
 void video_clear(void)
 {
 	for (uint32_t i = 0; i < (width * height); i++) {
-		buffer[i] = 0xff000000;
+		back_buffer[i] = 0xff000000;
 	}
 	back_color = 0xff000000;
 	x = 2;
 	y = 0;
 	cx = cy = 0;
+	buffer = back_buffer;
 }
 
 /* 带颜色清屏 */
 void video_clear_color(int color)
 {
 	for (uint32_t i = 0; i < (width * height); i++) {
-		buffer[i] = color;
+		back_buffer[i] = color;
 	}
 	back_color = color;
 	x = 2;
 	y = 0;
 	cx = cy = 0;
+	buffer = back_buffer;
 }
 
 /* 屏幕滚动操作 */
@@ -94,24 +98,18 @@ inline void video_scroll(void)
 		cy++;
 	} else cx++;
 	if ((uint32_t)cy >= c_height) {
-		const uint32_t *sr = buffer + stride * 16;
-		uint32_t *dst = buffer;
-		for (unsigned long len = (height - 16) * stride; len > 0; len--) {
-			*dst++ = *sr++;
-		}
-		memset(buffer + (height - 16) * stride, back_color, 16 * stride * sizeof(uint32_t));
 		cy = c_height - 1;
+		memcpy(back_buffer, back_buffer + stride * 16, width * (height - 16) * sizeof(uint32_t));
+		memset(back_buffer + (height - 16) * stride, back_color, 16 * stride * sizeof(uint32_t));
+		buffer = back_buffer;
 	}
 }
 
 /* 在屏幕指定坐标绘制一个像素 */
 void video_draw_pixel(uint32_t x, uint32_t y, uint32_t color)
 {
-	if (x >= width || y >= height) {
-		return;
-	}
-	uint32_t *p = (uint32_t *)buffer + y * width + x;
-	*p = color;
+	(back_buffer)[y * width + x] = color;
+	buffer = back_buffer;
 }
 
 /* 在屏幕指定坐标绘制一个矩阵 */
@@ -120,9 +118,10 @@ void video_draw_rect(int x0, int y0, int x1, int y1, int color)
 	int x, y;
 	for (y = y0; y <= y1; y++) {
 		for (x = x0; x <= x1; x++) {
-			(buffer)[y * width + x] = color;
+			(back_buffer)[y * width + x] = color;
 		}
 	}
+	buffer = back_buffer;
 }
 
 /* 在屏幕指定坐标绘制一个字符 */
@@ -133,10 +132,11 @@ void video_draw_char(char c, int32_t x, int32_t y, int color)
 	for (int i = 0; i < 16; i++) {
 		for (int j = 0; j < 9; j++) {
 			if (font[i] & (0x80 >> j)) {
-				buffer[(y + i) * width + x + j] = color;
-			} else buffer[(y + i) * width + x + j] = back_color;
+				back_buffer[(y + i) * width + x + j] = color;
+			} else back_buffer[(y + i) * width + x + j] = back_color;
 		}
 	}
+	buffer = back_buffer;
 }
 
 /* 在屏幕指定坐标打印一个字符 */
