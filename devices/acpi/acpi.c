@@ -76,7 +76,7 @@ void acpi_init(void)
 	} else
 		apic_init(apic);
 
-	void* facp = find_table("FACP");
+	void *facp = find_table("FACP");
 	if(facp == 0) {
 		plogk("ACPI: FACP table not found.\n");
 		return;

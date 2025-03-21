@@ -288,9 +288,10 @@ int pci_find_class(uint32_t class_code)
 				if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
 					uint32_t value_c = read_pci(bus, slot, func, PCI_CONF_REVISION);
 					uint32_t found_class_code = value_c >> 8;
-					if (found_class_code == class_code) {
+					if (class_code == found_class_code)
 						return 1;
-					}
+					if (class_code == (found_class_code & 0xFFFF00))
+						return 1;
 				}
 			}
 		}
