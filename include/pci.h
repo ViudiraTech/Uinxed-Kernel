@@ -61,10 +61,10 @@ uint32_t pci_get_irq(uint32_t bus, uint32_t slot, uint32_t func);
 void pci_config(uint32_t bus, uint32_t slot, uint32_t func, uint32_t addr);
 
 /* 根据供应商ID和设备ID查找PCI设备 */
-void pci_found_device(uint32_t vendor_id, uint32_t device_id, uint32_t *bus, uint32_t *slot, uint32_t *func);
+int pci_found_device(uint32_t vendor_id, uint32_t device_id, uint32_t *bus, uint32_t *slot, uint32_t *func);
 
 /* 根据类代码查找PCI设备 */
-void pci_find_class(uint32_t class_code, uint32_t *bus, uint32_t *slot, uint32_t *func);
+int pci_found_class(uint32_t class_code, uint32_t *bus, uint32_t *slot, uint32_t *func);
 
 /* 根据类代码返回设备名称 */
 const char *pci_classname(uint32_t classcode);

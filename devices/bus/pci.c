@@ -244,7 +244,7 @@ void pci_config(uint32_t bus, uint32_t slot, uint32_t func, uint32_t addr)
 }
 
 /* 根据供应商ID和设备ID查找PCI设备 */
-void pci_found_device(uint32_t vendor_id, uint32_t device_id, uint32_t *bus, uint32_t *slot, uint32_t *func)
+int pci_found_device(uint32_t vendor_id, uint32_t device_id, uint32_t *bus, uint32_t *slot, uint32_t *func)
 {
 	uint32_t f_bus, f_slot, f_func;
 	for (f_bus = 0; f_bus < 256; f_bus++) {
@@ -257,16 +257,18 @@ void pci_found_device(uint32_t vendor_id, uint32_t device_id, uint32_t *bus, uin
 							*bus = f_bus;
 							*slot = f_slot;
 							*func = f_func;
+							return 1;
 						}
 					}
 				}
 			}
 		}
 	}
+	return 0;
 }
 
 /* 根据类代码查找PCI设备 */
-void pci_find_class(uint32_t class_code, uint32_t *bus, uint32_t *slot, uint32_t *func)
+int pci_found_class(uint32_t class_code, uint32_t *bus, uint32_t *slot, uint32_t *func)
 {
 	uint32_t f_bus, f_slot, f_func;
 	for (f_bus = 0; f_bus < 256; f_bus++) {
@@ -280,16 +282,19 @@ void pci_find_class(uint32_t class_code, uint32_t *bus, uint32_t *slot, uint32_t
 						*bus = f_bus;
 						*slot = f_slot;
 						*func = f_func;
+						return 1;
 					}
 					if (class_code == (found_class_code & 0xFFFF00)) {
 						*bus = f_bus;
 						*slot = f_slot;
 						*func = f_func;
+						return 1;
 					}
 				}
 			}
 		}
 	}
+	return 0;
 }
 
 /* 根据类代码返回设备名称 */
