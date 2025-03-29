@@ -133,7 +133,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 	/* 打印设备信息 */
 	for (int i = 0; i < 4; i++) {
 		if (ide_devices[i].reserved == 1) {
-			plogk("IDE: Found %s Drive %dMB - %s\n", ide_devices[i].type ? "ATAPI" : "ATA",
+			plogk("IDE: Found %s Drive %d(MiB) - %s\n", ide_devices[i].type ? "ATAPI" : "ATA",
                   ide_devices[i].size / 1024 / 2, ide_devices[i].model);
 		}
 	}
