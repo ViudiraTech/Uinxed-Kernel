@@ -265,6 +265,33 @@ void pci_found_device(uint32_t vendor_id, uint32_t device_id, uint32_t *bus, uin
 	}
 }
 
+/* 根据类代码查找PCI设备 */
+void pci_find_class(uint32_t class_code, uint32_t *bus, uint32_t *slot, uint32_t *func)
+{
+	uint32_t f_bus, f_slot, f_func;
+	for (f_bus = 0; f_bus < 256; f_bus++) {
+		for (f_slot = 0; f_slot < 32; f_slot++) {
+			for (f_func = 0; f_func < 8; f_func++) {
+				pci_config(f_bus, f_slot, f_func, 0);
+				if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
+					uint32_t value_c = read_pci(f_bus, f_slot, f_func, PCI_CONF_REVISION);
+					uint32_t found_class_code = value_c >> 8;
+					if (class_code == found_class_code) {
+						*bus = f_bus;
+						*slot = f_slot;
+						*func = f_func;
+					}
+					if (class_code == (found_class_code & 0xFFFF00)) {
+						*bus = f_bus;
+						*slot = f_slot;
+						*func = f_func;
+					}
+				}
+			}
+		}
+	}
+}
+
 /* 根据类代码返回设备名称 */
 const char *pci_classname(uint32_t classcode)
 {
@@ -275,28 +302,6 @@ const char *pci_classname(uint32_t classcode)
 			return pci_classnames[i].name;
 	}
 	return "Unknown device";
-}
-
-/* 按ClassCode查找相应设备 */
-int pci_find_class(uint32_t class_code)
-{
-	uint32_t bus, slot, func;
-	for (bus = 0; bus < 256; bus++) {
-		for (slot = 0; slot < 32; slot++) {
-			for (func = 0; func < 8; func++) {
-				pci_config(bus, slot, func, 0);
-				if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
-					uint32_t value_c = read_pci(bus, slot, func, PCI_CONF_REVISION);
-					uint32_t found_class_code = value_c >> 8;
-					if (class_code == found_class_code)
-						return 1;
-					if (class_code == (found_class_code & 0xFFFF00))
-						return 1;
-				}
-			}
-		}
-	}
-	return 0;
 }
 
 /* PCI设备初始化 */
@@ -311,7 +316,7 @@ void pci_init(void)
 				if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
 					PCI_NUM++;
 					uint32_t value_c = read_pci(bus, slot, func, PCI_CONF_REVISION);
-					plogk("PCI: Found device (bus %03d, slot %02d, func %01d) Device Name: %s\n", bus, slot, func, pci_classname(value_c >> 8));
+					plogk("PCI: Found device %03d.%02d.%01d: %s\n", bus, slot, func, pci_classname(value_c >> 8));
 				}
 			}
 		}
