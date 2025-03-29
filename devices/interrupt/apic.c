@@ -110,10 +110,11 @@ void local_apic_init(void)
 /* 初始化I/O APIC */
 void io_apic_init(void)
 {
-	ioapic_address = (uint64_t)phys_to_virt(ioapic_address);
 	ioapic_add(IRQ_32, 0);	// 定时器
 	ioapic_add(IRQ_33, 1);	// 键盘
 	ioapic_add(IRQ_34, 12);	// 鼠标
+	ioapic_add(IRQ_46, 14);	// IDE0
+	ioapic_add(IRQ_47, 15);	// IDE1
 }
 
 /* 发送EOI信号 */

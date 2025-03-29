@@ -30,6 +30,7 @@
 #include "smbios.h"
 #include "pci.h"
 #include "cmdline.h"
+#include "ide.h"
 
 /* 内核入口 */
 void kernel_entry(void)
@@ -53,6 +54,7 @@ void kernel_entry(void)
 	isr_registe_handle();	// 注册ISR中断处理
 	pci_init();				// 初始化PCI
 	init_serial(9600);		// 初始化串口
+	init_ide();				// 初始化ATA/ATAPI驱动
 	enable_intr();
 
 	plogk("CPU: %s %s\n", get_vendor_name(), get_model_name());
