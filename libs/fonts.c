@@ -1,11 +1,11 @@
 /*
  *
  *		fonts.c
- *		图形点阵字库
+ *		Graphics dot matrix font
  *
  *		2024/9/16 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 

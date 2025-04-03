@@ -1,22 +1,22 @@
 /*
  *
  *		uinxed.h
- *		内核描述头文件
+ *		Kernel description header file
  *
  *		2024/7/23 By Rainy101112
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
 #ifndef INCLUDE_UINXED_H_
 #define INCLUDE_UINXED_H_
 
-#define BUILD_DATE __DATE__			// 编译日期
-#define BUILD_TIME __TIME__			// 编译时间
-#define KERNL_VERS "0.0.250329"		// 版本格式: v[主版本].[补丁版本].[年月日]
+#define BUILD_DATE __DATE__			// Compilation Date
+#define BUILD_TIME __TIME__			// Compile time
+#define KERNL_VERS "0.0.250404"		// Version format: v[major version].[patch version].[YY-MM-DD]
 
-/* 编译器判断 */
+/* Compiler judgment */
 #if defined(__clang__)
 #	define COMPILER_NAME "clang"
 #	define STRINGIFY(x) #x

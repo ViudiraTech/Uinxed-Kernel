@@ -1,11 +1,11 @@
 # =====================================================
 #
 #		Makefile
-#		Uinxed编译脚本
+#		Uinxed compile script
 #
 #		2024/6/23 By Rainy101112
-#		基于 GPL-3.0 开源协议
-#		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+#		Based on GPL-3.0 open source agreement
+#		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
 #
 # =====================================================
 
@@ -24,7 +24,7 @@ DEPS		:= $(OBJS:%.o=%.d)
 LIBS		:= $(wildcard libs/lib*.a)
 
 QEMU		:= qemu-system-x86_64
-QEMU_FLAGS	:= -machine q35 -drive if=pflash,format=raw,file=assets/ovmf-code.fd
+QEMU_FLAGS	:= -machine q35 -bios assets/ovmf-code.fd
 
 C_FLAGS		:= -Wall -Wextra -g3 -O0 -m64 -nostdinc -fno-builtin -fno-pie -fno-stack-protector -fno-sanitize=undefined \
                -mcmodel=kernel -mno-red-zone -mno-80387 -mno-mmx -mno-sse -mno-sse2 -msoft-float -I include -MMD

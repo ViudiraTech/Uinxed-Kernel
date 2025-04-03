@@ -1,17 +1,17 @@
 /*
  *
  *		string.c
- *		基础内存操作与字符串处理函数库
+ *		Basic memory operation and string processing function library
  *
  *		2024/6/27 By Rainy101112
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
 #include "string.h"
 
-/* 比较两个内存区域的前count个字节 */
+/* Compares the first count bytes of two memory areas */
 inline int memcmp(const void *buffer1, const void *buffer2, unsigned long count)
 {
 	const char *a = buffer1;
@@ -23,7 +23,7 @@ inline int memcmp(const void *buffer1, const void *buffer2, unsigned long count)
 	return 0;
 }
 
-/* 将len个字节从源地址复制到目标地址 */
+/* Copies len bytes from source address to destination address */
 inline void *memcpy(void *dest, const void *src, unsigned long len)
 {
 	char *d = (char *)dest;
@@ -60,7 +60,7 @@ inline void *memcpy(void *dest, const void *src, unsigned long len)
 	return ret;
 }
 
-/* 将目标内存区域的前len个字节设置为值val */
+/* Set the first len ​​bytes of the target memory area to the value val */
 inline void *memset(void *dest, int val, unsigned long len)
 {
 	unsigned char *d = dest;
@@ -80,13 +80,13 @@ inline void *memset(void *dest, int val, unsigned long len)
 	return dest;
 }
 
-/* 将目标内存区域的前len个字节设置为0 */
+/* Set the first len ​​bytes of the target memory area to 0 */
 inline void bzero(void *dest, unsigned long len)
 {
 	memset(dest, 0, len);
 }
 
-/* 清除一个字符数组s的内存 */
+/* Clears the memory of a character array s */
 inline void memclean(char *s, int len)
 {
 	int i;
@@ -96,7 +96,7 @@ inline void memclean(char *s, int len)
 	return;
 }
 
-/* 比较两个字符串 */
+/* Comparing two strings */
 inline int strcmp(const char *dest, const char *src)
 {
 	int ret = 0 ;
@@ -114,7 +114,7 @@ inline int strcmp(const char *dest, const char *src)
 	return ret;
 }
 
-/* 将字符串src复制到dest */
+/* Copies string src to dest */
 inline char *strcpy(char *dest, const char *src)
 {
 	char *tmp = dest;
@@ -126,7 +126,7 @@ inline char *strcpy(char *dest, const char *src)
 	return tmp;
 }
 
-/* 将字符串的前len个字符复制到dest */
+/* Copies the first len ​​characters of string to dest */
 inline char *strncpy(char *dest, const char *src, unsigned long len)
 {
 	char *dst = dest;
@@ -141,7 +141,7 @@ inline char *strncpy(char *dest, const char *src, unsigned long len)
 	return dst;
 }
 
-/* 将字符串src连接到dest的末尾 */
+/* Concatenates the string src to the end of dest */
 inline char *strcat(char *dest, const char *src)
 {
 	char *cp = dest;
@@ -153,7 +153,7 @@ inline char *strcat(char *dest, const char *src)
 	return dest;
 }
 
-/* 查找字符串中的一个字符并返回该字符在字符串中第一次出现的位置 */
+/* Searches for a character in a string and returns the position of the first occurrence of that character in the string */
 inline char *strchr(char *str, int c)
 {
 	for (; *str != 0; ++str) {
@@ -164,16 +164,15 @@ inline char *strchr(char *str, int c)
 	return 0;
 }
 
-/* 返回字符串src的长度 */
+/* Returns the length of string src */
 inline int strlen(const char *src)
 {
 	const char *eos = src;
-
 	while (*eos++);
 	return (eos - src - 1);
 }
 
-/* 删除字符串中指定位置的字符 */
+/* Delete the characters at the specified position in a string */
 inline void delete_char(char *str, int pos)
 {
 	int i;
@@ -182,7 +181,7 @@ inline void delete_char(char *str, int pos)
 	}
 }
 
-/* 在字符串的指定位置插入一个字符 */
+/* Insert a character at a specified position in a string */
 inline void insert_char(char *str, int pos, char ch)
 {
 	int i;
@@ -192,7 +191,7 @@ inline void insert_char(char *str, int pos, char ch)
 	str[pos] = ch;
 }
 
-/* 在字符串的指定位置插入另一个字符串 */
+/* Inserts a string into another string at a specified position */
 inline void insert_str(char *str, char *insert_str, int pos)
 {
 	for (int i = 0; i < strlen(insert_str); i++) {
@@ -200,7 +199,7 @@ inline void insert_str(char *str, char *insert_str, int pos)
 	}
 }
 
-/* 将字符串中的所有字母转换为大写 */
+/* Convert all letters in a string to uppercase */
 inline char *strupr(char *src)
 {
 	while (*src != '\0') {
@@ -211,7 +210,7 @@ inline char *strupr(char *src)
 	return src;
 }
 
-/* 将字符串中的所有字母转换为小写 */
+/* Convert all letters in a string to lowercase */
 inline char *strlwr(char *src)
 {
 	while (*src != '\0') {

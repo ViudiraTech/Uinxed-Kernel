@@ -1,11 +1,11 @@
 /*
  *
  *		vargs.h
- *		C语言可变参数头文件
+ *		C language variable parameter header file
  *
  *		2024/6/27 By Rainy101112
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 

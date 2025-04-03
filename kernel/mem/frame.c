@@ -1,11 +1,11 @@
 /*
  *
  *		frame.c
- *		内存帧
+ *		Memory Frame
  *
  *		2025/2/16 By XIAOYI12
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -23,7 +23,7 @@ static __volatile__ struct limine_memmap_request memmap_request = {
 FrameAllocator frame_allocator;
 uint64_t memory_size = 0;
 
-/* 初始化内存帧 */
+/* Initialize memory frame */
 void init_frame(void)
 {
 	struct limine_memmap_response *memory_map = memmap_request.response;
@@ -72,11 +72,11 @@ void init_frame(void)
 	plogk("Frame: Reserved 0x%04x frames for bitmap at 0x%016x\n", bitmap_frame_count, bitmap_address);
 	frame_allocator.origin_frames = origin_frames;
 	frame_allocator.usable_frames = origin_frames - bitmap_frame_count;
-    plogk("Frame: Total physical frames: 0x%08x (%d MiB)\n", origin_frames, (origin_frames * 4096) >> 20);
-    plogk("Frame: Available frames after bitmap: 0x%08x (%d MiB)\n", frame_allocator.usable_frames, (frame_allocator.usable_frames * 4096) >> 20);
+	plogk("Frame: Total physical frames: 0x%08x (%d MiB)\n", origin_frames, (origin_frames * 4096) >> 20);
+	plogk("Frame: Available frames after bitmap: 0x%08x (%d MiB)\n", frame_allocator.usable_frames, (frame_allocator.usable_frames * 4096) >> 20);
 }
 
-/* 分配内存帧 */
+/* Allocate memory frame */
 uint64_t alloc_frames(unsigned long count)
 {
 	Bitmap *bitmap = &frame_allocator.bitmap;

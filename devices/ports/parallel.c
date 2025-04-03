@@ -1,11 +1,11 @@
 /*
  *
  *		parallel.c
- *		并行端口驱动程序
+ *		Parallel Port
  *
  *		2024/9/8 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -13,7 +13,7 @@
 #include "common.h"
 #include "parallel.h"
 
-/* 等待并行端口准备好 */
+/* Waiting for the parallel port to become ready */
 void wait_parallel_ready(void)
 {
 	while ((!inb(LPT1_PORT_STATUS)) & 0x80) {
@@ -21,7 +21,7 @@ void wait_parallel_ready(void)
 	}
 }
 
-/* 写并行端口 */
+/* Write to parallel port */
 void parallel_write(unsigned char c)
 {
 	unsigned char lControl;

@@ -1,11 +1,11 @@
 /*
  *
  *		gdt.c
- *		全局描述符
+ *		Global Descriptor
  *
  *		2024/6/27 By Rainy101112
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -13,7 +13,7 @@
 #include "string.h"
 #include "printk.h"
 
-/* 全局描述符表定义 */
+/* Global Descriptor Table Definition */
 gdt_entries_t gdt_entries;
 struct gdt_register gdt_pointer;
 
@@ -21,7 +21,7 @@ struct gdt_register gdt_pointer;
 tss_stack_t tss_stack;
 tss_t tss0;
 
-/* 初始化全局描述符表 */
+/* Initialize the global descriptor table */
 void init_gdt(void)
 {
 	gdt_entries[0] = 0x0000000000000000;
@@ -50,7 +50,7 @@ void init_gdt(void)
 	tss_init();
 }
 
-/* 初始化TSS */
+/* Initialize TSS */
 void tss_init(void)
 {
 	uint64_t address		= ((uint64_t)(&tss0));
@@ -70,7 +70,7 @@ void tss_init(void)
 	plogk("TSS: TR register loaded with selector 0x%04x\n", 0x28);
 }
 
-/* 设置内核栈 */
+/* Setting up the kernel stack */
 void set_kernel_stack(uint64_t rsp)
 {
 	tss0.rsp[0] = rsp;

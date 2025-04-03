@@ -1,11 +1,11 @@
 /*
  *
  *		printk.h
- *		内核字符串打印头文件
+ *		Kernel string print header file
  *
  *		2024/6/27 By Rainy101112
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -14,22 +14,22 @@
 
 #include "vargs.h"
 
-/* 内核打印字符串 */
+/* Kernel print string */
 void printk(const char *format, ...);
 
-/* 内核打印带颜色的字符串 */
+/* Kernel prints colored strings */
 void printk_color(int fore, const char *format, ...);
 
-/* 内核打印日志 */
+/* Kernel print log */
 void plogk(const char *format, ...);
 
-/* 内核打印带颜色的日志  */
+/* Kernel prints colored logs */
 void plogk_color(int fore, const char *format, ...);
 
-/* 将格式化的输出存储在字符数组中 */
+/* Store the formatted output in a character array */
 void sprintf(char *str, const char *fmt, ...);
 
-/* 格式化字符串并将其输出到一个字符数组中 */
+/* Format a string and output it to a character array */
 int vsprintf(char *buff, const char *format, va_list args);
 
 #endif // INCLUDE_PRINTK_H_

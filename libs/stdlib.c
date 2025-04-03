@@ -1,24 +1,24 @@
 /*
  *
  *		stdlib.c
- *		通用工具函数库
+ *		General utility library
  *
  *		2024/10/2 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
 #include "stdlib.h"
 #include "string.h"
 
-/* 判断是否是数字 */
+/* Determine whether it is a number */
 int is_digit(int c)
 {
 	return c >= '0' && c <= '9';
 }
 
-/* 将字符串数字转换为整数数字 */
+/* Convert a string number to an integer number */
 int atoi(char *pstr)
 {
 	int ret_integer = 0;
@@ -35,7 +35,7 @@ int atoi(char *pstr)
 	return ret_integer;
 }
 
-/* 跳过字符串中的数字并将这些连续数字的值返回 */
+/* Skip numbers in a string and return the value of those consecutive numbers */
 int skip_atoi(const char **s)
 {
 	int i = 0;
@@ -45,7 +45,7 @@ int skip_atoi(const char **s)
 	return i;
 }
 
-/* 将整数格式化为字符串 */
+/* Formatting an integer as a string */
 char *number(char *str, int64_t num, int base, int size, int precision, int type)
 {
 	char c, sign, tmp[65];
@@ -80,7 +80,9 @@ char *number(char *str, int64_t num, int base, int size, int precision, int type
 			size--;
 		}
 	}
+
 	i = 0;
+
 	if (num == 0) {
 		tmp[i++] = '0';
 	} else {

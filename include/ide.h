@@ -1,11 +1,11 @@
 /*
  *
  *		ide.h
- *		标准ATA/ATAPI设备驱动头文件
+ *		Standard ATA/ATAPI device driver header file
  *
  *		2024/7/11 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，保留最终解释权。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -86,49 +86,49 @@
 #define ATA_WRITE				0x01
 
 struct IDE_channel_registers {
-	uint16_t base;	// I/O基地址
-	uint16_t ctrl;	// 控制基地址
-	uint16_t bmide;	// 总线主IDE
-	uint8_t nIEN;	// nIEN（无中断）
+	uint16_t base;	// I/O base address
+	uint16_t ctrl;	// Control base address
+	uint16_t bmide;	// Bus Master IDE
+	uint8_t nIEN;	// nIEN (no interrupt)
 };
 
 struct ide_device {
-	uint8_t reserved;		// 驱动器状态
-	uint8_t channel;		// 主从通道
-	uint8_t drive;			// 主从驱动器
-	uint16_t type;			// 驱动器类型
-	uint16_t signature;		// 驱动器签名
-	uint16_t capabilities;	// 特征
-	uint32_t command_sets;	// 支持的命令集
-	uint32_t size;			// 以扇区为单位的大小
-	uint8_t model[41];		// 驱动器名称
+	uint8_t reserved;		// Drive Status
+	uint8_t channel;		// Master-slave channel
+	uint8_t drive;			// Master-slave drive
+	uint16_t type;			// Drive Type
+	uint16_t signature;		// Drive Signature
+	uint16_t capabilities;	// Feature
+	uint32_t command_sets;	// Supported command sets
+	uint32_t size;			// Size in sectors
+	uint8_t model[41];		// Drive Name
 };
 
-/* 初始化IDE */
+/* Initialize IDE */
 void init_ide(void);
 
-/* 从IDE设备的指定寄存器读取一个字节数据 */
+/* Read a byte of data from the specified register of the IDE device */
 uint8_t ide_read(uint8_t channel, uint8_t reg);
 
-/* 向IDE设备的指定寄存器写入一个字节数据 */
+/* Write a byte of data to the specified register of the IDE device */
 void ide_write(uint8_t channel, uint8_t reg, uint8_t data);
 
-/* 从IDE设备的指定寄存器读取多个字的数据到缓冲区 */
+/* Read multiple words of data from the specified register of the IDE device into the buffer */
 void ide_read_buffer(uint8_t channel, uint8_t reg, uint64_t buffer, uint32_t quads);
 
-/* 轮询IDE设备的状态 */
+/* Polling the status of IDE devices */
 uint8_t ide_polling(uint8_t channel, uint32_t advanced_check);
 
-/* 对ATA设备进行读写操作 */
+/* Read and write ATA devices */
 uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t numsects, uint64_t edi);
 
-/* 从ATAPI设备读取数据 */
+/* Reading data from ATAPI devices */
 uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint32_t edi);
 
-/* 从IDE设备读取多个扇区数据 */
+/* Read multiple sectors from an IDE device */
 void ide_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint32_t edi);
 
-/* 向IDE设备写入多个扇区数据 */
+/* Write multiple sectors to an IDE device */
 void ide_write_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint32_t edi);
 
 #endif // INCLUDE_IDE_H_

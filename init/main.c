@@ -1,11 +1,11 @@
 /*
  *
  *		main.c
- *		Uinxed内核入口
+ *		Uinxed kernel entry
  *
  *		2024/6/23 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -32,10 +32,10 @@
 #include "cmdline.h"
 #include "ide.h"
 
-/* 内核入口 */
+/* Kernel entry */
 void kernel_entry(void)
 {
-	video_init();			// 初始化视频驱动
+	video_init();			// Initialize Video
 
 	plogk("Uinxed version %s (%s version %s) #1 SMP %s %s\n",
           KERNL_VERS, COMPILER_NAME, COMPILER_VERSION, BUILD_DATE, BUILD_TIME);
@@ -44,17 +44,17 @@ void kernel_entry(void)
 	plogk("Command line: %s\n", get_cmdline());
 	plogk("SMBIOS %d.%d.0 present.\n",smbios_major_version(), smbios_minor_version());
 
-	init_gdt();				// 初始化全局描述符
-	init_idt();				// 初始化中断描述符
-	init_frame();			// 初始化内存帧
-	page_init();			// 初始化内存页
-	init_hhdm();			// 初始化高半区内存映射
-	init_heap();			// 初始化内存堆
-	acpi_init();			// 初始化ACPI
-	isr_registe_handle();	// 注册ISR中断处理
-	pci_init();				// 初始化PCI
-	init_serial(9600);		// 初始化串口
-	init_ide();				// 初始化ATA/ATAPI驱动
+	init_gdt();				// Initialize global descriptors
+	init_idt();				// Initialize interrupt descriptor
+	init_frame();			// Initialize memory frame
+	page_init();			// Initialize memory page
+	init_hhdm();			// Initialize the upper half memory mapping
+	init_heap();			// Initialize the memory heap
+	acpi_init();			// Initialize ACPI
+	isr_registe_handle();	// Register ISR interrupt processing
+	pci_init();				// Initialize PCI
+	init_serial(9600);		// Initialize the serial port
+	init_ide();				// Initialize ATA/ATAPI driver
 	enable_intr();
 
 	plogk("CPU: %s %s\n", get_vendor_name(), get_model_name());

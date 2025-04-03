@@ -1,11 +1,11 @@
 /*
  *
  *		acpi.h
- *		高级配置和电源管理接口头文件
+ *		Advanced Configuration and Power Management Interface Header File
  *
  *		2025/2/16 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -27,15 +27,15 @@ struct ACPISDTHeader {
 };
 
 typedef struct {
-	char signature[8];			// 签名
-	uint8_t checksum;			// 校验和
+	char signature[8];			// Sign
+	uint8_t checksum;			// Checksum
 	char oem_id[6];				// OEM ID
-	uint8_t revision;			// 版本
-	uint32_t rsdt_address;		// V1: RSDT 地址 (32-bit)
-	uint32_t length;			// 结构体长度
-	uint64_t xsdt_address;		// V2: XSDT 地址 (64-bit)
-	uint8_t extended_checksum;	// 扩展校验和
-	uint8_t reserved[3];		// 保留字段
+	uint8_t revision;			// Version
+	uint32_t rsdt_address;		// V1: RSDT address (32-bit)
+	uint32_t length;			// Structure length
+	uint64_t xsdt_address;		// V2: XSDT address (64-bit)
+	uint8_t extended_checksum;	// Extended Checksum
+	uint8_t reserved[3];		// Reserved Fields
 } __attribute__((packed))RSDP;
 
 typedef struct {
@@ -148,25 +148,25 @@ typedef struct facp_table {
 typedef struct hpet Hpet;
 typedef struct facp_table acpi_facp_t;
 
-/* 在XSDT中查找对应的ACPI表 */
+/* Find the corresponding ACPI table in XSDT */
 void *find_table(const char *name);
 
-/* 初始化ACPI */
+/* Initialize ACPI */
 void acpi_init(void);
 
-/* 返回当前时间的纳秒值 */
+/* Returns the nanosecond value of the current time */
 uint64_t nanoTime(void);
 
-/* 初始化高精度事件计时器 */
+/* Initialize high-precision event timer */
 void hpet_init(Hpet *hpet);
 
-/* 初始化facp */
+/* Initialize facp */
 void facp_init(acpi_facp_t *facp0);
 
-/* 重启电源 */
+/* Cycle the power */
 void power_reset(void);
 
-/* 关闭电源 */
+/* Power off */
 void power_off(void);
 
 #endif // INCLUDE_ACPI_H_

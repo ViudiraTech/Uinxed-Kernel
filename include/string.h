@@ -1,11 +1,11 @@
 /*
  *
  *		string.h
- *		基础内存操作与字符串处理函数库头文件
+ *		Basic memory operation and string processing function library header file
  *
  *		2024/6/27 By Rainy101112
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -14,52 +14,52 @@
 
 #include "stdint.h"
 
-/* 比较两个内存区域的前count个字节 */
+/* Compares the first count bytes of two memory areas */
 int memcmp(const void *buffer1, const void *buffer2, unsigned long count);
 
-/* 将len个字节从源地址复制到目标地址 */
+/* Copies len bytes from source address to destination address */
 void *memcpy(void *dest, const void *src, unsigned long len);
 
-/* 将目标内存区域的前len个字节设置为值val */
+/* Set the first len ​​bytes of the target memory area to the value val */
 void *memset(void *dest, int val, unsigned long len);
 
-/* 将目标内存区域的前len个字节设置为0 */
+/* Set the first len ​​bytes of the target memory area to 0 */
 void bzero(void *dest, unsigned long len);
 
-/* 清除一个字符数组s的内存 */
+/* Clears the memory of a character array s */
 void memclean(char *s, int len);
 
-/* 比较两个字符串 */
+/* Comparing two strings */
 int strcmp(const char *dest, const char *src);
 
-/* 将字符串src复制到dest */
+/* Copies string src to dest */
 char *strcpy(char *dest, const char *src);
 
-/* 将字符串的前len个字符复制到dest */
+/* Copies the first len ​​characters of string to dest */
 char *strncpy(char *dest, const char *src, unsigned long len);
 
-/* 将字符串src连接到dest的末尾 */
+/* Concatenates the string src to the end of dest */
 char *strcat(char *dest, const char *src);
 
-/* 查找字符串中的一个字符并返回该字符在字符串中第一次出现的位置 */
+/* Searches for a character in a string and returns the position of the first occurrence of that character in the string */
 char *strchr(char *str, int c);
 
-/* 返回字符串src的长度 */
+/* Returns the length of string src */
 int strlen(const char *src);
 
-/* 删除字符串中指定位置的字符 */
+/* Delete the characters at the specified position in a string */
 void delete_char(char *str, int pos);
 
-/* 在字符串的指定位置插入一个字符 */
+/* Insert a character at a specified position in a string */
 void insert_char(char *str, int pos, char ch);
 
-/* 在字符串的指定位置插入另一个字符串 */
+/* Inserts a string into another string at a specified position */
 void insert_str(char *str, char *insert_str, int pos);
 
-/* 将字符串中的所有字母转换为大写 */
+/* Convert all letters in a string to uppercase */
 char *strupr(char *src);
 
-/* 将字符串中的所有字母转换为小写 */
+/* Convert all letters in a string to lowercase */
 char *strlwr(char *src);
 
 #endif // INCLUDE_STRING_H_

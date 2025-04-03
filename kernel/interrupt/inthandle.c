@@ -1,11 +1,11 @@
 /*
  *
  *		inthandle.c
- *		中断处理程序
+ *		Interrupt HandlerInterrupt Handler
  *
  *		2024/8/1 By Rainy101112
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -126,7 +126,7 @@ __attribute__((interrupt)) static void ISR_19_handle(interrupt_frame_t *frame)
 	panic("Kernel exception: #XM\n");
 }
 
-/* 注册ISR中断处理 */
+/* Register ISR interrupt processing */
 void isr_registe_handle(void)
 {
 	register_interrupt_handler(ISR_0, (void *)ISR_0_handle, 0, 0x8e);

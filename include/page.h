@@ -1,11 +1,11 @@
 /*
  *
  *		page.h
- *		内存页头文件
+ *		Memory page header file
  *
  *		2025/2/16 By XIAOYI12
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -33,34 +33,34 @@ typedef struct page_directory {
 	page_table_t *table;
 } page_directory_t;
 
-/* 清空一个内存页表的所有条目 */
+/* Clear all entries in a memory page table */
 void page_table_clear(page_table_t *table);
 
-/* 创建一个内存页表 */
+/* Create a memory page table */
 page_table_t *page_table_create(page_table_entry_t *entry);
 
-/* 返回内核的页目录 */
+/* Returns the kernel's page directory */
 page_directory_t *get_kernel_pagedir(void);
 
-/* 返回当前进程的页目录 */
+/* Returns the page directory of the current process */
 page_directory_t *get_current_directory(void);
 
-/* 递归地复制内存页表 */
+/* Recursively copy memory page tables */
 void copy_page_table_recursive(page_table_t *source_table, page_table_t *new_table, int level);
 
-/* 克隆一个页目录 */
+/* Clone a page directory */
 page_directory_t *clone_directory(page_directory_t *src);
 
-/* 将一个虚拟地址映射到物理帧 */
+/* Maps a virtual address to a physical frame */
 void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags);
 
-/* 切换当前进程的页目录 */
+/* Switch the page directory of the current process */
 void switch_page_directory(page_directory_t *dir);
 
-/* 将一段连续的物理内存映射到虚拟地址空间 */
+/* Map a continuous section of physical memory to the virtual address space */
 void page_map_range_to(page_directory_t *directory, uint64_t frame, uint64_t length, uint64_t flags);
 
-/* 初始化内存页表 */
+/* Initialize memory page table */
 void page_init(void);
 
 #endif // INCLUDE_PAGE_H_

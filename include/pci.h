@@ -1,11 +1,11 @@
 /*
  *
  *		pci.h
- *		外设部件互连标准驱动头文件
+ *		Peripheral Component Interconnect Standard Driver Header File
  *
  *		2025/3/9 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，保留最终解释权。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -33,43 +33,43 @@ typedef struct base_address_register {
 	int type;
 } base_address_register;
 
-/* 从PCI设备寄存器读取值 */
+/* Reading values ​​from PCI device registers */
 uint32_t read_pci(uint32_t bus, uint32_t slot, uint32_t func, uint32_t register_offset);
 
-/* 向PCI设备寄存器写入值 */
+/* Write values ​​to PCI device registers */
 void write_pci(uint32_t bus, uint32_t slot, uint32_t func, uint32_t register_offset, uint32_t value);
 
-/* 从PCI设备命令状态寄存器读取值 */
+/* Read the value from the PCI device command status register */
 uint32_t pci_read_command_status(uint32_t bus, uint32_t slot, uint32_t func);
 
-/* 向PCI设备命令状态寄存器写入值 */
+/* Write a value to the PCI device command status register */
 void pci_write_command_status(uint32_t bus, uint32_t slot, uint32_t func, uint32_t value);
 
-/* 获取基地址寄存器的详细信息 */
+/* Get detailed information about the base address register */
 base_address_register get_base_address_register(uint32_t bus, uint32_t slot, uint32_t func, uint32_t bar);
 
-/* 获取PCI设备的I/O端口基地址 */
+/* Get the I/O port base address of the PCI device */
 uint32_t pci_get_port_base(uint32_t bus, uint32_t slot, uint32_t func);
 
-/* 读取第n个基地址寄存器的值 */
+/* Read the value of the nth base address register */
 uint32_t read_bar_n(uint32_t bus, uint32_t slot, uint32_t func, uint32_t bar_n);
 
-/* 获取PCI设备的中断号 */
+/* Get the interrupt number of the PCI device */
 uint32_t pci_get_irq(uint32_t bus, uint32_t slot, uint32_t func);
 
-/* 配置PCI设备 */
+/* Configuring PCI Devices */
 void pci_config(uint32_t bus, uint32_t slot, uint32_t func, uint32_t addr);
 
-/* 根据供应商ID和设备ID查找PCI设备 */
+/* Find PCI devices by vendor ID and device ID */
 int pci_found_device(uint32_t vendor_id, uint32_t device_id, uint32_t *bus, uint32_t *slot, uint32_t *func);
 
-/* 根据类代码查找PCI设备 */
+/* Find PCI devices by class code */
 int pci_found_class(uint32_t class_code, uint32_t *bus, uint32_t *slot, uint32_t *func);
 
-/* 根据类代码返回设备名称 */
+/* Returns the device name based on the class code */
 const char *pci_classname(uint32_t classcode);
 
-/* PCI设备初始化 */
+/* PCI device initialization */
 void pci_init(void);
 
 #endif // INCLUDE_PCI_H_

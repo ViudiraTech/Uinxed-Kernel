@@ -1,11 +1,11 @@
 /*
  *
  *		debug.h
- *		内核调试头文件
+ *		Kernel debug header files
  *
  *		2024/6/27 By Rainy101112
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -15,10 +15,10 @@
 #define assert(exp) \
 	if (!exp) assertion_failure(#exp, __FILE__, __LINE__)
 
-/* 内核异常 */
+/* Kernel panic */
 void panic(const char *format, ...);
 
-/* 断言失败 */
+/* Assertion failure */
 void assertion_failure(const char *exp, const char *file, int line);
 
 #endif // INCLUDE_DEBUG_H_

@@ -1,18 +1,18 @@
 /*
  *
  *		speaker.h
- *		系统扬声器驱动头文件
+ *		System Speaker Header File
  *
  *		2024/6/29 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
 #ifndef INCLUDE_SPEAKER_H_
 #define INCLUDE_SPEAKER_H_
 
-/* 设置系统扬声器状态 */
+/* Set the system speaker status */
 void system_speaker(int hertz);
 
 #endif // INCLUDE_SPEAKER_H_

@@ -1,11 +1,11 @@
 /*
  *
  *		hpet.c
- *		高精度事件计时器
+ *		High-precision event timer
  *
  *		2025/2/16 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -19,7 +19,7 @@ static uint32_t hpetPeriod = 0;
 
 void timer_handle(interrupt_frame_t *frame);
 
-/* 返回当前时间的纳秒值 */
+/* Returns the nanosecond value of the current time */
 uint64_t nanoTime(void)
 {
 	if (hpet_addr == 0) return 0;
@@ -27,7 +27,7 @@ uint64_t nanoTime(void)
 	return mcv * hpetPeriod;
 }
 
-/* 初始化高精度事件计时器 */
+/* Initialize high-precision event timer */
 void hpet_init(Hpet *hpet)
 {
 	hpet_addr = phys_to_virt(hpet->base_address.address);

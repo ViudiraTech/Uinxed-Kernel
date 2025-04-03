@@ -1,11 +1,11 @@
 /*
  *
  *		acpi.c
- *		高级配置和电源管理接口
+ *		Advanced Configuration and Power Management Interface
  *
  *		2025/2/16 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -24,7 +24,7 @@ static __volatile__ struct limine_rsdp_request rsdp_request = {
 	.revision = 0
 };
 
-/* 在XSDT中查找对应的ACPI表 */
+/* Find the corresponding ACPI table in XSDT */
 void *find_table(const char *name)
 {
 	uint64_t entry_count = (xsdt->h.Length - 32) / 8;
@@ -43,7 +43,7 @@ void *find_table(const char *name)
 	return 0;
 }
 
-/* 初始化ACPI */
+/* Initialize ACPI */
 void acpi_init(void)
 {
 	struct limine_rsdp_response *response = rsdp_request.response;

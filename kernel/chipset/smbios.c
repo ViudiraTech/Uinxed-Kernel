@@ -1,11 +1,11 @@
 /*
  *
  *		smbios.c
- *		系统管理BIOS
+ *		System Management BIOS
  *
  *		2025/3/8 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -17,7 +17,7 @@ static __volatile__ struct limine_smbios_request smbios_request = {
 	.id = LIMINE_SMBIOS_REQUEST
 };
 
-/* 获取SMBIOS入口点 */
+/* Get SMBIOS entry point */
 void *smbios_entry(void)
 {
 	if (smbios_request.response == 0)
@@ -29,7 +29,7 @@ void *smbios_entry(void)
 	return 0;
 }
 
-/* 获取SMBIOS主版本 */
+/* Get the SMBIOS major version */
 int smbios_major_version(void)
 {
 	if (smbios_request.response->entry_64)
@@ -38,7 +38,7 @@ int smbios_major_version(void)
 		return ((struct EntryPoint32 *)smbios_entry())->MajorVersion;
 }
 
-/* 获取SMBIOS次版本 */
+/* Get SMBIOS minor version */
 int smbios_minor_version(void)
 {
 	if (smbios_request.response->entry_64)

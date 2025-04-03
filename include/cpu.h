@@ -1,11 +1,11 @@
 /*
  *
  *		cpu.h
- *		cpu相关操作头文件
+ *		cpu related operation header file
  *
  *		2024/8/21 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -14,7 +14,7 @@
 
 #include "stdint.h"
 
-/* 来自各种CPU的厂商信息字符串 */
+/* Vendor information strings from various CPUs */
 #define CPUID_VENDOR_AMD			"AuthenticAMD"
 #define CPUID_VENDOR_AMD_OLD		"AMDisbetter!"
 #define CPUID_VENDOR_INTEL			"GenuineIntel"
@@ -35,7 +35,7 @@
 #define CPUID_VENDOR_HYGON			"HygonGenuine"
 #define CPUID_VENDOR_ELBRUS			"E2K MACHINE "
 
-/* 来自各种虚拟设备的厂商信息 */
+/* Manufacturer information from various virtual devices */
 #define CPUID_VENDOR_QEMU			"TCGTCGTCGTCG"
 #define CPUID_VENDOR_KVM			" KVMKVMKVM  "
 #define CPUID_VENDOR_VMWARE			"VMwareVMware"
@@ -125,19 +125,19 @@ enum cpuid_requests {
 	CPUID_INTELBRANDSTRINGEND,
 };
 
-/* 获取CPUID */
+/* Get CPUID */
 void cpuid(uint32_t code, uint32_t *a, uint32_t *b, uint32_t *c, uint32_t *d);
 
-/* 获取CPU厂商名称 */
+/* Get CPU manufacturer name */
 char *get_vendor_name(void);
 
-/* 获取CPU型号名称 */
+/* Get the CPU model name */
 char *get_model_name(void);
 
-/* 获取CPU物理地址大小 */
+/* Get the CPU physical address size */
 unsigned int get_cpu_phys_bits(void);
 
-/* 获取CPU虚拟地址大小 */
+/* Get CPU virtual address size */
 unsigned int get_cpu_virt_bits(void);
 
 #endif // INCLUDE_CPU_H_

@@ -1,11 +1,11 @@
 /*
  *
  *		apic.c
- *		高级可编程中断控制器
+ *		Advanced Programmable Interrupt Controller
  *
  *		2025/2/17 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -28,28 +28,28 @@ static __volatile__ struct limine_smp_request smp_request = {
 	.flags = 1,
 };
 
-/* 关闭PIC */
+/* Turn off PIC */
 void disable_pic(void)
 {
 	outb(0x21, 0xff);
 	outb(0xa1, 0xff);
 }
 
-/* 写I/O APIC寄存器 */
+/* Write I/O APIC register */
 void ioapic_write(uint32_t reg, uint32_t value)
 {
 	mmio_write32((uint32_t *)((uint64_t)ioapic_address), reg);
 	mmio_write32((uint32_t *)((uint64_t)ioapic_address + 0x10), value);
 }
 
-/* 读I/O APIC寄存器 */
+/* Read I/O APIC registers */
 uint32_t ioapic_read(uint32_t reg)
 {
 	mmio_write32((uint32_t *)((uint64_t)ioapic_address), reg);
 	return mmio_read32((uint32_t *)((uint64_t)ioapic_address + 0x10));
 }
 
-/* 配置I/O APIC中断路由 */
+/* Configuring I/O APIC interrupt routing */
 void ioapic_add(uint8_t vector, uint32_t irq)
 {
 	uint32_t ioredtbl = (uint32_t)(0x10 + (uint32_t)(irq * 2));
@@ -59,7 +59,7 @@ void ioapic_add(uint8_t vector, uint32_t irq)
 	ioapic_write(ioredtbl + 1, (uint32_t)(redirect >> 32));
 }
 
-/* 写本地APIC寄存器 */
+/* Write local APIC register */
 void lapic_write(uint32_t reg, uint32_t value)
 {
 	if (x2apic_mode) {
@@ -69,7 +69,7 @@ void lapic_write(uint32_t reg, uint32_t value)
 	mmio_write32((uint32_t *)((uint64_t)lapic_address + reg), value);
 }
 
-/* 读本地APIC寄存器 */
+/* Read local APIC register */
 uint32_t lapic_read(uint32_t reg)
 {
 	if (x2apic_mode) {
@@ -78,13 +78,13 @@ uint32_t lapic_read(uint32_t reg)
 	return mmio_read32((uint32_t *)((uint64_t)lapic_address + reg));
 }
 
-/* 获取当前处理器的本地APIC ID */
+/* Get the local APIC ID of the current processor */
 uint64_t lapic_id(void)
 {
 	return lapic_read(LAPIC_REG_ID);
 }
 
-/* 初始化本地APIC */
+/* Initialize local APIC */
 void local_apic_init(void)
 {
 	x2apic_mode = (smp_request.response->flags & 1) != 0;
@@ -107,30 +107,30 @@ void local_apic_init(void)
 	lapic_write(LAPIC_REG_TIMER_INITCNT, calibrated_timer_initial);
 }
 
-/* 初始化I/O APIC */
+/* Initialize I/O APIC */
 void io_apic_init(void)
 {
-	ioapic_add(IRQ_32, 0);	// 定时器
-	ioapic_add(IRQ_33, 1);	// 键盘
-	ioapic_add(IRQ_34, 12);	// 鼠标
+	ioapic_add(IRQ_32, 0);	// Timer
+	ioapic_add(IRQ_33, 1);	// Keyboard
+	ioapic_add(IRQ_34, 12);	// Mouse
 	ioapic_add(IRQ_46, 14);	// IDE0
 	ioapic_add(IRQ_47, 15);	// IDE1
 }
 
-/* 发送EOI信号 */
+/* Send EOI signal */
 void send_eoi(void)
 {
 	lapic_write(0xb0, 0);
 }
 
-/* 停止本地APIC定时器 */
+/* Stop the local APIC timer */
 void lapic_timer_stop(void)
 {
 	lapic_write(LAPIC_REG_TIMER_INITCNT, 0);
 	lapic_write(LAPIC_REG_TIMER, (1 << 16));
 }
 
-/* 发送中断处理指令 */
+/* Send interrupt handling instruction */
 void send_ipi(uint32_t apic_id, uint32_t command)
 {
 	if (x2apic_mode) {
@@ -141,7 +141,7 @@ void send_ipi(uint32_t apic_id, uint32_t command)
 	}
 }
 
-/* 初始化APIC */
+/* Initialize APIC */
 void apic_init(MADT *madt)
 {
 	lapic_address = (uint64_t)phys_to_virt(madt->local_apic_address);

@@ -1,18 +1,18 @@
 /*
  *
  *		interrupt.h
- *		中断相关头文件
+ *		Interrupt related header files
  *
  *		2024/8/1 By Rainy101112
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
 #ifndef INCLUDE_INTERRUPT_H_
 #define INCLUDE_INTERRUPT_H_
 
-/* 寄存器 */
+/* register */
 typedef struct registers {
 	uint64_t ds;
 	uint64_t es;
@@ -42,10 +42,10 @@ typedef struct registers {
 	uint64_t ss;
 } registers_t;
 
-/* 空函数处理 */
+/* Empty function handling */
 extern void (*empty_handle[256])(interrupt_frame_t *frame);
 
-/* 注册ISR中断处理 */
+/* Register ISR interrupt processing */
 void isr_registe_handle(void);
 
 #endif // INCLUDE_INTERRUPT_H_

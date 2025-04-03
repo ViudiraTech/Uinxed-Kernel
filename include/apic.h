@@ -1,11 +1,11 @@
 /*
  *
  *		apic.h
- *		高级可编程中断控制器头文件
+ *		Advanced Programmable Interrupt Controller Header Files
  *
  *		2025/2/17 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -61,43 +61,43 @@ typedef struct madt_hander MadtHeader;
 typedef struct madt_io_apic MadtIOApic;
 typedef struct madt_local_apic MadtLocalApic;
 
-/* 关闭PIC */
+/* Turn off PIC */
 void disable_pic(void);
 
-/* 写I/O APIC寄存器 */
+/* Write I/O APIC register */
 void ioapic_write(uint32_t reg, uint32_t value);
 
-/* 读I/O APIC寄存器 */
+/* Read I/O APIC registers */
 uint32_t ioapic_read(uint32_t reg);
 
-/* 配置I/O APIC中断路由 */
+/* Configuring I/O APIC interrupt routing */
 void ioapic_add(uint8_t vector, uint32_t irq);
 
-/* 写本地APIC寄存器 */
+/* Write local APIC register */
 void lapic_write(uint32_t reg, uint32_t value);
 
-/* 读本地APIC寄存器 */
+/* Read local APIC register */
 uint32_t lapic_read(uint32_t reg);
 
-/* 获取当前处理器的本地APIC ID */
+/* Get the local APIC ID of the current processor */
 uint64_t lapic_id(void);
 
-/* 初始化本地APIC */
+/* Initialize local APIC */
 void local_apic_init(void);
 
-/* 初始化I/O APIC */
+/* Initialize I/O APIC */
 void io_apic_init(void);
 
-/* 发送EOI信号 */
+/* Send EOI signal */
 void send_eoi(void);
 
-/* 停止本地APIC定时器 */
+/* Stop the local APIC timer */
 void lapic_timer_stop(void);
 
-/* 发送中断处理指令 */
+/* Send interrupt handling instruction */
 void send_ipi(uint32_t apic_id, uint32_t command);
 
-/* 初始化APIC */
+/* Initialize APIC */
 void apic_init(MADT *madt);
 
 #endif // INCLUDE_APIC_H_

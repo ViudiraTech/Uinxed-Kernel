@@ -1,11 +1,11 @@
 /*
  *
  *		empty_interrupt.c
- *		空中断实现
+ *		Empty interrupt implementation
  *
  *		2025/2/17 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -14,13 +14,13 @@
 #include "apic.h"
 #include "printk.h"
 
-#define INTERRUPT_HANDLE(id) __attribute__((interrupt)) void empty_handler_##id(interrupt_frame_t *frame)	\
-{																							\
-	(void)frame;																			\
-	disable_intr();																			\
-	plogk_color(0xffff0000, "Interrupt empty %d\n", id);									\
-	send_eoi();																				\
-	enable_intr();																			\
+#define INTERRUPT_HANDLE(id) __attribute__((interrupt)) static void empty_handler_##id(interrupt_frame_t *frame)	\
+{																													\
+	(void)frame;																									\
+	disable_intr();																									\
+	plogk_color(0xffff0000, "Interrupt empty %d\n", id);															\
+	send_eoi();																										\
+	enable_intr();																									\
 }
 
 INTERRUPT_HANDLE(0)

@@ -1,11 +1,11 @@
 /*
  *
  *		stddef.h
- *		基本变量与宏定义头文件
+ *		Basic variables and macro definition header files
  *
  *		2025/2/15 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 

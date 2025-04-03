@@ -1,11 +1,11 @@
 /*
  *
  *		serial.c
- *		计算机串口驱动
+ *		Serial Port
  *
  *		2024/7/11 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -13,54 +13,54 @@
 #include "common.h"
 #include "printk.h"
 
-/* 初始化串口 */
+/* Initialize the serial port */
 void init_serial(int baud_rate)
 {
 	uint16_t divisor = 115200 / baud_rate;
 
-	outb(SERIAL_PORT + 1, 0x00);					// 禁止COM的中断发生
-	outb(SERIAL_PORT + 3, 0x80);					// 启用DLAB（设置波特率除数）。
-	outb(SERIAL_PORT + 0, divisor & 0xFF);			// 设置低位波特
-	outb(SERIAL_PORT + 1, (divisor >> 8) & 0xFF);	// 设置高位波特
-	outb(SERIAL_PORT + 3, 0x03);					// 8位，无奇偶性，一个停止位
-	outb(SERIAL_PORT + 2, 0xC7);					// 启用FIFO，有14字节的阈值
-	outb(SERIAL_PORT + 4, 0x0B);					// 启用IRQ，设置RTS/DSR
-	outb(SERIAL_PORT + 4, 0x1E);					// 设置为环回模式，测试串口
-	outb(SERIAL_PORT + 0, 0xAE);					// 测试串口（发送字节0xAE并检查串口是否返回相同的字节）
+	outb(SERIAL_PORT + 1, 0x00);					// Disable COM interrupts
+	outb(SERIAL_PORT + 3, 0x80);					// Enable DLAB (set baud rate divisor)
+	outb(SERIAL_PORT + 0, divisor & 0xFF);			// Set low baud rate
+	outb(SERIAL_PORT + 1, (divisor >> 8) & 0xFF);	// Set high baud rate
+	outb(SERIAL_PORT + 3, 0x03);					// 8 bits, no parity, one stop bit
+	outb(SERIAL_PORT + 2, 0xC7);					// Enable FIFO with 14-byte threshold
+	outb(SERIAL_PORT + 4, 0x0B);					// Enable IRQ, set RTS/DSR
+	outb(SERIAL_PORT + 4, 0x1E);					// Set to loopback mode and test the serial port
+	outb(SERIAL_PORT + 0, 0xAE);					// Test serial port
 
-	/* 检查串口是否有问题（即：与发送的字节不一样） */
+	/* Check if there is a problem with the serial port (ie: the bytes sent are different) */
 	if (inb(SERIAL_PORT + 0) != 0xAE) {
 		plogk("Serial: Serial port test failed.\n");
 		return;
 	}
 
-	/* 如果串口没有故障 将其设置为正常运行模式 */
-	/* （非环回，启用IRQ，启用OUT#1和OUT#2位） */
+	/* If the serial port is not faulty, set it to normal operation mode */
+	/* (non-loopback, IRQ enabled, OUT#1 and OUT#2 bits enabled) */
 	outb(SERIAL_PORT + 4, 0x0F);
 	plogk("Serial: Local port: COM1\n");
 	plogk("Serial: Baud rate: %d\n", baud_rate);
 }
 
-/* 检测串口读是否就绪 */
+/* Check whether the serial port is ready to read */
 int serial_received(void)
 {
 	return inb(SERIAL_PORT + 5) & 1;
 }
 
-/* 检测串口写是否空闲 */
+/* Check whether the serial port is idle */
 int is_transmit_empty(void)
 {
 	return inb(SERIAL_PORT + 5) & 0x20;
 }
 
-/* 读串口 */
+/* Read serial port */
 char read_serial(void)
 {
 	while (serial_received() == 0);
 	return inb(SERIAL_PORT);
 }
 
-/* 写串口 */
+/* Write serial port */
 void write_serial(char c)
 {
 	while (is_transmit_empty() == 0);

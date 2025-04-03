@@ -1,11 +1,11 @@
 /*
  *
  *		gdt.h
- *		全局描述符头文件
+ *		Global Descriptor Header File
  *
  *		2024/6/27 By Rainy101112
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -32,13 +32,13 @@ typedef struct tss {
 typedef uint8_t tss_stack_t[1024];
 typedef uint64_t gdt_entries_t[7];
 
-/* 初始化全局描述符表 */
+/* Initialize the global descriptor table */
 void init_gdt(void);
 
-/* 初始化TSS */
+/* Initialize TSS */
 void tss_init(void);
 
-/* 设置内核栈 */
+/* Setting up the kernel stack */
 void set_kernel_stack(uint64_t rsp);
 
 #endif // INCLUDE_GDT_H_

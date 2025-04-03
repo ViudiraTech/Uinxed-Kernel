@@ -1,11 +1,11 @@
 /*
  *
  *		cpu.c
- *		cpu相关操作
+ *		cpu related operations
  *
  *		2024/8/21 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -13,13 +13,13 @@
 #include "printk.h"
 #include "alloc.h"
 
-/* 获取CPUID */
+/* Get CPUID */
 void cpuid(uint32_t code, uint32_t *a, uint32_t *b, uint32_t *c, uint32_t *d)
 {
 	__asm__ __volatile__("cpuid" : "=a"(*a), "=b"(*b), "=c"(*c), "=d"(*d) : "a"(code) : "memory");
 }
 
-/* 获取CPU厂商名称 */
+/* Get CPU manufacturer name */
 char *get_vendor_name(void)
 {
 	int cpuid_level;
@@ -31,7 +31,7 @@ char *get_vendor_name(void)
 	return x86_vendor_id;
 }
 
-/* 获取CPU型号名称 */
+/* Get the CPU model name */
 char *get_model_name(void)
 {
 	static char model_name[64];
@@ -44,18 +44,18 @@ char *get_model_name(void)
 	return model_name;
 }
 
-/* 获取CPU物理地址大小 */
+/* Get the CPU physical address size */
 unsigned int get_cpu_phys_bits(void)
 {
-	unsigned int eax, ebx, ecx, edx;
-	cpuid(0x80000008, &eax, &ebx, &ecx, &edx);
-	return eax & 0xff;
+	unsigned int rax, rbx, rcx, rdx;
+	cpuid(0x80000008, &rax, &rbx, &rcx, &rdx);
+	return rax & 0xff;
 }
 
-/* 获取CPU虚拟地址大小 */
+/* Get CPU virtual address size */
 unsigned int get_cpu_virt_bits(void)
 {
-	unsigned int eax, ebx, ecx, edx;
-	cpuid(0x80000008, &eax, &ebx, &ecx, &edx);
-	return (eax >> 8) & 0xff;
+	unsigned int rax, rbx, rcx, rdx;
+	cpuid(0x80000008, &rax, &rbx, &rcx, &rdx);
+	return (rax >> 8) & 0xff;
 }

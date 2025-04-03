@@ -1,11 +1,11 @@
 /*
  *
  *		pci.c
- *		外设部件互连标准驱动
+ *		Peripheral Component Interconnect Standard Driver
  *
  *		2025/3/9 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，保留最终解释权。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -149,7 +149,7 @@ struct
 	{0x000000, 0}
 };
 
-/* 从PCI设备寄存器读取值 */
+/* Reading values ​​from PCI device registers */
 uint32_t read_pci(uint32_t bus, uint32_t slot, uint32_t func, uint32_t register_offset)
 {
 	uint32_t id = 1 << 31 | ((bus & 0xff) << 16) | ((slot & 0x1f) << 11) |
@@ -159,7 +159,7 @@ uint32_t read_pci(uint32_t bus, uint32_t slot, uint32_t func, uint32_t register_
 	return result >> (8 * (register_offset % 4));
 }
 
-/* 向PCI设备寄存器写入值 */
+/* Write values ​​to PCI device registers */
 void write_pci(uint32_t bus, uint32_t slot, uint32_t func, uint32_t register_offset, uint32_t value)
 {
 	uint32_t id = 1 << 31 | ((bus & 0xff) << 16) | ((slot & 0x1f) << 11) |
@@ -168,19 +168,19 @@ void write_pci(uint32_t bus, uint32_t slot, uint32_t func, uint32_t register_off
 	outl(PCI_DATA_PORT, value);
 }
 
-/* 从PCI设备命令状态寄存器读取值 */
+/* Read the value from the PCI device command status register */
 uint32_t pci_read_command_status(uint32_t bus, uint32_t slot, uint32_t func)
 {
 	return read_pci(bus, slot, func, 0x04);
 }
 
-/* 向PCI设备命令状态寄存器写入值 */
+/* Write a value to the PCI device command status register */
 void pci_write_command_status(uint32_t bus, uint32_t slot, uint32_t func, uint32_t value)
 {
 	write_pci(bus, slot, func, 0x04, value);
 }
 
-/* 获取基地址寄存器的详细信息 */
+/* Get detailed information about the base address register */
 base_address_register get_base_address_register(uint32_t bus, uint32_t slot, uint32_t func, uint32_t bar)
 {
 	base_address_register result = {0};
@@ -209,7 +209,7 @@ base_address_register get_base_address_register(uint32_t bus, uint32_t slot, uin
 	return result;
 }
 
-/* 获取PCI设备的I/O端口基地址 */
+/* Get the I/O port base address of the PCI device */
 uint32_t pci_get_port_base(uint32_t bus, uint32_t slot, uint32_t func)
 {
 	uint32_t io_port = 0;
@@ -222,20 +222,20 @@ uint32_t pci_get_port_base(uint32_t bus, uint32_t slot, uint32_t func)
 	return io_port;
 }
 
-/* 读取第n个基地址寄存器的值 */
+/* Read the value of the nth base address register */
 uint32_t read_bar_n(uint32_t bus, uint32_t slot, uint32_t func, uint32_t bar_n)
 {
 	uint32_t bar_offset = 0x10 + 4 * bar_n;
 	return read_pci(bus, slot, func, bar_offset);
 }
 
-/* 获取PCI设备的中断号 */
+/* Get the interrupt number of the PCI device */
 uint32_t pci_get_irq(uint32_t bus, uint32_t slot, uint32_t func)
 {
 	return read_pci(bus, slot, func, 0x3c);
 }
 
-/* 配置PCI设备 */
+/* Configuring PCI Devices */
 void pci_config(uint32_t bus, uint32_t slot, uint32_t func, uint32_t addr)
 {
 	uint32_t cmd = 0;
@@ -243,7 +243,7 @@ void pci_config(uint32_t bus, uint32_t slot, uint32_t func, uint32_t addr)
 	outl(PCI_COMMAND_PORT, cmd);
 }
 
-/* 根据供应商ID和设备ID查找PCI设备 */
+/* Find PCI devices by vendor ID and device ID */
 int pci_found_device(uint32_t vendor_id, uint32_t device_id, uint32_t *bus, uint32_t *slot, uint32_t *func)
 {
 	uint32_t f_bus, f_slot, f_func;
@@ -267,7 +267,7 @@ int pci_found_device(uint32_t vendor_id, uint32_t device_id, uint32_t *bus, uint
 	return 0;
 }
 
-/* 根据类代码查找PCI设备 */
+/* Find PCI devices by class code */
 int pci_found_class(uint32_t class_code, uint32_t *bus, uint32_t *slot, uint32_t *func)
 {
 	uint32_t f_bus, f_slot, f_func;
@@ -297,7 +297,7 @@ int pci_found_class(uint32_t class_code, uint32_t *bus, uint32_t *slot, uint32_t
 	return 0;
 }
 
-/* 根据类代码返回设备名称 */
+/* Returns the device name based on the class code */
 const char *pci_classname(uint32_t classcode)
 {
 	for (unsigned long i = 0; pci_classnames[i].name != 0; i++) {
@@ -309,7 +309,7 @@ const char *pci_classname(uint32_t classcode)
 	return "Unknown device";
 }
 
-/* PCI设备初始化 */
+/* PCI device initialization */
 void pci_init(void)
 {
 	unsigned long PCI_NUM = 0;

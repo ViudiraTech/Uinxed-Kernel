@@ -1,11 +1,11 @@
 /*
  *
  *		bitmap.c
- *		内存位映射
+ *		Memory bitmap
  *
  *		2025/2/16 By XIAOYI12
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -13,7 +13,7 @@
 #include "string.h"
 #include "printk.h"
 
-/* 初始化内存位映射 */
+/* Initialize the memory bitmap */
 void bitmap_init(Bitmap *bitmap, uint8_t *buffer, unsigned long size)
 {
 	bitmap->buffer = buffer;
@@ -21,7 +21,7 @@ void bitmap_init(Bitmap *bitmap, uint8_t *buffer, unsigned long size)
 	memset(buffer, 0, size);
 }
 
-/* 获取内存位映射 */
+/* Get memory bitmap */
 int bitmap_get(const Bitmap *bitmap, unsigned long index)
 {
 	unsigned long word_index = index / 8;
@@ -29,7 +29,7 @@ int bitmap_get(const Bitmap *bitmap, unsigned long index)
 	return (bitmap->buffer[word_index] >> bit_index) & 1;
 }
 
-/* 设置内存位映射 */
+/* Setting the memory bitmap */
 void bitmap_set(Bitmap *bitmap, unsigned long index, int value)
 {
 	unsigned long word_index = index / 8;
@@ -41,7 +41,7 @@ void bitmap_set(Bitmap *bitmap, unsigned long index, int value)
 	}
 }
 
-/* 设置内存位映射范围 */
+/* Set the memory bitmap range */
 void bitmap_set_range(Bitmap *bitmap, unsigned long start, unsigned long end, int value)
 {
 	unsigned long start_word = (start + 7) / 8;
@@ -66,7 +66,7 @@ void bitmap_set_range(Bitmap *bitmap, unsigned long start, unsigned long end, in
 	}
 }
 
-/* 内存位映射查找范围 */
+/* Memory bitmap search range */
 unsigned long bitmap_find_range(const Bitmap *bitmap, unsigned long length, int value)
 {
 	unsigned long count = 0, start_index = 0;

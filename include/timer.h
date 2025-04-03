@@ -1,11 +1,11 @@
 /*
  *
  *		timer.h
- *		定时器头文件
+ *		Timer header file
  *
  *		2025/2/17 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -14,10 +14,10 @@
 
 #include "stdint.h"
 
-/* 基于微秒的延迟函数 */
+/* Microsecond-based delay functions */
 void sleep(uint64_t micro);
 
-/* 基于纳秒的延迟函数 */
+/* Nanosecond-based delay function */
 void usleep(uint64_t nano);
 
 #endif // INCLUDE_TIMER_H_

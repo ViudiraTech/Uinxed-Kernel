@@ -1,18 +1,18 @@
 /*
  *
  *		cmdline.h
- *		内核命令行头文件
+ *		Kernel command line header file
  *
  *		2025/3/9 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
 #ifndef INCLUDE_CMDLINE_H_
 #define INCLUDE_CMDLINE_H_
 
-/* 获取内核命令行 */
+/* Get the kernel command line */
 const char *get_cmdline(void);
 
 #endif // INCLUDE_CMDLINE_H_

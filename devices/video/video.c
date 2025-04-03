@@ -1,11 +1,11 @@
 /*
  *
  *		video.c
- *		基本视频驱动
+ *		Basic Video
  *
  *		2024/9/16 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -20,22 +20,22 @@ static __volatile__ struct limine_framebuffer_request framebuffer_request = {
 	.revision = 0
 };
 
-extern uint8_t ascfont[];	// 字库
+extern uint8_t ascfont[];	// Fonts
 
-uint64_t width;				// 屏幕长
-uint64_t height;			// 屏幕宽
-uint64_t stride;			// 帧缓冲区行间距
-uint32_t *buffer;			// 显存
-uint32_t *back_buffer;		// 显存缓冲区
+uint64_t width;				// Screen length
+uint64_t height;			// Screen width
+uint64_t stride;			// Frame buffer line spacing
+uint32_t *buffer;			// Video Memory
+uint32_t *back_buffer;		// Video memory buffer
 
-int32_t x, y;				// 当前光标的绝对位置
-int32_t cx, cy;				// 当前光标的字符位置
-uint32_t c_width, c_height;	// 屏幕的字符宽高
+int32_t x, y;				// The current absolute cursor position
+int32_t cx, cy;				// The character position of the current cursor
+uint32_t c_width, c_height;	// Screen character width and height
 
-uint32_t fore_color;		// 前景色
-uint32_t back_color;		// 背景色
+uint32_t fore_color;		// Foreground color
+uint32_t back_color;		// Background color
 
-/* 初始化视频驱动 */
+/* Initialize Video */
 void video_init(void)
 {
 	if (framebuffer_request.response == 0 || framebuffer_request.response->framebuffer_count < 1) {
@@ -58,13 +58,13 @@ void video_init(void)
 	video_clear();
 }
 
-/* 获取帧缓冲区 */
+/* Get the frame buffer */
 struct limine_framebuffer *get_framebuffer(void)
 {
 	return framebuffer_request.response->framebuffers[0];
 }
 
-/* 清屏 */
+/* Clear screen */
 void video_clear(void)
 {
 	for (uint32_t i = 0; i < (width * height); i++) {
@@ -77,7 +77,7 @@ void video_clear(void)
 	buffer = back_buffer;
 }
 
-/* 带颜色清屏 */
+/* Clear screen with color */
 void video_clear_color(int color)
 {
 	for (uint32_t i = 0; i < (width * height); i++) {
@@ -90,7 +90,7 @@ void video_clear_color(int color)
 	buffer = back_buffer;
 }
 
-/* 屏幕滚动操作 */
+/* Screen scrolling operation */
 inline void video_scroll(void)
 {
 	if ((uint32_t)cx > c_width) {
@@ -105,14 +105,14 @@ inline void video_scroll(void)
 	}
 }
 
-/* 在屏幕指定坐标绘制一个像素 */
+/* Draw a pixel at the specified coordinates on the screen */
 void video_draw_pixel(uint32_t x, uint32_t y, uint32_t color)
 {
 	(back_buffer)[y * width + x] = color;
 	buffer = back_buffer;
 }
 
-/* 在屏幕指定坐标绘制一个矩阵 */
+/* Draw a matrix at the specified coordinates on the screen */
 void video_draw_rect(int x0, int y0, int x1, int y1, int color)
 {
 	int x, y;
@@ -124,7 +124,7 @@ void video_draw_rect(int x0, int y0, int x1, int y1, int color)
 	buffer = back_buffer;
 }
 
-/* 在屏幕指定坐标绘制一个字符 */
+/* Draw a character at the specified coordinates on the screen */
 void video_draw_char(char c, int32_t x, int32_t y, int color)
 {
 	uint8_t *font = ascfont;
@@ -139,7 +139,7 @@ void video_draw_char(char c, int32_t x, int32_t y, int color)
 	buffer = back_buffer;
 }
 
-/* 在屏幕指定坐标打印一个字符 */
+/* Print a character at the specified coordinates on the screen */
 void video_put_char(char c, int color)
 {
 	if (c == '\n') {
@@ -169,7 +169,7 @@ void video_put_char(char c, int color)
 	video_draw_char(c, cx * 9 - 7, cy * 16, color);
 }
 
-/* 在屏幕指定坐标打印一个字符串 */
+/* Print a string at the specified coordinates on the screen */
 void video_put_string(const char *str)
 {
 	for (; *str; ++str) {
@@ -178,7 +178,7 @@ void video_put_string(const char *str)
 	}
 }
 
-/* 带颜色在屏幕指定坐标打印一个字符串 */
+/* Print a string with color at the specified coordinates on the screen */
 void video_put_string_color(const char *str, int color)
 {
 	for (; *str; ++str) {

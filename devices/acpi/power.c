@@ -1,11 +1,11 @@
 /*
  *
  *		power.c
- *		电源管理
+ *		Power Management
  *
  *		2025/2/16 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -23,7 +23,7 @@ uint16_t SLP_EN;
 uint16_t SCI_EN;
 acpi_facp_t *facp;
 
-/* 初始化facp */
+/* Initialize facp */
 void facp_init(acpi_facp_t *facp0)
 {
 	int i;
@@ -103,7 +103,7 @@ void facp_init(acpi_facp_t *facp0)
 	}
 }
 
-/* 重启电源 */
+/* Cycle the power */
 void power_reset(void)
 {
 	if (!SCI_EN)
@@ -114,7 +114,7 @@ void power_reset(void)
 	}
 }
 
-/* 关闭电源 */
+/* Power off */
 void power_off(void)
 {
 	if (!SCI_EN) return;

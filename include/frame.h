@@ -1,11 +1,11 @@
 /*
  *
  *		frame.h
- *		内存帧头文件
+ *		Memory frame header file
  *
  *		2025/2/16 By XIAOYI12
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -23,10 +23,10 @@ typedef struct {
 
 extern FrameAllocator frame_allocator;
 
-/* 初始化内存帧 */
+/* Initialize memory frame */
 void init_frame(void);
 
-/* 分配内存帧 */
+/* Allocate memory frame */
 uint64_t alloc_frames(unsigned long count);
 
 #endif // INCLUDE_FRAME_H_

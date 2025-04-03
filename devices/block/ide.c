@@ -1,11 +1,11 @@
 /*
  *
  *		ide.c
- *		标准ATA/ATAPI设备驱动
+ *		Standard ATA/ATAPI device drivers
  *
  *		2024/7/11 By MicroFish
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，保留最终解释权。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -17,33 +17,33 @@
 #include "timer.h"
 #include "string.h"
 
-/* 结构体 */
+/* Structure */
 struct IDE_channel_registers channels[2];
 struct ide_device ide_devices[4];
 
-/* 数据数组 */
+/* Data Array */
 uint8_t ide_buf[2048] = {0};
 static uint8_t atapi_packet[12] = {0xa8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 static int package[2];
 
-/* 中断状态位 */
+/* Interrupt status bit */
 static volatile uint8_t ide_irq_invoked = 0;
 
-/* IDE中断处理函数 */
+/* IDE interrupt handling function */
 __attribute__((interrupt)) static void ide_irq(interrupt_frame_t *frame)
 {
 	(void)frame;
 	ide_irq_invoked = 1;
 }
 
-/* 等待IDE中断被触发 */
+/* Waiting for IDE interrupt to be triggered */
 static void ide_wait_irq(void)
 {
 	while (!ide_irq_invoked);
 	ide_irq_invoked = 0;
 }
 
-/* 设置IDE */
+/* Setting up the IDE */
 static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t BAR3, uint32_t BAR4)
 {
 	int j, k, count = 0;
@@ -51,7 +51,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 		ide_devices[i].reserved = 0;
 	}
 
-	/* 检测IDE控制器的I/O端口 */
+	/* Detect the I/O ports of the IDE controller */
 	channels[ATA_PRIMARY].base		= (BAR0 & 0xfffffffc) + 0x1f0 * (!BAR0);
 	channels[ATA_PRIMARY].ctrl		= (BAR1 & 0xfffffffc) + 0x3f6 * (!BAR1);
 	channels[ATA_SECONDARY].base	= (BAR2 & 0xfffffffc) + 0x170 * (!BAR2);
@@ -59,7 +59,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 	channels[ATA_PRIMARY].bmide		= (BAR4 & 0xfffffffc) + 0;
 	channels[ATA_SECONDARY].bmide	= (BAR4 & 0xfffffffc) + 8;
 
-	/* 禁用IRQ */
+	/* Disable IRQ */
 	ide_write(ATA_PRIMARY, ATA_REG_CONTROL, 2);
 	ide_write(ATA_SECONDARY, ATA_REG_CONTROL, 2);
 	for (int i = 0; i < 2; i++)
@@ -67,11 +67,11 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 			uint8_t err = 0, type = IDE_ATA, status;
 			ide_devices[count].reserved = 0;
 
-			/* 选择驱动器 */
+			/* Select Drive */
 			ide_write(i, ATA_REG_HDDEVSEL, 0xa0 | (j << 4));
 			usleep(10);
 
-			/* 发送ATA Identify命令 */
+			/* Send ATA Identify command */
 			ide_write(i, ATA_REG_COMMAND, ATA_CMD_IDENTIFY);
 			usleep(10);
 
@@ -85,7 +85,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 				if (!(status & ATA_SR_BSY) && (status & ATA_SR_DRQ)) break;
 			}
 
-			/* ATAPI设备探测 */
+			/* ATAPI device detection */
 			if (err != 0) {
 				uint8_t cl = ide_read(i, ATA_REG_LBA1);
 				uint8_t ch = ide_read(i, ATA_REG_LBA2);
@@ -101,10 +101,10 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 				usleep(10);
 			}
 
-			/* 读取设备的标识空间 */
+			/* Read the device's identification space */
 			ide_read_buffer(i, ATA_REG_DATA, (uint64_t)ide_buf, 128);
 
-			/* 读取设备参数 */
+			/* Read device parameters */
 			ide_devices[count].reserved		= 1;
 			ide_devices[count].type			= type;
 			ide_devices[count].channel		= i;
@@ -113,15 +113,15 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 			ide_devices[count].capabilities	= *((uint16_t *)(ide_buf + ATA_IDENT_CAPABILITIES));
 			ide_devices[count].command_sets	= *((uint32_t *)(ide_buf + ATA_IDENT_COMMANDSETS));
 
-			/* 获取大小 */
+			/* Get Size */
 			if (ide_devices[count].command_sets & (1 << 26))
-				/* 设备使用48位寻址 */
+				/* Devices use 48-bit addressing */
 				ide_devices[count].size = *((uint32_t *)(ide_buf + ATA_IDENT_MAX_LBA_EXT));
 			else
-				/* 设备使用28位寻址 */
+				/* Devices use 28-bit addressing */
 				ide_devices[count].size = *((uint32_t *)(ide_buf + ATA_IDENT_MAX_LBA));
 
-			/* 获取设备型号 */
+			/* Get device model */
 			for (k = 0; k < 40; k += 2) {
 				ide_devices[count].model[k]		= ide_buf[ATA_IDENT_MODEL + k + 1];
 				ide_devices[count].model[k + 1]	= ide_buf[ATA_IDENT_MODEL + k];
@@ -130,17 +130,16 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 			count++;
 		}
 
-	/* 打印设备信息 */
+	/* Print device information */
 	for (int i = 0; i < 4; i++) {
 		if (ide_devices[i].reserved == 1) {
 			plogk("IDE: Found %s Drive %d(MiB) - %s\n", ide_devices[i].type ? "ATAPI" : "ATA",
                   ide_devices[i].size / 1024 / 2, ide_devices[i].model);
 		}
 	}
-
 }
 
-/* 错误处理 */
+/* Error handling */
 static uint8_t ide_print_error(uint32_t drive, uint8_t err)
 {
 	if (err == 0) return err;
@@ -191,12 +190,12 @@ static uint8_t ide_print_error(uint32_t drive, uint8_t err)
 	return err;
 }
 
-/* 初始化IDE */
+/* Initialize IDE */
 void init_ide(void)
 {
 	uint32_t bus, slot, func;
 
-	/* 检测计算机是否拥有IDE控制器 */
+	/* Detect if the computer has an IDE controller */
 	if (pci_found_class(0x010100, &bus, &slot, &func)) {
 		register_interrupt_handler(IRQ_46, ide_irq, 0, 0x8e);
 		register_interrupt_handler(IRQ_47, ide_irq, 0, 0x8e);
@@ -206,7 +205,7 @@ void init_ide(void)
 	plogk("IDE: Controller could not be found!\n");
 }
 
-/* 从IDE设备的指定寄存器读取一个字节数据 */
+/* Read a byte of data from the specified register of the IDE device */
 uint8_t ide_read(uint8_t channel, uint8_t reg)
 {
 	uint8_t result;
@@ -219,12 +218,12 @@ uint8_t ide_read(uint8_t channel, uint8_t reg)
 	else if (reg < 0x0e)
 		result = inb(channels[channel].ctrl + reg - 0x0a);
 	else if (reg < 0x16)
-		result = inb(channels[channel].bmide + reg - 0x0E);
+		result = inb(channels[channel].bmide + reg - 0x0e);
 	if (reg > 0x07 && reg < 0x0c) ide_write(channel, ATA_REG_CONTROL, channels[channel].nIEN);
 	return result;
 }
 
-/* 向IDE设备的指定寄存器写入一个字节数据 */
+/* Write a byte of data to the specified register of the IDE device */
 void ide_write(uint8_t channel, uint8_t reg, uint8_t data)
 {
 	if (reg > 0x07 && reg < 0x0c)
@@ -240,7 +239,7 @@ void ide_write(uint8_t channel, uint8_t reg, uint8_t data)
 	if (reg > 0x07 && reg < 0x0c) ide_write(channel, ATA_REG_CONTROL, channels[channel].nIEN);
 }
 
-/* 从IDE设备的指定寄存器读取多个字的数据到缓冲区 */
+/* Read multiple words of data from the specified register of the IDE device into the buffer */
 void ide_read_buffer(uint8_t channel, uint8_t reg, uint64_t buffer, uint32_t quads)
 {
 	if (reg > 0x07 && reg < 0x0c)
@@ -256,7 +255,7 @@ void ide_read_buffer(uint8_t channel, uint8_t reg, uint64_t buffer, uint32_t qua
 	if (reg > 0x07 && reg < 0x0c) ide_write(channel, ATA_REG_CONTROL, channels[channel].nIEN);
 }
 
-/* 轮询IDE设备的状态 */
+/* Polling the status of IDE devices */
 uint8_t ide_polling(uint8_t channel, uint32_t advanced_check)
 {
 	for (int i = 0; i < 4; i++)
@@ -276,7 +275,7 @@ uint8_t ide_polling(uint8_t channel, uint32_t advanced_check)
 	return 0;
 }
 
-/* 对ATA设备进行读写操作 */
+/* Read and write ATA devices */
 uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t numsects, uint64_t edi)
 {
 	uint8_t lba_mode, dma, cmd;
@@ -352,7 +351,7 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t n
 	ide_write(channel, ATA_REG_COMMAND, cmd);
 
 	if (direction == 0) {
-		/* PIO读 */
+		/* PIO Read */
 		uint16_t *word_ = (uint16_t *)edi;
 		for (i = 0; i < numsects; i++) {
 			if ((err = ide_polling(channel, 1)) != 0)
@@ -360,7 +359,7 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t n
 			insl(bus, (uint32_t *)(word_ + i * words), words / 2);
 		}
 	} else {
-		/* PIO写 */
+		/* PIO Write */
 		uint16_t *word_ = (uint16_t *)edi;
 		for (i = 0; i < numsects; i++) {
 			ide_polling(channel, 0);
@@ -369,13 +368,13 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t n
 			}
 		}
 		ide_write(channel, ATA_REG_COMMAND, (char[]){ATA_CMD_CACHE_FLUSH, ATA_CMD_CACHE_FLUSH,
-                  ATA_CMD_CACHE_FLUSH_EXT}[lba_mode]);
+				ATA_CMD_CACHE_FLUSH_EXT}[lba_mode]);
 		ide_polling(channel, 0);
 	}
 	return 0;
 }
 
-/* 从ATAPI设备读取数据 */
+/* Reading data from ATAPI devices */
 uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint32_t edi)
 {
 	uint32_t channel = ide_devices[drive].channel;
@@ -387,7 +386,7 @@ uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint32_t e
 
 	ide_write(channel, ATA_REG_CONTROL, channels[channel].nIEN = ide_irq_invoked = 0x0);
 
-	/* 设置 SCSI 数据包 */
+	/* Setting up SCSI packets */
 	atapi_packet[0]		= ATAPI_CMD_READ;
 	atapi_packet[1]		= 0x0;
 	atapi_packet[2]		= (lba >> 24) & 0xff;
@@ -407,11 +406,11 @@ uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint32_t e
 	for (int i = 0; i < 4; i++)
 		ide_read(channel, ATA_REG_ALTSTATUS);
 
-	ide_write(channel, ATA_REG_FEATURES, 0); // PIO模式
-	ide_write(channel, ATA_REG_LBA1, (words * 2) & 0xff); // 扇区大小的字节较小
-	ide_write(channel, ATA_REG_LBA2, (words * 2) >> 8); // 扇区大小的上限字节
+	ide_write(channel, ATA_REG_FEATURES, 0); // PIO Mode
+	ide_write(channel, ATA_REG_LBA1, (words * 2) & 0xff); // Sector size is smaller in bytes
+	ide_write(channel, ATA_REG_LBA2, (words * 2) >> 8); // The upper limit of the sector size in bytes
 
-	/* 发送packet命令 */
+	/* Send packet command */
 	ide_write(channel, ATA_REG_COMMAND, ATA_CMD_PACKET);
 	if ((err = ide_polling(channel, 1)) != 0) return err;
 
@@ -434,17 +433,17 @@ uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint32_t e
 	return 0;
 }
 
-/* 从IDE设备读取多个扇区数据 */
+/* Read multiple sectors from an IDE device */
 void ide_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint32_t edi)
 {
-	/* 检查驱动器是否存在 */
+	/* read multiple sector sf Roman IDE device */
 	if (drive > 3 || ide_devices[drive].reserved == 0) package[0] = 0x1;
 
-	/* 检查输入是否有效 */
+	/* Check if the input is valid */
 	else if (((lba + numsects) > ide_devices[drive].size) && (ide_devices[drive].type == IDE_ATA))
 		package[0] = 0x2;
 
-	/* 通过轮询和IRQ以PIO模式读取 */
+	/* Reading in PIO mode via polling and IRQ */
 	else {
 		uint8_t err;
 		if (ide_devices[drive].type == IDE_ATA)
@@ -456,17 +455,17 @@ void ide_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint32_t ed
 	}
 }
 
-/* 向IDE设备写入多个扇区数据 */
+/* Write multiple sectors to an IDE device */
 void ide_write_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint32_t edi)
 {
-	/* 检查驱动器是否存在 */
+	/* Check if the drive exists */
 	if (drive > 3 || ide_devices[drive].reserved == 0) package[0] = 0x1;
 
-	/* 检查输入是否有效 */
+	/* Check if the input is valid */
 	else if (((lba + numsects) > ide_devices[drive].size) && (ide_devices[drive].type == IDE_ATA))
 		package[0] = 0x2;
 
-	/* 通过轮询和IRQ以PIO模式写入 */
+	/* Writing in PIO mode via polling and IRQ */
 	else {
 		uint8_t err;
 		if (ide_devices[drive].type == IDE_ATA)

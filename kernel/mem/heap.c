@@ -1,11 +1,11 @@
 /*
  *
  *		heap.c
- *		内存堆
+ *		Memory Heap
  *
  *		2025/2/16 By XIAOYI12
- *		基于 GPL-3.0 开源协议
- *		Copyright © 2020 ViudiraTech，基于GPLv3协议。
+ *		Based on GPL-3.0 open source agreement
+ *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -15,7 +15,7 @@
 #include "hhdm.h"
 #include "alloc.h"
 
-/* 初始化内存堆 */
+/* Initialize the memory heap */
 void init_heap(void)
 {
 	uint8_t *heap_base = (uint8_t *)(physical_memory_offset + 0x3c0f000);
@@ -25,7 +25,7 @@ void init_heap(void)
 	plogk("Heap: Heap base set to 0x%016x, size %d bytes.\n", heap_base, heap_size);
 }
 
-/* 分配一块空内存 */
+/* Allocate an empty memory */
 void *calloc(unsigned long a, unsigned long b)
 {
 	void *p = malloc(a * b);
