@@ -26,7 +26,6 @@ uint64_t width;				// Screen length
 uint64_t height;			// Screen width
 uint64_t stride;			// Frame buffer line spacing
 uint32_t *buffer;			// Video Memory
-uint32_t *back_buffer;		// Video memory buffer
 
 int32_t x, y;				// The current absolute cursor position
 int32_t cx, cy;				// The character position of the current cursor
@@ -46,14 +45,13 @@ void video_init(void)
 	width		= framebuffer->width;
 	height		= framebuffer->height;
 	stride		= framebuffer->pitch / 4;
-	back_buffer	= buffer;
 
 	x = 2;
 	y = cx = cy = 0;
 	c_width = width / 9;
 	c_height = height / 16;
 
-	fore_color = 0xffffffff;
+	fore_color = 0xffaaaaaa;
 	back_color = 0xff000000;
 	video_clear();
 }
@@ -68,26 +66,24 @@ struct limine_framebuffer *get_framebuffer(void)
 void video_clear(void)
 {
 	for (uint32_t i = 0; i < (width * height); i++) {
-		back_buffer[i] = 0xff000000;
+		buffer[i] = 0xff000000;
 	}
 	back_color = 0xff000000;
 	x = 2;
 	y = 0;
 	cx = cy = 0;
-	buffer = back_buffer;
 }
 
 /* Clear screen with color */
 void video_clear_color(int color)
 {
 	for (uint32_t i = 0; i < (width * height); i++) {
-		back_buffer[i] = color;
+		buffer[i] = color;
 	}
 	back_color = color;
 	x = 2;
 	y = 0;
 	cx = cy = 0;
-	buffer = back_buffer;
 }
 
 /* Screen scrolling operation */
@@ -99,17 +95,15 @@ inline void video_scroll(void)
 	} else cx++;
 	if ((uint32_t)cy >= c_height) {
 		cy = c_height - 1;
-		memcpy(back_buffer, back_buffer + stride * 16, width * (height - 16) * sizeof(uint32_t));
-		memset(back_buffer + (height - 16) * stride, back_color, 16 * stride * sizeof(uint32_t));
-		buffer = back_buffer;
+		memcpy(buffer, buffer + stride * 16, width * (height - 16) * sizeof(uint32_t));
+		memset(buffer + (height - 16) * stride, back_color, 16 * stride * sizeof(uint32_t));
 	}
 }
 
 /* Draw a pixel at the specified coordinates on the screen */
 void video_draw_pixel(uint32_t x, uint32_t y, uint32_t color)
 {
-	(back_buffer)[y * width + x] = color;
-	buffer = back_buffer;
+	(buffer)[y * width + x] = color;
 }
 
 /* Draw a matrix at the specified coordinates on the screen */
@@ -118,10 +112,9 @@ void video_draw_rect(int x0, int y0, int x1, int y1, int color)
 	int x, y;
 	for (y = y0; y <= y1; y++) {
 		for (x = x0; x <= x1; x++) {
-			(back_buffer)[y * width + x] = color;
+			(buffer)[y * width + x] = color;
 		}
 	}
-	buffer = back_buffer;
 }
 
 /* Draw a character at the specified coordinates on the screen */
@@ -132,11 +125,10 @@ void video_draw_char(char c, int32_t x, int32_t y, int color)
 	for (int i = 0; i < 16; i++) {
 		for (int j = 0; j < 9; j++) {
 			if (font[i] & (0x80 >> j)) {
-				back_buffer[(y + i) * width + x + j] = color;
-			} else back_buffer[(y + i) * width + x + j] = back_color;
+				buffer[(y + i) * width + x + j] = color;
+			} else buffer[(y + i) * width + x + j] = back_color;
 		}
 	}
-	buffer = back_buffer;
 }
 
 /* Print a character at the specified coordinates on the screen */
@@ -160,13 +152,13 @@ void video_put_char(char c, int color)
 			if (cy != 0) cy -= 1;
 			if (cy == 0) cx = 0, cy = 0;
 		}
-		int x = (cx+1) * 9 - 7;
+		int x = (cx+1) * 8 - 7;
 		int y = cy * 16;
-		video_draw_rect(x, y, x + 9, y + 16, back_color);
+		video_draw_rect(x, y, x + 8, y + 16, back_color);
 		return;
 	}
 	video_scroll();
-	video_draw_char(c, cx * 9 - 7, cy * 16, color);
+	video_draw_char(c, cx * 8 - 7, cy * 16, color);
 }
 
 /* Print a string at the specified coordinates on the screen */
