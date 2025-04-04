@@ -14,9 +14,9 @@
 #include "printk.h"
 
 /* Initialize the serial port */
-void init_serial(int baud_rate)
+void init_serial(void)
 {
-	uint16_t divisor = 115200 / baud_rate;
+	uint16_t divisor = 115200 / 9600;
 
 	outb(SERIAL_PORT + 1, 0x00);					// Disable COM interrupts
 	outb(SERIAL_PORT + 3, 0x80);					// Enable DLAB (set baud rate divisor)
@@ -37,8 +37,8 @@ void init_serial(int baud_rate)
 	/* If the serial port is not faulty, set it to normal operation mode */
 	/* (non-loopback, IRQ enabled, OUT#1 and OUT#2 bits enabled) */
 	outb(SERIAL_PORT + 4, 0x0F);
-	plogk("Serial: Local port: COM1\n");
-	plogk("Serial: Baud rate: %d\n", baud_rate);
+	plogk("Serial: Local port = COM1\n");
+	plogk("Serial: Baud rate = %d\n", 9600);
 }
 
 /* Check whether the serial port is ready to read */

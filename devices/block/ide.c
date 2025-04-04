@@ -50,6 +50,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 	for (int i = 0; i < 4; i++) {
 		ide_devices[i].reserved = 0;
 	}
+	plogk("IDE: BAR0 = 0x%03x, BAR1 = 0x%03x, BAR2 = 0x%03x, BAR3 = 0x%03x, BAR4 = 0x%03x\n", BAR0, BAR1, BAR2, BAR3, BAR4);
 
 	/* Detect the I/O ports of the IDE controller */
 	channels[ATA_PRIMARY].base		= (BAR0 & 0xfffffffc) + 0x1f0 * (!BAR0);
@@ -202,7 +203,7 @@ void init_ide(void)
 		ide_initialize(0x1f0, 0x3f6, 0x170, 0x376, 0x000);
 		return;
 	}
-	plogk("IDE: Controller could not be found!\n");
+	plogk("IDE: Controller could not be found.\n");
 }
 
 /* Read a byte of data from the specified register of the IDE device */

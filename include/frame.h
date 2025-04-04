@@ -29,4 +29,7 @@ void init_frame(void);
 /* Allocate memory frame */
 uint64_t alloc_frames(unsigned long count);
 
+/* Print memory map */
+void print_memory_map(void);
+
 #endif // INCLUDE_FRAME_H_

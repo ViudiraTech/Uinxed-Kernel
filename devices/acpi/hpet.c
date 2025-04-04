@@ -38,8 +38,8 @@ void hpet_init(Hpet *hpet)
 	*(__volatile__ uint64_t *)(hpet->base_address.address + 0xf0) = 0;
 
 	plogk("ACPI: HPET Main counter is initialized to 0\n");
-	plogk("ACPI: HPET Counter Clock Period: %d (ns)\n", counterClockPeriod);
-	plogk("ACPI: HPET Timer Period: %d (us)\n", hpetPeriod);
+	plogk("ACPI: HPET Counter Clock Period = %d (ns)\n", counterClockPeriod);
+	plogk("ACPI: HPET Timer Period = %d (us)\n", hpetPeriod);
 
 	hpet_addr->generalConfiguration |= 1;
 	register_interrupt_handler(IRQ_32, timer_handle, 0, 0x8e);

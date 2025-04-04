@@ -319,9 +319,12 @@ void pci_init(void)
 			for (func = 0; func < 8; func++) {
 				pci_config(bus, slot, func, 0);
 				if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
-					PCI_NUM++;
 					uint32_t value_c = read_pci(bus, slot, func, PCI_CONF_REVISION);
-					plogk("PCI: Found device %03d.%02d.%01d: %s\n", bus, slot, func, pci_classname(value_c >> 8));
+					uint32_t vendor_id = (read_pci(bus, slot, func, PCI_CONF_VENDOR) & 0xffff);
+					uint32_t device_id = (read_pci(bus, slot, func, PCI_CONF_DEVICE) & 0xffff);
+					plogk("PCI: %03d:%02d.%01d: [0x%04x:0x%04x] %s\n",
+                          bus, slot, func, vendor_id, device_id, pci_classname(value_c >> 8));
+					PCI_NUM++;
 				}
 			}
 		}

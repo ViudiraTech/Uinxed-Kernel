@@ -39,25 +39,26 @@ void kernel_entry(void)
 
 	plogk("Uinxed version %s (%s version %s) #1 SMP %s %s\n",
           KERNL_VERS, COMPILER_NAME, COMPILER_VERSION, BUILD_DATE, BUILD_TIME);
-	plogk("Framebuffer address at 0x%016x, resolution: %dx%d\n",
+	plogk("Framebuffer 0x%016x, resolution = %dx%d\n",
           get_framebuffer()->address, get_framebuffer()->width, get_framebuffer()->height);
 	plogk("Command line: %s\n", get_cmdline());
 	plogk("SMBIOS %d.%d.0 present.\n",smbios_major_version(), smbios_minor_version());
+	plogk("CPU: %s %s\n", get_vendor_name(), get_model_name());
+	plogk("CPU: phy/virt = %d/%d bits.\n", get_cpu_phys_bits(), get_cpu_virt_bits());
 
+	print_memory_map();		// Print memory map information
 	init_gdt();				// Initialize global descriptors
 	init_idt();				// Initialize interrupt descriptor
+	acpi_init();			// Initialize ACPI
 	init_frame();			// Initialize memory frame
 	page_init();			// Initialize memory page
 	init_hhdm();			// Initialize the upper half memory mapping
 	init_heap();			// Initialize the memory heap
-	acpi_init();			// Initialize ACPI
 	isr_registe_handle();	// Register ISR interrupt processing
 	pci_init();				// Initialize PCI
-	init_serial(9600);		// Initialize the serial port
+	init_serial();			// Initialize the serial port
 	init_ide();				// Initialize ATA/ATAPI driver
 	enable_intr();
 
-	plogk("CPU: %s %s\n", get_vendor_name(), get_model_name());
-	plogk("CPU: phy/virt: %d/%d bits.\n", get_cpu_phys_bits(), get_cpu_virt_bits());
 	while (1) __asm__("hlt");
 }
