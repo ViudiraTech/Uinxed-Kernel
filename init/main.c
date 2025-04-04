@@ -45,6 +45,7 @@ void kernel_entry(void)
 	plogk("SMBIOS %d.%d.0 present.\n",smbios_major_version(), smbios_minor_version());
 	plogk("CPU: %s %s\n", get_vendor_name(), get_model_name());
 	plogk("CPU: phy/virt = %d/%d bits.\n", get_cpu_phys_bits(), get_cpu_virt_bits());
+	plogk("CPU: NX (Execute Disable) protection = %s\n", cpu_supports_nx() ? "active" : "passive");
 
 	print_memory_map();		// Print memory map information
 	init_gdt();				// Initialize global descriptors

@@ -59,3 +59,11 @@ unsigned int get_cpu_virt_bits(void)
 	cpuid(0x80000008, &rax, &rbx, &rcx, &rdx);
 	return (rax >> 8) & 0xff;
 }
+
+/* Check CPU supports NX/XD */
+int cpu_supports_nx(void)
+{
+	unsigned int rax, rbx, rcx, rdx;
+	cpuid(0x80000001, &rax, &rbx, &rcx, &rdx);
+	return (rdx & (1 << 20)) != 0;
+}

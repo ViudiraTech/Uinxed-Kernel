@@ -140,4 +140,7 @@ unsigned int get_cpu_phys_bits(void);
 /* Get CPU virtual address size */
 unsigned int get_cpu_virt_bits(void);
 
+/* Check CPU supports NX/XD */
+int cpu_supports_nx(void);
+
 #endif // INCLUDE_CPU_H_
