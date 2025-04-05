@@ -87,16 +87,24 @@ void video_clear_color(int color)
 }
 
 /* Screen scrolling operation */
-inline void video_scroll(void)
+void video_scroll(void)
 {
 	if ((uint32_t)cx > c_width) {
 		cx = 0;
 		cy++;
 	} else cx++;
 	if ((uint32_t)cy >= c_height) {
-		cy = c_height - 1;
-		memcpy(buffer, buffer + stride * 16, width * (height - 16) * sizeof(uint32_t));
+		uint8_t *dest = (uint8_t *)buffer;
+		const uint8_t *src = (const uint8_t *)(buffer + stride * 16);
+		unsigned long n = width * (height - 16) * sizeof(uint32_t);
+		unsigned long count = n / 8;
+
+		__asm__ __volatile__("rep movsq"
+                             : "+D"(dest), "+S"(src), "+c"(count)
+                             :: "memory");
+
 		memset(buffer + (height - 16) * stride, back_color, 16 * stride * sizeof(uint32_t));
+		cy = c_height - 1;
 	}
 }
 
