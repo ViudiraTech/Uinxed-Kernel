@@ -1,7 +1,7 @@
 /*
  *
  *		stdlib.c
- *		General utility library
+ *		Standard library
  *
  *		2024/10/2 By MicroFish
  *		Based on GPL-3.0 open source agreement

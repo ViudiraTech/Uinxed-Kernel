@@ -1,7 +1,7 @@
 /*
  *
  *		string.c
- *		Basic memory operation and string processing function library
+ *		Handling string and memory block
  *
  *		2024/6/27 By Rainy101112
  *		Based on GPL-3.0 open source agreement
@@ -11,213 +11,158 @@
 
 #include "string.h"
 
-/* Compares the first count bytes of two memory areas */
-inline int memcmp(const void *buffer1, const void *buffer2, unsigned long count)
+/* Copy n bytes from memory area str2 to memory area str1 */
+inline void *memcpy(void *str1, const void *str2, unsigned long n)
 {
-	const char *a = buffer1;
-	const char *b = buffer2;
-	while (count-- > 0) {
-		if (*a != *b) return *a > *b ? 1 : -1;
-		a++, b++;
+	__volatile__ uint8_t *dest = (__volatile__ uint8_t *)str1;
+	__volatile__ const uint8_t *src = (__volatile__ const uint8_t *)str2;
+	__volatile__ const uint8_t *end = (__volatile__ const uint8_t *)((uint8_t *)str2 + n);
+
+	if (dest == src) return str1;
+	while (src != end) *dest++ = *src++;
+	return str1;
+}
+
+/* Sets a memory area to the specified value */
+inline void *memset(void *str, int c, unsigned long n)
+{
+	__volatile__ uint8_t *_str = (__volatile__ uint8_t *)str;
+	__volatile__ uint8_t *end = (__volatile__ uint8_t *)((uint8_t *)str + n);
+	const uint8_t _c = c;
+
+	for (; _str < end; _str++) *_str = _c;
+	return str;
+}
+
+/* Copies n characters from str2 to str1, accounting for overlaps */
+inline void *memmove(void *str1, const void *str2, unsigned long n)
+{
+	__volatile__ uint8_t *dest = (__volatile__ uint8_t *)str1;
+	__volatile__ const uint8_t *src = (__volatile__ const uint8_t *)str2;
+	__volatile__ const uint8_t *end = (__volatile__ const uint8_t *)((uint8_t *)str2 + n);
+
+	if (dest == src) return str1;
+	if (dest > src && dest < end) {
+		dest += n;
+		while (src != end) *--dest = *--end;
+	} else {
+		while (src != end) *dest++ = *src++;
+	}
+	return str1;
+}
+
+/* Compares the first n bytes of memory area str1 with those of memory area str2 */
+inline int memcmp(const void *str1, const void *str2, unsigned long n)
+{
+	const uint8_t *_str1 = (const uint8_t *)str1;
+	const uint8_t *_str2 = (const uint8_t *)str2;
+	const uint8_t *end = (const uint8_t *)((uint8_t *)str1 + n);
+
+	for (; _str1 < end; _str1++, _str2++) {
+		if (*_str1 < *_str2) return -1;
+		if (*_str1 > *_str2) return 1;
 	}
 	return 0;
 }
 
-/* Copies len bytes from source address to destination address */
-inline void *memcpy(void *dest, const void *src, unsigned long len)
+/* Calculates the length of the string str */
+inline unsigned long strlen(const char *str)
 {
-	char *d = (char *)dest;
-	const char *s = (const char *)src;
-	void *ret = dest;
-	if (len < 8) {
-		while (len--) {
-			*d++ = *s++;
-		}
-		return ret;
-	}
-
-	unsigned long align = (unsigned long)d & (sizeof(unsigned long) - 1);
-	if (align) {
-		align = sizeof(unsigned long) - align;
-		len -= align;
-		while (align--) {
-			*d++ = *s++;
-		}
-	}
-
-	unsigned long *dw = (unsigned long *)d;
-	const unsigned long *sw = (const unsigned long *)s;
-	for (unsigned long i = 0; i < len / sizeof(unsigned long); i++) {
-		*dw++ = *sw++;
-	}
-	d = (char *)dw;
-	s = (const char *)sw;
-
-	unsigned long remain = len & (sizeof(unsigned long) - 1);
-	while (remain--) {
-		*d++ = *s++;
-	}
-	return ret;
+	unsigned long len = 0;
+	while (*str++ != '\0') len++;
+	return len;
 }
 
-/* Set the first len ​​bytes of the target memory area to the value val */
-inline void *memset(void *dest, int val, unsigned long len)
-{
-	unsigned char *d = dest;
-	unsigned char v = (unsigned char)val;
-	while(len && ((unsigned long)d & 7)) {
-		*d++ = v;
-		len--;
-	}
-
-	unsigned long v8 = v * 0x0101010101010101ULL;
-	while(len >= 8) {
-		*(unsigned long *)d = v8;
-		d += 8;
-		len -= 8;
-	}
-	while (len--) *d++ = v;
-	return dest;
-}
-
-/* Set the first len ​​bytes of the target memory area to 0 */
-inline void bzero(void *dest, unsigned long len)
-{
-	memset(dest, 0, len);
-}
-
-/* Clears the memory of a character array s */
-inline void memclean(char *s, int len)
-{
-	int i;
-	for (i = 0; i != len; i++) {
-		s[i] = 0;
-	}
-	return;
-}
-
-/* Comparing two strings */
-inline int strcmp(const char *dest, const char *src)
-{
-	int ret = 0 ;
-
-	while(!(ret = *(unsigned char *)src - *(unsigned char *)dest) && *dest) {
-		++src;
-		++dest;
-	}
-	if (ret < 0) {
-		ret = -1;
-	}
-	else if (ret > 0) {
-		ret = 1;
-	}
-	return ret;
-}
-
-/* Copies string src to dest */
+/* Copies the string pointed to by src to dest */
 inline char *strcpy(char *dest, const char *src)
 {
-	char *tmp = dest;
-
-	while (*src) {
-		*dest++ = *src++;
-	}
-	*dest = '\0';	
-	return tmp;
+	char *_dest = dest;
+	while ((*dest++ = *src++) != '\0');
+	return _dest;
 }
 
-/* Copies the first len ​​characters of string to dest */
-inline char *strncpy(char *dest, const char *src, unsigned long len)
+/* Copies the string pointed to by src to dest, up to n characters. */
+inline char *strncpy(char *dest, const char *src, unsigned long n)
 {
-	char *dst = dest;
-
-	while (len > 0) {
-		while (*src) {
-			*dest++ = *src++;
-		}
-		len--;
-	}
-	*dest = '\0';
-	return dst;
+	char *_dest = dest;
+	const char *end = src + n;
+	while (src < end && (*dest++ = *src++) != '\0');
+	return _dest;
 }
 
-/* Concatenates the string src to the end of dest */
-inline char *strcat(char *dest, const char *src)
+/* Compares the string pointed to by str1 with the string pointed to by str2 */
+inline int strcmp(const char *str1, const char *str2)
 {
-	char *cp = dest;
+	const uint8_t *_str1 = (const uint8_t *)str1;
+	const uint8_t *_str2 = (const uint8_t *)str2;
+	int c1, c2;
 
-	while (*cp) {
-		cp++;
-	}
-	while ((*cp++ = *src++));
-	return dest;
+	do {
+		c1 = *_str1++;
+		c2 = *_str2++;
+		if (!c1) return c1 - c2;
+	} while (c1 == c2);
+	return c1 - c2;
 }
 
-/* Searches for a character in a string and returns the position of the first occurrence of that character in the string */
-inline char *strchr(char *str, int c)
+/* Compares the first n characters of two strings for equality */
+inline int strncmp(const char *str1, const char *str2, unsigned long n)
 {
-	for (; *str != 0; ++str) {
-		if (*str == c) {
-			return str;
-		}
+	const uint8_t *_str1 = (const uint8_t *)str1;
+	const uint8_t *end = (const uint8_t *)str1 + n;
+	const uint8_t *_str2 = (const uint8_t *)str2;
+	uint8_t c1, c2;
+
+	while (_str1 != end) {
+		c1 = *_str1++;
+		c2 = *_str2++;
+		if (!c1) return (int)c1 - (int)c2;
+		if (c1 != c2) return c1 - c2;
 	}
 	return 0;
 }
 
-/* Returns the length of string src */
-inline int strlen(const char *src)
+/* Append the string pointed to by src to the end of the string pointed to by dest */
+inline char *strcat(char *dest, const char *src)
 {
-	const char *eos = src;
-	while (*eos++);
-	return (eos - src - 1);
+	const char *_dest = dest;
+	while (*dest++ != '\0');
+	dest--;
+	while ((*dest++ = *src++) != '\0');
+	return (char *)_dest;
 }
 
-/* Delete the characters at the specified position in a string */
-inline void delete_char(char *str, int pos)
+/* Finds a character in a string and returns the position of the character in the string */
+inline char *strchr(const char *str, int c)
 {
-	int i;
-	for (i = pos; i < strlen(str); i++) {
-		str[i] = str[i + 1];
+	for (; *str != '\0'; str++) {
+		if (*str == c) return (char *)str;
 	}
+	return 0;
 }
 
-/* Insert a character at a specified position in a string */
-inline void insert_char(char *str, int pos, char ch)
+/* Searches the string pointed to by the parameter str for the last occurrence of the character c */
+inline char *strrchr(const char *str, int c)
 {
-	int i;
-	for (i = strlen(str); i >= pos; i--) {
-		str[i + 1] = str[i];
+	const char *finded = 0;
+	for (; *str != '\0'; str++) {
+		if (*str == c) finded = str;
 	}
-	str[pos] = ch;
+	return (char *)finded;
 }
 
-/* Inserts a string into another string at a specified position */
-inline void insert_str(char *str, char *insert_str, int pos)
+/* Find the first occurrence of the string needle in the string haystack, excluding the terminator */
+inline char *strstr(const char *haystack, const char *needle)
 {
-	for (int i = 0; i < strlen(insert_str); i++) {
-		insert_char(str, pos + i, insert_str[i]);
-	}
-}
+	unsigned long _sn = strlen(haystack), _tn = strlen(needle);
 
-/* Convert all letters in a string to uppercase */
-inline char *strupr(char *src)
-{
-	while (*src != '\0') {
-		if (*src >= 'a' && *src <= 'z')
-			*src -= 32;
-		src++;
-	}
-	return src;
-}
+	if (_tn == 0) return (char *)haystack;
+	if (_sn < _tn) return 0;
 
-/* Convert all letters in a string to lowercase */
-inline char *strlwr(char *src)
-{
-	while (*src != '\0') {
-		if (*src > 'A' && *src <= 'Z') {
-			*src += 32;
-		}
-		src++;
+	const char *s = haystack, *t = needle;
+
+	for (unsigned long i = 0; i <= _sn - _tn; i++) {
+		if (strncmp(s + i, t, _tn) == 0) return (char *)(s + i);
 	}
-	return src;
+	return 0;
 }
