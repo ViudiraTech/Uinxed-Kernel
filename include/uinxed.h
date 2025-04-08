@@ -14,7 +14,7 @@
 
 #define BUILD_DATE __DATE__			// Compilation Date
 #define BUILD_TIME __TIME__			// Compile time
-#define KERNL_VERS "0.0.250405"		// Version format: v[major version].[patch version].[YY-MM-DD]
+#define KERNL_VERS "0.0.250408"		// Version format: v[major version].[patch version].[YY-MM-DD]
 
 /* Compiler judgment */
 #if defined(__clang__)
