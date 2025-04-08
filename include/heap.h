@@ -17,6 +17,9 @@
 /* Initialize the memory heap */
 void init_heap(void);
 
+/* Allocate 4k-aligned memory */
+void *alloc_4k_aligned_mem(unsigned long size);
+
 /* Allocate an empty memory */
 void *calloc(unsigned long a, unsigned long b);
 

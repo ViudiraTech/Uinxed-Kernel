@@ -48,6 +48,12 @@ __attribute__((interrupt)) static void page_fault_handle(interrupt_frame_t *fram
 	}
 }
 
+/* Determine whether the page table entry maps a huge page */
+static int is_huge_page(page_table_entry_t *entry)
+{
+	return (((uint64_t)entry->value) & PTE_HUGE) != 0;
+}
+
 /* Clear all entries in a memory page table */
 void page_table_clear(page_table_t *table)
 {
@@ -103,6 +109,30 @@ void copy_page_table_recursive(page_table_t *source_table, page_table_t *new_tab
 	}
 }
 
+/* Recursively free memory page tables */
+void free_page_table_recursive(page_table_t *table, int level)
+{
+	uint64_t virtual_address = (uint64_t)table;
+	uint64_t physical_address = (uint64_t)virt_to_phys(virtual_address);
+
+	if (level == 0) {
+		free_frame(physical_address & 0x000fffffffff000);
+		return;
+	}
+	for (int i = 0; i < 512; i++) {
+		page_table_entry_t *entry = &table->entries[i];
+		if (entry->value == 0 || is_huge_page(entry)) continue;
+		if (level == 1) {
+			if (entry->value & PTE_PRESENT && entry->value & PTE_WRITEABLE && entry->value & PTE_USER) {
+				free_frame(entry->value & 0x000fffffffff000);
+			}
+		} else {
+			free_page_table_recursive(phys_to_virt(entry->value & 0x000fffffffff000), level - 1);
+		}
+	}
+	free_frame(physical_address & 0x000fffffffff000);
+}
+
 /* Clone a page directory */
 page_directory_t *clone_directory(page_directory_t *src)
 {
@@ -110,6 +140,14 @@ page_directory_t *clone_directory(page_directory_t *src)
 	new_directory->table = malloc(sizeof(page_table_t));
 	copy_page_table_recursive(src->table, new_directory->table, 3);
 	return new_directory;
+}
+
+/* Free a page directory */
+void free_directory(page_directory_t *dir)
+{
+	free_page_table_recursive(dir->table, 4);
+	free_frame((uint64_t)virt_to_phys((uint64_t)dir->table));
+	free(dir);
 }
 
 /* Maps a virtual address to a physical frame */

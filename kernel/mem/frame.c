@@ -88,6 +88,18 @@ uint64_t alloc_frames(unsigned long count)
 	return frame_index * 4096;
 }
 
+/* Free memory frames */
+void free_frame(uint64_t addr)
+{
+	if (addr == 0) return;
+	unsigned long frame_index = addr / 4096;
+
+	if (frame_index == 0) return;
+	Bitmap *bitmap = &frame_allocator.bitmap;
+	bitmap_set(bitmap, frame_index, 1);
+	frame_allocator.usable_frames++;
+}
+
 /* Print memory map */
 void print_memory_map(void)
 {

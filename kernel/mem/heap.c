@@ -14,6 +14,7 @@
 #include "string.h"
 #include "hhdm.h"
 #include "alloc.h"
+#include "page.h"
 
 /* Initialize the memory heap */
 void init_heap(void)
@@ -23,6 +24,14 @@ void init_heap(void)
 
 	heap_init(heap_base, heap_size);
 	plogk("Heap: Heap base set to 0x%016x, size %d bytes.\n", heap_base, heap_size);
+}
+
+/* Allocate 4k-aligned memory */
+void *alloc_4k_aligned_mem(unsigned long size)
+{
+	void *p = malloc(size < PAGE_SIZE ? size + PAGE_SIZE : size);
+	void *pAligned = (void *)(((uint64_t)p + 0xfff) & ~0xfff);
+	return pAligned;
 }
 
 /* Allocate an empty memory */

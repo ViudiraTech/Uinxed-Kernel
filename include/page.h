@@ -14,12 +14,14 @@
 
 #include "stdint.h"
 
-#define PTE_PRESENT (0x1 << 0)
-#define PTE_WRITEABLE (0x1 << 1)
-#define PTE_USER (0x1 << 2)
-#define PTE_HUGE (0x1 << 3)
-#define PTE_NO_EXECUTE (((uint64_t)0x1) << 63)
-#define KERNEL_PTE_FLAGS (PTE_PRESENT | PTE_WRITEABLE | PTE_NO_EXECUTE)
+#define PTE_PRESENT			(0x1 << 0)
+#define PTE_WRITEABLE		(0x1 << 1)
+#define PTE_USER			(0x1 << 2)
+#define PTE_HUGE			(0x1 << 7)
+#define PTE_NO_EXECUTE		(((uint64_t)0x1) << 63)
+#define KERNEL_PTE_FLAGS	(PTE_PRESENT | PTE_WRITEABLE | PTE_NO_EXECUTE)
+
+#define PAGE_SIZE 0x1000
 
 typedef struct page_table_entry {
 	uint64_t value;
@@ -48,8 +50,14 @@ page_directory_t *get_current_directory(void);
 /* Recursively copy memory page tables */
 void copy_page_table_recursive(page_table_t *source_table, page_table_t *new_table, int level);
 
+/* Recursively free memory page tables */
+void free_page_table_recursive(page_table_t *table, int level);
+
 /* Clone a page directory */
 page_directory_t *clone_directory(page_directory_t *src);
+
+/* Free a page directory */
+void free_directory(page_directory_t *dir);
 
 /* Maps a virtual address to a physical frame */
 void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags);

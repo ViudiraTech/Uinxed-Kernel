@@ -29,6 +29,9 @@ void init_frame(void);
 /* Allocate memory frame */
 uint64_t alloc_frames(unsigned long count);
 
+/* Free memory frames */
+void free_frame(uint64_t addr);
+
 /* Print memory map */
 void print_memory_map(void);
 
