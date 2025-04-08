@@ -209,7 +209,7 @@ void init_ide(void)
 /* Read a byte of data from the specified register of the IDE device */
 uint8_t ide_read(uint8_t channel, uint8_t reg)
 {
-	uint8_t result;
+	uint8_t result = 0;
 	if (reg > 0x07 && reg < 0x0c)
 		ide_write(channel, ATA_REG_CONTROL, 0x80 | channels[channel].nIEN);
 	if (reg < 0x08)
@@ -446,7 +446,7 @@ void ide_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint32_t ed
 
 	/* Reading in PIO mode via polling and IRQ */
 	else {
-		uint8_t err;
+		uint8_t err = 0;
 		if (ide_devices[drive].type == IDE_ATA)
 			err = ide_ata_access(ATA_READ, drive, lba, numsects, edi);
 		else if (ide_devices[drive].type == IDE_ATAPI)
@@ -468,7 +468,7 @@ void ide_write_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint32_t e
 
 	/* Writing in PIO mode via polling and IRQ */
 	else {
-		uint8_t err;
+		uint8_t err = 0;
 		if (ide_devices[drive].type == IDE_ATA)
 			err = ide_ata_access(ATA_WRITE, drive, lba, numsects, edi);
 		else if (ide_devices[drive].type == IDE_ATAPI)
