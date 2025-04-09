@@ -155,7 +155,7 @@ void apic_init(MADT *madt)
 		MadtHeader *header = (MadtHeader *)((uint64_t)(&madt->entries) + current);
 		if (header->entry_type == MADT_APIC_IO) {
 			MadtIOApic *ioapic = (MadtIOApic *)((uint64_t)(&madt->entries) + current);
-			ioapic_address = ioapic->address;
+			ioapic_address = (uint64_t)phys_to_virt(ioapic->address);
 			plogk("ACPI: IOAPIC Found at address 0x%016x\n", ioapic_address);
 		}
 		current += (uint64_t)header->length;

@@ -31,7 +31,7 @@ void facp_init(acpi_facp_t *facp0)
 	uint32_t dsdtlen;
 	facp = facp0;
 
-	dsdt_table_t *dsdtTable = (dsdt_table_t*)(uint64_t)facp->dsdt;
+	dsdt_table_t *dsdtTable = (dsdt_table_t *)(uint64_t)facp->dsdt;
 	if (dsdtTable == 0) {
 		plogk("ACPI: DSDT table not found.\n");
 		return;

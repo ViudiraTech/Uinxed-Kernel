@@ -35,7 +35,7 @@ void hpet_init(Hpet *hpet)
 
 	uint32_t counterClockPeriod = hpet_addr->generalCapabilities >> 32;
 	hpetPeriod = counterClockPeriod / 1000000;
-	*(__volatile__ uint64_t *)(hpet->base_address.address + 0xf0) = 0;
+	hpet_addr->mainCounterValue = 0;
 
 	plogk("ACPI: HPET Main counter is initialized to 0\n");
 	plogk("ACPI: HPET Counter Clock Period = %d (ns)\n", counterClockPeriod);
