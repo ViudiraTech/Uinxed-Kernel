@@ -53,7 +53,6 @@ void acpi_init(void)
 		plogk("ACPI: RSDP not found.\n");
 		return;
 	}
-	rsdp = (RSDP *)phys_to_virt((uint64_t)rsdp);
 	plogk("ACPI: RSDP 0x%016x\n", (unsigned long long)rsdp);
 
 	xsdt = (XSDT *)rsdp->xsdt_address;

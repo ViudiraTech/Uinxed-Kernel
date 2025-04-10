@@ -35,6 +35,8 @@
 /* Kernel entry */
 void kernel_entry(void)
 {
+	init_heap();			// Initialize the memory heap
+	init_hhdm();			// Initialize the upper half memory mapping
 	video_init();			// Initialize Video
 
 	plogk("Uinxed version %s (%s version %s) #1 SMP %s %s\n",
@@ -53,8 +55,6 @@ void kernel_entry(void)
 	acpi_init();			// Initialize ACPI
 	init_frame();			// Initialize memory frame
 	page_init();			// Initialize memory page
-	init_hhdm();			// Initialize the upper half memory mapping
-	init_heap();			// Initialize the memory heap
 	isr_registe_handle();	// Register ISR interrupt processing
 	pci_init();				// Initialize PCI
 	init_serial();			// Initialize the serial port

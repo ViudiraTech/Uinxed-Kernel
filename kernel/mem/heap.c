@@ -23,7 +23,6 @@ void init_heap(void)
 	unsigned long heap_size = 0x400000; // 4MB
 
 	heap_init(heap_base, heap_size);
-	plogk("Heap: Heap base set to 0x%016x, size %d bytes.\n", heap_base, heap_size);
 }
 
 /* Allocate 4k-aligned memory */
