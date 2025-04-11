@@ -35,8 +35,8 @@
 /* Kernel entry */
 void kernel_entry(void)
 {
-	init_heap();			// Initialize the memory heap
 	init_hhdm();			// Initialize the upper half memory mapping
+	init_heap();			// Initialize the memory heap
 	video_init();			// Initialize Video
 
 	plogk("Uinxed version %s (%s version %s) #1 SMP %s %s\n",

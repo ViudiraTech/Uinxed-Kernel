@@ -20,7 +20,7 @@
 void init_heap(void)
 {
 	uint8_t *heap_base = (uint8_t *)(physical_memory_offset + 0x3c0f000);
-	unsigned long heap_size = 0x400000; // 4MB
+	unsigned long heap_size = 0x800000; // 8MB
 
 	heap_init(heap_base, heap_size);
 }
