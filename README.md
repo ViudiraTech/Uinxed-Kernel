@@ -1,6 +1,15 @@
-# Welcome to the Uinxed-Kernel project
+<div align="center"> 
+  <img height="200px" src="https://github.com/user-attachments/assets/ef586a12-6c55-4e8b-bdac-ab31411aa2de"/>     
+  <h1 align="center">Uinxed-Kernel</h1>
+  <h3 align="center">Welcome to the Uinxed-Kernel project</h3>
+</div>
 
-![](https://img.shields.io/badge/License-GPLv3-blue) ![](https://img.shields.io/badge/Language-2-orange) ![](https://img.shields.io/badge/hardware-x64-green) ![](https://img.shields.io/badge/firmware-UEFI-yellow)
+<div align="center">
+  <img src="https://img.shields.io/badge/License-GPLv3-blue"/>
+  <img src="https://img.shields.io/badge/Language-2-orange"/>
+  <img src="https://img.shields.io/badge/hardware-x64-green"/>
+  <img src="https://img.shields.io/badge/firmware-UEFI-yellow"/>
+</div>
 
 ## Overview 💡
 
