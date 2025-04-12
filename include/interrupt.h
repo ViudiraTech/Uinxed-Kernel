@@ -12,6 +12,10 @@
 #ifndef INCLUDE_INTERRUPT_H_
 #define INCLUDE_INTERRUPT_H_
 
+#include "stdint.h"
+#include "stddef.h"
+#include "idt.h"
+
 /* register */
 typedef struct registers {
 	uint64_t ds;
