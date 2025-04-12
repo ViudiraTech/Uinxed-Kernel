@@ -114,7 +114,7 @@ Uinxed-x86_64/
 
 ## FAQ 🔍
 
-### Errors about `'XXX.h' file not found` in editors
+### Errors about 'XXX.h' file not found in editors
 
 A: If you are using clangd as a code analyzer, you can generate a .clangd file via Makefile. Just like this:
 
