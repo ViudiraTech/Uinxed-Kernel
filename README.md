@@ -116,14 +116,13 @@ Uinxed-x86_64/
 
 ### Errors about `'XXX.h' file not found` in editors
 
-A: If you are using `clangd` as a code analyzer, you can generate a `.clangd` file via `Makefile`. Just like this:
+A: If you are using clangd as a code analyzer, you can generate a .clangd file via Makefile. Just like this:
 
 ```bash
 make gen.clangd
 ```
 
-However, if you are using a different LSP server, you can refer to the `Makefile` to change your configuration file.
-
+However, if you are using a different LSP server, you can refer to the Makefile to change your configuration file.
 
 ## Contribution Guidelines 🤝
 
@@ -153,4 +152,4 @@ This project adopts the GPL-3.0 open source agreement. Please refer to the LICEN
 
 ## Contact Details 📩
 
-QQ：2609948707 | 3585302907
+email：2609948707@qq.com | 3585302907@qq.com
