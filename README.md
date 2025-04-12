@@ -92,17 +92,18 @@ make run
 
 ```
 Uinxed-x86_64/
-├── .git/           # Version management
-├── assets/         # Boot and scripts
-├── devices/        # Device driver
-├── include/        # Header file
-├── init/           # Code entry
-├── kernel/         # Kernel part
-├── libs/           # Library file
-├── .gitignore      # Ignore rules
-├── LICENSE         # Open source agreement
-├── Makefile        # Build script
-└── README.md       # Project introduction
+├── .git/            # Version management
+├── assets/          # Boot and scripts
+├── devices/         # Device driver
+├── include/         # Header file
+├── init/            # Code entry
+├── kernel/          # Kernel part
+├── libs/            # Library file
+├── .gitignore       # Ignore rules
+├── LICENSE          # Open source agreement
+├── Makefile         # Build script
+├── .clangd_template # Clangd configuration template
+└── README.md        # Project introduction
 ```
 
 ```
@@ -110,6 +111,19 @@ Uinxed-x86_64/
 ├── UxImage         # Kernel file
 └── Uinxed-x64.iso  # Bootable image
 ```
+
+## FAQ 🔍
+
+### Errors about `'XXX.h' file not found` in editors
+
+A: If you are using `clangd` as a code analyzer, you can generate a `.clangd` file via `Makefile`. Just like this:
+
+```bash
+make gen.clangd
+```
+
+However, if you are using a different LSP server, you can refer to the `Makefile` to change your configuration file.
+
 
 ## Contribution Guidelines 🤝
 
