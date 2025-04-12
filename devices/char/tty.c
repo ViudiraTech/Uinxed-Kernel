@@ -78,7 +78,7 @@ void tty_print_ch(const char ch)
 	if (strcmp(get_boot_tty(), "ttyS0") == 0) {
 		write_serial(ch);
 	} else {
-		video_put_string((char *)(uintptr_t)ch);
+		video_put_string((char[]){ch, '\0'});
 	}
 }
 
