@@ -13,33 +13,34 @@
 #define INCLUDE_STRING_H_
 
 #include "stdint.h"
+#include "stddef.h"
 
 /* Copy n bytes from memory area str2 to memory area str1 */
-void *memcpy(void *str1, const void *str2, unsigned long n);
+void *memcpy(void *str1, const void *str2, size_t n);
 
 /* Sets a memory area to the specified value */
-void *memset(void *str, int c, unsigned long n);
+void *memset(void *str, int c, size_t n);
 
 /* Copies n characters from str2 to str1, accounting for overlaps */
-void *memmove(void *str1, const void *str2, unsigned long n);
+void *memmove(void *str1, const void *str2, size_t n);
 
 /* Compares the first n bytes of memory area str1 with those of memory area str2 */
-int memcmp(const void *str1, const void *str2, unsigned long n);
+int memcmp(const void *str1, const void *str2, size_t n);
 
 /* Calculates the length of the string str */
-unsigned long strlen(const char *str);
+size_t strlen(const char *str);
 
 /* Copies the string pointed to by src to dest */
 char *strcpy(char *dest, const char *src);
 
 /* Copies the string pointed to by src to dest, up to n characters. */
-char *strncpy(char *dest, const char *src, unsigned long n);
+char *strncpy(char *dest, const char *src, size_t n);
 
 /* Compares the string pointed to by str1 with the string pointed to by str2 */
 int strcmp(const char *str1, const char *str2);
 
 /* Compares the first n characters of two strings for equality */
-int strncmp(const char *str1, const char *str2, unsigned long n);
+int strncmp(const char *str1, const char *str2, size_t n);
 
 /* Append the string pointed to by src to the end of the string pointed to by dest */
 char *strcat(char *dest, const char *src);

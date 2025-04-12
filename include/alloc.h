@@ -12,11 +12,14 @@
 #ifndef INCLUDE_ALLOC_H_
 #define INCLUDE_ALLOC_H_
 
+#include "stddef.h"
+#include "stdint.h"
+
 /* Initialize a memory heapInitialize a memory heap */
-int heap_init(uint8_t *address, unsigned long size);
+int heap_init(uint8_t *address, size_t size);
 
 /* Allocate a memory space of a specified size on the heap */
-void *malloc(unsigned long size);
+void *malloc(size_t size);
 
 /* Free previously allocated memory */
 void free(void *ptr);

@@ -15,18 +15,20 @@
 #include "hhdm.h"
 #include "alloc.h"
 #include "page.h"
+#include "stdint.h"
+#include "stddef.h"
 
 /* Initialize the memory heap */
 void init_heap(void)
 {
 	uint8_t *heap_base = (uint8_t *)(physical_memory_offset + 0x3c0f000);
-	unsigned long heap_size = 0x800000; // 8MB
+	size_t heap_size = 0x800000; // 8MB
 
 	heap_init(heap_base, heap_size);
 }
 
 /* Allocate 4k-aligned memory */
-void *alloc_4k_aligned_mem(unsigned long size)
+void *alloc_4k_aligned_mem(size_t size)
 {
 	void *p = malloc(size < PAGE_SIZE ? size + PAGE_SIZE : size);
 	void *pAligned = (void *)(((uint64_t)p + 0xfff) & ~0xfff);
@@ -34,7 +36,7 @@ void *alloc_4k_aligned_mem(unsigned long size)
 }
 
 /* Allocate an empty memory */
-void *calloc(unsigned long a, unsigned long b)
+void *calloc(size_t a, size_t b)
 {
 	void *p = malloc(a * b);
 	memset(p, 0, a * b);
