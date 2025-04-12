@@ -16,6 +16,7 @@
 #include "printk.h"
 #include "acpi.h"
 #include "cmos.h"
+#include "tty.h"
 
 /* Kernel print string */
 void printk(const char *format, ...)
@@ -29,22 +30,7 @@ void printk(const char *format, ...)
 	va_end(args);
 
 	buff[i] = '\0';
-	video_put_string(buff);
-}
-
-/* Kernel prints colored strings */
-void printk_color(int fore, const char *format, ...)
-{
-	static char buff[2048];
-	va_list args;
-	int i;
-
-	va_start(args, format);
-	i = vsprintf(buff, format, args);
-	va_end(args);
-
-	buff[i] = '\0';
-	video_put_string_color(buff, fore);
+	tty_print_str(buff);
 }
 
 /* Kernel print log */
@@ -64,25 +50,6 @@ void plogk(const char *format, ...)
 	printk("%5d.%06d", nanoTime() / 1000000000, (nanoTime() / 1000) % 1000000);
 	printk("] ");
 	printk(buff);
-}
-
-/* Kernel prints colored logs */
-void plogk_color(int fore, const char *format, ...)
-{
-	static char buff[2048];
-	va_list args;
-	int i;
-
-	va_start(args, format);
-	i = vsprintf(buff, format, args);
-	va_end(args);
-
-	buff[i] = '\0';
-
-	printk("[");
-	printk("%5d.%06d", nanoTime() / 1000000000, (nanoTime() / 1000) % 1000000);
-	printk("] ");
-	printk_color(fore, buff);
 }
 
 /* Store the formatted output in a character array */

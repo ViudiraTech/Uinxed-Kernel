@@ -17,14 +17,8 @@
 /* Kernel print string */
 void printk(const char *format, ...);
 
-/* Kernel prints colored strings */
-void printk_color(int fore, const char *format, ...);
-
 /* Kernel print log */
 void plogk(const char *format, ...);
-
-/* Kernel prints colored logs */
-void plogk_color(int fore, const char *format, ...);
 
 /* Store the formatted output in a character array */
 void sprintf(char *str, const char *fmt, ...);

@@ -18,7 +18,7 @@
 {																													\
 	(void)frame;																									\
 	disable_intr();																									\
-	plogk_color(0xffff0000, "Interrupt empty %d\n", id);															\
+	plogk("Interrupt empty %d\n", id);																				\
 	send_eoi();																										\
 	enable_intr();																									\
 }
