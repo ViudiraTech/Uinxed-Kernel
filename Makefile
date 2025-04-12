@@ -26,8 +26,8 @@ LIBS		:= $(wildcard libs/lib*.a)
 QEMU		:= qemu-system-x86_64
 QEMU_FLAGS	:= -machine q35 -bios assets/ovmf-code.fd
 
-C_FLAGS		:= -Wall -Wextra -O3 -g3 -m64 -ffreestanding -fno-pie -fno-stack-protector -mcmodel=kernel -mno-red-zone \
-                   -mno-80387 -mno-mmx -mno-sse -mno-sse2 -msoft-float -I include -MMD
+C_FLAGS		:= -Wall -Wextra -O3 -g3 -m64 -ffreestanding -fno-pie -fno-stack-protector -fno-omit-frame-pointer \
+                   -mcmodel=kernel -mno-red-zone -mno-80387 -mno-mmx -mno-sse -mno-sse2 -msoft-float -I include -MMD
 LD_FLAGS	:= -nostdlib -static -T assets/linker.ld -m elf_x86_64
 AS_FLAGS	:= -g --64
 

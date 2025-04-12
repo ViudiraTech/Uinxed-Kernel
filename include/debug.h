@@ -15,6 +15,9 @@
 #define assert(exp) \
 	if (!exp) assertion_failure(#exp, __FILE__, __LINE__)
 
+/* Dump stack */
+void dump_stack(void);
+
 /* Kernel panic */
 void panic(const char *format, ...);
 

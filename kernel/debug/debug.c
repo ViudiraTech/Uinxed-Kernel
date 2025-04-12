@@ -14,6 +14,22 @@
 #include "common.h"
 #include "vargs.h"
 
+/* Dump stack */
+void dump_stack(void)
+{
+	uintptr_t *rbp;
+	__asm__ __volatile__("movq %%rbp, %0" : "=r"(rbp));
+
+	plogk("Call Trace:\n");
+	plogk(" <TASK>\n");
+
+	for (int i = 0; i < 16 && rbp && (uintptr_t)rbp > 0x1000; ++i) {
+		plogk("  [<0x%016x>]\n", *(rbp + 1));
+		rbp = (uintptr_t *)(*rbp);
+	}
+	plogk(" </TASK>\n");
+}
+
 /* Kernel panic */
 void panic(const char *format, ...)
 {
@@ -27,7 +43,10 @@ void panic(const char *format, ...)
 
 	buff[i] = '\0';
 
+	plogk("\n");
 	plogk("Kernel panic - not syncing: %s\n", buff);
+	dump_stack();
+	plogk("---[ end Kernel panic - not syncing: %s ]---", buff);
 	krn_halt();
 }
 
