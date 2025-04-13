@@ -96,8 +96,8 @@ void video_scroll(void)
 	if ((uint32_t)cy >= c_height) {
 		uint8_t *dest = (uint8_t *)buffer;
 		const uint8_t *src = (const uint8_t *)(buffer + stride * 16);
-		unsigned long n = width * (height - 16) * sizeof(uint32_t);
-		unsigned long count = n / 8;
+		size_t n = width * (height - 16) * sizeof(uint32_t);
+		size_t count = n / 8;
 
 		__asm__ __volatile__("rep movsq"
                              : "+D"(dest), "+S"(src), "+c"(count)

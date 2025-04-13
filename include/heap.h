@@ -13,14 +13,15 @@
 #define INCLUDE_HEAP_H_
 
 #include "stdint.h"
+#include "stddef.h"
 
 /* Initialize the memory heap */
 void init_heap(void);
 
 /* Allocate 4k-aligned memory */
-void *alloc_4k_aligned_mem(unsigned long size);
+void *alloc_4k_aligned_mem(size_t size);
 
 /* Allocate an empty memory */
-void *calloc(unsigned long a, unsigned long b);
+void *calloc(size_t a, size_t b);
 
 #endif // INCLUDE_HEAP_H_

@@ -135,10 +135,10 @@ char *get_vendor_name(void);
 char *get_model_name(void);
 
 /* Get the CPU physical address size */
-unsigned int get_cpu_phys_bits(void);
+uint32_t get_cpu_phys_bits(void);
 
 /* Get CPU virtual address size */
-unsigned int get_cpu_virt_bits(void);
+uint32_t get_cpu_virt_bits(void);
 
 /* Check CPU supports NX/XD */
 int cpu_supports_nx(void);

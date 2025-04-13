@@ -35,7 +35,7 @@ void init_frame(void)
 			break;
 		}
 	}
-	unsigned long bitmap_size = (memory_size / 4096 + 7) / 8;
+	size_t bitmap_size = (memory_size / 4096 + 7) / 8;
 	uint64_t bitmap_address = 0;
 
 	for (uint64_t i = 0; i < memory_map->entry_count; i++) {
@@ -53,21 +53,21 @@ void init_frame(void)
 	}
 	Bitmap *bitmap = &frame_allocator.bitmap;
 	bitmap_init(bitmap, phys_to_virt(bitmap_address), bitmap_size);
-	unsigned long origin_frames = 0;
+	size_t origin_frames = 0;
 
 	for (uint64_t i = 0; i < memory_map->entry_count; i++) {
 		struct limine_memmap_entry *region = memory_map->entries[i];
 		if (region->type == LIMINE_MEMMAP_USABLE) {
-			unsigned long start_frame = region->base / 4096;
-			unsigned long frame_count = region->length / 4096;
+			size_t start_frame = region->base / 4096;
+			size_t frame_count = region->length / 4096;
 			origin_frames += frame_count;
 			bitmap_set_range(bitmap, start_frame, start_frame + frame_count, 1);
 			plogk("Frame: Marked 0x%06x frames from 0x%016x as usable.\n", frame_count, region->base);
 		}
 	}
-	unsigned long bitmap_frame_start = bitmap_address / 4096;
-	unsigned long bitmap_frame_count = (bitmap_size + 4095) / 4096;
-	unsigned long bitmap_frame_end = bitmap_frame_start + bitmap_frame_count;
+	size_t bitmap_frame_start = bitmap_address / 4096;
+	size_t bitmap_frame_count = (bitmap_size + 4095) / 4096;
+	size_t bitmap_frame_end = bitmap_frame_start + bitmap_frame_count;
 	bitmap_set_range(bitmap, bitmap_frame_start, bitmap_frame_end, 0);
 	plogk("Frame: Reserved 0x%04x frames for bitmap at 0x%016x\n", bitmap_frame_count, bitmap_address);
 	frame_allocator.origin_frames = origin_frames;
@@ -77,12 +77,12 @@ void init_frame(void)
 }
 
 /* Allocate memory frame */
-uint64_t alloc_frames(unsigned long count)
+uint64_t alloc_frames(size_t count)
 {
 	Bitmap *bitmap = &frame_allocator.bitmap;
-	unsigned long frame_index = bitmap_find_range(bitmap, count, 1);
+	size_t frame_index = bitmap_find_range(bitmap, count, 1);
 
-	if (frame_index == (unsigned long)-1) return 0;
+	if (frame_index == (size_t)-1) return 0;
 	bitmap_set_range(bitmap, frame_index, frame_index + count, 0);
 	frame_allocator.usable_frames -= count;
 	return frame_index * 4096;
@@ -92,7 +92,7 @@ uint64_t alloc_frames(unsigned long count)
 void free_frame(uint64_t addr)
 {
 	if (addr == 0) return;
-	unsigned long frame_index = addr / 4096;
+	size_t frame_index = addr / 4096;
 
 	if (frame_index == 0) return;
 	Bitmap *bitmap = &frame_allocator.bitmap;

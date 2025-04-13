@@ -32,9 +32,7 @@ void *find_table(const char *name)
 
 	for (uint64_t i = 0; i < entry_count; i++) {
 		uint64_t ptr = (uint64_t)phys_to_virt((uint64_t)*(t + i));
-		uint8_t signa[5] = {0};
-		memcpy(signa, ((struct ACPISDTHeader *)ptr)->Signature, 4);
-		if (memcmp(signa, name, 4) == 0) {
+		if (memcmp(((struct ACPISDTHeader *)ptr)->Signature, name, 4) == 0) {
 			plogk("ACPI: %.4s 0x%016x\n", name, ptr);
 			return (void *)ptr;
 		}
@@ -53,7 +51,7 @@ void acpi_init(void)
 		plogk("ACPI: RSDP not found.\n");
 		return;
 	}
-	plogk("ACPI: RSDP 0x%016x\n", (unsigned long long)rsdp);
+	plogk("ACPI: RSDP 0x%016x\n", rsdp);
 
 	xsdt = (XSDT *)rsdp->xsdt_address;
 	if (xsdt == 0) {
@@ -61,7 +59,7 @@ void acpi_init(void)
 		return;
 	}
 	xsdt = (XSDT *)phys_to_virt((uint64_t)xsdt);
-	plogk("ACPI: XSDT 0x%016x\n", (unsigned long long)xsdt);
+	plogk("ACPI: XSDT 0x%016x\n", xsdt);
 
 	void *hpet = find_table("HPET");
 	if (hpet == 0) {

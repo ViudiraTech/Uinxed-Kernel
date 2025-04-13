@@ -300,7 +300,7 @@ int pci_found_class(uint32_t class_code, uint32_t *bus, uint32_t *slot, uint32_t
 /* Returns the device name based on the class code */
 const char *pci_classname(uint32_t classcode)
 {
-	for (unsigned long i = 0; pci_classnames[i].name != 0; i++) {
+	for (size_t i = 0; pci_classnames[i].name != 0; i++) {
 		if (pci_classnames[i].classcode == classcode)
 			return pci_classnames[i].name;
 		if (pci_classnames[i].classcode == (classcode & 0xFFFF00))
@@ -312,7 +312,7 @@ const char *pci_classname(uint32_t classcode)
 /* PCI device initialization */
 void pci_init(void)
 {
-	unsigned long PCI_NUM = 0;
+	size_t PCI_NUM = 0;
 	uint32_t bus, slot, func;
 	for (bus = 0; bus < 256; bus++) {
 		for (slot = 0; slot < 32; slot++) {

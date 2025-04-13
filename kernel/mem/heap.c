@@ -31,8 +31,8 @@ void init_heap(void)
 void *alloc_4k_aligned_mem(size_t size)
 {
 	void *p = malloc(size < PAGE_SIZE ? size + PAGE_SIZE : size);
-	void *pAligned = (void *)(((uint64_t)p + 0xfff) & ~0xfff);
-	return pAligned;
+	void *p_aligned = (void *)(((uint64_t)p + 0xfff) & ~0xfff);
+	return p_aligned;
 }
 
 /* Allocate an empty memory */

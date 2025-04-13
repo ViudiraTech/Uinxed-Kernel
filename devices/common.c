@@ -54,13 +54,13 @@ inline uint32_t inl(uint16_t port)
 }
 
 /* Read data from I/O port to memory in batches (16 bits) */
-inline void insw(uint16_t port, void *buf, unsigned long n)
+inline void insw(uint16_t port, void *buf, size_t n)
 {
 	__asm__ __volatile__("cld; rep; insw" : "+D"(buf), "+c"(n) : "d"(port));
 }
 
 /* Write data from memory to I/O port in batches (16 bits) */
-inline void outsw(uint16_t port, const void *buf, unsigned long n)
+inline void outsw(uint16_t port, const void *buf, size_t n)
 {
 	__asm__ __volatile__("cld; rep; outsw" : "+S"(buf), "+c"(n) : "d"(port));
 }

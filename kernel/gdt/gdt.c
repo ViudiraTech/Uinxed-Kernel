@@ -31,7 +31,7 @@ void init_gdt(void)
 	gdt_entries[4] = 0x00a0fa0000000000;
 
 	gdt_pointer = ((struct gdt_register) {
-		.size = ((uint16_t)((uint32_t)sizeof(gdt_entries_t) - 1)),
+		.size = (uint16_t)(sizeof(gdt_entries_t) - 1),
 		.ptr = &gdt_entries
 	});
 
@@ -58,7 +58,7 @@ void tss_init(void)
 	uint64_t mid_base		= (((((address >> 24)) & 0xff)) << 56);
 	uint64_t high_base		= (address >> 32);
 	uint64_t access_byte	= (((uint64_t)(0x89)) << 40);
-	uint64_t limit			= ((uint64_t)((uint32_t)(sizeof(tss_t) - 1)));
+	uint64_t limit			= (uint64_t)(sizeof(tss_t) - 1);
 
 	gdt_entries[5]			= (((low_base | mid_base) | limit) | access_byte);
 	gdt_entries[6]			= high_base;

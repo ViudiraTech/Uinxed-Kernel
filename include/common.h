@@ -13,6 +13,7 @@
 #define INCLUDE_COMMON_H_
 
 #include "stdint.h"
+#include "stddef.h"
 
 void outb(uint16_t port, uint8_t value);	// Port write (8 bits)
 void outw(uint16_t port, uint16_t value);	// Port write (16 bits)
@@ -23,10 +24,10 @@ uint16_t inw(uint16_t port);				// Port read (16 bits)
 uint32_t inl(uint16_t port);				// Port read (32 bits)
 
 /* Read data from I/O port to memory in batches (16 bits) */
-void insw(uint16_t port, void *buf, unsigned long n);
+void insw(uint16_t port, void *buf, size_t n);
 
 /* Write data from memory to I/O port in batches (16 bits) */
-void outsw(uint16_t port, const void *buf, unsigned long n);
+void outsw(uint16_t port, const void *buf, size_t n);
 
 /* Read data from I/O port to memory in batches (32 bits) */
 void insl(uint32_t port, void *addr, int cnt);

@@ -146,28 +146,28 @@ int vsprintf(char *buff, const char *format, va_list args)
 			}
 			break;
 		case 'o':
-			str = number(str, va_arg(args, unsigned long), 8, field_width, precision, flags);
+			str = number(str, va_arg(args, size_t), 8, field_width, precision, flags);
 			break;
 		case 'p':
 			if (field_width == -1) {
 				field_width = 16;
 				flags |= ZEROPAD;
 			}
-			str = number(str, (unsigned long)va_arg(args, void *), 16, field_width, precision, flags);
+			str = number(str, (size_t)va_arg(args, void *), 16, field_width, precision, flags);
 			break;
 		case 'x':
 			flags |= SMALL; // fallthrough
 		case 'X':
-			str = number(str, va_arg(args, unsigned long), 16, field_width, precision, flags);
+			str = number(str, va_arg(args, size_t), 16, field_width, precision, flags);
 			break;
 		case 'd':
 		case 'i':
 			flags |= SIGN; // fallthrough
 		case 'u':
-			str = number(str, va_arg(args, unsigned long), 10, field_width, precision, flags);
+			str = number(str, va_arg(args, size_t), 10, field_width, precision, flags);
 			break;
 		case 'b':
-			str = number(str, va_arg(args, unsigned long), 2, field_width, precision, flags);
+			str = number(str, va_arg(args, size_t), 2, field_width, precision, flags);
 			break;
 		case 'n':
 			ip = va_arg(args, int *);

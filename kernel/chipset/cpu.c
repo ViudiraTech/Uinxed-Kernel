@@ -24,10 +24,10 @@ char *get_vendor_name(void)
 {
 	int cpuid_level;
 	static char x86_vendor_id[16] = {0};
-	cpuid(0x00000000, (unsigned int *)&cpuid_level,
-                      (unsigned int *)&x86_vendor_id[0],
-                      (unsigned int *)&x86_vendor_id[8],
-                      (unsigned int *)&x86_vendor_id[4]);
+	cpuid(0x00000000, (uint32_t *)&cpuid_level,
+                      (uint32_t *)&x86_vendor_id[0],
+                      (uint32_t *)&x86_vendor_id[8],
+                      (uint32_t *)&x86_vendor_id[4]);
 	return x86_vendor_id;
 }
 
@@ -45,17 +45,17 @@ char *get_model_name(void)
 }
 
 /* Get the CPU physical address size */
-unsigned int get_cpu_phys_bits(void)
+uint32_t get_cpu_phys_bits(void)
 {
-	unsigned int rax, rbx, rcx, rdx;
+	uint32_t rax, rbx, rcx, rdx;
 	cpuid(0x80000008, &rax, &rbx, &rcx, &rdx);
 	return rax & 0xff;
 }
 
 /* Get CPU virtual address size */
-unsigned int get_cpu_virt_bits(void)
+uint32_t get_cpu_virt_bits(void)
 {
-	unsigned int rax, rbx, rcx, rdx;
+	uint32_t rax, rbx, rcx, rdx;
 	cpuid(0x80000008, &rax, &rbx, &rcx, &rdx);
 	return (rax >> 8) & 0xff;
 }
@@ -63,7 +63,7 @@ unsigned int get_cpu_virt_bits(void)
 /* Check CPU supports NX/XD */
 int cpu_supports_nx(void)
 {
-	unsigned int rax, rbx, rcx, rdx;
+	uint32_t rax, rbx, rcx, rdx;
 	cpuid(0x80000001, &rax, &rbx, &rcx, &rdx);
 	return (rdx & (1 << 20)) != 0;
 }
