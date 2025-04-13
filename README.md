@@ -141,6 +141,10 @@ Contributions are welcome! Please follow the steps below:
 3. suhuajun:Testing/bug fixing
 4. XIAOYI12:Co-developer
 
+## Blacklist 🚷
+
+1. [copi143](https://github.com/copi143) Inciting conflict
+
 ## Open source code or projects used by the project 🎈
 
 - Hurlex-Kernel:[http://wiki.0xffffff.org/](http://wiki.0xffffff.org/)
