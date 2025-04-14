@@ -49,16 +49,16 @@ void kernel_entry(void)
 	plogk("CPU: phy/virt = %d/%d bits.\n", get_cpu_phys_bits(), get_cpu_virt_bits());
 	plogk("CPU: NX (Execute Disable) protection = %s\n", cpu_supports_nx() ? "active" : "passive");
 
-	print_memory_map();		// Print memory map information
 	init_gdt();				// Initialize global descriptors
 	init_idt();				// Initialize interrupt descriptor
+	isr_registe_handle();	// Register ISR interrupt processing
 	acpi_init();			// Initialize ACPI
+	print_memory_map();		// Print memory map information
 	init_frame();			// Initialize memory frame
 	page_init();			// Initialize memory page
-	isr_registe_handle();	// Register ISR interrupt processing
 	pci_init();				// Initialize PCI
-	init_serial();			// Initialize the serial port
 	init_ide();				// Initialize ATA/ATAPI driver
+	init_serial();			// Initialize the serial port
 	enable_intr();
 
 	while (1) __asm__("hlt");

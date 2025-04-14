@@ -85,7 +85,7 @@ void facp_init(acpi_facp_t *facp0)
 				plogk("ACPI: ACPI enabled successfully.\n");
 				break;
 			}
-			usleep(5);
+			nsleep(5);
 		}
 		if (facp->pm1b_cnt_blk) {
 			for (int i = 0; i < 300; i++) {
@@ -93,7 +93,7 @@ void facp_init(acpi_facp_t *facp0)
 					plogk("ACPI: ACPI enabled successfully.\n");
 					break;
 				}
-				usleep(5);
+				nsleep(5);
 			}
 		}
 		if (i < 300) {

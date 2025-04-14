@@ -70,11 +70,11 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 
 			/* Select Drive */
 			ide_write(i, ATA_REG_HDDEVSEL, 0xa0 | (j << 4));
-			usleep(10);
+			nsleep(10);
 
 			/* Send ATA Identify command */
 			ide_write(i, ATA_REG_COMMAND, ATA_CMD_IDENTIFY);
-			usleep(10);
+			nsleep(10);
 
 			if (ide_read(i, ATA_REG_STATUS) == 0) continue;
 			while (1) {
@@ -99,7 +99,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 					continue;
 
 				ide_write(i, ATA_REG_COMMAND, ATA_CMD_IDENTIFY_PACKET);
-				usleep(10);
+				nsleep(10);
 			}
 
 			/* Read the device's identification space */
@@ -265,7 +265,7 @@ uint8_t ide_polling(uint8_t channel, uint32_t advanced_check)
 	int a = ide_read(channel, ATA_REG_STATUS);
 	while (a & ATA_SR_BSY) {
 		a = ide_read(channel, ATA_REG_STATUS);
-		usleep(10);
+		nsleep(10);
 	}
 	if (advanced_check) {
 		uint8_t state = ide_read(channel, ATA_REG_STATUS);

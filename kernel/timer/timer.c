@@ -24,12 +24,12 @@ __attribute__((interrupt)) void timer_handle(interrupt_frame_t *frame)
 	enable_intr();
 }
 
-/* Microsecond-based delay functions */
-void sleep(uint64_t micro)
+/* Millisecond-based delay functions */
+void msleep(uint64_t ms)
 {
 	uint64_t targetTime = nanoTime();
 	uint64_t after = 0;
-	uint64_t nano = micro * 1000000;
+	uint64_t ns = ms * 1000000;
 
 	while (1) {
 		uint64_t n = nanoTime();
@@ -40,14 +40,14 @@ void sleep(uint64_t micro)
 			after += n - targetTime;
 			targetTime = n;
 		}
-		if (after >= nano) {
+		if (after >= ns) {
 			return;
 		}
 	}
 }
 
 /* Nanosecond-based delay function */
-void usleep(uint64_t nano)
+void nsleep(uint64_t ns)
 {
 	uint64_t targetTime = nanoTime();
 	uint64_t after = 0;
@@ -61,7 +61,7 @@ void usleep(uint64_t nano)
 			after += n - targetTime;
 			targetTime = n;
 		}
-		if (after >= nano) {
+		if (after >= ns) {
 			return;
 		}
 	}
