@@ -134,16 +134,61 @@ Contributions are welcome! Please follow the steps below:
 4. Submit a Pull Request
 5. Wait for code review and merge
 
+## Submit an issue ❓
+
+Communication is the key to problem solving. When you encounter a bug, you can report it to us by submitting an issue.
+We welcome everyone to submit an issue. But before you do it, you should know our rule of submitting.
+
+1. **Describe the problem in as much detail as possible.**
+It will help us understand clearly what happened. For this, you may submit with your log or code snippet.
+2. **Just be polite.**
+Bring your problem politely. Asking questions to us in an extremely impolite manner will not solve any substantive problems, but will instead cause both the questioner and the answerer to engage in a fight. Asking questions politely and rationally will help solve the problem smoothly.
+3. **No need to worry about being formal.**
+You can be more casual, no need to be too formal. It is because of your questions that we can make our project better, so in a sense we are partners. On the other hand, because the language is too formal, it may be difficult to read. In order to maximize efficiency, we do not require formal language.
+4. **Native language allowed.**
+You can submit an issue in your own language. However, please be aware of factors such as spelling that may affect the translation results, and sometimes the translator may not work well because of this.
+
+__*TIPS!*__
+1. Any code-related questions __*can only be asked by submitting issues*__. Other methods, such as asking questions directly through software such as *Discord*, will __*not be accepted*__.
+2. If you are unkind, such as being rude as described above, it will be considered a violation of our submission rules and the issue will be __*closed immediately*__.
+
+__*What kind of issues will not be adopted?*__
+
+The following samples are unaccept. 
+
+Rude.
+```
+YOU GUYS DID A REALLY S**T.
+GO F**K YOURSELVES.
+```
+
+Unclear.
+```
+Doesn't work on VMware.
+*No anything else*
+```
+
+Common sense questions.
+```
+How to install the compiler?
+```
+
+Strange.
+```
+:D
+```
+
+Not relevant.
+```
+Fish can't live without water.
+```
+
 ## Core Developers 👨‍💻
 
 1. MicroFish:Main Development/Planning/Management
 2. Rainy101112:Deputy Development/Planning/Management
 3. suhuajun:Testing/bug fixing
 4. XIAOYI12:Co-developer
-
-## Blacklist 🚷
-
-1. [copi143](https://github.com/copi143) Inciting conflict
 
 ## Open source code or projects used by the project 🎈
 
