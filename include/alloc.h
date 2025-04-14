@@ -15,13 +15,22 @@
 #include "stddef.h"
 #include "stdint.h"
 
-/* Initialize a memory heapInitialize a memory heap */
+/* Initializes the heap memory arena */
 int heap_init(uint8_t *address, size_t size);
 
-/* Allocate a memory space of a specified size on the heap */
+/* Allocates memory with default alignment */
 void *malloc(size_t size);
 
-/* Free previously allocated memory */
+/* Allocates memory with specified alignment */
+void *aligned_alloc(size_t alignment, size_t size);
+
+/* Reallocates memory previously allocated */
+void *realloc(void *ptr, size_t new_size);
+
+/* Frees memory previously allocated */
 void free(void *ptr);
+
+/* Returns the usable size of the memory block pointed */
+size_t usable_size(void *ptr);
 
 #endif // INCLUDE_ALLOC_H_
