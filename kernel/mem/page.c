@@ -27,7 +27,7 @@ __attribute__((interrupt)) static void page_fault_handle(interrupt_frame_t *fram
 	(void)frame;
 	disable_intr();
 	uint64_t faulting_address;
-	__asm__ __volatile__("mov %%cr2, %0" : "=r"(faulting_address));
+	__asm__ volatile ("mov %%cr2, %0" : "=r"(faulting_address));
 
 	int present = !(error_code & 0x1);	// Page does not exist
 	int rw = error_code & 0x2;			// Read-only page is written
@@ -35,17 +35,16 @@ __attribute__((interrupt)) static void page_fault_handle(interrupt_frame_t *fram
 	int reserved = error_code & 0x8;	// Write CPU reserved bits
 	int id = error_code & 0x10;			// Caused by instruction fetch
 
-	if (present) {
+	if (present)
 		panic("PAGE_FAULT-Present-Address: 0x%016x", faulting_address);
-	} else if (rw) {
+	else if (rw)
 		panic("PAGE_FAULT-ReadOnly-Address: 0x%016x", faulting_address);
-	} else if (us) {
+	else if (us)
 		panic("PAGE_FAULT-UserMode-Address: 0x%016x", faulting_address);
-	} else if (reserved) {
+	else if (reserved)
 		panic("PAGE_FAULT-Reserved-Address: 0x%016x", faulting_address);
-	} else if (id) {
+	else if (id)
 		panic("PAGE_FAULT-DecodeAddress-Address: 0x%016x", faulting_address);
-	}
 }
 
 /* Determine whether the page table entry maps a huge page */
@@ -57,9 +56,8 @@ static int is_huge_page(page_table_entry_t *entry)
 /* Clear all entries in a memory page table */
 void page_table_clear(page_table_t *table)
 {
-	for (int i = 0; i < 512; i++) {
+	for (int i = 0; i < 512; i++)
 		table->entries[i].value = 0;
-	}
 }
 
 /* Create a memory page table */
@@ -172,7 +170,7 @@ void switch_page_directory(page_directory_t *dir)
 {
 	current_directory = dir;
 	page_table_t *physical_table = virt_to_phys((uint64_t)dir->table);
-	__asm__ __volatile__("mov %0, %%cr3" :: "r"(physical_table));
+	__asm__ volatile ("mov %0, %%cr3" :: "r"(physical_table));
 }
 
 /* Map a continuous section of physical memory to the virtual address space */

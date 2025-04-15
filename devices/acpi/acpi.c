@@ -19,7 +19,7 @@
 XSDT *xsdt;
 
 __attribute__((used, section(".limine_requests")))
-static __volatile__ struct limine_rsdp_request rsdp_request = {
+static volatile struct limine_rsdp_request rsdp_request = {
 	.id = LIMINE_RSDP_REQUEST,
 	.revision = 0
 };
@@ -76,7 +76,7 @@ void acpi_init(void)
 		apic_init(apic);
 
 	void *facp = find_table("FACP");
-	if(facp == 0) {
+	if (facp == 0) {
 		plogk("ACPI: FACP table not found.\n");
 		return;
 	} else

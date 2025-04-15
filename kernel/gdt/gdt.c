@@ -35,16 +35,17 @@ void init_gdt(void)
 		.ptr = &gdt_entries
 	});
 
-	__asm__ __volatile__("lgdt %[ptr]; push %[cseg]; lea 1f, %%rax; push %%rax; lretq;"
-                         "1:"
-                         "mov %[dseg], %%ds;"
-                         "mov %[dseg], %%fs;"
-                         "mov %[dseg], %%gs;"
-                         "mov %[dseg], %%es;"
-                         "mov %[dseg], %%ss;"
-                         :: [ptr] "m"(gdt_pointer),
-                         [cseg] "rm"((uint64_t)0x8),
-                         [dseg] "rm"((uint64_t)0x10) : "memory");
+	__asm__ volatile ("lgdt %[ptr]; push %[cseg]; lea 1f, %%rax; push %%rax; lretq;"
+                      "1:"
+                      "mov %[dseg], %%ds;"
+                      "mov %[dseg], %%fs;"
+                      "mov %[dseg], %%gs;"
+                      "mov %[dseg], %%es;"
+                      "mov %[dseg], %%ss;"
+                      :: [ptr] "m"(gdt_pointer),
+                      [cseg] "rm"((uint64_t)0x8),
+                      [dseg] "rm"((uint64_t)0x10) : "memory");
+
 	plogk("GDT: CS reloaded with 0x%04x, DS/ES/FS/GS/SS = 0x%04x\n", 0x8, 0x10);
 	plogk("GDT: GDT initialized at 0x%016x (6 entries)\n", &gdt_entries);
 	tss_init();
@@ -66,7 +67,7 @@ void tss_init(void)
 
 	plogk("TSS: TSS descriptor configured (addr = 0x%016x, limit = 0x%04x)\n", &tss0, sizeof(tss_t) - 1);
 	plogk("TSS: IST0 stack = 0x%016x\n", tss0.ist[0]);
-	__asm__ __volatile__("ltr %w[offset]" :: [offset] "rm"((uint16_t)0x28) : "memory");
+	__asm__ volatile ("ltr %w[offset]" :: [offset] "rm"((uint16_t)0x28) : "memory");
 	plogk("TSS: TR register loaded with selector 0x%04x\n", 0x28);
 }
 

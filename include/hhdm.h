@@ -14,8 +14,6 @@
 
 #include "stdint.h"
 
-extern uint64_t physical_memory_offset;
-
 /* Initialize the upper half memory mapping */
 void init_hhdm(void);
 

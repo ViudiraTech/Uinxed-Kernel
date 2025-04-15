@@ -21,6 +21,6 @@
 void wait_parallel_ready(void);
 
 /* Write to parallel port */
-void parallel_write(unsigned char c);
+void parallel_write(const char c);
 
 #endif // INCLUDE_PARALLEL_H_

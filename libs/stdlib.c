@@ -19,7 +19,7 @@ int is_digit(int c)
 }
 
 /* Convert a string number to an integer number */
-int atoi(char *pstr)
+int atoi(const char *pstr)
 {
 	int ret_integer = 0;
 	int integer_sign = 1;
@@ -52,15 +52,12 @@ char *number(char *str, int64_t num, int base, int size, int precision, int type
 	const char *digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 	int i;
 
-	if (type & SMALL) {
+	if (type & SMALL)
 		digits = "0123456789abcdefghijklmnopqrstuvwxyz";
-	}
-	if (type & LEFT) {
+	if (type & LEFT)
 		type &= ~ZEROPAD;
-	}
-	if (base < 2 || base > 36) {
+	if (base < 2 || base > 36)
 		return 0;
-	}
 
 	c = (type & ZEROPAD) ? '0' : ' ' ;
 

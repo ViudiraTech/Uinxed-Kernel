@@ -75,21 +75,18 @@ const char *get_boot_tty(void)
 /* Print characters to tty */
 void tty_print_ch(const char ch)
 {
-	if (strcmp(get_boot_tty(), "ttyS0") == 0) {
+	if (strcmp(get_boot_tty(), "ttyS0") == 0)
 		write_serial(ch);
-	} else {
+	else
 		video_put_string((char[]){ch, '\0'});
-	}
 }
 
 /* Print string to tty */
 void tty_print_str(const char *str)
 {
-	if (strcmp(get_boot_tty(), "ttyS0") == 0) {
-		for (; *str; ++str) {
+	if (strcmp(get_boot_tty(), "ttyS0") == 0)
+		for (; *str; ++str)
 			write_serial(*str);
-		}
-	} else {
+	else
 		video_put_string(str);
-	}
 }

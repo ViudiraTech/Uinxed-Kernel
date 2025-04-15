@@ -14,7 +14,7 @@
 #include "printk.h"
 
 __attribute__((used, section(".limine_requests")))
-static __volatile__ struct limine_hhdm_request hhdm_request = {
+static volatile struct limine_hhdm_request hhdm_request = {
 	.id = LIMINE_HHDM_REQUEST,
 	.revision = 0
 };
@@ -28,7 +28,7 @@ void init_hhdm(void)
 }
 
 /* Get physical memory offset */
-uint64_t get_physical_memory_offset(void)\
+uint64_t get_physical_memory_offset(void)
 {
 	return physical_memory_offset;
 }

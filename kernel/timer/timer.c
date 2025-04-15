@@ -27,18 +27,18 @@ __attribute__((interrupt)) void timer_handle(interrupt_frame_t *frame)
 /* Millisecond-based delay functions */
 void msleep(uint64_t ms)
 {
-	uint64_t targetTime = nanoTime();
+	uint64_t target_time = nano_time();
 	uint64_t after = 0;
 	uint64_t ns = ms * 1000000;
 
 	while (1) {
-		uint64_t n = nanoTime();
-		if (n < targetTime) {
-			after += 0xffffffff - targetTime + n;
-			targetTime = n;
+		uint64_t n = nano_time();
+		if (n < target_time) {
+			after += 0xffffffff - target_time + n;
+			target_time = n;
 		} else {
-			after += n - targetTime;
-			targetTime = n;
+			after += n - target_time;
+			target_time = n;
 		}
 		if (after >= ns) {
 			return;
@@ -49,17 +49,17 @@ void msleep(uint64_t ms)
 /* Nanosecond-based delay function */
 void nsleep(uint64_t ns)
 {
-	uint64_t targetTime = nanoTime();
+	uint64_t target_time = nano_time();
 	uint64_t after = 0;
 
 	while (1) {
-		uint64_t n = nanoTime();
-		if (n < targetTime) {
-			after += 0xffffffff - targetTime + n;
-			targetTime = n;
+		uint64_t n = nano_time();
+		if (n < target_time) {
+			after += 0xffffffff - target_time + n;
+			target_time = n;
 		} else {
-			after += n - targetTime;
-			targetTime = n;
+			after += n - target_time;
+			target_time = n;
 		}
 		if (after >= ns) {
 			return;

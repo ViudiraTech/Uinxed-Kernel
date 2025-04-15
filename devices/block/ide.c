@@ -63,7 +63,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 	/* Disable IRQ */
 	ide_write(ATA_PRIMARY, ATA_REG_CONTROL, 2);
 	ide_write(ATA_SECONDARY, ATA_REG_CONTROL, 2);
-	for (int i = 0; i < 2; i++)
+	for (int i = 0; i < 2; i++) {
 		for (j = 0; j < 2; j++) {
 			uint8_t err = 0, type = IDE_ATA, status;
 			ide_devices[count].reserved = 0;
@@ -130,6 +130,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 			ide_devices[count].model[40] = 0;
 			count++;
 		}
+	}
 
 	/* Print device information */
 	for (int i = 0; i < 4; i++) {
@@ -220,7 +221,8 @@ uint8_t ide_read(uint8_t channel, uint8_t reg)
 		result = inb(channels[channel].ctrl + reg - 0x0a);
 	else if (reg < 0x16)
 		result = inb(channels[channel].bmide + reg - 0x0e);
-	if (reg > 0x07 && reg < 0x0c) ide_write(channel, ATA_REG_CONTROL, channels[channel].nIEN);
+	if (reg > 0x07 && reg < 0x0c)
+		ide_write(channel, ATA_REG_CONTROL, channels[channel].nIEN);
 	return result;
 }
 
@@ -237,7 +239,8 @@ void ide_write(uint8_t channel, uint8_t reg, uint8_t data)
 		outb(channels[channel].ctrl + reg - 0x0a, data);
 	else if (reg < 0x16)
 		outb(channels[channel].bmide + reg - 0x0e, data);
-	if (reg > 0x07 && reg < 0x0c) ide_write(channel, ATA_REG_CONTROL, channels[channel].nIEN);
+	if (reg > 0x07 && reg < 0x0c)
+		ide_write(channel, ATA_REG_CONTROL, channels[channel].nIEN);
 }
 
 /* Read multiple words of data from the specified register of the IDE device into the buffer */
@@ -253,7 +256,8 @@ void ide_read_buffer(uint8_t channel, uint8_t reg, uint64_t buffer, uint32_t qua
 		insl(channels[channel].ctrl + reg - 0x0a, (uint32_t *)buffer, quads);
 	else if (reg < 0x16)
 		insl(channels[channel].bmide + reg - 0x0e, (uint32_t *)buffer, quads);
-	if (reg > 0x07 && reg < 0x0c) ide_write(channel, ATA_REG_CONTROL, channels[channel].nIEN);
+	if (reg > 0x07 && reg < 0x0c)
+		ide_write(channel, ATA_REG_CONTROL, channels[channel].nIEN);
 }
 
 /* Polling the status of IDE devices */
@@ -355,8 +359,9 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t n
 		/* PIO Read */
 		uint16_t *word_ = (uint16_t *)edi;
 		for (i = 0; i < numsects; i++) {
-			if ((err = ide_polling(channel, 1)) != 0)
+			if ((err = ide_polling(channel, 1)) != 0) {
 				return err;
+			}
 			insl(bus, (uint32_t *)(word_ + i * words), words / 2);
 		}
 	} else {
@@ -364,12 +369,12 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t n
 		uint16_t *word_ = (uint16_t *)edi;
 		for (i = 0; i < numsects; i++) {
 			ide_polling(channel, 0);
-			for (int h = 0; h < (int)words; h++) {
+			for (uint32_t h = 0; h < words; h++) {
 				outw(bus, word_[i * words + h]);
 			}
 		}
 		ide_write(channel, ATA_REG_COMMAND, (char[]){ATA_CMD_CACHE_FLUSH, ATA_CMD_CACHE_FLUSH,
-				ATA_CMD_CACHE_FLUSH_EXT}[lba_mode]);
+                  ATA_CMD_CACHE_FLUSH_EXT}[lba_mode]);
 		ide_polling(channel, 0);
 	}
 	return 0;
@@ -403,7 +408,6 @@ uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint32_t e
 
 	ide_write(channel, ATA_REG_HDDEVSEL, slavebit << 4);
 	for (int i = 0; i < 4000; i++);
-
 	for (int i = 0; i < 4; i++)
 		ide_read(channel, ATA_REG_ALTSTATUS);
 
@@ -424,11 +428,10 @@ uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint32_t e
 	for (i = 0; i < numsects; i++) {
 		ide_wait_irq();
 		if ((err = ide_polling(channel, 1)) != 0) return err;
-		for (int h = 0; h < (int)words; h++) {
+		for (uint32_t h = 0; h < words; h++) {
 			_word[i * words + h] = inw(bus);
 		}
 	}
-
 	while (ide_read(channel, ATA_REG_STATUS) & (ATA_SR_BSY | ATA_SR_DRQ));
 	return 0;
 }

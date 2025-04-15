@@ -18,7 +18,7 @@
 void dump_stack(void)
 {
 	uintptr_t *rbp;
-	__asm__ __volatile__("movq %%rbp, %0" : "=r"(rbp));
+	__asm__ volatile ("movq %%rbp, %0" : "=r"(rbp));
 
 	plogk("Call Trace:\n");
 	plogk(" <TASK>\n");

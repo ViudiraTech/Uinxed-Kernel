@@ -61,7 +61,7 @@ char read_serial(void)
 }
 
 /* Write serial port */
-void write_serial(char c)
+void write_serial(const char c)
 {
 	while (is_transmit_empty() == 0);
 	outb(SERIAL_PORT, c);

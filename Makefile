@@ -22,7 +22,7 @@ S_SOURCES	:= $(shell find * -name "*.s")
 OBJS		:= $(C_SOURCES:%.c=%.o) $(S_SOURCES:%.s=%.o)
 DEPS		:= $(OBJS:%.o=%.d)
 LIBS		:= $(wildcard libs/lib*.a)
-PWD			:= $(shell pwd)
+PWD		:= $(shell pwd)
 
 QEMU		:= qemu-system-x86_64
 QEMU_FLAGS	:= -machine q35 -bios assets/ovmf-code.fd

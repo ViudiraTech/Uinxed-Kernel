@@ -61,5 +61,5 @@ void kernel_entry(void)
 	init_serial();			// Initialize the serial port
 	enable_intr();
 
-	while (1) __asm__("hlt");
+	while (1) __asm__ volatile ("hlt");
 }

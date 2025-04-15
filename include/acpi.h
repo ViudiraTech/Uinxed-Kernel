@@ -36,12 +36,12 @@ typedef struct {
 	uint64_t xsdt_address;		// V2: XSDT address (64-bit)
 	uint8_t extended_checksum;	// Extended Checksum
 	uint8_t reserved[3];		// Reserved Fields
-} __attribute__((packed))RSDP;
+} __attribute__((packed)) RSDP;
 
 typedef struct {
 	struct ACPISDTHeader h;
 	uint64_t PointerToOtherSDT;
-} __attribute__((packed))XSDT;
+} __attribute__((packed)) XSDT;
 
 struct generic_address {
 	uint8_t address_space;
@@ -64,7 +64,7 @@ typedef struct {
 	uint64_t comparatorValue;
 	uint64_t fsbInterruptRoute;
 	uint64_t unused;
-} __attribute__((packed))HpetTimer;
+} __attribute__((packed)) HpetTimer;
 
 typedef struct {
 	uint64_t generalCapabilities;
@@ -76,7 +76,7 @@ typedef struct {
 	uint64_t mainCounterValue;
 	uint64_t reserved4;
 	HpetTimer timers[];
-} __attribute__((packed))__volatile__ HpetInfo;
+} __attribute__((packed)) volatile HpetInfo;
 
 typedef struct dsdt_table{
 	uint8_t signature[4];
@@ -88,7 +88,7 @@ typedef struct dsdt_table{
 	uint32_t oem_revision;
 	uint32_t creator_id;
 	uint8_t definition_block;
-} __attribute__((packed))dsdt_table_t;
+} __attribute__((packed)) dsdt_table_t;
 
 typedef struct facp_table {
 	struct ACPISDTHeader h;
@@ -143,7 +143,7 @@ typedef struct facp_table {
 	struct generic_address x_pm_tmr_blk;
 	struct generic_address x_gpe0_blk;
 	struct generic_address x_gpe1_blk;
-} __attribute__((packed))acpi_facp_t;
+} __attribute__((packed)) acpi_facp_t;
 
 typedef struct hpet Hpet;
 typedef struct facp_table acpi_facp_t;
@@ -155,7 +155,7 @@ void *find_table(const char *name);
 void acpi_init(void);
 
 /* Returns the nanosecond value of the current time */
-uint64_t nanoTime(void);
+uint64_t nano_time(void);
 
 /* Initialize high-precision event timer */
 void hpet_init(Hpet *hpet);

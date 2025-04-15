@@ -12,7 +12,7 @@
 #include "limine.h"
 
 __attribute__((used, section(".limine_requests")))
-static __volatile__ struct limine_kernel_file_request kernel_file_request = {
+static volatile struct limine_kernel_file_request kernel_file_request = {
 	.id = LIMINE_KERNEL_FILE_REQUEST,
 	.revision = 0,
 	.response = 0

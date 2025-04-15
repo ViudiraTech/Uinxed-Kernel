@@ -34,11 +34,10 @@ void bitmap_set(Bitmap *bitmap, size_t index, int value)
 {
 	size_t word_index = index / 8;
 	size_t bit_index = index % 8;
-	if (value) {
+	if (value)
 		bitmap->buffer[word_index] |= ((size_t)1 << bit_index);
-	} else {
+	else
 		bitmap->buffer[word_index] &= ~((size_t)1 << bit_index);
-	}
 }
 
 /* Set the memory bitmap range */

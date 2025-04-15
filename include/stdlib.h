@@ -31,7 +31,7 @@
 int is_digit(int c);
 
 /* Convert a string number to an integer number */
-int atoi(char *pstr);
+int atoi(const char *pstr);
 
 /* Skip numbers in a string and return the value of those consecutive numbers */
 int skip_atoi(const char **s);

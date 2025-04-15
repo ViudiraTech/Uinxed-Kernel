@@ -15,7 +15,7 @@
 #include "limine.h"
 
 __attribute__((used, section(".limine_requests")))
-static __volatile__ struct limine_memmap_request memmap_request = {
+static volatile struct limine_memmap_request memmap_request = {
 	.id = LIMINE_MEMMAP_REQUEST,
 	.revision = 0,
 };

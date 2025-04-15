@@ -35,7 +35,7 @@ typedef struct {
 	uint32_t local_apic_address;
 	uint32_t flags;
 	void *entries;
-} __attribute__((packed))MADT;
+} __attribute__((packed)) MADT;
 
 struct madt_hander {
 	uint8_t entry_type;

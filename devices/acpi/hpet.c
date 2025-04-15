@@ -20,7 +20,7 @@ static uint32_t hpetPeriod = 0;
 void timer_handle(interrupt_frame_t *frame);
 
 /* Returns the nanosecond value of the current time */
-uint64_t nanoTime(void)
+uint64_t nano_time(void)
 {
 	if (hpet_addr == 0) return 0;
 	uint64_t mcv = hpet_addr->mainCounterValue;

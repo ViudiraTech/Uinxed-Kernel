@@ -21,7 +21,7 @@ uint64_t lapic_address;
 uint64_t ioapic_address;
 
 __attribute__((used, section(".limine_requests")))
-static __volatile__ struct limine_smp_request smp_request = {
+static volatile struct limine_smp_request smp_request = {
 	.id = LIMINE_SMP_REQUEST,
 	.revision = 0,
 	.response = 0,
@@ -38,15 +38,15 @@ void disable_pic(void)
 /* Write I/O APIC register */
 void ioapic_write(uint32_t reg, uint32_t value)
 {
-	mmio_write32((uint32_t *)((uint64_t)ioapic_address), reg);
-	mmio_write32((uint32_t *)((uint64_t)ioapic_address + 0x10), value);
+	mmio_write32((uint32_t *)(ioapic_address), reg);
+	mmio_write32((uint32_t *)(ioapic_address + 0x10), value);
 }
 
 /* Read I/O APIC registers */
 uint32_t ioapic_read(uint32_t reg)
 {
-	mmio_write32((uint32_t *)((uint64_t)ioapic_address), reg);
-	return mmio_read32((uint32_t *)((uint64_t)ioapic_address + 0x10));
+	mmio_write32((uint32_t *)(ioapic_address), reg);
+	return mmio_read32((uint32_t *)(ioapic_address + 0x10));
 }
 
 /* Configuring I/O APIC interrupt routing */
@@ -66,7 +66,7 @@ void lapic_write(uint32_t reg, uint32_t value)
 		wrmsr(0x800 + (reg >> 4), value);
 		return;
 	}
-	mmio_write32((uint32_t *)((uint64_t)lapic_address + reg), value);
+	mmio_write32((uint32_t *)(lapic_address + reg), value);
 }
 
 /* Read local APIC register */
@@ -75,7 +75,7 @@ uint32_t lapic_read(uint32_t reg)
 	if (x2apic_mode) {
 		return rdmsr(0x800 + (reg >> 4));
 	}
-	return mmio_read32((uint32_t *)((uint64_t)lapic_address + reg));
+	return mmio_read32((uint32_t *)(lapic_address + reg));
 }
 
 /* Get the local APIC ID of the current processor */
@@ -97,12 +97,12 @@ void local_apic_init(void)
 	lapic_write(LAPIC_REG_TIMER, IRQ_32);
 	lapic_write(LAPIC_REG_SPURIOUS, 0xff | 1 << 8);
 	lapic_write(LAPIC_REG_TIMER_DIV, 11);
-
-	uint64_t b = nanoTime();
 	lapic_write(LAPIC_REG_TIMER_INITCNT, ~((uint32_t)0));
-	for (;;) if (nanoTime() - b >= 1000000) break;
+
+	while (1) if (nano_time() - nano_time() >= 1000000) break;
 	uint64_t lapic_timer = (~(uint32_t)0) - lapic_read(LAPIC_REG_TIMER_CURCNT);
 	uint64_t calibrated_timer_initial = (uint64_t)((uint64_t)(lapic_timer * 1000) / 250);
+
 	lapic_write(LAPIC_REG_TIMER, lapic_read(LAPIC_REG_TIMER) | 1 << 17);
 	lapic_write(LAPIC_REG_TIMER_INITCNT, calibrated_timer_initial);
 }
@@ -148,7 +148,7 @@ void apic_init(MADT *madt)
 	plogk("ACPI: LAPIC Base address 0x%016x\n", lapic_address);
 
 	uint64_t current = 0;
-	for (;;) {
+	while (1) {
 		if (current + ((uint32_t)sizeof(MADT) - 1) >= madt->h.Length) {
 			break;
 		}
