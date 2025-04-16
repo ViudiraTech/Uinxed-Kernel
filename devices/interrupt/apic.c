@@ -94,8 +94,8 @@ void local_apic_init(void)
 	else
 		plogk("ACPI: LAPIC = xAPIC\n");
 
-	lapic_write(LAPIC_REG_TIMER, IRQ_32);
 	lapic_write(LAPIC_REG_SPURIOUS, 0xff | 1 << 8);
+	lapic_write(LAPIC_REG_TIMER, IRQ_32);
 	lapic_write(LAPIC_REG_TIMER_DIV, 11);
 	lapic_write(LAPIC_REG_TIMER_INITCNT, ~((uint32_t)0));
 
