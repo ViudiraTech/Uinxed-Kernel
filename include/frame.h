@@ -12,8 +12,8 @@
 #ifndef INCLUDE_FRAME_H_
 #define INCLUDE_FRAME_H_
 
-#include "stdint.h"
 #include "bitmap.h"
+#include "stdint.h"
 
 typedef struct {
 	Bitmap bitmap;

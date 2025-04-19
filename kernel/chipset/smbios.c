@@ -12,16 +12,16 @@
 #include "smbios.h"
 #include "limine.h"
 
-__attribute__((used, section(".limine_requests")))
-static volatile struct limine_smbios_request smbios_request = {
-	.id = LIMINE_SMBIOS_REQUEST
+__attribute__((
+	used,
+	section(".limine_requests"))) static volatile struct limine_smbios_request smbios_request = {
+	.id = LIMINE_SMBIOS_REQUEST,
 };
 
 /* Get SMBIOS entry point */
 void *smbios_entry(void)
 {
-	if (smbios_request.response == 0)
-		return 0;
+	if (smbios_request.response == 0) return 0;
 	if (smbios_request.response->entry_64)
 		return (void *)smbios_request.response->entry_64;
 	else if (smbios_request.response->entry_32)

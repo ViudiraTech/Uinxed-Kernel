@@ -10,15 +10,15 @@
  */
 
 #include "debug.h"
-#include "printk.h"
 #include "common.h"
+#include "printk.h"
 #include "vargs.h"
 
 /* Dump stack */
 void dump_stack(void)
 {
 	uintptr_t *rbp;
-	__asm__ volatile ("movq %%rbp, %0" : "=r"(rbp));
+	__asm__ volatile("movq %%rbp, %0" : "=r"(rbp));
 
 	plogk("Call Trace:\n");
 	plogk(" <TASK>\n");
@@ -34,8 +34,8 @@ void dump_stack(void)
 void panic(const char *format, ...)
 {
 	static char buff[1024];
-	va_list args;
-	int i;
+	va_list		args;
+	int			i;
 
 	va_start(args, format);
 	i = vsprintf(buff, format, args);

@@ -39,9 +39,9 @@
 #define ATA_CMD_WRITE_DMA		0xCA
 #define ATA_CMD_WRITE_DMA_EXT	0x35
 #define ATA_CMD_CACHE_FLUSH		0xE7
-#define ATA_CMD_CACHE_FLUSH_EXT	0xEA
+#define ATA_CMD_CACHE_FLUSH_EXT 0xEA
 #define ATA_CMD_PACKET			0xA0
-#define ATA_CMD_IDENTIFY_PACKET	0xA1
+#define ATA_CMD_IDENTIFY_PACKET 0xA1
 #define ATA_CMD_IDENTIFY		0xEC
 #define ATAPI_CMD_READ			0xA8
 #define ATAPI_CMD_EJECT			0x1B
@@ -59,49 +59,49 @@
 #define IDE_ATA					0x00
 #define IDE_ATAPI				0x01
 
-#define ATA_MASTER				0x00
-#define ATA_SLAVE				0x01
-#define ATA_REG_DATA			0x00
-#define ATA_REG_ERROR			0x01
-#define ATA_REG_FEATURES		0x01
-#define ATA_REG_SECCOUNT0		0x02
-#define ATA_REG_LBA0			0x03
-#define ATA_REG_LBA1			0x04
-#define ATA_REG_LBA2			0x05
-#define ATA_REG_HDDEVSEL		0x06
-#define ATA_REG_COMMAND			0x07
-#define ATA_REG_STATUS			0x07
-#define ATA_REG_SECCOUNT1		0x08
-#define ATA_REG_LBA3			0x09
-#define ATA_REG_LBA4			0x0A
-#define ATA_REG_LBA5			0x0B
-#define ATA_REG_CONTROL			0x0C
-#define ATA_REG_ALTSTATUS		0x0C
-#define ATA_REG_DEVADDRESS		0x0D
+#define ATA_MASTER		   0x00
+#define ATA_SLAVE		   0x01
+#define ATA_REG_DATA	   0x00
+#define ATA_REG_ERROR	   0x01
+#define ATA_REG_FEATURES   0x01
+#define ATA_REG_SECCOUNT0  0x02
+#define ATA_REG_LBA0	   0x03
+#define ATA_REG_LBA1	   0x04
+#define ATA_REG_LBA2	   0x05
+#define ATA_REG_HDDEVSEL   0x06
+#define ATA_REG_COMMAND	   0x07
+#define ATA_REG_STATUS	   0x07
+#define ATA_REG_SECCOUNT1  0x08
+#define ATA_REG_LBA3	   0x09
+#define ATA_REG_LBA4	   0x0A
+#define ATA_REG_LBA5	   0x0B
+#define ATA_REG_CONTROL	   0x0C
+#define ATA_REG_ALTSTATUS  0x0C
+#define ATA_REG_DEVADDRESS 0x0D
 
-#define ATA_PRIMARY				0x00
-#define ATA_SECONDARY			0x01
+#define ATA_PRIMARY	  0x00
+#define ATA_SECONDARY 0x01
 
-#define ATA_READ				0x00
-#define ATA_WRITE				0x01
+#define ATA_READ  0x00
+#define ATA_WRITE 0x01
 
 struct IDE_channel_registers {
 	uint16_t base;	// I/O base address
 	uint16_t ctrl;	// Control base address
-	uint16_t bmide;	// Bus Master IDE
-	uint8_t nIEN;	// nIEN (no interrupt)
+	uint16_t bmide; // Bus Master IDE
+	uint8_t	 nIEN;	// nIEN (no interrupt)
 };
 
 struct ide_device {
-	uint8_t reserved;		// Drive Status
-	uint8_t channel;		// Master-slave channel
-	uint8_t drive;			// Master-slave drive
-	uint16_t type;			// Drive Type
-	uint16_t signature;		// Drive Signature
-	uint16_t capabilities;	// Feature
-	uint32_t command_sets;	// Supported command sets
-	uint32_t size;			// Size in sectors
-	uint8_t model[41];		// Drive Name
+	uint8_t	 reserved;	   // Drive Status
+	uint8_t	 channel;	   // Master-slave channel
+	uint8_t	 drive;		   // Master-slave drive
+	uint16_t type;		   // Drive Type
+	uint16_t signature;	   // Drive Signature
+	uint16_t capabilities; // Feature
+	uint32_t command_sets; // Supported command sets
+	uint32_t size;		   // Size in sectors
+	uint8_t	 model[41];	   // Drive Name
 };
 
 /* Initialize IDE */
@@ -113,14 +113,16 @@ uint8_t ide_read(uint8_t channel, uint8_t reg);
 /* Write a byte of data to the specified register of the IDE device */
 void ide_write(uint8_t channel, uint8_t reg, uint8_t data);
 
-/* Read multiple words of data from the specified register of the IDE device into the buffer */
+/* Read multiple words of data from the specified register of the IDE device
+ * into the buffer */
 void ide_read_buffer(uint8_t channel, uint8_t reg, uint64_t buffer, uint32_t quads);
 
 /* Polling the status of IDE devices */
 uint8_t ide_polling(uint8_t channel, uint32_t advanced_check);
 
 /* Read and write ATA devices */
-uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t numsects, uint64_t edi);
+uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t numsects,
+					   uint64_t edi);
 
 /* Reading data from ATAPI devices */
 uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint32_t edi);

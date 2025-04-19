@@ -9,15 +9,14 @@
  *
  */
 
-#include "timer.h"
-#include "common.h"
 #include "parallel.h"
+#include "common.h"
+#include "timer.h"
 
 /* Waiting for the parallel port to become ready */
 void wait_parallel_ready(void)
 {
-	while ((!inb(LPT1_PORT_STATUS)) & 0x80)
-		msleep(10);
+	while ((!inb(LPT1_PORT_STATUS)) & 0x80) msleep(10);
 }
 
 /* Write to parallel port */

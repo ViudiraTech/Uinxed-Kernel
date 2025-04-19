@@ -11,12 +11,11 @@
 
 #include "pci.h"
 #include "common.h"
-#include "printk.h"
 #include "hhdm.h"
+#include "printk.h"
 
-struct
-{
-	uint32_t classcode;
+struct {
+	uint32_t	classcode;
 	const char *name;
 } pci_classnames[] = {
 	{0x000000, "Non-VGA-Compatible Unclassified Device"},
@@ -146,14 +145,14 @@ struct
 	{0x111000, "Communication Synchronizer"},
 	{0x112000, "Signal Processing Management"},
 	{0x118000, "Other Signal Processing Controller"},
-	{0x000000, 0}
+	{0x000000, 0},
 };
 
 /* Reading values ​​from PCI device registers */
 uint32_t read_pci(uint32_t bus, uint32_t slot, uint32_t func, uint32_t register_offset)
 {
-	uint32_t id = 1 << 31 | ((bus & 0xff) << 16) | ((slot & 0x1f) << 11) |
-                            ((func & 0x07) << 8) | (register_offset & 0xfc);
+	uint32_t id = 1 << 31 | ((bus & 0xff) << 16) | ((slot & 0x1f) << 11) | ((func & 0x07) << 8) |
+				  (register_offset & 0xfc);
 	outl(PCI_COMMAND_PORT, id);
 	uint32_t result = inl(PCI_DATA_PORT);
 	return result >> (8 * (register_offset % 4));
@@ -162,8 +161,8 @@ uint32_t read_pci(uint32_t bus, uint32_t slot, uint32_t func, uint32_t register_
 /* Write values ​​to PCI device registers */
 void write_pci(uint32_t bus, uint32_t slot, uint32_t func, uint32_t register_offset, uint32_t value)
 {
-	uint32_t id = 1 << 31 | ((bus & 0xff) << 16) | ((slot & 0x1f) << 11) |
-                            ((func & 0x07) << 8) | (register_offset & 0xfc);
+	uint32_t id = 1 << 31 | ((bus & 0xff) << 16) | ((slot & 0x1f) << 11) | ((func & 0x07) << 8) |
+				  (register_offset & 0xfc);
 	outl(PCI_COMMAND_PORT, id);
 	outl(PCI_DATA_PORT, value);
 }
@@ -181,29 +180,29 @@ void pci_write_command_status(uint32_t bus, uint32_t slot, uint32_t func, uint32
 }
 
 /* Get detailed information about the base address register */
-base_address_register get_base_address_register(uint32_t bus, uint32_t slot, uint32_t func, uint32_t bar)
+base_address_register get_base_address_register(uint32_t bus, uint32_t slot, uint32_t func,
+												uint32_t bar)
 {
 	base_address_register result = {0};
 
 	uint32_t headertype = read_pci(bus, slot, func, 0x0e) & 0x7e;
-	int max_bars = 6 - 4 * headertype;
-	if ((int)bar >= max_bars)
-		return result;
+	int		 max_bars	= 6 - 4 * headertype;
+	if ((int)bar >= max_bars) return result;
 
 	uint32_t bar_value = read_pci(bus, slot, func, 0x10 + 4 * bar);
-	result.type = (bar_value & 1) ? input_output : mem_mapping;
+	result.type		   = (bar_value & 1) ? input_output : mem_mapping;
 
 	if (result.type == mem_mapping) {
 		switch ((bar_value >> 1) & 0x3) {
-			case 0: // 32
-			case 1: // 20
-			case 2: // 64
-				break;
+		case 0: // 32
+		case 1: // 20
+		case 2: // 64
+			break;
 		}
-		result.address = (uint32_t *)(uintptr_t)phys_to_virt(bar_value & ~0x3);
+		result.address		= (uint32_t *)(uintptr_t)phys_to_virt(bar_value & ~0x3);
 		result.prefetchable = 0;
 	} else {
-		result.address = (uint32_t *)(uintptr_t)phys_to_virt(bar_value & ~0x3);
+		result.address		= (uint32_t *)(uintptr_t)phys_to_virt(bar_value & ~0x3);
 		result.prefetchable = 0;
 	}
 	return result;
@@ -239,12 +238,13 @@ uint32_t pci_get_irq(uint32_t bus, uint32_t slot, uint32_t func)
 void pci_config(uint32_t bus, uint32_t slot, uint32_t func, uint32_t addr)
 {
 	uint32_t cmd = 0;
-	cmd = 0x80000000 + addr + (func << 8) + (slot << 11) + (bus << 16);
+	cmd			 = 0x80000000 + addr + (func << 8) + (slot << 11) + (bus << 16);
 	outl(PCI_COMMAND_PORT, cmd);
 }
 
 /* Find PCI devices by vendor ID and device ID */
-int pci_found_device(uint32_t vendor_id, uint32_t device_id, uint32_t *bus, uint32_t *slot, uint32_t *func)
+int pci_found_device(uint32_t vendor_id, uint32_t device_id, uint32_t *bus, uint32_t *slot,
+					 uint32_t *func)
 {
 	uint32_t f_bus, f_slot, f_func;
 	for (f_bus = 0; f_bus < 256; f_bus++) {
@@ -253,8 +253,9 @@ int pci_found_device(uint32_t vendor_id, uint32_t device_id, uint32_t *bus, uint
 				pci_config(f_bus, f_slot, f_func, 0);
 				if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
 					if ((read_pci(f_bus, f_slot, f_func, PCI_CONF_VENDOR) & 0xffff) == vendor_id) {
-						if ((read_pci(f_bus, f_slot, f_func, PCI_CONF_DEVICE) & 0xffff) == device_id) {
-							*bus = f_bus;
+						if ((read_pci(f_bus, f_slot, f_func, PCI_CONF_DEVICE) & 0xffff) ==
+							device_id) {
+							*bus  = f_bus;
 							*slot = f_slot;
 							*func = f_func;
 							return 1;
@@ -276,16 +277,16 @@ int pci_found_class(uint32_t class_code, uint32_t *bus, uint32_t *slot, uint32_t
 			for (f_func = 0; f_func < 8; f_func++) {
 				pci_config(f_bus, f_slot, f_func, 0);
 				if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
-					uint32_t value_c = read_pci(f_bus, f_slot, f_func, PCI_CONF_REVISION);
+					uint32_t value_c		  = read_pci(f_bus, f_slot, f_func, PCI_CONF_REVISION);
 					uint32_t found_class_code = value_c >> 8;
 					if (class_code == found_class_code) {
-						*bus = f_bus;
+						*bus  = f_bus;
 						*slot = f_slot;
 						*func = f_func;
 						return 1;
 					}
 					if (class_code == (found_class_code & 0xFFFF00)) {
-						*bus = f_bus;
+						*bus  = f_bus;
 						*slot = f_slot;
 						*func = f_func;
 						return 1;
@@ -301,10 +302,8 @@ int pci_found_class(uint32_t class_code, uint32_t *bus, uint32_t *slot, uint32_t
 const char *pci_classname(uint32_t classcode)
 {
 	for (size_t i = 0; pci_classnames[i].name != 0; i++) {
-		if (pci_classnames[i].classcode == classcode)
-			return pci_classnames[i].name;
-		if (pci_classnames[i].classcode == (classcode & 0xFFFF00))
-			return pci_classnames[i].name;
+		if (pci_classnames[i].classcode == classcode) return pci_classnames[i].name;
+		if (pci_classnames[i].classcode == (classcode & 0xFFFF00)) return pci_classnames[i].name;
 	}
 	return "Unknown device";
 }
@@ -312,18 +311,18 @@ const char *pci_classname(uint32_t classcode)
 /* PCI device initialization */
 void pci_init(void)
 {
-	size_t PCI_NUM = 0;
+	size_t	 PCI_NUM = 0;
 	uint32_t bus, slot, func;
 	for (bus = 0; bus < 256; bus++) {
 		for (slot = 0; slot < 32; slot++) {
 			for (func = 0; func < 8; func++) {
 				pci_config(bus, slot, func, 0);
 				if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
-					uint32_t value_c = read_pci(bus, slot, func, PCI_CONF_REVISION);
+					uint32_t value_c   = read_pci(bus, slot, func, PCI_CONF_REVISION);
 					uint32_t vendor_id = (read_pci(bus, slot, func, PCI_CONF_VENDOR) & 0xffff);
 					uint32_t device_id = (read_pci(bus, slot, func, PCI_CONF_DEVICE) & 0xffff);
-					plogk("PCI: %03d:%02d.%01d: [0x%04x:0x%04x] %s\n",
-                          bus, slot, func, vendor_id, device_id, pci_classname(value_c >> 8));
+					plogk("PCI: %03d:%02d.%01d: [0x%04x:0x%04x] %s\n", bus, slot, func, vendor_id,
+						  device_id, pci_classname(value_c >> 8));
 					PCI_NUM++;
 				}
 			}

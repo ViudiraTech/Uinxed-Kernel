@@ -16,7 +16,7 @@
 
 struct gdt_register {
 	uint16_t size;
-	void *ptr;
+	void	*ptr;
 } __attribute__((packed));
 
 typedef struct tss {
@@ -29,7 +29,7 @@ typedef struct tss {
 	uint16_t iopb;
 } __attribute__((packed)) tss_t;
 
-typedef uint8_t tss_stack_t[1024];
+typedef uint8_t	 tss_stack_t[1024];
 typedef uint64_t gdt_entries_t[7];
 
 /* Initialize the global descriptor table */

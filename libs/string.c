@@ -10,15 +10,15 @@
  */
 
 #include "string.h"
-#include "stdint.h"
 #include "stddef.h"
+#include "stdint.h"
 
 /* Copy n bytes from memory area str2 to memory area str1 */
 void *memcpy(void *str1, const void *str2, size_t n)
 {
-	volatile uint8_t *dest = (volatile uint8_t *)str1;
-	volatile const uint8_t *src = (volatile const uint8_t *)str2;
-	volatile const uint8_t *end = (volatile const uint8_t *)((uint8_t *)str2 + n);
+	volatile uint8_t	   *dest = (volatile uint8_t *)str1;
+	volatile const uint8_t *src	 = (volatile const uint8_t *)str2;
+	volatile const uint8_t *end	 = (volatile const uint8_t *)((uint8_t *)str2 + n);
 
 	if (dest == src) return str1;
 	while (src != end) *dest++ = *src++;
@@ -29,8 +29,8 @@ void *memcpy(void *str1, const void *str2, size_t n)
 void *memset(void *str, int c, size_t n)
 {
 	volatile uint8_t *_str = (volatile uint8_t *)str;
-	volatile uint8_t *end = (volatile uint8_t *)((uint8_t *)str + n);
-	const uint8_t _c = c;
+	volatile uint8_t *end  = (volatile uint8_t *)((uint8_t *)str + n);
+	const uint8_t	  _c   = c;
 
 	for (; _str < end; _str++) *_str = _c;
 	return str;
@@ -39,9 +39,9 @@ void *memset(void *str, int c, size_t n)
 /* Copies n characters from str2 to str1, accounting for overlaps */
 void *memmove(void *str1, const void *str2, size_t n)
 {
-	volatile uint8_t *dest = (volatile uint8_t *)str1;
-	volatile const uint8_t *src = (volatile const uint8_t *)str2;
-	volatile const uint8_t *end = (volatile const uint8_t *)((uint8_t *)str2 + n);
+	volatile uint8_t	   *dest = (volatile uint8_t *)str1;
+	volatile const uint8_t *src	 = (volatile const uint8_t *)str2;
+	volatile const uint8_t *end	 = (volatile const uint8_t *)((uint8_t *)str2 + n);
 
 	if (dest == src) return str1;
 	if (dest > src && dest < end) {
@@ -53,12 +53,13 @@ void *memmove(void *str1, const void *str2, size_t n)
 	return str1;
 }
 
-/* Compares the first n bytes of memory area str1 with those of memory area str2 */
+/* Compares the first n bytes of memory area str1 with those of memory area str2
+ */
 int memcmp(const void *str1, const void *str2, size_t n)
 {
 	const uint8_t *_str1 = (const uint8_t *)str1;
 	const uint8_t *_str2 = (const uint8_t *)str2;
-	const uint8_t *end = (const uint8_t *)((uint8_t *)str1 + n);
+	const uint8_t *end	 = (const uint8_t *)((uint8_t *)str1 + n);
 
 	for (; _str1 < end; _str1++, _str2++) {
 		if (*_str1 < *_str2) return -1;
@@ -86,8 +87,8 @@ char *strcpy(char *dest, const char *src)
 /* Copies the string pointed to by src to dest, up to n characters. */
 char *strncpy(char *dest, const char *src, size_t n)
 {
-	char *_dest = dest;
-	const char *end = src + n;
+	char	   *_dest = dest;
+	const char *end	  = src + n;
 	while (src < end && (*dest++ = *src++) != '\0');
 	return _dest;
 }
@@ -97,7 +98,7 @@ int strcmp(const char *str1, const char *str2)
 {
 	const uint8_t *_str1 = (const uint8_t *)str1;
 	const uint8_t *_str2 = (const uint8_t *)str2;
-	int c1, c2;
+	int			   c1, c2;
 
 	do {
 		c1 = *_str1++;
@@ -111,9 +112,9 @@ int strcmp(const char *str1, const char *str2)
 int strncmp(const char *str1, const char *str2, size_t n)
 {
 	const uint8_t *_str1 = (const uint8_t *)str1;
-	const uint8_t *end = (const uint8_t *)str1 + n;
+	const uint8_t *end	 = (const uint8_t *)str1 + n;
 	const uint8_t *_str2 = (const uint8_t *)str2;
-	uint8_t c1, c2;
+	uint8_t		   c1, c2;
 
 	while (_str1 != end) {
 		c1 = *_str1++;
@@ -124,7 +125,8 @@ int strncmp(const char *str1, const char *str2, size_t n)
 	return 0;
 }
 
-/* Append the string pointed to by src to the end of the string pointed to by dest */
+/* Append the string pointed to by src to the end of the string pointed to by
+ * dest */
 char *strcat(char *dest, const char *src)
 {
 	const char *_dest = dest;
@@ -134,7 +136,8 @@ char *strcat(char *dest, const char *src)
 	return (char *)_dest;
 }
 
-/* Finds a character in a string and returns the position of the character in the string */
+/* Finds a character in a string and returns the position of the character in
+ * the string */
 char *strchr(const char *str, int c)
 {
 	for (; *str != '\0'; str++) {
@@ -143,7 +146,8 @@ char *strchr(const char *str, int c)
 	return 0;
 }
 
-/* Searches the string pointed to by the parameter str for the last occurrence of the character c */
+/* Searches the string pointed to by the parameter str for the last occurrence
+ * of the character c */
 char *strrchr(const char *str, int c)
 {
 	const char *finded = 0;
@@ -153,7 +157,8 @@ char *strrchr(const char *str, int c)
 	return (char *)finded;
 }
 
-/* Find the first occurrence of the string needle in the string haystack, excluding the terminator */
+/* Find the first occurrence of the string needle in the string haystack,
+ * excluding the terminator */
 char *strstr(const char *haystack, const char *needle)
 {
 	size_t _sn = strlen(haystack), _tn = strlen(needle);

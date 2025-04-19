@@ -12,29 +12,29 @@
 #ifndef INCLUDE_APIC_H_
 #define INCLUDE_APIC_H_
 
-#include "stdint.h"
 #include "acpi.h"
+#include "stdint.h"
 
-#define MADT_APIC_CPU			0x00
-#define MADT_APIC_IO			0x01
-#define MADT_APIC_INT			0x02
-#define MADT_APIC_NMI			0x03
+#define MADT_APIC_CPU 0x00
+#define MADT_APIC_IO  0x01
+#define MADT_APIC_INT 0x02
+#define MADT_APIC_NMI 0x03
 
 #define LAPIC_REG_ID			32
 #define LAPIC_REG_TIMER_CURCNT	0x390
-#define LAPIC_REG_TIMER_INITCNT	0x380
+#define LAPIC_REG_TIMER_INITCNT 0x380
 #define LAPIC_REG_TIMER			0x320
 #define LAPIC_REG_SPURIOUS		0xf0
 #define LAPIC_REG_TIMER_DIV		0x3e0
 
-#define APIC_ICR_LOW			0x300
-#define APIC_ICR_HIGH			0x310
+#define APIC_ICR_LOW  0x300
+#define APIC_ICR_HIGH 0x310
 
 typedef struct {
 	struct ACPISDTHeader h;
-	uint32_t local_apic_address;
-	uint32_t flags;
-	void *entries;
+	uint32_t			 local_apic_address;
+	uint32_t			 flags;
+	void				*entries;
 } __attribute__((packed)) MADT;
 
 struct madt_hander {
@@ -44,21 +44,21 @@ struct madt_hander {
 
 struct madt_io_apic {
 	struct madt_hander h;
-	uint8_t apic_id;
-	uint8_t reserved;
-	uint32_t address;
-	uint32_t gsib;
+	uint8_t			   apic_id;
+	uint8_t			   reserved;
+	uint32_t		   address;
+	uint32_t		   gsib;
 } __attribute__((packed));
 
 struct madt_local_apic {
 	struct madt_hander h;
-	uint8_t ACPI_Processor_UID;
-	uint8_t local_apic_id;
-	uint32_t flags;
+	uint8_t			   ACPI_Processor_UID;
+	uint8_t			   local_apic_id;
+	uint32_t		   flags;
 };
 
-typedef struct madt_hander MadtHeader;
-typedef struct madt_io_apic MadtIOApic;
+typedef struct madt_hander	   MadtHeader;
+typedef struct madt_io_apic	   MadtIOApic;
 typedef struct madt_local_apic MadtLocalApic;
 
 /* Turn off PIC */

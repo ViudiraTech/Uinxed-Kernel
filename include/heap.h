@@ -12,8 +12,8 @@
 #ifndef INCLUDE_HEAP_H_
 #define INCLUDE_HEAP_H_
 
-#include "stdint.h"
 #include "stddef.h"
+#include "stdint.h"
 
 /* Initialize the memory heap */
 void init_heap(void);

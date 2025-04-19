@@ -10,23 +10,23 @@
  */
 
 #include "acpi.h"
-#include "timer.h"
 #include "common.h"
 #include "hhdm.h"
 #include "printk.h"
 #include "string.h"
+#include "timer.h"
 
-uint16_t SLP_TYPa;
-uint16_t SLP_TYPb;
-uint32_t SMI_CMD;
-uint16_t SLP_EN;
-uint16_t SCI_EN;
+uint16_t	 SLP_TYPa;
+uint16_t	 SLP_TYPb;
+uint32_t	 SMI_CMD;
+uint16_t	 SLP_EN;
+uint16_t	 SCI_EN;
 acpi_facp_t *facp;
 
 /* Initialize facp */
 void facp_init(acpi_facp_t *facp0)
 {
-	int i;
+	int		 i;
 	uint8_t *S5Addr;
 	uint32_t dsdtlen;
 	facp = facp0;
@@ -40,7 +40,7 @@ void facp_init(acpi_facp_t *facp0)
 		plogk("ACPI: DSDT 0x%016x\n", dsdtTable);
 	}
 	if (!memcmp(dsdtTable->signature, "DSDT", 4)) {
-		S5Addr = &(dsdtTable->definition_block);
+		S5Addr	= &(dsdtTable->definition_block);
 		dsdtlen = dsdtTable->length - 36;
 		while (dsdtlen--) {
 			if (!memcmp(S5Addr, "_S5_", 4)) {
@@ -80,7 +80,7 @@ void facp_init(acpi_facp_t *facp0)
 	if (SMI_CMD && facp->acpi_enable) {
 		plogk("ACPI: Enabling ACPI via SMI command.\n");
 		outb(SMI_CMD, facp->acpi_enable);
-		for (i = 0; i < 300; i++){
+		for (i = 0; i < 300; i++) {
 			if (inw(facp->pm1a_cnt_blk) & SCI_EN) {
 				plogk("ACPI: ACPI enabled successfully.\n");
 				break;
@@ -119,7 +119,6 @@ void power_off(void)
 	if (!SCI_EN) return;
 	while (1) {
 		outw((uint32_t)facp->pm1a_cnt_blk, SLP_TYPa | SLP_EN);
-		if (!facp->pm1b_cnt_blk)
-			outw((uint32_t)facp->pm1b_cnt_blk, SLP_TYPb | SLP_EN);
+		if (!facp->pm1b_cnt_blk) outw((uint32_t)facp->pm1b_cnt_blk, SLP_TYPb | SLP_EN);
 	}
 }

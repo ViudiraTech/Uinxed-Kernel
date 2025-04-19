@@ -18,3 +18,6 @@ CompileFlags:
 		- "-msoft-float"
 		- "-I${workspaceFolder}/include"
 		- "-MMD"
+Diagnostics:
+  ClangTidy:
+    FastCheckFilter: Strict

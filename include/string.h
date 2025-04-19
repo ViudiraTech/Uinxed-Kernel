@@ -12,8 +12,8 @@
 #ifndef INCLUDE_STRING_H_
 #define INCLUDE_STRING_H_
 
-#include "stdint.h"
 #include "stddef.h"
+#include "stdint.h"
 
 /* Copy n bytes from memory area str2 to memory area str1 */
 void *memcpy(void *str1, const void *str2, size_t n);
@@ -24,7 +24,8 @@ void *memset(void *str, int c, size_t n);
 /* Copies n characters from str2 to str1, accounting for overlaps */
 void *memmove(void *str1, const void *str2, size_t n);
 
-/* Compares the first n bytes of memory area str1 with those of memory area str2 */
+/* Compares the first n bytes of memory area str1 with those of memory area str2
+ */
 int memcmp(const void *str1, const void *str2, size_t n);
 
 /* Calculates the length of the string str */
@@ -42,16 +43,20 @@ int strcmp(const char *str1, const char *str2);
 /* Compares the first n characters of two strings for equality */
 int strncmp(const char *str1, const char *str2, size_t n);
 
-/* Append the string pointed to by src to the end of the string pointed to by dest */
+/* Append the string pointed to by src to the end of the string pointed to by
+ * dest */
 char *strcat(char *dest, const char *src);
 
-/* Finds a character in a string and returns the position of the character in the string */
+/* Finds a character in a string and returns the position of the character in
+ * the string */
 char *strchr(const char *str, int c);
 
-/* Searches the string pointed to by the parameter str for the last occurrence of the character c */
+/* Searches the string pointed to by the parameter str for the last occurrence
+ * of the character c */
 char *strrchr(const char *str, int c);
 
-/* Find the first occurrence of the string needle in the string haystack, excluding the terminator */
+/* Find the first occurrence of the string needle in the string haystack,
+ * excluding the terminator */
 char *strstr(const char *haystack, const char *needle);
 
 #endif // INCLUDE_STRING_H_

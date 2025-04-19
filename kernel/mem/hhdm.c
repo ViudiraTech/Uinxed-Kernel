@@ -9,14 +9,14 @@
  *
  */
 
-#include "limine.h"
 #include "hhdm.h"
+#include "limine.h"
 #include "printk.h"
 
-__attribute__((used, section(".limine_requests")))
-static volatile struct limine_hhdm_request hhdm_request = {
-	.id = LIMINE_HHDM_REQUEST,
-	.revision = 0
+__attribute__((
+	used, section(".limine_requests"))) static volatile struct limine_hhdm_request hhdm_request = {
+	.id		  = LIMINE_HHDM_REQUEST,
+	.revision = 0,
 };
 
 uint64_t physical_memory_offset = 0;

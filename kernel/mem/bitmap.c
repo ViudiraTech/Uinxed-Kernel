@@ -10,8 +10,8 @@
  */
 
 #include "bitmap.h"
-#include "string.h"
 #include "printk.h"
+#include "string.h"
 
 /* Initialize the memory bitmap */
 void bitmap_init(Bitmap *bitmap, uint8_t *buffer, size_t size)
@@ -25,7 +25,7 @@ void bitmap_init(Bitmap *bitmap, uint8_t *buffer, size_t size)
 int bitmap_get(const Bitmap *bitmap, size_t index)
 {
 	size_t word_index = index / 8;
-	size_t bit_index = index % 8;
+	size_t bit_index  = index % 8;
 	return (bitmap->buffer[word_index] >> bit_index) & 1;
 }
 
@@ -33,7 +33,7 @@ int bitmap_get(const Bitmap *bitmap, size_t index)
 void bitmap_set(Bitmap *bitmap, size_t index, int value)
 {
 	size_t word_index = index / 8;
-	size_t bit_index = index % 8;
+	size_t bit_index  = index % 8;
 	if (value)
 		bitmap->buffer[word_index] |= ((size_t)1 << bit_index);
 	else
@@ -44,7 +44,7 @@ void bitmap_set(Bitmap *bitmap, size_t index, int value)
 void bitmap_set_range(Bitmap *bitmap, size_t start, size_t end, int value)
 {
 	size_t start_word = (start + 7) / 8;
-	size_t end_word = end / 8;
+	size_t end_word	  = end / 8;
 	if (start >= end || start >= bitmap->length) {
 		return;
 	}
@@ -68,7 +68,7 @@ void bitmap_set_range(Bitmap *bitmap, size_t start, size_t end, int value)
 /* Memory bitmap search range */
 size_t bitmap_find_range(const Bitmap *bitmap, size_t length, int value)
 {
-	size_t count = 0, start_index = 0;
+	size_t	count = 0, start_index = 0;
 	uint8_t byte_match = value ? (uint8_t)-1 : 0;
 	for (size_t byte_idx = 0; byte_idx < bitmap->length / 8; byte_idx++) {
 		size_t byte = bitmap->buffer[byte_idx];

@@ -14,26 +14,26 @@
 
 #include "stdint.h"
 
-#define ISR_0 0		// #DE Division by 0 exception
-#define ISR_1 1		// #DB Debugging exceptions
-#define ISR_2 2		// NMI Non-maskable interrupt
-#define ISR_3 3		// BP Breakpoint exception
-#define ISR_4 4		// #OF overflow
-#define ISR_5 5		// #BR Reference to array out of bounds
-#define ISR_6 6		// #UD Invalid or undefined opcode
-#define ISR_7 7		// #NM Device not available (no math coprocessor)
-#define ISR_8 8		// #DF Double fault (with error code)
-#define ISR_9 9		// Coprocessor cross-segment operation
-#define ISR_10 10	// #TS Invalid TSS (with error code)
-#define ISR_11 11	// #NP Segment does not exist (with error code)
-#define ISR_12 12	// #SS Stack error (with error code)
-#define ISR_13 13	// #GP General protection (with error code)
-#define ISR_14 14	// #PF Page fault (with error code)
-#define ISR_15 15	// CPU Reserved
-#define ISR_16 16	// #MF Floating point processing unit error
-#define ISR_17 17	// #AC Alignment Check
-#define ISR_18 18	// #MC Machine inspection
-#define ISR_19 19	// #XM SIMD (Single Instruction Multiple Data) floating point exceptions
+#define ISR_0  0  // #DE Division by 0 exception
+#define ISR_1  1  // #DB Debugging exceptions
+#define ISR_2  2  // NMI Non-maskable interrupt
+#define ISR_3  3  // BP Breakpoint exception
+#define ISR_4  4  // #OF overflow
+#define ISR_5  5  // #BR Reference to array out of bounds
+#define ISR_6  6  // #UD Invalid or undefined opcode
+#define ISR_7  7  // #NM Device not available (no math coprocessor)
+#define ISR_8  8  // #DF Double fault (with error code)
+#define ISR_9  9  // Coprocessor cross-segment operation
+#define ISR_10 10 // #TS Invalid TSS (with error code)
+#define ISR_11 11 // #NP Segment does not exist (with error code)
+#define ISR_12 12 // #SS Stack error (with error code)
+#define ISR_13 13 // #GP General protection (with error code)
+#define ISR_14 14 // #PF Page fault (with error code)
+#define ISR_15 15 // CPU Reserved
+#define ISR_16 16 // #MF Floating point processing unit error
+#define ISR_17 17 // #AC Alignment Check
+#define ISR_18 18 // #MC Machine inspection
+#define ISR_19 19 // #XM SIMD (Single Instruction Multiple Data) floating point exceptions
 
 #define IRQ_32 32 // Computer system timer
 #define IRQ_33 33 // Keyboard
@@ -54,16 +54,16 @@
 
 struct idt_register {
 	uint16_t size;
-	void *ptr;
+	void	*ptr;
 } __attribute__((packed));
 
 struct idt_entry {
-	uint16_t offset_low;	// Processing function pointer low 16-bit address
-	uint16_t selector;		// Segment Selector
-	uint8_t ist;
-	uint8_t flags;			// Flags
-	uint16_t offset_mid;	// Handling 16-bit addresses in function pointers
-	uint32_t offset_hi;		// Processing function pointer high 32-bit address
+	uint16_t offset_low; // Processing function pointer low 16-bit address
+	uint16_t selector;	 // Segment Selector
+	uint8_t	 ist;
+	uint8_t	 flags;		 // Flags
+	uint16_t offset_mid; // Handling 16-bit addresses in function pointers
+	uint32_t offset_hi;	 // Processing function pointer high 32-bit address
 	uint32_t reserved;
 } __attribute__((packed));
 

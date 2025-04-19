@@ -14,84 +14,86 @@
 /* Port write (8 bits) */
 void outb(uint16_t port, uint8_t value)
 {
-	__asm__ volatile ("outb %1, %0" :: "dN"(port), "a"(value));
+	__asm__ volatile("outb %1, %0" ::"dN"(port), "a"(value));
 }
 
 /* Port read (8 bits) */
 uint8_t inb(uint16_t port)
 {
 	uint8_t ret;
-	__asm__ volatile ("inb %1, %0" : "=a"(ret) : "dN"(port));
+	__asm__ volatile("inb %1, %0" : "=a"(ret) : "dN"(port));
 	return ret;
 }
 
 /* Port write (16 bits) */
 void outw(uint16_t port, uint16_t value)
 {
-	__asm__ volatile ("outw %1, %0" :: "dN"(port), "a"(value));
+	__asm__ volatile("outw %1, %0" ::"dN"(port), "a"(value));
 }
 
 /* Port read (16 bits) */
 uint16_t inw(uint16_t port)
 {
 	uint16_t ret;
-	__asm__ volatile ("inw %1, %0" : "=a"(ret) : "dN"(port));
+	__asm__ volatile("inw %1, %0" : "=a"(ret) : "dN"(port));
 	return ret;
 }
 
 /* Port write (32 bits) */
 void outl(uint16_t port, uint32_t value)
 {
-	__asm__ volatile ("outl %1, %0" :: "dN"(port), "a"(value));
+	__asm__ volatile("outl %1, %0" ::"dN"(port), "a"(value));
 }
 
 /* Port read (32 bits) */
 uint32_t inl(uint16_t port)
 {
 	uint32_t ret;
-	__asm__ volatile ("inl %1, %0" : "=a"(ret) : "dN"(port));
+	__asm__ volatile("inl %1, %0" : "=a"(ret) : "dN"(port));
 	return ret;
 }
 
 /* Read data from I/O port to memory in batches (16 bits) */
 void insw(uint16_t port, void *buf, size_t n)
 {
-	__asm__ volatile ("cld; rep; insw" : "+D"(buf), "+c"(n) : "d"(port));
+	__asm__ volatile("cld; rep; insw" : "+D"(buf), "+c"(n) : "d"(port));
 }
 
 /* Write data from memory to I/O port in batches (16 bits) */
 void outsw(uint16_t port, const void *buf, size_t n)
 {
-	__asm__ volatile ("cld; rep; outsw" : "+S"(buf), "+c"(n) : "d"(port));
+	__asm__ volatile("cld; rep; outsw" : "+S"(buf), "+c"(n) : "d"(port));
 }
 
 /* Read data from I/O port to memory in batches (32 bits) */
 void insl(uint32_t port, void *addr, int cnt)
 {
-	__asm__ volatile ("cld; repne; insl;" : "=D"(addr), "=c"(cnt)
-                      : "d"(port), "0"(addr), "1"(cnt)
-                      : "memory", "cc");
+	__asm__ volatile("cld; repne; insl;"
+					 : "=D"(addr), "=c"(cnt)
+					 : "d"(port), "0"(addr), "1"(cnt)
+					 : "memory", "cc");
 }
 
 /* Write data from memory to I/O port in batches (32 bits) */
 void outsl(uint32_t port, const void *addr, int cnt)
 {
-	__asm__ volatile ("cld; repne; outsl;" : "=S"(addr), "=c"(cnt)
-                      : "d"(port), "0"(addr), "1"(cnt)
-                      : "memory", "cc");
+	__asm__ volatile("cld; repne; outsl;"
+					 : "=S"(addr), "=c"(cnt)
+					 : "d"(port), "0"(addr), "1"(cnt)
+					 : "memory", "cc");
 }
 
 /* Flushes the TLB of the specified address */
 void flush_tlb(uint64_t addr)
 {
-	__asm__ volatile ("invlpg (%0)" :: "r"(addr) : "memory");
+	__asm__ volatile("invlpg (%0)" ::"r"(addr) : "memory");
 }
 
 /* Get the current value of the CR3 register */
 uint64_t get_cr3(void)
 {
 	uint64_t cr3;
-	__asm__ volatile ("mov %%cr3, %0" : "=r"(cr3));
+	__asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
 	return cr3;
 }
 
@@ -99,7 +101,7 @@ uint64_t get_cr3(void)
 uint64_t get_rsp(void)
 {
 	uint64_t rsp;
-	__asm__ volatile ("mov %%rsp, %0" : "=r"(rsp));
+	__asm__ volatile("mov %%rsp, %0" : "=r"(rsp));
 	return rsp;
 }
 
@@ -107,7 +109,7 @@ uint64_t get_rsp(void)
 uint64_t get_rflags(void)
 {
 	uint64_t rflags;
-	__asm__ volatile ("pushfq; pop %0" : "=r"(rflags) :: "memory");
+	__asm__ volatile("pushfq; pop %0" : "=r"(rflags)::"memory");
 	return rflags;
 }
 
@@ -139,7 +141,7 @@ uint64_t mmio_read64(void *addr)
 uint64_t rdmsr(uint32_t msr)
 {
 	uint32_t rax, rdx;
-	__asm__ volatile ("rdmsr" : "=a"(rax), "=d"(rdx) : "c"(msr));
+	__asm__ volatile("rdmsr" : "=a"(rax), "=d"(rdx) : "c"(msr));
 	return ((uint64_t)rdx << 32) | rax;
 }
 
@@ -148,40 +150,39 @@ void wrmsr(uint32_t msr, uint64_t value)
 {
 	uint32_t rax = (uint32_t)value;
 	uint32_t rdx = value >> 32;
-	__asm__ volatile ("wrmsr" :: "c"(msr), "a"(rax), "d"(rdx));
+	__asm__ volatile("wrmsr" ::"c"(msr), "a"(rax), "d"(rdx));
 }
 
 /* Loading data atomically */
 uint64_t load(uint64_t *addr)
 {
 	uint64_t ret = 0;
-	__asm__ volatile ("lock xadd %[ret], %[addr];"
-                      : [addr] "+m"(*addr), [ret] "+r"(ret) :: "memory");
+	__asm__ volatile("lock xadd %[ret], %[addr];" : [addr] "+m"(*addr), [ret] "+r"(ret)::"memory");
 	return ret;
 }
 
 /* Storing data atomically */
 void store(uint64_t *addr, uint32_t value)
 {
-	__asm__ volatile ("lock xchg %[value], %[addr];"
-                      : [addr] "+m"(*addr), [value] "+r"(value) :: "memory");
+	__asm__ volatile("lock xchg %[value], %[addr];"
+					 : [addr] "+m"(*addr), [value] "+r"(value)::"memory");
 }
 
 /* Enable interrupt */
 void enable_intr(void)
 {
-	__asm__ volatile ("sti");
+	__asm__ volatile("sti");
 }
 
 /* Disable interrupts */
 void disable_intr(void)
 {
-	__asm__ volatile ("cli" ::: "memory");
+	__asm__ volatile("cli" ::: "memory");
 }
 
 /* Kernel halt */
 void krn_halt(void)
 {
 	disable_intr();
-	while (1) __asm__ volatile ("hlt");
+	while (1) __asm__ volatile("hlt");
 }

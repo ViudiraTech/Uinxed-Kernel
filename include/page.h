@@ -14,12 +14,12 @@
 
 #include "stdint.h"
 
-#define PTE_PRESENT			(0x1 << 0)
-#define PTE_WRITEABLE		(0x1 << 1)
-#define PTE_USER			(0x1 << 2)
-#define PTE_HUGE			(0x1 << 7)
-#define PTE_NO_EXECUTE		(((uint64_t)0x1) << 63)
-#define KERNEL_PTE_FLAGS	(PTE_PRESENT | PTE_WRITEABLE | PTE_NO_EXECUTE)
+#define PTE_PRESENT		 (0x1 << 0)
+#define PTE_WRITEABLE	 (0x1 << 1)
+#define PTE_USER		 (0x1 << 2)
+#define PTE_HUGE		 (0x1 << 7)
+#define PTE_NO_EXECUTE	 (((uint64_t)0x1) << 63)
+#define KERNEL_PTE_FLAGS (PTE_PRESENT | PTE_WRITEABLE | PTE_NO_EXECUTE)
 
 #define PAGE_SIZE 0x1000
 
@@ -66,7 +66,8 @@ void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uin
 void switch_page_directory(page_directory_t *dir);
 
 /* Map a continuous section of physical memory to the virtual address space */
-void page_map_range_to(page_directory_t *directory, uint64_t frame, uint64_t length, uint64_t flags);
+void page_map_range_to(page_directory_t *directory, uint64_t frame, uint64_t length,
+					   uint64_t flags);
 
 /* Initialize memory page table */
 void page_init(void);

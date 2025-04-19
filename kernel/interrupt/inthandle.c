@@ -9,10 +9,10 @@
  *
  */
 
-#include "idt.h"
-#include "debug.h"
-#include "printk.h"
 #include "common.h"
+#include "debug.h"
+#include "idt.h"
+#include "printk.h"
 
 __attribute__((interrupt)) static void ISR_0_handle(interrupt_frame_t *frame)
 {

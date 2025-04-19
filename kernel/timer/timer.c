@@ -10,10 +10,10 @@
  */
 
 #include "acpi.h"
-#include "idt.h"
-#include "common.h"
-#include "interrupt.h"
 #include "apic.h"
+#include "common.h"
+#include "idt.h"
+#include "interrupt.h"
 
 /* Timer interrupt */
 __attribute__((interrupt)) void timer_handle(interrupt_frame_t *frame)
@@ -28,8 +28,8 @@ __attribute__((interrupt)) void timer_handle(interrupt_frame_t *frame)
 void msleep(uint64_t ms)
 {
 	uint64_t target_time = nano_time();
-	uint64_t after = 0;
-	uint64_t ns = ms * 1000000;
+	uint64_t after		 = 0;
+	uint64_t ns			 = ms * 1000000;
 
 	while (1) {
 		uint64_t n = nano_time();
@@ -50,7 +50,7 @@ void msleep(uint64_t ms)
 void nsleep(uint64_t ns)
 {
 	uint64_t target_time = nano_time();
-	uint64_t after = 0;
+	uint64_t after		 = 0;
 
 	while (1) {
 		uint64_t n = nano_time();

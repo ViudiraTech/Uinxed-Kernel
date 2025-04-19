@@ -12,9 +12,9 @@
 #ifndef INCLUDE_INTERRUPT_H_
 #define INCLUDE_INTERRUPT_H_
 
-#include "stdint.h"
-#include "stddef.h"
 #include "idt.h"
+#include "stddef.h"
+#include "stdint.h"
 
 /* register */
 typedef struct registers {

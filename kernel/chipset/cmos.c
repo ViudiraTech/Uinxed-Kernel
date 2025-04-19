@@ -23,7 +23,8 @@ uint8_t read_cmos(uint8_t p)
 	/* Read the value in the CMOS data register */
 	data = inb(cmos_data);
 
-	/* Send 0x80 to the CMOS index register, probably to reset or terminate the read signal */
+	/* Send 0x80 to the CMOS index register, probably to reset or terminate the
+	 * read signal */
 	outb(cmos_index, 0x80);
 	return data;
 }
@@ -37,7 +38,8 @@ void write_cmos(uint8_t p, uint8_t data)
 	/* Write data to CMOS data register */
 	outb(cmos_data, data);
 
-	/* Send 0x80 to the CMOS index register, probably to reset or terminate the read signal */
+	/* Send 0x80 to the CMOS index register, probably to reset or terminate the
+	 * read signal */
 	outb(cmos_index, 0x80);
 }
 
@@ -80,6 +82,7 @@ uint32_t get_mon_hex(void)
 /* Get the current year */
 uint32_t get_year(void)
 {
-	/* The year stored in CMOS is from 2000, so you need to add 2010 to get the actual year */
+	/* The year stored in CMOS is from 2000, so you need to add 2010 to get the
+	 * actual year */
 	return (BCD_HEX(read_cmos(CMOS_CUR_CEN)) * 100) + BCD_HEX(read_cmos(CMOS_CUR_YEAR)) - 30 + 2010;
 }

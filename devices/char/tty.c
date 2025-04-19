@@ -9,19 +9,19 @@
  *
  */
 
-#include "stdint.h"
-#include "serial.h"
 #include "alloc.h"
-#include "video.h"
 #include "cmdline.h"
+#include "serial.h"
+#include "stdint.h"
 #include "string.h"
+#include "video.h"
 
 /* Argument parsing */
 static int arg_parse(char *arg_str, char **argv, char token)
 {
-	int argc = 0;
-	int arg_idx = 0;
-	char *next = arg_str;
+	int	  argc	  = 0;
+	int	  arg_idx = 0;
+	char *next	  = arg_str;
 
 	while (arg_idx < 32768) {
 		argv[arg_idx] = 0;
@@ -45,9 +45,9 @@ static int arg_parse(char *arg_str, char **argv, char token)
 /* Obtain the tty number provided at startup */
 const char *get_boot_tty(void)
 {
-	int i = 0;
-	char bootarg[256] = {0};
-	const char *arg_based = get_cmdline();
+	int			i			 = 0;
+	char		bootarg[256] = {0};
+	const char *arg_based	 = get_cmdline();
 
 	while (arg_based[i] != '\0') {
 		bootarg[i] = arg_based[i];
@@ -60,8 +60,8 @@ const char *get_boot_tty(void)
 
 	for (int j = 0; j < argc; j++) {
 		if (strncmp(bootargv[j], "console=", 8) == 0) {
-			const char *tty_str = bootargv[j] + 8;
-			int tty_num_len = strlen(tty_str);
+			const char *tty_str		= bootargv[j] + 8;
+			int			tty_num_len = strlen(tty_str);
 			if (tty_num_len == 1 || tty_num_len == 5) {
 				free(bootargv);
 				return tty_str;
@@ -85,8 +85,7 @@ void tty_print_ch(const char ch)
 void tty_print_str(const char *str)
 {
 	if (strcmp(get_boot_tty(), "ttyS0") == 0)
-		for (; *str; ++str)
-			write_serial(*str);
+		for (; *str; ++str) write_serial(*str);
 	else
 		video_put_string(str);
 }

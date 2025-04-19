@@ -18,17 +18,19 @@ void init_serial(void)
 {
 	uint16_t divisor = 115200 / 9600;
 
-	outb(SERIAL_PORT + 1, 0x00);					// Disable COM interrupts
-	outb(SERIAL_PORT + 3, 0x80);					// Enable DLAB (set baud rate divisor)
-	outb(SERIAL_PORT + 0, divisor & 0xFF);			// Set low baud rate
-	outb(SERIAL_PORT + 1, (divisor >> 8) & 0xFF);	// Set high baud rate
-	outb(SERIAL_PORT + 3, 0x03);					// 8 bits, no parity, one stop bit
-	outb(SERIAL_PORT + 2, 0xC7);					// Enable FIFO with 14-byte threshold
-	outb(SERIAL_PORT + 4, 0x0B);					// Enable IRQ, set RTS/DSR
-	outb(SERIAL_PORT + 4, 0x1E);					// Set to loopback mode and test the serial port
-	outb(SERIAL_PORT + 0, 0xAE);					// Test serial port
+	outb(SERIAL_PORT + 1, 0x00);				  // Disable COM interrupts
+	outb(SERIAL_PORT + 3, 0x80);				  // Enable DLAB (set baud rate divisor)
+	outb(SERIAL_PORT + 0, divisor & 0xFF);		  // Set low baud rate
+	outb(SERIAL_PORT + 1, (divisor >> 8) & 0xFF); // Set high baud rate
+	outb(SERIAL_PORT + 3, 0x03);				  // 8 bits, no parity, one stop bit
+	outb(SERIAL_PORT + 2, 0xC7);				  // Enable FIFO with 14-byte threshold
+	outb(SERIAL_PORT + 4, 0x0B);				  // Enable IRQ, set RTS/DSR
+	outb(SERIAL_PORT + 4,
+		 0x1E);					 // Set to loopback mode and test the serial port
+	outb(SERIAL_PORT + 0, 0xAE); // Test serial port
 
-	/* Check if there is a problem with the serial port (ie: the bytes sent are different) */
+	/* Check if there is a problem with the serial port (ie: the bytes sent are
+	 * different) */
 	if (inb(SERIAL_PORT + 0) != 0xAE) {
 		plogk("Serial: Serial port test failed.\n");
 		return;
