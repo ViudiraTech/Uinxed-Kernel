@@ -39,10 +39,16 @@ void kernel_entry(void)
 	init_heap();  // Initialize the memory heap
 	video_init(); // Initialize Video
 
-	plogk("Uinxed version %s (%s version %s) #1 SMP %s %s\n", KERNL_VERS, COMPILER_NAME,
-		  COMPILER_VERSION, BUILD_DATE, BUILD_TIME);
-	plogk("Framebuffer 0x%016x, resolution = %dx%d\n", get_framebuffer()->address,
-		  get_framebuffer()->width, get_framebuffer()->height);
+	plogk("Uinxed version %s (%s version %s) #1 SMP %s %s\n",
+		  KERNL_VERS,
+		  COMPILER_NAME,
+		  COMPILER_VERSION,
+		  BUILD_DATE,
+		  BUILD_TIME);
+	plogk("Framebuffer 0x%016x, resolution = %dx%d\n",
+		  get_framebuffer()->address,
+		  get_framebuffer()->width,
+		  get_framebuffer()->height);
 	plogk("Command line: %s\n", get_cmdline());
 	plogk("SMBIOS %d.%d.0 present.\n", smbios_major_version(), smbios_minor_version());
 	plogk("CPU: %s %s\n", get_vendor_name(), get_model_name());

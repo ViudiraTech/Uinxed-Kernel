@@ -40,9 +40,7 @@ void msleep(uint64_t ms)
 			after += n - target_time;
 			target_time = n;
 		}
-		if (after >= ns) {
-			return;
-		}
+		if (after >= ns) { return; }
 	}
 }
 
@@ -61,8 +59,6 @@ void nsleep(uint64_t ns)
 			after += n - target_time;
 			target_time = n;
 		}
-		if (after >= ns) {
-			return;
-		}
+		if (after >= ns) { return; }
 	}
 }

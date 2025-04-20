@@ -10,6 +10,7 @@
  */
 
 #include "page.h"
+
 #include "alloc.h"
 #include "common.h"
 #include "debug.h"
@@ -18,12 +19,11 @@
 #include "idt.h"
 #include "printk.h"
 
-page_directory_t  kernel_page_dir;
+page_directory_t kernel_page_dir;
 page_directory_t *current_directory = 0;
 
 /* Page fault handling */
-__attribute__((interrupt)) static void page_fault_handle(interrupt_frame_t *frame,
-														 uint64_t			error_code)
+__attribute__((interrupt)) static void page_fault_handle(interrupt_frame_t *frame, uint64_t error_code)
 {
 	(void)frame;
 	disable_intr();
@@ -90,9 +90,7 @@ page_directory_t *get_current_directory(void)
 void copy_page_table_recursive(page_table_t *source_table, page_table_t *new_table, int level)
 {
 	if (level == 0) {
-		for (int i = 0; i < 512; i++) {
-			new_table->entries[i].value = source_table->entries[i].value;
-		}
+		for (int i = 0; i < 512; i++) { new_table->entries[i].value = source_table->entries[i].value; }
 		return;
 	}
 	for (int i = 0; i < 512; i++) {
@@ -100,11 +98,10 @@ void copy_page_table_recursive(page_table_t *source_table, page_table_t *new_tab
 			new_table->entries[i].value = 0;
 			continue;
 		}
-		page_table_t *source_next_level =
-			(page_table_t *)phys_to_virt(source_table->entries[i].value & 0xfffffffffffff000);
+		page_table_t *source_next_level
+			= (page_table_t *)phys_to_virt(source_table->entries[i].value & 0xfffffffffffff000);
 		page_table_t *new_next_level = page_table_create(&(new_table->entries[i]));
-		new_table->entries[i].value =
-			(uint64_t)new_next_level | (source_table->entries[i].value & 0xfff);
+		new_table->entries[i].value	 = (uint64_t)new_next_level | (source_table->entries[i].value & 0xfff);
 		copy_page_table_recursive(source_next_level, new_next_level, level - 1);
 	}
 }
@@ -123,8 +120,7 @@ void free_page_table_recursive(page_table_t *table, int level)
 		page_table_entry_t *entry = &table->entries[i];
 		if (entry->value == 0 || is_huge_page(entry)) continue;
 		if (level == 1) {
-			if (entry->value & PTE_PRESENT && entry->value & PTE_WRITEABLE &&
-				entry->value & PTE_USER) {
+			if (entry->value & PTE_PRESENT && entry->value & PTE_WRITEABLE && entry->value & PTE_USER) {
 				free_frame(entry->value & 0x000fffffffff000);
 			}
 		} else {
@@ -189,10 +185,9 @@ void page_map_range_to(page_directory_t *directory, uint64_t frame, uint64_t len
 void page_init(void)
 {
 	page_table_t *kernel_page_table = (page_table_t *)phys_to_virt(get_cr3());
-	plogk("Page: Kernel page table base at 0x%016x (CR3 = 0x%016x)\n", kernel_page_table,
-		  get_cr3());
+	plogk("Page: Kernel page table base at 0x%016x (CR3 = 0x%016x)\n", kernel_page_table, get_cr3());
 
-	kernel_page_dir = (page_directory_t){.table = kernel_page_table};
+	kernel_page_dir = (page_directory_t) { .table = kernel_page_table };
 	plogk("Page: Kernel page directory initialized.\n");
 
 	register_interrupt_handler(ISR_14, (void *)page_fault_handle, 0, 0x8e);

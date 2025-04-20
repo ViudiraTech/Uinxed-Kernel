@@ -10,15 +10,16 @@
  */
 
 #include "string.h"
+
 #include "stddef.h"
 #include "stdint.h"
 
 /* Copy n bytes from memory area str2 to memory area str1 */
 void *memcpy(void *str1, const void *str2, size_t n)
 {
-	volatile uint8_t	   *dest = (volatile uint8_t *)str1;
-	volatile const uint8_t *src	 = (volatile const uint8_t *)str2;
-	volatile const uint8_t *end	 = (volatile const uint8_t *)((uint8_t *)str2 + n);
+	volatile uint8_t *dest		= (volatile uint8_t *)str1;
+	const volatile uint8_t *src = (volatile const uint8_t *)str2;
+	const volatile uint8_t *end = (volatile const uint8_t *)((uint8_t *)str2 + n);
 
 	if (dest == src) return str1;
 	while (src != end) *dest++ = *src++;
@@ -30,7 +31,7 @@ void *memset(void *str, int c, size_t n)
 {
 	volatile uint8_t *_str = (volatile uint8_t *)str;
 	volatile uint8_t *end  = (volatile uint8_t *)((uint8_t *)str + n);
-	const uint8_t	  _c   = c;
+	const uint8_t _c	   = c;
 
 	for (; _str < end; _str++) *_str = _c;
 	return str;
@@ -39,9 +40,9 @@ void *memset(void *str, int c, size_t n)
 /* Copies n characters from str2 to str1, accounting for overlaps */
 void *memmove(void *str1, const void *str2, size_t n)
 {
-	volatile uint8_t	   *dest = (volatile uint8_t *)str1;
-	volatile const uint8_t *src	 = (volatile const uint8_t *)str2;
-	volatile const uint8_t *end	 = (volatile const uint8_t *)((uint8_t *)str2 + n);
+	volatile uint8_t *dest		= (volatile uint8_t *)str1;
+	const volatile uint8_t *src = (volatile const uint8_t *)str2;
+	const volatile uint8_t *end = (volatile const uint8_t *)((uint8_t *)str2 + n);
 
 	if (dest == src) return str1;
 	if (dest > src && dest < end) {
@@ -87,8 +88,8 @@ char *strcpy(char *dest, const char *src)
 /* Copies the string pointed to by src to dest, up to n characters. */
 char *strncpy(char *dest, const char *src, size_t n)
 {
-	char	   *_dest = dest;
-	const char *end	  = src + n;
+	char *_dest		= dest;
+	const char *end = src + n;
 	while (src < end && (*dest++ = *src++) != '\0');
 	return _dest;
 }
@@ -98,7 +99,7 @@ int strcmp(const char *str1, const char *str2)
 {
 	const uint8_t *_str1 = (const uint8_t *)str1;
 	const uint8_t *_str2 = (const uint8_t *)str2;
-	int			   c1, c2;
+	int c1, c2;
 
 	do {
 		c1 = *_str1++;
@@ -114,7 +115,7 @@ int strncmp(const char *str1, const char *str2, size_t n)
 	const uint8_t *_str1 = (const uint8_t *)str1;
 	const uint8_t *end	 = (const uint8_t *)str1 + n;
 	const uint8_t *_str2 = (const uint8_t *)str2;
-	uint8_t		   c1, c2;
+	uint8_t c1, c2;
 
 	while (_str1 != end) {
 		c1 = *_str1++;

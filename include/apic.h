@@ -31,34 +31,34 @@
 #define APIC_ICR_HIGH 0x310
 
 typedef struct {
-	struct ACPISDTHeader h;
-	uint32_t			 local_apic_address;
-	uint32_t			 flags;
-	void				*entries;
+		struct ACPISDTHeader h;
+		uint32_t local_apic_address;
+		uint32_t flags;
+		void *entries;
 } __attribute__((packed)) MADT;
 
 struct madt_hander {
-	uint8_t entry_type;
-	uint8_t length;
+		uint8_t entry_type;
+		uint8_t length;
 } __attribute__((packed));
 
 struct madt_io_apic {
-	struct madt_hander h;
-	uint8_t			   apic_id;
-	uint8_t			   reserved;
-	uint32_t		   address;
-	uint32_t		   gsib;
+		struct madt_hander h;
+		uint8_t apic_id;
+		uint8_t reserved;
+		uint32_t address;
+		uint32_t gsib;
 } __attribute__((packed));
 
 struct madt_local_apic {
-	struct madt_hander h;
-	uint8_t			   ACPI_Processor_UID;
-	uint8_t			   local_apic_id;
-	uint32_t		   flags;
+		struct madt_hander h;
+		uint8_t ACPI_Processor_UID;
+		uint8_t local_apic_id;
+		uint32_t flags;
 };
 
-typedef struct madt_hander	   MadtHeader;
-typedef struct madt_io_apic	   MadtIOApic;
+typedef struct madt_hander MadtHeader;
+typedef struct madt_io_apic MadtIOApic;
 typedef struct madt_local_apic MadtLocalApic;
 
 /* Turn off PIC */

@@ -16,17 +16,17 @@
 #include "string.h"
 #include "timer.h"
 
-uint16_t	 SLP_TYPa;
-uint16_t	 SLP_TYPb;
-uint32_t	 SMI_CMD;
-uint16_t	 SLP_EN;
-uint16_t	 SCI_EN;
+uint16_t SLP_TYPa;
+uint16_t SLP_TYPb;
+uint32_t SMI_CMD;
+uint16_t SLP_EN;
+uint16_t SCI_EN;
 acpi_facp_t *facp;
 
 /* Initialize facp */
 void facp_init(acpi_facp_t *facp0)
 {
-	int		 i;
+	int i;
 	uint8_t *S5Addr;
 	uint32_t dsdtlen;
 	facp = facp0;
@@ -43,9 +43,7 @@ void facp_init(acpi_facp_t *facp0)
 		S5Addr	= &(dsdtTable->definition_block);
 		dsdtlen = dsdtTable->length - 36;
 		while (dsdtlen--) {
-			if (!memcmp(S5Addr, "_S5_", 4)) {
-				break;
-			}
+			if (!memcmp(S5Addr, "_S5_", 4)) { break; }
 			S5Addr++;
 		}
 		SLP_EN = 1 << 13;
@@ -55,14 +53,10 @@ void facp_init(acpi_facp_t *facp0)
 			if (*(S5Addr - 1) == 0x08 || (*(S5Addr - 2) == 0x08 && *(S5Addr - 1) == '\\')) {
 				S5Addr += 5;
 				S5Addr += ((*S5Addr & 0xC0) >> 6) + 2;
-				if (*S5Addr == 0x0A) {
-					S5Addr++;
-				}
+				if (*S5Addr == 0x0A) { S5Addr++; }
 				SLP_TYPa = *(S5Addr) << 10;
 				S5Addr++;
-				if (*S5Addr == 0x0A) {
-					S5Addr++;
-				}
+				if (*S5Addr == 0x0A) { S5Addr++; }
 				SLP_TYPb = *(S5Addr) << 10;
 				S5Addr++;
 				plogk("ACPI: SLP_TYPa = 0x%04x, SLP_TYPb = 0x%04x\n", SLP_TYPa, SLP_TYPb);

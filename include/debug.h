@@ -12,7 +12,7 @@
 #ifndef INCLUDE_DEBUG_H_
 #define INCLUDE_DEBUG_H_
 
-#define assert(exp)                                                                                \
+#define assert(exp) \
 	if (!exp) assertion_failure(#exp, __FILE__, __LINE__)
 
 /* Dump stack */

@@ -10,18 +10,18 @@
  */
 
 #include "apic.h"
+
 #include "common.h"
 #include "hhdm.h"
 #include "idt.h"
 #include "limine.h"
 #include "printk.h"
 
-int		 x2apic_mode;
+int x2apic_mode;
 uint64_t lapic_address;
 uint64_t ioapic_address;
 
-__attribute__((
-	used, section(".limine_requests"))) static volatile struct limine_smp_request smp_request = {
+__attribute__((used, section(".limine_requests"))) static volatile struct limine_smp_request smp_request = {
 	.id		  = LIMINE_SMP_REQUEST,
 	.revision = 0,
 	.response = 0,
@@ -72,9 +72,7 @@ void lapic_write(uint32_t reg, uint32_t value)
 /* Read local APIC register */
 uint32_t lapic_read(uint32_t reg)
 {
-	if (x2apic_mode) {
-		return rdmsr(0x800 + (reg >> 4));
-	}
+	if (x2apic_mode) { return rdmsr(0x800 + (reg >> 4)); }
 	return mmio_read32((uint32_t *)(lapic_address + reg));
 }
 
@@ -150,9 +148,7 @@ void apic_init(MADT *madt)
 
 	uint64_t current = 0;
 	while (1) {
-		if (current + ((uint32_t)sizeof(MADT) - 1) >= madt->h.Length) {
-			break;
-		}
+		if (current + ((uint32_t)sizeof(MADT) - 1) >= madt->h.Length) { break; }
 		MadtHeader *header = (MadtHeader *)((uint64_t)(&madt->entries) + current);
 		if (header->entry_type == MADT_APIC_IO) {
 			MadtIOApic *ioapic = (MadtIOApic *)((uint64_t)(&madt->entries) + current);

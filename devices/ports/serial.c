@@ -10,6 +10,7 @@
  */
 
 #include "serial.h"
+
 #include "common.h"
 #include "printk.h"
 

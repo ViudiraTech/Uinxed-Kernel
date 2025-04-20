@@ -34,28 +34,30 @@ Uinxed is a Unix-like operating system kernel developed from scratch, focusing o
 
 ### Required Tools
 
-1. **Make**: used to build projects
+1. **Make**: Used to build projects
 2. **GCC**: GCC Version 13.3.0+ is recommended
-3. **QEMU**: used for simulation testing
-4. **Xorriso**: used to build ISO image files
+3. **QEMU**: Used for simulation testing
+4. **Xorriso**: Used to build ISO image files
+5. **clang-format**: Used to format the code
+6. **clang-tidy**: Used for static analysis of code
 
 ### Installation Steps
 
 **Debian & Ubuntu & Kali**
 ```bash
 sudo apt update
-sudo apt install make gcc qemu-system xorriso
+sudo apt install make gcc qemu-system xorriso clang-format clang-tidy
 ```
 
 **ArchLinux**
 ```bash
-pacman -Sy make gcc qemu-system xorriso
+pacman -Sy make gcc qemu-system xorriso clang-format clang-tidy
 ```
 
 **Alpine**
 ```bash
 sudo apk update
-sudo apk add make gcc qemu-system xorriso
+sudo apk add make gcc qemu-system xorriso clang-format clang-tidy
 ```
 
 ## Compilation Guide 📖
@@ -114,7 +116,7 @@ Uinxed-x86_64/
 
 ## FAQ 🔍
 
-### Errors about "'XXX.h' file not found" in editors
+### Errors about "'XXX.h' file not found" in editors.
 
 A: If you are using clangd as a code analyzer, you can generate a .clangd file via Makefile. Just like this:
 
@@ -124,15 +126,24 @@ make gen.clangd
 
 However, if you are using a different LSP server, you can refer to the Makefile to change your configuration file.
 
+### How to format the code?
+
+A: Make sure you have clang-format installed, then execute make format. Just like this:
+
+```bash
+make format
+```
+
 ## Contribution Guidelines 🤝
 
 Contributions are welcome! Please follow the steps below:
 
-1. Fork the project repository
-2. Create a new branch for development
-3. Sign the code file
-4. Submit a Pull Request
-5. Wait for code review and merge
+1. Fork the project repository.
+2. Contribute your code or modifications.
+3. Ensure there are no obvious issues.
+4. Format the code.
+5. Submit a Pull Request.
+6. Wait for code review and merging.
 
 ## Submit an issue ❓
 

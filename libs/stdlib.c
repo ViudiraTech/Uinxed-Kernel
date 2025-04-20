@@ -10,6 +10,7 @@
  */
 
 #include "stdlib.h"
+
 #include "string.h"
 
 /* Determine whether it is a number */
@@ -39,18 +40,16 @@ int atoi(const char *pstr)
 int skip_atoi(const char **s)
 {
 	int i = 0;
-	while (is_digit(**s)) {
-		i = i * 10 + *((*s)++) - '0';
-	}
+	while (is_digit(**s)) { i = i * 10 + *((*s)++) - '0'; }
 	return i;
 }
 
 /* Formatting an integer as a string */
 char *number(char *str, int64_t num, int base, int size, int precision, int type)
 {
-	char		c, sign, tmp[65];
+	char c, sign, tmp[65];
 	const char *digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-	int			i;
+	int i;
 
 	if (type & SMALL) digits = "0123456789abcdefghijklmnopqrstuvwxyz";
 	if (type & LEFT) type &= ~ZEROPAD;
@@ -64,9 +63,7 @@ char *number(char *str, int64_t num, int base, int size, int precision, int type
 	} else {
 		sign = (type & PLUS) ? '+' : ((type & SPACE) ? ' ' : 0);
 	}
-	if (sign) {
-		size--;
-	}
+	if (sign) { size--; }
 	if (type & SPECIAL) {
 		if (base == 16) {
 			size -= 2;
@@ -80,23 +77,15 @@ char *number(char *str, int64_t num, int base, int size, int precision, int type
 	if (num == 0) {
 		tmp[i++] = '0';
 	} else {
-		while (num != 0) {
-			tmp[i++] = digits[do_div(num, base)];
-		}
+		while (num != 0) { tmp[i++] = digits[do_div(num, base)]; }
 	}
-	if (i > precision) {
-		precision = i;
-	}
+	if (i > precision) { precision = i; }
 	size -= precision;
 
 	if (!(type & (ZEROPAD + LEFT))) {
-		while (size-- > 0) {
-			*str++ = ' ';
-		}
+		while (size-- > 0) { *str++ = ' '; }
 	}
-	if (sign) {
-		*str++ = sign;
-	}
+	if (sign) { *str++ = sign; }
 	if (type & SPECIAL) {
 		if (base == 8) {
 			*str++ = '0';
@@ -106,18 +95,10 @@ char *number(char *str, int64_t num, int base, int size, int precision, int type
 		}
 	}
 	if (!(type & LEFT)) {
-		while (size-- > 0) {
-			*str++ = c;
-		}
+		while (size-- > 0) { *str++ = c; }
 	}
-	while (i < precision--) {
-		*str++ = '0';
-	}
-	while (i-- > 0) {
-		*str++ = tmp[i];
-	}
-	while (size-- > 0) {
-		*str++ = ' ';
-	}
+	while (i < precision--) { *str++ = '0'; }
+	while (i-- > 0) { *str++ = tmp[i]; }
+	while (size-- > 0) { *str++ = ' '; }
 	return str;
 }

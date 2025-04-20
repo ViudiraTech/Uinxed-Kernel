@@ -14,21 +14,21 @@
 
 #define BUILD_DATE __DATE__		// Compilation Date
 #define BUILD_TIME __TIME__		// Compile time
-#define KERNL_VERS "0.0.250416" // Version format: v[major version].[patch version].[YY-MM-DD]
+#define KERNL_VERS "0.0.250420" // Version format: v[major version].[patch version].[YY-MM-DD]
 
 /* Compiler judgment */
 #if defined(__clang__)
-#define COMPILER_NAME	 "clang"
-#define STRINGIFY(x)	 #x
-#define EXPAND(x)		 STRINGIFY(x)
-#define COMPILER_VERSION EXPAND(__clang_major__.__clang_minor__.__clang_patchlevel__)
+#	define COMPILER_NAME	 "clang"
+#	define STRINGIFY(x)	 #x
+#	define EXPAND(x)		 STRINGIFY(x)
+#	define COMPILER_VERSION EXPAND(__clang_major__.__clang_minor__.__clang_patchlevel__)
 #elif defined(__GNUC__)
-#define COMPILER_NAME	 "gcc"
-#define STRINGIFY(x)	 #x
-#define EXPAND(x)		 STRINGIFY(x)
-#define COMPILER_VERSION EXPAND(__GNUC__.__GNUC_MINOR__.__GNUC_PATCHLEVEL__)
+#	define COMPILER_NAME	 "gcc"
+#	define STRINGIFY(x)	 #x
+#	define EXPAND(x)		 STRINGIFY(x)
+#	define COMPILER_VERSION EXPAND(__GNUC__.__GNUC_MINOR__.__GNUC_PATCHLEVEL__)
 #else
-#error "Unknown compiler"
+#	error "Unknown compiler"
 #endif
 
 #endif // INCLUDE_UINXED_H_

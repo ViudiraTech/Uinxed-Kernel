@@ -10,11 +10,12 @@
  */
 
 #include "idt.h"
+
 #include "interrupt.h"
 #include "printk.h"
 
 struct idt_register idt_pointer;
-struct idt_entry	idt_entries[256];
+struct idt_entry idt_entries[256];
 
 /* Initialize the interrupt descriptor table */
 void init_idt(void)
@@ -24,8 +25,7 @@ void init_idt(void)
 
 	__asm__ volatile("lidt %0" ::"m"(idt_pointer) : "memory");
 	plogk("IDT: IDT initialized at 0x%016x (limit = 0x%04x)\n", idt_entries, idt_pointer.size);
-	plogk("IDT: Loaded IDTR with base = 0x%016x, limit = %d\n", idt_pointer.ptr,
-		  idt_pointer.size + 1);
+	plogk("IDT: Loaded IDTR with base = 0x%016x, limit = %d\n", idt_pointer.ptr, idt_pointer.size + 1);
 
 	for (int i = 0; i < 256; i++) register_interrupt_handler(i, empty_handle[i], 0, 0x8e);
 }

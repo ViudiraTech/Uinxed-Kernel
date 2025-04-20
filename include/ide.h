@@ -86,22 +86,22 @@
 #define ATA_WRITE 0x01
 
 struct IDE_channel_registers {
-	uint16_t base;	// I/O base address
-	uint16_t ctrl;	// Control base address
-	uint16_t bmide; // Bus Master IDE
-	uint8_t	 nIEN;	// nIEN (no interrupt)
+		uint16_t base;	// I/O base address
+		uint16_t ctrl;	// Control base address
+		uint16_t bmide; // Bus Master IDE
+		uint8_t nIEN;	// nIEN (no interrupt)
 };
 
 struct ide_device {
-	uint8_t	 reserved;	   // Drive Status
-	uint8_t	 channel;	   // Master-slave channel
-	uint8_t	 drive;		   // Master-slave drive
-	uint16_t type;		   // Drive Type
-	uint16_t signature;	   // Drive Signature
-	uint16_t capabilities; // Feature
-	uint32_t command_sets; // Supported command sets
-	uint32_t size;		   // Size in sectors
-	uint8_t	 model[41];	   // Drive Name
+		uint8_t reserved;	   // Drive Status
+		uint8_t channel;	   // Master-slave channel
+		uint8_t drive;		   // Master-slave drive
+		uint16_t type;		   // Drive Type
+		uint16_t signature;	   // Drive Signature
+		uint16_t capabilities; // Feature
+		uint32_t command_sets; // Supported command sets
+		uint32_t size;		   // Size in sectors
+		uint8_t model[41];	   // Drive Name
 };
 
 /* Initialize IDE */
@@ -121,8 +121,7 @@ void ide_read_buffer(uint8_t channel, uint8_t reg, uint64_t buffer, uint32_t qua
 uint8_t ide_polling(uint8_t channel, uint32_t advanced_check);
 
 /* Read and write ATA devices */
-uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t numsects,
-					   uint64_t edi);
+uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t numsects, uint64_t edi);
 
 /* Reading data from ATAPI devices */
 uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint32_t edi);

@@ -10,6 +10,7 @@
  */
 
 #include "printk.h"
+
 #include "acpi.h"
 #include "cmos.h"
 #include "stdlib.h"
@@ -22,8 +23,8 @@
 void printk(const char *format, ...)
 {
 	static char buff[2048];
-	va_list		args;
-	int			i;
+	va_list args;
+	int i;
 
 	va_start(args, format);
 	while (1) {
@@ -50,8 +51,8 @@ void plogk(const char *format, ...)
 	printk("] ");
 
 	static char buff[2048];
-	va_list		args;
-	int			i;
+	va_list args;
+	int i;
 
 	va_start(args, format);
 	while (1) {
@@ -82,9 +83,9 @@ void sprintf(char *str, const char *fmt, ...)
 /* Format a string and output it to a character array */
 int vsprintf(char *buff, const char *format, va_list args)
 {
-	int	  len, i, flags, field_width, precision;
+	int len, i, flags, field_width, precision;
 	char *str, *s;
-	int	 *ip;
+	int *ip;
 
 	for (str = buff; *format; ++format) {
 		if (*format != '%') {
@@ -92,24 +93,24 @@ int vsprintf(char *buff, const char *format, va_list args)
 			continue;
 		}
 		flags = 0;
-	repeat:
+repeat:
 		++format;
 		switch (*format) {
-		case '-':
-			flags |= LEFT;
-			goto repeat;
-		case '+':
-			flags |= PLUS;
-			goto repeat;
-		case ' ':
-			flags |= SPACE;
-			goto repeat;
-		case '#':
-			flags |= SPECIAL;
-			goto repeat;
-		case '0':
-			flags |= ZEROPAD;
-			goto repeat;
+			case '-' :
+				flags |= LEFT;
+				goto repeat;
+			case '+' :
+				flags |= PLUS;
+				goto repeat;
+			case ' ' :
+				flags |= SPACE;
+				goto repeat;
+			case '#' :
+				flags |= SPECIAL;
+				goto repeat;
+			case '0' :
+				flags |= ZEROPAD;
+				goto repeat;
 		}
 		field_width = -1;
 		if (is_digit(*format)) {
@@ -129,81 +130,67 @@ int vsprintf(char *buff, const char *format, va_list args)
 			} else if (*format == '*') {
 				precision = va_arg(args, int);
 			}
-			if (precision < 0) {
-				precision = 0;
-			}
+			if (precision < 0) { precision = 0; }
 		}
-		if (*format == 'h' || *format == 'l' || *format == 'L') {
-			++format;
-		}
+		if (*format == 'h' || *format == 'l' || *format == 'L') { ++format; }
 		switch (*format) {
-		case 'c':
-			if (!(flags & LEFT)) {
-				while (--field_width > 0) {
-					*str++ = ' ';
+			case 'c' :
+				if (!(flags & LEFT)) {
+					while (--field_width > 0) { *str++ = ' '; }
 				}
-			}
-			*str++ = (unsigned char)va_arg(args, int);
-			while (--field_width > 0) {
-				*str++ = ' ';
-			}
-			break;
-		case 's':
-			s	= va_arg(args, char *);
-			len = strlen(s);
-			if (precision < 0) {
-				precision = len;
-			} else if (len > precision) {
-				len = precision;
-			}
-			if (!(flags & LEFT)) {
-				while (len < field_width--) {
-					*str++ = ' ';
+				*str++ = (unsigned char)va_arg(args, int);
+				while (--field_width > 0) { *str++ = ' '; }
+				break;
+			case 's' :
+				s	= va_arg(args, char *);
+				len = strlen(s);
+				if (precision < 0) {
+					precision = len;
+				} else if (len > precision) {
+					len = precision;
 				}
-			}
-			for (i = 0; i < len; ++i) {
-				*str++ = *s++;
-			}
-			while (len < field_width--) {
-				*str++ = ' ';
-			}
-			break;
-		case 'o':
-			str = number(str, va_arg(args, size_t), 8, field_width, precision, flags);
-			break;
-		case 'p':
-			if (field_width == -1) {
-				field_width = 16;
-				flags |= ZEROPAD;
-			}
-			str = number(str, (size_t)va_arg(args, void *), 16, field_width, precision, flags);
-			break;
-		case 'x':
-			flags |= SMALL; // fallthrough
-		case 'X':
-			str = number(str, va_arg(args, size_t), 16, field_width, precision, flags);
-			break;
-		case 'd':
-		case 'i':
-			flags |= SIGN; // fallthrough
-		case 'u':
-			str = number(str, va_arg(args, size_t), 10, field_width, precision, flags);
-			break;
-		case 'b':
-			str = number(str, va_arg(args, size_t), 2, field_width, precision, flags);
-			break;
-		case 'n':
-			ip	= va_arg(args, int *);
-			*ip = (str - buff);
-			break;
-		default:
-			if (*format != '%') *str++ = '%';
-			if (*format) {
-				*str++ = *format;
-			} else {
-				--format;
-			}
-			break;
+				if (!(flags & LEFT)) {
+					while (len < field_width--) { *str++ = ' '; }
+				}
+				for (i = 0; i < len; ++i) { *str++ = *s++; }
+				while (len < field_width--) { *str++ = ' '; }
+				break;
+			case 'o' :
+				str = number(str, va_arg(args, size_t), 8, field_width, precision, flags);
+				break;
+			case 'p' :
+				if (field_width == -1) {
+					field_width = 16;
+					flags |= ZEROPAD;
+				}
+				str = number(str, (size_t)va_arg(args, void *), 16, field_width, precision, flags);
+				break;
+			case 'x' :
+				flags |= SMALL; // fallthrough
+			case 'X' :
+				str = number(str, va_arg(args, size_t), 16, field_width, precision, flags);
+				break;
+			case 'd' :
+			case 'i' :
+				flags |= SIGN; // fallthrough
+			case 'u' :
+				str = number(str, va_arg(args, size_t), 10, field_width, precision, flags);
+				break;
+			case 'b' :
+				str = number(str, va_arg(args, size_t), 2, field_width, precision, flags);
+				break;
+			case 'n' :
+				ip	= va_arg(args, int *);
+				*ip = (str - buff);
+				break;
+			default :
+				if (*format != '%') *str++ = '%';
+				if (*format) {
+					*str++ = *format;
+				} else {
+					--format;
+				}
+				break;
 		}
 	}
 	*str = '\0';
@@ -212,11 +199,11 @@ int vsprintf(char *buff, const char *format, va_list args)
 
 int vsprintf_s(char *buff, intptr_t size, const char **format, va_list args)
 {
-	int		 len, i, flags, field_width, precision;
+	int len, i, flags, field_width, precision;
 	intptr_t desc_len = 0, tmp_len = 0; // Format description length
-	int		 overflow_sig = 0;
-	char	*str, *s;
-	int		*ip;
+	int overflow_sig = 0;
+	char *str, *s;
+	int *ip;
 
 	for (str = buff; **format; ++(*format)) {
 		if (**format != '%' && str - buff < size) {
@@ -231,26 +218,26 @@ int vsprintf_s(char *buff, intptr_t size, const char **format, va_list args)
 			break;
 		}
 		flags = 0;
-	repeat:
+repeat:
 		++(*format); // skip `%` or `-` or `+` or `0` or `#` or ` ` or `*`
 		++desc_len;
 		// check flags
 		switch (**format) {
-		case '-':
-			flags |= LEFT;
-			goto repeat;
-		case '+':
-			flags |= PLUS;
-			goto repeat;
-		case ' ':
-			flags |= SPACE;
-			goto repeat;
-		case '#':
-			flags |= SPECIAL;
-			goto repeat;
-		case '0':
-			flags |= ZEROPAD;
-			goto repeat;
+			case '-' :
+				flags |= LEFT;
+				goto repeat;
+			case '+' :
+				flags |= PLUS;
+				goto repeat;
+			case ' ' :
+				flags |= SPACE;
+				goto repeat;
+			case '#' :
+				flags |= SPECIAL;
+				goto repeat;
+			case '0' :
+				flags |= ZEROPAD;
+				goto repeat;
 		}
 		// check number of digits
 		field_width = -1;
@@ -277,9 +264,7 @@ int vsprintf_s(char *buff, intptr_t size, const char **format, va_list args)
 			} else if (**format == '*') {
 				precision = va_arg(args, int);
 			}
-			if (precision < 0) {
-				precision = 0;
-			}
+			if (precision < 0) { precision = 0; }
 		}
 
 		if (**format == 'h' || **format == 'l' || **format == 'L') {
@@ -290,104 +275,92 @@ int vsprintf_s(char *buff, intptr_t size, const char **format, va_list args)
 		overflow_sig = 0;
 		// Write to buffer
 		switch (**format) {
-		case 'c':
-			// Check overflow
-			if (str + 1 - buff >= size) {
-				*format -= desc_len;
-				overflow_sig = 1;
-				break;
-			}
-			if (!(flags & LEFT)) {
-				while (--field_width > 0) {
-					*str++ = ' ';
+			case 'c' :
+				// Check overflow
+				if (str + 1 - buff >= size) {
+					*format -= desc_len;
+					overflow_sig = 1;
+					break;
 				}
-			}
-			*str++ = (unsigned char)va_arg(args, int);
-			while (--field_width > 0) {
-				*str++ = ' ';
-			}
-			break;
-		case 's':
-			s	= va_arg(args, char *);
-			len = strlen(s);
-			// Check overflow
-			if (str + len - buff >= size) {
-				*format -= desc_len;
-				overflow_sig = 1;
-				break;
-			}
-			if (precision < 0) {
-				precision = len;
-			} else if (len > precision) {
-				len = precision;
-			}
-			if (!(flags & LEFT)) {
-				while (len < field_width--) {
-					*str++ = ' ';
+				if (!(flags & LEFT)) {
+					while (--field_width > 0) { *str++ = ' '; }
 				}
-			}
-			for (i = 0; i < len; ++i) {
-				*str++ = *s++;
-			}
-			while (len < field_width--) {
-				*str++ = ' ';
-			}
-			break;
-		case 'o':
-			if (str + field_width - buff >= size) {
-				*format -= desc_len;
-				overflow_sig = 1;
+				*str++ = (unsigned char)va_arg(args, int);
+				while (--field_width > 0) { *str++ = ' '; }
 				break;
-			}
-			str = number(str, va_arg(args, size_t), 8, field_width, precision, flags);
-			break;
-		case 'p':
-			if (field_width == -1) {
-				field_width = 16;
-				flags |= ZEROPAD;
-			}
-			if (str + field_width - buff >= size) {
-				*format -= desc_len;
-				overflow_sig = 1;
+			case 's' :
+				s	= va_arg(args, char *);
+				len = strlen(s);
+				// Check overflow
+				if (str + len - buff >= size) {
+					*format -= desc_len;
+					overflow_sig = 1;
+					break;
+				}
+				if (precision < 0) {
+					precision = len;
+				} else if (len > precision) {
+					len = precision;
+				}
+				if (!(flags & LEFT)) {
+					while (len < field_width--) { *str++ = ' '; }
+				}
+				for (i = 0; i < len; ++i) { *str++ = *s++; }
+				while (len < field_width--) { *str++ = ' '; }
 				break;
-			}
-			str = number(str, (size_t)va_arg(args, void *), 16, field_width, precision, flags);
-			break;
-		case 'x':
-			flags |= SMALL; // fallthrough
-		case 'X':
-			if (str + field_width - buff >= size) {
-				*format -= desc_len;
-				overflow_sig = 1;
+			case 'o' :
+				if (str + field_width - buff >= size) {
+					*format -= desc_len;
+					overflow_sig = 1;
+					break;
+				}
+				str = number(str, va_arg(args, size_t), 8, field_width, precision, flags);
 				break;
-			}
-			str = number(str, va_arg(args, size_t), 16, field_width, precision, flags);
-			break;
-		case 'd':
-		case 'i':
-			flags |= SIGN; // fallthrough
-		case 'u':
-			str = number(str, va_arg(args, size_t), 10, field_width, precision, flags);
-			break;
-		case 'b':
-			str = number(str, va_arg(args, size_t), 2, field_width, precision, flags);
-			break;
-		case 'n':
-			ip	= va_arg(args, int *);
-			*ip = (str - buff);
-			break;
-		default:
-			if (**format != '%') *str++ = '%';
-			if (**format) {
-				*str++ = **format;
-			} else {
-				--(*format);
-			}
-			break;
+			case 'p' :
+				if (field_width == -1) {
+					field_width = 16;
+					flags |= ZEROPAD;
+				}
+				if (str + field_width - buff >= size) {
+					*format -= desc_len;
+					overflow_sig = 1;
+					break;
+				}
+				str = number(str, (size_t)va_arg(args, void *), 16, field_width, precision, flags);
+				break;
+			case 'x' :
+				flags |= SMALL; // fallthrough
+			case 'X' :
+				if (str + field_width - buff >= size) {
+					*format -= desc_len;
+					overflow_sig = 1;
+					break;
+				}
+				str = number(str, va_arg(args, size_t), 16, field_width, precision, flags);
+				break;
+			case 'd' :
+			case 'i' :
+				flags |= SIGN; // fallthrough
+			case 'u' :
+				str = number(str, va_arg(args, size_t), 10, field_width, precision, flags);
+				break;
+			case 'b' :
+				str = number(str, va_arg(args, size_t), 2, field_width, precision, flags);
+				break;
+			case 'n' :
+				ip	= va_arg(args, int *);
+				*ip = (str - buff);
+				break;
+			default :
+				if (**format != '%') *str++ = '%';
+				if (**format) {
+					*str++ = **format;
+				} else {
+					--(*format);
+				}
+				break;
 		}
-		if (overflow_sig) {
-			break;
-		}
+		if (overflow_sig) { break; }
 	}
 	*str = '\0';
 	return (str - buff); // Return the length of the formatted string

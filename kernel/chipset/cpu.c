@@ -10,6 +10,7 @@
  */
 
 #include "cpu.h"
+
 #include "alloc.h"
 #include "printk.h"
 
@@ -22,10 +23,13 @@ void cpuid(uint32_t code, uint32_t *a, uint32_t *b, uint32_t *c, uint32_t *d)
 /* Get CPU manufacturer name */
 char *get_vendor_name(void)
 {
-	int			cpuid_level;
-	static char x86_vendor_id[16] = {0};
-	cpuid(0x00000000, (uint32_t *)&cpuid_level, (uint32_t *)&x86_vendor_id[0],
-		  (uint32_t *)&x86_vendor_id[8], (uint32_t *)&x86_vendor_id[4]);
+	int cpuid_level;
+	static char x86_vendor_id[16] = { 0 };
+	cpuid(0x00000000,
+		  (uint32_t *)&cpuid_level,
+		  (uint32_t *)&x86_vendor_id[0],
+		  (uint32_t *)&x86_vendor_id[8],
+		  (uint32_t *)&x86_vendor_id[4]);
 	return x86_vendor_id;
 }
 
@@ -33,7 +37,7 @@ char *get_vendor_name(void)
 char *get_model_name(void)
 {
 	static char model_name[64];
-	uint32_t   *p = (uint32_t *)model_name;
+	uint32_t *p = (uint32_t *)model_name;
 
 	cpuid(0x80000002, &p[0], &p[1], &p[2], &p[3]);
 	cpuid(0x80000003, &p[4], &p[5], &p[6], &p[7]);

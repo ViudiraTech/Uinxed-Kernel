@@ -15,8 +15,8 @@
 #define SERIAL_PORT 0x3f8 // By default, COM1 serial port is used.
 
 void init_serial(void);			 // Initialize the serial port
-int	 serial_received(void);		 // Check whether the serial port is ready to read
-int	 is_transmit_empty(void);	 // Check whether the serial port is idle
+int serial_received(void);		 // Check whether the serial port is ready to read
+int is_transmit_empty(void);	 // Check whether the serial port is idle
 char read_serial(void);			 // Read serial port
 void write_serial(const char c); // Write serial port
 

@@ -10,25 +10,26 @@
  */
 
 #include "video.h"
+
 #include "common.h"
 #include "limine.h"
 #include "string.h"
 
-__attribute__((used, section(".limine_requests"))) static volatile struct limine_framebuffer_request
-	framebuffer_request = {
-		.id		  = LIMINE_FRAMEBUFFER_REQUEST,
-		.revision = 0,
-};
+__attribute__((used, section(".limine_requests"))) static volatile struct limine_framebuffer_request framebuffer_request
+	= {
+		  .id		= LIMINE_FRAMEBUFFER_REQUEST,
+		  .revision = 0,
+	  };
 
 extern uint8_t ascfont[]; // Fonts
 
-uint64_t  width;  // Screen length
-uint64_t  height; // Screen width
-uint64_t  stride; // Frame buffer line spacing
+uint64_t width;	  // Screen length
+uint64_t height;  // Screen width
+uint64_t stride;  // Frame buffer line spacing
 uint32_t *buffer; // Video Memory
 
-int32_t	 x, y;				// The current absolute cursor position
-int32_t	 cx, cy;			// The character position of the current cursor
+int32_t x, y;				// The current absolute cursor position
+int32_t cx, cy;				// The character position of the current cursor
 uint32_t c_width, c_height; // Screen character width and height
 
 uint32_t fore_color; // Foreground color
@@ -43,9 +44,7 @@ struct limine_framebuffer *get_framebuffer(void)
 /* Initialize Video */
 void video_init(void)
 {
-	if (framebuffer_request.response == 0 || framebuffer_request.response->framebuffer_count < 1) {
-		krn_halt();
-	}
+	if (framebuffer_request.response == 0 || framebuffer_request.response->framebuffer_count < 1) { krn_halt(); }
 	struct limine_framebuffer *framebuffer = framebuffer_request.response->framebuffers[0];
 	buffer								   = framebuffer->address;
 	width								   = framebuffer->width;
@@ -65,9 +64,7 @@ void video_init(void)
 /* Clear screen */
 void video_clear(void)
 {
-	for (uint32_t i = 0; i < (width * height); i++) {
-		buffer[i] = 0xff000000;
-	}
+	for (uint32_t i = 0; i < (width * height); i++) { buffer[i] = 0xff000000; }
 	back_color = 0xff000000;
 	x		   = 2;
 	y		   = 0;
@@ -77,9 +74,7 @@ void video_clear(void)
 /* Clear screen with color */
 void video_clear_color(int color)
 {
-	for (uint32_t i = 0; i < (width * height); i++) {
-		buffer[i] = color;
-	}
+	for (uint32_t i = 0; i < (width * height); i++) { buffer[i] = color; }
 	back_color = color;
 	x		   = 2;
 	y		   = 0;
@@ -95,9 +90,9 @@ void video_scroll(void)
 	} else
 		cx++;
 	if ((uint32_t)cy >= c_height) {
-		uint8_t		  *dest	 = (uint8_t *)buffer;
-		const uint8_t *src	 = (const uint8_t *)(buffer + stride * 16);
-		size_t		   count = (width * (height - 16) * sizeof(uint32_t)) / 8;
+		uint8_t *dest	   = (uint8_t *)buffer;
+		const uint8_t *src = (const uint8_t *)(buffer + stride * 16);
+		size_t count	   = (width * (height - 16) * sizeof(uint32_t)) / 8;
 
 		__asm__ volatile("rep movsq" : "+D"(dest), "+S"(src), "+c"(count)::"memory");
 
@@ -117,9 +112,7 @@ void video_draw_rect(int x0, int y0, int x1, int y1, int color)
 {
 	int x, y;
 	for (y = y0; y <= y1; y++) {
-		for (x = x0; x <= x1; x++) {
-			(buffer)[y * width + x] = color;
-		}
+		for (x = x0; x <= x1; x++) { (buffer)[y * width + x] = color; }
 	}
 }
 

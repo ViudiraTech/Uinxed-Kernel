@@ -10,6 +10,7 @@
  */
 
 #include "cmos.h"
+
 #include "common.h"
 
 /* Reading data from CMOS memory */

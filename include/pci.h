@@ -27,18 +27,17 @@
 #define input_output 1
 
 typedef struct base_address_register {
-	int		  prefetchable;
-	uint32_t *address;
-	uint32_t  size;
-	int		  type;
+		int prefetchable;
+		uint32_t *address;
+		uint32_t size;
+		int type;
 } base_address_register;
 
 /* Reading values ​​from PCI device registers */
 uint32_t read_pci(uint32_t bus, uint32_t slot, uint32_t func, uint32_t register_offset);
 
 /* Write values ​​to PCI device registers */
-void write_pci(uint32_t bus, uint32_t slot, uint32_t func, uint32_t register_offset,
-			   uint32_t value);
+void write_pci(uint32_t bus, uint32_t slot, uint32_t func, uint32_t register_offset, uint32_t value);
 
 /* Read the value from the PCI device command status register */
 uint32_t pci_read_command_status(uint32_t bus, uint32_t slot, uint32_t func);
@@ -47,8 +46,7 @@ uint32_t pci_read_command_status(uint32_t bus, uint32_t slot, uint32_t func);
 void pci_write_command_status(uint32_t bus, uint32_t slot, uint32_t func, uint32_t value);
 
 /* Get detailed information about the base address register */
-base_address_register get_base_address_register(uint32_t bus, uint32_t slot, uint32_t func,
-												uint32_t bar);
+base_address_register get_base_address_register(uint32_t bus, uint32_t slot, uint32_t func, uint32_t bar);
 
 /* Get the I/O port base address of the PCI device */
 uint32_t pci_get_port_base(uint32_t bus, uint32_t slot, uint32_t func);
@@ -63,8 +61,7 @@ uint32_t pci_get_irq(uint32_t bus, uint32_t slot, uint32_t func);
 void pci_config(uint32_t bus, uint32_t slot, uint32_t func, uint32_t addr);
 
 /* Find PCI devices by vendor ID and device ID */
-int pci_found_device(uint32_t vendor_id, uint32_t device_id, uint32_t *bus, uint32_t *slot,
-					 uint32_t *func);
+int pci_found_device(uint32_t vendor_id, uint32_t device_id, uint32_t *bus, uint32_t *slot, uint32_t *func);
 
 /* Find PCI devices by class code */
 int pci_found_class(uint32_t class_code, uint32_t *bus, uint32_t *slot, uint32_t *func);

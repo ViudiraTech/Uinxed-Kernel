@@ -10,6 +10,7 @@
  */
 
 #include "acpi.h"
+
 #include "apic.h"
 #include "hhdm.h"
 #include "limine.h"
@@ -18,8 +19,7 @@
 
 XSDT *xsdt;
 
-__attribute__((
-	used, section(".limine_requests"))) static volatile struct limine_rsdp_request rsdp_request = {
+__attribute__((used, section(".limine_requests"))) static volatile struct limine_rsdp_request rsdp_request = {
 	.id		  = LIMINE_RSDP_REQUEST,
 	.revision = 0,
 };
@@ -27,11 +27,11 @@ __attribute__((
 /* Find the corresponding ACPI table in XSDT */
 void *find_table(const char *name)
 {
-	uint64_t  entry_count = (xsdt->h.Length - 32) / 8;
-	uint64_t *t = (uint64_t *)((char *)xsdt + __builtin_offsetof(XSDT, PointerToOtherSDT));
+	uint64_t entry_count = (xsdt->h.Length - 32) / 8;
+	uint64_t *t			 = (uint64_t *)((char *)xsdt + __builtin_offsetof(XSDT, PointerToOtherSDT));
 
 	for (uint64_t i = 0; i < entry_count; i++) {
-		uint64_t ptr = (uint64_t)phys_to_virt((uint64_t)*(t + i));
+		uint64_t ptr = (uint64_t)phys_to_virt((uint64_t) * (t + i));
 		if (memcmp(((struct ACPISDTHeader *)ptr)->Signature, name, 4) == 0) {
 			plogk("ACPI: %.4s 0x%016x\n", name, ptr);
 			return (void *)ptr;
