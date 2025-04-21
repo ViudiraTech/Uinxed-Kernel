@@ -1,11 +1,11 @@
 /*
  *
- *		gdt.h
- *		Global Descriptor Header File
+ *      gdt.h
+ *      Global Descriptor Header File
  *
- *		2024/6/27 By Rainy101112
- *		Based on GPL-3.0 open source agreement
- *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
+ *      2024/6/27 By Rainy101112
+ *      Based on GPL-3.0 open source agreement
+ *      Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -15,18 +15,18 @@
 #include "stdint.h"
 
 struct gdt_register {
-		uint16_t size;
-		void *ptr;
+        uint16_t size;
+        void *ptr;
 } __attribute__((packed));
 
 typedef struct tss {
-		uint32_t unused0;
-		uint64_t rsp[3];
-		uint64_t unused1;
-		uint64_t ist[7];
-		uint64_t unused2;
-		uint16_t unused3;
-		uint16_t iopb;
+        uint32_t unused0;
+        uint64_t rsp[3];
+        uint64_t unused1;
+        uint64_t ist[7];
+        uint64_t unused2;
+        uint16_t unused3;
+        uint16_t iopb;
 } __attribute__((packed)) tss_t;
 
 typedef uint8_t tss_stack_t[1024];

@@ -1,11 +1,11 @@
 /*
  *
- *		idt.h
- *		Interrupt Descriptor Header File
+ *      idt.h
+ *      Interrupt Descriptor Header File
  *
- *		2024/6/27 By Rainy101112
- *		Based on GPL-3.0 open source agreement
- *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
+ *      2024/6/27 By Rainy101112
+ *      Based on GPL-3.0 open source agreement
+ *      Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -53,26 +53,26 @@
 #define IRQ_47 47 // IDE1 transmission control usage
 
 struct idt_register {
-		uint16_t size;
-		void *ptr;
+        uint16_t size;
+        void *ptr;
 } __attribute__((packed));
 
 struct idt_entry {
-		uint16_t offset_low; // Processing function pointer low 16-bit address
-		uint16_t selector;	 // Segment Selector
-		uint8_t ist;
-		uint8_t flags;		 // Flags
-		uint16_t offset_mid; // Handling 16-bit addresses in function pointers
-		uint32_t offset_hi;	 // Processing function pointer high 32-bit address
-		uint32_t reserved;
+        uint16_t offset_low; // Processing function pointer low 16-bit address
+        uint16_t selector;   // Segment Selector
+        uint8_t ist;
+        uint8_t flags;       // Flags
+        uint16_t offset_mid; // Handling 16-bit addresses in function pointers
+        uint32_t offset_hi;  // Processing function pointer high 32-bit address
+        uint32_t reserved;
 } __attribute__((packed));
 
 struct interrupt_frame {
-		uint64_t rip;
-		uint64_t cs;
-		uint64_t rflags;
-		uint64_t rsp;
-		uint64_t ss;
+        uint64_t rip;
+        uint64_t cs;
+        uint64_t rflags;
+        uint64_t rsp;
+        uint64_t ss;
 };
 
 typedef struct interrupt_frame interrupt_frame_t;

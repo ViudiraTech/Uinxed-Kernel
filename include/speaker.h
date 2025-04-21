@@ -1,11 +1,11 @@
 /*
  *
- *		speaker.h
- *		System Speaker Header File
+ *      speaker.h
+ *      System Speaker Header File
  *
- *		2024/6/29 By MicroFish
- *		Based on GPL-3.0 open source agreement
- *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
+ *      2024/6/29 By MicroFish
+ *      Based on GPL-3.0 open source agreement
+ *      Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 

@@ -1,11 +1,11 @@
 /*
  *
- *		stdint.h
- *		Basic integer type header file
+ *      stdint.h
+ *      Basic integer type header file
  *
- *		2025/2/15 By MicroFish
- *		Based on GPL-3.0 open source agreement
- *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
+ *      2025/2/15 By MicroFish
+ *      Based on GPL-3.0 open source agreement
+ *      Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 

@@ -1,11 +1,11 @@
 /*
  *
- *		frame.h
- *		Memory frame header file
+ *      frame.h
+ *      Memory frame header file
  *
- *		2025/2/16 By XIAOYI12
- *		Based on GPL-3.0 open source agreement
- *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
+ *      2025/2/16 By XIAOYI12
+ *      Based on GPL-3.0 open source agreement
+ *      Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -16,9 +16,9 @@
 #include "stdint.h"
 
 typedef struct {
-		Bitmap bitmap;
-		size_t origin_frames;
-		size_t usable_frames;
+        Bitmap bitmap;
+        size_t origin_frames;
+        size_t usable_frames;
 } FrameAllocator;
 
 extern FrameAllocator frame_allocator;

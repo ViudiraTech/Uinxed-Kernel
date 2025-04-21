@@ -1,11 +1,11 @@
 /*
  *
- *		pci.h
- *		Peripheral Component Interconnect Standard Driver Header File
+ *      pci.h
+ *      Peripheral Component Interconnect Standard Driver Header File
  *
- *		2025/3/9 By MicroFish
- *		Based on GPL-3.0 open source agreement
- *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
+ *      2025/3/9 By MicroFish
+ *      Based on GPL-3.0 open source agreement
+ *      Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -14,23 +14,23 @@
 
 #include "stdint.h"
 
-#define PCI_CONF_VENDOR	  0X0 // Vendor ID
-#define PCI_CONF_DEVICE	  0X2 // Device ID
+#define PCI_CONF_VENDOR   0X0 // Vendor ID
+#define PCI_CONF_DEVICE   0X2 // Device ID
 #define PCI_CONF_COMMAND  0x4 // Command
-#define PCI_CONF_STATUS	  0x6 // Status
+#define PCI_CONF_STATUS   0x6 // Status
 #define PCI_CONF_REVISION 0x8 // Revision ID
 
 #define PCI_COMMAND_PORT 0xCF8
-#define PCI_DATA_PORT	 0xCFC
+#define PCI_DATA_PORT    0xCFC
 
-#define mem_mapping	 0
+#define mem_mapping  0
 #define input_output 1
 
 typedef struct base_address_register {
-		int prefetchable;
-		uint32_t *address;
-		uint32_t size;
-		int type;
+        int prefetchable;
+        uint32_t *address;
+        uint32_t size;
+        int type;
 } base_address_register;
 
 /* Reading values ​​from PCI device registers */

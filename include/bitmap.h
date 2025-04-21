@@ -1,11 +1,11 @@
 /*
  *
- *		bitmap.h
- *		Memory bitmap header file
+ *      bitmap.h
+ *      Memory bitmap header file
  *
- *		2025/2/16 By XIAOYI12
- *		Based on GPL-3.0 open source agreement
- *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
+ *      2025/2/16 By XIAOYI12
+ *      Based on GPL-3.0 open source agreement
+ *      Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -16,8 +16,8 @@
 #include "stdint.h"
 
 typedef struct {
-		uint8_t *buffer;
-		size_t length;
+        uint8_t *buffer;
+        size_t length;
 } Bitmap;
 
 /* Initialize the memory bitmap */

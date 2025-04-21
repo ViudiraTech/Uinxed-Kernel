@@ -1,11 +1,11 @@
 /*
  *
- *		tty.h
- *		Teletype header file
+ *      tty.h
+ *      Teletype header file
  *
- *		2025/4/12 By MicroFish
- *		Based on GPL-3.0 open source agreement
- *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
+ *      2025/4/12 By MicroFish
+ *      Based on GPL-3.0 open source agreement
+ *      Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 

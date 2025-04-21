@@ -1,11 +1,11 @@
 # =====================================================
 #
-#		Makefile
-#		Uinxed compile script
+#      Makefile
+#      Uinxed compile script
 #
-#		2024/6/23 By Rainy101112
-#		Based on GPL-3.0 open source agreement
-#		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
+#      2024/6/23 By Rainy101112
+#      Based on GPL-3.0 open source agreement
+#      Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
 #
 # =====================================================
 
@@ -17,21 +17,21 @@ else
   Q=@
 endif
 
-C_SOURCES	:= $(shell find * -name "*.c")
-S_SOURCES	:= $(shell find * -name "*.s")
-HEADERS		:= $(shell find * -name "*.h")
-OBJS		:= $(C_SOURCES:%.c=%.o) $(S_SOURCES:%.s=%.o)
-DEPS		:= $(OBJS:%.o=%.d)
-LIBS		:= $(wildcard libs/lib*.a)
-PWD			:= $(shell pwd)
+C_SOURCES    := $(shell find * -name "*.c")
+S_SOURCES    := $(shell find * -name "*.s")
+HEADERS      := $(shell find * -name "*.h")
+OBJS         := $(C_SOURCES:%.c=%.o) $(S_SOURCES:%.s=%.o)
+DEPS         := $(OBJS:%.o=%.d)
+LIBS         := $(wildcard libs/lib*.a)
+PWD          := $(shell pwd)
 
-QEMU		:= qemu-system-x86_64
-QEMU_FLAGS	:= -machine q35 -bios assets/ovmf-code.fd
+QEMU         := qemu-system-x86_64
+QEMU_FLAGS   := -machine q35 -bios assets/ovmf-code.fd
 
-C_FLAGS		:= -Wall -Wextra -O3 -g3 -m64 -ffreestanding -fno-pie -fno-stack-protector -fno-omit-frame-pointer \
-               -mcmodel=kernel -mno-red-zone -mno-80387 -mno-mmx -mno-sse -mno-sse2 -msoft-float -I include -MMD
-LD_FLAGS	:= -nostdlib -static -T assets/linker.ld -m elf_x86_64
-AS_FLAGS	:= -g --64
+C_FLAGS      := -Wall -Wextra -O3 -g3 -m64 -ffreestanding -fno-pie -fno-stack-protector -fno-omit-frame-pointer \
+                -mcmodel=kernel -mno-red-zone -mno-80387 -mno-mmx -mno-sse -mno-sse2 -msoft-float -I include -MMD
+LD_FLAGS     := -nostdlib -static -T assets/linker.ld -m elf_x86_64
+AS_FLAGS     := -g --64
 
 all: info Uinxed-x64.iso
 
@@ -64,7 +64,6 @@ Uinxed-x64.iso: UxImage
 	$(Q)printf "\033[1;32m[ISO]\033[0m Packing ISO file...\n"
 	$(Q)cp -a assets/Limine iso
 	$(Q)cp $< iso/efi/boot
-
 	$(Q)xorriso -as mkisofs -R -r -J -iso-level 3 --efi-boot /efi/boot/limine-uefi-cd.bin -o Uinxed-x64.iso iso
 
 	$(Q)rm -rf iso

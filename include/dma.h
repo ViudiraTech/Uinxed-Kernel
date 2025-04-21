@@ -1,11 +1,11 @@
 /*
  *
- *		dma.h
- *		Direct Memory Access Header Files
+ *      dma.h
+ *      Direct Memory Access Header Files
  *
- *		2025/1/9 By MicroFish
- *		Based on GPL-3.0 open source agreement
- *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
+ *      2025/1/9 By MicroFish
+ *      Based on GPL-3.0 open source agreement
+ *      Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 

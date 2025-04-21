@@ -1,11 +1,11 @@
 /*
  *
- *		printk.h
- *		Kernel string print header file
+ *      printk.h
+ *      Kernel string print header file
  *
- *		2024/6/27 By Rainy101112
- *		Based on GPL-3.0 open source agreement
- *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
+ *      2024/6/27 By Rainy101112
+ *      Based on GPL-3.0 open source agreement
+ *      Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 

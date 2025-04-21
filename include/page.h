@@ -1,11 +1,11 @@
 /*
  *
- *		page.h
- *		Memory page header file
+ *      page.h
+ *      Memory page header file
  *
- *		2025/2/16 By XIAOYI12
- *		Based on GPL-3.0 open source agreement
- *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
+ *      2025/2/16 By XIAOYI12
+ *      Based on GPL-3.0 open source agreement
+ *      Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -14,25 +14,25 @@
 
 #include "stdint.h"
 
-#define PTE_PRESENT		 (0x1 << 0)
-#define PTE_WRITEABLE	 (0x1 << 1)
-#define PTE_USER		 (0x1 << 2)
-#define PTE_HUGE		 (0x1 << 7)
-#define PTE_NO_EXECUTE	 (((uint64_t)0x1) << 63)
+#define PTE_PRESENT      (0x1 << 0)
+#define PTE_WRITEABLE    (0x1 << 1)
+#define PTE_USER         (0x1 << 2)
+#define PTE_HUGE         (0x1 << 7)
+#define PTE_NO_EXECUTE   (((uint64_t)0x1) << 63)
 #define KERNEL_PTE_FLAGS (PTE_PRESENT | PTE_WRITEABLE | PTE_NO_EXECUTE)
 
 #define PAGE_SIZE 0x1000
 
 typedef struct page_table_entry {
-		uint64_t value;
+        uint64_t value;
 } page_table_entry_t;
 
 typedef struct {
-		page_table_entry_t entries[512];
+        page_table_entry_t entries[512];
 } page_table_t;
 
 typedef struct page_directory {
-		page_table_t *table;
+        page_table_t *table;
 } page_directory_t;
 
 /* Clear all entries in a memory page table */

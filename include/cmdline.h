@@ -1,11 +1,11 @@
 /*
  *
- *		cmdline.h
- *		Kernel command line header file
+ *      cmdline.h
+ *      Kernel command line header file
  *
- *		2025/3/9 By MicroFish
- *		Based on GPL-3.0 open source agreement
- *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
+ *      2025/3/9 By MicroFish
+ *      Based on GPL-3.0 open source agreement
+ *      Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 

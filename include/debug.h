@@ -1,11 +1,11 @@
 /*
  *
- *		debug.h
- *		Kernel debug header files
+ *      debug.h
+ *      Kernel debug header files
  *
- *		2024/6/27 By Rainy101112
- *		Based on GPL-3.0 open source agreement
- *		Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
+ *      2024/6/27 By Rainy101112
+ *      Based on GPL-3.0 open source agreement
+ *      Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
  */
 
@@ -13,7 +13,7 @@
 #define INCLUDE_DEBUG_H_
 
 #define assert(exp) \
-	if (!exp) assertion_failure(#exp, __FILE__, __LINE__)
+    if (!exp) assertion_failure(#exp, __FILE__, __LINE__)
 
 /* Dump stack */
 void dump_stack(void);
