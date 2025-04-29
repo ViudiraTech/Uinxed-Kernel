@@ -51,18 +51,22 @@ char *number(char *str, int64_t num, int base, int size, int precision, int type
     int i;
 
     if (type & SMALL) digits = "0123456789abcdefghijklmnopqrstuvwxyz";
-    if (type & LEFT) type &= ~ZEROPAD;
-    if (base < 2 || base > 36) return 0;
+    if (type & LEFT) type &= ~ZEROPAD;   // if left adjust, zero padding is not allowed
+    if (base < 2 || base > 36) return 0; // Invalid base
 
     c = (type & ZEROPAD) ? '0' : ' ';
 
+    // Check sign
     if (type & SIGN && num < 0) {
         sign = '-';
         num  = -num;
     } else {
         sign = (type & PLUS) ? '+' : ((type & SPACE) ? ' ' : 0);
     }
-    if (sign) size--;
+
+    if (sign) { size--; }
+
+    // Special like 0x, 0
     if (type & SPECIAL) {
         if (base == 16) {
             size -= 2;
@@ -72,32 +76,87 @@ char *number(char *str, int64_t num, int base, int size, int precision, int type
     }
 
     i = 0;
-
     if (num == 0) {
         tmp[i++] = '0';
     } else {
-        while (num != 0) tmp[i++] = digits[do_div(num, base)];
+        while (num != 0) {
+            // tmp[i++] = digits[do_div(num, base)];
+            // This code is a assembly code,
+            // but I think the compiler will optimize it.
+            tmp[i++] = digits[(uint64_t)num % (uint64_t)base];
+            num      = (uint64_t)num / (uint64_t)base;
+        }
     }
-    if (i > precision) precision = i;
+
+    if (i > precision) { precision = i; }
     size -= precision;
 
+    // If type no include LEFT or ZEROPAD
     if (!(type & (ZEROPAD + LEFT))) {
-        while (size-- > 0) *str++ = ' ';
+        // Fill in the space
+        while (size-- > 0) { *str++ = ' '; }
     }
-    if (sign) *str++ = sign;
+    // Write the sign
+    if (sign) { *str++ = sign; }
+
+    // Write the prefix
     if (type & SPECIAL) {
         if (base == 8) {
             *str++ = '0';
         } else if (base == 16) {
             *str++ = '0';
-            *str++ = digits[33];
+            *str++ = digits[33]; // 33 is 'x' or 'X'
         }
     }
+
     if (!(type & LEFT)) {
-        while (size-- > 0) *str++ = c;
+        // Write the padding
+        while (size-- > 0) { *str++ = c; }
     }
-    while (i < precision--) *str++ = '0';
-    while (i-- > 0) *str++ = tmp[i];
-    while (size-- > 0) *str++ = ' ';
+
+    // Write the zero padding
+    while (i < precision--) { *str++ = '0'; }
+    // Write the number
+    while (i-- > 0) { *str++ = tmp[i]; }
+    // LEFT adjust
+    while (size-- > 0) { *str++ = ' '; }
     return str;
 }
+
+/* Returns the size of a string with an integer formatted by `number()` */
+uint64_t number_length(int64_t num, int base, int size, int precision,
+                       int type) // This function is for malloc a enough space for `number()`
+{
+    char sign         = 0; // is there a sign // 0: no sign, 1: sign
+    int number_digits = 0;
+    int res           = 0;
+    if ((type & SIGN && num < 0)) {
+        num  = -num;
+        sign = 1;
+    }
+    if (type & PLUS || type & SPACE) { sign = 1; }
+    if (num == 0) {
+        number_digits = 1;
+    } else {
+        while (num != 0) {
+            number_digits++;
+            num = (uint64_t)num / (uint64_t)base;
+        }
+    }
+    if (type & SPECIAL) {
+        if (base == 16) {
+            res += 2;
+        } else if (base == 8) {
+            res += 1;
+        }
+    }
+
+    if (precision > size) { size = precision; }
+
+    if (number_digits + sign < size) {
+        res += size;
+        return res;
+    }
+    res += number_digits + sign;
+    return res;
+};

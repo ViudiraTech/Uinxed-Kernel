@@ -12,6 +12,7 @@
 #ifndef INCLUDE_STDLIB_H_
 #define INCLUDE_STDLIB_H_
 
+#include "alloc.h"
 #include "stdint.h"
 
 #define ZEROPAD 1  // pad with zero
@@ -40,5 +41,8 @@ int skip_atoi(const char **s);
 
 /* Formatting an integer as a string */
 char *number(char *str, int64_t num, int base, int size, int precision, int type);
+
+/* Returns the size of a string with an integer formatted by `number()` */
+uint64_t number_length(int64_t num, int base, int size, int precision, int type);
 
 #endif // INCLUDE_STDLIB_H_

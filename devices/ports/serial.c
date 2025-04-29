@@ -56,15 +56,13 @@ int is_transmit_empty(void)
 /* Read serial port */
 char read_serial(void)
 {
-    while (serial_received() == 0)
-        ;
+    while (serial_received() == 0);
     return inb(SERIAL_PORT);
 }
 
 /* Write serial port */
 void write_serial(const char c)
 {
-    while (is_transmit_empty() == 0)
-        ;
+    while (is_transmit_empty() == 0);
     outb(SERIAL_PORT, c);
 }

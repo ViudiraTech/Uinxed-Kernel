@@ -50,10 +50,9 @@ void video_init(void)
     height                                 = framebuffer->height;
     stride                                 = framebuffer->pitch / 4;
 
-    x = 2;
-    y = cx = cy = 0;
-    c_width     = width / 9;
-    c_height    = height / 16;
+    x = cx = y = cy = 0;
+    c_width         = width / 9;
+    c_height        = height / 16;
 
     fore_color = 0xffaaaaaa;
     back_color = 0xff000000;
@@ -83,16 +82,19 @@ void video_clear_color(int color)
 /* Screen scrolling operation */
 void video_scroll(void)
 {
-    if ((uint32_t)cx > c_width) {
-        cx = 0;
+    if ((uint32_t)cx >= c_width) {
+        cx = 1;
         cy++;
-    } else
+    } else {
         cx++;
+    }
+    uint8_t *dest;
+    const uint8_t *src;
+    size_t count;
     if ((uint32_t)cy >= c_height) {
-        uint8_t *dest      = (uint8_t *)buffer;
-        const uint8_t *src = (const uint8_t *)(buffer + stride * 16);
-        size_t count       = (width * (height - 16) * sizeof(uint32_t)) / 8;
-
+        dest  = (uint8_t *)buffer;
+        src   = (const uint8_t *)(buffer + stride * 16);
+        count = (width * (height - 16) * sizeof(uint32_t)) / 8;
         __asm__ volatile("rep movsq" : "+D"(dest), "+S"(src), "+c"(count)::"memory");
 
         memset(buffer + (height - 16) * stride, back_color, 16 * stride * sizeof(uint32_t));
@@ -122,10 +124,7 @@ void video_draw_char(const char c, int32_t x, int32_t y, int color)
     font += c * 16;
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < 9; j++) {
-            if (font[i] & (0x80 >> j)) {
-                buffer[(y + i) * width + x + j] = color;
-            } else
-                buffer[(y + i) * width + x + j] = back_color;
+            if (font[i] & (0x80 >> j)) { video_draw_pixel(x + j, y + i, color); }
         }
     }
 }
@@ -151,13 +150,13 @@ void video_put_char(const char c, int color)
             if (cy != 0) cy -= 1;
             if (cy == 0) cx = 0, cy = 0;
         }
-        int x = (cx + 1) * 8 - 7;
+        int x = (cx + 1) * 9;
         int y = cy * 16;
         video_draw_rect(x, y, x + 8, y + 16, back_color);
         return;
     }
     video_scroll();
-    video_draw_char(c, cx * 8 - 7, cy * 16, color);
+    video_draw_char(c, (cx - 1) * 9, cy * 16, color);
 }
 
 /* Print a string at the specified coordinates on the screen */

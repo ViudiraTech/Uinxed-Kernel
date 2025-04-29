@@ -16,6 +16,8 @@
 #include "string.h"
 #include "video.h"
 
+static char *boot_tty = NULL;
+
 /* Argument parsing */
 static int arg_parse(char *arg_str, char **argv, char token)
 {
@@ -41,8 +43,9 @@ static int arg_parse(char *arg_str, char **argv, char token)
 }
 
 /* Obtain the tty number provided at startup */
-const char *get_boot_tty(void)
+char *get_boot_tty(void)
 {
+    if (boot_tty != NULL) { return boot_tty; }
     int i                 = 0;
     char bootarg[256]     = {0};
     const char *arg_based = get_cmdline();
@@ -58,16 +61,18 @@ const char *get_boot_tty(void)
 
     for (int j = 0; j < argc; j++) {
         if (strncmp(bootargv[j], "console=", 8) == 0) {
-            const char *tty_str = bootargv[j] + 8;
-            int tty_num_len     = strlen(tty_str);
+            char *tty_str   = bootargv[j] + 8;
+            int tty_num_len = strlen(tty_str);
             if (tty_num_len == 1 || tty_num_len == 5) {
                 free(bootargv);
-                return tty_str;
+                boot_tty = tty_str;
+                return boot_tty;
             }
         }
     }
     free(bootargv);
-    return "tty0";
+    boot_tty = "tty0"; // default
+    return boot_tty;
 }
 
 /* Print characters to tty */

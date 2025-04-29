@@ -41,8 +41,7 @@ __attribute__((interrupt)) static void ide_irq(interrupt_frame_t *frame)
 /* Waiting for IDE interrupt to be triggered */
 static void ide_wait_irq(void)
 {
-    while (!ide_irq_invoked)
-        ;
+    while (!ide_irq_invoked);
     ide_irq_invoked = 0;
 }
 
@@ -320,8 +319,7 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t n
     }
     dma = 0;
 
-    while (ide_read(channel, ATA_REG_STATUS) & ATA_SR_BSY)
-        ;
+    while (ide_read(channel, ATA_REG_STATUS) & ATA_SR_BSY);
     if (lba_mode == 0)
         ide_write(channel, ATA_REG_HDDEVSEL, 0xa0 | (slavebit << 4) | head); // Drive & CHS.
     else
@@ -399,8 +397,7 @@ uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint32_t e
     atapi_packet[11] = 0x0;
 
     ide_write(channel, ATA_REG_HDDEVSEL, slavebit << 4);
-    for (int i = 0; i < 4000; i++)
-        ;
+    for (int i = 0; i < 4000; i++);
     for (int i = 0; i < 4; i++) ide_read(channel, ATA_REG_ALTSTATUS);
 
     ide_write(channel, ATA_REG_FEATURES, 0);              // PIO Mode
@@ -420,8 +417,7 @@ uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint32_t e
         if ((err = ide_polling(channel, 1)) != 0) return err;
         for (uint32_t h = 0; h < words; h++) _word[i * words + h] = inw(bus);
     }
-    while (ide_read(channel, ATA_REG_STATUS) & (ATA_SR_BSY | ATA_SR_DRQ))
-        ;
+    while (ide_read(channel, ATA_REG_STATUS) & (ATA_SR_BSY | ATA_SR_DRQ));
     return 0;
 }
 
