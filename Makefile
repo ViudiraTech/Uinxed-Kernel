@@ -28,6 +28,7 @@ PWD          := $(shell pwd)
 QEMU         := qemu-system-x86_64
 QEMU_FLAGS   := -machine q35 -bios assets/ovmf-code.fd
 
+# If you want to get more details of `dump_stack`, you need to replace `-O3` with `-O0` or '-Os'.
 C_FLAGS      := -Wall -Wextra -O3 -g3 -m64 -ffreestanding -fno-pie -fno-stack-protector -fno-omit-frame-pointer \
                 -mcmodel=kernel -mno-red-zone -mno-80387 -mno-mmx -mno-sse -mno-sse2 -msoft-float -I include -MMD
 LD_FLAGS     := -nostdlib -static -T assets/linker.ld -m elf_x86_64
