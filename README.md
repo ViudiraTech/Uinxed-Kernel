@@ -101,10 +101,12 @@ Uinxed-x86_64/
 ├── init/            # Code entry
 ├── kernel/          # Kernel part
 ├── libs/            # Library file
+├── scripts/         # Helper Scripts
+├── .clangd_template # Clangd configuration template
+├── .clang-format    # Formatting Configuration Files
 ├── .gitignore       # Ignore rules
 ├── LICENSE          # Open source agreement
 ├── Makefile         # Build script
-├── .clangd_template # Clangd configuration template
 └── README.md        # Project introduction
 ```
 
