@@ -53,7 +53,7 @@ Uinxed-x64.iso
 
 # Other
 .cache/
-compile_commands.json
-make.log
 .addrs.txt
 .symbls.txt
+compile_commands.json
+make.log

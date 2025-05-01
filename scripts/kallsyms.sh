@@ -1,15 +1,18 @@
 #!/bin/bash
 # A script to generate a symbol table for a given C source file.
-# Usage: nm <FILE> -n | ./symgen.sh
+# Usage: nm <FILE> -n | ./kallsyms.sh
+
 sym_count=1
 
 rm -f .symbls.txt .addrs.txt
 
-get_symbol() {
+get_symbol()
+{
   echo "$3"
 }
 
-get_addr() {
+get_addr()
+{
   echo "$1"
 }
 
@@ -22,6 +25,6 @@ do
 done
 
 echo "const unsigned long sym_count = $sym_count;" > kallsyms.c
-echo "const char * const symbols[$sym_count] = {$(cat .symbls.txt)\"(EOF)\",};" >> kallsyms.c
+echo "const char *const symbols[$sym_count] = {$(cat .symbls.txt)\"(EOF)\",};" >> kallsyms.c
 echo "const unsigned long addresses[$sym_count] = {$(cat .addrs.txt)0xffffffffffffffff,};" >> kallsyms.c
 rm -f .symbls.txt .addrs.txt

@@ -28,9 +28,9 @@ void dump_stack(void)
     for (int i = 0; i < 16 && *rbp && (uintptr_t)rbp > 0x1000; ++i) {
         sym_idx = symbol_idx_lookup((unsigned long)(*(rbp + 1)));
         if (sym_idx < 0) {
-            plogk("  [<0x%016zx>] in %s\n", *(rbp + 1), "unknown");        
+            plogk("  [<0x%016zx>] %s\n", *(rbp + 1), "unknown");
         } else {
-            plogk("  [<0x%016zx>] in `%s`+0x%llx/0x%llx\n", *(rbp + 1), symbols[sym_idx], *(rbp + 1) - addresses[sym_idx], 
+            plogk("  [<0x%016zx>] `%s`+0x%llx/0x%llx\n", *(rbp + 1), symbols[sym_idx], *(rbp + 1) - addresses[sym_idx],
                   addresses[sym_idx + 1] - addresses[sym_idx] - 1);
         }
         rbp = (uintptr_t *)(*rbp);

@@ -51,33 +51,26 @@ all: info Uinxed-x64.iso
 	$(Q)clang-tidy $< -- $(C_FLAGS)
 
 .PHONY: info
+
 info:
 	$(Q)printf "Uinxed-Kernel Compile Script.\n"
 	$(Q)printf "Copyright 2020 ViudiraTech. Based on the GPLv3 license.\n"
 	$(Q)printf "Based on the GPL-3.0 open source license.\n"
 	$(Q)echo
 
-SymGen:
-	@nm UxImage.1 -n | ./scripts/kallsyms
-	$(Q)printf "\033[1;32m[Done]\033[0m Generate kallsyms complete.\n"
-	$(CC) $(C_FLAGS) -c -o kallsyms.o kallsyms.c
-
-TmpBuild: $(OBJS) $(LIBS)
-	$(V)$(LD) $(LD_FLAGS) -o UxImage.1 $^
-
-FinalBuild: $(OBJS) $(LIBS)
-	$(V)$(LD) $(LD_FLAGS) -o UxImage $^
-
 UxImage: $(OBJS) $(LIBS)
-	$(RM) -f kallsyms.c kallsyms.d kallsyms.o
-	$(MAKE) TmpBuild
-	$(MAKE) SymGen
-	$(MAKE) TmpBuild
-	$(MAKE) SymGen
-	$(MAKE) TmpBuild
-	$(MAKE) SymGen
-	$(MAKE) FinalBuild
-	$(RM) -f kallsyms.c kallsyms.d kallsyms.o
+	$(Q)$(RM) -f kallsyms.c kallsyms.d kallsyms.o UxImage.1
+	$(Q)$(LD) $(LD_FLAGS) -o UxImage.1 $^
+	$(Q)nm UxImage.1 -n | ./scripts/kallsyms.sh
+	$(Q)$(CC) $(C_FLAGS) -c -o kallsyms.o kallsyms.c
+	$(Q)$(LD) $(LD_FLAGS) -o UxImage.1 $^ kallsyms.o
+	$(Q)nm UxImage.1 -n | ./scripts/kallsyms.sh
+	$(Q)$(CC) $(C_FLAGS) -c -o kallsyms.o kallsyms.c
+	$(Q)$(LD) $(LD_FLAGS) -o UxImage.1 $^ kallsyms.o
+	$(Q)nm UxImage.1 -n | ./scripts/kallsyms.sh
+	$(Q)$(CC) $(C_FLAGS) -c -o kallsyms.o kallsyms.c
+	$(V)$(LD) $(LD_FLAGS) -o $@ $^ kallsyms.o
+	$(Q)$(RM) -f kallsyms.c kallsyms.d kallsyms.o UxImage.1
 
 Uinxed-x64.iso: UxImage
 	$(Q)echo
@@ -89,7 +82,7 @@ Uinxed-x64.iso: UxImage
 	$(Q)rm -rf iso
 	$(Q)printf "\033[1;32m[Done]\033[0m Compilation complete.\n"
 
-.PHONY: clean run gen.clangd format check SymGen TmpBuild FinalBuild
+.PHONY: clean run gen.clangd format check
 
 clean:
 	$(Q)$(RM) $(OBJS) $(DEPS) UxImage Uinxed-x64.iso UxImage.1 kallsyms.c kallsyms.d kallsyms.o
