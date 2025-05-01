@@ -226,7 +226,7 @@ FmtArg *read_fmtarg(const char **format, va_list args)
     size_t num          = 0;
     size_t buf_len      = 0;
     size_t base         = 0;
-    int64_t size_cnt    = 2; // hh = 0, h = 1, (nothing) = 2, l = 3, ll = 4, z = 5
+    int64_t size_cnt    = 2; // hh = 0, h = 1, (nothing) = 2, l = 3, ll = 4
     if (*fmt_ptr != '%') { return NULL; }
     // Get size
     while (1) {
@@ -247,25 +247,6 @@ FmtArg *read_fmtarg(const char **format, va_list args)
             case '0' :
                 flags |= ZEROPAD;
                 continue;
-        }
-        // Minimum width field
-        if (is_digit(*fmt_ptr)) {
-            field_width = skip_atoi(&fmt_ptr);
-        } else if (*fmt_ptr == '*') {
-            // by the following argument
-            field_width = va_arg(args, int);
-        }
-        // For float, precision field
-        if (*fmt_ptr == '.') {
-            ++fmt_ptr; // skip the dot
-            if (is_digit(*fmt_ptr)) {
-                precision = skip_atoi(&fmt_ptr);
-            } else if (*fmt_ptr == '*') {
-                precision = va_arg(args, int);
-            }
-        }
-        // Size
-        switch (*fmt_ptr) {
             case 'h' :
                 size_cnt--;
                 if (size_cnt < 0) { size_cnt = 0; }
@@ -276,12 +257,25 @@ FmtArg *read_fmtarg(const char **format, va_list args)
                 size_cnt++;
                 if (size_cnt > 4) { size_cnt = 4; }
                 continue;
-            case 'z' :
-                size_cnt = 5;
-                continue;
         }
-        write_serial('0' + size_cnt);
-        write_serial('\n');
+        field_width = 0;
+        // Minimum width field
+        if (is_digit(*fmt_ptr)) {
+            field_width = skip_atoi(&fmt_ptr);
+        } else if (*fmt_ptr == '*') {
+            // by the following argument
+            field_width = va_arg(args, int);
+        }
+        // For float, precision field
+        precision = 0;
+        if (*fmt_ptr == '.') {
+            ++fmt_ptr; // skip the dot
+            if (is_digit(*fmt_ptr)) {
+                precision = skip_atoi(&fmt_ptr);
+            } else if (*fmt_ptr == '*') {
+                precision = va_arg(args, int);
+            }
+        }
         // Pre-processing (inc: data)
         switch (*fmt_ptr) {
             case 'c' :
@@ -308,7 +302,7 @@ FmtArg *read_fmtarg(const char **format, va_list args)
                     case 4 :
                         num = (size_t)(long long)va_arg(args, long long);
                         break;
-                    default : // Invalid but still parse, or size_cnt = 5
+                    default : // Invalid but still parse
                         num = va_arg(args, size_t);
                         break;
                 }
@@ -334,7 +328,7 @@ FmtArg *read_fmtarg(const char **format, va_list args)
                     case 4 :
                         num = (size_t)(unsigned long long)va_arg(args, unsigned long long);
                         break;
-                    default : // Invalid but still parse, or size_cnt = 5
+                    default : // Invalid but still parse
                         num = va_arg(args, size_t);
                         break;
                 }

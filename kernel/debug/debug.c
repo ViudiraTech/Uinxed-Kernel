@@ -23,8 +23,8 @@ void dump_stack(void)
     plogk("Call Trace:\n");
     plogk(" <TASK>\n");
 
-    for (int i = 0; i < 16 && *rbp && (uintptr_t)rbp > 0x1000; ++i) {
-        plogk("  [<0x%016zx>]\n", *(rbp + 1));
+    for (int i = 0; i < 16 && rbp && (uintptr_t)rbp > 0x1000; ++i) {
+        plogk("  [<0x%016x>]\n", *(rbp + 1));
         rbp = (uintptr_t *)(*rbp);
     }
     plogk(" </TASK>\n");
