@@ -1,30 +1,20 @@
 #!/bin/bash
-# A script to generate a symbol table for a given C source file.
-# Usage: nm <FILE> -n | ./kallsyms.sh
+# Generate symbol table from nm output
 
 sym_count=1
-
 rm -f .symbls.txt .addrs.txt
 
-get_symbol()
-{
-  echo "$3"
-}
-
-get_addr()
-{
-  echo "$1"
-}
-
-while read -r line
-do
-  # Extract the symbol name and address from the line
-  sym_count=$(($sym_count + 1))
-  echo -n "\"$(get_symbol $line)\"," >> .symbls.txt
-  echo -n "0x$(get_addr $line)," >> .addrs.txt
+while read -r addr _ name; do
+  ((sym_count++))
+  echo -n "\"$name\"," >> .symbls.txt
+  echo -n "0x$addr," >> .addrs.txt
 done
 
-echo "const unsigned long sym_count = $sym_count;" > kallsyms.c
-echo "const char *const symbols[$sym_count] = {$(cat .symbls.txt)\"(EOF)\",};" >> kallsyms.c
-echo "const unsigned long addresses[$sym_count] = {$(cat .addrs.txt)0xffffffffffffffff,};" >> kallsyms.c
+cat > kallsyms.c <<EOF
+#include "stddef.h"
+const size_t sym_count = $sym_count;
+const char *const symbols[$sym_count] = {$(cat .symbls.txt)"(EOF)",};
+const size_t addresses[$sym_count] = {$(cat .addrs.txt)0xffffffffffffffff,};
+EOF
+
 rm -f .symbls.txt .addrs.txt

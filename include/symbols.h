@@ -14,12 +14,12 @@
 
 #include "stddef.h"
 
-extern const unsigned long sym_count __attribute__((weak));
+extern const size_t sym_count __attribute__((weak));
 extern const char *const symbols[] __attribute__((weak));
-extern const unsigned long addresses[] __attribute__((weak));
+extern const size_t addresses[] __attribute__((weak));
 
 /* Find the corresponding symbol index in the symbol table according to the address */
-long long symbol_idx_lookup(unsigned long addr);
+long long symbol_idx_lookup(size_t addr);
 
 /* Find the corresponding symbol index in the symbol table according to the symbol name */
 long long symbol_addr_idx_lookup(char *sym_name);

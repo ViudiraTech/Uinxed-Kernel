@@ -45,10 +45,6 @@
 
 # Project Objectives
 UxImage
-UxImage.1
-UxImage.2
-UxImage.3
-kallsyms.c
 Uinxed-x64.iso
 
 # Clangd
@@ -56,7 +52,5 @@ Uinxed-x64.iso
 
 # Other
 .cache/
-.addrs.txt
-.symbls.txt
 compile_commands.json
 make.log
