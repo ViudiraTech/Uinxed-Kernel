@@ -17,7 +17,7 @@ else
   Q=@
 endif
 
-IMAGE_PREFIXES := .1 .2 .3
+IMAGE_PREFIXES := .1.tmp .2.tmp .3.tmp
 
 C_SOURCES      := $(shell find * -name "*.c")
 S_SOURCES      := $(shell find * -name "*.s")
@@ -62,8 +62,8 @@ info:
 UxImage: $(OBJS) $(LIBS)
 	$(Q)printf "\n\033[1;32m[Done]\033[0m Generating symbol table.\n"
 	$(Q)$(foreach img_prefix,$(IMAGE_PREFIXES), \
-		$(LD) $(LD_FLAGS) -o $@$(img_prefix) $^; \
-		nm $@$(img_prefix) -n | ./scripts/kallsyms.sh; \
+		$(LD) $(LD_FLAGS) -o $@$(img_prefix) $(patsubst %,$(PWD)/%,$^) $$(scripts/exist.sh kallsyms.o); \
+		nm $@$(img_prefix) -n | scripts/kallsyms.sh; \
 		$(CC) $(C_FLAGS) -c -o kallsyms.o kallsyms.c; \
 	)
 	$(V)$(LD) $(LD_FLAGS) -o $@ $^ kallsyms.o
