@@ -11,9 +11,11 @@
 
 ifeq ($(VERBOSE), 1)
   V=
+  PV=
   Q=
 else
   V=@printf "\033[1;32m[Build]\033[0m $@ ...\n";
+  PV=printf "\033[1;32m[Build]\033[0m $@$(img_prefix) ...\n";
   Q=@
 endif
 
@@ -29,10 +31,14 @@ QEMU         := qemu-system-x86_64
 QEMU_FLAGS   := -machine q35 -bios assets/ovmf-code.fd
 
 # If you want to get more details of `dump_stack`, you need to replace `-O3` with `-O0` or '-Os'.
-C_FLAGS      := -Wall -Wextra -O3 -g3 -m64 -ffreestanding -fno-pie -fno-stack-protector -fno-omit-frame-pointer \
+# `-fno-optimize-sibling-calls` is for `dump_stack` to work properly.
+C_FLAGS      := -Wall -Wextra -O3 -g3 -m64 -ffreestanding -fno-optimize-sibling-calls -fno-pie -fno-stack-protector -fno-omit-frame-pointer \
                 -mcmodel=kernel -mno-red-zone -mno-80387 -mno-mmx -mno-sse -mno-sse2 -msoft-float -I include -MMD
 LD_FLAGS     := -nostdlib -static -T assets/linker.ld -m elf_x86_64
 AS_FLAGS     := -g --64
+
+# Build 3 times
+IMAGE_PREFIXES := .1 .2 .3
 
 all: info Uinxed-x64.iso
 
@@ -59,18 +65,12 @@ info:
 	$(Q)echo
 
 UxImage: $(OBJS) $(LIBS)
-	$(Q)$(RM) -f kallsyms.c kallsyms.d kallsyms.o UxImage.1
-	$(Q)$(LD) $(LD_FLAGS) -o UxImage.1 $^
-	$(Q)nm UxImage.1 -n | ./scripts/kallsyms.sh
-	$(Q)$(CC) $(C_FLAGS) -c -o kallsyms.o kallsyms.c
-	$(Q)$(LD) $(LD_FLAGS) -o UxImage.1 $^ kallsyms.o
-	$(Q)nm UxImage.1 -n | ./scripts/kallsyms.sh
-	$(Q)$(CC) $(C_FLAGS) -c -o kallsyms.o kallsyms.c
-	$(Q)$(LD) $(LD_FLAGS) -o UxImage.1 $^ kallsyms.o
-	$(Q)nm UxImage.1 -n | ./scripts/kallsyms.sh
-	$(Q)$(CC) $(C_FLAGS) -c -o kallsyms.o kallsyms.c
+	$(Q)$(foreach img_prefix,$(IMAGE_PREFIXES), \
+		$(PV)$(LD) $(LD_FLAGS) -o $@$(img_prefix) $^; \
+		nm $@$(img_prefix) -n | ./scripts/kallsyms.sh; \
+		$(CC) $(C_FLAGS) -c -o kallsyms.o kallsyms.c; \
+	)
 	$(V)$(LD) $(LD_FLAGS) -o $@ $^ kallsyms.o
-	$(Q)$(RM) -f kallsyms.c kallsyms.d kallsyms.o UxImage.1
 
 Uinxed-x64.iso: UxImage
 	$(Q)echo
@@ -85,7 +85,7 @@ Uinxed-x64.iso: UxImage
 .PHONY: clean run gen.clangd format check
 
 clean:
-	$(Q)$(RM) $(OBJS) $(DEPS) UxImage Uinxed-x64.iso UxImage.1 kallsyms.c kallsyms.d kallsyms.o
+	$(Q)$(RM) $(OBJS) $(DEPS) UxImage Uinxed-x64.iso $(IMAGE_PREFIXES:%=UxImage%) kallsyms.c kallsyms.d kallsyms.o
 
 run: Uinxed-x64.iso
 	$(QEMU) $(QEMU_FLAGS) -cdrom $<

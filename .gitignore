@@ -46,6 +46,9 @@
 # Project Objectives
 UxImage
 UxImage.1
+UxImage.2
+UxImage.3
+kallsyms.c
 Uinxed-x64.iso
 
 # Clangd

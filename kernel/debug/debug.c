@@ -20,19 +20,22 @@ void dump_stack(void)
 {
     uintptr_t *rbp;
     __asm__ volatile("movq %%rbp, %0" : "=r"(rbp));
+    uintptr_t rip;
+    __asm__ volatile("leaq (%%rip), %0" : "=r"(rip));
     long long sym_idx = 0;
 
     plogk("Call Trace:\n");
     plogk(" <TASK>\n");
 
-    for (int i = 0; i < 16 && *rbp && (uintptr_t)rbp > 0x1000; ++i) {
-        sym_idx = symbol_idx_lookup((unsigned long)(*(rbp + 1)));
+    for (int i = 0; i < 16 && rip && (uintptr_t)rbp > 0x1000; ++i) {
+        sym_idx = symbol_idx_lookup((unsigned long)(rip));
         if (sym_idx < 0) {
-            plogk("  [<0x%016zx>] %s\n", *(rbp + 1), "unknown");
+            plogk("  [<0x%016zx>] %s\n", rip, "unknown");
         } else {
-            plogk("  [<0x%016zx>] `%s`+0x%llx/0x%llx\n", *(rbp + 1), symbols[sym_idx], *(rbp + 1) - addresses[sym_idx],
+            plogk("  [<0x%016zx>] `%s`+0x%llx/0x%llx\n", rip, symbols[sym_idx], rip - addresses[sym_idx],
                   addresses[sym_idx + 1] - addresses[sym_idx] - 1);
         }
+        rip = *(rbp + 1);
         rbp = (uintptr_t *)(*rbp);
     }
     plogk(" </TASK>\n");
