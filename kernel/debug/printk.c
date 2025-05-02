@@ -280,8 +280,6 @@ FmtArg *read_fmtarg(const char **format, va_list args)
                 size_cnt = 5;
                 continue;
         }
-        write_serial('0' + size_cnt);
-        write_serial('\n');
         // Pre-processing (inc: data)
         switch (*fmt_ptr) {
             case 'c' :
