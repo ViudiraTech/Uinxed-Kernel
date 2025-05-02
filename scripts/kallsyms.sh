@@ -5,9 +5,9 @@ sym_count=1
 rm -f .symbls.txt .addrs.txt
 
 while read -r addr _ name; do
-  ((sym_count++))
-  echo -n "\"$name\"," >> .symbls.txt
-  echo -n "0x$addr," >> .addrs.txt
+    ((sym_count++))
+    echo -n "\"$name\"," >> .symbls.txt
+    echo -n "0x$addr," >> .addrs.txt
 done
 
 cat > kallsyms.c <<EOF
