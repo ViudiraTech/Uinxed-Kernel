@@ -6,7 +6,7 @@ CompileFlags:
         - "-g3"
         - "-m64"
         - "-ffreestanding"
-        - “-fno-optimize-sibling-calls”
+        - "-fno-optimize-sibling-calls"
         - "-fno-pie"
         - "-fno-stack-protector"
         - "-fno-omit-frame-pointer"
