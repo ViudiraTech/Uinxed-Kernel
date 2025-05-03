@@ -22,10 +22,11 @@ page_directory_t kernel_page_dir;
 page_directory_t *current_directory = 0;
 
 /* Page fault handling */
-__attribute__((interrupt)) static void page_fault_handle(interrupt_frame_t *frame, uint64_t error_code)
+__attribute__((interrupt)) void page_fault_handle(interrupt_frame_t *frame, uint64_t error_code)
 {
     (void)frame;
     disable_intr();
+
     uint64_t faulting_address;
     __asm__ volatile("mov %%cr2, %0" : "=r"(faulting_address));
 
@@ -182,22 +183,13 @@ void page_map_range_to(page_directory_t *directory, uint64_t frame, uint64_t len
 /* Mapping random portions of non-contiguous physical memory into the virtual address space */
 void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags)
 {
-    for (uint64_t i = 0; i < length; i += 0x1000) {
-        page_map_to(directory, addr + i, alloc_frames(1), flags);
-    }
+    for (uint64_t i = 0; i < length; i += 0x1000) { page_map_to(directory, addr + i, alloc_frames(1), flags); }
 }
 
 /* Initialize memory page table */
 void page_init(void)
 {
     page_table_t *kernel_page_table = (page_table_t *)phys_to_virt(get_cr3());
-    plogk("Page: Kernel page table base at 0x%016x (CR3 = 0x%016x)\n", kernel_page_table, get_cr3());
-
-    kernel_page_dir = (page_directory_t) {.table = kernel_page_table};
-    plogk("Page: Kernel page directory initialized.\n");
-
-    register_interrupt_handler(ISR_14, (void *)page_fault_handle, 0, 0x8e);
-
-    current_directory = &kernel_page_dir;
-    plogk("Page: Current directory set to kernel (0x%08x)\n", current_directory->table);
+    kernel_page_dir                 = (page_directory_t) {.table = kernel_page_table};
+    current_directory               = &kernel_page_dir;
 }

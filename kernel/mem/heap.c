@@ -21,10 +21,9 @@
 /* Initialize the memory heap */
 void init_heap(void)
 {
-    uint8_t *heap_base = (uint8_t *)(get_physical_memory_offset() + 0x3c0f000);
-    size_t heap_size   = 0x800000; // 8MB
-
-    heap_init(heap_base, heap_size);
+    page_map_range_to_random(get_kernel_pagedir(), (uint64_t)phys_to_virt(KERNEL_HEAP_START), KERNEL_HEAP_SIZE,
+                             KERNEL_PTE_FLAGS);
+    heap_init(phys_to_virt(KERNEL_HEAP_START), KERNEL_HEAP_SIZE);
 }
 
 /* Allocate 4k-aligned memory */

@@ -37,6 +37,7 @@
 void kernel_entry(void)
 {
     init_hhdm();  // Initialize the upper half memory mapping
+    page_init();  // Initialize memory page
     init_heap();  // Initialize the memory heap
     video_init(); // Initialize Video
 
@@ -56,7 +57,6 @@ void kernel_entry(void)
     acpi_init();          // Initialize ACPI
     print_memory_map();   // Print memory map information
     init_frame();         // Initialize memory frame
-    page_init();          // Initialize memory page
     pci_init();           // Initialize PCI
     init_ide();           // Initialize ATA/ATAPI driver
     init_serial();        // Initialize the serial port

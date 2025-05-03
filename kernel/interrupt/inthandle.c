@@ -14,6 +14,8 @@
 #include "idt.h"
 #include "printk.h"
 
+void page_fault_handle(interrupt_frame_t *frame, uint64_t error_code);
+
 __attribute__((interrupt)) static void ISR_0_handle(interrupt_frame_t *frame)
 {
     (void)frame;
@@ -143,8 +145,8 @@ void isr_registe_handle(void)
     register_interrupt_handler(ISR_11, (void *)ISR_11_handle, 0, 0x8e);
     register_interrupt_handler(ISR_12, (void *)ISR_12_handle, 0, 0x8e);
     register_interrupt_handler(ISR_13, (void *)ISR_13_handle, 0, 0x8e);
+    register_interrupt_handler(ISR_14, (void *)page_fault_handle, 0, 0x8e);
 
-    /* ISR 14 will be define by pagine program */
     /* ISR 15 CPU reserved */
 
     register_interrupt_handler(ISR_16, (void *)ISR_16_handle, 0, 0x8e);

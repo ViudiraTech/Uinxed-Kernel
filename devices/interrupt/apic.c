@@ -149,6 +149,7 @@ void apic_init(MADT *madt)
     while (1) {
         if (current + ((uint32_t)sizeof(MADT) - 1) >= madt->h.Length) break;
         MadtHeader *header = (MadtHeader *)((uint64_t)(&madt->entries) + current);
+
         if (header->entry_type == MADT_APIC_IO) {
             MadtIOApic *ioapic = (MadtIOApic *)((uint64_t)(&madt->entries) + current);
             ioapic_address     = (uint64_t)phys_to_virt(ioapic->address);

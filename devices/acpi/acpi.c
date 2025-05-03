@@ -80,4 +80,16 @@ void acpi_init(void)
         return;
     } else
         facp_init(facp);
+
+    void *mcfg = find_table("MCFG");
+    if (mcfg == 0) {
+        plogk("ACPI: MCFG table not found.\n");
+        return;
+    }
+
+    void *bgrt = find_table("BGRT");
+    if (bgrt == 0) {
+        plogk("ACPI: BGRT table not found.\n");
+        return;
+    }
 }
