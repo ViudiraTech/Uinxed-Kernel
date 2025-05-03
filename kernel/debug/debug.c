@@ -28,7 +28,7 @@ void dump_stack(void)
     plogk(" <TASK>\n");
 
     for (int i = 0; i < 16 && rip && (uintptr_t)rbp > 0x1000; ++i) {
-        sym_idx = symbol_idx_lookup((unsigned long)(rip));
+        sym_idx = symbol_idx_lookup((size_t)(rip));
         if (sym_idx < 0) {
             plogk("  [<0x%016zx>] %s\n", rip, "unknown");
         } else {

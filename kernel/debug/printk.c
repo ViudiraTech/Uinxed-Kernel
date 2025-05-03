@@ -13,14 +13,13 @@
 #include "acpi.h"
 #include "cmos.h"
 #include "serial.h"
+#include "stddef.h"
+#include "stdint.h"
 #include "stdlib.h"
 #include "string.h"
 #include "tty.h"
 #include "vargs.h"
 #include "video.h"
-#include <stddef.h>
-#include <stdint.h>
-#include <stdlib.h>
 
 #define BUF_SIZE 2048 // least 2 bytes (1 byte is for '\0')
 
@@ -29,13 +28,13 @@ void printk(const char *format, ...)
 {
     static char buff[BUF_SIZE];
     va_list args;
-    OverflowSignal *sig = NULL;
+    OverflowSignal *sig = 0;
 
     va_start(args, format);
     while (1) {
         sig = vsprintf_s(sig, buff, BUF_SIZE, &format, args);
         tty_print_str(buff);
-        if (sig == NULL) { break; }
+        if (sig == 0) break;
     }
     va_end(args);
 }
@@ -61,13 +60,13 @@ void plogk(const char *format, ...)
 
     static char buff[BUF_SIZE];
     va_list args;
-    OverflowSignal *sig = NULL;
+    OverflowSignal *sig = 0;
 
     va_start(args, format);
     while (1) {
         sig = vsprintf_s(sig, buff, BUF_SIZE, &format, args);
         tty_print_str(buff);
-        if (sig == NULL) { break; }
+        if (sig == 0) { break; }
     }
     va_end(args);
 }
@@ -198,12 +197,14 @@ repeat:
     return (str - buff);
 }
 
+/* Release the memory used by the FmtArg structure */
 void free_fmtarg(FmtArg *arg)
 {
     free(arg->buff);
     free(arg);
 }
 
+/* Create a new FmtArg structure and initialize it */
 FmtArg *new_fmtarg(uint64_t size, char *buff, char *last_write)
 {
     FmtArg *arg     = (FmtArg *)malloc(sizeof(FmtArg));
@@ -213,22 +214,24 @@ FmtArg *new_fmtarg(uint64_t size, char *buff, char *last_write)
     return arg;
 }
 
+/* Parse the format string and read the corresponding variadic parameters to generate an FmtArg structure */
 FmtArg *read_fmtarg(const char **format, va_list args)
 {
     FmtArg *arg         = malloc(sizeof(FmtArg));
     const char *fmt_ptr = *format;
-    char *buf_ptr       = NULL;
+    char *buf_ptr       = 0;
     int flags           = 0;
     size_t field_width  = 0; // Minimum width field
     size_t precision    = 0; // For float, precision field (or number of digits and with zero padding)
-    char *str           = NULL;
+    char *str           = 0;
     size_t str_len      = 0;
     size_t num          = 0;
     size_t buf_len      = 0;
     size_t base         = 0;
     int64_t size_cnt    = 2; // hh = 0, h = 1, (nothing) = 2, l = 3, ll = 4, z = 5
-    if (*fmt_ptr != '%') { return NULL; }
-    // Get size
+    if (*fmt_ptr != '%') return 0;
+
+    /* Get size */
     while (1) {
         ++fmt_ptr;
         switch (*fmt_ptr) {
@@ -248,14 +251,16 @@ FmtArg *read_fmtarg(const char **format, va_list args)
                 flags |= ZEROPAD;
                 continue;
         }
-        // Minimum width field
+
+        /* Minimum width field */
         if (is_digit(*fmt_ptr)) {
             field_width = skip_atoi(&fmt_ptr);
         } else if (*fmt_ptr == '*') {
-            // by the following argument
+            /* by the following argument */
             field_width = va_arg(args, int);
         }
-        // For float, precision field
+
+        /* For float, precision field */
         if (*fmt_ptr == '.') {
             ++fmt_ptr; // skip the dot
             if (is_digit(*fmt_ptr)) {
@@ -264,7 +269,8 @@ FmtArg *read_fmtarg(const char **format, va_list args)
                 precision = va_arg(args, int);
             }
         }
-        // Size
+
+        /* Size */
         switch (*fmt_ptr) {
             case 'h' :
                 size_cnt--;
@@ -280,7 +286,8 @@ FmtArg *read_fmtarg(const char **format, va_list args)
                 size_cnt = 5;
                 continue;
         }
-        // Pre-processing (inc: data)
+
+        /* Pre-processing (inc: data) */
         switch (*fmt_ptr) {
             case 'c' :
                 num = va_arg(args, int);
@@ -341,7 +348,8 @@ FmtArg *read_fmtarg(const char **format, va_list args)
                 num = (size_t)va_arg(args, void *);
                 break;
         }
-        // Pre-processing (inc: size, flags of arg)
+
+        /* Pre-processing (inc: size, flags of arg) */
         switch (*fmt_ptr) {
             case 'c' :
                 buf_len = 1;
@@ -380,16 +388,17 @@ FmtArg *read_fmtarg(const char **format, va_list args)
                 break;
             case 'n' :
                 va_arg(args, void *);
-                return NULL;
+                return 0;
             case '%' :
                 buf_len = 1;
                 break;
             default :
                 --fmt_ptr; // Undo
-                return NULL;
+                return 0;
         }
-        if (field_width < buf_len) { field_width = buf_len; }
-        // Write buffer
+        if (field_width < buf_len) field_width = buf_len;
+
+        /* Write buffer */
         arg->buff = malloc(buf_len);
         buf_ptr   = arg->buff;
         switch (*fmt_ptr) {
@@ -450,6 +459,7 @@ FmtArg *read_fmtarg(const char **format, va_list args)
     return arg;
 }
 
+/* Create a new OverflowSignal structure */
 OverflowSignal *new_overflow(enum OverflowKind kind, FmtArg *arg)
 {
     OverflowSignal *signal = (OverflowSignal *)malloc(sizeof(OverflowSignal));
@@ -458,15 +468,16 @@ OverflowSignal *new_overflow(enum OverflowKind kind, FmtArg *arg)
     return signal;
 }
 
+/* Format a string with size and output it to a character array */
 OverflowSignal *vsprintf_s(OverflowSignal *signal, char *buff, intptr_t size, const char **format, va_list args)
 {
-    char *write_ptr     = NULL;
-    const char *fmt_ptr = NULL;
-    FmtArg *fmt_arg     = NULL;
+    char *write_ptr     = 0;
+    const char *fmt_ptr = 0;
+    FmtArg *fmt_arg     = 0;
 
     write_ptr = buff;
-    if (signal != NULL && signal->kind == OFLOW_AT_FMTARG) {
-        // Write buffer of OverflowSignal to buffer
+    if (signal != 0 && signal->kind == OFLOW_AT_FMTARG) {
+        /* Write buffer of OverflowSignal to buffer */
         fmt_arg = signal->arg;
         while (fmt_arg->last_write < fmt_arg->size + fmt_arg->buff) {
             *write_ptr = *fmt_arg->last_write;
@@ -477,27 +488,25 @@ OverflowSignal *vsprintf_s(OverflowSignal *signal, char *buff, intptr_t size, co
                 return signal; // Overflow again
             }
         }
-        // Write finished
+
+        /* Write finished */
         free_fmtarg(fmt_arg);
         free(signal);
-        fmt_arg = NULL;
-        signal  = NULL;
+        fmt_arg = 0;
+        signal  = 0;
     }
-
-    if (signal != NULL && signal->kind == OFLOW_AT_FMTSTR) {
-        // Clear it
-        // free(signal->arg); // Not need because it's NULL
+    if (signal != 0 && signal->kind == OFLOW_AT_FMTSTR) {
+        /* Clear it */
         free(signal);
-        signal = NULL;
+        signal = 0;
     }
-
     fmt_ptr = *format;
     while (*fmt_ptr != '\0') {
         if (write_ptr >= buff + size - 1) {
             *write_ptr = '\0';
-            *format    = fmt_ptr;                             // Move to overflow position
-            signal     = new_overflow(OFLOW_AT_FMTSTR, NULL); // New Signal (just for run again)
-            return signal;                                    // Send Signal
+            *format    = fmt_ptr;                          // Move to overflow position
+            signal     = new_overflow(OFLOW_AT_FMTSTR, 0); // New Signal (just for run again)
+            return signal;                                 // Send Signal
         }
         if (*fmt_ptr != '%' && write_ptr < buff + size - 1) {
             *write_ptr = *fmt_ptr;
@@ -508,8 +517,8 @@ OverflowSignal *vsprintf_s(OverflowSignal *signal, char *buff, intptr_t size, co
         fmt_arg = read_fmtarg(&fmt_ptr, args);
         fmt_ptr++;
         *format = fmt_ptr;
-        if (fmt_arg != NULL) {
-            // Debug
+        if (fmt_arg != 0) {
+            /* Debug */
             while (fmt_arg->last_write < fmt_arg->size + fmt_arg->buff) {
                 *write_ptr = *fmt_arg->last_write;
                 write_ptr++;
@@ -520,12 +529,12 @@ OverflowSignal *vsprintf_s(OverflowSignal *signal, char *buff, intptr_t size, co
                     return signal;
                 }
             }
-            // Write finished
+
+            /* Write finished */
             free_fmtarg(fmt_arg);
-            fmt_arg = NULL;
+            fmt_arg = 0;
         }
     }
     *write_ptr = '\0';
-
-    return NULL; // No overflow
+    return 0; // No overflow
 }

@@ -56,17 +56,16 @@ char *number(char *str, int64_t num, int base, int size, int precision, int type
 
     c = (type & ZEROPAD) ? '0' : ' ';
 
-    // Check sign
+    /* Check sign */
     if (type & SIGN && num < 0) {
         sign = '-';
         num  = -num;
     } else {
         sign = (type & PLUS) ? '+' : ((type & SPACE) ? ' ' : 0);
     }
+    if (sign) size--;
 
-    if (sign) { size--; }
-
-    // Special like 0x, 0
+    /* Special like 0x, 0 */
     if (type & SPECIAL) {
         if (base == 16) {
             size -= 2;
@@ -80,26 +79,23 @@ char *number(char *str, int64_t num, int base, int size, int precision, int type
         tmp[i++] = '0';
     } else {
         while (num != 0) {
-            // tmp[i++] = digits[do_div(num, base)];
-            // This code is a assembly code,
-            // but I think the compiler will optimize it.
             tmp[i++] = digits[(uint64_t)num % (uint64_t)base];
             num      = (uint64_t)num / (uint64_t)base;
         }
     }
-
-    if (i > precision) { precision = i; }
+    if (i > precision) precision = i;
     size -= precision;
 
-    // If type no include LEFT or ZEROPAD
+    /* If type no include LEFT or ZEROPAD */
     if (!(type & (ZEROPAD + LEFT))) {
-        // Fill in the space
-        while (size-- > 0) { *str++ = ' '; }
+        /* Fill in the space */
+        while (size-- > 0) *str++ = ' ';
     }
-    // Write the sign
-    if (sign) { *str++ = sign; }
 
-    // Write the prefix
+    /* Write the sign */
+    if (sign) *str++ = sign;
+
+    /* Write the prefix */
     if (type & SPECIAL) {
         if (base == 8) {
             *str++ = '0';
@@ -110,16 +106,18 @@ char *number(char *str, int64_t num, int base, int size, int precision, int type
     }
 
     if (!(type & LEFT)) {
-        // Write the padding
-        while (size-- > 0) { *str++ = c; }
+        /* Write the padding */
+        while (size-- > 0) *str++ = c;
     }
 
-    // Write the zero padding
-    while (i < precision--) { *str++ = '0'; }
-    // Write the number
-    while (i-- > 0) { *str++ = tmp[i]; }
-    // LEFT adjust
-    while (size-- > 0) { *str++ = ' '; }
+    /* Write the zero padding */
+    while (i < precision--) *str++ = '0';
+
+    /* Write the number */
+    while (i-- > 0) *str++ = tmp[i];
+
+    /* LEFT adjust */
+    while (size-- > 0) *str++ = ' ';
     return str;
 }
 
@@ -134,7 +132,7 @@ uint64_t number_length(int64_t num, int base, int size, int precision,
         num  = -num;
         sign = 1;
     }
-    if (type & PLUS || type & SPACE) { sign = 1; }
+    if (type & PLUS || type & SPACE) sign = 1;
     if (num == 0) {
         number_digits = 1;
     } else {
@@ -150,8 +148,7 @@ uint64_t number_length(int64_t num, int base, int size, int precision,
             res += 1;
         }
     }
-
-    if (precision > size) { size = precision; }
+    if (precision > size) size = precision;
 
     if (number_digits + sign < size) {
         res += size;

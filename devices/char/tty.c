@@ -16,7 +16,7 @@
 #include "string.h"
 #include "video.h"
 
-static char *boot_tty = NULL;
+static char *boot_tty = 0;
 
 /* Argument parsing */
 static int arg_parse(char *arg_str, char **argv, char token)
@@ -45,7 +45,7 @@ static int arg_parse(char *arg_str, char **argv, char token)
 /* Obtain the tty number provided at startup */
 char *get_boot_tty(void)
 {
-    if (boot_tty != NULL) { return boot_tty; }
+    if (boot_tty != 0) return boot_tty;
     int i                 = 0;
     char bootarg[256]     = {0};
     const char *arg_based = get_cmdline();

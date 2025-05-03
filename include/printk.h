@@ -31,14 +31,6 @@ typedef struct OverflowSignal {
         struct FmtArg *arg;     // The argument that overflow
 } OverflowSignal;
 
-OverflowSignal *new_overflow(enum OverflowKind kind, FmtArg *arg);
-
-FmtArg *new_fmtarg(uint64_t size, char *buff, char *last_write);
-
-FmtArg *read_fmtarg(const char **format, va_list args);
-
-void free_fmtarg(FmtArg *arg);
-
 /* Kernel print string */
 void printk(const char *format, ...);
 
@@ -53,6 +45,18 @@ void sprintf(char *str, const char *fmt, ...);
 
 /* Format a string and output it to a character array */
 int vsprintf(char *buff, const char *format, va_list args);
+
+/* Release the memory used by the FmtArg structure */
+void free_fmtarg(FmtArg *arg);
+
+/* Create a new FmtArg structure and initialize it */
+FmtArg *new_fmtarg(uint64_t size, char *buff, char *last_write);
+
+/* Parse the format string and read the corresponding variadic parameters to generate an FmtArg structure */
+FmtArg *read_fmtarg(const char **format, va_list args);
+
+/* Create a new OverflowSignal structure */
+OverflowSignal *new_overflow(enum OverflowKind kind, FmtArg *arg);
 
 /* Format a string with size and output it to a character array */
 OverflowSignal *vsprintf_s(OverflowSignal *signal, char *buff, intptr_t size, const char **format, va_list args);
