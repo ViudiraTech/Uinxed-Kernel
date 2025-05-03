@@ -60,7 +60,7 @@ info:
 	$(Q)echo
 
 UxImage: $(OBJS) $(LIBS)
-	$(Q)printf "\n\033[1;32m[Done]\033[0m Generating symbol table.\n"
+	$(Q)printf "\n\033[1;32m[Build]\033[0m Generating symbol table.\n"
 	$(Q)$(foreach img_prefix,$(IMAGE_PREFIXES), \
 		$(LD) $(LD_FLAGS) -o $@$(img_prefix) $(patsubst %,$(PWD)/%,$^) $$(scripts/exist.sh kallsyms.o); \
 		nm $@$(img_prefix) -n | scripts/kallsyms.sh; \

@@ -68,6 +68,9 @@ void switch_page_directory(page_directory_t *dir);
 /* Map a continuous section of physical memory to the virtual address space */
 void page_map_range_to(page_directory_t *directory, uint64_t frame, uint64_t length, uint64_t flags);
 
+/* Mapping random portions of non-contiguous physical memory into the virtual address space */
+void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags);
+
 /* Initialize memory page table */
 void page_init(void);
 
