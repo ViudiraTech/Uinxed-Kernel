@@ -26,10 +26,12 @@
 #include "page.h"
 #include "pci.h"
 #include "printk.h"
+#include "ps2.h"
 #include "serial.h"
 #include "smbios.h"
 #include "stddef.h"
 #include "stdint.h"
+#include "term.h"
 #include "uinxed.h"
 #include "video.h"
 
@@ -60,7 +62,11 @@ void kernel_entry(void)
     pci_init();           // Initialize PCI
     init_ide();           // Initialize ATA/ATAPI driver
     init_serial();        // Initialize the serial port
+    init_ps2();
+    update_led_state();
     enable_intr();
 
-    panic("No operation.");
+    term_init(); // Initialize terminal
+
+    while (1) __asm__ volatile("hlt");
 }
