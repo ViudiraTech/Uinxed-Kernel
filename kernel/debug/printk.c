@@ -257,7 +257,6 @@ FmtArg *read_fmtarg(const char **format, va_list args)
             field_width = skip_atoi(&fmt_ptr);
         } else if (*fmt_ptr == '*') {
             /* by the following argument */
-            fmt_ptr++;
             field_width = va_arg(args, int);
         }
 
@@ -267,7 +266,6 @@ FmtArg *read_fmtarg(const char **format, va_list args)
             if (is_digit(*fmt_ptr)) {
                 precision = skip_atoi(&fmt_ptr);
             } else if (*fmt_ptr == '*') {
-                fmt_ptr++;
                 precision = va_arg(args, int);
             }
         }
