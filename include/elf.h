@@ -14,6 +14,42 @@
 
 #include "stdint.h"
 
+/* How to extract and insert information held in the st_info field. */
+#define ELF32_ST_BIND(val)        (((unsigned char)(val)) >> 4)
+#define ELF32_ST_TYPE(val)        ((val) & 0xf)
+#define ELF32_ST_INFO(bind, type) (((bind) << 4) + ((type) & 0xf))
+
+/* Both Elf32_Sym and Elf64_Sym use the same one-byte st_info field. */
+#define ELF64_ST_BIND(val)        ELF32_ST_BIND(val)
+#define ELF64_ST_TYPE(val)        ELF32_ST_TYPE(val)
+#define ELF64_ST_INFO(bind, type) ELF32_ST_INFO((bind), (type))
+
+/* Legal values for ST_BIND subfield of st_info (symbol binding). */
+#define STB_LOCAL      0  // Local symbol
+#define STB_GLOBAL     1  // Global symbol
+#define STB_WEAK       2  // Weak symbol
+#define STB_NUM        3  // Number of defined types.
+#define STB_LOOS       10 // Start of OS-specific
+#define STB_GNU_UNIQUE 10 // Unique symbol.
+#define STB_HIOS       12 // End of OS-specific
+#define STB_LOPROC     13 // Start of processor-specific
+#define STB_HIPROC     15 // End of processor-specific
+
+/* Legal values for ST_TYPE subfield of st_info (symbol type). */
+#define STT_NOTYPE    0  // Symbol type is unspecified
+#define STT_OBJECT    1  // Symbol is a data object
+#define STT_FUNC      2  // Symbol is a code object
+#define STT_SECTION   3  // Symbol associated with a section
+#define STT_FILE      4  // Symbol's name is file name
+#define STT_COMMON    5  // Symbol is a common data object
+#define STT_TLS       6  // Symbol is thread-local data object
+#define STT_NUM       7  // Number of defined types.
+#define STT_LOOS      10 // Start of OS-specific
+#define STT_GNU_IFUNC 10 // Symbol is indirect code object
+#define STT_HIOS      12 // End of OS-specific
+#define STT_LOPROC    13 // Start of processor-specific
+#define STT_HIPROC    15 // End of processor-specific
+
 #define EI_NIDENT (16)
 
 /* Type for a 16-bit quantity. */
@@ -89,41 +125,5 @@ typedef struct {
         Elf64_Addr st_value;    // Symbol value
         Elf64_Xword st_size;    // Symbol size
 } Elf64_Sym;
-
-/* How to extract and insert information held in the st_info field. */
-#define ELF32_ST_BIND(val)        (((unsigned char)(val)) >> 4)
-#define ELF32_ST_TYPE(val)        ((val) & 0xf)
-#define ELF32_ST_INFO(bind, type) (((bind) << 4) + ((type) & 0xf))
-
-/* Both Elf32_Sym and Elf64_Sym use the same one-byte st_info field. */
-#define ELF64_ST_BIND(val)        ELF32_ST_BIND(val)
-#define ELF64_ST_TYPE(val)        ELF32_ST_TYPE(val)
-#define ELF64_ST_INFO(bind, type) ELF32_ST_INFO((bind), (type))
-
-/* Legal values for ST_BIND subfield of st_info (symbol binding). */
-#define STB_LOCAL      0  // Local symbol
-#define STB_GLOBAL     1  // Global symbol
-#define STB_WEAK       2  // Weak symbol
-#define STB_NUM        3  // Number of defined types.
-#define STB_LOOS       10 // Start of OS-specific
-#define STB_GNU_UNIQUE 10 // Unique symbol.
-#define STB_HIOS       12 // End of OS-specific
-#define STB_LOPROC     13 // Start of processor-specific
-#define STB_HIPROC     15 // End of processor-specific
-
-/* Legal values for ST_TYPE subfield of st_info (symbol type). */
-#define STT_NOTYPE    0  // Symbol type is unspecified
-#define STT_OBJECT    1  // Symbol is a data object
-#define STT_FUNC      2  // Symbol is a code object
-#define STT_SECTION   3  // Symbol associated with a section
-#define STT_FILE      4  // Symbol's name is file name
-#define STT_COMMON    5  // Symbol is a common data object
-#define STT_TLS       6  // Symbol is thread-local data object
-#define STT_NUM       7  // Number of defined types.
-#define STT_LOOS      10 // Start of OS-specific
-#define STT_GNU_IFUNC 10 // Symbol is indirect code object
-#define STT_HIOS      12 // End of OS-specific
-#define STT_LOPROC    13 // Start of processor-specific
-#define STT_HIPROC    15 // End of processor-specific
 
 #endif // INCLUDE_ELF_H_
