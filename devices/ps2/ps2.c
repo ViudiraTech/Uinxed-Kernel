@@ -109,6 +109,12 @@ static int scancode_to_ascii(int scancode, int is_numlock, int is_shift)
             case 0x51 :
                 tmp_code = '3';
                 break;
+            case 0x52 :
+                tmp_code = '0';
+                break;
+            case 0x53 :
+                tmp_code = '.';
+                break;
             default :
                 goto numlock_syms;
         }

@@ -148,6 +148,7 @@ write_to_buf:
                     }
                     write_buf('\0', input_buffer_index);
                     draw_cursor();
+                    printk("\b \b");
                 } else {
                     input_buffer_index--;
                     if (input_buffer_index < 0) {
@@ -157,6 +158,7 @@ write_to_buf:
                         strcpy(&input_buffer[input_buffer_index], &input_buffer[input_buffer_index + 1]);
                         if (input_buffer_index < 0) { input_buffer_index = 0; }
                         draw_cursor();
+                        printk("\b \b");
                     }
                 }
                 break;
