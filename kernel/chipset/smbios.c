@@ -12,7 +12,7 @@
 #include "smbios.h"
 #include "limine.h"
 
-__attribute__((used, section(".limine_requests"))) static volatile struct limine_smbios_request smbios_request = {
+__attribute__((used, section(".limine_requests"))) volatile struct limine_smbios_request smbios_request = {
     .id = LIMINE_SMBIOS_REQUEST,
 };
 

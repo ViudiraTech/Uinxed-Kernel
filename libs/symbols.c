@@ -3,7 +3,7 @@
  *      symbols.c
  *      Symbol Table
  *
- *      2025/5/2 By W9pi3cZ1
+ *      2025/5/4 By suhuajun
  *      Based on GPL-3.0 open source agreement
  *      Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
  *
@@ -12,20 +12,31 @@
 #include "symbols.h"
 #include "string.h"
 
-/* Find the corresponding symbol index in the symbol table according to the address */
-long long symbol_idx_lookup(size_t addr)
+/* Get symbol information */
+sym_info_t get_symbol_info(void *kernel_file_address, Elf64_Addr symbol_address)
 {
-    for (size_t i = 0; i < sym_count; i++) {
-        if (addresses[i] > addr) return i - 1;
+    sym_info_t sym_info  = {};
+    Elf64_Ehdr *ehdr     = kernel_file_address;
+    Elf64_Shdr *shdr     = ehdr->e_shoff + kernel_file_address;
+    const char *shstrtab = (const char *)(shdr[ehdr->e_shstrndx].sh_offset + kernel_file_address);
+    Elf64_Sym *sym       = 0;
+    const char *strtab   = 0;
+    size_t sym_size      = 0;
+    for (size_t i = 0; i < ehdr->e_shnum; ++i) {
+        const char *sh_name = &shstrtab[shdr[i].sh_name];
+        if (!strcmp(sh_name, ".symtab")) {
+            sym      = (Elf64_Sym *)(shdr[i].sh_offset + kernel_file_address);
+            sym_size = shdr[i].sh_size / shdr[i].sh_entsize;
+        }
+        if (!strcmp(sh_name, ".strtab")) strtab = (const char *)(shdr[i].sh_offset + kernel_file_address);
     }
-    return -1;
-}
-
-/* Find the corresponding symbol index in the symbol table according to the symbol name */
-long long symbol_addr_idx_lookup(char *sym_name)
-{
-    for (size_t i = 0; i < sym_count; i++) {
-        if (strcmp(symbols[i], sym_name) == 0) return i;
+    if (!sym || !strtab) return sym_info;
+    for (size_t i = 0; i < sym_size; ++i) {
+        if (ELF64_ST_TYPE(sym[i].st_info) != STT_FUNC) continue;
+        if (symbol_address - sym_info.addr <= symbol_address - sym[i].st_value) continue;
+        const char *st_name = &strtab[sym[i].st_name];
+        sym_info            = (sym_info_t) {st_name, sym[i].st_value};
     }
-    return -1;
+    if (symbol_address - sym_info.addr >= 0x1000) sym_info.name = 0;
+    return sym_info;
 }

@@ -14,7 +14,7 @@
 #include "limine.h"
 #include "printk.h"
 
-__attribute__((used, section(".limine_requests"))) static volatile struct limine_memmap_request memmap_request = {
+__attribute__((used, section(".limine_requests"))) volatile struct limine_memmap_request memmap_request = {
     .id       = LIMINE_MEMMAP_REQUEST,
     .revision = 0,
 };

@@ -31,4 +31,12 @@
 #    error "Unknown compiler"
 #endif
 
+extern volatile struct limine_rsdp_request rsdp_request;
+extern volatile struct limine_kernel_file_request kernel_file_request;
+extern volatile struct limine_smp_request smp_request;
+extern volatile struct limine_framebuffer_request framebuffer_request;
+extern volatile struct limine_smbios_request smbios_request;
+extern volatile struct limine_memmap_request memmap_request;
+extern volatile struct limine_hhdm_request hhdm_request;
+
 #endif // INCLUDE_UINXED_H_

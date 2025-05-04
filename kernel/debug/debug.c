@@ -11,29 +11,28 @@
 
 #include "debug.h"
 #include "common.h"
+#include "limine.h"
 #include "printk.h"
 #include "symbols.h"
+#include "uinxed.h"
 #include "vargs.h"
 
 /* Dump stack */
 void dump_stack(void)
 {
-    uintptr_t *rbp;
+    uintptr_t *rbp, rip;
     __asm__ volatile("movq %%rbp, %0" : "=r"(rbp));
-    uintptr_t rip;
     __asm__ volatile("leaq (%%rip), %0" : "=r"(rip));
-    long long sym_idx = 0;
 
     plogk("Call Trace:\n");
     plogk(" <TASK>\n");
 
     for (int i = 0; i < 16 && rip && (uintptr_t)rbp > 0x1000; ++i) {
-        sym_idx = symbol_idx_lookup((size_t)(rip));
-        if (sym_idx < 0) {
+        sym_info_t sym_info = get_symbol_info(kernel_file_request.response->kernel_file->address, rip);
+        if (!sym_info.name) {
             plogk("  [<0x%016zx>] %s\n", rip, "unknown");
         } else {
-            plogk("  [<0x%016zx>] `%s`+0x%llx/0x%llx\n", rip, symbols[sym_idx], rip - addresses[sym_idx],
-                  addresses[sym_idx + 1] - addresses[sym_idx] - 1);
+            plogk("  [<0x%016zx>] `%s`+0x%lx\n", rip, sym_info.name, rip - sym_info.addr);
         }
         rip = *(rbp + 1);
         rbp = (uintptr_t *)(*rbp);
