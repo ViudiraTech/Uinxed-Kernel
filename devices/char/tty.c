@@ -9,6 +9,7 @@
  *
  */
 
+#include "tty.h"
 #include "alloc.h"
 #include "cmdline.h"
 #include "serial.h"
@@ -16,28 +17,22 @@
 #include "string.h"
 #include "video.h"
 
-static char *boot_tty = 0;
+static char boot_tty_buf[16] = {0}; // Persistent Buffer
+static char *boot_tty        = 0;
 
-/* Argument parsing */
-static int arg_parse(char *arg_str, char **argv, char token)
+/* Parsing command line arguments */
+static int arg_parse(char *arg_str, char **argv, char delim)
 {
-    int argc    = 0;
-    int arg_idx = 0;
-    char *next  = arg_str;
+    int argc = 0;
 
-    while (arg_idx < 32768) {
-        argv[arg_idx] = 0;
-        arg_idx++;
-    }
-    while (*next) {
-        while (*next == token) next++;
-        if (*next == 0) break;
+    while (*arg_str && argc < MAX_ARGC) {
+        while (*arg_str == delim) arg_str++;
+        if (*arg_str == '\0') break;
 
-        argv[argc] = next;
-        while (*next && *next != token) next++;
-        if (*next) *next++ = 0;
-        if (argc > 32768) return 1;
-        argc++;
+        argv[argc++] = arg_str;
+
+        while (*arg_str && *arg_str != delim) arg_str++;
+        if (*arg_str) *arg_str++ = '\0';
     }
     return argc;
 }
@@ -45,33 +40,37 @@ static int arg_parse(char *arg_str, char **argv, char token)
 /* Obtain the tty number provided at startup */
 char *get_boot_tty(void)
 {
-    if (boot_tty != 0) return boot_tty;
-    int i                 = 0;
-    char bootarg[256]     = {0};
-    const char *arg_based = get_cmdline();
+    if (boot_tty) return boot_tty;
 
-    while (arg_based[i] != '\0') {
-        bootarg[i] = arg_based[i];
-        i++;
-    }
-    char **bootargv = malloc(32768 * sizeof(char *));
-    if (!bootargv) return "tty0";
+    const char *cmdline = get_cmdline();
+    if (!cmdline) return DEFAULT_TTY;
 
-    int argc = arg_parse(bootarg, bootargv, ' ');
+    char bootarg[MAX_CMDLINE];
+    strncpy(bootarg, cmdline, MAX_CMDLINE - 1);
+    bootarg[MAX_CMDLINE - 1] = '\0';
 
-    for (int j = 0; j < argc; j++) {
-        if (strncmp(bootargv[j], "console=", 8) == 0) {
-            char *tty_str   = bootargv[j] + 8;
-            int tty_num_len = strlen(tty_str);
-            if (tty_num_len == 1 || tty_num_len == 5) {
-                free(bootargv);
-                boot_tty = tty_str;
-                return boot_tty;
+    char **argv = malloc(MAX_ARGC * sizeof(char *));
+    if (!argv) return DEFAULT_TTY;
+
+    int argc = arg_parse(bootarg, argv, ' ');
+    for (int i = 0; i < argc; ++i) {
+        if (strncmp(argv[i], "console=", 8) == 0) {
+            const char *tty_str = argv[i] + 8;
+
+            if (strlen(tty_str) < sizeof(boot_tty_buf)) {
+                strncpy(boot_tty_buf, tty_str, sizeof(boot_tty_buf) - 1);
+                boot_tty_buf[sizeof(boot_tty_buf) - 1] = '\0';
+                boot_tty                               = boot_tty_buf;
+                break;
             }
         }
     }
-    free(bootargv);
-    boot_tty = "tty0"; // default
+    free(argv);
+
+    if (!boot_tty) {
+        strncpy(boot_tty_buf, DEFAULT_TTY, sizeof(boot_tty_buf));
+        boot_tty = boot_tty_buf;
+    }
     return boot_tty;
 }
 
