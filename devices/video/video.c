@@ -12,6 +12,7 @@
 #include "video.h"
 #include "common.h"
 #include "limine.h"
+#include "stdint.h"
 #include "string.h"
 
 __attribute__((used, section(".limine_requests"))) volatile struct limine_framebuffer_request framebuffer_request = {
@@ -32,6 +33,22 @@ uint32_t c_width, c_height; // Screen character width and height
 
 uint32_t fore_color; // Foreground color
 uint32_t back_color; // Background color
+
+/* Get video information */
+VideoInfo video_get_info()
+{
+    VideoInfo info;
+    info.width      = width;
+    info.height     = height;
+    info.stride     = stride;
+    info.c_width    = c_width;
+    info.c_height   = c_height;
+    info.cx         = cx;
+    info.cy         = cy;
+    info.fore_color = fore_color;
+    info.back_color = back_color;
+    return info;
+}
 
 /* Get the frame buffer */
 struct limine_framebuffer *get_framebuffer(void)
@@ -78,6 +95,13 @@ void video_clear_color(int color)
     cx = cy = 0;
 }
 
+/* Scroll the screen to the specified coordinates */
+void video_move_to(uint32_t c_x, uint32_t c_y)
+{
+    cx = c_x;
+    cy = c_y;
+}
+
 /* Screen scrolling operation */
 void video_scroll(void)
 {
@@ -107,12 +131,27 @@ void video_draw_pixel(uint32_t x, uint32_t y, uint32_t color)
     (buffer)[y * width + x] = color;
 }
 
+/* Get a pixel at the specified coordinates on the screen */
+uint32_t video_get_pixel(uint32_t x, uint32_t y)
+{
+    return (buffer)[y * width + x];
+}
+
+/* Iterate over a area on the screen and run a callback function in each iteration */
+void video_invoke_area(uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, void (*callback)(uint32_t x, uint32_t y))
+{
+    uint32_t x, y;
+    for (y = y0; y <= y1; y++) {
+        for (x = x0; x <= x1; x++) callback(x, y);
+    }
+}
+
 /* Draw a matrix at the specified coordinates on the screen */
 void video_draw_rect(int x0, int y0, int x1, int y1, int color)
 {
     int x, y;
     for (y = y0; y <= y1; y++) {
-        for (x = x0; x <= x1; x++) (buffer)[y * width + x] = color;
+        for (x = x0; x <= x1; x++) video_draw_pixel(x, y, color);
     }
 }
 
@@ -123,7 +162,11 @@ void video_draw_char(const char c, int32_t x, int32_t y, int color)
     font += c * 16;
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < 9; j++) {
-            if (font[i] & (0x80 >> j)) { video_draw_pixel(x + j, y + i, color); }
+            if (font[i] & (0x80 >> j)) {
+                video_draw_pixel(x + j, y + i, color);
+            } else {
+                video_draw_pixel(x + j, y + i, back_color);
+            }
         }
     }
 }
@@ -131,6 +174,8 @@ void video_draw_char(const char c, int32_t x, int32_t y, int color)
 /* Print a character at the specified coordinates on the screen */
 void video_put_char(const char c, int color)
 {
+    int x;
+    int y;
     if (c == '\n') {
         video_scroll();
         cx = 0;
@@ -142,20 +187,20 @@ void video_put_char(const char c, int color)
     } else if (c == '\t') {
         for (int i = 0; i < 8; i++) video_put_char(' ', color);
         return;
-    } else if (c == '\b' && cx > 0) {
-        cx -= 1;
-        if (cx == 0) {
+    } else if (c == '\b' && cx > 0) { // Do not fill, just move cursor
+        if ((long long)cx - 1 < 0) {
             cx = c_width - 1;
             if (cy != 0) cy -= 1;
             if (cy == 0) cx = 0, cy = 0;
+        } else {
+            cx--;
         }
-        int x = (cx + 1) * 9;
-        int y = cy * 16;
-        video_draw_rect(x, y, x + 8, y + 16, back_color);
         return;
     }
     video_scroll();
-    video_draw_char(c, (cx - 1) * 9, cy * 16, color);
+    x = (cx - 1) * 9;
+    y = cy * 16;
+    video_draw_char(c, x, y, color);
 }
 
 /* Print a string at the specified coordinates on the screen */

@@ -15,6 +15,19 @@
 #include "limine.h"
 #include "stdint.h"
 
+typedef struct VideoInfo {
+        int32_t cx, cy;             // The character position of the current cursor
+        uint32_t c_width, c_height; // Screen character width and height
+        uint64_t width;             // Screen length
+        uint64_t height;            // Screen width
+        uint64_t stride;            // Frame buffer line spacing
+        uint32_t fore_color;        // Foreground color
+        uint32_t back_color;        // Background color
+} VideoInfo;
+
+/* Get video information */
+VideoInfo video_get_info();
+
 /* Get the frame buffer */
 struct limine_framebuffer *get_framebuffer(void);
 
@@ -27,11 +40,20 @@ void video_clear(void);
 /* Clear screen with color */
 void video_clear_color(int color);
 
+/* Scroll to a position that units are characters */
+void video_move_to(uint32_t cx, uint32_t cy);
+
 /* Screen scrolling operation */
 void video_scroll(void);
 
 /* Draw a pixel at the specified coordinates on the screen */
 void video_draw_pixel(uint32_t x, uint32_t y, uint32_t color);
+
+/* Get a pixel at the specified coordinates on the screen */
+uint32_t video_get_pixel(uint32_t x, uint32_t y);
+
+/* Iterate over a area on the screen and run a callback function in each iteration */
+void video_invoke_area(uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, void (*callback)(uint32_t x, uint32_t y));
 
 /* Draw a matrix at the specified coordinates on the screen */
 void video_draw_rect(int x0, int y0, int x1, int y1, int color);

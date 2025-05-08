@@ -12,8 +12,8 @@
 #include "dma.h"
 #include "common.h"
 
-#define LOW_BYTE(x)  ((x) & 0x00ff)
-#define HIGH_BYTE(x) (((x) & 0xff00) >> 8)
+#define LOW_BYTE(x)  ((x)&0x00ff)
+#define HIGH_BYTE(x) (((x)&0xff00) >> 8)
 
 /* Fast access registers and ports for each DMA channel */
 static const uint8_t MASK_REG[8]  = {0x0A, 0x0A, 0x0A, 0x0A, 0xD4, 0xD4, 0xD4, 0xD4};
