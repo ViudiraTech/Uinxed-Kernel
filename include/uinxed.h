@@ -19,12 +19,12 @@
 /* Compiler judgment */
 #if defined(__clang__)
 #    define COMPILER_NAME    "clang"
-#    define STRINGIFY(x)     #    x
+#    define STRINGIFY(x)     #x
 #    define EXPAND(x)        STRINGIFY(x)
 #    define COMPILER_VERSION EXPAND(__clang_major__.__clang_minor__.__clang_patchlevel__)
 #elif defined(__GNUC__)
 #    define COMPILER_NAME    "gcc"
-#    define STRINGIFY(x)     #    x
+#    define STRINGIFY(x)     #x
 #    define EXPAND(x)        STRINGIFY(x)
 #    define COMPILER_VERSION EXPAND(__GNUC__.__GNUC_MINOR__.__GNUC_PATCHLEVEL__)
 #else

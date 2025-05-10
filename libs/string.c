@@ -79,8 +79,7 @@ size_t strlen(const char *str)
 char *strcpy(char *dest, const char *src)
 {
     char *_dest = dest;
-    while ((*dest++ = *src++) != '\0')
-        ;
+    while ((*dest++ = *src++) != '\0');
     return _dest;
 }
 
@@ -89,8 +88,7 @@ char *strncpy(char *dest, const char *src, size_t n)
 {
     char *_dest     = dest;
     const char *end = src + n;
-    while (src < end && (*dest++ = *src++) != '\0')
-        ;
+    while (src < end && (*dest++ = *src++) != '\0');
     return _dest;
 }
 
@@ -130,11 +128,9 @@ int strncmp(const char *str1, const char *str2, size_t n)
 char *strcat(char *dest, const char *src)
 {
     const char *_dest = dest;
-    while (*dest++ != '\0')
-        ;
+    while (*dest++ != '\0');
     dest--;
-    while ((*dest++ = *src++) != '\0')
-        ;
+    while ((*dest++ = *src++) != '\0');
     return (char *)_dest;
 }
 

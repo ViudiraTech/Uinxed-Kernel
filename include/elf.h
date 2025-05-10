@@ -16,8 +16,8 @@
 
 /* How to extract and insert information held in the st_info field. */
 #define ELF32_ST_BIND(val)        (((unsigned char)(val)) >> 4)
-#define ELF32_ST_TYPE(val)        ((val)&0xf)
-#define ELF32_ST_INFO(bind, type) (((bind) << 4) + ((type)&0xf))
+#define ELF32_ST_TYPE(val)        ((val) & 0xf)
+#define ELF32_ST_INFO(bind, type) (((bind) << 4) + ((type) & 0xf))
 
 /* Both Elf32_Sym and Elf64_Sym use the same one-byte st_info field. */
 #define ELF64_ST_BIND(val)        ELF32_ST_BIND(val)
