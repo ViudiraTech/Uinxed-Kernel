@@ -24,6 +24,7 @@ void dump_stack(void)
             uintptr_t inner;
             union RbpNode *next;
     } *rbp; // A way to avoid performance-no-int-to-ptr
+
     uintptr_t rip;
     __asm__ volatile("movq %%rbp, %0" : "=r"(rbp));
     __asm__ volatile("leaq (%%rip), %0" : "=r"(rip));

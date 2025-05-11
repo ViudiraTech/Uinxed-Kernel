@@ -58,10 +58,10 @@ void facp_init(acpi_facp_t *facp0)
         SCI_EN = 1;
 
         if (dsdtlen) {
-            // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
+            /* NOLINTNEXTLINE(clang-analyzer-security.ArrayBound) */
             if (*(S5Addr - 1) == 0x08 || (*(S5Addr - 2) == 0x08 && *(S5Addr - 1) == '\\')) {
                 S5Addr += 5;
-                // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
+                /* NOLINTNEXTLINE(clang-analyzer-security.ArrayBound) */
                 S5Addr += ((*S5Addr & 0xC0) >> 6) + 2;
                 if (*S5Addr == 0x0A) S5Addr++;
                 SLP_TYPa = *(S5Addr) << 10;

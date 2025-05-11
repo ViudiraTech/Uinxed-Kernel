@@ -30,12 +30,12 @@ void init_idt(void)
     for (int i = 0; i < 256; i++) register_interrupt_handler(i, empty_handle[i], 0, 0x8e);
 }
 
-// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 
 /* Register an interrupt handler */
 void register_interrupt_handler(uint16_t vector, void *handler, uint8_t ist, uint8_t flags)
 {
-    // NOLINTEND(bugprone-easily-swappable-parameters)
+    /* NOLINTEND(bugprone-easily-swappable-parameters) */
     uint64_t addr                  = (uint64_t)handler;
     idt_entries[vector].offset_low = (uint16_t)addr;
     idt_entries[vector].ist        = ist;

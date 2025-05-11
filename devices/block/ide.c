@@ -9,8 +9,8 @@
  *
  */
 
-#include "common.h"
 #include "ide.h"
+#include "common.h"
 #include "idt.h"
 #include "pci.h"
 #include "printk.h"
@@ -227,7 +227,7 @@ uint8_t ide_read(uint8_t channel, uint8_t reg)
 void ide_write(uint8_t channel, uint8_t reg, uint8_t data)
 {
     if (reg > 0x07 && reg < 0x0c) {
-        // Expanded by ide_write(channel, ATA_REG_CONTROL, 0x80 | channels[channel].nIEN);
+        /* Expanded by ide_write(channel, ATA_REG_CONTROL, 0x80 | channels[channel].nIEN); */
         outb(channels[channel].ctrl + ATA_REG_CONTROL - 0x0a, 0x80 | channels[channel].nIEN);
     }
     if (reg < 0x08)
@@ -239,7 +239,7 @@ void ide_write(uint8_t channel, uint8_t reg, uint8_t data)
     else if (reg < 0x16)
         outb(channels[channel].bmide + reg - 0x0e, data);
     if (reg > 0x07 && reg < 0x0c) {
-        // Expanded by ide_write(channel, ATA_REG_CONTROL, 0x80 | channels[channel].nIEN);
+        /* Expanded by ide_write(channel, ATA_REG_CONTROL, 0x80 | channels[channel].nIEN); */
         outb(channels[channel].ctrl + ATA_REG_CONTROL - 0x0a, 0x80 | channels[channel].nIEN);
     }
 }
@@ -279,12 +279,12 @@ uint8_t ide_polling(uint8_t channel, uint32_t advanced_check) // NOLINT(bugprone
     return 0;
 }
 
-// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 
 /* Read and write ATA devices */
 uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t numsects, uint16_t *edi)
 {
-    // NOLINTEND(bugprone-easily-swappable-parameters)
+    /* NOLINTEND(bugprone-easily-swappable-parameters) */
     uint8_t lba_mode, dma, cmd;
     uint8_t lba_io[6];
     uint32_t channel  = ide_devices[drive].channel;
@@ -379,11 +379,12 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t n
     return 0;
 }
 
-// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+
 /* Reading data from ATAPI devices */
 uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint16_t *edi)
 {
-    // NOLINTEND(bugprone-easily-swappable-parameters)
+    /* NOLINTEND(bugprone-easily-swappable-parameters) */
     uint32_t channel  = ide_devices[drive].channel;
     uint32_t slavebit = ide_devices[drive].drive;
     uint32_t bus      = channels[channel].base;

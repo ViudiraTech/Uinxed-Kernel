@@ -26,10 +26,11 @@ OBJS           := $(C_SOURCES:%.c=%.o) $(S_SOURCES:%.s=%.o)
 DEPS           := $(OBJS:%.o=%.d)
 LIBS           := $(wildcard libs/lib*.a)
 PWD            := $(shell pwd)
-CHECKS	       := -checks=-*,clang-analyzer-*,bugprone-*,cert-*,misc-*,performance-*,portability-*,-misc-include-cleaner,-clang-analyzer-security.insecureAPI.*
 
 QEMU           := qemu-system-x86_64
 QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd
+
+CHECKS         := -quiet -checks=-*,clang-analyzer-*,bugprone-*,cert-*,misc-*,performance-*,portability-*,-misc-include-cleaner,-clang-analyzer-security.insecureAPI.*
 
 # If you want to get more details of `dump_stack`, you need to replace `-O3` with `-O0` or '-Os'.
 # `-fno-optimize-sibling-calls` is for `dump_stack` to work properly.

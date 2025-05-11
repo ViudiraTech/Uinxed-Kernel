@@ -13,7 +13,7 @@
 #include "stddef.h"
 #include "stdint.h"
 
-// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 
 /* Port write (8 bits) */
 void outb(uint16_t port, uint8_t value)
@@ -183,4 +183,5 @@ void krn_halt(void)
     disable_intr();
     while (1) __asm__ volatile("hlt");
 }
-// NOLINTEND(bugprone-easily-swappable-parameters)
+
+/* NOLINTEND(bugprone-easily-swappable-parameters) */

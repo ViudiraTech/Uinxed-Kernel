@@ -128,8 +128,8 @@ char *number(char *str, size_t num, size_t base, size_t size, size_t precision, 
 /* Returns the size of a string with an integer formatted by `number()` */
 uint64_t number_length(size_t num, size_t base, size_t size, size_t precision, int type) // NOLINT
 {
-    // This function is for malloc a enough space for `number()`
-    char sign            = 0; // is there a sign // 0: no sign, 1: sign
+    /* This function is for malloc a enough space for `number()` */
+    char sign            = 0; // is there a sign (0: no sign, 1: sign)
     size_t number_digits = 0;
     uint64_t res         = 0;
     if ((type & SIGN && (int64_t)num < 0)) {
