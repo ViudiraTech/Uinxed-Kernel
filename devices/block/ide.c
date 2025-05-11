@@ -9,8 +9,8 @@
  *
  */
 
-#include "ide.h"
 #include "common.h"
+#include "ide.h"
 #include "idt.h"
 #include "pci.h"
 #include "printk.h"
@@ -228,7 +228,7 @@ void ide_write(uint8_t channel, uint8_t reg, uint8_t data)
 {
     if (reg > 0x07 && reg < 0x0c) {
         // Expanded by ide_write(channel, ATA_REG_CONTROL, 0x80 | channels[channel].nIEN);
-        outb(channels[channel].base + ATA_REG_CONTROL - 0x06, 0x80 | channels[channel].nIEN);
+        outb(channels[channel].ctrl + ATA_REG_CONTROL - 0x0a, 0x80 | channels[channel].nIEN);
     }
     if (reg < 0x08)
         outb(channels[channel].base + reg - 0x00, data);
@@ -240,7 +240,7 @@ void ide_write(uint8_t channel, uint8_t reg, uint8_t data)
         outb(channels[channel].bmide + reg - 0x0e, data);
     if (reg > 0x07 && reg < 0x0c) {
         // Expanded by ide_write(channel, ATA_REG_CONTROL, 0x80 | channels[channel].nIEN);
-        outb(channels[channel].base + ATA_REG_CONTROL - 0x06, 0x80 | channels[channel].nIEN);
+        outb(channels[channel].ctrl + ATA_REG_CONTROL - 0x0a, 0x80 | channels[channel].nIEN);
     }
 }
 
