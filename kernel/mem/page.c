@@ -10,13 +10,13 @@
  */
 
 #include "page.h"
-#include "alloc.h"
 #include "common.h"
 #include "debug.h"
 #include "frame.h"
 #include "hhdm.h"
 #include "idt.h"
-#include "printk.h"
+#include "stdlib.h"
+#include "string.h"
 
 page_directory_t kernel_page_dir;
 page_directory_t *current_directory = 0;
@@ -30,11 +30,11 @@ __attribute__((interrupt)) void page_fault_handle(interrupt_frame_t *frame, uint
     uint64_t faulting_address;
     __asm__ volatile("mov %%cr2, %0" : "=r"(faulting_address));
 
-    int present  = !(error_code & 0x1); // Page does not exist
-    int rw       = error_code & 0x2;    // Read-only page is written
-    int us       = error_code & 0x4;    // User mode writes to kernel page
-    int reserved = error_code & 0x8;    // Write CPU reserved bits
-    int id       = error_code & 0x10;   // Caused by instruction fetch
+    int present       = !(error_code & 0x1); // Page does not exist
+    uint64_t rw       = error_code & 0x2;    // Read-only page is written
+    uint64_t us       = error_code & 0x4;    // User mode writes to kernel page
+    uint64_t reserved = error_code & 0x8;    // Write CPU reserved bits
+    uint64_t id       = error_code & 0x10;   // Caused by instruction fetch
 
     if (present)
         panic("PAGE_FAULT-Present-Address: 0x%016x", faulting_address);
@@ -63,7 +63,7 @@ void page_table_clear(page_table_t *table)
 /* Create a memory page table */
 page_table_t *page_table_create(page_table_entry_t *entry)
 {
-    if (entry->value == (uint64_t)0) {
+    if (entry->value == 0) {
         uint64_t frame      = alloc_frames(1);
         entry->value        = frame | PTE_PRESENT | PTE_WRITEABLE | PTE_USER;
         page_table_t *table = (page_table_t *)phys_to_virt(entry->value & 0xfffffffffffff000);
@@ -86,48 +86,83 @@ page_directory_t *get_current_directory(void)
     return current_directory;
 }
 
-/* Recursively copy memory page tables */
-void copy_page_table_recursive(page_table_t *source_table, page_table_t *new_table, int level)
+/* Iteratively copy memory page tables using an explicit stack */
+void copy_page_table_iterative(page_table_t *source_table, page_table_t *new_table, int level)
 {
-    if (level == 0) {
-        for (int i = 0; i < 512; i++) new_table->entries[i].value = source_table->entries[i].value;
-        return;
-    }
-    for (int i = 0; i < 512; i++) {
-        if (source_table->entries[i].value == 0) {
-            new_table->entries[i].value = 0;
+    struct StackFrame {
+            page_table_t *source_table;
+            page_table_t *new_table;
+            int level;
+            int i;
+    } stack[32];
+    int top      = -1;
+    stack[++top] = (struct StackFrame) {source_table, new_table, level, 0};
+    while (top >= 0) {
+        struct StackFrame frame = stack[top--];
+        if (frame.level == 0) {
+            for (int j = 0; j < 512; j++) { frame.new_table->entries[j].value = frame.source_table->entries[j].value; }
             continue;
         }
-        page_table_t *source_next_level
-            = (page_table_t *)phys_to_virt(source_table->entries[i].value & 0xfffffffffffff000);
-        page_table_t *new_next_level = page_table_create(&(new_table->entries[i]));
-        new_table->entries[i].value  = (uint64_t)new_next_level | (source_table->entries[i].value & 0xfff);
-        copy_page_table_recursive(source_next_level, new_next_level, level - 1);
+        for (; frame.i < 512; frame.i++) {
+            int i = frame.i;
+            if (frame.source_table->entries[i].value == 0) {
+                frame.new_table->entries[i].value = 0;
+                continue;
+            }
+            page_table_t *source_next_level
+                = (page_table_t *)phys_to_virt(frame.source_table->entries[i].value & 0xfffffffffffff000);
+            page_table_t *new_next_level = page_table_create(&(frame.new_table->entries[i]));
+            frame.new_table->entries[i].value
+                = (uint64_t)new_next_level | (frame.source_table->entries[i].value & 0xfff);
+            frame.i++;
+            stack[++top] = frame;
+            stack[++top] = (struct StackFrame) {
+                .source_table = source_next_level,
+                .new_table    = new_next_level,
+                .level        = frame.level - 1,
+                .i            = 0,
+            };
+            break;
+        }
     }
 }
 
-/* Recursively free memory page tables */
-void free_page_table_recursive(page_table_t *table, int level)
+/* Iteratively free memory page tables using an explicit stack */
+void free_page_table_iterative(page_table_t *table, int level)
 {
-    uint64_t virtual_address  = (uint64_t)table;
-    uint64_t physical_address = (uint64_t)virt_to_phys(virtual_address);
-
-    if (level == 0) {
-        free_frame(physical_address & 0x000fffffffff000);
-        return;
-    }
-    for (int i = 0; i < 512; i++) {
-        page_table_entry_t *entry = &table->entries[i];
-        if (entry->value == 0 || is_huge_page(entry)) continue;
-        if (level == 1) {
-            if (entry->value & PTE_PRESENT && entry->value & PTE_WRITEABLE && entry->value & PTE_USER) {
-                free_frame(entry->value & 0x000fffffffff000);
+    void *phys_addr;
+    struct StackFrame {
+            page_table_t *table;
+            int level;
+            int i;
+    } stack[32];
+    int top      = -1;
+    stack[++top] = (struct StackFrame) {table, level, 0};
+    while (top >= 0) {
+        struct StackFrame frame = stack[top--];
+        while (frame.i < 512) {
+            page_table_entry_t *entry = &frame.table->entries[frame.i];
+            if (entry->value == 0 || is_huge_page(entry)) {
+                frame.i++;
+                continue;
             }
-        } else {
-            free_page_table_recursive(phys_to_virt(entry->value & 0x000fffffffff000), level - 1);
+            if (frame.level == 1) {
+                if ((entry->value & PTE_PRESENT) && (entry->value & PTE_WRITEABLE) && (entry->value & PTE_USER)) {
+                    free_frame(entry->value & 0x000fffffffff000);
+                }
+                frame.i++;
+                continue;
+            }
+            page_table_t *child_table = (page_table_t *)phys_to_virt(entry->value & 0x000fffffffff000);
+            stack[++top]              = (struct StackFrame) {frame.table, frame.level, frame.i + 1};
+            stack[++top]              = (struct StackFrame) {child_table, frame.level - 1, 0};
+            break;
+        }
+        if (frame.i >= 512) {
+            phys_addr = virt_to_phys((uint64_t)frame.table);
+            free_frame((uint64_t)phys_addr & 0x000fffffffff000);
         }
     }
-    free_frame(physical_address & 0x000fffffffff000);
 }
 
 /* Clone a page directory */
@@ -135,20 +170,21 @@ page_directory_t *clone_directory(page_directory_t *src)
 {
     page_directory_t *new_directory = malloc(sizeof(page_directory_t));
     new_directory->table            = malloc(sizeof(page_table_t));
-    copy_page_table_recursive(src->table, new_directory->table, 3);
+    memset(new_directory->table, 0, sizeof(page_table_t));
+    copy_page_table_iterative(src->table, new_directory->table, 3);
     return new_directory;
 }
 
 /* Free a page directory */
 void free_directory(page_directory_t *dir)
 {
-    free_page_table_recursive(dir->table, 4);
+    free_page_table_iterative(dir->table, 4);
     free_frame((uint64_t)virt_to_phys((uint64_t)dir->table));
     free(dir);
 }
 
 /* Maps a virtual address to a physical frame */
-void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags)
+void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags) // NOLINT
 {
     uint64_t l4_index = (((addr >> 39)) & 0x1ff);
     uint64_t l3_index = (((addr >> 30)) & 0x1ff);
@@ -173,7 +209,7 @@ void switch_page_directory(page_directory_t *dir)
 }
 
 /* Map a continuous section of physical memory to the virtual address space */
-void page_map_range_to(page_directory_t *directory, uint64_t frame, uint64_t length, uint64_t flags)
+void page_map_range_to(page_directory_t *directory, uint64_t frame, uint64_t length, uint64_t flags) // NOLINT
 {
     for (uint64_t i = 0; i < length; i += 0x1000) {
         page_map_to(directory, (uint64_t)phys_to_virt(frame + i), frame + i, flags);
@@ -181,7 +217,7 @@ void page_map_range_to(page_directory_t *directory, uint64_t frame, uint64_t len
 }
 
 /* Mapping random portions of non-contiguous physical memory into the virtual address space */
-void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags)
+void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags) // NOLINT
 {
     for (uint64_t i = 0; i < length; i += 0x1000) { page_map_to(directory, addr + i, alloc_frames(1), flags); }
 }

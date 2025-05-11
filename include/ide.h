@@ -114,21 +114,21 @@ uint8_t ide_read(uint8_t channel, uint8_t reg);
 void ide_write(uint8_t channel, uint8_t reg, uint8_t data);
 
 /* Read multiple words of data from the specified register of the IDE device into the buffer */
-void ide_read_buffer(uint8_t channel, uint8_t reg, uint64_t buffer, uint32_t quads);
+void ide_read_buffer(uint8_t channel, uint8_t reg, uint8_t *buffer, uint32_t quads);
 
 /* Polling the status of IDE devices */
 uint8_t ide_polling(uint8_t channel, uint32_t advanced_check);
 
 /* Read and write ATA devices */
-uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t numsects, uint64_t edi);
+uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t numsects, uint16_t *edi);
 
 /* Reading data from ATAPI devices */
-uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint32_t edi);
+uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint16_t *edi);
 
 /* Read multiple sectors from an IDE device */
-void ide_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint32_t edi);
+void ide_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *edi);
 
 /* Write multiple sectors to an IDE device */
-void ide_write_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint32_t edi);
+void ide_write_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *edi);
 
 #endif // INCLUDE_IDE_H_

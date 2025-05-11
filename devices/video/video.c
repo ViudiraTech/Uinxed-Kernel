@@ -12,6 +12,7 @@
 #include "video.h"
 #include "common.h"
 #include "limine.h"
+#include "stddef.h"
 #include "stdint.h"
 #include "string.h"
 
@@ -27,8 +28,8 @@ uint64_t height;  // Screen width
 uint64_t stride;  // Frame buffer line spacing
 uint32_t *buffer; // Video Memory
 
-int32_t x, y;               // The current absolute cursor position
-int32_t cx, cy;             // The character position of the current cursor
+uint32_t x, y;              // The current absolute cursor position
+uint32_t cx, cy;            // The character position of the current cursor
 uint32_t c_width, c_height; // Screen character width and height
 
 uint32_t fore_color; // Foreground color
@@ -120,7 +121,8 @@ void video_scroll(void)
         count = (width * (height - 16) * sizeof(uint32_t)) / 8;
         __asm__ volatile("rep movsq" : "+D"(dest), "+S"(src), "+c"(count)::"memory");
 
-        memset(buffer + (height - 16) * stride, back_color, 16 * stride * sizeof(uint32_t));
+        // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
+        memset(buffer + (height - 16) * stride, (int32_t)back_color, 16 * stride * sizeof(uint32_t));
         cy = c_height - 1;
     }
 }
@@ -138,28 +140,31 @@ uint32_t video_get_pixel(uint32_t x, uint32_t y)
 }
 
 /* Iterate over a area on the screen and run a callback function in each iteration */
-void video_invoke_area(uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, void (*callback)(uint32_t x, uint32_t y))
+void video_invoke_area(position p0, position p1, void (*callback)(position p))
 {
-    uint32_t x, y;
-    for (y = y0; y <= y1; y++) {
-        for (x = x0; x <= x1; x++) callback(x, y);
+    position p;
+    for (p.y = p0.y; y <= p1.y; p.y++) {
+        for (p.x = p0.x; x <= p1.x; p.x++) callback(p);
     }
 }
 
 /* Draw a matrix at the specified coordinates on the screen */
-void video_draw_rect(int x0, int y0, int x1, int y1, int color)
+void video_draw_rect(position p0, position p1, int color)
 {
-    int x, y;
+    uint32_t x0 = p0.x;
+    uint32_t y0 = p0.y;
+    uint32_t x1 = p1.x;
+    uint32_t y1 = p1.y;
     for (y = y0; y <= y1; y++) {
         for (x = x0; x <= x1; x++) video_draw_pixel(x, y, color);
     }
 }
 
 /* Draw a character at the specified coordinates on the screen */
-void video_draw_char(const char c, int32_t x, int32_t y, int color)
+void video_draw_char(const char c, uint32_t x, uint32_t y, int color)
 {
     uint8_t *font = ascfont;
-    font += c * 16;
+    font += (size_t)c * 16;
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < 9; j++) {
             if (font[i] & (0x80 >> j)) {
@@ -174,8 +179,8 @@ void video_draw_char(const char c, int32_t x, int32_t y, int color)
 /* Print a character at the specified coordinates on the screen */
 void video_put_char(const char c, int color)
 {
-    int x;
-    int y;
+    uint32_t x;
+    uint32_t y;
     if (c == '\n') {
         video_scroll();
         cx = 0;
@@ -185,7 +190,13 @@ void video_put_char(const char c, int color)
         cx = 0;
         return;
     } else if (c == '\t') {
-        for (int i = 0; i < 8; i++) video_put_char(' ', color);
+        for (int i = 0; i < 8; i++) {
+            // Expand by video_put_char(' ', color)
+            video_scroll();
+            x = (cx - 1) * 9;
+            y = cy * 16;
+            video_draw_char(c, x, y, color);
+        }
         return;
     } else if (c == '\b' && cx > 0) { // Do not fill, just move cursor
         if ((long long)cx - 1 < 0) {
@@ -206,7 +217,7 @@ void video_put_char(const char c, int color)
 /* Print a string at the specified coordinates on the screen */
 void video_put_string(const char *str)
 {
-    for (; *str; ++str) video_put_char(*str, fore_color);
+    for (; *str; ++str) video_put_char(*str, (int)fore_color);
 }
 
 /* Print a string with color at the specified coordinates on the screen */

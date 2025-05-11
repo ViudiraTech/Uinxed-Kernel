@@ -10,15 +10,18 @@
  */
 
 #include "apic.h"
+#include "acpi.h"
 #include "common.h"
 #include "hhdm.h"
 #include "idt.h"
 #include "limine.h"
 #include "printk.h"
+#include "stddef.h"
+#include "stdint.h"
 
 int x2apic_mode;
-uint64_t lapic_address;
-uint64_t ioapic_address;
+uint32_t *lapic_address;  // use uint32_t * to avoid conversion
+uint32_t *ioapic_address; // use uint32_t * to avoid conversion
 
 __attribute__((used, section(".limine_requests"))) volatile struct limine_smp_request smp_request = {
     .id       = LIMINE_SMP_REQUEST,
@@ -49,10 +52,10 @@ uint32_t ioapic_read(uint32_t reg)
 }
 
 /* Configuring I/O APIC interrupt routing */
-void ioapic_add(uint8_t vector, uint32_t irq)
+void ioapic_add(ioapic_routing *routing)
 {
-    uint32_t ioredtbl = (uint32_t)(0x10 + (uint32_t)(irq * 2));
-    uint64_t redirect = (uint64_t)vector;
+    uint32_t ioredtbl = (uint32_t)(0x10 + (uint32_t)(routing->irq * 2));
+    uint64_t redirect = routing->vector;
     redirect |= lapic_id() << 56;
     ioapic_write(ioredtbl, (uint32_t)redirect);
     ioapic_write(ioredtbl + 1, (uint32_t)(redirect >> 32));
@@ -65,14 +68,14 @@ void lapic_write(uint32_t reg, uint32_t value)
         wrmsr(0x800 + (reg >> 4), value);
         return;
     }
-    mmio_write32((uint32_t *)(lapic_address + reg), value);
+    mmio_write32(lapic_address + reg, value);
 }
 
 /* Read local APIC register */
 uint32_t lapic_read(uint32_t reg)
 {
     if (x2apic_mode) return rdmsr(0x800 + (reg >> 4));
-    return mmio_read32((uint32_t *)(lapic_address + reg));
+    return mmio_read32(lapic_address + reg);
 }
 
 /* Get the local APIC ID of the current processor */
@@ -96,8 +99,9 @@ void local_apic_init(void)
     lapic_write(LAPIC_REG_TIMER_DIV, 11);
     lapic_write(LAPIC_REG_TIMER_INITCNT, ~((uint32_t)0));
 
-    while (1)
-        if (nano_time() - nano_time() >= 1000000) break;
+    uint64_t start = nano_time();
+    while (nano_time() - start < 1000000);
+
     uint64_t lapic_timer              = (~(uint32_t)0) - lapic_read(LAPIC_REG_TIMER_CURCNT);
     uint64_t calibrated_timer_initial = (uint64_t)((uint64_t)(lapic_timer * 1000) / 250);
 
@@ -108,11 +112,20 @@ void local_apic_init(void)
 /* Initialize I/O APIC */
 void io_apic_init(void)
 {
-    ioapic_add(IRQ_32, 0);  // Timer
-    ioapic_add(IRQ_33, 1);  // Keyboard
-    ioapic_add(IRQ_34, 12); // Mouse
-    ioapic_add(IRQ_46, 14); // IDE0
-    ioapic_add(IRQ_47, 15); // IDE1
+    ioapic_routing *ioapic_router[] = {
+        &(ioapic_routing) {IRQ_33, 0}, // Keyboard
+        &(ioapic_routing) {IRQ_34, 1}, // Mouse
+        &(ioapic_routing) {IRQ_46, 2}, // IDE0
+        &(ioapic_routing) {IRQ_47, 3}, // IDE1
+        NULL,
+    };
+
+    ioapic_routing **routing = ioapic_router;
+
+    while (*routing != NULL) {
+        ioapic_add(*routing);
+        routing++;
+    }
 }
 
 /* Send EOI signal */
@@ -142,21 +155,22 @@ void send_ipi(uint32_t apic_id, uint32_t command)
 /* Initialize APIC */
 void apic_init(MADT *madt)
 {
-    lapic_address = (uint64_t)phys_to_virt(madt->local_apic_address);
+    lapic_address = (uint32_t *)phys_to_virt(madt->local_apic_address);
     plogk("ACPI: LAPIC Base address 0x%016x\n", lapic_address);
 
-    uint64_t current = 0;
-    while (1) {
-        if (current + ((uint32_t)sizeof(MADT) - 1) >= madt->h.Length) break;
-        MadtHeader *header = (MadtHeader *)((uint64_t)(&madt->entries) + current);
+    uint8_t *entries_base = (uint8_t *)&madt->entries;
+    size_t current        = 0;
 
+    while (current < madt->h.Length - sizeof(MADT)) {
+        MadtHeader *header = (MadtHeader *)(entries_base + current);
         if (header->entry_type == MADT_APIC_IO) {
-            MadtIOApic *ioapic = (MadtIOApic *)((uint64_t)(&madt->entries) + current);
-            ioapic_address     = (uint64_t)phys_to_virt(ioapic->address);
-            plogk("ACPI: IOAPIC Found at address 0x%016x\n", ioapic_address);
+            MadtIOApic *ioapic = (MadtIOApic *)(entries_base + current);
+            ioapic_address     = (uint32_t *)phys_to_virt(ioapic->address);
+            plogk("ACPI: IOAPIC Found at address 0x%016x\n", (uintptr_t)ioapic_address);
         }
-        current += (uint64_t)header->length;
+        current += header->length;
     }
+
     disable_pic();
     local_apic_init();
     io_apic_init();

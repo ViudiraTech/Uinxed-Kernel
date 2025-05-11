@@ -12,6 +12,7 @@
 #include "serial.h"
 #include "common.h"
 #include "printk.h"
+#include "stdint.h"
 
 /* Initialize the serial port */
 void init_serial(void)
@@ -56,15 +57,13 @@ int is_transmit_empty(void)
 /* Read serial port */
 char read_serial(void)
 {
-    while (serial_received() == 0)
-        ;
-    return inb(SERIAL_PORT);
+    while (serial_received() == 0);
+    return (char)inb(SERIAL_PORT);
 }
 
 /* Write serial port */
 void write_serial(const char c)
 {
-    while (is_transmit_empty() == 0)
-        ;
+    while (is_transmit_empty() == 0);
     outb(SERIAL_PORT, c);
 }

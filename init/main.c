@@ -10,7 +10,6 @@
  */
 
 #include "acpi.h"
-#include "apic.h"
 #include "cmdline.h"
 #include "common.h"
 #include "cpu.h"
@@ -28,8 +27,6 @@
 #include "printk.h"
 #include "serial.h"
 #include "smbios.h"
-#include "stddef.h"
-#include "stdint.h"
 #include "uinxed.h"
 #include "video.h"
 

@@ -11,15 +11,12 @@
 
 #include "printk.h"
 #include "acpi.h"
-#include "cmos.h"
-#include "serial.h"
+#include "stdarg.h"
 #include "stddef.h"
 #include "stdint.h"
 #include "stdlib.h"
 #include "string.h"
 #include "tty.h"
-#include "vargs.h"
-#include "video.h"
 
 #define BUF_SIZE 2048 // least 2 bytes (1 byte is for '\0')
 
@@ -34,7 +31,7 @@ void printk(const char *format, ...)
     while (1) {
         sig = vsprintf_s(sig, buff, BUF_SIZE, &format, args);
         tty_print_str(buff);
-        if (sig == 0) break;
+        if (sig == NULL) break;
     }
     va_end(args);
 }
@@ -46,7 +43,7 @@ void printk_unsafe(const char *format, ...)
     va_list args;
 
     va_start(args, format);
-    vsprintf(buff, format, args);
+    vsprintf(buff, format, args); // NOLINT
     tty_print_str(buff);
     va_end(args);
 }
@@ -60,32 +57,35 @@ void plogk(const char *format, ...)
 
     static char buff[BUF_SIZE];
     va_list args;
-    OverflowSignal *sig = 0;
+    OverflowSignal *sig = NULL;
 
     va_start(args, format);
     while (1) {
         sig = vsprintf_s(sig, buff, BUF_SIZE, &format, args);
         tty_print_str(buff);
-        if (sig == 0) { break; }
+        if (sig == NULL) { break; }
     }
     va_end(args);
 }
 
 /* Store the formatted output in a character array */
-void sprintf(char *str, const char *fmt, ...)
+int sprintf(char *str, const char *fmt, ...)
 {
+    int c = 0;
     va_list arg;
     va_start(arg, fmt);
-    vsprintf(str, fmt, arg);
+    c = vsprintf(str, fmt, arg);
     va_end(arg);
+    return c;
 }
 
 /* Format a string and output it to a character array */
+/* (It's deprecated and unsafe) */
 int vsprintf(char *buff, const char *format, va_list args)
 {
-    int len, i, flags, field_width, precision;
+    int64_t len, precision, field_width;
+    int i, flags;
     char *str, *s;
-    int *ip;
 
     for (str = buff; *format; ++format) {
         if (*format != '%') {
@@ -111,6 +111,8 @@ repeat:
             case '0' :
                 flags |= ZEROPAD;
                 goto repeat;
+            default :
+                break;
         }
         field_width = -1;
         if (is_digit(*format)) {
@@ -138,17 +140,12 @@ repeat:
                 if (!(flags & LEFT)) {
                     while (--field_width > 0) *str++ = ' ';
                 }
-                *str++ = (unsigned char)va_arg(args, int);
+                *str++ = (char)va_arg(args, int);
                 while (--field_width > 0) *str++ = ' ';
                 break;
             case 's' :
                 s   = va_arg(args, char *);
-                len = strlen(s);
-                if (precision < 0) {
-                    precision = len;
-                } else if (len > precision) {
-                    len = precision;
-                }
+                len = (int64_t)strlen(s);
                 if (!(flags & LEFT)) {
                     while (len < field_width--) *str++ = ' ';
                 }
@@ -180,8 +177,7 @@ repeat:
                 str = number(str, va_arg(args, size_t), 2, field_width, precision, flags);
                 break;
             case 'n' :
-                ip  = va_arg(args, int *);
-                *ip = (str - buff);
+                va_arg(args, int *);
                 break;
             default :
                 if (*format != '%') *str++ = '%';
@@ -194,7 +190,7 @@ repeat:
         }
     }
     *str = '\0';
-    return (str - buff);
+    return (int)(str - buff);
 }
 
 /* Release the memory used by the FmtArg structure */
@@ -205,7 +201,7 @@ void free_fmtarg(FmtArg *arg)
 }
 
 /* Create a new FmtArg structure and initialize it */
-FmtArg *new_fmtarg(uint64_t size, char *buff, char *last_write)
+FmtArg *new_fmtarg(uint64_t size, char *buff, char *last_write) // NOLINT
 {
     FmtArg *arg     = (FmtArg *)malloc(sizeof(FmtArg));
     arg->size       = size;
@@ -224,12 +220,16 @@ FmtArg *read_fmtarg(const char **format, va_list args)
     size_t field_width  = 0; // Minimum width field
     size_t precision    = 0; // For float, precision field (or number of digits and with zero padding)
     char *str           = 0;
+    int tmp             = 0;
     size_t str_len      = 0;
     size_t num          = 0;
     size_t buf_len      = 0;
     size_t base         = 0;
     int64_t size_cnt    = 2; // hh = 0, h = 1, (nothing) = 2, l = 3, ll = 4, z = 5
-    if (*fmt_ptr != '%') return 0;
+    if (*fmt_ptr != '%') {
+        free(arg);
+        return NULL;
+    }
 
     /* Get size */
     while (1) {
@@ -250,6 +250,8 @@ FmtArg *read_fmtarg(const char **format, va_list args)
             case '0' :
                 flags |= ZEROPAD;
                 continue;
+            default :
+                break;
         }
 
         /* Minimum width field */
@@ -258,7 +260,12 @@ FmtArg *read_fmtarg(const char **format, va_list args)
         } else if (*fmt_ptr == '*') {
             /* by the following argument */
             fmt_ptr++;
-            field_width = va_arg(args, int);
+            tmp = va_arg(args, int);
+            if (tmp < 0) {
+                field_width = 0;
+            } else {
+                field_width = tmp;
+            }
         }
 
         /* For float, precision field */
@@ -268,7 +275,12 @@ FmtArg *read_fmtarg(const char **format, va_list args)
                 precision = skip_atoi(&fmt_ptr);
             } else if (*fmt_ptr == '*') {
                 fmt_ptr++;
-                precision = va_arg(args, int);
+                tmp = va_arg(args, int);
+                if (tmp < 0) {
+                    precision = 0;
+                } else {
+                    precision = tmp;
+                }
             }
         }
 
@@ -287,6 +299,8 @@ FmtArg *read_fmtarg(const char **format, va_list args)
             case 'z' :
                 size_cnt = 5;
                 continue;
+            default :
+                break;
         }
 
         /* Pre-processing (inc: data) */
@@ -349,6 +363,8 @@ FmtArg *read_fmtarg(const char **format, va_list args)
             case 'p' :
                 num = (size_t)va_arg(args, void *);
                 break;
+            default :
+                break;
         }
 
         /* Pre-processing (inc: size, flags of arg) */
@@ -390,19 +406,22 @@ FmtArg *read_fmtarg(const char **format, va_list args)
                 break;
             case 'n' :
                 va_arg(args, void *);
-                return 0;
+                break;
             case '%' :
                 buf_len = 1;
                 break;
             default :
                 --fmt_ptr; // Undo
+                free(arg);
                 return 0;
         }
+        if (buf_len < 1) { buf_len = 1; }
         if (field_width < buf_len) field_width = buf_len;
 
         /* Write buffer */
-        arg->buff = malloc(buf_len);
-        buf_ptr   = arg->buff;
+        arg->buff          = malloc(buf_len + 1);
+        arg->buff[buf_len] = '\0';
+        buf_ptr            = arg->buff;
         switch (*fmt_ptr) {
             case 'c' :
                 if (!(flags & LEFT)) {
@@ -447,10 +466,12 @@ FmtArg *read_fmtarg(const char **format, va_list args)
             case 'i' :
             case 'u' :
             case 'b' :
-                number(buf_ptr, num, base, field_width, precision, flags);
+                number(buf_ptr, (int)num, base, field_width, precision, flags);
                 break;
             case '%' :
                 *buf_ptr = '%';
+                break;
+            default :
                 break;
         }
         arg->size       = buf_len;
@@ -473,9 +494,9 @@ OverflowSignal *new_overflow(enum OverflowKind kind, FmtArg *arg)
 /* Format a string with size and output it to a character array */
 OverflowSignal *vsprintf_s(OverflowSignal *signal, char *buff, intptr_t size, const char **format, va_list args)
 {
-    char *write_ptr     = 0;
-    const char *fmt_ptr = 0;
-    FmtArg *fmt_arg     = 0;
+    char *write_ptr;
+    const char *fmt_ptr;
+    FmtArg *fmt_arg;
 
     write_ptr = buff;
     if (signal != 0 && signal->kind == OFLOW_AT_FMTARG) {

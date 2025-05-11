@@ -13,6 +13,7 @@
 #include "common.h"
 #include "hhdm.h"
 #include "printk.h"
+#include "stdint.h"
 #include "string.h"
 #include "timer.h"
 
@@ -31,7 +32,14 @@ void facp_init(acpi_facp_t *facp0)
     uint32_t dsdtlen;
     facp = facp0;
 
-    dsdt_table_t *dsdtTable = (dsdt_table_t *)(uint64_t)facp->dsdt;
+    union DsdtPtr {
+            uint32_t ptr;
+            dsdt_table_t *table;
+    } dsdt;
+    dsdt.table              = 0; // Clean
+    dsdt.ptr                = facp->dsdt;
+    dsdt_table_t *dsdtTable = dsdt.table;
+
     if (dsdtTable == 0) {
         plogk("ACPI: DSDT table not found.\n");
         return;
@@ -50,8 +58,10 @@ void facp_init(acpi_facp_t *facp0)
         SCI_EN = 1;
 
         if (dsdtlen) {
+            // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
             if (*(S5Addr - 1) == 0x08 || (*(S5Addr - 2) == 0x08 && *(S5Addr - 1) == '\\')) {
                 S5Addr += 5;
+                // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
                 S5Addr += ((*S5Addr & 0xC0) >> 6) + 2;
                 if (*S5Addr == 0x0A) S5Addr++;
                 SLP_TYPa = *(S5Addr) << 10;

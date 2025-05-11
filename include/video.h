@@ -15,8 +15,13 @@
 #include "limine.h"
 #include "stdint.h"
 
+typedef struct position {
+        uint32_t x;
+        uint32_t y;
+} position;
+
 typedef struct VideoInfo {
-        int32_t cx, cy;             // The character position of the current cursor
+        uint32_t cx, cy;            // The character position of the current cursor
         uint32_t c_width, c_height; // Screen character width and height
         uint64_t width;             // Screen length
         uint64_t height;            // Screen width
@@ -53,13 +58,13 @@ void video_draw_pixel(uint32_t x, uint32_t y, uint32_t color);
 uint32_t video_get_pixel(uint32_t x, uint32_t y);
 
 /* Iterate over a area on the screen and run a callback function in each iteration */
-void video_invoke_area(uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, void (*callback)(uint32_t x, uint32_t y));
+void video_invoke_area(position p0, position p1, void (*callback)(position p));
 
 /* Draw a matrix at the specified coordinates on the screen */
-void video_draw_rect(int x0, int y0, int x1, int y1, int color);
+void video_draw_rect(position p0, position p1, int color);
 
 /* Draw a character at the specified coordinates on the screen */
-void video_draw_char(const char c, int32_t x, int32_t y, int color);
+void video_draw_char(const char c, uint32_t x, uint32_t y, int color);
 
 /* Print a character at the specified coordinates on the screen */
 void video_put_char(const char c, int color);
