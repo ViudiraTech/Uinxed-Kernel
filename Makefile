@@ -26,13 +26,14 @@ OBJS           := $(C_SOURCES:%.c=%.o) $(S_SOURCES:%.s=%.o)
 DEPS           := $(OBJS:%.o=%.d)
 LIBS           := $(wildcard libs/lib*.a)
 PWD            := $(shell pwd)
+CHECKS	       := -checks=-*,clang-analyzer-*,bugprone-*,cert-*,misc-*,performance-*,portability-*,-misc-include-cleaner,-clang-analyzer-security.insecureAPI.*
 
 QEMU           := qemu-system-x86_64
 QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd
 
 # If you want to get more details of `dump_stack`, you need to replace `-O3` with `-O0` or '-Os'.
 # `-fno-optimize-sibling-calls` is for `dump_stack` to work properly.
-C_FLAGS        := -Wall -Wextra -O3 -g3 -m64 -ffreestanding -fno-optimize-sibling-calls -fno-pie -fno-stack-protector -fno-omit-frame-pointer \
+C_FLAGS        := -Wall -Wextra -O3 -m64 -ffreestanding -fno-optimize-sibling-calls -fno-pie -fno-stack-protector -fno-omit-frame-pointer \
                   -mcmodel=kernel -mno-red-zone -mno-80387 -mno-mmx -mno-sse -mno-sse2 -msoft-float -I include -MMD
 LD_FLAGS       := -nostdlib -static -T assets/linker.ld -m elf_x86_64
 AS_FLAGS       := -g --64
@@ -51,7 +52,7 @@ all: info Uinxed-x64.iso
 
 %.tidy: %
 	$(Q)printf "\033[1;32m[Checks]\033[0m $< ...\n"
-	$(Q)clang-tidy $< -- $(C_FLAGS)
+	$(Q)clang-tidy $< $(CHECKS) -- $(C_FLAGS)
 
 info:
 	$(Q)printf "Uinxed-Kernel Compile Script.\n"

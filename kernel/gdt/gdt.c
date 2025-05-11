@@ -11,7 +11,7 @@
 
 #include "gdt.h"
 #include "printk.h"
-#include "string.h"
+#include "stdint.h"
 
 /* Global Descriptor Table Definition */
 gdt_entries_t gdt_entries;

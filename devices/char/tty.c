@@ -10,10 +10,9 @@
  */
 
 #include "tty.h"
-#include "alloc.h"
 #include "cmdline.h"
 #include "serial.h"
-#include "stdint.h"
+#include "stdlib.h"
 #include "string.h"
 #include "video.h"
 
@@ -49,7 +48,7 @@ char *get_boot_tty(void)
     strncpy(bootarg, cmdline, MAX_CMDLINE - 1);
     bootarg[MAX_CMDLINE - 1] = '\0';
 
-    char **argv = malloc(MAX_ARGC * sizeof(char *));
+    char **argv = (char **)malloc(MAX_ARGC * sizeof(char *));
     if (!argv) return DEFAULT_TTY;
 
     int argc = arg_parse(bootarg, argv, ' ');
@@ -65,7 +64,7 @@ char *get_boot_tty(void)
             }
         }
     }
-    free(argv);
+    free((void *)argv);
 
     if (!boot_tty) {
         strncpy(boot_tty_buf, DEFAULT_TTY, sizeof(boot_tty_buf));

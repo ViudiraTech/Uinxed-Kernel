@@ -26,7 +26,7 @@ void *memcpy(void *str1, const void *str2, size_t n)
 }
 
 /* Sets a memory area to the specified value */
-void *memset(void *str, int c, size_t n)
+void *memset(void *str, int c, size_t n) // NOLINT
 {
     volatile uint8_t *_str = (volatile uint8_t *)str;
     volatile uint8_t *end  = (volatile uint8_t *)((uint8_t *)str + n);
@@ -88,7 +88,7 @@ char *strncpy(char *dest, const char *src, size_t n)
 {
     char *_dest     = dest;
     const char *end = src + n;
-    while (src < end && (*dest++ = *src++) != '\0');
+    while (src < end && *src != '\0') *(dest++) = *(src++);
     return _dest;
 }
 

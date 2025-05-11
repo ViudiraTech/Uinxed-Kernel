@@ -12,8 +12,8 @@
 #ifndef INCLUDE_PRINTK_H_
 #define INCLUDE_PRINTK_H_
 
+#include "stdarg.h"
 #include "stdint.h"
-#include "vargs.h"
 
 enum OverflowKind {
     OFLOW_AT_FMTARG,
@@ -41,7 +41,7 @@ void printk_unsafe(const char *format, ...);
 void plogk(const char *format, ...);
 
 /* Store the formatted output in a character array */
-void sprintf(char *str, const char *fmt, ...);
+int sprintf(char *str, const char *fmt, ...);
 
 /* Format a string and output it to a character array */
 int vsprintf(char *buff, const char *format, va_list args);

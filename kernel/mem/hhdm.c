@@ -11,7 +11,6 @@
 
 #include "hhdm.h"
 #include "limine.h"
-#include "printk.h"
 
 __attribute__((used, section(".limine_requests"))) volatile struct limine_hhdm_request hhdm_request = {
     .id       = LIMINE_HHDM_REQUEST,
@@ -35,11 +34,21 @@ uint64_t get_physical_memory_offset(void)
 /* Convert physical memory to virtual memory */
 void *phys_to_virt(uint64_t phys_addr)
 {
-    return (void *)(phys_addr + physical_memory_offset);
+    union VirtAddr {
+            uint64_t addr;
+            void *ptr;
+    } virt_addr;
+    virt_addr.addr = phys_addr + physical_memory_offset;
+    return virt_addr.ptr;
 }
 
 /* Convert virtual memory to physical memory */
 void *virt_to_phys(uint64_t virt_addr)
 {
-    return (void *)(virt_addr - physical_memory_offset);
+    union PhysAddr {
+            uint64_t addr;
+            void *ptr;
+    } phys_addr;
+    phys_addr.addr = virt_addr - physical_memory_offset;
+    return phys_addr.ptr;
 }

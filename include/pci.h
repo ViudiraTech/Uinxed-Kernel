@@ -33,38 +33,49 @@ typedef struct base_address_register {
         int type;
 } base_address_register;
 
+typedef struct pci_device {
+        uint16_t bus;
+        uint16_t slot;
+        uint16_t func;
+} pci_device;
+
+typedef struct pci_device_reg {
+        pci_device *parent;
+        uint32_t offset;
+} pci_device_reg;
+
 /* Reading values ​​from PCI device registers */
-uint32_t read_pci(uint32_t bus, uint32_t slot, uint32_t func, uint32_t register_offset);
+uint32_t read_pci(pci_device_reg reg);
 
 /* Write values ​​to PCI device registers */
-void write_pci(uint32_t bus, uint32_t slot, uint32_t func, uint32_t register_offset, uint32_t value);
+void write_pci(pci_device_reg reg, uint32_t value);
 
 /* Read the value from the PCI device command status register */
-uint32_t pci_read_command_status(uint32_t bus, uint32_t slot, uint32_t func);
+uint32_t pci_read_command_status(pci_device *device);
 
 /* Write a value to the PCI device command status register */
-void pci_write_command_status(uint32_t bus, uint32_t slot, uint32_t func, uint32_t value);
+void pci_write_command_status(pci_device *device, uint32_t value);
 
 /* Get detailed information about the base address register */
-base_address_register get_base_address_register(uint32_t bus, uint32_t slot, uint32_t func, uint32_t bar);
+base_address_register get_base_address_register(pci_device *device, uint32_t bar);
 
 /* Get the I/O port base address of the PCI device */
-uint32_t pci_get_port_base(uint32_t bus, uint32_t slot, uint32_t func);
+uint32_t pci_get_port_base(pci_device *device);
 
 /* Read the value of the nth base address register */
-uint32_t read_bar_n(uint32_t bus, uint32_t slot, uint32_t func, uint32_t bar_n);
+uint32_t read_bar_n(pci_device *device, uint32_t bar_n);
 
 /* Get the interrupt number of the PCI device */
-uint32_t pci_get_irq(uint32_t bus, uint32_t slot, uint32_t func);
+uint32_t pci_get_irq(pci_device *device);
 
 /* Configuring PCI Devices */
-void pci_config(uint32_t bus, uint32_t slot, uint32_t func, uint32_t addr);
+void pci_config(pci_device *device, uint32_t addr);
 
 /* Find PCI devices by vendor ID and device ID */
-int pci_found_device(uint32_t vendor_id, uint32_t device_id, uint32_t *bus, uint32_t *slot, uint32_t *func);
+int pci_found_device(uint32_t vendor_id, uint32_t device_id, pci_device *device);
 
 /* Find PCI devices by class code */
-int pci_found_class(uint32_t class_code, uint32_t *bus, uint32_t *slot, uint32_t *func);
+int pci_found_class(uint32_t class_code, pci_device *device);
 
 /* Returns the device name based on the class code */
 const char *pci_classname(uint32_t classcode);

@@ -10,6 +10,10 @@
  */
 
 #include "common.h"
+#include "stddef.h"
+#include "stdint.h"
+
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 
 /* Port write (8 bits) */
 void outb(uint16_t port, uint8_t value)
@@ -66,13 +70,13 @@ void outsw(uint16_t port, const void *buf, size_t n)
 }
 
 /* Read data from I/O port to memory in batches (32 bits) */
-void insl(uint32_t port, void *addr, int cnt)
+void insl(uint32_t port, void *addr, size_t cnt)
 {
     __asm__ volatile("cld; repne; insl;" : "=D"(addr), "=c"(cnt) : "d"(port), "0"(addr), "1"(cnt) : "memory", "cc");
 }
 
 /* Write data from memory to I/O port in batches (32 bits) */
-void outsl(uint32_t port, const void *addr, int cnt)
+void outsl(uint32_t port, const void *addr, size_t cnt)
 {
     __asm__ volatile("cld; repne; outsl;" : "=S"(addr), "=c"(cnt) : "d"(port), "0"(addr), "1"(cnt) : "memory", "cc");
 }
@@ -179,3 +183,4 @@ void krn_halt(void)
     disable_intr();
     while (1) __asm__ volatile("hlt");
 }
+// NOLINTEND(bugprone-easily-swappable-parameters)

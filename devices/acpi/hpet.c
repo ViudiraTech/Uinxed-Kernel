@@ -13,6 +13,7 @@
 #include "hhdm.h"
 #include "idt.h"
 #include "printk.h"
+#include "stdint.h"
 
 HpetInfo *hpet_addr;
 static uint32_t hpetPeriod = 0;

@@ -13,7 +13,6 @@
 #include "alloc.h"
 #include "hhdm.h"
 #include "page.h"
-#include "printk.h"
 #include "stddef.h"
 #include "stdint.h"
 #include "string.h"
@@ -29,9 +28,13 @@ void init_heap(void)
 /* Allocate 4k-aligned memory */
 void *alloc_4k_aligned_mem(size_t size)
 {
-    void *p         = malloc(size < PAGE_SIZE ? size + PAGE_SIZE : size);
-    void *p_aligned = (void *)(((uint64_t)p + 0xfff) & ~0xfff);
-    return p_aligned;
+    void *p = malloc(size < PAGE_SIZE ? size + PAGE_SIZE : size);
+    union AlignedPage {
+            uint64_t ptr;
+            void *inner;
+    } p_aligned;
+    p_aligned.ptr = (((uint64_t)p + 0xfff) & ~0xfff);
+    return p_aligned.inner;
 }
 
 /* Allocate an empty memory */

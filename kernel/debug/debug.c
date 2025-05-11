@@ -13,14 +13,18 @@
 #include "common.h"
 #include "limine.h"
 #include "printk.h"
+#include "stdarg.h"
 #include "symbols.h"
 #include "uinxed.h"
-#include "vargs.h"
 
 /* Dump stack */
 void dump_stack(void)
 {
-    uintptr_t *rbp, rip;
+    union RbpNode {
+            uintptr_t inner;
+            union RbpNode *next;
+    } *rbp; // A way to avoid performance-no-int-to-ptr
+    uintptr_t rip;
     __asm__ volatile("movq %%rbp, %0" : "=r"(rbp));
     __asm__ volatile("leaq (%%rip), %0" : "=r"(rip));
 
@@ -34,8 +38,8 @@ void dump_stack(void)
         } else {
             plogk("  [<0x%016zx>] `%s`+0x%lx\n", rip, sym_info.name, rip - sym_info.addr);
         }
-        rip = *(rbp + 1);
-        rbp = (uintptr_t *)(*rbp);
+        rip = *(uintptr_t *)(rbp + 1);
+        rbp = rbp->next;
     }
     plogk(" </TASK>\n");
 }

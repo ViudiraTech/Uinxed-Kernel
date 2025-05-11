@@ -30,10 +30,10 @@ void insw(uint16_t port, void *buf, size_t n);
 void outsw(uint16_t port, const void *buf, size_t n);
 
 /* Read data from I/O port to memory in batches (32 bits) */
-void insl(uint32_t port, void *addr, int cnt);
+void insl(uint32_t port, void *addr, size_t cnt);
 
 /* Write data from memory to I/O port in batches (32 bits) */
-void outsl(uint32_t port, const void *addr, int cnt);
+void outsl(uint32_t port, const void *addr, size_t cnt);
 
 /* Flushes the TLB of the specified address */
 void flush_tlb(uint64_t addr);

@@ -47,11 +47,11 @@ page_directory_t *get_kernel_pagedir(void);
 /* Returns the page directory of the current process */
 page_directory_t *get_current_directory(void);
 
-/* Recursively copy memory page tables */
-void copy_page_table_recursive(page_table_t *source_table, page_table_t *new_table, int level);
+/* Iteratively copy memory page tables using an explicit stack */
+void copy_page_table_iterative(page_table_t *source_table, page_table_t *new_table, int level);
 
-/* Recursively free memory page tables */
-void free_page_table_recursive(page_table_t *table, int level);
+/* Iteratively free memory page tables using an explicit stack */
+void free_page_table_iterative(page_table_t *table, int level);
 
 /* Clone a page directory */
 page_directory_t *clone_directory(page_directory_t *src);

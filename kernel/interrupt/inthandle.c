@@ -9,10 +9,9 @@
  *
  */
 
-#include "common.h"
 #include "debug.h"
 #include "idt.h"
-#include "printk.h"
+#include "stdint.h"
 
 void page_fault_handle(interrupt_frame_t *frame, uint64_t error_code);
 

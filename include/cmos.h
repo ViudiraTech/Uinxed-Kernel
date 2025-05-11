@@ -44,10 +44,10 @@ uint32_t get_year(void);         // Get the current year
 #define CMOS_DEV_TYPE 0x12 // CMOS Driver Format
 #define CMOS_CUR_CEN  0x32 // CMOS Current Century (BCD)
 
-#define BCD_HEX(n) ((n >> 4) * 10) + (n & 0xf)               // BCD to Hexadecimal
+#define BCD_HEX(n) ((((n) >> 4) * 10) + ((n) & 0xf))         // BCD to Hexadecimal
 #define HEX_BCD(n) (((n) >= 0xA) ? ((n) - 0xA + 0x10) : (n)) // Hexadecimal to BCD
 
-#define BCD_ASCII_first(n) (((n << 4) >> 4) + 0x30)
-#define BCD_ASCII_S(n)     ((n << 4) + 0x30)
+#define BCD_ASCII_first(n) ((((n) << 4) >> 4) + 0x30)
+#define BCD_ASCII_S(n)     (((n) << 4) + 0x30)
 
 #endif // INCLUDE_CMOS_H_

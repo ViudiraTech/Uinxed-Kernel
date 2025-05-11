@@ -14,7 +14,8 @@
 #include "idt.h"
 #include "pci.h"
 #include "printk.h"
-#include "string.h"
+#include "stddef.h"
+#include "stdint.h"
 #include "timer.h"
 
 /* Structure */
@@ -92,9 +93,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
                 uint8_t cl = ide_read(i, ATA_REG_LBA1);
                 uint8_t ch = ide_read(i, ATA_REG_LBA2);
 
-                if (cl == 0x14 && ch == 0xeb)
-                    type = IDE_ATAPI;
-                else if (cl == 0x69 && ch == 0x96)
+                if ((cl == 0x14 && ch == 0xeb) || (cl == 0x69 && ch == 0x96))
                     type = IDE_ATAPI;
                 else
                     continue;
@@ -104,7 +103,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
             }
 
             /* Read the device's identification space */
-            ide_read_buffer(i, ATA_REG_DATA, (uint64_t)ide_buf, 128);
+            ide_read_buffer(i, ATA_REG_DATA, ide_buf, 128);
 
             /* Read device parameters */
             ide_devices[count].reserved     = 1;
@@ -142,7 +141,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 }
 
 /* Error handling */
-static uint8_t ide_print_error(uint32_t drive, uint8_t err)
+static uint8_t ide_print_error(uint32_t drive, uint8_t err) // NOLINT(bugprone-easily-swappable-parameters)
 {
     if (err == 0) return err;
     if (err == 1) {
@@ -195,10 +194,10 @@ static uint8_t ide_print_error(uint32_t drive, uint8_t err)
 /* Initialize IDE */
 void init_ide(void)
 {
-    uint32_t bus, slot, func;
+    pci_device *device = &(pci_device) {0, 0, 0};
 
     /* Detect if the computer has an IDE controller */
-    if (pci_found_class(0x010100, &bus, &slot, &func)) {
+    if (pci_found_class(0x010100, device)) {
         register_interrupt_handler(IRQ_46, ide_irq, 0, 0x8e);
         register_interrupt_handler(IRQ_47, ide_irq, 0, 0x8e);
         ide_initialize(0x1f0, 0x3f6, 0x170, 0x376, 0x000);
@@ -227,7 +226,10 @@ uint8_t ide_read(uint8_t channel, uint8_t reg)
 /* Write a byte of data to the specified register of the IDE device */
 void ide_write(uint8_t channel, uint8_t reg, uint8_t data)
 {
-    if (reg > 0x07 && reg < 0x0c) ide_write(channel, ATA_REG_CONTROL, 0x80 | channels[channel].nIEN);
+    if (reg > 0x07 && reg < 0x0c) {
+        // Expanded by ide_write(channel, ATA_REG_CONTROL, 0x80 | channels[channel].nIEN);
+        outb(channels[channel].base + ATA_REG_CONTROL - 0x06, 0x80 | channels[channel].nIEN);
+    }
     if (reg < 0x08)
         outb(channels[channel].base + reg - 0x00, data);
     else if (reg < 0x0c)
@@ -236,12 +238,15 @@ void ide_write(uint8_t channel, uint8_t reg, uint8_t data)
         outb(channels[channel].ctrl + reg - 0x0a, data);
     else if (reg < 0x16)
         outb(channels[channel].bmide + reg - 0x0e, data);
-    if (reg > 0x07 && reg < 0x0c) ide_write(channel, ATA_REG_CONTROL, channels[channel].nIEN);
+    if (reg > 0x07 && reg < 0x0c) {
+        // Expanded by ide_write(channel, ATA_REG_CONTROL, 0x80 | channels[channel].nIEN);
+        outb(channels[channel].base + ATA_REG_CONTROL - 0x06, 0x80 | channels[channel].nIEN);
+    }
 }
 
 /* Read multiple words of data from the specified register of the IDE device
  * into the buffer */
-void ide_read_buffer(uint8_t channel, uint8_t reg, uint64_t buffer, uint32_t quads)
+void ide_read_buffer(uint8_t channel, uint8_t reg, uint8_t *buffer, uint32_t quads)
 {
     if (reg > 0x07 && reg < 0x0c) ide_write(channel, ATA_REG_CONTROL, 0x80 | channels[channel].nIEN);
     if (reg < 0x08)
@@ -256,7 +261,7 @@ void ide_read_buffer(uint8_t channel, uint8_t reg, uint64_t buffer, uint32_t qua
 }
 
 /* Polling the status of IDE devices */
-uint8_t ide_polling(uint8_t channel, uint32_t advanced_check)
+uint8_t ide_polling(uint8_t channel, uint32_t advanced_check) // NOLINT(bugprone-easily-swappable-parameters)
 {
     for (int i = 0; i < 4; i++) ide_read(channel, ATA_REG_ALTSTATUS);
 
@@ -274,9 +279,12 @@ uint8_t ide_polling(uint8_t channel, uint32_t advanced_check)
     return 0;
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
+
 /* Read and write ATA devices */
-uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t numsects, uint64_t edi)
+uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t numsects, uint16_t *edi)
 {
+    // NOLINTEND(bugprone-easily-swappable-parameters)
     uint8_t lba_mode, dma, cmd;
     uint8_t lba_io[6];
     uint32_t channel  = ide_devices[drive].channel;
@@ -351,14 +359,15 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t n
 
     if (direction == 0) {
         /* PIO Read */
-        uint16_t *word_ = (uint16_t *)edi;
+        uint16_t *word_ = edi;
         for (i = 0; i < numsects; i++) {
-            if ((err = ide_polling(channel, 1)) != 0) return err;
-            insl(bus, (uint32_t *)(word_ + i * words), words / 2);
+            err = ide_polling(channel, 1);
+            if (err != 0) return err;
+            insl(bus, (uint32_t *)(word_ + (size_t)i * words), words / 2);
         }
     } else {
         /* PIO Write */
-        uint16_t *word_ = (uint16_t *)edi;
+        uint16_t *word_ = edi;
         for (i = 0; i < numsects; i++) {
             ide_polling(channel, 0);
             for (uint32_t h = 0; h < words; h++) outw(bus, word_[i * words + h]);
@@ -370,9 +379,11 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t n
     return 0;
 }
 
+// NOLINTBEGIN(bugprone-easily-swappable-parameters)
 /* Reading data from ATAPI devices */
-uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint32_t edi)
+uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint16_t *edi)
 {
+    // NOLINTEND(bugprone-easily-swappable-parameters)
     uint32_t channel  = ide_devices[drive].channel;
     uint32_t slavebit = ide_devices[drive].drive;
     uint32_t bus      = channels[channel].base;
@@ -406,15 +417,17 @@ uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint32_t e
 
     /* Send packet command */
     ide_write(channel, ATA_REG_COMMAND, ATA_CMD_PACKET);
-    if ((err = ide_polling(channel, 1)) != 0) return err;
+    err = ide_polling(channel, 1);
+    if (err != 0) return err;
 
     uint16_t *_atapi_packet = (uint16_t *)atapi_packet;
     for (int i = 0; i < 6; i++) outw(bus, _atapi_packet[i]);
 
-    uint16_t *_word = (uint16_t *)(uintptr_t)edi;
+    uint16_t *_word = edi;
     for (i = 0; i < numsects; i++) {
         ide_wait_irq();
-        if ((err = ide_polling(channel, 1)) != 0) return err;
+        err = ide_polling(channel, 1);
+        if (err != 0) return err;
         for (uint32_t h = 0; h < words; h++) _word[i * words + h] = inw(bus);
     }
     while (ide_read(channel, ATA_REG_STATUS) & (ATA_SR_BSY | ATA_SR_DRQ));
@@ -422,7 +435,7 @@ uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint32_t e
 }
 
 /* Read multiple sectors from an IDE device */
-void ide_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint32_t edi)
+void ide_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *edi)
 {
     /* read multiple sector sf Roman IDE device */
     if (drive > 3 || ide_devices[drive].reserved == 0) package[0] = 0x1;
@@ -437,13 +450,13 @@ void ide_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint32_t ed
         if (ide_devices[drive].type == IDE_ATA)
             err = ide_ata_access(ATA_READ, drive, lba, numsects, edi);
         else if (ide_devices[drive].type == IDE_ATAPI)
-            for (int i = 0; i < numsects; i++) err = ide_atapi_read(drive, lba + i, 1, edi + (i * 2048));
+            for (int i = 0; i < numsects; i++) err = ide_atapi_read(drive, lba + i, 1, edi + (size_t)(i * 2048));
         package[0] = ide_print_error(drive, err);
     }
 }
 
 /* Write multiple sectors to an IDE device */
-void ide_write_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint32_t edi)
+void ide_write_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *edi)
 {
     /* Check if the drive exists */
     if (drive > 3 || ide_devices[drive].reserved == 0) package[0] = 0x1;

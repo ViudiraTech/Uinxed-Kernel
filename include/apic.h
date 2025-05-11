@@ -70,8 +70,13 @@ void ioapic_write(uint32_t reg, uint32_t value);
 /* Read I/O APIC registers */
 uint32_t ioapic_read(uint32_t reg);
 
+typedef struct {
+        uint8_t vector;
+        uint32_t irq;
+} ioapic_routing;
+
 /* Configuring I/O APIC interrupt routing */
-void ioapic_add(uint8_t vector, uint32_t irq);
+void ioapic_add(ioapic_routing *routing);
 
 /* Write local APIC register */
 void lapic_write(uint32_t reg, uint32_t value);

@@ -13,7 +13,7 @@
 #include "apic.h"
 #include "common.h"
 #include "idt.h"
-#include "interrupt.h"
+#include "stdint.h"
 
 /* Timer interrupt */
 __attribute__((interrupt)) void timer_handle(interrupt_frame_t *frame)
