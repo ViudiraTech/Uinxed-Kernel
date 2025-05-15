@@ -20,8 +20,9 @@
 #include "stdint.h"
 
 int x2apic_mode;
-uint32_t *lapic_address;  // use uint32_t * to avoid conversion
-uint32_t *ioapic_address; // use uint32_t * to avoid conversion
+
+PointerCast lapic_ptr;
+PointerCast ioapic_ptr;
 
 __attribute__((used, section(".limine_requests"))) volatile struct limine_smp_request smp_request = {
     .id       = LIMINE_SMP_REQUEST,
@@ -40,15 +41,19 @@ void disable_pic(void)
 /* Write I/O APIC register */
 void ioapic_write(uint32_t reg, uint32_t value)
 {
-    mmio_write32((uint32_t *)(ioapic_address), reg);
-    mmio_write32((uint32_t *)(ioapic_address + 0x10), value);
+    mmio_write32(ioapic_ptr.ptr, reg);
+    PointerCast reg_ptr;
+    reg_ptr.val = ioapic_ptr.val + 0x10;
+    mmio_write32(reg_ptr.ptr, value);
 }
 
 /* Read I/O APIC registers */
 uint32_t ioapic_read(uint32_t reg)
 {
-    mmio_write32((uint32_t *)(ioapic_address), reg);
-    return mmio_read32((uint32_t *)(ioapic_address + 0x10));
+    mmio_write32(ioapic_ptr.ptr, reg);
+    PointerCast reg_ptr;
+    reg_ptr.val = ioapic_ptr.val + 0x10;
+    return mmio_read32(reg_ptr.ptr);
 }
 
 /* Configuring I/O APIC interrupt routing */
@@ -68,14 +73,18 @@ void lapic_write(uint32_t reg, uint32_t value)
         wrmsr(0x800 + (reg >> 4), value);
         return;
     }
-    mmio_write32(lapic_address + reg, value);
+    PointerCast reg_ptr;
+    reg_ptr.val = lapic_ptr.val + reg;
+    mmio_write32(reg_ptr.ptr, value);
 }
 
 /* Read local APIC register */
 uint32_t lapic_read(uint32_t reg)
 {
     if (x2apic_mode) return rdmsr(0x800 + (reg >> 4));
-    return mmio_read32(lapic_address + reg);
+    PointerCast reg_ptr;
+    reg_ptr.val = lapic_ptr.val + reg;
+    return mmio_read32(reg_ptr.ptr);
 }
 
 /* Get the local APIC ID of the current processor */
@@ -113,10 +122,11 @@ void local_apic_init(void)
 void io_apic_init(void)
 {
     ioapic_routing *ioapic_router[] = {
-        &(ioapic_routing) {IRQ_33, 0}, // Keyboard
-        &(ioapic_routing) {IRQ_34, 1}, // Mouse
-        &(ioapic_routing) {IRQ_46, 2}, // IDE0
-        &(ioapic_routing) {IRQ_47, 3}, // IDE1
+        &(ioapic_routing) {IRQ_32, 0 }, // Timer
+        &(ioapic_routing) {IRQ_33, 1 }, // Keyboard
+        &(ioapic_routing) {IRQ_34, 12}, // Mouse
+        &(ioapic_routing) {IRQ_46, 14}, // IDE0
+        &(ioapic_routing) {IRQ_47, 15}, // IDE1
         NULL,
     };
 
@@ -155,8 +165,8 @@ void send_ipi(uint32_t apic_id, uint32_t command)
 /* Initialize APIC */
 void apic_init(MADT *madt)
 {
-    lapic_address = (uint32_t *)phys_to_virt(madt->local_apic_address);
-    plogk("ACPI: LAPIC Base address 0x%016x\n", lapic_address);
+    lapic_ptr.ptr = phys_to_virt(madt->local_apic_address);
+    plogk("ACPI: LAPIC Base address 0x%016x\n", lapic_ptr.val);
 
     uint8_t *entries_base = (uint8_t *)&madt->entries;
     size_t current        = 0;
@@ -165,8 +175,8 @@ void apic_init(MADT *madt)
         MadtHeader *header = (MadtHeader *)(entries_base + current);
         if (header->entry_type == MADT_APIC_IO) {
             MadtIOApic *ioapic = (MadtIOApic *)(entries_base + current);
-            ioapic_address     = (uint32_t *)phys_to_virt(ioapic->address);
-            plogk("ACPI: IOAPIC Found at address 0x%016x\n", (uintptr_t)ioapic_address);
+            ioapic_ptr.ptr     = phys_to_virt(ioapic->address);
+            plogk("ACPI: IOAPIC Found at address 0x%016x\n", ioapic_ptr.val);
         }
         current += header->length;
     }

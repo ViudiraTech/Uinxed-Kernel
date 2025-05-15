@@ -32,13 +32,9 @@ void facp_init(acpi_facp_t *facp0)
     uint32_t dsdtlen;
     facp = facp0;
 
-    union DsdtPtr {
-            uint32_t ptr;
-            dsdt_table_t *table;
-    } dsdt;
-    dsdt.table              = 0; // Clean
-    dsdt.ptr                = facp->dsdt;
-    dsdt_table_t *dsdtTable = dsdt.table;
+    PointerCast dsdt;
+    dsdt.val                = (uintptr_t)facp->dsdt;
+    dsdt_table_t *dsdtTable = (dsdt_table_t *)dsdt.ptr;
 
     if (dsdtTable == 0) {
         plogk("ACPI: DSDT table not found.\n");
