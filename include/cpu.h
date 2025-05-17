@@ -114,9 +114,9 @@ enum {
 
 enum cpuid_requests {
     CPUID_GETVENDORSTRING = 0,
-    CPUID_GETFEATURES     = 2,
-    CPUID_GETTLB          = 3,
-    CPUID_GETSERIAL       = 4,
+    CPUID_GETFEATURES     = 1,
+    CPUID_GETTLB          = 2,
+    CPUID_GETSERIAL       = 3,
 
     CPUID_INTELEXTENDED        = 0x80000000,
     CPUID_INTELFEATURES        = 0x80000001,
