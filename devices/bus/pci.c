@@ -259,14 +259,14 @@ int pci_found_device(uint32_t vendor_id, uint32_t device_id, pci_device *device)
     pci_device *f_device = device;
     pci_device_reg conf_vendor;
     pci_device_reg conf_device;
+    conf_vendor.parent = conf_device.parent = f_device;
+
+    conf_vendor.offset = PCI_CONF_VENDOR;
+    conf_device.offset = PCI_CONF_DEVICE;
     for (f_device->bus = 0; (uint32_t)f_device->bus < 256; f_device->bus++) {
         for (f_device->slot = 0; f_device->slot < 32; f_device->slot++) {
             for (f_device->func = 0; f_device->func < 8; f_device->func++) {
                 pci_config(f_device, 0);
-                conf_vendor.parent = f_device;
-                conf_vendor.offset = PCI_CONF_VENDOR;
-                conf_device.parent = f_device;
-                conf_device.offset = PCI_CONF_DEVICE;
                 if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
                     if ((read_pci(conf_vendor) & 0xffff) == vendor_id
                         && (read_pci(conf_device) & 0xffff) == device_id) {
@@ -287,13 +287,13 @@ int pci_found_class(uint32_t class_code, pci_device *device)
 {
     pci_device *f_device = device;
     pci_device_reg conf_revision;
+    conf_revision.parent = f_device;
+    conf_revision.offset = PCI_CONF_REVISION;
     for (f_device->bus = 0; f_device->bus < 256; f_device->bus++) {
         for (f_device->slot = 0; f_device->slot < 32; f_device->slot++) {
             for (f_device->func = 0; f_device->func < 8; f_device->func++) {
                 pci_config(f_device, 0);
                 if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
-                    conf_revision.parent      = f_device;
-                    conf_revision.offset      = PCI_CONF_REVISION;
                     uint32_t value_c          = read_pci(conf_revision);
                     uint32_t found_class_code = value_c >> 8;
                     if (class_code == found_class_code || class_code == (found_class_code & 0xFFFF00)) {
@@ -327,17 +327,17 @@ void pci_init(void)
     pci_device_reg conf_revision;
     pci_device_reg conf_vendor;
     pci_device_reg conf_device;
+    // Execute once because device is a pointer
+    conf_revision.parent = conf_vendor.parent = conf_device.parent = device;
+
+    conf_revision.offset = PCI_CONF_REVISION;
+    conf_vendor.offset   = PCI_CONF_VENDOR;
+    conf_device.offset   = PCI_CONF_DEVICE;
     for (device->bus = 0; device->bus < 256; device->bus++) {
         for (device->slot = 0; device->slot < 32; device->slot++) {
             for (device->func = 0; device->func < 8; device->func++) {
                 pci_config(device, 0);
                 if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
-                    conf_revision.parent = conf_vendor.parent = conf_device.parent = device;
-
-                    conf_revision.offset = PCI_CONF_REVISION;
-                    conf_vendor.offset   = PCI_CONF_VENDOR;
-                    conf_device.offset   = PCI_CONF_DEVICE;
-
                     uint32_t value_c   = read_pci(conf_revision);
                     uint32_t vendor_id = (read_pci(conf_vendor) & 0xffff);
                     uint32_t device_id = (read_pci(conf_device) & 0xffff);
