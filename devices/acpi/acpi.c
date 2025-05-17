@@ -31,7 +31,7 @@ void *find_table(const char *name)
     uint64_t *t          = (uint64_t *)((char *)xsdt + __builtin_offsetof(XSDT, PointerToOtherSDT));
 
     for (uint64_t i = 0; i < entry_count; i++) {
-        struct ACPISDTHeader *ptr = (struct ACPISDTHeader *)phys_to_virt((uint64_t) * (t + i));
+        struct ACPISDTHeader *ptr = (struct ACPISDTHeader *)phys_to_virt((uint64_t)*(t + i));
         if (memcmp(ptr->Signature, name, 4) == 0) {
             plogk("ACPI: %.4s 0x%016x\n", name, ptr);
             return (void *)ptr;
@@ -53,12 +53,9 @@ void acpi_init(void)
     }
     plogk("ACPI: RSDP 0x%016x\n", rsdp);
 
-    union XsdtPtr {
-            uint64_t addr;
-            XSDT *inner;
-    } xsdt_ptr;
-    xsdt_ptr.addr = rsdp->xsdt_address;
-    xsdt          = (XSDT *)xsdt_ptr.inner;
+    PointerCast xsdt_ptr;
+    xsdt_ptr.val = rsdp->xsdt_address;
+    xsdt         = (XSDT *)xsdt_ptr.ptr;
 
     if (xsdt == 0) {
         plogk("ACPI: XSDT not found.\n");

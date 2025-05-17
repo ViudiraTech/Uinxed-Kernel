@@ -32,13 +32,9 @@ void facp_init(acpi_facp_t *facp0)
     uint32_t dsdtlen;
     facp = facp0;
 
-    union DsdtPtr {
-            uint32_t ptr;
-            dsdt_table_t *table;
-    } dsdt;
-    dsdt.table              = 0; // Clean
-    dsdt.ptr                = facp->dsdt;
-    dsdt_table_t *dsdtTable = dsdt.table;
+    PointerCast dsdt;
+    dsdt.val                = (uintptr_t)facp->dsdt;
+    dsdt_table_t *dsdtTable = (dsdt_table_t *)dsdt.ptr;
 
     if (dsdtTable == 0) {
         plogk("ACPI: DSDT table not found.\n");
@@ -57,11 +53,9 @@ void facp_init(acpi_facp_t *facp0)
         SLP_EN = 1 << 13;
         SCI_EN = 1;
 
-        if (dsdtlen) {
-            /* NOLINTNEXTLINE(clang-analyzer-security.ArrayBound) */
+        if (dsdtlen && S5Addr > &dsdtTable->definition_block + 2) {
             if (*(S5Addr - 1) == 0x08 || (*(S5Addr - 2) == 0x08 && *(S5Addr - 1) == '\\')) {
                 S5Addr += 5;
-                /* NOLINTNEXTLINE(clang-analyzer-security.ArrayBound) */
                 S5Addr += ((*S5Addr & 0xC0) >> 6) + 2;
                 if (*S5Addr == 0x0A) S5Addr++;
                 SLP_TYPa = *(S5Addr) << 10;
@@ -71,6 +65,8 @@ void facp_init(acpi_facp_t *facp0)
                 S5Addr++;
                 plogk("ACPI: SLP_TYPa = 0x%04x, SLP_TYPb = 0x%04x\n", SLP_TYPa, SLP_TYPb);
             }
+        } else if (dsdtlen) {
+            plogk("ACPI: Invalid _S5_ prefix\n");
         } else {
             plogk("ACPI: _S5_ not found in DSDT.\n");
         }
