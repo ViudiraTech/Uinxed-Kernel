@@ -61,7 +61,7 @@ void panic(const char *format, ...)
     plogk("\n");
     plogk("Kernel panic - not syncing: %s\n", buff);
     dump_stack();
-    plogk("---[ end Kernel panic - not syncing: %s ]---", buff);
+    plogk("---[ end Kernel panic - not syncing: %s ]---\n", buff);
     krn_halt();
 }
 

@@ -16,29 +16,44 @@
 /* Copy n bytes from memory area str2 to memory area str1 */
 void *memcpy(void *str1, const void *str2, size_t n)
 {
+#if defined(__builtin_memcpy)
+    __builtin_memcpy(str1, str2, n);
+#elif defined(__i386__) || defined(__x86_64__)
+    __asm__ volatile("rep movsb" ::"D"(str1), "S"(str2), "c"(n) : "memory");
+#else
     volatile uint8_t *dest      = (volatile uint8_t *)str1;
     const volatile uint8_t *src = (const volatile uint8_t *)str2;
     const volatile uint8_t *end = (const volatile uint8_t *)((uint8_t *)str2 + n);
 
     if (dest == src) return str1;
     while (src != end) *dest++ = *src++;
+#endif
     return str1;
 }
 
 /* Sets a memory area to the specified value */
 void *memset(void *str, int c, size_t n) // NOLINT
 {
+#if defined(__builtin_memset)
+    __builtin_memset(str, c, n);
+#elif defined(__i386__) || defined(__x86_64__)
+    __asm__ volatile("rep stosb" ::"D"(str), "a"(c), "c"(n) : "memory");
+#else
     volatile uint8_t *_str = (volatile uint8_t *)str;
     volatile uint8_t *end  = (volatile uint8_t *)((uint8_t *)str + n);
     const uint8_t _c       = c;
 
     for (; _str < end; _str++) *_str = _c;
+#endif
     return str;
 }
 
 /* Copies n characters from str2 to str1, accounting for overlaps */
 void *memmove(void *str1, const void *str2, size_t n)
 {
+#if defined(__builtin_memmove)
+    __builtin_memmove(str1, str2, n);
+#else
     volatile uint8_t *dest      = (volatile uint8_t *)str1;
     const volatile uint8_t *src = (const volatile uint8_t *)str2;
     const volatile uint8_t *end = (const volatile uint8_t *)((uint8_t *)str2 + n);
@@ -50,6 +65,7 @@ void *memmove(void *str1, const void *str2, size_t n)
     } else {
         while (src != end) *dest++ = *src++;
     }
+#endif
     return str1;
 }
 

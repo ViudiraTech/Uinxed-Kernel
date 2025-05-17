@@ -118,7 +118,7 @@ void video_scroll(void)
     if ((uint32_t)cy >= c_height) {
         dest  = (uint8_t *)buffer;
         src   = (const uint8_t *)(buffer + stride * 16);
-        count = (width * (height - 16) * sizeof(uint32_t)) / 8;
+        count = (stride * (height - 16) * sizeof(uint32_t)) / 8;
         __asm__ volatile("rep movsq" : "+D"(dest), "+S"(src), "+c"(count)::"memory");
 
         // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
