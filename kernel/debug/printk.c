@@ -51,9 +51,7 @@ void printk_unsafe(const char *format, ...)
 /* Kernel print log */
 void plogk(const char *format, ...)
 {
-    printk("[");
-    printk("%5d.%06d", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
-    printk("] ");
+    printk("[%5d.%06d]", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
 
     static char buff[BUF_SIZE];
     va_list args;

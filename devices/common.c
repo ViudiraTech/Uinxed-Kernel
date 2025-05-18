@@ -10,8 +10,11 @@
  */
 
 #include "common.h"
+#include "acpi.h"
+#include "printk.h"
 #include "stddef.h"
 #include "stdint.h"
+#include "tty.h"
 
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 
@@ -180,7 +183,10 @@ void disable_intr(void)
 /* Kernel halt */
 void krn_halt(void)
 {
+    tty_buff_flush();
     disable_intr();
+    printk("Halt at %d.%06d", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
+    tty_buff_flush();
     while (1) __asm__ volatile("hlt");
 }
 

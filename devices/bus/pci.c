@@ -9,12 +9,18 @@
  *
  */
 
-#include "pci.h"
 #include "common.h"
 #include "hhdm.h"
+#include "pci.h"
 #include "printk.h"
 #include "stddef.h"
 #include "stdint.h"
+#include "stdlib.h"
+
+pci_devices_cache pci_dev_cache = {
+    .head          = NULL,
+    .devices_count = 0,
+};
 
 struct {
         uint32_t classcode;
@@ -256,27 +262,26 @@ void pci_config(pci_device *device, uint32_t addr)
 /* Find PCI devices by vendor ID and device ID */
 int pci_found_device(uint32_t vendor_id, uint32_t device_id, pci_device *device)
 {
-    pci_device *f_device = device;
-    pci_device_reg conf_vendor;
-    pci_device_reg conf_device;
-    conf_vendor.parent = conf_device.parent = f_device;
-
-    conf_vendor.offset = PCI_CONF_VENDOR;
-    conf_device.offset = PCI_CONF_DEVICE;
-    for (f_device->bus = 0; (uint32_t)f_device->bus < 256; f_device->bus++) {
-        for (f_device->slot = 0; f_device->slot < 32; f_device->slot++) {
-            for (f_device->func = 0; f_device->func < 8; f_device->func++) {
-                pci_config(f_device, 0);
-                if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
-                    if ((read_pci(conf_vendor) & 0xffff) == vendor_id
-                        && (read_pci(conf_device) & 0xffff) == device_id) {
-                        device->bus  = f_device->bus;
-                        device->slot = f_device->slot;
-                        device->func = f_device->func;
-                        return 1;
-                    }
-                }
-            }
+    pci_device *f_device    = NULL;
+    pci_cache_device *cache = pci_found_device_cache(vendor_id, device_id);
+    if (cache != NULL) {
+        f_device = cache->device;
+        // Test existence of device
+        pci_config(f_device, 0);
+        if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
+            *device = *f_device;
+            return 1;
+        }
+    }
+    pci_flush_devices_cache(); // flush cache
+    cache = pci_found_device_cache(vendor_id, device_id);
+    if (cache != NULL) {
+        f_device = cache->device;
+        // Test existence of device
+        pci_config(f_device, 0);
+        if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
+            *device = *f_device;
+            return 1;
         }
     }
     return 0;
@@ -285,25 +290,27 @@ int pci_found_device(uint32_t vendor_id, uint32_t device_id, pci_device *device)
 /* Find PCI devices by class code */
 int pci_found_class(uint32_t class_code, pci_device *device)
 {
-    pci_device *f_device = device;
-    pci_device_reg conf_revision;
-    conf_revision.parent = f_device;
-    conf_revision.offset = PCI_CONF_REVISION;
-    for (f_device->bus = 0; f_device->bus < 256; f_device->bus++) {
-        for (f_device->slot = 0; f_device->slot < 32; f_device->slot++) {
-            for (f_device->func = 0; f_device->func < 8; f_device->func++) {
-                pci_config(f_device, 0);
-                if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
-                    uint32_t value_c          = read_pci(conf_revision);
-                    uint32_t found_class_code = value_c >> 8;
-                    if (class_code == found_class_code || class_code == (found_class_code & 0xFFFF00)) {
-                        device->bus  = f_device->bus;
-                        device->slot = f_device->slot;
-                        device->func = f_device->func;
-                        return 1;
-                    }
-                }
-            }
+    pci_device *f_device    = NULL;
+    pci_cache_device *cache = pci_found_class_cache(class_code);
+    if (cache != NULL) {
+        plogk("Found device in cache\n");
+        f_device = cache->device;
+        // Test existence of device
+        pci_config(f_device, 0);
+        if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
+            *device = *f_device;
+            return 1;
+        }
+    }
+    pci_flush_devices_cache(); // flush cache
+    cache = pci_found_class_cache(class_code);
+    if (cache != NULL) {
+        f_device = cache->device;
+        // Test existence of device
+        pci_config(f_device, 0);
+        if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
+            *device = *f_device;
+            return 1;
         }
     }
     return 0;
@@ -319,15 +326,52 @@ const char *pci_classname(uint32_t classcode)
     return "Unknown device";
 }
 
-/* PCI device initialization */
-void pci_init(void)
+/* Returns a chached PCI devices table */
+pci_devices_cache *pci_get_devices_cache(void)
 {
-    size_t PCI_NUM     = 0;
-    pci_device *device = &(pci_device) {0, 0, 0};
+    return &pci_dev_cache;
+}
+
+/* Free the PCI devices cache */
+void pci_free_devices_cache()
+{
+    pci_cache_device *cache = pci_dev_cache.head;
+    pci_cache_device *free_ptr;
+    if (cache != NULL) {
+        free_ptr = cache;
+        cache    = cache->next;
+        free(free_ptr->device);
+        free(free_ptr);
+    }
+    pci_dev_cache.head          = NULL;
+    pci_dev_cache.devices_count = 0;
+    return;
+}
+
+static void pci_add_device_cache(pci_cache_device dev_cache)
+{
+    pci_cache_device *cache = (pci_cache_device *)malloc(sizeof(pci_cache_device));
+    *cache                  = dev_cache;
+    pci_device *cpy_device  = (pci_device *)malloc(sizeof(pci_device));
+    *cpy_device             = *(cache->device);
+    cache->device           = cpy_device;
+    cache->next             = pci_dev_cache.head;
+    pci_dev_cache.head      = cache;
+    pci_dev_cache.devices_count++;
+    return;
+}
+
+/* Flush the PCI devices cache */
+void pci_flush_devices_cache()
+{
+    pci_free_devices_cache();
+    pci_device *device         = &(pci_device) {0, 0, 0};
+    pci_cache_device dev_cache = {
+        device, 0, 0, 0, 0, NULL,
+    };
     pci_device_reg conf_revision;
     pci_device_reg conf_vendor;
     pci_device_reg conf_device;
-    // Execute once because device is a pointer
     conf_revision.parent = conf_vendor.parent = conf_device.parent = device;
 
     conf_revision.offset = PCI_CONF_REVISION;
@@ -338,15 +382,56 @@ void pci_init(void)
             for (device->func = 0; device->func < 8; device->func++) {
                 pci_config(device, 0);
                 if (inl(PCI_DATA_PORT) != 0xFFFFFFFF) {
-                    uint32_t value_c   = read_pci(conf_revision);
-                    uint32_t vendor_id = (read_pci(conf_vendor) & 0xffff);
-                    uint32_t device_id = (read_pci(conf_device) & 0xffff);
-                    plogk("PCI: %03d:%02d.%01d: [0x%04x:0x%04x] %s\n", device->bus, device->slot, device->func,
-                          vendor_id, device_id, pci_classname(value_c >> 8));
-                    PCI_NUM++;
+                    uint32_t value_c     = read_pci(conf_revision);
+                    uint32_t vendor_id   = (read_pci(conf_vendor) & 0xffff);
+                    uint32_t device_id   = (read_pci(conf_device) & 0xffff);
+                    uint32_t class_code  = value_c >> 8;
+                    dev_cache.device     = device;
+                    dev_cache.class_code = class_code;
+                    dev_cache.value_c    = value_c;
+                    dev_cache.vendor_id  = vendor_id;
+                    dev_cache.device_id  = device_id;
+                    pci_add_device_cache(dev_cache);
                 }
             }
         }
     }
-    plogk("PCI: Found %d devices.\n", PCI_NUM);
+    return;
+}
+
+/* Found PCI devices cache by vender ID and device ID */
+pci_cache_device *pci_found_device_cache(uint32_t vendor_id, uint32_t device_id)
+{
+    pci_cache_device *cache = pci_dev_cache.head;
+    while (cache != NULL) {
+        if (cache->vendor_id == vendor_id && cache->device_id == device_id) return cache;
+        cache = cache->next;
+    }
+    return NULL;
+}
+
+/* Found PCI devices cache by class code */
+pci_cache_device *pci_found_class_cache(uint32_t class_code)
+{
+    pci_cache_device *cache = pci_dev_cache.head;
+    while (cache != NULL) {
+        if (cache->class_code == class_code || (cache->class_code & 0xFFFF00) == class_code) { return cache; }
+        cache = cache->next;
+    }
+    return NULL;
+}
+
+/* PCI device initialization */
+void pci_init(void)
+{
+    pci_flush_devices_cache();
+    pci_cache_device *cache = pci_dev_cache.head;
+    pci_device *device      = NULL;
+    while (cache != NULL) {
+        device = cache->device;
+        plogk("PCI: %03d:%02d.%01d: [0x%04x:0x%04x] %s\n", device->bus, device->slot, device->func, cache->vendor_id,
+              cache->device_id, pci_classname(cache->class_code));
+        cache = cache->next;
+    }
+    plogk("PCI: Found %d devices.\n", pci_dev_cache.devices_count);
 }
