@@ -12,6 +12,7 @@
 #ifndef INCLUDE_PCI_H_
 #define INCLUDE_PCI_H_
 
+#include "stddef.h"
 #include "stdint.h"
 
 #define PCI_CONF_VENDOR   0X0 // Vendor ID
@@ -43,6 +44,20 @@ typedef struct pci_device_reg {
         pci_device *parent;
         uint32_t offset;
 } pci_device_reg;
+
+typedef struct pci_device_cache {
+        pci_device *device;
+        uint32_t value_c;
+        uint32_t vendor_id;
+        uint32_t device_id;
+        uint32_t class_code;
+        struct pci_device_cache *next;
+} pci_cache_device;
+
+typedef struct pci_devices_cache {
+        pci_cache_device *head;
+        size_t devices_count;
+} pci_devices_cache;
 
 /* Reading values ​​from PCI device registers */
 uint32_t read_pci(pci_device_reg reg);
@@ -79,6 +94,21 @@ int pci_found_class(uint32_t class_code, pci_device *device);
 
 /* Returns the device name based on the class code */
 const char *pci_classname(uint32_t classcode);
+
+/* Returns a chached PCI devices table */
+pci_devices_cache *pci_get_devices_cache(void);
+
+/* Free the PCI devices cache */
+void free_devices_cache(void);
+
+/* Flush the PCI devices cache */
+void pci_flush_devices_cache(void);
+
+/* Found PCI devices cache by vender ID and device ID */
+pci_cache_device *pci_found_device_cache(uint32_t vendor_id, uint32_t device_id);
+
+/* Found PCI devices cache by class code */
+pci_cache_device *pci_found_class_cache(uint32_t class_code);
 
 /* PCI device initialization */
 void pci_init(void);
