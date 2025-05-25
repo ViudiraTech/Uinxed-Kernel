@@ -256,8 +256,6 @@ pci_device_ecam mcfg_update_ecam(mcfg_entry *entry, pci_device_cache *cache)
     type                     = pci_mcfg_read(cpy_reg) & PCI_HEADER_TYPE_MASK;
     switch (type) {
         case HEADER_TYPE_GENERAL :
-            other_reg_count = 12;
-            break;
         case HEADER_TYPE_BRIDGE :
             other_reg_count = 12;
             break;
@@ -535,11 +533,11 @@ void pci_free_devices_cache()
 {
     pci_device_cache *cache = pci_cache.head;
     pci_device_cache *free_ptr;
-    if (cache != NULL) {
+    while (cache != NULL) {
         free_ptr = cache;
         cache    = cache->next;
         free(free_ptr->device);
-        free(free_ptr->ecam.others);
+        free((void *)free_ptr->ecam.others);
         free(free_ptr);
     }
     pci_cache.head          = NULL;
@@ -612,7 +610,7 @@ static void slot_process_mcfg(pci_device_cache *cache)
     device->func = 0;
     // Check device existance
     if (!pci_cache_process(cache)) {
-        free(ecam.others);
+        free((void *)ecam.others);
         return; // Device not exist
     }
     // Check if device is a multifunction device
