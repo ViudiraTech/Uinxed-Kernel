@@ -194,13 +194,23 @@ static uint8_t ide_print_error(uint32_t drive, uint8_t err) // NOLINT(bugprone-e
 /* Initialize IDE */
 void init_ide(void)
 {
-    pci_device *device = &(pci_device) {0, 0, 0};
+    pci_device_cache *device = NULL;
+    uint32_t bars[5];
+    pci_device_reg bar_reg = {
+        .parent = device,
+        .offset = 0,
+    };
 
     /* Detect if the computer has an IDE controller */
-    if (pci_found_class(0x010100, device)) {
+    if (pci_found_class(0x010100, &device)) {
+        bar_reg.parent = device;
         register_interrupt_handler(IRQ_46, ide_irq, 0, 0x8e);
         register_interrupt_handler(IRQ_47, ide_irq, 0, 0x8e);
-        ide_initialize(0x1f0, 0x3f6, 0x170, 0x376, 0x000);
+        for (uint32_t idx = 0; idx < 5; idx++) {
+            bar_reg.offset = ECAM_OTHERS + idx * 4;
+            bars[idx]      = read_pci(bar_reg);
+        }
+        ide_initialize(bars[0], bars[1], bars[2], bars[3], bars[4]);
         return;
     }
     plogk("IDE: Controller could not be found.\n");
