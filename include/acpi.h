@@ -12,6 +12,7 @@
 #ifndef INCLUDE_ACPI_H_
 #define INCLUDE_ACPI_H_
 
+#include "stddef.h"
 #include "stdint.h"
 
 struct ACPISDTHeader {
@@ -148,6 +149,26 @@ typedef struct facp_table {
 typedef struct hpet Hpet;
 typedef struct facp_table acpi_facp_t;
 
+typedef struct mcfg_entry {
+        uint64_t base_addr;
+        uint16_t segment;
+        uint8_t start_bus;
+        uint8_t end_bus;
+        uint32_t reserved;
+} __attribute__((packed)) mcfg_entry;
+
+typedef struct MCFG {
+        struct ACPISDTHeader h;
+        char reserved[8];
+        mcfg_entry entries[]; // Length is dynamic
+} __attribute__((packed)) MCFG;
+
+typedef struct MCFGInfo {
+        MCFG *mcfg;
+        size_t count;
+        int enabled;
+} MCFGInfo;
+
 /* Find the corresponding ACPI table in XSDT */
 void *find_table(const char *name);
 
@@ -162,6 +183,9 @@ void hpet_init(Hpet *hpet);
 
 /* Initialize facp */
 void facp_init(acpi_facp_t *facp0);
+
+/* Get MCFG information */
+MCFGInfo *get_mcfg(void);
 
 /* Cycle the power */
 void power_reset(void);

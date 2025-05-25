@@ -13,6 +13,7 @@
 #include "apic.h"
 #include "hhdm.h"
 #include "limine.h"
+#include "pci.h"
 #include "printk.h"
 #include "stdint.h"
 #include "string.h"
@@ -89,7 +90,8 @@ void acpi_init(void)
     if (mcfg == 0) {
         plogk("ACPI: MCFG table not found.\n");
         return;
-    }
+    } else
+        mcfg_init(mcfg);
 
     void *bgrt = find_table("BGRT");
     if (bgrt == 0) {
