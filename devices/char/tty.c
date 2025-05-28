@@ -34,7 +34,7 @@ static int arg_parse(char *arg_str, char **argv, char delim)
         argv[argc++] = arg_str;
 
         while (*arg_str && *arg_str != delim) arg_str++;
-        if (*arg_str) *arg_str++ = '\0';
+        if (*arg_str) *arg_str++ = '\0'; // Replace delimiter with '\0' (It seems hard to undertand)
     }
     return argc;
 }
@@ -45,14 +45,15 @@ char *get_boot_tty(void)
     if (boot_tty) return boot_tty;
 
     const char *cmdline = get_cmdline();
-    if (!cmdline) return DEFAULT_TTY;
+    if (!cmdline) { return DEFAULT_TTY; }
 
     char bootarg[MAX_CMDLINE];
-    strncpy(bootarg, cmdline, MAX_CMDLINE - 1);
+    memset(bootarg, 0, MAX_CMDLINE); // This is important
+    strncpy(bootarg, cmdline, MAX_CMDLINE);
     bootarg[MAX_CMDLINE - 1] = '\0';
 
     char **argv = (char **)malloc(MAX_ARGC * sizeof(char *));
-    if (!argv) return DEFAULT_TTY;
+    if (!argv) { return DEFAULT_TTY; }
 
     int argc = arg_parse(bootarg, argv, ' ');
     for (int i = 0; i < argc; ++i) {
@@ -60,7 +61,7 @@ char *get_boot_tty(void)
             const char *tty_str = argv[i] + 8;
 
             if (strlen(tty_str) < sizeof(boot_tty_buf)) {
-                strncpy(boot_tty_buf, tty_str, sizeof(boot_tty_buf) - 1);
+                strncpy(boot_tty_buf, tty_str, sizeof(boot_tty_buf));
                 boot_tty_buf[sizeof(boot_tty_buf) - 1] = '\0';
                 boot_tty                               = boot_tty_buf;
                 break;
