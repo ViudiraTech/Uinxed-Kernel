@@ -464,7 +464,7 @@ FmtArg *read_fmtarg(const char **format, va_list args)
             case 'i' :
             case 'u' :
             case 'b' :
-                number(buf_ptr, (int)num, base, field_width, precision, flags);
+                number(buf_ptr, num, base, field_width, precision, flags);
                 break;
             case '%' :
                 *buf_ptr = '%';
