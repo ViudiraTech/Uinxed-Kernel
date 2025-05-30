@@ -17,6 +17,7 @@
 #include "idt.h"
 #include "stdlib.h"
 #include "string.h"
+#include <stdlib.h>
 
 page_directory_t kernel_page_dir;
 page_directory_t *current_directory = 0;
@@ -170,7 +171,10 @@ page_directory_t *clone_directory(page_directory_t *src)
 {
     page_directory_t *new_directory = malloc(sizeof(page_directory_t));
     uint64_t frame                  = alloc_frames(1);
-    if (frame == 0) { return NULL; }
+    if (frame == 0) {
+        free(new_directory);
+        return NULL;
+    }
     new_directory->table = (page_table_t *)phys_to_virt(frame);
     memset(new_directory->table, 0, sizeof(page_table_t));
     copy_page_table_iterative(src->table, new_directory->table, 3);
