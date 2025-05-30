@@ -95,7 +95,7 @@ void mcfg_init(void *mcfg);
 mcfg_entry *mcfg_search_entry(uint16_t bus);
 
 /* Get ECAM address of register */
-uintptr_t mcfg_ecam_addr(mcfg_entry *entry, pci_device_reg reg);
+void *mcfg_ecam_addr(mcfg_entry *entry, pci_device_reg reg);
 
 /* Update ECAM addresses to cache */
 pci_device_ecam mcfg_update_ecam(mcfg_entry *entry, pci_device_cache *cache);

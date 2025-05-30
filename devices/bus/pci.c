@@ -186,10 +186,14 @@ void mcfg_init(void *mcfg)
         struct MCFG *inner = (struct MCFG *)mcfg;
         mcfg_info.count    = (inner->h.Length - sizeof(struct ACPISDTHeader) - 8) / sizeof(struct mcfg_entry);
         plogk("PCI: MCFG found with %d entries\n", mcfg_info.count);
-        plogk("PCI: MCFG base address: %p\n", inner->entries[0].base_addr);
-        plogk("PCI: MCFG segment: %d\n", inner->entries[0].segment);
-        plogk("PCI: MCFG start bus: %d\n", inner->entries[0].start_bus);
-        plogk("PCI: MCFG end bus: %d\n", inner->entries[0].end_bus);
+        for (size_t i = 0; i < mcfg_info.count; i++) {
+            /* Convert to the virtual address */
+            inner->entries[i].base_addr = (uint64_t)phys_to_virt(inner->entries[i].base_addr);
+            plogk("PCI: mcfg->entries[%d] base address: %p\n", i, inner->entries[i].base_addr);
+            plogk("PCI: mcfg->entries[%d] segment: %d\n", i, inner->entries[i].segment);
+            plogk("PCI: mcfg->entries[%d] start bus: %d\n", i, inner->entries[i].start_bus);
+            plogk("PCI: mcfg->entries[%d] end bus: %d\n", i, inner->entries[i].end_bus);
+        }
         mcfg_info.mcfg    = inner;
         mcfg_info.enabled = 1;
         // Set PCI operations
@@ -214,7 +218,7 @@ mcfg_entry *mcfg_search_entry(uint16_t bus)
 }
 
 /* Get ECAM address of register */
-uintptr_t mcfg_ecam_addr(mcfg_entry *entry, pci_device_reg reg)
+void *mcfg_ecam_addr(mcfg_entry *entry, pci_device_reg reg)
 {
     uintptr_t addr;
     pci_device *device = reg.parent->device;
@@ -232,7 +236,9 @@ uintptr_t mcfg_ecam_addr(mcfg_entry *entry, pci_device_reg reg)
     addr |= func << 12;
     // Register
     addr |= (reg.offset & 0xFFC);
-    return addr;
+    PointerCast cast;
+    cast.val = addr;
+    return cast.ptr;
 }
 
 /* Update ECAM addresses to cache */
@@ -242,13 +248,13 @@ pci_device_ecam mcfg_update_ecam(mcfg_entry *entry, pci_device_cache *cache)
     pci_device_reg cpy_reg = {.parent = cache};
     enum header_type type;
     cpy_reg.offset  = ECAM_AREA_ID;
-    ecam.id_ecam    = phys_to_virt(mcfg_ecam_addr(entry, cpy_reg));
+    ecam.id_ecam    = mcfg_ecam_addr(entry, cpy_reg);
     cpy_reg.offset  = ECAM_AREA_OPS;
-    ecam.ops_ecam   = phys_to_virt(mcfg_ecam_addr(entry, cpy_reg));
+    ecam.ops_ecam   = mcfg_ecam_addr(entry, cpy_reg);
     cpy_reg.offset  = ECAM_AREA_FIELD;
-    ecam.field_ecam = phys_to_virt(mcfg_ecam_addr(entry, cpy_reg));
+    ecam.field_ecam = mcfg_ecam_addr(entry, cpy_reg);
     cpy_reg.offset  = ECAM_AREA_OPS2;
-    ecam.ops2_ecam  = phys_to_virt(mcfg_ecam_addr(entry, cpy_reg));
+    ecam.ops2_ecam  = mcfg_ecam_addr(entry, cpy_reg);
     cache->ecam     = ecam;
     // Others
     uint32_t other_reg_count = 0;
@@ -266,7 +272,7 @@ pci_device_ecam mcfg_update_ecam(mcfg_entry *entry, pci_device_cache *cache)
     ecam.others = (volatile void **)malloc(other_reg_count * sizeof(volatile void *));
     for (uint32_t reg_idx = 0; reg_idx < other_reg_count; reg_idx++) {
         cpy_reg.offset       = reg_idx * 4 + ECAM_OTHERS;
-        ecam.others[reg_idx] = phys_to_virt(mcfg_ecam_addr(entry, cpy_reg));
+        ecam.others[reg_idx] = mcfg_ecam_addr(entry, cpy_reg);
     }
 
     cache->ecam = ecam;
