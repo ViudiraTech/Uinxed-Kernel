@@ -41,7 +41,7 @@ void facp_init(acpi_facp_t *facp0)
         return;
     } else {
         dsdtTable = phys_to_virt((uint64_t)dsdtTable);
-        plogk("ACPI: DSDT 0x%016x\n", dsdtTable);
+        plogk("ACPI: DSDT %p\n", dsdtTable);
     }
     if (!memcmp(dsdtTable->signature, "DSDT", 4)) {
         S5Addr  = &(dsdtTable->definition_block);
@@ -63,7 +63,7 @@ void facp_init(acpi_facp_t *facp0)
                 if (*S5Addr == 0x0A) S5Addr++;
                 SLP_TYPb = *(S5Addr) << 10;
                 S5Addr++;
-                plogk("ACPI: SLP_TYPa = 0x%04x, SLP_TYPb = 0x%04x\n", SLP_TYPa, SLP_TYPb);
+                plogk("ACPI: SLP_TYPa = 0x%04hx, SLP_TYPb = 0x%04hx\n", SLP_TYPa, SLP_TYPb);
             }
         } else if (dsdtlen) {
             plogk("ACPI: Invalid _S5_ prefix\n");

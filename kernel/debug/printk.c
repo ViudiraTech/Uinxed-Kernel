@@ -48,6 +48,18 @@ void printk_unsafe(const char *format, ...)
     va_end(args);
 }
 
+/* Kernel print log with overflow check */
+void plogk_unsafe(const char *format, ...)
+{
+    printk_unsafe("[%5d.%06d]", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
+    static char buff[2048];
+    va_list args;
+    va_start(args, format);
+    vsprintf(buff, format, args); // NOLINT
+    tty_print_str(buff);
+    va_end(args);
+}
+
 /* Kernel print log */
 void plogk(const char *format, ...)
 {
@@ -82,6 +94,8 @@ int sprintf(char *str, const char *fmt, ...)
 int vsprintf(char *buff, const char *format, va_list args)
 {
     int64_t len, precision, field_width;
+    int64_t size_cnt = 2; // hh = 0, h = 1, (nothing) = 2, l = 3, ll = 4, z = 5
+    size_t num       = 0;
     int i, flags;
     char *str, *s;
 
@@ -90,7 +104,10 @@ int vsprintf(char *buff, const char *format, va_list args)
             *str++ = *format;
             continue;
         }
-        flags = 0;
+        flags       = 0;
+        num         = 0;
+        precision   = -1;
+        field_width = -1;
 repeat:
         ++format;
         switch (*format) {
@@ -112,7 +129,6 @@ repeat:
             default :
                 break;
         }
-        field_width = -1;
         if (is_digit(*format)) {
             field_width = skip_atoi(&format);
         } else if (*format == '*') {
@@ -122,7 +138,6 @@ repeat:
                 flags |= LEFT;
             }
         }
-        precision = -1;
         if (*format == '.') {
             ++format;
             if (is_digit(*format)) {
@@ -132,13 +147,93 @@ repeat:
             }
             if (precision < 0) precision = 0;
         }
-        if (*format == 'h' || *format == 'l' || *format == 'L') ++format;
+        // Size modifier
+        switch (*format) {
+            case 'h' :
+                size_cnt--;
+                if (size_cnt < 0) { size_cnt = 0; }
+                goto repeat;
+            case 'L' :      // += 2
+                size_cnt++; // fallthrough
+            case 'l' :
+                size_cnt++;
+                if (size_cnt > 4) { size_cnt = 4; }
+                goto repeat;
+            case 'z' :
+                size_cnt = 5;
+                goto repeat;
+            default :
+                break;
+        }
+
+        // Match the size modifier to a correct type
+        /* Pre-processing (inc: data) */
+        switch (*format) {
+            case 'c' :
+                num = va_arg(args, int);
+                break;
+            case 'd' :
+            case 'i' :
+                switch (size_cnt) {
+                    case 0 :
+                        num = (size_t)(char)va_arg(args, int);
+                        break;
+                    case 1 :
+                        num = (size_t)(short)va_arg(args, int);
+                        break;
+                    case 2 :
+                        num = (size_t)(int)va_arg(args, int);
+                        break;
+                    case 3 :
+                        num = (size_t)(long)va_arg(args, long);
+                        break;
+                    case 4 :
+                        num = (size_t)(long long)va_arg(args, long long);
+                        break;
+                    default : // Invalid but still parse, or size_cnt = 5
+                        num = va_arg(args, size_t);
+                        break;
+                }
+                break;
+            case 'o' :
+            case 'x' :
+            case 'X' :
+            case 'b' :
+            case 'u' :
+                switch (size_cnt) {
+                    case 0 :
+                        num = (size_t)(unsigned char)va_arg(args, unsigned int);
+                        break;
+                    case 1 :
+                        num = (size_t)(unsigned short)va_arg(args, unsigned int);
+                        break;
+                    case 2 :
+                        num = (size_t)(unsigned int)va_arg(args, unsigned int);
+                        break;
+                    case 3 :
+                        num = (size_t)(unsigned long)va_arg(args, unsigned long);
+                        break;
+                    case 4 :
+                        num = (size_t)(unsigned long long)va_arg(args, unsigned long long);
+                        break;
+                    default : // Invalid but still parse, or size_cnt = 5
+                        num = va_arg(args, size_t);
+                        break;
+                }
+                break;
+            case 'p' :
+                num = (size_t)va_arg(args, void *);
+                break;
+            default :
+                break;
+        }
+
         switch (*format) {
             case 'c' :
                 if (!(flags & LEFT)) {
                     while (--field_width > 0) *str++ = ' ';
                 }
-                *str++ = (char)va_arg(args, int);
+                *str++ = (char)num;
                 while (--field_width > 0) *str++ = ' ';
                 break;
             case 's' :
@@ -151,28 +246,28 @@ repeat:
                 while (len < field_width--) *str++ = ' ';
                 break;
             case 'o' :
-                str = number(str, va_arg(args, size_t), 8, field_width, precision, flags);
+                str = number(str, num, 8, field_width, precision, flags);
                 break;
             case 'p' :
                 if (field_width == -1) {
                     field_width = 16;
                     flags |= ZEROPAD;
                 }
-                str = number(str, (size_t)va_arg(args, void *), 16, field_width, precision, flags);
+                str = number(str, num, 16, field_width, precision, flags);
                 break;
             case 'x' :
                 flags |= SMALL; // fallthrough
             case 'X' :
-                str = number(str, va_arg(args, size_t), 16, field_width, precision, flags);
+                str = number(str, num, 16, field_width, precision, flags);
                 break;
             case 'd' :
             case 'i' :
                 flags |= SIGN; // fallthrough
             case 'u' :
-                str = number(str, va_arg(args, size_t), 10, field_width, precision, flags);
+                str = number(str, num, 10, field_width, precision, flags);
                 break;
             case 'b' :
-                str = number(str, va_arg(args, size_t), 2, field_width, precision, flags);
+                str = number(str, num, 2, field_width, precision, flags);
                 break;
             case 'n' :
                 va_arg(args, int *);

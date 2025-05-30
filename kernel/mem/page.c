@@ -37,15 +37,15 @@ __attribute__((interrupt)) void page_fault_handle(interrupt_frame_t *frame, uint
     uint64_t id       = error_code & 0x10;   // Caused by instruction fetch
 
     if (present)
-        panic("PAGE_FAULT-Present-Address: 0x%016x", faulting_address);
+        panic("PAGE_FAULT-Present-Address: 0x%016llx", faulting_address);
     else if (rw)
-        panic("PAGE_FAULT-ReadOnly-Address: 0x%016x", faulting_address);
+        panic("PAGE_FAULT-ReadOnly-Address: 0x%016llx", faulting_address);
     else if (us)
-        panic("PAGE_FAULT-UserMode-Address: 0x%016x", faulting_address);
+        panic("PAGE_FAULT-UserMode-Address: 0x%016llx", faulting_address);
     else if (reserved)
-        panic("PAGE_FAULT-Reserved-Address: 0x%016x", faulting_address);
+        panic("PAGE_FAULT-Reserved-Address: 0x%016llx", faulting_address);
     else if (id)
-        panic("PAGE_FAULT-DecodeAddress-Address: 0x%016x", faulting_address);
+        panic("PAGE_FAULT-DecodeAddress-Address: 0x%016llx", faulting_address);
 }
 
 /* Determine whether the page table entry maps a huge page */
@@ -169,7 +169,9 @@ void free_page_table_iterative(page_table_t *table, int level)
 page_directory_t *clone_directory(page_directory_t *src)
 {
     page_directory_t *new_directory = malloc(sizeof(page_directory_t));
-    new_directory->table            = malloc(sizeof(page_table_t));
+    uint64_t frame                  = alloc_frames(1);
+    if (frame == 0) { return NULL; }
+    new_directory->table = (page_table_t *)phys_to_virt(frame);
     memset(new_directory->table, 0, sizeof(page_table_t));
     copy_page_table_iterative(src->table, new_directory->table, 3);
     return new_directory;
@@ -178,7 +180,7 @@ page_directory_t *clone_directory(page_directory_t *src)
 /* Free a page directory */
 void free_directory(page_directory_t *dir)
 {
-    free_page_table_iterative(dir->table, 4);
+    free_page_table_iterative(dir->table, 3);
     free_frame((uint64_t)virt_to_phys((uint64_t)dir->table));
     free(dir);
 }
@@ -219,13 +221,18 @@ void page_map_range_to(page_directory_t *directory, uint64_t frame, uint64_t len
 /* Mapping random portions of non-contiguous physical memory into the virtual address space */
 void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags) // NOLINT
 {
-    for (uint64_t i = 0; i < length; i += 0x1000) { page_map_to(directory, addr + i, alloc_frames(1), flags); }
+    uint64_t frame = 0;
+    for (uint64_t i = 0; i < length; i += 0x1000) {
+        frame = alloc_frames(1);
+        if (frame != 0) { page_map_to(directory, addr + i, frame, flags); }
+    }
 }
 
 /* Initialize memory page table */
 void page_init(void)
 {
-    page_table_t *kernel_page_table = (page_table_t *)phys_to_virt(get_cr3());
+    uint64_t cr3_addr               = get_cr3();
+    page_table_t *kernel_page_table = phys_to_virt(cr3_addr);
     kernel_page_dir                 = (page_directory_t) {.table = kernel_page_table};
     current_directory               = &kernel_page_dir;
 }

@@ -34,13 +34,13 @@
 void kernel_entry(void)
 {
     init_hhdm();  // Initialize the upper half memory mapping
+    video_init(); // Initialize Video
     page_init();  // Initialize memory page
     init_heap();  // Initialize the memory heap
-    video_init(); // Initialize Video
 
     plogk("Uinxed version %s (%s version %s) #1 SMP %s %s\n", KERNL_VERS, COMPILER_NAME, COMPILER_VERSION, BUILD_DATE,
           BUILD_TIME);
-    plogk("Framebuffer 0x%016x, resolution = %dx%d\n", get_framebuffer()->address, get_framebuffer()->width,
+    plogk("Framebuffer %p, resolution = %dx%d\n", get_framebuffer()->address, get_framebuffer()->width,
           get_framebuffer()->height);
     plogk("Command line: %s\n", get_cmdline());
     plogk("SMBIOS %d.%d.0 present.\n", smbios_major_version(), smbios_minor_version());
@@ -58,6 +58,7 @@ void kernel_entry(void)
     init_ide();           // Initialize ATA/ATAPI driver
     init_serial();        // Initialize the serial port
     enable_intr();
+    plogk("Heap Range: 0x%016llx - 0x%016llx\n", heap_start, heap_start + heap_size);
 
     panic("No operation.");
 }

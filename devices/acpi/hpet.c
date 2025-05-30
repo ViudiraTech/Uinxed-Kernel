@@ -32,7 +32,7 @@ uint64_t nano_time(void)
 void hpet_init(Hpet *hpet)
 {
     hpet_addr = phys_to_virt(hpet->base_address.address);
-    plogk("ACPI: HPET Base address mapped to virtual address 0x%016x\n", hpet_addr);
+    plogk("ACPI: HPET Base address mapped to virtual address %p\n", hpet_addr);
 
     uint32_t counterClockPeriod = hpet_addr->generalCapabilities >> 32;
     hpetPeriod                  = counterClockPeriod / 1000000;
@@ -44,5 +44,5 @@ void hpet_init(Hpet *hpet)
 
     hpet_addr->generalConfiguration |= 1;
     register_interrupt_handler(IRQ_32, timer_handle, 0, 0x8e);
-    plogk("ACPI: HPET General Configuration Register set to 0x%08x\n", hpet_addr->generalConfiguration);
+    plogk("ACPI: HPET General Configuration Register set to 0x%08llx\n", hpet_addr->generalConfiguration);
 }

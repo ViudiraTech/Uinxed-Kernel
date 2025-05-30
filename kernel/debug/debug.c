@@ -29,20 +29,20 @@ void dump_stack(void)
     __asm__ volatile("movq %%rbp, %0" : "=r"(rbp));
     __asm__ volatile("leaq (%%rip), %0" : "=r"(rip));
 
-    plogk("Call Trace:\n");
-    plogk(" <TASK>\n");
+    plogk_unsafe("Call Trace:\n");
+    plogk_unsafe(" <TASK>\n");
 
     for (int i = 0; i < 16 && rip && (uintptr_t)rbp > 0x1000; ++i) {
         sym_info_t sym_info = get_symbol_info(kernel_file_request.response->kernel_file->address, rip);
         if (!sym_info.name) {
-            plogk("  [<0x%016zx>] %s\n", rip, "unknown");
+            plogk_unsafe("  [<0x%016zx>] %s\n", rip, "unknown");
         } else {
-            plogk("  [<0x%016zx>] `%s`+0x%lx\n", rip, sym_info.name, rip - sym_info.addr);
+            plogk_unsafe("  [<0x%016zx>] `%s`+0x%lx\n", rip, sym_info.name, rip - sym_info.addr);
         }
         rip = *(uintptr_t *)(rbp + 1);
         rbp = rbp->next;
     }
-    plogk(" </TASK>\n");
+    plogk_unsafe(" </TASK>\n");
 }
 
 /* Kernel panic */

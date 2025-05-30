@@ -166,7 +166,7 @@ void send_ipi(uint32_t apic_id, uint32_t command)
 void apic_init(MADT *madt)
 {
     lapic_ptr.ptr = phys_to_virt(madt->local_apic_address);
-    plogk("ACPI: LAPIC Base address 0x%016x\n", lapic_ptr.val);
+    plogk("ACPI: LAPIC Base address %p\n", lapic_ptr.ptr);
 
     uint8_t *entries_base = (uint8_t *)&madt->entries;
     size_t current        = 0;
@@ -176,7 +176,7 @@ void apic_init(MADT *madt)
         if (header->entry_type == MADT_APIC_IO) {
             MadtIOApic *ioapic = (MadtIOApic *)(entries_base + current);
             ioapic_ptr.ptr     = phys_to_virt(ioapic->address);
-            plogk("ACPI: IOAPIC Found at address 0x%016x\n", ioapic_ptr.val);
+            plogk("ACPI: IOAPIC Found at address %p\n", ioapic_ptr.ptr);
         }
         current += header->length;
     }
