@@ -10,7 +10,9 @@
  */
 
 #include "hhdm.h"
+#include "debug.h"
 #include "limine.h"
+#include "printk.h"
 
 __attribute__((used, section(".limine_requests"))) volatile struct limine_hhdm_request hhdm_request = {
     .id       = LIMINE_HHDM_REQUEST,
@@ -35,7 +37,12 @@ uint64_t get_physical_memory_offset(void)
 void *phys_to_virt(uint64_t phys_addr)
 {
     PointerCast virt_addr;
-    virt_addr.val = phys_addr + physical_memory_offset;
+    if (phys_addr & physical_memory_offset) {
+        printk_unsafe("Unsafe! 0x%016llx in PhysToVirt\n", phys_addr);
+        dump_stack();
+    }
+    // Avoid overflow
+    virt_addr.val = phys_addr | physical_memory_offset;
     return virt_addr.ptr;
 }
 
@@ -43,6 +50,11 @@ void *phys_to_virt(uint64_t phys_addr)
 void *virt_to_phys(uint64_t virt_addr)
 {
     PointerCast phys_addr;
-    phys_addr.val = virt_addr - physical_memory_offset;
+    if (!(virt_addr & physical_memory_offset)) {
+        printk_unsafe("Unsafe! 0x%016llx in VirtToPhys\n", virt_addr);
+        dump_stack();
+    }
+    // Avoid overflow
+    phys_addr.val = virt_addr & (~physical_memory_offset);
     return phys_addr.ptr;
 }

@@ -37,6 +37,9 @@ void printk(const char *format, ...);
 /* Kernel print string (it means don't check the buffer overflow) */
 void printk_unsafe(const char *format, ...);
 
+/* Kernel print log (it means don't check the buffer overflow) */
+void plogk_unsafe(const char *format, ...);
+
 /* Kernel print log */
 void plogk(const char *format, ...);
 

@@ -602,8 +602,9 @@ static void slot_process_legacy(pci_device_cache *cache)
 /* Process slots of PCI devices in MCFG mode */
 static void slot_process_mcfg(pci_device_cache *cache)
 {
-    pci_device *device   = cache->device;
-    mcfg_entry *entry    = mcfg_search_entry(device->bus);
+    pci_device *device = cache->device;
+    mcfg_entry *entry  = mcfg_search_entry(device->bus);
+    if (entry == NULL) { return; }
     pci_device_ecam ecam = mcfg_update_ecam(entry, cache);
     cache->ecam          = ecam;
 

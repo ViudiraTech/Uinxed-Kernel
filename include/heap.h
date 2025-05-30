@@ -15,8 +15,10 @@
 #include "stddef.h"
 #include "stdint.h"
 
-#define KERNEL_HEAP_START 0x6000000 // Kernel heap start address (without offset)
-#define KERNEL_HEAP_SIZE  0x1600000 // Kernel heap size 16MB
+extern uint64_t heap_start; // Kernel heap start address
+extern uint64_t heap_size;  // Kernel heap size
+
+#define KERNEL_HEAP_MIN_SIZE 0x1600000 // Kernel heap min size 16MB
 
 /* Initialize the memory heap */
 void init_heap(void);

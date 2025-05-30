@@ -43,7 +43,7 @@ void init_gdt(void)
                      : "memory");
 
     plogk("GDT: CS reloaded with 0x%04x, DS/ES/FS/GS/SS = 0x%04x\n", 0x8, 0x10);
-    plogk("GDT: GDT initialized at 0x%016x (6 entries)\n", &gdt_entries);
+    plogk("GDT: GDT initialized at 0x%016llx (6 entries)\n", &gdt_entries);
     tss_init();
 }
 
@@ -61,8 +61,8 @@ void tss_init(void)
     gdt_entries[6] = high_base;
     tss0.ist[0]    = ((uint64_t)&tss_stack) + sizeof(tss_stack_t);
 
-    plogk("TSS: TSS descriptor configured (addr = 0x%016x, limit = 0x%04x)\n", &tss0, sizeof(tss_t) - 1);
-    plogk("TSS: IST0 stack = 0x%016x\n", tss0.ist[0]);
+    plogk("TSS: TSS descriptor configured (addr = 0x%016llx, limit = 0x%04x)\n", &tss0, sizeof(tss_t) - 1);
+    plogk("TSS: IST0 stack = 0x%016llx\n", tss0.ist[0]);
     __asm__ volatile("ltr %w[offset]" ::[offset] "rm"((uint16_t)0x28) : "memory");
     plogk("TSS: TR register loaded with selector 0x%04x\n", 0x28);
 }

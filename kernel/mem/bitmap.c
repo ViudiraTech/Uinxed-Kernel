@@ -42,16 +42,20 @@ void bitmap_set(Bitmap *bitmap, size_t index, int value) // NOLINT
 /* Set the memory bitmap range */
 void bitmap_set_range(Bitmap *bitmap, size_t start, size_t end, int value) // NOLINT
 {
-    size_t start_word = (start + 7) / 8;
-    size_t end_word   = end / 8;
     if (start >= end || start >= bitmap->length) return;
-    for (size_t i = start; i < start_word * 8 && i < end; i++) bitmap_set(bitmap, i, value);
-    if (start_word > end_word) return;
-    if (start_word <= end_word) {
-        size_t fill_value = value ? (size_t)-1 : 0;
-        for (size_t i = start_word; i < end_word; i++) bitmap->buffer[i] = fill_value;
+    while (start < end && (start % 8 != 0)) {
+        bitmap_set(bitmap, start, value);
+        start++;
     }
-    for (size_t i = end_word * 8; i < end; i++) bitmap_set(bitmap, i, value);
+    size_t byte_start = start / 8;
+    size_t byte_end   = end / 8;
+    uint8_t fill      = value ? 0xff : 0x00;
+    for (size_t i = byte_start; i < byte_end; i++) { bitmap->buffer[i] = fill; }
+    start = byte_end * 8;
+    while (start < end) {
+        bitmap_set(bitmap, start, value);
+        start++;
+    }
 }
 
 /* Memory bitmap search range */
