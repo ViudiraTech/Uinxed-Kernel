@@ -22,7 +22,7 @@
 MCFGInfo mcfg_info;
 
 pci_devices_cache pci_cache = {
-    .head          = NULL,
+    .head          = 0,
     .devices_count = 0,
 };
 
@@ -99,7 +99,7 @@ struct {
     {0x060700, "CardBus Bridge"                             },
     {0x060800, "RACEway Bridge"                             },
     {0x060900, "PCI-to-PCI Bridge"                          },
-    {0x060A00, "InfiniBand-to-PCI Host Bridge"              },
+    {0x060a00, "InfiniBand-to-PCI Host Bridge"              },
     {0x068000, "Other Bridge"                               },
 
     {0x070000, "Serial Controller"                          },
@@ -126,46 +126,46 @@ struct {
     {0x090400, "Gameport Controller"                        },
     {0x098000, "Other Input Device Controller"              },
 
-    {0x0A0000, "Generic"                                    },
-    {0x0A8000, "Other Docking Station"                      },
+    {0x0a0000, "Generic"                                    },
+    {0x0a8000, "Other Docking Station"                      },
 
-    {0x0B0000, "386"                                        },
-    {0x0B0100, "486"                                        },
-    {0x0B0200, "Pentium"                                    },
-    {0x0B0300, "Pentium Pro"                                },
-    {0x0B1000, "Alpha"                                      },
-    {0x0B2000, "PowerPC"                                    },
-    {0x0B3000, "MIPS"                                       },
-    {0x0B4000, "Co-Processor"                               },
-    {0x0B8000, "Other Processor"                            },
+    {0x0b0000, "386"                                        },
+    {0x0b0100, "486"                                        },
+    {0x0b0200, "Pentium"                                    },
+    {0x0b0300, "Pentium Pro"                                },
+    {0x0b1000, "Alpha"                                      },
+    {0x0b2000, "PowerPC"                                    },
+    {0x0b3000, "MIPS"                                       },
+    {0x0b4000, "Co-Processor"                               },
+    {0x0b8000, "Other Processor"                            },
 
-    {0x0C0000, "FireWire (IEEE 1394) Controller"            },
-    {0x0C0100, "ACCESS Bus Controller"                      },
-    {0x0C0200, "SSA"                                        },
-    {0x0C0300, "USB Controller"                             },
-    {0x0C0400, "Fibre Channel"                              },
-    {0x0C0500, "SMBus Controller"                           },
-    {0x0C0600, "InfiniBand Controller"                      },
-    {0x0C0700, "IPMI Interface"                             },
-    {0x0C0800, "SERCOS Interface (IEC 61491)"               },
-    {0x0C0900, "CANbus Controller"                          },
-    {0x0C8000, "Other Serial Bus Controller"                },
+    {0x0c0000, "FireWire (IEEE 1394) Controller"            },
+    {0x0c0100, "ACCESS Bus Controller"                      },
+    {0x0c0200, "SSA"                                        },
+    {0x0c0300, "USB Controller"                             },
+    {0x0c0400, "Fibre Channel"                              },
+    {0x0c0500, "SMBus Controller"                           },
+    {0x0c0600, "InfiniBand Controller"                      },
+    {0x0c0700, "IPMI Interface"                             },
+    {0x0c0800, "SERCOS Interface (IEC 61491)"               },
+    {0x0c0900, "CANbus Controller"                          },
+    {0x0c8000, "Other Serial Bus Controller"                },
 
-    {0x0D0000, "iRDA Compatible Controlle"                  },
-    {0x0D0100, "Consumer IR Controller"                     },
-    {0x0D1000, "RF Controller"                              },
-    {0x0D1100, "Bluetooth Controller"                       },
-    {0x0D1200, "Broadband Controller"                       },
-    {0x0D2000, "Ethernet Controller (802.1a)"               },
-    {0x0D2100, "Ethernet Controller (802.1b)"               },
-    {0x0D8000, "Other Wireless Controller"                  },
+    {0x0d0000, "iRDA Compatible Controlle"                  },
+    {0x0d0100, "Consumer IR Controller"                     },
+    {0x0d1000, "RF Controller"                              },
+    {0x0d1100, "Bluetooth Controller"                       },
+    {0x0d1200, "Broadband Controller"                       },
+    {0x0d2000, "Ethernet Controller (802.1a)"               },
+    {0x0d2100, "Ethernet Controller (802.1b)"               },
+    {0x0d8000, "Other Wireless Controller"                  },
 
-    {0x0E0000, "I20"                                        },
+    {0x0e0000, "I20"                                        },
 
-    {0x0F0000, "Satellite TV Controller"                    },
-    {0x0F0100, "Satellite Audio Controller"                 },
-    {0x0F0300, "Satellite Voice Controller"                 },
-    {0x0F0400, "Satellite Data Controller"                  },
+    {0x0f0000, "Satellite TV Controller"                    },
+    {0x0f0100, "Satellite Audio Controller"                 },
+    {0x0f0300, "Satellite Voice Controller"                 },
+    {0x0f0400, "Satellite Data Controller"                  },
 
     {0x100000, "Network and Computing Encrpytion/Decryption"},
     {0x101000, "Entertainment Encryption/Decryption"        },
@@ -196,14 +196,15 @@ void mcfg_init(void *mcfg)
         }
         mcfg_info.mcfg    = inner;
         mcfg_info.enabled = 1;
-        // Set PCI operations
+
+        /* Set PCI operations */
         pci_ops = (struct PCIOps) {
             .read         = pci_mcfg_read,
             .write        = pci_mcfg_write,
             .slot_process = slot_process_mcfg,
         };
     } else {
-        // Never be executed
+        /* Never be executed */
     }
 };
 
@@ -212,9 +213,9 @@ mcfg_entry *mcfg_search_entry(uint16_t bus)
 {
     for (size_t i = 0; i < mcfg_info.count; i++) {
         struct mcfg_entry *entry = &mcfg_info.mcfg->entries[i];
-        if (bus >= entry->start_bus && bus <= entry->end_bus) { return entry; }
+        if (bus >= entry->start_bus && bus <= entry->end_bus) return entry;
     }
-    return NULL;
+    return 0;
 }
 
 /* Get ECAM address of register */
@@ -226,15 +227,20 @@ void *mcfg_ecam_addr(mcfg_entry *entry, pci_device_reg reg)
     uint32_t slot      = device->slot & 0x1f;
     uint32_t func      = device->func & 0x07;
     addr               = entry->base_addr;
-    // Segment
+
+    /* Segment */
     addr |= (uint64_t)entry->segment << 32;
-    // Bus
+
+    /* Bus */
     addr |= ((bus - entry->start_bus) << 20);
-    // Slot
+
+    /* Slot */
     addr |= slot << 15;
-    // Func
+
+    /* Func */
     addr |= func << 12;
-    // Register
+
+    /* Register */
     addr |= (reg.offset & 0xFFC);
     PointerCast cast;
     cast.val = addr;
@@ -256,7 +262,8 @@ pci_device_ecam mcfg_update_ecam(mcfg_entry *entry, pci_device_cache *cache)
     cpy_reg.offset  = ECAM_AREA_OPS2;
     ecam.ops2_ecam  = mcfg_ecam_addr(entry, cpy_reg);
     cache->ecam     = ecam;
-    // Others
+
+    /* Others */
     uint32_t other_reg_count = 0;
     cpy_reg.offset           = PCI_CONF_HEADER_TYPE; // Read header type
     type                     = pci_mcfg_read(cpy_reg) & PCI_HEADER_TYPE_MASK;
@@ -274,7 +281,6 @@ pci_device_ecam mcfg_update_ecam(mcfg_entry *entry, pci_device_cache *cache)
         cpy_reg.offset       = reg_idx * 4 + ECAM_OTHERS;
         ecam.others[reg_idx] = mcfg_ecam_addr(entry, cpy_reg);
     }
-
     cache->ecam = ecam;
     return ecam;
 }
@@ -299,8 +305,8 @@ static void pci_legacy_write(pci_device_reg reg, uint32_t value)
 {
     pci_device *device       = reg.parent->device;
     uint32_t register_offset = reg.offset;
-    uint32_t bus             = device->bus & 0xFF;
-    uint32_t slot            = device->slot & 0x1F;
+    uint32_t bus             = device->bus & 0xff;
+    uint32_t slot            = device->slot & 0x1f;
     uint32_t func            = device->func & 0x07;
 
     uint32_t id = 1 << 31 | (bus << 16) | (slot & 0x1f << 11) | (func << 8) | (register_offset & 0xfc);
@@ -336,14 +342,16 @@ static void pci_mcfg_write(pci_device_reg reg, uint32_t value)
     if (shift == 0) { // Aligned written
         *ptr = value;
     } else { // No aligned written
-        uint32_t mask = 0xFFFFFFFF >> (32 - shift);
+        uint32_t mask = 0xffffffff >> (32 - shift);
         *ptr          = (*ptr & ~mask) | (value << shift);
-        /* Step1. A:=(*ptr & ~mask) -> Reset the bits of target register */
-        /*        Example: 0x12345678 & ~0xFF000000 = 0x00345678 */
-        /* Step2. B:=(value << shift) -> Move value to the bits of target register */
-        /*        Example: (0xA5 & 0xFF) << 24      = 0xA5000000 */
-        /* Step3. A|B -> Merge */
-        /*        Example: 0x00345678 | 0xA5000000  = 0xA5345678 */
+
+        /* Step1. A:=(*ptr & ~mask) -> Reset the bits of target register
+         *        Example: 0x12345678 & ~0xff000000 = 0x00345678
+         * Step2. B:=(value << shift) -> Move value to the bits of target register
+         *        Example: (0xa5 & 0xff) << 24 = 0xa5000000
+         * Step3. A|B -> Merge
+         *        Example: 0x00345678 | 0xa5000000 = 0xa5345678
+         */
     }
 }
 
@@ -419,7 +427,7 @@ base_address_register get_base_address_register(pci_device_cache *device, uint32
             case 2 : // 64
                 break;
             default :
-                plogk("Unknown BAR type\n");
+                plogk("Unknown BAR type.\n");
                 break;
         }
         result.address      = (uint32_t *)phys_to_virt(bar_value & ~0x3);
@@ -468,22 +476,24 @@ void pci_config(pci_device_cache *cache, uint32_t addr)
 /* Find PCI devices in cache by vendor ID and device ID */
 int pci_found_device(uint32_t vendor_id, uint32_t device_id, pci_device_cache **device)
 {
-    pci_device_reg reg_vendor = {NULL, PCI_CONF_VENDOR};
+    pci_device_reg reg_vendor = {0, PCI_CONF_VENDOR};
     pci_device_cache *cache   = pci_found_device_cache(vendor_id, device_id);
-    if (cache != NULL) {
+    if (cache != 0) {
         reg_vendor.parent = cache;
-        // Test existence of device
-        if (read_pci(reg_vendor) != 0xFFFFFFFF) {
+
+        /* Test existence of device */
+        if (read_pci(reg_vendor) != 0xffffffff) {
             *device = cache;
             return 1;
         }
     }
     pci_flush_devices_cache(); // flush cache
     cache = pci_found_device_cache(vendor_id, device_id);
-    if (cache != NULL) {
+    if (cache != 0) {
         reg_vendor.parent = cache;
-        // Test existence of device
-        if (read_pci(reg_vendor) != 0xFFFFFFFF) {
+
+        /* Test existence of device */
+        if (read_pci(reg_vendor) != 0xffffffff) {
             *device = cache;
             return 1;
         }
@@ -494,23 +504,24 @@ int pci_found_device(uint32_t vendor_id, uint32_t device_id, pci_device_cache **
 /* Find PCI devices in cache by class code */
 int pci_found_class(uint32_t class_code, pci_device_cache **device)
 {
-    pci_device_reg reg_vendor = {NULL, PCI_CONF_VENDOR};
+    pci_device_reg reg_vendor = {0, PCI_CONF_VENDOR};
     pci_device_cache *cache   = pci_found_class_cache(class_code);
-    if (cache != NULL) {
+    if (cache != 0) {
         reg_vendor.parent = cache;
-        // Test existence of device
-        if (read_pci(reg_vendor) != 0xFFFFFFFF) {
-            plogk("Founded\n");
+
+        /* Test existence of device */
+        if (read_pci(reg_vendor) != 0xffffffff) {
             *device = cache;
             return 1;
         }
     }
     pci_flush_devices_cache(); // flush cache
     cache = pci_found_class_cache(class_code);
-    if (cache != NULL) {
+    if (cache != 0) {
         reg_vendor.parent = cache;
-        // Test existence of device
-        if (read_pci(reg_vendor) != 0xFFFFFFFF) {
+
+        /* Test existence of device */
+        if (read_pci(reg_vendor) != 0xffffffff) {
             *device = cache;
             return 1;
         }
@@ -523,7 +534,7 @@ const char *pci_classname(uint32_t classcode)
 {
     for (size_t i = 0; pci_classnames[i].name != 0; i++) {
         if (pci_classnames[i].classcode == classcode) return pci_classnames[i].name;
-        if (pci_classnames[i].classcode == (classcode & 0xFFFF00)) return pci_classnames[i].name;
+        if (pci_classnames[i].classcode == (classcode & 0xffff00)) return pci_classnames[i].name;
     }
     return "Unknown device";
 }
@@ -539,14 +550,14 @@ void pci_free_devices_cache()
 {
     pci_device_cache *cache = pci_cache.head;
     pci_device_cache *free_ptr;
-    while (cache != NULL) {
+    while (cache != 0) {
         free_ptr = cache;
         cache    = cache->next;
         free(free_ptr->device);
         free((void *)free_ptr->ecam.others);
         free(free_ptr);
     }
-    pci_cache.head          = NULL;
+    pci_cache.head          = 0;
     pci_cache.devices_count = 0;
     return;
 }
@@ -573,17 +584,19 @@ static int pci_cache_process(pci_device_cache *cache)
     pci_device_reg reg_value_c   = {cache, PCI_CONF_REVISION};
     pci_device_reg reg_header    = {cache, PCI_CONF_HEADER_TYPE};
 
-    // Check device existance
+    /* Check device existance */
     cache->vendor_id = read_pci(reg_vendor_id);
-    // Device not exist, return 0
-    if (cache->vendor_id == 0xffffffff) { return 0; }
+
+    /* Device not exist, return 0 */
+    if (cache->vendor_id == 0xffffffff) return 0;
     cache->vendor_id &= 0xffff;
     cache->device_id   = read_pci(reg_device_id) & 0xffff;
     cache->value_c     = read_pci(reg_value_c);
     cache->class_code  = cache->value_c >> 8;
     cache->header_type = read_pci(reg_header) & 0xff;
     pci_add_device_cache(cache);
-    // Exist and added
+
+    /* Exist and added */
     return 1;
 }
 
@@ -596,12 +609,14 @@ static void slot_process_legacy(pci_device_cache *cache)
     if (!pci_cache_process(cache)) {
         return; // Device not exist
     }
-    // Check if device is a multifunction device
+
+    /* Check if device is a multifunction device */
     if (!(cache->header_type & 0x80)) {
         return; // Not a multifunction device
     }
-    // Process func=1..7
-    for (device->func = 1; device->func < 8; device->func++) { pci_cache_process(cache); }
+
+    /* Process func=1..7 */
+    for (device->func = 1; device->func < 8; device->func++) pci_cache_process(cache);
     return;
 }
 
@@ -610,23 +625,26 @@ static void slot_process_mcfg(pci_device_cache *cache)
 {
     pci_device *device = cache->device;
     mcfg_entry *entry  = mcfg_search_entry(device->bus);
-    if (entry == NULL) { return; }
+    if (entry == 0) return;
     pci_device_ecam ecam = mcfg_update_ecam(entry, cache);
     cache->ecam          = ecam;
 
     device->func = 0;
-    // Check device existance
+
+    /* Check device existance */
     if (!pci_cache_process(cache)) {
         free((void *)ecam.others);
         return; // Device not exist
     }
-    // Check if device is a multifunction device
+
+    /* Check if device is a multifunction device */
     if (!(cache->header_type & 0x80)) {
         return; // Not a multifunction device
     }
-    // Process func=1..7
+
+    /* Process func=1..7 */
     for (device->func = 1; device->func < 8; device->func++) {
-        // Update ecam cache
+        /* Update ecam cache */
         ecam        = mcfg_update_ecam(entry, cache);
         cache->ecam = ecam;
         pci_cache_process(cache);
@@ -645,11 +663,11 @@ void pci_flush_devices_cache()
     pci_free_devices_cache();
     pci_device curr_device      = {0, 0, 0};
     pci_device_cache curr_cache = {
-        &curr_device, 0, 0, 0, 0, 0, NULL, {NULL, NULL, NULL, NULL, NULL},
+        &curr_device, 0, 0, 0, 0, 0, 0, {0, 0, 0, 0, 0},
     };
 
     for (curr_device.bus = 0; curr_device.bus < 256; curr_device.bus++) {
-        for (curr_device.slot = 0; curr_device.slot < 32; curr_device.slot++) { slot_process(&curr_cache); }
+        for (curr_device.slot = 0; curr_device.slot < 32; curr_device.slot++) slot_process(&curr_cache);
     }
     return;
 }
@@ -658,22 +676,22 @@ void pci_flush_devices_cache()
 pci_device_cache *pci_found_device_cache(uint32_t vendor_id, uint32_t device_id)
 {
     pci_device_cache *cache = pci_cache.head;
-    while (cache != NULL) {
+    while (cache != 0) {
         if (cache->vendor_id == vendor_id && cache->device_id == device_id) return cache;
         cache = cache->next;
     }
-    return NULL;
+    return 0;
 }
 
 /* Found PCI devices cache by class code */
 pci_device_cache *pci_found_class_cache(uint32_t class_code)
 {
     pci_device_cache *cache = pci_cache.head;
-    while (cache != NULL) {
-        if (cache->class_code == class_code || (cache->class_code & 0xFFFF00) == class_code) { return cache; }
+    while (cache != 0) {
+        if (cache->class_code == class_code || (cache->class_code & 0xffff00) == class_code) return cache;
         cache = cache->next;
     }
-    return NULL;
+    return 0;
 }
 
 /* PCI device initialization */
@@ -681,8 +699,8 @@ void pci_init(void)
 {
     pci_flush_devices_cache();
     pci_device_cache *cache = pci_cache.head;
-    pci_device *device      = NULL;
-    while (cache != NULL) {
+    pci_device *device      = 0;
+    while (cache != 0) {
         device = cache->device;
         plogk("PCI: %03d:%02d.%01d: [0x%04x:0x%04x] %s\n", device->bus, device->slot, device->func, cache->vendor_id,
               cache->device_id, pci_classname(cache->class_code));

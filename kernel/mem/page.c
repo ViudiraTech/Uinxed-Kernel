@@ -101,7 +101,7 @@ void copy_page_table_iterative(page_table_t *source_table, page_table_t *new_tab
     while (top >= 0) {
         struct StackFrame frame = stack[top--];
         if (frame.level == 0) {
-            for (int j = 0; j < 512; j++) { frame.new_table->entries[j].value = frame.source_table->entries[j].value; }
+            for (int j = 0; j < 512; j++) frame.new_table->entries[j].value = frame.source_table->entries[j].value;
             continue;
         }
         for (; frame.i < 512; frame.i++) {
@@ -173,7 +173,7 @@ page_directory_t *clone_directory(page_directory_t *src)
     uint64_t frame                  = alloc_frames(1);
     if (frame == 0) {
         free(new_directory);
-        return NULL;
+        return 0;
     }
     new_directory->table = (page_table_t *)phys_to_virt(frame);
     memset(new_directory->table, 0, sizeof(page_table_t));
@@ -228,7 +228,7 @@ void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64
     uint64_t frame = 0;
     for (uint64_t i = 0; i < length; i += 0x1000) {
         frame = alloc_frames(1);
-        if (frame != 0) { page_map_to(directory, addr + i, frame, flags); }
+        if (frame != 0) page_map_to(directory, addr + i, frame, flags);
     }
 }
 

@@ -31,7 +31,7 @@ void printk(const char *format, ...)
     while (1) {
         sig = vsprintf_s(sig, buff, BUF_SIZE, &format, args);
         tty_print_str(buff);
-        if (sig == NULL) break;
+        if (sig == 0) break;
     }
     va_end(args);
 }
@@ -67,13 +67,13 @@ void plogk(const char *format, ...)
 
     static char buff[BUF_SIZE];
     va_list args;
-    OverflowSignal *sig = NULL;
+    OverflowSignal *sig = 0;
 
     va_start(args, format);
     while (1) {
         sig = vsprintf_s(sig, buff, BUF_SIZE, &format, args);
         tty_print_str(buff);
-        if (sig == NULL) { break; }
+        if (sig == 0) break;
     }
     va_end(args);
 }
@@ -147,7 +147,8 @@ repeat:
             }
             if (precision < 0) precision = 0;
         }
-        // Size modifier
+
+        /* Size modifier */
         switch (*format) {
             case 'h' :
                 size_cnt--;
@@ -166,7 +167,7 @@ repeat:
                 break;
         }
 
-        // Match the size modifier to a correct type
+        /* Match the size modifier to a correct type */
         /* Pre-processing (inc: data) */
         switch (*format) {
             case 'c' :
@@ -311,17 +312,18 @@ FmtArg *read_fmtarg(const char **format, va_list args)
     char *buf_ptr       = 0;
     int flags           = 0;
     size_t field_width  = 0; // Minimum width field
-    size_t precision    = 0; // For float, precision field (or number of digits and with zero padding)
-    char *str           = 0;
-    int tmp             = 0;
-    size_t str_len      = 0;
-    size_t num          = 0;
-    size_t buf_len      = 0;
-    size_t base         = 0;
-    int64_t size_cnt    = 2; // hh = 0, h = 1, (nothing) = 2, l = 3, ll = 4, z = 5
+    size_t precision    = 0; // For float, precision field (or number of digits
+                             // and with zero padding)
+    char *str        = 0;
+    int tmp          = 0;
+    size_t str_len   = 0;
+    size_t num       = 0;
+    size_t buf_len   = 0;
+    size_t base      = 0;
+    int64_t size_cnt = 2; // hh = 0, h = 1, (nothing) = 2, l = 3, ll = 4, z = 5
     if (*fmt_ptr != '%') {
         free(arg);
-        return NULL;
+        return 0;
     }
 
     /* Get size */
@@ -620,9 +622,10 @@ OverflowSignal *vsprintf_s(OverflowSignal *signal, char *buff, intptr_t size, co
     while (*fmt_ptr != '\0') {
         if (write_ptr >= buff + size - 1) {
             *write_ptr = '\0';
-            *format    = fmt_ptr;                          // Move to overflow position
-            signal     = new_overflow(OFLOW_AT_FMTSTR, 0); // New Signal (just for run again)
-            return signal;                                 // Send Signal
+            *format    = fmt_ptr; // Move to overflow position
+            signal     = new_overflow(OFLOW_AT_FMTSTR,
+                                      0); // New Signal (just for run again)
+            return signal;                // Send Signal
         }
         if (*fmt_ptr != '%' && write_ptr < buff + size - 1) {
             *write_ptr = *fmt_ptr;
@@ -641,7 +644,8 @@ OverflowSignal *vsprintf_s(OverflowSignal *signal, char *buff, intptr_t size, co
                 fmt_arg->last_write++;
                 if (write_ptr >= buff + size - 1) {
                     *write_ptr++ = '\0';
-                    signal       = new_overflow(OFLOW_AT_FMTARG, fmt_arg); // New Signal
+                    signal       = new_overflow(OFLOW_AT_FMTARG,
+                                                fmt_arg); // New Signal
                     return signal;
                 }
             }

@@ -16,6 +16,8 @@
 #define MAX_CMDLINE 256
 #define DEFAULT_TTY "tty0"
 
+#define TTY_BUF_SIZE 4096
+
 /* Obtain the tty number provided at startup */
 char *get_boot_tty(void);
 

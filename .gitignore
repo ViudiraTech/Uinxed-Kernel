@@ -54,3 +54,4 @@ Uinxed-x64.iso
 .cache/
 compile_commands.json
 make.log
+*.bak

@@ -104,7 +104,7 @@ void local_apic_init(void)
         plogk("ACPI: LAPIC = xAPIC\n");
 
     lapic_write(LAPIC_REG_SPURIOUS, 0xff | 1 << 8);
-    lapic_write(LAPIC_REG_TIMER, IRQ_32);
+    lapic_write(LAPIC_REG_TIMER, IRQ_0);
     lapic_write(LAPIC_REG_TIMER_DIV, 11);
     lapic_write(LAPIC_REG_TIMER_INITCNT, ~((uint32_t)0));
 
@@ -122,17 +122,17 @@ void local_apic_init(void)
 void io_apic_init(void)
 {
     ioapic_routing *ioapic_router[] = {
-        &(ioapic_routing) {IRQ_32, 0 }, // Timer
-        &(ioapic_routing) {IRQ_33, 1 }, // Keyboard
-        &(ioapic_routing) {IRQ_34, 12}, // Mouse
-        &(ioapic_routing) {IRQ_46, 14}, // IDE0
-        &(ioapic_routing) {IRQ_47, 15}, // IDE1
-        NULL,
+        &(ioapic_routing) {IRQ_0,  0 }, // Timer
+        &(ioapic_routing) {IRQ_1,  1 }, // Keyboard
+        &(ioapic_routing) {IRQ_12, 12}, // Mouse
+        &(ioapic_routing) {IRQ_14, 14}, // IDE0
+        &(ioapic_routing) {IRQ_15, 15}, // IDE1
+        0,
     };
 
     ioapic_routing **routing = ioapic_router;
 
-    while (*routing != NULL) {
+    while (*routing != 0) {
         ioapic_add(*routing);
         routing++;
     }
@@ -180,7 +180,6 @@ void apic_init(MADT *madt)
         }
         current += header->length;
     }
-
     disable_pic();
     local_apic_init();
     io_apic_init();

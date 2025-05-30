@@ -115,7 +115,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
             ide_devices[count].command_sets = *((uint32_t *)(ide_buf + ATA_IDENT_COMMANDSETS));
 
             /* Get Size */
-            if (ide_devices[count].command_sets & (1 << 26)) /* Devices use 48-bit addressing */
+            if (ide_devices[count].command_sets & (1 << 26)) // Devices use 48-bit addressing
                 ide_devices[count].size = *((uint32_t *)(ide_buf + ATA_IDENT_MAX_LBA_EXT));
             else
                 /* Devices use 28-bit addressing */
@@ -194,7 +194,7 @@ static uint8_t ide_print_error(uint32_t drive, uint8_t err) // NOLINT(bugprone-e
 /* Initialize IDE */
 void init_ide(void)
 {
-    pci_device_cache *device = NULL;
+    pci_device_cache *device = 0;
     uint32_t bars[5];
     pci_device_reg bar_reg = {
         .parent = device,
@@ -204,8 +204,8 @@ void init_ide(void)
     /* Detect if the computer has an IDE controller */
     if (pci_found_class(0x010100, &device)) {
         bar_reg.parent = device;
-        register_interrupt_handler(IRQ_46, ide_irq, 0, 0x8e);
-        register_interrupt_handler(IRQ_47, ide_irq, 0, 0x8e);
+        register_interrupt_handler(IRQ_14, ide_irq, 0, 0x8e);
+        register_interrupt_handler(IRQ_15, ide_irq, 0, 0x8e);
         for (uint32_t idx = 0; idx < 5; idx++) {
             bar_reg.offset = ECAM_OTHERS + idx * 4;
             bars[idx]      = read_pci(bar_reg);
@@ -254,8 +254,7 @@ void ide_write(uint8_t channel, uint8_t reg, uint8_t data)
     }
 }
 
-/* Read multiple words of data from the specified register of the IDE device
- * into the buffer */
+/* Read multiple words of data from the specified register of the IDE device into the buffer */
 void ide_read_buffer(uint8_t channel, uint8_t reg, uint8_t *buffer, uint32_t quads)
 {
     if (reg > 0x07 && reg < 0x0c) ide_write(channel, ATA_REG_CONTROL, 0x80 | channels[channel].nIEN);
@@ -339,9 +338,11 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t n
 
     while (ide_read(channel, ATA_REG_STATUS) & ATA_SR_BSY);
     if (lba_mode == 0)
-        ide_write(channel, ATA_REG_HDDEVSEL, 0xa0 | (slavebit << 4) | head); // Drive & CHS.
+        ide_write(channel, ATA_REG_HDDEVSEL,
+                  0xa0 | (slavebit << 4) | head); // Drive & CHS.
     else
-        ide_write(channel, ATA_REG_HDDEVSEL, 0xe0 | (slavebit << 4) | head); // Drive & LBA
+        ide_write(channel, ATA_REG_HDDEVSEL,
+                  0xe0 | (slavebit << 4) | head); // Drive & LBA
     if (lba_mode == 2) {
         ide_write(channel, ATA_REG_SECCOUNT1, 0);
         ide_write(channel, ATA_REG_LBA3, lba_io[3]);

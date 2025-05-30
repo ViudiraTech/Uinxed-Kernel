@@ -16,9 +16,8 @@
 #include "string.h"
 #include "video.h"
 
-static char boot_tty_buf[16] = {0}; // Persistent Buffer
-static char *boot_tty        = 0;
-#define TTY_BUF_SIZE 4096
+static char boot_tty_buf[16]       = {0}; // Persistent Buffer
+static char *boot_tty              = 0;
 static char tty_buff[TTY_BUF_SIZE] = {0};
 static char *tty_buff_ptr          = tty_buff;
 
@@ -34,7 +33,9 @@ static int arg_parse(char *arg_str, char **argv, char delim)
         argv[argc++] = arg_str;
 
         while (*arg_str && *arg_str != delim) arg_str++;
-        if (*arg_str) *arg_str++ = '\0'; // Replace delimiter with '\0' (It seems hard to undertand)
+        if (*arg_str)
+            *arg_str++ = '\0'; // Replace delimiter with '\0' (It
+                               // seems hard to undertand)
     }
     return argc;
 }
@@ -45,7 +46,7 @@ char *get_boot_tty(void)
     if (boot_tty) return boot_tty;
 
     const char *cmdline = get_cmdline();
-    if (!cmdline) { return DEFAULT_TTY; }
+    if (!cmdline) return DEFAULT_TTY;
 
     char bootarg[MAX_CMDLINE];
     memset(bootarg, 0, MAX_CMDLINE); // This is important
@@ -53,7 +54,7 @@ char *get_boot_tty(void)
     bootarg[MAX_CMDLINE - 1] = '\0';
 
     char **argv = (char **)malloc(MAX_ARGC * sizeof(char *));
-    if (!argv) { return DEFAULT_TTY; }
+    if (!argv) return DEFAULT_TTY;
 
     int argc = arg_parse(bootarg, argv, ' ');
     for (int i = 0; i < argc; ++i) {
@@ -94,11 +95,11 @@ void tty_buff_flush()
 
 static void tty_buff_add(const char ch)
 {
-    if (ch == '\0') { return; }
+    if (ch == '\0') return;
     *tty_buff_ptr = ch;
     tty_buff_ptr++;
     if (tty_buff_ptr - tty_buff >= TTY_BUF_SIZE - 1 || ch == '\n') {
-        // Flush
+        /* Flush */
         *tty_buff_ptr = '\0';
         tty_buff_flush();
     }

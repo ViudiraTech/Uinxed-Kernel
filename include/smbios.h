@@ -24,7 +24,8 @@ struct EntryPoint32 {
         uint16_t MaxStructureSize;           // Maximum structure size
         uint8_t EntryPointRevision;          // Entry point revision number
         uint8_t FormattedArea[5];            // Formatting Area
-        uint8_t IntermediateAnchorString[5]; // Middle anchor string, value is "_DMI_"
+        uint8_t IntermediateAnchorString[5]; // Middle anchor string, value is
+                                             // "_DMI_"
         uint8_t IntermediateChecksum;        // Intermediate Checksum
         uint16_t StructureTableLength;       // Structure table length
         uint32_t StructureTableAddress;      // Structure table address

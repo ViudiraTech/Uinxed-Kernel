@@ -121,7 +121,7 @@ void video_scroll(void)
         count = (stride * (height - 16) * sizeof(uint32_t)) / 8;
         __asm__ volatile("rep movsq" : "+D"(dest), "+S"(src), "+c"(count)::"memory");
 
-        // NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling)
+        /* NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling) */
         memset(buffer + (height - 16) * stride, (int32_t)back_color, 16 * stride * sizeof(uint32_t));
         cy = c_height - 1;
     }
@@ -191,7 +191,7 @@ void video_put_char(const char c, int color)
         return;
     } else if (c == '\t') {
         for (int i = 0; i < 8; i++) {
-            // Expand by video_put_char(' ', color)
+            /* Expand by video_put_char(' ', color) */
             video_scroll();
             x = (cx - 1) * 9;
             y = cy * 16;

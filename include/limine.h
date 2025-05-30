@@ -60,10 +60,13 @@ struct limine_uuid {
 
 struct limine_file {
         uint64_t revision;
-        LIMINE_PTR(void *) address;
+        LIMINE_PTR(void *)
+        address;
         uint64_t size;
-        LIMINE_PTR(char *) path;
-        LIMINE_PTR(char *) cmdline;
+        LIMINE_PTR(char *)
+        path;
+        LIMINE_PTR(char *)
+        cmdline;
         uint32_t media_type;
         uint32_t unused;
         uint32_t tftp_ip;
@@ -84,14 +87,17 @@ struct limine_file {
 
 struct limine_bootloader_info_response {
         uint64_t revision;
-        LIMINE_PTR(char *) name;
-        LIMINE_PTR(char *) version;
+        LIMINE_PTR(char *)
+        name;
+        LIMINE_PTR(char *)
+        version;
 };
 
 struct limine_bootloader_info_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_bootloader_info_response *) response;
+        LIMINE_PTR(struct limine_bootloader_info_response *)
+        response;
 };
 
 /* Firmware Type */
@@ -113,7 +119,8 @@ struct limine_firmware_type_response {
 struct limine_firmware_type_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_firmware_type_response *) response;
+        LIMINE_PTR(struct limine_firmware_type_response *)
+        response;
 };
 
 /* Stack size */
@@ -130,7 +137,8 @@ struct limine_stack_size_response {
 struct limine_stack_size_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_stack_size_response *) response;
+        LIMINE_PTR(struct limine_stack_size_response *)
+        response;
         uint64_t stack_size;
 };
 
@@ -149,7 +157,8 @@ struct limine_hhdm_response {
 struct limine_hhdm_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_hhdm_response *) response;
+        LIMINE_PTR(struct limine_hhdm_response *)
+        response;
 };
 
 /* Frame Buffer */
@@ -175,7 +184,8 @@ struct limine_video_mode {
 };
 
 struct limine_framebuffer {
-        LIMINE_PTR(void *) address;
+        LIMINE_PTR(void *)
+        address;
         uint64_t width;
         uint64_t height;
         uint64_t pitch;
@@ -189,23 +199,27 @@ struct limine_framebuffer {
         uint8_t blue_mask_shift;
         uint8_t unused[7];
         uint64_t edid_size;
-        LIMINE_PTR(void *) edid;
+        LIMINE_PTR(void *)
+        edid;
 
         /* Response to Revision 1 */
         uint64_t mode_count;
-        LIMINE_PTR(struct limine_video_mode **) modes;
+        LIMINE_PTR(struct limine_video_mode **)
+        modes;
 };
 
 struct limine_framebuffer_response {
         uint64_t revision;
         uint64_t framebuffer_count;
-        LIMINE_PTR(struct limine_framebuffer **) framebuffers;
+        LIMINE_PTR(struct limine_framebuffer **)
+        framebuffers;
 };
 
 struct limine_framebuffer_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_framebuffer_response *) response;
+        LIMINE_PTR(struct limine_framebuffer_response *)
+        response;
 };
 
 /* terminal */
@@ -251,21 +265,26 @@ typedef void (*limine_terminal_callback)(struct limine_terminal *, uint64_t, uin
 struct LIMINE_DEPRECATED limine_terminal {
         uint64_t columns;
         uint64_t rows;
-        LIMINE_PTR(struct limine_framebuffer *) framebuffer;
+        LIMINE_PTR(struct limine_framebuffer *)
+        framebuffer;
 };
 
 struct LIMINE_DEPRECATED limine_terminal_response {
         uint64_t revision;
         uint64_t terminal_count;
-        LIMINE_PTR(struct limine_terminal **) terminals;
-        LIMINE_PTR(limine_terminal_write) write;
+        LIMINE_PTR(struct limine_terminal **)
+        terminals;
+        LIMINE_PTR(limine_terminal_write)
+        write;
 };
 
 struct LIMINE_DEPRECATED limine_terminal_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_terminal_response *) response;
-        LIMINE_PTR(limine_terminal_callback) callback;
+        LIMINE_PTR(struct limine_terminal_response *)
+        response;
+        LIMINE_PTR(limine_terminal_callback)
+        callback;
 };
 
 LIMINE_DEPRECATED_IGNORE_END
@@ -317,7 +336,8 @@ struct limine_paging_mode_response {
 struct limine_paging_mode_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_paging_mode_response *) response;
+        LIMINE_PTR(struct limine_paging_mode_response *)
+        response;
         uint64_t mode;
         uint64_t max_mode;
         uint64_t min_mode;
@@ -339,7 +359,8 @@ struct LIMINE_DEPRECATED limine_5_level_paging_response {
 struct LIMINE_DEPRECATED limine_5_level_paging_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_5_level_paging_response *) response;
+        LIMINE_PTR(struct limine_5_level_paging_response *)
+        response;
 };
 
 LIMINE_DEPRECATED_IGNORE_END
@@ -361,7 +382,8 @@ struct limine_smp_info {
         uint32_t processor_id;
         uint32_t lapic_id;
         uint64_t reserved;
-        LIMINE_PTR(limine_goto_address) goto_address;
+        LIMINE_PTR(limine_goto_address)
+        goto_address;
         uint64_t extra_argument;
 };
 
@@ -370,7 +392,8 @@ struct limine_smp_response {
         uint32_t flags;
         uint32_t bsp_lapic_id;
         uint64_t cpu_count;
-        LIMINE_PTR(struct limine_smp_info **) cpus;
+        LIMINE_PTR(struct limine_smp_info **)
+        cpus;
 };
 
 #elif defined(__aarch64__)
@@ -380,7 +403,8 @@ struct limine_smp_info {
         uint32_t reserved1;
         uint64_t mpidr;
         uint64_t reserved;
-        LIMINE_PTR(limine_goto_address) goto_address;
+        LIMINE_PTR(limine_goto_address)
+        goto_address;
         uint64_t extra_argument;
 };
 
@@ -389,7 +413,8 @@ struct limine_smp_response {
         uint64_t flags;
         uint64_t bsp_mpidr;
         uint64_t cpu_count;
-        LIMINE_PTR(struct limine_smp_info **) cpus;
+        LIMINE_PTR(struct limine_smp_info **)
+        cpus;
 };
 
 #elif defined(__riscv) && (__riscv_xlen == 64)
@@ -398,7 +423,8 @@ struct limine_smp_info {
         uint64_t processor_id;
         uint64_t hartid;
         uint64_t reserved;
-        LIMINE_PTR(limine_goto_address) goto_address;
+        LIMINE_PTR(limine_goto_address)
+        goto_address;
         uint64_t extra_argument;
 };
 
@@ -407,7 +433,8 @@ struct limine_smp_response {
         uint64_t flags;
         uint64_t bsp_hartid;
         uint64_t cpu_count;
-        LIMINE_PTR(struct limine_smp_info **) cpus;
+        LIMINE_PTR(struct limine_smp_info **)
+        cpus;
 };
 
 #elif defined(__loongarch__) && (__loongarch_grlen == 64)
@@ -418,7 +445,8 @@ struct limine_smp_info {
 
 struct limine_smp_response {
         uint64_t cpu_count;
-        LIMINE_PTR(struct limine_smp_info **) cpus;
+        LIMINE_PTR(struct limine_smp_info **)
+        cpus;
 };
 
 #else
@@ -428,7 +456,8 @@ struct limine_smp_response {
 struct limine_smp_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_smp_response *) response;
+        LIMINE_PTR(struct limine_smp_response *)
+        response;
         uint64_t flags;
 };
 
@@ -457,13 +486,15 @@ struct limine_memmap_entry {
 struct limine_memmap_response {
         uint64_t revision;
         uint64_t entry_count;
-        LIMINE_PTR(struct limine_memmap_entry **) entries;
+        LIMINE_PTR(struct limine_memmap_entry **)
+        entries;
 };
 
 struct limine_memmap_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_memmap_response *) response;
+        LIMINE_PTR(struct limine_memmap_response *)
+        response;
 };
 
 /* Entry Point */
@@ -482,8 +513,10 @@ struct limine_entry_point_response {
 struct limine_entry_point_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_entry_point_response *) response;
-        LIMINE_PTR(limine_entry_point) entry;
+        LIMINE_PTR(struct limine_entry_point_response *)
+        response;
+        LIMINE_PTR(limine_entry_point)
+        entry;
 };
 
 /* Kernel Files */
@@ -495,13 +528,15 @@ struct limine_entry_point_request {
 
 struct limine_kernel_file_response {
         uint64_t revision;
-        LIMINE_PTR(struct limine_file *) kernel_file;
+        LIMINE_PTR(struct limine_file *)
+        kernel_file;
 };
 
 struct limine_kernel_file_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_kernel_file_response *) response;
+        LIMINE_PTR(struct limine_kernel_file_response *)
+        response;
 };
 
 /* Modules */
@@ -515,25 +550,30 @@ struct limine_kernel_file_request {
 #define LIMINE_INTERNAL_MODULE_COMPRESSED (1 << 1)
 
 struct limine_internal_module {
-        LIMINE_PTR(const char *) path;
-        LIMINE_PTR(const char *) cmdline;
+        LIMINE_PTR(const char *)
+        path;
+        LIMINE_PTR(const char *)
+        cmdline;
         uint64_t flags;
 };
 
 struct limine_module_response {
         uint64_t revision;
         uint64_t module_count;
-        LIMINE_PTR(struct limine_file **) modules;
+        LIMINE_PTR(struct limine_file **)
+        modules;
 };
 
 struct limine_module_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_module_response *) response;
+        LIMINE_PTR(struct limine_module_response *)
+        response;
 
         /* Request Revision 1 */
         uint64_t internal_module_count;
-        LIMINE_PTR(struct limine_internal_module **) internal_modules;
+        LIMINE_PTR(struct limine_internal_module **)
+        internal_modules;
 };
 
 /* Root System Description Pointer */
@@ -545,13 +585,15 @@ struct limine_module_request {
 
 struct limine_rsdp_response {
         uint64_t revision;
-        LIMINE_PTR(void *) address;
+        LIMINE_PTR(void *)
+        address;
 };
 
 struct limine_rsdp_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_rsdp_response *) response;
+        LIMINE_PTR(struct limine_rsdp_response *)
+        response;
 };
 
 /* System Management BIOS */
@@ -563,14 +605,17 @@ struct limine_rsdp_request {
 
 struct limine_smbios_response {
         uint64_t revision;
-        LIMINE_PTR(void *) entry_32;
-        LIMINE_PTR(void *) entry_64;
+        LIMINE_PTR(void *)
+        entry_32;
+        LIMINE_PTR(void *)
+        entry_64;
 };
 
 struct limine_smbios_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_smbios_response *) response;
+        LIMINE_PTR(struct limine_smbios_response *)
+        response;
 };
 
 /* EFI System Table */
@@ -582,13 +627,15 @@ struct limine_smbios_request {
 
 struct limine_efi_system_table_response {
         uint64_t revision;
-        LIMINE_PTR(void *) address;
+        LIMINE_PTR(void *)
+        address;
 };
 
 struct limine_efi_system_table_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_efi_system_table_response *) response;
+        LIMINE_PTR(struct limine_efi_system_table_response *)
+        response;
 };
 
 /* EFI Memory Map */
@@ -600,7 +647,8 @@ struct limine_efi_system_table_request {
 
 struct limine_efi_memmap_response {
         uint64_t revision;
-        LIMINE_PTR(void *) memmap;
+        LIMINE_PTR(void *)
+        memmap;
         uint64_t memmap_size;
         uint64_t desc_size;
         uint64_t desc_version;
@@ -609,7 +657,8 @@ struct limine_efi_memmap_response {
 struct limine_efi_memmap_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_efi_memmap_response *) response;
+        LIMINE_PTR(struct limine_efi_memmap_response *)
+        response;
 };
 
 /* Startup time */
@@ -627,7 +676,8 @@ struct limine_boot_time_response {
 struct limine_boot_time_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_boot_time_response *) response;
+        LIMINE_PTR(struct limine_boot_time_response *)
+        response;
 };
 
 /* Kernel Address */
@@ -646,7 +696,8 @@ struct limine_kernel_address_response {
 struct limine_kernel_address_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_kernel_address_response *) response;
+        LIMINE_PTR(struct limine_kernel_address_response *)
+        response;
 };
 
 /* Device Tree Binaries */
@@ -658,13 +709,15 @@ struct limine_kernel_address_request {
 
 struct limine_dtb_response {
         uint64_t revision;
-        LIMINE_PTR(void *) dtb_ptr;
+        LIMINE_PTR(void *)
+        dtb_ptr;
 };
 
 struct limine_dtb_request {
         uint64_t id[4];
         uint64_t revision;
-        LIMINE_PTR(struct limine_dtb_response *) response;
+        LIMINE_PTR(struct limine_dtb_response *)
+        response;
 };
 
 #endif // INCLUDE_LIMINE_H_

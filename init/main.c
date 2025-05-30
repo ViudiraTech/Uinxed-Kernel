@@ -33,7 +33,6 @@
 /* Kernel entry */
 void kernel_entry(void)
 {
-    init_hhdm();  // Initialize the upper half memory mapping
     video_init(); // Initialize Video
     page_init();  // Initialize memory page
     init_heap();  // Initialize the memory heap
@@ -47,6 +46,7 @@ void kernel_entry(void)
     plogk("CPU: %s %s\n", get_vendor_name(), get_model_name());
     plogk("CPU: phy/virt = %d/%d bits.\n", get_cpu_phys_bits(), get_cpu_virt_bits());
     plogk("CPU: NX (Execute Disable) protection = %s\n", cpu_supports_nx() ? "active" : "passive");
+    plogk("HEAP: Range = 0x%016llx - 0x%016llx\n", phys_to_virt(heap_start), phys_to_virt(heap_start + heap_size));
 
     init_gdt();           // Initialize global descriptors
     init_idt();           // Initialize interrupt descriptor
@@ -58,7 +58,6 @@ void kernel_entry(void)
     init_ide();           // Initialize ATA/ATAPI driver
     init_serial();        // Initialize the serial port
     enable_intr();
-    plogk("Heap Range: 0x%016llx - 0x%016llx\n", heap_start, heap_start + heap_size);
 
     panic("No operation.");
 }

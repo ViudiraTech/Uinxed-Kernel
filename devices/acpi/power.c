@@ -56,11 +56,11 @@ void facp_init(acpi_facp_t *facp0)
         if (dsdtlen && S5Addr > &dsdtTable->definition_block + 2) {
             if (*(S5Addr - 1) == 0x08 || (*(S5Addr - 2) == 0x08 && *(S5Addr - 1) == '\\')) {
                 S5Addr += 5;
-                S5Addr += ((*S5Addr & 0xC0) >> 6) + 2;
-                if (*S5Addr == 0x0A) S5Addr++;
+                S5Addr += ((*S5Addr & 0xc0) >> 6) + 2;
+                if (*S5Addr == 0x0a) S5Addr++;
                 SLP_TYPa = *(S5Addr) << 10;
                 S5Addr++;
-                if (*S5Addr == 0x0A) S5Addr++;
+                if (*S5Addr == 0x0a) S5Addr++;
                 SLP_TYPb = *(S5Addr) << 10;
                 S5Addr++;
                 plogk("ACPI: SLP_TYPa = 0x%04hx, SLP_TYPb = 0x%04hx\n", SLP_TYPa, SLP_TYPb);

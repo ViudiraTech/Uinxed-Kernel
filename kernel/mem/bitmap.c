@@ -50,7 +50,7 @@ void bitmap_set_range(Bitmap *bitmap, size_t start, size_t end, int value) // NO
     size_t byte_start = start / 8;
     size_t byte_end   = end / 8;
     uint8_t fill      = value ? 0xff : 0x00;
-    for (size_t i = byte_start; i < byte_end; i++) { bitmap->buffer[i] = fill; }
+    for (size_t i = byte_start; i < byte_end; i++) bitmap->buffer[i] = fill;
     start = byte_end * 8;
     while (start < end) {
         bitmap_set(bitmap, start, value);

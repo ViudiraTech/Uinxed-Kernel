@@ -57,6 +57,11 @@ struct madt_local_apic {
         uint32_t flags;
 };
 
+typedef struct {
+        uint8_t vector;
+        uint32_t irq;
+} ioapic_routing;
+
 typedef struct madt_hander MadtHeader;
 typedef struct madt_io_apic MadtIOApic;
 typedef struct madt_local_apic MadtLocalApic;
@@ -69,11 +74,6 @@ void ioapic_write(uint32_t reg, uint32_t value);
 
 /* Read I/O APIC registers */
 uint32_t ioapic_read(uint32_t reg);
-
-typedef struct {
-        uint8_t vector;
-        uint32_t irq;
-} ioapic_routing;
 
 /* Configuring I/O APIC interrupt routing */
 void ioapic_add(ioapic_routing *routing);

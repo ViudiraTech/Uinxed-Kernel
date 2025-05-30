@@ -43,6 +43,6 @@ void hpet_init(Hpet *hpet)
     plogk("ACPI: HPET Timer Period = %d (us)\n", hpetPeriod);
 
     hpet_addr->generalConfiguration |= 1;
-    register_interrupt_handler(IRQ_32, timer_handle, 0, 0x8e);
+    register_interrupt_handler(IRQ_0, timer_handle, 0, 0x8e);
     plogk("ACPI: HPET General Configuration Register set to 0x%08llx\n", hpet_addr->generalConfiguration);
 }

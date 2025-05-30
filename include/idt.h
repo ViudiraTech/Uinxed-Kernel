@@ -35,22 +35,22 @@
 #define ISR_18 18 // #MC Machine inspection
 #define ISR_19 19 // #XM SIMD (Single Instruction Multiple Data) floating point exceptions
 
-#define IRQ_32 32 // Computer system timer
-#define IRQ_33 33 // Keyboard
-#define IRQ_34 34 // Connected to IRQ9, used by MPU-401 MD
-#define IRQ_35 35 // Serial Devices
-#define IRQ_36 36 // Serial Devices
-#define IRQ_37 37 // Recommended sound card
-#define IRQ_38 38 // Floppy drive transfer control usage
-#define IRQ_39 39 // Printer transmission control use
-#define IRQ_40 40 // Real-time clock
-#define IRQ_41 41 // Connected to IRQ2, can be assigned to other hardware
-#define IRQ_42 42 // Recommended network card
-#define IRQ_43 43 // Recommended for AGP graphics cards
-#define IRQ_44 44 // Connect to PS/2 mouse, can also be set to other hardware
-#define IRQ_45 45 // Coprocessor usage
-#define IRQ_46 46 // IDE0 transmission control usage
-#define IRQ_47 47 // IDE1 transmission control usage
+#define IRQ_0  32 // Computer system timer
+#define IRQ_1  33 // Keyboard
+#define IRQ_2  34 // Connected to IRQ9, used by MPU-401 MD
+#define IRQ_3  35 // Serial Devices
+#define IRQ_4  36 // Serial Devices
+#define IRQ_5  37 // Recommended sound card
+#define IRQ_6  38 // Floppy drive transfer control usage
+#define IRQ_7  39 // Printer transmission control use
+#define IRQ_8  40 // Real-time clock
+#define IRQ_9  41 // Connected to IRQ2, can be assigned to other hardware
+#define IRQ_10 42 // Recommended network card
+#define IRQ_11 43 // Recommended for AGP graphics cards
+#define IRQ_12 44 // Connect to PS/2 mouse, can also be set to other hardware
+#define IRQ_13 45 // Coprocessor usage
+#define IRQ_14 46 // IDE0 transmission control usage
+#define IRQ_15 47 // IDE1 transmission control usage
 
 struct idt_register {
         uint16_t size;

@@ -16,6 +16,8 @@
 #include "stddef.h"
 #include "stdint.h"
 
+#define PCI_HEADER_TYPE_MASK 0x7F
+
 #define PCI_CONF_VENDOR      0x0 // Vendor ID
 #define PCI_CONF_DEVICE      0x2 // Device ID
 #define PCI_CONF_COMMAND     0x4 // Command
@@ -41,8 +43,6 @@ typedef struct pci_device {
         uint16_t slot;
         uint16_t func;
 } pci_device;
-
-#define PCI_HEADER_TYPE_MASK 0x7F
 
 enum header_type {
     HEADER_TYPE_GENERAL = 0,
