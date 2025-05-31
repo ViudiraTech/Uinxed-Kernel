@@ -176,6 +176,9 @@ void pci_config(pci_device_cache *cache, uint32_t addr);
 /* Finding PCI devices */
 void pci_device_find(pci_finding_request *request);
 
+/* Update the usable list */
+void pci_update_usable_list(void);
+
 /* Returns the device name based on the class code */
 const char *pci_classname(uint32_t classcode);
 

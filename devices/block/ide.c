@@ -206,26 +206,29 @@ void init_ide(void)
 {
     uint32_t bars[5];
     pci_device_reg bar_reg = {
-        .parent = NULL,
+        .parent = 0,
         .offset = 0,
     };
-
     pci_device_find(&ide_pci_request);
+
     /* Detect if the computer has an IDE controller */
     if (ide_pci_request.response->error != PCI_FINDING_SUCCESS) {
         plogk("IDE: No IDE controller found.\n");
         return;
-        // Re-try (but I think it is not necessary)
-        // pci_flush_devices_cache();
-        // pci_device_find(&ide_pci_request);
-        // if (ide_pci_request.response->error != PCI_FINDING_SUCCESS) {
-        //     plogk("IDE: No IDE controller found.\n");
-        //     return;
-        // }
+
+        /* Re-try (but I think it is not necessary)
+         * pci_flush_devices_cache();
+         * pci_device_find(&ide_pci_request);
+         * if (ide_pci_request.response->error != PCI_FINDING_SUCCESS) {
+         *     plogk("IDE: No IDE controller found.\n");
+         *     return;
+         * }
+         */
     }
     bar_reg.parent = ide_pci_request.response->device;
     register_interrupt_handler(IRQ_14, ide_irq, 0, 0x8e);
     register_interrupt_handler(IRQ_15, ide_irq, 0, 0x8e);
+
     for (uint32_t idx = 0; idx < 5; idx++) {
         bar_reg.offset = ECAM_OTHERS + idx * 4;
         bars[idx]      = read_pci(bar_reg);

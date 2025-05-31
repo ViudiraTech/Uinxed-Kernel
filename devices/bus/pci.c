@@ -191,14 +191,14 @@ void mcfg_init(void *mcfg)
     if (mcfg) {
         struct MCFG *inner = (struct MCFG *)mcfg;
         mcfg_info.count    = (inner->h.Length - sizeof(struct ACPISDTHeader) - 8) / sizeof(struct mcfg_entry);
-        plogk("PCI: MCFG found with %d entries\n", mcfg_info.count);
+        plogk("ACPI: MCFG found with %d entries\n", mcfg_info.count);
         for (size_t i = 0; i < mcfg_info.count; i++) {
             /* Convert to the virtual address */
             inner->entries[i].base_addr = (uint64_t)phys_to_virt(inner->entries[i].base_addr);
-            plogk("PCI: mcfg->entries[%d] base address: %p\n", i, inner->entries[i].base_addr);
-            plogk("PCI: mcfg->entries[%d] segment: %d\n", i, inner->entries[i].segment);
-            plogk("PCI: mcfg->entries[%d] start bus: %d\n", i, inner->entries[i].start_bus);
-            plogk("PCI: mcfg->entries[%d] end bus: %d\n", i, inner->entries[i].end_bus);
+            plogk("ACPI: mcfg->entries[%d] base address: %p\n", i, inner->entries[i].base_addr);
+            plogk("ACPI: mcfg->entries[%d] segment: %d\n", i, inner->entries[i].segment);
+            plogk("ACPI: mcfg->entries[%d] start bus: %d\n", i, inner->entries[i].start_bus);
+            plogk("ACPI: mcfg->entries[%d] end bus: %d\n", i, inner->entries[i].end_bus);
         }
         mcfg_info.mcfg    = inner;
         mcfg_info.enabled = 1;
@@ -233,14 +233,19 @@ void *mcfg_ecam_addr(mcfg_entry *entry, pci_device_reg reg)
     uint32_t slot      = device->slot & 0x1f;
     uint32_t func      = device->func & 0x07;
     addr               = entry->base_addr;
+
     /* Segment */
     addr |= (uint64_t)entry->segment << 32;
+
     /* Bus */
     addr |= ((bus - entry->start_bus) << 20);
+
     /* Slot */
     addr |= slot << 15;
+
     /* Func */
     addr |= func << 12;
+
     /* Register */
     addr |= (reg.offset & 0xFFC);
     PointerCast cast;
@@ -383,11 +388,13 @@ static uint32_t pci_mcfg_read(pci_device_reg reg)
     return *ptr >> (8 * offset);
 }
 
+/* Reading values ​​from PCI device registers */
 uint32_t read_pci(pci_device_reg reg)
 {
     return pci_ops.read(reg);
 }
 
+/* Write values ​​to PCI device registers */
 void write_pci(pci_device_reg reg, uint32_t value)
 {
     return pci_ops.write(reg, value);
@@ -474,6 +481,7 @@ void pci_config(pci_device_cache *cache, uint32_t addr)
     outl(PCI_COMMAND_PORT, cmd);
 }
 
+/* Find devices by class code */
 static void pci_class_finding(pci_finding_request *req)
 {
     pci_class_request class_req = req->req.class_req;
@@ -491,6 +499,7 @@ static void pci_class_finding(pci_finding_request *req)
     }
 }
 
+/* Accurately search based on device information */
 static void pci_device_finding(pci_finding_request *req)
 {
     pci_device_request device_req = req->req.device_req;
@@ -508,6 +517,7 @@ static void pci_device_finding(pci_finding_request *req)
     }
 }
 
+/* Add the found devices to the usable list */
 static void add_to_usable_list(pci_finding_request *req)
 {
     pci_usable_node *node = (pci_usable_node *)malloc(sizeof(pci_usable_node));
@@ -518,7 +528,7 @@ static void add_to_usable_list(pci_finding_request *req)
 }
 
 /* Finding PCI devices */
-void pci_device_find(pci_finding_request *req) /* Notice: the req should be a global variable */
+void pci_device_find(pci_finding_request *req) // Notice: the req should be a global variable
 {
     pci_finding_response *response = malloc(sizeof(pci_finding_response));
     req->response                  = response;
@@ -551,13 +561,14 @@ void pci_device_find(pci_finding_request *req) /* Notice: the req should be a gl
      */
 }
 
+/* Update the usable list */
 void pci_update_usable_list(void)
 {
     pci_usable_node *node = pci_usable.head;
     while (node != 0) {
         volatile pci_finding_response *response = node->request->response;
 
-        // Reset the response
+        /* Reset the response */
         response->device = 0;
         response->error  = PCI_FINDING_NOT_FOUND;
 
