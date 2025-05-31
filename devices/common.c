@@ -10,8 +10,6 @@
  */
 
 #include "common.h"
-#include "acpi.h"
-#include "printk.h"
 #include "stddef.h"
 #include "stdint.h"
 #include "tty.h"

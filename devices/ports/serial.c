@@ -30,7 +30,7 @@ void init_serial(void)
          0x1e);                  // Set to loopback mode and test the serial port
     outb(SERIAL_PORT + 0, 0xae); // Test serial port
 
-    /* Check if there is a problem with the serial port (ie: the bytes sent are different) */
+    /* Check if there is a problem with the serial port (i.e., the bytes sent are different) */
     if (inb(SERIAL_PORT + 0) != 0xae) {
         plogk("Serial: Serial port test failed.\n");
         return;

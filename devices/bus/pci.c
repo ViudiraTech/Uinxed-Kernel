@@ -45,6 +45,12 @@ struct PCIOps {
     .write        = pci_legacy_write,
 };
 
+/* PCI usable list */
+pci_usable_list pci_usable = {
+    .head  = 0,
+    .count = 0,
+};
+
 struct {
         uint32_t classcode;
         const char *name;
@@ -227,19 +233,14 @@ void *mcfg_ecam_addr(mcfg_entry *entry, pci_device_reg reg)
     uint32_t slot      = device->slot & 0x1f;
     uint32_t func      = device->func & 0x07;
     addr               = entry->base_addr;
-
     /* Segment */
     addr |= (uint64_t)entry->segment << 32;
-
     /* Bus */
     addr |= ((bus - entry->start_bus) << 20);
-
     /* Slot */
     addr |= slot << 15;
-
     /* Func */
     addr |= func << 12;
-
     /* Register */
     addr |= (reg.offset & 0xFFC);
     PointerCast cast;
@@ -473,60 +474,109 @@ void pci_config(pci_device_cache *cache, uint32_t addr)
     outl(PCI_COMMAND_PORT, cmd);
 }
 
-/* Find PCI devices in cache by vendor ID and device ID */
-int pci_found_device(uint32_t vendor_id, uint32_t device_id, pci_device_cache **device)
+static void pci_class_finding(pci_finding_request *req)
 {
-    pci_device_reg reg_vendor = {0, PCI_CONF_VENDOR};
-    pci_device_cache *cache   = pci_found_device_cache(vendor_id, device_id);
-    if (cache != 0) {
-        reg_vendor.parent = cache;
+    pci_class_request class_req = req->req.class_req;
+    pci_device_cache *cache     = pci_found_class_cache(class_req);
+    pci_device_reg reg_vendor   = {cache, PCI_CONF_VENDOR};
 
+    req->response->device = 0;
+    req->response->error  = PCI_FINDING_NOT_FOUND;
+    if (cache != 0) {
         /* Test existence of device */
         if (read_pci(reg_vendor) != 0xffffffff) {
-            *device = cache;
-            return 1;
+            req->response->device = cache;
+            req->response->error  = PCI_FINDING_SUCCESS;
         }
     }
-    pci_flush_devices_cache(); // flush cache
-    cache = pci_found_device_cache(vendor_id, device_id);
-    if (cache != 0) {
-        reg_vendor.parent = cache;
-
-        /* Test existence of device */
-        if (read_pci(reg_vendor) != 0xffffffff) {
-            *device = cache;
-            return 1;
-        }
-    }
-    return 0;
 }
 
-/* Find PCI devices in cache by class code */
-int pci_found_class(uint32_t class_code, pci_device_cache **device)
+static void pci_device_finding(pci_finding_request *req)
 {
-    pci_device_reg reg_vendor = {0, PCI_CONF_VENDOR};
-    pci_device_cache *cache   = pci_found_class_cache(class_code);
-    if (cache != 0) {
-        reg_vendor.parent = cache;
+    pci_device_request device_req = req->req.device_req;
+    pci_device_cache *cache       = pci_found_device_cache(device_req);
+    pci_device_reg reg_vendor     = {cache, PCI_CONF_VENDOR};
 
+    req->response->device = 0;
+    req->response->error  = PCI_FINDING_NOT_FOUND;
+    if (cache != 0) {
         /* Test existence of device */
         if (read_pci(reg_vendor) != 0xffffffff) {
-            *device = cache;
-            return 1;
+            req->response->device = cache;
+            req->response->error  = PCI_FINDING_SUCCESS;
         }
     }
-    pci_flush_devices_cache(); // flush cache
-    cache = pci_found_class_cache(class_code);
-    if (cache != 0) {
-        reg_vendor.parent = cache;
+}
 
-        /* Test existence of device */
-        if (read_pci(reg_vendor) != 0xffffffff) {
-            *device = cache;
-            return 1;
-        }
+static void add_to_usable_list(pci_finding_request *req)
+{
+    pci_usable_node *node = (pci_usable_node *)malloc(sizeof(pci_usable_node));
+    node->request         = req;
+    node->next            = pci_usable.head;
+    pci_usable.head       = node;
+    pci_usable.count++;
+}
+
+/* Finding PCI devices */
+void pci_device_find(pci_finding_request *req) /* Notice: the req should be a global variable */
+{
+    pci_finding_response *response = malloc(sizeof(pci_finding_response));
+    req->response                  = response;
+
+    /* Add to usable list */
+    add_to_usable_list(req);
+
+    /* Process the request */
+    switch (req->type) {
+        case PCI_FOUND_CLASS :
+            pci_class_finding(req);
+            break;
+        case PCI_FOUND_DEVICE :
+            pci_device_finding(req);
+            break;
+        default :
+            plogk("PCI: Unknown finding type %d\n", req->type);
+            req->response         = malloc(sizeof(pci_finding_response));
+            req->response->device = 0;
+            req->response->error  = PCI_FINDING_ERROR;
+            break;
     }
-    return 0;
+
+    /* By the end of the function, you should to do: 
+     * 1. Check the response->error
+     * 2. If error is PCI_FINDING_SUCCESS, 
+     *    then response->device should be set to the founded device cache.
+     * 3. If error is PCI_FINDING_NOT_FOUND, 
+     *    then response->device should be set to 0, and you can try to execute `pci_flush_devices_cache()` and then retry this function.
+     */
+}
+
+void pci_update_usable_list(void)
+{
+    pci_usable_node *node = pci_usable.head;
+    while (node != 0) {
+        volatile pci_finding_response *response = node->request->response;
+
+        // Reset the response
+        response->device = 0;
+        response->error  = PCI_FINDING_NOT_FOUND;
+
+        /* Update the device cache */
+        switch (node->request->type) {
+            case PCI_FOUND_CLASS :
+                pci_class_finding(node->request);
+                break;
+            case PCI_FOUND_DEVICE :
+                pci_device_finding(node->request);
+                break;
+            default :
+                plogk("PCI: Unknown finding type %d\n", node->request->type);
+                response->device = 0;
+                response->error  = PCI_FINDING_ERROR;
+                break;
+        }
+        node = node->next;
+    }
 }
 
 /* Returns the device name based on the class code */
@@ -669,12 +719,15 @@ void pci_flush_devices_cache()
     for (curr_device.bus = 0; curr_device.bus < 256; curr_device.bus++) {
         for (curr_device.slot = 0; curr_device.slot < 32; curr_device.slot++) slot_process(&curr_cache);
     }
+    pci_update_usable_list();
     return;
 }
 
 /* Found PCI devices cache by vender ID and device ID */
-pci_device_cache *pci_found_device_cache(uint32_t vendor_id, uint32_t device_id)
+pci_device_cache *pci_found_device_cache(pci_device_request device_req)
 {
+    uint32_t vendor_id      = device_req.vendor_id;
+    uint32_t device_id      = device_req.device_id;
     pci_device_cache *cache = pci_cache.head;
     while (cache != 0) {
         if (cache->vendor_id == vendor_id && cache->device_id == device_id) return cache;
@@ -684,8 +737,9 @@ pci_device_cache *pci_found_device_cache(uint32_t vendor_id, uint32_t device_id)
 }
 
 /* Found PCI devices cache by class code */
-pci_device_cache *pci_found_class_cache(uint32_t class_code)
+pci_device_cache *pci_found_class_cache(pci_class_request class_req)
 {
+    uint32_t class_code     = class_req.class_code;
     pci_device_cache *cache = pci_cache.head;
     while (cache != 0) {
         if (cache->class_code == class_code || (cache->class_code & 0xffff00) == class_code) return cache;
