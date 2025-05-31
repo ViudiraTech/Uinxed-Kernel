@@ -67,6 +67,7 @@ typedef struct pci_device_ecam {
         volatile void **others;
 } pci_device_ecam;
 
+/* PCI cached searching */
 typedef struct pci_device_cache {
         pci_device *device;
         uint32_t value_c;
@@ -87,6 +88,51 @@ typedef struct pci_devices_cache {
         pci_device_cache *head;
         size_t devices_count;
 } pci_devices_cache;
+
+/* PCI device finding */
+enum pci_finding_type {
+    PCI_FOUND_CLASS,  // Search by class code
+    PCI_FOUND_DEVICE, // Search by vendor ID and device ID
+};
+
+typedef struct pci_class_request {
+        uint32_t class_code; // Class code
+} pci_class_request;
+
+typedef struct pci_device_request {
+        uint32_t vendor_id; // Vendor ID
+        uint32_t device_id; // Device ID
+} pci_device_request;
+
+enum pci_finding_error {
+    PCI_FINDING_SUCCESS = 0, // Success
+    PCI_FINDING_NOT_FOUND,   // Device not found
+    PCI_FINDING_ERROR,       // Other error
+};
+
+typedef struct pci_finding_response {
+        pci_device_cache *device;     // Found device cache
+        enum pci_finding_error error; // Error code, 0 if no error
+} pci_finding_response;
+
+typedef struct pci_finding_request {
+        enum pci_finding_type type;
+        union {
+                pci_class_request class_req;
+                pci_device_request device_req;
+        } req;
+        volatile pci_finding_response *response; // Response pointer
+} pci_finding_request;
+
+typedef struct pci_usable_node {
+        pci_finding_request *request; // Pointer to the request
+        struct pci_usable_node *next; // Pointer to the next node
+} pci_usable_node;
+
+typedef struct pci_usable_list {
+        pci_usable_node *head; // Head of the queue
+        size_t count;          // Number of requests in the queue
+} pci_usable_list;
 
 /* MCFG initialization */
 void mcfg_init(void *mcfg);
@@ -127,11 +173,8 @@ uint32_t pci_get_irq(pci_device_cache *device);
 /* Configuring PCI Devices */
 void pci_config(pci_device_cache *cache, uint32_t addr);
 
-/* Find PCI devices by vendor ID and device ID */
-int pci_found_device(uint32_t vendor_id, uint32_t device_id, pci_device_cache **device);
-
-/* Find PCI devices by class code */
-int pci_found_class(uint32_t class_code, pci_device_cache **device);
+/* Finding PCI devices */
+void pci_device_find(pci_finding_request *request);
 
 /* Returns the device name based on the class code */
 const char *pci_classname(uint32_t classcode);
@@ -142,14 +185,14 @@ pci_devices_cache *pci_get_devices_cache(void);
 /* Free the PCI devices cache */
 void free_devices_cache(void);
 
-/* Flush the PCI devices cache */
+/* Flush the PCI devices cache and update the responses of each `pci_finding_request` */
 void pci_flush_devices_cache(void);
 
 /* Found PCI devices cache by vender ID and device ID */
-pci_device_cache *pci_found_device_cache(uint32_t vendor_id, uint32_t device_id);
+pci_device_cache *pci_found_device_cache(pci_device_request device_req);
 
 /* Found PCI devices cache by class code */
-pci_device_cache *pci_found_class_cache(uint32_t class_code);
+pci_device_cache *pci_found_class_cache(pci_class_request class_req);
 
 /* PCI device initialization */
 void pci_init(void);
