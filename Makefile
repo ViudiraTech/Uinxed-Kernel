@@ -68,8 +68,10 @@ Uinxed-x64.iso: UxImage
 	$(Q)echo
 	$(Q)printf "\033[1;32m[ISO]\033[0m Packing ISO file...\n"
 	$(Q)cp -a assets/Limine iso
-	$(Q)cp $< iso/efi/boot
-	$(Q)xorriso -as mkisofs -R -r -J -iso-level 3 --efi-boot /efi/boot/limine-uefi-cd.bin -o Uinxed-x64.iso iso
+	$(Q)cp $< iso/EFI/Boot
+	$(Q)xorriso -as mkisofs -R -r -J -b Limine/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 \
+                -boot-info-table -hfsplus -apm-block-size 2048 -efi-boot-part --efi-boot-image --protective-msdos-label \
+                --efi-boot Limine/limine-uefi-cd.bin -o Uinxed-x64.iso iso
 
 	$(Q)$(RM) -rf iso
 	$(Q)printf "\033[1;32m[Done]\033[0m Compilation complete.\n\n"
