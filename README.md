@@ -1,5 +1,5 @@
 <div align="center"> 
-  <img height="200px" src="https://github.com/user-attachments/assets/ef586a12-6c55-4e8b-bdac-ab31411aa2de"/>
+  <img height="200px" src="https://github.com/user-attachments/assets/1fd6a3d5-5add-4244-83a2-8e0c651602d0"/>
   <h1 align="center">Uinxed-Kernel</h1>
   <h3 align="center">Welcome to the Uinxed-Kernel project</h3>
 </div>
