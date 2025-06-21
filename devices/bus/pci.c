@@ -191,14 +191,14 @@ void mcfg_init(void *mcfg)
     if (mcfg) {
         struct MCFG *inner = (struct MCFG *)mcfg;
         mcfg_info.count    = (inner->h.Length - sizeof(struct ACPISDTHeader) - 8) / sizeof(struct mcfg_entry);
-        plogk("ACPI: MCFG found with %d entries\n", mcfg_info.count);
+        plogk("MCFG: MCFG found with %d entries\n", mcfg_info.count);
         for (size_t i = 0; i < mcfg_info.count; i++) {
             /* Convert to the virtual address */
             inner->entries[i].base_addr = (uint64_t)phys_to_virt(inner->entries[i].base_addr);
-            plogk("ACPI: mcfg->entries[%d] base address: %p\n", i, inner->entries[i].base_addr);
-            plogk("ACPI: mcfg->entries[%d] segment: %d\n", i, inner->entries[i].segment);
-            plogk("ACPI: mcfg->entries[%d] start bus: %d\n", i, inner->entries[i].start_bus);
-            plogk("ACPI: mcfg->entries[%d] end bus: %d\n", i, inner->entries[i].end_bus);
+            plogk("MCFG: mcfg->entries[%d] base address: %p\n", i, inner->entries[i].base_addr);
+            plogk("MCFG: mcfg->entries[%d] segment: %d\n", i, inner->entries[i].segment);
+            plogk("MCFG: mcfg->entries[%d] start bus: %d\n", i, inner->entries[i].start_bus);
+            plogk("MCFG: mcfg->entries[%d] end bus: %d\n", i, inner->entries[i].end_bus);
         }
         mcfg_info.mcfg    = inner;
         mcfg_info.enabled = 1;

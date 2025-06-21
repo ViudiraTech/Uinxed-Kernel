@@ -18,7 +18,8 @@
 #include "stdint.h"
 #include "string.h"
 
-XSDT *xsdt;
+XSDT *xsdt = 0;
+RSDT *rsdt = 0;
 
 __attribute__((used, section(".limine_requests"))) volatile struct limine_rsdp_request rsdp_request = {
     .id       = LIMINE_RSDP_REQUEST,
@@ -28,17 +29,27 @@ __attribute__((used, section(".limine_requests"))) volatile struct limine_rsdp_r
 /* Find the corresponding ACPI table in XSDT */
 void *find_table(const char *name)
 {
-    uint64_t entry_count = (xsdt->h.Length - 32) / 8;
-    uint64_t *t          = (uint64_t *)((char *)xsdt + __builtin_offsetof(XSDT, PointerToOtherSDT));
+    int use_xsdt = xsdt != 0;
+    if (!use_xsdt && rsdt == 0) {
+        plogk("ACPI: No RSDT/XSDT available.\n");
+        return 0;
+    }
+    void *table_ptr          = use_xsdt ? (void *)xsdt : (void *)rsdt;
+    struct ACPISDTHeader sdt = use_xsdt ? xsdt->h : rsdt->h;
 
-    for (uint64_t i = 0; i < entry_count; i++) {
-        struct ACPISDTHeader *ptr = (struct ACPISDTHeader *)phys_to_virt((uint64_t) * (t + i));
+    uint32_t entry_size  = use_xsdt ? 8 : 4;
+    uint32_t entry_count = (sdt.Length - sizeof(struct ACPISDTHeader)) / entry_size;
+    char *entry_base     = (char *)table_ptr + sizeof(struct ACPISDTHeader);
+
+    for (uint32_t i = 0; i < entry_count; i++) {
+        uint64_t phys_addr = (entry_size == 8) ? ((uint64_t *)entry_base)[i] : (uint64_t)((uint32_t *)entry_base)[i];
+        struct ACPISDTHeader *ptr = (struct ACPISDTHeader *)phys_to_virt(phys_addr);
         if (memcmp(ptr->Signature, name, 4) == 0) {
-            plogk("ACPI: %.4s %p\n", name, ptr);
+            plogk("ACPI: %.4s found at %p\n", name, ptr);
             return (void *)ptr;
         }
     }
-    plogk("ACPI: Table '%.4s' not found in XSDT\n", name);
+    plogk("ACPI: Table %.4s not found in %s\n", name, use_xsdt ? "XSDT" : "RSDT");
     return 0;
 }
 
@@ -52,50 +63,20 @@ void acpi_init(void)
         plogk("ACPI: RSDP not found.\n");
         return;
     }
-    plogk("ACPI: RSDP %p\n", rsdp);
+    plogk("ACPI: RSDP found at %p\n", rsdp);
 
-    PointerCast xsdt_ptr;
-    xsdt_ptr.val = rsdp->xsdt_address;
-    xsdt         = (XSDT *)xsdt_ptr.ptr;
-
-    if (xsdt == 0) {
-        plogk("ACPI: XSDT not found.\n");
-        return;
+    if (rsdp->revision >= 2 && rsdp->xsdt_address != 0) {
+        xsdt = (XSDT *)phys_to_virt(rsdp->xsdt_address);
+        if (xsdt == 0) { plogk("ACPI: XSDT pointer in RSDP is null.\n"); }
+        plogk("ACPI: XSDT found at %p\n", xsdt);
+    } else {
+        rsdt = (RSDT *)phys_to_virt(rsdp->rsdt_address);
+        if (rsdt == 0) { plogk("ACPI: RSDT pointer in RSDP is null.\n"); }
+        plogk("ACPI: RSDT found at %p\n", rsdt);
     }
-    xsdt = (XSDT *)phys_to_virt((uint64_t)xsdt);
-    plogk("ACPI: XSDT %p\n", xsdt);
 
-    void *hpet = find_table("HPET");
-    if (hpet == 0) {
-        plogk("ACPI: HPET table not found.\n");
-        return;
-    } else
-        hpet_init(hpet);
-
-    void *apic = find_table("APIC");
-    if (apic == 0) {
-        plogk("ACPI: APIC table not found.\n");
-        return;
-    } else
-        apic_init(apic);
-
-    void *facp = find_table("FACP");
-    if (facp == 0) {
-        plogk("ACPI: FACP table not found.\n");
-        return;
-    } else
-        facp_init(facp);
-
-    void *mcfg = find_table("MCFG");
-    if (mcfg == 0) {
-        plogk("ACPI: MCFG table not found.\n");
-        return;
-    } else
-        mcfg_init(mcfg);
-
-    void *bgrt = find_table("BGRT");
-    if (bgrt == 0) {
-        plogk("ACPI: BGRT table not found.\n");
-        return;
-    }
+    load_table(HPET, hpet_init);
+    load_table(APIC, apic_init);
+    load_table(FACP, facp_init);
+    load_table(MCFG, mcfg_init);
 }

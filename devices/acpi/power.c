@@ -37,11 +37,11 @@ void facp_init(acpi_facp_t *facp0)
     dsdt_table_t *dsdtTable = (dsdt_table_t *)dsdt.ptr;
 
     if (dsdtTable == 0) {
-        plogk("ACPI: DSDT table not found.\n");
+        plogk("FACP: DSDT table not found.\n");
         return;
     } else {
         dsdtTable = phys_to_virt((uint64_t)dsdtTable);
-        plogk("ACPI: DSDT %p\n", dsdtTable);
+        plogk("FACP: DSDT found at %p\n", dsdtTable);
     }
     if (!memcmp(dsdtTable->signature, "DSDT", 4)) {
         S5Addr  = &(dsdtTable->definition_block);
@@ -63,26 +63,26 @@ void facp_init(acpi_facp_t *facp0)
                 if (*S5Addr == 0x0a) S5Addr++;
                 SLP_TYPb = *(S5Addr) << 10;
                 S5Addr++;
-                plogk("ACPI: SLP_TYPa = 0x%04hx, SLP_TYPb = 0x%04hx\n", SLP_TYPa, SLP_TYPb);
+                plogk("FACP: SLP_TYPa = 0x%04hx, SLP_TYPb = 0x%04hx\n", SLP_TYPa, SLP_TYPb);
             }
         } else if (dsdtlen) {
-            plogk("ACPI: Invalid _S5_ prefix\n");
+            plogk("FACP: Invalid _S5_ prefix\n");
         } else {
-            plogk("ACPI: _S5_ not found in DSDT.\n");
+            plogk("FACP: _S5_ not found in DSDT.\n");
         }
     } else {
-        plogk("ACPI: Invalid DSDT signature.\n");
+        plogk("FACP: Invalid DSDT signature.\n");
     }
     if (inw(facp->pm1a_cnt_blk) & SCI_EN) {
-        plogk("ACPI: SCI already enabled.\n");
+        plogk("FACP: SCI already enabled.\n");
         return;
     }
     if (SMI_CMD && facp->acpi_enable) {
-        plogk("ACPI: Enabling ACPI via SMI command.\n");
+        plogk("FACP: Enabling ACPI via SMI command.\n");
         outb(SMI_CMD, facp->acpi_enable);
         for (i = 0; i < 300; i++) {
             if (inw(facp->pm1a_cnt_blk) & SCI_EN) {
-                plogk("ACPI: ACPI enabled successfully.\n");
+                plogk("FACP: ACPI enabled successfully.\n");
                 break;
             }
             nsleep(5);
@@ -90,14 +90,14 @@ void facp_init(acpi_facp_t *facp0)
         if (facp->pm1b_cnt_blk) {
             for (int i = 0; i < 300; i++) {
                 if (inw(facp->pm1b_cnt_blk) & SCI_EN) {
-                    plogk("ACPI: ACPI enabled successfully.\n");
+                    plogk("FACP: ACPI enabled successfully.\n");
                     break;
                 }
                 nsleep(5);
             }
         }
         if (i < 300) {
-            plogk("ACPI: ACPI enable failed.\n");
+            plogk("FACP: ACPI enable failed.\n");
             return;
         }
     }

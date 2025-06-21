@@ -30,7 +30,7 @@ void *phys_to_virt(uint64_t phys_addr)
 {
     PointerCast virt_addr;
     if (phys_addr & hhdm_request.response->offset) {
-        printk_unsafe("Unsafe! 0x%016llx in PhysToVirt.\n", phys_addr);
+        plogk_unsafe("Unsafe! 0x%016llx in phys_to_virt.\n", phys_addr);
         dump_stack();
     }
 
@@ -44,7 +44,7 @@ void *virt_to_phys(uint64_t virt_addr)
 {
     PointerCast phys_addr;
     if (!(virt_addr & hhdm_request.response->offset)) {
-        printk_unsafe("Unsafe! 0x%016llx in VirtToPhys.\n", virt_addr);
+        plogk_unsafe("Unsafe! 0x%016llx in virt_to_phys.\n", virt_addr);
         dump_stack();
     }
 

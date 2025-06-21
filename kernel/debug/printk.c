@@ -51,7 +51,7 @@ void printk_unsafe(const char *format, ...)
 /* Kernel print log with overflow check */
 void plogk_unsafe(const char *format, ...)
 {
-    printk_unsafe("[%5d.%06d]", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
+    printk_unsafe("[%5d.%06d] ", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
     static char buff[2048];
     va_list args;
     va_start(args, format);
@@ -63,7 +63,7 @@ void plogk_unsafe(const char *format, ...)
 /* Kernel print log */
 void plogk(const char *format, ...)
 {
-    printk("[%5d.%06d]", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
+    printk("[%5d.%06d] ", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
 
     static char buff[BUF_SIZE];
     va_list args;

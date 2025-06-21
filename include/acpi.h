@@ -15,6 +15,12 @@
 #include "stddef.h"
 #include "stdint.h"
 
+#define load_table(tblname, func)                          \
+    do {                                                   \
+        void *tblname##_ptr = find_table(#tblname);        \
+        if ((tblname##_ptr) != 0) (func)((tblname##_ptr)); \
+    } while (0)
+
 struct ACPISDTHeader {
         char Signature[4];
         uint32_t Length;
@@ -38,6 +44,11 @@ typedef struct {
         uint8_t extended_checksum; // Extended Checksum
         uint8_t reserved[3];       // Reserved Fields
 } __attribute__((packed)) RSDP;
+
+typedef struct {
+        struct ACPISDTHeader h;
+        uint32_t PointerToOtherSDT;
+} __attribute__((packed)) RSDT;
 
 typedef struct {
         struct ACPISDTHeader h;
