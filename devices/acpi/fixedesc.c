@@ -1,7 +1,7 @@
 /*
  *
- *      power.c
- *      Power Management
+ *      fixedesc.c
+ *      Fixed ACPI Description Table
  *
  *      2025/2/16 By MicroFish
  *      Based on GPL-3.0 open source agreement
@@ -121,4 +121,19 @@ void power_off(void)
         outw((uint32_t)facp->pm1a_cnt_blk, SLP_TYPa | SLP_EN);
         if (!facp->pm1b_cnt_blk) outw((uint32_t)facp->pm1b_cnt_blk, SLP_TYPb | SLP_EN);
     }
+}
+
+/* Obtain ACPI major version */
+uint8_t get_acpi_version_major(void)
+{
+    if (!facp) return 0;
+    return facp->h.Revision;
+}
+
+/* Obtain ACPI minor version */
+uint16_t get_acpi_version_minor(void)
+{
+    if (!facp) return 0;
+    if (facp->h.Length < sizeof(acpi_facp_t)) return 0;
+    return *(uint16_t *)((uint8_t *)facp + facp->h.Length - 2);
 }

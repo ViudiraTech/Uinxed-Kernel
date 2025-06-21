@@ -204,4 +204,10 @@ void power_reset(void);
 /* Power off */
 void power_off(void);
 
+/* Obtain ACPI major version */
+uint8_t get_acpi_version_major(void);
+
+/* Obtain ACPI minor version */
+uint16_t get_acpi_version_minor(void);
+
 #endif // INCLUDE_ACPI_H_

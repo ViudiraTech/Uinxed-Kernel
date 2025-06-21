@@ -63,6 +63,7 @@ void acpi_init(void)
         plogk("ACPI: RSDP not found.\n");
         return;
     }
+    plogk("ACPI: Version %s\n", rsdp->revision ? "2.0+" : "1.0");
     plogk("ACPI: RSDP found at %p\n", rsdp);
 
     if (rsdp->revision >= 2 && rsdp->xsdt_address != 0) {
