@@ -97,6 +97,7 @@ Uinxed-x86_64/
 ├── .git/            # Version management
 ├── assets/          # Boot and scripts
 ├── devices/         # Device driver
+├── docs/            # Related Documents
 ├── include/         # Header file
 ├── init/            # Code entry
 ├── kernel/          # Kernel part
