@@ -66,14 +66,22 @@ void acpi_init(void)
     plogk("ACPI: Version %s\n", rsdp->revision ? "2.0+" : "1.0");
     plogk("ACPI: RSDP found at %p\n", rsdp);
 
-    if (rsdp->revision >= 2 && rsdp->xsdt_address != 0) {
-        xsdt = (XSDT *)phys_to_virt(rsdp->xsdt_address);
-        if (xsdt == 0) { plogk("ACPI: XSDT pointer in RSDP is null.\n"); }
-        plogk("ACPI: XSDT found at %p\n", xsdt);
+    if (rsdp->revision >= 2) {
+        if (rsdp->xsdt_address == 0) {
+            plogk("ACPI: XSDT pointer in RSDP is null.\n");
+        } else {
+            PointerCast xsdt_ptr = {.val = rsdp->xsdt_address};
+            xsdt                 = (XSDT *)phys_to_virt(xsdt_ptr.val);
+            plogk("ACPI: XSDT found at %p\n", xsdt);
+        }
     } else {
-        rsdt = (RSDT *)phys_to_virt(rsdp->rsdt_address);
-        if (rsdt == 0) { plogk("ACPI: RSDT pointer in RSDP is null.\n"); }
-        plogk("ACPI: RSDT found at %p\n", rsdt);
+        if (rsdp->rsdt_address == 0) {
+            plogk("ACPI: RSDT pointer in RSDP is null.\n");
+        } else {
+            PointerCast rsdt_ptr = {.val = rsdp->rsdt_address};
+            rsdt                 = (RSDT *)phys_to_virt(rsdt_ptr.val);
+            plogk("ACPI: RSDT found at %p\n", rsdt);
+        }
     }
 
     load_table(HPET, hpet_init);
