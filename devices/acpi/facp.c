@@ -1,6 +1,6 @@
 /*
  *
- *      fixedesc.c
+ *      facp.c
  *      Fixed ACPI Description Table
  *
  *      2025/2/16 By MicroFish

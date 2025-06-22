@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/License-GPLv3-blue"/>
   <img src="https://img.shields.io/badge/Language-2-orange"/>
   <img src="https://img.shields.io/badge/hardware-x64-green"/>
-  <img src="https://img.shields.io/badge/firmware-UEFI-yellow"/>
+  <img src="https://img.shields.io/badge/firmware-UEFI/Legacy-yellow"/>
 </div>
 
 ## Overview 💡
@@ -19,6 +19,7 @@ Uinxed is a Unix-like operating system kernel developed from scratch, focusing o
 
 - **x86_64 architecture support**: optimized for modern 64-bit x86 processors
 - **UEFI boot**: uses UEFI as the boot mode to support modern hardware platforms
+- **Legacy boot**: Compatible with traditional Legacy boot
 - **Memory management**:
   - Physical memory frame allocator
   - Virtual memory page management
@@ -34,10 +35,10 @@ Uinxed is a Unix-like operating system kernel developed from scratch, focusing o
 
 ### Required Tools
 
-1. **Make**: Used to build projects
-2. **GCC**: GCC Version 13.3.0+ is recommended
-3. **QEMU**: Used for simulation testing
-4. **Xorriso**: Used to build ISO image files
+1. **make**: Used to build projects
+2. **gcc**: GCC Version 13.3.0+ is recommended
+3. **qemu**: Used for simulation testing
+4. **xorriso**: Used to build ISO image files
 5. **clang-format**: Used to format the code
 6. **clang-tidy**: Used for static analysis of code
 
@@ -65,8 +66,8 @@ sudo apk add make gcc qemu-system xorriso clang-format clang-tidy
 ### Clone the project
 
 ```bash
-git clone https://github.com/FengHeting/Uinxed-x86_64.git
-cd Uinxed-x86_64
+git clone https://github.com/ViudiraTech/Uinxed-Kernel.git
+cd Uinxed-Kernel
 ```
 
 ### Start Compiling
@@ -85,10 +86,20 @@ make run
 
 ### Actual hardware operation
 
+#### UEFI Boot
+
 1. Convert the USB drive or hard disk to a GPT partition table and create an ESP partition.
 2. Copy the efi folder in the project directory ./assets/Limine to the ESP partition.
 3. Copy the compiled kernel (UxImage) to ./efi/boot/ in your ESP partition.
 4. Boot from a physical machine (must be in 64-bit UEFI mode and CSM is disabled)
+
+#### Legacy Boot
+
+1. Prepare a blank data disc and a CD burner.
+2. Burn the iso image file to a data disc.
+3. Insert the disc into the physical machine and boot it in Legacy mode.
+4. If it is inconvenient for you to burn a CD, you can find an empty USB drive, flash Ventoy into it, put the iso image into the USB drive with Ventoy flashed, and then insert it into the physical machine to boot through MBR, which can achieve the same effect.
+5. Since Legacy mode is very old, booting from a hard disk in Legacy mode is not currently supported.
 
 ## Project Structure 📁
 
@@ -207,7 +218,7 @@ Fish can't live without water.
 ## Open source code or projects used by the project 🎈
 
 - Hurlex-Kernel:[http://wiki.0xffffff.org/](http://wiki.0xffffff.org/)
-- CoolPotOS:[https://github.com/xiaoyi1212/CoolPotOS](https://github.com/plos-clan/CoolPotOS)
+- CoolPotOS:[https://github.com/plos-clan/CoolPotOS](https://github.com/plos-clan/CoolPotOS)
 
 ## license 📜
 
