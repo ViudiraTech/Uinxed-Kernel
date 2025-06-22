@@ -43,7 +43,7 @@ void video_init(void);
 void video_clear(void);
 
 /* Clear screen with color */
-void video_clear_color(int color);
+void video_clear_color(uint32_t color);
 
 /* Scroll to a position that units are characters */
 void video_move_to(uint32_t cx, uint32_t cy);
@@ -61,18 +61,18 @@ uint32_t video_get_pixel(uint32_t x, uint32_t y);
 void video_invoke_area(position p0, position p1, void (*callback)(position p));
 
 /* Draw a matrix at the specified coordinates on the screen */
-void video_draw_rect(position p0, position p1, int color);
+void video_draw_rect(position p0, position p1, uint32_t color);
 
 /* Draw a character at the specified coordinates on the screen */
-void video_draw_char(const char c, uint32_t x, uint32_t y, int color);
+void video_draw_char(const char c, uint32_t x, uint32_t y, uint32_t color);
 
 /* Print a character at the specified coordinates on the screen */
-void video_put_char(const char c, int color);
+void video_put_char(const char c, uint32_t color);
 
 /* Print a string at the specified coordinates on the screen */
 void video_put_string(const char *str);
 
 /* Print a string with color at the specified coordinates on the screen */
-void video_put_string_color(const char *str, int color);
+void video_put_string_color(const char *str, uint32_t color);
 
 #endif // INCLUDE_VIDEO_H_

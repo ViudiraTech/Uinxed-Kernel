@@ -87,7 +87,7 @@ void video_clear(void)
 }
 
 /* Clear screen with color */
-void video_clear_color(int color)
+void video_clear_color(uint32_t color)
 {
     for (uint32_t i = 0; i < (width * height); i++) buffer[i] = color;
     back_color = color;
@@ -149,7 +149,7 @@ void video_invoke_area(position p0, position p1, void (*callback)(position p))
 }
 
 /* Draw a matrix at the specified coordinates on the screen */
-void video_draw_rect(position p0, position p1, int color)
+void video_draw_rect(position p0, position p1, uint32_t color)
 {
     uint32_t x0 = p0.x;
     uint32_t y0 = p0.y;
@@ -161,7 +161,7 @@ void video_draw_rect(position p0, position p1, int color)
 }
 
 /* Draw a character at the specified coordinates on the screen */
-void video_draw_char(const char c, uint32_t x, uint32_t y, int color)
+void video_draw_char(const char c, uint32_t x, uint32_t y, uint32_t color)
 {
     uint8_t *font = ascfont;
     font += (size_t)c * 16;
@@ -177,7 +177,7 @@ void video_draw_char(const char c, uint32_t x, uint32_t y, int color)
 }
 
 /* Print a character at the specified coordinates on the screen */
-void video_put_char(const char c, int color)
+void video_put_char(const char c, uint32_t color)
 {
     uint32_t x;
     uint32_t y;
@@ -217,11 +217,11 @@ void video_put_char(const char c, int color)
 /* Print a string at the specified coordinates on the screen */
 void video_put_string(const char *str)
 {
-    for (; *str; ++str) video_put_char(*str, (int)fore_color);
+    for (; *str; ++str) video_put_char(*str, fore_color);
 }
 
 /* Print a string with color at the specified coordinates on the screen */
-void video_put_string_color(const char *str, int color)
+void video_put_string_color(const char *str, uint32_t color)
 {
     for (; *str; ++str) video_put_char(*str, color);
 }

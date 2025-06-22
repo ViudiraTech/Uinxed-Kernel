@@ -259,13 +259,13 @@ repeat:
             case 'x' :
                 flags |= SMALL; // fallthrough
             case 'X' :
-                str = number(str, num, 16, field_width, precision, flags);
+                str = number(str, num, 16, (size_t)field_width, (size_t)precision, flags);
                 break;
             case 'd' :
             case 'i' :
                 flags |= SIGN; // fallthrough
             case 'u' :
-                str = number(str, num, 10, field_width, precision, flags);
+                str = number(str, num, 10, field_width, (size_t)precision, flags);
                 break;
             case 'b' :
                 str = number(str, num, 2, field_width, precision, flags);
