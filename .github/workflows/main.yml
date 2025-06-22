@@ -4,13 +4,11 @@ on:
   push:
     paths-ignore:
       - '.gitignore'
-      - 'Kconfig'
       - 'LICENSE'
       - 'README.md'
   pull_request:
     paths-ignore:
       - '.gitignore'
-      - 'Kconfig'
       - 'LICENSE'
       - 'README.md'
 
