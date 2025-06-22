@@ -21,13 +21,13 @@ jobs:
         run: make VERBOSE=1
 
       - name: Upload ISO file as artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Uinxed-x64.iso
           path: ./Uinxed-x64.iso
 
       - name: Upload Kernel file as artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: UxImage
           path: ./UxImage
