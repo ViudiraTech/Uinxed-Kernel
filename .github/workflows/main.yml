@@ -1,0 +1,33 @@
+name: CI Workflow
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install packages
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: make gcc qemu-system xorriso clang-format clang-tidy
+          version: 1.0
+
+      - name: Build Project
+        run: make VERBOSE=1
+
+      - name: Upload ISO file as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: Uinxed-x64.iso
+          path: ./Uinxed-x64.iso
+
+      - name: Upload Kernel file as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: UxImage
+          path: ./UxImage
