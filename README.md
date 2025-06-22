@@ -6,7 +6,7 @@
 
 <div align="center">
   <img src="https://img.shields.io/badge/License-GPLv3-blue"/>
-  <img src="https://img.shields.io/badge/Language-2-orange"/>
+  <img src="https://img.shields.io/badge/Language-3-orange"/>
   <img src="https://img.shields.io/badge/hardware-x64-green"/>
   <img src="https://img.shields.io/badge/firmware-UEFI/Legacy-yellow"/>
 </div>
