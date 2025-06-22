@@ -1,0 +1,13 @@
+mainmenu "Uinxed-Kernel"
+
+menu "General setup"
+menu "Kernel debugging"
+
+config KERNEL_LOG
+    bool "Kernel log"
+    default y
+    help
+        "Enable or disable kernel log output."
+
+endmenu
+endmenu

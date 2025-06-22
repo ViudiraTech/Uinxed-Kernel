@@ -51,6 +51,7 @@ void printk_unsafe(const char *format, ...)
 /* Kernel print log with overflow check */
 void plogk_unsafe(const char *format, ...)
 {
+#ifdef KERNEL_LOG
     printk_unsafe("[%5d.%06d] ", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
     static char buff[2048];
     va_list args;
@@ -58,11 +59,16 @@ void plogk_unsafe(const char *format, ...)
     vsprintf(buff, format, args); // NOLINT
     tty_print_str(buff);
     va_end(args);
+#else
+    (void)format;
+    return;
+#endif
 }
 
 /* Kernel print log */
 void plogk(const char *format, ...)
 {
+#ifdef KERNEL_LOG
     printk("[%5d.%06d] ", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
 
     static char buff[BUF_SIZE];
@@ -76,6 +82,10 @@ void plogk(const char *format, ...)
         if (sig == 0) break;
     }
     va_end(args);
+#else
+    (void)format;
+    return;
+#endif
 }
 
 /* Store the formatted output in a character array */

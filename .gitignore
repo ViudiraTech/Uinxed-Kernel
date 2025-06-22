@@ -50,6 +50,10 @@ Uinxed-x64.iso
 # Clangd
 .clangd
 
+# kconfig
+.config
+.config.old
+
 # Other
 .cache/
 compile_commands.json

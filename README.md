@@ -47,18 +47,18 @@ Uinxed is a Unix-like operating system kernel developed from scratch, focusing o
 **Debian & Ubuntu & Kali**
 ```bash
 sudo apt update
-sudo apt install make gcc qemu-system xorriso clang-format clang-tidy
+sudo apt install make gcc qemu-system xorriso clang-format clang-tidy kconfig-frontends libncurses-dev
 ```
 
 **ArchLinux**
 ```bash
-pacman -Sy make gcc qemu-system xorriso clang-format clang-tidy
+pacman -Sy make gcc qemu-system xorriso clang-format clang-tidy kconfig-frontends libncurses-dev
 ```
 
 **Alpine**
 ```bash
 sudo apk update
-sudo apk add make gcc qemu-system xorriso clang-format clang-tidy
+sudo apk add make gcc qemu-system xorriso clang-format clang-tidy kconfig-frontends libncurses-dev
 ```
 
 ## Compilation Guide 📖

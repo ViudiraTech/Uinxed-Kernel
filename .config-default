@@ -1,0 +1,13 @@
+#
+# Automatically generated file; DO NOT EDIT.
+# Uinxed-Kernel
+#
+
+#
+# General setup
+#
+
+#
+# Kernel debugging
+#
+CONFIG_KERNEL_LOG=y
