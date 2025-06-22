@@ -88,20 +88,10 @@ make run
 
 ### Actual hardware operation
 
-#### UEFI Boot
-
 1. Convert the USB drive or hard disk to a GPT partition table and create an ESP partition.
 2. Copy the efi folder in the project directory ./assets/Limine to the ESP partition.
 3. Copy the compiled kernel (UxImage) to ./efi/boot/ in your ESP partition.
 4. Boot from a physical machine (must be in 64-bit UEFI mode and CSM is disabled)
-
-#### Legacy Boot
-
-1. Prepare a blank data disc and a CD burner.
-2. Burn the iso image file to a data disc.
-3. Insert the disc into the physical machine and boot it in Legacy mode.
-4. If it is inconvenient for you to burn a CD, you can find an empty USB drive, flash Ventoy into it, put the iso image into the USB drive with Ventoy flashed, and then insert it into the physical machine to boot through MBR, which can achieve the same effect.
-5. Since Legacy mode is very old, booting from a hard disk in Legacy mode is not currently supported.
 
 ## Project Structure 📁
 
