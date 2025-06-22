@@ -116,11 +116,11 @@ Uinxed-x86_64/
 ├── init/            # Code entry.
 ├── kernel/          # Kernel part.
 ├── libs/            # Library file.
-├── scripts/         # Helper Scripts.
 ├── .clangd_template # Clangd configuration template.
 ├── .clang-format    # Formatting Configuration Files.
 ├── .config-default  # Default configuration options.
 ├── .gitignore       # Ignore rules.
+├── Kconfig          # Project Configuration File.
 ├── LICENSE          # Open source agreement.
 ├── Makefile         # Build script.
 └── README.md        # Project introduction.
