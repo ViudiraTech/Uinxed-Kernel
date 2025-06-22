@@ -35,12 +35,14 @@ Uinxed is a Unix-like operating system kernel developed from scratch, focusing o
 
 ### Required Tools
 
-1. **make**: Used to build projects
-2. **gcc**: GCC Version 13.3.0+ is recommended
-3. **qemu**: Used for simulation testing
-4. **xorriso**: Used to build ISO image files
-5. **clang-format**: Used to format the code
-6. **clang-tidy**: Used for static analysis of code
+1. **make**: Used to build projects.
+2. **gcc**: GCC Version 13.3.0+ is recommended.
+3. **qemu**: Used for simulation testing.
+4. **xorriso**: Used to build ISO image files.
+5. **clang-format**: Used to format the code.
+6. **clang-tidy**: Used for static analysis of code.
+7. **kconfig-frontends**: Provides a graphical configuration menu.
+8. **libncurses-dev**: Text-based user interface library.
 
 ### Installation Steps
 
@@ -105,27 +107,29 @@ make run
 
 ```
 Uinxed-x86_64/
-├── .git/            # Version management
-├── assets/          # Boot and scripts
-├── devices/         # Device driver
-├── docs/            # Related Documents
-├── include/         # Header file
-├── init/            # Code entry
-├── kernel/          # Kernel part
-├── libs/            # Library file
-├── scripts/         # Helper Scripts
-├── .clangd_template # Clangd configuration template
-├── .clang-format    # Formatting Configuration Files
-├── .gitignore       # Ignore rules
-├── LICENSE          # Open source agreement
-├── Makefile         # Build script
-└── README.md        # Project introduction
+├── .git/            # Version management.
+├── .github/         # Github configuration file.
+├── assets/          # Boot and scripts.
+├── devices/         # Device driver.
+├── docs/            # Related Documents.
+├── include/         # Header file.
+├── init/            # Code entry.
+├── kernel/          # Kernel part.
+├── libs/            # Library file.
+├── scripts/         # Helper Scripts.
+├── .clangd_template # Clangd configuration template.
+├── .clang-format    # Formatting Configuration Files.
+├── .config-default  # Default configuration options.
+├── .gitignore       # Ignore rules.
+├── LICENSE          # Open source agreement.
+├── Makefile         # Build script.
+└── README.md        # Project introduction.
 ```
 
 ```
 Uinxed-x86_64/
-├── UxImage         # Kernel file
-└── Uinxed-x64.iso  # Bootable image
+├── UxImage         # Kernel file.
+└── Uinxed-x64.iso  # Bootable image.
 ```
 
 ## FAQ 🔍
