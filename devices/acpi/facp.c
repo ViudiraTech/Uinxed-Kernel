@@ -19,7 +19,6 @@
 
 uint16_t SLP_TYPa;
 uint16_t SLP_TYPb;
-uint32_t SMI_CMD;
 uint16_t SLP_EN;
 uint16_t SCI_EN;
 acpi_facp_t *facp;
@@ -77,9 +76,9 @@ void facp_init(acpi_facp_t *facp0)
         plogk("FACP: SCI already enabled.\n");
         return;
     }
-    if (SMI_CMD && facp->acpi_enable) {
+    if (facp->smi_cmd && facp->acpi_enable) {
         plogk("FACP: Enabling ACPI via SMI command.\n");
-        outb(SMI_CMD, facp->acpi_enable);
+        outb(facp->smi_cmd, facp->acpi_enable);
         for (i = 0; i < 300; i++) {
             if (inw(facp->pm1a_cnt_blk) & SCI_EN) {
                 plogk("FACP: ACPI enabled successfully.\n");
@@ -119,7 +118,7 @@ void power_off(void)
     if (!SCI_EN) return;
     while (1) {
         outw((uint32_t)facp->pm1a_cnt_blk, SLP_TYPa | SLP_EN);
-        if (!facp->pm1b_cnt_blk) outw((uint32_t)facp->pm1b_cnt_blk, SLP_TYPb | SLP_EN);
+        if (facp->pm1b_cnt_blk) outw((uint32_t)facp->pm1b_cnt_blk, SLP_TYPb | SLP_EN);
     }
 }
 
