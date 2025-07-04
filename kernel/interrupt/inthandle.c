@@ -18,85 +18,85 @@ void page_fault_handle(interrupt_frame_t *frame, uint64_t error_code);
 __attribute__((interrupt)) static void ISR_0_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    panic("Kernel exception: #DE\n");
+    panic("Kernel exception: #DE");
 }
 
 __attribute__((interrupt)) static void ISR_1_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    panic("Kernel exception: #DB\n");
+    panic("Kernel exception: #DB");
 }
 
 __attribute__((interrupt)) static void ISR_2_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    panic("Kernel fatal error: NMI\n");
+    panic("Kernel fatal error: NMI");
 }
 
 __attribute__((interrupt)) static void ISR_3_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    panic("Kernel breakpoint exception: BP\n");
+    panic("Kernel breakpoint exception: BP");
 }
 
 __attribute__((interrupt)) static void ISR_4_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    panic("Kernel exception: #OF\n");
+    panic("Kernel exception: #OF");
 }
 
 __attribute__((interrupt)) static void ISR_5_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    panic("Kernel exception: #BR\n");
+    panic("Kernel exception: #BR");
 }
 
 __attribute__((interrupt)) static void ISR_6_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    panic("Kernel exception: #UD\n");
+    panic("Kernel exception: #UD");
 }
 
 __attribute__((interrupt)) static void ISR_7_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    panic("Kernel exception: #NM\n");
+    panic("Kernel exception: #NM");
 }
 
 __attribute__((interrupt)) static void ISR_8_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    panic("Kernel exception: #DF\n");
+    panic("Kernel exception: #DF");
 }
 
 __attribute__((interrupt)) static void ISR_9_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    panic("Kernel exception: Coprocessor Segment Overrun\n");
+    panic("Kernel exception: Coprocessor Segment Overrun");
 }
 
 __attribute__((interrupt)) static void ISR_10_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    panic("Kernel exception: #TS\n");
+    panic("Kernel exception: #TS");
 }
 
 __attribute__((interrupt)) static void ISR_11_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    panic("Kernel exception: #NP\n");
+    panic("Kernel exception: #NP");
 }
 
 __attribute__((interrupt)) static void ISR_12_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    panic("Kernel exception: #SS\n");
+    panic("Kernel exception: #SS");
 }
 
 __attribute__((interrupt)) static void ISR_13_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    panic("Kernel exception: #GP\n");
+    panic("Kernel exception: #GP");
 }
 
 /* ISR 14 will be define by pagine program */
@@ -106,25 +106,25 @@ __attribute__((interrupt)) static void ISR_13_handle(interrupt_frame_t *frame)
 __attribute__((interrupt)) static void ISR_16_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    panic("Kernel exception: #MF\n");
+    panic("Kernel exception: #MF");
 }
 
 __attribute__((interrupt)) static void ISR_17_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    panic("Kernel exception: #AC\n");
+    panic("Kernel exception: #AC");
 }
 
 __attribute__((interrupt)) static void ISR_18_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    panic("Kernel exception: #MC\n");
+    panic("Kernel exception: #MC");
 }
 
 __attribute__((interrupt)) static void ISR_19_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    panic("Kernel exception: #XM\n");
+    panic("Kernel exception: #XM");
 }
 
 /* Register ISR interrupt processing */
