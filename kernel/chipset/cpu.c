@@ -191,7 +191,7 @@ uint32_t get_tsc_freq(void)
 {
     uint32_t eax, ebx, ecx, edx;
     cpuid(0x00000015, &eax, &ebx, &ecx, &edx);
-    return ((ecx * ebx) / eax); 
+    return ((ecx * ebx) / eax);
 }
 
 /* Get bus frequency */
@@ -199,5 +199,5 @@ uint32_t get_bus_freq(void)
 {
     uint32_t eax, ebx, ecx, edx;
     cpuid(0x00000016, &eax, &ebx, &ecx, &edx);
-    return ((ecx & 0xffff) * 1000000); 
+    return ((ecx & 0xffff) * 1000000);
 }
