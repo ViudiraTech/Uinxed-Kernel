@@ -191,14 +191,14 @@ void mcfg_init(void *mcfg)
     if (mcfg) {
         struct MCFG *inner = (struct MCFG *)mcfg;
         mcfg_info.count    = (inner->h.Length - sizeof(struct ACPISDTHeader) - 8) / sizeof(struct mcfg_entry);
-        plogk("MCFG: MCFG found with %d entries\n", mcfg_info.count);
+        plogk("MCFG: MCFG found with %lu entries\n", mcfg_info.count);
         for (size_t i = 0; i < mcfg_info.count; i++) {
             /* Convert to the virtual address */
             inner->entries[i].base_addr = (uint64_t)phys_to_virt(inner->entries[i].base_addr);
-            plogk("MCFG: mcfg->entries[%d] base address: %p\n", i, inner->entries[i].base_addr);
-            plogk("MCFG: mcfg->entries[%d] segment: %d\n", i, inner->entries[i].segment);
-            plogk("MCFG: mcfg->entries[%d] start bus: %d\n", i, inner->entries[i].start_bus);
-            plogk("MCFG: mcfg->entries[%d] end bus: %d\n", i, inner->entries[i].end_bus);
+            plogk("MCFG: mcfg->entries[%lu] base address: %p\n", i, inner->entries[i].base_addr);
+            plogk("MCFG: mcfg->entries[%lu] segment: %hu\n", i, inner->entries[i].segment);
+            plogk("MCFG: mcfg->entries[%lu] start bus: %hhu\n", i, inner->entries[i].start_bus);
+            plogk("MCFG: mcfg->entries[%lu] end bus: %hhu\n", i, inner->entries[i].end_bus);
         }
         mcfg_info.mcfg    = inner;
         mcfg_info.enabled = 1;
@@ -771,5 +771,5 @@ void pci_init(void)
               cache->device_id, pci_classname(cache->class_code));
         cache = cache->next;
     }
-    plogk("PCI: Found %d devices.\n", pci_cache.devices_count);
+    plogk("PCI: Found %lu devices.\n", pci_cache.devices_count);
 }

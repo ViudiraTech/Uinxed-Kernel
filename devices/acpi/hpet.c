@@ -39,8 +39,8 @@ void hpet_init(Hpet *hpet)
     hpet_addr->mainCounterValue = 0;
 
     plogk("HPET: HPET Main counter is initialized to 0\n");
-    plogk("HPET: HPET Counter Clock Period = %d (ns)\n", counterClockPeriod);
-    plogk("HPET: HPET Timer Period = %d (us)\n", hpetPeriod);
+    plogk("HPET: HPET Counter Clock Period = %u (ns)\n", counterClockPeriod);
+    plogk("HPET: HPET Timer Period = %u (us)\n", hpetPeriod);
 
     hpet_addr->generalConfiguration |= 1;
     register_interrupt_handler(IRQ_0, timer_handle, 0, 0x8e);

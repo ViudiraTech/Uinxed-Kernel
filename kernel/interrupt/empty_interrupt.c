@@ -19,7 +19,7 @@
     {                                                                                   \
         (void)frame;                                                                    \
         disable_intr();                                                                 \
-        plogk("Interrupt empty %d\n", id);                                              \
+        plogk("Interrupt empty %u\n", id);                                              \
         send_eoi();                                                                     \
         enable_intr();                                                                  \
     }
