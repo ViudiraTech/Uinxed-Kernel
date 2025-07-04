@@ -71,7 +71,7 @@ int cpu_support_64bit(void)
 {
     uint32_t eax, ebx, ecx, edx;
     cpuid(0x80000001, &eax, &ebx, &ecx, &edx);
-    return (edx & (1 << 29) != 0);
+    return ((edx & (1 << 29)) != 0);
 }
 
 /* Check CPU supports MMX */
