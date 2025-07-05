@@ -1,5 +1,5 @@
 <div align="center"> 
-  <img height="200px" src="https://github.com/user-attachments/assets/1fd6a3d5-5add-4244-83a2-8e0c651602d0"/>
+  <img height="200px" src="https://github.com/user-attachments/assets/b7eba552-447a-445f-b2d7-d6ea9f6e1400"/>
   <h1 align="center">Uinxed-Kernel</h1>
   <h3 align="center">Welcome to the Uinxed-Kernel project</h3>
 </div>
@@ -88,10 +88,10 @@ make run
 
 ### Actual hardware operation
 
-1. Convert the USB drive or hard disk to a GPT partition table and create an ESP partition.
-2. Copy the efi folder in the project directory ./assets/Limine to the ESP partition.
-3. Copy the compiled kernel (UxImage) to ./efi/boot/ in your ESP partition.
-4. Boot from a physical machine (must be in 64-bit UEFI mode and CSM is disabled)
+1. Convert the USB drive or hard disk to GPT partition table and create ESP partition.
+2. Copy all folders under the project directory ./assets/Limine to the ESP partition.
+3. Copy the compiled kernel (UxImage) to the ./EFI/Boot/ directory in the ESP partition.
+4. Boot from a physical machine (must be in 64-bit UEFI mode with CSM disabled)
 
 ## Project Structure 📁
 
