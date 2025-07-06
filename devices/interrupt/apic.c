@@ -74,7 +74,7 @@ void lapic_write(uint32_t reg, uint32_t value)
         return;
     }
     PointerCast reg_ptr;
-    reg_ptr.val = lapic_ptr.val + reg;
+    reg_ptr.val = (lapic_ptr.val + reg);
     mmio_write32(reg_ptr.ptr, value);
 }
 
@@ -122,11 +122,11 @@ void local_apic_init(void)
 void io_apic_init(void)
 {
     ioapic_routing *ioapic_router[] = {
-        &(ioapic_routing) {IRQ_0,  0 }, // Timer
-        &(ioapic_routing) {IRQ_1,  1 }, // Keyboard
-        &(ioapic_routing) {IRQ_12, 12}, // Mouse
-        &(ioapic_routing) {IRQ_14, 14}, // IDE0
-        &(ioapic_routing) {IRQ_15, 15}, // IDE1
+        &(ioapic_routing) {IRQ_0,  0 }, // Timer IRQ_0 = 32
+        &(ioapic_routing) {IRQ_1,  1 }, // Keyboard IRQ_1 = 33
+        &(ioapic_routing) {IRQ_12, 12}, // Mouse IRQ_12 = 44
+        &(ioapic_routing) {IRQ_14, 14}, // IDE0 IRQ_14 = 46
+        &(ioapic_routing) {IRQ_15, 15}, // IDE1 IRQ_15 = 47
         0,
     };
 
@@ -154,12 +154,22 @@ void lapic_timer_stop(void)
 /* Send interrupt handling instruction */
 void send_ipi(uint32_t apic_id, uint32_t command)
 {
+    plogk("APIC: Sending IPI to APIC ID %d with command 0x%x\n", apic_id, command);
     if (x2apic_mode) {
-        lapic_write(APIC_ICR_LOW, (((uint64_t)apic_id) << 32) | command);
+        // Use a single 64-bit MSR write for x2APIC
+        // Notice `lapic_write` only writes 32-bit values
+        // So we need to use wrmsr for x2APIC
+        uint64_t icr = ((uint64_t)(apic_id & 0b1111) << 32) | command;
+        wrmsr(0x800 + (APIC_ICR_LOW >> 4), icr);
     } else {
+        // In xAPIC, we need to write the high 32 bits first
+        // then write the low 32 bits (command)
         lapic_write(APIC_ICR_HIGH, apic_id << 24);
         lapic_write(APIC_ICR_LOW, command);
     }
+    // Wait for the IPI to be sent
+    while (lapic_read(APIC_ICR_LOW) & (1 << 12));
+    plogk("APIC: Sent IPI to APIC ID %d with command 0x%x\n", apic_id, command);
 }
 
 /* Initialize APIC */
