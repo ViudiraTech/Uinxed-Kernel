@@ -9,12 +9,12 @@
  *
  */
 
+#include "tty.h"
 #include "cmdline.h"
 #include "lock.h"
 #include "serial.h"
 #include "stdlib.h"
 #include "string.h"
-#include "tty.h"
 #include "video.h"
 
 static char boot_tty_buf[16]       = {0}; // Persistent Buffer

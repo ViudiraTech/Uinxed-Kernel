@@ -9,12 +9,12 @@
  *
  */
 
+#include "video.h"
 #include "common.h"
 #include "limine.h"
 #include "stddef.h"
 #include "stdint.h"
 #include "string.h"
-#include "video.h"
 
 __attribute__((used, section(".limine_requests"))) volatile struct limine_framebuffer_request framebuffer_request = {
     .id       = LIMINE_FRAMEBUFFER_REQUEST,

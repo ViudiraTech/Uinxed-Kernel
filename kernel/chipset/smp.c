@@ -9,6 +9,7 @@
  *
  */
 
+#include "smp.h"
 #include "apic.h"
 #include "common.h"
 #include "debug.h"
@@ -18,7 +19,6 @@
 #include "lock.h"
 #include "page.h"
 #include "printk.h"
-#include "smp.h"
 #include "stddef.h"
 #include "stdint.h"
 #include "stdlib.h"
