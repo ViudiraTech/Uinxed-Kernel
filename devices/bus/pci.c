@@ -9,11 +9,11 @@
  *
  */
 
-#include "pci.h"
 #include "acpi.h"
 #include "common.h"
 #include "debug.h"
 #include "hhdm.h"
+#include "pci.h"
 #include "printk.h"
 #include "stddef.h"
 #include "stdint.h"
@@ -192,7 +192,7 @@ void mcfg_init(void *mcfg)
     if (mcfg) {
         struct MCFG *inner = (struct MCFG *)mcfg;
         mcfg_info.count    = (inner->h.Length - sizeof(struct ACPISDTHeader) - 8) / sizeof(struct mcfg_entry);
-        plogk("MCFG: MCFG found with %lu entries。\n", mcfg_info.count);
+        plogk("MCFG: MCFG found with %lu entries.\n", mcfg_info.count);
         for (size_t i = 0; i < mcfg_info.count; i++) {
             /* Convert to the virtual address */
             inner->entries[i].base_addr = (uint64_t)phys_to_virt(inner->entries[i].base_addr);
@@ -287,7 +287,11 @@ pci_device_ecam mcfg_update_ecam(mcfg_entry *entry, pci_device_cache *cache)
     static uint32_t reg_cnts_table[4] = {12, 12, 14, 0};
     other_reg_count                   = reg_cnts_table[type < 3 ? type : 3];
 
-    ecam.others = (volatile void **)malloc(other_reg_count * sizeof(volatile void *));
+    if (other_reg_count == 0) {
+        ecam.others = 0;
+    } else {
+        ecam.others = (volatile void **)malloc(other_reg_count * sizeof(volatile void *));
+    }
     for (uint32_t reg_idx = 0; reg_idx < other_reg_count; reg_idx++) {
         cpy_reg.offset       = reg_idx * 4 + ECAM_OTHERS;
         ecam.others[reg_idx] = mcfg_ecam_addr(entry, cpy_reg);
@@ -387,6 +391,10 @@ static uint32_t pci_mcfg_read(pci_device_reg reg)
             ptr = ecam.ops2_ecam;
             break;
         default :
+            if (ecam.others == 0) {
+                panic("PCI: ECAM area is not initialized properly.");
+                return 0; // Unreachable, but to avoid compiler warning
+            }
             ptr = ecam.others[(area - ECAM_OTHERS) / 4];
             break;
     }
@@ -657,7 +665,7 @@ pci_devices_cache *pci_get_devices_cache(void)
 }
 
 /* Free the PCI devices cache */
-void pci_free_devices_cache()
+void pci_free_devices_cache(void)
 {
     pci_device_cache *cache = pci_cache.head;
     pci_device_cache *free_ptr;
@@ -772,7 +780,7 @@ static void slot_process(pci_device_cache *device)
 }
 
 /* Flush the PCI devices cache */
-void pci_flush_devices_cache()
+void pci_flush_devices_cache(void)
 {
     pci_free_devices_cache();
     pci_device curr_device      = {0, 0, 0};

@@ -55,13 +55,13 @@ typedef struct {
         void *entries;
 } __attribute__((packed)) MADT;
 
-struct madt_hander {
+struct madt_header {
         uint8_t entry_type;
         uint8_t length;
 } __attribute__((packed));
 
 struct madt_io_apic {
-        struct madt_hander h;
+        struct madt_header h;
         uint8_t apic_id;
         uint8_t reserved;
         uint32_t address;
@@ -69,7 +69,7 @@ struct madt_io_apic {
 } __attribute__((packed));
 
 struct madt_local_apic {
-        struct madt_hander h;
+        struct madt_header h;
         uint8_t ACPI_Processor_UID;
         uint8_t local_apic_id;
         uint32_t flags;
@@ -80,7 +80,7 @@ typedef struct {
         uint32_t irq;
 } ioapic_routing;
 
-typedef struct madt_hander MadtHeader;
+typedef struct madt_header MadtHeader;
 typedef struct madt_io_apic MadtIOApic;
 typedef struct madt_local_apic MadtLocalApic;
 

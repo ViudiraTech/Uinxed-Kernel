@@ -31,7 +31,7 @@ typedef struct VideoInfo {
 } VideoInfo;
 
 /* Get video information */
-VideoInfo video_get_info();
+VideoInfo video_get_info(void);
 
 /* Get the frame buffer */
 struct limine_framebuffer *get_framebuffer(void);

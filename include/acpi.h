@@ -158,7 +158,6 @@ typedef struct facp_table {
 } __attribute__((packed)) acpi_facp_t;
 
 typedef struct hpet Hpet;
-typedef struct facp_table acpi_facp_t;
 
 typedef struct mcfg_entry {
         uint64_t base_addr;

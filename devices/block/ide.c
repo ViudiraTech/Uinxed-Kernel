@@ -9,9 +9,9 @@
  *
  */
 
-#include "ide.h"
 #include "apic.h"
 #include "common.h"
+#include "ide.h"
 #include "idt.h"
 #include "pci.h"
 #include "printk.h"

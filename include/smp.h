@@ -12,15 +12,21 @@
 #ifndef INCLUDE_SMP_H_
 #define INCLUDE_SMP_H_
 
+#include "gdt.h"
 #include "limine.h"
 #include "stdint.h"
 
 typedef struct cpu_processor {
         uint64_t id;
         uint64_t lapic_id;
-        uint64_t stack;
-        uint64_t gdt;
-        uint64_t tss;
+        struct {
+                gdt_entries_t entries;
+                uint16_t limit;
+                uint64_t base;
+        } gdt __attribute__((aligned(16)));
+        struct gdt_register gdt_pointer;
+        tss_stack_t *tss_stack;
+        tss_t *tss;
 } cpu_processor;
 
 /* Send an IPI to all CPUs */
