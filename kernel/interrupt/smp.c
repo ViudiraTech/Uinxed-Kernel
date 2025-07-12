@@ -19,10 +19,10 @@
 #include "page.h"
 #include "printk.h"
 #include "stddef.h"
+#include "stdint.h"
 #include "stdlib.h"
 #include "string.h"
 #include "uinxed.h"
-#include <stdint.h>
 
 static cpu_processor cpus[256];
 static size_t cpu_count = 0;
