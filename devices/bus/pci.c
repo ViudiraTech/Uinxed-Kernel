@@ -12,6 +12,7 @@
 #include "pci.h"
 #include "acpi.h"
 #include "common.h"
+#include "debug.h"
 #include "hhdm.h"
 #include "printk.h"
 #include "stddef.h"
@@ -210,7 +211,8 @@ void mcfg_init(void *mcfg)
             .slot_process = slot_process_mcfg,
         };
     } else {
-        /* Never be executed */
+        /* Never be executed, because it will be checked before this functions */
+        panic("MCFG: mcfg=NULL\n");
     }
 };
 
@@ -232,22 +234,12 @@ void *mcfg_ecam_addr(mcfg_entry *entry, pci_device_reg reg)
     uint32_t bus       = device->bus & 0xff;
     uint32_t slot      = device->slot & 0x1f;
     uint32_t func      = device->func & 0x07;
-    addr               = entry->base_addr;
-
-    /* Segment */
-    addr |= (uint64_t)entry->segment << 32;
-
-    /* Bus */
-    addr |= ((bus - entry->start_bus) << 20);
-
-    /* Slot */
-    addr |= slot << 15;
-
-    /* Func */
-    addr |= func << 12;
-
-    /* Register */
-    addr |= (reg.offset & 0xFFC);
+    addr               = entry->base_addr   /* Base Address */
+        + ((uint64_t)entry->segment << 32)  /* Segment */
+        + (((bus - entry->start_bus) << 20) /* Bus */
+           | (slot << 15)                   /* Slot */
+           | (func << 12)                   /* Func */
+           | (reg.offset & 0xffc));         /* Register */
     PointerCast cast;
     cast.val = addr;
     return cast.ptr;
@@ -273,15 +265,26 @@ pci_device_ecam mcfg_update_ecam(mcfg_entry *entry, pci_device_cache *cache)
     uint32_t other_reg_count = 0;
     cpy_reg.offset           = PCI_CONF_HEADER_TYPE; // Read header type
     type                     = pci_mcfg_read(cpy_reg) & PCI_HEADER_TYPE_MASK;
-    switch (type) {
-        case HEADER_TYPE_GENERAL :
-        case HEADER_TYPE_BRIDGE :
-            other_reg_count = 12;
-            break;
-        case HEADER_TYPE_CARDBUS :
-            other_reg_count = 14;
-            break;
-    }
+    // switch (type) {
+    //     case HEADER_TYPE_GENERAL :
+    //     case HEADER_TYPE_BRIDGE :
+    //         other_reg_count = 12;
+    //         break;
+    //     case HEADER_TYPE_CARDBUS :
+    //         other_reg_count = 14;
+    //         break;
+    //     default :
+    //         other_reg_count = 0;
+    //         break;
+    // }
+    // Same as:
+    // x(x-1) + 12 [x <= HEADER_TYPE_CARDBUS]
+    // other_reg_count = type * (type - 1) + 12;
+    // other_reg_count = (type <= HEADER_TYPE_CARDBUS) ? other_reg_count : 0;
+    // Also same as:
+    static uint32_t reg_cnts_table[4] = {12, 12, 14, 0};
+    other_reg_count                   = reg_cnts_table[type < 3 ? type : 3];
+
     ecam.others = (volatile void **)malloc(other_reg_count * sizeof(volatile void *));
     for (uint32_t reg_idx = 0; reg_idx < other_reg_count; reg_idx++) {
         cpy_reg.offset       = reg_idx * 4 + ECAM_OTHERS;
@@ -417,32 +420,74 @@ void pci_write_command_status(pci_device_cache *device, uint32_t value)
 /* Get detailed information about the base address register */
 base_address_register get_base_address_register(pci_device_cache *device, uint32_t bar)
 {
+    /* Here is some notice when you are using this function:
+     * 1. The `bar` is the index of BAR, not the *register_offset* of BAR.
+     * 2. When you are reading a mem_mapping BAR, you should notice the `size` of BAR.
+     *    It's useful, when you are doing something *special*.
+    */
     base_address_register result = {0};
     pci_device_reg reg           = {device, PCI_CONF_HEADER_TYPE};
 
     uint32_t headertype = read_pci(reg) & 0x7e;
-    uint32_t max_bars   = 6 - 4 * headertype;
+    uint32_t max_bars;
+    // switch (headertype) {
+    //     case HEADER_TYPE_GENERAL :
+    //         max_bars = 6;
+    //         break;
+    //     case HEADER_TYPE_BRIDGE :
+    //         max_bars = 2;
+    //         break;
+    //     case HEADER_TYPE_CARDBUS :
+    //     default :
+    //         max_bars = 0;
+    //         break;
+    // }
+    // Same as:
+    // x(x-5) + 6 [x<=HEADER_TYPE_CARDBUS]
+    // max_bars = headertype * (headertype - 5) + 6;
+    // max_bars = headertype <= HEADER_TYPE_CARDBUS ? max_bars : 0;
+    // Also same as:
+    static uint32_t max_bars_table[3] = {6, 2, 0};
+    max_bars                          = max_bars_table[headertype < 2 ? headertype : 2];
     if (bar >= max_bars) return result;
 
     reg.offset         = 0x10 + 4 * bar;
-    uint32_t bar_value = read_pci(reg);
+    uint64_t bar_value = read_pci(reg);
     result.type        = (bar_value & 1) ? input_output : mem_mapping;
 
-    if (result.type == mem_mapping) {
-        switch ((bar_value >> 1) & 0x3) {
-            case 0 : // 32
-            case 1 : // 20
-            case 2 : // 64
-                break;
-            default :
-                plogk("Unknown BAR type.\n");
-                break;
-        }
-        result.address      = (uint32_t *)phys_to_virt(bar_value & ~0x3);
-        result.prefetchable = 0;
-    } else {
-        result.address      = (uint32_t *)phys_to_virt(bar_value & ~0x3);
-        result.prefetchable = 0;
+    switch (result.type) {
+        case mem_mapping : // Memory
+            // Match the BAR type bits
+            result.size = (bar_value >> 1) & 0b11;
+            switch (result.size) {
+                case BAR_S32 :      // 32
+                case BAR_Reserved : // Reserved (Un-processed)
+                    break;
+                case BAR_S64 : // 64
+                    // Read the next BAR for 64-bit BARs
+                    if (bar + 1 < max_bars) {
+                        reg.offset = 0x10 + 4 * (bar + 1);
+                        bar_value |= (uint64_t)read_pci(reg) << 32; // Read the next BAR and merge
+                    } else {
+                        plogk("PCI: 64-bit BAR without more BARs.\n");
+                    }
+                    break;
+                default :
+                    plogk("PCI: Unknown BAR type.\n");
+                    break;
+            }
+            // We transform the address to a virtual address,
+            // it removes the *higher* bits of the address.
+            result.address      = (uint32_t *)phys_to_virt(bar_value & ~0b1111);
+            result.prefetchable = bar_value & 0b1000;
+            break;
+        case input_output : // I/O
+            result.address      = (uint32_t *)phys_to_virt(bar_value & ~0b11);
+            result.prefetchable = 0;
+            break;
+        default :
+            plogk("PCI: Runtime Error at %s:%d.\n", __FILE__, __LINE__);
+            break;
     }
     return result;
 }
@@ -708,7 +753,10 @@ static void slot_process_mcfg(pci_device_cache *cache)
         /* Update ecam cache */
         ecam        = mcfg_update_ecam(entry, cache);
         cache->ecam = ecam;
-        pci_cache_process(cache);
+        if (!pci_cache_process(cache)) {
+            free((void *)ecam.others);
+            continue; // Device not exist
+        }
     }
 }
 
