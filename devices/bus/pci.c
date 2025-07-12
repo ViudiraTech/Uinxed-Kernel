@@ -212,7 +212,7 @@ void mcfg_init(void *mcfg)
         };
     } else {
         /* Never be executed, because it will be checked before this functions */
-        panic("MCFG is unexpectedly empty.");
+        panic("PCI: MCFG is unexpectedly empty.");
     }
 };
 

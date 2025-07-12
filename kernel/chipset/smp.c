@@ -76,16 +76,15 @@ __attribute__((interrupt)) static void ipi_panic_handler(interrupt_frame_t *fram
 void send_ipi_all(uint8_t vector)
 {
     vector |= IPI_FIXED | APIC_ICR_PHYSICAL;
-    for (size_t i = 0; i < cpu_count; i++) {
-        if (cpus[i].id != get_current_cpu_id()) { send_ipi(cpus[i].lapic_id, vector); }
-    }
+    for (size_t i = 0; i < cpu_count; i++)
+        if (cpus[i].id != get_current_cpu_id()) send_ipi(cpus[i].lapic_id, vector);
 }
 
 /* Send an IPI to the specified CPU */
 void send_ipi_cpu(uint32_t cpu_id, uint8_t vector)
 {
     vector |= IPI_FIXED | APIC_ICR_PHYSICAL;
-    if (cpu_id < cpu_count && cpu_id != get_current_cpu_id()) { send_ipi(cpus[cpu_id].lapic_id, vector); }
+    if (cpu_id < cpu_count && cpu_id != get_current_cpu_id()) send_ipi(cpus[cpu_id].lapic_id, vector);
 }
 
 /* Flush TLBs of all CPUs */
@@ -97,7 +96,7 @@ void flush_tlb_all(void)
 /* Flushing TLB by address range */
 void flush_tlb_range(uint64_t start, uint64_t end)
 {
-    for (uint64_t addr = start; addr < end; addr += PAGE_SIZE) { flush_tlb(addr); }
+    for (uint64_t addr = start; addr < end; addr += PAGE_SIZE) flush_tlb(addr);
 }
 
 /* Get the number of CPUs */
@@ -124,6 +123,7 @@ void ap_entry(struct limine_smp_info *info)
      */
 
     spin_lock(&ap_start_lock);
+
     PointerCast cast;
     cast.val           = info->extra_argument;
     cpu_processor *cpu = (cpu_processor *)cast.ptr;
@@ -165,6 +165,7 @@ void ap_entry(struct limine_smp_info *info)
     cast.val           = 0;
     cast.ptr           = cpu->tss_stack;
     uint64_t stack_top = ALIGN_DOWN(cast.val + 0x10000, 16);
+
     /* set_kernel_stack(stack_top) but use its own tss. */
     cpu->tss->rsp[0] = stack_top;
 

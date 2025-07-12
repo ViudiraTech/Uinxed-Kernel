@@ -39,9 +39,7 @@ static int arg_parse(char *arg_str, char **argv, char delim)
         argv[argc++] = arg_str;
 
         while (*arg_str && *arg_str != delim) arg_str++;
-        if (*arg_str)
-            *arg_str++ = '\0'; // Replace delimiter with '\0' (It
-                               // seems hard to undertand)
+        if (*arg_str) *arg_str++ = '\0'; // Replace delimiter with '\0' (It seems hard to undertand)
     }
     return argc;
 }
