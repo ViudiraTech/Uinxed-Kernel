@@ -10,6 +10,7 @@
  */
 
 #include "ide.h"
+#include "apic.h"
 #include "common.h"
 #include "idt.h"
 #include "pci.h"
@@ -46,7 +47,10 @@ static volatile uint8_t ide_irq_invoked = 0;
 __attribute__((interrupt)) static void ide_irq(interrupt_frame_t *frame)
 {
     (void)frame;
+    disable_intr();
     ide_irq_invoked = 1;
+    send_eoi();
+    enable_intr();
 }
 
 /* Waiting for IDE interrupt to be triggered */
@@ -206,6 +210,7 @@ void init_ide(void)
 {
     base_address_register bars[6];
     uint32_t bar_addrs[6];
+
     pci_device_reg bar_reg = {
         .parent = 0,
         .offset = 0,
@@ -227,8 +232,8 @@ void init_ide(void)
          */
     }
     bar_reg.parent = ide_pci_request.response->device;
-    register_interrupt_handler(IRQ_14, ide_irq, 0, 0x8e);
-    register_interrupt_handler(IRQ_15, ide_irq, 0, 0x8e);
+    register_interrupt_handler(IRQ_14, (void *)ide_irq, 0, 0x8e);
+    register_interrupt_handler(IRQ_15, (void *)ide_irq, 0, 0x8e);
 
     for (uint32_t idx = 0; idx < 6; idx++) {
         bar_reg.offset = ECAM_OTHERS + idx * 4;

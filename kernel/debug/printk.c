@@ -10,7 +10,7 @@
  */
 
 #include "printk.h"
-#include "common.h"
+#include "lock.h"
 #include "stdarg.h"
 #include "stddef.h"
 #include "stdint.h"

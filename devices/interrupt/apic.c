@@ -154,22 +154,14 @@ void lapic_timer_stop(void)
 /* Send interrupt handling instruction */
 void send_ipi(uint32_t apic_id, uint32_t command)
 {
-    plogk("APIC: Sending IPI to APIC ID %d with command 0x%x\n", apic_id, command);
     if (x2apic_mode) {
-        // Use a single 64-bit MSR write for x2APIC
-        // Notice `lapic_write` only writes 32-bit values
-        // So we need to use wrmsr for x2APIC
         uint64_t icr = ((uint64_t)(apic_id & 0b1111) << 32) | command;
         wrmsr(0x800 + (APIC_ICR_LOW >> 4), icr);
     } else {
-        // In xAPIC, we need to write the high 32 bits first
-        // then write the low 32 bits (command)
         lapic_write(APIC_ICR_HIGH, apic_id << 24);
         lapic_write(APIC_ICR_LOW, command);
     }
-    // Wait for the IPI to be sent
     while (lapic_read(APIC_ICR_LOW) & (1 << 12));
-    plogk("APIC: Sent IPI to APIC ID %d with command 0x%x\n", apic_id, command);
 }
 
 /* Initialize APIC */

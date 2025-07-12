@@ -77,6 +77,8 @@ struct interrupt_frame {
 
 typedef struct interrupt_frame interrupt_frame_t;
 
+extern struct idt_register idt_pointer;
+
 /* Initialize the interrupt descriptor table */
 void init_idt(void);
 

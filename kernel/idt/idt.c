@@ -27,7 +27,7 @@ void init_idt(void)
     plogk("IDT: IDT initialized at %p (limit = 0x%04x)\n", idt_entries, idt_pointer.size);
     plogk("IDT: Loaded IDTR with base = %p, limit = %hu\n", idt_pointer.ptr, idt_pointer.size + 1);
 
-    for (int i = 0; i < 256; i++) register_interrupt_handler(i, empty_handle[i], 0, 0x8e);
+    for (int i = 0; i < 256; i++) register_interrupt_handler(i, (void *)empty_handle[i], 0, 0x8e);
 }
 
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */

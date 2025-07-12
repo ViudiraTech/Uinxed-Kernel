@@ -122,7 +122,7 @@ void video_scroll(void)
         __asm__ volatile("rep movsq" : "+D"(dest), "+S"(src), "+c"(count)::"memory");
 
         /* NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling) */
-        /* Fill new line to back color*/
+        /* Fill new line to back color */
         video_draw_rect((position) {0, height - 16}, (position) {stride, height}, 0xffff0000);
         cy = c_height - 1;
     }
@@ -192,9 +192,10 @@ void video_put_char(const char c, uint32_t color)
     if (c == '\n') {
         cy++;
         cx = 0;
-        // Try scroll (but it will do when next character is printed)
-        // video_scroll();
-        // cx = 0;
+        /* Try scroll (but it will do when next character is printed)
+         * video_scroll();
+         * cx = 0;
+         */
         return;
     } else if (c == '\r') {
         cx = 0;

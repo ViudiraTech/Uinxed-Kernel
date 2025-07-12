@@ -32,6 +32,11 @@ typedef struct tss {
 typedef uint8_t tss_stack_t[1024];
 typedef uint64_t gdt_entries_t[7];
 
+extern struct gdt_register gdt_pointer;
+extern gdt_entries_t gdt_entries;
+extern tss_t tss0;
+extern tss_stack_t tss_stack;
+
 /* Initialize the global descriptor table */
 void init_gdt(void);
 

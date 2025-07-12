@@ -16,6 +16,7 @@
 #include "gdt.h"
 #include "idt.h"
 #include "limine.h"
+#include "lock.h"
 #include "page.h"
 #include "printk.h"
 #include "stddef.h"
@@ -27,6 +28,50 @@
 static cpu_processor cpus[256];
 static size_t cpu_count = 0;
 
+static volatile uint64_t ap_ready_count = 0;
+spinlock_t ap_start_lock                = {0};
+
+/* Rescheduling Requests */
+__attribute__((interrupt)) static void ipi_reschedule_handler(interrupt_frame_t *frame)
+{
+    (void)frame;
+    disable_intr();
+    /* TODO: Handle rescheduling */
+    send_eoi();
+    enable_intr();
+}
+
+/* Downtime Request */
+__attribute__((interrupt)) static void ipi_halt_handler(interrupt_frame_t *frame)
+{
+    (void)frame;
+    disable_intr();
+    /* TODO: Handle halting */
+    send_eoi();
+    enable_intr();
+}
+
+/* TLB flush request */
+__attribute__((interrupt)) static void ipi_tlb_shootdown_handler(interrupt_frame_t *frame)
+{
+    (void)frame;
+    disable_intr();
+    /* TODO: Handle TLB shootdown */
+    send_eoi();
+    enable_intr();
+}
+
+/* Emergency Error Broadcast */
+__attribute__((interrupt)) static void ipi_panic_handler(interrupt_frame_t *frame)
+{
+    (void)frame;
+    disable_intr();
+    /* TODO: Handle panic */
+    send_eoi();
+    enable_intr();
+}
+
+/* Send an IPI to all CPUs */
 void send_ipi_all(uint8_t vector)
 {
     for (size_t i = 0; i < cpu_count; i++) {
@@ -34,6 +79,7 @@ void send_ipi_all(uint8_t vector)
     }
 }
 
+/* Send an IPI to the specified CPU */
 void send_ipi_cpu(uint32_t cpu_id, uint8_t vector)
 {
     if (cpu_id < cpu_count && cpu_id != get_current_cpu_id()) {
@@ -41,61 +87,43 @@ void send_ipi_cpu(uint32_t cpu_id, uint8_t vector)
     }
 }
 
+/* Flush TLBs of all CPUs */
 void flush_tlb_all(void)
 {
     send_ipi_all(IPI_TLB_SHOOTDOWN);
 }
 
+/* Flushing TLB by address range */
 void flush_tlb_range(uint64_t start, uint64_t end)
 {
     for (uint64_t addr = start; addr < end; addr += PAGE_SIZE) { flush_tlb(addr); }
 }
 
-__attribute__((interrupt)) void ipi_reschedule_handler(interrupt_frame_t *frame)
+/* Get the number of CPUs */
+uint32_t get_cpu_count(void)
 {
-    (void)frame;
-    // TODO: Handle rescheduling
-    send_eoi();
+    return cpu_count;
 }
 
-__attribute__((interrupt)) void ipi_halt_handler(interrupt_frame_t *frame)
+/* Get the ID of the current CPU */
+uint32_t get_current_cpu_id(void)
 {
-    (void)frame;
-    // TODO: Handle halting
-    send_eoi();
+    uint64_t cpu_lapic_id = lapic_id();
+    for (size_t i = 0; i < cpu_count; i++) {
+        if (cpus[i].lapic_id == cpu_lapic_id) return i;
+    }
+    return 0; // Default to CPU 0 if not found
 }
 
-__attribute__((interrupt)) void ipi_tlb_shootdown_handler(interrupt_frame_t *frame)
-{
-    (void)frame;
-    // TODO: Handle TLB shootdown
-    send_eoi();
-}
-
-__attribute__((interrupt)) void ipi_panic_handler(interrupt_frame_t *frame)
-{
-    (void)frame;
-    // TODO: Handle panic
-    send_eoi();
-}
-
-extern struct gdt_register gdt_pointer;
-extern struct idt_register idt_pointer;
-extern tss_t tss0;
-extern tss_stack_t tss_stack;
-extern gdt_entries_t gdt_entries;
-
-static volatile uint64_t ap_ready_count = 0;
-spinlock_t ap_start_lock                = {0};
-
+/* Multi-core boot entry */
 void ap_entry(struct limine_smp_info *info)
 {
-    // Init for APs (But now it's looks so messy)
-    // TODO: Refactor this code to be cleaner and more modular
+    /* Init for APs (But now it's looks so messy)
+     * TODO: Refactor this code to be cleaner and more modular
+     */
+
     spin_lock(&ap_start_lock);
-    cpu_processor *cpu  = (cpu_processor *)info->extra_argument;
-    uint32_t logical_id = cpu->id;
-    plogk("AP_entry(early): AP %d (LAPIC ID %d)\n", logical_id, info->lapic_id);
+    cpu_processor *cpu = (cpu_processor *)info->extra_argument;
 
     __asm__ volatile("lgdt %[ptr]; push %[cseg]; lea 1f, %%rax; push %%rax; lretq;"
                      "1:"
@@ -119,62 +147,53 @@ void ap_entry(struct limine_smp_info *info)
     tss0.ist[0]    = ((uint64_t)&tss_stack) + sizeof(tss_stack_t);
 
     __asm__ volatile("ltr %w[offset]" ::[offset] "rm"((uint16_t)0x28) : "memory");
-
     __asm__ volatile("lidt %0" ::"m"(idt_pointer) : "memory");
 
-    // Initialize the TSS stack
+    /* Initialize the TSS stack */
     uint64_t stack_top = ALIGN_DOWN(cpu->stack + 0x10000, 16);
     set_kernel_stack(stack_top);
-
-    plogk("AP_entry: AP %d (LAPIC ID %d) is up\n", logical_id, info->lapic_id);
 
     uint32_t spurious = lapic_read(LAPIC_REG_SPURIOUS);
     lapic_write(LAPIC_REG_SPURIOUS, spurious | (1 << 8) | 0xFF);
 
-    plogk("AP %d LAPIC enabled (Spurious: 0x%x)\n", logical_id, lapic_read(LAPIC_REG_SPURIOUS));
-
     ap_ready_count++;
     spin_unlock(&ap_start_lock);
 
-    // TODO: Implement the scheduler loop
-    while (1) {
-        __asm__ volatile("hlt");
-        // Dead loop
-    }
+    /* TODO: Implement the scheduler loop */
+    while (1) __asm__ volatile("hlt");
 
-    // Shouldn't reach here
-    panic("AP %d scheduler exited", logical_id);
+    /* Shouldn't reach here */
+    panic("AP %d scheduler exited.", cpu->id);
 }
 
+/* Initializing Symmetric Multi-Processing */
 void smp_init(void)
 {
     struct limine_smp_response *smp = smp_request.response;
 
     if (!smp) {
-        plogk("SMP: No SMP response\n");
+        plogk("SMP: No SMP response.\n");
         return;
     }
 
-    plogk("SMP: Found %d CPUs\n", smp->cpu_count);
+    plogk("SMP: Found %d CPUs.\n", smp->cpu_count);
     cpu_count = smp->cpu_count;
 
-    // Init BootStrap Processor
+    /* Init BootStrap Processor */
     for (uint32_t i = 0; i < smp->cpu_count; i++) {
         struct limine_smp_info *cpu = smp->cpus[i];
         cpus[i].id                  = i;
         cpus[i].lapic_id            = cpu->lapic_id;
 
-        // Allocate 16 KiB for each CPU stack
+        /* Allocate 16 KiB for each CPU stack */
         cpus[i].stack = (uint64_t)malloc(0x10000);
 
-        // Special handling for BSP
+        /* Special handling for BSP */
         if (cpu->lapic_id == smp->bsp_lapic_id) {
-            plogk("SMP: BSP is CPU %d (LAPIC ID: %d)\n", i, cpu->lapic_id);
             set_kernel_stack(ALIGN_DOWN(cpus[i].stack + 0x10000, 16));
             continue;
         } else {
-            plogk("SMP: Starting AP %d (LAPIC ID: %d)\n", i, smp->cpus[i]->lapic_id);
-            // Configure the AP entry point
+            /* Configure the AP entry point */
             cpu->extra_argument = (uint64_t)&cpus[i];
             cpu->goto_address   = (limine_goto_address)ap_entry;
 
@@ -182,26 +201,15 @@ void smp_init(void)
             send_ipi(cpu->lapic_id, APIC_ICR_STARTUP | 0x08);
         }
     }
-    // Register IPI handler
-    register_interrupt_handler(IPI_RESCHEDULE, ipi_reschedule_handler, 0, 0x8e);
-    register_interrupt_handler(IPI_HALT, ipi_halt_handler, 0, 0x8e);
-    register_interrupt_handler(IPI_TLB_SHOOTDOWN, ipi_tlb_shootdown_handler, 0, 0x8e);
-    register_interrupt_handler(IPI_PANIC, ipi_panic_handler, 0, 0x8e);
-    // Wait for all APs to be ready
-    while (ap_ready_count < cpu_count - 1) { __asm__ volatile("pause"); }
-    plogk("SMP: All APs are up, total %d CPUs\n", cpu_count);
-}
 
-uint32_t get_cpu_count(void)
-{
-    return cpu_count;
-}
+    /* Register IPI handler */
+    register_interrupt_handler(IPI_RESCHEDULE, (void *)ipi_reschedule_handler, 0, 0x8e);
+    register_interrupt_handler(IPI_HALT, (void *)ipi_halt_handler, 0, 0x8e);
+    register_interrupt_handler(IPI_TLB_SHOOTDOWN, (void *)ipi_tlb_shootdown_handler, 0, 0x8e);
+    register_interrupt_handler(IPI_PANIC, (void *)ipi_panic_handler, 0, 0x8e);
+    plogk("SMP: IPI handlers registered.\n");
 
-uint32_t get_current_cpu_id(void)
-{
-    uint64_t cpu_lapic_id = lapic_id();
-    for (size_t i = 0; i < cpu_count; i++) {
-        if (cpus[i].lapic_id == cpu_lapic_id) { return i; }
-    }
-    return 0; // Default to CPU 0 if not found
+    /* Wait for all APs to be ready */
+    while (ap_ready_count < cpu_count - 1) __asm__ volatile("pause");
+    plogk("SMP: All APs are up, total %llu CPUs.\n", cpu_count);
 }

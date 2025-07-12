@@ -65,7 +65,7 @@ void facp_init(acpi_facp_t *facp0)
                 plogk("FACP: SLP_TYPa = 0x%04hx, SLP_TYPb = 0x%04hx\n", SLP_TYPa, SLP_TYPb);
             }
         } else if (dsdtlen) {
-            plogk("FACP: Invalid _S5_ prefix\n");
+            plogk("FACP: Invalid _S5_ prefix.\n");
         } else {
             plogk("FACP: _S5_ not found in DSDT.\n");
         }

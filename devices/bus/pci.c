@@ -192,7 +192,7 @@ void mcfg_init(void *mcfg)
     if (mcfg) {
         struct MCFG *inner = (struct MCFG *)mcfg;
         mcfg_info.count    = (inner->h.Length - sizeof(struct ACPISDTHeader) - 8) / sizeof(struct mcfg_entry);
-        plogk("MCFG: MCFG found with %lu entries\n", mcfg_info.count);
+        plogk("MCFG: MCFG found with %lu entries。\n", mcfg_info.count);
         for (size_t i = 0; i < mcfg_info.count; i++) {
             /* Convert to the virtual address */
             inner->entries[i].base_addr = (uint64_t)phys_to_virt(inner->entries[i].base_addr);
@@ -212,7 +212,7 @@ void mcfg_init(void *mcfg)
         };
     } else {
         /* Never be executed, because it will be checked before this functions */
-        panic("MCFG: mcfg=NULL\n");
+        panic("MCFG is unexpectedly empty.");
     }
 };
 
@@ -229,17 +229,16 @@ mcfg_entry *mcfg_search_entry(uint16_t bus)
 /* Get ECAM address of register */
 void *mcfg_ecam_addr(mcfg_entry *entry, pci_device_reg reg)
 {
-    uintptr_t addr;
     pci_device *device = reg.parent->device;
     uint32_t bus       = device->bus & 0xff;
     uint32_t slot      = device->slot & 0x1f;
     uint32_t func      = device->func & 0x07;
-    addr               = entry->base_addr   /* Base Address */
-        + ((uint64_t)entry->segment << 32)  /* Segment */
-        + (((bus - entry->start_bus) << 20) /* Bus */
-           | (slot << 15)                   /* Slot */
-           | (func << 12)                   /* Func */
-           | (reg.offset & 0xffc));         /* Register */
+    uintptr_t addr     = entry->base_addr   // Base Address
+        + ((uint64_t)entry->segment << 32)  // Segment
+        + (((bus - entry->start_bus) << 20) // Bus
+           | (slot << 15)                   // Slot
+           | (func << 12)                   // Func
+           | (reg.offset & 0xffc));         // Register
     PointerCast cast;
     cast.val = addr;
     return cast.ptr;
@@ -265,23 +264,26 @@ pci_device_ecam mcfg_update_ecam(mcfg_entry *entry, pci_device_cache *cache)
     uint32_t other_reg_count = 0;
     cpy_reg.offset           = PCI_CONF_HEADER_TYPE; // Read header type
     type                     = pci_mcfg_read(cpy_reg) & PCI_HEADER_TYPE_MASK;
-    // switch (type) {
-    //     case HEADER_TYPE_GENERAL :
-    //     case HEADER_TYPE_BRIDGE :
-    //         other_reg_count = 12;
-    //         break;
-    //     case HEADER_TYPE_CARDBUS :
-    //         other_reg_count = 14;
-    //         break;
-    //     default :
-    //         other_reg_count = 0;
-    //         break;
-    // }
-    // Same as:
-    // x(x-1) + 12 [x <= HEADER_TYPE_CARDBUS]
-    // other_reg_count = type * (type - 1) + 12;
-    // other_reg_count = (type <= HEADER_TYPE_CARDBUS) ? other_reg_count : 0;
-    // Also same as:
+
+    /* switch (type) {
+     *     case HEADER_TYPE_GENERAL :
+     *     case HEADER_TYPE_BRIDGE :
+     *         other_reg_count = 12;
+     *         break;
+     *     case HEADER_TYPE_CARDBUS :
+     *         other_reg_count = 14;
+     *         break;
+     *     default :
+     *         other_reg_count = 0;
+     *         break;
+     * }
+     * Same as:
+     * x(x-1) + 12 [x <= HEADER_TYPE_CARDBUS]
+     * other_reg_count = type * (type - 1) + 12;
+     * other_reg_count = (type <= HEADER_TYPE_CARDBUS) ? other_reg_count : 0;
+     * Also same as:
+     */
+
     static uint32_t reg_cnts_table[4] = {12, 12, 14, 0};
     other_reg_count                   = reg_cnts_table[type < 3 ? type : 3];
 
@@ -424,29 +426,33 @@ base_address_register get_base_address_register(pci_device_cache *device, uint32
      * 1. The `bar` is the index of BAR, not the *register_offset* of BAR.
      * 2. When you are reading a mem_mapping BAR, you should notice the `size` of BAR.
      *    It's useful, when you are doing something *special*.
-    */
+     */
+
     base_address_register result = {0};
     pci_device_reg reg           = {device, PCI_CONF_HEADER_TYPE};
 
     uint32_t headertype = read_pci(reg) & 0x7e;
     uint32_t max_bars;
-    // switch (headertype) {
-    //     case HEADER_TYPE_GENERAL :
-    //         max_bars = 6;
-    //         break;
-    //     case HEADER_TYPE_BRIDGE :
-    //         max_bars = 2;
-    //         break;
-    //     case HEADER_TYPE_CARDBUS :
-    //     default :
-    //         max_bars = 0;
-    //         break;
-    // }
-    // Same as:
-    // x(x-5) + 6 [x<=HEADER_TYPE_CARDBUS]
-    // max_bars = headertype * (headertype - 5) + 6;
-    // max_bars = headertype <= HEADER_TYPE_CARDBUS ? max_bars : 0;
-    // Also same as:
+
+    /* switch (headertype) {
+     *     case HEADER_TYPE_GENERAL :
+     *         max_bars = 6;
+     *         break;
+     *     case HEADER_TYPE_BRIDGE :
+     *         max_bars = 2;
+     *         break;
+     *     case HEADER_TYPE_CARDBUS :
+     *     default :
+     *         max_bars = 0;
+     *         break;
+     * }
+     * Same as:
+     * x(x-5) + 6 [x<=HEADER_TYPE_CARDBUS]
+     * max_bars = headertype * (headertype - 5) + 6;
+     * max_bars = headertype <= HEADER_TYPE_CARDBUS ? max_bars : 0;
+     * Also same as:
+     */
+
     static uint32_t max_bars_table[3] = {6, 2, 0};
     max_bars                          = max_bars_table[headertype < 2 ? headertype : 2];
     if (bar >= max_bars) return result;
@@ -457,14 +463,14 @@ base_address_register get_base_address_register(pci_device_cache *device, uint32
 
     switch (result.type) {
         case mem_mapping : // Memory
-            // Match the BAR type bits
+            /* Match the BAR type bits */
             result.size = (bar_value >> 1) & 0b11;
             switch (result.size) {
                 case BAR_S32 :      // 32
                 case BAR_Reserved : // Reserved (Un-processed)
                     break;
                 case BAR_S64 : // 64
-                    // Read the next BAR for 64-bit BARs
+                    /* Read the next BAR for 64-bit BARs */
                     if (bar + 1 < max_bars) {
                         reg.offset = 0x10 + 4 * (bar + 1);
                         bar_value |= (uint64_t)read_pci(reg) << 32; // Read the next BAR and merge
@@ -476,8 +482,7 @@ base_address_register get_base_address_register(pci_device_cache *device, uint32
                     plogk("PCI: Unknown BAR type.\n");
                     break;
             }
-            // We transform the address to a virtual address,
-            // it removes the *higher* bits of the address.
+            /* Convert to virtual address (truncate higher bits) */
             result.address      = (uint32_t *)phys_to_virt(bar_value & ~0b1111);
             result.prefetchable = bar_value & 0b1000;
             break;

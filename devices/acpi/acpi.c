@@ -83,7 +83,6 @@ void acpi_init(void)
             plogk("ACPI: RSDT found at %p\n", rsdt);
         }
     }
-
     load_table(HPET, hpet_init);
     load_table(APIC, apic_init);
     load_table(FACP, facp_init);

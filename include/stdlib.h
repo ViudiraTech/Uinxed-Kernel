@@ -24,6 +24,9 @@
 #define SPECIAL 32 // 0x
 #define SMALL   64 // use 'abcdef' instead of 'ABCDEF'
 
+#define ALIGN_DOWN(addr, align) ((addr) & ~((align) - 1))
+#define ALIGN_UP(addr, align)   (((addr) + (align) - 1) & ~((align) - 1))
+
 #define do_div(n, base)                                                                   \
     ({                                                                                    \
         int64_t __res;                                                                    \

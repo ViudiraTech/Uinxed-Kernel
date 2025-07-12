@@ -30,13 +30,11 @@
 #define APIC_ICR_LOW  0x300
 #define APIC_ICR_HIGH 0x310
 
-/* IPI vectors */
 #define IPI_RESCHEDULE    0x52
 #define IPI_HALT          0x53
 #define IPI_TLB_SHOOTDOWN 0x54
 #define IPI_PANIC         0x55
 
-/* IPI commands */
 #define IPI_FIXED         0x0
 #define IPI_LOWEST        0x100
 #define IPI_SMI           0x200

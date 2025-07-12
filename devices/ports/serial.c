@@ -26,9 +26,8 @@ void init_serial(void)
     outb(SERIAL_PORT + 3, 0x03);                  // 8 bits, no parity, one stop bit
     outb(SERIAL_PORT + 2, 0xc7);                  // Enable FIFO with 14-byte threshold
     outb(SERIAL_PORT + 4, 0x0b);                  // Enable IRQ, set RTS/DSR
-    outb(SERIAL_PORT + 4,
-         0x1e);                  // Set to loopback mode and test the serial port
-    outb(SERIAL_PORT + 0, 0xae); // Test serial port
+    outb(SERIAL_PORT + 4, 0x1e);                  // Set to loopback mode and test the serial port
+    outb(SERIAL_PORT + 0, 0xae);                  // Test serial port
 
     /* Check if there is a problem with the serial port (i.e.: the bytes sent are different) */
     if (inb(SERIAL_PORT + 0) != 0xae) {
@@ -36,8 +35,10 @@ void init_serial(void)
         return;
     }
 
-    /* If the serial port is not faulty, set it to normal operation mode */
-    /* (non-loopback, IRQ enabled, OUT#1 and OUT#2 bits enabled) */
+    /* If the serial port is not faulty, set it to normal operation mode
+     * (non-loopback, IRQ enabled, OUT#1 and OUT#2 bits enabled)
+     */
+
     outb(SERIAL_PORT + 4, 0x0f);
     plogk("Serial: Local port = COM1\n");
     plogk("Serial: Baud rate = %d\n", 9600);

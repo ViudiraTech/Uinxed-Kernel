@@ -49,6 +49,7 @@ void kernel_entry(void)
     plogk("CPU: NX (Execute Disable) protection = %s\n", cpu_supports_nx() ? "active" : "passive");
     plogk("HEAP: Range = 0x%016llx - 0x%016llx (%lld MiB)\n", phys_to_virt(heap_start),
           phys_to_virt(heap_start + heap_size), heap_size / 1024 / 1024);
+
     init_gdt();           // Initialize global descriptors
     init_idt();           // Initialize interrupt descriptor
     isr_registe_handle(); // Register ISR interrupt processing

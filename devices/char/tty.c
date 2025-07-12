@@ -11,7 +11,7 @@
 
 #include "tty.h"
 #include "cmdline.h"
-#include "common.h"
+#include "lock.h"
 #include "serial.h"
 #include "stdlib.h"
 #include "string.h"
@@ -21,11 +21,6 @@ static char boot_tty_buf[16]       = {0}; // Persistent Buffer
 static char *boot_tty              = 0;
 static char tty_buff[TTY_BUF_SIZE] = {0};
 static volatile char *tty_buff_ptr = tty_buff;
-
-spinlock_t tty_spinlock = {
-    .lock   = 0,
-    .rflags = 0,
-};
 
 spinlock_t tty_flush_spinlock = {
     .lock   = 0,
