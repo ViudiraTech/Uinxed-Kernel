@@ -84,7 +84,7 @@ char *get_boot_tty(void)
     return boot_tty;
 }
 
-void tty_buff_flush()
+void tty_buff_flush(void)
 {
     spin_lock(&tty_flush_spinlock);
     tty_buff_ptr = tty_buff;
@@ -107,7 +107,7 @@ static void tty_buff_add(const char ch)
     if (ch == '\0') return;
     *tty_buff_ptr = ch;
     tty_buff_ptr++;
-    if (tty_buff_ptr - tty_buff >= TTY_BUF_SIZE - 1) {
+    if (tty_buff_ptr - tty_buff >= TTY_BUF_SIZE - 1 || ch == '\n' || ch == '\r') {
         /* Flush */
         *tty_buff_ptr = '\0';
         tty_buff_flush();

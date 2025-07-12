@@ -30,7 +30,7 @@ typedef struct tss {
 } __attribute__((packed)) tss_t;
 
 typedef uint8_t tss_stack_t[1024];
-typedef uint64_t gdt_entries_t[7];
+typedef uint64_t gdt_entries_t[8];
 
 extern struct gdt_register gdt_pointer;
 extern gdt_entries_t gdt_entries;

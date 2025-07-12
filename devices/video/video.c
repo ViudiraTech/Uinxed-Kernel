@@ -36,7 +36,7 @@ uint32_t fore_color; // Foreground color
 uint32_t back_color; // Background color
 
 /* Get video information */
-VideoInfo video_get_info()
+VideoInfo video_get_info(void)
 {
     VideoInfo info;
     info.width      = width;

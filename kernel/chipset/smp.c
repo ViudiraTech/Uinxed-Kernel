@@ -24,8 +24,9 @@
 #include "stdlib.h"
 #include "string.h"
 #include "uinxed.h"
+#include <stdlib.h>
 
-static cpu_processor cpus[256];
+static cpu_processor *cpus;
 static size_t cpu_count = 0;
 
 static volatile uint64_t ap_ready_count = 0;
@@ -74,17 +75,17 @@ __attribute__((interrupt)) static void ipi_panic_handler(interrupt_frame_t *fram
 /* Send an IPI to all CPUs */
 void send_ipi_all(uint8_t vector)
 {
+    vector |= IPI_FIXED | APIC_ICR_PHYSICAL;
     for (size_t i = 0; i < cpu_count; i++) {
-        if (cpus[i].id != get_current_cpu_id()) { send_ipi(cpus[i].lapic_id, vector | IPI_FIXED | APIC_ICR_PHYSICAL); }
+        if (cpus[i].id != get_current_cpu_id()) { send_ipi(cpus[i].lapic_id, vector); }
     }
 }
 
 /* Send an IPI to the specified CPU */
 void send_ipi_cpu(uint32_t cpu_id, uint8_t vector)
 {
-    if (cpu_id < cpu_count && cpu_id != get_current_cpu_id()) {
-        send_ipi(cpus[cpu_id].lapic_id, vector | IPI_FIXED | APIC_ICR_PHYSICAL);
-    }
+    vector |= IPI_FIXED | APIC_ICR_PHYSICAL;
+    if (cpu_id < cpu_count && cpu_id != get_current_cpu_id()) { send_ipi(cpus[cpu_id].lapic_id, vector); }
 }
 
 /* Flush TLBs of all CPUs */
@@ -123,7 +124,19 @@ void ap_entry(struct limine_smp_info *info)
      */
 
     spin_lock(&ap_start_lock);
-    cpu_processor *cpu = (cpu_processor *)info->extra_argument;
+    PointerCast cast;
+    cast.val           = info->extra_argument;
+    cpu_processor *cpu = (cpu_processor *)cast.ptr;
+
+    /* Init GDT */
+    cpu->gdt.entries[0] = 0x0000000000000000;
+    cpu->gdt.entries[1] = 0x00a09a0000000000;
+    cpu->gdt.entries[2] = 0x00c0920000000000;
+    cpu->gdt.entries[3] = 0x00c0f20000000000;
+    cpu->gdt.entries[4] = 0x00a0fa0000000000;
+
+    cpu->gdt_pointer.size = (uint16_t)(sizeof(gdt_entries_t) - 1);
+    cpu->gdt_pointer.ptr  = &cpu->gdt.entries;
 
     __asm__ volatile("lgdt %[ptr]; push %[cseg]; lea 1f, %%rax; push %%rax; lretq;"
                      "1:"
@@ -131,28 +144,34 @@ void ap_entry(struct limine_smp_info *info)
                      "mov %[dseg], %%fs;"
                      "mov %[dseg], %%gs;"
                      "mov %[dseg], %%es;"
-                     "mov %[dseg], %%ss;" ::[ptr] "m"(gdt_pointer),
+                     "mov %[dseg], %%ss;" ::[ptr] "m"(cpu->gdt_pointer),
                      [cseg] "rm"((uint64_t)0x8), [dseg] "rm"((uint64_t)0x10)
                      : "memory");
 
-    uint64_t address     = ((uint64_t)(&tss0));
+    /* Init TSS */
+    cpu->tss             = malloc(sizeof(tss_t));
+    uint64_t address     = ((uint64_t)(cpu->tss));
     uint64_t low_base    = (((address & 0xffffff)) << 16);
     uint64_t mid_base    = (((((address >> 24)) & 0xff)) << 56);
     uint64_t high_base   = (address >> 32);
     uint64_t access_byte = (((uint64_t)(0x89)) << 40);
     uint64_t limit       = (uint64_t)(sizeof(tss_t) - 1);
 
-    gdt_entries[5] = (((low_base | mid_base) | limit) | access_byte);
-    gdt_entries[6] = high_base;
-    tss0.ist[0]    = ((uint64_t)&tss_stack) + sizeof(tss_stack_t);
+    cpu->gdt.entries[5] = (((low_base | mid_base) | limit) | access_byte);
+    cpu->gdt.entries[6] = high_base;
+    cpu->tss->ist[0]    = ((uint64_t)cpu->tss_stack) + sizeof(tss_stack_t);
+
+    /* Initialize the TSS stack */
+    cast.val           = 0;
+    cast.ptr           = cpu->tss_stack;
+    uint64_t stack_top = ALIGN_DOWN(cast.val + 0x10000, 16);
+    /* set_kernel_stack(stack_top) but use its own tss. */
+    cpu->tss->rsp[0] = stack_top;
 
     __asm__ volatile("ltr %w[offset]" ::[offset] "rm"((uint16_t)0x28) : "memory");
     __asm__ volatile("lidt %0" ::"m"(idt_pointer) : "memory");
 
-    /* Initialize the TSS stack */
-    uint64_t stack_top = ALIGN_DOWN(cpu->stack + 0x10000, 16);
-    set_kernel_stack(stack_top);
-
+    /* Clear the spurious interrupt */
     uint32_t spurious = lapic_read(LAPIC_REG_SPURIOUS);
     lapic_write(LAPIC_REG_SPURIOUS, spurious | (1 << 8) | 0xFF);
 
@@ -178,6 +197,7 @@ void smp_init(void)
 
     plogk("SMP: Found %d CPUs.\n", smp->cpu_count);
     cpu_count = smp->cpu_count;
+    cpus      = (cpu_processor *)malloc(sizeof(cpu_processor) * cpu_count);
 
     /* Init BootStrap Processor */
     for (uint32_t i = 0; i < smp->cpu_count; i++) {
@@ -185,12 +205,14 @@ void smp_init(void)
         cpus[i].id                  = i;
         cpus[i].lapic_id            = cpu->lapic_id;
 
-        /* Allocate 16 KiB for each CPU stack */
-        cpus[i].stack = (uint64_t)malloc(0x10000);
+        /* Allocate TSS Stack for each CPU stack */
+        cpus[i].tss_stack = malloc(sizeof(tss_stack_t));
 
         /* Special handling for BSP */
         if (cpu->lapic_id == smp->bsp_lapic_id) {
-            set_kernel_stack(ALIGN_DOWN(cpus[i].stack + 0x10000, 16));
+            PointerCast cast;
+            cast.ptr = cpus[i].tss_stack;
+            set_kernel_stack(ALIGN_DOWN(cast.val + 0x10000, 16));
             continue;
         } else {
             /* Configure the AP entry point */

@@ -38,7 +38,7 @@ enum BarSize {
 };
 
 typedef struct base_address_register {
-        int prefetchable;
+        uint8_t prefetchable;
         uint32_t *address;
         uint32_t size;
         int type;
