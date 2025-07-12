@@ -27,6 +27,7 @@
 #include "printk.h"
 #include "serial.h"
 #include "smbios.h"
+#include "smp.h"
 #include "uinxed.h"
 #include "video.h"
 
@@ -46,12 +47,13 @@ void kernel_entry(void)
     plogk("CPU: %s %s\n", get_vendor_name(), get_model_name());
     plogk("CPU: phy/virt = %u/%u bits.\n", get_cpu_phys_bits(), get_cpu_virt_bits());
     plogk("CPU: NX (Execute Disable) protection = %s\n", cpu_supports_nx() ? "active" : "passive");
-    plogk("HEAP: Range = 0x%016llx - 0x%016llx\n", phys_to_virt(heap_start), phys_to_virt(heap_start + heap_size));
-
+    plogk("HEAP: Range = 0x%016llx - 0x%016llx (%lld MiB)\n", phys_to_virt(heap_start),
+          phys_to_virt(heap_start + heap_size), heap_size / 1024 / 1024);
     init_gdt();           // Initialize global descriptors
     init_idt();           // Initialize interrupt descriptor
     isr_registe_handle(); // Register ISR interrupt processing
     acpi_init();          // Initialize ACPI
+    smp_init();           // Initialize SMP
     print_memory_map();   // Print memory map information
     init_frame();         // Initialize memory frame
     pci_init();           // Initialize PCI

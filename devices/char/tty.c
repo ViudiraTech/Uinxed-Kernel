@@ -11,6 +11,7 @@
 
 #include "tty.h"
 #include "cmdline.h"
+#include "common.h"
 #include "serial.h"
 #include "stdlib.h"
 #include "string.h"
@@ -19,7 +20,17 @@
 static char boot_tty_buf[16]       = {0}; // Persistent Buffer
 static char *boot_tty              = 0;
 static char tty_buff[TTY_BUF_SIZE] = {0};
-static char *tty_buff_ptr          = tty_buff;
+static volatile char *tty_buff_ptr = tty_buff;
+
+spinlock_t tty_spinlock = {
+    .lock   = 0,
+    .rflags = 0,
+};
+
+spinlock_t tty_flush_spinlock = {
+    .lock   = 0,
+    .rflags = 0,
+};
 
 /* Parsing command line arguments */
 static int arg_parse(char *arg_str, char **argv, char delim)
@@ -80,6 +91,7 @@ char *get_boot_tty(void)
 
 void tty_buff_flush()
 {
+    spin_lock(&tty_flush_spinlock);
     tty_buff_ptr = tty_buff;
     if (strcmp(get_boot_tty(), "ttyS0") == 0) {
         while (*tty_buff_ptr != '\0') {
@@ -91,6 +103,8 @@ void tty_buff_flush()
         tty_buff[TTY_BUF_SIZE - 1] = '\0';
         video_put_string(tty_buff);
     }
+    tty_buff[0] = '\0'; // Clear buffer
+    spin_unlock(&tty_flush_spinlock);
 }
 
 static void tty_buff_add(const char ch)
@@ -98,7 +112,7 @@ static void tty_buff_add(const char ch)
     if (ch == '\0') return;
     *tty_buff_ptr = ch;
     tty_buff_ptr++;
-    if (tty_buff_ptr - tty_buff >= TTY_BUF_SIZE - 1 || ch == '\n') {
+    if (tty_buff_ptr - tty_buff >= TTY_BUF_SIZE - 1) {
         /* Flush */
         *tty_buff_ptr = '\0';
         tty_buff_flush();

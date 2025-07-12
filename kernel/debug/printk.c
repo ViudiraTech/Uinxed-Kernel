@@ -10,7 +10,7 @@
  */
 
 #include "printk.h"
-#include "acpi.h"
+#include "common.h"
 #include "stdarg.h"
 #include "stddef.h"
 #include "stdint.h"
@@ -18,11 +18,27 @@
 #include "string.h"
 #include "tty.h"
 
+#ifdef KERNEL_LOG
+#    include "acpi.h"
+#endif
+
 #define BUF_SIZE 2048 // least 2 bytes (1 byte is for '\0')
+
+// Lock for printk and plogk
+spinlock_t printk_lock = {
+    .lock   = 0,
+    .rflags = 0,
+};
+
+spinlock_t plogk_lock = {
+    .lock   = 0,
+    .rflags = 0,
+};
 
 /* Kernel print string */
 void printk(const char *format, ...)
 {
+    spin_lock(&printk_lock); // Lock
     static char buff[BUF_SIZE];
     va_list args;
     OverflowSignal *sig = 0;
@@ -34,11 +50,13 @@ void printk(const char *format, ...)
         if (sig == 0) break;
     }
     va_end(args);
+    spin_unlock(&printk_lock); // Unlock
 }
 
 /* Kernel print string without overflow check */
 void printk_unsafe(const char *format, ...)
 {
+    spin_lock(&printk_lock); // Lock
     static char buff[2048];
     va_list args;
 
@@ -46,12 +64,14 @@ void printk_unsafe(const char *format, ...)
     vsprintf(buff, format, args); // NOLINT
     tty_print_str(buff);
     va_end(args);
+    spin_unlock(&printk_lock); // Lock
 }
 
 /* Kernel print log with overflow check */
 void plogk_unsafe(const char *format, ...)
 {
 #ifdef KERNEL_LOG
+    spin_lock(&plogk_lock); // Lock
     printk_unsafe("[%5d.%06d] ", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
     static char buff[2048];
     va_list args;
@@ -59,6 +79,7 @@ void plogk_unsafe(const char *format, ...)
     vsprintf(buff, format, args); // NOLINT
     tty_print_str(buff);
     va_end(args);
+    spin_unlock(&plogk_lock); // Lock
 #else
     (void)format;
     return;
@@ -69,8 +90,8 @@ void plogk_unsafe(const char *format, ...)
 void plogk(const char *format, ...)
 {
 #ifdef KERNEL_LOG
+    spin_lock(&plogk_lock); // Lock
     printk("[%5d.%06d] ", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
-
     static char buff[BUF_SIZE];
     va_list args;
     OverflowSignal *sig = 0;
@@ -82,6 +103,7 @@ void plogk(const char *format, ...)
         if (sig == 0) break;
     }
     va_end(args);
+    spin_unlock(&plogk_lock); // Unlock
 #else
     (void)format;
     return;

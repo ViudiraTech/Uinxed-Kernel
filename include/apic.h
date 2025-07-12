@@ -30,6 +30,26 @@
 #define APIC_ICR_LOW  0x300
 #define APIC_ICR_HIGH 0x310
 
+/* IPI vectors */
+#define IPI_RESCHEDULE    0x52
+#define IPI_HALT          0x53
+#define IPI_TLB_SHOOTDOWN 0x54
+#define IPI_PANIC         0x55
+
+/* IPI commands */
+#define IPI_FIXED         0x0
+#define IPI_LOWEST        0x100
+#define IPI_SMI           0x200
+#define IPI_REMOTE        0x4000
+#define IPI_EDGE          0x8000
+#define IPI_DEASSERT      0x0
+#define IPI_ASSERT        0x4000
+#define IPI_PHYSICAL      0x0
+#define IPI_LOGICAL       0x800
+#define APIC_ICR_INIT     0x4500
+#define APIC_ICR_STARTUP  0x4600
+#define APIC_ICR_PHYSICAL 0x0
+
 typedef struct {
         struct ACPISDTHeader h;
         uint32_t local_apic_address;

@@ -204,7 +204,8 @@ static uint8_t ide_print_error(uint32_t drive, uint8_t err) // NOLINT(bugprone-e
 /* Initialize IDE */
 void init_ide(void)
 {
-    uint32_t bars[5];
+    base_address_register bars[6];
+    uint32_t bar_addrs[6];
     pci_device_reg bar_reg = {
         .parent = 0,
         .offset = 0,
@@ -229,11 +230,14 @@ void init_ide(void)
     register_interrupt_handler(IRQ_14, ide_irq, 0, 0x8e);
     register_interrupt_handler(IRQ_15, ide_irq, 0, 0x8e);
 
-    for (uint32_t idx = 0; idx < 5; idx++) {
+    for (uint32_t idx = 0; idx < 6; idx++) {
         bar_reg.offset = ECAM_OTHERS + idx * 4;
-        bars[idx]      = read_pci(bar_reg);
+        bars[idx]      = get_base_address_register(bar_reg.parent, idx);
+        PointerCast cast;
+        cast.ptr       = bars[idx].address;
+        bar_addrs[idx] = cast.val;
     }
-    ide_initialize(bars[0], bars[1], bars[2], bars[3], bars[4]);
+    ide_initialize(bar_addrs[0], bar_addrs[1], bar_addrs[2], bar_addrs[3], bar_addrs[4]);
     return;
 }
 

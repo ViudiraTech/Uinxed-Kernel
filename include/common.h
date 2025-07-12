@@ -15,6 +15,11 @@
 #include "stddef.h"
 #include "stdint.h"
 
+typedef struct {
+        volatile uint64_t lock; // lock state
+        uint64_t rflags;        // stored rflags
+} spinlock_t;
+
 void outb(uint16_t port, uint8_t value);  // Port write (8 bits)
 void outw(uint16_t port, uint16_t value); // Port write (16 bits)
 void outl(uint16_t port, uint32_t value); // Port write (32 bits)
@@ -74,5 +79,14 @@ void store(uint64_t *addr, uint32_t value);
 void enable_intr(void);  // Enable interrupt
 void disable_intr(void); // Disable interrupts
 void krn_halt(void);     // Kernel halt
+
+/* Lock a spinlock */
+void spin_lock(spinlock_t *lock);
+
+/* Unlock a spinlock */
+void spin_unlock(spinlock_t *lock);
+
+#define ALIGN_DOWN(addr, align) ((addr) & ~((align) - 1))
+#define ALIGN_UP(addr, align)   (((addr) + (align) - 1) & ~((align) - 1))
 
 #endif // INCLUDE_COMMON_H_

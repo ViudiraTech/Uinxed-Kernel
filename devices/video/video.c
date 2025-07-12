@@ -122,7 +122,8 @@ void video_scroll(void)
         __asm__ volatile("rep movsq" : "+D"(dest), "+S"(src), "+c"(count)::"memory");
 
         /* NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling) */
-        memset(buffer + (height - 16) * stride, (int32_t)back_color, 16 * stride * sizeof(uint32_t));
+        /* Fill new line to back color*/
+        video_draw_rect((position) {0, height - 16}, (position) {stride, height}, 0xffff0000);
         cy = c_height - 1;
     }
 }
@@ -155,9 +156,16 @@ void video_draw_rect(position p0, position p1, uint32_t color)
     uint32_t y0 = p0.y;
     uint32_t x1 = p1.x;
     uint32_t y1 = p1.y;
+#if defined(__x86_64__) || defined(__i386__)
+    uint32_t *dest = buffer + y0 * width + x0;
+    uint32_t *src  = buffer + y1 * width + x1;
+    uint32_t cnt   = (y1 - y0 + 1) * (x1 - x0 + 1);
+    __asm__ volatile("rep movsq" : "+D"(dest), "+S"(src), "+c"(cnt) : "a"(color) : "memory");
+#elif
     for (y = y0; y <= y1; y++) {
         for (x = x0; x <= x1; x++) video_draw_pixel(x, y, color);
     }
+#endif
 }
 
 /* Draw a character at the specified coordinates on the screen */
@@ -182,9 +190,11 @@ void video_put_char(const char c, uint32_t color)
     uint32_t x;
     uint32_t y;
     if (c == '\n') {
-        video_scroll();
-        cx = 0;
         cy++;
+        cx = 0;
+        // Try scroll (but it will do when next character is printed)
+        // video_scroll();
+        // cx = 0;
         return;
     } else if (c == '\r') {
         cx = 0;

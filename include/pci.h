@@ -31,6 +31,12 @@
 #define mem_mapping  0
 #define input_output 1
 
+enum BarSize {
+    BAR_S32      = 0x0,
+    BAR_Reserved = 0x1,
+    BAR_S64      = 0x2,
+};
+
 typedef struct base_address_register {
         int prefetchable;
         uint32_t *address;
@@ -186,7 +192,7 @@ const char *pci_classname(uint32_t classcode);
 pci_devices_cache *pci_get_devices_cache(void);
 
 /* Free the PCI devices cache */
-void free_devices_cache(void);
+void pci_free_devices_cache(void);
 
 /* Flush the PCI devices cache and update the responses of each `pci_finding_request` */
 void pci_flush_devices_cache(void);
