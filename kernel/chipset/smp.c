@@ -135,8 +135,8 @@ void ap_entry(struct limine_smp_info *info)
     cpu->gdt.entries[3] = 0x00c0f20000000000;
     cpu->gdt.entries[4] = 0x00a0fa0000000000;
 
-    cpu->gdt_pointer.size = (uint16_t)(sizeof(gdt_entries_t) - 1);
-    cpu->gdt_pointer.ptr  = &cpu->gdt.entries;
+    cpu->gdt.pointer.size = (uint16_t)(sizeof(gdt_entries_t) - 1);
+    cpu->gdt.pointer.ptr  = &cpu->gdt.entries;
 
     __asm__ volatile("lgdt %[ptr]; push %[cseg]; lea 1f, %%rax; push %%rax; lretq;"
                      "1:"
@@ -144,7 +144,7 @@ void ap_entry(struct limine_smp_info *info)
                      "mov %[dseg], %%fs;"
                      "mov %[dseg], %%gs;"
                      "mov %[dseg], %%es;"
-                     "mov %[dseg], %%ss;" ::[ptr] "m"(cpu->gdt_pointer),
+                     "mov %[dseg], %%ss;" ::[ptr] "m"(cpu->gdt.pointer),
                      [cseg] "rm"((uint64_t)0x8), [dseg] "rm"((uint64_t)0x10)
                      : "memory");
 

@@ -21,10 +21,8 @@ typedef struct cpu_processor {
         uint64_t lapic_id;
         struct {
                 gdt_entries_t entries;
-                uint16_t limit;
-                uint64_t base;
+                struct gdt_register pointer;
         } gdt __attribute__((aligned(16)));
-        struct gdt_register gdt_pointer;
         tss_stack_t *tss_stack;
         tss_t *tss;
 } cpu_processor;
