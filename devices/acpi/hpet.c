@@ -24,8 +24,7 @@ void timer_handle(interrupt_frame_t *frame);
 uint64_t nano_time(void)
 {
     if (hpet_addr == 0) return 0;
-    uint64_t mcv = hpet_addr->mainCounterValue;
-    return mcv * hpetPeriod;
+    return (hpet_addr->mainCounterValue) * hpetPeriod;
 }
 
 /* Initialize high-precision event timer */

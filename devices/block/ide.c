@@ -92,7 +92,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
             ide_write(i, ATA_REG_COMMAND, ATA_CMD_IDENTIFY);
             nsleep(10);
 
-            if (ide_read(i, ATA_REG_STATUS) == 0) continue;
+            if (!ide_read(i, ATA_REG_STATUS)) continue;
             while (1) {
                 status = ide_read(i, ATA_REG_STATUS);
                 if ((status & ATA_SR_ERR)) {
@@ -146,12 +146,10 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
     }
 
     /* Print device information */
-    for (int i = 0; i < 4; i++) {
-        if (ide_devices[i].reserved == 1) {
+    for (int i = 0; i < 4; i++)
+        if (ide_devices[i].reserved == 1)
             plogk("IDE: Found %s Drive %u(MiB) - %s\n", ide_devices[i].type ? "ATAPI" : "ATA",
                   ide_devices[i].size / 1024 / 2, ide_devices[i].model);
-        }
-    }
 }
 
 /* Error handling */
@@ -480,7 +478,7 @@ uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint16_t *
 void ide_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *edi)
 {
     /* read multiple sector sf Roman IDE device */
-    if (drive > 3 || ide_devices[drive].reserved == 0) package[0] = 0x1;
+    if (drive > 3 || !ide_devices[drive].reserved) package[0] = 0x1;
 
     /* Check if the input is valid */
     else if (((lba + numsects) > ide_devices[drive].size) && (ide_devices[drive].type == IDE_ATA))
@@ -501,7 +499,7 @@ void ide_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *e
 void ide_write_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *edi)
 {
     /* Check if the drive exists */
-    if (drive > 3 || ide_devices[drive].reserved == 0) package[0] = 0x1;
+    if (drive > 3 || !ide_devices[drive].reserved) package[0] = 0x1;
 
     /* Check if the input is valid */
     else if (((lba + numsects) > ide_devices[drive].size) && (ide_devices[drive].type == IDE_ATA))

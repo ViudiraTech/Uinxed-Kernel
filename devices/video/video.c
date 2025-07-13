@@ -157,13 +157,13 @@ void video_draw_rect(position p0, position p1, uint32_t color)
     uint32_t x1 = p1.x;
     uint32_t y1 = p1.y;
     for (y = y0; y <= y1; y++) {
-        // Draw horizontal line
+        /* Draw horizontal line */
 #if defined(__x86_64__) || defined(__i386__)
         uint32_t *line = buffer + y * stride + x0;
         size_t count   = x1 - x0 + 1;
         __asm__ volatile("rep stosl" : "+D"(line), "+c"(count) : "a"(color) : "memory");
 #else
-        for (uint32_t x = x0; x <= x1; x++) { video_draw_pixel(x, y, color); }
+        for (uint32_t x = x0; x <= x1; x++) video_draw_pixel(x, y, color);
 #endif
     }
 }

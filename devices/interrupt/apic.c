@@ -97,19 +97,14 @@ uint64_t lapic_id(void)
 void local_apic_init(void)
 {
     x2apic_mode = (smp_request.response->flags & 1) != 0;
-
-    if (x2apic_mode)
-        plogk("APIC: LAPIC = x2APIC\n");
-    else
-        plogk("APIC: LAPIC = xAPIC\n");
+    plogk("APIC: LAPIC = %s\n", x2apic_mode ? "x2APIC" : "xAPIC");
 
     lapic_write(LAPIC_REG_SPURIOUS, 0xff | 1 << 8);
     lapic_write(LAPIC_REG_TIMER, IRQ_0);
     lapic_write(LAPIC_REG_TIMER_DIV, 11);
     lapic_write(LAPIC_REG_TIMER_INITCNT, ~((uint32_t)0));
 
-    uint64_t start = nano_time();
-    while (nano_time() - start < 1000000);
+    for (uint64_t start = nano_time(); nano_time() - start < 1000000;);
 
     uint64_t lapic_timer              = (~(uint32_t)0) - lapic_read(LAPIC_REG_TIMER_CURCNT);
     uint64_t calibrated_timer_initial = (uint64_t)((uint64_t)(lapic_timer * 1000) / 250);
@@ -155,8 +150,7 @@ void lapic_timer_stop(void)
 void send_ipi(uint32_t apic_id, uint32_t command)
 {
     if (x2apic_mode) {
-        uint64_t icr = ((uint64_t)(apic_id & 0b1111) << 32) | command;
-        wrmsr(0x800 + (APIC_ICR_LOW >> 4), icr);
+        wrmsr(0x800 + (APIC_ICR_LOW >> 4), ((uint64_t)(apic_id & 0b1111) << 32) | command);
     } else {
         lapic_write(APIC_ICR_HIGH, apic_id << 24);
         lapic_write(APIC_ICR_LOW, command);

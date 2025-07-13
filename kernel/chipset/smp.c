@@ -1,7 +1,7 @@
 /*
  *
  *      smp.c
- *      Symmetric Multi-Processing (SMP) support
+ *      Symmetric Multi-Processing
  *
  *      2025/7/6 By W9pi3cZ1
  *      Based on GPL-3.0 open source agreement
@@ -24,7 +24,6 @@
 #include "stdlib.h"
 #include "string.h"
 #include "uinxed.h"
-#include <stdlib.h>
 
 static cpu_processor *cpus;
 static size_t cpu_count = 0;
@@ -108,35 +107,29 @@ uint32_t get_cpu_count(void)
 /* Get the ID of the current CPU */
 uint32_t get_current_cpu_id(void)
 {
-    uint64_t cpu_lapic_id = lapic_id();
-    for (size_t i = 0; i < cpu_count; i++) {
-        if (cpus[i].lapic_id == cpu_lapic_id) return i;
-    }
+    for (size_t i = 0; i < cpu_count; i++)
+        if (cpus[i].lapic_id == lapic_id()) return i;
     return 0; // Default to CPU 0 if not found
 }
 
 /* Multi-core boot entry */
 void ap_entry(struct limine_smp_info *info)
 {
-    /* Init for APs (But now it's looks so messy)
-     * TODO: Refactor this code to be cleaner and more modular
-     */
-
     spin_lock(&ap_start_lock);
 
     PointerCast cast;
     cast.val           = info->extra_argument;
     cpu_processor *cpu = (cpu_processor *)cast.ptr;
 
-    /* Init GDT */
-    cpu->gdt.entries[0] = 0x0000000000000000;
-    cpu->gdt.entries[1] = 0x00a09a0000000000;
-    cpu->gdt.entries[2] = 0x00c0920000000000;
-    cpu->gdt.entries[3] = 0x00c0f20000000000;
-    cpu->gdt.entries[4] = 0x00a0fa0000000000;
+    /* Initializing the GDT */
+    cpu->gdt.entries[0] = 0x0000000000000000; // NULL descriptor
+    cpu->gdt.entries[1] = 0x00a09a0000000000; // Kernel code segment
+    cpu->gdt.entries[2] = 0x00c0920000000000; // Kernel data segment
+    cpu->gdt.entries[3] = 0x00c0f20000000000; // User code segment
+    cpu->gdt.entries[4] = 0x00a0fa0000000000; // User data segment
 
-    cpu->gdt.pointer.size = (uint16_t)(sizeof(gdt_entries_t) - 1);
-    cpu->gdt.pointer.ptr  = &cpu->gdt.entries;
+    cpu->gdt.pointer
+        = ((struct gdt_register) {.size = (uint16_t)(sizeof(gdt_entries_t) - 1), .ptr = &cpu->gdt.entries});
 
     __asm__ volatile("lgdt %[ptr]; push %[cseg]; lea 1f, %%rax; push %%rax; lretq;"
                      "1:"
@@ -148,7 +141,7 @@ void ap_entry(struct limine_smp_info *info)
                      [cseg] "rm"((uint64_t)0x8), [dseg] "rm"((uint64_t)0x10)
                      : "memory");
 
-    /* Init TSS */
+    /*Initializing the TSS */
     cpu->tss             = malloc(sizeof(tss_t));
     uint64_t address     = ((uint64_t)(cpu->tss));
     uint64_t low_base    = (((address & 0xffffff)) << 16);
@@ -160,21 +153,19 @@ void ap_entry(struct limine_smp_info *info)
     cpu->gdt.entries[5] = (((low_base | mid_base) | limit) | access_byte);
     cpu->gdt.entries[6] = high_base;
     cpu->tss->ist[0]    = ((uint64_t)cpu->tss_stack) + sizeof(tss_stack_t);
-
-    /* Initialize the TSS stack */
-    cast.val           = 0;
-    cast.ptr           = cpu->tss_stack;
-    uint64_t stack_top = ALIGN_DOWN(cast.val + 0x10000, 16);
-
-    /* set_kernel_stack(stack_top) but use its own tss. */
-    cpu->tss->rsp[0] = stack_top;
-
     __asm__ volatile("ltr %w[offset]" ::[offset] "rm"((uint16_t)0x28) : "memory");
+
+    /* Initializing the TSS stack */
+    cast.val         = 0;
+    cast.ptr         = cpu->tss_stack;
+    cpu->tss->rsp[0] = ALIGN_DOWN(cast.val + 0x10000, 16);
+    ;
+
+    /* Initializing the IDT */
     __asm__ volatile("lidt %0" ::"m"(idt_pointer) : "memory");
 
     /* Clear the spurious interrupt */
-    uint32_t spurious = lapic_read(LAPIC_REG_SPURIOUS);
-    lapic_write(LAPIC_REG_SPURIOUS, spurious | (1 << 8) | 0xFF);
+    lapic_write(LAPIC_REG_SPURIOUS, lapic_read(LAPIC_REG_SPURIOUS) | (1 << 8) | 0xFF);
 
     ap_ready_count++;
     spin_unlock(&ap_start_lock);

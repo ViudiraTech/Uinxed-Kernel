@@ -87,10 +87,7 @@ void tty_buff_flush(void)
     spin_lock(&tty_flush_spinlock);
     tty_buff_ptr = tty_buff;
     if (strcmp(get_boot_tty(), "ttyS0") == 0) {
-        while (*tty_buff_ptr != '\0') {
-            write_serial(*tty_buff_ptr);
-            tty_buff_ptr++;
-        }
+        while (*tty_buff_ptr != '\0') write_serial(*tty_buff_ptr++);
         tty_buff_ptr = tty_buff;
     } else {
         tty_buff[TTY_BUF_SIZE - 1] = '\0';
@@ -103,8 +100,8 @@ void tty_buff_flush(void)
 static void tty_buff_add(const char ch)
 {
     if (ch == '\0') return;
-    *tty_buff_ptr = ch;
-    tty_buff_ptr++;
+    *tty_buff_ptr++ = ch;
+
     if (tty_buff_ptr - tty_buff >= TTY_BUF_SIZE - 1) {
         /* Flush */
         *tty_buff_ptr = '\0';

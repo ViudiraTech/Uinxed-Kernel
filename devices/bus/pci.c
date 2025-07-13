@@ -311,8 +311,7 @@ static uint32_t pci_legacy_read(pci_device_reg reg)
 
     uint32_t id = 1 << 31 | (bus << 16) | (slot << 11) | (func << 8) | (register_offset & 0xfc);
     outl(PCI_COMMAND_PORT, id);
-    uint32_t result = inl(PCI_DATA_PORT);
-    return result >> (8 * (register_offset % 4));
+    return inl(PCI_DATA_PORT) >> (8 * (register_offset % 4));
 }
 
 /* Write values ​​to PCI device registers in Legacy I/O */
@@ -548,12 +547,11 @@ static void pci_class_finding(pci_finding_request *req)
 
     req->response->device = 0;
     req->response->error  = PCI_FINDING_NOT_FOUND;
-    if (cache != 0) {
-        /* Test existence of device */
-        if (read_pci(reg_vendor) != 0xffffffff) {
-            req->response->device = cache;
-            req->response->error  = PCI_FINDING_SUCCESS;
-        }
+
+    /* Test existence of device */
+    if (cache && read_pci(reg_vendor) != 0xffffffff) {
+        req->response->device = cache;
+        req->response->error  = PCI_FINDING_SUCCESS;
     }
 }
 
@@ -566,12 +564,11 @@ static void pci_device_finding(pci_finding_request *req)
 
     req->response->device = 0;
     req->response->error  = PCI_FINDING_NOT_FOUND;
-    if (cache != 0) {
-        /* Test existence of device */
-        if (read_pci(reg_vendor) != 0xffffffff) {
-            req->response->device = cache;
-            req->response->error  = PCI_FINDING_SUCCESS;
-        }
+
+    /* Test existence of device */
+    if (cache && read_pci(reg_vendor) != 0xffffffff) {
+        req->response->device = cache;
+        req->response->error  = PCI_FINDING_SUCCESS;
     }
 }
 
@@ -669,7 +666,7 @@ void pci_free_devices_cache(void)
 {
     pci_device_cache *cache = pci_cache.head;
     pci_device_cache *free_ptr;
-    while (cache != 0) {
+    while (cache) {
         free_ptr = cache;
         cache    = cache->next;
         free(free_ptr->device);
@@ -725,14 +722,10 @@ static void slot_process_legacy(pci_device_cache *cache)
     pci_device *device = cache->device;
 
     device->func = 0;
-    if (!pci_cache_process(cache)) {
-        return; // Device not exist
-    }
+    if (!pci_cache_process(cache)) return; // Device not exist
 
     /* Check if device is a multifunction device */
-    if (!(cache->header_type & 0x80)) {
-        return; // Not a multifunction device
-    }
+    if (!(cache->header_type & 0x80)) return; // Not a multifunction device
 
     /* Process func=1..7 */
     for (device->func = 1; device->func < 8; device->func++) pci_cache_process(cache);

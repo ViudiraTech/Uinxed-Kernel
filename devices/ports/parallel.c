@@ -22,12 +22,10 @@ void wait_parallel_ready(void)
 /* Write to parallel port */
 void parallel_write(const char c)
 {
-    char lpt1_control;
-
     wait_parallel_ready();
     outb(LPT1_PORT_BASE, c);
 
-    lpt1_control = (char)inb(LPT1_PORT_CONTROL);
+    char lpt1_control = (char)inb(LPT1_PORT_CONTROL);
     outb(LPT1_PORT_CONTROL, lpt1_control | 1);
     msleep(10);
     outb(LPT1_PORT_CONTROL, lpt1_control);

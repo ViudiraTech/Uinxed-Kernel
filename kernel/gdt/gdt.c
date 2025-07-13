@@ -24,11 +24,11 @@ tss_t tss0;
 /* Initialize the global descriptor table */
 void init_gdt(void)
 {
-    gdt_entries[0] = 0x0000000000000000;
-    gdt_entries[1] = 0x00a09a0000000000;
-    gdt_entries[2] = 0x00c0920000000000;
-    gdt_entries[3] = 0x00c0f20000000000;
-    gdt_entries[4] = 0x00a0fa0000000000;
+    gdt_entries[0] = 0x0000000000000000; // NULL descriptor
+    gdt_entries[1] = 0x00a09a0000000000; // Kernel code segment
+    gdt_entries[2] = 0x00c0920000000000; // Kernel data segment
+    gdt_entries[3] = 0x00c0f20000000000; // User code segment
+    gdt_entries[4] = 0x00a0fa0000000000; // User data segment
 
     gdt_pointer = ((struct gdt_register) {.size = (uint16_t)(sizeof(gdt_entries_t) - 1), .ptr = &gdt_entries});
 
