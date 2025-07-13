@@ -123,7 +123,7 @@ void video_scroll(void)
 
         /* NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling) */
         /* Fill new line to back color */
-        video_draw_rect((position) {0, height - 16}, (position) {stride, height}, 0xffff0000);
+        video_draw_rect((position) {0, height - 16}, (position) {stride, height}, back_color);
         cy = c_height - 1;
     }
 }
@@ -156,16 +156,16 @@ void video_draw_rect(position p0, position p1, uint32_t color)
     uint32_t y0 = p0.y;
     uint32_t x1 = p1.x;
     uint32_t y1 = p1.y;
-#if defined(__x86_64__) || defined(__i386__)
-    uint32_t *dest = buffer + y0 * width + x0;
-    uint32_t *src  = buffer + y1 * width + x1;
-    uint32_t cnt   = (y1 - y0 + 1) * (x1 - x0 + 1);
-    __asm__ volatile("rep movsq" : "+D"(dest), "+S"(src), "+c"(cnt) : "a"(color) : "memory");
-#elif
     for (y = y0; y <= y1; y++) {
-        for (x = x0; x <= x1; x++) video_draw_pixel(x, y, color);
-    }
+        // Draw horizontal line
+#if defined(__x86_64__) || defined(__i386__)
+        uint32_t *line = buffer + y * stride + x0;
+        size_t count   = x1 - x0 + 1;
+        __asm__ volatile("rep stosl" : "+D"(line), "+c"(count) : "a"(color) : "memory");
+#else
+        for (uint32_t x = x0; x <= x1; x++) { video_draw_pixel(x, y, color); }
 #endif
+    }
 }
 
 /* Draw a character at the specified coordinates on the screen */
