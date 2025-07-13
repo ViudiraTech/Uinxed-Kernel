@@ -11,3 +11,18 @@
 # Kernel debugging
 #
 CONFIG_KERNEL_LOG=y
+
+#
+# Device drivers
+#
+
+#
+# Character devices
+#
+
+#
+# Serial drivers
+#
+CONFIG_SERIAL_BAUD_RATE=9600
+CONFIG_SERIAL_DATA_BITS=8
+CONFIG_SERIAL_STOP_BITS=1

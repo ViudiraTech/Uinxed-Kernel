@@ -82,12 +82,22 @@ char *get_boot_tty(void)
     return boot_tty;
 }
 
+/* Output the buffer data to the specified device according to the configuration */
 void tty_buff_flush(void)
 {
     spin_lock(&tty_flush_spinlock);
     tty_buff_ptr = tty_buff;
     if (strcmp(get_boot_tty(), "ttyS0") == 0) {
-        while (*tty_buff_ptr != '\0') write_serial(*tty_buff_ptr++);
+        while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_1, *tty_buff_ptr++);
+        tty_buff_ptr = tty_buff;
+    } else if (strcmp(get_boot_tty(), "ttyS1") == 0) {
+        while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_2, *tty_buff_ptr++);
+        tty_buff_ptr = tty_buff;
+    } else if (strcmp(get_boot_tty(), "ttyS2") == 0) {
+        while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_3, *tty_buff_ptr++);
+        tty_buff_ptr = tty_buff;
+    } else if (strcmp(get_boot_tty(), "ttyS3") == 0) {
+        while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_4, *tty_buff_ptr++);
         tty_buff_ptr = tty_buff;
     } else {
         tty_buff[TTY_BUF_SIZE - 1] = '\0';
@@ -98,6 +108,7 @@ void tty_buff_flush(void)
     return;
 }
 
+/* Add character data to the teletype buffer */
 static void tty_buff_add(const char ch)
 {
     if (ch == '\0') return;

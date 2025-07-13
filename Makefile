@@ -29,6 +29,18 @@ ifeq ($(CONFIG_KERNEL_LOG), y)
   C_CONFIG += -DKERNEL_LOG
 endif
 
+ifneq ($(CONFIG_SERIAL_BAUD_RATE),)
+  C_CONFIG += -DSERIAL_BAUD_RATE=$(CONFIG_SERIAL_BAUD_RATE)
+endif
+
+ifneq ($(CONFIG_SERIAL_DATA_BITS),)
+  C_CONFIG += -DSERIAL_DATA_BITS=$(CONFIG_SERIAL_DATA_BITS)
+endif
+
+ifneq ($(CONFIG_SERIAL_STOP_BITS),)
+  C_CONFIG += -DSERIAL_STOP_BITS=$(CONFIG_SERIAL_STOP_BITS)
+endif
+
 C_SOURCES      := $(shell find * -name "*.c")
 S_SOURCES      := $(shell find * -name "*.s")
 HEADERS        := $(shell find * -name "*.h")
