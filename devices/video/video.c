@@ -36,18 +36,32 @@ uint32_t fore_color; // Foreground color
 uint32_t back_color; // Background color
 
 /* Get video information */
-VideoInfo video_get_info(void)
+video_info_t video_get_info(void)
 {
-    VideoInfo info;
-    info.width      = width;
-    info.height     = height;
-    info.stride     = stride;
-    info.c_width    = c_width;
-    info.c_height   = c_height;
+    video_info_t info;
+    struct limine_framebuffer *framebuffer = get_framebuffer();
+
+    info.width      = framebuffer->width;
+    info.height     = framebuffer->height;
+    info.stride     = framebuffer->pitch / 4;
+    info.c_width    = info.width / 9;
+    info.c_height   = info.height / 16;
     info.cx         = cx;
     info.cy         = cy;
     info.fore_color = fore_color;
     info.back_color = back_color;
+
+    info.bpp               = framebuffer->bpp;
+    info.memory_model      = framebuffer->memory_model;
+    info.red_mask_size     = framebuffer->red_mask_size;
+    info.red_mask_shift    = framebuffer->red_mask_shift;
+    info.green_mask_size   = framebuffer->green_mask_size;
+    info.green_mask_shift  = framebuffer->green_mask_shift;
+    info.blue_mask_size    = framebuffer->blue_mask_size;
+    info.blue_mask_shift   = framebuffer->blue_mask_shift;
+    info.edid_size         = framebuffer->edid_size;
+    info.edid              = framebuffer->edid;
+
     return info;
 }
 

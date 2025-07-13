@@ -20,7 +20,7 @@ typedef struct position {
         uint32_t y;
 } position;
 
-typedef struct VideoInfo {
+typedef struct video_info {
         uint32_t cx, cy;            // The character position of the current cursor
         uint32_t c_width, c_height; // Screen character width and height
         uint64_t width;             // Screen length
@@ -28,10 +28,20 @@ typedef struct VideoInfo {
         uint64_t stride;            // Frame buffer line spacing
         uint32_t fore_color;        // Foreground color
         uint32_t back_color;        // Background color
-} VideoInfo;
+        uint16_t bpp;               // Bits per pixel
+        uint8_t memory_model;       // Display memory model
+        uint8_t red_mask_size;      // Red mask size
+        uint8_t red_mask_shift;     // Red mask displacement
+        uint8_t green_mask_size;    // Green mask size
+        uint8_t green_mask_shift;   // Green mask displacement
+        uint8_t blue_mask_size;     // Blue mask size
+        uint8_t blue_mask_shift;    // Blue mask displacement
+        uint64_t edid_size;         // EDID data size
+        void *edid;                 // EDID data pointer
+} video_info_t;
 
 /* Get video information */
-VideoInfo video_get_info(void);
+video_info_t video_get_info(void);
 
 /* Get the frame buffer */
 struct limine_framebuffer *get_framebuffer(void);
