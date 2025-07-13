@@ -51,16 +51,16 @@ video_info_t video_get_info(void)
     info.fore_color = fore_color;
     info.back_color = back_color;
 
-    info.bpp               = framebuffer->bpp;
-    info.memory_model      = framebuffer->memory_model;
-    info.red_mask_size     = framebuffer->red_mask_size;
-    info.red_mask_shift    = framebuffer->red_mask_shift;
-    info.green_mask_size   = framebuffer->green_mask_size;
-    info.green_mask_shift  = framebuffer->green_mask_shift;
-    info.blue_mask_size    = framebuffer->blue_mask_size;
-    info.blue_mask_shift   = framebuffer->blue_mask_shift;
-    info.edid_size         = framebuffer->edid_size;
-    info.edid              = framebuffer->edid;
+    info.bpp              = framebuffer->bpp;
+    info.memory_model     = framebuffer->memory_model;
+    info.red_mask_size    = framebuffer->red_mask_size;
+    info.red_mask_shift   = framebuffer->red_mask_shift;
+    info.green_mask_size  = framebuffer->green_mask_size;
+    info.green_mask_shift = framebuffer->green_mask_shift;
+    info.blue_mask_size   = framebuffer->blue_mask_size;
+    info.blue_mask_shift  = framebuffer->blue_mask_shift;
+    info.edid_size        = framebuffer->edid_size;
+    info.edid             = framebuffer->edid;
 
     return info;
 }
