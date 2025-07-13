@@ -24,10 +24,12 @@ void init_idt(void)
     idt_pointer.ptr  = &idt_entries;
 
     __asm__ volatile("lidt %0" ::"m"(idt_pointer) : "memory");
-    plogk("IDT: IDT initialized at %p (limit = 0x%04x)\n", idt_entries, idt_pointer.size);
-    plogk("IDT: Loaded IDTR with base = %p, limit = %hu\n", idt_pointer.ptr, idt_pointer.size + 1);
+    plogk("idt: IDT initialized at %p (limit = 0x%04x)\n", idt_entries, idt_pointer.size);
+    plogk("idt: Loaded IDTR with base = %p, limit = %hu\n", idt_pointer.ptr, idt_pointer.size + 1);
 
     for (int i = 0; i < 256; i++) register_interrupt_handler(i, (void *)empty_handle[i], 0, 0x8e);
+    plogk("idt: Empty interrupt handler functions for 0-255 have been registered.\n");
+    return;
 }
 
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
@@ -43,4 +45,5 @@ void register_interrupt_handler(uint16_t vector, void *handler, uint8_t ist, uin
     idt_entries[vector].selector   = 0x08;
     idt_entries[vector].offset_mid = (uint16_t)(addr >> 16);
     idt_entries[vector].offset_hi  = (uint32_t)(addr >> 32);
+    return;
 }

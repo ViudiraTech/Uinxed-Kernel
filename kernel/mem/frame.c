@@ -31,7 +31,7 @@ void init_frame(void)
         struct limine_memmap_entry *region = memory_map->entries[i];
         if (region->type == LIMINE_MEMMAP_USABLE) {
             memory_size = region->base + region->length;
-            plogk("Frame: Found maximum usable region at 0x%016llx (size = 0x%016llx)\n", region->base, region->length);
+            plogk("frame: Found maximum usable region at %p (size: %llu KiB)\n", region->base, region->length / 1024);
             break;
         }
     }
@@ -46,9 +46,9 @@ void init_frame(void)
         }
     }
     if (bitmap_address) {
-        plogk("Frame: Bitmap allocated at 0x%016llx (size = 0x%08x pages)\n", bitmap_address, bitmap_size / 8);
+        plogk("frame: Bitmap allocated at %p (size: %llu KiB)\n", bitmap_address, bitmap_size / 1024);
     } else {
-        plogk("Frame: Failed to allocate bitmap memory!\n");
+        plogk("frame: Failed to allocate bitmap memory!\n");
         return;
     }
     Bitmap *bitmap = &frame_allocator.bitmap;
@@ -62,19 +62,20 @@ void init_frame(void)
             size_t frame_count = region->length / 4096;
             origin_frames += frame_count;
             bitmap_set_range(bitmap, start_frame, start_frame + frame_count, 1);
-            plogk("Frame: Marked 0x%06x frames from 0x%016llx as usable.\n", frame_count, region->base);
+            plogk("frame: Marked 0x%06x frames from %p as usable.\n", frame_count, region->base);
         }
     }
     size_t bitmap_frame_start = bitmap_address / 4096;
     size_t bitmap_frame_count = (bitmap_size + 4095) / 4096;
     size_t bitmap_frame_end   = bitmap_frame_start + bitmap_frame_count;
     bitmap_set_range(bitmap, bitmap_frame_start, bitmap_frame_end, 0);
-    plogk("Frame: Reserved 0x%04x frames for bitmap at 0x%016llx\n", bitmap_frame_count, bitmap_address);
+    plogk("frame: Reserved 0x%04x frames for bitmap at %p\n", bitmap_frame_count, bitmap_address);
     frame_allocator.origin_frames = origin_frames;
     frame_allocator.usable_frames = origin_frames - bitmap_frame_count;
-    plogk("Frame: Total physical frames = 0x%08x (%d MiB)\n", origin_frames, (origin_frames * 4096) >> 20);
-    plogk("Frame: Available frames after bitmap = 0x%08x (%d MiB)\n", frame_allocator.usable_frames,
+    plogk("frame: Total physical frames = 0x%08x (%d MiB)\n", origin_frames, (origin_frames * 4096) >> 20);
+    plogk("frame: Available frames after bitmap = 0x%08x (%d MiB)\n", frame_allocator.usable_frames,
           (frame_allocator.usable_frames * 4096) >> 20);
+    return;
 }
 
 /* Allocate memory frame */
@@ -99,6 +100,7 @@ void free_frame(uint64_t addr)
     Bitmap *bitmap = &frame_allocator.bitmap;
     bitmap_set(bitmap, frame_index, 1);
     frame_allocator.usable_frames++;
+    return;
 }
 
 /* Print memory map */
@@ -106,6 +108,7 @@ void print_memory_map(void)
 {
     if (!memmap_request.response) return;
     plogk("Physical RAM map:\n");
+    plogk(" <MEMMAP>\n");
 
     for (uint64_t i = 0; i < memmap_request.response->entry_count; i++) {
         struct limine_memmap_entry *entry = memmap_request.response->entries[i];
@@ -143,6 +146,8 @@ void print_memory_map(void)
                 type_str = "unknown";
                 break;
         }
-        plogk("[mem 0x%016llx-0x%016llx] %s\n", base, end, type_str);
+        plogk("  [mem %p-%p] (%*llu KiB) %s\n", base, end, 9, length / 1024, type_str);
     }
+    plogk(" </MEMMAP>\n");
+    return;
 }

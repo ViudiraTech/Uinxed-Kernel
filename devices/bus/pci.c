@@ -192,14 +192,14 @@ void mcfg_init(void *mcfg)
     if (mcfg) {
         struct MCFG *inner = (struct MCFG *)mcfg;
         mcfg_info.count    = (inner->h.Length - sizeof(struct ACPISDTHeader) - 8) / sizeof(struct mcfg_entry);
-        plogk("MCFG: MCFG found with %lu entries.\n", mcfg_info.count);
+        plogk("mcfg: MCFG found with %lu entries.\n", mcfg_info.count);
         for (size_t i = 0; i < mcfg_info.count; i++) {
             /* Convert to the virtual address */
             inner->entries[i].base_addr = (uint64_t)phys_to_virt(inner->entries[i].base_addr);
-            plogk("MCFG: mcfg->entries[%lu] base address: %p\n", i, inner->entries[i].base_addr);
-            plogk("MCFG: mcfg->entries[%lu] segment: %hu\n", i, inner->entries[i].segment);
-            plogk("MCFG: mcfg->entries[%lu] start bus: %hhu\n", i, inner->entries[i].start_bus);
-            plogk("MCFG: mcfg->entries[%lu] end bus: %hhu\n", i, inner->entries[i].end_bus);
+            plogk("mcfg: mcfg->entries[%lu] base address: %p\n", i, inner->entries[i].base_addr);
+            plogk("mcfg: mcfg->entries[%lu] segment: %hu\n", i, inner->entries[i].segment);
+            plogk("mcfg: mcfg->entries[%lu] start bus: %hhu\n", i, inner->entries[i].start_bus);
+            plogk("mcfg: mcfg->entries[%lu] end bus: %hhu\n", i, inner->entries[i].end_bus);
         }
         mcfg_info.mcfg    = inner;
         mcfg_info.enabled = 1;
@@ -212,8 +212,9 @@ void mcfg_init(void *mcfg)
         };
     } else {
         /* Never be executed, because it will be checked before this functions */
-        panic("PCI: MCFG is unexpectedly empty.");
+        panic("pci: mcfg is unexpectedly empty.");
     }
+    return;
 };
 
 /* Search MCFG entry by bus */
@@ -326,6 +327,7 @@ static void pci_legacy_write(pci_device_reg reg, uint32_t value)
     uint32_t id = 1 << 31 | (bus << 16) | (slot & 0x1f << 11) | (func << 8) | (register_offset & 0xfc);
     outl(PCI_COMMAND_PORT, id);
     outl(PCI_DATA_PORT, value);
+    return;
 }
 
 /* Write values ​​to PCI device registers from `pci_device_ecam` */
@@ -367,6 +369,7 @@ static void pci_mcfg_write(pci_device_reg reg, uint32_t value)
          *        Example: 0x00345678 | 0xa5000000 = 0xa5345678
          */
     }
+    return;
 }
 
 /* Reading values ​​from PCI device registers and `pci_device_ecam` */
@@ -424,6 +427,7 @@ void pci_write_command_status(pci_device_cache *device, uint32_t value)
 {
     pci_device_reg reg = (pci_device_reg) {device, ECAM_AREA_OPS};
     write_pci(reg, value);
+    return;
 }
 
 /* Get detailed information about the base address register */
@@ -536,6 +540,7 @@ void pci_config(pci_device_cache *cache, uint32_t addr)
     uint32_t cmd       = 0;
     cmd                = 0x80000000 + addr + (device->func << 8) + (device->slot << 11) + (device->bus << 16);
     outl(PCI_COMMAND_PORT, cmd);
+    return;
 }
 
 /* Find devices by class code */
@@ -553,6 +558,7 @@ static void pci_class_finding(pci_finding_request *req)
         req->response->device = cache;
         req->response->error  = PCI_FINDING_SUCCESS;
     }
+    return;
 }
 
 /* Accurately search based on device information */
@@ -570,6 +576,7 @@ static void pci_device_finding(pci_finding_request *req)
         req->response->device = cache;
         req->response->error  = PCI_FINDING_SUCCESS;
     }
+    return;
 }
 
 /* Add the found devices to the usable list */
@@ -580,6 +587,7 @@ static void add_to_usable_list(pci_finding_request *req)
     node->next            = pci_usable.head;
     pci_usable.head       = node;
     pci_usable.count++;
+    return;
 }
 
 /* Finding PCI devices */
@@ -606,6 +614,7 @@ void pci_device_find(pci_finding_request *req) // Notice: the req should be a gl
             req->response->error  = PCI_FINDING_ERROR;
             break;
     }
+    return;
 
     /* By the end of the function, you should to do: 
      * 1. Check the response->error
@@ -643,6 +652,7 @@ void pci_update_usable_list(void)
         }
         node = node->next;
     }
+    return;
 }
 
 /* Returns the device name based on the class code */
@@ -764,12 +774,14 @@ static void slot_process_mcfg(pci_device_cache *cache)
             continue; // Device not exist
         }
     }
+    return;
 }
 
 /* Process slots of PCI devices */
 static void slot_process(pci_device_cache *device)
 {
     pci_ops.slot_process(device);
+    return;
 }
 
 /* Flush the PCI devices cache */
@@ -819,11 +831,18 @@ void pci_init(void)
     pci_flush_devices_cache();
     pci_device_cache *cache = pci_cache.head;
     pci_device *device      = 0;
+
+    if (pci_ops.slot_process == slot_process_legacy)
+        plogk("pci: Using legacy PCI mode.\n");
+    else if (pci_ops.slot_process == slot_process_mcfg)
+        plogk("pci: Using MCFG PCI mode.\n");
+
     while (cache != 0) {
         device = cache->device;
-        plogk("PCI: %03d:%02d.%01d: [0x%04x:0x%04x] %s\n", device->bus, device->slot, device->func, cache->vendor_id,
+        plogk("pci: %03d:%02d.%01d: [0x%04x:0x%04x] %s\n", device->bus, device->slot, device->func, cache->vendor_id,
               cache->device_id, pci_classname(cache->class_code));
         cache = cache->next;
     }
-    plogk("PCI: Found %lu devices.\n", pci_cache.devices_count);
+    plogk("pci: Found %lu devices.\n", pci_cache.devices_count);
+    return;
 }

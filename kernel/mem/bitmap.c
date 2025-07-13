@@ -18,6 +18,7 @@ void bitmap_init(Bitmap *bitmap, uint8_t *buffer, size_t size)
     bitmap->buffer = buffer;
     bitmap->length = size * 8;
     memset(buffer, 0, size);
+    return;
 }
 
 /* Get memory bitmap */
@@ -37,6 +38,7 @@ void bitmap_set(Bitmap *bitmap, size_t index, int value) // NOLINT
         bitmap->buffer[word_index] |= ((size_t)1 << bit_index);
     else
         bitmap->buffer[word_index] &= ~((size_t)1 << bit_index);
+    return;
 }
 
 /* Set the memory bitmap range */
@@ -50,12 +52,15 @@ void bitmap_set_range(Bitmap *bitmap, size_t start, size_t end, int value) // NO
     size_t byte_start = start / 8;
     size_t byte_end   = end / 8;
     uint8_t fill      = value ? 0xff : 0x00;
+
     for (size_t i = byte_start; i < byte_end; i++) bitmap->buffer[i] = fill;
     start = byte_end * 8;
+
     while (start < end) {
         bitmap_set(bitmap, start, value);
         start++;
     }
+    return;
 }
 
 /* Memory bitmap search range */

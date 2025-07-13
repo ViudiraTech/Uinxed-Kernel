@@ -21,6 +21,7 @@ typedef struct position {
 } position;
 
 typedef struct video_info {
+        uint32_t *framebuffer;      // Frame buffer
         uint32_t cx, cy;            // The character position of the current cursor
         uint32_t c_width, c_height; // Screen character width and height
         uint64_t width;             // Screen length

@@ -11,6 +11,7 @@
 
 #include "debug.h"
 #include "idt.h"
+#include "printk.h"
 #include "stdint.h"
 
 void page_fault_handle(interrupt_frame_t *frame, uint64_t error_code);
@@ -152,4 +153,7 @@ void isr_registe_handle(void)
     register_interrupt_handler(ISR_17, (void *)ISR_17_handle, 0, 0x8e);
     register_interrupt_handler(ISR_18, (void *)ISR_18_handle, 0, 0x8e);
     register_interrupt_handler(ISR_19, (void *)ISR_19_handle, 0, 0x8e);
+
+    plogk("isr: All ISR handlers are registered.\n");
+    return;
 }

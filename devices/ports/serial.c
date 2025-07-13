@@ -31,7 +31,7 @@ void init_serial(void)
 
     /* Check if there is a problem with the serial port (i.e.: the bytes sent are different) */
     if (inb(SERIAL_PORT + 0) != 0xae) {
-        plogk("Serial: Serial port test failed.\n");
+        plogk("serial: Serial port test failed.\n");
         return;
     }
 
@@ -40,8 +40,9 @@ void init_serial(void)
      */
 
     outb(SERIAL_PORT + 4, 0x0f);
-    plogk("Serial: Local port = COM1\n");
-    plogk("Serial: Baud rate = %d\n", 9600);
+    plogk("serial: Local port: COM1\n");
+    plogk("serial: Baud rate: %d\n", 9600);
+    return;
 }
 
 /* Check whether the serial port is ready to read */
@@ -68,4 +69,5 @@ void write_serial(const char c)
 {
     while (is_transmit_empty() == 0);
     outb(SERIAL_PORT, c);
+    return;
 }

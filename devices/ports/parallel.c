@@ -17,6 +17,7 @@
 void wait_parallel_ready(void)
 {
     while ((!inb(LPT1_PORT_STATUS)) & 0x80) msleep(10);
+    return;
 }
 
 /* Write to parallel port */
@@ -31,4 +32,5 @@ void parallel_write(const char c)
     outb(LPT1_PORT_CONTROL, lpt1_control);
 
     wait_parallel_ready();
+    return;
 }

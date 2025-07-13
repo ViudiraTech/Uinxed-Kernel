@@ -30,7 +30,7 @@ Uinxed is a Unix-like operating system kernel developed from scratch, focusing o
 - **System management**:
   - ACPI support
   - High Precision Event Timer (HPET)
-  - Multi-Core-Unterstützung basierend auf Symmetric Multi-Processing
+  - Multi-core support based on symmetric multi-processing
 
 ## Development environment preparation 🛠️
 

@@ -77,6 +77,7 @@ void send_ipi_all(uint8_t vector)
     vector |= IPI_FIXED | APIC_ICR_PHYSICAL;
     for (size_t i = 0; i < cpu_count; i++)
         if (cpus[i].id != get_current_cpu_id()) send_ipi(cpus[i].lapic_id, vector);
+    return;
 }
 
 /* Send an IPI to the specified CPU */
@@ -84,18 +85,21 @@ void send_ipi_cpu(uint32_t cpu_id, uint8_t vector)
 {
     vector |= IPI_FIXED | APIC_ICR_PHYSICAL;
     if (cpu_id < cpu_count && cpu_id != get_current_cpu_id()) send_ipi(cpus[cpu_id].lapic_id, vector);
+    return;
 }
 
 /* Flush TLBs of all CPUs */
 void flush_tlb_all(void)
 {
     send_ipi_all(IPI_TLB_SHOOTDOWN);
+    return;
 }
 
 /* Flushing TLB by address range */
 void flush_tlb_range(uint64_t start, uint64_t end)
 {
     for (uint64_t addr = start; addr < end; addr += PAGE_SIZE) flush_tlb(addr);
+    return;
 }
 
 /* Get the number of CPUs */
@@ -187,7 +191,7 @@ void smp_init(void)
         return;
     }
 
-    plogk("SMP: Found %d CPUs.\n", smp->cpu_count);
+    plogk("smp: Found %d CPUs.\n", smp->cpu_count);
     cpu_count = smp->cpu_count;
     cpus      = (cpu_processor *)malloc(sizeof(cpu_processor) * cpu_count);
 
@@ -221,9 +225,10 @@ void smp_init(void)
     register_interrupt_handler(IPI_HALT, (void *)ipi_halt_handler, 0, 0x8e);
     register_interrupt_handler(IPI_TLB_SHOOTDOWN, (void *)ipi_tlb_shootdown_handler, 0, 0x8e);
     register_interrupt_handler(IPI_PANIC, (void *)ipi_panic_handler, 0, 0x8e);
-    plogk("SMP: IPI handlers registered.\n");
+    plogk("smp: IPI handlers registered.\n");
 
     /* Wait for all APs to be ready */
     while (ap_ready_count < cpu_count - 1) __asm__ volatile("pause");
-    plogk("SMP: All APs are up, total %llu CPUs.\n", cpu_count);
+    plogk("smp: All APs are up, total %llu CPUs.\n", cpu_count);
+    return;
 }

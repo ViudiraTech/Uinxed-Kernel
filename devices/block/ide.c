@@ -58,6 +58,7 @@ static void ide_wait_irq(void)
 {
     while (!ide_irq_invoked);
     ide_irq_invoked = 0;
+    return;
 }
 
 /* Setting up the IDE */
@@ -65,7 +66,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 {
     int j, k, count = 0;
     for (int i = 0; i < 4; i++) ide_devices[i].reserved = 0;
-    plogk("IDE: BAR0 = 0x%03x, BAR1 = 0x%03x, BAR2 = 0x%03x, BAR3 = 0x%03x, BAR4 = 0x%03x\n", BAR0, BAR1, BAR2, BAR3,
+    plogk("ide: BAR0 = 0x%03x, BAR1 = 0x%03x, BAR2 = 0x%03x, BAR3 = 0x%03x, BAR4 = 0x%03x\n", BAR0, BAR1, BAR2, BAR3,
           BAR4);
 
     /* Detect the I/O ports of the IDE controller */
@@ -148,8 +149,9 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
     /* Print device information */
     for (int i = 0; i < 4; i++)
         if (ide_devices[i].reserved == 1)
-            plogk("IDE: Found %s Drive %u(MiB) - %s\n", ide_devices[i].type ? "ATAPI" : "ATA",
+            plogk("ide: Found %s Drive %u(MiB) - %s\n", ide_devices[i].type ? "ATAPI" : "ATA",
                   ide_devices[i].size / 1024 / 2, ide_devices[i].model);
+    return;
 }
 
 /* Error handling */
@@ -157,47 +159,47 @@ static uint8_t ide_print_error(uint32_t drive, uint8_t err) // NOLINT(bugprone-e
 {
     if (err == 0) return err;
     if (err == 1) {
-        plogk("IDE: Device fault.\n");
+        plogk("ide: Device fault.\n");
         err = 19;
     } else if (err == 2) {
         uint8_t st = ide_read(ide_devices[drive].channel, ATA_REG_ERROR);
         if (st & ATA_ER_AMNF) {
-            plogk("IDE: No address mark found.\n");
+            plogk("ide: No address mark found.\n");
             err = 7;
         }
         if (st & ATA_ER_TK0NF) {
-            plogk("IDE: No media or media error.\n");
+            plogk("ide: No media or media error.\n");
             err = 3;
         }
         if (st & ATA_ER_ABRT) {
-            plogk("IDE: Command aborted.\n");
+            plogk("ide: Command aborted.\n");
             err = 20;
         }
         if (st & ATA_ER_MCR) {
-            plogk("IDE: No media or media error.\n");
+            plogk("ide: No media or media error.\n");
             err = 3;
         }
         if (st & ATA_ER_IDNF) {
-            plogk("IDE: ID mark not found.\n");
+            plogk("ide: ID mark not found.\n");
             err = 21;
         }
         if (st & ATA_ER_MC) {
-            plogk("IDE: No media or media error.\n");
+            plogk("ide: No media or media error.\n");
             err = 3;
         }
         if (st & ATA_ER_UNC) {
-            plogk("IDE: Uncorrectable data error.\n");
+            plogk("ide: Uncorrectable data error.\n");
             err = 22;
         }
         if (st & ATA_ER_BBK) {
-            plogk("IDE: Bad sectors.\n");
+            plogk("ide: Bad sectors.\n");
             err = 13;
         }
     } else if (err == 3) {
-        plogk("IDE: Reads nothing.\n");
+        plogk("ide: Reads nothing.\n");
         err = 23;
     } else if (err == 4) {
-        plogk("IDE: Write protected.\n");
+        plogk("ide: Write protected.\n");
         err = 8;
     }
     return err;
@@ -217,14 +219,14 @@ void init_ide(void)
 
     /* Detect if the computer has an IDE controller */
     if (ide_pci_request.response->error != PCI_FINDING_SUCCESS) {
-        plogk("IDE: No IDE controller found.\n");
+        plogk("ide: No IDE controller found.\n");
         return;
 
         /* Re-try (but I think it is not necessary)
          * pci_flush_devices_cache();
          * pci_device_find(&ide_pci_request);
          * if (ide_pci_request.response->error != PCI_FINDING_SUCCESS) {
-         *     plogk("IDE: No IDE controller found.\n");
+         *     plogk("ide: No IDE controller found.\n");
          *     return;
          * }
          */
@@ -280,6 +282,7 @@ void ide_write(uint8_t channel, uint8_t reg, uint8_t data)
         /* Expanded by ide_write(channel, ATA_REG_CONTROL, 0x80 | channels[channel].nIEN); */
         outb(channels[channel].ctrl + ATA_REG_CONTROL - 0x0a, 0x80 | channels[channel].nIEN);
     }
+    return;
 }
 
 /* Read multiple words of data from the specified register of the IDE device into the buffer */
@@ -295,6 +298,7 @@ void ide_read_buffer(uint8_t channel, uint8_t reg, uint8_t *buffer, uint32_t qua
     else if (reg < 0x16)
         insl(channels[channel].bmide + reg - 0x0e, (uint32_t *)buffer, quads);
     if (reg > 0x07 && reg < 0x0c) ide_write(channel, ATA_REG_CONTROL, channels[channel].nIEN);
+    return;
 }
 
 /* Polling the status of IDE devices */
@@ -493,6 +497,7 @@ void ide_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *e
             for (int i = 0; i < numsects; i++) err = ide_atapi_read(drive, lba + i, 1, edi + (size_t)(i * 2048));
         package[0] = ide_print_error(drive, err);
     }
+    return;
 }
 
 /* Write multiple sectors to an IDE device */
@@ -514,4 +519,5 @@ void ide_write_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *
             err = 4;
         package[0] = ide_print_error(drive, err);
     }
+    return;
 }

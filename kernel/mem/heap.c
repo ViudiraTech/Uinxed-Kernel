@@ -44,6 +44,7 @@ static void select_heap_space(size_t min_size)
     }
     heap_start = best_start;
     heap_size  = best_size / PAGE_SIZE * PAGE_SIZE;
+    return;
 }
 
 /* Initialize the memory heap */
@@ -52,6 +53,7 @@ void init_heap(void)
     select_heap_space(KERNEL_HEAP_MIN_SIZE);
     page_map_range_to_random(get_kernel_pagedir(), (uint64_t)phys_to_virt(heap_start), heap_size, KERNEL_PTE_FLAGS);
     heap_init(phys_to_virt(heap_start), heap_size);
+    return;
 }
 
 /* Allocate 4k-aligned memory */
