@@ -14,11 +14,7 @@
 #include "limine.h"
 #include "page.h"
 #include "printk.h"
-
-__attribute__((used, section(".limine_requests"))) volatile struct limine_memmap_request memmap_request = {
-    .id       = LIMINE_MEMMAP_REQUEST,
-    .revision = 0,
-};
+#include "uinxed.h"
 
 FrameAllocator frame_allocator;
 uint64_t memory_size = 0;

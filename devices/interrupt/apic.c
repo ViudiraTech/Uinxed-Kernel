@@ -18,18 +18,12 @@
 #include "printk.h"
 #include "stddef.h"
 #include "stdint.h"
+#include "uinxed.h"
 
 int x2apic_mode;
 
 PointerCast lapic_ptr;
 PointerCast ioapic_ptr;
-
-__attribute__((used, section(".limine_requests"))) volatile struct limine_smp_request smp_request = {
-    .id       = LIMINE_SMP_REQUEST,
-    .revision = 0,
-    .response = 0,
-    .flags    = 1,
-};
 
 /* Turn off PIC */
 void disable_pic(void)

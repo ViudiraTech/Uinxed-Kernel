@@ -15,11 +15,7 @@
 #include "stddef.h"
 #include "stdint.h"
 #include "string.h"
-
-__attribute__((used, section(".limine_requests"))) volatile struct limine_framebuffer_request framebuffer_request = {
-    .id       = LIMINE_FRAMEBUFFER_REQUEST,
-    .revision = 0,
-};
+#include "uinxed.h"
 
 extern uint8_t ascfont[]; // Fonts
 

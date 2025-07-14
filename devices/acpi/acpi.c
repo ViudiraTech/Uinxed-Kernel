@@ -17,14 +17,10 @@
 #include "printk.h"
 #include "stdint.h"
 #include "string.h"
+#include "uinxed.h"
 
 XSDT *xsdt = 0;
 RSDT *rsdt = 0;
-
-__attribute__((used, section(".limine_requests"))) volatile struct limine_rsdp_request rsdp_request = {
-    .id       = LIMINE_RSDP_REQUEST,
-    .revision = 0,
-};
 
 /* Find the corresponding ACPI table in XSDT */
 void *find_table(const char *name)

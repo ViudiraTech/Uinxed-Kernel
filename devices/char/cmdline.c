@@ -10,12 +10,7 @@
  */
 
 #include "limine.h"
-
-__attribute__((used, section(".limine_requests"))) volatile struct limine_kernel_file_request kernel_file_request = {
-    .id       = LIMINE_KERNEL_FILE_REQUEST,
-    .revision = 0,
-    .response = 0,
-};
+#include "uinxed.h"
 
 /* Get the kernel command line */
 const char *get_cmdline(void)

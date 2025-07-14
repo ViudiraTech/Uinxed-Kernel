@@ -12,7 +12,6 @@
 #ifndef INCLUDE_VIDEO_H_
 #define INCLUDE_VIDEO_H_
 
-#include "limine.h"
 #include "stdint.h"
 
 typedef struct position {

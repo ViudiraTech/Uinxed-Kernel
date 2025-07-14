@@ -21,7 +21,6 @@
 #include "ide.h"
 #include "idt.h"
 #include "interrupt.h"
-#include "limine.h"
 #include "page.h"
 #include "parallel.h"
 #include "pci.h"
