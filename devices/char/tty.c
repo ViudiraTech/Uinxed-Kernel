@@ -114,7 +114,7 @@ static void tty_buff_add(const char ch)
     if (ch == '\0') return;
     *tty_buff_ptr++ = ch;
 
-    if (tty_buff_ptr - tty_buff >= TTY_BUF_SIZE - 1) {
+    if (tty_buff_ptr - tty_buff >= TTY_BUF_SIZE - 1 || ch == '\n') {
         /* Flush */
         *tty_buff_ptr = '\0';
         tty_buff_flush();

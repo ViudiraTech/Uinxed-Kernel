@@ -36,20 +36,23 @@ static uint8_t serial_calculate_lcr(void)
             lcr |= 0x03;
     }
 
-    if (SERIAL_STOP_BITS == 2) { lcr |= 0x04; }
+    if (SERIAL_STOP_BITS == 2) lcr |= 0x04;
 
     switch (SERIAL_PARITY) {
-        case 0 :
+        case 0 : // No parity
             lcr |= 0x00;
             break;
-        case 2 :
-            lcr |= 0x10;
+        case 1 : // Odd parity
+            lcr |= 0x08;
             break;
-        case 3 :
+        case 2 : // Even parity
             lcr |= 0x18;
             break;
-        case 7 :
-            lcr |= 0x78;
+        case 3 : // Mark parity
+            lcr |= 0x28;
+            break;
+        case 4 : // Space parity
+            lcr |= 0x38;
             break;
         default :
             lcr |= 0x00;
@@ -60,21 +63,21 @@ static uint8_t serial_calculate_lcr(void)
 /* Check serial port status */
 static int serial_exists(uint16_t port)
 {
-    uint8_t original_lcr = inb(port + 3);
+    uint8_t original_lcr = inb(port + SERIAL_REG_LCR);
 
-    outb(port + 3, 0xaa);
-    if (inb(port + 3) != 0xaa) {
-        outb(port + 3, original_lcr);
+    outb(port + SERIAL_REG_LCR, 0xaa);
+    if (inb(port + SERIAL_REG_LCR) != 0xaa) {
+        outb(port + SERIAL_REG_LCR, original_lcr);
         return 0;
     }
 
-    outb(port + 3, 0x55);
-    if (inb(port + 3) != 0x55) {
-        outb(port + 3, original_lcr);
+    outb(port + SERIAL_REG_LCR, 0x55);
+    if (inb(port + SERIAL_REG_LCR) != 0x55) {
+        outb(port + SERIAL_REG_LCR, original_lcr);
         return 0;
     }
 
-    outb(port + 3, original_lcr);
+    outb(port + SERIAL_REG_LCR, original_lcr);
     return 1;
 }
 
@@ -83,25 +86,23 @@ static void init_serial_port(uint16_t port)
 {
     uint16_t divisor = 115200 / SERIAL_BAUD_RATE;
 
-    outb(port + 1, 0x00);                   // Disable COM interrupts
-    outb(port + 3, 0x80);                   // Enable DLAB (set baud rate divisor)
-    outb(port + 0, divisor & 0xff);         // Set low baud rate
-    outb(port + 1, (divisor >> 8) & 0xff);  // Set high baud rate
-    outb(port + 3, serial_calculate_lcr()); // Set LCR
-    outb(port + 2, 0xcf);                   // Enable FIFO with 14-byte threshold
-    outb(port + 4, 0x0f);                   // Enable IRQ, set RTS/DSR
-    outb(port + 4, 0x1e);                   // Set to loopback mode and test the serial port
-    outb(port + 0, 0xae);                   // Test serial port
+    outb(port + SERIAL_REG_IER, 0x00);                   // Disable COM interrupts
+    outb(port + SERIAL_REG_LCR, 0x80);                   // Enable DLAB (set baud rate divisor)
+    outb(port + SERIAL_REG_DATA, divisor & 0xff);        // Set low baud rate
+    outb(port + SERIAL_REG_IER, (divisor >> 8) & 0xff);  // Set high baud rate
+    outb(port + SERIAL_REG_LCR, serial_calculate_lcr()); // Set LCR
+    outb(port + SERIAL_REG_FCR, 0xcf);                   // Enable FIFO with 14-byte threshold
+    outb(port + SERIAL_REG_MCR, 0x0f);                   // Enable IRQ, set RTS/DSR
+    outb(port + SERIAL_REG_MCR, 0x1e);                   // Set to loopback mode and test the serial port
+    outb(port + SERIAL_REG_DATA, 0xae);                  // Test serial port
 
     /* Check if there is a problem with the serial port */
-    if (inb(port + 0) != 0xae) {
+    if (inb(port + SERIAL_REG_DATA) != 0xae) {
         plogk("serial: Serial port %s test failed.\n", PORT_TO_COM(port));
         return;
     }
-
-    outb(port + 4, 0x0f); // Quit loopback mode
-    outb(port + 1, 0x01); // Enable receive ready interrupt
-    plogk("serial: Local port: %s, Baud rate: %d\n", PORT_TO_COM(port), SERIAL_BAUD_RATE);
+    outb(port + SERIAL_REG_MCR, 0x0f); // Quit loopback mode
+    plogk("serial: Local port: %s, Baud rate: %d, Status: 0x%02x\n", PORT_TO_COM(port), SERIAL_BAUD_RATE, inb(port + SERIAL_REG_LSR));
     return;
 }
 
@@ -118,32 +119,39 @@ void init_serial(void)
             valid_ports++;
         }
     }
-    if (valid_ports == 0) { plogk("serial: No serial port available.\n"); }
+    if (valid_ports == 0) plogk("serial: No serial port available.\n");
+    return;
 }
 
 /* Check whether the serial port is ready to read */
 int serial_received(uint16_t port)
 {
-    return inb(port + 5) & 1;
+    return inb(port + SERIAL_REG_LSR) & 1;
 }
 
 /* Check whether the serial port is idle */
 int is_transmit_empty(uint16_t port)
 {
-    return inb(port + 5) & 0x20;
+    return inb(port + SERIAL_REG_LSR) & 0x20;
 }
 
 /* Read serial port */
 char read_serial(uint16_t port)
 {
     while (serial_received(port) == 0);
-    return (char)inb(port);
+    return (char)inb(port + SERIAL_REG_DATA);
 }
 
 /* Write serial port */
 void write_serial(uint16_t port, const char c)
 {
     while (is_transmit_empty(port) == 0);
-    outb(port, c);
+    outb(port + SERIAL_REG_DATA, c);
     return;
+}
+
+/* Get the status value of the specified serial port */
+uint8_t get_serial_status(uint16_t port)
+{
+    return inb(port + SERIAL_REG_LSR);
 }
