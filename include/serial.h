@@ -54,8 +54,8 @@
 void init_serial(void);                         // Initialize the serial port
 int serial_received(uint16_t port);             // Check whether the serial port is ready to read
 int is_transmit_empty(uint16_t port);           // Check whether the serial port is idle
-char read_serial(uint16_t port);                // Read serial port
-void write_serial(uint16_t port, const char c); // Write serial port
+uint8_t read_serial(uint16_t port);             // Read serial port
+void write_serial(uint16_t port, uint8_t data); // Write serial port
 uint8_t get_serial_status(uint16_t port);       // Get the status value of the specified serial port
 
 #endif // INCLUDE_SERIAL_H_

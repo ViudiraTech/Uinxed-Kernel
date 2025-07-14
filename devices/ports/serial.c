@@ -102,7 +102,8 @@ static void init_serial_port(uint16_t port)
         return;
     }
     outb(port + SERIAL_REG_MCR, 0x0f); // Quit loopback mode
-    plogk("serial: Local port: %s, Baud rate: %d, Status: 0x%02x\n", PORT_TO_COM(port), SERIAL_BAUD_RATE, inb(port + SERIAL_REG_LSR));
+    plogk("serial: Local port: %s, Baud rate: %d, Status: 0x%02x\n", PORT_TO_COM(port), SERIAL_BAUD_RATE,
+          inb(port + SERIAL_REG_LSR));
     return;
 }
 
@@ -113,9 +114,8 @@ void init_serial(void)
     int valid_ports       = 0;
 
     for (int i = 0; i < 4; i++) {
-        uint16_t port = com_ports[i];
-        if (serial_exists(port)) {
-            init_serial_port(port);
+        if (serial_exists(com_ports[i])) {
+            init_serial_port(com_ports[i]);
             valid_ports++;
         }
     }
@@ -136,17 +136,17 @@ int is_transmit_empty(uint16_t port)
 }
 
 /* Read serial port */
-char read_serial(uint16_t port)
+uint8_t read_serial(uint16_t port)
 {
     while (serial_received(port) == 0);
-    return (char)inb(port + SERIAL_REG_DATA);
+    return inb(port + SERIAL_REG_DATA);
 }
 
 /* Write serial port */
-void write_serial(uint16_t port, const char c)
+void write_serial(uint16_t port, uint8_t data)
 {
     while (is_transmit_empty(port) == 0);
-    outb(port + SERIAL_REG_DATA, c);
+    outb(port + SERIAL_REG_DATA, data);
     return;
 }
 

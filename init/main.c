@@ -23,6 +23,7 @@
 #include "interrupt.h"
 #include "limine.h"
 #include "page.h"
+#include "parallel.h"
 #include "pci.h"
 #include "printk.h"
 #include "serial.h"
@@ -71,6 +72,7 @@ void kernel_entry(void)
     pci_init();           // Initialize PCI
     init_ide();           // Initialize ATA/ATAPI driver
     init_serial();        // Initialize the serial port
+    init_parallel();      // Initialize the parallel port
     enable_intr();
 
     panic("No operation.");

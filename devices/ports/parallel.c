@@ -11,26 +11,69 @@
 
 #include "parallel.h"
 #include "common.h"
+#include "printk.h"
 #include "timer.h"
 
-/* Waiting for the parallel port to become ready */
-void wait_parallel_ready(void)
+/* Check if the specified parallel port exists */
+static int parallel_detect(uint16_t port)
 {
-    while ((!inb(LPT1_PORT_STATUS)) & 0x80) msleep(10);
+    uint8_t orig = inb(port + CONTROL_REG);
+    outb(port + CONTROL_REG, orig ^ 0xc);
+    msleep(10);
+    return inb(port + CONTROL_REG) == (orig ^ 0xc);
+}
+
+/* Initialize the specified parallel port */
+static void init_parallel_port(uint16_t port)
+{
+    uint8_t control = 0;
+    control |= 0x04; // Initialize peripherals
+    control |= 0x08; // Select peripherals
+    outb(port + CONTROL_REG, control);
+
+    if (!(inb(port + STATUS_REG) & 0x40)) {
+        plogk("parallel: Parallel port %s test failed.\n", PORT_TO_LPT(port));
+        return;
+    }
+    plogk("parallel: Local port: %s, Status: 0x%02x\n", PORT_TO_LPT(port), inb(port + STATUS_REG));
     return;
 }
 
-/* Write to parallel port */
-void parallel_write(const char c)
+/* Initialize parallel port */
+void init_parallel(void)
 {
-    wait_parallel_ready();
-    outb(LPT1_PORT_BASE, c);
+    uint16_t lpt_port[2] = {Parallel_PORT_1, Parallel_PORT_2};
+    int valid_ports      = 0;
 
-    char lpt1_control = (char)inb(LPT1_PORT_CONTROL);
-    outb(LPT1_PORT_CONTROL, lpt1_control | 1);
-    msleep(10);
-    outb(LPT1_PORT_CONTROL, lpt1_control);
-
-    wait_parallel_ready();
+    for (int i = 0; i < 2; i++) {
+        if (parallel_detect(lpt_port[i])) {
+            init_parallel_port(lpt_port[i]);
+            valid_ports++;
+        }
+    }
+    if (valid_ports == 0) plogk("parallel: No parallel port available.\n");
     return;
+}
+
+/* Check if the specified parallel port is busy */
+int parallel_port_busy(uint16_t port)
+{
+    return !(inb(port + STATUS_REG) & 0x80);
+}
+
+/* Write parallel port */
+void write_parallel(uint16_t port, uint8_t data)
+{
+    while (parallel_port_busy(port));
+
+    outb(port + DATA_REG, data);
+    outb(port + CONTROL_REG, inb(port + CONTROL_REG) & ~0x01);
+    msleep(10);
+    outb(port + CONTROL_REG, inb(port + CONTROL_REG) | 0x01);
+}
+
+/* Get the status value of the specified parallel port */
+uint8_t get_parallel_status(uint16_t port)
+{
+    return inb(port + STATUS_REG);
 }
