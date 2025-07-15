@@ -63,4 +63,65 @@ int smbios_major_version(void);
 /* Get SMBIOS minor version */
 int smbios_minor_version(void);
 
+/* Type-0 */
+
+/* Get BIOS Vendor string */
+const char *smbios_bios_vendor(void);
+
+/* Get BIOS Version string */
+const char *smbios_bios_version(void);
+
+/* Get BIOS Starting Address Segment */
+uint16_t smbios_bios_starting_address_segment(void);
+
+/* Get BIOS Release Date string */
+const char *smbios_bios_release_date(void);
+
+/* Get BIOS ROM Size in bytes */
+uint32_t smbios_bios_rom_size(void);
+
+/* Get BIOS Characteristics */
+uint64_t smbios_bios_characteristics(void);
+
+/* Get BIOS Characteristics Extension Bytes */
+uint16_t smbios_bios_characteristics_ext(void);
+
+/* Get BIOS System BIOS Major Release */
+uint8_t smbios_bios_major_release(void);
+
+/* Get BIOS System BIOS Minor Release */
+uint8_t smbios_bios_minor_release(void);
+
+/* Get BIOS Embedded Controller Firmware Major Release */
+uint8_t smbios_bios_ec_major_release(void);
+
+/* Get BIOS Embedded Controller Firmware Minor Release */
+uint8_t smbios_bios_ec_minor_release(void);
+
+/* Type-1 */
+
+/* Get System Manufacturer string */
+const char *smbios_sys_manufacturer(void);
+
+/* Get System Product Name string */
+const char *smbios_sys_product_name(void);
+
+/* Get System Version string */
+const char *smbios_sys_version(void);
+
+/* Get System Serial Number string */
+const char *smbios_sys_serial_number(void);
+
+/* Get System UUID (16 bytes) */
+void smbios_sys_uuid(uint8_t uuid[16]);
+
+/* Get System Wake-up Type */
+uint8_t smbios_sys_wakeup_type(void);
+
+/* Get System SKU Number string */
+const char *smbios_sys_sku_number(void);
+
+/* Get System Family string */
+const char *smbios_sys_family(void);
+
 #endif // INCLUDE_SMBIOS_H_

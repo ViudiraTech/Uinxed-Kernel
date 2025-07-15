@@ -13,6 +13,7 @@
 #include "common.h"
 #include "limine.h"
 #include "printk.h"
+#include "smbios.h"
 #include "stdarg.h"
 #include "symbols.h"
 #include "uinxed.h"
@@ -51,6 +52,10 @@ void dump_stack(void)
 void panic(const char *format, ...)
 {
     uint64_t current_address = kernel_address_request.response->virtual_base;
+    const char *sys_vendor   = smbios_sys_manufacturer();
+    const char *sys_product  = smbios_sys_product_name();
+    const char *bios_version = smbios_bios_version();
+    const char *bios_date    = smbios_bios_release_date();
 
     static char buff[1024];
     va_list args;
@@ -64,6 +69,7 @@ void panic(const char *format, ...)
 
     plogk("\n");
     plogk("Kernel panic - not syncing: %s\n", buff);
+    plogk("Hardware name: %s %s, BIOS %s %s\n", sys_vendor, sys_product, bios_version, bios_date);
     dump_stack();
     plogk("Kernel Offset: 0x%08x from %p\n", current_address - KERNEL_BASE_ADDRESS, KERNEL_BASE_ADDRESS);
     plogk("---[ end Kernel panic - not syncing: %s ]---\n", buff);

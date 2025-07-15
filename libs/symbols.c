@@ -32,7 +32,7 @@ sym_info_t get_symbol_info(void *kernel_file_address, Elf64_Addr symbol_address)
             sym      = (Elf64_Sym *)((char *)kernel_file_address + shdr[i].sh_offset);
             sym_size = shdr[i].sh_size / shdr[i].sh_entsize;
         }
-        if (!strcmp(sh_name, ".strtab")) { strtab = (const char *)kernel_file_address + shdr[i].sh_offset; }
+        if (!strcmp(sh_name, ".strtab")) strtab = (const char *)kernel_file_address + shdr[i].sh_offset;
     }
 
     if (!sym || !strtab) return sym_info;
