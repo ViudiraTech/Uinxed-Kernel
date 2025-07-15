@@ -20,6 +20,7 @@ Uinxed is a Unix-like operating system kernel developed from scratch, focusing o
 - **x86_64 architecture support**: optimized for modern 64-bit x86 processors
 - **UEFI boot**: uses UEFI as the boot mode to support modern hardware platforms
 - **Legacy boot**: Compatible with traditional Legacy boot
+- **KASLR**: Kernel address space layout randomization to enhance security.
 - **Memory management**:
   - Physical memory frame allocator
   - Virtual memory page management
