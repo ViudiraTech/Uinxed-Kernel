@@ -56,9 +56,9 @@ CHECKS         := -quiet -checks=-*,clang-analyzer-*,bugprone-*,cert-*,misc-*,pe
 
 # If you want to get more details of `dump_stack`, you need to replace `-O3` with `-O0` or '-Os'.
 # `-fno-optimize-sibling-calls` is for `dump_stack` to work properly.
-C_FLAGS        := -Wall -Wextra -O3 -g3 -m64 -ffreestanding -fno-optimize-sibling-calls -fno-pie -fno-stack-protector -fno-omit-frame-pointer \
-                  -mcmodel=kernel -mno-red-zone -mno-80387 -mno-mmx -mno-sse -mno-sse2 -msoft-float -I include -MMD
-LD_FLAGS       := -nostdlib -static -T assets/linker.ld -m elf_x86_64
+C_FLAGS        := -Wall -Wextra -O3 -g3 -m64 -fpie -ffreestanding -fno-optimize-sibling-calls -fno-stack-protector -fno-omit-frame-pointer \
+                  -mno-red-zone -mno-80387 -mno-mmx -mno-sse -mno-sse2 -msoft-float -I include -MMD
+LD_FLAGS       := -nostdlib -pie -T assets/linker.ld -m elf_x86_64
 AS_FLAGS       := -g --64
 
 all: info Uinxed-x64.iso

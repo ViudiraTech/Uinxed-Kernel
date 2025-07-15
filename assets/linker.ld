@@ -14,15 +14,16 @@ ENTRY(kernel_entry)
 
 PHDRS
 {
-    limine_requests PT_LOAD;
-    text            PT_LOAD;
-    rodata          PT_LOAD;
-    data            PT_LOAD;
+    limine_requests PT_LOAD    FLAGS(4);
+    text            PT_LOAD    FLAGS(5);
+    rodata          PT_LOAD    FLAGS(4);
+    data            PT_LOAD    FLAGS(6);
+    dynamic         PT_DYNAMIC FLAGS(4);
 }
 
 SECTIONS
 {
-    . = 0xffffffff80000000;
+    . = ALIGN(CONSTANT(MAXPAGESIZE));
     .limine_requests : {
         KEEP(*(.limine_requests_start))
         KEEP(*(.limine_requests))
@@ -40,10 +41,16 @@ SECTIONS
     } :rodata
 
     . = ALIGN(CONSTANT(MAXPAGESIZE));
+    .dynamic : {
+        *(.dynamic)
+    } :rodata :dynamic
+
+    . = ALIGN(CONSTANT(MAXPAGESIZE));
     .data : {
         *(.data .data.*)
     } :data
 
+    . = ALIGN(CONSTANT(MAXPAGESIZE));
     .bss : {
         *(.bss .bss.*)
         *(COMMON)

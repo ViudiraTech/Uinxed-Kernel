@@ -32,7 +32,7 @@ void init_gdt(void)
 
     gdt_pointer = ((struct gdt_register) {.size = (uint16_t)(sizeof(gdt_entries_t) - 1), .ptr = &gdt_entries});
 
-    __asm__ volatile("lgdt %[ptr]; push %[cseg]; lea 1f, %%rax; push %%rax; lretq;"
+    __asm__ volatile("lgdt %[ptr]; push %[cseg]; lea 1f(%%rip), %%rax; push %%rax; lretq;"
                      "1:"
                      "mov %[dseg], %%ds;"
                      "mov %[dseg], %%fs;"

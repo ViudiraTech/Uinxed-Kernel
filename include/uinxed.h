@@ -14,7 +14,7 @@
 
 #define BUILD_DATE __DATE__     // Compilation Date
 #define BUILD_TIME __TIME__     // Compile time
-#define KERNL_VERS "0.0.250714" // Version format: v[major version].[patch version].[YY-MM-DD]
+#define KERNL_VERS "0.0.250715" // Version format: v[major version].[patch version].[YY-MM-DD]
 
 /* Compiler judgment */
 #if defined(__clang__)
@@ -31,6 +31,8 @@
 #    error "Unknown compiler"
 #endif
 
+#define KERNEL_BASE_ADDRESS 0xffffffff80000000
+
 extern volatile struct limine_rsdp_request rsdp_request;
 extern volatile struct limine_kernel_file_request kernel_file_request;
 extern volatile struct limine_smp_request smp_request;
@@ -38,5 +40,6 @@ extern volatile struct limine_framebuffer_request framebuffer_request;
 extern volatile struct limine_smbios_request smbios_request;
 extern volatile struct limine_memmap_request memmap_request;
 extern volatile struct limine_hhdm_request hhdm_request;
+extern volatile struct limine_kernel_address_request kernel_address_request;
 
 #endif // INCLUDE_UINXED_H_

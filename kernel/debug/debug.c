@@ -20,6 +20,7 @@
 /* Dump stack */
 void dump_stack(void)
 {
+    uintptr_t current_address = kernel_address_request.response->virtual_base;
     union RbpNode {
             uintptr_t inner;
             union RbpNode *next;
@@ -37,7 +38,7 @@ void dump_stack(void)
         if (!sym_info.name) {
             plogk_unsafe("  [<0x%016zx>] %s\n", rip, "unknown");
         } else {
-            plogk_unsafe("  [<0x%016zx>] `%s`+0x%lx\n", rip, sym_info.name, rip - sym_info.addr);
+            plogk_unsafe("  [<0x%016zx>] `%s`+0x%lx\n", rip, sym_info.name, rip - (current_address + sym_info.addr));
         }
         rip = *(uintptr_t *)(rbp + 1);
         rbp = rbp->next;
@@ -49,6 +50,8 @@ void dump_stack(void)
 /* Kernel panic */
 void panic(const char *format, ...)
 {
+    uint64_t current_address = kernel_address_request.response->virtual_base;
+
     static char buff[1024];
     va_list args;
     int i;
@@ -62,6 +65,7 @@ void panic(const char *format, ...)
     plogk("\n");
     plogk("Kernel panic - not syncing: %s\n", buff);
     dump_stack();
+    plogk("Kernel Offset: 0x%08x from %p\n", current_address - KERNEL_BASE_ADDRESS, KERNEL_BASE_ADDRESS);
     plogk("---[ end Kernel panic - not syncing: %s ]---\n", buff);
     krn_halt();
 }
