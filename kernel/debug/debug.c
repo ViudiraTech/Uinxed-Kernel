@@ -39,7 +39,8 @@ void dump_stack(void)
         if (!sym_info.name) {
             plogk_unsafe("  [<0x%016zx>] %s\n", rip, "unknown");
         } else {
-            plogk_unsafe("  [<0x%016zx>] `%s`+0x%lx\n", rip, sym_info.name, rip - (current_address + sym_info.addr));
+            plogk_unsafe("  [<0x%016zx>] `%s`+0x%lx/0x%lx\n", rip, sym_info.name,
+                         rip - (current_address + sym_info.addr), sym_info.size);
         }
         rip = *(uintptr_t *)(rbp + 1);
         rbp = rbp->next;

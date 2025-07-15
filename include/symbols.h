@@ -18,6 +18,7 @@
 typedef struct {
         const char *name;
         Elf64_Addr addr;
+        Elf64_Xword size;
 } sym_info_t;
 
 /* Get symbol information */
