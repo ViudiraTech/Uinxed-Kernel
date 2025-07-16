@@ -214,7 +214,6 @@ void mcfg_init(void *mcfg)
         /* Never be executed, because it will be checked before this functions */
         panic("pci: mcfg is unexpectedly empty.");
     }
-    return;
 };
 
 /* Search MCFG entry by bus */
@@ -327,7 +326,6 @@ static void pci_legacy_write(pci_device_reg reg, uint32_t value)
     uint32_t id = 1 << 31 | (bus << 16) | (slot & 0x1f << 11) | (func << 8) | (register_offset & 0xfc);
     outl(PCI_COMMAND_PORT, id);
     outl(PCI_DATA_PORT, value);
-    return;
 }
 
 /* Write values ​​to PCI device registers from `pci_device_ecam` */
@@ -369,7 +367,6 @@ static void pci_mcfg_write(pci_device_reg reg, uint32_t value)
          *        Example: 0x00345678 | 0xa5000000 = 0xa5345678
          */
     }
-    return;
 }
 
 /* Reading values ​​from PCI device registers and `pci_device_ecam` */
@@ -427,7 +424,6 @@ void pci_write_command_status(pci_device_cache *device, uint32_t value)
 {
     pci_device_reg reg = (pci_device_reg) {device, ECAM_AREA_OPS};
     write_pci(reg, value);
-    return;
 }
 
 /* Get detailed information about the base address register */
@@ -540,7 +536,6 @@ void pci_config(pci_device_cache *cache, uint32_t addr)
     uint32_t cmd       = 0;
     cmd                = 0x80000000 + addr + (device->func << 8) + (device->slot << 11) + (device->bus << 16);
     outl(PCI_COMMAND_PORT, cmd);
-    return;
 }
 
 /* Find devices by class code */
@@ -558,7 +553,6 @@ static void pci_class_finding(pci_finding_request *req)
         req->response->device = cache;
         req->response->error  = PCI_FINDING_SUCCESS;
     }
-    return;
 }
 
 /* Accurately search based on device information */
@@ -576,7 +570,6 @@ static void pci_device_finding(pci_finding_request *req)
         req->response->device = cache;
         req->response->error  = PCI_FINDING_SUCCESS;
     }
-    return;
 }
 
 /* Add the found devices to the usable list */
@@ -587,7 +580,6 @@ static void add_to_usable_list(pci_finding_request *req)
     node->next            = pci_usable.head;
     pci_usable.head       = node;
     pci_usable.count++;
-    return;
 }
 
 /* Finding PCI devices */
@@ -614,7 +606,6 @@ void pci_device_find(pci_finding_request *req) // Notice: the req should be a gl
             req->response->error  = PCI_FINDING_ERROR;
             break;
     }
-    return;
 
     /* By the end of the function, you should to do: 
      * 1. Check the response->error
@@ -652,7 +643,6 @@ void pci_update_usable_list(void)
         }
         node = node->next;
     }
-    return;
 }
 
 /* Returns the device name based on the class code */
@@ -685,7 +675,6 @@ void pci_free_devices_cache(void)
     }
     pci_cache.head          = 0;
     pci_cache.devices_count = 0;
-    return;
 }
 
 /* A helper function to add device cache */
@@ -699,7 +688,6 @@ static void pci_add_device_cache(pci_device_cache *cache)
     cpy_cache->next             = pci_cache.head;
     pci_cache.head              = cpy_cache;
     pci_cache.devices_count++;
-    return;
 }
 
 /* A helper function to read registers and add device cache */
@@ -739,7 +727,6 @@ static void slot_process_legacy(pci_device_cache *cache)
 
     /* Process func=1..7 */
     for (device->func = 1; device->func < 8; device->func++) pci_cache_process(cache);
-    return;
 }
 
 /* Process slots of PCI devices in MCFG mode */
@@ -774,14 +761,12 @@ static void slot_process_mcfg(pci_device_cache *cache)
             continue; // Device not exist
         }
     }
-    return;
 }
 
 /* Process slots of PCI devices */
 static void slot_process(pci_device_cache *device)
 {
     pci_ops.slot_process(device);
-    return;
 }
 
 /* Flush the PCI devices cache */
@@ -797,7 +782,6 @@ void pci_flush_devices_cache(void)
         for (curr_device.slot = 0; curr_device.slot < 32; curr_device.slot++) slot_process(&curr_cache);
     }
     pci_update_usable_list();
-    return;
 }
 
 /* Found PCI devices cache by vender ID and device ID */
@@ -844,5 +828,4 @@ void pci_init(void)
         cache = cache->next;
     }
     plogk("pci: Found %lu devices.\n", pci_cache.devices_count);
-    return;
 }

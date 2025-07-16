@@ -36,7 +36,6 @@ static void init_parallel_port(uint16_t port)
         return;
     }
     plogk("parallel: Local port: %s, Status: 0x%02x\n", PORT_TO_LPT(port), inb(port + STATUS_REG));
-    return;
 }
 
 /* Initialize parallel port */
@@ -52,7 +51,6 @@ void init_parallel(void)
         }
     }
     if (valid_ports == 0) plogk("parallel: No parallel port available.\n");
-    return;
 }
 
 /* Check if the specified parallel port is busy */

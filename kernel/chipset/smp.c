@@ -77,7 +77,6 @@ void send_ipi_all(uint8_t vector)
     vector |= IPI_FIXED | APIC_ICR_PHYSICAL;
     for (size_t i = 0; i < cpu_count; i++)
         if (cpus[i].id != get_current_cpu_id()) send_ipi(cpus[i].lapic_id, vector);
-    return;
 }
 
 /* Send an IPI to the specified CPU */
@@ -85,21 +84,18 @@ void send_ipi_cpu(uint32_t cpu_id, uint8_t vector)
 {
     vector |= IPI_FIXED | APIC_ICR_PHYSICAL;
     if (cpu_id < cpu_count && cpu_id != get_current_cpu_id()) send_ipi(cpus[cpu_id].lapic_id, vector);
-    return;
 }
 
 /* Flush TLBs of all CPUs */
 void flush_tlb_all(void)
 {
     send_ipi_all(IPI_TLB_SHOOTDOWN);
-    return;
 }
 
 /* Flushing TLB by address range */
 void flush_tlb_range(uint64_t start, uint64_t end)
 {
     for (uint64_t addr = start; addr < end; addr += PAGE_SIZE) flush_tlb(addr);
-    return;
 }
 
 /* Get the number of CPUs */
@@ -230,5 +226,4 @@ void smp_init(void)
     /* Wait for all APs to be ready */
     while (ap_ready_count < cpu_count - 1) __asm__ volatile("pause");
     plogk("smp: All APs are up, total %llu CPUs.\n", cpu_count);
-    return;
 }

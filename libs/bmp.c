@@ -34,7 +34,6 @@ void bmp_analysis(Bmp *bmp, uint32_t offsetX, uint32_t offsetY, int enableTransp
             video_draw_pixel(offsetX + xOffset, offsetY + bmp->frameHeight - 1 - yOffset, color);
         }
     }
-    return;
 }
 
 /* NOLINTEND(bugprone-easily-swappable-parameters) */

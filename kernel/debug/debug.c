@@ -46,7 +46,6 @@ void dump_stack(void)
         rbp = rbp->next;
     }
     plogk_unsafe(" </TASK>\n");
-    return;
 }
 
 /* Kernel panic */

@@ -66,19 +66,16 @@ void dma_start(uint8_t mode, uint8_t channel, uint32_t *address, uint32_t size)
     /* So enable DMA_channel */
     outb(MASK_REG[channel], (channel % 4));
     enable_intr();
-    return;
 }
 
 /* Sending data using DMA */
 void dma_send(uint8_t channel, uint32_t *address, uint32_t size)
 {
     dma_start(0x48, channel, address, size);
-    return;
 }
 
 /* Receiving data using DMA */
 void dma_recv(uint8_t channel, uint32_t *address, uint32_t size)
 {
     dma_start(0x44, channel, address, size);
-    return;
 }

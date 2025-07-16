@@ -39,7 +39,6 @@ void write_cmos(uint8_t p, uint8_t data)
 
     /* Send 0x80 to the CMOS index register, probably to reset or terminate the read signal */
     outb(cmos_index, 0x80);
-    return;
 }
 
 /* Get the HEX value of the current hour */

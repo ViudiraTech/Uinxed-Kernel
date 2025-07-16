@@ -71,7 +71,6 @@ void init_frame(void)
     plogk("frame: Total physical frames = 0x%08x (%d MiB)\n", origin_frames, (origin_frames * 4096) >> 20);
     plogk("frame: Available frames after bitmap = 0x%08x (%d MiB)\n", frame_allocator.usable_frames,
           (frame_allocator.usable_frames * 4096) >> 20);
-    return;
 }
 
 /* Allocate memory frame */
@@ -96,7 +95,6 @@ void free_frame(uint64_t addr)
     Bitmap *bitmap = &frame_allocator.bitmap;
     bitmap_set(bitmap, frame_index, 1);
     frame_allocator.usable_frames++;
-    return;
 }
 
 /* Print memory map */
@@ -145,5 +143,4 @@ void print_memory_map(void)
         plogk("  [mem %p-%p] (%*llu KiB) %s\n", base, end, 9, length / 1024, type_str);
     }
     plogk(" </MEMMAP>\n");
-    return;
 }

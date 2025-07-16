@@ -86,7 +86,6 @@ void video_init(void)
     fore_color = 0xffaaaaaa;
     back_color = 0xff000000;
     video_clear();
-    return;
 }
 
 /* Clear screen */
@@ -97,7 +96,6 @@ void video_clear(void)
     x          = 2;
     y          = 0;
     cx = cy = 0;
-    return;
 }
 
 /* Clear screen with color */
@@ -108,7 +106,6 @@ void video_clear_color(uint32_t color)
     x          = 2;
     y          = 0;
     cx = cy = 0;
-    return;
 }
 
 /* Scroll the screen to the specified coordinates */
@@ -116,7 +113,6 @@ void video_move_to(uint32_t c_x, uint32_t c_y)
 {
     cx = c_x;
     cy = c_y;
-    return;
 }
 
 /* Screen scrolling operation */
@@ -142,14 +138,12 @@ void video_scroll(void)
         video_draw_rect((position) {0, height - 16}, (position) {stride, height}, back_color);
         cy = c_height - 1;
     }
-    return;
 }
 
 /* Draw a pixel at the specified coordinates on the screen */
 void video_draw_pixel(uint32_t x, uint32_t y, uint32_t color)
 {
     (buffer)[y * width + x] = color;
-    return;
 }
 
 /* Get a pixel at the specified coordinates on the screen */
@@ -165,7 +159,6 @@ void video_invoke_area(position p0, position p1, void (*callback)(position p))
     for (p.y = p0.y; y <= p1.y; p.y++) {
         for (p.x = p0.x; x <= p1.x; p.x++) callback(p);
     }
-    return;
 }
 
 /* Draw a matrix at the specified coordinates on the screen */
@@ -185,7 +178,6 @@ void video_draw_rect(position p0, position p1, uint32_t color)
         for (uint32_t x = x0; x <= x1; x++) video_draw_pixel(x, y, color);
 #endif
     }
-    return;
 }
 
 /* Draw a character at the specified coordinates on the screen */
@@ -202,7 +194,6 @@ void video_draw_char(const char c, uint32_t x, uint32_t y, uint32_t color)
             }
         }
     }
-    return;
 }
 
 /* Print a character at the specified coordinates on the screen */
@@ -244,19 +235,16 @@ void video_put_char(const char c, uint32_t color)
     x = (cx - 1) * 9;
     y = cy * 16;
     video_draw_char(c, x, y, color);
-    return;
 }
 
 /* Print a string at the specified coordinates on the screen */
 void video_put_string(const char *str)
 {
     for (; *str; ++str) video_put_char(*str, fore_color);
-    return;
 }
 
 /* Print a string with color at the specified coordinates on the screen */
 void video_put_string_color(const char *str, uint32_t color)
 {
     for (; *str; ++str) video_put_char(*str, color);
-    return;
 }

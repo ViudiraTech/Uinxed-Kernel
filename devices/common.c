@@ -20,7 +20,6 @@
 void outb(uint16_t port, uint8_t value)
 {
     __asm__ volatile("outb %1, %0" ::"dN"(port), "a"(value));
-    return;
 }
 
 /* Port read (8 bits) */
@@ -35,7 +34,6 @@ uint8_t inb(uint16_t port)
 void outw(uint16_t port, uint16_t value)
 {
     __asm__ volatile("outw %1, %0" ::"dN"(port), "a"(value));
-    return;
 }
 
 /* Port read (16 bits) */
@@ -50,7 +48,6 @@ uint16_t inw(uint16_t port)
 void outl(uint16_t port, uint32_t value)
 {
     __asm__ volatile("outl %1, %0" ::"dN"(port), "a"(value));
-    return;
 }
 
 /* Port read (32 bits) */
@@ -65,35 +62,30 @@ uint32_t inl(uint16_t port)
 void insw(uint16_t port, void *buf, size_t n)
 {
     __asm__ volatile("cld; rep; insw" : "+D"(buf), "+c"(n) : "d"(port));
-    return;
 }
 
 /* Write data from memory to I/O port in batches (16 bits) */
 void outsw(uint16_t port, const void *buf, size_t n)
 {
     __asm__ volatile("cld; rep; outsw" : "+S"(buf), "+c"(n) : "d"(port));
-    return;
 }
 
 /* Read data from I/O port to memory in batches (32 bits) */
 void insl(uint32_t port, void *addr, size_t cnt)
 {
     __asm__ volatile("cld; repne; insl;" : "=D"(addr), "=c"(cnt) : "d"(port), "0"(addr), "1"(cnt) : "memory", "cc");
-    return;
 }
 
 /* Write data from memory to I/O port in batches (32 bits) */
 void outsl(uint32_t port, const void *addr, size_t cnt)
 {
     __asm__ volatile("cld; repne; outsl;" : "=S"(addr), "=c"(cnt) : "d"(port), "0"(addr), "1"(cnt) : "memory", "cc");
-    return;
 }
 
 /* Flushes the TLB of the specified address */
 void flush_tlb(uint64_t addr)
 {
     __asm__ volatile("invlpg (%0)" ::"r"(addr) : "memory");
-    return;
 }
 
 /* Get the current value of the CR3 register */
@@ -124,14 +116,12 @@ uint64_t get_rflags(void)
 void mmio_write32(uint32_t *addr, uint32_t data)
 {
     *(volatile uint32_t *)addr = data;
-    return;
 }
 
 /* Write a 64-bit data to the specified memory address */
 void mmio_write64(void *addr, uint64_t data)
 {
     *(volatile uint64_t *)addr = data;
-    return;
 }
 
 /* Read a 32-bit data from the specified memory address */
@@ -160,7 +150,6 @@ void wrmsr(uint32_t msr, uint64_t value)
     uint32_t rax = (uint32_t)value;
     uint32_t rdx = value >> 32;
     __asm__ volatile("wrmsr" ::"c"(msr), "a"(rax), "d"(rdx));
-    return;
 }
 
 /* Loading data atomically */
@@ -175,21 +164,18 @@ uint64_t load(uint64_t *addr)
 void store(uint64_t *addr, uint32_t value)
 {
     __asm__ volatile("lock xchg %[value], %[addr];" : [addr] "+m"(*addr), [value] "+r"(value)::"memory");
-    return;
 }
 
 /* Enable interrupt */
 void enable_intr(void)
 {
     __asm__ volatile("sti");
-    return;
 }
 
 /* Disable interrupts */
 void disable_intr(void)
 {
     __asm__ volatile("cli" ::: "memory");
-    return;
 }
 
 /* Kernel halt */

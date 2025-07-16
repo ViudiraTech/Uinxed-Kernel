@@ -51,7 +51,6 @@ void printk(const char *format, ...)
     }
     va_end(args);
     spin_unlock(&printk_lock); // Unlock
-    return;
 }
 
 /* Kernel print string without overflow check */
@@ -66,7 +65,6 @@ void printk_unsafe(const char *format, ...)
     tty_print_str(buff);
     va_end(args);
     spin_unlock(&printk_lock); // Lock
-    return;
 }
 
 /* Kernel print log with overflow check */
@@ -84,7 +82,6 @@ void plogk_unsafe(const char *format, ...)
     spin_unlock(&plogk_lock); // Lock
 #else
     (void)format;
-    return;
 #endif
 }
 
@@ -108,7 +105,6 @@ void plogk(const char *format, ...)
     spin_unlock(&plogk_lock); // Unlock
 #else
     (void)format;
-    return;
 #endif
 }
 
@@ -326,7 +322,6 @@ void free_fmtarg(FmtArg *arg)
 {
     free(arg->buff);
     free(arg);
-    return;
 }
 
 /* Create a new FmtArg structure and initialize it */

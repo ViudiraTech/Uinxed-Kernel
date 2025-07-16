@@ -45,7 +45,6 @@ void init_gdt(void)
     plogk("gdt: CS reloaded with 0x%04x, DS/ES/FS/GS/SS = 0x%04x\n", 0x8, 0x10);
     plogk("gdt: GDT initialized at %p (6 entries)\n", &gdt_entries);
     tss_init();
-    return;
 }
 
 /* Initialize TSS */
@@ -66,12 +65,10 @@ void tss_init(void)
     plogk("tss: IST0 stack = %p\n", tss0.ist[0]);
     __asm__ volatile("ltr %w[offset]" ::[offset] "rm"((uint16_t)0x28) : "memory");
     plogk("tss: TR register loaded with selector 0x%04x\n", 0x28);
-    return;
 }
 
 /* Setting up the kernel stack */
 void set_kernel_stack(uint64_t rsp)
 {
     tss0.rsp[0] = rsp;
-    return;
 }

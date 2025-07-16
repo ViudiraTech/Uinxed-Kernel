@@ -24,7 +24,6 @@ void spin_lock(spinlock_t *lock)
         if (desired == 0) break;
         __asm__ volatile("pause");
     }
-    return;
 }
 
 /* Unlock a spinlock */
@@ -32,5 +31,4 @@ void spin_unlock(spinlock_t *lock)
 {
     lock->lock = 0;
     __asm__ volatile("push %0; popfq" : : "r"(lock->rflags));
-    return;
 }

@@ -58,7 +58,6 @@ static void ide_wait_irq(void)
 {
     while (!ide_irq_invoked);
     ide_irq_invoked = 0;
-    return;
 }
 
 /* Setting up the IDE */
@@ -151,7 +150,6 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
         if (ide_devices[i].reserved == 1)
             plogk("ide: Found %s Drive %u(MiB) - %s\n", ide_devices[i].type ? "ATAPI" : "ATA",
                   ide_devices[i].size / 1024 / 2, ide_devices[i].model);
-    return;
 }
 
 /* Error handling */
@@ -243,7 +241,6 @@ void init_ide(void)
         bar_addrs[idx] = cast.val;
     }
     ide_initialize(bar_addrs[0], bar_addrs[1], bar_addrs[2], bar_addrs[3], bar_addrs[4]);
-    return;
 }
 
 /* Read a byte of data from the specified register of the IDE device */
@@ -282,7 +279,6 @@ void ide_write(uint8_t channel, uint8_t reg, uint8_t data)
         /* Expanded by ide_write(channel, ATA_REG_CONTROL, 0x80 | channels[channel].nIEN); */
         outb(channels[channel].ctrl + ATA_REG_CONTROL - 0x0a, 0x80 | channels[channel].nIEN);
     }
-    return;
 }
 
 /* Read multiple words of data from the specified register of the IDE device into the buffer */
@@ -298,7 +294,6 @@ void ide_read_buffer(uint8_t channel, uint8_t reg, uint8_t *buffer, uint32_t qua
     else if (reg < 0x16)
         insl(channels[channel].bmide + reg - 0x0e, (uint32_t *)buffer, quads);
     if (reg > 0x07 && reg < 0x0c) ide_write(channel, ATA_REG_CONTROL, channels[channel].nIEN);
-    return;
 }
 
 /* Polling the status of IDE devices */
@@ -497,7 +492,6 @@ void ide_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *e
             for (int i = 0; i < numsects; i++) err = ide_atapi_read(drive, lba + i, 1, edi + (size_t)(i * 2048));
         package[0] = ide_print_error(drive, err);
     }
-    return;
 }
 
 /* Write multiple sectors to an IDE device */
@@ -519,5 +513,4 @@ void ide_write_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *
             err = 4;
         package[0] = ide_print_error(drive, err);
     }
-    return;
 }

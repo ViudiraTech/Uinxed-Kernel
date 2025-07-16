@@ -155,5 +155,4 @@ void isr_registe_handle(void)
     register_interrupt_handler(ISR_19, (void *)ISR_19_handle, 0, 0x8e);
 
     plogk("isr: All ISR handlers are registered.\n");
-    return;
 }

@@ -106,7 +106,6 @@ void facp_init(acpi_facp_t *facp0)
             plogk("facp: ACPI enablement failed.\n");
         }
     }
-    return;
 }
 
 /* Cycle the power */

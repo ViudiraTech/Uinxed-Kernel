@@ -44,5 +44,4 @@ void hpet_init(Hpet *hpet)
     hpet_addr->generalConfiguration |= 1;
     register_interrupt_handler(IRQ_0, (void *)timer_handle, 0, 0x8e);
     plogk("hpet: HPET General Configuration Register set to 0x%08llx\n", hpet_addr->generalConfiguration);
-    return;
 }

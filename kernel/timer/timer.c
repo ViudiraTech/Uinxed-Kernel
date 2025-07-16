@@ -42,7 +42,6 @@ void msleep(uint64_t ms)
         }
         if (after >= ns) return;
     }
-    return;
 }
 
 /* Nanosecond-based delay function */
@@ -62,5 +61,4 @@ void nsleep(uint64_t ns)
         }
         if (after >= ns) return;
     }
-    return;
 }

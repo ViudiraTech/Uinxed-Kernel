@@ -59,7 +59,6 @@ static int is_huge_page(page_table_entry_t *entry)
 void page_table_clear(page_table_t *table)
 {
     for (int i = 0; i < 512; i++) table->entries[i].value = 0;
-    return;
 }
 
 /* Create a memory page table */
@@ -127,7 +126,6 @@ void copy_page_table_iterative(page_table_t *source_table, page_table_t *new_tab
             break;
         }
     }
-    return;
 }
 
 /* Iteratively free memory page tables using an explicit stack */
@@ -166,7 +164,6 @@ void free_page_table_iterative(page_table_t *table, int level)
             free_frame((uint64_t)phys_addr & 0x000fffffffff000);
         }
     }
-    return;
 }
 
 /* Clone a page directory */
@@ -190,7 +187,6 @@ void free_directory(page_directory_t *dir)
     free_page_table_iterative(dir->table, 3);
     free_frame((uint64_t)virt_to_phys((uint64_t)dir->table));
     free(dir);
-    return;
 }
 
 /* Maps a virtual address to a physical frame */
@@ -208,7 +204,6 @@ void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uin
 
     l1_table->entries[l1_index].value = (frame & 0xfffffffffffff000) | flags;
     flush_tlb(addr);
-    return;
 }
 
 /* Switch the page directory of the current process */
@@ -217,7 +212,6 @@ void switch_page_directory(page_directory_t *dir)
     current_directory            = dir;
     page_table_t *physical_table = virt_to_phys((uint64_t)dir->table);
     __asm__ volatile("mov %0, %%cr3" ::"r"(physical_table));
-    return;
 }
 
 /* Map a continuous section of physical memory to the virtual address space */
@@ -226,7 +220,6 @@ void page_map_range_to(page_directory_t *directory, uint64_t frame, uint64_t len
     for (uint64_t i = 0; i < length; i += 0x1000) {
         page_map_to(directory, (uint64_t)phys_to_virt(frame + i), frame + i, flags);
     }
-    return;
 }
 
 /* Mapping random portions of non-contiguous physical memory into the virtual address space */
@@ -237,7 +230,6 @@ void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64
         frame = alloc_frames(1);
         if (frame != 0) page_map_to(directory, addr + i, frame, flags);
     }
-    return;
 }
 
 /* Initialize memory page table */
@@ -246,5 +238,4 @@ void page_init(void)
     page_table_t *kernel_page_table = phys_to_virt(get_cr3());
     kernel_page_dir                 = (page_directory_t) {.table = kernel_page_table};
     current_directory               = &kernel_page_dir;
-    return;
 }

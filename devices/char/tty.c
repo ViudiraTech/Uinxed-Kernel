@@ -105,7 +105,6 @@ void tty_buff_flush(void)
     }
     tty_buff[0] = '\0'; // Clear buffer
     spin_unlock(&tty_flush_spinlock);
-    return;
 }
 
 /* Add character data to the teletype buffer */
@@ -120,14 +119,12 @@ static void tty_buff_add(const char ch)
         tty_buff_flush();
     }
     *tty_buff_ptr = '\0';
-    return;
 }
 
 /* Print characters to tty */
 void tty_print_ch(const char ch)
 {
     tty_buff_add(ch);
-    return;
 }
 
 /* Print string to tty */
@@ -138,5 +135,4 @@ void tty_print_str(const char *str)
         tty_buff_add(*str_clone);
         str_clone++;
     }
-    return;
 }
