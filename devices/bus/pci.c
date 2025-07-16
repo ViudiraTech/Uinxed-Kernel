@@ -11,6 +11,7 @@
 
 #include "pci.h"
 #include "acpi.h"
+#include "alloc.h"
 #include "common.h"
 #include "debug.h"
 #include "hhdm.h"
@@ -18,7 +19,6 @@
 #include "stddef.h"
 #include "stdint.h"
 #include "stdlib.h"
-#include "string.h"
 
 MCFGInfo mcfg_info;
 

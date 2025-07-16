@@ -28,10 +28,10 @@ sym_info_t get_symbol_info(void *kernel_file_address, Elf64_Addr symbol_address)
 
     for (size_t i = 0; i < ehdr->e_shnum; ++i) {
         const char *sh_name = shstrtab + shdr[i].sh_name;
-        if (strcmp(sh_name, ".symtab") == 0) {
+        if (!strcmp(sh_name, ".symtab")) {
             sym      = (Elf64_Sym *)((char *)kernel_file_address + shdr[i].sh_offset);
             sym_size = shdr[i].sh_size / sizeof(Elf64_Sym);
-        } else if (strcmp(sh_name, ".strtab") == 0) {
+        } else if (!strcmp(sh_name, ".strtab")) {
             strtab = (const char *)kernel_file_address + shdr[i].sh_offset;
         }
     }

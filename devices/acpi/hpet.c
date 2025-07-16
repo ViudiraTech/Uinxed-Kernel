@@ -23,7 +23,7 @@ void timer_handle(interrupt_frame_t *frame);
 /* Returns the nanosecond value of the current time */
 uint64_t nano_time(void)
 {
-    if (hpet_addr == 0) return 0;
+    if (!hpet_addr) return 0;
     return (hpet_addr->mainCounterValue) * hpetPeriod;
 }
 

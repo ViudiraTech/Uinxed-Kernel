@@ -10,6 +10,7 @@
  */
 
 #include "smp.h"
+#include "alloc.h"
 #include "apic.h"
 #include "common.h"
 #include "debug.h"

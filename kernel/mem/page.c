@@ -10,6 +10,7 @@
  */
 
 #include "page.h"
+#include "alloc.h"
 #include "common.h"
 #include "debug.h"
 #include "frame.h"
@@ -17,7 +18,6 @@
 #include "idt.h"
 #include "stdlib.h"
 #include "string.h"
-#include <stdlib.h>
 
 page_directory_t kernel_page_dir;
 page_directory_t *current_directory = 0;

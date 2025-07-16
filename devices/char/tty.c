@@ -10,6 +10,7 @@
  */
 
 #include "tty.h"
+#include "alloc.h"
 #include "cmdline.h"
 #include "lock.h"
 #include "serial.h"
@@ -62,7 +63,7 @@ char *get_boot_tty(void)
 
     int argc = arg_parse(bootarg, argv, ' ');
     for (int i = 0; i < argc; ++i) {
-        if (strncmp(argv[i], "console=", 8) == 0) {
+        if (!strncmp(argv[i], "console=", 8)) {
             const char *tty_str = argv[i] + 8;
 
             if (strlen(tty_str) < sizeof(boot_tty_buf)) {
@@ -87,16 +88,16 @@ void tty_buff_flush(void)
 {
     spin_lock(&tty_flush_spinlock);
     tty_buff_ptr = tty_buff;
-    if (strcmp(get_boot_tty(), "ttyS0") == 0) {
+    if (!strcmp(get_boot_tty(), "ttyS0")) {
         while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_1, *tty_buff_ptr++);
         tty_buff_ptr = tty_buff;
-    } else if (strcmp(get_boot_tty(), "ttyS1") == 0) {
+    } else if (!strcmp(get_boot_tty(), "ttyS1")) {
         while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_2, *tty_buff_ptr++);
         tty_buff_ptr = tty_buff;
-    } else if (strcmp(get_boot_tty(), "ttyS2") == 0) {
+    } else if (!strcmp(get_boot_tty(), "ttyS2")) {
         while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_3, *tty_buff_ptr++);
         tty_buff_ptr = tty_buff;
-    } else if (strcmp(get_boot_tty(), "ttyS3") == 0) {
+    } else if (!strcmp(get_boot_tty(), "ttyS3")) {
         while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_4, *tty_buff_ptr++);
         tty_buff_ptr = tty_buff;
     } else {

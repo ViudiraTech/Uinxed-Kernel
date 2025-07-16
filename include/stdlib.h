@@ -12,7 +12,6 @@
 #ifndef INCLUDE_STDLIB_H_
 #define INCLUDE_STDLIB_H_
 
-#include "alloc.h"
 #include "stddef.h"
 #include "stdint.h"
 

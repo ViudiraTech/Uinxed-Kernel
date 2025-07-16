@@ -11,7 +11,6 @@
 
 #include "stdlib.h"
 #include "stdint.h"
-#include "string.h"
 
 /* Determine whether it is a number */
 int is_digit(int c)

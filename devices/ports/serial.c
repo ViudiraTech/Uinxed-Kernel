@@ -136,14 +136,14 @@ int is_transmit_empty(uint16_t port)
 /* Read serial port */
 uint8_t read_serial(uint16_t port)
 {
-    while (serial_received(port) == 0);
+    while (!serial_received(port));
     return inb(port + SERIAL_REG_DATA);
 }
 
 /* Write serial port */
 void write_serial(uint16_t port, uint8_t data)
 {
-    while (is_transmit_empty(port) == 0);
+    while (!is_transmit_empty(port));
     outb(port + SERIAL_REG_DATA, data);
 }
 

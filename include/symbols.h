@@ -13,7 +13,6 @@
 #define INCLUDE_SYMBOLS_H_
 
 #include "elf.h"
-#include "stddef.h"
 
 typedef struct {
         const char *name;

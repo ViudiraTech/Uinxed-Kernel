@@ -16,7 +16,6 @@
 #include "pci.h"
 #include "printk.h"
 #include "stdint.h"
-#include "string.h"
 #include "uinxed.h"
 
 XSDT *xsdt = 0;
@@ -26,7 +25,7 @@ RSDT *rsdt = 0;
 void *find_table(const char *name)
 {
     int use_xsdt = xsdt != 0;
-    if (!use_xsdt && rsdt == 0) {
+    if (!use_xsdt && !rsdt) {
         plogk("acpi: No RSDT/XSDT available.\n");
         return 0;
     }

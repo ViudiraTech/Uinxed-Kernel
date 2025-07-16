@@ -180,7 +180,7 @@ char *strstr(const char *haystack, const char *needle)
     const char *s = haystack, *t = needle;
 
     for (size_t i = 0; i <= _sn - _tn; i++) {
-        if (strncmp(s + i, t, _tn) == 0) return (char *)(s + i);
+        if (!strncmp(s + i, t, _tn)) return (char *)(s + i);
     }
     return 0;
 }

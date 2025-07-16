@@ -14,7 +14,6 @@
 #include "limine.h"
 #include "stddef.h"
 #include "stdint.h"
-#include "string.h"
 #include "uinxed.h"
 
 extern uint8_t ascfont[]; // Fonts
@@ -72,7 +71,7 @@ struct limine_framebuffer *get_framebuffer(void)
 /* Initialize Video */
 void video_init(void)
 {
-    if (framebuffer_request.response == 0 || framebuffer_request.response->framebuffer_count < 1) krn_halt();
+    if (!framebuffer_request.response || framebuffer_request.response->framebuffer_count < 1) krn_halt();
     struct limine_framebuffer *framebuffer = framebuffer_request.response->framebuffers[0];
     buffer                                 = framebuffer->address;
     width                                  = framebuffer->width;

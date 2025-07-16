@@ -88,7 +88,7 @@ uint64_t alloc_frames(size_t count)
 /* Free memory frames */
 void free_frame(uint64_t addr)
 {
-    if (addr == 0) return;
+    if (!addr) return;
     size_t frame_index = addr / 4096;
 
     if (frame_index == 0) return;

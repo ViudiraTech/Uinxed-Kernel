@@ -13,7 +13,6 @@
 #define INCLUDE_INTERRUPT_H_
 
 #include "idt.h"
-#include "stddef.h"
 #include "stdint.h"
 
 /* register */

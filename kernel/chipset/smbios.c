@@ -49,7 +49,7 @@ static const struct Header *find_smbios_type(uint8_t target_type)
 /* Parsing table string */
 static const char *smbios_get_string(const struct Header *hdr, int index)
 {
-    if (!hdr || index == 0) return "";
+    if (!hdr || !index) return "";
 
     const char *str = (const char *)hdr + hdr->length;
     while (--index > 0 && *str) {

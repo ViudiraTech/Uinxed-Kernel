@@ -34,7 +34,7 @@ void facp_init(acpi_facp_t *facp0)
     dsdt.val                = (uintptr_t)facp->dsdt;
     dsdt_table_t *dsdtTable = (dsdt_table_t *)dsdt.ptr;
 
-    if (dsdtTable == 0) {
+    if (!dsdtTable) {
         plogk("facp: DSDT table not found.\n");
         return;
     } else {
@@ -131,14 +131,12 @@ void power_off(void)
 /* Obtain ACPI major version */
 uint8_t get_acpi_version_major(void)
 {
-    if (!facp) return 0;
-    return facp->h.Revision;
+    return facp ? facp->h.Revision : 0;
 }
 
 /* Obtain ACPI minor version */
 uint16_t get_acpi_version_minor(void)
 {
-    if (!facp) return 0;
-    if (facp->h.Length < sizeof(acpi_facp_t)) return 0;
+    if (!facp || facp->h.Length < sizeof(acpi_facp_t)) return 0;
     return *(uint16_t *)((uint8_t *)facp + facp->h.Length - 2);
 }
