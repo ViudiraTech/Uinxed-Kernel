@@ -26,41 +26,41 @@ acpi_facp_t *facp;
 /* Initialize facp */
 void facp_init(acpi_facp_t *facp0)
 {
-    uint8_t *S5Addr;
+    uint8_t *S5_addr;
     uint32_t dsdtlen;
     facp = facp0;
 
-    PointerCast dsdt;
-    dsdt.val                = (uintptr_t)facp->dsdt;
-    dsdt_table_t *dsdtTable = (dsdt_table_t *)dsdt.ptr;
+    pointer_cast_t dsdt;
+    dsdt.val                 = (uintptr_t)facp->dsdt;
+    dsdt_table_t *dsdt_table = (dsdt_table_t *)dsdt.ptr;
 
-    if (!dsdtTable) {
+    if (!dsdt_table) {
         plogk("facp: DSDT table not found.\n");
         return;
     } else {
-        dsdtTable = phys_to_virt((uint64_t)dsdtTable);
-        plogk("facp: DSDT found at %p\n", dsdtTable);
+        dsdt_table = phys_to_virt((uint64_t)dsdt_table);
+        plogk("facp: DSDT found at %p\n", dsdt_table);
     }
-    if (!memcmp(dsdtTable->signature, "DSDT", 4)) {
-        S5Addr  = &(dsdtTable->definition_block);
-        dsdtlen = dsdtTable->length - 36;
+    if (!memcmp(dsdt_table->signature, "DSDT", 4)) {
+        S5_addr = &(dsdt_table->definition_block);
+        dsdtlen = dsdt_table->length - 36;
         while (dsdtlen--) {
-            if (!memcmp(S5Addr, "_S5_", 4)) break;
-            S5Addr++;
+            if (!memcmp(S5_addr, "_S5_", 4)) break;
+            S5_addr++;
         }
         SLP_EN = 1 << 13;
         SCI_EN = 1;
 
-        if (dsdtlen && S5Addr > &dsdtTable->definition_block + 2) {
-            if (*(S5Addr - 1) == 0x08 || (*(S5Addr - 2) == 0x08 && *(S5Addr - 1) == '\\')) {
-                S5Addr += 5;
-                S5Addr += ((*S5Addr & 0xc0) >> 6) + 2;
-                if (*S5Addr == 0x0a) S5Addr++;
-                SLP_TYPa = *(S5Addr) << 10;
-                S5Addr++;
-                if (*S5Addr == 0x0a) S5Addr++;
-                SLP_TYPb = *(S5Addr) << 10;
-                S5Addr++;
+        if (dsdtlen && S5_addr > &dsdt_table->definition_block + 2) {
+            if (*(S5_addr - 1) == 0x08 || (*(S5_addr - 2) == 0x08 && *(S5_addr - 1) == '\\')) {
+                S5_addr += 5;
+                S5_addr += ((*S5_addr & 0xc0) >> 6) + 2;
+                if (*S5_addr == 0x0a) S5_addr++;
+                SLP_TYPa = *(S5_addr) << 10;
+                S5_addr++;
+                if (*S5_addr == 0x0a) S5_addr++;
+                SLP_TYPb = *(S5_addr) << 10;
+                S5_addr++;
                 plogk("facp: SLP_TYPa = 0x%04hx, SLP_TYPb = 0x%04hx\n", SLP_TYPa, SLP_TYPb);
             }
         } else if (dsdtlen) {
@@ -131,12 +131,12 @@ void power_off(void)
 /* Obtain ACPI major version */
 uint8_t get_acpi_version_major(void)
 {
-    return facp ? facp->h.Revision : 0;
+    return facp ? facp->header.revision : 0;
 }
 
 /* Obtain ACPI minor version */
 uint16_t get_acpi_version_minor(void)
 {
-    if (!facp || facp->h.Length < sizeof(acpi_facp_t)) return 0;
-    return *(uint16_t *)((uint8_t *)facp + facp->h.Length - 2);
+    if (!facp || facp->header.length < sizeof(acpi_facp_t)) return 0;
+    return *(uint16_t *)((uint8_t *)facp + facp->header.length - 2);
 }

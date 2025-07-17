@@ -16,7 +16,7 @@
 #include "stdint.h"
 #include "uinxed.h"
 
-extern uint8_t ascfont[]; // Fonts
+extern uint8_t ascii_font[]; // Fonts
 
 uint64_t width;   // Screen length
 uint64_t height;  // Screen width
@@ -134,7 +134,7 @@ void video_scroll(void)
 
         /* NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling) */
         /* Fill new line to back color */
-        video_draw_rect((position) {0, height - 16}, (position) {stride, height}, back_color);
+        video_draw_rect((position_t) {0, height - 16}, (position_t) {stride, height}, back_color);
         cy = c_height - 1;
     }
 }
@@ -152,16 +152,16 @@ uint32_t video_get_pixel(uint32_t x, uint32_t y)
 }
 
 /* Iterate over a area on the screen and run a callback function in each iteration */
-void video_invoke_area(position p0, position p1, void (*callback)(position p))
+void video_invoke_area(position_t p0, position_t p1, void (*callback)(position_t p))
 {
-    position p;
+    position_t p;
     for (p.y = p0.y; y <= p1.y; p.y++) {
         for (p.x = p0.x; x <= p1.x; p.x++) callback(p);
     }
 }
 
 /* Draw a matrix at the specified coordinates on the screen */
-void video_draw_rect(position p0, position p1, uint32_t color)
+void video_draw_rect(position_t p0, position_t p1, uint32_t color)
 {
     uint32_t x0 = p0.x;
     uint32_t y0 = p0.y;
@@ -182,7 +182,7 @@ void video_draw_rect(position p0, position p1, uint32_t color)
 /* Draw a character at the specified coordinates on the screen */
 void video_draw_char(const char c, uint32_t x, uint32_t y, uint32_t color)
 {
-    uint8_t *font = ascfont;
+    uint8_t *font = ascii_font;
     font += (size_t)c * 16;
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < 9; j++) {

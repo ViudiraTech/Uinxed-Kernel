@@ -16,23 +16,23 @@
 
 typedef struct {
         uint16_t magic;
-        uint32_t fileSize;
+        uint32_t file_size;
         uint32_t reserved;
-        uint32_t bmpDataOffset;
-        uint32_t bmpInfoSize;
-        uint32_t frameWidth;
-        uint32_t frameHeight;
-        uint16_t reservedValue;
-        uint16_t bitsPerPixel;
-        uint32_t compressionMode;
-        uint32_t frameSize;
-        uint32_t horizontalResolution;
-        uint32_t verticalResolution;
-        uint32_t usedColorCount;
-        uint32_t importantColorCount;
-} __attribute__((packed)) Bmp;
+        uint32_t bmp_data_offset;
+        uint32_t bmp_info_size;
+        uint32_t frame_width;
+        uint32_t frame_height;
+        uint16_t reserved_value;
+        uint16_t bits_per_pixel;
+        uint32_t compression_mode;
+        uint32_t frame_size;
+        uint32_t horizontal_resolution;
+        uint32_t vertical_resolution;
+        uint32_t used_color_count;
+        uint32_t important_color_count;
+} __attribute__((packed)) bmp_t;
 
 /* Parse bitmap images and draw them to the screen */
-void bmp_analysis(Bmp *bmp, uint32_t offsetX, uint32_t offsetY, int enableTransparency);
+void bmp_analysis(bmp_t *bmp, uint32_t offset_x, uint32_t offset_y, int enable_transparency);
 
 #endif // INCLUDE_BMP_H_

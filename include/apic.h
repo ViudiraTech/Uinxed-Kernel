@@ -49,40 +49,36 @@
 #define APIC_ICR_PHYSICAL 0x0
 
 typedef struct {
-        struct ACPISDTHeader h;
+        acpi_sdt_header_t header;
         uint32_t local_apic_address;
         uint32_t flags;
         void *entries;
-} __attribute__((packed)) MADT;
+} __attribute__((packed)) madt_t;
 
-struct madt_header {
+typedef struct {
         uint8_t entry_type;
         uint8_t length;
-} __attribute__((packed));
+} __attribute__((packed)) madt_header_t;
 
-struct madt_io_apic {
-        struct madt_header h;
+typedef struct {
+        madt_header_t header;
         uint8_t apic_id;
         uint8_t reserved;
         uint32_t address;
         uint32_t gsib;
-} __attribute__((packed));
+} __attribute__((packed)) madt_io_apic_t;
 
-struct madt_local_apic {
-        struct madt_header h;
-        uint8_t ACPI_Processor_UID;
+typedef struct {
+        madt_header_t header;
+        uint8_t acpi_processor_uid;
         uint8_t local_apic_id;
         uint32_t flags;
-};
+} madt_local_apic_t;
 
 typedef struct {
         uint8_t vector;
         uint32_t irq;
-} ioapic_routing;
-
-typedef struct madt_header MadtHeader;
-typedef struct madt_io_apic MadtIOApic;
-typedef struct madt_local_apic MadtLocalApic;
+} ioapic_routing_t;
 
 /* Turn off PIC */
 void disable_pic(void);
@@ -94,7 +90,7 @@ void ioapic_write(uint32_t reg, uint32_t value);
 uint32_t ioapic_read(uint32_t reg);
 
 /* Configuring I/O APIC interrupt routing */
-void ioapic_add(ioapic_routing *routing);
+void ioapic_add(ioapic_routing_t *routing);
 
 /* Write local APIC register */
 void lapic_write(uint32_t reg, uint32_t value);
@@ -121,6 +117,6 @@ void lapic_timer_stop(void);
 void send_ipi(uint32_t apic_id, uint32_t command);
 
 /* Initialize APIC */
-void apic_init(MADT *madt);
+void apic_init(madt_t *madt);
 
 #endif // INCLUDE_APIC_H_

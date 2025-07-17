@@ -15,7 +15,7 @@
 #include "uinxed.h"
 
 /* Get symbol information */
-sym_info_t get_symbol_info(void *kernel_file_address, Elf64_Addr symbol_address)
+sym_info_t get_symbol_info(uint64_t *kernel_file_address, Elf64_Addr symbol_address)
 {
     sym_info_t sym_info  = {0, 0, 0};
     Elf64_Ehdr *ehdr     = (Elf64_Ehdr *)kernel_file_address;
@@ -47,7 +47,7 @@ sym_info_t get_symbol_info(void *kernel_file_address, Elf64_Addr symbol_address)
         Elf64_Xword sym_size_val = sym[i].st_size;
 
         if (relative_addr >= sym_start
-            && (sym_size_val == 0 ? relative_addr == sym_start : relative_addr < sym_start + sym_size_val)) {
+            && (!sym_size_val ? relative_addr == sym_start : relative_addr < sym_start + sym_size_val)) {
             sym_info.name = strtab + sym[i].st_name;
             sym_info.addr = sym_start;
             sym_info.size = sym_size_val;

@@ -16,12 +16,12 @@
 #include "stdint.h"
 
 typedef struct {
-        Bitmap bitmap;
+        bitmap_t bitmap;
         size_t origin_frames;
         size_t usable_frames;
-} FrameAllocator;
+} frame_allocator_t;
 
-extern FrameAllocator frame_allocator;
+extern frame_allocator_t frame_allocator;
 
 /* Initialize memory frame */
 void init_frame(void);

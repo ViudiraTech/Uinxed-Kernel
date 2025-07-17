@@ -1,42 +1,42 @@
 mainmenu "Uinxed-Kernel"
 
 menu "General setup"
-menu "Kernel debugging"
+  menu "Kernel debugging"
 
-config KERNEL_LOG
-    bool "Kernel log"
-    default y
-    help
+    config KERNEL_LOG
+      bool "Kernel log"
+      default y
+      help
         "Enable or disable kernel log output."
 
-endmenu
+  endmenu
 endmenu
 
 menu "Device drivers"
-menu "Character devices"
-menu "Serial drivers"
+  menu "Character devices"
+    menu "Serial drivers"
 
-config SERIAL_BAUD_RATE
-    int "Serial baud rate"
-    default 9600
-    range 9600 115200
-    help
-        "Set the default baud rate of the serial port driver."
+      config SERIAL_BAUD_RATE
+        int "Serial baud rate"
+        default 9600
+        range 9600 115200
+        help
+          "Set the default baud rate of the serial port driver."
 
-config SERIAL_DATA_BITS
-    int "Serial data bits"
-    default 8
-    range 5 8
-    help
-        "Set the default data bits for the serial port driver."
+      config SERIAL_DATA_BITS
+        int "Serial data bits"
+        default 8
+        range 5 8
+        help
+          "Set the default data bits for the serial port driver."
 
-config SERIAL_STOP_BITS
-    int "Serial stop bits"
-    default 1
-    range 1 2
-    help
-        "Set the default stop bits for the serial port driver."
+      config SERIAL_STOP_BITS
+        int "Serial stop bits"
+        default 1
+        range 1 2
+        help
+          "Set the default stop bits for the serial port driver."
 
-endmenu
-endmenu
+    endmenu
+  endmenu
 endmenu

@@ -14,12 +14,12 @@
 
 #include "stdint.h"
 
-typedef struct position {
+typedef struct {
         uint32_t x;
         uint32_t y;
-} position;
+} position_t;
 
-typedef struct video_info {
+typedef struct {
         uint32_t *framebuffer;      // Frame buffer
         uint32_t cx, cy;            // The character position of the current cursor
         uint32_t c_width, c_height; // Screen character width and height
@@ -68,10 +68,10 @@ void video_draw_pixel(uint32_t x, uint32_t y, uint32_t color);
 uint32_t video_get_pixel(uint32_t x, uint32_t y);
 
 /* Iterate over a area on the screen and run a callback function in each iteration */
-void video_invoke_area(position p0, position p1, void (*callback)(position p));
+void video_invoke_area(position_t p0, position_t p1, void (*callback)(position_t p));
 
 /* Draw a matrix at the specified coordinates on the screen */
-void video_draw_rect(position p0, position p1, uint32_t color);
+void video_draw_rect(position_t p0, position_t p1, uint32_t color);
 
 /* Draw a character at the specified coordinates on the screen */
 void video_draw_char(const char c, uint32_t x, uint32_t y, uint32_t color);

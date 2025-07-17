@@ -42,7 +42,7 @@ void printk(const char *format, ...)
     spin_lock(&printk_lock); // Lock
     static char buff[BUF_SIZE];
     va_list args;
-    OverflowSignal *sig = 0;
+    overflow_signal_t *sig = 0;
 
     va_start(args, format);
     while (1) {
@@ -94,7 +94,7 @@ void plogk(const char *format, ...)
     printk("[%5d.%06d] ", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
     static char buff[BUF_SIZE];
     va_list args;
-    OverflowSignal *sig = 0;
+    overflow_signal_t *sig = 0;
 
     va_start(args, format);
     while (1) {
@@ -160,7 +160,7 @@ repeat:
             default :
                 break;
         }
-        if (is_digit(*format)) {
+        if (IS_DIGIT(*format)) {
             field_width = skip_atoi(&format);
         } else if (*format == '*') {
             field_width = va_arg(args, int);
@@ -171,7 +171,7 @@ repeat:
         }
         if (*format == '.') {
             ++format;
-            if (is_digit(*format)) {
+            if (IS_DIGIT(*format)) {
                 precision = skip_atoi(&format);
             } else if (*format == '*') {
                 precision = va_arg(args, int);
@@ -318,27 +318,27 @@ repeat:
     return (int)(str - buff);
 }
 
-/* Release the memory used by the FmtArg structure */
-void free_fmtarg(FmtArg *arg)
+/* Release the memory used by the fmt_arg_t structure */
+void free_fmtarg(fmt_arg_t *arg)
 {
     free(arg->buff);
     free(arg);
 }
 
-/* Create a new FmtArg structure and initialize it */
-FmtArg *new_fmtarg(uint64_t size, char *buff, char *last_write) // NOLINT
+/* Create a new fmt_arg_t structure and initialize it */
+fmt_arg_t *new_fmtarg(uint64_t size, char *buff, char *last_write) // NOLINT
 {
-    FmtArg *arg     = (FmtArg *)malloc(sizeof(FmtArg));
+    fmt_arg_t *arg  = (fmt_arg_t *)malloc(sizeof(fmt_arg_t));
     arg->size       = size;
     arg->buff       = buff;
     arg->last_write = last_write;
     return arg;
 }
 
-/* Parse the format string and read the corresponding variadic parameters to generate an FmtArg structure */
-FmtArg *read_fmtarg(const char **format, va_list args)
+/* Parse the format string and read the corresponding variadic parameters to generate an fmt_arg_t structure */
+fmt_arg_t *read_fmtarg(const char **format, va_list args)
 {
-    FmtArg *arg         = malloc(sizeof(FmtArg));
+    fmt_arg_t *arg      = malloc(sizeof(fmt_arg_t));
     const char *fmt_ptr = *format;
     char *buf_ptr       = 0;
     int flags           = 0;
@@ -381,7 +381,7 @@ FmtArg *read_fmtarg(const char **format, va_list args)
         }
 
         /* Minimum width field */
-        if (is_digit(*fmt_ptr)) {
+        if (IS_DIGIT(*fmt_ptr)) {
             field_width = skip_atoi(&fmt_ptr);
         } else if (*fmt_ptr == '*') {
             /* by the following argument */
@@ -397,7 +397,7 @@ FmtArg *read_fmtarg(const char **format, va_list args)
         /* For float, precision field */
         if (*fmt_ptr == '.') {
             ++fmt_ptr; // skip the dot
-            if (is_digit(*fmt_ptr)) {
+            if (IS_DIGIT(*fmt_ptr)) {
                 precision = skip_atoi(&fmt_ptr);
             } else if (*fmt_ptr == '*') {
                 fmt_ptr++;
@@ -608,25 +608,25 @@ FmtArg *read_fmtarg(const char **format, va_list args)
     return arg;
 }
 
-/* Create a new OverflowSignal structure */
-OverflowSignal *new_overflow(enum OverflowKind kind, FmtArg *arg)
+/* Create a new overflow_signal_t structure */
+overflow_signal_t *new_overflow(overflow_kind_t kind, fmt_arg_t *arg)
 {
-    OverflowSignal *signal = (OverflowSignal *)malloc(sizeof(OverflowSignal));
-    signal->kind           = kind;
-    signal->arg            = arg;
+    overflow_signal_t *signal = (overflow_signal_t *)malloc(sizeof(overflow_signal_t));
+    signal->kind              = kind;
+    signal->arg               = arg;
     return signal;
 }
 
 /* Format a string with size and output it to a character array */
-OverflowSignal *vsprintf_s(OverflowSignal *signal, char *buff, intptr_t size, const char **format, va_list args)
+overflow_signal_t *vsprintf_s(overflow_signal_t *signal, char *buff, intptr_t size, const char **format, va_list args)
 {
     char *write_ptr;
     const char *fmt_ptr;
-    FmtArg *fmt_arg;
+    fmt_arg_t *fmt_arg;
 
     write_ptr = buff;
     if (signal != 0 && signal->kind == OFLOW_AT_FMTARG) {
-        /* Write buffer of OverflowSignal to buffer */
+        /* Write buffer of overflow_signal_t to buffer */
         fmt_arg = signal->arg;
         while (fmt_arg->last_write < fmt_arg->size + fmt_arg->buff) {
             *write_ptr = *fmt_arg->last_write;

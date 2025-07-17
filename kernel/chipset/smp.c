@@ -26,7 +26,7 @@
 #include "string.h"
 #include "uinxed.h"
 
-static cpu_processor *cpus;
+static cpu_processor_t *cpus;
 static size_t cpu_count = 0;
 
 static volatile uint64_t ap_ready_count = 0;
@@ -118,9 +118,9 @@ void ap_entry(struct limine_smp_info *info)
 {
     spin_lock(&ap_start_lock);
 
-    PointerCast cast;
-    cast.val           = info->extra_argument;
-    cpu_processor *cpu = (cpu_processor *)cast.ptr;
+    pointer_cast_t cast;
+    cast.val             = info->extra_argument;
+    cpu_processor_t *cpu = (cpu_processor_t *)cast.ptr;
 
     /* Initializing the GDT */
     cpu->gdt.entries[0] = 0x0000000000000000; // NULL descriptor
@@ -129,8 +129,7 @@ void ap_entry(struct limine_smp_info *info)
     cpu->gdt.entries[3] = 0x00c0f20000000000; // User code segment
     cpu->gdt.entries[4] = 0x00a0fa0000000000; // User data segment
 
-    cpu->gdt.pointer
-        = ((struct gdt_register) {.size = (uint16_t)(sizeof(gdt_entries_t) - 1), .ptr = &cpu->gdt.entries});
+    cpu->gdt.pointer = ((gdt_register_t) {.size = (uint16_t)(sizeof(gdt_entries_t) - 1), .ptr = &cpu->gdt.entries});
 
     __asm__ volatile("lgdt %[ptr]; push %[cseg]; lea 1f(%%rip), %%rax; push %%rax; lretq;"
                      "1:"
@@ -160,7 +159,6 @@ void ap_entry(struct limine_smp_info *info)
     cast.val         = 0;
     cast.ptr         = cpu->tss_stack;
     cpu->tss->rsp[0] = ALIGN_DOWN(cast.val + 0x10000, 16);
-    ;
 
     /* Initializing the IDT */
     __asm__ volatile("lidt %0" ::"m"(idt_pointer) : "memory");
@@ -190,7 +188,7 @@ void smp_init(void)
 
     plogk("smp: Found %d CPUs.\n", smp->cpu_count);
     cpu_count = smp->cpu_count;
-    cpus      = (cpu_processor *)malloc(sizeof(cpu_processor) * cpu_count);
+    cpus      = (cpu_processor_t *)malloc(sizeof(cpu_processor_t) * cpu_count);
 
     /* Init BootStrap Processor */
     for (uint32_t i = 0; i < smp->cpu_count; i++) {
@@ -203,7 +201,7 @@ void smp_init(void)
 
         /* Special handling for BSP */
         if (cpu->lapic_id == smp->bsp_lapic_id) {
-            PointerCast cast;
+            pointer_cast_t cast;
             cast.ptr = cpus[i].tss_stack;
             set_kernel_stack(ALIGN_DOWN(cast.val + 0x10000, 16));
             continue;

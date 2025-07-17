@@ -20,10 +20,11 @@
 #define CONTROL_REG 2 // Control register
 
 /* Parallel port I/O */
-#define Parallel_PORT_1 0x378 // Serial port 1 number.
-#define Parallel_PORT_2 0x278 // Serial port 2 number.
+#define PARALLEL_PORT_1 0x378 // Serial port 1 number.
+#define PARALLEL_PORT_2 0x278 // Serial port 2 number.
+#define PARALLEL_PORT_3 0x3bc // Serial port 3 number.
 
-#define PORT_TO_LPT(port) ((port) == 0x378 ? "LPT1" : (port) == 0x278 ? "LPT2" : "Unknown")
+#define PORT_TO_LPT(port) ((port) == 0x378 ? "LPT1" : (port) == 0x278 ? "LPT2" : (port) == 0x3bc ? "LPT3" : "Unknown")
 
 /* Initialize parallel port */
 void init_parallel(void);

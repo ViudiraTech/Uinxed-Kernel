@@ -16,7 +16,7 @@
 #include "stdint.h"
 
 /* register */
-typedef struct registers {
+typedef struct {
         uint64_t ds;
         uint64_t es;
         uint64_t fs;

@@ -50,7 +50,7 @@ Uinxed-x64.iso
 # Clangd
 .clangd
 
-# kconfig
+# Kconfig
 .config
 .config.old
 

@@ -1,24 +1,24 @@
 CompileFlags:
-    Add:
-        - "-Wall"
-        - "-Wextra"
-        - "-O3"
-        - "-g3"
-        - "-m64"
-        - "-fpie"
-        - "-ffreestanding"
-        - "-fno-optimize-sibling-calls"
-        - "-fno-stack-protector"
-        - "-fno-omit-frame-pointer"
-        - "-mno-red-zone"
-        - "-mno-80387"
-        - "-mno-mmx"
-        - "-mno-sse"
-        - "-mno-sse2"
-        - "-msoft-float"
-        - "-I${workspaceFolder}/include"
-        - "-MMD"
+  Add:
+    - "-Wall"
+    - "-Wextra"
+    - "-O3"
+    - "-g3"
+    - "-m64"
+    - "-fpie"
+    - "-ffreestanding"
+    - "-fno-optimize-sibling-calls"
+    - "-fno-stack-protector"
+    - "-fno-omit-frame-pointer"
+    - "-mno-red-zone"
+    - "-mno-80387"
+    - "-mno-mmx"
+    - "-mno-sse"
+    - "-mno-sse2"
+    - "-msoft-float"
+    - "-I${workspaceFolder}/include"
+    - "-MMD"
 
 Diagnostics:
-    ClangTidy:
-        FastCheckFilter: Strict
+  ClangTidy:
+    FastCheckFilter: Strict

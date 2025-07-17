@@ -15,7 +15,7 @@
 
 /* Global Descriptor Table Definition */
 gdt_entries_t gdt_entries;
-struct gdt_register gdt_pointer;
+gdt_register_t gdt_pointer;
 
 /* TSS */
 tss_stack_t tss_stack;
@@ -30,7 +30,7 @@ void init_gdt(void)
     gdt_entries[3] = 0x00c0f20000000000; // User code segment
     gdt_entries[4] = 0x00a0fa0000000000; // User data segment
 
-    gdt_pointer = ((struct gdt_register) {.size = (uint16_t)(sizeof(gdt_entries_t) - 1), .ptr = &gdt_entries});
+    gdt_pointer = ((gdt_register_t) {.size = (uint16_t)(sizeof(gdt_entries_t) - 1), .ptr = &gdt_entries});
 
     __asm__ volatile("lgdt %[ptr]; push %[cseg]; lea 1f(%%rip), %%rax; push %%rax; lretq;"
                      "1:"

@@ -22,8 +22,8 @@
 
 int x2apic_mode;
 
-PointerCast lapic_ptr;
-PointerCast ioapic_ptr;
+pointer_cast_t lapic_ptr;
+pointer_cast_t ioapic_ptr;
 
 /* Turn off PIC */
 void disable_pic(void)
@@ -36,7 +36,7 @@ void disable_pic(void)
 void ioapic_write(uint32_t reg, uint32_t value)
 {
     mmio_write32(ioapic_ptr.ptr, reg);
-    PointerCast reg_ptr;
+    pointer_cast_t reg_ptr;
     reg_ptr.val = ioapic_ptr.val + 0x10;
     mmio_write32(reg_ptr.ptr, value);
 }
@@ -45,13 +45,13 @@ void ioapic_write(uint32_t reg, uint32_t value)
 uint32_t ioapic_read(uint32_t reg)
 {
     mmio_write32(ioapic_ptr.ptr, reg);
-    PointerCast reg_ptr;
+    pointer_cast_t reg_ptr;
     reg_ptr.val = ioapic_ptr.val + 0x10;
     return mmio_read32(reg_ptr.ptr);
 }
 
 /* Configuring I/O APIC interrupt routing */
-void ioapic_add(ioapic_routing *routing)
+void ioapic_add(ioapic_routing_t *routing)
 {
     uint32_t ioredtbl = (uint32_t)(0x10 + (uint32_t)(routing->irq * 2));
     uint64_t redirect = routing->vector;
@@ -67,7 +67,7 @@ void lapic_write(uint32_t reg, uint32_t value)
         wrmsr(0x800 + (reg >> 4), value);
         return;
     }
-    PointerCast reg_ptr;
+    pointer_cast_t reg_ptr;
     reg_ptr.val = (lapic_ptr.val + reg);
     mmio_write32(reg_ptr.ptr, value);
 }
@@ -76,7 +76,7 @@ void lapic_write(uint32_t reg, uint32_t value)
 uint32_t lapic_read(uint32_t reg)
 {
     if (x2apic_mode) return rdmsr(0x800 + (reg >> 4));
-    PointerCast reg_ptr;
+    pointer_cast_t reg_ptr;
     reg_ptr.val = lapic_ptr.val + reg;
     return mmio_read32(reg_ptr.ptr);
 }
@@ -110,16 +110,16 @@ void local_apic_init(void)
 /* Initialize I/O APIC */
 void io_apic_init(void)
 {
-    ioapic_routing *ioapic_router[] = {
-        &(ioapic_routing) {IRQ_0,  0 }, // Timer IRQ_0 = 32
-        &(ioapic_routing) {IRQ_1,  1 }, // Keyboard IRQ_1 = 33
-        &(ioapic_routing) {IRQ_12, 12}, // Mouse IRQ_12 = 44
-        &(ioapic_routing) {IRQ_14, 14}, // IDE0 IRQ_14 = 46
-        &(ioapic_routing) {IRQ_15, 15}, // IDE1 IRQ_15 = 47
+    ioapic_routing_t *ioapic_router[] = {
+        &(ioapic_routing_t) {IRQ_0,  0 }, // Timer IRQ_0 = 32
+        &(ioapic_routing_t) {IRQ_1,  1 }, // Keyboard IRQ_1 = 33
+        &(ioapic_routing_t) {IRQ_12, 12}, // Mouse IRQ_12 = 44
+        &(ioapic_routing_t) {IRQ_14, 14}, // IDE0 IRQ_14 = 46
+        &(ioapic_routing_t) {IRQ_15, 15}, // IDE1 IRQ_15 = 47
         0,
     };
 
-    ioapic_routing **routing = ioapic_router;
+    ioapic_routing_t **routing = ioapic_router;
 
     while (*routing != 0) {
         ioapic_add(*routing);
@@ -154,7 +154,7 @@ void send_ipi(uint32_t apic_id, uint32_t command)
 }
 
 /* Initialize APIC */
-void apic_init(MADT *madt)
+void apic_init(madt_t *madt)
 {
     lapic_ptr.ptr = phys_to_virt(madt->local_apic_address);
     plogk("apic: LAPIC Base address %p\n", lapic_ptr.ptr);
@@ -162,11 +162,11 @@ void apic_init(MADT *madt)
     uint8_t *entries_base = (uint8_t *)&madt->entries;
     size_t current        = 0;
 
-    while (current < madt->h.Length - sizeof(MADT)) {
-        MadtHeader *header = (MadtHeader *)(entries_base + current);
+    while (current < madt->header.length - sizeof(madt_t)) {
+        madt_header_t *header = (madt_header_t *)(entries_base + current);
         if (header->entry_type == MADT_APIC_IO) {
-            MadtIOApic *ioapic = (MadtIOApic *)(entries_base + current);
-            ioapic_ptr.ptr     = phys_to_virt(ioapic->address);
+            madt_io_apic_t *ioapic = (madt_io_apic_t *)(entries_base + current);
+            ioapic_ptr.ptr         = phys_to_virt(ioapic->address);
             plogk("apic: IOAPIC Found at %p\n", ioapic_ptr.ptr);
         }
         current += header->length;

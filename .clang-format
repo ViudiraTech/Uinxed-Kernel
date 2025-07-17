@@ -1,4 +1,3 @@
----
 Language: Cpp
 BasedOnStyle: Microsoft
 AlignArrayOfStructures: Left
@@ -82,16 +81,16 @@ TabWidth: 4
 UseCRLF: false
 UseTab: Never
 BraceWrapping:
-    AfterCaseLabel: false
-    AfterClass: true
-    AfterControlStatement: Never
-    AfterEnum: false
-    AfterFunction: true
-    AfterNamespace: false
-    AfterStruct: false
-    AfterUnion: false
-    AfterExternBlock: false
-    BeforeCatch: false
-    BeforeElse: false
-    BeforeLambdaBody: false
-    BeforeWhile: false
+  AfterCaseLabel: false
+  AfterClass: true
+  AfterControlStatement: Never
+  AfterEnum: false
+  AfterFunction: true
+  AfterNamespace: false
+  AfterStruct: false
+  AfterUnion: false
+  AfterExternBlock: false
+  BeforeCatch: false
+  BeforeElse: false
+  BeforeLambdaBody: false
+  BeforeWhile: false

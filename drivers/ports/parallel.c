@@ -41,10 +41,10 @@ static void init_parallel_port(uint16_t port)
 /* Initialize parallel port */
 void init_parallel(void)
 {
-    uint16_t lpt_port[2] = {Parallel_PORT_1, Parallel_PORT_2};
+    uint16_t lpt_port[3] = {PARALLEL_PORT_1, PARALLEL_PORT_2, PARALLEL_PORT_3};
     int valid_ports      = 0;
 
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 3; i++) {
         if (parallel_detect(lpt_port[i])) {
             init_parallel_port(lpt_port[i]);
             valid_ports++;

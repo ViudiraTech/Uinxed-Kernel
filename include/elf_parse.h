@@ -15,31 +15,30 @@
 #include "stddef.h"
 #include "stdint.h"
 
-typedef enum ElfParseResult_Tag {
-    EntryPoint,
-    InvalidElfData,
-    ElfContainsNoSegments,
-    FailedToGetSegmentData,
-    AllocFunctionNotProvided,
-} ElfParseResult_Tag;
+typedef enum {
+    entry_point,
+    elf_invalid_data,
+    elf_no_segments,
+    elf_segment_error,
+    elf_allocator_missing,
+} elf_result_tag_t;
 
-typedef struct ElfParseResult {
-        ElfParseResult_Tag tag;
+typedef struct {
+        elf_result_tag_t tag;
         union {
                 struct {
                         size_t entry_point;
                 };
         };
-} ElfParseResult;
+} elf_result_t;
 
-typedef struct ElfSegment {
+typedef struct {
         size_t address;
         size_t size;
         const uint8_t *data;
-} ElfSegment;
+} elf_segment_t;
 
 /* Parse ELF */
-struct ElfParseResult parse_elf(const uint8_t *elf_data, size_t elf_size,
-                                void (*mapping_callback)(struct ElfSegment segment));
+elf_result_t parse_elf(const uint8_t *elf_data, size_t elf_size, void (*mapping_callback)(elf_segment_t segment));
 
 #endif // INCLUDE_ELF_PARSE_H_

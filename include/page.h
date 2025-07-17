@@ -23,7 +23,7 @@
 
 #define PAGE_SIZE 0x1000
 
-typedef struct page_table_entry {
+typedef struct {
         uint64_t value;
 } page_table_entry_t;
 
@@ -31,7 +31,7 @@ typedef struct {
         page_table_entry_t entries[512];
 } page_table_t;
 
-typedef struct page_directory {
+typedef struct {
         page_table_t *table;
 } page_directory_t;
 

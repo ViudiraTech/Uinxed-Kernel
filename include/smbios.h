@@ -15,44 +15,44 @@
 #include "stdint.h"
 
 /* 32-bit entry point structure */
-struct EntryPoint32 {
-        uint8_t AnchorString[4];             // Anchor string, value is "_SM_"
-        uint8_t Checksum;                    // Checksum
-        uint8_t EntryLength;                 // Entry point structure length
-        uint8_t MajorVersion;                // SMBIOS major version number
-        uint8_t MinorVersion;                // SMBIOS minor version number
-        uint16_t MaxStructureSize;           // Maximum structure size
-        uint8_t EntryPointRevision;          // Entry point revision number
-        uint8_t FormattedArea[5];            // Formatting Area
-        uint8_t IntermediateAnchorString[5]; // Middle anchor string, value is
-                                             // "_DMI_"
-        uint8_t IntermediateChecksum;        // Intermediate Checksum
-        uint16_t StructureTableLength;       // Structure table length
-        uint32_t StructureTableAddress;      // Structure table address
-        uint16_t NumberOfStructures;         // Number of structures
-        uint8_t BCDRevision;                 // BCD revision number
-};
+typedef struct {
+        uint8_t anchor_string[4];              // Anchor string, value is "_SM_"
+        uint8_t checksum;                      // Checksum
+        uint8_t entry_length;                  // Entry point structure length
+        uint8_t major_version;                 // SMBIOS major version number
+        uint8_t minor_version;                 // SMBIOS minor version number
+        uint16_t max_structure_size;           // Maximum structure size
+        uint8_t entry_point_revision;          // Entry point revision number
+        uint8_t formatted_area[5];             // Formatting Area
+        uint8_t intermediate_anchor_string[5]; // Middle anchor string, value is
+                                               // "_DMI_"
+        uint8_t intermediate_checksum;         // Intermediate Checksum
+        uint16_t structure_table_length;       // Structure table length
+        uint32_t structure_table_address;      // Structure table address
+        uint16_t number_of_structures;         // Number of structures
+        uint8_t bcd_revision;                  // BCD revision number
+} entry_point_32_t;
 
 /* 64-bit entry point structure */
-struct EntryPoint64 {
-        uint8_t AnchorString[5];        // Anchor string, value is "_SM3_"
-        uint8_t Checksum;               // Checksum
-        uint8_t EntryLength;            // Entry point structure length
-        uint8_t MajorVersion;           // SMBIOS major version number
-        uint8_t MinorVersion;           // SMBIOS minor version number
-        uint8_t Docrev;                 // Document revision number
-        uint8_t EntryPointRevision;     // Entry point revision number
-        uint8_t Reserved;               // Reserved Bytes
-        uint32_t MaxStructureSize;      // Maximum structure size
-        uint64_t StructureTableAddress; // Structure table address
-};
+typedef struct {
+        uint8_t anchor_string[5];         // Anchor string, value is "_SM3_"
+        uint8_t checksum;                 // Checksum
+        uint8_t entry_length;             // Entry point structure length
+        uint8_t major_version;            // SMBIOS major version number
+        uint8_t minor_version;            // SMBIOS minor version number
+        uint8_t docrev;                   // Document revision number
+        uint8_t entry_point_revision;     // Entry point revision number
+        uint8_t reserved;                 // Reserved Bytes
+        uint32_t max_structure_size;      // Maximum structure size
+        uint64_t structure_table_address; // Structure table address
+} entry_point_64_t;
 
 /* Structure table header */
-struct Header {
+typedef struct {
         uint8_t type;    // Structure Type
         uint8_t length;  // Structure length (excluding string table)
         uint16_t handle; // Structure Handle
-};
+} header_t;
 
 /* Get SMBIOS entry point */
 void *smbios_entry(void);

@@ -16,16 +16,18 @@
 #include "limine.h"
 #include "stdint.h"
 
-typedef struct cpu_processor {
+typedef struct {
+        gdt_entries_t entries;
+        gdt_register_t pointer;
+} __attribute__((aligned(16))) gdt_t;
+
+typedef struct {
         uint64_t id;
         uint64_t lapic_id;
-        struct {
-                gdt_entries_t entries;
-                struct gdt_register pointer;
-        } gdt __attribute__((aligned(16)));
+        gdt_t gdt;
         tss_stack_t *tss_stack;
         tss_t *tss;
-} cpu_processor;
+} cpu_processor_t;
 
 /* Send an IPI to all CPUs */
 void send_ipi_all(uint8_t vector);

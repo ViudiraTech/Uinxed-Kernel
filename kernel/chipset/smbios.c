@@ -15,7 +15,7 @@
 #include "uinxed.h"
 
 /* Query SMBIOS table */
-static const struct Header *find_smbios_type(uint8_t target_type)
+static const header_t *find_smbios_type(uint8_t target_type)
 {
     uint8_t *table;
     uint32_t length;
@@ -23,19 +23,19 @@ static const struct Header *find_smbios_type(uint8_t target_type)
     if (!smbios_request.response) return 0;
 
     if (smbios_request.response->entry_64) {
-        struct EntryPoint64 *ep = (struct EntryPoint64 *)smbios_entry();
-        table                   = (uint8_t *)phys_to_virt(ep->StructureTableAddress);
-        length                  = ep->MaxStructureSize;
+        entry_point_64_t *ep = (entry_point_64_t *)smbios_entry();
+        table                = (uint8_t *)phys_to_virt(ep->structure_table_address);
+        length               = ep->max_structure_size;
     } else {
-        struct EntryPoint32 *ep = (struct EntryPoint32 *)smbios_entry();
-        table                   = (uint8_t *)phys_to_virt(ep->StructureTableAddress);
-        length                  = ep->StructureTableLength;
+        entry_point_32_t *ep = (entry_point_32_t *)smbios_entry();
+        table                = (uint8_t *)phys_to_virt(ep->structure_table_address);
+        length               = ep->structure_table_length;
     }
 
     uint8_t *end = table + length;
-    while (table + sizeof(struct Header) <= end) {
-        struct Header *hdr = (struct Header *)table;
-        if (hdr->length < sizeof(struct Header)) break;
+    while (table + sizeof(header_t) <= end) {
+        header_t *hdr = (header_t *)table;
+        if (hdr->length < sizeof(header_t)) break;
         if (hdr->type == target_type) return hdr;
 
         uint8_t *next = table + hdr->length;
@@ -47,7 +47,7 @@ static const struct Header *find_smbios_type(uint8_t target_type)
 }
 
 /* Parsing table string */
-static const char *smbios_get_string(const struct Header *hdr, int index)
+static const char *smbios_get_string(const header_t *hdr, int index)
 {
     if (!hdr || !index) return "";
 
@@ -75,18 +75,18 @@ void *smbios_entry(void)
 int smbios_major_version(void)
 {
     if (smbios_request.response->entry_64)
-        return ((struct EntryPoint64 *)smbios_entry())->MajorVersion;
+        return ((entry_point_64_t *)smbios_entry())->major_version;
     else
-        return ((struct EntryPoint32 *)smbios_entry())->MajorVersion;
+        return ((entry_point_32_t *)smbios_entry())->major_version;
 }
 
 /* Get SMBIOS minor version */
 int smbios_minor_version(void)
 {
     if (smbios_request.response->entry_64)
-        return ((struct EntryPoint64 *)smbios_entry())->MinorVersion;
+        return ((entry_point_64_t *)smbios_entry())->minor_version;
     else
-        return ((struct EntryPoint32 *)smbios_entry())->MinorVersion;
+        return ((entry_point_32_t *)smbios_entry())->minor_version;
 }
 
 /* Type-0 */
@@ -94,7 +94,7 @@ int smbios_minor_version(void)
 /* Get BIOS Vendor string */
 const char *smbios_bios_vendor(void)
 {
-    const struct Header *hdr = find_smbios_type(0);
+    const header_t *hdr = find_smbios_type(0);
     if (!hdr) return "";
     return smbios_get_string(hdr, *((uint8_t *)hdr + 4));
 }
@@ -102,7 +102,7 @@ const char *smbios_bios_vendor(void)
 /* Get BIOS Version string */
 const char *smbios_bios_version(void)
 {
-    const struct Header *hdr = find_smbios_type(0);
+    const header_t *hdr = find_smbios_type(0);
     if (!hdr) return "";
     return smbios_get_string(hdr, *((uint8_t *)hdr + 5));
 }
@@ -110,7 +110,7 @@ const char *smbios_bios_version(void)
 /* Get BIOS Starting Address Segment */
 uint16_t smbios_bios_starting_address_segment(void)
 {
-    const struct Header *hdr = find_smbios_type(0);
+    const header_t *hdr = find_smbios_type(0);
     if (!hdr) return 0;
     return *(uint16_t *)((uint8_t *)hdr + 6);
 }
@@ -118,7 +118,7 @@ uint16_t smbios_bios_starting_address_segment(void)
 /* Get BIOS Release Date string */
 const char *smbios_bios_release_date(void)
 {
-    const struct Header *hdr = find_smbios_type(0);
+    const header_t *hdr = find_smbios_type(0);
     if (!hdr) return "";
     return smbios_get_string(hdr, *((uint8_t *)hdr + 8));
 }
@@ -126,7 +126,7 @@ const char *smbios_bios_release_date(void)
 /* Get BIOS ROM Size in bytes */
 uint32_t smbios_bios_rom_size(void)
 {
-    const struct Header *hdr = find_smbios_type(0);
+    const header_t *hdr = find_smbios_type(0);
     if (!hdr) return 0;
     return ((*((uint8_t *)hdr + 9)) + 1) * 64 * 1024;
 }
@@ -134,7 +134,7 @@ uint32_t smbios_bios_rom_size(void)
 /* Get BIOS Characteristics */
 uint64_t smbios_bios_characteristics(void)
 {
-    const struct Header *hdr = find_smbios_type(0);
+    const header_t *hdr = find_smbios_type(0);
     if (!hdr) return 0;
     return *(uint64_t *)((uint8_t *)hdr + 10);
 }
@@ -142,7 +142,7 @@ uint64_t smbios_bios_characteristics(void)
 /* Get BIOS Characteristics Extension Bytes */
 uint16_t smbios_bios_characteristics_ext(void)
 {
-    const struct Header *hdr = find_smbios_type(0);
+    const header_t *hdr = find_smbios_type(0);
     if (!hdr) return 0;
     if (hdr->length < 0x18) return 0;
     return *(uint16_t *)((uint8_t *)hdr + 24);
@@ -151,7 +151,7 @@ uint16_t smbios_bios_characteristics_ext(void)
 /* Get BIOS System BIOS Major Release */
 uint8_t smbios_bios_major_release(void)
 {
-    const struct Header *hdr = find_smbios_type(0);
+    const header_t *hdr = find_smbios_type(0);
     if (!hdr) return 0;
     if (hdr->length < 0x19) return 0;
     return *((uint8_t *)hdr + 26);
@@ -160,7 +160,7 @@ uint8_t smbios_bios_major_release(void)
 /* Get BIOS System BIOS Minor Release */
 uint8_t smbios_bios_minor_release(void)
 {
-    const struct Header *hdr = find_smbios_type(0);
+    const header_t *hdr = find_smbios_type(0);
     if (!hdr) return 0;
     if (hdr->length < 0x1a) return 0;
     return *((uint8_t *)hdr + 27);
@@ -169,7 +169,7 @@ uint8_t smbios_bios_minor_release(void)
 /* Get BIOS Embedded Controller Firmware Major Release */
 uint8_t smbios_bios_ec_major_release(void)
 {
-    const struct Header *hdr = find_smbios_type(0);
+    const header_t *hdr = find_smbios_type(0);
     if (!hdr) return 0;
     if (hdr->length < 0x1b) return 0;
     return *((uint8_t *)hdr + 28);
@@ -178,7 +178,7 @@ uint8_t smbios_bios_ec_major_release(void)
 /* Get BIOS Embedded Controller Firmware Minor Release */
 uint8_t smbios_bios_ec_minor_release(void)
 {
-    const struct Header *hdr = find_smbios_type(0);
+    const header_t *hdr = find_smbios_type(0);
     if (!hdr) return 0;
     if (hdr->length < 0x1c) return 0;
     return *((uint8_t *)hdr + 29);
@@ -189,7 +189,7 @@ uint8_t smbios_bios_ec_minor_release(void)
 /* Get System Manufacturer string */
 const char *smbios_sys_manufacturer(void)
 {
-    const struct Header *hdr = find_smbios_type(1);
+    const header_t *hdr = find_smbios_type(1);
     if (!hdr) return "";
     return smbios_get_string(hdr, *((uint8_t *)hdr + 4));
 }
@@ -197,7 +197,7 @@ const char *smbios_sys_manufacturer(void)
 /* Get System Product Name string */
 const char *smbios_sys_product_name(void)
 {
-    const struct Header *hdr = find_smbios_type(1);
+    const header_t *hdr = find_smbios_type(1);
     if (!hdr) return "";
     return smbios_get_string(hdr, *((uint8_t *)hdr + 5));
 }
@@ -205,7 +205,7 @@ const char *smbios_sys_product_name(void)
 /* Get System Version string */
 const char *smbios_sys_version(void)
 {
-    const struct Header *hdr = find_smbios_type(1);
+    const header_t *hdr = find_smbios_type(1);
     if (!hdr) return "";
     return smbios_get_string(hdr, *((uint8_t *)hdr + 6));
 }
@@ -213,7 +213,7 @@ const char *smbios_sys_version(void)
 /* Get System Serial Number string */
 const char *smbios_sys_serial_number(void)
 {
-    const struct Header *hdr = find_smbios_type(1);
+    const header_t *hdr = find_smbios_type(1);
     if (!hdr) return "";
     return smbios_get_string(hdr, *((uint8_t *)hdr + 7));
 }
@@ -221,7 +221,7 @@ const char *smbios_sys_serial_number(void)
 /* Get System UUID (16 bytes) */
 void smbios_sys_uuid(uint8_t uuid[16])
 {
-    const struct Header *hdr = find_smbios_type(1);
+    const header_t *hdr = find_smbios_type(1);
     if (!hdr) {
         for (int i = 0; i < 16; i++) uuid[i] = 0;
         return;
@@ -233,7 +233,7 @@ void smbios_sys_uuid(uint8_t uuid[16])
 /* Get System Wake-up Type */
 uint8_t smbios_sys_wakeup_type(void)
 {
-    const struct Header *hdr = find_smbios_type(1);
+    const header_t *hdr = find_smbios_type(1);
     if (!hdr) return 0;
     return *((uint8_t *)hdr + 24);
 }
@@ -241,7 +241,7 @@ uint8_t smbios_sys_wakeup_type(void)
 /* Get System SKU Number string */
 const char *smbios_sys_sku_number(void)
 {
-    const struct Header *hdr = find_smbios_type(1);
+    const header_t *hdr = find_smbios_type(1);
     if (!hdr) return "";
     if (hdr->length < 0x20) return "";
     return smbios_get_string(hdr, *((uint8_t *)hdr + 25));
@@ -250,7 +250,7 @@ const char *smbios_sys_sku_number(void)
 /* Get System Family string */
 const char *smbios_sys_family(void)
 {
-    const struct Header *hdr = find_smbios_type(1);
+    const header_t *hdr = find_smbios_type(1);
     if (!hdr) return "";
     if (hdr->length < 0x21) return "";
     return smbios_get_string(hdr, *((uint8_t *)hdr + 26));

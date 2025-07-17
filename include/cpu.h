@@ -47,7 +47,7 @@
 #define CPUID_VENDOR_BHYVE         "bhyve bhyve "
 #define CPUID_VENDOR_QNX           " QNXQVMBSQG "
 
-enum {
+typedef enum {
     CPUID_FEAT_ECX_SSE3       = 1 << 0,
     CPUID_FEAT_ECX_PCLMUL     = 1 << 1,
     CPUID_FEAT_ECX_DTES64     = 1 << 2,
@@ -110,9 +110,9 @@ enum {
     CPUID_FEAT_EDX_TM      = 1 << 29,
     CPUID_FEAT_EDX_IA64    = 1 << 30,
     CPUID_FEAT_EDX_PBE     = 1 << 31
-};
+} cpuid_feature_t;
 
-enum cpuid_requests {
+typedef enum {
     CPUID_GETVENDORSTRING = 0,
     CPUID_GETFEATURES     = 1,
     CPUID_GETTLB          = 2,
@@ -123,7 +123,7 @@ enum cpuid_requests {
     CPUID_INTELBRANDSTRING     = 0x80000002,
     CPUID_INTELBRANDSTRINGMORE = 0x80000003,
     CPUID_INTELBRANDSTRINGEND  = 0x80000004,
-};
+} cpuid_requests_t;
 
 /* Get CPUID */
 void cpuid(uint32_t code, uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t *edx);

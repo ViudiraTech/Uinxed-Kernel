@@ -12,12 +12,6 @@
 #include "stdlib.h"
 #include "stdint.h"
 
-/* Determine whether it is a number */
-int is_digit(int c)
-{
-    return c >= '0' && c <= '9';
-}
-
 /* Convert a string number to an integer number */
 int atoi(const char *pstr)
 {
@@ -39,7 +33,7 @@ int atoi(const char *pstr)
 int skip_atoi(const char **s)
 {
     int i = 0;
-    while (is_digit(**s)) i = i * 10 + *((*s)++) - '0';
+    while (IS_DIGIT(**s)) i = i * 10 + *((*s)++) - '0';
     return i;
 }
 

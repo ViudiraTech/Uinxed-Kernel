@@ -16,7 +16,7 @@
 #include "printk.h"
 #include "uinxed.h"
 
-FrameAllocator frame_allocator;
+frame_allocator_t frame_allocator;
 uint64_t memory_size = 0;
 
 /* Initialize memory frame */
@@ -47,7 +47,7 @@ void init_frame(void)
         plogk("frame: Failed to allocate bitmap memory!\n");
         return;
     }
-    Bitmap *bitmap = &frame_allocator.bitmap;
+    bitmap_t *bitmap = &frame_allocator.bitmap;
     bitmap_init(bitmap, phys_to_virt(bitmap_address), bitmap_size);
     size_t origin_frames = 0;
 
@@ -76,7 +76,7 @@ void init_frame(void)
 /* Allocate memory frame */
 uint64_t alloc_frames(size_t count)
 {
-    Bitmap *bitmap     = &frame_allocator.bitmap;
+    bitmap_t *bitmap   = &frame_allocator.bitmap;
     size_t frame_index = bitmap_find_range(bitmap, count, 1);
 
     if (frame_index == (size_t)-1) return 0;
@@ -92,7 +92,7 @@ void free_frame(uint64_t addr)
     size_t frame_index = addr / 4096;
 
     if (frame_index == 0) return;
-    Bitmap *bitmap = &frame_allocator.bitmap;
+    bitmap_t *bitmap = &frame_allocator.bitmap;
     bitmap_set(bitmap, frame_index, 1);
     frame_allocator.usable_frames++;
 }

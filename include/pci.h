@@ -31,156 +31,156 @@
 #define mem_mapping  0
 #define input_output 1
 
-enum BarSize {
+typedef enum {
     BAR_S32      = 0x0,
     BAR_Reserved = 0x1,
     BAR_S64      = 0x2,
-};
+} bar_size_t;
 
-typedef struct base_address_register {
+typedef struct {
         uint8_t prefetchable;
         uint32_t *address;
         uint32_t size;
         int type;
-} base_address_register;
+} base_address_register_t;
 
-typedef struct pci_device {
+typedef struct {
         uint16_t bus;
         uint16_t slot;
         uint16_t func;
-} pci_device;
+} pci_device_t;
 
-enum header_type {
+typedef enum {
     HEADER_TYPE_GENERAL = 0,
     HEADER_TYPE_BRIDGE  = 1,
     HEADER_TYPE_CARDBUS = 2,
-};
+} header_type_t;
 
 /* Used to offset in ECAM */
-enum ecam_area {
+typedef enum {
     ECAM_AREA_ID    = 4 * 0, // Device and vendor id
     ECAM_AREA_OPS   = 4 * 1, // Status and command
     ECAM_AREA_FIELD = 4 * 2, // Class code, subclass, prog IF and revision ID
     ECAM_AREA_OPS2  = 4 * 3, // BIST, header type, latency timer, cache line size
     ECAM_OTHERS     = 4 * 4, // Other registers
-};
+} ecam_area_t;
 
-typedef struct pci_device_ecam {
+typedef struct {
         volatile void *id_ecam;
         volatile void *ops_ecam;
         volatile void *field_ecam;
         volatile void *ops2_ecam;
         volatile void **others;
-} pci_device_ecam;
+} pci_device_ecam_t;
 
 /* PCI cached searching */
 typedef struct pci_device_cache {
-        pci_device *device;
+        pci_device_t *device;
         uint32_t value_c;
         uint32_t vendor_id;
         uint32_t device_id;
         uint32_t class_code;
         uint32_t header_type;
         struct pci_device_cache *next;
-        pci_device_ecam ecam; // Only works in MCFG mode
-} pci_device_cache;
+        pci_device_ecam_t ecam; // Only works in MCFG mode
+} pci_device_cache_t;
 
-typedef struct pci_device_reg {
-        pci_device_cache *parent;
+typedef struct {
+        pci_device_cache_t *parent;
         uint32_t offset;
-} pci_device_reg;
+} pci_device_reg_t;
 
-typedef struct pci_devices_cache {
-        pci_device_cache *head;
+typedef struct {
+        pci_device_cache_t *head;
         size_t devices_count;
-} pci_devices_cache;
+} pci_devices_cache_t;
 
 /* PCI device finding */
-enum pci_finding_type {
+typedef enum {
     PCI_FOUND_CLASS,  // Search by class code
     PCI_FOUND_DEVICE, // Search by vendor ID and device ID
-};
+} pci_finding_type_t;
 
-typedef struct pci_class_request {
+typedef struct {
         uint32_t class_code; // Class code
-} pci_class_request;
+} pci_class_request_t;
 
-typedef struct pci_device_request {
+typedef struct {
         uint32_t vendor_id; // Vendor ID
         uint32_t device_id; // Device ID
-} pci_device_request;
+} pci_device_request_t;
 
-enum pci_finding_error {
+typedef enum {
     PCI_FINDING_SUCCESS = 0, // Success
     PCI_FINDING_NOT_FOUND,   // Device not found
     PCI_FINDING_ERROR,       // Other error
-};
+} pci_finding_error_t;
 
-typedef struct pci_finding_response {
-        pci_device_cache *device;     // Found device cache
-        enum pci_finding_error error; // Error code, 0 if no error
-} pci_finding_response;
+typedef struct {
+        pci_device_cache_t *device; // Found device cache
+        pci_finding_error_t error;  // Error code, 0 if no error
+} pci_finding_response_t;
 
-typedef struct pci_finding_request {
-        enum pci_finding_type type;
+typedef struct {
+        pci_finding_type_t type;
         union {
-                pci_class_request class_req;
-                pci_device_request device_req;
+                pci_class_request_t class_req;
+                pci_device_request_t device_req;
         } req;
-        volatile pci_finding_response *response; // Response pointer
-} pci_finding_request;
+        volatile pci_finding_response_t *response; // Response pointer
+} pci_finding_request_t;
 
 typedef struct pci_usable_node {
-        pci_finding_request *request; // Pointer to the request
-        struct pci_usable_node *next; // Pointer to the next node
-} pci_usable_node;
+        pci_finding_request_t *request; // Pointer to the request
+        struct pci_usable_node *next;   // Pointer to the next node
+} pci_usable_node_t;
 
-typedef struct pci_usable_list {
-        pci_usable_node *head; // Head of the queue
-        size_t count;          // Number of requests in the queue
-} pci_usable_list;
+typedef struct {
+        pci_usable_node_t *head; // Head of the queue
+        size_t count;            // Number of requests in the queue
+} pci_usable_list_t;
 
 /* MCFG initialization */
-void mcfg_init(void *mcfg);
+void mcfg_init(mcfg_t *mcfg);
 
 /* Search MCFG entry by bus */
-mcfg_entry *mcfg_search_entry(uint16_t bus);
+mcfg_entry_t *mcfg_search_entry(uint16_t bus);
 
 /* Get ECAM address of register */
-void *mcfg_ecam_addr(mcfg_entry *entry, pci_device_reg reg);
+void *mcfg_ecam_addr(mcfg_entry_t *entry, pci_device_reg_t reg);
 
 /* Update ECAM addresses to cache */
-pci_device_ecam mcfg_update_ecam(mcfg_entry *entry, pci_device_cache *cache);
+pci_device_ecam_t mcfg_update_ecam(mcfg_entry_t *entry, pci_device_cache_t *cache);
 
 /* Reading values ​​from PCI device registers */
-uint32_t read_pci(pci_device_reg reg);
+uint32_t read_pci(pci_device_reg_t reg);
 
 /* Write values ​​to PCI device registers */
-void write_pci(pci_device_reg reg, uint32_t value);
+void write_pci(pci_device_reg_t reg, uint32_t value);
 
 /* Read the value from the PCI device command status register */
-uint32_t pci_read_command_status(pci_device_cache *device);
+uint32_t pci_read_command_status(pci_device_cache_t *device);
 
 /* Write a value to the PCI device command status register */
-void pci_write_command_status(pci_device_cache *device, uint32_t value);
+void pci_write_command_status(pci_device_cache_t *device, uint32_t value);
 
 /* Get detailed information about the base address register */
-base_address_register get_base_address_register(pci_device_cache *device, uint32_t bar);
+base_address_register_t get_base_address_register(pci_device_cache_t *device, uint32_t bar);
 
 /* Get the I/O port base address of the PCI device */
-uint32_t pci_get_port_base(pci_device_cache *device);
+uint32_t pci_get_port_base(pci_device_cache_t *device);
 
 /* Read the value of the nth base address register */
-uint32_t read_bar_n(pci_device_cache *device, uint32_t bar_n);
+uint32_t read_bar_n(pci_device_cache_t *device, uint32_t bar_n);
 
 /* Get the interrupt number of the PCI device */
-uint32_t pci_get_irq(pci_device_cache *device);
+uint32_t pci_get_irq(pci_device_cache_t *device);
 
 /* Configuring PCI Devices */
-void pci_config(pci_device_cache *cache, uint32_t addr);
+void pci_config(pci_device_cache_t *cache, uint32_t addr);
 
 /* Finding PCI devices */
-void pci_device_find(pci_finding_request *request);
+void pci_device_find(pci_finding_request_t *request);
 
 /* Update the usable list */
 void pci_update_usable_list(void);
@@ -189,7 +189,7 @@ void pci_update_usable_list(void);
 const char *pci_classname(uint32_t classcode);
 
 /* Returns a chached PCI devices table */
-pci_devices_cache *pci_get_devices_cache(void);
+pci_devices_cache_t *pci_get_devices_cache(void);
 
 /* Free the PCI devices cache */
 void pci_free_devices_cache(void);
@@ -198,10 +198,10 @@ void pci_free_devices_cache(void);
 void pci_flush_devices_cache(void);
 
 /* Found PCI devices cache by vender ID and device ID */
-pci_device_cache *pci_found_device_cache(pci_device_request device_req);
+pci_device_cache_t *pci_found_device_cache(pci_device_request_t device_req);
 
 /* Found PCI devices cache by class code */
-pci_device_cache *pci_found_class_cache(pci_class_request class_req);
+pci_device_cache_t *pci_found_class_cache(pci_class_request_t class_req);
 
 /* PCI device initialization */
 void pci_init(void);

@@ -20,7 +20,7 @@
 #include "timer.h"
 
 /* Request for operation IDE Controller */
-static pci_finding_request ide_pci_request = {
+pci_finding_request_t ide_pci_request = {
     .type = PCI_FOUND_CLASS,
     .req  = {
         .class_req = {
@@ -30,8 +30,8 @@ static pci_finding_request ide_pci_request = {
 };
 
 /* Structure */
-struct IDE_channel_registers channels[2];
-struct ide_device ide_devices[4];
+ide_channel_registers_t channels[2];
+ide_device_t ide_devices[4];
 
 /* Data Array */
 uint8_t ide_buf[2048]           = {0};
@@ -206,10 +206,10 @@ static uint8_t ide_print_error(uint32_t drive, uint8_t err) // NOLINT(bugprone-e
 /* Initialize IDE */
 void init_ide(void)
 {
-    base_address_register bars[6];
+    base_address_register_t bars[6];
     uint32_t bar_addrs[6];
 
-    pci_device_reg bar_reg = {
+    pci_device_reg_t bar_reg = {
         .parent = 0,
         .offset = 0,
     };
@@ -236,7 +236,7 @@ void init_ide(void)
     for (uint32_t idx = 0; idx < 6; idx++) {
         bar_reg.offset = ECAM_OTHERS + idx * 4;
         bars[idx]      = get_base_address_register(bar_reg.parent, idx);
-        PointerCast cast;
+        pointer_cast_t cast;
         cast.ptr       = bars[idx].address;
         bar_addrs[idx] = cast.val;
     }

@@ -73,9 +73,9 @@ typedef __UINTMAX_TYPE__ uintmax_t;
 typedef __INTMAX_TYPE__ intmax_t;
 
 /* Cast pointer and address with union */
-typedef union PointerCast {
+typedef union {
         void *ptr;
         uintptr_t val;
-} PointerCast;
+} pointer_cast_t;
 
 #endif // INCLUDE_STDINT_H_

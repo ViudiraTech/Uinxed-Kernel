@@ -21,17 +21,17 @@
         if ((tblname##_ptr) != 0) (func)((tblname##_ptr)); \
     } while (0)
 
-struct ACPISDTHeader {
-        char Signature[4];
-        uint32_t Length;
-        uint8_t Revision;
-        uint8_t Checksum;
-        char OEMID[6];
-        char OEMTableID[8];
-        uint32_t OEMRevision;
-        uint32_t CreatorID;
-        uint32_t CreatorRevision;
-};
+typedef struct {
+        char signature[4];
+        uint32_t length;
+        uint8_t revision;
+        uint8_t checksum;
+        char oem_id[6];
+        char oem_table_id[8];
+        uint32_t oem_revision;
+        uint32_t creator_id;
+        uint32_t creator_revision;
+} acpi_sdt_header_t;
 
 typedef struct {
         char signature[8];         // Sign
@@ -43,54 +43,54 @@ typedef struct {
         uint64_t xsdt_address;     // V2: XSDT address (64-bit)
         uint8_t extended_checksum; // Extended Checksum
         uint8_t reserved[3];       // Reserved Fields
-} __attribute__((packed)) RSDP;
+} __attribute__((packed)) rsdp_t;
 
 typedef struct {
-        struct ACPISDTHeader h;
+        acpi_sdt_header_t header;
         uint32_t PointerToOtherSDT;
-} __attribute__((packed)) RSDT;
+} __attribute__((packed)) rsdt_t;
 
 typedef struct {
-        struct ACPISDTHeader h;
+        acpi_sdt_header_t header;
         uint64_t PointerToOtherSDT;
-} __attribute__((packed)) XSDT;
+} __attribute__((packed)) xsdt_t;
 
-struct generic_address {
+typedef struct {
         uint8_t address_space;
         uint8_t bit_width;
         uint8_t bit_offset;
         uint8_t access_size;
         uint64_t address;
-} __attribute__((packed));
+} __attribute__((packed)) generic_address_t;
 
-struct hpet {
-        struct ACPISDTHeader h;
+typedef struct {
+        acpi_sdt_header_t header;
         uint32_t event_block_id;
-        struct generic_address base_address;
+        generic_address_t base_address;
         uint16_t clock_tick_unit;
         uint8_t page_oem_flags;
-} __attribute__((packed));
+} __attribute__((packed)) hpet_t;
 
 typedef struct {
-        uint64_t configurationAndCapability;
-        uint64_t comparatorValue;
-        uint64_t fsbInterruptRoute;
+        uint64_t configuration_and_capability;
+        uint64_t comparator_value;
+        uint64_t fsb_interrupt_route;
         uint64_t unused;
-} __attribute__((packed)) HpetTimer;
+} __attribute__((packed)) hpet_timer_t;
 
 typedef struct {
-        uint64_t generalCapabilities;
-        uint64_t reserved0;
-        uint64_t generalConfiguration;
-        uint64_t reserved1;
-        uint64_t generalIntrruptStatus;
-        uint8_t reserved3[0xc8];
-        uint64_t mainCounterValue;
-        uint64_t reserved4;
-        HpetTimer timers[];
-} __attribute__((packed)) volatile HpetInfo;
+        uint64_t general_capabilities;
+        uint64_t reserved_0;
+        uint64_t general_configuration;
+        uint64_t reserved_1;
+        uint64_t general_intrrupt_status;
+        uint8_t reserved_3[0xc8];
+        uint64_t main_counter_value;
+        uint64_t reserved_4;
+        hpet_timer_t timers[];
+} __attribute__((packed)) volatile hpet_info_t;
 
-typedef struct dsdt_table {
+typedef struct {
         uint8_t signature[4];
         uint32_t length;
         uint8_t revision;
@@ -102,8 +102,8 @@ typedef struct dsdt_table {
         uint8_t definition_block;
 } __attribute__((packed)) dsdt_table_t;
 
-typedef struct facp_table {
-        struct ACPISDTHeader h;
+typedef struct {
+        acpi_sdt_header_t header;
         uint32_t firmware_ctrl;
         uint32_t dsdt;
         uint8_t reserved;
@@ -142,42 +142,40 @@ typedef struct facp_table {
         uint16_t iapc_boot_arch;
         uint8_t reserved2;
         uint32_t flags;
-        struct generic_address reset_reg;
+        generic_address_t reset_reg;
         uint8_t reset_value;
         uint8_t reserved3[3];
         uint64_t x_firmware_ctrl;
         uint64_t x_dsdt;
-        struct generic_address x_pm1a_evt_blk;
-        struct generic_address x_pm1b_evt_blk;
-        struct generic_address x_pm1a_cnt_blk;
-        struct generic_address x_pm1b_cnt_blk;
-        struct generic_address x_pm2_cnt_blk;
-        struct generic_address x_pm_tmr_blk;
-        struct generic_address x_gpe0_blk;
-        struct generic_address x_gpe1_blk;
+        generic_address_t x_pm1a_evt_blk;
+        generic_address_t x_pm1b_evt_blk;
+        generic_address_t x_pm1a_cnt_blk;
+        generic_address_t x_pm1b_cnt_blk;
+        generic_address_t x_pm2_cnt_blk;
+        generic_address_t x_pm_tmr_blk;
+        generic_address_t x_gpe0_blk;
+        generic_address_t x_gpe1_blk;
 } __attribute__((packed)) acpi_facp_t;
 
-typedef struct hpet Hpet;
-
-typedef struct mcfg_entry {
+typedef struct {
         uint64_t base_addr;
         uint16_t segment;
         uint8_t start_bus;
         uint8_t end_bus;
         uint32_t reserved;
-} __attribute__((packed)) mcfg_entry;
+} __attribute__((packed)) mcfg_entry_t;
 
-typedef struct MCFG {
-        struct ACPISDTHeader h;
+typedef struct {
+        acpi_sdt_header_t header;
         char reserved[8];
-        mcfg_entry entries[]; // Length is dynamic
-} __attribute__((packed)) MCFG;
+        mcfg_entry_t entries[]; // Length is dynamic
+} __attribute__((packed)) mcfg_t;
 
-typedef struct MCFGInfo {
-        MCFG *mcfg;
+typedef struct {
+        mcfg_t *mcfg;
         size_t count;
         int enabled;
-} MCFGInfo;
+} mcfg_info_t;
 
 /* Find the corresponding ACPI table in XSDT */
 void *find_table(const char *name);
@@ -189,13 +187,13 @@ void acpi_init(void);
 uint64_t nano_time(void);
 
 /* Initialize high-precision event timer */
-void hpet_init(Hpet *hpet);
+void hpet_init(hpet_t *hpet);
 
 /* Initialize facp */
 void facp_init(acpi_facp_t *facp0);
 
 /* Get MCFG information */
-MCFGInfo *get_mcfg(void);
+mcfg_info_t *get_mcfg(void);
 
 /* Cycle the power */
 void power_reset(void);

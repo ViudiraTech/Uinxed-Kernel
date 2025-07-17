@@ -26,15 +26,14 @@
 #define ALIGN_DOWN(addr, align) ((addr) & ~((align) - 1))
 #define ALIGN_UP(addr, align)   (((addr) + (align) - 1) & ~((align) - 1))
 
+#define IS_DIGIT(c) ((c) >= '0' && (c) <= '9')
+
 #define do_div(n, base)                                                                   \
     ({                                                                                    \
         int64_t __res;                                                                    \
         __asm__("divq %4" : "=a"(n), "=d"(__res) : "0"(n), "1"(0), "r"((int64_t)(base))); \
         __res;                                                                            \
     })
-
-/* Determine whether it is a number */
-int is_digit(int c);
 
 /* Convert a string number to an integer number */
 int atoi(const char *pstr);

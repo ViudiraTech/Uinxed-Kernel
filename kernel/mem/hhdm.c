@@ -24,7 +24,7 @@ uint64_t get_physical_memory_offset(void)
 /* Convert physical memory to virtual memory */
 void *phys_to_virt(uint64_t phys_addr)
 {
-    PointerCast virt_addr;
+    pointer_cast_t virt_addr;
     if (phys_addr & hhdm_request.response->offset) {
         plogk_unsafe("Unsafe! 0x%016llx in phys_to_virt.\n", phys_addr);
         dump_stack();
@@ -38,7 +38,7 @@ void *phys_to_virt(uint64_t phys_addr)
 /* Convert virtual memory to physical memory */
 void *virt_to_phys(uint64_t virt_addr)
 {
-    PointerCast phys_addr;
+    pointer_cast_t phys_addr;
     if (!(virt_addr & hhdm_request.response->offset)) {
         plogk_unsafe("Unsafe! 0x%016llx in virt_to_phys.\n", virt_addr);
         dump_stack();

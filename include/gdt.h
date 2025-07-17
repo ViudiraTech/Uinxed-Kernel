@@ -14,12 +14,12 @@
 
 #include "stdint.h"
 
-struct gdt_register {
+typedef struct {
         uint16_t size;
         void *ptr;
-} __attribute__((packed));
+} __attribute__((packed)) gdt_register_t;
 
-typedef struct tss {
+typedef struct {
         uint32_t unused0;
         uint64_t rsp[3];
         uint64_t unused1;
@@ -32,7 +32,7 @@ typedef struct tss {
 typedef uint8_t tss_stack_t[1024];
 typedef uint64_t gdt_entries_t[8];
 
-extern struct gdt_register gdt_pointer;
+extern gdt_register_t gdt_pointer;
 extern gdt_entries_t gdt_entries;
 extern tss_t tss0;
 extern tss_stack_t tss_stack;

@@ -98,11 +98,11 @@ make run
 ## Project Structure 📁
 
 ```
-Uinxed-x86_64/
+Uinxed-Kernel/
 ├── .git/            # Version management.
 ├── .github/         # Github configuration file.
 ├── assets/          # Boot and scripts.
-├── devices/         # Device driver.
+├── drivers/         # Device driver.
 ├── docs/            # Related Documents.
 ├── include/         # Header file.
 ├── init/            # Code entry.
@@ -119,7 +119,7 @@ Uinxed-x86_64/
 ```
 
 ```
-Uinxed-x86_64/
+Uinxed-Kernel/
 ├── UxImage         # Kernel file.
 └── Uinxed-x64.iso  # Bootable image.
 ```
@@ -142,6 +142,14 @@ A: Make sure you have clang-format installed, then execute make format. Just lik
 
 ```bash
 make format
+```
+
+### How to statically check code?
+
+A: Make sure clang-tidy is installed, and then execute make check as follows:
+
+```bash
+make check
 ```
 
 ## Contribution Guidelines 🤝

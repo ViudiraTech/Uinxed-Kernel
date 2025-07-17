@@ -174,7 +174,7 @@ char *strstr(const char *haystack, const char *needle)
 {
     size_t _sn = strlen(haystack), _tn = strlen(needle);
 
-    if (_tn == 0) return (char *)haystack;
+    if (!_tn) return (char *)haystack;
     if (_sn < _tn) return 0;
 
     const char *s = haystack, *t = needle;

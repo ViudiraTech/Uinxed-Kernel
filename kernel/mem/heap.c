@@ -58,7 +58,7 @@ void init_heap(void)
 void *alloc_4k_aligned_mem(size_t size)
 {
     void *p = malloc(size < PAGE_SIZE ? size + PAGE_SIZE : size);
-    PointerCast p_aligned;
+    pointer_cast_t p_aligned;
     p_aligned.val = (((uint64_t)p + 0xfff) & ~0xfff);
     return p_aligned.ptr;
 }

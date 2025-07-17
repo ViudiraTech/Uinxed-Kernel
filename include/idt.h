@@ -52,12 +52,12 @@
 #define IRQ_14 46 // IDE0 transmission control usage
 #define IRQ_15 47 // IDE1 transmission control usage
 
-struct idt_register {
+typedef struct {
         uint16_t size;
         void *ptr;
-} __attribute__((packed));
+} __attribute__((packed)) idt_register_t;
 
-struct idt_entry {
+typedef struct {
         uint16_t offset_low; // Processing function pointer low 16-bit address
         uint16_t selector;   // Segment Selector
         uint8_t ist;
@@ -65,19 +65,17 @@ struct idt_entry {
         uint16_t offset_mid; // Handling 16-bit addresses in function pointers
         uint32_t offset_hi;  // Processing function pointer high 32-bit address
         uint32_t reserved;
-} __attribute__((packed));
+} __attribute__((packed)) idt_entry_t;
 
-struct interrupt_frame {
+typedef struct {
         uint64_t ss;
         uint64_t rsp;
         uint64_t rflags;
         uint64_t cs;
         uint64_t rip;
-} __attribute__((packed));
+} __attribute__((packed)) interrupt_frame_t;
 
-typedef struct interrupt_frame interrupt_frame_t;
-
-extern struct idt_register idt_pointer;
+extern idt_register_t idt_pointer;
 
 /* Initialize the interrupt descriptor table */
 void init_idt(void);
