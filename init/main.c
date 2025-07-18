@@ -21,7 +21,6 @@
 #include "ide.h"
 #include "idt.h"
 #include "interrupt.h"
-#include "mmu.h"
 #include "page.h"
 #include "parallel.h"
 #include "pci.h"
@@ -78,7 +77,7 @@ void kernel_entry(void)
     plogk("page: kernel_page_table = %p\n", phys_to_virt(get_cr3()));
     plogk("heap: Range: %p - %p (%llu MiB)\n", phys_to_virt(heap_start), phys_to_virt(heap_start + heap_size),
           heap_size / 1024 / 1024);
-    plogk("x86/PAT: Configuration [0-7]: %s\n", get_pat_config());
+    plogk("x86/PAT: Configuration [0-7]: %s\n", get_pat_config().pat_str);
     plogk("dmi: %s %s, BIOS %s %s\n", smbios_sys_manufacturer(), smbios_sys_product_name(), smbios_bios_version(),
           smbios_bios_release_date());
 

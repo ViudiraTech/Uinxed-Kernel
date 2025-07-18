@@ -14,6 +14,8 @@
 
 #include "stdint.h"
 
+#define MSR_IA32_PAT 0x277
+
 #define PTE_PRESENT      (0x1 << 0)
 #define PTE_WRITEABLE    (0x1 << 1)
 #define PTE_USER         (0x1 << 2)
@@ -34,6 +36,12 @@ typedef struct {
 typedef struct {
         page_table_t *table;
 } page_directory_t;
+
+typedef struct {
+        char pat_str[64];
+        uint8_t entries[8];
+        uint8_t types[8];
+} pat_config_t;
 
 /* Clear all entries in a memory page table */
 void page_table_clear(page_table_t *table);
@@ -70,6 +78,9 @@ void page_map_range_to(page_directory_t *directory, uint64_t frame, uint64_t len
 
 /* Mapping random portions of non-contiguous physical memory into the virtual address space */
 void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags);
+
+/* Get the PAT configuration */
+pat_config_t get_pat_config(void);
 
 /* Initialize memory page table */
 void page_init(void);

@@ -16,6 +16,7 @@
 #include "frame.h"
 #include "hhdm.h"
 #include "idt.h"
+#include "printk.h"
 #include "stdlib.h"
 #include "string.h"
 
@@ -230,6 +231,27 @@ void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64
         frame = alloc_frames(1);
         if (frame != 0) page_map_to(directory, addr + i, frame, flags);
     }
+}
+
+/* Get the PAT configuration */
+pat_config_t get_pat_config(void)
+{
+    pat_config_t config      = {0};
+    const char *pat_types[8] = {"WB ", "WC ", "UC-", "UC ", "WB ", "WP ", "UC-", "WT "};
+    uint64_t pat_value       = rdmsr(MSR_IA32_PAT);
+    int pos                  = 0;
+
+    for (int i = 0; i < 8; i++) {
+        uint8_t entry = (pat_value >> (i * 8)) & 0xff;
+        uint8_t type  = entry & 0x7;
+        if (type > 7) type = 0;
+
+        config.entries[i] = entry;
+        config.types[i]   = type;
+        pos += sprintf(config.pat_str + pos, "%s ", pat_types[type]);
+    }
+    if (pos > 0) config.pat_str[pos - 1] = '\0';
+    return config;
 }
 
 /* Initialize memory page table */
