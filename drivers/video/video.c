@@ -18,8 +18,8 @@
 
 extern uint8_t ascii_font[]; // Fonts
 
-uint64_t width;   // Screen length
-uint64_t height;  // Screen width
+uint64_t width;   // Screen width
+uint64_t height;  // Screen height
 uint64_t stride;  // Frame buffer line spacing
 uint32_t *buffer; // Video Memory
 
@@ -90,7 +90,7 @@ void video_init(void)
 /* Clear screen */
 void video_clear(void)
 {
-    for (uint32_t i = 0; i < (width * height); i++) buffer[i] = 0xff000000;
+    for (uint32_t i = 0; i < (stride * height); i++) buffer[i] = 0xff000000;
     back_color = 0xff000000;
     x          = 2;
     y          = 0;
@@ -100,7 +100,7 @@ void video_clear(void)
 /* Clear screen with color */
 void video_clear_color(uint32_t color)
 {
-    for (uint32_t i = 0; i < (width * height); i++) buffer[i] = color;
+    for (uint32_t i = 0; i < (stride * height); i++) buffer[i] = color;
     back_color = color;
     x          = 2;
     y          = 0;
@@ -142,13 +142,13 @@ void video_scroll(void)
 /* Draw a pixel at the specified coordinates on the screen */
 void video_draw_pixel(uint32_t x, uint32_t y, uint32_t color)
 {
-    (buffer)[y * width + x] = color;
+    (buffer)[y * stride + x] = color;
 }
 
 /* Get a pixel at the specified coordinates on the screen */
 uint32_t video_get_pixel(uint32_t x, uint32_t y)
 {
-    return (buffer)[y * width + x];
+    return (buffer)[y * stride + x];
 }
 
 /* Iterate over a area on the screen and run a callback function in each iteration */
