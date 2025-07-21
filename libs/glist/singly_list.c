@@ -39,12 +39,12 @@ int slist_insert_tail(slist_node_t **head, void *data)
 {
     slist_node_t *new_node = slist_create_node(data);
     if (!new_node) return 1;
-    if (*head == 0) {
+    if (!*head) {
         *head = new_node;
         return 0;
     }
     slist_node_t *temp = *head;
-    while (temp->next != 0) temp = temp->next;
+    while (temp->next) temp = temp->next;
 
     temp->next = new_node;
     return 0;
@@ -53,7 +53,7 @@ int slist_insert_tail(slist_node_t **head, void *data)
 /* Insert a new node with given data at the specified position in the singly linked list */
 int slist_insert_at(slist_node_t **head, void *data, int pos)
 {
-    if (pos <= 0 || *head == 0) {
+    if (pos <= 0 || !*head) {
         slist_insert_head(head, data);
         return 0;
     }
@@ -61,7 +61,7 @@ int slist_insert_at(slist_node_t **head, void *data, int pos)
     slist_node_t *temp = *head;
     int index          = 0;
 
-    while (temp->next != 0 && index < pos - 1) {
+    while (temp->next && index < pos - 1) {
         temp = temp->next;
         index++;
     }
@@ -77,7 +77,7 @@ int slist_insert_at(slist_node_t **head, void *data, int pos)
 /* Find a node with the specified data in the singly linked list */
 slist_node_t *slist_find_node(slist_node_t *head, void *data)
 {
-    while (head != 0) {
+    while (head) {
         if (head->data == data) return head;
         head = head->next;
     }
@@ -91,7 +91,7 @@ slist_node_t *slist_reverse_node(slist_node_t *head)
     slist_node_t *curr = head;
     slist_node_t *next = 0;
 
-    while (curr != 0) {
+    while (curr) {
         next       = curr->next;
         curr->next = prev;
         prev       = curr;
@@ -106,7 +106,7 @@ int slist_delete_node(slist_node_t **head, void *data)
     slist_node_t *temp = *head;
     slist_node_t *prev = 0;
 
-    while (temp != 0) {
+    while (temp) {
         if (temp->data == data) {
             if (prev == 0) {
                 *head = temp->next;
@@ -125,10 +125,10 @@ int slist_delete_node(slist_node_t **head, void *data)
 /* Free all nodes in the singly linked list */
 int slist_free_list(slist_node_t *head)
 {
-    if (head == 0) return 1;
+    if (!head) return 1;
 
     slist_node_t *temp;
-    while (head != 0) {
+    while (head) {
         temp = head;
         head = head->next;
         free(temp);
