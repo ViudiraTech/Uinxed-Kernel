@@ -82,16 +82,16 @@ void video_init(void)
     c_width         = width / 9;
     c_height        = height / 16;
 
-    fore_color = 0xffaaaaaa;
-    back_color = 0xff000000;
+    fore_color = 0xaaaaaa;
+    back_color = 0x000000;
     video_clear();
 }
 
 /* Clear screen */
 void video_clear(void)
 {
-    for (uint32_t i = 0; i < (stride * height); i++) buffer[i] = 0xff000000;
-    back_color = 0xff000000;
+    for (uint32_t i = 0; i < (stride * height); i++) buffer[i] = 0x000000;
+    back_color = 0x000000;
     x          = 2;
     y          = 0;
     cx = cy = 0;
@@ -155,8 +155,8 @@ uint32_t video_get_pixel(uint32_t x, uint32_t y)
 void video_invoke_area(position_t p0, position_t p1, void (*callback)(position_t p))
 {
     position_t p;
-    for (p.y = p0.y; y <= p1.y; p.y++) {
-        for (p.x = p0.x; x <= p1.x; p.x++) callback(p);
+    for (p.y = p0.y; p.y <= p1.y; p.y++) {
+        for (p.x = p0.x; p.x <= p1.x; p.x++) callback(p);
     }
 }
 
