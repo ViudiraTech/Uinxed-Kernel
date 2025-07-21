@@ -12,33 +12,38 @@
 #ifndef INCLUDE_SINGLY_LIST_H_
 #define INCLUDE_SINGLY_LIST_H_
 
+#include "stddef.h"
+
 typedef struct slist_node {
         void *data;
         struct slist_node *next;
 } slist_node_t;
 
-/* Create a new singly linked list node with given data */
-slist_node_t *slist_create_node(void *data);
+typedef struct slist {
+        slist_node_t *head;
+        slist_node_t *tail;
+        size_t size;
+} slist_t;
 
-/* Insert a new node with given data at the head of the singly linked list */
-int slist_insert_head(slist_node_t **head, void *data);
+/* Initialize a singly linked list */
+int slist_init(slist_t *list);
 
-/* Insert a new node with given data at the tail of the singly linked list */
-int slist_insert_tail(slist_node_t **head, void *data);
+/* Insert a node at the head of a singly linked list */
+int slist_insert_head(slist_t *list, void *data);
 
-/* Insert a new node with given data at the specified position in the singly linked list */
-int slist_insert_at(slist_node_t **head, void *data, int pos);
+/* Insert a node at the tail of a singly linked list */
+int slist_insert_tail(slist_t *list, void *data);
 
-/* Find a node with the specified data in the singly linked list */
-slist_node_t *slist_find_node(slist_node_t *head, void *data);
+/* Delete the head node of a singly linked list */
+int slist_remove_head(slist_t *list, void **data);
 
-/* Reverse the singly linked list and return the new head node */
-slist_node_t *slist_reverse_node(slist_node_t *head);
+/* Delete the tail node of a singly linked list */
+int slist_remove_tail(slist_t *list, void **data);
 
-/* Delete the first node with the specified data from the singly linked list */
-int slist_delete_node(slist_node_t **head, void *data);
+/* Get the number of nodes in a singly linked list */
+size_t slist_size(const slist_t *list);
 
-/* Free all nodes in the singly linked list */
-int slist_free_list(slist_node_t *head);
+/* Destroy a singly linked list */
+int slist_destroy(slist_t *list, void (*free_data)(void *));
 
 #endif // INCLUDE_SINGLY_LIST_H_

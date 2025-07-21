@@ -12,126 +12,116 @@
 #include "singly_list.h"
 #include "alloc.h"
 
-/* Create a new singly linked list node with given data */
-slist_node_t *slist_create_node(void *data)
+/* Initialize a singly linked list */
+int slist_init(slist_t *list)
 {
+    if (!list) return 1;
+
+    list->head = 0;
+    list->tail = 0;
+    list->size = 0;
+    return 0;
+}
+
+/* Insert a node at the head of a singly linked list */
+int slist_insert_head(slist_t *list, void *data)
+{
+    if (!list) return 1;
+
     slist_node_t *new_node = (slist_node_t *)malloc(sizeof(slist_node_t));
-    if (!new_node) return 0;
+    if (!new_node) return 1;
+
+    new_node->data = data;
+    new_node->next = list->head;
+
+    list->head = new_node;
+    if (!list->tail) list->tail = new_node;
+    list->size++;
+    return 0;
+}
+
+/* Insert a node at the tail of a singly linked list */
+int slist_insert_tail(slist_t *list, void *data)
+{
+    if (!list) return 1;
+
+    slist_node_t *new_node = (slist_node_t *)malloc(sizeof(slist_node_t));
+    if (!new_node) return 1;
 
     new_node->data = data;
     new_node->next = 0;
-    return new_node;
-}
 
-/* Insert a new node with given data at the head of the singly linked list */
-int slist_insert_head(slist_node_t **head, void *data)
-{
-    slist_node_t *new_node = slist_create_node(data);
-    if (!new_node) return 1;
-
-    new_node->next = *head;
-    *head          = new_node;
+    if (list->tail == 0) {
+        list->head = new_node;
+        list->tail = new_node;
+    } else {
+        list->tail->next = new_node;
+        list->tail       = new_node;
+    }
+    list->size++;
     return 0;
 }
 
-/* Insert a new node with given data at the tail of the singly linked list */
-int slist_insert_tail(slist_node_t **head, void *data)
+/* Delete the head node of a singly linked list */
+int slist_remove_head(slist_t *list, void **data)
 {
-    slist_node_t *new_node = slist_create_node(data);
-    if (!new_node) return 1;
-    if (!*head) {
-        *head = new_node;
-        return 0;
-    }
-    slist_node_t *temp = *head;
-    while (temp->next) temp = temp->next;
+    if (!list || !list->head) return 1;
+    slist_node_t *old_head = list->head;
 
-    temp->next = new_node;
+    if (data) *data = old_head->data;
+    list->head = old_head->next;
+
+    if (!list->head) list->tail = 0;
+    free(old_head);
+
+    list->size--;
     return 0;
 }
 
-/* Insert a new node with given data at the specified position in the singly linked list */
-int slist_insert_at(slist_node_t **head, void *data, int pos)
+/* Delete the tail node of a singly linked list */
+int slist_remove_tail(slist_t *list, void **data)
 {
-    if (pos <= 0 || !*head) {
-        slist_insert_head(head, data);
-        return 0;
+    if (!list || !list->tail) return 1;
+    slist_node_t *old_tail = list->tail;
+
+    if (data) *data = old_tail->data;
+    if (list->head == list->tail) {
+        list->head = 0;
+        list->tail = 0;
+    } else {
+        slist_node_t *current = list->head;
+        while (current->next != list->tail) current = current->next;
+        current->next = 0;
+        list->tail    = current;
     }
-
-    slist_node_t *temp = *head;
-    int index          = 0;
-
-    while (temp->next && index < pos - 1) {
-        temp = temp->next;
-        index++;
-    }
-
-    slist_node_t *new_node = slist_create_node(data);
-    if (!new_node) return 1;
-
-    new_node->next = temp->next;
-    temp->next     = new_node;
+    free(old_tail);
+    list->size--;
     return 0;
 }
 
-/* Find a node with the specified data in the singly linked list */
-slist_node_t *slist_find_node(slist_node_t *head, void *data)
+/* Get the number of nodes in a singly linked list */
+size_t slist_size(const slist_t *list)
 {
-    while (head) {
-        if (head->data == data) return head;
-        head = head->next;
-    }
-    return 0;
+    if (!list) return 1;
+    return list->size;
 }
 
-/* Reverse the singly linked list and return the new head node */
-slist_node_t *slist_reverse_node(slist_node_t *head)
+/* Destroy a singly linked list */
+int slist_destroy(slist_t *list, void (*free_data)(void *))
 {
-    slist_node_t *prev = 0;
-    slist_node_t *curr = head;
-    slist_node_t *next = 0;
+    if (!list) return 1;
 
-    while (curr) {
-        next       = curr->next;
-        curr->next = prev;
-        prev       = curr;
-        curr       = next;
+    slist_node_t *current = list->head;
+    slist_node_t *next;
+
+    while (current != 0) {
+        next = current->next;
+        if (free_data != 0 && current->data != 0) free_data(current->data);
+        free(current);
+        current = next;
     }
-    return prev;
-}
-
-/* Delete the first node with the specified data from the singly linked list */
-int slist_delete_node(slist_node_t **head, void *data)
-{
-    slist_node_t *temp = *head;
-    slist_node_t *prev = 0;
-
-    while (temp) {
-        if (temp->data == data) {
-            if (prev == 0) {
-                *head = temp->next;
-            } else {
-                prev->next = temp->next;
-            }
-            free(temp);
-            return 0;
-        }
-        prev = temp;
-        temp = temp->next;
-    }
-    return 1;
-}
-
-/* Free all nodes in the singly linked list */
-int slist_free_list(slist_node_t *head)
-{
-    if (!head) return 1;
-
-    slist_node_t *temp;
-    while (head) {
-        temp = head;
-        head = head->next;
-        free(temp);
-    }
+    list->head = 0;
+    list->tail = 0;
+    list->size = 0;
     return 0;
 }
