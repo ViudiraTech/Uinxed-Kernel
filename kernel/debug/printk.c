@@ -11,7 +11,7 @@
 
 #include "printk.h"
 #include "alloc.h"
-#include "lock.h"
+#include "spin_lock.h"
 #include "stdarg.h"
 #include "stddef.h"
 #include "stdint.h"

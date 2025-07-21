@@ -1,6 +1,6 @@
 /*
  *
- *      slist.c
+ *      singly_list.c
  *      Singly Linked List
  *
  *      2025/7/21 By MicroFish
@@ -9,7 +9,7 @@
  *
  */
 
-#include "slist.h"
+#include "singly_list.h"
 #include "alloc.h"
 
 /* Create a new singly linked list node with given data */

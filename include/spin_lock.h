@@ -1,7 +1,7 @@
 /*
  *
- *      lock.h
- *      Synchronous lock header file
+ *      spin_lock.h
+ *      Spin lock header file
  *
  *      2025/7/12 By MicroFish
  *      Based on GPL-3.0 open source agreement
@@ -9,8 +9,8 @@
  *
  */
 
-#ifndef INCLUDE_LOCK_H_
-#define INCLUDE_LOCK_H_
+#ifndef INCLUDE_SPIN_LOCK_H_
+#define INCLUDE_SPIN_LOCK_H_
 
 #include "stdint.h"
 
@@ -25,4 +25,4 @@ void spin_lock(spinlock_t *lock);
 /* Unlock a spinlock */
 void spin_unlock(spinlock_t *lock);
 
-#endif // INCLUDE_LOCK_H_
+#endif // INCLUDE_SPIN_LOCK_H_

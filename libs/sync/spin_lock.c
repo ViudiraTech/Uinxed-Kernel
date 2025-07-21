@@ -1,7 +1,7 @@
 /*
  *
- *      lock.c
- *      Synchronous lock
+ *      spin_lock.c
+ *      Spin lock
  *
  *      2025/7/12 By MicroFish
  *      Based on GPL-3.0 open source agreement
@@ -9,7 +9,7 @@
  *
  */
 
-#include "lock.h"
+#include "spin_lock.h"
 
 /* Lock a spinlock */
 void spin_lock(spinlock_t *lock)

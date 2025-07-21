@@ -1,6 +1,6 @@
 /*
  *
- *      slist.h
+ *      singly_list.h
  *      Singly Linked List Header File
  *
  *      2025/7/21 By MicroFish
@@ -9,8 +9,8 @@
  *
  */
 
-#ifndef INCLUDE_SLIST_H_
-#define INCLUDE_SLIST_H_
+#ifndef INCLUDE_SINGLY_LIST_H_
+#define INCLUDE_SINGLY_LIST_H_
 
 typedef struct slist_node {
         void *data;
@@ -41,4 +41,4 @@ int slist_delete_node(slist_node_t **head, void *data);
 /* Free all nodes in the singly linked list */
 int slist_free_list(slist_node_t *head);
 
-#endif // INCLUDE_SLIST_H_
+#endif // INCLUDE_SINGLY_LIST_H_

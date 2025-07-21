@@ -101,9 +101,10 @@ make run
 Uinxed-Kernel/
 ├── .git/            # Version management.
 ├── .github/         # Github configuration file.
-├── assets/          # Boot and scripts.
-├── drivers/         # Device driver.
+├── assets/          # Static resource files.
+├── boot/            # Boot related.
 ├── docs/            # Related Documents.
+├── drivers/         # Device driver.
 ├── include/         # Header file.
 ├── init/            # Code entry.
 ├── kernel/          # Kernel part.
