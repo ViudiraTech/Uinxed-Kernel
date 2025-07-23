@@ -27,10 +27,10 @@
 #include "uinxed.h"
 
 static cpu_processor_t *cpus;
-static size_t cpu_count = 0;
+static size_t           cpu_count = 0;
 
 static volatile uint64_t ap_ready_count = 0;
-spinlock_t ap_start_lock                = {0};
+spinlock_t               ap_start_lock  = {0};
 
 /* Rescheduling Requests */
 __attribute__((interrupt)) static void ipi_reschedule_handler(interrupt_frame_t *frame)

@@ -21,14 +21,14 @@ typedef enum {
 } overflow_kind_t;
 
 typedef struct {
-        uint64_t size;    // The size of the buff to write
-        char *buff;       // The buff to write
-        char *last_write; // The last write position
+        uint64_t size;       // The size of the buff to write
+        char    *buff;       // The buff to write
+        char    *last_write; // The last write position
 } fmt_arg_t;
 
 typedef struct {
         overflow_kind_t kind; // The kind of overflow
-        fmt_arg_t *arg;       // The argument that overflow
+        fmt_arg_t      *arg;  // The argument that overflow
 } overflow_signal_t;
 
 /* Kernel print string */

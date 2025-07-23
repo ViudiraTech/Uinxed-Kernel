@@ -50,9 +50,9 @@
 
 typedef struct {
         acpi_sdt_header_t header;
-        uint32_t local_apic_address;
-        uint32_t flags;
-        void *entries;
+        uint32_t          local_apic_address;
+        uint32_t          flags;
+        void             *entries;
 } __attribute__((packed)) madt_t;
 
 typedef struct {
@@ -62,21 +62,21 @@ typedef struct {
 
 typedef struct {
         madt_header_t header;
-        uint8_t apic_id;
-        uint8_t reserved;
-        uint32_t address;
-        uint32_t gsib;
+        uint8_t       apic_id;
+        uint8_t       reserved;
+        uint32_t      address;
+        uint32_t      gsib;
 } __attribute__((packed)) madt_io_apic_t;
 
 typedef struct {
         madt_header_t header;
-        uint8_t acpi_processor_uid;
-        uint8_t local_apic_id;
-        uint32_t flags;
+        uint8_t       acpi_processor_uid;
+        uint8_t       local_apic_id;
+        uint32_t      flags;
 } madt_local_apic_t;
 
 typedef struct {
-        uint8_t vector;
+        uint8_t  vector;
         uint32_t irq;
 } ioapic_routing_t;
 

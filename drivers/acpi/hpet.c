@@ -15,7 +15,7 @@
 #include "printk.h"
 #include "stdint.h"
 
-hpet_info_t *hpet_addr;
+hpet_info_t    *hpet_addr;
 static uint32_t hpet_period = 0;
 
 void timer_handle(interrupt_frame_t *frame);

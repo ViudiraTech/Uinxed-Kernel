@@ -15,7 +15,7 @@
 #include "stdint.h"
 
 idt_register_t idt_pointer;
-idt_entry_t idt_entries[256];
+idt_entry_t    idt_entries[256];
 
 /* Initialize the interrupt descriptor table */
 void init_idt(void)

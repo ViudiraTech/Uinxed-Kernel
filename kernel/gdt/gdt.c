@@ -14,12 +14,12 @@
 #include "stdint.h"
 
 /* Global Descriptor Table Definition */
-gdt_entries_t gdt_entries;
+gdt_entries_t  gdt_entries;
 gdt_register_t gdt_pointer;
 
 /* TSS */
 tss_stack_t tss_stack;
-tss_t tss0;
+tss_t       tss0;
 
 /* Initialize the global descriptor table */
 void init_gdt(void)

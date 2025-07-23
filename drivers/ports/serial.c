@@ -102,15 +102,14 @@ static void init_serial_port(uint16_t port)
         return;
     }
     outb(port + SERIAL_REG_MCR, 0x0f); // Quit loopback mode
-    plogk("serial: Local port: %s, Baud rate: %d, Status: 0x%02x\n", PORT_TO_COM(port), SERIAL_BAUD_RATE,
-          inb(port + SERIAL_REG_LSR));
+    plogk("serial: Local port: %s, Baud rate: %d, Status: 0x%02x\n", PORT_TO_COM(port), SERIAL_BAUD_RATE, inb(port + SERIAL_REG_LSR));
 }
 
 /* Initialize the serial port */
 void init_serial(void)
 {
     uint16_t com_ports[4] = {SERIAL_PORT_1, SERIAL_PORT_2, SERIAL_PORT_3, SERIAL_PORT_4};
-    int valid_ports       = 0;
+    int      valid_ports  = 0;
 
     for (int i = 0; i < 4; i++) {
         if (serial_exists(com_ports[i])) {

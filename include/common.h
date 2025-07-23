@@ -19,7 +19,7 @@ void outb(uint16_t port, uint8_t value);  // Port write (8 bits)
 void outw(uint16_t port, uint16_t value); // Port write (16 bits)
 void outl(uint16_t port, uint32_t value); // Port write (32 bits)
 
-uint8_t inb(uint16_t port);  // Port read (8 bits)
+uint8_t  inb(uint16_t port); // Port read (8 bits)
 uint16_t inw(uint16_t port); // Port read (16 bits)
 uint32_t inl(uint16_t port); // Port read (32 bits)
 

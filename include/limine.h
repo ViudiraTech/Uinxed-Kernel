@@ -23,19 +23,17 @@
 #endif
 
 #ifdef __GNUC__
-#    define LIMINE_DEPRECATED __attribute__((__deprecated__))
-#    define LIMINE_DEPRECATED_IGNORE_START \
-        _Pragma("GCC diagnostic push") _Pragma("GCC diagnostic ignored \"-Wdeprecated-declarations\"")
-#    define LIMINE_DEPRECATED_IGNORE_END _Pragma("GCC diagnostic pop")
+#    define LIMINE_DEPRECATED              __attribute__((__deprecated__))
+#    define LIMINE_DEPRECATED_IGNORE_START _Pragma("GCC diagnostic push") _Pragma("GCC diagnostic ignored \"-Wdeprecated-declarations\"")
+#    define LIMINE_DEPRECATED_IGNORE_END   _Pragma("GCC diagnostic pop")
 #else
 #    define LIMINE_DEPRECATED
 #    define LIMINE_DEPRECATED_IGNORE_START
 #    define LIMINE_DEPRECATED_IGNORE_END
 #endif
 
-#define LIMINE_REQUESTS_START_MARKER         \
-    uint64_t limine_requests_start_marker[4] \
-        = {0xf6b8f4b39de7d1ae, 0xfab91a6940fcb9cf, 0x785c6ed015d3e316, 0x181e920a7852b9d9};
+#define LIMINE_REQUESTS_START_MARKER \
+    uint64_t limine_requests_start_marker[4] = {0xf6b8f4b39de7d1ae, 0xfab91a6940fcb9cf, 0x785c6ed015d3e316, 0x181e920a7852b9d9};
 
 #define LIMINE_REQUESTS_END_MARKER uint64_t limine_requests_end_marker[2] = {0xadc0e0531bb10d03, 0x9572709f31764c62};
 
@@ -51,7 +49,7 @@ struct limine_uuid {
         uint32_t a;
         uint16_t b;
         uint16_t c;
-        uint8_t d[8];
+        uint8_t  d[8];
 };
 
 #define LIMINE_MEDIA_TYPE_GENERIC 0
@@ -67,12 +65,12 @@ struct limine_file {
         path;
         LIMINE_PTR(char *)
         cmdline;
-        uint32_t media_type;
-        uint32_t unused;
-        uint32_t tftp_ip;
-        uint32_t tftp_port;
-        uint32_t partition_index;
-        uint32_t mbr_disk_id;
+        uint32_t           media_type;
+        uint32_t           unused;
+        uint32_t           tftp_ip;
+        uint32_t           tftp_port;
+        uint32_t           partition_index;
+        uint32_t           mbr_disk_id;
         struct limine_uuid gpt_disk_uuid;
         struct limine_uuid gpt_part_uuid;
         struct limine_uuid part_uuid;
@@ -174,13 +172,13 @@ struct limine_video_mode {
         uint64_t width;
         uint64_t height;
         uint16_t bpp;
-        uint8_t memory_model;
-        uint8_t red_mask_size;
-        uint8_t red_mask_shift;
-        uint8_t green_mask_size;
-        uint8_t green_mask_shift;
-        uint8_t blue_mask_size;
-        uint8_t blue_mask_shift;
+        uint8_t  memory_model;
+        uint8_t  red_mask_size;
+        uint8_t  red_mask_shift;
+        uint8_t  green_mask_size;
+        uint8_t  green_mask_shift;
+        uint8_t  blue_mask_size;
+        uint8_t  blue_mask_shift;
 };
 
 struct limine_framebuffer {
@@ -190,14 +188,14 @@ struct limine_framebuffer {
         uint64_t height;
         uint64_t pitch;
         uint16_t bpp;
-        uint8_t memory_model;
-        uint8_t red_mask_size;
-        uint8_t red_mask_shift;
-        uint8_t green_mask_size;
-        uint8_t green_mask_shift;
-        uint8_t blue_mask_size;
-        uint8_t blue_mask_shift;
-        uint8_t unused[7];
+        uint8_t  memory_model;
+        uint8_t  red_mask_size;
+        uint8_t  red_mask_shift;
+        uint8_t  green_mask_size;
+        uint8_t  green_mask_shift;
+        uint8_t  blue_mask_size;
+        uint8_t  blue_mask_shift;
+        uint8_t  unused[7];
         uint64_t edid_size;
         LIMINE_PTR(void *)
         edid;
@@ -670,7 +668,7 @@ struct limine_efi_memmap_request {
 
 struct limine_boot_time_response {
         uint64_t revision;
-        int64_t boot_time;
+        int64_t  boot_time;
 };
 
 struct limine_boot_time_request {

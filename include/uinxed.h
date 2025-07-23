@@ -33,15 +33,15 @@
 
 #define KERNEL_BASE_ADDRESS 0xffffffff80000000
 
-extern volatile struct limine_rsdp_request rsdp_request;
-extern volatile struct limine_kernel_file_request kernel_file_request;
-extern volatile struct limine_smp_request smp_request;
-extern volatile struct limine_framebuffer_request framebuffer_request;
-extern volatile struct limine_smbios_request smbios_request;
-extern volatile struct limine_memmap_request memmap_request;
-extern volatile struct limine_hhdm_request hhdm_request;
+extern volatile struct limine_rsdp_request           rsdp_request;
+extern volatile struct limine_kernel_file_request    kernel_file_request;
+extern volatile struct limine_smp_request            smp_request;
+extern volatile struct limine_framebuffer_request    framebuffer_request;
+extern volatile struct limine_smbios_request         smbios_request;
+extern volatile struct limine_memmap_request         memmap_request;
+extern volatile struct limine_hhdm_request           hhdm_request;
 extern volatile struct limine_kernel_address_request kernel_address_request;
-extern volatile struct limine_entry_point_request entry_point_request;
+extern volatile struct limine_entry_point_request    entry_point_request;
 
 /* Executable entry */
 void executable_entry(void);

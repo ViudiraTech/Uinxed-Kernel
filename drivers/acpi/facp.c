@@ -17,10 +17,10 @@
 #include "string.h"
 #include "timer.h"
 
-uint16_t SLP_TYPa;
-uint16_t SLP_TYPb;
-uint16_t SLP_EN;
-uint16_t SCI_EN;
+uint16_t     SLP_TYPa;
+uint16_t     SLP_TYPb;
+uint16_t     SLP_EN;
+uint16_t     SCI_EN;
 acpi_facp_t *facp;
 
 /* Initialize facp */

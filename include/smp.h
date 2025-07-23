@@ -17,16 +17,16 @@
 #include "stdint.h"
 
 typedef struct {
-        gdt_entries_t entries;
+        gdt_entries_t  entries;
         gdt_register_t pointer;
 } __attribute__((aligned(16))) gdt_t;
 
 typedef struct {
-        uint64_t id;
-        uint64_t lapic_id;
-        gdt_t gdt;
+        uint64_t     id;
+        uint64_t     lapic_id;
+        gdt_t        gdt;
         tss_stack_t *tss_stack;
-        tss_t *tss;
+        tss_t       *tss;
 } cpu_processor_t;
 
 /* Send an IPI to all CPUs */

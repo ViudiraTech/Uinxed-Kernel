@@ -18,9 +18,9 @@
 
 extern uint8_t ascii_font[]; // Fonts
 
-uint64_t width;   // Screen width
-uint64_t height;  // Screen height
-uint64_t stride;  // Frame buffer line spacing
+uint64_t  width;  // Screen width
+uint64_t  height; // Screen height
+uint64_t  stride; // Frame buffer line spacing
 uint32_t *buffer; // Video Memory
 
 uint32_t x, y;              // The current absolute cursor position
@@ -33,7 +33,7 @@ uint32_t back_color; // Background color
 /* Get video information */
 video_info_t video_get_info(void)
 {
-    video_info_t info;
+    video_info_t               info;
     struct limine_framebuffer *framebuffer = get_framebuffer();
 
     info.framebuffer = framebuffer->address;
@@ -123,9 +123,9 @@ void video_scroll(void)
     } else {
         cx++;
     }
-    uint8_t *dest;
+    uint8_t       *dest;
     const uint8_t *src;
-    size_t count;
+    size_t         count;
     if ((uint32_t)cy >= c_height) {
         dest  = (uint8_t *)buffer;
         src   = (const uint8_t *)(buffer + stride * 16);
@@ -170,8 +170,8 @@ void video_draw_rect(position_t p0, position_t p1, uint32_t color)
     for (y = y0; y <= y1; y++) {
         /* Draw horizontal line */
 #if defined(__x86_64__) || defined(__i386__)
-        uint32_t *line = buffer + y * stride + x0;
-        size_t count   = x1 - x0 + 1;
+        uint32_t *line  = buffer + y * stride + x0;
+        size_t    count = x1 - x0 + 1;
         __asm__ volatile("rep stosl" : "+D"(line), "+c"(count) : "a"(color) : "memory");
 #else
         for (uint32_t x = x0; x <= x1; x++) video_draw_pixel(x, y, color);

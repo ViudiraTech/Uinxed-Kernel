@@ -160,7 +160,7 @@ void apic_init(madt_t *madt)
     plogk("apic: LAPIC Base address %p\n", lapic_ptr.ptr);
 
     uint8_t *entries_base = (uint8_t *)&madt->entries;
-    size_t current        = 0;
+    size_t   current      = 0;
 
     while (current < madt->header.length - sizeof(madt_t)) {
         madt_header_t *header = (madt_header_t *)(entries_base + current);

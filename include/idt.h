@@ -54,14 +54,14 @@
 
 typedef struct {
         uint16_t size;
-        void *ptr;
+        void    *ptr;
 } __attribute__((packed)) idt_register_t;
 
 typedef struct {
         uint16_t offset_low; // Processing function pointer low 16-bit address
         uint16_t selector;   // Segment Selector
-        uint8_t ist;
-        uint8_t flags;       // Flags
+        uint8_t  ist;
+        uint8_t  flags;      // Flags
         uint16_t offset_mid; // Handling 16-bit addresses in function pointers
         uint32_t offset_hi;  // Processing function pointer high 32-bit address
         uint32_t reserved;

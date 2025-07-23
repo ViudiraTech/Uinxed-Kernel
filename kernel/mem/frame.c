@@ -17,7 +17,7 @@
 #include "uinxed.h"
 
 frame_allocator_t frame_allocator;
-uint64_t memory_size = 0;
+uint64_t          memory_size = 0;
 
 /* Initialize memory frame */
 void init_frame(void)
@@ -31,7 +31,7 @@ void init_frame(void)
             break;
         }
     }
-    size_t bitmap_size      = (memory_size / PAGE_SIZE + 7) / 8;
+    size_t   bitmap_size    = (memory_size / PAGE_SIZE + 7) / 8;
     uint64_t bitmap_address = 0;
 
     for (uint64_t i = 0; i < memory_map->entry_count; i++) {
@@ -76,8 +76,8 @@ void init_frame(void)
 /* Allocate memory frame */
 uint64_t alloc_frames(size_t count)
 {
-    bitmap_t *bitmap   = &frame_allocator.bitmap;
-    size_t frame_index = bitmap_find_range(bitmap, count, 1);
+    bitmap_t *bitmap      = &frame_allocator.bitmap;
+    size_t    frame_index = bitmap_find_range(bitmap, count, 1);
 
     if (frame_index == (size_t)-1) return 0;
     bitmap_set_range(bitmap, frame_index, frame_index + count, 0);
@@ -105,10 +105,10 @@ void print_memory_map(void)
     plogk(" <MEMMAP>\n");
 
     for (uint64_t i = 0; i < memmap_request.response->entry_count; i++) {
-        struct limine_memmap_entry *entry = memmap_request.response->entries[i];
-        uint64_t base                     = entry->base;
-        uint64_t length                   = entry->length;
-        uint64_t end                      = base + length - 1;
+        struct limine_memmap_entry *entry  = memmap_request.response->entries[i];
+        uint64_t                    base   = entry->base;
+        uint64_t                    length = entry->length;
+        uint64_t                    end    = base + length - 1;
 
         const char *type_str;
         switch (entry->type) {

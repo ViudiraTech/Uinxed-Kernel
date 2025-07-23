@@ -38,10 +38,10 @@ typedef enum {
 } bar_size_t;
 
 typedef struct {
-        uint8_t prefetchable;
+        uint8_t   prefetchable;
         uint32_t *address;
-        uint32_t size;
-        int type;
+        uint32_t  size;
+        int       type;
 } base_address_register_t;
 
 typedef struct {
@@ -66,33 +66,33 @@ typedef enum {
 } ecam_area_t;
 
 typedef struct {
-        volatile void *id_ecam;
-        volatile void *ops_ecam;
-        volatile void *field_ecam;
-        volatile void *ops2_ecam;
+        volatile void  *id_ecam;
+        volatile void  *ops_ecam;
+        volatile void  *field_ecam;
+        volatile void  *ops2_ecam;
         volatile void **others;
 } pci_device_ecam_t;
 
 /* PCI cached searching */
 typedef struct pci_device_cache {
-        pci_device_t *device;
-        uint32_t value_c;
-        uint32_t vendor_id;
-        uint32_t device_id;
-        uint32_t class_code;
-        uint32_t header_type;
+        pci_device_t            *device;
+        uint32_t                 value_c;
+        uint32_t                 vendor_id;
+        uint32_t                 device_id;
+        uint32_t                 class_code;
+        uint32_t                 header_type;
         struct pci_device_cache *next;
-        pci_device_ecam_t ecam; // Only works in MCFG mode
+        pci_device_ecam_t        ecam; // Only works in MCFG mode
 } pci_device_cache_t;
 
 typedef struct {
         pci_device_cache_t *parent;
-        uint32_t offset;
+        uint32_t            offset;
 } pci_device_reg_t;
 
 typedef struct {
         pci_device_cache_t *head;
-        size_t devices_count;
+        size_t              devices_count;
 } pci_devices_cache_t;
 
 /* PCI device finding */
@@ -124,20 +124,20 @@ typedef struct {
 typedef struct {
         pci_finding_type_t type;
         union {
-                pci_class_request_t class_req;
+                pci_class_request_t  class_req;
                 pci_device_request_t device_req;
         } req;
         volatile pci_finding_response_t *response; // Response pointer
 } pci_finding_request_t;
 
 typedef struct pci_usable_node {
-        pci_finding_request_t *request; // Pointer to the request
-        struct pci_usable_node *next;   // Pointer to the next node
+        pci_finding_request_t  *request; // Pointer to the request
+        struct pci_usable_node *next;    // Pointer to the next node
 } pci_usable_node_t;
 
 typedef struct {
-        pci_usable_node_t *head; // Head of the queue
-        size_t count;            // Number of requests in the queue
+        pci_usable_node_t *head;  // Head of the queue
+        size_t             count; // Number of requests in the queue
 } pci_usable_list_t;
 
 /* MCFG initialization */

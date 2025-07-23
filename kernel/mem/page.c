@@ -20,7 +20,7 @@
 #include "stdlib.h"
 #include "string.h"
 
-page_directory_t kernel_page_dir;
+page_directory_t  kernel_page_dir;
 page_directory_t *current_directory = 0;
 
 /* Page fault handling */
@@ -32,7 +32,7 @@ __attribute__((interrupt)) void page_fault_handle(interrupt_frame_t *frame, uint
     uint64_t faulting_address;
     __asm__ volatile("mov %%cr2, %0" : "=r"(faulting_address));
 
-    int present       = !(error_code & 0x1); // Page does not exist
+    int      present  = !(error_code & 0x1); // Page does not exist
     uint64_t rw       = error_code & 0x2;    // Read-only page is written
     uint64_t us       = error_code & 0x4;    // User mode writes to kernel page
     uint64_t reserved = error_code & 0x8;    // Write CPU reserved bits
@@ -94,8 +94,8 @@ void copy_page_table_iterative(page_table_t *source_table, page_table_t *new_tab
     struct StackFrame {
             page_table_t *source_table;
             page_table_t *new_table;
-            int level;
-            int i;
+            int           level;
+            int           i;
     } stack[32];
     int top      = -1;
     stack[++top] = (struct StackFrame) {source_table, new_table, level, 0};
@@ -111,11 +111,9 @@ void copy_page_table_iterative(page_table_t *source_table, page_table_t *new_tab
                 frame.new_table->entries[i].value = 0;
                 continue;
             }
-            page_table_t *source_next_level
-                = (page_table_t *)phys_to_virt(frame.source_table->entries[i].value & 0xfffffffffffff000);
-            page_table_t *new_next_level = page_table_create(&(frame.new_table->entries[i]));
-            frame.new_table->entries[i].value
-                = (uint64_t)new_next_level | (frame.source_table->entries[i].value & 0xfff);
+            page_table_t *source_next_level   = (page_table_t *)phys_to_virt(frame.source_table->entries[i].value & 0xfffffffffffff000);
+            page_table_t *new_next_level      = page_table_create(&(frame.new_table->entries[i]));
+            frame.new_table->entries[i].value = (uint64_t)new_next_level | (frame.source_table->entries[i].value & 0xfff);
             frame.i++;
             stack[++top] = frame;
             stack[++top] = (struct StackFrame) {
@@ -135,8 +133,8 @@ void free_page_table_iterative(page_table_t *table, int level)
     void *phys_addr;
     struct StackFrame {
             page_table_t *table;
-            int level;
-            int i;
+            int           level;
+            int           i;
     } stack[32];
     int top      = -1;
     stack[++top] = (struct StackFrame) {table, level, 0};
@@ -171,7 +169,7 @@ void free_page_table_iterative(page_table_t *table, int level)
 page_directory_t *clone_directory(page_directory_t *src)
 {
     page_directory_t *new_directory = malloc(sizeof(page_directory_t));
-    uint64_t frame                  = alloc_frames(1);
+    uint64_t          frame         = alloc_frames(1);
     if (frame == 0) {
         free(new_directory);
         return 0;
@@ -218,9 +216,7 @@ void switch_page_directory(page_directory_t *dir)
 /* Map a continuous section of physical memory to the virtual address space */
 void page_map_range_to(page_directory_t *directory, uint64_t frame, uint64_t length, uint64_t flags) // NOLINT
 {
-    for (uint64_t i = 0; i < length; i += 0x1000) {
-        page_map_to(directory, (uint64_t)phys_to_virt(frame + i), frame + i, flags);
-    }
+    for (uint64_t i = 0; i < length; i += 0x1000) { page_map_to(directory, (uint64_t)phys_to_virt(frame + i), frame + i, flags); }
 }
 
 /* Mapping random portions of non-contiguous physical memory into the virtual address space */
@@ -236,10 +232,10 @@ void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64
 /* Get the PAT configuration */
 pat_config_t get_pat_config(void)
 {
-    pat_config_t config      = {0};
-    const char *pat_types[8] = {"WB ", "WC ", "UC-", "UC ", "WB ", "WP ", "UC-", "WT "};
-    uint64_t pat_value       = rdmsr(MSR_IA32_PAT);
-    int pos                  = 0;
+    pat_config_t config       = {0};
+    const char  *pat_types[8] = {"WB ", "WC ", "UC-", "UC ", "WB ", "WP ", "UC-", "WT "};
+    uint64_t     pat_value    = rdmsr(MSR_IA32_PAT);
+    int          pos          = 0;
 
     for (int i = 0; i < 8; i++) {
         uint8_t entry = (pat_value >> (i * 8)) & 0xff;

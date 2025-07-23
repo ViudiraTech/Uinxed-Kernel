@@ -25,9 +25,9 @@ void bmp_analysis(bmp_t *bmp, uint32_t offset_x, uint32_t offset_y, int enable_t
     for (uint32_t y_offset = 0; y_offset < bmp->frame_height; ++y_offset) {
         for (uint32_t x_offset = 0; x_offset < bmp->frame_width; ++x_offset) {
             uint32_t pixel_offset = y_offset * row_bytes + x_offset * 3;
-            uint8_t b             = data[pixel_offset + 0];
-            uint8_t g             = data[pixel_offset + 1];
-            uint8_t r             = data[pixel_offset + 2];
+            uint8_t  b            = data[pixel_offset + 0];
+            uint8_t  g            = data[pixel_offset + 1];
+            uint8_t  r            = data[pixel_offset + 2];
             uint32_t color        = (r << 16) | (g << 8) | b;
 
             if (enable_transparency && color == 0) continue;

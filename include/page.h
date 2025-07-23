@@ -38,7 +38,7 @@ typedef struct {
 } page_directory_t;
 
 typedef struct {
-        char pat_str[64];
+        char    pat_str[64];
         uint8_t entries[8];
         uint8_t types[8];
 } pat_config_t;
