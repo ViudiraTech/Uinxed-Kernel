@@ -39,7 +39,7 @@ static void select_heap_space(size_t min_size)
             best_size  = usable_size;
         }
     }
-    if (best_start == 0) { printk_unsafe("No suitable heap region found (need %lld MiB)", heap_size / (uint64_t)(1024 * 1024)); }
+    if (best_start == 0) printk_unsafe("No suitable heap region found (need %lld MiB)", heap_size / (uint64_t)(1024 * 1024));
     heap_start = best_start;
     heap_size  = best_size / PAGE_SIZE * PAGE_SIZE;
 }
