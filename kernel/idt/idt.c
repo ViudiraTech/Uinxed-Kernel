@@ -28,7 +28,7 @@ void init_idt(void)
     plogk("idt: Loaded IDTR with base = %p, limit = %hu\n", idt_pointer.ptr, idt_pointer.size + 1);
 
     for (int i = 0; i < 256; i++) register_interrupt_handler(i, (void *)empty_handle[i], 0, 0x8e);
-    plogk("idt: Empty interrupt handler functions for 0-255 have been registered.\n");
+    plogk("idt: Empty handler functions for interrupt vectors 0-255 registered.\n");
 }
 
 /* NOLINTBEGIN(bugprone-easily-swappable-parameters) */

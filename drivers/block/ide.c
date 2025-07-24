@@ -147,7 +147,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
     /* Print device information */
     for (int i = 0; i < 4; i++)
         if (ide_devices[i].reserved == 1)
-            plogk("ide: Found %s Drive %u(MiB) - %s\n", ide_devices[i].type ? "ATAPI" : "ATA", ide_devices[i].size / 1024 / 2,
+            plogk("ide: Found %s Drive %u(KiB) - %s\n", ide_devices[i].type ? "ATAPI" : "ATA", (ide_devices[i].size * 512) / 1024,
                   ide_devices[i].model);
 }
 
