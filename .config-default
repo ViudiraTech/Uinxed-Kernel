@@ -17,11 +17,17 @@ CONFIG_KERNEL_LOG=y
 #
 
 #
-# Character devices
+# Character drivers
 #
 
 #
-# Serial drivers
+# Teletype drivers
+#
+CONFIG_TTY_DEFAULT_DEV="tty0"
+CONFIG_TTY_BUF_SIZE=4096
+
+#
+# Serial port drivers
 #
 CONFIG_SERIAL_BAUD_RATE=9600
 CONFIG_SERIAL_DATA_BITS=8

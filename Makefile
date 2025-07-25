@@ -41,6 +41,14 @@ ifneq ($(CONFIG_SERIAL_STOP_BITS),)
   C_CONFIG += -DSERIAL_STOP_BITS=$(CONFIG_SERIAL_STOP_BITS)
 endif
 
+ifneq ($(CONFIG_TTY_DEFAULT_DEV),)
+  C_CONFIG += -DTTY_DEFAULT_DEV=\"$(CONFIG_TTY_DEFAULT_DEV)\"
+endif
+
+ifneq ($(CONFIG_TTY_BUF_SIZE),)
+  C_CONFIG += -DTTY_BUF_SIZE=$(CONFIG_TTY_BUF_SIZE)
+endif
+
 C_SOURCES      := $(shell find * -name "*.c")
 S_SOURCES      := $(shell find * -name "*.s")
 HEADERS        := $(shell find * -name "*.h")
