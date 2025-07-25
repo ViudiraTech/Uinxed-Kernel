@@ -16,17 +16,16 @@
 #include "limine.h"
 #include "stdint.h"
 
-typedef struct {
-        gdt_entries_t  entries;
-        gdt_register_t pointer;
-} __attribute__((aligned(16))) gdt_t;
+#define KERNEL_STACK_SIZE 0x10000 // 64 KiB
+typedef uint8_t kernel_stack_t[KERNEL_STACK_SIZE];
 
 typedef struct {
-        uint64_t     id;
-        uint64_t     lapic_id;
-        gdt_t        gdt;
-        tss_stack_t *tss_stack;
-        tss_t       *tss;
+        uint64_t        id;
+        uint64_t        lapic_id;
+        gdt_t           gdt;
+        tss_stack_t    *tss_stack;
+        tss_t          *tss;
+        kernel_stack_t *kernel_stack;
 } cpu_processor_t;
 
 /* Send an IPI to all CPUs */
