@@ -17,6 +17,7 @@
 #include "stdint.h"
 
 #define KERNEL_STACK_SIZE 0x10000 // 64 KiB
+
 typedef uint8_t kernel_stack_t[KERNEL_STACK_SIZE];
 
 typedef struct {

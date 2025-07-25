@@ -87,11 +87,10 @@ char *get_boot_tty(void)
 void tty_buff_flush(void)
 {
     spin_lock(&tty_flush_spinlock);
-    tty_buff_ptr              = tty_buff;
-    const char *tty_device    = get_boot_tty();
-    int         tried_default = 0;
+    tty_buff_ptr           = tty_buff;
+    const char *tty_device = get_boot_tty();
 
-    while (1) {
+    for (int attempt = 0; attempt < 2; ++attempt) {
         if (!strcmp(tty_device, "tty0")) {
             tty_buff[TTY_BUF_SIZE - 1] = '\0';
             video_put_string(tty_buff);
@@ -109,13 +108,11 @@ void tty_buff_flush(void)
             while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_4, *tty_buff_ptr++);
             break;
         } else {
-            if (tried_default) break;
-            tty_device    = TTY_DEFAULT_DEV;
-            tried_default = 1;
+            tty_device = TTY_DEFAULT_DEV;
         }
     }
     tty_buff_ptr = tty_buff;
-    tty_buff[0]  = '\0'; // Clear buffer
+    tty_buff[0]  = '\0';
     spin_unlock(&tty_flush_spinlock);
 }
 

@@ -84,8 +84,9 @@ uint32_t lapic_read(uint32_t reg)
 /* Get the local APIC ID of the current processor */
 uint64_t lapic_id(void)
 {
-    if (x2apic_mode) { return rdmsr(0x800 + (LAPIC_REG_ID >> 4)); }
-    // Must be shifted to the right by 24 bits (refer to the Intel SDM Vol.3 Chapter.12.4.6)
+    if (x2apic_mode) return rdmsr(0x800 + (LAPIC_REG_ID >> 4));
+
+    /* Must be shifted to the right by 24 bits (refer to the Intel SDM Vol.3 Chapter.12.4.6) */
     return lapic_read(LAPIC_REG_ID) >> 24;
 }
 
@@ -193,7 +194,7 @@ void apic_init(madt_t *madt)
             case MADT_APIC_IO_INT : // TODO: Implement IO/APIC interrupt source override
             case MADT_APIC_IO_NMI : // TODO: Implement IO/APIC Non-maskable interrupt source
             default :
-                // Unhandled MADT entry type (Maybe it's reserved)
+                /* Unhandled MADT entry type (Maybe it's reserved) */
                 break;
         }
         current += header->length;

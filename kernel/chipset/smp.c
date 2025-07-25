@@ -179,7 +179,7 @@ void ap_entry(struct limine_smp_info *info)
 
     /* TODO: Implement the scheduler loop */
     enable_intr();
-    while (1) { __asm__ volatile("hlt"); }
+    while (1) __asm__ volatile("hlt");
 
     /* Shouldn't reach here */
     panic("AP %d scheduler exited.", cpu->id);
