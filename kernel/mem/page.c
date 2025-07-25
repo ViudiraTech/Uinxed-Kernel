@@ -213,13 +213,19 @@ void switch_page_directory(page_directory_t *dir)
     __asm__ volatile("mov %0, %%cr3" ::"r"(physical_table));
 }
 
-/* Map a continuous section of physical memory to the virtual address space */
+/* Maps a contiguous physical memory range to the specified virtual address range */
+void page_map_range(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t length, uint64_t flags) // NOLINT
+{
+    for (uint64_t i = 0; i < length; i += 0x1000) page_map_to(directory, (uint64_t)addr + i, frame + i, flags);
+}
+
+/* Maps a contiguous physical memory range to virtual memory */
 void page_map_range_to(page_directory_t *directory, uint64_t frame, uint64_t length, uint64_t flags) // NOLINT
 {
     for (uint64_t i = 0; i < length; i += 0x1000) page_map_to(directory, (uint64_t)phys_to_virt(frame + i), frame + i, flags);
 }
 
-/* Mapping random portions of non-contiguous physical memory into the virtual address space */
+/* Maps random non-contiguous physical pages to the virtual address range */
 void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags) // NOLINT
 {
     uint64_t frame = 0;
