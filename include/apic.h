@@ -15,12 +15,15 @@
 #include "acpi.h"
 #include "stdint.h"
 
-#define MADT_APIC_CPU 0x00
-#define MADT_APIC_IO  0x01
-#define MADT_APIC_INT 0x02
-#define MADT_APIC_NMI 0x03
+#define MADT_APIC_LOCAL_CPU    0x00
+#define MADT_APIC_IO           0x01
+#define MADT_APIC_IO_INT       0x02
+#define MADT_APIC_IO_NMI       0x03
+#define MADT_APIC_LOCAL_NMI    0x04
+#define MADT_APIC_LOCAL_ADDR   0x05
+#define MADT_APIC_LOCAL_X2_CPU 0x09
 
-#define LAPIC_REG_ID            32
+#define LAPIC_REG_ID            0x20
 #define LAPIC_REG_TIMER_CURCNT  0x390
 #define LAPIC_REG_TIMER_INITCNT 0x380
 #define LAPIC_REG_TIMER         0x320
@@ -73,7 +76,21 @@ typedef struct {
         uint8_t       acpi_processor_uid;
         uint8_t       local_apic_id;
         uint32_t      flags;
-} madt_local_apic_t;
+} __attribute__((packed)) madt_local_apic_t;
+
+typedef struct {
+        madt_header_t header;
+        uint16_t      reserved;
+        uint64_t      address;
+} __attribute__((packed)) madt_local_apic_addr_t;
+
+typedef struct {
+        madt_header_t header;
+        uint16_t      reserved;
+        uint32_t      local_x2_apic_id;
+        uint32_t      flags;
+        uint32_t      acpi_processor_uid;
+} __attribute__((packed)) madt_local_x2_cpu_t;
 
 typedef struct {
         uint8_t  vector;
