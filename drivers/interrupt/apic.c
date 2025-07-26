@@ -94,7 +94,7 @@ uint64_t lapic_id(void)
 void local_apic_init(void)
 {
     x2apic_mode = (smp_request.response->flags & 1) != 0;
-    plogk("apic: LAPIC = %s\n", x2apic_mode ? "x2APIC" : "xAPIC");
+    plogk("apic: Local APIC: %s\n", x2apic_mode ? "x2APIC" : "xAPIC");
 
     lapic_write(LAPIC_REG_SPURIOUS, 0xff | 1 << 8);
     lapic_write(LAPIC_REG_TIMER, IRQ_0);
@@ -160,7 +160,7 @@ void send_ipi(uint32_t apic_id, uint32_t command)
 void apic_init(madt_t *madt)
 {
     lapic_ptr.ptr = phys_to_virt(madt->local_apic_address);
-    plogk("apic: LAPIC Base address %p\n", lapic_ptr.ptr);
+    plogk("apic: Local APIC base address %p\n", lapic_ptr.ptr);
 
     uint8_t *entries_base = (uint8_t *)&madt->entries;
     size_t   current      = 0;
@@ -170,24 +170,24 @@ void apic_init(madt_t *madt)
         switch (header->entry_type) {
             case MADT_APIC_LOCAL_CPU : {
                 madt_local_apic_t *cpu = (madt_local_apic_t *)(entries_base + current);
-                plogk("apic: Local APIC ID %d, ACPI Processor UID %d, Flags %x\n", cpu->local_apic_id, cpu->acpi_processor_uid, cpu->flags);
+                plogk("apic: Local APIC id %u, ACPI processor uid %u, Flags %x\n", cpu->local_apic_id, cpu->acpi_processor_uid, cpu->flags);
                 break;
             }
             case MADT_APIC_IO : {
                 madt_io_apic_t *ioapic = (madt_io_apic_t *)(entries_base + current);
                 ioapic_ptr.ptr         = phys_to_virt(ioapic->address);
-                plogk("apic: IOAPIC Found at %p\n", ioapic_ptr.ptr);
+                plogk("apic: IOAPIC found at %p\n", ioapic_ptr.ptr);
                 break;
             }
             case MADT_APIC_LOCAL_ADDR : {
                 madt_local_apic_addr_t *addr = (madt_local_apic_addr_t *)(entries_base + current);
                 lapic_ptr.ptr                = phys_to_virt(addr->address);
-                plogk("apic: Local APIC Address is overwritten as %p\n", lapic_ptr);
+                plogk("apic: Local APIC address is overwritten as %p\n", lapic_ptr);
                 break;
             }
             case MADT_APIC_LOCAL_X2_CPU : {
                 madt_local_x2_cpu_t *x2cpu = (madt_local_x2_cpu_t *)(entries_base + current);
-                plogk("apic: Local X2 APIC ID %d, ACPI Processor UID %d, Flags %x\n", x2cpu->local_x2_apic_id, x2cpu->acpi_processor_uid,
+                plogk("apic: Local X2 APIC id %u, ACPI processor uid %u, Flags %x\n", x2cpu->local_x2_apic_id, x2cpu->acpi_processor_uid,
                       x2cpu->flags);
                 break;
             }
