@@ -240,6 +240,6 @@ void smp_init(void)
     /* Wait for all APs to be ready */
     while (ap_ready_count < cpu_count - 1) __asm__ volatile("pause");
     for (size_t i = 0; i < cpu_count; i++)
-        plogk("smp: CPU %u: tss_stack = %p, kernel_stack = %p\n", cpus[i].id, cpus[i].tss_stack, cpus[i].kernel_stack);
+        plogk("smp: CPU %03u: tss_stack = %p, kernel_stack = %p\n", cpus[i].id, cpus[i].tss_stack, cpus[i].kernel_stack);
     plogk("smp: All APs are up, total %llu CPUs.\n", cpu_count);
 }

@@ -170,7 +170,7 @@ void apic_init(madt_t *madt)
         switch (header->entry_type) {
             case MADT_APIC_LOCAL_CPU : {
                 madt_local_apic_t *cpu = (madt_local_apic_t *)(entries_base + current);
-                plogk("apic: Local APIC id %u, ACPI processor uid %u, Flags %x\n", cpu->local_apic_id, cpu->acpi_processor_uid, cpu->flags);
+                plogk("apic: Local APIC id %03u, ACPI processor uid %03u, Flags %x\n", cpu->local_apic_id, cpu->acpi_processor_uid, cpu->flags);
                 break;
             }
             case MADT_APIC_IO : {
@@ -187,7 +187,7 @@ void apic_init(madt_t *madt)
             }
             case MADT_APIC_LOCAL_X2_CPU : {
                 madt_local_x2_cpu_t *x2cpu = (madt_local_x2_cpu_t *)(entries_base + current);
-                plogk("apic: Local X2 APIC id %u, ACPI processor uid %u, Flags %x\n", x2cpu->local_x2_apic_id, x2cpu->acpi_processor_uid,
+                plogk("apic: Local X2 APIC id %03u, ACPI processor uid %03u, Flags %x\n", x2cpu->local_x2_apic_id, x2cpu->acpi_processor_uid,
                       x2cpu->flags);
                 break;
             }
