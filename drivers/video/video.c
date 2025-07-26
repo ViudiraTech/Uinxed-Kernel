@@ -21,7 +21,7 @@ extern uint8_t ascii_font[]; // Fonts
 uint64_t  width;  // Screen width
 uint64_t  height; // Screen height
 uint64_t  stride; // Frame buffer line spacing
-uint32_t *buffer; // Video Memory (We think BPP is 32. Tf BPP is other value, you have to change it)
+uint32_t *buffer; // Video Memory (We think BPP is 32. If BPP is other value, you have to change it)
 
 uint32_t x, y;              // The current absolute cursor position
 uint32_t cx, cy;            // The character position of the current cursor
