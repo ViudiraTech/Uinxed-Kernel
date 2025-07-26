@@ -733,7 +733,7 @@ static void slot_process_legacy(pci_device_cache_t *cache)
 static void slot_process_mcfg(pci_device_cache_t *cache)
 {
     pci_device_t *device = cache->device;
-    mcfg_entry_t *entry  = mcfg_search_entry(device->bus);
+    mcfg_entry_t *entry  = cache->entry;
     if (entry == 0) return;
     pci_device_ecam_t ecam = mcfg_update_ecam(entry, cache);
     cache->ecam            = ecam;
@@ -769,17 +769,40 @@ static void slot_process(pci_device_cache_t *device)
     pci_ops.slot_process(device);
 }
 
+/* A helper type to save bus range */
+typedef struct {
+        uint16_t start;
+        uint16_t end;
+} bus_range_t;
+
+/* Iterate over bus by a range */
+static void pci_iter_bus_range(pci_device_cache_t *cache, bus_range_t bus_range)
+{
+    pci_device_t *device = cache->device;
+    for (device->bus = bus_range.start; device->bus < bus_range.end; device->bus++) {
+        for (device->slot = 0; device->slot < 32; device->slot++) slot_process(cache);
+    }
+}
+
 /* Flush the PCI devices cache */
 void pci_flush_devices_cache(void)
 {
     pci_free_devices_cache();
-    pci_device_t       curr_device = {0, 0, 0};
+    pci_device_t       curr_device = {0, 0, 0, 0};
     pci_device_cache_t curr_cache  = {
-        &curr_device, 0, 0, 0, 0, 0, 0, {0, 0, 0, 0, 0},
+        &curr_device, 0, 0, 0, 0, 0, 0, 0, {0, 0, 0, 0, 0},
     };
 
-    for (curr_device.bus = 0; curr_device.bus < 256; curr_device.bus++) {
-        for (curr_device.slot = 0; curr_device.slot < 32; curr_device.slot++) slot_process(&curr_cache);
+    if (!mcfg_info.enabled) {
+        curr_device.domain = 0;
+        pci_iter_bus_range(&curr_cache, (bus_range_t) {0, 256});
+    } else {
+        for (size_t i = 0; i < mcfg_info.count; i++) {
+            mcfg_entry_t *entry = &mcfg_info.mcfg->entries[i];
+            curr_cache.entry    = entry;
+            curr_device.domain  = entry->segment;
+            pci_iter_bus_range(&curr_cache, (bus_range_t) {entry->start_bus, entry->end_bus + 1});
+        }
     }
     pci_update_usable_list();
 }
@@ -816,15 +839,15 @@ void pci_init(void)
     pci_device_cache_t *cache  = pci_cache.head;
     pci_device_t       *device = 0;
 
-    if (pci_ops.slot_process == slot_process_legacy)
+    if (!mcfg_info.enabled)
         plogk("pci: Using legacy PCI mode.\n");
-    else if (pci_ops.slot_process == slot_process_mcfg)
+    else
         plogk("pci: Using MCFG PCI mode.\n");
 
     while (cache != 0) {
         device = cache->device;
-        plogk("pci: %03d:%02d.%01d: [0x%04x:0x%04x] %s\n", device->bus, device->slot, device->func, cache->vendor_id, cache->device_id,
-              pci_classname(cache->class_code));
+        plogk("pci: %04x:%02x:%02x.%01x: [0x%04x:0x%04x] %s\n", device->domain, device->bus, device->slot, device->func, cache->vendor_id,
+              cache->device_id, pci_classname(cache->class_code));
         cache = cache->next;
     }
     plogk("pci: Found %lu devices.\n", pci_cache.devices_count);
