@@ -769,12 +769,6 @@ static void slot_process(pci_device_cache_t *device)
     pci_ops.slot_process(device);
 }
 
-/* A helper type to save bus range */
-typedef struct {
-        uint16_t start;
-        uint16_t end;
-} bus_range_t;
-
 /* Iterate over bus by a range */
 static void pci_iter_bus_range(pci_device_cache_t *cache, bus_range_t bus_range)
 {

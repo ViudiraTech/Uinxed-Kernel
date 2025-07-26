@@ -142,6 +142,11 @@ typedef struct {
         size_t             count; // Number of requests in the queue
 } pci_usable_list_t;
 
+typedef struct {
+        uint16_t start;
+        uint16_t end;
+} bus_range_t;
+
 /* MCFG initialization */
 void mcfg_init(mcfg_t *mcfg);
 
