@@ -45,6 +45,7 @@ typedef struct {
 } base_address_register_t;
 
 typedef struct {
+        uint16_t domain;
         uint16_t bus;
         uint16_t slot;
         uint16_t func;
@@ -76,6 +77,7 @@ typedef struct {
 /* PCI cached searching */
 typedef struct pci_device_cache {
         pci_device_t            *device;
+        mcfg_entry_t            *entry;
         uint32_t                 value_c;
         uint32_t                 vendor_id;
         uint32_t                 device_id;
@@ -142,9 +144,6 @@ typedef struct {
 
 /* MCFG initialization */
 void mcfg_init(mcfg_t *mcfg);
-
-/* Search MCFG entry by bus */
-mcfg_entry_t *mcfg_search_entry(uint16_t bus);
 
 /* Get ECAM address of register */
 void *mcfg_ecam_addr(mcfg_entry_t *entry, pci_device_reg_t reg);

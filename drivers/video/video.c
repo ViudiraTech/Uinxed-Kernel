@@ -21,7 +21,7 @@ extern uint8_t ascii_font[]; // Fonts
 uint64_t  width;  // Screen width
 uint64_t  height; // Screen height
 uint64_t  stride; // Frame buffer line spacing
-uint32_t *buffer; // Video Memory
+uint32_t *buffer; // Video Memory (We think BPP is 32. Tf BPP is other value, you have to change it)
 
 uint32_t x, y;              // The current absolute cursor position
 uint32_t cx, cy;            // The character position of the current cursor
@@ -62,6 +62,29 @@ video_info_t video_get_info(void)
     return info;
 }
 
+/* Convert color to fb_color */
+uint32_t color_to_fb_color(color_t color)
+{
+    struct limine_framebuffer *fb = get_framebuffer();
+
+    uint32_t fb_red   = COLOR_MASK(color.red, fb->red_mask_size, fb->red_mask_shift);       // Red
+    uint32_t fb_green = COLOR_MASK(color.green, fb->green_mask_size, fb->green_mask_shift); // Blue
+    uint32_t fb_blue  = COLOR_MASK(color.blue, fb->blue_mask_size, fb->blue_mask_shift);    // Green
+    uint32_t fb_color = fb_red | fb_green | fb_blue;
+    return fb_color;
+}
+
+/* Convert fb_color to color */
+color_t fb_color_to_color(uint32_t fb_color)
+{
+    struct limine_framebuffer *fb = get_framebuffer();
+
+    uint32_t red   = COLOR_UNMASK(fb_color, fb->red_mask_size, fb->red_mask_shift);     // Red
+    uint32_t green = COLOR_UNMASK(fb_color, fb->green_mask_size, fb->green_mask_shift); // Blue
+    uint32_t blue  = COLOR_UNMASK(fb_color, fb->blue_mask_size, fb->blue_mask_shift);   // Green
+    return (color_t) {red, green, blue};
+}
+
 /* Get the frame buffer */
 struct limine_framebuffer *get_framebuffer(void)
 {
@@ -82,28 +105,28 @@ void video_init(void)
     c_width         = width / 9;
     c_height        = height / 16;
 
-    fore_color = 0xaaaaaa;
-    back_color = 0x000000;
+    fore_color = color_to_fb_color((color_t) {0xaa, 0xaa, 0xaa});
+    back_color = color_to_fb_color((color_t) {0x00, 0x00, 0x00});
     video_clear();
 }
 
 /* Clear screen */
 void video_clear(void)
 {
-    for (uint32_t i = 0; i < (stride * height); i++) buffer[i] = 0x000000;
-    back_color = 0x000000;
-    x          = 2;
-    y          = 0;
+    back_color = color_to_fb_color((color_t) {0x00, 0x00, 0x00});
+    for (uint32_t i = 0; i < (stride * height); i++) buffer[i] = back_color;
+    x  = 2;
+    y  = 0;
     cx = cy = 0;
 }
 
 /* Clear screen with color */
 void video_clear_color(uint32_t color)
 {
-    for (uint32_t i = 0; i < (stride * height); i++) buffer[i] = color;
     back_color = color;
-    x          = 2;
-    y          = 0;
+    for (uint32_t i = 0; i < (stride * height); i++) buffer[i] = back_color;
+    x  = 2;
+    y  = 0;
     cx = cy = 0;
 }
 
