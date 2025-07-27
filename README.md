@@ -153,16 +153,84 @@ A: Make sure clang-tidy is installed, and then execute make check as follows:
 make check
 ```
 
-## Contribution Guidelines 🤝
+## Contribution Guide 🤝
 
-Contributions are welcome! Please follow the steps below:
+We welcome contributions to this project! To ensure a smooth workflow, please follow the steps below to contribute code to the develop branch:
 
-1. Fork the project repository.
-2. Contribute your code or modifications.
-3. Ensure there are no obvious issues.
-4. Format the code.
-5. Submit a Pull Request.
-6. Wait for code review and merging.
+### 1.Fork the Repository
+
+- Fork the repository from the project's main GitHub page.
+
+### 2.Clone the Repository
+
+- Clone your forked repository to your local machine:
+
+```bash
+git clone https://github.com/your-username/your-repository.git
+cd your-repository
+```
+
+### 3.Switch to the develop Branch
+
+- Make sure you're on the develop branch to work on new features and improvements:
+
+```bash
+git checkout develop
+```
+
+### 4.Develop Your Code
+
+- Start coding! Make the necessary changes or add new features in your develop branch.
+- Be sure to test your code and fix any bugs before proceeding.
+
+### 5.Stage Your Changes
+
+- After making your changes, stage them using:
+
+```bash
+git add .
+```
+
+### 6.Commit Your Changes
+
+- Commit your changes with a clear and descriptive message:
+
+```bash
+git commit -m "Describe the changes or features you've implemented."
+```
+
+### 7.Push Your Changes to the Remote develop Branch
+
+- Push your local develop branch to your remote fork:
+
+```bash
+git push origin develop
+```
+
+### 8.Create a Pull Request
+
+- Visit your GitHub repository and create a Pull Request (PR).
+- Make sure the base branch is set to develop (not master).
+- Fill in the PR description clearly, outlining the changes you've made.
+- Submit the PR for review.
+
+### 9.Code Review and Merging
+
+- Wait for the project maintainers to review your code. They may provide feedback or request changes.
+- Once the code is reviewed and approved, it will be merged into the develop branch.
+
+### 10. **Update Your develop Branch**
+
+- After your PR is merged, pull the latest changes from develop to keep your local repository up to date:
+
+```bash
+git pull origin develop
+```
+
+### Important Notes:
+
+- All development work should be done on the develop branch.
+- The master branch is reserved for stable, production-ready versions. Do not submit changes directly to master.
 
 ## Submit an issue ❓
 
