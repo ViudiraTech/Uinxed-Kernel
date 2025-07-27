@@ -79,6 +79,6 @@ menu "Device drivers"
         help
           "Number of stop bits per character for the serial port device."
 
-   endmenu
+    endmenu
   endmenu
 endmenu
