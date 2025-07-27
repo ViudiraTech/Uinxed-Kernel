@@ -1,7 +1,7 @@
 # =====================================================
 #
 #      Makefile
-#      Uinxed compile script
+#      Uinxed-Kernel compile script
 #
 #      2024/6/23 By Rainy101112
 #      Based on GPL-3.0 open source agreement
@@ -25,8 +25,28 @@ else
   Q=@
 endif
 
+ifneq ($(CONFIG_KERNEL_NAME),)
+  C_CONFIG += -DKERNEL_NAME=\"$(CONFIG_KERNEL_NAME)\"
+endif
+
+ifneq ($(CONFIG_KERNEL_VERSION),)
+  C_CONFIG += -DKERNEL_VERSION=\"$(CONFIG_KERNEL_VERSION)\"
+endif
+
 ifeq ($(CONFIG_KERNEL_LOG), y)
   C_CONFIG += -DKERNEL_LOG
+endif
+
+ifneq ($(CONFIG_MAX_CPU_COUNT),)
+  C_CONFIG += -DMAX_CPU_COUNT=$(CONFIG_MAX_CPU_COUNT)
+endif
+
+ifneq ($(CONFIG_TTY_DEFAULT_DEV),)
+  C_CONFIG += -DTTY_DEFAULT_DEV=\"$(CONFIG_TTY_DEFAULT_DEV)\"
+endif
+
+ifneq ($(CONFIG_TTY_BUF_SIZE),)
+  C_CONFIG += -DTTY_BUF_SIZE=$(CONFIG_TTY_BUF_SIZE)
 endif
 
 ifneq ($(CONFIG_SERIAL_BAUD_RATE),)
@@ -39,14 +59,6 @@ endif
 
 ifneq ($(CONFIG_SERIAL_STOP_BITS),)
   C_CONFIG += -DSERIAL_STOP_BITS=$(CONFIG_SERIAL_STOP_BITS)
-endif
-
-ifneq ($(CONFIG_TTY_DEFAULT_DEV),)
-  C_CONFIG += -DTTY_DEFAULT_DEV=\"$(CONFIG_TTY_DEFAULT_DEV)\"
-endif
-
-ifneq ($(CONFIG_TTY_BUF_SIZE),)
-  C_CONFIG += -DTTY_BUF_SIZE=$(CONFIG_TTY_BUF_SIZE)
 endif
 
 C_SOURCES      := $(shell find * -name "*.c")

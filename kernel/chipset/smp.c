@@ -195,12 +195,12 @@ void smp_init(void)
         return;
     }
 
-    plogk("smp: Found %d CPUs.\n", smp->cpu_count);
-    cpu_count = smp->cpu_count;
+    cpu_count = (!MAX_CPU_COUNT) ? smp->cpu_count : (smp->cpu_count > MAX_CPU_COUNT ? MAX_CPU_COUNT : smp->cpu_count);
     cpus      = (cpu_processor_t *)malloc(sizeof(cpu_processor_t) * cpu_count);
+    plogk("smp: Found %d CPUs.\n", cpu_count);
 
     /* Init BootStrap Processor */
-    for (uint32_t i = 0; i < smp->cpu_count; i++) {
+    for (uint32_t i = 0; i < cpu_count; i++) {
         struct limine_smp_info *cpu = smp->cpus[i];
         cpus[i].id                  = i;
         cpus[i].lapic_id            = cpu->lapic_id;

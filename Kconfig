@@ -1,13 +1,39 @@
 mainmenu "Uinxed-Kernel"
 
 menu "General setup"
-  menu "Kernel debugging"
 
-    config KERNEL_LOG
-      bool "Kernel runtime logging output"
-      default y
+  config KERNEL_NAME
+    string "Default kernel name"
+    default "Uinxed-Kernel"
+    help
+      "Set the default name of the kernel."
+
+  config KERNEL_VERSION
+    string "Kernel version"
+    default "0.0.250728"
+    help
+      "Set the version number of the kernel."
+
+endmenu
+
+menu "Kernel debugging"
+
+  config KERNEL_LOG
+    bool "Kernel runtime logging output"
+    default y
+    help
+      "Outputs kernel log messages during system runtime to aid monitoring and debugging."
+
+endmenu
+
+menu "Processor configuration"
+  menu "Symmetric multi-processing"
+
+    config MAX_CPU_COUNT
+      int "Maximum number of CPUs"
+      default 0
       help
-        "Outputs kernel log messages during system runtime to aid monitoring and debugging."
+        "Limits the maximum number of CPUs the kernel can use, set to 0 for no limit."
 
   endmenu
 endmenu
@@ -53,6 +79,6 @@ menu "Device drivers"
         help
           "Number of stop bits per character for the serial port device."
 
-    endmenu
+   endmenu
   endmenu
 endmenu

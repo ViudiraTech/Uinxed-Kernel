@@ -6,11 +6,22 @@
 #
 # General setup
 #
+CONFIG_KERNEL_NAME="Uinxed-Kernel"
+CONFIG_KERNEL_VERSION="0.0.250728"
 
 #
 # Kernel debugging
 #
 CONFIG_KERNEL_LOG=y
+
+#
+# Processor configuration
+#
+
+#
+# Symmetric multi-processing
+#
+CONFIG_MAX_CPU_COUNT=0
 
 #
 # Device drivers

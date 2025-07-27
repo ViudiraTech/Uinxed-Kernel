@@ -14,10 +14,6 @@
 
 #include "stdint.h"
 
-#define COLOR_SIZE_MASK(size)               ((1 << (size)) - 1)
-#define COLOR_MASK(color, size, shift)      (((color) & COLOR_SIZE_MASK(size)) << (shift))
-#define COLOR_UNMASK(fb_color, size, shift) (((fb_color) >> (shift)) & COLOR_SIZE_MASK(size))
-
 typedef struct {
         uint8_t red;
         uint8_t green;
@@ -49,12 +45,6 @@ typedef struct {
         uint64_t  edid_size;         // EDID data size
         void     *edid;              // EDID data pointer
 } video_info_t;
-
-/* Convert color to fb_color */
-uint32_t color_to_fb_color(color_t color);
-
-/* Convert fb_color to color */
-color_t fb_color_to_color(uint32_t fb_color);
 
 /* Get video information */
 video_info_t video_get_info(void);

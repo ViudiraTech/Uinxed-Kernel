@@ -1,7 +1,7 @@
 /*
  *
  *      main.c
- *      Uinxed kernel entry
+ *      Uinxed-kernel entry
  *
  *      2024/6/23 By MicroFish
  *      Based on GPL-3.0 open source agreement
@@ -57,7 +57,7 @@ void kernel_entry(void)
 
     video_info_t fbinfo = video_get_info();
 
-    plogk("Uinxed version %s (%s version %s) #1 SMP %s %s\n", KERNL_VERS, COMPILER_NAME, COMPILER_VERSION, BUILD_DATE, BUILD_TIME);
+    plogk("%s version %s (%s version %s) SMP %s %s\n", KERNEL_NAME, KERNEL_VERSION, COMPILER_NAME, COMPILER_VERSION, BUILD_DATE, BUILD_TIME);
     plogk("fb0: Base address %p, Size %lu KiB.\n", fbinfo.framebuffer, (fbinfo.width * fbinfo.height * fbinfo.bpp) / (uint64_t)(8 * 1024));
     plogk("fb0: Mode %lux%lu @ %ubpp.\n", fbinfo.width, fbinfo.height, fbinfo.bpp);
     plogk("fb0: Color map: RGB, Mask bits R:%u G:%u B:%u\n", fbinfo.red_mask_size, fbinfo.green_mask_size, fbinfo.blue_mask_size);
