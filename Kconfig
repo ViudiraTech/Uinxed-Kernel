@@ -1,21 +1,5 @@
 mainmenu "Uinxed-Kernel"
 
-menu "General setup"
-
-  config KERNEL_NAME
-    string "Default kernel name"
-    default "Uinxed-Kernel"
-    help
-      "Set the default name of the kernel."
-
-  config KERNEL_VERSION
-    string "Kernel version"
-    default "0.0.250728"
-    help
-      "Set the version number of the kernel."
-
-endmenu
-
 menu "Kernel debugging"
 
   config KERNEL_LOG
