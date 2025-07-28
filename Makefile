@@ -26,7 +26,9 @@ else
 endif
 
 ifeq ($(CONFIG_KERNEL_LOG), y)
-  C_CONFIG += -DKERNEL_LOG
+  C_CONFIG += -DKERNEL_LOG=1
+else
+  C_CONFIG += -DKERNEL_LOG=0
 endif
 
 ifneq ($(CONFIG_MAX_CPU_COUNT),)

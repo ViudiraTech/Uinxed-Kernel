@@ -15,6 +15,10 @@
 #include "stdarg.h"
 #include "stdint.h"
 
+#ifndef KERNEL_LOG
+#    define KERNEL_LOG 1
+#endif
+
 typedef enum {
     OFLOW_AT_FMTARG,
     OFLOW_AT_FMTSTR,

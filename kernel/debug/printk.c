@@ -71,7 +71,7 @@ void printk_unsafe(const char *format, ...)
 /* Kernel print log with overflow check */
 void plogk_unsafe(const char *format, ...)
 {
-#ifdef KERNEL_LOG
+#if KERNEL_LOG
     spin_lock(&plogk_lock); // Lock
     printk_unsafe("[%5d.%06d] ", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
     static char buff[2048];
@@ -89,7 +89,7 @@ void plogk_unsafe(const char *format, ...)
 /* Kernel print log */
 void plogk(const char *format, ...)
 {
-#ifdef KERNEL_LOG
+#if KERNEL_LOG
     spin_lock(&plogk_lock); // Lock
     printk("[%5d.%06d] ", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
     static char        buff[BUF_SIZE];

@@ -6,7 +6,7 @@ menu "Kernel debugging"
     bool "Kernel runtime logging output"
     default y
     help
-      "Outputs kernel log messages during system runtime to aid monitoring and debugging."
+      "Outputs kernel log messages during system runtime to aid the monitoring and debugging."
 
 endmenu
 
