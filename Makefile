@@ -25,14 +25,6 @@ else
   Q=@
 endif
 
-ifneq ($(CONFIG_KERNEL_NAME),)
-  C_CONFIG += -DKERNEL_NAME=\"$(CONFIG_KERNEL_NAME)\"
-endif
-
-ifneq ($(CONFIG_KERNEL_VERSION),)
-  C_CONFIG += -DKERNEL_VERSION=\"$(CONFIG_KERNEL_VERSION)\"
-endif
-
 ifeq ($(CONFIG_KERNEL_LOG), y)
   C_CONFIG += -DKERNEL_LOG
 endif
