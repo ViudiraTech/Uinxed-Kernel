@@ -165,7 +165,7 @@ void ap_entry(struct limine_smp_info *info)
     /* Set kernel stack */
     cast.val         = 0;
     cast.ptr         = cpu->kernel_stack;
-    cpu->tss->rsp[0] = ALIGN_DOWN(cast.val + sizeof(kernel_stack_t), 16);
+    cpu->tss->rsp[0] = ALIGN_DOWN((uint64_t)cast.val + sizeof(kernel_stack_t), 16);
 
     /* Initializing the IDT */
     __asm__ volatile("lidt %0" ::"m"(idt_pointer) : "memory");
@@ -214,7 +214,7 @@ void smp_init(void)
             cpus[i].tss       = &tss0;
             pointer_cast_t cast;
             cast.ptr = cpus[i].kernel_stack;
-            set_kernel_stack(ALIGN_DOWN(cast.val + sizeof(kernel_stack_t), 16));
+            set_kernel_stack(ALIGN_DOWN((uint64_t)cast.val + sizeof(kernel_stack_t), 16));
             continue;
         } else {
             /* Allocate TSS Stack for each CPU */

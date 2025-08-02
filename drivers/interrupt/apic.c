@@ -75,7 +75,7 @@ void lapic_write(uint32_t reg, uint32_t value)
 /* Read local APIC register */
 uint32_t lapic_read(uint32_t reg)
 {
-    if (x2apic_mode) return rdmsr(0x800 + (reg >> 4));
+    if (x2apic_mode) return (uint32_t)rdmsr(0x800 + (reg >> 4));
     pointer_cast_t reg_ptr;
     reg_ptr.val = lapic_ptr.val + reg;
     return mmio_read32(reg_ptr.ptr);
