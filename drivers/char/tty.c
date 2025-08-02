@@ -17,9 +17,11 @@
 #include "stdlib.h"
 #include "string.h"
 #include "video.h"
+#include <stdint.h>
 
-static char           boot_tty_buf[16]       = {0}; // Persistent Buffer
-static char          *boot_tty               = 0;
+static char           boot_tty_str_buf[16]   = {0}; // Persistent Buffer
+tty_device_t          boot_tty               = {0, 0};
+tty_device_t         *boot_tty_ptr           = 0;
 static char           tty_buff[TTY_BUF_SIZE] = {0};
 static volatile char *tty_buff_ptr           = tty_buff;
 
@@ -45,13 +47,72 @@ static int arg_parse(char *arg_str, char **argv, char delim)
     return argc;
 }
 
-/* Obtain the tty number provided at startup */
-char *get_boot_tty(void)
+tty_device_t parse_boot_tty_str(char *boot_tty_str)
 {
-    if (boot_tty) return boot_tty;
+    tty_device_t  tty_dev = {0, 0};
+    parse_state_t state   = MET_NOTHING;
+
+    char   type_str[16] = {0};
+    char   port_str[16] = {0};
+    char  *type_str_ptr = type_str;
+    char  *port_str_ptr = port_str;
+    char  *input_ptr    = boot_tty_str;
+    char **write_ptr    = 0;
+
+    // Example: ttyS0, tty0
+    while (*input_ptr) {
+        switch (state) {
+            case MET_NOTHING : {
+                if (IS_ALPHA(*input_ptr)) {
+                    state     = MET_TYPE;
+                    write_ptr = &type_str_ptr;
+                }
+                break;
+            }
+            case MET_TYPE : {
+                if ((uintptr_t)(*write_ptr - type_str) >= sizeof(type_str)) { write_ptr = 0; }
+                write_ptr = &type_str_ptr;
+                if (!IS_ALPHA(*input_ptr)) { write_ptr = 0; }
+                if (IS_DIGIT(*input_ptr)) {
+                    state     = MET_PORT;
+                    write_ptr = &port_str_ptr;
+                }
+                break;
+            }
+            case MET_PORT : {
+                if ((uintptr_t)(*write_ptr - port_str) >= sizeof(port_str)) { write_ptr = 0; }
+                write_ptr = &port_str_ptr;
+                if (!IS_DIGIT(*input_ptr)) { write_ptr = 0; }
+                break;
+            }
+        }
+        if (write_ptr) {
+            **write_ptr = *input_ptr;
+            (*write_ptr)++;
+        }
+        input_ptr++;
+    }
+    if (!strcmp(type_str, "tty")) {
+        tty_dev.type = TTY_DEVICE_VGA;
+    } else if (!strcmp(type_str, "ttyS")) {
+        tty_dev.type = TTY_DEVICE_SERIAL;
+    }
+    tty_dev.port = atoi(port_str);
+    return tty_dev;
+}
+
+/* Obtain the tty device provided at startup */
+tty_device_t *get_boot_tty(void)
+{
+    if (boot_tty_ptr) return boot_tty_ptr;
+
+    // Parse default boot_tty string
+    char *boot_tty_str = TTY_DEFAULT_DEV;
+    boot_tty           = parse_boot_tty_str(boot_tty_str);
+    boot_tty_ptr       = &boot_tty;
 
     const char *cmdline = get_cmdline();
-    if (!cmdline) return TTY_DEFAULT_DEV;
+    if (!cmdline) return boot_tty_ptr;
 
     char bootarg[MAX_CMDLINE];
     memset(bootarg, 0, MAX_CMDLINE); // This is important
@@ -59,56 +120,81 @@ char *get_boot_tty(void)
     bootarg[MAX_CMDLINE - 1] = '\0';
 
     char **argv = (char **)malloc(MAX_ARGC * sizeof(char *));
-    if (!argv) return TTY_DEFAULT_DEV;
+    if (!argv) return boot_tty_ptr;
 
     int argc = arg_parse(bootarg, argv, ' ');
     for (int i = 0; i < argc; ++i) {
         if (!strncmp(argv[i], "console=", 8)) {
             const char *tty_str = argv[i] + 8;
 
-            if (strlen(tty_str) < sizeof(boot_tty_buf)) {
-                strncpy(boot_tty_buf, tty_str, sizeof(boot_tty_buf));
-                boot_tty_buf[sizeof(boot_tty_buf) - 1] = '\0';
-                boot_tty                               = boot_tty_buf;
+            if (strlen(tty_str) < sizeof(boot_tty_str_buf)) {
+                strncpy(boot_tty_str_buf, tty_str, sizeof(boot_tty_str_buf));
+                boot_tty_str_buf[sizeof(boot_tty_str_buf) - 1] = '\0';
+                boot_tty_str                                   = boot_tty_str_buf;
+
+                // Parse boot_tty string
+                boot_tty     = parse_boot_tty_str(boot_tty_str);
+                boot_tty_ptr = &boot_tty;
                 break;
             }
         }
     }
     free((void *)argv);
-
-    if (!boot_tty) {
-        strncpy(boot_tty_buf, TTY_DEFAULT_DEV, sizeof(boot_tty_buf));
-        boot_tty = boot_tty_buf;
-    }
-    return boot_tty;
+    if (!boot_tty_str) return boot_tty_ptr;
+    return boot_tty_ptr;
 }
 
 /* Output the buffer data to the specified device according to the configuration */
 void tty_buff_flush(void)
 {
     spin_lock(&tty_flush_spinlock);
-    tty_buff_ptr           = tty_buff;
-    const char *tty_device = get_boot_tty();
+    tty_buff_ptr              = tty_buff;
+    tty_device_t *tty_device  = get_boot_tty();
+    uint16_t      serial_port = 0;
+    uint8_t       early_break = 0;
 
-    for (int attempt = 0; attempt < 2; ++attempt) {
-        if (!strcmp(tty_device, "tty0")) {
-            tty_buff[TTY_BUF_SIZE - 1] = '\0';
-            video_put_string(tty_buff);
-            break;
-        } else if (!strcmp(tty_device, "ttyS0")) {
-            while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_1, *tty_buff_ptr++);
-            break;
-        } else if (!strcmp(tty_device, "ttyS1")) {
-            while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_2, *tty_buff_ptr++);
-            break;
-        } else if (!strcmp(tty_device, "ttyS2")) {
-            while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_3, *tty_buff_ptr++);
-            break;
-        } else if (!strcmp(tty_device, "ttyS3")) {
-            while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_4, *tty_buff_ptr++);
-            break;
-        } else {
-            tty_device = TTY_DEFAULT_DEV;
+    for (int attempt = 0; attempt < 2 && !early_break; ++attempt) {
+        early_break = 1;
+        switch (tty_device->type) {
+            case TTY_DEVICE_VGA :
+                if (tty_device->port == 0) {
+                    tty_buff[TTY_BUF_SIZE - 1] = '\0';
+                    video_put_string(tty_buff);
+                } else {
+                    // Bad port number
+                    early_break = 0;
+                    boot_tty    = parse_boot_tty_str(TTY_DEFAULT_DEV);
+                    tty_device  = &boot_tty;
+                    continue;
+                }
+                break;
+            case TTY_DEVICE_SERIAL :
+                switch (tty_device->port) {
+                    case 0 :
+                        serial_port = SERIAL_PORT_1;
+                        break;
+                    case 1 :
+                        serial_port = SERIAL_PORT_2;
+                        break;
+                    case 2 :
+                        serial_port = SERIAL_PORT_3;
+                        break;
+                    case 3 :
+                        serial_port = SERIAL_PORT_4;
+                        break;
+                    default :
+                        // Bad port number
+                        early_break = 0;
+                        boot_tty    = parse_boot_tty_str(TTY_DEFAULT_DEV);
+                        tty_device  = &boot_tty;
+                        continue;
+                        break;
+                }
+                while (*tty_buff_ptr != '\0') write_serial(serial_port, *tty_buff_ptr++);
+                break;
+            default :
+                // Unreachable
+                break;
         }
     }
     tty_buff_ptr = tty_buff;
