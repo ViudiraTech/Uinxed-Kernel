@@ -21,6 +21,7 @@
 #include "ide.h"
 #include "idt.h"
 #include "interrupt.h"
+#include "limine_module.h"
 #include "page.h"
 #include "parallel.h"
 #include "pci.h"
@@ -83,6 +84,7 @@ void kernel_entry(void)
     print_memory_map();   // Print memory map information
     init_frame();         // Initialize memory frame
     pci_init();           // Initialize PCI
+    lmodule_init();       // Initialize the passed-in resource module list
     init_ide();           // Initialize ATA/ATAPI driver
     init_serial();        // Initialize the serial port
     init_parallel();      // Initialize the parallel port

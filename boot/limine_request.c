@@ -57,3 +57,6 @@ __attribute__((used, section(".limine_requests"))) volatile struct limine_entry_
     .revision = 3,
     .entry    = &kernel_entry,
 };
+
+__attribute__((used, section(".limine_requests"))) volatile struct limine_module_request module_request
+    = {.id = LIMINE_MODULE_REQUEST, .revision = 0};
