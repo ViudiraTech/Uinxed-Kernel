@@ -27,6 +27,7 @@
 #define ALIGN_UP(addr, align)   (((addr) + (align) - 1) & ~((align) - 1))
 
 #define IS_DIGIT(c) ((c) >= '0' && (c) <= '9')
+#define IS_ALPHA(a) (((a) >= 'A' && (a) <= 'Z') || ((a) >= 'a' && (a) <= 'z'))
 
 #define do_div(n, base)                                                                   \
     ({                                                                                    \
