@@ -511,7 +511,7 @@ uint32_t pci_get_port_base(pci_device_cache_t *device)
         base_address_register_t bar = get_base_address_register(device, i);
         if (bar.type == input_output) io_port = (uintptr_t)bar.address;
         if (bar.size == BAR_S64) {
-            // Skip the next BAR because it is a 64-bit BAR that uses two 32-bit BARs.
+            /* Skip the next BAR because it is a 64-bit BAR that uses two 32-bit BARs. */
             i++;
         }
     }
@@ -594,7 +594,7 @@ void pci_device_find(pci_finding_request_t *req) // Notice: the req should be a 
 {
     pci_finding_response_iter_t *response = malloc(sizeof(pci_finding_response_iter_t));
     req->response                         = response;
-    response->next                        = NULL;
+    response->next                        = 0;
 
     /* Add to usable list */
     add_to_usable_list(req);
@@ -629,7 +629,7 @@ void pci_device_find_next(pci_finding_request_t *request, volatile pci_finding_r
 {
     volatile pci_finding_response_iter_t *next_response = 0;
     if (response->error == PCI_FINDING_SUCCESS) {
-        if (response->next == NULL) { response->next = malloc(sizeof(pci_finding_response_iter_t)); }
+        if (!response->next) response->next = malloc(sizeof(pci_finding_response_iter_t));
         next_response = response->next;
         /* Process the request to next responses */
         switch (request->type) {
@@ -645,7 +645,7 @@ void pci_device_find_next(pci_finding_request_t *request, volatile pci_finding_r
                 next_response->error  = PCI_FINDING_ERROR;
                 break;
         }
-        next_response->next = NULL;
+        next_response->next = 0;
     }
     response->next = next_response;
 }
@@ -654,12 +654,12 @@ void pci_device_find_next(pci_finding_request_t *request, volatile pci_finding_r
 void pci_update_usable_list(void)
 {
     pci_usable_node_t *node = pci_usable.head;
-    while (node != 0) {
+    while (node) {
         volatile pci_finding_response_iter_t *response = node->request->response;
 
         /* Mark expired of next iters */
         volatile pci_finding_response_iter_t *expired_response = response->next;
-        while (expired_response != NULL) {
+        while (expired_response) {
             expired_response->error = PCI_RESULT_EXPIRED;
             expired_response        = expired_response->next;
         }
@@ -671,10 +671,10 @@ void pci_update_usable_list(void)
         /* Update the device cache */
         switch (node->request->type) {
             case PCI_FOUND_CLASS :
-                pci_class_finding(NULL, node->request);
+                pci_class_finding(0, node->request);
                 break;
             case PCI_FOUND_DEVICE :
-                pci_device_finding(NULL, node->request);
+                pci_device_finding(0, node->request);
                 break;
             default :
                 plogk("PCI: Unknown finding type %d\n", node->request->type);

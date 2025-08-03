@@ -25,12 +25,12 @@
 #    define TTY_DEFAULT_DEV "tty0"
 #endif
 
-typedef enum tty_device_kind {
+typedef enum {
     TTY_DEVICE_VGA,
     TTY_DEVICE_SERIAL,
 } tty_device_kind_t;
 
-typedef enum parse_state {
+typedef enum {
     MET_TYPE,
     MET_PORT,
     MET_NOTHING,
