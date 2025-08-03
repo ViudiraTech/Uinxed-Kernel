@@ -158,7 +158,7 @@ struct {
     {0x0c0900, "CANbus Controller"                          },
     {0x0c8000, "Other Serial Bus Controller"                },
 
-    {0x0d0000, "iRDA Compatible Controlle"                  },
+    {0x0d0000, "iRDA Compatible Controller"                 },
     {0x0d0100, "Consumer IR Controller"                     },
     {0x0d1000, "RF Controller"                              },
     {0x0d1100, "Bluetooth Controller"                       },
@@ -174,7 +174,7 @@ struct {
     {0x0f0300, "Satellite Voice Controller"                 },
     {0x0f0400, "Satellite Data Controller"                  },
 
-    {0x100000, "Network and Computing Encrpytion/Decryption"},
+    {0x100000, "Network and Computing Encryption/Decryption"},
     {0x101000, "Entertainment Encryption/Decryption"        },
     {0x108000, "Other Encryption Controller"                },
 
@@ -323,7 +323,7 @@ static void pci_legacy_write(pci_device_reg_t reg, uint32_t value)
     uint32_t      slot            = device->slot & 0x1f;
     uint32_t      func            = device->func & 0x07;
 
-    uint32_t id = 1 << 31 | (bus << 16) | (slot & 0x1f << 11) | (func << 8) | (register_offset & 0xfc);
+    uint32_t id = 1 << 31 | (bus << 16) | (slot << 11) | (func << 8) | (register_offset & 0xfc);
     outl(PCI_COMMAND_PORT, id);
     outl(PCI_DATA_PORT, value);
 }
@@ -433,6 +433,7 @@ base_address_register_t get_base_address_register(pci_device_cache_t *device, ui
      * 1. The `bar` is the index of BAR, not the *register_offset* of BAR.
      * 2. When you are reading a mem_mapping BAR, you should notice the `size` of BAR.
      *    It's useful, when you are doing something *special*.
+     * 3. If a device have a 64-bit BAR, you shouldn't read BAR+1. (TODO: make this function to return a iterator)
      */
 
     base_address_register_t result = {0};
@@ -449,19 +450,17 @@ base_address_register_t get_base_address_register(pci_device_cache_t *device, ui
      *         max_bars = 2;
      *         break;
      *     case HEADER_TYPE_CARDBUS :
+     *         max_bars = 1;
+     *         break;
      *     default :
      *         max_bars = 0;
      *         break;
      * }
      * Same as:
-     * x(x-5) + 6 [x<=HEADER_TYPE_CARDBUS]
-     * max_bars = headertype * (headertype - 5) + 6;
-     * max_bars = headertype <= HEADER_TYPE_CARDBUS ? max_bars : 0;
-     * Also same as:
      */
 
-    static uint32_t max_bars_table[3] = {6, 2, 0};
-    max_bars                          = max_bars_table[headertype < 2 ? headertype : 2];
+    static uint32_t max_bars_table[4] = {6, 2, 1, 0};
+    max_bars                          = max_bars_table[headertype < 3 ? headertype : 3];
     if (bar >= max_bars) return result;
 
     reg.offset         = 0x10 + 4 * bar;
@@ -511,6 +510,10 @@ uint32_t pci_get_port_base(pci_device_cache_t *device)
     for (int i = 0; i < 6; i++) {
         base_address_register_t bar = get_base_address_register(device, i);
         if (bar.type == input_output) io_port = (uintptr_t)bar.address;
+        if (bar.size == BAR_S64) {
+            // Skip the next BAR because it is a 64-bit BAR that uses two 32-bit BARs.
+            i++;
+        }
     }
     return io_port;
 }
