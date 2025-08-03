@@ -160,7 +160,7 @@ void send_ipi(uint32_t apic_id, uint32_t command)
 void apic_init(madt_t *madt)
 {
     lapic_ptr.ptr = phys_to_virt(madt->local_apic_address);
-    plogk("apic: Local APIC base address %p\n", lapic_ptr.ptr);
+    plogk("apic: Local APIC base %p\n", lapic_ptr.ptr);
 
     uint8_t *entries_base = (uint8_t *)&madt->entries;
     size_t   current      = 0;
@@ -182,7 +182,7 @@ void apic_init(madt_t *madt)
             case MADT_APIC_LOCAL_ADDR : {
                 madt_local_apic_addr_t *addr = (madt_local_apic_addr_t *)(entries_base + current);
                 lapic_ptr.ptr                = phys_to_virt(addr->address);
-                plogk("apic: Local APIC address is overwritten as %p\n", lapic_ptr);
+                plogk("apic: Local APIC base is overwritten as %p\n", lapic_ptr);
                 break;
             }
             case MADT_APIC_LOCAL_X2_CPU : {

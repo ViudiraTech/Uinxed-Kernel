@@ -31,7 +31,7 @@ uint64_t nano_time(void)
 void hpet_init(hpet_t *hpet)
 {
     hpet_addr = phys_to_virt(hpet->base_address.address);
-    plogk("hpet: HPET base address mapped to virtual address %p\n", hpet_addr);
+    plogk("hpet: HPET base mapped to virtual address %p\n", hpet_addr);
 
     uint32_t counter_clock_period = hpet_addr->general_capabilities >> 32;
     hpet_period                   = counter_clock_period / 1000000;

@@ -196,7 +196,7 @@ void mcfg_init(mcfg_t *mcfg)
         for (size_t i = 0; i < mcfg_info.count; i++) {
             /* Convert to the virtual address */
             inner->entries[i].base_addr = (uint64_t)phys_to_virt(inner->entries[i].base_addr);
-            plogk("mcfg: mcfg->entries[%lu] base address: %p\n", i, inner->entries[i].base_addr);
+            plogk("mcfg: mcfg->entries[%lu] base: %p\n", i, inner->entries[i].base_addr);
             plogk("mcfg: mcfg->entries[%lu] segment: %hu\n", i, inner->entries[i].segment);
             plogk("mcfg: mcfg->entries[%lu] start bus: %hhu\n", i, inner->entries[i].start_bus);
             plogk("mcfg: mcfg->entries[%lu] end bus: %hhu\n", i, inner->entries[i].end_bus);

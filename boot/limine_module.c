@@ -50,7 +50,7 @@ void lmodule_init(void)
         lmodule[lmodule_count].path = file->path;
         lmodule[lmodule_count].data = file->address;
         lmodule[lmodule_count].size = file->size;
-        plogk("mod: Module name: %s, Module path: %s\n", lmodule[lmodule_count].name, file->path);
+        plogk("mod: %s (path: %s, size: %llu KiB, base %p)\n", lmodule[lmodule_count].name, file->path, (file->size / 1024), file->address);
         lmodule_count++;
     }
 }

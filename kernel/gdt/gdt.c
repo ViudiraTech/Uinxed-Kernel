@@ -60,7 +60,7 @@ void tss_init(void)
     gdt0.entries[6] = high_base;
     tss0.ist[0]     = ((uint64_t)&tss_stack) + sizeof(tss_stack_t);
 
-    plogk("tss: TSS descriptor configured (addr = %p, limit = 0x%04x)\n", &tss0, sizeof(tss_t) - 1);
+    plogk("tss: TSS descriptor configured (address = %p, limit = 0x%04x)\n", &tss0, sizeof(tss_t) - 1);
     plogk("tss: IST0 stack = %p\n", tss0.ist[0]);
     __asm__ volatile("ltr %w[offset]" ::[offset] "rm"((uint16_t)0x28) : "memory");
     plogk("tss: TR register loaded with selector 0x%04x\n", 0x28);
