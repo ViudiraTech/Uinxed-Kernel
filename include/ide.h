@@ -12,6 +12,7 @@
 #ifndef INCLUDE_IDE_H_
 #define INCLUDE_IDE_H_
 
+#include "dpi.h"
 #include "stdint.h"
 
 #define ATA_SR_BSY              0x80
@@ -130,5 +131,16 @@ void ide_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *e
 
 /* Write multiple sectors to an IDE device */
 void ide_write_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *edi);
+
+driver *ide_open(driver *d, uint64_t index);
+driver *_ide_close(driver *d, uint64_t index);
+uint64_t _ide_read(driver *d, const char *minor, void *buf, uint64_t size, uint64_t offset);        //读块/字符
+uint64_t _ide_write(driver *d, const char *minor, const void *buf, uint64_t size, uint64_t offset); //写块/字符
+uint64_t *_ide_map(driver *d, const char *minor); //映射到内存(非固定位置,)(用于帧缓冲等块设备)
+uint64_t *_ide_ioctl(driver *d, const char *minor, const char *cmd, ...);
+int64_t *_ide_get_index(uint64_t *size);
+char **_ide_get_minors();
+
+extern driver_handle ide_handle;
 
 #endif // INCLUDE_IDE_H_

@@ -10,8 +10,10 @@
  */
 
 #include "ide.h"
+#include "alloc.h"
 #include "apic.h"
 #include "common.h"
+#include "dpi.h"
 #include "idt.h"
 #include "pci.h"
 #include "printk.h"
@@ -56,7 +58,8 @@ __attribute__((interrupt)) static void ide_irq(interrupt_frame_t *frame)
 /* Waiting for IDE interrupt to be triggered */
 static void ide_wait_irq(void)
 {
-    while (!ide_irq_invoked);
+    while (!ide_irq_invoked)
+        ;
     ide_irq_invoked = 0;
 }
 
@@ -362,7 +365,8 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t n
     }
     dma = 0;
 
-    while (ide_read(channel, ATA_REG_STATUS) & ATA_SR_BSY);
+    while (ide_read(channel, ATA_REG_STATUS) & ATA_SR_BSY)
+        ;
     if (lba_mode == 0)
         ide_write(channel, ATA_REG_HDDEVSEL, 0xa0 | (slavebit << 4) | head); // Drive & CHS.
     else
@@ -443,7 +447,8 @@ uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint16_t *
     atapi_packet[11] = 0x0;
 
     ide_write(channel, ATA_REG_HDDEVSEL, slavebit << 4);
-    for (int i = 0; i < 4000; i++);
+    for (int i = 0; i < 4000; i++)
+        ;
     for (int i = 0; i < 4; i++) ide_read(channel, ATA_REG_ALTSTATUS);
 
     ide_write(channel, ATA_REG_FEATURES, 0);              // PIO Mode
@@ -465,7 +470,8 @@ uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint16_t *
         if (err != 0) return err;
         for (uint32_t h = 0; h < words; h++) _word[i * words + h] = inw(bus);
     }
-    while (ide_read(channel, ATA_REG_STATUS) & (ATA_SR_BSY | ATA_SR_DRQ));
+    while (ide_read(channel, ATA_REG_STATUS) & (ATA_SR_BSY | ATA_SR_DRQ))
+        ;
     return 0;
 }
 
@@ -510,3 +516,69 @@ void ide_write_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *
         package[0] = ide_print_error(drive, err);
     }
 }
+
+driver *ide_open(driver *d, uint64_t index)
+{
+    d->major   = "ide"; //实现vfs的时候显示ide+ide编号+次设备号
+    d->name    = "IDE_Driver";
+    d->handle  = &ide_handle;
+    d->type    = CHARACTER;
+    d->present = 1;
+    d->index   = index;
+    return d;
+}
+driver *_ide_close(driver *d, uint64_t index)
+{
+    (void)index;
+    return (d = NULL);
+}
+uint64_t _ide_read(driver *d, const char *minor, void *buf, uint64_t size, uint64_t offset)
+{
+    (void)minor;
+    uint32_t start      = (uint32_t)(offset / 512);
+    uint64_t end_byte   = offset + size;
+    uint32_t end_sector = (uint32_t)((end_byte + 512 - 1) / 512);
+    uint32_t sectors    = end_sector - start;
+    ide_read_sectors(d->index, start, sectors, buf);
+    return 0;
+}
+uint64_t _ide_write(driver *d, const char *minor, const void *buf, uint64_t size, uint64_t offset)
+{
+    (void)minor;
+    uint32_t start      = (uint32_t)(offset / 512);
+    uint64_t end_byte   = offset + size;
+    uint32_t end_sector = (uint32_t)((end_byte + 512 - 1) / 512);
+    uint32_t sectors    = end_sector - start;
+    ide_write_sectors(d->index, start, sectors, (void *)buf);
+    return 0;
+}
+uint64_t *_ide_map(driver *d, const char *minor)
+{
+    (void)d;
+    (void)minor;
+    return NULL; //未实现
+}
+uint64_t *_ide_ioctl(driver *d, const char *minor, const char *cmd, ...)
+{
+    (void)d;
+    (void)minor;
+    (void)cmd;
+    return NULL; //未实现
+}
+char **_ide_get_minors()
+{
+    return NULL;
+}
+int64_t *_ide_get_index(uint64_t *size)
+{
+    int64_t *minors = (int64_t *)malloc(4 * sizeof(int64_t));
+    minors[0]       = ide_devices[0].reserved ? 0 : -1;
+    minors[1]       = ide_devices[1].reserved ? 0 : -1;
+    minors[2]       = ide_devices[2].reserved ? 0 : -1;
+    minors[3]       = ide_devices[3].reserved ? 0 : -1;
+    *size           = 4;
+    return minors;
+}
+
+driver_handle ide_handle
+    = {ide_open, _ide_close, _ide_read, _ide_write, _ide_map, _ide_ioctl, _ide_get_minors, _ide_get_index};
