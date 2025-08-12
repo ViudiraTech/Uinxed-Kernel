@@ -1,7 +1,7 @@
 # =====================================================
 #
 #      Makefile
-#      Uinxed compile script
+#      Uinxed-Kernel compile script
 #
 #      2024/6/23 By Rainy101112
 #      Based on GPL-3.0 open source agreement
@@ -26,7 +26,21 @@ else
 endif
 
 ifeq ($(CONFIG_KERNEL_LOG), y)
-  C_CONFIG += -DKERNEL_LOG
+  C_CONFIG += -DKERNEL_LOG=1
+else
+  C_CONFIG += -DKERNEL_LOG=0
+endif
+
+ifneq ($(CONFIG_MAX_CPU_COUNT),)
+  C_CONFIG += -DMAX_CPU_COUNT=$(CONFIG_MAX_CPU_COUNT)
+endif
+
+ifneq ($(CONFIG_TTY_DEFAULT_DEV),)
+  C_CONFIG += -DTTY_DEFAULT_DEV=\"$(CONFIG_TTY_DEFAULT_DEV)\"
+endif
+
+ifneq ($(CONFIG_TTY_BUF_SIZE),)
+  C_CONFIG += -DTTY_BUF_SIZE=$(CONFIG_TTY_BUF_SIZE)
 endif
 
 ifneq ($(CONFIG_SERIAL_BAUD_RATE),)

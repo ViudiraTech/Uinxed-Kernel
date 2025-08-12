@@ -75,7 +75,7 @@ void lapic_write(uint32_t reg, uint32_t value)
 /* Read local APIC register */
 uint32_t lapic_read(uint32_t reg)
 {
-    if (x2apic_mode) return rdmsr(0x800 + (reg >> 4));
+    if (x2apic_mode) return (uint32_t)rdmsr(0x800 + (reg >> 4));
     pointer_cast_t reg_ptr;
     reg_ptr.val = lapic_ptr.val + reg;
     return mmio_read32(reg_ptr.ptr);
@@ -84,14 +84,17 @@ uint32_t lapic_read(uint32_t reg)
 /* Get the local APIC ID of the current processor */
 uint64_t lapic_id(void)
 {
-    return lapic_read(LAPIC_REG_ID);
+    if (x2apic_mode) return rdmsr(0x800 + (LAPIC_REG_ID >> 4));
+
+    /* Must be shifted to the right by 24 bits (refer to the Intel SDM Vol.3 Chapter.12.4.6) */
+    return lapic_read(LAPIC_REG_ID) >> 24;
 }
 
 /* Initialize local APIC */
 void local_apic_init(void)
 {
     x2apic_mode = (smp_request.response->flags & 1) != 0;
-    plogk("apic: LAPIC = %s\n", x2apic_mode ? "x2APIC" : "xAPIC");
+    plogk("apic: Local APIC: %s\n", x2apic_mode ? "x2APIC" : "xAPIC");
 
     lapic_write(LAPIC_REG_SPURIOUS, 0xff | 1 << 8);
     lapic_write(LAPIC_REG_TIMER, IRQ_0);
@@ -157,17 +160,42 @@ void send_ipi(uint32_t apic_id, uint32_t command)
 void apic_init(madt_t *madt)
 {
     lapic_ptr.ptr = phys_to_virt(madt->local_apic_address);
-    plogk("apic: LAPIC Base address %p\n", lapic_ptr.ptr);
+    plogk("apic: Local APIC base %p\n", lapic_ptr.ptr);
 
     uint8_t *entries_base = (uint8_t *)&madt->entries;
-    size_t current        = 0;
+    size_t   current      = 0;
 
     while (current < madt->header.length - sizeof(madt_t)) {
         madt_header_t *header = (madt_header_t *)(entries_base + current);
-        if (header->entry_type == MADT_APIC_IO) {
-            madt_io_apic_t *ioapic = (madt_io_apic_t *)(entries_base + current);
-            ioapic_ptr.ptr         = phys_to_virt(ioapic->address);
-            plogk("apic: IOAPIC Found at %p\n", ioapic_ptr.ptr);
+        switch (header->entry_type) {
+            case MADT_APIC_LOCAL_CPU : {
+                madt_local_apic_t *cpu = (madt_local_apic_t *)(entries_base + current);
+                plogk("apic: Local APIC id %03u, ACPI processor uid %03u, Flags %x\n", cpu->local_apic_id, cpu->acpi_processor_uid, cpu->flags);
+                break;
+            }
+            case MADT_APIC_IO : {
+                madt_io_apic_t *ioapic = (madt_io_apic_t *)(entries_base + current);
+                ioapic_ptr.ptr         = phys_to_virt(ioapic->address);
+                plogk("apic: IOAPIC found at %p\n", ioapic_ptr.ptr);
+                break;
+            }
+            case MADT_APIC_LOCAL_ADDR : {
+                madt_local_apic_addr_t *addr = (madt_local_apic_addr_t *)(entries_base + current);
+                lapic_ptr.ptr                = phys_to_virt(addr->address);
+                plogk("apic: Local APIC base is overwritten as %p\n", lapic_ptr);
+                break;
+            }
+            case MADT_APIC_LOCAL_X2_CPU : {
+                madt_local_x2_cpu_t *x2cpu = (madt_local_x2_cpu_t *)(entries_base + current);
+                plogk("apic: Local X2 APIC id %03u, ACPI processor uid %03u, Flags %x\n", x2cpu->local_x2_apic_id, x2cpu->acpi_processor_uid,
+                      x2cpu->flags);
+                break;
+            }
+            case MADT_APIC_IO_INT : // TODO: Implement IO/APIC interrupt source override
+            case MADT_APIC_IO_NMI : // TODO: Implement IO/APIC Non-maskable interrupt source
+            default :
+                /* Unhandled MADT entry type (Maybe it's reserved) */
+                break;
         }
         current += header->length;
     }

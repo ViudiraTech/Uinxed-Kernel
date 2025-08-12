@@ -11,7 +11,7 @@
 
 #include "printk.h"
 #include "alloc.h"
-#include "lock.h"
+#include "spin_lock.h"
 #include "stdarg.h"
 #include "stddef.h"
 #include "stdint.h"
@@ -40,8 +40,8 @@ spinlock_t plogk_lock = {
 void printk(const char *format, ...)
 {
     spin_lock(&printk_lock); // Lock
-    static char buff[BUF_SIZE];
-    va_list args;
+    static char        buff[BUF_SIZE];
+    va_list            args;
     overflow_signal_t *sig = 0;
 
     va_start(args, format);
@@ -59,7 +59,7 @@ void printk_unsafe(const char *format, ...)
 {
     spin_lock(&printk_lock); // Lock
     static char buff[2048];
-    va_list args;
+    va_list     args;
 
     va_start(args, format);
     vsprintf(buff, format, args); // NOLINT
@@ -71,11 +71,11 @@ void printk_unsafe(const char *format, ...)
 /* Kernel print log with overflow check */
 void plogk_unsafe(const char *format, ...)
 {
-#ifdef KERNEL_LOG
+#if KERNEL_LOG
     spin_lock(&plogk_lock); // Lock
     printk_unsafe("[%5d.%06d] ", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
     static char buff[2048];
-    va_list args;
+    va_list     args;
     va_start(args, format);
     vsprintf(buff, format, args); // NOLINT
     tty_print_str(buff);
@@ -89,11 +89,11 @@ void plogk_unsafe(const char *format, ...)
 /* Kernel print log */
 void plogk(const char *format, ...)
 {
-#ifdef KERNEL_LOG
+#if KERNEL_LOG
     spin_lock(&plogk_lock); // Lock
     printk("[%5d.%06d] ", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
-    static char buff[BUF_SIZE];
-    va_list args;
+    static char        buff[BUF_SIZE];
+    va_list            args;
     overflow_signal_t *sig = 0;
 
     va_start(args, format);
@@ -112,7 +112,7 @@ void plogk(const char *format, ...)
 /* Store the formatted output in a character array */
 int sprintf(char *str, const char *fmt, ...)
 {
-    int c = 0;
+    int     c = 0;
     va_list arg;
     va_start(arg, fmt);
     c = vsprintf(str, fmt, arg);
@@ -126,9 +126,9 @@ int vsprintf(char *buff, const char *format, va_list args)
 {
     int64_t len, precision, field_width;
     int64_t size_cnt = 2; // hh = 0, h = 1, (nothing) = 2, l = 3, ll = 4, z = 5
-    size_t num       = 0;
-    int i, flags;
-    char *str, *s;
+    size_t  num      = 0;
+    int     i, flags;
+    char   *str, *s;
 
     for (str = buff; *format; ++format) {
         if (*format != '%') {
@@ -183,13 +183,13 @@ repeat:
         switch (*format) {
             case 'h' :
                 size_cnt--;
-                if (size_cnt < 0) { size_cnt = 0; }
+                if (size_cnt < 0) size_cnt = 0;
                 goto repeat;
             case 'L' :      // += 2
                 size_cnt++; // fallthrough
             case 'l' :
                 size_cnt++;
-                if (size_cnt > 4) { size_cnt = 4; }
+                if (size_cnt > 4) size_cnt = 4;
                 goto repeat;
             case 'z' :
                 size_cnt = 5;
@@ -338,19 +338,19 @@ fmt_arg_t *new_fmtarg(uint64_t size, char *buff, char *last_write) // NOLINT
 /* Parse the format string and read the corresponding variadic parameters to generate an fmt_arg_t structure */
 fmt_arg_t *read_fmtarg(const char **format, va_list args)
 {
-    fmt_arg_t *arg      = malloc(sizeof(fmt_arg_t));
-    const char *fmt_ptr = *format;
-    char *buf_ptr       = 0;
-    int flags           = 0;
-    size_t field_width  = 0; // Minimum width field
-    size_t precision    = 0; // For float, precision field (or number of digits
-                             // and with zero padding)
-    char *str        = 0;
-    int tmp          = 0;
-    size_t str_len   = 0;
-    size_t num       = 0;
-    size_t buf_len   = 0;
-    size_t base      = 0;
+    fmt_arg_t  *arg         = malloc(sizeof(fmt_arg_t));
+    const char *fmt_ptr     = *format;
+    char       *buf_ptr     = 0;
+    int         flags       = 0;
+    size_t      field_width = 0; // Minimum width field
+    size_t      precision   = 0; // For float, precision field (or number of digits
+                                 // and with zero padding)
+    char   *str      = 0;
+    int     tmp      = 0;
+    size_t  str_len  = 0;
+    size_t  num      = 0;
+    size_t  buf_len  = 0;
+    size_t  base     = 0;
     int64_t size_cnt = 2; // hh = 0, h = 1, (nothing) = 2, l = 3, ll = 4, z = 5
     if (*fmt_ptr != '%') {
         free(arg);
@@ -414,13 +414,13 @@ fmt_arg_t *read_fmtarg(const char **format, va_list args)
         switch (*fmt_ptr) {
             case 'h' :
                 size_cnt--;
-                if (size_cnt < 0) { size_cnt = 0; }
+                if (size_cnt < 0) size_cnt = 0;
                 continue;
             case 'L' :      // += 2
                 size_cnt++; // fallthrough
             case 'l' :
                 size_cnt++;
-                if (size_cnt > 4) { size_cnt = 4; }
+                if (size_cnt > 4) size_cnt = 4;
                 continue;
             case 'z' :
                 size_cnt = 5;
@@ -497,11 +497,11 @@ fmt_arg_t *read_fmtarg(const char **format, va_list args)
         switch (*fmt_ptr) {
             case 'c' :
                 buf_len = 1;
-                if (field_width > buf_len) { buf_len = field_width; }
+                if (field_width > buf_len) buf_len = field_width;
                 break;
             case 's' :
                 buf_len = str_len = strlen(*&str);
-                if (field_width > buf_len) { buf_len = field_width; }
+                if (field_width > buf_len) buf_len = field_width;
                 break;
             case 'o' :
                 base    = 8;
@@ -509,7 +509,7 @@ fmt_arg_t *read_fmtarg(const char **format, va_list args)
                 break;
             case 'p' :
                 flags |= SMALL | SPECIAL | ZEROPAD;
-                if (field_width < 16) { field_width = 16; }
+                if (field_width < 16) field_width = 16;
                 base    = 16;
                 buf_len = number_length(num, base, field_width, precision, flags);
                 break;
@@ -541,7 +541,7 @@ fmt_arg_t *read_fmtarg(const char **format, va_list args)
                 free(arg);
                 return 0;
         }
-        if (buf_len < 1) { buf_len = 1; }
+        if (buf_len < 1) buf_len = 1;
         if (field_width < buf_len) field_width = buf_len;
 
         /* Write buffer */
@@ -620,9 +620,9 @@ overflow_signal_t *new_overflow(overflow_kind_t kind, fmt_arg_t *arg)
 /* Format a string with size and output it to a character array */
 overflow_signal_t *vsprintf_s(overflow_signal_t *signal, char *buff, intptr_t size, const char **format, va_list args)
 {
-    char *write_ptr;
+    char       *write_ptr;
     const char *fmt_ptr;
-    fmt_arg_t *fmt_arg;
+    fmt_arg_t  *fmt_arg;
 
     write_ptr = buff;
     if (signal != 0 && signal->kind == OFLOW_AT_FMTARG) {
@@ -653,10 +653,9 @@ overflow_signal_t *vsprintf_s(overflow_signal_t *signal, char *buff, intptr_t si
     while (*fmt_ptr != '\0') {
         if (write_ptr >= buff + size - 1) {
             *write_ptr = '\0';
-            *format    = fmt_ptr; // Move to overflow position
-            signal     = new_overflow(OFLOW_AT_FMTSTR,
-                                      0); // New Signal (just for run again)
-            return signal;                // Send Signal
+            *format    = fmt_ptr;                          // Move to overflow position
+            signal     = new_overflow(OFLOW_AT_FMTSTR, 0); // New Signal (just for run again)
+            return signal;                                 // Send Signal
         }
         if (*fmt_ptr != '%' && write_ptr < buff + size - 1) {
             *write_ptr = *fmt_ptr;
@@ -675,8 +674,7 @@ overflow_signal_t *vsprintf_s(overflow_signal_t *signal, char *buff, intptr_t si
                 fmt_arg->last_write++;
                 if (write_ptr >= buff + size - 1) {
                     *write_ptr++ = '\0';
-                    signal       = new_overflow(OFLOW_AT_FMTARG,
-                                                fmt_arg); // New Signal
+                    signal       = new_overflow(OFLOW_AT_FMTARG, fmt_arg); // New Signal
                     return signal;
                 }
             }

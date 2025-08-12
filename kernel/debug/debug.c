@@ -23,7 +23,7 @@ void dump_stack(void)
 {
     uintptr_t current_address = kernel_address_request.response->virtual_base;
     union RbpNode {
-            uintptr_t inner;
+            uintptr_t      inner;
             union RbpNode *next;
     } *rbp; // A way to avoid performance-no-int-to-ptr
 
@@ -39,8 +39,7 @@ void dump_stack(void)
         if (!sym_info.name) {
             plogk_unsafe("  [<0x%016zx>] %s\n", rip, "unknown");
         } else {
-            plogk_unsafe("  [<0x%016zx>] `%s`+0x%lx/0x%lx\n", rip, sym_info.name,
-                         rip - (current_address + sym_info.addr), sym_info.size);
+            plogk_unsafe("  [<0x%016zx>] `%s`+0x%lx/0x%lx\n", rip, sym_info.name, rip - (current_address + sym_info.addr), sym_info.size);
         }
         rip = *(uintptr_t *)(rbp + 1);
         rbp = rbp->next;
@@ -51,15 +50,15 @@ void dump_stack(void)
 /* Kernel panic */
 void panic(const char *format, ...)
 {
-    uint64_t current_address = kernel_address_request.response->virtual_base;
-    const char *sys_vendor   = smbios_sys_manufacturer();
-    const char *sys_product  = smbios_sys_product_name();
-    const char *bios_version = smbios_bios_version();
-    const char *bios_date    = smbios_bios_release_date();
+    uint64_t    current_address = kernel_address_request.response->virtual_base;
+    const char *sys_vendor      = smbios_sys_manufacturer();
+    const char *sys_product     = smbios_sys_product_name();
+    const char *bios_version    = smbios_bios_version();
+    const char *bios_date       = smbios_bios_release_date();
 
     static char buff[1024];
-    va_list args;
-    int i;
+    va_list     args;
+    int         i;
 
     va_start(args, format);
     i = vsprintf(buff, format, args);

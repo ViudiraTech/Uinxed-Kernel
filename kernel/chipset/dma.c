@@ -34,7 +34,7 @@ void dma_start(uint8_t mode, uint8_t channel, uint32_t *address, uint32_t size)
     if (!(addr < DMA_ADDR_MAX)) return;
     if (!(addr + size < DMA_ADDR_MAX)) return;
 
-    uint8_t page    = addr >> 16;
+    uint8_t  page   = addr >> 16;
     uint16_t offset = (channel > 4 ? addr / 2 : addr) & 0xffff;
     size            = (channel > 4 ? size / 2 : size) - 1;
 

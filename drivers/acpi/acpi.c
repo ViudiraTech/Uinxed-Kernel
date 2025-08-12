@@ -38,12 +38,12 @@ void *find_table(const char *name)
 
     const uint32_t entry_size  = use_xsdt ? 8 : 4;
     const uint32_t entry_count = (len - sizeof(acpi_sdt_header_t)) / entry_size;
-    const char *entry_base     = (char *)(use_xsdt ? (void *)xsdt : (void *)rsdt) + sizeof(acpi_sdt_header_t);
+    const char    *entry_base  = (char *)(use_xsdt ? (void *)xsdt : (void *)rsdt) + sizeof(acpi_sdt_header_t);
     const uint32_t target_sig  = *(const uint32_t *)name;
 
     for (uint32_t i = 0; i < entry_count; i++) {
-        uint64_t phys_addr = (entry_size == 8) ? ((const uint64_t *)entry_base)[i] : ((const uint32_t *)entry_base)[i];
-        acpi_sdt_header_t *header = (acpi_sdt_header_t *)phys_to_virt(phys_addr);
+        uint64_t           phys_addr = (entry_size == 8) ? ((const uint64_t *)entry_base)[i] : ((const uint32_t *)entry_base)[i];
+        acpi_sdt_header_t *header    = (acpi_sdt_header_t *)phys_to_virt(phys_addr);
         if (*(const uint32_t *)header->signature == target_sig) {
             plogk("acpi: %.4s found at %p\n", name, header);
             return header;

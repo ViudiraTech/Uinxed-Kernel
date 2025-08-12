@@ -20,10 +20,9 @@ void cpuid(uint32_t code, uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t 
 /* Get CPU manufacturer name */
 char *get_vendor_name(void)
 {
-    int cpuid_level;
+    int         cpuid_level;
     static char x86_vendor_id[16] = {0};
-    cpuid(0x00000000, (uint32_t *)&cpuid_level, (uint32_t *)&x86_vendor_id[0], (uint32_t *)&x86_vendor_id[8],
-          (uint32_t *)&x86_vendor_id[4]);
+    cpuid(0x00000000, (uint32_t *)&cpuid_level, (uint32_t *)&x86_vendor_id[0], (uint32_t *)&x86_vendor_id[8], (uint32_t *)&x86_vendor_id[4]);
     return x86_vendor_id;
 }
 
@@ -31,7 +30,7 @@ char *get_vendor_name(void)
 char *get_model_name(void)
 {
     static char model_name[64];
-    uint32_t *p = (uint32_t *)model_name;
+    uint32_t   *p = (uint32_t *)model_name;
 
     cpuid(0x80000002, &p[0], &p[1], &p[2], &p[3]);
     cpuid(0x80000003, &p[4], &p[5], &p[6], &p[7]);

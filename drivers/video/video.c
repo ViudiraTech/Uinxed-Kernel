@@ -11,6 +11,7 @@
 
 #include "video.h"
 #include "common.h"
+#include "gfx_proc.h"
 #include "limine.h"
 #include "stddef.h"
 #include "stdint.h"
@@ -18,10 +19,10 @@
 
 extern uint8_t ascii_font[]; // Fonts
 
-uint64_t width;   // Screen length
-uint64_t height;  // Screen width
-uint64_t stride;  // Frame buffer line spacing
-uint32_t *buffer; // Video Memory
+uint64_t  width;  // Screen width
+uint64_t  height; // Screen height
+uint64_t  stride; // Frame buffer line spacing
+uint32_t *buffer; // Video Memory (We think BPP is 32. If BPP is other value, you have to change it)
 
 uint32_t x, y;              // The current absolute cursor position
 uint32_t cx, cy;            // The character position of the current cursor
@@ -33,7 +34,7 @@ uint32_t back_color; // Background color
 /* Get video information */
 video_info_t video_get_info(void)
 {
-    video_info_t info;
+    video_info_t               info;
     struct limine_framebuffer *framebuffer = get_framebuffer();
 
     info.framebuffer = framebuffer->address;
@@ -82,28 +83,28 @@ void video_init(void)
     c_width         = width / 9;
     c_height        = height / 16;
 
-    fore_color = 0xffaaaaaa;
-    back_color = 0xff000000;
+    fore_color = color_to_fb_color((color_t) {0xaa, 0xaa, 0xaa});
+    back_color = color_to_fb_color((color_t) {0x00, 0x00, 0x00});
     video_clear();
 }
 
 /* Clear screen */
 void video_clear(void)
 {
-    for (uint32_t i = 0; i < (width * height); i++) buffer[i] = 0xff000000;
-    back_color = 0xff000000;
-    x          = 2;
-    y          = 0;
+    back_color = color_to_fb_color((color_t) {0x00, 0x00, 0x00});
+    for (uint32_t i = 0; i < (stride * height); i++) buffer[i] = back_color;
+    x  = 2;
+    y  = 0;
     cx = cy = 0;
 }
 
 /* Clear screen with color */
 void video_clear_color(uint32_t color)
 {
-    for (uint32_t i = 0; i < (width * height); i++) buffer[i] = color;
     back_color = color;
-    x          = 2;
-    y          = 0;
+    for (uint32_t i = 0; i < (stride * height); i++) buffer[i] = back_color;
+    x  = 2;
+    y  = 0;
     cx = cy = 0;
 }
 
@@ -123,9 +124,9 @@ void video_scroll(void)
     } else {
         cx++;
     }
-    uint8_t *dest;
+    uint8_t       *dest;
     const uint8_t *src;
-    size_t count;
+    size_t         count;
     if ((uint32_t)cy >= c_height) {
         dest  = (uint8_t *)buffer;
         src   = (const uint8_t *)(buffer + stride * 16);
@@ -142,21 +143,21 @@ void video_scroll(void)
 /* Draw a pixel at the specified coordinates on the screen */
 void video_draw_pixel(uint32_t x, uint32_t y, uint32_t color)
 {
-    (buffer)[y * width + x] = color;
+    (buffer)[y * stride + x] = color;
 }
 
 /* Get a pixel at the specified coordinates on the screen */
 uint32_t video_get_pixel(uint32_t x, uint32_t y)
 {
-    return (buffer)[y * width + x];
+    return (buffer)[y * stride + x];
 }
 
 /* Iterate over a area on the screen and run a callback function in each iteration */
 void video_invoke_area(position_t p0, position_t p1, void (*callback)(position_t p))
 {
     position_t p;
-    for (p.y = p0.y; y <= p1.y; p.y++) {
-        for (p.x = p0.x; x <= p1.x; p.x++) callback(p);
+    for (p.y = p0.y; p.y <= p1.y; p.y++) {
+        for (p.x = p0.x; p.x <= p1.x; p.x++) callback(p);
     }
 }
 
@@ -170,8 +171,8 @@ void video_draw_rect(position_t p0, position_t p1, uint32_t color)
     for (y = y0; y <= y1; y++) {
         /* Draw horizontal line */
 #if defined(__x86_64__) || defined(__i386__)
-        uint32_t *line = buffer + y * stride + x0;
-        size_t count   = x1 - x0 + 1;
+        uint32_t *line  = buffer + y * stride + x0;
+        size_t    count = x1 - x0 + 1;
         __asm__ volatile("rep stosl" : "+D"(line), "+c"(count) : "a"(color) : "memory");
 #else
         for (uint32_t x = x0; x <= x1; x++) video_draw_pixel(x, y, color);

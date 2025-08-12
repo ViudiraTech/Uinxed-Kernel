@@ -33,8 +33,8 @@ typedef struct {
 } elf_result_t;
 
 typedef struct {
-        size_t address;
-        size_t size;
+        size_t         address;
+        size_t         size;
         const uint8_t *data;
 } elf_segment_t;
 

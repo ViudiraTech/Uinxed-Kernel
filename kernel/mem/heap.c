@@ -25,9 +25,9 @@ uint64_t heap_size  = 0;
 
 static void select_heap_space(size_t min_size)
 {
-    struct limine_memmap_response *memmap = memmap_request.response;
-    uint64_t best_start                   = 0;
-    uint64_t best_size                    = 0;
+    struct limine_memmap_response *memmap     = memmap_request.response;
+    uint64_t                       best_start = 0;
+    uint64_t                       best_size  = 0;
     for (size_t i = 0; i < memmap->entry_count; i++) {
         struct limine_memmap_entry *entry = memmap->entries[i];
         if (entry->type != LIMINE_MEMMAP_USABLE) continue;
@@ -39,9 +39,7 @@ static void select_heap_space(size_t min_size)
             best_size  = usable_size;
         }
     }
-    if (best_start == 0) {
-        printk_unsafe("No suitable heap region found (need %lld MiB)", heap_size / (uint64_t)(1024 * 1024));
-    }
+    if (best_start == 0) printk_unsafe("No suitable heap region found (need %lld KiB)", heap_size / 1024);
     heap_start = best_start;
     heap_size  = best_size / PAGE_SIZE * PAGE_SIZE;
 }
@@ -57,7 +55,7 @@ void init_heap(void)
 /* Allocate 4k-aligned memory */
 void *alloc_4k_aligned_mem(size_t size)
 {
-    void *p = malloc(size < PAGE_SIZE ? size + PAGE_SIZE : size);
+    void          *p = malloc(size < PAGE_SIZE ? size + PAGE_SIZE : size);
     pointer_cast_t p_aligned;
     p_aligned.val = (((uint64_t)p + 0xfff) & ~0xfff);
     return p_aligned.ptr;

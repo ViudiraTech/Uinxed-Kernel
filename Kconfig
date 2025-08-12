@@ -1,41 +1,67 @@
 mainmenu "Uinxed-Kernel"
 
-menu "General setup"
-  menu "Kernel debugging"
+menu "Kernel debugging"
 
-    config KERNEL_LOG
-      bool "Kernel log"
-      default y
+  config KERNEL_LOG
+    bool "Kernel runtime logging output"
+    default y
+    help
+      "Outputs kernel log messages during system runtime to aid the monitoring and debugging."
+
+endmenu
+
+menu "Processor configuration"
+  menu "Symmetric multi-processing"
+
+    config MAX_CPU_COUNT
+      int "Maximum number of CPUs"
+      default 0
       help
-        "Enable or disable kernel log output."
+        "Limits the maximum number of CPUs the kernel can use, set to 0 for no limit."
 
   endmenu
 endmenu
 
 menu "Device drivers"
-  menu "Character devices"
-    menu "Serial drivers"
+  menu "Character drivers"
+    menu "Teletype drivers"
+
+      config TTY_DEFAULT_DEV
+        string "Default teletype device"
+        default "tty0"
+        help
+          "Specifies the default teletype device used when no device is explicitly set by boot parameters."
+
+      config TTY_BUF_SIZE
+        int "Teletype buffer size"
+        default 4096
+        range 256 16384
+        help
+          "Buffer size for temporarily storing input and output data in the teletype driver."
+
+    endmenu
+    menu "Serial port drivers"
 
       config SERIAL_BAUD_RATE
-        int "Serial baud rate"
+        int "Serial port baud rate"
         default 9600
         range 9600 115200
         help
-          "Set the default baud rate of the serial port driver."
+          "Default baud rate used by the serial port driver."
 
       config SERIAL_DATA_BITS
-        int "Serial data bits"
+        int "Serial port data bits"
         default 8
         range 5 8
         help
-          "Set the default data bits for the serial port driver."
+          "Number of data bits per character for the serial port device."
 
       config SERIAL_STOP_BITS
-        int "Serial stop bits"
+        int "Serial port stop bits"
         default 1
         range 1 2
         help
-          "Set the default stop bits for the serial port driver."
+          "Number of stop bits per character for the serial port device."
 
     endmenu
   endmenu

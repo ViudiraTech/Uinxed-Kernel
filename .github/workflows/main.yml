@@ -1,16 +1,19 @@
+---
 name: CI Workflow
 
 on:
   push:
     paths:
-      - 'devices/**'
+      - 'boot/**'
+      - 'drivers/**'
       - 'include/**'
       - 'init/**'
       - 'kernel/**'
       - 'libs/**'
   pull_request:
     paths:
-      - 'devices/**'
+      - 'boot/**'
+      - 'drivers/**'
       - 'include/**'
       - 'init/**'
       - 'kernel/**'
@@ -43,3 +46,4 @@ jobs:
         with:
           name: UxImage
           path: ./UxImage
+...

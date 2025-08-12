@@ -27,13 +27,13 @@ pci_devices_cache_t pci_cache = {
     .devices_count = 0,
 };
 
-static void slot_process_legacy(pci_device_cache_t *device);
+static void     slot_process_legacy(pci_device_cache_t *device);
 static uint32_t pci_legacy_read(pci_device_reg_t reg);
-static void pci_legacy_write(pci_device_reg_t reg, uint32_t value);
+static void     pci_legacy_write(pci_device_reg_t reg, uint32_t value);
 
-static void slot_process_mcfg(pci_device_cache_t *device);
+static void     slot_process_mcfg(pci_device_cache_t *device);
 static uint32_t pci_mcfg_read(pci_device_reg_t reg);
-static void pci_mcfg_write(pci_device_reg_t reg, uint32_t value);
+static void     pci_mcfg_write(pci_device_reg_t reg, uint32_t value);
 
 /* PCI operations (For MCFG and legacy mode) */
 struct PCIOps {
@@ -53,7 +53,7 @@ pci_usable_list_t pci_usable = {
 };
 
 struct {
-        uint32_t classcode;
+        uint32_t    classcode;
         const char *name;
 } pci_classnames[] = {
     {0x000000, "Non-VGA-Compatible Unclassified Device"     },
@@ -196,7 +196,7 @@ void mcfg_init(mcfg_t *mcfg)
         for (size_t i = 0; i < mcfg_info.count; i++) {
             /* Convert to the virtual address */
             inner->entries[i].base_addr = (uint64_t)phys_to_virt(inner->entries[i].base_addr);
-            plogk("mcfg: mcfg->entries[%lu] base address: %p\n", i, inner->entries[i].base_addr);
+            plogk("mcfg: mcfg->entries[%lu] base: %p\n", i, inner->entries[i].base_addr);
             plogk("mcfg: mcfg->entries[%lu] segment: %hu\n", i, inner->entries[i].segment);
             plogk("mcfg: mcfg->entries[%lu] start bus: %hhu\n", i, inner->entries[i].start_bus);
             plogk("mcfg: mcfg->entries[%lu] end bus: %hhu\n", i, inner->entries[i].end_bus);
@@ -230,15 +230,15 @@ mcfg_entry_t *mcfg_search_entry(uint16_t bus)
 void *mcfg_ecam_addr(mcfg_entry_t *entry, pci_device_reg_t reg)
 {
     pci_device_t *device = reg.parent->device;
-    uint32_t bus         = device->bus & 0xff;
-    uint32_t slot        = device->slot & 0x1f;
-    uint32_t func        = device->func & 0x07;
-    uintptr_t addr       = entry->base_addr // Base Address
-        + ((uint64_t)entry->segment << 32)  // Segment
-        + (((bus - entry->start_bus) << 20) // Bus
-           | (slot << 15)                   // Slot
-           | (func << 12)                   // Func
-           | (reg.offset & 0xffc));         // Register
+    uint32_t      bus    = device->bus & 0xff;
+    uint32_t      slot   = device->slot & 0x1f;
+    uint32_t      func   = device->func & 0x07;
+    uintptr_t     addr   = entry->base_addr              // Base Address
+                     + ((uint64_t)entry->segment << 32)  // Segment
+                     + (((bus - entry->start_bus) << 20) // Bus
+                        | (slot << 15)                   // Slot
+                        | (func << 12)                   // Func
+                        | (reg.offset & 0xffc));         // Register
     pointer_cast_t cast;
     cast.val = addr;
     return cast.ptr;
@@ -248,8 +248,8 @@ void *mcfg_ecam_addr(mcfg_entry_t *entry, pci_device_reg_t reg)
 pci_device_ecam_t mcfg_update_ecam(mcfg_entry_t *entry, pci_device_cache_t *cache)
 {
     pci_device_ecam_t ecam;
-    pci_device_reg_t cpy_reg = {.parent = cache};
-    header_type_t type;
+    pci_device_reg_t  cpy_reg = {.parent = cache};
+    header_type_t     type;
     cpy_reg.offset  = ECAM_AREA_ID;
     ecam.id_ecam    = mcfg_ecam_addr(entry, cpy_reg);
     cpy_reg.offset  = ECAM_AREA_OPS;
@@ -303,11 +303,11 @@ pci_device_ecam_t mcfg_update_ecam(mcfg_entry_t *entry, pci_device_cache_t *cach
 /* Reading values ​​from PCI device registers in Legacy I/O */
 static uint32_t pci_legacy_read(pci_device_reg_t reg)
 {
-    pci_device_t *device     = reg.parent->device;
-    uint32_t register_offset = reg.offset;
-    uint32_t bus             = device->bus & 0xff;
-    uint32_t slot            = device->slot & 0x1f;
-    uint32_t func            = device->func & 0x07;
+    pci_device_t *device          = reg.parent->device;
+    uint32_t      register_offset = reg.offset;
+    uint32_t      bus             = device->bus & 0xff;
+    uint32_t      slot            = device->slot & 0x1f;
+    uint32_t      func            = device->func & 0x07;
 
     uint32_t id = 1 << 31 | (bus << 16) | (slot << 11) | (func << 8) | (register_offset & 0xfc);
     outl(PCI_COMMAND_PORT, id);
@@ -317,11 +317,11 @@ static uint32_t pci_legacy_read(pci_device_reg_t reg)
 /* Write values ​​to PCI device registers in Legacy I/O */
 static void pci_legacy_write(pci_device_reg_t reg, uint32_t value)
 {
-    pci_device_t *device     = reg.parent->device;
-    uint32_t register_offset = reg.offset;
-    uint32_t bus             = device->bus & 0xff;
-    uint32_t slot            = device->slot & 0x1f;
-    uint32_t func            = device->func & 0x07;
+    pci_device_t *device          = reg.parent->device;
+    uint32_t      register_offset = reg.offset;
+    uint32_t      bus             = device->bus & 0xff;
+    uint32_t      slot            = device->slot & 0x1f;
+    uint32_t      func            = device->func & 0x07;
 
     uint32_t id = 1 << 31 | (bus << 16) | (slot & 0x1f << 11) | (func << 8) | (register_offset & 0xfc);
     outl(PCI_COMMAND_PORT, id);
@@ -331,9 +331,9 @@ static void pci_legacy_write(pci_device_reg_t reg, uint32_t value)
 /* Write values ​​to PCI device registers from `pci_device_ecam` */
 static void pci_mcfg_write(pci_device_reg_t reg, uint32_t value)
 {
-    ecam_area_t area       = reg.offset / 4 * 4; // floor_4(reg.offset): A field is 4 bytes
-    uint32_t offset        = reg.offset - area;  // = reg.offset % 4
-    pci_device_ecam_t ecam = reg.parent->ecam;
+    ecam_area_t        area   = reg.offset / 4 * 4; // floor_4(reg.offset): A field is 4 bytes
+    uint32_t           offset = reg.offset - area;  // = reg.offset % 4
+    pci_device_ecam_t  ecam   = reg.parent->ecam;
     volatile uint32_t *ptr;
     switch (area) {
         case ECAM_AREA_ID :
@@ -372,9 +372,9 @@ static void pci_mcfg_write(pci_device_reg_t reg, uint32_t value)
 /* Reading values ​​from PCI device registers and `pci_device_ecam` */
 static uint32_t pci_mcfg_read(pci_device_reg_t reg)
 {
-    ecam_area_t area       = reg.offset / 4 * 4; // floor_4(reg.offset): A field is 4 bytes
-    uint32_t offset        = reg.offset - area;  // = reg.offset % 4
-    pci_device_ecam_t ecam = reg.parent->ecam;
+    ecam_area_t        area   = reg.offset / 4 * 4; // floor_4(reg.offset): A field is 4 bytes
+    uint32_t           offset = reg.offset - area;  // = reg.offset % 4
+    pci_device_ecam_t  ecam   = reg.parent->ecam;
     volatile uint32_t *ptr;
     switch (area) {
         case ECAM_AREA_ID :
@@ -436,7 +436,7 @@ base_address_register_t get_base_address_register(pci_device_cache_t *device, ui
      */
 
     base_address_register_t result = {0};
-    pci_device_reg_t reg           = {device, PCI_CONF_HEADER_TYPE};
+    pci_device_reg_t        reg    = {device, PCI_CONF_HEADER_TYPE};
 
     uint32_t headertype = read_pci(reg) & 0x7e;
     uint32_t max_bars;
@@ -533,7 +533,7 @@ uint32_t pci_get_irq(pci_device_cache_t *device)
 void pci_config(pci_device_cache_t *cache, uint32_t addr)
 {
     pci_device_t *device = cache->device;
-    uint32_t cmd         = 0;
+    uint32_t      cmd    = 0;
     cmd                  = 0x80000000 + addr + (device->func << 8) + (device->slot << 11) + (device->bus << 16);
     outl(PCI_COMMAND_PORT, cmd);
 }
@@ -541,9 +541,9 @@ void pci_config(pci_device_cache_t *cache, uint32_t addr)
 /* Find devices by class code */
 static void pci_class_finding(pci_finding_request_t *req)
 {
-    pci_class_request_t class_req = req->req.class_req;
-    pci_device_cache_t *cache     = pci_found_class_cache(class_req);
-    pci_device_reg_t reg_vendor   = {cache, PCI_CONF_VENDOR};
+    pci_class_request_t class_req  = req->req.class_req;
+    pci_device_cache_t *cache      = pci_found_class_cache(class_req);
+    pci_device_reg_t    reg_vendor = {cache, PCI_CONF_VENDOR};
 
     req->response->device = 0;
     req->response->error  = PCI_FINDING_NOT_FOUND;
@@ -559,8 +559,8 @@ static void pci_class_finding(pci_finding_request_t *req)
 static void pci_device_finding(pci_finding_request_t *req)
 {
     pci_device_request_t device_req = req->req.device_req;
-    pci_device_cache_t *cache       = pci_found_device_cache(device_req);
-    pci_device_reg_t reg_vendor     = {cache, PCI_CONF_VENDOR};
+    pci_device_cache_t  *cache      = pci_found_device_cache(device_req);
+    pci_device_reg_t     reg_vendor = {cache, PCI_CONF_VENDOR};
 
     req->response->device = 0;
     req->response->error  = PCI_FINDING_NOT_FOUND;
@@ -733,7 +733,7 @@ static void slot_process_legacy(pci_device_cache_t *cache)
 static void slot_process_mcfg(pci_device_cache_t *cache)
 {
     pci_device_t *device = cache->device;
-    mcfg_entry_t *entry  = mcfg_search_entry(device->bus);
+    mcfg_entry_t *entry  = cache->entry;
     if (entry == 0) return;
     pci_device_ecam_t ecam = mcfg_update_ecam(entry, cache);
     cache->ecam            = ecam;
@@ -769,17 +769,34 @@ static void slot_process(pci_device_cache_t *device)
     pci_ops.slot_process(device);
 }
 
+/* Iterate over bus by a range */
+static void pci_iter_bus_range(pci_device_cache_t *cache, bus_range_t bus_range)
+{
+    pci_device_t *device = cache->device;
+    for (device->bus = bus_range.start; device->bus < bus_range.end; device->bus++) {
+        for (device->slot = 0; device->slot < 32; device->slot++) slot_process(cache);
+    }
+}
+
 /* Flush the PCI devices cache */
 void pci_flush_devices_cache(void)
 {
     pci_free_devices_cache();
-    pci_device_t curr_device      = {0, 0, 0};
-    pci_device_cache_t curr_cache = {
-        &curr_device, 0, 0, 0, 0, 0, 0, {0, 0, 0, 0, 0},
+    pci_device_t       curr_device = {0, 0, 0, 0};
+    pci_device_cache_t curr_cache  = {
+        &curr_device, 0, 0, 0, 0, 0, 0, 0, {0, 0, 0, 0, 0},
     };
 
-    for (curr_device.bus = 0; curr_device.bus < 256; curr_device.bus++) {
-        for (curr_device.slot = 0; curr_device.slot < 32; curr_device.slot++) slot_process(&curr_cache);
+    if (!mcfg_info.enabled) {
+        curr_device.domain = 0;
+        pci_iter_bus_range(&curr_cache, (bus_range_t) {0, 256});
+    } else {
+        for (size_t i = 0; i < mcfg_info.count; i++) {
+            mcfg_entry_t *entry = &mcfg_info.mcfg->entries[i];
+            curr_cache.entry    = entry;
+            curr_device.domain  = entry->segment;
+            pci_iter_bus_range(&curr_cache, (bus_range_t) {entry->start_bus, entry->end_bus + 1});
+        }
     }
     pci_update_usable_list();
 }
@@ -787,9 +804,9 @@ void pci_flush_devices_cache(void)
 /* Found PCI devices cache by vender ID and device ID */
 pci_device_cache_t *pci_found_device_cache(pci_device_request_t device_req)
 {
-    uint32_t vendor_id        = device_req.vendor_id;
-    uint32_t device_id        = device_req.device_id;
-    pci_device_cache_t *cache = pci_cache.head;
+    uint32_t            vendor_id = device_req.vendor_id;
+    uint32_t            device_id = device_req.device_id;
+    pci_device_cache_t *cache     = pci_cache.head;
     while (cache != 0) {
         if (cache->vendor_id == vendor_id && cache->device_id == device_id) return cache;
         cache = cache->next;
@@ -800,8 +817,8 @@ pci_device_cache_t *pci_found_device_cache(pci_device_request_t device_req)
 /* Found PCI devices cache by class code */
 pci_device_cache_t *pci_found_class_cache(pci_class_request_t class_req)
 {
-    uint32_t class_code       = class_req.class_code;
-    pci_device_cache_t *cache = pci_cache.head;
+    uint32_t            class_code = class_req.class_code;
+    pci_device_cache_t *cache      = pci_cache.head;
     while (cache != 0) {
         if (cache->class_code == class_code || (cache->class_code & 0xffff00) == class_code) return cache;
         cache = cache->next;
@@ -813,17 +830,17 @@ pci_device_cache_t *pci_found_class_cache(pci_class_request_t class_req)
 void pci_init(void)
 {
     pci_flush_devices_cache();
-    pci_device_cache_t *cache = pci_cache.head;
-    pci_device_t *device      = 0;
+    pci_device_cache_t *cache  = pci_cache.head;
+    pci_device_t       *device = 0;
 
-    if (pci_ops.slot_process == slot_process_legacy)
+    if (!mcfg_info.enabled)
         plogk("pci: Using legacy PCI mode.\n");
-    else if (pci_ops.slot_process == slot_process_mcfg)
+    else
         plogk("pci: Using MCFG PCI mode.\n");
 
     while (cache != 0) {
         device = cache->device;
-        plogk("pci: %03d:%02d.%01d: [0x%04x:0x%04x] %s\n", device->bus, device->slot, device->func, cache->vendor_id,
+        plogk("pci: %04x:%02x:%02x.%01x: [0x%04x:0x%04x] %s\n", device->domain, device->bus, device->slot, device->func, cache->vendor_id,
               cache->device_id, pci_classname(cache->class_code));
         cache = cache->next;
     }

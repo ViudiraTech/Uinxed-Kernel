@@ -40,12 +40,12 @@ int skip_atoi(const char **s)
 /* Formatting an integer as a string */
 char *number(char *str, size_t num, size_t base, size_t size, size_t precision, int type) // NOLINT
 {
-    char c, tmp[65];
-    int sign;
+    char        c, tmp[65];
+    int         sign;
     const char *digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    int i;
-    int64_t size_      = (int64_t)size;
-    int64_t precision_ = (int64_t)precision;
+    int         i;
+    int64_t     size_      = (int64_t)size;
+    int64_t     precision_ = (int64_t)precision;
 
     if (type & SMALL) digits = "0123456789abcdefghijklmnopqrstuvwxyz";
     if (type & LEFT) type &= ~ZEROPAD;   // if left adjust, zero padding is not allowed
@@ -122,9 +122,9 @@ char *number(char *str, size_t num, size_t base, size_t size, size_t precision, 
 uint64_t number_length(size_t num, size_t base, size_t size, size_t precision, int type) // NOLINT
 {
     /* This function is for malloc a enough space for `number()` */
-    char sign            = 0; // is there a sign (0: no sign, 1: sign)
-    size_t number_digits = 0;
-    uint64_t res         = 0;
+    char     sign          = 0; // is there a sign (0: no sign, 1: sign)
+    size_t   number_digits = 0;
+    uint64_t res           = 0;
     if ((type & SIGN && (int64_t)num < 0)) {
         num  = -(int64_t)num;
         sign = 1;

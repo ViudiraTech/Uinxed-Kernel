@@ -1,3 +1,4 @@
+---
 CompileFlags:
   Add:
     - "-Wall"
@@ -22,3 +23,4 @@ CompileFlags:
 Diagnostics:
   ClangTidy:
     FastCheckFilter: Strict
+...

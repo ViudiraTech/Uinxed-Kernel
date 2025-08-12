@@ -1,7 +1,7 @@
 /*
  *
  *      main.c
- *      Uinxed kernel entry
+ *      Uinxed-kernel entry
  *
  *      2024/6/23 By MicroFish
  *      Based on GPL-3.0 open source agreement
@@ -21,6 +21,7 @@
 #include "ide.h"
 #include "idt.h"
 #include "interrupt.h"
+#include "limine_module.h"
 #include "page.h"
 #include "parallel.h"
 #include "pci.h"
@@ -57,15 +58,11 @@ void kernel_entry(void)
 
     video_info_t fbinfo = video_get_info();
 
-    plogk("Uinxed version %s (%s version %s) #1 SMP %s %s\n", KERNL_VERS, COMPILER_NAME, COMPILER_VERSION, BUILD_DATE,
-          BUILD_TIME);
-    plogk("fb0: Base address %p, Size %lu KiB.\n", fbinfo.framebuffer,
-          (fbinfo.width * fbinfo.height * fbinfo.bpp) / (uint64_t)(8 * 1024));
+    plogk("%s version %s (%s version %s) SMP %s %s\n", KERNEL_NAME, KERNEL_VERSION, COMPILER_NAME, COMPILER_VERSION, BUILD_DATE, BUILD_TIME);
+    plogk("fb0: Base %p, Size %lu KiB.\n", fbinfo.framebuffer, (fbinfo.width * fbinfo.height * fbinfo.bpp) / (uint64_t)(8 * 1024));
     plogk("fb0: Mode %lux%lu @ %ubpp.\n", fbinfo.width, fbinfo.height, fbinfo.bpp);
-    plogk("fb0: Color map: RGB, Mask bits R:%u G:%u B:%u\n", fbinfo.red_mask_size, fbinfo.green_mask_size,
-          fbinfo.blue_mask_size);
-    plogk("fb0: Channel offsets R:%u G:%u B:%u\n", fbinfo.red_mask_shift, fbinfo.green_mask_shift,
-          fbinfo.blue_mask_shift);
+    plogk("fb0: Color map: RGB, Mask bits R:%u G:%u B:%u\n", fbinfo.red_mask_size, fbinfo.green_mask_size, fbinfo.blue_mask_size);
+    plogk("fb0: Channel offsets R:%u G:%u B:%u\n", fbinfo.red_mask_shift, fbinfo.green_mask_shift, fbinfo.blue_mask_shift);
     plogk("fbcon: fb0 is primary device.\n");
     plogk("fbcon: Screen grid: %lux%lu characters.\n", fbinfo.c_width, fbinfo.c_height);
     plogk("Command line: %s\n", get_cmdline());
@@ -75,11 +72,9 @@ void kernel_entry(void)
     plogk("cpu: NX (Execute Disable) protection = %s\n", cpu_supports_nx() ? "active" : "passive");
     plogk("page: kernel_page_dir = %p\n", get_kernel_pagedir());
     plogk("page: kernel_page_table = %p\n", phys_to_virt(get_cr3()));
-    plogk("heap: Range: %p - %p (%llu MiB)\n", phys_to_virt(heap_start), phys_to_virt(heap_start + heap_size),
-          heap_size / 1024 / 1024);
+    plogk("heap: Range: %p - %p (%llu KiB)\n", phys_to_virt(heap_start), phys_to_virt(heap_start + heap_size), heap_size / 1024);
     plogk("x86/PAT: Configuration [0-7]: %s\n", get_pat_config().pat_str);
-    plogk("dmi: %s %s, BIOS %s %s\n", smbios_sys_manufacturer(), smbios_sys_product_name(), smbios_bios_version(),
-          smbios_bios_release_date());
+    plogk("dmi: %s %s, BIOS %s %s\n", smbios_sys_manufacturer(), smbios_sys_product_name(), smbios_bios_version(), smbios_bios_release_date());
 
     init_gdt();           // Initialize global descriptors
     init_idt();           // Initialize interrupt descriptor
@@ -89,6 +84,7 @@ void kernel_entry(void)
     print_memory_map();   // Print memory map information
     init_frame();         // Initialize memory frame
     pci_init();           // Initialize PCI
+    lmodule_init();       // Initialize the passed-in resource module list
     init_ide();           // Initialize ATA/ATAPI driver
     init_serial();        // Initialize the serial port
     init_parallel();      // Initialize the parallel port

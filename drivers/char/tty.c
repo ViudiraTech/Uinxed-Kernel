@@ -12,16 +12,16 @@
 #include "tty.h"
 #include "alloc.h"
 #include "cmdline.h"
-#include "lock.h"
 #include "serial.h"
+#include "spin_lock.h"
 #include "stdlib.h"
 #include "string.h"
 #include "video.h"
 
-static char boot_tty_buf[16]       = {0}; // Persistent Buffer
-static char *boot_tty              = 0;
-static char tty_buff[TTY_BUF_SIZE] = {0};
-static volatile char *tty_buff_ptr = tty_buff;
+static char           boot_tty_buf[16]       = {0}; // Persistent Buffer
+static char          *boot_tty               = 0;
+static char           tty_buff[TTY_BUF_SIZE] = {0};
+static volatile char *tty_buff_ptr           = tty_buff;
 
 spinlock_t tty_flush_spinlock = {
     .lock   = 0,
@@ -51,7 +51,7 @@ char *get_boot_tty(void)
     if (boot_tty) return boot_tty;
 
     const char *cmdline = get_cmdline();
-    if (!cmdline) return DEFAULT_TTY;
+    if (!cmdline) return TTY_DEFAULT_DEV;
 
     char bootarg[MAX_CMDLINE];
     memset(bootarg, 0, MAX_CMDLINE); // This is important
@@ -59,7 +59,7 @@ char *get_boot_tty(void)
     bootarg[MAX_CMDLINE - 1] = '\0';
 
     char **argv = (char **)malloc(MAX_ARGC * sizeof(char *));
-    if (!argv) return DEFAULT_TTY;
+    if (!argv) return TTY_DEFAULT_DEV;
 
     int argc = arg_parse(bootarg, argv, ' ');
     for (int i = 0; i < argc; ++i) {
@@ -77,7 +77,7 @@ char *get_boot_tty(void)
     free((void *)argv);
 
     if (!boot_tty) {
-        strncpy(boot_tty_buf, DEFAULT_TTY, sizeof(boot_tty_buf));
+        strncpy(boot_tty_buf, TTY_DEFAULT_DEV, sizeof(boot_tty_buf));
         boot_tty = boot_tty_buf;
     }
     return boot_tty;
@@ -87,24 +87,32 @@ char *get_boot_tty(void)
 void tty_buff_flush(void)
 {
     spin_lock(&tty_flush_spinlock);
-    tty_buff_ptr = tty_buff;
-    if (!strcmp(get_boot_tty(), "ttyS0")) {
-        while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_1, *tty_buff_ptr++);
-        tty_buff_ptr = tty_buff;
-    } else if (!strcmp(get_boot_tty(), "ttyS1")) {
-        while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_2, *tty_buff_ptr++);
-        tty_buff_ptr = tty_buff;
-    } else if (!strcmp(get_boot_tty(), "ttyS2")) {
-        while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_3, *tty_buff_ptr++);
-        tty_buff_ptr = tty_buff;
-    } else if (!strcmp(get_boot_tty(), "ttyS3")) {
-        while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_4, *tty_buff_ptr++);
-        tty_buff_ptr = tty_buff;
-    } else {
-        tty_buff[TTY_BUF_SIZE - 1] = '\0';
-        video_put_string(tty_buff);
+    tty_buff_ptr           = tty_buff;
+    const char *tty_device = get_boot_tty();
+
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        if (!strcmp(tty_device, "tty0")) {
+            tty_buff[TTY_BUF_SIZE - 1] = '\0';
+            video_put_string(tty_buff);
+            break;
+        } else if (!strcmp(tty_device, "ttyS0")) {
+            while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_1, *tty_buff_ptr++);
+            break;
+        } else if (!strcmp(tty_device, "ttyS1")) {
+            while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_2, *tty_buff_ptr++);
+            break;
+        } else if (!strcmp(tty_device, "ttyS2")) {
+            while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_3, *tty_buff_ptr++);
+            break;
+        } else if (!strcmp(tty_device, "ttyS3")) {
+            while (*tty_buff_ptr != '\0') write_serial(SERIAL_PORT_4, *tty_buff_ptr++);
+            break;
+        } else {
+            tty_device = TTY_DEFAULT_DEV;
+        }
     }
-    tty_buff[0] = '\0'; // Clear buffer
+    tty_buff_ptr = tty_buff;
+    tty_buff[0]  = '\0';
     spin_unlock(&tty_flush_spinlock);
 }
 

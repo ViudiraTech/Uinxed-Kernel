@@ -89,19 +89,19 @@ typedef struct {
         uint16_t base;  // I/O base address
         uint16_t ctrl;  // Control base address
         uint16_t bmide; // Bus Master IDE
-        uint8_t nIEN;   // nIEN (no interrupt)
+        uint8_t  nIEN;  // nIEN (no interrupt)
 } ide_channel_registers_t;
 
 typedef struct {
-        uint8_t reserved;      // Drive Status
-        uint8_t channel;       // Master-slave channel
-        uint8_t drive;         // Master-slave drive
+        uint8_t  reserved;     // Drive Status
+        uint8_t  channel;      // Master-slave channel
+        uint8_t  drive;        // Master-slave drive
         uint16_t type;         // Drive Type
         uint16_t signature;    // Drive Signature
         uint16_t capabilities; // Feature
         uint32_t command_sets; // Supported command sets
         uint32_t size;         // Size in sectors
-        uint8_t model[41];     // Drive Name
+        uint8_t  model[41];    // Drive Name
 } ide_device_t;
 
 /* Initialize IDE */

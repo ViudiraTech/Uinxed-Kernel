@@ -17,7 +17,7 @@
 
 typedef struct {
         uint8_t *buffer;
-        size_t length;
+        size_t   length;
 } bitmap_t;
 
 /* Initialize the memory bitmap */

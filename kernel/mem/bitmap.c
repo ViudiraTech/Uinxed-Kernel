@@ -47,9 +47,9 @@ void bitmap_set_range(bitmap_t *bitmap, size_t start, size_t end, int value) // 
         bitmap_set(bitmap, start, value);
         start++;
     }
-    size_t byte_start = start / 8;
-    size_t byte_end   = end / 8;
-    uint8_t fill      = value ? 0xff : 0x00;
+    size_t  byte_start = start / 8;
+    size_t  byte_end   = end / 8;
+    uint8_t fill       = value ? 0xff : 0x00;
 
     for (size_t i = byte_start; i < byte_end; i++) bitmap->buffer[i] = fill;
     start = byte_end * 8;
@@ -63,7 +63,7 @@ void bitmap_set_range(bitmap_t *bitmap, size_t start, size_t end, int value) // 
 /* Memory bitmap search range */
 size_t bitmap_find_range(const bitmap_t *bitmap, size_t length, int value) // NOLINT
 {
-    size_t count = 0, start_index = 0;
+    size_t  count = 0, start_index = 0;
     uint8_t byte_match = value ? (uint8_t)-1 : 0;
     for (size_t byte_idx = 0; byte_idx < bitmap->length / 8; byte_idx++) {
         size_t byte = bitmap->buffer[byte_idx];
