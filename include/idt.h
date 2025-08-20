@@ -68,11 +68,11 @@ typedef struct {
 } __attribute__((packed)) idt_entry_t;
 
 typedef struct {
-        uint64_t ss;
-        uint64_t rsp;
-        uint64_t rflags;
-        uint64_t cs;
         uint64_t rip;
+        uint64_t cs;
+        uint64_t rflags;
+        uint64_t rsp;
+        uint64_t ss;
 } __attribute__((packed)) interrupt_frame_t;
 
 extern idt_register_t idt_pointer;
