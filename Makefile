@@ -64,7 +64,8 @@ LIBS           := $(wildcard libs/lib*.a)
 PWD            := $(shell pwd)
 
 QEMU           := qemu-system-x86_64
-QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd
+QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd 
+QEMU_KVM	   := --enable-kvm
 
 CHECKS         := -quiet -checks=-*,clang-analyzer-*,bugprone-*,cert-*,misc-*,performance-*,portability-*,-misc-include-cleaner,-clang-analyzer-security.insecureAPI.*
 
@@ -126,8 +127,15 @@ help:
 	$(Q)printf "  make help        - Display this help message.\n\n"
 
 run: Uinxed-x64.iso
-	$(QEMU) $(QEMU_FLAGS) -cdrom $<
+	$(QEMU) $(QEMU_FLAGS) $(QEMU_KVM) -cdrom $<
 	$(Q)echo
+
+run_db: Uinxed-x64.iso
+	qemu-system-x86_64 $(QEMU_FLAGS) -no-reboot -d in_asm,int -D qemu.log -cdrom $<
+
+run_gdb: Uinxed-x64.iso
+	qemu-system-x86_64 $(QEMU_FLAGS) -no-reboot -d in_asm,int -D qemu.log -S -s -cdrom $<
+
 
 clean:
 	$(Q)$(RM) $(OBJS) $(DEPS) UxImage Uinxed-x64.iso

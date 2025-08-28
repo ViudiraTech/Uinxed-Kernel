@@ -10,7 +10,4 @@
  */
 #include "dpi.h"
 
-int drivers_init()
-{
-    return 0;
-}
+int drivers_init() { return 0; }
