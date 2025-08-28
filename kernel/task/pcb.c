@@ -6,11 +6,12 @@
 #include "heap.h"
 #include "printk.h"
 #include "smp.h"
+#include "debug.h"
 
 
 uint32_t now_pid = 0;
 pcb_t **idle_pcb;
-pcb_t *current_task;
+pcb_t **current_tasks;
 pcb_t *init_pcb;
 
 pcb_t *create_kernel_thread(int (*_start)(void *arg), void *args, char *name) {
@@ -72,16 +73,16 @@ int init_kmain(int *test) {
 
 pcb_t *init_task() {
   init_scheduler();
-  idle_pcb = (pcb_t**)malloc(sizeof(*idle_pcb)*get_cpu_count());
-  int cpu_count = get_cpu_count();
+  idle_pcb = (pcb_t**)calloc(sizeof(pcb_t*), get_cpu_count());
+  current_tasks = (pcb_t**)calloc(sizeof(pcb_t*), get_cpu_count());
+  uint32_t cpu_count = get_cpu_count();
   for(int i=0;i<cpu_count;i++){
     idle_pcb[i] = create_kernel_thread(idle_thread, NULL, "System(idle)");
     idle_pcb[i]->level = 3;
   }
   int *p = (int *)malloc(sizeof(int));
   *p = 114514;
-  init_pcb = create_kernel_thread(init_kmain, p, "init");
-  current_task = NULL;
+  init_pcb = create_kernel_thread((int (*)(void *))init_kmain, p, "init");
   plogk("idle stack: %p\tinit stack:%p\n\t", idle_pcb[0]->context0.rsp,
           init_pcb->context0.rsp);
   return init_pcb;

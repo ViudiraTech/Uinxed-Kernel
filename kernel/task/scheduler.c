@@ -7,6 +7,8 @@
 #include "printk.h"
 #include "stddef.h"
 #include "debug.h"
+#include "acpi.h"
+#include "page.h"
 
 int *is_scheduler; // 0:disable
 // 1:enable
@@ -27,7 +29,7 @@ int add_task(pcb_t *new_task) {
     pcb_list->pre = pcb_list;
     pcb_list->next = pcb_list;
   } else {
-    list_t *p = pcb_list;
+    list_t *p;
     for (p = pcb_list; p->next != pcb_list; p = p->next) {
     }
     p->next = (list_t *)malloc(sizeof(list_t));
@@ -35,9 +37,10 @@ int add_task(pcb_t *new_task) {
     p->next->next = pcb_list;
     p->next->pre = p;
   }
+  return 0;
 }
 
-void remove_task(pcb_t *task) {}
+void remove_task(pcb_t *task) {((void)task);}
 
 inline void ps() {
   printk("pid: %d\tname:%s\tstatus:%d\r\n", ((pcb_t *)pcb_list->data)->pid,
@@ -59,7 +62,7 @@ int scheduler(interrupt_frame_t *frame, regs_t *regs) {
   if (current_task == NULL)
   {
     current_task = idle_pcb[0];
-    current_task->context0.rip = idle_thread;
+    current_task->context0.rip = (uint64_t)idle_thread;    
   }
   current_task->state = 0;
   
@@ -81,6 +84,7 @@ void timer_handle_c(regs_t *reg) {
   if (is_scheduler[get_current_cpu_id()] == 0) {
     goto end;
   }
+
   if (current_task == NULL)
   {
     goto az;
@@ -99,6 +103,10 @@ void timer_handle_c(regs_t *reg) {
 az:
   scheduler(frame, reg);
 end:
+  // plogk("\nframe:\nrip:%p\ncs:%p\nrflags:%p\nrsp:%p\nss:%p", 
+  //               frame->rip, frame->cs, frame->rflags, 
+  //               frame->rsp, frame->ss);
+  plogk("current_cpu_id:%d\n", get_current_cpu_id());
   send_eoi();
   return;
 }
@@ -166,7 +174,7 @@ void switch_to(pcb_t *source, pcb_t *target, interrupt_frame_t *frame,
       .rsp = new->rsp, // 栈指针
       .ss = 0x10       // 内核数据段选择子
   };
-  if (target->flag & PCB_FLAGS_KTHREAD == 0) {
+  if ((target->flag & PCB_FLAGS_KTHREAD) == 0) {
     new_regs.cs = 0x20;
     new_regs.ss = 0x18;
   }

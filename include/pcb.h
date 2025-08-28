@@ -4,11 +4,16 @@
 #include "idt.h"
 #include "page.h"
 #include "stdlib.h"
+#include "smp.h"
 
 #define PCB_FLAGS_KTHREAD (1UL << 0)
 #define PCB_FLAGS_SWITCH_TO_USER (1UL << 1)
 #define C_F_CLONE_ADDRESS ((uint8_t)1 << 0) //克隆/共享虚拟地址空间
 #define C_F_CLONE_SOURCES ((uint8_t)1 << 1) //克隆/共享资源
+
+
+#define current_task (current_tasks[get_current_cpu_id()])
+
 typedef struct task_regs {
   uint64_t ds, es, fs, gs;
   uint64_t rax, rbx, rcx, rdx, rbp, rsi, rdi;
@@ -96,7 +101,7 @@ int idle_thread();
 
 extern pcb_t **idle_pcb;
 
-extern pcb_t *current_task;
+extern pcb_t **current_tasks;
 
 extern pcb_t *init_pcb;
 
