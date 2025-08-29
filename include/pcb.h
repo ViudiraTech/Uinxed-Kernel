@@ -84,7 +84,7 @@ typedef struct task_pcb {
                  // 4:僵死(可销毁)
   uint8_t init_nice;    //初始优先级(数字越大优先级越高)
   TaskContext context0; // 上下文
-  struct page_directory *page_dir; // 进程页表
+  page_directory_t *page_dir; // 进程页表
   struct task_pcb *father;         //父进程
   list_t *childs;
   void *sources;         //持有资源列表(暂不实现)

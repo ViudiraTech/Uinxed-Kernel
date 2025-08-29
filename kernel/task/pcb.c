@@ -7,6 +7,7 @@
 #include "printk.h"
 #include "smp.h"
 #include "debug.h"
+#include "common.h"
 
 
 uint32_t now_pid = 0;
@@ -28,7 +29,7 @@ pcb_t *create_kernel_thread(int (*_start)(void *arg), void *args, char *name) {
   new_task->time = 100;
 
   strcpy(new_task->name, name);
-  uint64_t *stack_top = new_task+(STACK_SIZE/sizeof(*new_task));
+  uint64_t *stack_top = (uint64_t*)(new_task+(STACK_SIZE/sizeof(*new_task)));
   *(--stack_top) = (uint64_t)_start;
   new_task->context0.rflags = 0x202;
   new_task->context0.rip = (uint64_t)_start;
@@ -62,7 +63,7 @@ int init_user_main() {
 }
 
 int init_kmain(int *test) {
-  printk("\n[INFO]Init process is running. test=%d\n", *test);
+  printk("\n[    INFO    ]Init process is running. test=%d\n", *test);
   enable_scheduler();
   enable_intr();
   while (1) {
@@ -76,7 +77,7 @@ pcb_t *init_task() {
   idle_pcb = (pcb_t**)calloc(sizeof(pcb_t*), get_cpu_count());
   current_tasks = (pcb_t**)calloc(sizeof(pcb_t*), get_cpu_count());
   uint32_t cpu_count = get_cpu_count();
-  for(int i=0;i<cpu_count;i++){
+  for(uint32_t i=0;i<cpu_count;i++){
     idle_pcb[i] = create_kernel_thread(idle_thread, NULL, "System(idle)");
     idle_pcb[i]->level = 3;
   }

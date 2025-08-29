@@ -9,6 +9,7 @@
 #include "debug.h"
 #include "acpi.h"
 #include "page.h"
+#include "apic.h"
 
 int *is_scheduler; // 0:disable
 // 1:enable
@@ -72,8 +73,6 @@ int scheduler(interrupt_frame_t *frame, regs_t *regs) {
   pcb_t *now = current_task;
   current_task = ((pcb_t *)(next->data));
   current_task->state = 1;
-  // ps();
-  // plogk("switch from pid %d to pid %d\n", now->pid, current_task->pid);
   spin_unlock(&pcb_list_lock);
   switch_to(now, current_task, frame, regs);
   return 0;
@@ -103,10 +102,6 @@ void timer_handle_c(regs_t *reg) {
 az:
   scheduler(frame, reg);
 end:
-  // plogk("\nframe:\nrip:%p\ncs:%p\nrflags:%p\nrsp:%p\nss:%p", 
-  //               frame->rip, frame->cs, frame->rflags, 
-  //               frame->rsp, frame->ss);
-  plogk("current_cpu_id:%d\n", get_current_cpu_id());
   send_eoi();
   return;
 }
@@ -186,7 +181,6 @@ void switch_to(pcb_t *source, pcb_t *target, interrupt_frame_t *frame,
     frame->ss = new_regs.ss;
   }
   // 伪造寄存器上下文
-  // CHEAT_REGS((&new_regs));
   regs->r15 = new->r15;
   regs->r14 = new->r14;
   regs->r13 = new->r13;
