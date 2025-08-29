@@ -15,8 +15,8 @@
 #include "stdint.h"
 
 typedef struct {
-        volatile uint64_t lock;   // lock state
-        uint64_t          rflags; // stored rflags
+  volatile uint64_t lock; // lock state
+  uint64_t rflags;        // stored rflags
 } spinlock_t;
 
 /* Lock a spinlock */

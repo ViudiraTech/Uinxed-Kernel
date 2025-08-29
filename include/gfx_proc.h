@@ -14,9 +14,11 @@
 
 #include "video.h"
 
-#define COLOR_SIZE_MASK(size)               ((1 << (size)) - 1)
-#define COLOR_MASK(color, size, shift)      (((color) & COLOR_SIZE_MASK(size)) << (shift))
-#define COLOR_UNMASK(fb_color, size, shift) (((fb_color) >> (shift)) & COLOR_SIZE_MASK(size))
+#define COLOR_SIZE_MASK(size) ((1 << (size)) - 1)
+#define COLOR_MASK(color, size, shift)                                         \
+  (((color)&COLOR_SIZE_MASK(size)) << (shift))
+#define COLOR_UNMASK(fb_color, size, shift)                                    \
+  (((fb_color) >> (shift)) & COLOR_SIZE_MASK(size))
 
 /* Convert color to fb_color */
 uint32_t color_to_fb_color(color_t color);

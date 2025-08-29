@@ -16,12 +16,13 @@
 #include "stdint.h"
 
 typedef struct {
-        const char *name;
-        Elf64_Addr  addr;
-        Elf64_Xword size;
+  const char *name;
+  Elf64_Addr addr;
+  Elf64_Xword size;
 } sym_info_t;
 
 /* Get symbol information */
-sym_info_t get_symbol_info(uint64_t *kernel_file_address, Elf64_Addr symbol_address);
+sym_info_t get_symbol_info(uint64_t *kernel_file_address,
+                           Elf64_Addr symbol_address);
 
 #endif // INCLUDE_SYMBOLS_H_

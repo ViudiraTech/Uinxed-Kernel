@@ -16,9 +16,9 @@
 #include "stdint.h"
 
 typedef struct {
-        bitmap_t bitmap;
-        size_t   origin_frames;
-        size_t   usable_frames;
+  bitmap_t bitmap;
+  size_t origin_frames;
+  size_t usable_frames;
 } frame_allocator_t;
 
 extern frame_allocator_t frame_allocator;
