@@ -131,7 +131,7 @@ void wfmt_arg(Writer *writer, ArgsFmter *fmter, va_list args) // NOLINT
 
     num_formatter_t num_fmter = {};
     num_fmt_type    num_flag  = {};
-    int64_t         size_cnt  = INT;
+    int8_t          size_cnt  = INT;
 
     // Error args
     if (!writer || !write || !fmt_ptr || !(*fmt_ptr) || **fmt_ptr != '%') { return; }
