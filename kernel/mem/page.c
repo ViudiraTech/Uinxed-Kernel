@@ -32,22 +32,25 @@ __attribute__((interrupt)) void page_fault_handle(interrupt_frame_t *frame, uint
     uint64_t faulting_address;
     __asm__ volatile("mov %%cr2, %0" : "=r"(faulting_address));
 
-    int      present  = !(error_code & 0x1); // Page does not exist
-    uint64_t rw       = error_code & 0x2;    // Read-only page is written
-    uint64_t us       = error_code & 0x4;    // User mode writes to kernel page
-    uint64_t reserved = error_code & 0x8;    // Write CPU reserved bits
-    uint64_t id       = error_code & 0x10;   // Caused by instruction fetch
+    int         present  = !(error_code & 0x1); // Page does not exist
+    uint64_t    rw       = error_code & 0x2;    // Read-only page is written
+    uint64_t    us       = error_code & 0x4;    // User mode writes to kernel page
+    uint64_t    reserved = error_code & 0x8;    // Write CPU reserved bits
+    uint64_t    id       = error_code & 0x10;   // Caused by instruction fetch
+    const char *pf_msg   = "Unknown";
 
     if (present)
-        panic("PAGE_FAULT-Present-Address: 0x%016llx", faulting_address);
+        pf_msg = "Present";
     else if (rw)
-        panic("PAGE_FAULT-ReadOnly-Address: 0x%016llx", faulting_address);
+        pf_msg = "ReadOnly";
     else if (us)
-        panic("PAGE_FAULT-UserMode-Address: 0x%016llx", faulting_address);
+        pf_msg = "UserMode";
     else if (reserved)
-        panic("PAGE_FAULT-Reserved-Address: 0x%016llx", faulting_address);
+        pf_msg = "Reserved";
     else if (id)
-        panic("PAGE_FAULT-DecodeAddress-Address: 0x%016llx", faulting_address);
+        pf_msg = "DecodeAddress";
+
+    panic("PAGE_FAULT-%s-Address: 0x%016llx", pf_msg, faulting_address);
 }
 
 /* Determine whether the page table entry maps a huge page */
