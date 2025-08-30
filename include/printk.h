@@ -37,11 +37,24 @@ typedef struct {
         fmt_arg_t      *arg;  // The argument that overflow
 } overflow_signal_t;
 
+typedef struct {
+        char  *buf;
+        size_t idx;
+} unsafe_buf_data;
+
+typedef struct {
+        const char **fmt_ptr;       // a pointer to `fmt`
+        size_t      *write_counter; // for `%n`
+} args_fmter;
+
 /* Kernel print string */
 void printk(const char *format, ...);
 
 /* Kernel print log */
 void plogk(const char *format, ...);
+
+/* Handler of unsafe buf writing */
+uint8_t unsafe_buf_write(writer *writer, char c);
 
 /* Store the formatted output in a character array */
 int sprintf(char *str, const char *fmt, ...);
@@ -49,7 +62,10 @@ int sprintf(char *str, const char *fmt, ...);
 /* Format with va_list, then store the formatted output in a character array */
 int vsprintf(char *str, const char *fmt, va_list args);
 
+/* Formatted output processing */
+void wfmt_arg(writer *writer, args_fmter *fmter, va_list args);
+
 /* Use a `writer` to write formatted string */
-size_t vwprintf(Writer *writer, const char *fmt, va_list args);
+size_t vwprintf(writer *writer, const char *fmt, va_list args);
 
 #endif // INCLUDE_PRINTK_H_

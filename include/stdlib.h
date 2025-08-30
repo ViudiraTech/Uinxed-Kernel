@@ -38,19 +38,19 @@
 
 /* BEGIN TODO BLOCK: Move these to a I/O header file */
 /* Placeholder ... */
-struct Writer;
+struct writer;
 
 /**
  * A handle of writing a char
  * `uint8_t` is a bool, if != 0 means write success, if == 0 means write failure
  */
-typedef uint8_t (*WriteHandler)(struct Writer *writer, char ch);
+typedef uint8_t (*write_handler)(struct writer *writer, char ch);
 
-/* A interface of writing a char (May be extended in the future)*/
-typedef struct Writer {
-        void        *data; /* Any data */
-        WriteHandler handler;
-} Writer;
+/* A interface of writing a char (May be extended in the future) */
+typedef struct writer {
+        void         *data; // Any data
+        write_handler handler;
+} writer;
 /* END TODO BLOCK */
 
 typedef struct num_fmt_type {
@@ -71,7 +71,7 @@ typedef struct num_formatter {
 } num_formatter_t;
 
 /* Write a formatted number to a writer */
-size_t wnumber(Writer *writer, num_formatter_t fmter, num_fmt_type type);
+size_t wnumber(writer *writer, num_formatter_t fmter, num_fmt_type type);
 
 /* Convert a string number to an integer number */
 int atoi(const char *pstr);
