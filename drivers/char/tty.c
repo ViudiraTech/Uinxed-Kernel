@@ -19,27 +19,21 @@
 #include "string.h"
 #include "video.h"
 
-uint8_t tty_writer_handler(Writer *writer, char c)
-{
-    (void)writer;
-    tty_print_ch(c);
-    return 1; // Always success? :(
-}
-
-Writer tty_writer = {
-    .data    = 0,
-    .handler = tty_writer_handler,
-};
+tty_device_t  boot_tty     = {0, 0};
+tty_device_t *boot_tty_ptr = 0;
 
 static char           boot_tty_str_buf[16]   = {0}; // Persistent buffer
-tty_device_t          boot_tty               = {0, 0};
-tty_device_t         *boot_tty_ptr           = 0;
 static char           tty_buff[TTY_BUF_SIZE] = {0};
 static volatile char *tty_buff_ptr           = tty_buff;
 
 spinlock_t tty_flush_spinlock = {
     .lock   = 0,
     .rflags = 0,
+};
+
+writer tty_writer = {
+    .data    = 0,
+    .handler = tty_writer_handler,
 };
 
 /* Parsing command line arguments */
@@ -59,6 +53,15 @@ static int arg_parse(char *arg_str, char **argv, char delim)
     return argc;
 }
 
+/* Directs character write operations to terminal output */
+uint8_t tty_writer_handler(writer *writer, char c)
+{
+    (void)writer;
+    tty_print_ch(c);
+    return 1; // Always success? :(
+}
+
+/* Parse boot_tty string to tty_device_t */
 tty_device_t parse_boot_tty_str(char *boot_tty_str)
 {
     tty_device_t  tty_dev = {0, 0};

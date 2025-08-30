@@ -13,19 +13,19 @@
 #include "stdint.h"
 
 /* Write a formatted number to a writer */
-size_t wnumber(Writer *writer, num_formatter_t fmter,
-               num_fmt_type type) // NOLINT
+size_t wnumber(writer *writer, num_formatter_t fmter, num_fmt_type type) // NOLINT
 {
-    char         c = 0;
-    char         tmp[65];
-    int          sign      = 0;
-    const char  *digits    = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    int          i         = 0; // index for tmp
-    int64_t      size      = (int64_t)fmter.size;
-    int64_t      precision = (int64_t)fmter.precision;
-    size_t       base      = fmter.base;
-    WriteHandler write     = writer->handler;
-    size_t       result    = 0;
+    char        c = 0;
+    char        tmp[65];
+    int         sign      = 0;
+    const char *digits    = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    int         i         = 0; // index for tmp
+    int64_t     size      = (int64_t)fmter.size;
+    int64_t     precision = (int64_t)fmter.precision;
+    size_t      base      = fmter.base;
+
+    write_handler write  = writer->handler;
+    size_t        result = 0;
 
     if (type.small) digits = "0123456789abcdefghijklmnopqrstuvwxyz";
     if (type.left) type.zeropad = 0;     // if left adjust, zero padding is not allowed
@@ -44,7 +44,6 @@ size_t wnumber(Writer *writer, num_formatter_t fmter,
     } else {
         sign = 0;
     }
-
     if (sign) size--;
 
     /* Special like 0x, 0 */
@@ -57,15 +56,17 @@ size_t wnumber(Writer *writer, num_formatter_t fmter,
     }
 
     i = 0;
-    if (fmter.num == 0) {
+
+    if (!fmter.num) {
         tmp[i++] = '0';
     } else {
-        while (fmter.num != 0) {
+        while (fmter.num) {
             tmp[i++]  = digits[(uint64_t)fmter.num % (uint64_t)base];
             fmter.num = (uint64_t)fmter.num / (uint64_t)fmter.base;
         }
     }
     if (i > precision) precision = i; // precision = max(precision, i);
+
     size -= precision;
 
     /* If type no include LEFT or ZEROPAD */
@@ -86,14 +87,14 @@ size_t wnumber(Writer *writer, num_formatter_t fmter,
             write(writer, digits[33]), result++; // 33 is 'x' or 'X'
         }
     }
-
-    if (!(type.left)) {
+    if (!type.left) {
         /* Write the padding */
         while (size-- > 0) write(writer, c), result++;
     }
 
     /* Write the zero padding */
     while (i < precision--) write(writer, '0'), result++;
+
     /* Write the number */
     while (i-- > 0) write(writer, tmp[i]), result++;
 

@@ -24,12 +24,13 @@
 
 #define BUF_SIZE 2048 // least 2 bytes (1 byte is for '\0')
 
-/* Lock for printk and plogk */
+/* Lock for printk */
 spinlock_t printk_lock = {
     .lock   = 0,
     .rflags = 0,
 };
 
+/* Lock for plogk */
 spinlock_t plogk_lock = {
     .lock   = 0,
     .rflags = 0,
@@ -62,17 +63,11 @@ void plogk(const char *format, ...)
 #endif
 }
 
-/* Data for unsafe buffer writer */
-typedef struct UnsafeBufData {
-        char  *buf;
-        size_t idx;
-} UnsafeBufData;
-
 /* Handler of unsafe buf writing */
-uint8_t unsafe_buf_write(Writer *writer, char c)
+uint8_t unsafe_buf_write(writer *writer, char c)
 {
-    UnsafeBufData *data  = (UnsafeBufData *)writer->data;
-    data->buf[data->idx] = c;
+    unsafe_buf_data *data = (unsafe_buf_data *)writer->data;
+    data->buf[data->idx]  = c;
     ++data->idx;
     return 1; // Always success? :(
 }
@@ -80,15 +75,17 @@ uint8_t unsafe_buf_write(Writer *writer, char c)
 /* Store the formatted output in a character array */
 int sprintf(char *str, const char *fmt, ...)
 {
-    int           c                 = 0;
-    UnsafeBufData unsafe_buf_data   = {.buf = str, .idx = 0};
-    Writer        unsafe_buf_writer = {
-               .data    = &unsafe_buf_data,
-               .handler = unsafe_buf_write,
+    int             c                 = 0;
+    unsafe_buf_data unsafe_buf_data   = {.buf = str, .idx = 0};
+    writer          unsafe_buf_writer = {
+                 .data    = &unsafe_buf_data,
+                 .handler = unsafe_buf_write,
     };
     va_list arg;
     va_start(arg, fmt);
+
     c = (int)vwprintf(&unsafe_buf_writer, fmt, arg); // NOLINT
+
     va_end(arg);
     return c;
 }
@@ -96,21 +93,15 @@ int sprintf(char *str, const char *fmt, ...)
 /* Format with va_list, then store the formatted output in a character array */
 int vsprintf(char *str, const char *fmt, va_list args)
 {
-    int           c                 = 0;
-    UnsafeBufData unsafe_buf_data   = {.buf = str, .idx = 0};
-    Writer        unsafe_buf_writer = {
-               .data    = &unsafe_buf_data,
-               .handler = unsafe_buf_write,
+    int             c                 = 0;
+    unsafe_buf_data unsafe_buf_data   = {.buf = str, .idx = 0};
+    writer          unsafe_buf_writer = {
+                 .data    = &unsafe_buf_data,
+                 .handler = unsafe_buf_write,
     };
     c = (int)vwprintf(&unsafe_buf_writer, fmt, args); // NOLINT
     return c;
 }
-
-/* Arguments of `wfmt_arg` */
-typedef struct ArgsFmter {
-        const char **fmt_ptr;       // a pointer to `fmt`
-        size_t      *write_counter; // for `%n`
-} ArgsFmter;
 
 typedef enum num_size {
     HALF_2 = 0, // char
@@ -121,20 +112,21 @@ typedef enum num_size {
     SIZE_T = 5, // size_t
 } num_size_t;
 
-void wfmt_arg(Writer *writer, ArgsFmter *fmter, va_list args) // NOLINT
+/* Formatted output processing */
+void wfmt_arg(writer *writer, args_fmter *fmter, va_list args) // NOLINT
 {
-    char        *str           = 0; // for `%s`
-    size_t       write_counter = 0;
-    size_t       str_len       = 0; // for align `%s`
-    WriteHandler write         = writer->handler;
-    const char **fmt_ptr       = fmter->fmt_ptr;
+    char         *str           = 0; // for `%s`
+    size_t        write_counter = 0;
+    size_t        str_len       = 0; // for align `%s`
+    const char  **fmt_ptr       = fmter->fmt_ptr;
+    write_handler write         = writer->handler;
 
     num_formatter_t num_fmter = {};
     num_fmt_type    num_flag  = {};
     int8_t          size_cnt  = INT;
 
-    // Error args
-    if (!writer || !write || !fmt_ptr || !(*fmt_ptr) || **fmt_ptr != '%') { return; }
+    /* Error args */
+    if (!writer || !write || !fmt_ptr || !(*fmt_ptr) || **fmt_ptr != '%') return;
 
     while (1) {
         ++(*fmt_ptr); // Skip '%' or any flags
@@ -210,7 +202,7 @@ void wfmt_arg(Writer *writer, ArgsFmter *fmter, va_list args) // NOLINT
                 break;
             case 'd' :
             case 'i' :
-                // NOLINTBEGIN
+                /* NOLINTBEGIN */
                 switch (size_cnt) {
                     case HALF_2 :
                         num_fmter.num = (size_t)(char)va_arg(args, int);
@@ -232,7 +224,7 @@ void wfmt_arg(Writer *writer, ArgsFmter *fmter, va_list args) // NOLINT
                         num_fmter.num = va_arg(args, size_t);
                         break;
                 }
-                // NOLINTEND
+                /* NOLINTEND */
                 break;
             case 'o' :
             case 'x' :
@@ -307,23 +299,25 @@ void wfmt_arg(Writer *writer, ArgsFmter *fmter, va_list args) // NOLINT
             case '%' :
                 break;
             default :
-                // Unexpected
+                /* Unexpected */
                 return;
         }
 
         /* Write to arg space */
         switch (**fmt_ptr) {
             case 'c' :
-                // Right align
+                /* Right align */
                 if (!(num_flag.left)) {
                     while (write_counter < num_fmter.size - 1) {
                         write(writer, ' ');
                         ++write_counter;
                     }
                 }
-                // Write char
+
+                /* Write char */
                 write(writer, (char)num_fmter.num);
-                // Left align
+
+                /* Left align */
                 if (num_flag.left) {
                     while (write_counter < num_fmter.size - 1) {
                         write(writer, ' ');
@@ -332,7 +326,8 @@ void wfmt_arg(Writer *writer, ArgsFmter *fmter, va_list args) // NOLINT
                 }
                 break;
             case 's' :
-                // Right align
+
+                /* Right align */
                 if (!(num_flag.left)) {
                     while (write_counter < num_fmter.size - str_len) {
                         write(writer, ' ');
@@ -340,13 +335,15 @@ void wfmt_arg(Writer *writer, ArgsFmter *fmter, va_list args) // NOLINT
                     }
                     str_len = num_fmter.size;
                 }
-                // Write string
+
+                /* Write string */
                 while (write_counter < str_len) {
                     write(writer, *str);
                     ++str;
                     ++write_counter;
                 }
-                // Left align
+
+                /* Left align */
                 if (num_flag.left) {
                     while (write_counter < num_fmter.size - str_len) {
                         write(writer, ' ');
@@ -363,7 +360,7 @@ void wfmt_arg(Writer *writer, ArgsFmter *fmter, va_list args) // NOLINT
             case 'u' : // fallthrough
             case 'b' :
                 write_counter += wnumber(writer, num_fmter, num_flag);
-                break; // Format number with `Writer`
+                break; // Format number with `writer`
             case '%' :
                 write(writer, '%');
                 break;
@@ -373,19 +370,21 @@ void wfmt_arg(Writer *writer, ArgsFmter *fmter, va_list args) // NOLINT
         break;
     }
     *(fmter->write_counter) += write_counter;
-    // Unnecessary to update `fmt_ptr`
+    /* Unnecessary to update `fmt_ptr` */
 }
 
 /* Use a `writer` to write formatted string */
-size_t vwprintf(Writer *writer, const char *fmt, va_list args)
+size_t vwprintf(writer *writer, const char *fmt, va_list args)
 {
-    const char  *fmt_ptr = fmt;
-    WriteHandler write   = writer->handler;
-    size_t       result  = 0;
-    ArgsFmter    fmter   = {
-             .fmt_ptr       = &fmt_ptr,
-             .write_counter = &result,
+    const char   *fmt_ptr = fmt;
+    size_t        result  = 0;
+    write_handler write   = writer->handler;
+
+    args_fmter fmter = {
+        .fmt_ptr       = &fmt_ptr,
+        .write_counter = &result,
     };
+
     while (*fmt_ptr != '\0') {
         if (*fmt_ptr != '%') {
             write(writer, *fmt_ptr); // TODO: Catch Error
@@ -393,7 +392,8 @@ size_t vwprintf(Writer *writer, const char *fmt, va_list args)
             result++;
             continue;
         }
-        // *fmt_ptr == '%'
+
+        /* *fmt_ptr == '%' */
         wfmt_arg(writer, &fmter, args); // NOLINT
         fmt_ptr++;
     }

@@ -26,8 +26,6 @@
 #    define TTY_DEFAULT_DEV "tty0"
 #endif
 
-extern Writer tty_writer;
-
 typedef enum {
     TTY_DEVICE_VGA,
     TTY_DEVICE_SERIAL,
@@ -43,6 +41,11 @@ typedef struct {
         tty_device_kind_t type;
         uint32_t          port;
 } tty_device_t;
+
+extern writer tty_writer;
+
+/* Directs character write operations to terminal output */
+uint8_t tty_writer_handler(writer *writer, char c);
 
 /* Parse boot_tty string to tty_device_t */
 tty_device_t parse_boot_tty_str(char *boot_tty_str);
