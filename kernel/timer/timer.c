@@ -13,6 +13,7 @@
 #include "apic.h"
 #include "common.h"
 #include "idt.h"
+#include "printk.h"
 #include "stdint.h"
 
 /* Timer interrupt */
