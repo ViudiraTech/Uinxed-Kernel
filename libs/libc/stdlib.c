@@ -57,7 +57,7 @@ size_t wnumber(writer *writer, num_formatter_t fmter, num_fmt_type type) // NOLI
 
     i = 0;
 
-    if (!fmter.num) {
+    if (!(fmter.num)) {
         tmp[i++] = '0';
     } else {
         while (fmter.num) {
@@ -87,7 +87,8 @@ size_t wnumber(writer *writer, num_formatter_t fmter, num_fmt_type type) // NOLI
             write(writer, digits[33]), result++; // 33 is 'x' or 'X'
         }
     }
-    if (!type.left) {
+
+    if (!(type.left)) {
         /* Write the padding */
         while (size-- > 0) write(writer, c), result++;
     }
