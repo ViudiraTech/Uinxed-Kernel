@@ -25,7 +25,7 @@ uint64_t get_physical_memory_offset(void)
 void *phys_to_virt(uint64_t phys_addr)
 {
     pointer_cast_t virt_addr;
-    if (phys_addr & hhdm_request.response->offset) plogk_unsafe("Unsafe! 0x%016llx in phys_to_virt.\n", phys_addr);
+    if (phys_addr & hhdm_request.response->offset) plogk("Unsafe! 0x%016llx in phys_to_virt.\n", phys_addr);
 
     /* Avoid overflow */
     virt_addr.val = phys_addr | hhdm_request.response->offset;
@@ -36,7 +36,7 @@ void *phys_to_virt(uint64_t phys_addr)
 void *virt_to_phys(uint64_t virt_addr)
 {
     pointer_cast_t phys_addr;
-    if (!(virt_addr & hhdm_request.response->offset)) plogk_unsafe("Unsafe! 0x%016llx in virt_to_phys.\n", virt_addr);
+    if (!(virt_addr & hhdm_request.response->offset)) plogk("Unsafe! 0x%016llx in virt_to_phys.\n", virt_addr);
 
     /* Avoid overflow */
     phys_addr.val = virt_addr & ~(hhdm_request.response->offset);

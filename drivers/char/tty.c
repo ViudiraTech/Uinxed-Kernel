@@ -19,6 +19,18 @@
 #include "string.h"
 #include "video.h"
 
+uint8_t tty_writer_handler(Writer *writer, char c)
+{
+    (void)writer;
+    tty_print_ch(c);
+    return 1; // Always success? :(
+}
+
+Writer tty_writer = {
+    .data    = 0,
+    .handler = tty_writer_handler,
+};
+
 static char           boot_tty_str_buf[16]   = {0}; // Persistent buffer
 tty_device_t          boot_tty               = {0, 0};
 tty_device_t         *boot_tty_ptr           = 0;

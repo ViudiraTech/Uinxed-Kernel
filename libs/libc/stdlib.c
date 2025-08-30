@@ -12,6 +12,96 @@
 #include "stdlib.h"
 #include "stdint.h"
 
+/* Write a formatted number to a writer */
+size_t wnumber(Writer *writer, num_formatter_t fmter,
+               num_fmt_type type) // NOLINT
+{
+    char         c = 0;
+    char         tmp[65];
+    int          sign      = 0;
+    const char  *digits    = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    int          i         = 0; // index for tmp
+    int64_t      size      = (int64_t)fmter.size;
+    int64_t      precision = (int64_t)fmter.precision;
+    size_t       base      = fmter.base;
+    WriteHandler write     = writer->handler;
+    size_t       result    = 0;
+
+    if (type.small) digits = "0123456789abcdefghijklmnopqrstuvwxyz";
+    if (type.left) type.zeropad = 0;     // if left adjust, zero padding is not allowed
+    if (base < 2 || base > 36) return 0; // Invalid base
+
+    c = (type.zeropad) ? '0' : ' ';
+
+    /* Check sign */
+    if (type.sign && (int64_t)fmter.num < 0) {
+        sign      = '-';
+        fmter.num = -(int64_t)fmter.num;
+    } else if (type.plus) {
+        sign = '+';
+    } else if (type.space) {
+        sign = ' ';
+    } else {
+        sign = 0;
+    }
+
+    if (sign) size--;
+
+    /* Special like 0x, 0 */
+    if (type.special) {
+        if (base == 16) {
+            size -= 2;
+        } else if (base == 8) {
+            size--;
+        }
+    }
+
+    i = 0;
+    if (fmter.num == 0) {
+        tmp[i++] = '0';
+    } else {
+        while (fmter.num != 0) {
+            tmp[i++]  = digits[(uint64_t)fmter.num % (uint64_t)base];
+            fmter.num = (uint64_t)fmter.num / (uint64_t)fmter.base;
+        }
+    }
+    if (i > precision) precision = i; // precision = max(precision, i);
+    size -= precision;
+
+    /* If type no include LEFT or ZEROPAD */
+    if (!(type.zeropad || type.left)) {
+        /* Fill in the space */
+        while (size-- > 0) write(writer, ' '), result++;
+    }
+
+    /* Write the sign */
+    if (sign) write(writer, (char)sign), result++;
+
+    /* Write the prefix */
+    if (type.special) {
+        if (base == 8) {
+            write(writer, '0'), result++;
+        } else if (base == 16) {
+            write(writer, '0'), result++;
+            write(writer, digits[33]), result++; // 33 is 'x' or 'X'
+        }
+    }
+
+    if (!(type.left)) {
+        /* Write the padding */
+        while (size-- > 0) write(writer, c), result++;
+    }
+
+    /* Write the zero padding */
+    while (i < precision--) write(writer, '0'), result++;
+    /* Write the number */
+    while (i-- > 0) write(writer, tmp[i]), result++;
+
+    /* LEFT adjust */
+    while (size-- > 0) write(writer, ' '), result++;
+    return result;
+}
+
 /* Convert a string number to an integer number */
 int atoi(const char *pstr)
 {
