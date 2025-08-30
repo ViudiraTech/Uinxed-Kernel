@@ -10,7 +10,6 @@
  */
 
 #include "printk.h"
-#include "alloc.h"
 #include "spin_lock.h"
 #include "stdarg.h"
 #include "stddef.h"
@@ -40,50 +39,11 @@ spinlock_t plogk_lock = {
 void printk(const char *format, ...)
 {
     spin_lock(&printk_lock); // Lock
-    static char        buff[BUF_SIZE];
-    va_list            args;
-    overflow_signal_t *sig = 0;
-
+    va_list args;
     va_start(args, format);
-    while (1) {
-        sig = vsprintf_s(sig, buff, BUF_SIZE, &format, args);
-        tty_print_str(buff);
-        if (sig == 0) break;
-    }
+    vwprintf(&tty_writer, format, args);
     va_end(args);
     spin_unlock(&printk_lock); // Unlock
-}
-
-/* Kernel print string without overflow check */
-void printk_unsafe(const char *format, ...)
-{
-    spin_lock(&printk_lock); // Lock
-    static char buff[2048];
-    va_list     args;
-
-    va_start(args, format);
-    vsprintf(buff, format, args); // NOLINT
-    tty_print_str(buff);
-    va_end(args);
-    spin_unlock(&printk_lock); // Lock
-}
-
-/* Kernel print log with overflow check */
-void plogk_unsafe(const char *format, ...)
-{
-#if KERNEL_LOG
-    spin_lock(&plogk_lock); // Lock
-    printk_unsafe("[%5d.%06d] ", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
-    static char buff[2048];
-    va_list     args;
-    va_start(args, format);
-    vsprintf(buff, format, args); // NOLINT
-    tty_print_str(buff);
-    va_end(args);
-    spin_unlock(&plogk_lock); // Lock
-#else
-    (void)format;
-#endif
 }
 
 /* Kernel print log */
@@ -92,16 +52,9 @@ void plogk(const char *format, ...)
 #if KERNEL_LOG
     spin_lock(&plogk_lock); // Lock
     printk("[%5d.%06d] ", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
-    static char        buff[BUF_SIZE];
-    va_list            args;
-    overflow_signal_t *sig = 0;
-
+    va_list args;
     va_start(args, format);
-    while (1) {
-        sig = vsprintf_s(sig, buff, BUF_SIZE, &format, args);
-        tty_print_str(buff);
-        if (sig == 0) break;
-    }
+    vwprintf(&tty_writer, format, args);
     va_end(args);
     spin_unlock(&plogk_lock); // Unlock
 #else
@@ -109,355 +62,177 @@ void plogk(const char *format, ...)
 #endif
 }
 
+/* Data for unsafe buffer writer */
+typedef struct UnsafeBufData {
+        char  *buf;
+        size_t idx;
+} UnsafeBufData;
+
+/* Handler of unsafe buf writing */
+uint8_t unsafe_buf_write(Writer *writer, char c)
+{
+    UnsafeBufData *data  = (UnsafeBufData *)writer->data;
+    data->buf[data->idx] = c;
+    ++data->idx;
+    return 1; // Always success? :(
+}
+
 /* Store the formatted output in a character array */
 int sprintf(char *str, const char *fmt, ...)
 {
-    int     c = 0;
+    int           c                 = 0;
+    UnsafeBufData unsafe_buf_data   = {.buf = str, .idx = 0};
+    Writer        unsafe_buf_writer = {
+               .data    = &unsafe_buf_data,
+               .handler = unsafe_buf_write,
+    };
     va_list arg;
     va_start(arg, fmt);
-    c = vsprintf(str, fmt, arg);
+    c = (int)vwprintf(&unsafe_buf_writer, fmt, arg); // NOLINT
     va_end(arg);
     return c;
 }
 
-/* Format a string and output it to a character array */
-/* (It's deprecated and unsafe) */
-int vsprintf(char *buff, const char *format, va_list args)
+/* Format with va_list, then store the formatted output in a character array */
+int vsprintf(char *str, const char *fmt, va_list args)
 {
-    int64_t len, precision, field_width;
-    int64_t size_cnt = 2; // hh = 0, h = 1, (nothing) = 2, l = 3, ll = 4, z = 5
-    size_t  num      = 0;
-    int     i, flags;
-    char   *str, *s;
-
-    for (str = buff; *format; ++format) {
-        if (*format != '%') {
-            *str++ = *format;
-            continue;
-        }
-        flags       = 0;
-        num         = 0;
-        precision   = -1;
-        field_width = -1;
-repeat:
-        ++format;
-        switch (*format) {
-            case '-' :
-                flags |= LEFT;
-                goto repeat;
-            case '+' :
-                flags |= PLUS;
-                goto repeat;
-            case ' ' :
-                flags |= SPACE;
-                goto repeat;
-            case '#' :
-                flags |= SPECIAL;
-                goto repeat;
-            case '0' :
-                flags |= ZEROPAD;
-                goto repeat;
-            default :
-                break;
-        }
-        if (IS_DIGIT(*format)) {
-            field_width = skip_atoi(&format);
-        } else if (*format == '*') {
-            field_width = va_arg(args, int);
-            if (field_width < 0) {
-                field_width = -field_width;
-                flags |= LEFT;
-            }
-        }
-        if (*format == '.') {
-            ++format;
-            if (IS_DIGIT(*format)) {
-                precision = skip_atoi(&format);
-            } else if (*format == '*') {
-                precision = va_arg(args, int);
-            }
-            if (precision < 0) precision = 0;
-        }
-
-        /* Size modifier */
-        switch (*format) {
-            case 'h' :
-                size_cnt--;
-                if (size_cnt < 0) size_cnt = 0;
-                goto repeat;
-            case 'L' :      // += 2
-                size_cnt++; // fallthrough
-            case 'l' :
-                size_cnt++;
-                if (size_cnt > 4) size_cnt = 4;
-                goto repeat;
-            case 'z' :
-                size_cnt = 5;
-                goto repeat;
-            default :
-                break;
-        }
-
-        /* Match the size modifier to a correct type */
-        /* Pre-processing (inc: data) */
-        switch (*format) {
-            case 'c' :
-                num = va_arg(args, int);
-                break;
-            case 'd' :
-            case 'i' :
-                switch (size_cnt) {
-                    case 0 :
-                        num = (size_t)(char)va_arg(args, int);
-                        break;
-                    case 1 :
-                        num = (size_t)(short)va_arg(args, int);
-                        break;
-                    case 2 :
-                        num = (size_t)(int)va_arg(args, int);
-                        break;
-                    case 3 :
-                        num = (size_t)(long)va_arg(args, long);
-                        break;
-                    case 4 :
-                        num = (size_t)(long long)va_arg(args, long long);
-                        break;
-                    default : // Invalid but still parse, or size_cnt = 5
-                        num = va_arg(args, size_t);
-                        break;
-                }
-                break;
-            case 'o' :
-            case 'x' :
-            case 'X' :
-            case 'b' :
-            case 'u' :
-                switch (size_cnt) {
-                    case 0 :
-                        num = (size_t)(unsigned char)va_arg(args, unsigned int);
-                        break;
-                    case 1 :
-                        num = (size_t)(unsigned short)va_arg(args, unsigned int);
-                        break;
-                    case 2 :
-                        num = (size_t)(unsigned int)va_arg(args, unsigned int);
-                        break;
-                    case 3 :
-                        num = (size_t)(unsigned long)va_arg(args, unsigned long);
-                        break;
-                    case 4 :
-                        num = (size_t)(unsigned long long)va_arg(args, unsigned long long);
-                        break;
-                    default : // Invalid but still parse, or size_cnt = 5
-                        num = va_arg(args, size_t);
-                        break;
-                }
-                break;
-            case 'p' :
-                num = (size_t)va_arg(args, void *);
-                break;
-            default :
-                break;
-        }
-
-        switch (*format) {
-            case 'c' :
-                if (!(flags & LEFT)) {
-                    while (--field_width > 0) *str++ = ' ';
-                }
-                *str++ = (char)num;
-                while (--field_width > 0) *str++ = ' ';
-                break;
-            case 's' :
-                s   = va_arg(args, char *);
-                len = (int64_t)strlen(s);
-                if (!(flags & LEFT)) {
-                    while (len < field_width--) *str++ = ' ';
-                }
-                for (i = 0; i < len; ++i) *str++ = *s++;
-                while (len < field_width--) *str++ = ' ';
-                break;
-            case 'o' :
-                str = number(str, num, 8, field_width, precision, flags);
-                break;
-            case 'p' :
-                if (field_width == -1) {
-                    field_width = 16;
-                    flags |= ZEROPAD;
-                }
-                str = number(str, num, 16, field_width, precision, flags);
-                break;
-            case 'x' :
-                flags |= SMALL; // fallthrough
-            case 'X' :
-                str = number(str, num, 16, (size_t)field_width, (size_t)precision, flags);
-                break;
-            case 'd' :
-            case 'i' :
-                flags |= SIGN; // fallthrough
-            case 'u' :
-                str = number(str, num, 10, field_width, (size_t)precision, flags);
-                break;
-            case 'b' :
-                str = number(str, num, 2, field_width, precision, flags);
-                break;
-            case 'n' :
-                va_arg(args, int *);
-                break;
-            default :
-                if (*format != '%') *str++ = '%';
-                if (*format) {
-                    *str++ = *format;
-                } else {
-                    --format;
-                }
-                break;
-        }
-    }
-    *str = '\0';
-    return (int)(str - buff);
+    int           c                 = 0;
+    UnsafeBufData unsafe_buf_data   = {.buf = str, .idx = 0};
+    Writer        unsafe_buf_writer = {
+               .data    = &unsafe_buf_data,
+               .handler = unsafe_buf_write,
+    };
+    c = (int)vwprintf(&unsafe_buf_writer, fmt, args); // NOLINT
+    return c;
 }
 
-/* Release the memory used by the fmt_arg_t structure */
-void free_fmtarg(fmt_arg_t *arg)
-{
-    free(arg->buff);
-    free(arg);
-}
+/* Arguments of `wfmt_arg` */
+typedef struct ArgsFmter {
+        const char **fmt_ptr;       // a pointer to `fmt`
+        size_t      *write_counter; // for `%n`
+} ArgsFmter;
 
-/* Create a new fmt_arg_t structure and initialize it */
-fmt_arg_t *new_fmtarg(uint64_t size, char *buff, char *last_write) // NOLINT
-{
-    fmt_arg_t *arg  = (fmt_arg_t *)malloc(sizeof(fmt_arg_t));
-    arg->size       = size;
-    arg->buff       = buff;
-    arg->last_write = last_write;
-    return arg;
-}
+typedef enum num_size {
+    HALF_2 = 0, // char
+    HALF_1 = 1, // short
+    INT    = 2, // int
+    LONG_1 = 3, // long
+    LONG_2 = 4, // long long
+    SIZE_T = 5, // size_t
+} num_size_t;
 
-/* Parse the format string and read the corresponding variadic parameters to generate an fmt_arg_t structure */
-fmt_arg_t *read_fmtarg(const char **format, va_list args)
+void wfmt_arg(Writer *writer, ArgsFmter *fmter, va_list args) // NOLINT
 {
-    fmt_arg_t  *arg         = malloc(sizeof(fmt_arg_t));
-    const char *fmt_ptr     = *format;
-    char       *buf_ptr     = 0;
-    int         flags       = 0;
-    size_t      field_width = 0; // Minimum width field
-    size_t      precision   = 0; // For float, precision field (or number of digits and with zero padding)
-    char       *str         = 0;
-    int         tmp         = 0;
-    size_t      str_len     = 0;
-    size_t      num         = 0;
-    size_t      buf_len     = 0;
-    size_t      base        = 0;
-    int64_t     size_cnt    = 2; // hh = 0, h = 1, (nothing) = 2, l = 3, ll = 4, z = 5
-    if (*fmt_ptr != '%') {
-        free(arg);
-        return 0;
-    }
+    char        *str           = 0; // for `%s`
+    size_t       write_counter = 0;
+    size_t       str_len       = 0; // for align `%s`
+    WriteHandler write         = writer->handler;
+    const char **fmt_ptr       = fmter->fmt_ptr;
 
-    /* Get size */
+    num_formatter_t num_fmter = {};
+    num_fmt_type    num_flag  = {};
+    int64_t         size_cnt  = INT;
+
+    // Error args
+    if (!writer || !write || !fmt_ptr || !(*fmt_ptr) || **fmt_ptr != '%') { return; }
+
     while (1) {
-        ++fmt_ptr;
-        switch (*fmt_ptr) {
+        ++(*fmt_ptr); // Skip '%' or any flags
+        switch (**fmt_ptr) {
             case '-' :
-                flags |= LEFT;
-                continue;
+                num_flag.left = 1;
+                break;
             case '+' :
-                flags |= PLUS;
-                continue;
+                num_flag.plus = 1;
+                break;
             case ' ' :
-                flags |= SPACE;
-                continue;
+                num_flag.space = 1;
+                break;
             case '#' :
-                flags |= SPECIAL;
-                continue;
+                num_flag.special = 1;
+                break;
             case '0' :
-                flags |= ZEROPAD;
-                continue;
+                num_flag.zeropad = 1;
+                break;
             default :
                 break;
         }
 
-        /* Minimum width field */
-        if (IS_DIGIT(*fmt_ptr)) {
-            field_width = skip_atoi(&fmt_ptr);
-        } else if (*fmt_ptr == '*') {
+        /* Calc num_fmter.size */
+        if (IS_DIGIT(**fmt_ptr)) {
+            num_fmter.size = skip_atoi(fmt_ptr);
+        } else if (**fmt_ptr == '*') {
             /* by the following argument */
-            fmt_ptr++;
-            tmp = va_arg(args, int);
-            if (tmp < 0) {
-                field_width = 0;
-            } else {
-                field_width = tmp;
+            ++(*fmt_ptr); // Skip '*'
+            num_fmter.size = (size_t)va_arg(args, int);
+        }
+
+        /* Calc num_fmter.precision */
+        if (**fmt_ptr == '.') {
+            ++(*fmt_ptr); // Skip '.'
+            if (IS_DIGIT(**fmt_ptr)) {
+                num_fmter.precision = skip_atoi(fmt_ptr);
+            } else if (**fmt_ptr == '*') {
+                /* by the following argument */
+                ++(*fmt_ptr); // Skip '*'
+                num_fmter.precision = (size_t)va_arg(args, int);
             }
         }
 
-        /* For float, precision field */
-        if (*fmt_ptr == '.') {
-            ++fmt_ptr; // skip the dot
-            if (IS_DIGIT(*fmt_ptr)) {
-                precision = skip_atoi(&fmt_ptr);
-            } else if (*fmt_ptr == '*') {
-                fmt_ptr++;
-                tmp = va_arg(args, int);
-                if (tmp < 0) {
-                    precision = 0;
-                } else {
-                    precision = tmp;
-                }
-            }
-        }
-
-        /* Size */
-        switch (*fmt_ptr) {
+        /* Calc size_cnt */
+        switch (**fmt_ptr) {
             case 'h' :
                 size_cnt--;
-                if (size_cnt < 0) size_cnt = 0;
+                if (size_cnt < HALF_2) size_cnt = HALF_2; // hh
                 continue;
             case 'L' :      // += 2
                 size_cnt++; // fallthrough
             case 'l' :
                 size_cnt++;
-                if (size_cnt > 4) size_cnt = 4;
+                if (size_cnt > LONG_2) size_cnt = LONG_2; // ll
                 continue;
             case 'z' :
-                size_cnt = 5;
+                size_cnt = SIZE_T; // z
                 continue;
             default :
                 break;
         }
 
-        /* Pre-processing (inc: data) */
-        switch (*fmt_ptr) {
+        /* Read argument */
+        switch (**fmt_ptr) {
             case 'c' :
-                num = va_arg(args, int);
+                num_fmter.num = va_arg(args, int);
                 break;
             case 's' :
-                str = va_arg(args, char *);
+                str                    = va_arg(args, char *);
+                static char null_str[] = "(null)";
+                if (str == 0) str = null_str;
                 break;
             case 'd' :
             case 'i' :
+                // NOLINTBEGIN
                 switch (size_cnt) {
-                    case 0 :
-                        num = (size_t)(char)va_arg(args, int);
+                    case HALF_2 :
+                        num_fmter.num = (size_t)(char)va_arg(args, int);
                         break;
-                    case 1 :
-                        num = (size_t)(short)va_arg(args, int);
+                    case HALF_1 :
+                        num_fmter.num = (size_t)(short)va_arg(args, int);
                         break;
-                    case 2 :
-                        num = (size_t)(int)va_arg(args, int);
+                    case INT :
+                        num_fmter.num = (size_t)(int)va_arg(args, int);
                         break;
-                    case 3 :
-                        num = (size_t)(long)va_arg(args, long);
+                    case LONG_1 :
+                        num_fmter.num = (size_t)(long)va_arg(args, long);
                         break;
-                    case 4 :
-                        num = (size_t)(long long)va_arg(args, long long);
+                    case LONG_2 :
+                        num_fmter.num = (size_t)(long long)va_arg(args, long long);
                         break;
-                    default : // Invalid but still parse, or size_cnt = 5
-                        num = va_arg(args, size_t);
+                    case SIZE_T : // fallthrough
+                    default :
+                        num_fmter.num = va_arg(args, size_t);
                         break;
                 }
+                // NOLINTEND
                 break;
             case 'o' :
             case 'x' :
@@ -465,224 +240,162 @@ fmt_arg_t *read_fmtarg(const char **format, va_list args)
             case 'b' :
             case 'u' :
                 switch (size_cnt) {
-                    case 0 :
-                        num = (size_t)(unsigned char)va_arg(args, unsigned int);
+                    case HALF_2 :
+                        num_fmter.num = (size_t)(unsigned char)va_arg(args, int);
                         break;
-                    case 1 :
-                        num = (size_t)(unsigned short)va_arg(args, unsigned int);
+                    case HALF_1 :
+                        num_fmter.num = (size_t)(unsigned short)va_arg(args, int);
                         break;
-                    case 2 :
-                        num = (size_t)(unsigned int)va_arg(args, unsigned int);
+                    case INT :
+                        num_fmter.num = (size_t)(unsigned int)va_arg(args, int);
                         break;
-                    case 3 :
-                        num = (size_t)(unsigned long)va_arg(args, unsigned long);
+                    case LONG_1 :
+                        num_fmter.num = (size_t)(unsigned long)va_arg(args, long);
                         break;
-                    case 4 :
-                        num = (size_t)(unsigned long long)va_arg(args, unsigned long long);
+                    case LONG_2 :
+                        num_fmter.num = (size_t)(unsigned long long)va_arg(args, long long);
                         break;
-                    default : // Invalid but still parse, or size_cnt = 5
-                        num = va_arg(args, size_t);
+                    case SIZE_T : // fallthrough
+                    default :
+                        num_fmter.num = va_arg(args, size_t);
                         break;
                 }
                 break;
             case 'p' :
-                num = (size_t)va_arg(args, void *);
+                num_fmter.num = (size_t)va_arg(args, void *);
                 break;
-            default :
+            default : // may no data
                 break;
         }
 
-        /* Pre-processing (inc: size, flags of arg) */
-        switch (*fmt_ptr) {
+        /* Calc length of `%s` and set num_flag */
+        switch (**fmt_ptr) {
             case 'c' :
-                buf_len = 1;
-                if (field_width > buf_len) buf_len = field_width;
                 break;
             case 's' :
-                buf_len = str_len = strlen(*&str);
-                if (field_width > buf_len) buf_len = field_width;
+                str_len = strlen(str);
+                if (num_fmter.size < str_len) num_fmter.size = str_len;
                 break;
             case 'o' :
-                base    = 8;
-                buf_len = number_length(num, base, field_width, precision, flags);
+                num_fmter.base = 8;
                 break;
             case 'p' :
-                flags |= SMALL | SPECIAL | ZEROPAD;
-                if (field_width < 16) field_width = 16;
-                base    = 16;
-                buf_len = number_length(num, base, field_width, precision, flags);
+                num_flag.small   = 1;
+                num_flag.special = 1;
+                num_flag.zeropad = 1;
+                if (num_fmter.size < 16) num_fmter.size = 16;
+                num_fmter.base = 16;
                 break;
             case 'x' :
-                flags |= SMALL; // fallthrough
+                num_flag.small = 1; // fallthrough
             case 'X' :
-                base    = 16;
-                buf_len = number_length(num, base, field_width, precision, flags);
+                num_fmter.base = 16;
                 break;
             case 'd' :
             case 'i' :
-                flags |= SIGN; // fallthrough
+                num_flag.sign = 1; // fallthrough
             case 'u' :
-                base    = 10;
-                buf_len = number_length(num, base, field_width, precision, flags);
+                num_fmter.base = 10;
                 break;
             case 'b' :
-                base    = 2;
-                buf_len = number_length(num, base, field_width, precision, flags);
+                num_fmter.base = 2;
                 break;
             case 'n' :
-                va_arg(args, void *);
+                *(fmter->write_counter) += write_counter;
+                *(int *)va_arg(args, void *) = (int)*fmter->write_counter;
                 break;
             case '%' :
-                buf_len = 1;
                 break;
             default :
-                --fmt_ptr; // Undo
-                free(arg);
-                return 0;
+                // Unexpected
+                return;
         }
-        if (buf_len < 1) buf_len = 1;
-        if (field_width < buf_len) field_width = buf_len;
 
-        /* Write buffer */
-        arg->buff          = malloc(buf_len + 1);
-        arg->buff[buf_len] = '\0';
-        buf_ptr            = arg->buff;
-        switch (*fmt_ptr) {
+        /* Write to arg space */
+        switch (**fmt_ptr) {
             case 'c' :
-                if (!(flags & LEFT)) {
-                    while (buf_ptr < arg->buff + field_width - 1) {
-                        *buf_ptr = ' ';
-                        buf_ptr++;
+                // Right align
+                if (!(num_flag.left)) {
+                    while (write_counter < num_fmter.size - 1) {
+                        write(writer, ' ');
+                        ++write_counter;
                     }
                 }
-                *buf_ptr = (char)num;
-                if (flags & LEFT) {
-                    while (buf_ptr < arg->buff + field_width - 1) {
-                        buf_ptr++;
-                        *buf_ptr = ' ';
+                // Write char
+                write(writer, (char)num_fmter.num);
+                // Left align
+                if (num_flag.left) {
+                    while (write_counter < num_fmter.size - 1) {
+                        write(writer, ' ');
+                        ++write_counter;
                     }
                 }
                 break;
             case 's' :
-                if (!(flags & LEFT)) {
-                    while (buf_ptr < arg->buff + field_width - str_len) {
-                        *buf_ptr = ' ';
-                        buf_ptr++;
+                // Right align
+                if (!(num_flag.left)) {
+                    while (write_counter < num_fmter.size - str_len) {
+                        write(writer, ' ');
+                        ++write_counter;
                     }
-                    str_len = field_width;
+                    str_len = num_fmter.size;
                 }
-                while (buf_ptr < arg->buff + str_len) {
-                    *buf_ptr = *str;
-                    buf_ptr++;
-                    str++;
+                // Write string
+                while (write_counter < str_len) {
+                    write(writer, *str);
+                    ++str;
+                    ++write_counter;
                 }
-                if (flags & LEFT) {
-                    while (buf_ptr < arg->buff + buf_len) {
-                        *buf_ptr = ' ';
-                        buf_ptr++;
+                // Left align
+                if (num_flag.left) {
+                    while (write_counter < num_fmter.size - str_len) {
+                        write(writer, ' ');
+                        ++write_counter;
                     }
                 }
                 break;
-            case 'o' :
-            case 'p' :
-            case 'x' :
-            case 'X' :
-            case 'd' :
-            case 'i' :
-            case 'u' :
+            case 'o' : // fallthrough
+            case 'p' : // fallthrough
+            case 'x' : // fallthrough
+            case 'X' : // fallthrough
+            case 'd' : // fallthrough
+            case 'i' : // fallthrough
+            case 'u' : // fallthrough
             case 'b' :
-                number(buf_ptr, num, base, field_width, precision, flags);
-                break;
+                write_counter += wnumber(writer, num_fmter, num_flag);
+                break; // Format number with `Writer`
             case '%' :
-                *buf_ptr = '%';
+                write(writer, '%');
                 break;
             default :
                 break;
         }
-        arg->size       = buf_len;
-        arg->last_write = arg->buff;
         break;
     }
-    *format = fmt_ptr;
-    return arg;
+    *(fmter->write_counter) += write_counter;
+    // Unnecessary to update `fmt_ptr`
 }
 
-/* Create a new overflow_signal_t structure */
-overflow_signal_t *new_overflow(overflow_kind_t kind, fmt_arg_t *arg)
+/* Use a `writer` to write formatted string */
+size_t vwprintf(Writer *writer, const char *fmt, va_list args)
 {
-    overflow_signal_t *signal = (overflow_signal_t *)malloc(sizeof(overflow_signal_t));
-    signal->kind              = kind;
-    signal->arg               = arg;
-    return signal;
-}
-
-/* Format a string with size and output it to a character array */
-overflow_signal_t *vsprintf_s(overflow_signal_t *signal, char *buff, intptr_t size, const char **format, va_list args)
-{
-    char       *write_ptr;
-    const char *fmt_ptr;
-    fmt_arg_t  *fmt_arg;
-
-    write_ptr = buff;
-    if (signal != 0 && signal->kind == OFLOW_AT_FMTARG) {
-        /* Write buffer of overflow_signal_t to buffer */
-        fmt_arg = signal->arg;
-        while (fmt_arg->last_write < fmt_arg->size + fmt_arg->buff) {
-            *write_ptr = *fmt_arg->last_write;
-            write_ptr++;
-            fmt_arg->last_write++;
-            if (write_ptr >= buff + size - 1) {
-                *write_ptr++ = '\0';
-                return signal; // Overflow again
-            }
-        }
-
-        /* Write finished */
-        free_fmtarg(fmt_arg);
-        free(signal);
-        fmt_arg = 0;
-        signal  = 0;
-    }
-    if (signal != 0 && signal->kind == OFLOW_AT_FMTSTR) {
-        /* Clear it */
-        free(signal);
-        signal = 0;
-    }
-    fmt_ptr = *format;
+    const char  *fmt_ptr = fmt;
+    WriteHandler write   = writer->handler;
+    size_t       result  = 0;
+    ArgsFmter    fmter   = {
+             .fmt_ptr       = &fmt_ptr,
+             .write_counter = &result,
+    };
     while (*fmt_ptr != '\0') {
-        if (write_ptr >= buff + size - 1) {
-            *write_ptr = '\0';
-            *format    = fmt_ptr;                          // Move to overflow position
-            signal     = new_overflow(OFLOW_AT_FMTSTR, 0); // New Signal (just for run again)
-            return signal;                                 // Send Signal
-        }
-        if (*fmt_ptr != '%' && write_ptr < buff + size - 1) {
-            *write_ptr = *fmt_ptr;
-            write_ptr++;
+        if (*fmt_ptr != '%') {
+            write(writer, *fmt_ptr); // TODO: Catch Error
             fmt_ptr++;
+            result++;
             continue;
         }
-        fmt_arg = read_fmtarg(&fmt_ptr, args);
+        // *fmt_ptr == '%'
+        wfmt_arg(writer, &fmter, args); // NOLINT
         fmt_ptr++;
-        *format = fmt_ptr;
-        if (fmt_arg != 0) {
-            /* Debug */
-            while (fmt_arg->last_write < fmt_arg->size + fmt_arg->buff) {
-                *write_ptr = *fmt_arg->last_write;
-                write_ptr++;
-                fmt_arg->last_write++;
-                if (write_ptr >= buff + size - 1) {
-                    *write_ptr++ = '\0';
-                    signal       = new_overflow(OFLOW_AT_FMTARG, fmt_arg); // New Signal
-                    return signal;
-                }
-            }
-
-            /* Write finished */
-            free_fmtarg(fmt_arg);
-            fmt_arg = 0;
-        }
     }
-    *write_ptr = '\0';
-    return 0; // No overflow
+    return result;
 }
