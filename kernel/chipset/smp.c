@@ -171,17 +171,20 @@ void ap_entry(struct limine_smp_info *info)
     /* Initializing the IDT */
     __asm__ volatile("lidt %0" ::"m"(idt_pointer) : "memory");
 
-    /* Clear the spurious interrupt */
-    lapic_write(LAPIC_REG_SPURIOUS, lapic_read(LAPIC_REG_SPURIOUS) | (1 << 8) | 0xFF);
+    /* Initializing Local APIC */
+    local_apic_init();
 
     spin_lock(&ap_start_lock);
     ap_ready_count++;
     spin_unlock(&ap_start_lock);
 
     /* TODO: Implement the scheduler loop */
-    enable_intr();
     enable_scheduler();
-    while (1) __asm__ volatile("hlt");
+    while (1) {
+        enable_intr();
+        __asm__ volatile("hlt");
+        disable_intr();
+    }
 
     /* Shouldn't reach here */
     panic("AP %d scheduler exited.", cpu->id);

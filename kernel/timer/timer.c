@@ -14,6 +14,7 @@
 #include "common.h"
 #include "idt.h"
 #include "scheduler.h"
+#include "printk.h"
 #include "stdint.h"
 
 /* Millisecond-based delay functions */
