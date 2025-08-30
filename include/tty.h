@@ -13,6 +13,7 @@
 #define INCLUDE_TTY_H_
 
 #include "stdint.h"
+#include "stdlib.h"
 
 #define MAX_ARGC    1024
 #define MAX_CMDLINE 256
@@ -24,6 +25,8 @@
 #ifndef TTY_DEFAULT_DEV
 #    define TTY_DEFAULT_DEV "tty0"
 #endif
+
+extern Writer tty_writer;
 
 typedef enum {
     TTY_DEVICE_VGA,

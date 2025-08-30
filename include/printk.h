@@ -13,7 +13,9 @@
 #define INCLUDE_PRINTK_H_
 
 #include "stdarg.h"
+#include "stddef.h"
 #include "stdint.h"
+#include "stdlib.h"
 
 #ifndef KERNEL_LOG
 #    define KERNEL_LOG 1
@@ -38,35 +40,16 @@ typedef struct {
 /* Kernel print string */
 void printk(const char *format, ...);
 
-/* Kernel print string (it means don't check the buffer overflow) */
-void printk_unsafe(const char *format, ...);
-
-/* Kernel print log (it means don't check the buffer overflow) */
-void plogk_unsafe(const char *format, ...);
-
 /* Kernel print log */
 void plogk(const char *format, ...);
 
 /* Store the formatted output in a character array */
 int sprintf(char *str, const char *fmt, ...);
 
-/* Format a string and output it to a character array */
-int vsprintf(char *buff, const char *format, va_list args);
+/* Format with va_list, then store the formatted output in a character array */
+int vsprintf(char *str, const char *fmt, va_list args);
 
-/* Release the memory used by the fmt_arg_t structure */
-void free_fmtarg(fmt_arg_t *arg);
-
-/* Create a new fmt_arg_t structure and initialize it */
-fmt_arg_t *new_fmtarg(uint64_t size, char *buff, char *last_write);
-
-/* Parse the format string and read the corresponding variadic parameters to
- * generate an fmt_arg_t structure */
-fmt_arg_t *read_fmtarg(const char **format, va_list args);
-
-/* Create a new overflow_signal_t structure */
-overflow_signal_t *new_overflow(overflow_kind_t kind, fmt_arg_t *arg);
-
-/* Format a string with size and output it to a character array */
-overflow_signal_t *vsprintf_s(overflow_signal_t *signal, char *buff, intptr_t size, const char **format, va_list args);
+/* Use a `writer` to write formatted string */
+size_t vwprintf(Writer *writer, const char *fmt, va_list args);
 
 #endif // INCLUDE_PRINTK_H_
