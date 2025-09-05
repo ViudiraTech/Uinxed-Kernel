@@ -15,7 +15,7 @@
 #include "debug.h"
 #include "frame.h"
 #include "hhdm.h"
-#include "idt.h"
+#include "interrupt.h"
 #include "printk.h"
 #include "stdlib.h"
 #include "string.h"
@@ -24,7 +24,7 @@ page_directory_t  kernel_page_dir;
 page_directory_t *current_directory = 0;
 
 /* Page fault handling */
-__attribute__((interrupt)) void page_fault_handle(interrupt_frame_t *frame, uint64_t error_code)
+INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_code)
 {
     (void)frame;
     disable_intr();
@@ -52,6 +52,7 @@ __attribute__((interrupt)) void page_fault_handle(interrupt_frame_t *frame, uint
 
     panic("PAGE_FAULT-%s-Address: 0x%016llx", pf_msg, faulting_address);
 }
+INTERRUPT_END
 
 /* Determine whether the page table entry maps a huge page */
 static int is_huge_page(page_table_entry_t *entry)

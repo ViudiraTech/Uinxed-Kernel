@@ -12,14 +12,13 @@
 #include "acpi.h"
 #include "cmdline.h"
 #include "common.h"
-#include "cpu.h"
+#include "cpuid.h"
 #include "debug.h"
 #include "frame.h"
 #include "gdt.h"
 #include "heap.h"
 #include "hhdm.h"
 #include "ide.h"
-#include "idt.h"
 #include "interrupt.h"
 #include "limine_module.h"
 #include "page.h"
@@ -27,6 +26,7 @@
 #include "pci.h"
 #include "printk.h"
 #include "serial.h"
+#include "simd.h"
 #include "smbios.h"
 #include "smp.h"
 #include "uinxed.h"
@@ -52,6 +52,10 @@ void executable_entry(void)
 /* Kernel entry */
 void kernel_entry(void)
 {
+    init_fpu(); // Initialize FPU/MMX
+    init_sse(); // Initialize SSE/SSE2
+    init_avx(); // Initialize AVX/AVX2
+
     video_init(); // Initialize Video
     page_init();  // Initialize memory page
     init_heap();  // Initialize the memory heap

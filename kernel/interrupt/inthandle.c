@@ -10,123 +10,141 @@
  */
 
 #include "debug.h"
-#include "idt.h"
+#include "interrupt.h"
 #include "printk.h"
 #include "stdint.h"
 
 void page_fault_handle(interrupt_frame_t *frame, uint64_t error_code);
 
-__attribute__((interrupt)) static void ISR_0_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_0_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     panic("Kernel exception: #DE");
 }
+INTERRUPT_END
 
-__attribute__((interrupt)) static void ISR_1_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_1_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     panic("Kernel exception: #DB");
 }
+INTERRUPT_END
 
-__attribute__((interrupt)) static void ISR_2_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_2_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     panic("Kernel fatal error: NMI");
 }
+INTERRUPT_END
 
-__attribute__((interrupt)) static void ISR_3_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_3_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     panic("Kernel breakpoint exception: BP");
 }
+INTERRUPT_END
 
-__attribute__((interrupt)) static void ISR_4_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_4_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     panic("Kernel exception: #OF");
 }
+INTERRUPT_END
 
-__attribute__((interrupt)) static void ISR_5_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_5_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     panic("Kernel exception: #BR");
 }
+INTERRUPT_END
 
-__attribute__((interrupt)) static void ISR_6_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_6_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     panic("Kernel exception: #UD");
 }
+INTERRUPT_END
 
-__attribute__((interrupt)) static void ISR_7_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_7_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     panic("Kernel exception: #NM");
 }
+INTERRUPT_END
 
-__attribute__((interrupt)) static void ISR_8_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_8_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     panic("Kernel exception: #DF");
 }
+INTERRUPT_END
 
-__attribute__((interrupt)) static void ISR_9_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_9_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     panic("Kernel exception: Coprocessor Segment Overrun");
 }
+INTERRUPT_END
 
-__attribute__((interrupt)) static void ISR_10_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_10_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     panic("Kernel exception: #TS");
 }
+INTERRUPT_END
 
-__attribute__((interrupt)) static void ISR_11_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_11_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     panic("Kernel exception: #NP");
 }
+INTERRUPT_END
 
-__attribute__((interrupt)) static void ISR_12_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_12_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     panic("Kernel exception: #SS");
 }
+INTERRUPT_END
 
-__attribute__((interrupt)) static void ISR_13_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_13_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     panic("Kernel exception: #GP");
 }
+INTERRUPT_END
 
 /* ISR 14 will be define by pagine program */
 
 /* ISR 15 CPU reserved */
 
-__attribute__((interrupt)) static void ISR_16_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_16_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     panic("Kernel exception: #MF");
 }
+INTERRUPT_END
 
-__attribute__((interrupt)) static void ISR_17_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_17_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     panic("Kernel exception: #AC");
 }
+INTERRUPT_END
 
-__attribute__((interrupt)) static void ISR_18_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_18_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     panic("Kernel exception: #MC");
 }
+INTERRUPT_END
 
-__attribute__((interrupt)) static void ISR_19_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_19_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     panic("Kernel exception: #XM");
 }
+INTERRUPT_END
 
 /* Register ISR interrupt processing */
 void isr_registe_handle(void)

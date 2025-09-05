@@ -1,7 +1,7 @@
 /*
  *
- *      cpu.c
- *      cpu related operations
+ *      cpuid.c
+ *      CPUID related operations
  *
  *      2024/8/21 By MicroFish
  *      Based on GPL-3.0 open source agreement
@@ -9,7 +9,7 @@
  *
  */
 
-#include "cpu.h"
+#include "cpuid.h"
 
 /* Get CPUID */
 void cpuid(uint32_t code, uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t *edx) // NOLINT
@@ -151,14 +151,6 @@ int cpu_support_fma4(void)
     return ((ecx & (1 << 16)) != 0);
 }
 
-/* Check CPU supports CVT16 */
-int cpu_support_cvt16(void)
-{
-    uint32_t eax, ebx, ecx, edx;
-    cpuid(0x00000001, &eax, &ebx, &ecx, &edx);
-    return ((ecx & (1 << 29)) != 0);
-}
-
 /* Check CPU supports AVX */
 int cpu_support_avx(void)
 {
@@ -173,28 +165,4 @@ int cpu_support_avx2(void)
     uint32_t eax, ebx, ecx, edx;
     cpuid(0x00000007, &eax, &ebx, &ecx, &edx);
     return ((ebx & (1 << 5)) != 0);
-}
-
-/* Get core frequency */
-uint32_t get_core_freq(void)
-{
-    uint32_t eax, ebx, ecx, edx;
-    cpuid(0x00000015, &eax, &ebx, &ecx, &edx);
-    return ecx;
-}
-
-/* Get tsc frequency */
-uint32_t get_tsc_freq(void)
-{
-    uint32_t eax, ebx, ecx, edx;
-    cpuid(0x00000015, &eax, &ebx, &ecx, &edx);
-    return ((ecx * ebx) / eax);
-}
-
-/* Get bus frequency */
-uint32_t get_bus_freq(void)
-{
-    uint32_t eax, ebx, ecx, edx;
-    cpuid(0x00000016, &eax, &ebx, &ecx, &edx);
-    return ((ecx & 0xffff) * 1000000);
 }

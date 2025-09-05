@@ -9,7 +9,6 @@
  *
  */
 
-#include "idt.h"
 #include "interrupt.h"
 #include "printk.h"
 #include "stdint.h"

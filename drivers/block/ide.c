@@ -12,7 +12,7 @@
 #include "ide.h"
 #include "apic.h"
 #include "common.h"
-#include "idt.h"
+#include "interrupt.h"
 #include "pci.h"
 #include "printk.h"
 #include "stddef.h"
@@ -44,7 +44,7 @@ static int package[2];
 static volatile uint8_t ide_irq_invoked = 0;
 
 /* IDE interrupt handling function */
-__attribute__((interrupt)) static void ide_irq(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ide_irq(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
@@ -52,6 +52,7 @@ __attribute__((interrupt)) static void ide_irq(interrupt_frame_t *frame)
     send_eoi();
     enable_intr();
 }
+INTERRUPT_END
 
 /* Waiting for IDE interrupt to be triggered */
 static void ide_wait_irq(void)
