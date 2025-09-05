@@ -12,11 +12,6 @@ CompileFlags:
     - "-fno-stack-protector"
     - "-fno-omit-frame-pointer"
     - "-mno-red-zone"
-    - "-mno-80387"
-    - "-mno-mmx"
-    - "-mno-sse"
-    - "-mno-sse2"
-    - "-msoft-float"
     - "-I${workspaceFolder}/include"
     - "-MMD"
 

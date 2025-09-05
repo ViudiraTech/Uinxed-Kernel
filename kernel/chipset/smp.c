@@ -15,11 +15,12 @@
 #include "common.h"
 #include "debug.h"
 #include "gdt.h"
-#include "idt.h"
+#include "interrupt.h"
 #include "limine.h"
 #include "page.h"
 #include "printk.h"
 #include "scheduler.h"
+#include "simd.h"
 #include "spin_lock.h"
 #include "stddef.h"
 #include "stdint.h"
@@ -34,7 +35,7 @@ static volatile uint64_t ap_ready_count = 0;
 spinlock_t               ap_start_lock  = {0};
 
 /* Rescheduling Requests */
-__attribute__((interrupt)) static void ipi_reschedule_handler(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ipi_reschedule_handler(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
@@ -42,9 +43,10 @@ __attribute__((interrupt)) static void ipi_reschedule_handler(interrupt_frame_t 
     send_eoi();
     enable_intr();
 }
+INTERRUPT_END
 
 /* Downtime Request */
-__attribute__((interrupt)) static void ipi_halt_handler(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ipi_halt_handler(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
@@ -52,9 +54,10 @@ __attribute__((interrupt)) static void ipi_halt_handler(interrupt_frame_t *frame
     send_eoi();
     enable_intr();
 }
+INTERRUPT_END
 
 /* TLB flush request */
-__attribute__((interrupt)) static void ipi_tlb_shootdown_handler(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ipi_tlb_shootdown_handler(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
@@ -62,9 +65,10 @@ __attribute__((interrupt)) static void ipi_tlb_shootdown_handler(interrupt_frame
     send_eoi();
     enable_intr();
 }
+INTERRUPT_END
 
 /* Emergency Error Broadcast */
-__attribute__((interrupt)) static void ipi_panic_handler(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ipi_panic_handler(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
@@ -72,6 +76,7 @@ __attribute__((interrupt)) static void ipi_panic_handler(interrupt_frame_t *fram
     send_eoi();
     enable_intr();
 }
+INTERRUPT_END
 
 /* Send an IPI to all CPUs */
 void send_ipi_all(uint8_t vector)
@@ -156,6 +161,10 @@ void ap_init_gdt(cpu_processor_t *cpu)
 /* Multi-core boot entry */
 void ap_entry(struct limine_smp_info *info)
 {
+    init_fpu();
+    init_sse();
+    init_avx();
+
     pointer_cast_t cast;
     cast.val             = info->extra_argument;
     cpu_processor_t *cpu = (cpu_processor_t *)cast.ptr;

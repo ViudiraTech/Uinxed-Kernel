@@ -11,18 +11,19 @@
 
 #include "apic.h"
 #include "common.h"
-#include "idt.h"
+#include "interrupt.h"
 #include "printk.h"
 
-#define INTERRUPT_HANDLE(id)                                                            \
-    __attribute__((interrupt)) static void empty_handler_##id(interrupt_frame_t *frame) \
-    {                                                                                   \
-        (void)frame;                                                                    \
-        disable_intr();                                                                 \
-        plogk("Interrupt empty %u\n", id);                                              \
-        send_eoi();                                                                     \
-        enable_intr();                                                                  \
-    }
+#define INTERRUPT_HANDLE(id)                                                 \
+    INTERRUPT_BEGIN static void empty_handler_##id(interrupt_frame_t *frame) \
+    {                                                                        \
+        (void)frame;                                                         \
+        disable_intr();                                                      \
+        plogk("Interrupt empty %u\n", id);                                   \
+        send_eoi();                                                          \
+        enable_intr();                                                       \
+    }                                                                        \
+    INTERRUPT_END
 
 INTERRUPT_HANDLE(0)
 INTERRUPT_HANDLE(1)
