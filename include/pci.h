@@ -115,13 +115,15 @@ typedef struct {
 typedef enum {
     PCI_FINDING_SUCCESS = 0, // Success
     PCI_FINDING_NOT_FOUND,   // Device not found
+    PCI_RESULT_EXPIRED,      // It means that iter may be expired
     PCI_FINDING_ERROR,       // Other error
 } pci_finding_error_t;
 
-typedef struct {
-        pci_device_cache_t *device; // Found device cache
-        pci_finding_error_t error;  // Error code, 0 if no error
-} pci_finding_response_t;
+typedef struct pci_finding_response_iter {
+        pci_device_cache_t                        *device; // Found device cache
+        pci_finding_error_t                        error;  // Error code, 0 if no error
+        volatile struct pci_finding_response_iter *next;   // Maybe = NULL (but you can update it by function)
+} pci_finding_response_iter_t;
 
 typedef struct {
         pci_finding_type_t type;
@@ -129,7 +131,7 @@ typedef struct {
                 pci_class_request_t  class_req;
                 pci_device_request_t device_req;
         } req;
-        volatile pci_finding_response_t *response; // Response pointer
+        volatile pci_finding_response_iter_t *response; // Response pointer
 } pci_finding_request_t;
 
 typedef struct pci_usable_node {
@@ -186,6 +188,9 @@ void pci_config(pci_device_cache_t *cache, uint32_t addr);
 /* Finding PCI devices */
 void pci_device_find(pci_finding_request_t *request);
 
+/* Finding next matching PCI device */
+void pci_device_find_next(pci_finding_request_t *request, volatile pci_finding_response_iter_t *response);
+
 /* Update the usable list */
 void pci_update_usable_list(void);
 
@@ -203,10 +208,10 @@ void pci_free_devices_cache(void);
 void pci_flush_devices_cache(void);
 
 /* Found PCI devices cache by vender ID and device ID */
-pci_device_cache_t *pci_found_device_cache(pci_device_request_t device_req);
+pci_device_cache_t *pci_found_device_cache(pci_device_cache_t *start, pci_device_request_t device_req);
 
 /* Found PCI devices cache by class code */
-pci_device_cache_t *pci_found_class_cache(pci_class_request_t class_req);
+pci_device_cache_t *pci_found_class_cache(pci_device_cache_t *start, pci_class_request_t class_req);
 
 /* PCI device initialization */
 void pci_init(void);

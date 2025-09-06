@@ -24,8 +24,7 @@ typedef struct {
         uint16_t max_structure_size;            // Maximum structure size
         uint8_t  entry_point_revision;          // Entry point revision number
         uint8_t  formatted_area[5];             // Formatting Area
-        uint8_t  intermediate_anchor_string[5]; // Middle anchor string, value is
-                                                // "_DMI_"
+        uint8_t  intermediate_anchor_string[5]; // Middle anchor string, value is "_DMI_"
         uint8_t  intermediate_checksum;         // Intermediate Checksum
         uint16_t structure_table_length;        // Structure table length
         uint32_t structure_table_address;       // Structure table address

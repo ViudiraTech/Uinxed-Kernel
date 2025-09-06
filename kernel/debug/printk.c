@@ -25,7 +25,7 @@
 
 #define BUF_SIZE 2048 // least 2 bytes (1 byte is for '\0')
 
-// Lock for printk and plogk
+/* Lock for printk and plogk */
 spinlock_t printk_lock = {
     .lock   = 0,
     .rflags = 0,
@@ -344,15 +344,14 @@ fmt_arg_t *read_fmtarg(const char **format, va_list args)
     char       *buf_ptr     = 0;
     int         flags       = 0;
     size_t      field_width = 0; // Minimum width field
-    size_t      precision   = 0; // For float, precision field (or number of digits
-                                 // and with zero padding)
-    char   *str      = 0;
-    int     tmp      = 0;
-    size_t  str_len  = 0;
-    size_t  num      = 0;
-    size_t  buf_len  = 0;
-    size_t  base     = 0;
-    int64_t size_cnt = 2; // hh = 0, h = 1, (nothing) = 2, l = 3, ll = 4, z = 5
+    size_t      precision   = 0; // For float, precision field (or number of digits and with zero padding)
+    char       *str         = 0;
+    int         tmp         = 0;
+    size_t      str_len     = 0;
+    size_t      num         = 0;
+    size_t      buf_len     = 0;
+    size_t      base        = 0;
+    int64_t     size_cnt    = 2; // hh = 0, h = 1, (nothing) = 2, l = 3, ll = 4, z = 5
     if (*fmt_ptr != '%') {
         free(arg);
         return 0;
