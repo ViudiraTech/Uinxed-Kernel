@@ -128,8 +128,8 @@ void video_scroll(void)
     }
 
     if ((uint32_t)cy >= c_height) {
-        uint8_t       *dest  = buffer;
-        const uint8_t *src   = buffer + stride * 16;
+        uint8_t       *dest  = (uint8_t *)buffer;
+        const uint8_t *src   = (const uint8_t *)(buffer + stride * 16);
         size_t         count = stride * (height - 16) * sizeof(uint32_t);
 
 #if CPU_FEATURE_SSE
