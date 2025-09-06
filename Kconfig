@@ -1,6 +1,6 @@
 mainmenu "Uinxed-Kernel"
 
-menu "Kernel debugging"
+  menu "Kernel debugging"
 
   config KERNEL_LOG
     bool "Kernel runtime logging output"
@@ -13,11 +13,35 @@ endmenu
 menu "Processor configuration"
   menu "Symmetric multi-processing"
 
-    config MAX_CPU_COUNT
+    config CPU_MAX_COUNT
       int "Maximum number of CPUs"
       default 0
       help
         "Limits the maximum number of CPUs the kernel can use, set to 0 for no limit."
+
+  endmenu
+
+  menu "Extended instruction set"
+
+    config CPU_FEATURE_FPU
+      bool "Enable X87FPU (Intel 80X87 Floating-Point Unit)"
+      default y
+      help
+        "Set whether to enable X87FPU."
+
+    config CPU_FEATURE_SSE
+      depends on CPU_FEATURE_FPU
+      bool "Enable SSE/SSE2 (Streaming SIMD Extensions)"
+      default y
+      help
+        "Set whether to enable SSE/SSE2."
+
+    config CPU_FEATURE_AVX
+      depends on CPU_FEATURE_SSE
+      bool "Enable AVX/AVX2 (Advanced Vector Extensions)"
+      default y
+      help
+        "Set whether to enable AVX/AVX2."
 
   endmenu
 endmenu

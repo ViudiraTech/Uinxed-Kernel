@@ -160,9 +160,15 @@ void ap_init_gdt(cpu_processor_t *cpu)
 /* Multi-core boot entry */
 void ap_entry(struct limine_smp_info *info)
 {
-    init_fpu();
-    init_sse();
-    init_avx();
+    #if (CPU_FEATURE_FPU == 1)
+        init_fpu();
+    #endif
+    #if (CPU_FEATURE_SSE == 1)
+        init_sse();
+    #endif
+    #if (CPU_FEATURE_AVX == 1)
+        init_avx();
+    #endif
 
     pointer_cast_t cast;
     cast.val             = info->extra_argument;
@@ -207,7 +213,7 @@ void smp_init(void)
         return;
     }
 
-    cpu_count = (!MAX_CPU_COUNT) ? smp->cpu_count : (smp->cpu_count > MAX_CPU_COUNT ? MAX_CPU_COUNT : smp->cpu_count);
+    cpu_count = (!CPU_MAX_COUNT) ? smp->cpu_count : (smp->cpu_count > CPU_MAX_COUNT ? CPU_MAX_COUNT : smp->cpu_count);
     cpus      = (cpu_processor_t *)malloc(sizeof(cpu_processor_t) * cpu_count);
     plogk("smp: Found %d CPUs.\n", cpu_count);
 
