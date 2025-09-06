@@ -14,8 +14,8 @@
 
 #include "stdint.h"
 
-#define LOW_BYTE(x) ((x)&0x00ff)
-#define HIGH_BYTE(x) (((x)&0xff00) >> 8)
+#define LOW_BYTE(x)  ((x) & 0x00ff)
+#define HIGH_BYTE(x) (((x) & 0xff00) >> 8)
 
 /* Sending commands to the DMA controller */
 void dma_start(uint8_t mode, uint8_t channel, uint32_t *address, uint32_t size);

@@ -16,23 +16,23 @@
 #include "stdint.h"
 
 #ifndef KERNEL_LOG
-#define KERNEL_LOG 1
+#    define KERNEL_LOG 1
 #endif
 
 typedef enum {
-  OFLOW_AT_FMTARG,
-  OFLOW_AT_FMTSTR,
+    OFLOW_AT_FMTARG,
+    OFLOW_AT_FMTSTR,
 } overflow_kind_t;
 
 typedef struct {
-  uint64_t size;    // The size of the buff to write
-  char *buff;       // The buff to write
-  char *last_write; // The last write position
+        uint64_t size;       // The size of the buff to write
+        char    *buff;       // The buff to write
+        char    *last_write; // The last write position
 } fmt_arg_t;
 
 typedef struct {
-  overflow_kind_t kind; // The kind of overflow
-  fmt_arg_t *arg;       // The argument that overflow
+        overflow_kind_t kind; // The kind of overflow
+        fmt_arg_t      *arg;  // The argument that overflow
 } overflow_signal_t;
 
 /* Kernel print string */
@@ -67,7 +67,6 @@ fmt_arg_t *read_fmtarg(const char **format, va_list args);
 overflow_signal_t *new_overflow(overflow_kind_t kind, fmt_arg_t *arg);
 
 /* Format a string with size and output it to a character array */
-overflow_signal_t *vsprintf_s(overflow_signal_t *signal, char *buff,
-                              intptr_t size, const char **format, va_list args);
+overflow_signal_t *vsprintf_s(overflow_signal_t *signal, char *buff, intptr_t size, const char **format, va_list args);
 
 #endif // INCLUDE_PRINTK_H_

@@ -16,10 +16,10 @@
 #include "stdint.h"
 
 typedef struct {
-  char name[32];
-  char *path;
-  uint8_t *data;
-  size_t size;
+        char     name[32];
+        char    *path;
+        uint8_t *data;
+        size_t   size;
 } lmodule_t;
 
 /* Find resource modules by module name */

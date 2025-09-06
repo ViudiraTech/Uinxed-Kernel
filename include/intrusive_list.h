@@ -13,8 +13,8 @@
 #define INCLUDE_INTRUSIVE_LIST_H_
 
 typedef struct ilist_node {
-  struct ilist_node *prev;
-  struct ilist_node *next;
+        struct ilist_node *prev;
+        struct ilist_node *next;
 } ilist_node_t;
 
 /* Initialize the intrusive linked list header node */

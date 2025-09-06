@@ -13,56 +13,76 @@
 #include "common.h"
 
 /* Reading data from CMOS memory */
-uint8_t read_cmos(uint8_t p) {
-  uint8_t data;
+uint8_t read_cmos(uint8_t p)
+{
+    uint8_t data;
 
-  /* Send CMOS register index */
-  outb(cmos_index, p);
+    /* Send CMOS register index */
+    outb(cmos_index, p);
 
-  /* Read the value in the CMOS data register */
-  data = inb(cmos_data);
+    /* Read the value in the CMOS data register */
+    data = inb(cmos_data);
 
-  /* Send 0x80 to the CMOS index register, probably to reset or terminate the
+    /* Send 0x80 to the CMOS index register, probably to reset or terminate the
    * read signal */
-  outb(cmos_index, 0x80);
-  return data;
+    outb(cmos_index, 0x80);
+    return data;
 }
 
 /* Write data to CMOS memory */
-void write_cmos(uint8_t p, uint8_t data) {
-  /* Send CMOS register index */
-  outb(cmos_index, p);
+void write_cmos(uint8_t p, uint8_t data)
+{
+    /* Send CMOS register index */
+    outb(cmos_index, p);
 
-  /* Write data to CMOS data register */
-  outb(cmos_data, data);
+    /* Write data to CMOS data register */
+    outb(cmos_data, data);
 
-  /* Send 0x80 to the CMOS index register, probably to reset or terminate the
+    /* Send 0x80 to the CMOS index register, probably to reset or terminate the
    * read signal */
-  outb(cmos_index, 0x80);
+    outb(cmos_index, 0x80);
 }
 
 /* Get the HEX value of the current hour */
-uint32_t get_hour_hex(void) { return BCD_HEX(read_cmos(CMOS_CUR_HOUR)); }
+uint32_t get_hour_hex(void)
+{
+    return BCD_HEX(read_cmos(CMOS_CUR_HOUR));
+}
 
 /* Get the HEX of the current minute */
-uint32_t get_min_hex(void) { return BCD_HEX(read_cmos(CMOS_CUR_MIN)); }
+uint32_t get_min_hex(void)
+{
+    return BCD_HEX(read_cmos(CMOS_CUR_MIN));
+}
 
 /* Get the HEX value of the current second */
-uint32_t get_sec_hex(void) { return BCD_HEX(read_cmos(CMOS_CUR_SEC)); }
+uint32_t get_sec_hex(void)
+{
+    return BCD_HEX(read_cmos(CMOS_CUR_SEC));
+}
 
 /* Get the current day of the month */
-uint32_t get_day_of_month(void) { return BCD_HEX(read_cmos(CMOS_MON_DAY)); }
+uint32_t get_day_of_month(void)
+{
+    return BCD_HEX(read_cmos(CMOS_MON_DAY));
+}
 
 /* Get the HEX number of the current day of the week */
-uint32_t get_day_of_week(void) { return BCD_HEX(read_cmos(CMOS_WEEK_DAY)); }
+uint32_t get_day_of_week(void)
+{
+    return BCD_HEX(read_cmos(CMOS_WEEK_DAY));
+}
 
 /* Get the HEX of the current month */
-uint32_t get_mon_hex(void) { return BCD_HEX(read_cmos(CMOS_CUR_MON)); }
+uint32_t get_mon_hex(void)
+{
+    return BCD_HEX(read_cmos(CMOS_CUR_MON));
+}
 
 /* Get the current year */
-uint32_t get_year(void) {
-  /* The year stored in CMOS is from 2000, so you need to add 2010 to get the
+uint32_t get_year(void)
+{
+    /* The year stored in CMOS is from 2000, so you need to add 2010 to get the
    * actual year */
-  return (BCD_HEX(read_cmos(CMOS_CUR_CEN)) * 100) +
-         BCD_HEX(read_cmos(CMOS_CUR_YEAR)) - 30 + 2010;
+    return (BCD_HEX(read_cmos(CMOS_CUR_CEN)) * 100) + BCD_HEX(read_cmos(CMOS_CUR_YEAR)) - 30 + 2010;
 }

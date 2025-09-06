@@ -15,14 +15,14 @@
 #include "stddef.h"
 
 typedef struct slist_node {
-  void *data;
-  struct slist_node *next;
+        void              *data;
+        struct slist_node *next;
 } slist_node_t;
 
 typedef struct slist {
-  slist_node_t *head;
-  slist_node_t *tail;
-  size_t size;
+        slist_node_t *head;
+        slist_node_t *tail;
+        size_t        size;
 } slist_t;
 
 /* Initialize a singly linked list */

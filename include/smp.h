@@ -19,18 +19,18 @@
 #define KERNEL_STACK_SIZE 0x10000 // 64 KiB
 
 #ifndef MAX_CPU_COUNT
-#define MAX_CPU_COUNT 0
+#    define MAX_CPU_COUNT 0
 #endif
 
 typedef uint8_t kernel_stack_t[KERNEL_STACK_SIZE];
 
 typedef struct {
-  uint64_t id;
-  uint64_t lapic_id;
-  gdt_t gdt;
-  tss_stack_t *tss_stack;
-  tss_t *tss;
-  kernel_stack_t *kernel_stack;
+        uint64_t        id;
+        uint64_t        lapic_id;
+        gdt_t           gdt;
+        tss_stack_t    *tss_stack;
+        tss_t          *tss;
+        kernel_stack_t *kernel_stack;
 } cpu_processor_t;
 
 /* Send an IPI to all CPUs */

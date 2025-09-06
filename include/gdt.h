@@ -15,30 +15,30 @@
 #include "stdint.h"
 
 typedef struct {
-  uint16_t size;
-  void *ptr;
+        uint16_t size;
+        void    *ptr;
 } __attribute__((packed)) gdt_register_t;
 
 typedef struct {
-  uint32_t unused0;
-  uint64_t rsp[3];
-  uint64_t unused1;
-  uint64_t ist[7];
-  uint64_t unused2;
-  uint16_t unused3;
-  uint16_t iopb;
+        uint32_t unused0;
+        uint64_t rsp[3];
+        uint64_t unused1;
+        uint64_t ist[7];
+        uint64_t unused2;
+        uint16_t unused3;
+        uint16_t iopb;
 } __attribute__((packed)) tss_t;
 
-typedef uint8_t tss_stack_t[1024];
+typedef uint8_t  tss_stack_t[1024];
 typedef uint64_t gdt_entries_t[8];
 
 typedef struct {
-  gdt_entries_t entries;
-  gdt_register_t pointer;
+        gdt_entries_t  entries;
+        gdt_register_t pointer;
 } __attribute__((aligned(16))) gdt_t;
 
-extern gdt_t gdt0;
-extern tss_t tss0;
+extern gdt_t       gdt0;
+extern tss_t       tss0;
 extern tss_stack_t tss_stack;
 
 /* Initialize the global descriptor table */

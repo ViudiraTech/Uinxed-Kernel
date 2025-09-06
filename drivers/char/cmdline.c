@@ -13,6 +13,7 @@
 #include "uinxed.h"
 
 /* Get the kernel command line */
-const char *get_cmdline(void) {
-  return kernel_file_request.response->kernel_file->cmdline;
+const char *get_cmdline(void)
+{
+    return kernel_file_request.response->kernel_file->cmdline;
 }

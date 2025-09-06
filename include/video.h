@@ -15,35 +15,35 @@
 #include "stdint.h"
 
 typedef struct {
-  uint8_t red;
-  uint8_t green;
-  uint8_t blue;
+        uint8_t red;
+        uint8_t green;
+        uint8_t blue;
 } color_t;
 
 typedef struct {
-  uint32_t x;
-  uint32_t y;
+        uint32_t x;
+        uint32_t y;
 } position_t;
 
 typedef struct {
-  uint32_t *framebuffer;      // Frame buffer
-  uint32_t cx, cy;            // The character position of the current cursor
-  uint32_t c_width, c_height; // Screen character width and height
-  uint64_t width;             // Screen length
-  uint64_t height;            // Screen width
-  uint64_t stride;            // Frame buffer line spacing
-  uint32_t fore_color;        // Foreground color
-  uint32_t back_color;        // Background color
-  uint16_t bpp;               // Bits per pixel
-  uint8_t memory_model;       // Display memory model
-  uint8_t red_mask_size;      // Red mask size
-  uint8_t red_mask_shift;     // Red mask displacement
-  uint8_t green_mask_size;    // Green mask size
-  uint8_t green_mask_shift;   // Green mask displacement
-  uint8_t blue_mask_size;     // Blue mask size
-  uint8_t blue_mask_shift;    // Blue mask displacement
-  uint64_t edid_size;         // EDID data size
-  void *edid;                 // EDID data pointer
+        uint32_t *framebuffer;       // Frame buffer
+        uint32_t  cx, cy;            // The character position of the current cursor
+        uint32_t  c_width, c_height; // Screen character width and height
+        uint64_t  width;             // Screen length
+        uint64_t  height;            // Screen width
+        uint64_t  stride;            // Frame buffer line spacing
+        uint32_t  fore_color;        // Foreground color
+        uint32_t  back_color;        // Background color
+        uint16_t  bpp;               // Bits per pixel
+        uint8_t   memory_model;      // Display memory model
+        uint8_t   red_mask_size;     // Red mask size
+        uint8_t   red_mask_shift;    // Red mask displacement
+        uint8_t   green_mask_size;   // Green mask size
+        uint8_t   green_mask_shift;  // Green mask displacement
+        uint8_t   blue_mask_size;    // Blue mask size
+        uint8_t   blue_mask_shift;   // Blue mask displacement
+        uint64_t  edid_size;         // EDID data size
+        void     *edid;              // EDID data pointer
 } video_info_t;
 
 /* Get video information */
@@ -75,8 +75,7 @@ uint32_t video_get_pixel(uint32_t x, uint32_t y);
 
 /* Iterate over a area on the screen and run a callback function in each
  * iteration */
-void video_invoke_area(position_t p0, position_t p1,
-                       void (*callback)(position_t p));
+void video_invoke_area(position_t p0, position_t p1, void (*callback)(position_t p));
 
 /* Draw a matrix at the specified coordinates on the screen */
 void video_draw_rect(position_t p0, position_t p1, uint32_t color);

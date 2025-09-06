@@ -12,7 +12,7 @@
 #ifndef INCLUDE_STDDEF_H_
 #define INCLUDE_STDDEF_H_
 
-typedef __SIZE_TYPE__ size_t;
+typedef __SIZE_TYPE__    size_t;
 typedef __PTRDIFF_TYPE__ ptrdiff_t;
 #if !defined(__cplusplus) && defined(__WCHAR_TYPE__)
 typedef __WCHAR_TYPE__ wchar_t;
@@ -29,9 +29,9 @@ typedef typeof(nullptr) nullptr_t;
 #define offsetof(s, m) __builtin_offsetof(s, m)
 
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ > 201710L
-#undef unreachable
-#define unreachable() __builtin_unreachable()
-#define __STDC_VERSION_STDDEF_H__ 202311L
+#    undef unreachable
+#    define unreachable()             __builtin_unreachable()
+#    define __STDC_VERSION_STDDEF_H__ 202311L
 #endif
 
 #endif // INCLUDE_STDDEF_H_

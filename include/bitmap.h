@@ -16,8 +16,8 @@
 #include "stdint.h"
 
 typedef struct {
-  uint8_t *buffer;
-  size_t length;
+        uint8_t *buffer;
+        size_t   length;
 } bitmap_t;
 
 /* Initialize the memory bitmap */

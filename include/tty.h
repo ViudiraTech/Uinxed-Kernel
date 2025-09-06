@@ -12,15 +12,15 @@
 #ifndef INCLUDE_TTY_H_
 #define INCLUDE_TTY_H_
 
-#define MAX_ARGC 1024
+#define MAX_ARGC    1024
 #define MAX_CMDLINE 256
 
 #ifndef TTY_BUF_SIZE
-#define TTY_BUF_SIZE 4096
+#    define TTY_BUF_SIZE 4096
 #endif
 
 #ifndef TTY_DEFAULT_DEV
-#define TTY_DEFAULT_DEV "tty0"
+#    define TTY_DEFAULT_DEV "tty0"
 #endif
 
 /* Obtain the tty number provided at startup */
