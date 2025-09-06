@@ -14,6 +14,7 @@
 #include "apic.h"
 #include "common.h"
 #include "debug.h"
+#include "eis.h"
 #include "gdt.h"
 #include "interrupt.h"
 #include "limine.h"
