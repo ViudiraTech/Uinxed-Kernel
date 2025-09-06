@@ -17,7 +17,7 @@ void spin_lock(spinlock_t *lock)
     __asm__ volatile("pushfq; pop %0; cli" : "=r"(lock->rflags));
     while (1) {
         uint64_t desired = 1;
-        __asm__ volatile("lock xchg %[desired], %[lock];" : [lock] "+m"(lock->lock), [desired] "+r"(desired) : : "memory");
+        __asm__ volatile("lock xchg %[desired], %[lock];" : [lock] "+m"(lock->lock), [desired] "+r"(desired)::"memory");
         if (!desired) break;
         __asm__ volatile("pause");
     }
