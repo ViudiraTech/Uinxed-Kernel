@@ -26,7 +26,7 @@
 #include "pci.h"
 #include "printk.h"
 #include "serial.h"
-#include "simd.h"
+#include "eis.h"
 #include "smbios.h"
 #include "smp.h"
 #include "uinxed.h"
@@ -52,9 +52,9 @@ void executable_entry(void)
 /* Kernel entry */
 void kernel_entry(void)
 {
-    init_fpu(); // Initialize FPU/MMX
-    init_sse(); // Initialize SSE/SSE2
-    init_avx(); // Initialize AVX/AVX2
+    init_fpu();   // Initialize FPU/MMX
+    init_sse();   // Initialize SSE/SSE2
+    init_avx();   // Initialize AVX/AVX2
 
     video_init(); // Initialize Video
     page_init();  // Initialize memory page
