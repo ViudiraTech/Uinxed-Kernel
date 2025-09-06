@@ -1,6 +1,6 @@
 mainmenu "Uinxed-Kernel"
 
-  menu "Kernel debugging"
+menu "Kernel debugging"
 
   config KERNEL_LOG
     bool "Kernel runtime logging output"
@@ -20,14 +20,13 @@ menu "Processor configuration"
         "Limits the maximum number of CPUs the kernel can use, set to 0 for no limit."
 
   endmenu
-
   menu "Extended instruction set"
 
     config CPU_FEATURE_FPU
       bool "Enable X87FPU (Intel 80X87 Floating-Point Unit)"
       default y
       help
-        "Set whether to enable X87FPU."
+        "Set whether to enable X87FPU/MMX."
 
     config CPU_FEATURE_SSE
       depends on CPU_FEATURE_FPU

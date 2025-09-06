@@ -29,13 +29,6 @@
 #define IS_DIGIT(c) ((c) >= '0' && (c) <= '9')
 #define IS_ALPHA(a) (((a) >= 'A' && (a) <= 'Z') || ((a) >= 'a' && (a) <= 'z'))
 
-#define do_div(n, base)                                                                   \
-    ({                                                                                    \
-        int64_t __res;                                                                    \
-        __asm__("divq %4" : "=a"(n), "=d"(__res) : "0"(n), "1"(0), "r"((int64_t)(base))); \
-        __res;                                                                            \
-    })
-
 /* BEGIN TODO BLOCK: Move these to a I/O header file */
 /* Placeholder ... */
 struct writer;

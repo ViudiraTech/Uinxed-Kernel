@@ -1,7 +1,7 @@
 /*
  *
- *      simd.c
- *      SIMD related
+ *      eis.c
+ *      Extended instruction set
  *
  *      2025/9/6 By MicroFish
  *      Based on GPL-3.0 open source agreement
@@ -15,6 +15,7 @@
 /* Initialize the FPU, including MMX (if any) */
 void init_fpu(void)
 {
+#if CPU_FEATURE_FPU
     uint64_t cr0;
     __asm__ volatile("mov %%cr0, %0" : "=r"(cr0)::"memory");
 
@@ -24,11 +25,15 @@ void init_fpu(void)
 
     __asm__ volatile("mov %0, %%cr0" ::"r"(cr0) : "memory");
     __asm__ volatile("fninit");
+#else
+    return;
+#endif
 }
 
 /* Initialize the SSE, including SSE2 (if any) */
 void init_sse(void)
 {
+#if CPU_FEATURE_SSE
     if (!cpu_support_sse()) return;
 
     uint64_t cr4;
@@ -38,11 +43,15 @@ void init_sse(void)
     cr4 |= (1 << 10); // OSXMMEXCPT = 1
 
     __asm__ volatile("mov %0, %%cr4" ::"r"(cr4) : "memory");
+#else
+    return;
+#endif
 }
 
 /* Initialize the AVX, including AVX2 (if any) */
 void init_avx(void)
 {
+#if CPU_FEATURE_AVX
     if (!cpu_support_avx()) return;
 
     uint64_t cr4;
@@ -53,4 +62,7 @@ void init_avx(void)
 
     __asm__ volatile("mov %0, %%cr4" ::"r"(cr4) : "memory");
     __asm__ volatile("xsetbv" ::"a"((uint32_t)xcr0), "d"((uint32_t)(xcr0 >> 32)), "c"(0) : "memory");
+#else
+    return;
+#endif
 }
