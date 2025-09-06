@@ -15,7 +15,14 @@ CONFIG_KERNEL_LOG=y
 #
 # Symmetric multi-processing
 #
-CONFIG_MAX_CPU_COUNT=0
+CONFIG_CPU_MAX_COUNT=0
+
+#
+# Extended instruction set
+#
+CONFIG_CPU_FEATURE_FPU=y
+CONFIG_CPU_FEATURE_SSE=y
+CONFIG_CPU_FEATURE_AVX=y
 
 #
 # Device drivers
