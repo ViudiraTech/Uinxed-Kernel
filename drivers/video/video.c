@@ -11,6 +11,7 @@
 
 #include "video.h"
 #include "common.h"
+#include "cpuid.h"
 #include "gfx_proc.h"
 #include "limine.h"
 #include "stddef.h"
@@ -124,17 +125,44 @@ void video_scroll(void)
     } else {
         cx++;
     }
-    uint8_t       *dest;
-    const uint8_t *src;
-    size_t         count;
-    if ((uint32_t)cy >= c_height) {
-        dest  = (uint8_t *)buffer;
-        src   = (const uint8_t *)(buffer + stride * 16);
-        count = (stride * (height - 16) * sizeof(uint32_t)) / 8;
-        __asm__ volatile("rep movsq" : "+D"(dest), "+S"(src), "+c"(count)::"memory");
 
-        /* NOLINTNEXTLINE(clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling) */
-        /* Fill new line to back color */
+    if ((uint32_t)cy >= c_height) {
+        uint8_t       *dest  = buffer;
+        const uint8_t *src   = buffer + stride * 16;
+        size_t         count = stride * (height - 16) * sizeof(uint32_t);
+
+#if CPU_FEATURE_SSE
+        if (cpu_support_sse()) {
+            size_t blocks = count / 64;
+            size_t remain = count % 64;
+
+            __asm__ volatile("1:\n\t"
+                             "movdqu (%[src]), %%xmm0\n\t"
+                             "movdqu 16(%[src]), %%xmm1\n\t"
+                             "movdqu 32(%[src]), %%xmm2\n\t"
+                             "movdqu 48(%[src]), %%xmm3\n\t"
+                             "movdqu %%xmm0, (%[dest])\n\t"
+                             "movdqu %%xmm1, 16(%[dest])\n\t"
+                             "movdqu %%xmm2, 32(%[dest])\n\t"
+                             "movdqu %%xmm3, 48(%[dest])\n\t"
+                             "add $64, %[src]\n\t"
+                             "add $64, %[dest]\n\t"
+                             "dec %[blocks]\n\t"
+                             "jnz 1b\n\t"
+                             : [src] "+r"(src), [dest] "+r"(dest), [blocks] "+r"(blocks)
+                             :
+                             : "xmm0", "xmm1", "xmm2", "xmm3", "memory");
+
+            for (size_t i = 0; i < remain; i++) *dest++ = *src++;
+        } else {
+            count /= 8;
+            __asm__ volatile("rep movsq" : "+D"(dest), "+S"(src), "+c"(count)::"memory");
+        }
+#else
+        count /= 8;
+        __asm__ volatile("rep movsq" : "+D"(dest), "+S"(src), "+c"(count)::"memory");
+#endif
+
         video_draw_rect((position_t) {0, height - 16}, (position_t) {stride, height}, back_color);
         cy = c_height - 1;
     }
