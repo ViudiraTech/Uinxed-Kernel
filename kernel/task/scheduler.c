@@ -87,34 +87,6 @@ int scheduler(interrupt_frame_t *frame, regs_t *regs)
     return 0;
 }
 
-void timer_handle_c(regs_t *reg)
-{
-    interrupt_frame_t *frame = &((regs_t_ *)reg)->auto_regs.frame;
-    if (is_scheduler[get_current_cpu_id()] == 0) { goto end; }
-
-    if (current_task == NULL) { goto az; }
-
-    if (current_task->flag & PCB_FLAGS_SWITCH_TO_USER) {
-        frame->rip = current_task->context0.rip;
-        current_task->flag ^= PCB_FLAGS_SWITCH_TO_USER;
-        current_task->flag ^= PCB_FLAGS_KTHREAD;
-        frame->cs = 0x20;
-        frame->ss = 0x18;
-        goto end;
-    } else {
-        current_task->context0.rip = frame->rip;
-    }
-az:
-    scheduler(frame, reg);
-end:
-    send_eoi();
-    return;
-}
-
-__asm__(".globl timer_handle\n\t"
-        "timer_handle:\n\t" save_regs_asm_ "mov %rsp, %rdi\n\t"
-        "call timer_handle_c\n\t" restore_regs_asm_ "sti\n\t"
-        "iretq\n\t");
 
 void switch_to(pcb_t *source, pcb_t *target, interrupt_frame_t *frame, regs_t *regs)
 {

@@ -3,6 +3,7 @@
 #include "common.h"
 #include "debug.h"
 #include "heap.h"
+#include "init.h"
 #include "printk.h"
 #include "scheduler.h"
 #include "smp.h"
@@ -16,15 +17,16 @@ pcb_t   *init_pcb;
 
 void kthread_exit(int status)
 {
-    plogk("pid%d exited\n", current_task->pid);
+    (void)status;
+    plogk("pid%d exited, exit status:%d\n", current_task->pid, status);
     for (;;) __asm__("hlt");
 }
 
 void kthread_entry(void **args)
 {
     int (*_start)(void *) = args[0];
-    _start(args[1]);
-    kthread_exit(0);
+    int status = _start(args[1]);
+    kthread_exit(status);
 }
 
 pcb_t *kernel_thread(int (*_start)(void *arg), void *args, char *name)
@@ -65,27 +67,7 @@ pcb_t *create_kernel_thread(int (*_start)(void *arg), void *args, char *name)
     if (!arg) { return NULL; }
     arg[0] = _start;
     arg[1] = args;
-    return kernel_thread(kthread_entry, arg, name);
-}
-
-int idle_thread()
-{
-    for (;;) __asm__("hlt");
-}
-
-int init_user_main()
-{
-    plogk("Hello World!\r\n");
-    for (;;) {}
-}
-
-int init_kmain(int *test)
-{
-    printk("\n[    INFO    ]Init process is running. test=%d\n", *test);
-    enable_scheduler();
-    enable_intr();
-    while (1) { __asm__("hlt"); }
-    return 0; // nerver get there
+    return kernel_thread((int (*)(void*))kthread_entry, arg, name);
 }
 
 pcb_t *init_task()

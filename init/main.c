@@ -34,18 +34,6 @@
 #include "uinxed.h"
 #include "video.h"
 
-void a()
-{
-    // for(;;){plogk("a\n");}
-    for (;;) {}
-    return;
-}
-void b()
-{
-    // for(;;){plogk("b\n");}
-    return;
-}
-
 /* Executable entry */
 void executable_entry(void)
 {
@@ -107,9 +95,6 @@ void kernel_entry(void)
     init_task();
     enable_scheduler();
     enable_intr();
-    create_kernel_thread(a, NULL, "a");
-    create_kernel_thread(b, NULL, "b");
-    for (int i = 0; i < 100; i++) { create_kernel_thread(a, NULL, ""); }
 
     for (;;) { __asm__("hlt"); }
 

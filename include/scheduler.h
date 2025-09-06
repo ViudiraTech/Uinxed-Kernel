@@ -190,3 +190,5 @@ void init_scheduler();
     "popq %r15\n\t" /* 恢复 R15 */   \
                                      \
     "add $0x10,%rsp\n\t" /* 跳过error code,v */
+
+extern int *is_scheduler;

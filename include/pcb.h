@@ -96,9 +96,9 @@ pcb_t *init_task();
 
 pcb_t *get_current_task();
 
-int idle_thread();
-
 pcb_t *create_kernel_thread(int (*_start)(void *arg), void *args, char *name);
+
+void kthread_exit(int status);
 
 extern pcb_t **idle_pcb;
 
