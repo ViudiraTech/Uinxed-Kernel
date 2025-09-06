@@ -27,8 +27,6 @@ endif
 
 ifeq ($(CONFIG_KERNEL_LOG), y)
   C_CONFIG += -DKERNEL_LOG=1
-else
-  C_CONFIG += -DKERNEL_LOG=0
 endif
 
 ifneq ($(CONFIG_MAX_CPU_COUNT),)
@@ -37,20 +35,14 @@ endif
 
 ifeq ($(CONFIG_CPU_FEATURE_FPU), y)
   C_CONFIG += -DCPU_FEATURE_FPU=1
-else
-  C_CONFIG += -DCPU_FEATURE_FPU=0
 endif
 
 ifeq ($(CONFIG_CPU_FEATURE_SSE), y)
   C_CONFIG += -DCPU_FEATURE_SSE=1
-else
-  C_CONFIG += -DCPU_FEATURE_SSE=0
 endif
 
 ifeq ($(CONFIG_CPU_FEATURE_AVX), y)
   C_CONFIG += -DCPU_FEATURE_AVX=1
-else
-  C_CONFIG += -DCPU_FEATURE_AVX=0
 endif
 
 ifneq ($(CONFIG_TTY_DEFAULT_DEV),)
