@@ -76,11 +76,13 @@ typedef struct task_pcb {
                                      // 3:仅用于idle
         uint8_t  nice;               // 优先级(数字越大优先级越高)，每次用尽时间片就+1直到0
         uint32_t time;               // 时间片（虚拟运行时间）
-        uint8_t  state;              // 0:可调度(就绪态)
-                                     // 1:阻塞
-                                     // 2:调试暂停
-                                     // 3:运行中
-                                     // 4:僵死(可销毁)
+        enum {
+                READY=0,        // 0:可调度(就绪态)
+                BLOCKED=1,      // 1:阻塞
+                DEBUG=2,        // 2:调试暂停
+                RUNNING=3,      // 3:运行中
+                DEATH=4         // 4:僵死(可销毁)
+        } state;         
         uint8_t           init_nice; //初始优先级(数字越大优先级越高)
         TaskContext       context0;  // 上下文
         page_directory_t *page_dir;  // 进程页表

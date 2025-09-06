@@ -75,13 +75,13 @@ int scheduler(interrupt_frame_t *frame, regs_t *regs)
         // current_task->context0.rip = (uint64_t)idle_thread;
         current_task->context0.rip = frame->rip;
     }
-    current_task->state = 0;
+    current_task->state = READY;
 
-    for (; ((pcb_t *)(next->data)) != current_task || ((pcb_t *)(next->next->data))->state == 1; next = next->next) {}
+    for (; ((pcb_t *)(next->data)) != current_task || ((pcb_t *)(next->next->data))->state != READY; next = next->next) {}
     next                = next->next;
     pcb_t *now          = current_task;
     current_task        = ((pcb_t *)(next->data));
-    current_task->state = 1;
+    current_task->state = RUNNING;
     spin_unlock(&pcb_list_lock);
     switch_to(now, current_task, frame, regs);
     return 0;

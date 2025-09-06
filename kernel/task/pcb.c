@@ -19,6 +19,7 @@ void kthread_exit(int status)
 {
     (void)status;
     plogk("pid%d exited, exit status:%d\n", current_task->pid, status);
+    current_task->state = DEATH;
     for (;;) __asm__("hlt");
 }
 
@@ -53,7 +54,7 @@ pcb_t *kernel_thread(int (*_start)(void *arg), void *args, char *name)
     new_task->pid             = now_pid++;
     new_task->page_dir        = get_kernel_pagedir();
     new_task->flag            = 0 | PCB_FLAGS_KTHREAD;
-    new_task->state           = 0; //就绪态
+    new_task->state           = READY; //就绪态
     add_task(new_task);
     if (s == 1) { enable_scheduler(); }
 

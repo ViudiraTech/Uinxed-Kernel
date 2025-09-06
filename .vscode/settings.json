@@ -2,6 +2,14 @@
     "files.associations": {
         "*.h": "c",
         "*.cc": "cpp",
-        "typeinfo": "c"
+        "typeinfo": "c",
+        "bit": "c",
+        "compare": "c",
+        "cstddef": "c",
+        "string": "c",
+        "limits": "c",
+        "memory": "c",
+        "new": "c",
+        "functional": "c"
     }
 }
