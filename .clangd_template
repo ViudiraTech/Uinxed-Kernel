@@ -11,6 +11,7 @@ CompileFlags:
     - "-fno-optimize-sibling-calls"
     - "-fno-stack-protector"
     - "-fno-omit-frame-pointer"
+    - "-mstackrealign"
     - "-mno-red-zone"
     - "-I${workspaceFolder}/include"
     - "-MMD"

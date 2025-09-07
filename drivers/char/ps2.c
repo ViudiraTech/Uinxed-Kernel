@@ -113,19 +113,15 @@ void init_ps2(void)
 
     /* Test port */
     ps2_write_cmd(PS2_CMD_TEST_PORT1);
-    if (ps2_read_data() != PS2_RESPONSE_TEST) {
-        plogk("ps/2: Port 1 test failed.\n");
-    }
+    if (ps2_read_data() != PS2_RESPONSE_TEST) plogk("ps/2: Port 1 test failed.\n");
     if (is_dual_channel) {
         ps2_write_cmd(PS2_CMD_TEST_PORT2);
-        if (ps2_read_data() != PS2_RESPONSE_TEST) {
-            plogk("ps/2: Port 2 test failed.\n");
-        }
+        if (ps2_read_data() != PS2_RESPONSE_TEST) plogk("ps/2: Port 2 test failed.\n");
     }
 
     /* Enable all ports, IRQs, and clocks */
     ps2_write_cmd(PS2_CMD_ENABLE_PORT1);
-    if (is_dual_channel) { ps2_write_cmd(PS2_CMD_ENABLE_PORT2); }
+    if (is_dual_channel) ps2_write_cmd(PS2_CMD_ENABLE_PORT2);
 
     uint8_t final_config = ps2_read_config();
     final_config |= PS2_CONFIG_PORT1_IRQ;
