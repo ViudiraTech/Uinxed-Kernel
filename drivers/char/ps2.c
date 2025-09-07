@@ -96,9 +96,9 @@ void init_ps2(void)
     ps2_write_cmd(PS2_CMD_SELF_TEST);
     if (ps2_read_data() != PS2_RESPONSE_SELFTEST) {
         plogk("ps/2: Controller self-test failed.\n");
-        return;
+    } else {
+        plogk("ps/2: Controller self-test successful.\n");
     }
-    plogk("ps/2: Controller self-test successful.\n");
 
     /* Detect whether it is a dual-channel controller */
     ps2_write_cmd(PS2_CMD_ENABLE_PORT2);
@@ -115,13 +115,11 @@ void init_ps2(void)
     ps2_write_cmd(PS2_CMD_TEST_PORT1);
     if (ps2_read_data() != PS2_RESPONSE_TEST) {
         plogk("ps/2: Port 1 test failed.\n");
-        return;
     }
     if (is_dual_channel) {
         ps2_write_cmd(PS2_CMD_TEST_PORT2);
         if (ps2_read_data() != PS2_RESPONSE_TEST) {
             plogk("ps/2: Port 2 test failed.\n");
-            return;
         }
     }
 

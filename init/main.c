@@ -57,9 +57,9 @@ void kernel_entry(void)
     init_sse(); // Initialize SSE/SSE2
     init_avx(); // Initialize AVX/AVX2
 
-    video_init(); // Initialize Video
     page_init();  // Initialize memory page
     init_heap();  // Initialize the memory heap
+    video_init(); // Initialize Video
 
     video_info_t fbinfo = video_get_info();
 
