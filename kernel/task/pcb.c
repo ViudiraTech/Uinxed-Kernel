@@ -9,7 +9,6 @@
 #include "smp.h"
 #include "string.h"
 #include "uinxed.h"
-#include "video.h"
 
 uint32_t now_pid = 0;
 pcb_t  **idle_pcb;
