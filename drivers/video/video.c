@@ -248,7 +248,7 @@ void video_put_char(const char c, uint32_t color)
             video_scroll();
             x = (cx - 1) * 9;
             y = cy * 16;
-            video_draw_char(c, x, y, color);
+            video_draw_char(' ', x, y, color);
         }
         return;
     } else if (c == '\b' && cx > 0) { // Do not fill, just move cursor

@@ -87,10 +87,10 @@ int scheduler(interrupt_frame_t *frame, regs_t *regs)
     return 0;
 }
 
-
 void switch_to(pcb_t *source, pcb_t *target, interrupt_frame_t *frame, regs_t *regs)
 {
     switch_page_directory(target->page_dir);
+    // TODO: Switch FPU context
     TaskContext *old = &(source->context0), *new = &(target->context0);
     old->r15 = regs->r15;
     old->r14 = regs->r14;
