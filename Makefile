@@ -110,6 +110,9 @@ info:
 UxImage: $(OBJS) $(LIBS)
 	$(V)$(LD) $(LD_FLAGS) -o $@ $^
 
+kerneldump.log: UxImage
+	$(V)objdump -d UxImage > kerneldump.log
+
 Uinxed-x64.iso: UxImage
 	$(Q)echo
 	$(Q)printf "\033[1;32m[ISO]\033[0m Packing ISO file...\n"
@@ -139,10 +142,10 @@ run: Uinxed-x64.iso
 	$(QEMU) $(QEMU_FLAGS) $(QEMU_KVM) -cdrom $<
 	$(Q)echo
 
-run_db: Uinxed-x64.iso
+run_db: Uinxed-x64.iso kerneldump.log
 	qemu-system-x86_64 $(QEMU_FLAGS) -no-reboot -d in_asm,int -D qemu.log -cdrom $<
 
-run_gdb: Uinxed-x64.iso
+run_gdb: Uinxed-x64.iso kerneldump.log
 	qemu-system-x86_64 $(QEMU_FLAGS) -no-reboot -d in_asm,int -D qemu.log -S -s -cdrom $<
 
 

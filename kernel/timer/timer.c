@@ -13,8 +13,8 @@
 #include "apic.h"
 #include "common.h"
 #include "idt.h"
-#include "scheduler.h"
 #include "printk.h"
+#include "scheduler.h"
 #include "stdint.h"
 
 /* Millisecond-based delay functions */
