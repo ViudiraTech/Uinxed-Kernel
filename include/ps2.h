@@ -51,10 +51,10 @@
 #define PS2_RESPONSE_RESET_OK 0xaa // Device reset successful
 
 /* Waiting for PS/2 read ready */
-void wait_ps2_read(void);
+int wait_ps2_read(void);
 
 /* Waiting for PS/2 write ready */
-void wait_ps2_write(void);
+int wait_ps2_write(void);
 
 /* Read PS/2 data */
 uint8_t ps2_read_data(void);

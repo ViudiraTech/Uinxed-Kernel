@@ -14,19 +14,21 @@
 #include "printk.h"
 
 /* Waiting for PS/2 read ready */
-void wait_ps2_read(void)
+int wait_ps2_read(void)
 {
     for (size_t i = 0; i < 10000; ++i) {
-        if (ps2_read_status() & PS2_STATUS_OUTPUT_FULL) return;
+        if (ps2_read_status() & PS2_STATUS_OUTPUT_FULL) return 0;
     }
+    return 1;
 }
 
 /* Waiting for PS/2 write ready */
-void wait_ps2_write(void)
+int wait_ps2_write(void)
 {
     for (size_t i = 0; i < 10000; ++i) {
-        if (!(ps2_read_status() & PS2_STATUS_INPUT_FULL)) return;
+        if (!(ps2_read_status() & PS2_STATUS_INPUT_FULL)) return 0;
     }
+    return 1;
 }
 
 /* Read PS/2 data */
