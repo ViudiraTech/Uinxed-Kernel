@@ -82,7 +82,6 @@ CHECKS         := -quiet -checks=-*,clang-analyzer-*,bugprone-*,cert-*,misc-*,pe
 # `-fno-optimize-sibling-calls` is for `dump_stack` to work properly.
 C_FLAGS        := -Wall -Wextra -O3 -g3 -m64 -fpie -ffreestanding -fno-optimize-sibling-calls -fno-stack-protector -fno-omit-frame-pointer -mno-red-zone -I include -MMD
 LD_FLAGS       := -nostdlib -pie -T assets/linker.ld -m elf_x86_64
-AS_FLAGS       := -g --64
 
 all: info Uinxed-x64.iso
 

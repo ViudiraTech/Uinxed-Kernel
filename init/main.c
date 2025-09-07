@@ -26,6 +26,7 @@
 #include "parallel.h"
 #include "pci.h"
 #include "printk.h"
+#include "ps2.h"
 #include "serial.h"
 #include "smbios.h"
 #include "smp.h"
@@ -92,6 +93,7 @@ void kernel_entry(void)
     init_ide();           // Initialize ATA/ATAPI driver
     init_serial();        // Initialize the serial port
     init_parallel();      // Initialize the parallel port
+    init_ps2();           // Initialize PS/2 controller
     enable_intr();
 
     panic("No operation.");
