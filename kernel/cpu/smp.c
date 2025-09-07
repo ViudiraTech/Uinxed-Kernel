@@ -21,8 +21,6 @@
 #include "page.h"
 #include "printk.h"
 #include "scheduler.h"
-#include "simd.h"
-#include "eis.h"
 #include "spin_lock.h"
 #include "stddef.h"
 #include "stdint.h"
@@ -191,11 +189,8 @@ void ap_entry(struct limine_smp_info *info)
 
     /* TODO: Implement the scheduler loop */
     enable_scheduler();
-    while (1) {
-        enable_intr();
-        __asm__ volatile("hlt");
-        disable_intr();
-    }
+    enable_intr();
+    while (1) { __asm__ volatile("hlt"); }
 
     /* Shouldn't reach here */
     panic("AP %d scheduler exited.", cpu->id);

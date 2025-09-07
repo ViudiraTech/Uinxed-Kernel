@@ -10,17 +10,15 @@
  */
 
 #include "acpi.h"
+#include "apic.h"
 #include "hhdm.h"
 #include "idt.h"
 #include "printk.h"
-#include "stdint.h"
 #include "scheduler.h"
-#include "apic.h"
+#include "stdint.h"
 
 hpet_info_t    *hpet_addr;
 static uint32_t hpet_period = 0;
-
-void timer_handle(interrupt_frame_t *frame);
 
 void timer_handle_c(regs_t *reg)
 {
@@ -46,10 +44,16 @@ end:
     return;
 }
 
-__asm__(".globl timer_handle\n\t"
-        "timer_handle:\n\t" save_regs_asm_ "mov %rsp, %rdi\n\t"
-        "call timer_handle_c\n\t" restore_regs_asm_ "sti\n\t"
-        "iretq\n\t");
+__attribute__((naked)) void timer_handle(__attribute__((unused)) interrupt_frame_t *frame)
+{
+    __asm__ volatile("cli\n\t"                 // disable interrupts
+                     save_regs_asm_            // save registers
+                     "mov %rsp, %rdi\n\t"      // 1st arg: interrupt frame
+                     "call timer_handle_c\n\t" // call C function
+                     restore_regs_asm_         // restore registers
+                     "sti\n\t"                 // enable interrupts
+                     "iretq\n\t");             // return from interrupt
+}
 
 /* Returns the nanosecond value of the current time */
 uint64_t nano_time(void)

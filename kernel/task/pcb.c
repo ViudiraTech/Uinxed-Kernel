@@ -9,6 +9,7 @@
 #include "smp.h"
 #include "string.h"
 #include "uinxed.h"
+#include "video.h"
 
 uint32_t now_pid = 0;
 pcb_t  **idle_pcb;
@@ -23,11 +24,12 @@ void kthread_exit(int status)
     for (;;) __asm__("hlt");
 }
 
-void kthread_entry(void **args)
+int kthread_entry(void **args)
 {
     int (*_start)(void *) = args[0];
-    int status = _start(args[1]);
+    int status            = _start(args[1]);
     kthread_exit(status);
+    return 0;
 }
 
 pcb_t *kernel_thread(int (*_start)(void *arg), void *args, char *name)
@@ -35,7 +37,7 @@ pcb_t *kernel_thread(int (*_start)(void *arg), void *args, char *name)
     __asm__("cli");
     int s = get_scheduler();
     disable_scheduler();
-    pcb_t *new_task = (pcb_t *)calloc(1, KERNEL_ST_SZ);
+    pcb_t *new_task = (pcb_t *)calloc(1, sizeof(pcb_t) + STACK_SIZE);
     if (new_task == NULL) { panic("No enough Memory\r\n"); }
     memset(new_task, 0, sizeof(pcb_t));
     new_task->name  = (char *)malloc(strlen(name) * sizeof(char));
@@ -43,13 +45,14 @@ pcb_t *kernel_thread(int (*_start)(void *arg), void *args, char *name)
     new_task->time  = 100;
 
     strcpy(new_task->name, name);
-    uint64_t *stack_top       = (uint64_t *)(new_task + (STACK_SIZE / sizeof(*new_task)));
+    uint64_t *stack_top       = (uint64_t *)(new_task + sizeof(pcb_t) + STACK_SIZE);
     *(--stack_top)            = (uint64_t)_start;
     new_task->context0.rflags = 0x202;
     new_task->context0.rip    = (uint64_t)_start;
-    new_task->context0.rsp    = (uint64_t)new_task + STACK_SIZE - sizeof(uint64_t) * 3; // 设置上下文
+    new_task->context0.rsp    = (uint64_t)stack_top - sizeof(uint64_t) * 3; // 设置上下文
     new_task->context0.rdi    = (uint64_t)args;
-    new_task->kernel_stack    = (new_task->context0.rsp &= ~0xF); // 栈16字节对齐
+    new_task->context0.rsp    = (new_task->context0.rsp & (~0xF)) - sizeof(uint64_t); // 栈16字节对齐
+    new_task->kernel_stack    = new_task->context0.rsp;
     new_task->user_stack      = new_task->kernel_stack;
     new_task->pid             = now_pid++;
     new_task->page_dir        = get_kernel_pagedir();
@@ -68,7 +71,7 @@ pcb_t *create_kernel_thread(int (*_start)(void *arg), void *args, char *name)
     if (!arg) { return NULL; }
     arg[0] = _start;
     arg[1] = args;
-    return kernel_thread((int (*)(void*))kthread_entry, arg, name);
+    return kernel_thread((int (*)(void *))kthread_entry, arg, name);
 }
 
 pcb_t *init_task()
@@ -84,6 +87,6 @@ pcb_t *init_task()
     int *p   = (int *)malloc(sizeof(int));
     *p       = 114514;
     init_pcb = create_kernel_thread((int (*)(void *))init_kmain, p, "init");
-    plogk("idle stack: %p\tinit stack:%p\n\t", idle_pcb[0]->context0.rsp, init_pcb->context0.rsp);
+    plogk("idle stack: %p\tinit stack:%p\n", (void *)idle_pcb[0]->context0.rsp, (void *)init_pcb->context0.rsp);
     return init_pcb;
 }
