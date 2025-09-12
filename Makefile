@@ -76,6 +76,7 @@ PWD            := $(shell pwd)
 QEMU           := qemu-system-x86_64
 QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd 
 QEMU_KVM	   := --enable-kvm
+QEMU_SMP	   := 2
 
 CHECKS         := -quiet -checks=-*,clang-analyzer-*,bugprone-*,cert-*,misc-*,performance-*,portability-*,-misc-include-cleaner,-clang-analyzer-security.insecureAPI.*
 
@@ -111,7 +112,7 @@ UxImage: $(OBJS) $(LIBS)
 	$(V)$(LD) $(LD_FLAGS) -o $@ $^
 
 kerneldump.log: UxImage
-	$(V)objdump -d UxImage > kerneldump.log
+	$(V)objdump -d UxImage > kerneldump.log &
 
 Uinxed-x64.iso: UxImage
 	$(Q)echo
@@ -148,6 +149,8 @@ run_db: Uinxed-x64.iso kerneldump.log
 run_gdb: Uinxed-x64.iso kerneldump.log
 	qemu-system-x86_64 $(QEMU_FLAGS) -no-reboot -d in_asm,int -D qemu.log -S -s -cdrom $<
 
+run_smp: Uinxed-x64.iso
+	qemu-system-x86_64 $(QEMU_FLAGS) $(QEMU_KVM) -smp $(QEMU_SMP) -cdrom $<
 
 clean:
 	$(Q)$(RM) $(OBJS) $(DEPS) UxImage Uinxed-x64.iso
