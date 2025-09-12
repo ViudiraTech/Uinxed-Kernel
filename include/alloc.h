@@ -15,8 +15,21 @@
 #include "stddef.h"
 #include "stdint.h"
 
+typedef enum {
+    invalid_free,
+    layout_error,
+} heap_error;
+
+typedef void (*error_handler)(heap_error error, void *ptr);
+
 /* Initializes the heap memory arena */
 int heap_init(uint8_t *address, size_t size);
+
+/* Set a custom error handling function */
+void heap_onerror(error_handler handler);
+
+/* Returns the usable size of the memory block pointed */
+size_t usable_size(void *ptr);
 
 /* Allocates memory with default alignment */
 void *malloc(size_t size);
@@ -29,8 +42,5 @@ void *realloc(void *ptr, size_t new_size);
 
 /* Frees memory previously allocated */
 void free(void *ptr);
-
-/* Returns the usable size of the memory block pointed */
-size_t usable_size(void *ptr);
 
 #endif // INCLUDE_ALLOC_H_

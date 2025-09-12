@@ -22,9 +22,10 @@
 void dump_stack(void)
 {
     uintptr_t current_address = kernel_address_request.response->virtual_base;
-    union RbpNode {
-            uintptr_t      inner;
-            union RbpNode *next;
+
+    union rbp_node {
+            uintptr_t       inner;
+            union rbp_node *next;
     } *rbp; // A way to avoid performance-no-int-to-ptr
 
     uintptr_t rip;
