@@ -207,7 +207,7 @@ void smp_init(void)
     }
 
     cpu_count = (!CPU_MAX_COUNT) ? smp->cpu_count : (smp->cpu_count > CPU_MAX_COUNT ? CPU_MAX_COUNT : smp->cpu_count);
-    cpus      = (cpu_processor_t *)malloc(sizeof(cpu_processor_t) * cpu_count);
+    cpus      = (cpu_processor_t *)ALIGN_DOWN((uint64_t)malloc(sizeof(cpu_processor_t) * cpu_count), 16);
     plogk("smp: Found %d CPUs.\n", cpu_count);
 
     /* Init BootStrap Processor */

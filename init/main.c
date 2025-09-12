@@ -28,6 +28,7 @@
 #include "pci.h"
 #include "printk.h"
 #include "scheduler.h"
+#include "ps2.h"
 #include "serial.h"
 #include "smbios.h"
 #include "smp.h"
@@ -59,9 +60,9 @@ void kernel_entry(void)
     init_sse(); // Initialize SSE/SSE2
     init_avx(); // Initialize AVX/AVX2
 
-    video_init(); // Initialize Video
     page_init();  // Initialize memory page
     init_heap();  // Initialize the memory heap
+    video_init(); // Initialize Video
 
     video_info_t fbinfo = video_get_info();
 
@@ -95,6 +96,7 @@ void kernel_entry(void)
     init_ide();           // Initialize ATA/ATAPI driver
     init_serial();        // Initialize the serial port
     init_parallel();      // Initialize the parallel port
+    init_ps2();           // Initialize PS/2 controller
     disable_intr();
     init_task();
     enable_scheduler();
