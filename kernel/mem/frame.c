@@ -69,8 +69,9 @@ void init_frame(void)
     frame_allocator.origin_frames = origin_frames;
     frame_allocator.usable_frames = origin_frames - bitmap_frame_count;
     plogk("frame: Total physical frames = 0x%08x (%d KiB)\n", origin_frames, (origin_frames * 4096) >> 10);
-    plogk("frame: Available frames after deducting bitmap usage = 0x%08x (%d KiB)\n", frame_allocator.usable_frames,
-          (frame_allocator.usable_frames * 4096) >> 10);
+    plogk("frame: Available frames after deducting bitmap usage = 0x%08x (%d "
+          "KiB)\n",
+          frame_allocator.usable_frames, (frame_allocator.usable_frames * 4096) >> 10);
 }
 
 /* Allocate memory frame */
