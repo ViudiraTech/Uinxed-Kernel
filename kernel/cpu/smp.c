@@ -193,7 +193,7 @@ void ap_entry(struct limine_smp_info *info)
     while (1) { __asm__ volatile("hlt"); }
 
     /* Shouldn't reach here */
-    panic("AP %d scheduler exited.", cpu->id);
+    panic("AP %d entry exited.", cpu->id);
 }
 
 /* Initializing Symmetric Multi-Processing */
@@ -209,6 +209,8 @@ void smp_init(void)
     cpu_count = (!CPU_MAX_COUNT) ? smp->cpu_count : (smp->cpu_count > CPU_MAX_COUNT ? CPU_MAX_COUNT : smp->cpu_count);
     cpus      = (cpu_processor_t *)ALIGN_DOWN((uint64_t)malloc(sizeof(cpu_processor_t) * cpu_count), 16);
     plogk("smp: Found %d CPUs.\n", cpu_count);
+
+    init_scheduler();
 
     /* Init BootStrap Processor */
     for (uint32_t i = 0; i < cpu_count; i++) {

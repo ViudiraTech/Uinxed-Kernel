@@ -23,6 +23,7 @@ static uint32_t hpet_period = 0;
 void timer_handle_c(regs_t *reg)
 {
     interrupt_frame_t *frame = &((regs_t_ *)reg)->auto_regs.frame;
+    // printk("[Timer]current_cpu_id:%d\n", get_current_cpu_id(), get_cpu_count());
     if (is_scheduler[get_current_cpu_id()] == 0) { goto end; }
 
     if (current_task == NULL) { goto az; }
@@ -40,6 +41,7 @@ void timer_handle_c(regs_t *reg)
 az:
     scheduler(frame, reg);
 end:
+    // printk("send eoi\n");
     send_eoi();
     return;
 }

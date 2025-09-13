@@ -19,6 +19,7 @@ spinlock_t pcb_list_lock;
 
 void enable_scheduler()
 {
+    printk("[SMP]enabled ap %d scheduler\n", get_current_cpu_id());
     is_scheduler[get_current_cpu_id()] = 1;
 }
 
@@ -69,6 +70,7 @@ int scheduler(interrupt_frame_t *frame, regs_t *regs)
 {
     if (is_scheduler == 0) { return 1; }
     spin_lock(&pcb_list_lock);
+    // printk("get pcb spin lock {\n");
     list_t *next = pcb_list;
     if (current_task == NULL) {
         current_task = idle_pcb[0];
@@ -77,11 +79,21 @@ int scheduler(interrupt_frame_t *frame, regs_t *regs)
     }
     current_task->state = READY;
 
-    for (; ((pcb_t *)(next->data)) != current_task || ((pcb_t *)(next->next->data))->state != READY; next = next->next) {}
+    // printk("[Debug]pcb_list:%s\n", ((pcb_t *)(pcb_list->data))->name);
+    for (;; next = next->next) {
+        // printk("[Debug]next:%s\n", ((pcb_t *)(next->data))->name);
+        // printk("\tnext state:%s\n", (((pcb_t *)(next->data))->state)==READY ? "READY" : "UNREADY");
+        if (((pcb_t *)(next->next->data))->state == READY && ((pcb_t *)(next->next->data)) != current_task)
+        {
+            // printk("\tdebug\n");
+            break;
+        }
+    }
     next                = next->next;
     pcb_t *now          = current_task;
     current_task        = ((pcb_t *)(next->data));
     current_task->state = RUNNING;
+    // printk("unlock pcb spin lock\n }\n");
     spin_unlock(&pcb_list_lock);
     switch_to(now, current_task, frame, regs);
     return 0;
@@ -176,4 +188,5 @@ void switch_to(pcb_t *source, pcb_t *target, interrupt_frame_t *frame, regs_t *r
 void init_scheduler()
 {
     if ((is_scheduler = calloc(get_cpu_count(), sizeof(*is_scheduler))) == NULL) panic("Cannot alloc memory for is_scheduler!\n");
+    plogk("is_scheduler inited successfully, cpu_count = %d\n", get_cpu_count());
 }

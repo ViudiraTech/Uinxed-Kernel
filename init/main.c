@@ -88,7 +88,6 @@ void kernel_entry(void)
     init_idt();           // Initialize interrupt descriptor
     isr_registe_handle(); // Register ISR interrupt processing
     acpi_init();          // Initialize ACPI
-    smp_init();           // Initialize SMP
     print_memory_map();   // Print memory map information
     init_frame();         // Initialize memory frame
     pci_init();           // Initialize PCI
@@ -97,6 +96,7 @@ void kernel_entry(void)
     init_serial();        // Initialize the serial port
     init_parallel();      // Initialize the parallel port
     init_ps2();           // Initialize PS/2 controller
+    smp_init();           // Initialize SMP
     disable_intr();
     init_task();
     enable_scheduler();

@@ -75,7 +75,6 @@ pcb_t *create_kernel_thread(int (*_start)(void *arg), void *args, char *name)
 
 pcb_t *init_task()
 {
-    init_scheduler();
     idle_pcb           = (pcb_t **)calloc(sizeof(pcb_t *), get_cpu_count());
     current_tasks      = (pcb_t **)calloc(sizeof(pcb_t *), get_cpu_count());
     uint32_t cpu_count = get_cpu_count();
