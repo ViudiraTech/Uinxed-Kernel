@@ -18,6 +18,8 @@
 #include "symbols.h"
 #include "uinxed.h"
 
+int carry_error_code = 0;
+
 /* Dump stack */
 void dump_stack(void)
 {
@@ -35,15 +37,25 @@ void dump_stack(void)
     plogk("Call Trace:\n");
     plogk(" <TASK>\n");
 
+    int frame_count = 0;
     for (int i = 0; i < 16 && rip && (uintptr_t)rbp > 0x1000; ++i) {
+        if (carry_error_code && frame_count == 3) {
+            rip = *(uintptr_t *)(rbp + 1);
+            rbp = rbp->next;
+            ++frame_count;
+            continue;
+        }
+
         sym_info_t sym_info = get_symbol_info(kernel_file_request.response->kernel_file->address, rip);
         if (!sym_info.name) {
             plogk("  [<0x%016zx>] %s\n", rip, "unknown");
         } else {
             plogk("  [<0x%016zx>] `%s`+0x%lx/0x%lx\n", rip, sym_info.name, rip - (current_address + sym_info.addr), sym_info.size);
         }
+
         rip = *(uintptr_t *)(rbp + 1);
         rbp = rbp->next;
+        ++frame_count;
     }
     plogk(" </TASK>\n");
 }

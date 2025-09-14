@@ -15,6 +15,9 @@
 #define assert(exp) \
     if (!(exp)) assertion_failure(#exp, __FILE__, __LINE__)
 
+/* if the stack carries an error code, set this variable to 1 before calling painc */
+extern int carry_error_code;
+
 /* Dump stack */
 void dump_stack(void);
 

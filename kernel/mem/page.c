@@ -50,6 +50,7 @@ INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_
     else if (id)
         pf_msg = "DecodeAddress";
 
+    carry_error_code = 1; // carry error code
     panic("PAGE_FAULT-%s-Address: 0x%016llx", pf_msg, faulting_address);
 }
 INTERRUPT_END
