@@ -73,7 +73,8 @@ void video_draw_pixel(uint32_t x, uint32_t y, uint32_t color);
 /* Get a pixel at the specified coordinates on the screen */
 uint32_t video_get_pixel(uint32_t x, uint32_t y);
 
-/* Iterate over a area on the screen and run a callback function in each iteration */
+/* Iterate over a area on the screen and run a callback function in each
+ * iteration */
 void video_invoke_area(position_t p0, position_t p1, void (*callback)(position_t p));
 
 /* Draw a matrix at the specified coordinates on the screen */

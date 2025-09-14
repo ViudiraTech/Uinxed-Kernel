@@ -93,8 +93,9 @@ static void init_serial_port(uint16_t port)
     outb(port + SERIAL_REG_LCR, serial_calculate_lcr()); // Set LCR
     outb(port + SERIAL_REG_FCR, 0xcf);                   // Enable FIFO with 14-byte threshold
     outb(port + SERIAL_REG_MCR, 0x0f);                   // Enable IRQ, set RTS/DSR
-    outb(port + SERIAL_REG_MCR, 0x1e);                   // Set to loopback mode and test the serial port
-    outb(port + SERIAL_REG_DATA, 0xae);                  // Test serial port
+    outb(port + SERIAL_REG_MCR,
+         0x1e);                         // Set to loopback mode and test the serial port
+    outb(port + SERIAL_REG_DATA, 0xae); // Test serial port
 
     /* Check if there is a problem with the serial port */
     if (inb(port + SERIAL_REG_DATA) != 0xae) {

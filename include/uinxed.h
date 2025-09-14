@@ -16,6 +16,9 @@
 #define BUILD_TIME     __TIME__        // Compile time
 #define KERNEL_NAME    "Uinxed-Kernel" // Kernel name
 #define KERNEL_VERSION "0.0.250909"    // Kernel version (major.minor.yymmdd)
+#define STACK_SIZE     32768           // stack size
+#define KERNEL_ST_SZ   131072          // kernel stack size 128k
+
 
 /* Compiler judgment */
 #if defined(__clang__)

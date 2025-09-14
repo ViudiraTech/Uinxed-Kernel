@@ -24,8 +24,10 @@
 #include "limine_module.h"
 #include "page.h"
 #include "parallel.h"
+#include "pcb.h"
 #include "pci.h"
 #include "printk.h"
+#include "scheduler.h"
 #include "ps2.h"
 #include "serial.h"
 #include "smbios.h"
@@ -36,7 +38,8 @@
 /* Executable entry */
 void executable_entry(void)
 {
-    const char msg[] = "Logically you should use Limine to boot it instead of executing it directly, right?\n";
+    const char msg[] = "Logically you should use Limine to boot it instead of "
+                       "executing it directly, right?\n";
     __asm__ volatile("mov $1, %%rax\n"
                      "mov $1, %%rdi\n"
                      "lea %[msg], %%rsi\n"
@@ -85,7 +88,6 @@ void kernel_entry(void)
     init_idt();           // Initialize interrupt descriptor
     isr_registe_handle(); // Register ISR interrupt processing
     acpi_init();          // Initialize ACPI
-    smp_init();           // Initialize SMP
     print_memory_map();   // Print memory map information
     init_frame();         // Initialize memory frame
     pci_init();           // Initialize PCI
@@ -94,7 +96,13 @@ void kernel_entry(void)
     init_serial();        // Initialize the serial port
     init_parallel();      // Initialize the parallel port
     init_ps2();           // Initialize PS/2 controller
+    smp_init();           // Initialize SMP
+    disable_intr();
+    init_task();
+    enable_scheduler();
     enable_intr();
+
+    for (;;) { __asm__("hlt"); }
 
     panic("No operation.");
 }
