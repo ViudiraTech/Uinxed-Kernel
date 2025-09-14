@@ -234,8 +234,7 @@ void init_ide(void)
     register_interrupt_handler(IRQ_15, (void *)ide_irq, 0, 0x8e);
 
     for (uint32_t idx = 0; idx < 6; idx++) {
-        bar_reg.offset = ECAM_OTHERS + idx * 4;
-        bars[idx]      = get_base_address_register(bar_reg.parent, idx);
+        bars[idx] = get_base_address_register(bar_reg.parent, idx);
         pointer_cast_t cast;
         cast.ptr       = bars[idx].address;
         bar_addrs[idx] = cast.val;
