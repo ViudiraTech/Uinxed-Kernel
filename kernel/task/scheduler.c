@@ -19,7 +19,6 @@ spinlock_t pcb_list_lock;
 
 void enable_scheduler()
 {
-    printk("[SMP]enabled ap %d scheduler\n", get_current_cpu_id());
     is_scheduler[get_current_cpu_id()] = 1;
 }
 
@@ -35,6 +34,7 @@ int get_scheduler()
 
 int add_task(pcb_t *new_task)
 {
+    spin_lock(&pcb_list_lock);
     if (pcb_list == NULL) {
         pcb_list       = (list_t *)malloc(sizeof(list_t));
         pcb_list->data = (void *)new_task;
@@ -48,6 +48,7 @@ int add_task(pcb_t *new_task)
         p->next->next = pcb_list;
         p->next->pre  = p;
     }
+    spin_unlock(&pcb_list_lock);
     return 0;
 }
 
@@ -56,36 +57,22 @@ void remove_task(pcb_t *task)
     ((void)task);
 }
 
-inline void ps()
-{
-    printk("pid: %d\tname:%s\tstatus:%d\r\n", ((pcb_t *)pcb_list->data)->pid, ((pcb_t *)pcb_list->data)->name, ((pcb_t *)pcb_list->data)->state);
-    for (list_t *p = pcb_list->next; p != pcb_list; p = p->next) {
-        printk("pid: %d\tname:%s\tstatus:%d\r\n", ((pcb_t *)p->data)->pid, ((pcb_t *)p->data)->name, ((pcb_t *)p->data)->state);
-    }
-    return;
-}
-
 //简易轮转调度
 int scheduler(interrupt_frame_t *frame, regs_t *regs)
 {
     if (is_scheduler == 0) { return 1; }
     spin_lock(&pcb_list_lock);
-    // printk("get pcb spin lock {\n");
     list_t *next = pcb_list;
     if (current_task == NULL) {
         current_task = idle_pcb[0];
-        // current_task->context0.rip = (uint64_t)idle_thread;
         current_task->context0.rip = frame->rip;
     }
     current_task->state = READY;
-
-    // printk("[Debug]pcb_list:%s\n", ((pcb_t *)(pcb_list->data))->name);
     for (;; next = next->next) {
         // printk("[Debug]next:%s\n", ((pcb_t *)(next->data))->name);
         // printk("\tnext state:%s\n", (((pcb_t *)(next->data))->state)==READY ? "READY" : "UNREADY");
         if (((pcb_t *)(next->next->data))->state == READY && ((pcb_t *)(next->next->data)) != current_task)
         {
-            // printk("\tdebug\n");
             break;
         }
     }
@@ -93,7 +80,6 @@ int scheduler(interrupt_frame_t *frame, regs_t *regs)
     pcb_t *now          = current_task;
     current_task        = ((pcb_t *)(next->data));
     current_task->state = RUNNING;
-    // printk("unlock pcb spin lock\n }\n");
     spin_unlock(&pcb_list_lock);
     switch_to(now, current_task, frame, regs);
     return 0;

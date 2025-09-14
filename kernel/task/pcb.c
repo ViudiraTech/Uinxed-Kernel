@@ -26,6 +26,10 @@ void kthread_exit(int status)
 int kthread_entry(void **args)
 {
     int (*_start)(void *) = args[0];
+    if (_start == NULL)
+    {
+        panic("_start=NULL");
+    }
     int status            = _start(args[1]);
     kthread_exit(status);
     return 0;
@@ -33,13 +37,17 @@ int kthread_entry(void **args)
 
 pcb_t *kernel_thread(int (*_start)(void *arg), void *args, char *name)
 {
-    __asm__("cli");
     int s = get_scheduler();
     disable_scheduler();
     pcb_t *new_task = (pcb_t *)calloc(1, sizeof(pcb_t) + STACK_SIZE);
-    if (new_task == NULL) { panic("No enough Memory\r\n"); }
+    if (new_task == NULL) { panic("No enough Memory to alloc for new tasks\r\n"); }
     memset(new_task, 0, sizeof(pcb_t));
     new_task->name  = (char *)malloc(strlen(name) * sizeof(char));
+    if (new_task->name == NULL)
+    {
+        panic("No enough Memory to alloc for new tasks\r\n");
+    }
+    
     new_task->level = 0;
     new_task->time  = 100;
 
@@ -59,8 +67,6 @@ pcb_t *kernel_thread(int (*_start)(void *arg), void *args, char *name)
     new_task->state           = READY; //就绪态
     add_task(new_task);
     if (s == 1) { enable_scheduler(); }
-
-    __asm__("sti");
     return new_task;
 }
 
@@ -85,6 +91,6 @@ pcb_t *init_task()
     int *p   = (int *)malloc(sizeof(int));
     *p       = 114514;
     init_pcb = create_kernel_thread((int (*)(void *))init_kmain, p, "init");
-    plogk("idle stack: %p\tinit stack:%p\n", (void *)idle_pcb[0]->context0.rsp, (void *)init_pcb->context0.rsp);
+    plogk("idle stack: %p\tinit stack:%p\n", (void *)(uintptr_t)idle_pcb[0]->context0.rsp, (void *)(uintptr_t)init_pcb->context0.rsp);
     return init_pcb;
 }
