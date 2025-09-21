@@ -11,28 +11,15 @@
 
 #include "stddef.h"
 
-#define LOG_BUFFER_SIZE 4096 // Each log buffer size
-#define LOG_LINE_SIZE   512  // Maximum length of a single log
-#define LOG_MAX_MSGS    128  // Store up to 128 messages
+#define LOG_MAX_LENGTH  1024
+#define LOG_BUFFER_SIZE 32
 
 typedef struct {
-        char   buffer[LOG_BUFFER_SIZE];
-        size_t head;
-        size_t tail;
-        int    full;
-
-        struct {
-                size_t offset;
-                size_t len;
-        } msgs[LOG_MAX_MSGS];
-
-        size_t msg_head;
-        size_t msg_tail;
-        int    msg_full;
+        char logs[LOG_BUFFER_SIZE][LOG_MAX_LENGTH];
+        int  head;
+        int  tail;
+        int  count;
 } log_buffer_t;
-
-/* Initialize the ring log buffer */
-void log_buffer_init(log_buffer_t *log);
 
 /* Write logs to the ring log buffer */
 void log_buffer_write(log_buffer_t *log, const char *fmt, ...);
