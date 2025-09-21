@@ -20,7 +20,6 @@
 #include "limine.h"
 #include "page.h"
 #include "printk.h"
-#include "scheduler.h"
 #include "spin_lock.h"
 #include "stddef.h"
 #include "stdint.h"
@@ -188,12 +187,14 @@ void ap_entry(struct limine_smp_info *info)
     spin_unlock(&ap_start_lock);
 
     /* TODO: Implement the scheduler loop */
-    enable_scheduler();
-    enable_intr();
-    while (1) { __asm__ volatile("hlt"); }
+    while (1) {
+        enable_intr();
+        __asm__ volatile("hlt");
+        disable_intr();
+    }
 
     /* Shouldn't reach here */
-    panic("AP %d entry exited.", cpu->id);
+    panic("AP %d scheduler exited.", cpu->id);
 }
 
 /* Initializing Symmetric Multi-Processing */
@@ -207,10 +208,8 @@ void smp_init(void)
     }
 
     cpu_count = (!CPU_MAX_COUNT) ? smp->cpu_count : (smp->cpu_count > CPU_MAX_COUNT ? CPU_MAX_COUNT : smp->cpu_count);
-    cpus      = (cpu_processor_t *)ALIGN_DOWN((uint64_t)malloc(sizeof(cpu_processor_t) * cpu_count), 16);
+    cpus      = (cpu_processor_t *)aligned_alloc(16, sizeof(cpu_processor_t) * cpu_count);
     plogk("smp: Found %d CPUs.\n", cpu_count);
-
-    init_scheduler();
 
     /* Init BootStrap Processor */
     for (uint32_t i = 0; i < cpu_count; i++) {

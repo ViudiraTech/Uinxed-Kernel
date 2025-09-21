@@ -63,5 +63,3 @@ Uinxed-x64.iso
 compile_commands.json
 make.log
 *.bak
-kerneldump.log
-qemu.log

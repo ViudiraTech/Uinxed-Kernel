@@ -78,9 +78,4 @@ char *number(char *str, size_t num, size_t base, size_t size, size_t precision, 
 /* Returns the size of a string with an integer formatted by `number()` */
 uint64_t number_length(size_t num, size_t base, size_t size, size_t precision, int type);
 
-typedef struct klist {
-        struct klist *pre, *next; //前后指针双向列表
-        void         *data;       //数据指针
-} list_t;
-
 #endif // INCLUDE_STDLIB_H_

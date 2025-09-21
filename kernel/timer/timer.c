@@ -12,10 +12,19 @@
 #include "acpi.h"
 #include "apic.h"
 #include "common.h"
-#include "idt.h"
+#include "interrupt.h"
 #include "printk.h"
-#include "scheduler.h"
 #include "stdint.h"
+
+/* Timer interrupt */
+INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)
+{
+    (void)frame;
+    disable_intr();
+    send_eoi();
+    enable_intr();
+}
+INTERRUPT_END
 
 /* Millisecond-based delay functions */
 void msleep(uint64_t ms)

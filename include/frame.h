@@ -13,6 +13,7 @@
 #define INCLUDE_FRAME_H_
 
 #include "bitmap.h"
+#include "ringlog.h"
 #include "stdint.h"
 
 typedef struct {
@@ -21,6 +22,7 @@ typedef struct {
         size_t   usable_frames;
 } frame_allocator_t;
 
+extern log_buffer_t      frame_log;
 extern frame_allocator_t frame_allocator;
 
 /* Initialize memory frame */

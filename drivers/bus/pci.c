@@ -266,23 +266,23 @@ pci_device_ecam_t mcfg_update_ecam(mcfg_entry_t *entry, pci_device_cache_t *cach
     type                     = pci_mcfg_read(cpy_reg) & PCI_HEADER_TYPE_MASK;
 
     /* switch (type) {
-   *     case HEADER_TYPE_GENERAL :
-   *     case HEADER_TYPE_BRIDGE :
-   *         other_reg_count = 12;
-   *         break;
-   *     case HEADER_TYPE_CARDBUS :
-   *         other_reg_count = 14;
-   *         break;
-   *     default :
-   *         other_reg_count = 0;
-   *         break;
-   * }
-   * Same as:
-   * x(x-1) + 12 [x <= HEADER_TYPE_CARDBUS]
-   * other_reg_count = type * (type - 1) + 12;
-   * other_reg_count = (type <= HEADER_TYPE_CARDBUS) ? other_reg_count : 0;
-   * Also same as:
-   */
+     *     case HEADER_TYPE_GENERAL :
+     *     case HEADER_TYPE_BRIDGE :
+     *         other_reg_count = 12;
+     *         break;
+     *     case HEADER_TYPE_CARDBUS :
+     *         other_reg_count = 14;
+     *         break;
+     *     default :
+     *         other_reg_count = 0;
+     *         break;
+     * }
+     * Same as:
+     * x(x-1) + 12 [x <= HEADER_TYPE_CARDBUS]
+     * other_reg_count = type * (type - 1) + 12;
+     * other_reg_count = (type <= HEADER_TYPE_CARDBUS) ? other_reg_count : 0;
+     * Also same as:
+     */
 
     static uint32_t reg_cnts_table[4] = {12, 12, 14, 0};
     other_reg_count                   = reg_cnts_table[type < 3 ? type : 3];
@@ -360,12 +360,12 @@ static void pci_mcfg_write(pci_device_reg_t reg, uint32_t value)
         *ptr          = (*ptr & ~mask) | (value << shift);
 
         /* Step1. A:=(*ptr & ~mask) -> Reset the bits of target register
-     *        Example: 0x12345678 & ~0xff000000 = 0x00345678
-     * Step2. B:=(value << shift) -> Move value to the bits of target register
-     *        Example: (0xa5 & 0xff) << 24 = 0xa5000000
-     * Step3. A|B -> Merge
-     *        Example: 0x00345678 | 0xa5000000 = 0xa5345678
-     */
+         *        Example: 0x12345678 & ~0xff000000 = 0x00345678
+         * Step2. B:=(value << shift) -> Move value to the bits of target register
+         *        Example: (0xa5 & 0xff) << 24 = 0xa5000000
+         * Step3. A|B -> Merge
+         *        Example: 0x00345678 | 0xa5000000 = 0xa5345678
+         */
     }
 }
 
@@ -615,14 +615,13 @@ void pci_device_find(pci_finding_request_t *req) // Notice: the req should be a 
             break;
     }
 
-    /* By the end of the function, you should to do:
-   * 1. Check the response->error
-   * 2. If error is PCI_FINDING_SUCCESS,
-   *    then response->device should be set to the founded device cache.
-   * 3. If error is PCI_FINDING_NOT_FOUND,
-   *    then response->device should be set to 0, and you can try to execute
-   * `pci_flush_devices_cache()` and then retry this function.
-   */
+    /* By the end of the function, you should to do: 
+     * 1. Check the response->error
+     * 2. If error is PCI_FINDING_SUCCESS, 
+     *    then response->device should be set to the founded device cache.
+     * 3. If error is PCI_FINDING_NOT_FOUND, 
+     *    then response->device should be set to 0, and you can try to execute `pci_flush_devices_cache()` and then retry this function.
+     */
 }
 
 /* Finding next matching PCI device */

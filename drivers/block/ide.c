@@ -10,11 +10,8 @@
  */
 
 #include "ide.h"
-#include "alloc.h"
 #include "apic.h"
 #include "common.h"
-#include "dpi.h"
-#include "idt.h"
 #include "interrupt.h"
 #include "pci.h"
 #include "printk.h"
@@ -25,13 +22,11 @@
 /* Request for operation IDE Controller */
 pci_finding_request_t ide_pci_request = {
     .type = PCI_FOUND_CLASS,
-    .req =
-        {
-            .class_req =
-                {
-                    .class_code = 0x010100,
-                },
+    .req  = {
+        .class_req = {
+            .class_code = 0x010100,
         },
+    },
 };
 
 /* Structure */
@@ -71,9 +66,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 {
     int j, k, count = 0;
     for (int i = 0; i < 4; i++) ide_devices[i].reserved = 0;
-    plogk("ide: BAR0 = 0x%03x, BAR1 = 0x%03x, BAR2 = 0x%03x, BAR3 = 0x%03x, BAR4 "
-          "= 0x%03x\n",
-          BAR0, BAR1, BAR2, BAR3, BAR4);
+    plogk("ide: BAR0 = 0x%03x, BAR1 = 0x%03x, BAR2 = 0x%03x, BAR3 = 0x%03x, BAR4 = 0x%03x\n", BAR0, BAR1, BAR2, BAR3, BAR4);
 
     /* Detect the I/O ports of the IDE controller */
     channels[ATA_PRIMARY].base    = (BAR0 & 0xfffffffc) + 0x1f0 * (!BAR0);
@@ -160,8 +153,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 }
 
 /* Error handling */
-static uint8_t ide_print_error(uint32_t drive,
-                               uint8_t  err) // NOLINT(bugprone-easily-swappable-parameters)
+static uint8_t ide_print_error(uint32_t drive, uint8_t err) // NOLINT(bugprone-easily-swappable-parameters)
 {
     if (err == 0) return err;
     if (err == 1) {
@@ -229,13 +221,13 @@ void init_ide(void)
         return;
 
         /* Re-try (but I think it is not necessary)
-     * pci_flush_devices_cache();
-     * pci_device_find(&ide_pci_request);
-     * if (ide_pci_request.response->error != PCI_FINDING_SUCCESS) {
-     *     plogk("ide: No IDE controller found.\n");
-     *     return;
-     * }
-     */
+         * pci_flush_devices_cache();
+         * pci_device_find(&ide_pci_request);
+         * if (ide_pci_request.response->error != PCI_FINDING_SUCCESS) {
+         *     plogk("ide: No IDE controller found.\n");
+         *     return;
+         * }
+         */
     }
     bar_reg.parent = ide_pci_request.response->device;
     register_interrupt_handler(IRQ_14, (void *)ide_irq, 0, 0x8e);
@@ -272,8 +264,7 @@ uint8_t ide_read(uint8_t channel, uint8_t reg)
 void ide_write(uint8_t channel, uint8_t reg, uint8_t data)
 {
     if (reg > 0x07 && reg < 0x0c) {
-        /* Expanded by ide_write(channel, ATA_REG_CONTROL, 0x80 |
-     * channels[channel].nIEN); */
+        /* Expanded by ide_write(channel, ATA_REG_CONTROL, 0x80 | channels[channel].nIEN); */
         outb(channels[channel].ctrl + ATA_REG_CONTROL - 0x0a, 0x80 | channels[channel].nIEN);
     }
     if (reg < 0x08)
@@ -285,14 +276,12 @@ void ide_write(uint8_t channel, uint8_t reg, uint8_t data)
     else if (reg < 0x16)
         outb(channels[channel].bmide + reg - 0x0e, data);
     if (reg > 0x07 && reg < 0x0c) {
-        /* Expanded by ide_write(channel, ATA_REG_CONTROL, 0x80 |
-     * channels[channel].nIEN); */
+        /* Expanded by ide_write(channel, ATA_REG_CONTROL, 0x80 | channels[channel].nIEN); */
         outb(channels[channel].ctrl + ATA_REG_CONTROL - 0x0a, 0x80 | channels[channel].nIEN);
     }
 }
 
-/* Read multiple words of data from the specified register of the IDE device
- * into the buffer */
+/* Read multiple words of data from the specified register of the IDE device into the buffer */
 void ide_read_buffer(uint8_t channel, uint8_t reg, uint8_t *buffer, uint32_t quads)
 {
     if (reg > 0x07 && reg < 0x0c) ide_write(channel, ATA_REG_CONTROL, 0x80 | channels[channel].nIEN);
@@ -308,8 +297,7 @@ void ide_read_buffer(uint8_t channel, uint8_t reg, uint8_t *buffer, uint32_t qua
 }
 
 /* Polling the status of IDE devices */
-uint8_t ide_polling(uint8_t  channel,
-                    uint32_t advanced_check) // NOLINT(bugprone-easily-swappable-parameters)
+uint8_t ide_polling(uint8_t channel, uint32_t advanced_check) // NOLINT(bugprone-easily-swappable-parameters)
 {
     for (int i = 0; i < 4; i++) ide_read(channel, ATA_REG_ALTSTATUS);
 
@@ -377,11 +365,9 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t n
 
     while (ide_read(channel, ATA_REG_STATUS) & ATA_SR_BSY);
     if (lba_mode == 0)
-        ide_write(channel, ATA_REG_HDDEVSEL,
-                  0xa0 | (slavebit << 4) | head); // Drive & CHS.
+        ide_write(channel, ATA_REG_HDDEVSEL, 0xa0 | (slavebit << 4) | head); // Drive & CHS.
     else
-        ide_write(channel, ATA_REG_HDDEVSEL,
-                  0xe0 | (slavebit << 4) | head); // Drive & LBA
+        ide_write(channel, ATA_REG_HDDEVSEL, 0xe0 | (slavebit << 4) | head); // Drive & LBA
     if (lba_mode == 2) {
         ide_write(channel, ATA_REG_SECCOUNT1, 0);
         ide_write(channel, ATA_REG_LBA3, lba_io[3]);
@@ -461,11 +447,9 @@ uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint16_t *
     for (int i = 0; i < 4000; i++);
     for (int i = 0; i < 4; i++) ide_read(channel, ATA_REG_ALTSTATUS);
 
-    ide_write(channel, ATA_REG_FEATURES, 0); // PIO Mode
-    ide_write(channel, ATA_REG_LBA1,
-              (words * 2) & 0xff); // Sector size is smaller in bytes
-    ide_write(channel, ATA_REG_LBA2,
-              (words * 2) >> 8); // The upper limit of the sector size in bytes
+    ide_write(channel, ATA_REG_FEATURES, 0);              // PIO Mode
+    ide_write(channel, ATA_REG_LBA1, (words * 2) & 0xff); // Sector size is smaller in bytes
+    ide_write(channel, ATA_REG_LBA2, (words * 2) >> 8);   // The upper limit of the sector size in bytes
 
     /* Send packet command */
     ide_write(channel, ATA_REG_COMMAND, ATA_CMD_PACKET);
@@ -527,68 +511,3 @@ void ide_write_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *
         package[0] = ide_print_error(drive, err);
     }
 }
-
-driver *ide_open(driver *d, uint64_t index)
-{
-    d->major   = "ide"; //实现vfs的时候显示ide+ide编号+次设备号
-    d->name    = "IDE_Driver";
-    d->handle  = &ide_handle;
-    d->type    = CHARACTER;
-    d->present = 1;
-    d->index   = index;
-    return d;
-}
-driver *_ide_close(driver *d, uint64_t index)
-{
-    (void)index;
-    return (d = NULL);
-}
-uint64_t _ide_read(driver *d, const char *minor, void *buf, uint64_t size, uint64_t offset)
-{
-    (void)minor;
-    uint32_t start      = (uint32_t)(offset / 512);
-    uint64_t end_byte   = offset + size;
-    uint32_t end_sector = (uint32_t)((end_byte + 512 - 1) / 512);
-    uint32_t sectors    = end_sector - start;
-    ide_read_sectors(d->index, start, sectors, buf);
-    return 0;
-}
-uint64_t _ide_write(driver *d, const char *minor, const void *buf, uint64_t size, uint64_t offset)
-{
-    (void)minor;
-    uint32_t start      = (uint32_t)(offset / 512);
-    uint64_t end_byte   = offset + size;
-    uint32_t end_sector = (uint32_t)((end_byte + 512 - 1) / 512);
-    uint32_t sectors    = end_sector - start;
-    ide_write_sectors(d->index, start, sectors, (void *)buf);
-    return 0;
-}
-uint64_t *_ide_map(driver *d, const char *minor)
-{
-    (void)d;
-    (void)minor;
-    return NULL; //未实现
-}
-uint64_t *_ide_ioctl(driver *d, const char *minor, const char *cmd, ...)
-{
-    (void)d;
-    (void)minor;
-    (void)cmd;
-    return NULL; //未实现
-}
-char **_ide_get_minors()
-{
-    return NULL;
-}
-int64_t *_ide_get_index(uint64_t *size)
-{
-    int64_t *minors = (int64_t *)malloc(4 * sizeof(int64_t));
-    minors[0]       = ide_devices[0].reserved ? 0 : -1;
-    minors[1]       = ide_devices[1].reserved ? 0 : -1;
-    minors[2]       = ide_devices[2].reserved ? 0 : -1;
-    minors[3]       = ide_devices[3].reserved ? 0 : -1;
-    *size           = 4;
-    return minors;
-}
-
-driver_handle ide_handle = {ide_open, _ide_close, _ide_read, _ide_write, _ide_map, _ide_ioctl, _ide_get_minors, _ide_get_index};

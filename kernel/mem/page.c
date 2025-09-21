@@ -50,6 +50,7 @@ INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_
     else if (id)
         pf_msg = "DecodeAddress";
 
+    carry_error_code = 1; // carry error code
     panic("PAGE_FAULT-%s-Address: 0x%016llx", pf_msg, faulting_address);
 }
 INTERRUPT_END
@@ -193,8 +194,7 @@ void free_directory(page_directory_t *dir)
 }
 
 /* Maps a virtual address to a physical frame */
-void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame,
-                 uint64_t flags) // NOLINT
+void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags) // NOLINT
 {
     uint64_t l4_index = (((addr >> 39)) & 0x1ff);
     uint64_t l3_index = (((addr >> 30)) & 0x1ff);
@@ -218,8 +218,7 @@ void switch_page_directory(page_directory_t *dir)
     __asm__ volatile("mov %0, %%cr3" ::"r"(physical_table));
 }
 
-/* Maps a contiguous physical memory range to the specified virtual address
- * range */
+/* Maps a contiguous physical memory range to the specified virtual address range */
 void page_map_range(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t length, uint64_t flags) // NOLINT
 {
     for (uint64_t i = 0; i < length; i += 0x1000) page_map_to(directory, (uint64_t)addr + i, frame + i, flags);

@@ -175,8 +175,7 @@ tty_device_t *get_boot_tty(void)
     return boot_tty_ptr;
 }
 
-/* Output the buffer data to the specified device according to the configuration
- */
+/* Output the buffer data to the specified device according to the configuration */
 void tty_buff_flush(void)
 {
     spin_lock(&tty_flush_spinlock);

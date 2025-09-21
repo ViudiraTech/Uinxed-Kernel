@@ -88,12 +88,27 @@ make
 make run
 ```
 
-### Actual hardware operation
+### Physical machine operation
+
+#### Boot in UEFI mode
 
 1. Convert the USB drive or hard disk to GPT partition table and create ESP partition.
 2. Copy all folders under the project directory ./assets/Limine to the ESP partition.
 3. Copy the compiled kernel (UxImage) to the ./EFI/Boot/ directory in the ESP partition.
 4. Boot from a physical machine (must be in 64-bit UEFI mode with CSM disabled)
+
+#### Boot in legacy mode
+
+Direct boot:
+
+1. Burn the ISO image to your drive.
+2. Boot from a physical machine (at least a 64-bit machine)
+
+Boot with ventoy:
+
+1. Copy the ISO image to your drive.
+2. Boot from your drive and enter in ventoy.
+3. Select the image then press enter, boot in normal mode or memdisk mode.
 
 ## Project Structure 📁
 
@@ -246,57 +261,27 @@ You can be more casual, no need to be too formal. It is because of your question
 4. **Native language allowed.**
 You can submit an issue in your own language. However, please be aware of factors such as spelling that may affect the translation results, and sometimes the translator may not work well because of this.
 
-__*TIPS!*__
-1. Any code-related questions __*can only be asked by submitting issues*__. Other methods, such as asking questions directly through software such as *Discord*, will __*not be accepted*__.
-2. If you are unkind, such as being rude as described above, it will be considered a violation of our submission rules and the issue will be __*closed immediately*__.
+## Contributors 👨‍💻
 
-__*What kind of issues will not be adopted?*__
+| Number | Nick name | Github | Job |
+|---|---|---|---|
+| 1 | MicroFish | [FengHeting](https://github.com/FengHeting) | Main Development. Planning. Management. |
+| 2 | Rainy101112 | [Rainy101112](https://github.com/Rainy101112) | Deputy Development. Planning. Management. |
+| 3 | suhuajun | [suhuajun-github](https://github.com/suhuajun-github) | Code optimization. Testing. Bug fixing. |
+| 4 | XSlime | [W9pi3cZ1](https://github.com/W9pi3cZ1) | Features. Code optimization. Testing. Bug fixing. |
+| 5 | TMX | [TMXQWQ](https://github.com/TMXQWQ) | Features. Code optimization. Testing. Bug fixing. |
 
-The following samples are unaccept. 
-
-Rude.
-```
-YOU GUYS DID A REALLY S**T.
-GO F**K YOURSELVES.
-```
-
-Unclear.
-```
-Doesn't work on VMware.
-*No anything else*
-```
-
-Common sense questions.
-```
-How to install the compiler?
-```
-
-Strange.
-```
-:D
-```
-
-Not relevant.
-```
-Fish can't live without water.
-```
-
-## Core Developers 👨‍💻
-
-1. MicroFish:Main Development/Planning/Management
-2. Rainy101112:Deputy Development/Planning/Management
-3. suhuajun:Testing/bug fixing
-4. XIAOYI12:Co-developer
-
-## Open source code or projects used by the project 🎈
+## Open source projects referenced or used 🎈
 
 - Hurlex-Kernel:[http://wiki.0xffffff.org/](http://wiki.0xffffff.org/)
 - CoolPotOS:[https://github.com/plos-clan/CoolPotOS](https://github.com/plos-clan/CoolPotOS)
 
-## license 📜
+## License 📜
 
 This project adopts the GPL-3.0 open source agreement. Please refer to the LICENSE file for details.
 
-## Contact Details 📩
+## Contact details 📩
 
-email：2609948707@qq.com | 3585302907@qq.com
+Email：2609948707@qq.com | 3585302907@qq.com
+Join our discord server: [Click here](https://discord.gg/nTkg7HCpy7)
+Tencent QQ chat group: [983673299](https://qm.qq.com/q/8goacFf1iU)

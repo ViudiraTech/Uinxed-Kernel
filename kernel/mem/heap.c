@@ -51,19 +51,10 @@ void init_heap(void)
     heap_init(phys_to_virt(heap_start), heap_size);
 }
 
-/* Allocate 4k-aligned memory */
-void *alloc_4k_aligned_mem(size_t size)
-{
-    void          *p = malloc(size < PAGE_SIZE ? size + PAGE_SIZE : size);
-    pointer_cast_t p_aligned;
-    p_aligned.val = (((uint64_t)p + 0xfff) & ~0xfff);
-    return p_aligned.ptr;
-}
-
 /* Allocate an empty memory */
-void *calloc(size_t a, size_t b)
+void *calloc(size_t nmemb, size_t size)
 {
-    void *p = malloc(a * b);
-    memset(p, 0, a * b);
+    void *p = malloc(nmemb * size);
+    memset(p, 0, nmemb * size);
     return p;
 }

@@ -23,8 +23,7 @@ extern uint8_t ascii_font[]; // Fonts
 uint64_t  width;  // Screen width
 uint64_t  height; // Screen height
 uint64_t  stride; // Frame buffer line spacing
-uint32_t *buffer; // Video Memory (We think BPP is 32. If BPP is other value,
-                  // you have to change it)
+uint32_t *buffer; // Video Memory (We think BPP is 32. If BPP is other value, you have to change it)
 
 uint32_t x, y;              // The current absolute cursor position
 uint32_t cx, cy;            // The character position of the current cursor
@@ -181,8 +180,7 @@ uint32_t video_get_pixel(uint32_t x, uint32_t y)
     return (buffer)[y * stride + x];
 }
 
-/* Iterate over a area on the screen and run a callback function in each
- * iteration */
+/* Iterate over a area on the screen and run a callback function in each iteration */
 void video_invoke_area(position_t p0, position_t p1, void (*callback)(position_t p))
 {
     position_t p;
@@ -235,9 +233,9 @@ void video_put_char(const char c, uint32_t color)
         cy++;
         cx = 0;
         /* Try scroll (but it will do when next character is printed)
-     * video_scroll();
-     * cx = 0;
-     */
+         * video_scroll();
+         * cx = 0;
+         */
         return;
     } else if (c == '\r') {
         cx = 0;
@@ -248,7 +246,7 @@ void video_put_char(const char c, uint32_t color)
             video_scroll();
             x = (cx - 1) * 9;
             y = cy * 16;
-            video_draw_char(' ', x, y, color);
+            video_draw_char(c, x, y, color);
         }
         return;
     } else if (c == '\b' && cx > 0) { // Do not fill, just move cursor

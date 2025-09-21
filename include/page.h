@@ -73,8 +73,7 @@ void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uin
 /* Switch the page directory of the current process */
 void switch_page_directory(page_directory_t *dir);
 
-/* Maps a contiguous physical memory range to the specified virtual address
- * range */
+/* Maps a contiguous physical memory range to the specified virtual address range */
 void page_map_range(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t length, uint64_t flags);
 
 /* Maps a contiguous physical memory range to virtual memory */
