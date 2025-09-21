@@ -19,7 +19,6 @@
 #define STACK_SIZE     32768           // stack size
 #define KERNEL_ST_SZ   131072          // kernel stack size 128k
 
-
 /* Compiler judgment */
 #if defined(__clang__)
 #    define COMPILER_NAME    "clang"

@@ -28,10 +28,7 @@ int init_kmain(int *test)
     printk("\n[    INFO    ]Init process is running. test=%d\n", *test);
     enable_scheduler();
     enable_intr();
-    for (int i = 0; i < 230; i++)
-    {
-        create_kernel_thread(idle_thread,NULL,"test");
-    }
+    for (int i = 0; i < 280; i++) { create_kernel_thread(idle_thread, NULL, "test"); }
     ps();
     while (1) { __asm__("hlt"); }
     return 0; // nerver get there

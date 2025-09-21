@@ -92,6 +92,7 @@ typedef struct task_pcb {
         uint64_t          kernel_stack; // 内核栈
         uint64_t          user_stack;   // 用户栈
         uint64_t          flag;
+        uint32_t          cpu; //cpu亲和性相关
 } pcb_t;
 
 pcb_t *init_task();

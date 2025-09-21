@@ -26,11 +26,8 @@ void kthread_exit(int status)
 int kthread_entry(void **args)
 {
     int (*_start)(void *) = args[0];
-    if (_start == NULL)
-    {
-        panic("_start=NULL");
-    }
-    int status            = _start(args[1]);
+    if (_start == NULL) { panic("_start=NULL"); }
+    int status = _start(args[1]);
     kthread_exit(status);
     return 0;
 }
@@ -42,12 +39,9 @@ pcb_t *kernel_thread(int (*_start)(void *arg), void *args, char *name)
     pcb_t *new_task = (pcb_t *)calloc(1, sizeof(pcb_t) + STACK_SIZE);
     if (new_task == NULL) { panic("No enough Memory to alloc for new tasks\r\n"); }
     memset(new_task, 0, sizeof(pcb_t));
-    new_task->name  = (char *)malloc(strlen(name) * sizeof(char));
-    if (new_task->name == NULL)
-    {
-        panic("No enough Memory to alloc for new tasks\r\n");
-    }
-    
+    new_task->name = (char *)malloc(strlen(name) * sizeof(char));
+    if (new_task->name == NULL) { panic("No enough Memory to alloc for new tasks\r\n"); }
+
     new_task->level = 0;
     new_task->time  = 100;
 
@@ -65,6 +59,7 @@ pcb_t *kernel_thread(int (*_start)(void *arg), void *args, char *name)
     new_task->page_dir        = get_kernel_pagedir();
     new_task->flag            = 0 | PCB_FLAGS_KTHREAD;
     new_task->state           = READY; //就绪态
+    new_task->cpu             = get_current_cpu_id();
     add_task(new_task);
     if (s == 1) { enable_scheduler(); }
     return new_task;
@@ -87,10 +82,11 @@ pcb_t *init_task()
     for (uint32_t i = 0; i < cpu_count; i++) {
         idle_pcb[i]        = create_kernel_thread(idle_thread, NULL, "System(idle)");
         idle_pcb[i]->level = 3;
+        idle_pcb[i]->cpu   = i;
     }
     int *p   = (int *)malloc(sizeof(int));
     *p       = 114514;
     init_pcb = create_kernel_thread((int (*)(void *))init_kmain, p, "init");
-    plogk("idle stack: %p\tinit stack:%p\n", (void *)(uintptr_t)idle_pcb[0]->context0.rsp, (void *)(uintptr_t)init_pcb->context0.rsp);
+    plogk("idle stack: %p\tinit stack:%p\n", (void *)((uintptr_t)idle_pcb[0]->context0.rsp), (void *)((uintptr_t)init_pcb->context0.rsp));
     return init_pcb;
 }

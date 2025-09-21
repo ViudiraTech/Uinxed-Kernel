@@ -27,8 +27,8 @@
 #include "pcb.h"
 #include "pci.h"
 #include "printk.h"
-#include "scheduler.h"
 #include "ps2.h"
+#include "scheduler.h"
 #include "serial.h"
 #include "smbios.h"
 #include "smp.h"
@@ -102,7 +102,10 @@ void kernel_entry(void)
     enable_scheduler();
     enable_intr();
 
-    for (;;) { __asm__("hlt"); }
+    for (;;) {
+        printk("kmain.current_cpu_id:%d\n", get_current_cpu_id());
+        __asm__("hlt");
+    }
 
     panic("No operation.");
 }

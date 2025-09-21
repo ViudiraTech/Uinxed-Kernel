@@ -64,15 +64,15 @@ int scheduler(interrupt_frame_t *frame, regs_t *regs)
     spin_lock(&pcb_list_lock);
     list_t *next = pcb_list;
     if (current_task == NULL) {
-        current_task = idle_pcb[0];
+        current_task               = idle_pcb[0];
         current_task->context0.rip = frame->rip;
     }
     current_task->state = READY;
     for (;; next = next->next) {
         // printk("[Debug]next:%s\n", ((pcb_t *)(next->data))->name);
         // printk("\tnext state:%s\n", (((pcb_t *)(next->data))->state)==READY ? "READY" : "UNREADY");
-        if (((pcb_t *)(next->next->data))->state == READY && ((pcb_t *)(next->next->data)) != current_task)
-        {
+        if (((pcb_t *)(next->next->data))->state == READY && ((pcb_t *)(next->next->data)) != current_task
+            && ((pcb_t *)(next->next->data))->cpu == get_current_cpu_id()) {
             break;
         }
     }
