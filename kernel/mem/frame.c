@@ -16,7 +16,6 @@
 #include "printk.h"
 #include "uinxed.h"
 
-log_buffer_t      frame_log;
 frame_allocator_t frame_allocator;
 uint64_t          memory_size = 0;
 
@@ -28,7 +27,7 @@ void init_frame(void)
         struct limine_memmap_entry *region = memory_map->entries[i];
         if (region->type == LIMINE_MEMMAP_USABLE) {
             memory_size = region->base + region->length;
-            log_buffer_write(&frame_log, "frame: Found usable region at %p (size: %llu KiB)\n", region->base, region->length / 1024);
+            plogk("frame: Found usable region at %p (size: %llu KiB)\n", region->base, region->length / 1024);
             break;
         }
     }
@@ -43,9 +42,9 @@ void init_frame(void)
         }
     }
     if (bitmap_address) {
-        log_buffer_write(&frame_log, "frame: Bitmap allocated at %p (size: %llu KiB)\n", bitmap_address, bitmap_size / 1024);
+        plogk("frame: Bitmap allocated at %p (size: %llu KiB)\n", bitmap_address, bitmap_size / 1024);
     } else {
-        log_buffer_write(&frame_log, "frame: Failed to allocate bitmap memory.\n");
+        plogk("frame: Failed to allocate bitmap memory.\n");
         return;
     }
     bitmap_t *bitmap = &frame_allocator.bitmap;
@@ -59,22 +58,20 @@ void init_frame(void)
             size_t frame_count = region->length / 4096;
             origin_frames += frame_count;
             bitmap_set_range(bitmap, start_frame, start_frame + frame_count, 1);
-            log_buffer_write(&frame_log, "frame: Marked   0x%08x frames from %p as usable.\n", frame_count, region->base);
+            plogk("frame: Marked   0x%08x frames from %p as usable.\n", frame_count, region->base);
         }
     }
     size_t bitmap_frame_start = bitmap_address / 4096;
     size_t bitmap_frame_count = (bitmap_size + 4095) / 4096;
     size_t bitmap_frame_end   = bitmap_frame_start + bitmap_frame_count;
     bitmap_set_range(bitmap, bitmap_frame_start, bitmap_frame_end, 0);
-
-    log_buffer_write(&frame_log, "frame: Reserved 0x%08x frames for bitmap at %p\n", bitmap_frame_count, bitmap_address);
-
+    plogk("frame: Reserved 0x%08x frames for bitmap at %p\n", bitmap_frame_count, bitmap_address);
     frame_allocator.origin_frames = origin_frames;
     frame_allocator.usable_frames = origin_frames - bitmap_frame_count;
-
-    log_buffer_write(&frame_log, "frame: Total physical frames = 0x%08x (%d KiB)\n", origin_frames, (origin_frames * 4096) >> 10);
-    log_buffer_write(&frame_log, "frame: Available frames after deducting bitmap usage = 0x%08x (%d KiB)\n", frame_allocator.usable_frames,
-                     (frame_allocator.usable_frames * 4096) >> 10);
+    plogk("frame: Total physical frames = 0x%08x (%d KiB)\n", origin_frames, (origin_frames * 4096) >> 10);
+    plogk("frame: Available frames after deducting bitmap usage = 0x%08x (%d "
+          "KiB)\n",
+          frame_allocator.usable_frames, (frame_allocator.usable_frames * 4096) >> 10);
 }
 
 /* Allocate memory frame */

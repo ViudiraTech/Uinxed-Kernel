@@ -17,9 +17,10 @@ uint32_t color_to_fb_color(color_t color)
 {
     struct limine_framebuffer *fb = get_framebuffer();
 
-    uint32_t fb_red   = COLOR_MASK(color.red, fb->red_mask_size, fb->red_mask_shift);       // Red
-    uint32_t fb_green = COLOR_MASK(color.green, fb->green_mask_size, fb->green_mask_shift); // Blue
-    uint32_t fb_blue  = COLOR_MASK(color.blue, fb->blue_mask_size, fb->blue_mask_shift);    // Green
+    uint32_t fb_red   = COLOR_MASK(color.red, fb->red_mask_size, fb->red_mask_shift); // Red
+    uint32_t fb_green = COLOR_MASK(color.green, fb->green_mask_size,
+                                   fb->green_mask_shift);                                // Blue
+    uint32_t fb_blue  = COLOR_MASK(color.blue, fb->blue_mask_size, fb->blue_mask_shift); // Green
     uint32_t fb_color = fb_red | fb_green | fb_blue;
     return fb_color;
 }
