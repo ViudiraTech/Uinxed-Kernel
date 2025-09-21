@@ -24,9 +24,11 @@
 #include "limine_module.h"
 #include "page.h"
 #include "parallel.h"
+#include "pcb.h"
 #include "pci.h"
 #include "printk.h"
 #include "ps2.h"
+#include "scheduler.h"
 #include "serial.h"
 #include "smbios.h"
 #include "smp.h"
@@ -36,7 +38,8 @@
 /* Executable entry */
 void executable_entry(void)
 {
-    const char msg[] = "Logically you should use Limine to boot it instead of executing it directly, right?\n";
+    const char msg[] = "Logically you should use Limine to boot it instead of "
+                       "executing it directly, right?\n";
     __asm__ volatile("mov $1, %%rax\n"
                      "mov $1, %%rdi\n"
                      "lea %[msg], %%rsi\n"
@@ -57,7 +60,6 @@ void kernel_entry(void)
     init_sse(); // Initialize SSE/SSE2
     init_avx(); // Initialize AVX/AVX2
 
-    init_frame(); // Initialize memory frame
     page_init();  // Initialize memory page
     init_heap();  // Initialize the memory heap
     video_init(); // Initialize Video
@@ -82,20 +84,28 @@ void kernel_entry(void)
     plogk("x86/PAT: Configuration [0-7]: %s\n", get_pat_config().pat_str);
     plogk("dmi: %s %s, BIOS %s %s\n", smbios_sys_manufacturer(), smbios_sys_product_name(), smbios_bios_version(), smbios_bios_release_date());
 
-    init_gdt();                   // Initialize global descriptors
-    init_idt();                   // Initialize interrupt descriptor
-    isr_registe_handle();         // Register ISR interrupt processing
-    acpi_init();                  // Initialize ACPI
-    smp_init();                   // Initialize SMP
-    print_memory_map();           // Print memory map information
-    log_buffer_print(&frame_log); // Print frame log
-    pci_init();                   // Initialize PCI
-    lmodule_init();               // Initialize the passed-in resource module list
-    init_ide();                   // Initialize ATA/ATAPI driver
-    init_serial();                // Initialize the serial port
-    init_parallel();              // Initialize the parallel port
-    init_ps2();                   // Initialize PS/2 controller
+    init_gdt();           // Initialize global descriptors
+    init_idt();           // Initialize interrupt descriptor
+    isr_registe_handle(); // Register ISR interrupt processing
+    acpi_init();          // Initialize ACPI
+    print_memory_map();   // Print memory map information
+    init_frame();         // Initialize memory frame
+    pci_init();           // Initialize PCI
+    lmodule_init();       // Initialize the passed-in resource module list
+    init_ide();           // Initialize ATA/ATAPI driver
+    init_serial();        // Initialize the serial port
+    init_parallel();      // Initialize the parallel port
+    init_ps2();           // Initialize PS/2 controller
+    smp_init();           // Initialize SMP
+    disable_intr();
+    init_task();
+    enable_scheduler();
     enable_intr();
+
+    for (;;) {
+        printk("kmain.current_cpu_id:%d\n", get_current_cpu_id());
+        __asm__("hlt");
+    }
 
     panic("No operation.");
 }

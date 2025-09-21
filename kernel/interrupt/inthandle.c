@@ -75,7 +75,6 @@ INTERRUPT_END
 INTERRUPT_BEGIN static void ISR_8_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    carry_error_code = 1; // carry error code
     panic("Kernel exception: #DF");
 }
 INTERRUPT_END
@@ -90,7 +89,6 @@ INTERRUPT_END
 INTERRUPT_BEGIN static void ISR_10_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    carry_error_code = 1; // carry error code
     panic("Kernel exception: #TS");
 }
 INTERRUPT_END
@@ -98,7 +96,6 @@ INTERRUPT_END
 INTERRUPT_BEGIN static void ISR_11_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    carry_error_code = 1; // carry error code
     panic("Kernel exception: #NP");
 }
 INTERRUPT_END
@@ -106,7 +103,6 @@ INTERRUPT_END
 INTERRUPT_BEGIN static void ISR_12_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    carry_error_code = 1; // carry error code
     panic("Kernel exception: #SS");
 }
 INTERRUPT_END
@@ -114,7 +110,6 @@ INTERRUPT_END
 INTERRUPT_BEGIN static void ISR_13_handle(interrupt_frame_t *frame)
 {
     (void)frame;
-    carry_error_code = 1; // carry error code
     panic("Kernel exception: #GP");
 }
 INTERRUPT_END
