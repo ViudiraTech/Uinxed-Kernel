@@ -1,10 +1,6 @@
 # Visual Studio Code
 .vscode
 .vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
 
 # IntelliJ IDEA
 .idea/
@@ -63,3 +59,5 @@ Uinxed-x64.iso
 compile_commands.json
 make.log
 *.bak
+kerneldump.log
+qemu.log
