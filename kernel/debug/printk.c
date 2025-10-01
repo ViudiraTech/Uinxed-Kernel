@@ -85,6 +85,7 @@ int sprintf(char *str, const char *fmt, ...)
     va_start(arg, fmt);
 
     c = (int)vwprintf(&unsafe_buf_writer, fmt, arg); // NOLINT
+    unsafe_buf_writer.handler(&unsafe_buf_writer, '\0');
 
     va_end(arg);
     return c;
@@ -100,6 +101,7 @@ int vsprintf(char *str, const char *fmt, va_list args)
                  .handler = unsafe_buf_write,
     };
     c = (int)vwprintf(&unsafe_buf_writer, fmt, args); // NOLINT
+    unsafe_buf_writer.handler(&unsafe_buf_writer, '\0');
     return c;
 }
 
@@ -121,8 +123,8 @@ void wfmt_arg(writer *writer, args_fmter *fmter, va_list args) // NOLINT
     const char  **fmt_ptr       = fmter->fmt_ptr;
     write_handler write         = writer->handler;
 
-    num_formatter_t num_fmter = {};
-    num_fmt_type    num_flag  = {};
+    num_formatter_t num_fmter = {0};
+    num_fmt_type    num_flag  = {0};
     int8_t          size_cnt  = INT;
 
     /* Error args */
