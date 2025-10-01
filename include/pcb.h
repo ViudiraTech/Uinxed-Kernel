@@ -109,6 +109,8 @@ extern pcb_t **current_tasks;
 
 extern pcb_t *init_pcb;
 
+extern pcb_t *swapper_pcb;
+
 extern list_t *current_task_ls;
 
 extern list_t *pcb_list;

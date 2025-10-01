@@ -1,19 +1,21 @@
-#include "pcb.h"
+#include "heap.h"
 #include "alloc.h"
 #include "common.h"
+#include "pcb.h"
 #include "debug.h"
-#include "heap.h"
 #include "init.h"
 #include "printk.h"
 #include "scheduler.h"
 #include "smp.h"
 #include "string.h"
 #include "uinxed.h"
+#include <stdint.h>
 
 uint32_t now_pid = 0;
 pcb_t  **idle_pcb;
 pcb_t  **current_tasks;
 pcb_t   *init_pcb;
+pcb_t *swapper_pcb;
 
 void kthread_exit(int status)
 {
@@ -46,7 +48,7 @@ pcb_t *kernel_thread(int (*_start)(void *arg), void *args, char *name)
     new_task->time  = 100;
 
     strcpy(new_task->name, name);
-    uint64_t *stack_top       = (uint64_t *)(new_task + sizeof(pcb_t) + STACK_SIZE);
+    uint64_t *stack_top       = (uint64_t *)(new_task + 1 + STACK_SIZE);
     *(--stack_top)            = (uint64_t)_start;
     new_task->context0.rflags = 0x202;
     new_task->context0.rip    = (uint64_t)_start;
@@ -79,14 +81,15 @@ pcb_t *init_task()
     idle_pcb           = (pcb_t **)calloc(sizeof(pcb_t *), get_cpu_count());
     current_tasks      = (pcb_t **)calloc(sizeof(pcb_t *), get_cpu_count());
     uint32_t cpu_count = get_cpu_count();
+    int *p   = (int *)malloc(sizeof(int));
+    *p       = 114514;
+    swapper_pcb =  create_kernel_thread((int (*)(void *))((uintptr_t)swapper_thread), NULL, "swapper");        // pid = 0
+    init_pcb = create_kernel_thread((int (*)(void *))init_kmain, p, "init");                                                    // pid = 1
     for (uint32_t i = 0; i < cpu_count; i++) {
-        idle_pcb[i]        = create_kernel_thread(idle_thread, NULL, "System(idle)");
+        idle_pcb[i]        = create_kernel_thread((int (*)(void *))((uintptr_t)idle_thread), NULL, "System(idle)");
         idle_pcb[i]->level = 3;
         idle_pcb[i]->cpu   = i;
     }
-    int *p   = (int *)malloc(sizeof(int));
-    *p       = 114514;
-    init_pcb = create_kernel_thread((int (*)(void *))init_kmain, p, "init");
     plogk("idle stack: %p\tinit stack:%p\n", (void *)((uintptr_t)idle_pcb[0]->context0.rsp), (void *)((uintptr_t)init_pcb->context0.rsp));
     return init_pcb;
 }
