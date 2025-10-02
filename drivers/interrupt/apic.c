@@ -20,7 +20,7 @@
 #include "stdint.h"
 #include "uinxed.h"
 
-int x2apic_mode;
+int x2apic_mode = -1;
 
 pointer_cast_t lapic_ptr;
 pointer_cast_t ioapic_ptr;
@@ -93,9 +93,10 @@ uint64_t lapic_id(void)
 /* Initialize local APIC */
 void local_apic_init(void)
 {
-    x2apic_mode = (smp_request.response->flags & 1) != 0;
-    plogk("apic: Local APIC: %s\n", x2apic_mode ? "x2APIC" : "xAPIC");
-
+    if (x2apic_mode == -1) { // Run only once
+        x2apic_mode = (smp_request.response->flags & 1) != 0;
+        plogk("apic: Local APIC: %s\n", x2apic_mode ? "x2APIC" : "xAPIC");
+    }
     lapic_write(LAPIC_REG_SPURIOUS, 0xff | 1 << 8);
     lapic_write(LAPIC_REG_TIMER, IRQ_0);
     lapic_write(LAPIC_REG_TIMER_DIV, 11);

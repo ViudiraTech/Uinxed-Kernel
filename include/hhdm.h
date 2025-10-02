@@ -17,10 +17,13 @@
 /* Get physical memory offset */
 uint64_t get_physical_memory_offset(void);
 
-/* Convert physical memory to virtual memory */
+/* Convert HHDM physical memory to virtual memory */
 void *phys_to_virt(uint64_t phys_addr);
 
-/* Convert virtual memory to physical memory */
+/* Convert HHDM virtual memory to physical memory */
 void *virt_to_phys(uint64_t virt_addr);
+
+/* Convert any virtual memory to physical memory */
+void *virt_any_to_phys(uint64_t addr);
 
 #endif // INCLUDE_HHDM_H_

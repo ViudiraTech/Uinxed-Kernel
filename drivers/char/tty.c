@@ -135,8 +135,7 @@ tty_device_t *get_boot_tty(void)
     strncpy(bootarg, cmdline, MAX_CMDLINE);
     bootarg[MAX_CMDLINE - 1] = '\0';
 
-    char **argv = (char **)malloc(MAX_ARGC * sizeof(char *));
-    if (!argv) return boot_tty_ptr;
+    char *argv[MAX_ARGC] = {0};
 
     int argc = arg_parse(bootarg, argv, ' ');
     for (int i = 0; i < argc; ++i) {
@@ -171,7 +170,6 @@ tty_device_t *get_boot_tty(void)
             }
         }
     }
-    free((void *)argv);
     return boot_tty_ptr;
 }
 

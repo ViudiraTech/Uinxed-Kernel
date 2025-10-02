@@ -261,6 +261,42 @@ pat_config_t get_pat_config(void)
     return config;
 }
 
+/* Walk page tables to translate virtual address to physical address */
+uintptr_t walk_page_tables(page_directory_t *directory, uintptr_t virtual_addr)
+{
+    if (!directory) { return 0; }
+
+    uint64_t flags_mask = 0xfff | PTE_NO_EXECUTE;
+    flags_mask          = ~flags_mask;
+
+    uint64_t l4_index = (virtual_addr >> 39) & 0x1ff;
+    uint64_t l3_index = (virtual_addr >> 30) & 0x1ff;
+    uint64_t l2_index = (virtual_addr >> 21) & 0x1ff;
+    uint64_t l1_index = (virtual_addr >> 12) & 0x1ff;
+
+    page_table_t *l4_table = directory->table;
+    if (!l4_table->entries[l4_index].value || !(l4_table->entries[l4_index].value & PTE_PRESENT)) { return 0; }
+
+    uint64_t      l3_phys  = l4_table->entries[l4_index].value & flags_mask;
+    page_table_t *l3_table = (page_table_t *)phys_to_virt(l3_phys);
+    if (!l3_table->entries[l3_index].value || !(l3_table->entries[l3_index].value & PTE_PRESENT)) { return 0; }
+    if (is_huge_page(&l3_table->entries[l3_index])) {
+        return (l3_table->entries[l3_index].value & ~((1ULL << 30) - 1)) | (virtual_addr & ((1ULL << 30) - 1));
+    }
+
+    uint64_t      l2_phys  = l3_table->entries[l3_index].value & flags_mask;
+    page_table_t *l2_table = (page_table_t *)phys_to_virt(l2_phys);
+    if (!l2_table->entries[l2_index].value || !(l2_table->entries[l2_index].value & PTE_PRESENT)) { return 0; }
+    if (is_huge_page(&l2_table->entries[l2_index])) {
+        return (l2_table->entries[l2_index].value & ~((1ULL << 21) - 1)) | (virtual_addr & ((1ULL << 21) - 1));
+    }
+
+    uint64_t      l1_phys  = l2_table->entries[l2_index].value & flags_mask;
+    page_table_t *l1_table = (page_table_t *)phys_to_virt(l1_phys);
+    if (!l1_table->entries[l1_index].value || !(l1_table->entries[l1_index].value & PTE_PRESENT)) { return 0; }
+    return ((l1_table->entries[l1_index].value & flags_mask)) | (virtual_addr & 0xfff);
+}
+
 /* Initialize memory page table */
 void page_init(void)
 {

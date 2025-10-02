@@ -10,8 +10,9 @@
  */
 
 #include "hhdm.h"
-#include "debug.h"
+#include "cpuid.h"
 #include "limine.h"
+#include "page.h"
 #include "printk.h"
 #include "uinxed.h"
 
@@ -21,7 +22,7 @@ uint64_t get_physical_memory_offset(void)
     return hhdm_request.response->offset;
 }
 
-/* Convert physical memory to virtual memory */
+/* Convert physical memory to HHDM virtual memory */
 void *phys_to_virt(uint64_t phys_addr)
 {
     pointer_cast_t virt_addr;
@@ -32,7 +33,7 @@ void *phys_to_virt(uint64_t phys_addr)
     return virt_addr.ptr;
 }
 
-/* Convert virtual memory to physical memory */
+/* Convert HHDM virtual memory to physical memory */
 void *virt_to_phys(uint64_t virt_addr)
 {
     pointer_cast_t phys_addr;
@@ -41,4 +42,19 @@ void *virt_to_phys(uint64_t virt_addr)
     /* Avoid overflow */
     phys_addr.val = virt_addr & ~(hhdm_request.response->offset);
     return phys_addr.ptr;
+}
+
+/* Convert any virtual memory to physical memory */
+void *virt_any_to_phys(uint64_t addr)
+{
+    pointer_cast_t phys_addr;
+    phys_addr.val = addr - hhdm_request.response->offset;
+    if (phys_addr.val >> get_cpu_phys_bits()) {
+        /* Non-HHDM virtual memory */
+        phys_addr.val = walk_page_tables(get_kernel_pagedir(), addr);
+        return phys_addr.ptr;
+    } else {
+        /* HHDM virtual memory */
+        return phys_addr.ptr;
+    }
 }

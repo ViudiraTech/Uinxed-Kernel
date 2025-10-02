@@ -85,6 +85,9 @@ void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64
 /* Get the PAT configuration */
 pat_config_t get_pat_config(void);
 
+/* Walk page tables to translate virtual address to physical address */
+uintptr_t walk_page_tables(page_directory_t *directory, uintptr_t virtual_addr);
+
 /* Initialize memory page table */
 void page_init(void);
 
