@@ -18,12 +18,13 @@
 
 #define PCI_HEADER_TYPE_MASK 0x7F
 
-#define PCI_CONF_VENDOR      0x0 // Vendor ID
-#define PCI_CONF_DEVICE      0x2 // Device ID
-#define PCI_CONF_COMMAND     0x4 // Command
-#define PCI_CONF_STATUS      0x6 // Status
-#define PCI_CONF_REVISION    0x8 // Revision ID
-#define PCI_CONF_HEADER_TYPE 0xe // Header Type
+#define PCI_CONF_VENDOR      0x0  // Vendor ID
+#define PCI_CONF_DEVICE      0x2  // Device ID
+#define PCI_CONF_COMMAND     0x4  // Command
+#define PCI_CONF_STATUS      0x6  // Status
+#define PCI_CONF_REVISION    0x8  // Revision ID
+#define PCI_CONF_HEADER_TYPE 0xe  // Header Type
+#define PCI_CONF_BAR0        0x10 // Base Address Register 0
 
 #define PCI_COMMAND_PORT 0xCF8
 #define PCI_DATA_PORT    0xCFC
@@ -57,23 +58,6 @@ typedef enum {
     HEADER_TYPE_CARDBUS = 2,
 } header_type_t;
 
-/* Used to offset in ECAM */
-typedef enum {
-    ECAM_AREA_ID    = 4 * 0, // Device and vendor id
-    ECAM_AREA_OPS   = 4 * 1, // Status and command
-    ECAM_AREA_FIELD = 4 * 2, // Class code, subclass, prog IF and revision ID
-    ECAM_AREA_OPS2  = 4 * 3, // BIST, header type, latency timer, cache line size
-    ECAM_OTHERS     = 4 * 4, // Other registers
-} ecam_area_t;
-
-typedef struct {
-        volatile void  *id_ecam;
-        volatile void  *ops_ecam;
-        volatile void  *field_ecam;
-        volatile void  *ops2_ecam;
-        volatile void **others;
-} pci_device_ecam_t;
-
 /* PCI cached searching */
 typedef struct pci_device_cache {
         pci_device_t            *device;
@@ -84,7 +68,8 @@ typedef struct pci_device_cache {
         uint32_t                 class_code;
         uint32_t                 header_type;
         struct pci_device_cache *next;
-        pci_device_ecam_t        ecam; // Only works in MCFG mode
+        /* *(ecam_ptr | (offset & 0xffc)) = ecam_addr */
+        volatile void *ecam_ptr;
 } pci_device_cache_t;
 
 typedef struct {
@@ -154,9 +139,6 @@ void mcfg_init(mcfg_t *mcfg);
 
 /* Get ECAM address of register */
 void *mcfg_ecam_addr(mcfg_entry_t *entry, pci_device_reg_t reg);
-
-/* Update ECAM addresses to cache */
-pci_device_ecam_t mcfg_update_ecam(mcfg_entry_t *entry, pci_device_cache_t *cache);
 
 /* Reading values ​​from PCI device registers */
 uint32_t read_pci(pci_device_reg_t reg);
