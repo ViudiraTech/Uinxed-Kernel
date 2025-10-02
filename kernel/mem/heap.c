@@ -33,11 +33,13 @@ void init_heap(void)
     struct limine_memmap_response *memmap     = memmap_request.response;
     struct limine_memmap_entry    *last_entry = memmap->entries[memmap->entry_count - 1];
     pointer_cast_t                 heap_virt;
-    heap_virt.ptr            = phys_to_virt(last_entry->base + last_entry->length);
+    heap_virt.ptr = phys_to_virt(last_entry->base + last_entry->length);
+
     uint64_t heap_virt_start = heap_virt.val;
     heap_start               = heap_virt_start;
     heap_size                = heap_frame_count * PAGE_SIZE;
     page_map_range_to_random(get_kernel_pagedir(), heap_start, heap_size, KERNEL_PTE_FLAGS);
+
     heap_init((uint8_t *)heap_start, heap_size);
 }
 

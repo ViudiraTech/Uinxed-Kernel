@@ -16,8 +16,9 @@
 #include "stdint.h"
 
 #define MIN_HEAP_SIZE (32 * 1024 * 1024) // Minimum heap size: 32 MiB
-extern uint64_t heap_start;              // Kernel heap start address
-extern uint64_t heap_size;               // Kernel heap size
+
+extern uint64_t heap_start; // Kernel heap start address
+extern uint64_t heap_size;  // Kernel heap size
 
 /* Initialize the memory heap */
 void init_heap(void);

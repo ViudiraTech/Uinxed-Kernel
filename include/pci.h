@@ -68,6 +68,7 @@ typedef struct pci_device_cache {
         uint32_t                 class_code;
         uint32_t                 header_type;
         struct pci_device_cache *next;
+
         /* *(ecam_ptr | (offset & 0xffc)) = ecam_addr */
         volatile void *ecam_ptr;
 } pci_device_cache_t;
