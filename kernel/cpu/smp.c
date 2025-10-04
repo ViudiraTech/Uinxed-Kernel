@@ -123,6 +123,7 @@ uint32_t get_current_cpu_id(void)
 /* Initialize the TSS for the AP  */
 void ap_init_tss(cpu_processor_t *cpu)
 {
+    compiler_barrier();
     uint64_t address     = (uint64_t)(cpu->tss);
     uint64_t low_base    = (((address & 0xffffff)) << 16);
     uint64_t mid_base    = (((((address >> 24)) & 0xff)) << 56);
@@ -133,12 +134,13 @@ void ap_init_tss(cpu_processor_t *cpu)
     cpu->gdt->entries[5] = (((low_base | mid_base) | limit) | access_byte);
     cpu->gdt->entries[6] = high_base;
     cpu->tss->ist[0]     = ALIGN_DOWN(((uint64_t)cpu->tss_stack) + sizeof(tss_stack_t), 16);
-    __asm__ volatile("ltr %w[offset]" ::[offset] "rm"((uint16_t)0x28) : "memory");
 
     /* Set kernel stack */
     pointer_cast_t cast;
     cast.ptr         = cpu->kernel_stack;
     cpu->tss->rsp[0] = ALIGN_DOWN((uint64_t)cast.val + sizeof(kernel_stack_t), 16);
+
+    __asm__ volatile("ltr %w[offset]" ::[offset] "rm"((uint16_t)0x28) : "memory");
 }
 
 /* Initialize the GDT for the AP */
@@ -238,9 +240,11 @@ void smp_init(void)
             set_kernel_stack(ALIGN_DOWN((uint64_t)cast.val + sizeof(kernel_stack_t), 16));
             continue;
         } else {
-            cpus[i].gdt       = (gdt_t *)malloc(sizeof(gdt_t));
+            cpus[i].gdt = (gdt_t *)aligned_alloc(16, ALIGN_UP(sizeof(gdt_t), 16));
+            memset(cpus[i].gdt, 0, sizeof(gdt_t)); // Clear dirty data
             cpus[i].tss_stack = malloc(sizeof(tss_stack_t));
-            cpus[i].tss       = (tss_t *)malloc(sizeof(tss_t));
+            cpus[i].tss       = (tss_t *)aligned_alloc(16, ALIGN_UP(sizeof(tss_t), 16));
+            memset(cpus[i].tss, 0, sizeof(tss_t)); // Clear dirty data
 
             /* Configure the AP entry point */
             cpu->extra_argument = (uint64_t)&cpus[i];

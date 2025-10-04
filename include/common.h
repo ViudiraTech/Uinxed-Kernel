@@ -71,8 +71,9 @@ uint64_t load(uint64_t *addr);
 /* Storing data atomically */
 void store(uint64_t *addr, uint32_t value);
 
-void enable_intr(void);  // Enable interrupt
-void disable_intr(void); // Disable interrupts
-void krn_halt(void);     // Kernel halt
+void enable_intr(void);      // Enable interrupt
+void disable_intr(void);     // Disable interrupts
+void krn_halt(void);         // Kernel halt
+void compiler_barrier(void); // Compiler barrier
 
 #endif // INCLUDE_COMMON_H_
