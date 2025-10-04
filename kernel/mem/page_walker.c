@@ -18,6 +18,7 @@
 static const uint64_t HUGE_PAGE_1G_MASK = ~((1ULL << 30) - 1);
 static const uint64_t HUGE_PAGE_2M_MASK = ~((1ULL << 21) - 1);
 
+/* Init page_walk_state */
 void page_walk_init(page_walk_state_t *state, page_directory_t *directory, uintptr_t virtual_addr)
 {
     if (!state || !directory) { return; }
@@ -64,7 +65,7 @@ static inline uint8_t page_table_lookup(page_table_t *table, uint16_t index, pag
     return 1;
 }
 
-/* Execute page table walk with optimized path */
+/* Execute page_walk_state */
 uint8_t page_walk_execute(page_walk_state_t *state)
 {
     if (!state || !state->directory || !state->l4_table) {
@@ -131,7 +132,7 @@ uintptr_t walk_page_tables(page_directory_t *directory, uintptr_t virtual_addr)
     return page_walk_execute(&state) ? state.physical_addr : 0;
 }
 
-/* Efficient state update for consecutive page walks */
+/* Efficiently update state to next page */
 void update_walk_state_for_next_page(page_walk_state_t *state, uintptr_t next_virtual)
 {
     if (!state) return;
@@ -162,8 +163,8 @@ void update_walk_state_for_next_page(page_walk_state_t *state, uintptr_t next_vi
     }
 }
 
-/* Check range of free pages using optimized state */
-size_t check_range_free_with_state(page_walk_state_t *state, uintptr_t start, size_t length) /* NOLINT */
+/* Check range free with state */
+size_t check_range_free_with_state(page_walk_state_t *state, uintptr_t start, size_t length) // NOLINT
 {
     if (!state || length == 0) { return 0; }
 
@@ -174,7 +175,9 @@ size_t check_range_free_with_state(page_walk_state_t *state, uintptr_t start, si
     page_walk_init(state, state->directory, current);
 
     while (free_bytes < length) {
-        if (page_walk_execute(state)) { break; /* Page is mapped */ }
+        if (page_walk_execute(state)) {
+            break; // Page is mapped
+        }
 
         free_bytes += PAGE_SIZE;
         current += PAGE_SIZE;
@@ -187,7 +190,7 @@ size_t check_range_free_with_state(page_walk_state_t *state, uintptr_t start, si
 }
 
 /* Fast range free checker with large page */
-size_t check_range_free_fast(page_directory_t *directory, uintptr_t start, size_t length) /* NOLINT */
+size_t check_range_free_fast(page_directory_t *directory, uintptr_t start, size_t length) // NOLINT
 {
     if (!directory || length == 0) return 0;
 
@@ -198,7 +201,9 @@ size_t check_range_free_fast(page_directory_t *directory, uintptr_t start, size_
     page_walk_init(&state, directory, current);
     while (checked < length) {
         update_walk_state_for_next_page(&state, current);
-        if (page_walk_execute(&state)) { break; /* Page is mapped */ }
+        if (page_walk_execute(&state)) {
+            break; // Page is mapped
+        }
         checked += (1 << 21); /* Check 2MB at a time */
         current += (1 << 21);
     }
@@ -206,8 +211,8 @@ size_t check_range_free_fast(page_directory_t *directory, uintptr_t start, size_
     return checked > length ? length : checked;
 }
 
-/* Optimized free region finder with boundary alignment */
-uintptr_t walk_page_tables_find_free(page_directory_t *directory, uintptr_t start, size_t length) /* NOLINT */
+/* Find a free virtual memory range of specified length */
+uintptr_t walk_page_tables_find_free(page_directory_t *directory, uintptr_t start, size_t length) // NOLINT
 {
     if (!directory || length == 0) { return 0; }
 

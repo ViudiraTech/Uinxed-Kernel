@@ -14,6 +14,7 @@
 #include "page.h"
 #include "stdint.h"
 
+/* State of page walking */
 typedef struct page_walk_state {
         page_directory_t *directory;
         uintptr_t         virtual_addr;
@@ -44,13 +45,13 @@ typedef struct page_walk_state {
         uint8_t reserved : 6;
 } page_walk_state_t;
 
-/* Init page walk state */
+/* Init page_walk_state */
 void page_walk_init(page_walk_state_t *state, page_directory_t *directory, uintptr_t virtual_addr);
 
-/* Execute page table walk */
+/* Execute page_walk_state */
 uint8_t page_walk_execute(page_walk_state_t *state);
 
-/* Check if a memory range is free using the current state */
+/* Simple page table walk interface */
 uintptr_t walk_page_tables(page_directory_t *directory, uintptr_t virtual_addr);
 
 /* Efficiently update state to next page */
@@ -69,4 +70,4 @@ uintptr_t walk_page_tables_find_free(page_directory_t *directory, uintptr_t star
 #define PAGE_WALK_INDEX(addr, shift) (((addr) >> (shift)) & 0x1FF)
 #define IS_ALIGNED(addr, alignment)  (((addr) & ((alignment) - 1)) == 0)
 
-#endif /* PAGE_WALKER_H */
+#endif // PAGE_WALKER_H
