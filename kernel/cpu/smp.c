@@ -15,7 +15,9 @@
 #include "common.h"
 #include "debug.h"
 #include "eis.h"
+#include "frame.h"
 #include "gdt.h"
+#include "hhdm.h"
 #include "interrupt.h"
 #include "limine.h"
 #include "page.h"
@@ -121,29 +123,37 @@ uint32_t get_current_cpu_id(void)
 /* Initialize the TSS for the AP  */
 void ap_init_tss(cpu_processor_t *cpu)
 {
-    uint64_t address     = ((uint64_t)(cpu->tss));
+    uint64_t address     = (uint64_t)(cpu->tss);
     uint64_t low_base    = (((address & 0xffffff)) << 16);
     uint64_t mid_base    = (((((address >> 24)) & 0xff)) << 56);
     uint64_t high_base   = (address >> 32);
     uint64_t access_byte = (((uint64_t)(0x89)) << 40);
     uint64_t limit       = (uint64_t)(sizeof(tss_t) - 1);
 
-    cpu->gdt.entries[5] = (((low_base | mid_base) | limit) | access_byte);
-    cpu->gdt.entries[6] = high_base;
-    cpu->tss->ist[0]    = ((uint64_t)cpu->tss_stack) + sizeof(tss_stack_t);
+    cpu->gdt->entries[5] = (((low_base | mid_base) | limit) | access_byte);
+    cpu->gdt->entries[6] = high_base;
+    cpu->tss->ist[0]     = ALIGN_DOWN(((uint64_t)cpu->tss_stack) + sizeof(tss_stack_t), 16);
     __asm__ volatile("ltr %w[offset]" ::[offset] "rm"((uint16_t)0x28) : "memory");
+
+    /* Set kernel stack */
+    pointer_cast_t cast;
+    cast.ptr         = cpu->kernel_stack;
+    cpu->tss->rsp[0] = ALIGN_DOWN((uint64_t)cast.val + sizeof(kernel_stack_t), 16);
 }
 
 /* Initialize the GDT for the AP */
 void ap_init_gdt(cpu_processor_t *cpu)
 {
-    cpu->gdt.entries[0] = 0x0000000000000000; // NULL descriptor
-    cpu->gdt.entries[1] = 0x00a09a0000000000; // Kernel code segment
-    cpu->gdt.entries[2] = 0x00c0920000000000; // Kernel data segment
-    cpu->gdt.entries[3] = 0x00c0f20000000000; // User code segment
-    cpu->gdt.entries[4] = 0x00a0fa0000000000; // User data segment
+    cpu->gdt->entries[0] = 0x0000000000000000; // NULL descriptor
+    cpu->gdt->entries[1] = 0x00a09a0000000000; // Kernel code segment
+    cpu->gdt->entries[2] = 0x00c0920000000000; // Kernel data segment
+    cpu->gdt->entries[3] = 0x00c0f20000000000; // User code segment
+    cpu->gdt->entries[4] = 0x00a0fa0000000000; // User data segment
 
-    cpu->gdt.pointer = ((gdt_register_t) {.size = (uint16_t)(sizeof(gdt_entries_t) - 1), .ptr = &cpu->gdt.entries});
+    cpu->gdt->pointer = ((gdt_register_t) {
+        .size = (uint16_t)(sizeof(gdt_entries_t) - 1),
+        .ptr  = (gdt_entries_t *)&cpu->gdt->entries,
+    });
 
     __asm__ volatile("lgdt %[ptr]; push %[cseg]; lea 1f(%%rip), %%rax; push %%rax; lretq;"
                      "1:"
@@ -151,7 +161,7 @@ void ap_init_gdt(cpu_processor_t *cpu)
                      "mov %[dseg], %%fs;"
                      "mov %[dseg], %%gs;"
                      "mov %[dseg], %%es;"
-                     "mov %[dseg], %%ss;" ::[ptr] "m"(cpu->gdt.pointer),
+                     "mov %[dseg], %%ss;" ::[ptr] "m"(cpu->gdt->pointer),
                      [cseg] "rm"((uint64_t)0x8), [dseg] "rm"((uint64_t)0x10)
                      : "memory");
     ap_init_tss(cpu);
@@ -164,17 +174,18 @@ void ap_entry(struct limine_smp_info *info)
     init_sse();
     init_avx();
 
-    pointer_cast_t cast;
+    /* load page table */
+    page_directory_t *krnl_pagedir = get_kernel_pagedir();
+    pointer_cast_t    cast;
+    cast.ptr = krnl_pagedir->table;
+    cast.ptr = virt_to_phys(cast.val);
+    enable_paging(cast.val);
+
     cast.val             = info->extra_argument;
     cpu_processor_t *cpu = (cpu_processor_t *)cast.ptr;
 
     /* Initializing the GDT */
     ap_init_gdt(cpu);
-
-    /* Set kernel stack */
-    cast.val         = 0;
-    cast.ptr         = cpu->kernel_stack;
-    cpu->tss->rsp[0] = ALIGN_DOWN((uint64_t)cast.val + sizeof(kernel_stack_t), 16);
 
     /* Initializing the IDT */
     __asm__ volatile("lidt %0" ::"m"(idt_pointer) : "memory");
@@ -187,11 +198,8 @@ void ap_entry(struct limine_smp_info *info)
     spin_unlock(&ap_start_lock);
 
     /* TODO: Implement the scheduler loop */
-    while (1) {
-        enable_intr();
-        __asm__ volatile("hlt");
-        disable_intr();
-    }
+    enable_intr();
+    while (1) { __asm__ volatile("hlt"); }
 
     /* Shouldn't reach here */
     panic("AP %d scheduler exited.", cpu->id);
@@ -221,24 +229,22 @@ void smp_init(void)
 
         /* Special handling for BSP */
         if (cpu->lapic_id == smp->bsp_lapic_id) {
-            cpus[i].gdt       = gdt0;
+            cpus[i].gdt       = &gdt0;
             cpus[i].tss_stack = &tss_stack;
             cpus[i].tss       = &tss0;
+
             pointer_cast_t cast;
             cast.ptr = cpus[i].kernel_stack;
             set_kernel_stack(ALIGN_DOWN((uint64_t)cast.val + sizeof(kernel_stack_t), 16));
             continue;
         } else {
-            /* Allocate TSS Stack for each CPU */
+            cpus[i].gdt       = (gdt_t *)malloc(sizeof(gdt_t));
             cpus[i].tss_stack = malloc(sizeof(tss_stack_t));
             cpus[i].tss       = (tss_t *)malloc(sizeof(tss_t));
 
             /* Configure the AP entry point */
             cpu->extra_argument = (uint64_t)&cpus[i];
             cpu->goto_address   = (limine_goto_address)ap_entry;
-
-            send_ipi(cpu->lapic_id, APIC_ICR_STARTUP | 0x08); // 0x8000
-            send_ipi(cpu->lapic_id, APIC_ICR_STARTUP | 0x08);
         }
     }
 

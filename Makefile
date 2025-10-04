@@ -35,14 +35,20 @@ endif
 
 ifeq ($(CONFIG_CPU_FEATURE_FPU), y)
   C_CONFIG += -DCPU_FEATURE_FPU=1
+else
+  C_CONFIG += -mno-mmx -mno-80387
 endif
 
 ifeq ($(CONFIG_CPU_FEATURE_SSE), y)
   C_CONFIG += -DCPU_FEATURE_SSE=1
+else
+  C_CONFIG += -mno-sse -mno-sse2
 endif
 
 ifeq ($(CONFIG_CPU_FEATURE_AVX), y)
   C_CONFIG += -DCPU_FEATURE_AVX=1
+else
+  C_CONFIG += -mno-avx -mno-avx2
 endif
 
 ifneq ($(CONFIG_TTY_DEFAULT_DEV),)

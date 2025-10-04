@@ -27,7 +27,7 @@ typedef uint8_t kernel_stack_t[KERNEL_STACK_SIZE];
 typedef struct {
         uint64_t        id;
         uint64_t        lapic_id;
-        gdt_t           gdt;
+        gdt_t          *gdt;
         tss_stack_t    *tss_stack;
         tss_t          *tss;
         kernel_stack_t *kernel_stack;
