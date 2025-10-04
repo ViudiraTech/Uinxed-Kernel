@@ -65,15 +65,35 @@ int is_huge_page(page_table_entry_t *entry)
 /* Enable paging with a phys page directory address */
 void enable_paging(uintptr_t page_directory_phys)
 {
-    __asm__ volatile("mov %0, %%cr3\n\t"
+#if defined(__x86_64__) || defined(_M_X64)
+    uint64_t cr3_val = page_directory_phys;
+    __asm__ volatile("mfence\n\t"
+                     "mov %0, %%cr3\n\t"
                      "mov %%cr0, %%rax\n\t"
-                     "or $0x80000000, %%eax\n\t"
+                     "orl $0x80000000, %%eax\n\t"
                      "mov %%rax, %%cr0\n\t"
                      "jmp 1f\n\t"
                      "1:\n\t"
+                     "mov %%cr3, %%rax\n\t"
+                     "mov %%rax, %%cr3\n\t"
                      :
-                     : "r"(page_directory_phys)
+                     : "r"(cr3_val)
+                     : "rax", "memory");
+#else
+    uint32_t cr3_val = (uint32_t)page_directory_phys;
+    __asm__ volatile("mfence\n\t"
+                     "mov %0, %%cr3\n\t"
+                     "mov %%cr0, %%eax\n\t"
+                     "orl $0x80000000, %%eax\n\t"
+                     "mov %%eax, %%cr0\n\t"
+                     "jmp 1f\n\t"
+                     "1:\n\t"
+                     "mov %%cr3, %%eax\n\t"
+                     "mov %%eax, %%cr3\n\t"
+                     :
+                     : "r"(cr3_val)
                      : "eax", "memory");
+#endif
 }
 
 /* Clear all entries in a memory page table */

@@ -186,4 +186,10 @@ void krn_halt(void)
     while (1) __asm__ volatile("hlt");
 }
 
+/* Compiler barrier */
+__attribute__((noinline)) void compiler_barrier(void)
+{
+    __asm__ volatile("" ::: "memory");
+}
+
 /* NOLINTEND(bugprone-easily-swappable-parameters) */
