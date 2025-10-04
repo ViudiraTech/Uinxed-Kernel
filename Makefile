@@ -35,14 +35,20 @@ endif
 
 ifeq ($(CONFIG_CPU_FEATURE_FPU), y)
   C_CONFIG += -DCPU_FEATURE_FPU=1
+else
+  C_CONFIG += -mno-mmx -mno-80387
 endif
 
 ifeq ($(CONFIG_CPU_FEATURE_SSE), y)
   C_CONFIG += -DCPU_FEATURE_SSE=1
+else
+  C_CONFIG += -mno-sse -mno-sse2
 endif
 
 ifeq ($(CONFIG_CPU_FEATURE_AVX), y)
   C_CONFIG += -DCPU_FEATURE_AVX=1
+else
+  C_CONFIG += -mno-avx -mno-avx2
 endif
 
 ifneq ($(CONFIG_TTY_DEFAULT_DEV),)
@@ -65,9 +71,9 @@ ifneq ($(CONFIG_SERIAL_STOP_BITS),)
   C_CONFIG += -DSERIAL_STOP_BITS=$(CONFIG_SERIAL_STOP_BITS)
 endif
 
-C_SOURCES      := $(shell find * -name "*.c")
-S_SOURCES      := $(shell find * -name "*.s")
-HEADERS        := $(shell find * -name "*.h")
+C_SOURCES      := $(shell find * -not -path "test-heap-fix/*" -name "*.c")
+S_SOURCES      := $(shell find * -not -path "test-heap-fix/*" -name "*.s")
+HEADERS        := $(shell find * -not -path "test-heap-fix/*" -name "*.h")
 OBJS           := $(C_SOURCES:%.c=%.o) $(S_SOURCES:%.s=%.o)
 DEPS           := $(OBJS:%.o=%.d)
 LIBS           := $(wildcard libs/lib*.a)
