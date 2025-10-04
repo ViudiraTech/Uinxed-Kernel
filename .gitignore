@@ -63,3 +63,4 @@ Uinxed-x64.iso
 compile_commands.json
 make.log
 *.bak
+.test-heap-fix
