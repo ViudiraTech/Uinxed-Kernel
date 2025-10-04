@@ -1,21 +1,26 @@
 /*
- * page_walker.h
- * Page table walker implementation
  *
- * 2025/10/3 By W9pi3cZ1
- * Based on GPL-3.0 open source agreement
- * Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
+ *      page_walker.h
+ *      Page table walker implementation header file
+ *
+ *      2025/10/3 By W9pi3cZ1
+ *      Based on GPL-3.0 open source agreement
+ *      Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
+ *
  */
 
-#ifndef PAGE_WALKER_H
-#define PAGE_WALKER_H
+#ifndef PAGE_WALKER_H_
+#define PAGE_WALKER_H_
 
 #include "hhdm.h"
 #include "page.h"
 #include "stdint.h"
 
+#define PAGE_WALK_INDEX(addr, shift) (((addr) >> (shift)) & 0x1FF)
+#define IS_ALIGNED(addr, alignment)  (((addr) & ((alignment) - 1)) == 0)
+
 /* State of page walking */
-typedef struct page_walk_state {
+typedef struct {
         page_directory_t *directory;
         uintptr_t         virtual_addr;
         uintptr_t         physical_addr;
@@ -66,8 +71,4 @@ size_t check_range_free_with_state(page_walk_state_t *state, uintptr_t start, si
 /* Find a free virtual memory range of specified length */
 uintptr_t walk_page_tables_find_free(page_directory_t *directory, uintptr_t start, size_t length);
 
-/* Helper macros */
-#define PAGE_WALK_INDEX(addr, shift) (((addr) >> (shift)) & 0x1FF)
-#define IS_ALIGNED(addr, alignment)  (((addr) & ((alignment) - 1)) == 0)
-
-#endif // PAGE_WALKER_H
+#endif // PAGE_WALKER_H_

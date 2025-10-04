@@ -23,10 +23,7 @@
 #define PTE_HUGE         (0x1 << 7)
 #define PTE_NO_EXECUTE   (((uint64_t)0x1) << 63)
 #define KERNEL_PTE_FLAGS (PTE_PRESENT | PTE_WRITEABLE | PTE_NO_EXECUTE)
-
-#define PAGE_FLAGS_MASK (~(0xFFF0000000000FFFULL))
-
-#define PAGE_SIZE 0x1000
+#define PAGE_SIZE        0x1000
 
 typedef struct {
         uint64_t value;
@@ -47,24 +44,10 @@ typedef struct {
 } pat_config_t;
 
 /* Determine whether the page table entry maps a huge page */
-inline static int is_huge_page(page_table_entry_t *entry)
-{
-    return (((uint64_t)entry->value) & PTE_HUGE) != 0;
-}
+int is_huge_page(page_table_entry_t *entry);
 
 /* Enable paging with a phys page directory address */
-static inline void enable_paging(uintptr_t page_directory_phys)
-{
-    __asm__ volatile("mov %0, %%cr3\n\t"
-                     "mov %%cr0, %%rax\n\t"
-                     "or $0x80000000, %%eax\n\t"
-                     "mov %%rax, %%cr0\n\t"
-                     "jmp 1f\n\t"
-                     "1:\n\t"
-                     :
-                     : "r"(page_directory_phys)
-                     : "eax", "memory");
-}
+void enable_paging(uintptr_t page_directory_phys);
 
 /* Clear all entries in a memory page table */
 void page_table_clear(page_table_t *table);

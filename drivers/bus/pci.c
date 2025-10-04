@@ -273,7 +273,8 @@ static void pci_mcfg_write(pci_device_reg_t reg, uint32_t value)
     uint32_t           offset = reg.offset % 4;
     volatile uint32_t *ptr    = (volatile uint32_t *)(reg.parent->ecam_ptr + (reg.offset & 0xffc));
     uint32_t           shift  = 8 * offset;
-    if (shift == 0) { // Aligned written
+
+    if (!shift) { // Aligned written
         *ptr = value;
     } else { // No aligned written
         uint32_t mask = 0xffffffff >> (32 - shift);
@@ -680,7 +681,7 @@ static void slot_process(pci_device_cache_t *cache)
 /* Iterate over bus by a range */
 static void pci_iter_bus_range(pci_device_cache_t *cache, bus_range_t bus_range)
 {
-    if (mcfg_info.enabled && !cache->entry) { return; } // Enabled MCFG but no entry found
+    if (mcfg_info.enabled && !cache->entry) return; // Enabled MCFG but no entry found
     pci_device_t *device = cache->device;
     for (device->bus = bus_range.start; device->bus < bus_range.end; device->bus++) {
         for (device->slot = 0; device->slot < 32; device->slot++) slot_process(cache);

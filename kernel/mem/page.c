@@ -56,6 +56,26 @@ INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_
 }
 INTERRUPT_END
 
+/* Determine whether the page table entry maps a huge page */
+int is_huge_page(page_table_entry_t *entry)
+{
+    return (((uint64_t)entry->value) & PTE_HUGE) != 0;
+}
+
+/* Enable paging with a phys page directory address */
+void enable_paging(uintptr_t page_directory_phys)
+{
+    __asm__ volatile("mov %0, %%cr3\n\t"
+                     "mov %%cr0, %%rax\n\t"
+                     "or $0x80000000, %%eax\n\t"
+                     "mov %%rax, %%cr0\n\t"
+                     "jmp 1f\n\t"
+                     "1:\n\t"
+                     :
+                     : "r"(page_directory_phys)
+                     : "eax", "memory");
+}
+
 /* Clear all entries in a memory page table */
 void page_table_clear(page_table_t *table)
 {
@@ -68,11 +88,11 @@ page_table_t *page_table_create(page_table_entry_t *entry)
     if (entry->value == 0) {
         uint64_t frame      = alloc_frames(1);
         entry->value        = frame | PTE_PRESENT | PTE_WRITEABLE | PTE_USER;
-        page_table_t *table = (page_table_t *)phys_to_virt(entry->value & PAGE_FLAGS_MASK);
+        page_table_t *table = (page_table_t *)phys_to_virt(entry->value & 0x000fffffffff000);
         page_table_clear(table);
         return table;
     }
-    page_table_t *table = (page_table_t *)phys_to_virt(entry->value & PAGE_FLAGS_MASK);
+    page_table_t *table = (page_table_t *)phys_to_virt(entry->value & 0x000fffffffff000);
     return table;
 }
 
@@ -100,7 +120,7 @@ void copy_page_table_recursive(page_table_t *source_table, page_table_t *new_tab
             new_table->entries[i].value = 0;
             continue;
         }
-        page_table_t *source_next_level = (page_table_t *)phys_to_virt(source_table->entries[i].value & PAGE_FLAGS_MASK);
+        page_table_t *source_next_level = (page_table_t *)phys_to_virt(source_table->entries[i].value & 0x000fffffffff000);
         page_table_t *new_next_level    = page_table_create(&(new_table->entries[i]));
         new_table->entries[i].value     = (uint64_t)new_next_level | (source_table->entries[i].value & 0xfff);
         copy_page_table_recursive(source_next_level, new_next_level, level - 1);
@@ -114,7 +134,7 @@ void free_page_table_recursive(page_table_t *table, int level) // NOLINT
     uint64_t physical_address = (uint64_t)virt_to_phys(virtual_address);
 
     if (level == 0) {
-        free_frame(physical_address & PAGE_FLAGS_MASK);
+        free_frame(physical_address & 0x000fffffffff000);
         return;
     }
     for (int i = 0; i < 512; i++) {
@@ -122,13 +142,13 @@ void free_page_table_recursive(page_table_t *table, int level) // NOLINT
         if (entry->value == 0 || is_huge_page(entry)) continue;
         if (level == 1) {
             if (entry->value & PTE_PRESENT && entry->value & PTE_WRITEABLE && entry->value & PTE_USER) {
-                free_frame(entry->value & PAGE_FLAGS_MASK);
+                free_frame(entry->value & 0x000fffffffff000);
             }
         } else {
-            free_page_table_recursive(phys_to_virt(entry->value & PAGE_FLAGS_MASK), level - 1);
+            free_page_table_recursive(phys_to_virt(entry->value & 0x000fffffffff000), level - 1);
         }
     }
-    free_frame(physical_address & PAGE_FLAGS_MASK);
+    free_frame(physical_address & 0x000fffffffff000);
 }
 
 /* Clone a page directory */
@@ -167,7 +187,7 @@ void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uin
     page_table_t *l2_table = page_table_create(&(l3_table->entries[l3_index]));
     page_table_t *l1_table = page_table_create(&(l2_table->entries[l2_index]));
 
-    l1_table->entries[l1_index].value = (frame & PAGE_FLAGS_MASK) | flags;
+    l1_table->entries[l1_index].value = (frame & 0x000fffffffff000) | flags;
     flush_tlb(addr);
 }
 
