@@ -73,11 +73,11 @@ page_table_t *page_table_create(page_table_entry_t *entry)
     if (entry->value == 0) {
         uint64_t frame      = alloc_frames(1);
         entry->value        = frame | PTE_PRESENT | PTE_WRITEABLE | PTE_USER;
-        page_table_t *table = (page_table_t *)phys_to_virt(entry->value & 0xfffffffffffff000);
+        page_table_t *table = (page_table_t *)phys_to_virt(entry->value & 0x000fffffffff000);
         page_table_clear(table);
         return table;
     }
-    page_table_t *table = (page_table_t *)phys_to_virt(entry->value & 0xfffffffffffff000);
+    page_table_t *table = (page_table_t *)phys_to_virt(entry->value & 0x000fffffffff000);
     return table;
 }
 
@@ -116,7 +116,7 @@ void copy_page_table_iterative(page_table_t *source_table, page_table_t *new_tab
                 frame.new_table->entries[i].value = 0;
                 continue;
             }
-            page_table_t *source_next_level   = (page_table_t *)phys_to_virt(frame.source_table->entries[i].value & 0xfffffffffffff000);
+            page_table_t *source_next_level   = (page_table_t *)phys_to_virt(frame.source_table->entries[i].value & 0x000fffffffff000);
             page_table_t *new_next_level      = page_table_create(&(frame.new_table->entries[i]));
             frame.new_table->entries[i].value = (uint64_t)new_next_level | (frame.source_table->entries[i].value & 0xfff);
             frame.i++;
@@ -206,7 +206,7 @@ void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uin
     page_table_t *l2_table = page_table_create(&(l3_table->entries[l3_index]));
     page_table_t *l1_table = page_table_create(&(l2_table->entries[l2_index]));
 
-    l1_table->entries[l1_index].value = (frame & 0xfffffffffffff000) | flags;
+    l1_table->entries[l1_index].value = (frame & 0x000fffffffff000) | flags;
     flush_tlb(addr);
 }
 
@@ -264,7 +264,7 @@ pat_config_t get_pat_config(void)
 /* Initialize memory page table */
 void page_init(void)
 {
-    page_table_t *kernel_page_table = phys_to_virt(get_cr3());
+    page_table_t *kernel_page_table = (page_table_t *)phys_to_virt(get_cr3());
     kernel_page_dir                 = (page_directory_t) {.table = kernel_page_table};
     current_directory               = &kernel_page_dir;
 }
