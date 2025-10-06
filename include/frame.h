@@ -28,11 +28,26 @@ extern frame_allocator_t frame_allocator;
 /* Initialize memory frame */
 void init_frame(void);
 
-/* Allocate memory frame */
+/* Allocate memory frames */
 uint64_t alloc_frames(size_t count);
 
-/* Free memory frames */
+/* Allocate 2M memory frames */
+uint64_t alloc_frames_2M(size_t count);
+
+/* Allocate 1G memory frames */
+uint64_t alloc_frames_1G(size_t count);
+
+/* Free a memory frame */
 void free_frame(uint64_t addr);
+
+/* Free memory frames */
+void free_frames(uint64_t addr, size_t count);
+
+/* Free 2M memory frames */
+void free_frames_2M(uint64_t addr);
+
+/* Free 1G memory frames */
+void free_frames_1G(uint64_t addr);
 
 /* Print memory map */
 void print_memory_map(void);

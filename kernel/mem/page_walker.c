@@ -16,10 +16,6 @@
 #include "stdlib.h"
 #include "string.h"
 
-/* Constants for faster masking */
-static const uint64_t HUGE_PAGE_1G_MASK = ~((1 << 30) - 1);
-static const uint64_t HUGE_PAGE_2M_MASK = ~((1 << 21) - 1);
-
 /* Init page_walk_state */
 void page_walk_init(page_walk_state_t *state, page_directory_t *directory, uintptr_t virtual_addr)
 {

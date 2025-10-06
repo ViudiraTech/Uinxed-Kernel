@@ -17,6 +17,7 @@
 #include "hhdm.h"
 #include "interrupt.h"
 #include "printk.h"
+#include "stddef.h"
 #include "stdint.h"
 #include "stdlib.h"
 #include "string.h"
@@ -108,11 +109,11 @@ page_table_t *page_table_create(page_table_entry_t *entry)
     if (entry->value == 0) {
         uint64_t frame      = alloc_frames(1);
         entry->value        = frame | PTE_PRESENT | PTE_WRITEABLE | PTE_USER;
-        page_table_t *table = (page_table_t *)phys_to_virt(entry->value & 0x000fffffffff000);
+        page_table_t *table = (page_table_t *)phys_to_virt(entry->value & PAGE_FLAGS_MASK);
         page_table_clear(table);
         return table;
     }
-    page_table_t *table = (page_table_t *)phys_to_virt(entry->value & 0x000fffffffff000);
+    page_table_t *table = (page_table_t *)phys_to_virt(entry->value & PAGE_FLAGS_MASK);
     return table;
 }
 
@@ -140,7 +141,7 @@ void copy_page_table_recursive(page_table_t *source_table, page_table_t *new_tab
             new_table->entries[i].value = 0;
             continue;
         }
-        page_table_t *source_next_level = (page_table_t *)phys_to_virt(source_table->entries[i].value & 0x000fffffffff000);
+        page_table_t *source_next_level = (page_table_t *)phys_to_virt(source_table->entries[i].value & PAGE_FLAGS_MASK);
         page_table_t *new_next_level    = page_table_create(&(new_table->entries[i]));
         new_table->entries[i].value     = (uint64_t)new_next_level | (source_table->entries[i].value & 0xfff);
         copy_page_table_recursive(source_next_level, new_next_level, level - 1);
@@ -154,7 +155,7 @@ void free_page_table_recursive(page_table_t *table, int level) // NOLINT
     uint64_t physical_address = (uint64_t)virt_to_phys(virtual_address);
 
     if (level == 0) {
-        free_frame(physical_address & 0x000fffffffff000);
+        free_frame(physical_address & PAGE_FLAGS_MASK);
         return;
     }
     for (int i = 0; i < 512; i++) {
@@ -162,13 +163,13 @@ void free_page_table_recursive(page_table_t *table, int level) // NOLINT
         if (entry->value == 0 || is_huge_page(entry)) continue;
         if (level == 1) {
             if (entry->value & PTE_PRESENT && entry->value & PTE_WRITEABLE && entry->value & PTE_USER) {
-                free_frame(entry->value & 0x000fffffffff000);
+                free_frame(entry->value & PAGE_FLAGS_MASK);
             }
         } else {
-            free_page_table_recursive(phys_to_virt(entry->value & 0x000fffffffff000), level - 1);
+            free_page_table_recursive(phys_to_virt(entry->value & PAGE_FLAGS_MASK), level - 1);
         }
     }
-    free_frame(physical_address & 0x000fffffffff000);
+    free_frame(physical_address & PAGE_FLAGS_MASK);
 }
 
 /* Clone a page directory */
@@ -194,7 +195,7 @@ void free_directory(page_directory_t *dir)
     free(dir);
 }
 
-/* Maps a virtual address to a physical frame */
+/* Maps a virtual address to a physical frame using 4KB pages */
 void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags) // NOLINT
 {
     uint64_t l4_index = (((addr >> 39)) & 0x1ff);
@@ -207,7 +208,37 @@ void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uin
     page_table_t *l2_table = page_table_create(&(l3_table->entries[l3_index]));
     page_table_t *l1_table = page_table_create(&(l2_table->entries[l2_index]));
 
-    l1_table->entries[l1_index].value = (frame & 0x000fffffffff000) | flags;
+    l1_table->entries[l1_index].value = (frame & PAGE_FLAGS_MASK) | flags;
+    flush_tlb(addr);
+}
+
+/* Maps a virtual address to a physical frame using 2MB huge pages */
+void page_map_to_2M(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags) // NOLINT
+{
+    uint64_t l4_index = (addr >> 39) & 0x1FF;
+    uint64_t l3_index = (addr >> 30) & 0x1FF;
+    uint64_t l2_index = (addr >> 21) & 0x1FF;
+
+    page_table_t *l4_table = directory->table;
+    page_table_t *l3_table = page_table_create(&l4_table->entries[l4_index]);
+    page_table_t *l2_table = page_table_create(&l3_table->entries[l3_index]);
+
+    l2_table->entries[l2_index].value = (frame & HUGE_PAGE_2M_MASK) | flags | PTE_HUGE;
+
+    flush_tlb(addr);
+}
+
+/* Maps a virtual address to a physical frame using 1GB huge pages */
+void page_map_to_1G(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags) // NOLINT
+{
+    uint64_t l4_index = (addr >> 39) & 0x1FF;
+    uint64_t l3_index = (addr >> 30) & 0x1FF;
+
+    page_table_t *l4_table = directory->table;
+    page_table_t *l3_table = page_table_create(&l4_table->entries[l4_index]);
+
+    l3_table->entries[l3_index].value = (frame & HUGE_PAGE_1G_MASK) | flags | PTE_HUGE;
+
     flush_tlb(addr);
 }
 
@@ -231,14 +262,121 @@ void page_map_range_to(page_directory_t *directory, uint64_t frame, uint64_t len
     for (uint64_t i = 0; i < length; i += 0x1000) page_map_to(directory, (uint64_t)phys_to_virt(frame + i), frame + i, flags);
 }
 
-/* Maps random non-contiguous physical pages to the virtual address range */
-void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags) // NOLINT
+/* Maps random non-contiguous physical pages to the virtual address range using 4K page */
+void page_map_range_to_random_4K(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags) // NOLINT
 {
+    if (length == 0) return;
+
     uint64_t frame = 0;
-    for (uint64_t i = 0; i < length; i += 0x1000) {
+    for (uint64_t i = 0; i < length; i += PAGE_SIZE) {
         frame = alloc_frames(1);
-        if (frame != 0) page_map_to(directory, addr + i, frame, flags);
+        if (frame != 0) { page_map_to(directory, addr + i, frame, flags); }
     }
+}
+
+/* Maps random non-contiguous physical pages to the virtual address range using 2M page */
+void page_map_range_to_random_2M(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags) // NOLINT
+{
+    if (length == 0) return;
+
+    // Check align
+    uint64_t aligned_addr   = ALIGN_DOWN(addr, HUGE_2M_SIZE);
+    uint64_t end_addr       = ALIGN_UP(addr + length, HUGE_2M_SIZE);
+    uint64_t aligned_length = end_addr - aligned_addr;
+
+    uint64_t blocks = aligned_length / HUGE_2M_SIZE;
+
+    for (uint64_t i = 0; i < blocks; i++) {
+        uint64_t block_addr = aligned_addr + i * HUGE_2M_SIZE;
+
+        // Try 2M
+        uint64_t frame_2m = alloc_frames_2M(1);
+        if (frame_2m) {
+            page_map_to_2M(directory, block_addr, frame_2m, flags);
+        } else {
+            // Fallback to 4K
+            page_map_range_to_random_4K(directory, block_addr, HUGE_2M_SIZE, flags);
+        }
+    }
+}
+
+/* Maps random non-contiguous physical pages to the virtual address range using 1G page */
+void page_map_range_to_random_1G(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags) // NOLINT
+{
+    if (length == 0) return;
+
+    // Check align
+    uint64_t aligned_addr   = ALIGN_DOWN(addr, HUGE_1G_SIZE);
+    uint64_t end_addr       = ALIGN_UP(addr + length, HUGE_1G_SIZE);
+    uint64_t aligned_length = end_addr - aligned_addr;
+
+    uint64_t blocks = aligned_length / HUGE_1G_SIZE;
+
+    for (uint64_t i = 0; i < blocks; i++) {
+        uint64_t block_addr = aligned_addr + i * HUGE_1G_SIZE;
+
+        // Try 1G
+        uint64_t frame_1g = alloc_frames_1G(1);
+        if (frame_1g) {
+            page_map_to_1G(directory, block_addr, frame_1g, flags);
+        } else {
+            // Fallback to 2M
+            page_map_range_to_random_2M(directory, block_addr, HUGE_1G_SIZE, flags);
+        }
+    }
+}
+
+/* Helper function to map unaligned regions using 2M and 4K pages */
+static void map_unaligned_region(page_directory_t *directory, uint64_t start_addr, uint64_t end_addr, uint64_t flags)
+{
+    // Try 2M pages for aligned sub-regions
+    const uint64_t aligned_2m_start = ALIGN_UP(start_addr, HUGE_2M_SIZE);
+    const uint64_t aligned_2m_end   = ALIGN_DOWN(end_addr, HUGE_2M_SIZE);
+
+    // Map aligned middle region with 2M pages
+    if (aligned_2m_start < aligned_2m_end) {
+        page_map_range_to_random_2M(directory, aligned_2m_start, aligned_2m_end - aligned_2m_start, flags);
+    }
+
+    // Map leading unaligned region with 4K pages
+    if (start_addr < aligned_2m_start) {
+        const uint64_t lead_end = MIN(aligned_2m_start, end_addr);
+        page_map_range_to_random_4K(directory, start_addr, lead_end - start_addr, flags);
+    }
+
+    // Map trailing unaligned region with 4K pages
+    if (aligned_2m_end < end_addr) { page_map_range_to_random_4K(directory, aligned_2m_end, end_addr - aligned_2m_end, flags); }
+}
+
+/* Intelligently maps random non-contiguous physical pages to the virtual address range */
+void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags)
+{
+    if (length == 0) return;
+
+    const uint64_t start_addr = addr;
+    const uint64_t end_addr   = addr + length;
+
+    // Try to map 1G-aligned regions with 1G pages
+    const uint64_t aligned_1g_start = ALIGN_UP(start_addr, HUGE_1G_SIZE);
+    const uint64_t aligned_1g_end   = ALIGN_DOWN(end_addr, HUGE_1G_SIZE);
+
+    if (aligned_1g_start < aligned_1g_end) {
+        // We have a fully 1G-aligned region in the middle
+        page_map_range_to_random_1G(directory, aligned_1g_start, aligned_1g_end - aligned_1g_start, flags);
+    }
+
+    // Process remaining regions with 2M and 4K pages
+    uint64_t current_addr = start_addr;
+
+    // Handle unaligned region before 1G section (if any)
+    if (current_addr < aligned_1g_start) {
+        const uint64_t chunk_end = MIN(aligned_1g_start, end_addr);
+        map_unaligned_region(directory, current_addr, chunk_end, flags);
+        current_addr = chunk_end;
+    }
+
+    // Handle unaligned region after 1G section (if any)
+    if (current_addr < end_addr) { map_unaligned_region(directory, current_addr, end_addr, flags); }
 }
 
 /* Get the PAT configuration */
