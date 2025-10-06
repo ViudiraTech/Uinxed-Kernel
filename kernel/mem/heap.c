@@ -31,7 +31,9 @@ void init_heap(void)
         KERNEL_HEAP_SIZE = frame_allocator.usable_frames / 2 * PAGE_SIZE; // 1/2 of usable memory
     }
     page_map_range_to_random(get_kernel_pagedir(), KERNEL_HEAP_START, KERNEL_HEAP_SIZE, KERNEL_PTE_FLAGS);
-    heap_init((uint8_t *)KERNEL_HEAP_START, KERNEL_HEAP_SIZE);
+    pointer_cast_t cast;
+    cast.val = KERNEL_HEAP_START;
+    heap_init(cast.ptr, KERNEL_HEAP_SIZE);
 }
 
 /* Allocate an empty memory */

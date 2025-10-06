@@ -327,7 +327,7 @@ void page_map_range_to_random_1G(page_directory_t *directory, uint64_t addr, uin
 }
 
 /* Helper function to map unaligned regions using 2M and 4K pages */
-static void map_unaligned_region(page_directory_t *directory, uint64_t start_addr, uint64_t end_addr, uint64_t flags)
+static void map_unaligned_region(page_directory_t *directory, uint64_t start_addr, uint64_t end_addr, uint64_t flags) // NOLINT
 {
     // Try 2M pages for aligned sub-regions
     const uint64_t aligned_2m_start = ALIGN_UP(start_addr, HUGE_2M_SIZE);
@@ -349,7 +349,7 @@ static void map_unaligned_region(page_directory_t *directory, uint64_t start_add
 }
 
 /* Intelligently maps random non-contiguous physical pages to the virtual address range */
-void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags)
+void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags) // NOLINT
 {
     if (length == 0) return;
 
