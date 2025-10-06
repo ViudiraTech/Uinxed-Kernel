@@ -99,14 +99,12 @@ uint64_t alloc_frames_2M(size_t count)
 
     for (size_t i = 0; i < bitmap->length; i += frames_per_2mb) {
         if (i + total_frames > bitmap->length) break;
-
         if (bitmap_range_all(bitmap, i, i + total_frames, 1)) {
             bitmap_set_range(bitmap, i, i + total_frames, 0);
             frame_allocator.usable_frames -= total_frames;
             return i * 4096;
         }
     }
-
     return 0;
 }
 
@@ -119,14 +117,12 @@ uint64_t alloc_frames_1G(size_t count)
 
     for (size_t i = 0; i < bitmap->length; i += frames_per_1gb) {
         if (i + total_frames > bitmap->length) break;
-
         if (bitmap_range_all(bitmap, i, i + total_frames, 1)) {
             bitmap_set_range(bitmap, i, i + total_frames, 0);
             frame_allocator.usable_frames -= total_frames;
             return i * 4096;
         }
     }
-
     return 0;
 }
 
@@ -136,7 +132,7 @@ void free_frame(uint64_t addr)
     if (!addr) return;
     size_t frame_index = addr / 4096;
 
-    if (frame_index == 0) return;
+    if (!frame_index) return;
     bitmap_t *bitmap = &frame_allocator.bitmap;
     bitmap_set(bitmap, frame_index, 1);
     frame_allocator.usable_frames++;
@@ -145,9 +141,10 @@ void free_frame(uint64_t addr)
 /* Free memory frames */
 void free_frames(uint64_t addr, size_t count)
 {
-    if (addr == 0 || count == 0) return;
+    if (!addr || !count) return;
     size_t frame_index = addr / 4096;
-    if (frame_index == 0) return;
+
+    if (!frame_index) return;
     bitmap_t *bitmap = &frame_allocator.bitmap;
     bitmap_set_range(bitmap, frame_index, frame_index + count, 1);
 }
@@ -155,9 +152,10 @@ void free_frames(uint64_t addr, size_t count)
 /* Free 2M memory frames */
 void free_frames_2M(uint64_t addr)
 {
-    if (addr == 0) return;
+    if (!addr) return;
     size_t frame_index = addr / 4096;
-    if (frame_index == 0) return;
+
+    if (!frame_index) return;
     bitmap_t *bitmap = &frame_allocator.bitmap;
     for (size_t i = 0; i < 512; i++) { bitmap_set(bitmap, frame_index + i, 1); }
 }
@@ -165,9 +163,10 @@ void free_frames_2M(uint64_t addr)
 /* Free 1G memory frames */
 void free_frames_1G(uint64_t addr)
 {
-    if (addr == 0) return;
+    if (!addr) return;
     size_t frame_index = addr / 4096;
-    if (frame_index == 0) return;
+
+    if (!frame_index) return;
     bitmap_t *bitmap = &frame_allocator.bitmap;
     for (size_t i = 0; i < 262144; i++) { bitmap_set(bitmap, frame_index + i, 1); }
 }

@@ -94,8 +94,7 @@ size_t bitmap_find_range(const bitmap_t *bitmap, size_t length, int value) // NO
 /* Check memory bitmap range value */
 int bitmap_range_all(const bitmap_t *bitmap, size_t start, size_t end, int value)
 {
-    for (size_t i = start; i < end; i++) {
+    for (size_t i = start; i < end; i++)
         if (bitmap_get(bitmap, i) != value) return 0;
-    }
     return 1;
 }

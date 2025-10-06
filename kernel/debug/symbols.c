@@ -43,7 +43,7 @@ sym_info_t get_symbol_info(uint64_t *kernel_file_address, Elf64_Addr symbol_addr
         relative_addr = symbol_address - kernel_address_request.response->virtual_base;
     } else {
         relative_addr = KERNEL_BASE_ADDRESS;
-	}
+    }
 
     for (size_t i = 0; i < sym_size; ++i) {
         unsigned char type = ELF64_ST_TYPE(sym[i].st_info);
