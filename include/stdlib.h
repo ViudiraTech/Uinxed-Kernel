@@ -29,6 +29,9 @@
 #define IS_DIGIT(c) ((c) >= '0' && (c) <= '9')
 #define IS_ALPHA(a) (((a) >= 'A' && (a) <= 'Z') || ((a) >= 'a' && (a) <= 'z'))
 
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+
 /* BEGIN TODO BLOCK: Move these to a I/O header file */
 /* Placeholder ... */
 struct writer;

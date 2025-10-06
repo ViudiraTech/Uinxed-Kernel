@@ -11,20 +11,29 @@
 
 #include "heap.h"
 #include "alloc.h"
+#include "cpuid.h"
+#include "frame.h"
 #include "hhdm.h"
-#include "limine.h"
 #include "page.h"
-#include "printk.h"
 #include "stddef.h"
 #include "stdint.h"
+#include "stdlib.h"
 #include "string.h"
-#include "uinxed.h"
+
+uint64_t KERNEL_HEAP_START = 0;
+uint64_t KERNEL_HEAP_SIZE  = 0;
 
 /* Initialize the memory heap */
 void init_heap(void)
 {
+    if (!KERNEL_HEAP_START) { KERNEL_HEAP_START = (1ULL << (get_cpu_phys_bits() + 1)) + get_physical_memory_offset(); }
+    if (!KERNEL_HEAP_SIZE) {
+        KERNEL_HEAP_SIZE = frame_allocator.usable_frames / 2 * PAGE_SIZE; // 1/2 of usable memory
+    }
     page_map_range_to_random(get_kernel_pagedir(), KERNEL_HEAP_START, KERNEL_HEAP_SIZE, KERNEL_PTE_FLAGS);
-    heap_init((uint8_t *)KERNEL_HEAP_START, KERNEL_HEAP_SIZE);
+    pointer_cast_t cast;
+    cast.val = KERNEL_HEAP_START;
+    heap_init(cast.ptr, KERNEL_HEAP_SIZE);
 }
 
 /* Allocate an empty memory */
