@@ -79,8 +79,8 @@ void video_invoke_area(position_t p0, position_t p1, void (*callback)(position_t
 /* Draw a matrix at the specified coordinates on the screen */
 void video_draw_rect(position_t p0, position_t p1, uint32_t color);
 
-/* Draw a character at the specified coordinates on the screen */
-void video_draw_char(const char c, uint32_t x, uint32_t y, uint32_t color);
+/* Flush character buffer to screen */
+void video_flush_buffer(uint32_t color);
 
 /* Print a character at the specified coordinates on the screen */
 void video_put_char(const char c, uint32_t color);

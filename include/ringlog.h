@@ -9,6 +9,9 @@
  *
  */
 
+#ifndef INCLUDE_RINGLOG_H_
+#define INCLUDE_RINGLOG_H_
+
 #include "stddef.h"
 
 #define LOG_MAX_LENGTH  1024
@@ -26,3 +29,5 @@ void log_buffer_write(log_buffer_t *log, const char *fmt, ...);
 
 /* Printing ring log buffer */
 void log_buffer_print(log_buffer_t *log);
+
+#endif // INCLUDE_RINGLOG_H_

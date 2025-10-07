@@ -60,6 +60,8 @@ typedef __INT_FAST8_TYPE__    int_fast8_t;
 typedef __INT_FAST16_TYPE__   int_fast16_t;
 typedef __INT_FAST32_TYPE__   int_fast32_t;
 typedef __INT_FAST64_TYPE__   int_fast64_t;
+typedef double                float64_t;
+typedef float                 float32_t;
 
 #ifdef __UINTPTR_TYPE__
 typedef __UINTPTR_TYPE__ uintptr_t;
