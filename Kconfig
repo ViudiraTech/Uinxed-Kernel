@@ -18,6 +18,14 @@ menu "Terminal properties"
     help
       "If enabled, the specified ttf font is used, otherwise the default bitmap font is used."
 
+    config CONSOLE_FONT_SIZE
+      depends on TTF_CONSOLE
+      int "Font size for kernel terminal. (TTF fonts only)"
+      default 10
+      range 0 100
+      help
+        "If TTF font mode is enabled, this option allows you to adjust the kernel terminal text size arbitrarily."
+
 endmenu
 
 menu "Processor configuration"

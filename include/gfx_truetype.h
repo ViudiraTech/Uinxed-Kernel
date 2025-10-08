@@ -14,10 +14,6 @@
 
 #include "stdint.h"
 
-#ifndef TTF_CONSOLE
-#    define TTF_CONSOLE 1
-#endif
-
 /* Get the length and width of the corresponding word according to the specified font and size */
 void get_ttf_dimensions(const char *data, uint32_t size, uint32_t *width, uint32_t *height);
 

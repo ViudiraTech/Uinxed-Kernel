@@ -14,6 +14,14 @@
 
 #include "stdint.h"
 
+#ifndef TTF_CONSOLE
+#    define TTF_CONSOLE 1
+#endif
+
+#ifndef CONSOLE_FONT_SIZE
+#    define CONSOLE_FONT_SIZE 10
+#endif
+
 typedef struct {
         uint8_t red;
         uint8_t green;

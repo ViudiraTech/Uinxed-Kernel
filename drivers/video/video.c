@@ -39,7 +39,6 @@ uint32_t back_color; // Background color
 
 uint32_t font_width;  // Font width
 uint32_t font_height; // Font height
-uint32_t font_size;   // Font size
 
 static char     char_buffer[256];      // Char buffer
 static uint32_t char_buffer_index = 0; // Char buffer index
@@ -93,12 +92,10 @@ void video_init(void)
     stride                                 = framebuffer->pitch / (framebuffer->bpp / 8);
 
 #if TTF_CONSOLE
-    font_size = 10;
-    get_ttf_dimensions("A", font_size, &font_width, &font_height);
+    get_ttf_dimensions("A", CONSOLE_FONT_SIZE, &font_width, &font_height);
 #else
     font_width  = 9;
     font_height = 16;
-    font_size   = 0;
 #endif
 
     x = cx = y = cy = 0;
@@ -236,11 +233,13 @@ void video_draw_rect(position_t p0, position_t p1, uint32_t color)
     }
 }
 
+/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
+
 /* Draw a character at the specified coordinates on the screen */
 void video_draw_char(const char c, uint32_t x, uint32_t y, uint32_t color)
 {
 #if TTF_CONSOLE
-    draw_ttf((char[]) {c, '\0'}, x, y, font_size, color);
+    draw_ttf((char[]) {c, '\0'}, x, y, CONSOLE_FONT_SIZE, color);
 #else
     uint8_t *font = ascii_font;
     font += (size_t)c * 16;
@@ -256,6 +255,8 @@ void video_draw_char(const char c, uint32_t x, uint32_t y, uint32_t color)
 #endif
 }
 
+/* NOLINTEND(bugprone-easily-swappable-parameters) */
+
 /* Flush character buffer to screen */
 void video_flush_buffer(uint32_t color)
 {
@@ -266,7 +267,7 @@ void video_flush_buffer(uint32_t color)
         uint32_t start_x = cx * font_width;
         uint32_t start_y = cy * font_height;
 
-        draw_ttf(char_buffer, start_x, start_y, font_size, color);
+        draw_ttf(char_buffer, start_x, start_y, CONSOLE_FONT_SIZE, color);
         cx += char_buffer_index;
 
         char_buffer_index = 0;
@@ -313,7 +314,7 @@ void video_put_char(const char c, uint32_t color)
 #if TTF_CONSOLE
             uint32_t erase_x = cx * font_width;
             uint32_t erase_y = cy * font_height;
-            draw_ttf(" ", erase_x, erase_y, font_size, back_color);
+            draw_ttf(" ", erase_x, erase_y, CONSOLE_FONT_SIZE, back_color);
 #else
             uint32_t erase_x = cx * font_width;
             uint32_t erase_y = cy * font_height;
@@ -325,7 +326,7 @@ void video_put_char(const char c, uint32_t color)
 #if TTF_CONSOLE
             uint32_t erase_x = cx * font_width;
             uint32_t erase_y = cy * font_height;
-            draw_ttf(" ", erase_x, erase_y, font_size, back_color);
+            draw_ttf(" ", erase_x, erase_y, CONSOLE_FONT_SIZE, back_color);
 #else
             uint32_t erase_x = cx * font_width;
             uint32_t erase_y = cy * font_height;
