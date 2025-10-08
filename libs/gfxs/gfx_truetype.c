@@ -48,6 +48,12 @@ static uint32_t tty_blend(uint32_t background, uint32_t foreground, uint8_t alph
 /* Parse ttf data into bitmap */
 static uint8_t *ttf_analysis(int *buf, uint32_t *width, uint32_t *height, int size)
 {
+    if (size <= 0 || !buf || !buf[0]) {
+        *width  = 0;
+        *height = 0;
+        return 0;
+    }
+
     float scale = stbtt_ScaleForPixelHeight(&font, (float)size * 2.0f);
     int   ascent, descent, lineGap;
     stbtt_GetFontVMetrics(&font, &ascent, &descent, &lineGap);
@@ -56,26 +62,33 @@ static uint8_t *ttf_analysis(int *buf, uint32_t *width, uint32_t *height, int si
     descent = (int)roundf((float)descent * scale);
     *height = (uint32_t)roundf((float)(ascent - descent) + (float)lineGap * scale);
 
-    /* Calculate total width first */
     int total_width = 0;
-    for (int i = 0; buf[i] != 0; ++i) {
+    for (int i = 0; buf[i]; ++i) {
         int advanceWidth, leftSideBearing;
         stbtt_GetCodepointHMetrics(&font, buf[i], &advanceWidth, &leftSideBearing);
         total_width += (int)roundf((float)advanceWidth * scale);
 
-        if (buf[i + 1] != 0) {
+        if (buf[i + 1]) {
             int kern = stbtt_GetCodepointKernAdvance(&font, buf[i], buf[i + 1]);
             total_width += (int)roundf((float)kern * scale);
         }
     }
-    *width = total_width;
+    *width = (uint32_t)total_width;
 
-    /* Dynamically allocate bitmap based on calculated dimensions */
-    uint8_t *bitmap = (uint8_t *)calloc(1, (size_t)(*width) * (size_t)(*height));
-    if (!bitmap) { return 0; }
+    if (!*width || !*height) {
+        *width  = 0;
+        *height = 0;
+        return 0;
+    }
+
+    size_t bitmap_size = (size_t)(*width) * (size_t)(*height);
+    if (!bitmap_size) return 0;
+
+    uint8_t *bitmap = (uint8_t *)calloc(1, bitmap_size);
+    if (!bitmap) return 0;
 
     int x = 0;
-    for (int i = 0; buf[i] != 0; ++i) {
+    for (int i = 0; buf[i]; ++i) {
         int advanceWidth, leftSideBearing;
         stbtt_GetCodepointHMetrics(&font, buf[i], &advanceWidth, &leftSideBearing);
 
@@ -84,10 +97,12 @@ static uint8_t *ttf_analysis(int *buf, uint32_t *width, uint32_t *height, int si
 
         int y          = ascent + c_y1;
         int byteOffset = x + (int)((float)leftSideBearing * scale) + (y * (int)(*width));
-        stbtt_MakeCodepointBitmap(&font, bitmap + byteOffset, c_x2 - c_x1, c_y2 - c_y1, (int)(*width), scale, scale, buf[i]);
+
+        if (byteOffset >= 0 && byteOffset < (int)bitmap_size)
+            stbtt_MakeCodepointBitmap(&font, bitmap + byteOffset, c_x2 - c_x1, c_y2 - c_y1, (int)(*width), scale, scale, buf[i]);
 
         x += (int)roundf((float)advanceWidth * scale);
-        if (buf[i + 1] != 0) {
+        if (buf[i + 1]) {
             int kern = stbtt_GetCodepointKernAdvance(&font, buf[i], buf[i + 1]);
             x += (int)roundf((float)kern * scale);
         }
@@ -98,13 +113,19 @@ static uint8_t *ttf_analysis(int *buf, uint32_t *width, uint32_t *height, int si
 /* Draw ttf bitmap with antialiasing */
 static void draw_bitmap(uint8_t *bitmap, uint32_t x, uint32_t y, uint32_t width, uint32_t height, uint32_t bitmap_xsize, uint32_t color)
 {
+    if (!bitmap || !width || !height) return;
     video_info_t fb = video_get_info();
 
-    for (int i = 0; i < (int)width; i++) {
-        for (int j = 0; j < (int)height; j++) {
+    if (x >= fb.width || y >= fb.height) return;
+    uint32_t max_x = (x + width < fb.width) ? width : fb.width - x;
+    uint32_t max_y = (y + height < fb.height) ? height : fb.height - y;
+
+    for (uint32_t j = 0; j < max_y; j++) {
+        for (uint32_t i = 0; i < max_x; i++) {
             uint8_t alpha = bitmap[j * bitmap_xsize + i];
-            if (alpha > 0) { /* Only blend if pixel is not transparent */
-                fb.framebuffer[(y + j) * fb.stride + (x + i)] = tty_blend(fb.framebuffer[(y + j) * fb.stride + (x + i)], color, alpha);
+            if (alpha > 0) {
+                uint32_t fb_index = (y + j) * fb.stride + (x + i);
+                if (fb_index < fb.stride * fb.height) fb.framebuffer[fb_index] = tty_blend(fb.framebuffer[fb_index], color, alpha);
             }
         }
     }
@@ -113,12 +134,30 @@ static void draw_bitmap(uint8_t *bitmap, uint32_t x, uint32_t y, uint32_t width,
 /* Get the length and width of the corresponding word according to the specified font and size */
 void get_ttf_dimensions(const char *data, uint32_t size, uint32_t *width, uint32_t *height)
 {
-    int  i = 0;
-    Rune r[utflen(data) + 1];
-    r[utflen(data)] = 0;
-    char *temp_data = (char *)data;
+    if (!data || !*data || !size) {
+        *width  = 0;
+        *height = 0;
+        return;
+    }
 
-    while (*temp_data != '\0') temp_data += chartorune(&(r[i++]), temp_data);
+    int str_len = (int)utflen(data);
+    if (str_len <= 0) {
+        *width  = 0;
+        *height = 0;
+        return;
+    }
+
+    Rune *r = (Rune *)malloc(sizeof(Rune) * (str_len + 1));
+    if (!r) {
+        *width  = 0;
+        *height = 0;
+        return;
+    }
+
+    int   i         = 0;
+    char *temp_data = (char *)data;
+    while (*temp_data != '\0' && i < str_len) temp_data += chartorune(&(r[i++]), temp_data);
+    r[str_len] = 0;
 
     float scale = stbtt_ScaleForPixelHeight(&font, (float)size * 2.0f);
     int   ascent, descent, lineGap;
@@ -129,33 +168,42 @@ void get_ttf_dimensions(const char *data, uint32_t size, uint32_t *width, uint32
     *height = (uint32_t)roundf((float)(ascent - descent) + (float)lineGap * scale);
 
     int x = 0;
-    for (int i = 0; r[i] != 0; ++i) {
+    for (int i = 0; r[i]; ++i) {
         int advanceWidth, leftSideBearing;
         stbtt_GetCodepointHMetrics(&font, r[i], &advanceWidth, &leftSideBearing);
 
         x += (int)roundf((float)advanceWidth * scale);
 
-        if (r[i + 1] != 0) {
+        if (r[i + 1]) {
             int kern = stbtt_GetCodepointKernAdvance(&font, r[i], r[i + 1]);
             x += (int)roundf((float)kern * scale);
         }
     }
-    *width = x;
+    *width = (uint32_t)x;
+    free(r);
 }
 
 /* Draw ttf font graphics at the specified position */
 void draw_ttf(const char *data, uint32_t x, uint32_t y, uint32_t size, uint32_t color)
 {
-    int      i = 0;
-    uint32_t width, height;
+    if (!data || !*data || !size) return;
+    int str_len = (int)utflen(data);
 
-    Rune r[utflen(data) + 1];
-    r[utflen(data)] = 0;
+    if (str_len <= 0) return;
+    Rune *r = (Rune *)malloc(sizeof(Rune) * (str_len + 1));
 
+    if (!r) return;
+    int   i         = 0;
     char *temp_data = (char *)data;
-    while (*temp_data != '\0') temp_data += chartorune(&(r[i++]), temp_data);
 
+    while (*temp_data != '\0' && i < str_len) temp_data += chartorune(&(r[i++]), temp_data);
+    r[str_len] = 0;
+
+    uint32_t width, height;
     uint8_t *bitmap = ttf_analysis(r, &width, &height, (int)size);
+
+    free(r);
+
     if (bitmap) {
         draw_bitmap(bitmap, x, y, width, height, width, color);
         free(bitmap);
@@ -165,7 +213,7 @@ void draw_ttf(const char *data, uint32_t x, uint32_t y, uint32_t size, uint32_t 
 /* Initialize ttf font data */
 void init_ttf(uint8_t *ttf_buffer)
 {
-    stbtt_InitFont(&font, ttf_buffer, 0);
+    if (ttf_buffer) stbtt_InitFont(&font, ttf_buffer, 0);
 }
 
 /* NOLINTEND(bugprone-easily-swappable-parameters) */

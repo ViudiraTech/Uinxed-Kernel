@@ -10,6 +10,16 @@ menu "Kernel debugging"
 
 endmenu
 
+menu "Terminal properties"
+
+  config TTF_CONSOLE
+    bool "TTF font support for the terminal"
+    default y
+    help
+      "If enabled, the specified ttf font is used, otherwise the default bitmap font is used."
+
+endmenu
+
 menu "Processor configuration"
   menu "Symmetric multi-processing"
 

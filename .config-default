@@ -9,6 +9,11 @@
 CONFIG_KERNEL_LOG=y
 
 #
+# Terminal properties
+#
+CONFIG_TTF_CONSOLE=y
+
+#
 # Processor configuration
 #
 

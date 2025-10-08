@@ -29,6 +29,10 @@ ifeq ($(CONFIG_KERNEL_LOG), y)
   C_CONFIG += -DKERNEL_LOG=1
 endif
 
+ifeq ($(CONFIG_TTF_CONSOLE), y)
+  C_CONFIG += -DTTF_CONSOLE=1
+endif
+
 ifneq ($(CONFIG_MAX_CPU_COUNT),)
   C_CONFIG += -DMAX_CPU_COUNT=$(CONFIG_MAX_CPU_COUNT)
 endif

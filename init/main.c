@@ -63,9 +63,12 @@ void kernel_entry(void)
     init_heap();    // Initialize the memory heap
     lmodule_init(); // Initialize the passed-in resource module list
 
+#if TTF_CONSOLE
     init_ttf(get_lmodule("FiraCode")->data); // Load ttf font
-    video_init();                            // Initialize Video
-    video_info_t fbinfo = video_get_info();  // Get video info
+#endif
+
+    video_init();                           // Initialize Video
+    video_info_t fbinfo = video_get_info(); // Get video info
 
     plogk("%s version %s (%s version %s) SMP %s %s\n", KERNEL_NAME, KERNEL_VERSION, COMPILER_NAME, COMPILER_VERSION, BUILD_DATE, BUILD_TIME);
     plogk("fb0: Base %p, Size %lu KiB.\n", fbinfo.framebuffer, (fbinfo.width * fbinfo.height * fbinfo.bpp) / (uint64_t)(8 * 1024));

@@ -832,8 +832,7 @@ extern "C" {
     enum { STBTT_vmove = 1, STBTT_vline, STBTT_vcurve, STBTT_vcubic };
 #    endif
 
-#    ifndef stbtt_vertex                // you can predefine this to use different values
-                                        // (we share this with other code at RAD)
+#    ifndef stbtt_vertex                // you can predefine this to use different values (we share this with other code at RAD)
 #        define stbtt_vertex_type short // can't use stbtt_int16 because that's not visible in the header file
     typedef struct {
             stbtt_vertex_type x, y, cx, cy, cx1, cy1;
