@@ -17,7 +17,6 @@
 #include "eis.h"
 #include "frame.h"
 #include "gdt.h"
-#include "gfx_truetype.h"
 #include "heap.h"
 #include "hhdm.h"
 #include "ide.h"
@@ -58,17 +57,12 @@ void kernel_entry(void)
     init_sse(); // Initialize SSE/SSE2
     init_avx(); // Initialize AVX/AVX2
 
-    init_frame();   // Initialize memory frame
-    page_init();    // Initialize memory page
-    init_heap();    // Initialize the memory heap
-    lmodule_init(); // Initialize the passed-in resource module list
+    init_frame(); // Initialize memory frame
+    page_init();  // Initialize memory page
+    init_heap();  // Initialize the memory heap
+    video_init(); // Initialize Video
 
-#if TTF_CONSOLE
-    init_ttf(get_lmodule("FiraCode")->data); // Load ttf font
-#endif
-
-    video_init();                           // Initialize Video
-    video_info_t fbinfo = video_get_info(); // Get video info
+    video_info_t fbinfo = video_get_info();
 
     plogk("%s version %s (%s version %s) SMP %s %s\n", KERNEL_NAME, KERNEL_VERSION, COMPILER_NAME, COMPILER_VERSION, BUILD_DATE, BUILD_TIME);
     plogk("fb0: Base %p, Size %lu KiB.\n", fbinfo.framebuffer, (fbinfo.width * fbinfo.height * fbinfo.bpp) / (uint64_t)(8 * 1024));
@@ -88,19 +82,19 @@ void kernel_entry(void)
     plogk("x86/PAT: Configuration [0-7]: %s\n", get_pat_config().pat_str);
     plogk("dmi: %s %s, BIOS %s %s\n", smbios_sys_manufacturer(), smbios_sys_product_name(), smbios_bios_version(), smbios_bios_release_date());
 
-    init_gdt();                     // Initialize global descriptors
-    init_idt();                     // Initialize interrupt descriptor
-    isr_registe_handle();           // Register ISR interrupt processing
-    acpi_init();                    // Initialize ACPI
-    smp_init();                     // Initialize SMP
-    print_memory_map();             // Print memory map information
-    log_buffer_print(&frame_log);   // Print frame log
-    pci_init();                     // Initialize PCI
-    log_buffer_print(&lmodule_log); // Print lmodule log
-    init_ide();                     // Initialize ATA/ATAPI driver
-    init_serial();                  // Initialize the serial port
-    init_parallel();                // Initialize the parallel port
-    init_ps2();                     // Initialize PS/2 controller
+    init_gdt();                   // Initialize global descriptors
+    init_idt();                   // Initialize interrupt descriptor
+    isr_registe_handle();         // Register ISR interrupt processing
+    acpi_init();                  // Initialize ACPI
+    smp_init();                   // Initialize SMP
+    print_memory_map();           // Print memory map information
+    log_buffer_print(&frame_log); // Print frame log
+    pci_init();                   // Initialize PCI
+    lmodule_init();               // Initialize the passed-in resource module list
+    init_ide();                   // Initialize ATA/ATAPI driver
+    init_serial();                // Initialize the serial port
+    init_parallel();              // Initialize the parallel port
+    init_ps2();                   // Initialize PS/2 controller
     enable_intr();
 
     panic("No operation.");

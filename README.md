@@ -32,9 +32,6 @@ Uinxed-Kernel is a Unix-like operating system kernel developed from scratch, foc
   - ACPI support
   - High Precision Event Timer (HPET)
   - Multi-core support based on symmetric multi-processing
-- **Terminal meatures**:
-  - Pure TTF fonts
-  - High-speed terminal implementation
 
 ## Development environment preparation 🛠️
 

@@ -16,14 +16,9 @@
 #include "limine.h"
 #include "stddef.h"
 #include "stdint.h"
-#include "string.h"
 #include "uinxed.h"
 
-#if TTF_CONSOLE
-#    include "gfx_truetype.h" // TTF fonts
-#else
-extern uint8_t ascii_font[]; // Bitmap fonts
-#endif
+extern uint8_t ascii_font[]; // Fonts
 
 uint64_t  width;  // Screen width
 uint64_t  height; // Screen height
@@ -37,13 +32,6 @@ uint32_t c_width, c_height; // Screen character width and height
 uint32_t fore_color; // Foreground color
 uint32_t back_color; // Background color
 
-uint32_t font_width;  // Font width
-uint32_t font_height; // Font height
-uint32_t font_size;   // Font size
-
-static char     char_buffer[256];      // Char buffer
-static uint32_t char_buffer_index = 0; // Char buffer index
-
 /* Get video information */
 video_info_t video_get_info(void)
 {
@@ -55,8 +43,8 @@ video_info_t video_get_info(void)
     info.width      = framebuffer->width;
     info.height     = framebuffer->height;
     info.stride     = framebuffer->pitch / (framebuffer->bpp / 8);
-    info.c_width    = info.width / font_width;
-    info.c_height   = info.height / font_height;
+    info.c_width    = info.width / 9;
+    info.c_height   = info.height / 16;
     info.cx         = cx;
     info.cy         = cy;
     info.fore_color = fore_color;
@@ -92,25 +80,12 @@ void video_init(void)
     height                                 = framebuffer->height;
     stride                                 = framebuffer->pitch / (framebuffer->bpp / 8);
 
-#if TTF_CONSOLE
-    font_size = 10;
-    get_ttf_dimensions("A", font_size, &font_width, &font_height);
-#else
-    font_width  = 9;
-    font_height = 16;
-    font_size   = 0;
-#endif
-
     x = cx = y = cy = 0;
-    c_width         = width / font_width;
-    c_height        = height / font_height;
+    c_width         = width / 9;
+    c_height        = height / 16;
 
     fore_color = color_to_fb_color((color_t) {0xaa, 0xaa, 0xaa});
     back_color = color_to_fb_color((color_t) {0x00, 0x00, 0x00});
-
-    char_buffer_index = 0;
-    char_buffer[0]    = '\0';
-
     video_clear();
 }
 
@@ -122,9 +97,6 @@ void video_clear(void)
     x  = 2;
     y  = 0;
     cx = cy = 0;
-
-    char_buffer_index = 0;
-    char_buffer[0]    = '\0';
 }
 
 /* Clear screen with color */
@@ -135,9 +107,6 @@ void video_clear_color(uint32_t color)
     x  = 2;
     y  = 0;
     cx = cy = 0;
-
-    char_buffer_index = 0;
-    char_buffer[0]    = '\0';
 }
 
 /* Scroll the screen to the specified coordinates */
@@ -153,12 +122,14 @@ void video_scroll(void)
     if ((uint32_t)cx >= c_width) {
         cx = 1;
         cy++;
+    } else {
+        cx++;
     }
 
     if ((uint32_t)cy >= c_height) {
         uint8_t       *dest  = (uint8_t *)buffer;
-        const uint8_t *src   = (const uint8_t *)(buffer + stride * font_height);
-        size_t         count = stride * (height - font_height) * sizeof(uint32_t);
+        const uint8_t *src   = (const uint8_t *)(buffer + stride * 16);
+        size_t         count = stride * (height - 16) * sizeof(uint32_t);
 
 #if CPU_FEATURE_SSE
         if (cpu_support_sse()) {
@@ -191,7 +162,8 @@ void video_scroll(void)
         count /= 8;
         __asm__ volatile("rep movsq" : "+D"(dest), "+S"(src), "+c"(count)::"memory");
 #endif
-        video_draw_rect((position_t) {0, height - font_height}, (position_t) {stride, height}, back_color);
+
+        video_draw_rect((position_t) {0, height - 16}, (position_t) {stride, height}, back_color);
         cy = c_height - 1;
     }
 }
@@ -239,9 +211,6 @@ void video_draw_rect(position_t p0, position_t p1, uint32_t color)
 /* Draw a character at the specified coordinates on the screen */
 void video_draw_char(const char c, uint32_t x, uint32_t y, uint32_t color)
 {
-#if TTF_CONSOLE
-    draw_ttf((char[]) {c, '\0'}, x, y, font_size, color);
-#else
     uint8_t *font = ascii_font;
     font += (size_t)c * 16;
     for (int i = 0; i < 16; i++) {
@@ -253,110 +222,57 @@ void video_draw_char(const char c, uint32_t x, uint32_t y, uint32_t color)
             }
         }
     }
-#endif
-}
-
-/* Flush character buffer to screen */
-void video_flush_buffer(uint32_t color)
-{
-#if TTF_CONSOLE
-    if (char_buffer_index > 0) {
-        char_buffer[char_buffer_index] = '\0';
-
-        uint32_t start_x = cx * font_width;
-        uint32_t start_y = cy * font_height;
-
-        draw_ttf(char_buffer, start_x, start_y, font_size, color);
-        cx += char_buffer_index;
-
-        char_buffer_index = 0;
-        char_buffer[0]    = '\0';
-    }
-#else
-    if (char_buffer_index > 0) {
-        uint32_t start_x = cx * font_width;
-        uint32_t start_y = cy * font_height;
-
-        for (uint32_t i = 0; i < char_buffer_index; i++) video_draw_char(char_buffer[i], start_x + i * font_width, start_y, color);
-        cx += char_buffer_index;
-
-        char_buffer_index = 0;
-        char_buffer[0]    = '\0';
-    }
-#endif
 }
 
 /* Print a character at the specified coordinates on the screen */
 void video_put_char(const char c, uint32_t color)
 {
+    uint32_t x;
+    uint32_t y;
     if (c == '\n') {
-        video_flush_buffer(color);
         cy++;
         cx = 0;
+        /* Try scroll (but it will do when next character is printed)
+         * video_scroll();
+         * cx = 0;
+         */
         return;
     } else if (c == '\r') {
-        video_flush_buffer(color);
         cx = 0;
         return;
     } else if (c == '\t') {
-        video_flush_buffer(color);
-        cx = (cx + 8) & ~7;
-        if (cx >= c_width) {
-            cx = 0;
-            cy++;
+        for (int i = 0; i < 8; i++) {
+            /* Expand by video_put_char(' ', color) */
+            video_scroll();
+            x = (cx - 1) * 9;
+            y = cy * 16;
+            video_draw_char(c, x, y, color);
         }
         return;
-    } else if (c == '\b') {
-        video_flush_buffer(color);
-        if (cx > 0) {
-            cx--;
-#if TTF_CONSOLE
-            uint32_t erase_x = cx * font_width;
-            uint32_t erase_y = cy * font_height;
-            draw_ttf(" ", erase_x, erase_y, font_size, back_color);
-#else
-            uint32_t erase_x = cx * font_width;
-            uint32_t erase_y = cy * font_height;
-            video_draw_char(' ', erase_x, erase_y, back_color);
-#endif
-        } else if (cy > 0) {
-            cy--;
+    } else if (c == '\b' && cx > 0) { // Do not fill, just move cursor
+        if ((long long)cx - 1 < 0) {
             cx = c_width - 1;
-#if TTF_CONSOLE
-            uint32_t erase_x = cx * font_width;
-            uint32_t erase_y = cy * font_height;
-            draw_ttf(" ", erase_x, erase_y, font_size, back_color);
-#else
-            uint32_t erase_x = cx * font_width;
-            uint32_t erase_y = cy * font_height;
-            video_draw_char(' ', erase_x, erase_y, back_color);
-#endif
+            if (cy != 0) cy -= 1;
+            if (cy == 0) cx = 0, cy = 0;
+        } else {
+            cx--;
         }
         return;
     }
-    if (char_buffer_index < 256 - 1) char_buffer[char_buffer_index++] = c;
-#if TTF_CONSOLE
-    if (char_buffer_index >= 256 - 1 || cx + char_buffer_index >= c_width) video_flush_buffer(color);
-#else
-    if (char_buffer_index >= 256 - 1) video_flush_buffer(color);
-#endif
-    if (cx >= c_width) {
-        cx = 0;
-        cy++;
-    }
-    if (cy >= c_height) video_scroll();
+    video_scroll();
+    x = (cx - 1) * 9;
+    y = cy * 16;
+    video_draw_char(c, x, y, color);
 }
 
 /* Print a string at the specified coordinates on the screen */
 void video_put_string(const char *str)
 {
     for (; *str; ++str) video_put_char(*str, fore_color);
-    video_flush_buffer(fore_color);
 }
 
 /* Print a string with color at the specified coordinates on the screen */
 void video_put_string_color(const char *str, uint32_t color)
 {
     for (; *str; ++str) video_put_char(*str, color);
-    video_flush_buffer(color);
 }

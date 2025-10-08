@@ -12,7 +12,6 @@
 #ifndef INCLUDE_LIMINE_MODULE_H_
 #define INCLUDE_LIMINE_MODULE_H_
 
-#include "ringlog.h"
 #include "stddef.h"
 #include "stdint.h"
 
@@ -22,8 +21,6 @@ typedef struct {
         uint8_t *data;
         size_t   size;
 } lmodule_t;
-
-extern log_buffer_t lmodule_log;
 
 /* Find resource modules by module name */
 lmodule_t *get_lmodule(const char *lmodule_name);
