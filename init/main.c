@@ -64,7 +64,7 @@ void kernel_entry(void)
     lmodule_init(); // Initialize the passed-in resource module list
 
 #if TTF_CONSOLE
-    init_ttf(get_lmodule("FiraCode")->data); // Load ttf font
+    init_ttf(get_lmodule("UbuntuSansMono")->data); // Load ttf font
 #endif
 
     video_init();                           // Initialize Video
