@@ -33,7 +33,7 @@ Uinxed-Kernel is a Unix-like operating system kernel developed from scratch, foc
   - High Precision Event Timer (HPET)
   - Multi-core support based on symmetric multi-processing
 - **Terminal meatures**:
-  - Pure TTF fonts
+  - TTF fonts or Bitmap fonts
   - High-speed terminal implementation
 
 ## Development environment preparation 🛠️
@@ -264,7 +264,7 @@ You can be more casual, no need to be too formal. It is because of your question
 4. **Native language allowed.**
 You can submit an issue in your own language. However, please be aware of factors such as spelling that may affect the translation results, and sometimes the translator may not work well because of this.
 
-## Contributors 👨‍💻
+## Resident contributor 👨‍💻
 
 | Number | Nick name | Github | Job |
 |---|---|---|---|
@@ -272,6 +272,8 @@ You can submit an issue in your own language. However, please be aware of factor
 | 2 | suhuajun | [suhuajun-github](https://github.com/suhuajun-github) | Code optimization. Testing. Bug fixing. |
 | 3 | XSlime | [W9pi3cZ1](https://github.com/W9pi3cZ1) | Features. Code optimization. Testing. Bug fixing. |
 | 4 | TMX | [TMXQWQ](https://github.com/TMXQWQ) | Features. Code optimization. Testing. Bug fixing. |
+
+A resident contributor is someone who directly contributes to and manages the project in a resident capacity. Removing a resident developer from the resident developer list does not mean that the project manager will not recognize their contributions, but rather that they are no longer involved in the project in a resident capacity. However, their contribution record will remain.
 
 ## Open source projects referenced or used 🎈
 
