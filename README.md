@@ -268,11 +268,10 @@ You can submit an issue in your own language. However, please be aware of factor
 
 | Number | Nick name | Github | Job |
 |---|---|---|---|
-| 1 | MicroFish | [FengHeting](https://github.com/FengHeting) | Main Development. Planning. Management. |
-| 2 | Rainy101112 | [Rainy101112](https://github.com/Rainy101112) | Deputy Development. Planning. Management. |
-| 3 | suhuajun | [suhuajun-github](https://github.com/suhuajun-github) | Code optimization. Testing. Bug fixing. |
-| 4 | XSlime | [W9pi3cZ1](https://github.com/W9pi3cZ1) | Features. Code optimization. Testing. Bug fixing. |
-| 5 | TMX | [TMXQWQ](https://github.com/TMXQWQ) | Features. Code optimization. Testing. Bug fixing. |
+| 1 | MicroFish | [FengHeting](https://github.com/FengHeting) | Development. Planning. Management. |
+| 2 | suhuajun | [suhuajun-github](https://github.com/suhuajun-github) | Code optimization. Testing. Bug fixing. |
+| 3 | XSlime | [W9pi3cZ1](https://github.com/W9pi3cZ1) | Features. Code optimization. Testing. Bug fixing. |
+| 4 | TMX | [TMXQWQ](https://github.com/TMXQWQ) | Features. Code optimization. Testing. Bug fixing. |
 
 ## Open source projects referenced or used 🎈
 
