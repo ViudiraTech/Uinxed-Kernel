@@ -209,9 +209,8 @@ uint32_t video_get_pixel(uint32_t x, uint32_t y)
 void video_invoke_area(position_t p0, position_t p1, void (*callback)(position_t p))
 {
     position_t p;
-    for (p.y = p0.y; p.y <= p1.y; p.y++) {
+    for (p.y = p0.y; p.y <= p1.y; p.y++)
         for (p.x = p0.x; p.x <= p1.x; p.x++) callback(p);
-    }
 }
 
 /* Draw a matrix at the specified coordinates on the screen */
@@ -241,16 +240,13 @@ void video_draw_char(const char c, uint32_t x, uint32_t y, uint32_t color)
 #if TTF_CONSOLE
     draw_ttf((char[]) {c, '\0'}, x, y, CONSOLE_FONT_SIZE, color);
 #else
-    uint8_t *font = ascii_font;
-    font += (size_t)c * 16;
-    for (int i = 0; i < 16; i++) {
-        for (int j = 0; j < 9; j++) {
-            if (font[i] & (0x80 >> j)) {
-                video_draw_pixel(x + j, y + i, color);
-            } else {
-                video_draw_pixel(x + j, y + i, back_color);
-            }
-        }
+    uint8_t *char_font      = ascii_font + (size_t)c * font_height;
+    uint32_t char_base_addr = y * stride + x;
+
+    for (uint32_t row = 0; row < font_height; row++) {
+        uint32_t *row_buf  = buffer + char_base_addr + row * stride;
+        uint8_t   font_row = char_font[row];
+        for (uint32_t col = 0; col < font_width; col++) row_buf[col] = (font_row & (0x80 >> col)) ? color : back_color;
     }
 #endif
 }
@@ -264,10 +260,7 @@ void video_flush_buffer(uint32_t color)
     if (char_buffer_index > 0) {
         char_buffer[char_buffer_index] = '\0';
 
-        uint32_t start_x = cx * font_width;
-        uint32_t start_y = cy * font_height;
-
-        draw_ttf(char_buffer, start_x, start_y, CONSOLE_FONT_SIZE, color);
+        draw_ttf(char_buffer, cx * font_width, cy * font_height, CONSOLE_FONT_SIZE, color);
         cx += char_buffer_index;
 
         char_buffer_index = 0;
@@ -275,12 +268,23 @@ void video_flush_buffer(uint32_t color)
     }
 #else
     if (char_buffer_index > 0) {
-        uint32_t start_x = cx * font_width;
-        uint32_t start_y = cy * font_height;
+        uint32_t start_x       = cx * font_width;
+        uint32_t start_y       = cy * font_height;
+        uint32_t base_y_stride = start_y * stride;
 
-        for (uint32_t i = 0; i < char_buffer_index; i++) video_draw_char(char_buffer[i], start_x + i * font_width, start_y, color);
+        for (uint32_t i = 0; i < char_buffer_index; i++) {
+            char     c              = char_buffer[i];
+            uint32_t char_x         = start_x + i * font_width;
+            uint8_t *char_font      = ascii_font + (size_t)c * font_height;
+            uint32_t char_base_addr = base_y_stride + char_x;
+
+            for (uint32_t row = 0; row < font_height; row++) {
+                uint32_t *row_buf  = buffer + char_base_addr + row * stride;
+                uint8_t   font_row = char_font[row];
+                for (uint32_t col = 0; col < font_width; col++) row_buf[col] = (font_row & (0x80 >> col)) ? color : back_color;
+            }
+        }
         cx += char_buffer_index;
-
         char_buffer_index = 0;
         char_buffer[0]    = '\0';
     }
@@ -312,35 +316,23 @@ void video_put_char(const char c, uint32_t color)
         if (cx > 0) {
             cx--;
 #if TTF_CONSOLE
-            uint32_t erase_x = cx * font_width;
-            uint32_t erase_y = cy * font_height;
-            draw_ttf(" ", erase_x, erase_y, CONSOLE_FONT_SIZE, back_color);
+            draw_ttf(" ", cx * font_width, cy * font_height, CONSOLE_FONT_SIZE, back_color);
 #else
-            uint32_t erase_x = cx * font_width;
-            uint32_t erase_y = cy * font_height;
-            video_draw_char(' ', erase_x, erase_y, back_color);
+            video_draw_char(' ', cx * font_width, cy * font_height, back_color);
 #endif
         } else if (cy > 0) {
             cy--;
             cx = c_width - 1;
 #if TTF_CONSOLE
-            uint32_t erase_x = cx * font_width;
-            uint32_t erase_y = cy * font_height;
-            draw_ttf(" ", erase_x, erase_y, CONSOLE_FONT_SIZE, back_color);
+            draw_ttf(" ", cx * font_width, cy * font_height, CONSOLE_FONT_SIZE, back_color);
 #else
-            uint32_t erase_x = cx * font_width;
-            uint32_t erase_y = cy * font_height;
-            video_draw_char(' ', erase_x, erase_y, back_color);
+            video_draw_char(' ', cx * font_width, cy * font_height, back_color);
 #endif
         }
         return;
     }
     if (char_buffer_index < 256 - 1) char_buffer[char_buffer_index++] = c;
-#if TTF_CONSOLE
     if (char_buffer_index >= 256 - 1 || cx + char_buffer_index >= c_width) video_flush_buffer(color);
-#else
-    if (char_buffer_index >= 256 - 1) video_flush_buffer(color);
-#endif
     if (cx >= c_width) {
         cx = 0;
         cy++;
