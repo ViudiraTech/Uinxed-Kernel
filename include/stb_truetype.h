@@ -1322,7 +1322,8 @@ static stbtt_uint16 ttUSHORT(stbtt_uint8 *p)
 }
 static stbtt_int16 ttSHORT(stbtt_uint8 *p)
 {
-    return p[0] * 256 + p[1];
+    stbtt_uint16 val = (stbtt_uint16)p[0] * 256 + p[1];
+    return (stbtt_int16)val;
 }
 static stbtt_uint32 ttULONG(stbtt_uint8 *p)
 {

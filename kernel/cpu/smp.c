@@ -237,7 +237,7 @@ void smp_init(void)
 
             pointer_cast_t cast;
             cast.ptr = cpus[i].kernel_stack;
-            set_kernel_stack(ALIGN_DOWN((uint64_t)cast.val + sizeof(kernel_stack_t), 16));
+            set_kernel_stack(ALIGN_DOWN((uint64_t)cast.val + sizeof(kernel_stack_t), 16ULL));
             continue;
         } else {
             cpus[i].gdt = (gdt_t *)aligned_alloc(16, ALIGN_UP(sizeof(gdt_t), 16));
