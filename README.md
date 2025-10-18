@@ -286,6 +286,6 @@ This project adopts the GPL-3.0 open source agreement. Please refer to the LICEN
 
 ## Contact details 📩
 
-Email：2609948707@qq.com | 3585302907@qq.com
-Join our discord server: [Click here](https://discord.gg/nTkg7HCpy7)
-Tencent QQ chat group: [983673299](https://qm.qq.com/q/8goacFf1iU)
+- Email：2609948707@qq.com | 3585302907@qq.com
+- Join our discord server: [Click here](https://discord.gg/nTkg7HCpy7)
+- Tencent QQ chat group: [983673299](https://qm.qq.com/q/8goacFf1iU)
