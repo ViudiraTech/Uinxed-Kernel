@@ -104,7 +104,7 @@ LD_FLAGS       := -nostdlib -pie -T assets/linker.ld -m elf_x86_64
 all: info Uinxed-x64.iso
 
 %.o: %.c
-	$(V)clang $(C_FLAGS) $(C_CONFIG) -c -o $@ $<
+	$(V)$(CC) $(C_FLAGS) $(C_CONFIG) -c -o $@ $<
 
 %.o: %.s
 	$(V)$(AS) $(AS_FLAGS) -o $@ $<

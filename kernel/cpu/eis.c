@@ -19,9 +19,9 @@ void init_fpu(void)
     uint64_t cr0;
     __asm__ volatile("mov %%cr0, %0" : "=r"(cr0)::"memory");
 
-    cr0 &= ~(1UL << 2);
-    cr0 |= (1UL << 1);
-    cr0 &= ~(1UL << 3);
+    cr0 &= ~(1UL << 2); // EM = 0
+    cr0 |= (1UL << 1);  // MP = 1
+    cr0 &= ~(1UL << 3); // TS = 0
 
     __asm__ volatile("mov %0, %%cr0" ::"r"(cr0) : "memory");
     __asm__ volatile("fninit");
