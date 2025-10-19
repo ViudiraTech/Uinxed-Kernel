@@ -20,7 +20,7 @@
 #include "stdint.h"
 #include "uinxed.h"
 
-int x2apic_mode;
+int x2apic_mode = -1;
 
 pointer_cast_t lapic_ptr;
 pointer_cast_t ioapic_ptr;
