@@ -35,6 +35,12 @@ int cpu_supports_nx(void);
 /* Check CPU supports 64bit */
 int cpu_support_64bit(void);
 
+/* Check CPU supports rdtsc */
+int cpu_support_rdtsc(void);
+
+/* Check CPU supports rdtscp */
+int cpu_support_rdtscp(void);
+
 /* Check CPU supports MMX */
 int cpu_support_mmx(void);
 

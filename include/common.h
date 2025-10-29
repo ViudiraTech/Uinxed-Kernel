@@ -71,6 +71,18 @@ uint64_t load(uint64_t *addr);
 /* Storing data atomically */
 void store(uint64_t *addr, uint32_t value);
 
+/* Basic rdtsc reading */
+uint64_t rdtsc(void);
+
+/* Serialized rdtsc reads */
+uint64_t rdtsc_serialized(void);
+
+/* Basic rdtscp reading */
+uint64_t rdtscp(uint32_t *aux);
+
+/* Serialized rdtscp reads */
+uint64_t rdtscp_serialized(uint32_t *aux);
+
 void enable_intr(void);      // Enable interrupt
 void disable_intr(void);     // Disable interrupts
 void krn_halt(void);         // Kernel halt

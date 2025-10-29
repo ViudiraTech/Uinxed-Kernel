@@ -71,6 +71,22 @@ int cpu_support_64bit(void)
     return ((edx & (1 << 29)) != 0);
 }
 
+/* Check CPU supports rdtsc */
+int cpu_support_rdtsc(void)
+{
+    uint32_t eax, ebx, ecx, edx;
+    cpuid(0x00000001, &eax, &ebx, &ecx, &edx);
+    return ((edx & (1 << 4)) != 0);
+}
+
+/* Check CPU supports rdtscp */
+int cpu_support_rdtscp(void)
+{
+    uint32_t eax, ebx, ecx, edx;
+    cpuid(0x80000001, &eax, &ebx, &ecx, &edx);
+    return ((edx & (1 << 27)) != 0);
+}
+
 /* Check CPU supports MMX */
 int cpu_support_mmx(void)
 {
