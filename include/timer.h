@@ -14,10 +14,13 @@
 
 #include "stdint.h"
 
-/* Millisecond-based delay functions */
-void msleep(uint64_t ms);
-
 /* Nanosecond-based delay function */
 void nsleep(uint64_t ns);
+
+/* Millisecond-based delay functions */
+void usleep(uint64_t us);
+
+/* Millisecond-based delay functions */
+void msleep(uint64_t ms);
 
 #endif // INCLUDE_TIMER_H_

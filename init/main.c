@@ -31,6 +31,7 @@
 #include "serial.h"
 #include "smbios.h"
 #include "smp.h"
+#include "tsc.h"
 #include "uinxed.h"
 #include "video.h"
 
@@ -92,6 +93,7 @@ void kernel_entry(void)
     init_idt();                     // Initialize interrupt descriptor
     isr_registe_handle();           // Register ISR interrupt processing
     acpi_init();                    // Initialize ACPI
+    tsc_init();                     // Initialize TSC
     smp_init();                     // Initialize SMP
     print_memory_map();             // Print memory map information
     log_buffer_print(&frame_log);   // Print frame log

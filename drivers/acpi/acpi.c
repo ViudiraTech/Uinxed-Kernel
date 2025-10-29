@@ -13,7 +13,6 @@
 #include "apic.h"
 #include "hhdm.h"
 #include "limine.h"
-#include "pci.h"
 #include "printk.h"
 #include "stdint.h"
 #include "uinxed.h"

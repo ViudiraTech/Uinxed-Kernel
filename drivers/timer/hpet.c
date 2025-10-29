@@ -14,6 +14,7 @@
 #include "idt.h"
 #include "printk.h"
 #include "stdint.h"
+#include "tsc.h"
 
 hpet_info_t    *hpet_addr;
 static uint32_t hpet_period = 0;
@@ -25,6 +26,12 @@ uint64_t nano_time(void)
 {
     if (!hpet_addr) return 0;
     return (hpet_addr->main_counter_value) * hpet_period;
+}
+
+/* Get the HPET structure */
+hpet_info_t *get_acpi_hpet(void)
+{
+    return hpet_addr;
 }
 
 /* Initialize high-precision event timer */

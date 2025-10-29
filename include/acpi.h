@@ -169,13 +169,13 @@ typedef struct {
         acpi_sdt_header_t header;
         char              reserved[8];
         mcfg_entry_t      entries[]; // Length is dynamic
-} __attribute__((packed)) mcfg_t;
+} __attribute__((packed)) mcfg_info_t;
 
 typedef struct {
-        mcfg_t *mcfg;
-        size_t  count;
-        int     enabled;
-} mcfg_info_t;
+        mcfg_info_t *mcfg;
+        size_t       count;
+        int          enabled;
+} mcfg_t;
 
 /* Find the corresponding ACPI table in XSDT */
 void *find_table(const char *name);
@@ -186,14 +186,17 @@ void acpi_init(void);
 /* Returns the nanosecond value of the current time */
 uint64_t nano_time(void);
 
+/* Get the HPET structure */
+hpet_info_t *get_acpi_hpet(void);
+
 /* Initialize high-precision event timer */
 void hpet_init(hpet_t *hpet);
 
 /* Initialize facp */
 void facp_init(acpi_facp_t *facp0);
 
-/* Get MCFG information */
-mcfg_info_t *get_mcfg(void);
+/* Get the FACP structure */
+acpi_facp_t *get_acpi_facp(void);
 
 /* Cycle the power */
 void power_reset(void);
@@ -206,5 +209,11 @@ uint8_t get_acpi_version_major(void);
 
 /* Obtain ACPI minor version */
 uint16_t get_acpi_version_minor(void);
+
+/* MCFG initialization */
+void mcfg_init(mcfg_info_t *mcfg);
+
+/* Get the MCFG structure */
+mcfg_info_t *get_acpi_mcfg(void);
 
 #endif // INCLUDE_ACPI_H_

@@ -12,9 +12,12 @@
 #include "acpi.h"
 #include "apic.h"
 #include "common.h"
+#include "cpuid.h"
 #include "interrupt.h"
+#include "math.h"
 #include "printk.h"
 #include "stdint.h"
+#include "tsc.h"
 
 /* Timer interrupt */
 INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)
@@ -26,41 +29,33 @@ INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
-/* Millisecond-based delay functions */
-void msleep(uint64_t ms)
-{
-    uint64_t target_time = nano_time();
-    uint64_t after       = 0;
-    uint64_t ns          = ms * 1000000;
-
-    while (1) {
-        uint64_t n = nano_time();
-        if (n < target_time) {
-            after += 0xffffffff - target_time + n;
-            target_time = n;
-        } else {
-            after += n - target_time;
-            target_time = n;
-        }
-        if (after >= ns) return;
-    }
-}
-
 /* Nanosecond-based delay function */
 void nsleep(uint64_t ns)
 {
-    uint64_t target_time = nano_time();
-    uint64_t after       = 0;
+    uint64_t (*nano)(void) = cpu_support_rdtsc() ? tsc_nano_time : nano_time;
 
-    while (1) {
-        uint64_t n = nano_time();
-        if (n < target_time) {
-            after += 0xffffffff - target_time + n;
-            target_time = n;
+    uint64_t start_time = nano();
+    uint64_t elapsed    = 0;
+
+    while (elapsed < ns) {
+        uint64_t current_time = nano();
+
+        if (current_time < start_time) {
+            elapsed = UINT64_MAX - start_time + current_time;
         } else {
-            after += n - target_time;
-            target_time = n;
+            elapsed = current_time - start_time;
         }
-        if (after >= ns) return;
     }
+}
+
+/* Millisecond-based delay functions */
+void usleep(uint64_t us)
+{
+    nsleep(us * 1000);
+}
+
+/* Millisecond-based delay functions */
+void msleep(uint64_t ms)
+{
+    nsleep(ms * 1000000);
 }

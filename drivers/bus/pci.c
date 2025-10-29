@@ -20,7 +20,7 @@
 #include "stdint.h"
 #include "stdlib.h"
 
-mcfg_info_t mcfg_info;
+mcfg_t mcfg_info;
 
 pci_devices_cache_t pci_cache = {
     .head          = 0,
@@ -183,11 +183,11 @@ struct {
 };
 
 /* MCFG initialization */
-void mcfg_init(mcfg_t *mcfg)
+void mcfg_init(mcfg_info_t *mcfg)
 {
     if (mcfg) {
-        mcfg_t *inner   = (mcfg_t *)mcfg;
-        mcfg_info.count = (inner->header.length - sizeof(acpi_sdt_header_t) - 8) / sizeof(mcfg_entry_t);
+        mcfg_info_t *inner = (mcfg_info_t *)mcfg;
+        mcfg_info.count    = (inner->header.length - sizeof(acpi_sdt_header_t) - 8) / sizeof(mcfg_entry_t);
         plogk("mcfg: MCFG found with %lu entries.\n", mcfg_info.count);
         for (size_t i = 0; i < mcfg_info.count; i++) {
             /* Convert to the virtual address */
@@ -210,6 +210,12 @@ void mcfg_init(mcfg_t *mcfg)
         panic("pci: mcfg is unexpectedly empty.");
     }
 };
+
+/* Get the MCFG structure */
+mcfg_info_t *get_acpi_mcfg(void)
+{
+    return mcfg_info.mcfg;
+}
 
 /* Search MCFG entry by bus */
 mcfg_entry_t *mcfg_search_entry(uint16_t bus)

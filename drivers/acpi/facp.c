@@ -108,6 +108,12 @@ void facp_init(acpi_facp_t *facp0)
     }
 }
 
+/* Get the FACP structure */
+acpi_facp_t *get_acpi_facp(void)
+{
+    return facp;
+}
+
 /* Cycle the power */
 void power_reset(void)
 {

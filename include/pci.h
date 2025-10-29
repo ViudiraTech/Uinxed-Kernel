@@ -135,9 +135,6 @@ typedef struct {
         uint16_t end;
 } bus_range_t;
 
-/* MCFG initialization */
-void mcfg_init(mcfg_t *mcfg);
-
 /* Get ECAM address of register */
 void *mcfg_ecam_addr(mcfg_entry_t *entry, pci_device_reg_t reg);
 
