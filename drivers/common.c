@@ -178,12 +178,12 @@ uint64_t rdtsc(void)
 uint64_t rdtsc_serialized(void)
 {
     uint32_t lo, hi;
-    __asm__ __volatile__("mfence\n\t"
-                         "rdtsc\n\t"
-                         "lfence"
-                         : "=a"(lo), "=d"(hi)
-                         :
-                         : "memory");
+    __asm__ volatile("mfence\n\t"
+                     "rdtsc\n\t"
+                     "lfence"
+                     : "=a"(lo), "=d"(hi)
+                     :
+                     : "memory");
     return ((uint64_t)hi << 32) | lo;
 }
 
@@ -191,7 +191,7 @@ uint64_t rdtsc_serialized(void)
 uint64_t rdtscp(uint32_t *aux)
 {
     uint32_t lo, hi;
-    __asm__ __volatile__("rdtscp" : "=a"(lo), "=d"(hi), "=c"(*aux) : : "memory");
+    __asm__ volatile("rdtscp" : "=a"(lo), "=d"(hi), "=c"(*aux) : : "memory");
     return ((uint64_t)hi << 32) | lo;
 }
 
@@ -199,12 +199,12 @@ uint64_t rdtscp(uint32_t *aux)
 uint64_t rdtscp_serialized(uint32_t *aux)
 {
     uint32_t lo, hi;
-    __asm__ __volatile__("mfence\n\t"
-                         "rdtscp\n\t"
-                         "lfence"
-                         : "=a"(lo), "=d"(hi), "=c"(*aux)
-                         :
-                         : "memory");
+    __asm__ volatile("mfence\n\t"
+                     "rdtscp\n\t"
+                     "lfence"
+                     : "=a"(lo), "=d"(hi), "=c"(*aux)
+                     :
+                     : "memory");
     return ((uint64_t)hi << 32) | lo;
 }
 

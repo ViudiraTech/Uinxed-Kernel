@@ -15,13 +15,23 @@
 #include "stddef.h"
 #include "stdint.h"
 
-void outb(uint16_t port, uint8_t value);  // Port write (8 bits)
-void outw(uint16_t port, uint16_t value); // Port write (16 bits)
-void outl(uint16_t port, uint32_t value); // Port write (32 bits)
+/* Port write (8 bits) */
+void outb(uint16_t port, uint8_t value);
 
-uint8_t  inb(uint16_t port); // Port read (8 bits)
-uint16_t inw(uint16_t port); // Port read (16 bits)
-uint32_t inl(uint16_t port); // Port read (32 bits)
+/* Port read (8 bits) */
+uint8_t inb(uint16_t port);
+
+/* Port write (16 bits) */
+void outw(uint16_t port, uint16_t value);
+
+/* Port read (16 bits) */
+uint16_t inw(uint16_t port);
+
+/* Port write (32 bits) */
+void outl(uint16_t port, uint32_t value);
+
+/* Port read (32 bits) */
+uint32_t inl(uint16_t port);
 
 /* Read data from I/O port to memory in batches (16 bits) */
 void insw(uint16_t port, void *buf, size_t n);
@@ -83,9 +93,16 @@ uint64_t rdtscp(uint32_t *aux);
 /* Serialized rdtscp reads */
 uint64_t rdtscp_serialized(uint32_t *aux);
 
-void enable_intr(void);      // Enable interrupt
-void disable_intr(void);     // Disable interrupts
-void krn_halt(void);         // Kernel halt
-void compiler_barrier(void); // Compiler barrier
+/* Enable interrupt */
+void enable_intr(void);
+
+/* Disable interrupts */
+void disable_intr(void);
+
+/* Kernel halt */
+void krn_halt(void);
+
+/* Compiler barrier */
+void compiler_barrier(void);
 
 #endif // INCLUDE_COMMON_H_
