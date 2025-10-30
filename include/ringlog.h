@@ -4,8 +4,8 @@
  *      Ring log buffer header file
  *
  *      2025/9/21 By MicroFish
- *      Based on GPL-3.0 open source agreement
- *      Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
+ *      Based on Apache 2.0 open source license.
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

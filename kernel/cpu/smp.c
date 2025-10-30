@@ -4,8 +4,8 @@
  *      Symmetric Multi-Processing
  *
  *      2025/7/6 By W9pi3cZ1
- *      Based on GPL-3.0 open source agreement
- *      Copyright © 2020 ViudiraTech, based on the GPLv3 agreement.
+ *      Based on Apache 2.0 open source license.
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

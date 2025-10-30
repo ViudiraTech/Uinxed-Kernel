@@ -5,8 +5,8 @@
 </div>
 
 <div align="center">
-  <img src="https://img.shields.io/badge/License-GPLv3-blue"/>
-  <img src="https://img.shields.io/badge/Language-3-orange"/>
+  <img src="https://img.shields.io/badge/License-Apache2.0-blue"/>
+  <img src="https://img.shields.io/badge/Language-C-orange"/>
   <img src="https://img.shields.io/badge/hardware-x64-green"/>
   <img src="https://img.shields.io/badge/firmware-UEFI/Legacy-yellow"/>
 </div>
@@ -132,7 +132,7 @@ Uinxed-Kernel/
 ├── .config-default  # Default configuration options.
 ├── .gitignore       # Ignore rules.
 ├── Kconfig          # Project Configuration File.
-├── LICENSE          # Open source agreement.
+├── LICENSE          # Open source license.
 ├── Makefile         # Build script.
 └── README.md        # Project introduction.
 ```
@@ -282,7 +282,7 @@ A resident contributor is someone who directly contributes to and manages the pr
 
 ## License 📜
 
-This project adopts the GPL-3.0 open source agreement. Please refer to the LICENSE file for details.
+This project adopts the Apache 2.0 open source license. Please refer to the LICENSE file for details.
 
 ## Contact details 📩
 
