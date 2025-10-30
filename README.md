@@ -7,8 +7,8 @@
 <div align="center">
   <img src="https://img.shields.io/badge/License-Apache2.0-blue"/>
   <img src="https://img.shields.io/badge/Language-C-orange"/>
-  <img src="https://img.shields.io/badge/hardware-x64-green"/>
-  <img src="https://img.shields.io/badge/firmware-UEFI/Legacy-yellow"/>
+  <img src="https://img.shields.io/badge/Hardware-x64-green"/>
+  <img src="https://img.shields.io/badge/Firmware-UEFI/Legacy-yellow"/>
 </div>
 
 ## Overview 💡
