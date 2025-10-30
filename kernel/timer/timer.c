@@ -12,7 +12,6 @@
 #include "acpi.h"
 #include "apic.h"
 #include "common.h"
-#include "cpuid.h"
 #include "interrupt.h"
 #include "math.h"
 #include "printk.h"
@@ -32,7 +31,7 @@ INTERRUPT_END
 /* Nanosecond-based delay function */
 void nsleep(uint64_t ns)
 {
-    uint64_t (*nano)(void) = cpu_support_rdtsc() ? tsc_nano_time : nano_time;
+    uint64_t (*nano)(void) = tsc_check_invariant() ? tsc_nano_time : nano_time;
 
     uint64_t start_time = nano();
     uint64_t elapsed    = 0;
