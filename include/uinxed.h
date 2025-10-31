@@ -15,7 +15,7 @@
 #define BUILD_DATE     __DATE__        // Compilation Date
 #define BUILD_TIME     __TIME__        // Compile time
 #define KERNEL_NAME    "Uinxed-Kernel" // Kernel name
-#define KERNEL_VERSION "0.0.251030"    // Kernel version (major.minor.yymmdd)
+#define KERNEL_VERSION "0.0.251031"    // Kernel version (major.minor.yymmdd)
 
 /* Compiler judgment */
 #if defined(__clang__)
