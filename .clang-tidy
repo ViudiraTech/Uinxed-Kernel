@@ -1,0 +1,18 @@
+---
+Checks: >
+  -*,
+  cert-*,
+  llvm-*,
+  llvmlibc-*,
+  bugprone-*,
+  concurrency-*,
+  performance-*,
+  linuxkernel-*,
+  clang-analyzer-*,
+  -cert-dcl37-c,
+  -cert-dcl51-cpp,
+  -llvm-header-guard,
+  -bugprone-reserved-identifier,
+  -bugprone-easily-swappable-parameters,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
+---

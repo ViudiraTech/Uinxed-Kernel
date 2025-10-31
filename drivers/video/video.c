@@ -232,8 +232,6 @@ void video_draw_rect(position_t p0, position_t p1, uint32_t color)
     }
 }
 
-/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-
 /* Draw a character at the specified coordinates on the screen */
 void video_draw_char(const char c, uint32_t x, uint32_t y, uint32_t color)
 {
@@ -250,8 +248,6 @@ void video_draw_char(const char c, uint32_t x, uint32_t y, uint32_t color)
     }
 #endif
 }
-
-/* NOLINTEND(bugprone-easily-swappable-parameters) */
 
 /* Flush character buffer to screen */
 void video_flush_buffer(uint32_t color)
@@ -299,11 +295,13 @@ void video_put_char(const char c, uint32_t color)
         cy++;
         cx = 0;
         return;
-    } else if (c == '\r') {
+    }
+    if (c == '\r') {
         video_flush_buffer(color);
         cx = 0;
         return;
-    } else if (c == '\t') {
+    }
+    if (c == '\t') {
         video_flush_buffer(color);
         cx = (cx + 8) & ~7;
         if (cx >= c_width) {
@@ -311,7 +309,8 @@ void video_put_char(const char c, uint32_t color)
             cy++;
         }
         return;
-    } else if (c == '\b') {
+    }
+    if (c == '\b') {
         video_flush_buffer(color);
         if (cx > 0) {
             cx--;

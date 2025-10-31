@@ -37,10 +37,10 @@ void facp_init(acpi_facp_t *facp0)
     if (!dsdt_table) {
         plogk("facp: DSDT table not found.\n");
         return;
-    } else {
-        dsdt_table = phys_to_virt((uint64_t)dsdt_table);
-        plogk("facp: DSDT found at %p\n", dsdt_table);
     }
+    dsdt_table = phys_to_virt((uint64_t)dsdt_table);
+    plogk("facp: DSDT found at %p\n", dsdt_table);
+
     if (!memcmp(dsdt_table->signature, "DSDT", 4)) {
         S5_addr = &(dsdt_table->definition_block);
         dsdtlen = dsdt_table->length - 36;

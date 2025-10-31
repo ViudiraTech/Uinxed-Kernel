@@ -14,10 +14,8 @@
 /* Round a floating-point number to the nearest integer */
 int round(float64_t x)
 {
-    if (x >= 0.0)
-        return (int)(x + 0.5);
-    else
-        return (int)(x - 0.5);
+    if (x >= 0.0) return (int)(x + 0.5);
+    return (int)(x - 0.5);
 }
 
 /* Convert a float to a string with a specified precision */
@@ -87,58 +85,46 @@ char *ftoa(double f, char *buf, int precision)
 float ceilf(float x)
 {
     float fract = x - (float)(int)x;
-    if (fract > 0)
-        return (float)((int)x + 1);
-    else
-        return (float)(int)x;
+    if (fract > 0) return (float)((int)x + 1);
+    return (float)(int)x;
 }
 
 /* Return the largest integer value less than or equal to the argument */
 float floorf(float x)
 {
     float fract = x - (float)(int)x;
-    if (fract < 0)
-        return (float)((int)x - 1);
-    else
-        return (float)(int)x;
+    if (fract < 0) return (float)((int)x - 1);
+    return (float)(int)x;
 }
 
 /* Round a floating-point number to the nearest integer */
 float roundf(float number)
 {
-    if (number < 0.0f)
-        return ceilf(number - 0.5f);
-    else
-        return floorf(number + 0.5f);
+    if (number < 0.0f) return ceilf(number - 0.5f);
+    return floorf(number + 0.5f);
 }
 
 /* Return the absolute value of a double */
 double fabs(double x)
 {
-    if (x < 0)
-        return -x;
-    else
-        return x;
+    if (x < 0) return -x;
+    return x;
 }
 
 /* Return the largest integer less than or equal to x */
 double floor(double x)
 {
     double fract = x - (int)x;
-    if (fract < 0)
-        return (int)x - 1;
-    else
-        return (int)x;
+    if (fract < 0) return (int)x - 1;
+    return (int)x;
 }
 
 /* Return the smallest integer greater than or equal to x */
 double ceil(double x)
 {
     double fract = x - (int)x;
-    if (fract > 0)
-        return (int)x + 1;
-    else
-        return (int)x;
+    if (fract > 0) return (int)x + 1;
+    return (int)x;
 }
 
 /* Return the remainder of x divided by y */
@@ -153,7 +139,6 @@ double fmod(double x, double y)
         remainder += y;
     else if (remainder > y)
         remainder -= y;
-
     return remainder;
 }
 
@@ -168,7 +153,6 @@ double cos(double x)
         term = term * (-1) * (2 * n) * (2 * n - 1) / ((2 * n) * (2 * n - 1));
         sum += term;
     }
-
     return sum;
 }
 
@@ -204,11 +188,8 @@ double acos(double x)
         x0 = x1;
         iterations++;
     }
-
     return x1;
 }
-
-/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
 
 /* Calculate x raised to the power of y */
 double pow(double x, int y)
@@ -225,8 +206,6 @@ double ldexp(double x, int exp)
     for (int i = 0; i < exp - 1; i++) n *= 2;
     return x * (double)(n);
 }
-
-/* NOLINTEND(bugprone-easily-swappable-parameters) */
 
 /* Return the absolute value of an integer */
 int abs(int x)

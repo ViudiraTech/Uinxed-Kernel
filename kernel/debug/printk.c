@@ -84,7 +84,7 @@ int sprintf(char *str, const char *fmt, ...)
     va_list arg;
     va_start(arg, fmt);
 
-    c = (int)vwprintf(&unsafe_buf_writer, fmt, arg); // NOLINT
+    c = (int)vwprintf(&unsafe_buf_writer, fmt, arg);
     unsafe_buf_writer.handler(&unsafe_buf_writer, '\0');
 
     va_end(arg);
@@ -100,7 +100,7 @@ int vsprintf(char *str, const char *fmt, va_list args)
                  .data    = &unsafe_buf_data,
                  .handler = unsafe_buf_write,
     };
-    c = (int)vwprintf(&unsafe_buf_writer, fmt, args); // NOLINT
+    c = (int)vwprintf(&unsafe_buf_writer, fmt, args);
     unsafe_buf_writer.handler(&unsafe_buf_writer, '\0');
     return c;
 }
@@ -115,7 +115,7 @@ typedef enum num_size {
 } num_size_t;
 
 /* Formatted output processing */
-void wfmt_arg(writer *writer, args_fmter *fmter, va_list args) // NOLINT
+void wfmt_arg(writer *writer, args_fmter *fmter, va_list args)
 {
     char         *str           = 0; // for `%s`
     size_t        write_counter = 0;
@@ -204,7 +204,6 @@ void wfmt_arg(writer *writer, args_fmter *fmter, va_list args) // NOLINT
                 break;
             case 'd' :
             case 'i' :
-                /* NOLINTBEGIN */
                 switch (size_cnt) {
                     case HALF_2 :
                         num_fmter.num = (size_t)(char)va_arg(args, int);
@@ -226,7 +225,6 @@ void wfmt_arg(writer *writer, args_fmter *fmter, va_list args) // NOLINT
                         num_fmter.num = va_arg(args, size_t);
                         break;
                 }
-                /* NOLINTEND */
                 break;
             case 'o' :
             case 'x' :
@@ -396,7 +394,7 @@ size_t vwprintf(writer *writer, const char *fmt, va_list args)
         }
 
         /* *fmt_ptr == '%' */
-        wfmt_arg(writer, &fmter, args); // NOLINT
+        wfmt_arg(writer, &fmter, args);
         fmt_ptr++;
     }
     return result;

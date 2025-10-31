@@ -121,17 +121,19 @@ Uinxed-Kernel/
 ├── .github/         # Github configuration file.
 ├── assets/          # Static resource files.
 ├── boot/            # Boot related.
-├── docs/            # Related Documents.
+├── docs/            # Related documents.
 ├── drivers/         # Device driver.
 ├── include/         # Header file.
 ├── init/            # Code entry.
 ├── kernel/          # Kernel part.
 ├── libs/            # Library file.
+├── mem/             # Memory management.
+├── .clang-format    # Formatting configuration files.
+├── .clang-tidy      # Static analysis configuration file.
 ├── .clangd_template # Clangd configuration template.
-├── .clang-format    # Formatting Configuration Files.
 ├── .config-default  # Default configuration options.
 ├── .gitignore       # Ignore rules.
-├── Kconfig          # Project Configuration File.
+├── Kconfig          # Project configuration file.
 ├── LICENSE          # Open source license.
 ├── Makefile         # Build script.
 └── README.md        # Project introduction.

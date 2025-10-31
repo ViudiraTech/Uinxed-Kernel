@@ -94,8 +94,6 @@ PWD            := $(shell pwd)
 QEMU           := qemu-system-x86_64
 QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd
 
-CHECKS         := -quiet -checks=-*,clang-analyzer-*,bugprone-*,cert-*,misc-*,performance-*,portability-*,-misc-include-cleaner,-clang-analyzer-security.insecureAPI.*
-
 # If you want to get more details of `dump_stack`, you need to replace `-O3` with `-O0` or '-Os'.
 # `-fno-optimize-sibling-calls` is for `dump_stack` to work properly.
 C_FLAGS        := -Wall -Wextra -O3 -g3 -m64 -fpie -ffreestanding -fno-optimize-sibling-calls -fno-stack-protector -fno-omit-frame-pointer -mstackrealign -mno-red-zone -I include -MMD
@@ -115,7 +113,7 @@ all: info Uinxed-x64.iso
 
 %.tidy: %
 	$(Q)printf "\033[1;32m[Checks]\033[0m $< ...\n"
-	$(Q)clang-tidy $< $(CHECKS) -- $(C_FLAGS)
+	$(Q)clang-tidy $< -- $(C_FLAGS)
 
 info:
 	$(Q)printf "Uinxed-Kernel Compile Script.\n"

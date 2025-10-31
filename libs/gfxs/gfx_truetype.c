@@ -25,8 +25,6 @@
 
 stbtt_fontinfo font;
 
-/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-
 /* ttf grayscale mixing */
 static uint32_t tty_blend(uint32_t background, uint32_t foreground, uint8_t alpha)
 {
@@ -242,5 +240,3 @@ void init_ttf(uint8_t *ttf_buffer)
 {
     if (ttf_buffer) stbtt_InitFont(&font, ttf_buffer, 0);
 }
-
-/* NOLINTEND(bugprone-easily-swappable-parameters) */

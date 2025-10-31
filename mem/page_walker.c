@@ -160,7 +160,7 @@ void update_walk_state_for_next_page(page_walk_state_t *state, uintptr_t next_vi
 }
 
 /* Check range free with state */
-size_t check_range_free_with_state(page_walk_state_t *state, uintptr_t start, size_t length) // NOLINT
+size_t check_range_free_with_state(page_walk_state_t *state, uintptr_t start, size_t length)
 {
     if (!state || length == 0) return 0;
 
@@ -182,7 +182,7 @@ size_t check_range_free_with_state(page_walk_state_t *state, uintptr_t start, si
 }
 
 /* Fast range free checker with large page */
-size_t check_range_free_fast(page_directory_t *directory, uintptr_t start, size_t length) // NOLINT
+size_t check_range_free_fast(page_directory_t *directory, uintptr_t start, size_t length)
 {
     if (!directory || length == 0) return 0;
 
@@ -201,7 +201,7 @@ size_t check_range_free_fast(page_directory_t *directory, uintptr_t start, size_
 }
 
 /* Find a free virtual memory range of specified length */
-uintptr_t walk_page_tables_find_free(page_directory_t *directory, uintptr_t start, size_t length) // NOLINT
+uintptr_t walk_page_tables_find_free(page_directory_t *directory, uintptr_t start, size_t length)
 {
     if (!directory || length == 0) return 0;
 

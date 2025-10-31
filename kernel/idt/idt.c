@@ -30,12 +30,9 @@ void init_idt(void)
     plogk("idt: Empty handler functions for interrupt vectors 0-255 registered.\n");
 }
 
-/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-
 /* Register an interrupt handler */
 void register_interrupt_handler(uint16_t vector, void *handler, uint8_t ist, uint8_t flags)
 {
-    /* NOLINTEND(bugprone-easily-swappable-parameters) */
     uint64_t addr                  = (uint64_t)handler;
     idt_entries[vector].offset_low = (uint16_t)addr;
     idt_entries[vector].ist        = ist;

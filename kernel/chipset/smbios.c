@@ -64,29 +64,23 @@ static const char *smbios_get_string(const header_t *hdr, int index)
 void *smbios_entry(void)
 {
     if (smbios_request.response == 0) return 0;
-    if (smbios_request.response->entry_64)
-        return (void *)smbios_request.response->entry_64;
-    else if (smbios_request.response->entry_32)
-        return (void *)smbios_request.response->entry_32;
+    if (smbios_request.response->entry_64) return (void *)smbios_request.response->entry_64;
+    if (smbios_request.response->entry_32) return (void *)smbios_request.response->entry_32;
     return 0;
 }
 
 /* Get the SMBIOS major version */
 int smbios_major_version(void)
 {
-    if (smbios_request.response->entry_64)
-        return ((entry_point_64_t *)smbios_entry())->major_version;
-    else
-        return ((entry_point_32_t *)smbios_entry())->major_version;
+    if (smbios_request.response->entry_64) return ((entry_point_64_t *)smbios_entry())->major_version;
+    return ((entry_point_32_t *)smbios_entry())->major_version;
 }
 
 /* Get SMBIOS minor version */
 int smbios_minor_version(void)
 {
-    if (smbios_request.response->entry_64)
-        return ((entry_point_64_t *)smbios_entry())->minor_version;
-    else
-        return ((entry_point_32_t *)smbios_entry())->minor_version;
+    if (smbios_request.response->entry_64) return ((entry_point_64_t *)smbios_entry())->minor_version;
+    return ((entry_point_32_t *)smbios_entry())->minor_version;
 }
 
 /* Type-0 */

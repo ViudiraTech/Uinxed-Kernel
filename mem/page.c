@@ -130,7 +130,7 @@ page_directory_t *get_current_directory(void)
 }
 
 /* Recursively copy memory page tables */
-void copy_page_table_recursive(page_table_t *source_table, page_table_t *new_table, int level) // NOLINT
+void copy_page_table_recursive(page_table_t *source_table, page_table_t *new_table, int level)
 {
     if (level == 0) {
         for (int i = 0; i < 512; i++) new_table->entries[i].value = source_table->entries[i].value;
@@ -149,7 +149,7 @@ void copy_page_table_recursive(page_table_t *source_table, page_table_t *new_tab
 }
 
 /* Recursively free memory page tables */
-void free_page_table_recursive(page_table_t *table, int level) // NOLINT
+void free_page_table_recursive(page_table_t *table, int level)
 {
     uint64_t virtual_address  = (uint64_t)table;
     uint64_t physical_address = (uint64_t)virt_to_phys(virtual_address);
@@ -196,7 +196,7 @@ void free_directory(page_directory_t *dir)
 }
 
 /* Maps a virtual address to a physical frame using 4KB pages */
-void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags) // NOLINT
+void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags)
 {
     uint64_t l4_index = (((addr >> 39)) & 0x1ff);
     uint64_t l3_index = (((addr >> 30)) & 0x1ff);
@@ -213,7 +213,7 @@ void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uin
 }
 
 /* Maps a virtual address to a physical frame using 2MB huge pages */
-void page_map_to_2M(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags) // NOLINT
+void page_map_to_2M(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags)
 {
     uint64_t l4_index = (addr >> 39) & 0x1FF;
     uint64_t l3_index = (addr >> 30) & 0x1FF;
@@ -229,7 +229,7 @@ void page_map_to_2M(page_directory_t *directory, uint64_t addr, uint64_t frame, 
 }
 
 /* Maps a virtual address to a physical frame using 1GB huge pages */
-void page_map_to_1G(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags) // NOLINT
+void page_map_to_1G(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags)
 {
     uint64_t l4_index = (addr >> 39) & 0x1FF;
     uint64_t l3_index = (addr >> 30) & 0x1FF;
@@ -251,19 +251,19 @@ void switch_page_directory(page_directory_t *dir)
 }
 
 /* Maps a contiguous physical memory range to the specified virtual address range */
-void page_map_range(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t length, uint64_t flags) // NOLINT
+void page_map_range(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t length, uint64_t flags)
 {
     for (uint64_t i = 0; i < length; i += 0x1000) page_map_to(directory, (uint64_t)addr + i, frame + i, flags);
 }
 
 /* Maps a contiguous physical memory range to virtual memory */
-void page_map_range_to(page_directory_t *directory, uint64_t frame, uint64_t length, uint64_t flags) // NOLINT
+void page_map_range_to(page_directory_t *directory, uint64_t frame, uint64_t length, uint64_t flags)
 {
     for (uint64_t i = 0; i < length; i += 0x1000) page_map_to(directory, (uint64_t)phys_to_virt(frame + i), frame + i, flags);
 }
 
 /* Maps random non-contiguous physical pages to the virtual address range using 4K page */
-void page_map_range_to_random_4K(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags) // NOLINT
+void page_map_range_to_random_4K(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags)
 {
     if (length == 0) return;
 
@@ -275,7 +275,7 @@ void page_map_range_to_random_4K(page_directory_t *directory, uint64_t addr, uin
 }
 
 /* Maps random non-contiguous physical pages to the virtual address range using 2M page */
-void page_map_range_to_random_2M(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags) // NOLINT
+void page_map_range_to_random_2M(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags)
 {
     if (length == 0) return;
 
@@ -301,7 +301,7 @@ void page_map_range_to_random_2M(page_directory_t *directory, uint64_t addr, uin
 }
 
 /* Maps random non-contiguous physical pages to the virtual address range using 1G page */
-void page_map_range_to_random_1G(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags) // NOLINT
+void page_map_range_to_random_1G(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags)
 {
     if (length == 0) return;
 
@@ -327,7 +327,7 @@ void page_map_range_to_random_1G(page_directory_t *directory, uint64_t addr, uin
 }
 
 /* Helper function to map unaligned regions using 2M and 4K pages */
-static void map_unaligned_region(page_directory_t *directory, uint64_t start_addr, uint64_t end_addr, uint64_t flags) // NOLINT
+static void map_unaligned_region(page_directory_t *directory, uint64_t start_addr, uint64_t end_addr, uint64_t flags)
 {
     // Try 2M pages for aligned sub-regions
     const uint64_t aligned_2m_start = ALIGN_UP(start_addr, HUGE_2M_SIZE);
@@ -349,7 +349,7 @@ static void map_unaligned_region(page_directory_t *directory, uint64_t start_add
 }
 
 /* Intelligently maps random non-contiguous physical pages to the virtual address range */
-void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags) // NOLINT
+void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags)
 {
     if (length == 0) return;
 

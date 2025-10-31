@@ -153,7 +153,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
 }
 
 /* Error handling */
-static uint8_t ide_print_error(uint32_t drive, uint8_t err) // NOLINT(bugprone-easily-swappable-parameters)
+static uint8_t ide_print_error(uint32_t drive, uint8_t err)
 {
     if (err == 0) return err;
     if (err == 1) {
@@ -296,7 +296,7 @@ void ide_read_buffer(uint8_t channel, uint8_t reg, uint8_t *buffer, uint32_t qua
 }
 
 /* Polling the status of IDE devices */
-uint8_t ide_polling(uint8_t channel, uint32_t advanced_check) // NOLINT(bugprone-easily-swappable-parameters)
+uint8_t ide_polling(uint8_t channel, uint32_t advanced_check)
 {
     for (int i = 0; i < 4; i++) ide_read(channel, ATA_REG_ALTSTATUS);
 
@@ -314,12 +314,9 @@ uint8_t ide_polling(uint8_t channel, uint32_t advanced_check) // NOLINT(bugprone
     return 0;
 }
 
-/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-
 /* Read and write ATA devices */
 uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t numsects, uint16_t *edi)
 {
-    /* NOLINTEND(bugprone-easily-swappable-parameters) */
     uint8_t  lba_mode, dma, cmd;
     uint8_t  lba_io[6];
     uint32_t channel  = ide_devices[drive].channel;
@@ -413,12 +410,9 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t n
     return 0;
 }
 
-/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-
 /* Reading data from ATAPI devices */
 uint8_t ide_atapi_read(uint8_t drive, uint32_t lba, uint8_t numsects, uint16_t *edi)
 {
-    /* NOLINTEND(bugprone-easily-swappable-parameters) */
     uint32_t channel  = ide_devices[drive].channel;
     uint32_t slavebit = ide_devices[drive].drive;
     uint32_t bus      = channels[channel].base;

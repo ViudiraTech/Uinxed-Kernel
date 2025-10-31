@@ -239,17 +239,16 @@ void smp_init(void)
             cast.ptr = cpus[i].kernel_stack;
             set_kernel_stack(ALIGN_DOWN((uint64_t)cast.val + sizeof(kernel_stack_t), 16ULL));
             continue;
-        } else {
-            cpus[i].gdt = (gdt_t *)aligned_alloc(16, ALIGN_UP(sizeof(gdt_t), 16));
-            memset(cpus[i].gdt, 0, sizeof(gdt_t)); // Clear dirty data
-            cpus[i].tss_stack = malloc(sizeof(tss_stack_t));
-            cpus[i].tss       = (tss_t *)aligned_alloc(16, ALIGN_UP(sizeof(tss_t), 16));
-            memset(cpus[i].tss, 0, sizeof(tss_t)); // Clear dirty data
-
-            /* Configure the AP entry point */
-            cpu->extra_argument = (uint64_t)&cpus[i];
-            cpu->goto_address   = (limine_goto_address)ap_entry;
         }
+        cpus[i].gdt = (gdt_t *)aligned_alloc(16, ALIGN_UP(sizeof(gdt_t), 16));
+        memset(cpus[i].gdt, 0, sizeof(gdt_t)); // Clear dirty data
+        cpus[i].tss_stack = malloc(sizeof(tss_stack_t));
+        cpus[i].tss       = (tss_t *)aligned_alloc(16, ALIGN_UP(sizeof(tss_t), 16));
+        memset(cpus[i].tss, 0, sizeof(tss_t)); // Clear dirty data
+
+        /* Configure the AP entry point */
+        cpu->extra_argument = (uint64_t)&cpus[i];
+        cpu->goto_address   = (limine_goto_address)ap_entry;
     }
 
     /* Register IPI handler */

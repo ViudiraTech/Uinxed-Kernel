@@ -286,8 +286,6 @@
 //  Incomplete text-in-3d-api example, which draws quads properly aligned to be lossless.
 //  See "tests/truetype_demo_win32.c" for a complete version.
 
-// NOLINTBEGIN
-
 #if 0
 #    define STB_TRUETYPE_IMPLEMENTATION // force following include to generate implementation
 #    include "stb_truetype.h"
@@ -4953,8 +4951,6 @@ STBTT_DEF int stbtt_CompareUTF8toUTF16_bigendian(const char *s1, int len1, const
 #    endif
 
 #endif // STB_TRUETYPE_IMPLEMENTATION
-
-// NOLINTEND
 
 // FULL VERSION HISTORY
 //

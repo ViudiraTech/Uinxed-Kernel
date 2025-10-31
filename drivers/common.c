@@ -14,8 +14,6 @@
 #include "stdint.h"
 #include "tty.h"
 
-/* NOLINTBEGIN(bugprone-easily-swappable-parameters) */
-
 /* Port write (8 bits) */
 void outb(uint16_t port, uint8_t value)
 {
@@ -233,5 +231,3 @@ __attribute__((noinline)) void compiler_barrier(void)
 {
     __asm__ volatile("" ::: "memory");
 }
-
-/* NOLINTEND(bugprone-easily-swappable-parameters) */

@@ -13,7 +13,7 @@
 #include "stdint.h"
 
 /* Write a formatted number to a writer */
-size_t wnumber(writer *writer, num_formatter_t fmter, num_fmt_type type) // NOLINT
+size_t wnumber(writer *writer, num_formatter_t fmter, num_fmt_type type)
 {
     char        c = 0;
     char        tmp[65];
@@ -130,7 +130,7 @@ int skip_atoi(const char **s)
 }
 
 /* Formatting an integer as a string */
-char *number(char *str, size_t num, size_t base, size_t size, size_t precision, int type) // NOLINT
+char *number(char *str, size_t num, size_t base, size_t size, size_t precision, int type)
 {
     char        c, tmp[65];
     int         sign;
@@ -211,7 +211,7 @@ char *number(char *str, size_t num, size_t base, size_t size, size_t precision, 
 }
 
 /* Returns the size of a string with an integer formatted by `number()` */
-uint64_t number_length(size_t num, size_t base, size_t size, size_t precision, int type) // NOLINT
+uint64_t number_length(size_t num, size_t base, size_t size, size_t precision, int type)
 {
     /* This function is for malloc a enough space for `number()` */
     char     sign          = 0; // is there a sign (0: no sign, 1: sign)

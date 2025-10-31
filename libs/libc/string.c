@@ -30,7 +30,7 @@ void *memcpy(void *str1, const void *str2, size_t n)
 }
 
 /* Sets a memory area to the specified value */
-void *memset(void *str, int c, size_t n) // NOLINT
+void *memset(void *str, int c, size_t n)
 {
 #if defined(__builtin_memset)
     return __builtin_memset(str, c, n);
