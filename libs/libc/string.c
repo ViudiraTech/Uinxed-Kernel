@@ -10,6 +10,7 @@
  */
 
 #include "string.h"
+#include "alloc.h"
 #include "stddef.h"
 #include "stdint.h"
 
@@ -218,5 +219,29 @@ char *strstr(const char *haystack, const char *needle)
         if (!strncmp(s + i, t, _tn)) return (char *)(s + i);
     }
     return 0;
+#endif
+}
+
+/* Make a copy of the string and return it */
+void *strdup(const char *s)
+{
+#if defined(__builtin_strdup)
+    return __builtin_strdup(haystack, needle);
+#else
+    size_t len = strlen(s) + 1;
+    void  *p   = (void *)malloc(len);
+
+    if (p) memcpy(p, (uint8_t *)s, len);
+    return p;
+#endif
+}
+
+/* String equality check */
+int streq(const char *s1, const char *s2)
+{
+#if defined(__builtin_streq)
+    return __builtin_streq(haystack, needle);
+#else
+    return !strcmp(s1, s2);
 #endif
 }

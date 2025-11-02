@@ -123,6 +123,7 @@ Uinxed-Kernel/
 ├── boot/            # Boot related.
 ├── docs/            # Related documents.
 ├── drivers/         # Device driver.
+├── fs/              # File system.
 ├── include/         # Header file.
 ├── init/            # Code entry.
 ├── kernel/          # Kernel part.

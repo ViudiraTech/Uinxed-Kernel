@@ -14,6 +14,37 @@
 
 #include "stddef.h"
 
+#define clist_foreach_cnt(clist, i, node, code)                                  \
+    ({                                                                           \
+        size_t i = 0;                                                            \
+        for (clist_t node = (clist); node; (node) = (node)->next, (i)++) (code); \
+    })
+
+#define clist_first_node(clist, node, expr)                         \
+    ({                                                              \
+        clist_t _match_ = 0;                                        \
+        for (clist_t node = (clist); node; (node) = (node)->next) { \
+            if ((expr)) {                                           \
+                _match_ = node;                                     \
+                break;                                              \
+            }                                                       \
+        }                                                           \
+        _match_;                                                    \
+    })
+
+#define clist_first(clist, _data_, expr)                        \
+    ({                                                          \
+        void *_match_ = 0;                                      \
+        for (clist_t node = (clist); node; node = node->next) { \
+            void *(_data_) = node->data;                        \
+            if ((expr)) {                                       \
+                _match_ = _data_;                               \
+                break;                                          \
+            }                                                   \
+        }                                                       \
+        _match_;                                                \
+    })
+
 typedef void (*free_t)(void *ptr);
 typedef void *(*alloc_t)(size_t size);
 

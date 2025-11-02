@@ -33,6 +33,7 @@
 #include "smp.h"
 #include "tsc.h"
 #include "uinxed.h"
+#include "vfs.h"
 #include "video.h"
 
 /* Executable entry */
@@ -103,6 +104,7 @@ void kernel_entry(void)
     init_serial();                  // Initialize the serial port
     init_parallel();                // Initialize the parallel port
     init_ps2();                     // Initialize PS/2 controller
+    init_vfs();                     // Initialize VFS
     enable_intr();
 
     panic("No operation.");
