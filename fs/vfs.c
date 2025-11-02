@@ -94,7 +94,7 @@ vfs_node_t vfs_node_alloc(vfs_node_t parent, const char *name)
     node->root     = parent ? parent->root : node;
     node->dev      = parent ? parent->dev : 0;
     node->refcount = 0;
-    node->blksz    = PAGE_SIZE;
+    node->blksz    = PAGE_4K_SIZE;
     node->mode     = 0777;
     node->linkto   = NULL;
 

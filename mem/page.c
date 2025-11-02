@@ -109,11 +109,11 @@ page_table_t *page_table_create(page_table_entry_t *entry)
     if (entry->value == 0) {
         uint64_t frame      = alloc_frames(1);
         entry->value        = frame | PTE_PRESENT | PTE_WRITEABLE | PTE_USER;
-        page_table_t *table = (page_table_t *)phys_to_virt(entry->value & PAGE_FLAGS_MASK);
+        page_table_t *table = (page_table_t *)phys_to_virt(entry->value & PAGE_4K_MASK);
         page_table_clear(table);
         return table;
     }
-    page_table_t *table = (page_table_t *)phys_to_virt(entry->value & PAGE_FLAGS_MASK);
+    page_table_t *table = (page_table_t *)phys_to_virt(entry->value & PAGE_4K_MASK);
     return table;
 }
 
@@ -141,7 +141,7 @@ void copy_page_table_recursive(page_table_t *source_table, page_table_t *new_tab
             new_table->entries[i].value = 0;
             continue;
         }
-        page_table_t *source_next_level = (page_table_t *)phys_to_virt(source_table->entries[i].value & PAGE_FLAGS_MASK);
+        page_table_t *source_next_level = (page_table_t *)phys_to_virt(source_table->entries[i].value & PAGE_4K_MASK);
         page_table_t *new_next_level    = page_table_create(&(new_table->entries[i]));
         new_table->entries[i].value     = (uint64_t)new_next_level | (source_table->entries[i].value & 0xfff);
         copy_page_table_recursive(source_next_level, new_next_level, level - 1);
@@ -155,7 +155,7 @@ void free_page_table_recursive(page_table_t *table, int level)
     uint64_t physical_address = (uint64_t)virt_to_phys(virtual_address);
 
     if (level == 0) {
-        free_frame(physical_address & PAGE_FLAGS_MASK);
+        free_frame(physical_address & PAGE_4K_MASK);
         return;
     }
     for (int i = 0; i < 512; i++) {
@@ -163,13 +163,13 @@ void free_page_table_recursive(page_table_t *table, int level)
         if (entry->value == 0 || is_huge_page(entry)) continue;
         if (level == 1) {
             if (entry->value & PTE_PRESENT && entry->value & PTE_WRITEABLE && entry->value & PTE_USER) {
-                free_frame(entry->value & PAGE_FLAGS_MASK);
+                free_frame(entry->value & PAGE_4K_MASK);
             }
         } else {
-            free_page_table_recursive(phys_to_virt(entry->value & PAGE_FLAGS_MASK), level - 1);
+            free_page_table_recursive(phys_to_virt(entry->value & PAGE_4K_MASK), level - 1);
         }
     }
-    free_frame(physical_address & PAGE_FLAGS_MASK);
+    free_frame(physical_address & PAGE_4K_MASK);
 }
 
 /* Clone a page directory */
@@ -208,7 +208,7 @@ void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uin
     page_table_t *l2_table = page_table_create(&(l3_table->entries[l3_index]));
     page_table_t *l1_table = page_table_create(&(l2_table->entries[l2_index]));
 
-    l1_table->entries[l1_index].value = (frame & PAGE_FLAGS_MASK) | flags;
+    l1_table->entries[l1_index].value = (frame & PAGE_4K_MASK) | flags;
     flush_tlb(addr);
 }
 
@@ -223,7 +223,7 @@ void page_map_to_2M(page_directory_t *directory, uint64_t addr, uint64_t frame, 
     page_table_t *l3_table = page_table_create(&l4_table->entries[l4_index]);
     page_table_t *l2_table = page_table_create(&l3_table->entries[l3_index]);
 
-    l2_table->entries[l2_index].value = (frame & HUGE_PAGE_2M_MASK) | flags | PTE_HUGE;
+    l2_table->entries[l2_index].value = (frame & PAGE_2M_MASK) | flags | PTE_HUGE;
 
     flush_tlb(addr);
 }
@@ -237,7 +237,7 @@ void page_map_to_1G(page_directory_t *directory, uint64_t addr, uint64_t frame, 
     page_table_t *l4_table = directory->table;
     page_table_t *l3_table = page_table_create(&l4_table->entries[l4_index]);
 
-    l3_table->entries[l3_index].value = (frame & HUGE_PAGE_1G_MASK) | flags | PTE_HUGE;
+    l3_table->entries[l3_index].value = (frame & PAGE_1G_MASK) | flags | PTE_HUGE;
 
     flush_tlb(addr);
 }
@@ -268,7 +268,7 @@ void page_map_range_to_random_4K(page_directory_t *directory, uint64_t addr, uin
     if (length == 0) return;
 
     uint64_t frame = 0;
-    for (uint64_t i = 0; i < length; i += PAGE_SIZE) {
+    for (uint64_t i = 0; i < length; i += PAGE_4K_SIZE) {
         frame = alloc_frames(1);
         if (frame != 0) { page_map_to(directory, addr + i, frame, flags); }
     }
@@ -280,14 +280,14 @@ void page_map_range_to_random_2M(page_directory_t *directory, uint64_t addr, uin
     if (length == 0) return;
 
     // Check align
-    uint64_t aligned_addr   = ALIGN_DOWN(addr, HUGE_2M_SIZE);
-    uint64_t end_addr       = ALIGN_UP(addr + length, HUGE_2M_SIZE);
+    uint64_t aligned_addr   = ALIGN_DOWN(addr, PAGE_2M_SIZE);
+    uint64_t end_addr       = ALIGN_UP(addr + length, PAGE_2M_SIZE);
     uint64_t aligned_length = end_addr - aligned_addr;
 
-    uint64_t blocks = aligned_length / HUGE_2M_SIZE;
+    uint64_t blocks = aligned_length / PAGE_2M_SIZE;
 
     for (uint64_t i = 0; i < blocks; i++) {
-        uint64_t block_addr = aligned_addr + i * HUGE_2M_SIZE;
+        uint64_t block_addr = aligned_addr + i * PAGE_2M_SIZE;
 
         // Try 2M
         uint64_t frame_2m = alloc_frames_2M(1);
@@ -295,7 +295,7 @@ void page_map_range_to_random_2M(page_directory_t *directory, uint64_t addr, uin
             page_map_to_2M(directory, block_addr, frame_2m, flags);
         } else {
             // Fallback to 4K
-            page_map_range_to_random_4K(directory, block_addr, HUGE_2M_SIZE, flags);
+            page_map_range_to_random_4K(directory, block_addr, PAGE_2M_SIZE, flags);
         }
     }
 }
@@ -306,14 +306,14 @@ void page_map_range_to_random_1G(page_directory_t *directory, uint64_t addr, uin
     if (length == 0) return;
 
     // Check align
-    uint64_t aligned_addr   = ALIGN_DOWN(addr, HUGE_1G_SIZE);
-    uint64_t end_addr       = ALIGN_UP(addr + length, HUGE_1G_SIZE);
+    uint64_t aligned_addr   = ALIGN_DOWN(addr, PAGE_1G_SIZE);
+    uint64_t end_addr       = ALIGN_UP(addr + length, PAGE_1G_SIZE);
     uint64_t aligned_length = end_addr - aligned_addr;
 
-    uint64_t blocks = aligned_length / HUGE_1G_SIZE;
+    uint64_t blocks = aligned_length / PAGE_1G_SIZE;
 
     for (uint64_t i = 0; i < blocks; i++) {
-        uint64_t block_addr = aligned_addr + i * HUGE_1G_SIZE;
+        uint64_t block_addr = aligned_addr + i * PAGE_1G_SIZE;
 
         // Try 1G
         uint64_t frame_1g = alloc_frames_1G(1);
@@ -321,7 +321,7 @@ void page_map_range_to_random_1G(page_directory_t *directory, uint64_t addr, uin
             page_map_to_1G(directory, block_addr, frame_1g, flags);
         } else {
             // Fallback to 2M
-            page_map_range_to_random_2M(directory, block_addr, HUGE_1G_SIZE, flags);
+            page_map_range_to_random_2M(directory, block_addr, PAGE_1G_SIZE, flags);
         }
     }
 }
@@ -330,8 +330,8 @@ void page_map_range_to_random_1G(page_directory_t *directory, uint64_t addr, uin
 static void map_unaligned_region(page_directory_t *directory, uint64_t start_addr, uint64_t end_addr, uint64_t flags)
 {
     // Try 2M pages for aligned sub-regions
-    const uint64_t aligned_2m_start = ALIGN_UP(start_addr, HUGE_2M_SIZE);
-    const uint64_t aligned_2m_end   = ALIGN_DOWN(end_addr, HUGE_2M_SIZE);
+    const uint64_t aligned_2m_start = ALIGN_UP(start_addr, PAGE_2M_SIZE);
+    const uint64_t aligned_2m_end   = ALIGN_DOWN(end_addr, PAGE_2M_SIZE);
 
     // Map aligned middle region with 2M pages
     if (aligned_2m_start < aligned_2m_end) {
@@ -357,8 +357,8 @@ void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64
     const uint64_t end_addr   = addr + length;
 
     // Try to map 1G-aligned regions with 1G pages
-    const uint64_t aligned_1g_start = ALIGN_UP(start_addr, HUGE_1G_SIZE);
-    const uint64_t aligned_1g_end   = ALIGN_DOWN(end_addr, HUGE_1G_SIZE);
+    const uint64_t aligned_1g_start = ALIGN_UP(start_addr, PAGE_1G_SIZE);
+    const uint64_t aligned_1g_end   = ALIGN_DOWN(end_addr, PAGE_1G_SIZE);
 
     if (aligned_1g_start < aligned_1g_end) {
         // We have a fully 1G-aligned region in the middle

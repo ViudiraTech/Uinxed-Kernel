@@ -33,7 +33,7 @@ void init_frame(void)
             break;
         }
     }
-    size_t   bitmap_size    = (memory_size / PAGE_SIZE + 7) / 8;
+    size_t   bitmap_size    = (memory_size / PAGE_4K_SIZE + 7) / 8;
     uint64_t bitmap_address = 0;
 
     for (uint64_t i = 0; i < memory_map->entry_count; i++) {
