@@ -475,6 +475,24 @@ int vfs_rename(vfs_node_t node, const char *new)
     return callbackof(node, rename)(node->handle, new);
 }
 
+/* Send control commands to a device or file */
+int vfs_ioctl(vfs_node_t device, size_t options, void *arg)
+{
+    if (!device) return -1;
+    do_update(device);
+
+    if (device->type == file_dir) return -1;
+    return callbackof(device, ioctl)(device->handle, options, arg);
+}
+
+/* Listen for actionable events on one or more file descriptors */
+int vfs_poll(vfs_node_t node, size_t event)
+{
+    do_update(node);
+    if (node->type & file_dir) return -1;
+    return callbackof(node, poll)(node->handle, event);
+}
+
 /* Free all child nodes of a VFS node */
 void vfs_free_child(vfs_node_t vfs)
 {

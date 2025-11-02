@@ -31,6 +31,10 @@ typedef int (*vfs_stat_t)(void *file, vfs_node_t node);
 typedef int (*vfs_mk_t)(void *parent, const char *name, vfs_node_t node);
 typedef int (*vfs_del_t)(void *parent, vfs_node_t node);
 typedef int (*vfs_rename_t)(void *current, const char *new);
+typedef int (*vfs_ioctl_t)(void *file, size_t req, void *arg);
+typedef vfs_node_t (*vfs_dup_t)(vfs_node_t node);
+typedef int (*vfs_poll_t)(void *file, size_t events);
+typedef int (*vfs_free_t)(void *handle);
 
 enum {
     file_none     = 0x1UL,    // No information retrieved
@@ -63,6 +67,9 @@ typedef struct vfs_callback {
         vfs_mk_t       link;     // Create a hard link
         vfs_mk_t       symlink;  // Create a symbolic link
         vfs_stat_t     stat;     // Check file status information
+        vfs_ioctl_t    ioctl;    // I/O control interface (implemented only by special file systems such as devfs)
+        vfs_dup_t      dup;      // Copy file node
+        vfs_poll_t     poll;     // Polling file status (implemented only for special file systems such as devfs)
         vfs_del_t delete;        // Delete files or folders
         vfs_rename_t rename;     // Rename files or folders
 } *vfs_callback_t;
@@ -155,6 +162,12 @@ int vfs_delete(vfs_node_t node);
 
 /* Rename a VFS (Virtual File System) node to a new name */
 int vfs_rename(vfs_node_t node, const char *new);
+
+/* Send control commands to a device or file */
+int vfs_ioctl(vfs_node_t device, size_t options, void *arg);
+
+/* Listen for actionable events on one or more file descriptors */
+int vfs_poll(vfs_node_t node, size_t event);
 
 /* Free all child nodes of a VFS node */
 void vfs_free_child(vfs_node_t vfs);
