@@ -84,9 +84,8 @@ ifneq ($(CONFIG_SERIAL_STOP_BITS),)
 endif
 
 C_SOURCES      := $(shell find * -name "*.c")
-S_SOURCES      := $(shell find * -name "*.s")
-HEADERS        := $(shell find * -name "*.h")
-OBJS           := $(C_SOURCES:%.c=%.o) $(S_SOURCES:%.s=%.o)
+C_HEADERS      := $(shell find * -name "*.h")
+OBJS           := $(C_SOURCES:%.c=%.o)
 DEPS           := $(OBJS:%.o=%.d)
 LIBS           := $(wildcard libs/lib*.a)
 PWD            := $(shell pwd)
@@ -103,9 +102,6 @@ all: info Uinxed-x64.iso
 
 %.o: %.c
 	$(V)$(CC) $(C_FLAGS) $(C_CONFIG) -c -o $@ $<
-
-%.o: %.s
-	$(V)$(AS) $(AS_FLAGS) -o $@ $<
 
 %.fmt: %
 	$(Q)printf "\033[1;32m[Format]\033[0m $< ...\n"
@@ -166,10 +162,10 @@ gen.clangd:
 menuconfig:
 	$(Q)kconfig-mconf Kconfig
 
-format: $(C_SOURCES:%=%.fmt) $(S_SOURCES:%=%.fmt) $(HEADERS:%=%.fmt)
+format: $(C_SOURCES:%=%.fmt) $(S_SOURCES:%=%.fmt) $(C_HEADERS:%=%.fmt)
 	$(Q)printf "\033[1;32m[Done]\033[0m Code Format complete.\n\n"
 
-check: $(C_SOURCES:%=%.tidy) $(S_SOURCES:%=%.tidy) $(HEADERS:%=%.tidy)
+check: $(C_SOURCES:%=%.tidy) $(S_SOURCES:%=%.tidy) $(C_HEADERS:%=%.tidy)
 	$(Q)printf "\033[1;32m[Done]\033[0m Code Checks complete.\n\n"
 
 -include $(DEPS)
