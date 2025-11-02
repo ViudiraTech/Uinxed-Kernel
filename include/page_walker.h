@@ -45,10 +45,50 @@ typedef struct {
         page_table_t *l1_table;
 
         /* Status flags */
-        uint8_t is_valid : 1;
-        uint8_t is_huge  : 1;
-        uint8_t reserved : 6;
+        uint8_t is_valid  : 1;
+        uint8_t is_huge   : 1;
+        uint8_t page_size : 2; /* 0=4K, 1=2M, 2=1G */
+        uint8_t reserved  : 4;
 } page_walk_state_t;
+
+/* Get page size from walk state */
+static inline size_t get_page_size_from_state(const page_walk_state_t *state)
+{
+    if (!state->is_valid) return PAGE_4K_SIZE;
+
+    switch (state->page_size) {
+        case 2 :
+            return PAGE_1G_SIZE; /* 1GB page */
+        case 1 :
+            return PAGE_2M_SIZE; /* 2MB page */
+        default :
+            return PAGE_4K_SIZE; /* 4KB page */
+    }
+}
+
+/* Check if address is aligned to specific page size */
+static inline uint8_t is_page_aligned(uintptr_t addr, size_t page_size)
+{
+    return (addr & (page_size - 1)) == 0;
+}
+
+/* Align address down to specific page size */
+static inline uintptr_t align_down_to_page(uintptr_t addr, size_t page_size)
+{
+    return addr & ~(page_size - 1);
+}
+
+/* Align address up to specific page size */
+static inline uintptr_t align_up_to_page(uintptr_t addr, size_t page_size)
+{
+    return (addr + page_size - 1) & ~(page_size - 1);
+}
+
+/* Get next aligned address for specific page size */
+static inline uintptr_t get_next_aligned_addr(uintptr_t addr, size_t page_size)
+{
+    return align_up_to_page(addr, page_size);
+}
 
 /* Init page_walk_state */
 void page_walk_init(page_walk_state_t *state, page_directory_t *directory, uintptr_t virtual_addr);
@@ -62,13 +102,10 @@ uintptr_t walk_page_tables(page_directory_t *directory, uintptr_t virtual_addr);
 /* Efficiently update state to next page */
 void update_walk_state_for_next_page(page_walk_state_t *state, uintptr_t next_virtual);
 
-/* Fast range free checker with large page */
-size_t check_range_free_fast(page_directory_t *directory, uintptr_t start, size_t length);
+/* Check range free with state - supports multiple page sizes */
+size_t check_range_free_with_state(page_walk_state_t *state, uintptr_t start, size_t length, size_t desired_size);
 
-/* Check range free with state */
-size_t check_range_free_with_state(page_walk_state_t *state, uintptr_t start, size_t length);
-
-/* Find a free virtual memory range of specified length */
-uintptr_t walk_page_tables_find_free(page_directory_t *directory, uintptr_t start, size_t length);
+/* Find a free virtual memory range of specified length with preferred page size */
+uintptr_t walk_page_tables_find_free(page_directory_t *directory, uintptr_t start, size_t length, size_t preferred_size);
 
 #endif // PAGE_WALKER_H_

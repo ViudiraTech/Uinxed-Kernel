@@ -103,7 +103,7 @@ void flush_tlb_all(void)
 /* Flushing TLB by address range */
 void flush_tlb_range(uint64_t start, uint64_t end)
 {
-    for (uint64_t addr = start; addr < end; addr += PAGE_SIZE) flush_tlb(addr);
+    for (uint64_t addr = start; addr < end; addr += PAGE_4K_SIZE) flush_tlb(addr);
 }
 
 /* Get the number of CPUs */

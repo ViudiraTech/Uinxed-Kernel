@@ -24,12 +24,15 @@
 #define PTE_NO_EXECUTE   (((uint64_t)0x1) << 63)
 #define KERNEL_PTE_FLAGS (PTE_PRESENT | PTE_WRITEABLE | PTE_NO_EXECUTE)
 
-#define PAGE_SIZE         0x1000ULL
-#define PAGE_FLAGS_MASK   0x000ffffffffff000ULL
-#define HUGE_2M_SIZE      0x200000ULL
-#define HUGE_PAGE_2M_MASK 0x000fffffffe00000ULL
-#define HUGE_1G_SIZE      0x40000000ULL
-#define HUGE_PAGE_1G_MASK 0x000fffffc0000000ULL
+/* Page size constants */
+#define PAGE_4K_SIZE 0x1000ULL     // (1ULL << 12)
+#define PAGE_2M_SIZE 0x200000ULL   // (1ULL << 21)
+#define PAGE_1G_SIZE 0x40000000ULL // (1ULL << 30)
+
+/* Page size masks */
+#define PAGE_4K_MASK 0x000ffffffffff000ULL // ((PAGE_4K_SIZE - 1) ^ ((1ULL << 52) - 1))
+#define PAGE_2M_MASK 0x000fffffffe00000ULL // (~(PAGE_2M_SIZE - 1) & PAGE_4K_MASK)
+#define PAGE_1G_MASK 0x000fffffc0000000ULL // (~(PAGE_1G_SIZE - 1) & PAGE_4K_MASK)
 
 typedef struct {
         uint64_t value;
