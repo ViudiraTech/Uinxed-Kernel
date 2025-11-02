@@ -1,7 +1,7 @@
 /*
  *
  *      singly_list.h
- *      Singly Linked List Header File
+ *      Singly linked list header file
  *
  *      2025/7/21 By MicroFish
  *      Based on Apache 2.0 open source license.

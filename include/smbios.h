@@ -1,7 +1,7 @@
 /*
  *
  *      smbios.h
- *      System Management BIOS Header File
+ *      System management BIOS header file
  *
  *      2025/3/8 By MicroFish
  *      Based on Apache 2.0 open source license.

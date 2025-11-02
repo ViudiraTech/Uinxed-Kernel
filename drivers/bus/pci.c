@@ -1,7 +1,7 @@
 /*
  *
  *      pci.c
- *      Peripheral Component Interconnect Standard Driver
+ *      Peripheral component interconnect standard driver
  *
  *      2025/3/9 By MicroFish
  *      Based on Apache 2.0 open source license.

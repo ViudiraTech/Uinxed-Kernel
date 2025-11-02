@@ -1,7 +1,7 @@
 /*
  *
  *      intrusive_list.c
- *      Intrusive Linked List
+ *      Intrusive linked list
  *
  *      2025/7/21 By MicroFish
  *      Based on Apache 2.0 open source license.

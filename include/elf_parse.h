@@ -1,7 +1,7 @@
 /*
  *
  *      elf_parse.h
- *      ELF Parse Header Files
+ *      ELF parse header files
  *
  *      2025/5/4 By MicroFish
  *      Based on Apache 2.0 open source license.

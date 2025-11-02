@@ -1,7 +1,7 @@
 /*
  *
  *      serial.c
- *      Serial Port
+ *      Serial port
  *
  *      2024/7/11 By MicroFish
  *      Based on Apache 2.0 open source license.

@@ -1,7 +1,7 @@
 /*
  *
  *      facp.c
- *      Fixed ACPI Description Table
+ *      Fixed ACPI description table
  *
  *      2025/2/16 By MicroFish
  *      Based on Apache 2.0 open source license.

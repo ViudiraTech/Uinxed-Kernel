@@ -1,7 +1,7 @@
 /*
  *
  *      speaker.h
- *      System Speaker Header File
+ *      System speaker header file
  *
  *      2024/6/29 By MicroFish
  *      Based on Apache 2.0 open source license.

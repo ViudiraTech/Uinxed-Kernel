@@ -1,7 +1,7 @@
 /*
  *
  *      acpi.h
- *      Advanced Configuration and Power Management Interface Header File
+ *      Advanced configuration and power management interface header file
  *
  *      2025/2/16 By MicroFish
  *      Based on Apache 2.0 open source license.

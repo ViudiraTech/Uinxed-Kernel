@@ -1,7 +1,7 @@
 /*
  *
  *      video.h
- *      Basic Video
+ *      Basic video
  *
  *      2024/9/16 By MicroFish
  *      Based on Apache 2.0 open source license.

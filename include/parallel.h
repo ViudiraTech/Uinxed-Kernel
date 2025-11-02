@@ -1,7 +1,7 @@
 /*
  *
  *      parallel.h
- *      Parallel Port Header File
+ *      Parallel port header file
  *
  *      2024/9/8 By MicroFish
  *      Based on Apache 2.0 open source license.

@@ -1,7 +1,7 @@
 /*
  *
  *      smp.c
- *      Symmetric Multi-Processing
+ *      Symmetric multi-processing
  *
  *      2025/7/6 By W9pi3cZ1
  *      Based on Apache 2.0 open source license.

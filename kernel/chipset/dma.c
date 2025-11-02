@@ -1,7 +1,7 @@
 /*
  *
  *      dma.c
- *      Direct Memory Access
+ *      Direct memory access
  *
  *      2025/1/9 By MicroFish
  *      Based on Apache 2.0 open source license.

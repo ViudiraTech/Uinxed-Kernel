@@ -13,6 +13,7 @@
 #define INCLUDE_STDDEF_H_
 
 typedef __SIZE_TYPE__    size_t;
+typedef __INTPTR_TYPE__  ssize_t;
 typedef __PTRDIFF_TYPE__ ptrdiff_t;
 #if !defined(__cplusplus) && defined(__WCHAR_TYPE__)
 typedef __WCHAR_TYPE__ wchar_t;

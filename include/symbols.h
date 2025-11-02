@@ -1,7 +1,7 @@
 /*
  *
  *      symbols.h
- *      Symbol Table Header File
+ *      Symbol table header file
  *
  *      2025/5/4 By suhuajun
  *      Based on Apache 2.0 open source license.

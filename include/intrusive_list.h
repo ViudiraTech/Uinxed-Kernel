@@ -1,7 +1,7 @@
 /*
  *
  *      intrusive_list.h
- *      Intrusive Linked List Header File
+ *      Intrusive linked list header file
  *
  *      2025/7/21 By MicroFish
  *      Based on Apache 2.0 open source license.

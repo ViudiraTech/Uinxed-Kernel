@@ -1,7 +1,7 @@
 /*
  *
  *      limine_request.c
- *      Kernel Limine Request
+ *      Kernel limine request
  *
  *      2024/6/23 By MicroFish
  *      Based on Apache 2.0 open source license.

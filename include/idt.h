@@ -1,7 +1,7 @@
 /*
  *
  *      idt.h
- *      Interrupt Descriptor Header File
+ *      Interrupt descriptor header file
  *
  *      2024/6/27 By Rainy101112
  *      Based on Apache 2.0 open source license.

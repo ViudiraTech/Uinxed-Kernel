@@ -1,7 +1,7 @@
 /*
  *
  *      dma.h
- *      Direct Memory Access Header Files
+ *      Direct memory access header files
  *
  *      2025/1/9 By MicroFish
  *      Based on Apache 2.0 open source license.

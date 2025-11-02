@@ -1,7 +1,7 @@
 /*
  *
  *      symbols.c
- *      Symbol Table
+ *      Symbol table
  *
  *      2025/5/4 By suhuajun
  *      Based on Apache 2.0 open source license.

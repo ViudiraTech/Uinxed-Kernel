@@ -1,7 +1,7 @@
 /*
  *
  *      inthandle.c
- *      Interrupt HandlerInterrupt Handler
+ *      Interrupt handler
  *
  *      2024/8/1 By Rainy101112
  *      Based on Apache 2.0 open source license.

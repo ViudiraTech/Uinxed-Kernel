@@ -1,7 +1,7 @@
 /*
  *
  *      apic.c
- *      Advanced Programmable Interrupt Controller
+ *      Advanced programmable interrupt controller
  *
  *      2025/2/17 By MicroFish
  *      Based on Apache 2.0 open source license.

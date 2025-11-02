@@ -1,7 +1,7 @@
 /*
  *
  *      page.c
- *      Memory Pages
+ *      Memory pages
  *
  *      2025/2/16 By XIAOYI12
  *      Based on Apache 2.0 open source license.

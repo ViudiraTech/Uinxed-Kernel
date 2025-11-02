@@ -1,7 +1,7 @@
 /*
  *
  *      pci.h
- *      Peripheral Component Interconnect Standard Driver Header File
+ *      Peripheral component interconnect standard driver header file
  *
  *      2025/3/9 By MicroFish
  *      Based on Apache 2.0 open source license.

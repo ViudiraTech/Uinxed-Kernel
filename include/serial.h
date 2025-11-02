@@ -1,7 +1,7 @@
 /*
  *
  *      serial.h
- *      Serial Port Header File
+ *      Serial port header file
  *
  *      2024/7/11 By MicroFish
  *      Based on Apache 2.0 open source license.

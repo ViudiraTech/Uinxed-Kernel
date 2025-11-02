@@ -1,7 +1,7 @@
 /*
  *
  *      parallel.c
- *      Parallel Port
+ *      Parallel port
  *
  *      2024/9/8 By MicroFish
  *      Based on Apache 2.0 open source license.

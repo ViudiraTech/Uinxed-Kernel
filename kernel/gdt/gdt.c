@@ -1,7 +1,7 @@
 /*
  *
  *      gdt.c
- *      Global Descriptor
+ *      Global descriptor
  *
  *      2024/6/27 By Rainy101112
  *      Based on Apache 2.0 open source license.

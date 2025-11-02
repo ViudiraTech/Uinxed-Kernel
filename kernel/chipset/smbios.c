@@ -1,7 +1,7 @@
 /*
  *
  *      smbios.c
- *      System Management BIOS
+ *      System management BIOS
  *
  *      2025/3/8 By MicroFish
  *      Based on Apache 2.0 open source license.
