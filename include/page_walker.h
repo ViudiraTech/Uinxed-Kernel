@@ -47,7 +47,7 @@ typedef struct {
         /* Status flags */
         uint8_t is_valid  : 1;
         uint8_t is_huge   : 1;
-        uint8_t page_size : 2; /* 0=4K, 1=2M, 2=1G */
+        uint8_t page_size : 2; // 0=4K, 1=2M, 2=1G
         uint8_t reserved  : 4;
 } page_walk_state_t;
 
@@ -58,11 +58,11 @@ static inline size_t get_page_size_from_state(const page_walk_state_t *state)
 
     switch (state->page_size) {
         case 2 :
-            return PAGE_1G_SIZE; /* 1GB page */
+            return PAGE_1G_SIZE; // 1GB page
         case 1 :
-            return PAGE_2M_SIZE; /* 2MB page */
+            return PAGE_2M_SIZE; // 2MB page
         default :
-            return PAGE_4K_SIZE; /* 4KB page */
+            return PAGE_4K_SIZE; // 4KB page
     }
 }
 

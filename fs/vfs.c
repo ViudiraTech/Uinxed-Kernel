@@ -96,7 +96,7 @@ vfs_node_t vfs_node_alloc(vfs_node_t parent, const char *name)
     node->refcount = 0;
     node->blksz    = PAGE_4K_SIZE;
     node->mode     = 0777;
-    node->linkto   = NULL;
+    node->linkto   = 0;
 
     if (parent) clist_prepend(parent->child, node);
     return node;
@@ -140,9 +140,9 @@ vfs_node_t vfs_open(const char *str)
     vfs_node_t current  = rootdir;
 
     for (char *buf = pathtok(&save_ptr); buf; buf = pathtok(&save_ptr)) {
-        if (streq(buf, ".")) { continue; }
+        if (streq(buf, ".")) continue;
         if (streq(buf, "..")) {
-            if (current->parent) { current = current->parent; }
+            if (current->parent) current = current->parent;
             continue;
         }
 
@@ -254,17 +254,20 @@ int vfs_link(const char *name, const char *target_name)
     char *save_ptr = path;
     char *filename = path + strlen(path);
 
-    while (*--filename != '/' && filename != path) {}
+    while (1) {
+        --filename;
+        if (*filename != '/' && filename != path) break;
+    }
     if (filename != path) {
         *filename++ = '\0';
     } else {
         goto create;
     }
-
     if (!strlen(path)) {
         free(path);
         return -1;
     }
+
     for (const char *buf = pathtok(&save_ptr); buf; buf = pathtok(&save_ptr)) {
         if (streq(buf, ".")) continue;
         if (streq(buf, "..")) {
@@ -307,17 +310,20 @@ int vfs_symlink(const char *name, const char *target_name)
     char *save_ptr = path;
     char *filename = path + strlen(path);
 
-    while (*--filename != '/' && filename != path) {}
+    while (1) {
+        --filename;
+        if (*filename != '/' && filename != path) break;
+    }
     if (filename != path) {
         *filename++ = '\0';
     } else {
         goto create;
     }
-
     if (!strlen(path)) {
         free(path);
         return -1;
     }
+
     for (const char *buf = pathtok(&save_ptr); buf; buf = pathtok(&save_ptr)) {
         if (streq(buf, ".")) continue;
         if (streq(buf, "..")) {
@@ -326,6 +332,7 @@ int vfs_symlink(const char *name, const char *target_name)
             continue;
         }
         vfs_node_t new_current = vfs_child_find(current, buf);
+
         if (!new_current) {
             new_current       = vfs_node_alloc(current, buf);
             new_current->type = file_dir;
@@ -355,7 +362,7 @@ int vfs_regist(vfs_callback_t callback)
 {
     if (!callback) return -1;
     for (size_t i = 0; i < sizeof(struct vfs_callback) / sizeof(void *); i++) {
-        if (((void **)callback)[i] == NULL) return -1;
+        if (!((void **)callback)[i]) return -1;
     }
 
     int id           = fs_nextid++;
@@ -366,8 +373,7 @@ int vfs_regist(vfs_callback_t callback)
 /* Mount a file system to a directory */
 int vfs_mount(const char *src, vfs_node_t node)
 {
-    if (!node) return -1;
-    if (node->type != file_dir) return -1;
+    if (!node || node->type != file_dir) return -1;
     for (int i = 1; i < fs_nextid; i++) {
         if (!fs_callbacks[i]->mount(src, node)) {
             node->fsid     = i;

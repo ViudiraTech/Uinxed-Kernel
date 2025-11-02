@@ -48,15 +48,11 @@ void page_walk_init(page_walk_state_t *state, page_directory_t *directory, uintp
 static inline uint8_t page_table_lookup(page_table_t *table, uint16_t index, page_table_t **next_table, uint64_t *entry_value)
 {
     if (!table || index >= 512) return 0;
-
     uint64_t entry = table->entries[index].value;
 
     if (!(entry & PTE_PRESENT)) return 0;
-
     if (entry_value) *entry_value = entry;
-
-    if (next_table && !is_huge_page(&table->entries[index])) { *next_table = (page_table_t *)phys_to_virt(entry & PAGE_4K_MASK); }
-
+    if (next_table && !is_huge_page(&table->entries[index])) *next_table = (page_table_t *)phys_to_virt(entry & PAGE_4K_MASK);
     return 1;
 }
 
@@ -81,12 +77,11 @@ uint8_t page_walk_execute(page_walk_state_t *state)
         state->is_valid = 0;
         return 0;
     }
-
     if (is_huge_page(&state->l3_table->entries[state->l3_index])) {
         state->physical_addr = (l3_entry & PAGE_1G_MASK) | (state->virtual_addr & (PAGE_1G_SIZE - 1));
         state->is_valid      = 1;
         state->is_huge       = 1;
-        state->page_size     = 2; /* 1GB page */
+        state->page_size     = 2; // 1GB page
         return 1;
     }
 
@@ -96,12 +91,11 @@ uint8_t page_walk_execute(page_walk_state_t *state)
         state->is_valid = 0;
         return 0;
     }
-
     if (is_huge_page(&state->l2_table->entries[state->l2_index])) {
         state->physical_addr = (l2_entry & PAGE_2M_MASK) | (state->virtual_addr & (PAGE_2M_SIZE - 1));
         state->is_valid      = 1;
         state->is_huge       = 1;
-        state->page_size     = 1; /* 2MB page */
+        state->page_size     = 1; // 2MB page
         return 1;
     }
 
@@ -115,7 +109,7 @@ uint8_t page_walk_execute(page_walk_state_t *state)
     state->physical_addr = (l1_entry & PAGE_4K_MASK) | state->offset;
     state->is_valid      = 1;
     state->is_huge       = 0;
-    state->page_size     = 0; /* 4KB page */
+    state->page_size     = 0; // 4KB page
     return 1;
 }
 
@@ -145,15 +139,13 @@ void update_walk_state_for_next_page(page_walk_state_t *state, uintptr_t next_vi
     const uintptr_t difference = old_virtual ^ next_virtual;
 
     /* Only update higher levels when crossing boundaries */
-    if (difference >> 21) { /* L2 boundary */
+    if (difference >> 21) { // L2 boundary
         state->l2_index = PAGE_WALK_INDEX(next_virtual, 21);
         state->l2_table = 0;
-
-        if (difference >> 30) { /* L3 boundary */
+        if (difference >> 30) { // L3 boundary
             state->l3_index = PAGE_WALK_INDEX(next_virtual, 30);
             state->l3_table = 0;
-
-            if (difference >> 39) { /* L4 boundary */
+            if (difference >> 39) { // L4 boundary
                 state->l4_index = PAGE_WALK_INDEX(next_virtual, 39);
                 /* l4_table remains the same (directory doesn't change) */
             }
@@ -164,7 +156,7 @@ void update_walk_state_for_next_page(page_walk_state_t *state, uintptr_t next_vi
 /* Check range free with state - supports multiple page sizes */
 size_t check_range_free_with_state(page_walk_state_t *state, uintptr_t start, size_t length, size_t desired_size)
 {
-    if (!state || length == 0) return 0;
+    if (!state || !length) return 0;
 
     size_t    free_bytes = 0;
     uintptr_t current    = start;
@@ -177,7 +169,7 @@ size_t check_range_free_with_state(page_walk_state_t *state, uintptr_t start, si
             /* Page is mapped - get its size and skip accordingly */
             size_t page_size = get_page_size_from_state(state);
             current          = align_up_to_page(current + 1, page_size);
-            free_bytes       = 0; /* Reset free bytes count - not contiguous */
+            free_bytes       = 0; // Reset free bytes count - not contiguous
 
             /* Reinitialize state for new address */
             page_walk_init(state, state->directory, current);
@@ -185,31 +177,29 @@ size_t check_range_free_with_state(page_walk_state_t *state, uintptr_t start, si
         }
 
         /* Page is free - determine how much we can advance */
-        size_t current_free = PAGE_4K_SIZE; /* At least 4K is free */
+        size_t current_free = PAGE_4K_SIZE; // At least 4K is free
 
         /* Check if we can use larger pages */
         if (desired_size >= PAGE_2M_SIZE && state->is_huge && state->page_size == 1) {
             /* Check if we have enough space for 2MB page */
-            if (length - free_bytes >= PAGE_2M_SIZE) { current_free = PAGE_2M_SIZE; }
+            if (length - free_bytes >= PAGE_2M_SIZE) current_free = PAGE_2M_SIZE;
         } else if (desired_size >= PAGE_1G_SIZE && state->is_huge && state->page_size == 2) {
             /* Check if we have enough space for 1GB page */
-            if (length - free_bytes >= PAGE_1G_SIZE) { current_free = PAGE_1G_SIZE; }
+            if (length - free_bytes >= PAGE_1G_SIZE) current_free = PAGE_1G_SIZE;
         }
-
         free_bytes += current_free;
         current += current_free;
 
         /* Update state for next check */
         update_walk_state_for_next_page(state, current);
     }
-
     return free_bytes;
 }
 
 /* Find a free virtual memory range of specified length with preferred page size */
 uintptr_t walk_page_tables_find_free(page_directory_t *directory, uintptr_t start, size_t length, size_t preferred_size)
 {
-    if (!directory || length == 0) return 0;
+    if (!directory || !length) return 0;
 
     /* Validate preferred page size */
     if (preferred_size != PAGE_4K_SIZE && preferred_size != PAGE_2M_SIZE && preferred_size != PAGE_1G_SIZE) { preferred_size = PAGE_4K_SIZE; }
@@ -232,8 +222,7 @@ uintptr_t walk_page_tables_find_free(page_directory_t *directory, uintptr_t star
 
         /* Check candidate region */
         size_t free_length = check_range_free_with_state(&state, candidate, aligned_length, preferred_size);
-
-        if (free_length >= aligned_length) { return candidate; }
+        if (free_length >= aligned_length) return candidate;
 
         /* Move to next potential candidate */
         if (free_length > 0) {
@@ -244,8 +233,7 @@ uintptr_t walk_page_tables_find_free(page_directory_t *directory, uintptr_t star
         }
 
         /* Overflow detection */
-        if (candidate < start) { return 0; }
+        if (candidate < start) return 0;
     }
-
-    return 0; /* No suitable range found */
+    return 0; // No suitable range found
 }

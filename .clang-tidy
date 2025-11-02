@@ -3,7 +3,6 @@ Checks: >
   -*,
   cert-*,
   llvm-*,
-  llvmlibc-*,
   bugprone-*,
   concurrency-*,
   performance-*,
@@ -14,7 +13,5 @@ Checks: >
   -llvm-header-guard,
   -bugprone-reserved-identifier,
   -bugprone-easily-swappable-parameters,
-  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
-  -llvmlibc-*
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
 ---
-
