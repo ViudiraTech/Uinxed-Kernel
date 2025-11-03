@@ -31,6 +31,7 @@
 #include "serial.h"
 #include "smbios.h"
 #include "smp.h"
+#include "tmpfs.h"
 #include "tsc.h"
 #include "uinxed.h"
 #include "vfs.h"
@@ -105,6 +106,7 @@ void kernel_entry(void)
     init_parallel();                // Initialize the parallel port
     init_ps2();                     // Initialize PS/2 controller
     init_vfs();                     // Initialize VFS
+    tmpfs_regist();                 // Register tmpfs
     enable_intr();
 
     panic("No operation.");
