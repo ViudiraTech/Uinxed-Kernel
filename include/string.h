@@ -13,6 +13,7 @@
 #define INCLUDE_STRING_H_
 
 #include "stddef.h"
+#include "stdint.h"
 
 /* Copy n bytes from memory area str2 to memory area str1 */
 void *memcpy(void *str1, const void *str2, size_t n);
@@ -58,5 +59,11 @@ void *strdup(const char *s);
 
 /* String equality check */
 int streq(const char *s1, const char *s2);
+
+/* String splitting */
+char *strtok(char *str, const char *delim);
+
+/* String to long integer */
+int64_t strtol(const char *str, char **endptr, int base);
 
 #endif // INCLUDE_STRING_H_

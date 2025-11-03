@@ -506,6 +506,7 @@ void vfs_free(vfs_node_t vfs)
     if (!vfs) return;
     clist_free_with(vfs->child, (void (*)(void *))vfs_free);
     vfs_close(vfs);
+    callbackof(vfs, free)(vfs->handle);
     free(vfs->name);
     free(vfs);
 }

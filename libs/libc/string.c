@@ -11,8 +11,9 @@
 
 #include "string.h"
 #include "alloc.h"
+#include "math.h"
 #include "stddef.h"
-#include "stdint.h"
+#include "stdlib.h"
 
 /* Copy n bytes from memory area str2 to memory area str1 */
 void *memcpy(void *str1, const void *str2, size_t n)
@@ -226,7 +227,7 @@ char *strstr(const char *haystack, const char *needle)
 void *strdup(const char *s)
 {
 #if defined(__builtin_strdup)
-    return __builtin_strdup(haystack, needle);
+    return __builtin_strdup(s);
 #else
     size_t len = strlen(s) + 1;
     void  *p   = (void *)malloc(len);
@@ -240,8 +241,110 @@ void *strdup(const char *s)
 int streq(const char *s1, const char *s2)
 {
 #if defined(__builtin_streq)
-    return __builtin_streq(haystack, needle);
+    return __builtin_streq(s1, s2);
 #else
     return !strcmp(s1, s2);
+#endif
+}
+
+/* String splitting */
+char *strtok(char *str, const char *delim)
+{
+#if defined(__builtin_strtok)
+    return __builtin_strtok(str, delim);
+#else
+    static char *last = 0;
+    if (str) {
+        last = str;
+    } else if (!last) {
+        return 0;
+    }
+
+    char *start = last;
+    while (*start && strchr(delim, *start)) start++;
+
+    if (*start == '\0') {
+        last = 0;
+        return 0;
+    }
+
+    char *end = start;
+    while (*end && !strchr(delim, *end)) end++;
+
+    if (*end) {
+        *end = '\0';
+        last = end + 1;
+    } else {
+        last = 0;
+    }
+    return start;
+#endif
+}
+
+/* String to long integer */
+int64_t strtol(const char *str, char **endptr, int base)
+{
+#if defined(__builtin_strtol)
+    return __builtin_strtol(str, endptr, base);
+#else
+    const char *s      = str;
+    uint64_t    acc    = 0;
+    char        c      = '\0';
+    uint64_t    cutoff = 0;
+    uint64_t    neg    = 0;
+    uint64_t    any    = 0;
+    uint64_t    cutlim = 0;
+
+    do {
+        c = *s++;
+    } while (IS_SPACE((unsigned char)c));
+
+    if (c == '-') {
+        neg = 1;
+        c   = *s++;
+    } else {
+        neg = 0;
+        if (c == '+') c = *s++;
+    }
+    if ((base == 0 || base == 16) && c == '0' && (*s == 'x' || *s == 'X')
+        && ((s[1] >= '0' && s[1] <= '9') || (s[1] >= 'A' && s[1] <= 'F') || (s[1] >= 'a' && s[1] <= 'f'))) {
+        c = s[1];
+        s += 2;
+        base = 16;
+    }
+
+    if (base == 0) base = c == '0' ? 8 : 10;
+    acc = any = 0;
+    if (base < 2 || base > 36) goto noconv;
+
+    cutoff = neg ? (unsigned long)-(LONG_MIN + LONG_MAX) + LONG_MAX : LONG_MAX;
+    cutlim = cutoff % base;
+    cutoff /= base;
+
+    for (;; c = *s++) {
+        if (c >= '0' && c <= '9')
+            c -= '0';
+        else if (c >= 'A' && c <= 'Z')
+            c -= 'A' - 10;
+        else if (c >= 'a' && c <= 'z')
+            c -= 'a' - 10;
+        else
+            break;
+        if (c >= base) break;
+        if (acc > cutoff || (acc == cutoff && ((uint64_t)c) > cutlim)) {
+            any = -1;
+        } else {
+            any = 1;
+            acc *= base;
+            acc += c;
+        }
+    }
+    if (!any) {
+noconv:;
+    } else if (neg) {
+        acc = -acc;
+    }
+    if ((void *)endptr) *endptr = (char *)(any ? s - 1 : str);
+    return (int64_t)(acc);
 #endif
 }

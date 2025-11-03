@@ -26,6 +26,7 @@
 #define ALIGN_DOWN(addr, align) ((addr) & ~((align) - 1))
 #define ALIGN_UP(addr, align)   (((addr) + (align) - 1) & ~((align) - 1))
 
+#define IS_SPACE(c) ((c) == ' ' || (c) == '\t' || (c) == '\n' || (c) == '\r' || (c) == '\f' || (c) == '\v')
 #define IS_DIGIT(c) ((c) >= '0' && (c) <= '9')
 #define IS_ALPHA(a) (((a) >= 'A' && (a) <= 'Z') || ((a) >= 'a' && (a) <= 'z'))
 
@@ -65,6 +66,9 @@ typedef struct num_formatter {
         size_t size;      // Minimum field width
         size_t precision; // Precision (In integer, it's seems like ZEROPAD)
 } num_formatter_t;
+
+/* Standardized file paths */
+char *normalize_path(const char *path);
 
 /* Write a formatted number to a writer */
 size_t wnumber(writer *writer, num_formatter_t fmter, num_fmt_type type);

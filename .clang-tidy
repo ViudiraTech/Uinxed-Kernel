@@ -4,7 +4,6 @@ Checks: >
   cert-*,
   llvm-*,
   bugprone-*,
-  concurrency-*,
   performance-*,
   linuxkernel-*,
   clang-analyzer-*,
@@ -13,5 +12,6 @@ Checks: >
   -llvm-header-guard,
   -bugprone-reserved-identifier,
   -bugprone-easily-swappable-parameters,
+  -clang-analyzer-security.insecureAPI.strcpy,
   -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
 ---

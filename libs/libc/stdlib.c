@@ -10,7 +10,54 @@
  */
 
 #include "stdlib.h"
+#include "alloc.h"
 #include "stdint.h"
+#include "string.h"
+
+/* Standardized file paths */
+char *normalize_path(const char *path)
+{
+    if (!path) return 0;
+
+    size_t len    = strlen(path);
+    char  *result = malloc(len + 1);
+    if (!result) return 0;
+
+    char *dup = strdup(path);
+    if (!dup) {
+        free(result);
+        return 0;
+    }
+
+    strcpy(result, "/");
+    if (!strcmp(path, "/")) {
+        free(dup);
+        return result;
+    }
+
+    char *start = dup;
+    if (*start == '/') start++;
+
+    char *token = strtok(start, "/");
+    while (token) {
+        if (strcmp(token, ".") == 0) {
+            /* Ignore the current directory */
+        } else if (strcmp(token, "..") == 0) {
+            char *last_slash = strrchr(result, '/');
+            if (last_slash != result) {
+                *last_slash = '\0';
+            } else {
+                result[1] = '\0';
+            }
+        } else {
+            if (result[strlen(result) - 1] != '/') strcat(result, "/");
+            strcat(result, token);
+        }
+        token = strtok(0, "/");
+    }
+    free(dup);
+    return result;
+}
 
 /* Write a formatted number to a writer */
 size_t wnumber(writer *writer, num_formatter_t fmter, num_fmt_type type)
