@@ -12,6 +12,7 @@
 #include "acpi.h"
 #include "cmdline.h"
 #include "common.h"
+#include "cpio.h"
 #include "cpuid.h"
 #include "debug.h"
 #include "eis.h"
@@ -107,6 +108,7 @@ void kernel_entry(void)
     init_ps2();                     // Initialize PS/2 controller
     init_vfs();                     // Initialize VFS
     tmpfs_regist();                 // Register tmpfs
+    init_cpio();                    // Initialize CPIO
     enable_intr();
 
     panic("No operation.");
