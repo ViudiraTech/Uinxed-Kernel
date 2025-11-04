@@ -98,7 +98,7 @@ vfs_node_t vfs_node_alloc(vfs_node_t parent, const char *name)
     node->mode     = 0777;
     node->linkto   = 0;
 
-    if (parent) clist_prepend(parent->child, node);
+    if (parent) parent->child = clist_prepend(parent->child, node);
     return node;
 }
 
@@ -451,8 +451,8 @@ int vfs_close(vfs_node_t node)
     if (node->type & file_delete) {
         int res = callbackof(node, delete)(node->parent->handle, node);
         if (res < 0) return res;
-        clist_delete(node->parent->child, node);
-        node->handle = 0;
+        node->parent->child = clist_delete(node->parent->child, node);
+        node->handle        = 0;
         vfs_free(node);
     } else {
         callbackof(node, close)(node->handle);
