@@ -11,6 +11,7 @@ Checks: >
   -cert-dcl51-cpp,
   -llvm-header-guard,
   -bugprone-reserved-identifier,
+  -bugprone-inc-dec-in-conditions,
   -bugprone-easily-swappable-parameters,
   -clang-analyzer-security.insecureAPI.strcpy,
   -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling

@@ -11,6 +11,7 @@
 
 #include "vfs.h"
 #include "alloc.h"
+#include "errno.h"
 #include "page.h"
 #include "printk.h"
 #include "string.h"
@@ -172,7 +173,7 @@ err:
 /* Create a new directory at the specified path */
 int vfs_mkdir(const char *name)
 {
-    if (name[0] != '/') return -1;
+    if (name[0] != '/') return -EINVAL;
 
     char      *path     = strdup(name + 1);
     char      *save_ptr = path;
@@ -202,16 +203,16 @@ upd:
         }
     }
     free(path);
-    return 0;
+    return EOK;
 err:
     free(path);
-    return -1;
+    return -ENOTDIR;
 }
 
 /* Create a new file at the specified path */
 int vfs_mkfile(const char *name)
 {
-    if (name[0] != '/') return -1;
+    if (name[0] != '/') return -EINVAL;
 
     char *fullpath  = strdup(name);
     char *filename  = fullpath;
@@ -233,7 +234,7 @@ int vfs_mkfile(const char *name)
     }
     if (!parent || parent->type != file_dir) {
         free(fullpath);
-        return -1;
+        return -ENOENT;
     }
 
     vfs_node_t node = vfs_child_append(parent, filename, 0);
@@ -261,7 +262,7 @@ int vfs_link(const char *name, const char *target_name)
     }
     if (!strlen(path)) {
         free(path);
-        return -1;
+        return -EINVAL;
     }
 
     for (const char *buf = pathtok(&save_ptr); buf; buf = pathtok(&save_ptr)) {
@@ -283,16 +284,16 @@ int vfs_link(const char *name, const char *target_name)
         do_update(current);
         if (!(current->type & file_dir)) goto err;
     }
-create:
+create:;
     vfs_node_t node = vfs_child_append(current, filename, 0);
     node->type      = file_none;
     callbackof(current, link)(current->handle, target_name, node);
     node->linkto = vfs_open(target_name);
     free(path);
-    return 0;
+    return EOK;
 err:
     free(path);
-    return -1;
+    return -EIO;
 }
 
 /* Create a symlink at the specified path */
@@ -312,7 +313,7 @@ int vfs_symlink(const char *name, const char *target_name)
     }
     if (!strlen(path)) {
         free(path);
-        return -1;
+        return -EINVAL;
     }
 
     for (const char *buf = pathtok(&save_ptr); buf; buf = pathtok(&save_ptr)) {
@@ -334,24 +335,24 @@ int vfs_symlink(const char *name, const char *target_name)
         do_update(current);
         if (!(current->type & file_dir)) goto err;
     }
-create:
+create:;
     vfs_node_t node = vfs_child_append(current, filename, 0);
     node->type      = file_symlink;
     callbackof(current, symlink)(current->handle, target_name, node);
     node->linkto = vfs_open(target_name);
     free(path);
-    return 0;
+    return EOK;
 err:
     free(path);
-    return -1;
+    return -EIO;
 }
 
 /* Register a vfs callback */
 int vfs_regist(vfs_callback_t callback)
 {
-    if (!callback) return -1;
+    if (!callback) return -EINVAL;
     for (size_t i = 0; i < sizeof(struct vfs_callback) / sizeof(void *); i++) {
-        if (!((void **)callback)[i]) return -1;
+        if (!((void **)callback)[i]) return -EINVAL;
     }
 
     int id           = fs_nextid++;
@@ -362,16 +363,16 @@ int vfs_regist(vfs_callback_t callback)
 /* Mount a file system to a directory */
 int vfs_mount(const char *src, vfs_node_t node)
 {
-    if (!node || node->type != file_dir) return -1;
+    if (!node || node->type != file_dir) return -EINVAL;
     for (int i = 1; i < fs_nextid; i++) {
         if (!fs_callbacks[i]->mount(src, node)) {
             node->fsid     = i;
             node->root     = node;
             node->is_mount = 1;
-            return 0;
+            return EOK;
         }
     }
-    return -1;
+    return -ENOENT;
 }
 
 /* Unmount a file system from a directory */
@@ -379,7 +380,8 @@ int vfs_umount(const char *path)
 {
     vfs_node_t node = vfs_open(path);
 
-    if (!node || node->type != file_dir || !node->fsid) return -1;
+    if (!node || !node->fsid) return -EINVAL;
+    if (node->type != file_dir) return -ENOTDIR;
     if (node->parent) {
         vfs_node_t cur = node;
         node           = node->parent;
@@ -392,10 +394,10 @@ int vfs_umount(const char *path)
             cur->child    = 0;
             cur->is_mount = 0;
             if (cur->fsid) do_update(cur);
-            return 0;
+            return EOK;
         }
     }
-    return -1;
+    return -ENOENT;
 }
 
 /* Read data from a file node into the provided memory buffer */
@@ -431,12 +433,12 @@ size_t vfs_write(vfs_node_t file, void *addr, size_t offset, size_t size)
 /* Close the file or directory node */
 int vfs_close(vfs_node_t node)
 {
-    if (!node) return -1;
-    if (node == rootdir || !node->handle) return 0;
+    if (!node) return -EINVAL;
+    if (node == rootdir || !node->handle) return EOK;
 
     node->refcount--;
 
-    if (node->type & file_proxy || node->type & file_dir || node->refcount) return 0;
+    if (node->type & file_proxy || node->type & file_dir || node->refcount) return EOK;
     if (node->type & file_delete) {
         int res = callbackof(node, delete)(node->parent->handle, node);
         if (res < 0) return res;
@@ -447,15 +449,15 @@ int vfs_close(vfs_node_t node)
         callbackof(node, close)(node->handle);
         node->handle = 0;
     }
-    return 0;
+    return EOK;
 }
 
 /* Delete a VFS (Virtual File System) node and clean up associated resources */
 int vfs_delete(vfs_node_t node)
 {
-    if (node == rootdir) return -1;
+    if (node == rootdir) return -EINVAL;
     node->type |= file_delete;
-    return 0;
+    return EOK;
 }
 
 /* Rename a VFS (Virtual File System) node to a new name */
@@ -467,10 +469,10 @@ int vfs_rename(vfs_node_t node, const char *new)
 /* Send control commands to a device or file */
 int vfs_ioctl(vfs_node_t device, size_t options, void *arg)
 {
-    if (!device) return -1;
+    if (!device) return -EINVAL;
     do_update(device);
 
-    if (device->type == file_dir) return -1;
+    if (device->type == file_dir) return -EISDIR;
     return callbackof(device, ioctl)(device->handle, options, arg);
 }
 
@@ -478,7 +480,7 @@ int vfs_ioctl(vfs_node_t device, size_t options, void *arg)
 int vfs_poll(vfs_node_t node, size_t event)
 {
     do_update(node);
-    if (node->type & file_dir) return -1;
+    if (node->type & file_dir) return -EISDIR;
     return callbackof(node, poll)(node->handle, event);
 }
 

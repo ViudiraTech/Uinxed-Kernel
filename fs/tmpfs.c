@@ -11,6 +11,7 @@
 
 #include "tmpfs.h"
 #include "alloc.h"
+#include "errno.h"
 #include "heap.h"
 #include "printk.h"
 #include "string.h"
@@ -30,7 +31,7 @@ int tmpfs_mount(const char *handle, vfs_node_t node)
 
     strcpy(tmpfs_root->name, "tmp");
     node->handle = tmpfs_root;
-    return 0;
+    return EOK;
 }
 
 /* Unmount the tmpfs file system and free related resources */
@@ -51,7 +52,7 @@ int tmpfs_mk(void *parent, const char *name, vfs_node_t node, int is_dir)
     node->handle = f;
     f->node      = node;
 
-    return 0;
+    return EOK;
 }
 
 /* Create a directory in tmpfs */
@@ -86,7 +87,9 @@ size_t tmpfs_write(void *file, const void *addr, size_t offset, size_t size)
     if (end > f->capacity) {
         size_t new_cap = end * 2;
         char  *new_buf = realloc(f->data, new_cap);
+
         if (!new_buf) return 0;
+
         f->data     = new_buf;
         f->capacity = new_cap;
     }
@@ -102,11 +105,11 @@ size_t tmpfs_write(void *file, const void *addr, size_t offset, size_t size)
 int tmpfs_stat(void *file, vfs_node_t node)
 {
     tmpfs_file_t *file0 = (tmpfs_file_t *)file;
-    if (!file0) return -1;
+    if (!file0) return -ENOENT;
 
     node->type = file0->type == tp_file_symlink ? file_symlink : file0->type == tp_file_dir ? file_dir : file_none;
     node->size = file0->type == tp_file_dir ? 0 : file0->size;
-    return 0;
+    return EOK;
 }
 
 /* Delete a tmpfs file/directory and free its resources */
@@ -116,7 +119,7 @@ int tmpfs_delete(void *parent, vfs_node_t node)
     tmpfs_file_t *f = (tmpfs_file_t *)node->handle;
     free(f->data);
     free(f);
-    return 0;
+    return EOK;
 }
 
 /* Rename a tmpfs file/directory */
@@ -124,7 +127,7 @@ int tmpfs_rename(void *current, const char *new_name)
 {
     tmpfs_file_t *f = (tmpfs_file_t *)current;
     strncpy(f->name, new_name, sizeof(f->name));
-    return 0;
+    return EOK;
 }
 
 /* Poll a tmpfs file for pending events (simplified implementation) */
@@ -135,6 +138,16 @@ int tmpfs_poll(void *file, size_t events)
     if (events & 0x0001) revents |= 0x0001;
     if (events & 0x0004) revents |= 0x0004;
     return revents;
+}
+
+/* Send control commands to a device or file */
+int tmpfs_ioctl(void *file, size_t req, void *arg)
+{
+    (void)req;
+    (void)arg;
+    tmpfs_file_t *handle = file;
+    if (handle->type == tp_file_char || handle->type == tp_file_blk) { return EOK; }
+    return EOK;
 }
 
 /* Duplicate a VFS node bound to tmpfs */
@@ -164,7 +177,7 @@ int tmpfs_symlink(void *parent, const char *name, vfs_node_t node)
     node->handle = f;
     f->node      = node;
 
-    return 0;
+    return EOK;
 }
 
 /* Free resources of a tmpfs file/directory */
@@ -174,12 +187,12 @@ int tmpfs_free(void *handle)
 
     if (file->type != tp_file_file) {
         free(file);
-        return 0;
+        return EOK;
     }
     if (file->data) free(file->data);
 
     free(file);
-    return 0;
+    return EOK;
 }
 
 /* Dummy function (placeholder for VFS callbacks not implemented) */
@@ -201,7 +214,7 @@ static struct vfs_callback tmpfs_callbacks = {
     .link     = (vfs_mk_t)tmpfs_dummy,
     .symlink  = tmpfs_symlink,
     .stat     = tmpfs_stat,
-    .ioctl    = (vfs_ioctl_t)tmpfs_dummy,
+    .ioctl    = tmpfs_ioctl,
     .dup      = tmpfs_dup,
     .poll     = tmpfs_poll,
     .free     = tmpfs_free,
@@ -213,5 +226,5 @@ static struct vfs_callback tmpfs_callbacks = {
 void tmpfs_regist(void)
 {
     tmpfs_id = vfs_regist(&tmpfs_callbacks);
-    if (tmpfs_id & 0x7FFFFFFFFFFFF000) plogk("tmpfs: Register error.\n");
+    if (tmpfs_id & ERRNO_MASK) plogk("tmpfs: Register error.\n");
 }

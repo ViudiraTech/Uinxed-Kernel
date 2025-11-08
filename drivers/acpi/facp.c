@@ -117,17 +117,14 @@ acpi_facp_t *get_acpi_facp(void)
 /* Cycle the power */
 void power_reset(void)
 {
-    if (!SCI_EN) return;
-    while (1) {
-        outb(0x92, 0x01);
-        outb((uint32_t)facp->reset_reg.address, facp->reset_value);
-    }
+    if (!SCI_EN || !facp->reset_reg.address || !facp->reset_value) return;
+    while (1) outb((uint32_t)facp->reset_reg.address, facp->reset_value);
 }
 
 /* Power off */
 void power_off(void)
 {
-    if (!SCI_EN) return;
+    if (!SCI_EN || !facp->pm1a_cnt_blk) return;
     while (1) {
         outw((uint32_t)facp->pm1a_cnt_blk, SLP_TYPa | SLP_EN);
         if (facp->pm1b_cnt_blk) outw((uint32_t)facp->pm1b_cnt_blk, SLP_TYPb | SLP_EN);

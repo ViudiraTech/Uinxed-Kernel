@@ -11,6 +11,7 @@
 
 #include "cpio.h"
 #include "alloc.h"
+#include "errno.h"
 #include "heap.h"
 #include "limine_module.h"
 #include "printk.h"
@@ -142,7 +143,7 @@ void init_cpio(void)
 
         if (mode & 040000) {
             status = vfs_mkdir(filename);
-            if (status != 0) {
+            if (status != EOK) {
                 plogk("cpio: Cannot build initramfs directory(%s), error code: %d\n", filename, status);
                 free(filedata);
                 return;
@@ -164,14 +165,14 @@ void init_cpio(void)
             free(dirname);
             free(symlink_path);
 
-            if (status != 0) {
+            if (status != EOK) {
                 plogk("cpio: Cannot build initramfs symlink(%s), error code: %d\n", filename, status);
                 free(filedata);
                 return;
             }
         } else {
             status = vfs_mkfile(filename);
-            if (status != 0) {
+            if (status != EOK) {
                 plogk("cpio: Cannot build initramfs file(%s), error code: %d\n", filename, status);
                 free(filedata);
                 return;
