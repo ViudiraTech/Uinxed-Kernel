@@ -247,17 +247,13 @@ int vfs_mkfile(const char *name)
 /* Create a hard link at the specified path */
 int vfs_link(const char *name, const char *target_name)
 {
-    vfs_node_t node;
-    vfs_node_t current = rootdir;
-    char      *path    = strdup(name + 1);
+    vfs_node_t current  = rootdir;
+    char      *path     = strdup(name + 1);
+    char      *save_ptr = path;
+    char      *filename = path + strlen(path);
 
-    char *save_ptr = path;
-    char *filename = path + strlen(path);
+    while (*--filename != '/' && filename != path);
 
-    while (1) {
-        --filename;
-        if (*filename != '/' && filename != path) break;
-    }
     if (filename != path) {
         *filename++ = '\0';
     } else {
@@ -275,24 +271,23 @@ int vfs_link(const char *name, const char *target_name)
             current = current->parent;
             continue;
         }
+
         vfs_node_t new_current = vfs_child_find(current, buf);
         if (!new_current) {
             new_current       = vfs_node_alloc(current, buf);
             new_current->type = file_dir;
             callbackof(current, mkdir)(current->handle, buf, new_current);
         }
+
         current = new_current;
         do_update(current);
-
         if (!(current->type & file_dir)) goto err;
     }
 create:
-    node       = vfs_child_append(current, filename, 0);
-    node->type = file_none;
-
+    vfs_node_t node = vfs_child_append(current, filename, 0);
+    node->type      = file_none;
     callbackof(current, link)(current->handle, target_name, node);
     node->linkto = vfs_open(target_name);
-
     free(path);
     return 0;
 err:
@@ -303,17 +298,13 @@ err:
 /* Create a symlink at the specified path */
 int vfs_symlink(const char *name, const char *target_name)
 {
-    vfs_node_t node;
-    vfs_node_t current = rootdir;
-    char      *path    = strdup(name + 1);
+    vfs_node_t current  = rootdir;
+    char      *path     = strdup(name + 1);
+    char      *save_ptr = path;
+    char      *filename = path + strlen(path);
 
-    char *save_ptr = path;
-    char *filename = path + strlen(path);
+    while (*--filename != '/' && filename != path);
 
-    while (1) {
-        --filename;
-        if (*filename != '/' && filename != path) break;
-    }
     if (filename != path) {
         *filename++ = '\0';
     } else {
@@ -331,25 +322,23 @@ int vfs_symlink(const char *name, const char *target_name)
             current = current->parent;
             continue;
         }
-        vfs_node_t new_current = vfs_child_find(current, buf);
 
+        vfs_node_t new_current = vfs_child_find(current, buf);
         if (!new_current) {
             new_current       = vfs_node_alloc(current, buf);
             new_current->type = file_dir;
             callbackof(current, mkdir)(current->handle, buf, new_current);
         }
+
         current = new_current;
         do_update(current);
-
         if (!(current->type & file_dir)) goto err;
     }
 create:
-    node       = vfs_child_append(current, filename, 0);
-    node->type = file_symlink;
-
+    vfs_node_t node = vfs_child_append(current, filename, 0);
+    node->type      = file_symlink;
     callbackof(current, symlink)(current->handle, target_name, node);
     node->linkto = vfs_open(target_name);
-
     free(path);
     return 0;
 err:
