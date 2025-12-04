@@ -37,11 +37,15 @@ sym_info_t get_symbol_info(uint64_t *kernel_file_address, Elf64_Addr symbol_addr
     }
     if (!sym || !strtab) return sym_info;
 
-    Elf64_Addr relative_addr;
-    if (kernel_address_request.response->virtual_base) {
-        relative_addr = symbol_address - kernel_address_request.response->virtual_base;
+    Elf64_Addr compare_addr;
+    if (ehdr->e_type == 3) {
+        if (kernel_address_request.response->virtual_base) {
+            compare_addr = symbol_address - kernel_address_request.response->virtual_base;
+        } else {
+            compare_addr = symbol_address - KERNEL_BASE_ADDRESS;
+        }
     } else {
-        relative_addr = symbol_address - KERNEL_BASE_ADDRESS;
+        compare_addr = symbol_address;
     }
 
     for (size_t i = 0; i < sym_size; ++i) {
@@ -51,11 +55,22 @@ sym_info_t get_symbol_info(uint64_t *kernel_file_address, Elf64_Addr symbol_addr
         Elf64_Addr  sym_start    = sym[i].st_value;
         Elf64_Xword sym_size_val = sym[i].st_size;
 
-        if (relative_addr >= sym_start && (!sym_size_val ? relative_addr == sym_start : relative_addr < sym_start + sym_size_val)) {
-            sym_info.name = strtab + sym[i].st_name;
-            sym_info.addr = sym_start;
-            sym_info.size = sym_size_val;
-            return sym_info;
+        if (compare_addr >= sym_start) {
+            if (sym_size_val == 0) {
+                if (compare_addr == sym_start) {
+                    sym_info.name = strtab + sym[i].st_name;
+                    sym_info.addr = sym_start;
+                    sym_info.size = sym_size_val;
+                    return sym_info;
+                }
+            } else {
+                if (compare_addr < sym_start + sym_size_val) {
+                    sym_info.name = strtab + sym[i].st_name;
+                    sym_info.addr = sym_start;
+                    sym_info.size = sym_size_val;
+                    return sym_info;
+                }
+            }
         }
     }
     return sym_info;
