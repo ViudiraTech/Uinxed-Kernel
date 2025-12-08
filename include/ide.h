@@ -12,14 +12,14 @@
 #ifndef INCLUDE_IDE_H_
 #define INCLUDE_IDE_H_
 
-#include "stdint.h"
+#include <stdint.h>
 
-#define ATA_CTRL_RESET          0xE0
-#define ATA_CTRL_IDLE           0xE1
-#define ATA_CTRL_MOTOR          0xE3
-#define ATA_CTRL_STANDBY        0xE6
-#define ATA_CTRL_IDLE_IMM       0xE7
-#define ATA_CTRL_STANDBY_IMM    0xEB
+#define ATA_CTRL_RESET       0xE0
+#define ATA_CTRL_IDLE        0xE1
+#define ATA_CTRL_MOTOR       0xE3
+#define ATA_CTRL_STANDBY     0xE6
+#define ATA_CTRL_IDLE_IMM    0xE7
+#define ATA_CTRL_STANDBY_IMM 0xEB
 
 #define ATA_SR_BSY              0x80
 #define ATA_SR_DRDY             0x40

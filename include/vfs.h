@@ -12,9 +12,9 @@
 #ifndef INCLUDE_VFS_H_
 #define INCLUDE_VFS_H_
 
-#include "circular_list.h"
-#include "intrusive_list.h"
-#include "stdint.h"
+#include <circular_list.h>
+#include <intrusive_list.h>
+#include <stdint.h>
 
 #define callbackof(node, _name_) (fs_callbacks[(node)->fsid]->_name_)
 

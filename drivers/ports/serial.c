@@ -9,10 +9,10 @@
  *
  */
 
-#include "serial.h"
-#include "common.h"
-#include "printk.h"
-#include "stdint.h"
+#include <common.h>
+#include <printk.h>
+#include <serial.h>
+#include <stdint.h>
 
 /* Serial port LCR data configuration */
 static uint8_t serial_calculate_lcr(void)

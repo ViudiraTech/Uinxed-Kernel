@@ -12,8 +12,8 @@
 #ifndef INCLUDE_TSC_H_
 #define INCLUDE_TSC_H_
 
-#include "acpi.h"
-#include "stdint.h"
+#include <acpi.h>
+#include <stdint.h>
 
 /* Check if TSC is constant (not affected by CPU frequency changes) */
 int tsc_check_invariant(void);

@@ -12,7 +12,7 @@
 #ifndef INCLUDE_SERIAL_H_
 #define INCLUDE_SERIAL_H_
 
-#include "stdint.h"
+#include <stdint.h>
 
 /* Register offset */
 #define SERIAL_REG_DATA 0 // Data Register

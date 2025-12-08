@@ -12,7 +12,7 @@
 #ifndef INCLUDE_IDT_H_
 #define INCLUDE_IDT_H_
 
-#include "stdint.h"
+#include <stdint.h>
 
 #define ISR_0  0  // #DE Division by 0 exception
 #define ISR_1  1  // #DB Debugging exceptions

@@ -12,8 +12,8 @@
 #ifndef INCLUDE_INTERRUPT_H_
 #define INCLUDE_INTERRUPT_H_
 
-#include "idt.h"
-#include "stdint.h"
+#include <idt.h>
+#include <stdint.h>
 
 #if defined(__clang__)
 #    define INTERRUPT_BEGIN                                                                          \

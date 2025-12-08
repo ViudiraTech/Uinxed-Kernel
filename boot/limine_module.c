@@ -9,11 +9,11 @@
  *
  */
 
-#include "limine_module.h"
-#include "limine.h"
-#include "printk.h"
-#include "string.h"
-#include "uinxed.h"
+#include <limine.h>
+#include <limine_module.h>
+#include <printk.h>
+#include <string.h>
+#include <uinxed.h>
 
 lmodule_t     lmodule[128];
 log_buffer_t  lmodule_log;
@@ -22,6 +22,8 @@ static size_t lmodule_count = 0;
 /* Extract filename from module path */
 static void extract_name(const char *input, char *output, size_t output_size)
 {
+    if (!input || !output || !output_size) return;
+
     const char *slash = strrchr(input, '/');
     const char *name  = slash ? slash + 1 : input;
     size_t      len   = 0;
@@ -36,6 +38,7 @@ static void extract_name(const char *input, char *output, size_t output_size)
 /* Find resource modules by module name */
 lmodule_t *get_lmodule(const char *lmodule_name)
 {
+    if (!lmodule_name) return 0;
     for (size_t i = 0; i < lmodule_count; i++)
         if (!strcmp(lmodule[i].name, lmodule_name)) return &lmodule[i];
     return 0;

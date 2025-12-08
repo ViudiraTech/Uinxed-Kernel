@@ -12,8 +12,8 @@
 #ifndef INCLUDE_BITMAP_H_
 #define INCLUDE_BITMAP_H_
 
-#include "stddef.h"
-#include "stdint.h"
+#include <stddef.h>
+#include <stdint.h>
 
 typedef struct {
         uint8_t *buffer;

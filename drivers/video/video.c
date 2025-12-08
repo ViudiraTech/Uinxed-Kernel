@@ -9,18 +9,18 @@
  *
  */
 
-#include "video.h"
-#include "common.h"
-#include "cpuid.h"
-#include "gfx_proc.h"
-#include "limine.h"
-#include "stddef.h"
-#include "stdint.h"
-#include "string.h"
-#include "uinxed.h"
+#include <common.h>
+#include <cpuid.h>
+#include <gfx_proc.h>
+#include <limine.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include <uinxed.h>
+#include <video.h>
 
 #if TTF_CONSOLE
-#    include "gfx_truetype.h" // TTF fonts
+#    include <gfx_truetype.h> // TTF fonts
 #else
 extern uint8_t ascii_font[]; // Bitmap fonts
 #endif

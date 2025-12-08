@@ -9,15 +9,14 @@
  *
  */
 
-#include "cpio.h"
-#include "alloc.h"
-#include "errno.h"
-#include "heap.h"
-#include "limine_module.h"
-#include "printk.h"
-#include "stdlib.h"
-#include "string.h"
-#include "vfs.h"
+#include <cpio.h>
+#include <errno.h>
+#include <heap.h>
+#include <limine_module.h>
+#include <printk.h>
+#include <stdlib.h>
+#include <string.h>
+#include <vfs.h>
 
 /* Get the parent directory path of the path */
 static char *get_pdir_fpath(char *path)

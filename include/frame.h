@@ -12,9 +12,9 @@
 #ifndef INCLUDE_FRAME_H_
 #define INCLUDE_FRAME_H_
 
-#include "bitmap.h"
-#include "ringlog.h"
-#include "stdint.h"
+#include <bitmap.h>
+#include <ringlog.h>
+#include <stdint.h>
 
 typedef struct {
         bitmap_t bitmap;

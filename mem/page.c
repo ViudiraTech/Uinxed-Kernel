@@ -9,18 +9,18 @@
  *
  */
 
-#include "page.h"
-#include "alloc.h"
-#include "common.h"
-#include "debug.h"
-#include "frame.h"
-#include "hhdm.h"
-#include "interrupt.h"
-#include "printk.h"
-#include "stddef.h"
-#include "stdint.h"
-#include "stdlib.h"
-#include "string.h"
+#include <common.h>
+#include <debug.h>
+#include <frame.h>
+#include <heap.h>
+#include <hhdm.h>
+#include <interrupt.h>
+#include <page.h>
+#include <printk.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 page_directory_t  kernel_page_dir;
 page_directory_t *current_directory = 0;

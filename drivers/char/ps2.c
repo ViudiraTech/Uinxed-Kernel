@@ -9,9 +9,9 @@
  *
  */
 
-#include "ps2.h"
-#include "common.h"
-#include "printk.h"
+#include <common.h>
+#include <printk.h>
+#include <ps2.h>
 
 /* Waiting for PS/2 read ready */
 int wait_ps2_read(void)

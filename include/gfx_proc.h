@@ -12,7 +12,7 @@
 #ifndef INCLUDE_GFX_PROC_H_
 #define INCLUDE_GFX_PROC_H_
 
-#include "video.h"
+#include <video.h>
 
 #define COLOR_SIZE_MASK(size)               ((1 << (size)) - 1)
 #define COLOR_MASK(color, size, shift)      (((color) & COLOR_SIZE_MASK(size)) << (shift))

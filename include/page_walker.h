@@ -12,9 +12,9 @@
 #ifndef PAGE_WALKER_H_
 #define PAGE_WALKER_H_
 
-#include "hhdm.h"
-#include "page.h"
-#include "stdint.h"
+#include <hhdm.h>
+#include <page.h>
+#include <stdint.h>
 
 #define PAGE_WALK_INDEX(addr, shift) (((addr) >> (shift)) & 0x1FF)
 #define IS_ALIGNED(addr, alignment)  (((addr) & ((alignment) - 1)) == 0)

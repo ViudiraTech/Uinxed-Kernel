@@ -9,8 +9,8 @@
  *
  */
 
-#include "bmp.h"
-#include "video.h"
+#include <bmp.h>
+#include <video.h>
 
 /* Parse bitmap images and draw them to the screen */
 void bmp_analysis(bmp_t *bmp, uint32_t offset_x, uint32_t offset_y, int enable_transparency)

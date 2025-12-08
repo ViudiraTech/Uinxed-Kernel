@@ -9,12 +9,12 @@
  *
  */
 
-#include "acpi.h"
-#include "hhdm.h"
-#include "idt.h"
-#include "printk.h"
-#include "stdint.h"
-#include "tsc.h"
+#include <acpi.h>
+#include <hhdm.h>
+#include <idt.h>
+#include <printk.h>
+#include <stdint.h>
+#include <tsc.h>
 
 hpet_info_t    *hpet_addr;
 static uint32_t hpet_period = 0;

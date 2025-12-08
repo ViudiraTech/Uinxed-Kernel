@@ -9,7 +9,7 @@
  *
  */
 
-#include "cpuid.h"
+#include <cpuid.h>
 
 /* Get CPUID */
 void cpuid(uint32_t code, uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t *edx)

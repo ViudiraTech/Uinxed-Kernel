@@ -12,7 +12,7 @@
 #ifndef INCLUDE_TIMER_H_
 #define INCLUDE_TIMER_H_
 
-#include "stdint.h"
+#include <stdint.h>
 
 /* Nanosecond-based delay function */
 void nsleep(uint64_t ns);

@@ -12,7 +12,7 @@
 #ifndef INCLUDE_CIRCULAR_LIST_H_
 #define INCLUDE_CIRCULAR_LIST_H_
 
-#include "stddef.h"
+#include <stddef.h>
 
 #define clist_foreach_cnt(clist, i, node, code)                                  \
     ({                                                                           \

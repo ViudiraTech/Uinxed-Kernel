@@ -12,7 +12,7 @@
 #ifndef INCLUDE_GDT_H_
 #define INCLUDE_GDT_H_
 
-#include "stdint.h"
+#include <stdint.h>
 
 typedef struct {
         uint16_t size;

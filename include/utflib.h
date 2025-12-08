@@ -12,8 +12,8 @@
 #ifndef INCLUDE_UTFLIB_H_
 #define INCLUDE_UTFLIB_H_
 
-#include "stddef.h"
-#include "stdint.h"
+#include <stddef.h>
+#include <stdint.h>
 
 #define UTFmax    6            // maximum bytes per rune
 #define Runeerror ((Rune) - 1) // decoding error in utf

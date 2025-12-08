@@ -152,10 +152,10 @@ clean: info
 	$(Q)printf "Clean completed.\n"
 
 format: info $(C_SOURCES:%=%.fmt) $(C_HEADERS:%=%.fmt)
-	$(Q)printf "Code Format complete.\n"
+	$(Q)printf "\nCode Format complete.\n"
 
 check: info $(C_SOURCES:%=%.tidy) $(C_HEADERS:%=%.tidy)
-	$(Q)printf "Code Checks complete.\n"
+	$(Q)printf "\nCode Checks complete.\n"
 
 gen.clangd: info
 	$(Q)$(RM) -f .clangd

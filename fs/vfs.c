@@ -9,12 +9,12 @@
  *
  */
 
-#include "vfs.h"
-#include "alloc.h"
-#include "errno.h"
-#include "page.h"
-#include "printk.h"
-#include "string.h"
+#include <errno.h>
+#include <heap.h>
+#include <page.h>
+#include <printk.h>
+#include <string.h>
+#include <vfs.h>
 
 vfs_node_t rootdir = 0;
 

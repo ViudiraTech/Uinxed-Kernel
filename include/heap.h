@@ -12,8 +12,9 @@
 #ifndef INCLUDE_HEAP_H_
 #define INCLUDE_HEAP_H_
 
-#include "stddef.h"
-#include "stdint.h"
+#include <alloc.h>
+#include <stddef.h>
+#include <stdint.h>
 
 extern uint64_t KERNEL_HEAP_START; // Kernel heap start
 extern uint64_t KERNEL_HEAP_SIZE;  // Kernel heap size

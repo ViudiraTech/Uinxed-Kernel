@@ -9,18 +9,17 @@
  *
  */
 
-#include "heap.h"
-#include "alloc.h"
-#include "frame.h"
-#include "hhdm.h"
-#include "limine.h"
-#include "page.h"
-#include "page_walker.h"
-#include "stddef.h"
-#include "stdint.h"
-#include "stdlib.h"
-#include "string.h"
-#include "uinxed.h"
+#include <frame.h>
+#include <heap.h>
+#include <hhdm.h>
+#include <limine.h>
+#include <page.h>
+#include <page_walker.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <uinxed.h>
 
 uint64_t KERNEL_HEAP_START = 0;
 uint64_t KERNEL_HEAP_SIZE  = 0;

@@ -12,7 +12,7 @@
 #ifndef INCLUDE_PS2_H_
 #define INCLUDE_PS2_H_
 
-#include "stdint.h"
+#include <stdint.h>
 
 /* PS/2 port */
 #define PS2_DATA_PORT   0x60 // Data port

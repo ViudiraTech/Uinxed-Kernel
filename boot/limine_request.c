@@ -9,8 +9,8 @@
  *
  */
 
-#include "limine.h"
-#include "uinxed.h"
+#include <limine.h>
+#include <uinxed.h>
 
 __attribute__((used, section(".limine_requests"))) volatile struct limine_rsdp_request rsdp_request = {
     .id       = LIMINE_RSDP_REQUEST,

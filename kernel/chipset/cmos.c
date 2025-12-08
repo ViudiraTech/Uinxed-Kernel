@@ -9,8 +9,8 @@
  *
  */
 
-#include "cmos.h"
-#include "common.h"
+#include <cmos.h>
+#include <common.h>
 
 /* Reading data from CMOS memory */
 uint8_t read_cmos(uint8_t p)

@@ -12,7 +12,7 @@
 #ifndef INCLUDE_PARALLEL_H_
 #define INCLUDE_PARALLEL_H_
 
-#include "stdint.h"
+#include <stdint.h>
 
 /* Register offset */
 #define DATA_REG    0 // Data register

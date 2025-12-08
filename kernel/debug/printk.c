@@ -9,17 +9,17 @@
  *
  */
 
-#include "printk.h"
-#include "spin_lock.h"
-#include "stdarg.h"
-#include "stddef.h"
-#include "stdint.h"
-#include "stdlib.h"
-#include "string.h"
-#include "tty.h"
+#include <printk.h>
+#include <spin_lock.h>
+#include <stdarg.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <tty.h>
 
 #ifdef KERNEL_LOG
-#    include "acpi.h"
+#    include <acpi.h>
 #endif
 
 #define BUF_SIZE 2048 // least 2 bytes (1 byte is for '\0')

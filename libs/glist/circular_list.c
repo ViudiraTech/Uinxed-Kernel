@@ -9,10 +9,10 @@
  *
  */
 
-#include "circular_list.h"
-#include "alloc.h"
-#include "stdint.h"
-#include "string.h"
+#include <circular_list.h>
+#include <heap.h>
+#include <stdint.h>
+#include <string.h>
 
 /* Allocate and initialize a new circular linked list node with the given data */
 clist_t clist_alloc(void *data)

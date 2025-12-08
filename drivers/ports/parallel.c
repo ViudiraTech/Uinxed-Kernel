@@ -9,10 +9,10 @@
  *
  */
 
-#include "parallel.h"
-#include "common.h"
-#include "printk.h"
-#include "timer.h"
+#include <common.h>
+#include <parallel.h>
+#include <printk.h>
+#include <timer.h>
 
 /* Check if the specified parallel port exists */
 static int parallel_detect(uint16_t port)

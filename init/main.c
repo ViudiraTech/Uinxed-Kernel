@@ -9,34 +9,34 @@
  *
  */
 
-#include "acpi.h"
-#include "cmdline.h"
-#include "common.h"
-#include "cpio.h"
-#include "cpuid.h"
-#include "debug.h"
-#include "eis.h"
-#include "frame.h"
-#include "gdt.h"
-#include "gfx_truetype.h"
-#include "heap.h"
-#include "hhdm.h"
-#include "ide.h"
-#include "interrupt.h"
-#include "limine_module.h"
-#include "page.h"
-#include "parallel.h"
-#include "pci.h"
-#include "printk.h"
-#include "ps2.h"
-#include "serial.h"
-#include "smbios.h"
-#include "smp.h"
-#include "tmpfs.h"
-#include "tsc.h"
-#include "uinxed.h"
-#include "vfs.h"
-#include "video.h"
+#include <acpi.h>
+#include <cmdline.h>
+#include <common.h>
+#include <cpio.h>
+#include <cpuid.h>
+#include <debug.h>
+#include <eis.h>
+#include <frame.h>
+#include <gdt.h>
+#include <gfx_truetype.h>
+#include <heap.h>
+#include <hhdm.h>
+#include <ide.h>
+#include <interrupt.h>
+#include <limine_module.h>
+#include <page.h>
+#include <parallel.h>
+#include <pci.h>
+#include <printk.h>
+#include <ps2.h>
+#include <serial.h>
+#include <smbios.h>
+#include <smp.h>
+#include <tmpfs.h>
+#include <tsc.h>
+#include <uinxed.h>
+#include <vfs.h>
+#include <video.h>
 
 /* Executable entry */
 void executable_entry(void)

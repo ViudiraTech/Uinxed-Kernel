@@ -9,10 +9,10 @@
  *
  */
 
-#include "common.h"
-#include "stddef.h"
-#include "stdint.h"
-#include "tty.h"
+#include <common.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <tty.h>
 
 /* Port write (8 bits) */
 void outb(uint16_t port, uint8_t value)

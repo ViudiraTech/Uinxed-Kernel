@@ -12,8 +12,8 @@
 #ifndef INCLUDE_TTY_H_
 #define INCLUDE_TTY_H_
 
-#include "stdint.h"
-#include "stdlib.h"
+#include <stdint.h>
+#include <stdlib.h>
 
 #define MAX_ARGC    1024
 #define MAX_CMDLINE 256

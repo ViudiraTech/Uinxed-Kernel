@@ -9,16 +9,16 @@
  *
  */
 
-#include "apic.h"
-#include "acpi.h"
-#include "common.h"
-#include "hhdm.h"
-#include "idt.h"
-#include "limine.h"
-#include "printk.h"
-#include "stddef.h"
-#include "stdint.h"
-#include "uinxed.h"
+#include <acpi.h>
+#include <apic.h>
+#include <common.h>
+#include <hhdm.h>
+#include <idt.h>
+#include <limine.h>
+#include <printk.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <uinxed.h>
 
 int x2apic_mode = -1;
 

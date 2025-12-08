@@ -9,8 +9,8 @@
  *
  */
 
-#include "cpuid.h"
-#include "stdint.h"
+#include <cpuid.h>
+#include <stdint.h>
 
 /* Initialize the FPU, including MMX (if any) */
 void init_fpu(void)

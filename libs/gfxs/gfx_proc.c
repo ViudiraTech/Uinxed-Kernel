@@ -9,8 +9,8 @@
  *
  */
 
-#include "gfx_proc.h"
-#include "limine.h"
+#include <gfx_proc.h>
+#include <limine.h>
 
 /* Convert color to fb_color */
 uint32_t color_to_fb_color(color_t color)

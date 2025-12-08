@@ -9,13 +9,13 @@
  *
  */
 
-#include "acpi.h"
-#include "common.h"
-#include "hhdm.h"
-#include "printk.h"
-#include "stdint.h"
-#include "string.h"
-#include "timer.h"
+#include <acpi.h>
+#include <common.h>
+#include <hhdm.h>
+#include <printk.h>
+#include <stdint.h>
+#include <string.h>
+#include <timer.h>
 
 uint16_t     SLP_TYPa;
 uint16_t     SLP_TYPb;

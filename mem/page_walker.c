@@ -9,12 +9,12 @@
  *
  */
 
-#include "page_walker.h"
-#include "hhdm.h"
-#include "page.h"
-#include "stdint.h"
-#include "stdlib.h"
-#include "string.h"
+#include <hhdm.h>
+#include <page.h>
+#include <page_walker.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 /* Init page_walk_state */
 void page_walk_init(page_walk_state_t *state, page_directory_t *directory, uintptr_t virtual_addr)

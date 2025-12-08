@@ -9,10 +9,10 @@
  *
  */
 
-#include "stdlib.h"
-#include "alloc.h"
-#include "stdint.h"
-#include "string.h"
+#include <heap.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 /* Standardized file paths */
 char *normalize_path(const char *path)

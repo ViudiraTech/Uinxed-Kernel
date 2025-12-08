@@ -9,9 +9,9 @@
  *
  */
 
-#include "ringlog.h"
-#include "printk.h"
-#include "string.h"
+#include <printk.h>
+#include <ringlog.h>
+#include <string.h>
 
 /* Initialize the ring log buffer */
 static void log_buffer_init(log_buffer_t *log)

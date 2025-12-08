@@ -12,7 +12,7 @@
 #ifndef INCLUDE_TMPFS_H_
 #define INCLUDE_TMPFS_H_
 
-#include "vfs.h"
+#include <vfs.h>
 
 enum tmpfs_type {
     tp_file_dir,

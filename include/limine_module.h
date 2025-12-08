@@ -12,9 +12,9 @@
 #ifndef INCLUDE_LIMINE_MODULE_H_
 #define INCLUDE_LIMINE_MODULE_H_
 
-#include "ringlog.h"
-#include "stddef.h"
-#include "stdint.h"
+#include <ringlog.h>
+#include <stddef.h>
+#include <stdint.h>
 
 typedef struct {
         char     name[32];

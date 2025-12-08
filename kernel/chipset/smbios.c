@@ -9,10 +9,10 @@
  *
  */
 
-#include "smbios.h"
-#include "hhdm.h"
-#include "limine.h"
-#include "uinxed.h"
+#include <hhdm.h>
+#include <limine.h>
+#include <smbios.h>
+#include <uinxed.h>
 
 /* Query SMBIOS table */
 static const header_t *find_smbios_type(uint8_t target_type)

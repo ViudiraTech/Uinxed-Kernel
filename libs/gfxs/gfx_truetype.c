@@ -9,19 +9,18 @@
  *
  */
 
-#include "alloc.h"
-#include "heap.h"
-#include "limine_module.h"
-#include "math.h"
-#include "stdint.h"
-#include "string.h"
-#include "utflib.h"
-#include "video.h"
+#include <heap.h>
+#include <limine_module.h>
+#include <math.h>
+#include <stdint.h>
+#include <string.h>
+#include <utflib.h>
+#include <video.h>
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #define NDEBUG
 
-#include "stb_truetype.h"
+#include <stb_truetype.h>
 
 stbtt_fontinfo font;
 

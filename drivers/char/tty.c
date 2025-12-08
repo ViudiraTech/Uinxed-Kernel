@@ -9,15 +9,15 @@
  *
  */
 
-#include "tty.h"
-#include "alloc.h"
-#include "cmdline.h"
-#include "serial.h"
-#include "spin_lock.h"
-#include "stdint.h"
-#include "stdlib.h"
-#include "string.h"
-#include "video.h"
+#include <cmdline.h>
+#include <heap.h>
+#include <serial.h>
+#include <spin_lock.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <tty.h>
+#include <video.h>
 
 tty_device_t  boot_tty     = {0, 0};
 tty_device_t *boot_tty_ptr = 0;

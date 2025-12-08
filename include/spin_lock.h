@@ -12,7 +12,7 @@
 #ifndef INCLUDE_SPIN_LOCK_H_
 #define INCLUDE_SPIN_LOCK_H_
 
-#include "stdint.h"
+#include <stdint.h>
 
 typedef struct {
         volatile uint64_t lock;   // lock state

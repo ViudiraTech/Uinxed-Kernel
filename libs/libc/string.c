@@ -9,11 +9,11 @@
  *
  */
 
-#include "string.h"
-#include "alloc.h"
-#include "math.h"
-#include "stddef.h"
-#include "stdlib.h"
+#include <heap.h>
+#include <math.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
 
 /* Copy n bytes from memory area str2 to memory area str1 */
 void *memcpy(void *str1, const void *str2, size_t n)

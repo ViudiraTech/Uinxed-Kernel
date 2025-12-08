@@ -12,8 +12,8 @@
 #ifndef INCLUDE_APIC_H_
 #define INCLUDE_APIC_H_
 
-#include "acpi.h"
-#include "stdint.h"
+#include <acpi.h>
+#include <stdint.h>
 
 #define MADT_APIC_LOCAL_CPU    0x00
 #define MADT_APIC_IO           0x01

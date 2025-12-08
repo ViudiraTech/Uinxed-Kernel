@@ -9,12 +9,12 @@
  *
  */
 
-#include "common.h"
+#include <common.h>
 
 /* Set the system speaker status */
 void system_speaker(int hertz)
 {
-    if (hertz == 0) {
+    if (!hertz) {
         outb(0x61, inb(0x61) & 0x0d); // Turn off the onboard buzzer
     } else {
         outb(0x43, 0xb6);                      // Send command to set timer 2

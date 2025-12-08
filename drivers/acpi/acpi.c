@@ -9,13 +9,13 @@
  *
  */
 
-#include "acpi.h"
-#include "apic.h"
-#include "hhdm.h"
-#include "limine.h"
-#include "printk.h"
-#include "stdint.h"
-#include "uinxed.h"
+#include <acpi.h>
+#include <apic.h>
+#include <hhdm.h>
+#include <limine.h>
+#include <printk.h>
+#include <stdint.h>
+#include <uinxed.h>
 
 xsdt_t *xsdt = 0;
 rsdt_t *rsdt = 0;

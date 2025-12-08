@@ -12,9 +12,9 @@
 #ifndef INCLUDE_PCI_H_
 #define INCLUDE_PCI_H_
 
-#include "acpi.h"
-#include "stddef.h"
-#include "stdint.h"
+#include <acpi.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #define PCI_HEADER_TYPE_MASK 0x7F
 

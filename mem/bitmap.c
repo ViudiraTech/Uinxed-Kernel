@@ -9,9 +9,9 @@
  *
  */
 
-#include "bitmap.h"
-#include "stdint.h"
-#include "string.h"
+#include <bitmap.h>
+#include <stdint.h>
+#include <string.h>
 
 /* Initialize the memory bitmap */
 void bitmap_init(bitmap_t *bitmap, uint8_t *buffer, size_t size)

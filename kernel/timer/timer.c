@@ -9,14 +9,14 @@
  *
  */
 
-#include "acpi.h"
-#include "apic.h"
-#include "common.h"
-#include "interrupt.h"
-#include "math.h"
-#include "printk.h"
-#include "stdint.h"
-#include "tsc.h"
+#include <acpi.h>
+#include <apic.h>
+#include <common.h>
+#include <interrupt.h>
+#include <math.h>
+#include <printk.h>
+#include <stdint.h>
+#include <tsc.h>
 
 /* Timer interrupt */
 INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)

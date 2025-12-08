@@ -12,9 +12,9 @@
 #ifndef INCLUDE_SMP_H_
 #define INCLUDE_SMP_H_
 
-#include "gdt.h"
-#include "limine.h"
-#include "stdint.h"
+#include <gdt.h>
+#include <limine.h>
+#include <stdint.h>
 
 #define KERNEL_STACK_SIZE 0x10000 // 64 KiB
 

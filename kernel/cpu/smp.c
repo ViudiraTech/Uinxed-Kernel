@@ -9,25 +9,25 @@
  *
  */
 
-#include "smp.h"
-#include "alloc.h"
-#include "apic.h"
-#include "common.h"
-#include "debug.h"
-#include "eis.h"
-#include "frame.h"
-#include "gdt.h"
-#include "hhdm.h"
-#include "interrupt.h"
-#include "limine.h"
-#include "page.h"
-#include "printk.h"
-#include "spin_lock.h"
-#include "stddef.h"
-#include "stdint.h"
-#include "stdlib.h"
-#include "string.h"
-#include "uinxed.h"
+#include <apic.h>
+#include <common.h>
+#include <debug.h>
+#include <eis.h>
+#include <frame.h>
+#include <gdt.h>
+#include <heap.h>
+#include <hhdm.h>
+#include <interrupt.h>
+#include <limine.h>
+#include <page.h>
+#include <printk.h>
+#include <smp.h>
+#include <spin_lock.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <uinxed.h>
 
 static cpu_processor_t *cpus;
 static size_t           cpu_count = 0;

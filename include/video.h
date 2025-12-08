@@ -12,7 +12,7 @@
 #ifndef INCLUDE_VIDEO_H_
 #define INCLUDE_VIDEO_H_
 
-#include "stdint.h"
+#include <stdint.h>
 
 #ifndef TTF_CONSOLE
 #    define TTF_CONSOLE 1

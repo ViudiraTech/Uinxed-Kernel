@@ -9,9 +9,9 @@
  *
  */
 
-#include "gdt.h"
-#include "printk.h"
-#include "stdint.h"
+#include <gdt.h>
+#include <printk.h>
+#include <stdint.h>
 
 /* Global Descriptor Table Definition */
 gdt_t gdt0;

@@ -9,13 +9,13 @@
  *
  */
 
-#include "frame.h"
-#include "bitmap.h"
-#include "hhdm.h"
-#include "limine.h"
-#include "page.h"
-#include "printk.h"
-#include "uinxed.h"
+#include <bitmap.h>
+#include <frame.h>
+#include <hhdm.h>
+#include <limine.h>
+#include <page.h>
+#include <printk.h>
+#include <uinxed.h>
 
 log_buffer_t      frame_log;
 frame_allocator_t frame_allocator;

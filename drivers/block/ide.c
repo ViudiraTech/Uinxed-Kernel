@@ -9,15 +9,15 @@
  *
  */
 
-#include "ide.h"
-#include "apic.h"
-#include "common.h"
-#include "interrupt.h"
-#include "pci.h"
-#include "printk.h"
-#include "stddef.h"
-#include "stdint.h"
-#include "timer.h"
+#include <apic.h>
+#include <common.h>
+#include <ide.h>
+#include <interrupt.h>
+#include <pci.h>
+#include <printk.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <timer.h>
 
 /* Request for operation IDE Controller */
 pci_finding_request_t ide_pci_request = {

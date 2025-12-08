@@ -12,8 +12,8 @@
 #ifndef INCLUDE_ACPI_H_
 #define INCLUDE_ACPI_H_
 
-#include "stddef.h"
-#include "stdint.h"
+#include <stddef.h>
+#include <stdint.h>
 
 #define load_table(tblname, func)                          \
     do {                                                   \

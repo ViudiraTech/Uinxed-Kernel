@@ -12,7 +12,7 @@
 #ifndef INCLUDE_RINGLOG_H_
 #define INCLUDE_RINGLOG_H_
 
-#include "stddef.h"
+#include <stddef.h>
 
 #define LOG_MAX_LENGTH  1024
 #define LOG_BUFFER_SIZE 32

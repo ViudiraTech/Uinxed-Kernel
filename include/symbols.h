@@ -12,8 +12,8 @@
 #ifndef INCLUDE_SYMBOLS_H_
 #define INCLUDE_SYMBOLS_H_
 
-#include "elf.h"
-#include "stdint.h"
+#include <elf.h>
+#include <stdint.h>
 
 typedef struct {
         const char *name;

@@ -9,12 +9,11 @@
  *
  */
 
-#include "tmpfs.h"
-#include "alloc.h"
-#include "errno.h"
-#include "heap.h"
-#include "printk.h"
-#include "string.h"
+#include <errno.h>
+#include <heap.h>
+#include <printk.h>
+#include <string.h>
+#include <tmpfs.h>
 
 int tmpfs_id = 0;
 

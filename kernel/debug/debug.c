@@ -9,14 +9,14 @@
  *
  */
 
-#include "debug.h"
-#include "common.h"
-#include "limine.h"
-#include "printk.h"
-#include "smbios.h"
-#include "stdarg.h"
-#include "symbols.h"
-#include "uinxed.h"
+#include <common.h>
+#include <debug.h>
+#include <limine.h>
+#include <printk.h>
+#include <smbios.h>
+#include <stdarg.h>
+#include <symbols.h>
+#include <uinxed.h>
 
 int carry_error_code = 0;
 

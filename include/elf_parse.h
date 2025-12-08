@@ -12,8 +12,8 @@
 #ifndef INCLUDE_ELF_PARSE_H_
 #define INCLUDE_ELF_PARSE_H_
 
-#include "stddef.h"
-#include "stdint.h"
+#include <stddef.h>
+#include <stdint.h>
 
 typedef enum {
     entry_point,

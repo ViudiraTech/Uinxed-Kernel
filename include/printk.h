@@ -12,10 +12,10 @@
 #ifndef INCLUDE_PRINTK_H_
 #define INCLUDE_PRINTK_H_
 
-#include "stdarg.h"
-#include "stddef.h"
-#include "stdint.h"
-#include "stdlib.h"
+#include <stdarg.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
 
 #ifndef KERNEL_LOG
 #    define KERNEL_LOG 1

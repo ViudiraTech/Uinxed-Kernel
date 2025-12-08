@@ -9,8 +9,8 @@
  *
  */
 
-#include "limine.h"
-#include "uinxed.h"
+#include <limine.h>
+#include <uinxed.h>
 
 /* Get the kernel command line */
 const char *get_cmdline(void)

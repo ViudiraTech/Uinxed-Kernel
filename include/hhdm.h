@@ -12,7 +12,7 @@
 #ifndef INCLUDE_HHDM_H_
 #define INCLUDE_HHDM_H_
 
-#include "stdint.h"
+#include <stdint.h>
 
 /* Get physical memory offset */
 uint64_t get_physical_memory_offset(void);

@@ -12,7 +12,7 @@
 #ifndef INCLUDE_ELF_H_
 #define INCLUDE_ELF_H_
 
-#include "stdint.h"
+#include <stdint.h>
 
 /* How to extract and insert information held in the st_info field. */
 #define ELF32_ST_BIND(val)        (((unsigned char)(val)) >> 4)

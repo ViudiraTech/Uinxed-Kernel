@@ -12,7 +12,7 @@
 #ifndef INCLUDE_DMA_H_
 #define INCLUDE_DMA_H_
 
-#include "stdint.h"
+#include <stdint.h>
 
 #define LOW_BYTE(x)  ((x) & 0x00ff)
 #define HIGH_BYTE(x) (((x) & 0xff00) >> 8)

@@ -9,10 +9,10 @@
  *
  */
 
-#include "apic.h"
-#include "common.h"
-#include "interrupt.h"
-#include "printk.h"
+#include <apic.h>
+#include <common.h>
+#include <interrupt.h>
+#include <printk.h>
 
 #define INTERRUPT_HANDLE(id)                                                 \
     INTERRUPT_BEGIN static void empty_handler_##id(interrupt_frame_t *frame) \

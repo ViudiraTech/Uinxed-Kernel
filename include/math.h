@@ -12,7 +12,7 @@
 #ifndef INCLUDE_MATH_H_
 #define INCLUDE_MATH_H_
 
-#include "stdint.h"
+#include <stdint.h>
 
 #define PI            (float64_t)3.1415926535
 #define TAU           (float64_t)6.2831853071

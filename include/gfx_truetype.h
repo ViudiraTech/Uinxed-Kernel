@@ -12,7 +12,7 @@
 #ifndef INCLUDE_GFX_TRUETYPE_H_
 #define INCLUDE_GFX_TRUETYPE_H_
 
-#include "stdint.h"
+#include <stdint.h>
 
 /* Get the length and width of the corresponding word according to the specified font and size */
 void get_ttf_dimensions(const char *data, uint32_t size, uint32_t *width, uint32_t *height);

@@ -12,15 +12,15 @@
 #ifndef INCLUDE_ALLOC_H_
 #define INCLUDE_ALLOC_H_
 
-#include "stddef.h"
-#include "stdint.h"
+#include <stddef.h>
+#include <stdint.h>
 
 typedef enum {
     invalid_free,
     layout_error,
-} heap_error;
+} heap_error_t;
 
-typedef void (*error_handler)(heap_error error, void *ptr);
+typedef void (*error_handler)(heap_error_t error, void *ptr);
 
 /* Initializes the heap memory arena */
 int heap_init(uint8_t *address, size_t size);

@@ -12,8 +12,8 @@
 #ifndef INCLUDE_COMMON_H_
 #define INCLUDE_COMMON_H_
 
-#include "stddef.h"
-#include "stdint.h"
+#include <stddef.h>
+#include <stdint.h>
 
 /* Port write (8 bits) */
 void outb(uint16_t port, uint8_t value);

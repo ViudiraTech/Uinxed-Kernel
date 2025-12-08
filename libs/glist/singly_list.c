@@ -9,8 +9,8 @@
  *
  */
 
-#include "singly_list.h"
-#include "alloc.h"
+#include <heap.h>
+#include <singly_list.h>
 
 /* Initialize a singly linked list */
 int slist_init(slist_t *list)

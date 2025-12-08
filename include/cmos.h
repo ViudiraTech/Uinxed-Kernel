@@ -12,7 +12,7 @@
 #ifndef INCLUDE_CMOS_H_
 #define INCLUDE_CMOS_H_
 
-#include "stdint.h"
+#include <stdint.h>
 
 #define cmos_index    0x70
 #define cmos_data     0x71

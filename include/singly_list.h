@@ -12,7 +12,7 @@
 #ifndef INCLUDE_SINGLY_LIST_H_
 #define INCLUDE_SINGLY_LIST_H_
 
-#include "stddef.h"
+#include <stddef.h>
 
 typedef struct slist_node {
         void              *data;

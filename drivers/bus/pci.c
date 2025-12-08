@@ -9,16 +9,16 @@
  *
  */
 
-#include "pci.h"
-#include "acpi.h"
-#include "alloc.h"
-#include "common.h"
-#include "debug.h"
-#include "hhdm.h"
-#include "printk.h"
-#include "stddef.h"
-#include "stdint.h"
-#include "stdlib.h"
+#include <acpi.h>
+#include <common.h>
+#include <debug.h>
+#include <heap.h>
+#include <hhdm.h>
+#include <pci.h>
+#include <printk.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
 
 mcfg_t mcfg_info;
 

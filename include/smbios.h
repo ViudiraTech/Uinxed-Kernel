@@ -12,7 +12,7 @@
 #ifndef INCLUDE_SMBIOS_H_
 #define INCLUDE_SMBIOS_H_
 
-#include "stdint.h"
+#include <stdint.h>
 
 /* 32-bit entry point structure */
 typedef struct {

@@ -9,10 +9,10 @@
  *
  */
 
-#include "tsc.h"
-#include "common.h"
-#include "cpuid.h"
-#include "printk.h"
+#include <common.h>
+#include <cpuid.h>
+#include <printk.h>
+#include <tsc.h>
 
 static uint64_t tsc_frequency  = 0;
 static uint64_t tsc_boot_value = 0;

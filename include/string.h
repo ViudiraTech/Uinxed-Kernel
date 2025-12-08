@@ -12,8 +12,8 @@
 #ifndef INCLUDE_STRING_H_
 #define INCLUDE_STRING_H_
 
-#include "stddef.h"
-#include "stdint.h"
+#include <stddef.h>
+#include <stdint.h>
 
 /* Copy n bytes from memory area str2 to memory area str1 */
 void *memcpy(void *str1, const void *str2, size_t n);

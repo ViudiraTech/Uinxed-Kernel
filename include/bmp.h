@@ -12,7 +12,7 @@
 #ifndef INCLUDE_BMP_H_
 #define INCLUDE_BMP_H_
 
-#include "stdint.h"
+#include <stdint.h>
 
 typedef struct {
         uint16_t magic;
