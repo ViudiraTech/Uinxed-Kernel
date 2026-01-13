@@ -28,15 +28,20 @@ uint64_t KERNEL_HEAP_SIZE  = 0;
 void init_heap(void)
 {
     struct limine_memmap_response *memmap_response = memmap_request.response;
-    struct limine_memmap_entry    *last_entry      = memmap_response->entries[memmap_response->entry_count - 1];
+    uint64_t                       usable_ram      = 0;
 
-    if (!KERNEL_HEAP_START) KERNEL_HEAP_START = (last_entry->base + last_entry->length) + get_physical_memory_offset();
-    if (!KERNEL_HEAP_SIZE) KERNEL_HEAP_SIZE = frame_allocator.usable_frames / 2 * PAGE_4K_SIZE; // 1/2 of usable memory
+    for (uint64_t i = 0; i < memmap_response->entry_count; i++) {
+        if (memmap_response->entries[i]->type == LIMINE_MEMMAP_USABLE) { usable_ram += memmap_response->entries[i]->length; }
+    }
 
-    KERNEL_HEAP_START = ALIGN_UP(KERNEL_HEAP_START, PAGE_1G_SIZE);
-    KERNEL_HEAP_START = walk_page_tables_find_free(get_kernel_pagedir(), KERNEL_HEAP_START, KERNEL_HEAP_SIZE, PAGE_1G_SIZE);
-
+    if (!KERNEL_HEAP_SIZE && !KERNEL_HEAP_START) {
+        KERNEL_HEAP_SIZE  = usable_ram / 4;
+        KERNEL_HEAP_SIZE  = ALIGN_UP(KERNEL_HEAP_SIZE, PAGE_4K_SIZE);
+        KERNEL_HEAP_START = walk_page_tables_find_free(get_kernel_pagedir(), 0xffff800000000000, KERNEL_HEAP_SIZE, PAGE_2M_SIZE);
+        KERNEL_HEAP_START = ALIGN_UP(KERNEL_HEAP_START, PAGE_2M_SIZE);
+    }
     page_map_range_to_random(get_kernel_pagedir(), KERNEL_HEAP_START, KERNEL_HEAP_SIZE, KERNEL_PTE_FLAGS);
+
     pointer_cast_t cast;
     cast.val = KERNEL_HEAP_START;
     heap_init(cast.ptr, KERNEL_HEAP_SIZE);

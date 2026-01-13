@@ -29,6 +29,9 @@ int bitmap_get(const bitmap_t *bitmap, size_t index);
 /* Setting the memory bitmap */
 void bitmap_set(bitmap_t *bitmap, size_t index, int value);
 
+/* Fill the memory bitmap */
+void bitmap_fill(bitmap_t *bitmap, int value);
+
 /* Set the memory bitmap range */
 void bitmap_set_range(bitmap_t *bitmap, size_t start, size_t end, int value);
 

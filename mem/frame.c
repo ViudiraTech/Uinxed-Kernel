@@ -51,6 +51,7 @@ void init_frame(void)
     }
     bitmap_t *bitmap = &frame_allocator.bitmap;
     bitmap_init(bitmap, phys_to_virt(bitmap_address), bitmap_size);
+    bitmap_fill(bitmap, 0);
     size_t origin_frames = 0;
 
     for (uint64_t i = 0; i < memory_map->entry_count; i++) {
@@ -147,6 +148,7 @@ void free_frames(uint64_t addr, size_t count)
     if (!frame_index) return;
     bitmap_t *bitmap = &frame_allocator.bitmap;
     bitmap_set_range(bitmap, frame_index, frame_index + count, 1);
+    frame_allocator.usable_frames += count;
 }
 
 /* Free 2M memory frames */
@@ -157,7 +159,8 @@ void free_frames_2M(uint64_t addr)
 
     if (!frame_index) return;
     bitmap_t *bitmap = &frame_allocator.bitmap;
-    for (size_t i = 0; i < 512; i++) { bitmap_set(bitmap, frame_index + i, 1); }
+    for (size_t i = 0; i < 512; i++) bitmap_set(bitmap, frame_index + i, 1);
+    frame_allocator.usable_frames += 512;
 }
 
 /* Free 1G memory frames */
@@ -168,7 +171,8 @@ void free_frames_1G(uint64_t addr)
 
     if (!frame_index) return;
     bitmap_t *bitmap = &frame_allocator.bitmap;
-    for (size_t i = 0; i < 262144; i++) { bitmap_set(bitmap, frame_index + i, 1); }
+    for (size_t i = 0; i < 262144; i++) bitmap_set(bitmap, frame_index + i, 1);
+    frame_allocator.usable_frames += 262144;
 }
 
 /* Print memory map */

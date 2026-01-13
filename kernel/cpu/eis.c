@@ -39,8 +39,8 @@ void init_sse(void)
     uint64_t cr4;
     __asm__ volatile("mov %%cr4, %0" : "=r"(cr4)::"memory");
 
-    cr4 |= (1 << 9);  // OSFXSR = 1
-    cr4 |= (1 << 10); // OSXMMEXCPT = 1
+    cr4 |= (1UL << 9);  // OSFXSR = 1
+    cr4 |= (1UL << 10); // OSXMMEXCPT = 1
 
     __asm__ volatile("mov %0, %%cr4" ::"r"(cr4) : "memory");
 #else
@@ -55,10 +55,10 @@ void init_avx(void)
     if (!cpu_support_avx()) return;
 
     uint64_t cr4;
-    uint64_t xcr0 = 0x7;
+    uint64_t xcr0 = 0xE7;
     __asm__ volatile("mov %%cr4, %0" : "=r"(cr4)::"memory");
 
-    cr4 |= (1 << 18); // OSXSAVE = 1
+    cr4 |= (1UL << 18); // OSXSAVE = 1
 
     __asm__ volatile("mov %0, %%cr4" ::"r"(cr4) : "memory");
     __asm__ volatile("xsetbv" ::"a"((uint32_t)xcr0), "d"((uint32_t)(xcr0 >> 32)), "c"(0) : "memory");

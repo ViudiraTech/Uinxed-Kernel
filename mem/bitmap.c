@@ -40,6 +40,13 @@ void bitmap_set(bitmap_t *bitmap, size_t index, int value)
         bitmap->buffer[word_index] &= ~((size_t)1 << bit_index);
 }
 
+/* Fill the memory bitmap */
+void bitmap_fill(bitmap_t *bitmap, int value)
+{
+    uint8_t fill_val = (value) ? 0xff : 0x00;
+    memset(bitmap->buffer, fill_val, bitmap->length);
+}
+
 /* Set the memory bitmap range */
 void bitmap_set_range(bitmap_t *bitmap, size_t start, size_t end, int value)
 {
