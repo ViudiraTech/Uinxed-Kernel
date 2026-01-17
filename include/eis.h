@@ -12,17 +12,9 @@
 #ifndef INCLUDE_EIS_H_
 #define INCLUDE_EIS_H_
 
-#ifndef CPU_FEATURE_FPU
-#    define CPU_FEATURE_FPU 1
-#endif
-
-#ifndef CPU_FEATURE_SSE
-#    define CPU_FEATURE_SSE 1
-#endif
-
-#ifndef CPU_FEATURE_AVX
-#    define CPU_FEATURE_AVX 1
-#endif
+#define CPU_FEATURE_FPU 1
+#define CPU_FEATURE_SSE 1
+#define CPU_FEATURE_AVX 1
 
 /* Initialize the FPU, including MMX (if any) */
 void init_fpu(void);

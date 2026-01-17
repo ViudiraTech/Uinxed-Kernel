@@ -30,21 +30,10 @@
 
 #define PORT_TO_COM(port) ((port) == 0x3f8 ? "COM1" : (port) == 0x2f8 ? "COM2" : (port) == 0x3e8 ? "COM3" : (port) == 0x2e8 ? "COM4" : "Unknown")
 
-#ifndef SERIAL_PARITY
-#    define SERIAL_PARITY 0
-#endif
-
-#ifndef SERIAL_BAUD_RATE
-#    define SERIAL_BAUD_RATE 9600
-#endif
-
-#ifndef SERIAL_DATA_BITS
-#    define SERIAL_DATA_BITS 8
-#endif
-
-#ifndef SERIAL_STOP_BITS
-#    define SERIAL_STOP_BITS 1
-#endif
+#define SERIAL_PARITY    0
+#define SERIAL_BAUD_RATE 9600
+#define SERIAL_DATA_BITS 8
+#define SERIAL_STOP_BITS 1
 
 void    init_serial(void);                         // Initialize the serial port
 int     serial_received(uint16_t port);            // Check whether the serial port is ready to read

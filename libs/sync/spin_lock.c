@@ -12,20 +12,25 @@
 #include <spin_lock.h>
 
 /* Lock a spinlock */
-void spin_lock(spinlock_t *lock)
+uint64_t spin_lock(spinlock_t *lock)
 {
-    __asm__ volatile("pushfq; pop %0; cli" : "=r"(lock->rflags));
+    uint64_t flags;
+    __asm__ volatile("pushfq; pop %0; cli" : "=rm"(flags)::"memory");
+
     while (1) {
         uint64_t desired = 1;
-        __asm__ volatile("lock xchg %[desired], %[lock];" : [lock] "+m"(lock->lock), [desired] "+r"(desired)::"memory");
+        __asm__ volatile("lock xchg %[desired], %[lock]" : [lock] "+m"(lock->lock), [desired] "+r"(desired)::"memory");
+
         if (!desired) break;
-        __asm__ volatile("pause");
+
+        while (lock->lock) { __asm__ volatile("pause"); }
     }
+    return flags;
 }
 
 /* Unlock a spinlock */
-void spin_unlock(spinlock_t *lock)
+void spin_unlock(spinlock_t *lock, uint64_t flags)
 {
-    lock->lock = 0;
-    __asm__ volatile("push %0; popfq" ::"r"(lock->rflags));
+    __asm__ volatile("movq $0, %0" : "+m"(lock->lock)::"memory");
+    __asm__ volatile("push %0; popfq" ::"rm"(flags) : "memory");
 }

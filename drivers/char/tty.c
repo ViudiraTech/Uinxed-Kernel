@@ -26,10 +26,7 @@ static char           boot_tty_str_buf[16]   = {0}; // Persistent buffer
 static char           tty_buff[TTY_BUF_SIZE] = {0};
 static volatile char *tty_buff_ptr           = tty_buff;
 
-spinlock_t tty_flush_spinlock = {
-    .lock   = 0,
-    .rflags = 0,
-};
+spinlock_t tty_flush_spinlock = {0};
 
 writer tty_writer = {
     .data    = 0,
@@ -178,7 +175,7 @@ tty_device_t *get_boot_tty(void)
 /* Output the buffer data to the specified device according to the configuration */
 void tty_buff_flush(void)
 {
-    spin_lock(&tty_flush_spinlock);
+    uint64_t flags            = spin_lock(&tty_flush_spinlock);
     tty_buff_ptr              = tty_buff;
     tty_device_t *tty_device  = get_boot_tty();
     uint16_t      serial_port = 0;
@@ -230,7 +227,7 @@ void tty_buff_flush(void)
     }
     tty_buff_ptr = tty_buff;
     tty_buff[0]  = '\0';
-    spin_unlock(&tty_flush_spinlock);
+    spin_unlock(&tty_flush_spinlock, flags);
 }
 
 /* Add character data to the teletype buffer */

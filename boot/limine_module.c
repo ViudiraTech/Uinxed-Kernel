@@ -49,6 +49,7 @@ void lmodule_init(void)
 {
     if (!module_request.response || !module_request.response->module_count) return;
     for (size_t i = 0; i < module_request.response->module_count; i++) {
+        if (lmodule_count >= 128) break;
         struct limine_file *file = module_request.response->modules[i];
         extract_name(file->path, lmodule[lmodule_count].name, sizeof(char) * 32);
         lmodule[lmodule_count].path = file->path;

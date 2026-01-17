@@ -161,7 +161,7 @@ void get_ttf_dimensions(const char *data, uint32_t size, uint32_t *width, uint32
         return;
     }
 
-    Rune *r = (Rune *)malloc(sizeof(Rune) * (str_len + 1));
+    rune_t *r = (rune_t *)malloc(sizeof(rune_t) * (str_len + 1));
     if (!r) {
         *width  = 0;
         *height = 0;
@@ -211,7 +211,7 @@ void draw_ttf(const char *data, uint32_t x, uint32_t y, uint32_t size, uint32_t 
     int str_len = (int)utflen(data);
     if (str_len <= 0) return;
 
-    Rune *r = (Rune *)malloc(sizeof(Rune) * (str_len + 1));
+    rune_t *r = (rune_t *)malloc(sizeof(rune_t) * (str_len + 1));
     if (!r) return;
 
     /* Optimized string parsing */

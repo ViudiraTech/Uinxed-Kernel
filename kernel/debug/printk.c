@@ -9,6 +9,7 @@
  *
  */
 
+#include <acpi.h>
 #include <printk.h>
 #include <spin_lock.h>
 #include <stdarg.h>
@@ -18,49 +19,35 @@
 #include <string.h>
 #include <tty.h>
 
-#ifdef KERNEL_LOG
-#    include <acpi.h>
-#endif
-
 #define BUF_SIZE 2048 // least 2 bytes (1 byte is for '\0')
 
 /* Lock for printk */
-spinlock_t printk_lock = {
-    .lock   = 0,
-    .rflags = 0,
-};
+spinlock_t printk_lock = {0};
 
 /* Lock for plogk */
-spinlock_t plogk_lock = {
-    .lock   = 0,
-    .rflags = 0,
-};
+spinlock_t plogk_lock = {0};
 
 /* Kernel print string */
 void printk(const char *format, ...)
 {
-    spin_lock(&printk_lock); // Lock
-    va_list args;
+    uint64_t flags = spin_lock(&printk_lock); // Lock
+    va_list  args;
     va_start(args, format);
     vwprintf(&tty_writer, format, args);
     va_end(args);
-    spin_unlock(&printk_lock); // Unlock
+    spin_unlock(&printk_lock, flags); // Unlock
 }
 
 /* Kernel print log */
 void plogk(const char *format, ...)
 {
-#if KERNEL_LOG
-    spin_lock(&plogk_lock); // Lock
+    uint64_t flags = spin_lock(&plogk_lock); // Lock
     printk("[%5d.%06d] ", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
     va_list args;
     va_start(args, format);
     vwprintf(&tty_writer, format, args);
     va_end(args);
-    spin_unlock(&plogk_lock); // Unlock
-#else
-    (void)format;
-#endif
+    spin_unlock(&plogk_lock, flags); // Unlock
 }
 
 /* Handler of unsafe buf writing */

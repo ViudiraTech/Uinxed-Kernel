@@ -15,14 +15,13 @@
 #include <stdint.h>
 
 typedef struct {
-        volatile uint64_t lock;   // lock state
-        uint64_t          rflags; // stored rflags
+        volatile uint32_t lock;
 } spinlock_t;
 
 /* Lock a spinlock */
-void spin_lock(spinlock_t *lock);
+uint64_t spin_lock(spinlock_t *lock);
 
 /* Unlock a spinlock */
-void spin_unlock(spinlock_t *lock);
+void spin_unlock(spinlock_t *lock, uint64_t flags);
 
 #endif // INCLUDE_SPIN_LOCK_H_

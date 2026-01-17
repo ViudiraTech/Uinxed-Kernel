@@ -195,9 +195,9 @@ void ap_entry(struct limine_smp_info *info)
     /* Initializing Local APIC */
     local_apic_init();
 
-    spin_lock(&ap_start_lock);
+    uint64_t flags = spin_lock(&ap_start_lock);
     ap_ready_count++;
-    spin_unlock(&ap_start_lock);
+    spin_unlock(&ap_start_lock, flags);
 
     /* TODO: Implement the scheduler loop */
     enable_intr();
@@ -217,7 +217,7 @@ void smp_init(void)
         return;
     }
 
-    cpu_count = (!CPU_MAX_COUNT) ? smp->cpu_count : (smp->cpu_count > CPU_MAX_COUNT ? CPU_MAX_COUNT : smp->cpu_count);
+    cpu_count = smp->cpu_count;
     cpus      = (cpu_processor_t *)aligned_alloc(16, sizeof(cpu_processor_t) * cpu_count);
     plogk("smp: Found %d CPUs.\n", cpu_count);
 

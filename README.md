@@ -46,26 +46,24 @@ Uinxed-Kernel is a Unix-like operating system kernel developed from scratch, foc
 4. **xorriso**: Used to build ISO image files.
 5. **clang-format**: Used to format the code.
 6. **clang-tidy**: Used for static analysis of code.
-7. **kconfig-frontends**: Provides a graphical configuration menu.
-8. **libncurses-dev**: Text-based user interface library.
 
 ### Installation Steps
 
 **Debian & Ubuntu & Kali**
 ```bash
 sudo apt update
-sudo apt install make gcc qemu-system xorriso clang-format clang-tidy kconfig-frontends libncurses-dev
+sudo apt install make gcc qemu-system xorriso clang-format clang-tidy
 ```
 
 **ArchLinux**
 ```bash
-pacman -Sy make gcc qemu-system xorriso clang-format clang-tidy kconfig-frontends libncurses-dev
+pacman -Sy make gcc qemu-system xorriso clang-format clang-tidy
 ```
 
 **Alpine**
 ```bash
 sudo apk update
-sudo apk add make gcc qemu-system xorriso clang-format clang-tidy kconfig-frontends libncurses-dev
+sudo apk add make gcc qemu-system xorriso clang-format clang-tidy
 ```
 
 ## Compilation Guide 📖
@@ -132,9 +130,7 @@ Uinxed-Kernel/
 ├── .clang-format    # Formatting configuration files.
 ├── .clang-tidy      # Static analysis configuration file.
 ├── .clangd_template # Clangd configuration template.
-├── .config-default  # Default configuration options.
 ├── .gitignore       # Ignore rules.
-├── Kconfig          # Project configuration file.
 ├── LICENSE          # Open source license.
 ├── Makefile         # Build script.
 └── README.md        # Project introduction.

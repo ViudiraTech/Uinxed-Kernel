@@ -15,19 +15,19 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define UTFmax    6            // maximum bytes per rune
-#define Runeerror ((Rune) - 1) // decoding error in utf
+#define UTFmax    6              // maximum bytes per rune
+#define Runeerror ((rune_t) - 1) // decoding error in utf
 
-typedef int32_t Rune;
+typedef int32_t rune_t;
 
 /* Check if the rune is a valid Unicode character */
-int isvalidrune(Rune r);
+int isvalidrune(rune_t r);
 
 /* Convert a UTF-8 sequence to a Unicode rune */
-int charntorune(Rune *p, const char *s, size_t len);
+int charntorune(rune_t *p, const char *s, size_t len);
 
 /* Convert a single UTF-8 character to a Unicode rune */
-int chartorune(Rune *p, const char *s);
+int chartorune(rune_t *p, const char *s);
 
 /* Get the number of Unicode characters in a UTF-8 string */
 size_t utfnlen(const char *s, size_t len);

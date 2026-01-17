@@ -14,9 +14,9 @@
 
 #include <stdint.h>
 
-#define PI            (float64_t)3.1415926535
-#define TAU           (float64_t)6.2831853071
-#define PI_DIV_2      (float64_t)1.5707963267
+#define PI            (float64_t)3.14159265358979323846
+#define TAU           (float64_t)6.28318530717958647692
+#define PI_DIV_2      (float64_t)1.57079632679489661923
 #define LONG_LONG_MAX (0x7FFFFFFFFFFFFFFFLL)
 #define LONG_LONG_MIN (-0x7FFFFFFFFFFFFFFFLL - 1)
 #define UINT64_MAX    (0xFFFFFFFFFFFFFFFFULL)

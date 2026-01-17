@@ -100,8 +100,8 @@ float floorf(float x)
 /* Round a floating-point number to the nearest integer */
 float roundf(float number)
 {
-    if (number < 0.0f) return ceilf(number - 0.5f);
-    return floorf(number + 0.5f);
+    if (number >= 0.0f) return (float)(int)(number + 0.5f);
+    return (float)(int)(number - 0.5f);
 }
 
 /* Return the absolute value of a double */
@@ -114,9 +114,9 @@ double fabs(double x)
 /* Return the largest integer less than or equal to x */
 double floor(double x)
 {
-    double fract = x - (int)x;
-    if (fract < 0) return (int)x - 1;
-    return (int)x;
+    double i = (double)((long long)x);
+    if (x < 0 && x != i) return i - 1.0;
+    return i;
 }
 
 /* Return the smallest integer greater than or equal to x */
@@ -130,28 +130,27 @@ double ceil(double x)
 /* Return the remainder of x divided by y */
 double fmod(double x, double y)
 {
-    if (y == 0) return __builtin_nanf("");
-
-    double intPart   = x / y;
-    double remainder = x - intPart * y;
-
-    if (remainder < 0)
-        remainder += y;
-    else if (remainder > y)
-        remainder -= y;
-    return remainder;
+    if (y == 0.0) return __builtin_nanf("");
+    long quotient = (long)(x / y);
+    return x - (double)quotient * y;
 }
 
 /* Calculate the cosine of x (in radians) */
 double cos(double x)
 {
-    double sum  = 0.0;
-    double term = x;
-    int    n    = 0;
+    if (x < 0) x = -x;
+    x = fmod(x, 2.0 * PI);
 
-    for (n = 0; term > 1e-15; n++) {
-        term = term * (-1) * (2 * n) * (2 * n - 1) / ((2 * n) * (2 * n - 1));
+    double sum  = 1.0;
+    double term = 1.0;
+    double x_sq = x * x;
+
+    for (int i = 1; i <= 12; i++) {
+        term *= -x_sq / ((2.0 * i - 1.0) * (2.0 * i));
         sum += term;
+
+        double abs_term = (term < 0) ? -term : term;
+        if (abs_term < 1e-15) break;
     }
     return sum;
 }
@@ -160,16 +159,16 @@ double cos(double x)
 double sqrt(double number)
 {
     if (number < 0) return __builtin_nanf("");
+    if (number == 0) return 0;
 
-    double x       = number;
-    double epsilon = 1e-15;
-    double diff;
+    double x = number;
+    double last_x;
 
-    do {
-        x    = (x + number / x) / 2;
-        diff = fabs(x - number / x);
-    } while (diff > epsilon);
-
+    for (int i = 0; i < 100; i++) {
+        last_x = x;
+        x      = (x + number / x) * 0.5;
+        if (fabs(x - last_x) < 1e-15) break;
+    }
     return x;
 }
 
@@ -202,9 +201,12 @@ double pow(double x, int y)
 /* Multiply x by 2 raised to the power of exp */
 double ldexp(double x, int exp)
 {
-    int n = 2;
-    for (int i = 0; i < exp - 1; i++) n *= 2;
-    return x * (double)(n);
+    double res = x;
+    if (exp > 0)
+        while (exp--) res *= 2.0;
+    else
+        while (exp++) res /= 2.0;
+    return res;
 }
 
 /* Return the absolute value of an integer */

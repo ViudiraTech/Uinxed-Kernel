@@ -12,7 +12,7 @@
 #ifndef INCLUDE_VFS_H_
 #define INCLUDE_VFS_H_
 
-#include <circular_list.h>
+#include <doubly_list.h>
 #include <intrusive_list.h>
 #include <stdint.h>
 

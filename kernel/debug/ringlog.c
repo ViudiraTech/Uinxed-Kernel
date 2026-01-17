@@ -27,7 +27,7 @@ void log_buffer_write(log_buffer_t *log, const char *fmt, ...)
 {
     va_list args;
 
-    if (!log->count && !log->head && !log->tail) { log_buffer_init(log); }
+    if (!log->count && !log->head && !log->tail) log_buffer_init(log);
     memset(log->logs[log->head], 0, LOG_MAX_LENGTH);
 
     va_start(args, fmt);

@@ -14,13 +14,8 @@
 
 #include <stdint.h>
 
-#ifndef TTF_CONSOLE
-#    define TTF_CONSOLE 1
-#endif
-
-#ifndef CONSOLE_FONT_SIZE
-#    define CONSOLE_FONT_SIZE 10
-#endif
+#define TTF_CONSOLE       1
+#define CONSOLE_FONT_SIZE 10
 
 typedef struct {
         uint8_t red;

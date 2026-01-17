@@ -10,6 +10,7 @@
  */
 
 #include <cpuid.h>
+#include <eis.h>
 #include <stdint.h>
 
 /* Initialize the FPU, including MMX (if any) */

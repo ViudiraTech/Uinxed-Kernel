@@ -15,7 +15,7 @@
 #define BUILD_DATE     __DATE__        // Compilation Date
 #define BUILD_TIME     __TIME__        // Compile time
 #define KERNEL_NAME    "Uinxed-Kernel" // Kernel name
-#define KERNEL_VERSION "0.0.260116"    // Kernel version (major.minor.yymmdd)
+#define KERNEL_VERSION "0.0.260117"    // Kernel version (major.minor.yymmdd)
 
 /* Compiler judgment */
 #if defined(__clang__)
@@ -33,6 +33,7 @@
 #endif
 
 #define KERNEL_BASE_ADDRESS 0xffffffff80000000
+#define KERNEL_STACK_SIZE   0x10000
 
 extern volatile struct limine_rsdp_request           rsdp_request;
 extern volatile struct limine_kernel_file_request    kernel_file_request;

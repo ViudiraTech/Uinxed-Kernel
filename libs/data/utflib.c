@@ -20,7 +20,7 @@ const uint8_t utftab[64] = {
 };
 
 /* Check if the rune is a valid Unicode character */
-int isvalidrune(Rune r)
+int isvalidrune(rune_t r)
 {
     if (r < 0) return 0;                      // negative value
     if (r >= 0xd800 && r <= 0xdfff) return 0; // surrogate pair range
@@ -31,9 +31,9 @@ int isvalidrune(Rune r)
 }
 
 /* Convert a UTF-8 sequence to a Unicode rune */
-int charntorune(Rune *p, const char *s, size_t len)
+int charntorune(rune_t *p, const char *s, size_t len)
 {
-    Rune    r;
+    rune_t  r;
     uint8_t c, i, m, n, x;
 
     if (!len) return 0; // can't even look at s[0]
@@ -69,7 +69,7 @@ int charntorune(Rune *p, const char *s, size_t len)
 }
 
 /* Convert a single UTF-8 character to a Unicode rune */
-int chartorune(Rune *p, const char *s)
+int chartorune(rune_t *p, const char *s)
 {
     return charntorune(p, s, UTFmax);
 }
@@ -80,7 +80,7 @@ size_t utfnlen(const char *s, size_t len)
     uint8_t     c, i, m, n, x;
     const char *p;
     size_t      k;
-    Rune        r;
+    rune_t      r;
 
     for (k = 0; *(p = s) != '\0'; len -= s - p, k++) {
         if (!len) return k; // can't even look at s[0]

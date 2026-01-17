@@ -36,7 +36,7 @@ jobs:
           packages: make gcc xorriso
           version: 1.0
 
-      - name: Build Project
+      - name: Build project
         run: make VERBOSE=1
 
       - name: Upload ISO file as artifact
