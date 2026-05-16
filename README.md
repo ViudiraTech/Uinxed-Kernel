@@ -1,7 +1,7 @@
 <div align="center"> 
   <img src="https://github.com/user-attachments/assets/cb3f4ec8-4504-4fe9-b402-8d1588a986a8" height="200" width="200"/>
-  <h1 align="center">Uinxed-Kernel</h1>
-  <h3 align="center">Welcome to the Uinxed-Kernel project</h3>
+  <h1 align="center">Uinxedl</h1>
+  <h3 align="center">Welcome to the Uinxed project</h3>
 </div>
 
 <div align="center">
@@ -13,7 +13,7 @@
 
 ## Overview 💡
 
-Uinxed-Kernel is a Unix-like operating system kernel developed from scratch, focusing on modern computer architecture and advanced system design concepts. The project aims to build an efficient, stable, and scalable operating system kernel while maintaining code clarity and maintainability.
+Uinxed is a Unix-like operating system kernel developed from scratch, focusing on modern computer architecture and advanced system design concepts. The project aims to build an efficient, stable, and scalable operating system kernel while maintaining code clarity and maintainability.
 
 ## Core Features 🌟
 
@@ -142,8 +142,8 @@ Uinxed-Kernel/
 
 ```
 Uinxed-Kernel/
-├── UxImage         # Kernel file.
-└── Uinxed-x64.iso  # Bootable image.
+├── UxImage         # Kernel image.
+└── Uinxed-x64.iso  # Bootable CD image.
 ```
 
 ## FAQ 🔍
@@ -272,9 +272,10 @@ You can submit an issue in your own language. However, please be aware of factor
 | Number | Nick name | Github | Job |
 |---|---|---|---|
 | 1 | MicroFish | [FengHeting](https://github.com/FengHeting) | Development. Planning. Management. |
-| 2 | suhuajun | [suhuajun-github](https://github.com/suhuajun-github) | Code optimization. Testing. Bug fixing. |
+| 2 | Rainy101112 | [Rainy101112](https://github.com/Rainy101112) | Development. Code optimization. Testing. Bug fixing. |
 | 3 | XSlime | [W9pi3cZ1](https://github.com/W9pi3cZ1) | Features. Code optimization. Testing. Bug fixing. |
-| 4 | TMX | [TMXQWQ](https://github.com/TMXQWQ) | Features. Code optimization. Testing. Bug fixing. |
+| 4 | suhuajun | [suhuajun-github](https://github.com/suhuajun-github) | Code optimization. Testing. Bug fixing. |
+| 5 | TMX | [TMXQWQ](https://github.com/TMXQWQ) | Features. Code optimization. Testing. Bug fixing. |
 
 A resident contributor is someone who directly contributes to and manages the project in a resident capacity. Removing a resident developer from the resident developer list does not mean that the project manager will not recognize their contributions, but rather that they are no longer involved in the project in a resident capacity. However, their contribution record will remain.
 
