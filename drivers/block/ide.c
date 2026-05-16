@@ -4,7 +4,6 @@
  *      Standard ATA/ATAPI device drivers
  *
  *      2024/7/11 By MicroFish
- *      Based on Apache 2.0 open source license.
  *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */

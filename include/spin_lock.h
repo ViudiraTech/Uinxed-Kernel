@@ -4,7 +4,6 @@
  *      Spin lock header file
  *
  *      2025/7/12 By MicroFish
- *      Based on Apache 2.0 open source license.
  *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */

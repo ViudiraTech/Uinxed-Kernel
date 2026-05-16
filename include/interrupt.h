@@ -4,7 +4,6 @@
  *      Interrupt related header files
  *
  *      2024/8/1 By Rainy101112
- *      Based on Apache 2.0 open source license.
  *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */

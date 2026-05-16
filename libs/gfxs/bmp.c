@@ -4,7 +4,6 @@
  *      Bitmap image
  *
  *      2025/6/22 By MicroFish
- *      Based on Apache 2.0 open source license.
  *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */

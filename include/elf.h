@@ -4,7 +4,6 @@
  *      ELF related header file
  *
  *      2025/5/4 By suhuajun
- *      Based on Apache 2.0 open source license.
  *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */

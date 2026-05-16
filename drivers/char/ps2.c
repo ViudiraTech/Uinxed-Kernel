@@ -4,7 +4,6 @@
  *      PS/2 controller driver
  *
  *      2025/9/7 By MicroFish
- *      Based on Apache 2.0 open source license.
  *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */

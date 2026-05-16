@@ -4,7 +4,6 @@
  *      Page table walker implementation
  *
  *      2025/10/3 By W9pi3cZ1
- *      Based on Apache 2.0 open source license.
  *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */

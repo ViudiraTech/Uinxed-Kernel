@@ -4,7 +4,6 @@
  *      Kernel description header file
  *
  *      2024/7/23 By Rainy101112
- *      Based on Apache 2.0 open source license.
  *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
@@ -14,8 +13,8 @@
 
 #define BUILD_DATE     __DATE__        // Compilation Date
 #define BUILD_TIME     __TIME__        // Compile time
-#define KERNEL_NAME    "Uinxed-Kernel" // Kernel name
-#define KERNEL_VERSION "0.0.260116"    // Kernel version (major.minor.yymmdd)
+#define KERNEL_NAME    "Uinxed"        // Kernel name
+#define KERNEL_VERSION "0.1.0"         // Kernel version (major.minor.patch)
 
 /* Compiler judgment */
 #if defined(__clang__)

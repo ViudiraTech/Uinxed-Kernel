@@ -4,7 +4,6 @@
  *      Peripheral component interconnect standard driver
  *
  *      2025/3/9 By MicroFish
- *      Based on Apache 2.0 open source license.
  *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */

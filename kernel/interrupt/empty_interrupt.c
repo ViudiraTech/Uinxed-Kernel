@@ -4,7 +4,6 @@
  *      Empty interrupt implementation
  *
  *      2025/2/17 By MicroFish
- *      Based on Apache 2.0 open source license.
  *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */

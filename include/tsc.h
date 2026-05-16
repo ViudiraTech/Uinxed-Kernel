@@ -4,7 +4,6 @@
  *      Time stamp counter header file
  *
  *      2025/10/29 By MicroFish
- *      Based on Apache 2.0 open source license.
  *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */

@@ -4,7 +4,6 @@
  *      Uinxed-kernel entry
  *
  *      2024/6/23 By MicroFish
- *      Based on Apache 2.0 open source license.
  *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */

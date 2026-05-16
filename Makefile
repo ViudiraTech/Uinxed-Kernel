@@ -4,7 +4,6 @@
 #      Uinxed-Kernel compile script
 #
 #      2024/6/23 By Rainy101112
-#      Based on Apache 2.0 open source license.
 #      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
 #
 # =====================================================
@@ -104,8 +103,7 @@ all: Uinxed-x64.iso
 
 info:
 	$(Q)printf "Uinxed-Kernel Compile Script.\n"
-	$(Q)printf "Copyright 2020 ViudiraTech, based on the Apache 2.0 license.\n"
-	$(Q)printf "Based on Apache 2.0 open source license.\n\n"
+	$(Q)printf "Copyright 2020 ViudiraTech, based on the Apache 2.0 license.\n\n"
 
 UxImage: $(OBJS) $(LIBS)
 	$(Q)printf "  LD      $@\n"
