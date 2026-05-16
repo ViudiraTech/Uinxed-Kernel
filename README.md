@@ -1,6 +1,6 @@
 <div align="center"> 
   <img src="https://github.com/user-attachments/assets/cb3f4ec8-4504-4fe9-b402-8d1588a986a8" height="200" width="200"/>
-  <h1 align="center">Uinxedl</h1>
+  <h1 align="center">Uinxed</h1>
   <h3 align="center">Welcome to the Uinxed project</h3>
 </div>
 
