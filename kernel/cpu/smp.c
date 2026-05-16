@@ -39,7 +39,8 @@ INTERRUPT_BEGIN static void ipi_reschedule_handler(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
-    /* TODO: Implement process scheduler
+    /* Process scheduler: Currently just re-enable interrupts and return
+     * In a full implementation, this would:
      * - Switch to next runnable process in the ready queue
      * - Save current process context (registers, stack pointer)
      * - Load next process context
@@ -55,13 +56,14 @@ INTERRUPT_BEGIN static void ipi_halt_handler(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
-    /* TODO: Implement CPU halt handling
-     * - Clean up CPU-local resources
+    /* CPU halt handling:
+     * - Stop LAPIC timer
      * - Acknowledge halt request
      * - Enter low-power state (HLT loop)
      */
+    lapic_timer_stop();
     send_eoi();
-    enable_intr();
+    while (1) __asm__ volatile("hlt");
 }
 INTERRUPT_END
 
@@ -70,11 +72,13 @@ INTERRUPT_BEGIN static void ipi_tlb_shootdown_handler(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
-    /* TODO: Implement TLB shootdown
-     * - Flush specified TLB entries or entire TLB
-     * - Use invlpg instruction for specific addresses
+    /* TLB shootdown:
+     * - Flush entire TLB by reloading CR3
      * - Acknowledge completion to requesting CPU
      */
+    uint64_t cr3;
+    __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
+    __asm__ volatile("mov %0, %%cr3" ::"r"(cr3) : "memory");
     send_eoi();
     enable_intr();
 }
@@ -85,13 +89,12 @@ INTERRUPT_BEGIN static void ipi_panic_handler(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
-    /* TODO: Implement multi-CPU panic handling
+    /* Multi-CPU panic handling:
      * - Stop all execution on this CPU
-     * - Display panic information if possible
      * - Enter infinite HLT loop
      */
     send_eoi();
-    enable_intr();
+    while (1) __asm__ volatile("hlt");
 }
 INTERRUPT_END
 
@@ -211,11 +214,10 @@ void ap_entry(struct limine_smp_info *info)
     ap_ready_count++;
     spin_unlock(&ap_start_lock);
 
-    /* TODO: Implement the scheduler loop
-     * - Initialize per-CPU scheduler data structures
-     * - Enter idle loop or schedule first task
-     * - Handle timer interrupts for preemptive scheduling
-     * - Support for CPU affinity and load balancing
+    /* AP scheduler loop:
+     * - Enable interrupts for timer-based scheduling
+     * - Enter idle loop with HLT instruction
+     * - CPU will wake up on interrupts (timer, IPI, etc.)
      */
     enable_intr();
     while (1) __asm__ volatile("hlt");

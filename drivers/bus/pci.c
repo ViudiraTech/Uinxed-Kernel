@@ -330,7 +330,7 @@ base_address_register_t get_base_address_register(pci_device_cache_t *device, ui
      * 1. The `bar` is the index of BAR, not the *register_offset* of BAR.
      * 2. When you are reading a mem_mapping BAR, you should notice the `size` of BAR.
      *    It's useful, when you are doing something *special*.
-     * 3. If a device have a 64-bit BAR, you shouldn't read BAR+1. (TODO: make this function to return a iterator)
+     * 3. If a device have a 64-bit BAR, you shouldn't read BAR+1. Use pci_bar_iterator instead.
      */
 
     base_address_register_t result = {0};
@@ -752,4 +752,43 @@ void pci_init(void)
         cache = cache->next;
     }
     plogk("pci: Found %lu devices.\n", pci_cache.devices_count);
+}
+
+/* Initialize a BAR iterator for a PCI device */
+void pci_bar_iterator_init(pci_bar_iterator_t *iter, pci_device_cache_t *device)
+{
+    iter->device       = device;
+    iter->current_bar  = 0;
+    iter->valid        = 0;
+
+    uint32_t headertype = device->header_type & 0x7e;
+    static uint32_t max_bars_table[4] = {6, 2, 1, 0};
+    iter->max_bars = max_bars_table[headertype < 3 ? headertype : 3];
+}
+
+/* Move to the next BAR, returns 0 if no more BARs */
+int pci_bar_iterator_next(pci_bar_iterator_t *iter)
+{
+    if (iter->current_bar >= iter->max_bars) {
+        iter->valid = 0;
+        return 0;
+    }
+
+    iter->current_value = get_base_address_register(iter->device, iter->current_bar);
+    iter->valid = 1;
+
+    /* Skip the next BAR if current is 64-bit */
+    if (iter->current_value.size == BAR_S64) {
+        iter->current_bar += 2;
+    } else {
+        iter->current_bar += 1;
+    }
+
+    return 1;
+}
+
+/* Get the current BAR value from the iterator */
+base_address_register_t pci_bar_iterator_get(pci_bar_iterator_t *iter)
+{
+    return iter->current_value;
 }

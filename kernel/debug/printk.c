@@ -437,7 +437,10 @@ size_t vwprintf(writer *writer, const char *fmt, va_list args)
 
     while (*fmt_ptr != '\0') {
         if (*fmt_ptr != '%') {
-            write(writer, *fmt_ptr); // TODO: Catch Error
+            if (!write(writer, *fmt_ptr)) {
+                /* Write failed, return current result */
+                return result;
+            }
             fmt_ptr++;
             result++;
             continue;

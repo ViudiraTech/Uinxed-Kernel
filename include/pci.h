@@ -152,6 +152,24 @@ void pci_write_command_status(pci_device_cache_t *device, uint32_t value);
 /* Get detailed information about the base address register */
 base_address_register_t get_base_address_register(pci_device_cache_t *device, uint32_t bar);
 
+/* BAR iterator for safe traversal of Base Address Registers */
+typedef struct {
+        pci_device_cache_t      *device;
+        uint32_t                 current_bar;
+        uint32_t                 max_bars;
+        base_address_register_t  current_value;
+        int                      valid;
+} pci_bar_iterator_t;
+
+/* Initialize a BAR iterator for a PCI device */
+void pci_bar_iterator_init(pci_bar_iterator_t *iter, pci_device_cache_t *device);
+
+/* Move to the next BAR, returns 0 if no more BARs */
+int pci_bar_iterator_next(pci_bar_iterator_t *iter);
+
+/* Get the current BAR value from the iterator */
+base_address_register_t pci_bar_iterator_get(pci_bar_iterator_t *iter);
+
 /* Get the I/O port base address of the PCI device */
 uint32_t pci_get_port_base(pci_device_cache_t *device);
 

@@ -92,6 +92,21 @@ typedef struct {
 } __attribute__((packed)) madt_local_x2_cpu_t;
 
 typedef struct {
+        madt_header_t header;
+        uint8_t       bus;
+        uint8_t       source;
+        uint32_t      global_system_interrupt;
+        uint16_t      flags;
+} __attribute__((packed)) madt_io_apic_int_t;
+
+typedef struct {
+        madt_header_t header;
+        uint8_t       acpi_processor_uid;
+        uint16_t      flags;
+        uint8_t       lint;
+} __attribute__((packed)) madt_io_apic_nmi_t;
+
+typedef struct {
         uint8_t  vector;
         uint32_t irq;
 } ioapic_routing_t;

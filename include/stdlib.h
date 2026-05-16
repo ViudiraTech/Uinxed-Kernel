@@ -13,6 +13,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <writer.h>
 
 #define ZEROPAD 1  // pad with zero
 #define SIGN    2  // unsigned/signed long
@@ -31,23 +32,6 @@
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
-
-/* BEGIN TODO BLOCK: Move these to a I/O header file */
-/* Placeholder ... */
-struct writer;
-
-/**
- * A handle of writing a char
- * `uint8_t` is a bool, if != 0 means write success, if == 0 means write failure
- */
-typedef uint8_t (*write_handler)(struct writer *writer, char ch);
-
-/* A interface of writing a char (May be extended in the future) */
-typedef struct writer {
-        void         *data; // Any data
-        write_handler handler;
-} writer;
-/* END TODO BLOCK */
 
 typedef struct num_fmt_type {
         uint8_t zeropad : 1; // Padding with zero

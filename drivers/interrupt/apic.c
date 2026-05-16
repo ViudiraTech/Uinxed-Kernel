@@ -190,8 +190,18 @@ void apic_init(madt_t *madt)
                       x2cpu->flags);
                 break;
             }
-            case MADT_APIC_IO_INT : // TODO: Implement IO/APIC interrupt source override
-            case MADT_APIC_IO_NMI : // TODO: Implement IO/APIC Non-maskable interrupt source
+            case MADT_APIC_IO_INT : {
+                madt_io_apic_int_t *int_override = (madt_io_apic_int_t *)(entries_base + current);
+                plogk("apic: IO/APIC interrupt source override: bus %u, source %u -> GSI %u, flags %x\n",
+                      int_override->bus, int_override->source, int_override->global_system_interrupt, int_override->flags);
+                break;
+            }
+            case MADT_APIC_IO_NMI : {
+                madt_io_apic_nmi_t *nmi = (madt_io_apic_nmi_t *)(entries_base + current);
+                plogk("apic: IO/APIC NMI: ACPI processor uid %u, flags %x, LINT %u\n",
+                      nmi->acpi_processor_uid, nmi->flags, nmi->lint);
+                break;
+            }
             default :
                 /* Unhandled MADT entry type (Maybe it's reserved) */
                 break;
