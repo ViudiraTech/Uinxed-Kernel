@@ -50,7 +50,11 @@ void init_heap(void)
 /* Allocate an empty memory */
 void *calloc(size_t nmemb, size_t size)
 {
-    void *p = malloc(nmemb * size);
-    memset(p, 0, nmemb * size);
+    /* Check for multiplication overflow */
+    if (nmemb != 0 && size > SIZE_MAX / nmemb) return 0;
+
+    size_t total = nmemb * size;
+    void  *p     = malloc(total);
+    if (p) memset(p, 0, total);
     return p;
 }

@@ -40,9 +40,7 @@ uint8_t ps2_read_data(void)
 
 /* Read PS/2 status */
 uint8_t ps2_read_status(void)
-{
-    return inb(PS2_STATUS_PORT);
-}
+{ return inb(PS2_STATUS_PORT); }
 
 /* Read PS/2 configuration */
 uint8_t ps2_read_config(void)

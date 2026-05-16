@@ -55,9 +55,7 @@ void init_parallel(void)
 
 /* Check if the specified parallel port is busy */
 int parallel_port_busy(uint16_t port)
-{
-    return !(inb(port + STATUS_REG) & 0x80);
-}
+{ return !(inb(port + STATUS_REG) & 0x80); }
 
 /* Write parallel port */
 void write_parallel(uint16_t port, uint8_t data)
@@ -72,6 +70,4 @@ void write_parallel(uint16_t port, uint8_t data)
 
 /* Get the status value of the specified parallel port */
 uint8_t get_parallel_status(uint16_t port)
-{
-    return inb(port + STATUS_REG);
-}
+{ return inb(port + STATUS_REG); }

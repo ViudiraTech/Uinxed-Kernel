@@ -74,6 +74,8 @@ typedef __INTPTR_TYPE__ intptr_t;
 typedef __UINTMAX_TYPE__ uintmax_t;
 typedef __INTMAX_TYPE__  intmax_t;
 
+#define SIZE_MAX (18446744073709551615UL)
+
 /* Cast pointer and address with union */
 typedef union {
         void     *ptr;

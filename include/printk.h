@@ -40,6 +40,7 @@ typedef struct {
 typedef struct {
         char  *buf;
         size_t idx;
+        size_t size; /* Buffer size for safe writing, 0 means unlimited */
 } unsafe_buf_data;
 
 typedef struct {
@@ -56,11 +57,20 @@ void plogk(const char *format, ...);
 /* Handler of unsafe buf writing */
 uint8_t unsafe_buf_write(writer *writer, char c);
 
+/* Handler of safe buf writing with size limit */
+uint8_t unsafe_buf_write_safe(writer *writer, char c);
+
 /* Store the formatted output in a character array */
 int sprintf(char *str, const char *fmt, ...);
 
+/* Store the formatted output in a character array with size limit */
+int snprintf(char *str, size_t size, const char *fmt, ...);
+
 /* Format with va_list, then store the formatted output in a character array */
 int vsprintf(char *str, const char *fmt, va_list args);
+
+/* Format with va_list, then store the formatted output in a character array with size limit */
+int vsnprintf(char *str, size_t size, const char *fmt, va_list args);
 
 /* Formatted output processing */
 void wfmt_arg(writer *writer, args_fmter *fmter, va_list args);

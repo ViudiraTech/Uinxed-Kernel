@@ -249,9 +249,7 @@ static void tty_buff_add(const char ch)
 
 /* Print characters to tty */
 void tty_print_ch(const char ch)
-{
-    tty_buff_add(ch);
-}
+{ tty_buff_add(ch); }
 
 /* Print string to tty */
 void tty_print_str(const char *str)

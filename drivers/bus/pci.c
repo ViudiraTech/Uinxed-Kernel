@@ -213,9 +213,7 @@ void mcfg_init(mcfg_info_t *mcfg)
 
 /* Get the MCFG structure */
 mcfg_info_t *get_acpi_mcfg(void)
-{
-    return mcfg_info.mcfg;
-}
+{ return mcfg_info.mcfg; }
 
 /* Search MCFG entry by bus */
 mcfg_entry_t *mcfg_search_entry(uint16_t bus)
@@ -230,16 +228,16 @@ mcfg_entry_t *mcfg_search_entry(uint16_t bus)
 /* Get ECAM address of register */
 void *mcfg_ecam_addr(mcfg_entry_t *entry, pci_device_reg_t reg)
 {
-    pci_device_t *device = reg.parent->device;
-    uint32_t      bus    = device->bus & 0xff;
-    uint32_t      slot   = device->slot & 0x1f;
-    uint32_t      func   = device->func & 0x07;
-    uintptr_t     addr   = entry->base_addr              // Base Address
-                     + ((uint64_t)entry->segment << 32)  // Segment
-                     + (((bus - entry->start_bus) << 20) // Bus
-                        | (slot << 15)                   // Slot
-                        | (func << 12)                   // Func
-                        | (reg.offset & 0xffc));         // Register
+    pci_device_t  *device = reg.parent->device;
+    uint32_t       bus    = device->bus & 0xff;
+    uint32_t       slot   = device->slot & 0x1f;
+    uint32_t       func   = device->func & 0x07;
+    uintptr_t      addr   = entry->base_addr                    // Base Address
+                            + ((uint64_t)entry->segment << 32)  // Segment
+                            + (((bus - entry->start_bus) << 20) // Bus
+                               | (slot << 15)                   // Slot
+                               | (func << 12)                   // Func
+                               | (reg.offset & 0xffc));         // Register
     pointer_cast_t cast;
     cast.val = addr;
     return cast.ptr;
@@ -306,15 +304,11 @@ static uint32_t pci_mcfg_read(pci_device_reg_t reg)
 
 /* Reading values ​​from PCI device registers */
 uint32_t read_pci(pci_device_reg_t reg)
-{
-    return pci_ops.read(reg);
-}
+{ return pci_ops.read(reg); }
 
 /* Write values ​​to PCI device registers */
 void write_pci(pci_device_reg_t reg, uint32_t value)
-{
-    return pci_ops.write(reg, value);
-}
+{ return pci_ops.write(reg, value); }
 
 /* Read the value from the PCI device command status register */
 uint32_t pci_read_command_status(pci_device_cache_t *device)
@@ -602,9 +596,7 @@ const char *pci_classname(uint32_t classcode)
 
 /* Returns a chached PCI devices table */
 pci_devices_cache_t *pci_get_devices_cache(void)
-{
-    return &pci_cache;
-}
+{ return &pci_cache; }
 
 /* Free the PCI devices cache */
 void pci_free_devices_cache(void)

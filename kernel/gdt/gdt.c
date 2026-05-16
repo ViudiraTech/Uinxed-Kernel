@@ -68,6 +68,4 @@ void tss_init(void)
 
 /* Setting up the kernel stack */
 void set_kernel_stack(uint64_t rsp)
-{
-    tss0.rsp[0] = rsp;
-}
+{ tss0.rsp[0] = rsp; }

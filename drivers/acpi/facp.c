@@ -110,9 +110,7 @@ void facp_init(acpi_facp_t *facp0)
 
 /* Get the FACP structure */
 acpi_facp_t *get_acpi_facp(void)
-{
-    return facp;
-}
+{ return facp; }
 
 /* Cycle the power */
 void power_reset(void)
@@ -133,9 +131,7 @@ void power_off(void)
 
 /* Obtain ACPI major version */
 uint8_t get_acpi_version_major(void)
-{
-    return facp ? facp->header.revision : 0;
-}
+{ return facp ? facp->header.revision : 0; }
 
 /* Obtain ACPI minor version */
 uint16_t get_acpi_version_minor(void)

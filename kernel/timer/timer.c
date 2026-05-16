@@ -49,12 +49,8 @@ void nsleep(uint64_t ns)
 
 /* Millisecond-based delay functions */
 void usleep(uint64_t us)
-{
-    nsleep(us * 1000);
-}
+{ nsleep(us * 1000); }
 
 /* Millisecond-based delay functions */
 void msleep(uint64_t ms)
-{
-    nsleep(ms * 1000000);
-}
+{ nsleep(ms * 1000000); }

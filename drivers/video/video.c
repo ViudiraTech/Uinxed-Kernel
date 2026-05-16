@@ -77,9 +77,7 @@ video_info_t video_get_info(void)
 
 /* Get the frame buffer */
 struct limine_framebuffer *get_framebuffer(void)
-{
-    return framebuffer_request.response->framebuffers[0];
-}
+{ return framebuffer_request.response->framebuffers[0]; }
 
 /* Initialize Video */
 void video_init(void)
@@ -195,15 +193,11 @@ void video_scroll(void)
 
 /* Draw a pixel at the specified coordinates on the screen */
 void video_draw_pixel(uint32_t x, uint32_t y, uint32_t color)
-{
-    (buffer)[y * stride + x] = color;
-}
+{ (buffer)[y * stride + x] = color; }
 
 /* Get a pixel at the specified coordinates on the screen */
 uint32_t video_get_pixel(uint32_t x, uint32_t y)
-{
-    return (buffer)[y * stride + x];
-}
+{ return (buffer)[y * stride + x]; }
 
 /* Iterate over a area on the screen and run a callback function in each iteration */
 void video_invoke_area(position_t p0, position_t p1, void (*callback)(position_t p))

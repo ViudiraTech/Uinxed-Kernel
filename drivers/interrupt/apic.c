@@ -135,9 +135,7 @@ void io_apic_init(void)
 
 /* Send EOI signal */
 void send_eoi(void)
-{
-    lapic_write(0xb0, 0);
-}
+{ lapic_write(0xb0, 0); }
 
 /* Stop the local APIC timer */
 void lapic_timer_stop(void)

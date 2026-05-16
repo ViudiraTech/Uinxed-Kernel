@@ -30,9 +30,7 @@ uint64_t nano_time(void)
 
 /* Get the HPET structure */
 hpet_info_t *get_acpi_hpet(void)
-{
-    return hpet_addr;
-}
+{ return hpet_addr; }
 
 /* Initialize high-precision event timer */
 void hpet_init(hpet_t *hpet)

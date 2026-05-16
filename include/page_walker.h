@@ -68,27 +68,19 @@ static inline size_t get_page_size_from_state(const page_walk_state_t *state)
 
 /* Check if address is aligned to specific page size */
 static inline uint8_t is_page_aligned(uintptr_t addr, size_t page_size)
-{
-    return (addr & (page_size - 1)) == 0;
-}
+{ return (addr & (page_size - 1)) == 0; }
 
 /* Align address down to specific page size */
 static inline uintptr_t align_down_to_page(uintptr_t addr, size_t page_size)
-{
-    return addr & ~(page_size - 1);
-}
+{ return addr & ~(page_size - 1); }
 
 /* Align address up to specific page size */
 static inline uintptr_t align_up_to_page(uintptr_t addr, size_t page_size)
-{
-    return (addr + page_size - 1) & ~(page_size - 1);
-}
+{ return (addr + page_size - 1) & ~(page_size - 1); }
 
 /* Get next aligned address for specific page size */
 static inline uintptr_t get_next_aligned_addr(uintptr_t addr, size_t page_size)
-{
-    return align_up_to_page(addr, page_size);
-}
+{ return align_up_to_page(addr, page_size); }
 
 /* Init page_walk_state */
 void page_walk_init(page_walk_state_t *state, page_directory_t *directory, uintptr_t virtual_addr);

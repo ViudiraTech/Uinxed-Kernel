@@ -70,9 +70,7 @@ int charntorune(Rune *p, const char *s, size_t len)
 
 /* Convert a single UTF-8 character to a Unicode rune */
 int chartorune(Rune *p, const char *s)
-{
-    return charntorune(p, s, UTFmax);
-}
+{ return charntorune(p, s, UTFmax); }
 
 /* Get the number of Unicode characters in a UTF-8 string */
 size_t utfnlen(const char *s, size_t len)
@@ -116,6 +114,4 @@ size_t utfnlen(const char *s, size_t len)
 
 /* Get the number of Unicode characters in a UTF-8 string (without length limit) */
 size_t utflen(const char *s)
-{
-    return utfnlen(s, (size_t)-1);
-}
+{ return utfnlen(s, (size_t)-1); }

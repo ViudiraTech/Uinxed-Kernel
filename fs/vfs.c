@@ -24,9 +24,7 @@ static int            fs_nextid         = 1;
 
 /* Default callback function (does nothing) */
 static void empty_func(void)
-{
-    /* Empty Function */
-}
+{ /* Empty Function */ }
 
 /* Tokenize the path string, splitting it by '/' */
 static char *pathtok(char **sp)
@@ -77,9 +75,7 @@ static vfs_node_t vfs_child_append(vfs_node_t parent, const char *name, void *ha
 
 /* Find a child node by name within a parent directory */
 static vfs_node_t vfs_child_find(vfs_node_t parent, const char *name)
-{
-    return clist_first(parent->child, data, streq(name, ((vfs_node_t)data)->name));
-}
+{ return clist_first(parent->child, data, streq(name, ((vfs_node_t)data)->name)); }
 
 /* Allocate a new vfs node with the given parent and name */
 vfs_node_t vfs_node_alloc(vfs_node_t parent, const char *name)
@@ -105,9 +101,7 @@ vfs_node_t vfs_node_alloc(vfs_node_t parent, const char *name)
 
 /* Get the root directory node */
 vfs_node_t get_rootdir(void)
-{
-    return rootdir;
-}
+{ return rootdir; }
 
 /* Set the root directory node of the Virtual File System (VFS) */
 void set_rootdir(vfs_node_t node)
@@ -118,15 +112,11 @@ void set_rootdir(vfs_node_t node)
 
 /* Search for a file or directory by name in the specified directory */
 vfs_node_t vfs_do_search(vfs_node_t dir, const char *name)
-{
-    return clist_first(dir->child, data, streq(name, ((vfs_node_t)data)->name));
-}
+{ return clist_first(dir->child, data, streq(name, ((vfs_node_t)data)->name)); }
 
 /* Update a file or directory, ensuring it is open and ready */
 void vfs_update(vfs_node_t node)
-{
-    do_update(node);
-}
+{ do_update(node); }
 
 /* Open a file or directory by path */
 vfs_node_t vfs_open(const char *str)
@@ -403,10 +393,10 @@ int vfs_umount(const char *path)
 /* Read data from a file node into the provided memory buffer */
 size_t vfs_read(vfs_node_t file, void *addr, size_t offset, size_t size)
 {
-    if (!file || !addr) return -1;
+    if (!file || !addr) return (size_t)-1;
     do_update(file);
 
-    if (file->type == file_dir) return -1;
+    if (file->type == file_dir) return (size_t)-1;
     return callbackof(file, read)(file->handle, addr, offset, size);
 }
 
@@ -420,10 +410,10 @@ size_t vfs_readlink(vfs_node_t node, char *buf, size_t bufsize)
 /* Write data from the provided memory buffer to a file node */
 size_t vfs_write(vfs_node_t file, void *addr, size_t offset, size_t size)
 {
-    if (!file || !addr) return -1;
+    if (!file || !addr) return (size_t)-1;
     do_update(file);
 
-    if (file->type == file_dir) return -1;
+    if (file->type == file_dir) return (size_t)-1;
     size_t ret = callbackof(file, write)(file->handle, addr, offset, size);
 
     do_update(file);
@@ -462,9 +452,7 @@ int vfs_delete(vfs_node_t node)
 
 /* Rename a VFS (Virtual File System) node to a new name */
 int vfs_rename(vfs_node_t node, const char *new)
-{
-    return callbackof(node, rename)(node->handle, new);
-}
+{ return callbackof(node, rename)(node->handle, new); }
 
 /* Send control commands to a device or file */
 int vfs_ioctl(vfs_node_t device, size_t options, void *arg)

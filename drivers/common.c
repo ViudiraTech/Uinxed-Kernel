@@ -16,9 +16,7 @@
 
 /* Port write (8 bits) */
 void outb(uint16_t port, uint8_t value)
-{
-    __asm__ volatile("outb %1, %0" ::"dN"(port), "a"(value));
-}
+{ __asm__ volatile("outb %1, %0" ::"dN"(port), "a"(value)); }
 
 /* Port read (8 bits) */
 uint8_t inb(uint16_t port)
@@ -30,9 +28,7 @@ uint8_t inb(uint16_t port)
 
 /* Port write (16 bits) */
 void outw(uint16_t port, uint16_t value)
-{
-    __asm__ volatile("outw %1, %0" ::"dN"(port), "a"(value));
-}
+{ __asm__ volatile("outw %1, %0" ::"dN"(port), "a"(value)); }
 
 /* Port read (16 bits) */
 uint16_t inw(uint16_t port)
@@ -44,9 +40,7 @@ uint16_t inw(uint16_t port)
 
 /* Port write (32 bits) */
 void outl(uint16_t port, uint32_t value)
-{
-    __asm__ volatile("outl %1, %0" ::"dN"(port), "a"(value));
-}
+{ __asm__ volatile("outl %1, %0" ::"dN"(port), "a"(value)); }
 
 /* Port read (32 bits) */
 uint32_t inl(uint16_t port)
@@ -58,33 +52,23 @@ uint32_t inl(uint16_t port)
 
 /* Read data from I/O port to memory in batches (16 bits) */
 void insw(uint16_t port, void *buf, size_t n)
-{
-    __asm__ volatile("cld; rep; insw" : "+D"(buf), "+c"(n) : "d"(port));
-}
+{ __asm__ volatile("cld; rep; insw" : "+D"(buf), "+c"(n) : "d"(port)); }
 
 /* Write data from memory to I/O port in batches (16 bits) */
 void outsw(uint16_t port, const void *buf, size_t n)
-{
-    __asm__ volatile("cld; rep; outsw" : "+S"(buf), "+c"(n) : "d"(port));
-}
+{ __asm__ volatile("cld; rep; outsw" : "+S"(buf), "+c"(n) : "d"(port)); }
 
 /* Read data from I/O port to memory in batches (32 bits) */
 void insl(uint32_t port, void *addr, size_t cnt)
-{
-    __asm__ volatile("cld; repne; insl;" : "=D"(addr), "=c"(cnt) : "d"(port), "0"(addr), "1"(cnt) : "memory", "cc");
-}
+{ __asm__ volatile("cld; repne; insl;" : "=D"(addr), "=c"(cnt) : "d"(port), "0"(addr), "1"(cnt) : "memory", "cc"); }
 
 /* Write data from memory to I/O port in batches (32 bits) */
 void outsl(uint32_t port, const void *addr, size_t cnt)
-{
-    __asm__ volatile("cld; repne; outsl;" : "=S"(addr), "=c"(cnt) : "d"(port), "0"(addr), "1"(cnt) : "memory", "cc");
-}
+{ __asm__ volatile("cld; repne; outsl;" : "=S"(addr), "=c"(cnt) : "d"(port), "0"(addr), "1"(cnt) : "memory", "cc"); }
 
 /* Flushes the TLB of the specified address */
 void flush_tlb(uint64_t addr)
-{
-    __asm__ volatile("invlpg (%0)" ::"r"(addr) : "memory");
-}
+{ __asm__ volatile("invlpg (%0)" ::"r"(addr) : "memory"); }
 
 /* Get the current value of the CR3 register */
 uint64_t get_cr3(void)
@@ -112,27 +96,19 @@ uint64_t get_rflags(void)
 
 /* Write a 32-bit data to the specified memory address */
 void mmio_write32(uint32_t *addr, uint32_t data)
-{
-    *(volatile uint32_t *)addr = data;
-}
+{ *(volatile uint32_t *)addr = data; }
 
 /* Write a 64-bit data to the specified memory address */
 void mmio_write64(void *addr, uint64_t data)
-{
-    *(volatile uint64_t *)addr = data;
-}
+{ *(volatile uint64_t *)addr = data; }
 
 /* Read a 32-bit data from the specified memory address */
 uint32_t mmio_read32(void *addr)
-{
-    return *(volatile uint32_t *)addr;
-}
+{ return *(volatile uint32_t *)addr; }
 
 /* Read a 64-bit data from the specified memory address */
 uint64_t mmio_read64(void *addr)
-{
-    return *(volatile uint64_t *)addr;
-}
+{ return *(volatile uint64_t *)addr; }
 
 /* Read msr register */
 uint64_t rdmsr(uint32_t msr)
@@ -160,9 +136,7 @@ uint64_t load(uint64_t *addr)
 
 /* Storing data atomically */
 void store(uint64_t *addr, uint32_t value)
-{
-    __asm__ volatile("lock xchg %[value], %[addr];" : [addr] "+m"(*addr), [value] "+r"(value)::"memory");
-}
+{ __asm__ volatile("lock xchg %[value], %[addr];" : [addr] "+m"(*addr), [value] "+r"(value)::"memory"); }
 
 /* Basic rdtsc reading */
 uint64_t rdtsc(void)
@@ -208,15 +182,11 @@ uint64_t rdtscp_serialized(uint32_t *aux)
 
 /* Enable interrupt */
 void enable_intr(void)
-{
-    __asm__ volatile("sti");
-}
+{ __asm__ volatile("sti"); }
 
 /* Disable interrupts */
 void disable_intr(void)
-{
-    __asm__ volatile("cli" ::: "memory");
-}
+{ __asm__ volatile("cli" ::: "memory"); }
 
 /* Kernel halt */
 void krn_halt(void)
@@ -228,6 +198,4 @@ void krn_halt(void)
 
 /* Compiler barrier */
 __attribute__((noinline)) void compiler_barrier(void)
-{
-    __asm__ volatile("" ::: "memory");
-}
+{ __asm__ volatile("" ::: "memory"); }

@@ -40,7 +40,12 @@ INTERRUPT_BEGIN static void ipi_reschedule_handler(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
-    /* TODO: Handle rescheduling */
+    /* TODO: Implement process scheduler
+     * - Switch to next runnable process in the ready queue
+     * - Save current process context (registers, stack pointer)
+     * - Load next process context
+     * - Update process state (running -> ready, ready -> running)
+     */
     send_eoi();
     enable_intr();
 }
@@ -51,7 +56,11 @@ INTERRUPT_BEGIN static void ipi_halt_handler(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
-    /* TODO: Handle halting */
+    /* TODO: Implement CPU halt handling
+     * - Clean up CPU-local resources
+     * - Acknowledge halt request
+     * - Enter low-power state (HLT loop)
+     */
     send_eoi();
     enable_intr();
 }
@@ -62,7 +71,11 @@ INTERRUPT_BEGIN static void ipi_tlb_shootdown_handler(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
-    /* TODO: Handle TLB shootdown */
+    /* TODO: Implement TLB shootdown
+     * - Flush specified TLB entries or entire TLB
+     * - Use invlpg instruction for specific addresses
+     * - Acknowledge completion to requesting CPU
+     */
     send_eoi();
     enable_intr();
 }
@@ -73,7 +86,11 @@ INTERRUPT_BEGIN static void ipi_panic_handler(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
-    /* TODO: Handle panic */
+    /* TODO: Implement multi-CPU panic handling
+     * - Stop all execution on this CPU
+     * - Display panic information if possible
+     * - Enter infinite HLT loop
+     */
     send_eoi();
     enable_intr();
 }
@@ -96,9 +113,7 @@ void send_ipi_cpu(uint32_t cpu_id, uint8_t vector)
 
 /* Flush TLBs of all CPUs */
 void flush_tlb_all(void)
-{
-    send_ipi_all(IPI_TLB_SHOOTDOWN);
-}
+{ send_ipi_all(IPI_TLB_SHOOTDOWN); }
 
 /* Flushing TLB by address range */
 void flush_tlb_range(uint64_t start, uint64_t end)
@@ -108,9 +123,7 @@ void flush_tlb_range(uint64_t start, uint64_t end)
 
 /* Get the number of CPUs */
 uint32_t get_cpu_count(void)
-{
-    return cpu_count;
-}
+{ return cpu_count; }
 
 /* Get the ID of the current CPU */
 uint32_t get_current_cpu_id(void)
@@ -199,7 +212,12 @@ void ap_entry(struct limine_smp_info *info)
     ap_ready_count++;
     spin_unlock(&ap_start_lock);
 
-    /* TODO: Implement the scheduler loop */
+    /* TODO: Implement the scheduler loop
+     * - Initialize per-CPU scheduler data structures
+     * - Enter idle loop or schedule first task
+     * - Handle timer interrupts for preemptive scheduling
+     * - Support for CPU affinity and load balancing
+     */
     enable_intr();
     while (1) __asm__ volatile("hlt");
 

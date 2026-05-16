@@ -69,7 +69,19 @@ uint8_t unsafe_buf_write(writer *writer, char c)
     unsafe_buf_data *data = (unsafe_buf_data *)writer->data;
     data->buf[data->idx]  = c;
     ++data->idx;
-    return 1; // Always success? :(
+    return 1; // Always success? :)
+}
+
+/* Handler of safe buf writing with size limit */
+uint8_t unsafe_buf_write_safe(writer *writer, char c)
+{
+    unsafe_buf_data *data = (unsafe_buf_data *)writer->data;
+    if (data->size == 0 || data->idx < data->size - 1) {
+        data->buf[data->idx] = c;
+        ++data->idx;
+        return 1;
+    }
+    return 0; // Buffer full
 }
 
 /* Store the formatted output in a character array */
@@ -78,8 +90,8 @@ int sprintf(char *str, const char *fmt, ...)
     int             c                 = 0;
     unsafe_buf_data unsafe_buf_data   = {.buf = str, .idx = 0};
     writer          unsafe_buf_writer = {
-                 .data    = &unsafe_buf_data,
-                 .handler = unsafe_buf_write,
+        .data    = &unsafe_buf_data,
+        .handler = unsafe_buf_write,
     };
     va_list arg;
     va_start(arg, fmt);
@@ -91,17 +103,56 @@ int sprintf(char *str, const char *fmt, ...)
     return c;
 }
 
+/* Store the formatted output in a character array with size limit */
+int snprintf(char *str, size_t size, const char *fmt, ...)
+{
+    int             c                 = 0;
+    unsafe_buf_data unsafe_buf_data   = {.buf = str, .idx = 0, .size = size};
+    writer          unsafe_buf_writer = {
+        .data    = &unsafe_buf_data,
+        .handler = unsafe_buf_write_safe,
+    };
+    va_list arg;
+    va_start(arg, fmt);
+
+    c = (int)vwprintf(&unsafe_buf_writer, fmt, arg);
+    if (size > 0) {
+        size_t idx = unsafe_buf_data.idx < size ? unsafe_buf_data.idx : size - 1;
+        str[idx]   = '\0';
+    }
+
+    va_end(arg);
+    return c;
+}
+
 /* Format with va_list, then store the formatted output in a character array */
 int vsprintf(char *str, const char *fmt, va_list args)
 {
     int             c                 = 0;
     unsafe_buf_data unsafe_buf_data   = {.buf = str, .idx = 0};
     writer          unsafe_buf_writer = {
-                 .data    = &unsafe_buf_data,
-                 .handler = unsafe_buf_write,
+        .data    = &unsafe_buf_data,
+        .handler = unsafe_buf_write,
     };
     c = (int)vwprintf(&unsafe_buf_writer, fmt, args);
     unsafe_buf_writer.handler(&unsafe_buf_writer, '\0');
+    return c;
+}
+
+/* Format with va_list, then store the formatted output in a character array with size limit */
+int vsnprintf(char *str, size_t size, const char *fmt, va_list args)
+{
+    int             c                 = 0;
+    unsafe_buf_data unsafe_buf_data   = {.buf = str, .idx = 0, .size = size};
+    writer          unsafe_buf_writer = {
+        .data    = &unsafe_buf_data,
+        .handler = unsafe_buf_write_safe,
+    };
+    c = (int)vwprintf(&unsafe_buf_writer, fmt, args);
+    if (size > 0) {
+        size_t idx = unsafe_buf_data.idx < size ? unsafe_buf_data.idx : size - 1;
+        str[idx]   = '\0';
+    }
     return c;
 }
 

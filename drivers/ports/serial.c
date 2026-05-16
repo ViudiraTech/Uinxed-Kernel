@@ -122,15 +122,11 @@ void init_serial(void)
 
 /* Check whether the serial port is ready to read */
 int serial_received(uint16_t port)
-{
-    return inb(port + SERIAL_REG_LSR) & 1;
-}
+{ return inb(port + SERIAL_REG_LSR) & 1; }
 
 /* Check whether the serial port is idle */
 int is_transmit_empty(uint16_t port)
-{
-    return inb(port + SERIAL_REG_LSR) & 0x20;
-}
+{ return inb(port + SERIAL_REG_LSR) & 0x20; }
 
 /* Read serial port */
 uint8_t read_serial(uint16_t port)
@@ -148,6 +144,4 @@ void write_serial(uint16_t port, uint8_t data)
 
 /* Get the status value of the specified serial port */
 uint8_t get_serial_status(uint16_t port)
-{
-    return inb(port + SERIAL_REG_LSR);
-}
+{ return inb(port + SERIAL_REG_LSR); }
