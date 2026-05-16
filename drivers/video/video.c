@@ -19,11 +19,8 @@
 #include <uinxed.h>
 #include <video.h>
 
-#if TTF_CONSOLE
-#    include <gfx_truetype.h> // TTF fonts
-#else
-extern uint8_t ascii_font[]; // Bitmap fonts
-#endif
+/* Bitmap fonts */
+extern uint8_t ascii_font[];
 
 uint64_t  width;  // Screen width
 uint64_t  height; // Screen height
@@ -89,12 +86,9 @@ void video_init(void)
     height                                 = framebuffer->height;
     stride                                 = framebuffer->pitch / (framebuffer->bpp / 8);
 
-#if TTF_CONSOLE
-    get_ttf_dimensions("A", CONSOLE_FONT_SIZE, &font_width, &font_height);
-#else
+    /* Bitmap font: 9x16 pixels */
     font_width  = 9;
     font_height = 16;
-#endif
 
     x = cx = y = cy = 0;
     c_width         = width / font_width;
@@ -229,9 +223,6 @@ void video_draw_rect(position_t p0, position_t p1, uint32_t color)
 /* Draw a character at the specified coordinates on the screen */
 void video_draw_char(const char c, uint32_t x, uint32_t y, uint32_t color)
 {
-#if TTF_CONSOLE
-    draw_ttf((char[]) {c, '\0'}, x, y, CONSOLE_FONT_SIZE, color);
-#else
     uint8_t *char_font      = ascii_font + (size_t)c * font_height;
     uint32_t char_base_addr = y * stride + x;
 
@@ -240,23 +231,11 @@ void video_draw_char(const char c, uint32_t x, uint32_t y, uint32_t color)
         uint8_t   font_row = char_font[row];
         for (uint32_t col = 0; col < font_width; col++) row_buf[col] = (font_row & (0x80 >> col)) ? color : back_color;
     }
-#endif
 }
 
 /* Flush character buffer to screen */
 void video_flush_buffer(uint32_t color)
 {
-#if TTF_CONSOLE
-    if (char_buffer_index > 0) {
-        char_buffer[char_buffer_index] = '\0';
-
-        draw_ttf(char_buffer, cx * font_width, cy * font_height, CONSOLE_FONT_SIZE, color);
-        cx += char_buffer_index;
-
-        char_buffer_index = 0;
-        char_buffer[0]    = '\0';
-    }
-#else
     if (char_buffer_index > 0) {
         uint32_t start_x       = cx * font_width;
         uint32_t start_y       = cy * font_height;
@@ -278,7 +257,6 @@ void video_flush_buffer(uint32_t color)
         char_buffer_index = 0;
         char_buffer[0]    = '\0';
     }
-#endif
 }
 
 /* Print a character at the specified coordinates on the screen */
@@ -308,19 +286,11 @@ void video_put_char(const char c, uint32_t color)
         video_flush_buffer(color);
         if (cx > 0) {
             cx--;
-#if TTF_CONSOLE
-            draw_ttf(" ", cx * font_width, cy * font_height, CONSOLE_FONT_SIZE, back_color);
-#else
             video_draw_char(' ', cx * font_width, cy * font_height, back_color);
-#endif
         } else if (cy > 0) {
             cy--;
             cx = c_width - 1;
-#if TTF_CONSOLE
-            draw_ttf(" ", cx * font_width, cy * font_height, CONSOLE_FONT_SIZE, back_color);
-#else
             video_draw_char(' ', cx * font_width, cy * font_height, back_color);
-#endif
         }
         return;
     }

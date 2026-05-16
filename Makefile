@@ -29,15 +29,7 @@ else
   C_CONFIG += -DKERNEL_LOG=0
 endif
 
-ifeq ($(CONFIG_TTF_CONSOLE), y)
-  C_CONFIG += -DTTF_CONSOLE=1
-else
-  C_CONFIG += -DTTF_CONSOLE=0
-endif
-
-ifneq ($(CONFIG_CONSOLE_FONT_SIZE),)
-  C_CONFIG += -DCONSOLE_FONT_SIZE=$(CONFIG_CONSOLE_FONT_SIZE)
-endif
+# TTF font support has been removed. Using bitmap fonts only.
 
 ifneq ($(CONFIG_CPU_MAX_COUNT),)
   C_CONFIG += -DMAX_CPU_COUNT=$(CONFIG_CPU_MAX_COUNT)

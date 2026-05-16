@@ -33,7 +33,7 @@ Uinxed-Kernel is a Unix-like operating system kernel developed from scratch, foc
   - High Precision Event Timer (HPET)
   - Multi-core support based on symmetric multi-processing
 - **Terminal meatures**:
-  - TTF fonts or Bitmap fonts
+  - Bitmap fonts (9x16 pixels)
   - High-speed terminal implementation
 
 ## Development environment preparation 🛠️

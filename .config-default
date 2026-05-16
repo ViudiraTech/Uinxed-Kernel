@@ -11,8 +11,7 @@ CONFIG_KERNEL_LOG=y
 #
 # Terminal properties
 #
-CONFIG_TTF_CONSOLE=y
-CONFIG_CONSOLE_FONT_SIZE=10
+# TTF font support has been removed. Using bitmap fonts only.
 
 #
 # Processor configuration

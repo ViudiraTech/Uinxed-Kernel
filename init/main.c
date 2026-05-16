@@ -18,7 +18,6 @@
 #include <eis.h>
 #include <frame.h>
 #include <gdt.h>
-#include <gfx_truetype.h>
 #include <heap.h>
 #include <hhdm.h>
 #include <ide.h>
@@ -66,10 +65,6 @@ void kernel_entry(void)
     page_init();    // Initialize memory page
     init_heap();    // Initialize the memory heap
     lmodule_init(); // Initialize the passed-in resource module list
-
-#if TTF_CONSOLE
-    init_ttf(get_lmodule("UbuntuSansMono")->data); // Load ttf font
-#endif
 
     video_init();                           // Initialize Video
     video_info_t fbinfo = video_get_info(); // Get video info
