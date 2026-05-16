@@ -46,6 +46,21 @@ typedef struct {
         void     *edid;              // EDID data pointer
 } video_info_t;
 
+/* Shared variables for video subsystem */
+extern uint64_t  width;       // Screen width
+extern uint64_t  height;      // Screen height
+extern uint64_t  stride;      // Frame buffer line spacing
+extern uint32_t *buffer;      // Video Memory
+
+extern uint32_t cx, cy;            // The character position of the current cursor
+extern uint32_t c_width, c_height; // Screen character width and height
+
+extern uint32_t fore_color;  // Foreground color
+extern uint32_t back_color;  // Background color
+
+extern uint32_t font_width;  // Font width
+extern uint32_t font_height; // Font height
+
 /* Get video information */
 video_info_t video_get_info(void);
 
@@ -61,12 +76,6 @@ void video_clear(void);
 /* Clear screen with color */
 void video_clear_color(uint32_t color);
 
-/* Scroll to a position that units are characters */
-void video_move_to(uint32_t cx, uint32_t cy);
-
-/* Screen scrolling operation */
-void video_scroll(void);
-
 /* Draw a pixel at the specified coordinates on the screen */
 void video_draw_pixel(uint32_t x, uint32_t y, uint32_t color);
 
@@ -78,17 +87,5 @@ void video_invoke_area(position_t p0, position_t p1, void (*callback)(position_t
 
 /* Draw a matrix at the specified coordinates on the screen */
 void video_draw_rect(position_t p0, position_t p1, uint32_t color);
-
-/* Flush character buffer to screen */
-void video_flush_buffer(uint32_t color);
-
-/* Print a character at the specified coordinates on the screen */
-void video_put_char(const char c, uint32_t color);
-
-/* Print a string at the specified coordinates on the screen */
-void video_put_string(const char *str);
-
-/* Print a string with color at the specified coordinates on the screen */
-void video_put_string_color(const char *str, uint32_t color);
 
 #endif // INCLUDE_VIDEO_H_

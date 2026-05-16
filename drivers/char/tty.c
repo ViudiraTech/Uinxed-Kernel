@@ -10,6 +10,7 @@
  */
 
 #include <cmdline.h>
+#include <fbcon.h>
 #include <heap.h>
 #include <serial.h>
 #include <spin_lock.h>
@@ -190,7 +191,7 @@ void tty_buff_flush(void)
             case TTY_DEVICE_VGA :
                 if (tty_device->port == 0) {
                     tty_buff[TTY_BUF_SIZE - 1] = '\0';
-                    video_put_string(tty_buff);
+                    fbcon_put_string(tty_buff);
                 } else {
                     /* Bad port number */
                     early_break = 0;

@@ -71,8 +71,8 @@ typedef struct vfs_callback {
         vfs_dup_t      dup;      // Copy file node
         vfs_poll_t     poll;     // Polling file status (implemented only for special file systems such as devfs)
         vfs_free_t     free;     // Release file handle
-        vfs_del_t delete;        // Delete files or folders
-        vfs_rename_t rename;     // Rename files or folders
+        vfs_del_t      delete;   // Delete files or folders
+        vfs_rename_t   rename;   // Rename files or folders
 } *vfs_callback_t;
 
 typedef struct vfs_node {
