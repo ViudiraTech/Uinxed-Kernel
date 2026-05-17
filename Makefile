@@ -72,12 +72,14 @@ ifneq ($(CONFIG_SERIAL_STOP_BITS),)
   C_CONFIG += -DSERIAL_STOP_BITS=$(CONFIG_SERIAL_STOP_BITS)
 endif
 
-C_SOURCES  := $(shell find * -name "*.c")
+C_SOURCES  := $(shell find * -name "*.c" -not -path "tools/*")
 C_HEADERS  := $(shell find * -name "*.h")
 OBJS       := $(C_SOURCES:%.c=%.o)
 DEPS       := $(OBJS:%.o=%.d)
 LIBS       := $(wildcard libs/lib*.a)
 PWD        := $(shell pwd)
+HOST_CC    ?= cc
+HOST_CFLAGS := -Wall -Wextra -O2
 
 QEMU       := qemu-system-x86_64
 QEMU_FLAGS := -machine q35 -bios assets/ovmf-code.fd
@@ -121,11 +123,12 @@ Uinxed-x64.iso: info UxImage
 	$(Q)printf "Image: $@ is ready.\n"
 	$(Q)printf "Compilation complete.\n"
 
-.PHONY: help run clean format check gen.clangd menuconfig
+.PHONY: help run clean format check gen.clangd menuconfig diskimg
 
 help: info
 	$(Q)printf "Uinxed-Kernel Makefile Usage:\n"
 	$(Q)printf "  make all         - Build the entire project.\n"
+	$(Q)printf "  make disk.img    - Build a demo simplefs disk image.\n"
 	$(Q)printf "  make run         - Run the Uinxed-x64.iso in QEMU.\n"
 	$(Q)printf "  make clean       - Clean all generated files.\n"
 	$(Q)printf "  make format      - Format all source files using clang-format.\n"
@@ -137,8 +140,19 @@ help: info
 run: info Uinxed-x64.iso
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(word 2,$^)
 
+tools/mkfs_simplefs: tools/mkfs_simplefs.c include/simplefs.h include/superblock.h
+	$(Q)printf "  HOSTCC  $@\n"
+	$(Q)mkdir -p tools
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) -o $@ tools/mkfs_simplefs.c
+
+disk.img: tools/mkfs_simplefs
+	$(Q)printf "  MKFS    $@\n"
+	$(Q)./tools/mkfs_simplefs $@
+
+diskimg: disk.img
+
 clean: info
-	$(Q)$(RM) $(OBJS) $(DEPS) UxImage Uinxed-x64.iso
+	$(Q)$(RM) $(OBJS) $(DEPS) UxImage Uinxed-x64.iso tools/mkfs_simplefs disk.img
 	$(Q)printf "Clean completed.\n"
 
 format: info $(C_SOURCES:%=%.fmt) $(C_HEADERS:%=%.fmt)

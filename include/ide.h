@@ -110,6 +110,8 @@ typedef struct {
         uint8_t  model[41];    // Drive Name
 } ide_device_t;
 
+extern ide_device_t ide_devices[4];
+
 /* Initialize IDE */
 void init_ide(void);
 

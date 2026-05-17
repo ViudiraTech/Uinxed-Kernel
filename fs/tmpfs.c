@@ -19,7 +19,7 @@ int tmpfs_id = 0;
 /* Mount the tmpfs file system to a specified VFS node */
 int tmpfs_mount(const char *handle, vfs_node_t node)
 {
-    (void)handle;
+    if (handle) return -EINVAL;
     node->fsid = tmpfs_id;
 
     tmpfs_file_t *tmpfs_root = (tmpfs_file_t *)malloc(sizeof(tmpfs_file_t));

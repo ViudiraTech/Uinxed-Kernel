@@ -63,3 +63,6 @@ Uinxed-x64.iso
 compile_commands.json
 make.log
 *.bak
+
+*.img
+*.log

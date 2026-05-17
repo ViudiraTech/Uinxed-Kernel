@@ -182,9 +182,16 @@ int vfs_mkdir(const char *name)
         current = vfs_child_find(current, buf);
 upd:
         if (!current) {
+            int status;
             current       = vfs_node_alloc(father, buf);
             current->type = file_dir;
-            callbackof(father, mkdir)(father->handle, buf, current);
+            status        = callbackof(father, mkdir)(father->handle, buf, current);
+            if (status != EOK) {
+                father->child = clist_delete(father->child, current);
+                vfs_free(current);
+                free(path);
+                return status;
+            }
             do_update(current);
         } else {
             do_update(current);
@@ -230,6 +237,10 @@ int vfs_mkfile(const char *name)
     node->type      = file_none;
 
     int status = callbackof(parent, mkfile)(parent->handle, filename, node);
+    if (status != EOK) {
+        parent->child = clist_delete(parent->child, node);
+        vfs_free(node);
+    }
     free(fullpath);
     return status;
 }
