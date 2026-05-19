@@ -121,7 +121,10 @@ void vfs_update(vfs_node_t node)
 vfs_node_t vfs_open(const char *str)
 {
     if (!str || str[0] != '/') return 0;
-    if (str[1] == '\0') return rootdir;
+    if (str[1] == '\0') {
+        rootdir->refcount++;
+        return rootdir;
+    }
 
     char *path = strdup(str + 1);
     if (!path) return 0;
@@ -152,6 +155,7 @@ vfs_node_t vfs_open(const char *str)
             continue;
         }
     }
+    current->refcount++;
     free(path);
     return current;
 err:
@@ -365,12 +369,16 @@ int vfs_mount(const char *src, vfs_node_t node)
 {
     if (!node || node->type != file_dir) return -EINVAL;
     for (int i = 1; i < fs_nextid; i++) {
+        uint16_t old_fsid = node->fsid;
+        node->fsid        = i;
+
         if (!fs_callbacks[i]->mount(src, node)) {
-            node->fsid     = i;
             node->root     = node;
             node->is_mount = 1;
             return EOK;
         }
+
+        node->fsid = old_fsid;
     }
     return -ENOENT;
 }
@@ -436,7 +444,7 @@ int vfs_close(vfs_node_t node)
     if (!node) return -EINVAL;
     if (node == rootdir || !node->handle) return EOK;
 
-    node->refcount--;
+    if (node->refcount) node->refcount--;
 
     if (node->type & file_proxy || node->type & file_dir || node->refcount) return EOK;
     if (node->type & file_delete) {
@@ -462,7 +470,18 @@ int vfs_delete(vfs_node_t node)
 
 /* Rename a VFS (Virtual File System) node to a new name */
 int vfs_rename(vfs_node_t node, const char *new)
-{ return callbackof(node, rename)(node->handle, new); }
+{
+    int res;
+
+    if (!node || !new) return -EINVAL;
+    res = callbackof(node, rename)(node->handle, new);
+    if (res != EOK) return res;
+
+    free(node->name);
+    node->name = strdup(new);
+    if (node->parent) node->parent->visited = 0;
+    return EOK;
+}
 
 /* Send control commands to a device or file */
 int vfs_ioctl(vfs_node_t device, size_t options, void *arg)

@@ -31,6 +31,8 @@ typedef struct fatfs_handle {
     FILINFO        info;
     char          *path;
     int            is_dir;
+    int            opened;
+    BYTE           open_mode;
     int            owns_mount;
 } fatfs_handle_t;
 
@@ -58,6 +60,26 @@ static int fatfs_result_to_errno(FRESULT res)
     }
 }
 
+static void fatfs_handle_destroy(fatfs_handle_t *handle)
+{
+    if (!handle) return;
+
+    if (handle->opened) {
+        if (handle->is_dir)
+            f_closedir(&handle->dir);
+        else
+            f_close(&handle->file);
+        handle->opened = 0;
+    }
+
+    free(handle->path);
+    if (handle->owns_mount && handle->mount) {
+        f_unmount(handle->mount->drive);
+        free(handle->mount);
+    }
+    free(handle);
+}
+
 static char *fatfs_join_path(const char *base, const char *name)
 {
     size_t base_len;
@@ -72,11 +94,8 @@ static char *fatfs_join_path(const char *base, const char *name)
     if (!path) return 0;
 
     memcpy(path, base, base_len);
-    if (base_len > 1 && path[base_len - 1] == '/') base_len--;
-    if (base_len == 1 && path[0] == '/')
-        (void)0;
-    else
-        path[base_len++] = '/';
+    if (base_len > 0 && path[base_len - 1] == '/') base_len--;
+    path[base_len++] = '/';
 
     memcpy(path + base_len, name, name_len);
     path[base_len + name_len] = '\0';
@@ -98,6 +117,124 @@ static void fatfs_apply_info(vfs_node_t node, fatfs_handle_t *handle)
     node->realsize    = node->size;
     node->type        = (handle->info.fattrib & AM_DIR) ? file_dir : file_none;
     node->permissions = (handle->info.fattrib & AM_RDO) ? 0444 : 0666;
+}
+
+static void fatfs_invalidate_directory(vfs_node_t node)
+{
+    if (!node) return;
+
+    vfs_free_child(node);
+    node->child   = 0;
+    node->visited = 0;
+}
+
+static char *fatfs_rename_target(const char *path, const char *new_name)
+{
+    char   *target;
+    char   *slash;
+    size_t  prefix_len;
+    size_t  name_len;
+
+    if (!path || !new_name || !new_name[0]) return 0;
+
+    slash      = strrchr(path, '/');
+    prefix_len = slash ? (size_t)(slash - path + 1) : 0;
+    name_len   = strlen(new_name);
+    target     = malloc(prefix_len + name_len + 1);
+    if (!target) return 0;
+
+    if (prefix_len) memcpy(target, path, prefix_len);
+    memcpy(target + prefix_len, new_name, name_len);
+    target[prefix_len + name_len] = '\0';
+    return target;
+}
+
+static int fatfs_refresh_node(vfs_node_t node)
+{
+    fatfs_handle_t *handle = node ? node->handle : 0;
+
+    if (!node || !handle || !handle->path) return -EINVAL;
+    if (fatfs_fill_info(handle, handle->path) != EOK) return -EIO;
+    handle->is_dir = (handle->info.fattrib & AM_DIR) != 0;
+    fatfs_apply_info(node, handle);
+    return EOK;
+}
+
+static int fatfs_prepare_file_handle(fatfs_handle_t *handle, BYTE mode)
+{
+    FRESULT res;
+
+    if (!handle || handle->is_dir) return -EINVAL;
+    if (handle->opened) {
+        f_close(&handle->file);
+        handle->opened = 0;
+    }
+
+    res = f_open(&handle->file, handle->path, mode);
+    if (res != FR_OK) return fatfs_result_to_errno(res);
+
+    handle->opened = 1;
+    handle->open_mode = mode;
+    return EOK;
+}
+
+static int fatfs_attach_new_node(vfs_node_t node)
+{
+    fatfs_handle_t *parent;
+    fatfs_handle_t *handle;
+
+    if (!node || !node->parent || node->handle) return -EINVAL;
+
+    parent = node->parent->handle;
+    if (!parent || !parent->mount) return -EINVAL;
+
+    handle = calloc(1, sizeof(fatfs_handle_t));
+    if (!handle) return -ENOMEM;
+
+    handle->mount  = parent->mount;
+    handle->path   = fatfs_join_path(parent->path, node->name);
+    handle->opened = 0;
+    if (!handle->path) {
+        free(handle);
+        return -ENOMEM;
+    }
+
+    node->handle = handle;
+    return EOK;
+}
+
+static int fatfs_create_path(vfs_node_t node, BYTE mode, int is_dir)
+{
+    fatfs_handle_t *handle = node ? node->handle : 0;
+    FRESULT         res;
+
+    if (!node) return -EINVAL;
+    if (!handle) {
+        if (fatfs_attach_new_node(node) != EOK) return -EINVAL;
+        handle = node->handle;
+    }
+    if (!handle->path) return -EINVAL;
+
+    if (is_dir) {
+        res = f_mkdir(handle->path);
+        if (res != FR_OK) return fatfs_result_to_errno(res);
+        res = f_opendir(&handle->dir, handle->path);
+        if (res != FR_OK) return fatfs_result_to_errno(res);
+        handle->is_dir = 1;
+        handle->opened = 1;
+        handle->open_mode = 0;
+    } else {
+        res = f_open(&handle->file, handle->path, mode);
+        if (res != FR_OK) return fatfs_result_to_errno(res);
+        handle->is_dir = 0;
+        handle->opened = 1;
+        handle->open_mode = mode;
+    }
+
+    if (fatfs_fill_info(handle, handle->path) != EOK) return -EIO;
+    fatfs_apply_info(node, handle);
+    fatfs_invalidate_directory(node->parent);
+    return EOK;
 }
 
 static int fatfs_load_directory(vfs_node_t node)
@@ -138,6 +275,7 @@ static int fatfs_load_directory(vfs_node_t node)
         child_handle->mount = handle->mount;
         child_handle->info  = info;
         child_handle->is_dir = (info.fattrib & AM_DIR) != 0;
+        child_handle->opened = 0;
 
         child = vfs_node_alloc(node, info.fname);
         if (!child) {
@@ -193,7 +331,9 @@ static int fatfs_vfs_mount(const char *src, vfs_node_t node)
     handle->mount     = mount;
     handle->owns_mount = 1;
     handle->is_dir    = 1;
-    handle->path      = strdup("/");
+    handle->opened    = 1;
+    handle->open_mode = 0;
+    handle->path      = strdup(mount->drive);
     if (!handle->path) {
         f_unmount(mount->drive);
         free(handle);
@@ -214,20 +354,22 @@ static int fatfs_vfs_mount(const char *src, vfs_node_t node)
     node->type   = file_dir;
     node->blksz  = 512;
     node->visited = 0;
+    if (fatfs_load_directory(node) != EOK) {
+        f_closedir(&handle->dir);
+        free(handle->path);
+        f_unmount(mount->drive);
+        free(handle);
+        free(mount);
+        node->handle = 0;
+        return -EIO;
+    }
     plogk("fatfs: Mounted %s\n", mount->drive);
     return EOK;
 }
 
 static void fatfs_vfs_unmount(void *root)
 {
-    fatfs_handle_t *handle = root;
-
-    if (!handle) return;
-    if (handle->is_dir) f_closedir(&handle->dir);
-    if (handle->owns_mount && handle->mount) f_unmount(handle->mount->drive);
-    free(handle->path);
-    if (handle->owns_mount) free(handle->mount);
-    free(handle);
+    fatfs_handle_destroy(root);
 }
 
 static int fatfs_open_child(vfs_node_t node)
@@ -270,6 +412,8 @@ static int fatfs_open_child(vfs_node_t node)
         return fatfs_result_to_errno(res);
     }
 
+    handle->opened = 1;
+    handle->open_mode = handle->is_dir ? 0 : (FA_READ | FA_OPEN_EXISTING);
     node->handle = handle;
     fatfs_apply_info(node, handle);
     return EOK;
@@ -290,30 +434,62 @@ static void fatfs_vfs_close(void *current)
     fatfs_handle_t *handle = current;
 
     if (!handle) return;
+    if (!handle->opened) return;
+
+    if (!handle->owns_mount && !handle->is_dir) {
+        fatfs_handle_destroy(handle);
+        return;
+    }
+
     if (handle->is_dir)
         f_closedir(&handle->dir);
     else
         f_close(&handle->file);
+    handle->opened = 0;
 }
 
 static size_t fatfs_vfs_read(void *file, void *addr, size_t offset, size_t size)
 {
     fatfs_handle_t *handle = file;
     UINT            read_count = 0;
+    FRESULT         res;
 
     if (!handle || !addr || handle->is_dir) return 0;
-    if (f_lseek(&handle->file, offset) != FR_OK) return 0;
-    if (f_read(&handle->file, addr, size, &read_count) != FR_OK) return 0;
+    if (!handle->opened || handle->open_mode != (FA_READ | FA_OPEN_EXISTING)) {
+        res = f_open(&handle->file, handle->path, FA_READ | FA_OPEN_EXISTING);
+        if (res != FR_OK) return 0;
+        handle->opened = 1;
+        handle->open_mode = FA_READ | FA_OPEN_EXISTING;
+    }
+
+    res = f_lseek(&handle->file, offset);
+    if (res != FR_OK) return 0;
+
+    res = f_read(&handle->file, addr, size, &read_count);
+    if (res != FR_OK) return 0;
     return read_count;
 }
 
 static size_t fatfs_vfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
-    (void)file;
-    (void)addr;
-    (void)offset;
-    (void)size;
-    return 0;
+    fatfs_handle_t *handle = file;
+    UINT            written = 0;
+    FRESULT         res;
+
+    if (!handle || !addr || handle->is_dir) return 0;
+    if (fatfs_prepare_file_handle(handle, FA_WRITE | FA_OPEN_EXISTING) != EOK) return 0;
+
+    res = f_lseek(&handle->file, offset);
+    if (res != FR_OK) return 0;
+
+    res = f_write(&handle->file, addr, size, &written);
+    if (res != FR_OK) return 0;
+    if (f_sync(&handle->file) != FR_OK) return 0;
+
+    if (handle->info.fsize < offset + written) handle->info.fsize = offset + written;
+    handle->open_mode = FA_WRITE | FA_OPEN_EXISTING;
+
+    return written;
 }
 
 static size_t fatfs_vfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t size)
@@ -325,12 +501,30 @@ static size_t fatfs_vfs_readlink(vfs_node_t node, void *addr, size_t offset, siz
     return 0;
 }
 
-static int fatfs_vfs_no_mk(void *parent, const char *name, vfs_node_t node)
+static int fatfs_vfs_mkdir(void *parent, const char *name, vfs_node_t node)
+{
+    fatfs_handle_t *dir = parent;
+
+    if (!dir || !node || !name) return -EINVAL;
+    node->type = file_dir;
+    return fatfs_create_path(node, 0, 1);
+}
+
+static int fatfs_vfs_mkfile(void *parent, const char *name, vfs_node_t node)
+{
+    fatfs_handle_t *dir = parent;
+
+    if (!dir || !node || !name) return -EINVAL;
+    node->type = file_none;
+    return fatfs_create_path(node, FA_CREATE_NEW | FA_WRITE, 0);
+}
+
+static int fatfs_vfs_no_link(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
     (void)name;
     (void)node;
-    return -EROFS;
+    return -ENOSYS;
 }
 
 static int fatfs_vfs_stat(void *file, vfs_node_t node)
@@ -338,7 +532,7 @@ static int fatfs_vfs_stat(void *file, vfs_node_t node)
     fatfs_handle_t *handle = file;
 
     if (!handle || !node) return -EINVAL;
-    fatfs_apply_info(node, handle);
+    if (fatfs_refresh_node(node) != EOK) return -EIO;
     if (node->type & file_dir) return fatfs_load_directory(node);
     return EOK;
 }
@@ -375,22 +569,46 @@ static int fatfs_vfs_poll(void *file, size_t events)
 
 static int fatfs_vfs_free(void *handle)
 {
-    (void)handle;
+    fatfs_handle_destroy(handle);
     return EOK;
 }
 
 static int fatfs_vfs_delete(void *parent, vfs_node_t node)
 {
-    (void)parent;
-    (void)node;
-    return -EROFS;
+    fatfs_handle_t *handle = node ? node->handle : 0;
+    FRESULT         res;
+
+    if (!parent || !node || !handle || !handle->path) return -EINVAL;
+    res = f_unlink(handle->path);
+    if (res != FR_OK) return fatfs_result_to_errno(res);
+
+    fatfs_invalidate_directory(node->parent);
+    return EOK;
 }
 
 static int fatfs_vfs_rename(void *current, const char *new_name)
 {
-    (void)current;
-    (void)new_name;
-    return -EROFS;
+    fatfs_handle_t *handle = current;
+    char           *new_path;
+    FRESULT         res;
+
+    if (!handle || !handle->path || !new_name) return -EINVAL;
+    if (!new_name[0]) return -EINVAL;
+
+    new_path = fatfs_rename_target(handle->path, new_name);
+    if (!new_path) return -ENOMEM;
+
+    res = f_rename(handle->path, new_path);
+    if (res != FR_OK) {
+        free(new_path);
+        return fatfs_result_to_errno(res);
+    }
+
+    free(handle->path);
+    handle->path = new_path;
+    handle->opened = 0;
+    handle->open_mode = 0;
+    return EOK;
 }
 
 static struct vfs_callback fatfs_vfs_callbacks = {
@@ -401,10 +619,10 @@ static struct vfs_callback fatfs_vfs_callbacks = {
     .read     = fatfs_vfs_read,
     .write    = fatfs_vfs_write,
     .readlink = fatfs_vfs_readlink,
-    .mkdir    = fatfs_vfs_no_mk,
-    .mkfile   = fatfs_vfs_no_mk,
-    .link     = fatfs_vfs_no_mk,
-    .symlink  = fatfs_vfs_no_mk,
+    .mkdir    = fatfs_vfs_mkdir,
+    .mkfile   = fatfs_vfs_mkfile,
+    .link     = fatfs_vfs_no_link,
+    .symlink  = fatfs_vfs_no_link,
     .stat     = fatfs_vfs_stat,
     .ioctl    = fatfs_vfs_ioctl,
     .dup      = fatfs_vfs_dup,

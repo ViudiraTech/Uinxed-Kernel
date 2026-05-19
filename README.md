@@ -35,8 +35,12 @@ Uinxed is a Unix-like operating system kernel developed from scratch, focusing o
 - **Terminal meatures**:
   - Bitmap fonts (9x16 pixels)
   - High-speed terminal implementation
+- **Filesystem**:
+  - UNIX-like virtual filesystem (VFS)
+  - FatFS filesystems (FAT12, FAT16, FAT32, exFAT)
+  - SimpleFS for test
 
-## Development environment preparation 🛠️
+## Development Environment Preparation 🛠️
 
 ### Required Tools
 
@@ -51,7 +55,7 @@ Uinxed is a Unix-like operating system kernel developed from scratch, focusing o
 
 ### Installation Steps
 
-**Debian & Ubuntu & Kali**
+**Debian & Ubuntu**
 ```bash
 sudo apt update
 sudo apt install make gcc qemu-system xorriso clang-format clang-tidy kconfig-frontends libncurses-dev
@@ -129,6 +133,7 @@ Uinxed-Kernel/
 ├── kernel/          # Kernel part.
 ├── libs/            # Library file.
 ├── mem/             # Memory management.
+├── tools/           # Kernel tools.
 ├── .clang-format    # Formatting configuration files.
 ├── .clang-tidy      # Static analysis configuration file.
 ├── .clangd_template # Clangd configuration template.
@@ -253,7 +258,7 @@ git pull origin develop
 - All development work should be done on the develop branch.
 - The master branch is reserved for stable, production-ready versions. Do not submit changes directly to master.
 
-## Submit an issue ❓
+## Submit an Issue ❓
 
 Communication is the key to problem solving. When you encounter a bug, you can report it to us by submitting an issue.
 We welcome everyone to submit an issue. But before you do it, you should know our rule of submitting.
@@ -267,7 +272,7 @@ You can be more casual, no need to be too formal. It is because of your question
 4. **Native language allowed.**
 You can submit an issue in your own language. However, please be aware of factors such as spelling that may affect the translation results, and sometimes the translator may not work well because of this.
 
-## Resident contributor 👨‍💻
+## Resident Contributor 👨‍💻
 
 | Number | Nick name | Github | Job |
 |---|---|---|---|
@@ -279,7 +284,7 @@ You can submit an issue in your own language. However, please be aware of factor
 
 A resident contributor is someone who directly contributes to and manages the project in a resident capacity. Removing a resident developer from the resident developer list does not mean that the project manager will not recognize their contributions, but rather that they are no longer involved in the project in a resident capacity. However, their contribution record will remain.
 
-## Open source projects referenced or used 🎈
+## Open Source Projects Referenced or Used 🎈
 
 - Hurlex-Kernel:[http://wiki.0xffffff.org/](http://wiki.0xffffff.org/)
 - CoolPotOS:[https://github.com/plos-clan/CoolPotOS](https://github.com/plos-clan/CoolPotOS)
@@ -288,7 +293,7 @@ A resident contributor is someone who directly contributes to and manages the pr
 
 This project adopts the Apache 2.0 open source license. Please refer to the LICENSE file for details.
 
-## Contact details 📩
+## Contact Details 📩
 
 - Email：2609948707@qq.com | 3585302907@qq.com
 - Join our discord server: [Click here](https://discord.gg/nTkg7HCpy7)
