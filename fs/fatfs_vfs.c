@@ -233,7 +233,8 @@ static int fatfs_create_path(vfs_node_t node, BYTE mode, int is_dir)
 
     if (fatfs_fill_info(handle, handle->path) != EOK) return -EIO;
     fatfs_apply_info(node, handle);
-    fatfs_invalidate_directory(node->parent);
+    if (node->parent) node->parent->visited = 1;
+    if (node->type & file_dir) node->visited = 1;
     return EOK;
 }
 
