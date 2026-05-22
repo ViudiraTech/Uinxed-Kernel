@@ -19,10 +19,12 @@
 typedef struct blockdev_device {
         uint8_t  drive;
         uint32_t sector_size;
+        uint32_t base_lba;
         uint32_t sector_count;
 } blockdev_device_t;
 
 int blockdev_open_ide(uint8_t drive, blockdev_device_t *device);
+int blockdev_open_partition(const blockdev_device_t *parent, uint32_t first_lba, uint32_t sector_count, blockdev_device_t *device);
 int blockdev_read_sectors(const blockdev_device_t *device, uint32_t lba, uint32_t count, void *buffer);
 int blockdev_write_sectors(const blockdev_device_t *device, uint32_t lba, uint32_t count, const void *buffer);
 int blockdev_read_bytes(const blockdev_device_t *device, uint64_t offset, void *buffer, size_t size);

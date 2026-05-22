@@ -23,7 +23,21 @@ int blockdev_open_ide(uint8_t drive, blockdev_device_t *device)
 
     device->drive        = drive;
     device->sector_size  = BLOCKDEV_SECTOR_SIZE;
+    device->base_lba     = 0;
     device->sector_count = ide_devices[drive].size;
+    return EOK;
+}
+
+int blockdev_open_partition(const blockdev_device_t *parent, uint32_t first_lba, uint32_t sector_count, blockdev_device_t *device)
+{
+    if (!parent || !device) return -EINVAL;
+    if (!sector_count) return -EINVAL;
+    if ((uint64_t)first_lba + sector_count > parent->sector_count) return -EINVAL;
+
+    device->drive        = parent->drive;
+    device->sector_size  = parent->sector_size;
+    device->base_lba     = parent->base_lba + first_lba;
+    device->sector_count = sector_count;
     return EOK;
 }
 
@@ -37,7 +51,7 @@ int blockdev_read_sectors(const blockdev_device_t *device, uint32_t lba, uint32_
 
     while (count) {
         uint8_t chunk = (count > 255) ? 255 : (uint8_t)count;
-        ide_read_sectors(device->drive, chunk, lba, (uint16_t *)ptr);
+        ide_read_sectors(device->drive, chunk, device->base_lba + lba, (uint16_t *)ptr);
         ptr += (size_t)chunk * device->sector_size;
         lba += chunk;
         count -= chunk;
@@ -56,7 +70,7 @@ int blockdev_write_sectors(const blockdev_device_t *device, uint32_t lba, uint32
 
     while (count) {
         uint8_t chunk = (count > 255) ? 255 : (uint8_t)count;
-        ide_write_sectors(device->drive, chunk, lba, (uint16_t *)ptr);
+        ide_write_sectors(device->drive, chunk, device->base_lba + lba, (uint16_t *)ptr);
         ptr += (size_t)chunk * device->sector_size;
         lba += chunk;
         count -= chunk;

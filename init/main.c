@@ -16,7 +16,6 @@
 #include <debug.h>
 #include <errno.h>
 #include <eis.h>
-#include <fatfs_vfs.h>
 #include <frame.h>
 #include <gdt.h>
 #include <heap.h>
@@ -30,15 +29,15 @@
 #include <printk.h>
 #include <ps2.h>
 #include <serial.h>
-#include <simplefs.h>
 #include <smbios.h>
 #include <smp.h>
-#include <superblock.h>
+#include <fatfs_vfs.h>
 #include <tmpfs.h>
 #include <tsc.h>
 #include <uinxed.h>
 #include <vfs.h>
 #include <video.h>
+#include <devtmpfs.h>
 
 /* Executable entry */
 void executable_entry(void)
@@ -107,12 +106,10 @@ void kernel_entry(void)
     init_vfs();                     // Initialize VFS
     tmpfs_regist();                 // Register tmpfs
     fatfs_vfs_regist();             // Register FatFs VFS bridge
-    simplefs_regist();              // Register IDE-backed simplefs
     if (!get_rootdir()->fsid && vfs_mount(0, get_rootdir()) != EOK)
         plogk("init: Cannot mount tmpfs to root_dir.\n");
     init_cpio();                    // Initialize CPIO
-    fatfs_vfs_mount_all();          // Auto-mount IDE-backed FatFs
-    simplefs_mount_all();           // Auto-mount IDE-backed simplefs
+    devtmpfs_init();
     enable_intr();
 
     panic("No operation.");

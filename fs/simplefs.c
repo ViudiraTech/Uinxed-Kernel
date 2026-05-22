@@ -716,5 +716,6 @@ void simplefs_mount_all(void)
             plogk("simplefs: Auto-mounted ide%u at %s.\n", drive, path);
         else
             plogk("simplefs: Failed to auto-mount ide%u at %s.\n", drive, path);
+        vfs_close(node);
     }
 }

@@ -11,7 +11,7 @@
 #ifndef INCLUDE_FATFS_VFS_H_
 #define INCLUDE_FATFS_VFS_H_
 
+int  fatfs_vfs_mount_volume(const char *src, const char *path);
 void fatfs_vfs_regist(void);
-void fatfs_vfs_mount_all(void);
 
 #endif // INCLUDE_FATFS_VFS_H_

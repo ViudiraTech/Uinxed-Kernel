@@ -639,33 +639,24 @@ void fatfs_vfs_regist(void)
     if (fatfs_vfs_id & ERRNO_MASK) plogk("fatfs: Register error.\n");
 }
 
-void fatfs_vfs_mount_all(void)
+int fatfs_vfs_mount_volume(const char *src, const char *path)
 {
-    vfs_node_t root = get_rootdir();
+    vfs_node_t node;
+    int        status;
 
-    if (!root || !root->fsid) return;
-    if (vfs_mkdir("/fat") != EOK) return;
+    if (!src || !path) return -EINVAL;
 
-    for (uint8_t drive = 0; drive < 4; drive++) {
-        char       path[] = "/fat/ide0";
-        char       src[]  = {'0' + drive, ':', '\0', '\0'};
-        vfs_node_t node;
+    status = vfs_mkdir(path);
+    if (status != EOK) return status;
 
-        if (!ide_devices[drive].reserved || ide_devices[drive].type != IDE_ATA) continue;
-
-        path[8] = (char)('0' + drive);
-        vfs_mkdir(path);
-        node = vfs_open(path);
-        if (!node || node->is_mount) continue;
-
-        if (vfs_mount(src, node) == EOK)
-            plogk("fatfs: Auto-mounted %s at %s\n", src, path);
-        else {
-            FATFS fs;
-            FRESULT res = f_mount(&fs, src, 1);
-
-            plogk("fatfs: Failed to mount %s at %s, f_mount=%d\n", src, path, res);
-            if (res == FR_OK) f_unmount(src);
-        }
+    node = vfs_open(path);
+    if (!node) return -ENOENT;
+    if (node->is_mount) {
+        vfs_close(node);
+        return EOK;
     }
+
+    status = vfs_mount(src, node);
+    vfs_close(node);
+    return status;
 }

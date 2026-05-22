@@ -37,7 +37,7 @@ Uinxed is a Unix-like operating system kernel developed from scratch, focusing o
   - High-speed terminal implementation
 - **Filesystem**:
   - UNIX-like virtual filesystem (VFS)
-  - FatFS filesystems (FAT12, FAT16, FAT32, exFAT)
+  - FatFS filesystems (FAT12, FAT16, FAT32)
   - SimpleFS for test
 
 ## Development Environment Preparation 🛠️
