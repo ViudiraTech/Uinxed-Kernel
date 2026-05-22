@@ -80,7 +80,6 @@ LIBS       := $(wildcard libs/lib*.a)
 PWD        := $(shell pwd)
 HOST_CC    ?= cc
 HOST_CFLAGS := -Wall -Wextra -O2
-
 QEMU       := qemu-system-x86_64
 QEMU_FLAGS := -machine q35 -bios assets/ovmf-code.fd
 

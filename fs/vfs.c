@@ -19,6 +19,7 @@ vfs_node_t rootdir = 0;
 
 struct vfs_callback   vfs_empty_callback;
 static vfs_callback_t fs_callbacks[256] = {[0] = &vfs_empty_callback};
+static const char    *fs_names[256];
 static int            fs_nextid         = 1;
 
 /* Default callback function (does nothing) */
@@ -353,15 +354,45 @@ err:
 
 /* Register a vfs callback */
 int vfs_regist(vfs_callback_t callback)
+{ return vfs_regist_fs(0, callback); }
+
+/* Register a vfs callback with a filesystem name */
+int vfs_regist_fs(const char *name, vfs_callback_t callback)
 {
     if (!callback) return -EINVAL;
     for (size_t i = 0; i < sizeof(struct vfs_callback) / sizeof(void *); i++) {
         if (!((void **)callback)[i]) return -EINVAL;
     }
+    if (name) {
+        for (int i = 1; i < fs_nextid; i++) {
+            if (fs_names[i] && streq(fs_names[i], name)) return -EEXIST;
+        }
+    }
 
     int id           = fs_nextid++;
     fs_callbacks[id] = callback;
+    fs_names[id]     = name;
     return id;
+}
+
+static int vfs_mount_id(const char *src, vfs_node_t node, int fsid)
+{
+    uint16_t old_fsid;
+
+    if (!node || node->type != file_dir) return -EINVAL;
+    if (fsid <= 0 || fsid >= fs_nextid || !fs_callbacks[fsid]) return -ENOENT;
+
+    old_fsid  = node->fsid;
+    node->fsid = fsid;
+
+    if (!fs_callbacks[fsid]->mount(src, node)) {
+        node->root     = node;
+        node->is_mount = 1;
+        return EOK;
+    }
+
+    node->fsid = old_fsid;
+    return -ENOENT;
 }
 
 /* Mount a file system to a directory */
@@ -369,17 +400,21 @@ int vfs_mount(const char *src, vfs_node_t node)
 {
     if (!node || node->type != file_dir) return -EINVAL;
     for (int i = 1; i < fs_nextid; i++) {
-        uint16_t old_fsid = node->fsid;
-        node->fsid        = i;
-
-        if (!fs_callbacks[i]->mount(src, node)) {
-            node->root     = node;
-            node->is_mount = 1;
-            return EOK;
-        }
-
-        node->fsid = old_fsid;
+        if (vfs_mount_id(src, node, i) == EOK) return EOK;
     }
+    return -ENOENT;
+}
+
+/* Mount a named file system to a directory */
+int vfs_mount_fs(const char *fstype, const char *src, vfs_node_t node)
+{
+    if (!fstype || !fstype[0]) return -EINVAL;
+
+    for (int i = 1; i < fs_nextid; i++) {
+        if (!fs_names[i] || !streq(fs_names[i], fstype)) continue;
+        return vfs_mount_id(src, node, i);
+    }
+
     return -ENOENT;
 }
 

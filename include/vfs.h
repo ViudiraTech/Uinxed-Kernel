@@ -139,8 +139,14 @@ int vfs_symlink(const char *name, const char *target_name);
 /* Register a vfs callback */
 int vfs_regist(vfs_callback_t callback);
 
+/* Register a vfs callback with a filesystem name */
+int vfs_regist_fs(const char *name, vfs_callback_t callback);
+
 /* Mount a file system to a directory */
 int vfs_mount(const char *src, vfs_node_t node);
+
+/* Mount a named file system to a directory */
+int vfs_mount_fs(const char *fstype, const char *src, vfs_node_t node);
 
 /* Unmount a file system from a directory */
 int vfs_umount(const char *path);

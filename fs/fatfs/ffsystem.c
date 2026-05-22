@@ -11,7 +11,7 @@
 /* Allocate/Free a Memory Block                                           */
 /*------------------------------------------------------------------------*/
 
-#include <stdlib.h>		/* with POSIX API */
+#include <alloc.h>
 
 
 void* ff_memalloc (	/* Returns pointer to the allocated memory block (null if not enough core) */

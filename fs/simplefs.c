@@ -680,7 +680,7 @@ static struct vfs_callback simplefs_callbacks = {
 
 void simplefs_regist(void)
 {
-    simplefs_id = vfs_regist(&simplefs_callbacks);
+    simplefs_id = vfs_regist_fs("simplefs", &simplefs_callbacks);
     if (simplefs_id & ERRNO_MASK) {
         plogk("simplefs: Register error.\n");
         return;

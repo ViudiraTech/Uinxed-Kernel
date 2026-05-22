@@ -217,6 +217,6 @@ static struct vfs_callback tmpfs_callbacks = {
 /* Register tmpfs with the VFS layer (initialize tmpfs) */
 void tmpfs_regist(void)
 {
-    tmpfs_id = vfs_regist(&tmpfs_callbacks);
+    tmpfs_id = vfs_regist_fs("tmpfs", &tmpfs_callbacks);
     if (tmpfs_id & ERRNO_MASK) plogk("tmpfs: Register error.\n");
 }

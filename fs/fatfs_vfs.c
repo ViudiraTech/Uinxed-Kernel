@@ -635,7 +635,7 @@ static struct vfs_callback fatfs_vfs_callbacks = {
 
 void fatfs_vfs_regist(void)
 {
-    fatfs_vfs_id = vfs_regist(&fatfs_vfs_callbacks);
+    fatfs_vfs_id = vfs_regist_fs("fatfs", &fatfs_vfs_callbacks);
     if (fatfs_vfs_id & ERRNO_MASK) plogk("fatfs: Register error.\n");
 }
 
@@ -656,7 +656,7 @@ int fatfs_vfs_mount_volume(const char *src, const char *path)
         return EOK;
     }
 
-    status = vfs_mount(src, node);
+    status = vfs_mount_fs("fatfs", src, node);
     vfs_close(node);
     return status;
 }
