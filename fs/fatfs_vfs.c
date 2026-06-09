@@ -437,11 +437,6 @@ static void fatfs_vfs_close(void *current)
     if (!handle) return;
     if (!handle->opened) return;
 
-    if (!handle->owns_mount && !handle->is_dir) {
-        fatfs_handle_destroy(handle);
-        return;
-    }
-
     if (handle->is_dir)
         f_closedir(&handle->dir);
     else

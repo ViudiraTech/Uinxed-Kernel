@@ -233,7 +233,8 @@ int vfs_mkfile(const char *name)
     } else {
         parent = vfs_open(fullpath);
     }
-    if (!parent || parent->type != file_dir) {
+    if (!parent || !(parent->type & file_dir)) {
+        if (parent && parent != rootdir) vfs_close(parent);
         free(fullpath);
         return -ENOENT;
     }
@@ -246,7 +247,76 @@ int vfs_mkfile(const char *name)
         parent->child = clist_delete(parent->child, node);
         vfs_free(node);
     }
+    if (parent != rootdir) vfs_close(parent);
     free(fullpath);
+    return status;
+}
+
+/* Read a directory entry by index from the specified directory node */
+int vfs_readdir(vfs_node_t dir, size_t index, vfs_dirent_t *entry)
+{
+    clist_t list;
+
+    if (!dir || !entry) return -EINVAL;
+    do_update(dir);
+    if (!(dir->type & file_dir)) return -ENOTDIR;
+
+    list = clist_nth(dir->child, index);
+    if (!list || !list->data) return -ENOENT;
+
+    vfs_node_t child = list->data;
+    entry->name      = child->name;
+    entry->type      = child->type;
+    entry->size      = child->size;
+    entry->inode     = child->inode;
+    return EOK;
+}
+
+/* Open a directory stream for sequential iteration */
+vfs_dir_t vfs_opendir(const char *path)
+{
+    vfs_dir_t  dir;
+    vfs_node_t node;
+
+    if (!path) return 0;
+
+    node = vfs_open(path);
+    if (!node) return 0;
+    if (!(node->type & file_dir)) {
+        vfs_close(node);
+        return 0;
+    }
+
+    dir = calloc(1, sizeof(*dir));
+    if (!dir) {
+        vfs_close(node);
+        return 0;
+    }
+
+    dir->node  = node;
+    dir->index = 0;
+    return dir;
+}
+
+/* Read the next entry from an open directory stream */
+vfs_dirent_t *vfs_readdir_next(vfs_dir_t dir)
+{
+    if (!dir || !dir->node) return 0;
+    if (vfs_readdir(dir->node, dir->index, &dir->entry) != EOK) return 0;
+
+    dir->index++;
+    return &dir->entry;
+}
+
+/* Close an open directory stream */
+int vfs_closedir(vfs_dir_t dir)
+{
+    int status;
+
+    if (!dir) return -EINVAL;
+
+    status = dir->node ? vfs_close(dir->node) : EOK;
+    free(dir);
     return status;
 }
 
@@ -379,7 +449,7 @@ static int vfs_mount_id(const char *src, vfs_node_t node, int fsid)
 {
     uint16_t old_fsid;
 
-    if (!node || node->type != file_dir) return -EINVAL;
+    if (!node || !(node->type & file_dir)) return -EINVAL;
     if (fsid <= 0 || fsid >= fs_nextid || !fs_callbacks[fsid]) return -ENOENT;
 
     old_fsid  = node->fsid;
@@ -398,7 +468,7 @@ static int vfs_mount_id(const char *src, vfs_node_t node, int fsid)
 /* Mount a file system to a directory */
 int vfs_mount(const char *src, vfs_node_t node)
 {
-    if (!node || node->type != file_dir) return -EINVAL;
+    if (!node || !(node->type & file_dir)) return -EINVAL;
     for (int i = 1; i < fs_nextid; i++) {
         if (vfs_mount_id(src, node, i) == EOK) return EOK;
     }
@@ -449,7 +519,7 @@ size_t vfs_read(vfs_node_t file, void *addr, size_t offset, size_t size)
     if (!file || !addr) return (size_t)-1;
     do_update(file);
 
-    if (file->type == file_dir) return (size_t)-1;
+    if (file->type & file_dir) return (size_t)-1;
     return callbackof(file, read)(file->handle, addr, offset, size);
 }
 
@@ -466,7 +536,7 @@ size_t vfs_write(vfs_node_t file, void *addr, size_t offset, size_t size)
     if (!file || !addr) return (size_t)-1;
     do_update(file);
 
-    if (file->type == file_dir) return (size_t)-1;
+    if (file->type & file_dir) return (size_t)-1;
     size_t ret = callbackof(file, write)(file->handle, addr, offset, size);
 
     do_update(file);
@@ -477,20 +547,24 @@ size_t vfs_write(vfs_node_t file, void *addr, size_t offset, size_t size)
 int vfs_close(vfs_node_t node)
 {
     if (!node) return -EINVAL;
-    if (node == rootdir || !node->handle) return EOK;
-
     if (node->refcount) node->refcount--;
 
-    if (node->type & file_proxy || node->type & file_dir || node->refcount) return EOK;
+    if (node == rootdir || !node->handle) return EOK;
+    if (node->type & file_proxy || node->refcount) return EOK;
+
     if (node->type & file_delete) {
+        if ((node->type & file_dir) && node->child) return -ENOTEMPTY;
+
         int res = callbackof(node, delete)(node->parent->handle, node);
         if (res < 0) return res;
+
+        callbackof(node, close)(node->handle);
         node->parent->child = clist_delete(node->parent->child, node);
-        node->handle        = 0;
+        callbackof(node, free)(node->handle);
+        node->handle = 0;
         vfs_free(node);
     } else {
         callbackof(node, close)(node->handle);
-        node->handle = 0;
     }
     return EOK;
 }
@@ -498,8 +572,11 @@ int vfs_close(vfs_node_t node)
 /* Delete a VFS (Virtual File System) node and clean up associated resources */
 int vfs_delete(vfs_node_t node)
 {
-    if (node == rootdir) return -EINVAL;
+    if (!node || node == rootdir) return -EINVAL;
+
+    do_update(node);
     node->type |= file_delete;
+    if (!node->refcount) return vfs_close(node);
     return EOK;
 }
 
@@ -524,7 +601,7 @@ int vfs_ioctl(vfs_node_t device, size_t options, void *arg)
     if (!device) return -EINVAL;
     do_update(device);
 
-    if (device->type == file_dir) return -EISDIR;
+    if (device->type & file_dir) return -EISDIR;
     return callbackof(device, ioctl)(device->handle, options, arg);
 }
 
@@ -540,16 +617,20 @@ int vfs_poll(vfs_node_t node, size_t event)
 void vfs_free_child(vfs_node_t vfs)
 {
     if (!vfs) return;
-    clist_free_with(vfs->child, (void (*)(void *))vfs_free);
+    vfs->child = clist_free_with(vfs->child, (void (*)(void *))vfs_free);
 }
 
 /* Free the memory associated with a vfs node */
 void vfs_free(vfs_node_t vfs)
 {
     if (!vfs) return;
-    clist_free_with(vfs->child, (void (*)(void *))vfs_free);
-    vfs_close(vfs);
-    callbackof(vfs, free)(vfs->handle);
+
+    vfs->child = clist_free_with(vfs->child, (void (*)(void *))vfs_free);
+    if (vfs->handle) {
+        callbackof(vfs, close)(vfs->handle);
+        callbackof(vfs, free)(vfs->handle);
+        vfs->handle = 0;
+    }
     free(vfs->name);
     free(vfs);
 }

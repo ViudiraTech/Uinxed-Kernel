@@ -18,6 +18,19 @@
 #define callbackof(node, _name_) (fs_callbacks[(node)->fsid]->_name_)
 
 typedef struct vfs_node *vfs_node_t;
+typedef struct vfs_dirent {
+        const char *name;
+        uint16_t    type;
+        uint64_t    size;
+        uint64_t    inode;
+} vfs_dirent_t;
+
+typedef struct vfs_dir {
+        vfs_node_t   node;
+        size_t       index;
+        vfs_dirent_t entry;
+} *vfs_dir_t;
+
 typedef int (*vfs_mount_t)(const char *src, vfs_node_t node);
 typedef void (*vfs_umount_t)(void *root);
 typedef void (*vfs_open_t)(void *parent, const char *name, vfs_node_t node);
@@ -129,6 +142,18 @@ int vfs_mkdir(const char *name);
 
 /* Create a new file at the specified path */
 int vfs_mkfile(const char *name);
+
+/* Read a directory entry by index from the specified directory node */
+int vfs_readdir(vfs_node_t dir, size_t index, vfs_dirent_t *entry);
+
+/* Open a directory stream for sequential iteration */
+vfs_dir_t vfs_opendir(const char *path);
+
+/* Read the next entry from an open directory stream */
+vfs_dirent_t *vfs_readdir_next(vfs_dir_t dir);
+
+/* Close an open directory stream */
+int vfs_closedir(vfs_dir_t dir);
 
 /* Create a hard link at the specified path */
 int vfs_link(const char *name, const char *target_name);

@@ -110,9 +110,7 @@ int tmpfs_stat(void *file, vfs_node_t node)
 int tmpfs_delete(void *parent, vfs_node_t node)
 {
     (void)parent;
-    tmpfs_file_t *f = (tmpfs_file_t *)node->handle;
-    free(f->data);
-    free(f);
+    (void)node;
     return EOK;
 }
 
