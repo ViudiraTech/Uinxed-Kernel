@@ -17,7 +17,7 @@
 
 #define PS2_KBD_EVENT_QUEUE_SIZE 128
 
-static ps2_input_event_t ps2kbd_events[PS2_KBD_EVENT_QUEUE_SIZE];
+static input_event_t ps2kbd_events[PS2_KBD_EVENT_QUEUE_SIZE];
 static size_t            ps2kbd_event_head = 0;
 static size_t            ps2kbd_event_tail = 0;
 static spinlock_t        ps2kbd_event_lock = {0};
@@ -30,9 +30,9 @@ static void ps2kbd_event_push(uint8_t scancode)
     next = (ps2kbd_event_head + 1) % PS2_KBD_EVENT_QUEUE_SIZE;
     if (next == ps2kbd_event_tail) ps2kbd_event_tail = (ps2kbd_event_tail + 1) % PS2_KBD_EVENT_QUEUE_SIZE;
 
-    ps2kbd_events[ps2kbd_event_head] = (ps2_input_event_t) {
+    ps2kbd_events[ps2kbd_event_head] = (input_event_t) {
         .timestamp_ns = nano_time(),
-        .type         = ps2_event_type_raw,
+        .type         = input_event_type_raw,
         .code         = scancode,
         .value        = (scancode & 0x80) ? 0 : 1,
         .raw          = scancode,
@@ -172,25 +172,25 @@ void init_ps2(void)
 size_t ps2kbd_read_events(void *ctx, void *addr, size_t offset, size_t size)
 {
     size_t            count;
-    ps2_input_event_t *out = addr;
+    input_event_t *out = addr;
 
     (void)ctx;
     if (!addr) return 0;
-    if (offset != 0 || size < sizeof(ps2_input_event_t)) return 0;
+    if (offset != 0 || size < sizeof(input_event_t)) return 0;
 
     spin_lock(&ps2kbd_event_lock);
-    count = size / sizeof(ps2_input_event_t);
+    count = size / sizeof(input_event_t);
     for (size_t i = 0; i < count; i++) {
         if (ps2kbd_event_tail == ps2kbd_event_head) {
             spin_unlock(&ps2kbd_event_lock);
-            return i * sizeof(ps2_input_event_t);
+            return i * sizeof(input_event_t);
         }
 
         out[i]          = ps2kbd_events[ps2kbd_event_tail];
         ps2kbd_event_tail = (ps2kbd_event_tail + 1) % PS2_KBD_EVENT_QUEUE_SIZE;
     }
     spin_unlock(&ps2kbd_event_lock);
-    return count * sizeof(ps2_input_event_t);
+    return count * sizeof(input_event_t);
 }
 
 int ps2kbd_poll_events(void *ctx, size_t events)

@@ -11,30 +11,9 @@
 #ifndef INCLUDE_PS2_H_
 #define INCLUDE_PS2_H_
 
+#include <input_event.h>
 #include <stddef.h>
 #include <stdint.h>
-
-/*
- * Raw PS/2 keyboard event exposed through /dev/input/event0.
- *
- * `type` is currently always `ps2_event_type_raw`.
- * `code` and `raw` both carry the original PS/2 scancode byte.
- * `value` is 1 for key press bytes and 0 for key release bytes.
- * Events are returned as a packed array when reading /dev/input/event0.
- */
-typedef struct {
-        uint64_t timestamp_ns;
-        uint16_t type;
-        uint16_t code;
-        int32_t  value;
-        uint8_t  raw;
-        uint8_t  reserved[3];
-} ps2_input_event_t;
-
-/* Event type values returned in `ps2_input_event_t.type`. */
-enum {
-    ps2_event_type_raw = 1,
-};
 
 /* PS/2 port */
 #define PS2_DATA_PORT   0x60 // Data port
@@ -102,7 +81,7 @@ void init_ps2(void);
 /*
  * Read queued PS/2 keyboard events into `addr`.
  *
- * The buffer should be sized as an integer multiple of `ps2_input_event_t`.
+ * The buffer should be sized as an integer multiple of `input_event_t`.
  * `offset` is currently expected to be 0 for this streaming device.
  * The return value is the number of bytes copied.
  */

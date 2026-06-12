@@ -13,6 +13,7 @@
 #include <blockdev.h>
 #include <errno.h>
 #include <ide.h>
+#include <input_event.h>
 #include <ps2.h>
 #include <printk.h>
 #include <tmpfs.h>
@@ -145,7 +146,7 @@ static void devtmpfs_create_input_event_node(void)
         return;
     }
 
-    node->blksz = sizeof(ps2_input_event_t);
+    node->blksz = sizeof(input_event_t);
     node->dev   = 1;
     node->rdev  = 0;
     plogk("devtmpfs: Registered /dev/input/event0 as PS/2 keyboard event device.\n");
