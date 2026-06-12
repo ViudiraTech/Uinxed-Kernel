@@ -26,6 +26,18 @@ static char           boot_tty_str_buf[16]   = {0}; // Persistent buffer
 static char           tty_buff[TTY_BUF_SIZE] = {0};
 static volatile char *tty_buff_ptr           = tty_buff;
 
+static int tty_should_flush_now(const char ch)
+{
+    tty_device_t *tty_device = get_boot_tty();
+    size_t        used       = (size_t)(tty_buff_ptr - tty_buff);
+
+    if (!tty_device) return 1;
+    if (used >= TTY_BUF_SIZE - 1) return 1;
+    if (tty_device->type == TTY_DEVICE_SERIAL) return ch == '\n';
+    if (tty_device->type == TTY_DEVICE_VGA) return used >= TTY_BUF_SIZE - 64;
+    return ch == '\n';
+}
+
 spinlock_t tty_flush_spinlock = {
     .lock   = 0,
     .rflags = 0,
@@ -239,7 +251,7 @@ static void tty_buff_add(const char ch)
     if (ch == '\0') return;
     *tty_buff_ptr++ = ch;
 
-    if (tty_buff_ptr - tty_buff >= TTY_BUF_SIZE - 1 || ch == '\n') {
+    if (tty_should_flush_now(ch)) {
         /* Flush */
         *tty_buff_ptr = '\0';
         tty_buff_flush();
