@@ -9,8 +9,9 @@
  */
 
 #include <common.h>
-#include <cpuid.h>
 #include <fbcon.h>
+#include <heap.h>
+#include <string.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <video.h>
@@ -21,6 +22,32 @@ extern uint8_t ascii_font[];
 
 static char     char_buffer[256];      // Char buffer
 static uint32_t char_buffer_index = 0; // Char buffer index
+static char    *text_grid         = 0;
+static uint32_t *color_grid       = 0;
+
+static void fbcon_clear_row(uint32_t row)
+{
+    if (!text_grid || !color_grid || row >= c_height) return;
+
+    memset(text_grid + (size_t)row * c_width, ' ', c_width);
+    for (uint32_t col = 0; col < c_width; col++) color_grid[(size_t)row * c_width + col] = fore_color;
+}
+
+static void fbcon_redraw_row(uint32_t row)
+{
+    if (!text_grid || !color_grid || row >= c_height) return;
+
+    for (uint32_t col = 0; col < c_width; col++) {
+        size_t index = (size_t)row * c_width + col;
+        fbcon_draw_char(text_grid[index], col * font_width, row * font_height, color_grid[index]);
+    }
+}
+
+static void fbcon_redraw_all(void)
+{
+    if (!text_grid || !color_grid) return;
+    for (uint32_t row = 0; row < c_height; row++) fbcon_redraw_row(row);
+}
 
 /* Initialize framebuffer console */
 void fbcon_init(void)
@@ -35,6 +62,12 @@ void fbcon_init(void)
 
     fore_color = color_to_fb_color((color_t) {0xaa, 0xaa, 0xaa});
     back_color = color_to_fb_color((color_t) {0x00, 0x00, 0x00});
+
+    text_grid  = calloc((size_t)c_width * c_height, sizeof(char));
+    color_grid = malloc((size_t)c_width * c_height * sizeof(uint32_t));
+    if (text_grid && color_grid) {
+        for (uint32_t row = 0; row < c_height; row++) fbcon_clear_row(row);
+    }
 
     char_buffer_index = 0;
     char_buffer[0]    = '\0';
@@ -56,42 +89,14 @@ void fbcon_scroll(void)
     }
 
     if ((uint32_t)cy >= c_height) {
-        uint8_t       *dest  = (uint8_t *)buffer;
-        const uint8_t *src   = (const uint8_t *)(buffer + stride * font_height);
-        size_t         count = stride * (height - font_height) * sizeof(uint32_t);
-
-#if CPU_FEATURE_SSE
-        if (cpu_support_sse()) {
-            size_t blocks = count / 64;
-            size_t remain = count % 64;
-
-            __asm__ volatile("1:\n\t"
-                             "movdqu (%[src]), %%xmm0\n\t"
-                             "movdqu 16(%[src]), %%xmm1\n\t"
-                             "movdqu 32(%[src]), %%xmm2\n\t"
-                             "movdqu 48(%[src]), %%xmm3\n\t"
-                             "movdqu %%xmm0, (%[dest])\n\t"
-                             "movdqu %%xmm1, 16(%[dest])\n\t"
-                             "movdqu %%xmm2, 32(%[dest])\n\t"
-                             "movdqu %%xmm3, 48(%[dest])\n\t"
-                             "add $64, %[src]\n\t"
-                             "add $64, %[dest]\n\t"
-                             "dec %[blocks]\n\t"
-                             "jnz 1b\n\t"
-                             : [src] "+r"(src), [dest] "+r"(dest), [blocks] "+r"(blocks)
-                             :
-                             : "xmm0", "xmm1", "xmm2", "xmm3", "memory");
-
-            for (size_t i = 0; i < remain; i++) *dest++ = *src++;
+        if (text_grid && color_grid) {
+            memmove(text_grid, text_grid + c_width, (size_t)(c_height - 1) * c_width);
+            memmove(color_grid, color_grid + c_width, (size_t)(c_height - 1) * c_width * sizeof(uint32_t));
+            fbcon_clear_row(c_height - 1);
+            fbcon_redraw_all();
         } else {
-            count /= 8;
-            __asm__ volatile("rep movsq" : "+D"(dest), "+S"(src), "+c"(count)::"memory");
+            video_draw_rect((position_t) {0, 0}, (position_t) {stride, height}, back_color);
         }
-#else
-        count /= 8;
-        __asm__ volatile("rep movsq" : "+D"(dest), "+S"(src), "+c"(count)::"memory");
-#endif
-        video_draw_rect((position_t) {0, height - font_height}, (position_t) {stride, height}, back_color);
         cy = c_height - 1;
     }
 }
@@ -128,6 +133,12 @@ void fbcon_flush_buffer(uint32_t color)
                 uint8_t   font_row = char_font[row];
                 for (uint32_t col = 0; col < font_width; col++) row_buf[col] = (font_row & (0x80 >> col)) ? color : back_color;
             }
+
+            if (text_grid && color_grid && cx + i < c_width && cy < c_height) {
+                size_t index      = (size_t)cy * c_width + (cx + i);
+                text_grid[index]  = c;
+                color_grid[index] = color;
+            }
         }
         cx += char_buffer_index;
         char_buffer_index = 0;
@@ -162,10 +173,20 @@ void fbcon_put_char(const char c, uint32_t color)
         fbcon_flush_buffer(color);
         if (cx > 0) {
             cx--;
+            if (text_grid && color_grid && cy < c_height) {
+                size_t index      = (size_t)cy * c_width + cx;
+                text_grid[index]  = ' ';
+                color_grid[index] = back_color;
+            }
             fbcon_draw_char(' ', cx * font_width, cy * font_height, back_color);
         } else if (cy > 0) {
             cy--;
             cx = c_width - 1;
+            if (text_grid && color_grid) {
+                size_t index      = (size_t)cy * c_width + cx;
+                text_grid[index]  = ' ';
+                color_grid[index] = back_color;
+            }
             fbcon_draw_char(' ', cx * font_width, cy * font_height, back_color);
         }
         return;
