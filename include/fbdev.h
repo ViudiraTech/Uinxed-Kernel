@@ -13,8 +13,17 @@
 
 #include <stdint.h>
 
+/* Return a `fbdev_info_t` describing /dev/fb0. */
 #define FBDEV_IOCTL_GET_INFO 0x1000
 
+/*
+ * Userspace-visible framebuffer metadata returned by `FBDEV_IOCTL_GET_INFO`.
+ *
+ * `stride` is expressed in pixels per scanline.
+ * `size` is the total framebuffer size in bytes.
+ * Raw reads and writes to /dev/fb0 use packed framebuffer bytes starting at
+ * the first pixel of the top-left corner.
+ */
 typedef struct {
         uint64_t width;
         uint64_t height;

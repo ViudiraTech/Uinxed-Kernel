@@ -67,13 +67,23 @@ video_info_t video_get_info(void);
 /* Get the frame buffer */
 struct limine_framebuffer *get_framebuffer(void);
 
-/* Read raw bytes from the primary framebuffer */
+/*
+ * Read raw bytes from the primary framebuffer backing /dev/fb0.
+ *
+ * `offset` and `size` are byte-based. Data is copied from the live framebuffer
+ * memory exactly as stored in RAM.
+ */
 size_t video_fb_read(void *ctx, void *addr, size_t offset, size_t size);
 
-/* Write raw bytes to the primary framebuffer */
+/*
+ * Write raw bytes to the primary framebuffer backing /dev/fb0.
+ *
+ * `offset` and `size` are byte-based. Writes immediately affect the visible
+ * framebuffer contents.
+ */
 size_t video_fb_write(void *ctx, const void *addr, size_t offset, size_t size);
 
-/* Query framebuffer device metadata */
+/* Query /dev/fb0 metadata such as dimensions, stride and pixel layout. */
 int video_fb_ioctl(void *ctx, size_t req, void *arg);
 
 /* Initialize Video */
