@@ -43,10 +43,14 @@ static void fbcon_redraw_row(uint32_t row)
     }
 }
 
-static void fbcon_redraw_all(void)
+static void fbcon_scroll_pixels(void)
 {
-    if (!text_grid || !color_grid) return;
-    for (uint32_t row = 0; row < c_height; row++) fbcon_redraw_row(row);
+    uint8_t       *dest  = (uint8_t *)buffer;
+    const uint8_t *src   = (const uint8_t *)(buffer + stride * font_height);
+    size_t         count = stride * (height - font_height) * sizeof(uint32_t);
+
+    memmove(dest, src, count);
+    video_draw_rect((position_t) {0, height - font_height}, (position_t) {stride - 1, height - 1}, back_color);
 }
 
 /* Initialize framebuffer console */
@@ -93,7 +97,8 @@ void fbcon_scroll(void)
             memmove(text_grid, text_grid + c_width, (size_t)(c_height - 1) * c_width);
             memmove(color_grid, color_grid + c_width, (size_t)(c_height - 1) * c_width * sizeof(uint32_t));
             fbcon_clear_row(c_height - 1);
-            fbcon_redraw_all();
+            fbcon_scroll_pixels();
+            fbcon_redraw_row(c_height - 1);
         } else {
             video_draw_rect((position_t) {0, 0}, (position_t) {stride, height}, back_color);
         }
