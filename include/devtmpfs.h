@@ -11,6 +11,12 @@
 #ifndef INCLUDE_DEVTMPFS_H_
 #define INCLUDE_DEVTMPFS_H_
 
+/*
+ * Initialize /dev on top of tmpfs and populate built-in device nodes.
+ *
+ * This currently includes block devices discovered from IDE and the PS/2
+ * keyboard event device at /dev/input/event0.
+ */
 void devtmpfs_init(void);
 
 #endif // INCLUDE_DEVTMPFS_H_

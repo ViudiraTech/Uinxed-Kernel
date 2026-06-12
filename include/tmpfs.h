@@ -13,11 +13,13 @@
 
 #include <vfs.h>
 
+/* Optional device callbacks attached to a tmpfs node. */
 typedef size_t (*tmpfs_dev_read_t)(void *ctx, void *addr, size_t offset, size_t size);
 typedef size_t (*tmpfs_dev_write_t)(void *ctx, const void *addr, size_t offset, size_t size);
 typedef int (*tmpfs_dev_poll_t)(void *ctx, size_t events);
 typedef int (*tmpfs_dev_ioctl_t)(void *ctx, size_t req, void *arg);
 
+/* Device operations used to turn a tmpfs node into a device-backed file. */
 typedef struct {
         tmpfs_dev_read_t  read;
         tmpfs_dev_write_t write;
@@ -94,7 +96,13 @@ void tmpfs_dummy(void);
 /* Register tmpfs with the VFS layer (initialize tmpfs) */
 void tmpfs_regist(void);
 
-/* Bind device callbacks to a tmpfs-backed node */
+/*
+ * Bind device callbacks to a tmpfs-backed node.
+ *
+ * This keeps the node in tmpfs while routing read/write/poll/ioctl through
+ * the supplied callbacks. `node_type` should be set to a VFS device type such
+ * as `file_keyboard | file_stream` for /dev/input/event0.
+ */
 int tmpfs_bind_device(vfs_node_t node, uint16_t node_type, const tmpfs_device_ops_t *device);
 
 #endif // INCLUDE_TMPFS_H_

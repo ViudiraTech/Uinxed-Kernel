@@ -14,6 +14,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/*
+ * Raw PS/2 keyboard event exposed through /dev/input/event0.
+ *
+ * `type` is currently always `ps2_event_type_raw`.
+ * `code` and `raw` both carry the original PS/2 scancode byte.
+ * `value` is 1 for key press bytes and 0 for key release bytes.
+ * Events are returned as a packed array when reading /dev/input/event0.
+ */
 typedef struct {
         uint64_t timestamp_ns;
         uint16_t type;
@@ -23,6 +31,7 @@ typedef struct {
         uint8_t  reserved[3];
 } ps2_input_event_t;
 
+/* Event type values returned in `ps2_input_event_t.type`. */
 enum {
     ps2_event_type_raw = 1,
 };
@@ -90,10 +99,16 @@ void ps2_write_config(uint8_t config);
 /* Initialize the PS/2 controller */
 void init_ps2(void);
 
-/* Read queued PS/2 keyboard events */
+/*
+ * Read queued PS/2 keyboard events into `addr`.
+ *
+ * The buffer should be sized as an integer multiple of `ps2_input_event_t`.
+ * `offset` is currently expected to be 0 for this streaming device.
+ * The return value is the number of bytes copied.
+ */
 size_t ps2kbd_read_events(void *ctx, void *addr, size_t offset, size_t size);
 
-/* Poll queued PS/2 keyboard events */
+/* Poll queued PS/2 keyboard events for readability. */
 int ps2kbd_poll_events(void *ctx, size_t events);
 
 #endif // INCLUDE_PS2_H_
