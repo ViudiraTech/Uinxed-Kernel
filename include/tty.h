@@ -61,4 +61,7 @@ void tty_print_str(const char *str);
 /* Flush tty buffer */
 void tty_buff_flush(void);
 
+/* Flush deferred tty output for framebuffer consoles */
+void tty_deferred_flush(void);
+
 #endif // INCLUDE_TTY_H_

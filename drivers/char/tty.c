@@ -25,6 +25,7 @@ tty_device_t *boot_tty_ptr = 0;
 static char           boot_tty_str_buf[16]   = {0}; // Persistent buffer
 static char           tty_buff[TTY_BUF_SIZE] = {0};
 static volatile char *tty_buff_ptr           = tty_buff;
+static volatile int   tty_vga_dirty          = 0;
 
 static int tty_should_flush_now(const char ch)
 {
@@ -36,6 +37,17 @@ static int tty_should_flush_now(const char ch)
     if (tty_device->type == TTY_DEVICE_SERIAL) return ch == '\n';
     if (tty_device->type == TTY_DEVICE_VGA) return used >= TTY_BUF_SIZE - 64;
     return ch == '\n';
+}
+
+static void tty_vga_flush_locked(void)
+{
+    if (tty_buff_ptr == tty_buff) return;
+
+    tty_buff[TTY_BUF_SIZE - 1] = '\0';
+    fbcon_put_string(tty_buff);
+    tty_buff_ptr     = tty_buff;
+    tty_buff[0]      = '\0';
+    tty_vga_dirty    = 0;
 }
 
 spinlock_t tty_flush_spinlock = {
@@ -191,7 +203,6 @@ tty_device_t *get_boot_tty(void)
 void tty_buff_flush(void)
 {
     spin_lock(&tty_flush_spinlock);
-    tty_buff_ptr              = tty_buff;
     tty_device_t *tty_device  = get_boot_tty();
     uint16_t      serial_port = 0;
     uint8_t       early_break = 0;
@@ -201,8 +212,7 @@ void tty_buff_flush(void)
         switch (tty_device->type) {
             case TTY_DEVICE_VGA :
                 if (tty_device->port == 0) {
-                    tty_buff[TTY_BUF_SIZE - 1] = '\0';
-                    fbcon_put_string(tty_buff);
+                    tty_vga_flush_locked();
                 } else {
                     /* Bad port number */
                     early_break = 0;
@@ -234,27 +244,46 @@ void tty_buff_flush(void)
                         break;
                 }
                 while (*tty_buff_ptr != '\0') write_serial(serial_port, *tty_buff_ptr++);
+                tty_buff_ptr = tty_buff;
+                tty_buff[0]  = '\0';
                 break;
             default :
                 /* Unreachable */
                 break;
         }
     }
-    tty_buff_ptr = tty_buff;
-    tty_buff[0]  = '\0';
+    spin_unlock(&tty_flush_spinlock);
+}
+
+void tty_deferred_flush(void)
+{
+    tty_device_t *tty_device = get_boot_tty();
+
+    if (!tty_device || tty_device->type != TTY_DEVICE_VGA || tty_device->port != 0) return;
+    if (!tty_vga_dirty) return;
+
+    spin_lock(&tty_flush_spinlock);
+    tty_vga_flush_locked();
     spin_unlock(&tty_flush_spinlock);
 }
 
 /* Add character data to the teletype buffer */
 static void tty_buff_add(const char ch)
 {
+    tty_device_t *tty_device;
+
     if (ch == '\0') return;
+    tty_device = get_boot_tty();
     *tty_buff_ptr++ = ch;
+    if (tty_device && tty_device->type == TTY_DEVICE_VGA && tty_device->port == 0) tty_vga_dirty = 1;
 
     if (tty_should_flush_now(ch)) {
         /* Flush */
         *tty_buff_ptr = '\0';
-        tty_buff_flush();
+        if (tty_device && tty_device->type == TTY_DEVICE_VGA && tty_device->port == 0)
+            tty_deferred_flush();
+        else
+            tty_buff_flush();
     }
     *tty_buff_ptr = '\0';
 }

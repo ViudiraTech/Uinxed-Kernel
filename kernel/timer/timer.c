@@ -15,6 +15,7 @@
 #include <math.h>
 #include <printk.h>
 #include <stdint.h>
+#include <tty.h>
 #include <tsc.h>
 
 /* Timer interrupt */
@@ -22,6 +23,7 @@ INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
+    tty_deferred_flush();
     send_eoi();
     enable_intr();
 }
