@@ -11,7 +11,21 @@
 #ifndef INCLUDE_PS2_H_
 #define INCLUDE_PS2_H_
 
+#include <stddef.h>
 #include <stdint.h>
+
+typedef struct {
+        uint64_t timestamp_ns;
+        uint16_t type;
+        uint16_t code;
+        int32_t  value;
+        uint8_t  raw;
+        uint8_t  reserved[3];
+} ps2_input_event_t;
+
+enum {
+    ps2_event_type_raw = 1,
+};
 
 /* PS/2 port */
 #define PS2_DATA_PORT   0x60 // Data port
@@ -75,5 +89,11 @@ void ps2_write_config(uint8_t config);
 
 /* Initialize the PS/2 controller */
 void init_ps2(void);
+
+/* Read queued PS/2 keyboard events */
+size_t ps2kbd_read_events(void *ctx, void *addr, size_t offset, size_t size);
+
+/* Poll queued PS/2 keyboard events */
+int ps2kbd_poll_events(void *ctx, size_t events);
 
 #endif // INCLUDE_PS2_H_

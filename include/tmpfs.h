@@ -13,6 +13,19 @@
 
 #include <vfs.h>
 
+typedef size_t (*tmpfs_dev_read_t)(void *ctx, void *addr, size_t offset, size_t size);
+typedef size_t (*tmpfs_dev_write_t)(void *ctx, const void *addr, size_t offset, size_t size);
+typedef int (*tmpfs_dev_poll_t)(void *ctx, size_t events);
+typedef int (*tmpfs_dev_ioctl_t)(void *ctx, size_t req, void *arg);
+
+typedef struct {
+        tmpfs_dev_read_t  read;
+        tmpfs_dev_write_t write;
+        tmpfs_dev_poll_t  poll;
+        tmpfs_dev_ioctl_t ioctl;
+        void             *ctx;
+} tmpfs_device_ops_t;
+
 enum tmpfs_type {
     tp_file_dir,
     tp_file_file,
@@ -29,6 +42,8 @@ typedef struct {
         vfs_node_t      node;
         vfs_node_t      root;
         size_t          capacity;
+        uint16_t        node_type;
+        tmpfs_device_ops_t device;
 } tmpfs_file_t;
 
 /* Mount the tmpfs file system to a specified VFS node */
@@ -78,5 +93,8 @@ void tmpfs_dummy(void);
 
 /* Register tmpfs with the VFS layer (initialize tmpfs) */
 void tmpfs_regist(void);
+
+/* Bind device callbacks to a tmpfs-backed node */
+int tmpfs_bind_device(vfs_node_t node, uint16_t node_type, const tmpfs_device_ops_t *device);
 
 #endif // INCLUDE_TMPFS_H_

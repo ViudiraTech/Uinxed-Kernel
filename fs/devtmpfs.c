@@ -13,6 +13,7 @@
 #include <blockdev.h>
 #include <errno.h>
 #include <ide.h>
+#include <ps2.h>
 #include <printk.h>
 #include <tmpfs.h>
 #include <vfs.h>
@@ -106,6 +107,51 @@ static void devtmpfs_create_partition_node(uint8_t drive, uint8_t part_index, co
     plogk("devtmpfs: Registered %s for partition type 0x%02x, start %u, sectors %u.\n", dev_path, part->type, part->first_lba, part->sectors);
 }
 
+static void devtmpfs_create_input_event_node(void)
+{
+    static const tmpfs_device_ops_t ps2kbd_device = {
+        .read  = ps2kbd_read_events,
+        .poll  = ps2kbd_poll_events,
+        .ioctl = 0,
+        .write = 0,
+        .ctx   = 0,
+    };
+
+    vfs_node_t node;
+    int        status;
+
+    status = vfs_mkdir("/dev/input");
+    if (status != EOK && status != -EEXIST) {
+        plogk("devtmpfs: Cannot create /dev/input: %d\n", status);
+        return;
+    }
+
+    status = vfs_mkfile("/dev/input/event0");
+    if (status != EOK && status != -EEXIST) {
+        plogk("devtmpfs: Cannot create /dev/input/event0: %d\n", status);
+        return;
+    }
+
+    node = vfs_open("/dev/input/event0");
+    if (!node) {
+        plogk("devtmpfs: Cannot open /dev/input/event0 after creation.\n");
+        return;
+    }
+
+    status = tmpfs_bind_device(node, file_keyboard | file_stream, &ps2kbd_device);
+    if (status != EOK) {
+        plogk("devtmpfs: Cannot bind /dev/input/event0: %d\n", status);
+        vfs_close(node);
+        return;
+    }
+
+    node->blksz = sizeof(ps2_input_event_t);
+    node->dev   = 1;
+    node->rdev  = 0;
+    plogk("devtmpfs: Registered /dev/input/event0 as PS/2 keyboard event device.\n");
+    vfs_close(node);
+}
+
 void devtmpfs_init(void)
 {
     int status;
@@ -144,4 +190,6 @@ void devtmpfs_init(void)
             }
         }
     }
+
+    devtmpfs_create_input_event_node();
 }

@@ -24,6 +24,7 @@ int tmpfs_mount(const char *handle, vfs_node_t node)
 
     tmpfs_file_t *tmpfs_root = (tmpfs_file_t *)malloc(sizeof(tmpfs_file_t));
     tmpfs_root->type         = tp_file_dir;
+    tmpfs_root->node_type    = file_dir;
     tmpfs_root->node         = node;
     tmpfs_root->root         = node;
 
@@ -47,6 +48,7 @@ int tmpfs_mk(void *parent, const char *name, vfs_node_t node, int is_dir)
     strncpy(f->name, name, sizeof(f->name));
 
     f->type      = is_dir ? tp_file_dir : tp_file_file;
+    f->node_type = is_dir ? file_dir : file_none;
     node->handle = f;
     f->node      = node;
 
@@ -65,6 +67,7 @@ int tmpfs_mkfile(void *parent, const char *name, vfs_node_t node)
 size_t tmpfs_read(void *file, void *addr, size_t offset, size_t size)
 {
     tmpfs_file_t *f = (tmpfs_file_t *)file;
+    if (f->device.read) return f->device.read(f->device.ctx, addr, offset, size);
     if (offset >= f->size) return 0;
 
     size_t actual = (offset + size > f->size) ? (f->size - offset) : size;
@@ -77,6 +80,8 @@ size_t tmpfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
     tmpfs_file_t *f   = (tmpfs_file_t *)file;
     size_t        end = offset + size;
+
+    if (f->device.write) return f->device.write(f->device.ctx, addr, offset, size);
 
     if (end > f->capacity) {
         size_t new_cap = end * 2;
@@ -101,7 +106,7 @@ int tmpfs_stat(void *file, vfs_node_t node)
     tmpfs_file_t *file0 = (tmpfs_file_t *)file;
     if (!file0) return -ENOENT;
 
-    node->type = file0->type == tp_file_symlink ? file_symlink : file0->type == tp_file_dir ? file_dir : file_none;
+    node->type = file0->node_type;
     node->size = file0->type == tp_file_dir ? 0 : file0->size;
     return EOK;
 }
@@ -125,7 +130,9 @@ int tmpfs_rename(void *current, const char *new_name)
 /* Poll a tmpfs file for pending events (simplified implementation) */
 int tmpfs_poll(void *file, size_t events)
 {
-    (void)file;
+    tmpfs_file_t *handle = file;
+
+    if (handle->device.poll) return handle->device.poll(handle->device.ctx, events);
     int revents = 0;
     if (events & 0x0001) revents |= 0x0001;
     if (events & 0x0004) revents |= 0x0004;
@@ -135,9 +142,9 @@ int tmpfs_poll(void *file, size_t events)
 /* Send control commands to a device or file */
 int tmpfs_ioctl(void *file, size_t req, void *arg)
 {
-    (void)req;
-    (void)arg;
     tmpfs_file_t *handle = file;
+
+    if (handle->device.ioctl) return handle->device.ioctl(handle->device.ctx, req, arg);
     if (handle->type == tp_file_char || handle->type == tp_file_blk) { return EOK; }
     return EOK;
 }
@@ -166,6 +173,7 @@ int tmpfs_symlink(void *parent, const char *name, vfs_node_t node)
 
     strncpy(f->name, name, sizeof(f->name));
     f->type      = tp_file_symlink;
+    f->node_type = file_symlink;
     node->handle = f;
     f->node      = node;
 
@@ -217,4 +225,17 @@ void tmpfs_regist(void)
 {
     tmpfs_id = vfs_regist_fs("tmpfs", &tmpfs_callbacks);
     if (tmpfs_id & ERRNO_MASK) plogk("tmpfs: Register error.\n");
+}
+
+int tmpfs_bind_device(vfs_node_t node, uint16_t node_type, const tmpfs_device_ops_t *device)
+{
+    tmpfs_file_t *handle;
+
+    if (!node || !node->handle || !device) return -EINVAL;
+    handle = node->handle;
+
+    handle->device    = *device;
+    handle->node_type = node_type;
+    node->type        = node_type;
+    return EOK;
 }

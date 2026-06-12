@@ -9,8 +9,47 @@
  */
 
 #include <common.h>
+#include <apic.h>
+#include <interrupt.h>
 #include <printk.h>
 #include <ps2.h>
+#include <spin_lock.h>
+
+#define PS2_KBD_EVENT_QUEUE_SIZE 128
+
+static ps2_input_event_t ps2kbd_events[PS2_KBD_EVENT_QUEUE_SIZE];
+static size_t            ps2kbd_event_head = 0;
+static size_t            ps2kbd_event_tail = 0;
+static spinlock_t        ps2kbd_event_lock = {0};
+
+static void ps2kbd_event_push(uint8_t scancode)
+{
+    size_t next;
+
+    spin_lock(&ps2kbd_event_lock);
+    next = (ps2kbd_event_head + 1) % PS2_KBD_EVENT_QUEUE_SIZE;
+    if (next == ps2kbd_event_tail) ps2kbd_event_tail = (ps2kbd_event_tail + 1) % PS2_KBD_EVENT_QUEUE_SIZE;
+
+    ps2kbd_events[ps2kbd_event_head] = (ps2_input_event_t) {
+        .timestamp_ns = nano_time(),
+        .type         = ps2_event_type_raw,
+        .code         = scancode,
+        .value        = (scancode & 0x80) ? 0 : 1,
+        .raw          = scancode,
+    };
+    ps2kbd_event_head = next;
+    spin_unlock(&ps2kbd_event_lock);
+}
+
+INTERRUPT_BEGIN static void ps2kbd_irq(interrupt_frame_t *frame)
+{
+    (void)frame;
+    disable_intr();
+    if (ps2_read_status() & PS2_STATUS_OUTPUT_FULL) ps2kbd_event_push(inb(PS2_DATA_PORT));
+    send_eoi();
+    enable_intr();
+}
+INTERRUPT_END
 
 /* Waiting for PS/2 read ready */
 int wait_ps2_read(void)
@@ -126,4 +165,42 @@ void init_ps2(void)
     final_config |= PS2_CONFIG_PORT1_CLOCK;
     final_config |= PS2_CONFIG_PORT2_CLOCK;
     ps2_write_config(final_config);
+
+    register_interrupt_handler(IRQ_1, (void *)ps2kbd_irq, 0, 0x8e);
+}
+
+size_t ps2kbd_read_events(void *ctx, void *addr, size_t offset, size_t size)
+{
+    size_t            count;
+    ps2_input_event_t *out = addr;
+
+    (void)ctx;
+    if (!addr) return 0;
+    if (offset != 0 || size < sizeof(ps2_input_event_t)) return 0;
+
+    spin_lock(&ps2kbd_event_lock);
+    count = size / sizeof(ps2_input_event_t);
+    for (size_t i = 0; i < count; i++) {
+        if (ps2kbd_event_tail == ps2kbd_event_head) {
+            spin_unlock(&ps2kbd_event_lock);
+            return i * sizeof(ps2_input_event_t);
+        }
+
+        out[i]          = ps2kbd_events[ps2kbd_event_tail];
+        ps2kbd_event_tail = (ps2kbd_event_tail + 1) % PS2_KBD_EVENT_QUEUE_SIZE;
+    }
+    spin_unlock(&ps2kbd_event_lock);
+    return count * sizeof(ps2_input_event_t);
+}
+
+int ps2kbd_poll_events(void *ctx, size_t events)
+{
+    int ready = 0;
+
+    (void)ctx;
+    spin_lock(&ps2kbd_event_lock);
+    if ((events & 0x0001) && ps2kbd_event_tail != ps2kbd_event_head) ready |= 0x0001;
+    if (events & 0x0004) ready |= 0x0004;
+    spin_unlock(&ps2kbd_event_lock);
+    return ready;
 }
