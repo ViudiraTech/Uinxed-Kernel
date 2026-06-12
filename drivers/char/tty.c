@@ -22,10 +22,14 @@
 tty_device_t  boot_tty     = {0, 0};
 tty_device_t *boot_tty_ptr = 0;
 
+#define TTY_VGA_QUEUE_SIZE (TTY_BUF_SIZE * 8)
+
 static char           boot_tty_str_buf[16]   = {0}; // Persistent buffer
 static char           tty_buff[TTY_BUF_SIZE] = {0};
 static volatile char *tty_buff_ptr           = tty_buff;
-static volatile int   tty_vga_dirty          = 0;
+static char           tty_vga_queue[TTY_VGA_QUEUE_SIZE] = {0};
+static size_t         tty_vga_head                   = 0;
+static size_t         tty_vga_tail                   = 0;
 
 static int tty_should_flush_now(const char ch)
 {
@@ -35,19 +39,37 @@ static int tty_should_flush_now(const char ch)
     if (!tty_device) return 1;
     if (used >= TTY_BUF_SIZE - 1) return 1;
     if (tty_device->type == TTY_DEVICE_SERIAL) return ch == '\n';
-    if (tty_device->type == TTY_DEVICE_VGA) return used >= TTY_BUF_SIZE - 64;
+    if (tty_device->type == TTY_DEVICE_VGA) return 0;
     return ch == '\n';
+}
+
+static size_t tty_vga_queue_used(void)
+{
+    if (tty_vga_head >= tty_vga_tail) return tty_vga_head - tty_vga_tail;
+    return TTY_VGA_QUEUE_SIZE - tty_vga_tail + tty_vga_head;
+}
+
+static void tty_vga_queue_push(char ch)
+{
+    size_t next = (tty_vga_head + 1) % TTY_VGA_QUEUE_SIZE;
+
+    if (next == tty_vga_tail) tty_vga_tail = (tty_vga_tail + 1) % TTY_VGA_QUEUE_SIZE;
+    tty_vga_queue[tty_vga_head] = ch;
+    tty_vga_head                = next;
 }
 
 static void tty_vga_flush_locked(void)
 {
-    if (tty_buff_ptr == tty_buff) return;
+    size_t out = 0;
 
-    tty_buff[TTY_BUF_SIZE - 1] = '\0';
+    if (tty_vga_tail == tty_vga_head) return;
+    while (tty_vga_tail != tty_vga_head && out < TTY_BUF_SIZE - 1) {
+        tty_buff[out++] = tty_vga_queue[tty_vga_tail];
+        tty_vga_tail    = (tty_vga_tail + 1) % TTY_VGA_QUEUE_SIZE;
+    }
+
+    tty_buff[out] = '\0';
     fbcon_put_string(tty_buff);
-    tty_buff_ptr     = tty_buff;
-    tty_buff[0]      = '\0';
-    tty_vga_dirty    = 0;
 }
 
 spinlock_t tty_flush_spinlock = {
@@ -260,7 +282,7 @@ void tty_deferred_flush(void)
     tty_device_t *tty_device = get_boot_tty();
 
     if (!tty_device || tty_device->type != TTY_DEVICE_VGA || tty_device->port != 0) return;
-    if (!tty_vga_dirty) return;
+    if (tty_vga_tail == tty_vga_head) return;
 
     spin_lock(&tty_flush_spinlock);
     tty_vga_flush_locked();
@@ -274,16 +296,19 @@ static void tty_buff_add(const char ch)
 
     if (ch == '\0') return;
     tty_device = get_boot_tty();
+
+    if (tty_device && tty_device->type == TTY_DEVICE_VGA && tty_device->port == 0) {
+        tty_vga_queue_push(ch);
+        if (tty_vga_queue_used() >= TTY_BUF_SIZE) tty_deferred_flush();
+        return;
+    }
+
     *tty_buff_ptr++ = ch;
-    if (tty_device && tty_device->type == TTY_DEVICE_VGA && tty_device->port == 0) tty_vga_dirty = 1;
 
     if (tty_should_flush_now(ch)) {
         /* Flush */
         *tty_buff_ptr = '\0';
-        if (tty_device && tty_device->type == TTY_DEVICE_VGA && tty_device->port == 0)
-            tty_deferred_flush();
-        else
-            tty_buff_flush();
+        tty_buff_flush();
     }
     *tty_buff_ptr = '\0';
 }
