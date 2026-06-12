@@ -9,11 +9,14 @@
  */
 
 #include <common.h>
+#include <errno.h>
+#include <fbdev.h>
 #include <fbcon.h>
 #include <gfx_proc.h>
 #include <limine.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include <uinxed.h>
 #include <video.h>
 
@@ -66,6 +69,67 @@ video_info_t video_get_info(void)
 /* Get the frame buffer */
 struct limine_framebuffer *get_framebuffer(void)
 { return framebuffer_request.response->framebuffers[0]; }
+
+/* Read raw bytes from the primary framebuffer */
+size_t video_fb_read(void *ctx, void *addr, size_t offset, size_t size)
+{
+    uint8_t *src;
+    size_t   fb_size;
+
+    (void)ctx;
+    if (!addr) return 0;
+
+    fb_size = (size_t)(stride * height * sizeof(uint32_t));
+    if (offset >= fb_size) return 0;
+
+    if (size > fb_size - offset) size = fb_size - offset;
+    src = (uint8_t *)buffer + offset;
+    memcpy(addr, src, size);
+    return size;
+}
+
+/* Write raw bytes to the primary framebuffer */
+size_t video_fb_write(void *ctx, const void *addr, size_t offset, size_t size)
+{
+    uint8_t *dst;
+    size_t   fb_size;
+
+    (void)ctx;
+    if (!addr) return 0;
+
+    fb_size = (size_t)(stride * height * sizeof(uint32_t));
+    if (offset >= fb_size) return 0;
+
+    if (size > fb_size - offset) size = fb_size - offset;
+    dst = (uint8_t *)buffer + offset;
+    memcpy(dst, addr, size);
+    return size;
+}
+
+/* Query framebuffer device metadata */
+int video_fb_ioctl(void *ctx, size_t req, void *arg)
+{
+    video_info_t info;
+
+    (void)ctx;
+    if (req != FBDEV_IOCTL_GET_INFO || !arg) return -EINVAL;
+
+    info = video_get_info();
+    *(fbdev_info_t *)arg = (fbdev_info_t) {
+        .width            = info.width,
+        .height           = info.height,
+        .stride           = info.stride,
+        .bpp              = info.bpp,
+        .size             = info.stride * info.height * sizeof(uint32_t),
+        .red_mask_size    = info.red_mask_size,
+        .red_mask_shift   = info.red_mask_shift,
+        .green_mask_size  = info.green_mask_size,
+        .green_mask_shift = info.green_mask_shift,
+        .blue_mask_size   = info.blue_mask_size,
+        .blue_mask_shift  = info.blue_mask_shift,
+    };
+    return EOK;
+}
 
 /* Initialize Video */
 void video_init(void)

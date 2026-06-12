@@ -12,12 +12,14 @@
 
 #include <blockdev.h>
 #include <errno.h>
+#include <fbdev.h>
 #include <ide.h>
 #include <input_event.h>
 #include <ps2.h>
 #include <printk.h>
 #include <tmpfs.h>
 #include <vfs.h>
+#include <video.h>
 
 typedef struct mbr_partition_entry {
     uint8_t  status;
@@ -153,6 +155,48 @@ static void devtmpfs_create_input_event_node(void)
     vfs_close(node);
 }
 
+static void devtmpfs_create_framebuffer_node(void)
+{
+    static const tmpfs_device_ops_t fb_device = {
+        .read  = video_fb_read,
+        .write = video_fb_write,
+        .poll  = 0,
+        .ioctl = video_fb_ioctl,
+        .ctx   = 0,
+    };
+
+    video_info_t info;
+    vfs_node_t   node;
+    int          status;
+
+    status = vfs_mkfile("/dev/fb0");
+    if (status != EOK && status != -EEXIST) {
+        plogk("devtmpfs: Cannot create /dev/fb0: %d\n", status);
+        return;
+    }
+
+    node = vfs_open("/dev/fb0");
+    if (!node) {
+        plogk("devtmpfs: Cannot open /dev/fb0 after creation.\n");
+        return;
+    }
+
+    status = tmpfs_bind_device(node, file_fbdev | file_stream, &fb_device);
+    if (status != EOK) {
+        plogk("devtmpfs: Cannot bind /dev/fb0: %d\n", status);
+        vfs_close(node);
+        return;
+    }
+
+    info       = video_get_info();
+    node->blksz = sizeof(uint32_t);
+    node->size  = info.stride * info.height * sizeof(uint32_t);
+    node->dev   = 2;
+    node->rdev  = 0;
+    plogk("devtmpfs: Registered /dev/fb0 as framebuffer device.\n");
+    vfs_close(node);
+}
+
 void devtmpfs_init(void)
 {
     int status;
@@ -193,4 +237,5 @@ void devtmpfs_init(void)
     }
 
     devtmpfs_create_input_event_node();
+    devtmpfs_create_framebuffer_node();
 }

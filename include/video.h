@@ -12,6 +12,7 @@
 #define INCLUDE_VIDEO_H_
 
 #include <stdint.h>
+#include <stddef.h>
 
 typedef struct {
         uint8_t red;
@@ -65,6 +66,15 @@ video_info_t video_get_info(void);
 
 /* Get the frame buffer */
 struct limine_framebuffer *get_framebuffer(void);
+
+/* Read raw bytes from the primary framebuffer */
+size_t video_fb_read(void *ctx, void *addr, size_t offset, size_t size);
+
+/* Write raw bytes to the primary framebuffer */
+size_t video_fb_write(void *ctx, const void *addr, size_t offset, size_t size);
+
+/* Query framebuffer device metadata */
+int video_fb_ioctl(void *ctx, size_t req, void *arg);
 
 /* Initialize Video */
 void video_init(void);
