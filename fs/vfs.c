@@ -448,6 +448,7 @@ int vfs_regist_fs(const char *name, vfs_callback_t callback)
 static int vfs_mount_id(const char *src, vfs_node_t node, int fsid)
 {
     uint16_t old_fsid;
+    int      status;
 
     if (!node || !(node->type & file_dir)) return -EINVAL;
     if (fsid <= 0 || fsid >= fs_nextid || !fs_callbacks[fsid]) return -ENOENT;
@@ -455,24 +456,29 @@ static int vfs_mount_id(const char *src, vfs_node_t node, int fsid)
     old_fsid  = node->fsid;
     node->fsid = fsid;
 
-    if (!fs_callbacks[fsid]->mount(src, node)) {
+    status = fs_callbacks[fsid]->mount(src, node);
+    if (status == EOK) {
         node->root     = node;
         node->is_mount = 1;
         return EOK;
     }
 
     node->fsid = old_fsid;
-    return -ENOENT;
+    return status;
 }
 
 /* Mount a file system to a directory */
 int vfs_mount(const char *src, vfs_node_t node)
 {
+    int last_error = -ENOENT;
+
     if (!node || !(node->type & file_dir)) return -EINVAL;
     for (int i = 1; i < fs_nextid; i++) {
-        if (vfs_mount_id(src, node, i) == EOK) return EOK;
+        int status = vfs_mount_id(src, node, i);
+        if (status == EOK) return EOK;
+        if (status != -ENOENT) last_error = status;
     }
-    return -ENOENT;
+    return last_error;
 }
 
 /* Mount a named file system to a directory */
