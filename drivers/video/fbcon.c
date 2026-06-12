@@ -24,12 +24,15 @@ static char     char_buffer[256];      // Char buffer
 static uint32_t char_buffer_index = 0; // Char buffer index
 static char    *text_grid         = 0;
 static uint32_t *color_grid       = 0;
-static uint8_t *dirty_rows        = 0;
+static uint32_t *dirty_first_col  = 0;
+static uint32_t *dirty_last_col   = 0;
 
-static void fbcon_mark_row_dirty(uint32_t row)
+static void fbcon_mark_cell_dirty(uint32_t row, uint32_t col)
 {
-    if (!dirty_rows || row >= c_height) return;
-    dirty_rows[row] = 1;
+    if (!dirty_first_col || !dirty_last_col || row >= c_height || col >= c_width) return;
+
+    if (dirty_first_col[row] > col) dirty_first_col[row] = col;
+    if (dirty_last_col[row] < col) dirty_last_col[row] = col;
 }
 
 static void fbcon_clear_row(uint32_t row)
@@ -40,11 +43,12 @@ static void fbcon_clear_row(uint32_t row)
     for (uint32_t col = 0; col < c_width; col++) color_grid[(size_t)row * c_width + col] = fore_color;
 }
 
-static void fbcon_redraw_row(uint32_t row)
+static void fbcon_redraw_row_range(uint32_t row, uint32_t first_col, uint32_t last_col)
 {
     if (!text_grid || !color_grid || row >= c_height) return;
+    if (first_col >= c_width || last_col >= c_width || first_col > last_col) return;
 
-    for (uint32_t col = 0; col < c_width; col++) {
+    for (uint32_t col = first_col; col <= last_col; col++) {
         size_t index = (size_t)row * c_width + col;
         fbcon_draw_char(text_grid[index], col * font_width, row * font_height, color_grid[index]);
     }
@@ -52,11 +56,12 @@ static void fbcon_redraw_row(uint32_t row)
 
 static void fbcon_flush_dirty_rows(void)
 {
-    if (!dirty_rows) return;
+    if (!dirty_first_col || !dirty_last_col) return;
     for (uint32_t row = 0; row < c_height; row++) {
-        if (!dirty_rows[row]) continue;
-        fbcon_redraw_row(row);
-        dirty_rows[row] = 0;
+        if (dirty_first_col[row] > dirty_last_col[row]) continue;
+        fbcon_redraw_row_range(row, dirty_first_col[row], dirty_last_col[row]);
+        dirty_first_col[row] = c_width;
+        dirty_last_col[row]  = 0;
     }
 }
 
@@ -86,9 +91,14 @@ void fbcon_init(void)
 
     text_grid  = calloc((size_t)c_width * c_height, sizeof(char));
     color_grid = malloc((size_t)c_width * c_height * sizeof(uint32_t));
-    dirty_rows = calloc(c_height, sizeof(uint8_t));
-    if (text_grid && color_grid && dirty_rows) {
-        for (uint32_t row = 0; row < c_height; row++) fbcon_clear_row(row);
+    dirty_first_col = malloc((size_t)c_height * sizeof(uint32_t));
+    dirty_last_col  = malloc((size_t)c_height * sizeof(uint32_t));
+    if (text_grid && color_grid && dirty_first_col && dirty_last_col) {
+        for (uint32_t row = 0; row < c_height; row++) {
+            fbcon_clear_row(row);
+            dirty_first_col[row] = c_width;
+            dirty_last_col[row]  = 0;
+        }
     }
 
     char_buffer_index = 0;
@@ -114,13 +124,15 @@ void fbcon_scroll(void)
         if (text_grid && color_grid) {
             memmove(text_grid, text_grid + c_width, (size_t)(c_height - 1) * c_width);
             memmove(color_grid, color_grid + c_width, (size_t)(c_height - 1) * c_width * sizeof(uint32_t));
-            if (dirty_rows) {
-                memmove(dirty_rows, dirty_rows + 1, (size_t)(c_height - 1) * sizeof(uint8_t));
-                dirty_rows[c_height - 1] = 1;
+            if (dirty_first_col && dirty_last_col) {
+                memmove(dirty_first_col, dirty_first_col + 1, (size_t)(c_height - 1) * sizeof(uint32_t));
+                memmove(dirty_last_col, dirty_last_col + 1, (size_t)(c_height - 1) * sizeof(uint32_t));
+                dirty_first_col[c_height - 1] = 0;
+                dirty_last_col[c_height - 1]  = c_width ? c_width - 1 : 0;
             }
             fbcon_clear_row(c_height - 1);
             fbcon_scroll_pixels();
-            fbcon_redraw_row(c_height - 1);
+            fbcon_redraw_row_range(c_height - 1, 0, c_width ? c_width - 1 : 0);
         } else {
             video_draw_rect((position_t) {0, 0}, (position_t) {stride, height}, back_color);
         }
@@ -151,7 +163,7 @@ void fbcon_flush_buffer(uint32_t color)
                 size_t index      = (size_t)cy * c_width + (cx + i);
                 text_grid[index]  = c;
                 color_grid[index] = color;
-                fbcon_mark_row_dirty(cy);
+                fbcon_mark_cell_dirty(cy, cx + i);
             } else {
                 uint32_t start_x       = cx * font_width;
                 uint32_t start_y       = cy * font_height;
@@ -205,7 +217,7 @@ void fbcon_put_char(const char c, uint32_t color)
                 size_t index      = (size_t)cy * c_width + cx;
                 text_grid[index]  = ' ';
                 color_grid[index] = back_color;
-                fbcon_mark_row_dirty(cy);
+                fbcon_mark_cell_dirty(cy, cx);
             }
             fbcon_flush_dirty_rows();
         } else if (cy > 0) {
@@ -215,7 +227,7 @@ void fbcon_put_char(const char c, uint32_t color)
                 size_t index      = (size_t)cy * c_width + cx;
                 text_grid[index]  = ' ';
                 color_grid[index] = back_color;
-                fbcon_mark_row_dirty(cy);
+                fbcon_mark_cell_dirty(cy, cx);
             }
             fbcon_flush_dirty_rows();
         }
