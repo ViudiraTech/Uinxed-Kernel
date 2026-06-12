@@ -24,6 +24,13 @@ static char     char_buffer[256];      // Char buffer
 static uint32_t char_buffer_index = 0; // Char buffer index
 static char    *text_grid         = 0;
 static uint32_t *color_grid       = 0;
+static uint8_t *dirty_rows        = 0;
+
+static void fbcon_mark_row_dirty(uint32_t row)
+{
+    if (!dirty_rows || row >= c_height) return;
+    dirty_rows[row] = 1;
+}
 
 static void fbcon_clear_row(uint32_t row)
 {
@@ -40,6 +47,16 @@ static void fbcon_redraw_row(uint32_t row)
     for (uint32_t col = 0; col < c_width; col++) {
         size_t index = (size_t)row * c_width + col;
         fbcon_draw_char(text_grid[index], col * font_width, row * font_height, color_grid[index]);
+    }
+}
+
+static void fbcon_flush_dirty_rows(void)
+{
+    if (!dirty_rows) return;
+    for (uint32_t row = 0; row < c_height; row++) {
+        if (!dirty_rows[row]) continue;
+        fbcon_redraw_row(row);
+        dirty_rows[row] = 0;
     }
 }
 
@@ -69,7 +86,8 @@ void fbcon_init(void)
 
     text_grid  = calloc((size_t)c_width * c_height, sizeof(char));
     color_grid = malloc((size_t)c_width * c_height * sizeof(uint32_t));
-    if (text_grid && color_grid) {
+    dirty_rows = calloc(c_height, sizeof(uint8_t));
+    if (text_grid && color_grid && dirty_rows) {
         for (uint32_t row = 0; row < c_height; row++) fbcon_clear_row(row);
     }
 
@@ -96,6 +114,10 @@ void fbcon_scroll(void)
         if (text_grid && color_grid) {
             memmove(text_grid, text_grid + c_width, (size_t)(c_height - 1) * c_width);
             memmove(color_grid, color_grid + c_width, (size_t)(c_height - 1) * c_width * sizeof(uint32_t));
+            if (dirty_rows) {
+                memmove(dirty_rows, dirty_rows + 1, (size_t)(c_height - 1) * sizeof(uint8_t));
+                dirty_rows[c_height - 1] = 1;
+            }
             fbcon_clear_row(c_height - 1);
             fbcon_scroll_pixels();
             fbcon_redraw_row(c_height - 1);
@@ -123,32 +145,33 @@ void fbcon_draw_char(const char c, uint32_t x, uint32_t y, uint32_t color)
 void fbcon_flush_buffer(uint32_t color)
 {
     if (char_buffer_index > 0) {
-        uint32_t start_x       = cx * font_width;
-        uint32_t start_y       = cy * font_height;
-        uint32_t base_y_stride = start_y * stride;
-
         for (uint32_t i = 0; i < char_buffer_index; i++) {
             char     c              = char_buffer[i];
-            uint32_t char_x         = start_x + i * font_width;
-            uint8_t *char_font      = ascii_font + (size_t)c * font_height;
-            uint32_t char_base_addr = base_y_stride + char_x;
-
-            for (uint32_t row = 0; row < font_height; row++) {
-                uint32_t *row_buf  = buffer + char_base_addr + row * stride;
-                uint8_t   font_row = char_font[row];
-                for (uint32_t col = 0; col < font_width; col++) row_buf[col] = (font_row & (0x80 >> col)) ? color : back_color;
-            }
-
             if (text_grid && color_grid && cx + i < c_width && cy < c_height) {
                 size_t index      = (size_t)cy * c_width + (cx + i);
                 text_grid[index]  = c;
                 color_grid[index] = color;
+                fbcon_mark_row_dirty(cy);
+            } else {
+                uint32_t start_x       = cx * font_width;
+                uint32_t start_y       = cy * font_height;
+                uint32_t base_y_stride = start_y * stride;
+                uint32_t char_x         = start_x + i * font_width;
+                uint8_t *char_font      = ascii_font + (size_t)c * font_height;
+                uint32_t char_base_addr = base_y_stride + char_x;
+
+                for (uint32_t row = 0; row < font_height; row++) {
+                    uint32_t *row_buf  = buffer + char_base_addr + row * stride;
+                    uint8_t   font_row = char_font[row];
+                    for (uint32_t col = 0; col < font_width; col++) row_buf[col] = (font_row & (0x80 >> col)) ? color : back_color;
+                }
             }
         }
         cx += char_buffer_index;
         char_buffer_index = 0;
         char_buffer[0]    = '\0';
     }
+    fbcon_flush_dirty_rows();
 }
 
 /* Print a character at the specified coordinates on the screen */
@@ -182,8 +205,9 @@ void fbcon_put_char(const char c, uint32_t color)
                 size_t index      = (size_t)cy * c_width + cx;
                 text_grid[index]  = ' ';
                 color_grid[index] = back_color;
+                fbcon_mark_row_dirty(cy);
             }
-            fbcon_draw_char(' ', cx * font_width, cy * font_height, back_color);
+            fbcon_flush_dirty_rows();
         } else if (cy > 0) {
             cy--;
             cx = c_width - 1;
@@ -191,8 +215,9 @@ void fbcon_put_char(const char c, uint32_t color)
                 size_t index      = (size_t)cy * c_width + cx;
                 text_grid[index]  = ' ';
                 color_grid[index] = back_color;
+                fbcon_mark_row_dirty(cy);
             }
-            fbcon_draw_char(' ', cx * font_width, cy * font_height, back_color);
+            fbcon_flush_dirty_rows();
         }
         return;
     }
