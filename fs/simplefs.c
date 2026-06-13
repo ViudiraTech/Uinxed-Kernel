@@ -616,6 +616,7 @@ static vfs_node_t simplefs_dup(vfs_node_t node)
     copy->size        = node->size;
     copy->inode       = node->inode;
     copy->blksz       = node->blksz;
+    copy->linkname    = node->linkname ? strdup(node->linkname) : 0;
     copy->flags       = node->flags;
     copy->permissions = node->permissions;
     copy->owner       = node->owner;
@@ -710,7 +711,11 @@ void simplefs_mount_all(void)
         path[9] = (char)('0' + drive);
         vfs_mkdir(path);
         node = vfs_open(path);
-        if (!node || node->is_mount) continue;
+        if (!node) continue;
+        if (node->is_mount) {
+            vfs_close(node);
+            continue;
+        }
 
         if (vfs_mount(src, node) == EOK)
             plogk("simplefs: Auto-mounted ide%u at %s.\n", drive, path);

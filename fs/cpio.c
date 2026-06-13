@@ -17,44 +17,6 @@
 #include <string.h>
 #include <vfs.h>
 
-/* Get the parent directory path of the path */
-static char *get_pdir_fpath(char *path)
-{
-    if (!path) return 0;
-    if (!strcmp(path, "/")) return strdup("/");
-
-    size_t len        = strlen(path);
-    char  *last_slash = strrchr(path, '/');
-
-    if (!last_slash) return strdup(".");
-    if (last_slash == path) return strdup("/");
-
-    size_t new_len = last_slash - path;
-    if (path[len - 1] == '/') {
-        char *prev_last_slash = (char *)last_slash - 1;
-        while (prev_last_slash > path && *prev_last_slash == '/') prev_last_slash--;
-        while (prev_last_slash > path && *prev_last_slash != '/') prev_last_slash--;
-
-        if (*prev_last_slash == '/') {
-            new_len = prev_last_slash - path;
-        } else {
-            new_len = 0;
-        }
-    }
-
-    char *new_path = (char *)malloc(new_len + 1);
-    if (!new_path) return 0;
-
-    strncpy(new_path, path, new_len);
-    new_path[new_len] = '\0';
-
-    if (!new_len && path[0] == '/') {
-        free(new_path);
-        return strdup("/");
-    }
-    return new_path;
-}
-
 /* Determine the compression type of the data */
 compression_type_t get_compression_type(const void *data, size_t size)
 {
@@ -147,20 +109,10 @@ void init_cpio(void)
                 return;
             }
         } else if ((mode & 0120000) == 0120000) {
-            const size_t len          = strlen(filename) + filesize;
-            char        *all_path     = malloc(len);
-            char        *dirname      = get_pdir_fpath(filename);
             char        *symlink_path = calloc(1, filesize + 1);
 
             strncpy(symlink_path, filedata, filesize);
-            (void)sprintf(all_path, "%s/%s", dirname, symlink_path);
-
-            char *target_name = normalize_path(all_path);
-            status            = vfs_symlink(filename, target_name);
-
-            free(all_path);
-            free(target_name);
-            free(dirname);
+            status = vfs_symlink(filename, symlink_path);
             free(symlink_path);
 
             if (status != EOK) {

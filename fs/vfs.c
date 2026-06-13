@@ -12,6 +12,7 @@
 #include <heap.h>
 #include <page.h>
 #include <printk.h>
+#include <stdlib.h>
 #include <string.h>
 #include <vfs.h>
 
@@ -46,6 +47,66 @@ static char *pathtok(char **sp)
     *sp = next;
     return s;
 }
+
+static char *vfs_node_absolute_path(vfs_node_t node)
+{
+    size_t     len = 1;
+    vfs_node_t cur;
+
+    if (!node) return 0;
+
+    for (cur = node; cur && cur->parent; cur = cur->parent) len += strlen(cur->name) + 1;
+
+    char *path = malloc(len + 1);
+    if (!path) return 0;
+
+    path[len] = '\0';
+    if (len == 1) {
+        path[0] = '/';
+        path[1] = '\0';
+        return path;
+    }
+
+    size_t pos = len;
+    for (cur = node; cur && cur->parent; cur = cur->parent) {
+        size_t name_len = strlen(cur->name);
+        pos -= name_len;
+        memcpy(path + pos, cur->name, name_len);
+        path[--pos] = '/';
+    }
+
+    return path;
+}
+
+static char *vfs_resolve_link_path(vfs_node_t node)
+{
+    char *path;
+
+    if (!node || !node->linkname) return 0;
+    if (node->linkname[0] == '/') return normalize_path(node->linkname);
+
+    char *base = vfs_node_absolute_path(node->parent ? node->parent : node);
+    if (!base) return 0;
+
+    size_t base_len = strlen(base);
+    size_t link_len = strlen(node->linkname);
+    path            = malloc(base_len + link_len + 2);
+    if (!path) {
+        free(base);
+        return 0;
+    }
+
+    memcpy(path, base, base_len);
+    path[base_len] = '/';
+    memcpy(path + base_len + 1, node->linkname, link_len + 1);
+    free(base);
+
+    char *normalized = normalize_path(path);
+    free(path);
+    return normalized;
+}
+
+static vfs_node_t vfs_open_internal(const char *str, int symlink_depth);
 
 /* Open a file or directory, invoking the appropriate callback */
 static void do_open(vfs_node_t file)
@@ -119,9 +180,12 @@ void vfs_update(vfs_node_t node)
 { do_update(node); }
 
 /* Open a file or directory by path */
-vfs_node_t vfs_open(const char *str)
+static vfs_node_t vfs_open_internal(const char *str, int symlink_depth)
 {
+    int symlink_owned = 0;
+
     if (!str || str[0] != '/') return 0;
+    if (symlink_depth > 16) return 0;
     if (str[1] == '\0') {
         rootdir->refcount++;
         return rootdir;
@@ -145,24 +209,31 @@ vfs_node_t vfs_open(const char *str)
 
         do_update(current);
         if (current->type & file_symlink) {
-            if (!current->parent || !current->linkto) goto err;
-            current->type = file_symlink | file_proxy;
+            char       *target_path = vfs_resolve_link_path(current);
+            vfs_node_t  target;
 
-            vfs_node_t target = current->linkto;
+            if (!target_path) goto err;
+            target = vfs_open_internal(target_path, symlink_depth + 1);
+            free(target_path);
             if (!target) goto err;
 
-            target->refcount++;
-            current = target;
+            if (symlink_owned) vfs_close(current);
+            current       = target;
+            symlink_owned = 1;
             continue;
         }
     }
-    current->refcount++;
+    if (!symlink_owned) current->refcount++;
     free(path);
     return current;
 err:
+    if (symlink_owned) vfs_close(current);
     free(path);
     return 0;
 }
+
+vfs_node_t vfs_open(const char *str)
+{ return vfs_open_internal(str, 0); }
 
 /* Create a new directory at the specified path */
 int vfs_mkdir(const char *name)
@@ -361,9 +432,17 @@ int vfs_link(const char *name, const char *target_name)
     }
 create:;
     vfs_node_t node = vfs_child_append(current, filename, 0);
-    node->type      = file_none;
-    callbackof(current, link)(current->handle, target_name, node);
-    node->linkto = vfs_open(target_name);
+    int        status;
+
+    if (!node) goto err;
+    node->type = file_none;
+    status     = callbackof(current, link)(current->handle, target_name, node);
+    if (status != EOK) {
+        current->child = clist_delete(current->child, node);
+        vfs_free(node);
+        free(path);
+        return status;
+    }
     free(path);
     return EOK;
 err:
@@ -412,9 +491,24 @@ int vfs_symlink(const char *name, const char *target_name)
     }
 create:;
     vfs_node_t node = vfs_child_append(current, filename, 0);
-    node->type      = file_symlink;
-    callbackof(current, symlink)(current->handle, target_name, node);
-    node->linkto = vfs_open(target_name);
+    int        status;
+
+    if (!node) goto err;
+    node->type     = file_symlink;
+    node->linkname = strdup(target_name);
+    if (!node->linkname) {
+        current->child = clist_delete(current->child, node);
+        vfs_free(node);
+        goto err;
+    }
+
+    status = callbackof(current, symlink)(current->handle, target_name, node);
+    if (status != EOK) {
+        current->child = clist_delete(current->child, node);
+        vfs_free(node);
+        free(path);
+        return status;
+    }
     free(path);
     return EOK;
 err:
@@ -532,8 +626,18 @@ size_t vfs_read(vfs_node_t file, void *addr, size_t offset, size_t size)
 /* Read data from a link file node into the provided memory buffer */
 size_t vfs_readlink(vfs_node_t node, char *buf, size_t bufsize)
 {
-    size_t ret = callbackof(node, readlink)(node, buf, 0, bufsize);
-    return ret;
+    size_t len;
+
+    if (!node || !buf || !bufsize) return 0;
+    if (node->linkname) {
+        len = strlen(node->linkname);
+        if (len >= bufsize) len = bufsize - 1;
+        memcpy(buf, node->linkname, len);
+        buf[len] = '\0';
+        return len;
+    }
+
+    return callbackof(node, readlink)(node, buf, 0, bufsize);
 }
 
 /* Write data from the provided memory buffer to a file node */
@@ -632,11 +736,16 @@ void vfs_free(vfs_node_t vfs)
     if (!vfs) return;
 
     vfs->child = clist_free_with(vfs->child, (void (*)(void *))vfs_free);
+    if (vfs->linkto) {
+        vfs_close(vfs->linkto);
+        vfs->linkto = 0;
+    }
     if (vfs->handle) {
         callbackof(vfs, close)(vfs->handle);
         callbackof(vfs, free)(vfs->handle);
         vfs->handle = 0;
     }
+    free(vfs->linkname);
     free(vfs->name);
     free(vfs);
 }

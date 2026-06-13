@@ -37,7 +37,9 @@ int tmpfs_mount(const char *handle, vfs_node_t node)
 void tmpfs_umount(void *root)
 {
     tmpfs_file_t *tmpfs_root = root;
-    vfs_free(tmpfs_root->node);
+
+    if (!tmpfs_root) return;
+    free(tmpfs_root);
 }
 
 /* Common function to create a tmpfs file or directory (internal use) */
@@ -80,8 +82,11 @@ size_t tmpfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
     tmpfs_file_t *f   = (tmpfs_file_t *)file;
     size_t        end = offset + size;
+    size_t        old_size;
 
     if (f->device.write) return f->device.write(f->device.ctx, addr, offset, size);
+
+    old_size = f->size;
 
     if (end > f->capacity) {
         size_t new_cap = end * 2;
@@ -92,6 +97,8 @@ size_t tmpfs_write(void *file, const void *addr, size_t offset, size_t size)
         f->data     = new_buf;
         f->capacity = new_cap;
     }
+
+    if (offset > old_size) memset(f->data + old_size, 0, offset - old_size);
 
     memcpy(f->data + offset, addr, size);
     if (end > f->size) f->size = end;
@@ -169,9 +176,12 @@ vfs_node_t tmpfs_dup(vfs_node_t node)
 int tmpfs_symlink(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
+    (void)name;
     tmpfs_file_t *f = calloc(1, sizeof(tmpfs_file_t));
 
-    strncpy(f->name, name, sizeof(f->name));
+    if (!f) return -ENOMEM;
+
+    strncpy(f->name, node->name, sizeof(f->name));
     f->type      = tp_file_symlink;
     f->node_type = file_symlink;
     node->handle = f;
@@ -184,6 +194,8 @@ int tmpfs_symlink(void *parent, const char *name, vfs_node_t node)
 int tmpfs_free(void *handle)
 {
     tmpfs_file_t *file = handle;
+
+    if (!file) return EOK;
 
     if (file->type != tp_file_file) {
         free(file);

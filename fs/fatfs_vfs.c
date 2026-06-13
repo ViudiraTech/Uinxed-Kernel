@@ -553,6 +553,7 @@ static vfs_node_t fatfs_vfs_dup(vfs_node_t node)
     copy->size        = node->size;
     copy->realsize    = node->realsize;
     copy->blksz       = node->blksz;
+    copy->linkname    = node->linkname ? strdup(node->linkname) : 0;
     copy->permissions = node->permissions;
     return copy;
 }
