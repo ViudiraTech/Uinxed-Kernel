@@ -28,6 +28,7 @@
 #include <pci.h>
 #include <printk.h>
 #include <ps2.h>
+#include <sched.h>
 #include <serial.h>
 #include <smbios.h>
 #include <smp.h>
@@ -100,7 +101,8 @@ void kernel_entry(void)
         plogk("init: Cannot mount tmpfs to root_dir.\n");
     init_cpio();                    // Initialize CPIO
     devtmpfs_init();
+    sched_init();
     enable_intr();
 
-    panic("No operation.");
+    sched_start();
 }
