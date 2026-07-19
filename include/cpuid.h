@@ -16,6 +16,9 @@
 /* Get CPUID */
 void cpuid(uint32_t code, uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t *edx);
 
+/* Get CPUID with a subleaf */
+void cpuid_count(uint32_t code, uint32_t subleaf, uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t *edx);
+
 /* Get CPU manufacturer name */
 char *get_vendor_name(void);
 
@@ -72,6 +75,15 @@ int cpu_support_fma4(void);
 
 /* Check CPU supports AVX */
 int cpu_support_avx(void);
+
+/* Check CPU supports XSAVE/XRSTOR */
+int cpu_support_xsave(void);
+
+/* Check CPU supports OSXSAVE */
+int cpu_support_osxsave(void);
+
+/* Check whether XCR0 supports the requested state bits */
+int cpu_xcr0_supports(uint64_t mask);
 
 /* Check CPU supports AVX2 */
 int cpu_support_avx2(void);

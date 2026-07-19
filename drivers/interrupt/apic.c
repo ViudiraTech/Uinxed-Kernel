@@ -11,6 +11,7 @@
 #include <acpi.h>
 #include <apic.h>
 #include <common.h>
+#include <cpuid.h>
 #include <hhdm.h>
 #include <idt.h>
 #include <limine.h>
@@ -18,6 +19,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <uinxed.h>
+
+#define CPUID_FEAT_EDX_APIC (1 << 9)
+#define CPUID_FEAT_ECX_X2APIC (1 << 21)
 
 int x2apic_mode = -1;
 
@@ -93,7 +97,13 @@ uint64_t lapic_id(void)
 void local_apic_init(void)
 {
     if (x2apic_mode == -1) { // Run only once
-        x2apic_mode = (smp_request.response->flags & 1) != 0;
+        uint32_t eax, ebx, ecx, edx;
+        cpuid(0x00000001, &eax, &ebx, &ecx, &edx);
+        if (!(edx & CPUID_FEAT_EDX_APIC)) {
+            plogk("apic: Local APIC not supported.\n");
+            return;
+        }
+        x2apic_mode = smp_request.response && (smp_request.response->flags & 1) && (ecx & CPUID_FEAT_ECX_X2APIC);
         plogk("apic: Local APIC: %s\n", x2apic_mode ? "x2APIC" : "xAPIC");
     }
 
@@ -158,6 +168,7 @@ void send_ipi(uint32_t apic_id, uint32_t command)
 /* Initialize APIC */
 void apic_init(madt_t *madt)
 {
+    if (!madt) return;
     lapic_ptr.ptr = phys_to_virt(madt->local_apic_address);
     plogk("apic: Local APIC base %p\n", lapic_ptr.ptr);
 
@@ -207,6 +218,10 @@ void apic_init(madt_t *madt)
                 break;
         }
         current += header->length;
+    }
+    if (!ioapic_ptr.ptr) {
+        plogk("apic: IOAPIC not found.\n");
+        return;
     }
     disable_pic();
     local_apic_init();

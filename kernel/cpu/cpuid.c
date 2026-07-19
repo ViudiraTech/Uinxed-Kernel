@@ -14,6 +14,10 @@
 void cpuid(uint32_t code, uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t *edx)
 { __asm__ volatile("cpuid" : "=a"(*eax), "=b"(*ebx), "=c"(*ecx), "=d"(*edx) : "a"(code) : "memory"); }
 
+/* Get CPUID with a subleaf */
+void cpuid_count(uint32_t code, uint32_t subleaf, uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t *edx)
+{ __asm__ volatile("cpuid" : "=a"(*eax), "=b"(*ebx), "=c"(*ecx), "=d"(*edx) : "a"(code), "c"(subleaf) : "memory"); }
+
 /* Get CPU manufacturer name */
 char *get_vendor_name(void)
 {
@@ -172,10 +176,35 @@ int cpu_support_avx(void)
     return ((ecx & (1 << 28)) != 0);
 }
 
+/* Check CPU supports XSAVE/XRSTOR */
+int cpu_support_xsave(void)
+{
+    uint32_t eax, ebx, ecx, edx;
+    cpuid(0x00000001, &eax, &ebx, &ecx, &edx);
+    return ((ecx & (1 << 26)) != 0);
+}
+
+/* Check CPU supports OSXSAVE */
+int cpu_support_osxsave(void)
+{
+    uint32_t eax, ebx, ecx, edx;
+    cpuid(0x00000001, &eax, &ebx, &ecx, &edx);
+    return ((ecx & (1 << 27)) != 0);
+}
+
+/* Check whether XCR0 supports the requested state bits */
+int cpu_xcr0_supports(uint64_t mask)
+{
+    uint32_t eax, ebx, ecx, edx;
+    cpuid_count(0x0000000d, 0, &eax, &ebx, &ecx, &edx);
+    uint64_t supported = ((uint64_t)edx << 32) | eax;
+    return (supported & mask) == mask;
+}
+
 /* Check CPU supports AVX2 */
 int cpu_support_avx2(void)
 {
     uint32_t eax, ebx, ecx, edx;
-    cpuid(0x00000007, &eax, &ebx, &ecx, &edx);
+    cpuid_count(0x00000007, 0, &eax, &ebx, &ecx, &edx);
     return ((ebx & (1 << 5)) != 0);
 }

@@ -54,11 +54,11 @@ void *find_table(const char *name)
 /* Initialize ACPI */
 void acpi_init(void)
 {
-    rsdp_t *rsdp = (rsdp_t *)rsdp_request.response->address;
-    if (!rsdp) {
+    if (!rsdp_request.response || !rsdp_request.response->address) {
         plogk("acpi: RSDP not found.\n");
         return;
     }
+    rsdp_t *rsdp = (rsdp_t *)rsdp_request.response->address;
     plogk("acpi: Version %s\n", rsdp->revision ? "2.0+" : "1.0");
     plogk("acpi: RSDP found at %p\n", rsdp);
 

@@ -15,15 +15,20 @@
 #include <page_walker.h>
 #include <printk.h>
 #include <uinxed.h>
+#include <common.h>
 
 /* Get physical memory offset */
 uint64_t get_physical_memory_offset(void)
-{ return hhdm_request.response->offset; }
+{
+    if (!hhdm_request.response) krn_halt();
+    return hhdm_request.response->offset;
+}
 
 /* Convert physical memory to HHDM virtual memory */
 void *phys_to_virt(uint64_t phys_addr)
 {
     pointer_cast_t virt_addr;
+    if (!hhdm_request.response) krn_halt();
     if (phys_addr >= (1ULL << get_cpu_phys_bits())) { // Check if physical address is valid
         plogk("Warning: Physical address 0x%016llx exceeds physical address space\n", phys_addr);
     }
@@ -35,6 +40,7 @@ void *phys_to_virt(uint64_t phys_addr)
 void *virt_to_phys(uint64_t virt_addr)
 {
     pointer_cast_t phys_addr;
+    if (!hhdm_request.response) krn_halt();
     if (virt_addr < hhdm_request.response->offset) { // Check if virtual address is in HHDM region
         plogk("Warning: Virtual address 0x%016llx is not in HHDM region.\n", virt_addr);
     }
@@ -52,6 +58,7 @@ void *virt_any_to_phys(uint64_t addr)
     if (phys_addr.val) return phys_addr.ptr;
 
     /* May be in HHDM region */
+    if (!hhdm_request.response) krn_halt();
     uint64_t hhdm_base = hhdm_request.response->offset;
     if (addr >= hhdm_base) {
         phys_addr.val = addr - hhdm_base;

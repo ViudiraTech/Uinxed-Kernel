@@ -9,9 +9,27 @@
  */
 
 #include <common.h>
-#include <printk.h>
 #include <serial.h>
 #include <stdint.h>
+
+static int serial_initialized = 0;
+static int serial_port_ready[4] = {0};
+
+static int serial_port_index(uint16_t port)
+{
+    switch (port) {
+        case SERIAL_PORT_1 :
+            return 0;
+        case SERIAL_PORT_2 :
+            return 1;
+        case SERIAL_PORT_3 :
+            return 2;
+        case SERIAL_PORT_4 :
+            return 3;
+        default :
+            return -1;
+    }
+}
 
 /* Serial port LCR data configuration */
 static uint8_t serial_calculate_lcr(void)
@@ -59,31 +77,13 @@ static uint8_t serial_calculate_lcr(void)
     return lcr;
 }
 
-/* Check serial port status */
-static int serial_exists(uint16_t port)
-{
-    uint8_t original_lcr = inb(port + SERIAL_REG_LCR);
-
-    outb(port + SERIAL_REG_LCR, 0xaa);
-    if (inb(port + SERIAL_REG_LCR) != 0xaa) {
-        outb(port + SERIAL_REG_LCR, original_lcr);
-        return 0;
-    }
-
-    outb(port + SERIAL_REG_LCR, 0x55);
-    if (inb(port + SERIAL_REG_LCR) != 0x55) {
-        outb(port + SERIAL_REG_LCR, original_lcr);
-        return 0;
-    }
-
-    outb(port + SERIAL_REG_LCR, original_lcr);
-    return 1;
-}
-
 /* Initialize the specified serial port */
-static void init_serial_port(uint16_t port)
+static int init_serial_port(uint16_t port)
 {
     uint16_t divisor = 115200 / SERIAL_BAUD_RATE;
+    int      index   = serial_port_index(port);
+
+    if (index < 0) return 0;
 
     outb(port + SERIAL_REG_IER, 0x00);                   // Disable COM interrupts
     outb(port + SERIAL_REG_LCR, 0x80);                   // Enable DLAB (set baud rate divisor)
@@ -97,26 +97,25 @@ static void init_serial_port(uint16_t port)
 
     /* Check if there is a problem with the serial port */
     if (inb(port + SERIAL_REG_DATA) != 0xae) {
-        plogk("serial: Serial port %s test failed.\n", PORT_TO_COM(port));
-        return;
+        return 0;
     }
     outb(port + SERIAL_REG_MCR, 0x0f); // Quit loopback mode
-    plogk("serial: Local port: %s, Baud rate: %d, Status: 0x%02x\n", PORT_TO_COM(port), SERIAL_BAUD_RATE, inb(port + SERIAL_REG_LSR));
+    serial_port_ready[index] = 1;
+    return 1;
 }
 
 /* Initialize the serial port */
 void init_serial(void)
 {
+    if (serial_initialized) return;
+
     uint16_t com_ports[4] = {SERIAL_PORT_1, SERIAL_PORT_2, SERIAL_PORT_3, SERIAL_PORT_4};
     int      valid_ports  = 0;
 
-    for (int i = 0; i < 4; i++) {
-        if (serial_exists(com_ports[i])) {
-            init_serial_port(com_ports[i]);
-            valid_ports++;
-        }
-    }
-    if (valid_ports == 0) plogk("serial: No serial port available.\n");
+    for (int i = 0; i < 4; i++)
+        if (init_serial_port(com_ports[i])) valid_ports++;
+    (void)valid_ports;
+    serial_initialized = 1;
 }
 
 /* Check whether the serial port is ready to read */
@@ -137,7 +136,12 @@ uint8_t read_serial(uint16_t port)
 /* Write serial port */
 void write_serial(uint16_t port, uint8_t data)
 {
-    while (!is_transmit_empty(port));
+    int index = serial_port_index(port);
+
+    if (index < 0 || !serial_port_ready[index]) return;
+
+    for (uint32_t timeout = 100000; timeout && !is_transmit_empty(port); --timeout);
+    if (!is_transmit_empty(port)) return;
     outb(port + SERIAL_REG_DATA, data);
 }
 

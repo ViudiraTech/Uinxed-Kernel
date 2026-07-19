@@ -11,6 +11,10 @@
 #include <limine.h>
 #include <uinxed.h>
 
+__attribute__((used, section(".limine_requests_start"))) LIMINE_REQUESTS_START_MARKER
+
+__attribute__((used, section(".limine_requests"))) LIMINE_BASE_REVISION(0)
+
 __attribute__((used, section(".limine_requests"))) volatile struct limine_rsdp_request rsdp_request = {
     .id       = LIMINE_RSDP_REQUEST,
     .revision = 0,
@@ -59,3 +63,5 @@ __attribute__((used, section(".limine_requests"))) volatile struct limine_entry_
 
 __attribute__((used, section(".limine_requests"))) volatile struct limine_module_request module_request
     = {.id = LIMINE_MODULE_REQUEST, .revision = 0};
+
+__attribute__((used, section(".limine_requests_end"))) LIMINE_REQUESTS_END_MARKER

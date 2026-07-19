@@ -47,14 +47,14 @@ lmodule_t *get_lmodule(const char *lmodule_name)
 void lmodule_init(void)
 {
     if (!module_request.response || !module_request.response->module_count) return;
-    for (size_t i = 0; i < module_request.response->module_count; i++) {
+    for (size_t i = 0; i < module_request.response->module_count && lmodule_count < 128; i++) {
         struct limine_file *file = module_request.response->modules[i];
         extract_name(file->path, lmodule[lmodule_count].name, sizeof(char) * 32);
         lmodule[lmodule_count].path = file->path;
         lmodule[lmodule_count].data = file->address;
         lmodule[lmodule_count].size = file->size;
-        lmodule_count++;
         log_buffer_write(&lmodule_log, "mod: %s (path: %s, size: %llu KiB, base %p)\n", lmodule[lmodule_count].name, file->path,
                          (file->size / 1024), file->address);
+        lmodule_count++;
     }
 }

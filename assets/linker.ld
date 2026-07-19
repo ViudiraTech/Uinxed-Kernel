@@ -9,7 +9,7 @@
  */
 
 OUTPUT_FORMAT(elf64-x86-64)
-ENTRY(executable_entry)
+ENTRY(kernel_entry)
 
 PHDRS
 {

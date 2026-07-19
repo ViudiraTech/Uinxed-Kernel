@@ -43,13 +43,14 @@ void bitmap_set(bitmap_t *bitmap, size_t index, int value)
 void bitmap_fill(bitmap_t *bitmap, int value)
 {
     uint8_t fill_val = (value) ? 0xff : 0x00;
-    memset(bitmap->buffer, fill_val, bitmap->length);
+    memset(bitmap->buffer, fill_val, (bitmap->length + 7) / 8);
 }
 
 /* Set the memory bitmap range */
 void bitmap_set_range(bitmap_t *bitmap, size_t start, size_t end, int value)
 {
     if (start >= end || start >= bitmap->length) return;
+    if (end > bitmap->length) end = bitmap->length;
     while (start < end && (start % 8 != 0)) {
         bitmap_set(bitmap, start, value);
         start++;
@@ -100,6 +101,8 @@ size_t bitmap_find_range(const bitmap_t *bitmap, size_t length, int value)
 /* Check memory bitmap range value */
 int bitmap_range_all(const bitmap_t *bitmap, size_t start, size_t end, int value)
 {
+    if (start >= bitmap->length) return 0;
+    if (end > bitmap->length) end = bitmap->length;
     for (size_t i = start; i < end; i++)
         if (bitmap_get(bitmap, i) != value) return 0;
     return 1;

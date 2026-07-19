@@ -11,7 +11,6 @@
 #include <common.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <tty.h>
 
 /* Port write (8 bits) */
 void outb(uint16_t port, uint8_t value)
@@ -190,7 +189,6 @@ void disable_intr(void)
 /* Kernel halt */
 void krn_halt(void)
 {
-    tty_buff_flush();
     disable_intr();
     while (1) __asm__ volatile("hlt");
 }

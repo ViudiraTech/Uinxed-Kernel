@@ -265,7 +265,7 @@ void tty_buff_flush(void)
                         continue;
                         break;
                 }
-                while (*tty_buff_ptr != '\0') write_serial(serial_port, *tty_buff_ptr++);
+                for (char *ch = tty_buff; ch < (char *)tty_buff_ptr && *ch != '\0'; ch++) write_serial(serial_port, *ch);
                 tty_buff_ptr = tty_buff;
                 tty_buff[0]  = '\0';
                 break;

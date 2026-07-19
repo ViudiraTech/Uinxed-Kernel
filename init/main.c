@@ -22,6 +22,7 @@
 #include <hhdm.h>
 #include <ide.h>
 #include <interrupt.h>
+#include <limine.h>
 #include <limine_module.h>
 #include <page.h>
 #include <parallel.h>
@@ -42,18 +43,8 @@
 /* Executable entry */
 void executable_entry(void)
 {
-    const char msg[] = "Logically you should use Limine to boot it instead of executing it directly, right?\n\n";
-    __asm__ volatile("mov $1, %%rax\n"
-                     "mov $1, %%rdi\n"
-                     "lea %[msg], %%rsi\n"
-                     "mov %[len], %%rdx\n"
-                     "syscall\n"
-                     "mov $60, %%rax\n"
-                     "mov $1, %%rdi\n"
-                     "syscall\n"
-                     :
-                     : [msg] "m"(msg), [len] "r"(sizeof msg - 1)
-                     : "rax", "rdi", "rsi", "rdx");
+    disable_intr();
+    while (1) __asm__ volatile("hlt");
 }
 
 /* Kernel entry */
@@ -61,8 +52,8 @@ void kernel_entry(void)
 {
     init_fpu(); // Initialize FPU/MMX
     init_sse(); // Initialize SSE/SSE2
-    init_avx(); // Initialize AVX/AVX2
-
+    init_serial(); // Initialize the serial port
+    
     init_frame();   // Initialize memory frame
     page_init();    // Initialize memory page
     init_heap();    // Initialize the memory heap
@@ -92,6 +83,7 @@ void kernel_entry(void)
     init_gdt();                     // Initialize global descriptors
     init_idt();                     // Initialize interrupt descriptor
     isr_registe_handle();           // Register ISR interrupt processing
+    init_avx();                     // Initialize AVX/AVX2
     acpi_init();                    // Initialize ACPI
     tsc_init();                     // Initialize TSC
     smp_init();                     // Initialize SMP
@@ -100,7 +92,6 @@ void kernel_entry(void)
     pci_init();                     // Initialize PCI
     log_buffer_print(&lmodule_log); // Print lmodule log
     init_ide();                     // Initialize ATA/ATAPI driver
-    init_serial();                  // Initialize the serial port
     init_parallel();                // Initialize the parallel port
     init_ps2();                     // Initialize PS/2 controller
     init_vfs();                     // Initialize VFS

@@ -15,6 +15,7 @@
 #include <smbios.h>
 #include <stdarg.h>
 #include <symbols.h>
+#include <tty.h>
 #include <uinxed.h>
 
 int carry_error_code = 0;
@@ -84,6 +85,7 @@ void panic(const char *format, ...)
     dump_stack();
     plogk("Kernel Offset: 0x%08x from %p\n", current_address - KERNEL_BASE_ADDRESS, KERNEL_BASE_ADDRESS);
     plogk("---[ end Kernel panic - not syncing: %s ]---\n", buff);
+    tty_buff_flush();
     krn_halt();
 }
 
@@ -91,5 +93,6 @@ void panic(const char *format, ...)
 void assertion_failure(const char *exp, const char *file, int line)
 {
     printk("assert(%s) failed!\nfile: %s\nline: %d\n\n", exp, file, line);
+    tty_buff_flush();
     krn_halt();
 }

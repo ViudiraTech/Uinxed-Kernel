@@ -21,11 +21,11 @@ void init_idt(void)
     idt_pointer.size = (uint16_t)sizeof(idt_entries) - 1;
     idt_pointer.ptr  = &idt_entries;
 
+    for (int i = 0; i < 256; i++) register_interrupt_handler(i, (void *)empty_handle[i], 0, 0x8e);
+
     __asm__ volatile("lidt %0" ::"m"(idt_pointer) : "memory");
     plogk("idt: IDT initialized at %p (limit = 0x%04x)\n", idt_entries, idt_pointer.size);
     plogk("idt: Loaded IDTR with base = %p, limit = %hu\n", idt_pointer.ptr, idt_pointer.size + 1);
-
-    for (int i = 0; i < 256; i++) register_interrupt_handler(i, (void *)empty_handle[i], 0, 0x8e);
     plogk("idt: Empty handler functions for interrupt vectors 0-255 registered.\n");
 }
 

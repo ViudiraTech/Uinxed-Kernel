@@ -9,11 +9,13 @@
  */
 
 #include <bitmap.h>
+#include <common.h>
 #include <frame.h>
 #include <hhdm.h>
 #include <limine.h>
 #include <page.h>
 #include <printk.h>
+#include <stdlib.h>
 #include <uinxed.h>
 
 log_buffer_t      frame_log;
@@ -24,23 +26,29 @@ uint64_t          memory_size = 0;
 void init_frame(void)
 {
     struct limine_memmap_response *memory_map = memmap_request.response;
-    for (uint64_t i = memory_map->entry_count; i-- > 0;) {
+    if (!memory_map) krn_halt();
+
+    for (uint64_t i = 0; i < memory_map->entry_count; i++) {
         struct limine_memmap_entry *region = memory_map->entries[i];
         if (region->type == LIMINE_MEMMAP_USABLE) {
-            memory_size = region->base + region->length;
-            log_buffer_write(&frame_log, "frame: Found usable region at %p (size: %llu KiB)\n", region->base, region->length / 1024);
-            break;
+            uint64_t region_end = region->base + region->length;
+            if (region_end > memory_size) memory_size = region_end;
         }
     }
-    size_t   bitmap_size    = (memory_size / PAGE_4K_SIZE + 7) / 8;
+    log_buffer_write(&frame_log, "frame: Highest usable address is %p\n", memory_size);
+    size_t   bitmap_size    = ALIGN_UP((memory_size / PAGE_4K_SIZE + 7) / 8, PAGE_4K_SIZE);
     uint64_t bitmap_address = 0;
 
     for (uint64_t i = 0; i < memory_map->entry_count; i++) {
         struct limine_memmap_entry *region = memory_map->entries[i];
-        if (region->type == LIMINE_MEMMAP_USABLE && region->length >= bitmap_size) {
-            bitmap_address = region->base;
-            break;
-        }
+        if (region->type != LIMINE_MEMMAP_USABLE) continue;
+
+        uint64_t region_start = ALIGN_UP(MAX(region->base, 0x100000ULL), PAGE_4K_SIZE);
+        uint64_t region_end   = ALIGN_DOWN(region->base + region->length, PAGE_4K_SIZE);
+        if (region_start >= region_end || region_end - region_start < bitmap_size) continue;
+
+        bitmap_address = ALIGN_DOWN(region_end - bitmap_size, PAGE_4K_SIZE);
+        break;
     }
     if (bitmap_address) {
         log_buffer_write(&frame_log, "frame: Bitmap allocated at %p (size: %llu KiB)\n", bitmap_address, bitmap_size / 1024);
@@ -50,7 +58,6 @@ void init_frame(void)
     }
     bitmap_t *bitmap = &frame_allocator.bitmap;
     bitmap_init(bitmap, phys_to_virt(bitmap_address), bitmap_size);
-    bitmap_fill(bitmap, 0);
     size_t origin_frames = 0;
 
     for (uint64_t i = 0; i < memory_map->entry_count; i++) {
