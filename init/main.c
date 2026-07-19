@@ -40,6 +40,7 @@
 #include <video.h>
 #include <devtmpfs.h>
 
+#if SCHED_DEBUG_DEMO
 static volatile uint64_t preempt_demo_sink;
 static wait_queue_t      demo_wait_queue;
 static wait_queue_t      migration_wait_queue;
@@ -116,6 +117,17 @@ static void migration_wake_thread(void *arg)
     plogk("sched: migration wake target task %llu\n", task ? task->pid : 0);
 }
 
+static void balance_demo_thread(void *arg)
+{
+    const char *name = (const char *)arg;
+
+    for (uint64_t chunk = 0; chunk < 4; chunk++) {
+        for (uint64_t i = 0; i < 2500000; i++) preempt_demo_sink += i;
+        plogk("sched: %s balance chunk %llu task %llu cpu %u\n", name, chunk, current_task()->pid, current_task()->cpu_id);
+        sched_yield();
+    }
+}
+
 static void kernel_init_thread(void *arg)
 {
     (void)arg;
@@ -131,9 +143,25 @@ static void kernel_init_thread(void *arg)
     kthread_create("keyboard-wait", keyboard_wait_thread, NULL);
     migration_task = kthread_create_on_cpu("migration-wait", migration_wait_thread, NULL, 0);
     kthread_create("migration-wake", migration_wake_thread, NULL);
+    if (sched_cpu_count() > 1) {
+        kthread_create_on_cpu("balance-a", balance_demo_thread, "balance-a", 0);
+        kthread_create_on_cpu("balance-b", balance_demo_thread, "balance-b", 0);
+        kthread_create_on_cpu("balance-c", balance_demo_thread, "balance-c", 0);
+        kthread_create_on_cpu("balance-d", balance_demo_thread, "balance-d", 0);
+    }
 
     while (1) task_sleep_ticks(250);
 }
+#else
+
+static void kernel_init_thread(void *arg)
+{
+    (void)arg;
+
+    panic("init: Attempt to kill init!");
+}
+
+#endif // SCHED_DEBUG_DEMO
 
 /* Executable entry */
 void executable_entry(void)

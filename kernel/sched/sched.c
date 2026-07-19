@@ -23,6 +23,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define SCHED_LOAD_BALANCE_INTERVAL 16
+
 typedef struct {
         task_t      *current;
         task_t      *idle;
@@ -158,6 +160,30 @@ static uint32_t choose_task_cpu_locked(void)
 
 static int has_ready_task(void)
 { return !ilist_is_empty(&cpu_schedulers[get_current_cpu_id()].ready_queue); }
+
+static task_t *balance_ready_queues_locked(void)
+{
+    if (cpu_scheduler_count < 2) return NULL;
+
+    uint32_t busiest = 0;
+    uint32_t idlest  = 0;
+
+    for (uint32_t i = 1; i < cpu_scheduler_count; i++) {
+        if (cpu_schedulers[i].ready_count > cpu_schedulers[busiest].ready_count) busiest = i;
+        if (cpu_schedulers[i].ready_count < cpu_schedulers[idlest].ready_count) idlest = i;
+    }
+
+    if (busiest == idlest || cpu_schedulers[busiest].ready_count <= cpu_schedulers[idlest].ready_count + 1)
+        return NULL;
+
+    ilist_node_t *node = cpu_schedulers[busiest].ready_queue.prev;
+    task_t       *task = node_to_task(node);
+
+    ilist_remove(node);
+    if (cpu_schedulers[busiest].ready_count) cpu_schedulers[busiest].ready_count--;
+    enqueue_task_on_cpu(task, idlest);
+    return task;
+}
 
 static void wake_sleeping_tasks(void)
 {
@@ -554,10 +580,14 @@ void sched_tick(void)
     uint32_t cpu_id = get_current_cpu_id();
 
     if (cpu_id == 0) {
+        task_t *balanced = NULL;
+
         spin_lock(&scheduler.lock);
         scheduler.ticks++;
         wake_sleeping_tasks();
+        if ((scheduler.ticks % SCHED_LOAD_BALANCE_INTERVAL) == 0) balanced = balance_ready_queues_locked();
         spin_unlock(&scheduler.lock);
+        request_task_cpu(balanced);
     }
 
     task_t   *current = cpu_schedulers[cpu_id].current;

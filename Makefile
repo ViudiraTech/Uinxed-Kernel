@@ -28,6 +28,12 @@ else
   C_CONFIG += -DKERNEL_LOG=0
 endif
 
+ifeq ($(CONFIG_SCHED_DEBUG_DEMO), y)
+  C_CONFIG += -DSCHED_DEBUG_DEMO=1
+else
+  C_CONFIG += -DSCHED_DEBUG_DEMO=0
+endif
+
 # TTF font support has been removed. Using bitmap fonts only.
 
 ifneq ($(CONFIG_CPU_MAX_COUNT),)

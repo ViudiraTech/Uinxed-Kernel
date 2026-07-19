@@ -1,12 +1,18 @@
-mainmenu "Uinxed-Kernel"
+mainmenu "Uinxed"
 
 menu "Kernel debugging"
 
   config KERNEL_LOG
-    bool "Kernel runtime logging output"
+    bool "Kernel debug logging output"
     default y
     help
-      "Outputs kernel log messages during system runtime to aid the monitoring and debugging."
+      "Outputs kernel debug messages when running."
+
+  config SCHED_DEBUG_DEMO
+    bool "Scheduler debug demo threads"
+    default n
+    help
+      "Creates kernel threads that exercise preemption, sleep, wait queues, SMP placement, migration, and balancing."
 
 endmenu
 
@@ -17,7 +23,7 @@ menu "Terminal properties"
 endmenu
 
 menu "Processor configuration"
-  menu "Symmetric multi-processing"
+  menu "SMP (Symmetric multi-processing)"
 
     config CPU_MAX_COUNT
       int "Maximum number of CPUs"
@@ -52,8 +58,8 @@ menu "Processor configuration"
 endmenu
 
 menu "Device drivers"
-  menu "Character drivers"
-    menu "Teletype drivers"
+  menu "Character devices"
+    menu "Teletype devices"
 
       config TTY_DEFAULT_DEV
         string "Default teletype device"
@@ -69,7 +75,7 @@ menu "Device drivers"
           "Buffer size for temporarily storing input and output data in the teletype driver."
 
     endmenu
-    menu "Serial port drivers"
+    menu "Serial port devices"
 
       config SERIAL_BAUD_RATE
         int "Serial port baud rate"
