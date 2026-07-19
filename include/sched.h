@@ -23,6 +23,7 @@
 
 typedef void (*kthread_entry_t)(void *arg);
 typedef struct wait_queue wait_queue_t;
+typedef struct task task_t;
 
 typedef enum {
     TASK_READY,
@@ -45,7 +46,7 @@ typedef struct {
         uint64_t rdi;
 } task_context_t;
 
-typedef struct task {
+struct task {
         uint64_t         pid;
         task_state_t     state;
         task_context_t   context;
@@ -55,8 +56,9 @@ typedef struct task {
         uint64_t         time_slice;
         uint64_t         wake_tick;
         wait_queue_t    *wait_queue;
+        uint32_t         cpu_id;
         char             name[TASK_NAME_LEN];
-} task_t;
+};
 
 struct wait_queue {
         ilist_node_t tasks;
@@ -65,6 +67,18 @@ struct wait_queue {
 
 /* Initialize the boot CPU scheduler state. */
 void sched_init(void);
+
+/* Mark an application processor as ready for scheduler participation. */
+void sched_ap_online(uint32_t cpu_id);
+
+/* Start scheduling on an application processor. This function does not return. */
+void sched_ap_start(uint32_t cpu_id);
+
+/* Handle a reschedule request delivered by the local APIC. */
+void sched_ipi_reschedule(void);
+
+/* Return the number of scheduler CPU slots initialized. */
+uint32_t sched_cpu_count(void);
 
 /* Start the scheduler. This function does not return. */
 void sched_start(void);

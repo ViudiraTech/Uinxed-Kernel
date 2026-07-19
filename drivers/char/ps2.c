@@ -13,6 +13,7 @@
 #include <interrupt.h>
 #include <printk.h>
 #include <ps2.h>
+#include <sched.h>
 #include <spin_lock.h>
 
 #define PS2_KBD_EVENT_QUEUE_SIZE 128
@@ -21,6 +22,7 @@ static input_event_t ps2kbd_events[PS2_KBD_EVENT_QUEUE_SIZE];
 static size_t            ps2kbd_event_head = 0;
 static size_t            ps2kbd_event_tail = 0;
 static spinlock_t        ps2kbd_event_lock = {0};
+static wait_queue_t      ps2kbd_event_wait;
 
 static void ps2kbd_event_push(uint8_t scancode)
 {
@@ -39,6 +41,7 @@ static void ps2kbd_event_push(uint8_t scancode)
     };
     ps2kbd_event_head = next;
     spin_unlock(&ps2kbd_event_lock);
+    wait_queue_wake_one(&ps2kbd_event_wait);
 }
 
 INTERRUPT_BEGIN static void ps2kbd_irq(interrupt_frame_t *frame)
@@ -167,6 +170,7 @@ void init_ps2(void)
     ps2_write_config(final_config);
 
     register_interrupt_handler(IRQ_1, (void *)ps2kbd_irq, 0, 0x8e);
+    wait_queue_init(&ps2kbd_event_wait);
 }
 
 size_t ps2kbd_read_events(void *ctx, void *addr, size_t offset, size_t size)
@@ -203,4 +207,18 @@ int ps2kbd_poll_events(void *ctx, size_t events)
     if (events & 0x0004) ready |= 0x0004;
     spin_unlock(&ps2kbd_event_lock);
     return ready;
+}
+
+int ps2kbd_wait_events(void)
+{
+    int available;
+
+    disable_intr();
+    spin_lock(&ps2kbd_event_lock);
+    available = ps2kbd_event_tail != ps2kbd_event_head;
+    spin_unlock(&ps2kbd_event_lock);
+
+    if (!available) wait_queue_wait(&ps2kbd_event_wait);
+    enable_intr();
+    return 0;
 }

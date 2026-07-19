@@ -48,7 +48,7 @@ static void scheduler_demo_thread(void *arg)
     const char *name = (const char *)arg;
 
     for (uint64_t i = 0; i < 8; i++) {
-        plogk("sched: %s iteration %llu on task %llu\n", name, i, current_task()->pid);
+        plogk("sched: %s iteration %llu on task %llu cpu %u\n", name, i, current_task()->pid, current_task()->cpu_id);
         task_sleep_ticks(2);
     }
 }
@@ -57,10 +57,10 @@ static void preempt_demo_thread(void *arg)
 {
     const char *name = (const char *)arg;
 
-    plogk("sched: %s busy loop start on task %llu\n", name, current_task()->pid);
+    plogk("sched: %s busy loop start on task %llu cpu %u\n", name, current_task()->pid, current_task()->cpu_id);
     for (uint64_t chunk = 0; chunk < 3; chunk++) {
         for (uint64_t i = 0; i < 5000000; i++) preempt_demo_sink += i;
-        plogk("sched: %s busy chunk %llu\n", name, chunk);
+        plogk("sched: %s busy chunk %llu cpu %u\n", name, chunk, current_task()->cpu_id);
     }
     plogk("sched: %s busy loop done\n", name);
 }
@@ -71,7 +71,7 @@ static void wait_demo_thread(void *arg)
 
     plogk("sched: %s waiting at tick %llu\n", name, sched_ticks());
     wait_queue_wait(&demo_wait_queue);
-    plogk("sched: %s woke at tick %llu on task %llu\n", name, sched_ticks(), current_task()->pid);
+    plogk("sched: %s woke at tick %llu on task %llu cpu %u\n", name, sched_ticks(), current_task()->pid, current_task()->cpu_id);
 }
 
 static void wake_demo_thread(void *arg)
@@ -83,17 +83,27 @@ static void wake_demo_thread(void *arg)
     plogk("sched: wait queue wake_one target task %llu\n", task ? task->pid : 0);
 }
 
+static void keyboard_wait_thread(void *arg)
+{
+    (void)arg;
+
+    plogk("init: Keyboard waiter blocking for an input event.\n");
+    ps2kbd_wait_events();
+    plogk("init: Keyboard waiter received an input event.\n");
+}
+
 static void kernel_init_thread(void *arg)
 {
     (void)arg;
 
-    plogk("init: Kernel init thread started as task %llu.\n", current_task()->pid);
+    plogk("init: Kernel init thread started as task %llu cpu %u.\n", current_task()->pid, current_task()->cpu_id);
     wait_queue_init(&demo_wait_queue);
     kthread_create("preempt-demo", preempt_demo_thread, "preempt-demo");
     kthread_create("demo-a", scheduler_demo_thread, "demo-a");
     kthread_create("demo-b", scheduler_demo_thread, "demo-b");
     kthread_create("wait-demo", wait_demo_thread, "wait-demo");
     kthread_create("wake-demo", wake_demo_thread, NULL);
+    kthread_create("keyboard-wait", keyboard_wait_thread, NULL);
 
     while (1) task_sleep_ticks(250);
 }

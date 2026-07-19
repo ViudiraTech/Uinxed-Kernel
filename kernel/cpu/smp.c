@@ -21,6 +21,7 @@
 #include <page.h>
 #include <printk.h>
 #include <smp.h>
+#include <sched.h>
 #include <spin_lock.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -39,14 +40,8 @@ INTERRUPT_BEGIN static void ipi_reschedule_handler(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
-    /* Process scheduler: Currently just re-enable interrupts and return
-     * In a full implementation, this would:
-     * - Switch to next runnable process in the ready queue
-     * - Save current process context (registers, stack pointer)
-     * - Load next process context
-     * - Update process state (running -> ready, ready -> running)
-     */
     send_eoi();
+    sched_ipi_reschedule();
     enable_intr();
 }
 INTERRUPT_END
@@ -214,16 +209,14 @@ void ap_entry(struct limine_smp_info *info)
     ap_ready_count++;
     spin_unlock(&ap_start_lock);
 
+    sched_ap_online(cpu->id);
+
     /* AP scheduler loop:
-     * - Enable interrupts for timer-based scheduling
+     * - Enable interrupts for timer and reschedule IPI handling
      * - Enter idle loop with HLT instruction
      * - CPU will wake up on interrupts (timer, IPI, etc.)
      */
-    enable_intr();
-    while (1) __asm__ volatile("hlt");
-
-    /* Shouldn't reach here */
-    panic("AP %d scheduler exited.", cpu->id);
+    sched_ap_start(cpu->id);
 }
 
 /* Initializing Symmetric Multi-Processing */

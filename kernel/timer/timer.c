@@ -15,6 +15,7 @@
 #include <math.h>
 #include <printk.h>
 #include <sched.h>
+#include <smp.h>
 #include <stdint.h>
 #include <tty.h>
 #include <tsc.h>

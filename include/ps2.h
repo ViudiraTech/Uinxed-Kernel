@@ -90,4 +90,7 @@ size_t ps2kbd_read_events(void *ctx, void *addr, size_t offset, size_t size);
 /* Poll queued PS/2 keyboard events for readability. */
 int ps2kbd_poll_events(void *ctx, size_t events);
 
+/* Block the current kernel thread until a keyboard event is queued. */
+int ps2kbd_wait_events(void);
+
 #endif // INCLUDE_PS2_H_
