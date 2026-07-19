@@ -31,7 +31,7 @@ Uinxed is a Unix-like operating system kernel developed from scratch, focusing o
 - **System management**:
   - ACPI support
   - High Precision Event Timer (HPET)
-  - Multi-core support based on symmetric multi-processing
+  - Multi-core support based on symmetric multi-processing (SMP)
 - **Terminal meatures**:
   - Bitmap fonts (9x16 pixels)
   - High-speed terminal implementation
@@ -39,6 +39,11 @@ Uinxed is a Unix-like operating system kernel developed from scratch, focusing o
   - UNIX-like virtual filesystem (VFS)
   - FatFS filesystems (FAT12, FAT16, FAT32)
   - SimpleFS for test
+- **Scheduler**:
+  - Kernel thread scheduler
+  - Load balance
+  - Preempt scheduling
+  - Multi-processor scheduling
 
 ## Development Environment Preparation 🛠️
 
@@ -295,6 +300,6 @@ This project adopts the Apache 2.0 open source license. Please refer to the LICE
 
 ## Contact Details 📩
 
-- Email：2609948707@qq.com | 3585302907@qq.com
+- Email：rainy101112@163.com | 2609948707@qq.com | 3585302907@qq.com
 - Join our discord server: [Click here](https://discord.gg/nTkg7HCpy7)
 - Tencent QQ chat group: [983673299](https://qm.qq.com/q/8goacFf1iU)
