@@ -26,6 +26,7 @@ typedef enum {
     TASK_READY,
     TASK_RUNNING,
     TASK_BLOCKED,
+    TASK_SLEEPING,
     TASK_ZOMBIE,
     TASK_IDLE,
 } task_state_t;
@@ -50,6 +51,7 @@ typedef struct task {
         page_directory_t *page_directory;
         uint8_t         *kernel_stack;
         uint64_t         time_slice;
+        uint64_t         wake_tick;
         char             name[TASK_NAME_LEN];
 } task_t;
 
@@ -65,8 +67,14 @@ task_t *kthread_create(const char *name, kthread_entry_t entry, void *arg);
 /* Yield the current CPU to another runnable task. */
 void sched_yield(void);
 
+/* Sleep the current task for at least the specified number of scheduler ticks. */
+void task_sleep_ticks(uint64_t ticks);
+
 /* Account one scheduler tick and preempt the current task if needed. */
 void sched_tick(void);
+
+/* Return the scheduler tick count. */
+uint64_t sched_ticks(void);
 
 /* Finish the current task. This function does not return. */
 void task_exit(void);

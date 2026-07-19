@@ -40,6 +40,42 @@
 #include <video.h>
 #include <devtmpfs.h>
 
+static volatile uint64_t preempt_demo_sink;
+
+static void scheduler_demo_thread(void *arg)
+{
+    const char *name = (const char *)arg;
+
+    for (uint64_t i = 0; i < 8; i++) {
+        plogk("sched: %s iteration %llu on task %llu\n", name, i, current_task()->pid);
+        task_sleep_ticks(2);
+    }
+}
+
+static void preempt_demo_thread(void *arg)
+{
+    const char *name = (const char *)arg;
+
+    plogk("sched: %s busy loop start on task %llu\n", name, current_task()->pid);
+    for (uint64_t chunk = 0; chunk < 3; chunk++) {
+        for (uint64_t i = 0; i < 5000000; i++) preempt_demo_sink += i;
+        plogk("sched: %s busy chunk %llu\n", name, chunk);
+    }
+    plogk("sched: %s busy loop done\n", name);
+}
+
+static void kernel_init_thread(void *arg)
+{
+    (void)arg;
+
+    plogk("init: Kernel init thread started as task %llu.\n", current_task()->pid);
+    kthread_create("preempt-demo", preempt_demo_thread, "preempt-demo");
+    kthread_create("demo-a", scheduler_demo_thread, "demo-a");
+    kthread_create("demo-b", scheduler_demo_thread, "demo-b");
+
+    while (1) task_sleep_ticks(250);
+}
+
 /* Executable entry */
 void executable_entry(void)
 {
@@ -102,6 +138,7 @@ void kernel_entry(void)
     init_cpio();                    // Initialize CPIO
     devtmpfs_init();
     sched_init();
+    kthread_create("kernel-init", kernel_init_thread, NULL);
     enable_intr();
 
     sched_start();

@@ -25,6 +25,7 @@ typedef struct {
         task_t      *current;
         task_t      *idle;
         ilist_node_t ready_queue;
+        ilist_node_t sleep_queue;
         spinlock_t   lock;
         uint64_t     next_pid;
         uint64_t     ticks;
@@ -83,7 +84,15 @@ static void task_name_copy(task_t *task, const char *name)
 static void enqueue_task(task_t *task)
 {
     task->state = TASK_READY;
+    task->wake_tick = 0;
     ilist_insert_before(&scheduler.ready_queue, &task->run_node);
+}
+
+static void sleep_task(task_t *task, uint64_t wake_tick)
+{
+    task->state     = TASK_SLEEPING;
+    task->wake_tick = wake_tick;
+    ilist_insert_before(&scheduler.sleep_queue, &task->run_node);
 }
 
 static task_t *pick_next_task(void)
@@ -97,6 +106,22 @@ static task_t *pick_next_task(void)
 
 static int has_ready_task(void)
 { return !ilist_is_empty(&scheduler.ready_queue); }
+
+static void wake_sleeping_tasks(void)
+{
+    ilist_node_t *node = scheduler.sleep_queue.next;
+
+    while (node != &scheduler.sleep_queue) {
+        ilist_node_t *next = node->next;
+        task_t       *task = node_to_task(node);
+
+        if (task->wake_tick <= scheduler.ticks) {
+            ilist_remove(node);
+            enqueue_task(task);
+        }
+        node = next;
+    }
+}
 
 static void kthread_trampoline(kthread_bootstrap_t *bootstrap)
 {
@@ -153,34 +178,11 @@ static void idle_thread(void *arg)
     }
 }
 
-static void demo_thread(void *arg)
-{
-    const char *name = (const char *)arg;
-
-    for (uint64_t i = 0; i < 8; i++) {
-        plogk("sched: %s iteration %llu on task %llu\n", name, i, current_task()->pid);
-        sched_yield();
-    }
-}
-
-static volatile uint64_t preempt_demo_sink;
-
-static void preempt_demo_thread(void *arg)
-{
-    const char *name = (const char *)arg;
-
-    plogk("sched: %s busy loop start on task %llu\n", name, current_task()->pid);
-    for (uint64_t chunk = 0; chunk < 3; chunk++) {
-        for (uint64_t i = 0; i < 5000000; i++) preempt_demo_sink += i;
-        plogk("sched: %s busy chunk %llu\n", name, chunk);
-    }
-    plogk("sched: %s busy loop done\n", name);
-}
-
 void sched_init(void)
 {
     memset(&scheduler, 0, sizeof(scheduler));
     ilist_init(&scheduler.ready_queue);
+    ilist_init(&scheduler.sleep_queue);
     scheduler.next_pid = 1;
 
     memset(&boot_task, 0, sizeof(boot_task));
@@ -199,10 +201,6 @@ void sched_init(void)
     ilist_remove(&scheduler.idle->run_node);
     spin_unlock(&scheduler.lock);
     scheduler.idle->state = TASK_IDLE;
-
-    kthread_create("preempt-demo", preempt_demo_thread, "preempt-demo");
-    kthread_create("demo-a", demo_thread, "demo-a");
-    kthread_create("demo-b", demo_thread, "demo-b");
 
     plogk("sched: Initialized kernel scheduler.\n");
 }
@@ -270,11 +268,30 @@ void sched_start(void)
     panic("sched: bootstrap task resumed.");
 }
 
+void task_sleep_ticks(uint64_t ticks)
+{
+    if (!ticks) {
+        sched_yield();
+        return;
+    }
+
+    disable_intr();
+    spin_lock(&scheduler.lock);
+    sleep_task(scheduler.current, scheduler.ticks + ticks);
+    spin_unlock(&scheduler.lock);
+
+    sched_yield();
+    enable_intr();
+}
+
 void sched_tick(void)
 {
     if (!scheduler.started || !scheduler.current) return;
 
+    spin_lock(&scheduler.lock);
     scheduler.ticks++;
+    wake_sleeping_tasks();
+    spin_unlock(&scheduler.lock);
 
     task_t *current = scheduler.current;
     if (current == scheduler.idle) {
@@ -289,6 +306,9 @@ void sched_tick(void)
     current->time_slice = TASK_DEFAULT_SLICE;
     if (has_ready_task()) sched_yield();
 }
+
+uint64_t sched_ticks(void)
+{ return scheduler.ticks; }
 
 void task_exit(void)
 {
