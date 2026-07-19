@@ -22,7 +22,6 @@
 #include <hhdm.h>
 #include <ide.h>
 #include <interrupt.h>
-#include <limine.h>
 #include <limine_module.h>
 #include <page.h>
 #include <parallel.h>
@@ -53,7 +52,7 @@ void kernel_entry(void)
     init_fpu(); // Initialize FPU/MMX
     init_sse(); // Initialize SSE/SSE2
     init_serial(); // Initialize the serial port
-    
+
     init_frame();   // Initialize memory frame
     page_init();    // Initialize memory page
     init_heap();    // Initialize the memory heap

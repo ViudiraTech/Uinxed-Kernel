@@ -18,6 +18,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 mcfg_t mcfg_info;
 
@@ -31,6 +32,7 @@ static void     pci_legacy_write(pci_device_reg_t reg, uint32_t value);
 
 static uint32_t pci_mcfg_read(pci_device_reg_t reg);
 static void     pci_mcfg_write(pci_device_reg_t reg, uint32_t value);
+static void     pci_scan_bus(pci_device_cache_t *cache, uint16_t bus, uint16_t end_bus);
 
 /* PCI operations (For MCFG and legacy mode) */
 struct PCIOps {
@@ -46,6 +48,8 @@ pci_usable_list_t pci_usable = {
     .head  = 0,
     .count = 0,
 };
+
+static uint8_t pci_scanned_buses[256];
 
 struct {
         uint32_t    classcode;
@@ -628,60 +632,73 @@ static void pci_add_device_cache(pci_device_cache_t *cache)
 /* A helper function to read registers and add device cache */
 static int pci_cache_process(pci_device_cache_t *cache)
 {
-    union {
-            pci_device_reg_t ecam_area;
-            pci_device_reg_t vendor_id;
-            pci_device_reg_t device_id;
-            pci_device_reg_t value_c;
-            pci_device_reg_t header;
-    } regs;
-
     /* Check device existance */
     if (mcfg_info.enabled && cache->entry) {
-        regs.ecam_area  = (pci_device_reg_t) {cache, 0};
-        cache->ecam_ptr = mcfg_ecam_addr(cache->entry, regs.ecam_area);
+        pci_device_reg_t ecam_area = {cache, 0};
+        cache->ecam_ptr            = mcfg_ecam_addr(cache->entry, ecam_area);
     }
-    regs.vendor_id.offset = PCI_CONF_VENDOR;
-    cache->vendor_id      = read_pci(regs.vendor_id);
+    pci_device_reg_t vendor_id = {cache, PCI_CONF_VENDOR};
+    cache->vendor_id          = read_pci(vendor_id);
 
     /* Device not exist, return 0 */
     if (cache->vendor_id == 0xffffffff) return 0;
-    regs.device_id.offset = PCI_CONF_DEVICE;
     cache->device_id      = (cache->vendor_id >> 16) & 0xffff;
     cache->vendor_id &= 0xffff;
-    regs.value_c.offset = PCI_CONF_REVISION;
-    cache->value_c      = read_pci(regs.value_c);
+    pci_device_reg_t value_c = {cache, PCI_CONF_REVISION};
+    cache->value_c           = read_pci(value_c);
     cache->class_code   = cache->value_c >> 8;
-    regs.header.offset  = PCI_CONF_HEADER_TYPE;
-    cache->header_type  = read_pci(regs.header) & 0xff;
+    pci_device_reg_t header = {cache, PCI_CONF_HEADER_TYPE};
+    cache->header_type      = read_pci(header) & 0xff;
     pci_add_device_cache(cache);
 
     /* Exist and added */
     return 1;
 }
 
+static void pci_scan_bridge_children(pci_device_cache_t *cache, uint16_t end_bus)
+{
+    uint32_t class = cache->class_code & 0xffff00;
+    if (class != 0x060400 && class != 0x060900) return;
+
+    pci_device_reg_t secondary_bus_reg = {cache, 0x19};
+    uint16_t         secondary_bus     = read_pci(secondary_bus_reg) & 0xff;
+    if (!secondary_bus || secondary_bus > end_bus) return;
+
+    pci_device_t saved_device = *cache->device;
+    pci_scan_bus(cache, secondary_bus, end_bus);
+    *cache->device = saved_device;
+}
+
 /* Process slots of PCI devices */
-static void slot_process(pci_device_cache_t *cache)
+static void slot_process(pci_device_cache_t *cache, uint16_t end_bus)
 {
     pci_device_t *device = cache->device;
 
     device->func = 0;
     if (!pci_cache_process(cache)) return; // Device not exist
+    pci_scan_bridge_children(cache, end_bus);
 
     /* Check if device is a multifunction device */
     if (!(cache->header_type & 0x80)) return; // Not a multifunction device
 
     /* Process func=1..7 */
-    for (device->func = 1; device->func < 8; device->func++) pci_cache_process(cache);
+    for (device->func = 1; device->func < 8; device->func++)
+        if (pci_cache_process(cache)) pci_scan_bridge_children(cache, end_bus);
 }
 
-/* Iterate over bus by a range */
-static void pci_iter_bus_range(pci_device_cache_t *cache, bus_range_t bus_range)
+/* Scan one bus and recursively scan bridge secondary buses */
+static void pci_scan_bus(pci_device_cache_t *cache, uint16_t bus, uint16_t end_bus)
 {
     if (mcfg_info.enabled && !cache->entry) return; // Enabled MCFG but no entry found
+    if (bus > end_bus || bus > 255 || pci_scanned_buses[bus]) return;
+
+    pci_scanned_buses[bus] = 1;
     pci_device_t *device = cache->device;
-    for (device->bus = bus_range.start; device->bus < bus_range.end; device->bus++) {
-        for (device->slot = 0; device->slot < 32; device->slot++) slot_process(cache);
+    device->bus = bus;
+    for (uint16_t slot = 0; slot < 32; slot++) {
+        device->bus  = bus;
+        device->slot = slot;
+        slot_process(cache, end_bus);
     }
 }
 
@@ -689,6 +706,7 @@ static void pci_iter_bus_range(pci_device_cache_t *cache, bus_range_t bus_range)
 void pci_flush_devices_cache(void)
 {
     pci_free_devices_cache();
+    memset(pci_scanned_buses, 0, sizeof(pci_scanned_buses));
     pci_device_t       curr_device = {0, 0, 0, 0};
     pci_device_cache_t curr_cache  = {
         &curr_device, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -696,13 +714,14 @@ void pci_flush_devices_cache(void)
 
     if (!mcfg_info.enabled) {
         curr_device.domain = 0;
-        pci_iter_bus_range(&curr_cache, (bus_range_t) {0, 256});
+        pci_scan_bus(&curr_cache, 0, 255);
     } else {
         for (size_t i = 0; i < mcfg_info.count; i++) {
             mcfg_entry_t *entry = &mcfg_info.mcfg->entries[i];
+            memset(pci_scanned_buses, 0, sizeof(pci_scanned_buses));
             curr_cache.entry    = entry;
             curr_device.domain  = entry->segment;
-            pci_iter_bus_range(&curr_cache, (bus_range_t) {entry->start_bus, entry->end_bus + 1});
+            pci_scan_bus(&curr_cache, entry->start_bus, entry->end_bus);
         }
     }
     pci_update_usable_list();
