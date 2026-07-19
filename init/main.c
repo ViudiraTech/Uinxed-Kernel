@@ -41,6 +41,7 @@
 #include <devtmpfs.h>
 
 static volatile uint64_t preempt_demo_sink;
+static wait_queue_t      demo_wait_queue;
 
 static void scheduler_demo_thread(void *arg)
 {
@@ -64,14 +65,35 @@ static void preempt_demo_thread(void *arg)
     plogk("sched: %s busy loop done\n", name);
 }
 
+static void wait_demo_thread(void *arg)
+{
+    const char *name = (const char *)arg;
+
+    plogk("sched: %s waiting at tick %llu\n", name, sched_ticks());
+    wait_queue_wait(&demo_wait_queue);
+    plogk("sched: %s woke at tick %llu on task %llu\n", name, sched_ticks(), current_task()->pid);
+}
+
+static void wake_demo_thread(void *arg)
+{
+    (void)arg;
+
+    task_sleep_ticks(8);
+    task_t *task = wait_queue_wake_one(&demo_wait_queue);
+    plogk("sched: wait queue wake_one target task %llu\n", task ? task->pid : 0);
+}
+
 static void kernel_init_thread(void *arg)
 {
     (void)arg;
 
     plogk("init: Kernel init thread started as task %llu.\n", current_task()->pid);
+    wait_queue_init(&demo_wait_queue);
     kthread_create("preempt-demo", preempt_demo_thread, "preempt-demo");
     kthread_create("demo-a", scheduler_demo_thread, "demo-a");
     kthread_create("demo-b", scheduler_demo_thread, "demo-b");
+    kthread_create("wait-demo", wait_demo_thread, "wait-demo");
+    kthread_create("wake-demo", wake_demo_thread, NULL);
 
     while (1) task_sleep_ticks(250);
 }

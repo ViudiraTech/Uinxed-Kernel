@@ -85,13 +85,24 @@ static void enqueue_task(task_t *task)
 {
     task->state = TASK_READY;
     task->wake_tick = 0;
+    task->wait_queue = NULL;
     ilist_insert_before(&scheduler.ready_queue, &task->run_node);
+}
+
+static void wake_task_locked(task_t *task, int remove_linked_node)
+{
+    if (!task || task->state == TASK_READY || task->state == TASK_RUNNING || task->state == TASK_IDLE) return;
+
+    if (remove_linked_node) ilist_remove(&task->run_node);
+    task->time_slice = TASK_DEFAULT_SLICE;
+    enqueue_task(task);
 }
 
 static void sleep_task(task_t *task, uint64_t wake_tick)
 {
     task->state     = TASK_SLEEPING;
     task->wake_tick = wake_tick;
+    task->wait_queue = NULL;
     ilist_insert_before(&scheduler.sleep_queue, &task->run_node);
 }
 
@@ -117,7 +128,7 @@ static void wake_sleeping_tasks(void)
 
         if (task->wake_tick <= scheduler.ticks) {
             ilist_remove(node);
-            enqueue_task(task);
+            wake_task_locked(task, 0);
         }
         node = next;
     }
@@ -282,6 +293,114 @@ void task_sleep_ticks(uint64_t ticks)
 
     sched_yield();
     enable_intr();
+}
+
+void task_block(void)
+{
+    disable_intr();
+    spin_lock(&scheduler.lock);
+    scheduler.current->state = TASK_BLOCKED;
+    spin_unlock(&scheduler.lock);
+
+    sched_yield();
+    enable_intr();
+}
+
+int task_wakeup(task_t *task)
+{
+    if (!task) return 1;
+
+    wait_queue_t *queue = task->wait_queue;
+
+    if (queue) {
+        spin_lock(&queue->lock);
+        spin_lock(&scheduler.lock);
+        if (task->wait_queue == queue) wake_task_locked(task, 1);
+        spin_unlock(&scheduler.lock);
+        spin_unlock(&queue->lock);
+        return 0;
+    }
+
+    spin_lock(&scheduler.lock);
+    if (task->state == TASK_SLEEPING) {
+        wake_task_locked(task, 1);
+    } else {
+        wake_task_locked(task, 0);
+    }
+    spin_unlock(&scheduler.lock);
+    return 0;
+}
+
+void wait_queue_init(wait_queue_t *queue)
+{
+    if (!queue) return;
+
+    ilist_init(&queue->tasks);
+    queue->lock.lock   = 0;
+    queue->lock.rflags = 0;
+}
+
+void wait_queue_wait(wait_queue_t *queue)
+{
+    if (!queue) {
+        task_block();
+        return;
+    }
+
+    disable_intr();
+    spin_lock(&queue->lock);
+    spin_lock(&scheduler.lock);
+    scheduler.current->state = TASK_BLOCKED;
+    scheduler.current->wake_tick = 0;
+    scheduler.current->wait_queue = queue;
+    ilist_insert_before(&queue->tasks, &scheduler.current->run_node);
+    spin_unlock(&scheduler.lock);
+    spin_unlock(&queue->lock);
+
+    sched_yield();
+    enable_intr();
+}
+
+task_t *wait_queue_wake_one(wait_queue_t *queue)
+{
+    if (!queue) return NULL;
+
+    spin_lock(&queue->lock);
+    if (ilist_is_empty(&queue->tasks)) {
+        spin_unlock(&queue->lock);
+        return NULL;
+    }
+
+    ilist_node_t *node = queue->tasks.next;
+    task_t       *task = node_to_task(node);
+
+    ilist_remove(node);
+    spin_lock(&scheduler.lock);
+    wake_task_locked(task, 0);
+    spin_unlock(&scheduler.lock);
+    spin_unlock(&queue->lock);
+    return task;
+}
+
+uint64_t wait_queue_wake_all(wait_queue_t *queue)
+{
+    if (!queue) return 0;
+
+    uint64_t count = 0;
+
+    spin_lock(&queue->lock);
+    spin_lock(&scheduler.lock);
+    while (!ilist_is_empty(&queue->tasks)) {
+        ilist_node_t *node = queue->tasks.next;
+        task_t       *task = node_to_task(node);
+
+        ilist_remove(node);
+        wake_task_locked(task, 0);
+        count++;
+    }
+    spin_unlock(&scheduler.lock);
+    spin_unlock(&queue->lock);
+    return count;
 }
 
 void sched_tick(void)
