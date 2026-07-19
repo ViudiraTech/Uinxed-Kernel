@@ -14,6 +14,7 @@
 #include <interrupt.h>
 #include <math.h>
 #include <printk.h>
+#include <sched.h>
 #include <stdint.h>
 #include <tty.h>
 #include <tsc.h>
@@ -25,6 +26,7 @@ INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)
     disable_intr();
     tty_deferred_flush();
     send_eoi();
+    sched_tick();
     enable_intr();
 }
 INTERRUPT_END

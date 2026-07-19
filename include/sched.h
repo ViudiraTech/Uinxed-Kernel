@@ -38,6 +38,7 @@ typedef struct {
         uint64_t r13;
         uint64_t r14;
         uint64_t r15;
+        uint64_t rflags;
         uint64_t rdi;
 } task_context_t;
 
@@ -63,6 +64,9 @@ task_t *kthread_create(const char *name, kthread_entry_t entry, void *arg);
 
 /* Yield the current CPU to another runnable task. */
 void sched_yield(void);
+
+/* Account one scheduler tick and preempt the current task if needed. */
+void sched_tick(void);
 
 /* Finish the current task. This function does not return. */
 void task_exit(void);
