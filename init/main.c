@@ -42,6 +42,8 @@
 
 static volatile uint64_t preempt_demo_sink;
 static wait_queue_t      demo_wait_queue;
+static wait_queue_t      migration_wait_queue;
+static task_t           *migration_task;
 
 static void scheduler_demo_thread(void *arg)
 {
@@ -92,18 +94,43 @@ static void keyboard_wait_thread(void *arg)
     plogk("init: Keyboard waiter received an input event.\n");
 }
 
+static void migration_wait_thread(void *arg)
+{
+    (void)arg;
+
+    plogk("sched: migration waiter started on task %llu cpu %u\n", current_task()->pid, current_task()->cpu_id);
+    wait_queue_wait(&migration_wait_queue);
+    plogk("sched: migration waiter woke on task %llu cpu %u\n", current_task()->pid, current_task()->cpu_id);
+}
+
+static void migration_wake_thread(void *arg)
+{
+    (void)arg;
+
+    task_sleep_ticks(12);
+    if (migration_task && sched_cpu_count() > 1) {
+        int status = task_set_cpu(migration_task, 1);
+        plogk("sched: migration target task %llu to cpu 1 status %d\n", migration_task->pid, status);
+    }
+    task_t *task = wait_queue_wake_one(&migration_wait_queue);
+    plogk("sched: migration wake target task %llu\n", task ? task->pid : 0);
+}
+
 static void kernel_init_thread(void *arg)
 {
     (void)arg;
 
     plogk("init: Kernel init thread started as task %llu cpu %u.\n", current_task()->pid, current_task()->cpu_id);
     wait_queue_init(&demo_wait_queue);
+    wait_queue_init(&migration_wait_queue);
     kthread_create("preempt-demo", preempt_demo_thread, "preempt-demo");
     kthread_create("demo-a", scheduler_demo_thread, "demo-a");
     kthread_create("demo-b", scheduler_demo_thread, "demo-b");
     kthread_create("wait-demo", wait_demo_thread, "wait-demo");
     kthread_create("wake-demo", wake_demo_thread, NULL);
     kthread_create("keyboard-wait", keyboard_wait_thread, NULL);
+    migration_task = kthread_create_on_cpu("migration-wait", migration_wait_thread, NULL, 0);
+    kthread_create("migration-wake", migration_wake_thread, NULL);
 
     while (1) task_sleep_ticks(250);
 }

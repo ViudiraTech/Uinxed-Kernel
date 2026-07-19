@@ -86,6 +86,12 @@ void sched_start(void);
 /* Create a kernel thread and put it into the ready queue. */
 task_t *kthread_create(const char *name, kthread_entry_t entry, void *arg);
 
+/* Create a kernel thread on a specific CPU. */
+task_t *kthread_create_on_cpu(const char *name, kthread_entry_t entry, void *arg, uint32_t cpu_id);
+
+/* Move a non-running task to another CPU. */
+int task_set_cpu(task_t *task, uint32_t cpu_id);
+
 /* Yield the current CPU to another runnable task. */
 void sched_yield(void);
 

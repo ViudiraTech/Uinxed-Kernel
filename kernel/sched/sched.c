@@ -43,6 +43,7 @@ typedef struct {
         task_t  *current;
         task_t  *idle;
         ilist_node_t ready_queue;
+        uint64_t ready_count;
         uint64_t reschedule_ipis;
         uint8_t  online;
 } cpu_scheduler_t;
@@ -106,6 +107,7 @@ static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id)
     task->wait_queue = NULL;
     task->cpu_id = cpu_id;
     ilist_insert_before(&cpu_schedulers[cpu_id].ready_queue, &task->run_node);
+    cpu_schedulers[cpu_id].ready_count++;
 }
 
 static void enqueue_task(task_t *task)
@@ -140,7 +142,18 @@ static task_t *pick_next_task(uint32_t cpu_id)
 
     ilist_node_t *node = cpu_schedulers[cpu_id].ready_queue.next;
     ilist_remove(node);
+    if (cpu_schedulers[cpu_id].ready_count) cpu_schedulers[cpu_id].ready_count--;
     return node_to_task(node);
+}
+
+static uint32_t choose_task_cpu_locked(void)
+{
+    uint32_t best = next_task_cpu++ % cpu_scheduler_count;
+
+    for (uint32_t i = 0; i < cpu_scheduler_count; i++) {
+        if (cpu_schedulers[i].ready_count < cpu_schedulers[best].ready_count) best = i;
+    }
+    return best;
 }
 
 static int has_ready_task(void)
@@ -180,7 +193,7 @@ static task_t *task_alloc(const char *name)
     task->pid            = scheduler.next_pid++;
     task->page_directory = get_kernel_pagedir();
     task->time_slice     = TASK_DEFAULT_SLICE;
-    task->cpu_id         = next_task_cpu++ % cpu_scheduler_count;
+    task->cpu_id         = 0;
     task_name_copy(task, name);
     ilist_init(&task->run_node);
     return task;
@@ -252,6 +265,7 @@ void sched_init(void)
         if (!cpu_schedulers[i].idle) panic("sched: Cannot create idle task.");
         spin_lock(&scheduler.lock);
         ilist_remove(&cpu_schedulers[i].idle->run_node);
+        if (cpu_schedulers[i].ready_count) cpu_schedulers[i].ready_count--;
         spin_unlock(&scheduler.lock);
         cpu_schedulers[i].idle->state = TASK_IDLE;
         cpu_schedulers[i].idle->cpu_id = i;
@@ -303,7 +317,18 @@ uint32_t sched_cpu_count(void)
 
 task_t *kthread_create(const char *name, kthread_entry_t entry, void *arg)
 {
+    uint32_t cpu_id;
+
+    spin_lock(&scheduler.lock);
+    cpu_id = choose_task_cpu_locked();
+    spin_unlock(&scheduler.lock);
+    return kthread_create_on_cpu(name, entry, arg, cpu_id);
+}
+
+task_t *kthread_create_on_cpu(const char *name, kthread_entry_t entry, void *arg, uint32_t cpu_id)
+{
     if (!entry) return NULL;
+    if (cpu_id >= cpu_scheduler_count) cpu_id = 0;
 
     kthread_bootstrap_t *bootstrap = malloc(sizeof(kthread_bootstrap_t));
     if (!bootstrap) return NULL;
@@ -313,6 +338,7 @@ task_t *kthread_create(const char *name, kthread_entry_t entry, void *arg)
         free(bootstrap);
         return NULL;
     }
+    task->cpu_id = cpu_id;
 
     bootstrap->entry = entry;
     bootstrap->arg   = arg;
@@ -330,6 +356,29 @@ task_t *kthread_create(const char *name, kthread_entry_t entry, void *arg)
 
     plogk("sched: Created task %llu (%s) on CPU %u.\n", task->pid, task->name, task->cpu_id);
     return task;
+}
+
+int task_set_cpu(task_t *task, uint32_t cpu_id)
+{
+    if (!task || cpu_id >= cpu_scheduler_count) return 1;
+
+    spin_lock(&scheduler.lock);
+    if (task->state == TASK_RUNNING || task->state == TASK_IDLE || task->state == TASK_ZOMBIE) {
+        spin_unlock(&scheduler.lock);
+        return 1;
+    }
+
+    if (task->state == TASK_READY) {
+        ilist_remove(&task->run_node);
+        if (task->cpu_id < cpu_scheduler_count && cpu_schedulers[task->cpu_id].ready_count)
+            cpu_schedulers[task->cpu_id].ready_count--;
+        enqueue_task_on_cpu(task, cpu_id);
+    } else {
+        task->cpu_id = cpu_id;
+    }
+    spin_unlock(&scheduler.lock);
+    request_task_cpu(task);
+    return 0;
 }
 
 void sched_yield(void)
