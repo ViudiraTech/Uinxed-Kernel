@@ -171,6 +171,8 @@ static void gen_info_meminfo(procfs_file_t *pf)
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
+
+
 static void gen_info_cpuinfo(procfs_file_t *pf)
 {
     char *buf = malloc(PROCFS_BUF_SIZE);
@@ -181,7 +183,53 @@ static void gen_info_cpuinfo(procfs_file_t *pf)
     int     remaining = PROCFS_BUF_SIZE;
     int     n;
 
+    /* Query CPUID leaf 1 once */
+    uint32_t eax1, ebx1, ecx1, edx1;
+    cpuid_safe(0x00000001, 0, &eax1, &ebx1, &ecx1, &edx1);
+
+    uint32_t stepping   = eax1 & 0xF;
+    uint32_t model      = (eax1 >> 4) & 0xF;
+    uint32_t family     = (eax1 >> 8) & 0xF;
+    uint32_t ext_model  = (eax1 >> 16) & 0xF;
+    uint32_t ext_family = (eax1 >> 20) & 0xFF;
+
+    if (family == 0xF) family += ext_family;
+    if (family == 0x6 || family == 0xF) model = (ext_model << 4) | model;
+
+    uint32_t cpuid_level   = eax1;
+    uint32_t clflush_size  = ((ebx1 >> 24) & 0xFF) * 8;
+    uint32_t max_logical   = (ebx1 >> 16) & 0xFF;
+
+    /* Cache info via leaf 4 (deterministic) */
+    uint32_t l1d_kb = 0, l2_kb = 0;
+    for (uint32_t idx = 0; idx < 8; idx++) {
+        uint32_t ca, cb, cc, cd;
+        cpuid_safe(0x00000004, idx, &ca, &cb, &cc, &cd);
+        uint32_t cache_type = ca & 0x1F;
+        if (cache_type == 0) break;
+        uint32_t ways      = ((cb >> 22) & 0x3FF) + 1;
+        uint32_t partitions = ((cb >> 12) & 0x3FF) + 1;
+        uint32_t line_size  = (cb & 0xFFF) + 1;
+        uint32_t sets       = cc + 1;
+        uint32_t size_kb    = (ways * partitions * line_size * sets) / 1024;
+        if (cache_type == 1)      l1d_kb = size_kb;       /* data cache */
+        else if (cache_type == 2) l1d_kb = size_kb;       /* instruction cache */
+        else if (cache_type == 3) l2_kb  = size_kb;       /* unified L2 */
+    }
+
+    /* CPU frequency */
+    uint64_t cpu_hz      = tsc_get_cpu_frequency();
+    uint64_t cpu_mhz     = cpu_hz / 1000000;
+    uint64_t cpu_mhz_fp  = (cpu_hz % 1000000) / 10000; /* one decimal */
+
+    /* BogoMIPS: approx (cpu_hz / 1000000) / 2, same as Linux on x86 */
+    uint64_t bogo        = cpu_hz / 2000000;
+    uint64_t bogo_fp     = ((cpu_hz % 2000000) * 10) / 2000000;
+
     for (uint32_t i = 0; i < cpu_count && remaining > 0; i++) {
+        char flags_buf[1024];
+        cpu_build_flags(flags_buf, sizeof(flags_buf));
+
         n = snprintf(p, remaining,
             "processor\t: %u\n"
             "vendor_id\t: %s\n"
@@ -189,7 +237,7 @@ static void gen_info_cpuinfo(procfs_file_t *pf)
             "model\t\t: %u\n"
             "model name\t: %s\n"
             "stepping\t: %u\n"
-            "cpu MHz\t\t: %llu.%02llu\n"
+            "cpu MHz\t\t: %llu.%01llu\n"
             "cache size\t: %u KB\n"
             "physical id\t: %u\n"
             "siblings\t: %u\n"
@@ -197,31 +245,36 @@ static void gen_info_cpuinfo(procfs_file_t *pf)
             "cpu cores\t: %u\n"
             "apicid\t\t: %u\n"
             "initial apicid\t: %u\n"
-            "fpu\t\t: yes\n"
-            "fpu_exception\t: yes\n"
+            "fpu\t\t: %s\n"
+            "fpu_exception\t: %s\n"
             "cpuid level\t: %u\n"
             "wp\t\t: yes\n"
-            "flags\t\t: fpu de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl nonstop_tsc cpuid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch cpuid_fault invpcid_single pti ssbd ibrs ibpb stibp fsgsbase bmi1 avx2 smep bmi2 erms invpcid rtm avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves arat avx512vbmi umip pku ospke avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid\n"
+            "flags\t\t:%s\n"
             "bugs\t\t:\n"
-            "bogomips\t: %llu.%02llu\n"
+            "bogomips\t: %llu.%01llu\n"
             "clflush size\t: %u\n"
             "cache_alignment\t: %u\n"
             "address sizes\t: %u bits physical, %u bits virtual\n"
             "power management:\n\n",
             i,
             get_vendor_name(),
-            0U, 0U,
+            family, model,
             get_model_name(),
-            0U,
-            0ULL, 0ULL,
-            0U,
-            1U,
+            stepping,
+            cpu_mhz, cpu_mhz_fp,
+            l2_kb ? l2_kb : (l1d_kb ? l1d_kb : 256U),
+            i,
+            max_logical,
             0U,
             1U,
             i, i,
-            0U,
-            0ULL, 0ULL,
-            64U, 64U,
+            (edx1 & (1 << 0)) ? "yes" : "no",
+            (edx1 & (1 << 0)) ? "yes" : "no",
+            cpuid_level,
+            flags_buf,
+            bogo, bogo_fp,
+            clflush_size,
+            clflush_size,
             get_cpu_phys_bits(), get_cpu_virt_bits());
         p += n; remaining -= n;
     }
