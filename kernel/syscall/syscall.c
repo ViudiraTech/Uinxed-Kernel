@@ -252,7 +252,6 @@ static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3,
 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (arg && !user_access_ok((void *)arg, 1, 1)) return -EFAULT;
     return process_fd_ioctl(proc, (int)fd, (size_t)req, (void *)arg);
 }
 
