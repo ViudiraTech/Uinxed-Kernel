@@ -124,10 +124,11 @@ void kernel_entry(void)
                 st = vfs_mount_fs("procfs", NULL, proc);
                 if (st == EOK) {
                     plogk("procfs: Mounted at /proc.\n");
+                    vfs_close(proc);
                 } else {
                     plogk("procfs: Cannot mount at /proc: %d\n", st);
+                    vfs_close(proc);
                 }
-                vfs_close(proc);
             }
         }
     }

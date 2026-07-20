@@ -11,7 +11,14 @@
 #ifndef INCLUDE_CPUID_H_
 #define INCLUDE_CPUID_H_
 
+#include <stddef.h>
 #include <stdint.h>
+
+/* Safe CPUID wrapper (avoids register clobber issues with pointer params) */
+void cpuid_safe(uint32_t leaf, uint32_t sub, uint32_t *a, uint32_t *b, uint32_t *c, uint32_t *d);
+
+/* Build a space-separated CPU feature flag string from real CPUID bits */
+void cpu_build_flags(char *buf, size_t size);
 
 /* Get CPUID */
 void cpuid(uint32_t code, uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t *edx);
