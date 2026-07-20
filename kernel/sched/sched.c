@@ -8,13 +8,15 @@
  *
  */
 
-#include <common.h>
 #include <apic.h>
+#include <common.h>
 #include <debug.h>
+#include <gdt.h>
 #include <heap.h>
 #include <intrusive_list.h>
 #include <page.h>
 #include <printk.h>
+#include <process.h>
 #include <sched.h>
 #include <smp.h>
 #include <spin_lock.h>
@@ -26,13 +28,13 @@
 
 #define SCHED_LOAD_BALANCE_INTERVAL 16
 
-scheduler_t scheduler;
-static task_t      boot_task;
-static uint8_t     boot_stack_marker;
+scheduler_t      scheduler;
+static task_t    boot_task;
+static uint8_t   boot_stack_marker;
 cpu_scheduler_t *cpu_schedulers;
 uint32_t         cpu_scheduler_count;
-static task_t           *ap_boot_tasks;
-static uint32_t           next_task_cpu;
+static task_t   *ap_boot_tasks;
+static uint32_t  next_task_cpu;
 
 void context_switch(task_context_t *prev, task_context_t *next);
 
@@ -63,24 +65,41 @@ __attribute__((naked)) void context_switch(task_context_t *prev, task_context_t 
 }
 
 static task_t *node_to_task(ilist_node_t *node)
-{ return (task_t *)((uint8_t *)node - offsetof(task_t, run_node)); }
+{
+    return (task_t *)((uint8_t *)node - offsetof(task_t, run_node));
+}
 
 static task_t *local_current(void)
-{ return cpu_schedulers[get_current_cpu_id()].current; }
+{
+    return cpu_schedulers[get_current_cpu_id()].current;
+}
+
+static void update_tss_stack(task_t *task)
+{
+    if (!task) return;
+
+    if (task->process && task->process->kernel_stack) {
+        set_kernel_stack((uint64_t)(task->process->kernel_stack + PROCESS_KERNEL_STACK));
+    } else if (task->kernel_stack) {
+        set_kernel_stack((uint64_t)(task->kernel_stack + TASK_KERNEL_STACK));
+    }
+}
 
 static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id)
 {
     if (cpu_id >= cpu_scheduler_count) cpu_id = 0;
-    task->state = TASK_READY;
-    task->wake_tick = 0;
+    task->state      = TASK_READY;
+    task->wake_tick  = 0;
     task->wait_queue = NULL;
-    task->cpu_id = cpu_id;
+    task->cpu_id     = cpu_id;
     ilist_insert_before(&cpu_schedulers[cpu_id].ready_queue, &task->run_node);
     cpu_schedulers[cpu_id].ready_count++;
 }
 
 void enqueue_task(task_t *task)
-{ enqueue_task_on_cpu(task, task->cpu_id); }
+{
+    enqueue_task_on_cpu(task, task->cpu_id);
+}
 
 static void wake_task_locked(task_t *task, int remove_linked_node)
 {
@@ -93,14 +112,13 @@ static void wake_task_locked(task_t *task, int remove_linked_node)
 
 void request_task_cpu(task_t *task)
 {
-    if (task && task->cpu_id != get_current_cpu_id() && scheduler.started)
-        send_ipi_cpu(task->cpu_id, IPI_RESCHEDULE);
+    if (task && task->cpu_id != get_current_cpu_id() && scheduler.started) send_ipi_cpu(task->cpu_id, IPI_RESCHEDULE);
 }
 
 static void sleep_task(task_t *task, uint64_t wake_tick)
 {
-    task->state     = TASK_SLEEPING;
-    task->wake_tick = wake_tick;
+    task->state      = TASK_SLEEPING;
+    task->wake_tick  = wake_tick;
     task->wait_queue = NULL;
     ilist_insert_before(&scheduler.sleep_queue, &task->run_node);
 }
@@ -126,7 +144,9 @@ uint32_t choose_task_cpu_locked(void)
 }
 
 static int has_ready_task(void)
-{ return !ilist_is_empty(&cpu_schedulers[get_current_cpu_id()].ready_queue); }
+{
+    return !ilist_is_empty(&cpu_schedulers[get_current_cpu_id()].ready_queue);
+}
 
 static task_t *balance_ready_queues_locked(void)
 {
@@ -140,8 +160,7 @@ static task_t *balance_ready_queues_locked(void)
         if (cpu_schedulers[i].ready_count < cpu_schedulers[idlest].ready_count) idlest = i;
     }
 
-    if (busiest == idlest || cpu_schedulers[busiest].ready_count <= cpu_schedulers[idlest].ready_count + 1)
-        return NULL;
+    if (busiest == idlest || cpu_schedulers[busiest].ready_count <= cpu_schedulers[idlest].ready_count + 1) return NULL;
 
     ilist_node_t *node = cpu_schedulers[busiest].ready_queue.prev;
     task_t       *task = node_to_task(node);
@@ -195,7 +214,7 @@ void sched_init(void)
         cpu_schedulers[i].online = 1;
         plogk("sched: CPU %u scheduler slot initialized.\n", i);
     }
-    next_task_cpu = 0;
+    next_task_cpu             = 0;
     cpu_schedulers[0].current = &boot_task;
 
     memset(&boot_task, 0, sizeof(boot_task));
@@ -212,21 +231,21 @@ void sched_init(void)
     for (uint32_t i = 0; i < cpu_scheduler_count; i++) {
         cpu_schedulers[i].idle = task_alloc("idle");
         if (!cpu_schedulers[i].idle) panic("sched: Cannot create idle task.");
-        cpu_schedulers[i].idle->pid = 0;
-        cpu_schedulers[i].idle->state = TASK_IDLE;
-        cpu_schedulers[i].idle->cpu_id = i;
+        cpu_schedulers[i].idle->pid          = 0;
+        cpu_schedulers[i].idle->state        = TASK_IDLE;
+        cpu_schedulers[i].idle->cpu_id       = i;
         cpu_schedulers[i].idle->kernel_stack = malloc(TASK_KERNEL_STACK);
         if (!cpu_schedulers[i].idle->kernel_stack) panic("sched: Cannot allocate idle kernel stack.");
         uint64_t *stack = (uint64_t *)ALIGN_DOWN((uint64_t)(cpu_schedulers[i].idle->kernel_stack + TASK_KERNEL_STACK), 16ULL);
-        *(--stack) = (uint64_t)idle_thread;
-        cpu_schedulers[i].idle->context.rsp = (uint64_t)stack;
-        cpu_schedulers[i].idle->context.rdi = (uint64_t)NULL;
+        *(--stack)      = (uint64_t)idle_thread;
+        cpu_schedulers[i].idle->context.rsp    = (uint64_t)stack;
+        cpu_schedulers[i].idle->context.rdi    = (uint64_t)NULL;
         cpu_schedulers[i].idle->context.rflags = 0x202;
-        plogk("task: Created task %llu (%s) on CPU %u.\n",
-              cpu_schedulers[i].idle->pid, cpu_schedulers[i].idle->name, cpu_schedulers[i].idle->cpu_id);
+        plogk("task: Created task %llu (%s) on CPU %u.\n", cpu_schedulers[i].idle->pid, cpu_schedulers[i].idle->name,
+              cpu_schedulers[i].idle->cpu_id);
     }
     scheduler.next_pid = 1;
-    scheduler.idle = cpu_schedulers[0].idle;
+    scheduler.idle     = cpu_schedulers[0].idle;
     for (uint32_t i = 1; i < cpu_scheduler_count; i++) {
         memset(&ap_boot_tasks[i], 0, sizeof(task_t));
         ap_boot_tasks[i].pid            = 0;
@@ -269,7 +288,9 @@ void sched_ipi_reschedule(void)
 }
 
 uint32_t sched_cpu_count(void)
-{ return cpu_scheduler_count; }
+{
+    return cpu_scheduler_count;
+}
 
 int task_set_cpu(task_t *task, uint32_t cpu_id)
 {
@@ -283,8 +304,7 @@ int task_set_cpu(task_t *task, uint32_t cpu_id)
 
     if (task->state == TASK_READY) {
         ilist_remove(&task->run_node);
-        if (task->cpu_id < cpu_scheduler_count && cpu_schedulers[task->cpu_id].ready_count)
-            cpu_schedulers[task->cpu_id].ready_count--;
+        if (task->cpu_id < cpu_scheduler_count && cpu_schedulers[task->cpu_id].ready_count) cpu_schedulers[task->cpu_id].ready_count--;
         enqueue_task_on_cpu(task, cpu_id);
     } else {
         task->cpu_id = cpu_id;
@@ -314,6 +334,7 @@ void sched_yield(void)
     if (next->state != TASK_IDLE) next->state = TASK_RUNNING;
     cpu_schedulers[cpu_id].current = next;
     if (cpu_id == 0) scheduler.current = next;
+    update_tss_stack(next);
 
     spin_unlock(&scheduler.lock);
     context_switch(&prev->context, &next->context);
@@ -323,7 +344,7 @@ void sched_start(void)
 {
     disable_intr();
     local_current()->state = TASK_BLOCKED;
-    scheduler.started        = 1;
+    scheduler.started      = 1;
     enable_intr();
     sched_yield();
     panic("sched: bootstrap task resumed.");
@@ -402,8 +423,8 @@ void wait_queue_wait(wait_queue_t *queue)
     disable_intr();
     spin_lock(&queue->lock);
     spin_lock(&scheduler.lock);
-    local_current()->state = TASK_BLOCKED;
-    local_current()->wake_tick = 0;
+    local_current()->state      = TASK_BLOCKED;
+    local_current()->wake_tick  = 0;
     local_current()->wait_queue = queue;
     ilist_insert_before(&queue->tasks, &local_current()->run_node);
     spin_unlock(&scheduler.lock);
@@ -477,7 +498,7 @@ void sched_tick(void)
         request_task_cpu(balanced);
     }
 
-    task_t   *current = cpu_schedulers[cpu_id].current;
+    task_t *current = cpu_schedulers[cpu_id].current;
     if (current == cpu_schedulers[cpu_id].idle) {
         if (has_ready_task()) sched_yield();
         return;
@@ -492,7 +513,9 @@ void sched_tick(void)
 }
 
 uint64_t sched_ticks(void)
-{ return scheduler.ticks; }
+{
+    return scheduler.ticks;
+}
 
 void task_exit(void)
 {
@@ -506,4 +529,6 @@ void task_exit(void)
 }
 
 task_t *current_task(void)
-{ return cpu_schedulers[get_current_cpu_id()].current; }
+{
+    return cpu_schedulers[get_current_cpu_id()].current;
+}

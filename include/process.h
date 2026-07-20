@@ -15,8 +15,11 @@
 #include <singly_list.h>
 #include <stddef.h>
 #include <stdint.h>
-
 #include <task.h>
+
+typedef struct vfs_node *vfs_node_t;
+
+typedef struct syscall_frame syscall_frame_t;
 
 typedef int64_t pid_t;
 
@@ -25,13 +28,15 @@ typedef int64_t pid_t;
 #define PROCESS_MAX_ARGV     64
 #define PROCESS_MAX_ENVP     64
 #define PROCESS_MAX_CHILDREN 128
+#define PROCESS_MAX_FD       64
+#define PROCESS_KERNEL_STACK 0x10000
 #define PROCESS_STACK_SIZE   (4 * 1024 * 1024)
 #define PROCESS_HEAP_START   0x100000
 #define PROCESS_HEAP_MAX     0x7ff00000
 #define PROCESS_STACK_BASE   0x7ffffffff000
 
-#define PROCESS_USER_CODE_MIN 0x0000000000400000
-#define PROCESS_USER_CODE_MAX 0x00007fffffe00000
+#define PROCESS_USER_CODE_MIN  0x0000000000400000
+#define PROCESS_USER_CODE_MAX  0x00007fffffe00000
 #define PROCESS_USER_STACK_TOP PROCESS_STACK_BASE
 
 typedef enum {
@@ -61,12 +66,20 @@ typedef enum {
 } vm_region_type_t;
 
 typedef struct vm_area {
-    uintptr_t         start;
-    uintptr_t         end;
-    vm_flags_t        flags;
-    vm_region_type_t  type;
-    struct vm_area   *next;
+        uintptr_t        start;
+        uintptr_t        end;
+        vm_flags_t       flags;
+        vm_region_type_t type;
+        struct vm_area  *next;
 } vm_area_t;
+
+typedef struct process_file {
+        vfs_node_t node;
+        size_t     offset;
+        uint64_t   flags;
+        uint32_t   refcount;
+        spinlock_t lock;
+} process_file_t;
 
 typedef struct process {
         task_t           *task;
@@ -82,6 +95,8 @@ typedef struct process {
         uint32_t          uid;
         uint32_t          gid;
         uint8_t          *kernel_stack;
+        process_file_t   *fds[PROCESS_MAX_FD];
+        spinlock_t        fd_lock;
 } process_t;
 
 /* Initialize the process management subsystem */
@@ -114,6 +129,9 @@ process_t *process_current(void);
 /* Clone the current process (fork semantics) */
 process_t *process_fork(void);
 
+/* Clone the current process and make the child return from the syscall frame */
+process_t *process_fork_from_syscall(syscall_frame_t *frame);
+
 /* Return the next available pid */
 pid_t process_next_pid(void);
 
@@ -122,5 +140,28 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
 
 /* Unmap a virtual memory area in the given process */
 int process_munmap(process_t *proc, uintptr_t addr, size_t length);
+
+/* Attach an opened VFS node to a file descriptor table */
+int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags);
+
+/* Close a file descriptor */
+int process_fd_close(process_t *proc, int fd);
+
+/* Duplicate a file descriptor into the lowest available slot */
+int process_fd_dup(process_t *proc, int oldfd);
+
+/* Duplicate a file descriptor into a specific slot */
+int process_fd_dup2(process_t *proc, int oldfd, int newfd);
+
+/* Read/write through a file descriptor and update the shared offset */
+int64_t process_fd_read(process_t *proc, int fd, void *buf, size_t size);
+int64_t process_fd_write(process_t *proc, int fd, const void *buf, size_t size);
+
+/* Move the shared file offset */
+int64_t process_fd_seek(process_t *proc, int fd, int64_t offset, int whence);
+
+/* Forward descriptor specific operations to the VFS */
+int process_fd_ioctl(process_t *proc, int fd, size_t req, void *arg);
+int process_fd_poll(process_t *proc, int fd, size_t events);
 
 #endif /* INCLUDE_PROCESS_H_ */
