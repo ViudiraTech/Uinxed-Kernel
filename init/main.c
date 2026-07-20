@@ -27,6 +27,7 @@
 #include <parallel.h>
 #include <pci.h>
 #include <printk.h>
+#include <process.h>
 #include <ps2.h>
 #include <sched.h>
 #include <sched_test.h>
@@ -109,6 +110,7 @@ void kernel_entry(void)
     init_cpio();                    // Initialize CPIO
     devtmpfs_init();
     sched_init();
+    process_init();
     sched_test_init();
     kthread_create("init", init_thread, NULL);
     enable_intr();
