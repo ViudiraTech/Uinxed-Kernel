@@ -17,7 +17,11 @@
 #include <stdint.h>
 #include <syscall.h>
 #include <task.h>
+#include <uaccess.h>
 #include <vfs.h>
+
+#define SYSCALL_PATH_MAX 256
+#define SYSCALL_IO_CHUNK 4096
 
 static int64_t sys_exit(uint64_t status, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -126,8 +130,11 @@ static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t a
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    const char *name = (const char *)path;
-    vfs_node_t  node = vfs_open(name);
+    char name[SYSCALL_PATH_MAX];
+    int  copied = strncpy_from_user(name, (const char *)path, sizeof(name));
+    if (copied < 0) return copied;
+
+    vfs_node_t node = vfs_open(name);
     if (!node && (flags & O_CREAT)) {
         int ret = vfs_mkfile(name);
         if (ret != EOK && ret != -EEXIST) return ret;
@@ -162,7 +169,19 @@ static int64_t sys_read(uint64_t fd, uint64_t buf, uint64_t size, uint64_t arg3,
     if (!buf && size) return -EFAULT;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    return process_fd_read(proc, (int)fd, (void *)buf, (size_t)size);
+
+    uint8_t tmp[SYSCALL_IO_CHUNK];
+    size_t  done = 0;
+    while (done < size) {
+        size_t  chunk = (size - done) < sizeof(tmp) ? (size - done) : sizeof(tmp);
+        int64_t ret   = process_fd_read(proc, (int)fd, tmp, chunk);
+        if (ret < 0) return done ? (int64_t)done : ret;
+        if (!ret) break;
+        if (copy_to_user((void *)(buf + done), tmp, (size_t)ret)) return done ? (int64_t)done : -EFAULT;
+        done += (size_t)ret;
+        if ((size_t)ret < chunk) break;
+    }
+    return (int64_t)done;
 }
 
 static int64_t sys_write(uint64_t fd, uint64_t buf, uint64_t size, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -174,7 +193,19 @@ static int64_t sys_write(uint64_t fd, uint64_t buf, uint64_t size, uint64_t arg3
     if (!buf && size) return -EFAULT;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    return process_fd_write(proc, (int)fd, (const void *)buf, (size_t)size);
+
+    uint8_t tmp[SYSCALL_IO_CHUNK];
+    size_t  done = 0;
+    while (done < size) {
+        size_t chunk = (size - done) < sizeof(tmp) ? (size - done) : sizeof(tmp);
+        if (copy_from_user(tmp, (const void *)(buf + done), chunk)) return done ? (int64_t)done : -EFAULT;
+        int64_t ret = process_fd_write(proc, (int)fd, tmp, chunk);
+        if (ret < 0) return done ? (int64_t)done : ret;
+        if (!ret) break;
+        done += (size_t)ret;
+        if ((size_t)ret < chunk) break;
+    }
+    return (int64_t)done;
 }
 
 static int64_t sys_lseek(uint64_t fd, uint64_t offset, uint64_t whence, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -221,6 +252,7 @@ static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3,
 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
+    if (arg && !user_access_ok((void *)arg, 1, 1)) return -EFAULT;
     return process_fd_ioctl(proc, (int)fd, (size_t)req, (void *)arg);
 }
 
