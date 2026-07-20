@@ -289,7 +289,22 @@ void process_init(void)
     process_table_lock.lock = 0;
     process_table_lock.rflags = 0;
 
+<<<<<<< HEAD
     plogk("process: Process subsystem initialized.\n");
+=======
+    process_t *init = process_create_kernel("init", NULL, NULL);
+    if (!init) panic("process: Failed to create init process.");
+    init_process = init;
+    init->task->state  = TASK_BLOCKED;
+
+    for (uint32_t i = 0; i < sched_cpu_count(); i++) {
+        if (cpu_schedulers[i].idle) {
+            cpu_schedulers[i].idle->process = init;
+        }
+    }
+
+    plogk("process: Process subsystem initialized. init pid=%llu\n", init->task->pid);
+>>>>>>> a35eb02cc7f3ce92dbdb27acd8969ea8c19f9a32
 }
 
 process_t *process_create(const uint8_t *elf_data, size_t elf_size, const char *name)
