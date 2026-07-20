@@ -87,7 +87,7 @@ PWD        := $(shell pwd)
 HOST_CC    ?= cc
 HOST_CFLAGS := -Wall -Wextra -O2
 QEMU       := qemu-system-x86_64
-QEMU_FLAGS := -machine q35 -bios assets/ovmf-code.fd -serial stdio
+QEMU_FLAGS := -machine q35 -bios assets/ovmf-code.fd -serial stdio -audiodev pa,id=pa,server=unix:/mnt/wslg/runtime-dir/pulse/native -device sb16,audiodev=pa
 
 # If you want to get more details of `dump_stack`, you need to replace `-O3` with `-O0` or '-Os'.
 # `-fno-optimize-sibling-calls` is for `dump_stack` to work properly.

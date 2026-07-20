@@ -41,6 +41,7 @@
 #include <vfs.h>
 #include <video.h>
 #include <devtmpfs.h>
+#include <sound/sb16.h>
 
 void init_thread(void *arg){
     (void)arg;
@@ -98,6 +99,7 @@ void kernel_entry(void)
     print_memory_map();             // Print memory map information
     log_buffer_print(&frame_log);   // Print frame log
     pci_init();                     // Initialize PCI
+    sb16_init();                    // Initialize SB16 sound card
     log_buffer_print(&lmodule_log); // Print lmodule log
     init_ide();                     // Initialize ATA/ATAPI driver
     init_parallel();                // Initialize the parallel port
