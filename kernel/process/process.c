@@ -31,6 +31,8 @@ static process_t *process_table[PROCESS_TABLE_SIZE];
 static spinlock_t process_table_lock;
 process_t *init_process;
 
+void init_thread(void *arg);
+
 typedef struct {
         uint8_t  ident[16];
         uint16_t type;
@@ -289,7 +291,7 @@ void process_init(void)
     process_table_lock.lock = 0;
     process_table_lock.rflags = 0;
 
-    process_t *init = process_create_kernel("init", NULL, NULL);
+    process_t *init = process_create_kernel("init", init_thread, NULL);
     if (!init) panic("process: Failed to create init process.");
     init_process = init;
     init->task->state  = TASK_BLOCKED;
