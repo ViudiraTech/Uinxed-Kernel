@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <syscall.h>
 #include <task.h>
+#include <vfs.h>
 
 static int64_t sys_exit(uint64_t status, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -113,11 +114,135 @@ static int64_t sys_munmap(uint64_t addr, uint64_t length, uint64_t arg2, uint64_
     return process_munmap(proc, (uintptr_t)addr, (size_t)length) ? -EINVAL : 0;
 }
 
+static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)mode;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+
+    if (!path) return -EFAULT;
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    const char *name = (const char *)path;
+    vfs_node_t  node = vfs_open(name);
+    if (!node && (flags & O_CREAT)) {
+        int ret = vfs_mkfile(name);
+        if (ret != EOK && ret != -EEXIST) return ret;
+        node = vfs_open(name);
+    }
+    if (!node) return -ENOENT;
+
+    int fd = process_fd_install(proc, node, flags);
+    if (fd < 0) vfs_close(node);
+    return fd;
+}
+
+static int64_t sys_close(uint64_t fd, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    return process_fd_close(proc, (int)fd);
+}
+
+static int64_t sys_read(uint64_t fd, uint64_t buf, uint64_t size, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+
+    if (!buf && size) return -EFAULT;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    return process_fd_read(proc, (int)fd, (void *)buf, (size_t)size);
+}
+
+static int64_t sys_write(uint64_t fd, uint64_t buf, uint64_t size, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+
+    if (!buf && size) return -EFAULT;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    return process_fd_write(proc, (int)fd, (const void *)buf, (size_t)size);
+}
+
+static int64_t sys_lseek(uint64_t fd, uint64_t offset, uint64_t whence, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    return process_fd_seek(proc, (int)fd, (int64_t)offset, (int)whence);
+}
+
+static int64_t sys_dup(uint64_t oldfd, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    return process_fd_dup(proc, (int)oldfd);
+}
+
+static int64_t sys_dup2(uint64_t oldfd, uint64_t newfd, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    return process_fd_dup2(proc, (int)oldfd, (int)newfd);
+}
+
+static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    return process_fd_ioctl(proc, (int)fd, (size_t)req, (void *)arg);
+}
+
+static int64_t sys_poll(uint64_t fd, uint64_t events, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    return process_fd_poll(proc, (int)fd, (size_t)events);
+}
+
 typedef int64_t (*syscall_fn_t)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 
 static syscall_fn_t syscall_table[SYS_MAX] = {
-    [SYS_EXIT] = sys_exit, [SYS_GETPID] = sys_getpid, [SYS_YIELD] = sys_yield, [SYS_SLEEP] = sys_sleep,
-    [SYS_WAIT] = sys_wait, [SYS_KILL] = sys_kill,     [SYS_MMAP] = sys_mmap,   [SYS_MUNMAP] = sys_munmap,
+    [SYS_EXIT] = sys_exit,   [SYS_GETPID] = sys_getpid, [SYS_YIELD] = sys_yield,   [SYS_SLEEP] = sys_sleep, [SYS_WAIT] = sys_wait,
+    [SYS_KILL] = sys_kill,   [SYS_MMAP] = sys_mmap,     [SYS_MUNMAP] = sys_munmap, [SYS_OPEN] = sys_open,   [SYS_CLOSE] = sys_close,
+    [SYS_READ] = sys_read,   [SYS_WRITE] = sys_write,   [SYS_LSEEK] = sys_lseek,   [SYS_DUP] = sys_dup,     [SYS_DUP2] = sys_dup2,
+    [SYS_IOCTL] = sys_ioctl, [SYS_POLL] = sys_poll,
 };
 
 void syscall_dispatch(syscall_frame_t *frame)

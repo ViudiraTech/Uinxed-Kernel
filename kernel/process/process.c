@@ -10,6 +10,7 @@
 
 #include <common.h>
 #include <debug.h>
+#include <errno.h>
 #include <frame.h>
 #include <heap.h>
 #include <hhdm.h>
@@ -24,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <syscall.h>
+#include <vfs.h>
 
 #define PROCESS_TABLE_SIZE 4096
 
@@ -290,10 +292,254 @@ static void mmap_list_free(process_t *proc)
     spin_unlock(&proc->mmap_lock);
 }
 
+static void process_fd_table_init(process_t *proc)
+{
+    proc->fd_lock.lock   = 0;
+    proc->fd_lock.rflags = 0;
+}
+
+static void process_file_get(process_file_t *file)
+{
+    if (!file) return;
+
+    spin_lock(&file->lock);
+    file->refcount++;
+    spin_unlock(&file->lock);
+}
+
+static void process_file_put(process_file_t *file)
+{
+    if (!file) return;
+
+    spin_lock(&file->lock);
+    if (file->refcount > 1) {
+        file->refcount--;
+        spin_unlock(&file->lock);
+        return;
+    }
+    spin_unlock(&file->lock);
+
+    vfs_close(file->node);
+    free(file);
+}
+
+static void process_fd_table_close(process_t *proc)
+{
+    if (!proc) return;
+
+    spin_lock(&proc->fd_lock);
+    for (int i = 0; i < PROCESS_MAX_FD; i++) {
+        process_file_t *file = proc->fds[i];
+        proc->fds[i]         = NULL;
+        process_file_put(file);
+    }
+    spin_unlock(&proc->fd_lock);
+}
+
+static void process_fd_table_copy(process_t *child, process_t *parent)
+{
+    process_fd_table_init(child);
+
+    spin_lock(&parent->fd_lock);
+    for (int i = 0; i < PROCESS_MAX_FD; i++) {
+        child->fds[i] = parent->fds[i];
+        process_file_get(child->fds[i]);
+    }
+    spin_unlock(&parent->fd_lock);
+}
+
+static process_file_t *process_fd_get(process_t *proc, int fd)
+{
+    if (!proc || fd < 0 || fd >= PROCESS_MAX_FD) return NULL;
+
+    spin_lock(&proc->fd_lock);
+    process_file_t *file = proc->fds[fd];
+    process_file_get(file);
+    spin_unlock(&proc->fd_lock);
+    return file;
+}
+
+int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
+{
+    if (!proc || !node) return -EINVAL;
+
+    process_file_t *file = calloc(1, sizeof(process_file_t));
+    if (!file) return -ENOMEM;
+
+    file->node        = node;
+    file->flags       = flags;
+    file->refcount    = 1;
+    file->lock.lock   = 0;
+    file->lock.rflags = 0;
+    if (flags & O_APPEND) file->offset = node->size;
+
+    spin_lock(&proc->fd_lock);
+    for (int i = 0; i < PROCESS_MAX_FD; i++) {
+        if (!proc->fds[i]) {
+            proc->fds[i] = file;
+            spin_unlock(&proc->fd_lock);
+            return i;
+        }
+    }
+    spin_unlock(&proc->fd_lock);
+
+    free(file);
+    return -EMFILE;
+}
+
+int process_fd_close(process_t *proc, int fd)
+{
+    if (!proc || fd < 0 || fd >= PROCESS_MAX_FD) return -EBADF;
+
+    spin_lock(&proc->fd_lock);
+    process_file_t *file = proc->fds[fd];
+    if (!file) {
+        spin_unlock(&proc->fd_lock);
+        return -EBADF;
+    }
+    proc->fds[fd] = NULL;
+    spin_unlock(&proc->fd_lock);
+
+    process_file_put(file);
+    return EOK;
+}
+
+int process_fd_dup(process_t *proc, int oldfd)
+{
+    if (!proc || oldfd < 0 || oldfd >= PROCESS_MAX_FD) return -EBADF;
+
+    spin_lock(&proc->fd_lock);
+    process_file_t *file = proc->fds[oldfd];
+    if (!file) {
+        spin_unlock(&proc->fd_lock);
+        return -EBADF;
+    }
+
+    for (int i = 0; i < PROCESS_MAX_FD; i++) {
+        if (!proc->fds[i]) {
+            process_file_get(file);
+            proc->fds[i] = file;
+            spin_unlock(&proc->fd_lock);
+            return i;
+        }
+    }
+    spin_unlock(&proc->fd_lock);
+    return -EMFILE;
+}
+
+int process_fd_dup2(process_t *proc, int oldfd, int newfd)
+{
+    if (!proc || oldfd < 0 || oldfd >= PROCESS_MAX_FD || newfd < 0 || newfd >= PROCESS_MAX_FD) return -EBADF;
+    if (oldfd == newfd) return oldfd;
+
+    spin_lock(&proc->fd_lock);
+    process_file_t *file = proc->fds[oldfd];
+    if (!file) {
+        spin_unlock(&proc->fd_lock);
+        return -EBADF;
+    }
+
+    process_file_t *old = proc->fds[newfd];
+    process_file_get(file);
+    proc->fds[newfd] = file;
+    spin_unlock(&proc->fd_lock);
+
+    process_file_put(old);
+    return newfd;
+}
+
+int64_t process_fd_read(process_t *proc, int fd, void *buf, size_t size)
+{
+    process_file_t *file = process_fd_get(proc, fd);
+    if (!file) return -EBADF;
+    if ((file->flags & O_ACCMODE) == O_WRONLY) {
+        process_file_put(file);
+        return -EBADF;
+    }
+
+    spin_lock(&file->lock);
+    size_t ret = vfs_read(file->node, buf, file->offset, size);
+    if (ret != (size_t)-1) file->offset += ret;
+    spin_unlock(&file->lock);
+
+    process_file_put(file);
+    return ret == (size_t)-1 ? -EIO : (int64_t)ret;
+}
+
+int64_t process_fd_write(process_t *proc, int fd, const void *buf, size_t size)
+{
+    process_file_t *file = process_fd_get(proc, fd);
+    if (!file) return -EBADF;
+    if ((file->flags & O_ACCMODE) == O_RDONLY) {
+        process_file_put(file);
+        return -EBADF;
+    }
+
+    spin_lock(&file->lock);
+    if (file->flags & O_APPEND) file->offset = file->node->size;
+    size_t ret = vfs_write(file->node, (void *)buf, file->offset, size);
+    if (ret != (size_t)-1) file->offset += ret;
+    spin_unlock(&file->lock);
+
+    process_file_put(file);
+    return ret == (size_t)-1 ? -EIO : (int64_t)ret;
+}
+
+int64_t process_fd_seek(process_t *proc, int fd, int64_t offset, int whence)
+{
+    process_file_t *file = process_fd_get(proc, fd);
+    if (!file) return -EBADF;
+
+    spin_lock(&file->lock);
+    int64_t base;
+    if (whence == SEEK_SET) {
+        base = 0;
+    } else if (whence == SEEK_CUR) {
+        base = (int64_t)file->offset;
+    } else if (whence == SEEK_END) {
+        base = (int64_t)file->node->size;
+    } else {
+        spin_unlock(&file->lock);
+        process_file_put(file);
+        return -EINVAL;
+    }
+
+    int64_t next = base + offset;
+    if (next < 0) {
+        spin_unlock(&file->lock);
+        process_file_put(file);
+        return -EINVAL;
+    }
+    file->offset = (size_t)next;
+    spin_unlock(&file->lock);
+
+    process_file_put(file);
+    return next;
+}
+
+int process_fd_ioctl(process_t *proc, int fd, size_t req, void *arg)
+{
+    process_file_t *file = process_fd_get(proc, fd);
+    if (!file) return -EBADF;
+    int ret = vfs_ioctl(file->node, req, arg);
+    process_file_put(file);
+    return ret;
+}
+
+int process_fd_poll(process_t *proc, int fd, size_t events)
+{
+    process_file_t *file = process_fd_get(proc, fd);
+    if (!file) return -EBADF;
+    int ret = vfs_poll(file->node, events);
+    process_file_put(file);
+    return ret;
+}
+
 static void process_free(process_t *proc)
 {
     if (!proc) return;
 
+    process_fd_table_close(proc);
     if (proc->user_page_dir) {
         free_page_table_recursive(proc->user_page_dir->table, 4);
         free(proc->user_page_dir);
@@ -365,6 +611,7 @@ process_t *process_create(const uint8_t *elf_data, size_t elf_size, const char *
     slist_init(&proc->children);
     proc->mmap_lock.lock   = 0;
     proc->mmap_lock.rflags = 0;
+    process_fd_table_init(proc);
     task_name_copy(task, name);
 
     if (load_elf_segments(proc, ehdr, elf_data)) {
@@ -454,6 +701,7 @@ process_t *process_create_kernel(const char *name, void (*entry)(void *), void *
     slist_init(&proc->children);
     proc->mmap_lock.lock   = 0;
     proc->mmap_lock.rflags = 0;
+    process_fd_table_init(proc);
     task_name_copy(task, name);
 
     pid_set(proc->task->pid, proc);
@@ -495,6 +743,8 @@ void process_exit(int exit_code)
 
     spin_unlock(&process_table_lock);
     spin_unlock(&scheduler.lock);
+
+    process_fd_table_close(proc);
 
     plogk("process: Process %llu (%s) exited with code %d.\n", proc->task->pid, proc->task->name, exit_code);
     task_exit();
@@ -549,6 +799,7 @@ int process_kill(pid_t pid)
     if (!proc || proc->task->state == TASK_ZOMBIE) return 1;
     proc->exit_code   = -9;
     proc->task->state = TASK_ZOMBIE;
+    process_fd_table_close(proc);
     return 0;
 }
 
@@ -624,6 +875,7 @@ process_t *process_fork(void)
     }
     child->mmap_lock.lock   = 0;
     child->mmap_lock.rflags = 0;
+    process_fd_table_copy(child, parent);
     slist_init(&child->children);
 
     if (setup_process_page_dir(child)) {
