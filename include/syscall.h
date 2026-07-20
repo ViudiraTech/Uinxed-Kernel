@@ -15,6 +15,19 @@
 
 #define SYSCALL_VECTOR 0x80
 
+/* MSRs for syscall/sysret */
+#define MSR_EFER         0xC0000080
+#define MSR_STAR         0xC0000081
+#define MSR_LSTAR        0xC0000082
+#define MSR_FMASK        0xC0000084
+#define MSR_KERNEL_GS_BASE 0xC0000102
+#define EFER_SCE         (1ULL << 0)
+
+#define KERNEL_CS        0x08
+#define KERNEL_DS        0x10
+#define USER_CS          0x1B
+#define USER_DS          0x23
+
 enum {
     SYS_EXIT = 0,
     SYS_GETPID,
@@ -75,5 +88,6 @@ void syscall_init(void);
 void syscall_entry(void);
 void syscall_return(void);
 void syscall_dispatch(syscall_frame_t *frame);
+void syscall_msr_entry(void);
 
 #endif // INCLUDE_SYSCALL_H_
