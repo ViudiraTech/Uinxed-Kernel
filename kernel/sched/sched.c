@@ -183,7 +183,7 @@ void sched_init(void)
 {
     memset(&scheduler, 0, sizeof(scheduler));
     ilist_init(&scheduler.sleep_queue);
-    scheduler.next_pid = 1;
+    scheduler.next_pid = 0;
 
     cpu_scheduler_count = get_cpu_count();
     if (!cpu_scheduler_count) cpu_scheduler_count = 1;
