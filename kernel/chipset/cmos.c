@@ -67,6 +67,11 @@ uint32_t get_mon_hex(void)
 /* Get the current year */
 uint32_t get_year(void)
 {
-    /* The year stored in CMOS is from 2000, so you need to add 2010 to get the actual year */
-    return (BCD_HEX(read_cmos(CMOS_CUR_CEN)) * 100) + BCD_HEX(read_cmos(CMOS_CUR_YEAR)) - 30 + 2010;
+    uint32_t century = BCD_HEX(read_cmos(CMOS_CUR_CEN));
+    uint32_t year    = BCD_HEX(read_cmos(CMOS_CUR_YEAR));
+
+    if (century < 10 || century > 30) {
+        century = (year >= 70) ? 19 : 20;
+    }
+    return century * 100 + year;
 }
