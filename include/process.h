@@ -81,6 +81,16 @@ typedef struct process_file {
         spinlock_t lock;
 } process_file_t;
 
+typedef struct process_fd_stat {
+        uint64_t dev;
+        uint64_t inode;
+        uint32_t mode;
+        uint16_t type;
+        uint64_t rdev;
+        uint64_t size;
+        uint64_t blksz;
+} process_fd_stat_t;
+
 typedef struct process {
         task_t           *task;
         page_directory_t *user_page_dir;
@@ -163,5 +173,8 @@ int64_t process_fd_seek(process_t *proc, int fd, int64_t offset, int whence);
 /* Forward descriptor specific operations to the VFS */
 int process_fd_ioctl(process_t *proc, int fd, size_t req, void *arg);
 int process_fd_poll(process_t *proc, int fd, size_t events);
+
+/* Snapshot metadata from an opened file descriptor */
+int process_fd_stat(process_t *proc, int fd, process_fd_stat_t *stat);
 
 #endif /* INCLUDE_PROCESS_H_ */

@@ -535,6 +535,26 @@ int process_fd_poll(process_t *proc, int fd, size_t events)
     return ret;
 }
 
+int process_fd_stat(process_t *proc, int fd, process_fd_stat_t *stat)
+{
+    if (!stat) return -EINVAL;
+
+    process_file_t *file = process_fd_get(proc, fd);
+    if (!file) return -EBADF;
+
+    vfs_update(file->node);
+    stat->dev   = file->node->dev;
+    stat->inode = file->node->inode;
+    stat->mode  = file->node->mode;
+    stat->type  = file->node->type;
+    stat->rdev  = file->node->rdev;
+    stat->size  = file->node->size;
+    stat->blksz = file->node->blksz;
+
+    process_file_put(file);
+    return EOK;
+}
+
 static void process_free(process_t *proc)
 {
     if (!proc) return;
