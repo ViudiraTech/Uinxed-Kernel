@@ -17,6 +17,7 @@
 #include <input_event.h>
 #include <ps2.h>
 #include <printk.h>
+#include <sound/audio.h>
 #include <tmpfs.h>
 #include <vfs.h>
 #include <video.h>
@@ -197,6 +198,53 @@ static void devtmpfs_create_framebuffer_node(void)
     vfs_close(node);
 }
 
+static void devtmpfs_create_audio_nodes(void)
+{
+    int status;
+
+    if (!audio_device_node_count()) return;
+
+    status = vfs_mkdir("/dev/snd");
+    if (status != EOK && status != -EEXIST) {
+        plogk("devtmpfs: Cannot create /dev/snd: %d\n", status);
+        return;
+    }
+
+    for (size_t i = 0; i < audio_device_node_count(); i++) {
+        audio_device_node_t *audio_node = audio_get_device_node(i);
+        char                 dev_path[64];
+        vfs_node_t           node;
+
+        if (!audio_node) continue;
+
+        snprintf(dev_path, sizeof(dev_path), "/dev/snd/%s", audio_node->name);
+        status = vfs_mkfile(dev_path);
+        if (status != EOK && status != -EEXIST) {
+            plogk("devtmpfs: Cannot create %s: %d\n", dev_path, status);
+            continue;
+        }
+
+        node = vfs_open(dev_path);
+        if (!node) {
+            plogk("devtmpfs: Cannot open %s after creation.\n", dev_path);
+            continue;
+        }
+
+        status = tmpfs_bind_device(node, file_audio | file_stream, &audio_node->tmpfs_ops);
+        if (status != EOK) {
+            plogk("devtmpfs: Cannot bind %s: %d\n", dev_path, status);
+            vfs_close(node);
+            continue;
+        }
+
+        node->blksz = 1;
+        node->dev   = audio_node->card->id;
+        node->rdev  = i;
+        plogk("devtmpfs: Registered %s as audio device.\n", dev_path);
+        vfs_close(node);
+    }
+}
+
 void devtmpfs_init(void)
 {
     int status;
@@ -238,4 +286,5 @@ void devtmpfs_init(void)
 
     devtmpfs_create_input_event_node();
     devtmpfs_create_framebuffer_node();
+    devtmpfs_create_audio_nodes();
 }

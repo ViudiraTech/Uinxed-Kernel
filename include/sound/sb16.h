@@ -13,6 +13,7 @@
 
 #include <stdint.h>
 #include <page.h>
+#include <sound/audio.h>
 
 /* SB16 default I/O ports */
 #define SB16_BASE_220  0x220
@@ -90,6 +91,8 @@ typedef struct sb16_device {
         uint32_t sample_rate;    /* Current sample rate */
         uint8_t  bits;           /* Sample bit depth */
         uint8_t  channels;       /* Number of audio channels */
+        uint8_t  volume_left;    /* Cached master volume */
+        uint8_t  volume_right;   /* Cached master volume */
 } sb16_device_t;
 
 /* Initialize SB16 driver and probe hardware */

@@ -14,8 +14,8 @@
 /*
  * Initialize /dev on top of tmpfs and populate built-in device nodes.
  *
- * This currently includes block devices discovered from IDE and the PS/2
- * keyboard event device at /dev/input/event0.
+ * This currently includes block devices discovered from IDE, input devices,
+ * framebuffer devices, and registered audio devices under /dev/snd.
  */
 void devtmpfs_init(void);
 

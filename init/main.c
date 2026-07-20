@@ -132,7 +132,6 @@ void kernel_entry(void)
     sched_init();
     process_init();
     sched_test_init();
-    kthread_create("init", init_thread, NULL);
     enable_intr();
 
     sched_start();

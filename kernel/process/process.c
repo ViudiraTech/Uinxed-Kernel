@@ -31,6 +31,8 @@ static process_t *process_table[PROCESS_TABLE_SIZE];
 static spinlock_t process_table_lock;
 process_t *init_process;
 
+void init_thread(void *arg);
+
 typedef struct {
         uint8_t  ident[16];
         uint16_t type;
@@ -289,7 +291,18 @@ void process_init(void)
     process_table_lock.lock = 0;
     process_table_lock.rflags = 0;
 
-    plogk("process: Process subsystem initialized.\n");
+    process_t *init = process_create_kernel("init", init_thread, NULL);
+    if (!init) panic("process: Failed to create init process.");
+    init_process = init;
+    init->task->state  = TASK_BLOCKED;
+
+    for (uint32_t i = 0; i < sched_cpu_count(); i++) {
+        if (cpu_schedulers[i].idle) {
+            cpu_schedulers[i].idle->process = init;
+        }
+    }
+
+    plogk("process: Process subsystem initialized. init pid=%llu\n", init->task->pid);
 }
 
 process_t *process_create(const uint8_t *elf_data, size_t elf_size, const char *name)
