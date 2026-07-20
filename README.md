@@ -32,6 +32,7 @@ Uinxed is a Unix-like operating system kernel developed from scratch, focusing o
   - ACPI support
   - High Precision Event Timer (HPET)
   - Multi-core support based on symmetric multi-processing (SMP)
+  - ALSA-like Audio subsystem
 - **Terminal meatures**:
   - Bitmap fonts (9x16 pixels)
   - High-speed terminal implementation
@@ -44,6 +45,23 @@ Uinxed is a Unix-like operating system kernel developed from scratch, focusing o
   - Load balance
   - Preempt scheduling
   - Multi-processor scheduling
+- **ABI**:
+  - Linux syscalls support
+- **Drivers**:
+  - Audio
+    1. SoundBlaster16
+  - Input
+    1. PS/2 keyboard
+    2. PS/2 mouse
+  - Stoarge
+    1. ATA disk
+  - Bus
+    1. PCI
+  - Port
+    1. Standard serial port (RS232)
+    2. Standard parallel port
+  - Video
+    1. VESA/GOP framebuffer
 
 ## Development Environment Preparation 🛠️
 
