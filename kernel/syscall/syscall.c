@@ -8,6 +8,7 @@
  *
  */
 
+#include <common.h>
 #include <errno.h>
 #include <interrupt.h>
 #include <printk.h>
@@ -337,8 +338,67 @@ __attribute__((naked)) void syscall_entry(void)
                      "jmp syscall_return\n\t");
 }
 
+static uint8_t syscall_stack[8192] __attribute__((aligned(16)));
+
+struct syscall_percpu {
+    uint64_t user_rsp;
+    uint64_t kernel_rsp;
+};
+
+static struct syscall_percpu syscall_percpu;
+
+__attribute__((naked)) void syscall_msr_entry(void)
+{
+    __asm__ volatile(
+        /* On entry: RCX = return RIP, R11 = return RFLAGS, RSP = user stack */
+        "swapgs\n\t"
+        "movq %rsp, %gs:0\n\t"            /* save user RSP */
+        "movq %gs:8, %rsp\n\t"            /* load kernel RSP */
+
+        /* Save all GPRs – same order as int 0x80 path so the frame matches */
+        "pushq %rax\n\t pushq %rbx\n\t pushq %rcx\n\t pushq %rdx\n\t"
+        "pushq %rbp\n\t pushq %rsi\n\t pushq %rdi\n\t"
+        "pushq %r8\n\t  pushq %r9\n\t  pushq %r10\n\t pushq %r11\n\t"
+        "pushq %r12\n\t pushq %r13\n\t pushq %r14\n\t pushq %r15\n\t"
+
+        "movq %rsp, %rdi\n\t"
+        "call syscall_dispatch\n\t"
+
+        /* Restore all GPRs */
+        "popq %r15\n\t popq %r14\n\t popq %r13\n\t popq %r12\n\t"
+        "popq %r11\n\t  popq %r10\n\t popq %r9\n\t  popq %r8\n\t"
+        "popq %rdi\n\t  popq %rsi\n\t popq %rbp\n\t popq %rdx\n\t"
+        "popq %rcx\n\t  popq %rbx\n\t popq %rax\n\t"
+
+        /* Restore user RSP and return */
+        "movq %gs:0, %rsp\n\t"
+        "swapgs\n\t"
+        "sysretq\n\t");
+}
+
 void syscall_init(void)
 {
     register_interrupt_handler(SYSCALL_VECTOR, (void *)syscall_entry, 0, 0xee);
     plogk("syscall: int 0x%02x interface initialized.\n", SYSCALL_VECTOR);
+
+    /* Set up MSRs for fast syscall/sysret */
+    uint64_t star = ((uint64_t)KERNEL_CS << 32) | ((uint64_t)USER_DS << 48) | (uint64_t)USER_CS;
+    uint64_t lstar = (uint64_t)syscall_msr_entry;
+    uint64_t fmask = 0x700;  /* clear IF, TF, DF on entry */
+
+    wrmsr(MSR_STAR, star);
+    wrmsr(MSR_LSTAR, lstar);
+    wrmsr(MSR_FMASK, fmask);
+
+    uint64_t efer = rdmsr(MSR_EFER);
+    efer |= EFER_SCE;
+    wrmsr(MSR_EFER, efer);
+
+    /* Per-CPU data area for swapgs */
+    uint64_t kstack_top = (uint64_t)(syscall_stack + sizeof(syscall_stack));
+    syscall_percpu.user_rsp  = 0;
+    syscall_percpu.kernel_rsp = kstack_top;
+    wrmsr(MSR_KERNEL_GS_BASE, (uint64_t)&syscall_percpu);
+
+    plogk("syscall: MSR-based syscall/sysret enabled.\n");
 }
