@@ -14,8 +14,10 @@
 #include <cpio.h>
 #include <cpuid.h>
 #include <debug.h>
-#include <errno.h>
+#include <devtmpfs.h>
 #include <eis.h>
+#include <errno.h>
+#include <fatfs_vfs.h>
 #include <frame.h>
 #include <gdt.h>
 #include <heap.h>
@@ -28,23 +30,23 @@
 #include <pci.h>
 #include <printk.h>
 #include <process.h>
+#include <procfs.h>
 #include <ps2.h>
 #include <sched.h>
 #include <sched_test.h>
 #include <serial.h>
 #include <smbios.h>
 #include <smp.h>
-#include <fatfs_vfs.h>
+#include <sound/sb16.h>
+#include <syscall.h>
 #include <tmpfs.h>
 #include <tsc.h>
 #include <uinxed.h>
 #include <vfs.h>
 #include <video.h>
-#include <devtmpfs.h>
-#include <procfs.h>
-#include <sound/sb16.h>
 
-void init_thread(void *arg){
+void init_thread(void *arg)
+{
     (void)arg;
 
     panic("init: Attempt to kill init!");
@@ -60,8 +62,8 @@ void executable_entry(void)
 /* Kernel entry */
 void kernel_entry(void)
 {
-    init_fpu(); // Initialize FPU/MMX
-    init_sse(); // Initialize SSE/SSE2
+    init_fpu();    // Initialize FPU/MMX
+    init_sse();    // Initialize SSE/SSE2
     init_serial(); // Initialize the serial port
 
     init_frame();   // Initialize memory frame
@@ -93,6 +95,7 @@ void kernel_entry(void)
     init_gdt();                     // Initialize global descriptors
     init_idt();                     // Initialize interrupt descriptor
     isr_registe_handle();           // Register ISR interrupt processing
+    syscall_init();                 // Register syscall entry
     init_avx();                     // Initialize AVX/AVX2
     acpi_init();                    // Initialize ACPI
     tsc_init();                     // Initialize TSC
@@ -108,14 +111,13 @@ void kernel_entry(void)
     init_vfs();                     // Initialize VFS
     tmpfs_regist();                 // Register tmpfs
     fatfs_vfs_regist();             // Register FatFs VFS bridge
-    if (!get_rootdir()->fsid && vfs_mount(0, get_rootdir()) != EOK)
-        plogk("init: Cannot mount tmpfs to root_dir.\n");
-    init_cpio();                    // Initialize CPIO
+    if (!get_rootdir()->fsid && vfs_mount(0, get_rootdir()) != EOK) plogk("init: Cannot mount tmpfs to root_dir.\n");
+    init_cpio(); // Initialize CPIO
     devtmpfs_init();
     procfs_regist();
     {
         vfs_node_t proc = 0;
-        int st = vfs_mkdir("/proc");
+        int        st   = vfs_mkdir("/proc");
         if (st == EOK || st == -EEXIST) {
             proc = vfs_open("/proc");
             if (proc) {

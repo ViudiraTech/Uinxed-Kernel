@@ -15,8 +15,9 @@
 #include <singly_list.h>
 #include <stddef.h>
 #include <stdint.h>
-
 #include <task.h>
+
+typedef struct syscall_frame syscall_frame_t;
 
 typedef int64_t pid_t;
 
@@ -25,13 +26,14 @@ typedef int64_t pid_t;
 #define PROCESS_MAX_ARGV     64
 #define PROCESS_MAX_ENVP     64
 #define PROCESS_MAX_CHILDREN 128
+#define PROCESS_KERNEL_STACK 0x10000
 #define PROCESS_STACK_SIZE   (4 * 1024 * 1024)
 #define PROCESS_HEAP_START   0x100000
 #define PROCESS_HEAP_MAX     0x7ff00000
 #define PROCESS_STACK_BASE   0x7ffffffff000
 
-#define PROCESS_USER_CODE_MIN 0x0000000000400000
-#define PROCESS_USER_CODE_MAX 0x00007fffffe00000
+#define PROCESS_USER_CODE_MIN  0x0000000000400000
+#define PROCESS_USER_CODE_MAX  0x00007fffffe00000
 #define PROCESS_USER_STACK_TOP PROCESS_STACK_BASE
 
 typedef enum {
@@ -61,11 +63,11 @@ typedef enum {
 } vm_region_type_t;
 
 typedef struct vm_area {
-    uintptr_t         start;
-    uintptr_t         end;
-    vm_flags_t        flags;
-    vm_region_type_t  type;
-    struct vm_area   *next;
+        uintptr_t        start;
+        uintptr_t        end;
+        vm_flags_t       flags;
+        vm_region_type_t type;
+        struct vm_area  *next;
 } vm_area_t;
 
 typedef struct process {
@@ -113,6 +115,9 @@ process_t *process_current(void);
 
 /* Clone the current process (fork semantics) */
 process_t *process_fork(void);
+
+/* Clone the current process and make the child return from the syscall frame */
+process_t *process_fork_from_syscall(syscall_frame_t *frame);
 
 /* Return the next available pid */
 pid_t process_next_pid(void);
