@@ -26,34 +26,14 @@
 #define SCHED_LOAD_BALANCE_INTERVAL 16
 
 typedef struct {
-        task_t      *current;
-        task_t      *idle;
-        ilist_node_t ready_queue;
-        ilist_node_t sleep_queue;
-        spinlock_t   lock;
-        uint64_t     next_pid;
-        uint64_t     ticks;
-        int          started;
-} scheduler_t;
-
-typedef struct {
         kthread_entry_t entry;
         void           *arg;
 } kthread_bootstrap_t;
 
-typedef struct {
-        task_t  *current;
-        task_t  *idle;
-        ilist_node_t ready_queue;
-        uint64_t ready_count;
-        uint64_t reschedule_ipis;
-        uint8_t  online;
-} cpu_scheduler_t;
-
-static scheduler_t scheduler;
+scheduler_t scheduler;
 static task_t      boot_task;
 static uint8_t     boot_stack_marker;
-static cpu_scheduler_t *cpu_schedulers;
+cpu_scheduler_t *cpu_schedulers;
 static uint32_t         cpu_scheduler_count;
 static task_t           *ap_boot_tasks;
 static uint32_t           next_task_cpu;
@@ -92,7 +72,7 @@ static task_t *node_to_task(ilist_node_t *node)
 static task_t *local_current(void)
 { return cpu_schedulers[get_current_cpu_id()].current; }
 
-static void task_name_copy(task_t *task, const char *name)
+void task_name_copy(task_t *task, const char *name)
 {
     const char *src = name ? name : "kthread";
     size_t      i   = 0;
@@ -112,7 +92,7 @@ static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id)
     cpu_schedulers[cpu_id].ready_count++;
 }
 
-static void enqueue_task(task_t *task)
+void enqueue_task(task_t *task)
 { enqueue_task_on_cpu(task, task->cpu_id); }
 
 static void wake_task_locked(task_t *task, int remove_linked_node)
@@ -124,7 +104,7 @@ static void wake_task_locked(task_t *task, int remove_linked_node)
     enqueue_task(task);
 }
 
-static void request_task_cpu(task_t *task)
+void request_task_cpu(task_t *task)
 {
     if (task && task->cpu_id != get_current_cpu_id() && scheduler.started)
         send_ipi_cpu(task->cpu_id, IPI_RESCHEDULE);
@@ -211,7 +191,7 @@ static void kthread_trampoline(kthread_bootstrap_t *bootstrap)
     task_exit();
 }
 
-static task_t *task_alloc(const char *name)
+task_t *task_alloc(const char *name)
 {
     task_t *task = calloc(1, sizeof(task_t));
     if (!task) return NULL;
@@ -220,6 +200,7 @@ static task_t *task_alloc(const char *name)
     task->page_directory = get_kernel_pagedir();
     task->time_slice     = TASK_DEFAULT_SLICE;
     task->cpu_id         = 0;
+    task->process        = NULL;
     task_name_copy(task, name);
     ilist_init(&task->run_node);
     return task;
@@ -282,6 +263,7 @@ void sched_init(void)
     boot_task.page_directory = get_kernel_pagedir();
     boot_task.kernel_stack   = &boot_stack_marker;
     boot_task.time_slice     = TASK_DEFAULT_SLICE;
+    boot_task.process        = NULL;
     task_name_copy(&boot_task, "kernel");
     ilist_init(&boot_task.run_node);
 
@@ -365,6 +347,7 @@ task_t *kthread_create_on_cpu(const char *name, kthread_entry_t entry, void *arg
         return NULL;
     }
     task->cpu_id = cpu_id;
+    task->process = init_process;
 
     bootstrap->entry = entry;
     bootstrap->arg   = arg;

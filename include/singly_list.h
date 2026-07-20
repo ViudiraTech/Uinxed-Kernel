@@ -45,4 +45,7 @@ size_t slist_size(const slist_t *list);
 /* Destroy a singly linked list */
 int slist_destroy(slist_t *list, void (*free_data)(void *));
 
+/* Remove a specific node by data pointer from a singly linked list */
+int slist_remove(slist_t *list, void *data);
+
 #endif // INCLUDE_SINGLY_LIST_H_

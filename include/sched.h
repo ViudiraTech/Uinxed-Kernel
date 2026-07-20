@@ -17,6 +17,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+typedef struct process process_t;
+
 #define TASK_NAME_LEN      32
 #define TASK_KERNEL_STACK  0x10000
 #define TASK_DEFAULT_SLICE 5
@@ -58,12 +60,50 @@ struct task {
         wait_queue_t    *wait_queue;
         uint32_t         cpu_id;
         char             name[TASK_NAME_LEN];
+        process_t       *process;
 };
 
 struct wait_queue {
         ilist_node_t tasks;
         spinlock_t   lock;
 };
+
+/* Scheduler state (used by process subsystem) */
+typedef struct {
+        task_t      *current;
+        task_t      *idle;
+        ilist_node_t ready_queue;
+        ilist_node_t sleep_queue;
+        spinlock_t   lock;
+        uint64_t     next_pid;
+        uint64_t     ticks;
+        int          started;
+} scheduler_t;
+
+typedef struct {
+        task_t      *current;
+        task_t      *idle;
+        ilist_node_t ready_queue;
+        uint64_t     ready_count;
+        uint64_t     reschedule_ipis;
+        uint8_t      online;
+} cpu_scheduler_t;
+
+extern scheduler_t      scheduler;
+extern cpu_scheduler_t *cpu_schedulers;
+extern process_t       *init_process;
+
+/* Allocate a task structure (used by process subsystem) */
+task_t *task_alloc(const char *name);
+
+/* Copy a name into a task's name field */
+void task_name_copy(task_t *task, const char *name);
+
+/* Enqueue a task onto its assigned CPU's ready queue */
+void enqueue_task(task_t *task);
+
+/* Request a reschedule IPI for the target task's CPU */
+void request_task_cpu(task_t *task);
 
 /* Initialize the boot CPU scheduler state. */
 void sched_init(void);
