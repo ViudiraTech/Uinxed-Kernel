@@ -11,6 +11,7 @@
 #include <sound/sb16.h>
 #include <common.h>
 #include <dma.h>
+#include <errno.h>
 #include <frame.h>
 #include <heap.h>
 #include <hhdm.h>
@@ -28,6 +29,21 @@ static const uint16_t sb16_ports[] = { 0x220, 0x240, 0x260, 0x280 };
 
 static sb16_device_t sb16_dev;
 static spinlock_t sb16_lock;
+
+static size_t sb16_audio_write(audio_card_t *card, const void *addr, size_t offset, size_t size);
+static int    sb16_audio_set_format(audio_card_t *card, const audio_pcm_format_t *format);
+static int    sb16_audio_stop(audio_card_t *card);
+static int    sb16_audio_set_volume(audio_card_t *card, const audio_volume_t *volume);
+static int    sb16_audio_get_volume(audio_card_t *card, audio_volume_t *volume);
+
+static const audio_card_ops_t sb16_audio_ops = {
+    .pcm_read   = 0,
+    .pcm_write  = sb16_audio_write,
+    .set_format = sb16_audio_set_format,
+    .stop       = sb16_audio_stop,
+    .set_volume = sb16_audio_set_volume,
+    .get_volume = sb16_audio_get_volume,
+};
 
 static inline uint8_t sb16_inb(uint16_t port)
 { return inb(port); }
@@ -171,6 +187,82 @@ void sb16_stop(sb16_device_t *dev)
     sb16_dsp_write(dev, SB16_DSP_CMD_HALT_DMA);
 }
 
+static size_t sb16_audio_write(audio_card_t *card, const void *addr, size_t offset, size_t size)
+{
+    sb16_device_t *dev;
+
+    (void)offset;
+    if (!card || !addr || !size) return 0;
+    dev = card->driver_data;
+    if (!dev || !dev->detected) return 0;
+
+    if (card->format.bits == 16) {
+        if (sb16_play_16bit(dev, (uint8_t *)addr, size)) return 0;
+    } else {
+        if (sb16_play_8bit(dev, (uint8_t *)addr, size)) return 0;
+    }
+
+    return size;
+}
+
+static int sb16_audio_set_format(audio_card_t *card, const audio_pcm_format_t *format)
+{
+    sb16_device_t *dev;
+
+    if (!card || !format) return -EINVAL;
+    if (format->bits != 8 && format->bits != 16) return -EINVAL;
+    if (format->channels != 1 && format->channels != 2) return -EINVAL;
+    if (format->sample_rate < 4000 || format->sample_rate > 48000) return -EINVAL;
+
+    dev = card->driver_data;
+    if (!dev) return -ENODEV;
+
+    card->format     = *format;
+    dev->sample_rate = format->sample_rate;
+    dev->bits        = format->bits;
+    dev->channels    = format->channels;
+    return EOK;
+}
+
+static int sb16_audio_stop(audio_card_t *card)
+{
+    sb16_device_t *dev;
+
+    if (!card) return -EINVAL;
+    dev = card->driver_data;
+    if (!dev) return -ENODEV;
+    sb16_stop(dev);
+    return EOK;
+}
+
+static int sb16_audio_set_volume(audio_card_t *card, const audio_volume_t *volume)
+{
+    sb16_device_t *dev;
+
+    if (!card || !volume) return -EINVAL;
+    dev = card->driver_data;
+    if (!dev) return -ENODEV;
+
+    dev->volume_left  = volume->left;
+    dev->volume_right = volume->right;
+    sb16_set_master_volume(dev, volume->left, volume->right);
+    sb16_set_dac_volume(dev, volume->left, volume->right);
+    return EOK;
+}
+
+static int sb16_audio_get_volume(audio_card_t *card, audio_volume_t *volume)
+{
+    sb16_device_t *dev;
+
+    if (!card || !volume) return -EINVAL;
+    dev = card->driver_data;
+    if (!dev) return -ENODEV;
+
+    volume->left  = dev->volume_left;
+    volume->right = dev->volume_right;
+    return EOK;
+}
+
 int sb16_detect(sb16_device_t *dev)
 {
     for (size_t i = 0; i < sizeof(sb16_ports) / sizeof(sb16_ports[0]); i++) {
@@ -243,9 +335,13 @@ void sb16_init(void)
     }
 
     sb16_dev.sample_rate = 22050;
+    sb16_dev.bits        = 8;
+    sb16_dev.channels    = 1;
+    sb16_dev.volume_left = 0xCC;
+    sb16_dev.volume_right = 0xCC;
 
-    sb16_set_master_volume(&sb16_dev, 0xCC, 0xCC);
-    sb16_set_dac_volume(&sb16_dev, 0xCC, 0xCC);
+    sb16_set_master_volume(&sb16_dev, sb16_dev.volume_left, sb16_dev.volume_right);
+    sb16_set_dac_volume(&sb16_dev, sb16_dev.volume_left, sb16_dev.volume_right);
     sb16_mixer_write(&sb16_dev, SB16_MIXER_OUT_SRC, SB16_MIXER_SRC_DAC);
 
     plogk("sb16: SB16 initialized at port 0x%x, IRQ %u, DMA8 %u, DMA16 %u\n",
@@ -260,5 +356,13 @@ void sb16_init(void)
               (void *)frame, sb16_dev.dma_buffer_virt, sb16_dev.dma_buffer_size);
     } else {
         plogk("sb16: Failed to allocate DMA buffer\n");
+        return;
     }
+
+    audio_pcm_format_t format = {
+        .sample_rate = sb16_dev.sample_rate,
+        .bits        = sb16_dev.bits,
+        .channels    = sb16_dev.channels,
+    };
+    audio_register_card("Sound Blaster 16", &format, &sb16_audio_ops, &sb16_dev);
 }

@@ -64,6 +64,7 @@ enum {
     file_pts      = 0x1000UL, // pts device
     file_proxy    = 0x2000UL, // Proxy node
     file_delete   = 0x4000UL, // Delete marker (only used during deletion)
+    file_audio    = 0x8000UL, // Audio device
 };
 
 typedef struct vfs_callback {
