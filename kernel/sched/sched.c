@@ -210,15 +210,22 @@ void sched_init(void)
 
     scheduler.current = &boot_task;
     for (uint32_t i = 0; i < cpu_scheduler_count; i++) {
-        cpu_schedulers[i].idle = kthread_create("idle", idle_thread, NULL);
+        cpu_schedulers[i].idle = task_alloc("idle");
         if (!cpu_schedulers[i].idle) panic("sched: Cannot create idle task.");
-        spin_lock(&scheduler.lock);
-        ilist_remove(&cpu_schedulers[i].idle->run_node);
-        if (cpu_schedulers[i].ready_count) cpu_schedulers[i].ready_count--;
-        spin_unlock(&scheduler.lock);
+        cpu_schedulers[i].idle->pid = 0;
         cpu_schedulers[i].idle->state = TASK_IDLE;
         cpu_schedulers[i].idle->cpu_id = i;
+        cpu_schedulers[i].idle->kernel_stack = malloc(TASK_KERNEL_STACK);
+        if (!cpu_schedulers[i].idle->kernel_stack) panic("sched: Cannot allocate idle kernel stack.");
+        uint64_t *stack = (uint64_t *)ALIGN_DOWN((uint64_t)(cpu_schedulers[i].idle->kernel_stack + TASK_KERNEL_STACK), 16ULL);
+        *(--stack) = (uint64_t)idle_thread;
+        cpu_schedulers[i].idle->context.rsp = (uint64_t)stack;
+        cpu_schedulers[i].idle->context.rdi = (uint64_t)NULL;
+        cpu_schedulers[i].idle->context.rflags = 0x202;
+        plogk("task: Created task %llu (%s) on CPU %u.\n",
+              cpu_schedulers[i].idle->pid, cpu_schedulers[i].idle->name, cpu_schedulers[i].idle->cpu_id);
     }
+    scheduler.next_pid = 1;
     scheduler.idle = cpu_schedulers[0].idle;
     for (uint32_t i = 1; i < cpu_scheduler_count; i++) {
         memset(&ap_boot_tasks[i], 0, sizeof(task_t));

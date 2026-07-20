@@ -105,6 +105,9 @@ int process_kill(pid_t pid);
 /* Find the process structure for the given pid, or NULL if not found */
 process_t *process_find(pid_t pid);
 
+/* Iterate all processes. Set *pos = 0 to start, returns NULL when done */
+process_t *process_iterate(size_t *pos);
+
 /* Get information about the current process */
 process_t *process_current(void);
 
