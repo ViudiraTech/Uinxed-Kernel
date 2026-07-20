@@ -176,7 +176,7 @@ typedef struct {
         int          enabled;
 } mcfg_t;
 
-/* Find the corresponding ACPI table in XSDT */
+/* Find the corresponding ACPI table in SDT */
 void *find_table(const char *name);
 
 /* Initialize ACPI */
@@ -197,10 +197,63 @@ void facp_init(acpi_facp_t *facp0);
 /* Get the FACP structure */
 acpi_facp_t *get_acpi_facp(void);
 
-/* Cycle the power */
+/* ACPI SCI (System Control Interrupt) and GPE (General Purpose Event) */
+
+/* ACPI fixed event IDs */
+#define ACPI_EVENT_POWER_BUTTON  0
+#define ACPI_EVENT_SLEEP_BUTTON  1
+#define ACPI_EVENT_RTC           2
+
+/* PM1 status register bit definitions */
+#define ACPI_PM1_STS_PWRBTN  (1 << 8)
+#define ACPI_PM1_STS_SLPBTN  (1 << 9)
+#define ACPI_PM1_STS_RTC     (1 << 10)
+
+/* PM1 enable register bit definitions */
+#define ACPI_PM1_EN_PWRBTN   (1 << 8)
+#define ACPI_PM1_EN_SLPBTN   (1 << 9)
+#define ACPI_PM1_EN_RTC      (1 << 10)
+
+/* Generic ACPI event callback */
+typedef void (*acpi_event_callback_t)(void *context);
+
+/* Read PM1 status register */
+uint16_t acpi_pm1_status(void);
+
+/* Read PM1 enable register */
+uint16_t acpi_pm1_enable(void);
+
+/* Write PM1 status register (write-1-to-clear) */
+void acpi_pm1_status_clear(uint16_t bits);
+
+/* Write PM1 enable register */
+void acpi_pm1_enable_set(uint16_t bits);
+
+/* Initialize SCI interrupt handler and register fixed-event callbacks */
+int acpi_sci_init(void);
+
+/* Read GPE status register (returns raw 8-bit value at the given GPE block index) */
+uint8_t acpi_gpe_status(uint8_t block_index);
+
+/* Clear pending GPE by writing status bit */
+void acpi_gpe_status_clear(uint8_t block_index, uint8_t bit);
+
+/* Register a callback for a fixed ACPI event */
+int acpi_register_fixed_event(uint8_t event, acpi_event_callback_t handler, void *context);
+
+/* Register a callback for a GPE number (0-255) */
+int acpi_register_gpe(uint8_t gpe_number, acpi_event_callback_t handler, void *context);
+
+/* Poll for and dispatch pending ACPI events (can be called from idle) */
+void acpi_event_poll(void);
+
+/* Initialize ACPI event subsystem (SCI + GPE + power button) */
+void acpi_event_init(void);
+
+/* Cycle the power via ACPI reset register */
 void power_reset(void);
 
-/* Power off */
+/* Power off via ACPI S5 sleep state */
 void power_off(void);
 
 /* Obtain ACPI major version */

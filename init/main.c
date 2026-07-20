@@ -49,11 +49,14 @@ void init_thread(void *arg){
     panic("init: Attempt to kill init!");
 }
 
-/* Executable entry */
+/* Executable entry -- idle loop, also polls ACPI events */
 void executable_entry(void)
 {
     disable_intr();
-    while (1) __asm__ volatile("hlt");
+    while (1) {
+        __asm__ volatile("sti; hlt; cli");
+        acpi_event_poll();
+    }
 }
 
 /* Kernel entry */

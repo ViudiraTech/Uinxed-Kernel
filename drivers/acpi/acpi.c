@@ -83,4 +83,6 @@ void acpi_init(void)
     load_table(APIC, apic_init);
     load_table(FACP, facp_init);
     load_table(MCFG, mcfg_init);
+
+    acpi_event_init();
 }
