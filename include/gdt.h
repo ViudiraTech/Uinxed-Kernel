@@ -18,17 +18,6 @@ typedef struct {
         void    *ptr;
 } __attribute__((packed)) gdt_register_t;
 
-typedef struct {
-        uint32_t unused0;
-        uint64_t rsp[3];
-        uint64_t unused1;
-        uint64_t ist[7];
-        uint64_t unused2;
-        uint16_t unused3;
-        uint16_t iopb;
-} __attribute__((packed)) tss_t;
-
-typedef uint8_t  tss_stack_t[1024];
 typedef uint64_t gdt_entries_t[8];
 
 typedef struct {
@@ -36,17 +25,9 @@ typedef struct {
         gdt_register_t pointer;
 } __attribute__((aligned(16))) gdt_t;
 
-extern gdt_t       gdt0;
-extern tss_t       tss0;
-extern tss_stack_t tss_stack;
+extern gdt_t gdt0;
 
 /* Initialize the global descriptor table */
 void init_gdt(void);
-
-/* Initialize TSS */
-void tss_init(void);
-
-/* Setting up the kernel stack */
-void set_kernel_stack(uint64_t rsp);
 
 #endif // INCLUDE_GDT_H_

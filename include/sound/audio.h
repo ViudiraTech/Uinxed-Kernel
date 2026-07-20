@@ -61,30 +61,30 @@ typedef struct {
 } audio_card_ops_t;
 
 typedef struct audio_card {
-        uint32_t         id;
-        char             name[AUDIO_NAME_MAX];
-        audio_pcm_format_t format;
+        uint32_t                id;
+        char                    name[AUDIO_NAME_MAX];
+        audio_pcm_format_t      format;
         const audio_card_ops_t *ops;
-        void            *driver_data;
+        void                   *driver_data;
 } audio_card_t;
 
 typedef struct {
-        audio_card_t     *card;
-        audio_node_type_t type;
-        const char       *name;
+        audio_card_t      *card;
+        audio_node_type_t  type;
+        const char        *name;
         tmpfs_device_ops_t tmpfs_ops;
 } audio_device_node_t;
 
-int audio_register_card(const char *name, const audio_pcm_format_t *format, const audio_card_ops_t *ops, void *driver_data);
+int           audio_register_card(const char *name, const audio_pcm_format_t *format, const audio_card_ops_t *ops, void *driver_data);
 audio_card_t *audio_get_card(uint32_t card);
-size_t audio_card_count(void);
+size_t        audio_card_count(void);
 
-size_t audio_device_node_count(void);
+size_t               audio_device_node_count(void);
 audio_device_node_t *audio_get_device_node(size_t index);
 
 size_t audio_device_read(void *ctx, void *addr, size_t offset, size_t size);
 size_t audio_device_write(void *ctx, const void *addr, size_t offset, size_t size);
-int audio_device_poll(void *ctx, size_t events);
-int audio_device_ioctl(void *ctx, size_t req, void *arg);
+int    audio_device_poll(void *ctx, size_t events);
+int    audio_device_ioctl(void *ctx, size_t req, void *arg);
 
 #endif /* INCLUDE_SOUND_AUDIO_H_ */

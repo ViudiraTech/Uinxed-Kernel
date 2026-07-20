@@ -11,9 +11,9 @@
 #ifndef INCLUDE_SCHED_H_
 #define INCLUDE_SCHED_H_
 
-#include <task.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <task.h>
 
 typedef struct {
         task_t      *current;

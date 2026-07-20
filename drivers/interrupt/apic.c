@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <uinxed.h>
 
-#define CPUID_FEAT_EDX_APIC (1 << 9)
+#define CPUID_FEAT_EDX_APIC   (1 << 9)
 #define CPUID_FEAT_ECX_X2APIC (1 << 21)
 
 int x2apic_mode = -1;
@@ -144,7 +144,9 @@ void io_apic_init(void)
 
 /* Send EOI signal */
 void send_eoi(void)
-{ lapic_write(0xb0, 0); }
+{
+    lapic_write(0xb0, 0);
+}
 
 /* Stop the local APIC timer */
 void lapic_timer_stop(void)
@@ -203,14 +205,13 @@ void apic_init(madt_t *madt)
             }
             case MADT_APIC_IO_INT : {
                 madt_io_apic_int_t *int_override = (madt_io_apic_int_t *)(entries_base + current);
-                plogk("apic: IO/APIC interrupt source override: bus %u, source %u -> GSI %u, flags %x\n",
-                      int_override->bus, int_override->source, int_override->global_system_interrupt, int_override->flags);
+                plogk("apic: IO/APIC interrupt source override: bus %u, source %u -> GSI %u, flags %x\n", int_override->bus,
+                      int_override->source, int_override->global_system_interrupt, int_override->flags);
                 break;
             }
             case MADT_APIC_IO_NMI : {
                 madt_io_apic_nmi_t *nmi = (madt_io_apic_nmi_t *)(entries_base + current);
-                plogk("apic: IO/APIC NMI: ACPI processor uid %u, flags %x, LINT %u\n",
-                      nmi->acpi_processor_uid, nmi->flags, nmi->lint);
+                plogk("apic: IO/APIC NMI: ACPI processor uid %u, flags %x, LINT %u\n", nmi->acpi_processor_uid, nmi->flags, nmi->lint);
                 break;
             }
             default :

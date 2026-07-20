@@ -42,27 +42,39 @@ void write_cmos(uint8_t p, uint8_t data)
 
 /* Get the HEX value of the current hour */
 uint32_t get_hour_hex(void)
-{ return BCD_HEX(read_cmos(CMOS_CUR_HOUR)); }
+{
+    return BCD_HEX(read_cmos(CMOS_CUR_HOUR));
+}
 
 /* Get the HEX of the current minute */
 uint32_t get_min_hex(void)
-{ return BCD_HEX(read_cmos(CMOS_CUR_MIN)); }
+{
+    return BCD_HEX(read_cmos(CMOS_CUR_MIN));
+}
 
 /* Get the HEX value of the current second */
 uint32_t get_sec_hex(void)
-{ return BCD_HEX(read_cmos(CMOS_CUR_SEC)); }
+{
+    return BCD_HEX(read_cmos(CMOS_CUR_SEC));
+}
 
 /* Get the current day of the month */
 uint32_t get_day_of_month(void)
-{ return BCD_HEX(read_cmos(CMOS_MON_DAY)); }
+{
+    return BCD_HEX(read_cmos(CMOS_MON_DAY));
+}
 
 /* Get the HEX number of the current day of the week */
 uint32_t get_day_of_week(void)
-{ return BCD_HEX(read_cmos(CMOS_WEEK_DAY)); }
+{
+    return BCD_HEX(read_cmos(CMOS_WEEK_DAY));
+}
 
 /* Get the HEX of the current month */
 uint32_t get_mon_hex(void)
-{ return BCD_HEX(read_cmos(CMOS_CUR_MON)); }
+{
+    return BCD_HEX(read_cmos(CMOS_CUR_MON));
+}
 
 /* Get the current year */
 uint32_t get_year(void)
@@ -70,8 +82,6 @@ uint32_t get_year(void)
     uint32_t century = BCD_HEX(read_cmos(CMOS_CUR_CEN));
     uint32_t year    = BCD_HEX(read_cmos(CMOS_CUR_YEAR));
 
-    if (century < 10 || century > 30) {
-        century = (year >= 70) ? 19 : 20;
-    }
+    if (century < 10 || century > 30) { century = (year >= 70) ? 19 : 20; }
     return century * 100 + year;
 }

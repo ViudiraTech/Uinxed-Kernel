@@ -14,6 +14,7 @@
 #include <gdt.h>
 #include <limine.h>
 #include <stdint.h>
+#include <tss.h>
 
 #define KERNEL_STACK_SIZE 0x10000 // 64 KiB
 

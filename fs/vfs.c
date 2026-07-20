@@ -21,11 +21,12 @@ vfs_node_t rootdir = 0;
 struct vfs_callback   vfs_empty_callback;
 static vfs_callback_t fs_callbacks[256] = {[0] = &vfs_empty_callback};
 static const char    *fs_names[256];
-static int            fs_nextid         = 1;
+static int            fs_nextid = 1;
 
 /* Default callback function (does nothing) */
 static void empty_func(void)
-{ /* Empty Function */ }
+{ /* Empty Function */
+}
 
 /* Tokenize the path string, splitting it by '/' */
 static char *pathtok(char **sp)
@@ -136,7 +137,9 @@ static vfs_node_t vfs_child_append(vfs_node_t parent, const char *name, void *ha
 
 /* Find a child node by name within a parent directory */
 static vfs_node_t vfs_child_find(vfs_node_t parent, const char *name)
-{ return clist_first(parent->child, data, streq(name, ((vfs_node_t)data)->name)); }
+{
+    return clist_first(parent->child, data, streq(name, ((vfs_node_t)data)->name));
+}
 
 /* Allocate a new vfs node with the given parent and name */
 vfs_node_t vfs_node_alloc(vfs_node_t parent, const char *name)
@@ -162,7 +165,9 @@ vfs_node_t vfs_node_alloc(vfs_node_t parent, const char *name)
 
 /* Get the root directory node */
 vfs_node_t get_rootdir(void)
-{ return rootdir; }
+{
+    return rootdir;
+}
 
 /* Set the root directory node of the Virtual File System (VFS) */
 void set_rootdir(vfs_node_t node)
@@ -173,11 +178,15 @@ void set_rootdir(vfs_node_t node)
 
 /* Search for a file or directory by name in the specified directory */
 vfs_node_t vfs_do_search(vfs_node_t dir, const char *name)
-{ return clist_first(dir->child, data, streq(name, ((vfs_node_t)data)->name)); }
+{
+    return clist_first(dir->child, data, streq(name, ((vfs_node_t)data)->name));
+}
 
 /* Update a file or directory, ensuring it is open and ready */
 void vfs_update(vfs_node_t node)
-{ do_update(node); }
+{
+    do_update(node);
+}
 
 /* Open a file or directory by path */
 static vfs_node_t vfs_open_internal(const char *str, int symlink_depth)
@@ -209,8 +218,8 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth)
 
         do_update(current);
         if (current->type & file_symlink) {
-            char       *target_path = vfs_resolve_link_path(current);
-            vfs_node_t  target;
+            char      *target_path = vfs_resolve_link_path(current);
+            vfs_node_t target;
 
             if (!target_path) goto err;
             target = vfs_open_internal(target_path, symlink_depth + 1);
@@ -233,7 +242,9 @@ err:
 }
 
 vfs_node_t vfs_open(const char *str)
-{ return vfs_open_internal(str, 0); }
+{
+    return vfs_open_internal(str, 0);
+}
 
 /* Create a new directory at the specified path */
 int vfs_mkdir(const char *name)
@@ -518,7 +529,9 @@ err:
 
 /* Register a vfs callback */
 int vfs_regist(vfs_callback_t callback)
-{ return vfs_regist_fs(0, callback); }
+{
+    return vfs_regist_fs(0, callback);
+}
 
 /* Register a vfs callback with a filesystem name */
 int vfs_regist_fs(const char *name, vfs_callback_t callback)
@@ -547,7 +560,7 @@ static int vfs_mount_id(const char *src, vfs_node_t node, int fsid)
     if (!node || !(node->type & file_dir)) return -EINVAL;
     if (fsid <= 0 || fsid >= fs_nextid || !fs_callbacks[fsid]) return -ENOENT;
 
-    old_fsid  = node->fsid;
+    old_fsid   = node->fsid;
     node->fsid = fsid;
 
     status = fs_callbacks[fsid]->mount(src, node);

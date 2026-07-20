@@ -8,7 +8,6 @@
  *
  */
 
-#include <sound/sb16.h>
 #include <common.h>
 #include <dma.h>
 #include <errno.h>
@@ -19,16 +18,17 @@
 #include <page.h>
 #include <pci.h>
 #include <printk.h>
+#include <sound/sb16.h>
 #include <spin_lock.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include <timer.h>
 
-static const uint16_t sb16_ports[] = { 0x220, 0x240, 0x260, 0x280 };
+static const uint16_t sb16_ports[] = {0x220, 0x240, 0x260, 0x280};
 
 static sb16_device_t sb16_dev;
-static spinlock_t sb16_lock;
+static spinlock_t    sb16_lock;
 
 static size_t sb16_audio_write(audio_card_t *card, const void *addr, size_t offset, size_t size);
 static int    sb16_audio_set_format(audio_card_t *card, const audio_pcm_format_t *format);
@@ -46,10 +46,14 @@ static const audio_card_ops_t sb16_audio_ops = {
 };
 
 static inline uint8_t sb16_inb(uint16_t port)
-{ return inb(port); }
+{
+    return inb(port);
+}
 
 static inline void sb16_outb(uint16_t port, uint8_t val)
-{ outb(port, val); }
+{
+    outb(port, val);
+}
 
 int sb16_dsp_wait_write(sb16_device_t *dev)
 {
@@ -173,7 +177,7 @@ int sb16_play_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
     if (sb16_set_rate16(dev, dev->sample_rate)) return -1;
 
     uint16_t words = (uint16_t)(size / 2 - 1);
-    uint8_t d0 = 0x10;
+    uint8_t  d0    = 0x10;
     if (sb16_dsp_write(dev, SB16_DSP_CMD_DMA16_OUT)) return -1;
     if (sb16_dsp_write(dev, d0)) return -1;
     if (sb16_dsp_write(dev, words & 0xFF)) return -1;
@@ -274,9 +278,9 @@ int sb16_detect(sb16_device_t *dev)
 
         plogk("sb16: DSP version %u.%u at port 0x%x\n", major, minor, dev->base);
         dev->detected = 1;
-        dev->dma8 = 1;
-        dev->dma16 = 5;
-        dev->irq = 5;
+        dev->dma8     = 1;
+        dev->dma16    = 5;
+        dev->irq      = 5;
         return 0;
     }
     return -1;
@@ -286,16 +290,14 @@ void sb16_beep(uint16_t freq, uint32_t ms)
 {
     if (!sb16_dev.detected) return;
 
-    uint32_t samples = (uint32_t)(sb16_dev.sample_rate * ms / 1000);
-    size_t buf_size = samples;
+    uint32_t samples  = (uint32_t)(sb16_dev.sample_rate * ms / 1000);
+    size_t   buf_size = samples;
 
     uint8_t *buf = malloc(buf_size);
     if (!buf) return;
 
     uint32_t period = sb16_dev.sample_rate / freq;
-    for (uint32_t i = 0; i < samples; i++) {
-        buf[i] = (i % period) < (period / 2) ? 200 : 55;
-    }
+    for (uint32_t i = 0; i < samples; i++) { buf[i] = (i % period) < (period / 2) ? 200 : 55; }
 
     sb16_play_8bit(&sb16_dev, buf, buf_size);
 
@@ -308,18 +310,16 @@ void sb16_beep(uint16_t freq, uint32_t ms)
 void sb16_init(void)
 {
     memset(&sb16_dev, 0, sizeof(sb16_device_t));
-    sb16_lock.lock = 0;
+    sb16_lock.lock   = 0;
     sb16_lock.rflags = 0;
 
     pci_devices_cache_t *cache = pci_get_devices_cache();
-    if (!cache) {
-        plogk("sb16: PCI cache not ready, trying legacy ports\n");
-    }
+    if (!cache) { plogk("sb16: PCI cache not ready, trying legacy ports\n"); }
 
     if (sb16_detect(&sb16_dev)) {
-        sb16_dev.base = 0x220;
-        sb16_dev.irq = 5;
-        sb16_dev.dma8 = 1;
+        sb16_dev.base  = 0x220;
+        sb16_dev.irq   = 5;
+        sb16_dev.dma8  = 1;
         sb16_dev.dma16 = 5;
         if (sb16_dsp_reset(&sb16_dev)) {
             plogk("sb16: No SB16 card found\n");
@@ -334,26 +334,24 @@ void sb16_init(void)
         sb16_dev.detected = 1;
     }
 
-    sb16_dev.sample_rate = 22050;
-    sb16_dev.bits        = 8;
-    sb16_dev.channels    = 1;
-    sb16_dev.volume_left = 0xCC;
+    sb16_dev.sample_rate  = 22050;
+    sb16_dev.bits         = 8;
+    sb16_dev.channels     = 1;
+    sb16_dev.volume_left  = 0xCC;
     sb16_dev.volume_right = 0xCC;
 
     sb16_set_master_volume(&sb16_dev, sb16_dev.volume_left, sb16_dev.volume_right);
     sb16_set_dac_volume(&sb16_dev, sb16_dev.volume_left, sb16_dev.volume_right);
     sb16_mixer_write(&sb16_dev, SB16_MIXER_OUT_SRC, SB16_MIXER_SRC_DAC);
 
-    plogk("sb16: SB16 initialized at port 0x%x, IRQ %u, DMA8 %u, DMA16 %u\n",
-          sb16_dev.base, sb16_dev.irq, sb16_dev.dma8, sb16_dev.dma16);
+    plogk("sb16: SB16 initialized at port 0x%x, IRQ %u, DMA8 %u, DMA16 %u\n", sb16_dev.base, sb16_dev.irq, sb16_dev.dma8, sb16_dev.dma16);
 
     sb16_dev.dma_buffer_size = 65536;
-    uint64_t frame = alloc_frames(ALIGN_UP(sb16_dev.dma_buffer_size, PAGE_4K_SIZE) / PAGE_4K_SIZE);
+    uint64_t frame           = alloc_frames(ALIGN_UP(sb16_dev.dma_buffer_size, PAGE_4K_SIZE) / PAGE_4K_SIZE);
     if (frame) {
         sb16_dev.dma_buffer_phys = frame;
         sb16_dev.dma_buffer_virt = (uint8_t *)phys_to_virt(frame);
-        plogk("sb16: DMA buffer at phys=%p virt=%p size=%u\n",
-              (void *)frame, sb16_dev.dma_buffer_virt, sb16_dev.dma_buffer_size);
+        plogk("sb16: DMA buffer at phys=%p virt=%p size=%u\n", (void *)frame, sb16_dev.dma_buffer_virt, sb16_dev.dma_buffer_size);
     } else {
         plogk("sb16: Failed to allocate DMA buffer\n");
         return;

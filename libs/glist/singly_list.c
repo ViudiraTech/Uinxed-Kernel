@@ -133,7 +133,7 @@ int slist_remove(slist_t *list, void *data)
     while (*cur) {
         if ((*cur)->data == data) {
             slist_node_t *node = *cur;
-            *cur = node->next;
+            *cur               = node->next;
             if (list->tail == node) list->tail = 0;
             free(node);
             list->size--;

@@ -8,8 +8,8 @@
  *
  */
 
-#include <errno.h>
 #include <blockdev.h>
+#include <errno.h>
 #include <heap.h>
 #include <ide.h>
 #include <printk.h>
@@ -21,10 +21,10 @@
 static int simplefs_id = 0;
 
 typedef struct simplefs_vnode {
-    simplefs_handle_t     *fs;
-    simplefs_inode_disk_t  inode;
-    uint32_t               inode_no;
-    int                    owns_fs;
+        simplefs_handle_t    *fs;
+        simplefs_inode_disk_t inode;
+        uint32_t              inode_no;
+        int                   owns_fs;
 } simplefs_vnode_t;
 
 static uint16_t simplefs_type_to_vfs(uint16_t type)
@@ -59,7 +59,9 @@ static uint16_t simplefs_vfs_to_type(uint16_t type)
 }
 
 static uint64_t simplefs_block_offset(const simplefs_handle_t *fs, uint32_t block)
-{ return (uint64_t)block * fs->disk.block_size; }
+{
+    return (uint64_t)block * fs->disk.block_size;
+}
 
 static int simplefs_disk_read_bytes(const simplefs_handle_t *fs, uint64_t offset, void *buffer, size_t size)
 
@@ -68,7 +70,9 @@ static int simplefs_disk_read_bytes(const simplefs_handle_t *fs, uint64_t offset
 }
 
 static int simplefs_disk_write_bytes(const simplefs_handle_t *fs, uint64_t offset, const void *buffer, size_t size)
-{ return blockdev_write_bytes(&fs->device, offset, buffer, size); }
+{
+    return blockdev_write_bytes(&fs->device, offset, buffer, size);
+}
 
 static int simplefs_read_inode(const simplefs_handle_t *fs, uint32_t inode_no, simplefs_inode_disk_t *inode)
 {
@@ -127,14 +131,14 @@ static void simplefs_fill_node(vfs_node_t node, const simplefs_vnode_t *vnode)
 static size_t simplefs_inode_read(simplefs_vnode_t *vnode, void *addr, size_t offset, size_t size)
 {
     simplefs_handle_t *fs;
-    uint8_t           *out = addr;
+    uint8_t           *out  = addr;
     size_t             done = 0;
     uint8_t           *block_buf;
 
     if (!vnode || !addr || offset >= vnode->inode.size) return 0;
 
-    fs       = vnode->fs;
-    size     = MIN(size, (size_t)(vnode->inode.size - offset));
+    fs        = vnode->fs;
+    size      = MIN(size, (size_t)(vnode->inode.size - offset));
     block_buf = malloc(fs->disk.block_size);
     if (!block_buf) return 0;
 
@@ -250,7 +254,7 @@ static int simplefs_ensure_block(simplefs_vnode_t *vnode, uint32_t block_id, uin
     if (status != EOK) return status;
 
     vnode->inode.direct[block_id] = block_no;
-    status = simplefs_write_inode(vnode->fs, vnode->inode_no, &vnode->inode);
+    status                        = simplefs_write_inode(vnode->fs, vnode->inode_no, &vnode->inode);
     if (status != EOK) return status;
 
     *disk_block = block_no;
@@ -276,10 +280,12 @@ static size_t simplefs_inode_write(simplefs_vnode_t *vnode, const void *addr, si
         uint32_t disk_block;
 
         if (simplefs_ensure_block(vnode, block_id, &disk_block) != EOK) break;
-        if (simplefs_disk_read_bytes(vnode->fs, simplefs_block_offset(vnode->fs, disk_block), block_buf, vnode->fs->disk.block_size) != EOK) break;
+        if (simplefs_disk_read_bytes(vnode->fs, simplefs_block_offset(vnode->fs, disk_block), block_buf, vnode->fs->disk.block_size) != EOK)
+            break;
 
         memcpy(block_buf + inblock, in + done, chunk);
-        if (simplefs_disk_write_bytes(vnode->fs, simplefs_block_offset(vnode->fs, disk_block), block_buf, vnode->fs->disk.block_size) != EOK) break;
+        if (simplefs_disk_write_bytes(vnode->fs, simplefs_block_offset(vnode->fs, disk_block), block_buf, vnode->fs->disk.block_size) != EOK)
+            break;
         done += chunk;
     }
 
@@ -318,10 +324,10 @@ static int simplefs_add_child(vfs_node_t parent, vfs_node_t child)
 
 static int simplefs_create_node(vfs_node_t parent, const char *name, vfs_node_t node, uint16_t type)
 {
-    simplefs_vnode_t    *handle;
+    simplefs_vnode_t     *handle;
     simplefs_inode_disk_t inode;
-    uint32_t             inode_no;
-    int                  status;
+    uint32_t              inode_no;
+    int                   status;
 
     if (!parent || !name || !node) return -EINVAL;
 
@@ -386,9 +392,9 @@ static int simplefs_no_link(void *parent, const char *name, vfs_node_t node)
 
 static int simplefs_load_directory(vfs_node_t node)
 {
-    simplefs_vnode_t      *vnode = node ? node->handle : 0;
+    simplefs_vnode_t       *vnode = node ? node->handle : 0;
     simplefs_dirent_disk_t *entries;
-    size_t                 entry_count;
+    size_t                  entry_count;
 
     if (!node || !vnode) return -EINVAL;
     if (node->visited) return EOK;
@@ -419,7 +425,7 @@ static int simplefs_load_directory(vfs_node_t node)
 
         memcpy(name, entry->name, entry->name_length);
         name[entry->name_length] = '\0';
-        child = vfs_do_search(node, name);
+        child                    = vfs_do_search(node, name);
         if (child) continue;
 
         child_handle = simplefs_vnode_alloc(vnode->fs, entry->inode);
@@ -437,10 +443,10 @@ static int simplefs_load_directory(vfs_node_t node)
 
 static int simplefs_lookup(vfs_node_t parent, const char *name, vfs_node_t node)
 {
-    simplefs_vnode_t      *dir = parent ? parent->handle : 0;
+    simplefs_vnode_t       *dir = parent ? parent->handle : 0;
     simplefs_dirent_disk_t *entries;
-    size_t                 entry_count;
-    size_t                 name_len;
+    size_t                  entry_count;
+    size_t                  name_len;
 
     if (!parent || !node || !name || !dir) return -EINVAL;
     if (simplefs_load_directory(parent) != EOK) return -EIO;
@@ -481,14 +487,16 @@ static int simplefs_lookup(vfs_node_t parent, const char *name, vfs_node_t node)
 }
 
 int simplefs_probe(uint8_t drive)
-{ return superblock_probe(drive); }
+{
+    return superblock_probe(drive);
+}
 
 static int simplefs_mount(const char *src, vfs_node_t node)
 {
-    uint8_t          drive;
-    simplefs_vnode_t *root;
+    uint8_t            drive;
+    simplefs_vnode_t  *root;
     simplefs_handle_t *handle;
-    int               status;
+    int                status;
 
     if (simplefs_parse_drive(src, &drive) != EOK) return -EINVAL;
 
@@ -506,7 +514,7 @@ static int simplefs_mount(const char *src, vfs_node_t node)
         return -EINVAL;
     }
 
-    root          = simplefs_vnode_alloc(handle, handle->disk.root_inode);
+    root = simplefs_vnode_alloc(handle, handle->disk.root_inode);
     if (!root) {
         free(handle);
         return -EIO;
@@ -522,12 +530,15 @@ static int simplefs_mount(const char *src, vfs_node_t node)
         return -EIO;
     }
 
-    plogk("simplefs: Mounted drive ide%u, volume '%s', block size %u.\n", handle->device.drive, handle->disk.volume_name, handle->disk.block_size);
+    plogk("simplefs: Mounted drive ide%u, volume '%s', block size %u.\n", handle->device.drive, handle->disk.volume_name,
+          handle->disk.block_size);
     return EOK;
 }
 
 static void simplefs_unmount(void *root)
-{ (void)root; }
+{
+    (void)root;
+}
 
 static void simplefs_open(void *parent, const char *name, vfs_node_t node)
 {
@@ -538,7 +549,9 @@ static void simplefs_open(void *parent, const char *name, vfs_node_t node)
 }
 
 static void simplefs_close(void *current)
-{ (void)current; }
+{
+    (void)current;
+}
 
 static size_t simplefs_read_file(void *file, void *addr, size_t offset, size_t size)
 {

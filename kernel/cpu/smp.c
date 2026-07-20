@@ -20,13 +20,14 @@
 #include <limine.h>
 #include <page.h>
 #include <printk.h>
-#include <smp.h>
 #include <sched.h>
+#include <smp.h>
 #include <spin_lock.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <tss.h>
 #include <uinxed.h>
 
 static cpu_processor_t *cpus;
@@ -110,7 +111,9 @@ void send_ipi_cpu(uint32_t cpu_id, uint8_t vector)
 
 /* Flush TLBs of all CPUs */
 void flush_tlb_all(void)
-{ send_ipi_all(IPI_TLB_SHOOTDOWN); }
+{
+    send_ipi_all(IPI_TLB_SHOOTDOWN);
+}
 
 /* Flushing TLB by address range */
 void flush_tlb_range(uint64_t start, uint64_t end)
@@ -120,7 +123,9 @@ void flush_tlb_range(uint64_t start, uint64_t end)
 
 /* Get the number of CPUs */
 uint32_t get_cpu_count(void)
-{ return cpu_count; }
+{
+    return cpu_count;
+}
 
 /* Get the ID of the current CPU */
 uint32_t get_current_cpu_id(void)

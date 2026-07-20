@@ -12,7 +12,7 @@
 #include <serial.h>
 #include <stdint.h>
 
-static int serial_initialized = 0;
+static int serial_initialized   = 0;
 static int serial_port_ready[4] = {0};
 
 static int serial_port_index(uint16_t port)
@@ -96,9 +96,7 @@ static int init_serial_port(uint16_t port)
     outb(port + SERIAL_REG_DATA, 0xae);                  // Test serial port
 
     /* Check if there is a problem with the serial port */
-    if (inb(port + SERIAL_REG_DATA) != 0xae) {
-        return 0;
-    }
+    if (inb(port + SERIAL_REG_DATA) != 0xae) { return 0; }
     outb(port + SERIAL_REG_MCR, 0x0f); // Quit loopback mode
     serial_port_ready[index] = 1;
     return 1;
@@ -120,11 +118,15 @@ void init_serial(void)
 
 /* Check whether the serial port is ready to read */
 int serial_received(uint16_t port)
-{ return inb(port + SERIAL_REG_LSR) & 1; }
+{
+    return inb(port + SERIAL_REG_LSR) & 1;
+}
 
 /* Check whether the serial port is idle */
 int is_transmit_empty(uint16_t port)
-{ return inb(port + SERIAL_REG_LSR) & 0x20; }
+{
+    return inb(port + SERIAL_REG_LSR) & 0x20;
+}
 
 /* Read serial port */
 uint8_t read_serial(uint16_t port)
@@ -147,4 +149,6 @@ void write_serial(uint16_t port, uint8_t data)
 
 /* Get the status value of the specified serial port */
 uint8_t get_serial_status(uint16_t port)
-{ return inb(port + SERIAL_REG_LSR); }
+{
+    return inb(port + SERIAL_REG_LSR);
+}

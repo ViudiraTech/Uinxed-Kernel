@@ -109,7 +109,7 @@ void init_cpio(void)
                 return;
             }
         } else if ((mode & 0120000) == 0120000) {
-            char        *symlink_path = calloc(1, filesize + 1);
+            char *symlink_path = calloc(1, filesize + 1);
 
             strncpy(symlink_path, filedata, filesize);
             status = vfs_symlink(filename, symlink_path);

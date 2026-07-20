@@ -11,26 +11,26 @@
 #ifndef INCLUDE_SOUND_SB16_H_
 #define INCLUDE_SOUND_SB16_H_
 
-#include <stdint.h>
 #include <page.h>
 #include <sound/audio.h>
+#include <stdint.h>
 
 /* SB16 default I/O ports */
-#define SB16_BASE_220  0x220
-#define SB16_BASE_240  0x240
-#define SB16_BASE_260  0x260
-#define SB16_BASE_280  0x280
+#define SB16_BASE_220 0x220
+#define SB16_BASE_240 0x240
+#define SB16_BASE_260 0x260
+#define SB16_BASE_280 0x280
 
 /* SB16 DSP port offsets (relative to base) */
-#define SB16_DSP_RESET  0x6  /* Write 1 then 0 to trigger DSP reset */
-#define SB16_DSP_READ   0xA  /* Read DSP response data */
-#define SB16_DSP_WRITE  0xC  /* Write DSP commands (bit 7 = busy) */
-#define SB16_DSP_STATUS 0xE  /* Read data available status (bit 7) */
-#define SB16_DSP_ACK    0xE  /* IRQ acknowledge (same port as status) */
+#define SB16_DSP_RESET  0x6 /* Write 1 then 0 to trigger DSP reset */
+#define SB16_DSP_READ   0xA /* Read DSP response data */
+#define SB16_DSP_WRITE  0xC /* Write DSP commands (bit 7 = busy) */
+#define SB16_DSP_STATUS 0xE /* Read data available status (bit 7) */
+#define SB16_DSP_ACK    0xE /* IRQ acknowledge (same port as status) */
 
 /* SB16 Mixer port offsets (relative to base) */
-#define SB16_MIXER_ADDR  0x4 /* Select mixer register index */
-#define SB16_MIXER_DATA  0x5 /* Read/write selected mixer register */
+#define SB16_MIXER_ADDR 0x4 /* Select mixer register index */
+#define SB16_MIXER_DATA 0x5 /* Read/write selected mixer register */
 
 /* DSP commands */
 #define SB16_DSP_CMD_DMA8_OUT       0x14 /* 8-bit single-cycle DMA playback */
@@ -44,26 +44,26 @@
 #define SB16_DSP_CMD_IRQ_STATUS     0xF8 /* Read IRQ status */
 
 /* Mixer registers */
-#define SB16_MIXER_MASTER_L     0x00
-#define SB16_MIXER_MASTER_R     0x01
-#define SB16_MIXER_DAC_L        0x02
-#define SB16_MIXER_DAC_R        0x03
-#define SB16_MIXER_FM_L         0x04
-#define SB16_MIXER_FM_R         0x05
-#define SB16_MIXER_CD_L         0x06
-#define SB16_MIXER_CD_R         0x07
-#define SB16_MIXER_LINE_L       0x08
-#define SB16_MIXER_LINE_R       0x09
-#define SB16_MIXER_MIC          0x0A
-#define SB16_MIXER_SPKR         0x0B
-#define SB16_MIXER_OUT_SRC      0x10
-#define SB16_MIXER_RESET        0x80
+#define SB16_MIXER_MASTER_L 0x00
+#define SB16_MIXER_MASTER_R 0x01
+#define SB16_MIXER_DAC_L    0x02
+#define SB16_MIXER_DAC_R    0x03
+#define SB16_MIXER_FM_L     0x04
+#define SB16_MIXER_FM_R     0x05
+#define SB16_MIXER_CD_L     0x06
+#define SB16_MIXER_CD_R     0x07
+#define SB16_MIXER_LINE_L   0x08
+#define SB16_MIXER_LINE_R   0x09
+#define SB16_MIXER_MIC      0x0A
+#define SB16_MIXER_SPKR     0x0B
+#define SB16_MIXER_OUT_SRC  0x10
+#define SB16_MIXER_RESET    0x80
 
 /* Mixer output source */
-#define SB16_MIXER_SRC_DAC      0x01
-#define SB16_MIXER_SRC_CD       0x02
-#define SB16_MIXER_SRC_LINE     0x04
-#define SB16_MIXER_SRC_MIC      0x08
+#define SB16_MIXER_SRC_DAC  0x01
+#define SB16_MIXER_SRC_CD   0x02
+#define SB16_MIXER_SRC_LINE 0x04
+#define SB16_MIXER_SRC_MIC  0x08
 
 /* IRQ values */
 #define SB16_IRQ_5  5
@@ -80,19 +80,19 @@
 
 /* SB16 device state */
 typedef struct sb16_device {
-        uint16_t base;           /* I/O port base address */
-        uint8_t  irq;            /* IRQ line */
-        uint8_t  dma8;           /* 8-bit DMA channel */
-        uint8_t  dma16;          /* 16-bit DMA channel */
-        uint8_t  detected;       /* Non-zero if card found */
+        uint16_t base;            /* I/O port base address */
+        uint8_t  irq;             /* IRQ line */
+        uint8_t  dma8;            /* 8-bit DMA channel */
+        uint8_t  dma16;           /* 16-bit DMA channel */
+        uint8_t  detected;        /* Non-zero if card found */
         uint32_t dma_buffer_phys; /* Physical address of DMA buffer */
         uint8_t *dma_buffer_virt; /* Virtual address of DMA buffer */
         uint32_t dma_buffer_size; /* Size of DMA buffer */
-        uint32_t sample_rate;    /* Current sample rate */
-        uint8_t  bits;           /* Sample bit depth */
-        uint8_t  channels;       /* Number of audio channels */
-        uint8_t  volume_left;    /* Cached master volume */
-        uint8_t  volume_right;   /* Cached master volume */
+        uint32_t sample_rate;     /* Current sample rate */
+        uint8_t  bits;            /* Sample bit depth */
+        uint8_t  channels;        /* Number of audio channels */
+        uint8_t  volume_left;     /* Cached master volume */
+        uint8_t  volume_right;    /* Cached master volume */
 } sb16_device_t;
 
 /* Initialize SB16 driver and probe hardware */

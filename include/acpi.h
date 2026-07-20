@@ -200,19 +200,19 @@ acpi_facp_t *get_acpi_facp(void);
 /* ACPI SCI (System Control Interrupt) and GPE (General Purpose Event) */
 
 /* ACPI fixed event IDs */
-#define ACPI_EVENT_POWER_BUTTON  0
-#define ACPI_EVENT_SLEEP_BUTTON  1
-#define ACPI_EVENT_RTC           2
+#define ACPI_EVENT_POWER_BUTTON 0
+#define ACPI_EVENT_SLEEP_BUTTON 1
+#define ACPI_EVENT_RTC          2
 
 /* PM1 status register bit definitions */
-#define ACPI_PM1_STS_PWRBTN  (1 << 8)
-#define ACPI_PM1_STS_SLPBTN  (1 << 9)
-#define ACPI_PM1_STS_RTC     (1 << 10)
+#define ACPI_PM1_STS_PWRBTN (1 << 8)
+#define ACPI_PM1_STS_SLPBTN (1 << 9)
+#define ACPI_PM1_STS_RTC    (1 << 10)
 
 /* PM1 enable register bit definitions */
-#define ACPI_PM1_EN_PWRBTN   (1 << 8)
-#define ACPI_PM1_EN_SLPBTN   (1 << 9)
-#define ACPI_PM1_EN_RTC      (1 << 10)
+#define ACPI_PM1_EN_PWRBTN (1 << 8)
+#define ACPI_PM1_EN_SLPBTN (1 << 9)
+#define ACPI_PM1_EN_RTC    (1 << 10)
 
 /* Generic ACPI event callback */
 typedef void (*acpi_event_callback_t)(void *context);

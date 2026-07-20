@@ -11,8 +11,8 @@
 #ifndef INCLUDE_VIDEO_H_
 #define INCLUDE_VIDEO_H_
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 typedef struct {
         uint8_t red;
@@ -47,16 +47,16 @@ typedef struct {
 } video_info_t;
 
 /* Shared variables for video subsystem */
-extern uint64_t  width;       // Screen width
-extern uint64_t  height;      // Screen height
-extern uint64_t  stride;      // Frame buffer line spacing
-extern uint32_t *buffer;      // Video Memory
+extern uint64_t  width;  // Screen width
+extern uint64_t  height; // Screen height
+extern uint64_t  stride; // Frame buffer line spacing
+extern uint32_t *buffer; // Video Memory
 
 extern uint32_t cx, cy;            // The character position of the current cursor
 extern uint32_t c_width, c_height; // Screen character width and height
 
-extern uint32_t fore_color;  // Foreground color
-extern uint32_t back_color;  // Background color
+extern uint32_t fore_color; // Foreground color
+extern uint32_t back_color; // Background color
 
 extern uint32_t font_width;  // Font width
 extern uint32_t font_height; // Font height

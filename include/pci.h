@@ -154,11 +154,11 @@ base_address_register_t get_base_address_register(pci_device_cache_t *device, ui
 
 /* BAR iterator for safe traversal of Base Address Registers */
 typedef struct {
-        pci_device_cache_t      *device;
-        uint32_t                 current_bar;
-        uint32_t                 max_bars;
-        base_address_register_t  current_value;
-        int                      valid;
+        pci_device_cache_t     *device;
+        uint32_t                current_bar;
+        uint32_t                max_bars;
+        base_address_register_t current_value;
+        int                     valid;
 } pci_bar_iterator_t;
 
 /* Initialize a BAR iterator for a PCI device */

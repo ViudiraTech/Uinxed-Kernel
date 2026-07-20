@@ -8,8 +8,8 @@
  *
  */
 
-#include <frame.h>
 #include <common.h>
+#include <frame.h>
 #include <heap.h>
 #include <hhdm.h>
 #include <limine.h>
@@ -40,7 +40,7 @@ void init_heap(void)
     }
 
     if (!KERNEL_HEAP_SIZE && !KERNEL_HEAP_START) {
-        KERNEL_HEAP_SIZE  = usable_ram / 4;
+        KERNEL_HEAP_SIZE = usable_ram / 4;
         if (KERNEL_HEAP_SIZE > KERNEL_HEAP_MAX_SIZE) KERNEL_HEAP_SIZE = KERNEL_HEAP_MAX_SIZE;
         KERNEL_HEAP_SIZE  = ALIGN_UP(KERNEL_HEAP_SIZE, PAGE_4K_SIZE);
         KERNEL_HEAP_START = walk_page_tables_find_free(get_kernel_pagedir(), KERNEL_HEAP_SEARCH_BASE, KERNEL_HEAP_SIZE, PAGE_2M_SIZE);

@@ -8,37 +8,38 @@
  *
  */
 
-#include <devtmpfs.h>
-
 #include <blockdev.h>
+#include <devtmpfs.h>
 #include <errno.h>
 #include <fbdev.h>
 #include <ide.h>
 #include <input_event.h>
-#include <ps2.h>
 #include <printk.h>
+#include <ps2.h>
 #include <sound/audio.h>
 #include <tmpfs.h>
 #include <vfs.h>
 #include <video.h>
 
 typedef struct mbr_partition_entry {
-    uint8_t  status;
-    uint8_t  chs_first[3];
-    uint8_t  type;
-    uint8_t  chs_last[3];
-    uint32_t first_lba;
-    uint32_t sectors;
+        uint8_t  status;
+        uint8_t  chs_first[3];
+        uint8_t  type;
+        uint8_t  chs_last[3];
+        uint32_t first_lba;
+        uint32_t sectors;
 } __attribute__((packed)) mbr_partition_entry_t;
 
 typedef struct mbr_sector {
-    uint8_t               boot_code[446];
-    mbr_partition_entry_t partitions[4];
-    uint16_t              signature;
+        uint8_t               boot_code[446];
+        mbr_partition_entry_t partitions[4];
+        uint16_t              signature;
 } __attribute__((packed)) mbr_sector_t;
 
 static char devtmpfs_drive_letter(uint8_t drive)
-{ return (char)('a' + drive); }
+{
+    return (char)('a' + drive);
+}
 
 static int devtmpfs_scan_mbr(uint8_t drive, mbr_partition_entry_t parts[4])
 {
@@ -75,11 +76,11 @@ static void devtmpfs_create_block_node(uint8_t drive)
         return;
     }
 
-    node->type = file_block;
+    node->type  = file_block;
     node->blksz = 512;
-    node->dev  = drive;
-    node->rdev = drive;
-    node->size = (uint64_t)ide_devices[drive].size * 512;
+    node->dev   = drive;
+    node->rdev  = drive;
+    node->size  = (uint64_t)ide_devices[drive].size * 512;
     plogk("devtmpfs: Registered %s as block device.\n", dev_path);
 }
 
@@ -103,11 +104,11 @@ static void devtmpfs_create_partition_node(uint8_t drive, uint8_t part_index, co
         return;
     }
 
-    node->type = file_block;
+    node->type  = file_block;
     node->blksz = 512;
-    node->dev  = drive;
-    node->rdev = ((uint64_t)drive << 8) | (part_index + 1);
-    node->size = (uint64_t)part->sectors * 512;
+    node->dev   = drive;
+    node->rdev  = ((uint64_t)drive << 8) | (part_index + 1);
+    node->size  = (uint64_t)part->sectors * 512;
     plogk("devtmpfs: Registered %s for partition type 0x%02x, start %u, sectors %u.\n", dev_path, part->type, part->first_lba, part->sectors);
 }
 
@@ -189,7 +190,7 @@ static void devtmpfs_create_framebuffer_node(void)
         return;
     }
 
-    info       = video_get_info();
+    info        = video_get_info();
     node->blksz = sizeof(uint32_t);
     node->size  = info.stride * info.height * sizeof(uint32_t);
     node->dev   = 2;
@@ -247,7 +248,7 @@ static void devtmpfs_create_audio_nodes(void)
 
 void devtmpfs_init(void)
 {
-    int status;
+    int        status;
     vfs_node_t dev = 0;
 
     status = vfs_mkdir("/dev");

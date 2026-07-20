@@ -8,8 +8,8 @@
  *
  */
 
-#include <common.h>
 #include <apic.h>
+#include <common.h>
 #include <interrupt.h>
 #include <printk.h>
 #include <ps2.h>
@@ -19,10 +19,10 @@
 #define PS2_KBD_EVENT_QUEUE_SIZE 128
 
 static input_event_t ps2kbd_events[PS2_KBD_EVENT_QUEUE_SIZE];
-static size_t            ps2kbd_event_head = 0;
-static size_t            ps2kbd_event_tail = 0;
-static spinlock_t        ps2kbd_event_lock = {0};
-static wait_queue_t      ps2kbd_event_wait;
+static size_t        ps2kbd_event_head = 0;
+static size_t        ps2kbd_event_tail = 0;
+static spinlock_t    ps2kbd_event_lock = {0};
+static wait_queue_t  ps2kbd_event_wait;
 
 static void ps2kbd_event_push(uint8_t scancode)
 {
@@ -81,7 +81,9 @@ uint8_t ps2_read_data(void)
 
 /* Read PS/2 status */
 uint8_t ps2_read_status(void)
-{ return inb(PS2_STATUS_PORT); }
+{
+    return inb(PS2_STATUS_PORT);
+}
 
 /* Read PS/2 configuration */
 uint8_t ps2_read_config(void)
@@ -175,7 +177,7 @@ void init_ps2(void)
 
 size_t ps2kbd_read_events(void *ctx, void *addr, size_t offset, size_t size)
 {
-    size_t            count;
+    size_t         count;
     input_event_t *out = addr;
 
     (void)ctx;
@@ -190,7 +192,7 @@ size_t ps2kbd_read_events(void *ctx, void *addr, size_t offset, size_t size)
             return i * sizeof(input_event_t);
         }
 
-        out[i]          = ps2kbd_events[ps2kbd_event_tail];
+        out[i]            = ps2kbd_events[ps2kbd_event_tail];
         ps2kbd_event_tail = (ps2kbd_event_tail + 1) % PS2_KBD_EVENT_QUEUE_SIZE;
     }
     spin_unlock(&ps2kbd_event_lock);

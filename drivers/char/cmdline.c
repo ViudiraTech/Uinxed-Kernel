@@ -13,4 +13,6 @@
 
 /* Get the kernel command line */
 const char *get_cmdline(void)
-{ return kernel_file_request.response->kernel_file->cmdline; }
+{
+    return kernel_file_request.response->kernel_file->cmdline;
+}

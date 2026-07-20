@@ -17,8 +17,8 @@
 #include <sched.h>
 #include <smp.h>
 #include <stdint.h>
-#include <tty.h>
 #include <tsc.h>
+#include <tty.h>
 
 /* Timer interrupt */
 INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)
@@ -53,8 +53,12 @@ void nsleep(uint64_t ns)
 
 /* Millisecond-based delay functions */
 void usleep(uint64_t us)
-{ nsleep(us * 1000); }
+{
+    nsleep(us * 1000);
+}
 
 /* Millisecond-based delay functions */
 void msleep(uint64_t ms)
-{ nsleep(ms * 1000000); }
+{
+    nsleep(ms * 1000000);
+}

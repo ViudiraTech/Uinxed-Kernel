@@ -229,7 +229,8 @@ void sched_init(void)
 
     scheduler.current = &boot_task;
     for (uint32_t i = 0; i < cpu_scheduler_count; i++) {
-        cpu_schedulers[i].idle = task_alloc("idle");
+        cpu_schedulers[i].idle = task_alloc("swapper");
+        snprintf(cpu_schedulers[i].idle->name, sizeof(cpu_schedulers[i].idle->name), "swapper/%u", i);
         if (!cpu_schedulers[i].idle) panic("sched: Cannot create idle task.");
         cpu_schedulers[i].idle->pid          = 0;
         cpu_schedulers[i].idle->state        = TASK_IDLE;

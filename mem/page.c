@@ -58,7 +58,9 @@ INTERRUPT_END
 
 /* Determine whether the page table entry maps a huge page */
 int is_huge_page(page_table_entry_t *entry)
-{ return (((uint64_t)entry->value) & PTE_HUGE) != 0; }
+{
+    return (((uint64_t)entry->value) & PTE_HUGE) != 0;
+}
 
 /* Enable paging with a phys page directory address */
 void enable_paging(uintptr_t page_directory_phys)
@@ -100,11 +102,15 @@ page_table_t *page_table_create(page_table_entry_t *entry)
 
 /* Returns the kernel's page directory */
 page_directory_t *get_kernel_pagedir(void)
-{ return &kernel_page_dir; }
+{
+    return &kernel_page_dir;
+}
 
 /* Returns the page directory of the current process */
 page_directory_t *get_current_directory(void)
-{ return current_directory; }
+{
+    return current_directory;
+}
 
 /* Recursively copy memory page tables */
 void copy_page_table_recursive(page_table_t *source_table, page_table_t *new_table, int level)

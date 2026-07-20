@@ -59,11 +59,15 @@ int tmpfs_mk(void *parent, const char *name, vfs_node_t node, int is_dir)
 
 /* Create a directory in tmpfs */
 int tmpfs_mkdir(void *parent, const char *name, vfs_node_t node)
-{ return tmpfs_mk(parent, name, node, 1); }
+{
+    return tmpfs_mk(parent, name, node, 1);
+}
 
 /* Create a regular file in tmpfs */
 int tmpfs_mkfile(void *parent, const char *name, vfs_node_t node)
-{ return tmpfs_mk(parent, name, node, 0); }
+{
+    return tmpfs_mk(parent, name, node, 0);
+}
 
 /* Read data from a tmpfs regular file */
 size_t tmpfs_read(void *file, void *addr, size_t offset, size_t size)
@@ -209,7 +213,8 @@ int tmpfs_free(void *handle)
 
 /* Dummy function (placeholder for VFS callbacks not implemented) */
 void tmpfs_dummy(void)
-{ /* Nothing */ }
+{ /* Nothing */
+}
 
 static struct vfs_callback tmpfs_callbacks = {
     .mount    = tmpfs_mount,

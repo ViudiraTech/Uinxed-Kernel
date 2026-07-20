@@ -12,9 +12,12 @@
 #include <debug.h>
 #include <limine.h>
 #include <printk.h>
+#include <sched.h>
 #include <smbios.h>
+#include <smp.h>
 #include <stdarg.h>
 #include <symbols.h>
+#include <task.h>
 #include <tty.h>
 #include <uinxed.h>
 
@@ -81,6 +84,7 @@ void panic(const char *format, ...)
 
     plogk("\n");
     plogk("Kernel panic - not syncing: %s\n", buff);
+    plogk("CPU: %d PID: %d Comm: %s Not tainted\n", get_current_cpu_id(), current_task()->pid, current_task()->name);
     plogk("Hardware name: %s %s, BIOS %s %s\n", sys_vendor, sys_product, bios_version, bios_date);
     dump_stack();
     plogk("Kernel Offset: 0x%08x from %p\n", current_address - KERNEL_BASE_ADDRESS, KERNEL_BASE_ADDRESS);

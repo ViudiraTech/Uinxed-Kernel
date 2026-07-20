@@ -8,8 +8,8 @@
  *
  */
 
-#include <errno.h>
 #include <blockdev.h>
+#include <errno.h>
 #include <heap.h>
 #include <superblock.h>
 
@@ -34,7 +34,7 @@ int superblock_valid(const superblock_disk_t *sb)
 int superblock_read(uint8_t drive, superblock_disk_t *sb)
 {
     blockdev_device_t device;
-    int status;
+    int               status;
 
     if (!sb) return -EINVAL;
     status = blockdev_open_ide(drive, &device);

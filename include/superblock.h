@@ -12,9 +12,9 @@
 #define INCLUDE_SUPERBLOCK_H_
 
 #include <stdint.h>
-#define SUPERBLOCK_MAGIC       0x53424C4B
-#define SUPERBLOCK_SECTOR      1
-#define SUPERBLOCK_NAME_LENGTH 32
+#define SUPERBLOCK_MAGIC        0x53424C4B
+#define SUPERBLOCK_SECTOR       1
+#define SUPERBLOCK_NAME_LENGTH  32
 #define SUPERBLOCK_BLOCK_SECTOR 512
 
 typedef struct superblock_disk {
@@ -31,9 +31,9 @@ typedef struct superblock_disk {
         char     volume_name[SUPERBLOCK_NAME_LENGTH];
 } __attribute__((packed)) superblock_disk_t;
 
-int  superblock_read(uint8_t drive, superblock_disk_t *sb);
-int  superblock_write(uint8_t drive, const superblock_disk_t *sb);
-int  superblock_valid(const superblock_disk_t *sb);
-int  superblock_probe(uint8_t drive);
+int superblock_read(uint8_t drive, superblock_disk_t *sb);
+int superblock_write(uint8_t drive, const superblock_disk_t *sb);
+int superblock_valid(const superblock_disk_t *sb);
+int superblock_probe(uint8_t drive);
 
 #endif // INCLUDE_SUPERBLOCK_H_

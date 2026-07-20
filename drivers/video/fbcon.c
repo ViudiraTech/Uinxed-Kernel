@@ -10,22 +10,22 @@
 
 #include <common.h>
 #include <fbcon.h>
+#include <gfx_proc.h>
 #include <heap.h>
-#include <string.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include <video.h>
-#include <gfx_proc.h>
 
 /* Bitmap fonts */
 extern uint8_t ascii_font[];
 
-static char     char_buffer[256];      // Char buffer
-static uint32_t char_buffer_index = 0; // Char buffer index
-static char    *text_grid         = 0;
-static uint32_t *color_grid       = 0;
-static uint32_t *dirty_first_col  = 0;
-static uint32_t *dirty_last_col   = 0;
+static char      char_buffer[256];      // Char buffer
+static uint32_t  char_buffer_index = 0; // Char buffer index
+static char     *text_grid         = 0;
+static uint32_t *color_grid        = 0;
+static uint32_t *dirty_first_col   = 0;
+static uint32_t *dirty_last_col    = 0;
 static uint8_t   full_redraw_pending;
 static uint8_t   redraw_deferred;
 
@@ -83,8 +83,7 @@ static void fbcon_redraw_screen(void)
 static void fbcon_clear_uncovered_bottom(void)
 {
     uint32_t used_height = c_height * font_height;
-    if (used_height < height)
-        video_draw_rect((position_t) {0, used_height}, (position_t) {stride - 1, height - 1}, back_color);
+    if (used_height < height) video_draw_rect((position_t) {0, used_height}, (position_t) {stride - 1, height - 1}, back_color);
 }
 
 static void fbcon_flush_screen_updates(void)
@@ -108,15 +107,15 @@ void fbcon_init(void)
     font_width  = 9;
     font_height = 16;
 
-    cx = cy = 0;
+    cx = cy  = 0;
     c_width  = width / font_width;
     c_height = height / font_height;
 
     fore_color = color_to_fb_color((color_t) {0xaa, 0xaa, 0xaa});
     back_color = color_to_fb_color((color_t) {0x00, 0x00, 0x00});
 
-    text_grid  = calloc((size_t)c_width * c_height, sizeof(char));
-    color_grid = malloc((size_t)c_width * c_height * sizeof(uint32_t));
+    text_grid       = calloc((size_t)c_width * c_height, sizeof(char));
+    color_grid      = malloc((size_t)c_width * c_height * sizeof(uint32_t));
     dirty_first_col = malloc((size_t)c_height * sizeof(uint32_t));
     dirty_last_col  = malloc((size_t)c_height * sizeof(uint32_t));
     if (text_grid && color_grid && dirty_first_col && dirty_last_col) {
@@ -127,8 +126,8 @@ void fbcon_init(void)
         }
     }
 
-    char_buffer_index = 0;
-    char_buffer[0]    = '\0';
+    char_buffer_index   = 0;
+    char_buffer[0]      = '\0';
     full_redraw_pending = 0;
     redraw_deferred     = 0;
 }
@@ -185,16 +184,16 @@ void fbcon_flush_buffer(uint32_t color)
 {
     if (char_buffer_index > 0) {
         for (uint32_t i = 0; i < char_buffer_index; i++) {
-            char     c              = char_buffer[i];
+            char c = char_buffer[i];
             if (text_grid && color_grid && cx + i < c_width && cy < c_height) {
                 size_t index      = (size_t)cy * c_width + (cx + i);
                 text_grid[index]  = c;
                 color_grid[index] = color;
                 fbcon_mark_cell_dirty(cy, cx + i);
             } else {
-                uint32_t start_x       = cx * font_width;
-                uint32_t start_y       = cy * font_height;
-                uint32_t base_y_stride = start_y * stride;
+                uint32_t start_x        = cx * font_width;
+                uint32_t start_y        = cy * font_height;
+                uint32_t base_y_stride  = start_y * stride;
                 uint32_t char_x         = start_x + i * font_width;
                 uint8_t *char_font      = ascii_font + (size_t)c * font_height;
                 uint32_t char_base_addr = base_y_stride + char_x;

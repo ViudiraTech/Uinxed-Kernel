@@ -54,18 +54,18 @@ typedef struct {
 } task_context_t;
 
 struct task {
-        uint64_t         pid;
-        task_state_t     state;
-        task_context_t   context;
-        ilist_node_t     run_node;
+        uint64_t          pid;
+        task_state_t      state;
+        task_context_t    context;
+        ilist_node_t      run_node;
         page_directory_t *page_directory;
-        uint8_t         *kernel_stack;
-        uint64_t         time_slice;
-        uint64_t         wake_tick;
-        wait_queue_t    *wait_queue;
-        uint32_t         cpu_id;
-        char             name[TASK_NAME_LEN];
-        process_t       *process;
+        uint8_t          *kernel_stack;
+        uint64_t          time_slice;
+        uint64_t          wake_tick;
+        wait_queue_t     *wait_queue;
+        uint32_t          cpu_id;
+        char              name[TASK_NAME_LEN];
+        process_t        *process;
 };
 
 /* Initialize a wait queue */

@@ -8,14 +8,14 @@
  *
  */
 
-#include <task.h>
-#include <sched.h>
 #include <heap.h>
 #include <printk.h>
+#include <sched.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <task.h>
 
 typedef struct {
         kthread_entry_t entry;
@@ -41,15 +41,15 @@ static int setup_kernel_stack(task_t *task, kthread_bootstrap_t *bootstrap)
     *(--stack)      = 0;
     *(--stack)      = (uint64_t)kthread_trampoline;
 
-    task->context.rsp = (uint64_t)stack;
-    task->context.rbx = 0;
-    task->context.rbp = 0;
-    task->context.r12 = (uint64_t)bootstrap;
-    task->context.r13 = 0;
-    task->context.r14 = 0;
-    task->context.r15 = 0;
+    task->context.rsp    = (uint64_t)stack;
+    task->context.rbx    = 0;
+    task->context.rbp    = 0;
+    task->context.r12    = (uint64_t)bootstrap;
+    task->context.r13    = 0;
+    task->context.r14    = 0;
+    task->context.r15    = 0;
     task->context.rflags = 0x202;
-    task->context.rdi = (uint64_t)bootstrap;
+    task->context.rdi    = (uint64_t)bootstrap;
     return 0;
 }
 

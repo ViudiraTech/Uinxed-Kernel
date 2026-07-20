@@ -37,14 +37,14 @@ enum tmpfs_type {
 };
 
 typedef struct {
-        enum tmpfs_type type;
-        char            name[64];
-        char           *data;
-        size_t          size;
-        vfs_node_t      node;
-        vfs_node_t      root;
-        size_t          capacity;
-        uint16_t        node_type;
+        enum tmpfs_type    type;
+        char               name[64];
+        char              *data;
+        size_t             size;
+        vfs_node_t         node;
+        vfs_node_t         root;
+        size_t             capacity;
+        uint16_t           node_type;
         tmpfs_device_ops_t device;
 } tmpfs_file_t;
 

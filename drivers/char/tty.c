@@ -24,12 +24,12 @@ tty_device_t *boot_tty_ptr = 0;
 
 #define TTY_VGA_QUEUE_SIZE (TTY_BUF_SIZE * 8)
 
-static char           boot_tty_str_buf[16]   = {0}; // Persistent buffer
-static char           tty_buff[TTY_BUF_SIZE] = {0};
-static volatile char *tty_buff_ptr           = tty_buff;
+static char           boot_tty_str_buf[16]              = {0}; // Persistent buffer
+static char           tty_buff[TTY_BUF_SIZE]            = {0};
+static volatile char *tty_buff_ptr                      = tty_buff;
 static char           tty_vga_queue[TTY_VGA_QUEUE_SIZE] = {0};
-static size_t         tty_vga_head                   = 0;
-static size_t         tty_vga_tail                   = 0;
+static size_t         tty_vga_head                      = 0;
+static size_t         tty_vga_tail                      = 0;
 
 static int tty_should_flush_now(const char ch)
 {
@@ -320,7 +320,9 @@ static void tty_buff_add(const char ch)
 
 /* Print characters to tty */
 void tty_print_ch(const char ch)
-{ tty_buff_add(ch); }
+{
+    tty_buff_add(ch);
+}
 
 /* Print string to tty */
 void tty_print_str(const char *str)
