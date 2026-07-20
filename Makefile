@@ -98,7 +98,7 @@ all: Uinxed-x64.iso
 
 %.o: %.c
 	$(Q)printf "  CC      $@\n"
-	$(Q)$(CC) $(C_FLAGS) $(C_CONFIG) -c -o $@ $<
+	$(Q)$(CC) $(C_FLAGS) $(C_CONFIG) -MT $@ -c -o $@ $<
 
 %.fmt: %
 	$(Q)printf "  FORMAT  $<\n"

@@ -41,6 +41,7 @@
 #include <vfs.h>
 #include <video.h>
 #include <devtmpfs.h>
+#include <procfs.h>
 #include <sound/sb16.h>
 
 void init_thread(void *arg){
@@ -111,6 +112,23 @@ void kernel_entry(void)
         plogk("init: Cannot mount tmpfs to root_dir.\n");
     init_cpio();                    // Initialize CPIO
     devtmpfs_init();
+    procfs_regist();
+    {
+        vfs_node_t proc = 0;
+        int st = vfs_mkdir("/proc");
+        if (st == EOK || st == -EEXIST) {
+            proc = vfs_open("/proc");
+            if (proc) {
+                st = vfs_mount_fs("procfs", NULL, proc);
+                if (st == EOK) {
+                    plogk("procfs: Mounted at /proc.\n");
+                } else {
+                    plogk("procfs: Cannot mount at /proc: %d\n", st);
+                }
+                vfs_close(proc);
+            }
+        }
+    }
     sched_init();
     process_init();
     sched_test_init();

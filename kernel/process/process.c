@@ -499,6 +499,23 @@ int process_kill(pid_t pid)
 process_t *process_find(pid_t pid)
 { return pid_to_process(pid); }
 
+process_t *process_iterate(size_t *pos)
+{
+    if (!pos) return NULL;
+
+    spin_lock(&process_table_lock);
+    for (; *pos < PROCESS_TABLE_SIZE; (*pos)++) {
+        process_t *proc = process_table[*pos];
+        if (proc) {
+            (*pos)++;
+            spin_unlock(&process_table_lock);
+            return proc;
+        }
+    }
+    spin_unlock(&process_table_lock);
+    return NULL;
+}
+
 process_t *process_current(void)
 {
     task_t *task = current_task();
