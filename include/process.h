@@ -12,10 +12,11 @@
 #define INCLUDE_PROCESS_H_
 
 #include <page.h>
-#include <sched.h>
 #include <singly_list.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#include <task.h>
 
 typedef int64_t pid_t;
 
@@ -68,22 +69,19 @@ typedef struct vm_area {
 } vm_area_t;
 
 typedef struct process {
-        uint64_t         pid;
-        process_state_t  state;
-        task_t          *task;
+        task_t           *task;
         page_directory_t *user_page_dir;
         page_directory_t *kernel_page_dir;
-        vm_area_t       *mmap_list;
-        spinlock_t       mmap_lock;
-        uintptr_t        heap_brk;
-        uintptr_t        stack_brk;
-        struct process  *parent;
-        slist_t          children;
-        int              exit_code;
-        uint32_t         uid;
-        uint32_t         gid;
-        char             name[PROCESS_NAME_LEN];
-        uint8_t         *kernel_stack;
+        vm_area_t        *mmap_list;
+        spinlock_t        mmap_lock;
+        uintptr_t         heap_brk;
+        uintptr_t         stack_brk;
+        struct process   *parent;
+        slist_t           children;
+        int               exit_code;
+        uint32_t          uid;
+        uint32_t          gid;
+        uint8_t          *kernel_stack;
 } process_t;
 
 /* Initialize the process management subsystem */

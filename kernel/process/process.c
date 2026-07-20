@@ -29,8 +29,6 @@
 
 static process_t *process_table[PROCESS_TABLE_SIZE];
 static spinlock_t process_table_lock;
-static spinlock_t process_alloc_lock;
-static uint64_t   next_pid = 1;
 process_t *init_process;
 
 typedef struct {
@@ -290,14 +288,11 @@ void process_init(void)
 {
     process_table_lock.lock = 0;
     process_table_lock.rflags = 0;
-    process_alloc_lock.lock = 0;
-    process_alloc_lock.rflags = 0;
-    next_pid = 1;
 
     process_t *init = process_create_kernel("init", NULL, NULL);
     if (!init) panic("process: Failed to create init process.");
     init_process = init;
-    init->state  = PROCESS_BLOCKED;
+    init->task->state  = TASK_BLOCKED;
 
     for (uint32_t i = 0; i < sched_cpu_count(); i++) {
         if (cpu_schedulers[i].idle) {
@@ -305,7 +300,7 @@ void process_init(void)
         }
     }
 
-    plogk("process: Process subsystem initialized. init pid=%llu\n", init->pid);
+    plogk("process: Process subsystem initialized. init pid=%llu\n", init->task->pid);
 }
 
 process_t *process_create(const uint8_t *elf_data, size_t elf_size, const char *name)
@@ -329,17 +324,16 @@ process_t *process_create(const uint8_t *elf_data, size_t elf_size, const char *
         return NULL;
     }
 
-    proc->state       = PROCESS_LOADING;
-    proc->uid         = 1000;
-    proc->gid         = 1000;
-    proc->heap_brk    = PROCESS_HEAP_START;
-    proc->stack_brk   = PROCESS_STACK_BASE - PROCESS_STACK_SIZE;
-    proc->parent      = init_process;
-    proc->exit_code   = 0;
+    proc->task->state         = TASK_RUNNING;
+    proc->uid                 = 1000;
+    proc->gid                 = 1000;
+    proc->heap_brk            = PROCESS_HEAP_START;
+    proc->stack_brk           = PROCESS_STACK_BASE - PROCESS_STACK_SIZE;
+    proc->parent              = init_process;
+    proc->exit_code           = 0;
     slist_init(&proc->children);
-    proc->mmap_lock.lock = 0;
-    proc->mmap_lock.rflags = 0;
-    strcpy(proc->name, name);
+    proc->mmap_lock.lock      = 0;
+    proc->mmap_lock.rflags    = 0;
     task_name_copy(task, name);
 
     if (load_elf_segments(proc, ehdr, elf_data)) {
@@ -367,11 +361,8 @@ process_t *process_create(const uint8_t *elf_data, size_t elf_size, const char *
 
     proc->task->context.rsp = (uint64_t)kstack;
 
-    spin_lock(&process_alloc_lock);
-    proc->pid = next_pid++;
-    spin_unlock(&process_alloc_lock);
-    pid_set(proc->pid, proc);
-    proc->state = PROCESS_READY;
+    pid_set(proc->task->pid, proc);
+    proc->task->state = TASK_READY;
 
     if (proc->parent) {
         slist_insert_tail(&proc->parent->children, proc);
@@ -382,7 +373,7 @@ process_t *process_create(const uint8_t *elf_data, size_t elf_size, const char *
     spin_unlock(&scheduler.lock);
     request_task_cpu(proc->task);
 
-    plogk("process: Created process %llu (%s), entry=%p\n", proc->pid, proc->name, (void *)ehdr->entry);
+    plogk("process: Created process %llu (%s), entry=%p\n", proc->task->pid, proc->task->name, (void *)ehdr->entry);
     return proc;
 }
 
@@ -407,29 +398,25 @@ process_t *process_create_kernel(const char *name, void (*entry)(void *), void *
     proc->kernel_stack     = malloc(PROCESS_KERNEL_STACK);
     if (!proc->kernel_stack) { free(task); free(proc); return NULL; }
 
-    proc->state        = PROCESS_READY;
-    proc->uid          = 0;
-    proc->gid          = 0;
-    proc->heap_brk     = 0;
-    proc->stack_brk    = 0;
-    proc->parent       = init_process;
-    proc->exit_code    = 0;
+    proc->task->state         = TASK_READY;
+    proc->uid                 = 0;
+    proc->gid                 = 0;
+    proc->heap_brk            = 0;
+    proc->stack_brk           = 0;
+    proc->parent              = init_process;
+    proc->exit_code           = 0;
     slist_init(&proc->children);
-    proc->mmap_lock.lock = 0;
-    proc->mmap_lock.rflags = 0;
+    proc->mmap_lock.lock      = 0;
+    proc->mmap_lock.rflags    = 0;
     task_name_copy(task, name);
-    strcpy(proc->name, name);
 
-    spin_lock(&process_alloc_lock);
-    proc->pid = next_pid++;
-    spin_unlock(&process_alloc_lock);
-    pid_set(proc->pid, proc);
+    pid_set(proc->task->pid, proc);
 
     if (proc->parent && proc->parent != proc) {
         slist_insert_tail(&proc->parent->children, proc);
     }
 
-    plogk("process: Created kernel thread %llu (%s)\n", proc->pid, proc->name);
+    plogk("process: Created kernel thread %llu (%s)\n", proc->task->pid, proc->task->name);
     return proc;
 }
 
@@ -447,15 +434,15 @@ void process_exit(int exit_code)
     spin_lock(&scheduler.lock);
     spin_lock(&process_table_lock);
 
-    proc->state     = PROCESS_ZOMBIE;
-    proc->exit_code = exit_code;
+    proc->task->state     = TASK_ZOMBIE;
+    proc->exit_code       = exit_code;
 
     slist_node_t *node = proc->children.head;
     while (node) {
         slist_node_t *next = node->next;
         process_t *child = (process_t *)node->data;
         slist_remove(&proc->children, child);
-        if (child && child != proc && child->state != PROCESS_ZOMBIE) {
+        if (child && child != proc && child->task->state != TASK_ZOMBIE) {
             child->parent = init_process;
             slist_insert_tail(&init_process->children, child);
         }
@@ -465,7 +452,7 @@ void process_exit(int exit_code)
     spin_unlock(&process_table_lock);
     spin_unlock(&scheduler.lock);
 
-    plogk("process: Process %llu (%s) exited with code %d.\n", proc->pid, proc->name, exit_code);
+    plogk("process: Process %llu (%s) exited with code %d.\n", proc->task->pid, proc->task->name, exit_code);
     task_exit();
 }
 
@@ -485,7 +472,7 @@ int process_wait(pid_t pid, int *exit_code)
     }
 
     for (;;) {
-        if (child->state == PROCESS_ZOMBIE) break;
+        if (child->task->state == TASK_ZOMBIE) break;
         spin_unlock(&process_table_lock);
         spin_unlock(&scheduler.lock);
         task_sleep_ticks(1);
@@ -501,7 +488,7 @@ int process_wait(pid_t pid, int *exit_code)
 
     if (exit_code) *exit_code = child->exit_code;
 
-    pid_set(child->pid, NULL);
+    pid_set(child->task->pid, NULL);
     slist_remove(&child->parent->children, child);
     process_t *saved_child = child;
 
@@ -515,7 +502,7 @@ int process_wait(pid_t pid, int *exit_code)
 int process_kill(pid_t pid)
 {
     process_t *proc = pid_to_process(pid);
-    if (!proc || proc->state == PROCESS_DEAD) return 1;
+    if (!proc || proc->task->state == TASK_ZOMBIE) return 1;
     process_exit(-9);
     return 0;
 }
@@ -533,7 +520,7 @@ process_t *process_fork(void)
 {
     task_t   *current = current_task();
     process_t *parent  = current ? current->process : NULL;
-    if (!parent || parent->state == PROCESS_ZOMBIE || parent->state == PROCESS_DEAD) return NULL;
+    if (!parent || parent->task->state == TASK_ZOMBIE) return NULL;
 
     disable_intr();
     spin_lock(&scheduler.lock);
@@ -542,12 +529,12 @@ process_t *process_fork(void)
     process_t *child = calloc(1, sizeof(process_t));
     if (!child) { spin_unlock(&parent->mmap_lock); spin_unlock(&scheduler.lock); return NULL; }
 
-    task_t *child_task = task_alloc(parent->name);
+    task_t *child_task = task_alloc(parent->task->name);
     if (!child_task) { free(child); spin_unlock(&parent->mmap_lock); spin_unlock(&scheduler.lock); return NULL; }
 
     child->task             = child_task;
     child_task->process     = child;
-    child->state            = PROCESS_READY;
+    child->task->state      = TASK_READY;
     child->uid              = parent->uid;
     child->gid              = parent->gid;
     child->parent           = parent;
@@ -562,10 +549,9 @@ process_t *process_fork(void)
         spin_unlock(&scheduler.lock);
         return NULL;
     }
-    child->mmap_lock.lock = 0;
-    child->mmap_lock.rflags = 0;
+    child->mmap_lock.lock      = 0;
+    child->mmap_lock.rflags    = 0;
     slist_init(&child->children);
-    memcpy(child->name, parent->name, PROCESS_NAME_LEN);
 
     if (setup_process_page_dir(child)) {
         free(child->kernel_stack);
@@ -599,10 +585,7 @@ process_t *process_fork(void)
     }
     child_task->cpu_id = current->cpu_id;
 
-    spin_lock(&process_alloc_lock);
-    child->pid = next_pid++;
-    spin_unlock(&process_alloc_lock);
-    pid_set(child->pid, child);
+    pid_set(child->task->pid, child);
 
     slist_insert_tail(&parent->children, child);
 
@@ -610,16 +593,13 @@ process_t *process_fork(void)
     spin_unlock(&scheduler.lock);
     request_task_cpu(child_task);
 
-    plogk("process: Forked process %llu from parent %llu.\n", child->pid, parent->pid);
+    plogk("process: Forked process %llu from parent %llu.\n", child->task->pid, parent->task->pid);
     return child;
 }
 
 pid_t process_next_pid(void)
 {
-    spin_lock(&process_alloc_lock);
-    pid_t pid = next_pid++;
-    spin_unlock(&process_alloc_lock);
-    return pid;
+    return scheduler.next_pid;
 }
 
 int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flags)

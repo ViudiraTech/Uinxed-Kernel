@@ -4,7 +4,7 @@
  *      Kernel scheduler
  *
  *      2026/7/19 By Rainy101112
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -22,19 +22,15 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <task.h>
 
 #define SCHED_LOAD_BALANCE_INTERVAL 16
-
-typedef struct {
-        kthread_entry_t entry;
-        void           *arg;
-} kthread_bootstrap_t;
 
 scheduler_t scheduler;
 static task_t      boot_task;
 static uint8_t     boot_stack_marker;
 cpu_scheduler_t *cpu_schedulers;
-static uint32_t         cpu_scheduler_count;
+uint32_t         cpu_scheduler_count;
 static task_t           *ap_boot_tasks;
 static uint32_t           next_task_cpu;
 
@@ -71,15 +67,6 @@ static task_t *node_to_task(ilist_node_t *node)
 
 static task_t *local_current(void)
 { return cpu_schedulers[get_current_cpu_id()].current; }
-
-void task_name_copy(task_t *task, const char *name)
-{
-    const char *src = name ? name : "kthread";
-    size_t      i   = 0;
-
-    for (; i + 1 < TASK_NAME_LEN && src[i]; i++) task->name[i] = src[i];
-    task->name[i] = '\0';
-}
 
 static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id)
 {
@@ -128,7 +115,7 @@ static task_t *pick_next_task(uint32_t cpu_id)
     return node_to_task(node);
 }
 
-static uint32_t choose_task_cpu_locked(void)
+uint32_t choose_task_cpu_locked(void)
 {
     uint32_t best = next_task_cpu++ % cpu_scheduler_count;
 
@@ -179,52 +166,6 @@ static void wake_sleeping_tasks(void)
         }
         node = next;
     }
-}
-
-static void kthread_trampoline(kthread_bootstrap_t *bootstrap)
-{
-    kthread_entry_t entry = bootstrap->entry;
-    void           *arg   = bootstrap->arg;
-
-    free(bootstrap);
-    entry(arg);
-    task_exit();
-}
-
-task_t *task_alloc(const char *name)
-{
-    task_t *task = calloc(1, sizeof(task_t));
-    if (!task) return NULL;
-
-    task->pid            = scheduler.next_pid++;
-    task->page_directory = get_kernel_pagedir();
-    task->time_slice     = TASK_DEFAULT_SLICE;
-    task->cpu_id         = 0;
-    task->process        = NULL;
-    task_name_copy(task, name);
-    ilist_init(&task->run_node);
-    return task;
-}
-
-static int setup_kernel_stack(task_t *task, kthread_bootstrap_t *bootstrap)
-{
-    task->kernel_stack = malloc(TASK_KERNEL_STACK);
-    if (!task->kernel_stack) return 1;
-
-    uint64_t *stack = (uint64_t *)ALIGN_DOWN((uint64_t)(task->kernel_stack + TASK_KERNEL_STACK), 16ULL);
-    *(--stack)      = 0;
-    *(--stack)      = (uint64_t)kthread_trampoline;
-
-    task->context.rsp = (uint64_t)stack;
-    task->context.rbx = 0;
-    task->context.rbp = 0;
-    task->context.r12 = (uint64_t)bootstrap;
-    task->context.r13 = 0;
-    task->context.r14 = 0;
-    task->context.r15 = 0;
-    task->context.rflags = 0x202;
-    task->context.rdi = (uint64_t)bootstrap;
-    return 0;
 }
 
 static void idle_thread(void *arg)
@@ -322,50 +263,6 @@ void sched_ipi_reschedule(void)
 
 uint32_t sched_cpu_count(void)
 { return cpu_scheduler_count; }
-
-task_t *kthread_create(const char *name, kthread_entry_t entry, void *arg)
-{
-    uint32_t cpu_id;
-
-    spin_lock(&scheduler.lock);
-    cpu_id = choose_task_cpu_locked();
-    spin_unlock(&scheduler.lock);
-    return kthread_create_on_cpu(name, entry, arg, cpu_id);
-}
-
-task_t *kthread_create_on_cpu(const char *name, kthread_entry_t entry, void *arg, uint32_t cpu_id)
-{
-    if (!entry) return NULL;
-    if (cpu_id >= cpu_scheduler_count) cpu_id = 0;
-
-    kthread_bootstrap_t *bootstrap = malloc(sizeof(kthread_bootstrap_t));
-    if (!bootstrap) return NULL;
-
-    task_t *task = task_alloc(name);
-    if (!task) {
-        free(bootstrap);
-        return NULL;
-    }
-    task->cpu_id = cpu_id;
-    task->process = init_process;
-
-    bootstrap->entry = entry;
-    bootstrap->arg   = arg;
-
-    if (setup_kernel_stack(task, bootstrap)) {
-        free(bootstrap);
-        free(task);
-        return NULL;
-    }
-
-    spin_lock(&scheduler.lock);
-    enqueue_task(task);
-    spin_unlock(&scheduler.lock);
-    request_task_cpu(task);
-
-    plogk("sched: Created task %llu (%s) on CPU %u.\n", task->pid, task->name, task->cpu_id);
-    return task;
-}
 
 int task_set_cpu(task_t *task, uint32_t cpu_id)
 {

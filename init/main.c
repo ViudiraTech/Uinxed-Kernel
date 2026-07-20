@@ -45,27 +45,7 @@
 void init_thread(void *arg){
     (void)arg;
 
-    process_t *parent = process_current();
-    plogk("init: parent pid=%llu name=%s user_page_dir=%p\n", parent->pid, parent->name, parent->user_page_dir);
-
-    if (parent->user_page_dir) {
-        process_t *child = process_fork();
-        if (child) {
-            plogk("init: fork returned child pid=%llu\n", child->pid);
-            int exit_code = 0;
-            process_wait(child->pid, &exit_code);
-            plogk("init: child exited with code=%d\n", exit_code);
-        } else {
-            plogk("init: fork failed\n");
-        }
-    } else {
-        plogk("init: no user page dir, fork not supported for kernel threads\n");
-    }
-
-    while (1) {
-        __asm__ volatile("hlt");
-        task_sleep_ticks(100);
-    }
+    panic("init: Attempt to kill init!");
 }
 
 /* Executable entry */
