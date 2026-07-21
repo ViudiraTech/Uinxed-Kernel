@@ -111,6 +111,7 @@ typedef struct process {
         signal_state_t    signal;
         pid_t             pgid;
         pid_t             sid;
+        char              name[PROCESS_NAME_LEN];
 } process_t;
 
 /* Initialize the process management subsystem */

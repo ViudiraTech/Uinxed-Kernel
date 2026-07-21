@@ -557,6 +557,8 @@ process_t *process_create(const uint8_t *elf_data, size_t elf_size, const char *
     process_fd_table_init(proc);
     signal_state_init(&proc->signal);
     task_name_copy(task, name);
+    strncpy(proc->name, name, sizeof(proc->name) - 1);
+    proc->name[sizeof(proc->name) - 1] = '\0';
 
     if (elf_loader_load_segments(proc, ehdr, elf_data)) {
         plogk("process: Failed to load ELF segments for %s.\n", name);

@@ -100,11 +100,11 @@ uintptr_t elf_loader_setup_user_stack(process_t *proc, const elf_loader_ehdr_t *
     uintptr_t  random_addr = top - 32;
     uintptr_t  string_addr = top - 64;
     uintptr_t  rsp         = top - 512;
-    const char name[]      = "init";
+    size_t name_len = strlen(proc->name) + 1;
 
     char *name_dst = elf_loader_user_ptr(proc, string_addr);
     if (!name_dst) return 0;
-    memcpy(name_dst, name, sizeof(name));
+    memcpy(name_dst, proc->name, name_len);
 
     uint8_t *random = elf_loader_user_ptr(proc, random_addr);
     if (!random) return 0;
