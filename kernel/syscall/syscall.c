@@ -16,6 +16,7 @@
 #include <printk.h>
 #include <process.h>
 #include <sched.h>
+#include <signal.h>
 #include <signalfd.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -33,7 +34,6 @@
 #define SYSCALL_IO_CHUNK  4096
 #define AT_FDCWD          -100
 #define AT_REMOVEDIR      0x200
-#define SIGCHLD           17
 #define STATX_BASIC_STATS 0x000007ffU
 
 typedef struct {
@@ -327,16 +327,8 @@ static int64_t sys_wait4(uint64_t pid, uint64_t exit_code, uint64_t options, uin
 
 static int64_t sys_kill(uint64_t pid, uint64_t sig, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-
-    /* Deliver to signalfd instances */
-    process_t *proc = process_find((pid_t)pid);
-    if (proc) signalfd_deliver(proc, (int)sig);
-
-    return process_kill((pid_t)pid) ? -ESRCH : 0;
+    (void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    return sys_kill_impl((pid_t)pid, (int)sig);
 }
 
 static int64_t sys_mmap(uint64_t addr, uint64_t length, uint64_t prot, uint64_t flags, uint64_t fd, uint64_t pgoff)
@@ -956,13 +948,6 @@ static int64_t sys_stub_ok(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t
     return EOK;
 }
 
-static int64_t sys_pause_stub(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)arg0;(void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
-    task_sleep_ticks(1);
-    return -EINTR;
-}
-
 static int64_t sys_access_stub(uint64_t path, uint64_t mode, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)mode;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
@@ -1122,7 +1107,7 @@ static int64_t sys_times_stub(uint64_t tms, uint64_t arg1, uint64_t arg2, uint64
 static int64_t sys_tkill_stub(uint64_t tid, uint64_t sig, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;(void)arg3;(void)arg4;(void)arg5;
-    return sys_kill(tid, sig, 0, 0, 0, 0);
+    return sys_tkill_impl((pid_t)tid, (int)sig);
 }
 
 static int64_t sys_set_tid_address_stub(uint64_t tidptr, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -1377,6 +1362,104 @@ static int64_t sys_munlockall_wrap(uint64_t arg0, uint64_t arg1, uint64_t arg2, 
     return sys_munlockall();
 }
 
+/* ---------- Signal syscall wrappers ---------- */
+
+static int64_t sys_rt_sigaction_wrap(uint64_t sig, uint64_t act, uint64_t oact, uint64_t sigsetsize, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg4;(void)arg5;
+    return sys_rt_sigaction((int)sig, (const sigaction_t *)act, (sigaction_t *)oact, (size_t)sigsetsize);
+}
+
+static int64_t sys_rt_sigprocmask_wrap(uint64_t how, uint64_t set, uint64_t oset, uint64_t sigsetsize, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg4;(void)arg5;
+    return sys_rt_sigprocmask((int)how, (const sigset_t *)set, (sigset_t *)oset, (size_t)sigsetsize);
+}
+
+static int64_t sys_rt_sigreturn_wrap(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg0;(void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    return sys_rt_sigreturn();
+}
+
+static int64_t sys_rt_sigpending_wrap(uint64_t set, uint64_t sigsetsize, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    return sys_rt_sigpending((sigset_t *)set, (size_t)sigsetsize);
+}
+
+static int64_t sys_rt_sigtimedwait_wrap(uint64_t set, uint64_t info, uint64_t timeout, uint64_t sigsetsize, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg4;(void)arg5;
+    return sys_rt_sigtimedwait((const sigset_t *)set, (siginfo_t *)info, (const void *)timeout, (size_t)sigsetsize);
+}
+
+static int64_t sys_rt_sigqueueinfo_wrap(uint64_t pid, uint64_t sig, uint64_t info, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;(void)arg4;(void)arg5;
+    return sys_rt_sigqueueinfo((pid_t)pid, (int)sig, (siginfo_t *)info);
+}
+
+static int64_t sys_rt_sigsuspend_wrap(uint64_t set, uint64_t sigsetsize, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    return sys_rt_sigsuspend((const sigset_t *)set, (size_t)sigsetsize);
+}
+
+static int64_t sys_sigaltstack_wrap(uint64_t ss, uint64_t oss, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    return sys_sigaltstack((const stack_t *)ss, (stack_t *)oss);
+}
+
+static int64_t sys_pause_wrap(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg0;(void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    return sys_pause();
+}
+
+static int64_t sys_tgkill_wrap(uint64_t tgid, uint64_t tid, uint64_t sig, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;(void)arg4;(void)arg5;
+    return sys_tgkill((pid_t)tgid, (pid_t)tid, (int)sig);
+}
+
+static int64_t sys_rt_tgsigqueueinfo_wrap(uint64_t tgid, uint64_t tid, uint64_t sig, uint64_t info, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg4;(void)arg5;
+    return sys_rt_tgsigqueueinfo((pid_t)tgid, (pid_t)tid, (int)sig, (siginfo_t *)info);
+}
+
+static int64_t sys_setpgid_wrap(uint64_t pid, uint64_t pgid, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    return sys_setpgid((pid_t)pid, (pid_t)pgid);
+}
+
+static int64_t sys_getpgrp_wrap(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg0;(void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    return sys_getpgrp();
+}
+
+static int64_t sys_setsid_wrap(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg0;(void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    return sys_setsid();
+}
+
+static int64_t sys_getsid_wrap(uint64_t pid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    return sys_getsid((pid_t)pid);
+}
+
+static int64_t sys_getpgid_wrap(uint64_t pid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    return sys_getpgid((pid_t)pid);
+}
+
 typedef int64_t (*syscall_fn_t)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 
 static syscall_fn_t syscall_table[SYS_MAX] = {
@@ -1393,9 +1476,9 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_MPROTECT]              = sys_mprotect_wrap,
     [SYS_MUNMAP]                = sys_munmap,
     [SYS_BRK]                   = sys_brk,
-    [SYS_RT_SIGACTION]          = sys_stub_ok,
-    [SYS_RT_SIGPROCMASK]        = sys_stub_ok,
-    [SYS_RT_SIGRETURN]          = sys_stub,
+    [SYS_RT_SIGACTION]          = sys_rt_sigaction_wrap,
+    [SYS_RT_SIGPROCMASK]        = sys_rt_sigprocmask_wrap,
+    [SYS_RT_SIGRETURN]          = sys_rt_sigreturn_wrap,
     [SYS_IOCTL]                 = sys_ioctl,
     [SYS_PREAD64]               = sys_pread64_stub,
     [SYS_PWRITE64]              = sys_stub,
@@ -1414,7 +1497,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_SHMCTL]                = sys_stub,
     [SYS_DUP]                   = sys_dup,
     [SYS_DUP2]                  = sys_dup2,
-    [SYS_PAUSE]                 = sys_pause_stub,
+    [SYS_PAUSE]                 = sys_pause_wrap,
     [SYS_NANOSLEEP]             = sys_nanosleep,
     [SYS_GETITIMER]             = sys_stub_ok,
     [SYS_ALARM]                 = sys_stub_ok,
@@ -1489,10 +1572,10 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_SETGID]                = sys_setgid_stub,
     [SYS_GETEUID]               = sys_getuid,
     [SYS_GETEGID]               = sys_getgid,
-    [SYS_SETPGID]               = sys_stub_ok,
+    [SYS_SETPGID]               = sys_setpgid_wrap,
     [SYS_GETPPID]               = sys_getppid,
-    [SYS_GETPGRP]               = sys_stub_ok,
-    [SYS_SETSID]                = sys_stub_ok,
+    [SYS_GETPGRP]               = sys_getpgrp_wrap,
+    [SYS_SETSID]                = sys_setsid_wrap,
     [SYS_SETREUID]              = sys_setuid_stub,
     [SYS_SETREGID]              = sys_setgid_stub,
     [SYS_GETGROUPS]             = sys_stub_ok,
@@ -1501,17 +1584,17 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_GETRESUID]             = sys_getresuid_stub,
     [SYS_SETRESGID]             = sys_setgid_stub,
     [SYS_GETRESGID]             = sys_getresgid_stub,
-    [SYS_GETPGID]               = sys_stub_ok,
+    [SYS_GETPGID]               = sys_getpgid_wrap,
     [SYS_SETFSUID]              = sys_setuid_stub,
     [SYS_SETFSGID]              = sys_setgid_stub,
-    [SYS_GETSID]                = sys_stub_ok,
+    [SYS_GETSID]                = sys_getsid_wrap,
     [SYS_CAPGET]                = sys_stub_ok,
     [SYS_CAPSET]                = sys_stub,
-    [SYS_RT_SIGPENDING]         = sys_stub_ok,
-    [SYS_RT_SIGTIMEDWAIT]       = sys_stub,
-    [SYS_RT_SIGQUEUEINFO]       = sys_stub,
-    [SYS_RT_SIGSUSPEND]         = sys_stub,
-    [SYS_SIGALTSTACK]           = sys_stub_ok,
+    [SYS_RT_SIGPENDING]         = sys_rt_sigpending_wrap,
+    [SYS_RT_SIGTIMEDWAIT]       = sys_rt_sigtimedwait_wrap,
+    [SYS_RT_SIGQUEUEINFO]       = sys_rt_sigqueueinfo_wrap,
+    [SYS_RT_SIGSUSPEND]         = sys_rt_sigsuspend_wrap,
+    [SYS_SIGALTSTACK]           = sys_sigaltstack_wrap,
     [SYS_UTIME]                 = sys_stub_ok,
     [SYS_MKNOD]                 = sys_stub,
     [SYS_USELIB]                = sys_stub,
@@ -1614,7 +1697,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_EXIT_GROUP]            = sys_exit_group,
     [SYS_EPOLL_WAIT]            = sys_stub,
     [SYS_EPOLL_CTL]             = sys_stub,
-    [SYS_TGKILL]                = sys_tkill_stub,
+    [SYS_TGKILL]                = sys_tgkill_wrap,
     [SYS_UTIMES]                = sys_stub_ok,
     [SYS_VSERVER]               = sys_stub,
     [SYS_MBIND]                 = sys_stub,
@@ -1677,7 +1760,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_INOTIFY_INIT1]         = sys_stub,
     [SYS_PREADV]                = sys_stub,
     [SYS_PWRITEV]               = sys_stub,
-    [SYS_RT_TGSIGQUEUEINFO]     = sys_stub,
+    [SYS_RT_TGSIGQUEUEINFO]     = sys_rt_tgsigqueueinfo_wrap,
     [SYS_PERF_EVENT_OPEN]       = sys_stub,
     [SYS_RECVMMSG]              = sys_stub,
     [SYS_FANOTIFY_INIT]         = sys_stub,
@@ -1742,15 +1825,30 @@ void syscall_dispatch(syscall_frame_t *frame)
         }
         process_t *child = process_fork_from_syscall(frame);
         frame->rax       = child ? child->task->pid : (uint64_t)-ENOMEM;
-        return;
+        goto check_signals;
     }
 
     if (num >= SYS_MAX || !syscall_table[num]) {
         frame->rax = (uint64_t)-ENOSYS;
-        return;
+        goto check_signals;
     }
 
     frame->rax = (uint64_t)syscall_table[num](frame->rdi, frame->rsi, frame->rdx, frame->r10, frame->r8, frame->r9);
+
+check_signals:
+    /*
+     * On return to userspace, check for pending signals.
+     * If a signal was delivered that interrupted the syscall,
+     * the return value should be -EINTR or -ERESTART.
+     */
+    if (frame->cs & 0x3) {
+        /* Only deliver signals when returning to user mode */
+        int ret = signal_deliver_if_pending(frame);
+        if (ret == 1) {
+            /* Process terminated, schedule away */
+            task_exit();
+        }
+    }
 }
 
 __attribute__((naked)) void syscall_return(void)

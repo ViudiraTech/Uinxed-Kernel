@@ -12,6 +12,7 @@
 #define INCLUDE_PROCESS_H_
 
 #include <page.h>
+#include <signal.h>
 #include <singly_list.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -107,6 +108,9 @@ typedef struct process {
         uint8_t          *kernel_stack;
         process_file_t   *fds[PROCESS_MAX_FD];
         spinlock_t        fd_lock;
+        signal_state_t    signal;
+        pid_t             pgid;
+        pid_t             sid;
 } process_t;
 
 /* Initialize the process management subsystem */

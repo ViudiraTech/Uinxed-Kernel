@@ -13,6 +13,7 @@
 #include <printk.h>
 #include <process.h>
 #include <sched.h>
+#include <signal.h>
 #include <signalfd.h>
 #include <spin_lock.h>
 #include <stddef.h>
@@ -23,8 +24,6 @@
 #include <task.h>
 #include <uaccess.h>
 #include <vfs.h>
-
-#define SIG_MAX 64
 
 static int signalfd_fsid = -1;
 
@@ -110,7 +109,7 @@ static int signalfd_stub_mount(const char *s, vfs_node_t n) { (void)s;(void)n;re
 
 /* ---------- Public API ---------- */
 
-static vfs_node_t signalfd_node_create(uint64_t sigmask, int flags)
+static vfs_node_t signalfd_node_create(sigset_t sigmask, int flags)
 {
     if (signalfd_fsid < 0) return NULL;
 
@@ -149,14 +148,16 @@ int sys_signalfd4(int fd, const void *mask, size_t sizemask, int flags)
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    uint64_t sigmask = 0;
+    sigset_t sigmask;
+    sigemptyset(&sigmask);
+
     if (mask) {
-        if (sizemask >= sizeof(uint64_t)) {
-            if (copy_from_user(&sigmask, mask, sizeof(uint64_t))) return -EFAULT;
+        if (sizemask >= sizeof(sigset_t)) {
+            if (copy_from_user(&sigmask, mask, sizeof(sigset_t))) return -EFAULT;
         } else {
             uint32_t mask32 = 0;
             if (copy_from_user(&mask32, mask, sizeof(uint32_t))) return -EFAULT;
-            sigmask = (uint64_t)mask32;
+            sigmask = (sigset_t)mask32;
         }
     }
 
@@ -202,7 +203,7 @@ int sys_signalfd4(int fd, const void *mask, size_t sizemask, int flags)
 
 void signalfd_deliver(process_t *proc, int sig)
 {
-    if (!proc || sig < 1 || sig > SIG_MAX) return;
+    if (!proc || !sig_valid(sig)) return;
 
     spin_lock(&proc->fd_lock);
     for (int i = 0; i < PROCESS_MAX_FD; i++) {
@@ -213,7 +214,7 @@ void signalfd_deliver(process_t *proc, int sig)
         signalfd_ctx_t *ctx = (signalfd_ctx_t *)file->node->handle;
 
         spin_lock(&ctx->lock);
-        if (!(ctx->sigmask & (1ULL << (sig - 1)))) {
+        if (!sigismember(&ctx->sigmask, sig)) {
             spin_unlock(&ctx->lock);
             continue;
         }

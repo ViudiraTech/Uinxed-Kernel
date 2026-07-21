@@ -11,6 +11,7 @@
 #ifndef INCLUDE_SIGNALFD_H_
 #define INCLUDE_SIGNALFD_H_
 
+#include <signal.h>
 #include <spin_lock.h>
 #include <stdint.h>
 #include <task.h>
@@ -48,7 +49,7 @@ typedef struct signalfd_siginfo {
 #define SIG_PENDING_MAX 16
 
 typedef struct signalfd_ctx {
-        uint64_t           sigmask;
+        sigset_t           sigmask;
         uint64_t           flags;
         spinlock_t         lock;
         wait_queue_t       wq;

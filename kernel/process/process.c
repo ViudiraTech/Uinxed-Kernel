@@ -560,6 +560,7 @@ static void process_free(process_t *proc)
     if (!proc) return;
 
     process_fd_table_close(proc);
+    signal_state_free(&proc->signal);
     if (proc->user_page_dir) {
         free_page_table_recursive(proc->user_page_dir->table, 4);
         free(proc->user_page_dir);
@@ -574,6 +575,8 @@ void process_init(void)
 {
     process_table_lock.lock   = 0;
     process_table_lock.rflags = 0;
+
+    signal_init();
 
     process_t *init = process_create_kernel("init", init_thread, NULL);
     if (!init) panic("process: Failed to create init process.");
@@ -624,6 +627,8 @@ process_t *process_create(const uint8_t *elf_data, size_t elf_size, const char *
     proc->task->state = TASK_RUNNING;
     proc->uid         = 1000;
     proc->gid         = 1000;
+    proc->pgid        = 0;
+    proc->sid         = 0;
     proc->heap_brk    = PROCESS_HEAP_START;
     proc->stack_brk   = PROCESS_STACK_BASE - PROCESS_STACK_SIZE;
     proc->parent      = init_process;
@@ -632,6 +637,7 @@ process_t *process_create(const uint8_t *elf_data, size_t elf_size, const char *
     proc->mmap_lock.lock   = 0;
     proc->mmap_lock.rflags = 0;
     process_fd_table_init(proc);
+    signal_state_init(&proc->signal);
     task_name_copy(task, name);
 
     if (load_elf_segments(proc, ehdr, elf_data)) {
@@ -714,6 +720,8 @@ process_t *process_create_kernel(const char *name, void (*entry)(void *), void *
     proc->task->state = TASK_READY;
     proc->uid         = 0;
     proc->gid         = 0;
+    proc->pgid        = 0;
+    proc->sid         = 0;
     proc->heap_brk    = 0;
     proc->stack_brk   = 0;
     proc->parent      = init_process;
@@ -722,6 +730,7 @@ process_t *process_create_kernel(const char *name, void (*entry)(void *), void *
     proc->mmap_lock.lock   = 0;
     proc->mmap_lock.rflags = 0;
     process_fd_table_init(proc);
+    signal_state_init(&proc->signal);
     task_name_copy(task, name);
 
     pid_set(proc->task->pid, proc);
@@ -748,6 +757,11 @@ void process_exit(int exit_code)
 
     proc->task->state = TASK_ZOMBIE;
     proc->exit_code   = exit_code;
+
+    /* Notify parent via SIGCHLD */
+    if (proc->parent) {
+        signal_notify_child_exit(proc->parent, (pid_t)proc->task->pid, exit_code, 0);
+    }
 
     slist_node_t *node = proc->children.head;
     while (node) {
@@ -881,6 +895,8 @@ process_t *process_fork(void)
     child->task->state  = TASK_READY;
     child->uid          = parent->uid;
     child->gid          = parent->gid;
+    child->pgid         = parent->pgid;
+    child->sid          = parent->sid;
     child->parent       = parent;
     child->exit_code    = 0;
     child->heap_brk     = parent->heap_brk;
@@ -896,6 +912,7 @@ process_t *process_fork(void)
     child->mmap_lock.lock   = 0;
     child->mmap_lock.rflags = 0;
     process_fd_table_copy(child, parent);
+    signal_state_copy(&child->signal, &parent->signal);
     slist_init(&child->children);
 
     if (setup_process_page_dir(child)) {
