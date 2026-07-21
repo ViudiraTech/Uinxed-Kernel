@@ -114,7 +114,7 @@ task_t *kthread_create_on_cpu(const char *name, kthread_entry_t entry, void *arg
     spin_unlock(&scheduler.lock);
     request_task_cpu(task);
 
-    plogk("task: Created task %llu (%s) on CPU %u.\n", task->pid, task->name, task->cpu_id);
+    plogk("task: Created task %llu (%s) on CPU %u\n", task->pid, task->name, task->cpu_id);
     return task;
 }
 

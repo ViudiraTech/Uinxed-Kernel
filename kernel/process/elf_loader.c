@@ -118,11 +118,11 @@ static void *user_ptr(process_t *proc, uintptr_t addr)
 
 static uintptr_t setup_user_stack(process_t *proc, const elf_ehdr_t *ehdr)
 {
-    uintptr_t  top         = PROCESS_USER_STACK_TOP;
-    uintptr_t  random_addr = top - 32;
-    uintptr_t  string_addr = top - 64;
-    uintptr_t  rsp         = top - 512;
-    size_t name_len = strlen(proc->name) + 1;
+    uintptr_t top         = PROCESS_USER_STACK_TOP;
+    uintptr_t random_addr = top - 32;
+    uintptr_t string_addr = top - 64;
+    uintptr_t rsp         = top - 512;
+    size_t    name_len    = strlen(proc->name) + 1;
 
     char *name_dst = user_ptr(proc, string_addr);
     if (!name_dst) return 0;
@@ -136,34 +136,34 @@ static uintptr_t setup_user_stack(process_t *proc, const elf_ehdr_t *ehdr)
     if (!stack) return 0;
 
     size_t n   = 0;
-    stack[n++] = 1;                                                                    /* argc */
-    stack[n++] = string_addr;                                                          /* argv[0] */
-    stack[n++] = 0;                                                                    /* argv[1] */
-    stack[n++] = 0;                                                                    /* envp[0] */
+    stack[n++] = 1;           /* argc */
+    stack[n++] = string_addr; /* argv[0] */
+    stack[n++] = 0;           /* argv[1] */
+    stack[n++] = 0;           /* envp[0] */
     stack[n++] = 3;
-    stack[n++] = ehdr->phoff ? PROCESS_USER_CODE_MIN + ehdr->phoff : 0;                /* AT_PHDR */
+    stack[n++] = ehdr->phoff ? PROCESS_USER_CODE_MIN + ehdr->phoff : 0; /* AT_PHDR */
     stack[n++] = 4;
-    stack[n++] = ehdr->phentsize;                                                      /* AT_PHENT */
+    stack[n++] = ehdr->phentsize; /* AT_PHENT */
     stack[n++] = 5;
-    stack[n++] = ehdr->phnum;                                                          /* AT_PHNUM */
+    stack[n++] = ehdr->phnum; /* AT_PHNUM */
     stack[n++] = 6;
-    stack[n++] = PAGE_4K_SIZE;                                                         /* AT_PAGESZ */
+    stack[n++] = PAGE_4K_SIZE; /* AT_PAGESZ */
     stack[n++] = 9;
-    stack[n++] = ehdr->entry;                                                          /* AT_ENTRY */
+    stack[n++] = ehdr->entry; /* AT_ENTRY */
     stack[n++] = 11;
-    stack[n++] = proc->uid;                                                            /* AT_UID */
+    stack[n++] = proc->uid; /* AT_UID */
     stack[n++] = 12;
-    stack[n++] = proc->uid;                                                            /* AT_EUID */
+    stack[n++] = proc->uid; /* AT_EUID */
     stack[n++] = 13;
-    stack[n++] = proc->gid;                                                            /* AT_GID */
+    stack[n++] = proc->gid; /* AT_GID */
     stack[n++] = 14;
-    stack[n++] = proc->gid;                                                            /* AT_EGID */
+    stack[n++] = proc->gid; /* AT_EGID */
     stack[n++] = 23;
-    stack[n++] = 0;                                                                    /* AT_SECURE */
+    stack[n++] = 0; /* AT_SECURE */
     stack[n++] = 25;
-    stack[n++] = random_addr;                                                          /* AT_RANDOM */
+    stack[n++] = random_addr; /* AT_RANDOM */
     stack[n++] = 0;
-    stack[n++] = 0;                                                                    /* AT_NULL */
+    stack[n++] = 0; /* AT_NULL */
     return rsp;
 }
 
@@ -243,7 +243,6 @@ int elf_loader_load_user_process(process_t *proc, const uint8_t *elf_data, size_
     proc->task->context.rsp = (uint64_t)kstack;
     proc->task->state       = TASK_READY;
 
-    plogk("elf_loader: Loaded ELF into process %llu (%s), entry=%p\n",
-          proc->task->pid, proc->task->name, (void *)ehdr->entry);
+    plogk("elf_loader: Loaded ELF into process %llu (%s), entry=%p\n", proc->task->pid, proc->task->name, (void *)ehdr->entry);
     return 0;
 }

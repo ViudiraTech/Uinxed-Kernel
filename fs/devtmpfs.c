@@ -110,7 +110,7 @@ static void devtmpfs_create_partition_node(uint8_t drive, uint8_t part_index, co
     node->dev   = drive;
     node->rdev  = ((uint64_t)drive << 8) | (part_index + 1);
     node->size  = (uint64_t)part->sectors * 512;
-    plogk("devtmpfs: Registered %s for partition type 0x%02x, start %u, sectors %u.\n", dev_path, part->type, part->first_lba, part->sectors);
+    plogk("devtmpfs: Registered %s for partition type 0x%02x, start %u, sectors %u\n", dev_path, part->type, part->first_lba, part->sectors);
 }
 
 static void devtmpfs_create_input_event_node(void)
@@ -300,7 +300,7 @@ static void devtmpfs_create_tty_nodes(void)
         node->blksz = 1;
         node->dev   = info->major;
         node->rdev  = info->minor;
-        plogk("devtmpfs: Registered %s as TTY device (major=%u, minor=%u).\n", info->path, info->major, info->minor);
+        plogk("devtmpfs: Registered %s as TTY device (major=%u, minor=%u)\n", info->path, info->major, info->minor);
         vfs_close(node);
     }
 }

@@ -284,5 +284,5 @@ void eventfd_init(void)
         free(cb);
         return;
     }
-    plogk("eventfd: Subsystem initialized (fsid=%d).\n", eventfd_fsid);
+    plogk("eventfd: Subsystem initialized (fsid=%d)\n", eventfd_fsid);
 }

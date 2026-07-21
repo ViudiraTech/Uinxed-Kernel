@@ -314,7 +314,7 @@ void sb16_init(void)
     sb16_lock.rflags = 0;
 
     pci_devices_cache_t *cache = pci_get_devices_cache();
-    if (!cache) { plogk("sb16: PCI cache not ready, trying legacy ports\n"); }
+    if (!cache) plogk("sb16: PCI cache not ready, trying legacy ports.\n");
 
     if (sb16_detect(&sb16_dev)) {
         sb16_dev.base  = 0x220;
@@ -322,12 +322,12 @@ void sb16_init(void)
         sb16_dev.dma8  = 1;
         sb16_dev.dma16 = 5;
         if (sb16_dsp_reset(&sb16_dev)) {
-            plogk("sb16: No SB16 card found\n");
+            plogk("sb16: No SB16 card found.\n");
             return;
         }
         uint8_t major = 0, minor = 0;
         if (sb16_dsp_version(&sb16_dev, &major, &minor)) {
-            plogk("sb16: DSP version check failed\n");
+            plogk("sb16: DSP version check failed.\n");
             return;
         }
         plogk("sb16: Found DSP version %u.%u at port 0x%x\n", major, minor, sb16_dev.base);
@@ -353,7 +353,7 @@ void sb16_init(void)
         sb16_dev.dma_buffer_virt = (uint8_t *)phys_to_virt(frame);
         plogk("sb16: DMA buffer at phys=%p virt=%p size=%u\n", (void *)frame, sb16_dev.dma_buffer_virt, sb16_dev.dma_buffer_size);
     } else {
-        plogk("sb16: Failed to allocate DMA buffer\n");
+        plogk("sb16: Failed to allocate DMA buffer.\n");
         return;
     }
 

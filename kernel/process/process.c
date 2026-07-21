@@ -64,7 +64,6 @@ static void pid_set_locked(pid_t pid, process_t *proc)
     process_table[pid] = proc;
 }
 
-
 int setup_process_page_dir(process_t *proc)
 {
     page_directory_t *new_dir = malloc(sizeof(page_directory_t));
@@ -506,7 +505,7 @@ void process_init(void)
         if (cpu_rqs[i].idle) { cpu_rqs[i].idle->process = init; }
     }
 
-    plogk("process: Process subsystem initialized. init pid=%llu\n", init->task->pid);
+    plogk("process: Process subsystem initialized, init pid=%llu\n", init->task->pid);
 }
 
 process_t *process_create(const char *name, void (*entry)(void *), void *arg)
@@ -663,7 +662,7 @@ void process_exit(int exit_code)
 
     process_fd_table_close(proc);
 
-    plogk("process: Process %llu (%s) exited with code %d.\n", proc->task->pid, proc->task->name, exit_code);
+    plogk("process: Process %llu (%s) exited with code %d\n", proc->task->pid, proc->task->name, exit_code);
 
     proc->task->state = TASK_ZOMBIE;
     task_exit();
@@ -787,9 +786,9 @@ process_t *process_fork(void)
     child->exit_code    = 0;
     strncpy(child->name, parent->name, sizeof(child->name) - 1);
     child->name[sizeof(child->name) - 1] = '\0';
-    child->heap_brk     = parent->heap_brk;
-    child->stack_brk    = parent->stack_brk;
-    child->kernel_stack = malloc(PROCESS_KERNEL_STACK);
+    child->heap_brk                      = parent->heap_brk;
+    child->stack_brk                     = parent->stack_brk;
+    child->kernel_stack                  = malloc(PROCESS_KERNEL_STACK);
     if (!child->kernel_stack) {
         free(child_task);
         free(child);
@@ -847,7 +846,7 @@ process_t *process_fork(void)
     spin_unlock(&scheduler.lock);
     request_task_cpu(child_task);
 
-    plogk("process: Forked process %llu from parent %llu.\n", child->task->pid, parent->task->pid);
+    plogk("process: Forked process %llu from parent %llu\n", child->task->pid, parent->task->pid);
     return child;
 }
 

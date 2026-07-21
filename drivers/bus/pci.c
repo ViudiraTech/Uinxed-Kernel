@@ -404,7 +404,7 @@ base_address_register_t get_base_address_register(pci_device_cache_t *device, ui
             result.prefetchable = 0;
             break;
         default :
-            plogk("PCI: Runtime Error at %s:%d.\n", __FILE__, __LINE__);
+            plogk("PCI: Runtime Error at %s:%d\n", __FILE__, __LINE__);
             break;
     }
     return result;

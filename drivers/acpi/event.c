@@ -304,7 +304,7 @@ void acpi_event_init(void)
     /* Register default power button handler */
     acpi_register_fixed_event(ACPI_EVENT_POWER_BUTTON, power_button_handler, 0);
 
-    if (acpi_sci_init()) { plogk("acpi: SCI init failed, falling back to polled events\n"); }
+    if (acpi_sci_init()) plogk("acpi: SCI init failed, falling back to polled events.\n");
 
-    plogk("acpi: Event subsystem initialized\n");
+    plogk("acpi: Event subsystem initialized.\n");
 }

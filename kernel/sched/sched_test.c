@@ -102,7 +102,7 @@ static void kernel_init_thread(void *arg)
 {
     (void)arg;
 
-    plogk("init: Kernel init thread started as task %llu cpu %u.\n", current_task()->pid, current_task()->cpu_id);
+    plogk("init: Kernel init thread started as task %llu cpu %u\n", current_task()->pid, current_task()->cpu_id);
     wait_queue_init(&demo_wait_queue);
     wait_queue_init(&migration_wait_queue);
     kthread_create("preempt-demo", preempt_demo_thread, "preempt-demo");

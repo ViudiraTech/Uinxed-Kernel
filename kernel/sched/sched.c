@@ -390,13 +390,13 @@ static void update_tss_stack(task_t *task)
 
 void sched_dequeue_current(void)
 {
-	eevdf_rq_t *rq = local_rq();
-	task_t     *curr = rq->curr;
+    eevdf_rq_t *rq   = local_rq();
+    task_t     *curr = rq->curr;
 
-	if (curr && curr != rq->idle) {
-		dequeue_entity(rq, curr);
-		curr->state = TASK_BLOCKED;
-	}
+    if (curr && curr != rq->idle) {
+        dequeue_entity(rq, curr);
+        curr->state = TASK_BLOCKED;
+    }
 }
 
 static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
@@ -550,7 +550,11 @@ void sched_init(void)
     for (uint32_t i = 0; i < cpu_scheduler_count; i++) {
         rb_init_root(&cpu_rqs[i].timeline);
         cpu_rqs[i].online = 1;
-        plogk("sched: CPU %u scheduler slot initialized.\n", i);
+    }
+    if (cpu_scheduler_count > 8) {
+        plogk("sched: All %u CPUs scheduler slots initialized.\n", cpu_scheduler_count);
+    } else {
+        for (unsigned int i = 0; i < cpu_scheduler_count; i++) { plogk("sched: CPU %u scheduler slot initialized.\n", i); }
     }
 
     next_task_cpu         = 0;
@@ -582,7 +586,13 @@ void sched_init(void)
         cpu_rqs[i].idle->context.rsp    = (uint64_t)stack;
         cpu_rqs[i].idle->context.rdi    = (uint64_t)NULL;
         cpu_rqs[i].idle->context.rflags = 0x202;
-        plogk("task: Created task %llu (%s) on CPU %u.\n", cpu_rqs[i].idle->pid, cpu_rqs[i].idle->name, cpu_rqs[i].idle->cpu_id);
+    }
+    if (cpu_scheduler_count > 8) {
+        plogk("task: Created idle tasks \'swapper/*\' on all %u CPUs.\n", cpu_scheduler_count);
+    } else {
+        for (unsigned int i = 0; i < cpu_scheduler_count; i++) {
+            plogk("task: Created task %llu (%s) on CPU %u\n", cpu_rqs[i].idle->pid, cpu_rqs[i].idle->name, cpu_rqs[i].idle->cpu_id);
+        }
     }
 
     scheduler.next_pid = 1;
@@ -961,9 +971,7 @@ void task_exit(void)
     curr->state  = TASK_ZOMBIE;
 
     eevdf_rq_t *rq = local_rq();
-    if (curr != rq->idle) {
-        dequeue_entity(rq, curr);
-    }
+    if (curr != rq->idle) { dequeue_entity(rq, curr); }
     if (rq->curr == curr) { rq->curr = rq->idle; }
 
     spin_unlock(&scheduler.lock);

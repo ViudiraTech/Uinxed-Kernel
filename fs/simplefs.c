@@ -530,7 +530,7 @@ static int simplefs_mount(const char *src, vfs_node_t node)
         return -EIO;
     }
 
-    plogk("simplefs: Mounted drive ide%u, volume '%s', block size %u.\n", handle->device.drive, handle->disk.volume_name,
+    plogk("simplefs: Mounted drive ide%u, volume '%s', block size %u\n", handle->device.drive, handle->disk.volume_name,
           handle->disk.block_size);
     return EOK;
 }
@@ -702,7 +702,7 @@ void simplefs_regist(void)
 
     for (uint8_t drive = 0; drive < 4; drive++) {
         if (!ide_devices[drive].reserved || ide_devices[drive].type != IDE_ATA) continue;
-        if (simplefs_probe(drive) == EOK) plogk("simplefs: Detected valid superblock on ide%u.\n", drive);
+        if (simplefs_probe(drive) == EOK) plogk("simplefs: Detected valid superblock on ide%u\n", drive);
     }
 }
 
@@ -731,9 +731,9 @@ void simplefs_mount_all(void)
         }
 
         if (vfs_mount(src, node) == EOK)
-            plogk("simplefs: Auto-mounted ide%u at %s.\n", drive, path);
+            plogk("simplefs: Auto-mounted ide%u at %s\n", drive, path);
         else
-            plogk("simplefs: Failed to auto-mount ide%u at %s.\n", drive, path);
+            plogk("simplefs: Failed to auto-mount ide%u at %s\n", drive, path);
         vfs_close(node);
     }
 }

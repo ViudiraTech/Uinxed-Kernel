@@ -14,9 +14,9 @@
 #include <cpio.h>
 #include <cpuid.h>
 #include <debug.h>
-#include <elf_loader.h>
 #include <devtmpfs.h>
 #include <eis.h>
+#include <elf_loader.h>
 #include <errno.h>
 #include <eventfd.h>
 #include <fatfs_vfs.h>
@@ -56,7 +56,7 @@ void user_init_process(void *arg)
 {
     (void)arg;
 
-    plogk("init: user_init_process started (pid=1).\n");
+    plogk("init: user_init_process started (pid=1)\n");
 
     lmodule_t *init_mod = get_lmodule("init");
     if (!init_mod || !init_mod->data || init_mod->size == 0) {
@@ -85,21 +85,19 @@ void executable_entry(void)
 {
     const char *msg = "Theoretically you should use Limine to boot this kernel, not execute it directly.\n";
 
-    __asm__ volatile (
-        "mov $1, %%rax\n\t"
-        "mov $1, %%rdi\n\t"
-        "mov %1, %%rsi\n\t"
-        "mov %2, %%rdx\n\t"
-        "syscall\n\t"
-        "mov $60, %%rax\n\t"
-        "mov $1, %%rdi\n\t"
-        "syscall\n\t"
-        :
-        : "r"(msg), "r"(msg), "i"(83)
-        : "%rax", "%rdi", "%rsi", "%rdx", "memory"
-    );
+    __asm__ volatile("mov $1, %%rax\n\t"
+                     "mov $1, %%rdi\n\t"
+                     "mov %1, %%rsi\n\t"
+                     "mov %2, %%rdx\n\t"
+                     "syscall\n\t"
+                     "mov $60, %%rax\n\t"
+                     "mov $1, %%rdi\n\t"
+                     "syscall\n\t"
+                     :
+                     : "r"(msg), "r"(msg), "i"(83)
+                     : "%rax", "%rdi", "%rsi", "%rdx", "memory");
 
-    while (1) __asm__ volatile ("cli; hlt");
+    while (1) __asm__ volatile("cli; hlt");
 }
 
 /* Kernel entry */
@@ -166,7 +164,7 @@ void kernel_entry(void)
             if (proc) {
                 st = vfs_mount_fs("procfs", NULL, proc);
                 if (st == EOK) {
-                    plogk("procfs: Mounted at /proc.\n");
+                    plogk("procfs: Mounted at /proc\n");
                     vfs_close(proc);
                 } else {
                     plogk("procfs: Cannot mount at /proc: %d\n", st);

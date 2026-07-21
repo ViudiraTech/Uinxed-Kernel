@@ -327,5 +327,5 @@ void signalfd_init(void)
         free(cb);
         return;
     }
-    plogk("signalfd: Subsystem initialized (fsid=%d).\n", signalfd_fsid);
+    plogk("signalfd: Subsystem initialized (fsid=%d)\n", signalfd_fsid);
 }

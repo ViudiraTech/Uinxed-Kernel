@@ -30,7 +30,7 @@ void *phys_to_virt(uint64_t phys_addr)
     pointer_cast_t virt_addr;
     if (!hhdm_request.response) krn_halt();
     if (phys_addr >= (1ULL << get_cpu_phys_bits())) { // Check if physical address is valid
-        plogk("Warning: Physical address 0x%016llx exceeds physical address space\n", phys_addr);
+        plogk("Warning: Physical address 0x%016llx exceeds physical address space.\n", phys_addr);
     }
     virt_addr.val = phys_addr + hhdm_request.response->offset;
     return virt_addr.ptr;
