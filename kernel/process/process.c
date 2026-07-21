@@ -10,6 +10,7 @@
 
 #include <common.h>
 #include <debug.h>
+#include <elf_loader.h>
 #include <errno.h>
 #include <frame.h>
 #include <heap.h>
@@ -45,108 +46,6 @@ process_t        *init_process;
 
 void init_thread(void *arg);
 
-typedef struct {
-        uint8_t  ident[16];
-        uint16_t type;
-        uint16_t machine;
-        uint32_t version;
-        uint64_t entry;
-        uint64_t phoff;
-        uint64_t shoff;
-        uint32_t flags;
-        uint16_t ehsize;
-        uint16_t phentsize;
-        uint16_t phnum;
-        uint16_t shentsize;
-        uint16_t shnum;
-        uint16_t shstrndx;
-} elf64_ehdr_t;
-
-typedef struct {
-        uint32_t type;
-        uint32_t flags;
-        uint64_t offset;
-        uint64_t vaddr;
-        uint64_t paddr;
-        uint64_t filesz;
-        uint64_t memsz;
-        uint64_t align;
-} elf64_phdr_t;
-
-#define ELF_MAGIC 0x464c457f
-#define PT_LOAD   0x1
-#define PF_X      (0x1 << 0)
-#define PF_W      (0x1 << 1)
-#define PF_R      (0x1 << 2)
-
-static void *process_user_ptr(process_t *proc, uintptr_t addr)
-{
-    page_table_t *l4  = proc->user_page_dir->table;
-    uint64_t      l4e = l4->entries[(addr >> 39) & 0x1ff].value;
-    if (!(l4e & PTE_PRESENT)) return NULL;
-    page_table_t *l3  = phys_to_virt(l4e & PAGE_4K_MASK);
-    uint64_t      l3e = l3->entries[(addr >> 30) & 0x1ff].value;
-    if (!(l3e & PTE_PRESENT) || (l3e & PTE_HUGE)) return NULL;
-    page_table_t *l2  = phys_to_virt(l3e & PAGE_4K_MASK);
-    uint64_t      l2e = l2->entries[(addr >> 21) & 0x1ff].value;
-    if (!(l2e & PTE_PRESENT) || (l2e & PTE_HUGE)) return NULL;
-    page_table_t *l1  = phys_to_virt(l2e & PAGE_4K_MASK);
-    uint64_t      l1e = l1->entries[(addr >> 12) & 0x1ff].value;
-    if (!(l1e & PTE_PRESENT)) return NULL;
-    return (uint8_t *)phys_to_virt(l1e & PAGE_4K_MASK) + (addr & (PAGE_4K_SIZE - 1));
-}
-
-static uintptr_t process_setup_user_stack(process_t *proc, const elf64_ehdr_t *ehdr)
-{
-    uintptr_t  top         = PROCESS_USER_STACK_TOP;
-    uintptr_t  random_addr = top - 32;
-    uintptr_t  string_addr = top - 64;
-    uintptr_t  rsp         = top - 512;
-    const char name[]      = "init";
-
-    char *name_dst = process_user_ptr(proc, string_addr);
-    if (!name_dst) return 0;
-    memcpy(name_dst, name, sizeof(name));
-
-    uint8_t *random = process_user_ptr(proc, random_addr);
-    if (!random) return 0;
-    for (int i = 0; i < 16; i++) random[i] = (uint8_t)(0xa5 + i);
-
-    uint64_t *stack = process_user_ptr(proc, rsp);
-    if (!stack) return 0;
-
-    size_t n   = 0;
-    stack[n++] = 1;           /* argc */
-    stack[n++] = string_addr; /* argv[0] */
-    stack[n++] = 0;           /* argv[1] */
-    stack[n++] = 0;           /* envp[0] */
-    stack[n++] = 3;
-    stack[n++] = ehdr->phoff ? PROCESS_USER_CODE_MIN + ehdr->phoff : 0; /* AT_PHDR */
-    stack[n++] = 4;
-    stack[n++] = ehdr->phentsize; /* AT_PHENT */
-    stack[n++] = 5;
-    stack[n++] = ehdr->phnum; /* AT_PHNUM */
-    stack[n++] = 6;
-    stack[n++] = PAGE_4K_SIZE; /* AT_PAGESZ */
-    stack[n++] = 9;
-    stack[n++] = ehdr->entry; /* AT_ENTRY */
-    stack[n++] = 11;
-    stack[n++] = proc->uid; /* AT_UID */
-    stack[n++] = 12;
-    stack[n++] = proc->uid; /* AT_EUID */
-    stack[n++] = 13;
-    stack[n++] = proc->gid; /* AT_GID */
-    stack[n++] = 14;
-    stack[n++] = proc->gid; /* AT_EGID */
-    stack[n++] = 23;
-    stack[n++] = 0; /* AT_SECURE */
-    stack[n++] = 25;
-    stack[n++] = random_addr; /* AT_RANDOM */
-    stack[n++] = 0;
-    stack[n++] = 0; /* AT_NULL */
-    return rsp;
-}
-
 static process_t *pid_to_process(pid_t pid)
 {
     if (pid <= 0 || pid >= PROCESS_TABLE_SIZE) return NULL;
@@ -176,60 +75,6 @@ static void pid_set_locked(pid_t pid, process_t *proc)
     process_table[pid] = proc;
 }
 
-static elf64_ehdr_t *validate_elf(const uint8_t *data, size_t size)
-{
-    elf64_ehdr_t *ehdr = (elf64_ehdr_t *)data;
-
-    if (size < sizeof(elf64_ehdr_t)) return NULL;
-    if (*(const uint32_t *)ehdr->ident != ELF_MAGIC) return NULL;
-    if (ehdr->ident[4] != 2 || ehdr->ident[5] != 1 || ehdr->ident[6] != 1) return NULL;
-    if (ehdr->machine != 0x3e) return NULL;
-    if (ehdr->phoff + ehdr->phnum * ehdr->phentsize > size) return NULL;
-    return ehdr;
-}
-
-static int load_elf_segments(process_t *proc, const elf64_ehdr_t *ehdr, const uint8_t *data)
-{
-    const elf64_phdr_t *phdr        = (const elf64_phdr_t *)(data + ehdr->phoff);
-    uintptr_t           highest_end = 0;
-
-    for (int i = 0; i < ehdr->phnum; i++) {
-        if (phdr[i].type != PT_LOAD) continue;
-        uintptr_t seg_end = ALIGN_UP(phdr[i].vaddr + phdr[i].memsz, PAGE_4K_SIZE);
-        if (seg_end > highest_end) highest_end = seg_end;
-    }
-
-    for (int i = 0; i < ehdr->phnum; i++) {
-        if (phdr[i].type != PT_LOAD) continue;
-
-        uint64_t pte_flags = PTE_USER | PTE_PRESENT;
-        if (phdr[i].flags & PF_W) pte_flags |= PTE_WRITEABLE;
-        if (!(phdr[i].flags & PF_X)) pte_flags |= PTE_NO_EXECUTE;
-
-        uintptr_t seg_start = ALIGN_DOWN(phdr[i].vaddr, PAGE_4K_SIZE);
-        uintptr_t seg_end   = ALIGN_UP(phdr[i].vaddr + phdr[i].memsz, PAGE_4K_SIZE);
-
-        for (uintptr_t va = seg_start; va < seg_end; va += PAGE_4K_SIZE) {
-            uint64_t frame = alloc_frames(1);
-            if (!frame) return 1;
-
-            uint8_t *page = phys_to_virt(frame);
-            memset(page, 0, PAGE_4K_SIZE);
-
-            uintptr_t file_start = MAX(va, phdr[i].vaddr);
-            uintptr_t file_end   = MIN(va + PAGE_4K_SIZE, phdr[i].vaddr + phdr[i].filesz);
-            if (file_start < file_end) {
-                size_t page_offset = file_start - va;
-                size_t file_offset = phdr[i].offset + file_start - phdr[i].vaddr;
-                memcpy(page + page_offset, data + file_offset, file_end - file_start);
-            }
-            page_map_to(proc->user_page_dir, va, frame, pte_flags);
-        }
-    }
-
-    if (highest_end > PROCESS_HEAP_START) proc->heap_brk = highest_end;
-    return 0;
-}
 
 static int setup_process_page_dir(process_t *proc)
 {
@@ -665,7 +510,7 @@ void process_init(void)
 
 process_t *process_create(const uint8_t *elf_data, size_t elf_size, const char *name)
 {
-    elf64_ehdr_t *ehdr = validate_elf(elf_data, elf_size);
+    elf_loader_ehdr_t *ehdr = elf_loader_validate(elf_data, elf_size);
     if (!ehdr) {
         plogk("process: Invalid ELF binary.\n");
         return NULL;
@@ -713,7 +558,7 @@ process_t *process_create(const uint8_t *elf_data, size_t elf_size, const char *
     signal_state_init(&proc->signal);
     task_name_copy(task, name);
 
-    if (load_elf_segments(proc, ehdr, elf_data)) {
+    if (elf_loader_load_segments(proc, ehdr, elf_data)) {
         plogk("process: Failed to load ELF segments for %s.\n", name);
         process_free(proc);
         return NULL;
@@ -746,7 +591,7 @@ process_t *process_create(const uint8_t *elf_data, size_t elf_size, const char *
     uintptr_t tls_user_addr = 0x700000000000ULL;
     page_map_to(proc->user_page_dir, tls_user_addr, tls_frame, PTE_USER | PTE_PRESENT | PTE_WRITEABLE);
 
-    uintptr_t user_rsp = process_setup_user_stack(proc, ehdr);
+    uintptr_t user_rsp = elf_loader_setup_user_stack(proc, ehdr);
     if (!user_rsp) {
         plogk("process: Failed to initialize user stack for %s.\n", name);
         process_free(proc);
