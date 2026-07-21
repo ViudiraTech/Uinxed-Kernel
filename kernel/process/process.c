@@ -846,6 +846,8 @@ process_t *process_fork(void)
     child->sid          = parent->sid;
     child->parent       = parent;
     child->exit_code    = 0;
+    strncpy(child->name, parent->name, sizeof(child->name) - 1);
+    child->name[sizeof(child->name) - 1] = '\0';
     child->heap_brk     = parent->heap_brk;
     child->stack_brk    = parent->stack_brk;
     child->kernel_stack = malloc(PROCESS_KERNEL_STACK);
