@@ -57,10 +57,12 @@ Uinxed is a UNIX-like operating system kernel developed from scratch, focusing o
   - Stoarge
     1. ATA disk
   - Bus
-    1. PCI
+    1. PCI/PCIe
   - Port
     1. Standard serial port (RS232)
-    2. Standard parallel port
+    2. Standard parallel port (IEEE 1284)
+  - security
+    1.Trusted Platform Module (TPM)
   - Video
     1. VESA/GOP framebuffer
 - **Userspace**:
@@ -264,7 +266,6 @@ git push
 ### 7.Create a Pull Request
 
 - Visit your GitHub repository and create a Pull Request (PR).
-- Make sure the base branch is set to develop (not master).
 - Fill in the PR description clearly, outlining the changes you've made.
 - Submit the PR for review.
 
@@ -304,12 +305,12 @@ You can submit an issue in your own language. However, please be aware of factor
 
 | Number | Nick name | Github | Job |
 |---|---|---|---|
-| 1 | MicroFish | [FengHeting](https://github.com/FengHeting) | Development. Planning. Management. |
-| 2 | Rainy101112 | [Rainy101112](https://github.com/Rainy101112) | Development. Code optimization. Testing. Bug fixing. |
-| 3 | XSlime | [W9pi3cZ1](https://github.com/W9pi3cZ1) | Features. Code optimization. Testing. Bug fixing. |
-| 4 | suhuajun | [suhuajun-github](https://github.com/suhuajun-github) | Code optimization. Testing. Bug fixing. |
-| 5 | TMX | [TMXQWQ](https://github.com/TMXQWQ) | Features. Code optimization. Testing. Bug fixing. |
-| 6 | JiTianYu391 | [JiTianYu391](https://github.com/JiTianYu391) | Features. Development. Code optimization. Testing. Bug fixing. |
+| 1 | Rainy101112 | [Rainy101112](https://github.com/Rainy101112) | Userspace & Services, Code optimization & Testing, Bug fixing, Management |
+| 2 | MicroFish | [FengHeting](https://github.com/FengHeting) | Driver & Low-level, Planning, Code optimization & Testing, Management |
+| 3 | JiTianYu391 | [JiTianYu391](https://github.com/JiTianYu391) | Features, Code optimization & Testing, Bug fixing |
+| 4 | suhuajun | [suhuajun-github](https://github.com/suhuajun-github) | Code optimization & Testing, Bug fixing |
+| 5 | XSlime | [W9pi3cZ1](https://github.com/W9pi3cZ1) | Features, Code optimization & Testing, Bug fixing |
+| 6 | TMX | [TMXQWQ](https://github.com/TMXQWQ) | Features, Code optimization & Testing, Bug fixing |
 
 A resident contributor is someone who directly contributes to and manages the project in a resident capacity. Removing a resident developer from the resident developer list does not mean that the project manager will not recognize their contributions, but rather that they are no longer involved in the project in a resident capacity. However, their contribution record will remain.
 
