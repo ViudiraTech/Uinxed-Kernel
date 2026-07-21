@@ -77,12 +77,7 @@ void user_init_process(void *arg)
     return;
 
 halt:
-    while (1) {
-        enable_intr();
-        __asm__ volatile("hlt");
-        disable_intr();
-        sched_yield();
-    }
+    process_exit(1);
 }
 
 /* Executable entry */

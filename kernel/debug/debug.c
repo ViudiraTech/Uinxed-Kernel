@@ -31,41 +31,43 @@ void dump_stack(void)
     union rbp_node {
             uintptr_t       inner;
             union rbp_node *next;
-    } *rbp; // A way to avoid performance-no-int-to-ptr
+    } *rbp;
 
     uintptr_t rip;
     __asm__ volatile("movq %%rbp, %0" : "=r"(rbp));
-    __asm__ volatile("leaq (%%rip), %0" : "=r"(rip));
 
     plogk("Call Trace:\n");
     plogk(" <TASK>\n");
 
     int frame_count = 0;
-    for (int i = 0; i < 16 && rip && (uintptr_t)rbp > 0x1000; ++i) {
+    for (int i = 0; i < 16; ++i) {
         if (carry_error_code && frame_count == 3) {
-            if ((uintptr_t)(rbp + 1) < KERNEL_BASE_ADDRESS) break;
+            if ((uintptr_t)(rbp + 1) <= 0x1000) break;
             rip = *(uintptr_t *)(rbp + 1);
-            if ((uintptr_t)rbp->next < KERNEL_BASE_ADDRESS) break;
+            if ((uintptr_t)rbp->next <= 0x1000) break;
             rbp = rbp->next;
             ++frame_count;
             continue;
         }
 
-        if ((uintptr_t)rbp < KERNEL_BASE_ADDRESS) break;
+        if ((uintptr_t)rbp <= 0x1000) break;
+        if ((uintptr_t)(rbp + 1) <= 0x1000) break;
 
-        sym_info_t sym_info = {0};
-        if (rip >= KERNEL_BASE_ADDRESS) {
-            sym_info = get_symbol_info(kernel_file_request.response->kernel_file->address, rip);
-        }
-        if (!sym_info.name) {
-            plogk("  [<0x%016zx>] %s\n", rip, "unknown");
-        } else {
-            plogk("  [<0x%016zx>] `%s`+0x%lx/0x%lx\n", rip, sym_info.name, rip - current_address, sym_info.size);
-        }
-
-        if ((uintptr_t)(rbp + 1) < KERNEL_BASE_ADDRESS) break;
         rip = *(uintptr_t *)(rbp + 1);
-        if ((uintptr_t)rbp->next < KERNEL_BASE_ADDRESS) break;
+        if (!rip) break;
+
+        if (rip >= KERNEL_BASE_ADDRESS) {
+            sym_info_t sym_info = get_symbol_info(kernel_file_request.response->kernel_file->address, rip);
+            if (sym_info.name) {
+                plogk("  [<0x%016zx>] `%s`+0x%lx/0x%lx\n", rip, sym_info.name, rip - current_address, sym_info.size);
+            } else {
+                plogk("  [<0x%016zx>] %s\n", rip, "unknown");
+            }
+        } else {
+            plogk("  [<0x%016zx>] %s\n", rip, "unknown");
+        }
+
+        if ((uintptr_t)rbp->next <= 0x1000) break;
         rbp = rbp->next;
         ++frame_count;
     }
