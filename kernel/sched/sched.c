@@ -372,8 +372,8 @@ static task_t *pick_eevdf(eevdf_rq_t *rq)
 		node = node->right;
 	}
 
-	/* No eligible entity found; keep current if it exists */
-	if (curr) return curr;
+	/* No eligible entity found; keep current if it is still runnable */
+	if (curr && curr->state == TASK_RUNNING) return curr;
 	return rq->idle;
 }
 
@@ -975,7 +975,15 @@ void task_exit(void)
 {
 	disable_intr();
 	spin_lock(&scheduler.lock);
-	local_current()->state = TASK_ZOMBIE;
+
+	task_t *curr = local_current();
+	curr->state  = TASK_ZOMBIE;
+
+	eevdf_rq_t *rq = local_rq();
+	if (rq->curr == curr) {
+		rq->curr = rq->idle;
+	}
+
 	spin_unlock(&scheduler.lock);
 
 	sched_yield();

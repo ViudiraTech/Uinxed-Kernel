@@ -50,6 +50,8 @@
 # Project Objectives
 UxImage
 Uinxed-x64.iso
+init
+init.elf
 
 # Clangd
 .clangd

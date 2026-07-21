@@ -9,6 +9,7 @@
  *
  */
 
+#include <common.h>
 #include <errno.h>
 #include <eventfd.h>
 #include <interrupt.h>
@@ -26,6 +27,7 @@
 #include <syscall_table.h>
 #include <task.h>
 #include <timerfd.h>
+#include <tss.h>
 #include <uaccess.h>
 #include <uinxed.h>
 #include <vfs.h>
@@ -491,6 +493,26 @@ static int64_t sys_write(uint64_t fd, uint64_t buf, uint64_t size, uint64_t arg3
         if ((size_t)ret < chunk) break;
     }
     return (int64_t)done;
+}
+
+static int64_t sys_arch_prctl(uint64_t code, uint64_t addr, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+
+    switch (code) {
+        case 0x1002: /* ARCH_SET_FS */
+            wrmsr(0xC0000100, addr);
+            return 0;
+        case 0x1003: { /* ARCH_GET_FS */
+            uint64_t fs = rdmsr(0xC0000100);
+            return copy_to_user((void *)addr, &fs, sizeof(fs));
+        }
+        default :
+            return -EINVAL;
+    }
 }
 
 static int64_t sys_lseek(uint64_t fd, uint64_t offset, uint64_t whence, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -1621,7 +1643,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_PIVOT_ROOT]            = sys_stub,
     [SYS__SYSCTL]               = sys_stub,
     [SYS_PRCTL]                 = sys_stub_ok,
-    [SYS_ARCH_PRCTL]            = sys_stub,
+    [SYS_ARCH_PRCTL]            = sys_arch_prctl,
     [SYS_ADJTIMEX]              = sys_stub,
     [SYS_SETRLIMIT]             = sys_stub_ok,
     [SYS_CHROOT]                = sys_stub,
@@ -1894,8 +1916,47 @@ __attribute__((naked)) void syscall_entry(void)
                      "jmp syscall_return\n\t");
 }
 
+uint64_t syscall_user_rsp_tmp;
+
+__attribute__((naked)) void syscall_entry_syscall(void)
+{
+    __asm__ volatile("cld\n\t"
+                     "movq %rsp, syscall_user_rsp_tmp(%rip)\n\t"
+                     "movq tss0+4(%rip), %rsp\n\t"
+                     "pushq $0x23\n\t"
+                     "pushq syscall_user_rsp_tmp(%rip)\n\t"
+                     "pushq %r11\n\t"
+                     "pushq $0x1B\n\t"
+                     "pushq %rcx\n\t"
+                     "pushq %rax\n\t"
+                     "pushq %rbx\n\t"
+                     "pushq %rcx\n\t"
+                     "pushq %rdx\n\t"
+                     "pushq %rbp\n\t"
+                     "pushq %rsi\n\t"
+                     "pushq %rdi\n\t"
+                     "pushq %r8\n\t"
+                     "pushq %r9\n\t"
+                     "pushq %r10\n\t"
+                     "pushq %r11\n\t"
+                     "pushq %r12\n\t"
+                     "pushq %r13\n\t"
+                     "pushq %r14\n\t"
+                     "pushq %r15\n\t"
+                     "movq %rsp, %rdi\n\t"
+                     "call syscall_dispatch\n\t"
+                     "jmp syscall_return\n\t");
+}
+
 void syscall_init(void)
 {
     register_interrupt_handler(SYSCALL_VECTOR, (void *)syscall_entry, 0, 0xee);
+
+    uint64_t star = rdmsr(0xC0000081);
+    star &= 0x00000000FFFFFFFFULL;
+    star |= ((uint64_t)0x08 << 32) | ((uint64_t)0x1B << 48);
+    wrmsr(0xC0000081, star);
+    wrmsr(0xC0000082, (uint64_t)syscall_entry_syscall);
+    wrmsr(0xC0000084, 0x200);
     plogk("syscall: int 0x%02x interface initialized.\n", SYSCALL_VECTOR);
 }
