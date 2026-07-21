@@ -555,13 +555,9 @@ process_t *process_create(const char *name, void (*entry)(void *), void *arg)
     process_fd_table_init(proc);
     signal_state_init(&proc->signal);
     task_name_copy(task, name);
-<<<<<<< HEAD
-    strncpy(proc->name, name, sizeof(proc->name) - 1);
-    proc->name[sizeof(proc->name) - 1] = '\0';
-=======
+
     strncpy(proc->name, name ? name : "user", PROCESS_NAME_LEN - 1);
     proc->name[PROCESS_NAME_LEN - 1] = '\0';
->>>>>>> 25acea2 (Fix bug in scheduler. Fix some bugs in ELF loader. New user_init_process())
 
     pid_set(proc->task->pid, proc);
 

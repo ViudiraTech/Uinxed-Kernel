@@ -117,8 +117,11 @@ typedef struct process {
 /* Initialize the process management subsystem */
 void process_init(void);
 
-/* Create a new user process from an ELF image loaded in memory */
-process_t *process_create(const uint8_t *elf_data, size_t elf_size, const char *name);
+/* Create a new user process skeleton */
+process_t *process_create(const char *name, void (*entry)(void *), void *arg);
+
+/* Set up user page directory for a process (used by ELF loader) */
+int setup_process_page_dir(process_t *proc);
 
 /* Create a kernel process (task with no user address space) */
 process_t *process_create_kernel(const char *name, void (*entry)(void *), void *arg);
