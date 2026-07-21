@@ -62,7 +62,7 @@ Uinxed is a UNIX-like operating system kernel developed from scratch, focusing o
     1. Standard serial port (RS232)
     2. Standard parallel port (IEEE 1284)
   - security
-    1.Trusted Platform Module (TPM)
+    1. Trusted Platform Module (TPM)
   - Video
     1. VESA/GOP framebuffer
 - **Userspace**:
