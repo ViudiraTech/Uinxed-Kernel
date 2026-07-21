@@ -14,29 +14,29 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef enum {
-	RB_RED,
-	RB_BLACK
-} rb_color_t;
+typedef enum { RB_RED, RB_BLACK } rb_color_t;
 
 typedef struct rb_node {
-	struct rb_node *parent;
-	struct rb_node *left;
-	struct rb_node *right;
-	uint64_t        min_vruntime;
-	rb_color_t      color;
+        struct rb_node *parent;
+        struct rb_node *left;
+        struct rb_node *right;
+        uint64_t        min_vruntime;
+        rb_color_t      color;
 } rb_node_t;
 
 typedef struct {
-	rb_node_t *root;
-	rb_node_t *leftmost;
+        rb_node_t *root;
+        rb_node_t *leftmost;
 } rb_root_t;
 
 typedef int (*rb_less_fn)(const rb_node_t *a, const rb_node_t *b);
 typedef void (*rb_augment_fn)(rb_node_t *node, void *data);
 
-#define RB_ROOT_INIT                             { NULL, NULL }
-#define rb_entry(ptr, type, member)              ((type *)((uint8_t *)(ptr) - offsetof(type, member)))
+#define RB_ROOT_INIT \
+    {                \
+        NULL, NULL   \
+    }
+#define rb_entry(ptr, type, member) ((type *)((uint8_t *)(ptr) - offsetof(type, member)))
 
 /* Initialize an empty red-black tree root */
 void rb_init_root(rb_root_t *root);

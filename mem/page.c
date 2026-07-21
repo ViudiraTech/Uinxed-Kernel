@@ -43,9 +43,12 @@ INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_
     uint64_t    id       = error_code & 0x10; // Instruction fetch
     const char *pf_msg   = present ? "Protection" : "NotPresent";
 
-    if (reserved) pf_msg = "Reserved";
-    else if (id) pf_msg = "InstructionFetch";
-    else if (rw && present) pf_msg = "ReadOnly";
+    if (reserved)
+        pf_msg = "Reserved";
+    else if (id)
+        pf_msg = "InstructionFetch";
+    else if (rw && present)
+        pf_msg = "ReadOnly";
 
     carry_error_code = 1; // carry error code
 

@@ -16,9 +16,9 @@
 #include <task.h>
 #include <vfs.h>
 
-#define EFD_SEMAPHORE   (1 << 0)
-#define EFD_CLOEXEC     (1 << 19)
-#define EFD_NONBLOCK    (1 << 11)
+#define EFD_SEMAPHORE (1 << 0)
+#define EFD_CLOEXEC   (1 << 19)
+#define EFD_NONBLOCK  (1 << 11)
 
 typedef struct eventfd_ctx {
         uint64_t     count;
