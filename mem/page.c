@@ -16,10 +16,14 @@
 #include <interrupt.h>
 #include <page.h>
 #include <printk.h>
+#include <process.h>
+#include <sched.h>
+#include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syscall.h>
 
 page_directory_t  kernel_page_dir;
 page_directory_t *current_directory = 0;
@@ -27,31 +31,52 @@ page_directory_t *current_directory = 0;
 /* Page fault handling */
 INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_code)
 {
-    (void)frame;
     disable_intr();
 
     uint64_t faulting_address;
     __asm__ volatile("mov %%cr2, %0" : "=r"(faulting_address));
 
-    int         present  = !(error_code & 0x1); // Page does not exist
-    uint64_t    rw       = error_code & 0x2;    // Read-only page is written
-    uint64_t    us       = error_code & 0x4;    // User mode writes to kernel page
-    uint64_t    reserved = error_code & 0x8;    // Write CPU reserved bits
-    uint64_t    id       = error_code & 0x10;   // Caused by instruction fetch
-    const char *pf_msg   = "Unknown";
+    uint64_t    present  = error_code & 0x1;  // Page exists, access violated protection
+    uint64_t    rw       = error_code & 0x2;  // Write access
+    uint64_t    us       = error_code & 0x4;  // Fault from user mode
+    uint64_t    reserved = error_code & 0x8;  // Reserved bits were set
+    uint64_t    id       = error_code & 0x10; // Instruction fetch
+    const char *pf_msg   = present ? "Protection" : "NotPresent";
 
-    if (present)
-        pf_msg = "Present";
-    else if (rw)
-        pf_msg = "ReadOnly";
-    else if (us)
-        pf_msg = "UserMode";
-    else if (reserved)
-        pf_msg = "Reserved";
-    else if (id)
-        pf_msg = "DecodeAddress";
+    if (reserved) pf_msg = "Reserved";
+    else if (id) pf_msg = "InstructionFetch";
+    else if (rw && present) pf_msg = "ReadOnly";
 
     carry_error_code = 1; // carry error code
+
+    if (us) {
+        process_t *proc = process_current();
+        if (proc) {
+            siginfo_t info = {0};
+            info.si_signo  = SIGSEGV;
+            info.si_code   = present ? SEGV_ACCERR : SEGV_MAPERR;
+            info.si_addr   = (void *)faulting_address;
+
+            plogk("#PF (pid=%llu): Segmentation fault at 0x%016llx\n", proc->task->pid, faulting_address);
+            signal_send_thread(proc->task, SIGSEGV, &info);
+
+            syscall_frame_t sigframe = {0};
+            sigframe.rip             = frame->rip;
+            sigframe.cs              = frame->cs;
+            sigframe.rflags          = frame->rflags;
+            sigframe.rsp             = frame->rsp;
+            sigframe.ss              = frame->ss;
+
+            int ret = signal_deliver_if_pending(&sigframe);
+            if (ret == 1) task_exit();
+
+            frame->rip    = sigframe.rip;
+            frame->rflags = sigframe.rflags;
+            frame->rsp    = sigframe.rsp;
+        }
+        return;
+    }
+
     panic("PAGE_FAULT-%s-Address: 0x%016llx", pf_msg, faulting_address);
 }
 INTERRUPT_END
