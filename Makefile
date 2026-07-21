@@ -78,25 +78,29 @@ ifneq ($(CONFIG_SERIAL_STOP_BITS),)
   C_CONFIG += -DSERIAL_STOP_BITS=$(CONFIG_SERIAL_STOP_BITS)
 endif
 
-C_SOURCES  := $(shell find * -name "*.c" -not -path "tools/*")
-C_HEADERS  := $(shell find * -name "*.h")
-OBJS       := $(C_SOURCES:%.c=%.o)
-DEPS       := $(OBJS:%.o=%.d)
-LIBS       := $(wildcard libs/lib*.a)
-PWD        := $(shell pwd)
-HOST_CC    ?= cc
-HOST_CFLAGS := -Wall -Wextra -O2
-QEMU       := qemu-system-x86_64
-QEMU_FLAGS := -machine q35 -bios assets/ovmf-code.fd -serial stdio
+C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*")
+C_HEADERS      := $(shell find * -name "*.h")
+OBJS           := $(C_SOURCES:%.c=%.o)
+DEPS           := $(OBJS:%.o=%.d)
+LIBS           := $(wildcard libs/lib*.a)
+PWD            := $(shell pwd)
+HOST_CC        ?= $(CC)
+HOST_CFLAGS    := -Wall -Wextra -O2
+QEMU           := qemu-system-x86_64
+QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd -serial stdio
 
-AS         := $(CC)
-ASFLAGS    := -c -m64 -ffreestanding -nostdlib -fno-omit-frame-pointer -I include
-INIT_ELF   := assets/init.elf
+AS             := $(CC)
+ASFLAGS        := -c -m64 -ffreestanding -nostdlib -fno-omit-frame-pointer -I include
+INIT_ELF       := assets/init.elf
+
+# Automatically find all C source files in tools/ and generate their binary targets
+TOOL_C_SOURCES := $(wildcard tools/*.c)
+TOOL_TARGETS   := $(TOOL_C_SOURCES:%.c=%)
 
 # If you want to get more details of `dump_stack`, you need to replace `-O3` with `-O0` or '-Os'.
 # `-fno-optimize-sibling-calls` is for `dump_stack` to work properly.
-C_FLAGS    := -Wall -Wextra -O3 -g3 -m64 -fpie -ffreestanding -fno-optimize-sibling-calls -fno-stack-protector -fno-omit-frame-pointer -mstackrealign -mno-red-zone -I include -MMD
-LD_FLAGS   := -nostdlib -pie -T assets/linker.ld -m elf_x86_64
+C_FLAGS        := -Wall -Wextra -O3 -g3 -m64 -fpie -ffreestanding -fno-optimize-sibling-calls -fno-stack-protector -fno-omit-frame-pointer -mstackrealign -mno-red-zone -I include -MMD
+LD_FLAGS       := -nostdlib -pie -T assets/linker.ld -m elf_x86_64
 
 all: Uinxed-x64.iso
 
@@ -123,9 +127,13 @@ info:
 	$(Q)printf "Uinxed-Kernel Compile Script.\n"
 	$(Q)printf "Copyright 2020 ViudiraTech, based on the Apache 2.0 license.\n\n"
 
-UxImage: $(OBJS) $(LIBS)
+tools/%: tools/%.c
+	$(Q)printf "  HOSTCC  $@\n"
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) -o $@ $<
+
+UxImage: $(TOOL_TARGETS) $(OBJS) $(LIBS)
 	$(Q)printf "  LD      $@\n"
-	$(Q)$(LD) $(LD_FLAGS) -o $@ $^
+	$(Q)$(LD) $(LD_FLAGS) -o $@ $(filter-out $(TOOL_TARGETS),$^)
 
 Uinxed-x64.iso: info UxImage $(INIT_ELF)
 	$(Q)printf "  XORRISO $@\n\n"
@@ -145,8 +153,8 @@ Uinxed-x64.iso: info UxImage $(INIT_ELF)
 help: info
 	$(Q)printf "Uinxed-Kernel Makefile Usage:\n"
 	$(Q)printf "  make all         - Build the entire project.\n"
-	$(Q)printf "  make disk.img    - Build a demo simplefs disk image.\n"
 	$(Q)printf "  make run         - Run the Uinxed-x64.iso in QEMU.\n"
+	$(Q)printf "  make disk.img    - Build a demo simplefs disk image.\n"
 	$(Q)printf "  make clean       - Clean all generated files.\n"
 	$(Q)printf "  make format      - Format all source files using clang-format.\n"
 	$(Q)printf "  make check       - Run static code checks using clang-tidy.\n"
@@ -157,16 +165,9 @@ help: info
 run: info Uinxed-x64.iso
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(word 2,$^)
 
-tools/mkfs_simplefs: tools/mkfs_simplefs.c include/simplefs.h include/superblock.h
-	$(Q)printf "  HOSTCC  $@\n"
-	$(Q)mkdir -p tools
-	$(Q)$(HOST_CC) $(HOST_CFLAGS) -o $@ tools/mkfs_simplefs.c
-
-disk.img: tools/mkfs_simplefs
-	$(Q)printf "  MKFS    $@\n"
+disk.img: info tools/mkfs_simplefs
+	$(Q)printf "  MKFS    $@\n\n"
 	$(Q)./tools/mkfs_simplefs $@
-
-diskimg: disk.img
 
 clean: info
 	$(Q)$(RM) $(OBJS) $(DEPS) UxImage Uinxed-x64.iso tools/mkfs_simplefs disk.img assets/init.o
