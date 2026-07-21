@@ -1,9 +1,9 @@
 /*
  *
  *      sched.h
- *      Kernel scheduler header file
+ *	    Kernel EEVDF scheduler
  *
- *      2026/7/19 By Rainy101112
+ *      2026/7/21 By JiTianYu391
  *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
@@ -11,33 +11,55 @@
 #ifndef INCLUDE_SCHED_H_
 #define INCLUDE_SCHED_H_
 
+#include <rbtree.h>
+#include <spin_lock.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <task.h>
 
+/* ------------------------------------------------------------------ */
+/*  EEVDF constants                                                     */
+/* ------------------------------------------------------------------ */
+
+#define SCHED_NICE_0_LOAD      1024ULL   /* weight of nice 0 */
+#define SCHED_BASE_SLICE_NS    3000000ULL /* 3 ms default base slice (ns) */
+
+/* ------------------------------------------------------------------ */
+/*  Per-CPU EEVDF runqueue                                              */
+/* ------------------------------------------------------------------ */
+
 typedef struct {
-        task_t      *current;
-        task_t      *idle;
-        ilist_node_t ready_queue;
-        ilist_node_t sleep_queue;
-        spinlock_t   lock;
-        uint64_t     next_pid;
-        uint64_t     ticks;
-        int          started;
+	rb_root_t timeline;           /* RB-tree sorted by deadline */
+	uint64_t  nr_running;         /* runnable task count */
+	uint64_t  min_vruntime;       /* minimum vruntime (numerical stability) */
+	int64_t   avg_vruntime;       /* weighted sum of (v - min_vr) * weight */
+	uint64_t  avg_load;           /* sum of weights of runnable tasks */
+	task_t   *curr;               /* currently running task */
+	task_t   *idle;               /* idle task for this CPU */
+	uint64_t  reschedule_ipis;    /* IPI reschedule counter */
+	uint8_t   online;             /* CPU is online */
+} eevdf_rq_t;
+
+/* ------------------------------------------------------------------ */
+/*  Global scheduler state                                              */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+	eevdf_rq_t *rqs;              /* per-CPU runqueues */
+	uint32_t    nr_cpus;          /* number of CPUs */
+	uint64_t    next_pid;         /* next PID to assign */
+	uint64_t    ticks;            /* global tick counter */
+	int         started;          /* 1 once sched_start() has run */
+	spinlock_t  lock;             /* global scheduler lock */
+	ilist_node_t sleep_queue;     /* sleeping tasks (ordered by wake_tick) */
 } scheduler_t;
 
-typedef struct {
-        task_t      *current;
-        task_t      *idle;
-        ilist_node_t ready_queue;
-        uint64_t     ready_count;
-        uint64_t     reschedule_ipis;
-        uint8_t      online;
-} cpu_scheduler_t;
+/* ------------------------------------------------------------------ */
+/*  External interface (unchanged)                                      */
+/* ------------------------------------------------------------------ */
 
-/* Scheduler state (used by task subsystem) */
 extern scheduler_t      scheduler;
-extern cpu_scheduler_t *cpu_schedulers;
+extern eevdf_rq_t      *cpu_rqs;
 extern uint32_t         cpu_scheduler_count;
 
 /* Enqueue a task onto its assigned CPU's ready queue */
@@ -94,4 +116,4 @@ void sched_start(void);
 /* Choose the best CPU for a new task (used by task subsystem) */
 uint32_t choose_task_cpu_locked(void);
 
-#endif // INCLUDE_SCHED_H_
+#endif /* INCLUDE_SCHED_H_ */

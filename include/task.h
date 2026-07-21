@@ -13,6 +13,7 @@
 
 #include <intrusive_list.h>
 #include <page.h>
+#include <rbtree.h>
 #include <spin_lock.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -26,46 +27,52 @@ typedef struct process process_t;
 typedef void (*kthread_entry_t)(void *arg);
 
 typedef struct wait_queue {
-        ilist_node_t tasks;
-        spinlock_t   lock;
+	ilist_node_t tasks;
+	spinlock_t   lock;
 } wait_queue_t;
 
 typedef struct task task_t;
 
 typedef enum {
-    TASK_READY,
-    TASK_RUNNING,
-    TASK_BLOCKED,
-    TASK_SLEEPING,
-    TASK_ZOMBIE,
-    TASK_IDLE,
+	TASK_READY,
+	TASK_RUNNING,
+	TASK_BLOCKED,
+	TASK_SLEEPING,
+	TASK_ZOMBIE,
+	TASK_IDLE,
 } task_state_t;
 
 typedef struct {
-        uint64_t rsp;
-        uint64_t rbx;
-        uint64_t rbp;
-        uint64_t r12;
-        uint64_t r13;
-        uint64_t r14;
-        uint64_t r15;
-        uint64_t rflags;
-        uint64_t rdi;
+	uint64_t rsp;
+	uint64_t rbx;
+	uint64_t rbp;
+	uint64_t r12;
+	uint64_t r13;
+	uint64_t r14;
+	uint64_t r15;
+	uint64_t rflags;
+	uint64_t rdi;
 } task_context_t;
 
 struct task {
-        uint64_t          pid;
-        task_state_t      state;
-        task_context_t    context;
-        ilist_node_t      run_node;
-        page_directory_t *page_directory;
-        uint8_t          *kernel_stack;
-        uint64_t          time_slice;
-        uint64_t          wake_tick;
-        wait_queue_t     *wait_queue;
-        uint32_t          cpu_id;
-        char              name[TASK_NAME_LEN];
-        process_t        *process;
+	uint64_t          pid;
+	task_state_t      state;
+	task_context_t    context;
+	rb_node_t         run_node;       /* EEVDF red-black tree node */
+	ilist_node_t      sched_node;     /* sleep / wait_queue linkage */
+	page_directory_t *page_directory;
+	uint8_t          *kernel_stack;
+	uint64_t          time_slice;
+	uint64_t          wake_tick;
+	wait_queue_t     *wait_queue;
+	uint32_t          cpu_id;
+	char              name[TASK_NAME_LEN];
+	process_t        *process;
+	/* ---- EEVDF scheduling fields ---- */
+	uint64_t          vruntime;       /* virtual runtime */
+	uint64_t          deadline;       /* virtual deadline */
+	int64_t           vlag;           /* virtual lag for placement */
+	uint32_t          weight;         /* scheduling weight (NICE_0_LOAD = 1024) */
 };
 
 /* Initialize a wait queue */
@@ -95,4 +102,4 @@ task_t *kthread_create_on_cpu(const char *name, kthread_entry_t entry, void *arg
 /* Copy a name into a task's name field */
 void task_name_copy(task_t *task, const char *name);
 
-#endif // INCLUDE_TASK_H_
+#endif /* INCLUDE_TASK_H_ */

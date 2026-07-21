@@ -584,7 +584,7 @@ void process_init(void)
     init->task->state = TASK_BLOCKED;
 
     for (uint32_t i = 0; i < sched_cpu_count(); i++) {
-        if (cpu_schedulers[i].idle) { cpu_schedulers[i].idle->process = init; }
+        if (cpu_rqs[i].idle) { cpu_rqs[i].idle->process = init; }
     }
 
     plogk("process: Process subsystem initialized. init pid=%llu\n", init->task->pid);

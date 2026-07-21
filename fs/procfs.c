@@ -122,7 +122,7 @@ static void gen_info_stat(procfs_file_t *pf)
     }
     if (remaining > 0) {
         n = snprintf(p, remaining, "intr %llu\nctxt %llu\nbtime %llu\nprocesses %llu\nprocs_running %u\nprocs_blocked %u\n", 0ULL, 0ULL, 0ULL,
-                     scheduler.next_pid, cpu_schedulers[0].ready_count + 1, 0U);
+                     scheduler.next_pid, cpu_rqs[0].nr_running + 1, 0U);
         p += n;
     }
 
@@ -304,7 +304,7 @@ static void gen_info_loadavg(procfs_file_t *pf)
 
     uint64_t running   = 0;
     uint32_t cpu_count = sched_cpu_count();
-    for (uint32_t i = 0; i < cpu_count; i++) { running += cpu_schedulers[i].ready_count; }
+    for (uint32_t i = 0; i < cpu_count; i++) { running += cpu_rqs[i].nr_running; }
     /* active threads = currently running (one per CPU) + on ready queues */
     uint64_t active  = cpu_count + running;
     uint64_t total   = scheduler.next_pid ? scheduler.next_pid - 1 : 0;
