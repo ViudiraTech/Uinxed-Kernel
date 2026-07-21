@@ -402,6 +402,17 @@ static void update_tss_stack(task_t *task)
 	}
 }
 
+void sched_dequeue_current(void)
+{
+	eevdf_rq_t *rq = local_rq();
+	task_t     *curr = rq->curr;
+
+	if (curr && curr != rq->idle) {
+		dequeue_entity(rq, curr);
+		curr->state = TASK_BLOCKED;
+	}
+}
+
 static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
 {
 	if (cpu_id >= cpu_scheduler_count) cpu_id = 0;

@@ -485,7 +485,9 @@ static int64_t sys_write(uint64_t fd, uint64_t buf, uint64_t size, uint64_t arg3
     size_t  done = 0;
     while (done < size) {
         size_t chunk = (size - done) < sizeof(tmp) ? (size - done) : sizeof(tmp);
-        if (copy_from_user(tmp, (const void *)(buf + done), chunk)) return done ? (int64_t)done : -EFAULT;
+        if (copy_from_user(tmp, (const void *)(buf + done), chunk)) {
+            return done ? (int64_t)done : -EFAULT;
+        }
         int64_t ret = process_fd_write(proc, (int)fd, tmp, chunk);
         if (ret < 0) return done ? (int64_t)done : ret;
         if (!ret) break;
@@ -1958,5 +1960,6 @@ void syscall_init(void)
     wrmsr(0xC0000081, star);
     wrmsr(0xC0000082, (uint64_t)syscall_entry_syscall);
     wrmsr(0xC0000084, 0x200);
+    wrmsr(0xC0000080, rdmsr(0xC0000080) | 1);
     plogk("syscall: int 0x%02x interface initialized.\n", SYSCALL_VECTOR);
 }

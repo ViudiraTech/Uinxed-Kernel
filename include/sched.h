@@ -76,6 +76,9 @@ int task_set_cpu(task_t *task, uint32_t cpu_id);
 /* Yield the current CPU to another runnable task */
 void sched_yield(void);
 
+/* Remove the current task from the runqueue (used by init to yield permanently) */
+void sched_dequeue_current(void);
+
 /* Sleep the current task for at least the specified number of scheduler ticks */
 void task_sleep_ticks(uint64_t ticks);
 

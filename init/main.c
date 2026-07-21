@@ -53,7 +53,28 @@ void init_thread(void *arg)
 {
     (void)arg;
 
-    panic("init: Attempt tp kill init!");
+    plogk("init: init_thread started (pid=1).\n");
+    lmodule_t *init_mod = get_lmodule("init");
+    if (init_mod && init_mod->data && init_mod->size > 0) {
+        plogk("init: Found init module at %p, size %zu bytes.\n", init_mod->data, init_mod->size);
+        process_t *user_init = process_create(init_mod->data, init_mod->size, "init");
+        if (user_init) {
+            plogk("init: User process created, pid=%llu.\n", user_init->task->pid);
+        } else {
+            plogk("init: Failed to create user process!\n");
+        }
+    } else {
+        plogk("init: warning - init module not found.\n");
+    }
+
+    sched_dequeue_current();
+
+    while (1) {
+        enable_intr();
+        __asm__ volatile("hlt");
+        disable_intr();
+        sched_yield();
+    }
 }
 
 /* Executable entry */

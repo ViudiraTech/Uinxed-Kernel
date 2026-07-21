@@ -5,7 +5,7 @@ _start:
     lea console_path(%rip), %rdi
     mov $2, %rsi            # O_RDWR
     xor %rdx, %rdx          # mode = 0
-    int $0x80
+    syscall
     test %rax, %rax
     jns 1f
 
@@ -13,7 +13,7 @@ _start:
     lea tty_path(%rip), %rdi
     mov $2, %rsi            # O_RDWR
     xor %rdx, %rdx          # mode = 0
-    int $0x80
+    syscall
     test %rax, %rax
     js exit
 
@@ -22,12 +22,12 @@ _start:
     mov $1, %rax            # SYS_write
     lea msg(%rip), %rsi     # buf
     mov $msg_len, %rdx      # count
-    int $0x80
+    syscall
 
 exit:
     mov $60, %rax           # SYS_exit
     xor %rdi, %rdi          # status = 0
-    int $0x80
+    syscall
 .section .rodata
 console_path:
     .asciz "/dev/console"
