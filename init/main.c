@@ -14,6 +14,7 @@
 #include <cpio.h>
 #include <cpuid.h>
 #include <debug.h>
+#include <elf_loader.h>
 #include <devtmpfs.h>
 #include <eis.h>
 #include <errno.h>
@@ -49,26 +50,33 @@
 #include <vfs.h>
 #include <video.h>
 
-void init_thread(void *arg)
+extern process_t *init_process;
+
+void user_init_process(void *arg)
 {
     (void)arg;
 
-    plogk("init: init_thread started (pid=1).\n");
+    plogk("init: user_init_process started (pid=1).\n");
+
     lmodule_t *init_mod = get_lmodule("init");
-    if (init_mod && init_mod->data && init_mod->size > 0) {
-        plogk("init: Found init module at %p, size %zu bytes.\n", init_mod->data, init_mod->size);
-        process_t *user_init = process_create(init_mod->data, init_mod->size, "init");
-        if (user_init) {
-            plogk("init: User process created, pid=%llu.\n", user_init->task->pid);
-        } else {
-            plogk("init: Failed to create user process!\n");
-        }
-    } else {
+    if (!init_mod || !init_mod->data || init_mod->size == 0) {
         plogk("init: warning - init module not found.\n");
+        sched_dequeue_current();
+        goto halt;
     }
 
-    sched_dequeue_current();
+    plogk("init: Found init module at %p, size %zu bytes.\n", init_mod->data, init_mod->size);
 
+    if (elf_loader_load_user_process(init_process, init_mod->data, init_mod->size)) {
+        plogk("init: Failed to load init ELF.\n");
+        sched_dequeue_current();
+        goto halt;
+    }
+
+    plogk("init: ELF loaded, returning to scheduler for user mode entry.\n");
+    return;
+
+halt:
     while (1) {
         enable_intr();
         __asm__ volatile("hlt");

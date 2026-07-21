@@ -961,12 +961,19 @@ void task_exit(void)
     curr->state  = TASK_ZOMBIE;
 
     eevdf_rq_t *rq = local_rq();
+    if (curr != rq->idle) {
+        dequeue_entity(rq, curr);
+    }
     if (rq->curr == curr) { rq->curr = rq->idle; }
 
     spin_unlock(&scheduler.lock);
 
-    sched_yield();
-    panic("sched: zombie task resumed.");
+    for (;;) {
+        enable_intr();
+        __asm__ volatile("hlt");
+        disable_intr();
+        sched_yield();
+    }
 }
 
 /* ------------------------------------------------------------------ */

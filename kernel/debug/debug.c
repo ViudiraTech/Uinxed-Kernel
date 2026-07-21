@@ -43,20 +43,29 @@ void dump_stack(void)
     int frame_count = 0;
     for (int i = 0; i < 16 && rip && (uintptr_t)rbp > 0x1000; ++i) {
         if (carry_error_code && frame_count == 3) {
+            if ((uintptr_t)(rbp + 1) < KERNEL_BASE_ADDRESS) break;
             rip = *(uintptr_t *)(rbp + 1);
+            if ((uintptr_t)rbp->next < KERNEL_BASE_ADDRESS) break;
             rbp = rbp->next;
             ++frame_count;
             continue;
         }
 
-        sym_info_t sym_info = get_symbol_info(kernel_file_request.response->kernel_file->address, rip);
+        if ((uintptr_t)rbp < KERNEL_BASE_ADDRESS) break;
+
+        sym_info_t sym_info = {0};
+        if (rip >= KERNEL_BASE_ADDRESS) {
+            sym_info = get_symbol_info(kernel_file_request.response->kernel_file->address, rip);
+        }
         if (!sym_info.name) {
             plogk("  [<0x%016zx>] %s\n", rip, "unknown");
         } else {
             plogk("  [<0x%016zx>] `%s`+0x%lx/0x%lx\n", rip, sym_info.name, rip - current_address, sym_info.size);
         }
 
+        if ((uintptr_t)(rbp + 1) < KERNEL_BASE_ADDRESS) break;
         rip = *(uintptr_t *)(rbp + 1);
+        if ((uintptr_t)rbp->next < KERNEL_BASE_ADDRESS) break;
         rbp = rbp->next;
         ++frame_count;
     }

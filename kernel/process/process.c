@@ -10,7 +10,6 @@
 
 #include <common.h>
 #include <debug.h>
-#include <elf_loader.h>
 #include <errno.h>
 #include <frame.h>
 #include <heap.h>
@@ -30,21 +29,11 @@
 
 #define PROCESS_TABLE_SIZE 4096
 
-__attribute__((naked)) static void user_process_enter(void)
-{
-    __asm__ volatile("movq %rdi, %rax\n\t"
-                     "movq %rdi, %rdx\n\t"
-                     "shrq $32, %rdx\n\t"
-                     "movl $0xC0000100, %ecx\n\t"
-                     "wrmsr\n\t"
-                     "iretq\n\t");
-}
-
 static process_t *process_table[PROCESS_TABLE_SIZE];
 static spinlock_t process_table_lock;
 process_t        *init_process;
 
-void init_thread(void *arg);
+void user_init_process(void *arg);
 
 static process_t *pid_to_process(pid_t pid)
 {
@@ -76,7 +65,7 @@ static void pid_set_locked(pid_t pid, process_t *proc)
 }
 
 
-static int setup_process_page_dir(process_t *proc)
+int setup_process_page_dir(process_t *proc)
 {
     page_directory_t *new_dir = malloc(sizeof(page_directory_t));
     if (!new_dir) return 1;
@@ -496,10 +485,22 @@ void process_init(void)
 
     signal_init();
 
-    process_t *init = process_create_kernel("init", init_thread, NULL);
+    process_t *init = process_create("init", NULL, NULL);
     if (!init) panic("process: Failed to create init process.");
-    init_process      = init;
-    init->task->state = TASK_BLOCKED;
+    init_process = init;
+
+    uint64_t *stack = (uint64_t *)ALIGN_DOWN((uint64_t)(init->kernel_stack + PROCESS_KERNEL_STACK), 16ULL);
+    *(--stack)      = 0;
+    *(--stack)      = (uint64_t)user_init_process;
+
+    init->task->context.rsp    = (uint64_t)stack;
+    init->task->context.rflags = 0x202;
+    init->task->state          = TASK_BLOCKED;
+
+    spin_lock(&scheduler.lock);
+    enqueue_task(init->task);
+    spin_unlock(&scheduler.lock);
+    request_task_cpu(init->task);
 
     for (uint32_t i = 0; i < sched_cpu_count(); i++) {
         if (cpu_rqs[i].idle) { cpu_rqs[i].idle->process = init; }
@@ -508,13 +509,10 @@ void process_init(void)
     plogk("process: Process subsystem initialized. init pid=%llu\n", init->task->pid);
 }
 
-process_t *process_create(const uint8_t *elf_data, size_t elf_size, const char *name)
+process_t *process_create(const char *name, void (*entry)(void *), void *arg)
 {
-    elf_loader_ehdr_t *ehdr = elf_loader_validate(elf_data, elf_size);
-    if (!ehdr) {
-        plogk("process: Invalid ELF binary.\n");
-        return NULL;
-    }
+    (void)entry;
+    (void)arg;
 
     process_t *proc = calloc(1, sizeof(process_t));
     if (!proc) return NULL;
@@ -557,81 +555,19 @@ process_t *process_create(const uint8_t *elf_data, size_t elf_size, const char *
     process_fd_table_init(proc);
     signal_state_init(&proc->signal);
     task_name_copy(task, name);
+<<<<<<< HEAD
     strncpy(proc->name, name, sizeof(proc->name) - 1);
     proc->name[sizeof(proc->name) - 1] = '\0';
-
-    if (elf_loader_load_segments(proc, ehdr, elf_data)) {
-        plogk("process: Failed to load ELF segments for %s.\n", name);
-        process_free(proc);
-        return NULL;
-    }
-
-    if (process_mmap(proc, proc->stack_brk, PROCESS_STACK_SIZE, VM_READ | VM_WRITE)) {
-        plogk("process: Failed to allocate user stack for %s.\n", name);
-        process_free(proc);
-        return NULL;
-    }
-
-    vfs_node_t console = vfs_open("/dev/console");
-    if (console) {
-        int std_fd = process_fd_install(proc, console, O_RDWR);
-        if (std_fd == 0) {
-            process_fd_dup2(proc, 0, 1);
-            process_fd_dup2(proc, 0, 2);
-        }
-    } else {
-        plogk("process: warning - /dev/console not found for %s.\n", name);
-    }
-
-    uint64_t tls_frame = alloc_frames(1);
-    if (!tls_frame) {
-        plogk("process: Failed to allocate TLS frame for %s.\n", name);
-        process_free(proc);
-        return NULL;
-    }
-    memset(phys_to_virt(tls_frame), 0, PAGE_4K_SIZE);
-    uintptr_t tls_user_addr = 0x700000000000ULL;
-    page_map_to(proc->user_page_dir, tls_user_addr, tls_frame, PTE_USER | PTE_PRESENT | PTE_WRITEABLE);
-
-    uintptr_t user_rsp = elf_loader_setup_user_stack(proc, ehdr);
-    if (!user_rsp) {
-        plogk("process: Failed to initialize user stack for %s.\n", name);
-        process_free(proc);
-        return NULL;
-    }
-
-    proc->task->context.rbx    = 0;
-    proc->task->context.rbp    = 0;
-    proc->task->context.r12    = 0;
-    proc->task->context.r13    = 0;
-    proc->task->context.r14    = 0;
-    proc->task->context.r15    = 0;
-    proc->task->context.rflags = 0x202;
-    proc->task->context.rdi    = tls_user_addr;
-
-    uint64_t  kstack_top = (uint64_t)(proc->kernel_stack + PROCESS_KERNEL_STACK);
-    uint64_t *kstack     = (uint64_t *)ALIGN_DOWN(kstack_top, 16ULL);
-
-    *(--kstack) = 0x23;
-    *(--kstack) = user_rsp;
-    *(--kstack) = 0x202;
-    *(--kstack) = 0x1B;
-    *(--kstack) = ehdr->entry;
-    *(--kstack) = (uint64_t)user_process_enter;
-
-    proc->task->context.rsp = (uint64_t)kstack;
+=======
+    strncpy(proc->name, name ? name : "user", PROCESS_NAME_LEN - 1);
+    proc->name[PROCESS_NAME_LEN - 1] = '\0';
+>>>>>>> 25acea2 (Fix bug in scheduler. Fix some bugs in ELF loader. New user_init_process())
 
     pid_set(proc->task->pid, proc);
-    proc->task->state = TASK_READY;
 
-    if (proc->parent) { slist_insert_tail(&proc->parent->children, proc); }
+    if (proc->parent && proc->parent != proc) { slist_insert_tail(&proc->parent->children, proc); }
 
-    spin_lock(&scheduler.lock);
-    enqueue_task(proc->task);
-    spin_unlock(&scheduler.lock);
-    request_task_cpu(proc->task);
-
-    plogk("process: Created process %llu (%s), entry=%p\n", proc->task->pid, proc->task->name, (void *)ehdr->entry);
+    plogk("process: Created user process skeleton %llu (%s)\n", proc->task->pid, proc->task->name);
     return proc;
 }
 
@@ -681,6 +617,8 @@ process_t *process_create_kernel(const char *name, void (*entry)(void *), void *
     process_fd_table_init(proc);
     signal_state_init(&proc->signal);
     task_name_copy(task, name);
+    strncpy(proc->name, name ? name : "kthread", PROCESS_NAME_LEN - 1);
+    proc->name[PROCESS_NAME_LEN - 1] = '\0';
 
     pid_set(proc->task->pid, proc);
 
@@ -700,6 +638,8 @@ void process_exit(int exit_code)
     }
 
     process_t *proc = current->process;
+    if (proc == init_process) panic("init: Attempt to kill init!");
+
     disable_intr();
     spin_lock(&scheduler.lock);
     spin_lock(&process_table_lock);
@@ -728,6 +668,8 @@ void process_exit(int exit_code)
     process_fd_table_close(proc);
 
     plogk("process: Process %llu (%s) exited with code %d.\n", proc->task->pid, proc->task->name, exit_code);
+
+    proc->task->state = TASK_ZOMBIE;
     task_exit();
 }
 
@@ -778,6 +720,7 @@ int process_kill(pid_t pid)
 {
     process_t *proc = pid_to_process(pid);
     if (!proc || proc->task->state == TASK_ZOMBIE) return 1;
+    if (proc == init_process) panic("Attempt to kill init!");
     proc->exit_code   = -9;
     proc->task->state = TASK_ZOMBIE;
     process_fd_table_close(proc);
@@ -860,6 +803,8 @@ process_t *process_fork(void)
     }
     child->mmap_lock.lock   = 0;
     child->mmap_lock.rflags = 0;
+    strncpy(child->name, parent->name, PROCESS_NAME_LEN - 1);
+    child->name[PROCESS_NAME_LEN - 1] = '\0';
     process_fd_table_copy(child, parent);
     signal_state_copy(&child->signal, &parent->signal);
     slist_init(&child->children);
