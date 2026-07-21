@@ -65,6 +65,7 @@ void dump_stack(void)
             }
         } else {
             plogk("  [<0x%016zx>] %s\n", rip, "unknown");
+            break;
         }
 
         if ((uintptr_t)rbp->next <= 0x1000) break;

@@ -91,7 +91,7 @@ QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd -serial stdio
 
 AS             := $(CC)
 ASFLAGS        := -c -m64 -ffreestanding -nostdlib -fno-omit-frame-pointer -I include
-INIT_ELF       := assets/init.elf
+INIT_ELF       := assets/Limine/init
 
 # Automatically find all C source files in tools/ and generate their binary targets
 TOOL_C_SOURCES := $(wildcard tools/*.c)
