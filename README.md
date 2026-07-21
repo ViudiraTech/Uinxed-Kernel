@@ -13,7 +13,7 @@
 
 ## Overview 💡
 
-Uinxed is a Unix-like operating system kernel developed from scratch, focusing on modern computer architecture and advanced system design concepts. The project aims to build an efficient, stable, and scalable operating system kernel while maintaining code clarity and maintainability.
+Uinxed is a UNIX-like operating system kernel developed from scratch, focusing on modern computer architecture and advanced system design concepts. The project aims to build an efficient, stable, and scalable operating system kernel while maintaining code clarity and maintainability.
 
 ## Core Features 🌟
 
@@ -62,6 +62,9 @@ Uinxed is a Unix-like operating system kernel developed from scratch, focusing o
     2. Standard parallel port
   - Video
     1. VESA/GOP framebuffer
+- **Userspace**:
+  - `init`
+    1. Load `init` from Limine module.
 
 ## Development Environment Preparation 🛠️
 
@@ -122,10 +125,19 @@ make run
 
 #### Boot in UEFI mode
 
+Direct boot:
+
 1. Convert the USB drive or hard disk to GPT partition table and create ESP partition.
 2. Copy all folders under the project directory ./assets/Limine to the ESP partition.
 3. Copy the compiled kernel (UxImage) to the ./EFI/Boot/ directory in the ESP partition.
 4. Boot from a physical machine (must be in 64-bit UEFI mode with CSM disabled)
+
+Boot with ventoy:
+
+1. Copy the ISO image into your USB drive.
+2. Enter firmware settings and turn off your security boot to make sure ventoy is able to boot.
+3. Boot from your USB drive and select the ISO image.
+4. Kernel boots successfully.
 
 #### Boot in legacy mode
 
@@ -219,20 +231,12 @@ git clone https://github.com/your-username/your-repository.git
 cd your-repository
 ```
 
-### 3.Switch to the develop Branch
-
-- Make sure you're on the develop branch to work on new features and improvements:
-
-```bash
-git checkout develop
-```
-
-### 4.Develop Your Code
+### 3.Develop Your Code
 
 - Start coding! Make the necessary changes or add new features in your develop branch.
 - Be sure to test your code and fix any bugs before proceeding.
 
-### 5.Stage Your Changes
+### 4.Stage Your Changes
 
 - After making your changes, stage them using:
 
@@ -240,7 +244,7 @@ git checkout develop
 git add .
 ```
 
-### 6.Commit Your Changes
+### 5.Commit Your Changes
 
 - Commit your changes with a clear and descriptive message:
 
@@ -248,32 +252,32 @@ git add .
 git commit -m "Describe the changes or features you've implemented."
 ```
 
-### 7.Push Your Changes to the Remote develop Branch
+### 6.Push Your Changes to the Remote Branch
 
-- Push your local develop branch to your remote fork:
+- Push your local branch to your remote fork:
 
 ```bash
-git push origin develop
+git push
 ```
 
-### 8.Create a Pull Request
+### 7.Create a Pull Request
 
 - Visit your GitHub repository and create a Pull Request (PR).
 - Make sure the base branch is set to develop (not master).
 - Fill in the PR description clearly, outlining the changes you've made.
 - Submit the PR for review.
 
-### 9.Code Review and Merging
+### 8.Code Review and Merging
 
 - Wait for the project maintainers to review your code. They may provide feedback or request changes.
 - Once the code is reviewed and approved, it will be merged into the develop branch.
 
-### 10. **Update Your develop Branch**
+### 9. **Update Your Local Branch**
 
-- After your PR is merged, pull the latest changes from develop to keep your local repository up to date:
+- After your PR is merged, pull the latest changes from remote branch to keep your local repository up to date:
 
 ```bash
-git pull origin develop
+git pull --rebase
 ```
 
 ### Important Notes:
