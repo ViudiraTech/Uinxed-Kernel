@@ -12,12 +12,33 @@
 #include <interrupt.h>
 #include <printk.h>
 #include <stdint.h>
+#include <process.h>
 
 void page_fault_handle(interrupt_frame_t *frame, uint64_t error_code);
 
+#define USER_CS 0x1B
+
+static inline int is_user_mode(interrupt_frame_t *frame)
+{
+    return (frame->cs & 3) == 3;
+}
+
+static inline int user_exception(interrupt_frame_t *frame, const char *name, const char *msg)
+{
+    if (is_user_mode(frame)) {
+        process_t *proc = process_current();
+        if (proc) {
+            plogk("%s (pid=%llu): %s\n", name, proc->task->pid, msg);
+            process_exit(-9);
+        }
+        return 1;
+    }
+    return 0;
+}
+
 INTERRUPT_BEGIN static void ISR_0_handle(interrupt_frame_t *frame)
 {
-    (void)frame;
+    if (user_exception(frame, "#DE", "Float exception (Divide zero)")) return;
     panic("Kernel exception: #DE");
 }
 INTERRUPT_END
@@ -38,42 +59,43 @@ INTERRUPT_END
 
 INTERRUPT_BEGIN static void ISR_3_handle(interrupt_frame_t *frame)
 {
-    (void)frame;
+    if (user_exception(frame, "#BP", "Breakpoint trap")) return;
     panic("Kernel breakpoint exception: BP");
 }
 INTERRUPT_END
 
 INTERRUPT_BEGIN static void ISR_4_handle(interrupt_frame_t *frame)
 {
-    (void)frame;
+    if (user_exception(frame, "#OF", "Integer overflow")) return;
     panic("Kernel exception: #OF");
 }
 INTERRUPT_END
 
 INTERRUPT_BEGIN static void ISR_5_handle(interrupt_frame_t *frame)
 {
-    (void)frame;
+    if (user_exception(frame, "#BR", "Bound range exceeded")) return;
     panic("Kernel exception: #BR");
 }
 INTERRUPT_END
 
 INTERRUPT_BEGIN static void ISR_6_handle(interrupt_frame_t *frame)
 {
-    (void)frame;
+    if (user_exception(frame, "#UD", "Invalid opcode")) return;
     panic("Kernel exception: #UD");
 }
 INTERRUPT_END
 
 INTERRUPT_BEGIN static void ISR_7_handle(interrupt_frame_t *frame)
 {
-    (void)frame;
+    if (user_exception(frame, "#NM", "Device not available")) return;
     panic("Kernel exception: #NM");
 }
 INTERRUPT_END
 
-INTERRUPT_BEGIN static void ISR_8_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_8_handle(interrupt_frame_t *frame, uint64_t error_code)
 {
     (void)frame;
+    (void)error_code;
     carry_error_code = 1; // carry error code
     panic("Kernel exception: #DF");
 }
@@ -86,34 +108,38 @@ INTERRUPT_BEGIN static void ISR_9_handle(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
-INTERRUPT_BEGIN static void ISR_10_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_10_handle(interrupt_frame_t *frame, uint64_t error_code)
 {
     (void)frame;
+    (void)error_code;
     carry_error_code = 1; // carry error code
     panic("Kernel exception: #TS");
 }
 INTERRUPT_END
 
-INTERRUPT_BEGIN static void ISR_11_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_11_handle(interrupt_frame_t *frame, uint64_t error_code)
 {
     (void)frame;
+    (void)error_code;
     carry_error_code = 1; // carry error code
     panic("Kernel exception: #NP");
 }
 INTERRUPT_END
 
-INTERRUPT_BEGIN static void ISR_12_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_12_handle(interrupt_frame_t *frame, uint64_t error_code)
 {
     (void)frame;
+    (void)error_code;
     carry_error_code = 1; // carry error code
     panic("Kernel exception: #SS");
 }
 INTERRUPT_END
 
-INTERRUPT_BEGIN static void ISR_13_handle(interrupt_frame_t *frame)
+INTERRUPT_BEGIN static void ISR_13_handle(interrupt_frame_t *frame, uint64_t error_code)
 {
-    (void)frame;
+    (void)error_code;
     carry_error_code = 1; // carry error code
+    if (user_exception(frame, "#GP", "Segmentation fault")) return;
     panic("Kernel exception: #GP");
 }
 INTERRUPT_END
@@ -124,14 +150,14 @@ INTERRUPT_END
 
 INTERRUPT_BEGIN static void ISR_16_handle(interrupt_frame_t *frame)
 {
-    (void)frame;
+    if (user_exception(frame, "#MF", "x87 FPU error")) return;
     panic("Kernel exception: #MF");
 }
 INTERRUPT_END
 
 INTERRUPT_BEGIN static void ISR_17_handle(interrupt_frame_t *frame)
 {
-    (void)frame;
+    if (user_exception(frame, "#AC", "Alignment check")) return;
     panic("Kernel exception: #AC");
 }
 INTERRUPT_END
@@ -145,7 +171,7 @@ INTERRUPT_END
 
 INTERRUPT_BEGIN static void ISR_19_handle(interrupt_frame_t *frame)
 {
-    (void)frame;
+    if (user_exception(frame, "#XM", "SIMD floating point exception")) return;
     panic("Kernel exception: #XM");
 }
 INTERRUPT_END

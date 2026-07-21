@@ -53,7 +53,7 @@ void init_thread(void *arg)
 {
     (void)arg;
 
-    panic("init: Attempt to kill init!");
+    panic("init: Attempt tp kill init!");
 }
 
 /* Executable entry */

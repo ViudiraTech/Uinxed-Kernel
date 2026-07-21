@@ -336,6 +336,7 @@ void sched_yield(void)
     cpu_schedulers[cpu_id].current = next;
     if (cpu_id == 0) scheduler.current = next;
     update_tss_stack(next);
+    switch_page_directory(next->page_directory);
 
     spin_unlock(&scheduler.lock);
     context_switch(&prev->context, &next->context);

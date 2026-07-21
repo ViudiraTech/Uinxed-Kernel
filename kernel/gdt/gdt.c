@@ -22,8 +22,8 @@ void init_gdt(void)
     gdt0.entries[0] = 0x0000000000000000; // NULL descriptor
     gdt0.entries[1] = 0x00a09a0000000000; // Kernel code segment
     gdt0.entries[2] = 0x00c0920000000000; // Kernel data segment
-    gdt0.entries[3] = 0x00c0f20000000000; // User code segment
-    gdt0.entries[4] = 0x00a0fa0000000000; // User data segment
+    gdt0.entries[3] = 0x00a0fa0000000000; // User code segment
+    gdt0.entries[4] = 0x00c0f20000000000; // User data segment
 
     gdt0.pointer = ((gdt_register_t) {.size = (uint16_t)(sizeof(gdt_entries_t) - 1), .ptr = &gdt0.entries});
 
