@@ -9,6 +9,7 @@
   <img src="https://img.shields.io/badge/Language-C-orange"/>
   <img src="https://img.shields.io/badge/Hardware-x64-green"/>
   <img src="https://img.shields.io/badge/Firmware-UEFI/Legacy-yellow"/>
+  <a href="https://deepwiki.com/ViudiraTech/Uinxed-Kernel"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
 </div>
 
 ## Overview 💡
