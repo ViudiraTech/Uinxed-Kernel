@@ -177,4 +177,7 @@ int process_fd_poll(process_t *proc, int fd, size_t events);
 /* Snapshot metadata from an opened file descriptor */
 int process_fd_stat(process_t *proc, int fd, process_fd_stat_t *stat);
 
+/* Decrement reference count on a file, freeing it when it reaches zero */
+void process_file_put(process_file_t *file);
+
 #endif /* INCLUDE_PROCESS_H_ */

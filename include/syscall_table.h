@@ -115,7 +115,7 @@ enum x86_syscall_table {
     SYS_TIMES,
     SYS_PTRACE,
     SYS_GETUID,
-    SYS_SYSLOD,
+    SYS_SYSLOG,
     SYS_GETGID,
     SYS_SETUID,
     SYS_SETGID,
@@ -346,8 +346,8 @@ enum x86_syscall_table {
     SYS_PKEY_FREE,
     SYS_STATX,
     SYS_IO_PGETEVENTS,
-    SYS_RSEQ = 334,
-    // Syscall 335 ~ 423 not implemented
+    SYS_RSEQ,
+    /* Syscall 336 ~ 423 not implemented */
     SYS_PIDFD_SEND_SIGNAL = 424,
     SYS_IO_URING_SETUP,
     SYS_IO_URING_ENTER,

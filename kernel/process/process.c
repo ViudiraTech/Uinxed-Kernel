@@ -307,7 +307,7 @@ static void process_file_get(process_file_t *file)
     spin_unlock(&file->lock);
 }
 
-static void process_file_put(process_file_t *file)
+void process_file_put(process_file_t *file)
 {
     if (!file) return;
 

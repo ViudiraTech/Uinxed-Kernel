@@ -17,6 +17,7 @@
 #include <devtmpfs.h>
 #include <eis.h>
 #include <errno.h>
+#include <eventfd.h>
 #include <fatfs_vfs.h>
 #include <frame.h>
 #include <gdt.h>
@@ -25,6 +26,7 @@
 #include <ide.h>
 #include <interrupt.h>
 #include <limine_module.h>
+#include <mmap.h>
 #include <page.h>
 #include <parallel.h>
 #include <pci.h>
@@ -35,10 +37,12 @@
 #include <sched.h>
 #include <sched_test.h>
 #include <serial.h>
+#include <signalfd.h>
 #include <smbios.h>
 #include <smp.h>
 #include <sound/sb16.h>
 #include <syscall.h>
+#include <timerfd.h>
 #include <tmpfs.h>
 #include <tsc.h>
 #include <uinxed.h>
@@ -134,6 +138,10 @@ void kernel_entry(void)
     }
     sched_init();
     process_init();
+    eventfd_init();
+    timerfd_init();
+    signalfd_init();
+    mmap_init();
     sched_test_init();
     enable_intr();
 

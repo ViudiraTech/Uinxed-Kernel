@@ -20,8 +20,9 @@
 #define O_WRONLY  0x0001
 #define O_RDWR    0x0002
 #define O_ACCMODE 0x0003
-#define O_CREAT   0x0040
-#define O_APPEND  0x0400
+#define O_CREAT    0x0040
+#define O_APPEND   0x0400
+#define O_NONBLOCK 0x0800
 
 #define SEEK_SET 0
 #define SEEK_CUR 1
