@@ -52,6 +52,7 @@ UxImage
 Uinxed-x64.iso
 init
 init.elf
+mkfs_simplefs
 
 # Clangd
 .clangd

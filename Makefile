@@ -124,8 +124,7 @@ $(INIT_ELF): assets/init.S assets/init.ld
 	$(Q)clang-tidy $< -- $(C_FLAGS)
 
 info:
-	$(Q)printf "Uinxed-Kernel Compile Script.\n"
-	$(Q)printf "Copyright 2020 ViudiraTech, based on the Apache 2.0 license.\n\n"
+	$(Q)printf "Uinxed Compiling Script. Apache License Version 2.0.\n"
 
 tools/%: tools/%.c
 	$(Q)printf "  HOSTCC  $@\n"
