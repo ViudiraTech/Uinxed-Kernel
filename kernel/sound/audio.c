@@ -95,7 +95,7 @@ int audio_register_card(const char *name, const audio_pcm_format_t *format, cons
     if (status != EOK) goto rollback;
 
     audio_cards_count++;
-    plogk("audio: Registered card %u: %s\n", card->id, card->name);
+    plogk("audio: Registered card%u: %s\n", card->id, card->name);
     return (int)card->id;
 
 rollback:
