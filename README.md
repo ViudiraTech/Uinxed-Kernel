@@ -304,6 +304,7 @@ You can submit an issue in your own language. However, please be aware of factor
 | 3 | XSlime | [W9pi3cZ1](https://github.com/W9pi3cZ1) | Features. Code optimization. Testing. Bug fixing. |
 | 4 | suhuajun | [suhuajun-github](https://github.com/suhuajun-github) | Code optimization. Testing. Bug fixing. |
 | 5 | TMX | [TMXQWQ](https://github.com/TMXQWQ) | Features. Code optimization. Testing. Bug fixing. |
+| 6 | JiTianYu391 | [JiTianYu391](https://github.com/JiTianYu391) | Features. Development. Code optimization. Testing. Bug fixing. |
 
 A resident contributor is someone who directly contributes to and manages the project in a resident capacity. Removing a resident developer from the resident developer list does not mean that the project manager will not recognize their contributions, but rather that they are no longer involved in the project in a resident capacity. However, their contribution record will remain.
 
