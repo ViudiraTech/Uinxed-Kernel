@@ -78,31 +78,38 @@ ifneq ($(CONFIG_SERIAL_STOP_BITS),)
   C_CONFIG += -DSERIAL_STOP_BITS=$(CONFIG_SERIAL_STOP_BITS)
 endif
 
-C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*")
-C_HEADERS      := $(shell find * -name "*.h")
-OBJS           := $(C_SOURCES:%.c=%.o)
-DEPS           := $(OBJS:%.o=%.d)
-LIBS           := $(wildcard libs/lib*.a)
-PWD            := $(shell pwd)
-HOST_CC        ?= cc
-HOST_CFLAGS    := -Wall -Wextra -O2
-QEMU           := qemu-system-x86_64
-QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd -serial stdio
+C_SOURCES  := $(shell find * -name "*.c" -not -path "tools/*")
+C_HEADERS  := $(shell find * -name "*.h")
+OBJS       := $(C_SOURCES:%.c=%.o)
+DEPS       := $(OBJS:%.o=%.d)
+LIBS       := $(wildcard libs/lib*.a)
+PWD        := $(shell pwd)
+HOST_CC    ?= cc
+HOST_CFLAGS := -Wall -Wextra -O2
+QEMU       := qemu-system-x86_64
+QEMU_FLAGS := -machine q35 -bios assets/ovmf-code.fd -serial stdio
 
-# Automatically find all C source files in tools/ and generate their binary targets
-TOOL_C_SOURCES := $(wildcard tools/*.c)
-TOOL_TARGETS   := $(TOOL_C_SOURCES:%.c=%)
+AS         := $(CC)
+ASFLAGS    := -c -m64 -ffreestanding -nostdlib -fno-omit-frame-pointer -I include
+INIT_ELF   := assets/init.elf
 
 # If you want to get more details of `dump_stack`, you need to replace `-O3` with `-O0` or '-Os'.
 # `-fno-optimize-sibling-calls` is for `dump_stack` to work properly.
-C_FLAGS        := -Wall -Wextra -O3 -g3 -m64 -fpie -ffreestanding -fno-optimize-sibling-calls -fno-stack-protector -fno-omit-frame-pointer -mstackrealign -mno-red-zone -I include -MMD
-LD_FLAGS       := -nostdlib -pie -T assets/linker.ld -m elf_x86_64
+C_FLAGS    := -Wall -Wextra -O3 -g3 -m64 -fpie -ffreestanding -fno-optimize-sibling-calls -fno-stack-protector -fno-omit-frame-pointer -mstackrealign -mno-red-zone -I include -MMD
+LD_FLAGS   := -nostdlib -pie -T assets/linker.ld -m elf_x86_64
 
 all: Uinxed-x64.iso
 
 %.o: %.c
 	$(Q)printf "  CC      $@\n"
 	$(Q)$(CC) $(C_FLAGS) $(C_CONFIG) -MT $@ -c -o $@ $<
+
+$(INIT_ELF): assets/init.S assets/init.ld
+	$(Q)printf "  AS      assets/init.o\n"
+	$(Q)$(AS) $(ASFLAGS) -o assets/init.o $<
+	$(Q)printf "  LD      $@\n"
+	$(Q)$(LD) -nostdlib -static -T assets/init.ld -m elf_x86_64 -o $@ assets/init.o
+	$(Q)$(RM) assets/init.o
 
 %.fmt: %
 	$(Q)printf "  FORMAT  $<\n"
@@ -116,18 +123,15 @@ info:
 	$(Q)printf "Uinxed-Kernel Compile Script.\n"
 	$(Q)printf "Copyright 2020 ViudiraTech, based on the Apache 2.0 license.\n\n"
 
-tools/%: tools/%.c
-	$(Q)printf "  HOSTCC  $@\n"
-	$(Q)$(HOST_CC) $(HOST_CFLAGS) -o $@ $<
-
-UxImage: $(TOOL_TARGETS) $(OBJS) $(LIBS)
+UxImage: $(OBJS) $(LIBS)
 	$(Q)printf "  LD      $@\n"
-	$(Q)$(LD) $(LD_FLAGS) -o $@ $(filter-out $(TOOL_TARGETS),$^)
+	$(Q)$(LD) $(LD_FLAGS) -o $@ $^
 
-Uinxed-x64.iso: info UxImage
+Uinxed-x64.iso: info UxImage $(INIT_ELF)
 	$(Q)printf "  XORRISO $@\n\n"
 	$(Q)cp -a assets/Limine iso
 	$(Q)cp $(word 2,$^) iso/EFI/Boot
+	$(Q)cp $(INIT_ELF) iso/
 	$(Q)xorriso -as mkisofs -R -r -J -b Limine/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 -boot-info-table \
                 -hfsplus -apm-block-size 2048 -efi-boot-part --efi-boot-image --protective-msdos-label \
                 --efi-boot Limine/limine-uefi-cd.bin -o $@ iso
@@ -153,12 +157,19 @@ help: info
 run: info Uinxed-x64.iso
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(word 2,$^)
 
-disk.img: info tools/mkfs_simplefs
-	$(Q)printf "  MKFS    $@\n\n"
+tools/mkfs_simplefs: tools/mkfs_simplefs.c include/simplefs.h include/superblock.h
+	$(Q)printf "  HOSTCC  $@\n"
+	$(Q)mkdir -p tools
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) -o $@ tools/mkfs_simplefs.c
+
+disk.img: tools/mkfs_simplefs
+	$(Q)printf "  MKFS    $@\n"
 	$(Q)./tools/mkfs_simplefs $@
 
+diskimg: disk.img
+
 clean: info
-	$(Q)$(RM) $(OBJS) $(DEPS) UxImage Uinxed-x64.iso tools/mkfs_simplefs disk.img
+	$(Q)$(RM) $(OBJS) $(DEPS) UxImage Uinxed-x64.iso tools/mkfs_simplefs disk.img assets/init.o
 	$(Q)printf "Clean completed.\n"
 
 format: info $(C_SOURCES:%=%.fmt) $(C_HEADERS:%=%.fmt)
