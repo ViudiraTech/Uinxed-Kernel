@@ -110,7 +110,7 @@ task_t *kthread_create_on_cpu(const char *name, kthread_entry_t entry, void *arg
 	}
 
 	spin_lock(&scheduler.lock);
-	enqueue_task(task);
+	enqueue_task_initial(task);
 	spin_unlock(&scheduler.lock);
 	request_task_cpu(task);
 

@@ -32,7 +32,10 @@
 /* ------------------------------------------------------------------ */
 
 #define SCHED_LOAD_BALANCE_INTERVAL 16
-#define SCHED_BASE_SLICE            5ULL
+#define SCHED_BASE_SLICE            4ULL     /* Linux sysctl_sched_base_slice ≈ 3ms */
+#define SCHED_LATENCY               8ULL     /* target scheduling latency (ticks)    */
+#define SCHED_MIN_GRANULARITY       1ULL     /* minimum preemption granularity       */
+#define SCHED_WAKEUP_GRANULARITY    1ULL     /* wakeup preemption threshold          */
 
 /* ------------------------------------------------------------------ */
 /*  Global state                                                        */
@@ -109,6 +112,22 @@ static uint64_t avg_vruntime(eevdf_rq_t *rq)
 	return rq->min_vruntime + (uint64_t)(rq->avg_vruntime / (int64_t)rq->avg_load);
 }
 
+/* Scale the base slice by the number of runnable tasks to stay within
+ * the scheduling latency period.  Ensures each task gets at least
+ * min_granularity. */
+static uint64_t calc_effective_slice(eevdf_rq_t *rq)
+{
+	uint64_t nr = rq->nr_running;
+
+	if (rq->curr && rq->curr->state == TASK_RUNNING && rq->curr != rq->idle) nr++;
+	if (nr <= 1) return SCHED_BASE_SLICE;
+
+	uint64_t slice = SCHED_LATENCY / nr;
+	if (slice < SCHED_MIN_GRANULARITY) slice = SCHED_MIN_GRANULARITY;
+	if (slice > SCHED_BASE_SLICE)       slice = SCHED_BASE_SLICE;
+	return slice;
+}
+
 /* ------------------------------------------------------------------ */
 /*  EEVDF core: eligibility check                                       */
 /*                                                                      */
@@ -149,6 +168,18 @@ static int entity_less(const rb_node_t *a, const rb_node_t *b)
 	if (ta->deadline != tb->deadline)
 		return (int64_t)(ta->deadline - tb->deadline) < 0;
 	return (int64_t)(ta->vruntime - tb->vruntime) < 0;
+}
+
+/* Check whether candidate is "significantly" better than curr.
+ * Uses wakeup_granularity to prevent preemption ping-pong. */
+static int entity_before(task_t *cand, task_t *curr)
+{
+	if (entity_less(&cand->run_node, &curr->run_node)) {
+		uint64_t gran = calc_delta_fair(SCHED_WAKEUP_GRANULARITY, cand);
+		if ((int64_t)(cand->deadline + gran) < (int64_t)curr->deadline)
+			return 1;
+	}
+	return 0;
 }
 
 /* Augmentation callback: recompute min_vruntime for the subtree */
@@ -213,7 +244,9 @@ static void update_deadline(eevdf_rq_t *rq, task_t *task)
 	/* Only update if the task has consumed its current slice */
 	if ((int64_t)(task->vruntime - task->deadline) < 0) return;
 
-	task->deadline = task->vruntime + calc_delta_fair(SCHED_BASE_SLICE, task);
+	uint64_t slice = calc_effective_slice(rq);
+
+	task->deadline = task->vruntime + calc_delta_fair(slice, task);
 	task->vlag     = (int64_t)(avg_vruntime(rq) - task->vruntime);
 }
 
@@ -226,17 +259,22 @@ static void place_entity(eevdf_rq_t *rq, task_t *task, int initial)
 	uint64_t vruntime = avg_vruntime(rq);
 	int64_t  lag      = 0;
 
-	uint64_t vslice = calc_delta_fair(SCHED_BASE_SLICE, task);
+	uint64_t slice  = calc_effective_slice(rq);
+	uint64_t vslice = calc_delta_fair(slice, task);
 
-	/* PLACE_LAG: adjust vruntime based on stored vlag */
+	/* PLACE_LAG: adjust vruntime based on stored vlag.
+	 * Scale the stored lag to account for the changed load. */
 	if (rq->nr_running > 0) {
 		uint64_t load = rq->avg_load;
+		uint64_t new_load;
 
-		if (rq->curr && rq->curr->state == TASK_RUNNING)
+		if (rq->curr && rq->curr->state == TASK_RUNNING && rq->curr != rq->idle)
 			load += rq->curr->weight;
+		new_load = load + task->weight;
 
-		lag  = task->vlag;
-		lag  = lag * (int64_t)(load + task->weight) / (int64_t)(load ? load : 1);
+		lag = task->vlag;
+		if (load && new_load > load)
+			lag = lag * (int64_t)new_load / (int64_t)load;
 	}
 
 	task->vruntime = vruntime - (uint64_t)lag;
@@ -305,7 +343,7 @@ static task_t *pick_eevdf(eevdf_rq_t *rq)
 		task_t *leftmost = rb_entry(rq->timeline.leftmost, task_t, run_node);
 
 		if (entity_eligible(rq, leftmost)) {
-			if (!curr || entity_less(&leftmost->run_node, &curr->run_node))
+			if (!curr || entity_before(leftmost, curr))
 				return leftmost;
 			return curr;
 		}
@@ -325,7 +363,7 @@ static task_t *pick_eevdf(eevdf_rq_t *rq)
 		/* Check the current node */
 		task_t *se = rb_entry(node, task_t, run_node);
 		if (entity_eligible(rq, se)) {
-			if (!curr || entity_less(&se->run_node, &curr->run_node))
+			if (!curr || entity_before(se, curr))
 				return se;
 			return curr;
 		}
@@ -364,13 +402,13 @@ static void update_tss_stack(task_t *task)
 	}
 }
 
-static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id)
+static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
 {
 	if (cpu_id >= cpu_scheduler_count) cpu_id = 0;
 
 	eevdf_rq_t *rq = &cpu_rqs[cpu_id];
 
-	place_entity(rq, task, 0);
+	place_entity(rq, task, initial);
 	task->state      = TASK_READY;
 	task->wake_tick  = 0;
 	task->wait_queue = NULL;
@@ -385,7 +423,12 @@ static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id)
 
 void enqueue_task(task_t *task)
 {
-	enqueue_task_on_cpu(task, task->cpu_id);
+	enqueue_task_on_cpu(task, task->cpu_id, 0);
+}
+
+void enqueue_task_initial(task_t *task)
+{
+	enqueue_task_on_cpu(task, task->cpu_id, 1);
 }
 
 /* ------------------------------------------------------------------ */
@@ -399,7 +442,6 @@ static void wake_task_locked(task_t *task, int remove_linked_node)
 		return;
 
 	if (remove_linked_node) ilist_remove(&task->sched_node);
-	place_entity(&cpu_rqs[task->cpu_id], task, 0);
 	enqueue_task(task);
 }
 
@@ -462,7 +504,7 @@ static task_t *balance_ready_queues_locked(void)
 	task_t *task = rb_entry(node, task_t, run_node);
 
 	dequeue_entity(&cpu_rqs[busiest], task);
-	enqueue_task_on_cpu(task, idlest);
+	enqueue_task_on_cpu(task, idlest, 0);
 	return task;
 }
 
@@ -626,7 +668,7 @@ int task_set_cpu(task_t *task, uint32_t cpu_id)
 
 	if (task->state == TASK_READY) {
 		dequeue_entity(&cpu_rqs[task->cpu_id], task);
-		enqueue_task_on_cpu(task, cpu_id);
+		enqueue_task_on_cpu(task, cpu_id, 0);
 	} else {
 		task->cpu_id = cpu_id;
 	}
@@ -647,14 +689,13 @@ void sched_yield(void)
 	task_t     *prev = rq->curr;
 	task_t     *next;
 
-	/* Update the current task's vruntime before selecting next */
+	/* Advance vruntime and re-enqueue the current task if it was running */
 	if (prev && prev->state == TASK_RUNNING && prev != rq->idle) {
+		update_curr(rq, 1);
 		update_deadline(rq, prev);
-		/* Re-enqueue if it should remain runnable */
-		if (prev->state == TASK_RUNNING) {
-			prev->state = TASK_READY;
-			enqueue_entity(rq, prev);
-		}
+		prev->vlag = (int64_t)(avg_vruntime(rq) - prev->vruntime);
+		prev->state = TASK_READY;
+		enqueue_entity(rq, prev);
 	}
 
 	next = pick_eevdf(rq);
@@ -664,10 +705,19 @@ void sched_yield(void)
 		return;
 	}
 
+	/* Advance min_vruntime when going idle so that tasks waking up
+	 * later don't get a huge vruntime windfall. */
+	if (next == rq->idle && rq->nr_running == 0) {
+		uint64_t avg = avg_vruntime(rq);
+		if ((int64_t)(avg - rq->min_vruntime) > 0)
+			rq->min_vruntime = avg;
+	}
+
 	/* Dequeue the selected task from the timeline */
 	if (next != rq->idle && next->state == TASK_READY) {
 		dequeue_entity(rq, next);
-		next->state = TASK_RUNNING;
+		next->state     = TASK_RUNNING;
+		next->time_slice = 0;
 	}
 
 	rq->curr = next;
@@ -892,10 +942,14 @@ void sched_tick(void)
 	if (curr->state != TASK_RUNNING) return;
 
 	/* Advance vruntime by 1 tick */
+	curr->time_slice++;
 	update_curr(rq, 1);
 
 	/* Check if the current task has exhausted its slice (deadline) */
 	update_deadline(rq, curr);
+
+	/* Minimum granularity: don't preempt within the first tick(s) */
+	if (curr->time_slice < SCHED_MIN_GRANULARITY) return;
 
 	/* Preempt if there is a better candidate */
 	if (has_ready_task()) {

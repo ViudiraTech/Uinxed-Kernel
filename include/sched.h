@@ -22,7 +22,6 @@
 /* ------------------------------------------------------------------ */
 
 #define SCHED_NICE_0_LOAD      1024ULL   /* weight of nice 0 */
-#define SCHED_BASE_SLICE_NS    3000000ULL /* 3 ms default base slice (ns) */
 
 /* ------------------------------------------------------------------ */
 /*  Per-CPU EEVDF runqueue                                              */
@@ -64,6 +63,9 @@ extern uint32_t         cpu_scheduler_count;
 
 /* Enqueue a task onto its assigned CPU's ready queue */
 void enqueue_task(task_t *task);
+
+/* Enqueue a newly created task (initial placement with half slice) */
+void enqueue_task_initial(task_t *task);
 
 /* Request a reschedule IPI for the target task's CPU */
 void request_task_cpu(task_t *task);
