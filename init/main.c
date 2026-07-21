@@ -80,8 +80,23 @@ void init_thread(void *arg)
 /* Executable entry */
 void executable_entry(void)
 {
-    disable_intr();
-    while (1) __asm__ volatile("hlt");
+    const char *msg = "Theoretically you should use Limine to boot this kernel, not execute it directly.\n";
+
+    __asm__ volatile (
+        "mov $1, %%rax\n\t"
+        "mov $1, %%rdi\n\t"
+        "mov %1, %%rsi\n\t"
+        "mov %2, %%rdx\n\t"
+        "syscall\n\t"
+        "mov $60, %%rax\n\t"
+        "mov $1, %%rdi\n\t"
+        "syscall\n\t"
+        :
+        : "r"(msg), "r"(msg), "i"(83)
+        : "%rax", "%rdi", "%rsi", "%rdx", "memory"
+    );
+
+    while (1) __asm__ volatile ("cli; hlt");
 }
 
 /* Kernel entry */

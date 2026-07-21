@@ -124,7 +124,7 @@ $(INIT_ELF): assets/init.S assets/init.ld
 	$(Q)clang-tidy $< -- $(C_FLAGS)
 
 info:
-	$(Q)printf "Uinxed Compiling Script. Apache License Version 2.0.\n\n"
+	$(Q)printf "Uinxed Compiling Script - Apache License Version 2.0.\n\n"
 
 tools/%: tools/%.c
 	$(Q)printf "  HOSTCC  $@\n"
