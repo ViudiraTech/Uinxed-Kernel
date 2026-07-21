@@ -247,6 +247,16 @@ static void devtmpfs_create_audio_nodes(void)
     }
 }
 
+/* Linux standard TTY device major numbers */
+#define TTY_MAJOR    4
+#define TTY_AUX_MAJOR 5
+
+typedef struct {
+    const char *path;
+    unsigned int major;
+    unsigned int minor;
+} tty_dev_info_t;
+
 static void devtmpfs_create_tty_nodes(void)
 {
     static const tmpfs_device_ops_t tty_device = {
@@ -257,41 +267,41 @@ static void devtmpfs_create_tty_nodes(void)
         .ctx   = 0,
     };
 
-    static const char *tty_paths[] = {
-        "/dev/tty0",
-        "/dev/tty",
-        "/dev/console",
+    static const tty_dev_info_t tty_nodes[] = {
+        { .path = "/dev/tty0",    .major = TTY_MAJOR,     .minor = 0 },
+        { .path = "/dev/tty",     .major = TTY_AUX_MAJOR, .minor = 0 },
+        { .path = "/dev/console", .major = TTY_AUX_MAJOR, .minor = 1 },
     };
-    static const unsigned int tty_ids[] = { 4, 5, 5 };
-    static const unsigned int tty_rdevs[] = { 0, 0, 1 };
 
-    for (size_t i = 0; i < sizeof(tty_paths) / sizeof(tty_paths[0]); i++) {
-        vfs_node_t node;
-        int        status;
+    for (size_t i = 0; i < sizeof(tty_nodes) / sizeof(tty_nodes[0]); i++) {
+        const tty_dev_info_t *info = &tty_nodes[i];
+        vfs_node_t            node;
+        int                   status;
 
-        status = vfs_mkfile(tty_paths[i]);
+        status = vfs_mkfile(info->path);
         if (status != EOK && status != -EEXIST) {
-            plogk("devtmpfs: Cannot create %s: %d\n", tty_paths[i], status);
+            plogk("devtmpfs: Cannot create %s: %d\n", info->path, status);
             continue;
         }
 
-        node = vfs_open(tty_paths[i]);
+        node = vfs_open(info->path);
         if (!node) {
-            plogk("devtmpfs: Cannot open %s after creation.\n", tty_paths[i]);
+            plogk("devtmpfs: Cannot open %s after creation.\n", info->path);
             continue;
         }
 
         status = tmpfs_bind_device(node, file_stream, &tty_device);
         if (status != EOK) {
-            plogk("devtmpfs: Cannot bind %s: %d\n", tty_paths[i], status);
+            plogk("devtmpfs: Cannot bind %s: %d\n", info->path, status);
             vfs_close(node);
             continue;
         }
 
         node->blksz = 1;
-        node->dev   = tty_ids[i];
-        node->rdev  = tty_rdevs[i];
-        plogk("devtmpfs: Registered %s as TTY device.\n", tty_paths[i]);
+        node->dev   = info->major;
+        node->rdev  = info->minor;
+        plogk("devtmpfs: Registered %s as TTY device (major=%u, minor=%u).\n",
+              info->path, info->major, info->minor);
         vfs_close(node);
     }
 }
