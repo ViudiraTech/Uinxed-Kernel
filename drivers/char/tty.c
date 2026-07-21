@@ -333,3 +333,29 @@ void tty_print_str(const char *str)
         str_clone++;
     }
 }
+
+/* Write a byte buffer to the TTY device (standard Linux semantics) */
+size_t tty_dev_write(void *ctx, const void *addr, size_t offset, size_t size)
+{
+    (void)ctx;
+    (void)offset;
+
+    const unsigned char *buf = (const unsigned char *)addr;
+    size_t               i;
+
+    for (i = 0; i < size; i++) {
+        tty_print_ch((char)buf[i]);
+    }
+    return size;
+}
+
+/* Poll TTY device for write readiness (always writable) */
+int tty_dev_poll(void *ctx, size_t events)
+{
+    (void)ctx;
+
+    int revents = 0;
+    /* TTY is always writable; readable only if there's pending input */
+    if (events & 0x0004) revents |= 0x0004; /* POLLOUT */
+    return revents;
+}

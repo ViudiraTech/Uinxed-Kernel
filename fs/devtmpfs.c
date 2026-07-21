@@ -18,6 +18,7 @@
 #include <ps2.h>
 #include <sound/audio.h>
 #include <tmpfs.h>
+#include <tty.h>
 #include <vfs.h>
 #include <video.h>
 
@@ -246,6 +247,55 @@ static void devtmpfs_create_audio_nodes(void)
     }
 }
 
+static void devtmpfs_create_tty_nodes(void)
+{
+    static const tmpfs_device_ops_t tty_device = {
+        .read  = 0, /* TTY read from userspace not yet supported */
+        .write = tty_dev_write,
+        .poll  = tty_dev_poll,
+        .ioctl = 0,
+        .ctx   = 0,
+    };
+
+    static const char *tty_paths[] = {
+        "/dev/tty0",
+        "/dev/tty",
+        "/dev/console",
+    };
+    static const unsigned int tty_ids[] = { 4, 5, 5 };
+    static const unsigned int tty_rdevs[] = { 0, 0, 1 };
+
+    for (size_t i = 0; i < sizeof(tty_paths) / sizeof(tty_paths[0]); i++) {
+        vfs_node_t node;
+        int        status;
+
+        status = vfs_mkfile(tty_paths[i]);
+        if (status != EOK && status != -EEXIST) {
+            plogk("devtmpfs: Cannot create %s: %d\n", tty_paths[i], status);
+            continue;
+        }
+
+        node = vfs_open(tty_paths[i]);
+        if (!node) {
+            plogk("devtmpfs: Cannot open %s after creation.\n", tty_paths[i]);
+            continue;
+        }
+
+        status = tmpfs_bind_device(node, file_stream, &tty_device);
+        if (status != EOK) {
+            plogk("devtmpfs: Cannot bind %s: %d\n", tty_paths[i], status);
+            vfs_close(node);
+            continue;
+        }
+
+        node->blksz = 1;
+        node->dev   = tty_ids[i];
+        node->rdev  = tty_rdevs[i];
+        plogk("devtmpfs: Registered %s as TTY device.\n", tty_paths[i]);
+        vfs_close(node);
+    }
+}
+
 void devtmpfs_init(void)
 {
     int        status;
@@ -288,4 +338,5 @@ void devtmpfs_init(void)
     devtmpfs_create_input_event_node();
     devtmpfs_create_framebuffer_node();
     devtmpfs_create_audio_nodes();
+    devtmpfs_create_tty_nodes();
 }

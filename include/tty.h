@@ -64,4 +64,10 @@ void tty_buff_flush(void);
 /* Flush deferred tty output for framebuffer consoles */
 void tty_deferred_flush(void);
 
+/* Write a byte buffer to the TTY device (standard Linux semantics) */
+size_t tty_dev_write(void *ctx, const void *addr, size_t offset, size_t size);
+
+/* Poll TTY device for write readiness */
+int tty_dev_poll(void *ctx, size_t events);
+
 #endif // INCLUDE_TTY_H_
