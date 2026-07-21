@@ -39,22 +39,22 @@
 #define MS_SYNC       0x04
 
 /* madvise hints */
-#define MADV_NORMAL     0
-#define MADV_RANDOM     1
-#define MADV_SEQUENTIAL 2
-#define MADV_WILLNEED   3
-#define MADV_DONTNEED   4
-#define MADV_FREE       8
-#define MADV_REMOVE     9
-#define MADV_DONTFORK   10
-#define MADV_DOFORK     11
-#define MADV_HWPOISON   100
-#define MADV_MERGEABLE  12
+#define MADV_NORMAL      0
+#define MADV_RANDOM      1
+#define MADV_SEQUENTIAL  2
+#define MADV_WILLNEED    3
+#define MADV_DONTNEED    4
+#define MADV_FREE        8
+#define MADV_REMOVE      9
+#define MADV_DONTFORK    10
+#define MADV_DOFORK      11
+#define MADV_HWPOISON    100
+#define MADV_MERGEABLE   12
 #define MADV_UNMERGEABLE 13
-#define MADV_HUGEPAGE   14
-#define MADV_NOHUGEPAGE 15
-#define MADV_COLD       20
-#define MADV_PAGEOUT    21
+#define MADV_HUGEPAGE    14
+#define MADV_NOHUGEPAGE  15
+#define MADV_COLD        20
+#define MADV_PAGEOUT     21
 
 /* mlock flags */
 #define MCL_CURRENT 0x01
@@ -64,8 +64,7 @@
 /* ---------- Public API ---------- */
 
 /* Full mmap syscall implementation */
-int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot,
-                        uint64_t flags, uint64_t fd, uint64_t pgoff);
+int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t flags, uint64_t fd, uint64_t pgoff);
 
 /* munmap */
 int sys_munmap_full(uint64_t addr, uint64_t length);
@@ -92,8 +91,7 @@ int sys_mlockall(uint64_t flags);
 int sys_munlockall(void);
 
 /* mremap */
-int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len,
-                   uint64_t flags, uint64_t new_addr);
+int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64_t flags, uint64_t new_addr);
 
 /* mincore */
 int sys_mincore(uint64_t addr, uint64_t length, uint64_t vec);

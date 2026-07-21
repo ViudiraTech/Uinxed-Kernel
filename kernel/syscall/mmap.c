@@ -27,9 +27,9 @@
 #include <uaccess.h>
 #include <vfs.h>
 
-#define MMAP_BASE_ADDR      0x00007f0000000000ULL
-#define MMAP_END_ADDR       0x00007fffffffffffULL
-#define MMAP_DEFAULT_ALIGN  PAGE_4K_SIZE
+#define MMAP_BASE_ADDR     0x00007f0000000000ULL
+#define MMAP_END_ADDR      0x00007fffffffffffULL
+#define MMAP_DEFAULT_ALIGN PAGE_4K_SIZE
 
 /* Convert Linux mmap prot to internal vm_flags_t */
 static vm_flags_t prot_to_vm_flags(uint64_t prot)
@@ -53,7 +53,7 @@ static uint64_t vm_flags_to_pte(vm_flags_t flags)
 /* Find a free virtual address range for mmap */
 static uintptr_t find_free_vma_range(process_t *proc, size_t length)
 {
-    uintptr_t addr = MMAP_BASE_ADDR;
+    uintptr_t addr  = MMAP_BASE_ADDR;
     size_t    pages = ALIGN_UP(length, PAGE_4K_SIZE);
 
     spin_lock(&proc->mmap_lock);
@@ -116,23 +116,20 @@ static void unmap_physical_pages(process_t *proc, uintptr_t start, size_t length
     uintptr_t end = ALIGN_UP(start + length, PAGE_4K_SIZE);
     for (uintptr_t va = start; va < end; va += PAGE_4K_SIZE) {
         uintptr_t phys = walk_page_tables(proc->user_page_dir, va);
-        if (phys && phys != (uintptr_t)-1) {
-            free_frame(phys);
-        }
+        if (phys && phys != (uintptr_t)-1) { free_frame(phys); }
     }
 }
 
 /* ---------- Full mmap syscall implementation ---------- */
 
-int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot,
-                        uint64_t flags, uint64_t fd, uint64_t pgoff)
+int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t flags, uint64_t fd, uint64_t pgoff)
 {
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
     if (!length) return -EINVAL;
 
-    size_t    pages  = ALIGN_UP(length, PAGE_4K_SIZE);
+    size_t    pages = ALIGN_UP(length, PAGE_4K_SIZE);
     uintptr_t mmap_addr;
 
     /* Determine target address */
@@ -174,7 +171,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot,
 
         if (!file) return -EBADF;
 
-        uint64_t pte_flags = vm_flags_to_pte(vm_flags);
+        uint64_t pte_flags   = vm_flags_to_pte(vm_flags);
         size_t   file_offset = (size_t)pgoff * PAGE_4K_SIZE;
 
         /* Map pages from file content */
@@ -190,11 +187,9 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot,
 
             /* Read from file into the page */
             size_t read_offset = file_offset + i;
-            size_t to_read = PAGE_4K_SIZE;
+            size_t to_read     = PAGE_4K_SIZE;
             if (read_offset < file->node->size) {
-                if (read_offset + to_read > file->node->size) {
-                    to_read = file->node->size - read_offset;
-                }
+                if (read_offset + to_read > file->node->size) { to_read = file->node->size - read_offset; }
                 vfs_read(file->node, virt, read_offset, to_read);
             }
 
@@ -248,7 +243,7 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
 
     if (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) return -EINVAL;
 
-    vm_flags_t vm_flags = prot_to_vm_flags(prot);
+    vm_flags_t vm_flags  = prot_to_vm_flags(prot);
     uint64_t   pte_flags = vm_flags_to_pte(vm_flags);
     size_t     pages     = ALIGN_UP(length, PAGE_4K_SIZE);
 
@@ -266,9 +261,7 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
     for (size_t i = 0; i < pages; i += PAGE_4K_SIZE) {
         uintptr_t va   = (uintptr_t)addr + i;
         uintptr_t phys = walk_page_tables(proc->user_page_dir, va);
-        if (phys && phys != (uintptr_t)-1) {
-            page_map_to(proc->user_page_dir, va, phys, pte_flags);
-        }
+        if (phys && phys != (uintptr_t)-1) { page_map_to(proc->user_page_dir, va, phys, pte_flags); }
     }
 
     return EOK;
@@ -316,8 +309,7 @@ int sys_munlockall(void)
     return EOK;
 }
 
-int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len,
-                    uint64_t flags, uint64_t new_addr)
+int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64_t flags, uint64_t new_addr)
 {
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
@@ -327,9 +319,7 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len,
     size_t new_pages = ALIGN_UP(new_len, PAGE_4K_SIZE);
 
     if (new_len <= old_len) {
-        if (new_len < old_len) {
-            unmap_physical_pages(proc, (uintptr_t)old_addr + new_pages, old_pages - new_pages);
-        }
+        if (new_len < old_len) { unmap_physical_pages(proc, (uintptr_t)old_addr + new_pages, old_pages - new_pages); }
         return (int64_t)old_addr;
     }
 
@@ -343,9 +333,7 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len,
             if (!target) return -ENOMEM;
         }
     } else {
-        if (vma_range_overlaps(proc, old_addr + old_pages, old_addr + new_pages)) {
-            return -ENOMEM;
-        }
+        if (vma_range_overlaps(proc, old_addr + old_pages, old_addr + new_pages)) { return -ENOMEM; }
     }
 
     /* Map additional pages */
@@ -387,8 +375,8 @@ int sys_mincore(uint64_t addr, uint64_t length, uint64_t vec)
     if (!proc) return -ESRCH;
     if (!vec) return -EFAULT;
 
-    size_t    pages = ALIGN_UP(length, PAGE_4K_SIZE) / PAGE_4K_SIZE;
-    uint8_t  *residency;
+    size_t   pages = ALIGN_UP(length, PAGE_4K_SIZE) / PAGE_4K_SIZE;
+    uint8_t *residency;
 
     residency = malloc(pages);
     if (!residency) return -ENOMEM;

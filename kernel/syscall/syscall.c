@@ -329,7 +329,10 @@ static int64_t sys_wait4(uint64_t pid, uint64_t exit_code, uint64_t options, uin
 
 static int64_t sys_kill(uint64_t pid, uint64_t sig, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_kill_impl((pid_t)pid, (int)sig);
 }
 
@@ -503,10 +506,10 @@ static int64_t sys_arch_prctl(uint64_t code, uint64_t addr, uint64_t arg2, uint6
     (void)arg5;
 
     switch (code) {
-        case 0x1002: /* ARCH_SET_FS */
+        case 0x1002 : /* ARCH_SET_FS */
             wrmsr(0xC0000100, addr);
             return 0;
-        case 0x1003: { /* ARCH_GET_FS */
+        case 0x1003 : { /* ARCH_GET_FS */
             uint64_t fs = rdmsr(0xC0000100);
             return copy_to_user((void *)addr, &fs, sizeof(fs));
         }
@@ -916,43 +919,60 @@ static int64_t sys_getcwd(uint64_t buf, uint64_t size, uint64_t arg2, uint64_t a
 
 static int64_t sys_eventfd_wrap(uint64_t initval, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_eventfd((unsigned int)initval, 0);
 }
 
 static int64_t sys_eventfd2_wrap(uint64_t initval, uint64_t flags, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_eventfd2((unsigned int)initval, (int)flags);
 }
 
 static int64_t sys_timerfd_create_wrap(uint64_t clockid, uint64_t flags, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_timerfd_create((int)clockid, (int)flags);
 }
 
 static int64_t sys_timerfd_settime_wrap(uint64_t fd, uint64_t flags, uint64_t new_value, uint64_t old_value, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg4;(void)arg5;
+    (void)arg4;
+    (void)arg5;
     return sys_timerfd_settime((int)fd, (int)flags, (const void *)new_value, (void *)old_value);
 }
 
 static int64_t sys_timerfd_gettime_wrap(uint64_t fd, uint64_t curr_value, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_timerfd_gettime((int)fd, (void *)curr_value);
 }
 
 static int64_t sys_signalfd_wrap(uint64_t fd, uint64_t mask, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg3;(void)arg4;(void)arg5;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_signalfd((int)fd, (const void *)mask, (int)flags);
 }
 
 static int64_t sys_signalfd4_wrap(uint64_t fd, uint64_t mask, uint64_t sizemask, uint64_t flags, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg4;(void)arg5;
+    (void)arg4;
+    (void)arg5;
     return sys_signalfd4((int)fd, (const void *)mask, (size_t)sizemask, (int)flags);
 }
 
@@ -960,19 +980,33 @@ static int64_t sys_signalfd4_wrap(uint64_t fd, uint64_t mask, uint64_t sizemask,
 
 static int64_t sys_stub(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg0;(void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg0;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return -ENOSYS;
 }
 
 static int64_t sys_stub_ok(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg0;(void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg0;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return EOK;
 }
 
 static int64_t sys_access_stub(uint64_t path, uint64_t mode, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)mode;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)mode;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     char name[SYSCALL_PATH_MAX];
     if (copy_path_from_user(path, name) != EOK) return -EFAULT;
     vfs_node_t node = vfs_open(name);
@@ -983,19 +1017,29 @@ static int64_t sys_access_stub(uint64_t path, uint64_t mode, uint64_t arg2, uint
 
 static int64_t sys_chdir_stub(uint64_t path, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     char name[SYSCALL_PATH_MAX];
     if (copy_path_from_user(path, name) != EOK) return -EFAULT;
     vfs_node_t node = vfs_open(name);
     if (!node) return -ENOENT;
-    if (!(node->type & file_dir)) { vfs_close(node); return -ENOTDIR; }
+    if (!(node->type & file_dir)) {
+        vfs_close(node);
+        return -ENOTDIR;
+    }
     vfs_close(node);
     return EOK;
 }
 
 static int64_t sys_truncate_stub(uint64_t path, uint64_t length, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     char name[SYSCALL_PATH_MAX];
     if (copy_path_from_user(path, name) != EOK) return -EFAULT;
     vfs_node_t node = vfs_open(name);
@@ -1008,14 +1052,21 @@ static int64_t sys_truncate_stub(uint64_t path, uint64_t length, uint64_t arg2, 
 
 static int64_t sys_ftruncate_stub(uint64_t fd, uint64_t length, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     process_file_t *file = NULL;
     spin_lock(&proc->fd_lock);
     if ((int)fd >= 0 && (int)fd < PROCESS_MAX_FD) {
         file = proc->fds[(int)fd];
-        if (file) { spin_lock(&file->lock); file->refcount++; spin_unlock(&file->lock); }
+        if (file) {
+            spin_lock(&file->lock);
+            file->refcount++;
+            spin_unlock(&file->lock);
+        }
     }
     spin_unlock(&proc->fd_lock);
     if (!file) return -EBADF;
@@ -1027,7 +1078,11 @@ static int64_t sys_ftruncate_stub(uint64_t fd, uint64_t length, uint64_t arg2, u
 
 static int64_t sys_clock_gettime_stub(uint64_t clockid, uint64_t tp, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)clockid;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)clockid;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     if (!tp) return -EFAULT;
     linux_timespec_t ts = {
         .tv_sec  = (int64_t)(sched_ticks() / 100),
@@ -1038,7 +1093,11 @@ static int64_t sys_clock_gettime_stub(uint64_t clockid, uint64_t tp, uint64_t ar
 
 static int64_t sys_clock_getres_stub(uint64_t clockid, uint64_t res, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)clockid;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)clockid;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     if (!res) return -EFAULT;
     linux_timespec_t ts = {0, 10000000};
     return copy_to_user((void *)res, &ts, sizeof(ts)) ? -EFAULT : EOK;
@@ -1046,13 +1105,19 @@ static int64_t sys_clock_getres_stub(uint64_t clockid, uint64_t res, uint64_t ar
 
 static int64_t sys_clock_nanosleep_stub(uint64_t clockid, uint64_t flags, uint64_t req, uint64_t rem, uint64_t arg4, uint64_t arg5)
 {
-    (void)clockid;(void)flags;(void)arg4;(void)arg5;
+    (void)clockid;
+    (void)flags;
+    (void)arg4;
+    (void)arg5;
     return sys_nanosleep(req, rem, 0, 0, 0, 0);
 }
 
 static int64_t sys_getrandom_stub(uint64_t buf, uint64_t buflen, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)flags;(void)arg3;(void)arg4;(void)arg5;
+    (void)flags;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     if (!buf && buflen) return -EFAULT;
     for (uint64_t i = 0; i < buflen; i++) {
         uint8_t val = (uint8_t)(sched_ticks() ^ (i * 1103515245 + 12345));
@@ -1063,17 +1128,27 @@ static int64_t sys_getrandom_stub(uint64_t buf, uint64_t buflen, uint64_t flags,
 
 static int64_t sys_getcpu_stub(uint64_t cpu, uint64_t node, uint64_t tcache, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)tcache;(void)arg3;(void)arg4;(void)arg5;
-    task_t *task = current_task();
-    uint32_t c = task ? task->cpu_id : 0;
+    (void)tcache;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    task_t  *task = current_task();
+    uint32_t c    = task ? task->cpu_id : 0;
     if (cpu && copy_to_user((void *)cpu, &c, sizeof(c))) return -EFAULT;
-    if (node) { uint32_t n = 0; if (copy_to_user((void *)node, &n, sizeof(n))) return -EFAULT; }
+    if (node) {
+        uint32_t n = 0;
+        if (copy_to_user((void *)node, &n, sizeof(n))) return -EFAULT;
+    }
     return EOK;
 }
 
 static int64_t sys_setuid_stub(uint64_t uid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     proc->uid = (uint32_t)uid;
@@ -1082,7 +1157,11 @@ static int64_t sys_setuid_stub(uint64_t uid, uint64_t arg1, uint64_t arg2, uint6
 
 static int64_t sys_setgid_stub(uint64_t gid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     proc->gid = (uint32_t)gid;
@@ -1091,8 +1170,10 @@ static int64_t sys_setgid_stub(uint64_t gid, uint64_t arg1, uint64_t arg2, uint6
 
 static int64_t sys_getresuid_stub(uint64_t ruid, uint64_t euid, uint64_t suid, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg3;(void)arg4;(void)arg5;
-    uint32_t uid = (uint32_t)sys_getuid(0,0,0,0,0,0);
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    uint32_t uid = (uint32_t)sys_getuid(0, 0, 0, 0, 0, 0);
     if (ruid) copy_to_user((void *)ruid, &uid, sizeof(uid));
     if (euid) copy_to_user((void *)euid, &uid, sizeof(uid));
     if (suid) copy_to_user((void *)suid, &uid, sizeof(uid));
@@ -1101,8 +1182,10 @@ static int64_t sys_getresuid_stub(uint64_t ruid, uint64_t euid, uint64_t suid, u
 
 static int64_t sys_getresgid_stub(uint64_t rgid, uint64_t egid, uint64_t sgid, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg3;(void)arg4;(void)arg5;
-    uint32_t gid = (uint32_t)sys_getgid(0,0,0,0,0,0);
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    uint32_t gid = (uint32_t)sys_getgid(0, 0, 0, 0, 0, 0);
     if (rgid) copy_to_user((void *)rgid, &gid, sizeof(gid));
     if (egid) copy_to_user((void *)egid, &gid, sizeof(gid));
     if (sgid) copy_to_user((void *)sgid, &gid, sizeof(gid));
@@ -1111,15 +1194,26 @@ static int64_t sys_getresgid_stub(uint64_t rgid, uint64_t egid, uint64_t sgid, u
 
 static int64_t sys_getrlimit_stub(uint64_t resource, uint64_t rlim, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)resource;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)resource;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     if (!rlim) return -EFAULT;
-    struct { uint64_t rlim_cur; uint64_t rlim_max; } rl = { (uint64_t)-1, (uint64_t)-1 };
+    struct {
+            uint64_t rlim_cur;
+            uint64_t rlim_max;
+    } rl = {(uint64_t)-1, (uint64_t)-1};
     return copy_to_user((void *)rlim, &rl, sizeof(rl)) ? -EFAULT : EOK;
 }
 
 static int64_t sys_times_stub(uint64_t tms, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     if (!tms) return -EFAULT;
     uint64_t ticks = sched_ticks();
     if (copy_to_user((void *)tms, &ticks, sizeof(ticks))) return -EFAULT;
@@ -1128,31 +1222,53 @@ static int64_t sys_times_stub(uint64_t tms, uint64_t arg1, uint64_t arg2, uint64
 
 static int64_t sys_tkill_stub(uint64_t tid, uint64_t sig, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_tkill_impl((pid_t)tid, (int)sig);
 }
 
 static int64_t sys_set_tid_address_stub(uint64_t tidptr, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)tidptr;(void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
-    return (int64_t)sys_getpid(0,0,0,0,0,0);
+    (void)tidptr;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return (int64_t)sys_getpid(0, 0, 0, 0, 0, 0);
 }
 
 static int64_t sys_sched_get_priority_max_stub(uint64_t policy, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)policy;(void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)policy;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return 99;
 }
 
 static int64_t sys_sched_get_priority_min_stub(uint64_t policy, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)policy;(void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)policy;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return 1;
 }
 
 static int64_t sys_sched_rr_get_interval_stub(uint64_t pid, uint64_t interval, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)pid;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)pid;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     if (interval) {
         linux_timespec_t ts = {0, 10000000};
         if (copy_to_user((void *)interval, &ts, sizeof(ts))) return -EFAULT;
@@ -1162,7 +1278,11 @@ static int64_t sys_sched_rr_get_interval_stub(uint64_t pid, uint64_t interval, u
 
 static int64_t sys_sched_getaffinity_stub(uint64_t pid, uint64_t cpusetsize, uint64_t mask, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)pid;(void)cpusetsize;(void)arg3;(void)arg4;(void)arg5;
+    (void)pid;
+    (void)cpusetsize;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     if (mask) {
         uint64_t m = 1;
         if (copy_to_user((void *)mask, &m, sizeof(m))) return -EFAULT;
@@ -1172,13 +1292,19 @@ static int64_t sys_sched_getaffinity_stub(uint64_t pid, uint64_t cpusetsize, uin
 
 static int64_t sys_umask_stub(uint64_t mask, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)mask;(void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)mask;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return 022;
 }
 
 static int64_t sys_select_stub(uint64_t nfds, uint64_t readfds, uint64_t writefds, uint64_t exceptfds, uint64_t timeout, uint64_t arg5)
 {
-    (void)exceptfds;(void)arg5;
+    (void)exceptfds;
+    (void)arg5;
     if (!readfds && !writefds) {
         if (timeout) {
             linux_timeval_t tv;
@@ -1193,7 +1319,8 @@ static int64_t sys_select_stub(uint64_t nfds, uint64_t readfds, uint64_t writefd
 
 static int64_t sys_pread64_stub(uint64_t fd, uint64_t buf, uint64_t count, uint64_t offset, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg4;(void)arg5;
+    (void)arg4;
+    (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     if (!buf && count) return -EFAULT;
@@ -1201,18 +1328,28 @@ static int64_t sys_pread64_stub(uint64_t fd, uint64_t buf, uint64_t count, uint6
     spin_lock(&proc->fd_lock);
     if ((int)fd >= 0 && (int)fd < PROCESS_MAX_FD) {
         file = proc->fds[(int)fd];
-        if (file) { spin_lock(&file->lock); file->refcount++; spin_unlock(&file->lock); }
+        if (file) {
+            spin_lock(&file->lock);
+            file->refcount++;
+            spin_unlock(&file->lock);
+        }
     }
     spin_unlock(&proc->fd_lock);
     if (!file) return -EBADF;
     uint8_t tmp[SYSCALL_IO_CHUNK];
-    size_t done = 0;
+    size_t  done = 0;
     while (done < count) {
         size_t chunk = (count - done) < sizeof(tmp) ? (count - done) : sizeof(tmp);
-        size_t ret = vfs_read(file->node, tmp, offset + done, chunk);
-        if (ret == (size_t)-1) { process_file_put(file); return done ? (int64_t)done : -EIO; }
+        size_t ret   = vfs_read(file->node, tmp, offset + done, chunk);
+        if (ret == (size_t)-1) {
+            process_file_put(file);
+            return done ? (int64_t)done : -EIO;
+        }
         if (!ret) break;
-        if (copy_to_user((void *)(buf + done), tmp, ret)) { process_file_put(file); return -EFAULT; }
+        if (copy_to_user((void *)(buf + done), tmp, ret)) {
+            process_file_put(file);
+            return -EFAULT;
+        }
         done += ret;
         if (ret < chunk) break;
     }
@@ -1222,109 +1359,182 @@ static int64_t sys_pread64_stub(uint64_t fd, uint64_t buf, uint64_t count, uint6
 
 static int64_t sys_utimensat_stub(uint64_t dirfd, uint64_t path, uint64_t times, uint64_t flags, uint64_t arg4, uint64_t arg5)
 {
-    (void)dirfd;(void)path;(void)times;(void)flags;(void)arg4;(void)arg5;
+    (void)dirfd;
+    (void)path;
+    (void)times;
+    (void)flags;
+    (void)arg4;
+    (void)arg5;
     return EOK;
 }
 
 static int64_t sys_sync_stub(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg0;(void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg0;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return EOK;
 }
 
 static int64_t sys_prlimit64_stub(uint64_t pid, uint64_t resource, uint64_t new_rlim, uint64_t old_rlim, uint64_t arg4, uint64_t arg5)
 {
-    (void)pid;(void)resource;(void)new_rlim;(void)arg4;(void)arg5;
+    (void)pid;
+    (void)resource;
+    (void)new_rlim;
+    (void)arg4;
+    (void)arg5;
     return sys_getrlimit_stub(0, old_rlim, 0, 0, 0, 0);
 }
 
 static int64_t sys_epoll_pwait_stub(uint64_t epfd, uint64_t events, uint64_t maxevents, uint64_t timeout, uint64_t sigmask, uint64_t sigsetsize)
 {
-    (void)epfd;(void)events;(void)maxevents;(void)timeout;(void)sigmask;(void)sigsetsize;
+    (void)epfd;
+    (void)events;
+    (void)maxevents;
+    (void)timeout;
+    (void)sigmask;
+    (void)sigsetsize;
     return -ENOSYS;
 }
 
 static int64_t sys_readahead_stub(uint64_t fd, uint64_t offset, uint64_t count, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)fd;(void)offset;(void)count;(void)arg3;(void)arg4;(void)arg5;
+    (void)fd;
+    (void)offset;
+    (void)count;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return EOK;
 }
 
 static int64_t sys_listxattr_stub(uint64_t path, uint64_t list, uint64_t size, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)path;(void)list;(void)size;(void)arg3;(void)arg4;(void)arg5;
+    (void)path;
+    (void)list;
+    (void)size;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return 0;
 }
 
 static int64_t sys_fadvise64_stub(uint64_t fd, uint64_t offset, uint64_t len, uint64_t advice, uint64_t arg4, uint64_t arg5)
 {
-    (void)fd;(void)offset;(void)len;(void)advice;(void)arg4;(void)arg5;
+    (void)fd;
+    (void)offset;
+    (void)len;
+    (void)advice;
+    (void)arg4;
+    (void)arg5;
     return EOK;
 }
 
 static int64_t sys_fallocate_stub(uint64_t fd, uint64_t mode, uint64_t offset, uint64_t len, uint64_t arg4, uint64_t arg5)
 {
-    (void)fd;(void)mode;(void)offset;(void)len;(void)arg4;(void)arg5;
+    (void)fd;
+    (void)mode;
+    (void)offset;
+    (void)len;
+    (void)arg4;
+    (void)arg5;
     return EOK;
 }
 
 static int64_t sys_sync_file_range_stub(uint64_t fd, uint64_t offset, uint64_t nbytes, uint64_t flags, uint64_t arg4, uint64_t arg5)
 {
-    (void)fd;(void)offset;(void)nbytes;(void)flags;(void)arg4;(void)arg5;
+    (void)fd;
+    (void)offset;
+    (void)nbytes;
+    (void)flags;
+    (void)arg4;
+    (void)arg5;
     return EOK;
 }
 
 static int64_t sys_memfd_create_stub(uint64_t name, uint64_t flags, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)name;(void)flags;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)name;
+    (void)flags;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return -ENOSYS;
 }
 
 static int64_t sys_renameat2_stub(uint64_t olddirfd, uint64_t oldpath, uint64_t newdirfd, uint64_t newpath, uint64_t flags, uint64_t arg5)
 {
-    (void)flags;(void)arg5;
+    (void)flags;
+    (void)arg5;
     return sys_renameat(olddirfd, oldpath, newdirfd, newpath, 0, 0);
 }
 
 static int64_t sys_execveat_stub(uint64_t dirfd, uint64_t path, uint64_t argv, uint64_t envp, uint64_t flags, uint64_t arg5)
 {
-    (void)dirfd;(void)path;(void)argv;(void)envp;(void)flags;(void)arg5;
+    (void)dirfd;
+    (void)path;
+    (void)argv;
+    (void)envp;
+    (void)flags;
+    (void)arg5;
     return -ENOSYS;
 }
 
 static int64_t sys_membarrier_stub(uint64_t cmd, uint64_t flags, uint64_t cpu_id, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)cmd;(void)flags;(void)cpu_id;(void)arg3;(void)arg4;(void)arg5;
+    (void)cmd;
+    (void)flags;
+    (void)cpu_id;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return -ENOSYS;
 }
 
 static int64_t sys_copy_file_range_stub(uint64_t fd_in, uint64_t off_in, uint64_t fd_out, uint64_t off_out, uint64_t len, uint64_t flags)
 {
-    (void)fd_in;(void)off_in;(void)fd_out;(void)off_out;(void)len;(void)flags;
+    (void)fd_in;
+    (void)off_in;
+    (void)fd_out;
+    (void)off_out;
+    (void)len;
+    (void)flags;
     return -ENOSYS;
 }
 
 static int64_t sys_mlock2_stub(uint64_t addr, uint64_t length, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)flags;(void)arg3;(void)arg4;(void)arg5;
+    (void)flags;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_mlock(addr, length);
 }
 
 static int64_t sys_pkey_mprotect_stub(uint64_t addr, uint64_t len, uint64_t prot, uint64_t pkey, uint64_t arg4, uint64_t arg5)
 {
-    (void)pkey;(void)arg4;(void)arg5;
+    (void)pkey;
+    (void)arg4;
+    (void)arg5;
     return sys_mprotect(addr, len, prot);
 }
 
 static int64_t sys_pselect6_stub(uint64_t nfds, uint64_t readfds, uint64_t writefds, uint64_t exceptfds, uint64_t timeout, uint64_t sigmask)
 {
-    (void)exceptfds;(void)sigmask;
+    (void)exceptfds;
+    (void)sigmask;
     return sys_select_stub(nfds, readfds, writefds, 0, timeout, 0);
 }
 
 static int64_t sys_ppoll_stub(uint64_t fds, uint64_t nfds, uint64_t timeout, uint64_t sigmask, uint64_t sigsetsize, uint64_t arg5)
 {
-    (void)sigmask;(void)sigsetsize;(void)arg5;
+    (void)sigmask;
+    (void)sigsetsize;
+    (void)arg5;
     return sys_poll(fds, nfds, timeout, 0, 0, 0);
 }
 
@@ -1332,7 +1542,9 @@ static int64_t sys_ppoll_stub(uint64_t fds, uint64_t nfds, uint64_t timeout, uin
 
 static int64_t sys_mprotect_wrap(uint64_t addr, uint64_t length, uint64_t prot, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg3;(void)arg4;(void)arg5;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_mprotect(addr, length, prot);
 }
 
@@ -1344,43 +1556,64 @@ static int64_t sys_mremap_wrap(uint64_t old_addr, uint64_t old_len, uint64_t new
 
 static int64_t sys_msync_wrap(uint64_t addr, uint64_t length, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg3;(void)arg4;(void)arg5;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_msync(addr, length, flags);
 }
 
 static int64_t sys_mincore_wrap(uint64_t addr, uint64_t length, uint64_t vec, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg3;(void)arg4;(void)arg5;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_mincore(addr, length, vec);
 }
 
 static int64_t sys_madvise_wrap(uint64_t addr, uint64_t length, uint64_t advice, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg3;(void)arg4;(void)arg5;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_madvise(addr, length, advice);
 }
 
 static int64_t sys_mlock_wrap(uint64_t addr, uint64_t length, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_mlock(addr, length);
 }
 
 static int64_t sys_munlock_wrap(uint64_t addr, uint64_t length, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_munlock(addr, length);
 }
 
 static int64_t sys_mlockall_wrap(uint64_t flags, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_mlockall(flags);
 }
 
 static int64_t sys_munlockall_wrap(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg0;(void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg0;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_munlockall();
 }
 
@@ -1388,452 +1621,500 @@ static int64_t sys_munlockall_wrap(uint64_t arg0, uint64_t arg1, uint64_t arg2, 
 
 static int64_t sys_rt_sigaction_wrap(uint64_t sig, uint64_t act, uint64_t oact, uint64_t sigsetsize, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg4;(void)arg5;
+    (void)arg4;
+    (void)arg5;
     return sys_rt_sigaction((int)sig, (const sigaction_t *)act, (sigaction_t *)oact, (size_t)sigsetsize);
 }
 
 static int64_t sys_rt_sigprocmask_wrap(uint64_t how, uint64_t set, uint64_t oset, uint64_t sigsetsize, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg4;(void)arg5;
+    (void)arg4;
+    (void)arg5;
     return sys_rt_sigprocmask((int)how, (const sigset_t *)set, (sigset_t *)oset, (size_t)sigsetsize);
 }
 
 static int64_t sys_rt_sigreturn_wrap(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg0;(void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg0;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_rt_sigreturn();
 }
 
 static int64_t sys_rt_sigpending_wrap(uint64_t set, uint64_t sigsetsize, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_rt_sigpending((sigset_t *)set, (size_t)sigsetsize);
 }
 
 static int64_t sys_rt_sigtimedwait_wrap(uint64_t set, uint64_t info, uint64_t timeout, uint64_t sigsetsize, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg4;(void)arg5;
+    (void)arg4;
+    (void)arg5;
     return sys_rt_sigtimedwait((const sigset_t *)set, (siginfo_t *)info, (const void *)timeout, (size_t)sigsetsize);
 }
 
 static int64_t sys_rt_sigqueueinfo_wrap(uint64_t pid, uint64_t sig, uint64_t info, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg3;(void)arg4;(void)arg5;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_rt_sigqueueinfo((pid_t)pid, (int)sig, (siginfo_t *)info);
 }
 
 static int64_t sys_rt_sigsuspend_wrap(uint64_t set, uint64_t sigsetsize, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_rt_sigsuspend((const sigset_t *)set, (size_t)sigsetsize);
 }
 
 static int64_t sys_sigaltstack_wrap(uint64_t ss, uint64_t oss, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_sigaltstack((const stack_t *)ss, (stack_t *)oss);
 }
 
 static int64_t sys_pause_wrap(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg0;(void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg0;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_pause();
 }
 
 static int64_t sys_tgkill_wrap(uint64_t tgid, uint64_t tid, uint64_t sig, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg3;(void)arg4;(void)arg5;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_tgkill((pid_t)tgid, (pid_t)tid, (int)sig);
 }
 
 static int64_t sys_rt_tgsigqueueinfo_wrap(uint64_t tgid, uint64_t tid, uint64_t sig, uint64_t info, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg4;(void)arg5;
+    (void)arg4;
+    (void)arg5;
     return sys_rt_tgsigqueueinfo((pid_t)tgid, (pid_t)tid, (int)sig, (siginfo_t *)info);
 }
 
 static int64_t sys_setpgid_wrap(uint64_t pid, uint64_t pgid, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_setpgid((pid_t)pid, (pid_t)pgid);
 }
 
 static int64_t sys_getpgrp_wrap(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg0;(void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg0;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_getpgrp();
 }
 
 static int64_t sys_setsid_wrap(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg0;(void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg0;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_setsid();
 }
 
 static int64_t sys_getsid_wrap(uint64_t pid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_getsid((pid_t)pid);
 }
 
 static int64_t sys_getpgid_wrap(uint64_t pid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg1;(void)arg2;(void)arg3;(void)arg4;(void)arg5;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     return sys_getpgid((pid_t)pid);
 }
 
 typedef int64_t (*syscall_fn_t)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 
 static syscall_fn_t syscall_table[SYS_MAX] = {
-    [SYS_READ]                  = sys_read,
-    [SYS_WRITE]                 = sys_write,
-    [SYS_OPEN]                  = sys_open,
-    [SYS_CLOSE]                 = sys_close,
-    [SYS_STAT]                  = sys_stat,
-    [SYS_FSTAT]                 = sys_fstat,
-    [SYS_LSTAT]                 = sys_stat,
-    [SYS_POLL]                  = sys_poll,
-    [SYS_LSEEK]                 = sys_lseek,
-    [SYS_MMAP]                  = sys_mmap,
-    [SYS_MPROTECT]              = sys_mprotect_wrap,
-    [SYS_MUNMAP]                = sys_munmap,
-    [SYS_BRK]                   = sys_brk,
-    [SYS_RT_SIGACTION]          = sys_rt_sigaction_wrap,
-    [SYS_RT_SIGPROCMASK]        = sys_rt_sigprocmask_wrap,
-    [SYS_RT_SIGRETURN]          = sys_rt_sigreturn_wrap,
-    [SYS_IOCTL]                 = sys_ioctl,
-    [SYS_PREAD64]               = sys_pread64_stub,
-    [SYS_PWRITE64]              = sys_stub,
-    [SYS_READV]                 = sys_stub,
-    [SYS_WRITEV]                = sys_stub,
-    [SYS_ACCESS]                = sys_access_stub,
-    [SYS_PIPE]                  = sys_stub,
-    [SYS_SELECT]                = sys_select_stub,
-    [SYS_SCHED_YIELD]           = sys_sched_yield,
-    [SYS_MREMAP]                = sys_mremap_wrap,
-    [SYS_MSYNC]                 = sys_msync_wrap,
-    [SYS_MINCORE]               = sys_mincore_wrap,
-    [SYS_MADVISE]               = sys_madvise_wrap,
-    [SYS_SHMGET]                = sys_stub,
-    [SYS_SHMAT]                 = sys_stub,
-    [SYS_SHMCTL]                = sys_stub,
-    [SYS_DUP]                   = sys_dup,
-    [SYS_DUP2]                  = sys_dup2,
-    [SYS_PAUSE]                 = sys_pause_wrap,
-    [SYS_NANOSLEEP]             = sys_nanosleep,
-    [SYS_GETITIMER]             = sys_stub_ok,
-    [SYS_ALARM]                 = sys_stub_ok,
-    [SYS_SETITIMER]             = sys_stub_ok,
-    [SYS_GETPID]                = sys_getpid,
-    [SYS_SENDFILE]              = sys_stub,
-    [SYS_SOCKET]                = sys_stub,
-    [SYS_CONNECT]               = sys_stub,
-    [SYS_ACCEPT]                = sys_stub,
-    [SYS_SENDTO]                = sys_stub,
-    [SYS_RECVFROM]              = sys_stub,
-    [SYS_SENDMSG]               = sys_stub,
-    [SYS_RECVMSG]               = sys_stub,
-    [SYS_SHUTDOWN]              = sys_stub,
-    [SYS_BIND]                  = sys_stub,
-    [SYS_LISTEN]                = sys_stub,
-    [SYS_GETSOCKNAME]           = sys_stub,
-    [SYS_GETPEERNAME]           = sys_stub,
-    [SYS_SOCKETPAIR]            = sys_stub,
-    [SYS_SETSOCKOPT]            = sys_stub,
-    [SYS_GETSOCKOPT]            = sys_stub,
-    [SYS_CLONE]                 = NULL,
-    [SYS_FORK]                  = NULL,
-    [SYS_VFORK]                 = NULL,
-    [SYS_EXECVE]                = sys_stub,
-    [SYS_EXIT]                  = sys_exit,
-    [SYS_WAIT4]                 = sys_wait4,
-    [SYS_KILL]                  = sys_kill,
-    [SYS_UNAME]                 = sys_uname,
-    [SYS_SEMGET]                = sys_stub,
-    [SYS_SEMOP]                 = sys_stub,
-    [SYS_SEMCTL]                = sys_stub,
-    [SYS_SHMDT]                 = sys_stub,
-    [SYS_MSGGET]                = sys_stub,
-    [SYS_MSGSND]                = sys_stub,
-    [SYS_MSGRCV]                = sys_stub,
-    [SYS_MSGCTL]                = sys_stub,
-    [SYS_FCNTL]                 = sys_stub_ok,
-    [SYS_FLOCK]                 = sys_stub_ok,
-    [SYS_FSYNC]                 = sys_stub_ok,
-    [SYS_FDATASYNC]             = sys_stub_ok,
-    [SYS_TRUNCATE]              = sys_truncate_stub,
-    [SYS_FTRUNCATE]             = sys_ftruncate_stub,
-    [SYS_GETDENTS]              = sys_stub,
-    [SYS_GETCWD]                = sys_getcwd,
-    [SYS_CHDIR]                 = sys_chdir_stub,
-    [SYS_FCHDIR]                = sys_chdir_stub,
-    [SYS_RENAME]                = sys_rename,
-    [SYS_MKDIR]                 = sys_mkdir,
-    [SYS_RMDIR]                 = sys_unlink,
-    [SYS_CREAT]                 = sys_creat,
-    [SYS_LINK]                  = sys_link,
-    [SYS_UNLINK]                = sys_unlink,
-    [SYS_SYMLINK]               = sys_symlink,
-    [SYS_READLINK]              = sys_readlink,
-    [SYS_CHMOD]                 = sys_stub_ok,
-    [SYS_FCHMOD]                = sys_stub_ok,
-    [SYS_CHOWN]                 = sys_stub_ok,
-    [SYS_FCHOWN]                = sys_stub_ok,
-    [SYS_LCHOWN]                = sys_stub_ok,
-    [SYS_UMASK]                 = sys_umask_stub,
-    [SYS_GETTIMEOFDAY]          = sys_gettimeofday,
-    [SYS_GETRLIMIT]             = sys_getrlimit_stub,
-    [SYS_GETRUSAGE]             = sys_stub_ok,
-    [SYS_SYSINFO]               = sys_stub_ok,
-    [SYS_TIMES]                 = sys_times_stub,
-    [SYS_PTRACE]                = sys_stub,
-    [SYS_GETUID]                = sys_getuid,
-    [SYS_SYSLOG]                = sys_stub,
-    [SYS_GETGID]                = sys_getgid,
-    [SYS_SETUID]                = sys_setuid_stub,
-    [SYS_SETGID]                = sys_setgid_stub,
-    [SYS_GETEUID]               = sys_getuid,
-    [SYS_GETEGID]               = sys_getgid,
-    [SYS_SETPGID]               = sys_setpgid_wrap,
-    [SYS_GETPPID]               = sys_getppid,
-    [SYS_GETPGRP]               = sys_getpgrp_wrap,
-    [SYS_SETSID]                = sys_setsid_wrap,
-    [SYS_SETREUID]              = sys_setuid_stub,
-    [SYS_SETREGID]              = sys_setgid_stub,
-    [SYS_GETGROUPS]             = sys_stub_ok,
-    [SYS_SETGROUPS]             = sys_stub_ok,
-    [SYS_SETRESUID]             = sys_setuid_stub,
-    [SYS_GETRESUID]             = sys_getresuid_stub,
-    [SYS_SETRESGID]             = sys_setgid_stub,
-    [SYS_GETRESGID]             = sys_getresgid_stub,
-    [SYS_GETPGID]               = sys_getpgid_wrap,
-    [SYS_SETFSUID]              = sys_setuid_stub,
-    [SYS_SETFSGID]              = sys_setgid_stub,
-    [SYS_GETSID]                = sys_getsid_wrap,
-    [SYS_CAPGET]                = sys_stub_ok,
-    [SYS_CAPSET]                = sys_stub,
-    [SYS_RT_SIGPENDING]         = sys_rt_sigpending_wrap,
-    [SYS_RT_SIGTIMEDWAIT]       = sys_rt_sigtimedwait_wrap,
-    [SYS_RT_SIGQUEUEINFO]       = sys_rt_sigqueueinfo_wrap,
-    [SYS_RT_SIGSUSPEND]         = sys_rt_sigsuspend_wrap,
-    [SYS_SIGALTSTACK]           = sys_sigaltstack_wrap,
-    [SYS_UTIME]                 = sys_stub_ok,
-    [SYS_MKNOD]                 = sys_stub,
-    [SYS_USELIB]                = sys_stub,
-    [SYS_PERSONALITY]           = sys_stub,
-    [SYS_USTAT]                 = sys_stub,
-    [SYS_STATFS]                = sys_stub_ok,
-    [SYS_FSTATFS]               = sys_stub_ok,
-    [SYS_SYSFS]                 = sys_stub,
-    [SYS_GETPRIORITY]           = sys_stub_ok,
-    [SYS_SETPRIORITY]           = sys_stub_ok,
-    [SYS_SCHED_SETPARAM]        = sys_stub_ok,
-    [SYS_SCHED_GETPARAM]        = sys_stub_ok,
-    [SYS_SCHED_SETSCHEDULER]    = sys_stub_ok,
-    [SYS_SCHED_GETSCHEDULER]    = sys_stub_ok,
+    [SYS_READ]                   = sys_read,
+    [SYS_WRITE]                  = sys_write,
+    [SYS_OPEN]                   = sys_open,
+    [SYS_CLOSE]                  = sys_close,
+    [SYS_STAT]                   = sys_stat,
+    [SYS_FSTAT]                  = sys_fstat,
+    [SYS_LSTAT]                  = sys_stat,
+    [SYS_POLL]                   = sys_poll,
+    [SYS_LSEEK]                  = sys_lseek,
+    [SYS_MMAP]                   = sys_mmap,
+    [SYS_MPROTECT]               = sys_mprotect_wrap,
+    [SYS_MUNMAP]                 = sys_munmap,
+    [SYS_BRK]                    = sys_brk,
+    [SYS_RT_SIGACTION]           = sys_rt_sigaction_wrap,
+    [SYS_RT_SIGPROCMASK]         = sys_rt_sigprocmask_wrap,
+    [SYS_RT_SIGRETURN]           = sys_rt_sigreturn_wrap,
+    [SYS_IOCTL]                  = sys_ioctl,
+    [SYS_PREAD64]                = sys_pread64_stub,
+    [SYS_PWRITE64]               = sys_stub,
+    [SYS_READV]                  = sys_stub,
+    [SYS_WRITEV]                 = sys_stub,
+    [SYS_ACCESS]                 = sys_access_stub,
+    [SYS_PIPE]                   = sys_stub,
+    [SYS_SELECT]                 = sys_select_stub,
+    [SYS_SCHED_YIELD]            = sys_sched_yield,
+    [SYS_MREMAP]                 = sys_mremap_wrap,
+    [SYS_MSYNC]                  = sys_msync_wrap,
+    [SYS_MINCORE]                = sys_mincore_wrap,
+    [SYS_MADVISE]                = sys_madvise_wrap,
+    [SYS_SHMGET]                 = sys_stub,
+    [SYS_SHMAT]                  = sys_stub,
+    [SYS_SHMCTL]                 = sys_stub,
+    [SYS_DUP]                    = sys_dup,
+    [SYS_DUP2]                   = sys_dup2,
+    [SYS_PAUSE]                  = sys_pause_wrap,
+    [SYS_NANOSLEEP]              = sys_nanosleep,
+    [SYS_GETITIMER]              = sys_stub_ok,
+    [SYS_ALARM]                  = sys_stub_ok,
+    [SYS_SETITIMER]              = sys_stub_ok,
+    [SYS_GETPID]                 = sys_getpid,
+    [SYS_SENDFILE]               = sys_stub,
+    [SYS_SOCKET]                 = sys_stub,
+    [SYS_CONNECT]                = sys_stub,
+    [SYS_ACCEPT]                 = sys_stub,
+    [SYS_SENDTO]                 = sys_stub,
+    [SYS_RECVFROM]               = sys_stub,
+    [SYS_SENDMSG]                = sys_stub,
+    [SYS_RECVMSG]                = sys_stub,
+    [SYS_SHUTDOWN]               = sys_stub,
+    [SYS_BIND]                   = sys_stub,
+    [SYS_LISTEN]                 = sys_stub,
+    [SYS_GETSOCKNAME]            = sys_stub,
+    [SYS_GETPEERNAME]            = sys_stub,
+    [SYS_SOCKETPAIR]             = sys_stub,
+    [SYS_SETSOCKOPT]             = sys_stub,
+    [SYS_GETSOCKOPT]             = sys_stub,
+    [SYS_CLONE]                  = NULL,
+    [SYS_FORK]                   = NULL,
+    [SYS_VFORK]                  = NULL,
+    [SYS_EXECVE]                 = sys_stub,
+    [SYS_EXIT]                   = sys_exit,
+    [SYS_WAIT4]                  = sys_wait4,
+    [SYS_KILL]                   = sys_kill,
+    [SYS_UNAME]                  = sys_uname,
+    [SYS_SEMGET]                 = sys_stub,
+    [SYS_SEMOP]                  = sys_stub,
+    [SYS_SEMCTL]                 = sys_stub,
+    [SYS_SHMDT]                  = sys_stub,
+    [SYS_MSGGET]                 = sys_stub,
+    [SYS_MSGSND]                 = sys_stub,
+    [SYS_MSGRCV]                 = sys_stub,
+    [SYS_MSGCTL]                 = sys_stub,
+    [SYS_FCNTL]                  = sys_stub_ok,
+    [SYS_FLOCK]                  = sys_stub_ok,
+    [SYS_FSYNC]                  = sys_stub_ok,
+    [SYS_FDATASYNC]              = sys_stub_ok,
+    [SYS_TRUNCATE]               = sys_truncate_stub,
+    [SYS_FTRUNCATE]              = sys_ftruncate_stub,
+    [SYS_GETDENTS]               = sys_stub,
+    [SYS_GETCWD]                 = sys_getcwd,
+    [SYS_CHDIR]                  = sys_chdir_stub,
+    [SYS_FCHDIR]                 = sys_chdir_stub,
+    [SYS_RENAME]                 = sys_rename,
+    [SYS_MKDIR]                  = sys_mkdir,
+    [SYS_RMDIR]                  = sys_unlink,
+    [SYS_CREAT]                  = sys_creat,
+    [SYS_LINK]                   = sys_link,
+    [SYS_UNLINK]                 = sys_unlink,
+    [SYS_SYMLINK]                = sys_symlink,
+    [SYS_READLINK]               = sys_readlink,
+    [SYS_CHMOD]                  = sys_stub_ok,
+    [SYS_FCHMOD]                 = sys_stub_ok,
+    [SYS_CHOWN]                  = sys_stub_ok,
+    [SYS_FCHOWN]                 = sys_stub_ok,
+    [SYS_LCHOWN]                 = sys_stub_ok,
+    [SYS_UMASK]                  = sys_umask_stub,
+    [SYS_GETTIMEOFDAY]           = sys_gettimeofday,
+    [SYS_GETRLIMIT]              = sys_getrlimit_stub,
+    [SYS_GETRUSAGE]              = sys_stub_ok,
+    [SYS_SYSINFO]                = sys_stub_ok,
+    [SYS_TIMES]                  = sys_times_stub,
+    [SYS_PTRACE]                 = sys_stub,
+    [SYS_GETUID]                 = sys_getuid,
+    [SYS_SYSLOG]                 = sys_stub,
+    [SYS_GETGID]                 = sys_getgid,
+    [SYS_SETUID]                 = sys_setuid_stub,
+    [SYS_SETGID]                 = sys_setgid_stub,
+    [SYS_GETEUID]                = sys_getuid,
+    [SYS_GETEGID]                = sys_getgid,
+    [SYS_SETPGID]                = sys_setpgid_wrap,
+    [SYS_GETPPID]                = sys_getppid,
+    [SYS_GETPGRP]                = sys_getpgrp_wrap,
+    [SYS_SETSID]                 = sys_setsid_wrap,
+    [SYS_SETREUID]               = sys_setuid_stub,
+    [SYS_SETREGID]               = sys_setgid_stub,
+    [SYS_GETGROUPS]              = sys_stub_ok,
+    [SYS_SETGROUPS]              = sys_stub_ok,
+    [SYS_SETRESUID]              = sys_setuid_stub,
+    [SYS_GETRESUID]              = sys_getresuid_stub,
+    [SYS_SETRESGID]              = sys_setgid_stub,
+    [SYS_GETRESGID]              = sys_getresgid_stub,
+    [SYS_GETPGID]                = sys_getpgid_wrap,
+    [SYS_SETFSUID]               = sys_setuid_stub,
+    [SYS_SETFSGID]               = sys_setgid_stub,
+    [SYS_GETSID]                 = sys_getsid_wrap,
+    [SYS_CAPGET]                 = sys_stub_ok,
+    [SYS_CAPSET]                 = sys_stub,
+    [SYS_RT_SIGPENDING]          = sys_rt_sigpending_wrap,
+    [SYS_RT_SIGTIMEDWAIT]        = sys_rt_sigtimedwait_wrap,
+    [SYS_RT_SIGQUEUEINFO]        = sys_rt_sigqueueinfo_wrap,
+    [SYS_RT_SIGSUSPEND]          = sys_rt_sigsuspend_wrap,
+    [SYS_SIGALTSTACK]            = sys_sigaltstack_wrap,
+    [SYS_UTIME]                  = sys_stub_ok,
+    [SYS_MKNOD]                  = sys_stub,
+    [SYS_USELIB]                 = sys_stub,
+    [SYS_PERSONALITY]            = sys_stub,
+    [SYS_USTAT]                  = sys_stub,
+    [SYS_STATFS]                 = sys_stub_ok,
+    [SYS_FSTATFS]                = sys_stub_ok,
+    [SYS_SYSFS]                  = sys_stub,
+    [SYS_GETPRIORITY]            = sys_stub_ok,
+    [SYS_SETPRIORITY]            = sys_stub_ok,
+    [SYS_SCHED_SETPARAM]         = sys_stub_ok,
+    [SYS_SCHED_GETPARAM]         = sys_stub_ok,
+    [SYS_SCHED_SETSCHEDULER]     = sys_stub_ok,
+    [SYS_SCHED_GETSCHEDULER]     = sys_stub_ok,
     [SYS_SCHED_GET_PRIORITY_MAX] = sys_sched_get_priority_max_stub,
     [SYS_SCHED_GET_PRIORITY_MIN] = sys_sched_get_priority_min_stub,
     [SYS_SCHED_RR_GET_INTERVAL]  = sys_sched_rr_get_interval_stub,
-    [SYS_MLOCK]                 = sys_mlock_wrap,
-    [SYS_MUNLOCK]               = sys_munlock_wrap,
-    [SYS_MLOCKALL]              = sys_mlockall_wrap,
-    [SYS_MUNLOCKALL]            = sys_munlockall_wrap,
-    [SYS_VHANGUP]               = sys_stub,
-    [SYS_MODIFY_LDT]            = sys_stub,
-    [SYS_PIVOT_ROOT]            = sys_stub,
-    [SYS__SYSCTL]               = sys_stub,
-    [SYS_PRCTL]                 = sys_stub_ok,
-    [SYS_ARCH_PRCTL]            = sys_arch_prctl,
-    [SYS_ADJTIMEX]              = sys_stub,
-    [SYS_SETRLIMIT]             = sys_stub_ok,
-    [SYS_CHROOT]                = sys_stub,
-    [SYS_SYNC]                  = sys_sync_stub,
-    [SYS_ACCT]                  = sys_stub,
-    [SYS_SETTIMEOFDAY]          = sys_stub,
-    [SYS_MOUNT]                 = sys_stub,
-    [SYS_UMOUNT2]               = sys_stub,
-    [SYS_SWAPON]                = sys_stub,
-    [SYS_SWAPOFF]               = sys_stub,
-    [SYS_REBOOT]                = sys_stub,
-    [SYS_SETHOSTNAME]           = sys_stub_ok,
-    [SYS_SETDOMAINNAME]         = sys_stub_ok,
-    [SYS_IOPL]                  = sys_stub,
-    [SYS_IOPERM]                = sys_stub,
-    [SYS_CREATE_MODULE]         = sys_stub,
-    [SYS_INIT_MODULE]           = sys_stub,
-    [SYS_DELETE_MODULE]         = sys_stub,
-    [SYS_GET_KERNEL_SYMS]       = sys_stub,
-    [SYS_QUERY_MODULE]          = sys_stub,
-    [SYS_QUOTACTL]              = sys_stub,
-    [SYS_NFSSERVCTL]            = sys_stub,
-    [SYS_GETPMSG]               = sys_stub,
-    [SYS_PUTPMSG]               = sys_stub,
-    [SYS_AFS_SYSCALL]           = sys_stub,
-    [SYS_TUXCALL]               = sys_stub,
-    [SYS_SECURITY]              = sys_stub,
-    [SYS_GETTID]                = sys_gettid,
-    [SYS_READAHEAD]             = sys_readahead_stub,
-    [SYS_SETXATTR]              = sys_stub,
-    [SYS_LSETXATTR]             = sys_stub,
-    [SYS_FSETXATTR]             = sys_stub,
-    [SYS_GETXATTR]              = sys_stub,
-    [SYS_LGETXATTR]             = sys_stub,
-    [SYS_FGETXATTR]             = sys_stub,
-    [SYS_LISTXATTR]             = sys_listxattr_stub,
-    [SYS_LLISTXATTR]            = sys_listxattr_stub,
-    [SYS_FLISTXATTR]            = sys_listxattr_stub,
-    [SYS_REMOVEXATTR]           = sys_stub,
-    [SYS_LREMOVEXATTR]          = sys_stub,
-    [SYS_FREMOVEXATTR]          = sys_stub,
-    [SYS_TKILL]                 = sys_tkill_stub,
-    [SYS_TIME]                  = sys_time,
-    [SYS_FUTEX]                 = sys_stub,
-    [SYS_SCHED_SETAFFINITY]     = sys_stub_ok,
-    [SYS_SCHED_GETAFFINITY]     = sys_sched_getaffinity_stub,
-    [SYS_SET_THREAD_AREA]       = sys_stub,
-    [SYS_IO_SETUP]              = sys_stub,
-    [SYS_IO_DESTROY]            = sys_stub,
-    [SYS_IO_GETEVENTS]          = sys_stub,
-    [SYS_IO_SUBMIT]             = sys_stub,
-    [SYS_IO_CANCEL]             = sys_stub,
-    [SYS_GET_THREAD_AREA]       = sys_stub,
-    [SYS_LOOKUP_DCOOKIE]        = sys_stub,
-    [SYS_EPOLL_CREATE]          = sys_stub,
-    [SYS_EPOLL_CTL_OLD]         = sys_stub,
-    [SYS_EPOLL_WAIT_OLD]        = sys_stub,
-    [SYS_REMAP_FILE_PAGES]      = sys_stub,
-    [SYS_GETDENTS64]            = sys_stub,
-    [SYS_SET_TID_ADDRESS]       = sys_set_tid_address_stub,
-    [SYS_RESTART_SYSCALL]       = sys_stub,
-    [SYS_SEMTIMEDOP]            = sys_stub,
-    [SYS_FADVISE64]             = sys_fadvise64_stub,
-    [SYS_TIMER_CREATE]          = sys_stub,
-    [SYS_TIMER_SETTIME]         = sys_stub,
-    [SYS_TIMER_GETTIME]         = sys_stub,
-    [SYS_TIMER_GETOVERRUN]      = sys_stub,
-    [SYS_TIMER_DELETE]          = sys_stub,
-    [SYS_CLOCK_SETTIME]         = sys_stub,
-    [SYS_CLOCK_GETTIME]         = sys_clock_gettime_stub,
-    [SYS_CLOCK_GETRES]          = sys_clock_getres_stub,
-    [SYS_CLOCK_NANOSLEEP]       = sys_clock_nanosleep_stub,
-    [SYS_EXIT_GROUP]            = sys_exit_group,
-    [SYS_EPOLL_WAIT]            = sys_stub,
-    [SYS_EPOLL_CTL]             = sys_stub,
-    [SYS_TGKILL]                = sys_tgkill_wrap,
-    [SYS_UTIMES]                = sys_stub_ok,
-    [SYS_VSERVER]               = sys_stub,
-    [SYS_MBIND]                 = sys_stub,
-    [SYS_SET_MEMPOLICY]         = sys_stub,
-    [SYS_GET_MEMPOLICY]         = sys_stub,
-    [SYS_MQ_OPEN]               = sys_stub,
-    [SYS_MQ_UNLINK]             = sys_stub,
-    [SYS_MQ_TIMEDSEND]          = sys_stub,
-    [SYS_MQ_TIMEDRECEIVE]       = sys_stub,
-    [SYS_MQ_NOTIFY]             = sys_stub,
-    [SYS_MQ_GETSETATTR]         = sys_stub,
-    [SYS_KEXEC_LOAD]            = sys_stub,
-    [SYS_WAITID]                = sys_stub,
-    [SYS_ADD_KEY]               = sys_stub,
-    [SYS_REQUEST_KEY]           = sys_stub,
-    [SYS_KEYCTL]                = sys_stub,
-    [SYS_IOPRIO_SET]            = sys_stub,
-    [SYS_IOPRIO_GET]            = sys_stub,
-    [SYS_INOTIFY_INIT]          = sys_stub,
-    [SYS_INOTIFY_ADD_WATCH]     = sys_stub,
-    [SYS_INOTIFY_RM_WATCH]      = sys_stub,
-    [SYS_MIGRATE_PAGES]         = sys_stub,
-    [SYS_OPENAT]                = sys_openat,
-    [SYS_MKDIRAT]               = sys_mkdirat,
-    [SYS_MKNODAT]               = sys_stub,
-    [SYS_FCHOWNAT]              = sys_stub_ok,
-    [SYS_FUTIMESAT]             = sys_stub_ok,
-    [SYS_NEWFSTATAT]            = sys_newfstatat,
-    [SYS_UNLINKAT]              = sys_unlinkat,
-    [SYS_RENAMEAT]              = sys_renameat,
-    [SYS_LINKAT]                = sys_linkat,
-    [SYS_SYMLINKAT]             = sys_symlinkat,
-    [SYS_READLINKAT]            = sys_readlinkat,
-    [SYS_FCHMODAT]              = sys_stub_ok,
-    [SYS_FACCESSAT]             = sys_access_stub,
-    [SYS_PSELECT6]              = sys_pselect6_stub,
-    [SYS_PPOLL]                 = sys_ppoll_stub,
-    [SYS_UNSHARE]               = sys_stub,
-    [SYS_SET_ROBUST_LIST]       = sys_stub_ok,
-    [SYS_GET_ROBUST_LIST]       = sys_stub,
-    [SYS_SPLICE]                = sys_stub,
-    [SYS_TEE]                   = sys_stub,
-    [SYS_SYNC_FILE_RANGE]       = sys_sync_file_range_stub,
-    [SYS_VMSPLICE]              = sys_stub,
-    [SYS_MOVE_PAGES]            = sys_stub,
-    [SYS_UTIMENSAT]             = sys_utimensat_stub,
-    [SYS_EPOLL_PWAIT]           = sys_epoll_pwait_stub,
-    [SYS_SIGNALFD]              = sys_signalfd_wrap,
-    [SYS_TIMERFD_CREATE]        = sys_timerfd_create_wrap,
-    [SYS_EVENTFD]               = sys_eventfd_wrap,
-    [SYS_FALLOCATE]             = sys_fallocate_stub,
-    [SYS_TIMERFD_SETTIME]       = sys_timerfd_settime_wrap,
-    [SYS_TIMERFD_GETTIME]       = sys_timerfd_gettime_wrap,
-    [SYS_ACCEPT4]               = sys_stub,
-    [SYS_SIGNALFD4]             = sys_signalfd4_wrap,
-    [SYS_EVENTFD2]              = sys_eventfd2_wrap,
-    [SYS_EPOLL_CREATE1]         = sys_stub,
-    [SYS_DUP3]                  = sys_dup3,
-    [SYS_PIPE2]                 = sys_stub,
-    [SYS_INOTIFY_INIT1]         = sys_stub,
-    [SYS_PREADV]                = sys_stub,
-    [SYS_PWRITEV]               = sys_stub,
-    [SYS_RT_TGSIGQUEUEINFO]     = sys_rt_tgsigqueueinfo_wrap,
-    [SYS_PERF_EVENT_OPEN]       = sys_stub,
-    [SYS_RECVMMSG]              = sys_stub,
-    [SYS_FANOTIFY_INIT]         = sys_stub,
-    [SYS_FANOTIFY_MARK]         = sys_stub,
-    [SYS_PRLIMIT64]             = sys_prlimit64_stub,
-    [SYS_NAME_TO_HANDLE_AT]     = sys_stub,
-    [SYS_OPEN_BY_HANDLE_AT]     = sys_stub,
-    [SYS_CLOCK_ADJTIME]         = sys_stub,
-    [SYS_SYNCFS]                = sys_stub_ok,
-    [SYS_SENDMMSG]              = sys_stub,
-    [SYS_SETNS]                 = sys_stub,
-    [SYS_GETCPU]                = sys_getcpu_stub,
-    [SYS_PROCESS_VM_READV]      = sys_stub,
-    [SYS_PROCESS_VM_WRITEV]     = sys_stub,
-    [SYS_KCMP]                  = sys_stub,
-    [SYS_FINIT_MODULE]          = sys_stub,
-    [SYS_SCHED_SETATTR]         = sys_stub_ok,
-    [SYS_SCHED_GETATTR]         = sys_stub_ok,
-    [SYS_RENAMEAT2]             = sys_renameat2_stub,
-    [SYS_SECCOMP]               = sys_stub,
-    [SYS_GETRANDOM]             = sys_getrandom_stub,
-    [SYS_MEMFD_CREATE]          = sys_memfd_create_stub,
-    [SYS_KEXEC_FILE_LOAD]       = sys_stub,
-    [SYS_BPF]                   = sys_stub,
-    [SYS_EXECVEAT]              = sys_execveat_stub,
-    [SYS_USERFAULTFD]           = sys_stub,
-    [SYS_MEMBARRIER]            = sys_membarrier_stub,
-    [SYS_MLOCK2]                = sys_mlock2_stub,
-    [SYS_COPY_FILE_RANGE]       = sys_copy_file_range_stub,
-    [SYS_PREADV2]               = sys_stub,
-    [SYS_PWRITEV2]              = sys_stub,
-    [SYS_PKEY_MPROTECT]         = sys_pkey_mprotect_stub,
-    [SYS_PKEY_ALLOC]            = sys_stub,
-    [SYS_PKEY_FREE]             = sys_stub,
-    [SYS_STATX]                 = sys_statx,
-    [SYS_IO_PGETEVENTS]         = sys_stub,
-    [SYS_RSEQ]                  = sys_stub,
-    [SYS_PIDFD_SEND_SIGNAL]    = sys_stub,
-    [SYS_IO_URING_SETUP]       = sys_stub,
-    [SYS_IO_URING_ENTER]       = sys_stub,
-    [SYS_IO_URING_REGISTER]    = sys_stub,
-    [SYS_OPEN_TREE]            = sys_stub,
-    [SYS_MOVE_MOUNT]           = sys_stub,
-    [SYS_FSOPEN]               = sys_stub,
-    [SYS_FSCONFIG]             = sys_stub,
-    [SYS_FSMOUNT]              = sys_stub,
-    [SYS_FSPICK]               = sys_stub,
-    [SYS_PIDFD_OPEN]           = sys_stub,
-    [SYS_CLONE3]               = sys_stub,
-    [SYS_CLOSE_RANGE]          = sys_close_range,
-    [SYS_FACCESSAT2]           = sys_access_stub,
+    [SYS_MLOCK]                  = sys_mlock_wrap,
+    [SYS_MUNLOCK]                = sys_munlock_wrap,
+    [SYS_MLOCKALL]               = sys_mlockall_wrap,
+    [SYS_MUNLOCKALL]             = sys_munlockall_wrap,
+    [SYS_VHANGUP]                = sys_stub,
+    [SYS_MODIFY_LDT]             = sys_stub,
+    [SYS_PIVOT_ROOT]             = sys_stub,
+    [SYS__SYSCTL]                = sys_stub,
+    [SYS_PRCTL]                  = sys_stub_ok,
+    [SYS_ARCH_PRCTL]             = sys_arch_prctl,
+    [SYS_ADJTIMEX]               = sys_stub,
+    [SYS_SETRLIMIT]              = sys_stub_ok,
+    [SYS_CHROOT]                 = sys_stub,
+    [SYS_SYNC]                   = sys_sync_stub,
+    [SYS_ACCT]                   = sys_stub,
+    [SYS_SETTIMEOFDAY]           = sys_stub,
+    [SYS_MOUNT]                  = sys_stub,
+    [SYS_UMOUNT2]                = sys_stub,
+    [SYS_SWAPON]                 = sys_stub,
+    [SYS_SWAPOFF]                = sys_stub,
+    [SYS_REBOOT]                 = sys_stub,
+    [SYS_SETHOSTNAME]            = sys_stub_ok,
+    [SYS_SETDOMAINNAME]          = sys_stub_ok,
+    [SYS_IOPL]                   = sys_stub,
+    [SYS_IOPERM]                 = sys_stub,
+    [SYS_CREATE_MODULE]          = sys_stub,
+    [SYS_INIT_MODULE]            = sys_stub,
+    [SYS_DELETE_MODULE]          = sys_stub,
+    [SYS_GET_KERNEL_SYMS]        = sys_stub,
+    [SYS_QUERY_MODULE]           = sys_stub,
+    [SYS_QUOTACTL]               = sys_stub,
+    [SYS_NFSSERVCTL]             = sys_stub,
+    [SYS_GETPMSG]                = sys_stub,
+    [SYS_PUTPMSG]                = sys_stub,
+    [SYS_AFS_SYSCALL]            = sys_stub,
+    [SYS_TUXCALL]                = sys_stub,
+    [SYS_SECURITY]               = sys_stub,
+    [SYS_GETTID]                 = sys_gettid,
+    [SYS_READAHEAD]              = sys_readahead_stub,
+    [SYS_SETXATTR]               = sys_stub,
+    [SYS_LSETXATTR]              = sys_stub,
+    [SYS_FSETXATTR]              = sys_stub,
+    [SYS_GETXATTR]               = sys_stub,
+    [SYS_LGETXATTR]              = sys_stub,
+    [SYS_FGETXATTR]              = sys_stub,
+    [SYS_LISTXATTR]              = sys_listxattr_stub,
+    [SYS_LLISTXATTR]             = sys_listxattr_stub,
+    [SYS_FLISTXATTR]             = sys_listxattr_stub,
+    [SYS_REMOVEXATTR]            = sys_stub,
+    [SYS_LREMOVEXATTR]           = sys_stub,
+    [SYS_FREMOVEXATTR]           = sys_stub,
+    [SYS_TKILL]                  = sys_tkill_stub,
+    [SYS_TIME]                   = sys_time,
+    [SYS_FUTEX]                  = sys_stub,
+    [SYS_SCHED_SETAFFINITY]      = sys_stub_ok,
+    [SYS_SCHED_GETAFFINITY]      = sys_sched_getaffinity_stub,
+    [SYS_SET_THREAD_AREA]        = sys_stub,
+    [SYS_IO_SETUP]               = sys_stub,
+    [SYS_IO_DESTROY]             = sys_stub,
+    [SYS_IO_GETEVENTS]           = sys_stub,
+    [SYS_IO_SUBMIT]              = sys_stub,
+    [SYS_IO_CANCEL]              = sys_stub,
+    [SYS_GET_THREAD_AREA]        = sys_stub,
+    [SYS_LOOKUP_DCOOKIE]         = sys_stub,
+    [SYS_EPOLL_CREATE]           = sys_stub,
+    [SYS_EPOLL_CTL_OLD]          = sys_stub,
+    [SYS_EPOLL_WAIT_OLD]         = sys_stub,
+    [SYS_REMAP_FILE_PAGES]       = sys_stub,
+    [SYS_GETDENTS64]             = sys_stub,
+    [SYS_SET_TID_ADDRESS]        = sys_set_tid_address_stub,
+    [SYS_RESTART_SYSCALL]        = sys_stub,
+    [SYS_SEMTIMEDOP]             = sys_stub,
+    [SYS_FADVISE64]              = sys_fadvise64_stub,
+    [SYS_TIMER_CREATE]           = sys_stub,
+    [SYS_TIMER_SETTIME]          = sys_stub,
+    [SYS_TIMER_GETTIME]          = sys_stub,
+    [SYS_TIMER_GETOVERRUN]       = sys_stub,
+    [SYS_TIMER_DELETE]           = sys_stub,
+    [SYS_CLOCK_SETTIME]          = sys_stub,
+    [SYS_CLOCK_GETTIME]          = sys_clock_gettime_stub,
+    [SYS_CLOCK_GETRES]           = sys_clock_getres_stub,
+    [SYS_CLOCK_NANOSLEEP]        = sys_clock_nanosleep_stub,
+    [SYS_EXIT_GROUP]             = sys_exit_group,
+    [SYS_EPOLL_WAIT]             = sys_stub,
+    [SYS_EPOLL_CTL]              = sys_stub,
+    [SYS_TGKILL]                 = sys_tgkill_wrap,
+    [SYS_UTIMES]                 = sys_stub_ok,
+    [SYS_VSERVER]                = sys_stub,
+    [SYS_MBIND]                  = sys_stub,
+    [SYS_SET_MEMPOLICY]          = sys_stub,
+    [SYS_GET_MEMPOLICY]          = sys_stub,
+    [SYS_MQ_OPEN]                = sys_stub,
+    [SYS_MQ_UNLINK]              = sys_stub,
+    [SYS_MQ_TIMEDSEND]           = sys_stub,
+    [SYS_MQ_TIMEDRECEIVE]        = sys_stub,
+    [SYS_MQ_NOTIFY]              = sys_stub,
+    [SYS_MQ_GETSETATTR]          = sys_stub,
+    [SYS_KEXEC_LOAD]             = sys_stub,
+    [SYS_WAITID]                 = sys_stub,
+    [SYS_ADD_KEY]                = sys_stub,
+    [SYS_REQUEST_KEY]            = sys_stub,
+    [SYS_KEYCTL]                 = sys_stub,
+    [SYS_IOPRIO_SET]             = sys_stub,
+    [SYS_IOPRIO_GET]             = sys_stub,
+    [SYS_INOTIFY_INIT]           = sys_stub,
+    [SYS_INOTIFY_ADD_WATCH]      = sys_stub,
+    [SYS_INOTIFY_RM_WATCH]       = sys_stub,
+    [SYS_MIGRATE_PAGES]          = sys_stub,
+    [SYS_OPENAT]                 = sys_openat,
+    [SYS_MKDIRAT]                = sys_mkdirat,
+    [SYS_MKNODAT]                = sys_stub,
+    [SYS_FCHOWNAT]               = sys_stub_ok,
+    [SYS_FUTIMESAT]              = sys_stub_ok,
+    [SYS_NEWFSTATAT]             = sys_newfstatat,
+    [SYS_UNLINKAT]               = sys_unlinkat,
+    [SYS_RENAMEAT]               = sys_renameat,
+    [SYS_LINKAT]                 = sys_linkat,
+    [SYS_SYMLINKAT]              = sys_symlinkat,
+    [SYS_READLINKAT]             = sys_readlinkat,
+    [SYS_FCHMODAT]               = sys_stub_ok,
+    [SYS_FACCESSAT]              = sys_access_stub,
+    [SYS_PSELECT6]               = sys_pselect6_stub,
+    [SYS_PPOLL]                  = sys_ppoll_stub,
+    [SYS_UNSHARE]                = sys_stub,
+    [SYS_SET_ROBUST_LIST]        = sys_stub_ok,
+    [SYS_GET_ROBUST_LIST]        = sys_stub,
+    [SYS_SPLICE]                 = sys_stub,
+    [SYS_TEE]                    = sys_stub,
+    [SYS_SYNC_FILE_RANGE]        = sys_sync_file_range_stub,
+    [SYS_VMSPLICE]               = sys_stub,
+    [SYS_MOVE_PAGES]             = sys_stub,
+    [SYS_UTIMENSAT]              = sys_utimensat_stub,
+    [SYS_EPOLL_PWAIT]            = sys_epoll_pwait_stub,
+    [SYS_SIGNALFD]               = sys_signalfd_wrap,
+    [SYS_TIMERFD_CREATE]         = sys_timerfd_create_wrap,
+    [SYS_EVENTFD]                = sys_eventfd_wrap,
+    [SYS_FALLOCATE]              = sys_fallocate_stub,
+    [SYS_TIMERFD_SETTIME]        = sys_timerfd_settime_wrap,
+    [SYS_TIMERFD_GETTIME]        = sys_timerfd_gettime_wrap,
+    [SYS_ACCEPT4]                = sys_stub,
+    [SYS_SIGNALFD4]              = sys_signalfd4_wrap,
+    [SYS_EVENTFD2]               = sys_eventfd2_wrap,
+    [SYS_EPOLL_CREATE1]          = sys_stub,
+    [SYS_DUP3]                   = sys_dup3,
+    [SYS_PIPE2]                  = sys_stub,
+    [SYS_INOTIFY_INIT1]          = sys_stub,
+    [SYS_PREADV]                 = sys_stub,
+    [SYS_PWRITEV]                = sys_stub,
+    [SYS_RT_TGSIGQUEUEINFO]      = sys_rt_tgsigqueueinfo_wrap,
+    [SYS_PERF_EVENT_OPEN]        = sys_stub,
+    [SYS_RECVMMSG]               = sys_stub,
+    [SYS_FANOTIFY_INIT]          = sys_stub,
+    [SYS_FANOTIFY_MARK]          = sys_stub,
+    [SYS_PRLIMIT64]              = sys_prlimit64_stub,
+    [SYS_NAME_TO_HANDLE_AT]      = sys_stub,
+    [SYS_OPEN_BY_HANDLE_AT]      = sys_stub,
+    [SYS_CLOCK_ADJTIME]          = sys_stub,
+    [SYS_SYNCFS]                 = sys_stub_ok,
+    [SYS_SENDMMSG]               = sys_stub,
+    [SYS_SETNS]                  = sys_stub,
+    [SYS_GETCPU]                 = sys_getcpu_stub,
+    [SYS_PROCESS_VM_READV]       = sys_stub,
+    [SYS_PROCESS_VM_WRITEV]      = sys_stub,
+    [SYS_KCMP]                   = sys_stub,
+    [SYS_FINIT_MODULE]           = sys_stub,
+    [SYS_SCHED_SETATTR]          = sys_stub_ok,
+    [SYS_SCHED_GETATTR]          = sys_stub_ok,
+    [SYS_RENAMEAT2]              = sys_renameat2_stub,
+    [SYS_SECCOMP]                = sys_stub,
+    [SYS_GETRANDOM]              = sys_getrandom_stub,
+    [SYS_MEMFD_CREATE]           = sys_memfd_create_stub,
+    [SYS_KEXEC_FILE_LOAD]        = sys_stub,
+    [SYS_BPF]                    = sys_stub,
+    [SYS_EXECVEAT]               = sys_execveat_stub,
+    [SYS_USERFAULTFD]            = sys_stub,
+    [SYS_MEMBARRIER]             = sys_membarrier_stub,
+    [SYS_MLOCK2]                 = sys_mlock2_stub,
+    [SYS_COPY_FILE_RANGE]        = sys_copy_file_range_stub,
+    [SYS_PREADV2]                = sys_stub,
+    [SYS_PWRITEV2]               = sys_stub,
+    [SYS_PKEY_MPROTECT]          = sys_pkey_mprotect_stub,
+    [SYS_PKEY_ALLOC]             = sys_stub,
+    [SYS_PKEY_FREE]              = sys_stub,
+    [SYS_STATX]                  = sys_statx,
+    [SYS_IO_PGETEVENTS]          = sys_stub,
+    [SYS_RSEQ]                   = sys_stub,
+    [SYS_PIDFD_SEND_SIGNAL]      = sys_stub,
+    [SYS_IO_URING_SETUP]         = sys_stub,
+    [SYS_IO_URING_ENTER]         = sys_stub,
+    [SYS_IO_URING_REGISTER]      = sys_stub,
+    [SYS_OPEN_TREE]              = sys_stub,
+    [SYS_MOVE_MOUNT]             = sys_stub,
+    [SYS_FSOPEN]                 = sys_stub,
+    [SYS_FSCONFIG]               = sys_stub,
+    [SYS_FSMOUNT]                = sys_stub,
+    [SYS_FSPICK]                 = sys_stub,
+    [SYS_PIDFD_OPEN]             = sys_stub,
+    [SYS_CLONE3]                 = sys_stub,
+    [SYS_CLOSE_RANGE]            = sys_close_range,
+    [SYS_FACCESSAT2]             = sys_access_stub,
 };
 
 void syscall_dispatch(syscall_frame_t *frame)

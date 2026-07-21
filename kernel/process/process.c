@@ -81,28 +81,28 @@ typedef struct {
 
 static void *process_user_ptr(process_t *proc, uintptr_t addr)
 {
-    page_table_t *l4 = proc->user_page_dir->table;
-    uint64_t l4e = l4->entries[(addr >> 39) & 0x1ff].value;
+    page_table_t *l4  = proc->user_page_dir->table;
+    uint64_t      l4e = l4->entries[(addr >> 39) & 0x1ff].value;
     if (!(l4e & PTE_PRESENT)) return NULL;
-    page_table_t *l3 = phys_to_virt(l4e & PAGE_4K_MASK);
-    uint64_t l3e = l3->entries[(addr >> 30) & 0x1ff].value;
+    page_table_t *l3  = phys_to_virt(l4e & PAGE_4K_MASK);
+    uint64_t      l3e = l3->entries[(addr >> 30) & 0x1ff].value;
     if (!(l3e & PTE_PRESENT) || (l3e & PTE_HUGE)) return NULL;
-    page_table_t *l2 = phys_to_virt(l3e & PAGE_4K_MASK);
-    uint64_t l2e = l2->entries[(addr >> 21) & 0x1ff].value;
+    page_table_t *l2  = phys_to_virt(l3e & PAGE_4K_MASK);
+    uint64_t      l2e = l2->entries[(addr >> 21) & 0x1ff].value;
     if (!(l2e & PTE_PRESENT) || (l2e & PTE_HUGE)) return NULL;
-    page_table_t *l1 = phys_to_virt(l2e & PAGE_4K_MASK);
-    uint64_t l1e = l1->entries[(addr >> 12) & 0x1ff].value;
+    page_table_t *l1  = phys_to_virt(l2e & PAGE_4K_MASK);
+    uint64_t      l1e = l1->entries[(addr >> 12) & 0x1ff].value;
     if (!(l1e & PTE_PRESENT)) return NULL;
     return (uint8_t *)phys_to_virt(l1e & PAGE_4K_MASK) + (addr & (PAGE_4K_SIZE - 1));
 }
 
 static uintptr_t process_setup_user_stack(process_t *proc, const elf64_ehdr_t *ehdr)
 {
-    uintptr_t top         = PROCESS_USER_STACK_TOP;
-    uintptr_t random_addr = top - 32;
-    uintptr_t string_addr = top - 64;
-    uintptr_t rsp         = top - 512;
-    const char name[] = "init";
+    uintptr_t  top         = PROCESS_USER_STACK_TOP;
+    uintptr_t  random_addr = top - 32;
+    uintptr_t  string_addr = top - 64;
+    uintptr_t  rsp         = top - 512;
+    const char name[]      = "init";
 
     char *name_dst = process_user_ptr(proc, string_addr);
     if (!name_dst) return 0;
@@ -115,23 +115,35 @@ static uintptr_t process_setup_user_stack(process_t *proc, const elf64_ehdr_t *e
     uint64_t *stack = process_user_ptr(proc, rsp);
     if (!stack) return 0;
 
-    size_t n = 0;
-    stack[n++] = 1;                  /* argc */
-    stack[n++] = string_addr;        /* argv[0] */
-    stack[n++] = 0;                  /* argv[1] */
-    stack[n++] = 0;                  /* envp[0] */
-    stack[n++] = 3;  stack[n++] = ehdr->phoff ? PROCESS_USER_CODE_MIN + ehdr->phoff : 0; /* AT_PHDR */
-    stack[n++] = 4;  stack[n++] = ehdr->phentsize;                                      /* AT_PHENT */
-    stack[n++] = 5;  stack[n++] = ehdr->phnum;                                          /* AT_PHNUM */
-    stack[n++] = 6;  stack[n++] = PAGE_4K_SIZE;                                         /* AT_PAGESZ */
-    stack[n++] = 9;  stack[n++] = ehdr->entry;                                          /* AT_ENTRY */
-    stack[n++] = 11; stack[n++] = proc->uid;                                            /* AT_UID */
-    stack[n++] = 12; stack[n++] = proc->uid;                                            /* AT_EUID */
-    stack[n++] = 13; stack[n++] = proc->gid;                                            /* AT_GID */
-    stack[n++] = 14; stack[n++] = proc->gid;                                            /* AT_EGID */
-    stack[n++] = 23; stack[n++] = 0;                                                    /* AT_SECURE */
-    stack[n++] = 25; stack[n++] = random_addr;                                          /* AT_RANDOM */
-    stack[n++] = 0;  stack[n++] = 0;                                                    /* AT_NULL */
+    size_t n   = 0;
+    stack[n++] = 1;           /* argc */
+    stack[n++] = string_addr; /* argv[0] */
+    stack[n++] = 0;           /* argv[1] */
+    stack[n++] = 0;           /* envp[0] */
+    stack[n++] = 3;
+    stack[n++] = ehdr->phoff ? PROCESS_USER_CODE_MIN + ehdr->phoff : 0; /* AT_PHDR */
+    stack[n++] = 4;
+    stack[n++] = ehdr->phentsize; /* AT_PHENT */
+    stack[n++] = 5;
+    stack[n++] = ehdr->phnum; /* AT_PHNUM */
+    stack[n++] = 6;
+    stack[n++] = PAGE_4K_SIZE; /* AT_PAGESZ */
+    stack[n++] = 9;
+    stack[n++] = ehdr->entry; /* AT_ENTRY */
+    stack[n++] = 11;
+    stack[n++] = proc->uid; /* AT_UID */
+    stack[n++] = 12;
+    stack[n++] = proc->uid; /* AT_EUID */
+    stack[n++] = 13;
+    stack[n++] = proc->gid; /* AT_GID */
+    stack[n++] = 14;
+    stack[n++] = proc->gid; /* AT_EGID */
+    stack[n++] = 23;
+    stack[n++] = 0; /* AT_SECURE */
+    stack[n++] = 25;
+    stack[n++] = random_addr; /* AT_RANDOM */
+    stack[n++] = 0;
+    stack[n++] = 0; /* AT_NULL */
     return rsp;
 }
 
@@ -195,7 +207,7 @@ static int load_elf_segments(process_t *proc, const elf64_ehdr_t *ehdr, const ui
         if (!(phdr[i].flags & PF_X)) pte_flags |= PTE_NO_EXECUTE;
 
         uintptr_t seg_start = ALIGN_DOWN(phdr[i].vaddr, PAGE_4K_SIZE);
-        uintptr_t seg_end = ALIGN_UP(phdr[i].vaddr + phdr[i].memsz, PAGE_4K_SIZE);
+        uintptr_t seg_end   = ALIGN_UP(phdr[i].vaddr + phdr[i].memsz, PAGE_4K_SIZE);
 
         for (uintptr_t va = seg_start; va < seg_end; va += PAGE_4K_SIZE) {
             uint64_t frame = alloc_frames(1);
@@ -205,8 +217,7 @@ static int load_elf_segments(process_t *proc, const elf64_ehdr_t *ehdr, const ui
             memset(page, 0, PAGE_4K_SIZE);
 
             uintptr_t file_start = MAX(va, phdr[i].vaddr);
-            uintptr_t file_end = MIN(va + PAGE_4K_SIZE,
-                                     phdr[i].vaddr + phdr[i].filesz);
+            uintptr_t file_end   = MIN(va + PAGE_4K_SIZE, phdr[i].vaddr + phdr[i].filesz);
             if (file_start < file_end) {
                 size_t page_offset = file_start - va;
                 size_t file_offset = phdr[i].offset + file_start - phdr[i].vaddr;
@@ -850,9 +861,7 @@ void process_exit(int exit_code)
     proc->exit_code   = exit_code;
 
     /* Notify parent via SIGCHLD */
-    if (proc->parent) {
-        signal_notify_child_exit(proc->parent, (pid_t)proc->task->pid, exit_code, 0);
-    }
+    if (proc->parent) { signal_notify_child_exit(proc->parent, (pid_t)proc->task->pid, exit_code, 0); }
 
     slist_node_t *node = proc->children.head;
     while (node) {

@@ -16,16 +16,16 @@
 #include <task.h>
 #include <vfs.h>
 
-#define TFD_CLOEXEC     (1 << 19)
-#define TFD_NONBLOCK    (1 << 11)
-#define TFD_TIMER_ABSTIME (1 << 0)
+#define TFD_CLOEXEC             (1 << 19)
+#define TFD_NONBLOCK            (1 << 11)
+#define TFD_TIMER_ABSTIME       (1 << 0)
 #define TFD_TIMER_CANCEL_ON_SET (1 << 1)
 
-#define CLOCK_REALTIME           0
-#define CLOCK_MONOTONIC          1
-#define CLOCK_BOOTTIME           7
-#define CLOCK_REALTIME_ALARM     8
-#define CLOCK_BOOTTIME_ALARM     9
+#define CLOCK_REALTIME       0
+#define CLOCK_MONOTONIC      1
+#define CLOCK_BOOTTIME       7
+#define CLOCK_REALTIME_ALARM 8
+#define CLOCK_BOOTTIME_ALARM 9
 
 typedef struct timerfd_ctx {
         uint64_t     clockid;

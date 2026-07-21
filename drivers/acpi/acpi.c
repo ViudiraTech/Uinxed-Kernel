@@ -14,6 +14,7 @@
 #include <limine.h>
 #include <printk.h>
 #include <stdint.h>
+#include <tpm.h>
 #include <uinxed.h>
 
 xsdt_t *xsdt = 0;
@@ -85,4 +86,5 @@ void acpi_init(void)
     load_table(MCFG, mcfg_init);
 
     acpi_event_init();
+    acpi_tpm_init();
 }

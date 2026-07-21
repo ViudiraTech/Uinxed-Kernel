@@ -17,45 +17,45 @@
 
 /* ---------- Signal number definitions / Linux compatible ---------- */
 
-#define SIGHUP      1
-#define SIGINT      2
-#define SIGQUIT     3
-#define SIGILL      4
-#define SIGTRAP     5
-#define SIGABRT     6
-#define SIGBUS      7
-#define SIGFPE      8
-#define SIGKILL     9
-#define SIGUSR1     10
-#define SIGSEGV     11
-#define SIGUSR2     12
-#define SIGPIPE     13
-#define SIGALRM     14
-#define SIGTERM     15
-#define SIGSTKFLT   16
-#define SIGCHLD     17
-#define SIGCONT     18
-#define SIGSTOP     19
-#define SIGTSTP     20
-#define SIGTTIN     21
-#define SIGTTOU     22
-#define SIGURG      23
-#define SIGXCPU     24
-#define SIGXFSZ     25
-#define SIGVTALRM   26
-#define SIGPROF     27
-#define SIGWINCH    28
-#define SIGIO       29
-#define SIGPWR      30
-#define SIGSYS      31
+#define SIGHUP    1
+#define SIGINT    2
+#define SIGQUIT   3
+#define SIGILL    4
+#define SIGTRAP   5
+#define SIGABRT   6
+#define SIGBUS    7
+#define SIGFPE    8
+#define SIGKILL   9
+#define SIGUSR1   10
+#define SIGSEGV   11
+#define SIGUSR2   12
+#define SIGPIPE   13
+#define SIGALRM   14
+#define SIGTERM   15
+#define SIGSTKFLT 16
+#define SIGCHLD   17
+#define SIGCONT   18
+#define SIGSTOP   19
+#define SIGTSTP   20
+#define SIGTTIN   21
+#define SIGTTOU   22
+#define SIGURG    23
+#define SIGXCPU   24
+#define SIGXFSZ   25
+#define SIGVTALRM 26
+#define SIGPROF   27
+#define SIGWINCH  28
+#define SIGIO     29
+#define SIGPWR    30
+#define SIGSYS    31
 
-#define SIGRTMIN    32
-#define SIGRTMAX    64
-#define NSIG        65
+#define SIGRTMIN 32
+#define SIGRTMAX 64
+#define NSIG     65
 
-#define SIG_ERR     ((sig_handler_t)-1)
-#define SIG_DFL     ((sig_handler_t)0)
-#define SIG_IGN     ((sig_handler_t)1)
+#define SIG_ERR ((sig_handler_t) - 1)
+#define SIG_DFL ((sig_handler_t)0)
+#define SIG_IGN ((sig_handler_t)1)
 
 /* ---------- sigset_t / 64-bit bitmap ---------- */
 
@@ -120,115 +120,115 @@ static inline int sigset_valid(const sigset_t *set)
 typedef void (*sig_handler_t)(int);
 
 typedef struct {
-    sig_handler_t sa_handler;
-    uint64_t      sa_flags;
-    uint64_t      sa_restorer;
-    sigset_t      sa_mask;
+        sig_handler_t sa_handler;
+        uint64_t      sa_flags;
+        uint64_t      sa_restorer;
+        sigset_t      sa_mask;
 } sigaction_t;
 
 /* sa_flags */
-#define SA_NOCLDSTOP  0x00000001
-#define SA_NOCLDWAIT  0x00000002
-#define SA_SIGINFO    0x00000004
-#define SA_RESTART    0x10000000
-#define SA_NODEFER    0x40000000
-#define SA_RESETHAND  0x80000000
-#define SA_ONSTACK    0x08000000
-#define SA_RESTORER   0x04000000
+#define SA_NOCLDSTOP 0x00000001
+#define SA_NOCLDWAIT 0x00000002
+#define SA_SIGINFO   0x00000004
+#define SA_RESTART   0x10000000
+#define SA_NODEFER   0x40000000
+#define SA_RESETHAND 0x80000000
+#define SA_ONSTACK   0x08000000
+#define SA_RESTORER  0x04000000
 
 /* sigprocmask how */
-#define SIG_BLOCK     0
-#define SIG_UNBLOCK   1
-#define SIG_SETMASK   2
+#define SIG_BLOCK   0
+#define SIG_UNBLOCK 1
+#define SIG_SETMASK 2
 
 /* ---------- siginfo_t ---------- */
 
 typedef union sigval {
-    int      sival_int;
-    void    *sival_ptr;
+        int   sival_int;
+        void *sival_ptr;
 } sigval_t;
 
 typedef struct {
-    int      si_signo;
-    int      si_errno;
-    int      si_code;
-    union {
-        int    _pad[29];
-        /* kill / tkill / tgkill */
-        struct {
-            int64_t  _pid;
-            uint32_t _uid;
-        } _kill;
-        /* POSIX timers */
-        struct {
-            int      _tid;
-            int      _overrun;
-            sigval_t _sigval;
-        } _timer;
-        /* POSIX.1b signals */
-        struct {
-            int64_t  _pid;
-            uint32_t _uid;
-            sigval_t _sigval;
-        } _rt;
-        /* SIGCHLD */
-        struct {
-            int64_t  _pid;
-            uint32_t _uid;
-            int      _status;
-            int      _utime;
-            int      _stime;
-        } _sigchld;
-        /* SIGILL, SIGFPE, SIGSEGV, SIGBUS */
-        struct {
-            void   *_addr;
-            int     _addr_lsb;
-            union {
+        int si_signo;
+        int si_errno;
+        int si_code;
+        union {
+                int _pad[29];
+                /* kill / tkill / tgkill */
                 struct {
-                    void *_lower;
-                    void *_upper;
-                } _addr_bnd;
-                uint32_t _pkey;
-            };
-        } _sigfault;
-        /* SIGPOLL */
-        struct {
-            int64_t _band;
-            int     _fd;
-        } _sigpoll;
-        /* SIGSYS */
-        struct {
-            void   *_call_addr;
-            int     _syscall;
-            unsigned int _arch;
-        } _sigsys;
-    } _sifields;
+                        int64_t  _pid;
+                        uint32_t _uid;
+                } _kill;
+                /* POSIX timers */
+                struct {
+                        int      _tid;
+                        int      _overrun;
+                        sigval_t _sigval;
+                } _timer;
+                /* POSIX.1b signals */
+                struct {
+                        int64_t  _pid;
+                        uint32_t _uid;
+                        sigval_t _sigval;
+                } _rt;
+                /* SIGCHLD */
+                struct {
+                        int64_t  _pid;
+                        uint32_t _uid;
+                        int      _status;
+                        int      _utime;
+                        int      _stime;
+                } _sigchld;
+                /* SIGILL, SIGFPE, SIGSEGV, SIGBUS */
+                struct {
+                        void *_addr;
+                        int   _addr_lsb;
+                        union {
+                                struct {
+                                        void *_lower;
+                                        void *_upper;
+                                } _addr_bnd;
+                                uint32_t _pkey;
+                        };
+                } _sigfault;
+                /* SIGPOLL */
+                struct {
+                        int64_t _band;
+                        int     _fd;
+                } _sigpoll;
+                /* SIGSYS */
+                struct {
+                        void        *_call_addr;
+                        int          _syscall;
+                        unsigned int _arch;
+                } _sigsys;
+        } _sifields;
 } siginfo_t;
 
-#define si_pid     _sifields._kill._pid
-#define si_uid     _sifields._kill._uid
-#define si_tid     _sifields._timer._tid
-#define si_overrun _sifields._timer._overrun
-#define si_status  _sifields._sigchld._status
-#define si_utime   _sifields._sigchld._utime
-#define si_stime   _sifields._sigchld._stime
-#define si_value   _sifields._rt._sigval
-#define si_int     _sifields._rt._sigval.sival_int
-#define si_ptr     _sifields._rt._sigval.sival_ptr
-#define si_addr    _sifields._sigfault._addr
-#define si_addr_lsb _sifields._sigfault._addr_lsb
-#define si_lower   _sifields._sigfault._addr_bnd._lower
-#define si_upper   _sifields._sigfault._addr_bnd._upper
-#define si_pkey    _sifields._sigfault._pkey
-#define si_band    _sifields._sigpoll._band
-#define si_fd      _sifields._sigpoll._fd
-#define si_syscall _sifields._sigsys._syscall
+#define si_pid       _sifields._kill._pid
+#define si_uid       _sifields._kill._uid
+#define si_tid       _sifields._timer._tid
+#define si_overrun   _sifields._timer._overrun
+#define si_status    _sifields._sigchld._status
+#define si_utime     _sifields._sigchld._utime
+#define si_stime     _sifields._sigchld._stime
+#define si_value     _sifields._rt._sigval
+#define si_int       _sifields._rt._sigval.sival_int
+#define si_ptr       _sifields._rt._sigval.sival_ptr
+#define si_addr      _sifields._sigfault._addr
+#define si_addr_lsb  _sifields._sigfault._addr_lsb
+#define si_lower     _sifields._sigfault._addr_bnd._lower
+#define si_upper     _sifields._sigfault._addr_bnd._upper
+#define si_pkey      _sifields._sigfault._pkey
+#define si_band      _sifields._sigpoll._band
+#define si_fd        _sifields._sigpoll._fd
+#define si_syscall   _sifields._sigsys._syscall
 #define si_call_addr _sifields._sigsys._call_addr
-#define si_arch    _sifields._sigsys._arch
+#define si_arch      _sifields._sigsys._arch
 
 /* si_code values */
-#define SI_USER      0
-#define SI_KERNEL    0x80
+#define SI_USER     0
+#define SI_KERNEL   0x80
 #define SI_QUEUE    -1
 #define SI_TIMER    -2
 #define SI_MESGQ    -3
@@ -237,33 +237,33 @@ typedef struct {
 #define SI_TKILL    -6
 #define SI_DETHREAD -7
 
-#define ILL_ILLOPC   1
-#define ILL_ILLOPN   2
-#define ILL_ILLADR   3
-#define ILL_ILLTRP   4
-#define ILL_PRVOPC   5
-#define ILL_PRVREG   6
-#define ILL_COPROC   7
-#define ILL_BADSTK   8
+#define ILL_ILLOPC 1
+#define ILL_ILLOPN 2
+#define ILL_ILLADR 3
+#define ILL_ILLTRP 4
+#define ILL_PRVOPC 5
+#define ILL_PRVREG 6
+#define ILL_COPROC 7
+#define ILL_BADSTK 8
 
-#define FPE_INTDIV   1
-#define FPE_INTOVF   2
-#define FPE_FLTDIV   3
-#define FPE_FLTOVF   4
-#define FPE_FLTUND   5
-#define FPE_FLTRES   6
-#define FPE_FLTINV   7
-#define FPE_FLTSUB   8
+#define FPE_INTDIV 1
+#define FPE_INTOVF 2
+#define FPE_FLTDIV 3
+#define FPE_FLTOVF 4
+#define FPE_FLTUND 5
+#define FPE_FLTRES 6
+#define FPE_FLTINV 7
+#define FPE_FLTSUB 8
 
-#define SEGV_MAPERR  1
-#define SEGV_ACCERR  2
+#define SEGV_MAPERR 1
+#define SEGV_ACCERR 2
 
-#define BUS_ADRALN   1
-#define BUS_ADRERR   2
-#define BUS_OBJERR   3
+#define BUS_ADRALN 1
+#define BUS_ADRERR 2
+#define BUS_OBJERR 3
 
-#define TRAP_BRKPT   1
-#define TRAP_TRACE   2
+#define TRAP_BRKPT 1
+#define TRAP_TRACE 2
 
 #define CLD_EXITED    1
 #define CLD_KILLED    2
@@ -272,31 +272,31 @@ typedef struct {
 #define CLD_STOPPED   5
 #define CLD_CONTINUED 6
 
-#define POLL_IN      1
-#define POLL_OUT     2
-#define POLL_MSG     3
-#define POLL_ERR     4
-#define POLL_PRI     5
-#define POLL_HUP     6
+#define POLL_IN  1
+#define POLL_OUT 2
+#define POLL_MSG 3
+#define POLL_ERR 4
+#define POLL_PRI 5
+#define POLL_HUP 6
 
 /* ---------- sigaltstack ---------- */
 
 typedef struct {
-    void    *ss_sp;
-    int      ss_flags;
-    size_t   ss_size;
+        void  *ss_sp;
+        int    ss_flags;
+        size_t ss_size;
 } stack_t;
 
-#define SS_ONSTACK  1
-#define SS_DISABLE  2
+#define SS_ONSTACK 1
+#define SS_DISABLE 2
 
 /* ---------- Signal queue / real-time ---------- */
 
 #define SIGQUEUE_MAX 32
 
 typedef struct sigqueue {
-    siginfo_t        info;
-    struct sigqueue *next;
+        siginfo_t        info;
+        struct sigqueue *next;
 } sigqueue_t;
 
 /* ---------- Per-process signal state ---------- */
@@ -304,27 +304,27 @@ typedef struct sigqueue {
 #define SIG_ACTION_NUM NSIG
 
 /* Forward declaration */
-typedef struct process process_t;
-typedef struct task    task_t;
+typedef struct process       process_t;
+typedef struct task          task_t;
 typedef struct syscall_frame syscall_frame_t;
 
 typedef struct signal_state {
-    sigaction_t  sighand[SIG_ACTION_NUM];
-    sigset_t     pending;
-    sigset_t     blocked;
-    sigqueue_t  *sigqueue_head;
-    sigqueue_t  *sigqueue_tail;
-    int          sigqueue_count;
-    spinlock_t   lock;
+        sigaction_t sighand[SIG_ACTION_NUM];
+        sigset_t    pending;
+        sigset_t    blocked;
+        sigqueue_t *sigqueue_head;
+        sigqueue_t *sigqueue_tail;
+        int         sigqueue_count;
+        spinlock_t  lock;
 
-    /* Alternate signal stack */
-    stack_t      altstack;
+        /* Alternate signal stack */
+        stack_t altstack;
 
-    /* Pending child exit for SIGCHLD */
-    int          child_exit_code;
-    int          child_exit_pending;
-    int64_t      child_exit_pid;
-    int          child_exit_status;
+        /* Pending child exit for SIGCHLD */
+        int     child_exit_code;
+        int     child_exit_pending;
+        int64_t child_exit_pid;
+        int     child_exit_status;
 } signal_state_t;
 
 /* ---------- Default action type ---------- */

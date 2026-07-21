@@ -31,7 +31,9 @@ static int signalfd_fsid = -1;
 
 static void signalfd_vfs_open(void *parent, const char *name, vfs_node_t node)
 {
-    (void)parent;(void)name;(void)node;
+    (void)parent;
+    (void)name;
+    (void)node;
 }
 
 static void signalfd_vfs_close(void *current)
@@ -96,16 +98,69 @@ static int signalfd_vfs_free(void *handle)
 }
 
 /* Generic stubs */
-static void signalfd_stub_unmount(void *root) { (void)root; }
-static int signalfd_stub_stat(void *f, vfs_node_t n) { (void)f;(void)n;return EOK; }
-static int signalfd_stub_mk(void *p, const char *nm, vfs_node_t n) { (void)p;(void)nm;(void)n;return -ENOSYS; }
-static size_t signalfd_stub_write(void *f, const void *a, size_t o, size_t s) { (void)f;(void)a;(void)o;(void)s;return (size_t)-1; }
-static size_t signalfd_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s) { (void)n;(void)a;(void)o;(void)s;return (size_t)-1; }
-static int signalfd_stub_ioctl(void *f, size_t o, void *a) { (void)f;(void)o;(void)a;return -ENOSYS; }
-static vfs_node_t signalfd_stub_dup(vfs_node_t n) { (void)n;return NULL; }
-static int signalfd_stub_del(void *p, vfs_node_t n) { (void)p;(void)n;return -ENOSYS; }
-static int signalfd_stub_rename(void *c, const char *nm) { (void)c;(void)nm;return -ENOSYS; }
-static int signalfd_stub_mount(const char *s, vfs_node_t n) { (void)s;(void)n;return -ENOSYS; }
+static void signalfd_stub_unmount(void *root)
+{
+    (void)root;
+}
+static int signalfd_stub_stat(void *f, vfs_node_t n)
+{
+    (void)f;
+    (void)n;
+    return EOK;
+}
+static int signalfd_stub_mk(void *p, const char *nm, vfs_node_t n)
+{
+    (void)p;
+    (void)nm;
+    (void)n;
+    return -ENOSYS;
+}
+static size_t signalfd_stub_write(void *f, const void *a, size_t o, size_t s)
+{
+    (void)f;
+    (void)a;
+    (void)o;
+    (void)s;
+    return (size_t)-1;
+}
+static size_t signalfd_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s)
+{
+    (void)n;
+    (void)a;
+    (void)o;
+    (void)s;
+    return (size_t)-1;
+}
+static int signalfd_stub_ioctl(void *f, size_t o, void *a)
+{
+    (void)f;
+    (void)o;
+    (void)a;
+    return -ENOSYS;
+}
+static vfs_node_t signalfd_stub_dup(vfs_node_t n)
+{
+    (void)n;
+    return NULL;
+}
+static int signalfd_stub_del(void *p, vfs_node_t n)
+{
+    (void)p;
+    (void)n;
+    return -ENOSYS;
+}
+static int signalfd_stub_rename(void *c, const char *nm)
+{
+    (void)c;
+    (void)nm;
+    return -ENOSYS;
+}
+static int signalfd_stub_mount(const char *s, vfs_node_t n)
+{
+    (void)s;
+    (void)n;
+    return -ENOSYS;
+}
 
 /* ---------- Public API ---------- */
 

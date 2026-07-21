@@ -248,13 +248,13 @@ static void devtmpfs_create_audio_nodes(void)
 }
 
 /* Linux standard TTY device major numbers */
-#define TTY_MAJOR    4
+#define TTY_MAJOR     4
 #define TTY_AUX_MAJOR 5
 
 typedef struct {
-    const char *path;
-    unsigned int major;
-    unsigned int minor;
+        const char  *path;
+        unsigned int major;
+        unsigned int minor;
 } tty_dev_info_t;
 
 static void devtmpfs_create_tty_nodes(void)
@@ -268,9 +268,9 @@ static void devtmpfs_create_tty_nodes(void)
     };
 
     static const tty_dev_info_t tty_nodes[] = {
-        { .path = "/dev/tty0",    .major = TTY_MAJOR,     .minor = 0 },
-        { .path = "/dev/tty",     .major = TTY_AUX_MAJOR, .minor = 0 },
-        { .path = "/dev/console", .major = TTY_AUX_MAJOR, .minor = 1 },
+        {.path = "/dev/tty0",    .major = TTY_MAJOR,     .minor = 0},
+        {.path = "/dev/tty",     .major = TTY_AUX_MAJOR, .minor = 0},
+        {.path = "/dev/console", .major = TTY_AUX_MAJOR, .minor = 1},
     };
 
     for (size_t i = 0; i < sizeof(tty_nodes) / sizeof(tty_nodes[0]); i++) {
@@ -300,8 +300,7 @@ static void devtmpfs_create_tty_nodes(void)
         node->blksz = 1;
         node->dev   = info->major;
         node->rdev  = info->minor;
-        plogk("devtmpfs: Registered %s as TTY device (major=%u, minor=%u).\n",
-              info->path, info->major, info->minor);
+        plogk("devtmpfs: Registered %s as TTY device (major=%u, minor=%u).\n", info->path, info->major, info->minor);
         vfs_close(node);
     }
 }

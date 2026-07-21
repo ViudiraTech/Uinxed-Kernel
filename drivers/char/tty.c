@@ -343,9 +343,7 @@ size_t tty_dev_write(void *ctx, const void *addr, size_t offset, size_t size)
     const unsigned char *buf = (const unsigned char *)addr;
     size_t               i;
 
-    for (i = 0; i < size; i++) {
-        tty_print_ch((char)buf[i]);
-    }
+    for (i = 0; i < size; i++) { tty_print_ch((char)buf[i]); }
     return size;
 }
 
