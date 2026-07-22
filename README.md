@@ -28,19 +28,24 @@ Uinxed is a UNIX-like operating system kernel developed from scratch, focusing o
   - High half memory mapping (HHDM)
 - **Interrupt management**:
   - Complete interrupt descriptor table (IDT) implementation
+  - Exception interrupt handlers for both kernel and userspace
   - Advanced Programmable Interrupt Controller (APIC) support
 - **System management**:
   - ACPI support
   - High Precision Event Timer (HPET)
   - Multi-core support based on symmetric multi-processing (SMP)
   - ALSA-like Audio subsystem
-- **Terminal meatures**:
+  - `evdev` for event devices
+  - `DRM` (Direct rendering manager) subsystem
+  - IPC (Inter-Process Communication)
+- **Console meatures**:
   - Bitmap fonts (9x16 pixels)
-  - High-speed terminal implementation
+  - High-speed framebuffer console implementation
 - **Filesystem**:
   - UNIX-like virtual filesystem (VFS)
   - FatFS filesystems (FAT12, FAT16, FAT32)
   - SimpleFS for test
+  - procfs
 - **Scheduler**:
   - Kernel thread scheduler
   - Load balance
@@ -61,7 +66,7 @@ Uinxed is a UNIX-like operating system kernel developed from scratch, focusing o
   - Port
     1. Standard serial port (RS232)
     2. Standard parallel port (IEEE 1284)
-  - security
+  - Security
     1. Trusted Platform Module (TPM)
   - Video
     1. VESA/GOP framebuffer
