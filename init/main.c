@@ -24,6 +24,7 @@
 #include <drivers/sb16.h>
 #include <drivers/serial.h>
 #include <drivers/tsc.h>
+#include <drivers/tty.h>
 #include <fs/cpio.h>
 #include <fs/devtmpfs.h>
 #include <fs/fatfs/fatfs_vfs.h>
@@ -102,21 +103,24 @@ void executable_entry(void)
 /* Kernel entry */
 void kernel_entry(void)
 {
-    init_fpu();    // Floating-Point Unit / Streaming SIMD Extensions
-    init_sse();    // Streaming SIMD Extensions / 2
-    init_serial(); // Standard RS-232 Serial Port
-
+    init_fpu();     // Floating-Point Unit / Streaming SIMD Extensions
+    init_sse();     // Streaming SIMD Extensions / 2
+    init_serial();  // Standard RS-232 Serial Port
+                    //
     init_frame();   // Physical Memory Frame
     page_init();    // Standard 4-Level Page Table
     init_heap();    // Standard Memory Heap
     lmodule_init(); // Limine Kernel Module
-
-    video_init(); // Basic VESA/GOP Video
+                    //
+    video_init();   // Basic VESA/GOP Video
     video_info_t fbinfo = video_get_info();
 
 #if BOOT_LOGO
-    struct limine_smp_response *smp = smp_request.response;
-    video_draw_logo((!CPU_MAX_COUNT) ? smp->cpu_count : (smp->cpu_count > CPU_MAX_COUNT ? CPU_MAX_COUNT : smp->cpu_count));
+    tty_device_t *boot_tty = get_boot_tty();
+    if (boot_tty->type == TTY_DEVICE_VGA || boot_tty->type == TTY_DEVICE_DRM) {
+        struct limine_smp_response *smp = smp_request.response;
+        video_draw_logo((!CPU_MAX_COUNT) ? smp->cpu_count : (smp->cpu_count > CPU_MAX_COUNT ? CPU_MAX_COUNT : smp->cpu_count));
+    }
 #endif
 
     plogk("%s version %s (%s version %s) SMP %s %s\n", KERNEL_NAME, KERNEL_VERSION, COMPILER_NAME, COMPILER_VERSION, BUILD_DATE, BUILD_TIME);
@@ -137,25 +141,25 @@ void kernel_entry(void)
     plogk("x86/PAT: Configuration [0-7]: %s\n", get_pat_config().pat_str);
     plogk("dmi: %s %s, BIOS %s %s\n", smbios_sys_manufacturer(), smbios_sys_product_name(), smbios_bios_version(), smbios_bios_release_date());
 
-    init_gdt(); // Global Descriptor Table
-    init_idt(); // Interrupt Descriptor Table
-    isr_registe_handle();
-    syscall_init(); // Standard System Call
-    init_avx();     // Advanced Vector Extensions / 2
-    acpi_init();    // Advanced Configuration and Power Interface
-    tsc_init();     // Time Stamp Counter
-    smp_init();     // Symmetric Multiprocessing
-    print_memory_map();
-    log_buffer_print(&frame_log);
-    pci_init();  // Peripheral Component Interconnect
-    sb16_init(); // Sound Blaster 16
-    log_buffer_print(&lmodule_log);
-    init_ide();         // Advanced Technology Attachment / ATA Packet Interface
-    init_parallel();    // Standard IEEE 1284 Parallel Port
-    init_ps2();         // Personal System/2 Controller
-    init_vfs();         // Virtual Filesystem
-    tmpfs_regist();     // Temporary File System
-    fatfs_vfs_regist(); // FAT File System
+    init_gdt();                     // Global Descriptor Table
+    init_idt();                     // Interrupt Descriptor Table
+    isr_registe_handle();           //
+    syscall_init();                 // Standard System Call
+    init_avx();                     // Advanced Vector Extensions / 2
+    acpi_init();                    // Advanced Configuration and Power Interface
+    tsc_init();                     // Time Stamp Counter
+    smp_init();                     // Symmetric Multiprocessing
+    print_memory_map();             //
+    log_buffer_print(&frame_log);   //
+    pci_init();                     // Peripheral Component Interconnect
+    sb16_init();                    // Sound Blaster 16
+    log_buffer_print(&lmodule_log); //
+    init_ide();                     // Advanced Technology Attachment / ATA Packet Interface
+    init_parallel();                // Standard IEEE 1284 Parallel Port
+    init_ps2();                     // Personal System/2 Controller
+    init_vfs();                     // Virtual Filesystem
+    tmpfs_regist();                 // Temporary File System
+    fatfs_vfs_regist();             // FAT File System
 
     if (!get_rootdir()->fsid && vfs_mount(0, get_rootdir()) != EOK) plogk("init: Cannot mount tmpfs to root_dir.\n");
 
@@ -164,31 +168,31 @@ void kernel_entry(void)
     procfs_regist(); // Process File System
     drm_init();      // Direct Rendering Manager
 
-    {
-        vfs_node_t proc = 0;
-        int        st   = vfs_mkdir("/proc");
-        if (st == EOK || st == -EEXIST) {
-            proc = vfs_open("/proc");
-            if (proc) {
-                st = vfs_mount_fs("procfs", NULL, proc);
-                if (st == EOK) {
-                    plogk("procfs: Mounted at /proc\n");
-                    vfs_close(proc);
-                } else {
-                    plogk("procfs: Cannot mount at /proc: %d\n", st);
-                    vfs_close(proc);
-                }
+    vfs_node_t proc = 0;
+    int        st   = vfs_mkdir("/proc");
+    if (st == EOK || st == -EEXIST) {
+        proc = vfs_open("/proc");
+        if (proc) {
+            st = vfs_mount_fs("procfs", NULL, proc);
+            if (st == EOK) {
+                plogk("procfs: Mounted at /proc\n");
+                vfs_close(proc);
+            } else {
+                plogk("procfs: Cannot mount at /proc: %d\n", st);
+                vfs_close(proc);
             }
         }
     }
 
-    sched_init();    // Preemptive Scheduler — now running as swapper/0
-    process_init();  // Process Management (IPC subsystems only)
+    sched_init();    // Preemptive Scheduler
+                     // <-- [now running as swapper/0]
+    process_init();  // Process Management
     eventfd_init();  // Event File Descriptor
     timerfd_init();  // Timer File Descriptor
     signalfd_init(); // Signal File Descriptor
     mmap_init();     // Memory Map
 
+    sched_test_init();
     swapper_run_init();
 
     enable_intr();
