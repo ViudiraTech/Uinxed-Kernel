@@ -168,6 +168,7 @@ Uinxed-Kernel/
 ├── fs/              # File system.
 ├── include/         # Header file.
 ├── init/            # Code entry.
+├── ipc/             # Inter-process communication.
 ├── kernel/          # Kernel part.
 ├── libs/            # Library file.
 ├── mem/             # Memory management.
