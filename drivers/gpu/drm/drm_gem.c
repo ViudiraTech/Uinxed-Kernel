@@ -20,6 +20,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef container_of
+#define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
+#endif
+
 /* ------------------------------------------------------------------ */
 /* Global GEM name table (simple counter-based)                        */
 /* ------------------------------------------------------------------ */
@@ -33,6 +37,39 @@ static struct gem_name_entry {
 
 static uint32_t gem_name_counter = 1;
 static spinlock_t gem_name_lock = { .lock = 0, .rflags = 0 };
+
+/* ------------------------------------------------------------------ */
+/* Dumb buffer mmap offset allocator                                   */
+/* ------------------------------------------------------------------ */
+
+#define DUMB_OFFSET_PAGE_SHIFT  12
+#define DUMB_OFFSET_PAGE_SIZE   (1UL << DUMB_OFFSET_PAGE_SHIFT)
+
+static uint64_t dumb_offset_base = 0x100000000UL; /* 4GB, well above kernel text/data */
+static uint64_t dumb_offset_next = 0;
+static spinlock_t dumb_offset_lock = { .lock = 0, .rflags = 0 };
+
+static uint64_t dumb_offset_alloc(size_t size)
+{
+    uint64_t offset;
+
+    spin_lock(&dumb_offset_lock);
+    offset = dumb_offset_base + dumb_offset_next;
+    /* Advance by rounded-up page count to keep each buffer's range unique */
+    dumb_offset_next += ((uint64_t)size + DUMB_OFFSET_PAGE_SIZE - 1) &
+                        ~(DUMB_OFFSET_PAGE_SIZE - 1);
+    spin_unlock(&dumb_offset_lock);
+
+    return offset;
+}
+
+static void dumb_offset_free(uint64_t offset, size_t size)
+{
+    /* Simple bump allocator — no recycling in MVP.
+     * The offset remains reserved for the lifetime of the process. */
+    (void)offset;
+    (void)size;
+}
 
 /* ------------------------------------------------------------------ */
 /* Lookup a GEM object by global flink name                            */
@@ -173,6 +210,9 @@ void drm_gem_object_put(struct drm_gem_object *obj)
             obj->prime_fd = -1;
         }
 
+        /* Release the mmap offset */
+        dumb_offset_free(obj->mmap_offset, obj->size);
+
         /* Call driver's free hook if available */
         if (dev && dev->driver && dev->driver->gem_free_object) {
             dev->driver->gem_free_object(obj);
@@ -265,6 +305,39 @@ struct drm_gem_object *drm_gem_object_lookup(struct drm_file *file_priv,
     spin_unlock(&file_priv->table_lock);
 
     return obj;
+}
+
+/* ------------------------------------------------------------------ */
+/* drm_gem_object_lookup_by_offset: find a GEM object by mmap offset     */
+/* ------------------------------------------------------------------ */
+
+struct drm_gem_object *drm_gem_object_lookup_by_offset(struct drm_file *file_priv,
+                                                        uint64_t offset)
+{
+    struct drm_gem_object *obj;
+
+    if (!file_priv) {
+        return NULL;
+    }
+
+    spin_lock(&file_priv->table_lock);
+
+    /* Walk the file's object list and find the one with matching offset */
+    {
+        ilist_node_t *node = file_priv->object_list.next;
+        while (node && node != &file_priv->object_list) {
+            obj = container_of(node, struct drm_gem_object, handle_list_node);
+            if (obj->mmap_offset == offset) {
+                drm_gem_object_get(obj);
+                spin_unlock(&file_priv->table_lock);
+                return obj;
+            }
+            node = node->next;
+        }
+    }
+
+    spin_unlock(&file_priv->table_lock);
+    return NULL;
 }
 
 /* ------------------------------------------------------------------ */
@@ -394,6 +467,11 @@ int drm_gem_dumb_create(struct drm_file *file_priv,
     drm_gem_object_init(dev, obj, size);
     obj->size = (uint32_t)size;
 
+    /* Allocate a unique mmap offset for this dumb buffer.
+     * The offset is page-granular and unique per buffer so that
+     * drm_gem_mmap can later look up the GEM object by offset. */
+    obj->mmap_offset = dumb_offset_alloc(size);
+
     /* Allocate backing memory for the dumb buffer */
     if (size > 0) {
         obj->backing = aligned_alloc(4096, size);
@@ -437,10 +515,10 @@ int drm_gem_dumb_map_offset(struct drm_file *file_priv,
         return -ENOENT;
     }
 
-    /* Return the handle as the mmap offset (unique per buffer).
-     * A future DRM mmap implementation would use this to look up
-     * the backing memory and map it into userspace. */
-    *offset = (uint64_t)handle;
+    /* Return the pre-assigned mmap offset. This offset is unique per
+     * buffer and is used by drm_gem_mmap to look up the GEM object
+     * and map its backing memory into userspace. */
+    *offset = obj->mmap_offset;
 
     drm_gem_object_put(obj);
     return 0;

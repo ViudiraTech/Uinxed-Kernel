@@ -388,6 +388,7 @@ struct drm_gem_object {
     uint32_t                  handle_count;
     uint32_t                  size;
     void                     *backing;          /* allocated backing memory for dumb/prime buffers */
+    uint64_t                  mmap_offset;      /* offset returned by dumb_map_offset for mmap lookup */
     struct drm_mm_node        vma_node_placeholder;
     ilist_node_t              handle_list_node; /* in file objects list */
     void                     *import_attach;    /* attached dma-buf attachment (for PRIME import) */
@@ -485,7 +486,17 @@ struct drm_mode_config {
 #define BIT6_ (1U << 6)
 #define BIT7_ (1U << 7)
 
-struct drm_ioctl_desc;
+struct drm_ioctl_desc {
+    unsigned int cmd;
+    int (*func)(struct drm_device *dev, void *data, struct drm_file *file_priv);
+    unsigned int flags;
+};
+
+/* ioctl permission flags */
+#define DRM_AUTH      0x1
+#define DRM_MASTER    0x2
+#define DRM_ROOT_ONLY 0x4
+#define DRM_UNLOCKED  0x8
 
 struct drm_driver {
     const char             *name;
@@ -682,6 +693,7 @@ void drm_gem_object_put(struct drm_gem_object *obj);
 int drm_gem_handle_create(struct drm_file *file_priv, struct drm_gem_object *obj, uint32_t *handle_out);
 int drm_gem_handle_delete(struct drm_file *file_priv, uint32_t handle);
 struct drm_gem_object *drm_gem_object_lookup(struct drm_file *file_priv, uint32_t handle);
+struct drm_gem_object *drm_gem_object_lookup_by_offset(struct drm_file *file_priv, uint64_t offset);
 
 /* Mode object helpers (shared across KMS modules). */
 int drm_mode_object_idr_alloc(struct drm_device *dev, struct drm_mode_object *obj, uint32_t type);
@@ -724,6 +736,24 @@ int drm_getmagic(struct drm_device *dev, void *data, struct drm_file *file_priv)
 int drm_authmagic(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int drm_dropmaster(struct drm_device *dev, void *data, struct drm_file *file_priv);
+
+/* KMS object initialisation. */
+int drm_crtc_init_with_planes(struct drm_device *dev, struct drm_crtc *crtc,
+                              struct drm_plane *primary, struct drm_plane *cursor,
+                              void *funcs, const char *name);
+int drm_encoder_init(struct drm_device *dev, struct drm_encoder *encoder,
+                     void *funcs, int encoder_type, const char *name);
+int drm_plane_init(struct drm_device *dev, struct drm_plane *plane,
+                   uint32_t possible_crtcs, void *funcs,
+                   const uint32_t *formats, unsigned int format_count,
+                   const uint64_t *modifiers, enum drm_plane_type type,
+                   const char *name);
+int drm_connector_init(struct drm_device *dev, struct drm_connector *connector,
+                       void *funcs, int connector_type);
+int drm_connector_attach_encoder(struct drm_connector *connector, struct drm_encoder *encoder);
+int drm_connector_register(struct drm_connector *connector);
+int drm_connector_update_edid_property(struct drm_connector *connector,
+                                       const unsigned char *edid, size_t size);
 
 /* drm_setversion handler. */
 int drm_setversion(struct drm_device *dev, void *data, struct drm_file *file_priv);

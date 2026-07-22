@@ -24,8 +24,8 @@ static const char    *fs_names[256];
 static int            fs_nextid = 1;
 
 /* Default callback function (does nothing) */
-static void empty_func(void)
-{ /* Empty Function */
+static int empty_func(void)
+{ return -ENOSYS;
 }
 
 /* Tokenize the path string, splitting it by '/' */
@@ -537,17 +537,32 @@ int vfs_regist(vfs_callback_t callback)
 int vfs_regist_fs(const char *name, vfs_callback_t callback)
 {
     if (!callback) return -EINVAL;
-    for (size_t i = 0; i < sizeof(struct vfs_callback) / sizeof(void *); i++) {
-        if (!((void **)callback)[i]) return -EINVAL;
-    }
     if (name) {
         for (int i = 1; i < fs_nextid; i++) {
             if (fs_names[i] && streq(fs_names[i], name)) return -EEXIST;
         }
     }
 
-    int id           = fs_nextid++;
-    fs_callbacks[id] = callback;
+    int id = fs_nextid++;
+    if (id >= 256) {
+        fs_nextid--;
+        return -ENOSPC;
+    }
+
+    /* Allocate and fill a copy of the callback, substituting empty_func for NULL fields */
+    struct vfs_callback *cb_copy = malloc(sizeof(struct vfs_callback));
+    if (!cb_copy) {
+        fs_nextid--;
+        return -ENOMEM;
+    }
+
+    size_t num_fields = sizeof(struct vfs_callback) / sizeof(void *);
+    for (size_t i = 0; i < num_fields; i++) {
+        void *func = ((void **)callback)[i];
+        ((void **)cb_copy)[i] = func ? func : ((void **)&vfs_empty_callback)[i];
+    }
+
+    fs_callbacks[id] = cb_copy;
     fs_names[id]     = name;
     return id;
 }

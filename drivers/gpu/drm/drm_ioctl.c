@@ -73,22 +73,6 @@ extern int drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, st
 extern int drm_mode_getfb2_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
 /* ------------------------------------------------------------------ */
-/* drm_ioctl_desc — ioctl descriptor                                   */
-/* ------------------------------------------------------------------ */
-
-struct drm_ioctl_desc {
-    unsigned int cmd;
-    int (*func)(struct drm_device *dev, void *data, struct drm_file *file_priv);
-    unsigned int flags;
-};
-
-/* ioctl permission flags */
-#define DRM_AUTH      0x1
-#define DRM_MASTER    0x2
-#define DRM_ROOT_ONLY 0x4
-#define DRM_UNLOCKED  0x8
-
-/* ------------------------------------------------------------------ */
 /* drm_ioctl_permit — check auth / master flags against file_priv      */
 /* ------------------------------------------------------------------ */
 

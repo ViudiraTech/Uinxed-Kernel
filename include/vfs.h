@@ -47,6 +47,7 @@ typedef int (*vfs_ioctl_t)(void *file, size_t req, void *arg);
 typedef vfs_node_t (*vfs_dup_t)(vfs_node_t node);
 typedef int (*vfs_poll_t)(void *file, size_t events);
 typedef int (*vfs_free_t)(void *handle);
+typedef void *(*vfs_mmap_t)(void *file, size_t offset, size_t size, int flags);
 
 enum {
     file_none     = 0x1UL,    // No information retrieved
@@ -86,6 +87,7 @@ typedef struct vfs_callback {
         vfs_free_t     free;     // Release file handle
         vfs_del_t delete;        // Delete files or folders
         vfs_rename_t rename;     // Rename files or folders
+        vfs_mmap_t     mmap;     // Memory-map a device/file into the process address space
 } *vfs_callback_t;
 
 typedef struct vfs_node {
@@ -200,6 +202,9 @@ int vfs_ioctl(vfs_node_t device, size_t options, void *arg);
 
 /* Listen for actionable events on one or more file descriptors */
 int vfs_poll(vfs_node_t node, size_t event);
+
+/* Memory-map a device or file into the process address space */
+void *vfs_mmap(vfs_node_t node, size_t offset, size_t size, int flags);
 
 /* Free all child nodes of a VFS node */
 void vfs_free_child(vfs_node_t vfs);
