@@ -44,6 +44,7 @@
 #include <proc/process.h>
 #include <proc/sched.h>
 #include <proc/sched_test.h>
+#include <sync/spin_lock.h>
 #include <syscall/eventfd.h>
 #include <syscall/mmap.h>
 #include <syscall/signalfd.h>
@@ -54,32 +55,28 @@
 
 extern process_t *init_process;
 
-void user_init_process(void *arg)
+/* Create init process */
+void swapper_run_init(void)
 {
-    (void)arg;
-
-    plogk("init: user_init_process started (pid=1)\n");
-
     lmodule_t *init_mod = get_lmodule("init");
-    if (!init_mod || !init_mod->data || init_mod->size == 0) {
-        plogk("init: warning - init module not found.\n");
-        sched_dequeue_current();
-        goto halt;
+    if (!init_mod || !init_mod->data || init_mod->size == 0) panic("No working init found.");
+    plogk("swapper/0: Found init module at %p, size %zu bytes.\n", init_mod->data, init_mod->size);
+
+    process_t *init = process_create("init", NULL, NULL);
+    if (!init) panic("Failed to create init process.");
+    init_process = init;
+
+    if (elf_loader_load_user_process(init, init_mod->data, init_mod->size, NULL, NULL)) panic("Failed to load init ELF!");
+
+    spin_lock(&scheduler.lock);
+    enqueue_task(init->task);
+    spin_unlock(&scheduler.lock);
+    request_task_cpu(init->task);
+
+    for (uint32_t i = 0; i < sched_cpu_count(); i++) {
+        if (cpu_rqs[i].idle) cpu_rqs[i].idle->process = init;
     }
-
-    plogk("init: Found init module at %p, size %zu bytes.\n", init_mod->data, init_mod->size);
-
-    if (elf_loader_load_user_process(init_process, init_mod->data, init_mod->size, NULL, NULL)) {
-        plogk("init: Failed to load init ELF.\n");
-        sched_dequeue_current();
-        goto halt;
-    }
-
-    plogk("init: ELF loaded, returning to scheduler for user mode entry.\n");
-    return;
-
-halt:
-    process_exit(1);
+    plogk("swapper/0: Init process (pid=1) ready.\n");
 }
 
 /* Executable entry */
@@ -165,9 +162,7 @@ void kernel_entry(void)
     init_cpio();     // Copy In, Copy Out
     devtmpfs_init(); // Device Temporary File System
     procfs_regist(); // Process File System
-
-    drm_init(); // Direct Rendering Manager
-//  drm_run_test();
+    drm_init();      // Direct Rendering Manager
 
     {
         vfs_node_t proc = 0;
@@ -187,16 +182,15 @@ void kernel_entry(void)
         }
     }
 
-    sched_init();    // Preemptive Scheduler
-    process_init();  // Process Management
+    sched_init();    // Preemptive Scheduler — now running as swapper/0
+    process_init();  // Process Management (IPC subsystems only)
     eventfd_init();  // Event File Descriptor
     timerfd_init();  // Timer File Descriptor
     signalfd_init(); // Signal File Descriptor
     mmap_init();     // Memory Map
-    sched_test_init();
+
+    swapper_run_init();
 
     enable_intr();
     sched_start();
-
-    panic("Reached an unreachable kernel code area!");
 }

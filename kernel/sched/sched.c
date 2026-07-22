@@ -601,10 +601,13 @@ void sched_init(void)
     boot_task.kernel_stack   = &boot_stack_marker;
     boot_task.weight         = SCHED_NICE_0_LOAD;
     boot_task.process        = NULL;
-    task_name_copy(&boot_task, "kernel");
+    task_name_copy(&boot_task, "swapper/0");
     ilist_init(&boot_task.sched_node);
 
-    for (uint32_t i = 0; i < cpu_scheduler_count; i++) {
+    /* boot_task is the swapper/0 idle task for CPU 0 */
+    cpu_rqs[0].idle = &boot_task;
+
+    for (uint32_t i = 1; i < cpu_scheduler_count; i++) {
         cpu_rqs[i].idle = task_alloc("swapper");
         snprintf(cpu_rqs[i].idle->name, sizeof(cpu_rqs[i].idle->name), "swapper/%u", i);
         if (!cpu_rqs[i].idle) panic("sched: Cannot create idle task.");
@@ -623,7 +626,8 @@ void sched_init(void)
     if (cpu_scheduler_count > 8) {
         plogk("task: Created idle tasks \'swapper/*\' on all %u CPUs.\n", cpu_scheduler_count);
     } else {
-        for (unsigned int i = 0; i < cpu_scheduler_count; i++) {
+        plogk("task: Created task 0 (swapper/0) on CPU 0\n");
+        for (unsigned int i = 1; i < cpu_scheduler_count; i++) {
             plogk("task: Created task %llu (%s) on CPU %u\n", cpu_rqs[i].idle->pid, cpu_rqs[i].idle->name, cpu_rqs[i].idle->cpu_id);
         }
     }
@@ -771,11 +775,18 @@ void sched_yield(void)
 void sched_start(void)
 {
     disable_intr();
-    local_current()->state = TASK_BLOCKED;
+    local_current()->state = TASK_IDLE;
     scheduler.started      = 1;
     enable_intr();
     sched_yield();
-    panic("sched: bootstrap task resumed.");
+
+    /* swapper/0 resumed — enter idle loop */
+    for (;;) {
+        enable_intr();
+        __asm__ volatile("hlt");
+        disable_intr();
+        sched_yield();
+    }
 }
 
 /* ------------------------------------------------------------------ */

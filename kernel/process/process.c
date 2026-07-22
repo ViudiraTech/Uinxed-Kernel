@@ -41,8 +41,6 @@ static process_t *process_table[PROCESS_TABLE_SIZE];
 static spinlock_t process_table_lock;
 process_t        *init_process;
 
-void user_init_process(void *arg);
-
 static process_t *pid_to_process(pid_t pid)
 {
     if (pid <= 0 || pid >= PROCESS_TABLE_SIZE) return NULL;
@@ -500,28 +498,7 @@ void process_init(void)
     futex_init();
     epoll_init();
 
-    process_t *init = process_create("init", NULL, NULL);
-    if (!init) panic("process: Failed to create init process.");
-    init_process = init;
-
-    uint64_t *stack = (uint64_t *)ALIGN_DOWN((uint64_t)(init->kernel_stack + PROCESS_KERNEL_STACK), 16ULL);
-    *(--stack)      = 0;
-    *(--stack)      = (uint64_t)user_init_process;
-
-    init->task->context.rsp    = (uint64_t)stack;
-    init->task->context.rflags = 0x202;
-    init->task->state          = TASK_BLOCKED;
-
-    spin_lock(&scheduler.lock);
-    enqueue_task(init->task);
-    spin_unlock(&scheduler.lock);
-    request_task_cpu(init->task);
-
-    for (uint32_t i = 0; i < sched_cpu_count(); i++) {
-        if (cpu_rqs[i].idle) { cpu_rqs[i].idle->process = init; }
-    }
-
-    plogk("process: Process subsystem initialized, init pid=%llu\n", init->task->pid);
+    plogk("process: Process subsystem initialized.\n");
 }
 
 process_t *process_create(const char *name, void (*entry)(void *), void *arg)
