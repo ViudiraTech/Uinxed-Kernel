@@ -8,10 +8,10 @@
  *
  */
 
-#include <gdt.h>
-#include <printk.h>
-#include <stdint.h>
-#include <tss.h>
+#include <arch/gdt.h>
+#include <arch/tss.h>
+#include <kernel/printk.h>
+#include <libs/std/stdint.h>
 
 /* Global Descriptor Table Definition */
 gdt_t gdt0;

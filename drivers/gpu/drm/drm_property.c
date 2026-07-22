@@ -8,18 +8,18 @@
  *
  */
 
-#include <drm/drm_device.h>
-#include <drm/drm_idr.h>
-#include <drm/drm_mode.h>
-#include <alloc.h>
-#include <errno.h>
-#include <spin_lock.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <string.h>
+#include <drivers/drm/drm_device.h>
+#include <drivers/drm/drm_idr.h>
+#include <drivers/drm/drm_mode.h>
+#include <kernel/errno.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/string.h>
+#include <mem/alloc.h>
+#include <sync/spin_lock.h>
 
 #ifndef container_of
-#define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
+#    define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -27,7 +27,7 @@
 /* ------------------------------------------------------------------ */
 
 /* Allocate a mode-object ID and init the header; see drm_mode_object.c. */
-extern int  drm_mode_object_idr_alloc(struct drm_device *dev, struct drm_mode_object *obj, uint32_t type);
+extern int drm_mode_object_idr_alloc(struct drm_device *dev, struct drm_mode_object *obj, uint32_t type);
 
 /* Decrement refcount under lock; return true iff it reached zero. */
 extern bool drm_mode_object_put_dec_and_test(struct drm_mode_object *obj);
@@ -48,8 +48,7 @@ static int drm_property_add_enum(struct drm_property *prop, int index, uint64_t 
     struct drm_property_enum *e;
 
     e = malloc(sizeof(*e));
-    if (!e)
-        return -ENOMEM;
+    if (!e) return -ENOMEM;
     memset(e, 0, sizeof(*e));
     e->value = value;
     strncpy(e->name, name, DRM_PROP_NAME_LEN - 1);
@@ -66,8 +65,8 @@ static void drm_property_free_enum_list(struct drm_property *prop)
 
     node = prop->enum_list.next;
     while (node && node != &prop->enum_list) {
-        ilist_node_t              *next = node->next;
-        struct drm_property_enum *e     = container_of(node, struct drm_property_enum, head);
+        ilist_node_t             *next = node->next;
+        struct drm_property_enum *e    = container_of(node, struct drm_property_enum, head);
 
         ilist_remove(node);
         free(e);
@@ -89,12 +88,10 @@ struct drm_property *drm_property_create(struct drm_device *dev, uint32_t flags,
 {
     struct drm_property *prop;
 
-    if (!dev || !name || num_values < 0)
-        return NULL;
+    if (!dev || !name || num_values < 0) return NULL;
 
     prop = malloc(sizeof(*prop));
-    if (!prop)
-        return NULL;
+    if (!prop) return NULL;
     memset(prop, 0, sizeof(*prop));
 
     if (drm_mode_object_idr_alloc(dev, &prop->base, DRM_MODE_OBJECT_PROPERTY)) {
@@ -131,17 +128,14 @@ struct drm_property *drm_property_create(struct drm_device *dev, uint32_t flags,
 }
 
 /* Create a signed/unsigned range property with bounds [min, max]. */
-struct drm_property *drm_property_create_range(struct drm_device *dev, uint32_t flags, const char *name,
-                                               uint64_t min, uint64_t max)
+struct drm_property *drm_property_create_range(struct drm_device *dev, uint32_t flags, const char *name, uint64_t min, uint64_t max)
 {
     struct drm_property *prop;
 
-    if (!dev || !name)
-        return NULL;
+    if (!dev || !name) return NULL;
 
     prop = drm_property_create(dev, DRM_MODE_PROP_RANGE | flags, name, 2);
-    if (!prop)
-        return NULL;
+    if (!prop) return NULL;
 
     prop->values[0] = min;
     prop->values[1] = max;
@@ -159,16 +153,12 @@ struct drm_property *drm_property_create_enum(struct drm_device *dev, uint32_t f
     struct drm_property *prop;
     int                  i;
 
-    if (!dev || !name)
-        return NULL;
-    if (num_enums < 0)
-        return NULL;
-    if (num_enums > 0 && !enums)
-        return NULL;
+    if (!dev || !name) return NULL;
+    if (num_enums < 0) return NULL;
+    if (num_enums > 0 && !enums) return NULL;
 
     prop = drm_property_create(dev, DRM_MODE_PROP_ENUM | flags, name, num_enums);
-    if (!prop)
-        return NULL;
+    if (!prop) return NULL;
 
     for (i = 0; i < num_enums; i++) {
         if (drm_property_add_enum(prop, i, enums[i].value, enums[i].name)) {
@@ -186,31 +176,24 @@ struct drm_property *drm_property_create_enum(struct drm_device *dev, uint32_t f
  * with full rollback.
  */
 struct drm_property *drm_property_create_bitmask(struct drm_device *dev, uint32_t flags, const char *name,
-                                                 const struct drm_mode_property_enum *enums, int num_enums,
-                                                 uint32_t supported_bits)
+                                                 const struct drm_mode_property_enum *enums, int num_enums, uint32_t supported_bits)
 {
     struct drm_property *prop;
     int                  i, j;
 
-    if (!dev || !name)
-        return NULL;
-    if (num_enums < 0)
-        return NULL;
-    if (num_enums > 0 && !enums)
-        return NULL;
+    if (!dev || !name) return NULL;
+    if (num_enums < 0) return NULL;
+    if (num_enums > 0 && !enums) return NULL;
 
     for (i = 0, j = 0; i < num_enums; i++) {
-        if (i < 32 && (supported_bits & (1U << i)))
-            j++;
+        if (i < 32 && (supported_bits & (1U << i))) j++;
     }
 
     prop = drm_property_create(dev, DRM_MODE_PROP_BITMASK | flags, name, j);
-    if (!prop)
-        return NULL;
+    if (!prop) return NULL;
 
     for (i = 0, j = 0; i < num_enums; i++) {
-        if (i >= 32 || !(supported_bits & (1U << i)))
-            continue;
+        if (i >= 32 || !(supported_bits & (1U << i))) continue;
         if (drm_property_add_enum(prop, j, enums[i].value, enums[i].name)) {
             drm_property_destroy(dev, prop);
             return NULL;
@@ -235,14 +218,11 @@ struct drm_property_blob *drm_property_create_blob(struct drm_device *dev, const
     struct drm_property_blob *blob;
     void                     *buf = NULL;
 
-    if (!dev)
-        return NULL;
-    if (length > 0 && !data)
-        return NULL;
+    if (!dev) return NULL;
+    if (length > 0 && !data) return NULL;
 
     blob = malloc(sizeof(*blob));
-    if (!blob)
-        return NULL;
+    if (!blob) return NULL;
     memset(blob, 0, sizeof(*blob));
 
     if (length > 0) {
@@ -273,8 +253,7 @@ struct drm_property_blob *drm_property_create_blob(struct drm_device *dev, const
 /* Acquire a reference on a blob. */
 void drm_property_blob_get(struct drm_property_blob *blob)
 {
-    if (!blob)
-        return;
+    if (!blob) return;
     drm_mode_object_get(&blob->base);
 }
 
@@ -289,10 +268,8 @@ void drm_property_blob_put(struct drm_property_blob *blob)
 {
     struct drm_device *dev;
 
-    if (!blob)
-        return;
-    if (!drm_mode_object_put_dec_and_test(&blob->base))
-        return;
+    if (!blob) return;
+    if (!drm_mode_object_put_dec_and_test(&blob->base)) return;
 
     dev = blob->base.dev;
 
@@ -316,11 +293,9 @@ struct drm_property_blob *drm_property_lookup_blob(struct drm_device *dev, uint3
 {
     struct drm_mode_object *obj;
 
-    if (!dev)
-        return NULL;
+    if (!dev) return NULL;
     obj = drm_mode_object_find(dev, NULL, id, DRM_MODE_OBJECT_BLOB);
-    if (!obj)
-        return NULL;
+    if (!obj) return NULL;
     return container_of(obj, struct drm_property_blob, base);
 }
 
@@ -336,8 +311,7 @@ struct drm_property_blob *drm_property_lookup_blob(struct drm_device *dev, uint3
  */
 void drm_property_destroy(struct drm_device *dev, struct drm_property *property)
 {
-    if (!dev || !property)
-        return;
+    if (!dev || !property) return;
 
     spin_lock(&dev->mode_config.mutex);
     ilist_remove(&property->dev_head);
@@ -370,28 +344,24 @@ struct drm_property *drm_property_find(struct drm_device *dev, struct drm_file *
 int drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_get_property *prop_req = (struct drm_mode_get_property *)data;
-    struct drm_property *prop;
+    struct drm_property          *prop;
 
     (void)file_priv;
 
-    if (!dev || !prop_req) {
-        return -EINVAL;
-    }
+    if (!dev || !prop_req) { return -EINVAL; }
 
     prop = drm_property_find(dev, NULL, prop_req->prop_id);
-    if (!prop) {
-        return -ENOENT;
-    }
+    if (!prop) { return -ENOENT; }
 
     strncpy(prop_req->name, prop->name, DRM_PROP_NAME_LEN - 1);
     prop_req->name[DRM_PROP_NAME_LEN - 1] = '\0';
-    prop_req->flags = prop->flags;
-    prop_req->count_values = prop->num_values;
+    prop_req->flags                       = prop->flags;
+    prop_req->count_values                = prop->num_values;
 
     /* Count enum entries */
     {
         ilist_node_t *node;
-        int count = 0;
+        int           count = 0;
 
         node = prop->enum_list.next;
         while (node && node != &prop->enum_list) {
@@ -420,10 +390,8 @@ struct drm_property *drm_property_find(struct drm_device *dev, struct drm_file *
 {
     struct drm_mode_object *obj;
 
-    if (!dev)
-        return NULL;
+    if (!dev) return NULL;
     obj = drm_mode_object_find(dev, file_priv, id, DRM_MODE_OBJECT_PROPERTY);
-    if (!obj)
-        return NULL;
+    if (!obj) return NULL;
     return container_of(obj, struct drm_property, base);
 }

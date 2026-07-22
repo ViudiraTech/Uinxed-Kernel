@@ -8,29 +8,29 @@
  *
  */
 
-#include <common.h>
-#include <debug.h>
-#include <epoll.h>
-#include <errno.h>
-#include <frame.h>
-#include <futex.h>
-#include <heap.h>
-#include <hhdm.h>
-#include <page.h>
-#include <posix_mq.h>
-#include <printk.h>
-#include <process.h>
-#include <sched.h>
-#include <smp.h>
-#include <socket.h>
-#include <spin_lock.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <syscall.h>
-#include <sysv_ipc.h>
-#include <vfs.h>
+#include <arch/smp.h>
+#include <chipset/common.h>
+#include <fs/vfs.h>
+#include <ipc/epoll.h>
+#include <ipc/futex.h>
+#include <ipc/posix_mq.h>
+#include <ipc/socket.h>
+#include <ipc/sysv_ipc.h>
+#include <kernel/debug.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/stdlib.h>
+#include <libs/std/string.h>
+#include <mem/frame.h>
+#include <mem/heap.h>
+#include <mem/hhdm.h>
+#include <mem/page.h>
+#include <proc/process.h>
+#include <proc/sched.h>
+#include <sync/spin_lock.h>
+#include <syscall/syscall.h>
 
 /* Pipe init extern declaration */
 extern void pipe_init(void);

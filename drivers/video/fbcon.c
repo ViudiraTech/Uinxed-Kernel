@@ -8,14 +8,14 @@
  *
  */
 
-#include <common.h>
-#include <fbcon.h>
-#include <gfx_proc.h>
-#include <heap.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <string.h>
-#include <video.h>
+#include <chipset/common.h>
+#include <libs/gfxs/gfx_proc.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/string.h>
+#include <mem/heap.h>
+#include <video/fbcon.h>
+#include <video/video.h>
 
 /* Bitmap fonts */
 extern uint8_t ascii_font[];

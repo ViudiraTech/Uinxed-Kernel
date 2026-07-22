@@ -8,13 +8,13 @@
  *
  */
 
-#include <drm/drm_idr.h>
-#include <spin_lock.h>
-#include <alloc.h>
-#include <errno.h>
-#include <string.h>
-#include <stddef.h>
-#include <stdint.h>
+#include <drivers/drm/drm_idr.h>
+#include <kernel/errno.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/string.h>
+#include <mem/alloc.h>
+#include <sync/spin_lock.h>
 
 /* Multiplicative hash constant for power-of-two table sizes (Knuth). */
 #define IDR_HASH_MULT 2654435761U
@@ -49,16 +49,10 @@ static struct drm_idr_entry *idr_probe(struct drm_idr *idr, uint32_t id)
     for (idx = start;; idx = (idx + 1U) & (idr->capacity - 1U)) {
         struct drm_idr_entry *e = &idr->table[idx];
 
-        if (e->id == id) {
-            return e;
-        }
-        if (IDR_SLOT_EMPTY(*e)) {
-            return e;
-        }
+        if (e->id == id) { return e; }
+        if (IDR_SLOT_EMPTY(*e)) { return e; }
         /* Wrapped around — table is full and id not present. */
-        if (idx == ((start + idr->capacity - 1U) & (idr->capacity - 1U))) {
-            break;
-        }
+        if (idx == ((start + idr->capacity - 1U) & (idr->capacity - 1U))) { break; }
     }
     return NULL;
 }
@@ -71,35 +65,29 @@ static struct drm_idr_entry *idr_probe(struct drm_idr *idr, uint32_t id)
  */
 static int idr_grow(struct drm_idr *idr)
 {
-    uint32_t new_cap, i;
+    uint32_t              new_cap, i;
     struct drm_idr_entry *new_table;
 
-    new_cap = idr->capacity * 2U;
+    new_cap   = idr->capacity * 2U;
     new_table = (struct drm_idr_entry *)malloc(new_cap * sizeof(struct drm_idr_entry));
-    if (new_table == NULL) {
-        return -ENOMEM;
-    }
+    if (new_table == NULL) { return -ENOMEM; }
     memset(new_table, 0, new_cap * sizeof(struct drm_idr_entry));
 
     /* Rehash all live entries into the new table. */
     for (i = 0; i < idr->capacity; i++) {
         struct drm_idr_entry *src = &idr->table[i];
 
-        if (IDR_SLOT_EMPTY(*src)) {
-            continue;
-        }
+        if (IDR_SLOT_EMPTY(*src)) { continue; }
 
         /* Linear-probe into the new table. */
         uint32_t idx = idr_hash(src->id, new_cap);
 
-        while (!IDR_SLOT_EMPTY(new_table[idx])) {
-            idx = (idx + 1U) & (new_cap - 1U);
-        }
+        while (!IDR_SLOT_EMPTY(new_table[idx])) { idx = (idx + 1U) & (new_cap - 1U); }
         new_table[idx] = *src;
     }
 
     free(idr->table);
-    idr->table = new_table;
+    idr->table    = new_table;
     idr->capacity = new_cap;
     return 0;
 }
@@ -109,12 +97,10 @@ void drm_idr_init(struct drm_idr *idr)
 {
     memset(idr, 0, sizeof(*idr));
     idr->table = (struct drm_idr_entry *)malloc(IDR_INIT_CAPACITY * sizeof(struct drm_idr_entry));
-    if (idr->table == NULL) {
-        return;
-    }
+    if (idr->table == NULL) { return; }
     memset(idr->table, 0, IDR_INIT_CAPACITY * sizeof(struct drm_idr_entry));
     idr->capacity = IDR_INIT_CAPACITY;
-    idr->next_id = 1U;
+    idr->next_id  = 1U;
 }
 
 /* Release all IDR storage. Entries are not freed (callers own them). */
@@ -130,17 +116,13 @@ void drm_idr_destroy(struct drm_idr *idr)
 void *drm_idr_find(struct drm_idr *idr, uint32_t id)
 {
     struct drm_idr_entry *e;
-    void *ptr = NULL;
+    void                 *ptr = NULL;
 
-    if (id == DRM_IDR_INVALID) {
-        return NULL;
-    }
+    if (id == DRM_IDR_INVALID) { return NULL; }
 
     spin_lock(&idr->lock);
     e = idr_probe(idr, id);
-    if (e != NULL && e->id == id) {
-        ptr = e->ptr;
-    }
+    if (e != NULL && e->id == id) { ptr = e->ptr; }
     spin_unlock(&idr->lock);
     return ptr;
 }
@@ -153,7 +135,7 @@ void *drm_idr_find(struct drm_idr *idr, uint32_t id)
 int drm_idr_alloc(struct drm_idr *idr, void *ptr, uint32_t start, uint32_t end, uint32_t *id_out)
 {
     uint32_t id, effective_end;
-    int ret;
+    int      ret;
 
     if (end == 0U) {
         effective_end = UINT32_MAX;
@@ -173,9 +155,7 @@ int drm_idr_alloc(struct drm_idr *idr, void *ptr, uint32_t start, uint32_t end, 
     }
 
     id = start;
-    if (id < idr->next_id) {
-        id = idr->next_id;
-    }
+    if (id < idr->next_id) { id = idr->next_id; }
 
     for (; id < effective_end; id++) {
         uint32_t idx = idr_hash(id, idr->capacity);
@@ -190,11 +170,11 @@ int drm_idr_alloc(struct drm_idr *idr, void *ptr, uint32_t start, uint32_t end, 
             }
             if (IDR_SLOT_EMPTY(*e)) {
                 /* Found an empty slot — claim it. */
-                e->id = id;
+                e->id  = id;
                 e->ptr = ptr;
                 idr->count++;
                 idr->next_id = id + 1U;
-                *id_out = id;
+                *id_out      = id;
                 spin_unlock(&idr->lock);
                 return 0;
             }
@@ -209,11 +189,9 @@ int drm_idr_alloc(struct drm_idr *idr, void *ptr, uint32_t start, uint32_t end, 
 int drm_idr_alloc_exact(struct drm_idr *idr, void *ptr, uint32_t id)
 {
     struct drm_idr_entry *e;
-    int ret = 0;
+    int                   ret = 0;
 
-    if (id == DRM_IDR_INVALID) {
-        return -EINVAL;
-    }
+    if (id == DRM_IDR_INVALID) { return -EINVAL; }
 
     spin_lock(&idr->lock);
 
@@ -240,7 +218,7 @@ int drm_idr_alloc_exact(struct drm_idr *idr, void *ptr, uint32_t id)
     }
 
     /* The probe returned an empty slot. */
-    e->id = id;
+    e->id  = id;
     e->ptr = ptr;
     idr->count++;
 
@@ -252,17 +230,15 @@ int drm_idr_alloc_exact(struct drm_idr *idr, void *ptr, uint32_t id)
 void *drm_idr_remove(struct drm_idr *idr, uint32_t id)
 {
     struct drm_idr_entry *e;
-    void *ptr = NULL;
+    void                 *ptr = NULL;
 
-    if (id == DRM_IDR_INVALID) {
-        return NULL;
-    }
+    if (id == DRM_IDR_INVALID) { return NULL; }
 
     spin_lock(&idr->lock);
     e = idr_probe(idr, id);
     if (e != NULL && e->id == id) {
-        ptr = e->ptr;
-        e->id = 0U;
+        ptr    = e->ptr;
+        e->id  = 0U;
         e->ptr = NULL;
         idr->count--;
     }
@@ -274,16 +250,14 @@ void *drm_idr_remove(struct drm_idr *idr, uint32_t id)
 void *drm_idr_replace(struct drm_idr *idr, void *ptr, uint32_t id)
 {
     struct drm_idr_entry *e;
-    void *old = NULL;
+    void                 *old = NULL;
 
-    if (id == DRM_IDR_INVALID) {
-        return NULL;
-    }
+    if (id == DRM_IDR_INVALID) { return NULL; }
 
     spin_lock(&idr->lock);
     e = idr_probe(idr, id);
     if (e != NULL && e->id == id) {
-        old = e->ptr;
+        old    = e->ptr;
         e->ptr = ptr;
     }
     spin_unlock(&idr->lock);
@@ -294,19 +268,15 @@ void *drm_idr_replace(struct drm_idr *idr, void *ptr, uint32_t id)
 int drm_idr_for_each(struct drm_idr *idr, int (*fn)(uint32_t id, void *ptr, void *data), void *data)
 {
     uint32_t i;
-    int ret = 0;
+    int      ret = 0;
 
     spin_lock(&idr->lock);
     for (i = 0; i < idr->capacity; i++) {
         struct drm_idr_entry *e = &idr->table[i];
 
-        if (IDR_SLOT_EMPTY(*e)) {
-            continue;
-        }
+        if (IDR_SLOT_EMPTY(*e)) { continue; }
         ret = fn(e->id, e->ptr, data);
-        if (ret != 0) {
-            break;
-        }
+        if (ret != 0) { break; }
     }
     spin_unlock(&idr->lock);
     return ret;

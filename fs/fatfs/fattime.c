@@ -2,8 +2,8 @@
 /* FatFs timestamp helper                                                */
 /*-----------------------------------------------------------------------*/
 
-#include <cmos.h>
-#include <ff.h>
+#include <chipset/cmos.h>
+#include <fs/fatfs/ff.h>
 
 DWORD get_fattime(void)
 {

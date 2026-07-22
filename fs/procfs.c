@@ -8,25 +8,25 @@
  *
  */
 
-#include <cpuid.h>
-#include <errno.h>
-#include <frame.h>
-#include <heap.h>
-#include <hhdm.h>
-#include <page.h>
-#include <printk.h>
-#include <process.h>
-#include <procfs.h>
-#include <sched.h>
-#include <smp.h>
-#include <stdarg.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <tsc.h>
-#include <uinxed.h>
-#include <vfs.h>
+#include <arch/cpuid.h>
+#include <arch/smp.h>
+#include <drivers/tsc.h>
+#include <fs/procfs.h>
+#include <fs/vfs.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <kernel/uinxed.h>
+#include <libs/std/stdarg.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/stdlib.h>
+#include <libs/std/string.h>
+#include <mem/frame.h>
+#include <mem/heap.h>
+#include <mem/hhdm.h>
+#include <mem/page.h>
+#include <proc/process.h>
+#include <proc/sched.h>
 
 static int procfs_id;
 

@@ -8,14 +8,14 @@
  *
  */
 
-#include <drm/drm_mm.h>
-#include <rbtree.h>
-#include <spin_lock.h>
-#include <alloc.h>
-#include <errno.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdbool.h>
+#include <drivers/drm/drm_mm.h>
+#include <kernel/errno.h>
+#include <libs/data/rbtree.h>
+#include <libs/std/stdbool.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <mem/alloc.h>
+#include <sync/spin_lock.h>
 
 /* Compute the end of a node's range (exclusive). */
 static inline uint64_t node_end(const struct drm_mm_node *node)
@@ -31,23 +31,21 @@ static inline uint64_t node_end(const struct drm_mm_node *node)
  */
 static void drm_mm_augment_cb(rb_node_t *rb, void *data)
 {
-    struct drm_mm_node *node = rb_entry(rb, struct drm_mm_node, rb);
-    uint64_t subtree_max = node_end(node);
+    struct drm_mm_node *node        = rb_entry(rb, struct drm_mm_node, rb);
+    uint64_t            subtree_max = node_end(node);
 
     if (rb->left) {
         struct drm_mm_node *left = rb_entry(rb->left, struct drm_mm_node, rb);
-        if (left->__subtree_last > subtree_max)
-            subtree_max = left->__subtree_last;
+        if (left->__subtree_last > subtree_max) subtree_max = left->__subtree_last;
     }
 
     if (rb->right) {
         struct drm_mm_node *right = rb_entry(rb->right, struct drm_mm_node, rb);
-        if (right->__subtree_last > subtree_max)
-            subtree_max = right->__subtree_last;
+        if (right->__subtree_last > subtree_max) subtree_max = right->__subtree_last;
     }
 
     node->__subtree_last = subtree_max;
-    rb->min_vruntime = subtree_max;
+    rb->min_vruntime     = subtree_max;
 
     (void)data;
 }
@@ -64,8 +62,7 @@ static int drm_mm_less(const rb_node_t *a, const rb_node_t *b)
 /* Align @x up to the next multiple of @alignment.  @alignment must be a power of two or zero. */
 static inline uint64_t align_up(uint64_t x, uint64_t alignment)
 {
-    if (alignment == 0)
-        return x;
+    if (alignment == 0) return x;
     return (x + alignment - 1) & ~(alignment - 1);
 }
 
@@ -73,10 +70,10 @@ static inline uint64_t align_up(uint64_t x, uint64_t alignment)
 void drm_mm_init(struct drm_mm *mm, uint64_t start, uint64_t size)
 {
     rb_init_root(&mm->interval_tree);
-    mm->lock = (spinlock_t){0};
-    mm->start = start;
-    mm->size = size;
-    mm->alignment = 0;
+    mm->lock        = (spinlock_t) {0};
+    mm->start       = start;
+    mm->size        = size;
+    mm->alignment   = 0;
     mm->scan_active = 0;
 }
 
@@ -123,21 +120,18 @@ int drm_mm_insert_node(struct drm_mm *mm, struct drm_mm_node *node, uint64_t siz
  * by @mode.  Returns 0 on success, -ENOSPC if no hole is found, or -EINVAL
  * on invalid arguments.
  */
-int drm_mm_insert_node_in_range(struct drm_mm *mm, struct drm_mm_node *node, uint64_t size,
-                                uint64_t alignment, uint64_t range_start, uint64_t range_end,
-                                enum drm_mm_insert_mode mode)
+int drm_mm_insert_node_in_range(struct drm_mm *mm, struct drm_mm_node *node, uint64_t size, uint64_t alignment, uint64_t range_start,
+                                uint64_t range_end, enum drm_mm_insert_mode mode)
 {
     struct drm_mm_node *prev, *entry;
-    uint64_t hole_start, hole_end, aligned;
-    uint64_t best_size = UINT64_MAX;
-    uint64_t best_start = 0;
-    bool found = false;
-    bool once;
+    uint64_t            hole_start, hole_end, aligned;
+    uint64_t            best_size  = UINT64_MAX;
+    uint64_t            best_start = 0;
+    bool                found      = false;
+    bool                once;
 
-    if (size == 0)
-        return -EINVAL;
-    if (range_start >= range_end)
-        return -EINVAL;
+    if (size == 0) return -EINVAL;
+    if (range_start >= range_end) return -EINVAL;
 
     once = (mode & DRM_MM_INSERT_ONCE) != 0;
     mode &= ~DRM_MM_INSERT_MODE_FLAGS;
@@ -145,63 +139,57 @@ int drm_mm_insert_node_in_range(struct drm_mm *mm, struct drm_mm_node *node, uin
     spin_lock(&mm->lock);
 
     prev = NULL;
-    for (entry = drm_mm_first(mm); ; prev = entry, entry = entry ? drm_mm_next(entry) : NULL) {
+    for (entry = drm_mm_first(mm);; prev = entry, entry = entry ? drm_mm_next(entry) : NULL) {
         hole_start = prev ? node_end(prev) : mm->start;
-        hole_end = entry ? entry->start : mm->start + mm->size;
+        hole_end   = entry ? entry->start : mm->start + mm->size;
 
-        if (hole_start < range_start)
-            hole_start = range_start;
-        if (hole_end > range_end)
-            hole_end = range_end;
+        if (hole_start < range_start) hole_start = range_start;
+        if (hole_end > range_end) hole_end = range_end;
 
-        if (hole_start >= hole_end)
-            goto next_hole;
+        if (hole_start >= hole_end) goto next_hole;
 
         aligned = align_up(hole_start, alignment);
 
-        if (aligned + size > hole_end)
-            goto next_hole;
+        if (aligned + size > hole_end) goto next_hole;
 
         found = true;
 
         switch (mode) {
-        case DRM_MM_INSERT_HIGH:
-            /* Top-down: keep scanning, use the last hole that fits. */
-            best_start = aligned;
-            break;
-        case DRM_MM_INSERT_BEST: {
-            /* Best-fit: track the tightest hole. */
-            uint64_t hole = hole_end - hole_start;
-            if (hole < best_size) {
-                best_size = hole;
+            case DRM_MM_INSERT_HIGH :
+                /* Top-down: keep scanning, use the last hole that fits. */
                 best_start = aligned;
+                break;
+            case DRM_MM_INSERT_BEST : {
+                /* Best-fit: track the tightest hole. */
+                uint64_t hole = hole_end - hole_start;
+                if (hole < best_size) {
+                    best_size  = hole;
+                    best_start = aligned;
+                }
+                break;
             }
-            break;
-        }
-        case DRM_MM_INSERT_LOW:
-        case DRM_MM_INSERT_DEFAULT:
-        default:
-            /* First-fit: use this hole immediately. */
-            best_start = aligned;
-            goto found_hole;
+            case DRM_MM_INSERT_LOW :
+            case DRM_MM_INSERT_DEFAULT :
+            default :
+                /* First-fit: use this hole immediately. */
+                best_start = aligned;
+                goto found_hole;
         }
 
 next_hole:
-        if (!entry)
-            break;
-        if (once && found)
-            break;
+        if (!entry) break;
+        if (once && found) break;
     }
 
     if (found) {
 found_hole:
-        node->start = best_start;
-        node->size = size;
-        node->mm = mm;
-        node->allocated = true;
+        node->start          = best_start;
+        node->size           = size;
+        node->mm             = mm;
+        node->allocated      = true;
         node->__subtree_last = best_start + size;
-        node->scanned_block = false;
-        node->color = 0;
+        node->scanned_block  = false;
+        node->color          = 0;
         rb_insert_augmented(&mm->interval_tree, &node->rb, drm_mm_less, drm_mm_augment_cb, NULL);
         spin_unlock(&mm->lock);
         return 0;
@@ -229,12 +217,12 @@ void drm_mm_replace_node(struct drm_mm_node *old, struct drm_mm_node *new_node)
 {
     spin_lock(&old->mm->lock);
 
-    new_node->start = old->start;
-    new_node->size = old->size;
-    new_node->allocated = old->allocated;
+    new_node->start          = old->start;
+    new_node->size           = old->size;
+    new_node->allocated      = old->allocated;
     new_node->__subtree_last = old->__subtree_last;
-    new_node->color = old->color;
-    new_node->mm = old->mm;
+    new_node->color          = old->color;
+    new_node->mm             = old->mm;
 
     rb_erase_augmented(&old->mm->interval_tree, &old->rb, drm_mm_augment_cb, NULL);
     rb_insert_augmented(&new_node->mm->interval_tree, &new_node->rb, drm_mm_less, drm_mm_augment_cb, NULL);
@@ -243,36 +231,35 @@ void drm_mm_replace_node(struct drm_mm_node *old, struct drm_mm_node *new_node)
 }
 
 /* Initialize a scan for an allocation of @size over the whole allocator. */
-void drm_mm_init_scan(struct drm_mm *mm, struct drm_mm_scan *scan, uint64_t size, uint64_t alignment,
-                      enum drm_mm_insert_mode mode)
+void drm_mm_init_scan(struct drm_mm *mm, struct drm_mm_scan *scan, uint64_t size, uint64_t alignment, enum drm_mm_insert_mode mode)
 {
-    scan->size = size;
-    scan->alignment = alignment;
+    scan->size        = size;
+    scan->alignment   = alignment;
     scan->range_start = mm->start;
-    scan->range_end = mm->start + mm->size;
-    scan->hit_start = 0;
-    scan->hit_end = 0;
-    scan->mode = mode;
-    scan->color = 0;
+    scan->range_end   = mm->start + mm->size;
+    scan->hit_start   = 0;
+    scan->hit_end     = 0;
+    scan->mode        = mode;
+    scan->color       = 0;
     scan->check_range = false;
-    scan->once = false;
+    scan->once        = false;
     mm->scan_active++;
 }
 
 /* Initialize a scan constrained to [range_start, range_end). */
-void drm_mm_init_scan_with_range(struct drm_mm *mm, struct drm_mm_scan *scan, uint64_t size, uint64_t alignment,
-                                 uint64_t range_start, uint64_t range_end, enum drm_mm_insert_mode mode)
+void drm_mm_init_scan_with_range(struct drm_mm *mm, struct drm_mm_scan *scan, uint64_t size, uint64_t alignment, uint64_t range_start,
+                                 uint64_t range_end, enum drm_mm_insert_mode mode)
 {
-    scan->size = size;
-    scan->alignment = alignment;
+    scan->size        = size;
+    scan->alignment   = alignment;
     scan->range_start = range_start;
-    scan->range_end = range_end;
-    scan->hit_start = 0;
-    scan->hit_end = 0;
-    scan->mode = mode;
-    scan->color = 0;
+    scan->range_end   = range_end;
+    scan->hit_start   = 0;
+    scan->hit_end     = 0;
+    scan->mode        = mode;
+    scan->color       = 0;
     scan->check_range = true;
-    scan->once = false;
+    scan->once        = false;
     mm->scan_active++;
 }
 

@@ -8,14 +8,14 @@
  *
  */
 
-#include <debug.h>
-#include <interrupt.h>
-#include <printk.h>
-#include <process.h>
-#include <sched.h>
-#include <signal.h>
-#include <stdint.h>
-#include <syscall.h>
+#include <kernel/debug.h>
+#include <kernel/interrupt.h>
+#include <kernel/printk.h>
+#include <libs/std/stdint.h>
+#include <proc/process.h>
+#include <proc/sched.h>
+#include <sync/signal.h>
+#include <syscall/syscall.h>
 
 void page_fault_handle(interrupt_frame_t *frame, uint64_t error_code);
 

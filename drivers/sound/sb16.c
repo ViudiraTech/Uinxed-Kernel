@@ -8,22 +8,22 @@
  *
  */
 
-#include <common.h>
-#include <dma.h>
-#include <errno.h>
-#include <frame.h>
-#include <heap.h>
-#include <hhdm.h>
-#include <interrupt.h>
-#include <page.h>
-#include <pci.h>
-#include <printk.h>
-#include <sound/sb16.h>
-#include <spin_lock.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <string.h>
-#include <timer.h>
+#include <chipset/common.h>
+#include <chipset/dma.h>
+#include <drivers/pci.h>
+#include <drivers/sb16.h>
+#include <kernel/errno.h>
+#include <kernel/interrupt.h>
+#include <kernel/printk.h>
+#include <kernel/timer.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/string.h>
+#include <mem/frame.h>
+#include <mem/heap.h>
+#include <mem/hhdm.h>
+#include <mem/page.h>
+#include <sync/spin_lock.h>
 
 static const uint16_t sb16_ports[] = {0x220, 0x240, 0x260, 0x280};
 

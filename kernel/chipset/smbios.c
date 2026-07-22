@@ -8,10 +8,10 @@
  *
  */
 
-#include <hhdm.h>
-#include <limine.h>
-#include <smbios.h>
-#include <uinxed.h>
+#include <boot/limine.h>
+#include <chipset/smbios.h>
+#include <kernel/uinxed.h>
+#include <mem/hhdm.h>
 
 /* Query SMBIOS table */
 static const header_t *find_smbios_type(uint8_t target_type)

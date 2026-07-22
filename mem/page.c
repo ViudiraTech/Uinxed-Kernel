@@ -8,22 +8,22 @@
  *
  */
 
-#include <common.h>
-#include <debug.h>
-#include <frame.h>
-#include <heap.h>
-#include <hhdm.h>
-#include <interrupt.h>
-#include <page.h>
-#include <printk.h>
-#include <process.h>
-#include <sched.h>
-#include <signal.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <syscall.h>
+#include <chipset/common.h>
+#include <kernel/debug.h>
+#include <kernel/interrupt.h>
+#include <kernel/printk.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/stdlib.h>
+#include <libs/std/string.h>
+#include <mem/frame.h>
+#include <mem/heap.h>
+#include <mem/hhdm.h>
+#include <mem/page.h>
+#include <proc/process.h>
+#include <proc/sched.h>
+#include <sync/signal.h>
+#include <syscall/syscall.h>
 
 page_directory_t  kernel_page_dir;
 page_directory_t *current_directory = 0;

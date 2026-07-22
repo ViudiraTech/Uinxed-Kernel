@@ -8,10 +8,10 @@
  *
  */
 
-#include <common.h>
-#include <cpuid.h>
-#include <printk.h>
-#include <tsc.h>
+#include <arch/cpuid.h>
+#include <chipset/common.h>
+#include <drivers/tsc.h>
+#include <kernel/printk.h>
 
 static uint64_t tsc_frequency  = 0;
 static uint64_t tsc_boot_value = 0;

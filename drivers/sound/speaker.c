@@ -8,7 +8,7 @@
  *
  */
 
-#include <common.h>
+#include <chipset/common.h>
 
 /* Set the system speaker status */
 void system_speaker(int hertz)

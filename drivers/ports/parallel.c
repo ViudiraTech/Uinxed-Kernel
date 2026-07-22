@@ -8,10 +8,10 @@
  *
  */
 
-#include <common.h>
-#include <parallel.h>
-#include <printk.h>
-#include <timer.h>
+#include <chipset/common.h>
+#include <drivers/parallel.h>
+#include <kernel/printk.h>
+#include <kernel/timer.h>
 
 /* Check if the specified parallel port exists */
 static int parallel_detect(uint16_t port)

@@ -8,14 +8,14 @@
  *
  */
 
-#include <common.h>
-#include <cpuid.h>
-#include <hhdm.h>
-#include <limine.h>
-#include <page.h>
-#include <page_walker.h>
-#include <printk.h>
-#include <uinxed.h>
+#include <arch/cpuid.h>
+#include <boot/limine.h>
+#include <chipset/common.h>
+#include <kernel/printk.h>
+#include <kernel/uinxed.h>
+#include <mem/hhdm.h>
+#include <mem/page.h>
+#include <mem/page_walker.h>
 
 /* Get physical memory offset */
 uint64_t get_physical_memory_offset(void)

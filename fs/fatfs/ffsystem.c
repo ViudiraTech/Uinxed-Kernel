@@ -2,7 +2,7 @@
 /* A Sample Code of User Provided OS Dependent Functions for FatFs        */
 /*------------------------------------------------------------------------*/
 
-#include "ff.h"
+#include <fs/fatfs/ff.h>
 
 #if FF_USE_LFN == 3 /* Use dynamic memory allocation */
 
@@ -10,7 +10,7 @@
 /* Allocate/Free a Memory Block                                           */
 /*------------------------------------------------------------------------*/
 
-#    include <alloc.h>
+#    include <mem/alloc.h>
 
 void *ff_memalloc(           /* Returns pointer to the allocated memory block (null if not enough core) */
                   UINT msize /* Number of bytes to allocate */

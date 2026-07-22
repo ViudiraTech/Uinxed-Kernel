@@ -8,14 +8,14 @@
  *
  */
 
-#include <heap.h>
-#include <printk.h>
-#include <sched.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <task.h>
+#include <kernel/printk.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/stdlib.h>
+#include <libs/std/string.h>
+#include <mem/heap.h>
+#include <proc/sched.h>
+#include <proc/task.h>
 
 typedef struct {
         kthread_entry_t entry;

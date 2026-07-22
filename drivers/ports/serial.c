@@ -8,9 +8,9 @@
  *
  */
 
-#include <common.h>
-#include <serial.h>
-#include <stdint.h>
+#include <chipset/common.h>
+#include <drivers/serial.h>
+#include <libs/std/stdint.h>
 
 static int serial_initialized   = 0;
 static int serial_port_ready[4] = {0};

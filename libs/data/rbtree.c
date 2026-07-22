@@ -8,9 +8,9 @@
  *
  */
 
-#include <rbtree.h>
-#include <stddef.h>
-#include <stdint.h>
+#include <libs/data/rbtree.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
 
 /* ------------------------------------------------------------------ */
 /*  Internal helpers                                                    */

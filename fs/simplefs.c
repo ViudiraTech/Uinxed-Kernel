@@ -8,15 +8,15 @@
  *
  */
 
-#include <blockdev.h>
-#include <errno.h>
-#include <heap.h>
-#include <ide.h>
-#include <printk.h>
-#include <simplefs.h>
-#include <stdlib.h>
-#include <string.h>
-#include <vfs.h>
+#include <drivers/blockdev.h>
+#include <drivers/ide.h>
+#include <fs/simplefs.h>
+#include <fs/vfs.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <libs/std/stdlib.h>
+#include <libs/std/string.h>
+#include <mem/heap.h>
 
 static int simplefs_id = 0;
 

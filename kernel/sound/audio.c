@@ -8,11 +8,11 @@
  *
  */
 
-#include <errno.h>
-#include <printk.h>
-#include <sound/audio.h>
-#include <string.h>
-#include <uaccess.h>
+#include <kernel/audio.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <libs/std/string.h>
+#include <proc/uaccess.h>
 
 #define AUDIO_NODES_PER_CARD 3
 #define AUDIO_MAX_NODES      (AUDIO_MAX_CARDS * AUDIO_NODES_PER_CARD)

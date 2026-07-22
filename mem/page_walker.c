@@ -8,12 +8,12 @@
  *
  */
 
-#include <hhdm.h>
-#include <page.h>
-#include <page_walker.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
+#include <libs/std/stdint.h>
+#include <libs/std/stdlib.h>
+#include <libs/std/string.h>
+#include <mem/hhdm.h>
+#include <mem/page.h>
+#include <mem/page_walker.h>
 
 /* Init page_walk_state */
 void page_walk_init(page_walk_state_t *state, page_directory_t *directory, uintptr_t virtual_addr)

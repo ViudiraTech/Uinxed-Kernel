@@ -8,10 +8,10 @@
  *
  */
 
-#include <blockdev.h>
-#include <errno.h>
-#include <heap.h>
-#include <superblock.h>
+#include <drivers/blockdev.h>
+#include <fs/superblock.h>
+#include <kernel/errno.h>
+#include <mem/heap.h>
 
 int superblock_valid(const superblock_disk_t *sb)
 {

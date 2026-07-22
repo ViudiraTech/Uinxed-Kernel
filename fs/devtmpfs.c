@@ -8,21 +8,21 @@
  *
  */
 
-#include <blockdev.h>
-#include <devtmpfs.h>
-#include <drm/drm_init.h>
-#include <errno.h>
-#include <evdev.h>
-#include <fbdev.h>
-#include <ide.h>
-#include <input_event.h>
-#include <printk.h>
-#include <ps2.h>
-#include <sound/audio.h>
-#include <tmpfs.h>
-#include <tty.h>
-#include <vfs.h>
-#include <video.h>
+#include <drivers/blockdev.h>
+#include <drivers/drm/drm_init.h>
+#include <drivers/evdev.h>
+#include <drivers/ide.h>
+#include <drivers/input_event.h>
+#include <drivers/ps2.h>
+#include <drivers/tty.h>
+#include <fs/devtmpfs.h>
+#include <fs/tmpfs.h>
+#include <fs/vfs.h>
+#include <kernel/audio.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <video/fbdev.h>
+#include <video/video.h>
 
 typedef struct mbr_partition_entry {
         uint8_t  status;
@@ -125,13 +125,11 @@ static int ps2kbd_evdev_ioctl(void *ctx, size_t req, void *arg)
 
     (void)ctx;
 
-    if (!evdev || !evdev->exist)
-        return -ENODEV;
+    if (!evdev || !evdev->exist) return -ENODEV;
 
     if (!ps2kbd_evdev_client) {
         ps2kbd_evdev_client = evdev_fop_open(evdev);
-        if (!ps2kbd_evdev_client)
-            return -ENOMEM;
+        if (!ps2kbd_evdev_client) return -ENOMEM;
     }
 
     return evdev_fop_ioctl(ps2kbd_evdev_client, (uint32_t)req, arg);
@@ -343,9 +341,7 @@ static void devtmpfs_create_drm_node(void)
     int        status;
 
     struct drm_device *drm_dev = drm_get_singleton();
-    if (!drm_dev) {
-        return;
-    }
+    if (!drm_dev) { return; }
 
     status = vfs_mkdir("/dev/dri");
     if (status != EOK && status != -EEXIST) {

@@ -8,27 +8,27 @@
  *
  */
 
-#include <alloc.h>
-#include <errno.h>
-#include <heap.h>
-#include <printk.h>
-#include <process.h>
-#include <sched.h>
-#include <spin_lock.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <task.h>
-#include <uaccess.h>
-#include <syscall.h>
-#include <vfs.h>
+#include <fs/vfs.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/stdlib.h>
+#include <libs/std/string.h>
+#include <mem/alloc.h>
+#include <mem/heap.h>
+#include <proc/process.h>
+#include <proc/sched.h>
+#include <proc/task.h>
+#include <proc/uaccess.h>
+#include <sync/spin_lock.h>
+#include <syscall/syscall.h>
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                           */
 /* ------------------------------------------------------------------ */
 
-#define PIPE_BUF_SIZE    65536   /* 64KB pipe buffer, atomic write guarantee */
+#define PIPE_BUF_SIZE     65536 /* 64KB pipe buffer, atomic write guarantee */
 #define PIPE_DEFAULT_MODE 0644
 
 /* poll event bits */
@@ -41,17 +41,17 @@
 /* ------------------------------------------------------------------ */
 
 typedef struct pipe_ring {
-    uint8_t     *buf;
-    uint32_t     head;
-    uint32_t     tail;
-    uint32_t     size;
-    uint32_t     capacity;
-    uint32_t     readers;
-    uint32_t     writers;
-    int          closed;
-    spinlock_t   lock;
-    wait_queue_t read_wq;
-    wait_queue_t write_wq;
+        uint8_t     *buf;
+        uint32_t     head;
+        uint32_t     tail;
+        uint32_t     size;
+        uint32_t     capacity;
+        uint32_t     readers;
+        uint32_t     writers;
+        int          closed;
+        spinlock_t   lock;
+        wait_queue_t read_wq;
+        wait_queue_t write_wq;
 } pipe_ring_t;
 
 /* ------------------------------------------------------------------ */
@@ -76,13 +76,13 @@ static uint32_t pipe_ring_writable(const pipe_ring_t *ring)
 
 static void pipe_ring_consume(pipe_ring_t *ring, uint32_t count)
 {
-    ring->tail  = (ring->tail + count) % ring->capacity;
+    ring->tail = (ring->tail + count) % ring->capacity;
     ring->size -= count;
 }
 
 static void pipe_ring_produce(pipe_ring_t *ring, uint32_t count)
 {
-    ring->head  = (ring->head + count) % ring->capacity;
+    ring->head = (ring->head + count) % ring->capacity;
     ring->size += count;
 }
 
@@ -94,9 +94,7 @@ static uint32_t pipe_ring_copy_out(pipe_ring_t *ring, uint8_t *dst, uint32_t cou
     if (first_chunk > count) first_chunk = count;
     memcpy(dst, ring->buf + ring->tail, first_chunk);
 
-    if (count > first_chunk) {
-        memcpy(dst + first_chunk, ring->buf, count - first_chunk);
-    }
+    if (count > first_chunk) { memcpy(dst + first_chunk, ring->buf, count - first_chunk); }
     return count;
 }
 
@@ -108,9 +106,7 @@ static uint32_t pipe_ring_copy_in(pipe_ring_t *ring, const uint8_t *src, uint32_
     if (first_chunk > count) first_chunk = count;
     memcpy(ring->buf + ring->head, src, first_chunk);
 
-    if (count > first_chunk) {
-        memcpy(ring->buf, src + first_chunk, count - first_chunk);
-    }
+    if (count > first_chunk) { memcpy(ring->buf, src + first_chunk, count - first_chunk); }
     return count;
 }
 
@@ -219,7 +215,7 @@ static size_t pipe_vfs_read(void *file, void *addr, size_t offset, size_t size)
         }
         if (ring->writers == 0) {
             spin_unlock(&ring->lock);
-            return 0;               /* EOF — no writers left */
+            return 0; /* EOF — no writers left */
         }
         /* release lock, block, re-acquire on wakeup */
         spin_unlock(&ring->lock);
@@ -251,15 +247,15 @@ static size_t pipe_vfs_write(void *file, const void *addr, size_t offset, size_t
     pipe_ring_t *ring = (pipe_ring_t *)file;
     if (!ring || !addr || !size) return (size_t)-1;
 
-    size_t total_written = 0;
-    const uint8_t *src   = (const uint8_t *)addr;
+    size_t         total_written = 0;
+    const uint8_t *src           = (const uint8_t *)addr;
 
     while (total_written < size) {
         spin_lock(&ring->lock);
 
         if (ring->closed || ring->readers == 0) {
             spin_unlock(&ring->lock);
-            return (size_t)-1;           /* -EPIPE — no readers */
+            return (size_t)-1; /* -EPIPE — no readers */
         }
 
         /*
@@ -272,7 +268,7 @@ static size_t pipe_vfs_write(void *file, const void *addr, size_t offset, size_t
         while (pipe_ring_writable(ring) < chunk) {
             if (ring->closed || ring->readers == 0) {
                 spin_unlock(&ring->lock);
-                return (size_t)-1;       /* -EPIPE */
+                return (size_t)-1; /* -EPIPE */
             }
             spin_unlock(&ring->lock);
             wait_queue_wait(&ring->write_wq);
@@ -305,15 +301,9 @@ static int pipe_vfs_poll(void *file, size_t events)
 
     spin_lock(&ring->lock);
 
-    if (pipe_ring_readable(ring) > 0) {
-        revents |= POLLIN;
-    }
-    if (ring->writers == 0 || ring->closed) {
-        revents |= POLLHUP;
-    }
-    if (pipe_ring_writable(ring) > 0 && ring->readers > 0 && !ring->closed) {
-        revents |= POLLOUT;
-    }
+    if (pipe_ring_readable(ring) > 0) { revents |= POLLIN; }
+    if (ring->writers == 0 || ring->closed) { revents |= POLLHUP; }
+    if (pipe_ring_writable(ring) > 0 && ring->readers > 0 && !ring->closed) { revents |= POLLOUT; }
 
     spin_unlock(&ring->lock);
 
@@ -343,11 +333,9 @@ static int pipe_vfs_stat(void *file, vfs_node_t node)
     if (!node) return -EINVAL;
 
     pipe_ring_t *ring = (pipe_ring_t *)node->handle;
-    if (ring) {
-        node->size = ring->size;
-    }
-    node->type  |= file_pipe;
-    node->mode   = PIPE_DEFAULT_MODE;
+    if (ring) { node->size = ring->size; }
+    node->type |= file_pipe;
+    node->mode = PIPE_DEFAULT_MODE;
     return EOK;
 }
 
@@ -478,7 +466,7 @@ int64_t sys_pipe2(int pipefd[2], int flags)
 
     /* Build fd flags: O_RDONLY for read, O_WRONLY for write,
      * plus O_CLOEXEC and O_NONBLOCK from the flags argument. */
-    uint64_t read_flags  = O_RDONLY  | (flags & (O_CLOEXEC | O_NONBLOCK));
+    uint64_t read_flags  = O_RDONLY | (flags & (O_CLOEXEC | O_NONBLOCK));
     uint64_t write_flags = O_WRONLY | (flags & (O_CLOEXEC | O_NONBLOCK));
 
     /* Install read-end fd */
@@ -539,9 +527,9 @@ int64_t sys_mknod(const char *path, uint32_t mode, uint64_t dev)
     if (path_copy[0] != '/') return -EINVAL;
 
     /* Find the last '/' to separate parent path from filename */
-    char *fullpath  = path_copy;
-    char *lastslash = strrchr(fullpath, '/');
-    char *filename;
+    char      *fullpath  = path_copy;
+    char      *lastslash = strrchr(fullpath, '/');
+    char      *filename;
     vfs_node_t parent;
 
     if (lastslash == fullpath) {
@@ -579,7 +567,7 @@ int64_t sys_mknod(const char *path, uint32_t mode, uint64_t dev)
     node->mode        = mode & 07777;
     node->dev         = dev;
     node->rdev        = dev;
-    node->handle      = NULL;   /* ring created in VFS open callback */
+    node->handle      = NULL; /* ring created in VFS open callback */
     node->permissions = mode & 07777;
 
     if (parent != rootdir) vfs_close(parent);
@@ -710,6 +698,5 @@ void pipe_init(void)
         return;
     }
 
-    plogk("pipe: Subsystem initialized (fsid=%d, buffer=%d bytes)\n",
-          pipe_fsid, PIPE_BUF_SIZE);
+    plogk("pipe: Subsystem initialized (fsid=%d, buffer=%d bytes)\n", pipe_fsid, PIPE_BUF_SIZE);
 }

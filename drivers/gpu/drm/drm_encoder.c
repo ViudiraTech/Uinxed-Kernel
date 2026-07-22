@@ -8,21 +8,21 @@
  *
  */
 
-#include <drm/drm_device.h>
-#include <drm/drm_mode.h>
-#include <drm/drm_fourcc.h>
-#include <drm/drm_idr.h>
-#include <drm/drm_modeset_lock.h>
-#include <drm/drm_print.h>
-#include <alloc.h>
-#include <errno.h>
-#include <spin_lock.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <string.h>
+#include <drivers/drm/drm_device.h>
+#include <drivers/drm/drm_fourcc.h>
+#include <drivers/drm/drm_idr.h>
+#include <drivers/drm/drm_mode.h>
+#include <drivers/drm/drm_modeset_lock.h>
+#include <drivers/drm/drm_print.h>
+#include <kernel/errno.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/string.h>
+#include <mem/alloc.h>
+#include <sync/spin_lock.h>
 
 #ifndef container_of
-#define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
+#    define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
 #endif
 
 /* Internal helper from drm_mode_object.c */
@@ -39,29 +39,24 @@ extern int drm_mode_object_idr_alloc(struct drm_device *dev, struct drm_mode_obj
  * Allocates a mode-object ID, inserts into the device encoder list,
  * and sets the encoder type. Returns 0 on success or a negative errno.
  */
-int drm_encoder_init(struct drm_device *dev, struct drm_encoder *encoder,
-                     void *funcs, int encoder_type, const char *name)
+int drm_encoder_init(struct drm_device *dev, struct drm_encoder *encoder, void *funcs, int encoder_type, const char *name)
 {
     int ret;
 
     (void)name;
 
-    if (!dev || !encoder) {
-        return -EINVAL;
-    }
+    if (!dev || !encoder) { return -EINVAL; }
 
     ret = drm_mode_object_idr_alloc(dev, &encoder->base, DRM_MODE_OBJECT_ENCODER);
-    if (ret) {
-        return ret;
-    }
+    if (ret) { return ret; }
 
     ilist_insert_after(&dev->mode_config.encoder_list, &encoder->head);
 
-    encoder->dev            = dev;
-    encoder->encoder_type   = (uint32_t)encoder_type;
-    encoder->possible_crtcs = 0;
+    encoder->dev             = dev;
+    encoder->encoder_type    = (uint32_t)encoder_type;
+    encoder->possible_crtcs  = 0;
     encoder->possible_clones = 0;
-    encoder->crtc           = NULL;
+    encoder->crtc            = NULL;
     encoder->helper_private  = funcs;
 
     dev->mode_config.num_encoder++;
@@ -82,20 +77,16 @@ int drm_encoder_init(struct drm_device *dev, struct drm_encoder *encoder,
 int drm_mode_getencoder(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_get_encoder *enc_req = (struct drm_mode_get_encoder *)data;
-    struct drm_mode_object *obj;
-    struct drm_encoder *encoder;
+    struct drm_mode_object      *obj;
+    struct drm_encoder          *encoder;
 
-    if (!dev || !enc_req) {
-        return -EINVAL;
-    }
+    if (!dev || !enc_req) { return -EINVAL; }
 
     obj = drm_mode_object_find(dev, file_priv, enc_req->encoder_id, DRM_MODE_OBJECT_ENCODER);
-    if (!obj) {
-        return -ENOENT;
-    }
+    if (!obj) { return -ENOENT; }
     encoder = container_of(obj, struct drm_encoder, base);
 
-    enc_req->encoder_type   = encoder->encoder_type;
+    enc_req->encoder_type    = encoder->encoder_type;
     enc_req->crtc_id         = encoder->crtc ? encoder->crtc->base.id : 0;
     enc_req->possible_crtcs  = encoder->possible_crtcs;
     enc_req->possible_clones = encoder->possible_clones;
@@ -115,9 +106,7 @@ void drm_encoder_cleanup(struct drm_encoder *encoder)
 {
     struct drm_device *dev;
 
-    if (!encoder) {
-        return;
-    }
+    if (!encoder) { return; }
 
     dev = encoder->dev;
 
@@ -128,8 +117,6 @@ void drm_encoder_cleanup(struct drm_encoder *encoder)
         drm_idr_remove(&dev->mode_config.object_idr, encoder->base.id);
         spin_unlock(&dev->mode_config.idr_mutex);
 
-        if (dev->mode_config.num_encoder > 0) {
-            dev->mode_config.num_encoder--;
-        }
+        if (dev->mode_config.num_encoder > 0) { dev->mode_config.num_encoder--; }
     }
 }

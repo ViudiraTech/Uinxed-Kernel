@@ -8,24 +8,24 @@
  *
  */
 
-#include <errno.h>
-#include <frame.h>
-#include <heap.h>
-#include <hhdm.h>
-#include <mmap.h>
-#include <page.h>
-#include <page_walker.h>
-#include <printk.h>
-#include <process.h>
-#include <sched.h>
-#include <spin_lock.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <syscall.h>
-#include <uaccess.h>
-#include <vfs.h>
+#include <fs/vfs.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/stdlib.h>
+#include <libs/std/string.h>
+#include <mem/frame.h>
+#include <mem/heap.h>
+#include <mem/hhdm.h>
+#include <mem/page.h>
+#include <mem/page_walker.h>
+#include <proc/process.h>
+#include <proc/sched.h>
+#include <proc/uaccess.h>
+#include <sync/spin_lock.h>
+#include <syscall/mmap.h>
+#include <syscall/syscall.h>
 
 #define MMAP_BASE_ADDR     0x00007f0000000000ULL
 #define MMAP_END_ADDR      0x00007fffffffffffULL

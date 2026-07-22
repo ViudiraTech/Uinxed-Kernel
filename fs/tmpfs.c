@@ -8,11 +8,11 @@
  *
  */
 
-#include <errno.h>
-#include <heap.h>
-#include <printk.h>
-#include <string.h>
-#include <tmpfs.h>
+#include <fs/tmpfs.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <libs/std/string.h>
+#include <mem/heap.h>
 
 int tmpfs_id = 0;
 

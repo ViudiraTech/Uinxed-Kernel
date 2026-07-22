@@ -2,9 +2,9 @@
 /* FatFs logical-volume to partition mapping                             */
 /*-----------------------------------------------------------------------*/
 
-#include <errno.h>
-#include <fatfs_disk.h>
-#include <printk.h>
+#include <fs/fatfs/fatfs_disk.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
 
 PARTITION VolToPart[FF_VOLUMES];
 

@@ -8,15 +8,15 @@
  *
  */
 
-#include <apic.h>
-#include <common.h>
-#include <ide.h>
-#include <interrupt.h>
-#include <pci.h>
-#include <printk.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <timer.h>
+#include <chipset/common.h>
+#include <drivers/apic.h>
+#include <drivers/ide.h>
+#include <drivers/pci.h>
+#include <kernel/interrupt.h>
+#include <kernel/printk.h>
+#include <kernel/timer.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
 
 /* Request for operation IDE Controller */
 pci_finding_request_t ide_pci_request = {

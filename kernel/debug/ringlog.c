@@ -8,9 +8,9 @@
  *
  */
 
-#include <printk.h>
-#include <ringlog.h>
-#include <string.h>
+#include <kernel/printk.h>
+#include <kernel/ringlog.h>
+#include <libs/std/string.h>
 
 /* Initialize the ring log buffer */
 static void log_buffer_init(log_buffer_t *log)

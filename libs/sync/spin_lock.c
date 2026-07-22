@@ -8,7 +8,7 @@
  *
  */
 
-#include <spin_lock.h>
+#include <sync/spin_lock.h>
 
 /* Lock a spinlock */
 void spin_lock(spinlock_t *lock)

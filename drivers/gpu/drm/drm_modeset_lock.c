@@ -26,14 +26,14 @@
  *
  */
 
-#include <drm/drm_device.h>
-#include <drm/drm_modeset_lock.h>
-#include <errno.h>
-#include <intrusive_list.h>
-#include <spin_lock.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdbool.h>
+#include <drivers/drm/drm_device.h>
+#include <drivers/drm/drm_modeset_lock.h>
+#include <kernel/errno.h>
+#include <libs/glist/intrusive_list.h>
+#include <libs/std/stdbool.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */
 /* Lock primitives                                                    */
@@ -73,8 +73,7 @@ int drm_modeset_lock(struct drm_modeset_lock *lock, struct drm_modeset_acquire_c
     }
 
     /* Recursive acquisition by the same context is a no-op. */
-    if (lock->ctx == ctx)
-        return 0;
+    if (lock->ctx == ctx) return 0;
 
     if (lock->ctx == NULL) {
         spin_lock(&lock->mutex);
@@ -145,18 +144,16 @@ int drm_modeset_lock_single_interruptible(struct drm_modeset_lock *lock)
     uint64_t desired = 1;
 
     __asm__ volatile("pushfq; pop %0; cli" : "=r"(rflags));
-    __asm__ volatile("lock xchg %[desired], %[lock];"
-                     : [lock] "+m"(lock->mutex.lock), [desired] "+r"(desired)
-                     :: "memory");
+    __asm__ volatile("lock xchg %[desired], %[lock];" : [lock] "+m"(lock->mutex.lock), [desired] "+r"(desired)::"memory");
 
     if (desired != 0) {
         /* Already held: nothing was claimed, just restore interrupt state. */
-        __asm__ volatile("push %0; popfq" :: "r"(rflags));
+        __asm__ volatile("push %0; popfq" ::"r"(rflags));
         return -EBUSY;
     }
 
     lock->mutex.rflags = rflags;
-    lock->ctx = NULL;
+    lock->ctx          = NULL;
     return 0;
 }
 
@@ -209,9 +206,8 @@ int drm_modeset_drop_locks(struct drm_modeset_acquire_ctx *ctx)
     ilist_node_t *node = ctx->locked.prev;
 
     while (node != &ctx->locked) {
-        ilist_node_t *prev = node->prev;
-        struct drm_modeset_lock *lock =
-            (struct drm_modeset_lock *)((uintptr_t)node - offsetof(struct drm_modeset_lock, link));
+        ilist_node_t            *prev = node->prev;
+        struct drm_modeset_lock *lock = (struct drm_modeset_lock *)((uintptr_t)node - offsetof(struct drm_modeset_lock, link));
 
         drm_modeset_unlock(lock);
         node = prev;
@@ -233,8 +229,7 @@ int drm_modeset_backoff(struct drm_modeset_acquire_ctx *ctx)
 {
     struct drm_modeset_lock *contended = ctx->contended_lock;
 
-    if (contended == NULL)
-        return 0;
+    if (contended == NULL) return 0;
 
     /* Drop everything we currently hold; this preserves contended_lock. */
     drm_modeset_drop_locks(ctx);
@@ -273,15 +268,12 @@ int drm_modeset_backoff(struct drm_modeset_acquire_ctx *ctx)
 int drm_modeset_lock_all_ctx(struct drm_device *dev, struct drm_modeset_acquire_ctx *ctx)
 {
     ilist_node_t *node;
-    int ret;
+    int           ret;
 
     spin_lock(&dev->mode_config.mutex);
 
-    for (node = dev->mode_config.crtc_list.next;
-         node != &dev->mode_config.crtc_list;
-         node = node->next) {
-        struct drm_crtc *crtc =
-            (struct drm_crtc *)((uintptr_t)node - offsetof(struct drm_crtc, head));
+    for (node = dev->mode_config.crtc_list.next; node != &dev->mode_config.crtc_list; node = node->next) {
+        struct drm_crtc *crtc = (struct drm_crtc *)((uintptr_t)node - offsetof(struct drm_crtc, head));
 
         ret = drm_modeset_lock(&crtc->mutex, ctx);
         if (ret) {

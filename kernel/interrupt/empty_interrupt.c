@@ -8,10 +8,10 @@
  *
  */
 
-#include <apic.h>
-#include <common.h>
-#include <interrupt.h>
-#include <printk.h>
+#include <chipset/common.h>
+#include <drivers/apic.h>
+#include <kernel/interrupt.h>
+#include <kernel/printk.h>
 
 #define INTERRUPT_HANDLE(id)                                                 \
     INTERRUPT_BEGIN static void empty_handler_##id(interrupt_frame_t *frame) \

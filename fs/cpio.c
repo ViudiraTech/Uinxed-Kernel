@@ -8,14 +8,14 @@
  *
  */
 
-#include <cpio.h>
-#include <errno.h>
-#include <heap.h>
-#include <limine_module.h>
-#include <printk.h>
-#include <stdlib.h>
-#include <string.h>
-#include <vfs.h>
+#include <boot/limine_module.h>
+#include <fs/cpio.h>
+#include <fs/vfs.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <libs/std/stdlib.h>
+#include <libs/std/string.h>
+#include <mem/heap.h>
 
 /* Determine the compression type of the data */
 compression_type_t get_compression_type(const void *data, size_t size)

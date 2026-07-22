@@ -8,8 +8,8 @@
  *
  */
 
-#include <cpuid.h>
-#include <stdint.h>
+#include <arch/cpuid.h>
+#include <libs/std/stdint.h>
 
 /* Initialize the FPU, including MMX (if any) */
 void init_fpu(void)

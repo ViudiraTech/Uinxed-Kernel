@@ -8,8 +8,8 @@
  *
  */
 
-#include <heap.h>
-#include <singly_list.h>
+#include <libs/glist/singly_list.h>
+#include <mem/heap.h>
 
 /* Initialize a singly linked list */
 int slist_init(slist_t *list)

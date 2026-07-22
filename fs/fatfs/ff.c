@@ -18,9 +18,9 @@
 /
 /----------------------------------------------------------------------------*/
 
-#include "ff.h"       /* Basic definitions and declarations of API */
-#include "ffdiskio.h" /* Declarations of MAI */
-#include <string.h>
+#include <fs/fatfs/ff.h>       /* Basic definitions and declarations of API */
+#include <fs/fatfs/ffdiskio.h> /* Declarations of MAI */
+#include <libs/std/string.h>
 
 /*--------------------------------------------------------------------------
 
@@ -6567,7 +6567,7 @@ TCHAR *f_gets(TCHAR *buff, /* Pointer to the buffer to store read string */
 }
 
 #    if !FF_FS_READONLY
-#        include <stdarg.h>
+#        include <libs/std/stdarg.h>
 #        define SZ_PUTC_BUF 64
 #        define SZ_NUM_BUF  32
 
@@ -6774,7 +6774,7 @@ int f_puts(const TCHAR *str, /* Pointer to the string to be output */
 /* API: Put a Formatted String to the File (with sub-functions)          */
 /*-----------------------------------------------------------------------*/
 #        if FF_PRINT_FLOAT && FF_INTDEF == 2
-#            include <math.h>
+#            include <libs/std/math.h>
 
 static int ilog10(double n) /* Calculate log10(n) in integer output */
 {

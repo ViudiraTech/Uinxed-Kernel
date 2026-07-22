@@ -8,28 +8,28 @@
  *
  */
 
-#include <alloc.h>
-#include <epoll.h>
-#include <errno.h>
-#include <printk.h>
-#include <process.h>
-#include <sched.h>
-#include <spin_lock.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <syscall.h>
-#include <task.h>
-#include <uaccess.h>
-#include <vfs.h>
+#include <fs/vfs.h>
+#include <ipc/epoll.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/stdlib.h>
+#include <libs/std/string.h>
+#include <mem/alloc.h>
+#include <proc/process.h>
+#include <proc/sched.h>
+#include <proc/task.h>
+#include <proc/uaccess.h>
+#include <sync/spin_lock.h>
+#include <syscall/syscall.h>
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                           */
 /* ------------------------------------------------------------------ */
 
-#define EPOLL_MAX_FDS 1024
-#define EPOLL_TICKS_PER_SEC 100   /* scheduler tick frequency */
+#define EPOLL_MAX_FDS       1024
+#define EPOLL_TICKS_PER_SEC 100 /* scheduler tick frequency */
 
 /* poll event bits (matching pipe.c) */
 #define POLLIN  0x001
@@ -44,23 +44,23 @@
 typedef struct epoll_instance epoll_instance_t;
 
 typedef struct epoll_item {
-        int                fd;
-        uint32_t           events;
-        uint32_t           revents;
-        epoll_data_t       data;
-        epoll_instance_t  *epi;
-        int                active;
-        uint32_t           last_revents;      /* previous poll result for edge-triggered */
-        int                oneshot_disabled;  /* EPOLLONESHOT re-arm flag */
+        int               fd;
+        uint32_t          events;
+        uint32_t          revents;
+        epoll_data_t      data;
+        epoll_instance_t *epi;
+        int               active;
+        uint32_t          last_revents;     /* previous poll result for edge-triggered */
+        int               oneshot_disabled; /* EPOLLONESHOT re-arm flag */
 } epoll_item_t;
 
 typedef struct epoll_instance {
-        epoll_item_t   *items[EPOLL_MAX_FDS];
-        int             fd_count;
-        wait_queue_t    wq;
-        spinlock_t      lock;
+        epoll_item_t    *items[EPOLL_MAX_FDS];
+        int              fd_count;
+        wait_queue_t     wq;
+        spinlock_t       lock;
         struct vfs_node *node;
-        uint32_t        refcount;
+        uint32_t         refcount;
 } epoll_instance_t;
 
 /* ------------------------------------------------------------------ */
@@ -82,7 +82,7 @@ static uint32_t epoll_map_poll_result(int poll_result, uint32_t requested)
 {
     uint32_t revents = 0;
 
-    if (poll_result & POLLIN)  revents |= EPOLLIN;
+    if (poll_result & POLLIN) revents |= EPOLLIN;
     if (poll_result & POLLOUT) revents |= EPOLLOUT;
     if (poll_result & POLLERR) revents |= EPOLLERR;
     if (poll_result & POLLHUP) revents |= EPOLLHUP;
@@ -111,8 +111,7 @@ static epoll_item_t *epoll_item_find(epoll_instance_t *epi, int fd)
  * Add a new fd to the epoll set.  Must be called with epi->lock held.
  * Returns NULL on error (fd already present, or OOM).
  */
-static epoll_item_t *epoll_item_add(epoll_instance_t *epi, int fd,
-                                    const epoll_event_t *event)
+static epoll_item_t *epoll_item_add(epoll_instance_t *epi, int fd, const epoll_event_t *event)
 {
     if (fd < 0 || fd >= EPOLL_MAX_FDS) return NULL;
     if (epi->items[fd]) return NULL; /* already present */
@@ -158,15 +157,14 @@ static int epoll_item_del(epoll_instance_t *epi, int fd)
  * Modify an existing fd registration.  Must be called with epi->lock held.
  * Returns 0 on success, -ENOENT if not found.
  */
-static int epoll_item_mod(epoll_instance_t *epi, int fd,
-                          const epoll_event_t *event)
+static int epoll_item_mod(epoll_instance_t *epi, int fd, const epoll_event_t *event)
 {
     epoll_item_t *item = epoll_item_find(epi, fd);
     if (!item) return -ENOENT;
 
     item->events           = event->events;
     item->data             = event->data;
-    item->oneshot_disabled = 0;  /* re-arm after EPOLL_CTL_MOD */
+    item->oneshot_disabled = 0; /* re-arm after EPOLL_CTL_MOD */
 
     return EOK;
 }
@@ -194,8 +192,8 @@ static int epoll_poll_all(epoll_instance_t *epi)
         /* Skip one-shot items that have been disabled after reporting */
         if (item->oneshot_disabled) continue;
 
-        int poll_result = process_fd_poll(proc, fd, (size_t)item->events);
-        uint32_t current = epoll_map_poll_result(poll_result, item->events);
+        int      poll_result = process_fd_poll(proc, fd, (size_t)item->events);
+        uint32_t current     = epoll_map_poll_result(poll_result, item->events);
 
         if (item->events & EPOLLET) {
             /*
@@ -221,8 +219,7 @@ static int epoll_poll_all(epoll_instance_t *epi)
  * Must be called with epi->lock held.
  * Returns number of events collected (0..maxevents), or -EFAULT on copy error.
  */
-static int epoll_collect_events(epoll_instance_t *epi, epoll_event_t *user_events,
-                                int maxevents)
+static int epoll_collect_events(epoll_instance_t *epi, epoll_event_t *user_events, int maxevents)
 {
     int collected = 0;
 
@@ -235,16 +232,12 @@ static int epoll_collect_events(epoll_instance_t *epi, epoll_event_t *user_event
         ev.events = item->revents;
         ev.data   = item->data;
 
-        if (copy_to_user(&user_events[collected], &ev, sizeof(epoll_event_t))) {
-            return -EFAULT;
-        }
+        if (copy_to_user(&user_events[collected], &ev, sizeof(epoll_event_t))) { return -EFAULT; }
 
         collected++;
 
         /* Handle EPOLLONESHOT: disable this fd after reporting */
-        if (item->events & EPOLLONESHOT) {
-            item->oneshot_disabled = 1;
-        }
+        if (item->events & EPOLLONESHOT) { item->oneshot_disabled = 1; }
 
         /* Clear revents for level-triggered; edge-triggered already cleared */
         item->revents = 0;
@@ -313,9 +306,7 @@ static int epoll_vfs_poll(void *file, size_t events)
     int revents = 0;
 
     spin_lock(&epi->lock);
-    if (epoll_poll_all(epi) > 0) {
-        revents |= POLLIN;
-    }
+    if (epoll_poll_all(epi) > 0) { revents |= POLLIN; }
     spin_unlock(&epi->lock);
 
     return revents & (int)events;
@@ -450,8 +441,7 @@ static vfs_node_t epoll_node_create(void)
  * Returns the epoll_instance_t * on success, NULL on error.
  * The caller is responsible for releasing the process_file reference.
  */
-static epoll_instance_t *epoll_resolve_fd(int epfd, process_t *proc,
-                                          process_file_t **out_file)
+static epoll_instance_t *epoll_resolve_fd(int epfd, process_t *proc, process_file_t **out_file)
 {
     if (!proc) return NULL;
 
@@ -514,9 +504,7 @@ int64_t sys_epoll_create1(int flags)
     if (!node) return -ENOMEM;
 
     uint64_t fd_flags = O_RDWR;
-    if (flags & EPOLL_CLOEXEC) {
-        fd_flags |= EPOLL_CLOEXEC;
-    }
+    if (flags & EPOLL_CLOEXEC) { fd_flags |= EPOLL_CLOEXEC; }
 
     int fd = process_fd_install(proc, node, fd_flags);
     if (fd < 0) {
@@ -539,94 +527,90 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
 
     if (epfd == fd) return -EINVAL;
 
-    process_file_t *ep_file = NULL;
-    epoll_instance_t *epi = epoll_resolve_fd(epfd, proc, &ep_file);
+    process_file_t   *ep_file = NULL;
+    epoll_instance_t *epi     = epoll_resolve_fd(epfd, proc, &ep_file);
     if (!epi) return -EBADF;
 
     epoll_event_t ev;
-    int64_t ret;
+    int64_t       ret;
 
     spin_lock(&epi->lock);
 
     switch (op) {
-    case EPOLL_CTL_ADD: {
-        if (!event) {
-            ret = -EFAULT;
-            break;
-        }
-        if (copy_from_user(&ev, event, sizeof(epoll_event_t))) {
-            ret = -EFAULT;
-            break;
-        }
+        case EPOLL_CTL_ADD : {
+            if (!event) {
+                ret = -EFAULT;
+                break;
+            }
+            if (copy_from_user(&ev, event, sizeof(epoll_event_t))) {
+                ret = -EFAULT;
+                break;
+            }
 
-        epoll_item_t *item = epoll_item_add(epi, fd, &ev);
-        if (!item) {
-            ret = -EEXIST;
-            break;
-        }
+            epoll_item_t *item = epoll_item_add(epi, fd, &ev);
+            if (!item) {
+                ret = -EEXIST;
+                break;
+            }
 
-        /* Poll immediately for initial readiness */
-        int poll_result = process_fd_poll(proc, fd, (size_t)item->events);
-        uint32_t current = epoll_map_poll_result(poll_result, item->events);
-        item->last_revents = current;
-        if (item->events & EPOLLET) {
-            item->revents = current;
-        } else {
-            item->revents = current;
-        }
-
-        /* Wake any waiters if this fd is immediately ready */
-        if (item->revents) {
-            wait_queue_wake_all(&epi->wq);
-        }
-
-        ret = EOK;
-        break;
-    }
-
-    case EPOLL_CTL_DEL: {
-        ret = epoll_item_del(epi, fd);
-        break;
-    }
-
-    case EPOLL_CTL_MOD: {
-        if (!event) {
-            ret = -EFAULT;
-            break;
-        }
-        if (copy_from_user(&ev, event, sizeof(epoll_event_t))) {
-            ret = -EFAULT;
-            break;
-        }
-
-        ret = epoll_item_mod(epi, fd, &ev);
-        if (ret != EOK) break;
-
-        /* Re-poll for readiness after modification */
-        int poll_result = process_fd_poll(proc, fd, (size_t)ev.events);
-        uint32_t current = epoll_map_poll_result(poll_result, ev.events);
-
-        epoll_item_t *item = epoll_item_find(epi, fd);
-        if (item) {
-            item->last_revents = current;
-            if (ev.events & EPOLLET) {
+            /* Poll immediately for initial readiness */
+            int      poll_result = process_fd_poll(proc, fd, (size_t)item->events);
+            uint32_t current     = epoll_map_poll_result(poll_result, item->events);
+            item->last_revents   = current;
+            if (item->events & EPOLLET) {
                 item->revents = current;
             } else {
                 item->revents = current;
             }
 
-            if (item->revents) {
-                wait_queue_wake_all(&epi->wq);
-            }
+            /* Wake any waiters if this fd is immediately ready */
+            if (item->revents) { wait_queue_wake_all(&epi->wq); }
+
+            ret = EOK;
+            break;
         }
 
-        ret = EOK;
-        break;
-    }
+        case EPOLL_CTL_DEL : {
+            ret = epoll_item_del(epi, fd);
+            break;
+        }
 
-    default:
-        ret = -EINVAL;
-        break;
+        case EPOLL_CTL_MOD : {
+            if (!event) {
+                ret = -EFAULT;
+                break;
+            }
+            if (copy_from_user(&ev, event, sizeof(epoll_event_t))) {
+                ret = -EFAULT;
+                break;
+            }
+
+            ret = epoll_item_mod(epi, fd, &ev);
+            if (ret != EOK) break;
+
+            /* Re-poll for readiness after modification */
+            int      poll_result = process_fd_poll(proc, fd, (size_t)ev.events);
+            uint32_t current     = epoll_map_poll_result(poll_result, ev.events);
+
+            epoll_item_t *item = epoll_item_find(epi, fd);
+            if (item) {
+                item->last_revents = current;
+                if (ev.events & EPOLLET) {
+                    item->revents = current;
+                } else {
+                    item->revents = current;
+                }
+
+                if (item->revents) { wait_queue_wake_all(&epi->wq); }
+            }
+
+            ret = EOK;
+            break;
+        }
+
+        default :
+            ret = -EINVAL;
+            break;
     }
 
     spin_unlock(&epi->lock);
@@ -647,8 +631,8 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
     if (!events && maxevents > 0) return -EFAULT;
     if (maxevents <= 0 || maxevents > EPOLL_MAX_EVENTS) return -EINVAL;
 
-    process_file_t *ep_file = NULL;
-    epoll_instance_t *epi = epoll_resolve_fd(epfd, proc, &ep_file);
+    process_file_t   *ep_file = NULL;
+    epoll_instance_t *epi     = epoll_resolve_fd(epfd, proc, &ep_file);
     if (!epi) return -EBADF;
 
     int64_t ret;
@@ -698,8 +682,7 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
 /*  Syscall: epoll_pwait                                                */
 /* ------------------------------------------------------------------ */
 
-int64_t sys_epoll_pwait(int epfd, epoll_event_t *events, int maxevents,
-                        int timeout, const void *sigmask, size_t sigsetsize)
+int64_t sys_epoll_pwait(int epfd, epoll_event_t *events, int maxevents, int timeout, const void *sigmask, size_t sigsetsize)
 {
     // Todo: Implement signal mask handling for epoll_pwait.
     (void)sigmask;
@@ -747,6 +730,5 @@ void epoll_init(void)
         return;
     }
 
-    plogk("epoll: Subsystem initialized (fsid=%d, max_fds=%d)\n",
-          epoll_fsid, EPOLL_MAX_FDS);
+    plogk("epoll: Subsystem initialized (fsid=%d, max_fds=%d)\n", epoll_fsid, EPOLL_MAX_FDS);
 }

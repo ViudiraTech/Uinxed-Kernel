@@ -8,11 +8,11 @@
  *
  */
 
-#include <limine.h>
-#include <limine_module.h>
-#include <printk.h>
-#include <string.h>
-#include <uinxed.h>
+#include <boot/limine.h>
+#include <boot/limine_module.h>
+#include <kernel/printk.h>
+#include <kernel/uinxed.h>
+#include <libs/std/string.h>
 
 lmodule_t     lmodule[128];
 log_buffer_t  lmodule_log;

@@ -8,17 +8,17 @@
  *
  */
 
-#include <acpi.h>
-#include <apic.h>
-#include <common.h>
-#include <interrupt.h>
-#include <math.h>
-#include <printk.h>
-#include <sched.h>
-#include <smp.h>
-#include <stdint.h>
-#include <tsc.h>
-#include <tty.h>
+#include <arch/smp.h>
+#include <chipset/common.h>
+#include <drivers/acpi.h>
+#include <drivers/apic.h>
+#include <drivers/tsc.h>
+#include <drivers/tty.h>
+#include <kernel/interrupt.h>
+#include <kernel/printk.h>
+#include <libs/std/math.h>
+#include <libs/std/stdint.h>
+#include <proc/sched.h>
 
 /* Timer interrupt */
 INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)

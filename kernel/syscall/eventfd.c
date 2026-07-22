@@ -8,21 +8,21 @@
  *
  */
 
-#include <errno.h>
-#include <eventfd.h>
-#include <heap.h>
-#include <printk.h>
-#include <process.h>
-#include <sched.h>
-#include <spin_lock.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <syscall.h>
-#include <task.h>
-#include <uaccess.h>
-#include <vfs.h>
+#include <fs/vfs.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/stdlib.h>
+#include <libs/std/string.h>
+#include <mem/heap.h>
+#include <proc/process.h>
+#include <proc/sched.h>
+#include <proc/task.h>
+#include <proc/uaccess.h>
+#include <sync/spin_lock.h>
+#include <syscall/eventfd.h>
+#include <syscall/syscall.h>
 
 #define EVENTFD_MAX_VAL    (0xfffffffffffffffeULL)
 #define EVENTFD_UINT64_MAX (0xffffffffffffffffULL)

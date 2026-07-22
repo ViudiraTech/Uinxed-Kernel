@@ -8,10 +8,10 @@
  *
  */
 
-#include <circular_list.h>
-#include <heap.h>
-#include <stdint.h>
-#include <string.h>
+#include <libs/glist/circular_list.h>
+#include <libs/std/stdint.h>
+#include <libs/std/string.h>
+#include <mem/heap.h>
 
 /* Allocate and initialize a new circular linked list node with the given data */
 clist_t clist_alloc(void *data)

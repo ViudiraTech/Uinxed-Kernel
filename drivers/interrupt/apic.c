@@ -8,17 +8,17 @@
  *
  */
 
-#include <acpi.h>
-#include <apic.h>
-#include <common.h>
-#include <cpuid.h>
-#include <hhdm.h>
-#include <idt.h>
-#include <limine.h>
-#include <printk.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <uinxed.h>
+#include <arch/cpuid.h>
+#include <arch/idt.h>
+#include <boot/limine.h>
+#include <chipset/common.h>
+#include <drivers/acpi.h>
+#include <drivers/apic.h>
+#include <kernel/printk.h>
+#include <kernel/uinxed.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <mem/hhdm.h>
 
 #define CPUID_FEAT_EDX_APIC   (1 << 9)
 #define CPUID_FEAT_ECX_X2APIC (1 << 21)

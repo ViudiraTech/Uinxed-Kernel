@@ -1,19 +1,19 @@
-#include <elf_loader.h>
-#include <elf.h>
-#include <frame.h>
-#include <hhdm.h>
-#include <page.h>
-#include <printk.h>
-#include <process.h>
-#include <sched.h>
-#include <alloc.h>
-#include <string.h>
-#include <syscall.h>
-#include <uaccess.h>
-#include <vfs.h>
+#include <fs/vfs.h>
+#include <kernel/elf.h>
+#include <kernel/elf_loader.h>
+#include <kernel/printk.h>
+#include <libs/std/string.h>
+#include <mem/alloc.h>
+#include <mem/frame.h>
+#include <mem/hhdm.h>
+#include <mem/page.h>
+#include <proc/process.h>
+#include <proc/sched.h>
+#include <proc/uaccess.h>
+#include <syscall/syscall.h>
 
-#define INTERP_LOAD_BASE  0x7f0000000000ULL
-#define INTERP_LOAD_END   0x7f0001000000ULL
+#define INTERP_LOAD_BASE 0x7f0000000000ULL
+#define INTERP_LOAD_END  0x7f0001000000ULL
 
 static int validate_elf(const uint8_t *data, size_t size, Elf64_Ehdr **ehdr_out)
 {
@@ -44,37 +44,36 @@ int elf_loader_parse_elf_info(const uint8_t *data, size_t size, elf_load_info_t 
     Elf64_Phdr *phdr = (Elf64_Phdr *)(data + ehdr->e_phoff);
     for (int i = 0; i < ehdr->e_phnum; i++) {
         switch (phdr[i].type) {
-        case PT_INTERP:
-            if (phdr[i].filesz > 0 && phdr[i].filesz < sizeof(info->interp_path)) {
-                const char *interp = (const char *)data + phdr[i].offset;
-                memcpy(info->interp_path, interp, phdr[i].filesz);
-                if (info->interp_path[phdr[i].filesz - 1] == '\0')
-                    info->has_interp = 1;
-                else {
-                    info->interp_path[phdr[i].filesz] = '\0';
-                    info->has_interp = 1;
+            case PT_INTERP :
+                if (phdr[i].filesz > 0 && phdr[i].filesz < sizeof(info->interp_path)) {
+                    const char *interp = (const char *)data + phdr[i].offset;
+                    memcpy(info->interp_path, interp, phdr[i].filesz);
+                    if (info->interp_path[phdr[i].filesz - 1] == '\0')
+                        info->has_interp = 1;
+                    else {
+                        info->interp_path[phdr[i].filesz] = '\0';
+                        info->has_interp                  = 1;
+                    }
                 }
-            }
-            break;
-        case PT_DYNAMIC:
-            info->is_dynamic = 1;
-            info->pt_dynamic_vaddr = phdr[i].vaddr;
-            break;
-        case PT_TLS:
-            info->tls_vaddr = phdr[i].vaddr;
-            info->tls_size  = phdr[i].memsz;
-            info->tls_align = phdr[i].align;
-            break;
+                break;
+            case PT_DYNAMIC :
+                info->is_dynamic       = 1;
+                info->pt_dynamic_vaddr = phdr[i].vaddr;
+                break;
+            case PT_TLS :
+                info->tls_vaddr = phdr[i].vaddr;
+                info->tls_size  = phdr[i].memsz;
+                info->tls_align = phdr[i].align;
+                break;
         }
     }
     return 0;
 }
 
-static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr,
-                             const uint8_t *data, uintptr_t load_bias)
+static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr, const uint8_t *data, uintptr_t load_bias)
 {
-    const Elf64_Phdr *phdr = (const Elf64_Phdr *)(data + ehdr->e_phoff);
-    uintptr_t highest_end = 0;
+    const Elf64_Phdr *phdr        = (const Elf64_Phdr *)(data + ehdr->e_phoff);
+    uintptr_t         highest_end = 0;
 
     for (int i = 0; i < ehdr->e_phnum; i++) {
         if (phdr[i].type != PT_LOAD) continue;
@@ -89,9 +88,9 @@ static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr,
         if (phdr[i].flags & PF_W) pte_flags |= PTE_WRITEABLE;
         if (!(phdr[i].flags & PF_X)) pte_flags |= PTE_NO_EXECUTE;
 
-        uintptr_t base         = phdr[i].vaddr + load_bias;
-        uintptr_t seg_start    = ALIGN_DOWN(base, PAGE_4K_SIZE);
-        uintptr_t seg_end      = ALIGN_UP(base + phdr[i].memsz, PAGE_4K_SIZE);
+        uintptr_t base      = phdr[i].vaddr + load_bias;
+        uintptr_t seg_start = ALIGN_DOWN(base, PAGE_4K_SIZE);
+        uintptr_t seg_end   = ALIGN_UP(base + phdr[i].memsz, PAGE_4K_SIZE);
 
         for (uintptr_t va = seg_start; va < seg_end; va += PAGE_4K_SIZE) {
             uint64_t frame = alloc_frames(1);
@@ -132,8 +131,7 @@ static void *user_ptr(process_t *proc, uintptr_t addr)
     return (uint8_t *)phys_to_virt(l1e & PAGE_4K_MASK) + (addr & (PAGE_4K_SIZE - 1));
 }
 
-static uintptr_t find_free_range(process_t *proc, uintptr_t start,
-                                 uintptr_t end, size_t size)
+static uintptr_t find_free_range(process_t *proc, uintptr_t start, uintptr_t end, size_t size)
 {
     uintptr_t addr  = ALIGN_UP(start, PAGE_4K_SIZE);
     size_t    pages = ALIGN_UP(size, PAGE_4K_SIZE);
@@ -152,23 +150,19 @@ static uintptr_t find_free_range(process_t *proc, uintptr_t start,
     return 0;
 }
 
-static uintptr_t compute_load_bias(const Elf64_Ehdr *ehdr, const uint8_t *data,
-                                   uintptr_t chosen_base)
+static uintptr_t compute_load_bias(const Elf64_Ehdr *ehdr, const uint8_t *data, uintptr_t chosen_base)
 {
     if (ehdr->e_type == ET_DYN) {
         const Elf64_Phdr *phdr = (const Elf64_Phdr *)(data + ehdr->e_phoff);
         for (int i = 0; i < ehdr->e_phnum; i++) {
-            if (phdr[i].type == PT_LOAD) {
-                return ALIGN_DOWN(chosen_base - phdr[i].vaddr, PAGE_4K_SIZE);
-            }
+            if (phdr[i].type == PT_LOAD) { return ALIGN_DOWN(chosen_base - phdr[i].vaddr, PAGE_4K_SIZE); }
         }
         return ALIGN_DOWN(chosen_base, PAGE_4K_SIZE);
     }
     return 0;
 }
 
-int elf_loader_load_interpreter(struct process *proc, const char *interp_path,
-                                Elf64_Addr *base_out, Elf64_Addr *entry_out)
+int elf_loader_load_interpreter(struct process *proc, const char *interp_path, Elf64_Addr *base_out, Elf64_Addr *entry_out)
 {
     vfs_node_t node = vfs_open(interp_path);
     if (!node) {
@@ -192,7 +186,7 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path,
     while (total < node->size) {
         size_t remaining = node->size - total;
         size_t to_read   = remaining < 4096 ? remaining : 4096;
-        size_t n = vfs_read(node->handle, elf_data + total, total, to_read);
+        size_t n         = vfs_read(node->handle, elf_data + total, total, to_read);
         if (n == 0) break;
         total += n;
     }
@@ -210,8 +204,7 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path,
         return -1;
     }
 
-    uintptr_t interp_base = find_free_range(proc, INTERP_LOAD_BASE,
-                                            INTERP_LOAD_END, total);
+    uintptr_t interp_base = find_free_range(proc, INTERP_LOAD_BASE, INTERP_LOAD_END, total);
     if (!interp_base) {
         plogk("elf_loader: no free space for interpreter\n");
         free(elf_data);
@@ -226,9 +219,9 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path,
         return -1;
     }
 
-    const Elf64_Phdr *iphdr = (const Elf64_Phdr *)(elf_data + iehdr->e_phoff);
-    uintptr_t interp_map_start = (uintptr_t)-1;
-    uintptr_t interp_map_end   = 0;
+    const Elf64_Phdr *iphdr            = (const Elf64_Phdr *)(elf_data + iehdr->e_phoff);
+    uintptr_t         interp_map_start = (uintptr_t)-1;
+    uintptr_t         interp_map_end   = 0;
     for (int i = 0; i < iehdr->e_phnum; i++) {
         if (iphdr[i].type != PT_LOAD) continue;
         uintptr_t va_start = ALIGN_DOWN(iphdr[i].vaddr + load_bias, PAGE_4K_SIZE);
@@ -237,8 +230,7 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path,
         if (va_end > interp_map_end) interp_map_end = va_end;
     }
     if (interp_map_start < interp_map_end) {
-        process_mmap(proc, interp_map_start, interp_map_end - interp_map_start,
-                     VM_READ | VM_WRITE | VM_EXEC);
+        process_mmap(proc, interp_map_start, interp_map_end - interp_map_start, VM_READ | VM_WRITE | VM_EXEC);
     }
 
     uintptr_t first_load_vaddr = 0;
@@ -253,8 +245,7 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path,
     *entry_out = iehdr->e_entry + (interp_base - first_load_vaddr);
 
     free(elf_data);
-    plogk("elf_loader: loaded interpreter %s base=%p entry=%p\n",
-          interp_path, (void *)*base_out, (void *)*entry_out);
+    plogk("elf_loader: loaded interpreter %s base=%p entry=%p\n", interp_path, (void *)*base_out, (void *)*entry_out);
     return 0;
 }
 
@@ -274,10 +265,8 @@ static size_t string_array_size(char *const arr[])
     return total;
 }
 
-static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr,
-                                  uint16_t phnum, uint16_t phentsize,
-                                  uintptr_t interp_base, uintptr_t main_entry,
-                                  char *const argv[], char *const envp[])
+static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t phnum, uint16_t phentsize, uintptr_t interp_base,
+                                  uintptr_t main_entry, char *const argv[], char *const envp[])
 {
     int    argc      = count_string_array(argv);
     int    envc      = count_string_array(envp);
@@ -291,10 +280,10 @@ static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr,
     size_t padding       = 16;
 
     size_t total_needed = pointer_size + auxv_size + total_strings + padding + 32;
-    total_needed = ALIGN_UP(total_needed, 16);
+    total_needed        = ALIGN_UP(total_needed, 16);
 
-    uintptr_t top         = PROCESS_USER_STACK_TOP;
-    uintptr_t rsp         = top - total_needed;
+    uintptr_t top = PROCESS_USER_STACK_TOP;
+    uintptr_t rsp = top - total_needed;
 
     uint8_t *stack_area = user_ptr(proc, rsp);
     if (!stack_area) return 0;
@@ -308,7 +297,7 @@ static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr,
     uintptr_t argc_addr   = argv_area + (argc + 1) * sizeof(uint64_t);
     uintptr_t base_rsp    = argc_addr;
 
-    char *string_ptr  = user_ptr(proc, string_area);
+    char *string_ptr = user_ptr(proc, string_area);
     if (!string_ptr) return 0;
 
     uint64_t *argv_ptr = user_ptr(proc, argv_area);
@@ -349,7 +338,7 @@ static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr,
     envp_ptr[envc] = 0;
 
     /* Build auxv */
-    size_t n = 0;
+    size_t     n              = 0;
     const char platform_str[] = "x86_64";
     memcpy(sp, platform_str, sizeof(platform_str));
     uintptr_t platform_addr = string_area + (sp - string_ptr);
@@ -408,9 +397,7 @@ __attribute__((naked)) static void user_process_enter(void)
                      "iretq\n\t");
 }
 
-int elf_loader_load_user_process(process_t *proc, const uint8_t *elf_data,
-                                 size_t elf_size, char *const argv[],
-                                 char *const envp[])
+int elf_loader_load_user_process(process_t *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[])
 {
     Elf64_Ehdr *ehdr = NULL;
     if (validate_elf(elf_data, elf_size, &ehdr)) {
@@ -427,11 +414,11 @@ int elf_loader_load_user_process(process_t *proc, const uint8_t *elf_data,
     uintptr_t load_bias = 0;
     if (ehdr->e_type == ET_DYN) {
         uintptr_t chosen_base = PROCESS_USER_CODE_MIN;
-        load_bias = compute_load_bias(ehdr, elf_data, chosen_base);
+        load_bias             = compute_load_bias(ehdr, elf_data, chosen_base);
     }
 
-    uintptr_t phdr_addr = 0;
-    const Elf64_Phdr *phdrs = (const Elf64_Phdr *)(elf_data + ehdr->e_phoff);
+    uintptr_t         phdr_addr = 0;
+    const Elf64_Phdr *phdrs     = (const Elf64_Phdr *)(elf_data + ehdr->e_phoff);
     for (int i = 0; i < ehdr->e_phnum; i++) {
         if (phdrs[i].type == PT_PHDR) {
             phdr_addr = phdrs[i].vaddr + load_bias;
@@ -452,8 +439,7 @@ int elf_loader_load_user_process(process_t *proc, const uint8_t *elf_data,
         return 1;
     }
 
-    if (process_mmap(proc, proc->stack_brk, PROCESS_STACK_SIZE,
-                     VM_READ | VM_WRITE)) {
+    if (process_mmap(proc, proc->stack_brk, PROCESS_STACK_SIZE, VM_READ | VM_WRITE)) {
         plogk("elf_loader: Failed to allocate user stack.\n");
         return 1;
     }
@@ -482,17 +468,14 @@ int elf_loader_load_user_process(process_t *proc, const uint8_t *elf_data,
             if (phdrs[i].type == PT_TLS) {
                 uint64_t copy_size = phdrs[i].filesz;
                 if (copy_size > PAGE_4K_SIZE) copy_size = PAGE_4K_SIZE;
-                if (copy_size > 0) {
-                    memcpy(phys_to_virt(tls_frame), elf_data + phdrs[i].offset, copy_size);
-                }
+                if (copy_size > 0) { memcpy(phys_to_virt(tls_frame), elf_data + phdrs[i].offset, copy_size); }
                 break;
             }
         }
     }
 
     uintptr_t tls_user_addr = 0x700000000000ULL;
-    page_map_to(proc->user_page_dir, tls_user_addr, tls_frame,
-                PTE_USER | PTE_PRESENT | PTE_WRITEABLE);
+    page_map_to(proc->user_page_dir, tls_user_addr, tls_frame, PTE_USER | PTE_PRESENT | PTE_WRITEABLE);
     proc->task->thread.fs_base = tls_user_addr;
 
     Elf64_Addr interpreter_base  = 0;
@@ -501,8 +484,7 @@ int elf_loader_load_user_process(process_t *proc, const uint8_t *elf_data,
 
     if (info.has_interp) {
         plogk("elf_loader: program requires interpreter: %s\n", info.interp_path);
-        if (elf_loader_load_interpreter(proc, info.interp_path,
-                                        &interpreter_base, &interpreter_entry)) {
+        if (elf_loader_load_interpreter(proc, info.interp_path, &interpreter_base, &interpreter_entry)) {
             plogk("elf_loader: Failed to load interpreter, running static.\n");
         } else {
             actual_entry = interpreter_entry;
@@ -511,18 +493,14 @@ int elf_loader_load_user_process(process_t *proc, const uint8_t *elf_data,
 
     if (!info.has_interp && info.is_dynamic) {
         plogk("elf_loader: PT_DYNAMIC without PT_INTERP, trying musl interpreter\n");
-        if (elf_loader_load_interpreter(proc, MUSL_INTERPRETER_PATH,
-                                        &interpreter_base, &interpreter_entry) == 0) {
-            actual_entry = interpreter_entry;
+        if (elf_loader_load_interpreter(proc, MUSL_INTERPRETER_PATH, &interpreter_base, &interpreter_entry) == 0) {
+            actual_entry    = interpreter_entry;
             info.has_interp = 1;
         }
     }
 
-    uintptr_t user_rsp = setup_user_stack(proc, phdr_addr,
-                                          ehdr->e_phnum, ehdr->e_phentsize,
-                                          interpreter_base,
-                                          ehdr->e_entry + load_bias,
-                                          argv, envp);
+    uintptr_t user_rsp
+        = setup_user_stack(proc, phdr_addr, ehdr->e_phnum, ehdr->e_phentsize, interpreter_base, ehdr->e_entry + load_bias, argv, envp);
     if (!user_rsp) {
         plogk("elf_loader: Failed to initialize user stack.\n");
         return 1;
@@ -550,7 +528,6 @@ int elf_loader_load_user_process(process_t *proc, const uint8_t *elf_data,
     proc->task->context.rsp = (uint64_t)kstack;
     proc->task->state       = TASK_READY;
 
-    plogk("elf_loader: Loaded process %llu (%s) entry=%p\n",
-          proc->task->pid, proc->task->name, (void *)actual_entry);
+    plogk("elf_loader: Loaded process %llu (%s) entry=%p\n", proc->task->pid, proc->task->name, (void *)actual_entry);
     return 0;
 }

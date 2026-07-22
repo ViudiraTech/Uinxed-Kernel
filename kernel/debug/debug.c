@@ -8,18 +8,18 @@
  *
  */
 
-#include <common.h>
-#include <debug.h>
-#include <limine.h>
-#include <printk.h>
-#include <sched.h>
-#include <smbios.h>
-#include <smp.h>
-#include <stdarg.h>
-#include <symbols.h>
-#include <task.h>
-#include <tty.h>
-#include <uinxed.h>
+#include <arch/smp.h>
+#include <boot/limine.h>
+#include <chipset/common.h>
+#include <chipset/smbios.h>
+#include <drivers/tty.h>
+#include <kernel/debug.h>
+#include <kernel/printk.h>
+#include <kernel/symbols.h>
+#include <kernel/uinxed.h>
+#include <libs/std/stdarg.h>
+#include <proc/sched.h>
+#include <proc/task.h>
 
 int carry_error_code = 0;
 

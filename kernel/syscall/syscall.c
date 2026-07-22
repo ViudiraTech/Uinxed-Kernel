@@ -3,43 +3,41 @@
  *      syscall.c
  *      System call dispatch
  *
- *      2026/7/20 By Rainy101112
- *      2026/7/21 By JiTianYu391 - Extended with eventfd, timerfd, signalfd, mmap, 100+ syscalls
- *      2026/7/22 By JiTianYu391 - Full IPC subsystem: UNIX sockets, pipes, SysV IPC, POSIX MQ, futex, epoll
+ *      2026/7/20 By Rainy101112 & JiTianYu391
  *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
-#include <alloc.h>
-#include <common.h>
-#include <elf_loader.h>
-#include <epoll.h>
-#include <errno.h>
-#include <eventfd.h>
-#include <futex.h>
-#include <interrupt.h>
-#include <mmap.h>
-#include <page.h>
-#include <posix_mq.h>
-#include <printk.h>
-#include <process.h>
-#include <sched.h>
-#include <signal.h>
-#include <signalfd.h>
-#include <socket.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <syscall.h>
-#include <syscall_table.h>
-#include <sysv_ipc.h>
-#include <task.h>
-#include <timerfd.h>
-#include <tss.h>
-#include <uaccess.h>
-#include <uinxed.h>
-#include <vfs.h>
+#include <arch/tss.h>
+#include <chipset/common.h>
+#include <fs/vfs.h>
+#include <ipc/epoll.h>
+#include <ipc/futex.h>
+#include <ipc/posix_mq.h>
+#include <ipc/socket.h>
+#include <ipc/sysv_ipc.h>
+#include <kernel/elf_loader.h>
+#include <kernel/errno.h>
+#include <kernel/interrupt.h>
+#include <kernel/printk.h>
+#include <kernel/uinxed.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/stdlib.h>
+#include <libs/std/string.h>
+#include <mem/alloc.h>
+#include <mem/page.h>
+#include <proc/process.h>
+#include <proc/sched.h>
+#include <proc/task.h>
+#include <proc/uaccess.h>
+#include <sync/signal.h>
+#include <syscall/eventfd.h>
+#include <syscall/mmap.h>
+#include <syscall/signalfd.h>
+#include <syscall/syscall.h>
+#include <syscall/syscall_table.h>
+#include <syscall/timerfd.h>
 
 #define SYSCALL_PATH_MAX  256
 #define SYSCALL_IO_CHUNK  4096
@@ -2049,7 +2047,8 @@ static int64_t sys_mq_timedsend_wrap(uint64_t mqdes, uint64_t msg_ptr, uint64_t 
     return sys_mq_timedsend((int)mqdes, (const char *)msg_ptr, (size_t)msg_len, (uint32_t)msg_prio, (const void *)abs_timeout);
 }
 
-static int64_t sys_mq_timedreceive_wrap(uint64_t mqdes, uint64_t msg_ptr, uint64_t msg_len, uint64_t msg_prio, uint64_t abs_timeout, uint64_t arg5)
+static int64_t sys_mq_timedreceive_wrap(uint64_t mqdes, uint64_t msg_ptr, uint64_t msg_len, uint64_t msg_prio, uint64_t abs_timeout,
+                                        uint64_t arg5)
 {
     (void)arg5;
     return sys_mq_timedreceive((int)mqdes, (char *)msg_ptr, (size_t)msg_len, (uint32_t *)msg_prio, (const void *)abs_timeout);
@@ -2126,7 +2125,7 @@ static char **copy_argv_from_user(const char *const *uargv, int *out_count)
     if (!uargv) return NULL;
 
     /* First pass: count the arguments */
-    int count = 0;
+    int   count = 0;
     char *ubuf;
     for (int i = 0;; i++) {
         if (copy_from_user(&ubuf, (void *)&uargv[i], sizeof(char *))) break;
@@ -2149,7 +2148,7 @@ static char **copy_argv_from_user(const char *const *uargv, int *out_count)
         }
 
         size_t len = 0;
-        char tmp;
+        char   tmp;
         do {
             if (copy_from_user(&tmp, ustr + len, 1)) {
                 kargv[i] = NULL;
@@ -2167,11 +2166,12 @@ static char **copy_argv_from_user(const char *const *uargv, int *out_count)
         }
     }
     kargv[count] = NULL;
-    *out_count = count;
+    *out_count   = count;
     return kargv;
 
 fail:
-    for (int j = 0; j < i; j++) if (kargv[j]) free(kargv[j]);
+    for (int j = 0; j < i; j++)
+        if (kargv[j]) free(kargv[j]);
     free(kargv);
     return NULL;
 }
@@ -2192,7 +2192,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     if (strncpy_from_user(kpath, path, sizeof(kpath)) < 0) return -EFAULT;
     kpath[sizeof(kpath) - 1] = '\0';
 
-    int argc = 0, envc = 0;
+    int    argc = 0, envc = 0;
     char **kargv = copy_argv_from_user((const char *const *)argv, &argc);
     char **kenvp = copy_argv_from_user((const char *const *)envp, &envc);
 
@@ -2223,7 +2223,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     while (total < node->size) {
         size_t remaining = node->size - total;
         size_t to_read   = remaining < chunk ? remaining : chunk;
-        size_t n = vfs_read(node->handle, elf_data + total, total, to_read);
+        size_t n         = vfs_read(node->handle, elf_data + total, total, to_read);
         if (n == 0) break;
         total += n;
     }
@@ -2276,11 +2276,11 @@ static int64_t sys_execve_wrap(uint64_t path, uint64_t argv, uint64_t envp, uint
 /* ---------- getdents64 ---------- */
 
 struct linux_dirent64 {
-    uint64_t        d_ino;
-    int64_t         d_off;
-    unsigned short  d_reclen;
-    unsigned char   d_type;
-    char            d_name[];
+        uint64_t       d_ino;
+        int64_t        d_off;
+        unsigned short d_reclen;
+        unsigned char  d_type;
+        char           d_name[];
 };
 
 #define DT_UNKNOWN 0
@@ -2327,23 +2327,23 @@ static int64_t sys_getdents64_impl(int fd, uint64_t dirent, uint64_t count)
     }
 
     uint64_t written = 0;
-    size_t index = file->offset;
+    size_t   index   = file->offset;
 
     for (;;) {
         vfs_dirent_t entry;
         if (vfs_readdir(node, index, &entry) != EOK) break;
 
-        size_t name_len = strlen(entry.name);
-        unsigned short reclen = (unsigned short)(sizeof(struct linux_dirent64) + name_len + 1);
-        reclen = (unsigned short)ALIGN_UP(reclen, 8);
+        size_t         name_len = strlen(entry.name);
+        unsigned short reclen   = (unsigned short)(sizeof(struct linux_dirent64) + name_len + 1);
+        reclen                  = (unsigned short)ALIGN_UP(reclen, 8);
 
         if (written + reclen > count) break;
 
         struct linux_dirent64 *de = (struct linux_dirent64 *)(kbuf + written);
-        de->d_ino   = entry.inode;
-        de->d_off   = (int64_t)(index + 1);
-        de->d_reclen = reclen;
-        de->d_type  = (entry.type & file_dir) ? DT_DIR : DT_REG;
+        de->d_ino                 = entry.inode;
+        de->d_off                 = (int64_t)(index + 1);
+        de->d_reclen              = reclen;
+        de->d_type                = (entry.type & file_dir) ? DT_DIR : DT_REG;
         memcpy(de->d_name, entry.name, name_len);
         de->d_name[name_len] = '\0';
 
@@ -2378,9 +2378,9 @@ static int64_t sys_writev_wrap(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint6
     if (!proc) return -ESRCH;
     if ((int)fd < 0 || iovcnt > 1024) return -EINVAL;
 
-    iovec_t kiov[16];
-    iovec_t *vec = kiov;
-    int alloc = 0;
+    iovec_t  kiov[16];
+    iovec_t *vec   = kiov;
+    int      alloc = 0;
 
     if (iovcnt > 16) {
         vec = malloc(iovcnt * sizeof(iovec_t));
@@ -2419,9 +2419,9 @@ static int64_t sys_readv_wrap(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64
     if (!proc) return -ESRCH;
     if ((int)fd < 0 || iovcnt > 1024) return -EINVAL;
 
-    iovec_t kiov[16];
-    iovec_t *vec = kiov;
-    int alloc = 0;
+    iovec_t  kiov[16];
+    iovec_t *vec   = kiov;
+    int      alloc = 0;
 
     if (iovcnt > 16) {
         vec = malloc(iovcnt * sizeof(iovec_t));
@@ -2504,7 +2504,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_PREAD64]                = sys_pread64_stub,
     [SYS_PWRITE64]               = sys_stub,
     [SYS_READV]                  = sys_readv_wrap,
-[SYS_WRITEV]                 = sys_writev_wrap,
+    [SYS_WRITEV]                 = sys_writev_wrap,
     [SYS_ACCESS]                 = sys_access_stub,
     [SYS_PIPE]                   = sys_pipe_wrap,
     [SYS_SELECT]                 = sys_select_stub,
@@ -2514,8 +2514,8 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_MINCORE]                = sys_mincore_wrap,
     [SYS_MADVISE]                = sys_madvise_wrap,
     [SYS_SHMGET]                 = sys_shmget_wrap,
-[SYS_SHMAT]                  = sys_shmat_wrap,
-[SYS_SHMCTL]                 = sys_shmctl_wrap,
+    [SYS_SHMAT]                  = sys_shmat_wrap,
+    [SYS_SHMCTL]                 = sys_shmctl_wrap,
     [SYS_DUP]                    = sys_dup,
     [SYS_DUP2]                   = sys_dup2,
     [SYS_PAUSE]                  = sys_pause_wrap,
@@ -2526,20 +2526,20 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_GETPID]                 = sys_getpid,
     [SYS_SENDFILE]               = sys_stub,
     [SYS_SOCKET]                 = sys_socket_wrap,
-[SYS_CONNECT]                = sys_connect_wrap,
-[SYS_ACCEPT]                 = sys_accept_wrap,
-[SYS_SENDTO]                 = sys_sendto_wrap,
-[SYS_RECVFROM]               = sys_recvfrom_wrap,
-[SYS_SENDMSG]                = sys_sendmsg_wrap,
-[SYS_RECVMSG]                = sys_recvmsg_wrap,
-[SYS_SHUTDOWN]               = sys_shutdown_wrap,
-[SYS_BIND]                   = sys_bind_wrap,
-[SYS_LISTEN]                 = sys_listen_wrap,
-[SYS_GETSOCKNAME]            = sys_getsockname_wrap,
-[SYS_GETPEERNAME]            = sys_getpeername_wrap,
-[SYS_SOCKETPAIR]             = sys_socketpair_wrap,
-[SYS_SETSOCKOPT]             = sys_setsockopt_wrap,
-[SYS_GETSOCKOPT]             = sys_getsockopt_wrap,
+    [SYS_CONNECT]                = sys_connect_wrap,
+    [SYS_ACCEPT]                 = sys_accept_wrap,
+    [SYS_SENDTO]                 = sys_sendto_wrap,
+    [SYS_RECVFROM]               = sys_recvfrom_wrap,
+    [SYS_SENDMSG]                = sys_sendmsg_wrap,
+    [SYS_RECVMSG]                = sys_recvmsg_wrap,
+    [SYS_SHUTDOWN]               = sys_shutdown_wrap,
+    [SYS_BIND]                   = sys_bind_wrap,
+    [SYS_LISTEN]                 = sys_listen_wrap,
+    [SYS_GETSOCKNAME]            = sys_getsockname_wrap,
+    [SYS_GETPEERNAME]            = sys_getpeername_wrap,
+    [SYS_SOCKETPAIR]             = sys_socketpair_wrap,
+    [SYS_SETSOCKOPT]             = sys_setsockopt_wrap,
+    [SYS_GETSOCKOPT]             = sys_getsockopt_wrap,
     [SYS_CLONE]                  = NULL,
     [SYS_FORK]                   = NULL,
     [SYS_VFORK]                  = NULL,
@@ -2549,13 +2549,13 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_KILL]                   = sys_kill,
     [SYS_UNAME]                  = sys_uname,
     [SYS_SEMGET]                 = sys_semget_wrap,
-[SYS_SEMOP]                  = sys_semop_wrap,
-[SYS_SEMCTL]                 = sys_semctl_wrap,
-[SYS_SHMDT]                  = sys_shmdt_wrap,
-[SYS_MSGGET]                 = sys_msgget_wrap,
-[SYS_MSGSND]                 = sys_msgsnd_wrap,
-[SYS_MSGRCV]                 = sys_msgrcv_wrap,
-[SYS_MSGCTL]                 = sys_msgctl_wrap,
+    [SYS_SEMOP]                  = sys_semop_wrap,
+    [SYS_SEMCTL]                 = sys_semctl_wrap,
+    [SYS_SHMDT]                  = sys_shmdt_wrap,
+    [SYS_MSGGET]                 = sys_msgget_wrap,
+    [SYS_MSGSND]                 = sys_msgsnd_wrap,
+    [SYS_MSGRCV]                 = sys_msgrcv_wrap,
+    [SYS_MSGCTL]                 = sys_msgctl_wrap,
     [SYS_FCNTL]                  = sys_stub_ok,
     [SYS_FLOCK]                  = sys_stub_ok,
     [SYS_FSYNC]                  = sys_stub_ok,
@@ -2698,8 +2698,8 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_GET_THREAD_AREA]        = sys_stub,
     [SYS_LOOKUP_DCOOKIE]         = sys_stub,
     [SYS_EPOLL_CREATE]           = sys_epoll_create_wrap,
-[SYS_EPOLL_CTL_OLD]          = sys_epoll_ctl_wrap,
-[SYS_EPOLL_WAIT_OLD]         = sys_epoll_wait_wrap,
+    [SYS_EPOLL_CTL_OLD]          = sys_epoll_ctl_wrap,
+    [SYS_EPOLL_WAIT_OLD]         = sys_epoll_wait_wrap,
     [SYS_REMAP_FILE_PAGES]       = sys_stub,
     [SYS_GETDENTS64]             = sys_getdents64_wrap,
     [SYS_SET_TID_ADDRESS]        = sys_set_tid_address_stub,
@@ -2717,7 +2717,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_CLOCK_NANOSLEEP]        = sys_clock_nanosleep_stub,
     [SYS_EXIT_GROUP]             = sys_exit_group,
     [SYS_EPOLL_WAIT]             = sys_epoll_wait_wrap,
-[SYS_EPOLL_CTL]              = sys_epoll_ctl_wrap,
+    [SYS_EPOLL_CTL]              = sys_epoll_ctl_wrap,
     [SYS_TGKILL]                 = sys_tgkill_wrap,
     [SYS_UTIMES]                 = sys_stub_ok,
     [SYS_VSERVER]                = sys_stub,
@@ -2725,11 +2725,11 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_SET_MEMPOLICY]          = sys_stub,
     [SYS_GET_MEMPOLICY]          = sys_stub,
     [SYS_MQ_OPEN]                = sys_mq_open_wrap,
-[SYS_MQ_UNLINK]              = sys_mq_unlink_wrap,
-[SYS_MQ_TIMEDSEND]           = sys_mq_timedsend_wrap,
-[SYS_MQ_TIMEDRECEIVE]        = sys_mq_timedreceive_wrap,
-[SYS_MQ_NOTIFY]              = sys_mq_notify_wrap,
-[SYS_MQ_GETSETATTR]          = sys_mq_getsetattr_wrap,
+    [SYS_MQ_UNLINK]              = sys_mq_unlink_wrap,
+    [SYS_MQ_TIMEDSEND]           = sys_mq_timedsend_wrap,
+    [SYS_MQ_TIMEDRECEIVE]        = sys_mq_timedreceive_wrap,
+    [SYS_MQ_NOTIFY]              = sys_mq_notify_wrap,
+    [SYS_MQ_GETSETATTR]          = sys_mq_getsetattr_wrap,
     [SYS_KEXEC_LOAD]             = sys_stub,
     [SYS_WAITID]                 = sys_stub,
     [SYS_ADD_KEY]                = sys_stub,
@@ -2773,11 +2773,11 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_TIMERFD_SETTIME]        = sys_timerfd_settime_wrap,
     [SYS_TIMERFD_GETTIME]        = sys_timerfd_gettime_wrap,
     [SYS_ACCEPT4]                = sys_accept4_wrap,
-[SYS_SIGNALFD4]              = sys_signalfd4_wrap,
-[SYS_EVENTFD2]               = sys_eventfd2_wrap,
-[SYS_EPOLL_CREATE1]          = sys_epoll_create1_wrap,
-[SYS_DUP3]                   = sys_dup3,
-[SYS_PIPE2]                  = sys_pipe2_wrap,
+    [SYS_SIGNALFD4]              = sys_signalfd4_wrap,
+    [SYS_EVENTFD2]               = sys_eventfd2_wrap,
+    [SYS_EPOLL_CREATE1]          = sys_epoll_create1_wrap,
+    [SYS_DUP3]                   = sys_dup3,
+    [SYS_PIPE2]                  = sys_pipe2_wrap,
     [SYS_INOTIFY_INIT1]          = sys_stub,
     [SYS_PREADV]                 = sys_stub,
     [SYS_PWRITEV]                = sys_stub,

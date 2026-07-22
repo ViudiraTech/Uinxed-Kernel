@@ -8,8 +8,8 @@
  *
  */
 
-#include <cmos.h>
-#include <common.h>
+#include <chipset/cmos.h>
+#include <chipset/common.h>
 
 /* Reading data from CMOS memory */
 uint8_t read_cmos(uint8_t p)

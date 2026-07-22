@@ -8,13 +8,13 @@
  *
  */
 
-#include <errno.h>
-#include <heap.h>
-#include <page.h>
-#include <printk.h>
-#include <stdlib.h>
-#include <string.h>
-#include <vfs.h>
+#include <fs/vfs.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <libs/std/stdlib.h>
+#include <libs/std/string.h>
+#include <mem/heap.h>
+#include <mem/page.h>
 
 vfs_node_t rootdir = 0;
 
@@ -25,7 +25,8 @@ static int            fs_nextid = 1;
 
 /* Default callback function (does nothing) */
 static int empty_func(void)
-{ return -ENOSYS;
+{
+    return -ENOSYS;
 }
 
 /* Tokenize the path string, splitting it by '/' */
@@ -558,7 +559,7 @@ int vfs_regist_fs(const char *name, vfs_callback_t callback)
 
     size_t num_fields = sizeof(struct vfs_callback) / sizeof(void *);
     for (size_t i = 0; i < num_fields; i++) {
-        void *func = ((void **)callback)[i];
+        void *func            = ((void **)callback)[i];
         ((void **)cb_copy)[i] = func ? func : ((void **)&vfs_empty_callback)[i];
     }
 

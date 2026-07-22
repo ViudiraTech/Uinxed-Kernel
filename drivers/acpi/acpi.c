@@ -8,14 +8,14 @@
  *
  */
 
-#include <acpi.h>
-#include <apic.h>
-#include <hhdm.h>
-#include <limine.h>
-#include <printk.h>
-#include <stdint.h>
-#include <tpm.h>
-#include <uinxed.h>
+#include <boot/limine.h>
+#include <drivers/acpi.h>
+#include <drivers/apic.h>
+#include <drivers/tpm.h>
+#include <kernel/printk.h>
+#include <kernel/uinxed.h>
+#include <libs/std/stdint.h>
+#include <mem/hhdm.h>
 
 xsdt_t *xsdt = 0;
 rsdt_t *rsdt = 0;

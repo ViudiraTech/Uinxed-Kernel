@@ -8,7 +8,7 @@
  *
  */
 
-#include <intrusive_list.h>
+#include <libs/glist/intrusive_list.h>
 
 /* Initialize the intrusive linked list header node */
 int ilist_init(struct ilist_node *list)

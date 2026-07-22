@@ -8,13 +8,13 @@
  *
  */
 
-#include <acpi.h>
-#include <common.h>
-#include <hhdm.h>
-#include <printk.h>
-#include <stdint.h>
-#include <string.h>
-#include <timer.h>
+#include <chipset/common.h>
+#include <drivers/acpi.h>
+#include <kernel/printk.h>
+#include <kernel/timer.h>
+#include <libs/std/stdint.h>
+#include <libs/std/string.h>
+#include <mem/hhdm.h>
 
 uint16_t     SLP_TYPa;
 uint16_t     SLP_TYPb;

@@ -8,18 +8,18 @@
  *
  */
 
-#include <common.h>
-#include <errno.h>
-#include <fbcon.h>
-#include <fbdev.h>
-#include <gfx_proc.h>
-#include <limine.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <string.h>
-#include <uaccess.h>
-#include <uinxed.h>
-#include <video.h>
+#include <boot/limine.h>
+#include <chipset/common.h>
+#include <kernel/errno.h>
+#include <kernel/uinxed.h>
+#include <libs/gfxs/gfx_proc.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/string.h>
+#include <proc/uaccess.h>
+#include <video/fbcon.h>
+#include <video/fbdev.h>
+#include <video/video.h>
 
 uint64_t  width;  // Screen width
 uint64_t  height; // Screen height

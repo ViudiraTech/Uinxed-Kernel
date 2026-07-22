@@ -8,14 +8,14 @@
  *
  */
 
-#include <errno.h>
-#include <hhdm.h>
-#include <page.h>
-#include <process.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <string.h>
-#include <uaccess.h>
+#include <kernel/errno.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/string.h>
+#include <mem/hhdm.h>
+#include <mem/page.h>
+#include <proc/process.h>
+#include <proc/uaccess.h>
 
 static int user_ptr_range_ok(uintptr_t addr, size_t size)
 {

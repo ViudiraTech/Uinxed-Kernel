@@ -8,30 +8,30 @@
  *
  */
 
-#include <alloc.h>
-#include <drm/drm_device.h>
-#include <drm/drm_hashtab.h>
-#include <drm/drm_print.h>
-#include <errno.h>
-#include <intrusive_list.h>
-#include <spin_lock.h>
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <string.h>
+#include <drivers/drm/drm_device.h>
+#include <drivers/drm/drm_hashtab.h>
+#include <drivers/drm/drm_print.h>
+#include <kernel/errno.h>
+#include <libs/glist/intrusive_list.h>
+#include <libs/std/stdbool.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/string.h>
+#include <mem/alloc.h>
+#include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */
 /* drm_master — full definition (forward-declared in drm_device.h)    */
 /* ------------------------------------------------------------------ */
 
 struct drm_master {
-    struct drm_device *dev;
-    spinlock_t lock;
-    int unique_len;
-    char *unique;
-    struct drm_open_hash magiclist;
-    ilist_node_t magicfree;
-    int refcount;
+        struct drm_device   *dev;
+        spinlock_t           lock;
+        int                  unique_len;
+        char                *unique;
+        struct drm_open_hash magiclist;
+        ilist_node_t         magicfree;
+        int                  refcount;
 };
 
 /* ------------------------------------------------------------------ */
@@ -39,7 +39,7 @@ struct drm_master {
 /* ------------------------------------------------------------------ */
 
 struct drm_file *drm_file_alloc(struct drm_device *dev);
-void drm_file_free(struct drm_file *file);
+void             drm_file_free(struct drm_file *file);
 
 /* ------------------------------------------------------------------ */
 /* drm_dev_alloc — allocate and zero-initialize a drm_device           */
@@ -48,20 +48,16 @@ void drm_file_free(struct drm_file *file);
 struct drm_device *drm_dev_alloc(struct drm_driver *driver)
 {
     struct drm_device *dev;
-    struct drm_minor *minor;
+    struct drm_minor  *minor;
 
-    if (!driver) {
-        return NULL;
-    }
+    if (!driver) { return NULL; }
 
     dev = malloc(sizeof(*dev));
-    if (!dev) {
-        return NULL;
-    }
+    if (!dev) { return NULL; }
     memset(dev, 0, sizeof(*dev));
 
-    dev->driver = driver;
-    dev->num_crtc = 0;
+    dev->driver                 = driver;
+    dev->num_crtc               = 0;
     dev->vblank_disable_allowed = true;
 
     /* All spinlocks are zero-initialized by memset above (unlocked state). */
@@ -87,11 +83,11 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
         return NULL;
     }
     memset(minor, 0, sizeof(*minor));
-    minor->index = 0;
-    minor->type = 0;
-    minor->dev = dev;
+    minor->index            = 0;
+    minor->type             = 0;
+    minor->dev              = dev;
     minor->device_node_name = "card0";
-    dev->primary = minor;
+    dev->primary            = minor;
 
     /* Allocate render minor. */
     minor = malloc(sizeof(*minor));
@@ -103,11 +99,11 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
         return NULL;
     }
     memset(minor, 0, sizeof(*minor));
-    minor->index = 0;
-    minor->type = 1;
-    minor->dev = dev;
+    minor->index            = 0;
+    minor->type             = 1;
+    minor->dev              = dev;
     minor->device_node_name = "renderD128";
-    dev->render = minor;
+    dev->render             = minor;
 
     return dev;
 }
@@ -118,29 +114,23 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
 
 int drm_dev_register(struct drm_device *dev, uint64_t flags)
 {
-    if (!dev) {
-        return -EINVAL;
-    }
+    if (!dev) { return -EINVAL; }
 
-    dev->mode_config.min_width = 0;
+    dev->mode_config.min_width  = 0;
     dev->mode_config.min_height = 0;
-    dev->mode_config.max_width = 8192;
+    dev->mode_config.max_width  = 8192;
     dev->mode_config.max_height = 8192;
 
     if (flags & DRIVER_MODESET) {
-        dev->mode_config.cursor_width = 64;
-        dev->mode_config.cursor_height = 64;
-        dev->mode_config.async_page_flip = false;
+        dev->mode_config.cursor_width               = 64;
+        dev->mode_config.cursor_height              = 64;
+        dev->mode_config.async_page_flip            = false;
         dev->mode_config.fb_modifiers_not_supported = false;
-        dev->mode_config.normalize_zpos = true;
-        dev->mode_config.poll_enabled = true;
+        dev->mode_config.normalize_zpos             = true;
+        dev->mode_config.poll_enabled               = true;
     }
 
-    DRM_INFO("Initialized %s %d.%d.%d %s\n",
-             dev->driver->name,
-             dev->driver->major,
-             dev->driver->minor,
-             dev->driver->patchlevel,
+    DRM_INFO("Initialized %s %d.%d.%d %s\n", dev->driver->name, dev->driver->major, dev->driver->minor, dev->driver->patchlevel,
              dev->driver->date);
 
     return 0;
@@ -152,9 +142,7 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
 
 void drm_dev_unregister(struct drm_device *dev)
 {
-    if (!dev) {
-        return;
-    }
+    if (!dev) { return; }
     drm_dev_put(dev);
 }
 
@@ -173,9 +161,7 @@ struct drm_device *drm_dev_get(struct drm_device *dev)
 
 void drm_dev_put(struct drm_device *dev)
 {
-    if (!dev) {
-        return;
-    }
+    if (!dev) { return; }
 
     if (dev->open_count == 0) {
         if (dev->primary) {
@@ -200,9 +186,7 @@ int drm_open(struct drm_device *dev, struct drm_file *file)
 {
     int ret;
 
-    if (!dev || !file) {
-        return -EINVAL;
-    }
+    if (!dev || !file) { return -EINVAL; }
 
     /* Zero-initialize the pre-allocated file struct. */
     memset(file, 0, sizeof(*file));
@@ -219,9 +203,9 @@ int drm_open(struct drm_device *dev, struct drm_file *file)
         return ret;
     }
 
-    file->authenticated = false;
-    file->universal_planes = false;
-    file->atomic = false;
+    file->authenticated        = false;
+    file->universal_planes     = false;
+    file->atomic               = false;
     file->aspect_ratio_allowed = false;
 
     /* Store back-pointer to device for use in drm_release. */
@@ -256,9 +240,7 @@ void drm_release(struct drm_file *file)
 {
     struct drm_device *dev;
 
-    if (!file) {
-        return;
-    }
+    if (!file) { return; }
 
     dev = (struct drm_device *)file->minor_unused;
 
@@ -268,13 +250,9 @@ void drm_release(struct drm_file *file)
         dev->open_count--;
         spin_unlock(&dev->filelist_lock);
 
-        if (dev->driver && dev->driver->postclose) {
-            dev->driver->postclose(dev, file);
-        }
+        if (dev->driver && dev->driver->postclose) { dev->driver->postclose(dev, file); }
 
-        if (dev->open_count == 0 && dev->driver && dev->driver->lastclose) {
-            dev->driver->lastclose(dev);
-        }
+        if (dev->open_count == 0 && dev->driver && dev->driver->lastclose) { dev->driver->lastclose(dev); }
     } else {
         ilist_remove(&file->head);
     }

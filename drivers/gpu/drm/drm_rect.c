@@ -8,12 +8,12 @@
  *
  */
 
-#include <drm/drm_rect.h>
-#include <printk.h>
-#include <alloc.h>
-#include <errno.h>
-#include <stdint.h>
-#include <stdbool.h>
+#include <drivers/drm/drm_rect.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <libs/std/stdbool.h>
+#include <libs/std/stdint.h>
+#include <mem/alloc.h>
 
 /* Returns true if the rectangle has strictly positive area. */
 bool drm_rect_visible(const struct drm_rect *r)
@@ -50,14 +50,12 @@ bool drm_rect_clip_scaled(struct drm_rect *src, struct drm_rect *dst, const stru
     int64_t diff;
 
     /* A degenerate destination cannot be clipped; avoid division by zero. */
-    if (drm_rect_width(dst) == 0 || drm_rect_height(dst) == 0)
-        return drm_rect_visible(dst);
+    if (drm_rect_width(dst) == 0 || drm_rect_height(dst) == 0) return drm_rect_visible(dst);
 
     diff = (int64_t)clip->x1 - (int64_t)dst->x1;
     if (diff > 0) {
         int64_t src_diff = diff * (int64_t)drm_rect_width(src) / (int64_t)drm_rect_width(dst);
-        if (src_diff < 0)
-            src_diff = 0;
+        if (src_diff < 0) src_diff = 0;
         src->x1 = (int32_t)((int64_t)src->x1 + src_diff);
         dst->x1 = clip->x1;
     }
@@ -65,8 +63,7 @@ bool drm_rect_clip_scaled(struct drm_rect *src, struct drm_rect *dst, const stru
     diff = (int64_t)clip->x2 - (int64_t)dst->x2;
     if (diff < 0) {
         int64_t src_diff = diff * (int64_t)drm_rect_width(src) / (int64_t)drm_rect_width(dst);
-        if (src_diff > 0)
-            src_diff = 0;
+        if (src_diff > 0) src_diff = 0;
         src->x2 = (int32_t)((int64_t)src->x2 + src_diff);
         dst->x2 = clip->x2;
     }
@@ -74,8 +71,7 @@ bool drm_rect_clip_scaled(struct drm_rect *src, struct drm_rect *dst, const stru
     diff = (int64_t)clip->y1 - (int64_t)dst->y1;
     if (diff > 0) {
         int64_t src_diff = diff * (int64_t)drm_rect_height(src) / (int64_t)drm_rect_height(dst);
-        if (src_diff < 0)
-            src_diff = 0;
+        if (src_diff < 0) src_diff = 0;
         src->y1 = (int32_t)((int64_t)src->y1 + src_diff);
         dst->y1 = clip->y1;
     }
@@ -83,8 +79,7 @@ bool drm_rect_clip_scaled(struct drm_rect *src, struct drm_rect *dst, const stru
     diff = (int64_t)clip->y2 - (int64_t)dst->y2;
     if (diff < 0) {
         int64_t src_diff = diff * (int64_t)drm_rect_height(src) / (int64_t)drm_rect_height(dst);
-        if (src_diff > 0)
-            src_diff = 0;
+        if (src_diff > 0) src_diff = 0;
         src->y2 = (int32_t)((int64_t)src->y2 + src_diff);
         dst->y2 = clip->y2;
     }

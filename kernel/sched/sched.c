@@ -8,25 +8,25 @@
  *
  */
 
-#include <apic.h>
-#include <common.h>
-#include <debug.h>
-#include <errno.h>
-#include <gdt.h>
-#include <heap.h>
-#include <intrusive_list.h>
-#include <page.h>
-#include <printk.h>
-#include <process.h>
-#include <rbtree.h>
-#include <sched.h>
-#include <smp.h>
-#include <spin_lock.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <task.h>
+#include <arch/gdt.h>
+#include <arch/smp.h>
+#include <chipset/common.h>
+#include <drivers/apic.h>
+#include <kernel/debug.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <libs/data/rbtree.h>
+#include <libs/glist/intrusive_list.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/stdlib.h>
+#include <libs/std/string.h>
+#include <mem/heap.h>
+#include <mem/page.h>
+#include <proc/process.h>
+#include <proc/sched.h>
+#include <proc/task.h>
+#include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                           */
@@ -839,9 +839,7 @@ int task_wakeup(task_t *task)
         spin_lock(&scheduler.lock);
         if (task->wait_queue == queue) {
             wake_task_locked(task, 1);
-            if (task->timer_node.prev != NULL) {
-                ilist_remove(&task->timer_node);
-            }
+            if (task->timer_node.prev != NULL) { ilist_remove(&task->timer_node); }
         }
         spin_unlock(&scheduler.lock);
         spin_unlock(&queue->lock);
@@ -981,9 +979,7 @@ int wait_queue_wait_timed(wait_queue_t *queue, uint64_t deadline_ticks)
      * The scheduler tick removes the task from the wait queue when
      * the deadline expires, so wait_queue == NULL means timeout.
      */
-    if (curr->wait_queue == NULL) {
-        return -ETIMEDOUT;
-    }
+    if (curr->wait_queue == NULL) { return -ETIMEDOUT; }
 
     return 0;
 }
@@ -1010,9 +1006,7 @@ task_t *wait_queue_wake_one(wait_queue_t *queue)
      * timer queue so the scheduler tick doesn't try to wake
      * it again after the deadline.
      */
-    if (task->timer_node.prev != NULL) {
-        ilist_remove(&task->timer_node);
-    }
+    if (task->timer_node.prev != NULL) { ilist_remove(&task->timer_node); }
     spin_unlock(&scheduler.lock);
     spin_unlock(&queue->lock);
     request_task_cpu(task);
@@ -1035,9 +1029,7 @@ uint64_t wait_queue_wake_all(wait_queue_t *queue)
 
         ilist_remove(node);
         wake_task_locked(task, 0);
-        if (task->timer_node.prev != NULL) {
-            ilist_remove(&task->timer_node);
-        }
+        if (task->timer_node.prev != NULL) { ilist_remove(&task->timer_node); }
         if (woken_count < sizeof(woken) / sizeof(woken[0])) woken[woken_count++] = task;
         count++;
     }

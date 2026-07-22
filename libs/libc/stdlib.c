@@ -8,10 +8,10 @@
  *
  */
 
-#include <heap.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
+#include <libs/std/stdint.h>
+#include <libs/std/stdlib.h>
+#include <libs/std/string.h>
+#include <mem/heap.h>
 
 /* Standardized file paths */
 char *normalize_path(const char *path)

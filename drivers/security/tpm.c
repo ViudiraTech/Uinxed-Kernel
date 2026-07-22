@@ -8,11 +8,11 @@
  *
  */
 
-#include <acpi.h>
-#include <hhdm.h>
-#include <printk.h>
-#include <stdint.h>
-#include <tpm.h>
+#include <drivers/acpi.h>
+#include <drivers/tpm.h>
+#include <kernel/printk.h>
+#include <libs/std/stdint.h>
+#include <mem/hhdm.h>
 
 /* Verify TPM MMIO */
 static uint32_t tpm_verify_mmio(void *virt_addr)

@@ -8,17 +8,17 @@
  *
  */
 
-#include <acpi.h>
-#include <common.h>
-#include <debug.h>
-#include <heap.h>
-#include <hhdm.h>
-#include <pci.h>
-#include <printk.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
+#include <chipset/common.h>
+#include <drivers/acpi.h>
+#include <drivers/pci.h>
+#include <kernel/debug.h>
+#include <kernel/printk.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/stdlib.h>
+#include <libs/std/string.h>
+#include <mem/heap.h>
+#include <mem/hhdm.h>
 
 mcfg_t mcfg_info;
 

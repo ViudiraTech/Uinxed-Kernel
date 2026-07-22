@@ -8,10 +8,10 @@
  *
  */
 
-#include <limine.h>
-#include <string.h>
-#include <symbols.h>
-#include <uinxed.h>
+#include <boot/limine.h>
+#include <kernel/symbols.h>
+#include <kernel/uinxed.h>
+#include <libs/std/string.h>
 
 /* Get symbol information */
 sym_info_t get_symbol_info(uint64_t *kernel_file_address, Elf64_Addr symbol_address)

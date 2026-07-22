@@ -8,27 +8,27 @@
  *
  */
 
-#include <apic.h>
-#include <common.h>
-#include <debug.h>
-#include <eis.h>
-#include <frame.h>
-#include <gdt.h>
-#include <heap.h>
-#include <hhdm.h>
-#include <interrupt.h>
-#include <limine.h>
-#include <page.h>
-#include <printk.h>
-#include <sched.h>
-#include <smp.h>
-#include <spin_lock.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <tss.h>
-#include <uinxed.h>
+#include <arch/eis.h>
+#include <arch/gdt.h>
+#include <arch/smp.h>
+#include <arch/tss.h>
+#include <boot/limine.h>
+#include <chipset/common.h>
+#include <drivers/apic.h>
+#include <kernel/debug.h>
+#include <kernel/interrupt.h>
+#include <kernel/printk.h>
+#include <kernel/uinxed.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/stdlib.h>
+#include <libs/std/string.h>
+#include <mem/frame.h>
+#include <mem/heap.h>
+#include <mem/hhdm.h>
+#include <mem/page.h>
+#include <proc/sched.h>
+#include <sync/spin_lock.h>
 
 static cpu_processor_t *cpus;
 static size_t           cpu_count = 0;

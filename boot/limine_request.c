@@ -8,8 +8,8 @@
  *
  */
 
-#include <limine.h>
-#include <uinxed.h>
+#include <boot/limine.h>
+#include <kernel/uinxed.h>
 
 __attribute__((used, section(".limine_requests_start"))) LIMINE_REQUESTS_START_MARKER
 

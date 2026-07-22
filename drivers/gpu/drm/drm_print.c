@@ -8,14 +8,14 @@
  *
  */
 
-#include <drm/drm_print.h>
-#include <printk.h>
-#include <alloc.h>
-#include <errno.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <stdarg.h>
-#include <string.h>
+#include <drivers/drm/drm_print.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <libs/std/stdarg.h>
+#include <libs/std/stdbool.h>
+#include <libs/std/stdint.h>
+#include <libs/std/string.h>
+#include <mem/alloc.h>
 
 /*
  * Printer callback for drm_printk_printer: renders the formatted message into a
@@ -24,14 +24,12 @@
 static void __drm_printk_printer(void *arg, const char *fmt, va_list args)
 {
     const char *prefix = (const char *)arg;
-    char buf[512];
-    size_t plen;
+    char        buf[512];
+    size_t      plen;
 
     plen = prefix ? strlen(prefix) : 0;
-    if (plen >= sizeof(buf))
-        plen = sizeof(buf) - 1;
-    if (plen)
-        memcpy(buf, prefix, plen);
+    if (plen >= sizeof(buf)) plen = sizeof(buf) - 1;
+    if (plen) memcpy(buf, prefix, plen);
 
     vsnprintf(buf + plen, sizeof(buf) - plen, fmt, args);
     plogk("%s", buf);
@@ -52,11 +50,11 @@ struct drm_printer drm_printk_printer(const char *prefix)
     p.printfn = __drm_printk_printer;
 
     if (prefix) {
-        size_t len = strlen(prefix) + 1;
-        char *copy = malloc(len);
+        size_t len  = strlen(prefix) + 1;
+        char  *copy = malloc(len);
         if (copy) {
             memcpy(copy, prefix, len);
-            p.arg = copy;
+            p.arg   = copy;
             p.extra = copy;
         }
     }
@@ -67,8 +65,7 @@ struct drm_printer drm_printk_printer(const char *prefix)
 /* Forward a va_list message to the printer's printfn callback, if installed. */
 void drm_vprintf(struct drm_printer *p, const char *fmt, va_list args)
 {
-    if (p && p->printfn)
-        p->printfn(p->arg, fmt, args);
+    if (p && p->printfn) p->printfn(p->arg, fmt, args);
 }
 
 /* Variadic printf through a printer. */
@@ -88,14 +85,14 @@ void drm_printf(struct drm_printer *p, const char *fmt, ...)
  */
 void drm_dev_printk(const struct drm_device *dev, const char *level, const char *fmt, ...)
 {
-    char prefix[256];
-    char msg[512];
+    char    prefix[256];
+    char    msg[512];
     va_list args;
 
     if (dev)
-        snprintf(prefix, sizeof(prefix), "[drm:%s] %p ", level, (const void *)dev);
+        snprintf(prefix, sizeof(prefix), "drm: [%s] %p ", level, (const void *)dev);
     else
-        snprintf(prefix, sizeof(prefix), "[drm:%s] ", level);
+        snprintf(prefix, sizeof(prefix), "drm: [%s] ", level);
 
     va_start(args, fmt);
     vsnprintf(msg, sizeof(msg), fmt, args);

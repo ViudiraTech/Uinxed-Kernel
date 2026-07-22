@@ -8,18 +8,18 @@
  *
  */
 
-#include <drm/drm_device.h>
-#include <drm/drm_mode.h>
-#include <drm/drm_fourcc.h>
-#include <drm/drm_idr.h>
-#include <drm/drm_modeset_lock.h>
-#include <drm/drm_print.h>
-#include <alloc.h>
-#include <errno.h>
-#include <spin_lock.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <string.h>
+#include <drivers/drm/drm_device.h>
+#include <drivers/drm/drm_fourcc.h>
+#include <drivers/drm/drm_idr.h>
+#include <drivers/drm/drm_mode.h>
+#include <drivers/drm/drm_modeset_lock.h>
+#include <drivers/drm/drm_print.h>
+#include <kernel/errno.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/string.h>
+#include <mem/alloc.h>
+#include <sync/spin_lock.h>
 
 /*
  * drm_plane_create_zpos_property - Set the default z-position for a plane.
@@ -32,9 +32,7 @@
  */
 void drm_plane_create_zpos_property(struct drm_plane *plane, unsigned int zpos)
 {
-    if (!plane) {
-        return;
-    }
+    if (!plane) { return; }
 
     plane->zpos_property_default = zpos;
 }
@@ -49,9 +47,7 @@ void drm_plane_create_zpos_property(struct drm_plane *plane, unsigned int zpos)
  */
 int drm_plane_create_rotation_property(struct drm_plane *plane, unsigned int rotation)
 {
-    if (!plane) {
-        return -EINVAL;
-    }
+    if (!plane) { return -EINVAL; }
 
     (void)rotation;
 
@@ -69,9 +65,7 @@ int drm_plane_create_rotation_property(struct drm_plane *plane, unsigned int rot
  */
 int drm_plane_create_blend_mode_property(struct drm_plane *plane, unsigned int blend_mode)
 {
-    if (!plane) {
-        return -EINVAL;
-    }
+    if (!plane) { return -EINVAL; }
 
     (void)blend_mode;
 
@@ -88,9 +82,7 @@ int drm_plane_create_blend_mode_property(struct drm_plane *plane, unsigned int b
  */
 int drm_plane_create_alpha_property(struct drm_plane *plane)
 {
-    if (!plane) {
-        return -EINVAL;
-    }
+    if (!plane) { return -EINVAL; }
 
     /* MVP stub: property creation deferred to drm_property_create_range */
     return 0;

@@ -8,17 +8,17 @@
  *
  */
 
-#include <alloc.h>
-#include <drm/drm_device.h>
-#include <drm/drm_hashtab.h>
-#include <drm/drm_print.h>
-#include <errno.h>
-#include <intrusive_list.h>
-#include <spin_lock.h>
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <string.h>
+#include <drivers/drm/drm_device.h>
+#include <drivers/drm/drm_hashtab.h>
+#include <drivers/drm/drm_print.h>
+#include <kernel/errno.h>
+#include <libs/glist/intrusive_list.h>
+#include <libs/std/stdbool.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/string.h>
+#include <mem/alloc.h>
+#include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */
 /* drm_file_alloc — allocate and initialize a drm_file                 */
@@ -31,9 +31,7 @@ struct drm_file *drm_file_alloc(struct drm_device *dev)
     (void)dev;
 
     file = malloc(sizeof(*file));
-    if (!file) {
-        return NULL;
-    }
+    if (!file) { return NULL; }
     memset(file, 0, sizeof(*file));
 
     drm_idr_init(&file->object_idr);
@@ -48,9 +46,9 @@ struct drm_file *drm_file_alloc(struct drm_device *dev)
         return NULL;
     }
 
-    file->authenticated = false;
-    file->universal_planes = false;
-    file->atomic = false;
+    file->authenticated        = false;
+    file->universal_planes     = false;
+    file->atomic               = false;
     file->aspect_ratio_allowed = false;
 
     return file;
@@ -62,9 +60,7 @@ struct drm_file *drm_file_alloc(struct drm_device *dev)
 
 void drm_file_free(struct drm_file *file)
 {
-    if (!file) {
-        return;
-    }
+    if (!file) { return; }
 
     drm_ht_destroy(&file->magiclist);
     drm_idr_destroy(&file->object_idr);

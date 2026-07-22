@@ -8,32 +8,30 @@
  *
  */
 
-#include <alloc.h>
-#include <drm/drm.h>
-#include <drm/drm_device.h>
-#include <drm/drm_init.h>
-#include <drm/drm_mode.h>
-#include <drm/drm_print.h>
-#include <errno.h>
-#include <printk.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <string.h>
+#include <drivers/drm/drm.h>
+#include <drivers/drm/drm_device.h>
+#include <drivers/drm/drm_init.h>
+#include <drivers/drm/drm_mode.h>
+#include <drivers/drm/drm_print.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/string.h>
+#include <mem/alloc.h>
 
 /* Dummy GEM object with allocated backing buffer. */
 struct test_gem_object {
-    struct drm_gem_object base;
-    void                 *vaddr;
-    size_t                size;
+        struct drm_gem_object base;
+        void                 *vaddr;
+        size_t                size;
 };
 
 static struct test_gem_object *test_gem_alloc(struct drm_device *dev, size_t sz)
 {
     struct test_gem_object *obj = malloc(sizeof(*obj));
 
-    if (!obj) {
-        return NULL;
-    }
+    if (!obj) { return NULL; }
 
     memset(obj, 0, sizeof(*obj));
     obj->vaddr = malloc(sz);
@@ -50,9 +48,7 @@ static struct test_gem_object *test_gem_alloc(struct drm_device *dev, size_t sz)
 
 static void test_gem_free(struct test_gem_object *obj)
 {
-    if (!obj) {
-        return;
-    }
+    if (!obj) { return; }
 
     free(obj->vaddr);
     free(obj);
@@ -73,10 +69,10 @@ void drm_run_test(void)
     DRM_INFO("=== DRM subsystem self-test ===\n");
 
     /* 1. Allocate a GEM dumb buffer */
-    struct drm_mode_create_dumb create = { 0 };
-    create.width  = 800;
-    create.height = 600;
-    create.bpp    = 32;
+    struct drm_mode_create_dumb create = {0};
+    create.width                       = 800;
+    create.height                      = 600;
+    create.bpp                         = 32;
 
     struct test_gem_object *gem = test_gem_alloc(dev, create.width * create.height * 4);
     if (!gem) {
@@ -119,9 +115,7 @@ void drm_run_test(void)
         } else {
             color = 0xFF0000FF; /* blue */
         }
-        for (uint32_t x = 0; x < create.width; x++) {
-            pixels[y * create.width + x] = color;
-        }
+        for (uint32_t x = 0; x < create.width; x++) { pixels[y * create.width + x] = color; }
     }
 
     plogk("drm_test: Pattern written to GEM buffer.\n");
@@ -136,30 +130,25 @@ void drm_run_test(void)
     }
 
     /* 5. Test ioctl: DRM_IOCTL_VERSION */
-    struct drm_version ver = { 0 };
-    ret = drm_ioctl(dev, DRM_IOCTL_VERSION, &ver, &test_file);
+    struct drm_version ver = {0};
+    ret                    = drm_ioctl(dev, DRM_IOCTL_VERSION, &ver, &test_file);
     if (ret == 0) {
-        plogk("drm_test: DRM_IOCTL_VERSION OK (major=%d, minor=%d, patch=%d).\n", ver.version_major, ver.version_minor,
-              ver.version_patchlevel);
+        plogk("drm_test: DRM_IOCTL_VERSION OK (major=%d, minor=%d, patch=%d).\n", ver.version_major, ver.version_minor, ver.version_patchlevel);
     } else {
         DRM_ERROR("Test: DRM_IOCTL_VERSION failed: %d\n", ret);
     }
 
     /* 6. Test ioctl: DRM_IOCTL_GET_UNIQUE */
-    struct drm_unique uniq = { 0 };
+    struct drm_unique uniq = {0};
     char              busid[64];
     uniq.unique     = (__u64)(uintptr_t)busid;
     uniq.unique_len = sizeof(busid);
-    ret = drm_ioctl(dev, DRM_IOCTL_GET_UNIQUE, &uniq, &test_file);
-    if (ret == 0) {
-        plogk("drm_test: DRM_IOCTL_GET_UNIQUE OK.\n");
-    }
+    ret             = drm_ioctl(dev, DRM_IOCTL_GET_UNIQUE, &uniq, &test_file);
+    if (ret == 0) { plogk("drm_test: DRM_IOCTL_GET_UNIQUE OK.\n"); }
 
     /* 7. Clean up */
     ret = drm_gem_handle_delete(&test_file, handle);
-    if (ret == 0) {
-        plogk("drm_test: GEM handle %u deleted.\n", handle);
-    }
+    if (ret == 0) { plogk("drm_test: GEM handle %u deleted.\n", handle); }
 
     drm_release(&test_file);
     test_gem_free(gem);

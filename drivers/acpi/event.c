@@ -8,15 +8,15 @@
  *
  */
 
-#include <acpi.h>
-#include <common.h>
-#include <idt.h>
-#include <interrupt.h>
-#include <printk.h>
-#include <spin_lock.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <string.h>
+#include <arch/idt.h>
+#include <chipset/common.h>
+#include <drivers/acpi.h>
+#include <kernel/interrupt.h>
+#include <kernel/printk.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/string.h>
+#include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */
 /* PM1 register access via FADT                                       */

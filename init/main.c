@@ -8,48 +8,48 @@
  *
  */
 
-#include <acpi.h>
-#include <cmdline.h>
-#include <common.h>
-#include <cpio.h>
-#include <cpuid.h>
-#include <debug.h>
-#include <devtmpfs.h>
-#include <drm/drm_init.h>
-#include <eis.h>
-#include <elf_loader.h>
-#include <errno.h>
-#include <eventfd.h>
-#include <fatfs_vfs.h>
-#include <frame.h>
-#include <gdt.h>
-#include <heap.h>
-#include <hhdm.h>
-#include <ide.h>
-#include <interrupt.h>
-#include <limine_module.h>
-#include <mmap.h>
-#include <page.h>
-#include <parallel.h>
-#include <pci.h>
-#include <printk.h>
-#include <process.h>
-#include <procfs.h>
-#include <ps2.h>
-#include <sched.h>
-#include <sched_test.h>
-#include <serial.h>
-#include <signalfd.h>
-#include <smbios.h>
-#include <smp.h>
-#include <sound/sb16.h>
-#include <syscall.h>
-#include <timerfd.h>
-#include <tmpfs.h>
-#include <tsc.h>
-#include <uinxed.h>
-#include <vfs.h>
-#include <video.h>
+#include <arch/cpuid.h>
+#include <arch/eis.h>
+#include <arch/gdt.h>
+#include <arch/smp.h>
+#include <boot/limine_module.h>
+#include <chipset/common.h>
+#include <chipset/smbios.h>
+#include <drivers/acpi.h>
+#include <drivers/drm/drm_init.h>
+#include <drivers/ide.h>
+#include <drivers/parallel.h>
+#include <drivers/pci.h>
+#include <drivers/ps2.h>
+#include <drivers/sb16.h>
+#include <drivers/serial.h>
+#include <drivers/tsc.h>
+#include <fs/cpio.h>
+#include <fs/devtmpfs.h>
+#include <fs/fatfs/fatfs_vfs.h>
+#include <fs/procfs.h>
+#include <fs/tmpfs.h>
+#include <fs/vfs.h>
+#include <kernel/cmdline.h>
+#include <kernel/debug.h>
+#include <kernel/elf_loader.h>
+#include <kernel/errno.h>
+#include <kernel/interrupt.h>
+#include <kernel/printk.h>
+#include <kernel/uinxed.h>
+#include <mem/frame.h>
+#include <mem/heap.h>
+#include <mem/hhdm.h>
+#include <mem/page.h>
+#include <proc/process.h>
+#include <proc/sched.h>
+#include <proc/sched_test.h>
+#include <syscall/eventfd.h>
+#include <syscall/mmap.h>
+#include <syscall/signalfd.h>
+#include <syscall/syscall.h>
+#include <syscall/timerfd.h>
+#include <video/video.h>
 
 extern process_t *init_process;
 
@@ -104,17 +104,17 @@ void executable_entry(void)
 /* Kernel entry */
 void kernel_entry(void)
 {
-    init_fpu();    // Initialize FPU/MMX
-    init_sse();    // Initialize SSE/SSE2
-    init_serial(); // Initialize the serial port
+    init_fpu();    // Floating-Point Unit / Streaming SIMD Extensions
+    init_sse();    // Streaming SIMD Extensions / 2
+    init_serial(); // Standard RS-232 Serial Port
 
-    init_frame();   // Initialize memory frame
-    page_init();    // Initialize memory page
-    init_heap();    // Initialize the memory heap
-    lmodule_init(); // Initialize the passed-in resource module list
+    init_frame();   // Physical Memory Frame
+    page_init();    // Standard 4-Level Page Table
+    init_heap();    // Standard Memory Heap
+    lmodule_init(); // Limine Kernel Module
 
-    video_init();                           // Initialize Video
-    video_info_t fbinfo = video_get_info(); // Get video info
+    video_init(); // Basic VESA/GOP Video
+    video_info_t fbinfo = video_get_info();
 
     plogk("%s version %s (%s version %s) SMP %s %s\n", KERNEL_NAME, KERNEL_VERSION, COMPILER_NAME, COMPILER_VERSION, BUILD_DATE, BUILD_TIME);
     plogk("fb0: Base %p, Size %lu KiB.\n", fbinfo.framebuffer, (fbinfo.width * fbinfo.height * fbinfo.bpp) / (uint64_t)(8 * 1024));
@@ -134,31 +134,35 @@ void kernel_entry(void)
     plogk("x86/PAT: Configuration [0-7]: %s\n", get_pat_config().pat_str);
     plogk("dmi: %s %s, BIOS %s %s\n", smbios_sys_manufacturer(), smbios_sys_product_name(), smbios_bios_version(), smbios_bios_release_date());
 
-    init_gdt();                     // Initialize global descriptors
-    init_idt();                     // Initialize interrupt descriptor
-    isr_registe_handle();           // Register ISR interrupt processing
-    syscall_init();                 // Register syscall entry
-    init_avx();                     // Initialize AVX/AVX2
-    acpi_init();                    // Initialize ACPI
-    tsc_init();                     // Initialize TSC
-    smp_init();                     // Initialize SMP
-    print_memory_map();             // Print memory map information
-    log_buffer_print(&frame_log);   // Print frame log
-    pci_init();                     // Initialize PCI
-    sb16_init();                    // Initialize SB16 sound card
-    log_buffer_print(&lmodule_log); // Print lmodule log
-    init_ide();                     // Initialize ATA/ATAPI driver
-    init_parallel();                // Initialize the parallel port
-    init_ps2();                     // Initialize PS/2 controller
-    init_vfs();                     // Initialize VFS
-    tmpfs_regist();                 // Register tmpfs
-    fatfs_vfs_regist();             // Register FatFs VFS bridge
+    init_gdt(); // Global Descriptor Table
+    init_idt(); // Interrupt Descriptor Table
+    isr_registe_handle();
+    syscall_init(); // Standard System Call
+    init_avx();     // Advanced Vector Extensions / 2
+    acpi_init();    // Advanced Configuration and Power Interface
+    tsc_init();     // Time Stamp Counter
+    smp_init();     // Symmetric Multiprocessing
+    print_memory_map();
+    log_buffer_print(&frame_log);
+    pci_init();  // Peripheral Component Interconnect
+    sb16_init(); // Sound Blaster 16
+    log_buffer_print(&lmodule_log);
+    init_ide();         // Advanced Technology Attachment / ATA Packet Interface
+    init_parallel();    // Standard IEEE 1284 Parallel Port
+    init_ps2();         // Personal System/2 Controller
+    init_vfs();         // Virtual Filesystem
+    tmpfs_regist();     // Temporary File System
+    fatfs_vfs_regist(); // FAT File System
+
     if (!get_rootdir()->fsid && vfs_mount(0, get_rootdir()) != EOK) plogk("init: Cannot mount tmpfs to root_dir.\n");
-    init_cpio(); // Initialize CPIO
-    devtmpfs_init();
-    procfs_regist();
-    drm_init();
-    // drm_run_test(); I'm very happy! fucking drm is working
+
+    init_cpio();     // Copy In, Copy Out
+    devtmpfs_init(); // Device Temporary File System
+    procfs_regist(); // Process File System
+
+    drm_init(); // Direct Rendering Manager
+    drm_run_test();
+
     {
         vfs_node_t proc = 0;
         int        st   = vfs_mkdir("/proc");
@@ -176,16 +180,16 @@ void kernel_entry(void)
             }
         }
     }
-    /* Initialize the scheduler and some shits. */
-    sched_init();
-    process_init();
-    eventfd_init();
-    timerfd_init();
-    signalfd_init();
-    mmap_init();
-    sched_test_init();
-    enable_intr();
 
+    sched_init();    // Preemptive Scheduler
+    process_init();  // Process Management
+    eventfd_init();  // Event File Descriptor
+    timerfd_init();  // Timer File Descriptor
+    signalfd_init(); // Signal File Descriptor
+    mmap_init();     // Memory Map
+    sched_test_init();
+
+    enable_intr();
     sched_start();
 
     panic("Reached an unreachable kernel code area!");
