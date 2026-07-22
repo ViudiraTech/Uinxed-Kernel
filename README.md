@@ -186,7 +186,8 @@ Uinxed-Kernel/
 ├── Kconfig          # Project configuration file.
 ├── LICENSE          # Open source license.
 ├── Makefile         # Build script.
-└── README.md        # Project introduction.
+├── README.md        # Project introduction.
+└── SECURITY.md      # Security policy file.
 ```
 
 ```
