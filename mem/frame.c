@@ -141,6 +141,7 @@ void free_frame(uint64_t addr)
 
     if (!frame_index) return;
     bitmap_t *bitmap = &frame_allocator.bitmap;
+    if (bitmap_get(bitmap, frame_index)) return;
     bitmap_set(bitmap, frame_index, 1);
     frame_allocator.usable_frames++;
 }
@@ -153,6 +154,7 @@ void free_frames(uint64_t addr, size_t count)
 
     if (!frame_index) return;
     bitmap_t *bitmap = &frame_allocator.bitmap;
+    if (bitmap_range_all(bitmap, frame_index, frame_index + count, 1)) return;
     bitmap_set_range(bitmap, frame_index, frame_index + count, 1);
     frame_allocator.usable_frames += count;
 }
@@ -165,6 +167,7 @@ void free_frames_2M(uint64_t addr)
 
     if (!frame_index) return;
     bitmap_t *bitmap = &frame_allocator.bitmap;
+    if (bitmap_range_all(bitmap, frame_index, frame_index + 512, 1)) return;
     for (size_t i = 0; i < 512; i++) bitmap_set(bitmap, frame_index + i, 1);
     frame_allocator.usable_frames += 512;
 }
@@ -177,6 +180,7 @@ void free_frames_1G(uint64_t addr)
 
     if (!frame_index) return;
     bitmap_t *bitmap = &frame_allocator.bitmap;
+    if (bitmap_range_all(bitmap, frame_index, frame_index + 262144, 1)) return;
     for (size_t i = 0; i < 262144; i++) bitmap_set(bitmap, frame_index + i, 1);
     frame_allocator.usable_frames += 262144;
 }
