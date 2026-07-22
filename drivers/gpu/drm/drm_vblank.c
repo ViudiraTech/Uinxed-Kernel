@@ -21,43 +21,6 @@
 #include <stdint.h>
 
 /* ------------------------------------------------------------------ */
-/* Locally-defined vblank structs (forward-declared in drm_device.h)   */
-/* ------------------------------------------------------------------ */
-
-struct drm_event {
-    uint32_t type;
-    uint32_t length;
-};
-
-struct drm_event_vblank {
-    struct drm_event base;
-    uint32_t crtc_id;
-    uint32_t seq;
-    uint32_t time;
-};
-
-struct drm_pending_vblank_event {
-    struct drm_device *dev;
-    unsigned int pipe;
-    uint64_t sequence;
-    struct drm_event_vblank event;
-    void (*destroy)(struct drm_pending_vblank_event *e);
-    struct drm_pending_vblank_event *next;
-};
-
-struct drm_vblank_crtc {
-    struct drm_device *dev;
-    spinlock_t lock;
-    unsigned int pipe;
-    uint32_t count;
-    uint32_t last;
-    bool enabled;
-    bool inmodeset;
-    uint32_t max_vblank_count;
-    struct drm_pending_vblank_event *event_queue;
-};
-
-/* ------------------------------------------------------------------ */
 /* drm_vblank_init: initialize vblank subsystem for @num_crtcs CRTCs   */
 /* ------------------------------------------------------------------ */
 

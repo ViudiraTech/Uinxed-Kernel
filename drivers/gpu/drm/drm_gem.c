@@ -39,36 +39,236 @@ static uint32_t gem_name_counter = 1;
 static spinlock_t gem_name_lock = { .lock = 0, .rflags = 0 };
 
 /* ------------------------------------------------------------------ */
-/* Dumb buffer mmap offset allocator                                   */
+/* Dumb buffer mmap offset allocator (free-list with bitmap)           */
 /* ------------------------------------------------------------------ */
 
-#define DUMB_OFFSET_PAGE_SHIFT  12
-#define DUMB_OFFSET_PAGE_SIZE   (1UL << DUMB_OFFSET_PAGE_SHIFT)
+/*
+ * The mmap offset space is divided into slots of DUMB_OFFSET slot size.
+ * Each slot corresponds to one page of backing memory. A bitmap tracks
+ * which slots are in use. The allocator maintains a free list of slot
+ * ranges that were previously released, allowing offset recycling.
+ */
 
-static uint64_t dumb_offset_base = 0x100000000UL; /* 4GB, well above kernel text/data */
-static uint64_t dumb_offset_next = 0;
-static spinlock_t dumb_offset_lock = { .lock = 0, .rflags = 0 };
+#define DUMB_OFFSET_SHIFT       12
+#define DUMB_OFFSET_SIZE        (1ULL << DUMB_OFFSET_SHIFT)       /* 4096 */
+#define DUMB_OFFSET_BASE        0x100000000ULL                    /* 4 GB */
+#define DUMB_OFFSET_SPACE       0x100000000ULL                    /* 4 GB space = 1M slots */
+#define DUMB_OFFSET_MAX_SLOTS   (DUMB_OFFSET_SPACE >> DUMB_OFFSET_SHIFT)
+#define DUMB_BITMAP_SIZE        (DUMB_OFFSET_MAX_SLOTS / 8)       /* 128 KB bitmap */
 
+/* Slot range in the free list */
+struct dumb_slot_range {
+    uint32_t             start;  /* start slot index */
+    uint32_t             count;  /* number of contiguous slots */
+    struct dumb_slot_range *next;
+};
+
+static uint8_t           dumb_bitmap[DUMB_BITMAP_SIZE];
+static struct dumb_slot_range *dumb_free_list;
+static uint32_t          dumb_next_slot;       /* high watermark for fresh allocations */
+static spinlock_t        dumb_alloc_lock = { .lock = 0, .rflags = 0 };
+
+/* Small pool for slot-range nodes (avoids malloc churn) */
+#define DUMB_RANGE_POOL_SIZE    256
+static struct dumb_slot_range dumb_range_pool[DUMB_RANGE_POOL_SIZE];
+static uint32_t               dumb_range_pool_used = 0;
+
+static inline int dumb_bitmap_get(uint32_t slot)
+{
+    if (slot >= DUMB_OFFSET_MAX_SLOTS) return -1;
+    return (dumb_bitmap[slot / 8] >> (slot % 8)) & 1;
+}
+
+static inline void dumb_bitmap_set(uint32_t slot)
+{
+    if (slot < DUMB_OFFSET_MAX_SLOTS) {
+        dumb_bitmap[slot / 8] |= (uint8_t)(1U << (slot % 8));
+    }
+}
+
+static inline void dumb_bitmap_clear(uint32_t slot)
+{
+    if (slot < DUMB_OFFSET_MAX_SLOTS) {
+        dumb_bitmap[slot / 8] &= (uint8_t)~(1U << (slot % 8));
+    }
+}
+
+static struct dumb_slot_range *dumb_range_alloc_node(void)
+{
+    if (dumb_range_pool_used < DUMB_RANGE_POOL_SIZE) {
+        struct dumb_slot_range *r = &dumb_range_pool[dumb_range_pool_used++];
+        memset(r, 0, sizeof(*r));
+        return r;
+    }
+    /* Pool exhausted — fall back to malloc */
+    {
+        struct dumb_slot_range *r = malloc(sizeof(*r));
+        if (r) memset(r, 0, sizeof(*r));
+        return r;
+    }
+}
+
+static void dumb_range_free_node(struct dumb_slot_range *r)
+{
+    /* Pool-allocated nodes cannot be freed individually.
+     * Only malloc'd nodes are returned to the heap. */
+    if (r < dumb_range_pool ||
+        r >= dumb_range_pool + DUMB_RANGE_POOL_SIZE) {
+        free(r);
+    }
+}
+
+static bool dumb_offset_inited = false;
+
+static void dumb_offset_init(void)
+{
+    memset(dumb_bitmap, 0, sizeof(dumb_bitmap));
+    dumb_free_list = NULL;
+    dumb_next_slot = 0;
+    dumb_range_pool_used = 0;
+    dumb_offset_inited = true;
+}
+
+/* Round up to the next slot boundary */
+static inline uint32_t dumb_slots_needed(size_t size)
+{
+    return (uint32_t)(((size + DUMB_OFFSET_SIZE - 1) >> DUMB_OFFSET_SHIFT));
+}
+
+/*
+ * dumb_offset_alloc: allocate a contiguous range of mmap offset slots.
+ * Returns the mmap offset (>= DUMB_OFFSET_BASE) or 0 on failure.
+ */
 static uint64_t dumb_offset_alloc(size_t size)
 {
+    uint32_t need = dumb_slots_needed(size);
+    uint32_t start;
     uint64_t offset;
 
-    spin_lock(&dumb_offset_lock);
-    offset = dumb_offset_base + dumb_offset_next;
-    /* Advance by rounded-up page count to keep each buffer's range unique */
-    dumb_offset_next += ((uint64_t)size + DUMB_OFFSET_PAGE_SIZE - 1) &
-                        ~(DUMB_OFFSET_PAGE_SIZE - 1);
-    spin_unlock(&dumb_offset_lock);
+    if (need == 0) need = 1;
 
+    if (!dumb_offset_inited) dumb_offset_init();
+
+    spin_lock(&dumb_alloc_lock);
+
+    /* First-fit search in the free list */
+    {
+        struct dumb_slot_range **prev = &dumb_free_list;
+        struct dumb_slot_range *cur = dumb_free_list;
+
+        while (cur) {
+            if (cur->count >= need) {
+                /* Found a fit */
+                start = cur->start;
+                if (cur->count == need) {
+                    /* Exact fit — remove the node */
+                    *prev = cur->next;
+                    dumb_range_free_node(cur);
+                } else {
+                    /* Split the range */
+                    cur->start += need;
+                    cur->count -= need;
+                }
+                /* Mark bitmap */
+                {
+                    uint32_t i;
+                    for (i = 0; i < need; i++) {
+                        dumb_bitmap_set(start + i);
+                    }
+                }
+                offset = DUMB_OFFSET_BASE + ((uint64_t)start << DUMB_OFFSET_SHIFT);
+                spin_unlock(&dumb_alloc_lock);
+                return offset;
+            }
+            prev = &cur->next;
+            cur = cur->next;
+        }
+    }
+
+    /* No free range — allocate from the high watermark */
+    if (dumb_next_slot + need > DUMB_OFFSET_MAX_SLOTS) {
+        spin_unlock(&dumb_alloc_lock);
+        return 0; /* out of space */
+    }
+
+    start = dumb_next_slot;
+    dumb_next_slot += need;
+
+    {
+        uint32_t i;
+        for (i = 0; i < need; i++) {
+            dumb_bitmap_set(start + i);
+        }
+    }
+
+    offset = DUMB_OFFSET_BASE + ((uint64_t)start << DUMB_OFFSET_SHIFT);
+
+    spin_unlock(&dumb_alloc_lock);
     return offset;
 }
 
+/*
+ * dumb_offset_free: release a range of mmap offset slots back to the pool.
+ * Merges with adjacent free ranges to reduce fragmentation.
+ */
 static void dumb_offset_free(uint64_t offset, size_t size)
 {
-    /* Simple bump allocator — no recycling in MVP.
-     * The offset remains reserved for the lifetime of the process. */
-    (void)offset;
-    (void)size;
+    uint32_t start;
+    uint32_t count;
+    uint32_t i;
+
+    if (offset < DUMB_OFFSET_BASE) return;
+    start = (uint32_t)((offset - DUMB_OFFSET_BASE) >> DUMB_OFFSET_SHIFT);
+    count = dumb_slots_needed(size);
+    if (count == 0) count = 1;
+
+    spin_lock(&dumb_alloc_lock);
+
+    /* Clear bitmap bits */
+    for (i = 0; i < count && (start + i) < DUMB_OFFSET_MAX_SLOTS; i++) {
+        dumb_bitmap_clear(start + i);
+    }
+
+    /* Insert into free list, sorted by start slot, and merge adjacent */
+    {
+        struct dumb_slot_range **prev = &dumb_free_list;
+        struct dumb_slot_range *cur = dumb_free_list;
+        struct dumb_slot_range *new_range;
+
+        /* Find insertion point */
+        while (cur && cur->start < start) {
+            prev = &cur->next;
+            cur = cur->next;
+        }
+
+        /* Try to merge with previous range */
+        if (*prev && (*prev)->start + (*prev)->count == start) {
+            (*prev)->count += count;
+            /* Try to merge with next range too */
+            if (cur && (*prev)->start + (*prev)->count == cur->start) {
+                (*prev)->count += cur->count;
+                (*prev)->next = cur->next;
+                dumb_range_free_node(cur);
+            }
+        }
+        /* Try to merge with next range only */
+        else if (cur && start + count == cur->start) {
+            cur->start = start;
+            cur->count += count;
+        }
+        else {
+            /* No merge — create a new range node */
+            new_range = dumb_range_alloc_node();
+            if (new_range) {
+                new_range->start = start;
+                new_range->count = count;
+                new_range->next = cur;
+                *prev = new_range;
+            }
+        }
+    }
+
+    spin_unlock(&dumb_alloc_lock);
 }
 
 /* ------------------------------------------------------------------ */

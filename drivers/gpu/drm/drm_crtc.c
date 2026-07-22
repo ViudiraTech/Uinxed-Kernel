@@ -27,6 +27,9 @@
 
 /* Internal helper from drm_mode_object.c */
 extern int  drm_mode_object_idr_alloc(struct drm_device *dev, struct drm_mode_object *obj, uint32_t type);
+extern struct drm_framebuffer *drm_framebuffer_lookup(struct drm_device *dev,
+                                                       struct drm_file *file_priv,
+                                                       uint32_t id);
 
 /*
  * drm_crtc_init_with_planes - Initialise a new CRTC object with primary and cursor planes.
@@ -181,8 +184,9 @@ int drm_mode_getcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
  * @data: pointer to struct drm_mode_crtc (userspace buffer)
  * @file_priv: DRM file handle
  *
- * Looks up the CRTC. If fb_id is non-zero, looks up the framebuffer.
- * Sets the CRTC's position and applies the incoming mode if mode_valid.
+ * Looks up the CRTC and framebuffer. Validates the mode parameters
+ * (clock, hdisplay, vdisplay, sync ranges). Programs the CRTC with
+ * the new mode and binds the framebuffer to the primary plane.
  * Returns 0 on success or -EINVAL/-ENOENT.
  */
 int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_priv)
@@ -190,6 +194,7 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
     struct drm_mode_crtc *crtc_req = (struct drm_mode_crtc *)data;
     struct drm_mode_object *obj;
     struct drm_crtc *crtc;
+    struct drm_framebuffer *fb = NULL;
 
     if (!dev || !crtc_req) {
         return -EINVAL;
@@ -201,28 +206,98 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
     }
     crtc = container_of(obj, struct drm_crtc, base);
 
+    /* Look up the framebuffer if specified */
+    if (crtc_req->fb_id != 0) {
+        fb = drm_framebuffer_lookup(dev, file_priv, crtc_req->fb_id);
+        if (!fb) {
+            drm_mode_object_put(obj);
+            return -ENOENT;
+        }
+    }
+
     crtc->x = (int)crtc_req->x;
     crtc->y = (int)crtc_req->y;
 
     if (crtc_req->mode_valid) {
+        struct drm_display_mode *mode = &crtc->mode;
+
+        /* Validate mode parameters */
+        if (crtc_req->mode.clock == 0 ||
+            crtc_req->mode.hdisplay == 0 ||
+            crtc_req->mode.vdisplay == 0) {
+            drm_mode_object_put(obj);
+            return -EINVAL;
+        }
+
+        /* Validate sync ranges: hsync_start <= hsync_end <= htotal */
+        if (crtc_req->mode.hsync_start > crtc_req->mode.hsync_end ||
+            crtc_req->mode.hsync_end > crtc_req->mode.htotal) {
+            drm_mode_object_put(obj);
+            return -EINVAL;
+        }
+
+        /* Validate sync ranges: vsync_start <= vsync_end <= vtotal */
+        if (crtc_req->mode.vsync_start > crtc_req->mode.vsync_end ||
+            crtc_req->mode.vsync_end > crtc_req->mode.vtotal) {
+            drm_mode_object_put(obj);
+            return -EINVAL;
+        }
+
+        /* Validate htotal/vtotal are non-zero */
+        if (crtc_req->mode.htotal == 0 || crtc_req->mode.vtotal == 0) {
+            drm_mode_object_put(obj);
+            return -EINVAL;
+        }
+
+        /* Validate dimensions against mode_config limits */
+        if (crtc_req->mode.hdisplay > dev->mode_config.max_width ||
+            crtc_req->mode.vdisplay > dev->mode_config.max_height) {
+            drm_mode_object_put(obj);
+            return -EINVAL;
+        }
+
         /* Convert UAPI modeinfo to internal display mode */
-        crtc->mode.clock        = (int)crtc_req->mode.clock;
-        crtc->mode.hdisplay     = (int)crtc_req->mode.hdisplay;
-        crtc->mode.hsync_start  = (int)crtc_req->mode.hsync_start;
-        crtc->mode.hsync_end    = (int)crtc_req->mode.hsync_end;
-        crtc->mode.htotal       = (int)crtc_req->mode.htotal;
-        crtc->mode.hskew        = (int)crtc_req->mode.hskew;
-        crtc->mode.vdisplay     = (int)crtc_req->mode.vdisplay;
-        crtc->mode.vsync_start  = (int)crtc_req->mode.vsync_start;
-        crtc->mode.vsync_end    = (int)crtc_req->mode.vsync_end;
-        crtc->mode.vtotal       = (int)crtc_req->mode.vtotal;
-        crtc->mode.vscan        = (int)crtc_req->mode.vscan;
-        crtc->mode.vrefresh     = (int)crtc_req->mode.vrefresh;
-        crtc->mode.flags        = crtc_req->mode.flags;
-        crtc->mode.type         = crtc_req->mode.type;
-        strncpy(crtc->mode.name, crtc_req->mode.name, DRM_DISPLAY_MODE_LEN - 1);
-        crtc->mode.name[DRM_DISPLAY_MODE_LEN - 1] = '\0';
+        mode->clock        = (int)crtc_req->mode.clock;
+        mode->hdisplay     = (int)crtc_req->mode.hdisplay;
+        mode->hsync_start  = (int)crtc_req->mode.hsync_start;
+        mode->hsync_end    = (int)crtc_req->mode.hsync_end;
+        mode->htotal       = (int)crtc_req->mode.htotal;
+        mode->hskew        = (int)crtc_req->mode.hskew;
+        mode->vdisplay     = (int)crtc_req->mode.vdisplay;
+        mode->vsync_start  = (int)crtc_req->mode.vsync_start;
+        mode->vsync_end    = (int)crtc_req->mode.vsync_end;
+        mode->vtotal       = (int)crtc_req->mode.vtotal;
+        mode->vscan        = (int)crtc_req->mode.vscan;
+        mode->vrefresh     = (int)crtc_req->mode.vrefresh;
+        mode->flags        = crtc_req->mode.flags;
+        mode->type         = crtc_req->mode.type;
+        strncpy(mode->name, crtc_req->mode.name, DRM_DISPLAY_MODE_LEN - 1);
+        mode->name[DRM_DISPLAY_MODE_LEN - 1] = '\0';
+        mode->status       = MODE_OK;
+
+        /* Bind the framebuffer to the primary plane */
+        if (fb && crtc->primary) {
+            crtc->primary->fb_id = crtc_req->fb_id;
+            if (crtc->primary->state) {
+                crtc->primary->state->fb = fb;
+            }
+        }
+
         crtc->enabled = true;
+
+        DRM_DEBUG_KMS("CRTC %u: mode %s %dx%d@%d clock=%dkHz\n",
+                      crtc->base.id, mode->name,
+                      mode->hdisplay, mode->vdisplay,
+                      mode->vrefresh, mode->clock);
+    } else {
+        /* Mode is being disabled */
+        crtc->enabled = false;
+        if (crtc->primary) {
+            crtc->primary->fb_id = 0;
+            if (crtc->primary->state) {
+                crtc->primary->state->fb = NULL;
+            }
+        }
     }
 
     drm_mode_object_put(obj);

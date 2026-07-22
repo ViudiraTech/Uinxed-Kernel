@@ -21,65 +21,6 @@
 #include <stdint.h>
 
 /* ------------------------------------------------------------------ */
-/* Locally-defined state structs (forward-declared in drm_device.h)   */
-/* ------------------------------------------------------------------ */
-
-struct drm_crtc_state {
-    struct drm_crtc *crtc;
-    bool active, enable;
-    struct drm_display_mode mode;
-    struct drm_display_mode adjusted_mode;
-    struct drm_property_blob *mode_blob;
-    struct drm_property_blob *degamma_lut, *gamma_lut, *ctm;
-    uint32_t plane_mask;
-    uint32_t connector_mask;
-    uint32_t encoder_mask;
-    int zpos;
-    bool zpos_changed;
-    bool mode_changed, active_changed, connectors_changed;
-    bool planes_changed, color_mgmt_changed;
-    bool self_refresh_active;
-    bool no_vblank;
-    struct drm_pending_vblank_event *event;
-    uint32_t commit_value;
-    int num_connectors;
-    struct drm_connector_state **connector_states;
-};
-
-struct drm_plane_state {
-    struct drm_plane *plane;
-    struct drm_crtc *crtc;
-    struct drm_framebuffer *fb;
-    struct drm_rect src;
-    struct drm_rect dst;
-    unsigned int rotation;
-    unsigned int alpha;
-    uint16_t pixel_blend_mode;
-    int zpos;
-    bool visible;
-    struct drm_color_lut_range *color_lut_range_unused;
-    struct drm_property_blob *degamma_lut, *gamma_lut, *ctm;
-    struct drm_property_blob *hdr_output_metadata;
-    bool zpos_changed;
-    uint32_t commit_value;
-};
-
-struct drm_connector_state {
-    struct drm_connector *connector;
-    struct drm_crtc *crtc;
-    struct drm_encoder *best_encoder;
-    struct drm_display_mode *mode;
-    struct drm_property_blob *hdr_output_metadata;
-    struct drm_property_blob *writeback_job_unused;
-    uint32_t content_protection;
-    bool link_status_changed;
-    bool crtc_changed;
-    int colorspace;
-    uint32_t max_bpc;
-    uint32_t commit_value;
-};
-
-/* ------------------------------------------------------------------ */
 /* Helper: container_of                                                */
 /* ------------------------------------------------------------------ */
 
@@ -103,6 +44,14 @@ extern void drm_atomic_state_free(struct drm_atomic_state *state);
 extern struct drm_mode_object *drm_mode_object_find(struct drm_device *dev,
                                                      struct drm_file *file_priv,
                                                      uint32_t id, uint32_t type);
+extern struct drm_framebuffer *drm_framebuffer_lookup(struct drm_device *dev,
+                                                       struct drm_file *file_priv,
+                                                       uint32_t id);
+extern void drm_crtc_arm_vblank_event(struct drm_crtc *crtc,
+                                      struct drm_pending_vblank_event *e);
+extern void drm_crtc_send_vblank_event(struct drm_crtc *crtc,
+                                        struct drm_pending_vblank_event *e);
+extern void drm_handle_vblank(struct drm_device *dev, unsigned int pipe);
 
 /* ------------------------------------------------------------------ */
 /* drm_mode_atomic_ioctl: handle DRM_IOCTL_MODE_ATOMIC                  */
@@ -361,8 +310,12 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data,
         (struct drm_mode_crtc_page_flip *)data;
     struct drm_crtc *crtc;
     struct drm_framebuffer *fb;
+    struct drm_pending_vblank_event *e;
+    int ret = 0;
 
-    (void)file_priv;
+    if (!dev || !page_flip) {
+        return -EINVAL;
+    }
 
     crtc = (struct drm_crtc *)drm_mode_object_find(dev, file_priv,
                                                     page_flip->crtc_id,
@@ -372,23 +325,74 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data,
         return -ENOENT;
     }
 
-    fb = (struct drm_framebuffer *)drm_mode_object_find(dev, file_priv,
-                                                         page_flip->fb_id,
-                                                         DRM_MODE_OBJECT_FB);
+    fb = drm_framebuffer_lookup(dev, file_priv, page_flip->fb_id);
     if (!fb) {
+        drm_mode_object_put(&crtc->base);
         DRM_ERROR("Page flip: FB %u not found\n", page_flip->fb_id);
         return -ENOENT;
     }
 
-    /* Simple flip: set the CRTC's primary plane to the new fb */
-    if (crtc->primary && crtc->primary->state) {
-        crtc->primary->state->fb = fb;
+    /* Validate that the framebuffer dimensions match the current mode */
+    if (crtc->enabled && crtc->mode.hdisplay > 0 && crtc->mode.vdisplay > 0) {
+        if (fb->width != (unsigned int)crtc->mode.hdisplay ||
+            fb->height != (unsigned int)crtc->mode.vdisplay) {
+            DRM_ERROR("Page flip: FB %ux%u does not match mode %ux%u\n",
+                      fb->width, fb->height,
+                      crtc->mode.hdisplay, crtc->mode.vdisplay);
+            drm_mode_object_put(&crtc->base);
+            return -EINVAL;
+        }
     }
 
-    DRM_DEBUG_KMS("Page flip: CRTC %u -> FB %u\n",
-                  page_flip->crtc_id, page_flip->fb_id);
+    /* If EVENT flag is set, queue a vblank event for delivery at next vblank */
+    if (page_flip->flags & DRM_MODE_PAGE_FLIP_EVENT) {
+        e = malloc(sizeof(*e));
+        if (!e) {
+            drm_mode_object_put(&crtc->base);
+            return -ENOMEM;
+        }
+        memset(e, 0, sizeof(*e));
 
-    return 0;
+        e->dev = dev;
+        e->pipe = crtc->index;
+        e->sequence = 0; /* filled in by drm_handle_vblank */
+        e->event.base.type = 1; /* DRM_EVENT_VBLANK */
+        e->event.base.length = sizeof(e->event);
+        e->event.crtc_id = crtc->base.id;
+        e->event.seq = 0;
+        e->event.time = 0;
+        e->destroy = NULL;
+        e->next = NULL;
+
+        /* Arm the event for delivery at the target vblank sequence */
+        if (page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) {
+            /* Async: deliver immediately without waiting for vblank */
+            drm_crtc_send_vblank_event(crtc, e);
+        } else {
+            /* Synchronous: arm for next vblank */
+            drm_crtc_arm_vblank_event(crtc, e);
+        }
+    }
+
+    /* Perform the actual flip: bind the new framebuffer to the primary plane */
+    if (crtc->primary) {
+        crtc->primary->fb_id = page_flip->fb_id;
+        if (crtc->primary->state) {
+            crtc->primary->state->fb = fb;
+        }
+    }
+
+    /* If not async, trigger vblank processing immediately to deliver events */
+    if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC)) {
+        drm_handle_vblank(dev, crtc->index);
+    }
+
+    drm_mode_object_put(&crtc->base);
+
+    DRM_DEBUG_KMS("Page flip: CRTC %u -> FB %u (flags=0x%x)\n",
+                  page_flip->crtc_id, page_flip->fb_id, page_flip->flags);
+
+    return ret;
 }
 
 /* ------------------------------------------------------------------ */

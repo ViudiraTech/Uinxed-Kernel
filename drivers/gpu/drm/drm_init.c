@@ -26,6 +26,10 @@
 #include <string.h>
 #include <vfs.h>
 
+extern int drm_vblank_init(struct drm_device *dev, unsigned int num_crtcs);
+extern struct drm_display_mode *drm_mode_create(struct drm_device *dev);
+extern void drm_mode_probed_add(struct drm_connector *connector, struct drm_display_mode *mode);
+
 /* ------------------------------------------------------------------ */
 /* Singleton device                                                    */
 /* ------------------------------------------------------------------ */
@@ -149,6 +153,84 @@ static struct drm_plane    pipeline_primary_plane;
 static struct drm_encoder  pipeline_encoder;
 static struct drm_connector pipeline_connector;
 
+/* ------------------------------------------------------------------ */
+/* Configurable mode table — data-driven, not hardcoded in logic       */
+/* ------------------------------------------------------------------ */
+
+struct dummy_mode_cfg {
+    const char *name;
+    int         clock;
+    int         hdisplay;
+    int         hsync_start;
+    int         hsync_end;
+    int         htotal;
+    int         vdisplay;
+    int         vsync_start;
+    int         vsync_end;
+    int         vtotal;
+    int         vrefresh;
+    unsigned    flags;
+    unsigned    type;
+};
+
+static const struct dummy_mode_cfg dummy_modes[] = {
+    {
+        .name        = "1920x1080",
+        .clock       = 148500,
+        .hdisplay    = 1920, .hsync_start = 2008, .hsync_end = 2052, .htotal = 2200,
+        .vdisplay    = 1080, .vsync_start = 1084, .vsync_end = 1089, .vtotal = 1125,
+        .vrefresh    = 60,
+        .flags       = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC,
+        .type        = DRM_MODE_TYPE_PREFERRED | DRM_MODE_TYPE_DRIVER,
+    },
+    {
+        .name        = "1280x720",
+        .clock       = 74250,
+        .hdisplay    = 1280, .hsync_start = 1390, .hsync_end = 1430, .htotal = 1650,
+        .vdisplay    = 720,  .vsync_start = 725,  .vsync_end = 730,  .vtotal = 750,
+        .vrefresh    = 60,
+        .flags       = DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC,
+        .type        = DRM_MODE_TYPE_DRIVER,
+    },
+};
+
+static int drm_dummy_kms_add_modes(struct drm_device *dev, struct drm_connector *connector)
+{
+    unsigned int i;
+
+    (void)dev;
+
+    for (i = 0; i < sizeof(dummy_modes) / sizeof(dummy_modes[0]); i++) {
+        const struct dummy_mode_cfg *cfg = &dummy_modes[i];
+        struct drm_display_mode *mode;
+
+        mode = drm_mode_create(dev);
+        if (!mode) {
+            return -ENOMEM;
+        }
+
+        strncpy(mode->name, cfg->name, DRM_DISPLAY_MODE_LEN - 1);
+        mode->name[DRM_DISPLAY_MODE_LEN - 1] = '\0';
+        mode->clock       = cfg->clock;
+        mode->hdisplay    = cfg->hdisplay;
+        mode->hsync_start = cfg->hsync_start;
+        mode->hsync_end   = cfg->hsync_end;
+        mode->htotal      = cfg->htotal;
+        mode->vdisplay    = cfg->vdisplay;
+        mode->vsync_start = cfg->vsync_start;
+        mode->vsync_end   = cfg->vsync_end;
+        mode->vtotal      = cfg->vtotal;
+        mode->vrefresh    = cfg->vrefresh;
+        mode->flags       = cfg->flags;
+        mode->type        = cfg->type;
+        mode->status      = MODE_OK;
+
+        drm_mode_probed_add(connector, mode);
+    }
+
+    return 0;
+}
+
 static int drm_dummy_kms_setup(struct drm_device *dev)
 {
     static const uint32_t primary_formats[] = {
@@ -178,6 +260,20 @@ static int drm_dummy_kms_setup(struct drm_device *dev)
         return ret;
     }
 
+    /* Allocate and initialise the primary plane state */
+    pipeline_primary_plane.state = malloc(sizeof(*pipeline_primary_plane.state));
+    if (!pipeline_primary_plane.state) {
+        DRM_ERROR("Failed to alloc primary plane state\n");
+        return -ENOMEM;
+    }
+    memset(pipeline_primary_plane.state, 0, sizeof(*pipeline_primary_plane.state));
+    pipeline_primary_plane.state->plane = &pipeline_primary_plane;
+    pipeline_primary_plane.state->crtc = &pipeline_crtc;
+    pipeline_primary_plane.state->rotation = 0;
+    pipeline_primary_plane.state->alpha = 0xFFFF;
+    pipeline_primary_plane.state->pixel_blend_mode = 0;
+    pipeline_primary_plane.state->visible = true;
+
     /* Create CRTC with the primary plane */
     ret = drm_crtc_init_with_planes(dev, &pipeline_crtc,
                                     &pipeline_primary_plane,
@@ -187,6 +283,17 @@ static int drm_dummy_kms_setup(struct drm_device *dev)
         return ret;
     }
 
+    /* Allocate and initialise the CRTC state */
+    pipeline_crtc.state = malloc(sizeof(*pipeline_crtc.state));
+    if (!pipeline_crtc.state) {
+        DRM_ERROR("Failed to alloc CRTC state\n");
+        return -ENOMEM;
+    }
+    memset(pipeline_crtc.state, 0, sizeof(*pipeline_crtc.state));
+    pipeline_crtc.state->crtc = &pipeline_crtc;
+    pipeline_crtc.state->active = false;
+    pipeline_crtc.state->enable = false;
+
     /* Create encoder (VIRTUAL type for software-only output) */
     ret = drm_encoder_init(dev, &pipeline_encoder,
                            NULL, DRM_MODE_ENCODER_VIRTUAL, "encoder-0");
@@ -194,7 +301,7 @@ static int drm_dummy_kms_setup(struct drm_device *dev)
         DRM_ERROR("Failed to init encoder: %d\n", ret);
         return ret;
     }
-    pipeline_encoder.possible_crtcs = 1; /* can drive CRTC 0 */
+    pipeline_encoder.possible_crtcs = 1;
     pipeline_encoder.crtc = &pipeline_crtc;
 
     /* Create connector (VIRTUAL, initially connected) */
@@ -208,6 +315,17 @@ static int drm_dummy_kms_setup(struct drm_device *dev)
     pipeline_connector.display_info_width_mm = 500;
     pipeline_connector.display_info_height_mm = 280;
 
+    /* Allocate and initialise the connector state */
+    pipeline_connector.state = malloc(sizeof(*pipeline_connector.state));
+    if (!pipeline_connector.state) {
+        DRM_ERROR("Failed to alloc connector state\n");
+        return -ENOMEM;
+    }
+    memset(pipeline_connector.state, 0, sizeof(*pipeline_connector.state));
+    pipeline_connector.state->connector = &pipeline_connector;
+    pipeline_connector.state->crtc = &pipeline_crtc;
+    pipeline_connector.state->best_encoder = &pipeline_encoder;
+
     /* Attach encoder to connector */
     ret = drm_connector_attach_encoder(&pipeline_connector, &pipeline_encoder);
     if (ret) {
@@ -215,38 +333,26 @@ static int drm_dummy_kms_setup(struct drm_device *dev)
         return ret;
     }
 
-    /* Add a 1920x1080@60Hz mode to the connector */
-    {
-        struct drm_display_mode *mode = malloc(sizeof(*mode));
-        if (!mode) {
-            return -ENOMEM;
-        }
-        memset(mode, 0, sizeof(*mode));
+    /* Add display modes from the configurable table */
+    ret = drm_dummy_kms_add_modes(dev, &pipeline_connector);
+    if (ret) {
+        DRM_ERROR("Failed to add modes: %d\n", ret);
+        return ret;
+    }
 
-        strncpy(mode->name, "1920x1080", DRM_DISPLAY_MODE_LEN - 1);
-        mode->name[DRM_DISPLAY_MODE_LEN - 1] = '\0';
-        mode->clock     = 148500; /* kHz */
-        mode->hdisplay  = 1920;
-        mode->hsync_start = 2008;
-        mode->hsync_end   = 2052;
-        mode->htotal      = 2200;
-        mode->vdisplay  = 1080;
-        mode->vsync_start = 1084;
-        mode->vsync_end   = 1089;
-        mode->vtotal      = 1125;
-        mode->vrefresh  = 60;
-        mode->flags     = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC;
-        mode->type      = DRM_MODE_TYPE_PREFERRED | DRM_MODE_TYPE_DRIVER;
-        mode->status    = MODE_OK;
-
-        ilist_insert_after(&pipeline_connector.modes, &mode->head);
+    /* Initialise vblank for this CRTC */
+    ret = drm_vblank_init(dev, 1);
+    if (ret) {
+        DRM_ERROR("Failed to init vblank: %d\n", ret);
+        return ret;
     }
 
     drm_connector_register(&pipeline_connector);
 
-    DRM_INFO("KMS pipeline: CRTC-%u + primary plane-%u + encoder-%u + connector-%u (1920x1080@60)\n",
+    DRM_INFO("KMS pipeline: CRTC-%u + primary plane-%u + encoder-%u + connector-%u (%u modes)\n",
              pipeline_crtc.base.id, pipeline_primary_plane.base.id,
-             pipeline_encoder.base.id, pipeline_connector.base.id);
+             pipeline_encoder.base.id, pipeline_connector.base.id,
+             sizeof(dummy_modes) / sizeof(dummy_modes[0]));
 
     return 0;
 }

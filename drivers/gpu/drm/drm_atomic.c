@@ -23,63 +23,6 @@
 /* ------------------------------------------------------------------ */
 /* Locally-defined state structs (forward-declared in drm_device.h)   */
 /* ------------------------------------------------------------------ */
-
-struct drm_crtc_state {
-    struct drm_crtc *crtc;
-    bool active, enable;
-    struct drm_display_mode mode;
-    struct drm_display_mode adjusted_mode;
-    struct drm_property_blob *mode_blob;
-    struct drm_property_blob *degamma_lut, *gamma_lut, *ctm;
-    uint32_t plane_mask;
-    uint32_t connector_mask;
-    uint32_t encoder_mask;
-    int zpos;
-    bool zpos_changed;
-    bool mode_changed, active_changed, connectors_changed;
-    bool planes_changed, color_mgmt_changed;
-    bool self_refresh_active;
-    bool no_vblank;
-    struct drm_pending_vblank_event *event;
-    uint32_t commit_value;
-    int num_connectors;
-    struct drm_connector_state **connector_states;
-};
-
-struct drm_plane_state {
-    struct drm_plane *plane;
-    struct drm_crtc *crtc;
-    struct drm_framebuffer *fb;
-    struct drm_rect src;
-    struct drm_rect dst;
-    unsigned int rotation;
-    unsigned int alpha;
-    uint16_t pixel_blend_mode;
-    int zpos;
-    bool visible;
-    struct drm_color_lut_range *color_lut_range_unused;
-    struct drm_property_blob *degamma_lut, *gamma_lut, *ctm;
-    struct drm_property_blob *hdr_output_metadata;
-    bool zpos_changed;
-    uint32_t commit_value;
-};
-
-struct drm_connector_state {
-    struct drm_connector *connector;
-    struct drm_crtc *crtc;
-    struct drm_encoder *best_encoder;
-    struct drm_display_mode *mode;
-    struct drm_property_blob *hdr_output_metadata;
-    struct drm_property_blob *writeback_job_unused;
-    uint32_t content_protection;
-    bool link_status_changed;
-    bool crtc_changed;
-    int colorspace;
-    uint32_t max_bpc;
-    uint32_t commit_value;
-};
-
-/* ------------------------------------------------------------------ */
 /* Helper: container_of                                                */
 /* ------------------------------------------------------------------ */
 

@@ -80,22 +80,23 @@ int drm_framebuffer_init(struct drm_device *dev, struct drm_framebuffer *fb,
  * @data: pointer to struct drm_mode_fb_cmd (userspace buffer)
  * @file_priv: DRM file handle
  *
- * Allocates a framebuffer struct, derives the fourcc format from bpp
- * and depth, sets width/height/pitch, initialises and registers the fb.
+ * Derives the fourcc format from bpp/depth, looks up the GEM object
+ * backing the buffer, validates pitch/size, and registers the fb.
  * Returns 0 on success or -EINVAL/-ENOMEM.
  */
 int drm_mode_addfb(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_fb_cmd *r = (struct drm_mode_fb_cmd *)data;
     struct drm_framebuffer *fb;
+    struct drm_gem_object *obj;
     uint32_t format;
+    uint32_t bpp_bytes;
+    uint32_t min_pitch;
     int ret;
 
     if (!dev || !r) {
         return -EINVAL;
     }
-
-    (void)file_priv;
 
     /* Derive fourcc from bpp and depth (legacy compatibility) */
     if (r->bpp == 32 && r->depth == 24) {
@@ -114,8 +115,40 @@ int drm_mode_addfb(struct drm_device *dev, void *data, struct drm_file *file_pri
         return -EINVAL;
     }
 
+    /* Validate dimensions against mode_config limits */
+    if (r->width == 0 || r->height == 0) {
+        return -EINVAL;
+    }
+    if (r->width > dev->mode_config.max_width ||
+        r->height > dev->mode_config.max_height) {
+        return -EINVAL;
+    }
+
+    /* Validate pitch: must be >= width * bytes_per_pixel */
+    bpp_bytes = r->bpp / 8;
+    min_pitch = r->width * bpp_bytes;
+    if (r->pitch < min_pitch) {
+        return -EINVAL;
+    }
+
+    /* Look up the GEM object by handle */
+    if (r->handle != 0) {
+        obj = drm_gem_object_lookup(file_priv, r->handle);
+        if (!obj) {
+            return -ENOENT;
+        }
+        /* Verify the backing object is large enough */
+        if (obj->size < (size_t)r->pitch * r->height) {
+            drm_gem_object_put(obj);
+            return -EINVAL;
+        }
+    } else {
+        obj = NULL;
+    }
+
     fb = malloc(sizeof(*fb));
     if (!fb) {
+        if (obj) drm_gem_object_put(obj);
         return -ENOMEM;
     }
     memset(fb, 0, sizeof(*fb));
@@ -134,10 +167,12 @@ int drm_mode_addfb(struct drm_device *dev, void *data, struct drm_file *file_pri
     fb->offsets[3] = 0;
     fb->hot_x = 0;
     fb->hot_y = 0;
+    fb->obj[0] = obj;
     fb->file  = file_priv;
 
     ret = drm_framebuffer_init(dev, fb, NULL);
     if (ret) {
+        if (obj) drm_gem_object_put(obj);
         free(fb);
         return ret;
     }
@@ -153,25 +188,56 @@ int drm_mode_addfb(struct drm_device *dev, void *data, struct drm_file *file_pri
  * @data: pointer to struct drm_mode_fb_cmd2 (userspace buffer)
  * @file_priv: DRM file handle
  *
- * Allocates a framebuffer struct, copies the format, width, height,
- * pitches, offsets, handles, and modifiers from the UAPI struct,
- * initialises and registers the fb. Returns 0 on success or -EINVAL/-ENOMEM.
+ * Looks up GEM objects for each plane handle, validates pitch/size
+ * per plane, and registers the fb. Returns 0 on success or -EINVAL/-ENOMEM.
  */
 int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_fb_cmd2 *r = (struct drm_mode_fb_cmd2 *)data;
     struct drm_framebuffer *fb;
+    struct drm_gem_object *obj;
     int ret;
     int i;
+    int num_planes;
 
     if (!dev || !r) {
         return -EINVAL;
     }
 
-    (void)file_priv;
-
     if (r->pixel_format == DRM_FORMAT_INVALID) {
         return -EINVAL;
+    }
+
+    /* Validate dimensions against mode_config limits */
+    if (r->width == 0 || r->height == 0) {
+        return -EINVAL;
+    }
+    if (r->width > dev->mode_config.max_width ||
+        r->height > dev->mode_config.max_height) {
+        return -EINVAL;
+    }
+
+    /* Determine number of planes from format */
+    num_planes = 1;
+    /* YUV formats typically have 2 or 3 planes */
+    switch (r->pixel_format) {
+    case DRM_FORMAT_YUV420:
+    case DRM_FORMAT_YVU420:
+    case DRM_FORMAT_YUV422:
+    case DRM_FORMAT_YVU422:
+        num_planes = 3;
+        break;
+    case DRM_FORMAT_NV12:
+    case DRM_FORMAT_NV21:
+    case DRM_FORMAT_NV16:
+    case DRM_FORMAT_NV61:
+    case DRM_FORMAT_YUV444:
+    case DRM_FORMAT_YVU444:
+        num_planes = 2;
+        break;
+    default:
+        num_planes = 1;
+        break;
     }
 
     fb = malloc(sizeof(*fb));
@@ -191,15 +257,49 @@ int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_pr
         fb->offsets[i] = r->offsets[i];
     }
 
+    /* Look up GEM objects for each plane and validate */
+    for (i = 0; i < num_planes; i++) {
+        uint32_t handle = r->handles[i];
+
+        if (handle == 0) {
+            ret = -EINVAL;
+            goto err_cleanup;
+        }
+
+        obj = drm_gem_object_lookup(file_priv, handle);
+        if (!obj) {
+            ret = -ENOENT;
+            goto err_cleanup;
+        }
+
+        /* Validate the backing object is large enough for this plane */
+        if (obj->size < (size_t)r->pitches[i] * r->height) {
+            drm_gem_object_put(obj);
+            ret = -EINVAL;
+            goto err_cleanup;
+        }
+
+        fb->obj[i] = obj;
+    }
+
     ret = drm_framebuffer_init(dev, fb, NULL);
     if (ret) {
-        free(fb);
-        return ret;
+        goto err_cleanup;
     }
 
     r->fb_id = (__u32)fb->base.id;
 
     return 0;
+
+err_cleanup:
+    for (i = 0; i < 4; i++) {
+        if (fb->obj[i]) {
+            drm_gem_object_put(fb->obj[i]);
+            fb->obj[i] = NULL;
+        }
+    }
+    free(fb);
+    return ret;
 }
 
 /*
@@ -395,12 +495,21 @@ int drm_mode_getfb2_ioctl(struct drm_device *dev, void *data, struct drm_file *f
 void drm_framebuffer_cleanup(struct drm_framebuffer *fb)
 {
     struct drm_device *dev;
+    int i;
 
     if (!fb) {
         return;
     }
 
     dev = fb->base.dev;
+
+    /* Release references to GEM backing objects */
+    for (i = 0; i < 4; i++) {
+        if (fb->obj[i]) {
+            drm_gem_object_put(fb->obj[i]);
+            fb->obj[i] = NULL;
+        }
+    }
 
     ilist_remove(&fb->head);
 

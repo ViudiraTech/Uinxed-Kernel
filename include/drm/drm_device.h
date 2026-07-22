@@ -59,7 +59,38 @@ struct drm_master;
 struct drm_minor;
 struct drm_mode_set;
 struct drm_fb_helper;
-struct drm_vblank_crtc;
+struct drm_event {
+    uint32_t type;
+    uint32_t length;
+};
+
+struct drm_event_vblank {
+    struct drm_event base;
+    uint32_t         crtc_id;
+    uint32_t         seq;
+    uint32_t         time;
+};
+
+struct drm_pending_vblank_event {
+    struct drm_device              *dev;
+    unsigned int                    pipe;
+    uint64_t                        sequence;
+    struct drm_event_vblank         event;
+    void (*destroy)(struct drm_pending_vblank_event *e);
+    struct drm_pending_vblank_event *next;
+};
+
+struct drm_vblank_crtc {
+    struct drm_device              *dev;
+    spinlock_t                      lock;
+    unsigned int                    pipe;
+    uint32_t                        count;
+    uint32_t                        last;
+    bool                            enabled;
+    bool                            inmodeset;
+    uint32_t                        max_vblank_count;
+    struct drm_pending_vblank_event *event_queue;
+};
 struct drm_private_obj;
 struct drm_private_state;
 
@@ -222,6 +253,67 @@ struct drm_display_mode {
 /* ------------------------------------------------------------------ */
 /* KMS object forward structures (minimal; full defs in their headers) */
 /* ------------------------------------------------------------------ */
+
+struct drm_crtc_state {
+    struct drm_crtc              *crtc;
+    bool                          active;
+    bool                          enable;
+    struct drm_display_mode       mode;
+    struct drm_display_mode       adjusted_mode;
+    struct drm_property_blob     *mode_blob;
+    struct drm_property_blob     *degamma_lut;
+    struct drm_property_blob     *gamma_lut;
+    struct drm_property_blob     *ctm;
+    uint32_t                      plane_mask;
+    uint32_t                      connector_mask;
+    uint32_t                      encoder_mask;
+    int                           zpos;
+    bool                          zpos_changed;
+    bool                          mode_changed;
+    bool                          active_changed;
+    bool                          connectors_changed;
+    bool                          planes_changed;
+    bool                          color_mgmt_changed;
+    bool                          self_refresh_active;
+    bool                          no_vblank;
+    struct drm_pending_vblank_event *event;
+    uint32_t                      commit_value;
+    int                           num_connectors;
+    struct drm_connector_state  **connector_states;
+};
+
+struct drm_plane_state {
+    struct drm_plane          *plane;
+    struct drm_crtc           *crtc;
+    struct drm_framebuffer    *fb;
+    struct drm_rect            src;
+    struct drm_rect            dst;
+    unsigned int               rotation;
+    unsigned int               alpha;
+    uint16_t                   pixel_blend_mode;
+    int                        zpos;
+    bool                       visible;
+    struct drm_property_blob  *degamma_lut;
+    struct drm_property_blob  *gamma_lut;
+    struct drm_property_blob  *ctm;
+    struct drm_property_blob  *hdr_output_metadata;
+    bool                       zpos_changed;
+    uint32_t                   commit_value;
+};
+
+struct drm_connector_state {
+    struct drm_connector       *connector;
+    struct drm_crtc            *crtc;
+    struct drm_encoder         *best_encoder;
+    struct drm_display_mode    *mode;
+    struct drm_property_blob   *hdr_output_metadata;
+    uint32_t                    content_protection;
+    bool                        link_status_changed;
+    bool                        crtc_changed;
+    int                         colorspace;
+    uint32_t                    max_bpc;
+    uint32_t                    commit_value;
+};
 
 struct drm_crtc {
     struct drm_device      *dev;
@@ -718,6 +810,10 @@ int drm_mode_dirtyfb(struct drm_device *dev, void *data, struct drm_file *file_p
 int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
+int drm_vblank_init(struct drm_device *dev, unsigned int num_crtcs);
+void drm_handle_vblank(struct drm_device *dev, unsigned int pipe);
+void drm_crtc_arm_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_event *e);
+void drm_crtc_send_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_event *e);
 
 /* Capability ioctl handlers. */
 int drm_get_cap(struct drm_device *dev, void *data, struct drm_file *file_priv);
