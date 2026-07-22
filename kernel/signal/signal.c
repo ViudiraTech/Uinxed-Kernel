@@ -270,41 +270,48 @@ static int signal_setup_frame(syscall_frame_t *frame, int sig, const sigaction_t
     process_t *proc = process_current();
     if (!proc || !frame) return -ESRCH;
 
-    /* Determine stack pointer */
-    uintptr_t sp;
+    /* Determine stack pointer and stack boundaries */
+    uintptr_t sp, stack_limit;
 
     if ((sa->sa_flags & SA_ONSTACK) && !(proc->signal.altstack.ss_flags & SS_DISABLE) && !(proc->signal.altstack.ss_flags & SS_ONSTACK)) {
-        sp = (uintptr_t)proc->signal.altstack.ss_sp + proc->signal.altstack.ss_size;
+        sp          = (uintptr_t)proc->signal.altstack.ss_sp + proc->signal.altstack.ss_size;
+        stack_limit = (uintptr_t)proc->signal.altstack.ss_sp;
     } else {
-        sp = frame->rsp;
+        sp          = frame->rsp;
+        stack_limit = proc->stack_brk;
     }
 
     /* Align to 16 bytes */
     sp = (sp - 128) & ~(uint64_t)0xF;
 
     /*
-     * Write siginfo_t onto the user stack.
+     * Compute the final stack pointer after laying out siginfo_t,
+     * ucontext reservation, and the return address.  We compute
+     * first and validate the range before writing to user memory.
      */
     sp -= sizeof(siginfo_t);
-    sp                   = sp & ~(uint64_t)0xF;
-    siginfo_t *user_info = (siginfo_t *)sp;
+    sp &= ~(uint64_t)0xF;
+    uintptr_t siginfo_sp = sp;
 
-    if (copy_to_user(user_info, info, sizeof(siginfo_t))) return -EFAULT;
+    sp -= sizeof(uint64_t) * 8;
+    sp &= ~(uint64_t)0xF;
+
+    sp -= sizeof(uint64_t);
+    sp &= ~(uint64_t)0xF;
+
+    if (sp < stack_limit) return -EFAULT;
 
     /*
-     * Reserve space for ucontext (simplified, 8 regs).
+     * Write siginfo_t onto the user stack.
      */
-    sp -= sizeof(uint64_t) * 8;
-    sp = sp & ~(uint64_t)0xF;
+    siginfo_t *user_info = (siginfo_t *)siginfo_sp;
+    if (copy_to_user(user_info, info, sizeof(siginfo_t))) return -EFAULT;
 
     /*
      * Push return address (sigreturn trampoline) onto the user stack.
      */
-    sp -= sizeof(uint64_t);
-    sp                 = sp & ~(uint64_t)0xF;
     uint64_t *ret_addr = (uint64_t *)sp;
-
-    uint64_t restorer = sa->sa_restorer;
+    uint64_t  restorer = sa->sa_restorer;
     if (!(sa->sa_flags & SA_RESTORER) || !restorer) { restorer = (uint64_t)0; }
 
     if (copy_to_user(ret_addr, &restorer, sizeof(uint64_t))) return -EFAULT;
