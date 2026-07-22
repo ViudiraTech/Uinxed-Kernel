@@ -10,13 +10,16 @@
  *
  */
 
+#include <alloc.h>
 #include <common.h>
+#include <elf_loader.h>
 #include <epoll.h>
 #include <errno.h>
 #include <eventfd.h>
 #include <futex.h>
 #include <interrupt.h>
 #include <mmap.h>
+#include <page.h>
 #include <posix_mq.h>
 #include <printk.h>
 #include <process.h>
@@ -2104,6 +2107,291 @@ static int64_t sys_epoll_pwait_wrap(uint64_t epfd, uint64_t events, uint64_t max
     return sys_epoll_pwait((int)epfd, (epoll_event_t *)events, (int)maxevents, (int)timeout, (const void *)sigmask, (size_t)sigsetsize);
 }
 
+/* ---------- execve ---------- */
+
+static int64_t do_execve(const char *path, char *const argv[], char *const envp[])
+{
+    (void)envp;
+    (void)argv;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    char kpath[SYSCALL_PATH_MAX];
+    if (strncpy_from_user(kpath, path, sizeof(kpath)) < 0) return -EFAULT;
+    kpath[sizeof(kpath) - 1] = '\0';
+
+    vfs_node_t node = vfs_open(kpath);
+    if (!node) return -ENOENT;
+
+    if (node->size == 0 || node->size > 0x4000000) {
+        vfs_close(node);
+        return -ENOEXEC;
+    }
+
+    uint8_t *elf_data = malloc(node->size);
+    if (!elf_data) {
+        vfs_close(node);
+        return -ENOMEM;
+    }
+
+    size_t total = 0;
+    size_t chunk = SYSCALL_IO_CHUNK;
+    while (total < node->size) {
+        size_t remaining = node->size - total;
+        size_t to_read   = remaining < chunk ? remaining : chunk;
+        size_t n = vfs_read(node->handle, elf_data + total, total, to_read);
+        if (n == 0) break;
+        total += n;
+    }
+    vfs_close(node);
+
+    if (total < sizeof(uint32_t)) {
+        free(elf_data);
+        return -ENOEXEC;
+    }
+
+    /* Free old user page tables */
+    if (proc->user_page_dir) {
+        free_page_table_recursive(proc->user_page_dir->table, 4);
+        free(proc->user_page_dir);
+        proc->user_page_dir = NULL;
+    }
+
+    /* Setup fresh page directory */
+    if (setup_process_page_dir(proc)) {
+        free(elf_data);
+        return -ENOMEM;
+    }
+
+    /* Reset memory layout */
+    proc->heap_brk  = PROCESS_HEAP_START;
+    proc->stack_brk = PROCESS_STACK_BASE - PROCESS_STACK_SIZE;
+
+    /* Load the ELF */
+    int ret = elf_loader_load_user_process(proc, elf_data, total);
+    free(elf_data);
+
+    if (ret) return -ENOEXEC;
+
+    return 0;
+}
+
+static int64_t sys_execve_wrap(uint64_t path, uint64_t argv, uint64_t envp, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return do_execve((const char *)path, (char *const *)argv, (char *const *)envp);
+}
+
+/* ---------- getdents64 ---------- */
+
+struct linux_dirent64 {
+    uint64_t        d_ino;
+    int64_t         d_off;
+    unsigned short  d_reclen;
+    unsigned char   d_type;
+    char            d_name[];
+};
+
+#define DT_UNKNOWN 0
+#define DT_DIR     4
+#define DT_REG     8
+
+static int64_t sys_getdents64_impl(int fd, uint64_t dirent, uint64_t count);
+
+static int64_t sys_getdents64_wrap(uint64_t fd, uint64_t dirent, uint64_t count, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    process_file_t *file = process_fd_get(proc, (int)fd);
+    if (!file) return -EBADF;
+
+    int64_t ret = sys_getdents64_impl(fd, dirent, count);
+    process_file_put(file);
+    return ret;
+}
+
+static int64_t sys_getdents64_impl(int fd, uint64_t dirent, uint64_t count)
+{
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    process_file_t *file = process_fd_get(proc, fd);
+    if (!file) return -EBADF;
+
+    vfs_node_t node = file->node;
+    if (!node || !(node->type & file_dir)) {
+        process_file_put(file);
+        return -ENOTDIR;
+    }
+
+    uint8_t *kbuf = malloc(count);
+    if (!kbuf) {
+        process_file_put(file);
+        return -ENOMEM;
+    }
+
+    uint64_t written = 0;
+    size_t index = file->offset;
+
+    for (;;) {
+        vfs_dirent_t entry;
+        if (vfs_readdir(node, index, &entry) != EOK) break;
+
+        size_t name_len = strlen(entry.name);
+        unsigned short reclen = (unsigned short)(sizeof(struct linux_dirent64) + name_len + 1);
+        reclen = (unsigned short)ALIGN_UP(reclen, 8);
+
+        if (written + reclen > count) break;
+
+        struct linux_dirent64 *de = (struct linux_dirent64 *)(kbuf + written);
+        de->d_ino   = entry.inode;
+        de->d_off   = (int64_t)(index + 1);
+        de->d_reclen = reclen;
+        de->d_type  = (entry.type & file_dir) ? DT_DIR : DT_REG;
+        memcpy(de->d_name, entry.name, name_len);
+        de->d_name[name_len] = '\0';
+
+        written += reclen;
+        index++;
+    }
+
+    file->offset = index;
+
+    if (written > 0) {
+        if (copy_to_user((void *)dirent, kbuf, written)) {
+            free(kbuf);
+            process_file_put(file);
+            return -EFAULT;
+        }
+    }
+
+    free(kbuf);
+    process_file_put(file);
+    return (int64_t)written;
+}
+
+/* ---------- writev / readv ---------- */
+
+static int64_t sys_writev_wrap(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    if ((int)fd < 0 || iovcnt > 1024) return -EINVAL;
+
+    iovec_t kiov[16];
+    iovec_t *vec = kiov;
+    int alloc = 0;
+
+    if (iovcnt > 16) {
+        vec = malloc(iovcnt * sizeof(iovec_t));
+        if (!vec) return -ENOMEM;
+        alloc = 1;
+    }
+
+    if (copy_from_user(vec, (const void *)iov, iovcnt * sizeof(iovec_t))) {
+        if (alloc) free(vec);
+        return -EFAULT;
+    }
+
+    int64_t total = 0;
+    for (uint64_t i = 0; i < iovcnt; i++) {
+        if (vec[i].iov_len == 0) continue;
+        int64_t n = process_fd_write(proc, (int)fd, vec[i].iov_base, vec[i].iov_len);
+        if (n < 0) {
+            if (total == 0) total = n;
+            break;
+        }
+        total += n;
+        if ((size_t)n < vec[i].iov_len) break;
+    }
+
+    if (alloc) free(vec);
+    return total;
+}
+
+static int64_t sys_readv_wrap(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    if ((int)fd < 0 || iovcnt > 1024) return -EINVAL;
+
+    iovec_t kiov[16];
+    iovec_t *vec = kiov;
+    int alloc = 0;
+
+    if (iovcnt > 16) {
+        vec = malloc(iovcnt * sizeof(iovec_t));
+        if (!vec) return -ENOMEM;
+        alloc = 1;
+    }
+
+    if (copy_from_user(vec, (const void *)iov, iovcnt * sizeof(iovec_t))) {
+        if (alloc) free(vec);
+        return -EFAULT;
+    }
+
+    int64_t total = 0;
+    for (uint64_t i = 0; i < iovcnt; i++) {
+        if (vec[i].iov_len == 0) continue;
+        int64_t n = process_fd_read(proc, (int)fd, vec[i].iov_base, vec[i].iov_len);
+        if (n < 0) {
+            if (total == 0) total = n;
+            break;
+        }
+        total += n;
+        if ((size_t)n < vec[i].iov_len) break;
+    }
+
+    if (alloc) free(vec);
+    return total;
+}
+
+/* ---------- chroot ---------- */
+
+static int64_t sys_chroot_wrap(uint64_t path, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    if (proc->uid != 0) return -EPERM;
+
+    char kpath[256];
+    if (strncpy_from_user(kpath, (const char *)path, sizeof(kpath)) < 0) return -EFAULT;
+    kpath[sizeof(kpath) - 1] = '\0';
+
+    vfs_node_t node = vfs_open(kpath);
+    if (!node) return -ENOENT;
+    if (!(node->type & file_dir)) {
+        vfs_close(node);
+        return -ENOTDIR;
+    }
+    vfs_close(node);
+
+    strncpy(proc->root, kpath, sizeof(proc->root) - 1);
+    proc->root[sizeof(proc->root) - 1] = '\0';
+    return 0;
+}
+
 typedef int64_t (*syscall_fn_t)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 
 static syscall_fn_t syscall_table[SYS_MAX] = {
@@ -2126,8 +2414,8 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_IOCTL]                  = sys_ioctl,
     [SYS_PREAD64]                = sys_pread64_stub,
     [SYS_PWRITE64]               = sys_stub,
-    [SYS_READV]                  = sys_stub,
-    [SYS_WRITEV]                 = sys_stub,
+    [SYS_READV]                  = sys_readv_wrap,
+[SYS_WRITEV]                 = sys_writev_wrap,
     [SYS_ACCESS]                 = sys_access_stub,
     [SYS_PIPE]                   = sys_pipe_wrap,
     [SYS_SELECT]                 = sys_select_stub,
@@ -2166,7 +2454,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_CLONE]                  = NULL,
     [SYS_FORK]                   = NULL,
     [SYS_VFORK]                  = NULL,
-    [SYS_EXECVE]                 = sys_stub,
+    [SYS_EXECVE]                 = sys_execve_wrap,
     [SYS_EXIT]                   = sys_exit,
     [SYS_WAIT4]                  = sys_wait4,
     [SYS_KILL]                   = sys_kill,
@@ -2268,7 +2556,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_ARCH_PRCTL]             = sys_arch_prctl,
     [SYS_ADJTIMEX]               = sys_stub,
     [SYS_SETRLIMIT]              = sys_stub_ok,
-    [SYS_CHROOT]                 = sys_stub,
+    [SYS_CHROOT]                 = sys_chroot_wrap,
     [SYS_SYNC]                   = sys_sync_stub,
     [SYS_ACCT]                   = sys_stub,
     [SYS_SETTIMEOFDAY]           = sys_stub,
@@ -2324,7 +2612,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
 [SYS_EPOLL_CTL_OLD]          = sys_epoll_ctl_wrap,
 [SYS_EPOLL_WAIT_OLD]         = sys_epoll_wait_wrap,
     [SYS_REMAP_FILE_PAGES]       = sys_stub,
-    [SYS_GETDENTS64]             = sys_stub,
+    [SYS_GETDENTS64]             = sys_getdents64_wrap,
     [SYS_SET_TID_ADDRESS]        = sys_set_tid_address_stub,
     [SYS_RESTART_SYSCALL]        = sys_stub,
     [SYS_SEMTIMEDOP]             = sys_semtimedop_wrap,

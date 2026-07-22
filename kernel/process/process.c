@@ -262,7 +262,7 @@ static void process_fd_table_copy(process_t *child, process_t *parent)
     spin_unlock(&parent->fd_lock);
 }
 
-static process_file_t *process_fd_get(process_t *proc, int fd)
+process_file_t *process_fd_get(process_t *proc, int fd)
 {
     if (!proc || fd < 0 || fd >= PROCESS_MAX_FD) return NULL;
 

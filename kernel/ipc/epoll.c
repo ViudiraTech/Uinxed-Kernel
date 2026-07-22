@@ -29,6 +29,7 @@
 /* ------------------------------------------------------------------ */
 
 #define EPOLL_MAX_FDS 1024
+#define EPOLL_TICKS_PER_SEC 100   /* scheduler tick frequency */
 
 /* poll event bits (matching pipe.c) */
 #define POLLIN  0x001
@@ -676,8 +677,9 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
         spin_unlock(&epi->lock);
 
         if (timeout > 0) {
-            /* Positive timeout: sleep for the specified ticks */
-            task_sleep_ticks((uint64_t)timeout);
+            /* Convert milliseconds to scheduler ticks */
+            uint64_t ticks = ((uint64_t)timeout * EPOLL_TICKS_PER_SEC + 999) / 1000;
+            task_sleep_ticks(ticks);
         } else {
             /* timeout == -1: block indefinitely until woken */
             wait_queue_wait(&epi->wq);

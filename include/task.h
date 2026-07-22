@@ -60,6 +60,7 @@ struct task {
         task_context_t    context;
         rb_node_t         run_node;   /* EEVDF red-black tree node */
         ilist_node_t      sched_node; /* sleep / wait_queue linkage */
+        ilist_node_t      timer_node; /* timed-waiter linkage (scheduler.timer_queue) */
         page_directory_t *page_directory;
         uint8_t          *kernel_stack;
         uint64_t          time_slice;
@@ -80,6 +81,33 @@ void wait_queue_init(wait_queue_t *queue);
 
 /* Block the current task on a wait queue */
 void wait_queue_wait(wait_queue_t *queue);
+
+/*
+ * Two-phase wait: prepare adds the current task to the wait queue
+ * (caller must hold the external lock that protects the condition),
+ * sleep actually blocks.  This eliminates the lost-wakeup window.
+ *
+ * Usage:
+ *   spin_lock(&external_lock);
+ *   // ... check condition, create entry ...
+ *   wait_queue_prepare(&wq);   // add task to queue under lock
+ *   spin_unlock(&external_lock);
+ *   wait_queue_sleep();        // block
+ *   // ... after wakeup, re-check condition ...
+ */
+void wait_queue_prepare(wait_queue_t *queue);
+void wait_queue_sleep(void);
+
+/*
+ * Two-phase wait with timeout: prepare under lock, then sleep with
+ * a deadline.  The scheduler will wake the task when either
+ * wait_queue_wake_one() is called or the deadline (in ticks) expires.
+ *
+ * Returns 0 if woken normally, -ETIMEDOUT if the deadline expired.
+ * The caller must re-check the condition under the external lock after
+ * this function returns.
+ */
+int wait_queue_wait_timed(wait_queue_t *queue, uint64_t deadline_ticks);
 
 /* Wake one task from a wait queue */
 task_t *wait_queue_wake_one(wait_queue_t *queue);

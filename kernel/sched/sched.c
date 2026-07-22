@@ -11,6 +11,7 @@
 #include <apic.h>
 #include <common.h>
 #include <debug.h>
+#include <errno.h>
 #include <gdt.h>
 #include <heap.h>
 #include <intrusive_list.h>
@@ -92,6 +93,11 @@ __attribute__((naked)) void context_switch(task_context_t *prev, task_context_t 
 static task_t *sched_node_to_task(ilist_node_t *node)
 {
     return (task_t *)((uint8_t *)node - offsetof(task_t, sched_node));
+}
+
+static task_t *timer_node_to_task(ilist_node_t *node)
+{
+    return (task_t *)((uint8_t *)node - offsetof(task_t, timer_node));
 }
 
 /* ------------------------------------------------------------------ */
@@ -514,6 +520,32 @@ static void wake_sleeping_tasks(void)
         }
         node = next;
     }
+
+    /*
+     * Check timed wait-queue tasks: tasks that are in a wait queue
+     * but also have a wake_tick deadline (e.g. futex timeouts).
+     * On expiry, remove from the wait queue and wake.
+     */
+    node = scheduler.timer_queue.next;
+    while (node != &scheduler.timer_queue) {
+        ilist_node_t *next = node->next;
+        task_t       *task = timer_node_to_task(node);
+
+        if (task->wake_tick <= scheduler.ticks) {
+            wait_queue_t *wq = task->wait_queue;
+            if (wq) {
+                spin_lock(&wq->lock);
+                if (task->wait_queue == wq) {
+                    ilist_remove(&task->sched_node);
+                    task->wait_queue = NULL;
+                }
+                spin_unlock(&wq->lock);
+            }
+            ilist_remove(node);
+            wake_task_locked(task, 0);
+        }
+        node = next;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -539,6 +571,7 @@ void sched_init(void)
 {
     memset(&scheduler, 0, sizeof(scheduler));
     ilist_init(&scheduler.sleep_queue);
+    ilist_init(&scheduler.timer_queue);
     scheduler.next_pid = 0;
 
     cpu_scheduler_count = get_cpu_count();
@@ -795,7 +828,12 @@ int task_wakeup(task_t *task)
     if (queue) {
         spin_lock(&queue->lock);
         spin_lock(&scheduler.lock);
-        if (task->wait_queue == queue) wake_task_locked(task, 1);
+        if (task->wait_queue == queue) {
+            wake_task_locked(task, 1);
+            if (task->timer_node.prev != NULL) {
+                ilist_remove(&task->timer_node);
+            }
+        }
         spin_unlock(&scheduler.lock);
         spin_unlock(&queue->lock);
         request_task_cpu(task);
@@ -852,6 +890,95 @@ void wait_queue_wait(wait_queue_t *queue)
     enable_intr();
 }
 
+/*
+ * Prepare the current task to wait on a queue: add to queue, set
+ * state to BLOCKED.  The caller must hold any external lock that
+ * guards the condition.  After calling prepare, release the external
+ * lock, then call wait_queue_sleep() to actually block.
+ */
+void wait_queue_prepare(wait_queue_t *queue)
+{
+    if (!queue) {
+        task_block();
+        return;
+    }
+
+    disable_intr();
+    spin_lock(&queue->lock);
+    spin_lock(&scheduler.lock);
+
+    eevdf_rq_t *rq   = local_rq();
+    task_t     *curr = rq->curr;
+
+    curr->vlag       = (int64_t)(avg_vruntime(rq) - curr->vruntime);
+    curr->state      = TASK_BLOCKED;
+    curr->wake_tick  = 0;
+    curr->wait_queue = queue;
+    ilist_insert_before(&queue->tasks, &curr->sched_node);
+
+    spin_unlock(&scheduler.lock);
+    spin_unlock(&queue->lock);
+    /* interrupts remain disabled; caller must call wait_queue_sleep() */
+}
+
+/*
+ * Commit a prepared wait: context-switch away from the current task.
+ * Must be paired with a preceding wait_queue_prepare().
+ */
+void wait_queue_sleep(void)
+{
+    sched_yield();
+    enable_intr();
+}
+
+/*
+ * Two-phase wait with timeout.
+ * Must be paired with a preceding wait_queue_prepare().
+ * The caller must hold the external lock during prepare() and release
+ * it before calling this function.
+ *
+ * Returns 0 if woken normally, -ETIMEDOUT if the deadline expired.
+ *
+ * NOTE: the caller must re-check the condition under the external
+ * lock after this function returns, because the wakeup might be
+ * spurious (e.g., the deadline expired but the condition was already
+ * satisfied).
+ */
+int wait_queue_wait_timed(wait_queue_t *queue, uint64_t deadline_ticks)
+{
+    if (!queue) {
+        task_block();
+        return 0;
+    }
+
+    /*
+     * The task is already in the wait queue (via wait_queue_prepare).
+     * Now also add it to the timer queue so the scheduler tick can
+     * wake it when the deadline expires.
+     */
+    eevdf_rq_t *rq   = local_rq();
+    task_t     *curr = rq->curr;
+
+    spin_lock(&scheduler.lock);
+    curr->wake_tick = deadline_ticks;
+    ilist_insert_before(&scheduler.timer_queue, &curr->timer_node);
+    spin_unlock(&scheduler.lock);
+
+    sched_yield();
+    enable_intr();
+
+    /*
+     * After wakeup, check whether we were timed out.
+     * The scheduler tick removes the task from the wait queue when
+     * the deadline expires, so wait_queue == NULL means timeout.
+     */
+    if (curr->wait_queue == NULL) {
+        return -ETIMEDOUT;
+    }
+
+    return 0;
+}
+
 task_t *wait_queue_wake_one(wait_queue_t *queue)
 {
     if (!queue) return NULL;
@@ -868,6 +995,15 @@ task_t *wait_queue_wake_one(wait_queue_t *queue)
     ilist_remove(node);
     spin_lock(&scheduler.lock);
     wake_task_locked(task, 0);
+
+    /*
+     * If the task was in a timed wait, remove it from the
+     * timer queue so the scheduler tick doesn't try to wake
+     * it again after the deadline.
+     */
+    if (task->timer_node.prev != NULL) {
+        ilist_remove(&task->timer_node);
+    }
     spin_unlock(&scheduler.lock);
     spin_unlock(&queue->lock);
     request_task_cpu(task);
@@ -890,6 +1026,9 @@ uint64_t wait_queue_wake_all(wait_queue_t *queue)
 
         ilist_remove(node);
         wake_task_locked(task, 0);
+        if (task->timer_node.prev != NULL) {
+            ilist_remove(&task->timer_node);
+        }
         if (woken_count < sizeof(woken) / sizeof(woken[0])) woken[woken_count++] = task;
         count++;
     }

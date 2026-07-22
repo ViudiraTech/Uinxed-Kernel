@@ -112,6 +112,7 @@ typedef struct process {
         pid_t             pgid;
         pid_t             sid;
         char              name[PROCESS_NAME_LEN];
+        char              root[256];  /* chroot path */
 } process_t;
 
 /* Initialize the process management subsystem */
@@ -187,5 +188,6 @@ int process_fd_stat(process_t *proc, int fd, process_fd_stat_t *stat);
 
 /* Decrement reference count on a file, freeing it when it reaches zero */
 void process_file_put(process_file_t *file);
+process_file_t *process_fd_get(process_t *proc, int fd);
 
 #endif /* INCLUDE_PROCESS_H_ */

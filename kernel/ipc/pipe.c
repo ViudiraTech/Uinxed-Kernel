@@ -251,39 +251,45 @@ static size_t pipe_vfs_write(void *file, const void *addr, size_t offset, size_t
     pipe_ring_t *ring = (pipe_ring_t *)file;
     if (!ring || !addr || !size) return (size_t)-1;
 
-    spin_lock(&ring->lock);
+    size_t total_written = 0;
+    const uint8_t *src   = (const uint8_t *)addr;
 
-    if (ring->closed || ring->readers == 0) {
-        spin_unlock(&ring->lock);
-        return (size_t)-1;           /* -EPIPE — no readers */
-    }
+    while (total_written < size) {
+        spin_lock(&ring->lock);
 
-    /*
-     * Writes up to PIPE_BUF_SIZE are guaranteed atomic.
-     * For non-atomic (larger) writes we write as much as fits
-     * in one go and return the count; the caller retries if needed.
-     */
-    uint32_t write_size = (size > PIPE_BUF_SIZE) ? PIPE_BUF_SIZE : (uint32_t)size;
-
-    while (pipe_ring_writable(ring) < write_size) {
         if (ring->closed || ring->readers == 0) {
             spin_unlock(&ring->lock);
-            return (size_t)-1;       /* -EPIPE */
+            return (size_t)-1;           /* -EPIPE — no readers */
         }
+
+        /*
+         * Writes up to PIPE_BUF_SIZE are guaranteed atomic per POSIX.
+         * For larger writes, split into PIPE_BUF_SIZE chunks.
+         */
+        uint32_t chunk = (uint32_t)(size - total_written);
+        if (chunk > PIPE_BUF_SIZE) chunk = PIPE_BUF_SIZE;
+
+        while (pipe_ring_writable(ring) < chunk) {
+            if (ring->closed || ring->readers == 0) {
+                spin_unlock(&ring->lock);
+                return (size_t)-1;       /* -EPIPE */
+            }
+            spin_unlock(&ring->lock);
+            wait_queue_wait(&ring->write_wq);
+            spin_lock(&ring->lock);
+        }
+
+        pipe_ring_copy_in(ring, src + total_written, chunk);
+        pipe_ring_produce(ring, chunk);
+        total_written += chunk;
+
         spin_unlock(&ring->lock);
-        wait_queue_wait(&ring->write_wq);
-        spin_lock(&ring->lock);
+
+        /* Wake readers that may be waiting for data */
+        wait_queue_wake_all(&ring->read_wq);
     }
 
-    pipe_ring_copy_in(ring, (const uint8_t *)addr, write_size);
-    pipe_ring_produce(ring, write_size);
-
-    spin_unlock(&ring->lock);
-
-    /* Wake readers that may be waiting for data */
-    wait_queue_wake_all(&ring->read_wq);
-
-    return write_size;
+    return total_written;
 }
 
 /* ------------------------------------------------------------------ */
@@ -407,23 +413,6 @@ static int pipe_stub_rename(void *current, const char *new_name)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Pipe fd installation helper                                         */
-/* ------------------------------------------------------------------ */
-
-static int pipe_fd_install(pipe_ring_t *ring, vfs_node_t node, int is_read_end)
-{
-    (void)ring;
-    process_t *proc = process_current();
-    if (!proc) return -ESRCH;
-
-    uint64_t fd_flags = is_read_end ? O_RDONLY : O_WRONLY;
-    int      fd       = process_fd_install(proc, node, fd_flags);
-    if (fd < 0) return fd;
-
-    return fd;
-}
-
-/* ------------------------------------------------------------------ */
 /*  Pipe node creation (shared by sys_pipe and sys_pipe2)               */
 /* ------------------------------------------------------------------ */
 
@@ -457,7 +446,6 @@ int64_t sys_pipe(int pipefd[2])
 
 int64_t sys_pipe2(int pipefd[2], int flags)
 {
-    (void)flags;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
@@ -480,8 +468,21 @@ int64_t sys_pipe2(int pipefd[2], int flags)
         return -ENOMEM;
     }
 
+    /*
+     * Bump the node refcount so that both the read and write end
+     * must be closed before the VFS close callback fires.
+     * vfs_node_alloc starts at 1; we need 2 because two
+     * process_file_t will hold references.
+     */
+    node->refcount++;
+
+    /* Build fd flags: O_RDONLY for read, O_WRONLY for write,
+     * plus O_CLOEXEC and O_NONBLOCK from the flags argument. */
+    uint64_t read_flags  = O_RDONLY  | (flags & (O_CLOEXEC | O_NONBLOCK));
+    uint64_t write_flags = O_WRONLY | (flags & (O_CLOEXEC | O_NONBLOCK));
+
     /* Install read-end fd */
-    int fd_read = pipe_fd_install(ring, node, 1);
+    int fd_read = process_fd_install(proc, node, read_flags);
     if (fd_read < 0) {
         vfs_close(node);
         vfs_delete(node);
@@ -489,7 +490,7 @@ int64_t sys_pipe2(int pipefd[2], int flags)
     }
 
     /* Install write-end fd */
-    int fd_write = pipe_fd_install(ring, node, 0);
+    int fd_write = process_fd_install(proc, node, write_flags);
     if (fd_write < 0) {
         process_fd_close(proc, fd_read);
         vfs_close(node);

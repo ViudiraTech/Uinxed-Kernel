@@ -53,6 +53,7 @@
 
 typedef struct futex_entry {
     uintptr_t            key;
+    uint32_t             bitset;   /* bitset mask for FUTEX_WAIT_BITSET */
     wait_queue_t         wq;
     struct futex_entry  *next;
 } futex_entry_t;
@@ -84,21 +85,27 @@ static inline uint32_t futex_hash_index(uint32_t *uaddr)
  * Find or create an entry for uaddr in the given bucket.
  * Must be called with the bucket lock held.
  * Returns NULL on allocation failure.
+ * If the entry already exists, its bitset is OR-ed with the new bitset
+ * so that all waiters on the same futex can be woken by a matching wake.
  */
 static futex_entry_t *futex_find_or_create(futex_bucket_t *bucket,
-                                           uint32_t *uaddr)
+                                           uint32_t *uaddr, uint32_t bitset)
 {
     uintptr_t      key = (uintptr_t)uaddr;
     futex_entry_t *entry;
 
     for (entry = bucket->head; entry; entry = entry->next) {
-        if (entry->key == key) return entry;
+        if (entry->key == key) {
+            entry->bitset |= bitset;
+            return entry;
+        }
     }
 
     entry = (futex_entry_t *)malloc(sizeof(futex_entry_t));
     if (!entry) return NULL;
 
-    entry->key  = key;
+    entry->key    = key;
+    entry->bitset = bitset;
     wait_queue_init(&entry->wq);
     entry->next = bucket->head;
     bucket->head = entry;
@@ -204,9 +211,10 @@ static int futex_wait(uint32_t *uaddr, uint32_t val, uint64_t timeout,
     futex_bucket_t *bucket = &futex_hash[futex_hash_index(uaddr)];
     futex_entry_t  *entry;
     uint32_t        cur_val;
-    int             ret = 0;
+    int             ret;
 
-    (void)bitset;
+    /* bitset must be non-zero per Linux ABI */
+    if (bitset == 0) return -EINVAL;
 
     spin_lock(&bucket->lock);
 
@@ -220,30 +228,44 @@ static int futex_wait(uint32_t *uaddr, uint32_t val, uint64_t timeout,
         return -EAGAIN;
     }
 
-    entry = futex_find_or_create(bucket, uaddr);
+    entry = futex_find_or_create(bucket, uaddr, bitset);
     if (!entry) {
         spin_unlock(&bucket->lock);
         return -ENOMEM;
     }
 
+    /*
+     * Add the current task to the wait queue BEFORE releasing the
+     * bucket lock.  This closes the lost-wakeup window: if another
+     * thread calls futex_wake after we release the lock, it will
+     * find our task in the wait queue and wake it.
+     */
+    wait_queue_prepare(&entry->wq);
     spin_unlock(&bucket->lock);
 
     if (timeout) {
         uint64_t timeout_ticks = futex_timespec_to_ticks(timeout);
 
         if (timeout_ticks == 0) {
-            /* Zero timeout: just re-check the value */
+            /*
+             * Zero timeout: the task is already in the wait queue
+             * (via prepare), but we need to remove it before
+             * returning.  Re-check the value under the lock.
+             */
             spin_lock(&bucket->lock);
             if (copy_from_user(&cur_val, uaddr, sizeof(cur_val)) != 0) {
+                wait_queue_wake_one(&entry->wq);
                 futex_try_cleanup(bucket, entry);
                 spin_unlock(&bucket->lock);
                 return -EFAULT;
             }
             if (cur_val != val) {
+                wait_queue_wake_one(&entry->wq);
                 futex_try_cleanup(bucket, entry);
                 spin_unlock(&bucket->lock);
                 return -EAGAIN;
             }
+            wait_queue_wake_one(&entry->wq);
             futex_try_cleanup(bucket, entry);
             spin_unlock(&bucket->lock);
             return -ETIMEDOUT;
@@ -251,46 +273,77 @@ static int futex_wait(uint32_t *uaddr, uint32_t val, uint64_t timeout,
 
         uint64_t deadline = sched_ticks() + timeout_ticks;
 
-        /*
-         * Polling-based timeout: block briefly, then check whether
-         * we were woken or the deadline has passed.
-         */
-        while (1) {
-            wait_queue_wait(&entry->wq);
+        ret = wait_queue_wait_timed(&entry->wq, deadline);
 
-            spin_lock(&bucket->lock);
+        spin_lock(&bucket->lock);
 
+        if (ret == -ETIMEDOUT) {
+            /*
+             * The scheduler removed us from the wait queue and
+             * woke us due to timeout.  Re-check the value one
+             * last time — if it changed, someone called futex_wake
+             * between the timeout and our re-acquisition of the
+             * lock.
+             */
             if (copy_from_user(&cur_val, uaddr, sizeof(cur_val)) != 0) {
                 futex_try_cleanup(bucket, entry);
                 spin_unlock(&bucket->lock);
                 return -EFAULT;
             }
-
             if (cur_val != val) {
-                /* Value changed — we were woken by futex_wake */
                 futex_try_cleanup(bucket, entry);
                 spin_unlock(&bucket->lock);
                 return 0;
             }
-
-            if (sched_ticks() >= deadline) {
-                futex_try_cleanup(bucket, entry);
-                spin_unlock(&bucket->lock);
-                return -ETIMEDOUT;
-            }
-
+            futex_try_cleanup(bucket, entry);
             spin_unlock(&bucket->lock);
+            return -ETIMEDOUT;
         }
-    } else {
-        /* No timeout — block indefinitely */
-        wait_queue_wait(&entry->wq);
 
-        spin_lock(&bucket->lock);
+        /* Woken by futex_wake: verify and clean up */
+        if (copy_from_user(&cur_val, uaddr, sizeof(cur_val)) != 0) {
+            futex_try_cleanup(bucket, entry);
+            spin_unlock(&bucket->lock);
+            return -EFAULT;
+        }
+
+        if (cur_val != val) {
+            futex_try_cleanup(bucket, entry);
+            spin_unlock(&bucket->lock);
+            return 0;
+        }
+
+        /*
+         * Spurious wakeup: value hasn't changed.  This shouldn't
+         * happen with the timer_node approach, but handle it
+         * gracefully.
+         */
         futex_try_cleanup(bucket, entry);
         spin_unlock(&bucket->lock);
-    }
+        return -EAGAIN;
+    } else {
+        /* No timeout — block indefinitely */
+        wait_queue_sleep();
 
-    return ret;
+        spin_lock(&bucket->lock);
+
+        if (copy_from_user(&cur_val, uaddr, sizeof(cur_val)) != 0) {
+            futex_try_cleanup(bucket, entry);
+            spin_unlock(&bucket->lock);
+            return -EFAULT;
+        }
+
+        if (cur_val != val) {
+            futex_try_cleanup(bucket, entry);
+            spin_unlock(&bucket->lock);
+            return 0;
+        }
+
+        /* Spurious wakeup */
+        futex_try_cleanup(bucket, entry);
+        spin_unlock(&bucket->lock);
+        return -EAGAIN;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -299,6 +352,7 @@ static int futex_wait(uint32_t *uaddr, uint32_t val, uint64_t timeout,
 
 /*
  * Wake up to nr_wake waiters on the futex at uaddr.
+ * Only wake tasks whose bitset matches the wake bitset.
  * Returns the number of tasks actually woken.
  */
 static int futex_wake(uint32_t *uaddr, int nr_wake, uint32_t bitset)
@@ -307,14 +361,18 @@ static int futex_wake(uint32_t *uaddr, int nr_wake, uint32_t bitset)
     futex_entry_t  *entry;
     int             woken = 0;
 
-    (void)bitset;
-
     if (nr_wake <= 0) return 0;
 
     spin_lock(&bucket->lock);
 
     for (entry = bucket->head; entry; entry = entry->next) {
         if (entry->key != (uintptr_t)uaddr) continue;
+
+        /*
+         * bitset filtering: only wake tasks whose bitset
+         * overlaps with the wake bitset (Linux semantics).
+         */
+        if (!(entry->bitset & bitset)) continue;
 
         while (woken < nr_wake) {
             task_t *task = wait_queue_wake_one(&entry->wq);
@@ -445,7 +503,7 @@ static int futex_requeue(uint32_t *uaddr, int nr_wake, int nr_requeue,
     /* Requeue up to nr_requeue tasks to uaddr2 */
     if (nr_requeue > 0) {
         /* Find or create entry for uaddr2 */
-        entry2 = futex_find_or_create(bucket2, uaddr2);
+        entry2 = futex_find_or_create(bucket2, uaddr2, FUTEX_BITSET_MATCH_ANY);
         if (!entry2) {
             futex_try_cleanup(bucket1, entry1);
             if (bucket1 != bucket2) {

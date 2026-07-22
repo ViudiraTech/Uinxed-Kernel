@@ -51,6 +51,7 @@ typedef struct {
         int          started;     /* 1 once sched_start() has run */
         spinlock_t   lock;        /* global scheduler lock */
         ilist_node_t sleep_queue; /* sleeping tasks (ordered by wake_tick) */
+        ilist_node_t timer_queue; /* timed wait-queue tasks (wake on deadline) */
 } scheduler_t;
 
 /* ------------------------------------------------------------------ */
