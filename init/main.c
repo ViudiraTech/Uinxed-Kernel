@@ -167,7 +167,7 @@ void kernel_entry(void)
     procfs_regist(); // Process File System
 
     drm_init(); // Direct Rendering Manager
-    drm_run_test();
+//  drm_run_test();
 
     {
         vfs_node_t proc = 0;
