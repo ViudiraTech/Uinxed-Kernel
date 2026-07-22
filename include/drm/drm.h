@@ -452,6 +452,10 @@ struct drm_gem_open {
         __u64 size;
 };
 
+/* PRIME capability flags */
+#define DRM_PRIME_CAP_EXPORT 1
+#define DRM_PRIME_CAP_IMPORT 2
+
 /* DRM_IOCTL_GET_CAP / SET_CLIENT_CAP */
 #define DRM_CAP_DUMB_BUFFER       0x1
 #define DRM_CAP_VBLANK_HIGH_CRTC  0x2

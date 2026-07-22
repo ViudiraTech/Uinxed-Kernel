@@ -167,10 +167,17 @@ void drm_gem_object_put(struct drm_gem_object *obj)
     if (refcount == 0) {
         struct drm_device *dev = obj->dev;
 
+        /* Free PRIME fd if assigned */
+        if (obj->prime_fd > 0) {
+            drm_gem_prime_fd_free(obj->prime_fd);
+            obj->prime_fd = -1;
+        }
+
         /* Call driver's free hook if available */
         if (dev && dev->driver && dev->driver->gem_free_object) {
             dev->driver->gem_free_object(obj);
         } else {
+            free(obj->backing);
             free(obj);
         }
     }
@@ -387,9 +394,22 @@ int drm_gem_dumb_create(struct drm_file *file_priv,
     drm_gem_object_init(dev, obj, size);
     obj->size = (uint32_t)size;
 
+    /* Allocate backing memory for the dumb buffer */
+    if (size > 0) {
+        obj->backing = aligned_alloc(4096, size);
+        if (!obj->backing) {
+            free(obj);
+            return -ENOMEM;
+        }
+        memset(obj->backing, 0, size);
+    }
+
+    obj->prime_fd = -1;
+
     /* Create handle for userspace */
     ret = drm_gem_handle_create(file_priv, obj, &handle);
     if (ret < 0) {
+        free(obj->backing);
         free(obj);
         return ret;
     }
@@ -417,8 +437,10 @@ int drm_gem_dumb_map_offset(struct drm_file *file_priv,
         return -ENOENT;
     }
 
-    /* MVP: return dummy offset */
-    *offset = 0;
+    /* Return the handle as the mmap offset (unique per buffer).
+     * A future DRM mmap implementation would use this to look up
+     * the backing memory and map it into userspace. */
+    *offset = (uint64_t)handle;
 
     drm_gem_object_put(obj);
     return 0;
@@ -438,6 +460,78 @@ int drm_gem_dumb_destroy(struct drm_file *file_priv,
 }
 
 /* ------------------------------------------------------------------ */
+/* PRIME fd table: maps integer PRIME fds to GEM objects               */
+/* ------------------------------------------------------------------ */
+
+#define PRIME_FD_MAX 1024
+
+static struct {
+    struct drm_gem_object *obj;
+    int                   in_use;
+} prime_fd_table[PRIME_FD_MAX];
+
+static spinlock_t prime_fd_lock = { .lock = 0, .rflags = 0 };
+
+static int prime_fd_alloc(struct drm_gem_object *obj, int *fd_out)
+{
+    int i;
+
+    spin_lock(&prime_fd_lock);
+
+    for (i = 0; i < PRIME_FD_MAX; i++) {
+        if (!prime_fd_table[i].in_use) {
+            prime_fd_table[i].obj = obj;
+            prime_fd_table[i].in_use = 1;
+            *fd_out = i + 1; /* fd numbers start at 1 */
+            obj->prime_fd = *fd_out;
+            drm_gem_object_get(obj);
+            spin_unlock(&prime_fd_lock);
+            return 0;
+        }
+    }
+
+    spin_unlock(&prime_fd_lock);
+    return -ENOMEM;
+}
+
+static struct drm_gem_object *prime_fd_lookup(int fd)
+{
+    struct drm_gem_object *obj = NULL;
+    int idx = fd - 1;
+
+    if (idx < 0 || idx >= PRIME_FD_MAX) {
+        return NULL;
+    }
+
+    spin_lock(&prime_fd_lock);
+    if (prime_fd_table[idx].in_use) {
+        obj = prime_fd_table[idx].obj;
+        if (obj) {
+            drm_gem_object_get(obj);
+        }
+    }
+    spin_unlock(&prime_fd_lock);
+
+    return obj;
+}
+
+void drm_gem_prime_fd_free(int fd)
+{
+    int idx = fd - 1;
+
+    if (idx < 0 || idx >= PRIME_FD_MAX) {
+        return;
+    }
+
+    spin_lock(&prime_fd_lock);
+    if (prime_fd_table[idx].in_use) {
+        prime_fd_table[idx].obj = NULL;
+        prime_fd_table[idx].in_use = 0;
+    }
+    spin_unlock(&prime_fd_lock);
+}
+
+/* ------------------------------------------------------------------ */
 /* drm_gem_prime_handle_to_fd: handle DRM_IOCTL_PRIME_HANDLE_TO_FD      */
 /* ------------------------------------------------------------------ */
 
@@ -446,14 +540,34 @@ int drm_gem_prime_handle_to_fd(struct drm_device *dev,
                                 uint32_t handle, uint32_t flags,
                                 int *prime_fd)
 {
-    (void)dev;
-    (void)file_priv;
-    (void)handle;
-    (void)flags;
-    (void)prime_fd;
+    struct drm_gem_object *obj;
+    int fd;
+    int ret;
 
-    /* PRIME not yet supported */
-    return -ENOSYS;
+    (void)dev;
+    (void)flags;
+
+    obj = drm_gem_object_lookup(file_priv, handle);
+    if (!obj) {
+        return -ENOENT;
+    }
+
+    /* If already exported, return existing fd */
+    if (obj->prime_fd > 0) {
+        *prime_fd = obj->prime_fd;
+        drm_gem_object_put(obj);
+        return 0;
+    }
+
+    ret = prime_fd_alloc(obj, &fd);
+    if (ret < 0) {
+        drm_gem_object_put(obj);
+        return ret;
+    }
+
+    *prime_fd = fd;
+    drm_gem_object_put(obj);
+    return 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -464,11 +578,24 @@ int drm_gem_prime_fd_to_handle(struct drm_device *dev,
                                 struct drm_file *file_priv,
                                 int prime_fd, uint32_t *handle)
 {
-    (void)dev;
-    (void)file_priv;
-    (void)prime_fd;
-    (void)handle;
+    struct drm_gem_object *obj;
+    uint32_t new_handle;
+    int ret;
 
-    /* PRIME not yet supported */
-    return -ENOSYS;
+    (void)dev;
+
+    obj = prime_fd_lookup(prime_fd);
+    if (!obj) {
+        return -ENOENT;
+    }
+
+    ret = drm_gem_handle_create(file_priv, obj, &new_handle);
+    if (ret < 0) {
+        drm_gem_object_put(obj);
+        return ret;
+    }
+
+    *handle = new_handle;
+    drm_gem_object_put(obj);
+    return 0;
 }

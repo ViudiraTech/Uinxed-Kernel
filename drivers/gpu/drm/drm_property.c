@@ -355,6 +355,56 @@ void drm_property_destroy(struct drm_device *dev, struct drm_property *property)
     free(property);
 }
 
+/* Forward declaration */
+struct drm_property *drm_property_find(struct drm_device *dev, struct drm_file *file_priv, uint32_t id);
+
+/*
+ * drm_mode_getproperty_ioctl - Handle DRM_IOCTL_MODE_GETPROPERTY.
+ * @dev: DRM device
+ * @data: pointer to struct drm_mode_get_property (userspace buffer)
+ * @file_priv: DRM file handle
+ *
+ * Looks up a property by ID and fills in its name, flags, value count,
+ * and enum/blob count.
+ */
+int drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
+{
+    struct drm_mode_get_property *prop_req = (struct drm_mode_get_property *)data;
+    struct drm_property *prop;
+
+    (void)file_priv;
+
+    if (!dev || !prop_req) {
+        return -EINVAL;
+    }
+
+    prop = drm_property_find(dev, NULL, prop_req->prop_id);
+    if (!prop) {
+        return -ENOENT;
+    }
+
+    strncpy(prop_req->name, prop->name, DRM_PROP_NAME_LEN - 1);
+    prop_req->name[DRM_PROP_NAME_LEN - 1] = '\0';
+    prop_req->flags = prop->flags;
+    prop_req->count_values = prop->num_values;
+
+    /* Count enum entries */
+    {
+        ilist_node_t *node;
+        int count = 0;
+
+        node = prop->enum_list.next;
+        while (node && node != &prop->enum_list) {
+            count++;
+            node = node->next;
+        }
+        prop_req->count_enum_blobs = (__u32)count;
+    }
+
+    drm_mode_object_put(&prop->base);
+    return 0;
+}
+
 /* User-initiated property destruction (same as drm_property_destroy). */
 void drm_property_destroy_user(struct drm_device *dev, struct drm_property *property)
 {

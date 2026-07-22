@@ -158,8 +158,8 @@ int drm_mode_getplane(struct drm_device *dev, void *data, struct drm_file *file_
 
     plane_req->possible_crtcs      = plane->possible_crtcs;
     plane_req->count_format_types  = plane->format_count;
-    plane_req->crtc_id             = 0; /* MVP: plane->crtc not yet tracked */
-    plane_req->fb_id               = 0; /* MVP: plane->fb not yet tracked */
+    plane_req->crtc_id             = plane->crtc_id;
+    plane_req->fb_id               = plane->fb_id;
     plane_req->gamma_size          = 0;
 
     drm_mode_object_put(obj);
@@ -191,20 +191,12 @@ int drm_mode_setplane(struct drm_device *dev, void *data, struct drm_file *file_
         return -ENOENT;
     }
     plane = container_of(obj, struct drm_plane, base);
-    (void)plane;
 
-    /* MVP: store the request parameters. Actual hardware programming
-     * is deferred to the driver's plane update callback. */
-    (void)plane_req->crtc_id;
-    (void)plane_req->fb_id;
-    (void)plane_req->crtc_x;
-    (void)plane_req->crtc_y;
-    (void)plane_req->crtc_w;
-    (void)plane_req->crtc_h;
-    (void)plane_req->src_x;
-    (void)plane_req->src_y;
-    (void)plane_req->src_w;
-    (void)plane_req->src_h;
+    /* Track the requested state directly on the plane struct.
+     * Hardware programming would be done by a real driver's
+     * plane update callback. */
+    plane->crtc_id = plane_req->crtc_id;
+    plane->fb_id   = plane_req->fb_id;
 
     drm_mode_object_put(obj);
     return 0;

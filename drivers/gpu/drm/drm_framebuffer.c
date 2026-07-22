@@ -347,6 +347,44 @@ int drm_mode_dirtyfb(struct drm_device *dev, void *data, struct drm_file *file_p
 }
 
 /*
+ * drm_mode_getfb2_ioctl - Handle DRM_IOCTL_MODE_GETFB2.
+ * @dev: DRM device
+ * @data: pointer to struct drm_mode_get_fb2 (userspace buffer)
+ * @file_priv: DRM file handle
+ *
+ * Looks up a framebuffer by fb_id and fills in its properties.
+ * Returns 0 on success or -EINVAL/-ENOENT.
+ */
+int drm_mode_getfb2_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
+{
+    struct drm_mode_get_fb2 *r = (struct drm_mode_get_fb2 *)data;
+    struct drm_framebuffer *fb;
+
+    (void)file_priv;
+
+    if (!dev || !r) {
+        return -EINVAL;
+    }
+
+    spin_lock(&dev->mode_config.fb_lock);
+    fb = drm_idr_find(&dev->mode_config.fb_idr, r->fb_id);
+    spin_unlock(&dev->mode_config.fb_lock);
+    if (!fb) {
+        return -ENOENT;
+    }
+
+    r->width        = fb->width;
+    r->height       = fb->height;
+    r->pixel_format = fb->format;
+    r->flags        = 0;
+    r->modifier[0]  = fb->modifier;
+    r->pitches[0]   = fb->pitches[0];
+    r->offsets[0]   = fb->offsets[0];
+
+    return 0;
+}
+
+/*
  * drm_framebuffer_cleanup - Tear down a framebuffer and release resources.
  * @fb: framebuffer to clean up
  *

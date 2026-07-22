@@ -314,6 +314,38 @@ void drm_mode_config_cleanup(struct drm_device *dev)
 }
 
 /*
+ * drm_mode_getresources - Handle DRM_IOCTL_MODE_GETRESOURCES.
+ * @dev: DRM device
+ * @data: pointer to struct drm_mode_card_res (userspace buffer)
+ * @file_priv: DRM file handle
+ *
+ * Fills the drm_mode_card_res struct with counts of framebuffers, CRTCs,
+ * connectors, and encoders, and the min/max dimensions.
+ * Returns 0 on success.
+ */
+int drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *file_priv)
+{
+    struct drm_mode_card_res *res = (struct drm_mode_card_res *)data;
+
+    (void)file_priv;
+
+    if (!dev || !res) {
+        return -EINVAL;
+    }
+
+    res->min_width       = dev->mode_config.min_width;
+    res->max_width       = dev->mode_config.max_width;
+    res->min_height      = dev->mode_config.min_height;
+    res->max_height      = dev->mode_config.max_height;
+    res->count_fbs       = (__u32)dev->mode_config.num_fb;
+    res->count_crtcs     = (__u32)dev->mode_config.num_crtc;
+    res->count_connectors = (__u32)dev->mode_config.num_connector;
+    res->count_encoders  = (__u32)dev->mode_config.num_encoder;
+
+    return 0;
+}
+
+/*
  * drmm_mode_config_init - Managed resource wrapper for drm_mode_config_init.
  * @dev: DRM device
  *

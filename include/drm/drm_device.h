@@ -261,6 +261,8 @@ struct drm_plane {
     struct drm_plane_state *state;
     char                   *name;
     void                   *helper_private;
+    uint32_t                crtc_id;  /* currently attached CRTC (legacy ioctl tracking) */
+    uint32_t                fb_id;    /* currently attached FB (legacy ioctl tracking) */
 };
 
 struct drm_encoder {
@@ -385,10 +387,12 @@ struct drm_gem_object {
     spinlock_t                ref_lock;
     uint32_t                  handle_count;
     uint32_t                  size;
-    uint32_t                  pending_resv_unused;
+    void                     *backing;          /* allocated backing memory for dumb/prime buffers */
     struct drm_mm_node        vma_node_placeholder;
     ilist_node_t              handle_list_node; /* in file objects list */
-    void                     *dma_buf_import_attached_unused;
+    void                     *import_attach;    /* attached dma-buf attachment (for PRIME import) */
+    void                     *dma_buf;          /* dma-buf (for PRIME export) */
+    int                       prime_fd;         /* assigned PRIME fd, -1 if none */
     struct drm_gem_object_funcs_placeholder { int dummy; } funcs_placeholder;
 };
 
@@ -669,6 +673,7 @@ int drm_gem_flink_ioctl(struct drm_device *dev, void *data, struct drm_file *fil
 int drm_gem_prime_handle_to_fd(struct drm_device *dev, struct drm_file *file_priv, uint32_t handle, uint32_t flags,
                                int *prime_fd);
 int drm_gem_prime_fd_to_handle(struct drm_device *dev, struct drm_file *file_priv, int prime_fd, uint32_t *handle);
+void drm_gem_prime_fd_free(int fd);
 
 /* GEM object lifecycle. */
 int drm_gem_object_init(struct drm_device *dev, struct drm_gem_object *obj, size_t size);
@@ -701,6 +706,18 @@ int drm_mode_dirtyfb(struct drm_device *dev, void *data, struct drm_file *file_p
 int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
+
+/* Capability ioctl handlers. */
+int drm_get_cap(struct drm_device *dev, void *data, struct drm_file *file_priv);
+int drm_set_client_cap(struct drm_device *dev, void *data, struct drm_file *file_priv);
+
+/* KMS property ioctl handlers. */
+int drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
+int drm_mode_obj_getproperties_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
+int drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
+
+/* KMS getfb2 handler. */
+int drm_mode_getfb2_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
 /* Authentication ioctl handlers. */
 int drm_getmagic(struct drm_device *dev, void *data, struct drm_file *file_priv);

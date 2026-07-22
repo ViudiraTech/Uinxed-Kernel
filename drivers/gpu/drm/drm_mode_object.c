@@ -22,6 +22,9 @@
 #define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
 #endif
 
+/* External helper from drm_property.c */
+extern struct drm_property *drm_property_find(struct drm_device *dev, struct drm_file *file_priv, uint32_t id);
+
 /* Initial backing-array capacity for a freshly attached property set. */
 #define DRM_OBJECT_PROP_INITIAL_CAPACITY 16u
 
@@ -259,6 +262,83 @@ void drm_property_set_init(struct drm_property_set *set)
     if (!set)
         return;
     memset(set, 0, sizeof(*set));
+}
+
+/*
+ * drm_mode_obj_getproperties_ioctl - Handle DRM_IOCTL_MODE_OBJ_GETPROPERTIES.
+ * @dev: DRM device
+ * @data: pointer to struct drm_mode_obj_get_properties (userspace buffer)
+ * @file_priv: DRM file handle
+ *
+ * Looks up a mode object by ID and returns its attached property IDs and values.
+ */
+int drm_mode_obj_getproperties_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
+{
+    struct drm_mode_obj_get_properties *req = (struct drm_mode_obj_get_properties *)data;
+    struct drm_mode_object *obj;
+
+    if (!dev || !req) {
+        return -EINVAL;
+    }
+
+    obj = drm_mode_object_find(dev, file_priv, req->obj_id, req->obj_type);
+    if (!obj) {
+        return -ENOENT;
+    }
+
+    if (obj->properties) {
+        struct drm_property_set *set = obj->properties;
+
+        spin_lock(&set->lock);
+        req->count_props = set->count;
+        /* For MVP we only return the count; actual ID/value copy would
+         * require userspace pointers via req->props_ptr/prop_values_ptr. */
+        spin_unlock(&set->lock);
+    } else {
+        req->count_props = 0;
+    }
+
+    drm_mode_object_put(obj);
+    return 0;
+}
+
+/*
+ * drm_mode_obj_setproperty_ioctl - Handle DRM_IOCTL_MODE_OBJ_SETPROPERTY.
+ * @dev: DRM device
+ * @data: pointer to struct drm_mode_obj_set_property (userspace buffer)
+ * @file_priv: DRM file handle
+ *
+ * Looks up a mode object and property, then sets the property value on the object.
+ */
+int drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
+{
+    struct drm_mode_obj_set_property *req = (struct drm_mode_obj_set_property *)data;
+    struct drm_mode_object *obj;
+    struct drm_property *prop;
+
+    (void)file_priv;
+
+    if (!dev || !req) {
+        return -EINVAL;
+    }
+
+    obj = drm_mode_object_find(dev, NULL, req->obj_id, req->obj_type);
+    if (!obj) {
+        return -ENOENT;
+    }
+
+    prop = drm_property_find(dev, NULL, req->prop_id);
+    if (!prop) {
+        drm_mode_object_put(obj);
+        return -ENOENT;
+    }
+
+    /* Attach property if not already present, then set value */
+    drm_object_attach_property(obj, prop, req->value);
+
+    drm_mode_object_put(&prop->base);
+    drm_mode_object_put(obj);
+    return 0;
 }
 
 /* Release backing storage of a property set and zero the struct. */

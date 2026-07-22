@@ -58,30 +58,29 @@ static void drm_dummy_lastclose(struct drm_device *dev)
     (void)dev;
 }
 
-static int drm_dummy_dumb_create(struct drm_file *file_priv, struct drm_device *dev, struct drm_mode_create_dumb *args)
+static void drm_dummy_gem_free_object(struct drm_gem_object *obj)
 {
-    (void)file_priv;
-    (void)dev;
-    (void)args;
-    return -ENOSYS;
+    if (obj) {
+        free(obj->backing);
+        obj->backing = NULL;
+        free(obj->dma_buf);
+        obj->dma_buf = NULL;
+    }
 }
 
-static int drm_dummy_dumb_map_offset(struct drm_file *file_priv, struct drm_device *dev, uint32_t handle,
-                                     uint64_t *offset)
+static struct drm_gem_object *drm_dummy_gem_prime_import(struct drm_device *dev, void *dma_buf)
 {
-    (void)file_priv;
-    (void)dev;
-    (void)handle;
-    (void)offset;
-    return -ENOSYS;
-}
+    /* For the dummy driver, we can only import buffers that were
+     * exported by ourselves. The dma_buf pointer is actually a
+     * drm_gem_object pointer. */
+    struct drm_gem_object *obj = (struct drm_gem_object *)dma_buf;
 
-static int drm_dummy_dumb_destroy(struct drm_file *file_priv, struct drm_device *dev, uint32_t handle)
-{
-    (void)file_priv;
     (void)dev;
-    (void)handle;
-    return -ENOSYS;
+    if (!obj) {
+        return NULL;
+    }
+    drm_gem_object_get(obj);
+    return obj;
 }
 
 static struct drm_driver drm_dummy_driver = {
@@ -91,13 +90,15 @@ static struct drm_driver drm_dummy_driver = {
     .major         = 1,
     .minor         = 0,
     .patchlevel    = 0,
-    .driver_features = DRIVER_MODESET | DRIVER_GEM,
+    .driver_features = DRIVER_MODESET | DRIVER_GEM | DRIVER_ATOMIC | DRIVER_PRIME | DRIVER_RENDER,
     .open          = drm_dummy_open,
     .postclose     = drm_dummy_postclose,
     .lastclose     = drm_dummy_lastclose,
-    .dumb_create   = drm_dummy_dumb_create,
-    .dumb_map_offset = drm_dummy_dumb_map_offset,
-    .dumb_destroy  = drm_dummy_dumb_destroy,
+    .gem_free_object = drm_dummy_gem_free_object,
+    .gem_prime_import = drm_dummy_gem_prime_import,
+    .dumb_create   = drm_gem_dumb_create,
+    .dumb_map_offset = drm_gem_dumb_map_offset,
+    .dumb_destroy  = drm_gem_dumb_destroy,
     .ioctls        = NULL,
     .num_ioctls    = 0,
 };
