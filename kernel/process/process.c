@@ -10,22 +10,30 @@
 
 #include <common.h>
 #include <debug.h>
+#include <epoll.h>
 #include <errno.h>
 #include <frame.h>
+#include <futex.h>
 #include <heap.h>
 #include <hhdm.h>
 #include <page.h>
+#include <posix_mq.h>
 #include <printk.h>
 #include <process.h>
 #include <sched.h>
 #include <smp.h>
+#include <socket.h>
 #include <spin_lock.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <syscall.h>
+#include <sysv_ipc.h>
 #include <vfs.h>
+
+/* Pipe init extern declaration */
+extern void pipe_init(void);
 
 #define PROCESS_TABLE_SIZE 4096
 
@@ -483,6 +491,14 @@ void process_init(void)
     process_table_lock.rflags = 0;
 
     signal_init();
+
+    /* IPC subsystem initialization */
+    socket_init();
+    pipe_init();
+    sysv_ipc_init();
+    posix_mq_init();
+    futex_init();
+    epoll_init();
 
     process_t *init = process_create("init", NULL, NULL);
     if (!init) panic("process: Failed to create init process.");

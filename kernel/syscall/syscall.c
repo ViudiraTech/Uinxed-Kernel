@@ -5,26 +5,32 @@
  *
  *      2026/7/20 By Rainy101112
  *      2026/7/21 By JiTianYu391 - Extended with eventfd, timerfd, signalfd, mmap, 100+ syscalls
+ *      2026/7/22 By JiTianYu391 - Full IPC subsystem: UNIX sockets, pipes, SysV IPC, POSIX MQ, futex, epoll
  *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
 #include <common.h>
+#include <epoll.h>
 #include <errno.h>
 #include <eventfd.h>
+#include <futex.h>
 #include <interrupt.h>
 #include <mmap.h>
+#include <posix_mq.h>
 #include <printk.h>
 #include <process.h>
 #include <sched.h>
 #include <signal.h>
 #include <signalfd.h>
+#include <socket.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <syscall.h>
 #include <syscall_table.h>
+#include <sysv_ipc.h>
 #include <task.h>
 #include <timerfd.h>
 #include <tss.h>
@@ -1389,17 +1395,6 @@ static int64_t sys_prlimit64_stub(uint64_t pid, uint64_t resource, uint64_t new_
     return sys_getrlimit_stub(0, old_rlim, 0, 0, 0, 0);
 }
 
-static int64_t sys_epoll_pwait_stub(uint64_t epfd, uint64_t events, uint64_t maxevents, uint64_t timeout, uint64_t sigmask, uint64_t sigsetsize)
-{
-    (void)epfd;
-    (void)events;
-    (void)maxevents;
-    (void)timeout;
-    (void)sigmask;
-    (void)sigsetsize;
-    return -ENOSYS;
-}
-
 static int64_t sys_readahead_stub(uint64_t fd, uint64_t offset, uint64_t count, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)fd;
@@ -1763,6 +1758,352 @@ static int64_t sys_getpgid_wrap(uint64_t pid, uint64_t arg1, uint64_t arg2, uint
     return sys_getpgid((pid_t)pid);
 }
 
+/* ---------- IPC syscall wrappers ---------- */
+
+/* Socket wrappers */
+static int64_t sys_socket_wrap(uint64_t family, uint64_t type, uint64_t protocol, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_socket((uint32_t)family, (uint32_t)type, (uint32_t)protocol);
+}
+
+static int64_t sys_bind_wrap(uint64_t fd, uint64_t addr, uint64_t addrlen, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_bind((int)fd, (const sockaddr_un_t *)addr, (uint32_t)addrlen);
+}
+
+static int64_t sys_listen_wrap(uint64_t fd, uint64_t backlog, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_listen((int)fd, (int)backlog);
+}
+
+static int64_t sys_accept_wrap(uint64_t fd, uint64_t addr, uint64_t addrlen, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_accept((int)fd, (sockaddr_un_t *)addr, (uint32_t *)addrlen, 0);
+}
+
+static int64_t sys_accept4_wrap(uint64_t fd, uint64_t addr, uint64_t addrlen, uint64_t flags, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg4;
+    (void)arg5;
+    return sys_accept((int)fd, (sockaddr_un_t *)addr, (uint32_t *)addrlen, (int)flags);
+}
+
+static int64_t sys_connect_wrap(uint64_t fd, uint64_t addr, uint64_t addrlen, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_connect((int)fd, (const sockaddr_un_t *)addr, (uint32_t)addrlen);
+}
+
+static int64_t sys_sendto_wrap(uint64_t fd, uint64_t buf, uint64_t len, uint64_t flags, uint64_t addr, uint64_t addrlen)
+{
+    return sys_sendto((int)fd, (const void *)buf, (size_t)len, (int)flags, (const sockaddr_un_t *)addr, (uint32_t)addrlen);
+}
+
+static int64_t sys_recvfrom_wrap(uint64_t fd, uint64_t buf, uint64_t len, uint64_t flags, uint64_t addr, uint64_t addrlen)
+{
+    return sys_recvfrom((int)fd, (void *)buf, (size_t)len, (int)flags, (sockaddr_un_t *)addr, (uint32_t *)addrlen);
+}
+
+static int64_t sys_sendmsg_wrap(uint64_t fd, uint64_t msg, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_sendmsg((int)fd, (const msghdr_t *)msg, (int)flags);
+}
+
+static int64_t sys_recvmsg_wrap(uint64_t fd, uint64_t msg, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_recvmsg((int)fd, (msghdr_t *)msg, (int)flags);
+}
+
+static int64_t sys_shutdown_wrap(uint64_t fd, uint64_t how, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_shutdown((int)fd, (int)how);
+}
+
+static int64_t sys_socketpair_wrap(uint64_t domain, uint64_t type, uint64_t protocol, uint64_t sv, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg4;
+    (void)arg5;
+    return sys_socketpair((int)domain, (int)type, (int)protocol, (int *)sv);
+}
+
+static int64_t sys_getsockname_wrap(uint64_t fd, uint64_t addr, uint64_t addrlen, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_getsockname((int)fd, (sockaddr_un_t *)addr, (uint32_t *)addrlen);
+}
+
+static int64_t sys_getpeername_wrap(uint64_t fd, uint64_t addr, uint64_t addrlen, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_getpeername((int)fd, (sockaddr_un_t *)addr, (uint32_t *)addrlen);
+}
+
+static int64_t sys_setsockopt_wrap(uint64_t fd, uint64_t level, uint64_t optname, uint64_t optval, uint64_t optlen, uint64_t arg5)
+{
+    (void)arg5;
+    return sys_setsockopt((int)fd, (int)level, (int)optname, (const void *)optval, (uint32_t)optlen);
+}
+
+static int64_t sys_getsockopt_wrap(uint64_t fd, uint64_t level, uint64_t optname, uint64_t optval, uint64_t optlen, uint64_t arg5)
+{
+    (void)arg5;
+    return sys_getsockopt((int)fd, (int)level, (int)optname, (void *)optval, (uint32_t *)optlen);
+}
+
+static int64_t sys_sendmmsg_wrap(uint64_t fd, uint64_t msgvec, uint64_t vlen, uint64_t flags, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg4;
+    (void)arg5;
+    return sys_sendmmsg((int)fd, (void *)msgvec, (uint32_t)vlen, (int)flags);
+}
+
+static int64_t sys_recvmmsg_wrap(uint64_t fd, uint64_t msgvec, uint64_t vlen, uint64_t flags, uint64_t timeout, uint64_t arg5)
+{
+    (void)arg5;
+    return sys_recvmmsg((int)fd, (void *)msgvec, (uint32_t)vlen, (int)flags, (void *)timeout);
+}
+
+/* Pipe wrappers */
+extern int64_t sys_pipe(int pipefd[2]);
+extern int64_t sys_pipe2(int pipefd[2], int flags);
+
+static int64_t sys_pipe_wrap(uint64_t pipefd, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_pipe((int *)pipefd);
+}
+
+static int64_t sys_pipe2_wrap(uint64_t pipefd, uint64_t flags, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_pipe2((int *)pipefd, (int)flags);
+}
+
+/* System V IPC wrappers */
+
+static int64_t sys_semget_wrap(uint64_t key, uint64_t nsems, uint64_t semflg, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_semget((key_t)key, (int)nsems, (int)semflg);
+}
+
+static int64_t sys_semop_wrap(uint64_t semid, uint64_t sops, uint64_t nsops, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_semop((int)semid, (sembuf_t *)sops, (size_t)nsops);
+}
+
+static int64_t sys_semtimedop_wrap(uint64_t semid, uint64_t sops, uint64_t nsops, uint64_t timeout, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg4;
+    (void)arg5;
+    return sys_semtimedop((int)semid, (sembuf_t *)sops, (size_t)nsops, (const void *)timeout);
+}
+
+static int64_t sys_semctl_wrap(uint64_t semid, uint64_t semnum, uint64_t cmd, uint64_t arg, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg4;
+    (void)arg5;
+    return sys_semctl((int)semid, (int)semnum, (int)cmd, arg);
+}
+
+static int64_t sys_shmget_wrap(uint64_t key, uint64_t size, uint64_t shmflg, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_shmget((key_t)key, (size_t)size, (int)shmflg);
+}
+
+static int64_t sys_shmat_wrap(uint64_t shmid, uint64_t shmaddr, uint64_t shmflg, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_shmat((int)shmid, (const void *)shmaddr, (int)shmflg);
+}
+
+static int64_t sys_shmdt_wrap(uint64_t shmaddr, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_shmdt((const void *)shmaddr);
+}
+
+static int64_t sys_shmctl_wrap(uint64_t shmid, uint64_t cmd, uint64_t buf, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_shmctl((int)shmid, (int)cmd, (void *)buf);
+}
+
+static int64_t sys_msgget_wrap(uint64_t key, uint64_t msgflg, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_msgget((key_t)key, (int)msgflg);
+}
+
+static int64_t sys_msgsnd_wrap(uint64_t msqid, uint64_t msgp, uint64_t msgsz, uint64_t msgflg, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg4;
+    (void)arg5;
+    return sys_msgsnd((int)msqid, (const void *)msgp, (size_t)msgsz, (int)msgflg);
+}
+
+static int64_t sys_msgrcv_wrap(uint64_t msqid, uint64_t msgp, uint64_t msgsz, uint64_t msgtyp, uint64_t msgflg, uint64_t arg5)
+{
+    (void)arg5;
+    return sys_msgrcv((int)msqid, (void *)msgp, (size_t)msgsz, (int64_t)msgtyp, (int)msgflg);
+}
+
+static int64_t sys_msgctl_wrap(uint64_t msqid, uint64_t cmd, uint64_t buf, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_msgctl((int)msqid, (int)cmd, (void *)buf);
+}
+
+/* POSIX MQ wrappers */
+static int64_t sys_mq_open_wrap(uint64_t name, uint64_t oflag, uint64_t mode, uint64_t attr, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg4;
+    (void)arg5;
+    return sys_mq_open((const char *)name, (int)oflag, (uint32_t)mode, (mq_attr_t *)attr);
+}
+
+static int64_t sys_mq_unlink_wrap(uint64_t name, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_mq_unlink((const char *)name);
+}
+
+static int64_t sys_mq_timedsend_wrap(uint64_t mqdes, uint64_t msg_ptr, uint64_t msg_len, uint64_t msg_prio, uint64_t abs_timeout, uint64_t arg5)
+{
+    (void)arg5;
+    return sys_mq_timedsend((int)mqdes, (const char *)msg_ptr, (size_t)msg_len, (uint32_t)msg_prio, (const void *)abs_timeout);
+}
+
+static int64_t sys_mq_timedreceive_wrap(uint64_t mqdes, uint64_t msg_ptr, uint64_t msg_len, uint64_t msg_prio, uint64_t abs_timeout, uint64_t arg5)
+{
+    (void)arg5;
+    return sys_mq_timedreceive((int)mqdes, (char *)msg_ptr, (size_t)msg_len, (uint32_t *)msg_prio, (const void *)abs_timeout);
+}
+
+static int64_t sys_mq_notify_wrap(uint64_t mqdes, uint64_t notification, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_mq_notify((int)mqdes, (const sigevent_t *)notification);
+}
+
+static int64_t sys_mq_getsetattr_wrap(uint64_t mqdes, uint64_t newattr, uint64_t oldattr, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_mq_getsetattr((int)mqdes, (const mq_attr_t *)newattr, (mq_attr_t *)oldattr);
+}
+
+/* Futex wrapper */
+static int64_t sys_futex_wrap(uint64_t uaddr, uint64_t futex_op, uint64_t val, uint64_t timeout, uint64_t uaddr2, uint64_t val3)
+{
+    return sys_futex((uint32_t *)uaddr, (int)futex_op, (uint32_t)val, timeout, (uint32_t *)uaddr2, (uint32_t)val3);
+}
+
+/* Epoll wrappers */
+static int64_t sys_epoll_create_wrap(uint64_t size, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_epoll_create((int)size);
+}
+
+static int64_t sys_epoll_create1_wrap(uint64_t flags, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_epoll_create1((int)flags);
+}
+
+static int64_t sys_epoll_ctl_wrap(uint64_t epfd, uint64_t op, uint64_t fd, uint64_t event, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg4;
+    (void)arg5;
+    return sys_epoll_ctl((int)epfd, (int)op, (int)fd, (epoll_event_t *)event);
+}
+
+static int64_t sys_epoll_wait_wrap(uint64_t epfd, uint64_t events, uint64_t maxevents, uint64_t timeout, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg4;
+    (void)arg5;
+    return sys_epoll_wait((int)epfd, (epoll_event_t *)events, (int)maxevents, (int)timeout);
+}
+
+static int64_t sys_epoll_pwait_wrap(uint64_t epfd, uint64_t events, uint64_t maxevents, uint64_t timeout, uint64_t sigmask, uint64_t sigsetsize)
+{
+    return sys_epoll_pwait((int)epfd, (epoll_event_t *)events, (int)maxevents, (int)timeout, (const void *)sigmask, (size_t)sigsetsize);
+}
+
 typedef int64_t (*syscall_fn_t)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 
 static syscall_fn_t syscall_table[SYS_MAX] = {
@@ -1788,16 +2129,16 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_READV]                  = sys_stub,
     [SYS_WRITEV]                 = sys_stub,
     [SYS_ACCESS]                 = sys_access_stub,
-    [SYS_PIPE]                   = sys_stub,
+    [SYS_PIPE]                   = sys_pipe_wrap,
     [SYS_SELECT]                 = sys_select_stub,
     [SYS_SCHED_YIELD]            = sys_sched_yield,
     [SYS_MREMAP]                 = sys_mremap_wrap,
     [SYS_MSYNC]                  = sys_msync_wrap,
     [SYS_MINCORE]                = sys_mincore_wrap,
     [SYS_MADVISE]                = sys_madvise_wrap,
-    [SYS_SHMGET]                 = sys_stub,
-    [SYS_SHMAT]                  = sys_stub,
-    [SYS_SHMCTL]                 = sys_stub,
+    [SYS_SHMGET]                 = sys_shmget_wrap,
+[SYS_SHMAT]                  = sys_shmat_wrap,
+[SYS_SHMCTL]                 = sys_shmctl_wrap,
     [SYS_DUP]                    = sys_dup,
     [SYS_DUP2]                   = sys_dup2,
     [SYS_PAUSE]                  = sys_pause_wrap,
@@ -1807,21 +2148,21 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_SETITIMER]              = sys_stub_ok,
     [SYS_GETPID]                 = sys_getpid,
     [SYS_SENDFILE]               = sys_stub,
-    [SYS_SOCKET]                 = sys_stub,
-    [SYS_CONNECT]                = sys_stub,
-    [SYS_ACCEPT]                 = sys_stub,
-    [SYS_SENDTO]                 = sys_stub,
-    [SYS_RECVFROM]               = sys_stub,
-    [SYS_SENDMSG]                = sys_stub,
-    [SYS_RECVMSG]                = sys_stub,
-    [SYS_SHUTDOWN]               = sys_stub,
-    [SYS_BIND]                   = sys_stub,
-    [SYS_LISTEN]                 = sys_stub,
-    [SYS_GETSOCKNAME]            = sys_stub,
-    [SYS_GETPEERNAME]            = sys_stub,
-    [SYS_SOCKETPAIR]             = sys_stub,
-    [SYS_SETSOCKOPT]             = sys_stub,
-    [SYS_GETSOCKOPT]             = sys_stub,
+    [SYS_SOCKET]                 = sys_socket_wrap,
+[SYS_CONNECT]                = sys_connect_wrap,
+[SYS_ACCEPT]                 = sys_accept_wrap,
+[SYS_SENDTO]                 = sys_sendto_wrap,
+[SYS_RECVFROM]               = sys_recvfrom_wrap,
+[SYS_SENDMSG]                = sys_sendmsg_wrap,
+[SYS_RECVMSG]                = sys_recvmsg_wrap,
+[SYS_SHUTDOWN]               = sys_shutdown_wrap,
+[SYS_BIND]                   = sys_bind_wrap,
+[SYS_LISTEN]                 = sys_listen_wrap,
+[SYS_GETSOCKNAME]            = sys_getsockname_wrap,
+[SYS_GETPEERNAME]            = sys_getpeername_wrap,
+[SYS_SOCKETPAIR]             = sys_socketpair_wrap,
+[SYS_SETSOCKOPT]             = sys_setsockopt_wrap,
+[SYS_GETSOCKOPT]             = sys_getsockopt_wrap,
     [SYS_CLONE]                  = NULL,
     [SYS_FORK]                   = NULL,
     [SYS_VFORK]                  = NULL,
@@ -1830,14 +2171,14 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_WAIT4]                  = sys_wait4,
     [SYS_KILL]                   = sys_kill,
     [SYS_UNAME]                  = sys_uname,
-    [SYS_SEMGET]                 = sys_stub,
-    [SYS_SEMOP]                  = sys_stub,
-    [SYS_SEMCTL]                 = sys_stub,
-    [SYS_SHMDT]                  = sys_stub,
-    [SYS_MSGGET]                 = sys_stub,
-    [SYS_MSGSND]                 = sys_stub,
-    [SYS_MSGRCV]                 = sys_stub,
-    [SYS_MSGCTL]                 = sys_stub,
+    [SYS_SEMGET]                 = sys_semget_wrap,
+[SYS_SEMOP]                  = sys_semop_wrap,
+[SYS_SEMCTL]                 = sys_semctl_wrap,
+[SYS_SHMDT]                  = sys_shmdt_wrap,
+[SYS_MSGGET]                 = sys_msgget_wrap,
+[SYS_MSGSND]                 = sys_msgsnd_wrap,
+[SYS_MSGRCV]                 = sys_msgrcv_wrap,
+[SYS_MSGCTL]                 = sys_msgctl_wrap,
     [SYS_FCNTL]                  = sys_stub_ok,
     [SYS_FLOCK]                  = sys_stub_ok,
     [SYS_FSYNC]                  = sys_stub_ok,
@@ -1968,7 +2309,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_FREMOVEXATTR]           = sys_stub,
     [SYS_TKILL]                  = sys_tkill_stub,
     [SYS_TIME]                   = sys_time,
-    [SYS_FUTEX]                  = sys_stub,
+    [SYS_FUTEX]                  = sys_futex_wrap,
     [SYS_SCHED_SETAFFINITY]      = sys_stub_ok,
     [SYS_SCHED_GETAFFINITY]      = sys_sched_getaffinity_stub,
     [SYS_SET_THREAD_AREA]        = sys_stub,
@@ -1979,14 +2320,14 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_IO_CANCEL]              = sys_stub,
     [SYS_GET_THREAD_AREA]        = sys_stub,
     [SYS_LOOKUP_DCOOKIE]         = sys_stub,
-    [SYS_EPOLL_CREATE]           = sys_stub,
-    [SYS_EPOLL_CTL_OLD]          = sys_stub,
-    [SYS_EPOLL_WAIT_OLD]         = sys_stub,
+    [SYS_EPOLL_CREATE]           = sys_epoll_create_wrap,
+[SYS_EPOLL_CTL_OLD]          = sys_epoll_ctl_wrap,
+[SYS_EPOLL_WAIT_OLD]         = sys_epoll_wait_wrap,
     [SYS_REMAP_FILE_PAGES]       = sys_stub,
     [SYS_GETDENTS64]             = sys_stub,
     [SYS_SET_TID_ADDRESS]        = sys_set_tid_address_stub,
     [SYS_RESTART_SYSCALL]        = sys_stub,
-    [SYS_SEMTIMEDOP]             = sys_stub,
+    [SYS_SEMTIMEDOP]             = sys_semtimedop_wrap,
     [SYS_FADVISE64]              = sys_fadvise64_stub,
     [SYS_TIMER_CREATE]           = sys_stub,
     [SYS_TIMER_SETTIME]          = sys_stub,
@@ -1998,20 +2339,20 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_CLOCK_GETRES]           = sys_clock_getres_stub,
     [SYS_CLOCK_NANOSLEEP]        = sys_clock_nanosleep_stub,
     [SYS_EXIT_GROUP]             = sys_exit_group,
-    [SYS_EPOLL_WAIT]             = sys_stub,
-    [SYS_EPOLL_CTL]              = sys_stub,
+    [SYS_EPOLL_WAIT]             = sys_epoll_wait_wrap,
+[SYS_EPOLL_CTL]              = sys_epoll_ctl_wrap,
     [SYS_TGKILL]                 = sys_tgkill_wrap,
     [SYS_UTIMES]                 = sys_stub_ok,
     [SYS_VSERVER]                = sys_stub,
     [SYS_MBIND]                  = sys_stub,
     [SYS_SET_MEMPOLICY]          = sys_stub,
     [SYS_GET_MEMPOLICY]          = sys_stub,
-    [SYS_MQ_OPEN]                = sys_stub,
-    [SYS_MQ_UNLINK]              = sys_stub,
-    [SYS_MQ_TIMEDSEND]           = sys_stub,
-    [SYS_MQ_TIMEDRECEIVE]        = sys_stub,
-    [SYS_MQ_NOTIFY]              = sys_stub,
-    [SYS_MQ_GETSETATTR]          = sys_stub,
+    [SYS_MQ_OPEN]                = sys_mq_open_wrap,
+[SYS_MQ_UNLINK]              = sys_mq_unlink_wrap,
+[SYS_MQ_TIMEDSEND]           = sys_mq_timedsend_wrap,
+[SYS_MQ_TIMEDRECEIVE]        = sys_mq_timedreceive_wrap,
+[SYS_MQ_NOTIFY]              = sys_mq_notify_wrap,
+[SYS_MQ_GETSETATTR]          = sys_mq_getsetattr_wrap,
     [SYS_KEXEC_LOAD]             = sys_stub,
     [SYS_WAITID]                 = sys_stub,
     [SYS_ADD_KEY]                = sys_stub,
@@ -2047,25 +2388,25 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_VMSPLICE]               = sys_stub,
     [SYS_MOVE_PAGES]             = sys_stub,
     [SYS_UTIMENSAT]              = sys_utimensat_stub,
-    [SYS_EPOLL_PWAIT]            = sys_epoll_pwait_stub,
+    [SYS_EPOLL_PWAIT]            = sys_epoll_pwait_wrap,
     [SYS_SIGNALFD]               = sys_signalfd_wrap,
     [SYS_TIMERFD_CREATE]         = sys_timerfd_create_wrap,
     [SYS_EVENTFD]                = sys_eventfd_wrap,
     [SYS_FALLOCATE]              = sys_fallocate_stub,
     [SYS_TIMERFD_SETTIME]        = sys_timerfd_settime_wrap,
     [SYS_TIMERFD_GETTIME]        = sys_timerfd_gettime_wrap,
-    [SYS_ACCEPT4]                = sys_stub,
-    [SYS_SIGNALFD4]              = sys_signalfd4_wrap,
-    [SYS_EVENTFD2]               = sys_eventfd2_wrap,
-    [SYS_EPOLL_CREATE1]          = sys_stub,
-    [SYS_DUP3]                   = sys_dup3,
-    [SYS_PIPE2]                  = sys_stub,
+    [SYS_ACCEPT4]                = sys_accept4_wrap,
+[SYS_SIGNALFD4]              = sys_signalfd4_wrap,
+[SYS_EVENTFD2]               = sys_eventfd2_wrap,
+[SYS_EPOLL_CREATE1]          = sys_epoll_create1_wrap,
+[SYS_DUP3]                   = sys_dup3,
+[SYS_PIPE2]                  = sys_pipe2_wrap,
     [SYS_INOTIFY_INIT1]          = sys_stub,
     [SYS_PREADV]                 = sys_stub,
     [SYS_PWRITEV]                = sys_stub,
     [SYS_RT_TGSIGQUEUEINFO]      = sys_rt_tgsigqueueinfo_wrap,
     [SYS_PERF_EVENT_OPEN]        = sys_stub,
-    [SYS_RECVMMSG]               = sys_stub,
+    [SYS_RECVMMSG]               = sys_recvmmsg_wrap,
     [SYS_FANOTIFY_INIT]          = sys_stub,
     [SYS_FANOTIFY_MARK]          = sys_stub,
     [SYS_PRLIMIT64]              = sys_prlimit64_stub,
@@ -2073,7 +2414,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_OPEN_BY_HANDLE_AT]      = sys_stub,
     [SYS_CLOCK_ADJTIME]          = sys_stub,
     [SYS_SYNCFS]                 = sys_stub_ok,
-    [SYS_SENDMMSG]               = sys_stub,
+    [SYS_SENDMMSG]               = sys_sendmmsg_wrap,
     [SYS_SETNS]                  = sys_stub,
     [SYS_GETCPU]                 = sys_getcpu_stub,
     [SYS_PROCESS_VM_READV]       = sys_stub,

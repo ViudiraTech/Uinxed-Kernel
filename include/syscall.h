@@ -23,6 +23,7 @@
 #define O_CREAT    0x0040
 #define O_APPEND   0x0400
 #define O_NONBLOCK 0x0800
+#define O_CLOEXEC  0x80000
 
 #define SEEK_SET 0
 #define SEEK_CUR 1
