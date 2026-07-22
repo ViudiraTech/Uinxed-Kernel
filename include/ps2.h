@@ -11,6 +11,7 @@
 #ifndef INCLUDE_PS2_H_
 #define INCLUDE_PS2_H_
 
+#include <evdev.h>
 #include <input_event.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -92,5 +93,8 @@ int ps2kbd_poll_events(void *ctx, size_t events);
 
 /* Block the current kernel thread until a keyboard event is queued. */
 int ps2kbd_wait_events(void);
+
+/* The evdev device for the PS/2 keyboard (set by init_ps2). */
+extern evdev_t *ps2_keyboard_evdev;
 
 #endif // INCLUDE_PS2_H_

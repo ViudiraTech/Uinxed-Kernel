@@ -40,6 +40,7 @@ static int tty_should_flush_now(const char ch)
     if (used >= TTY_BUF_SIZE - 1) return 1;
     if (tty_device->type == TTY_DEVICE_SERIAL) return ch == '\n';
     if (tty_device->type == TTY_DEVICE_VGA) return 0;
+    if (tty_device->type == TTY_DEVICE_DRM) return 0;
     return ch == '\n';
 }
 
@@ -158,6 +159,8 @@ tty_device_t parse_boot_tty_str(char *boot_tty_str)
         tty_dev.type = TTY_DEVICE_VGA;
     } else if (!strcmp(type_str, "ttyS")) {
         tty_dev.type = TTY_DEVICE_SERIAL;
+    } else if (!strcmp(type_str, "ttyD")) {
+        tty_dev.type = TTY_DEVICE_DRM;
     }
     tty_dev.port = atoi(port_str); // NOLINT(cert-err34-c)
     return tty_dev;
@@ -203,6 +206,8 @@ tty_device_t *get_boot_tty(void)
                     if (!tmp_tty.port) valid = 1;
                 } else if (tmp_tty.type == TTY_DEVICE_SERIAL) {
                     if (tmp_tty.port <= 3) valid = 1;
+                } else if (tmp_tty.type == TTY_DEVICE_DRM) {
+                    if (!tmp_tty.port) valid = 1;
                 }
 
                 if (valid) {
@@ -233,6 +238,7 @@ void tty_buff_flush(void)
         early_break = 1;
         switch (tty_device->type) {
             case TTY_DEVICE_VGA :
+            case TTY_DEVICE_DRM :
                 if (tty_device->port == 0) {
                     tty_vga_flush_locked();
                 } else {
@@ -281,7 +287,7 @@ void tty_deferred_flush(void)
 {
     tty_device_t *tty_device = get_boot_tty();
 
-    if (!tty_device || tty_device->type != TTY_DEVICE_VGA || tty_device->port != 0) return;
+    if (!tty_device || (tty_device->type != TTY_DEVICE_VGA && tty_device->type != TTY_DEVICE_DRM) || tty_device->port != 0) return;
 
     spin_lock(&tty_flush_spinlock);
     if (tty_vga_tail == tty_vga_head) {
@@ -300,7 +306,7 @@ static void tty_buff_add(const char ch)
     if (ch == '\0') return;
     tty_device = get_boot_tty();
 
-    if (tty_device && tty_device->type == TTY_DEVICE_VGA && tty_device->port == 0) {
+    if (tty_device && (tty_device->type == TTY_DEVICE_VGA || tty_device->type == TTY_DEVICE_DRM) && tty_device->port == 0) {
         spin_lock(&tty_flush_spinlock);
         tty_vga_queue_push(ch);
         if (tty_vga_queue_used() >= TTY_BUF_SIZE) tty_vga_flush_locked();

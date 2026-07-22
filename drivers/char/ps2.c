@@ -10,11 +10,13 @@
 
 #include <apic.h>
 #include <common.h>
+#include <evdev.h>
 #include <interrupt.h>
 #include <printk.h>
 #include <ps2.h>
 #include <sched.h>
 #include <spin_lock.h>
+#include <string.h>
 
 #define PS2_KBD_EVENT_QUEUE_SIZE 128
 
@@ -24,24 +26,44 @@ static size_t        ps2kbd_event_tail = 0;
 static spinlock_t    ps2kbd_event_lock = {0};
 static wait_queue_t  ps2kbd_event_wait;
 
+/* ---- evdev integration ---- */
+static input_dev_t ps2_keyboard_dev;
+evdev_t    *ps2_keyboard_evdev;
+
+static inline void ps2_set_bit(unsigned int nr, uint32_t *addr)
+{
+    addr[nr / 32] |= (1U << (nr % 32));
+}
+
+#define set_bit ps2_set_bit
+
 static void ps2kbd_event_push(uint8_t scancode)
 {
-    size_t next;
+    size_t   next;
+    uint64_t ns = nano_time();
+    bool     pressed = !(scancode & 0x80);
 
+    /* Push to the legacy inline queue (for VFS compatibility) */
     spin_lock(&ps2kbd_event_lock);
     next = (ps2kbd_event_head + 1) % PS2_KBD_EVENT_QUEUE_SIZE;
-    if (next == ps2kbd_event_tail) ps2kbd_event_tail = (ps2kbd_event_tail + 1) % PS2_KBD_EVENT_QUEUE_SIZE;
+    if (next == ps2kbd_event_tail)
+        ps2kbd_event_tail = (ps2kbd_event_tail + 1) % PS2_KBD_EVENT_QUEUE_SIZE;
 
     ps2kbd_events[ps2kbd_event_head] = (input_event_t) {
-        .timestamp_ns = nano_time(),
-        .type         = input_event_type_raw,
-        .code         = scancode,
-        .value        = (scancode & 0x80) ? 0 : 1,
-        .raw          = scancode,
+        .sec   = ns / 1000000000ULL,
+        .usec  = (ns / 1000ULL) % 1000000ULL,
+        .type  = EV_KEY,
+        .code  = scancode,
+        .value = pressed ? 1 : 0,
     };
     ps2kbd_event_head = next;
     spin_unlock(&ps2kbd_event_lock);
     wait_queue_wake_one(&ps2kbd_event_wait);
+
+    /* Inject into the evdev subsystem */
+    evdev_inject_event(&ps2_keyboard_dev, EV_MSC, MSC_SCAN, scancode);
+    evdev_inject_event(&ps2_keyboard_dev, EV_KEY, scancode, pressed ? 1 : 0);
+    evdev_inject_syn(&ps2_keyboard_dev);
 }
 
 INTERRUPT_BEGIN static void ps2kbd_irq(interrupt_frame_t *frame)
@@ -116,6 +138,9 @@ void ps2_write_config(uint8_t config)
 /* Initialize the PS/2 controller */
 void init_ps2(void)
 {
+    /* Initialize the evdev subsystem first */
+    evdev_init();
+
     /* Disable all ports */
     ps2_write_cmd(PS2_CMD_DISABLE_PORT1);
     ps2_write_cmd(PS2_CMD_DISABLE_PORT2);
@@ -173,6 +198,49 @@ void init_ps2(void)
 
     register_interrupt_handler(IRQ_1, (void *)ps2kbd_irq, 0, 0x8e);
     wait_queue_init(&ps2kbd_event_wait);
+
+    /* Initialize the evdev input device for the PS/2 keyboard */
+    memset(&ps2_keyboard_dev, 0, sizeof(ps2_keyboard_dev));
+    strncpy(ps2_keyboard_dev.name, "AT Translated Set 2 keyboard",
+            EVDEV_MAX_NAME_LEN - 1);
+    strncpy(ps2_keyboard_dev.phys, "isa0060/serio0/input0",
+            EVDEV_MAX_NAME_LEN - 1);
+    ps2_keyboard_dev.id.bustype = BUS_I8042;
+    ps2_keyboard_dev.id.vendor  = 0x0001;
+    ps2_keyboard_dev.id.product = 0x0001;
+    ps2_keyboard_dev.id.version = 0xab41;
+    ps2_keyboard_dev.hint_events_per_packet = 3;
+    ps2_keyboard_dev.rep[0] = 250; /* repeat delay (ms) */
+    ps2_keyboard_dev.rep[1] = 33;  /* repeat period (ms) */
+    ps2_keyboard_dev.exist = true;
+
+    /* Set capability bits: keyboard supports EV_KEY, EV_MSC, EV_SYN */
+    set_bit(EV_KEY, ps2_keyboard_dev.evbit);
+    set_bit(EV_MSC, ps2_keyboard_dev.evbit);
+    set_bit(EV_SYN, ps2_keyboard_dev.evbit);
+    set_bit(EV_REP, ps2_keyboard_dev.evbit);
+
+    /* All keys are supported */
+    {
+        unsigned int i;
+        for (i = 0; i < KEY_CNT; i++)
+            set_bit(i, ps2_keyboard_dev.keybit);
+    }
+
+    /* MSC_SCAN is supported */
+    set_bit(MSC_SCAN, ps2_keyboard_dev.mscbit);
+
+    /* Create and register the evdev device */
+    ps2_keyboard_evdev = evdev_create(&ps2_keyboard_dev);
+    if (ps2_keyboard_evdev) {
+        if (evdev_register(ps2_keyboard_evdev) == 0)
+            plogk("evdev: PS/2 keyboard registered as event%d\n",
+                  ps2_keyboard_evdev->minor);
+        else
+            plogk("evdev: Failed to register PS/2 keyboard\n");
+    } else {
+        plogk("evdev: Failed to create PS/2 keyboard evdev\n");
+    }
 }
 
 size_t ps2kbd_read_events(void *ctx, void *addr, size_t offset, size_t size)

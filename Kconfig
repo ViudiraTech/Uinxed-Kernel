@@ -100,4 +100,33 @@ menu "Device drivers"
 
     endmenu
   endmenu
+  menu "Input device support"
+
+    config INPUT_EVDEV
+      bool "Event interface (evdev)"
+      default y
+      help
+        "Enable the Linux-compatible evdev input event subsystem, providing
+        /dev/input/eventX character devices for input event delivery."
+
+    config INPUT_EVDEV_BUFSIZE
+      int "evdev buffer size (power of 2)"
+      default 256
+      depends on INPUT_EVDEV
+      range 64 4096
+      help
+        "Size of the per-client event ring buffer, must be a power of 2."
+
+  endmenu
+  menu "Graphics support"
+
+    config DRM
+      bool "Direct Rendering Manager (DRM)"
+      default y
+      help
+        "Enable the Direct Rendering Manager (DRM) subsystem,
+        providing /dev/dri/card0 for GPU device access and KMS
+        (Kernel Mode Setting) support."
+
+  endmenu
 endmenu

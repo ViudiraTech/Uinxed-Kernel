@@ -28,6 +28,7 @@
 typedef enum {
     TTY_DEVICE_VGA,
     TTY_DEVICE_SERIAL,
+    TTY_DEVICE_DRM,
 } tty_device_kind_t;
 
 typedef enum {

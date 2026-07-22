@@ -15,6 +15,7 @@
 #include <cpuid.h>
 #include <debug.h>
 #include <devtmpfs.h>
+#include <drm/drm_init.h>
 #include <eis.h>
 #include <elf_loader.h>
 #include <errno.h>
@@ -156,6 +157,8 @@ void kernel_entry(void)
     init_cpio(); // Initialize CPIO
     devtmpfs_init();
     procfs_regist();
+    drm_init();
+    // drm_run_test(); I'm very happy! fucking drm is working
     {
         vfs_node_t proc = 0;
         int        st   = vfs_mkdir("/proc");
@@ -173,6 +176,7 @@ void kernel_entry(void)
             }
         }
     }
+    /* Initialize the scheduler and some shits. */
     sched_init();
     process_init();
     eventfd_init();

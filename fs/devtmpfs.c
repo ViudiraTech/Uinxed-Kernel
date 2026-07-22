@@ -10,7 +10,9 @@
 
 #include <blockdev.h>
 #include <devtmpfs.h>
+#include <drm/drm_init.h>
 #include <errno.h>
+#include <evdev.h>
 #include <fbdev.h>
 #include <ide.h>
 #include <input_event.h>
@@ -113,16 +115,38 @@ static void devtmpfs_create_partition_node(uint8_t drive, uint8_t part_index, co
     plogk("devtmpfs: Registered %s for partition type 0x%02x, start %u, sectors %u\n", dev_path, part->type, part->first_lba, part->sectors);
 }
 
+/* ---- evdev ioctl wrapper for PS/2 keyboard ---- */
+
+static evdev_client_t *ps2kbd_evdev_client;
+
+static int ps2kbd_evdev_ioctl(void *ctx, size_t req, void *arg)
+{
+    evdev_t *evdev = ps2_keyboard_evdev;
+
+    (void)ctx;
+
+    if (!evdev || !evdev->exist)
+        return -ENODEV;
+
+    if (!ps2kbd_evdev_client) {
+        ps2kbd_evdev_client = evdev_fop_open(evdev);
+        if (!ps2kbd_evdev_client)
+            return -ENOMEM;
+    }
+
+    return evdev_fop_ioctl(ps2kbd_evdev_client, (uint32_t)req, arg);
+}
+
+static const tmpfs_device_ops_t ps2kbd_device = {
+    .read  = ps2kbd_read_events,
+    .poll  = ps2kbd_poll_events,
+    .ioctl = ps2kbd_evdev_ioctl,
+    .write = 0,
+    .ctx   = 0,
+};
+
 static void devtmpfs_create_input_event_node(void)
 {
-    static const tmpfs_device_ops_t ps2kbd_device = {
-        .read  = ps2kbd_read_events,
-        .poll  = ps2kbd_poll_events,
-        .ioctl = 0,
-        .write = 0,
-        .ctx   = 0,
-    };
-
     vfs_node_t node;
     int        status;
 
@@ -305,6 +329,56 @@ static void devtmpfs_create_tty_nodes(void)
     }
 }
 
+static void devtmpfs_create_drm_node(void)
+{
+    static const tmpfs_device_ops_t drm_device = {
+        .read  = 0,
+        .write = 0,
+        .poll  = 0,
+        .ioctl = 0,
+        .ctx   = 0,
+    };
+
+    vfs_node_t node;
+    int        status;
+
+    struct drm_device *drm_dev = drm_get_singleton();
+    if (!drm_dev) {
+        return;
+    }
+
+    status = vfs_mkdir("/dev/dri");
+    if (status != EOK && status != -EEXIST) {
+        plogk("devtmpfs: Cannot create /dev/dri: %d\n", status);
+        return;
+    }
+
+    status = vfs_mkfile("/dev/dri/card0");
+    if (status != EOK && status != -EEXIST) {
+        plogk("devtmpfs: Cannot create /dev/dri/card0: %d\n", status);
+        return;
+    }
+
+    node = vfs_open("/dev/dri/card0");
+    if (!node) {
+        plogk("devtmpfs: Cannot open /dev/dri/card0 after creation.\n");
+        return;
+    }
+
+    status = tmpfs_bind_device(node, file_stream, &drm_device);
+    if (status != EOK) {
+        plogk("devtmpfs: Cannot bind /dev/dri/card0: %d\n", status);
+        vfs_close(node);
+        return;
+    }
+
+    node->blksz = 1;
+    node->dev   = 226; /* DRM major number per Linux devices.txt */
+    node->rdev  = 0;
+    plogk("devtmpfs: Registered /dev/dri/card0 as DRM device (major=226).\n");
+    vfs_close(node);
+}
+
 void devtmpfs_init(void)
 {
     int        status;
@@ -348,4 +422,5 @@ void devtmpfs_init(void)
     devtmpfs_create_framebuffer_node();
     devtmpfs_create_audio_nodes();
     devtmpfs_create_tty_nodes();
+    devtmpfs_create_drm_node();
 }
