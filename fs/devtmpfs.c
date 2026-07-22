@@ -284,7 +284,7 @@ typedef struct {
 static void devtmpfs_create_tty_nodes(void)
 {
     static const tmpfs_device_ops_t tty_device = {
-        .read  = 0, /* TTY read from userspace not yet supported */
+        .read  = tty_dev_read,
         .write = tty_dev_write,
         .poll  = tty_dev_poll,
         .ioctl = 0,

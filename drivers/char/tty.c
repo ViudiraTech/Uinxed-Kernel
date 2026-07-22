@@ -13,9 +13,11 @@
 #include <heap.h>
 #include <serial.h>
 #include <spin_lock.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <task.h>
 #include <tty.h>
 #include <video.h>
 
@@ -354,13 +356,211 @@ size_t tty_dev_write(void *ctx, const void *addr, size_t offset, size_t size)
     return size;
 }
 
-/* Poll TTY device for write readiness (always writable) */
+/* ----------------------------------------------------------------- */
+/*               TTY input (keyboard → line discipline)              */
+/* ----------------------------------------------------------------- */
+
+#define TTY_INPUT_BUF_SIZE 4096
+
+static char         tty_input_buf[TTY_INPUT_BUF_SIZE];
+static size_t       tty_input_head = 0;
+static size_t       tty_input_tail = 0;
+static spinlock_t   tty_input_lock = {0};
+static wait_queue_t tty_input_wait;
+static int          tty_input_ready = 0;
+
+static bool tty_shift_pressed = false;
+static bool tty_ctrl_pressed  = false;
+static bool tty_caps_active   = false;
+
+/*
+ * US QWERTY keymap (Set 1 scancode → ASCII).
+ * scancodes that do not produce a printable character map to 0.
+ */
+static const unsigned char tty_keymap[128] = {
+    0,    0,    '1', '2', '3', '4', '5', '6', '7', '8', /* 0-9 */
+    '9', '0',  '-', '=',  0,   0,   'q', 'w', 'e', 'r', /* 10-19 */
+    't', 'y',  'u', 'i', 'o', 'p', '[', ']',  0,   0,   /* 20-29 */
+    'a', 's',  'd', 'f', 'g', 'h', 'j', 'k', 'l', ';',  /* 30-39 */
+    '\'','`',  0,   '\\','z', 'x', 'c', 'v', 'b', 'n',  /* 40-49 */
+    'm', ',',  '.', '/',  0,   '*', 0,   ' ', 0,         /* 50-58 */
+};
+
+static const unsigned char tty_keymap_shift[128] = {
+    0,    0,    '!', '@', '#', '$', '%', '^', '&', '*', /* 0-9 */
+    '(', ')',  '_', '+',  0,   0,   'Q', 'W', 'E', 'R', /* 10-19 */
+    'T', 'Y',  'U', 'I', 'O', 'P', '{', '}', 0,   0,   /* 20-29 */
+    'A', 'S',  'D', 'F', 'G', 'H', 'J', 'K', 'L', ':',  /* 30-39 */
+    '"', '~',  0,   '|', 'Z', 'X', 'C', 'V', 'B', 'N',  /* 40-49 */
+    'M', '<',  '>', '?',  0,   '*', 0,   ' ', 0,         /* 50-58 */
+};
+
+static void tty_input_lazy_init(void)
+{
+    if (!tty_input_ready) {
+        wait_queue_init(&tty_input_wait);
+        tty_input_ready = 1;
+    }
+}
+
+/* Feed a scancode into the TTY line discipline */
+void tty_handle_scancode(uint8_t scancode, bool pressed)
+{
+    tty_input_lazy_init();
+
+    /* Track modifier keys */
+    switch (scancode) {
+    case 42:   /* LSHIFT */
+    case 54:   /* RSHIFT */
+        tty_shift_pressed = pressed;
+        return;
+    case 29:   /* LCTRL */
+    case 97:   /* RCTRL */
+        tty_ctrl_pressed = pressed;
+        return;
+    case 58:   /* CAPSLOCK */
+        if (pressed) tty_caps_active = !tty_caps_active;
+        return;
+    case 56:   /* LALT */
+    case 100:  /* RALT */
+        return;
+    default:
+        break;
+    }
+
+    /* Only handle key-press events, not releases */
+    if (!pressed) return;
+
+    char ch = 0;
+
+    /* Handle special (non-printable) keys */
+    switch (scancode) {
+    case 14:   /* BACKSPACE */
+        ch = '\b';
+        break;
+    case 28:   /* ENTER */
+        ch = '\n';
+        break;
+    case 15:   /* TAB */
+        ch = '\t';
+        break;
+    case 57:   /* SPACE */
+        ch = ' ';
+        break;
+    case 1:    /* ESC */
+        ch = 0x1B;
+        break;
+    default:
+        /* Translate printable keys via keymap */
+        if (scancode >= 128) return;
+        ch = (char)tty_keymap[scancode];
+        if (!ch) return;
+        {
+            bool shift = tty_shift_pressed;
+            if (tty_caps_active && ch >= 'a' && ch <= 'z')
+                shift = !shift;
+            if (shift)
+                ch = (char)tty_keymap_shift[scancode];
+        }
+        if (!ch) return;
+
+        /* Ctrl+letter → control code */
+        if (tty_ctrl_pressed && ch >= 'a' && ch <= 'z')
+            ch = (char)(ch - 'a' + 1);
+        break;
+    }
+
+    /* Echo the character back to the TTY output */
+    if (ch == '\b') {
+        /* Backspace echo: move cursor back, clear, move back again */
+        tty_print_ch('\b');
+        tty_print_ch(' ');
+        tty_print_ch('\b');
+    } else {
+        tty_print_ch(ch);
+    }
+
+    /* If this is a backspace, remove one character from the input buffer */
+    if (ch == '\b') {
+        spin_lock(&tty_input_lock);
+        if (tty_input_head != tty_input_tail) {
+            tty_input_head = (tty_input_head - 1) % TTY_INPUT_BUF_SIZE;
+        }
+        spin_unlock(&tty_input_lock);
+        return;
+    }
+
+    /* Push the character into the input buffer */
+    spin_lock(&tty_input_lock);
+    {
+        size_t next = (tty_input_head + 1) % TTY_INPUT_BUF_SIZE;
+        if (next != tty_input_tail) {
+            tty_input_buf[tty_input_head] = ch;
+            tty_input_head = next;
+        }
+    }
+    spin_unlock(&tty_input_lock);
+
+    /* Wake any task that is blocked waiting for TTY input */
+    wait_queue_wake_one(&tty_input_wait);
+}
+
+/* Read a byte buffer from the TTY device (canonical / line-at-a-time) */
+size_t tty_dev_read(void *ctx, void *addr, size_t offset, size_t size)
+{
+    (void)ctx;
+    (void)offset;
+
+    if (!addr || !size) return 0;
+
+    tty_input_lazy_init();
+
+    char  *buf   = (char *)addr;
+    size_t copied = 0;
+
+    for (;;) {
+        /* Wait until at least one character is available */
+        for (;;) {
+            spin_lock(&tty_input_lock);
+            int avail = tty_input_head != tty_input_tail;
+            spin_unlock(&tty_input_lock);
+            if (avail) break;
+            wait_queue_wait(&tty_input_wait);
+        }
+
+        /* Read one character from the ring buffer */
+        spin_lock(&tty_input_lock);
+        char ch = tty_input_buf[tty_input_tail];
+        tty_input_tail = (tty_input_tail + 1) % TTY_INPUT_BUF_SIZE;
+        spin_unlock(&tty_input_lock);
+
+        /* Ctrl+D (0x04): flush or EOF */
+        if ((unsigned char)ch == 0x04) {
+            if (copied == 0) return 0;   /* EOF – return 0 */
+            break;                        /* return what we have */
+        }
+
+        buf[copied++] = ch;
+
+        if (ch == '\n' || copied >= size) break;
+    }
+
+    return copied;
+}
+
+/* Poll TTY device for read/write readiness */
 int tty_dev_poll(void *ctx, size_t events)
 {
     (void)ctx;
 
     int revents = 0;
-    /* TTY is always writable; readable only if there's pending input */
-    if (events & 0x0004) revents |= 0x0004; /* POLLOUT */
+    if (events & 0x0004) revents |= 0x0004; /* POLLOUT – TTY is always writable */
+
+    if (events & 0x0001) {                  /* POLLIN */
+        tty_input_lazy_init();
+        spin_lock(&tty_input_lock);
+        if (tty_input_head != tty_input_tail) revents |= 0x0001;
+        spin_unlock(&tty_input_lock);
+    }
     return revents;
 }

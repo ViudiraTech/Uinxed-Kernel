@@ -17,6 +17,7 @@
 #include <sched.h>
 #include <spin_lock.h>
 #include <string.h>
+#include <tty.h>
 
 #define PS2_KBD_EVENT_QUEUE_SIZE 128
 
@@ -64,6 +65,9 @@ static void ps2kbd_event_push(uint8_t scancode)
     evdev_inject_event(&ps2_keyboard_dev, EV_MSC, MSC_SCAN, scancode);
     evdev_inject_event(&ps2_keyboard_dev, EV_KEY, scancode, pressed ? 1 : 0);
     evdev_inject_syn(&ps2_keyboard_dev);
+
+    /* Feed into the TTY line discipline */
+    tty_handle_scancode(scancode, pressed);
 }
 
 INTERRUPT_BEGIN static void ps2kbd_irq(interrupt_frame_t *frame)

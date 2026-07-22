@@ -11,6 +11,7 @@
 #ifndef INCLUDE_TTY_H_
 #define INCLUDE_TTY_H_
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -68,7 +69,13 @@ void tty_deferred_flush(void);
 /* Write a byte buffer to the TTY device (standard Linux semantics) */
 size_t tty_dev_write(void *ctx, const void *addr, size_t offset, size_t size);
 
+/* Read a byte buffer from the TTY device (standard Linux semantics) */
+size_t tty_dev_read(void *ctx, void *addr, size_t offset, size_t size);
+
 /* Poll TTY device for write readiness */
 int tty_dev_poll(void *ctx, size_t events);
+
+/* Feed a scancode from a keyboard into the TTY input line discipline */
+void tty_handle_scancode(uint8_t scancode, bool pressed);
 
 #endif // INCLUDE_TTY_H_
