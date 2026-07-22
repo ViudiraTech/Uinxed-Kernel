@@ -68,7 +68,7 @@ void user_init_process(void *arg)
 
     plogk("init: Found init module at %p, size %zu bytes.\n", init_mod->data, init_mod->size);
 
-    if (elf_loader_load_user_process(init_process, init_mod->data, init_mod->size)) {
+    if (elf_loader_load_user_process(init_process, init_mod->data, init_mod->size, NULL, NULL)) {
         plogk("init: Failed to load init ELF.\n");
         sched_dequeue_current();
         goto halt;

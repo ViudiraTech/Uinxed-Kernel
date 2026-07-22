@@ -73,6 +73,8 @@ task_t *task_alloc(const char *name)
     task->cpu_id         = 0;
     task->process        = NULL;
     task->weight         = SCHED_NICE_0_LOAD;
+    task->thread.fs_base = 0;
+    task->thread.gs_base = 0;
     task_name_copy(task, name);
     ilist_init(&task->sched_node);
     return task;

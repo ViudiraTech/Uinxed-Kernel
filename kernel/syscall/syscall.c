@@ -514,13 +514,24 @@ static int64_t sys_arch_prctl(uint64_t code, uint64_t addr, uint64_t arg2, uint6
     (void)arg4;
     (void)arg5;
 
+    task_t *task = current_task();
+
     switch (code) {
         case 0x1002 : /* ARCH_SET_FS */
             wrmsr(0xC0000100, addr);
+            if (task) task->thread.fs_base = addr;
             return 0;
         case 0x1003 : { /* ARCH_GET_FS */
-            uint64_t fs = rdmsr(0xC0000100);
+            uint64_t fs = task ? task->thread.fs_base : 0;
             return copy_to_user((void *)addr, &fs, sizeof(fs));
+        }
+        case 0x1004 : /* ARCH_SET_GS */
+            wrmsr(0xC0000101, addr);
+            if (task) task->thread.gs_base = addr;
+            return 0;
+        case 0x1005 : { /* ARCH_GET_GS */
+            uint64_t gs = task ? task->thread.gs_base : 0;
+            return copy_to_user((void *)addr, &gs, sizeof(gs));
         }
         default :
             return -EINVAL;
@@ -2109,10 +2120,71 @@ static int64_t sys_epoll_pwait_wrap(uint64_t epfd, uint64_t events, uint64_t max
 
 /* ---------- execve ---------- */
 
+static char **copy_argv_from_user(const char *const *uargv, int *out_count)
+{
+    *out_count = 0;
+    if (!uargv) return NULL;
+
+    /* First pass: count the arguments */
+    int count = 0;
+    char *ubuf;
+    for (int i = 0;; i++) {
+        if (copy_from_user(&ubuf, (void *)&uargv[i], sizeof(char *))) break;
+        if (!ubuf) break;
+        count++;
+    }
+    if (count == 0) return NULL;
+
+    /* Allocate kernel array of pointers */
+    char **kargv = malloc((count + 1) * sizeof(char *));
+    if (!kargv) return NULL;
+
+    /* Second pass: copy each string */
+    int i;
+    for (i = 0; i < count; i++) {
+        char *ustr;
+        if (copy_from_user(&ustr, (void *)&uargv[i], sizeof(char *))) {
+            kargv[i] = NULL;
+            goto fail;
+        }
+
+        size_t len = 0;
+        char tmp;
+        do {
+            if (copy_from_user(&tmp, ustr + len, 1)) {
+                kargv[i] = NULL;
+                goto fail;
+            }
+            len++;
+        } while (tmp != '\0');
+
+        kargv[i] = malloc(len);
+        if (!kargv[i]) goto fail;
+        if (copy_from_user(kargv[i], ustr, len)) {
+            free(kargv[i]);
+            kargv[i] = NULL;
+            goto fail;
+        }
+    }
+    kargv[count] = NULL;
+    *out_count = count;
+    return kargv;
+
+fail:
+    for (int j = 0; j < i; j++) if (kargv[j]) free(kargv[j]);
+    free(kargv);
+    return NULL;
+}
+
+static void free_string_array(char **arr)
+{
+    if (!arr) return;
+    for (int i = 0; arr[i]; i++) free(arr[i]);
+    free(arr);
+}
+
 static int64_t do_execve(const char *path, char *const argv[], char *const envp[])
 {
-    (void)envp;
-    (void)argv;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
@@ -2120,17 +2192,29 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     if (strncpy_from_user(kpath, path, sizeof(kpath)) < 0) return -EFAULT;
     kpath[sizeof(kpath) - 1] = '\0';
 
+    int argc = 0, envc = 0;
+    char **kargv = copy_argv_from_user((const char *const *)argv, &argc);
+    char **kenvp = copy_argv_from_user((const char *const *)envp, &envc);
+
     vfs_node_t node = vfs_open(kpath);
-    if (!node) return -ENOENT;
+    if (!node) {
+        free_string_array(kargv);
+        free_string_array(kenvp);
+        return -ENOENT;
+    }
 
     if (node->size == 0 || node->size > 0x4000000) {
         vfs_close(node);
+        free_string_array(kargv);
+        free_string_array(kenvp);
         return -ENOEXEC;
     }
 
     uint8_t *elf_data = malloc(node->size);
     if (!elf_data) {
         vfs_close(node);
+        free_string_array(kargv);
+        free_string_array(kenvp);
         return -ENOMEM;
     }
 
@@ -2147,32 +2231,37 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
 
     if (total < sizeof(uint32_t)) {
         free(elf_data);
+        free_string_array(kargv);
+        free_string_array(kenvp);
         return -ENOEXEC;
     }
 
-    /* Free old user page tables */
+    /* Reset TLS state for the new process image */
+    proc->task->thread.fs_base = 0;
+    proc->task->thread.gs_base = 0;
+
     if (proc->user_page_dir) {
         free_page_table_recursive(proc->user_page_dir->table, 4);
         free(proc->user_page_dir);
         proc->user_page_dir = NULL;
     }
 
-    /* Setup fresh page directory */
     if (setup_process_page_dir(proc)) {
         free(elf_data);
+        free_string_array(kargv);
+        free_string_array(kenvp);
         return -ENOMEM;
     }
 
-    /* Reset memory layout */
     proc->heap_brk  = PROCESS_HEAP_START;
     proc->stack_brk = PROCESS_STACK_BASE - PROCESS_STACK_SIZE;
 
-    /* Load the ELF */
-    int ret = elf_loader_load_user_process(proc, elf_data, total);
+    int ret = elf_loader_load_user_process(proc, elf_data, total, kargv, kenvp);
     free(elf_data);
+    free_string_array(kargv);
+    free_string_array(kenvp);
 
     if (ret) return -ENOEXEC;
-
     return 0;
 }
 

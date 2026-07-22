@@ -849,6 +849,8 @@ process_t *process_fork(void)
     }
 
     memcpy(&child_task->context, &current->context, sizeof(task_context_t));
+    child_task->thread.fs_base = current->thread.fs_base;
+    child_task->thread.gs_base = current->thread.gs_base;
 
     child_task->cpu_id = current->cpu_id;
 

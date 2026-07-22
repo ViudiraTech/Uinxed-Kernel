@@ -43,6 +43,11 @@ typedef enum {
 } task_state_t;
 
 typedef struct {
+        uint64_t fs_base;
+        uint64_t gs_base;
+} thread_struct_t;
+
+typedef struct {
         uint64_t rsp;
         uint64_t rbx;
         uint64_t rbp;
@@ -58,6 +63,7 @@ struct task {
         uint64_t          pid;
         task_state_t      state;
         task_context_t    context;
+        thread_struct_t   thread;     /* per-thread arch state (fs_base, gs_base) */
         rb_node_t         run_node;   /* EEVDF red-black tree node */
         ilist_node_t      sched_node; /* sleep / wait_queue linkage */
         ilist_node_t      timer_node; /* timed-waiter linkage (scheduler.timer_queue) */

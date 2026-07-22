@@ -752,6 +752,15 @@ void sched_yield(void)
     switch_page_directory(next->page_directory);
 
     spin_unlock(&scheduler.lock);
+
+    /* Save and restore FS/GS base across context switch */
+    if (prev && prev != rq->idle) {
+        prev->thread.fs_base = rdmsr(0xC0000100);
+        prev->thread.gs_base = rdmsr(0xC0000101);
+    }
+    wrmsr(0xC0000100, next->thread.fs_base);
+    wrmsr(0xC0000101, next->thread.gs_base);
+
     context_switch(&prev->context, &next->context);
 }
 
