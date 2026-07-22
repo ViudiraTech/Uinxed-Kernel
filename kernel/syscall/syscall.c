@@ -2240,17 +2240,18 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     proc->task->thread.fs_base = 0;
     proc->task->thread.gs_base = 0;
 
-    if (proc->user_page_dir) {
-        free_page_table_recursive(proc->user_page_dir->table, 4);
-        free(proc->user_page_dir);
-        proc->user_page_dir = NULL;
-    }
+    page_directory_t *old_dir = proc->user_page_dir;
 
     if (setup_process_page_dir(proc)) {
         free(elf_data);
         free_string_array(kargv);
         free_string_array(kenvp);
         return -ENOMEM;
+    }
+
+    if (old_dir) {
+        free_page_table_recursive(old_dir->table, 4);
+        free(old_dir);
     }
 
     proc->heap_brk  = PROCESS_HEAP_START;
