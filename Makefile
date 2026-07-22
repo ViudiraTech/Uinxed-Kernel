@@ -34,7 +34,11 @@ else
   C_CONFIG += -DSCHED_DEBUG_DEMO=0
 endif
 
-# TTF font support has been removed. Using bitmap fonts only.
+ifeq ($(CONFIG_BOOT_LOGO), y)
+  C_CONFIG += -DBOOT_LOGO=1
+else
+  C_CONFIG += -DBOOT_LOGO=0
+endif
 
 ifneq ($(CONFIG_CPU_MAX_COUNT),)
   C_CONFIG += -DMAX_CPU_COUNT=$(CONFIG_CPU_MAX_COUNT)

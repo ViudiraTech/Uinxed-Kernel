@@ -16,12 +16,6 @@ menu "Kernel debugging"
 
 endmenu
 
-menu "Terminal properties"
-
-  # TTF font support has been removed. Using bitmap fonts only.
-
-endmenu
-
 menu "Processor configuration"
   menu "SMP (Symmetric multi-processing)"
 
@@ -119,7 +113,6 @@ menu "Device drivers"
 
   endmenu
   menu "Graphics support"
-
     config DRM
       bool "Direct Rendering Manager (DRM)"
       default y
@@ -127,6 +120,11 @@ menu "Device drivers"
         "Enable the Direct Rendering Manager (DRM) subsystem,
         providing /dev/dri/card0 for GPU device access and KMS
         (Kernel Mode Setting) support."
-
+    config BOOT_LOGO
+      bool "Boot logo"
+      default y
+      help
+        "Displays CPU logos in the top area of the screen during kernel startup,
+        The number of logos is automatically adjusted according to the detected CPU count."
   endmenu
 endmenu

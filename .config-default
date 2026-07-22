@@ -1,25 +1,20 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Uinxed-Kernel
+# Uinxed
 #
 
 #
 # Kernel debugging
 #
 CONFIG_KERNEL_LOG=y
-CONFIG_SCHED_DEBUG_DEMO=n
-
-#
-# Terminal properties
-#
-# TTF font support has been removed. Using bitmap fonts only.
+# CONFIG_SCHED_DEBUG_DEMO is not set
 
 #
 # Processor configuration
 #
 
 #
-# Symmetric multi-processing
+# SMP (Symmetric multi-processing)
 #
 CONFIG_CPU_MAX_COUNT=0
 
@@ -35,18 +30,30 @@ CONFIG_CPU_FEATURE_AVX=y
 #
 
 #
-# Character drivers
+# Character devices
 #
 
 #
-# Teletype drivers
+# Teletype devices
 #
 CONFIG_TTY_DEFAULT_DEV="tty0"
 CONFIG_TTY_BUF_SIZE=4096
 
 #
-# Serial port drivers
+# Serial port devices
 #
 CONFIG_SERIAL_BAUD_RATE=9600
 CONFIG_SERIAL_DATA_BITS=8
 CONFIG_SERIAL_STOP_BITS=1
+
+#
+# Input device support
+#
+CONFIG_INPUT_EVDEV=y
+CONFIG_INPUT_EVDEV_BUFSIZE=256
+
+#
+# Graphics support
+#
+CONFIG_DRM=y
+CONFIG_BOOT_LOGO=y

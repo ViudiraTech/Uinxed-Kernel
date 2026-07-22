@@ -15,6 +15,7 @@
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <video/fbcon.h>
+#include <video/klogo.h>
 #include <video/video.h>
 
 /* Bitmap fonts */
@@ -28,6 +29,12 @@ static uint32_t *dirty_first_col   = 0;
 static uint32_t *dirty_last_col    = 0;
 static uint8_t   full_redraw_pending;
 static uint8_t   redraw_deferred;
+
+#if BOOT_LOGO
+static uint32_t fbcon_offset_x      = 0;
+static uint32_t fbcon_offset_y      = 98;
+static uint32_t fbcon_draw_offset_y = 12;
+#endif
 
 static void fbcon_mark_cell_dirty(uint32_t row, uint32_t col)
 {
@@ -82,7 +89,11 @@ static void fbcon_redraw_screen(void)
 
 static void fbcon_clear_uncovered_bottom(void)
 {
+#if BOOT_LOGO
+    uint32_t used_height = fbcon_offset_y + fbcon_draw_offset_y + c_height * font_height;
+#else
     uint32_t used_height = c_height * font_height;
+#endif
     if (used_height < height) video_draw_rect((position_t) {0, used_height}, (position_t) {stride - 1, height - 1}, back_color);
 }
 
@@ -107,9 +118,15 @@ void fbcon_init(void)
     font_width  = 9;
     font_height = 16;
 
-    cx = cy  = 0;
+    cx = cy = 0;
+
+#if BOOT_LOGO
+    c_width  = (width - fbcon_offset_x) / font_width;
+    c_height = (height - fbcon_offset_y) / font_height;
+#else
     c_width  = width / font_width;
     c_height = height / font_height;
+#endif
 
     fore_color = color_to_fb_color((color_t) {0xaa, 0xaa, 0xaa});
     back_color = color_to_fb_color((color_t) {0x00, 0x00, 0x00});
@@ -160,7 +177,11 @@ void fbcon_scroll(void)
             fbcon_clear_row(c_height - 1);
             full_redraw_pending = 1;
         } else {
+#if BOOT_LOGO
+            video_draw_rect((position_t) {0, fbcon_offset_y}, (position_t) {stride, height}, back_color);
+#else
             video_draw_rect((position_t) {0, 0}, (position_t) {stride, height}, back_color);
+#endif
         }
         cy = c_height - 1;
     }
@@ -169,8 +190,12 @@ void fbcon_scroll(void)
 /* Draw a character at the specified coordinates on the screen */
 void fbcon_draw_char(const char c, uint32_t x, uint32_t y, uint32_t color)
 {
-    uint8_t *char_font      = ascii_font + (size_t)c * font_height;
+    uint8_t *char_font = ascii_font + (size_t)c * font_height;
+#if BOOT_LOGO
+    uint32_t char_base_addr = (y + fbcon_offset_y + fbcon_draw_offset_y) * stride + (x + fbcon_offset_x);
+#else
     uint32_t char_base_addr = y * stride + x;
+#endif
 
     for (uint32_t row = 0; row < font_height; row++) {
         uint32_t *row_buf  = buffer + char_base_addr + row * stride;

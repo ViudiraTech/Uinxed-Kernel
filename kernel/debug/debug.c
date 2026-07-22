@@ -100,7 +100,7 @@ void panic(const char *format, ...)
     plogk("Hardware name: %s %s, BIOS %s %s\n", sys_vendor, sys_product, bios_version, bios_date);
     dump_stack();
     plogk("Kernel Offset: 0x%08x from %p\n", current_address - KERNEL_BASE_ADDRESS, KERNEL_BASE_ADDRESS);
-    plogk("---[ end Kernel panic - not syncing: %s ]---\n", buff);
+    plogk("---[ end Kernel panic - not syncing: %s ]---", buff);
     tty_buff_flush();
     krn_halt();
 }
