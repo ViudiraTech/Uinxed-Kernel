@@ -79,7 +79,9 @@ static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr, const uint
 
     for (int i = 0; i < ehdr->e_phnum; i++) {
         if (phdr[i].type != PT_LOAD) continue;
-        uintptr_t seg_end = ALIGN_UP(phdr[i].vaddr + load_bias + phdr[i].memsz, PAGE_4K_SIZE);
+        uintptr_t sum = phdr[i].vaddr + load_bias;
+        if (phdr[i].memsz > 0 && sum > UINT64_MAX - phdr[i].memsz) return 1;
+        uintptr_t seg_end = ALIGN_UP(sum + phdr[i].memsz, PAGE_4K_SIZE);
         if (seg_end > highest_end) highest_end = seg_end;
     }
 

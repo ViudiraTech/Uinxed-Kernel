@@ -2412,14 +2412,25 @@ static int64_t sys_writev_wrap(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint6
     int64_t total = 0;
     for (uint64_t i = 0; i < iovcnt; i++) {
         if (vec[i].iov_len == 0) continue;
-        int64_t n = process_fd_write(proc, (int)fd, vec[i].iov_base, vec[i].iov_len);
-        if (n < 0) {
-            if (total == 0) total = n;
-            break;
+        uint8_t tmp[SYSCALL_IO_CHUNK];
+        size_t  iov_done = 0;
+        while (iov_done < vec[i].iov_len) {
+            size_t chunk = (vec[i].iov_len - iov_done) < sizeof(tmp) ? (size_t)(vec[i].iov_len - iov_done) : sizeof(tmp);
+            if (copy_from_user(tmp, (const void *)((uintptr_t)vec[i].iov_base + iov_done), chunk)) {
+                if (total == 0) total = -EFAULT;
+                goto writev_done;
+            }
+            int64_t n = process_fd_write(proc, (int)fd, tmp, chunk);
+            if (n < 0) {
+                if (total == 0) total = n;
+                goto writev_done;
+            }
+            total += n;
+            iov_done += (size_t)n;
+            if ((size_t)n < chunk) break;
         }
-        total += n;
-        if ((size_t)n < vec[i].iov_len) break;
     }
+writev_done:
 
     if (alloc) free(vec);
     return total;
@@ -2453,14 +2464,26 @@ static int64_t sys_readv_wrap(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64
     int64_t total = 0;
     for (uint64_t i = 0; i < iovcnt; i++) {
         if (vec[i].iov_len == 0) continue;
-        int64_t n = process_fd_read(proc, (int)fd, vec[i].iov_base, vec[i].iov_len);
-        if (n < 0) {
-            if (total == 0) total = n;
-            break;
+        uint8_t tmp[SYSCALL_IO_CHUNK];
+        size_t  iov_done = 0;
+        while (iov_done < vec[i].iov_len) {
+            size_t  chunk = (vec[i].iov_len - iov_done) < sizeof(tmp) ? (size_t)(vec[i].iov_len - iov_done) : sizeof(tmp);
+            int64_t n     = process_fd_read(proc, (int)fd, tmp, chunk);
+            if (n < 0) {
+                if (total == 0) total = n;
+                goto readv_done;
+            }
+            if (!n) break;
+            if (copy_to_user((void *)((uintptr_t)vec[i].iov_base + iov_done), tmp, (size_t)n)) {
+                if (total == 0) total = -EFAULT;
+                goto readv_done;
+            }
+            total += n;
+            iov_done += (size_t)n;
+            if ((size_t)n < chunk) break;
         }
-        total += n;
-        if ((size_t)n < vec[i].iov_len) break;
     }
+readv_done:
 
     if (alloc) free(vec);
     return total;

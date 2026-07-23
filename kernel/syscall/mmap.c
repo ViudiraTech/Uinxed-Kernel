@@ -143,8 +143,9 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         }
     } else if (flags & MAP_FIXED) {
         if (!addr) return -EINVAL;
+        if (addr > UINT64_MAX - pages) return -EINVAL;
+        if (addr + pages > PROCESS_USER_STACK_TOP) return -EINVAL;
         mmap_addr = addr;
-        /* Unmap any existing mappings in the range */
         unmap_physical_pages(proc, mmap_addr, pages);
         vma_remove_range(proc, mmap_addr, mmap_addr + pages);
     } else {
