@@ -344,20 +344,28 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
 
     /* Get BAR0 */
     {
-        base_address_register_t bar = get_base_address_register(pci_dev, 0);
-        if (bar.type != mem_mapping) {
-            plogk("nvme: controller %u: BAR0 is not an MMIO BAR\n", ctrl_id);
+        /* Read BAR0 raw from PCI config space (HHDM doesn't map MMIO regions) */
+        pci_device_reg_t pci_reg = { .parent = pci_dev, .offset = 0x10 };
+        uint64_t         bar_val = read_pci(pci_reg);
+        uint32_t         bar_type = (bar_val >> 1) & 0b11;
+
+        if ((bar_val & 1) || bar_type == BAR_Reserved) {
+            plogk("nvme: controller %u: BAR0 is not a memory BAR\n", ctrl_id);
             return -ENODEV;
         }
-        uint64_t bar_phys = (uint64_t)(uintptr_t)bar.address & ~0xFULL;
-        uint32_t bar_size = bar.size;
 
-        /* Map BAR0 as uncacheable MMIO (at least 8 KiB for doorbells) */
-        if (bar_size < 0x2000) bar_size = 0x2000;
-        page_map_range_to(get_kernel_pagedir(), bar_phys,
-                           (bar_size + PAGE_4K_SIZE - 1) & ~(PAGE_4K_SIZE - 1),
-                           PTE_MMIO_FLAGS);
-        ctrl->regs = (volatile void *)phys_to_virt(bar_phys);
+        if (bar_type == BAR_S64) {
+            pci_reg.offset = 0x14;
+            bar_val |= (uint64_t)read_pci(pci_reg) << 32;
+        }
+
+        uint64_t phys_addr = bar_val & ~0xFULL;
+        uint64_t phys_page = phys_addr & ~(uint64_t)(PAGE_4K_SIZE - 1);
+        uint64_t page_off  = phys_addr - phys_page;
+        uint64_t map_len   = (0x2000 + page_off + PAGE_4K_SIZE - 1) & ~(uint64_t)(PAGE_4K_SIZE - 1);
+
+        page_map_range_to(get_kernel_pagedir(), phys_page, map_len, PTE_MMIO_FLAGS);
+        ctrl->regs = (volatile void *)((uintptr_t)phys_to_virt(phys_page) + page_off);
     }
 
     /* Parse CAP register */
@@ -430,13 +438,13 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
     }
 
     /* ---- Set Features: Number of Queues ---- */
-    /* Request 1 I/O SQ + 1 I/O CQ; actual allocation done later if needed */
+    /* Request 1 I/O SQ + 1 I/O CQ */
     {
         nvme_cqe_t cqe;
         ret = nvme_admin_cmd(ctrl, NVME_ADMIN_SET_FEATURES, 0, 0, 0,
                                NVME_FID_NUM_QUEUES, (1u << 16) | 1u, 0, &cqe);
         if (ret) {
-            plogk("nvme: controller %u: Set Features (num queues) failed: %d\n", ctrl_id, ret);
+            plogk("nvme: controller %u: Set Features (num queues) = %d\n", ctrl_id, ret);
         }
     }
 
