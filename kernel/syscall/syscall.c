@@ -403,6 +403,16 @@ static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t a
     }
     if (!node) return -ENOENT;
 
+    {
+        uint32_t access_mask = 0;
+        if ((flags & O_ACCMODE) == O_RDONLY || (flags & O_ACCMODE) == O_RDWR) access_mask |= VFS_ACCESS_R;
+        if ((flags & O_ACCMODE) == O_WRONLY || (flags & O_ACCMODE) == O_RDWR) access_mask |= VFS_ACCESS_W;
+        if (vfs_access_check(node, access_mask)) {
+            vfs_close(node);
+            return -EACCES;
+        }
+    }
+
     int fd = process_fd_install(proc, node, flags);
     if (fd < 0) vfs_close(node);
     return fd;
