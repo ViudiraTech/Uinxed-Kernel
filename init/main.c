@@ -18,6 +18,7 @@
 #include <drivers/acpi.h>
 #include <drivers/drm/drm_init.h>
 #include <drivers/ide.h>
+#include <drivers/nvme.h>
 #include <drivers/parallel.h>
 #include <drivers/pci.h>
 #include <drivers/ps2.h>
@@ -158,6 +159,7 @@ void kernel_entry(void)
     sb16_init();                    // Sound Blaster 16
     log_buffer_print(&lmodule_log); //
     init_ide();                     // Advanced Technology Attachment / ATA Packet Interface
+    nvme_init();                    // Non-Volatile Memory Express
     init_parallel();                // Standard IEEE 1284 Parallel Port
     init_ps2();                     // Personal System/2 Controller
     init_vfs();                     // Virtual Filesystem
@@ -171,6 +173,15 @@ void kernel_entry(void)
     procfs_regist(); // Process File System
     drm_init();      // Direct Rendering Manager
     virtio_gpu_init(); // VirtIO GPU driver (if present on PCI bus)
+
+    /* If VirtIO-GPU is not available, ensure TTY falls back to VGA mode */
+    {
+        tty_device_t *bt = get_boot_tty();
+        if (bt->type == TTY_DEVICE_DRM && !virtio_gpu_get_device()) {
+            tty_set_device_type(TTY_DEVICE_VGA);
+            plogk("virtgpu: not available, TTY staying in VGA mode\n");
+        }
+    }
 
     vfs_node_t proc = 0;
     int        st   = vfs_mkdir("/proc");

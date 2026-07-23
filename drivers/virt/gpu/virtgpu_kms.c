@@ -20,6 +20,7 @@
 #include <drivers/virt/gpu/virtgpu_cmd.h>
 #include <drivers/drm/drm_fourcc.h>
 #include <drivers/drm/drm_print.h>
+#include <drivers/tty.h>
 #include <kernel/errno.h>
 #include <libs/std/stdlib.h>
 #include <mem/alloc.h>
@@ -410,6 +411,9 @@ static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
     vgdev_flush_obj = obj;
     video_switch_to_drm(obj->base.backing, w, h, pitch,
                         virtgpu_kms_flush_fb);
+
+    /* Update TTY to DRM mode now that the DRM framebuffer is live */
+    tty_set_device_type(TTY_DEVICE_DRM);
 
     DRM_INFO("Initial modeset: %ux%u fb=%u crtc=%u\n",
              w, h, fb->base.id, crtc ? crtc->base.id : 0);

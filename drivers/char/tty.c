@@ -228,6 +228,12 @@ tty_device_t *get_boot_tty(void)
     return boot_tty_ptr;
 }
 
+/* Update the TTY device type (e.g., switch to DRM after virtio-gpu init) */
+void tty_set_device_type(tty_device_kind_t type)
+{
+    boot_tty.type = type;
+}
+
 /* Output the buffer data to the specified device according to the configuration */
 void tty_buff_flush(void)
 {

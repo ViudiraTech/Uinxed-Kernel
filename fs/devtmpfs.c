@@ -10,6 +10,7 @@
 
 #include <drivers/blockdev.h>
 #include <drivers/drm/drm_init.h>
+#include <drivers/nvme.h>
 #include <drivers/evdev.h>
 #include <drivers/ide.h>
 #include <drivers/input_event.h>
@@ -375,6 +376,52 @@ static void devtmpfs_create_drm_node(void)
     vfs_close(node);
 }
 
+static void devtmpfs_create_nvme_node(nvme_controller_t *ctrl, uint32_t ns_index)
+{
+    nvme_namespace_t *ns = &ctrl->namespaces[ns_index];
+    char              dev_path[32];
+    vfs_node_t        node;
+    int               status;
+
+    snprintf(dev_path, sizeof(dev_path), "/dev/nvme%un%u",
+             ctrl->id, ns->nsid);
+
+    status = vfs_mkfile(dev_path);
+    if (status != EOK && status != -EEXIST) {
+        plogk("devtmpfs: Cannot create %s: %d\n", dev_path, status);
+        return;
+    }
+
+    node = vfs_open(dev_path);
+    if (!node) {
+        plogk("devtmpfs: Cannot open %s after creation.\n", dev_path);
+        return;
+    }
+
+    node->type  = file_block;
+    node->blksz = ns->sector_size;
+    node->dev   = ctrl->id;
+    node->rdev  = ns->nsid;
+    node->size  = ns->total_sectors * ns->sector_size;
+    plogk("devtmpfs: Registered %s as NVMe block device (%llu sectors).\n",
+          dev_path, (unsigned long long)ns->total_sectors);
+}
+
+static void devtmpfs_create_nvme_nodes(void)
+{
+    int ctrl_count = nvme_controller_count();
+
+    for (int i = 0; i < ctrl_count; i++) {
+        nvme_controller_t *ctrl = nvme_get_controller(i);
+        if (!ctrl || !ctrl->initialised) continue;
+
+        for (uint32_t ns = 0; ns < ctrl->num_namespaces; ns++) {
+            if (!ctrl->namespaces[ns].ready) continue;
+            devtmpfs_create_nvme_node(ctrl, ns);
+        }
+    }
+}
+
 void devtmpfs_init(void)
 {
     int        status;
@@ -414,6 +461,7 @@ void devtmpfs_init(void)
         }
     }
 
+    devtmpfs_create_nvme_nodes();
     devtmpfs_create_input_event_node();
     devtmpfs_create_framebuffer_node();
     devtmpfs_create_audio_nodes();

@@ -23,7 +23,7 @@
 #endif
 
 #ifndef TTY_DEFAULT_DEV
-#    define TTY_DEFAULT_DEV "ttyD0"
+#    define TTY_DEFAULT_DEV "tty0"
 #endif
 
 typedef enum {
@@ -53,6 +53,9 @@ tty_device_t parse_boot_tty_str(char *boot_tty_str);
 
 /* Obtain the tty device provided at startup */
 tty_device_t *get_boot_tty(void);
+
+/* Update the TTY device type (e.g., switch to DRM after virtio-gpu init) */
+void tty_set_device_type(tty_device_kind_t type);
 
 /* Print characters to tty */
 void tty_print_ch(const char ch);
