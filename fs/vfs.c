@@ -16,6 +16,8 @@
 #include <mem/heap.h>
 #include <mem/page.h>
 
+#define VFS_PATH_MAX 4096
+
 vfs_node_t rootdir = 0;
 
 struct vfs_callback   vfs_empty_callback;
@@ -92,7 +94,11 @@ static char *vfs_resolve_link_path(vfs_node_t node)
 
     size_t base_len = strlen(base);
     size_t link_len = strlen(node->linkname);
-    path            = malloc(base_len + link_len + 2);
+    if (base_len + link_len + 2 > VFS_PATH_MAX) {
+        free(base);
+        return 0;
+    }
+    path = malloc(base_len + link_len + 2);
     if (!path) {
         free(base);
         return 0;

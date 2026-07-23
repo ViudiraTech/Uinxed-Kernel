@@ -308,7 +308,7 @@ static int64_t sys_nanosleep(uint64_t req, uint64_t rem, uint64_t arg2, uint64_t
     linux_timespec_t ts;
     if (copy_from_user(&ts, (const void *)req, sizeof(ts))) return -EFAULT;
     if (ts.tv_sec < 0 || ts.tv_nsec < 0 || ts.tv_nsec >= 1000000000LL) return -EINVAL;
-
+    if ((uint64_t)ts.tv_sec > UINT64_MAX / 100) return -EINVAL;
     uint64_t ticks = (uint64_t)ts.tv_sec * 100 + (uint64_t)((ts.tv_nsec + 9999999LL) / 10000000LL);
     if (!ticks && (ts.tv_sec || ts.tv_nsec)) ticks = 1;
     task_sleep_ticks(ticks);
@@ -1192,9 +1192,9 @@ static int64_t sys_getresuid_stub(uint64_t ruid, uint64_t euid, uint64_t suid, u
     (void)arg4;
     (void)arg5;
     uint32_t uid = (uint32_t)sys_getuid(0, 0, 0, 0, 0, 0);
-    if (ruid) copy_to_user((void *)ruid, &uid, sizeof(uid));
-    if (euid) copy_to_user((void *)euid, &uid, sizeof(uid));
-    if (suid) copy_to_user((void *)suid, &uid, sizeof(uid));
+    if (ruid && copy_to_user((void *)ruid, &uid, sizeof(uid))) return -EFAULT;
+    if (euid && copy_to_user((void *)euid, &uid, sizeof(uid))) return -EFAULT;
+    if (suid && copy_to_user((void *)suid, &uid, sizeof(uid))) return -EFAULT;
     return EOK;
 }
 
@@ -1204,9 +1204,9 @@ static int64_t sys_getresgid_stub(uint64_t rgid, uint64_t egid, uint64_t sgid, u
     (void)arg4;
     (void)arg5;
     uint32_t gid = (uint32_t)sys_getgid(0, 0, 0, 0, 0, 0);
-    if (rgid) copy_to_user((void *)rgid, &gid, sizeof(gid));
-    if (egid) copy_to_user((void *)egid, &gid, sizeof(gid));
-    if (sgid) copy_to_user((void *)sgid, &gid, sizeof(gid));
+    if (rgid && copy_to_user((void *)rgid, &gid, sizeof(gid))) return -EFAULT;
+    if (egid && copy_to_user((void *)egid, &gid, sizeof(gid))) return -EFAULT;
+    if (sgid && copy_to_user((void *)sgid, &gid, sizeof(gid))) return -EFAULT;
     return EOK;
 }
 

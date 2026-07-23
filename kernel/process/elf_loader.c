@@ -22,7 +22,8 @@ static int validate_elf(const uint8_t *data, size_t size, Elf64_Ehdr **ehdr_out)
     if (*(const uint32_t *)ehdr->e_ident != ELF_MAGIC) return -1;
     if (ehdr->e_ident[4] != 2 || ehdr->e_ident[5] != 1 || ehdr->e_ident[6] != 1) return -1;
     if (ehdr->e_machine != 0x3e) return -1;
-    if (ehdr->e_phoff + ehdr->e_phnum * ehdr->e_phentsize > size) return -1;
+    if (ehdr->e_phentsize < sizeof(Elf64_Phdr)) return -1;
+    if (ehdr->e_phoff + (size_t)ehdr->e_phnum * ehdr->e_phentsize > size) return -1;
     *ehdr_out = ehdr;
     return 0;
 }
@@ -274,7 +275,7 @@ static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t
     size_t envp_strs = string_array_size(envp);
 
     size_t total_strings = argv_strs + envp_strs + strlen(proc->name) + 1;
-    size_t pointer_size  = (argc + 1 + envc + 1) * sizeof(uint64_t);
+    size_t pointer_size  = ((size_t)argc + 1 + (size_t)envc + 1) * sizeof(uint64_t);
     size_t auxv_entries  = 18;
     size_t auxv_size     = auxv_entries * 2 * sizeof(uint64_t) + 2 * sizeof(uint64_t);
     size_t padding       = 16;
@@ -497,6 +498,21 @@ int elf_loader_load_user_process(process_t *proc, const uint8_t *elf_data, size_
             actual_entry    = interpreter_entry;
             info.has_interp = 1;
         }
+    }
+
+    int valid_entry = 0;
+    for (int i = 0; i < ehdr->e_phnum; i++) {
+        if (phdrs[i].type != PT_LOAD) continue;
+        uintptr_t seg_start = phdrs[i].vaddr + load_bias;
+        uintptr_t seg_end   = seg_start + phdrs[i].memsz;
+        if (actual_entry >= seg_start && actual_entry < seg_end) {
+            valid_entry = 1;
+            break;
+        }
+    }
+    if (!valid_entry) {
+        plogk("elf_loader: entry point not within any loaded segment.\n");
+        return 1;
     }
 
     uintptr_t user_rsp

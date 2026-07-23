@@ -215,7 +215,7 @@ static void process_file_get(process_file_t *file)
     if (!file) return;
 
     spin_lock(&file->lock);
-    file->refcount++;
+    if (file->refcount > 0) file->refcount++;
     spin_unlock(&file->lock);
 }
 
@@ -229,6 +229,7 @@ void process_file_put(process_file_t *file)
         spin_unlock(&file->lock);
         return;
     }
+    file->refcount = 0;
     spin_unlock(&file->lock);
 
     vfs_close(file->node);
