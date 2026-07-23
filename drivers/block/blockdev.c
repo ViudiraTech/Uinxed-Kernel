@@ -270,6 +270,13 @@ int blockdev_open_drive(uint8_t drive, blockdev_device_t *device)
 {
 	if (!device) return -EINVAL;
 
+	if (drive & BLKDEV_NVME_FLAG) {
+		int ctrl_idx = drive & BLKDEV_DRIVE_MASK;
+		nvme_controller_t *ctrl = nvme_get_controller(ctrl_idx);
+		if (!ctrl || ctrl->num_namespaces < 1) return -ENODEV;
+		return blockdev_open_nvme(&ctrl->namespaces[0], device);
+	}
+
 	if (drive & BLKDEV_AHCI_FLAG) {
 		uint8_t idx = drive & BLKDEV_DRIVE_MASK;
 		if (drive & BLKDEV_ATAPI_FLAG)
@@ -303,13 +310,35 @@ int blockdev_parse_drive(const char *name, uint8_t *drive)
 	}
 
 	if (!strncmp(name, "sr", 2)) {
-		int idx = name[2] - '0';
-		if (name[3]) idx = idx * 10 + (name[3] - '0');
-		if (idx < 0 || idx > 31) return -EINVAL;
+		const char *p = name + 2;
+		int idx = 0;
+		while (*p >= '0' && *p <= '9') {
+			idx = idx * 10 + (*p - '0');
+			p++;
+		}
+		if (*p != '\0' || idx < 0) return -EINVAL;
 		if (idx < 4)
 			*drive = BLKDEV_ATAPI_FLAG | (uint8_t)idx;
 		else
 			*drive = BLKDEV_AHCI_FLAG | BLKDEV_ATAPI_FLAG | (uint8_t)(idx - 4);
+		return EOK;
+	}
+
+	if (!strncmp(name, "nvme", 4)) {
+		const char *p = name + 4;
+		int ctrl = 0, ns = 0;
+		while (*p >= '0' && *p <= '9') {
+			ctrl = ctrl * 10 + (*p - '0');
+			p++;
+		}
+		if (*p != 'n') return -EINVAL;
+		p++;
+		while (*p >= '0' && *p <= '9') {
+			ns = ns * 10 + (*p - '0');
+			p++;
+		}
+		if (ns < 1) return -EINVAL;
+		*drive = BLKDEV_NVME_FLAG | (uint8_t)(ctrl & BLKDEV_DRIVE_MASK);
 		return EOK;
 	}
 

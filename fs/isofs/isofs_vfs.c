@@ -8,6 +8,7 @@
  *
  */
 
+#include <drivers/ahci.h>
 #include <drivers/atapi.h>
 #include <drivers/blockdev.h>
 #include <drivers/ide.h>
@@ -65,16 +66,12 @@ static void isofs_handle_destroy(isofs_handle_t *h)
     free(h);
 }
 
-/* ─── Parse a drive specifier: "atapi0" ... "atapi3" ─── */
+/* ─── Parse a drive specifier: "sr0", "sr1", ... ─── */
 
 static int isofs_parse_src(const char *src, uint8_t *drive)
 {
     if (!src || !drive) return -EINVAL;
-    if (strncmp(src, "atapi", 5)) return -EINVAL;
-    const char *d = src + 5;
-    if (*d < '0' || *d > '3' || d[1] != '\0') return -EINVAL;
-    *drive = (uint8_t)(*d - '0');
-    return EOK;
+    return blockdev_parse_drive(src, drive);
 }
 
 /* ─── Scan directory records to find a child by name ─── */
@@ -353,7 +350,7 @@ static int isofs_vfs_mount(const char *src, vfs_node_t node)
     mnt = calloc(1, sizeof(isofs_mount_t));
     if (!mnt) return -ENOMEM;
 
-    status = blockdev_open_atapi(drive, &mnt->device);
+    status = blockdev_open_drive(drive, &mnt->device);
     if (status != EOK) {
         free(mnt);
         return status;
@@ -735,8 +732,13 @@ void isofs_regist(void)
 
     for (uint8_t drive = 0; drive < 4; drive++) {
         if (!atapi_devices[drive].reserved || atapi_devices[drive].type != IDE_ATAPI) continue;
-        plogk("isofs: Detected ATAPI device atapi%u (%u blocks, %u bytes/block)\n", drive, atapi_devices[drive].lba_size,
+        plogk("isofs: Detected ATAPI device sr%u on IDE (%u blocks, %u bytes/block)\n", drive, atapi_devices[drive].lba_size,
               atapi_devices[drive].blk_size);
+    }
+    for (int d = 0; d < AHCI_MAX_DEVICES; d++) {
+        if (!ahci_devices[d].reserved || ahci_devices[d].type != AHCI_DEV_SATAPI) continue;
+        plogk("isofs: Detected ATAPI device sr%u on AHCI (%u blocks, %u bytes/block)\n", 4 + d,
+              ahci_devices[d].size, ahci_devices[d].sector_size);
     }
 }
 
@@ -745,34 +747,51 @@ void isofs_mount_all(void)
     vfs_node_t root = get_rootdir();
     if (!root || !root->fsid) return;
 
+    uint8_t sr_idx = 0;
+
     for (uint8_t drive = 0; drive < 4; drive++) {
         if (!atapi_devices[drive].reserved || atapi_devices[drive].type != IDE_ATAPI) continue;
 
-        char       path[32];
-        const char prefix[] = "/mnt/cdrom";
-        char       src[]    = {'a', 't', 'a', 'p', 'i', (char)('0' + drive), '\0'};
+        char path[32];
+        char src[16];
         vfs_node_t node;
 
-        memcpy(path, prefix, sizeof(prefix) - 1);
-        path[sizeof(prefix) - 1] = (char)('0' + drive);
-        path[sizeof(prefix)]     = '\0';
+        snprintf(path, sizeof(path), "/mnt/cdrom%u", (unsigned)sr_idx);
+        snprintf(src, sizeof(src), "sr%u", (unsigned)sr_idx);
 
-        {
-            int st = vfs_mkdir(path);
-            if (st != EOK && st != -EEXIST) continue;
-        }
-
+        if (vfs_mkdir(path) != EOK && vfs_mkdir(path) != -EEXIST) { sr_idx++; continue; }
         node = vfs_open(path);
-        if (!node) continue;
-        if (node->is_mount) {
-            vfs_close(node);
-            continue;
-        }
+        if (!node) { sr_idx++; continue; }
+        if (node->is_mount) { vfs_close(node); sr_idx++; continue; }
 
         if (vfs_mount_fs("isofs", src, node) == EOK)
-            plogk("isofs: Auto-mounted atapi%u at %s\n", drive, path);
+            plogk("isofs: Auto-mounted %s at %s\n", src, path);
         else
-            plogk("isofs: Failed to auto-mount atapi%u (no media or invalid ISO)\n", drive);
+            plogk("isofs: Failed to auto-mount %s (no media or invalid ISO)\n", src);
         vfs_close(node);
+        sr_idx++;
+    }
+
+    for (int d = 0; d < AHCI_MAX_DEVICES; d++) {
+        if (!ahci_devices[d].reserved || ahci_devices[d].type != AHCI_DEV_SATAPI) continue;
+
+        char path[32];
+        char src[16];
+        vfs_node_t node;
+
+        snprintf(path, sizeof(path), "/mnt/cdrom%u", (unsigned)sr_idx);
+        snprintf(src, sizeof(src), "sr%u", (unsigned)sr_idx);
+
+        if (vfs_mkdir(path) != EOK && vfs_mkdir(path) != -EEXIST) { sr_idx++; continue; }
+        node = vfs_open(path);
+        if (!node) { sr_idx++; continue; }
+        if (node->is_mount) { vfs_close(node); sr_idx++; continue; }
+
+        if (vfs_mount_fs("isofs", src, node) == EOK)
+            plogk("isofs: Auto-mounted %s at %s\n", src, path);
+        else
+            plogk("isofs: Failed to auto-mount %s (no media or invalid ISO)\n", src);
+        vfs_close(node);
+        sr_idx++;
     }
 }

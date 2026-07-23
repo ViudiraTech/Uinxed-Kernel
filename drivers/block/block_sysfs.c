@@ -130,10 +130,9 @@ static struct kobj_type block_ktype = {
 /*  Helper: add a single block device                                  */
 /* ------------------------------------------------------------------ */
 
-static void block_add_one(struct kobject *parent, const char *name,
-                          uint8_t drive, int type)
+static int block_add_one(struct kobject *parent, const char *name,
+                          uint8_t drive, int type, void *ns_ptr)
 {
-    /* type: 0=IDE, 1=AHCI, 2=NVMe */
     struct block_sysfs_dev *bsd;
     blockdev_device_t       bdev;
     int                     ret;
@@ -147,20 +146,17 @@ static void block_add_one(struct kobject *parent, const char *name,
         case 1:
             ret = blockdev_open_ahci(drive, &bdev);
             break;
-        case 2: {
-            nvme_controller_t *ctrl = nvme_get_controller(0);
-            if (!ctrl || drive >= ctrl->num_namespaces) return;
-            ret = blockdev_open_nvme(&ctrl->namespaces[drive], &bdev);
+        case 2:
+            ret = blockdev_open_nvme(ns_ptr, &bdev);
             break;
-        }
         default:
-            return;
+            return -EINVAL;
     }
 
-    if (ret != EOK) return;
+    if (ret != EOK) return ret;
 
     bsd = calloc(1, sizeof(*bsd));
-    if (!bsd) return;
+    if (!bsd) return -ENOMEM;
 
     memcpy(&bsd->bdev, &bdev, sizeof(bdev));
     strncpy(bsd->name, name, sizeof(bsd->name) - 1);
@@ -170,8 +166,9 @@ static void block_add_one(struct kobject *parent, const char *name,
     ret = kobject_add(&bsd->kobj, parent, "%s", name);
     if (ret != EOK) {
         free(bsd);
-        return;
+        return ret;
     }
+    return EOK;
 }
 
 /* ------------------------------------------------------------------ */
@@ -187,7 +184,6 @@ void block_sysfs_init(void)
 
     if (!sysfs_root_kobj) return;
 
-    /* Find /sys/block/ kobject */
     for (node = sysfs_root_kobj->children; node; node = node->next) {
         struct kobject *child = node->data;
         if (child && child->name && streq(child->name, "block")) {
@@ -201,34 +197,31 @@ void block_sysfs_init(void)
         return;
     }
 
-    /* Register only present IDE drives (hdX) */
     for (uint8_t d = 0; d < 4; d++) {
         if (!ide_devices[d].reserved || ide_devices[d].type != IDE_ATA) continue;
         char name[8];
         snprintf(name, sizeof(name), "hd%c", 'a' + d);
-        block_add_one(block_kobj, name, d, 0);
+        block_add_one(block_kobj, name, d, 0, NULL);
         count++;
     }
 
-    /* Register only present AHCI drives (sdX) */
     for (uint8_t d = 0; d < AHCI_MAX_DEVICES; d++) {
         if (!ahci_devices[d].reserved || ahci_devices[d].type != AHCI_DEV_SATA) continue;
         char name[8];
         snprintf(name, sizeof(name), "sd%c", 'a' + d);
-        block_add_one(block_kobj, name, d, 1);
+        block_add_one(block_kobj, name, d, 1, NULL);
         count++;
     }
 
-    /* Register only present NVMe namespaces (nvme0nX) */
-    {
-        nvme_controller_t *ctrl = nvme_get_controller(0);
-        if (ctrl) {
-            for (uint32_t d = 0; d < ctrl->num_namespaces; d++) {
-                char name[16];
-                snprintf(name, sizeof(name), "nvme0n%u", d + 1);
-                block_add_one(block_kobj, name, (uint8_t)d, 2);
-                count++;
-            }
+    for (int c = 0; c < nvme_controller_count(); c++) {
+        nvme_controller_t *ctrl = nvme_get_controller(c);
+        if (!ctrl || !ctrl->initialised) continue;
+        for (uint32_t ns = 0; ns < ctrl->num_namespaces; ns++) {
+            if (!ctrl->namespaces[ns].ready) continue;
+            char name[24];
+            snprintf(name, sizeof(name), "nvme%dn%u", ctrl->id, ctrl->namespaces[ns].nsid);
+            block_add_one(block_kobj, name, (uint8_t)ctrl->id, 2, &ctrl->namespaces[ns]);
+            count++;
         }
     }
 

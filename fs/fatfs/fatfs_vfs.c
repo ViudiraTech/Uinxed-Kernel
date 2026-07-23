@@ -8,7 +8,9 @@
  *
  */
 
+#include <drivers/blockdev.h>
 #include <drivers/ide.h>
+#include <fs/fatfs/fatfs_disk.h>
 #include <fs/fatfs/fatfs_vfs.h>
 #include <fs/fatfs/ff.h>
 #include <fs/vfs.h>
@@ -18,6 +20,8 @@
 #include <mem/heap.h>
 
 static int fatfs_vfs_id = 0;
+
+extern PARTITION VolToPart[];
 
 typedef struct fatfs_mount {
         FATFS fs;
@@ -310,12 +314,40 @@ static int fatfs_vfs_mount(const char *src, vfs_node_t node)
     FRESULT         res;
 
     if (!src || !node) return -EINVAL;
-    if (strlen(src) != 2 || src[1] != ':') return -EINVAL;
+
+    char vol_str[4] = {0};
+
+    if (strlen(src) == 2 && src[1] == ':') {
+        memcpy(vol_str, src, 3);
+    } else {
+        uint8_t encoded;
+        if (blockdev_parse_drive(src, &encoded) != EOK) return -EINVAL;
+
+        blockdev_device_t bdev;
+        if (blockdev_open_drive(encoded, &bdev) != EOK) return -ENODEV;
+
+        uint8_t pdrv;
+        for (pdrv = 0; pdrv < FF_VOLUMES; pdrv++) {
+            int exists = 0;
+            for (int v = 0; v < FF_VOLUMES; v++) {
+                if (VolToPart[v].pd == pdrv) { exists = 1; break; }
+            }
+            if (!exists) break;
+        }
+        if (pdrv >= FF_VOLUMES) return -ENOSPC;
+
+        fatfs_bind_device(pdrv, &bdev);
+        fatfs_assign_volume(pdrv, pdrv, 0);
+
+        vol_str[0] = (char)('0' + pdrv);
+        vol_str[1] = ':';
+        vol_str[2] = '\0';
+    }
 
     mount = calloc(1, sizeof(fatfs_mount_t));
     if (!mount) return -ENOMEM;
 
-    memcpy(mount->drive, src, 3);
+    memcpy(mount->drive, vol_str, 4);
     res = f_mount(&mount->fs, mount->drive, 1);
     if (res != FR_OK) {
         free(mount);
@@ -364,7 +396,7 @@ static int fatfs_vfs_mount(const char *src, vfs_node_t node)
         node->handle = 0;
         return -EIO;
     }
-    plogk("fatfs: Mounted %s\n", mount->drive);
+    plogk("fatfs: Mounted %s (source: %s)\n", mount->drive, src);
     return EOK;
 }
 
