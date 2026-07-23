@@ -112,8 +112,8 @@ typedef struct process {
         pid_t             pgid;
         pid_t             sid;
         char              name[PROCESS_NAME_LEN];
-        char              root[256]; /* chroot path */
-        char              cwd[256];  /* current working directory */
+        char              root[256];       /* chroot path */
+        char              cwd[256];        /* current working directory */
         int32_t           clear_child_tid; /* set_tid_address target */
 } process_t;
 

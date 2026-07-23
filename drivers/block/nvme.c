@@ -112,8 +112,7 @@ static uint32_t nvme_cap_to(uint64_t cap)
  *  Queue memory management
  * ================================================================ */
 
-static int nvme_alloc_queue(nvme_queue_t *q, uint32_t qid, uint16_t num_entries,
-                             nvme_controller_t *ctrl)
+static int nvme_alloc_queue(nvme_queue_t *q, uint32_t qid, uint16_t num_entries, nvme_controller_t *ctrl)
 {
     size_t sq_bytes = (size_t)num_entries * NVME_SQE_SIZE;
     size_t cq_bytes = (size_t)num_entries * NVME_CQE_SIZE;
@@ -122,22 +121,22 @@ static int nvme_alloc_queue(nvme_queue_t *q, uint32_t qid, uint16_t num_entries,
     memset(q, 0, sizeof(*q));
 
     /* SQ: physically contiguous, page-aligned */
-    sq_pages       = (sq_bytes + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
-    q->sq_phys     = alloc_frames(sq_pages);
+    sq_pages   = (sq_bytes + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
+    q->sq_phys = alloc_frames(sq_pages);
     if (!q->sq_phys) return -ENOMEM;
-    q->sq          = (nvme_sqe_t *)phys_to_virt(q->sq_phys);
-    q->sq_pages    = (uint32_t)sq_pages;
+    q->sq       = (nvme_sqe_t *)phys_to_virt(q->sq_phys);
+    q->sq_pages = (uint32_t)sq_pages;
     memset(q->sq, 0, sq_pages * PAGE_4K_SIZE);
 
     /* CQ: physically contiguous, page-aligned */
-    cq_pages       = (cq_bytes + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
-    q->cq_phys     = alloc_frames(cq_pages);
+    cq_pages   = (cq_bytes + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
+    q->cq_phys = alloc_frames(cq_pages);
     if (!q->cq_phys) {
         free_frames(q->sq_phys, q->sq_pages);
         return -ENOMEM;
     }
-    q->cq          = (nvme_cqe_t *)phys_to_virt(q->cq_phys);
-    q->cq_pages    = (uint32_t)cq_pages;
+    q->cq       = (nvme_cqe_t *)phys_to_virt(q->cq_phys);
+    q->cq_pages = (uint32_t)cq_pages;
     memset(q->cq, 0, cq_pages * PAGE_4K_SIZE);
 
     /* PRP list page */
@@ -155,28 +154,36 @@ static int nvme_alloc_queue(nvme_queue_t *q, uint32_t qid, uint16_t num_entries,
     q->sq_head     = 0;
     q->sq_tail     = 0;
     q->cq_head     = 0;
-    q->cq_phase    = 1;        /* first pass expects phase == 1 */
+    q->cq_phase    = 1; /* first pass expects phase == 1 */
     q->sq_cid      = 0;
     q->sq_doorbell = nvme_sq_doorbell(ctrl, qid);
     q->cq_doorbell = nvme_cq_doorbell(ctrl, qid);
-    q->lock        = (spinlock_t){0};
+    q->lock        = (spinlock_t) {0};
 
     return EOK;
 }
 
 static void nvme_free_queue(nvme_queue_t *q)
 {
-    if (q->prp_list_phys) { free_frames(q->prp_list_phys, 1); q->prp_list_phys = 0; }
-    if (q->cq_phys)       { free_frames(q->cq_phys, q->cq_pages);   q->cq_phys = 0; }
-    if (q->sq_phys)       { free_frames(q->sq_phys, q->sq_pages);   q->sq_phys = 0; }
+    if (q->prp_list_phys) {
+        free_frames(q->prp_list_phys, 1);
+        q->prp_list_phys = 0;
+    }
+    if (q->cq_phys) {
+        free_frames(q->cq_phys, q->cq_pages);
+        q->cq_phys = 0;
+    }
+    if (q->sq_phys) {
+        free_frames(q->sq_phys, q->sq_pages);
+        q->sq_phys = 0;
+    }
 }
 
 /* ================================================================
  *  Completion polling
  * ================================================================ */
 
-static int nvme_poll_completion(nvme_queue_t *q, uint32_t expected_cid,
-                                 nvme_cqe_t *out)
+static int nvme_poll_completion(nvme_queue_t *q, uint32_t expected_cid, nvme_cqe_t *out)
 {
     uint64_t timeout = NVME_TIMEOUT_LOOPS;
 
@@ -184,8 +191,7 @@ static int nvme_poll_completion(nvme_queue_t *q, uint32_t expected_cid,
         compiler_barrier();
         nvme_cqe_t *cqe = &q->cq[q->cq_head];
 
-        if (NVME_CQE_PHASE(cqe) != q->cq_phase)
-            continue;
+        if (NVME_CQE_PHASE(cqe) != q->cq_phase) continue;
 
         /* Entry is new — check CID and consume it */
         uint16_t sc  = NVME_CQE_SC(cqe);
@@ -222,12 +228,10 @@ static int nvme_poll_completion(nvme_queue_t *q, uint32_t expected_cid,
  *  Admin command submission
  * ================================================================ */
 
-static int nvme_admin_cmd(nvme_controller_t *ctrl, uint8_t opc,
-                           uint32_t nsid, uint64_t prp1, uint64_t prp2,
-                           uint32_t cdw10, uint32_t cdw11, uint32_t cdw12,
-                           nvme_cqe_t *result)
+static int nvme_admin_cmd(nvme_controller_t *ctrl, uint8_t opc, uint32_t nsid, uint64_t prp1, uint64_t prp2, uint32_t cdw10, uint32_t cdw11,
+                          uint32_t cdw12, nvme_cqe_t *result)
 {
-    nvme_queue_t *q   = &ctrl->admin_q;
+    nvme_queue_t *q    = &ctrl->admin_q;
     uint32_t      tail = q->sq_tail;
     uint32_t      cid  = q->sq_cid++;
     nvme_sqe_t   *cmd  = &q->sq[tail];
@@ -255,9 +259,7 @@ static int nvme_admin_cmd(nvme_controller_t *ctrl, uint8_t opc,
  *  the PRP list is a linear walk of page-aligned addresses.
  * ================================================================ */
 
-static int nvme_build_prp(nvme_queue_t *q, uint64_t dma_phys,
-                           uint32_t byte_count, uint64_t *prp1_out,
-                           uint64_t *prp2_out)
+static int nvme_build_prp(nvme_queue_t *q, uint64_t dma_phys, uint32_t byte_count, uint64_t *prp1_out, uint64_t *prp2_out)
 {
     uint32_t offset           = (uint32_t)(dma_phys & (PAGE_4K_SIZE - 1));
     uint32_t first_page_avail = PAGE_4K_SIZE - offset;
@@ -296,12 +298,12 @@ static int nvme_build_prp(nvme_queue_t *q, uint64_t dma_phys,
     while (remaining > 0 && idx < NVME_PRP_ENTRIES_PER_PAGE) {
         list[idx++] = (remaining <= PAGE_4K_SIZE) ? next_page : next_page;
         remaining   = (remaining > PAGE_4K_SIZE) ? (remaining - PAGE_4K_SIZE) : 0;
-        next_page  += PAGE_4K_SIZE;
+        next_page += PAGE_4K_SIZE;
     }
 
     if (remaining > 0) {
         q->prp_list_inuse = 0;
-        return -E2BIG;   /* transfer too large for single PRP list */
+        return -E2BIG; /* transfer too large for single PRP list */
     }
 
     *prp2_out = q->prp_list_phys;
@@ -322,31 +324,30 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
     if (ctrl_id >= NVME_MAX_CONTROLLERS) return -ENOSPC;
     ctrl = &nvme_controllers[ctrl_id];
     memset(ctrl, 0, sizeof(*ctrl));
-    ctrl->id    = ctrl_id;
-    ctrl->pci   = pci_dev;
-    ctrl->lock  = (spinlock_t){0};
+    ctrl->id   = ctrl_id;
+    ctrl->pci  = pci_dev;
+    ctrl->lock = (spinlock_t) {0};
 
     /* Read PCI IDs */
-    vendor_id = read_pci((pci_device_reg_t){ .parent = pci_dev, .offset = PCI_CONF_VENDOR });
-    device_id = read_pci((pci_device_reg_t){ .parent = pci_dev, .offset = PCI_CONF_DEVICE });
+    vendor_id = read_pci((pci_device_reg_t) {.parent = pci_dev, .offset = PCI_CONF_VENDOR});
+    device_id = read_pci((pci_device_reg_t) {.parent = pci_dev, .offset = PCI_CONF_DEVICE});
 
-    plogk("nvme: [%04x:%02x:%02x] NVMe controller (vendor=0x%04x, device=0x%04x)\n",
-          pci_dev->device->domain, pci_dev->device->bus,
+    plogk("nvme: [%04x:%02x:%02x] NVMe controller (vendor=0x%04x, device=0x%04x)\n", pci_dev->device->domain, pci_dev->device->bus,
           pci_dev->device->slot, vendor_id, device_id);
 
     /* Enable bus mastering and MMIO space */
     {
         uint32_t cmd = pci_read_command_status(pci_dev);
-        cmd |= (1 << 2);   /* bus master */
-        cmd |= (1 << 1);   /* memory space */
+        cmd |= (1 << 2); /* bus master */
+        cmd |= (1 << 1); /* memory space */
         pci_write_command_status(pci_dev, cmd);
     }
 
     /* Get BAR0 */
     {
         /* Read BAR0 raw from PCI config space (HHDM doesn't map MMIO regions) */
-        pci_device_reg_t pci_reg = { .parent = pci_dev, .offset = 0x10 };
-        uint64_t         bar_val = read_pci(pci_reg);
+        pci_device_reg_t pci_reg  = {.parent = pci_dev, .offset = 0x10};
+        uint64_t         bar_val  = read_pci(pci_reg);
         uint32_t         bar_type = (bar_val >> 1) & 0b11;
 
         if ((bar_val & 1) || bar_type == BAR_Reserved) {
@@ -369,26 +370,24 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
     }
 
     /* Parse CAP register */
-    cap = nvme_read64(ctrl->regs, NVME_REG_CAP);
+    cap             = nvme_read64(ctrl->regs, NVME_REG_CAP);
     ctrl->stride    = 4u << nvme_cap_dstrd(cap);
     ctrl->max_qsize = nvme_cap_mqes(cap) + 1;
     if (ctrl->max_qsize > 4096) ctrl->max_qsize = 4096;
 
-    plogk("nvme: controller %u: MQES=%u stride=%u bytes\n",
-          ctrl_id, ctrl->max_qsize - 1, ctrl->stride);
+    plogk("nvme: controller %u: MQES=%u stride=%u bytes\n", ctrl_id, ctrl->max_qsize - 1, ctrl->stride);
 
     /* Get IRQ */
     {
         uint32_t irq_line = pci_get_irq(pci_dev);
         ctrl->irq_vector  = (irq_line > 0) ? (uint32_t)(32 + irq_line) : 0;
-        plogk("nvme: controller %u: IRQ line=%u vector=%u\n",
-              ctrl_id, irq_line, ctrl->irq_vector);
+        plogk("nvme: controller %u: IRQ line=%u vector=%u\n", ctrl_id, irq_line, ctrl->irq_vector);
     }
 
     /* ---- Disable controller ---- */
     {
-        nvme_write32(ctrl->regs, NVME_REG_CC, 0);   /* CC.EN = 0 */
-        uint64_t to = (uint64_t)nvme_cap_to(cap) * 500 * 1000;
+        nvme_write32(ctrl->regs, NVME_REG_CC, 0); /* CC.EN = 0 */
+        uint64_t to       = (uint64_t)nvme_cap_to(cap) * 500 * 1000;
         uint64_t deadline = rdtsc_serialized() + to;
         while (nvme_read32(ctrl->regs, NVME_REG_CSTS) & NVME_CSTS_RDY) {
             if (rdtsc_serialized() > deadline) {
@@ -412,8 +411,7 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
 
     /* ---- Program admin queue registers ---- */
     {
-        uint32_t aqa_val = (uint32_t)((ctrl->admin_q.num_entries - 1) & 0xFFF)
-                         | ((uint32_t)((ctrl->admin_q.num_entries - 1) & 0xFFF) << 16);
+        uint32_t aqa_val = (uint32_t)((ctrl->admin_q.num_entries - 1) & 0xFFF) | ((uint32_t)((ctrl->admin_q.num_entries - 1) & 0xFFF) << 16);
         nvme_write32(ctrl->regs, NVME_REG_AQA, aqa_val);
         nvme_write64(ctrl->regs, NVME_REG_ASQ, ctrl->admin_q.sq_phys);
         nvme_write64(ctrl->regs, NVME_REG_ACQ, ctrl->admin_q.cq_phys);
@@ -422,9 +420,7 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
 
     /* ---- Enable controller ---- */
     {
-        uint32_t cc_val = NVME_CC_EN
-                        | (NVME_SQE_SHIFT << NVME_CC_IOSQES_SHIFT)
-                        | (NVME_CQE_SHIFT << NVME_CC_IOCQES_SHIFT);
+        uint32_t cc_val = NVME_CC_EN | (NVME_SQE_SHIFT << NVME_CC_IOSQES_SHIFT) | (NVME_CQE_SHIFT << NVME_CC_IOCQES_SHIFT);
         nvme_write32(ctrl->regs, NVME_REG_CC, cc_val);
 
         uint64_t to       = (uint64_t)nvme_cap_to(cap) * 500 * 1000;
@@ -441,23 +437,22 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
     /* Request 1 I/O SQ + 1 I/O CQ */
     {
         nvme_cqe_t cqe;
-        ret = nvme_admin_cmd(ctrl, NVME_ADMIN_SET_FEATURES, 0, 0, 0,
-                               NVME_FID_NUM_QUEUES, (1u << 16) | 1u, 0, &cqe);
-        if (ret) {
-            plogk("nvme: controller %u: Set Features (num queues) = %d\n", ctrl_id, ret);
-        }
+        ret = nvme_admin_cmd(ctrl, NVME_ADMIN_SET_FEATURES, 0, 0, 0, NVME_FID_NUM_QUEUES, (1u << 16) | 1u, 0, &cqe);
+        if (ret) { plogk("nvme: controller %u: Set Features (num queues) = %d\n", ctrl_id, ret); }
     }
 
     /* ---- Identify Controller ---- */
     {
         uint64_t ident_phys = alloc_frames(1);
-        if (!ident_phys) { ret = -ENOMEM; goto err_admin; }
+        if (!ident_phys) {
+            ret = -ENOMEM;
+            goto err_admin;
+        }
         void *ident_virt = phys_to_virt(ident_phys);
         memset(ident_virt, 0, PAGE_4K_SIZE);
 
         nvme_cqe_t cqe;
-        ret = nvme_admin_cmd(ctrl, NVME_ADMIN_IDENTIFY, 0, ident_phys, 0,
-                               NVME_CNS_CONTROLLER, 0, 0, &cqe);
+        ret = nvme_admin_cmd(ctrl, NVME_ADMIN_IDENTIFY, 0, ident_phys, 0, NVME_CNS_CONTROLLER, 0, 0, &cqe);
         if (ret) {
             plogk("nvme: controller %u: Identify Controller failed: %d\n", ctrl_id, ret);
             free_frames(ident_phys, 1);
@@ -465,44 +460,43 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
         }
 
         nvme_identify_ctrl_t *id = (nvme_identify_ctrl_t *)ident_virt;
-        char model[41], serial[21], fw[9];
+        char                  model[41], serial[21], fw[9];
 
-        memcpy(model,  id->mn, 40); model[40]  = '\0';
-        memcpy(serial, id->sn, 20); serial[20] = '\0';
-        memcpy(fw,     id->fr, 8);  fw[8]      = '\0';
+        memcpy(model, id->mn, 40);
+        model[40] = '\0';
+        memcpy(serial, id->sn, 20);
+        serial[20] = '\0';
+        memcpy(fw, id->fr, 8);
+        fw[8] = '\0';
 
         /* Strip trailing spaces from ASCII strings */
         for (int i = 39; i >= 0 && model[i] == ' '; i--) model[i] = '\0';
         for (int i = 19; i >= 0 && serial[i] == ' '; i--) serial[i] = '\0';
-        for (int i = 7;  i >= 0 && fw[i] == ' ';     i--) fw[i]     = '\0';
+        for (int i = 7; i >= 0 && fw[i] == ' '; i--) fw[i] = '\0';
 
-        ctrl->num_namespaces = (id->nn > NVME_MAX_NAMESPACES)
-                                ? NVME_MAX_NAMESPACES : id->nn;
+        ctrl->num_namespaces = (id->nn > NVME_MAX_NAMESPACES) ? NVME_MAX_NAMESPACES : id->nn;
 
-        plogk("nvme: controller %u: \"%s\" SN=%s FW=%s, %u namespace(s)\n",
-              ctrl_id, model, serial, fw, ctrl->num_namespaces);
+        plogk("nvme: controller %u: \"%s\" SN=%s FW=%s, %u namespace(s)\n", ctrl_id, model, serial, fw, ctrl->num_namespaces);
 
         free_frames(ident_phys, 1);
     }
 
     /* ---- Identify each namespace ---- */
     for (uint32_t ns_idx = 0; ns_idx < ctrl->num_namespaces; ns_idx++) {
-        uint32_t    nsid = ns_idx + 1;
-        nvme_cqe_t  cqe;
-        uint64_t    ns_phys;
-        void       *ns_virt;
-        int         ns_ret;
+        uint32_t   nsid = ns_idx + 1;
+        nvme_cqe_t cqe;
+        uint64_t   ns_phys;
+        void      *ns_virt;
+        int        ns_ret;
 
         ns_phys = alloc_frames(1);
         if (!ns_phys) continue;
         ns_virt = phys_to_virt(ns_phys);
         memset(ns_virt, 0, PAGE_4K_SIZE);
 
-        ns_ret = nvme_admin_cmd(ctrl, NVME_ADMIN_IDENTIFY, nsid,
-                                  ns_phys, 0, NVME_CNS_NAMESPACE, 0, 0, &cqe);
+        ns_ret = nvme_admin_cmd(ctrl, NVME_ADMIN_IDENTIFY, nsid, ns_phys, 0, NVME_CNS_NAMESPACE, 0, 0, &cqe);
         if (ns_ret) {
-            plogk("nvme: ctrl%u ns%u: Identify Namespace failed: %d\n",
-                  ctrl_id, nsid, ns_ret);
+            plogk("nvme: ctrl%u ns%u: Identify Namespace failed: %d\n", ctrl_id, nsid, ns_ret);
             free_frames(ns_phys, 1);
             continue;
         }
@@ -512,16 +506,13 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
         uint8_t             flbas   = ns_data->flbas & 0xF;
         uint8_t             ds      = ns_data->lbaf[flbas].ds;
 
-        ns->nsid         = nsid;
+        ns->nsid          = nsid;
         ns->total_sectors = ns_data->nsze;
         ns->sector_size   = (ds > 0) ? (1u << ds) : NVME_SECTOR_SIZE;
         ns->ready         = 1;
 
-        plogk("nvme: ctrl%u ns%u: %llu sectors (%llu GiB), LBA size=%u\n",
-              ctrl_id, nsid,
-              (unsigned long long)ns->total_sectors,
-              (unsigned long long)(ns->total_sectors * ns->sector_size / 1000000000ULL),
-              ns->sector_size);
+        plogk("nvme: ctrl%u ns%u: %llu sectors (%llu GiB), LBA size=%u\n", ctrl_id, nsid, (unsigned long long)ns->total_sectors,
+              (unsigned long long)(ns->total_sectors * ns->sector_size / 1000000000ULL), ns->sector_size);
 
         free_frames(ns_phys, 1);
     }
@@ -561,9 +552,7 @@ INTERRUPT_END
  *  I/O command submission
  * ================================================================ */
 
-static int nvme_do_io(nvme_controller_t *ctrl, uint8_t opc, uint32_t nsid,
-                       uint64_t prp1, uint64_t prp2,
-                       uint64_t slba, uint16_t nlb)
+static int nvme_do_io(nvme_controller_t *ctrl, uint8_t opc, uint32_t nsid, uint64_t prp1, uint64_t prp2, uint64_t slba, uint16_t nlb)
 {
     nvme_queue_t *q = &ctrl->admin_q;
     int           ret;
@@ -597,8 +586,7 @@ static int nvme_do_io(nvme_controller_t *ctrl, uint8_t opc, uint32_t nsid,
  *  Backend I/O entry points (called via blockdev ops table)
  * ================================================================ */
 
-int nvme_read_sectors(const struct blockdev_device *dev, uint32_t lba,
-                       uint32_t count, void *buffer)
+int nvme_read_sectors(const struct blockdev_device *dev, uint32_t lba, uint32_t count, void *buffer)
 {
     nvme_namespace_t  *ns;
     nvme_controller_t *ctrl;
@@ -649,8 +637,7 @@ int nvme_read_sectors(const struct blockdev_device *dev, uint32_t lba,
         }
 
         /* Submit READ command */
-        ret = nvme_do_io(ctrl, NVME_NVM_READ, ns->nsid,
-                          prp1, prp2, dev->base_lba + lba, (uint16_t)(chunk - 1));
+        ret = nvme_do_io(ctrl, NVME_NVM_READ, ns->nsid, prp1, prp2, dev->base_lba + lba, (uint16_t)(chunk - 1));
 
         if (q->prp_list_inuse) q->prp_list_inuse = 0;
 
@@ -658,16 +645,15 @@ int nvme_read_sectors(const struct blockdev_device *dev, uint32_t lba,
         free_frames(dma_phys, pages);
         if (ret) return ret;
 
-        buf   += bytes;
-        lba   += chunk;
+        buf += bytes;
+        lba += chunk;
         count -= chunk;
     }
 
     return EOK;
 }
 
-int nvme_write_sectors(const struct blockdev_device *dev, uint32_t lba,
-                        uint32_t count, const void *buffer)
+int nvme_write_sectors(const struct blockdev_device *dev, uint32_t lba, uint32_t count, const void *buffer)
 {
     nvme_namespace_t  *ns;
     nvme_controller_t *ctrl;
@@ -716,16 +702,15 @@ int nvme_write_sectors(const struct blockdev_device *dev, uint32_t lba,
             return ret;
         }
 
-        ret = nvme_do_io(ctrl, NVME_NVM_WRITE, ns->nsid,
-                          prp1, prp2, dev->base_lba + lba, (uint16_t)(chunk - 1));
+        ret = nvme_do_io(ctrl, NVME_NVM_WRITE, ns->nsid, prp1, prp2, dev->base_lba + lba, (uint16_t)(chunk - 1));
 
         if (q->prp_list_inuse) q->prp_list_inuse = 0;
 
         free_frames(dma_phys, pages);
         if (ret) return ret;
 
-        buf   += bytes;
-        lba   += chunk;
+        buf += bytes;
+        lba += chunk;
         count -= chunk;
     }
 
@@ -738,10 +723,10 @@ int nvme_write_sectors(const struct blockdev_device *dev, uint32_t lba,
 
 void nvme_init(void)
 {
-    pci_device_cache_t  *dev;
-    pci_class_request_t  nvme_class = { .class_code = 0x010802 };
-    int                  count      = 0;
-    int                  ret;
+    pci_device_cache_t *dev;
+    pci_class_request_t nvme_class = {.class_code = 0x010802};
+    int                 count      = 0;
+    int                 ret;
 
     if (nvme_initialised) return;
 
@@ -749,21 +734,18 @@ void nvme_init(void)
     dev = pci_found_class_cache(NULL, nvme_class);
     while (dev && count < NVME_MAX_CONTROLLERS) {
         ret = nvme_controller_init(dev, (uint16_t)count);
-        if (ret == EOK) {
-            count++;
-        }
+        if (ret == EOK) { count++; }
         dev = pci_found_class_cache(dev, nvme_class);
     }
 
     nvme_ctrl_count  = count;
-    nvme_initialised  = 1;
+    nvme_initialised = 1;
 
     if (count > 0) {
         /* Register interrupt handler on the first controller's vector */
         for (int i = 0; i < count; i++) {
             if (nvme_controllers[i].irq_vector) {
-                register_interrupt_handler((uint16_t)nvme_controllers[i].irq_vector,
-                                            (void *)nvme_interrupt_handler, 0, 0x8E);
+                register_interrupt_handler((uint16_t)nvme_controllers[i].irq_vector, (void *)nvme_interrupt_handler, 0, 0x8E);
                 /* Unmask interrupts */
                 nvme_write32(nvme_controllers[i].regs, NVME_REG_INTMC, 0xFFFFFFFF);
                 break;

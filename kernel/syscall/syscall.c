@@ -40,14 +40,14 @@
 #include <syscall/syscall_table.h>
 #include <syscall/timerfd.h>
 
-#define SYSCALL_PATH_MAX  256
-#define SYSCALL_IO_CHUNK  4096
+#define SYSCALL_PATH_MAX 256
+#define SYSCALL_IO_CHUNK 4096
 
 /* Mount flag bits stored in vfs_node->flags */
-#define MOUNT_FLAG_RDONLY  (1UL << 0)
-#define MOUNT_FLAG_NOSUID  (1UL << 1)
-#define MOUNT_FLAG_NODEV   (1UL << 2)
-#define MOUNT_FLAG_NOEXEC  (1UL << 3)
+#define MOUNT_FLAG_RDONLY (1UL << 0)
+#define MOUNT_FLAG_NOSUID (1UL << 1)
+#define MOUNT_FLAG_NODEV  (1UL << 2)
+#define MOUNT_FLAG_NOEXEC (1UL << 3)
 #define AT_FDCWD          -100
 #define AT_REMOVEDIR      0x200
 #define STATX_BASIC_STATS 0x000007ffU
@@ -646,37 +646,37 @@ static int64_t sys_dup3(uint64_t oldfd, uint64_t newfd, uint64_t flags, uint64_t
 /*
  * Terminal ioctl request codes (Linux-compatible)
  */
-#define TIOCGWINSZ  0x5413
-#define TIOCSWINSZ  0x5414
-#define TCGETS      0x5401
-#define TCSETS      0x5402
-#define TCSETSW     0x5403
-#define TCSETSF     0x5404
-#define TCSBRK      0x5409
-#define TCXONC      0x540A
-#define TCFLSH      0x540B
-#define TIOCGPGRP   0x540F
-#define TIOCSPGRP   0x5410
-#define TIOCSCTTY   0x540E
-#define TIOCNOTTY   0x5422
-#define FIONREAD    0x541B
+#define TIOCGWINSZ 0x5413
+#define TIOCSWINSZ 0x5414
+#define TCGETS     0x5401
+#define TCSETS     0x5402
+#define TCSETSW    0x5403
+#define TCSETSF    0x5404
+#define TCSBRK     0x5409
+#define TCXONC     0x540A
+#define TCFLSH     0x540B
+#define TIOCGPGRP  0x540F
+#define TIOCSPGRP  0x5410
+#define TIOCSCTTY  0x540E
+#define TIOCNOTTY  0x5422
+#define FIONREAD   0x541B
 
 /* Linux termios structure (x86_64, ~60 bytes) */
 struct linux_termios {
-    uint32_t c_iflag;
-    uint32_t c_oflag;
-    uint32_t c_cflag;
-    uint32_t c_lflag;
-    uint8_t  c_line;
-    uint8_t  c_cc[19];
+        uint32_t c_iflag;
+        uint32_t c_oflag;
+        uint32_t c_cflag;
+        uint32_t c_lflag;
+        uint8_t  c_line;
+        uint8_t  c_cc[19];
 };
 
 /* Linux winsize structure */
 struct linux_winsize {
-    uint16_t ws_row;
-    uint16_t ws_col;
-    uint16_t ws_xpixel;
-    uint16_t ws_ypixel;
+        uint16_t ws_row;
+        uint16_t ws_col;
+        uint16_t ws_xpixel;
+        uint16_t ws_ypixel;
 };
 
 static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -690,44 +690,44 @@ static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3,
 
     /* Handle terminal ioctls at the syscall level for TTY/console fds */
     switch ((unsigned long)req) {
-        case TCGETS: {
+        case TCGETS : {
             /* Return a minimal cooked terminal termios */
             if (!arg) return -EFAULT;
             struct linux_termios t;
             memset(&t, 0, sizeof(t));
             /* c_iflag: ICRNL | IXON */
-            t.c_iflag = 0x0400 | 0x0400;  /* ICRNL */
+            t.c_iflag = 0x0400 | 0x0400; /* ICRNL */
             /* c_oflag: OPOST | ONLCR */
-            t.c_oflag = 0x0001 | 0x0004;  /* OPOST | ONLCR */
+            t.c_oflag = 0x0001 | 0x0004; /* OPOST | ONLCR */
             /* c_cflag: CREAD | CS8 | B38400 */
-            t.c_cflag = 0x0080 | 0x0030 | 0x000F;  /* CREAD | CS8 | B38400 */
+            t.c_cflag = 0x0080 | 0x0030 | 0x000F; /* CREAD | CS8 | B38400 */
             /* c_lflag: ISIG | ICANON | ECHO | ECHOE | ECHOK | ECHOCTL | ECHOKE */
             t.c_lflag = 0x0001 | 0x0002 | 0x0008 | 0x0010 | 0x0020 | 0x0200 | 0x0800;
             t.c_line  = 0;
             /* c_cc: set VEOF=4 (^D), VEOL=0, VERASE=0x7f (BS), VINTR=3 (^C), VKILL=0x15 (^U), VMIN=1, VQUIT=0x1c (^\), VSTART=0x11, VSTOP=0x13, VSUSP=0x1a (^Z), VTIME=0 */
-            t.c_cc[0] = 4;    /* VEOF */
-            t.c_cc[1] = 0;    /* VEOL */
-            t.c_cc[2] = 0x7f; /* VERASE */
-            t.c_cc[3] = 3;    /* VINTR */
-            t.c_cc[4] = 0x15; /* VKILL */
-            t.c_cc[5] = 1;    /* VMIN */
-            t.c_cc[6] = 0x1c; /* VQUIT */
-            t.c_cc[7] = 0;    /* spare */
-            t.c_cc[8] = 0x11; /* VSTART */
-            t.c_cc[9] = 0x13; /* VSTOP */
+            t.c_cc[0]  = 4;    /* VEOF */
+            t.c_cc[1]  = 0;    /* VEOL */
+            t.c_cc[2]  = 0x7f; /* VERASE */
+            t.c_cc[3]  = 3;    /* VINTR */
+            t.c_cc[4]  = 0x15; /* VKILL */
+            t.c_cc[5]  = 1;    /* VMIN */
+            t.c_cc[6]  = 0x1c; /* VQUIT */
+            t.c_cc[7]  = 0;    /* spare */
+            t.c_cc[8]  = 0x11; /* VSTART */
+            t.c_cc[9]  = 0x13; /* VSTOP */
             t.c_cc[10] = 0x1a; /* VSUSP */
             /* VTIME=0 */
             if (copy_to_user((void *)arg, &t, sizeof(t))) return -EFAULT;
             return 0;
         }
 
-        case TCSETS:
-        case TCSETSW:
-        case TCSETSF:
+        case TCSETS :
+        case TCSETSW :
+        case TCSETSF :
             /* Accept any terminal settings */
             return 0;
 
-        case TIOCGWINSZ: {
+        case TIOCGWINSZ : {
             if (!arg) return -EFAULT;
             struct linux_winsize ws = {80, 25, 0, 0};
             /* Try to get actual size from framebuffer */
@@ -735,11 +735,11 @@ static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3,
             return 0;
         }
 
-        case TIOCSWINSZ:
+        case TIOCSWINSZ :
             /* Accept window size change */
             return 0;
 
-        case TIOCGPGRP: {
+        case TIOCGPGRP : {
             /* Return foreground process group */
             if (!arg) return -EFAULT;
             pid_t pgid = proc->pgid ? (pid_t)proc->pgid : (pid_t)proc->task->pid;
@@ -747,7 +747,7 @@ static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3,
             return 0;
         }
 
-        case TIOCSPGRP: {
+        case TIOCSPGRP : {
             /* Set foreground process group */
             if (!arg) return -EFAULT;
             pid_t pgid;
@@ -756,21 +756,21 @@ static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3,
             return 0;
         }
 
-        case TIOCSCTTY:
+        case TIOCSCTTY :
             /* Make this terminal the controlling terminal */
             return 0;
 
-        case TIOCNOTTY:
+        case TIOCNOTTY :
             /* Release controlling terminal */
             return 0;
 
-        case TCSBRK:
-        case TCXONC:
-        case TCFLSH:
+        case TCSBRK :
+        case TCXONC :
+        case TCFLSH :
             /* Flow control / line discipline - accept silently */
             return 0;
 
-        case FIONREAD: {
+        case FIONREAD : {
             /* Return number of bytes available to read */
             /* For now return 0 (nothing available) - this is approximate */
             if (!arg) return -EFAULT;
@@ -779,7 +779,7 @@ static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3,
             return 0;
         }
 
-        default:
+        default :
             /* Delegate to VFS for device-specific ioctls */
             return process_fd_ioctl(proc, (int)fd, (size_t)req, (void *)arg);
     }
@@ -1200,22 +1200,21 @@ static int64_t sys_signalfd4_wrap(uint64_t fd, uint64_t mask, uint64_t sizemask,
 #define MS_NODEV       4
 #define MS_NOEXEC      8
 #define MS_SYNCHRONOUS 16
-#define MS_REMOUNT    32
-#define MS_MANDLOCK   64
-#define MS_DIRSYNC   128
-#define MS_NOATIME  1024
-#define MS_NODIRATIME 2048
-#define MS_BIND      4096
-#define MS_MOVE      8192
-#define MS_REC      16384
-#define MS_SILENT   32768
+#define MS_REMOUNT     32
+#define MS_MANDLOCK    64
+#define MS_DIRSYNC     128
+#define MS_NOATIME     1024
+#define MS_NODIRATIME  2048
+#define MS_BIND        4096
+#define MS_MOVE        8192
+#define MS_REC         16384
+#define MS_SILENT      32768
 
-#define MNT_FORCE   1
-#define MNT_DETACH  2
-#define MNT_EXPIRE  4
+#define MNT_FORCE  1
+#define MNT_DETACH 2
+#define MNT_EXPIRE 4
 
-static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype,
-                         uint64_t flags, uint64_t data, uint64_t arg5)
+static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint64_t flags, uint64_t data, uint64_t arg5)
 {
     (void)data;
     (void)arg5;
@@ -1253,12 +1252,11 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype,
             vfs_close(node);
             return -EINVAL;
         }
-        node->flags &= ~(MOUNT_FLAG_RDONLY | MOUNT_FLAG_NOSUID |
-                         MOUNT_FLAG_NODEV | MOUNT_FLAG_NOEXEC);
-        if (flags & MS_RDONLY)  node->flags |= MOUNT_FLAG_RDONLY;
-        if (flags & MS_NOSUID)  node->flags |= MOUNT_FLAG_NOSUID;
-        if (flags & MS_NODEV)   node->flags |= MOUNT_FLAG_NODEV;
-        if (flags & MS_NOEXEC)  node->flags |= MOUNT_FLAG_NOEXEC;
+        node->flags &= ~(MOUNT_FLAG_RDONLY | MOUNT_FLAG_NOSUID | MOUNT_FLAG_NODEV | MOUNT_FLAG_NOEXEC);
+        if (flags & MS_RDONLY) node->flags |= MOUNT_FLAG_RDONLY;
+        if (flags & MS_NOSUID) node->flags |= MOUNT_FLAG_NOSUID;
+        if (flags & MS_NODEV) node->flags |= MOUNT_FLAG_NODEV;
+        if (flags & MS_NOEXEC) node->flags |= MOUNT_FLAG_NOEXEC;
         vfs_close(node);
         return EOK;
     }
@@ -1283,12 +1281,11 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype,
     }
 
     /* Apply mount flags to the mount point node */
-    node->flags &= ~(MOUNT_FLAG_RDONLY | MOUNT_FLAG_NOSUID |
-                     MOUNT_FLAG_NODEV | MOUNT_FLAG_NOEXEC);
-    if (flags & MS_RDONLY)  node->flags |= MOUNT_FLAG_RDONLY;
-    if (flags & MS_NOSUID)  node->flags |= MOUNT_FLAG_NOSUID;
-    if (flags & MS_NODEV)   node->flags |= MOUNT_FLAG_NODEV;
-    if (flags & MS_NOEXEC)  node->flags |= MOUNT_FLAG_NOEXEC;
+    node->flags &= ~(MOUNT_FLAG_RDONLY | MOUNT_FLAG_NOSUID | MOUNT_FLAG_NODEV | MOUNT_FLAG_NOEXEC);
+    if (flags & MS_RDONLY) node->flags |= MOUNT_FLAG_RDONLY;
+    if (flags & MS_NOSUID) node->flags |= MOUNT_FLAG_NOSUID;
+    if (flags & MS_NODEV) node->flags |= MOUNT_FLAG_NODEV;
+    if (flags & MS_NOEXEC) node->flags |= MOUNT_FLAG_NOEXEC;
 
     /* Mark the node as a mount point (if not already) */
     node->is_mount = 1;
@@ -1301,8 +1298,7 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype,
     return EOK;
 }
 
-static int64_t sys_umount2(uint64_t target, uint64_t flags, uint64_t arg2,
-                           uint64_t arg3, uint64_t arg4, uint64_t arg5)
+static int64_t sys_umount2(uint64_t target, uint64_t flags, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
     (void)arg3;
@@ -1470,17 +1466,17 @@ static int64_t sys_ftruncate_stub(uint64_t fd, uint64_t length, uint64_t arg2, u
     return EOK;
 }
 
-#define CLOCK_REALTIME          0
-#define CLOCK_MONOTONIC         1
+#define CLOCK_REALTIME           0
+#define CLOCK_MONOTONIC          1
 #define CLOCK_PROCESS_CPUTIME_ID 2
 #define CLOCK_THREAD_CPUTIME_ID  3
-#define CLOCK_MONOTONIC_RAW     4
-#define CLOCK_REALTIME_COARSE   5
-#define CLOCK_MONOTONIC_COARSE  6
-#define CLOCK_BOOTTIME          7
-#define CLOCK_REALTIME_ALARM    8
-#define CLOCK_BOOTTIME_ALARM    9
-#define CLOCK_TAI              11
+#define CLOCK_MONOTONIC_RAW      4
+#define CLOCK_REALTIME_COARSE    5
+#define CLOCK_MONOTONIC_COARSE   6
+#define CLOCK_BOOTTIME           7
+#define CLOCK_REALTIME_ALARM     8
+#define CLOCK_BOOTTIME_ALARM     9
+#define CLOCK_TAI                11
 
 static int64_t sys_clock_gettime_stub(uint64_t clockid, uint64_t tp, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -1490,37 +1486,37 @@ static int64_t sys_clock_gettime_stub(uint64_t clockid, uint64_t tp, uint64_t ar
     (void)arg5;
     if (!tp) return -EFAULT;
 
-    uint64_t ticks = sched_ticks();
+    uint64_t         ticks = sched_ticks();
     linux_timespec_t ts;
 
     switch ((int)clockid) {
-        case CLOCK_REALTIME:
-        case CLOCK_REALTIME_COARSE:
-        case CLOCK_REALTIME_ALARM:
+        case CLOCK_REALTIME :
+        case CLOCK_REALTIME_COARSE :
+        case CLOCK_REALTIME_ALARM :
             /* Wall clock time since epoch */
             ts.tv_sec  = (int64_t)(ticks / 100);
             ts.tv_nsec = (int64_t)((ticks % 100) * 10000000LL);
             break;
-        case CLOCK_MONOTONIC:
-        case CLOCK_MONOTONIC_RAW:
-        case CLOCK_MONOTONIC_COARSE:
-        case CLOCK_BOOTTIME:
-        case CLOCK_BOOTTIME_ALARM:
+        case CLOCK_MONOTONIC :
+        case CLOCK_MONOTONIC_RAW :
+        case CLOCK_MONOTONIC_COARSE :
+        case CLOCK_BOOTTIME :
+        case CLOCK_BOOTTIME_ALARM :
             /* Monotonic time since boot */
             ts.tv_sec  = (int64_t)(ticks / 100);
             ts.tv_nsec = (int64_t)((ticks % 100) * 10000000LL);
             break;
-        case CLOCK_PROCESS_CPUTIME_ID:
-        case CLOCK_THREAD_CPUTIME_ID:
+        case CLOCK_PROCESS_CPUTIME_ID :
+        case CLOCK_THREAD_CPUTIME_ID :
             /* CPU time - approximate with elapsed time */
             ts.tv_sec  = (int64_t)(ticks / 100);
             ts.tv_nsec = (int64_t)((ticks % 100) * 10000000LL);
             break;
-        case CLOCK_TAI:
+        case CLOCK_TAI :
             ts.tv_sec  = (int64_t)(ticks / 100);
             ts.tv_nsec = (int64_t)((ticks % 100) * 10000000LL);
             break;
-        default:
+        default :
             return -EINVAL;
     }
 
@@ -1530,37 +1526,37 @@ static int64_t sys_clock_gettime_stub(uint64_t clockid, uint64_t tp, uint64_t ar
 /* ---------- sysinfo ---------- */
 
 struct linux_sysinfo {
-    int64_t uptime;
-    uint64_t loads[3];
-    uint64_t totalram;
-    uint64_t freeram;
-    uint64_t sharedram;
-    uint64_t bufferram;
-    uint64_t totalswap;
-    uint64_t freeswap;
-    uint16_t procs;
-    uint16_t pad;
-    uint64_t totalhigh;
-    uint64_t freehigh;
-    uint32_t mem_unit;
-    char _f[20-2*sizeof(uint64_t)-sizeof(uint32_t)];
+        int64_t  uptime;
+        uint64_t loads[3];
+        uint64_t totalram;
+        uint64_t freeram;
+        uint64_t sharedram;
+        uint64_t bufferram;
+        uint64_t totalswap;
+        uint64_t freeswap;
+        uint16_t procs;
+        uint16_t pad;
+        uint64_t totalhigh;
+        uint64_t freehigh;
+        uint32_t mem_unit;
+        char     _f[20 - 2 * sizeof(uint64_t) - sizeof(uint32_t)];
 };
 
 /* ---------- statfs ---------- */
 
 struct linux_statfs {
-    int64_t  f_type;
-    int64_t  f_bsize;
-    uint64_t f_blocks;
-    uint64_t f_bfree;
-    uint64_t f_bavail;
-    uint64_t f_files;
-    uint64_t f_ffree;
-    uint64_t f_fsid;
-    int64_t  f_namelen;
-    int64_t  f_frsize;
-    int64_t  f_flags;
-    int64_t  f_spare[4];
+        int64_t  f_type;
+        int64_t  f_bsize;
+        uint64_t f_blocks;
+        uint64_t f_bfree;
+        uint64_t f_bavail;
+        uint64_t f_files;
+        uint64_t f_ffree;
+        uint64_t f_fsid;
+        int64_t  f_namelen;
+        int64_t  f_frsize;
+        int64_t  f_flags;
+        int64_t  f_spare[4];
 };
 
 #define TMPFS_MAGIC 0x01021994
@@ -1572,24 +1568,24 @@ struct linux_statfs {
 /* ---------- getrusage ---------- */
 
 struct linux_rusage {
-    uint64_t ru_utime_sec;
-    uint64_t ru_utime_usec;
-    uint64_t ru_stime_sec;
-    uint64_t ru_stime_usec;
-    int64_t  ru_maxrss;
-    int64_t  ru_ixrss;
-    int64_t  ru_idrss;
-    int64_t  ru_isrss;
-    int64_t  ru_minflt;
-    int64_t  ru_majflt;
-    int64_t  ru_nswap;
-    int64_t  ru_inblock;
-    int64_t  ru_oublock;
-    int64_t  ru_msgsnd;
-    int64_t  ru_msgrcv;
-    int64_t  ru_nsignals;
-    int64_t  ru_nvcsw;
-    int64_t  ru_nivcsw;
+        uint64_t ru_utime_sec;
+        uint64_t ru_utime_usec;
+        uint64_t ru_stime_sec;
+        uint64_t ru_stime_usec;
+        int64_t  ru_maxrss;
+        int64_t  ru_ixrss;
+        int64_t  ru_idrss;
+        int64_t  ru_isrss;
+        int64_t  ru_minflt;
+        int64_t  ru_majflt;
+        int64_t  ru_nswap;
+        int64_t  ru_inblock;
+        int64_t  ru_oublock;
+        int64_t  ru_msgsnd;
+        int64_t  ru_msgrcv;
+        int64_t  ru_nsignals;
+        int64_t  ru_nvcsw;
+        int64_t  ru_nivcsw;
 };
 
 #define RUSAGE_SELF     0
@@ -1607,7 +1603,7 @@ static int64_t sys_getrusage_impl(uint64_t who, uint64_t usage, uint64_t arg2, u
     struct linux_rusage ru;
     memset(&ru, 0, sizeof(ru));
     /* Return some approximate usage values */
-    uint64_t ticks = sched_ticks();
+    uint64_t ticks   = sched_ticks();
     ru.ru_utime_sec  = ticks / 100;
     ru.ru_utime_usec = (ticks % 100) * 10000;
     ru.ru_minflt     = 0;
@@ -1641,8 +1637,7 @@ static int64_t sys_personality_impl(uint64_t persona, uint64_t arg1, uint64_t ar
     (void)arg4;
     (void)arg5;
     /* If persona != 0xffffffff, set it; always return current personality */
-    if ((unsigned int)persona != 0xffffffff) {
-        /* Setting personality is not supported, just ignore */
+    if ((unsigned int)persona != 0xffffffff) { /* Setting personality is not supported, just ignore */
     }
     return PER_LINUX;
 }
@@ -1687,8 +1682,8 @@ static int64_t sys_sysinfo_impl(uint64_t info, uint64_t arg1, uint64_t arg2, uin
     si.procs    = 1;
     si.mem_unit = 1;
     /* Report a generous amount of RAM: 256MB */
-    si.totalram = 256 * 1024 * 1024;
-    si.freeram  = 128 * 1024 * 1024;
+    si.totalram  = 256 * 1024 * 1024;
+    si.freeram   = 128 * 1024 * 1024;
     si.totalswap = 0;
     si.freeswap  = 0;
 
@@ -2750,11 +2745,11 @@ static int64_t sys_epoll_pwait_wrap(uint64_t epfd, uint64_t events, uint64_t max
 
 /* ---------- waitid wrapper ---------- */
 
-#define P_PID  1
-#define P_PGID 2
-#define P_ALL  3
-#define WEXITED    0x00000004
-#define WNOHANG    0x00000001
+#define P_PID   1
+#define P_PGID  2
+#define P_ALL   3
+#define WEXITED 0x00000004
+#define WNOHANG 0x00000001
 
 static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, uint64_t options, uint64_t arg4, uint64_t arg5)
 {
@@ -2765,19 +2760,19 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
     int   flags = (int)options;
 
     switch ((int)which) {
-        case P_PID:
+        case P_PID :
             if (copy_from_user(&pid, (const void *)upid, sizeof(pid))) return -EFAULT;
             break;
-        case P_PGID:
-        case P_ALL:
+        case P_PGID :
+        case P_ALL :
             pid = -1; /* Wait for any child */
             break;
-        default:
+        default :
             return -EINVAL;
     }
 
     /* For now, delegate to wait4 and ignore siginfo_t output */
-    int   status = 0;
+    int     status = 0;
     int64_t ret;
 
     if (flags & WNOHANG) {
@@ -2794,10 +2789,10 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
     if (infop) {
         siginfo_t info;
         memset(&info, 0, sizeof(info));
-        info.si_signo = SIGCHLD;
-        info.si_code  = CLD_EXITED;
-        info.si_pid   = pid;
-        info.si_uid   = 0;
+        info.si_signo  = SIGCHLD;
+        info.si_code   = CLD_EXITED;
+        info.si_pid    = pid;
+        info.si_uid    = 0;
         info.si_status = status;
         if (copy_to_user((void *)infop, &info, sizeof(info))) return -EFAULT;
     }
@@ -3208,18 +3203,18 @@ static int64_t sys_fcntl_wrap(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t 
 
 /* ---------- prctl implementation ---------- */
 
-#define PR_SET_PDEATHSIG 1
-#define PR_GET_PDEATHSIG 2
-#define PR_GET_DUMPABLE  3
-#define PR_SET_DUMPABLE  4
-#define PR_GET_KEEPCAPS  7
-#define PR_SET_KEEPCAPS  8
-#define PR_SET_NAME      15
-#define PR_GET_NAME      16
-#define PR_SET_SECCOMP   22
-#define PR_GET_SECCOMP   23
-#define PR_SET_TIMERSLACK 29
-#define PR_GET_TIMERSLACK 30
+#define PR_SET_PDEATHSIG    1
+#define PR_GET_PDEATHSIG    2
+#define PR_GET_DUMPABLE     3
+#define PR_SET_DUMPABLE     4
+#define PR_GET_KEEPCAPS     7
+#define PR_SET_KEEPCAPS     8
+#define PR_SET_NAME         15
+#define PR_GET_NAME         16
+#define PR_SET_SECCOMP      22
+#define PR_GET_SECCOMP      23
+#define PR_SET_TIMERSLACK   29
+#define PR_GET_TIMERSLACK   30
 #define PR_SET_NO_NEW_PRIVS 36
 #define PR_GET_NO_NEW_PRIVS 37
 
@@ -3231,30 +3226,30 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
     (void)arg6;
 
     switch ((int)option) {
-        case PR_SET_PDEATHSIG: {
+        case PR_SET_PDEATHSIG : {
             /* arg2 is the signal to send on parent death */
             /* For now we silently accept but don't implement the full mechanism */
             if ((int)arg2 > 64 && (int)arg2 != 0) return -EINVAL;
             return 0;
         }
-        case PR_GET_PDEATHSIG: {
+        case PR_GET_PDEATHSIG : {
             /* Return 0 (no parent death signal) */
-            if (arg2 && copy_to_user((void *)arg2, &(int){0}, sizeof(int))) return -EFAULT;
+            if (arg2 && copy_to_user((void *)arg2, &(int) {0}, sizeof(int))) return -EFAULT;
             return 0;
         }
-        case PR_GET_DUMPABLE: {
+        case PR_GET_DUMPABLE : {
             /* Return dumpable=1 */
-            if (arg2 && copy_to_user((void *)arg2, &(int){1}, sizeof(int))) return -EFAULT;
+            if (arg2 && copy_to_user((void *)arg2, &(int) {1}, sizeof(int))) return -EFAULT;
             return 0;
         }
-        case PR_SET_DUMPABLE: {
+        case PR_SET_DUMPABLE : {
             /* Accept any value */
             return 0;
         }
-        case PR_GET_KEEPCAPS:
-        case PR_SET_KEEPCAPS:
+        case PR_GET_KEEPCAPS :
+        case PR_SET_KEEPCAPS :
             return 0;
-        case PR_SET_NAME: {
+        case PR_SET_NAME : {
             /* Set process name - copy up to 15 bytes */
             if (arg2) {
                 process_t *proc = process_current();
@@ -3266,7 +3261,7 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
             }
             return 0;
         }
-        case PR_GET_NAME: {
+        case PR_GET_NAME : {
             /* Get process name */
             if (arg2) {
                 process_t *proc = process_current();
@@ -3275,12 +3270,12 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
             }
             return 0;
         }
-        case PR_SET_SECCOMP:
-        case PR_GET_SECCOMP:
+        case PR_SET_SECCOMP :
+        case PR_GET_SECCOMP :
             /* No seccomp support */
             return -EINVAL;
-        case PR_SET_TIMERSLACK:
-        case PR_GET_TIMERSLACK: {
+        case PR_SET_TIMERSLACK :
+        case PR_GET_TIMERSLACK : {
             /* Return default timer slack = 50000 ns */
             if (option == PR_GET_TIMERSLACK && arg2) {
                 uint64_t slack = 50000;
@@ -3288,10 +3283,10 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
             }
             return 0;
         }
-        case PR_SET_NO_NEW_PRIVS:
-        case PR_GET_NO_NEW_PRIVS:
+        case PR_SET_NO_NEW_PRIVS :
+        case PR_GET_NO_NEW_PRIVS :
             return 0;
-        default:
+        default :
             return -EINVAL;
     }
 }

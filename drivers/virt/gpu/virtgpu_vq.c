@@ -41,8 +41,7 @@ int virtgpu_vq_init(struct virtio_gpu_device *vgdev)
         return ret;
     }
 
-    DRM_INFO("Virtqueues initialised (ctrlq=%d, cursorq=%d)\n",
-             vgdev->ctrlq.num_max, vgdev->cursorq.num_max);
+    DRM_INFO("Virtqueues initialised (ctrlq=%d, cursorq=%d)\n", vgdev->ctrlq.num_max, vgdev->cursorq.num_max);
     return 0;
 }
 
@@ -86,13 +85,12 @@ static inline void cpu_relax(void)
  * The caller must ensure that the command header is embedded in @cmd and
  * that @resp begins with a struct virtio_gpu_ctrl_hdr.
  */
-int virtgpu_ctrl_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size,
-                     void *resp, int resp_size, uint32_t *fence_id)
+int virtgpu_ctrl_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size, void *resp, int resp_size, uint32_t *fence_id)
 {
-    struct vp_virtqueue            *vq = &vgdev->ctrlq;
-    int                             ret;
-    uint32_t                        len;
-    struct virtio_gpu_ctrl_hdr     *hdr;
+    struct vp_virtqueue        *vq = &vgdev->ctrlq;
+    int                         ret;
+    uint32_t                    len;
+    struct virtio_gpu_ctrl_hdr *hdr;
 
     if (cmd_size <= 0 || resp_size <= 0) { return -EINVAL; }
 
@@ -122,8 +120,7 @@ int virtgpu_ctrl_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size,
             cpu_relax();
             compiler_barrier();
             if (++timeout > 10000000) {
-                DRM_ERROR("Timed out waiting for GPU response (cmd 0x%04x)\n",
-                          ((struct virtio_gpu_ctrl_hdr *)cmd)->type);
+                DRM_ERROR("Timed out waiting for GPU response (cmd 0x%04x)\n", ((struct virtio_gpu_ctrl_hdr *)cmd)->type);
                 return -EIO;
             }
         }
@@ -131,8 +128,7 @@ int virtgpu_ctrl_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size,
 
     hdr = (struct virtio_gpu_ctrl_hdr *)resp;
     if (hdr->type >= VIRTIO_GPU_RESP_ERR_UNSPEC) {
-        DRM_ERROR("GPU command 0x%04x failed with 0x%04x\n",
-                  ((struct virtio_gpu_ctrl_hdr *)cmd)->type, hdr->type);
+        DRM_ERROR("GPU command 0x%04x failed with 0x%04x\n", ((struct virtio_gpu_ctrl_hdr *)cmd)->type, hdr->type);
         return -EIO;
     }
 

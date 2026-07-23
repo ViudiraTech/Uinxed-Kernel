@@ -262,12 +262,8 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
         /* Notify the driver via CRTC helper callbacks */
         if (crtc->helper_private) {
             struct drm_crtc_helper_funcs *h = (struct drm_crtc_helper_funcs *)crtc->helper_private;
-            if (h->atomic_enable) {
-                h->atomic_enable(crtc, NULL);
-            }
-            if (h->mode_set) {
-                h->mode_set(crtc, fb);
-            }
+            if (h->atomic_enable) { h->atomic_enable(crtc, NULL); }
+            if (h->mode_set) { h->mode_set(crtc, fb); }
         }
 
         DRM_DEBUG_KMS("CRTC %u: mode %s %dx%d@%d clock=%dkHz\n", crtc->base.id, mode->name, mode->hdisplay, mode->vdisplay, mode->vrefresh,
@@ -283,9 +279,7 @@ int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_p
         /* Notify the driver via CRTC helper callbacks */
         if (crtc->helper_private) {
             struct drm_crtc_helper_funcs *h = (struct drm_crtc_helper_funcs *)crtc->helper_private;
-            if (h->atomic_disable) {
-                h->atomic_disable(crtc, NULL);
-            }
+            if (h->atomic_disable) { h->atomic_disable(crtc, NULL); }
         }
     }
 

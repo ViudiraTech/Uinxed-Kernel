@@ -26,40 +26,40 @@
 /* VirtIO standard PCI vendor / device IDs                             */
 /* ------------------------------------------------------------------ */
 
-#define PCI_VENDOR_ID_REDHAT          0x1af4
-#define PCI_DEVICE_ID_VIRTIO_BASE     0x1000
-#define PCI_DEVICE_ID_VIRTIO_GPU      0x1050
+#define PCI_VENDOR_ID_REDHAT      0x1af4
+#define PCI_DEVICE_ID_VIRTIO_BASE 0x1000
+#define PCI_DEVICE_ID_VIRTIO_GPU  0x1050
 
 /* ------------------------------------------------------------------ */
 /* VirtIO PCI capability types (PCI SIG vendor-defined)                */
 /* ------------------------------------------------------------------ */
 
-#define VIRTIO_PCI_CAP_COMMON_CFG      1
-#define VIRTIO_PCI_CAP_NOTIFY_CFG      2
-#define VIRTIO_PCI_CAP_ISR_CFG         3
-#define VIRTIO_PCI_CAP_DEVICE_CFG      4
-#define VIRTIO_PCI_CAP_PCI_CFG         5
+#define VIRTIO_PCI_CAP_COMMON_CFG        1
+#define VIRTIO_PCI_CAP_NOTIFY_CFG        2
+#define VIRTIO_PCI_CAP_ISR_CFG           3
+#define VIRTIO_PCI_CAP_DEVICE_CFG        4
+#define VIRTIO_PCI_CAP_PCI_CFG           5
 #define VIRTIO_PCI_CAP_SHARED_MEMORY_CFG 8
-#define VIRTIO_PCI_CAP_ADMIN_CFG       9
+#define VIRTIO_PCI_CAP_ADMIN_CFG         9
 
 /* ------------------------------------------------------------------ */
 /* Device status flags (written to common->device_status)              */
 /* ------------------------------------------------------------------ */
 
-#define VIRTIO_STATUS_RESET        0
-#define VIRTIO_STATUS_ACKNOWLEDGE  (1 << 0)
-#define VIRTIO_STATUS_DRIVER       (1 << 1)
-#define VIRTIO_STATUS_DRIVER_OK    (1 << 2)
-#define VIRTIO_STATUS_FEATURES_OK  (1 << 3)
-#define VIRTIO_STATUS_NEEDS_RESET  (1 << 6)
-#define VIRTIO_STATUS_FAILED       (1 << 7)
+#define VIRTIO_STATUS_RESET       0
+#define VIRTIO_STATUS_ACKNOWLEDGE (1 << 0)
+#define VIRTIO_STATUS_DRIVER      (1 << 1)
+#define VIRTIO_STATUS_DRIVER_OK   (1 << 2)
+#define VIRTIO_STATUS_FEATURES_OK (1 << 3)
+#define VIRTIO_STATUS_NEEDS_RESET (1 << 6)
+#define VIRTIO_STATUS_FAILED      (1 << 7)
 
 /* ------------------------------------------------------------------ */
 /* Virtqueue descriptor flags                                          */
 /* ------------------------------------------------------------------ */
 
-#define VRING_DESC_F_NEXT   1
-#define VRING_DESC_F_WRITE  2
+#define VRING_DESC_F_NEXT     1
+#define VRING_DESC_F_WRITE    2
 #define VRING_DESC_F_INDIRECT 4
 
 /* ------------------------------------------------------------------ */
@@ -127,8 +127,8 @@ struct vring_used_elem {
 };
 
 struct vring_used {
-        volatile uint16_t flags;
-        volatile uint16_t idx;
+        volatile uint16_t      flags;
+        volatile uint16_t      idx;
         struct vring_used_elem ring[];
 };
 
@@ -137,24 +137,24 @@ struct vring_used {
 /* ------------------------------------------------------------------ */
 
 struct vp_virtqueue {
-        int                index;
-        int                num_max;
-        int                num_free;
-        uint16_t           free_head;
-        uint16_t           avail_idx_shadow;
-        uint16_t           used_idx;
-        spinlock_t         lock;
+        int        index;
+        int        num_max;
+        int        num_free;
+        uint16_t   free_head;
+        uint16_t   avail_idx_shadow;
+        uint16_t   used_idx;
+        spinlock_t lock;
 
         struct vring_desc  *desc;
         struct vring_avail *avail;
         struct vring_used  *used;
         void               *queue_mem;
 
-        uint16_t          *free_descs;
-        void             **desc_data;
+        uint16_t *free_descs;
+        void    **desc_data;
 
-        struct vp_device  *vp;
-        uint16_t           notify_off;
+        struct vp_device *vp;
+        uint16_t          notify_off;
 };
 
 /* ------------------------------------------------------------------ */
@@ -174,10 +174,10 @@ struct vp_device {
         uint32_t                       notify_off_multiplier;
 
         /* Capability cache */
-        struct vp_cap          common_cap;
-        struct vp_cap          isr_cap;
-        struct vp_cap          device_cap;
-        struct vp_notify_cap   notify_cap;
+        struct vp_cap        common_cap;
+        struct vp_cap        isr_cap;
+        struct vp_cap        device_cap;
+        struct vp_notify_cap notify_cap;
 
         /* Negotiated features */
         uint64_t features;
@@ -194,27 +194,27 @@ struct vp_device {
 /* Transport API                                                       */
 /* ------------------------------------------------------------------ */
 
-int  vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev);
-void vp_release_device(struct vp_device *dev);
-void vp_reset_device(struct vp_device *dev);
-int  vp_setup_device(struct vp_device *dev);
-int  vp_negotiate_features(struct vp_device *dev, uint64_t guest_features, uint64_t *negotiated);
-void vp_set_status(struct vp_device *dev, uint8_t status);
+int     vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev);
+void    vp_release_device(struct vp_device *dev);
+void    vp_reset_device(struct vp_device *dev);
+int     vp_setup_device(struct vp_device *dev);
+int     vp_negotiate_features(struct vp_device *dev, uint64_t guest_features, uint64_t *negotiated);
+void    vp_set_status(struct vp_device *dev, uint8_t status);
 uint8_t vp_get_status(struct vp_device *dev);
-int  vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *vq);
-void vp_del_vq(struct vp_virtqueue *vq);
-void vp_notify(struct vp_virtqueue *vq);
-void vp_read_device_config(struct vp_device *dev, void *buf, int offset, int len);
-void vp_write_device_config(struct vp_device *dev, const void *buf, int offset, int len);
+int     vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *vq);
+void    vp_del_vq(struct vp_virtqueue *vq);
+void    vp_notify(struct vp_virtqueue *vq);
+void    vp_read_device_config(struct vp_device *dev, void *buf, int offset, int len);
+void    vp_write_device_config(struct vp_device *dev, const void *buf, int offset, int len);
 
 /* ------------------------------------------------------------------ */
 /* Virtqueue submission / completion helpers                            */
 /* ------------------------------------------------------------------ */
 
-int  virtqueue_add(struct vp_virtqueue *vq, void *data, int len, int write);
-int  virtqueue_add_out_in(struct vp_virtqueue *vq, void *out_data, int out_len, void *in_data, int in_len);
+int   virtqueue_add(struct vp_virtqueue *vq, void *data, int len, int write);
+int   virtqueue_add_out_in(struct vp_virtqueue *vq, void *out_data, int out_len, void *in_data, int in_len);
 void *virtqueue_get_buf(struct vp_virtqueue *vq, uint32_t *len);
-void virtqueue_kick(struct vp_virtqueue *vq);
-int  virtqueue_enable_cb(struct vp_virtqueue *vq);
+void  virtqueue_kick(struct vp_virtqueue *vq);
+int   virtqueue_enable_cb(struct vp_virtqueue *vq);
 
 #endif /* INCLUDE_VIRT_PCI_H_ */

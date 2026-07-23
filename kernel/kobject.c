@@ -31,15 +31,13 @@
 /* Default release function for dynamically-allocated kobjects */
 static void dynamic_kobj_release(struct kobject *kobj)
 {
-    if (kobj->name) {
-        free((void *)kobj->name);
-    }
+    if (kobj->name) { free((void *)kobj->name); }
     free(kobj);
 }
 
 static struct kobj_type dynamic_kobj_ktype = {
-    .release      = dynamic_kobj_release,
-    .sysfs_ops    = NULL,
+    .release       = dynamic_kobj_release,
+    .sysfs_ops     = NULL,
     .default_attrs = NULL,
 };
 
@@ -54,13 +52,13 @@ void kobject_init(struct kobject *kobj, struct kobj_type *ktype)
     /* NOTE: does NOT zero the struct. The caller is responsible
      * for providing a pre-zeroed kobject (e.g. via calloc).
      * Fields that were set before init (like name) are preserved. */
-    kobj->ktype             = ktype;
-    kobj->kset              = NULL;
-    kobj->parent            = NULL;
-    kobj->sd                = NULL;
-    kobj->children          = NULL;
-    kobj->attributes        = NULL;
-    kobj->symlinks          = NULL;
+    kobj->ktype      = ktype;
+    kobj->kset       = NULL;
+    kobj->parent     = NULL;
+    kobj->sd         = NULL;
+    kobj->children   = NULL;
+    kobj->attributes = NULL;
+    kobj->symlinks   = NULL;
     memset(&kobj->lock, 0, sizeof(kobj->lock));
     kref_init(&kobj->kref);
     kobj->state_initialized = 1;
@@ -101,8 +99,7 @@ int kobject_set_name(struct kobject *kobj, const char *fmt, ...)
 /*  kobject_add                                                        */
 /* ------------------------------------------------------------------ */
 
-int kobject_add(struct kobject *kobj, struct kobject *parent,
-                const char *fmt, ...)
+int kobject_add(struct kobject *kobj, struct kobject *parent, const char *fmt, ...)
 {
     va_list args;
     char    namebuf[KOBJ_NAME_LEN];
@@ -135,13 +132,9 @@ int kobject_add(struct kobject *kobj, struct kobject *parent,
         spin_unlock(&kobj->kset->list_lock);
 
         /* Inherit ktype from kset if not set */
-        if (!kobj->ktype) {
-            kobj->ktype = kobj->kset->kobj.ktype;
-        }
+        if (!kobj->ktype) { kobj->ktype = kobj->kset->kobj.ktype; }
         /* Inherit parent from kset if not set */
-        if (!kobj->parent) {
-            kobj->parent = &kobj->kset->kobj;
-        }
+        if (!kobj->parent) { kobj->parent = &kobj->kset->kobj; }
     }
 
     /* Add to parent's child list */
@@ -173,9 +166,7 @@ int kobject_add(struct kobject *kobj, struct kobject *parent,
     if (kobj->ktype && kobj->ktype->default_attrs) {
         struct attribute **attr;
         for (attr = kobj->ktype->default_attrs; *attr; attr++) {
-            if ((*attr)->name) {
-                sysfs_create_file(kobj, *attr);
-            }
+            if ((*attr)->name) { sysfs_create_file(kobj, *attr); }
         }
     }
 
@@ -189,8 +180,7 @@ int kobject_add(struct kobject *kobj, struct kobject *parent,
 /*  kobject_init_and_add                                               */
 /* ------------------------------------------------------------------ */
 
-int kobject_init_and_add(struct kobject *kobj, struct kobj_type *ktype,
-                         struct kobject *parent, const char *fmt, ...)
+int kobject_init_and_add(struct kobject *kobj, struct kobj_type *ktype, struct kobject *parent, const char *fmt, ...)
 {
     va_list args;
     char    namebuf[KOBJ_NAME_LEN];
@@ -214,8 +204,7 @@ int kobject_init_and_add(struct kobject *kobj, struct kobj_type *ktype,
 /*  kobject_create_and_add                                             */
 /* ------------------------------------------------------------------ */
 
-struct kobject *kobject_create_and_add(const char *name,
-                                       struct kobject *parent)
+struct kobject *kobject_create_and_add(const char *name, struct kobject *parent)
 {
     struct kobject *kobj;
     int             ret;
@@ -251,9 +240,7 @@ static void kobject_release_internal(kref_t *kref)
     struct kobject *kobj = (struct kobject *)((char *)kref - offsetof(struct kobject, kref));
 
     /* Call the type-specific release */
-    if (kobj->ktype && kobj->ktype->release) {
-        kobj->ktype->release(kobj);
-    }
+    if (kobj->ktype && kobj->ktype->release) { kobj->ktype->release(kobj); }
 }
 
 void kobject_put(struct kobject *kobj)
@@ -277,9 +264,7 @@ void kobject_del(struct kobject *kobj)
     if (kobj->ktype && kobj->ktype->default_attrs) {
         struct attribute **attr;
         for (attr = kobj->ktype->default_attrs; *attr; attr++) {
-            if ((*attr)->name) {
-                sysfs_remove_file(kobj, *attr);
-            }
+            if ((*attr)->name) { sysfs_remove_file(kobj, *attr); }
         }
     }
 
@@ -315,7 +300,7 @@ int kobject_rename(struct kobject *kobj, const char *new_name)
     if (!kobj || !new_name) return -EINVAL;
 
     char *old_name = (char *)kobj->name;
-    kobj->name = strdup(new_name);
+    kobj->name     = strdup(new_name);
     if (!kobj->name) {
         kobj->name = old_name;
         return -ENOMEM;
@@ -387,9 +372,7 @@ void kset_init(struct kset *kset)
 /*  kset_create_and_add                                                */
 /* ------------------------------------------------------------------ */
 
-struct kset *kset_create_and_add(const char *name,
-                                 const struct kset_uevent_ops *uevent_ops,
-                                 struct kobject *parent_kobj)
+struct kset *kset_create_and_add(const char *name, const struct kset_uevent_ops *uevent_ops, struct kobject *parent_kobj)
 {
     struct kset *kset;
     int          ret;
@@ -423,7 +406,7 @@ void kset_unregister(struct kset *kset)
         clist_t node;
         clist_t next;
         for (node = kset->list; node; node = next) {
-            next = node->next;
+            next                 = node->next;
             struct kobject *kobj = node->data;
             if (kobj) kobject_del(kobj);
         }
@@ -441,27 +424,25 @@ void kset_unregister(struct kset *kset)
 
 char *kobject_get_path(struct kobject *kobj)
 {
-    char   *path;
-    size_t  len;
-    int     depth;
+    char           *path;
+    size_t          len;
+    int             depth;
     struct kobject *components[32]; /* max path depth */
 
     if (!kobj) return strdup("(null)");
 
     /* Walk up the tree collecting components */
-    depth = 0;
+    depth               = 0;
     struct kobject *cur = kobj;
     while (cur && depth < 32) {
         components[depth++] = cur;
-        cur = cur->parent;
+        cur                 = cur->parent;
     }
 
     /* Calculate total length */
     len = 0;
     for (int i = depth - 1; i >= 0; i--) {
-        if (components[i]->name) {
-            len += strlen(components[i]->name) + 1; /* +1 for '/' */
-        }
+        if (components[i]->name) { len += strlen(components[i]->name) + 1; /* +1 for '/' */ }
     }
     if (len == 0) len = 1; /* just '/' */
 
@@ -509,10 +490,9 @@ uint64_t kobject_uevent_seqnum(void)
 /* ------------------------------------------------------------------ */
 
 #define UEVENT_BUFFER_SIZE 2048
-#define UEVENT_NUM_ENVP     32
+#define UEVENT_NUM_ENVP    32
 
-int kobject_uevent_env(struct kobject *kobj, enum kobject_action action,
-                       char *envp[], int nenv)
+int kobject_uevent_env(struct kobject *kobj, enum kobject_action action, char *envp[], int nenv)
 {
     struct kset *kset;
     const char  *action_string = NULL;
@@ -579,34 +559,28 @@ int kobject_uevent_env(struct kobject *kobj, enum kobject_action action,
     }
 
     /* Determine subsystem from kset */
-    if (kset) {
-        subsystem = kobject_name(&kset->kobj);
-    }
+    if (kset) { subsystem = kobject_name(&kset->kobj); }
 
     /* Build environment string: KEY=VALUE\0KEY=VALUE\0...\0 */
     pos = 0;
 
     /* ACTION */
-    pos += (size_t)snprintf(buffer + pos, UEVENT_BUFFER_SIZE - pos,
-                            "ACTION=%s", action_string);
+    pos += (size_t)snprintf(buffer + pos, UEVENT_BUFFER_SIZE - pos, "ACTION=%s", action_string);
     buffer[pos++] = '\0';
 
     /* DEVPATH */
-    pos += (size_t)snprintf(buffer + pos, UEVENT_BUFFER_SIZE - pos,
-                            "DEVPATH=%s", devpath);
+    pos += (size_t)snprintf(buffer + pos, UEVENT_BUFFER_SIZE - pos, "DEVPATH=%s", devpath);
     buffer[pos++] = '\0';
 
     /* SUBSYSTEM */
     if (subsystem) {
-        pos += (size_t)snprintf(buffer + pos, UEVENT_BUFFER_SIZE - pos,
-                                "SUBSYSTEM=%s", subsystem);
+        pos += (size_t)snprintf(buffer + pos, UEVENT_BUFFER_SIZE - pos, "SUBSYSTEM=%s", subsystem);
         buffer[pos++] = '\0';
     }
 
     /* SEQNUM */
     seq = uevent_seqnum++;
-    pos += (size_t)snprintf(buffer + pos, UEVENT_BUFFER_SIZE - pos,
-                            "SEQNUM=%llu", (unsigned long long)seq);
+    pos += (size_t)snprintf(buffer + pos, UEVENT_BUFFER_SIZE - pos, "SEQNUM=%llu", (unsigned long long)seq);
     buffer[pos++] = '\0';
 
     /* Add caller-supplied environment variables */
@@ -624,9 +598,9 @@ int kobject_uevent_env(struct kobject *kobj, enum kobject_action action,
     /* Call kset-specific uevent hook for additional variables */
     if (kset && kset->uevent_ops && kset->uevent_ops->uevent) {
         /* Extract extra env pointers into an array on stack */
-        char *extra_envp[UEVENT_NUM_ENVP];
-        int   extra_nenv = UEVENT_NUM_ENVP;
-        char *remaining_buf = buffer + pos;
+        char  *extra_envp[UEVENT_NUM_ENVP];
+        int    extra_nenv     = UEVENT_NUM_ENVP;
+        char  *remaining_buf  = buffer + pos;
         size_t remaining_size = UEVENT_BUFFER_SIZE - pos;
 
         /* Temporarily: use the remaining buffer space */
@@ -641,7 +615,7 @@ int kobject_uevent_env(struct kobject *kobj, enum kobject_action action,
 
     /* Terminate with extra NULL */
     buffer[pos++] = '\0';
-    buflen = pos;
+    buflen        = pos;
 
     free(devpath);
 
@@ -655,7 +629,7 @@ int kobject_uevent_env(struct kobject *kobj, enum kobject_action action,
             return -ENOMEM;
         }
 
-        nlh = (nlmsghdr_t *)nl_data;
+        nlh              = (nlmsghdr_t *)nl_data;
         nlh->nlmsg_len   = nl_len;
         nlh->nlmsg_type  = (uint16_t)action; /* KOBJ_ADD=1, KOBJ_REMOVE=2, ... */
         nlh->nlmsg_flags = 0;
@@ -669,8 +643,7 @@ int kobject_uevent_env(struct kobject *kobj, enum kobject_action action,
     free(buffer);
 
     /* Broadcast to NETLINK_KOBJECT_UEVENT listeners */
-    ret = netlink_broadcast(NETLINK_KOBJECT_UEVENT, 1, nl_data,
-                            ((nlmsghdr_t *)nl_data)->nlmsg_len, 0);
+    ret = netlink_broadcast(NETLINK_KOBJECT_UEVENT, 1, nl_data, ((nlmsghdr_t *)nl_data)->nlmsg_len, 0);
 
     free(nl_data);
 

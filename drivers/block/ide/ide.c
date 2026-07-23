@@ -10,14 +10,15 @@
 
 #include <chipset/common.h>
 #include <drivers/apic.h>
-#include <drivers/atapi.h>
-#include <drivers/ide.h>
+#include <drivers/ide/atapi.h>
+#include <drivers/ide/ide.h>
 #include <drivers/pci.h>
 #include <kernel/interrupt.h>
 #include <kernel/printk.h>
 #include <kernel/timer.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
+#include <libs/std/string.h>
 
 /* Request for operation IDE Controller */
 pci_finding_request_t ide_pci_request = {
@@ -152,20 +153,20 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
                 }
             }
 
-            /* Read device parameters */
-            ide_devices[count].reserved     = 1;
-            ide_devices[count].type         = type;
-            ide_devices[count].channel      = i;
-            ide_devices[count].drive        = j;
-            ide_devices[count].signature    = *((uint16_t *)(ide_buf + ATA_IDENT_DEVICETYPE));
-            ide_devices[count].capabilities = *((uint16_t *)(ide_buf + ATA_IDENT_CAPABILITIES));
-            ide_devices[count].command_sets = *((uint32_t *)(ide_buf + ATA_IDENT_COMMANDSETS));
+            /* Read device parameters (use memcpy to avoid strict-aliasing/alignment issues) */
+            ide_devices[count].reserved = 1;
+            ide_devices[count].type     = type;
+            ide_devices[count].channel  = i;
+            ide_devices[count].drive    = j;
+            memcpy(&ide_devices[count].signature, ide_buf + ATA_IDENT_DEVICETYPE, 2);
+            memcpy(&ide_devices[count].capabilities, ide_buf + ATA_IDENT_CAPABILITIES, 2);
+            memcpy(&ide_devices[count].command_sets, ide_buf + ATA_IDENT_COMMANDSETS, 4);
 
             /* Get Size */
             if (ide_devices[count].command_sets & (1 << 26))
-                ide_devices[count].size = *((uint32_t *)(ide_buf + ATA_IDENT_MAX_LBA_EXT));
+                memcpy(&ide_devices[count].size, ide_buf + ATA_IDENT_MAX_LBA_EXT, 4);
             else
-                ide_devices[count].size = *((uint32_t *)(ide_buf + ATA_IDENT_MAX_LBA));
+                memcpy(&ide_devices[count].size, ide_buf + ATA_IDENT_MAX_LBA, 4);
 
             /* Get device model */
             for (k = 0; k < 40; k += 2) {
@@ -310,10 +311,7 @@ void ide_write(uint8_t channel, uint8_t reg, uint8_t data)
         outb(channels[channel].ctrl + reg - 0x0a, data);
     else if (reg < 0x16)
         outb(channels[channel].bmide + reg - 0x0e, data);
-    if (reg > 0x07 && reg < 0x0c) {
-        /* Expanded by ide_write(channel, ATA_REG_CONTROL, 0x80 | channels[channel].nIEN); */
-        outb(channels[channel].ctrl + ATA_REG_CONTROL - 0x0a, 0x80 | channels[channel].nIEN);
-    }
+    if (reg > 0x07 && reg < 0x0c) { outb(channels[channel].ctrl + ATA_REG_CONTROL - 0x0a, channels[channel].nIEN); }
 }
 
 /* Read multiple words of data from the specified register of the IDE device into the buffer */
@@ -360,10 +358,14 @@ uint8_t ide_polling(uint8_t channel, uint32_t advanced_check)
 /* Soft reset the ATA device */
 void ide_soft_reset(uint8_t drive)
 {
-    uint8_t channel = ide_devices[drive].channel;
-    ide_write(channel, ATA_REG_CONTROL, channels[channel].nIEN = (ide_irq_invoked = 0x0) + 0x04);
+    uint8_t channel        = ide_devices[drive].channel;
+    ide_irq_invoked        = 0;
+    channels[channel].nIEN = 0x04;
+    ide_write(channel, ATA_REG_CONTROL, 0x04);
     nsleep(5000);
-    ide_write(channel, ATA_REG_CONTROL, channels[channel].nIEN = (ide_irq_invoked = 0x0) + 0x00);
+    ide_irq_invoked        = 0;
+    channels[channel].nIEN = 0x00;
+    ide_write(channel, ATA_REG_CONTROL, 0x00);
     nsleep(5000);
     ide_polling(channel, 0);
 }
@@ -403,7 +405,9 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t n
     uint16_t cyl, i;
     uint8_t  head, sect, err;
 
-    ide_write(channel, ATA_REG_CONTROL, channels[channel].nIEN = (ide_irq_invoked = 0x0) + 0x02);
+    ide_irq_invoked        = 0;
+    channels[channel].nIEN = 0x02;
+    ide_write(channel, ATA_REG_CONTROL, 0x02);
     if (lba >= 0x10000000) {
         lba_mode  = 2;
         lba_io[0] = (lba & 0x000000ff) >> 0;

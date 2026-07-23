@@ -219,8 +219,7 @@ void video_draw_rect(position_t p0, position_t p1, uint32_t color)
  * instead of the boot-time Limine framebuffer.  The @flush callback is
  * invoked after each batch draw to push pixels to the host GPU.
  */
-void video_switch_to_drm(void *backing, uint32_t w, uint32_t h,
-                         uint32_t pitch, video_flush_fn_t flush)
+void video_switch_to_drm(void *backing, uint32_t w, uint32_t h, uint32_t pitch, video_flush_fn_t flush)
 {
     if (!backing || !flush) return;
 
@@ -241,6 +240,5 @@ void video_switch_to_drm(void *backing, uint32_t w, uint32_t h,
     if (video_flush_cb) video_flush_cb(); /* flush logo pixels to host */
 #endif
 
-    plogk("video: switched console to DRM framebuffer %ux%u stride=%u\n",
-          w, h, (uint32_t)stride);
+    plogk("video: switched console to DRM framebuffer %ux%u stride=%u\n", w, h, (uint32_t)stride);
 }

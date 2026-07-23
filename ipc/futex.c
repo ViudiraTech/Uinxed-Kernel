@@ -730,8 +730,8 @@ static int futex_lock_pi(uint32_t *uaddr)
         }
         pi_mutex->owner      = self;
         pi_mutex->owner_died = 0;
-        self->base_weight     = self->weight;
-        self->pi_weight       = self->weight;
+        self->base_weight    = self->weight;
+        self->pi_weight      = self->weight;
         spin_unlock(&bucket->lock);
         return EOK;
     }
@@ -815,9 +815,7 @@ static int futex_unlock_pi(uint32_t *uaddr)
         pi_mutex->owner = next_owner;
 
         uint32_t new_val = (next_owner->pid & FUTEX_TID_MASK);
-        if (!ilist_is_empty(&pi_mutex->wq.tasks)) {
-            new_val |= FUTEX_WAITERS;
-        }
+        if (!ilist_is_empty(&pi_mutex->wq.tasks)) { new_val |= FUTEX_WAITERS; }
         copy_to_user(uaddr, &new_val, sizeof(new_val));
 
         task_wakeup(next_owner);
@@ -870,8 +868,8 @@ static int futex_trylock_pi(uint32_t *uaddr)
 
     pi_mutex->owner      = self;
     pi_mutex->owner_died = 0;
-    self->base_weight     = self->weight;
-    self->pi_weight       = self->weight;
+    self->base_weight    = self->weight;
+    self->pi_weight      = self->weight;
 
     spin_unlock(&bucket->lock);
     return EOK;
@@ -942,9 +940,7 @@ static int futex_cmp_requeue_pi(uint32_t *uaddr, int nr_wake, int nr_requeue, ui
 
         if (!entry2->pi_mutex) {
             entry2->pi_mutex = malloc(sizeof(rt_mutex_t));
-            if (entry2->pi_mutex) {
-                rt_mutex_init(entry2->pi_mutex, uaddr2);
-            }
+            if (entry2->pi_mutex) { rt_mutex_init(entry2->pi_mutex, uaddr2); }
         }
 
         int requeued = 0;

@@ -330,7 +330,10 @@ static int fatfs_vfs_mount(const char *src, vfs_node_t node)
         for (pdrv = 0; pdrv < FF_VOLUMES; pdrv++) {
             int exists = 0;
             for (int v = 0; v < FF_VOLUMES; v++) {
-                if (VolToPart[v].pd == pdrv) { exists = 1; break; }
+                if (VolToPart[v].pd == pdrv) {
+                    exists = 1;
+                    break;
+                }
             }
             if (!exists) break;
         }

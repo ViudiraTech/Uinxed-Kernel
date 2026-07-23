@@ -261,8 +261,7 @@ struct drm_crtc_helper_funcs {
         /* Called after a mode has been set on the CRTC */
         void (*mode_set)(struct drm_crtc *crtc, struct drm_framebuffer *fb);
         /* Called on page-flip ioctl */
-        int (*page_flip)(struct drm_crtc *crtc, struct drm_framebuffer *fb,
-                         struct drm_pending_vblank_event *event, uint32_t flags);
+        int (*page_flip)(struct drm_crtc *crtc, struct drm_framebuffer *fb, struct drm_pending_vblank_event *event, uint32_t flags);
         /* Called when CRTC is being enabled after modeset */
         void (*atomic_enable)(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
         /* Called when CRTC is being disabled */
@@ -274,9 +273,7 @@ struct drm_crtc_helper_funcs {
 /* ------------------------------------------------------------------ */
 
 struct drm_encoder_helper_funcs {
-        void (*atomic_mode_set)(struct drm_encoder *encoder,
-                                struct drm_crtc_state *crtc_state,
-                                struct drm_connector_state *conn_state);
+        void (*atomic_mode_set)(struct drm_encoder *encoder, struct drm_crtc_state *crtc_state, struct drm_connector_state *conn_state);
 };
 
 /* ------------------------------------------------------------------ */

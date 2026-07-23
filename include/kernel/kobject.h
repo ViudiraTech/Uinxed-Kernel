@@ -23,7 +23,7 @@
 /* ------------------------------------------------------------------ */
 
 typedef struct kref {
-    uint32_t refcount;
+        uint32_t refcount;
 } kref_t;
 
 /* Increment the reference count */
@@ -67,9 +67,9 @@ struct kobj_type;
 /* ------------------------------------------------------------------ */
 
 struct kobj_type {
-    void               (*release)(struct kobject *kobj);
-    const struct sysfs_ops  *sysfs_ops;
-    struct attribute       **default_attrs;
+        void (*release)(struct kobject *kobj);
+        const struct sysfs_ops *sysfs_ops;
+        struct attribute      **default_attrs;
 };
 
 /* ------------------------------------------------------------------ */
@@ -77,21 +77,20 @@ struct kobj_type {
 /* ------------------------------------------------------------------ */
 
 enum kobject_action {
-    KOBJ_ADD    = 1,
-    KOBJ_REMOVE = 2,
-    KOBJ_CHANGE = 3,
-    KOBJ_MOVE   = 4,
-    KOBJ_ONLINE = 5,
+    KOBJ_ADD     = 1,
+    KOBJ_REMOVE  = 2,
+    KOBJ_CHANGE  = 3,
+    KOBJ_MOVE    = 4,
+    KOBJ_ONLINE  = 5,
     KOBJ_OFFLINE = 6,
-    KOBJ_BIND   = 7,
-    KOBJ_UNBIND = 8,
+    KOBJ_BIND    = 7,
+    KOBJ_UNBIND  = 8,
 };
 
 struct kset_uevent_ops {
-    int (*filter)(struct kset *kset, struct kobject *kobj);
-    const char *(*name)(struct kset *kset, struct kobject *kobj);
-    int (*uevent)(struct kset *kset, struct kobject *kobj,
-                  char *envp[], int nenv);
+        int (*filter)(struct kset *kset, struct kobject *kobj);
+        const char *(*name)(struct kset *kset, struct kobject *kobj);
+        int (*uevent)(struct kset *kset, struct kobject *kobj, char *envp[], int nenv);
 };
 
 /* ------------------------------------------------------------------ */
@@ -101,21 +100,21 @@ struct kset_uevent_ops {
 #define KOBJ_NAME_LEN 64
 
 struct kobject {
-    const char        *name;        /* name in sysfs */
-    struct kobject    *parent;      /* parent kobject (NULL = sysfs root) */
-    struct kset       *kset;        /* containing kset */
-    struct kobj_type  *ktype;       /* type descriptor */
-    kref_t             kref;        /* reference counter */
+        const char       *name;   /* name in sysfs */
+        struct kobject   *parent; /* parent kobject (NULL = sysfs root) */
+        struct kset      *kset;   /* containing kset */
+        struct kobj_type *ktype;  /* type descriptor */
+        kref_t            kref;   /* reference counter */
 
-    /* internal */
-    clist_t            children;    /* circular list of child kobjects */
-    clist_t            attributes;  /* circular list of sysfs_attr_entry_t */
-    clist_t            symlinks;    /* circular list of sysfs_symlink_entry_t */
-    vfs_node_t         sd;          /* sysfs directory VFS node */
-    spinlock_t         lock;        /* protects children/attributes/symlinks */
+        /* internal */
+        clist_t    children;   /* circular list of child kobjects */
+        clist_t    attributes; /* circular list of sysfs_attr_entry_t */
+        clist_t    symlinks;   /* circular list of sysfs_symlink_entry_t */
+        vfs_node_t sd;         /* sysfs directory VFS node */
+        spinlock_t lock;       /* protects children/attributes/symlinks */
 
-    unsigned int       state_initialized:1;
-    unsigned int       state_in_sysfs:1;
+        unsigned int state_initialized : 1;
+        unsigned int state_in_sysfs    : 1;
 };
 
 /* ------------------------------------------------------------------ */
@@ -123,10 +122,10 @@ struct kobject {
 /* ------------------------------------------------------------------ */
 
 struct kset {
-    clist_t          list;          /* circular list of kobject entries */
-    spinlock_t       list_lock;     /* protects list modifications */
-    struct kobject   kobj;          /* embedded kobject (the default parent) */
-    const struct kset_uevent_ops *uevent_ops;
+        clist_t                       list;      /* circular list of kobject entries */
+        spinlock_t                    list_lock; /* protects list modifications */
+        struct kobject                kobj;      /* embedded kobject (the default parent) */
+        const struct kset_uevent_ops *uevent_ops;
 };
 
 /* ------------------------------------------------------------------ */
@@ -137,16 +136,13 @@ struct kset {
 void kobject_init(struct kobject *kobj, struct kobj_type *ktype);
 
 /* Add a kobject to the hierarchy (creates sysfs directory) */
-int kobject_add(struct kobject *kobj, struct kobject *parent,
-                const char *fmt, ...);
+int kobject_add(struct kobject *kobj, struct kobject *parent, const char *fmt, ...);
 
 /* Combined init + add with a va_list name format */
-int kobject_init_and_add(struct kobject *kobj, struct kobj_type *ktype,
-                         struct kobject *parent, const char *fmt, ...);
+int kobject_init_and_add(struct kobject *kobj, struct kobj_type *ktype, struct kobject *parent, const char *fmt, ...);
 
 /* Allocate, init, and add a standalone kobject (creates a directory) */
-struct kobject *kobject_create_and_add(const char *name,
-                                       struct kobject *parent);
+struct kobject *kobject_create_and_add(const char *name, struct kobject *parent);
 
 /* Take a reference on a kobject */
 struct kobject *kobject_get(struct kobject *kobj);
@@ -177,9 +173,7 @@ const char *kobject_name(const struct kobject *kobj);
 void kset_init(struct kset *kset);
 
 /* Create a kset, add it, and return it */
-struct kset *kset_create_and_add(const char *name,
-                                 const struct kset_uevent_ops *uevent_ops,
-                                 struct kobject *parent_kobj);
+struct kset *kset_create_and_add(const char *name, const struct kset_uevent_ops *uevent_ops, struct kobject *parent_kobj);
 
 /* Unregister a kset (reverse of kset_create_and_add) */
 void kset_unregister(struct kset *kset);
@@ -205,8 +199,7 @@ static inline void kset_put(struct kset *kset)
 int kobject_uevent(struct kobject *kobj, enum kobject_action action);
 
 /* Send a KOBJ_ADD event with environment variables */
-int kobject_uevent_env(struct kobject *kobj, enum kobject_action action,
-                       char *envp[], int nenv);
+int kobject_uevent_env(struct kobject *kobj, enum kobject_action action, char *envp[], int nenv);
 
 /* Get the current uevent sequence number */
 uint64_t kobject_uevent_seqnum(void);

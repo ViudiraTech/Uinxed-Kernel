@@ -423,9 +423,7 @@ static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
     socket_t *sk;
 
     /* Validate family — Netlink handled by netlink layer */
-    if (family == AF_NETLINK) {
-        return netlink_sock_alloc(protocol);
-    }
+    if (family == AF_NETLINK) { return netlink_sock_alloc(protocol); }
     if (family != AF_UNIX && family != AF_LOCAL) return NULL;
 
     /* Validate type */
@@ -484,9 +482,7 @@ static void socket_free(socket_t *sk)
     if (sk->refcount > 0) return;
 
     /* Netlink cleanup */
-    if (sk->family == AF_NETLINK && sk->priv) {
-        netlink_close(sk);
-    }
+    if (sk->family == AF_NETLINK && sk->priv) { netlink_close(sk); }
 
     /* Remove from bound registry */
     sock_bound_remove(sk);
@@ -1414,9 +1410,7 @@ static int socket_vfs_free(void *handle)
     if (!sk) return -EINVAL;
 
     /* Netlink cleanup */
-    if (sk->family == AF_NETLINK && sk->priv) {
-        netlink_close(sk);
-    }
+    if (sk->family == AF_NETLINK && sk->priv) { netlink_close(sk); }
 
     /* Remove from bound registry */
     sock_bound_remove(sk);
@@ -1559,8 +1553,7 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
     } else if (sock_family != AF_UNIX && sock_family != AF_LOCAL) {
         return -EAFNOSUPPORT;
     } else {
-        if (sock_type != SOCK_STREAM && sock_type != SOCK_DGRAM && sock_type != SOCK_SEQPACKET)
-            return -ESOCKTNOSUPPORT;
+        if (sock_type != SOCK_STREAM && sock_type != SOCK_DGRAM && sock_type != SOCK_SEQPACKET) return -ESOCKTNOSUPPORT;
     }
 
     sk = socket_alloc(sock_family, sock_type, (uint16_t)protocol);
@@ -1705,7 +1698,10 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
     if (sk->socket_write) {
         void *kbuf_nl = malloc(len);
         if (!kbuf_nl) return -ENOMEM;
-        if (copy_from_user(kbuf_nl, buf, len)) { free(kbuf_nl); return -EFAULT; }
+        if (copy_from_user(kbuf_nl, buf, len)) {
+            free(kbuf_nl);
+            return -EFAULT;
+        }
         int ret_nl = sk->socket_write(sk, kbuf_nl, len, (void *)addr, addrlen);
         free(kbuf_nl);
         return (int64_t)ret_nl;
@@ -1762,7 +1758,10 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_un_t *ad
         if (!kbuf) return -ENOMEM;
         ret = sk->socket_read(sk, kbuf, len, addr, addrlen);
         if (ret > 0) {
-            if (copy_to_user(buf, kbuf, (size_t)ret)) { free(kbuf); return -EFAULT; }
+            if (copy_to_user(buf, kbuf, (size_t)ret)) {
+                free(kbuf);
+                return -EFAULT;
+            }
         }
         free(kbuf);
         return (int64_t)ret;
@@ -1797,10 +1796,7 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
     (void)iov;
 
     /* Netlink: use polymorphic write */
-    if (sk->socket_write) {
-        return (int64_t)sk->socket_write(sk, kbuf, total_len,
-                                         kmsg->msg_name, kmsg->msg_namelen);
-    }
+    if (sk->socket_write) { return (int64_t)sk->socket_write(sk, kbuf, total_len, kmsg->msg_name, kmsg->msg_namelen); }
 
     if (sk->type == SOCK_DGRAM) {
         sockaddr_un_t kaddr;
@@ -1826,12 +1822,10 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
 
     /* Netlink: use polymorphic read */
     if (sk->socket_read) {
-        ret = sk->socket_read(sk, kbuf, total_len,
-                              (void *)(uintptr_t)kmsg->msg_name,
-                              (uint32_t *)(uintptr_t)kmsg->msg_namelen);
+        ret = sk->socket_read(sk, kbuf, total_len, (void *)(uintptr_t)kmsg->msg_name, (uint32_t *)(uintptr_t)kmsg->msg_namelen);
         if (ret > 0) {
-            uint8_t *src = (uint8_t *)kbuf;
-            size_t remaining = (size_t)ret;
+            uint8_t *src       = (uint8_t *)kbuf;
+            size_t   remaining = (size_t)ret;
             for (size_t i = 0; i < kmsg->msg_iovlen && remaining > 0; i++) {
                 size_t chunk = iov[i].iov_len;
                 if (chunk > remaining) chunk = remaining;
@@ -1840,7 +1834,7 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
                 remaining -= chunk;
             }
         }
-        kmsg->msg_flags = 0;
+        kmsg->msg_flags      = 0;
         kmsg->msg_controllen = 0;
         return (int64_t)ret;
     }

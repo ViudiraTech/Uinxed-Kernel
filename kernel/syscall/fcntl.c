@@ -33,7 +33,7 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
     /* Todo: Implement fcntl cmds full implementation */
     /* We use raw fd table access for operations that need it */
     switch (cmd) {
-        case F_DUPFD: {
+        case F_DUPFD : {
             int start = (int)arg;
             if (start < 0) {
                 result = -EINVAL;
@@ -64,7 +64,7 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             break;
         }
 
-        case F_DUPFD_CLOEXEC: {
+        case F_DUPFD_CLOEXEC : {
             int start = (int)arg;
             if (start < 0) {
                 result = -EINVAL;
@@ -100,14 +100,14 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             break;
         }
 
-        case F_GETFD: {
+        case F_GETFD : {
             /* Return close-on-exec flag */
             /* We store cloexec in the file flags field */
             result = (file->flags & O_CLOEXEC) ? FD_CLOEXEC : 0;
             break;
         }
 
-        case F_SETFD: {
+        case F_SETFD : {
             /* Set close-on-exec flag */
             if (arg & FD_CLOEXEC) {
                 file->flags |= O_CLOEXEC;
@@ -118,30 +118,30 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             break;
         }
 
-        case F_GETFL: {
+        case F_GETFL : {
             /* Return file access mode and status flags */
             result = (int64_t)(file->flags & (O_ACCMODE | O_NONBLOCK | O_APPEND));
             break;
         }
 
-        case F_SETFL: {
+        case F_SETFL : {
             /* Only O_NONBLOCK and O_APPEND can be changed */
             uint64_t settable = O_NONBLOCK | O_APPEND;
-            file->flags = (file->flags & ~settable) | (arg & settable);
-            result = 0;
+            file->flags       = (file->flags & ~settable) | (arg & settable);
+            result            = 0;
             break;
         }
 
-        case F_GETLK: {
+        case F_GETLK : {
             /* Advisory file locking - not supported, always return success */
             if (arg) {
                 /* Write back an unlocked lock struct */
                 struct {
-                    int16_t l_type;
-                    int16_t l_whence;
-                    int64_t l_start;
-                    int64_t l_len;
-                    int32_t l_pid;
+                        int16_t l_type;
+                        int16_t l_whence;
+                        int64_t l_start;
+                        int64_t l_len;
+                        int32_t l_pid;
                 } fl = {F_UNLCK, 0, 0, 0, 0};
                 if (copy_to_user((void *)arg, &fl, sizeof(fl))) {
                     result = -EFAULT;
@@ -152,43 +152,43 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             break;
         }
 
-        case F_SETLK: {
+        case F_SETLK : {
             /* Non-blocking lock - no-op (no mandatory locking) */
             result = 0;
             break;
         }
 
-        case F_SETLKW: {
+        case F_SETLKW : {
             /* Blocking lock - no-op (no mandatory locking) */
             result = 0;
             break;
         }
 
-        case F_SETOWN: {
+        case F_SETOWN : {
             /* Set process/thread that receives SIGIO/SIGURG */
             /* Store in vfs node? For now just accept */
             result = 0;
             break;
         }
 
-        case F_GETOWN: {
+        case F_GETOWN : {
             /* Get process/thread that receives SIGIO/SIGURG */
             result = 0; /* Return 0, meaning no owner set */
             break;
         }
 
-        case F_SETOWN_EX: {
+        case F_SETOWN_EX : {
             /* Set owner (struct f_owner_ex) - no-op */
             result = 0;
             break;
         }
 
-        case F_GETOWN_EX: {
+        case F_GETOWN_EX : {
             /* Get owner (struct f_owner_ex) - return empty */
             if (arg) {
                 struct {
-                    int32_t type;
-                    int32_t pid;
+                        int32_t type;
+                        int32_t pid;
                 } owner = {F_OWNER_PID, 0};
                 if (copy_to_user((void *)arg, &owner, sizeof(owner))) {
                     result = -EFAULT;
@@ -199,19 +199,19 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             break;
         }
 
-        case F_SETSIG: {
+        case F_SETSIG : {
             /* Set signal sent on I/O events - no-op */
             result = 0;
             break;
         }
 
-        case F_GETSIG: {
+        case F_GETSIG : {
             /* Get signal sent on I/O events - return 0 (default=SIGIO) */
             result = 0;
             break;
         }
 
-        default:
+        default :
             result = -EINVAL;
             break;
     }

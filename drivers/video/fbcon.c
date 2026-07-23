@@ -182,10 +182,10 @@ void fbcon_resize(void)
         }
     }
 
-    cx                 = 0;
-    cy                 = 0;
-    char_buffer_index  = 0;
-    char_buffer[0]     = '\0';
+    cx                  = 0;
+    cy                  = 0;
+    char_buffer_index   = 0;
+    char_buffer[0]      = '\0';
     full_redraw_pending = 0;
     redraw_deferred     = 0;
 }

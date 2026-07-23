@@ -17,7 +17,7 @@
 #define VIRTGPU_VQ_NUM 256
 
 /* Queue indices */
-#define VIRTGPU_CTRLQ  0
+#define VIRTGPU_CTRLQ   0
 #define VIRTGPU_CURSORQ 1
 
 #endif

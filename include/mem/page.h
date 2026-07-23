@@ -19,14 +19,14 @@
 #define PTE_PRESENT      (0x1 << 0)
 #define PTE_WRITEABLE    (0x1 << 1)
 #define PTE_USER         (0x1 << 2)
-#define PTE_PWT          (0x1 << 3)   /* Page Write-Through */
-#define PTE_PCD          (0x1 << 4)   /* Page Cache Disable    */
+#define PTE_PWT          (0x1 << 3) /* Page Write-Through */
+#define PTE_PCD          (0x1 << 4) /* Page Cache Disable    */
 #define PTE_HUGE         (0x1 << 7)
 #define PTE_NO_EXECUTE   (((uint64_t)0x1) << 63)
 #define KERNEL_PTE_FLAGS (PTE_PRESENT | PTE_WRITEABLE | PTE_NO_EXECUTE)
 
 /* MMIO flags: uncacheable, no-execute — required for PCI BAR mappings */
-#define PTE_MMIO_FLAGS   (PTE_PRESENT | PTE_WRITEABLE | PTE_PCD | PTE_NO_EXECUTE)
+#define PTE_MMIO_FLAGS (PTE_PRESENT | PTE_WRITEABLE | PTE_PCD | PTE_NO_EXECUTE)
 
 /* Page size constants */
 #define PAGE_4K_SIZE 0x1000ULL     // (1ULL << 12)

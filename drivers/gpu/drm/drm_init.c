@@ -463,7 +463,7 @@ void drm_vfs_close_cb(void *current)
 /* DRM class (global, shared by all DRM devices)                       */
 /* ------------------------------------------------------------------ */
 
-struct class drm_class = { .name = "drm" };
+struct class drm_class   = {.name = "drm"};
 int drm_class_registered = 0;
 
 /* ------------------------------------------------------------------ */

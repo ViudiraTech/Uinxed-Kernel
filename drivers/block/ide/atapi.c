@@ -9,8 +9,8 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/atapi.h>
-#include <drivers/ide.h>
+#include <drivers/ide/atapi.h>
+#include <drivers/ide/ide.h>
 #include <kernel/printk.h>
 #include <kernel/timer.h>
 #include <libs/std/stddef.h>
@@ -161,9 +161,13 @@ void atapi_soft_reset(uint8_t drive)
 {
     uint8_t channel = atapi_devices[drive].channel;
 
-    ide_write(channel, ATA_REG_CONTROL, channels[channel].nIEN = (ide_irq_invoked = 0x0) + 0x04);
+    ide_irq_invoked        = 0;
+    channels[channel].nIEN = 0x04;
+    ide_write(channel, ATA_REG_CONTROL, 0x04);
     nsleep(5000);
-    ide_write(channel, ATA_REG_CONTROL, channels[channel].nIEN = (ide_irq_invoked = 0x0) + 0x00);
+    ide_irq_invoked        = 0;
+    channels[channel].nIEN = 0x00;
+    ide_write(channel, ATA_REG_CONTROL, 0x00);
     nsleep(5000);
     atapi_wait_busy(channel);
 }
@@ -204,7 +208,9 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
     }
 
     /* Select device and disable IRQ — we use polling, not interrupts. */
-    ide_write(channel, ATA_REG_CONTROL, channels[channel].nIEN = (ide_irq_invoked = 0x0) + 0x02);
+    ide_irq_invoked        = 0;
+    channels[channel].nIEN = 0x02;
+    ide_write(channel, ATA_REG_CONTROL, 0x02);
     ide_write(channel, ATA_REG_HDDEVSEL, slavebit << 4);
 
     /* Delay for device selection to settle, then wait for BSY clear */

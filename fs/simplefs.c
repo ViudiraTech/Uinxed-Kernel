@@ -42,9 +42,9 @@ static uint16_t simplefs_type_to_vfs(uint16_t type)
 
 static int simplefs_parse_drive(const char *src, uint8_t *drive)
 {
-	if (!src || !drive) return -EINVAL;
+    if (!src || !drive) return -EINVAL;
 
-	return blockdev_parse_drive(src, drive);
+    return blockdev_parse_drive(src, drive);
 }
 
 static uint16_t simplefs_vfs_to_type(uint16_t type)

@@ -35,110 +35,90 @@ static struct bus_type pci_bus_type = {
 /* ------------------------------------------------------------------ */
 
 struct pci_sysfs_dev {
-    pci_device_cache_t *cache;
+        pci_device_cache_t *cache;
 };
 
 /* ------------------------------------------------------------------ */
 /*  Device attribute show/store functions                              */
 /* ------------------------------------------------------------------ */
 
-static ssize_t pci_vendor_show(struct device *dev,
-                               struct device_attribute *attr, char *buf)
+static ssize_t pci_vendor_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     struct pci_sysfs_dev *psd = dev->driver_data;
     (void)attr;
     if (!psd || !psd->cache) return -EIO;
-    return (ssize_t)sysfs_emit(buf, "0x%04x\n",
-                               (uint32_t)psd->cache->vendor_id);
+    return (ssize_t)sysfs_emit(buf, "0x%04x\n", (uint32_t)psd->cache->vendor_id);
 }
 
-static ssize_t pci_device_show(struct device *dev,
-                               struct device_attribute *attr, char *buf)
+static ssize_t pci_device_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     struct pci_sysfs_dev *psd = dev->driver_data;
     (void)attr;
     if (!psd || !psd->cache) return -EIO;
-    return (ssize_t)sysfs_emit(buf, "0x%04x\n",
-                               (uint32_t)psd->cache->device_id);
+    return (ssize_t)sysfs_emit(buf, "0x%04x\n", (uint32_t)psd->cache->device_id);
 }
 
-static ssize_t pci_class_show(struct device *dev,
-                              struct device_attribute *attr, char *buf)
+static ssize_t pci_class_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     struct pci_sysfs_dev *psd = dev->driver_data;
     (void)attr;
     if (!psd || !psd->cache) return -EIO;
-    return (ssize_t)sysfs_emit(buf, "0x%06x\n",
-                               (uint32_t)psd->cache->class_code);
+    return (ssize_t)sysfs_emit(buf, "0x%06x\n", (uint32_t)psd->cache->class_code);
 }
 
-static ssize_t pci_revision_show(struct device *dev,
-                                 struct device_attribute *attr, char *buf)
+static ssize_t pci_revision_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     struct pci_sysfs_dev *psd = dev->driver_data;
     (void)attr;
     if (!psd || !psd->cache) return -EIO;
-    pci_device_reg_t reg = { .parent = psd->cache, .offset = PCI_CONF_REVISION };
-    uint32_t rev = read_pci(reg) & 0xFF;
+    pci_device_reg_t reg = {.parent = psd->cache, .offset = PCI_CONF_REVISION};
+    uint32_t         rev = read_pci(reg) & 0xFF;
     return (ssize_t)sysfs_emit(buf, "0x%02x\n", rev);
 }
 
-static ssize_t pci_subsystem_vendor_show(struct device *dev,
-                                          struct device_attribute *attr,
-                                          char *buf)
+static ssize_t pci_subsystem_vendor_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     struct pci_sysfs_dev *psd = dev->driver_data;
     (void)attr;
     if (!psd || !psd->cache) return -EIO;
-    pci_device_reg_t reg = { .parent = psd->cache, .offset = 0x2C };
-    uint32_t val = read_pci(reg) & 0xFFFF;
+    pci_device_reg_t reg = {.parent = psd->cache, .offset = 0x2C};
+    uint32_t         val = read_pci(reg) & 0xFFFF;
     return (ssize_t)sysfs_emit(buf, "0x%04x\n", val);
 }
 
-static ssize_t pci_subsystem_device_show(struct device *dev,
-                                          struct device_attribute *attr,
-                                          char *buf)
+static ssize_t pci_subsystem_device_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     struct pci_sysfs_dev *psd = dev->driver_data;
     (void)attr;
     if (!psd || !psd->cache) return -EIO;
-    pci_device_reg_t reg = { .parent = psd->cache, .offset = 0x2E };
-    uint32_t val = read_pci(reg) & 0xFFFF;
+    pci_device_reg_t reg = {.parent = psd->cache, .offset = 0x2E};
+    uint32_t         val = read_pci(reg) & 0xFFFF;
     return (ssize_t)sysfs_emit(buf, "0x%04x\n", val);
 }
 
-static ssize_t pci_header_type_show(struct device *dev,
-                                     struct device_attribute *attr,
-                                     char *buf)
+static ssize_t pci_header_type_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     struct pci_sysfs_dev *psd = dev->driver_data;
     (void)attr;
     if (!psd || !psd->cache) return -EIO;
-    return (ssize_t)sysfs_emit(buf, "0x%02x\n",
-                               (uint32_t)psd->cache->header_type);
+    return (ssize_t)sysfs_emit(buf, "0x%02x\n", (uint32_t)psd->cache->header_type);
 }
 
 /* ------------------------------------------------------------------ */
 /*  Device attributes                                                  */
 /* ------------------------------------------------------------------ */
 
-static DEVICE_ATTR(vendor,            0444, pci_vendor_show, NULL);
-static DEVICE_ATTR(device,            0444, pci_device_show, NULL);
-static DEVICE_ATTR(class,             0444, pci_class_show, NULL);
-static DEVICE_ATTR(revision,          0444, pci_revision_show, NULL);
-static DEVICE_ATTR(subsystem_vendor,  0444, pci_subsystem_vendor_show, NULL);
-static DEVICE_ATTR(subsystem_device,  0444, pci_subsystem_device_show, NULL);
-static DEVICE_ATTR(header_type,       0444, pci_header_type_show, NULL);
+static DEVICE_ATTR(vendor, 0444, pci_vendor_show, NULL);
+static DEVICE_ATTR(device, 0444, pci_device_show, NULL);
+static DEVICE_ATTR(class, 0444, pci_class_show, NULL);
+static DEVICE_ATTR(revision, 0444, pci_revision_show, NULL);
+static DEVICE_ATTR(subsystem_vendor, 0444, pci_subsystem_vendor_show, NULL);
+static DEVICE_ATTR(subsystem_device, 0444, pci_subsystem_device_show, NULL);
+static DEVICE_ATTR(header_type, 0444, pci_header_type_show, NULL);
 
 static struct attribute *pci_dev_attrs[] = {
-    &dev_attr_vendor.attr,
-    &dev_attr_device.attr,
-    &dev_attr_class.attr,
-    &dev_attr_revision.attr,
-    &dev_attr_subsystem_vendor.attr,
-    &dev_attr_subsystem_device.attr,
-    &dev_attr_header_type.attr,
-    NULL,
+    &dev_attr_vendor.attr,           &dev_attr_device.attr,           &dev_attr_class.attr,       &dev_attr_revision.attr,
+    &dev_attr_subsystem_vendor.attr, &dev_attr_subsystem_device.attr, &dev_attr_header_type.attr, NULL,
 };
 
 static struct attribute_group pci_dev_attr_group = {
@@ -199,9 +179,7 @@ void pci_sysfs_init(void)
         psd->cache = item;
 
         /* Format: 0000:bb:dd.f (domain:bus:slot.func) */
-        snprintf(name, sizeof(name), "%04x:%02x:%02x.%01x",
-                 item->device->domain, item->device->bus,
-                 item->device->slot, item->device->func);
+        snprintf(name, sizeof(name), "%04x:%02x:%02x.%01x", item->device->domain, item->device->bus, item->device->slot, item->device->func);
 
         dev = calloc(1, sizeof(struct device));
         if (!dev) {
@@ -215,9 +193,7 @@ void pci_sysfs_init(void)
         dev->release     = pci_dev_release;
         dev->groups      = pci_dev_groups;
         /* devid encodes the BDF for identification */
-        dev->devid = ((uint64_t)item->device->bus << 8)
-                   | ((uint64_t)item->device->slot << 3)
-                   | ((uint64_t)item->device->func);
+        dev->devid = ((uint64_t)item->device->bus << 8) | ((uint64_t)item->device->slot << 3) | ((uint64_t)item->device->func);
 
         ret = kobject_set_name(&dev->kobj, "%s", name);
         if (ret != EOK) {

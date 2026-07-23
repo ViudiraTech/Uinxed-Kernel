@@ -737,8 +737,8 @@ void isofs_regist(void)
     }
     for (int d = 0; d < AHCI_MAX_DEVICES; d++) {
         if (!ahci_devices[d].reserved || ahci_devices[d].type != AHCI_DEV_SATAPI) continue;
-        plogk("isofs: Detected ATAPI device sr%u on AHCI (%u blocks, %u bytes/block)\n", 4 + d,
-              ahci_devices[d].size, ahci_devices[d].sector_size);
+        plogk("isofs: Detected ATAPI device sr%u on AHCI (%u blocks, %u bytes/block)\n", 4 + d, ahci_devices[d].size,
+              ahci_devices[d].sector_size);
     }
 }
 
@@ -752,17 +752,27 @@ void isofs_mount_all(void)
     for (uint8_t drive = 0; drive < 4; drive++) {
         if (!atapi_devices[drive].reserved || atapi_devices[drive].type != IDE_ATAPI) continue;
 
-        char path[32];
-        char src[16];
+        char       path[32];
+        char       src[16];
         vfs_node_t node;
 
         snprintf(path, sizeof(path), "/mnt/cdrom%u", (unsigned)sr_idx);
         snprintf(src, sizeof(src), "sr%u", (unsigned)sr_idx);
 
-        if (vfs_mkdir(path) != EOK && vfs_mkdir(path) != -EEXIST) { sr_idx++; continue; }
+        if (vfs_mkdir(path) != EOK && vfs_mkdir(path) != -EEXIST) {
+            sr_idx++;
+            continue;
+        }
         node = vfs_open(path);
-        if (!node) { sr_idx++; continue; }
-        if (node->is_mount) { vfs_close(node); sr_idx++; continue; }
+        if (!node) {
+            sr_idx++;
+            continue;
+        }
+        if (node->is_mount) {
+            vfs_close(node);
+            sr_idx++;
+            continue;
+        }
 
         if (vfs_mount_fs("isofs", src, node) == EOK)
             plogk("isofs: Auto-mounted %s at %s\n", src, path);
@@ -775,17 +785,27 @@ void isofs_mount_all(void)
     for (int d = 0; d < AHCI_MAX_DEVICES; d++) {
         if (!ahci_devices[d].reserved || ahci_devices[d].type != AHCI_DEV_SATAPI) continue;
 
-        char path[32];
-        char src[16];
+        char       path[32];
+        char       src[16];
         vfs_node_t node;
 
         snprintf(path, sizeof(path), "/mnt/cdrom%u", (unsigned)sr_idx);
         snprintf(src, sizeof(src), "sr%u", (unsigned)sr_idx);
 
-        if (vfs_mkdir(path) != EOK && vfs_mkdir(path) != -EEXIST) { sr_idx++; continue; }
+        if (vfs_mkdir(path) != EOK && vfs_mkdir(path) != -EEXIST) {
+            sr_idx++;
+            continue;
+        }
         node = vfs_open(path);
-        if (!node) { sr_idx++; continue; }
-        if (node->is_mount) { vfs_close(node); sr_idx++; continue; }
+        if (!node) {
+            sr_idx++;
+            continue;
+        }
+        if (node->is_mount) {
+            vfs_close(node);
+            sr_idx++;
+            continue;
+        }
 
         if (vfs_mount_fs("isofs", src, node) == EOK)
             plogk("isofs: Auto-mounted %s at %s\n", src, path);

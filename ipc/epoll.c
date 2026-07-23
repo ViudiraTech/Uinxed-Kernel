@@ -696,7 +696,7 @@ int64_t sys_epoll_pwait(int epfd, epoll_event_t *events, int maxevents, int time
         sigdelset(&new_blocked, SIGSTOP);
 
         spin_lock(&sig->lock);
-        old_blocked = sig->blocked;
+        old_blocked  = sig->blocked;
         sig->blocked = new_blocked;
         spin_unlock(&sig->lock);
     }

@@ -17,13 +17,13 @@
 #include <proc/sched.h>
 #include <proc/task.h>
 
-#define PID_HASH_BITS  8
-#define PID_HASH_SIZE  (1 << PID_HASH_BITS)
-#define PID_HASH_MASK  (PID_HASH_SIZE - 1)
+#define PID_HASH_BITS 8
+#define PID_HASH_SIZE (1 << PID_HASH_BITS)
+#define PID_HASH_MASK (PID_HASH_SIZE - 1)
 
 typedef struct pid_entry {
-        task_t            *task;
-        struct pid_entry  *next;
+        task_t           *task;
+        struct pid_entry *next;
 } pid_entry_t;
 
 static pid_entry_t *pid_hash[PID_HASH_SIZE] = {NULL};
@@ -38,11 +38,11 @@ static uint32_t pid_hash_index(uint64_t pid)
  */
 static void pid_hash_add(task_t *task)
 {
-    uint32_t idx = pid_hash_index(task->pid);
+    uint32_t     idx   = pid_hash_index(task->pid);
     pid_entry_t *entry = malloc(sizeof(pid_entry_t));
     if (!entry) return;
-    entry->task = task;
-    entry->next = pid_hash[idx];
+    entry->task   = task;
+    entry->next   = pid_hash[idx];
     pid_hash[idx] = entry;
 }
 
@@ -51,7 +51,7 @@ static void pid_hash_add(task_t *task)
  */
 static void pid_hash_remove(task_t *task)
 {
-    uint32_t idx = pid_hash_index(task->pid);
+    uint32_t      idx      = pid_hash_index(task->pid);
     pid_entry_t **indirect = &pid_hash[idx];
     while (*indirect) {
         pid_entry_t *cur = *indirect;
@@ -132,9 +132,9 @@ task_t *task_alloc(const char *name)
     task->cpu_id         = 0;
     task->process        = NULL;
     task->weight         = SCHED_NICE_0_LOAD;
-    task->base_weight     = SCHED_NICE_0_LOAD;
-    task->pi_weight       = SCHED_NICE_0_LOAD;
-    task->blocked_on      = NULL;
+    task->base_weight    = SCHED_NICE_0_LOAD;
+    task->pi_weight      = SCHED_NICE_0_LOAD;
+    task->blocked_on     = NULL;
     task->thread.fs_base = 0;
     task->thread.gs_base = 0;
     task_name_copy(task, name);

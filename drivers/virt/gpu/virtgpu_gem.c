@@ -22,8 +22,7 @@
 /* Object alloc / free                                                 */
 /* ------------------------------------------------------------------ */
 
-struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev,
-                                                   size_t size)
+struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_t size)
 {
     struct virtio_gpu_object *obj;
 
@@ -45,11 +44,11 @@ struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev,
 
         /* Set up a single memory entry for virtio-gpu backing */
         obj->num_entries = 1;
-        obj->entries = malloc(sizeof(struct virtio_gpu_mem_entry));
+        obj->entries     = malloc(sizeof(struct virtio_gpu_mem_entry));
         if (obj->entries) {
             /* Host needs the physical address for DMA, not the virtual one. */
-            obj->entries[0].addr = (uintptr_t)virt_any_to_phys((uintptr_t)obj->base.backing);
-            obj->entries[0].length = size;
+            obj->entries[0].addr    = (uintptr_t)virt_any_to_phys((uintptr_t)obj->base.backing);
+            obj->entries[0].length  = size;
             obj->entries[0].padding = 0;
         }
     }
@@ -80,9 +79,7 @@ void virtgpu_gem_free_object(struct drm_gem_object *gem_obj)
 /* Dumb buffer helpers                                                 */
 /* ------------------------------------------------------------------ */
 
-int virtgpu_gem_dumb_create(struct drm_file *file_priv,
-                            struct drm_device *dev,
-                            struct drm_mode_create_dumb *args)
+int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, struct drm_mode_create_dumb *args)
 {
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
     struct virtio_gpu_object *obj;
@@ -98,11 +95,11 @@ int virtgpu_gem_dumb_create(struct drm_file *file_priv,
     obj = virtgpu_gem_alloc_object(dev, size);
     if (!obj) { return -ENOMEM; }
 
-    obj->format  = DRM_FORMAT_XRGB8888;
-    obj->width   = args->width;
-    obj->height  = args->height;
-    obj->stride  = args->pitch;
-    obj->depth   = 24;
+    obj->format     = DRM_FORMAT_XRGB8888;
+    obj->width      = args->width;
+    obj->height     = args->height;
+    obj->stride     = args->pitch;
+    obj->depth      = 24;
     obj->created_3d = false;
 
     /* Allocate a host-side resource ID */
@@ -133,14 +130,11 @@ int virtgpu_gem_dumb_create(struct drm_file *file_priv,
     }
 
     args->handle = handle;
-    DRM_DEBUG_DRIVER("Dumb buffer created: %ux%u, pitch=%u, size=%llu, handle=%u\n",
-                     args->width, args->height, args->pitch, args->size, handle);
+    DRM_DEBUG_DRIVER("Dumb buffer created: %ux%u, pitch=%u, size=%llu, handle=%u\n", args->width, args->height, args->pitch, args->size, handle);
     return 0;
 }
 
-int virtgpu_gem_dumb_map_offset(struct drm_file *file_priv,
-                                struct drm_device *dev,
-                                uint32_t handle, uint64_t *offset)
+int virtgpu_gem_dumb_map_offset(struct drm_file *file_priv, struct drm_device *dev, uint32_t handle, uint64_t *offset)
 {
     struct drm_gem_object *gem_obj;
 
@@ -160,16 +154,13 @@ int virtgpu_gem_dumb_map_offset(struct drm_file *file_priv,
 /* PRIME export / import (dma-buf)                                     */
 /* ------------------------------------------------------------------ */
 
-int virtgpu_gem_prime_export(struct drm_device *dev,
-                             struct drm_gem_object *obj,
-                             int *prime_fd)
+int virtgpu_gem_prime_export(struct drm_device *dev, struct drm_gem_object *obj, int *prime_fd)
 {
     (void)obj;
     return drm_gem_prime_handle_to_fd(dev, NULL, 0, DRM_PRIME_CAP_EXPORT, prime_fd);
 }
 
-struct drm_gem_object *virtgpu_gem_prime_import(struct drm_device *dev,
-                                                void *dma_buf)
+struct drm_gem_object *virtgpu_gem_prime_import(struct drm_device *dev, void *dma_buf)
 {
     struct drm_gem_object *obj = (struct drm_gem_object *)dma_buf;
 

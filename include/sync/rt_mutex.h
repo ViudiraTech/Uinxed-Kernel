@@ -18,19 +18,19 @@
 #include <sync/spin_lock.h>
 
 /* Futex word flags for PI mutex (Linux-compatible) */
-#define FUTEX_WAITERS     0x80000000
-#define FUTEX_OWNER_DIED  0x40000000
-#define FUTEX_TID_MASK    0x3fffffff
+#define FUTEX_WAITERS    0x80000000
+#define FUTEX_OWNER_DIED 0x40000000
+#define FUTEX_TID_MASK   0x3fffffff
 
 typedef struct rt_mutex rt_mutex_t;
 
 struct rt_mutex {
-    spinlock_t     lock;
-    task_t        *owner;
-    rb_root_t      pi_waiters;
-    wait_queue_t   wq;
-    uint32_t      *uaddr;
-    int            owner_died;
+        spinlock_t   lock;
+        task_t      *owner;
+        rb_root_t    pi_waiters;
+        wait_queue_t wq;
+        uint32_t    *uaddr;
+        int          owner_died;
 };
 
 /* Initialize a rt_mutex */

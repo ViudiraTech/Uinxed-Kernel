@@ -96,8 +96,8 @@ void panic(const char *format, ...)
 
     plogk("\n");
     plogk("Kernel panic - not syncing: %s\n", buff);
-    task_t *panic_task = current_task();
-    int panic_pid = panic_task ? (int)panic_task->pid : -1;
+    task_t     *panic_task = current_task();
+    int         panic_pid  = panic_task ? (int)panic_task->pid : -1;
     const char *panic_comm = panic_task ? panic_task->name : "<none>";
     plogk("CPU: %d PID: %d Comm: %s Not tainted\n", get_current_cpu_id(), panic_pid, panic_comm);
     plogk("Hardware name: %s %s, BIOS %s %s\n", sys_vendor, sys_product, bios_version, bios_date);

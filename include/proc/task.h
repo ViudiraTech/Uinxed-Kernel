@@ -79,12 +79,12 @@ struct task {
         uint64_t vruntime; /* virtual runtime */
         uint64_t deadline; /* virtual deadline */
         int64_t  vlag;     /* virtual lag for placement */
-        uint32_t weight;      /* scheduling weight (NICE_0_LOAD = 1024) */
+        uint32_t weight;   /* scheduling weight (NICE_0_LOAD = 1024) */
         /* ---- PI (Priority Inheritance) fields ---- */
-        uint32_t base_weight; /* original weight before PI boost */
-        uint32_t pi_weight;   /* effective weight for PI waiter ordering */
-        rb_node_t pi_node;    /* rbtree node for pi_waiters */
-        struct rt_mutex *blocked_on; /* mutex this task is blocked on, or NULL */
+        uint32_t         base_weight; /* original weight before PI boost */
+        uint32_t         pi_weight;   /* effective weight for PI waiter ordering */
+        rb_node_t        pi_node;     /* rbtree node for pi_waiters */
+        struct rt_mutex *blocked_on;  /* mutex this task is blocked on, or NULL */
 };
 
 /* Initialize a wait queue */

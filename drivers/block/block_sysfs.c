@@ -27,10 +27,10 @@
 /* ------------------------------------------------------------------ */
 
 struct block_sysfs_dev {
-    struct kobject     kobj;
-    blockdev_device_t  bdev;
-    char               name[32];
-    int                valid;
+        struct kobject    kobj;
+        blockdev_device_t bdev;
+        char              name[32];
+        int               valid;
 };
 
 /* ------------------------------------------------------------------ */
@@ -39,12 +39,10 @@ struct block_sysfs_dev {
 
 static struct block_sysfs_dev *to_bsd(struct kobject *kobj)
 {
-    return (struct block_sysfs_dev *)((char *)kobj
-           - offsetof(struct block_sysfs_dev, kobj));
+    return (struct block_sysfs_dev *)((char *)kobj - offsetof(struct block_sysfs_dev, kobj));
 }
 
-static ssize_t size_show(struct kobject *kobj, struct attribute *attr,
-                         char *buf)
+static ssize_t size_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     struct block_sysfs_dev *bsd = to_bsd(kobj);
     (void)attr;
@@ -53,8 +51,7 @@ static ssize_t size_show(struct kobject *kobj, struct attribute *attr,
     return (ssize_t)sysfs_emit(buf, "%llu\n", (unsigned long long)sz);
 }
 
-static ssize_t sector_size_show(struct kobject *kobj, struct attribute *attr,
-                                char *buf)
+static ssize_t sector_size_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     struct block_sysfs_dev *bsd = to_bsd(kobj);
     (void)attr;
@@ -62,16 +59,14 @@ static ssize_t sector_size_show(struct kobject *kobj, struct attribute *attr,
     return (ssize_t)sysfs_emit(buf, "%u\n", bsd->bdev.sector_size);
 }
 
-static ssize_t ro_show(struct kobject *kobj, struct attribute *attr,
-                       char *buf)
+static ssize_t ro_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     (void)kobj;
     (void)attr;
     return (ssize_t)sysfs_emit(buf, "0\n");
 }
 
-static ssize_t removable_show(struct kobject *kobj, struct attribute *attr,
-                              char *buf)
+static ssize_t removable_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     (void)kobj;
     (void)attr;
@@ -82,13 +77,12 @@ static ssize_t removable_show(struct kobject *kobj, struct attribute *attr,
 /*  Sysfs ops                                                          */
 /* ------------------------------------------------------------------ */
 
-static ssize_t block_attr_show(struct kobject *kobj, struct attribute *attr,
-                               char *buf)
+static ssize_t block_attr_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
-    if (streq(attr->name, "size"))         return size_show(kobj, attr, buf);
-    if (streq(attr->name, "sector_size"))  return sector_size_show(kobj, attr, buf);
-    if (streq(attr->name, "ro"))           return ro_show(kobj, attr, buf);
-    if (streq(attr->name, "removable"))    return removable_show(kobj, attr, buf);
+    if (streq(attr->name, "size")) return size_show(kobj, attr, buf);
+    if (streq(attr->name, "sector_size")) return sector_size_show(kobj, attr, buf);
+    if (streq(attr->name, "ro")) return ro_show(kobj, attr, buf);
+    if (streq(attr->name, "removable")) return removable_show(kobj, attr, buf);
     return -EIO;
 }
 
@@ -107,11 +101,7 @@ static struct attribute ro_attr          = __ATTR_RO(ro);
 static struct attribute removable_attr   = __ATTR_RO(removable);
 
 static struct attribute *block_attrs[] = {
-    &size_attr,
-    &sector_size_attr,
-    &ro_attr,
-    &removable_attr,
-    NULL,
+    &size_attr, &sector_size_attr, &ro_attr, &removable_attr, NULL,
 };
 
 static void block_kobj_release(struct kobject *kobj)
@@ -130,8 +120,7 @@ static struct kobj_type block_ktype = {
 /*  Helper: add a single block device                                  */
 /* ------------------------------------------------------------------ */
 
-static int block_add_one(struct kobject *parent, const char *name,
-                          uint8_t drive, int type, void *ns_ptr)
+static int block_add_one(struct kobject *parent, const char *name, uint8_t drive, int type, void *ns_ptr)
 {
     struct block_sysfs_dev *bsd;
     blockdev_device_t       bdev;
@@ -140,16 +129,16 @@ static int block_add_one(struct kobject *parent, const char *name,
     memset(&bdev, 0, sizeof(bdev));
 
     switch (type) {
-        case 0:
+        case 0 :
             ret = blockdev_open_ide(drive, &bdev);
             break;
-        case 1:
+        case 1 :
             ret = blockdev_open_ahci(drive, &bdev);
             break;
-        case 2:
+        case 2 :
             ret = blockdev_open_nvme(ns_ptr, &bdev);
             break;
-        default:
+        default :
             return -EINVAL;
     }
 

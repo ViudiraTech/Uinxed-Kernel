@@ -47,15 +47,15 @@
  */
 static volatile void *vp_map_cap_bar(struct vp_device *dev, struct vp_cap *cap)
 {
-    pci_device_reg_t reg   = {dev->pci_dev, 0};
+    pci_device_reg_t reg = {dev->pci_dev, 0};
     uint32_t         bar_raw;
     uint64_t         bar_phys;
     uint64_t         map_start, map_len;
 
     /* Read BAR physical address directly from PCI config space */
     reg.offset = 0x10 + 4 * cap->bar;
-    bar_raw  = read_pci(reg);
-    bar_phys = bar_raw & ~0xfULL;
+    bar_raw    = read_pci(reg);
+    bar_phys   = bar_raw & ~0xfULL;
 
     /* Handle 64-bit BAR: lower 32 bits may be 0 if mapped above 4GB */
     if ((bar_raw & 0x6) == 0x4) {
@@ -64,8 +64,7 @@ static volatile void *vp_map_cap_bar(struct vp_device *dev, struct vp_cap *cap)
     }
 
     if (!bar_phys) {
-        VP_ERR("BAR %u for device %04x:%04x has null address\n",
-               cap->bar, dev->vendor_id, dev->device_id);
+        VP_ERR("BAR %u for device %04x:%04x has null address\n", cap->bar, dev->vendor_id, dev->device_id);
         return NULL;
     }
 
@@ -82,16 +81,15 @@ static volatile void *vp_map_cap_bar(struct vp_device *dev, struct vp_cap *cap)
     map_start = bar_phys & ~(uint64_t)0xfff;
     map_len   = ((bar_phys + cap->offset + cap->length + 0xfff) & ~(uint64_t)0xfff) - map_start;
 
-    page_map_range_to(get_kernel_pagedir(), map_start, map_len,
-                      PTE_MMIO_FLAGS);
+    page_map_range_to(get_kernel_pagedir(), map_start, map_len, PTE_MMIO_FLAGS);
 
     return (volatile void *)((uintptr_t)phys_to_virt(bar_phys) + cap->offset);
 }
 
 static int vp_scan_caps(struct vp_device *dev)
 {
-    pci_device_cache_t *pci  = dev->pci_dev;
-    pci_device_reg_t    reg  = {pci, 0x34};
+    pci_device_cache_t *pci = dev->pci_dev;
+    pci_device_reg_t    reg = {pci, 0x34};
     uint32_t            cap_off;
     int                 found_common = 0, found_notify = 0, found_isr = 0;
 
@@ -116,7 +114,7 @@ static int vp_scan_caps(struct vp_device *dev)
          *   dword 3: length (le32)
          */
         for (i = 0; i < 4; i++) {
-            reg.offset = cap_off + i * 4;
+            reg.offset  = cap_off + i * 4;
             cap_data[i] = read_pci(reg);
         }
 
@@ -133,35 +131,33 @@ static int vp_scan_caps(struct vp_device *dev)
         }
 
         switch (cap.cfg_type) {
-            case VIRTIO_PCI_CAP_COMMON_CFG:
+            case VIRTIO_PCI_CAP_COMMON_CFG :
                 dev->common_cap = cap;
                 dev->common     = vp_map_cap_bar(dev, &cap);
                 if (dev->common) {
-                    found_common  = 1;
-                    VP_DBG("common cfg at BAR%u+0x%x (len %u)\n",
-                           cap.bar, cap.offset, cap.length);
+                    found_common = 1;
+                    VP_DBG("common cfg at BAR%u+0x%x (len %u)\n", cap.bar, cap.offset, cap.length);
                 }
                 break;
 
-            case VIRTIO_PCI_CAP_NOTIFY_CFG: {
+            case VIRTIO_PCI_CAP_NOTIFY_CFG : {
                 struct vp_notify_cap ncap;
-                uint32_t ndata;
+                uint32_t             ndata;
                 /* notify_off_multiplier is at cap_off + 16 */
                 reg.offset = cap_off + 16;
-                ndata = read_pci(reg);
+                ndata      = read_pci(reg);
 
-                ncap.cap                  = cap;
+                ncap.cap                   = cap;
                 ncap.notify_off_multiplier = ndata;
-                dev->notify_cap           = ncap;
-                dev->notify_base          = vp_map_cap_bar(dev, &cap);
+                dev->notify_cap            = ncap;
+                dev->notify_base           = vp_map_cap_bar(dev, &cap);
                 dev->notify_off_multiplier = ndata;
-                found_notify              = 1;
-                VP_DBG("notify cfg at BAR%u+0x%x (mult %u)\n",
-                       cap.bar, cap.offset, ndata);
+                found_notify               = 1;
+                VP_DBG("notify cfg at BAR%u+0x%x (mult %u)\n", cap.bar, cap.offset, ndata);
                 break;
             }
 
-            case VIRTIO_PCI_CAP_ISR_CFG:
+            case VIRTIO_PCI_CAP_ISR_CFG :
                 dev->isr_cap = cap;
                 dev->isr     = vp_map_cap_bar(dev, &cap);
                 if (dev->isr) {
@@ -170,13 +166,10 @@ static int vp_scan_caps(struct vp_device *dev)
                 }
                 break;
 
-            case VIRTIO_PCI_CAP_DEVICE_CFG:
+            case VIRTIO_PCI_CAP_DEVICE_CFG :
                 dev->device_cap = cap;
                 dev->device_cfg = vp_map_cap_bar(dev, &cap);
-                if (dev->device_cfg) {
-                    VP_DBG("device cfg at BAR%u+0x%x (len %u)\n",
-                           cap.bar, cap.offset, cap.length);
-                }
+                if (dev->device_cfg) { VP_DBG("device cfg at BAR%u+0x%x (len %u)\n", cap.bar, cap.offset, cap.length); }
                 break;
         }
 
@@ -184,8 +177,7 @@ static int vp_scan_caps(struct vp_device *dev)
     }
 
     if (!found_common || !found_notify || !found_isr) {
-        VP_ERR("Missing required capabilities (common=%d notify=%d isr=%d)\n",
-               found_common, found_notify, found_isr);
+        VP_ERR("Missing required capabilities (common=%d notify=%d isr=%d)\n", found_common, found_notify, found_isr);
         return -ENODEV;
     }
 
@@ -226,9 +218,9 @@ int vp_negotiate_features(struct vp_device *dev, uint64_t guest_features, uint64
 
     /* Device features (must be read in two phases) */
     dev->common->device_feature_select = 0;
-    lo = dev->common->device_feature;
+    lo                                 = dev->common->device_feature;
     dev->common->device_feature_select = 1;
-    hi = dev->common->device_feature;
+    hi                                 = dev->common->device_feature;
 
     VP_DBG("Device features: 0x%016llx\n", ((uint64_t)hi << 32) | lo);
 
@@ -265,7 +257,7 @@ void vp_read_device_config(struct vp_device *dev, void *buf, int offset, int len
 
 void vp_write_device_config(struct vp_device *dev, const void *buf, int offset, int len)
 {
-    volatile uint8_t *cfg  = dev->device_cfg;
+    volatile uint8_t *cfg = dev->device_cfg;
     const uint8_t    *src = (const uint8_t *)buf;
     int               i;
 
@@ -283,8 +275,8 @@ void vp_write_device_config(struct vp_device *dev, const void *buf, int offset, 
  */
 int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *vq)
 {
-    int                alloc_size;
-    int                i;
+    int                            alloc_size;
+    int                            i;
     struct vp_common_cfg volatile *common = dev->common;
 
     if (!common || index >= common->num_queues) { return -EINVAL; }
@@ -312,20 +304,19 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
     common->queue_size = num;
 
     memset(vq, 0, sizeof(*vq));
-    vq->index    = index;
-    vq->num_max  = num;
-    vq->num_free = num;
-    vq->free_head = 0;
+    vq->index            = index;
+    vq->num_max          = num;
+    vq->num_free         = num;
+    vq->free_head        = 0;
     vq->avail_idx_shadow = 0;
-    vq->used_idx  = 0;
-    vq->lock.lock = 0;
-    vq->vp       = dev;
-    vq->notify_off = common->queue_notify_off;
+    vq->used_idx         = 0;
+    vq->lock.lock        = 0;
+    vq->vp               = dev;
+    vq->notify_off       = common->queue_notify_off;
 
     /* Allocate descriptor table, available ring, used ring as one block */
-    alloc_size = num * sizeof(struct vring_desc)
-                 + sizeof(struct vring_avail) + num * sizeof(uint16_t)
-                 + sizeof(struct vring_used)  + num * sizeof(struct vring_used_elem);
+    alloc_size = num * sizeof(struct vring_desc) + sizeof(struct vring_avail) + num * sizeof(uint16_t) + sizeof(struct vring_used)
+                 + num * sizeof(struct vring_used_elem);
     /* Align to page */
     alloc_size = (alloc_size + 4095) & ~4095;
 
@@ -333,7 +324,7 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
     if (!vq->queue_mem) { return -ENOMEM; }
     memset(vq->queue_mem, 0, alloc_size);
 
-    vq->desc = (struct vring_desc *)vq->queue_mem;
+    vq->desc  = (struct vring_desc *)vq->queue_mem;
     vq->avail = (struct vring_avail *)((uint8_t *)vq->desc + num * sizeof(struct vring_desc));
     vq->used  = (struct vring_used *)((uint8_t *)vq->avail + sizeof(struct vring_avail) + num * sizeof(uint16_t));
 
@@ -356,9 +347,7 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
      *
      * Initial chain: free_head → 0 → 1 → 2 → ... → num-1
      */
-    for (i = 0; i < num; i++) {
-        vq->free_descs[i] = (uint16_t)(i + 1);
-    }
+    for (i = 0; i < num; i++) { vq->free_descs[i] = (uint16_t)(i + 1); }
     /* The last descriptor has no next — its free_descs entry is never
      * read until it has first been pushed back (which overwrites it). */
 
@@ -405,7 +394,7 @@ int virtqueue_add(struct vp_virtqueue *vq, void *data, int len, int write)
 
     spin_lock(&vq->lock);
 
-    head = vq->free_head;
+    head          = vq->free_head;
     vq->free_head = vq->free_descs[head];
     vq->num_free--;
 
@@ -427,9 +416,7 @@ int virtqueue_add(struct vp_virtqueue *vq, void *data, int len, int write)
     return 0;
 }
 
-int virtqueue_add_out_in(struct vp_virtqueue *vq,
-                         void *out_data, int out_len,
-                         void *in_data, int in_len)
+int virtqueue_add_out_in(struct vp_virtqueue *vq, void *out_data, int out_len, void *in_data, int in_len)
 {
     uint16_t head, out_desc, in_desc;
 
@@ -437,10 +424,10 @@ int virtqueue_add_out_in(struct vp_virtqueue *vq,
 
     spin_lock(&vq->lock);
 
-    head = vq->free_head;
-    out_desc = head;
+    head          = vq->free_head;
+    out_desc      = head;
     vq->free_head = vq->free_descs[out_desc];
-    in_desc = vq->free_head;
+    in_desc       = vq->free_head;
     vq->free_head = vq->free_descs[in_desc];
     vq->num_free -= 2;
 
@@ -492,9 +479,9 @@ void *virtqueue_get_buf(struct vp_virtqueue *vq, uint32_t *len)
 
     /* Put descriptors back on free list */
     do {
-        uint16_t next = vq->desc[head].flags & VRING_DESC_F_NEXT ? vq->desc[head].next : 0;
+        uint16_t next        = vq->desc[head].flags & VRING_DESC_F_NEXT ? vq->desc[head].next : 0;
         vq->free_descs[head] = vq->free_head;
-        vq->free_head = head;
+        vq->free_head        = head;
         vq->num_free++;
         if (vq->desc[head].flags & VRING_DESC_F_INDIRECT) { break; }
         head = next;
@@ -542,7 +529,7 @@ int virtqueue_enable_cb(struct vp_virtqueue *vq)
 
 int vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev)
 {
-    pci_device_cache_t *cache;
+    pci_device_cache_t  *cache;
     pci_device_request_t req;
     int                  ret;
 
@@ -567,12 +554,8 @@ int vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev
     dev->vendor_id = vendor_id;
     dev->device_id = device_id;
 
-    VP_DBG("Found device %04x:%04x at %04x:%02x:%02x.%01x\n",
-           vendor_id, device_id,
-           cache->device->domain,
-           cache->device->bus,
-           cache->device->slot,
-           cache->device->func);
+    VP_DBG("Found device %04x:%04x at %04x:%02x:%02x.%01x\n", vendor_id, device_id, cache->device->domain, cache->device->bus,
+           cache->device->slot, cache->device->func);
 
     /* Scan capabilities */
     ret = vp_scan_caps(dev);
@@ -596,11 +579,11 @@ void vp_release_device(struct vp_device *dev)
     if (!dev) { return; }
 
     vp_reset_device(dev);
-    dev->common     = NULL;
-    dev->isr        = NULL;
-    dev->device_cfg = NULL;
+    dev->common      = NULL;
+    dev->isr         = NULL;
+    dev->device_cfg  = NULL;
     dev->notify_base = NULL;
-    dev->pci_dev    = NULL;
+    dev->pci_dev     = NULL;
 }
 
 /* ------------------------------------------------------------------ */

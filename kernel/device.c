@@ -30,13 +30,12 @@
 
 extern struct kobject *sysfs_root_kobj;
 
-static struct kobject *devices_kobj;   /* /sys/devices */
-static struct kobject *bus_kobj;       /* /sys/bus */
-static struct kobject *class_kobj;     /* /sys/class */
+static struct kobject *devices_kobj; /* /sys/devices */
+static struct kobject *bus_kobj;     /* /sys/bus */
+static struct kobject *class_kobj;   /* /sys/class */
 
 /* Forward declarations */
-static struct kobject *sysfs_find_child_kobj(struct kobject *parent,
-                                             const char *name);
+static struct kobject *sysfs_find_child_kobj(struct kobject *parent, const char *name);
 static struct kobject *get_devices_kobj(void);
 static struct kobject *get_bus_kobj(void);
 static struct kobject *get_class_kobj(void);
@@ -45,23 +44,19 @@ static struct kobject *get_class_kobj(void);
 /*  Device attribute sysfs_ops                                         */
 /* ------------------------------------------------------------------ */
 
-static ssize_t dev_attr_show(struct kobject *kobj, struct attribute *attr,
-                             char *buf)
+static ssize_t dev_attr_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
-    struct device           *dev = (struct device *)((char *)kobj - offsetof(struct device, kobj));
-    struct device_attribute *dattr =
-        (struct device_attribute *)((char *)attr - offsetof(struct device_attribute, attr));
+    struct device           *dev   = (struct device *)((char *)kobj - offsetof(struct device, kobj));
+    struct device_attribute *dattr = (struct device_attribute *)((char *)attr - offsetof(struct device_attribute, attr));
 
     if (!dattr->show) return -EIO;
     return dattr->show(dev, dattr, buf);
 }
 
-static ssize_t dev_attr_store(struct kobject *kobj, struct attribute *attr,
-                              const char *buf, size_t count)
+static ssize_t dev_attr_store(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count)
 {
-    struct device           *dev = (struct device *)((char *)kobj - offsetof(struct device, kobj));
-    struct device_attribute *dattr =
-        (struct device_attribute *)((char *)attr - offsetof(struct device_attribute, attr));
+    struct device           *dev   = (struct device *)((char *)kobj - offsetof(struct device, kobj));
+    struct device_attribute *dattr = (struct device_attribute *)((char *)attr - offsetof(struct device_attribute, attr));
 
     if (!dattr->store) return -EIO;
     return dattr->store(dev, dattr, buf, count);
@@ -76,23 +71,19 @@ static const struct sysfs_ops dev_sysfs_ops = {
 /*  Bus attribute sysfs_ops                                            */
 /* ------------------------------------------------------------------ */
 
-static ssize_t bus_attr_show(struct kobject *kobj, struct attribute *attr,
-                             char *buf)
+static ssize_t bus_attr_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
-    struct bus_type       *bus = (struct bus_type *)((char *)kobj - offsetof(struct bus_type, subsys.kobj));
-    struct bus_attribute *battr =
-        (struct bus_attribute *)((char *)attr - offsetof(struct bus_attribute, attr));
+    struct bus_type      *bus   = (struct bus_type *)((char *)kobj - offsetof(struct bus_type, subsys.kobj));
+    struct bus_attribute *battr = (struct bus_attribute *)((char *)attr - offsetof(struct bus_attribute, attr));
 
     if (!battr->show) return -EIO;
     return battr->show(bus, battr, buf);
 }
 
-static ssize_t bus_attr_store(struct kobject *kobj, struct attribute *attr,
-                              const char *buf, size_t count)
+static ssize_t bus_attr_store(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count)
 {
-    struct bus_type       *bus = (struct bus_type *)((char *)kobj - offsetof(struct bus_type, subsys.kobj));
-    struct bus_attribute *battr =
-        (struct bus_attribute *)((char *)attr - offsetof(struct bus_attribute, attr));
+    struct bus_type      *bus   = (struct bus_type *)((char *)kobj - offsetof(struct bus_type, subsys.kobj));
+    struct bus_attribute *battr = (struct bus_attribute *)((char *)attr - offsetof(struct bus_attribute, attr));
 
     if (!battr->store) return -EIO;
     return battr->store(bus, battr, buf, count);
@@ -107,23 +98,19 @@ static const struct sysfs_ops bus_sysfs_ops = {
 /*  Driver attribute sysfs_ops                                         */
 /* ------------------------------------------------------------------ */
 
-static ssize_t drv_attr_show(struct kobject *kobj, struct attribute *attr,
-                             char *buf)
+static ssize_t drv_attr_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
-    struct device_driver    *drv = (struct device_driver *)((char *)kobj - offsetof(struct device_driver, kobj));
-    struct driver_attribute *dattr =
-        (struct driver_attribute *)((char *)attr - offsetof(struct driver_attribute, attr));
+    struct device_driver    *drv   = (struct device_driver *)((char *)kobj - offsetof(struct device_driver, kobj));
+    struct driver_attribute *dattr = (struct driver_attribute *)((char *)attr - offsetof(struct driver_attribute, attr));
 
     if (!dattr->show) return -EIO;
     return dattr->show(drv, dattr, buf);
 }
 
-static ssize_t drv_attr_store(struct kobject *kobj, struct attribute *attr,
-                              const char *buf, size_t count)
+static ssize_t drv_attr_store(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count)
 {
-    struct device_driver    *drv = (struct device_driver *)((char *)kobj - offsetof(struct device_driver, kobj));
-    struct driver_attribute *dattr =
-        (struct driver_attribute *)((char *)attr - offsetof(struct driver_attribute, attr));
+    struct device_driver    *drv   = (struct device_driver *)((char *)kobj - offsetof(struct device_driver, kobj));
+    struct driver_attribute *dattr = (struct driver_attribute *)((char *)attr - offsetof(struct driver_attribute, attr));
 
     if (!dattr->store) return -EIO;
     return dattr->store(drv, dattr, buf, count);
@@ -138,23 +125,19 @@ static const struct sysfs_ops drv_sysfs_ops = {
 /*  Class attribute sysfs_ops                                          */
 /* ------------------------------------------------------------------ */
 
-static ssize_t class_attr_show(struct kobject *kobj, struct attribute *attr,
-                               char *buf)
+static ssize_t class_attr_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
-    struct class            *cls = (struct class *)((char *)kobj - offsetof(struct class, subsys.kobj));
-    struct class_attribute *cattr =
-        (struct class_attribute *)((char *)attr - offsetof(struct class_attribute, attr));
+    struct class           *cls   = (struct class *)((char *)kobj - offsetof(struct class, subsys.kobj));
+    struct class_attribute *cattr = (struct class_attribute *)((char *)attr - offsetof(struct class_attribute, attr));
 
     if (!cattr->show) return -EIO;
     return cattr->show(cls, cattr, buf);
 }
 
-static ssize_t class_attr_store(struct kobject *kobj, struct attribute *attr,
-                                const char *buf, size_t count)
+static ssize_t class_attr_store(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count)
 {
-    struct class            *cls = (struct class *)((char *)kobj - offsetof(struct class, subsys.kobj));
-    struct class_attribute *cattr =
-        (struct class_attribute *)((char *)attr - offsetof(struct class_attribute, attr));
+    struct class           *cls   = (struct class *)((char *)kobj - offsetof(struct class, subsys.kobj));
+    struct class_attribute *cattr = (struct class_attribute *)((char *)attr - offsetof(struct class_attribute, attr));
 
     if (!cattr->store) return -EIO;
     return cattr->store(cls, cattr, buf, count);
@@ -176,8 +159,8 @@ static void device_release_internal(struct kobject *kobj)
 }
 
 static struct kobj_type device_ktype = {
-    .release      = device_release_internal,
-    .sysfs_ops    = &dev_sysfs_ops,
+    .release       = device_release_internal,
+    .sysfs_ops     = &dev_sysfs_ops,
     .default_attrs = NULL,
 };
 
@@ -188,8 +171,8 @@ static void bus_release_internal(struct kobject *kobj)
 }
 
 static struct kobj_type bus_ktype = {
-    .release      = bus_release_internal,
-    .sysfs_ops    = &bus_sysfs_ops,
+    .release       = bus_release_internal,
+    .sysfs_ops     = &bus_sysfs_ops,
     .default_attrs = NULL,
 };
 
@@ -200,8 +183,8 @@ static void driver_release_internal(struct kobject *kobj)
 }
 
 static struct kobj_type driver_ktype = {
-    .release      = driver_release_internal,
-    .sysfs_ops    = &drv_sysfs_ops,
+    .release       = driver_release_internal,
+    .sysfs_ops     = &drv_sysfs_ops,
     .default_attrs = NULL,
 };
 
@@ -211,8 +194,8 @@ static void class_release_internal(struct kobject *kobj)
 }
 
 static struct kobj_type class_ktype = {
-    .release      = class_release_internal,
-    .sysfs_ops    = &class_sysfs_ops,
+    .release       = class_release_internal,
+    .sysfs_ops     = &class_sysfs_ops,
     .default_attrs = NULL,
 };
 
@@ -222,25 +205,19 @@ static struct kobj_type class_ktype = {
 
 static struct kobject *get_devices_kobj(void)
 {
-    if (!devices_kobj && sysfs_root_kobj) {
-        devices_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "devices");
-    }
+    if (!devices_kobj && sysfs_root_kobj) { devices_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "devices"); }
     return devices_kobj;
 }
 
 static struct kobject *get_bus_kobj(void)
 {
-    if (!bus_kobj && sysfs_root_kobj) {
-        bus_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "bus");
-    }
+    if (!bus_kobj && sysfs_root_kobj) { bus_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "bus"); }
     return bus_kobj;
 }
 
 static struct kobject *get_class_kobj(void)
 {
-    if (!class_kobj && sysfs_root_kobj) {
-        class_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "class");
-    }
+    if (!class_kobj && sysfs_root_kobj) { class_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "class"); }
     return class_kobj;
 }
 
@@ -250,8 +227,8 @@ static struct kobject *get_class_kobj(void)
 
 int bus_register(struct bus_type *bus)
 {
-    int               ret;
-    struct kobject    *parent;
+    int             ret;
+    struct kobject *parent;
 
     if (!bus || !bus->name) return -EINVAL;
 
@@ -329,8 +306,7 @@ int device_register(struct device *dev)
 
     /* Pick a name: use bus dev_name if available, else device ID */
     if (dev->bus && dev->bus->dev_name) {
-        ret = kobject_add(&dev->kobj, parent, "%s%llu",
-                          dev->bus->dev_name, dev->devid);
+        ret = kobject_add(&dev->kobj, parent, "%s%llu", dev->bus->dev_name, dev->devid);
     } else if (dev->kobj.name) {
         ret = kobject_add(&dev->kobj, parent, "%s", dev->kobj.name);
     } else {
@@ -351,17 +327,14 @@ int device_register(struct device *dev)
     /* Add to bus's device kset if the device has a bus */
     if (dev->bus && dev->bus->devices_kset) {
         spin_lock(&dev->bus->devices_kset->list_lock);
-        dev->bus->devices_kset->list = clist_append(
-            dev->bus->devices_kset->list, &dev->kobj);
+        dev->bus->devices_kset->list = clist_append(dev->bus->devices_kset->list, &dev->kobj);
         spin_unlock(&dev->bus->devices_kset->list_lock);
 
         /* Try to bind a driver */
         if (dev->bus->match) {
             /* Full driver matching requires iterating drivers_kset;
              * for now, probe using bus->probe if set */
-            if (dev->bus->probe) {
-                dev->bus->probe(dev);
-            }
+            if (dev->bus->probe) { dev->bus->probe(dev); }
         }
     }
 
@@ -384,22 +357,18 @@ void device_unregister(struct device *dev)
     /* Remove from bus device kset */
     if (dev->bus && dev->bus->devices_kset) {
         spin_lock(&dev->bus->devices_kset->list_lock);
-        dev->bus->devices_kset->list = clist_delete(
-            dev->bus->devices_kset->list, &dev->kobj);
+        dev->bus->devices_kset->list = clist_delete(dev->bus->devices_kset->list, &dev->kobj);
         spin_unlock(&dev->bus->devices_kset->list_lock);
 
         /* Call bus remove if a driver is bound */
-        if (dev->driver && dev->driver->remove) {
-            dev->driver->remove(dev);
-        }
+        if (dev->driver && dev->driver->remove) { dev->driver->remove(dev); }
         dev->driver = NULL;
     }
 
     kobject_del(&dev->kobj);
 }
 
-struct device *device_create(struct class *cls, struct device *parent,
-                             dev_t devt, void *drvdata, const char *fmt, ...)
+struct device *device_create(struct class *cls, struct device *parent, dev_t devt, void *drvdata, const char *fmt, ...)
 {
     struct device *dev;
     va_list        args;
@@ -443,29 +412,25 @@ void device_destroy(struct class *cls, dev_t devt)
     /* Find and unregister device by class + devt */
 }
 
-int device_create_file(struct device *dev,
-                       const struct device_attribute *attr)
+int device_create_file(struct device *dev, const struct device_attribute *attr)
 {
     if (!dev || !attr) return -EINVAL;
     return sysfs_create_file(&dev->kobj, &attr->attr);
 }
 
-void device_remove_file(struct device *dev,
-                        const struct device_attribute *attr)
+void device_remove_file(struct device *dev, const struct device_attribute *attr)
 {
     if (!dev || !attr) return;
     sysfs_remove_file(&dev->kobj, &attr->attr);
 }
 
-int device_add_groups(struct device *dev,
-                      const struct attribute_group **groups)
+int device_add_groups(struct device *dev, const struct attribute_group **groups)
 {
     if (!dev) return -EINVAL;
     return sysfs_create_groups(&dev->kobj, groups);
 }
 
-void device_remove_groups(struct device *dev,
-                          const struct attribute_group **groups)
+void device_remove_groups(struct device *dev, const struct attribute_group **groups)
 {
     if (!dev) return;
     sysfs_remove_groups(&dev->kobj, groups);
@@ -483,19 +448,15 @@ int driver_register(struct device_driver *drv)
 
     kobject_init(&drv->kobj, &driver_ktype);
 
-    ret = kobject_add(&drv->kobj, &drv->bus->drivers_kset->kobj,
-                      "%s", drv->name);
+    ret = kobject_add(&drv->kobj, &drv->bus->drivers_kset->kobj, "%s", drv->name);
     if (ret != EOK) return ret;
 
     /* Add driver groups */
-    if (drv->groups) {
-        sysfs_create_groups(&drv->kobj, drv->groups);
-    }
+    if (drv->groups) { sysfs_create_groups(&drv->kobj, drv->groups); }
 
     /* Add driver to bus's driver kset */
     spin_lock(&drv->bus->drivers_kset->list_lock);
-    drv->bus->drivers_kset->list = clist_append(
-        drv->bus->drivers_kset->list, &drv->kobj);
+    drv->bus->drivers_kset->list = clist_append(drv->bus->drivers_kset->list, &drv->kobj);
     spin_unlock(&drv->bus->drivers_kset->list_lock);
 
     return EOK;
@@ -508,8 +469,7 @@ void driver_unregister(struct device_driver *drv)
     /* Remove from bus */
     if (drv->bus && drv->bus->drivers_kset) {
         spin_lock(&drv->bus->drivers_kset->list_lock);
-        drv->bus->drivers_kset->list = clist_delete(
-            drv->bus->drivers_kset->list, &drv->kobj);
+        drv->bus->drivers_kset->list = clist_delete(drv->bus->drivers_kset->list, &drv->kobj);
         spin_unlock(&drv->bus->drivers_kset->list_lock);
     }
 
@@ -517,15 +477,13 @@ void driver_unregister(struct device_driver *drv)
     kobject_del(&drv->kobj);
 }
 
-int driver_create_file(struct device_driver *drv,
-                       const struct driver_attribute *attr)
+int driver_create_file(struct device_driver *drv, const struct driver_attribute *attr)
 {
     if (!drv || !attr) return -EINVAL;
     return sysfs_create_file(&drv->kobj, &attr->attr);
 }
 
-void driver_remove_file(struct device_driver *drv,
-                        const struct driver_attribute *attr)
+void driver_remove_file(struct device_driver *drv, const struct driver_attribute *attr)
 {
     if (!drv || !attr) return;
     sysfs_remove_file(&drv->kobj, &attr->attr);
@@ -537,8 +495,8 @@ void driver_remove_file(struct device_driver *drv,
 
 int class_register(struct class *cls)
 {
-    int               ret;
-    struct kobject    *parent;
+    int             ret;
+    struct kobject *parent;
 
     if (!cls || !cls->name) return -EINVAL;
 
@@ -552,9 +510,7 @@ int class_register(struct class *cls)
     if (ret != EOK) return ret;
 
     /* Create class attribute groups */
-    if (cls->class_groups) {
-        sysfs_create_groups(&cls->subsys.kobj, cls->class_groups);
-    }
+    if (cls->class_groups) { sysfs_create_groups(&cls->subsys.kobj, cls->class_groups); }
 
     return EOK;
 }
@@ -566,23 +522,19 @@ void class_unregister(struct class *cls)
     kobject_del(&cls->subsys.kobj);
 }
 
-int class_create_file(struct class *cls,
-                      const struct class_attribute *attr)
+int class_create_file(struct class *cls, const struct class_attribute *attr)
 {
     if (!cls || !attr) return -EINVAL;
     return sysfs_create_file(&cls->subsys.kobj, &attr->attr);
 }
 
-void class_remove_file(struct class *cls,
-                       const struct class_attribute *attr)
+void class_remove_file(struct class *cls, const struct class_attribute *attr)
 {
     if (!cls || !attr) return;
     sysfs_remove_file(&cls->subsys.kobj, &attr->attr);
 }
 
-struct device *class_find_device(struct class *cls, struct device *start,
-                                 const void *data,
-                                 int (*match)(struct device *, const void *))
+struct device *class_find_device(struct class *cls, struct device *start, const void *data, int (*match)(struct device *, const void *))
 {
     (void)cls;
     (void)start;
@@ -597,8 +549,7 @@ struct device *class_find_device(struct class *cls, struct device *start,
 /*  bus_find_driver_by_name                                            */
 /* ------------------------------------------------------------------ */
 
-struct device_driver *bus_find_driver_by_name(struct bus_type *bus,
-                                              const char *name)
+struct device_driver *bus_find_driver_by_name(struct bus_type *bus, const char *name)
 {
     clist_t node;
 
@@ -609,8 +560,7 @@ struct device_driver *bus_find_driver_by_name(struct bus_type *bus,
         struct kobject *kobj = node->data;
         if (!kobj) continue;
 
-        struct device_driver *drv =
-            (struct device_driver *)((char *)kobj - offsetof(struct device_driver, kobj));
+        struct device_driver *drv = (struct device_driver *)((char *)kobj - offsetof(struct device_driver, kobj));
 
         if (!name || (drv->name && streq(drv->name, name))) {
             spin_unlock(&bus->drivers_kset->list_lock);
@@ -650,8 +600,7 @@ int device_model_init(void)
 }
 
 /* Internal helper: find child kobject by name */
-static struct kobject *sysfs_find_child_kobj(struct kobject *parent,
-                                             const char *name)
+static struct kobject *sysfs_find_child_kobj(struct kobject *parent, const char *name)
 {
     clist_t node;
     if (!parent || !name) return NULL;

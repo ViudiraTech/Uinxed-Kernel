@@ -272,7 +272,7 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
     struct drm_mode_crtc_page_flip  *page_flip = (struct drm_mode_crtc_page_flip *)data;
     struct drm_crtc                 *crtc;
     struct drm_framebuffer          *fb;
-    struct drm_pending_vblank_event *e = NULL;
+    struct drm_pending_vblank_event *e   = NULL;
     int                              ret = 0;
 
     if (!dev || !page_flip) { return -EINVAL; }

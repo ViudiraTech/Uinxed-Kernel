@@ -140,13 +140,8 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
 
     /* Register under /sys/class/drm/ (one entry per GPU) */
     if (drm_class_registered && dev->primary) {
-        struct device *ddev = device_create(&drm_class, NULL,
-                              MKDEV(226, dev->primary->index),
-                              dev, "card%d", dev->primary->index);
-        if (ddev) {
-            DRM_INFO("Created /sys/class/drm/%s\n",
-                     kobject_name(&ddev->kobj));
-        }
+        struct device *ddev = device_create(&drm_class, NULL, MKDEV(226, dev->primary->index), dev, "card%d", dev->primary->index);
+        if (ddev) { DRM_INFO("Created /sys/class/drm/%s\n", kobject_name(&ddev->kobj)); }
     }
 
     return 0;
