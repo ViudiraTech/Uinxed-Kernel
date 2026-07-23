@@ -32,6 +32,7 @@
 #include <fs/cpio.h>
 #include <fs/devtmpfs.h>
 #include <fs/fatfs/fatfs_vfs.h>
+#include <fs/isofs/isofs.h>
 #include <fs/procfs.h>
 #include <fs/tmpfs.h>
 #include <fs/vfs.h>
@@ -167,13 +168,14 @@ void kernel_entry(void)
     init_vfs();                     // Virtual Filesystem
     tmpfs_regist();                 // Temporary File System
     fatfs_vfs_regist();             // FAT File System
+    isofs_regist();                 // ISO 9660 File System
 
     if (!get_rootdir()->fsid && vfs_mount(0, get_rootdir()) != EOK) plogk("init: Cannot mount tmpfs to root_dir.\n");
 
-    init_cpio();     // Copy In, Copy Out
-    devtmpfs_init(); // Device Temporary File System
-    procfs_regist(); // Process File System
-    drm_init();      // Direct Rendering Manager
+    init_cpio();       // Copy In, Copy Out
+    devtmpfs_init();   // Device Temporary File System
+    procfs_regist();   // Process File System
+    drm_init();        // Direct Rendering Manager
     virtio_gpu_init(); // VirtIO GPU driver (if present on PCI bus)
 
     /* If VirtIO-GPU is not available, ensure TTY falls back to VGA mode */
