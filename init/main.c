@@ -159,22 +159,22 @@ void kernel_entry(void)
     plogk("x86/PAT: Configuration [0-7]: %s\n", get_pat_config().pat_str);
     plogk("dmi: %s %s, BIOS %s %s\n", smbios_sys_manufacturer(), smbios_sys_product_name(), smbios_bios_version(), smbios_bios_release_date());
 
-    init_gdt();                   // Global Descriptor Table
-    init_idt();                   // Interrupt Descriptor Table
-    isr_registe_handle();         //
-    syscall_init();               // Standard System Call
-    init_avx();                   // Advanced Vector Extensions / 2
-    acpi_init();                  // Advanced Configuration and Power Interface
-    tpm_init();                   // Trusted Platform Module
-    tsc_init();                   // Time Stamp Counter
-    smp_init();                   // Symmetric Multiprocessing
-    print_memory_map();           //
-    log_buffer_print(&frame_log); //
-    pci_init();                   // Peripheral Component Interconnect
-    sb16_init();                  // Sound Blaster 16
-#if CONFIG_SOUND_HDA
-    hda_init(); // Intel HD Audio
-#endif
+    init_gdt();                     // Global Descriptor Table
+    init_idt();                     // Interrupt Descriptor Table
+    isr_registe_handle();           //
+    syscall_init();                 // Standard System Call
+    init_avx();                     // Advanced Vector Extensions / 2
+    acpi_init();                    // Advanced Configuration and Power Interface
+    tpm_init();                     // Trusted Platform Module
+    tsc_init();                     // Time Stamp Counter
+    smp_init();                     // Symmetric Multiprocessing
+    print_memory_map();             //
+    log_buffer_print(&frame_log);   //
+    pci_init();                     // Peripheral Component Interconnect
+    sb16_init();                    // Sound Blaster 16
+#if CONFIG_SOUND_HDA                //
+    hda_init();                     // Intel HD Audio
+#endif                              //
     log_buffer_print(&lmodule_log); //
     init_ide();                     // Advanced Technology Attachment / ATA Packet Interface
     nvme_init();                    // Non-Volatile Memory Express

@@ -134,7 +134,7 @@ ifneq ($(CONFIG_SERIAL_STOP_BITS),)
   C_CONFIG += -DSERIAL_STOP_BITS=$(CONFIG_SERIAL_STOP_BITS)
 endif
 
-C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*" -not -path "sound/*")
+C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*")
 C_HEADERS      := $(shell find * -name "*.h")
 OBJS           := $(C_SOURCES:%.c=%.o)
 DEPS           := $(OBJS:%.o=%.d)
