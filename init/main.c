@@ -23,6 +23,7 @@
 #include <drivers/ps2.h>
 #include <drivers/sb16.h>
 #include <drivers/serial.h>
+#include <drivers/tpm.h>
 #include <drivers/tsc.h>
 #include <drivers/tty.h>
 #include <fs/cpio.h>
@@ -147,6 +148,7 @@ void kernel_entry(void)
     syscall_init();                 // Standard System Call
     init_avx();                     // Advanced Vector Extensions / 2
     acpi_init();                    // Advanced Configuration and Power Interface
+    tpm_init();                     // Trusted Platform Module
     tsc_init();                     // Time Stamp Counter
     smp_init();                     // Symmetric Multiprocessing
     print_memory_map();             //

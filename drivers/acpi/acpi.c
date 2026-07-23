@@ -11,7 +11,6 @@
 #include <boot/limine.h>
 #include <drivers/acpi.h>
 #include <drivers/apic.h>
-#include <drivers/tpm.h>
 #include <kernel/printk.h>
 #include <kernel/uinxed.h>
 #include <libs/std/stdint.h>
@@ -86,5 +85,4 @@ void acpi_init(void)
     load_table(MCFG, mcfg_init);
 
     acpi_event_init();
-    acpi_tpm_init();
 }
