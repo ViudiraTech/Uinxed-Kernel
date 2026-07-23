@@ -612,6 +612,7 @@ static int64_t sys_poll(uint64_t fds, uint64_t nfds, uint64_t timeout, uint64_t 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     if (!fds && nfds) return -EFAULT;
+    if (nfds > 65536) return -EINVAL;
 
     int ready = 0;
     for (uint64_t i = 0; i < nfds; i++) {

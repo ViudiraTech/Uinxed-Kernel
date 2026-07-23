@@ -128,6 +128,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
     if (!proc) return -ESRCH;
 
     if (!length) return -EINVAL;
+    if (length > UINT64_MAX - PAGE_4K_SIZE) return -EINVAL;
 
     size_t    pages = ALIGN_UP(length, PAGE_4K_SIZE);
     uintptr_t mmap_addr;
@@ -172,8 +173,12 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
 
         if (!file) return -EBADF;
 
-        uint64_t pte_flags   = vm_flags_to_pte(vm_flags);
-        size_t   file_offset = (size_t)pgoff * PAGE_4K_SIZE;
+        uint64_t pte_flags = vm_flags_to_pte(vm_flags);
+        if ((size_t)pgoff > SIZE_MAX / PAGE_4K_SIZE) {
+            process_file_put(file);
+            return -EINVAL;
+        }
+        size_t file_offset = (size_t)pgoff * PAGE_4K_SIZE;
 
         /* Map pages from file content */
         for (size_t i = 0; i < pages; i += PAGE_4K_SIZE) {
@@ -228,6 +233,7 @@ int sys_munmap_full(uint64_t addr, uint64_t length)
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     if (!length || (addr & (PAGE_4K_SIZE - 1))) return -EINVAL;
+    if (length > UINT64_MAX - PAGE_4K_SIZE) return -EINVAL;
 
     size_t pages = ALIGN_UP(length, PAGE_4K_SIZE);
     unmap_physical_pages(proc, (uintptr_t)addr, pages);
@@ -315,6 +321,7 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     if (!old_addr || !old_len) return -EINVAL;
+    if (old_len > UINT64_MAX - PAGE_4K_SIZE || new_len > UINT64_MAX - PAGE_4K_SIZE) return -EINVAL;
 
     size_t old_pages = ALIGN_UP(old_len, PAGE_4K_SIZE);
     size_t new_pages = ALIGN_UP(new_len, PAGE_4K_SIZE);
@@ -328,6 +335,8 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64
     uintptr_t target = (uintptr_t)old_addr;
     if (flags & 0x1) { /* MREMAP_MAYMOVE */
         if (new_addr) {
+            if (new_addr > UINT64_MAX - new_pages) return -EINVAL;
+            if (new_addr + new_pages > PROCESS_USER_STACK_TOP) return -EINVAL;
             target = (uintptr_t)new_addr;
         } else if (vma_range_overlaps(proc, old_addr + old_pages, old_addr + new_pages)) {
             target = find_free_vma_range(proc, new_pages);
