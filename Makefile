@@ -86,6 +86,12 @@ else
   C_CONFIG += -DCONFIG_VIRTIO_GPU=0
 endif
 
+ifeq ($(CONFIG_SOUND_HDA), y)
+  C_CONFIG += -DCONFIG_SOUND_HDA=1
+else
+  C_CONFIG += -DCONFIG_SOUND_HDA=0
+endif
+
 ifneq ($(CONFIG_CPU_MAX_COUNT),)
   C_CONFIG += -DMAX_CPU_COUNT=$(CONFIG_CPU_MAX_COUNT)
 endif
@@ -128,7 +134,7 @@ ifneq ($(CONFIG_SERIAL_STOP_BITS),)
   C_CONFIG += -DSERIAL_STOP_BITS=$(CONFIG_SERIAL_STOP_BITS)
 endif
 
-C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*")
+C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*" -not -path "sound/*")
 C_HEADERS      := $(shell find * -name "*.h")
 OBJS           := $(C_SOURCES:%.c=%.o)
 DEPS           := $(OBJS:%.o=%.d)

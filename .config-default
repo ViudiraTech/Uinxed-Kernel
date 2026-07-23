@@ -59,6 +59,10 @@ CONFIG_DRM=y
 CONFIG_BOOT_LOGO=y
 
 #
+# Sound card support
+#
+CONFIG_SOUND_HDA=y
+
 # Filesystem support
 #
 CONFIG_SYSFS=y

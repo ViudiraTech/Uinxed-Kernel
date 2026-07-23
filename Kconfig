@@ -161,6 +161,18 @@ menu "Device drivers"
 
   endmenu
 
+  menu "Sound card support"
+
+    config SOUND_HDA
+      bool "Intel HD Audio (HDA) driver"
+      default y
+      help
+        "Enable the Intel High Definition Audio driver. This provides
+        basic audio playback for Intel HDA-compatible audio controllers
+        found on most modern x86 systems."
+
+  endmenu
+
   menu "VirtIO drivers"
 
     config VIRTIO
