@@ -2321,6 +2321,11 @@ static int64_t sys_getdents64_impl(int fd, uint64_t dirent, uint64_t count)
         return -ENOTDIR;
     }
 
+    if (count > 65536) {
+        process_file_put(file);
+        return -EINVAL;
+    }
+
     uint8_t *kbuf = malloc(count);
     if (!kbuf) {
         process_file_put(file);
@@ -2575,11 +2580,11 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_UNLINK]                 = sys_unlink,
     [SYS_SYMLINK]                = sys_symlink,
     [SYS_READLINK]               = sys_readlink,
-    [SYS_CHMOD]                  = sys_stub_ok,
-    [SYS_FCHMOD]                 = sys_stub_ok,
-    [SYS_CHOWN]                  = sys_stub_ok,
-    [SYS_FCHOWN]                 = sys_stub_ok,
-    [SYS_LCHOWN]                 = sys_stub_ok,
+    [SYS_CHMOD]                  = sys_stub,
+    [SYS_FCHMOD]                 = sys_stub,
+    [SYS_CHOWN]                  = sys_stub,
+    [SYS_FCHOWN]                 = sys_stub,
+    [SYS_LCHOWN]                 = sys_stub,
     [SYS_UMASK]                  = sys_umask_stub,
     [SYS_GETTIMEOFDAY]           = sys_gettimeofday,
     [SYS_GETRLIMIT]              = sys_getrlimit_stub,

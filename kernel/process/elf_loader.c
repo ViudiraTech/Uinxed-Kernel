@@ -89,9 +89,12 @@ static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr, const uint
         if (phdr[i].flags & PF_W) pte_flags |= PTE_WRITEABLE;
         if (!(phdr[i].flags & PF_X)) pte_flags |= PTE_NO_EXECUTE;
 
-        uintptr_t base      = phdr[i].vaddr + load_bias;
+        uintptr_t base = phdr[i].vaddr + load_bias;
+        if (phdr[i].memsz > 0 && base > UINT64_MAX - phdr[i].memsz) return 1;
         uintptr_t seg_start = ALIGN_DOWN(base, PAGE_4K_SIZE);
         uintptr_t seg_end   = ALIGN_UP(base + phdr[i].memsz, PAGE_4K_SIZE);
+
+        if (seg_start < PROCESS_HEAP_START || seg_end > PROCESS_USER_STACK_TOP) return 1;
 
         for (uintptr_t va = seg_start; va < seg_end; va += PAGE_4K_SIZE) {
             uint64_t frame = alloc_frames(1);

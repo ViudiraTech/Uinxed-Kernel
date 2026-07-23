@@ -68,7 +68,8 @@ static int idr_grow(struct drm_idr *idr)
     uint32_t              new_cap, i;
     struct drm_idr_entry *new_table;
 
-    new_cap   = idr->capacity * 2U;
+    new_cap = idr->capacity * 2U;
+    if (new_cap < idr->capacity || new_cap == 0U) return -ENOMEM;
     new_table = (struct drm_idr_entry *)malloc(new_cap * sizeof(struct drm_idr_entry));
     if (new_table == NULL) { return -ENOMEM; }
     memset(new_table, 0, new_cap * sizeof(struct drm_idr_entry));
@@ -146,7 +147,7 @@ int drm_idr_alloc(struct drm_idr *idr, void *ptr, uint32_t start, uint32_t end, 
     spin_lock(&idr->lock);
 
     /* Grow if load factor would exceed 3/4. */
-    if (idr->count * IDR_LOAD_DEN >= idr->capacity * IDR_LOAD_NUM) {
+    if ((uint64_t)idr->count * IDR_LOAD_DEN >= (uint64_t)idr->capacity * IDR_LOAD_NUM) {
         ret = idr_grow(idr);
         if (ret != 0) {
             spin_unlock(&idr->lock);
