@@ -710,6 +710,10 @@ int process_kill(pid_t pid)
     process_t *proc = pid_to_process(pid);
     if (!proc || proc->task->state == TASK_ZOMBIE) return 1;
     if (proc == init_process) panic("Attempt to kill init!");
+
+    process_t *cur = process_current();
+    if (cur && cur->uid != 0 && cur->uid != proc->uid) return -EPERM;
+
     proc->exit_code   = -9;
     proc->task->state = TASK_ZOMBIE;
     process_fd_table_close(proc);

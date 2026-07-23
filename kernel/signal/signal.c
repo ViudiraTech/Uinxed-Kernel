@@ -516,19 +516,15 @@ int signal_deliver_if_pending(syscall_frame_t *frame)
         return 0;
     }
 
-    spin_unlock(&state->lock);
-
+    /* Keep lock held during delivery to protect state->blocked / sighand */
     int ret = signal_deliver_one(frame, sig, &info);
 
-    if (ret == 1) {
-        /* Process terminated */
-        return 1;
-    }
-
-    /* Check if the handler had SA_RESTART */
     sigaction_t *sa = &state->sighand[sig];
-    if (sa->sa_flags & SA_RESTART) { return -ERESTART; }
+    spin_unlock(&state->lock);
 
+    if (ret == 1) { return 1; }
+
+    if (sa->sa_flags & SA_RESTART) { return -ERESTART; }
     return -EINTR;
 }
 
@@ -684,17 +680,21 @@ int64_t sys_tkill_impl(int64_t tid, int sig)
 {
     if (!sig_valid(sig)) return -EINVAL;
 
-    process_t *proc = process_find(tid);
-    if (!proc) return -ESRCH;
+    process_t *target = process_find(tid);
+    if (!target) return -ESRCH;
+
+    process_t *cur = process_current();
+    if (!cur) return -ESRCH;
+    if (signal_check_perm(cur, target) < 0) return -EPERM;
 
     siginfo_t info;
     memset(&info, 0, sizeof(info));
     info.si_signo = sig;
     info.si_code  = SI_TKILL;
-    info.si_pid   = process_current()->task->pid;
-    info.si_uid   = process_current()->uid;
+    info.si_pid   = cur->task->pid;
+    info.si_uid   = cur->uid;
 
-    return signal_send_thread(proc->task, sig, &info);
+    return signal_send_thread(target->task, sig, &info);
 }
 
 /*
@@ -704,22 +704,23 @@ int64_t sys_tgkill(int64_t tgid, int64_t tid, int sig)
 {
     if (!sig_valid(sig)) return -EINVAL;
 
-    process_t *proc = process_find(tgid);
-    if (!proc) return -ESRCH;
+    process_t *target = process_find(tgid);
+    if (!target) return -ESRCH;
 
-    if (proc->task->pid != (uint64_t)tid) {
-        /* In this kernel, pid == tid (1:1 mapping), so this is an error */
-        return -ESRCH;
-    }
+    if (target->task->pid != (uint64_t)tid) { return -ESRCH; }
+
+    process_t *cur = process_current();
+    if (!cur) return -ESRCH;
+    if (signal_check_perm(cur, target) < 0) return -EPERM;
 
     siginfo_t info;
     memset(&info, 0, sizeof(info));
     info.si_signo = sig;
     info.si_code  = SI_TKILL;
-    info.si_pid   = process_current()->task->pid;
-    info.si_uid   = process_current()->uid;
+    info.si_pid   = cur->task->pid;
+    info.si_uid   = cur->uid;
 
-    return signal_send_thread(proc->task, sig, &info);
+    return signal_send_thread(target->task, sig, &info);
 }
 
 /*

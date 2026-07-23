@@ -47,6 +47,7 @@ int elf_loader_parse_elf_info(const uint8_t *data, size_t size, elf_load_info_t 
         switch (phdr[i].type) {
             case PT_INTERP :
                 if (phdr[i].filesz > 0 && phdr[i].filesz < sizeof(info->interp_path)) {
+                    if (phdr[i].offset + phdr[i].filesz > size) break;
                     const char *interp = (const char *)data + phdr[i].offset;
                     memcpy(info->interp_path, interp, phdr[i].filesz);
                     if (info->interp_path[phdr[i].filesz - 1] == '\0')
@@ -71,7 +72,7 @@ int elf_loader_parse_elf_info(const uint8_t *data, size_t size, elf_load_info_t 
     return 0;
 }
 
-static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr, const uint8_t *data, uintptr_t load_bias)
+static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr, const uint8_t *data, size_t elf_size, uintptr_t load_bias)
 {
     const Elf64_Phdr *phdr        = (const Elf64_Phdr *)(data + ehdr->e_phoff);
     uintptr_t         highest_end = 0;
@@ -108,6 +109,7 @@ static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr, const uint
             if (file_start < file_end) {
                 size_t page_offset = file_start - va;
                 size_t file_offset = phdr[i].offset + file_start - base;
+                if (file_offset + (file_end - file_start) > elf_size) return 1;
                 memcpy(page + page_offset, data + file_offset, file_end - file_start);
             }
             page_map_to(proc->user_page_dir, va, frame, pte_flags);
@@ -190,7 +192,7 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
     while (total < node->size) {
         size_t remaining = node->size - total;
         size_t to_read   = remaining < 4096 ? remaining : 4096;
-        size_t n         = vfs_read(node->handle, elf_data + total, total, to_read);
+        size_t n         = vfs_read(node, elf_data + total, total, to_read);
         if (n == 0) break;
         total += n;
     }
@@ -217,7 +219,7 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
 
     uintptr_t load_bias = compute_load_bias(iehdr, elf_data, interp_base);
 
-    if (load_elf_segments(proc, iehdr, elf_data, load_bias)) {
+    if (load_elf_segments(proc, iehdr, elf_data, total, load_bias)) {
         plogk("elf_loader: failed to load interpreter segments\n");
         free(elf_data);
         return -1;
@@ -438,7 +440,7 @@ int elf_loader_load_user_process(process_t *proc, const uint8_t *elf_data, size_
         }
     }
 
-    if (load_elf_segments(proc, ehdr, elf_data, load_bias)) {
+    if (load_elf_segments(proc, ehdr, elf_data, elf_size, load_bias)) {
         plogk("elf_loader: Failed to load ELF segments.\n");
         return 1;
     }
