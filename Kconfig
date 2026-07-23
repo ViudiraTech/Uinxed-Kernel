@@ -130,4 +130,26 @@ menu "Device drivers"
         The number of logos is automatically adjusted according to the detected CPU count."
 
   endmenu
+
+  menu "VirtIO drivers"
+
+    config VIRTIO
+      bool "VirtIO PCI transport layer"
+      default y
+      help
+        "Enable the VirtIO PCI transport layer, providing generic
+        MMIO-based capability discovery and virtqueue management
+        for all virtio device drivers."
+
+    config VIRTIO_GPU
+      bool "VirtIO GPU DRM driver"
+      depends on DRM && VIRTIO
+      default y
+      help
+        "Enable the VirtIO-GPU DRM driver for paravirtualised GPU
+        devices (PCI vendor 0x1af4, device 0x1050).  Provides KMS
+        display pipeline, render node (/dev/dri/renderD*), and
+        optional 3D acceleration via the virgl context protocol."
+
+  endmenu
 endmenu

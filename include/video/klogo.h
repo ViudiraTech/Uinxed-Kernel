@@ -28,6 +28,9 @@ extern uint8_t klogo_data[];
 /* Draw the kernel logo */
 void video_draw_logo(uint32_t count);
 
+/* Redraw the logo on the current framebuffer (e.g. after a DRM switch) */
+void video_redraw_logo(void);
+
 /* Clean the kernel logo */
 void video_clear_logo(void);
 

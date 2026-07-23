@@ -91,7 +91,7 @@ PWD            := $(shell pwd)
 HOST_CC        ?= $(CC)
 HOST_CFLAGS    := -Wall -Wextra -O2
 QEMU           := qemu-system-x86_64
-QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd -serial stdio
+QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd -serial stdio -device virtio-gpu-pci -smp 6
 
 AS             := $(CC)
 ASFLAGS        := -c -m64 -ffreestanding -nostdlib -fno-omit-frame-pointer -I include

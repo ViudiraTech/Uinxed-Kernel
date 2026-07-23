@@ -12,10 +12,15 @@
 #include <video/klogo.h>
 #include <video/video.h>
 
+/* Saved CPU count so the logo can be redrawn after a framebuffer switch */
+static uint32_t saved_logo_count = 0;
+
 /* Draw the kernel logo */
 void video_draw_logo(uint32_t count)
 {
     if (count <= 0) return;
+
+    saved_logo_count = count;
 
     bmp_t   *logo = (bmp_t *)klogo_data;
     uint32_t x    = KLOGO_LEFT_MARGIN;
@@ -26,6 +31,12 @@ void video_draw_logo(uint32_t count)
         bmp_analysis(logo, x, y, 1);
         x += KLOGO_WIDTH + KLOGO_GAP;
     }
+}
+
+/* Redraw the logo on the current framebuffer (e.g. after a DRM switch) */
+void video_redraw_logo(void)
+{
+    if (saved_logo_count > 0) video_draw_logo(saved_logo_count);
 }
 
 /* Clean the kernel logo */

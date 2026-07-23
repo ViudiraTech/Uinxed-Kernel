@@ -149,6 +149,47 @@ void fbcon_init(void)
     redraw_deferred     = 0;
 }
 
+/*
+ * fbcon_resize — reallocate text/color/dirty grids after a framebuffer
+ * switch changes the screen dimensions.  Preserves the font size but
+ * recalculates the character grid.
+ */
+void fbcon_resize(void)
+{
+    free(text_grid);
+    free(color_grid);
+    free(dirty_first_col);
+    free(dirty_last_col);
+
+#if BOOT_LOGO
+    c_width  = (width - fbcon_offset_x) / font_width;
+    c_height = (height - fbcon_offset_y) / font_height;
+#else
+    c_width  = width / font_width;
+    c_height = height / font_height;
+#endif
+
+    text_grid       = calloc((size_t)c_width * c_height, sizeof(char));
+    color_grid      = malloc((size_t)c_width * c_height * sizeof(uint32_t));
+    dirty_first_col = malloc((size_t)c_height * sizeof(uint32_t));
+    dirty_last_col  = malloc((size_t)c_height * sizeof(uint32_t));
+
+    if (text_grid && color_grid && dirty_first_col && dirty_last_col) {
+        for (uint32_t row = 0; row < c_height; row++) {
+            fbcon_clear_row(row);
+            dirty_first_col[row] = c_width;
+            dirty_last_col[row]  = 0;
+        }
+    }
+
+    cx                 = 0;
+    cy                 = 0;
+    char_buffer_index  = 0;
+    char_buffer[0]     = '\0';
+    full_redraw_pending = 0;
+    redraw_deferred     = 0;
+}
+
 /* Scroll to a position that units are characters */
 void fbcon_move_to(uint32_t c_x, uint32_t c_y)
 {

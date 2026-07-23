@@ -272,7 +272,7 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
     struct drm_mode_crtc_page_flip  *page_flip = (struct drm_mode_crtc_page_flip *)data;
     struct drm_crtc                 *crtc;
     struct drm_framebuffer          *fb;
-    struct drm_pending_vblank_event *e;
+    struct drm_pending_vblank_event *e = NULL;
     int                              ret = 0;
 
     if (!dev || !page_flip) { return -EINVAL; }
@@ -329,7 +329,22 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
         }
     }
 
-    /* Perform the actual flip: bind the new framebuffer to the primary plane */
+    /* Call the driver's page_flip hook FIRST to push the new FB to hardware.
+     * Only update the plane state after the hardware flip succeeds. */
+    if (crtc->helper_private) {
+        struct drm_crtc_helper_funcs *h = (struct drm_crtc_helper_funcs *)crtc->helper_private;
+        if (h->page_flip) {
+            ret = h->page_flip(crtc, fb, e, page_flip->flags);
+            if (ret) {
+                drm_mode_object_put(&crtc->base);
+                /* Free the event if it was allocated but not consumed */
+                if (e) { free(e); }
+                return ret;
+            }
+        }
+    }
+
+    /* Update plane state only after successful hardware flip */
     if (crtc->primary) {
         crtc->primary->fb_id = page_flip->fb_id;
         if (crtc->primary->state) { crtc->primary->state->fb = fb; }

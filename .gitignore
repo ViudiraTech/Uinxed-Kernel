@@ -9,6 +9,13 @@
 # IntelliJ IDEA
 .idea/
 
+# Vibe Coding shit
+CLAUDE.md
+AGENTS.md
+
+# shit
+nul
+
 # Prerequisites
 *.d
 

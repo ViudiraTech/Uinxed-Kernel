@@ -25,6 +25,7 @@
 #include <drivers/serial.h>
 #include <drivers/tsc.h>
 #include <drivers/tty.h>
+#include <drivers/virt/gpu/virtgpu_drv.h>
 #include <fs/cpio.h>
 #include <fs/devtmpfs.h>
 #include <fs/fatfs/fatfs_vfs.h>
@@ -167,6 +168,7 @@ void kernel_entry(void)
     devtmpfs_init(); // Device Temporary File System
     procfs_regist(); // Process File System
     drm_init();      // Direct Rendering Manager
+    virtio_gpu_init(); // VirtIO GPU driver (if present on PCI bus)
 
     vfs_node_t proc = 0;
     int        st   = vfs_mkdir("/proc");

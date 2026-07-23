@@ -23,7 +23,7 @@
 #endif
 
 #ifndef TTY_DEFAULT_DEV
-#    define TTY_DEFAULT_DEV "tty0"
+#    define TTY_DEFAULT_DEV "ttyD0"
 #endif
 
 typedef enum {

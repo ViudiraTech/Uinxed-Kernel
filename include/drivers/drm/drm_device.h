@@ -253,6 +253,42 @@ struct drm_display_mode {
 /* KMS object forward structures (minimal; full defs in their headers) */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* CRTC helper funcs — stored in crtc->helper_private                 */
+/* ------------------------------------------------------------------ */
+
+struct drm_crtc_helper_funcs {
+        /* Called after a mode has been set on the CRTC */
+        void (*mode_set)(struct drm_crtc *crtc, struct drm_framebuffer *fb);
+        /* Called on page-flip ioctl */
+        int (*page_flip)(struct drm_crtc *crtc, struct drm_framebuffer *fb,
+                         struct drm_pending_vblank_event *event, uint32_t flags);
+        /* Called when CRTC is being enabled after modeset */
+        void (*atomic_enable)(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
+        /* Called when CRTC is being disabled */
+        void (*atomic_disable)(struct drm_crtc *crtc, struct drm_crtc_state *old_state);
+};
+
+/* ------------------------------------------------------------------ */
+/* Encoder helper funcs — stored in encoder->helper_private           */
+/* ------------------------------------------------------------------ */
+
+struct drm_encoder_helper_funcs {
+        void (*atomic_mode_set)(struct drm_encoder *encoder,
+                                struct drm_crtc_state *crtc_state,
+                                struct drm_connector_state *conn_state);
+};
+
+/* ------------------------------------------------------------------ */
+/* Connector helper funcs — stored in connector->helper_private       */
+/* ------------------------------------------------------------------ */
+
+struct drm_connector_helper_funcs {
+        enum drm_connector_status (*detect)(struct drm_connector *connector, bool force);
+        int (*get_modes)(struct drm_connector *connector);
+        int (*mode_valid)(struct drm_connector *connector, struct drm_display_mode *mode);
+};
+
 struct drm_crtc_state {
         struct drm_crtc                 *crtc;
         bool                             active;

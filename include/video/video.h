@@ -89,6 +89,17 @@ int video_fb_ioctl(void *ctx, size_t req, void *arg);
 /* Initialize Video */
 void video_init(void);
 
+/* Flush callback type — called after framebuffer writes to push to host */
+typedef void (*video_flush_fn_t)(void);
+
+/*
+ * Switch the console framebuffer to a DRM-backed buffer.
+ * After this call all fbcon output (printk, tty) renders into @backing
+ * and @flush is called after each batch draw to push pixels to the host.
+ */
+void video_switch_to_drm(void *backing, uint32_t w, uint32_t h,
+                         uint32_t pitch, video_flush_fn_t flush);
+
 /* Clear screen */
 void video_clear(void);
 

@@ -16,6 +16,9 @@
 /* Initialize framebuffer console */
 void fbcon_init(void);
 
+/* Resize fbcon grids after framebuffer dimensions change */
+void fbcon_resize(void);
+
 /* Scroll to a position that units are characters */
 void fbcon_move_to(uint32_t cx, uint32_t cy);
 
