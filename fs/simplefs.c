@@ -42,13 +42,9 @@ static uint16_t simplefs_type_to_vfs(uint16_t type)
 
 static int simplefs_parse_drive(const char *src, uint8_t *drive)
 {
-    if (!src || !drive) return -EINVAL;
+	if (!src || !drive) return -EINVAL;
 
-    if (!strncmp(src, "ide", 3)) src += 3;
-    if (*src < '0' || *src > '3' || src[1] != '\0') return -EINVAL;
-
-    *drive = (uint8_t)(*src - '0');
-    return EOK;
+	return blockdev_parse_drive(src, drive);
 }
 
 static uint16_t simplefs_vfs_to_type(uint16_t type)
@@ -503,7 +499,7 @@ static int simplefs_mount(const char *src, vfs_node_t node)
     handle = calloc(1, sizeof(simplefs_handle_t));
     if (!handle) return -ENOMEM;
 
-    status = blockdev_open_ide(drive, &handle->device);
+    status = blockdev_open_drive(drive, &handle->device);
     if (status != EOK) {
         free(handle);
         return status;

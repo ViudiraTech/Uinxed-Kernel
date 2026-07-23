@@ -34,12 +34,12 @@ void fatfs_unbind_device(uint8_t drive)
 
 static DRESULT fatfs_open_drive(BYTE pdrv)
 {
-    if (pdrv >= FF_VOLUMES) return RES_PARERR;
-    if (fatfs_bound[pdrv]) return RES_OK;
-    if (blockdev_open_ide(pdrv, &fatfs_devices[pdrv]) != EOK) return RES_NOTRDY;
+	if (pdrv >= FF_VOLUMES) return RES_PARERR;
+	if (fatfs_bound[pdrv]) return RES_OK;
+	if (blockdev_open_drive(pdrv, &fatfs_devices[pdrv]) != EOK) return RES_NOTRDY;
 
-    fatfs_ready[pdrv] = 1;
-    return RES_OK;
+	fatfs_ready[pdrv] = 1;
+	return RES_OK;
 }
 
 DSTATUS disk_status(BYTE pdrv)

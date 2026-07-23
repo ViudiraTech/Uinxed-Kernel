@@ -16,6 +16,7 @@
 #include <chipset/common.h>
 #include <chipset/smbios.h>
 #include <drivers/acpi.h>
+#include <drivers/ahci.h>
 #include <drivers/drm/drm_init.h>
 #include <drivers/ide.h>
 #include <drivers/nvme.h>
@@ -160,6 +161,7 @@ void kernel_entry(void)
     log_buffer_print(&lmodule_log); //
     init_ide();                     // Advanced Technology Attachment / ATA Packet Interface
     nvme_init();                    // Non-Volatile Memory Express
+    init_ahci();                    // Advanced Host Controller Interface
     init_parallel();                // Standard IEEE 1284 Parallel Port
     init_ps2();                     // Personal System/2 Controller
     init_vfs();                     // Virtual Filesystem

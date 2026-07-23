@@ -8,6 +8,7 @@
  *
  */
 
+#include <drivers/ahci.h>
 #include <drivers/atapi.h>
 #include <drivers/blockdev.h>
 #include <drivers/drm/drm_init.h>
@@ -23,6 +24,7 @@
 #include <kernel/audio.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <libs/std/string.h>
 #include <video/fbdev.h>
 #include <video/video.h>
 
@@ -48,6 +50,22 @@ static int devtmpfs_scan_mbr(uint8_t drive, mbr_partition_entry_t parts[4])
     int               status;
 
     status = blockdev_open_ide(drive, &device);
+    if (status != EOK) return status;
+    status = blockdev_read_bytes(&device, 0, &mbr, sizeof(mbr));
+    if (status != EOK) return status;
+    if (mbr.signature != 0xAA55) return -ENOENT;
+
+    for (int i = 0; i < 4; i++) parts[i] = mbr.partitions[i];
+    return EOK;
+}
+
+static int devtmpfs_scan_mbr_ahci(uint8_t drive, mbr_partition_entry_t parts[4])
+{
+    blockdev_device_t device;
+    mbr_sector_t      mbr;
+    int               status;
+
+    status = blockdev_open_ahci(drive, &device);
     if (status != EOK) return status;
     status = blockdev_read_bytes(&device, 0, &mbr, sizeof(mbr));
     if (status != EOK) return status;
@@ -109,6 +127,63 @@ static void devtmpfs_create_partition_node(uint8_t drive, uint8_t letter_idx, ui
     node->blksz = 512;
     node->dev   = drive;
     node->rdev  = ((uint64_t)drive << 8) | (part_index + 1);
+    node->size  = (uint64_t)part->sectors * 512;
+    plogk("devtmpfs: Registered %s for partition type 0x%02x, start %u, sectors %u\n", dev_path, part->type, part->first_lba, part->sectors);
+    vfs_close(node);
+}
+
+static void devtmpfs_create_ahci_block_node(uint8_t drive, uint8_t letter_idx)
+{
+    char       dev_path[] = "/dev/sda";
+    vfs_node_t node;
+    int        status;
+
+    dev_path[7] = (char)('a' + letter_idx);
+    status      = vfs_mkfile(dev_path);
+    if (status != EOK && status != -EEXIST) {
+        plogk("devtmpfs: Cannot create %s: %d\n", dev_path, status);
+        return;
+    }
+
+    node = vfs_open(dev_path);
+    if (!node) {
+        plogk("devtmpfs: Cannot open %s after creation.\n", dev_path);
+        return;
+    }
+
+    node->type  = file_block;
+    node->blksz = ahci_devices[drive].sector_size;
+    node->dev   = BLKDEV_AHCI_FLAG | drive;
+    node->rdev  = BLKDEV_AHCI_FLAG | drive;
+    node->size  = (uint64_t)ahci_devices[drive].size * ahci_devices[drive].sector_size;
+    plogk("devtmpfs: Registered %s as block device.\n", dev_path);
+    vfs_close(node);
+}
+
+static void devtmpfs_create_ahci_partition_node(uint8_t drive, uint8_t letter_idx, uint8_t part_index, const mbr_partition_entry_t *part)
+{
+    char       dev_path[] = "/dev/sda1";
+    vfs_node_t node;
+    int        status;
+
+    dev_path[7] = (char)('a' + letter_idx);
+    dev_path[8] = (char)('1' + part_index);
+    status      = vfs_mkfile(dev_path);
+    if (status != EOK && status != -EEXIST) {
+        plogk("devtmpfs: Cannot create %s: %d\n", dev_path, status);
+        return;
+    }
+
+    node = vfs_open(dev_path);
+    if (!node) {
+        plogk("devtmpfs: Cannot open %s after creation.\n", dev_path);
+        return;
+    }
+
+    node->type  = file_block;
+    node->blksz = ahci_devices[drive].sector_size;
+    node->dev   = BLKDEV_AHCI_FLAG | drive;
+    node->rdev  = ((uint64_t)(BLKDEV_AHCI_FLAG | drive) << 8) | (part_index + 1);
     node->size  = (uint64_t)part->sectors * 512;
     plogk("devtmpfs: Registered %s for partition type 0x%02x, start %u, sectors %u\n", dev_path, part->type, part->first_lba, part->sectors);
     vfs_close(node);
@@ -461,34 +536,112 @@ void devtmpfs_init(void)
         ata_idx++;
     }
 
-    /* Register ATAPI devices (CD/DVD-ROM) */
-    for (uint8_t drive = 0, idx = 0; drive < 4; drive++) {
-        char       dev_path[] = "/dev/sr0";
-        vfs_node_t node;
-        int        status;
+    /* Register AHCI ATA devices (SATA hard disks) -> /dev/sda, /dev/sdb, ... */
+    {
+        uint8_t ahci_ata_idx = 0;
+        for (int d = 0; d < ahci_device_count; d++) {
+            mbr_partition_entry_t parts[4] = {0};
 
-        if (!atapi_devices[drive].reserved || atapi_devices[drive].type != IDE_ATAPI) continue;
+            if (!ahci_devices[d].reserved || ahci_devices[d].type != AHCI_DEV_SATA) continue;
 
-        dev_path[7] = (char)('0' + idx++);
-        status      = vfs_mkfile(dev_path);
-        if (status != EOK && status != -EEXIST) {
-            plogk("devtmpfs: Cannot create %s: %d\n", dev_path, status);
-            continue;
+            devtmpfs_create_ahci_block_node(d, ahci_ata_idx);
+
+            if (devtmpfs_scan_mbr_ahci(d, parts) == EOK) {
+                for (uint8_t part = 0; part < 4; part++) {
+                    if (!parts[part].type || !parts[part].sectors) continue;
+                    devtmpfs_create_ahci_partition_node(d, ahci_ata_idx, part, &parts[part]);
+                }
+            }
+            ahci_ata_idx++;
+        }
+    }
+
+    /* Register IDE ATAPI and AHCI ATAPI devices -> /dev/sr0, /dev/sr1, ... */
+    {
+        uint8_t sr_idx = 0;
+        char    dev_path[16];
+
+        /* IDE ATAPI */
+        for (uint8_t drive = 0; drive < 4; drive++) {
+            vfs_node_t node;
+            int        status;
+
+            if (!atapi_devices[drive].reserved || atapi_devices[drive].type != IDE_ATAPI) continue;
+
+            memcpy(dev_path, "/dev/sr", 7);
+            if (sr_idx < 10) {
+                dev_path[7] = (char)('0' + sr_idx);
+                dev_path[8] = '\0';
+            } else {
+                dev_path[7] = (char)('0' + sr_idx / 10);
+                dev_path[8] = (char)('0' + sr_idx % 10);
+                dev_path[9] = '\0';
+            }
+
+            status = vfs_mkfile(dev_path);
+            if (status != EOK && status != -EEXIST) {
+                plogk("devtmpfs: Cannot create %s: %d\n", dev_path, status);
+                sr_idx++;
+                continue;
+            }
+
+            node = vfs_open(dev_path);
+            if (!node) {
+                plogk("devtmpfs: Cannot open %s after creation.\n", dev_path);
+                sr_idx++;
+                continue;
+            }
+
+            node->type  = file_block;
+            node->blksz = atapi_devices[drive].blk_size;
+            node->dev   = drive;
+            node->rdev  = drive;
+            node->size  = (uint64_t)atapi_devices[drive].lba_size * atapi_devices[drive].blk_size;
+            plogk("devtmpfs: Registered %s as ATAPI block device.\n", dev_path);
+            vfs_close(node);
+            sr_idx++;
         }
 
-        node = vfs_open(dev_path);
-        if (!node) {
-            plogk("devtmpfs: Cannot open %s after creation.\n", dev_path);
-            continue;
-        }
+        /* AHCI ATAPI */
+        for (int d = 0; d < ahci_device_count; d++) {
+            vfs_node_t node;
+            int        status;
 
-        node->type  = file_block;
-        node->blksz = atapi_devices[drive].blk_size;
-        node->dev   = drive;
-        node->rdev  = drive;
-        node->size  = (uint64_t)atapi_devices[drive].lba_size * atapi_devices[drive].blk_size;
-        plogk("devtmpfs: Registered %s as ATAPI block device.\n", dev_path);
-        vfs_close(node);
+            if (!ahci_devices[d].reserved || ahci_devices[d].type != AHCI_DEV_SATAPI) continue;
+
+            memcpy(dev_path, "/dev/sr", 7);
+            if (sr_idx < 10) {
+                dev_path[7] = (char)('0' + sr_idx);
+                dev_path[8] = '\0';
+            } else {
+                dev_path[7] = (char)('0' + sr_idx / 10);
+                dev_path[8] = (char)('0' + sr_idx % 10);
+                dev_path[9] = '\0';
+            }
+
+            status = vfs_mkfile(dev_path);
+            if (status != EOK && status != -EEXIST) {
+                plogk("devtmpfs: Cannot create %s: %d\n", dev_path, status);
+                sr_idx++;
+                continue;
+            }
+
+            node = vfs_open(dev_path);
+            if (!node) {
+                plogk("devtmpfs: Cannot open %s after creation.\n", dev_path);
+                sr_idx++;
+                continue;
+            }
+
+            node->type  = file_block;
+            node->blksz = ahci_devices[d].sector_size;
+            node->dev   = BLKDEV_AHCI_FLAG | BLKDEV_ATAPI_FLAG | d;
+            node->rdev  = BLKDEV_AHCI_FLAG | BLKDEV_ATAPI_FLAG | d;
+            node->size  = (uint64_t)ahci_devices[d].size * ahci_devices[d].sector_size;
+            plogk("devtmpfs: Registered %s as ATAPI block device.\n", dev_path);
+            vfs_close(node);
+            sr_idx++;
+        }
     }
 
     devtmpfs_create_nvme_nodes();

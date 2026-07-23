@@ -57,7 +57,9 @@
 #define ATA_CMD_INIT_DEV_PARAM  0x91
 #define ATA_CMD_PACKET          0xa0
 #define ATA_CMD_IDENTIFY_PACKET 0xa1
+#ifndef ATA_CMD_IDENTIFY
 #define ATA_CMD_IDENTIFY        0xec
+#endif
 #define ATA_CMD_DEVICE_RESET    0x08
 #define ATA_IDENT_DEVICETYPE    0
 #define ATA_IDENT_CYLINDERS     2
