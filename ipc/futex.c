@@ -21,6 +21,7 @@
 #include <proc/sched.h>
 #include <proc/task.h>
 #include <proc/uaccess.h>
+#include <sync/rt_mutex.h>
 #include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */
@@ -56,6 +57,7 @@ typedef struct futex_entry {
         uint32_t            bitset; /* bitset mask for FUTEX_WAIT_BITSET */
         wait_queue_t        wq;
         struct futex_entry *next;
+        rt_mutex_t         *pi_mutex; /* non-NULL for PI futex entries */
 } futex_entry_t;
 
 typedef struct futex_bucket {
@@ -103,8 +105,9 @@ static futex_entry_t *futex_find_or_create(futex_bucket_t *bucket, uint32_t *uad
     entry = (futex_entry_t *)malloc(sizeof(futex_entry_t));
     if (!entry) return NULL;
 
-    entry->key    = key;
-    entry->bitset = bitset;
+    entry->key      = key;
+    entry->bitset   = bitset;
+    entry->pi_mutex = NULL;
     wait_queue_init(&entry->wq);
     entry->next  = bucket->head;
     bucket->head = entry;
@@ -668,6 +671,300 @@ static int futex_wake_op(uint32_t *uaddr, int nr_wake, int nr_wake2, uint32_t *u
 }
 
 /* ------------------------------------------------------------------ */
+/*  PI futex helpers                                                    */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Get or create a rt_mutex for the given futex word.
+ * Must be called with the bucket lock held.
+ */
+static rt_mutex_t *futex_get_pi_mutex(futex_bucket_t *bucket, uint32_t *uaddr)
+{
+    futex_entry_t *entry = futex_find_or_create(bucket, uaddr, FUTEX_BITSET_MATCH_ANY);
+    if (!entry) return NULL;
+
+    if (!entry->pi_mutex) {
+        entry->pi_mutex = malloc(sizeof(rt_mutex_t));
+        if (!entry->pi_mutex) return NULL;
+        rt_mutex_init(entry->pi_mutex, uaddr);
+    }
+
+    return entry->pi_mutex;
+}
+
+/*
+ * FUTEX_LOCK_PI: acquire a PI mutex.
+ * Userspace fastpath: cmpxchg(*uaddr, 0, tid) → success.
+ * Kernel slowpath (this function): block with priority inheritance.
+ */
+static int futex_lock_pi(uint32_t *uaddr)
+{
+    task_t *self = current_task();
+    if (!self) return -ESRCH;
+
+    futex_bucket_t *bucket = &futex_hash[futex_hash_index(uaddr)];
+
+    spin_lock(&bucket->lock);
+
+    rt_mutex_t *pi_mutex = futex_get_pi_mutex(bucket, uaddr);
+    if (!pi_mutex) {
+        spin_unlock(&bucket->lock);
+        return -ENOMEM;
+    }
+
+    /*
+     * Userspace should have attempted cmpxchg first.
+     * If the lock is still free, take it now.
+     */
+    uint32_t cur_val;
+    if (copy_from_user(&cur_val, uaddr, sizeof(cur_val)) != 0) {
+        spin_unlock(&bucket->lock);
+        return -EFAULT;
+    }
+
+    if ((cur_val & FUTEX_TID_MASK) == 0) {
+        uint32_t new_val = (self->pid & FUTEX_TID_MASK);
+        if (copy_to_user(uaddr, &new_val, sizeof(new_val)) != 0) {
+            spin_unlock(&bucket->lock);
+            return -EFAULT;
+        }
+        pi_mutex->owner      = self;
+        pi_mutex->owner_died = 0;
+        self->base_weight     = self->weight;
+        self->pi_weight       = self->weight;
+        spin_unlock(&bucket->lock);
+        return EOK;
+    }
+
+    /*
+     * Lock is contended.  Decode the owner TID from the futex word.
+     * Set the FUTEX_WAITERS flag so the unlock path knows to call us.
+     */
+    uint32_t owner_tid = cur_val & FUTEX_TID_MASK;
+    uint32_t new_val   = cur_val | FUTEX_WAITERS;
+    if (copy_to_user(uaddr, &new_val, sizeof(new_val)) != 0) {
+        spin_unlock(&bucket->lock);
+        return -EFAULT;
+    }
+
+    /* Find the owner task by PID */
+    task_t *owner = pid_find_task(owner_tid);
+
+    if (!owner || owner == self) {
+        spin_unlock(&bucket->lock);
+        return (owner == self) ? -EDEADLK : -ESRCH;
+    }
+
+    pi_mutex->owner = owner;
+
+    /* Priority inheritance: add self as waiter, propagate chain */
+    self->pi_weight   = self->weight;
+    self->base_weight = self->weight;
+
+    pi_waiter_add(self, pi_mutex);
+
+    wait_queue_prepare(&pi_mutex->wq);
+    spin_unlock(&bucket->lock);
+
+    task_block();
+
+    if (pi_mutex->owner_died) return -EOWNERDEAD;
+
+    return EOK;
+}
+
+/*
+ * FUTEX_UNLOCK_PI: release a PI mutex.
+ * Userspace fastpath: cmpxchg(*uaddr, tid, 0) → success if no waiters.
+ * Kernel slowpath (this function): wake the highest-priority waiter.
+ */
+static int futex_unlock_pi(uint32_t *uaddr)
+{
+    task_t *self = current_task();
+    if (!self) return -ESRCH;
+
+    futex_bucket_t *bucket = &futex_hash[futex_hash_index(uaddr)];
+
+    spin_lock(&bucket->lock);
+
+    futex_entry_t *entry;
+    for (entry = bucket->head; entry; entry = entry->next) {
+        if (entry->key == (uintptr_t)uaddr) break;
+    }
+
+    if (!entry || !entry->pi_mutex) {
+        spin_unlock(&bucket->lock);
+        return -EPERM;
+    }
+
+    rt_mutex_t *pi_mutex = entry->pi_mutex;
+
+    if (pi_mutex->owner != self) {
+        spin_unlock(&bucket->lock);
+        return -EPERM;
+    }
+
+    pi_mutex->owner = NULL;
+
+    rb_node_t *leftmost = rb_first(&pi_mutex->pi_waiters);
+    if (leftmost) {
+        task_t *next_owner = rb_entry(leftmost, task_t, pi_node);
+        rb_erase_augmented(&pi_mutex->pi_waiters, leftmost, pi_waiter_augment, NULL);
+        next_owner->blocked_on = NULL;
+
+        pi_mutex->owner = next_owner;
+
+        uint32_t new_val = (next_owner->pid & FUTEX_TID_MASK);
+        if (!ilist_is_empty(&pi_mutex->wq.tasks)) {
+            new_val |= FUTEX_WAITERS;
+        }
+        copy_to_user(uaddr, &new_val, sizeof(new_val));
+
+        task_wakeup(next_owner);
+    } else {
+        uint32_t zero = 0;
+        copy_to_user(uaddr, &zero, sizeof(zero));
+        futex_try_cleanup(bucket, entry);
+    }
+
+    pi_propagate_chain(self);
+    spin_unlock(&bucket->lock);
+
+    return EOK;
+}
+
+/*
+ * FUTEX_TRYLOCK_PI: non-blocking attempt to acquire a PI mutex.
+ */
+static int futex_trylock_pi(uint32_t *uaddr)
+{
+    task_t *self = current_task();
+    if (!self) return -ESRCH;
+
+    futex_bucket_t *bucket = &futex_hash[futex_hash_index(uaddr)];
+
+    spin_lock(&bucket->lock);
+
+    uint32_t cur_val;
+    if (copy_from_user(&cur_val, uaddr, sizeof(cur_val)) != 0) {
+        spin_unlock(&bucket->lock);
+        return -EFAULT;
+    }
+
+    if ((cur_val & FUTEX_TID_MASK) != 0) {
+        spin_unlock(&bucket->lock);
+        return -EAGAIN;
+    }
+
+    rt_mutex_t *pi_mutex = futex_get_pi_mutex(bucket, uaddr);
+    if (!pi_mutex) {
+        spin_unlock(&bucket->lock);
+        return -ENOMEM;
+    }
+
+    uint32_t new_val = (self->pid & FUTEX_TID_MASK);
+    if (copy_to_user(uaddr, &new_val, sizeof(new_val)) != 0) {
+        spin_unlock(&bucket->lock);
+        return -EFAULT;
+    }
+
+    pi_mutex->owner      = self;
+    pi_mutex->owner_died = 0;
+    self->base_weight     = self->weight;
+    self->pi_weight       = self->weight;
+
+    spin_unlock(&bucket->lock);
+    return EOK;
+}
+
+/*
+ * FUTEX_CMP_REQUEUE_PI: wake some waiters from uaddr, then requeue
+ * remaining waiters from uaddr to uaddr2 (a PI futex).
+ */
+static int futex_cmp_requeue_pi(uint32_t *uaddr, int nr_wake, int nr_requeue, uint32_t *uaddr2, uint32_t cmpval)
+{
+    futex_bucket_t *bucket1 = &futex_hash[futex_hash_index(uaddr)];
+    futex_bucket_t *bucket2 = &futex_hash[futex_hash_index(uaddr2)];
+    futex_entry_t  *entry1  = NULL;
+    futex_entry_t  *entry2  = NULL;
+    int             woken   = 0;
+
+    if (bucket1 < bucket2) {
+        spin_lock(&bucket1->lock);
+        spin_lock(&bucket2->lock);
+    } else if (bucket1 > bucket2) {
+        spin_lock(&bucket2->lock);
+        spin_lock(&bucket1->lock);
+    } else {
+        spin_lock(&bucket1->lock);
+    }
+
+    for (entry1 = bucket1->head; entry1; entry1 = entry1->next) {
+        if (entry1->key == (uintptr_t)uaddr) break;
+    }
+
+    if (!entry1) {
+        if (bucket1 != bucket2) spin_unlock(&bucket2->lock);
+        spin_unlock(&bucket1->lock);
+        return 0;
+    }
+
+    /* Validate cmpval against *uaddr2 */
+    uint32_t cur_val2;
+    if (copy_from_user(&cur_val2, uaddr2, sizeof(cur_val2)) != 0) {
+        if (bucket1 != bucket2) spin_unlock(&bucket2->lock);
+        spin_unlock(&bucket1->lock);
+        return -EFAULT;
+    }
+
+    if (cur_val2 != cmpval) {
+        if (bucket1 != bucket2) spin_unlock(&bucket2->lock);
+        spin_unlock(&bucket1->lock);
+        return -EAGAIN;
+    }
+
+    /* Wake nr_wake waiters from uaddr */
+    while (woken < nr_wake) {
+        task_t *task = wait_queue_wake_one(&entry1->wq);
+        if (!task) break;
+        woken++;
+    }
+
+    /* Requeue remaining waiters to uaddr2 */
+    if (nr_requeue > 0) {
+        entry2 = futex_find_or_create(bucket2, uaddr2, FUTEX_BITSET_MATCH_ANY);
+        if (!entry2) {
+            futex_try_cleanup(bucket1, entry1);
+            if (bucket1 != bucket2) spin_unlock(&bucket2->lock);
+            spin_unlock(&bucket1->lock);
+            return woken > 0 ? woken : -ENOMEM;
+        }
+
+        if (!entry2->pi_mutex) {
+            entry2->pi_mutex = malloc(sizeof(rt_mutex_t));
+            if (entry2->pi_mutex) {
+                rt_mutex_init(entry2->pi_mutex, uaddr2);
+            }
+        }
+
+        int requeued = 0;
+        while (requeued < nr_requeue) {
+            if (!futex_move_waiter(&entry1->wq, &entry2->wq)) break;
+            requeued++;
+        }
+    }
+
+    futex_try_cleanup(bucket1, entry1);
+    if (bucket1 != bucket2) {
+        futex_try_cleanup(bucket2, entry2);
+        spin_unlock(&bucket2->lock);
+    }
+    spin_unlock(&bucket1->lock);
+
+    return woken;
+}
+
+/* ------------------------------------------------------------------ */
 /*  sys_futex                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -774,14 +1071,49 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
             /* File descriptor association not implemented */
             return -ENOSYS;
 
-        case FUTEX_LOCK_PI :
-        case FUTEX_UNLOCK_PI :
-        case FUTEX_TRYLOCK_PI :
-        case FUTEX_WAIT_REQUEUE_PI :
-        case FUTEX_CMP_REQUEUE_PI :
-        case FUTEX_LOCK_PI2 :
-            /* Todo: Implement PI futex operations */
-            return -ENOSYS;
+        case FUTEX_LOCK_PI : {
+            if (!uaddr) return -EFAULT;
+            if (user_access_ok(uaddr, sizeof(uint32_t), 1) != 0) return -EFAULT;
+
+            return futex_lock_pi(uaddr);
+        }
+
+        case FUTEX_UNLOCK_PI : {
+            if (!uaddr) return -EFAULT;
+            if (user_access_ok(uaddr, sizeof(uint32_t), 1) != 0) return -EFAULT;
+
+            return futex_unlock_pi(uaddr);
+        }
+
+        case FUTEX_TRYLOCK_PI : {
+            if (!uaddr) return -EFAULT;
+            if (user_access_ok(uaddr, sizeof(uint32_t), 1) != 0) return -EFAULT;
+
+            return futex_trylock_pi(uaddr);
+        }
+
+        case FUTEX_CMP_REQUEUE_PI : {
+            if (!uaddr || !uaddr2) return -EFAULT;
+            if (user_access_ok(uaddr, sizeof(uint32_t), 0) != 0) return -EFAULT;
+            if (user_access_ok(uaddr2, sizeof(uint32_t), 1) != 0) return -EFAULT;
+
+            return futex_cmp_requeue_pi(uaddr, (int)val, (int)timeout, uaddr2, val3);
+        }
+
+        case FUTEX_WAIT_REQUEUE_PI : {
+            if (!uaddr || !uaddr2) return -EFAULT;
+            if (user_access_ok(uaddr, sizeof(uint32_t), 0) != 0) return -EFAULT;
+            if (user_access_ok(uaddr2, sizeof(uint32_t), 1) != 0) return -EFAULT;
+
+            return futex_cmp_requeue_pi(uaddr, 0, (int)val, uaddr2, val3);
+        }
+
+        case FUTEX_LOCK_PI2 : {
+            if (!uaddr) return -EFAULT;
+            if (user_access_ok(uaddr, sizeof(uint32_t), 1) != 0) return -EFAULT;
+
+            return futex_lock_pi(uaddr);
+        }
 
         default :
             return -EINVAL;

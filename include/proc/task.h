@@ -79,7 +79,12 @@ struct task {
         uint64_t vruntime; /* virtual runtime */
         uint64_t deadline; /* virtual deadline */
         int64_t  vlag;     /* virtual lag for placement */
-        uint32_t weight;   /* scheduling weight (NICE_0_LOAD = 1024) */
+        uint32_t weight;      /* scheduling weight (NICE_0_LOAD = 1024) */
+        /* ---- PI (Priority Inheritance) fields ---- */
+        uint32_t base_weight; /* original weight before PI boost */
+        uint32_t pi_weight;   /* effective weight for PI waiter ordering */
+        rb_node_t pi_node;    /* rbtree node for pi_waiters */
+        struct rt_mutex *blocked_on; /* mutex this task is blocked on, or NULL */
 };
 
 /* Initialize a wait queue */
@@ -135,5 +140,8 @@ task_t *kthread_create_on_cpu(const char *name, kthread_entry_t entry, void *arg
 
 /* Copy a name into a task's name field */
 void task_name_copy(task_t *task, const char *name);
+
+/* Find a task by PID (for PI futex) */
+task_t *pid_find_task(uint64_t pid);
 
 #endif /* INCLUDE_TASK_H_ */
