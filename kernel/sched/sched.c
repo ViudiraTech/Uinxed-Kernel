@@ -609,8 +609,8 @@ void sched_init(void)
 
     for (uint32_t i = 1; i < cpu_scheduler_count; i++) {
         cpu_rqs[i].idle = task_alloc("swapper");
-        snprintf(cpu_rqs[i].idle->name, sizeof(cpu_rqs[i].idle->name), "swapper/%u", i);
         if (!cpu_rqs[i].idle) panic("sched: Cannot create idle task.");
+        snprintf(cpu_rqs[i].idle->name, sizeof(cpu_rqs[i].idle->name), "swapper/%u", i);
         cpu_rqs[i].idle->pid          = 0;
         cpu_rqs[i].idle->state        = TASK_IDLE;
         cpu_rqs[i].idle->cpu_id       = i;

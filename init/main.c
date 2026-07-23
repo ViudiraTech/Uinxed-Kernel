@@ -99,6 +99,9 @@ void executable_entry(void)
 {
     const char *msg = "Theoretically you should use Limine to boot this kernel, not execute it directly.\n";
 
+    size_t msg_len = 0;
+    while (msg[msg_len]) msg_len++;
+
     __asm__ volatile("mov $1, %%rax\n\t"
                      "mov $1, %%rdi\n\t"
                      "mov %1, %%rsi\n\t"
@@ -108,7 +111,7 @@ void executable_entry(void)
                      "mov $1, %%rdi\n\t"
                      "syscall\n\t"
                      :
-                     : "r"(msg), "r"(msg), "i"(83)
+                     : "r"(msg), "r"(msg), "r"(msg_len)
                      : "%rax", "%rdi", "%rsi", "%rdx", "memory");
 
     while (1) __asm__ volatile("cli; hlt");

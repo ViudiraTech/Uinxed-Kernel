@@ -205,7 +205,7 @@ static struct kobj_type kernel_ktype = {
 
 void ksysfs_init(void)
 {
-    struct kobject *kernel_kobj;
+    struct kobject *kernel_kobj = NULL;
     clist_t         node;
 
     if (!sysfs_root_kobj) return;

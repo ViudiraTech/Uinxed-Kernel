@@ -74,17 +74,23 @@ void init_cpio(void)
     size_t             file_num_all = 0;
 
     while (1) {
+        if (offset + sizeof(hdr) > init_ramfs->size) break;
         memcpy(&hdr, data_d + offset, sizeof(hdr));
         offset += sizeof(hdr);
 
         size_t namesize = read_num(hdr.c_namesize, 8);
-        char   filename[namesize + 1];
+        if (namesize > 4096 || offset + namesize > init_ramfs->size) break;
+        char   filename[4096];
         filename[0] = '/';
-        memcpy(filename + 1, data_d + offset, namesize);
+        size_t copy_ns = namesize < sizeof(filename) - 1 ? namesize : sizeof(filename) - 1;
+        memcpy(filename + 1, data_d + offset, copy_ns);
+        filename[copy_ns + 1] = '\0';
         offset = (offset + namesize + 3) & ~3;
 
         size_t filesize = read_num(hdr.c_filesize, 8);
+        if (filesize > init_ramfs->size || offset + filesize > init_ramfs->size) break;
         char  *filedata = malloc(filesize);
+        if (!filedata) break;
         memcpy(filedata, data_d + offset, filesize);
         offset = (offset + filesize + 3) & ~3;
 

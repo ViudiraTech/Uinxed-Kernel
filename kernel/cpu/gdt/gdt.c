@@ -35,7 +35,7 @@ void init_gdt(void)
                      "mov %[dseg], %%es;"
                      "mov %[dseg], %%ss;" ::[ptr] "m"(gdt0.pointer),
                      [cseg] "rm"((uint64_t)0x8), [dseg] "rm"((uint64_t)0x10)
-                     : "memory");
+                     : "memory", "rax");
 
     plogk("gdt: CS reloaded with 0x%04x, DS/ES/FS/GS/SS = 0x%04x\n", 0x8, 0x10);
     plogk("gdt: GDT initialized at %p (6 entries)\n", &gdt0.entries);

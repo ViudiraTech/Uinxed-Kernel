@@ -22,7 +22,7 @@ static int user_ptr_range_ok(uintptr_t addr, size_t size)
     if (!size) return 1;
     if (!addr) return 0;
     if (addr >= PROCESS_USER_STACK_TOP) return 0;
-    if (size - 1 > PROCESS_USER_STACK_TOP - addr - 1) return 0;
+    if (addr > PROCESS_USER_STACK_TOP - size) return 0;
     return 1;
 }
 

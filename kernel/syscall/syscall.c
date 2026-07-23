@@ -742,7 +742,7 @@ static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3,
         case TIOCGPGRP: {
             /* Return foreground process group */
             if (!arg) return -EFAULT;
-            pid_t pgid = proc->pgid ? proc->pgid : proc->task->pid;
+            pid_t pgid = proc->pgid ? (pid_t)proc->pgid : (pid_t)proc->task->pid;
             if (copy_to_user((void *)arg, &pgid, sizeof(pgid))) return -EFAULT;
             return 0;
         }
@@ -2909,7 +2909,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     while (total < node->size) {
         size_t remaining = node->size - total;
         size_t to_read   = remaining < chunk ? remaining : chunk;
-        size_t n         = vfs_read(node->handle, elf_data + total, total, to_read);
+        size_t n         = vfs_read(node, elf_data + total, total, to_read);
         if (n == 0) break;
         total += n;
     }
@@ -3225,6 +3225,9 @@ static int64_t sys_fcntl_wrap(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t 
 
 static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5, uint64_t arg6)
 {
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
     (void)arg6;
 
     switch ((int)option) {
