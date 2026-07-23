@@ -140,6 +140,12 @@ void vfs_update(vfs_node_t node);
 /* Open a file or directory by path */
 vfs_node_t vfs_open(const char *str);
 
+#define VFS_ACCESS_R 4
+#define VFS_ACCESS_W 2
+
+/* Check file access permissions against the current process */
+int vfs_access_check(vfs_node_t node, uint32_t access_mask);
+
 /* Create a new directory at the specified path */
 int vfs_mkdir(const char *name);
 

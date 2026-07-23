@@ -516,19 +516,16 @@ int signal_deliver_if_pending(syscall_frame_t *frame)
         return 0;
     }
 
-    spin_unlock(&state->lock);
-
+    /* Keep lock held during delivery to protect state->blocked / sighand */
     int ret = signal_deliver_one(frame, sig, &info);
 
-    if (ret == 1) {
-        /* Process terminated */
-        return 1;
-    }
+    sigaction_t *sa       = &state->sighand[sig];
+    int          sa_flags = sa->sa_flags;
+    spin_unlock(&state->lock);
 
-    /* Check if the handler had SA_RESTART */
-    sigaction_t *sa = &state->sighand[sig];
-    if (sa->sa_flags & SA_RESTART) { return -ERESTART; }
+    if (ret == 1) { return 1; }
 
+    if (sa_flags & SA_RESTART) { return -ERESTART; }
     return -EINTR;
 }
 
@@ -586,14 +583,16 @@ int64_t sys_kill_impl(int64_t pid, int sig)
         process_t *proc = process_find(pid);
         if (!proc) return -ESRCH;
 
-        if (signal_check_perm(process_current(), proc) < 0) return -EPERM;
+        process_t *cur = process_current();
+        if (!cur) return -ESRCH;
+        if (signal_check_perm(cur, proc) < 0) return -EPERM;
 
         siginfo_t info;
         memset(&info, 0, sizeof(info));
         info.si_signo = sig;
         info.si_code  = SI_USER;
-        info.si_pid   = process_current()->task->pid;
-        info.si_uid   = process_current()->uid;
+        info.si_pid   = cur->task->pid;
+        info.si_uid   = cur->uid;
 
         return signal_send(proc, sig, &info);
     }
@@ -610,6 +609,8 @@ int64_t sys_kill_impl(int64_t pid, int sig)
 
         while ((target = process_iterate(&pos))) {
             if (target->pgid == cur->pgid) {
+                if (signal_check_perm(cur, target) < 0) continue;
+
                 siginfo_t info;
                 memset(&info, 0, sizeof(info));
                 info.si_signo = sig;
@@ -684,17 +685,21 @@ int64_t sys_tkill_impl(int64_t tid, int sig)
 {
     if (!sig_valid(sig)) return -EINVAL;
 
-    process_t *proc = process_find(tid);
-    if (!proc) return -ESRCH;
+    process_t *target = process_find(tid);
+    if (!target) return -ESRCH;
+
+    process_t *cur = process_current();
+    if (!cur) return -ESRCH;
+    if (signal_check_perm(cur, target) < 0) return -EPERM;
 
     siginfo_t info;
     memset(&info, 0, sizeof(info));
     info.si_signo = sig;
     info.si_code  = SI_TKILL;
-    info.si_pid   = process_current()->task->pid;
-    info.si_uid   = process_current()->uid;
+    info.si_pid   = cur->task->pid;
+    info.si_uid   = cur->uid;
 
-    return signal_send_thread(proc->task, sig, &info);
+    return signal_send_thread(target->task, sig, &info);
 }
 
 /*
@@ -704,22 +709,23 @@ int64_t sys_tgkill(int64_t tgid, int64_t tid, int sig)
 {
     if (!sig_valid(sig)) return -EINVAL;
 
-    process_t *proc = process_find(tgid);
-    if (!proc) return -ESRCH;
+    process_t *target = process_find(tgid);
+    if (!target) return -ESRCH;
 
-    if (proc->task->pid != (uint64_t)tid) {
-        /* In this kernel, pid == tid (1:1 mapping), so this is an error */
-        return -ESRCH;
-    }
+    if (target->task->pid != (uint64_t)tid) { return -ESRCH; }
+
+    process_t *cur = process_current();
+    if (!cur) return -ESRCH;
+    if (signal_check_perm(cur, target) < 0) return -EPERM;
 
     siginfo_t info;
     memset(&info, 0, sizeof(info));
     info.si_signo = sig;
     info.si_code  = SI_TKILL;
-    info.si_pid   = process_current()->task->pid;
-    info.si_uid   = process_current()->uid;
+    info.si_pid   = cur->task->pid;
+    info.si_uid   = cur->uid;
 
-    return signal_send_thread(proc->task, sig, &info);
+    return signal_send_thread(target->task, sig, &info);
 }
 
 /*
@@ -1077,14 +1083,17 @@ int64_t sys_rt_sigreturn(void)
  */
 int64_t sys_setpgid(int64_t pid, int64_t pgid)
 {
+    process_t *cur = process_current();
     process_t *proc;
     if (pid == 0) {
-        proc = process_current();
+        proc = cur;
     } else {
         proc = process_find(pid);
     }
 
-    if (!proc) return -ESRCH;
+    if (!cur || !proc) return -ESRCH;
+
+    if (cur->uid != 0 && cur->uid != proc->uid && cur != proc) return -EPERM;
 
     if (pgid == 0) pgid = (int64_t)proc->task->pid;
 

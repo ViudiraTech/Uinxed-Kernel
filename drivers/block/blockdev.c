@@ -88,6 +88,7 @@ int blockdev_read_bytes(const blockdev_device_t *device, uint64_t offset, void *
 
     if (!device || !buffer) return -EINVAL;
     if (!size) return EOK;
+    if (size > 128 * 1024 * 1024) return -EINVAL;
 
     start_sector  = (uint32_t)(offset / device->sector_size);
     sector_offset = (size_t)(offset % device->sector_size);
@@ -114,6 +115,7 @@ int blockdev_write_bytes(const blockdev_device_t *device, uint64_t offset, const
 
     if (!device || !buffer) return -EINVAL;
     if (!size) return EOK;
+    if (size > 128 * 1024 * 1024) return -EINVAL;
 
     start_sector  = (uint32_t)(offset / device->sector_size);
     sector_offset = (size_t)(offset % device->sector_size);

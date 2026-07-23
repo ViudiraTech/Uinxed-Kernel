@@ -15,8 +15,28 @@
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <mem/page.h>
+#include <proc/process.h>
+
+#define VFS_PATH_MAX 4096
+#define VFS_ACCESS_R 4
+#define VFS_ACCESS_W 2
 
 vfs_node_t rootdir = 0;
+
+/*
+ * Check file access permissions against the current process.
+ * Returns 0 if access is granted, -EACCES otherwise.
+ * Kernel-internal calls (no process context) and root (uid==0) bypass checks.
+ */
+int vfs_access_check(vfs_node_t node, uint32_t access_mask)
+{
+    process_t *proc = process_current();
+    if (!proc || proc->uid == 0) return 0;
+    if (proc->uid == node->owner && (node->mode & (access_mask << 6)) == (access_mask << 6)) return 0;
+    if (proc->gid == node->group && (node->mode & (access_mask << 3)) == (access_mask << 3)) return 0;
+    if ((node->mode & access_mask) == access_mask) return 0;
+    return -EACCES;
+}
 
 struct vfs_callback   vfs_empty_callback;
 static vfs_callback_t fs_callbacks[256] = {[0] = &vfs_empty_callback};
@@ -92,7 +112,11 @@ static char *vfs_resolve_link_path(vfs_node_t node)
 
     size_t base_len = strlen(base);
     size_t link_len = strlen(node->linkname);
-    path            = malloc(base_len + link_len + 2);
+    if (base_len + link_len + 2 > VFS_PATH_MAX) {
+        free(base);
+        return 0;
+    }
+    path = malloc(base_len + link_len + 2);
     if (!path) {
         free(base);
         return 0;
@@ -646,6 +670,7 @@ int vfs_umount(const char *path)
 size_t vfs_read(vfs_node_t file, void *addr, size_t offset, size_t size)
 {
     if (!file || !addr) return (size_t)-1;
+    if (vfs_access_check(file, VFS_ACCESS_R)) return (size_t)-1;
     do_update(file);
 
     if (file->type & file_dir) return (size_t)-1;
@@ -673,6 +698,7 @@ size_t vfs_readlink(vfs_node_t node, char *buf, size_t bufsize)
 size_t vfs_write(vfs_node_t file, void *addr, size_t offset, size_t size)
 {
     if (!file || !addr) return (size_t)-1;
+    if (vfs_access_check(file, VFS_ACCESS_W)) return (size_t)-1;
     do_update(file);
 
     if (file->type & file_dir) return (size_t)-1;

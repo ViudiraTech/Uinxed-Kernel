@@ -308,7 +308,7 @@ static int64_t sys_nanosleep(uint64_t req, uint64_t rem, uint64_t arg2, uint64_t
     linux_timespec_t ts;
     if (copy_from_user(&ts, (const void *)req, sizeof(ts))) return -EFAULT;
     if (ts.tv_sec < 0 || ts.tv_nsec < 0 || ts.tv_nsec >= 1000000000LL) return -EINVAL;
-
+    if ((uint64_t)ts.tv_sec > UINT64_MAX / 100) return -EINVAL;
     uint64_t ticks = (uint64_t)ts.tv_sec * 100 + (uint64_t)((ts.tv_nsec + 9999999LL) / 10000000LL);
     if (!ticks && (ts.tv_sec || ts.tv_nsec)) ticks = 1;
     task_sleep_ticks(ticks);
@@ -402,6 +402,16 @@ static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t a
         node = vfs_open(name);
     }
     if (!node) return -ENOENT;
+
+    {
+        uint32_t access_mask = 0;
+        if ((flags & O_ACCMODE) == O_RDONLY || (flags & O_ACCMODE) == O_RDWR) access_mask |= VFS_ACCESS_R;
+        if ((flags & O_ACCMODE) == O_WRONLY || (flags & O_ACCMODE) == O_RDWR) access_mask |= VFS_ACCESS_W;
+        if (vfs_access_check(node, access_mask)) {
+            vfs_close(node);
+            return -EACCES;
+        }
+    }
 
     int fd = process_fd_install(proc, node, flags);
     if (fd < 0) vfs_close(node);
@@ -602,6 +612,7 @@ static int64_t sys_poll(uint64_t fds, uint64_t nfds, uint64_t timeout, uint64_t 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     if (!fds && nfds) return -EFAULT;
+    if (nfds > 65536) return -EINVAL;
 
     int ready = 0;
     for (uint64_t i = 0; i < nfds; i++) {
@@ -1192,9 +1203,9 @@ static int64_t sys_getresuid_stub(uint64_t ruid, uint64_t euid, uint64_t suid, u
     (void)arg4;
     (void)arg5;
     uint32_t uid = (uint32_t)sys_getuid(0, 0, 0, 0, 0, 0);
-    if (ruid) copy_to_user((void *)ruid, &uid, sizeof(uid));
-    if (euid) copy_to_user((void *)euid, &uid, sizeof(uid));
-    if (suid) copy_to_user((void *)suid, &uid, sizeof(uid));
+    if (ruid && copy_to_user((void *)ruid, &uid, sizeof(uid))) return -EFAULT;
+    if (euid && copy_to_user((void *)euid, &uid, sizeof(uid))) return -EFAULT;
+    if (suid && copy_to_user((void *)suid, &uid, sizeof(uid))) return -EFAULT;
     return EOK;
 }
 
@@ -1204,9 +1215,9 @@ static int64_t sys_getresgid_stub(uint64_t rgid, uint64_t egid, uint64_t sgid, u
     (void)arg4;
     (void)arg5;
     uint32_t gid = (uint32_t)sys_getgid(0, 0, 0, 0, 0, 0);
-    if (rgid) copy_to_user((void *)rgid, &gid, sizeof(gid));
-    if (egid) copy_to_user((void *)egid, &gid, sizeof(gid));
-    if (sgid) copy_to_user((void *)sgid, &gid, sizeof(gid));
+    if (rgid && copy_to_user((void *)rgid, &gid, sizeof(gid))) return -EFAULT;
+    if (egid && copy_to_user((void *)egid, &gid, sizeof(gid))) return -EFAULT;
+    if (sgid && copy_to_user((void *)sgid, &gid, sizeof(gid))) return -EFAULT;
     return EOK;
 }
 
@@ -2321,6 +2332,11 @@ static int64_t sys_getdents64_impl(int fd, uint64_t dirent, uint64_t count)
         return -ENOTDIR;
     }
 
+    if (count > 65536) {
+        process_file_put(file);
+        return -EINVAL;
+    }
+
     uint8_t *kbuf = malloc(count);
     if (!kbuf) {
         process_file_put(file);
@@ -2397,14 +2413,25 @@ static int64_t sys_writev_wrap(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint6
     int64_t total = 0;
     for (uint64_t i = 0; i < iovcnt; i++) {
         if (vec[i].iov_len == 0) continue;
-        int64_t n = process_fd_write(proc, (int)fd, vec[i].iov_base, vec[i].iov_len);
-        if (n < 0) {
-            if (total == 0) total = n;
-            break;
+        uint8_t tmp[SYSCALL_IO_CHUNK];
+        size_t  iov_done = 0;
+        while (iov_done < vec[i].iov_len) {
+            size_t chunk = (vec[i].iov_len - iov_done) < sizeof(tmp) ? (size_t)(vec[i].iov_len - iov_done) : sizeof(tmp);
+            if (copy_from_user(tmp, (const void *)((uintptr_t)vec[i].iov_base + iov_done), chunk)) {
+                if (total == 0) total = -EFAULT;
+                goto writev_done;
+            }
+            int64_t n = process_fd_write(proc, (int)fd, tmp, chunk);
+            if (n < 0) {
+                if (total == 0) total = n;
+                goto writev_done;
+            }
+            total += n;
+            iov_done += (size_t)n;
+            if ((size_t)n < chunk) break;
         }
-        total += n;
-        if ((size_t)n < vec[i].iov_len) break;
     }
+writev_done:
 
     if (alloc) free(vec);
     return total;
@@ -2438,14 +2465,26 @@ static int64_t sys_readv_wrap(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64
     int64_t total = 0;
     for (uint64_t i = 0; i < iovcnt; i++) {
         if (vec[i].iov_len == 0) continue;
-        int64_t n = process_fd_read(proc, (int)fd, vec[i].iov_base, vec[i].iov_len);
-        if (n < 0) {
-            if (total == 0) total = n;
-            break;
+        uint8_t tmp[SYSCALL_IO_CHUNK];
+        size_t  iov_done = 0;
+        while (iov_done < vec[i].iov_len) {
+            size_t  chunk = (vec[i].iov_len - iov_done) < sizeof(tmp) ? (size_t)(vec[i].iov_len - iov_done) : sizeof(tmp);
+            int64_t n     = process_fd_read(proc, (int)fd, tmp, chunk);
+            if (n < 0) {
+                if (total == 0) total = n;
+                goto readv_done;
+            }
+            if (!n) break;
+            if (copy_to_user((void *)((uintptr_t)vec[i].iov_base + iov_done), tmp, (size_t)n)) {
+                if (total == 0) total = -EFAULT;
+                goto readv_done;
+            }
+            total += n;
+            iov_done += (size_t)n;
+            if ((size_t)n < chunk) break;
         }
-        total += n;
-        if ((size_t)n < vec[i].iov_len) break;
     }
+readv_done:
 
     if (alloc) free(vec);
     return total;
@@ -2575,11 +2614,11 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_UNLINK]                 = sys_unlink,
     [SYS_SYMLINK]                = sys_symlink,
     [SYS_READLINK]               = sys_readlink,
-    [SYS_CHMOD]                  = sys_stub_ok,
-    [SYS_FCHMOD]                 = sys_stub_ok,
-    [SYS_CHOWN]                  = sys_stub_ok,
-    [SYS_FCHOWN]                 = sys_stub_ok,
-    [SYS_LCHOWN]                 = sys_stub_ok,
+    [SYS_CHMOD]                  = sys_stub,
+    [SYS_FCHMOD]                 = sys_stub,
+    [SYS_CHOWN]                  = sys_stub,
+    [SYS_FCHOWN]                 = sys_stub,
+    [SYS_LCHOWN]                 = sys_stub,
     [SYS_UMASK]                  = sys_umask_stub,
     [SYS_GETTIMEOFDAY]           = sys_gettimeofday,
     [SYS_GETRLIMIT]              = sys_getrlimit_stub,

@@ -1009,17 +1009,14 @@ task_t *wait_queue_wake_one(wait_queue_t *queue)
     task_t       *task = sched_node_to_task(node);
 
     ilist_remove(node);
+    task->wait_queue = NULL;
+    spin_unlock(&queue->lock);
+
     spin_lock(&scheduler.lock);
     wake_task_locked(task, 0);
 
-    /*
-     * If the task was in a timed wait, remove it from the
-     * timer queue so the scheduler tick doesn't try to wake
-     * it again after the deadline.
-     */
     if (task->timer_node.prev != NULL) { ilist_remove(&task->timer_node); }
     spin_unlock(&scheduler.lock);
-    spin_unlock(&queue->lock);
     request_task_cpu(task);
     return task;
 }
@@ -1033,19 +1030,24 @@ uint64_t wait_queue_wake_all(wait_queue_t *queue)
     size_t   woken_count = 0;
 
     spin_lock(&queue->lock);
-    spin_lock(&scheduler.lock);
     while (!ilist_is_empty(&queue->tasks)) {
         ilist_node_t *node = queue->tasks.next;
         task_t       *task = sched_node_to_task(node);
 
         ilist_remove(node);
-        wake_task_locked(task, 0);
-        if (task->timer_node.prev != NULL) { ilist_remove(&task->timer_node); }
+        task->wait_queue = NULL;
         if (woken_count < sizeof(woken) / sizeof(woken[0])) woken[woken_count++] = task;
         count++;
     }
-    spin_unlock(&scheduler.lock);
     spin_unlock(&queue->lock);
+
+    spin_lock(&scheduler.lock);
+    for (size_t i = 0; i < woken_count; i++) {
+        task_t *task = woken[i];
+        wake_task_locked(task, 0);
+        if (task->timer_node.prev != NULL) { ilist_remove(&task->timer_node); }
+    }
+    spin_unlock(&scheduler.lock);
     for (size_t i = 0; i < woken_count; i++) request_task_cpu(woken[i]);
     return count;
 }

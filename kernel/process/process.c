@@ -215,7 +215,7 @@ static void process_file_get(process_file_t *file)
     if (!file) return;
 
     spin_lock(&file->lock);
-    file->refcount++;
+    if (file->refcount > 0) file->refcount++;
     spin_unlock(&file->lock);
 }
 
@@ -229,6 +229,7 @@ void process_file_put(process_file_t *file)
         spin_unlock(&file->lock);
         return;
     }
+    file->refcount = 0;
     spin_unlock(&file->lock);
 
     vfs_close(file->node);
@@ -709,6 +710,10 @@ int process_kill(pid_t pid)
     process_t *proc = pid_to_process(pid);
     if (!proc || proc->task->state == TASK_ZOMBIE) return 1;
     if (proc == init_process) panic("Attempt to kill init!");
+
+    process_t *cur = process_current();
+    if (cur && cur->uid != 0 && cur->uid != proc->uid) return -EPERM;
+
     proc->exit_code   = -9;
     proc->task->state = TASK_ZOMBIE;
     process_fd_table_close(proc);
