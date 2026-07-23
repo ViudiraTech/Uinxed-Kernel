@@ -131,6 +131,36 @@ menu "Device drivers"
 
   endmenu
 
+  menu "Filesystem support"
+
+    config SYSFS
+      bool "sysfs filesystem support"
+      default y
+      help
+        "Enable the sysfs virtual filesystem, providing a structured view
+        of kernel objects, devices, buses, drivers, and classes to userspace.
+        sysfs is mounted at /sys and is the foundation of the Linux device model.
+        This option also enables the kobject/kset infrastructure."
+
+    config NETLINK
+      bool "Netlink socket support"
+      default y
+      help
+        "Enable AF_NETLINK socket family for kernel-userspace communication.
+        Netlink is used for uevent delivery (udev), routing, and other
+        kernel services. Required for hotplug and device manager support."
+
+    config UEVENT_HELPER
+      bool "uevent helper (hotplug event delivery)"
+      depends on NETLINK && SYSFS
+      default y
+      help
+        "Broadcast kernel object events (add/remove/change/move) to
+        userspace via netlink KOBJECT_UEVENT protocol. This enables
+        udev or mdev to react to device hotplug events."
+
+  endmenu
+
   menu "VirtIO drivers"
 
     config VIRTIO

@@ -497,25 +497,11 @@ static void devtmpfs_create_nvme_nodes(void)
 
 void devtmpfs_init(void)
 {
-    int        status;
-    vfs_node_t dev = 0;
+    int status;
 
     status = vfs_mkdir("/dev");
     if (status != EOK && status != -EEXIST) {
         plogk("devtmpfs: Cannot create /dev: %d\n", status);
-        return;
-    }
-
-    dev = vfs_open("/dev");
-    if (!dev) {
-        plogk("devtmpfs: Cannot open /dev after creation.\n");
-        return;
-    }
-
-    status = vfs_mount(0, dev);
-    vfs_close(dev);
-    if (status != EOK) {
-        plogk("devtmpfs: Cannot mount tmpfs at /dev: %d\n", status);
         return;
     }
 

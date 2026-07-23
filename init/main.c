@@ -34,8 +34,11 @@
 #include <fs/fatfs/fatfs_vfs.h>
 #include <fs/isofs/isofs.h>
 #include <fs/procfs.h>
+#include <fs/sysfs.h>
 #include <fs/tmpfs.h>
 #include <fs/vfs.h>
+#include <ipc/netlink.h>
+#include <kernel/device.h>
 #include <kernel/cmdline.h>
 #include <kernel/debug.h>
 #include <kernel/elf_loader.h>
@@ -60,6 +63,12 @@
 #include <video/video.h>
 
 extern process_t *init_process;
+
+/* External declarations for new sysfs integration */
+void ksysfs_init(void);
+void pci_sysfs_init(void);
+void block_sysfs_init(void);
+void tty_sysfs_init(void);
 
 /* Create init process */
 void swapper_run_init(void)
@@ -172,9 +181,28 @@ void kernel_entry(void)
 
     if (!get_rootdir()->fsid && vfs_mount(0, get_rootdir()) != EOK) plogk("init: Cannot mount tmpfs to root_dir.\n");
 
+    /* --- Mount sysfs early so drivers can register with device model --- */
+#if CONFIG_SYSFS
+    sysfs_regist();      /* Register sysfs with the VFS layer */
+    sysfs_init();        /* Mount sysfs at /sys and create top-level directories */
+    device_model_init(); /* Initialise the device model (bus/class/device) */
+#endif
+
     init_cpio();       // Copy In, Copy Out
     devtmpfs_init();   // Device Temporary File System
     procfs_regist();   // Process File System
+
+    /* --- Register devices with sysfs (after device model is up) --- */
+#if CONFIG_SYSFS
+    ksysfs_init();       /* /sys/kernel/{version,cmdline,hostname,...} */
+    pci_sysfs_init();    /* /sys/bus/pci/ + /sys/devices/pci* */
+    block_sysfs_init();  /* /sys/block/{hdX,sdX,nvme*} */
+    tty_sysfs_init();    /* /sys/class/tty/ */
+#endif
+
+    /* --- Netlink (must be before socket_init) --- */
+    netlink_init();    // AF_NETLINK socket family
+
     drm_init();        // Direct Rendering Manager
     virtio_gpu_init(); // VirtIO GPU driver (if present on PCI bus)
 
@@ -184,22 +212,6 @@ void kernel_entry(void)
         if (bt->type == TTY_DEVICE_DRM && !virtio_gpu_get_device()) {
             tty_set_device_type(TTY_DEVICE_VGA);
             plogk("virtgpu: not available, TTY staying in VGA mode\n");
-        }
-    }
-
-    vfs_node_t proc = 0;
-    int        st   = vfs_mkdir("/proc");
-    if (st == EOK || st == -EEXIST) {
-        proc = vfs_open("/proc");
-        if (proc) {
-            st = vfs_mount_fs("procfs", NULL, proc);
-            if (st == EOK) {
-                plogk("procfs: Mounted at /proc\n");
-                vfs_close(proc);
-            } else {
-                plogk("procfs: Cannot mount at /proc: %d\n", st);
-                vfs_close(proc);
-            }
         }
     }
 

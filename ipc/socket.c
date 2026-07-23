@@ -9,6 +9,7 @@
  */
 
 #include <fs/vfs.h>
+#include <ipc/netlink.h>
 #include <ipc/socket.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
@@ -421,7 +422,10 @@ static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
 {
     socket_t *sk;
 
-    /* Validate family */
+    /* Validate family — Netlink handled by netlink layer */
+    if (family == AF_NETLINK) {
+        return netlink_sock_alloc(protocol);
+    }
     if (family != AF_UNIX && family != AF_LOCAL) return NULL;
 
     /* Validate type */
@@ -478,6 +482,11 @@ static void socket_free(socket_t *sk)
 
     sk->refcount--;
     if (sk->refcount > 0) return;
+
+    /* Netlink cleanup */
+    if (sk->family == AF_NETLINK && sk->priv) {
+        netlink_close(sk);
+    }
 
     /* Remove from bound registry */
     sock_bound_remove(sk);
@@ -1339,6 +1348,13 @@ static size_t socket_vfs_read(void *file, void *addr, size_t offset, size_t size
 
     if (!sk) return (size_t)-1;
 
+    /* Use polymorphic op if set (netlink) */
+    if (sk->socket_read) {
+        ret = sk->socket_read(sk, addr, size, NULL, NULL);
+        if (ret < 0) return (size_t)-1;
+        return (size_t)ret;
+    }
+
     if (sk->type == SOCK_DGRAM) {
         ret = unix_dgram_recv(sk, addr, size, NULL, NULL, sk->flags);
     } else {
@@ -1357,6 +1373,13 @@ static size_t socket_vfs_write(void *file, const void *addr, size_t offset, size
 
     if (!sk) return (size_t)-1;
 
+    /* Use polymorphic op if set (netlink) */
+    if (sk->socket_write) {
+        ret = sk->socket_write(sk, addr, size, NULL, 0);
+        if (ret < 0) return (size_t)-1;
+        return (size_t)ret;
+    }
+
     if (sk->type == SOCK_DGRAM) {
         ret = unix_dgram_send(sk, addr, size, NULL, 0, sk->flags);
     } else {
@@ -1371,6 +1394,8 @@ static int socket_vfs_poll(void *file, size_t events)
 {
     socket_t *sk = (socket_t *)file;
     if (!sk) return 0;
+    /* Use polymorphic op if set (netlink) */
+    if (sk->socket_poll) return sk->socket_poll(sk, events);
     return socket_poll(sk, events);
 }
 
@@ -1387,6 +1412,11 @@ static int socket_vfs_free(void *handle)
 {
     socket_t *sk = (socket_t *)handle;
     if (!sk) return -EINVAL;
+
+    /* Netlink cleanup */
+    if (sk->family == AF_NETLINK && sk->priv) {
+        netlink_close(sk);
+    }
 
     /* Remove from bound registry */
     sock_bound_remove(sk);
@@ -1523,9 +1553,15 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
     sock_family = (uint16_t)family;
     sock_type   = (uint16_t)type;
 
-    if (sock_family != AF_UNIX && sock_family != AF_LOCAL) return -EAFNOSUPPORT;
-
-    if (sock_type != SOCK_STREAM && sock_type != SOCK_DGRAM && sock_type != SOCK_SEQPACKET) return -ESOCKTNOSUPPORT;
+    if (sock_family == AF_NETLINK) {
+        /* Netlink uses SOCK_RAW or SOCK_DGRAM */
+        if (sock_type != SOCK_RAW && sock_type != SOCK_DGRAM) return -ESOCKTNOSUPPORT;
+    } else if (sock_family != AF_UNIX && sock_family != AF_LOCAL) {
+        return -EAFNOSUPPORT;
+    } else {
+        if (sock_type != SOCK_STREAM && sock_type != SOCK_DGRAM && sock_type != SOCK_SEQPACKET)
+            return -ESOCKTNOSUPPORT;
+    }
 
     sk = socket_alloc(sock_family, sock_type, (uint16_t)protocol);
     if (!sk) return -ENOMEM;
@@ -1553,6 +1589,14 @@ int64_t sys_bind(int fd, const sockaddr_un_t *addr, uint32_t addrlen)
     if (!sk) return -EBADF;
 
     if (!addr) return -EINVAL;
+
+    /* Netlink bind */
+    if (sk->family == AF_NETLINK) {
+        sockaddr_nl_t nladdr;
+        if (addrlen != sizeof(sockaddr_nl_t)) return -EINVAL;
+        if (copy_from_user(&nladdr, (const void *)addr, addrlen)) return -EFAULT;
+        return (int64_t)netlink_bind(sk, &nladdr, addrlen);
+    }
 
     if (addrlen > sizeof(sockaddr_un_t)) return -EINVAL;
 
@@ -1608,6 +1652,9 @@ int64_t sys_connect(int fd, const sockaddr_un_t *addr, uint32_t addrlen)
     sk = socket_from_fd(fd);
     if (!sk) return -EBADF;
 
+    /* Netlink is connectionless */
+    if (sk->family == AF_NETLINK) return -EOPNOTSUPP;
+
     if (!addr) return -EINVAL;
 
     if (addrlen > sizeof(sockaddr_un_t)) return -EINVAL;
@@ -1654,6 +1701,16 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
 
     if (len > SOCK_BUF_MAX) return -EMSGSIZE;
 
+    /* Netlink: use polymorphic write op */
+    if (sk->socket_write) {
+        void *kbuf_nl = malloc(len);
+        if (!kbuf_nl) return -ENOMEM;
+        if (copy_from_user(kbuf_nl, buf, len)) { free(kbuf_nl); return -EFAULT; }
+        int ret_nl = sk->socket_write(sk, kbuf_nl, len, (void *)addr, addrlen);
+        free(kbuf_nl);
+        return (int64_t)ret_nl;
+    }
+
     kbuf = malloc(len);
     if (!kbuf) return -ENOMEM;
 
@@ -1699,6 +1756,18 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_un_t *ad
 
     if (len > SOCK_BUF_MAX) len = SOCK_BUF_MAX;
 
+    /* Netlink: use polymorphic read op */
+    if (sk->socket_read) {
+        kbuf = malloc(len);
+        if (!kbuf) return -ENOMEM;
+        ret = sk->socket_read(sk, kbuf, len, addr, addrlen);
+        if (ret > 0) {
+            if (copy_to_user(buf, kbuf, (size_t)ret)) { free(kbuf); return -EFAULT; }
+        }
+        free(kbuf);
+        return (int64_t)ret;
+    }
+
     kbuf = malloc(len);
     if (!kbuf) return -ENOMEM;
 
@@ -1727,6 +1796,12 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
     (void)fd;
     (void)iov;
 
+    /* Netlink: use polymorphic write */
+    if (sk->socket_write) {
+        return (int64_t)sk->socket_write(sk, kbuf, total_len,
+                                         kmsg->msg_name, kmsg->msg_namelen);
+    }
+
     if (sk->type == SOCK_DGRAM) {
         sockaddr_un_t kaddr;
         if (kmsg->msg_name && kmsg->msg_namelen > 0) {
@@ -1748,6 +1823,27 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
     int ret;
     int msg_flags = 0;
     (void)fd;
+
+    /* Netlink: use polymorphic read */
+    if (sk->socket_read) {
+        ret = sk->socket_read(sk, kbuf, total_len,
+                              (void *)(uintptr_t)kmsg->msg_name,
+                              (uint32_t *)(uintptr_t)kmsg->msg_namelen);
+        if (ret > 0) {
+            uint8_t *src = (uint8_t *)kbuf;
+            size_t remaining = (size_t)ret;
+            for (size_t i = 0; i < kmsg->msg_iovlen && remaining > 0; i++) {
+                size_t chunk = iov[i].iov_len;
+                if (chunk > remaining) chunk = remaining;
+                if (copy_to_user(iov[i].iov_base, src, chunk)) return -EFAULT;
+                src += chunk;
+                remaining -= chunk;
+            }
+        }
+        kmsg->msg_flags = 0;
+        kmsg->msg_controllen = 0;
+        return (int64_t)ret;
+    }
 
     if (sk->type == SOCK_DGRAM) {
         ret = unix_dgram_recv(sk, kbuf, total_len, (sockaddr_un_t *)(uintptr_t)kmsg->msg_name, (uint32_t *)(uintptr_t)kmsg->msg_namelen, flags);
@@ -1913,6 +2009,9 @@ int64_t sys_shutdown(int fd, int how)
 
     sk = socket_from_fd(fd);
     if (!sk) return -EBADF;
+
+    /* Netlink is connectionless */
+    if (sk->family == AF_NETLINK) return -EOPNOTSUPP;
 
     if (how != SHUT_RD && how != SHUT_WR && how != SHUT_RDWR) return -EINVAL;
 
@@ -2103,6 +2202,12 @@ int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint3
     sk = socket_from_fd(fd);
     if (!sk) return -EBADF;
 
+    /* SOL_NETLINK options */
+    if (level == SOL_NETLINK) {
+        if (sk->family != AF_NETLINK) return -EOPNOTSUPP;
+        return (int64_t)netlink_setsockopt(sk, optname, optval, optlen);
+    }
+
     if (level != SOL_SOCKET) return -ENOPROTOOPT;
 
     spin_lock(&sk->lock);
@@ -2245,6 +2350,12 @@ int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *o
 
     sk = socket_from_fd(fd);
     if (!sk) return -EBADF;
+
+    /* SOL_NETLINK options */
+    if (level == SOL_NETLINK) {
+        if (sk->family != AF_NETLINK) return -EOPNOTSUPP;
+        return (int64_t)netlink_getsockopt(sk, optname, optval, optlen);
+    }
 
     if (level != SOL_SOCKET) return -ENOPROTOOPT;
 

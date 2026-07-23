@@ -40,6 +40,12 @@ else
   C_CONFIG += -DBOOT_LOGO=0
 endif
 
+ifeq ($(CONFIG_SYSFS), y)
+  C_CONFIG += -DCONFIG_SYSFS=1
+else
+  C_CONFIG += -DCONFIG_SYSFS=0
+endif
+
 ifneq ($(CONFIG_CPU_MAX_COUNT),)
   C_CONFIG += -DMAX_CPU_COUNT=$(CONFIG_CPU_MAX_COUNT)
 endif

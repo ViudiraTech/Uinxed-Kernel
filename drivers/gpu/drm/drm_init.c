@@ -19,6 +19,7 @@
 #include <drivers/drm/drm_mode.h>
 #include <drivers/drm/drm_print.h>
 #include <fs/vfs.h>
+#include <kernel/device.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
@@ -459,6 +460,13 @@ void drm_vfs_close_cb(void *current)
 }
 
 /* ------------------------------------------------------------------ */
+/* DRM class (global, shared by all DRM devices)                       */
+/* ------------------------------------------------------------------ */
+
+struct class drm_class = { .name = "drm" };
+int drm_class_registered = 0;
+
+/* ------------------------------------------------------------------ */
 /* Public init                                                         */
 /* ------------------------------------------------------------------ */
 
@@ -488,6 +496,15 @@ int drm_init(void)
     }
 
     drm_singleton = dev;
+
+    /* Register DRM class once (shared by all DRM devices) */
+    if (!drm_class_registered) {
+        int cret = class_register(&drm_class);
+        if (cret == EOK) {
+            drm_class_registered = 1;
+            DRM_INFO("DRM class registered at /sys/class/drm/\n");
+        }
+    }
 
     DRM_INFO("DRM subsystem initialized (device: /dev/dri/card0)\n");
     return 0;

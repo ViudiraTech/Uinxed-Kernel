@@ -52,6 +52,8 @@ typedef struct syscall_frame {
         uint64_t ss;
 } __attribute__((packed)) syscall_frame_t;
 
+typedef int64_t (*syscall_fn_t)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+
 void syscall_init(void);
 void syscall_entry(void);
 void syscall_return(void);

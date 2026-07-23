@@ -41,7 +41,8 @@
 /*  Socket-level options (SOL_SOCKET)                                   */
 /* ------------------------------------------------------------------ */
 
-#define SOL_SOCKET 1
+#define SOL_SOCKET  1
+#define SOL_NETLINK 270
 
 #define SO_DEBUG       1
 #define SO_REUSEADDR   2
@@ -267,6 +268,9 @@ struct socket {
         int (*socket_write)(socket_t *sk, const void *buf, size_t sz, const void *addr, uint32_t addrlen);
         int (*socket_poll)(socket_t *sk, size_t events);
         int (*socket_close)(socket_t *sk);
+
+        /* Family-specific private data (netlink: nl_sock_t *) */
+        void *priv;
 
         /* Lock */
         spinlock_t lock;

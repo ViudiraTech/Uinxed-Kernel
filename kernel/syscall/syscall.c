@@ -33,6 +33,7 @@
 #include <proc/uaccess.h>
 #include <sync/signal.h>
 #include <syscall/eventfd.h>
+#include <syscall/fcntl.h>
 #include <syscall/mmap.h>
 #include <syscall/signalfd.h>
 #include <syscall/syscall.h>
@@ -41,6 +42,12 @@
 
 #define SYSCALL_PATH_MAX  256
 #define SYSCALL_IO_CHUNK  4096
+
+/* Mount flag bits stored in vfs_node->flags */
+#define MOUNT_FLAG_RDONLY  (1UL << 0)
+#define MOUNT_FLAG_NOSUID  (1UL << 1)
+#define MOUNT_FLAG_NODEV   (1UL << 2)
+#define MOUNT_FLAG_NOEXEC  (1UL << 3)
 #define AT_FDCWD          -100
 #define AT_REMOVEDIR      0x200
 #define STATX_BASIC_STATS 0x000007ffU
@@ -128,6 +135,20 @@ typedef struct {
         uint32_t                stx_dev_minor;
         uint64_t                __spare2[14];
 } linux_statx_t;
+
+/* Check if the filesystem containing this node is mounted read-only.
+ * Walk up to the nearest mount point and inspect its flags. */
+static int vfs_mount_is_readonly(vfs_node_t node)
+{
+    /* Walk up to the mount root */
+    vfs_node_t cur = node;
+    while (cur) {
+        if (cur->is_mount) return (cur->flags & MOUNT_FLAG_RDONLY) != 0;
+        if (cur == cur->parent) break;
+        cur = cur->parent;
+    }
+    return 0;
+}
 
 static int copy_path_from_user(uint64_t upath, char path[SYSCALL_PATH_MAX])
 {
@@ -320,15 +341,36 @@ static int64_t sys_nanosleep(uint64_t req, uint64_t rem, uint64_t arg2, uint64_t
     return 0;
 }
 
+#define WNOHANG    0x00000001
+#define WUNTRACED  0x00000002
+#define WCONTINUED 0x00000008
+
 static int64_t sys_wait4(uint64_t pid, uint64_t exit_code, uint64_t options, uint64_t rusage, uint64_t arg4, uint64_t arg5)
 {
-    (void)options;
     (void)rusage;
     (void)arg4;
     (void)arg5;
 
+    int flags  = (int)options;
     int status = 0;
-    int ret    = process_wait((pid_t)pid, &status);
+
+    if (flags & WNOHANG) {
+        /*
+         * Non-blocking poll: check if child is zombie.
+         * If zombie, call process_wait which will find it immediately.
+         * If not zombie, return 0 without blocking.
+         */
+        process_t *child = process_find((pid_t)pid);
+        process_t *proc  = process_current();
+
+        if (!child || !proc || child->parent != proc) return -ECHILD;
+        if (child->task->state != TASK_ZOMBIE) return 0;
+
+        /* Child is zombie - process_wait will return immediately */
+    }
+
+    /* Blocking wait */
+    int ret = process_wait((pid_t)pid, &status);
     if (ret) return -ECHILD;
     if (exit_code && copy_to_user((void *)exit_code, &status, sizeof(status))) return -EFAULT;
     return (int64_t)pid;
@@ -501,6 +543,16 @@ static int64_t sys_write(uint64_t fd, uint64_t buf, uint64_t size, uint64_t arg3
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
+    /* Check for read-only mount */
+    {
+        process_file_t *pf = process_fd_get(proc, (int)fd);
+        if (pf) {
+            int ro = vfs_mount_is_readonly(pf->node);
+            process_file_put(pf);
+            if (ro) return -EROFS;
+        }
+    }
+
     uint8_t tmp[SYSCALL_IO_CHUNK];
     size_t  done = 0;
     while (done < size) {
@@ -591,6 +643,42 @@ static int64_t sys_dup3(uint64_t oldfd, uint64_t newfd, uint64_t flags, uint64_t
     return sys_dup2(oldfd, newfd, 0, 0, 0, 0);
 }
 
+/*
+ * Terminal ioctl request codes (Linux-compatible)
+ */
+#define TIOCGWINSZ  0x5413
+#define TIOCSWINSZ  0x5414
+#define TCGETS      0x5401
+#define TCSETS      0x5402
+#define TCSETSW     0x5403
+#define TCSETSF     0x5404
+#define TCSBRK      0x5409
+#define TCXONC      0x540A
+#define TCFLSH      0x540B
+#define TIOCGPGRP   0x540F
+#define TIOCSPGRP   0x5410
+#define TIOCSCTTY   0x540E
+#define TIOCNOTTY   0x5422
+#define FIONREAD    0x541B
+
+/* Linux termios structure (x86_64, ~60 bytes) */
+struct linux_termios {
+    uint32_t c_iflag;
+    uint32_t c_oflag;
+    uint32_t c_cflag;
+    uint32_t c_lflag;
+    uint8_t  c_line;
+    uint8_t  c_cc[19];
+};
+
+/* Linux winsize structure */
+struct linux_winsize {
+    uint16_t ws_row;
+    uint16_t ws_col;
+    uint16_t ws_xpixel;
+    uint16_t ws_ypixel;
+};
+
 static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -599,7 +687,102 @@ static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3,
 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    return process_fd_ioctl(proc, (int)fd, (size_t)req, (void *)arg);
+
+    /* Handle terminal ioctls at the syscall level for TTY/console fds */
+    switch ((unsigned long)req) {
+        case TCGETS: {
+            /* Return a minimal cooked terminal termios */
+            if (!arg) return -EFAULT;
+            struct linux_termios t;
+            memset(&t, 0, sizeof(t));
+            /* c_iflag: ICRNL | IXON */
+            t.c_iflag = 0x0400 | 0x0400;  /* ICRNL */
+            /* c_oflag: OPOST | ONLCR */
+            t.c_oflag = 0x0001 | 0x0004;  /* OPOST | ONLCR */
+            /* c_cflag: CREAD | CS8 | B38400 */
+            t.c_cflag = 0x0080 | 0x0030 | 0x000F;  /* CREAD | CS8 | B38400 */
+            /* c_lflag: ISIG | ICANON | ECHO | ECHOE | ECHOK | ECHOCTL | ECHOKE */
+            t.c_lflag = 0x0001 | 0x0002 | 0x0008 | 0x0010 | 0x0020 | 0x0200 | 0x0800;
+            t.c_line  = 0;
+            /* c_cc: set VEOF=4 (^D), VEOL=0, VERASE=0x7f (BS), VINTR=3 (^C), VKILL=0x15 (^U), VMIN=1, VQUIT=0x1c (^\), VSTART=0x11, VSTOP=0x13, VSUSP=0x1a (^Z), VTIME=0 */
+            t.c_cc[0] = 4;    /* VEOF */
+            t.c_cc[1] = 0;    /* VEOL */
+            t.c_cc[2] = 0x7f; /* VERASE */
+            t.c_cc[3] = 3;    /* VINTR */
+            t.c_cc[4] = 0x15; /* VKILL */
+            t.c_cc[5] = 1;    /* VMIN */
+            t.c_cc[6] = 0x1c; /* VQUIT */
+            t.c_cc[7] = 0;    /* spare */
+            t.c_cc[8] = 0x11; /* VSTART */
+            t.c_cc[9] = 0x13; /* VSTOP */
+            t.c_cc[10] = 0x1a; /* VSUSP */
+            /* VTIME=0 */
+            if (copy_to_user((void *)arg, &t, sizeof(t))) return -EFAULT;
+            return 0;
+        }
+
+        case TCSETS:
+        case TCSETSW:
+        case TCSETSF:
+            /* Accept any terminal settings */
+            return 0;
+
+        case TIOCGWINSZ: {
+            if (!arg) return -EFAULT;
+            struct linux_winsize ws = {80, 25, 0, 0};
+            /* Try to get actual size from framebuffer */
+            if (copy_to_user((void *)arg, &ws, sizeof(ws))) return -EFAULT;
+            return 0;
+        }
+
+        case TIOCSWINSZ:
+            /* Accept window size change */
+            return 0;
+
+        case TIOCGPGRP: {
+            /* Return foreground process group */
+            if (!arg) return -EFAULT;
+            pid_t pgid = proc->pgid ? proc->pgid : proc->task->pid;
+            if (copy_to_user((void *)arg, &pgid, sizeof(pgid))) return -EFAULT;
+            return 0;
+        }
+
+        case TIOCSPGRP: {
+            /* Set foreground process group */
+            if (!arg) return -EFAULT;
+            pid_t pgid;
+            if (copy_from_user(&pgid, (const void *)arg, sizeof(pgid))) return -EFAULT;
+            proc->pgid = pgid;
+            return 0;
+        }
+
+        case TIOCSCTTY:
+            /* Make this terminal the controlling terminal */
+            return 0;
+
+        case TIOCNOTTY:
+            /* Release controlling terminal */
+            return 0;
+
+        case TCSBRK:
+        case TCXONC:
+        case TCFLSH:
+            /* Flow control / line discipline - accept silently */
+            return 0;
+
+        case FIONREAD: {
+            /* Return number of bytes available to read */
+            /* For now return 0 (nothing available) - this is approximate */
+            if (!arg) return -EFAULT;
+            int nread = 0;
+            if (copy_to_user((void *)arg, &nread, sizeof(nread))) return -EFAULT;
+            return 0;
+        }
+
+        default:
+            /* Delegate to VFS for device-specific ioctls */
+            return process_fd_ioctl(proc, (int)fd, (size_t)req, (void *)arg);
+    }
 }
 
 static int64_t sys_poll(uint64_t fds, uint64_t nfds, uint64_t timeout, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -938,10 +1121,15 @@ static int64_t sys_getcwd(uint64_t buf, uint64_t size, uint64_t arg2, uint64_t a
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    static const char cwd[] = "/";
     if (!buf) return -EFAULT;
-    if (size < sizeof(cwd)) return -ERANGE;
-    return copy_to_user((void *)buf, cwd, sizeof(cwd)) ? -EFAULT : (int64_t)sizeof(cwd);
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    const char *cwd = proc->cwd[0] ? proc->cwd : "/";
+    size_t      len = strlen(cwd) + 1;
+    if (len > size) return -ERANGE;
+    return copy_to_user((void *)buf, cwd, len) ? -EFAULT : (int64_t)len;
 }
 
 /* ---------- eventfd, timerfd, signalfd wrappers ---------- */
@@ -1005,6 +1193,134 @@ static int64_t sys_signalfd4_wrap(uint64_t fd, uint64_t mask, uint64_t sizemask,
     return sys_signalfd4((int)fd, (const void *)mask, (size_t)sizemask, (int)flags);
 }
 
+/* ---------- mount / umount2 ---------- */
+
+#define MS_RDONLY      1
+#define MS_NOSUID      2
+#define MS_NODEV       4
+#define MS_NOEXEC      8
+#define MS_SYNCHRONOUS 16
+#define MS_REMOUNT    32
+#define MS_MANDLOCK   64
+#define MS_DIRSYNC   128
+#define MS_NOATIME  1024
+#define MS_NODIRATIME 2048
+#define MS_BIND      4096
+#define MS_MOVE      8192
+#define MS_REC      16384
+#define MS_SILENT   32768
+
+#define MNT_FORCE   1
+#define MNT_DETACH  2
+#define MNT_EXPIRE  4
+
+static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype,
+                         uint64_t flags, uint64_t data, uint64_t arg5)
+{
+    (void)data;
+    (void)arg5;
+
+    char src[SYSCALL_PATH_MAX] = {0};
+    char tgt[SYSCALL_PATH_MAX] = {0};
+    char fst[SYSCALL_PATH_MAX] = {0};
+
+    if (!target) return -EFAULT;
+
+    /* Copy target path (required) */
+    if (strncpy_from_user(tgt, (const char *)target, sizeof(tgt)) < 0) return -EFAULT;
+
+    /* Copy source path (optional — can be NULL for virtual filesystems) */
+    if (source) {
+        if (strncpy_from_user(src, (const char *)source, sizeof(src)) < 0) return -EFAULT;
+    }
+
+    /* Copy filesystem type (optional — can be NULL to let VFS probe) */
+    if (fstype) {
+        if (strncpy_from_user(fst, (const char *)fstype, sizeof(fst)) < 0) return -EFAULT;
+    }
+
+    /* Open the target mount point */
+    vfs_node_t node = vfs_open(tgt);
+    if (!node) return -ENOENT;
+    if (!(node->type & file_dir)) {
+        vfs_close(node);
+        return -ENOTDIR;
+    }
+
+    /* Handle MS_REMOUNT: change flags on an existing mount */
+    if (flags & MS_REMOUNT) {
+        if (!node->is_mount) {
+            vfs_close(node);
+            return -EINVAL;
+        }
+        node->flags &= ~(MOUNT_FLAG_RDONLY | MOUNT_FLAG_NOSUID |
+                         MOUNT_FLAG_NODEV | MOUNT_FLAG_NOEXEC);
+        if (flags & MS_RDONLY)  node->flags |= MOUNT_FLAG_RDONLY;
+        if (flags & MS_NOSUID)  node->flags |= MOUNT_FLAG_NOSUID;
+        if (flags & MS_NODEV)   node->flags |= MOUNT_FLAG_NODEV;
+        if (flags & MS_NOEXEC)  node->flags |= MOUNT_FLAG_NOEXEC;
+        vfs_close(node);
+        return EOK;
+    }
+
+    /* Handle MS_MOVE: move an existing mount to a new location */
+    if (flags & MS_MOVE) {
+        vfs_close(node);
+        return -ENOSYS; /* not yet supported */
+    }
+
+    /* Perform the mount */
+    int ret;
+    if (fst[0]) {
+        ret = vfs_mount_fs(fst, src[0] ? src : NULL, node);
+    } else {
+        ret = vfs_mount(src[0] ? src : NULL, node);
+    }
+
+    if (ret != EOK) {
+        vfs_close(node);
+        return ret;
+    }
+
+    /* Apply mount flags to the mount point node */
+    node->flags &= ~(MOUNT_FLAG_RDONLY | MOUNT_FLAG_NOSUID |
+                     MOUNT_FLAG_NODEV | MOUNT_FLAG_NOEXEC);
+    if (flags & MS_RDONLY)  node->flags |= MOUNT_FLAG_RDONLY;
+    if (flags & MS_NOSUID)  node->flags |= MOUNT_FLAG_NOSUID;
+    if (flags & MS_NODEV)   node->flags |= MOUNT_FLAG_NODEV;
+    if (flags & MS_NOEXEC)  node->flags |= MOUNT_FLAG_NOEXEC;
+
+    /* Mark the node as a mount point (if not already) */
+    node->is_mount = 1;
+
+    vfs_close(node);
+
+    /* MS_REC: recursive — ignored for non-bind mounts */
+    (void)(flags & MS_REC);
+
+    return EOK;
+}
+
+static int64_t sys_umount2(uint64_t target, uint64_t flags, uint64_t arg2,
+                           uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+
+    char tgt[SYSCALL_PATH_MAX] = {0};
+
+    if (!target) return -EFAULT;
+    if (strncpy_from_user(tgt, (const char *)target, sizeof(tgt)) < 0) return -EFAULT;
+
+    /* MNT_FORCE: force unmount even if busy (not fully supported) */
+    /* MNT_DETACH: lazy unmount — detach now, cleanup later (not fully supported) */
+    if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE)) return -EINVAL;
+
+    return vfs_umount(tgt);
+}
+
 /* ---------- Extended syscall stubs ---------- */
 
 static int64_t sys_stub(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -1031,7 +1347,6 @@ static int64_t sys_stub_ok(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t
 
 static int64_t sys_access_stub(uint64_t path, uint64_t mode, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)mode;
     (void)arg2;
     (void)arg3;
     (void)arg4;
@@ -1040,6 +1355,26 @@ static int64_t sys_access_stub(uint64_t path, uint64_t mode, uint64_t arg2, uint
     if (copy_path_from_user(path, name) != EOK) return -EFAULT;
     vfs_node_t node = vfs_open(name);
     if (!node) return -ENOENT;
+
+    /* R_OK=4, W_OK=2, X_OK=1, F_OK=0 */
+    if (mode & 4) { /* R_OK */
+        if (vfs_access_check(node, VFS_ACCESS_R)) {
+            vfs_close(node);
+            return -EACCES;
+        }
+    }
+    if (mode & 2) { /* W_OK */
+        if (vfs_access_check(node, VFS_ACCESS_W)) {
+            vfs_close(node);
+            return -EACCES;
+        }
+    }
+    if (mode & 1) { /* X_OK */
+        if (vfs_access_check(node, VFS_ACCESS_X)) {
+            vfs_close(node);
+            return -EACCES;
+        }
+    }
     vfs_close(node);
     return EOK;
 }
@@ -1060,6 +1395,36 @@ static int64_t sys_chdir_stub(uint64_t path, uint64_t arg1, uint64_t arg2, uint6
         return -ENOTDIR;
     }
     vfs_close(node);
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    strncpy(proc->cwd, name, sizeof(proc->cwd) - 1);
+    proc->cwd[sizeof(proc->cwd) - 1] = '\0';
+    return EOK;
+}
+
+static int64_t sys_fchdir_stub(uint64_t fd, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    process_file_t *file = process_fd_get(proc, (int)fd);
+    if (!file) return -EBADF;
+    if (!(file->node->type & file_dir)) {
+        process_file_put(file);
+        return -ENOTDIR;
+    }
+
+    /* Use the node's name as cwd */
+    strncpy(proc->cwd, file->node->name, sizeof(proc->cwd) - 1);
+    proc->cwd[sizeof(proc->cwd) - 1] = '\0';
+    process_file_put(file);
     return EOK;
 }
 
@@ -1105,19 +1470,230 @@ static int64_t sys_ftruncate_stub(uint64_t fd, uint64_t length, uint64_t arg2, u
     return EOK;
 }
 
+#define CLOCK_REALTIME          0
+#define CLOCK_MONOTONIC         1
+#define CLOCK_PROCESS_CPUTIME_ID 2
+#define CLOCK_THREAD_CPUTIME_ID  3
+#define CLOCK_MONOTONIC_RAW     4
+#define CLOCK_REALTIME_COARSE   5
+#define CLOCK_MONOTONIC_COARSE  6
+#define CLOCK_BOOTTIME          7
+#define CLOCK_REALTIME_ALARM    8
+#define CLOCK_BOOTTIME_ALARM    9
+#define CLOCK_TAI              11
+
 static int64_t sys_clock_gettime_stub(uint64_t clockid, uint64_t tp, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)clockid;
     (void)arg2;
     (void)arg3;
     (void)arg4;
     (void)arg5;
     if (!tp) return -EFAULT;
-    linux_timespec_t ts = {
-        .tv_sec  = (int64_t)(sched_ticks() / 100),
-        .tv_nsec = (int64_t)((sched_ticks() % 100) * 10000000LL),
-    };
+
+    uint64_t ticks = sched_ticks();
+    linux_timespec_t ts;
+
+    switch ((int)clockid) {
+        case CLOCK_REALTIME:
+        case CLOCK_REALTIME_COARSE:
+        case CLOCK_REALTIME_ALARM:
+            /* Wall clock time since epoch */
+            ts.tv_sec  = (int64_t)(ticks / 100);
+            ts.tv_nsec = (int64_t)((ticks % 100) * 10000000LL);
+            break;
+        case CLOCK_MONOTONIC:
+        case CLOCK_MONOTONIC_RAW:
+        case CLOCK_MONOTONIC_COARSE:
+        case CLOCK_BOOTTIME:
+        case CLOCK_BOOTTIME_ALARM:
+            /* Monotonic time since boot */
+            ts.tv_sec  = (int64_t)(ticks / 100);
+            ts.tv_nsec = (int64_t)((ticks % 100) * 10000000LL);
+            break;
+        case CLOCK_PROCESS_CPUTIME_ID:
+        case CLOCK_THREAD_CPUTIME_ID:
+            /* CPU time - approximate with elapsed time */
+            ts.tv_sec  = (int64_t)(ticks / 100);
+            ts.tv_nsec = (int64_t)((ticks % 100) * 10000000LL);
+            break;
+        case CLOCK_TAI:
+            ts.tv_sec  = (int64_t)(ticks / 100);
+            ts.tv_nsec = (int64_t)((ticks % 100) * 10000000LL);
+            break;
+        default:
+            return -EINVAL;
+    }
+
     return copy_to_user((void *)tp, &ts, sizeof(ts)) ? -EFAULT : EOK;
+}
+
+/* ---------- sysinfo ---------- */
+
+struct linux_sysinfo {
+    int64_t uptime;
+    uint64_t loads[3];
+    uint64_t totalram;
+    uint64_t freeram;
+    uint64_t sharedram;
+    uint64_t bufferram;
+    uint64_t totalswap;
+    uint64_t freeswap;
+    uint16_t procs;
+    uint16_t pad;
+    uint64_t totalhigh;
+    uint64_t freehigh;
+    uint32_t mem_unit;
+    char _f[20-2*sizeof(uint64_t)-sizeof(uint32_t)];
+};
+
+/* ---------- statfs ---------- */
+
+struct linux_statfs {
+    int64_t  f_type;
+    int64_t  f_bsize;
+    uint64_t f_blocks;
+    uint64_t f_bfree;
+    uint64_t f_bavail;
+    uint64_t f_files;
+    uint64_t f_ffree;
+    uint64_t f_fsid;
+    int64_t  f_namelen;
+    int64_t  f_frsize;
+    int64_t  f_flags;
+    int64_t  f_spare[4];
+};
+
+#define TMPFS_MAGIC 0x01021994
+
+/* ---------- personality ---------- */
+
+#define PER_LINUX 0x0000
+
+/* ---------- getrusage ---------- */
+
+struct linux_rusage {
+    uint64_t ru_utime_sec;
+    uint64_t ru_utime_usec;
+    uint64_t ru_stime_sec;
+    uint64_t ru_stime_usec;
+    int64_t  ru_maxrss;
+    int64_t  ru_ixrss;
+    int64_t  ru_idrss;
+    int64_t  ru_isrss;
+    int64_t  ru_minflt;
+    int64_t  ru_majflt;
+    int64_t  ru_nswap;
+    int64_t  ru_inblock;
+    int64_t  ru_oublock;
+    int64_t  ru_msgsnd;
+    int64_t  ru_msgrcv;
+    int64_t  ru_nsignals;
+    int64_t  ru_nvcsw;
+    int64_t  ru_nivcsw;
+};
+
+#define RUSAGE_SELF     0
+#define RUSAGE_CHILDREN -1
+
+static int64_t sys_getrusage_impl(uint64_t who, uint64_t usage, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    if (!usage) return -EFAULT;
+    if ((int)who != RUSAGE_SELF && (int)who != RUSAGE_CHILDREN) return -EINVAL;
+
+    struct linux_rusage ru;
+    memset(&ru, 0, sizeof(ru));
+    /* Return some approximate usage values */
+    uint64_t ticks = sched_ticks();
+    ru.ru_utime_sec  = ticks / 100;
+    ru.ru_utime_usec = (ticks % 100) * 10000;
+    ru.ru_minflt     = 0;
+    ru.ru_majflt     = 0;
+
+    if (copy_to_user((void *)usage, &ru, sizeof(ru))) return -EFAULT;
+    return 0;
+}
+
+/* ---------- restart_syscall ---------- */
+
+static int64_t sys_restart_syscall(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg0;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    /* restart_syscall is used by the signal handling path to restart
+     * interrupted syscalls. For now return -EINTR since we don't
+     * support full syscall restart machinery. */
+    return -EINTR;
+}
+
+static int64_t sys_personality_impl(uint64_t persona, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    /* If persona != 0xffffffff, set it; always return current personality */
+    if ((unsigned int)persona != 0xffffffff) {
+        /* Setting personality is not supported, just ignore */
+    }
+    return PER_LINUX;
+}
+
+static int64_t sys_statfs_impl(uint64_t path_or_fd, uint64_t buf, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)path_or_fd;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    if (!buf) return -EFAULT;
+
+    struct linux_statfs sf;
+    memset(&sf, 0, sizeof(sf));
+    sf.f_type    = TMPFS_MAGIC;
+    sf.f_bsize   = 4096;
+    sf.f_blocks  = 65536;
+    sf.f_bfree   = 32768;
+    sf.f_bavail  = 32768;
+    sf.f_files   = 0;
+    sf.f_ffree   = 0;
+    sf.f_namelen = 255;
+    sf.f_frsize  = 4096;
+
+    if (copy_to_user((void *)buf, &sf, sizeof(sf))) return -EFAULT;
+    return 0;
+}
+
+static int64_t sys_sysinfo_impl(uint64_t info, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    if (!info) return -EFAULT;
+
+    struct linux_sysinfo si;
+    memset(&si, 0, sizeof(si));
+    si.uptime   = (int64_t)(sched_ticks() / 100);
+    si.procs    = 1;
+    si.mem_unit = 1;
+    /* Report a generous amount of RAM: 256MB */
+    si.totalram = 256 * 1024 * 1024;
+    si.freeram  = 128 * 1024 * 1024;
+    si.totalswap = 0;
+    si.freeswap  = 0;
+
+    if (copy_to_user((void *)info, &si, sizeof(si))) return -EFAULT;
+    return 0;
 }
 
 static int64_t sys_clock_getres_stub(uint64_t clockid, uint64_t res, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -1260,13 +1836,20 @@ static int64_t sys_tkill_stub(uint64_t tid, uint64_t sig, uint64_t arg2, uint64_
 
 static int64_t sys_set_tid_address_stub(uint64_t tidptr, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)tidptr;
     (void)arg1;
     (void)arg2;
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    return (int64_t)sys_getpid(0, 0, 0, 0, 0, 0);
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    /* Store the clear_child_tid pointer for use on thread exit */
+    proc->clear_child_tid = (int32_t)(tidptr & 0xFFFFFFFF);
+
+    task_t *task = current_task();
+    return task ? (int64_t)task->pid : -ESRCH;
 }
 
 static int64_t sys_sched_get_priority_max_stub(uint64_t policy, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -1378,6 +1961,43 @@ static int64_t sys_pread64_stub(uint64_t fd, uint64_t buf, uint64_t count, uint6
         if (copy_to_user((void *)(buf + done), tmp, ret)) {
             process_file_put(file);
             return -EFAULT;
+        }
+        done += ret;
+        if (ret < chunk) break;
+    }
+    process_file_put(file);
+    return (int64_t)done;
+}
+
+static int64_t sys_pwrite64_impl(uint64_t fd, uint64_t buf, uint64_t count, uint64_t offset, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg4;
+    (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    if (!buf && count) return -EFAULT;
+
+    process_file_t *file = process_fd_get(proc, (int)fd);
+    if (!file) return -EBADF;
+
+    /* Check for read-only mount */
+    if (vfs_mount_is_readonly(file->node)) {
+        process_file_put(file);
+        return -EROFS;
+    }
+
+    uint8_t tmp[SYSCALL_IO_CHUNK];
+    size_t  done = 0;
+    while (done < count) {
+        size_t chunk = (count - done) < sizeof(tmp) ? (count - done) : sizeof(tmp);
+        if (copy_from_user(tmp, (const void *)(buf + done), chunk)) {
+            process_file_put(file);
+            return done ? (int64_t)done : -EFAULT;
+        }
+        size_t ret = vfs_write(file->node, tmp, offset + done, chunk);
+        if (ret == (size_t)-1) {
+            process_file_put(file);
+            return done ? (int64_t)done : -EIO;
         }
         done += ret;
         if (ret < chunk) break;
@@ -2128,7 +2748,62 @@ static int64_t sys_epoll_pwait_wrap(uint64_t epfd, uint64_t events, uint64_t max
     return sys_epoll_pwait((int)epfd, (epoll_event_t *)events, (int)maxevents, (int)timeout, (const void *)sigmask, (size_t)sigsetsize);
 }
 
-/* ---------- execve ---------- */
+/* ---------- waitid wrapper ---------- */
+
+#define P_PID  1
+#define P_PGID 2
+#define P_ALL  3
+#define WEXITED    0x00000004
+#define WNOHANG    0x00000001
+
+static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, uint64_t options, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg4;
+    (void)arg5;
+
+    pid_t pid;
+    int   flags = (int)options;
+
+    switch ((int)which) {
+        case P_PID:
+            if (copy_from_user(&pid, (const void *)upid, sizeof(pid))) return -EFAULT;
+            break;
+        case P_PGID:
+        case P_ALL:
+            pid = -1; /* Wait for any child */
+            break;
+        default:
+            return -EINVAL;
+    }
+
+    /* For now, delegate to wait4 and ignore siginfo_t output */
+    int   status = 0;
+    int64_t ret;
+
+    if (flags & WNOHANG) {
+        process_t *child = process_find(pid);
+        process_t *proc  = process_current();
+        if (!child || !proc || child->parent != proc) return -ECHILD;
+        if (child->task->state != TASK_ZOMBIE) return 0;
+    }
+
+    ret = (int64_t)process_wait(pid, &status);
+    if (ret) return -ECHILD;
+
+    /* Populate siginfo_t if requested */
+    if (infop) {
+        siginfo_t info;
+        memset(&info, 0, sizeof(info));
+        info.si_signo = SIGCHLD;
+        info.si_code  = CLD_EXITED;
+        info.si_pid   = pid;
+        info.si_uid   = 0;
+        info.si_status = status;
+        if (copy_to_user((void *)infop, &info, sizeof(info))) return -EFAULT;
+    }
+
+    return 0;
+}
 
 static char **copy_argv_from_user(const char *const *uargv, int *out_count)
 {
@@ -2521,7 +3196,102 @@ static int64_t sys_chroot_wrap(uint64_t path, uint64_t arg1, uint64_t arg2, uint
     return 0;
 }
 
-typedef int64_t (*syscall_fn_t)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+/* ---------- fcntl wrapper ---------- */
+
+static int64_t sys_fcntl_wrap(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_fcntl((int)fd, (int)cmd, arg);
+}
+
+/* ---------- prctl implementation ---------- */
+
+#define PR_SET_PDEATHSIG 1
+#define PR_GET_PDEATHSIG 2
+#define PR_GET_DUMPABLE  3
+#define PR_SET_DUMPABLE  4
+#define PR_GET_KEEPCAPS  7
+#define PR_SET_KEEPCAPS  8
+#define PR_SET_NAME      15
+#define PR_GET_NAME      16
+#define PR_SET_SECCOMP   22
+#define PR_GET_SECCOMP   23
+#define PR_SET_TIMERSLACK 29
+#define PR_GET_TIMERSLACK 30
+#define PR_SET_NO_NEW_PRIVS 36
+#define PR_GET_NO_NEW_PRIVS 37
+
+static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5, uint64_t arg6)
+{
+    (void)arg6;
+
+    switch ((int)option) {
+        case PR_SET_PDEATHSIG: {
+            /* arg2 is the signal to send on parent death */
+            /* For now we silently accept but don't implement the full mechanism */
+            if ((int)arg2 > 64 && (int)arg2 != 0) return -EINVAL;
+            return 0;
+        }
+        case PR_GET_PDEATHSIG: {
+            /* Return 0 (no parent death signal) */
+            if (arg2 && copy_to_user((void *)arg2, &(int){0}, sizeof(int))) return -EFAULT;
+            return 0;
+        }
+        case PR_GET_DUMPABLE: {
+            /* Return dumpable=1 */
+            if (arg2 && copy_to_user((void *)arg2, &(int){1}, sizeof(int))) return -EFAULT;
+            return 0;
+        }
+        case PR_SET_DUMPABLE: {
+            /* Accept any value */
+            return 0;
+        }
+        case PR_GET_KEEPCAPS:
+        case PR_SET_KEEPCAPS:
+            return 0;
+        case PR_SET_NAME: {
+            /* Set process name - copy up to 15 bytes */
+            if (arg2) {
+                process_t *proc = process_current();
+                if (!proc) return -ESRCH;
+                char name[16];
+                if (copy_from_user(name, (const void *)arg2, 16)) return -EFAULT;
+                name[15] = '\0';
+                strncpy(proc->name, name, sizeof(proc->name) - 1);
+            }
+            return 0;
+        }
+        case PR_GET_NAME: {
+            /* Get process name */
+            if (arg2) {
+                process_t *proc = process_current();
+                if (!proc) return -ESRCH;
+                if (copy_to_user((void *)arg2, proc->name, 16)) return -EFAULT;
+            }
+            return 0;
+        }
+        case PR_SET_SECCOMP:
+        case PR_GET_SECCOMP:
+            /* No seccomp support */
+            return -EINVAL;
+        case PR_SET_TIMERSLACK:
+        case PR_GET_TIMERSLACK: {
+            /* Return default timer slack = 50000 ns */
+            if (option == PR_GET_TIMERSLACK && arg2) {
+                uint64_t slack = 50000;
+                if (copy_to_user((void *)arg2, &slack, sizeof(slack))) return -EFAULT;
+            }
+            return 0;
+        }
+        case PR_SET_NO_NEW_PRIVS:
+        case PR_GET_NO_NEW_PRIVS:
+            return 0;
+        default:
+            return -EINVAL;
+    }
+}
 
 static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_READ]                   = sys_read,
@@ -2542,7 +3312,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_RT_SIGRETURN]           = sys_rt_sigreturn_wrap,
     [SYS_IOCTL]                  = sys_ioctl,
     [SYS_PREAD64]                = sys_pread64_stub,
-    [SYS_PWRITE64]               = sys_stub,
+    [SYS_PWRITE64]               = sys_pwrite64_impl,
     [SYS_READV]                  = sys_readv_wrap,
     [SYS_WRITEV]                 = sys_writev_wrap,
     [SYS_ACCESS]                 = sys_access_stub,
@@ -2596,16 +3366,16 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_MSGSND]                 = sys_msgsnd_wrap,
     [SYS_MSGRCV]                 = sys_msgrcv_wrap,
     [SYS_MSGCTL]                 = sys_msgctl_wrap,
-    [SYS_FCNTL]                  = sys_stub_ok,
+    [SYS_FCNTL]                  = sys_fcntl_wrap,
     [SYS_FLOCK]                  = sys_stub_ok,
     [SYS_FSYNC]                  = sys_stub_ok,
     [SYS_FDATASYNC]              = sys_stub_ok,
     [SYS_TRUNCATE]               = sys_truncate_stub,
     [SYS_FTRUNCATE]              = sys_ftruncate_stub,
-    [SYS_GETDENTS]               = sys_stub,
+    [SYS_GETDENTS]               = sys_getdents64_wrap,
     [SYS_GETCWD]                 = sys_getcwd,
     [SYS_CHDIR]                  = sys_chdir_stub,
-    [SYS_FCHDIR]                 = sys_chdir_stub,
+    [SYS_FCHDIR]                 = sys_fchdir_stub,
     [SYS_RENAME]                 = sys_rename,
     [SYS_MKDIR]                  = sys_mkdir,
     [SYS_RMDIR]                  = sys_unlink,
@@ -2622,8 +3392,8 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_UMASK]                  = sys_umask_stub,
     [SYS_GETTIMEOFDAY]           = sys_gettimeofday,
     [SYS_GETRLIMIT]              = sys_getrlimit_stub,
-    [SYS_GETRUSAGE]              = sys_stub_ok,
-    [SYS_SYSINFO]                = sys_stub_ok,
+    [SYS_GETRUSAGE]              = sys_getrusage_impl,
+    [SYS_SYSINFO]                = sys_sysinfo_impl,
     [SYS_TIMES]                  = sys_times_stub,
     [SYS_PTRACE]                 = sys_stub,
     [SYS_GETUID]                 = sys_getuid,
@@ -2659,10 +3429,10 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_UTIME]                  = sys_stub_ok,
     [SYS_MKNOD]                  = sys_stub,
     [SYS_USELIB]                 = sys_stub,
-    [SYS_PERSONALITY]            = sys_stub,
+    [SYS_PERSONALITY]            = sys_personality_impl,
     [SYS_USTAT]                  = sys_stub,
-    [SYS_STATFS]                 = sys_stub_ok,
-    [SYS_FSTATFS]                = sys_stub_ok,
+    [SYS_STATFS]                 = sys_statfs_impl,
+    [SYS_FSTATFS]                = sys_statfs_impl,
     [SYS_SYSFS]                  = sys_stub,
     [SYS_GETPRIORITY]            = sys_stub_ok,
     [SYS_SETPRIORITY]            = sys_stub_ok,
@@ -2681,7 +3451,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_MODIFY_LDT]             = sys_stub,
     [SYS_PIVOT_ROOT]             = sys_stub,
     [SYS__SYSCTL]                = sys_stub,
-    [SYS_PRCTL]                  = sys_stub_ok,
+    [SYS_PRCTL]                  = sys_prctl_impl,
     [SYS_ARCH_PRCTL]             = sys_arch_prctl,
     [SYS_ADJTIMEX]               = sys_stub,
     [SYS_SETRLIMIT]              = sys_stub_ok,
@@ -2689,8 +3459,8 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_SYNC]                   = sys_sync_stub,
     [SYS_ACCT]                   = sys_stub,
     [SYS_SETTIMEOFDAY]           = sys_stub,
-    [SYS_MOUNT]                  = sys_stub,
-    [SYS_UMOUNT2]                = sys_stub,
+    [SYS_MOUNT]                  = sys_mount,
+    [SYS_UMOUNT2]                = sys_umount2,
     [SYS_SWAPON]                 = sys_stub,
     [SYS_SWAPOFF]                = sys_stub,
     [SYS_REBOOT]                 = sys_stub,
@@ -2743,7 +3513,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_REMAP_FILE_PAGES]       = sys_stub,
     [SYS_GETDENTS64]             = sys_getdents64_wrap,
     [SYS_SET_TID_ADDRESS]        = sys_set_tid_address_stub,
-    [SYS_RESTART_SYSCALL]        = sys_stub,
+    [SYS_RESTART_SYSCALL]        = sys_restart_syscall,
     [SYS_SEMTIMEDOP]             = sys_semtimedop_wrap,
     [SYS_FADVISE64]              = sys_fadvise64_stub,
     [SYS_TIMER_CREATE]           = sys_stub,
@@ -2771,7 +3541,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_MQ_NOTIFY]              = sys_mq_notify_wrap,
     [SYS_MQ_GETSETATTR]          = sys_mq_getsetattr_wrap,
     [SYS_KEXEC_LOAD]             = sys_stub,
-    [SYS_WAITID]                 = sys_stub,
+    [SYS_WAITID]                 = sys_waitid_impl,
     [SYS_ADD_KEY]                = sys_stub,
     [SYS_REQUEST_KEY]            = sys_stub,
     [SYS_KEYCTL]                 = sys_stub,

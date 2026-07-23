@@ -142,6 +142,7 @@ vfs_node_t vfs_open(const char *str);
 
 #define VFS_ACCESS_R 4
 #define VFS_ACCESS_W 2
+#define VFS_ACCESS_X 1
 
 /* Check file access permissions against the current process */
 int vfs_access_check(vfs_node_t node, uint32_t access_mask);

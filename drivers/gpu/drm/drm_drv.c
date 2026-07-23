@@ -11,6 +11,7 @@
 #include <drivers/drm/drm_device.h>
 #include <drivers/drm/drm_hashtab.h>
 #include <drivers/drm/drm_print.h>
+#include <kernel/device.h>
 #include <kernel/errno.h>
 #include <libs/glist/intrusive_list.h>
 #include <libs/std/stdbool.h>
@@ -19,6 +20,10 @@
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <sync/spin_lock.h>
+
+/* Forward: DRM class (registered once by drm_init) */
+extern struct class drm_class;
+extern int drm_class_registered;
 
 /* ------------------------------------------------------------------ */
 /* drm_master — full definition (forward-declared in drm_device.h)    */
@@ -132,6 +137,17 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
 
     DRM_INFO("Initialized %s %d.%d.%d %s\n", dev->driver->name, dev->driver->major, dev->driver->minor, dev->driver->patchlevel,
              dev->driver->date);
+
+    /* Register under /sys/class/drm/ (one entry per GPU) */
+    if (drm_class_registered && dev->primary) {
+        struct device *ddev = device_create(&drm_class, NULL,
+                              MKDEV(226, dev->primary->index),
+                              dev, "card%d", dev->primary->index);
+        if (ddev) {
+            DRM_INFO("Created /sys/class/drm/%s\n",
+                     kobject_name(&ddev->kobj));
+        }
+    }
 
     return 0;
 }
