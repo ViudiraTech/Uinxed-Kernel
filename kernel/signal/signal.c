@@ -586,6 +586,8 @@ int64_t sys_kill_impl(int64_t pid, int sig)
         process_t *proc = process_find(pid);
         if (!proc) return -ESRCH;
 
+        if (signal_check_perm(process_current(), proc) < 0) return -EPERM;
+
         siginfo_t info;
         memset(&info, 0, sizeof(info));
         info.si_signo = sig;
@@ -659,6 +661,8 @@ int64_t sys_kill_impl(int64_t pid, int sig)
 
         while ((target = process_iterate(&pos))) {
             if (target->pgid == pgid) {
+                if (signal_check_perm(cur, target) < 0) continue;
+
                 siginfo_t info;
                 memset(&info, 0, sizeof(info));
                 info.si_signo = sig;
