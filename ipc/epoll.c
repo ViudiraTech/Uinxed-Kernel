@@ -684,11 +684,32 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
 
 int64_t sys_epoll_pwait(int epfd, epoll_event_t *events, int maxevents, int timeout, const void *sigmask, size_t sigsetsize)
 {
-    // Todo: Implement signal mask handling for epoll_pwait.
-    (void)sigmask;
-    (void)sigsetsize;
+    process_t      *proc = process_current();
+    signal_state_t *sig  = &proc->signal;
+    sigset_t        old_blocked;
 
-    return sys_epoll_wait(epfd, events, maxevents, timeout);
+    if (sigmask && sigsetsize >= sizeof(sigset_t)) {
+        sigset_t new_blocked;
+        if (copy_from_user(&new_blocked, sigmask, sizeof(sigset_t))) return -EFAULT;
+
+        sigdelset(&new_blocked, SIGKILL);
+        sigdelset(&new_blocked, SIGSTOP);
+
+        spin_lock(&sig->lock);
+        old_blocked = sig->blocked;
+        sig->blocked = new_blocked;
+        spin_unlock(&sig->lock);
+    }
+
+    int64_t ret = sys_epoll_wait(epfd, events, maxevents, timeout);
+
+    if (sigmask && sigsetsize >= sizeof(sigset_t)) {
+        spin_lock(&sig->lock);
+        sig->blocked = old_blocked;
+        spin_unlock(&sig->lock);
+    }
+
+    return ret;
 }
 
 /* ------------------------------------------------------------------ */

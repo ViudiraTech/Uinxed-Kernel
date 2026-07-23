@@ -51,6 +51,7 @@ int blockdev_register_type(blockdev_ops_t ops);
 
 /* Open an IDE disk (drive 0-3) */
 int blockdev_open_ide(uint8_t drive, blockdev_device_t *device);
+<<<<<<< HEAD
 
 /* Open an NVMe namespace. `ns` is an opaque pointer to an nvme_namespace_t. */
 int blockdev_open_nvme(void *ns, blockdev_device_t *device);
@@ -77,5 +78,13 @@ int blockdev_read_bytes(const blockdev_device_t *device, uint64_t offset,
 /* Byte-granularity write (read-modify-write for partial sectors) */
 int blockdev_write_bytes(const blockdev_device_t *device, uint64_t offset,
                           const void *buffer, size_t size);
+=======
+int blockdev_open_atapi(uint8_t drive, blockdev_device_t *device);
+int blockdev_open_partition(const blockdev_device_t *parent, uint32_t first_lba, uint32_t sector_count, blockdev_device_t *device);
+int blockdev_read_sectors(const blockdev_device_t *device, uint32_t lba, uint32_t count, void *buffer);
+int blockdev_write_sectors(const blockdev_device_t *device, uint32_t lba, uint32_t count, const void *buffer);
+int blockdev_read_bytes(const blockdev_device_t *device, uint64_t offset, void *buffer, size_t size);
+int blockdev_write_bytes(const blockdev_device_t *device, uint64_t offset, const void *buffer, size_t size);
+>>>>>>> 2ac679cce3884f3b51bb89387aadc35ab7be6445
 
 #endif // INCLUDE_BLOCKDEV_H_

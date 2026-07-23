@@ -17,6 +17,65 @@
 #include <proc/sched.h>
 #include <proc/task.h>
 
+#define PID_HASH_BITS  8
+#define PID_HASH_SIZE  (1 << PID_HASH_BITS)
+#define PID_HASH_MASK  (PID_HASH_SIZE - 1)
+
+typedef struct pid_entry {
+        task_t            *task;
+        struct pid_entry  *next;
+} pid_entry_t;
+
+static pid_entry_t *pid_hash[PID_HASH_SIZE] = {NULL};
+
+static uint32_t pid_hash_index(uint64_t pid)
+{
+    return (uint32_t)(pid & PID_HASH_MASK);
+}
+
+/*
+ * Register a task for PID-based lookup.
+ */
+static void pid_hash_add(task_t *task)
+{
+    uint32_t idx = pid_hash_index(task->pid);
+    pid_entry_t *entry = malloc(sizeof(pid_entry_t));
+    if (!entry) return;
+    entry->task = task;
+    entry->next = pid_hash[idx];
+    pid_hash[idx] = entry;
+}
+
+/*
+ * Remove a task from the PID hash table.
+ */
+static void pid_hash_remove(task_t *task)
+{
+    uint32_t idx = pid_hash_index(task->pid);
+    pid_entry_t **indirect = &pid_hash[idx];
+    while (*indirect) {
+        pid_entry_t *cur = *indirect;
+        if (cur->task == task) {
+            *indirect = cur->next;
+            free(cur);
+            return;
+        }
+        indirect = &cur->next;
+    }
+}
+
+/*
+ * Find a task by PID.
+ */
+task_t *pid_find_task(uint64_t pid)
+{
+    uint32_t idx = pid_hash_index(pid);
+    for (pid_entry_t *entry = pid_hash[idx]; entry; entry = entry->next) {
+        if (entry->task->pid == pid) return entry->task;
+    }
+    return NULL;
+}
+
 typedef struct {
         kthread_entry_t entry;
         void           *arg;
@@ -73,16 +132,21 @@ task_t *task_alloc(const char *name)
     task->cpu_id         = 0;
     task->process        = NULL;
     task->weight         = SCHED_NICE_0_LOAD;
+    task->base_weight     = SCHED_NICE_0_LOAD;
+    task->pi_weight       = SCHED_NICE_0_LOAD;
+    task->blocked_on      = NULL;
     task->thread.fs_base = 0;
     task->thread.gs_base = 0;
     task_name_copy(task, name);
     ilist_init(&task->sched_node);
+    pid_hash_add(task);
     return task;
 }
 
 void task_free(task_t *task)
 {
     if (!task) return;
+    pid_hash_remove(task);
     free(task->kernel_stack);
     free(task);
 }

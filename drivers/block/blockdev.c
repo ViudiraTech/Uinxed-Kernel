@@ -9,6 +9,7 @@
  *
  */
 
+#include <drivers/atapi.h>
 #include <drivers/blockdev.h>
 #include <drivers/ide.h>
 #include <drivers/nvme.h>
@@ -175,6 +176,20 @@ int blockdev_open_nvme(void *ns, blockdev_device_t *device)
 
 int blockdev_open_partition(const blockdev_device_t *parent, uint32_t first_lba,
                              uint32_t sector_count, blockdev_device_t *device)
+int blockdev_open_atapi(uint8_t drive, blockdev_device_t *device)
+{
+    if (!device) return -EINVAL;
+    if (drive > 3 || !atapi_devices[drive].reserved) return -ENODEV;
+    if (atapi_devices[drive].type != IDE_ATAPI) return -ENOSYS;
+
+    device->drive        = drive;
+    device->sector_size  = atapi_devices[drive].blk_size;
+    device->base_lba     = 0;
+    device->sector_count = atapi_devices[drive].lba_size;
+    return EOK;
+}
+
+int blockdev_open_partition(const blockdev_device_t *parent, uint32_t first_lba, uint32_t sector_count, blockdev_device_t *device)
 {
     if (!parent || !device) return -EINVAL;
     if (!sector_count) return -EINVAL;
