@@ -8,6 +8,7 @@
  *
  */
 
+#include <drivers/atapi.h>
 #include <drivers/blockdev.h>
 #include <drivers/ide.h>
 #include <kernel/errno.h>
@@ -25,6 +26,19 @@ int blockdev_open_ide(uint8_t drive, blockdev_device_t *device)
     device->sector_size  = BLOCKDEV_SECTOR_SIZE;
     device->base_lba     = 0;
     device->sector_count = ide_devices[drive].size;
+    return EOK;
+}
+
+int blockdev_open_atapi(uint8_t drive, blockdev_device_t *device)
+{
+    if (!device) return -EINVAL;
+    if (drive > 3 || !atapi_devices[drive].reserved) return -ENODEV;
+    if (atapi_devices[drive].type != IDE_ATAPI) return -ENOSYS;
+
+    device->drive        = drive;
+    device->sector_size  = atapi_devices[drive].blk_size;
+    device->base_lba     = 0;
+    device->sector_count = atapi_devices[drive].lba_size;
     return EOK;
 }
 

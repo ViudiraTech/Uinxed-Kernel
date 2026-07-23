@@ -8,6 +8,7 @@
  *
  */
 
+#include <drivers/atapi.h>
 #include <drivers/blockdev.h>
 #include <drivers/drm/drm_init.h>
 #include <drivers/evdev.h>
@@ -39,11 +40,6 @@ typedef struct mbr_sector {
         uint16_t              signature;
 } __attribute__((packed)) mbr_sector_t;
 
-static char devtmpfs_drive_letter(uint8_t drive)
-{
-    return (char)('a' + drive);
-}
-
 static int devtmpfs_scan_mbr(uint8_t drive, mbr_partition_entry_t parts[4])
 {
     blockdev_device_t device;
@@ -60,13 +56,13 @@ static int devtmpfs_scan_mbr(uint8_t drive, mbr_partition_entry_t parts[4])
     return EOK;
 }
 
-static void devtmpfs_create_block_node(uint8_t drive)
+static void devtmpfs_create_block_node(uint8_t drive, uint8_t letter_idx)
 {
     char       dev_path[] = "/dev/hda";
     vfs_node_t node;
     int        status;
 
-    dev_path[7] = devtmpfs_drive_letter(drive);
+    dev_path[7] = (char)('a' + letter_idx);
     status      = vfs_mkfile(dev_path);
     if (status != EOK && status != -EEXIST) {
         plogk("devtmpfs: Cannot create %s: %d\n", dev_path, status);
@@ -85,15 +81,16 @@ static void devtmpfs_create_block_node(uint8_t drive)
     node->rdev  = drive;
     node->size  = (uint64_t)ide_devices[drive].size * 512;
     plogk("devtmpfs: Registered %s as block device.\n", dev_path);
+    vfs_close(node);
 }
 
-static void devtmpfs_create_partition_node(uint8_t drive, uint8_t part_index, const mbr_partition_entry_t *part)
+static void devtmpfs_create_partition_node(uint8_t drive, uint8_t letter_idx, uint8_t part_index, const mbr_partition_entry_t *part)
 {
     char       dev_path[] = "/dev/hda1";
     vfs_node_t node;
     int        status;
 
-    dev_path[7] = devtmpfs_drive_letter(drive);
+    dev_path[7] = (char)('a' + letter_idx);
     dev_path[8] = (char)('1' + part_index);
     status      = vfs_mkfile(dev_path);
     if (status != EOK && status != -EEXIST) {
@@ -113,6 +110,7 @@ static void devtmpfs_create_partition_node(uint8_t drive, uint8_t part_index, co
     node->rdev  = ((uint64_t)drive << 8) | (part_index + 1);
     node->size  = (uint64_t)part->sectors * 512;
     plogk("devtmpfs: Registered %s for partition type 0x%02x, start %u, sectors %u\n", dev_path, part->type, part->first_lba, part->sectors);
+    vfs_close(node);
 }
 
 /* ---- evdev ioctl wrapper for PS/2 keyboard ---- */
@@ -399,19 +397,51 @@ void devtmpfs_init(void)
         return;
     }
 
+    uint8_t ata_idx = 0;
     for (uint8_t drive = 0; drive < 4; drive++) {
         mbr_partition_entry_t parts[4] = {0};
 
         if (!ide_devices[drive].reserved || ide_devices[drive].type != IDE_ATA) continue;
 
-        devtmpfs_create_block_node(drive);
+        devtmpfs_create_block_node(drive, ata_idx);
 
         if (devtmpfs_scan_mbr(drive, parts) == EOK) {
             for (uint8_t part = 0; part < 4; part++) {
                 if (!parts[part].type || !parts[part].sectors) continue;
-                devtmpfs_create_partition_node(drive, part, &parts[part]);
+                devtmpfs_create_partition_node(drive, ata_idx, part, &parts[part]);
             }
         }
+        ata_idx++;
+    }
+
+    /* Register ATAPI devices (CD/DVD-ROM) */
+    for (uint8_t drive = 0, idx = 0; drive < 4; drive++) {
+        char       dev_path[] = "/dev/sr0";
+        vfs_node_t node;
+        int        status;
+
+        if (!atapi_devices[drive].reserved || atapi_devices[drive].type != IDE_ATAPI) continue;
+
+        dev_path[7] = (char)('0' + idx++);
+        status      = vfs_mkfile(dev_path);
+        if (status != EOK && status != -EEXIST) {
+            plogk("devtmpfs: Cannot create %s: %d\n", dev_path, status);
+            continue;
+        }
+
+        node = vfs_open(dev_path);
+        if (!node) {
+            plogk("devtmpfs: Cannot open %s after creation.\n", dev_path);
+            continue;
+        }
+
+        node->type  = file_block;
+        node->blksz = atapi_devices[drive].blk_size;
+        node->dev   = drive;
+        node->rdev  = drive;
+        node->size  = (uint64_t)atapi_devices[drive].lba_size * atapi_devices[drive].blk_size;
+        plogk("devtmpfs: Registered %s as ATAPI block device.\n", dev_path);
+        vfs_close(node);
     }
 
     devtmpfs_create_input_event_node();
