@@ -190,9 +190,9 @@ void kernel_entry(void)
 
         /* --- Mount sysfs early so drivers can register with device model --- */
 #if CONFIG_SYSFS
-    sysfs_regist();      /* Register sysfs with the VFS layer */
-    sysfs_init();        /* Mount sysfs at /sys and create top-level directories */
-    device_model_init(); /* Initialise the device model (bus/class/device) */
+    sysfs_regist();      // Register sysfs with the VFS layer
+    sysfs_init();        // Mount sysfs at /sys and create top-level directories
+    device_model_init(); // Initialise the device model (bus/class/device)
 #endif
 
     init_cpio();     // Copy In, Copy Out
@@ -201,15 +201,14 @@ void kernel_entry(void)
 
     /* --- Register devices with sysfs (after device model is up) --- */
 #if CONFIG_SYSFS
-    ksysfs_init();      /* /sys/kernel/{version,cmdline,hostname,...} */
-    pci_sysfs_init();   /* /sys/bus/pci/ + /sys/devices/pci* */
-    block_sysfs_init(); /* /sys/block/{hdX,sdX,nvme*} */
-    tty_sysfs_init();   /* /sys/class/tty/ */
+    ksysfs_init();      // /sys/kernel/{version,cmdline,hostname,...}
+    pci_sysfs_init();   // /sys/bus/pci/ + /sys/devices/pci*
+    block_sysfs_init(); // /sys/block/{hdX,sdX,nvme*}
+    tty_sysfs_init();   // /sys/class/tty/
 #endif
 
     /* --- Netlink (must be before socket_init) --- */
-    netlink_init(); // AF_NETLINK socket family
-
+    netlink_init();    // AF_NETLINK socket family
     drm_init();        // Direct Rendering Manager
     virtio_gpu_init(); // VirtIO GPU driver (if present on PCI bus)
 
@@ -223,7 +222,6 @@ void kernel_entry(void)
     }
 
     sched_init();    // Preemptive Scheduler
-                     // <-- [now running as swapper/0]
     process_init();  // Process Management
     eventfd_init();  // Event File Descriptor
     timerfd_init();  // Timer File Descriptor

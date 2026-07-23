@@ -322,7 +322,7 @@ void sb16_init(void)
         sb16_dev.dma8  = 1;
         sb16_dev.dma16 = 5;
         if (sb16_dsp_reset(&sb16_dev)) {
-            plogk("sb16: No SB16 card found.\n");
+            plogk("sb16: No Sound Blaster 16 card found.\n");
             return;
         }
         uint8_t major = 0, minor = 0;
@@ -344,7 +344,8 @@ void sb16_init(void)
     sb16_set_dac_volume(&sb16_dev, sb16_dev.volume_left, sb16_dev.volume_right);
     sb16_mixer_write(&sb16_dev, SB16_MIXER_OUT_SRC, SB16_MIXER_SRC_DAC);
 
-    plogk("sb16: SB16 initialized at port 0x%x, IRQ %u, DMA8 %u, DMA16 %u\n", sb16_dev.base, sb16_dev.irq, sb16_dev.dma8, sb16_dev.dma16);
+    plogk("sb16: Sound Blaster 16 initialized at port 0x%x, IRQ %u, DMA8 %u, DMA16 %u\n", sb16_dev.base, sb16_dev.irq, sb16_dev.dma8,
+          sb16_dev.dma16);
 
     sb16_dev.dma_buffer_size = 65536;
     uint64_t frame           = alloc_frames(ALIGN_UP(sb16_dev.dma_buffer_size, PAGE_4K_SIZE) / PAGE_4K_SIZE);

@@ -593,7 +593,7 @@ static int hda_parse_widgets(struct hda_codec *codec)
         uint32_t ftype = hda_get_param(codec->addr, nid, AC_PAR_FUNCTION_TYPE);
         if (ftype == AC_GRP_AUDIO_FUNCTION) {
             codec->afg_nid = nid;
-            plogk("hda:   AFG at nid=%u\n", nid);
+            plogk("hda: AFG at nid=%u\n", nid);
         }
     }
 
@@ -655,7 +655,7 @@ static int hda_parse_widgets(struct hda_codec *codec)
         }
     }
 
-    plogk("hda:   %d widgets, DAC=%d PIN=%d\n", count, codec->dac_nid, codec->pin_nid);
+    plogk("hda: %d widgets, DAC=%d PIN=%d\n", count, codec->dac_nid, codec->pin_nid);
     return 0;
 }
 
@@ -665,7 +665,7 @@ static int hda_parse_widgets(struct hda_codec *codec)
 static void hda_config_codec(struct hda_codec *codec)
 {
     if (codec->dac_nid < 0) {
-        plogk("hda:   codec #%d has no DAC, skipping\n", codec->addr);
+        plogk("hda: codec #%d has no DAC, skipping.\n", codec->addr);
         return;
     }
 
@@ -735,7 +735,7 @@ routed:;
         hda_set_verb(addr, (uint16_t)codec->dac_nid, AC_VERB_SET_AMP_GAIN_MUTE, AC_AMP_SET_OUTPUT | AC_AMP_SET_RIGHT | AC_AMP_SET_GAIN(0x30));
     }
 
-    plogk("hda:   codec #%d configured\n", codec->addr);
+    plogk("hda: codec #%d configured.\n", codec->addr);
 }
 
 /* ------------------------------------------------------------------ */
@@ -964,12 +964,12 @@ void hda_init(void)
     }
 
     if (!dev) {
-        plogk("hda: No HDA controller found.\n");
+        plogk("hda: No Intel HD Audio controller found.\n");
         return;
     }
 
-    plogk("hda: Found HDA at %04x:%02x:%02x.%x (0x%04x:0x%04x)\n", dev->device->domain, dev->device->bus, dev->device->slot, dev->device->func,
-          dev->vendor_id, dev->device_id);
+    plogk("hda: Found Intel HD Audio at %04x:%02x:%02x.%x (0x%04x:0x%04x)\n", dev->device->domain, dev->device->bus, dev->device->slot,
+          dev->device->func, dev->vendor_id, dev->device_id);
 
     bar = get_base_address_register(dev, 0);
     if (bar.type != 0) {
@@ -987,7 +987,7 @@ void hda_init(void)
     hda_reset_controller();
     hda_dump_capabilities();
 
-    if (hda_alloc_corb_rirb()) plogk("hda: CORB/RIRB alloc failed\n");
+    if (hda_alloc_corb_rirb()) plogk("hda: CORB/RIRB alloc failed.\n");
     return;
 
     hda_clear_interrupts();
@@ -1001,7 +1001,7 @@ void hda_init(void)
 
     int codec_mask = state_sts & 0xff;
     if (!codec_mask) {
-        plogk("hda: No codec status bits, trying all 4 slots\n");
+        plogk("hda: No codec status bits, trying all 4 slots.\n");
         codec_mask = 0x0f;
     }
 
@@ -1014,7 +1014,7 @@ void hda_init(void)
         }
     }
 
-    if (hda_ctrl.num_codecs == 0) plogk("hda: No codecs found\n");
+    if (hda_ctrl.num_codecs == 0) plogk("hda: No codecs found.\n");
     return;
     for (int c = 0; c < hda_ctrl.num_codecs; c++) hda_config_codec(&hda_ctrl.codecs[c]);
 
