@@ -35,9 +35,9 @@ extern int drm_class_registered;
 /* Minor allocator — per-type bitmaps for indices 0..DRM_MAX_MINOR-1  */
 /* ------------------------------------------------------------------ */
 
-static uint64_t drm_minor_bitmap_primary;
-static uint64_t drm_minor_bitmap_render;
-static uint64_t drm_minor_bitmap_accel;
+static uint64_t   drm_minor_bitmap_primary;
+static uint64_t   drm_minor_bitmap_render;
+static uint64_t   drm_minor_bitmap_accel;
 static spinlock_t drm_minor_lock = {.lock = 0, .rflags = 0};
 
 int drm_minor_alloc(int type)
@@ -45,10 +45,17 @@ int drm_minor_alloc(int type)
     uint64_t *bm;
 
     switch (type) {
-        case DRM_MINOR_PRIMARY : bm = &drm_minor_bitmap_primary; break;
-        case DRM_MINOR_RENDER :  bm = &drm_minor_bitmap_render; break;
-        case DRM_MINOR_ACCEL :   bm = &drm_minor_bitmap_accel; break;
-        default : return -EINVAL;
+        case DRM_MINOR_PRIMARY :
+            bm = &drm_minor_bitmap_primary;
+            break;
+        case DRM_MINOR_RENDER :
+            bm = &drm_minor_bitmap_render;
+            break;
+        case DRM_MINOR_ACCEL :
+            bm = &drm_minor_bitmap_accel;
+            break;
+        default :
+            return -EINVAL;
     }
 
     spin_lock(&drm_minor_lock);
@@ -70,10 +77,17 @@ void drm_minor_free(int type, int index)
     if (index < 0 || index >= DRM_MAX_MINOR) return;
 
     switch (type) {
-        case DRM_MINOR_PRIMARY : bm = &drm_minor_bitmap_primary; break;
-        case DRM_MINOR_RENDER :  bm = &drm_minor_bitmap_render; break;
-        case DRM_MINOR_ACCEL :   bm = &drm_minor_bitmap_accel; break;
-        default : return;
+        case DRM_MINOR_PRIMARY :
+            bm = &drm_minor_bitmap_primary;
+            break;
+        case DRM_MINOR_RENDER :
+            bm = &drm_minor_bitmap_render;
+            break;
+        case DRM_MINOR_ACCEL :
+            bm = &drm_minor_bitmap_accel;
+            break;
+        default :
+            return;
     }
 
     spin_lock(&drm_minor_lock);
@@ -153,9 +167,9 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
         return NULL;
     }
     memset(minor, 0, sizeof(*minor));
-    minor->index            = primary_idx;
-    minor->type             = DRM_MINOR_PRIMARY;
-    minor->dev              = dev;
+    minor->index = primary_idx;
+    minor->type  = DRM_MINOR_PRIMARY;
+    minor->dev   = dev;
     {
         char name[32];
         snprintf(name, sizeof(name), "card%d", primary_idx);
@@ -186,9 +200,9 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
         return NULL;
     }
     memset(minor, 0, sizeof(*minor));
-    minor->index            = render_idx;
-    minor->type             = DRM_MINOR_RENDER;
-    minor->dev              = dev;
+    minor->index = render_idx;
+    minor->type  = DRM_MINOR_RENDER;
+    minor->dev   = dev;
     {
         char name[32];
         snprintf(name, sizeof(name), "renderD%d", 128 + render_idx);
@@ -233,15 +247,14 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
 
     /* Register /dev/dri/cardN via devtmpfs. */
     if (dev->primary) {
-        char                 path[64];
-        tmpfs_device_ops_t   drm_ops;
+        char               path[64];
+        tmpfs_device_ops_t drm_ops;
 
         memset(&drm_ops, 0, sizeof(drm_ops));
         drm_ops.ctx = dev;
 
         snprintf(path, sizeof(path), "/dev/dri/%s", dev->primary->device_node_name);
-        int ret = devtmpfs_register_char_device(path, MKDEV(226, dev->primary->index),
-                                                dev->primary->index, file_stream, &drm_ops);
+        int ret = devtmpfs_register_char_device(path, MKDEV(226, dev->primary->index), dev->primary->index, file_stream, &drm_ops);
         if (ret) {
             DRM_ERROR("Failed to register %s: %d\n", path, ret);
         } else {
@@ -258,8 +271,7 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
         render_ops.ctx = dev;
 
         snprintf(path, sizeof(path), "/dev/dri/%s", dev->render->device_node_name);
-        int ret = devtmpfs_register_char_device(path, MKDEV(226, dev->render->index),
-                                                dev->render->index, file_stream, &render_ops);
+        int ret = devtmpfs_register_char_device(path, MKDEV(226, dev->render->index), dev->render->index, file_stream, &render_ops);
         if (ret) {
             DRM_ERROR("Failed to register %s: %d\n", path, ret);
         } else {
@@ -314,12 +326,11 @@ void drm_dev_put(struct drm_device *dev)
 
     if (new_ref == 0) {
         /* Remove from global device list (defined in drm_init.c). */
-        extern void drm_device_list_remove(struct drm_device *d);
+        extern void drm_device_list_remove(struct drm_device * d);
         drm_device_list_remove(dev);
 
         /* Call driver release hook. */
-        if (dev->driver && dev->driver->release)
-            dev->driver->release(dev);
+        if (dev->driver && dev->driver->release) dev->driver->release(dev);
 
         /* Free minors and their indices. */
         if (dev->primary) {
@@ -444,9 +455,8 @@ void drm_release(struct drm_file *file)
     {
         ilist_node_t *node = file->object_list.next;
         while (node && node != &file->object_list) {
-            struct drm_gem_object *obj =
-                container_of(node, struct drm_gem_object, handle_list_node);
-            node = node->next;
+            struct drm_gem_object *obj = container_of(node, struct drm_gem_object, handle_list_node);
+            node                       = node->next;
             ilist_remove(&obj->handle_list_node);
             obj->handle_count--;
             drm_gem_object_put(obj);

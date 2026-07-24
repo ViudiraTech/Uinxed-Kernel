@@ -35,7 +35,7 @@ static void preempt_demo_thread(void *arg)
         for (uint64_t i = 0; i < 5000000; i++) preempt_demo_sink += i;
         plogk("sched: %s busy chunk %llu cpu %u\n", name, chunk, current_task()->cpu_id);
     }
-    plogk("sched: %s busy loop done\n", name);
+    plogk("sched: %s busy loop done.\n", name);
 }
 
 static void wait_demo_thread(void *arg)

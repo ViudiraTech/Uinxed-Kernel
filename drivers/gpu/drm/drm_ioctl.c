@@ -255,9 +255,7 @@ static const struct drm_ioctl_desc drm_core_ioctls[] = {
 /* ioctl descriptor lookup — full command match                        */
 /* ------------------------------------------------------------------ */
 
-static const struct drm_ioctl_desc *find_ioctl_desc(unsigned int cmd,
-                                                    const struct drm_ioctl_desc *table,
-                                                    int count)
+static const struct drm_ioctl_desc *find_ioctl_desc(unsigned int cmd, const struct drm_ioctl_desc *table, int count)
 {
     for (int i = 0; i < count; i++) {
         if (table[i].cmd == cmd) return &table[i];
@@ -269,10 +267,9 @@ static const struct drm_ioctl_desc *find_ioctl_desc(unsigned int cmd,
 /* drm_ioctl — validated dispatch                                     */
 /* ------------------------------------------------------------------ */
 
-int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data,
-              struct drm_file *file_priv)
+int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct drm_file *file_priv)
 {
-    const struct drm_ioctl_desc *desc = NULL;
+    const struct drm_ioctl_desc *desc  = NULL;
     void                        *kdata = NULL;
     unsigned int                 dir;
     unsigned int                 size;
@@ -307,10 +304,7 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data,
     }
 
     /* 5. Search driver ioctls (full cmd match). */
-    if (dev->driver->ioctls && dev->driver->num_ioctls > 0) {
-        desc = find_ioctl_desc(cmd, dev->driver->ioctls,
-                               dev->driver->num_ioctls);
-    }
+    if (dev->driver->ioctls && dev->driver->num_ioctls > 0) { desc = find_ioctl_desc(cmd, dev->driver->ioctls, dev->driver->num_ioctls); }
 
     /* 6. Dumb-buffer / PRIME fallback dispatch.
      *    These are handled separately because the core table has NULL
@@ -319,51 +313,41 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data,
         if (cmd == DRM_IOCTL_MODE_CREATE_DUMB) {
             ret = drm_ioctl_permit(DRM_AUTH, file_priv);
             if (ret) goto out;
-            ret = drm_gem_dumb_create(file_priv, dev,
-                                      (struct drm_mode_create_dumb *)kdata);
+            ret = drm_gem_dumb_create(file_priv, dev, (struct drm_mode_create_dumb *)kdata);
             goto copy_out;
         }
         if (cmd == DRM_IOCTL_MODE_MAP_DUMB) {
             struct drm_mode_map_dumb *args = (struct drm_mode_map_dumb *)kdata;
-            ret = drm_ioctl_permit(DRM_AUTH, file_priv);
+            ret                            = drm_ioctl_permit(DRM_AUTH, file_priv);
             if (ret) goto out;
-            ret = drm_gem_dumb_map_offset(file_priv, dev,
-                                          args->handle, &args->offset);
+            ret = drm_gem_dumb_map_offset(file_priv, dev, args->handle, &args->offset);
             goto copy_out;
         }
         if (cmd == DRM_IOCTL_MODE_DESTROY_DUMB) {
-            struct drm_mode_destroy_dumb *args =
-                (struct drm_mode_destroy_dumb *)kdata;
-            ret = drm_ioctl_permit(DRM_AUTH, file_priv);
+            struct drm_mode_destroy_dumb *args = (struct drm_mode_destroy_dumb *)kdata;
+            ret                                = drm_ioctl_permit(DRM_AUTH, file_priv);
             if (ret) goto out;
             ret = drm_gem_dumb_destroy(file_priv, dev, args->handle);
             goto out;
         }
         if (cmd == DRM_IOCTL_PRIME_HANDLE_TO_FD) {
             struct drm_prime_handle *args = (struct drm_prime_handle *)kdata;
-            ret = drm_ioctl_permit(DRM_AUTH, file_priv);
+            ret                           = drm_ioctl_permit(DRM_AUTH, file_priv);
             if (ret) goto out;
-            ret = drm_gem_prime_handle_to_fd(dev, file_priv,
-                                             args->handle, args->flags,
-                                             &args->fd);
+            ret = drm_gem_prime_handle_to_fd(dev, file_priv, args->handle, args->flags, &args->fd);
             goto copy_out;
         }
         if (cmd == DRM_IOCTL_PRIME_FD_TO_HANDLE) {
             struct drm_prime_handle *args = (struct drm_prime_handle *)kdata;
-            ret = drm_ioctl_permit(DRM_AUTH, file_priv);
+            ret                           = drm_ioctl_permit(DRM_AUTH, file_priv);
             if (ret) goto out;
-            ret = drm_gem_prime_fd_to_handle(dev, file_priv,
-                                             args->fd, &args->handle);
+            ret = drm_gem_prime_fd_to_handle(dev, file_priv, args->fd, &args->handle);
             goto copy_out;
         }
     }
 
     /* 7. Fall back to core ioctls. */
-    if (!desc) {
-        desc = find_ioctl_desc(cmd, drm_core_ioctls,
-                               sizeof(drm_core_ioctls) /
-                               sizeof(drm_core_ioctls[0]));
-    }
+    if (!desc) { desc = find_ioctl_desc(cmd, drm_core_ioctls, sizeof(drm_core_ioctls) / sizeof(drm_core_ioctls[0])); }
 
     if (!desc) {
         ret = -ENOTTY;
@@ -384,8 +368,7 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data,
 
 copy_out:
     /* 9. Copy results back to user if the ioctl reads data. */
-    if (ret == 0 && kdata && (dir & _IOC_READ))
-        memcpy(user_data, kdata, size);
+    if (ret == 0 && kdata && (dir & _IOC_READ)) memcpy(user_data, kdata, size);
 
 out:
     free(kdata);

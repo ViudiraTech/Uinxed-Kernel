@@ -37,13 +37,13 @@
 #define DEVTMPFS_MAX_DEVICES 128
 
 typedef struct devtmpfs_entry {
-    char                path[256];
-    uint64_t            dev;
-    uint64_t            rdev;
-    uint16_t            node_type;
-    tmpfs_device_ops_t  ops;
-    vfs_node_t          node;
-    bool                active;
+        char               path[256];
+        uint64_t           dev;
+        uint64_t           rdev;
+        uint16_t           node_type;
+        tmpfs_device_ops_t ops;
+        vfs_node_t         node;
+        bool               active;
 } devtmpfs_entry_t;
 
 static devtmpfs_entry_t devtmpfs_table[DEVTMPFS_MAX_DEVICES];
@@ -57,8 +57,7 @@ static void devtmpfs_table_init(void)
     devtmpfs_table_inited = true;
 }
 
-int devtmpfs_register_char_device(const char *path, uint64_t dev, uint64_t rdev,
-                                  uint16_t node_type, const tmpfs_device_ops_t *ops)
+int devtmpfs_register_char_device(const char *path, uint64_t dev, uint64_t rdev, uint16_t node_type, const tmpfs_device_ops_t *ops)
 {
     vfs_node_t node;
     int        status;
@@ -79,7 +78,7 @@ int devtmpfs_register_char_device(const char *path, uint64_t dev, uint64_t rdev,
             *slash = '\0';
             status = vfs_mkdir(path_copy);
             *slash = '/';
-            save = slash;
+            save   = slash;
         }
         free(path_copy);
     }
@@ -119,12 +118,12 @@ int devtmpfs_register_char_device(const char *path, uint64_t dev, uint64_t rdev,
     if (slot >= 0) {
         strncpy(devtmpfs_table[slot].path, path, sizeof(devtmpfs_table[slot].path) - 1);
         devtmpfs_table[slot].path[sizeof(devtmpfs_table[slot].path) - 1] = '\0';
-        devtmpfs_table[slot].dev       = dev;
-        devtmpfs_table[slot].rdev      = rdev;
-        devtmpfs_table[slot].node_type = node_type;
-        devtmpfs_table[slot].ops       = *ops;
-        devtmpfs_table[slot].node      = node;
-        devtmpfs_table[slot].active    = true;
+        devtmpfs_table[slot].dev                                         = dev;
+        devtmpfs_table[slot].rdev                                        = rdev;
+        devtmpfs_table[slot].node_type                                   = node_type;
+        devtmpfs_table[slot].ops                                         = *ops;
+        devtmpfs_table[slot].node                                        = node;
+        devtmpfs_table[slot].active                                      = true;
     }
     spin_unlock(&devtmpfs_lock);
 
@@ -281,8 +280,7 @@ static void devtmpfs_create_input_event_node(void)
         .ctx   = 0,
     };
 
-    devtmpfs_register_char_device("/dev/input/event0", 1, 0,
-                                  file_keyboard | file_stream, &ps2kbd_device);
+    devtmpfs_register_char_device("/dev/input/event0", 1, 0, file_keyboard | file_stream, &ps2kbd_device);
 }
 
 static void devtmpfs_create_framebuffer_node(void)
@@ -295,15 +293,14 @@ static void devtmpfs_create_framebuffer_node(void)
         .ctx   = 0,
     };
 
-    int ret = devtmpfs_register_char_device("/dev/fb0", 2, 0,
-                                            file_fbdev | file_stream, &fb_device);
+    int ret = devtmpfs_register_char_device("/dev/fb0", 2, 0, file_fbdev | file_stream, &fb_device);
     if (ret == 0) {
         /* Set the fb node size after registration. */
         vfs_node_t node = vfs_open("/dev/fb0");
         if (node) {
             video_info_t info = video_get_info();
-            node->blksz = sizeof(uint32_t);
-            node->size  = info.stride * info.height * sizeof(uint32_t);
+            node->blksz       = sizeof(uint32_t);
+            node->size        = info.stride * info.height * sizeof(uint32_t);
             vfs_close(node);
         }
     }
@@ -320,8 +317,7 @@ static void devtmpfs_create_audio_nodes(void)
         if (!audio_node) continue;
 
         snprintf(dev_path, sizeof(dev_path), "/dev/snd/%s", audio_node->name);
-        devtmpfs_register_char_device(dev_path, audio_node->card->id, i,
-                                      file_audio | file_stream, &audio_node->tmpfs_ops);
+        devtmpfs_register_char_device(dev_path, audio_node->card->id, i, file_audio | file_stream, &audio_node->tmpfs_ops);
     }
 }
 
@@ -346,9 +342,9 @@ static void devtmpfs_create_tty_nodes(void)
     };
 
     static const struct {
-        const char  *path;
-        unsigned int major;
-        unsigned int minor;
+            const char  *path;
+            unsigned int major;
+            unsigned int minor;
     } tty_nodes[] = {
         {.path = "/dev/tty0",    .major = TTY_MAJOR,     .minor = 0},
         {.path = "/dev/tty",     .major = TTY_AUX_MAJOR, .minor = 0},
@@ -356,8 +352,7 @@ static void devtmpfs_create_tty_nodes(void)
     };
 
     for (size_t i = 0; i < sizeof(tty_nodes) / sizeof(tty_nodes[0]); i++) {
-        devtmpfs_register_char_device(tty_nodes[i].path, tty_nodes[i].major,
-                                      tty_nodes[i].minor, file_stream, &tty_device);
+        devtmpfs_register_char_device(tty_nodes[i].path, tty_nodes[i].major, tty_nodes[i].minor, file_stream, &tty_device);
     }
 }
 
@@ -374,13 +369,13 @@ static void devtmpfs_create_drm_node(void)
     struct drm_device *drm_dev = drm_get_singleton();
     if (!drm_dev) return;
 
-    devtmpfs_register_char_device("/dev/dri/card0", 226, 0,
-                                  file_stream, &drm_device);
+    devtmpfs_register_char_device("/dev/dri/card0", 226, 0, file_stream, &drm_device);
 }
 
 void devtmpfs_init(void)
 {
     int status;
+    int total_devices = 0;
 
     status = vfs_mkdir("/dev");
     if (status != EOK && status != -EEXIST) {
@@ -397,6 +392,7 @@ void devtmpfs_init(void)
         char dev_path[32];
         snprintf(dev_path, sizeof(dev_path), "/dev/hd%c", 'a' + drive);
         devtmpfs_create_block_node(dev_path, (uint64_t)ide_devices[drive].size * 512, 512, drive, drive);
+        total_devices++;
 
         if (devtmpfs_scan_mbr_drive(drive, parts) == EOK) {
             for (uint8_t part = 0; part < 4; part++) {
@@ -417,6 +413,7 @@ void devtmpfs_init(void)
         snprintf(dev_path, sizeof(dev_path), "/dev/sd%c", 'a' + d);
         devtmpfs_create_block_node(dev_path, (uint64_t)ahci_devices[d].size * ahci_devices[d].sector_size, ahci_devices[d].sector_size, encoded,
                                    encoded);
+        total_devices++;
 
         if (devtmpfs_scan_mbr_drive(encoded, parts) == EOK) {
             for (uint8_t part = 0; part < 4; part++) {
@@ -437,6 +434,7 @@ void devtmpfs_init(void)
             snprintf(dev_path, sizeof(dev_path), "/dev/sr%u", (unsigned)sr_idx);
             devtmpfs_create_block_node(dev_path, (uint64_t)atapi_devices[drive].lba_size * atapi_devices[drive].blk_size,
                                        atapi_devices[drive].blk_size, drive, drive);
+            total_devices++;
             sr_idx++;
         }
 
@@ -448,6 +446,7 @@ void devtmpfs_init(void)
             uint8_t encoded = BLKDEV_AHCI_FLAG | BLKDEV_ATAPI_FLAG | d;
             devtmpfs_create_block_node(dev_path, (uint64_t)ahci_devices[d].size * ahci_devices[d].sector_size, ahci_devices[d].sector_size,
                                        encoded, encoded);
+            total_devices++;
             sr_idx++;
         }
     }
@@ -464,6 +463,7 @@ void devtmpfs_init(void)
             snprintf(ns_path, sizeof(ns_path), "/dev/nvme%dn%u", ctrl->id, ctrl->namespaces[ns].nsid);
             devtmpfs_create_block_node(ns_path, ctrl->namespaces[ns].total_sectors * ctrl->namespaces[ns].sector_size,
                                        ctrl->namespaces[ns].sector_size, ctrl->id, ctrl->namespaces[ns].nsid);
+            total_devices++;
 
             mbr_partition_entry_t parts[4] = {0};
             uint8_t               encoded  = BLKDEV_NVME_FLAG | (uint8_t)(ctrl->id & BLKDEV_DRIVE_MASK);
@@ -495,4 +495,6 @@ void devtmpfs_init(void)
     devtmpfs_create_audio_nodes();
     devtmpfs_create_tty_nodes();
     devtmpfs_create_drm_node();
+
+    plogk("devtmpfs: %d device(s) created in /dev\n", total_devices);
 }

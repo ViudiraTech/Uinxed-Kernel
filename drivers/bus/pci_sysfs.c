@@ -160,10 +160,7 @@ void pci_sysfs_init(void)
 
     /* Get the cached PCI devices */
     cache = pci_get_devices_cache();
-    if (!cache || !cache->head) {
-        plogk("pci_sysfs: no PCI devices in cache\n");
-        return;
-    }
+    if (!cache || !cache->head) return;
 
     /* Iterate and register each device */
     for (item = cache->head; item; item = item->next) {

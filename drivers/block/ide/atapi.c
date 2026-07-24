@@ -190,7 +190,7 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
             nsleep(100);
         }
         if (tout <= 0) {
-            plogk("atapi: BSY stuck on ch%u drv%u before PACKET\n", channel, slavebit);
+            plogk("atapi: BSY stuck on ch%u drv%u before PACKET.\n", channel, slavebit);
             return 3;
         }
     }
@@ -292,13 +292,13 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
 
             /* COD must be 0 (data phase) */
             if (ireason & ATAPI_COD) {
-                plogk("atapi: Unexpected COD=1 in data phase\n");
+                plogk("atapi: Unexpected COD=1 in data phase.\n");
                 return 2;
             }
 
             /* IO=1 means device to host (read), IO=0 means host to device (write) */
             if (!(ireason & ATAPI_IO)) {
-                plogk("atapi: Unexpected IO direction\n");
+                plogk("atapi: Unexpected IO direction.\n");
                 return 2;
             }
 

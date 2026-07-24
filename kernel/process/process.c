@@ -233,8 +233,7 @@ void process_file_put(process_file_t *file)
     spin_unlock(&file->lock);
 
     /* Release per-open-instance private_data. */
-    if (file->private_data)
-        callbackof(file->node, file_release)(file->node, file->private_data);
+    if (file->private_data) callbackof(file->node, file_release)(file->node, file->private_data);
 
     vfs_close(file->node);
     free(file);
@@ -314,8 +313,7 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
     spin_unlock(&proc->fd_lock);
 
     /* Failed to find a free FD slot — release private_data. */
-    if (file->private_data)
-        callbackof(node, file_release)(node, file->private_data);
+    if (file->private_data) callbackof(node, file_release)(node, file->private_data);
     free(file);
     return -EMFILE;
 }
@@ -508,18 +506,7 @@ void process_init(void)
 {
     process_table_lock.lock   = 0;
     process_table_lock.rflags = 0;
-
-    signal_init();
-
-    /* IPC subsystem initialization */
-    socket_init();
-    pipe_init();
-    sysv_ipc_init();
-    posix_mq_init();
-    futex_init();
-    epoll_init();
-
-    plogk("process: Process subsystem initialized.\n");
+    plogk("process: Process table initialized (%u slots)\n", PROCESS_TABLE_SIZE);
 }
 
 process_t *process_create(const char *name, void (*entry)(void *), void *arg)
@@ -846,16 +833,15 @@ process_t *process_fork(void)
             spin_unlock(&scheduler.lock);
             return NULL;
         }
-        copy->type           = vma->type;
-        copy->vm_file        = vma->vm_file;
-        copy->vm_pgoff       = vma->vm_pgoff;
+        copy->type            = vma->type;
+        copy->vm_file         = vma->vm_file;
+        copy->vm_pgoff        = vma->vm_pgoff;
         copy->vm_private_data = vma->vm_private_data;
 
         /* Bump the file reference if this VMA is file-backed.
          * The parent already holds a reference; the child needs
          * its own so the file isn't freed while the child lives. */
-        if (copy->vm_file)
-            copy->vm_file->refcount++;
+        if (copy->vm_file) copy->vm_file->refcount++;
 
         vm_area_insert(child, copy);
     }

@@ -90,7 +90,7 @@ static void sigqueue_flush(signal_state_t *state)
 
 void signal_init(void)
 {
-    plogk("signal: Subsystem initialized.\n");
+    plogk("signal: POSIX signal handling available (%u signals)\n", NSIG);
 }
 
 void signal_state_init(signal_state_t *state)

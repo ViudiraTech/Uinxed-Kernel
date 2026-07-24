@@ -8,8 +8,8 @@
  *
  */
 
-#include <arch/eis.h>
 #include <arch/cpuid.h>
+#include <arch/eis.h>
 #include <arch/gdt.h>
 #include <arch/smp.h>
 #include <arch/tss.h>

@@ -1017,7 +1017,8 @@ void sysfs_rename_dir(struct kobject *kobj, const char *new_name)
 void sysfs_regist(void)
 {
     sysfs_id = vfs_regist_fs("sysfs", &sysfs_callbacks);
-    if (sysfs_id & ERRNO_MASK) { plogk("sysfs: Register error.\n"); }
+    if (!(sysfs_id & ERRNO_MASK)) plogk("sysfs: Filesystem registered (fsid=%d)\n", sysfs_id);
+    if (sysfs_id & ERRNO_MASK) plogk("sysfs: Register error.\n");
 }
 
 /* Recursively create VFS nodes for pending kobjects after mount */
@@ -1079,6 +1080,5 @@ int sysfs_init(void)
     kobject_create_and_add("module", sysfs_root_kobj);
     kobject_create_and_add("power", sysfs_root_kobj);
 
-    plogk("sysfs: Initialised (userspace will mount at /sys)\n");
     return EOK;
 }

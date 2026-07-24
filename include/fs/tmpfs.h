@@ -22,11 +22,9 @@ typedef size_t (*tmpfs_dev_read_t)(void *ctx, void *addr, size_t offset, size_t 
 typedef size_t (*tmpfs_dev_write_t)(void *ctx, const void *addr, size_t offset, size_t size);
 typedef int (*tmpfs_dev_poll_t)(void *ctx, size_t events);
 typedef int (*tmpfs_dev_ioctl_t)(void *ctx, size_t req, void *arg);
-typedef int  (*tmpfs_dev_open_t)(vfs_node_t node, uint64_t flags, void **private_data);
+typedef int (*tmpfs_dev_open_t)(vfs_node_t node, uint64_t flags, void **private_data);
 typedef void (*tmpfs_dev_release_t)(vfs_node_t node, void *private_data);
-typedef void *(*tmpfs_dev_mmap_t)(void *ctx, void *private_data,
-                                  size_t offset, size_t size, int flags,
-                                  struct vm_area *vma);
+typedef void *(*tmpfs_dev_mmap_t)(void *ctx, void *private_data, size_t offset, size_t size, int flags, struct vm_area *vma);
 
 /* Device operations used to turn a tmpfs node into a device-backed file. */
 typedef struct {

@@ -182,7 +182,7 @@ void block_sysfs_init(void)
     }
 
     if (!block_kobj) {
-        plogk("block_sysfs: /sys/block/ kobject not found\n");
+        plogk("block_sysfs: /sys/block/ kobject not found.\n");
         return;
     }
 
@@ -214,5 +214,5 @@ void block_sysfs_init(void)
         }
     }
 
-    plogk("block_sysfs: %d block device entries created under /sys/block/\n", count);
+    plogk("block_sysfs: %d block devices exported to /sys/block/\n", count);
 }

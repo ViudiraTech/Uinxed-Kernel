@@ -544,10 +544,7 @@ int vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev
         /* Force a re-scan of the PCI bus */
         pci_flush_devices_cache();
         cache = pci_found_device_cache(NULL, req);
-        if (!cache) {
-            VP_ERR("Device %04x:%04x not found on PCI\n", vendor_id, device_id);
-            return -ENODEV;
-        }
+        if (!cache) { return -ENODEV; }
     }
 
     dev->pci_dev   = cache;

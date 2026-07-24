@@ -189,7 +189,7 @@ static int nvme_poll_completion(nvme_queue_t *q, uint32_t expected_cid, nvme_cqe
         /* Entry is new — check CID and consume it */
         uint16_t sc  = NVME_CQE_SC(cqe);
         uint16_t sct = NVME_CQE_SCT(cqe);
-        q->sq_head    = cqe->sq_head;
+        q->sq_head   = cqe->sq_head;
 
         /* Advance head */
         q->cq_head++;
@@ -326,8 +326,8 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
     vendor_id = read_pci((pci_device_reg_t) {.parent = pci_dev, .offset = PCI_CONF_VENDOR});
     device_id = read_pci((pci_device_reg_t) {.parent = pci_dev, .offset = PCI_CONF_DEVICE});
 
-    plogk("nvme: [%04x:%02x:%02x] NVMe controller (vendor=0x%04x, device=0x%04x)\n", pci_dev->device->domain, pci_dev->device->bus,
-          pci_dev->device->slot, vendor_id, device_id);
+    plogk("nvme: Controller found at PCI %04x:%02x:%02x.%01x, vendor 0x%04x, device 0x%04x\n", pci_dev->device->domain, pci_dev->device->bus,
+          pci_dev->device->slot, pci_dev->device->func, vendor_id, device_id);
 
     /* Enable bus mastering and MMIO space */
     {
@@ -345,7 +345,7 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
         uint32_t         bar_type = (bar_val >> 1) & 0b11;
 
         if ((bar_val & 1) || bar_type == BAR_Reserved) {
-            plogk("nvme: controller %u: BAR0 is not a memory BAR\n", ctrl_id);
+            plogk("nvme: controller %u: BAR0 is not a memory BAR.\n", ctrl_id);
             return -ENODEV;
         }
 
@@ -354,11 +354,11 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
             bar_val |= (uint64_t)read_pci(pci_reg) << 32;
         }
 
-        uint64_t phys_addr = bar_val & ~0xFULL;
+        uint64_t  phys_addr = bar_val & ~0xFULL;
         uintptr_t mmio_base = walk_page_tables_find_free(get_kernel_pagedir(), nvme_mmio_search_base, 0x100000, PAGE_4K_SIZE);
         if (!mmio_base) return -ENOMEM;
         page_map_range(get_kernel_pagedir(), mmio_base, phys_addr, 0x100000, PTE_MMIO_FLAGS);
-        ctrl->regs = (volatile void *)mmio_base;
+        ctrl->regs            = (volatile void *)mmio_base;
         nvme_mmio_search_base = mmio_base + 0x100000;
     }
 
@@ -368,7 +368,7 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
     ctrl->max_qsize = nvme_cap_mqes(cap) + 1;
     if (ctrl->max_qsize > 4096) ctrl->max_qsize = 4096;
 
-    plogk("nvme: controller %u: MQES=%u stride=%u bytes\n", ctrl_id, ctrl->max_qsize - 1, ctrl->stride);
+    plogk("nvme: controller %u: MQES=%u, doorbell stride=%u bytes.\n", ctrl_id, ctrl->max_qsize - 1, ctrl->stride);
 
     /* This driver completes commands by polling. Keep legacy INTx masked. */
     nvme_write32(ctrl->regs, NVME_REG_INTMS, 0xFFFFFFFF);
@@ -431,21 +431,22 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
         }
     }
 
+    plogk("nvme: controller %u: Admin queue configured, %u entries.\n", ctrl_id, ctrl->admin_q.num_entries);
+
     /* ---- Create polling I/O queue pair 1 ---- */
     {
-        uint16_t io_entries = NVME_IO_QSIZE;
+        uint16_t   io_entries = NVME_IO_QSIZE;
         nvme_cqe_t cqe;
 
         if (io_entries > ctrl->max_qsize) io_entries = (uint16_t)ctrl->max_qsize;
         ret = nvme_alloc_queue(&ctrl->io_q, 1, io_entries, ctrl);
         if (ret) goto err_admin;
 
-        ret = nvme_admin_cmd(ctrl, NVME_ADMIN_CREATE_IO_CQ, 0, ctrl->io_q.cq_phys, 0,
-                             ((uint32_t)(io_entries - 1) << 16) | 1u, 1u, 0, &cqe);
+        ret = nvme_admin_cmd(ctrl, NVME_ADMIN_CREATE_IO_CQ, 0, ctrl->io_q.cq_phys, 0, ((uint32_t)(io_entries - 1) << 16) | 1u, 1u, 0, &cqe);
         if (ret) goto err_io;
 
-        ret = nvme_admin_cmd(ctrl, NVME_ADMIN_CREATE_IO_SQ, 0, ctrl->io_q.sq_phys, 0,
-                             ((uint32_t)(io_entries - 1) << 16) | 1u, (1u << 16) | 1u, 0, &cqe);
+        ret = nvme_admin_cmd(ctrl, NVME_ADMIN_CREATE_IO_SQ, 0, ctrl->io_q.sq_phys, 0, ((uint32_t)(io_entries - 1) << 16) | 1u, (1u << 16) | 1u,
+                             0, &cqe);
         if (ret) goto err_io;
     }
 
@@ -516,26 +517,21 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
             continue;
         }
 
-        nvme_namespace_t   *ns      = &ctrl->namespaces[ns_idx];
-        uint8_t             flbas   = ns_data->flbas & 0xF;
-        uint8_t             ds      = ns_data->lbaf[flbas].ds;
+        nvme_namespace_t *ns    = &ctrl->namespaces[ns_idx];
+        uint8_t           flbas = ns_data->flbas & 0xF;
+        uint8_t           ds    = ns_data->lbaf[flbas].ds;
 
         ns->nsid          = nsid;
         ns->total_sectors = ns_data->nsze;
         ns->sector_size   = (ds > 0) ? (1u << ds) : NVME_SECTOR_SIZE;
         ns->ready         = 1;
 
-        uint64_t ns_bytes = ns->total_sectors * ns->sector_size;
-        if (ns_bytes >= (1ULL << 30)) {
-            plogk("nvme: ctrl%u ns%u: %llu sectors (%llu GiB), LBA size=%u\n", ctrl_id, nsid,
-                  (unsigned long long)ns->total_sectors, (unsigned long long)(ns_bytes >> 30), ns->sector_size);
-        } else {
-            plogk("nvme: ctrl%u ns%u: %llu sectors (%llu MiB), LBA size=%u\n", ctrl_id, nsid,
-                  (unsigned long long)ns->total_sectors, (unsigned long long)(ns_bytes >> 20), ns->sector_size);
-        }
+        plogk("nvme: /dev/nvme%dn%u: %llu sectors, sector size=%u\n", ctrl_id, nsid, (unsigned long long)ns->total_sectors, ns->sector_size);
 
         free_frames(ns_phys, 1);
     }
+
+    plogk("nvme: controller %u: Block devices registered, %u namespace(s)\n", ctrl_id, ctrl->num_namespaces);
 
     ctrl->present     = 1;
     ctrl->initialised = 1;
@@ -736,14 +732,14 @@ void nvme_init(void)
     dev = pci_found_class_cache(NULL, nvme_class);
     while (dev && count < NVME_MAX_CONTROLLERS) {
         ret = nvme_controller_init(dev, (uint16_t)count);
-        if (ret == EOK) { count++; }
+        if (ret == EOK) count++;
         dev = pci_found_class_cache(dev->next, nvme_class);
     }
 
     nvme_ctrl_count  = count;
     nvme_initialised = 1;
 
-    plogk("nvme: Initialised %u controller(s)\n", count);
+    if (count > 0) plogk("nvme: %u controller(s) registered.\n", count);
 }
 
 int nvme_controller_count(void)

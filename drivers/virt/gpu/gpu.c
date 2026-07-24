@@ -564,9 +564,9 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
 
 static void virtgpu_debugfs_info(struct virtio_gpu_device *vgdev)
 {
-    DRM_INFO("virtgpu: features: virgl=%d edid=%d blob=%d ctx_init=%d\n", vgdev->has_virgl, vgdev->has_edid, vgdev->has_resource_blob,
+    DRM_INFO("virtgpu: virgl=%d, edid=%d, blob=%d, ctx_init=%d\n", vgdev->has_virgl, vgdev->has_edid, vgdev->has_resource_blob,
              vgdev->has_context_init);
-    DRM_INFO("virtgpu: %d scanout(s), %d ctrlq/%d cursorq\n", vgdev->num_scanouts, vgdev->ctrlq.num_max, vgdev->cursorq.num_max);
+    DRM_INFO("virtgpu: %d scanout(s), ctrlq %d, cursorq %d\n", vgdev->num_scanouts, vgdev->ctrlq.num_max, vgdev->cursorq.num_max);
 }
 
 /* ------------------------------------------------------------------ */
@@ -580,15 +580,11 @@ int virtio_gpu_driver_init(void)
     uint64_t                  features;
     int                       ret;
 
-    DRM_INFO("Probing for VirtIO GPU...\n");
-
-    /* Allocate the virtual-PCI transport */
     vp = malloc(sizeof(*vp));
-    if (!vp) { return -ENOMEM; }
+    if (!vp) return -ENOMEM;
 
     ret = vp_find_device(PCI_VENDOR_ID_REDHAT, PCI_DEVICE_ID_VIRTIO_GPU, vp);
     if (ret) {
-        DRM_ERROR("No VirtIO GPU found on PCI: %d\n", ret);
         free(vp);
         return ret;
     }
@@ -692,9 +688,7 @@ int virtio_gpu_driver_init(void)
     /* Debug info */
     virtgpu_debugfs_info(vgdev);
 
-    DRM_INFO("VirtIO GPU driver initialised successfully"
-             " (card/render node, 3D=%d, blob=%d)\n",
-             vgdev->has_virgl, vgdev->has_resource_blob);
+    DRM_INFO("VirtIO GPU driver registered (card/render node, 3D=%d, blob=%d)\n", vgdev->has_virgl, vgdev->has_resource_blob);
 
     return 0;
 }
@@ -710,8 +704,7 @@ int virtio_gpu_driver_init(void)
  */
 void virtio_gpu_init(void)
 {
-    int ret = virtio_gpu_driver_init();
-    if (ret) { plogk("virtgpu: init failed: %d\n", ret); }
+    (void)virtio_gpu_driver_init();
 }
 
 /*

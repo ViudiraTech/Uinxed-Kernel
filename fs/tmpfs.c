@@ -238,22 +238,17 @@ static void tmpfs_file_release(vfs_node_t node, void *private_data)
     if (f->device.release) f->device.release(node, private_data);
 }
 
-static void *tmpfs_file_mmap(vfs_node_t node, void *private_data,
-                             size_t offset, size_t size, int flags,
-                             struct vm_area *vma)
+static void *tmpfs_file_mmap(vfs_node_t node, void *private_data, size_t offset, size_t size, int flags, struct vm_area *vma)
 {
     tmpfs_file_t *f = node->handle;
 
     (void)private_data;
     (void)vma;
     if (!f) return NULL;
-    if (f->device.mmap)
-        return f->device.mmap(f->device.ctx, private_data,
-                              offset, size, flags, vma);
+    if (f->device.mmap) return f->device.mmap(f->device.ctx, private_data, offset, size, flags, vma);
 
     /* Regular tmpfs file: return the data buffer directly. */
-    if (f->data && offset < f->size)
-        return f->data + offset;
+    if (f->data && offset < f->size) return f->data + offset;
     return NULL;
 }
 
@@ -285,6 +280,7 @@ static struct vfs_callback tmpfs_callbacks = {
 void tmpfs_regist(void)
 {
     tmpfs_id = vfs_regist_fs("tmpfs", &tmpfs_callbacks);
+    if (!(tmpfs_id & ERRNO_MASK)) plogk("tmpfs: Filesystem registered (fsid=%d)\n", tmpfs_id);
     if (tmpfs_id & ERRNO_MASK) plogk("tmpfs: Register error.\n");
 }
 

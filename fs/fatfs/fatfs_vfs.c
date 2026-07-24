@@ -668,6 +668,7 @@ void fatfs_vfs_regist(void)
 {
     fatfs_vfs_id = vfs_regist_fs("fatfs", &fatfs_vfs_callbacks);
     if (fatfs_vfs_id & ERRNO_MASK) plogk("fatfs: Register error.\n");
+    if (!(fatfs_vfs_id & ERRNO_MASK)) plogk("fatfs: Filesystem registered (fsid=%d)\n", fatfs_vfs_id);
 }
 
 int fatfs_vfs_mount_volume(const char *src, const char *path)

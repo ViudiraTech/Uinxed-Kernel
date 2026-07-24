@@ -248,7 +248,7 @@ static void sock_blocked_register(socket_t *sk, task_t *task)
         }
     }
     spin_unlock(&sock_blocked_lock);
-    plogk("socket: blocked table overflow\n");
+    plogk("socket: blocked table overflow.\n");
 }
 
 static void sock_blocked_unregister(socket_t *sk)
@@ -2688,5 +2688,5 @@ void socket_init(void)
         return;
     }
 
-    plogk("socket: UNIX domain socket subsystem initialized (fsid=%d)\n", socket_fsid);
+    plogk("socket: UNIX domain socket family registered (fsid=%d)\n", socket_fsid);
 }

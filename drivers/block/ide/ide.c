@@ -253,19 +253,7 @@ void init_ide(void)
     pci_device_find(&ide_pci_request);
 
     /* Detect if the computer has an IDE controller */
-    if (ide_pci_request.response->error != PCI_FINDING_SUCCESS) {
-        plogk("ide: No IDE controller found.\n");
-        return;
-
-        /* Re-try (but I think it is not necessary)
-         * pci_flush_devices_cache();
-         * pci_device_find(&ide_pci_request);
-         * if (ide_pci_request.response->error != PCI_FINDING_SUCCESS) {
-         *     plogk("ide: No IDE controller found.\n");
-         *     return;
-         * }
-         */
-    }
+    if (ide_pci_request.response->error != PCI_FINDING_SUCCESS) return;
     bar_reg.parent = ide_pci_request.response->device;
     pci_write_command_status(bar_reg.parent, (pci_read_command_status(bar_reg.parent) & 0xFFFF) | 1u);
     register_interrupt_handler(IRQ_14, (void *)ide_irq, 0, 0x8e);

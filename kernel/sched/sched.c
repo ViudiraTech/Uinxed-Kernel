@@ -584,11 +584,6 @@ void sched_init(void)
         rb_init_root(&cpu_rqs[i].timeline);
         cpu_rqs[i].online = 1;
     }
-    if (cpu_scheduler_count > 8) {
-        plogk("sched: All %u CPUs scheduler slots initialized.\n", cpu_scheduler_count);
-    } else {
-        for (unsigned int i = 0; i < cpu_scheduler_count; i++) { plogk("sched: CPU %u scheduler slot initialized.\n", i); }
-    }
 
     next_task_cpu         = 0;
     cpu_rqs[0].curr       = &boot_task;
@@ -623,14 +618,11 @@ void sched_init(void)
         cpu_rqs[i].idle->context.rdi    = (uint64_t)NULL;
         cpu_rqs[i].idle->context.rflags = 0x202;
     }
-    if (cpu_scheduler_count > 8) {
-        plogk("task: Created idle tasks \'swapper/*\' on all %u CPUs.\n", cpu_scheduler_count);
-    } else {
-        plogk("task: Created task 0 (swapper/0) on CPU 0\n");
-        for (unsigned int i = 1; i < cpu_scheduler_count; i++) {
-            plogk("task: Created task %llu (%s) on CPU %u\n", cpu_rqs[i].idle->pid, cpu_rqs[i].idle->name, cpu_rqs[i].idle->cpu_id);
-        }
+    plogk("task: Created task 0 (swapper/0) on CPU 0\n");
+    for (unsigned int i = 1; i < cpu_scheduler_count; i++) {
+        plogk("task: Created task %llu (%s) on CPU %u\n", cpu_rqs[i].idle->pid, cpu_rqs[i].idle->name, cpu_rqs[i].idle->cpu_id);
     }
+    plogk("sched: %u CPU(s) registered, using EEVDF scheduler.\n", cpu_scheduler_count);
 
     scheduler.next_pid = 1;
     for (uint32_t i = 1; i < cpu_scheduler_count; i++) {
@@ -643,8 +635,6 @@ void sched_init(void)
         ilist_init(&ap_boot_tasks[i].sched_node);
         cpu_rqs[i].curr = &ap_boot_tasks[i];
     }
-
-    plogk("sched: Initialized EEVDF kernel scheduler.\n");
 }
 
 /* ------------------------------------------------------------------ */
@@ -656,7 +646,6 @@ void sched_ap_online(uint32_t cpu_id)
     if (!cpu_rqs || cpu_id >= cpu_scheduler_count) return;
 
     cpu_rqs[cpu_id].online = 1;
-    plogk("sched: CPU %u scheduler online.\n", cpu_id);
 }
 
 void sched_ap_start(uint32_t cpu_id)

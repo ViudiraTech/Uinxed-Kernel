@@ -214,7 +214,7 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
 
     uintptr_t interp_base = find_free_range(proc, INTERP_LOAD_BASE, INTERP_LOAD_END, total);
     if (!interp_base) {
-        plogk("elf_loader: no free space for interpreter\n");
+        plogk("elf_loader: no free space for interpreter.\n");
         free(elf_data);
         return -1;
     }
@@ -222,7 +222,7 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
     uintptr_t load_bias = compute_load_bias(iehdr, elf_data, interp_base);
 
     if (load_elf_segments(proc, iehdr, elf_data, total, load_bias)) {
-        plogk("elf_loader: failed to load interpreter segments\n");
+        plogk("elf_loader: failed to load interpreter segments.\n");
         free(elf_data);
         return -1;
     }
@@ -500,7 +500,7 @@ int elf_loader_load_user_process(process_t *proc, const uint8_t *elf_data, size_
     }
 
     if (!info.has_interp && info.is_dynamic) {
-        plogk("elf_loader: PT_DYNAMIC without PT_INTERP, trying musl interpreter\n");
+        plogk("elf_loader: PT_DYNAMIC without PT_INTERP, trying musl interpreter.\n");
         if (elf_loader_load_interpreter(proc, MUSL_INTERPRETER_PATH, &interpreter_base, &interpreter_entry) == 0) {
             actual_entry    = interpreter_entry;
             info.has_interp = 1;

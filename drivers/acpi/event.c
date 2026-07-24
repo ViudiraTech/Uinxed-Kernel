@@ -306,5 +306,5 @@ void acpi_event_init(void)
 
     if (acpi_sci_init()) plogk("acpi: SCI init failed, falling back to polled events.\n");
 
-    plogk("acpi: Event subsystem initialized.\n");
+    plogk("acpi: Event subsystem registered.\n");
 }

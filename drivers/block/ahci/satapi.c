@@ -10,6 +10,8 @@
 
 #include <drivers/ahci/ahci.h>
 #include <drivers/ahci/satapi.h>
+#include <drivers/ide/atapi.h>
+#include <drivers/ide/ide.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer.h>
@@ -19,8 +21,8 @@
 #include <mem/frame.h>
 #include <mem/hhdm.h>
 
-#define SATAPI_CDB_LEN 16
-#define CFL_DWORDS     5
+#define SATAPI_CDB_LEN   16
+#define CFL_DWORDS       5
 #define SATAPI_DMA_BYTES (8u * 4096u)
 
 ahci_satapi_device_t ahci_satapi_devices[AHCI_MAX_DEVICES];
@@ -113,30 +115,37 @@ static int satapi_issue_packet(ahci_port_state_t *port, int slot, const uint8_t 
 void ahci_satapi_init(void)
 {
     ahci_satapi_device_count = 0;
+    uint8_t sr_idx           = 0;
+
+    for (uint8_t d = 0; d < 4; d++) {
+        if (atapi_devices[d].reserved && atapi_devices[d].type == IDE_ATAPI) sr_idx++;
+    }
 
     for (int i = 0; i < AHCI_MAX_DEVICES; i++) {
         if (!ahci_devices[i].reserved || ahci_devices[i].type != AHCI_DEV_SATAPI) continue;
 
         uint8_t port_idx = ahci_devices[i].port;
+        uint8_t hw_port  = ahci_ports[port_idx].port_no;
 
         ahci_satapi_device_t *sdev = &ahci_satapi_devices[i];
         memset(sdev, 0, sizeof(*sdev));
-        sdev->reserved = 1;
-        sdev->port_idx = port_idx;
+        sdev->reserved   = 1;
+        sdev->port_idx   = port_idx;
         sdev->device_idx = (uint8_t)i;
 
         uint32_t lba_sz = 0, blk_sz = 0;
         uint8_t  cap_ret = ahci_satapi_read_capacity((uint8_t)i, &lba_sz, &blk_sz);
         if (cap_ret == 0) {
-            sdev->lba_size = lba_sz;
-            sdev->blk_size = blk_sz;
-            ahci_devices[i].size = lba_sz;
+            sdev->lba_size              = lba_sz;
+            sdev->blk_size              = blk_sz;
+            ahci_devices[i].size        = lba_sz;
             ahci_devices[i].sector_size = blk_sz;
         }
 
-        plogk("satapi: AHCI SATAPI device %u on AHCI port %u (%u blocks, %u bytes/block)\n", i, port_idx, sdev->lba_size,
+        plogk("satapi: Registered optical drive sr%u on AHCI port %u, %u blocks, %u bytes per block.\n", sr_idx, hw_port, sdev->lba_size,
               sdev->blk_size);
 
+        sr_idx++;
         ahci_satapi_device_count++;
     }
 }
@@ -149,15 +158,15 @@ int ahci_satapi_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, void
     uint32_t           blk_size = ahci_satapi_devices[drive].blk_size;
     if (blk_size == 0) blk_size = 2048;
 
-    uint8_t *out = buffer;
-    uint8_t left = numsects;
-    uint8_t max_blocks = (uint8_t)(SATAPI_DMA_BYTES / blk_size);
+    uint8_t *out        = buffer;
+    uint8_t  left       = numsects;
+    uint8_t  max_blocks = (uint8_t)(SATAPI_DMA_BYTES / blk_size);
     if (!max_blocks) return -E2BIG;
 
     while (left) {
-        uint8_t chunk = left > max_blocks ? max_blocks : left;
+        uint8_t  chunk       = left > max_blocks ? max_blocks : left;
         uint32_t total_bytes = (uint32_t)chunk * blk_size;
-        uint8_t cdb[SATAPI_CDB_LEN];
+        uint8_t  cdb[SATAPI_CDB_LEN];
         memset(cdb, 0, sizeof(cdb));
         cdb[0] = GPCMD_READ_12;
         cdb[2] = (lba >> 24) & 0xFF;

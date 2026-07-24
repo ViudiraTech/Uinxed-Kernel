@@ -144,8 +144,7 @@ int drm_send_event(struct drm_device *dev, struct drm_pending_vblank_event *e)
 /* drm_read — read events from the drm file (blocking)                 */
 /* ------------------------------------------------------------------ */
 
-int drm_read(struct drm_file *file_priv, char *buf, size_t count,
-             size_t *offset)
+int drm_read(struct drm_file *file_priv, char *buf, size_t count, size_t *offset)
 {
     struct drm_event_node *node;
     size_t                 copy_size;
@@ -162,7 +161,8 @@ int drm_read(struct drm_file *file_priv, char *buf, size_t count,
         spin_unlock(&file_priv->event_lock);
         /* Yield-like delay: in a real kernel we'd block on a
          * waitqueue, but for now we poll with a small delay. */
-        for (volatile int d = 0; d < 100000; d++) { /* nothing */ }
+        for (volatile int d = 0; d < 100000; d++) { /* nothing */
+        }
     }
 
     spin_lock(&file_priv->event_lock);

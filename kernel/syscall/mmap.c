@@ -185,17 +185,15 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         if (callbackof(file->node, file_mmap)) {
             vm_area_t vma;
             memset(&vma, 0, sizeof(vma));
-            vma.start   = mmap_addr;
-            vma.end     = mmap_addr + pages;
-            vma.flags   = vm_flags;
-            vma.type    = VM_REGION_MMAP;
-            vma.vm_file = file->node;
+            vma.start    = mmap_addr;
+            vma.end      = mmap_addr + pages;
+            vma.flags    = vm_flags;
+            vma.type     = VM_REGION_MMAP;
+            vma.vm_file  = file->node;
             vma.vm_pgoff = pgoff;
             vma.vm_file->refcount++; /* VMA holds a reference */
 
-            void *result = callbackof(file->node, file_mmap)(
-                file->node, file->private_data,
-                file_offset, pages, vm_flags, &vma);
+            void *result = callbackof(file->node, file_mmap)(file->node, file->private_data, file_offset, pages, vm_flags, &vma);
             if (!result) {
                 vma.vm_file->refcount--;
                 process_file_put(file);
@@ -209,27 +207,27 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
 
         /* Fallback: read file content into new frames. */
         {
-        uint64_t pte_flags = vm_flags_to_pte(vm_flags);
+            uint64_t pte_flags = vm_flags_to_pte(vm_flags);
 
-        for (size_t i = 0; i < pages; i += PAGE_4K_SIZE) {
-            uint64_t frame = alloc_frames(1);
-            if (!frame) {
-                process_file_put(file);
-                return -ENOMEM;
+            for (size_t i = 0; i < pages; i += PAGE_4K_SIZE) {
+                uint64_t frame = alloc_frames(1);
+                if (!frame) {
+                    process_file_put(file);
+                    return -ENOMEM;
+                }
+
+                void *virt = phys_to_virt(frame);
+                memset(virt, 0, PAGE_4K_SIZE);
+
+                size_t read_offset = file_offset + i;
+                size_t to_read     = PAGE_4K_SIZE;
+                if (read_offset < file->node->size) {
+                    if (read_offset + to_read > file->node->size) { to_read = file->node->size - read_offset; }
+                    vfs_read(file->node, virt, read_offset, to_read);
+                }
+
+                page_map_to(proc->user_page_dir, mmap_addr + i, frame, pte_flags);
             }
-
-            void *virt = phys_to_virt(frame);
-            memset(virt, 0, PAGE_4K_SIZE);
-
-            size_t read_offset = file_offset + i;
-            size_t to_read     = PAGE_4K_SIZE;
-            if (read_offset < file->node->size) {
-                if (read_offset + to_read > file->node->size) { to_read = file->node->size - read_offset; }
-                vfs_read(file->node, virt, read_offset, to_read);
-            }
-
-            page_map_to(proc->user_page_dir, mmap_addr + i, frame, pte_flags);
-        }
         }
 
         /* Record the VMA */
@@ -432,5 +430,4 @@ int sys_mincore(uint64_t addr, uint64_t length, uint64_t vec)
 
 void mmap_init(void)
 {
-    plogk("mmap: Subsystem initialized.\n");
 }

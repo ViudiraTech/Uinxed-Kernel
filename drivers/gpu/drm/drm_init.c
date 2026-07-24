@@ -87,13 +87,11 @@ struct drm_device *drm_get_device_by_minor(int type, int index)
     for (int i = 0; i < DRM_MAX_DEVICES; i++) {
         struct drm_device *dev = drm_device_list[i];
         if (!dev) continue;
-        if (type == DRM_MINOR_PRIMARY && dev->primary &&
-            dev->primary->index == index) {
+        if (type == DRM_MINOR_PRIMARY && dev->primary && dev->primary->index == index) {
             spin_unlock(&drm_device_list_lock);
             return dev;
         }
-        if (type == DRM_MINOR_RENDER && dev->render &&
-            dev->render->index == index) {
+        if (type == DRM_MINOR_RENDER && dev->render && dev->render->index == index) {
             spin_unlock(&drm_device_list_lock);
             return dev;
         }
@@ -486,9 +484,7 @@ void *drm_dev_mmap(void *file, size_t offset, size_t size, int flags)
 /* DRM per-open mmap callback (VMA-aware GEM mmap)                     */
 /* ------------------------------------------------------------------ */
 
-void *drm_dev_file_mmap(void *ctx, void *private_data,
-                        size_t offset, size_t size, int flags,
-                        struct vm_area *vma)
+void *drm_dev_file_mmap(void *ctx, void *private_data, size_t offset, size_t size, int flags, struct vm_area *vma)
 {
     struct drm_device     *dev       = (struct drm_device *)ctx;
     struct drm_file       *file_priv = (struct drm_file *)private_data;
@@ -601,12 +597,8 @@ int drm_init(void)
     /* Register DRM class once (shared by all DRM devices) */
     if (!drm_class_registered) {
         int cret = class_register(&drm_class);
-        if (cret == EOK) {
-            drm_class_registered = 1;
-            DRM_INFO("DRM class registered at /sys/class/drm/\n");
-        }
+        if (cret == EOK) { drm_class_registered = 1; }
     }
 
-    DRM_INFO("DRM subsystem initialized (device: /dev/dri/card0)\n");
     return 0;
 }

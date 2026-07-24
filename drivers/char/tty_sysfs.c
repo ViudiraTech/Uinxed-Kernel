@@ -48,6 +48,4 @@ void tty_sysfs_init(void)
     /* ttyS0, ttyS1 — serial ports */
     device_create(&tty_class, NULL, MKDEV(4, 64), NULL, "ttyS0");
     device_create(&tty_class, NULL, MKDEV(4, 65), NULL, "ttyS1");
-
-    plogk("tty_sysfs: /sys/class/tty/ registered\n");
 }

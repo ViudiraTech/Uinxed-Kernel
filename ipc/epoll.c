@@ -751,5 +751,5 @@ void epoll_init(void)
         return;
     }
 
-    plogk("epoll: Subsystem initialized (fsid=%d, max_fds=%d)\n", epoll_fsid, EPOLL_MAX_FDS);
+    plogk("epoll: Epoll subsystem registered (fsid=%d, max_fds=%d)\n", epoll_fsid, EPOLL_MAX_FDS);
 }

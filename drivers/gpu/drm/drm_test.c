@@ -123,7 +123,7 @@ void drm_run_test(void)
     /* 4. Look up the GEM object by handle */
     struct drm_gem_object *lookup = drm_gem_object_lookup(&test_file, handle);
     if (lookup) {
-        plogk("drm_test: GEM object lookup by handle %u OK, size=%u.\n", handle, lookup->size);
+        plogk("drm_test: GEM object lookup by handle %u OK, size=%u\n", handle, lookup->size);
         drm_gem_object_put(lookup);
     } else {
         DRM_ERROR("Test: GEM object lookup failed.\n");
@@ -133,7 +133,7 @@ void drm_run_test(void)
     struct drm_version ver = {0};
     ret                    = drm_ioctl(dev, DRM_IOCTL_VERSION, &ver, &test_file);
     if (ret == 0) {
-        plogk("drm_test: DRM_IOCTL_VERSION OK (major=%d, minor=%d, patch=%d).\n", ver.version_major, ver.version_minor, ver.version_patchlevel);
+        plogk("drm_test: DRM_IOCTL_VERSION OK (major=%d, minor=%d, patch=%d)\n", ver.version_major, ver.version_minor, ver.version_patchlevel);
     } else {
         DRM_ERROR("Test: DRM_IOCTL_VERSION failed: %d\n", ret);
     }
@@ -144,11 +144,11 @@ void drm_run_test(void)
     uniq.unique     = (__u64)(uintptr_t)busid;
     uniq.unique_len = sizeof(busid);
     ret             = drm_ioctl(dev, DRM_IOCTL_GET_UNIQUE, &uniq, &test_file);
-    if (ret == 0) { plogk("drm_test: DRM_IOCTL_GET_UNIQUE OK.\n"); }
+    if (ret == 0) plogk("drm_test: DRM_IOCTL_GET_UNIQUE OK\n");
 
     /* 7. Clean up */
     ret = drm_gem_handle_delete(&test_file, handle);
-    if (ret == 0) { plogk("drm_test: GEM handle %u deleted.\n", handle); }
+    if (ret == 0) plogk("drm_test: GEM handle %u deleted.\n", handle);
 
     drm_release(&test_file);
     test_gem_free(gem);

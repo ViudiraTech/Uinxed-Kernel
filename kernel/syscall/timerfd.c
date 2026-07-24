@@ -365,5 +365,5 @@ void timerfd_init(void)
         free(cb);
         return;
     }
-    plogk("timerfd: Subsystem initialized (fsid=%d)\n", timerfd_fsid);
+    plogk("timerfd: Timerfd subsystem registered (fsid=%d)\n", timerfd_fsid);
 }

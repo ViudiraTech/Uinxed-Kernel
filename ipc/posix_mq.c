@@ -1032,10 +1032,10 @@ void posix_mq_init(void)
 
     mq_fsid = vfs_regist(cb);
     if (mq_fsid < 0) {
-        plogk("posix_mq: Failed to register VFS callback (err=%d).\n", mq_fsid);
+        plogk("posix_mq: Failed to register VFS callback (err=%d)\n", mq_fsid);
         free(cb);
         return;
     }
 
-    plogk("posix_mq: Subsystem initialized (fsid=%d, max_queues=%d)\n", mq_fsid, MQ_MAX_QUEUES);
+    plogk("posix_mq: POSIX message queues registered (fsid=%d, max_queues=%d)\n", mq_fsid, MQ_MAX_QUEUES);
 }

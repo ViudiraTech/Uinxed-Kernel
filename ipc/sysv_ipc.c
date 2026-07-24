@@ -1575,7 +1575,5 @@ void sysv_ipc_init(void)
 
     sem_undo_list = NULL;
 
-    plogk("sysv_ipc: Subsystem initialized "
-          "(sem=%d, shm=%d, msg=%d)\n",
-          SEM_MAX_SETS, SHM_MAX_SEGS, MSG_MAX_QUEUES);
+    plogk("sysv_ipc: System V IPC registered (sem=%d sets, shm=%d segments, msg=%d queues)\n", SEM_MAX_SETS, SHM_MAX_SEGS, MSG_MAX_QUEUES);
 }

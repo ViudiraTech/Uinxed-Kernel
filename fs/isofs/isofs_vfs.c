@@ -725,20 +725,24 @@ static struct vfs_callback isofs_callbacks = {
 void isofs_regist(void)
 {
     isofs_fs_id = vfs_regist_fs("isofs", &isofs_callbacks);
+    if (!(isofs_fs_id & ERRNO_MASK)) plogk("isofs: Filesystem registered (fsid=%d)\n", isofs_fs_id);
     if (isofs_fs_id & ERRNO_MASK) {
         plogk("isofs: Register error.\n");
         return;
     }
 
+    uint8_t sr_idx = 0;
     for (uint8_t drive = 0; drive < 4; drive++) {
         if (!atapi_devices[drive].reserved || atapi_devices[drive].type != IDE_ATAPI) continue;
-        plogk("isofs: Detected ATAPI device sr%u on IDE (%u blocks, %u bytes/block)\n", drive, atapi_devices[drive].lba_size,
+        plogk("isofs: Detected ATAPI device sr%u on IDE (%u blocks, %u bytes/block)\n", sr_idx, atapi_devices[drive].lba_size,
               atapi_devices[drive].blk_size);
+        sr_idx++;
     }
     for (int d = 0; d < AHCI_MAX_DEVICES; d++) {
         if (!ahci_devices[d].reserved || ahci_devices[d].type != AHCI_DEV_SATAPI) continue;
-        plogk("isofs: Detected ATAPI device sr%u on AHCI (%u blocks, %u bytes/block)\n", 4 + d, ahci_devices[d].size,
+        plogk("isofs: Detected ATAPI device sr%u on AHCI (%u blocks, %u bytes/block)\n", sr_idx, ahci_devices[d].size,
               ahci_devices[d].sector_size);
+        sr_idx++;
     }
 }
 

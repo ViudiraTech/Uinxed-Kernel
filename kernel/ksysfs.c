@@ -197,7 +197,7 @@ void ksysfs_init(void)
     }
 
     if (!kernel_kobj) {
-        plogk("ksysfs: /sys/kernel/ kobject not found\n");
+        plogk("ksysfs: /sys/kernel/ kobject not found.\n");
         return;
     }
 
@@ -208,9 +208,7 @@ void ksysfs_init(void)
     if (kernel_ktype.default_attrs) {
         struct attribute **attr;
         for (attr = kernel_ktype.default_attrs; *attr; attr++) {
-            if ((*attr)->name) { sysfs_create_file(kernel_kobj, *attr); }
+            if ((*attr)->name) sysfs_create_file(kernel_kobj, *attr);
         }
     }
-
-    plogk("ksysfs: /sys/kernel/ attributes registered\n");
 }

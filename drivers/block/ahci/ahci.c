@@ -319,12 +319,10 @@ int ahci_write_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, const void
 void init_ahci(void)
 {
     pci_device_find(&ahci_pci_request);
-    if (ahci_pci_request.response->error != PCI_FINDING_SUCCESS) {
-        plogk("ahci: No AHCI controller found.\n");
-        return;
-    }
+    if (ahci_pci_request.response->error != PCI_FINDING_SUCCESS) return;
 
-    pci_device_cache_t *cache = ahci_pci_request.response->device;
+    pci_device_cache_t *cache      = ahci_pci_request.response->device;
+    int                 sata_count = 0, satapi_count = 0;
 
     pci_write_command_status(cache, (pci_read_command_status(cache) & 0xFFFF) | (1u << 1) | (1u << 2));
 
@@ -335,6 +333,9 @@ void init_ahci(void)
     }
 
     hba_mmio = (volatile uint8_t *)bar.address;
+
+    plogk("ahci: Controller found at PCI %04x:%02x:%02x.%01x, vendor 0x%04x, device 0x%04x\n", cache->device->domain, cache->device->bus,
+          cache->device->slot, cache->device->func, cache->vendor_id, cache->device_id);
 
     /* BIOS/OS handoff */
     uint32_t cap2 = ahci_read32(hba_mmio, HOST_CAP2);
@@ -376,6 +377,7 @@ void init_ahci(void)
     uint32_t cap       = ahci_read32(hba_mmio, HOST_CAP);
     uint32_t max_ports = (cap & 0x1F) + 1;
     if (max_ports > AHCI_MAX_PORTS) max_ports = AHCI_MAX_PORTS;
+    plogk("ahci: CAP=0x%08x, PI=0x%08x, %u ports implemented\n", cap, pi, max_ports);
 
     ahci_port_count   = 0;
     ahci_device_count = 0;
@@ -445,7 +447,7 @@ void init_ahci(void)
                 nsleep(1000);
             }
             if ((ssts & 0xF) != HBA_PORT_DET_PRESENT) {
-                plogk("ahci: Port %u device detect failed (DET=%u).\n", i, ssts & 0xF);
+                plogk("ahci: Port %u device detect failed (DET=%u)\n", i, ssts & 0xF);
                 ahci_port_stop(port);
                 continue;
             }
@@ -458,7 +460,7 @@ void init_ahci(void)
 
         uint32_t sig = ahci_read32(port->port_mmio, PORT_SIG);
         if (sig != SATA_SIG_ATA && sig != SATA_SIG_ATAPI) {
-            plogk("ahci: Port %u no device (sig=0x%x).\n", i, sig);
+            plogk("ahci: Port %u no device (sig=0x%x)\n", i, sig);
             ahci_port_stop(port);
             continue;
         }
@@ -473,8 +475,9 @@ void init_ahci(void)
             dev->sector_size = 2048;
             dev->size        = 0;
             ahci_write32(port->port_mmio, PORT_CMD, ahci_read32(port->port_mmio, PORT_CMD) | PORT_CMD_ATAPI);
-            plogk("ahci: Found SATAPI device on port %u\n", i);
+            plogk("ahci: Port %u: ATAPI optical device detected\n", i);
             ahci_device_count++;
+            satapi_count++;
             ahci_port_count++;
             continue;
         }
@@ -491,15 +494,13 @@ void init_ahci(void)
         }
 
         ahci_device_count++;
+        sata_count++;
         ahci_port_count++;
 
-        plogk("ahci: Found SATA Drive %u (KiB) on port %u - %s\n", (dev->size * 512) / 1024, i, dev->model);
+        plogk("ahci: Port %u: SATA drive, %u KiB, model \"%s\"\n", i, (dev->size * 512) / 1024, dev->model);
     }
 
-    if (ahci_device_count == 0) {
-        plogk("ahci: No AHCI devices found.\n");
-    } else {
-        plogk("ahci: %u device(s) initialized.\n", ahci_device_count);
-    }
+    if (ahci_device_count > 0) { plogk("ahci: %u device(s) found (%u SATA, %u SATAPI)\n", ahci_device_count, sata_count, satapi_count); }
+
     ahci_satapi_init();
 }

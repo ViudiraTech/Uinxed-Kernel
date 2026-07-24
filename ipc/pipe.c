@@ -693,10 +693,10 @@ void pipe_init(void)
 
     pipe_fsid = vfs_regist(cb);
     if (pipe_fsid < 0) {
-        plogk("pipe: Failed to register VFS callback (err=%d).\n", pipe_fsid);
+        plogk("pipe: Failed to register VFS callback (err=%d)\n", pipe_fsid);
         free(cb);
         return;
     }
 
-    plogk("pipe: Subsystem initialized (fsid=%d, buffer=%d bytes)\n", pipe_fsid, PIPE_BUF_SIZE);
+    plogk("pipe: Pipe subsystem registered (fsid=%d, buffer=%d bytes)\n", pipe_fsid, PIPE_BUF_SIZE);
 }

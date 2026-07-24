@@ -170,7 +170,7 @@ static int blk_ahci_atapi_read_sectors(const blockdev_device_t *dev, uint32_t lb
     uint8_t *ptr = buffer;
     while (count) {
         uint8_t chunk = count > 255 ? 255 : (uint8_t)count;
-        int ret = ahci_satapi_read_sectors(dev->drive, chunk, dev->base_lba + lba, ptr);
+        int     ret   = ahci_satapi_read_sectors(dev->drive, chunk, dev->base_lba + lba, ptr);
         if (ret) return ret;
         ptr += (size_t)chunk * dev->sector_size;
         lba += chunk;

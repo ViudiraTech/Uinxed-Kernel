@@ -922,4 +922,5 @@ void procfs_regist(void)
 {
     procfs_id = vfs_regist_fs("procfs", &procfs_callbacks);
     if (procfs_id & ERRNO_MASK) plogk("procfs: Register error.\n");
+    if (!(procfs_id & ERRNO_MASK)) plogk("procfs: Filesystem registered (fsid=%d)\n", procfs_id);
 }

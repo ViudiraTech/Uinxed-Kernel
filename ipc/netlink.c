@@ -806,5 +806,5 @@ void netlink_init(void)
     nl_pid_counter = 0;
     memset(&nl_pid_lock, 0, sizeof(nl_pid_lock));
 
-    plogk("netlink: AF_NETLINK socket family initialized\n");
+    plogk("netlink: AF_NETLINK socket family registered.\n");
 }

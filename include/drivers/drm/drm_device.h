@@ -679,8 +679,8 @@ struct drm_driver {
 
 /* Event queue entry. */
 struct drm_event_node {
-    struct drm_event      *event;
-    struct drm_event_node *next;
+        struct drm_event      *event;
+        struct drm_event_node *next;
 };
 
 struct drm_file {
@@ -721,7 +721,7 @@ struct drm_file {
         spinlock_t             event_lock;
         struct drm_event_node *event_list_head;
         struct drm_event_node *event_list_tail;
-        int                    event_space;  /* bytes of pending events */
+        int                    event_space; /* bytes of pending events */
 };
 
 /* ------------------------------------------------------------------ */

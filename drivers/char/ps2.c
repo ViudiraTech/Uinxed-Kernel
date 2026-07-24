@@ -163,11 +163,7 @@ void init_ps2(void)
 
     /* Controller self-test */
     ps2_write_cmd(PS2_CMD_SELF_TEST);
-    if (ps2_read_data() != PS2_RESPONSE_SELFTEST) {
-        plogk("ps/2: Controller self-test failed.\n");
-    } else {
-        plogk("ps/2: Controller self-test successful.\n");
-    }
+    if (ps2_read_data() != PS2_RESPONSE_SELFTEST) { plogk("ps/2: Controller self-test failed.\n"); }
 
     /* Detect whether it is a dual-channel controller */
     ps2_write_cmd(PS2_CMD_ENABLE_PORT2);
@@ -175,7 +171,7 @@ void init_ps2(void)
 
     if (!is_dual_channel) {
         ps2_write_cmd(PS2_CMD_DISABLE_PORT2);
-        plogk("ps/2: Single channel controller detected.\n");
+        plogk("ps/2: Single channel controller.\n");
     } else {
         plogk("ps/2: Dual channel controller detected.\n");
     }
@@ -234,11 +230,7 @@ void init_ps2(void)
     ps2_keyboard_evdev = evdev_create(&ps2_keyboard_dev);
     if (ps2_keyboard_evdev) {
         if (evdev_register(ps2_keyboard_evdev) == 0)
-            plogk("evdev: PS/2 keyboard registered as event%d\n", ps2_keyboard_evdev->minor);
-        else
-            plogk("evdev: Failed to register PS/2 keyboard\n");
-    } else {
-        plogk("evdev: Failed to create PS/2 keyboard evdev\n");
+            plogk("evdev: AT Translated Set 2 keyboard on isa0060/serio0/input0 registered as event%d\n", ps2_keyboard_evdev->minor);
     }
 }
 

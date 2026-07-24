@@ -26,15 +26,12 @@ static int parallel_detect(uint16_t port)
 static void init_parallel_port(uint16_t port)
 {
     uint8_t control = 0;
-    control |= 0x04; // Initialize peripherals
-    control |= 0x08; // Select peripherals
+    control |= 0x04;
+    control |= 0x08;
     outb(port + CONTROL_REG, control);
 
-    if (!(inb(port + STATUS_REG) & 0x40)) {
-        plogk("parallel: Parallel port %s test failed.\n", PORT_TO_LPT(port));
-        return;
-    }
-    plogk("parallel: Local port: %s, Status: 0x%02x\n", PORT_TO_LPT(port), inb(port + STATUS_REG));
+    if (!(inb(port + STATUS_REG) & 0x40)) return;
+    plogk("parallel: Port %s, status 0x%02x\n", PORT_TO_LPT(port), inb(port + STATUS_REG));
 }
 
 /* Initialize parallel port */
@@ -49,7 +46,7 @@ void init_parallel(void)
             valid_ports++;
         }
     }
-    if (valid_ports == 0) plogk("parallel: No parallel port available.\n");
+    if (valid_ports > 0) plogk("parallel: %u port(s) available.\n", valid_ports);
 }
 
 /* Check if the specified parallel port is busy */

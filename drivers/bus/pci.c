@@ -774,8 +774,8 @@ void pci_init(void)
 
     while (cache != 0) {
         device = cache->device;
-        plogk("pci: %04x:%02x:%02x.%01x: [0x%04x:0x%04x] %s\n", device->domain, device->bus, device->slot, device->func, cache->vendor_id,
-              cache->device_id, pci_classname(cache->class_code));
+        plogk("pci: %04x:%02x:%02x.%01x: [0x%04x:0x%04x] class=0x%06x, %s\n", device->domain, device->bus, device->slot, device->func,
+              cache->vendor_id, cache->device_id, cache->class_code, pci_classname(cache->class_code));
         cache = cache->next;
     }
     plogk("pci: Found %lu devices.\n", pci_cache.devices_count);

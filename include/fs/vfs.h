@@ -50,10 +50,8 @@ typedef vfs_node_t (*vfs_dup_t)(vfs_node_t node);
 typedef int (*vfs_poll_t)(void *file, size_t events);
 typedef int (*vfs_free_t)(void *handle);
 typedef void *(*vfs_mmap_t)(void *file, size_t offset, size_t size, int flags);
-typedef void *(*vfs_file_mmap_t)(vfs_node_t node, void *private_data,
-                                 size_t offset, size_t size, int flags,
-                                 struct vm_area *vma);
-typedef int  (*vfs_file_open_t)(vfs_node_t node, uint64_t flags, void **private_data);
+typedef void *(*vfs_file_mmap_t)(vfs_node_t node, void *private_data, size_t offset, size_t size, int flags, struct vm_area *vma);
+typedef int (*vfs_file_open_t)(vfs_node_t node, uint64_t flags, void **private_data);
 typedef void (*vfs_file_release_t)(vfs_node_t node, void *private_data);
 
 enum {
@@ -76,25 +74,25 @@ enum {
 };
 
 typedef struct vfs_callback {
-        vfs_mount_t    mount;    // Mount the file system
-        vfs_umount_t   unmount;  // Unmount the file system (virtual file systems do not support unmounting)
-        vfs_open_t     open;     // Open a file handle
-        vfs_close_t    close;    // Close a file handle
-        vfs_read_t     read;     // Read a file
-        vfs_write_t    write;    // Write to a file
-        vfs_readlink_t readlink; // Read a symbolic link
-        vfs_mk_t       mkdir;    // Create a folder
-        vfs_mk_t       mkfile;   // Create a file
-        vfs_mk_t       link;     // Create a hard link
-        vfs_mk_t       symlink;  // Create a symbolic link
-        vfs_stat_t     stat;     // Check file status information
-        vfs_ioctl_t    ioctl;    // I/O control interface (implemented only by special file systems such as devfs)
-        vfs_dup_t      dup;      // Copy file node
-        vfs_poll_t     poll;     // Polling file status (implemented only for special file systems such as devfs)
-        vfs_free_t     free;     // Release file handle
-        vfs_del_t delete;        // Delete files or folders
-        vfs_rename_t rename;     // Rename files or folders
-        vfs_mmap_t   mmap;       // Memory-map a device/file into the process address space
+        vfs_mount_t    mount;            // Mount the file system
+        vfs_umount_t   unmount;          // Unmount the file system (virtual file systems do not support unmounting)
+        vfs_open_t     open;             // Open a file handle
+        vfs_close_t    close;            // Close a file handle
+        vfs_read_t     read;             // Read a file
+        vfs_write_t    write;            // Write to a file
+        vfs_readlink_t readlink;         // Read a symbolic link
+        vfs_mk_t       mkdir;            // Create a folder
+        vfs_mk_t       mkfile;           // Create a file
+        vfs_mk_t       link;             // Create a hard link
+        vfs_mk_t       symlink;          // Create a symbolic link
+        vfs_stat_t     stat;             // Check file status information
+        vfs_ioctl_t    ioctl;            // I/O control interface (implemented only by special file systems such as devfs)
+        vfs_dup_t      dup;              // Copy file node
+        vfs_poll_t     poll;             // Polling file status (implemented only for special file systems such as devfs)
+        vfs_free_t     free;             // Release file handle
+        vfs_del_t delete;                // Delete files or folders
+        vfs_rename_t       rename;       // Rename files or folders
+        vfs_mmap_t         mmap;         // Memory-map a device/file into the process address space
         vfs_file_open_t    file_open;    // Per-open-instance allocation callback
         vfs_file_release_t file_release; // Per-open-instance teardown callback
         vfs_file_mmap_t    file_mmap;    // Per-open mmap callback (for GEM, etc.)

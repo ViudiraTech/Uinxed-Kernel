@@ -38,7 +38,12 @@
 #include <fs/sysfs.h>
 #include <fs/tmpfs.h>
 #include <fs/vfs.h>
+#include <ipc/epoll.h>
+#include <ipc/futex.h>
 #include <ipc/netlink.h>
+#include <ipc/posix_mq.h>
+#include <ipc/socket.h>
+#include <ipc/sysv_ipc.h>
 #include <kernel/cmdline.h>
 #include <kernel/debug.h>
 #include <kernel/device.h>
@@ -54,6 +59,7 @@
 #include <proc/process.h>
 #include <proc/sched.h>
 #include <proc/sched_test.h>
+#include <sync/signal.h>
 #include <sync/spin_lock.h>
 #include <syscall/eventfd.h>
 #include <syscall/mmap.h>
@@ -64,12 +70,11 @@
 #include <video/video.h>
 
 extern process_t *init_process;
-
-/* External declarations for new sysfs integration */
-void ksysfs_init(void);
-void pci_sysfs_init(void);
-void block_sysfs_init(void);
-void tty_sysfs_init(void);
+extern void       pipe_init(void);
+extern void       ksysfs_init(void);
+extern void       pci_sysfs_init(void);
+extern void       block_sysfs_init(void);
+extern void       tty_sysfs_init(void);
 
 /* Create init process */
 void swapper_run_init(void)
@@ -121,17 +126,17 @@ void executable_entry(void)
 /* Kernel entry */
 void kernel_entry(void)
 {
-    init_fpu();     // Floating-Point Unit / Streaming SIMD Extensions
-    init_sse();     // Streaming SIMD Extensions / 2
-    init_serial();  // Standard RS-232 Serial Port
-    cpu_enable_nx();
-                    //
-    init_frame();   // Physical Memory Frame
-    page_init();    // Standard 4-Level Page Table
-    init_heap();    // Standard Memory Heap
-    lmodule_init(); // Limine Kernel Module
-                    //
-    video_init();   // Basic VESA/GOP Video
+    init_fpu();      // Floating-Point Unit / Streaming SIMD Extensions
+    init_sse();      // Streaming SIMD Extensions / 2
+    init_serial();   // Standard RS-232 Serial Port
+    cpu_enable_nx(); //
+                     //
+    init_frame();    // Physical Memory Frame
+    page_init();     // Standard 4-Level Page Table
+    init_heap();     // Standard Memory Heap
+    lmodule_init();  // Limine Kernel Module
+                     //
+    video_init();    // Basic VESA/GOP Video
     video_info_t fbinfo = video_get_info();
 
 #if BOOT_LOGO
@@ -172,16 +177,24 @@ void kernel_entry(void)
     print_memory_map();             //
     log_buffer_print(&frame_log);   //
     pci_init();                     // Peripheral Component Interconnect
+    log_buffer_print(&lmodule_log); //
+                                    //
+    /* Storage devices */           //
+    init_ide();                     // ATA / ATAPI
+    nvme_init();                    // Non-Volatile Memory Express
+    init_ahci();                    // Advanced Host Controller Interface
+                                    //
+    /* Input devices */             //
+    init_ps2();                     // PS/2 Controller
+                                    //
+    /* Sound hardware */            //
     sb16_init();                    // Sound Blaster 16
 #if CONFIG_SOUND_HDA                //
     hda_init();                     // Intel HD Audio
 #endif                              //
-    log_buffer_print(&lmodule_log); //
-    init_ide();                     // Advanced Technology Attachment / ATA Packet Interface
-    nvme_init();                    // Non-Volatile Memory Express
-    init_ahci();                    // Advanced Host Controller Interface
-    init_parallel();                // Standard IEEE 1284 Parallel Port
-    init_ps2();                     // Personal System/2 Controller
+    init_parallel();                // IEEE 1284 Parallel Port
+                                    //
+    /* Filesystem layer */          //
     init_vfs();                     // Virtual Filesystem
     tmpfs_regist();                 // Temporary File System
     fatfs_vfs_regist();             // FAT File System
@@ -189,26 +202,25 @@ void kernel_entry(void)
 
     if (!get_rootdir()->fsid && vfs_mount(0, get_rootdir()) != EOK) plogk("init: Cannot mount tmpfs to root_dir.\n");
 
-        /* --- Mount sysfs early so drivers can register with device model --- */
+        /* Device model and sysfs */
 #if CONFIG_SYSFS
     sysfs_regist();      // Register sysfs with the VFS layer
     sysfs_init();        // Mount sysfs at /sys and create top-level directories
     device_model_init(); // Initialise the device model (bus/class/device)
+#endif                   // \
+                         //
+    init_cpio();         // Copy In, Copy Out
+    devtmpfs_init();     // Device Temporary File System
+    procfs_regist();     // Process File System
+                         //
+#if CONFIG_SYSFS         //
+    ksysfs_init();       // /sys/kernel/{version,cmdline,hostname,...}
+    pci_sysfs_init();    // /sys/bus/pci/ + /sys/devices/pci*
+    block_sysfs_init();  // /sys/block/{hdX,sdX,nvme*}
+    tty_sysfs_init();    // /sys/class/tty/
 #endif
 
-    init_cpio();     // Copy In, Copy Out
-    devtmpfs_init(); // Device Temporary File System
-    procfs_regist(); // Process File System
-
-    /* --- Register devices with sysfs (after device model is up) --- */
-#if CONFIG_SYSFS
-    ksysfs_init();      // /sys/kernel/{version,cmdline,hostname,...}
-    pci_sysfs_init();   // /sys/bus/pci/ + /sys/devices/pci*
-    block_sysfs_init(); // /sys/block/{hdX,sdX,nvme*}
-    tty_sysfs_init();   // /sys/class/tty/
-#endif
-
-    /* --- Netlink (must be before socket_init) --- */
+    /* Networking and graphics */
     netlink_init();    // AF_NETLINK socket family
     drm_init();        // Direct Rendering Manager
     virtio_gpu_init(); // VirtIO GPU driver (if present on PCI bus)
@@ -218,12 +230,20 @@ void kernel_entry(void)
         tty_device_t *bt = get_boot_tty();
         if (bt->type == TTY_DEVICE_DRM && !virtio_gpu_get_device()) {
             tty_set_device_type(TTY_DEVICE_VGA);
-            plogk("virtgpu: not available, TTY staying in VGA mode\n");
+            plogk("virtgpu: not available, TTY staying in VGA mode.\n");
         }
     }
 
+    /* Core kernel services */
     sched_init();    // Preemptive Scheduler
+    signal_init();   // POSIX Signals
     process_init();  // Process Management
+    socket_init();   // UNIX Domain Sockets
+    pipe_init();     // Pipes
+    sysv_ipc_init(); // System V IPC
+    posix_mq_init(); // POSIX Message Queues
+    epoll_init();    // Epoll
+    futex_init();    // Futexes
     eventfd_init();  // Event File Descriptor
     timerfd_init();  // Timer File Descriptor
     signalfd_init(); // Signal File Descriptor

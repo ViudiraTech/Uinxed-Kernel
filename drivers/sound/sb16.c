@@ -313,24 +313,15 @@ void sb16_init(void)
     sb16_lock.lock   = 0;
     sb16_lock.rflags = 0;
 
-    pci_devices_cache_t *cache = pci_get_devices_cache();
-    if (!cache) plogk("sb16: PCI cache not ready, trying legacy ports.\n");
-
     if (sb16_detect(&sb16_dev)) {
         sb16_dev.base  = 0x220;
         sb16_dev.irq   = 5;
         sb16_dev.dma8  = 1;
         sb16_dev.dma16 = 5;
-        if (sb16_dsp_reset(&sb16_dev)) {
-            plogk("sb16: No Sound Blaster 16 card found.\n");
-            return;
-        }
+        if (sb16_dsp_reset(&sb16_dev)) return;
         uint8_t major = 0, minor = 0;
-        if (sb16_dsp_version(&sb16_dev, &major, &minor)) {
-            plogk("sb16: DSP version check failed.\n");
-            return;
-        }
-        plogk("sb16: Found DSP version %u.%u at port 0x%x\n", major, minor, sb16_dev.base);
+        if (sb16_dsp_version(&sb16_dev, &major, &minor)) return;
+        plogk("sb16: DSP version %u.%u at port 0x%x\n", major, minor, sb16_dev.base);
         sb16_dev.detected = 1;
     }
 
@@ -344,19 +335,16 @@ void sb16_init(void)
     sb16_set_dac_volume(&sb16_dev, sb16_dev.volume_left, sb16_dev.volume_right);
     sb16_mixer_write(&sb16_dev, SB16_MIXER_OUT_SRC, SB16_MIXER_SRC_DAC);
 
-    plogk("sb16: Sound Blaster 16 initialized at port 0x%x, IRQ %u, DMA8 %u, DMA16 %u\n", sb16_dev.base, sb16_dev.irq, sb16_dev.dma8,
-          sb16_dev.dma16);
-
     sb16_dev.dma_buffer_size = 65536;
     uint64_t frame           = alloc_frames(ALIGN_UP(sb16_dev.dma_buffer_size, PAGE_4K_SIZE) / PAGE_4K_SIZE);
-    if (frame) {
-        sb16_dev.dma_buffer_phys = frame;
-        sb16_dev.dma_buffer_virt = (uint8_t *)phys_to_virt(frame);
-        plogk("sb16: DMA buffer at phys=%p virt=%p size=%u\n", (void *)frame, sb16_dev.dma_buffer_virt, sb16_dev.dma_buffer_size);
-    } else {
+    if (!frame) {
         plogk("sb16: Failed to allocate DMA buffer.\n");
         return;
     }
+    sb16_dev.dma_buffer_phys = frame;
+    sb16_dev.dma_buffer_virt = (uint8_t *)phys_to_virt(frame);
+
+    plogk("sb16: IRQ %u, DMA8 %u, DMA16 %u, DMA buffer %u bytes.\n", sb16_dev.irq, sb16_dev.dma8, sb16_dev.dma16, sb16_dev.dma_buffer_size);
 
     audio_pcm_format_t format = {
         .sample_rate = sb16_dev.sample_rate,

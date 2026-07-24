@@ -382,7 +382,7 @@ int tpm_init(void)
             plogk("tpm: Interface init failed: %d\n", rc);
             return rc;
         }
-        plogk("tpm: TPM 2.0 initialized (DID/VID: 0x%08x, RID: 0x%02x)\n", g_tpm_device.did_vid, g_tpm_device.rid);
+        plogk("tpm: TPM 2.0 detected (DID/VID 0x%08x, RID 0x%02x)\n", g_tpm_device.did_vid, g_tpm_device.rid);
 
         rc = tpm2_startup(&g_tpm_device);
         if (rc < 0 && rc != -TPM_WARN_RETRY) plogk("tpm: Startup returned 0x%x, TPM may already be started.\n", -rc);
@@ -403,10 +403,7 @@ int tpm_init(void)
         g_tpm_device.mmio_base = phys_to_virt(TPM_LEGACY_BASE_PHYS);
 
         uint32_t did_vid = tpm_verify_mmio(g_tpm_device.mmio_base);
-        if (!did_vid) {
-            plogk("tpm: No TPM at legacy address 0x%lx\n", TPM_LEGACY_BASE_PHYS);
-            return -1;
-        }
+        if (!did_vid) return -1;
 
         g_tpm_device.did_vid   = did_vid;
         g_tpm_device.timeout_a = TPM_TIMEOUT_A;
@@ -420,7 +417,7 @@ int tpm_init(void)
             return rc;
         }
 
-        plogk("tpm: TPM 1.2 initialized (DID/VID: 0x%08x, RID: 0x%02x)\n", g_tpm_device.did_vid, g_tpm_device.rid);
+        plogk("tpm: TPM 1.2 detected (DID/VID 0x%08x, RID 0x%02x)\n", g_tpm_device.did_vid, g_tpm_device.rid);
         g_tpm_available = 1;
         return 0;
     }
@@ -448,11 +445,10 @@ int tpm_init(void)
             return rc;
         }
 
-        plogk("tpm: TPM 1.2 initialized (RID: 0x%02x)\n", g_tpm_device.rid);
+        plogk("tpm: TPM 1.2 configured (RID 0x%02x)\n", g_tpm_device.rid);
         g_tpm_available = 1;
         return 0;
     }
 
-    plogk("tpm: No TPM found.\n");
     return -1;
 }
