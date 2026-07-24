@@ -257,7 +257,7 @@ static uint32_t pci_legacy_read(pci_device_reg_t reg)
     uint32_t      slot            = device->slot & 0x1f;
     uint32_t      func            = device->func & 0x07;
 
-    uint32_t id = 1 << 31 | (bus << 16) | (slot << 11) | (func << 8) | (register_offset & 0xfc);
+    uint32_t id = (1UL << 31) | (bus << 16) | (slot << 11) | (func << 8) | (register_offset & 0xfc);
     outl(PCI_COMMAND_PORT, id);
     return inl(PCI_DATA_PORT) >> (8 * (register_offset % 4));
 }
@@ -270,10 +270,19 @@ static void pci_legacy_write(pci_device_reg_t reg, uint32_t value)
     uint32_t      bus             = device->bus & 0xff;
     uint32_t      slot            = device->slot & 0x1f;
     uint32_t      func            = device->func & 0x07;
+    uint32_t      byte_offset     = register_offset % 4;
 
-    uint32_t id = 1 << 31 | (bus << 16) | (slot << 11) | (func << 8) | (register_offset & 0xfc);
+    uint32_t id = (1UL << 31) | (bus << 16) | (slot << 11) | (func << 8) | (register_offset & 0xfc);
     outl(PCI_COMMAND_PORT, id);
-    outl(PCI_DATA_PORT, value);
+    if (!byte_offset) {
+        outl(PCI_DATA_PORT, value);
+    } else {
+        uint32_t old            = inl(PCI_DATA_PORT);
+        uint32_t bytes_to_write = 4 - byte_offset;
+        uint32_t val_mask       = (uint32_t)(0xffffffff >> (32 - 8 * bytes_to_write));
+        uint32_t reg_clear      = val_mask << (8 * byte_offset);
+        outl(PCI_DATA_PORT, (old & ~reg_clear) | ((value & val_mask) << (8 * byte_offset)));
+    }
 }
 
 /* Write values ​​to PCI device registers from `pci_device_ecam` */
@@ -281,21 +290,14 @@ static void pci_mcfg_write(pci_device_reg_t reg, uint32_t value)
 {
     uint32_t           offset = reg.offset % 4;
     volatile uint32_t *ptr    = (volatile uint32_t *)(reg.parent->ecam_ptr + (reg.offset & 0xffc));
-    uint32_t           shift  = 8 * offset;
 
-    if (!shift) { // Aligned written
+    if (!offset) {
         *ptr = value;
-    } else { // No aligned written
-        uint32_t mask = 0xffffffff >> (32 - shift);
-        *ptr          = (*ptr & ~mask) | (value << shift);
-
-        /* Step1. A:=(*ptr & ~mask) -> Reset the bits of target register
-         *        Example: 0x12345678 & ~0xff000000 = 0x00345678
-         * Step2. B:=(value << shift) -> Move value to the bits of target register
-         *        Example: (0xa5 & 0xff) << 24 = 0xa5000000
-         * Step3. A|B -> Merge
-         *        Example: 0x00345678 | 0xa5000000 = 0xa5345678
-         */
+    } else {
+        uint32_t bytes_to_write = 4 - offset;
+        uint32_t val_mask       = (uint32_t)(0xffffffff >> (32 - 8 * bytes_to_write));
+        uint32_t reg_clear      = val_mask << (8 * offset);
+        *ptr                    = (*ptr & ~reg_clear) | ((value & val_mask) << (8 * offset));
     }
 }
 
@@ -396,12 +398,11 @@ base_address_register_t get_base_address_register(pci_device_cache_t *device, ui
                     plogk("PCI: Unknown BAR type.\n");
                     break;
             }
-            /* Convert to virtual address (truncate higher bits) */
-            result.address      = (uint32_t *)phys_to_virt(bar_value & ~0b1111);
+            result.address      = (void *)phys_to_virt(bar_value & ~0b1111);
             result.prefetchable = bar_value & 0b1000;
             break;
         case input_output : // I/O
-            result.address      = (uint32_t *)(uintptr_t)(bar_value & ~0b11);
+            result.address      = (void *)(uintptr_t)(bar_value & ~0b11);
             result.prefetchable = 0;
             break;
         default :
@@ -417,7 +418,7 @@ uint32_t pci_get_port_base(pci_device_cache_t *device)
     uint32_t io_port = 0;
     for (int i = 0; i < 6; i++) {
         base_address_register_t bar = get_base_address_register(device, i);
-        if (bar.type == input_output) io_port = (uintptr_t)bar.address;
+        if (bar.type == input_output) io_port = (uint32_t)(uintptr_t)bar.address;
         if (bar.size == BAR_S64) {
             /* Skip the next BAR because it is a 64-bit BAR that uses two 32-bit BARs. */
             i++;
@@ -517,7 +518,6 @@ void pci_device_find(pci_finding_request_t *req) // Notice: the req should be a 
             break;
         default :
             plogk("PCI: Unknown finding type %d\n", req->type);
-            req->response         = malloc(sizeof(pci_finding_response_iter_t));
             req->response->device = 0;
             req->response->error  = PCI_FINDING_ERROR;
             break;
@@ -572,20 +572,21 @@ void pci_update_usable_list(void)
             expired_response        = expired_response->next;
         }
 
-        /* Reset the response */
-        response->device = 0;
-        response->error  = PCI_FINDING_NOT_FOUND;
-
-        /* Update the device cache */
+        /* Re-run the finding and store the result */
         switch (node->request->type) {
-            case PCI_FOUND_CLASS :
-                pci_class_finding(0, node->request);
+            case PCI_FOUND_CLASS : {
+                pci_finding_response_iter_t result = pci_class_finding(0, node->request);
+                response->device                   = result.device;
+                response->error                    = result.error;
                 break;
-            case PCI_FOUND_DEVICE :
-                pci_device_finding(0, node->request);
+            }
+            case PCI_FOUND_DEVICE : {
+                pci_finding_response_iter_t result = pci_device_finding(0, node->request);
+                response->device                   = result.device;
+                response->error                    = result.error;
                 break;
+            }
             default :
-                plogk("PCI: Unknown finding type %d\n", node->request->type);
                 response->device = 0;
                 response->error  = PCI_FINDING_ERROR;
                 break;

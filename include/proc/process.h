@@ -118,7 +118,7 @@ typedef struct process {
         char              name[PROCESS_NAME_LEN];
         char              root[256];       /* chroot path */
         char              cwd[256];        /* current working directory */
-        int32_t           clear_child_tid; /* set_tid_address target */
+        uint64_t          clear_child_tid; /* set_tid_address target */
 } process_t;
 
 /* Initialize the process management subsystem */

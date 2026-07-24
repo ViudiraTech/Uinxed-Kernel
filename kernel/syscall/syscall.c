@@ -43,6 +43,9 @@
 #define SYSCALL_PATH_MAX 256
 #define SYSCALL_IO_CHUNK 4096
 
+/* Realtime clock base offset (ns since epoch, set by clock_settime) */
+static int64_t realtime_base_ns;
+
 /* Mount flag bits stored in vfs_node->flags */
 #define MOUNT_FLAG_RDONLY (1UL << 0)
 #define MOUNT_FLAG_NOSUID (1UL << 1)
@@ -854,9 +857,10 @@ static int64_t sys_gettimeofday(uint64_t tv, uint64_t tz, uint64_t arg2, uint64_
     (void)arg5;
     if (!tv) return 0;
 
-    linux_timeval_t now = {
-        .tv_sec  = (int64_t)(sched_ticks() / 100),
-        .tv_usec = (int64_t)((sched_ticks() % 100) * 10000),
+    int64_t         uptime_ns = (int64_t)(sched_ticks() * 10000000LL) + realtime_base_ns;
+    linux_timeval_t now       = {
+              .tv_sec  = uptime_ns / 1000000000LL,
+              .tv_usec = (uptime_ns % 1000000000LL) / 1000,
     };
     return copy_to_user((void *)tv, &now, sizeof(now)) ? -EFAULT : 0;
 }
@@ -868,7 +872,7 @@ static int64_t sys_time(uint64_t tloc, uint64_t arg1, uint64_t arg2, uint64_t ar
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    int64_t now = (int64_t)(sched_ticks() / 100);
+    int64_t now = ((int64_t)(sched_ticks() * 10000000LL) + realtime_base_ns) / 1000000000LL;
     if (tloc && copy_to_user((void *)tloc, &now, sizeof(now))) return -EFAULT;
     return now;
 }
@@ -1417,8 +1421,27 @@ static int64_t sys_fchdir_stub(uint64_t fd, uint64_t arg1, uint64_t arg2, uint64
         return -ENOTDIR;
     }
 
-    /* Use the node's name as cwd */
-    strncpy(proc->cwd, file->node->name, sizeof(proc->cwd) - 1);
+    /* Build path by walking up the parent chain */
+    vfs_node_t node = file->node;
+    char       path[256];
+    char       tmp[256];
+    size_t     off = sizeof(path) - 1;
+    path[off]      = '\0';
+
+    while (node && node != node->parent && off > 0) {
+        size_t nlen = strlen(node->name);
+        if (off + nlen + 1 > sizeof(path)) break;
+        off -= nlen;
+        memcpy(path + off, node->name, nlen);
+        if (off > 0) path[--off] = '/';
+        node = node->parent;
+    }
+
+    if (off > 0) path[--off] = '/';
+    memcpy(tmp, path + off, sizeof(path) - off);
+    tmp[sizeof(path) - off] = '\0';
+
+    strncpy(proc->cwd, tmp, sizeof(proc->cwd) - 1);
     proc->cwd[sizeof(proc->cwd) - 1] = '\0';
     process_file_put(file);
     return EOK;
@@ -1478,6 +1501,24 @@ static int64_t sys_ftruncate_stub(uint64_t fd, uint64_t length, uint64_t arg2, u
 #define CLOCK_BOOTTIME_ALARM     9
 #define CLOCK_TAI                11
 
+static int64_t sys_clock_settime_impl(uint64_t clockid, uint64_t tp, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    if (!tp) return -EFAULT;
+    if (clockid != CLOCK_REALTIME && clockid != CLOCK_REALTIME_COARSE && clockid != CLOCK_REALTIME_ALARM) return -EINVAL;
+
+    linux_timespec_t ts;
+    if (copy_from_user(&ts, (const void *)tp, sizeof(ts))) return -EFAULT;
+    if (ts.tv_nsec < 0 || ts.tv_nsec >= 1000000000LL) return -EINVAL;
+
+    int64_t uptime_ns = (int64_t)(sched_ticks() * 10000000LL);
+    realtime_base_ns  = ts.tv_sec * 1000000000LL + ts.tv_nsec - uptime_ns;
+    return EOK;
+}
+
 static int64_t sys_clock_gettime_stub(uint64_t clockid, uint64_t tp, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -1486,7 +1527,8 @@ static int64_t sys_clock_gettime_stub(uint64_t clockid, uint64_t tp, uint64_t ar
     (void)arg5;
     if (!tp) return -EFAULT;
 
-    uint64_t         ticks = sched_ticks();
+    uint64_t         ticks     = sched_ticks();
+    int64_t          uptime_ns = (int64_t)(ticks * 10000000LL);
     linux_timespec_t ts;
 
     switch ((int)clockid) {
@@ -1494,8 +1536,9 @@ static int64_t sys_clock_gettime_stub(uint64_t clockid, uint64_t tp, uint64_t ar
         case CLOCK_REALTIME_COARSE :
         case CLOCK_REALTIME_ALARM :
             /* Wall clock time since epoch */
-            ts.tv_sec  = (int64_t)(ticks / 100);
-            ts.tv_nsec = (int64_t)((ticks % 100) * 10000000LL);
+            uptime_ns += realtime_base_ns;
+            ts.tv_sec  = uptime_ns / 1000000000LL;
+            ts.tv_nsec = uptime_ns % 1000000000LL;
             break;
         case CLOCK_MONOTONIC :
         case CLOCK_MONOTONIC_RAW :
@@ -1503,18 +1546,18 @@ static int64_t sys_clock_gettime_stub(uint64_t clockid, uint64_t tp, uint64_t ar
         case CLOCK_BOOTTIME :
         case CLOCK_BOOTTIME_ALARM :
             /* Monotonic time since boot */
-            ts.tv_sec  = (int64_t)(ticks / 100);
-            ts.tv_nsec = (int64_t)((ticks % 100) * 10000000LL);
+            ts.tv_sec  = uptime_ns / 1000000000LL;
+            ts.tv_nsec = uptime_ns % 1000000000LL;
             break;
         case CLOCK_PROCESS_CPUTIME_ID :
         case CLOCK_THREAD_CPUTIME_ID :
             /* CPU time - approximate with elapsed time */
-            ts.tv_sec  = (int64_t)(ticks / 100);
-            ts.tv_nsec = (int64_t)((ticks % 100) * 10000000LL);
+            ts.tv_sec  = uptime_ns / 1000000000LL;
+            ts.tv_nsec = uptime_ns % 1000000000LL;
             break;
         case CLOCK_TAI :
-            ts.tv_sec  = (int64_t)(ticks / 100);
-            ts.tv_nsec = (int64_t)((ticks % 100) * 10000000LL);
+            ts.tv_sec  = uptime_ns / 1000000000LL;
+            ts.tv_nsec = uptime_ns % 1000000000LL;
             break;
         default :
             return -EINVAL;
@@ -1629,6 +1672,104 @@ static int64_t sys_restart_syscall(uint64_t arg0, uint64_t arg1, uint64_t arg2, 
     return -EINTR;
 }
 
+/* ---------- chmod / chown helpers ---------- */
+
+static int64_t sys_chmod_common(const char *path, uint64_t mode)
+{
+    vfs_node_t node = vfs_open(path);
+    if (!node) return -ENOENT;
+    node->mode = (uint16_t)(mode & 07777);
+    vfs_close(node);
+    return EOK;
+}
+
+static int64_t sys_chmod_impl(uint64_t path, uint64_t mode, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    char name[SYSCALL_PATH_MAX];
+    int  ret = copy_path_from_user(path, name);
+    if (ret != EOK) return ret;
+    return sys_chmod_common(name, mode);
+}
+
+static int64_t sys_fchmod_impl(uint64_t fd, uint64_t mode, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    process_file_t *file = process_fd_get(proc, (int)fd);
+    if (!file) return -EBADF;
+    file->node->mode = (uint16_t)(mode & 07777);
+    process_file_put(file);
+    return EOK;
+}
+
+static int64_t sys_chown_common(const char *path, uint64_t owner, uint64_t group)
+{
+    vfs_node_t node = vfs_open(path);
+    if (!node) return -ENOENT;
+    node->owner = (uint32_t)owner;
+    node->group = (uint32_t)group;
+    vfs_close(node);
+    return EOK;
+}
+
+static int64_t sys_chown_impl(uint64_t path, uint64_t owner, uint64_t group, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    char name[SYSCALL_PATH_MAX];
+    int  ret = copy_path_from_user(path, name);
+    if (ret != EOK) return ret;
+    return sys_chown_common(name, owner, group);
+}
+
+static int64_t sys_fchown_impl(uint64_t fd, uint64_t owner, uint64_t group, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    process_file_t *file = process_fd_get(proc, (int)fd);
+    if (!file) return -EBADF;
+    file->node->owner = (uint32_t)owner;
+    file->node->group = (uint32_t)group;
+    process_file_put(file);
+    return EOK;
+}
+
+static int64_t sys_mknod_impl(uint64_t path, uint64_t mode, uint64_t dev, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)mode;
+    (void)dev;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    char name[SYSCALL_PATH_MAX];
+    int  ret = copy_path_from_user(path, name);
+    if (ret != EOK) return ret;
+    return vfs_mkfile(name);
+}
+
+static int64_t sys_reboot_impl(uint64_t magic, uint64_t magic2, uint64_t cmd, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    if (magic != 0xfee1dead || magic2 != 0x28121969) return -EINVAL;
+    (void)cmd;
+    plogk("syscall: reboot not implemented.\n");
+    return -ENOSYS;
+}
+
 static int64_t sys_personality_impl(uint64_t persona, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -1636,9 +1777,7 @@ static int64_t sys_personality_impl(uint64_t persona, uint64_t arg1, uint64_t ar
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    /* If persona != 0xffffffff, set it; always return current personality */
-    if ((unsigned int)persona != 0xffffffff) { /* Setting personality is not supported, just ignore */
-    }
+    if ((unsigned int)persona != 0xffffffff) {}
     return PER_LINUX;
 }
 
@@ -1840,8 +1979,7 @@ static int64_t sys_set_tid_address_stub(uint64_t tidptr, uint64_t arg1, uint64_t
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    /* Store the clear_child_tid pointer for use on thread exit */
-    proc->clear_child_tid = (int32_t)(tidptr & 0xFFFFFFFF);
+    proc->clear_child_tid = tidptr;
 
     task_t *task = current_task();
     return task ? (int64_t)task->pid : -ESRCH;
@@ -1908,20 +2046,104 @@ static int64_t sys_umask_stub(uint64_t mask, uint64_t arg1, uint64_t arg2, uint6
     return 022;
 }
 
+/* Linux fd_set: 1024 bits = 128 bytes */
+#define SELECT_FD_SET_SIZE 128
+#define SELECT_NFDS_MAX    1024
+
+static int test_fd_in_set(const uint8_t *fdset, int fd)
+{
+    return fdset[fd / 8] & (1u << (fd % 8));
+}
+
+static void set_fd_in_set(uint8_t *fdset, int fd)
+{
+    fdset[fd / 8] |= (uint8_t)(1u << (fd % 8));
+}
+
 static int64_t sys_select_stub(uint64_t nfds, uint64_t readfds, uint64_t writefds, uint64_t exceptfds, uint64_t timeout, uint64_t arg5)
 {
     (void)exceptfds;
     (void)arg5;
-    if (!readfds && !writefds) {
-        if (timeout) {
-            linux_timeval_t tv;
-            if (copy_from_user(&tv, (const void *)timeout, sizeof(tv))) return -EFAULT;
-            uint64_t ticks = (uint64_t)tv.tv_sec * 100 + (uint64_t)((tv.tv_usec + 9999) / 10000);
-            if (ticks) task_sleep_ticks(ticks);
-        }
-        return 0;
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    if (nfds > SELECT_NFDS_MAX) return -EINVAL;
+
+    uint8_t kread[SELECT_FD_SET_SIZE]   = {0};
+    uint8_t kwrite[SELECT_FD_SET_SIZE]  = {0};
+    uint8_t kexcept[SELECT_FD_SET_SIZE] = {0};
+
+    if (readfds && copy_from_user(kread, (const void *)readfds, SELECT_FD_SET_SIZE)) return -EFAULT;
+    if (writefds && copy_from_user(kwrite, (const void *)writefds, SELECT_FD_SET_SIZE)) return -EFAULT;
+
+    if (timeout) {
+        linux_timeval_t tv;
+        if (copy_from_user(&tv, (const void *)timeout, sizeof(tv))) return -EFAULT;
+        if (tv.tv_sec < 0 || tv.tv_usec < 0) return -EINVAL;
     }
-    return sys_poll(readfds, nfds, timeout, 0, 0, 0);
+
+    /* If no fds to check, just sleep */
+    {
+        int has_work = 0;
+        if (readfds)
+            for (int b = 0; b < SELECT_FD_SET_SIZE; b++)
+                if (kread[b]) {
+                    has_work = 1;
+                    break;
+                }
+        if (!has_work && writefds)
+            for (int b = 0; b < SELECT_FD_SET_SIZE; b++)
+                if (kwrite[b]) {
+                    has_work = 1;
+                    break;
+                }
+        if (!has_work) {
+            if (timeout) {
+                linux_timeval_t tv;
+                if (copy_from_user(&tv, (const void *)timeout, sizeof(tv))) return -EFAULT;
+                uint64_t ticks = (uint64_t)tv.tv_sec * 100 + (uint64_t)((tv.tv_usec + 9999) / 10000);
+                if (ticks) task_sleep_ticks(ticks);
+            }
+            return 0;
+        }
+    }
+
+    int ready = 0;
+
+    for (uint64_t i = 0; i < nfds; i++) {
+        int revents = 0;
+
+        if (readfds && test_fd_in_set(kread, (int)i)) revents |= 0x001; /* POLLIN */
+
+        if (writefds && test_fd_in_set(kwrite, (int)i)) revents |= 0x004; /* POLLOUT */
+
+        if (revents) {
+            int ret = process_fd_poll(proc, (int)i, (size_t)revents);
+            if (ret < 0)
+                revents = 0;
+            else
+                revents = ret;
+        }
+
+        if (revents & 0x001) {
+            set_fd_in_set(kread, (int)i);
+            ready++;
+        } else if (readfds) {
+            kread[(int)i / 8] &= (uint8_t) ~(1u << ((int)i % 8));
+        }
+        if (revents & 0x004) {
+            set_fd_in_set(kwrite, (int)i);
+            if (!(revents & 0x001)) ready++;
+        } else if (writefds) {
+            kwrite[(int)i / 8] &= (uint8_t) ~(1u << ((int)i % 8));
+        }
+    }
+
+    if (readfds && copy_to_user((void *)readfds, kread, SELECT_FD_SET_SIZE)) return -EFAULT;
+    if (writefds && copy_to_user((void *)writefds, kwrite, SELECT_FD_SET_SIZE)) return -EFAULT;
+
+    return (int64_t)ready;
 }
 
 static int64_t sys_pread64_stub(uint64_t fd, uint64_t buf, uint64_t count, uint64_t offset, uint64_t arg4, uint64_t arg5)
@@ -3382,11 +3604,11 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_UNLINK]                 = sys_unlink,
     [SYS_SYMLINK]                = sys_symlink,
     [SYS_READLINK]               = sys_readlink,
-    [SYS_CHMOD]                  = sys_stub,
-    [SYS_FCHMOD]                 = sys_stub,
-    [SYS_CHOWN]                  = sys_stub,
-    [SYS_FCHOWN]                 = sys_stub,
-    [SYS_LCHOWN]                 = sys_stub,
+    [SYS_CHMOD]                  = sys_chmod_impl,
+    [SYS_FCHMOD]                 = sys_fchmod_impl,
+    [SYS_CHOWN]                  = sys_chown_impl,
+    [SYS_FCHOWN]                 = sys_fchown_impl,
+    [SYS_LCHOWN]                 = sys_chown_impl,
     [SYS_UMASK]                  = sys_umask_stub,
     [SYS_GETTIMEOFDAY]           = sys_gettimeofday,
     [SYS_GETRLIMIT]              = sys_getrlimit_stub,
@@ -3425,7 +3647,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_RT_SIGSUSPEND]          = sys_rt_sigsuspend_wrap,
     [SYS_SIGALTSTACK]            = sys_sigaltstack_wrap,
     [SYS_UTIME]                  = sys_stub_ok,
-    [SYS_MKNOD]                  = sys_stub,
+    [SYS_MKNOD]                  = sys_mknod_impl,
     [SYS_USELIB]                 = sys_stub,
     [SYS_PERSONALITY]            = sys_personality_impl,
     [SYS_USTAT]                  = sys_stub,
@@ -3461,7 +3683,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_UMOUNT2]                = sys_umount2,
     [SYS_SWAPON]                 = sys_stub,
     [SYS_SWAPOFF]                = sys_stub,
-    [SYS_REBOOT]                 = sys_stub,
+    [SYS_REBOOT]                 = sys_reboot_impl,
     [SYS_SETHOSTNAME]            = sys_stub_ok,
     [SYS_SETDOMAINNAME]          = sys_stub_ok,
     [SYS_IOPL]                   = sys_stub,
@@ -3519,7 +3741,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_TIMER_GETTIME]          = sys_stub,
     [SYS_TIMER_GETOVERRUN]       = sys_stub,
     [SYS_TIMER_DELETE]           = sys_stub,
-    [SYS_CLOCK_SETTIME]          = sys_stub,
+    [SYS_CLOCK_SETTIME]          = sys_clock_settime_impl,
     [SYS_CLOCK_GETTIME]          = sys_clock_gettime_stub,
     [SYS_CLOCK_GETRES]           = sys_clock_getres_stub,
     [SYS_CLOCK_NANOSLEEP]        = sys_clock_nanosleep_stub,
@@ -3648,7 +3870,7 @@ void syscall_dispatch(syscall_frame_t *frame)
     uint64_t num = frame->rax;
 
     if (num == SYS_FORK || num == SYS_VFORK || num == SYS_CLONE) {
-        if (num == SYS_CLONE && (frame->rdi != SIGCHLD || frame->rsi)) {
+        if (num == SYS_CLONE && (frame->rdi & ~0xfffffULL) != 0) {
             frame->rax = (uint64_t)-EINVAL;
             return;
         }
@@ -3668,14 +3890,14 @@ check_signals:
     /*
      * On return to userspace, check for pending signals.
      * If a signal was delivered that interrupted the syscall,
-     * the return value should be -EINTR or -ERESTART.
+     * set the return value to -EINTR.
      */
     if (frame->cs & 0x3) {
-        /* Only deliver signals when returning to user mode */
         int ret = signal_deliver_if_pending(frame);
         if (ret == 1) {
-            /* Process terminated, schedule away */
             task_exit();
+        } else if (ret == -EINTR || ret == -ERESTART) {
+            frame->rax = (uint64_t)-EINTR;
         }
     }
 }

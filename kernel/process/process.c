@@ -661,6 +661,12 @@ void process_exit(int exit_code)
     spin_unlock(&process_table_lock);
     spin_unlock(&scheduler.lock);
 
+    /* Notify set_tid_address with 0 (futex wake on clear_child_tid) */
+    if (proc->clear_child_tid) {
+        uint64_t tid = 0;
+        copy_to_user((void *)proc->clear_child_tid, &tid, sizeof(tid));
+    }
+
     process_fd_table_close(proc);
 
     plogk("process: Process %llu (%s) exited with code %d\n", proc->task->pid, proc->task->name, exit_code);

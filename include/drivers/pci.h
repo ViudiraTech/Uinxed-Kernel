@@ -38,10 +38,10 @@ typedef enum {
 } bar_size_t;
 
 typedef struct {
-        uint8_t   prefetchable;
-        uint32_t *address;
-        uint32_t  size;
-        int       type;
+        uint8_t  prefetchable;
+        void    *address;
+        uint32_t size;
+        int      type;
 } base_address_register_t;
 
 typedef struct {

@@ -780,7 +780,8 @@ static void hda_stop_stream(int stream_idx)
     sd_write8(stream_idx, SD_CTL, 0);
     sd_write8(stream_idx, SD_STS, SD_INT_MASK);
     hda_write32(INTCTL, hda_read32(INTCTL) & ~(1u << stream_idx));
-    hda_ctrl.streams[stream_idx].running = 0;
+    hda_ctrl.streams[stream_idx].running   = 0;
+    hda_ctrl.streams[stream_idx].allocated = 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -793,8 +794,11 @@ static size_t hda_audio_write(audio_card_t *card, const void *addr, size_t offse
     (void)offset;
     struct hda_controller *ctrl = card->driver_data;
     if (!ctrl || playback_stream < 0) return 0;
+    spin_lock(&ctrl->lock);
+    if (!ctrl->streams[playback_stream].running) hda_start_stream(playback_stream);
     size_t to_copy = (size > ctrl->streams[playback_stream].buf_size) ? ctrl->streams[playback_stream].buf_size : size;
     memcpy((void *)ctrl->streams[playback_stream].buf, addr, to_copy);
+    spin_unlock(&ctrl->lock);
     return to_copy;
 }
 
@@ -808,6 +812,7 @@ static int hda_audio_set_format(audio_card_t *card, const audio_pcm_format_t *fo
     if (format->bits != 8 && format->bits != 16 && format->bits != 24 && format->bits != 32) return -EINVAL;
     if (format->sample_rate < 8000 || format->sample_rate > 192000) return -EINVAL;
 
+    spin_lock(&ctrl->lock);
     card->format = *format;
 
     uint16_t fmt_val = (uint16_t)((format->channels - 1) & 0xf);
@@ -829,14 +834,13 @@ static int hda_audio_set_format(audio_card_t *card, const audio_pcm_format_t *fo
 
     uint32_t base = AC_FMT_BASE_RATE;
     uint32_t rate = format->sample_rate;
-    if (rate % (base * 4) == 0 && rate / (base * 4) <= 4) {
-        fmt_val |= (uint16_t)((rate / (base * 4) - 1) << 11);
-    } else if (rate % (base * 2) == 0 && rate / (base * 2) <= 4) {
-        fmt_val |= (uint16_t)((rate / (base * 2) - 1) << 11);
+    uint32_t mult = rate / base;
+    if (rate % base == 0 && mult >= 1 && mult <= 4) {
+        fmt_val |= (uint16_t)((mult - 1) << 11);
     } else if (base % rate == 0 && base / rate <= 8) {
         fmt_val |= (uint16_t)((base / rate - 1) << 8);
     } else {
-        fmt_val |= (uint16_t)(0 << 11);
+        plogk("hda: Unsupported sample rate %u Hz, using %u Hz.\n", rate, base);
     }
 
     if (playback_stream >= 0) hda_stop_stream(playback_stream);
@@ -847,20 +851,30 @@ static int hda_audio_set_format(audio_card_t *card, const audio_pcm_format_t *fo
             break;
         }
     }
-    if (playback_stream < 0) return -EBUSY;
+    if (playback_stream < 0) {
+        spin_unlock(&ctrl->lock);
+        return -EBUSY;
+    }
 
     int err = hda_setup_stream(playback_stream, fmt_val, HDA_DMA_BUFFER_SIZE);
-    if (err) return err;
+    if (err) {
+        spin_unlock(&ctrl->lock);
+        return err;
+    }
 
     ctrl->audio_fmt = *format;
     plogk("hda: Stream %d format %dHz %dbit %dch fmt=0x%04x\n", playback_stream, format->sample_rate, format->bits, format->channels, fmt_val);
+    spin_unlock(&ctrl->lock);
     return EOK;
 }
 
 static int hda_audio_stop(audio_card_t *card)
 {
     if (!card) return -EINVAL;
+    struct hda_controller *ctrl = card->driver_data;
+    if (ctrl) spin_lock(&ctrl->lock);
     if (playback_stream >= 0) hda_stop_stream(playback_stream);
+    if (ctrl) spin_unlock(&ctrl->lock);
     return EOK;
 }
 
@@ -1048,7 +1062,14 @@ void hda_init(void)
         if (codec_mask & (1u << i)) {
             if (hda_probe_codec(i) == 0) {
                 struct hda_codec *codec = &hda_ctrl.codecs[hda_ctrl.num_codecs - 1];
-                hda_parse_widgets(codec);
+                if (hda_parse_widgets(codec) != 0) {
+                    if (codec->widgets) {
+                        for (int wi = 0; wi < codec->num_widgets; wi++)
+                            if (codec->widgets[wi].conns) free(codec->widgets[wi].conns);
+                        free(codec->widgets);
+                    }
+                    hda_ctrl.num_codecs--;
+                }
             }
         }
     }
