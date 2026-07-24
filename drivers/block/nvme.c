@@ -510,6 +510,12 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
         }
 
         nvme_identify_ns_t *ns_data = (nvme_identify_ns_t *)ns_virt;
+
+        if (ns_data->nsze == 0 || ns_data->ncap == 0) {
+            free_frames(ns_phys, 1);
+            continue;
+        }
+
         nvme_namespace_t   *ns      = &ctrl->namespaces[ns_idx];
         uint8_t             flbas   = ns_data->flbas & 0xF;
         uint8_t             ds      = ns_data->lbaf[flbas].ds;
@@ -519,8 +525,14 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
         ns->sector_size   = (ds > 0) ? (1u << ds) : NVME_SECTOR_SIZE;
         ns->ready         = 1;
 
-        plogk("nvme: ctrl%u ns%u: %llu sectors (%llu GiB), LBA size=%u\n", ctrl_id, nsid, (unsigned long long)ns->total_sectors,
-              (unsigned long long)(ns->total_sectors * ns->sector_size / 1000000000ULL), ns->sector_size);
+        uint64_t ns_bytes = ns->total_sectors * ns->sector_size;
+        if (ns_bytes >= (1ULL << 30)) {
+            plogk("nvme: ctrl%u ns%u: %llu sectors (%llu GiB), LBA size=%u\n", ctrl_id, nsid,
+                  (unsigned long long)ns->total_sectors, (unsigned long long)(ns_bytes >> 30), ns->sector_size);
+        } else {
+            plogk("nvme: ctrl%u ns%u: %llu sectors (%llu MiB), LBA size=%u\n", ctrl_id, nsid,
+                  (unsigned long long)ns->total_sectors, (unsigned long long)(ns_bytes >> 20), ns->sector_size);
+        }
 
         free_frames(ns_phys, 1);
     }
