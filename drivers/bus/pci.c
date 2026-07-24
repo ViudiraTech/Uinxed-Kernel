@@ -10,6 +10,7 @@
 
 #include <chipset/common.h>
 #include <drivers/acpi.h>
+#include <drivers/apic.h>
 #include <drivers/pci.h>
 #include <kernel/debug.h>
 #include <kernel/printk.h>
@@ -19,6 +20,7 @@
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
+#include <sync/spin_lock.h>
 
 mcfg_t mcfg_info;
 
@@ -33,6 +35,9 @@ static void     pci_legacy_write(pci_device_reg_t reg, uint32_t value);
 static uint32_t pci_mcfg_read(pci_device_reg_t reg);
 static void     pci_mcfg_write(pci_device_reg_t reg, uint32_t value);
 static void     pci_scan_bus(pci_device_cache_t *cache, uint16_t bus, uint16_t end_bus);
+
+/* Serialise legacy CF8/CFC access (one transaction at a time on SMP) */
+static spinlock_t pci_legacy_lock;
 
 /* PCI operations (For MCFG and legacy mode) */
 struct PCIOps {
@@ -182,7 +187,7 @@ struct {
     {0x111000, "Communication Synchronizer"                 },
     {0x112000, "Signal Processing Management"               },
     {0x118000, "Other Signal Processing Controller"         },
-    {0x000000, 0                                            },
+    {0xFFFFFF, 0                                            },
 };
 
 /* MCFG initialization */
@@ -237,8 +242,9 @@ void *mcfg_ecam_addr(mcfg_entry_t *entry, pci_device_reg_t reg)
     uint32_t      bus    = device->bus & 0xff;
     uint32_t      slot   = device->slot & 0x1f;
     uint32_t      func   = device->func & 0x07;
-    uintptr_t     addr   = entry->base_addr              // Base Address
-                     + ((uint64_t)entry->segment << 32)  // Segment
+    /* ECAM address: base + (bus_offset << 20) | (slot << 15) | (func << 12) | offset
+     * The segment is used to select the MCFG entry, not part of the address. */
+    uintptr_t addr = entry->base_addr
                      + (((bus - entry->start_bus) << 20) // Bus
                         | (slot << 15)                   // Slot
                         | (func << 12)                   // Func
@@ -257,9 +263,12 @@ static uint32_t pci_legacy_read(pci_device_reg_t reg)
     uint32_t      slot            = device->slot & 0x1f;
     uint32_t      func            = device->func & 0x07;
 
+    spin_lock(&pci_legacy_lock);
     uint32_t id = (1UL << 31) | (bus << 16) | (slot << 11) | (func << 8) | (register_offset & 0xfc);
     outl(PCI_COMMAND_PORT, id);
-    return inl(PCI_DATA_PORT) >> (8 * (register_offset % 4));
+    uint32_t val = inl(PCI_DATA_PORT) >> (8 * (register_offset % 4));
+    spin_unlock(&pci_legacy_lock);
+    return val;
 }
 
 /* Write values ​​to PCI device registers in Legacy I/O */
@@ -272,6 +281,7 @@ static void pci_legacy_write(pci_device_reg_t reg, uint32_t value)
     uint32_t      func            = device->func & 0x07;
     uint32_t      byte_offset     = register_offset % 4;
 
+    spin_lock(&pci_legacy_lock);
     uint32_t id = (1UL << 31) | (bus << 16) | (slot << 11) | (func << 8) | (register_offset & 0xfc);
     outl(PCI_COMMAND_PORT, id);
     if (!byte_offset) {
@@ -283,6 +293,7 @@ static void pci_legacy_write(pci_device_reg_t reg, uint32_t value)
         uint32_t reg_clear      = val_mask << (8 * byte_offset);
         outl(PCI_DATA_PORT, (old & ~reg_clear) | ((value & val_mask) << (8 * byte_offset)));
     }
+    spin_unlock(&pci_legacy_lock);
 }
 
 /* Write values ​​to PCI device registers from `pci_device_ecam` */
@@ -294,6 +305,9 @@ static void pci_mcfg_write(pci_device_reg_t reg, uint32_t value)
     if (!offset) {
         *ptr = value;
     } else {
+        /* Sub-dword write: RMW to preserve adjacent bytes.
+         * Note: registers with W1C semantics should be accessed at
+         * their natural alignment to avoid RMW races. */
         uint32_t bytes_to_write = 4 - offset;
         uint32_t val_mask       = (uint32_t)(0xffffffff >> (32 - 8 * bytes_to_write));
         uint32_t reg_clear      = val_mask << (8 * offset);
@@ -338,77 +352,73 @@ void pci_write_command_status(pci_device_cache_t *device, uint32_t value)
 /* Get detailed information about the base address register */
 base_address_register_t get_base_address_register(pci_device_cache_t *device, uint32_t bar)
 {
-    /* Here is some notice when you are using this function:
-     * 1. The `bar` is the index of BAR, not the *register_offset* of BAR.
-     * 2. When you are reading a mem_mapping BAR, you should notice the `size` of BAR.
-     *    It's useful, when you are doing something *special*.
-     * 3. If a device have a 64-bit BAR, you shouldn't read BAR+1. Use pci_bar_iterator instead.
-     */
-
     base_address_register_t result = {0};
     pci_device_reg_t        reg    = {device, 0};
 
-    uint32_t headertype = device->header_type & 0x7e;
-    uint32_t max_bars;
-
-    /* switch (headertype) {
-     *     case HEADER_TYPE_GENERAL :
-     *         max_bars = 6;
-     *         break;
-     *     case HEADER_TYPE_BRIDGE :
-     *         max_bars = 2;
-     *         break;
-     *     case HEADER_TYPE_CARDBUS :
-     *         max_bars = 1;
-     *         break;
-     *     default :
-     *         max_bars = 0;
-     *         break;
-     * }
-     * Same as (a better way in x86_64):
-     */
-
+    uint32_t        headertype = device->header_type & 0x7e;
+    uint32_t        max_bars;
     static uint32_t max_bars_table[4] = {6, 2, 1, 0};
     max_bars                          = max_bars_table[headertype < 3 ? headertype : 3];
     if (bar >= max_bars) return result;
 
-    reg.offset         = 0x10 + 4 * bar;
-    uint64_t bar_value = read_pci(reg);
-    if (bar_value == 0xFFFFFFFF) return result;
-    result.type = (bar_value & 1) ? input_output : mem_mapping;
+    reg.offset        = 0x10 + 4 * bar;
+    uint32_t bar_orig = read_pci(reg);
+    if (bar_orig == 0xFFFFFFFF) return result;
+    result.type = (bar_orig & 1) ? input_output : mem_mapping;
 
-    switch (result.type) {
-        case mem_mapping : // Memory
-            /* Match the BAR type bits */
-            result.size = (bar_value >> 1) & 0b11;
-            switch (result.size) {
-                case BAR_S32 :      // 32
-                case BAR_Reserved : // Reserved (Un-processed)
-                    break;
-                case BAR_S64 : // 64
-                    /* Read the next BAR for 64-bit BARs */
-                    if (bar + 1 < max_bars) {
-                        reg.offset = 0x10 + 4 * (bar + 1);
-                        bar_value |= (uint64_t)read_pci(reg) << 32; // Read the next BAR and merge
-                    } else {
-                        plogk("PCI: 64-bit BAR without more BARs.\n");
-                    }
-                    break;
-                default :
-                    plogk("PCI: Unknown BAR type.\n");
-                    break;
-            }
-            result.address      = (void *)phys_to_virt(bar_value & ~0b1111);
-            result.prefetchable = bar_value & 0b1000;
-            break;
-        case input_output : // I/O
-            result.address      = (void *)(uintptr_t)(bar_value & ~0b11);
-            result.prefetchable = 0;
-            break;
-        default :
-            plogk("PCI: Runtime Error at %s:%d\n", __FILE__, __LINE__);
-            break;
+    /* Determine BAR type (32-bit vs 64-bit) */
+    int bar_type = BAR_S32;
+    if (result.type == mem_mapping) {
+        bar_type            = (bar_orig >> 1) & 0b11;
+        result.prefetchable = (bar_orig >> 3) & 1;
     }
+
+    /* For 64-bit memory BARs, read the upper dword */
+    uint64_t bar_full = bar_orig;
+    if (bar_type == BAR_S64) {
+        if (bar + 1 >= max_bars) return result;
+        reg.offset = 0x10 + 4 * (bar + 1);
+        bar_full |= (uint64_t)read_pci(reg) << 32;
+    }
+
+    /* Save then probe BAR size (write all 1s, read back, invert & mask) */
+    uint64_t bar_saved   = bar_full;
+    uint32_t region_size = 0;
+
+    reg.offset = 0x10 + 4 * bar;
+    write_pci(reg, 0xFFFFFFFF);
+    uint64_t probe = read_pci(reg);
+    if (bar_type == BAR_S64) {
+        reg.offset = 0x10 + 4 * (bar + 1);
+        write_pci(reg, 0xFFFFFFFF);
+        probe |= (uint64_t)read_pci(reg) << 32;
+    }
+
+    if (result.type == mem_mapping) {
+        region_size = (uint32_t)(~(probe & ~0b1111ULL) + 1);
+    } else {
+        region_size = ~(probe & ~0b11) + 1;
+    }
+
+    /* Restore original BAR value */
+    reg.offset = 0x10 + 4 * bar;
+    write_pci(reg, bar_saved);
+    if (bar_type == BAR_S64) {
+        reg.offset = 0x10 + 4 * (bar + 1);
+        write_pci(reg, bar_saved >> 32);
+    }
+
+    /* size: region bytes. For 64-bit BARs, the BAR_64BIT_FLAG is set
+     * so iterators know to skip the next BAR register slot. */
+    result.size = region_size;
+    if (bar_type == BAR_S64) result.size |= BAR_64BIT_FLAG;
+
+    if (result.type == mem_mapping) {
+        result.address = (void *)phys_to_virt(bar_full & ~0b1111ULL);
+    } else {
+        result.address = (void *)(uintptr_t)(bar_full & ~0b11);
+    }
+
     return result;
 }
 
@@ -419,10 +429,7 @@ uint32_t pci_get_port_base(pci_device_cache_t *device)
     for (int i = 0; i < 6; i++) {
         base_address_register_t bar = get_base_address_register(device, i);
         if (bar.type == input_output) io_port = (uint32_t)(uintptr_t)bar.address;
-        if (bar.size == BAR_S64) {
-            /* Skip the next BAR because it is a 64-bit BAR that uses two 32-bit BARs. */
-            i++;
-        }
+        if (bar.size & BAR_64BIT_FLAG) { i++; }
     }
     return io_port;
 }
@@ -434,20 +441,407 @@ uint32_t read_bar_n(pci_device_cache_t *device, uint32_t bar_n)
     return read_pci(reg);
 }
 
-/* Get the interrupt number of the PCI device */
+/* Get the interrupt number of the PCI device (Interrupt Line register, byte at 0x3c) */
 uint32_t pci_get_irq(pci_device_cache_t *device)
 {
     pci_device_reg_t reg = {device, 0x3c};
-    return read_pci(reg);
+    return read_pci(reg) & 0xFF;
 }
 
-/* Configuring PCI Devices */
+/* ========== MSI/MSI-X Support ========== */
+
+/* Available MSI vector tracking */
+#define MSI_VECTOR_MIN       48
+#define MSI_VECTOR_MAX       247
+#define MSI_VECTOR_BMAP_SIZE ((MSI_VECTOR_MAX - MSI_VECTOR_MIN + 7) / 8)
+
+static uint8_t    msi_vector_bmap[MSI_VECTOR_BMAP_SIZE];
+static int        msi_initialized;
+static spinlock_t msi_lock;
+
+/* Initialize MSI vector allocator */
+static void msi_vector_init(void)
+{
+    spin_lock(&msi_lock);
+    if (msi_initialized) {
+        spin_unlock(&msi_lock);
+        return;
+    }
+    msi_initialized = 1;
+    int reserved[]  = {
+        0x52, 0x53, 0x54, 0x55, /* IPIs */
+        0x80,                   /* Syscall */
+        0xFF,                   /* Spurious */
+    };
+    for (size_t i = 0; i < sizeof(reserved) / sizeof(reserved[0]); i++) {
+        if (reserved[i] >= MSI_VECTOR_MIN && reserved[i] <= MSI_VECTOR_MAX) {
+            int idx = reserved[i] - MSI_VECTOR_MIN;
+            msi_vector_bmap[idx / 8] |= (1 << (idx % 8));
+        }
+    }
+    spin_unlock(&msi_lock);
+}
+
+/* Allocate a single MSI vector. Returns vector number or -1 on failure. */
+static int msi_vector_alloc(int nvec)
+{
+    (void)nvec;
+    msi_vector_init();
+    spin_lock(&msi_lock);
+    for (int i = MSI_VECTOR_MIN; i <= MSI_VECTOR_MAX; i++) {
+        int idx = i - MSI_VECTOR_MIN;
+        if (!(msi_vector_bmap[idx / 8] & (1 << (idx % 8)))) {
+            msi_vector_bmap[idx / 8] |= (1 << (idx % 8));
+            spin_unlock(&msi_lock);
+            return i;
+        }
+    }
+    spin_unlock(&msi_lock);
+    return -1;
+}
+
+/* Free a previously allocated MSI vector */
+static void msi_vector_free(int vector)
+{
+    if (vector < MSI_VECTOR_MIN || vector > MSI_VECTOR_MAX) return;
+    spin_lock(&msi_lock);
+    int idx = vector - MSI_VECTOR_MIN;
+    msi_vector_bmap[idx / 8] &= ~(1 << (idx % 8));
+    spin_unlock(&msi_lock);
+}
+
+/* Compute MSI message address for targeting local APIC */
+static uint32_t msi_message_address(void)
+{
+    /* MSI destination ID is 8 bits wide (bits 19:12 of address).
+     * lapic_id() may return a wider x2APIC ID; mask to 8 bits. */
+    return MSI_ADDRESS_DEST(lapic_id() & 0xFF);
+}
+
+/* Compute MSI message data for the given vector, fixed delivery mode */
+static uint32_t msi_message_data(int vector)
+{
+    return (uint32_t)vector;
+}
+
+/* Find a PCI capability in config space */
+int pci_find_capability(pci_device_cache_t *dev, int cap_id)
+{
+    if (!dev) return 0;
+    pci_device_reg_t reg    = {dev, PCI_CONF_STATUS};
+    uint32_t         status = read_pci(reg);
+    if (!(status & (1 << 4))) return 0;
+
+    reg.offset         = 0x34;
+    uint8_t cap_offset = read_pci(reg) & 0xFF;
+    if (!cap_offset) return 0;
+
+    int visited = 0;
+    while (cap_offset && visited < 48) {
+        reg.offset      = cap_offset;
+        uint32_t header = read_pci(reg);
+        uint8_t  id     = header & 0xFF;
+        uint8_t  next   = (header >> 8) & 0xFF;
+        if (id == cap_id) return cap_offset;
+        cap_offset = next;
+        visited++;
+    }
+    return 0;
+}
+
+/* Initialize MSI for a device: detect capability and ensure it's disabled */
+void pci_msi_init(pci_device_cache_t *dev)
+{
+    if (!dev) return;
+
+    dev->msi.msi_cap    = pci_find_capability(dev, PCI_CAP_ID_MSI);
+    dev->msi.msix_cap   = pci_find_capability(dev, PCI_CAP_ID_MSIX);
+    dev->msi.msi_nvec   = 0;
+    dev->msi.msix_nvec  = 0;
+    dev->msi.msix_table = 0;
+
+    /* Disable MSI if left enabled by firmware */
+    if (dev->msi.msi_cap) {
+        pci_device_reg_t reg  = {dev, dev->msi.msi_cap + PCI_MSI_FLAGS};
+        uint16_t         ctrl = read_pci(reg) & 0xFFFF;
+        if (ctrl & PCI_MSI_FLAGS_ENABLE) { write_pci(reg, ctrl & ~PCI_MSI_FLAGS_ENABLE); }
+    }
+
+    /* Disable MSI-X if left enabled by firmware */
+    if (dev->msi.msix_cap) {
+        pci_device_reg_t reg  = {dev, dev->msi.msix_cap + PCI_MSIX_FLAGS};
+        uint16_t         ctrl = read_pci(reg) & 0xFFFF;
+        if (ctrl & PCI_MSIX_FLAGS_ENABLE) { write_pci(reg, ctrl & ~(PCI_MSIX_FLAGS_ENABLE | PCI_MSIX_FLAGS_MASKALL)); }
+    }
+}
+
+/* Enable MSI with a single vector. Returns the allocated vector number, or -1 on error. */
+int pci_enable_msi(pci_device_cache_t *dev)
+{
+    return pci_enable_msi_range(dev, 1);
+}
+
+/* Enable MSI with up to nvec vectors. Returns number of vectors allocated, or -1 on error. */
+int pci_enable_msi_range(pci_device_cache_t *dev, int nvec)
+{
+    if (!dev || !dev->msi.msi_cap || nvec < 1) return -1;
+    if (dev->msi.msi_nvec) return -1;
+    if (nvec > PCI_MAX_MSI_VECTORS) nvec = PCI_MAX_MSI_VECTORS;
+
+    int              cap       = dev->msi.msi_cap;
+    pci_device_reg_t flags_reg = {dev, cap + PCI_MSI_FLAGS};
+    uint16_t         flags     = read_pci(flags_reg) & 0xFFFF;
+    int              is_64     = !!(flags & PCI_MSI_FLAGS_64BIT);
+    int              can_mask  = !!(flags & PCI_MSI_FLAGS_MASKBIT);
+
+    /* Determine max vectors supported by device */
+    int multi_cap = (flags & PCI_MSI_FLAGS_QMASK) >> 9;
+    int max_nvec  = 1 << multi_cap;
+    if (nvec > max_nvec) nvec = max_nvec;
+
+    /* For multi-MSI, vectors must be contiguous (power of 2) */
+    int aligned_nvec = 1;
+    while (aligned_nvec < nvec) aligned_nvec <<= 1;
+
+    int qsize = 0;
+    while ((1 << qsize) < aligned_nvec) qsize++;
+
+    /* Allocate vectors contiguously under the msi_lock. */
+    msi_vector_init();
+    spin_lock(&msi_lock);
+    int found = -1;
+    for (int i = MSI_VECTOR_MIN; i <= MSI_VECTOR_MAX - nvec + 1; i++) {
+        int ok = 1;
+        for (int j = 0; j < nvec; j++) {
+            int idx = (i + j) - MSI_VECTOR_MIN;
+            if (msi_vector_bmap[idx / 8] & (1 << (idx % 8))) {
+                ok = 0;
+                break;
+            }
+        }
+        if (ok) {
+            for (int j = 0; j < nvec; j++) {
+                int idx = (i + j) - MSI_VECTOR_MIN;
+                msi_vector_bmap[idx / 8] |= (1 << (idx % 8));
+                dev->msi.msi_vectors[j] = i + j;
+            }
+            found = 0;
+            break;
+        }
+    }
+    spin_unlock(&msi_lock);
+    if (found < 0) return -1;
+
+    int first_vector = dev->msi.msi_vectors[0];
+
+    /* Build MSI message */
+    uint32_t addr_lo  = msi_message_address();
+    uint32_t addr_hi  = 0;
+    uint32_t msg_data = msi_message_data(first_vector);
+
+    /* Disable MSI while programming */
+    write_pci(flags_reg, flags & ~PCI_MSI_FLAGS_ENABLE);
+
+    /* Program the MSI capability registers */
+    pci_device_reg_t reg;
+
+    reg.offset = cap + PCI_MSI_ADDRESS_LO;
+    write_pci(reg, addr_lo);
+
+    if (is_64) {
+        reg.offset = cap + PCI_MSI_ADDRESS_HI;
+        write_pci(reg, addr_hi);
+
+        reg.offset = cap + PCI_MSI_DATA_64;
+        write_pci(reg, msg_data);
+
+        if (can_mask) {
+            reg.offset = cap + PCI_MSI_MASK_64;
+            write_pci(reg, 0);
+        }
+    } else {
+        reg.offset = cap + PCI_MSI_DATA_32;
+        write_pci(reg, msg_data);
+
+        if (can_mask) {
+            reg.offset = cap + PCI_MSI_MASK_32;
+            write_pci(reg, 0);
+        }
+    }
+
+    /* Set QSIZE (Multiple Message Enable) and enable MSI */
+    flags &= ~PCI_MSI_FLAGS_QSIZE;
+    flags |= (qsize << 4) & PCI_MSI_FLAGS_QSIZE;
+    flags |= PCI_MSI_FLAGS_ENABLE;
+    write_pci(flags_reg, flags);
+
+    /* Disable INTx */
+    reg.offset   = PCI_CONF_COMMAND;
+    uint16_t cmd = read_pci(reg) & 0xFFFF;
+    cmd |= (1 << 10);
+    write_pci(reg, cmd);
+
+    dev->msi.msi_nvec = nvec;
+    return nvec;
+}
+
+/* Disable MSI */
+void pci_disable_msi(pci_device_cache_t *dev)
+{
+    if (!dev || !dev->msi.msi_cap || !dev->msi.msi_nvec) return;
+
+    int cap = dev->msi.msi_cap;
+
+    /* Disable MSI */
+    pci_device_reg_t flags_reg = {dev, cap + PCI_MSI_FLAGS};
+    uint16_t         flags     = read_pci(flags_reg) & 0xFFFF;
+    write_pci(flags_reg, flags & ~PCI_MSI_FLAGS_ENABLE);
+
+    /* Free allocated vectors */
+    for (int i = 0; i < dev->msi.msi_nvec; i++) msi_vector_free(dev->msi.msi_vectors[i]);
+
+    /* Re-enable INTx */
+    pci_device_reg_t cmd_reg = {dev, PCI_CONF_COMMAND};
+    uint16_t         cmd     = read_pci(cmd_reg) & 0xFFFF;
+    cmd &= ~(1 << 10);
+    write_pci(cmd_reg, cmd);
+
+    dev->msi.msi_nvec = 0;
+}
+
+/* Map MSI-X table from PCI BAR */
+static int msix_map_table(pci_device_cache_t *dev)
+{
+    int              cap        = dev->msi.msix_cap;
+    pci_device_reg_t reg        = {dev, cap + PCI_MSIX_TABLE};
+    uint32_t         table_info = read_pci(reg);
+
+    int      bir          = table_info & PCI_MSIX_TABLE_BIR;
+    uint32_t table_offset = table_info & PCI_MSIX_TABLE_OFFSET;
+
+    base_address_register_t bar = get_base_address_register(dev, bir);
+    if (!bar.address) return -1;
+    if (bar.type != mem_mapping) return -1;
+
+    dev->msi.msix_table = (void *)((uintptr_t)bar.address + table_offset);
+
+    return 0;
+}
+
+/* Enable MSI-X with nvec vectors. Returns the number of vectors allocated, or -1 on error. */
+int pci_enable_msix(pci_device_cache_t *dev, int nvec)
+{
+    if (!dev || !dev->msi.msix_cap || nvec < 1) return -1;
+    if (dev->msi.msix_nvec) return -1;
+    if (nvec > PCI_MAX_MSI_VECTORS) nvec = PCI_MAX_MSI_VECTORS;
+
+    int cap = dev->msi.msix_cap;
+
+    /* Read MSI-X control register to get table size */
+    pci_device_reg_t flags_reg  = {dev, cap + PCI_MSIX_FLAGS};
+    uint16_t         flags      = read_pci(flags_reg) & 0xFFFF;
+    int              table_size = (flags & PCI_MSIX_FLAGS_QSIZE) + 1;
+
+    if (nvec > table_size) nvec = table_size;
+
+    /* Map the MSI-X table */
+    if (msix_map_table(dev) < 0) return -1;
+    if (!dev->msi.msix_table) return -1;
+
+    /* Allocate vectors */
+    for (int i = 0; i < nvec; i++) {
+        dev->msi.msix_vectors[i] = msi_vector_alloc(1);
+        if (dev->msi.msix_vectors[i] < 0) {
+            for (int j = 0; j < i; j++) msi_vector_free(dev->msi.msix_vectors[j]);
+            dev->msi.msix_table = 0;
+            return -1;
+        }
+    }
+
+    /* Mask all entries and enable MSI-X with MaskAll */
+    write_pci(flags_reg, (flags & ~PCI_MSIX_FLAGS_ENABLE) | PCI_MSIX_FLAGS_MASKALL);
+
+    /* Program each MSI-X table entry via MMIO */
+    uint32_t addr_lo = msi_message_address();
+    uint32_t addr_hi = 0;
+
+    for (int i = 0; i < nvec; i++) {
+        volatile uint32_t *entry = (volatile uint32_t *)((uintptr_t)dev->msi.msix_table + i * PCI_MSIX_ENTRY_SIZE);
+
+        uint32_t msg_data = msi_message_data(dev->msi.msix_vectors[i]);
+
+        entry[PCI_MSIX_ENTRY_VECTOR_CTRL / 4] |= PCI_MSIX_ENTRY_CTRL_MASKBIT;
+        compiler_barrier();
+
+        entry[PCI_MSIX_ENTRY_LOWER_ADDR / 4] = addr_lo;
+        entry[PCI_MSIX_ENTRY_UPPER_ADDR / 4] = addr_hi;
+        entry[PCI_MSIX_ENTRY_DATA / 4]       = msg_data;
+        compiler_barrier();
+
+        entry[PCI_MSIX_ENTRY_VECTOR_CTRL / 4] &= ~PCI_MSIX_ENTRY_CTRL_MASKBIT;
+    }
+
+    /* Clear MaskAll and set Enable */
+    write_pci(flags_reg, (flags & ~PCI_MSIX_FLAGS_MASKALL) | PCI_MSIX_FLAGS_ENABLE);
+
+    /* Disable INTx */
+    pci_device_reg_t cmd_reg = {dev, PCI_CONF_COMMAND};
+    uint16_t         cmd     = read_pci(cmd_reg) & 0xFFFF;
+    cmd |= (1 << 10);
+    write_pci(cmd_reg, cmd);
+
+    dev->msi.msix_nvec = nvec;
+    return nvec;
+}
+
+/* Disable MSI-X */
+void pci_disable_msix(pci_device_cache_t *dev)
+{
+    if (!dev || !dev->msi.msix_cap || !dev->msi.msix_nvec) return;
+
+    int cap = dev->msi.msix_cap;
+
+    /* Disable MSI-X and set MaskAll */
+    pci_device_reg_t flags_reg = {dev, cap + PCI_MSIX_FLAGS};
+    uint16_t         flags     = read_pci(flags_reg) & 0xFFFF;
+    write_pci(flags_reg, (flags & ~PCI_MSIX_FLAGS_ENABLE) | PCI_MSIX_FLAGS_MASKALL);
+
+    /* Mask each entry and free vectors */
+    for (int i = 0; i < dev->msi.msix_nvec; i++) {
+        if (dev->msi.msix_table) {
+            volatile uint32_t *entry = (volatile uint32_t *)((uintptr_t)dev->msi.msix_table + i * PCI_MSIX_ENTRY_SIZE);
+            entry[PCI_MSIX_ENTRY_VECTOR_CTRL / 4] |= PCI_MSIX_ENTRY_CTRL_MASKBIT;
+        }
+        msi_vector_free(dev->msi.msix_vectors[i]);
+    }
+
+    /* Re-enable INTx */
+    pci_device_reg_t cmd_reg = {dev, PCI_CONF_COMMAND};
+    uint16_t         cmd     = read_pci(cmd_reg) & 0xFFFF;
+    cmd &= ~(1 << 10);
+    write_pci(cmd_reg, cmd);
+
+    dev->msi.msix_nvec  = 0;
+    dev->msi.msix_table = 0;
+}
+
+/* Get interrupt vector for MSI/MSI-X (index 0..nvec-1) */
+int pci_irq_vector(pci_device_cache_t *dev, int index)
+{
+    if (!dev || index < 0) return -1;
+    if (dev->msi.msix_nvec && index < dev->msi.msix_nvec) return dev->msi.msix_vectors[index];
+    if (dev->msi.msi_nvec && index < dev->msi.msi_nvec) return dev->msi.msi_vectors[index];
+    return -1;
+}
+
+/* Configuring PCI Devices (legacy CF8 only, no data phase) */
 void pci_config(pci_device_cache_t *cache, uint32_t addr)
 {
     pci_device_t *device = cache->device;
-    uint32_t      cmd    = 0;
-    cmd                  = 0x80000000 + addr + (device->func << 8) + (device->slot << 11) + (device->bus << 16);
+    uint32_t      cmd = 0x80000000 | (addr & 0xfc) | ((device->bus & 0xff) << 16) | ((device->slot & 0x1f) << 11) | ((device->func & 0x07) << 8);
+    spin_lock(&pci_legacy_lock);
     outl(PCI_COMMAND_PORT, cmd);
+    spin_unlock(&pci_legacy_lock);
 }
 
 /* Find devices by class code */
@@ -659,6 +1053,11 @@ static int pci_cache_process(pci_device_cache_t *cache)
     cache->class_code        = cache->value_c >> 8;
     pci_device_reg_t header  = {cache, PCI_CONF_HEADER_TYPE};
     cache->header_type       = read_pci(header) & 0xff;
+
+    /* Initialize MSI/MSI-X state */
+    memset(&cache->msi, 0, sizeof(cache->msi));
+    pci_msi_init(cache);
+
     pci_add_device_cache(cache);
 
     /* Exist and added */
@@ -674,9 +1073,11 @@ static void pci_scan_bridge_children(pci_device_cache_t *cache, uint16_t end_bus
     uint16_t         secondary_bus     = read_pci(secondary_bus_reg) & 0xff;
     if (!secondary_bus || secondary_bus > end_bus) return;
 
-    pci_device_t saved_device = *cache->device;
+    pci_device_t   saved_device = *cache->device;
+    volatile void *saved_ecam   = cache->ecam_ptr;
     pci_scan_bus(cache, secondary_bus, end_bus);
-    *cache->device = saved_device;
+    *cache->device  = saved_device;
+    cache->ecam_ptr = saved_ecam;
 }
 
 /* Process slots of PCI devices */
@@ -718,9 +1119,9 @@ void pci_flush_devices_cache(void)
     pci_free_devices_cache();
     memset(pci_scanned_buses, 0, sizeof(pci_scanned_buses));
     pci_device_t       curr_device = {0, 0, 0, 0};
-    pci_device_cache_t curr_cache  = {
-        &curr_device, 0, 0, 0, 0, 0, 0, 0, 0,
-    };
+    pci_device_cache_t curr_cache;
+    memset(&curr_cache, 0, sizeof(curr_cache));
+    curr_cache.device = &curr_device;
 
     if (!mcfg_info.enabled) {
         curr_device.domain = 0;
@@ -775,9 +1176,16 @@ void pci_init(void)
         plogk("pci: Using MCFG PCI mode.\n");
 
     while (cache != 0) {
-        device = cache->device;
-        plogk("pci: %04x:%02x:%02x.%01x: [0x%04x:0x%04x] class=0x%06x, %s\n", device->domain, device->bus, device->slot, device->func,
-              cache->vendor_id, cache->device_id, cache->class_code, pci_classname(cache->class_code));
+        device              = cache->device;
+        const char *msi_str = "";
+        if (cache->msi.msi_cap && cache->msi.msix_cap)
+            msi_str = " [MSI+MSI-X]";
+        else if (cache->msi.msi_cap)
+            msi_str = " [MSI]";
+        else if (cache->msi.msix_cap)
+            msi_str = " [MSI-X]";
+        plogk("pci: %04x:%02x:%02x.%01x: [0x%04x:0x%04x] class=0x%06x, %s%s\n", device->domain, device->bus, device->slot, device->func,
+              cache->vendor_id, cache->device_id, cache->class_code, pci_classname(cache->class_code), msi_str);
         cache = cache->next;
     }
     plogk("pci: Found %lu devices.\n", pci_cache.devices_count);
@@ -806,8 +1214,8 @@ int pci_bar_iterator_next(pci_bar_iterator_t *iter)
     iter->current_value = get_base_address_register(iter->device, iter->current_bar);
     iter->valid         = 1;
 
-    /* Skip the next BAR if current is 64-bit */
-    if (iter->current_value.size == BAR_S64) {
+    /* Skip the next BAR slot if current is 64-bit */
+    if (iter->current_value.size & BAR_64BIT_FLAG) {
         iter->current_bar += 2;
     } else {
         iter->current_bar += 1;

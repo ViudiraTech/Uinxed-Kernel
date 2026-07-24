@@ -31,11 +31,54 @@
 #define mem_mapping  0
 #define input_output 1
 
+/* PCI Capability IDs */
+#define PCI_CAP_ID_MSI  0x05
+#define PCI_CAP_ID_MSIX 0x11
+
+/* MSI Capability Register Offsets */
+#define PCI_MSI_FLAGS         0x02
+#define PCI_MSI_FLAGS_ENABLE  0x0001
+#define PCI_MSI_FLAGS_64BIT   0x0080
+#define PCI_MSI_FLAGS_MASKBIT 0x0100
+#define PCI_MSI_FLAGS_QMASK   0x0E00
+#define PCI_MSI_FLAGS_QSIZE   0x0070
+#define PCI_MSI_ADDRESS_LO    0x04
+#define PCI_MSI_ADDRESS_HI    0x08
+#define PCI_MSI_DATA_32       0x08
+#define PCI_MSI_DATA_64       0x0C
+#define PCI_MSI_MASK_32       0x0C
+#define PCI_MSI_MASK_64       0x10
+
+/* MSI-X Capability Register Offsets */
+#define PCI_MSIX_FLAGS              0x02
+#define PCI_MSIX_FLAGS_ENABLE       0x8000
+#define PCI_MSIX_FLAGS_MASKALL      0x4000
+#define PCI_MSIX_FLAGS_QSIZE        0x07FF
+#define PCI_MSIX_TABLE              0x04
+#define PCI_MSIX_TABLE_BIR          0x00000007
+#define PCI_MSIX_TABLE_OFFSET       0xFFFFFFF8
+#define PCI_MSIX_PBA                0x08
+#define PCI_MSIX_PBA_BIR            0x00000007
+#define PCI_MSIX_PBA_OFFSET         0xFFFFFFF8
+#define PCI_MSIX_ENTRY_SIZE         16
+#define PCI_MSIX_ENTRY_LOWER_ADDR   0x00
+#define PCI_MSIX_ENTRY_UPPER_ADDR   0x04
+#define PCI_MSIX_ENTRY_DATA         0x08
+#define PCI_MSIX_ENTRY_VECTOR_CTRL  0x0C
+#define PCI_MSIX_ENTRY_CTRL_MASKBIT 0x0001
+
+/* MSI Message address for x86 APIC */
+#define MSI_ADDRESS_BASE       0xFEE00000
+#define MSI_ADDRESS_DEST(dest) (MSI_ADDRESS_BASE | ((dest) << 12))
+
 typedef enum {
     BAR_S32      = 0x0,
     BAR_Reserved = 0x1,
     BAR_S64      = 0x2,
 } bar_size_t;
+
+/* Flag bit in base_address_register_t.size: set for 64-bit BARs */
+#define BAR_64BIT_FLAG 0x80000000
 
 typedef struct {
         uint8_t  prefetchable;
@@ -57,6 +100,20 @@ typedef enum {
     HEADER_TYPE_CARDBUS = 2,
 } header_type_t;
 
+/* Maximum MSI/MSI-X vectors per device */
+#define PCI_MAX_MSI_VECTORS 32
+
+/* MSI state stored per device */
+typedef struct {
+        int   msi_cap;                           /* MSI capability offset, 0 if none */
+        int   msix_cap;                          /* MSI-X capability offset, 0 if none */
+        int   msi_nvec;                          /* Number of MSI vectors allocated */
+        int   msix_nvec;                         /* Number of MSI-X vectors allocated */
+        int   msi_vectors[PCI_MAX_MSI_VECTORS];  /* Allocated MSI vectors */
+        int   msix_vectors[PCI_MAX_MSI_VECTORS]; /* Allocated MSI-X vectors */
+        void *msix_table;                        /* Mapped MSI-X table MMIO virtual address */
+} pci_msi_state_t;
+
 /* PCI cached searching */
 typedef struct pci_device_cache {
         pci_device_t            *device;
@@ -70,6 +127,8 @@ typedef struct pci_device_cache {
 
         /* *(ecam_ptr | (offset & 0xffc)) = ecam_addr */
         volatile void *ecam_ptr;
+
+        pci_msi_state_t msi; /* MSI/MSI-X state */
 } pci_device_cache_t;
 
 typedef struct {
@@ -211,5 +270,29 @@ pci_device_cache_t *pci_found_class_cache(pci_device_cache_t *start, pci_class_r
 
 /* PCI device initialization */
 void pci_init(void);
+
+/* Find a PCI capability in config space */
+int pci_find_capability(pci_device_cache_t *dev, int cap_id);
+
+/* Initialize MSI/MSI-X for a device (detect capabilities, disable at boot) */
+void pci_msi_init(pci_device_cache_t *dev);
+
+/* Enable MSI with a single vector. Returns the allocated vector number, or -1 on error. */
+int pci_enable_msi(pci_device_cache_t *dev);
+
+/* Enable MSI with up to nvec vectors. Returns number of vectors allocated, or -1 on error. */
+int pci_enable_msi_range(pci_device_cache_t *dev, int nvec);
+
+/* Disable MSI */
+void pci_disable_msi(pci_device_cache_t *dev);
+
+/* Enable MSI-X with nvec vectors. Returns the number of vectors allocated, or -1 on error. */
+int pci_enable_msix(pci_device_cache_t *dev, int nvec);
+
+/* Disable MSI-X */
+void pci_disable_msix(pci_device_cache_t *dev);
+
+/* Get interrupt vector for MSI/MSI-X (index 0..nvec-1). For MSI, use index 0. */
+int pci_irq_vector(pci_device_cache_t *dev, int index);
 
 #endif // INCLUDE_PCI_H_

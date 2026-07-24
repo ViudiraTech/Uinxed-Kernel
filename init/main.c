@@ -207,8 +207,7 @@ void kernel_entry(void)
     sysfs_regist();      // Register sysfs with the VFS layer
     sysfs_init();        // Mount sysfs at /sys and create top-level directories
     device_model_init(); // Initialise the device model (bus/class/device)
-#endif                   // \
-                         //
+#endif                   //
     init_cpio();         // Copy In, Copy Out
     devtmpfs_init();     // Device Temporary File System
     procfs_regist();     // Process File System

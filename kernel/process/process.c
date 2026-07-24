@@ -29,6 +29,7 @@
 #include <mem/page.h>
 #include <proc/process.h>
 #include <proc/sched.h>
+#include <proc/uaccess.h>
 #include <sync/spin_lock.h>
 #include <syscall/syscall.h>
 

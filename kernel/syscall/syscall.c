@@ -2070,9 +2070,8 @@ static int64_t sys_select_stub(uint64_t nfds, uint64_t readfds, uint64_t writefd
 
     if (nfds > SELECT_NFDS_MAX) return -EINVAL;
 
-    uint8_t kread[SELECT_FD_SET_SIZE]   = {0};
-    uint8_t kwrite[SELECT_FD_SET_SIZE]  = {0};
-    uint8_t kexcept[SELECT_FD_SET_SIZE] = {0};
+    uint8_t kread[SELECT_FD_SET_SIZE]  = {0};
+    uint8_t kwrite[SELECT_FD_SET_SIZE] = {0};
 
     if (readfds && copy_from_user(kread, (const void *)readfds, SELECT_FD_SET_SIZE)) return -EFAULT;
     if (writefds && copy_from_user(kwrite, (const void *)writefds, SELECT_FD_SET_SIZE)) return -EFAULT;
