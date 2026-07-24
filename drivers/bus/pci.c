@@ -372,7 +372,8 @@ base_address_register_t get_base_address_register(pci_device_cache_t *device, ui
 
     reg.offset         = 0x10 + 4 * bar;
     uint64_t bar_value = read_pci(reg);
-    result.type        = (bar_value & 1) ? input_output : mem_mapping;
+    if (bar_value == 0xFFFFFFFF) return result;
+    result.type = (bar_value & 1) ? input_output : mem_mapping;
 
     switch (result.type) {
         case mem_mapping : // Memory

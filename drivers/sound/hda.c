@@ -342,7 +342,7 @@ static uint32_t hda_read_bar_size(pci_device_cache_t *dev, int bar_idx)
 {
     pci_device_reg_t reg  = {.parent = dev, .offset = (uint16_t)(0x10 + 4 * bar_idx)};
     uint32_t         orig = read_pci(reg);
-    if (!orig) return 0;
+    if (!orig || orig == 0xFFFFFFFF) return 0;
 
     uint32_t bar_type = (orig >> 1) & 0b11;
     int      is_64bit = (bar_type == BAR_S64);
@@ -355,14 +355,13 @@ static uint32_t hda_read_bar_size(pci_device_cache_t *dev, int bar_idx)
         pci_device_reg_t reg_hi  = {.parent = dev, .offset = (uint16_t)(0x10 + 4 * (bar_idx + 1))};
         uint32_t         orig_hi = read_pci(reg_hi);
         write_pci(reg_hi, 0xFFFFFFFF);
-        uint32_t sized_hi = read_pci(reg_hi) & 0xFFFFFFF0;
+        uint32_t sized_hi = read_pci(reg_hi);
         write_pci(reg_hi, orig_hi);
-        if (sized_hi) {
-            uint64_t val64 = (uint64_t)sized | ((uint64_t)sized_hi << 32);
-            size_t   sz    = (size_t)(~val64 + 1);
-            if (sz > 0xFFFFFFFFULL) return 0xFFFFFFFF;
-            return (uint32_t)sz;
-        }
+        uint64_t val64 = (uint64_t)sized | ((uint64_t)sized_hi << 32);
+        if (!val64) return 0;
+        uint64_t sz = ~val64 + 1;
+        if (sz > 0xFFFFFFFFULL) return 0xFFFFFFFF;
+        return (uint32_t)sz;
     }
 
     if (!sized) return 0;
@@ -953,18 +952,37 @@ void hda_init(void)
     {
         pci_device_reg_t bar_reg  = {.parent = dev, .offset = 0x10};
         uint64_t         bar_phys = read_pci(bar_reg);
-        uint32_t         bar_type = (bar_phys >> 1) & 0b11;
-        if (!(bar_phys & 0xFFFFFFF0)) {
-            plogk("hda: BAR0 is zero.\n");
+
+        if (bar_phys == 0xFFFFFFFF || !(bar_phys & 0xFFFFFFF0)) {
+            plogk("hda: BAR0 is invalid.\n");
             return;
         }
+
+        if ((bar_phys & 1) || (((bar_phys >> 1) & 0b11) == BAR_Reserved)) {
+            plogk("hda: BAR0 is I/O BAR, not supported.\n");
+            return;
+        }
+
+        uint32_t bar_type = (bar_phys >> 1) & 0b11;
         if (bar_type == BAR_S64) {
-            bar_reg.offset = 0x14;
-            bar_phys |= (uint64_t)read_pci(bar_reg) << 32;
+            bar_reg.offset    = 0x14;
+            uint32_t bar_high = read_pci(bar_reg);
+            if (bar_high != 0xFFFFFFFF) bar_phys |= (uint64_t)bar_high << 32;
         }
         bar_phys &= ~0xFULL;
+
         hda_ctrl.mmio_size = hda_read_bar_size(dev, 0);
-        if (!hda_ctrl.mmio_size) hda_ctrl.mmio_size = 0x4000;
+        if (!hda_ctrl.mmio_size || hda_ctrl.mmio_size == 0xFFFFFFFF) hda_ctrl.mmio_size = 0x4000;
+
+        /* Map the MMIO region into page tables.
+         * HHDM may not cover MMIO regions — must map with uncacheable flags. */
+        {
+            uint64_t map_start = bar_phys & ~(uint64_t)0xFFF;
+            uint64_t map_len   = (bar_phys + hda_ctrl.mmio_size + 0xFFF) & ~(uint64_t)0xFFF;
+            map_len -= map_start;
+            page_map_range_to(get_kernel_pagedir(), map_start, map_len, PTE_MMIO_FLAGS);
+        }
+
         hda_ctrl.mmio = (volatile void *)phys_to_virt(bar_phys);
     }
 
