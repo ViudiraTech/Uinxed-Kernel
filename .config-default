@@ -63,6 +63,11 @@ CONFIG_BOOT_LOGO=y
 #
 CONFIG_SOUND_HDA=y
 
+#
+# I2C bus support
+#
+CONFIG_I2C=y
+
 # Filesystem support
 #
 CONFIG_SYSFS=y

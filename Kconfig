@@ -173,6 +173,18 @@ menu "Device drivers"
 
   endmenu
 
+  menu "I2C bus support"
+
+    config I2C
+      bool "I2C subsystem"
+      default y
+      help
+        "Enable the I2C bus subsystem. Provides adapter registration,
+        bus transfer API, and SMBus protocol emulation for interfacing
+        with I2C devices such as sensors, EEPROMs, and GPIO expanders."
+
+  endmenu
+
   menu "VirtIO drivers"
 
     config VIRTIO

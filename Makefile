@@ -92,6 +92,12 @@ else
   C_CONFIG += -DCONFIG_SOUND_HDA=0
 endif
 
+ifeq ($(CONFIG_I2C), y)
+  C_CONFIG += -DCONFIG_I2C=1
+else
+  C_CONFIG += -DCONFIG_I2C=0
+endif
+
 ifneq ($(CONFIG_CPU_MAX_COUNT),)
   C_CONFIG += -DMAX_CPU_COUNT=$(CONFIG_CPU_MAX_COUNT)
 endif
