@@ -47,6 +47,7 @@
 typedef struct {
         uint8_t  reserved;
         uint8_t  port_idx;
+        uint8_t  device_idx;
         uint32_t lba_size;
         uint32_t blk_size;
         char     model[41];

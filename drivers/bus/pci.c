@@ -400,7 +400,7 @@ base_address_register_t get_base_address_register(pci_device_cache_t *device, ui
             result.prefetchable = bar_value & 0b1000;
             break;
         case input_output : // I/O
-            result.address      = (uint32_t *)phys_to_virt(bar_value & ~0b11);
+            result.address      = (uint32_t *)(uintptr_t)(bar_value & ~0b11);
             result.prefetchable = 0;
             break;
         default :

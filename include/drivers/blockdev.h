@@ -31,7 +31,7 @@ typedef struct blockdev_ops {
 
 /* Drive encoding for blockdev_open_drive / blockdev_parse_drive */
 #define BLKDEV_AHCI_FLAG  0x80
-#define BLKDEV_ATAPI_FLAG 0x04
+#define BLKDEV_ATAPI_FLAG 0x20
 #define BLKDEV_NVME_FLAG  0x40
 #define BLKDEV_DRIVE_MASK 0x1F
 

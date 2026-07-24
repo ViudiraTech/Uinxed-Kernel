@@ -10,6 +10,7 @@
  */
 
 #include <drivers/ahci.h>
+#include <drivers/ahci/satapi.h>
 #include <drivers/atapi.h>
 #include <drivers/blockdev.h>
 #include <drivers/ide.h>
@@ -164,6 +165,26 @@ static struct blockdev_ops blk_ahci_ops = {
 
 static int blk_ahci_type_id = -1;
 
+static int blk_ahci_atapi_read_sectors(const blockdev_device_t *dev, uint32_t lba, uint32_t count, void *buffer)
+{
+    uint8_t *ptr = buffer;
+    while (count) {
+        uint8_t chunk = count > 255 ? 255 : (uint8_t)count;
+        int ret = ahci_satapi_read_sectors(dev->drive, chunk, dev->base_lba + lba, ptr);
+        if (ret) return ret;
+        ptr += (size_t)chunk * dev->sector_size;
+        lba += chunk;
+        count -= chunk;
+    }
+    return EOK;
+}
+
+static struct blockdev_ops blk_ahci_atapi_ops = {
+    .read_sectors = blk_ahci_atapi_read_sectors,
+};
+
+static int blk_ahci_atapi_type_id = -1;
+
 /* ---- Internal: lazy registration ---- */
 
 static int blk_ide_type(void)
@@ -182,6 +203,12 @@ static int blk_ahci_type(void)
 {
     if (blk_ahci_type_id < 0) blk_ahci_type_id = blockdev_register_type(&blk_ahci_ops);
     return blk_ahci_type_id;
+}
+
+static int blk_ahci_atapi_type(void)
+{
+    if (blk_ahci_atapi_type_id < 0) blk_ahci_atapi_type_id = blockdev_register_type(&blk_ahci_atapi_ops);
+    return blk_ahci_atapi_type_id;
 }
 
 /* ---- Public API ---- */
@@ -255,7 +282,7 @@ int blockdev_open_ahci_atapi(uint8_t drive, blockdev_device_t *device)
     if (drive >= AHCI_MAX_DEVICES || !ahci_devices[drive].reserved) return -ENODEV;
     if (ahci_devices[drive].type != AHCI_DEV_SATAPI) return -ENOSYS;
 
-    device->ops_id       = (uint8_t)blk_ahci_type();
+    device->ops_id       = (uint8_t)blk_ahci_atapi_type();
     device->backend_data = NULL;
     device->drive        = drive;
     device->sector_size  = ahci_devices[drive].sector_size;

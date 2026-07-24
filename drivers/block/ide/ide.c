@@ -267,6 +267,7 @@ void init_ide(void)
          */
     }
     bar_reg.parent = ide_pci_request.response->device;
+    pci_write_command_status(bar_reg.parent, (pci_read_command_status(bar_reg.parent) & 0xFFFF) | 1u);
     register_interrupt_handler(IRQ_14, (void *)ide_irq, 0, 0x8e);
     register_interrupt_handler(IRQ_15, (void *)ide_irq, 0, 0x8e);
 
@@ -439,7 +440,7 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t n
         head      = (lba + 1 - sect) % (16 * 63) / (63);
     }
 
-    while (ide_read(channel, ATA_REG_STATUS) & ATA_SR_BSY) { nsleep(10); }
+    if (ide_polling(channel, 0) != 0) return 3;
     if (lba_mode == 0)
         ide_write(channel, ATA_REG_HDDEVSEL, 0xa0 | (slavebit << 4) | head);
     else

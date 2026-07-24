@@ -10,10 +10,12 @@
 
 #include <chipset/common.h>
 #include <drivers/ahci/ahci.h>
+#include <drivers/ahci/satapi.h>
 #include <drivers/pci.h>
 #include <kernel/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
@@ -71,7 +73,7 @@ static int ahci_find_slot(ahci_port_state_t *port)
 
 /* ─── Port start / stop ─── */
 
-static void ahci_port_stop(ahci_port_state_t *port)
+static int ahci_port_stop(ahci_port_state_t *port)
 {
     int               tout;
     volatile uint8_t *p = port->port_mmio;
@@ -79,14 +81,15 @@ static void ahci_port_stop(ahci_port_state_t *port)
     ahci_write32(p, PORT_CMD, ahci_read32(p, PORT_CMD) & ~PORT_CMD_ST);
     tout = 500000;
     while (ahci_read32(p, PORT_CMD) & PORT_CMD_CR) {
-        if (--tout <= 0) break;
+        if (--tout <= 0) return -ETIMEDOUT;
     }
 
     ahci_write32(p, PORT_CMD, ahci_read32(p, PORT_CMD) & ~PORT_CMD_FRE);
     tout = 500000;
     while (ahci_read32(p, PORT_CMD) & PORT_CMD_FR) {
-        if (--tout <= 0) break;
+        if (--tout <= 0) return -ETIMEDOUT;
     }
+    return EOK;
 }
 
 static int ahci_port_start(ahci_port_state_t *port)
@@ -94,7 +97,7 @@ static int ahci_port_start(ahci_port_state_t *port)
     volatile uint8_t *p = port->port_mmio;
     int               tout;
 
-    ahci_port_stop(port);
+    if (ahci_port_stop(port) != EOK) return -ETIMEDOUT;
 
     ahci_write32(p, PORT_LST_ADDR, (uint32_t)(port->clb_phys & 0xFFFFFFFFULL));
     ahci_write32(p, PORT_LST_ADDR_HI, (uint32_t)(port->clb_phys >> 32));
@@ -104,7 +107,7 @@ static int ahci_port_start(ahci_port_state_t *port)
     ahci_write32(p, PORT_SERR, 0xFFFFFFFF);
 
     ahci_write32(p, PORT_IRQ_STAT, 0xFFFFFFFF);
-    ahci_write32(p, PORT_IRQ_MASK, 0xFFFFFFFF);
+    ahci_write32(p, PORT_IRQ_MASK, 0);
 
     ahci_write32(p, PORT_CMD, ahci_read32(p, PORT_CMD) | PORT_CMD_FRE);
     tout = 500000;
@@ -323,6 +326,8 @@ void init_ahci(void)
 
     pci_device_cache_t *cache = ahci_pci_request.response->device;
 
+    pci_write_command_status(cache, (pci_read_command_status(cache) & 0xFFFF) | (1u << 1) | (1u << 2));
+
     base_address_register_t bar = get_base_address_register(cache, 5);
     if (bar.type != mem_mapping) {
         plogk("ahci: BAR5 is not a memory BAR.\n");
@@ -335,21 +340,21 @@ void init_ahci(void)
     uint32_t cap2 = ahci_read32(hba_mmio, HOST_CAP2);
     if (cap2 & (1u << 0)) {
         uint32_t bohc = ahci_read32(hba_mmio, HOST_BOHC);
-        if (bohc & (1u << 4)) {
-            if (!(bohc & (1u << 1))) {
-                ahci_write32(hba_mmio, HOST_BOHC, bohc | (1u << 1));
-                int boh_timeout = 1000000;
-                while ((ahci_read32(hba_mmio, HOST_BOHC) & (1u << 4)) && !(ahci_read32(hba_mmio, HOST_BOHC) & (1u << 1))) {
-                    if (--boh_timeout <= 0) break;
+        if (bohc & (1u << 0)) {
+            ahci_write32(hba_mmio, HOST_BOHC, bohc | (1u << 1));
+            int boh_timeout = 1000000;
+            while (ahci_read32(hba_mmio, HOST_BOHC) & (1u << 0)) {
+                if (--boh_timeout <= 0) {
+                    plogk("ahci: BIOS ownership handoff timeout.\n");
+                    return;
                 }
             }
         }
     }
 
     /* HBA reset */
-    ahci_write32(hba_mmio, HOST_CTL, ahci_read32(hba_mmio, HOST_CTL) & ~HOST_AHCI_EN);
-
-    ahci_write32(hba_mmio, HOST_CTL, ahci_read32(hba_mmio, HOST_CTL) | HOST_RESET);
+    ahci_write32(hba_mmio, HOST_CTL, (ahci_read32(hba_mmio, HOST_CTL) | HOST_AHCI_EN) & ~HOST_IRQ_EN);
+    ahci_write32(hba_mmio, HOST_CTL, ahci_read32(hba_mmio, HOST_CTL) | HOST_AHCI_EN | HOST_RESET);
     int reset_timeout = 1000000;
     while (ahci_read32(hba_mmio, HOST_CTL) & HOST_RESET) {
         if (--reset_timeout <= 0) {
@@ -383,10 +388,22 @@ void init_ahci(void)
         port->port_mmio = hba_mmio + 0x100 + i * 0x80;
         port->port_no   = (uint8_t)i;
 
+        /* PI describes implemented controller ports, not attached devices.
+         * Do not reset and poll a port whose PHY reports no device. */
+        if ((ahci_read32(port->port_mmio, PORT_SSTS) & 0xF) == 0) continue;
+
         /* Allocate per-port memory */
         port->clb_phys = alloc_frames(1);
         port->fb_phys  = alloc_frames(1);
         port->ct_phys  = alloc_frames(1);
+
+        if (!port->clb_phys || !port->fb_phys || !port->ct_phys) {
+            if (port->clb_phys) free_frames(port->clb_phys, 1);
+            if (port->fb_phys) free_frames(port->fb_phys, 1);
+            if (port->ct_phys) free_frames(port->ct_phys, 1);
+            plogk("ahci: Port %u command memory allocation failed.\n", i);
+            continue;
+        }
 
         port->cmd_list = (hba_cmd_header_t *)phys_to_virt(port->clb_phys);
         port->fis      = (hba_fis_t *)phys_to_virt(port->fb_phys);
@@ -408,28 +425,35 @@ void init_ahci(void)
             continue;
         }
 
-        if (ahci_port_start(port) != 0) {
-            plogk("ahci: Port %u start failed.\n", i);
+        if (ahci_port_stop(port) != EOK) {
+            plogk("ahci: Port %u stop failed.\n", i);
             continue;
         }
 
-        /* Spin up */
+        /* Assert then deassert COMRESET before starting the command engine. */
         ahci_write32(port->port_mmio, PORT_SCTL, (ahci_read32(port->port_mmio, PORT_SCTL) & ~0xFu) | 0x1);
+        nsleep(1000000);
+        ahci_write32(port->port_mmio, PORT_SCTL, ahci_read32(port->port_mmio, PORT_SCTL) & ~0xFu);
 
         {
             uint32_t ssts;
-            int      det_timeout = 1000000;
+            int      det_timeout = 100000;
             while (1) {
                 ssts = ahci_read32(port->port_mmio, PORT_SSTS);
                 if ((ssts & 0xF) == HBA_PORT_DET_PRESENT) break;
-                if ((ssts & 0xF) == 0) break;
                 if (--det_timeout <= 0) break;
+                nsleep(1000);
             }
             if ((ssts & 0xF) != HBA_PORT_DET_PRESENT) {
                 plogk("ahci: Port %u device detect failed (DET=%u).\n", i, ssts & 0xF);
                 ahci_port_stop(port);
                 continue;
             }
+        }
+
+        if (ahci_port_start(port) != 0) {
+            plogk("ahci: Port %u start failed.\n", i);
+            continue;
         }
 
         uint32_t sig = ahci_read32(port->port_mmio, PORT_SIG);
@@ -448,6 +472,7 @@ void init_ahci(void)
             dev->type        = AHCI_DEV_SATAPI;
             dev->sector_size = 2048;
             dev->size        = 0;
+            ahci_write32(port->port_mmio, PORT_CMD, ahci_read32(port->port_mmio, PORT_CMD) | PORT_CMD_ATAPI);
             plogk("ahci: Found SATAPI device on port %u\n", i);
             ahci_device_count++;
             ahci_port_count++;
@@ -476,4 +501,5 @@ void init_ahci(void)
     } else {
         plogk("ahci: %u device(s) initialized.\n", ahci_device_count);
     }
+    ahci_satapi_init();
 }

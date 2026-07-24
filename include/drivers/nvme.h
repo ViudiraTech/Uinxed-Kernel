@@ -37,7 +37,7 @@ struct blockdev_device;
 /* ---- CAP bits ---- */
 #define NVME_CAP_MQES(cap)  ((uint32_t)((cap) & 0xFFFF))
 #define NVME_CAP_DSTRD(cap) (((cap) >> 32) & 0xF)
-#define NVME_CAP_TO(cap)    (((cap) >> 56) & 0xFF)
+#define NVME_CAP_TO(cap)    (((cap) >> 24) & 0xFF)
 
 /* ---- CC bits ---- */
 #define NVME_CC_EN           (1ULL << 0)
@@ -135,6 +135,7 @@ typedef struct {
         uint32_t cdw0; /* OPC[7:0], FUSE[9:8], PSDT[15:14]=00b(PRP), CID[31:16] */
         uint32_t nsid; /* Namespace ID */
         uint32_t rsvd1[2];
+        uint64_t mptr;  /* Metadata pointer */
         uint64_t prp1;  /* PRP Entry 1 (or data pointer) */
         uint64_t prp2;  /* PRP Entry 2 (or PRP list pointer) */
         uint32_t cdw10; /* Command-specific */
@@ -145,6 +146,8 @@ typedef struct {
         uint32_t cdw15;
 } __attribute__((packed)) nvme_sqe_t;
 
+_Static_assert(sizeof(nvme_sqe_t) == NVME_SQE_SIZE, "NVMe SQE must be 64 bytes");
+
 /* 16-byte Completion Queue Entry */
 typedef struct {
         uint32_t dw0;     /* Command-specific */
@@ -154,6 +157,8 @@ typedef struct {
         uint16_t cmd_id;  /* Command ID (CID from submission) */
         uint16_t sfp;     /* Status field: Phase bit[0], SCF[8:1], SFT[11:9] */
 } __attribute__((packed)) nvme_cqe_t;
+
+_Static_assert(sizeof(nvme_cqe_t) == NVME_CQE_SIZE, "NVMe CQE must be 16 bytes");
 
 #define NVME_CQE_PHASE(cqe) ((cqe)->sfp & 1)
 #define NVME_CQE_SC(cqe)    (((cqe)->sfp >> 1) & 0xFF)
@@ -306,6 +311,7 @@ typedef struct nvme_controller {
         uint32_t       max_qsize; /* MQES + 1, capped */
 
         nvme_queue_t admin_q; /* queue pair 0 */
+        nvme_queue_t io_q;    /* queue pair 1 */
 
         nvme_namespace_t namespaces[NVME_MAX_NAMESPACES];
         uint32_t         num_namespaces;

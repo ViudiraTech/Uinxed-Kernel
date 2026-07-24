@@ -15,20 +15,18 @@
  *        - VFS-style blockdev ops registration
  */
 
-#include <arch/idt.h>
 #include <chipset/common.h>
-#include <drivers/apic.h>
 #include <drivers/blockdev.h>
 #include <drivers/nvme.h>
 #include <drivers/pci.h>
 #include <kernel/errno.h>
-#include <kernel/interrupt.h>
 #include <kernel/printk.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/frame.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
+#include <mem/page_walker.h>
 #include <sync/spin_lock.h>
 
 /* ================================================================
@@ -38,6 +36,7 @@
 static nvme_controller_t nvme_controllers[NVME_MAX_CONTROLLERS];
 static int               nvme_ctrl_count;
 static int               nvme_initialised;
+static uintptr_t         nvme_mmio_search_base = 0xffffd00000000000ULL;
 
 /* ================================================================
  *  MMIO helpers
@@ -92,18 +91,12 @@ static uint32_t nvme_cap_mqes(uint64_t cap)
 
 static uint32_t nvme_cap_dstrd(uint64_t cap)
 {
-    /* NVMe 1.4: DSTRD is in bits 35:32 */
-    uint32_t dstrd = (uint32_t)((cap >> 32) & 0xF);
-    /* Fall back to NVMe 1.0-1.3 location (bits 19:16) if zero */
-    if (!dstrd) dstrd = (uint32_t)((cap >> 16) & 0xF);
-    return dstrd;
+    return (uint32_t)((cap >> 32) & 0xF);
 }
 
 static uint32_t nvme_cap_to(uint64_t cap)
 {
-    /* NVMe 1.4: TO is in bits 47:44; fall back to bits 31:24 */
-    uint32_t to = (uint32_t)((cap >> 44) & 0xF);
-    if (!to) to = (uint32_t)((cap >> 24) & 0xFF);
+    uint32_t to = (uint32_t)((cap >> 24) & 0xFF);
     if (!to) to = 6; /* default: ~3 seconds */
     return to;
 }
@@ -196,6 +189,7 @@ static int nvme_poll_completion(nvme_queue_t *q, uint32_t expected_cid, nvme_cqe
         /* Entry is new — check CID and consume it */
         uint16_t sc  = NVME_CQE_SC(cqe);
         uint16_t sct = NVME_CQE_SCT(cqe);
+        q->sq_head    = cqe->sq_head;
 
         /* Advance head */
         q->cq_head++;
@@ -337,7 +331,7 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
 
     /* Enable bus mastering and MMIO space */
     {
-        uint32_t cmd = pci_read_command_status(pci_dev);
+        uint32_t cmd = pci_read_command_status(pci_dev) & 0xFFFF;
         cmd |= (1 << 2); /* bus master */
         cmd |= (1 << 1); /* memory space */
         pci_write_command_status(pci_dev, cmd);
@@ -361,12 +355,11 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
         }
 
         uint64_t phys_addr = bar_val & ~0xFULL;
-        uint64_t phys_page = phys_addr & ~(uint64_t)(PAGE_4K_SIZE - 1);
-        uint64_t page_off  = phys_addr - phys_page;
-        uint64_t map_len   = (0x2000 + page_off + PAGE_4K_SIZE - 1) & ~(uint64_t)(PAGE_4K_SIZE - 1);
-
-        page_map_range_to(get_kernel_pagedir(), phys_page, map_len, PTE_MMIO_FLAGS);
-        ctrl->regs = (volatile void *)((uintptr_t)phys_to_virt(phys_page) + page_off);
+        uintptr_t mmio_base = walk_page_tables_find_free(get_kernel_pagedir(), nvme_mmio_search_base, 0x100000, PAGE_4K_SIZE);
+        if (!mmio_base) return -ENOMEM;
+        page_map_range(get_kernel_pagedir(), mmio_base, phys_addr, 0x100000, PTE_MMIO_FLAGS);
+        ctrl->regs = (volatile void *)mmio_base;
+        nvme_mmio_search_base = mmio_base + 0x100000;
     }
 
     /* Parse CAP register */
@@ -377,20 +370,15 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
 
     plogk("nvme: controller %u: MQES=%u stride=%u bytes\n", ctrl_id, ctrl->max_qsize - 1, ctrl->stride);
 
-    /* Get IRQ */
-    {
-        uint32_t irq_line = pci_get_irq(pci_dev);
-        ctrl->irq_vector  = (irq_line > 0) ? (uint32_t)(32 + irq_line) : 0;
-        plogk("nvme: controller %u: IRQ line=%u vector=%u\n", ctrl_id, irq_line, ctrl->irq_vector);
-    }
+    /* This driver completes commands by polling. Keep legacy INTx masked. */
+    nvme_write32(ctrl->regs, NVME_REG_INTMS, 0xFFFFFFFF);
 
     /* ---- Disable controller ---- */
     {
         nvme_write32(ctrl->regs, NVME_REG_CC, 0); /* CC.EN = 0 */
-        uint64_t to       = (uint64_t)nvme_cap_to(cap) * 500 * 1000;
-        uint64_t deadline = rdtsc_serialized() + to;
+        uint64_t timeout = (uint64_t)nvme_cap_to(cap) * NVME_TIMEOUT_LOOPS;
         while (nvme_read32(ctrl->regs, NVME_REG_CSTS) & NVME_CSTS_RDY) {
-            if (rdtsc_serialized() > deadline) {
+            if (!timeout--) {
                 plogk("nvme: controller %u: timeout waiting for CSTS.RDY=0\n", ctrl_id);
                 return -ETIMEDOUT;
             }
@@ -423,10 +411,9 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
         uint32_t cc_val = NVME_CC_EN | (NVME_SQE_SHIFT << NVME_CC_IOSQES_SHIFT) | (NVME_CQE_SHIFT << NVME_CC_IOCQES_SHIFT);
         nvme_write32(ctrl->regs, NVME_REG_CC, cc_val);
 
-        uint64_t to       = (uint64_t)nvme_cap_to(cap) * 500 * 1000;
-        uint64_t deadline = rdtsc_serialized() + to;
+        uint64_t timeout = (uint64_t)nvme_cap_to(cap) * NVME_TIMEOUT_LOOPS;
         while (!(nvme_read32(ctrl->regs, NVME_REG_CSTS) & NVME_CSTS_RDY)) {
-            if (rdtsc_serialized() > deadline) {
+            if (!timeout--) {
                 plogk("nvme: controller %u: timeout waiting for CSTS.RDY=1\n", ctrl_id);
                 return -ETIMEDOUT;
             }
@@ -437,8 +424,29 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
     /* Request 1 I/O SQ + 1 I/O CQ */
     {
         nvme_cqe_t cqe;
-        ret = nvme_admin_cmd(ctrl, NVME_ADMIN_SET_FEATURES, 0, 0, 0, NVME_FID_NUM_QUEUES, (1u << 16) | 1u, 0, &cqe);
-        if (ret) { plogk("nvme: controller %u: Set Features (num queues) = %d\n", ctrl_id, ret); }
+        ret = nvme_admin_cmd(ctrl, NVME_ADMIN_SET_FEATURES, 0, 0, 0, NVME_FID_NUM_QUEUES, 0, 0, &cqe);
+        if (ret) {
+            plogk("nvme: controller %u: Set Features (num queues) = %d\n", ctrl_id, ret);
+            goto err_admin;
+        }
+    }
+
+    /* ---- Create polling I/O queue pair 1 ---- */
+    {
+        uint16_t io_entries = NVME_IO_QSIZE;
+        nvme_cqe_t cqe;
+
+        if (io_entries > ctrl->max_qsize) io_entries = (uint16_t)ctrl->max_qsize;
+        ret = nvme_alloc_queue(&ctrl->io_q, 1, io_entries, ctrl);
+        if (ret) goto err_admin;
+
+        ret = nvme_admin_cmd(ctrl, NVME_ADMIN_CREATE_IO_CQ, 0, ctrl->io_q.cq_phys, 0,
+                             ((uint32_t)(io_entries - 1) << 16) | 1u, 1u, 0, &cqe);
+        if (ret) goto err_io;
+
+        ret = nvme_admin_cmd(ctrl, NVME_ADMIN_CREATE_IO_SQ, 0, ctrl->io_q.sq_phys, 0,
+                             ((uint32_t)(io_entries - 1) << 16) | 1u, (1u << 16) | 1u, 0, &cqe);
+        if (ret) goto err_io;
     }
 
     /* ---- Identify Controller ---- */
@@ -446,7 +454,7 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
         uint64_t ident_phys = alloc_frames(1);
         if (!ident_phys) {
             ret = -ENOMEM;
-            goto err_admin;
+            goto err_io;
         }
         void *ident_virt = phys_to_virt(ident_phys);
         memset(ident_virt, 0, PAGE_4K_SIZE);
@@ -456,7 +464,7 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
         if (ret) {
             plogk("nvme: controller %u: Identify Controller failed: %d\n", ctrl_id, ret);
             free_frames(ident_phys, 1);
-            goto err_admin;
+            goto err_io;
         }
 
         nvme_identify_ctrl_t *id = (nvme_identify_ctrl_t *)ident_virt;
@@ -524,29 +532,11 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
 err_admin:
     nvme_free_queue(&ctrl->admin_q);
     return ret;
+
+err_io:
+    nvme_free_queue(&ctrl->io_q);
+    goto err_admin;
 }
-
-/* ================================================================
- *  Interrupt handler
- * ================================================================ */
-
-INTERRUPT_BEGIN static void nvme_interrupt_handler(interrupt_frame_t *frame)
-{
-    (void)frame;
-
-    for (int i = 0; i < nvme_ctrl_count; i++) {
-        nvme_controller_t *ctrl = &nvme_controllers[i];
-        if (!ctrl->initialised) continue;
-
-        /* Process any pending admin CQ completions */
-        /* (future: process I/O CQ completions for async I/O) */
-
-        /* Acknowledge the interrupt — write all-ones to INTMC */
-        nvme_write32(ctrl->regs, NVME_REG_INTMC, 0xFFFFFFFF);
-    }
-    send_eoi();
-}
-INTERRUPT_END
 
 /* ================================================================
  *  I/O command submission
@@ -554,7 +544,7 @@ INTERRUPT_END
 
 static int nvme_do_io(nvme_controller_t *ctrl, uint8_t opc, uint32_t nsid, uint64_t prp1, uint64_t prp2, uint64_t slba, uint16_t nlb)
 {
-    nvme_queue_t *q = &ctrl->admin_q;
+    nvme_queue_t *q = &ctrl->io_q;
     int           ret;
 
     spin_lock(&ctrl->lock);
@@ -612,7 +602,7 @@ int nvme_read_sectors(const struct blockdev_device *dev, uint32_t lba, uint32_t 
     }
     if (!ctrl || !ctrl->initialised) return -ENODEV;
 
-    q   = &ctrl->admin_q;
+    q   = &ctrl->io_q;
     buf = (uint8_t *)buffer;
 
     /* Chunk size: up to 2 pages (8 KB) per command to keep DMA simple */
@@ -678,7 +668,7 @@ int nvme_write_sectors(const struct blockdev_device *dev, uint32_t lba, uint32_t
     }
     if (!ctrl || !ctrl->initialised) return -ENODEV;
 
-    q   = &ctrl->admin_q;
+    q   = &ctrl->io_q;
     buf = (const uint8_t *)buffer;
 
     uint32_t max_sectors_per_cmd = (PAGE_4K_SIZE * 2) / ns->sector_size;
@@ -735,23 +725,11 @@ void nvme_init(void)
     while (dev && count < NVME_MAX_CONTROLLERS) {
         ret = nvme_controller_init(dev, (uint16_t)count);
         if (ret == EOK) { count++; }
-        dev = pci_found_class_cache(dev, nvme_class);
+        dev = pci_found_class_cache(dev->next, nvme_class);
     }
 
     nvme_ctrl_count  = count;
     nvme_initialised = 1;
-
-    if (count > 0) {
-        /* Register interrupt handler on the first controller's vector */
-        for (int i = 0; i < count; i++) {
-            if (nvme_controllers[i].irq_vector) {
-                register_interrupt_handler((uint16_t)nvme_controllers[i].irq_vector, (void *)nvme_interrupt_handler, 0, 0x8E);
-                /* Unmask interrupts */
-                nvme_write32(nvme_controllers[i].regs, NVME_REG_INTMC, 0xFFFFFFFF);
-                break;
-            }
-        }
-    }
 
     plogk("nvme: Initialised %u controller(s)\n", count);
 }
