@@ -72,6 +72,9 @@ typedef struct vm_area {
         vm_flags_t       flags;
         vm_region_type_t type;
         struct vm_area  *next;
+        vfs_node_t       vm_file;        /* owning file (NULL for anonymous) */
+        uint64_t         vm_pgoff;       /* page offset within file */
+        void            *vm_private_data; /* driver-private per-VMA data */
 } vm_area_t;
 
 typedef struct process_file {
@@ -80,6 +83,7 @@ typedef struct process_file {
         uint64_t   flags;
         uint32_t   refcount;
         spinlock_t lock;
+        void      *private_data;  /* per-open-instance driver-private data */
 } process_file_t;
 
 typedef struct process_fd_stat {
@@ -155,6 +159,12 @@ process_t *process_fork_from_syscall(syscall_frame_t *frame);
 
 /* Return the next available pid */
 pid_t process_next_pid(void);
+
+/* Allocate a new vm_area struct */
+vm_area_t *vm_area_alloc(uintptr_t start, uintptr_t end, vm_flags_t flags);
+
+/* Insert a VMA into the process's sorted mmap list */
+int vm_area_insert(process_t *proc, vm_area_t *vma);
 
 /* Allocate a new virtual memory area in the given process */
 int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flags);

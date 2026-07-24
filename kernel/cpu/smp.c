@@ -9,6 +9,7 @@
  */
 
 #include <arch/eis.h>
+#include <arch/cpuid.h>
 #include <arch/gdt.h>
 #include <arch/smp.h>
 #include <arch/tss.h>
@@ -190,6 +191,7 @@ void ap_entry(struct limine_smp_info *info)
     init_fpu();
     init_sse();
     init_avx();
+    cpu_enable_nx();
 
     /* load page table */
     page_directory_t *krnl_pagedir = get_kernel_pagedir();

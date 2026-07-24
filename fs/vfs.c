@@ -39,7 +39,7 @@ int vfs_access_check(vfs_node_t node, uint32_t access_mask)
 }
 
 struct vfs_callback   vfs_empty_callback;
-static vfs_callback_t fs_callbacks[256] = {[0] = &vfs_empty_callback};
+vfs_callback_t fs_callbacks[256] = {[0] = &vfs_empty_callback};
 static const char    *fs_names[256];
 static int            fs_nextid = 1;
 

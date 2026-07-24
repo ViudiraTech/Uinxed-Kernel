@@ -173,14 +173,44 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
 
         if (!file) return -EBADF;
 
-        uint64_t pte_flags = vm_flags_to_pte(vm_flags);
         if ((size_t)pgoff > SIZE_MAX / PAGE_4K_SIZE) {
             process_file_put(file);
             return -EINVAL;
         }
         size_t file_offset = (size_t)pgoff * PAGE_4K_SIZE;
 
-        /* Map pages from file content */
+        /* Check if the filesystem has a per-open mmap callback
+         * (e.g., DRM GEM mmap). If so, use it to map device
+         * backing pages directly instead of reading file content. */
+        if (callbackof(file->node, file_mmap)) {
+            vm_area_t vma;
+            memset(&vma, 0, sizeof(vma));
+            vma.start   = mmap_addr;
+            vma.end     = mmap_addr + pages;
+            vma.flags   = vm_flags;
+            vma.type    = VM_REGION_MMAP;
+            vma.vm_file = file->node;
+            vma.vm_pgoff = pgoff;
+            vma.vm_file->refcount++; /* VMA holds a reference */
+
+            void *result = callbackof(file->node, file_mmap)(
+                file->node, file->private_data,
+                file_offset, pages, vm_flags, &vma);
+            if (!result) {
+                vma.vm_file->refcount--;
+                process_file_put(file);
+                return -ENODEV;
+            }
+
+            vm_area_insert(proc, &vma);
+            process_file_put(file);
+            goto vma_done;
+        }
+
+        /* Fallback: read file content into new frames. */
+        {
+        uint64_t pte_flags = vm_flags_to_pte(vm_flags);
+
         for (size_t i = 0; i < pages; i += PAGE_4K_SIZE) {
             uint64_t frame = alloc_frames(1);
             if (!frame) {
@@ -191,7 +221,6 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
             void *virt = phys_to_virt(frame);
             memset(virt, 0, PAGE_4K_SIZE);
 
-            /* Read from file into the page */
             size_t read_offset = file_offset + i;
             size_t to_read     = PAGE_4K_SIZE;
             if (read_offset < file->node->size) {
@@ -200,6 +229,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
             }
 
             page_map_to(proc->user_page_dir, mmap_addr + i, frame, pte_flags);
+        }
         }
 
         /* Record the VMA */
@@ -223,8 +253,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         return (int64_t)mmap_addr;
     }
 
-    /* Anonymous mapping */
-    if (process_mmap(proc, mmap_addr, pages, vm_flags)) return -ENOMEM;
+vma_done:
     return (int64_t)mmap_addr;
 }
 

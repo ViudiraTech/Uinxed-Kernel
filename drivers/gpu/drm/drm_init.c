@@ -26,20 +26,80 @@
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
+#include <proc/process.h>
 
 extern int                      drm_vblank_init(struct drm_device *dev, unsigned int num_crtcs);
 extern struct drm_display_mode *drm_mode_create(struct drm_device *dev);
 extern void                     drm_mode_probed_add(struct drm_connector *connector, struct drm_display_mode *mode);
 
 /* ------------------------------------------------------------------ */
-/* Singleton device                                                    */
+/* Global DRM device list (replaces singleton)                         */
 /* ------------------------------------------------------------------ */
 
-static struct drm_device *drm_singleton;
+#define DRM_MAX_DEVICES 16
+
+static struct drm_device *drm_device_list[DRM_MAX_DEVICES];
+static spinlock_t         drm_device_list_lock = {.lock = 0, .rflags = 0};
+
+static void drm_device_list_add(struct drm_device *dev)
+{
+    spin_lock(&drm_device_list_lock);
+    for (int i = 0; i < DRM_MAX_DEVICES; i++) {
+        if (!drm_device_list[i]) {
+            drm_device_list[i] = dev;
+            break;
+        }
+    }
+    spin_unlock(&drm_device_list_lock);
+}
+
+void drm_device_list_remove(struct drm_device *dev)
+{
+    spin_lock(&drm_device_list_lock);
+    for (int i = 0; i < DRM_MAX_DEVICES; i++) {
+        if (drm_device_list[i] == dev) {
+            drm_device_list[i] = NULL;
+            break;
+        }
+    }
+    spin_unlock(&drm_device_list_lock);
+}
 
 struct drm_device *drm_get_singleton(void)
 {
-    return drm_singleton;
+    /* Return the first registered primary device for backward
+     * compatibility. New code should use drm_get_device_by_minor. */
+    spin_lock(&drm_device_list_lock);
+    for (int i = 0; i < DRM_MAX_DEVICES; i++) {
+        if (drm_device_list[i]) {
+            struct drm_device *dev = drm_device_list[i];
+            spin_unlock(&drm_device_list_lock);
+            return dev;
+        }
+    }
+    spin_unlock(&drm_device_list_lock);
+    return NULL;
+}
+
+struct drm_device *drm_get_device_by_minor(int type, int index)
+{
+    spin_lock(&drm_device_list_lock);
+    for (int i = 0; i < DRM_MAX_DEVICES; i++) {
+        struct drm_device *dev = drm_device_list[i];
+        if (!dev) continue;
+        if (type == DRM_MINOR_PRIMARY && dev->primary &&
+            dev->primary->index == index) {
+            spin_unlock(&drm_device_list_lock);
+            return dev;
+        }
+        if (type == DRM_MINOR_RENDER && dev->render &&
+            dev->render->index == index) {
+            spin_unlock(&drm_device_list_lock);
+            return dev;
+        }
+    }
+    spin_unlock(&drm_device_list_lock);
+    return NULL;
 }
 
 /* ------------------------------------------------------------------ */
@@ -378,12 +438,15 @@ size_t drm_dev_write(void *file, const void *addr, size_t offset, size_t size)
 
 int drm_dev_ioctl(void *file, size_t req, void *arg)
 {
-    /* file is the drm_file pointer stored as ctx */
-    struct drm_file *file_priv = (struct drm_file *)file;
+    struct drm_device *dev;
+    struct drm_file   *file_priv = (struct drm_file *)file;
 
-    if (!file_priv || !drm_singleton) { return -ENODEV; }
+    if (!file_priv) return -ENODEV;
 
-    return drm_ioctl(drm_singleton, (unsigned int)req, arg, file_priv);
+    dev = drm_get_singleton();
+    if (!dev) return -ENODEV;
+
+    return drm_ioctl(dev, (unsigned int)req, arg, file_priv);
 }
 
 int drm_dev_poll(void *file, size_t events)
@@ -395,6 +458,7 @@ int drm_dev_poll(void *file, size_t events)
 
 void *drm_dev_mmap(void *file, size_t offset, size_t size, int flags)
 {
+    struct drm_device     *dev;
     struct drm_file       *file_priv = (struct drm_file *)file;
     struct drm_gem_object *obj;
     void                  *result;
@@ -402,7 +466,10 @@ void *drm_dev_mmap(void *file, size_t offset, size_t size, int flags)
     (void)flags;
     (void)size;
 
-    if (!file_priv || !drm_singleton) { return NULL; }
+    if (!file_priv) return NULL;
+
+    dev = drm_get_singleton();
+    if (!dev) return NULL;
 
     /* Look up the GEM object by the mmap offset that was returned
      * from MAP_DUMB. Its backing memory is identity-mapped (physical
@@ -416,6 +483,37 @@ void *drm_dev_mmap(void *file, size_t offset, size_t size, int flags)
 }
 
 /* ------------------------------------------------------------------ */
+/* DRM per-open mmap callback (VMA-aware GEM mmap)                     */
+/* ------------------------------------------------------------------ */
+
+void *drm_dev_file_mmap(void *ctx, void *private_data,
+                        size_t offset, size_t size, int flags,
+                        struct vm_area *vma)
+{
+    struct drm_device     *dev       = (struct drm_device *)ctx;
+    struct drm_file       *file_priv = (struct drm_file *)private_data;
+    struct drm_gem_object *obj;
+
+    (void)size;
+    (void)flags;
+
+    if (!dev || !file_priv || !vma) return NULL;
+
+    /* Look up the GEM object by its mmap offset. */
+    obj = drm_gem_object_lookup_by_offset(file_priv, (uint64_t)offset);
+    if (!obj || !obj->backing) return NULL;
+
+    /* Store GEM object in VMA for lifetime tracking.
+     * process_munmap will call drm_gem_object_put when the
+     * mapping is torn down. */
+    vma->vm_private_data = obj;
+
+    /* Identity-mapped physical memory: return the backing pointer.
+     * The syscall mmap layer handles PTE creation using this pointer. */
+    return obj->backing;
+}
+
+/* ------------------------------------------------------------------ */
 /* DRM open / release callbacks for devtmpfs                           */
 /* ------------------------------------------------------------------ */
 
@@ -425,10 +523,13 @@ void *drm_dev_mmap(void *file, size_t offset, size_t size, int flags)
  */
 void drm_vfs_open_cb(void *parent, const char *name, void *node_ptr)
 {
+    struct drm_device *dev;
+
     (void)parent;
     (void)name;
 
-    if (!drm_singleton) { return; }
+    dev = drm_get_singleton();
+    if (!dev) return;
 
     vfs_node_t node = (vfs_node_t)node_ptr;
     if (!node) { return; }
@@ -437,7 +538,7 @@ void drm_vfs_open_cb(void *parent, const char *name, void *node_ptr)
     if (!file) { return; }
 
     memset(file, 0, sizeof(*file));
-    int ret = drm_open(drm_singleton, file);
+    int ret = drm_open(dev, file);
     if (ret != 0) {
         free(file);
         return;
@@ -495,7 +596,7 @@ int drm_init(void)
         return ret;
     }
 
-    drm_singleton = dev;
+    drm_device_list_add(dev);
 
     /* Register DRM class once (shared by all DRM devices) */
     if (!drm_class_registered) {

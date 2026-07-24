@@ -13,19 +13,31 @@
 
 #include <fs/vfs.h>
 
+/* Forward declaration for callback signatures. */
+typedef struct vfs_node *vfs_node_t;
+struct vm_area;
+
 /* Optional device callbacks attached to a tmpfs node. */
 typedef size_t (*tmpfs_dev_read_t)(void *ctx, void *addr, size_t offset, size_t size);
 typedef size_t (*tmpfs_dev_write_t)(void *ctx, const void *addr, size_t offset, size_t size);
 typedef int (*tmpfs_dev_poll_t)(void *ctx, size_t events);
 typedef int (*tmpfs_dev_ioctl_t)(void *ctx, size_t req, void *arg);
+typedef int  (*tmpfs_dev_open_t)(vfs_node_t node, uint64_t flags, void **private_data);
+typedef void (*tmpfs_dev_release_t)(vfs_node_t node, void *private_data);
+typedef void *(*tmpfs_dev_mmap_t)(void *ctx, void *private_data,
+                                  size_t offset, size_t size, int flags,
+                                  struct vm_area *vma);
 
 /* Device operations used to turn a tmpfs node into a device-backed file. */
 typedef struct {
-        tmpfs_dev_read_t  read;
-        tmpfs_dev_write_t write;
-        tmpfs_dev_poll_t  poll;
-        tmpfs_dev_ioctl_t ioctl;
-        void             *ctx;
+        tmpfs_dev_read_t    read;
+        tmpfs_dev_write_t   write;
+        tmpfs_dev_poll_t    poll;
+        tmpfs_dev_ioctl_t   ioctl;
+        tmpfs_dev_open_t    open;    /* per-open-instance allocation */
+        tmpfs_dev_release_t release; /* per-open-instance teardown */
+        tmpfs_dev_mmap_t    mmap;    /* per-open-instance mmap (GEM, etc.) */
+        void               *ctx;
 } tmpfs_device_ops_t;
 
 enum tmpfs_type {

@@ -16,6 +16,7 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
+#include <mem/alloc.h>
 
 /* Forward declarations for all ioctl handler functions. */
 
@@ -250,79 +251,145 @@ static const struct drm_ioctl_desc drm_core_ioctls[] = {
     {DRM_IOCTL_MODE_GETFB2,            drm_mode_getfb2_ioctl,            DRM_AUTH             },
 };
 
-int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *data, struct drm_file *file_priv)
+/* ------------------------------------------------------------------ */
+/* ioctl descriptor lookup — full command match                        */
+/* ------------------------------------------------------------------ */
+
+static const struct drm_ioctl_desc *find_ioctl_desc(unsigned int cmd,
+                                                    const struct drm_ioctl_desc *table,
+                                                    int count)
 {
-    const struct drm_ioctl_desc *descs;
-    int                          num_descs;
-    int                          i;
+    for (int i = 0; i < count; i++) {
+        if (table[i].cmd == cmd) return &table[i];
+    }
+    return NULL;
+}
+
+/* ------------------------------------------------------------------ */
+/* drm_ioctl — validated dispatch                                     */
+/* ------------------------------------------------------------------ */
+
+int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data,
+              struct drm_file *file_priv)
+{
+    const struct drm_ioctl_desc *desc = NULL;
+    void                        *kdata = NULL;
+    unsigned int                 dir;
+    unsigned int                 size;
     int                          ret;
-    unsigned int                 nr;
 
-    if (!dev || !dev->driver || !file_priv) { return -EINVAL; }
+    if (!dev || !dev->driver || !file_priv) return -EINVAL;
 
-    nr = _IOC_NR(cmd);
+    /* 1. Validate DRM magic type byte. */
+    if (_IOC_TYPE(cmd) != DRM_IOCTL_BASE) return -ENOTTY;
 
-    /* 1. Check driver-specific ioctls first. */
-    descs     = dev->driver->ioctls;
-    num_descs = dev->driver->num_ioctls;
-    if (descs && num_descs > 0) {
-        for (i = 0; i < num_descs; i++) {
-            if (_IOC_NR(descs[i].cmd) == nr) {
-                ret = drm_ioctl_permit(descs[i].flags, file_priv);
-                if (ret) { return ret; }
-                if (descs[i].func) { return descs[i].func(dev, data, file_priv); }
-                return -ENOTTY;
-            }
+    /* 2. Validate direction bits. */
+    dir = _IOC_DIR(cmd);
+    if (dir & ~(_IOC_READ | _IOC_WRITE)) return -EINVAL;
+
+    /* 3. Validate size is reasonable (max 16 KB). */
+    size = _IOC_SIZE(cmd);
+    if (size > 0x4000) return -EINVAL;
+
+    /* 4. Allocate kernel buffer and copy from user if needed. */
+    if (size > 0) {
+        kdata = malloc(size);
+        if (!kdata) return -ENOMEM;
+        if (dir & _IOC_WRITE) {
+            /* copy_from_user: kernel and user share the same address
+             * space in this freestanding kernel, but we still make a
+             * private copy so the handler cannot scribble on user
+             * memory. */
+            memcpy(kdata, user_data, size);
+        } else {
+            memset(kdata, 0, size);
         }
     }
 
-    /* 2. Driver has dumb/PRIME callbacks — dispatch them via the
-     *    generic GEM helpers when the core table has NULL func. */
-    if (nr == _IOC_NR(DRM_IOCTL_MODE_CREATE_DUMB)) {
-        ret = drm_ioctl_permit(DRM_AUTH, file_priv);
-        if (ret) return ret;
-        return drm_gem_dumb_create(file_priv, dev, (struct drm_mode_create_dumb *)data);
-    }
-    if (nr == _IOC_NR(DRM_IOCTL_MODE_MAP_DUMB)) {
-        struct drm_mode_map_dumb *args = (struct drm_mode_map_dumb *)data;
-        ret                            = drm_ioctl_permit(DRM_AUTH, file_priv);
-        if (ret) return ret;
-        return drm_gem_dumb_map_offset(file_priv, dev, args->handle, &args->offset);
-    }
-    if (nr == _IOC_NR(DRM_IOCTL_MODE_DESTROY_DUMB)) {
-        struct drm_mode_destroy_dumb *args = (struct drm_mode_destroy_dumb *)data;
-        ret                                = drm_ioctl_permit(DRM_AUTH, file_priv);
-        if (ret) return ret;
-        return drm_gem_dumb_destroy(file_priv, dev, args->handle);
+    /* 5. Search driver ioctls (full cmd match). */
+    if (dev->driver->ioctls && dev->driver->num_ioctls > 0) {
+        desc = find_ioctl_desc(cmd, dev->driver->ioctls,
+                               dev->driver->num_ioctls);
     }
 
-    /* PRIME dispatch */
-    if (nr == _IOC_NR(DRM_IOCTL_PRIME_HANDLE_TO_FD)) {
-        struct drm_prime_handle *args = (struct drm_prime_handle *)data;
-        ret                           = drm_ioctl_permit(DRM_AUTH, file_priv);
-        if (ret) return ret;
-        return drm_gem_prime_handle_to_fd(dev, file_priv, args->handle, args->flags, &args->fd);
-    }
-    if (nr == _IOC_NR(DRM_IOCTL_PRIME_FD_TO_HANDLE)) {
-        struct drm_prime_handle *args = (struct drm_prime_handle *)data;
-        ret                           = drm_ioctl_permit(DRM_AUTH, file_priv);
-        if (ret) return ret;
-        return drm_gem_prime_fd_to_handle(dev, file_priv, args->fd, &args->handle);
-    }
-
-    /* 3. Fall back to core ioctls. */
-    descs     = drm_core_ioctls;
-    num_descs = sizeof(drm_core_ioctls) / sizeof(drm_core_ioctls[0]);
-    for (i = 0; i < num_descs; i++) {
-        if (_IOC_NR(descs[i].cmd) == nr) {
-            ret = drm_ioctl_permit(descs[i].flags, file_priv);
-            if (ret) { return ret; }
-            if (descs[i].func) { return descs[i].func(dev, data, file_priv); }
-            return 0; /* NULL func = success (e.g. GET_UNIQUE for now) */
+    /* 6. Dumb-buffer / PRIME fallback dispatch.
+     *    These are handled separately because the core table has NULL
+     *    func entries and we dispatch through the driver callbacks. */
+    if (!desc) {
+        if (cmd == DRM_IOCTL_MODE_CREATE_DUMB) {
+            ret = drm_ioctl_permit(DRM_AUTH, file_priv);
+            if (ret) goto out;
+            ret = drm_gem_dumb_create(file_priv, dev,
+                                      (struct drm_mode_create_dumb *)kdata);
+            goto copy_out;
+        }
+        if (cmd == DRM_IOCTL_MODE_MAP_DUMB) {
+            struct drm_mode_map_dumb *args = (struct drm_mode_map_dumb *)kdata;
+            ret = drm_ioctl_permit(DRM_AUTH, file_priv);
+            if (ret) goto out;
+            ret = drm_gem_dumb_map_offset(file_priv, dev,
+                                          args->handle, &args->offset);
+            goto copy_out;
+        }
+        if (cmd == DRM_IOCTL_MODE_DESTROY_DUMB) {
+            struct drm_mode_destroy_dumb *args =
+                (struct drm_mode_destroy_dumb *)kdata;
+            ret = drm_ioctl_permit(DRM_AUTH, file_priv);
+            if (ret) goto out;
+            ret = drm_gem_dumb_destroy(file_priv, dev, args->handle);
+            goto out;
+        }
+        if (cmd == DRM_IOCTL_PRIME_HANDLE_TO_FD) {
+            struct drm_prime_handle *args = (struct drm_prime_handle *)kdata;
+            ret = drm_ioctl_permit(DRM_AUTH, file_priv);
+            if (ret) goto out;
+            ret = drm_gem_prime_handle_to_fd(dev, file_priv,
+                                             args->handle, args->flags,
+                                             &args->fd);
+            goto copy_out;
+        }
+        if (cmd == DRM_IOCTL_PRIME_FD_TO_HANDLE) {
+            struct drm_prime_handle *args = (struct drm_prime_handle *)kdata;
+            ret = drm_ioctl_permit(DRM_AUTH, file_priv);
+            if (ret) goto out;
+            ret = drm_gem_prime_fd_to_handle(dev, file_priv,
+                                             args->fd, &args->handle);
+            goto copy_out;
         }
     }
 
-    return -ENOTTY;
+    /* 7. Fall back to core ioctls. */
+    if (!desc) {
+        desc = find_ioctl_desc(cmd, drm_core_ioctls,
+                               sizeof(drm_core_ioctls) /
+                               sizeof(drm_core_ioctls[0]));
+    }
+
+    if (!desc) {
+        ret = -ENOTTY;
+        goto out;
+    }
+
+    /* 8. Permission check + dispatch. */
+    ret = drm_ioctl_permit(desc->flags, file_priv);
+    if (ret) goto out;
+
+    if (!desc->func) {
+        /* NULL func = no-op success (e.g. GET_UNIQUE stub). */
+        ret = 0;
+        goto out;
+    }
+
+    ret = desc->func(dev, kdata, file_priv);
+
+copy_out:
+    /* 9. Copy results back to user if the ioctl reads data. */
+    if (ret == 0 && kdata && (dir & _IOC_READ))
+        memcpy(user_data, kdata, size);
+
+out:
+    free(kdata);
+    return ret;
 }
 
 /* ------------------------------------------------------------------ */

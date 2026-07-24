@@ -124,6 +124,7 @@ void kernel_entry(void)
     init_fpu();     // Floating-Point Unit / Streaming SIMD Extensions
     init_sse();     // Streaming SIMD Extensions / 2
     init_serial();  // Standard RS-232 Serial Port
+    cpu_enable_nx();
                     //
     init_frame();   // Physical Memory Frame
     page_init();    // Standard 4-Level Page Table
@@ -152,7 +153,7 @@ void kernel_entry(void)
     plogk("SMBIOS %d.%d.0 present.\n", smbios_major_version(), smbios_minor_version());
     plogk("cpu: Vendor: %s, Model: %s\n", get_vendor_name(), get_model_name());
     plogk("cpu: phy/virt = %u/%u Bits.\n", get_cpu_phys_bits(), get_cpu_virt_bits());
-    plogk("cpu: NX (Execute Disable) protection = %s\n", cpu_supports_nx() ? "active" : "passive");
+    plogk("cpu: NX (Execute Disable) protection = %s\n", cpu_nx_enabled() ? "active" : "passive");
     plogk("page: kernel_page_dir = %p\n", get_kernel_pagedir());
     plogk("page: kernel_page_table = %p\n", phys_to_virt(get_cr3()));
     plogk("heap: Range: %p - %p (%llu KiB)\n", KERNEL_HEAP_START, KERNEL_HEAP_START + KERNEL_HEAP_SIZE, KERNEL_HEAP_SIZE / 1024);

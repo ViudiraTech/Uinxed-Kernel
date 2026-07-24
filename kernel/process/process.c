@@ -152,7 +152,7 @@ static int clone_parent_mappings(process_t *child, const process_t *parent)
     return 0;
 }
 
-static vm_area_t *vm_area_alloc(uintptr_t start, uintptr_t end, vm_flags_t flags)
+vm_area_t *vm_area_alloc(uintptr_t start, uintptr_t end, vm_flags_t flags)
 {
     vm_area_t *vma = malloc(sizeof(vm_area_t));
     if (!vma) return NULL;
@@ -164,7 +164,7 @@ static vm_area_t *vm_area_alloc(uintptr_t start, uintptr_t end, vm_flags_t flags
     return vma;
 }
 
-static int vm_area_insert(process_t *proc, vm_area_t *vma)
+int vm_area_insert(process_t *proc, vm_area_t *vma)
 {
     spin_lock(&proc->mmap_lock);
     if (!proc->mmap_list) {
@@ -232,6 +232,10 @@ void process_file_put(process_file_t *file)
     file->refcount = 0;
     spin_unlock(&file->lock);
 
+    /* Release per-open-instance private_data. */
+    if (file->private_data)
+        callbackof(file->node, file_release)(file->node, file->private_data);
+
     vfs_close(file->node);
     free(file);
 }
@@ -286,6 +290,19 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
     file->lock.rflags = 0;
     if (flags & O_APPEND) file->offset = node->size;
 
+    /* Allocate per-open-instance private_data via the FS callback. */
+    {
+        void *priv = NULL;
+        int   ret  = callbackof(node, file_open)(node, flags, &priv);
+        if (ret == 0) {
+            file->private_data = priv;
+        } else if (ret != -ENOSYS) {
+            /* Real error from the callback — abort. */
+            free(file);
+            return ret;
+        }
+    }
+
     spin_lock(&proc->fd_lock);
     for (int i = 0; i < PROCESS_MAX_FD; i++) {
         if (!proc->fds[i]) {
@@ -296,6 +313,9 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
     }
     spin_unlock(&proc->fd_lock);
 
+    /* Failed to find a free FD slot — release private_data. */
+    if (file->private_data)
+        callbackof(node, file_release)(node, file->private_data);
     free(file);
     return -EMFILE;
 }
@@ -826,7 +846,17 @@ process_t *process_fork(void)
             spin_unlock(&scheduler.lock);
             return NULL;
         }
-        copy->type = vma->type;
+        copy->type           = vma->type;
+        copy->vm_file        = vma->vm_file;
+        copy->vm_pgoff       = vma->vm_pgoff;
+        copy->vm_private_data = vma->vm_private_data;
+
+        /* Bump the file reference if this VMA is file-backed.
+         * The parent already holds a reference; the child needs
+         * its own so the file isn't freed while the child lives. */
+        if (copy->vm_file)
+            copy->vm_file->refcount++;
+
         vm_area_insert(child, copy);
     }
 
@@ -896,20 +926,31 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
 
 int process_munmap(process_t *proc, uintptr_t addr, size_t length)
 {
-    (void)length;
-    if (!proc) return 1;
+    vm_area_t *found = NULL;
+
+    if (!proc || !length) return -EINVAL;
+
+    /* Remove the VMA covering @addr from the list. */
     spin_lock(&proc->mmap_lock);
-    vm_area_t **prev = &proc->mmap_list;
-    while (*prev) {
-        vm_area_t *vma = *prev;
-        if (vma->start == addr) {
-            *prev = vma->next;
-            spin_unlock(&proc->mmap_lock);
-            free(vma);
-            return 0;
+    {
+        vm_area_t **prev = &proc->mmap_list;
+        while (*prev) {
+            vm_area_t *vma = *prev;
+            if (vma->start == addr) {
+                *prev = vma->next;
+                found = vma;
+                break;
+            }
+            prev = &vma->next;
         }
-        prev = &vma->next;
     }
     spin_unlock(&proc->mmap_lock);
-    return 1;
+
+    if (!found) return -ENOENT;
+
+    /* Release file reference if this VMA is file-backed. */
+    if (found->vm_file) vfs_close(found->vm_file);
+
+    free(found);
+    return 0;
 }

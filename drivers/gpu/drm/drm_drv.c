@@ -8,9 +8,15 @@
  *
  */
 
+#ifndef container_of
+#    define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
+#endif
+
 #include <drivers/drm/drm_device.h>
 #include <drivers/drm/drm_hashtab.h>
 #include <drivers/drm/drm_print.h>
+#include <fs/devtmpfs.h>
+#include <fs/tmpfs.h>
 #include <kernel/device.h>
 #include <kernel/errno.h>
 #include <libs/glist/intrusive_list.h>
@@ -24,6 +30,56 @@
 /* Forward: DRM class (registered once by drm_init) */
 extern struct class drm_class;
 extern int drm_class_registered;
+
+/* ------------------------------------------------------------------ */
+/* Minor allocator — per-type bitmaps for indices 0..DRM_MAX_MINOR-1  */
+/* ------------------------------------------------------------------ */
+
+static uint64_t drm_minor_bitmap_primary;
+static uint64_t drm_minor_bitmap_render;
+static uint64_t drm_minor_bitmap_accel;
+static spinlock_t drm_minor_lock = {.lock = 0, .rflags = 0};
+
+int drm_minor_alloc(int type)
+{
+    uint64_t *bm;
+
+    switch (type) {
+        case DRM_MINOR_PRIMARY : bm = &drm_minor_bitmap_primary; break;
+        case DRM_MINOR_RENDER :  bm = &drm_minor_bitmap_render; break;
+        case DRM_MINOR_ACCEL :   bm = &drm_minor_bitmap_accel; break;
+        default : return -EINVAL;
+    }
+
+    spin_lock(&drm_minor_lock);
+    for (int i = 0; i < DRM_MAX_MINOR; i++) {
+        if (!(*bm & (1ULL << i))) {
+            *bm |= (1ULL << i);
+            spin_unlock(&drm_minor_lock);
+            return i;
+        }
+    }
+    spin_unlock(&drm_minor_lock);
+    return -ENOSPC;
+}
+
+void drm_minor_free(int type, int index)
+{
+    uint64_t *bm;
+
+    if (index < 0 || index >= DRM_MAX_MINOR) return;
+
+    switch (type) {
+        case DRM_MINOR_PRIMARY : bm = &drm_minor_bitmap_primary; break;
+        case DRM_MINOR_RENDER :  bm = &drm_minor_bitmap_render; break;
+        case DRM_MINOR_ACCEL :   bm = &drm_minor_bitmap_accel; break;
+        default : return;
+    }
+
+    spin_lock(&drm_minor_lock);
+    *bm &= ~(1ULL << index);
+    spin_unlock(&drm_minor_lock);
+}
 
 /* ------------------------------------------------------------------ */
 /* drm_master — full definition (forward-declared in drm_device.h)    */
@@ -64,6 +120,7 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
     dev->driver                 = driver;
     dev->num_crtc               = 0;
     dev->vblank_disable_allowed = true;
+    dev->refcount               = 1; /* caller's reference */
 
     /* All spinlocks are zero-initialized by memset above (unlocked state). */
 
@@ -79,36 +136,65 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
     drm_idr_init(&dev->mode_config.object_idr);
     drm_idr_init(&dev->mode_config.fb_idr);
 
-    /* Allocate primary minor. */
+    /* Allocate primary minor (dynamic index). */
+    int primary_idx = drm_minor_alloc(DRM_MINOR_PRIMARY);
+    if (primary_idx < 0) {
+        drm_idr_destroy(&dev->mode_config.fb_idr);
+        drm_idr_destroy(&dev->mode_config.object_idr);
+        free(dev);
+        return NULL;
+    }
     minor = malloc(sizeof(*minor));
     if (!minor) {
+        drm_minor_free(DRM_MINOR_PRIMARY, primary_idx);
         drm_idr_destroy(&dev->mode_config.fb_idr);
         drm_idr_destroy(&dev->mode_config.object_idr);
         free(dev);
         return NULL;
     }
     memset(minor, 0, sizeof(*minor));
-    minor->index            = 0;
-    minor->type             = 0;
+    minor->index            = primary_idx;
+    minor->type             = DRM_MINOR_PRIMARY;
     minor->dev              = dev;
-    minor->device_node_name = "card0";
-    dev->primary            = minor;
+    {
+        char name[32];
+        snprintf(name, sizeof(name), "card%d", primary_idx);
+        minor->device_node_name = strdup(name);
+    }
+    dev->primary = minor;
 
-    /* Allocate render minor. */
+    /* Allocate render minor (dynamic index). */
+    int render_idx = drm_minor_alloc(DRM_MINOR_RENDER);
+    if (render_idx < 0) {
+        free(dev->primary->device_node_name);
+        free(dev->primary);
+        drm_minor_free(DRM_MINOR_PRIMARY, primary_idx);
+        drm_idr_destroy(&dev->mode_config.fb_idr);
+        drm_idr_destroy(&dev->mode_config.object_idr);
+        free(dev);
+        return NULL;
+    }
     minor = malloc(sizeof(*minor));
     if (!minor) {
+        drm_minor_free(DRM_MINOR_RENDER, render_idx);
+        free(dev->primary->device_node_name);
         free(dev->primary);
+        drm_minor_free(DRM_MINOR_PRIMARY, primary_idx);
         drm_idr_destroy(&dev->mode_config.fb_idr);
         drm_idr_destroy(&dev->mode_config.object_idr);
         free(dev);
         return NULL;
     }
     memset(minor, 0, sizeof(*minor));
-    minor->index            = 0;
-    minor->type             = 1;
+    minor->index            = render_idx;
+    minor->type             = DRM_MINOR_RENDER;
     minor->dev              = dev;
-    minor->device_node_name = "renderD128";
-    dev->render             = minor;
+    {
+        char name[32];
+        snprintf(name, sizeof(name), "renderD%d", 128 + render_idx);
+        minor->device_node_name = strdup(name);
+    }
+    dev->render = minor;
 
     return dev;
 }
@@ -119,6 +205,7 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
 
 int drm_dev_register(struct drm_device *dev, uint64_t flags)
 {
+    (void)flags;
     if (!dev) { return -EINVAL; }
 
     dev->mode_config.min_width  = 0;
@@ -126,7 +213,7 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
     dev->mode_config.max_width  = 8192;
     dev->mode_config.max_height = 8192;
 
-    if (flags & DRIVER_MODESET) {
+    if (dev->driver && (dev->driver->driver_features & DRIVER_MODESET)) {
         dev->mode_config.cursor_width               = 64;
         dev->mode_config.cursor_height              = 64;
         dev->mode_config.async_page_flip            = false;
@@ -142,6 +229,42 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
     if (drm_class_registered && dev->primary) {
         struct device *ddev = device_create(&drm_class, NULL, MKDEV(226, dev->primary->index), dev, "card%d", dev->primary->index);
         if (ddev) { DRM_INFO("Created /sys/class/drm/%s\n", kobject_name(&ddev->kobj)); }
+    }
+
+    /* Register /dev/dri/cardN via devtmpfs. */
+    if (dev->primary) {
+        char                 path[64];
+        tmpfs_device_ops_t   drm_ops;
+
+        memset(&drm_ops, 0, sizeof(drm_ops));
+        drm_ops.ctx = dev;
+
+        snprintf(path, sizeof(path), "/dev/dri/%s", dev->primary->device_node_name);
+        int ret = devtmpfs_register_char_device(path, MKDEV(226, dev->primary->index),
+                                                dev->primary->index, file_stream, &drm_ops);
+        if (ret) {
+            DRM_ERROR("Failed to register %s: %d\n", path, ret);
+        } else {
+            dev->dev_node_card0 = (void *)(uintptr_t)1; /* marker */
+        }
+    }
+
+    /* Register /dev/dri/renderDN if the driver supports rendering. */
+    if (dev->render && (dev->driver->driver_features & DRIVER_RENDER)) {
+        char               path[64];
+        tmpfs_device_ops_t render_ops;
+
+        memset(&render_ops, 0, sizeof(render_ops));
+        render_ops.ctx = dev;
+
+        snprintf(path, sizeof(path), "/dev/dri/%s", dev->render->device_node_name);
+        int ret = devtmpfs_register_char_device(path, MKDEV(226, dev->render->index),
+                                                dev->render->index, file_stream, &render_ops);
+        if (ret) {
+            DRM_ERROR("Failed to register %s: %d\n", path, ret);
+        } else {
+            dev->dev_node_renderD_unused = (void *)(uintptr_t)1; /* marker */
+        }
     }
 
     return 0;
@@ -163,30 +286,74 @@ void drm_dev_unregister(struct drm_device *dev)
 
 struct drm_device *drm_dev_get(struct drm_device *dev)
 {
+    if (!dev) return NULL;
+
+    spin_lock(&dev->ref_lock);
+    if (dev->unplugged) {
+        spin_unlock(&dev->ref_lock);
+        return NULL;
+    }
+    dev->refcount++;
+    spin_unlock(&dev->ref_lock);
     return dev;
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_dev_put — release a reference; free if no open files remain     */
+/* drm_dev_put — release a reference; free when refcount hits zero     */
 /* ------------------------------------------------------------------ */
 
 void drm_dev_put(struct drm_device *dev)
 {
-    if (!dev) { return; }
+    int new_ref;
 
-    if (dev->open_count == 0) {
+    if (!dev) return;
+
+    spin_lock(&dev->ref_lock);
+    new_ref = --dev->refcount;
+    spin_unlock(&dev->ref_lock);
+
+    if (new_ref == 0) {
+        /* Remove from global device list (defined in drm_init.c). */
+        extern void drm_device_list_remove(struct drm_device *d);
+        drm_device_list_remove(dev);
+
+        /* Call driver release hook. */
+        if (dev->driver && dev->driver->release)
+            dev->driver->release(dev);
+
+        /* Free minors and their indices. */
         if (dev->primary) {
+            drm_minor_free(dev->primary->type, dev->primary->index);
+            free(dev->primary->device_node_name);
             free(dev->primary);
             dev->primary = NULL;
         }
         if (dev->render) {
+            drm_minor_free(dev->render->type, dev->render->index);
+            free(dev->render->device_node_name);
             free(dev->render);
             dev->render = NULL;
         }
+
         drm_idr_destroy(&dev->mode_config.fb_idr);
         drm_idr_destroy(&dev->mode_config.object_idr);
+        free(dev->unique);
+        free(dev->busid_str);
         free(dev);
     }
+}
+
+/* ------------------------------------------------------------------ */
+/* drm_dev_unplug — mark device as removed, prevent new opens          */
+/* ------------------------------------------------------------------ */
+
+void drm_dev_unplug(struct drm_device *dev)
+{
+    if (!dev) return;
+
+    spin_lock(&dev->ref_lock);
+    dev->unplugged = 1;
+    spin_unlock(&dev->ref_lock);
 }
 
 /* ------------------------------------------------------------------ */
@@ -199,6 +366,11 @@ int drm_open(struct drm_device *dev, struct drm_file *file)
 
     if (!dev || !file) { return -EINVAL; }
 
+    /* Acquire a reference to the device for the lifetime of this
+     * open file. This prevents the device from being freed while
+     * the file is still open. */
+    if (!drm_dev_get(dev)) return -ENODEV;
+
     /* Zero-initialize the pre-allocated file struct. */
     memset(file, 0, sizeof(*file));
 
@@ -206,11 +378,10 @@ int drm_open(struct drm_device *dev, struct drm_file *file)
     ilist_init(&file->fbs_head);
     ilist_init(&file->object_list);
 
-    /* Spinlocks zero-initialized by memset above. */
-
     ret = drm_ht_create(&file->magiclist, 4);
     if (ret) {
         drm_idr_destroy(&file->object_idr);
+        drm_dev_put(dev);
         return ret;
     }
 
@@ -236,6 +407,7 @@ int drm_open(struct drm_device *dev, struct drm_file *file)
             spin_unlock(&dev->filelist_lock);
             drm_ht_destroy(&file->magiclist);
             drm_idr_destroy(&file->object_idr);
+            drm_dev_put(dev);
             return ret;
         }
     }
@@ -268,7 +440,21 @@ void drm_release(struct drm_file *file)
         ilist_remove(&file->head);
     }
 
-    drm_ht_destroy(&file->magiclist);
-    drm_idr_destroy(&file->object_idr);
-    free(file);
+    /* Release any GEM handles still held by this file. */
+    {
+        ilist_node_t *node = file->object_list.next;
+        while (node && node != &file->object_list) {
+            struct drm_gem_object *obj =
+                container_of(node, struct drm_gem_object, handle_list_node);
+            node = node->next;
+            ilist_remove(&obj->handle_list_node);
+            obj->handle_count--;
+            drm_gem_object_put(obj);
+        }
+    }
+
+    drm_file_free(file);
+
+    /* Release the device reference acquired in drm_open. */
+    if (dev) drm_dev_put(dev);
 }

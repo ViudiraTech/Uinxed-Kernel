@@ -677,6 +677,12 @@ struct drm_driver {
 /* File handle                                                        */
 /* ------------------------------------------------------------------ */
 
+/* Event queue entry. */
+struct drm_event_node {
+    struct drm_event      *event;
+    struct drm_event_node *next;
+};
+
 struct drm_file {
         bool authenticated;
         bool stereo3d_allowed_unused;
@@ -710,6 +716,12 @@ struct drm_file {
         /* client cap flags */
         uint32_t client_caps;
         uint32_t pad;
+
+        /* --- Event queue (vblank, page-flip, etc.) --- */
+        spinlock_t             event_lock;
+        struct drm_event_node *event_list_head;
+        struct drm_event_node *event_list_tail;
+        int                    event_space;  /* bytes of pending events */
 };
 
 /* ------------------------------------------------------------------ */
@@ -731,6 +743,10 @@ struct drm_device {
         int  open_count;
         int  unplugged;
         bool vblank_disable_allowed;
+
+        /* Proper reference counting (spinlock-protected). */
+        int        refcount;
+        spinlock_t ref_lock;
 
         void *pdev_unused; /* opaque bus device */
         void *busid_str;
@@ -769,6 +785,18 @@ struct drm_minor {
 };
 
 /* ------------------------------------------------------------------ */
+/* Minor allocator                                                     */
+/* ------------------------------------------------------------------ */
+
+#define DRM_MINOR_PRIMARY 0
+#define DRM_MINOR_RENDER  1
+#define DRM_MINOR_ACCEL   2
+#define DRM_MAX_MINOR     64
+
+int  drm_minor_alloc(int type);
+void drm_minor_free(int type, int index);
+
+/* ------------------------------------------------------------------ */
 /* Generic / lifecycle                                                */
 /* ------------------------------------------------------------------ */
 
@@ -790,6 +818,11 @@ int drm_open(struct drm_device *dev, struct drm_file *file);
 
 /* Close a /dev/dri file (called from VFS release). */
 void drm_release(struct drm_file *file);
+
+/* Event delivery and consumption. */
+int          drm_send_event(struct drm_device *dev, struct drm_pending_vblank_event *e);
+int          drm_read(struct drm_file *file_priv, char *buf, size_t count, size_t *offset);
+unsigned int drm_poll(struct drm_file *file_priv, unsigned int events);
 
 /* ioctl dispatch (called from VFS ioctl wrapper). */
 int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *data, struct drm_file *file_priv);

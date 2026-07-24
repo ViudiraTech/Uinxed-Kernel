@@ -9,7 +9,11 @@
  */
 
 #include <arch/cpuid.h>
+#include <chipset/common.h>
 #include <libs/std/string.h>
+
+#define MSR_IA32_EFER 0xC0000080
+#define EFER_NXE      (1ULL << 11)
 
 /* Get CPUID */
 void cpuid(uint32_t code, uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t *edx)
@@ -67,6 +71,18 @@ int cpu_supports_nx(void)
     uint32_t eax, ebx, ecx, edx;
     cpuid(0x80000001, &eax, &ebx, &ecx, &edx);
     return ((edx & (1 << 20)) != 0);
+}
+
+int cpu_enable_nx(void)
+{
+    if (!cpu_supports_nx()) return 0;
+    wrmsr(MSR_IA32_EFER, rdmsr(MSR_IA32_EFER) | EFER_NXE);
+    return (rdmsr(MSR_IA32_EFER) & EFER_NXE) != 0;
+}
+
+int cpu_nx_enabled(void)
+{
+    return cpu_supports_nx() && (rdmsr(MSR_IA32_EFER) & EFER_NXE) != 0;
 }
 
 /* Check CPU supports 64bit */

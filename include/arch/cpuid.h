@@ -41,6 +41,12 @@ uint32_t get_cpu_virt_bits(void);
 /* Check CPU supports NX/XD */
 int cpu_supports_nx(void);
 
+/* Enable NX page-table entries on the current logical CPU */
+int cpu_enable_nx(void);
+
+/* Check whether NX is enabled on the current logical CPU */
+int cpu_nx_enabled(void);
+
 /* Check CPU supports 64bit */
 int cpu_support_64bit(void);
 
