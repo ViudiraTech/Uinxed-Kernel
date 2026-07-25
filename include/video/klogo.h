@@ -34,4 +34,7 @@ void video_redraw_logo(void);
 /* Clean the kernel logo */
 void video_clear_logo(void);
 
+/* Show boot logo (determines CPU count, checks TTY type internally) */
+void video_show_boot_logo(void);
+
 #endif // INCLUDE_KLOGO_H_

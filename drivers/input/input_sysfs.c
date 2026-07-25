@@ -102,6 +102,7 @@ static const struct device_attribute *input_evdev_attributes[] = {
 
 void input_sysfs_init(void)
 {
+#if CONFIG_INPUT_EVDEV
     int result;
 
     if (input_class_ready) return;
@@ -112,6 +113,7 @@ void input_sysfs_init(void)
     }
     input_class_ready = true;
     for (int minor = 0; minor < EVDEV_MAX_DEVICES; minor++) input_sysfs_register_evdev(evdev_find_by_minor(minor));
+#endif
 }
 
 int input_sysfs_register_evdev(evdev_t *evdev)

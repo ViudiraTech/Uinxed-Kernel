@@ -28,7 +28,9 @@
 /*  Constants                                                           */
 /* ------------------------------------------------------------------ */
 
-#define EPOLL_MAX_FDS       1024
+#ifndef EPOLL_MAX_FDS
+#    define EPOLL_MAX_FDS 1024
+#endif
 #define EPOLL_TICKS_PER_SEC 100 /* scheduler tick frequency */
 
 /* poll event bits (matching pipe.c) */

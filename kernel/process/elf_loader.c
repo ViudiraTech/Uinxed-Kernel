@@ -2,8 +2,8 @@
 #include <kernel/elf.h>
 #include <kernel/elf_loader.h>
 #include <kernel/printk.h>
-#include <libs/std/string.h>
 #include <libs/std/stdlib.h>
+#include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
@@ -73,8 +73,7 @@ int elf_loader_parse_elf_info(const uint8_t *data, size_t size, elf_load_info_t 
     return 0;
 }
 
-static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr, const uint8_t *data, size_t elf_size, uintptr_t load_bias,
-                             int set_brk)
+static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr, const uint8_t *data, size_t elf_size, uintptr_t load_bias, int set_brk)
 {
     const Elf64_Phdr *phdr        = (const Elf64_Phdr *)(data + ehdr->e_phoff);
     uintptr_t         highest_end = 0;
@@ -84,8 +83,7 @@ static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr, const uint
         if (phdr[i].filesz > phdr[i].memsz) return 1;
         if (phdr[i].offset > elf_size || phdr[i].filesz > elf_size - phdr[i].offset) return 1;
         if (phdr[i].align > 1
-            && ((phdr[i].align & (phdr[i].align - 1))
-                || (phdr[i].vaddr & (phdr[i].align - 1)) != (phdr[i].offset & (phdr[i].align - 1))))
+            && ((phdr[i].align & (phdr[i].align - 1)) || (phdr[i].vaddr & (phdr[i].align - 1)) != (phdr[i].offset & (phdr[i].align - 1))))
             return 1;
         uintptr_t sum = phdr[i].vaddr + load_bias;
         if (phdr[i].memsz > 0 && sum > UINT64_MAX - phdr[i].memsz) return 1;
@@ -197,8 +195,8 @@ static uintptr_t find_free_range(process_t *proc, uintptr_t start, uintptr_t end
 static uintptr_t compute_load_bias(const Elf64_Ehdr *ehdr, const uint8_t *data, uintptr_t chosen_base)
 {
     if (ehdr->e_type == ET_DYN) {
-        const Elf64_Phdr *phdr = (const Elf64_Phdr *)(data + ehdr->e_phoff);
-        uintptr_t lowest = UINT64_MAX;
+        const Elf64_Phdr *phdr   = (const Elf64_Phdr *)(data + ehdr->e_phoff);
+        uintptr_t         lowest = UINT64_MAX;
         for (int i = 0; i < ehdr->e_phnum; i++) {
             if (phdr[i].type == PT_LOAD) {
                 uintptr_t start = ALIGN_DOWN(phdr[i].vaddr, PAGE_4K_SIZE);
@@ -252,9 +250,9 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
         return -1;
     }
 
-    const Elf64_Phdr *iphdr = (const Elf64_Phdr *)(elf_data + iehdr->e_phoff);
-    uintptr_t image_start = UINT64_MAX;
-    uintptr_t image_end   = 0;
+    const Elf64_Phdr *iphdr       = (const Elf64_Phdr *)(elf_data + iehdr->e_phoff);
+    uintptr_t         image_start = UINT64_MAX;
+    uintptr_t         image_end   = 0;
     for (int i = 0; i < iehdr->e_phnum; i++) {
         if (iphdr[i].type != PT_LOAD) continue;
         uintptr_t start = ALIGN_DOWN(iphdr[i].vaddr, PAGE_4K_SIZE);
@@ -289,9 +287,7 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
             uintptr_t start = iphdr[i].vaddr + load_bias;
             if (entry >= start && entry < start + iphdr[i].memsz) valid_entry = 1;
         }
-        if (valid_entry) {
-            break;
-        }
+        if (valid_entry) { break; }
     }
     if (!valid_entry) {
         free(elf_data);
@@ -325,33 +321,33 @@ static size_t string_array_size(char *const arr[])
 static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t phnum, uint16_t phentsize, uintptr_t interp_base,
                                   uintptr_t main_entry, char *const argv[], char *const envp[])
 {
-    int    argc      = count_string_array(argv);
-    int    envc      = count_string_array(envp);
-    size_t argv_strs = string_array_size(argv);
-    size_t envp_strs = string_array_size(envp);
-    const char *execfn = argc > 0 ? argv[0] : proc->name;
+    int         argc      = count_string_array(argv);
+    int         envc      = count_string_array(envp);
+    size_t      argv_strs = string_array_size(argv);
+    size_t      envp_strs = string_array_size(envp);
+    const char *execfn    = argc > 0 ? argv[0] : proc->name;
 
-    const size_t aux_pairs = 16;
-    size_t vector_words = 1 + (size_t)argc + 1 + (size_t)envc + 1 + aux_pairs * 2;
-    size_t strings_size = argv_strs + envp_strs + strlen(execfn) + 1 + sizeof("x86_64") + 16;
-    size_t total_needed = ALIGN_UP(vector_words * sizeof(uint64_t) + strings_size + 16, 16);
-    uintptr_t base_rsp = ALIGN_DOWN(PROCESS_USER_STACK_TOP - total_needed, 16);
-    uintptr_t string_area = base_rsp + vector_words * sizeof(uint64_t);
-    uint64_t *vectors = calloc(vector_words, sizeof(uint64_t));
-    uint8_t *strings = calloc(1, strings_size);
+    const size_t aux_pairs    = 16;
+    size_t       vector_words = 1 + (size_t)argc + 1 + (size_t)envc + 1 + aux_pairs * 2;
+    size_t       strings_size = argv_strs + envp_strs + strlen(execfn) + 1 + sizeof("x86_64") + 16;
+    size_t       total_needed = ALIGN_UP(vector_words * sizeof(uint64_t) + strings_size + 16, 16);
+    uintptr_t    base_rsp     = ALIGN_DOWN(PROCESS_USER_STACK_TOP - total_needed, 16);
+    uintptr_t    string_area  = base_rsp + vector_words * sizeof(uint64_t);
+    uint64_t    *vectors      = calloc(vector_words, sizeof(uint64_t));
+    uint8_t     *strings      = calloc(1, strings_size);
     if (!vectors || !strings) {
         free(vectors);
         free(strings);
         return 0;
     }
 
-    uint8_t *sp = strings;
-    size_t name_len = strlen(execfn) + 1;
+    uint8_t *sp       = strings;
+    size_t   name_len = strlen(execfn) + 1;
     memcpy(sp, execfn, name_len);
     uintptr_t execfn_addr = string_area;
     sp += name_len;
 
-    size_t n = 0;
+    size_t n     = 0;
     vectors[n++] = (uint64_t)argc;
     for (int i = 0; i < argc; i++) {
         size_t len = strlen(argv[i]) + 1;
@@ -374,8 +370,8 @@ static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t
     uintptr_t platform_addr = string_area + (uintptr_t)(sp - strings);
     sp += sizeof(platform_str);
 
-    uintptr_t random_addr = string_area + (uintptr_t)(sp - strings);
-    uint64_t random_state = sched_ticks() ^ (uintptr_t)proc ^ phdr_addr;
+    uintptr_t random_addr  = string_area + (uintptr_t)(sp - strings);
+    uint64_t  random_state = sched_ticks() ^ (uintptr_t)proc ^ phdr_addr;
     for (int i = 0; i < 16; i++) {
         random_state ^= random_state << 13;
         random_state ^= random_state >> 7;
@@ -384,25 +380,40 @@ static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t
     }
     sp += 16;
 
-    vectors[n++] = AT_PHDR;    vectors[n++] = phdr_addr;
-    vectors[n++] = AT_PHENT;   vectors[n++] = phentsize;
-    vectors[n++] = AT_PHNUM;   vectors[n++] = phnum;
-    vectors[n++] = AT_PAGESZ;  vectors[n++] = PAGE_4K_SIZE;
-    vectors[n++] = AT_BASE;    vectors[n++] = interp_base;
-    vectors[n++] = AT_FLAGS;   vectors[n++] = 0;
-    vectors[n++] = AT_ENTRY;   vectors[n++] = main_entry;
-    vectors[n++] = AT_UID;     vectors[n++] = proc->uid;
-    vectors[n++] = AT_EUID;    vectors[n++] = proc->uid;
-    vectors[n++] = AT_GID;     vectors[n++] = proc->gid;
-    vectors[n++] = AT_EGID;    vectors[n++] = proc->gid;
-    vectors[n++] = AT_SECURE;  vectors[n++] = 0;
-    vectors[n++] = AT_PLATFORM; vectors[n++] = platform_addr;
-    vectors[n++] = AT_RANDOM;  vectors[n++] = random_addr;
-    vectors[n++] = AT_EXECFN;  vectors[n++] = execfn_addr;
-    vectors[n++] = AT_NULL;    vectors[n++] = 0;
+    vectors[n++] = AT_PHDR;
+    vectors[n++] = phdr_addr;
+    vectors[n++] = AT_PHENT;
+    vectors[n++] = phentsize;
+    vectors[n++] = AT_PHNUM;
+    vectors[n++] = phnum;
+    vectors[n++] = AT_PAGESZ;
+    vectors[n++] = PAGE_4K_SIZE;
+    vectors[n++] = AT_BASE;
+    vectors[n++] = interp_base;
+    vectors[n++] = AT_FLAGS;
+    vectors[n++] = 0;
+    vectors[n++] = AT_ENTRY;
+    vectors[n++] = main_entry;
+    vectors[n++] = AT_UID;
+    vectors[n++] = proc->uid;
+    vectors[n++] = AT_EUID;
+    vectors[n++] = proc->uid;
+    vectors[n++] = AT_GID;
+    vectors[n++] = proc->gid;
+    vectors[n++] = AT_EGID;
+    vectors[n++] = proc->gid;
+    vectors[n++] = AT_SECURE;
+    vectors[n++] = 0;
+    vectors[n++] = AT_PLATFORM;
+    vectors[n++] = platform_addr;
+    vectors[n++] = AT_RANDOM;
+    vectors[n++] = random_addr;
+    vectors[n++] = AT_EXECFN;
+    vectors[n++] = execfn_addr;
+    vectors[n++] = AT_NULL;
+    vectors[n++] = 0;
 
-    int failed = write_user(proc, base_rsp, vectors, vector_words * sizeof(uint64_t))
-                 || write_user(proc, string_area, strings, strings_size);
+    int failed = write_user(proc, base_rsp, vectors, vector_words * sizeof(uint64_t)) || write_user(proc, string_area, strings, strings_size);
     free(vectors);
     free(strings);
     if (failed) return 0;
@@ -458,8 +469,7 @@ int elf_loader_load_user_process(process_t *proc, const uint8_t *elf_data, size_
         for (int i = 0; i < ehdr->e_phnum; i++) {
             if (phdrs[i].type == PT_LOAD) {
                 size_t phdr_size = (size_t)ehdr->e_phnum * sizeof(Elf64_Phdr);
-                if (ehdr->e_phoff >= phdrs[i].offset
-                    && ehdr->e_phoff + phdr_size <= phdrs[i].offset + phdrs[i].filesz) {
+                if (ehdr->e_phoff >= phdrs[i].offset && ehdr->e_phoff + phdr_size <= phdrs[i].offset + phdrs[i].filesz) {
                     phdr_addr = phdrs[i].vaddr + load_bias + (ehdr->e_phoff - phdrs[i].offset);
                     break;
                 }

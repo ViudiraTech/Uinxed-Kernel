@@ -182,6 +182,7 @@ static struct kobj_type kernel_ktype = {
 
 void ksysfs_init(void)
 {
+#if CONFIG_SYSFS
     struct kobject *kernel_kobj = NULL;
     clist_t         node;
 
@@ -211,4 +212,5 @@ void ksysfs_init(void)
             if ((*attr)->name) sysfs_create_file(kernel_kobj, *attr);
         }
     }
+#endif
 }

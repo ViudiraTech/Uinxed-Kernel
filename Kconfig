@@ -1,230 +1,460 @@
-mainmenu "Uinxed"
+mainmenu "Uinxed Kernel Configuration"
+
+menu "Processor type and features"
+
+  config CPU_MAX_COUNT
+    int "Maximum number of CPUs"
+    default 0
+    help
+      Limits the maximum number of CPUs the kernel can use.
+      Set to 0 for no limit (auto-detect all cores).
+
+  config CPU_FEATURE_FPU
+    bool "x87 FPU / MMX support"
+    default y
+    help
+      Enable x87 Floating-Point Unit and MMX instruction set support.
+
+  config CPU_FEATURE_SSE
+    bool "SSE / SSE2 support"
+    depends on CPU_FEATURE_FPU
+    default y
+    help
+      Enable Streaming SIMD Extensions (SSE / SSE2) instruction set support.
+
+  config CPU_FEATURE_AVX
+    bool "AVX / AVX2 support"
+    depends on CPU_FEATURE_SSE
+    default y
+    help
+      Enable Advanced Vector Extensions (AVX / AVX2) instruction set support.
+
+endmenu
+
+menu "Memory management"
+
+  config KERNEL_HEAP_MAX_SIZE
+    int "Maximum kernel heap size (MiB)"
+    default 256
+    range 16 4096
+    help
+      Maximum size of the kernel heap in megabytes. The kernel heap is
+      used for kmalloc(), internal kernel data structures, and driver
+      allocations. Lower this on memory-constrained VMs.
+
+endmenu
+
+menu "Scheduler"
+
+  config SCHED_BASE_SLICE
+    int "EEVDF base time slice (ticks)"
+    default 4
+    range 1 64
+    help
+      Base time slice for the EEVDF scheduler in timer ticks.
+      Each task is guaranteed at least this many ticks per scheduling
+      round.
+
+  config SCHED_LATENCY
+    int "EEVDF target latency (ticks)"
+    default 8
+    range 2 64
+    help
+      Target scheduling latency in ticks. The scheduler divides this
+      by the number of runnable tasks to compute per-task time slices.
+
+  config SCHED_MIN_GRANULARITY
+    int "EEVDF minimum preemption granularity (ticks)"
+    default 1
+    range 1 16
+    help
+      Minimum number of ticks before a running task can be preempted.
+      Larger values reduce context-switch overhead.
+
+  config SCHED_WAKEUP_GRANULARITY
+    int "EEVDF wakeup preemption threshold (ticks)"
+    default 1
+    range 1 16
+    help
+      A newly woken task must be ahead by at least this many ticks
+      before it can preempt the currently running task.
+
+  config SCHED_LOAD_BALANCE_INTERVAL
+    int "Load-balance interval (ticks)"
+    default 16
+    range 1 256
+    help
+      Number of scheduler ticks between per-CPU load-balancing passes.
+
+endmenu
+
+menu "Process management"
+
+  config PROCESS_MAX_FD
+    int "Maximum file descriptors per process"
+    default 64
+    range 16 1024
+    help
+      Maximum number of file descriptors each process may open.
+
+  config PROCESS_TABLE_SIZE
+    int "Process table size"
+    default 4096
+    range 256 65536
+    help
+      Maximum number of simultaneously existing processes.
+      Lower values save memory on small systems.
+
+  config PROCESS_KERNEL_STACK_SIZE
+    int "Kernel stack size per process (bytes)"
+    default 65536
+    range 4096 262144
+    help
+      Size of the kernel-mode stack allocated for each process.
+
+  config PROCESS_USER_STACK_SIZE
+    int "Default user stack size (bytes)"
+    default 4194304
+    range 1048576 67108864
+    help
+      Default user-space stack size for newly created processes.
+
+endmenu
+
+menu "IPC (Inter-Process Communication)"
+
+  config PIPE_BUF_SIZE
+    int "Pipe ring buffer size (bytes)"
+    default 65536
+    range 4096 1048576
+    help
+      Size of the ring buffer used by each pipe (POSIX guarantees
+      atomic writes up to PIPE_BUF_SIZE bytes).
+
+  config SOCKET_BUF_SIZE
+    int "Socket send/receive buffer size (bytes)"
+    default 65536
+    range 4096 1048576
+    help
+      Default buffer size for UNIX domain socket send and receive
+      queues.
+
+  config SOCKET_ACCEPT_QUEUE_MAX
+    int "Maximum socket listen backlog"
+    default 1024
+    range 16 4096
+    help
+      Maximum number of pending connections on a listening socket.
+
+  config EPOLL_MAX_FDS
+    int "Maximum epoll registered descriptors"
+    default 1024
+    range 64 65536
+    help
+      Maximum number of file descriptors that can be registered
+      with a single epoll instance.
+
+  config FUTEX_HASH_BITS
+    int "Futex hash table bits (2^N buckets)"
+    default 8
+    range 4 16
+    help
+      Number of bits for the futex hash table.
+      A value of 8 gives 256 buckets.
+
+  config NETLINK
+    bool "Netlink socket support (AF_NETLINK)"
+    default y
+    help
+      Enable AF_NETLINK socket family for kernel-userspace
+      communication. Required for uevent/hotplug delivery.
+
+  config SYSVIPC
+    bool "System V IPC support"
+    default y
+    help
+      System V IPC: semaphores, shared memory, and message queues.
+      Disable on minimal userspace environments.
+
+  config POSIX_MQ
+    bool "POSIX message queue support"
+    default y
+    help
+      POSIX message queues (mq_open, mq_send, mq_receive, etc.).
+
+endmenu
+
+menu "Device Drivers"
+
+menu "Character devices"
+
+  menu "Teletype devices"
+
+    config TTY_DEFAULT_DEV
+      string "Default TTY device name"
+      default "tty0"
+      help
+        Specifies the default teletype device used when no device is
+        explicitly set by boot parameters.
+
+    config TTY_BUF_SIZE
+      int "TTY line buffer size"
+      default 4096
+      range 256 16384
+      help
+        Buffer size for temporarily storing input and output data in
+        the teletype driver.
+
+    config UNIX98_PTYS
+      bool "Unix98 pseudoterminal support"
+      default y
+      help
+        Provides /dev/ptmx and dynamically allocated /dev/pts/N
+        pseudoterminals.
+
+    config UNIX98_PTY_MAX
+      int "Maximum Unix98 pseudoterminals"
+      depends on UNIX98_PTYS
+      default 64
+      range 1 256
+      help
+        Maximum number of simultaneous pseudoterminal pairs.
+
+  endmenu
+
+  menu "Serial port devices"
+
+    config SERIAL
+      bool "Serial port (RS-232) support"
+      default y
+      help
+        Enables the RS-232 serial port driver for console and
+        debug output.
+
+    config SERIAL_BAUD_RATE
+      int "Serial port baud rate"
+      depends on SERIAL
+      default 9600
+      range 9600 115200
+      help
+        Default baud rate used by the RS-232 serial port driver.
+
+    config SERIAL_DATA_BITS
+      int "Serial port data bits"
+      depends on SERIAL
+      default 8
+      range 5 8
+      help
+        Number of data bits per character for the serial port device.
+
+    config SERIAL_STOP_BITS
+      int "Serial port stop bits"
+      depends on SERIAL
+      default 1
+      range 1 2
+      help
+        Number of stop bits per character for the serial port device.
+
+  endmenu
+
+  menu "Keyboard and mouse"
+
+    config PS2_KEYBOARD_MOUSE
+      bool "PS/2 keyboard and mouse driver"
+      default y
+      help
+        PS/2 keyboard and mouse driver via i8042 controller.
+        Disable for headless or USB-only systems.
+
+  endmenu
+
+  menu "Parallel port"
+
+    config PARPORT
+      bool "IEEE 1284 parallel port support"
+      default y
+      help
+        Parallel port (LPT) driver. Enable for legacy printer or
+        device access.
+
+  endmenu
+
+endmenu
+
+menu "Input device support"
+
+  config INPUT_EVDEV
+    bool "Event interface (evdev)"
+    default y
+    help
+      Linux-compatible evdev input event subsystem, providing
+      /dev/input/eventX character devices.
+
+  config INPUT_EVDEV_BUFSIZE
+    int "evdev client buffer size (power of 2)"
+    default 256
+    depends on INPUT_EVDEV
+    range 64 4096
+    help
+      Size of the per-client evdev event ring buffer, must be
+      a power of 2.
+
+endmenu
+
+menu "Graphics support"
+
+  config DRM
+    bool "Direct Rendering Manager (DRM) subsystem"
+    default y
+    help
+      Enable the DRM subsystem providing /dev/dri/card0 for GPU
+      device access and Kernel Mode Setting (KMS).
+
+  config BOOT_LOGO
+    bool "Boot logo"
+    default y
+    help
+      Displays CPU logos at the top of the screen during kernel
+      startup. The number of logos adjusts to the detected CPU count.
+
+endmenu
+
+menu "VirtIO drivers"
+
+  config VIRTIO
+    bool "VirtIO PCI transport layer"
+    default n
+    help
+      Enable the VirtIO PCI transport layer, providing generic
+      MMIO-based capability discovery and virtqueue management.
+
+  config VIRTIO_GPU
+    bool "VirtIO GPU DRM driver"
+    depends on DRM && VIRTIO
+    default n
+    help
+      VirtIO-GPU DRM driver for paravirtualised GPU devices.
+      Provides KMS display pipeline, render node, and optional
+      3D acceleration via virgl context protocol.
+
+endmenu
+
+menu "Sound card support"
+
+  config SOUND_HDA
+    bool "Intel HD Audio (HDA) driver"
+    default y
+    help
+      Intel High Definition Audio driver for HDA-compatible
+      audio controllers found on most modern x86 systems.
+
+  config SOUND_SB16
+    bool "Sound Blaster 16 / ESS AudioDrive driver"
+    default n
+    help
+      Sound Blaster 16 and ESS AudioDrive PCI audio driver.
+      Enable for legacy ISA/PCI SB16-compatible sound cards.
+
+  config PCSPKR
+    bool "PC speaker (buzzer) support"
+    default n
+    help
+      PC internal speaker support via PIT channel 2 for basic
+      beep functionality.
+
+endmenu
+
+menu "I2C bus support"
+
+  config I2C
+    bool "I2C subsystem"
+    default y
+    help
+      Enable the I2C bus subsystem including adapter registration,
+      bus transfer API, and SMBus protocol emulation.
+
+endmenu
+
+menu "Security"
+
+  config TPM
+    bool "Trusted Platform Module (TPM 2.0) support"
+    default y
+    help
+      TPM 2.0 support (TIS and CRB interfaces) for measured boot,
+      key sealing, and remote attestation.
+
+endmenu
+
+endmenu
+
+menu "File systems"
+
+  config SYSFS
+    bool "sysfs filesystem (/sys)"
+    default y
+    help
+      sysfs virtual filesystem providing a structured view of kernel
+      objects, devices, buses, drivers, and classes.
+
+  config UEVENT_HELPER
+    bool "uevent hotplug event delivery"
+    depends on NETLINK && SYSFS
+    default y
+    help
+      Broadcast kernel object events (add/remove/change/move) to
+      userspace via netlink KOBJECT_UEVENT protocol.
+
+  config NTFS_FS
+    bool "NTFS filesystem support (read-only)"
+    default y
+    help
+      NTFS filesystem support for reading NTFS volumes.
+      Read-only driver with MFT parsing and directory enumeration.
+
+  config FAT_FS
+    bool "FAT12/16/32 filesystem support"
+    default y
+    help
+      FAT filesystem support (FatFs) for reading and writing
+      FAT-formatted disks.
+
+  config ISO9660_FS
+    bool "ISO 9660 filesystem support"
+    default y
+    help
+      ISO 9660 (CD-ROM) filesystem support with Rock Ridge
+      extensions for optical disc access.
+
+  config CGROUP
+    bool "Control group (cgroup) support"
+    default y
+    help
+      Linux-style cgroup subsystem with cgroupfs, process
+      membership tracking, and pids controller.
+
+endmenu
 
 menu "Kernel debugging"
 
   config KERNEL_LOG
-    bool "Kernel debug logging output"
+    bool "Kernel debug log output"
     default y
     help
-      "Outputs kernel debug messages when running."
+      Output kernel debug messages via the ring buffer and serial console.
 
   config SCHED_DEBUG_DEMO
     bool "Scheduler debug demo threads"
     default n
     help
-      "Creates kernel threads that exercise preemption, sleep, wait queues, SMP placement, migration, and balancing."
+      Creates kernel threads that exercise preemption, sleep, wait
+      queues, SMP placement, migration, and balancing at boot time.
 
-endmenu
+  config GENERATE_SYMBOLS
+    bool "Generate kernel symbol table"
+    default n
+    help
+      Generate a kernel symbol table at build time for use
+      by dump_stack() and backtrace resolution.
 
-menu "Processor configuration"
-  menu "SMP (Symmetric multi-processing)"
-
-    config CPU_MAX_COUNT
-      int "Maximum number of CPUs"
-      default 0
-      help
-        "Limits the maximum number of CPUs the kernel can use, set to 0 for no limit."
-
-  endmenu
-  menu "Extended instruction set"
-
-    config CPU_FEATURE_FPU
-      bool "Enable X87FPU (Intel 80X87 Floating-Point Unit)"
-      default y
-      help
-        "Set whether to enable X87FPU/MMX."
-
-    config CPU_FEATURE_SSE
-      depends on CPU_FEATURE_FPU
-      bool "Enable SSE/SSE2 (Streaming SIMD Extensions)"
-      default y
-      help
-        "Set whether to enable SSE/SSE2."
-
-    config CPU_FEATURE_AVX
-      depends on CPU_FEATURE_SSE
-      bool "Enable AVX/AVX2 (Advanced Vector Extensions)"
-      default y
-      help
-        "Set whether to enable AVX/AVX2."
-
-  endmenu
-endmenu
-
-menu "Device drivers"
-  menu "Character devices"
-    menu "Teletype devices"
-
-      config TTY_DEFAULT_DEV
-        string "Default teletype device"
-        default "tty0"
-        help
-          "Specifies the default teletype device used when no device is explicitly set by boot parameters."
-
-      config TTY_BUF_SIZE
-        int "Teletype buffer size"
-        default 4096
-        range 256 16384
-        help
-          "Buffer size for temporarily storing input and output data in the teletype driver."
-
-      config UNIX98_PTYS
-        bool "Unix98 pseudoterminal support"
-        default y
-        help
-          "Provides /dev/ptmx and dynamically allocated /dev/pts/N pseudoterminals."
-
-      config UNIX98_PTY_MAX
-        int "Maximum Unix98 pseudoterminals"
-        depends on UNIX98_PTYS
-        default 64
-        range 1 256
-
-    endmenu
-    menu "Serial port devices"
-
-      config SERIAL_BAUD_RATE
-        int "Serial port baud rate"
-        default 9600
-        range 9600 115200
-        help
-          "Default baud rate used by the serial port driver."
-
-      config SERIAL_DATA_BITS
-        int "Serial port data bits"
-        default 8
-        range 5 8
-        help
-          "Number of data bits per character for the serial port device."
-
-      config SERIAL_STOP_BITS
-        int "Serial port stop bits"
-        default 1
-        range 1 2
-        help
-          "Number of stop bits per character for the serial port device."
-
-    endmenu
-  endmenu
-  menu "Input device support"
-
-    config INPUT_EVDEV
-      bool "Event interface (evdev)"
-      default y
-      help
-        "Enable the Linux-compatible evdev input event subsystem, providing
-        /dev/input/eventX character devices for input event delivery."
-
-    config INPUT_EVDEV_BUFSIZE
-      int "evdev buffer size (power of 2)"
-      default 256
-      depends on INPUT_EVDEV
-      range 64 4096
-      help
-        "Size of the per-client event ring buffer, must be a power of 2."
-
-  endmenu
-  menu "Graphics support"
-
-    config DRM
-      bool "Direct Rendering Manager (DRM)"
-      default y
-      help
-        "Enable the Direct Rendering Manager (DRM) subsystem,
-        providing /dev/dri/card0 for GPU device access and KMS
-        (Kernel Mode Setting) support."
-
-    config BOOT_LOGO
-      bool "Boot logo"
-      default y
-      help
-        "Displays CPU logos in the top area of the screen during kernel startup,
-        The number of logos is automatically adjusted according to the detected CPU count."
-
-  endmenu
-
-  menu "Filesystem support"
-
-    config NTFS_FS
-      bool "NTFS filesystem support (read-only)"
-      default y
-      help
-        "Enable NTFS filesystem support for reading NTFS volumes.
-        This driver is read-only and supports basic file operations,
-        MFT parsing, and directory enumeration via INDEX_ROOT and
-        INDEX_ALLOCATION."
-
-    config SYSFS
-      bool "sysfs filesystem support"
-      default y
-      help
-        "Enable the sysfs virtual filesystem, providing a structured view
-        of kernel objects, devices, buses, drivers, and classes to userspace.
-        sysfs is mounted at /sys and is the foundation of the Linux device model.
-        This option also enables the kobject/kset infrastructure."
-
-    config NETLINK
-      bool "Netlink socket support"
-      default y
-      help
-        "Enable AF_NETLINK socket family for kernel-userspace communication.
-        Netlink is used for uevent delivery (udev), routing, and other
-        kernel services. Required for hotplug and device manager support."
-
-    config UEVENT_HELPER
-      bool "uevent helper (hotplug event delivery)"
-      depends on NETLINK && SYSFS
-      default y
-      help
-        "Broadcast kernel object events (add/remove/change/move) to
-        userspace via netlink KOBJECT_UEVENT protocol. This enables
-        udev or mdev to react to device hotplug events."
-
-  endmenu
-
-  menu "Sound card support"
-
-    config SOUND_HDA
-      bool "Intel HD Audio (HDA) driver"
-      default y
-      help
-        "Enable the Intel High Definition Audio driver. This provides
-        basic audio playback for Intel HDA-compatible audio controllers
-        found on most modern x86 systems."
-
-  endmenu
-
-  menu "I2C bus support"
-
-    config I2C
-      bool "I2C subsystem"
-      default y
-      help
-        "Enable the I2C bus subsystem. Provides adapter registration,
-        bus transfer API, and SMBus protocol emulation for interfacing
-        with I2C devices such as sensors, EEPROMs, and GPIO expanders."
-
-  endmenu
-
-  menu "VirtIO drivers"
-
-    config VIRTIO
-      bool "VirtIO PCI transport layer"
-      default y
-      help
-        "Enable the VirtIO PCI transport layer, providing generic
-        MMIO-based capability discovery and virtqueue management
-        for all virtio device drivers."
-
-    config VIRTIO_GPU
-      bool "VirtIO GPU DRM driver"
-      depends on DRM && VIRTIO
-      default y
-      help
-        "Enable the VirtIO-GPU DRM driver for paravirtualised GPU
-        devices (PCI vendor 0x1af4, device 0x1050).  Provides KMS
-        display pipeline, render node (/dev/dri/renderD*), and
-        optional 3D acceleration via the virgl context protocol."
-
-  endmenu
 endmenu

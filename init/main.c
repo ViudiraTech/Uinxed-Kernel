@@ -20,8 +20,8 @@
 #include <drivers/ahci.h>
 #include <drivers/drm/drm_init.h>
 #include <drivers/hda.h>
-#include <drivers/input_sysfs.h>
 #include <drivers/ide.h>
+#include <drivers/input_sysfs.h>
 #include <drivers/nvme.h>
 #include <drivers/parallel.h>
 #include <drivers/pci.h>
@@ -144,14 +144,7 @@ void kernel_entry(void)
                      //
     video_init();    // Basic VESA/GOP Video
     video_info_t fbinfo = video_get_info();
-
-#if BOOT_LOGO
-    tty_device_t *boot_tty = get_boot_tty();
-    if (boot_tty->type == TTY_DEVICE_VGA || boot_tty->type == TTY_DEVICE_DRM) {
-        struct limine_smp_response *smp = smp_request.response;
-        video_draw_logo((!CPU_MAX_COUNT) ? smp->cpu_count : (smp->cpu_count > CPU_MAX_COUNT ? CPU_MAX_COUNT : smp->cpu_count));
-    }
-#endif
+    video_show_boot_logo();
 
     plogk("%s version %s (%s version %s) SMP %s %s\n", KERNEL_NAME, KERNEL_VERSION, COMPILER_NAME, COMPILER_VERSION, BUILD_DATE, BUILD_TIME);
     plogk("fb0: Base %p, Size %lu KiB.\n", fbinfo.framebuffer, (fbinfo.width * fbinfo.height * fbinfo.bpp) / (uint64_t)(8 * 1024));
@@ -195,9 +188,7 @@ void kernel_entry(void)
                                     //
     /* Sound hardware */            //
     sb16_init();                    // Sound Blaster 16
-#if CONFIG_SOUND_HDA                //
     hda_init();                     // Intel HD Audio
-#endif                              //
     init_parallel();                // IEEE 1284 Parallel Port
                                     //
     /* Filesystem layer */          //
@@ -205,46 +196,29 @@ void kernel_entry(void)
     tmpfs_regist();                 // Temporary File System
     fatfs_vfs_regist();             // FAT File System
     isofs_regist();                 // ISO 9660 File System
-    ntfs_vfs_regist();              // NTFS File System
+    ntfs_vfs_regist();              // New Technology File System
 
     if (!get_rootdir()->fsid && vfs_mount(0, get_rootdir()) != EOK) plogk("init: Cannot mount tmpfs to root_dir.\n");
 
-        /* Device model and sysfs */
-#if CONFIG_SYSFS
-    netlink_init();      // Kobject creation emits netlink uevents
+    /* Device model and sysfs */
+    netlink_init();      // AF_NETLINK socket family (uevent delivery)
     sysfs_regist();      // Register sysfs with the VFS layer
     sysfs_init();        // Mount sysfs at /sys and create top-level directories
     device_model_init(); // Initialise the device model (bus/class/device)
     input_sysfs_init();  // /sys/class/input/eventX
-#endif                   //
     init_cpio();         // Copy In, Copy Out
     devtmpfs_init();     // Device Temporary File System
     pty_init();          // Unix98 pseudo-terminals
     procfs_regist();     // Process File System
     cgroupfs_regist();   // Unified Control Group File System
-                         //
-#if CONFIG_SYSFS         //
     ksysfs_init();       // /sys/kernel/{version,cmdline,hostname,...}
     pci_sysfs_init();    // /sys/bus/pci/ + /sys/devices/pci*
     block_sysfs_init();  // /sys/block/{hdX,sdX,nvme*}
     tty_sysfs_init();    // /sys/class/tty/
-#endif
 
     /* Networking and graphics */
-#if !CONFIG_SYSFS
-    netlink_init(); // AF_NETLINK socket family
-#endif
     drm_init();        // Direct Rendering Manager
     virtio_gpu_init(); // VirtIO GPU driver (if present on PCI bus)
-
-    /* If VirtIO-GPU is not available, ensure TTY falls back to VGA mode */
-    {
-        tty_device_t *bt = get_boot_tty();
-        if (bt->type == TTY_DEVICE_DRM && !virtio_gpu_get_device()) {
-            tty_set_device_type(TTY_DEVICE_VGA);
-            plogk("virtgpu: not available, TTY staying in VGA mode.\n");
-        }
-    }
 
     /* Core kernel services */
     sched_init();    // Preemptive Scheduler

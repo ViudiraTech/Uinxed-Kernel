@@ -33,6 +33,7 @@ static struct class tty_class = {
 
 void tty_sysfs_init(void)
 {
+#if CONFIG_SYSFS
     int ret;
 
     ret = class_register(&tty_class);
@@ -48,4 +49,5 @@ void tty_sysfs_init(void)
     /* ttyS0, ttyS1 — serial ports */
     device_create(&tty_class, NULL, MKDEV(4, 64), NULL, "ttyS0");
     device_create(&tty_class, NULL, MKDEV(4, 65), NULL, "ttyS1");
+#endif
 }

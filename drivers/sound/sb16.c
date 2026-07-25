@@ -25,6 +25,8 @@
 #include <mem/page.h>
 #include <sync/spin_lock.h>
 
+#if CONFIG_SOUND_SB16
+
 static const uint16_t sb16_ports[] = {0x220, 0x240, 0x260, 0x280};
 
 static sb16_device_t sb16_dev;
@@ -307,8 +309,11 @@ void sb16_beep(uint16_t freq, uint32_t ms)
     free(buf);
 }
 
+#endif /* CONFIG_SOUND_SB16 */
+
 void sb16_init(void)
 {
+#if CONFIG_SOUND_SB16
     memset(&sb16_dev, 0, sizeof(sb16_device_t));
     sb16_lock.lock   = 0;
     sb16_lock.rflags = 0;
@@ -352,4 +357,5 @@ void sb16_init(void)
         .channels    = sb16_dev.channels,
     };
     audio_register_card("Sound Blaster 16", &format, &sb16_audio_ops, &sb16_dev);
+#endif
 }

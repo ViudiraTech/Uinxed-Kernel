@@ -1016,9 +1016,11 @@ void sysfs_rename_dir(struct kobject *kobj, const char *new_name)
 
 void sysfs_regist(void)
 {
+#if CONFIG_SYSFS
     sysfs_id = vfs_regist_fs("sysfs", &sysfs_callbacks);
     if (!(sysfs_id & ERRNO_MASK)) plogk("sysfs: Filesystem registered (fsid=%d)\n", sysfs_id);
     if (sysfs_id & ERRNO_MASK) plogk("sysfs: Register error.\n");
+#endif
 }
 
 /* Recursively create VFS nodes for pending kobjects after mount */
@@ -1051,6 +1053,7 @@ static void sysfs_populate_dir(struct kobject *kobj)
 
 int sysfs_init(void)
 {
+#if CONFIG_SYSFS
     /* Create the root kobject (only — mount creates the VFS nodes) */
     sysfs_root_kobj = calloc(1, sizeof(struct kobject));
     if (!sysfs_root_kobj) return -ENOMEM;
@@ -1081,4 +1084,5 @@ int sysfs_init(void)
     kobject_create_and_add("power", sysfs_root_kobj);
 
     return EOK;
+#endif
 }

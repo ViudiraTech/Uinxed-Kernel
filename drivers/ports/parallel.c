@@ -37,6 +37,7 @@ static void init_parallel_port(uint16_t port)
 /* Initialize parallel port */
 void init_parallel(void)
 {
+#if CONFIG_PARPORT
     uint16_t lpt_port[3] = {PARALLEL_PORT_1, PARALLEL_PORT_2, PARALLEL_PORT_3};
     int      valid_ports = 0;
 
@@ -47,6 +48,7 @@ void init_parallel(void)
         }
     }
     if (valid_ports > 0) plogk("parallel: %u port(s) available.\n", valid_ports);
+#endif
 }
 
 /* Check if the specified parallel port is busy */

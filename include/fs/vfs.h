@@ -18,12 +18,12 @@
 #define callbackof(node, _name_) (fs_callbacks[(node)->fsid]->_name_)
 
 /* Filesystem-owned metadata children do not make a directory non-empty. */
-#define VFS_NODE_VIRTUAL (1ULL << 63)
+#define VFS_NODE_VIRTUAL          (1ULL << 63)
 #define VFS_NODE_DELETE_COMMITTED (1ULL << 62)
-#define VFS_NODE_DELETE_SYNC (1ULL << 61)
-#define VFS_NODE_UNLINKED    (1ULL << 60)
-#define VFS_NODE_FINALIZING  (1ULL << 59)
-#define VFS_NODE_UNLINKING   (1ULL << 58)
+#define VFS_NODE_DELETE_SYNC      (1ULL << 61)
+#define VFS_NODE_UNLINKED         (1ULL << 60)
+#define VFS_NODE_FINALIZING       (1ULL << 59)
+#define VFS_NODE_UNLINKING        (1ULL << 58)
 
 typedef struct vfs_node *vfs_node_t;
 struct vm_area; /* forward declaration for vfs_file_mmap_t */

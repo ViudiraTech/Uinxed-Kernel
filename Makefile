@@ -22,108 +22,11 @@ else
   Q=@
 endif
 
+# ---- General setup ----
 ifeq ($(CONFIG_KERNEL_LOG), y)
   C_CONFIG += -DKERNEL_LOG=1
 else
   C_CONFIG += -DKERNEL_LOG=0
-endif
-
-ifeq ($(CONFIG_SCHED_DEBUG_DEMO), y)
-  C_CONFIG += -DSCHED_DEBUG_DEMO=1
-else
-  C_CONFIG += -DSCHED_DEBUG_DEMO=0
-endif
-
-ifeq ($(CONFIG_BOOT_LOGO), y)
-  C_CONFIG += -DBOOT_LOGO=1
-else
-  C_CONFIG += -DBOOT_LOGO=0
-endif
-
-ifeq ($(CONFIG_NTFS_FS), y)
-  C_CONFIG += -DCONFIG_NTFS_FS=1
-else
-  C_CONFIG += -DCONFIG_NTFS_FS=0
-endif
-
-ifeq ($(CONFIG_SYSFS), y)
-  C_CONFIG += -DCONFIG_SYSFS=1
-else
-  C_CONFIG += -DCONFIG_SYSFS=0
-endif
-
-ifeq ($(CONFIG_NETLINK), y)
-  C_CONFIG += -DCONFIG_NETLINK=1
-else
-  C_CONFIG += -DCONFIG_NETLINK=0
-endif
-
-ifeq ($(CONFIG_UEVENT_HELPER), y)
-  C_CONFIG += -DCONFIG_UEVENT_HELPER=1
-else
-  C_CONFIG += -DCONFIG_UEVENT_HELPER=0
-endif
-
-ifeq ($(CONFIG_INPUT_EVDEV), y)
-  C_CONFIG += -DCONFIG_INPUT_EVDEV=1
-else
-  C_CONFIG += -DCONFIG_INPUT_EVDEV=0
-endif
-
-ifneq ($(CONFIG_INPUT_EVDEV_BUFSIZE),)
-  C_CONFIG += -DINPUT_EVDEV_BUFSIZE=$(CONFIG_INPUT_EVDEV_BUFSIZE)
-endif
-
-ifeq ($(CONFIG_DRM), y)
-  C_CONFIG += -DCONFIG_DRM=1
-else
-  C_CONFIG += -DCONFIG_DRM=0
-endif
-
-ifeq ($(CONFIG_VIRTIO), y)
-  C_CONFIG += -DCONFIG_VIRTIO=1
-else
-  C_CONFIG += -DCONFIG_VIRTIO=0
-endif
-
-ifeq ($(CONFIG_VIRTIO_GPU), y)
-  C_CONFIG += -DCONFIG_VIRTIO_GPU=1
-else
-  C_CONFIG += -DCONFIG_VIRTIO_GPU=0
-endif
-
-ifeq ($(CONFIG_SOUND_HDA), y)
-  C_CONFIG += -DCONFIG_SOUND_HDA=1
-else
-  C_CONFIG += -DCONFIG_SOUND_HDA=0
-endif
-
-ifeq ($(CONFIG_I2C), y)
-  C_CONFIG += -DCONFIG_I2C=1
-else
-  C_CONFIG += -DCONFIG_I2C=0
-endif
-
-ifneq ($(CONFIG_CPU_MAX_COUNT),)
-  C_CONFIG += -DMAX_CPU_COUNT=$(CONFIG_CPU_MAX_COUNT)
-endif
-
-ifeq ($(CONFIG_CPU_FEATURE_FPU), y)
-  C_CONFIG += -DCPU_FEATURE_FPU=1
-else
-  C_CONFIG += -DCPU_FEATURE_FPU=0 -mno-mmx -mno-80387
-endif
-
-ifeq ($(CONFIG_CPU_FEATURE_SSE), y)
-  C_CONFIG += -DCPU_FEATURE_SSE=1
-else
-  C_CONFIG += -DCPU_FEATURE_SSE=0 -mno-sse -mno-sse2
-endif
-
-ifeq ($(CONFIG_CPU_FEATURE_AVX), y)
-  C_CONFIG += -DCPU_FEATURE_AVX=1
-else
-  C_CONFIG += -DCPU_FEATURE_AVX=0 -mno-avx -mno-avx2
 endif
 
 ifneq ($(CONFIG_TTY_DEFAULT_DEV),)
@@ -158,6 +61,243 @@ endif
 
 ifneq ($(CONFIG_SERIAL_STOP_BITS),)
   C_CONFIG += -DSERIAL_STOP_BITS=$(CONFIG_SERIAL_STOP_BITS)
+endif
+
+ifeq ($(CONFIG_SERIAL), y)
+  C_CONFIG += -DCONFIG_SERIAL=1
+else
+  C_CONFIG += -DCONFIG_SERIAL=0
+endif
+
+# ---- Processor type and features ----
+ifneq ($(CONFIG_CPU_MAX_COUNT),)
+  C_CONFIG += -DCPU_MAX_COUNT=$(CONFIG_CPU_MAX_COUNT)
+endif
+
+ifeq ($(CONFIG_CPU_FEATURE_FPU), y)
+  C_CONFIG += -DCPU_FEATURE_FPU=1
+else
+  C_CONFIG += -DCPU_FEATURE_FPU=0 -mno-mmx -mno-80387
+endif
+
+ifeq ($(CONFIG_CPU_FEATURE_SSE), y)
+  C_CONFIG += -DCPU_FEATURE_SSE=1
+else
+  C_CONFIG += -DCPU_FEATURE_SSE=0 -mno-sse -mno-sse2
+endif
+
+ifeq ($(CONFIG_CPU_FEATURE_AVX), y)
+  C_CONFIG += -DCPU_FEATURE_AVX=1
+else
+  C_CONFIG += -DCPU_FEATURE_AVX=0 -mno-avx -mno-avx2
+endif
+
+# ---- Memory management ----
+ifneq ($(CONFIG_KERNEL_HEAP_MAX_SIZE),)
+  C_CONFIG += -DKERNEL_HEAP_MAX_MIB=$(CONFIG_KERNEL_HEAP_MAX_SIZE)
+endif
+
+# ---- Scheduler ----
+ifneq ($(CONFIG_SCHED_BASE_SLICE),)
+  C_CONFIG += -DSCHED_BASE_SLICE=$(CONFIG_SCHED_BASE_SLICE)
+endif
+
+ifneq ($(CONFIG_SCHED_LATENCY),)
+  C_CONFIG += -DSCHED_LATENCY=$(CONFIG_SCHED_LATENCY)
+endif
+
+ifneq ($(CONFIG_SCHED_MIN_GRANULARITY),)
+  C_CONFIG += -DSCHED_MIN_GRANULARITY=$(CONFIG_SCHED_MIN_GRANULARITY)
+endif
+
+ifneq ($(CONFIG_SCHED_WAKEUP_GRANULARITY),)
+  C_CONFIG += -DSCHED_WAKEUP_GRANULARITY=$(CONFIG_SCHED_WAKEUP_GRANULARITY)
+endif
+
+ifneq ($(CONFIG_SCHED_LOAD_BALANCE_INTERVAL),)
+  C_CONFIG += -DSCHED_LOAD_BALANCE_INTERVAL=$(CONFIG_SCHED_LOAD_BALANCE_INTERVAL)
+endif
+
+ifeq ($(CONFIG_SCHED_DEBUG_DEMO), y)
+  C_CONFIG += -DSCHED_DEBUG_DEMO=1
+else
+  C_CONFIG += -DSCHED_DEBUG_DEMO=0
+endif
+
+# ---- Process management ----
+ifneq ($(CONFIG_PROCESS_MAX_FD),)
+  C_CONFIG += -DPROCESS_MAX_FD=$(CONFIG_PROCESS_MAX_FD)
+endif
+
+ifneq ($(CONFIG_PROCESS_TABLE_SIZE),)
+  C_CONFIG += -DPROCESS_TABLE_SIZE=$(CONFIG_PROCESS_TABLE_SIZE)
+endif
+
+ifneq ($(CONFIG_PROCESS_KERNEL_STACK_SIZE),)
+  C_CONFIG += -DPROCESS_KERNEL_STACK=$(CONFIG_PROCESS_KERNEL_STACK_SIZE)
+endif
+
+ifneq ($(CONFIG_PROCESS_USER_STACK_SIZE),)
+  C_CONFIG += -DPROCESS_STACK_SIZE=$(CONFIG_PROCESS_USER_STACK_SIZE)
+endif
+
+# ---- IPC ----
+ifneq ($(CONFIG_PIPE_BUF_SIZE),)
+  C_CONFIG += -DPIPE_BUF_SIZE=$(CONFIG_PIPE_BUF_SIZE)
+endif
+
+ifneq ($(CONFIG_SOCKET_BUF_SIZE),)
+  C_CONFIG += -DSOCK_BUF_SIZE=$(CONFIG_SOCKET_BUF_SIZE)
+endif
+
+ifneq ($(CONFIG_SOCKET_ACCEPT_QUEUE_MAX),)
+  C_CONFIG += -DSOCK_ACCEPT_QUEUE_MAX=$(CONFIG_SOCKET_ACCEPT_QUEUE_MAX)
+endif
+
+ifneq ($(CONFIG_EPOLL_MAX_FDS),)
+  C_CONFIG += -DEPOLL_MAX_FDS=$(CONFIG_EPOLL_MAX_FDS)
+endif
+
+ifneq ($(CONFIG_FUTEX_HASH_BITS),)
+  C_CONFIG += -DFUTEX_HASH_BITS=$(CONFIG_FUTEX_HASH_BITS)
+endif
+
+ifeq ($(CONFIG_NETLINK), y)
+  C_CONFIG += -DCONFIG_NETLINK=1
+else
+  C_CONFIG += -DCONFIG_NETLINK=0
+endif
+
+ifeq ($(CONFIG_SYSVIPC), y)
+  C_CONFIG += -DCONFIG_SYSVIPC=1
+else
+  C_CONFIG += -DCONFIG_SYSVIPC=0
+endif
+
+ifeq ($(CONFIG_POSIX_MQ), y)
+  C_CONFIG += -DCONFIG_POSIX_MQ=1
+else
+  C_CONFIG += -DCONFIG_POSIX_MQ=0
+endif
+
+# ---- Device drivers: character devices ----
+ifeq ($(CONFIG_PS2_KEYBOARD_MOUSE), y)
+  C_CONFIG += -DCONFIG_PS2_KEYBOARD_MOUSE=1
+else
+  C_CONFIG += -DCONFIG_PS2_KEYBOARD_MOUSE=0
+endif
+
+ifeq ($(CONFIG_PARPORT), y)
+  C_CONFIG += -DCONFIG_PARPORT=1
+else
+  C_CONFIG += -DCONFIG_PARPORT=0
+endif
+
+# ---- Device drivers: input ----
+ifeq ($(CONFIG_INPUT_EVDEV), y)
+  C_CONFIG += -DCONFIG_INPUT_EVDEV=1
+else
+  C_CONFIG += -DCONFIG_INPUT_EVDEV=0
+endif
+
+ifneq ($(CONFIG_INPUT_EVDEV_BUFSIZE),)
+  C_CONFIG += -DINPUT_EVDEV_BUFSIZE=$(CONFIG_INPUT_EVDEV_BUFSIZE)
+endif
+
+# ---- Device drivers: graphics ----
+ifeq ($(CONFIG_DRM), y)
+  C_CONFIG += -DCONFIG_DRM=1
+else
+  C_CONFIG += -DCONFIG_DRM=0
+endif
+
+ifeq ($(CONFIG_BOOT_LOGO), y)
+  C_CONFIG += -DBOOT_LOGO=1
+else
+  C_CONFIG += -DBOOT_LOGO=0
+endif
+
+# ---- Device drivers: virtio ----
+ifeq ($(CONFIG_VIRTIO), y)
+  C_CONFIG += -DCONFIG_VIRTIO=1
+else
+  C_CONFIG += -DCONFIG_VIRTIO=0
+endif
+
+ifeq ($(CONFIG_VIRTIO_GPU), y)
+  C_CONFIG += -DCONFIG_VIRTIO_GPU=1
+else
+  C_CONFIG += -DCONFIG_VIRTIO_GPU=0
+endif
+
+# ---- Device drivers: sound ----
+ifeq ($(CONFIG_SOUND_HDA), y)
+  C_CONFIG += -DCONFIG_SOUND_HDA=1
+else
+  C_CONFIG += -DCONFIG_SOUND_HDA=0
+endif
+
+ifeq ($(CONFIG_SOUND_SB16), y)
+  C_CONFIG += -DCONFIG_SOUND_SB16=1
+else
+  C_CONFIG += -DCONFIG_SOUND_SB16=0
+endif
+
+ifeq ($(CONFIG_PCSPKR), y)
+  C_CONFIG += -DCONFIG_PCSPKR=1
+else
+  C_CONFIG += -DCONFIG_PCSPKR=0
+endif
+
+# ---- Device drivers: I2C ----
+ifeq ($(CONFIG_I2C), y)
+  C_CONFIG += -DCONFIG_I2C=1
+else
+  C_CONFIG += -DCONFIG_I2C=0
+endif
+
+# ---- Device drivers: security ----
+ifeq ($(CONFIG_TPM), y)
+  C_CONFIG += -DCONFIG_TPM=1
+else
+  C_CONFIG += -DCONFIG_TPM=0
+endif
+
+# ---- File systems ----
+ifeq ($(CONFIG_SYSFS), y)
+  C_CONFIG += -DCONFIG_SYSFS=1
+else
+  C_CONFIG += -DCONFIG_SYSFS=0
+endif
+
+ifeq ($(CONFIG_UEVENT_HELPER), y)
+  C_CONFIG += -DCONFIG_UEVENT_HELPER=1
+else
+  C_CONFIG += -DCONFIG_UEVENT_HELPER=0
+endif
+
+ifeq ($(CONFIG_NTFS_FS), y)
+  C_CONFIG += -DCONFIG_NTFS_FS=1
+else
+  C_CONFIG += -DCONFIG_NTFS_FS=0
+endif
+
+ifeq ($(CONFIG_FAT_FS), y)
+  C_CONFIG += -DCONFIG_FAT_FS=1
+else
+  C_CONFIG += -DCONFIG_FAT_FS=0
+endif
+
+ifeq ($(CONFIG_ISO9660_FS), y)
+  C_CONFIG += -DCONFIG_ISO9660_FS=1
+else
+  C_CONFIG += -DCONFIG_ISO9660_FS=0
+endif
+
+ifeq ($(CONFIG_CGROUP), y)
+  C_CONFIG += -DCONFIG_CGROUP=1
+else
+  C_CONFIG += -DCONFIG_CGROUP=0
 endif
 
 C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*")

@@ -22,7 +22,7 @@
 #define VFS_ACCESS_R 4
 #define VFS_ACCESS_W 2
 
-vfs_node_t rootdir = 0;
+vfs_node_t        rootdir = 0;
 static spinlock_t vfs_namespace_lock;
 
 /*

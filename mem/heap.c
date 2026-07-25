@@ -25,7 +25,10 @@ uint64_t KERNEL_HEAP_START = 0;
 uint64_t KERNEL_HEAP_SIZE  = 0;
 
 #define KERNEL_HEAP_SEARCH_BASE 0xffffc00000000000ULL
-#define KERNEL_HEAP_MAX_SIZE    (256ULL * 1024ULL * 1024ULL)
+#ifndef KERNEL_HEAP_MAX_MIB
+#    define KERNEL_HEAP_MAX_MIB 256
+#endif
+#define KERNEL_HEAP_MAX_SIZE ((uint64_t)(KERNEL_HEAP_MAX_MIB) * 1024ULL * 1024ULL)
 
 /* Initialize the memory heap */
 void init_heap(void)

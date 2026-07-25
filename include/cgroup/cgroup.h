@@ -21,17 +21,17 @@ int  cgroup_task_fork(struct task *task, struct task *parent);
 void cgroup_task_exit(struct task *task);
 int  cgroup_attach_task(cgroup_t *cgroup, struct task *task);
 
-int  cgroup_create(cgroup_t *parent, const char *name, cgroup_t **result);
-int  cgroup_destroy(cgroup_t *cgroup);
-int  cgroup_set_subtree_control(cgroup_t *cgroup, const char *value, size_t size);
-int  cgroup_set_pids_max(cgroup_t *cgroup, const char *value, size_t size);
-int  cgroup_move_pid(cgroup_t *cgroup, const char *value, size_t size);
+int cgroup_create(cgroup_t *parent, const char *name, cgroup_t **result);
+int cgroup_destroy(cgroup_t *cgroup);
+int cgroup_set_subtree_control(cgroup_t *cgroup, const char *value, size_t size);
+int cgroup_set_pids_max(cgroup_t *cgroup, const char *value, size_t size);
+int cgroup_move_pid(cgroup_t *cgroup, const char *value, size_t size);
 
-cgroup_t *cgroup_parent(cgroup_t *cgroup);
+cgroup_t   *cgroup_parent(cgroup_t *cgroup);
 const char *cgroup_name(cgroup_t *cgroup);
-uint64_t cgroup_subtree_control(cgroup_t *cgroup);
-int      cgroup_pids_available(cgroup_t *cgroup);
-int      cgroup_is_root(cgroup_t *cgroup);
+uint64_t    cgroup_subtree_control(cgroup_t *cgroup);
+int         cgroup_pids_available(cgroup_t *cgroup);
+int         cgroup_is_root(cgroup_t *cgroup);
 
 int cgroup_show_controllers(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_subtree_control(cgroup_t *cgroup, char *buf, size_t size);

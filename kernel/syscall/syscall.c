@@ -3056,7 +3056,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
 
     uintptr_t entry = 0;
     uintptr_t rsp   = 0;
-    int ret = elf_loader_load_user_process(proc, elf_data, total, kargv, kenvp, &entry, &rsp);
+    int       ret   = elf_loader_load_user_process(proc, elf_data, total, kargv, kenvp, &entry, &rsp);
     free(elf_data);
     free_string_array(kargv);
     free_string_array(kenvp);
@@ -3781,8 +3781,8 @@ void syscall_dispatch(syscall_frame_t *frame)
         int        error = EOK;
         process_t *child = process_fork_status(&error);
         if (child) {
-            uint64_t  kstack_top = (uint64_t)(child->kernel_stack + PROCESS_KERNEL_STACK);
-            uint64_t *kstack     = (uint64_t *)ALIGN_DOWN(kstack_top, 16ULL);
+            uint64_t        kstack_top  = (uint64_t)(child->kernel_stack + PROCESS_KERNEL_STACK);
+            uint64_t       *kstack      = (uint64_t *)ALIGN_DOWN(kstack_top, 16ULL);
             syscall_frame_t child_frame = *frame;
             child_frame.rax             = 0;
             kstack -= sizeof(syscall_frame_t) / sizeof(uint64_t);

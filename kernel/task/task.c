@@ -72,7 +72,7 @@ static pid_entry_t *pid_hash_remove(task_t *task)
  */
 task_t *pid_find_task(uint64_t pid)
 {
-    uint32_t idx = pid_hash_index(pid);
+    uint32_t idx  = pid_hash_index(pid);
     task_t  *task = NULL;
 
     spin_lock(&pid_hash_lock);

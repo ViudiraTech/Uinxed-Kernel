@@ -190,8 +190,10 @@ typedef enum {
 /*  Socket internal buffer                                              */
 /* ------------------------------------------------------------------ */
 
-#define SOCK_BUF_SIZE 65536
-#define SOCK_BUF_MAX  262144
+#ifndef SOCK_BUF_SIZE
+#    define SOCK_BUF_SIZE 65536
+#endif
+#define SOCK_BUF_MAX 262144
 
 typedef struct sock_buf {
         uint8_t   *data;

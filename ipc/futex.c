@@ -28,7 +28,9 @@
 /*  Constants                                                           */
 /* ------------------------------------------------------------------ */
 
-#define FUTEX_HASH_BITS 8
+#ifndef FUTEX_HASH_BITS
+#    define FUTEX_HASH_BITS 8
+#endif
 #define FUTEX_HASH_SIZE (1 << FUTEX_HASH_BITS)
 
 #define FUTEX_TICKS_PER_SEC 100

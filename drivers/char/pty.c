@@ -12,8 +12,8 @@
 #include <proc/process.h>
 #include <proc/task.h>
 #include <proc/uaccess.h>
-#include <sync/spin_lock.h>
 #include <sync/signal.h>
+#include <sync/spin_lock.h>
 #include <syscall/fcntl.h>
 
 #ifndef CONFIG_UNIX98_PTYS
@@ -239,7 +239,7 @@ static int pty_create_slave(pty_pair_t *pair)
     node->mode         = 0620;
     node->owner        = current ? current->uid : 0;
     node->group        = current ? current->gid : 0;
-    pair->slave_node = node;
+    pair->slave_node   = node;
     return 0;
 }
 
@@ -488,9 +488,10 @@ static int pty_master_ioctl(pty_pair_t *pair, uint64_t flags, size_t request, vo
             uint64_t peer_flags = (uint64_t)(uintptr_t)argument;
             if ((peer_flags & ~allowed) || (peer_flags & O_ACCMODE) == O_ACCMODE) return -EINVAL;
             if (!pair->slave_node) return -EIO;
-            uint32_t access = (peer_flags & O_ACCMODE) == O_WRONLY ? VFS_ACCESS_W :
-                              (peer_flags & O_ACCMODE) == O_RDWR   ? VFS_ACCESS_R | VFS_ACCESS_W : VFS_ACCESS_R;
-            int access_result = vfs_access_check(pair->slave_node, access);
+            uint32_t access        = (peer_flags & O_ACCMODE) == O_WRONLY ? VFS_ACCESS_W :
+                                     (peer_flags & O_ACCMODE) == O_RDWR   ? VFS_ACCESS_R | VFS_ACCESS_W :
+                                                                            VFS_ACCESS_R;
+            int      access_result = vfs_access_check(pair->slave_node, access);
             if (access_result) return access_result;
             vfs_node_t slave = vfs_node_retain(pair->slave_node);
             if (!slave) return -EIO;
@@ -568,7 +569,7 @@ void pty_init(void)
 #if CONFIG_UNIX98_PTYS
     static bool initialized;
     if (initialized) return;
-    initialized = true;
+    initialized                                     = true;
     static const tmpfs_device_ops_t ptmx_operations = {
         .open       = pty_open,
         .release    = pty_release,

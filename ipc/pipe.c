@@ -28,7 +28,9 @@
 /*  Constants                                                           */
 /* ------------------------------------------------------------------ */
 
-#define PIPE_BUF_SIZE     65536 /* 64KB pipe buffer, atomic write guarantee */
+#ifndef PIPE_BUF_SIZE
+#    define PIPE_BUF_SIZE 65536
+#endif
 #define PIPE_DEFAULT_MODE 0644
 
 /* poll event bits */

@@ -245,7 +245,7 @@ retry_character:;
             int signal = tty_cc_matches(&tty->termios, VINTR, ch) ? SIGINT :
                          tty_cc_matches(&tty->termios, VQUIT, ch) ? SIGQUIT :
                          tty_cc_matches(&tty->termios, VSUSP, ch) ? SIGTSTP :
-                                                                   0;
+                                                                    0;
             if (signal) {
                 tcflag_t lflag = tty->termios.c_lflag;
                 bool     flush = !(lflag & NOFLSH);
@@ -263,7 +263,7 @@ retry_character:;
 
         if (tty->termios.c_lflag & ICANON) {
             if (tty_cc_matches(&tty->termios, VERASE, ch)) {
-                tcflag_t lflag = tty->termios.c_lflag;
+                tcflag_t lflag  = tty->termios.c_lflag;
                 bool     erased = false;
                 if (tty->edit_count) {
                     tty->input_head = (tty->input_head + TTY_CORE_BUFFER_SIZE - 1) % TTY_CORE_BUFFER_SIZE;
@@ -283,7 +283,7 @@ retry_character:;
                 continue;
             }
             if (tty_cc_matches(&tty->termios, VKILL, ch)) {
-                tcflag_t lflag = tty->termios.c_lflag;
+                tcflag_t lflag  = tty->termios.c_lflag;
                 size_t   erased = tty->edit_count;
                 while (tty->edit_count) {
                     tty->input_head = (tty->input_head + TTY_CORE_BUFFER_SIZE - 1) % TTY_CORE_BUFFER_SIZE;
@@ -478,16 +478,14 @@ int64_t tty_core_write(tty_core_t *tty, const void *buffer, size_t size, uint64_
         }
         tcflag_t oflag = tty->termios.c_oflag;
         spin_unlock(&tty->lock);
-        out[0]        = input[done];
+        out[0] = input[done];
         if ((oflag & (OPOST | ONLCR)) == (OPOST | ONLCR) && out[0] == '\n') {
             out[0] = '\r';
             out[1] = '\n';
             count  = 2;
         }
         int emitted = tty->ops.emit(tty->context, out, count, flags);
-        if (emitted < 0) {
-            return done ? (int64_t)done : emitted;
-        }
+        if (emitted < 0) { return done ? (int64_t)done : emitted; }
         if (emitted < (int)count) break;
         done++;
     }
@@ -547,7 +545,7 @@ int tty_core_ioctl(tty_core_t *tty, uint64_t flags, size_t request, void *user_a
             bool old_ixon = (tty->termios.c_iflag & IXON) != 0;
             bool restart  = old_ixon && !(termios.c_iflag & IXON) && tty->output_stopped;
             if (restart) tty->output_stopped = false;
-            tty->termios  = termios;
+            tty->termios = termios;
             spin_unlock(&tty->lock);
             if (request == TCSETSF || mode_changed) wait_queue_wake_all(&tty->input_space_wait);
             if (restart) wait_queue_wake_all(&tty->write_wait);
@@ -645,7 +643,7 @@ int tty_core_ioctl(tty_core_t *tty, uint64_t flags, size_t request, void *user_a
 
             int64_t old_session = 0;
             int64_t old_pgid    = 0;
-            int result = process_ctty_acquire(current, tty, value == 1 && current->uid == 0, &old_session, &old_pgid);
+            int     result      = process_ctty_acquire(current, tty, value == 1 && current->uid == 0, &old_session, &old_pgid);
             if (result) return result;
             if (old_session > 0 && old_session != current->sid && old_pgid > 0) {
                 signal_send_pgrp_session(old_pgid, old_session, SIGHUP);

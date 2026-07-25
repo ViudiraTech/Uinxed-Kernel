@@ -104,14 +104,14 @@ static int vma_remove_range(process_t *proc, uintptr_t start, uintptr_t end)
         }
         if (start <= vma->start) {
             size_t removed_pages = (end - vma->start) / PAGE_4K_SIZE;
-            vma->start = end;
+            vma->start           = end;
             vma->vm_pgoff += removed_pages;
             prev = &vma->next;
             continue;
         }
         if (end >= vma->end) {
             vma->end = start;
-            prev = &vma->next;
+            prev     = &vma->next;
             continue;
         }
 
@@ -120,13 +120,13 @@ static int vma_remove_range(process_t *proc, uintptr_t start, uintptr_t end)
             spin_unlock(&proc->mmap_lock);
             return -ENOMEM;
         }
-        *right = *vma;
+        *right       = *vma;
         right->start = end;
         right->vm_pgoff += (end - vma->start) / PAGE_4K_SIZE;
         right->next = vma->next;
-        vma->end = start;
-        vma->next = right;
-        prev = &vma->next;
+        vma->end    = start;
+        vma->next   = right;
+        prev        = &vma->next;
     }
     spin_unlock(&proc->mmap_lock);
     return 0;

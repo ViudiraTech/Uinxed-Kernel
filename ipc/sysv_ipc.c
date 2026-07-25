@@ -1566,6 +1566,7 @@ int64_t sys_msgctl(int msqid, int cmd, void *buf)
  */
 void sysv_ipc_init(void)
 {
+#if CONFIG_SYSVIPC
     memset(sem_sets, 0, sizeof(sem_sets));
     memset(sem_seq, 0, sizeof(sem_seq));
     memset(shm_segs, 0, sizeof(shm_segs));
@@ -1576,4 +1577,5 @@ void sysv_ipc_init(void)
     sem_undo_list = NULL;
 
     plogk("sysv_ipc: System V IPC registered (sem=%d sets, shm=%d segments, msg=%d queues)\n", SEM_MAX_SETS, SHM_MAX_SEGS, MSG_MAX_QUEUES);
+#endif
 }

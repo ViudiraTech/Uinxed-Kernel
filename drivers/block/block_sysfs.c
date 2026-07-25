@@ -166,6 +166,7 @@ static int block_add_one(struct kobject *parent, const char *name, uint8_t drive
 
 void block_sysfs_init(void)
 {
+#if CONFIG_SYSFS
     extern struct kobject *sysfs_root_kobj;
     struct kobject        *block_kobj = NULL;
     clist_t                node;
@@ -215,4 +216,5 @@ void block_sysfs_init(void)
     }
 
     plogk("block_sysfs: %d block devices exported to /sys/block/\n", count);
+#endif
 }

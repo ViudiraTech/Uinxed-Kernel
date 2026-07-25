@@ -1000,6 +1000,7 @@ int64_t sys_mq_getsetattr(int mqdes, const mq_attr_t *newattr, mq_attr_t *oldatt
 
 void posix_mq_init(void)
 {
+#if CONFIG_POSIX_MQ
     /* Initialize registry */
     memset(mq_registry, 0, sizeof(mq_registry));
 
@@ -1038,4 +1039,5 @@ void posix_mq_init(void)
     }
 
     plogk("posix_mq: POSIX message queues registered (fsid=%d, max_queues=%d)\n", mq_fsid, MQ_MAX_QUEUES);
+#endif
 }

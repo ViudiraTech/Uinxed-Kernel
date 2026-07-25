@@ -471,7 +471,13 @@ char *kobject_get_path(struct kobject *kobj)
 
 int kobject_uevent(struct kobject *kobj, enum kobject_action action)
 {
+#if CONFIG_UEVENT_HELPER
     return kobject_uevent_env(kobj, action, NULL, 0);
+#else
+    (void)kobj;
+    (void)action;
+    return 0;
+#endif
 }
 
 /* ------------------------------------------------------------------ */
@@ -494,6 +500,7 @@ uint64_t kobject_uevent_seqnum(void)
 
 int kobject_uevent_env(struct kobject *kobj, enum kobject_action action, char *envp[], int nenv)
 {
+#if CONFIG_UEVENT_HELPER
     struct kset *kset;
     const char  *action_string = NULL;
     char        *devpath;
@@ -653,4 +660,5 @@ int kobject_uevent_env(struct kobject *kobj, enum kobject_action action, char *e
     }
 
     return EOK;
+#endif
 }

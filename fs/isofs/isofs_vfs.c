@@ -724,6 +724,7 @@ static struct vfs_callback isofs_callbacks = {
 
 void isofs_regist(void)
 {
+#if CONFIG_ISO9660_FS
     isofs_fs_id = vfs_regist_fs("isofs", &isofs_callbacks);
     if (!(isofs_fs_id & ERRNO_MASK)) plogk("isofs: Filesystem registered (fsid=%d)\n", isofs_fs_id);
     if (isofs_fs_id & ERRNO_MASK) {
@@ -744,6 +745,7 @@ void isofs_regist(void)
               ahci_devices[d].sector_size);
         sr_idx++;
     }
+#endif
 }
 
 void isofs_mount_all(void)

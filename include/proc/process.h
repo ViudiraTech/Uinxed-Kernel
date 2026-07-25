@@ -31,12 +31,18 @@ typedef int64_t pid_t;
 #define PROCESS_MAX_ARGV     64
 #define PROCESS_MAX_ENVP     64
 #define PROCESS_MAX_CHILDREN 128
-#define PROCESS_MAX_FD       64
-#define PROCESS_KERNEL_STACK 0x10000
-#define PROCESS_STACK_SIZE   (4 * 1024 * 1024)
-#define PROCESS_HEAP_START   0x100000
-#define PROCESS_HEAP_MAX     0x7ff00000
-#define PROCESS_STACK_BASE   0x7ffffffff000
+#ifndef PROCESS_MAX_FD
+#    define PROCESS_MAX_FD 64
+#endif
+#ifndef PROCESS_KERNEL_STACK
+#    define PROCESS_KERNEL_STACK 0x10000
+#endif
+#ifndef PROCESS_STACK_SIZE
+#    define PROCESS_STACK_SIZE (4 * 1024 * 1024)
+#endif
+#define PROCESS_HEAP_START 0x100000
+#define PROCESS_HEAP_MAX   0x7ff00000
+#define PROCESS_STACK_BASE 0x7ffffffff000
 
 #define PROCESS_USER_CODE_MIN  0x0000000000400000
 #define PROCESS_USER_CODE_MAX  0x00007fffffe00000
@@ -80,15 +86,15 @@ typedef struct vm_area {
 } vm_area_t;
 
 typedef struct process_file {
-        vfs_node_t node;
-        size_t     offset;
-        uint64_t   flags;
-        uint32_t   refcount;
-        spinlock_t lock;
+        vfs_node_t   node;
+        size_t       offset;
+        uint64_t     flags;
+        uint32_t     refcount;
+        spinlock_t   lock;
         wait_queue_t io_wait;
         bool         io_busy;
-        void      *private_data; /* per-open-instance driver-private data */
-        bool       file_opened;  /* file_open succeeded and requires release */
+        void        *private_data; /* per-open-instance driver-private data */
+        bool         file_opened;  /* file_open succeeded and requires release */
 } process_file_t;
 
 typedef struct process_fd_stat {
@@ -177,9 +183,9 @@ int         process_ctty_acquire(process_t *proc, tty_core_t *tty, bool force, p
 pid_t       process_ctty_disassociate(tty_core_t *tty, pid_t sid);
 
 /* Process-group/session operations serialized by the process table lock. */
-int process_setpgid(process_t *caller, pid_t pid, pid_t pgid);
-int process_setsid(process_t *proc, pid_t *sid);
-bool        process_pgrp_is_orphaned(pid_t pgid, pid_t sid);
+int  process_setpgid(process_t *caller, pid_t pid, pid_t pgid);
+int  process_setsid(process_t *proc, pid_t *sid);
+bool process_pgrp_is_orphaned(pid_t pgid, pid_t sid);
 
 /* Clone the current process (fork semantics) */
 process_t *process_fork(void);

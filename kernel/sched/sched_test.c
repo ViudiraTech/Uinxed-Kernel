@@ -19,7 +19,7 @@ static task_t           *migration_task;
 static volatile uint32_t wake_all_ready;
 static volatile uint32_t wake_all_woken;
 
-#define WAKE_ALL_TEST_WAITERS 24
+#    define WAKE_ALL_TEST_WAITERS 24
 
 static void scheduler_demo_thread(void *arg)
 {
@@ -111,8 +111,7 @@ static void wake_all_test_thread(void *arg)
     uint64_t count = wait_queue_wake_all(&wake_all_wait_queue);
 
     while (__atomic_load_n(&wake_all_woken, __ATOMIC_ACQUIRE) < WAKE_ALL_TEST_WAITERS) sched_yield();
-    plogk("sched: wake_all test %s (%llu/%u waiters)\n", count == WAKE_ALL_TEST_WAITERS ? "passed" : "failed", count,
-          WAKE_ALL_TEST_WAITERS);
+    plogk("sched: wake_all test %s (%llu/%u waiters)\n", count == WAKE_ALL_TEST_WAITERS ? "passed" : "failed", count, WAKE_ALL_TEST_WAITERS);
 }
 
 static void balance_demo_thread(void *arg)

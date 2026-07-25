@@ -37,7 +37,9 @@
 /* Pipe init extern declaration */
 extern void pipe_init(void);
 
-#define PROCESS_TABLE_SIZE 4096
+#ifndef PROCESS_TABLE_SIZE
+#    define PROCESS_TABLE_SIZE 4096
+#endif
 
 static process_t *process_table[PROCESS_TABLE_SIZE];
 static spinlock_t process_table_lock;
@@ -396,7 +398,7 @@ bool process_pgrp_is_orphaned(pid_t pgid, pid_t sid)
     for (size_t i = 0; i < PROCESS_TABLE_SIZE; i++) {
         process_t *proc = process_table[i];
         if (!proc || proc->pgid != pgid || proc->sid != sid) continue;
-        found = true;
+        found             = true;
         process_t *parent = proc->parent;
         if (parent && parent != proc && parent->sid == sid && parent->pgid != pgid) {
             spin_unlock(&process_table_lock);

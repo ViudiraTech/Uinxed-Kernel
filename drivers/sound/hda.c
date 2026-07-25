@@ -936,6 +936,7 @@ static void hda_interrupt_handler(interrupt_frame_t *frame)
 /* ------------------------------------------------------------------ */
 void hda_init(void)
 {
+#if CONFIG_SOUND_HDA
     pci_device_cache_t  *dev;
     pci_device_request_t req;
     uint32_t             irq;
@@ -1087,4 +1088,5 @@ void hda_init(void)
     hda_ctrl.audio_fmt     = fmt;
     audio_register_card("Intel HD Audio", &fmt, &hda_audio_ops, &hda_ctrl);
     hda_ctrl.audio_registered = 1;
+#endif
 }

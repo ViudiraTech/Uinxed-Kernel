@@ -11,22 +11,22 @@
 #include <sync/spin_lock.h>
 
 struct cgroup {
-        char         *name;
-        cgroup_t     *parent;
-        clist_t       children;
-        ilist_node_t  tasks;
-        uint64_t      subtree_control;
-        uint64_t      pids_max;
-        uint64_t      pids_current;
-        uint64_t      pids_events_max;
-        uint32_t      refcount;
-        int           dying;
+        char        *name;
+        cgroup_t    *parent;
+        clist_t      children;
+        ilist_node_t tasks;
+        uint64_t     subtree_control;
+        uint64_t     pids_max;
+        uint64_t     pids_current;
+        uint64_t     pids_events_max;
+        uint32_t     refcount;
+        int          dying;
 };
 
-static cgroup_t  root_cgroup;
+static cgroup_t   root_cgroup;
 static spinlock_t cgroup_lock;
 static int        cgroup_ready;
-static uint64_t registered_controllers;
+static uint64_t   registered_controllers;
 
 static int parse_u64(const char *value, size_t size, uint64_t *result)
 {
@@ -120,6 +120,7 @@ static int attach_task_locked(cgroup_t *target, task_t *task)
 
 void cgroup_init(void)
 {
+#if CONFIG_CGROUP
     memset(&root_cgroup, 0, sizeof(root_cgroup));
     root_cgroup.name     = strdup("");
     root_cgroup.pids_max = CGROUP_PIDS_MAX;
@@ -132,6 +133,7 @@ void cgroup_init(void)
         return;
     }
     plogk("cgroup: unified hierarchy initialized with pids controller\n");
+#endif
 }
 
 int cgroup_register_controller(const char *name, uint64_t id)
@@ -158,8 +160,10 @@ cgroup_t *cgroup_get(cgroup_t *cg)
     if (!cg) return NULL;
     if (cg == &root_cgroup) return cg;
     spin_lock(&cgroup_lock);
-    if (cg->dying) cg = NULL;
-    else cg->refcount++;
+    if (cg->dying)
+        cg = NULL;
+    else
+        cg->refcount++;
     spin_unlock(&cgroup_lock);
     return cg;
 }
@@ -265,8 +269,8 @@ int cgroup_destroy(cgroup_t *cg)
         return -EBUSY;
     }
     cg->parent->children = clist_delete(cg->parent->children, cg);
-    cg->dying = 1;
-    release = --cg->refcount == 0;
+    cg->dying            = 1;
+    release              = --cg->refcount == 0;
     spin_unlock(&cgroup_lock);
     if (release) {
         free(cg->name);
@@ -363,9 +367,18 @@ int cgroup_move_pid(cgroup_t *cg, const char *value, size_t size)
     return status;
 }
 
-cgroup_t *cgroup_parent(cgroup_t *cg) { return cg ? cg->parent : NULL; }
-const char *cgroup_name(cgroup_t *cg) { return cg ? cg->name : NULL; }
-uint64_t cgroup_subtree_control(cgroup_t *cg) { return cg ? cg->subtree_control : 0; }
+cgroup_t *cgroup_parent(cgroup_t *cg)
+{
+    return cg ? cg->parent : NULL;
+}
+const char *cgroup_name(cgroup_t *cg)
+{
+    return cg ? cg->name : NULL;
+}
+uint64_t cgroup_subtree_control(cgroup_t *cg)
+{
+    return cg ? cg->subtree_control : 0;
+}
 
 int cgroup_pids_available(cgroup_t *cg)
 {
@@ -377,7 +390,10 @@ int cgroup_pids_available(cgroup_t *cg)
     return available;
 }
 
-int cgroup_is_root(cgroup_t *cg) { return cg == &root_cgroup; }
+int cgroup_is_root(cgroup_t *cg)
+{
+    return cg == &root_cgroup;
+}
 
 int cgroup_show_controllers(cgroup_t *cg, char *buf, size_t size)
 {

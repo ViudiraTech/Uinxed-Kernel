@@ -586,6 +586,7 @@ struct device_driver *bus_find_driver_by_name(struct bus_type *bus, const char *
 
 int device_model_init(void)
 {
+#if CONFIG_SYSFS
     /* Locate the top-level sysfs kobjects created by sysfs_init */
     /* They are children of sysfs_root_kobj */
     extern struct kobject *sysfs_root_kobj;
@@ -605,6 +606,7 @@ int device_model_init(void)
     }
 
     return EOK;
+#endif
 }
 
 /* Internal helper: find child kobject by name */

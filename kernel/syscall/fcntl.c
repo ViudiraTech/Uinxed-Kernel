@@ -136,9 +136,9 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             /* Only O_NONBLOCK and O_APPEND can be changed */
             uint64_t settable = O_NONBLOCK | O_APPEND;
             spin_lock(&file->lock);
-            file->flags       = (file->flags & ~settable) | (arg & settable);
+            file->flags = (file->flags & ~settable) | (arg & settable);
             spin_unlock(&file->lock);
-            result            = 0;
+            result = 0;
             break;
         }
 

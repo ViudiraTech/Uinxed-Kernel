@@ -134,6 +134,7 @@ INTERRUPT_END
 
 void init_ps2(void)
 {
+#if CONFIG_PS2_KEYBOARD_MOUSE
     uint8_t config;
     uint8_t result;
     bool    dual_channel;
@@ -194,4 +195,5 @@ void init_ps2(void)
         register_interrupt_handler(IRQ_12, (void *)ps2_irq, 0, 0x8e);
     }
     plogk("ps/2: keyboard=%s mouse-port=%s\n", ps2_port1_ok ? "ready" : "unavailable", ps2_port2_ok ? "ready" : "unavailable");
+#endif
 }

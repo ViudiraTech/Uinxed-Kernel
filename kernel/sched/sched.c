@@ -33,11 +33,21 @@
 /*  Constants                                                           */
 /* ------------------------------------------------------------------ */
 
-#define SCHED_LOAD_BALANCE_INTERVAL 16
-#define SCHED_BASE_SLICE            4ULL /* Linux sysctl_sched_base_slice ≈ 3ms */
-#define SCHED_LATENCY               8ULL /* target scheduling latency (ticks)    */
-#define SCHED_MIN_GRANULARITY       1ULL /* minimum preemption granularity       */
-#define SCHED_WAKEUP_GRANULARITY    1ULL /* wakeup preemption threshold          */
+#ifndef SCHED_LOAD_BALANCE_INTERVAL
+#    define SCHED_LOAD_BALANCE_INTERVAL 16
+#endif
+#ifndef SCHED_BASE_SLICE
+#    define SCHED_BASE_SLICE 4ULL
+#endif
+#ifndef SCHED_LATENCY
+#    define SCHED_LATENCY 8ULL
+#endif
+#ifndef SCHED_MIN_GRANULARITY
+#    define SCHED_MIN_GRANULARITY 1ULL
+#endif
+#ifndef SCHED_WAKEUP_GRANULARITY
+#    define SCHED_WAKEUP_GRANULARITY 1ULL
+#endif
 
 /* ------------------------------------------------------------------ */
 /*  Global state                                                        */
@@ -458,9 +468,9 @@ static void finish_wait_locked(task_t *task, task_wake_reason_t reason)
     if (!task->wait_queue) return;
 
     ilist_remove(&task->sched_node);
-    task->wait_queue = NULL;
+    task->wait_queue  = NULL;
     task->wake_reason = reason;
-    task->wake_tick = 0;
+    task->wake_tick   = 0;
     if (node_is_linked(&task->timer_node)) ilist_remove(&task->timer_node);
 
     if (task->state == TASK_BLOCKED) wake_task_locked(task, 0);
@@ -921,7 +931,7 @@ void wait_queue_prepare(wait_queue_t *queue)
  */
 void wait_queue_sleep(void)
 {
-    task_t *curr = local_current();
+    task_t *curr  = local_current();
     int     sleep = 0;
 
     spin_lock(&scheduler.lock);

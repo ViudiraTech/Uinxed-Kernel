@@ -326,11 +326,11 @@ static void tty_buff_add(const char ch)
     *tty_buff_ptr++ = ch;
 
     if (tty_should_flush_now(tty_device, ch, (size_t)(tty_buff_ptr - tty_buff))) {
-        *tty_buff_ptr = '\0';
+        *tty_buff_ptr        = '\0';
         uint16_t serial_port = tty_device && tty_device->port == 1 ? SERIAL_PORT_2 :
                                tty_device && tty_device->port == 2 ? SERIAL_PORT_3 :
                                tty_device && tty_device->port == 3 ? SERIAL_PORT_4 :
-                                                                    SERIAL_PORT_1;
+                                                                     SERIAL_PORT_1;
         for (char *ptr = tty_buff; ptr < (char *)tty_buff_ptr && *ptr != '\0'; ptr++) write_serial(serial_port, *ptr);
         tty_buff_ptr = tty_buff;
     }

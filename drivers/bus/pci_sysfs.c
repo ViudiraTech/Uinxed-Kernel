@@ -146,6 +146,7 @@ static void pci_dev_release(struct device *dev)
 
 void pci_sysfs_init(void)
 {
+#if CONFIG_SYSFS
     pci_devices_cache_t *cache;
     pci_device_cache_t  *item;
     int                  ret;
@@ -212,4 +213,5 @@ void pci_sysfs_init(void)
     }
 
     plogk("pci_sysfs: registered %d PCI devices on bus 'pci'\n", dev_count);
+#endif
 }

@@ -310,6 +310,7 @@ static uint32_t tpm_verify_mmio(void *virt_addr)
 
 int tpm_init(void)
 {
+#if CONFIG_TPM
     memset(&g_tpm_device, 0, sizeof(g_tpm_device));
     g_tpm_device.locality = -1;
 
@@ -451,4 +452,7 @@ int tpm_init(void)
     }
 
     return -1;
+#else
+    return 0;
+#endif
 }

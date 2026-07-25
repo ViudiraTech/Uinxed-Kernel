@@ -796,6 +796,7 @@ static int netlink_wrap_close(struct socket *sk)
 
 void netlink_init(void)
 {
+#if CONFIG_NETLINK
     memset(nl_mcast, 0, sizeof(nl_mcast));
 
     for (int i = 0; i < NL_PROTO_MAX; i++) {
@@ -807,4 +808,5 @@ void netlink_init(void)
     memset(&nl_pid_lock, 0, sizeof(nl_pid_lock));
 
     plogk("netlink: AF_NETLINK socket family registered.\n");
+#endif
 }

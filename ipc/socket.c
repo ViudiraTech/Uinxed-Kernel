@@ -30,9 +30,11 @@
 /* ------------------------------------------------------------------ */
 
 #define SOCK_ACCEPT_QUEUE_INIT 16
-#define SOCK_ACCEPT_QUEUE_MAX  1024
-#define SOCK_BLOCKED_MAX       128
-#define SOCK_BOUND_MAX         256
+#ifndef SOCK_ACCEPT_QUEUE_MAX
+#    define SOCK_ACCEPT_QUEUE_MAX 1024
+#endif
+#define SOCK_BLOCKED_MAX 128
+#define SOCK_BOUND_MAX   256
 
 /* ------------------------------------------------------------------ */
 /*  Blocked-socket tracking – maps a blocked socket to its task         */

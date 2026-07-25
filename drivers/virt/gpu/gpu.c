@@ -29,6 +29,7 @@
 #include <drivers/drm/drm_mode.h>
 #include <drivers/drm/drm_print.h>
 #include <drivers/pci.h>
+#include <drivers/tty.h>
 #include <drivers/virt/gpu/virtgpu_cmd.h>
 #include <drivers/virt/gpu/virtgpu_drv.h>
 #include <drivers/virt/gpu/virtgpu_gem.h>
@@ -704,7 +705,16 @@ int virtio_gpu_driver_init(void)
  */
 void virtio_gpu_init(void)
 {
+#if CONFIG_VIRTIO_GPU
     (void)virtio_gpu_driver_init();
+
+    /* Fall back to VGA if no VirtIO-GPU device was probed */
+    tty_device_t *bt = get_boot_tty();
+    if (bt->type == TTY_DEVICE_DRM && !virtio_gpu_get_device()) {
+        tty_set_device_type(TTY_DEVICE_VGA);
+        plogk("virtgpu: not available, TTY staying in VGA mode.\n");
+    }
+#endif
 }
 
 /*

@@ -569,6 +569,7 @@ int drm_class_registered = 0;
 
 int drm_init(void)
 {
+#if CONFIG_DRM
     struct drm_device *dev;
 
     dev = drm_dev_alloc(&drm_dummy_driver);
@@ -601,4 +602,5 @@ int drm_init(void)
     }
 
     return 0;
+#endif
 }

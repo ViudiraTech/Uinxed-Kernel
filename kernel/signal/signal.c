@@ -1171,7 +1171,7 @@ static int signal_send_group(int64_t pgid, int64_t sid, int sig, process_t *send
 
     size_t     pos = 0;
     process_t *target;
-    int        found = 0;
+    int        found  = 0;
     int        result = 0;
     while ((target = process_group_iterate_get(&pos, pgid, sid))) {
         if (sender && signal_check_perm(sender, target) < 0) {
