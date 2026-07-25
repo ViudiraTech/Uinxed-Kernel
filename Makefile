@@ -22,7 +22,6 @@ else
   Q=@
 endif
 
-# ---- General setup ----
 ifeq ($(CONFIG_KERNEL_LOG), y)
   C_CONFIG += -DKERNEL_LOG=1
 else
@@ -69,7 +68,6 @@ else
   C_CONFIG += -DCONFIG_SERIAL=0
 endif
 
-# ---- Processor type and features ----
 ifneq ($(CONFIG_CPU_MAX_COUNT),)
   C_CONFIG += -DCPU_MAX_COUNT=$(CONFIG_CPU_MAX_COUNT)
 endif
@@ -92,12 +90,10 @@ else
   C_CONFIG += -DCPU_FEATURE_AVX=0 -mno-avx -mno-avx2
 endif
 
-# ---- Memory management ----
 ifneq ($(CONFIG_KERNEL_HEAP_MAX_SIZE),)
   C_CONFIG += -DKERNEL_HEAP_MAX_MIB=$(CONFIG_KERNEL_HEAP_MAX_SIZE)
 endif
 
-# ---- Scheduler ----
 ifneq ($(CONFIG_SCHED_BASE_SLICE),)
   C_CONFIG += -DSCHED_BASE_SLICE=$(CONFIG_SCHED_BASE_SLICE)
 endif
@@ -124,7 +120,6 @@ else
   C_CONFIG += -DSCHED_DEBUG_DEMO=0
 endif
 
-# ---- Process management ----
 ifneq ($(CONFIG_PROCESS_MAX_FD),)
   C_CONFIG += -DPROCESS_MAX_FD=$(CONFIG_PROCESS_MAX_FD)
 endif
@@ -141,7 +136,6 @@ ifneq ($(CONFIG_PROCESS_USER_STACK_SIZE),)
   C_CONFIG += -DPROCESS_STACK_SIZE=$(CONFIG_PROCESS_USER_STACK_SIZE)
 endif
 
-# ---- IPC ----
 ifneq ($(CONFIG_PIPE_BUF_SIZE),)
   C_CONFIG += -DPIPE_BUF_SIZE=$(CONFIG_PIPE_BUF_SIZE)
 endif
@@ -180,7 +174,6 @@ else
   C_CONFIG += -DCONFIG_POSIX_MQ=0
 endif
 
-# ---- Device drivers: character devices ----
 ifeq ($(CONFIG_PS2_KEYBOARD_MOUSE), y)
   C_CONFIG += -DCONFIG_PS2_KEYBOARD_MOUSE=1
 else
@@ -193,7 +186,6 @@ else
   C_CONFIG += -DCONFIG_PARPORT=0
 endif
 
-# ---- Device drivers: input ----
 ifeq ($(CONFIG_INPUT_EVDEV), y)
   C_CONFIG += -DCONFIG_INPUT_EVDEV=1
 else
@@ -204,7 +196,6 @@ ifneq ($(CONFIG_INPUT_EVDEV_BUFSIZE),)
   C_CONFIG += -DINPUT_EVDEV_BUFSIZE=$(CONFIG_INPUT_EVDEV_BUFSIZE)
 endif
 
-# ---- Device drivers: graphics ----
 ifeq ($(CONFIG_DRM), y)
   C_CONFIG += -DCONFIG_DRM=1
 else
@@ -217,7 +208,6 @@ else
   C_CONFIG += -DBOOT_LOGO=0
 endif
 
-# ---- Device drivers: virtio ----
 ifeq ($(CONFIG_VIRTIO), y)
   C_CONFIG += -DCONFIG_VIRTIO=1
 else
@@ -230,7 +220,6 @@ else
   C_CONFIG += -DCONFIG_VIRTIO_GPU=0
 endif
 
-# ---- Device drivers: sound ----
 ifeq ($(CONFIG_SOUND_HDA), y)
   C_CONFIG += -DCONFIG_SOUND_HDA=1
 else
@@ -249,21 +238,18 @@ else
   C_CONFIG += -DCONFIG_PCSPKR=0
 endif
 
-# ---- Device drivers: I2C ----
 ifeq ($(CONFIG_I2C), y)
   C_CONFIG += -DCONFIG_I2C=1
 else
   C_CONFIG += -DCONFIG_I2C=0
 endif
 
-# ---- Device drivers: security ----
 ifeq ($(CONFIG_TPM), y)
   C_CONFIG += -DCONFIG_TPM=1
 else
   C_CONFIG += -DCONFIG_TPM=0
 endif
 
-# ---- File systems ----
 ifeq ($(CONFIG_SYSFS), y)
   C_CONFIG += -DCONFIG_SYSFS=1
 else
@@ -306,57 +292,29 @@ OBJS           := $(C_SOURCES:%.c=%.o)
 DEPS           := $(OBJS:%.o=%.d)
 LIBS           := $(wildcard libs/lib*.a)
 PWD            := $(shell pwd)
+
 HOST_CC        ?= $(CC)
 HOST_CFLAGS    := -Wall -Wextra -O2
+
 QEMU           := qemu-system-x86_64
 QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd -serial stdio
 
-AS             := $(CC)
-ASFLAGS        := -c -m64 -ffreestanding -nostdlib -fno-omit-frame-pointer -I include
-INIT_ELF       := assets/Limine/init
-
-# Automatically find all C source files in tools/ and generate their binary targets
-TOOL_C_SOURCES := $(filter-out tools/ps2_mouse_protocol_test.c tools/vm_cow_test.c tools/tty_job_control_test.c,$(wildcard tools/*.c))
+TOOL_C_SOURCES := $(wildcard tools/*.c)
 TOOL_TARGETS   := $(TOOL_C_SOURCES:%.c=%)
-PS2_MOUSE_TEST := .cache/ps2_mouse_protocol_test
-VM_COW_TEST    := .cache/vm_cow_test
-TTY_JOB_CONTROL_TEST := .cache/tty_job_control_test
 
 # If you want to get more details of `dump_stack`, you need to replace `-O3` with `-O0` or '-Os'.
 # `-fno-optimize-sibling-calls` is for `dump_stack` to work properly.
-C_FLAGS        := -Wall -Wextra -Wno-unused-function -O3 -g3 -m64 -fpie -ffreestanding -fno-optimize-sibling-calls -fno-stack-protector -fno-omit-frame-pointer -mstackrealign -mno-red-zone -I include -MMD
+AS_FLAGS       := -c -m64 -ffreestanding -nostdlib -fno-omit-frame-pointer -I include
+CC_FLAGS       := -Wall -Wextra -Wno-unused-function -O3 -g3 -m64 -fpie -ffreestanding -fno-optimize-sibling-calls -fno-stack-protector -fno-omit-frame-pointer -mstackrealign -mno-red-zone -I include -MMD
 LD_FLAGS       := -nostdlib -pie -T assets/linker.ld -m elf_x86_64
+
+INIT_ELF       := assets/Limine/init
 
 all: Uinxed-x64.iso
 
-test-ps2-mouse:
-	$(Q)mkdir -p $(dir $(PS2_MOUSE_TEST))
-	$(Q)$(HOST_CC) $(HOST_CFLAGS) -I include -o $(PS2_MOUSE_TEST) tools/ps2_mouse_protocol_test.c drivers/input/ps2_mouse_protocol.c
-	$(Q)./$(PS2_MOUSE_TEST)
-
-test-vm-cow:
-	$(Q)mkdir -p $(dir $(VM_COW_TEST))
-	$(Q)$(HOST_CC) $(HOST_CFLAGS) -fno-builtin -ffunction-sections -fdata-sections -DVM_COW_HOST_TEST -I include \
-		-Wl,--gc-sections -o $(VM_COW_TEST) tools/vm_cow_test.c mem/page.c
-	$(Q)./$(VM_COW_TEST)
-
-test-tty-job-control:
-	$(Q)mkdir -p $(dir $(TTY_JOB_CONTROL_TEST))
-	$(Q)$(HOST_CC) $(HOST_CFLAGS) -fno-builtin -ffunction-sections -fdata-sections -I include \
-		-Wl,--gc-sections -o $(TTY_JOB_CONTROL_TEST) tools/tty_job_control_test.c drivers/char/tty.c drivers/char/tty_core.c \
-		kernel/process/boot_process.c kernel/process/elf_loader_entry.c
-	$(Q)./$(TTY_JOB_CONTROL_TEST)
-
 %.o: %.c
 	$(Q)printf "  CC      $@\n"
-	$(Q)$(CC) $(C_FLAGS) $(C_CONFIG) -MT $@ -c -o $@ $<
-
-$(INIT_ELF): assets/init.S assets/init.ld
-	$(Q)printf "  AS      assets/init.o\n"
-	$(Q)$(AS) $(ASFLAGS) -o assets/init.o $<
-	$(Q)printf "  LD      $@\n"
-	$(Q)$(LD) -nostdlib -static -T assets/init.ld -m elf_x86_64 -o $@ assets/init.o
-	$(Q)$(RM) assets/init.o
+	$(Q)$(CC) $(CC_FLAGS) $(C_CONFIG) -MT $@ -c -o $@ $<
 
 %.fmt: %
 	$(Q)printf "  FORMAT  $<\n"
@@ -364,7 +322,7 @@ $(INIT_ELF): assets/init.S assets/init.ld
 
 %.tidy: %
 	$(Q)printf "  TIDY    $<\n"
-	$(Q)clang-tidy $< -- $(C_FLAGS)
+	$(Q)clang-tidy $< -- $(CC_FLAGS)
 
 info:
 	$(Q)printf "Uinxed Compiling Script - Apache License Version 2.0.\n\n"
@@ -372,6 +330,13 @@ info:
 tools/%: tools/%.c
 	$(Q)printf "  HOSTCC  $@\n"
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) -o $@ $<
+
+$(INIT_ELF): assets/init.S assets/init.ld
+	$(Q)printf "  AS      assets/init.o\n"
+	$(Q)$(CC) $(AS_FLAGS) -o assets/init.o $<
+	$(Q)printf "  LD      $@\n"
+	$(Q)$(LD) -nostdlib -static -T assets/init.ld -m elf_x86_64 -o $@ assets/init.o
+	$(Q)$(RM) assets/init.o
 
 UxImage: $(TOOL_TARGETS) $(OBJS) $(LIBS)
 	$(Q)printf "  LD      $@\n"
@@ -390,7 +355,7 @@ Uinxed-x64.iso: info UxImage $(INIT_ELF)
 	$(Q)printf "Image: $@ is ready.\n"
 	$(Q)printf "Compilation complete.\n"
 
-.PHONY: help run clean format check gen.clangd menuconfig diskimg test-ps2-mouse test-vm-cow test-tty-job-control
+.PHONY: help run disk.img clean format check gen.clangd menuconfig
 
 help: info
 	$(Q)printf "Uinxed-Kernel Makefile Usage:\n"
@@ -416,6 +381,7 @@ clean: info
 	$(Q)printf "Clean completed.\n"
 
 format: info $(C_SOURCES:%=%.fmt) $(C_HEADERS:%=%.fmt)
+	$(Q)find . -type f ! -path './.git/*' -exec dos2unix -q {} +
 	$(Q)printf "\nCode Format complete.\n"
 
 check: info $(C_SOURCES:%=%.tidy) $(C_HEADERS:%=%.tidy)

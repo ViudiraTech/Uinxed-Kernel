@@ -86,24 +86,25 @@ Uinxed is a UNIX-like operating system kernel developed from scratch, focusing o
 6. **clang-tidy**: Used for static analysis of code.
 7. **kconfig-frontends**: Provides a graphical configuration menu.
 8. **libncurses-dev**: Text-based user interface library.
+9. **dos2unix**: Converts text files from CRLF to LF line endings.
 
 ### Installation Steps
 
 **Debian & Ubuntu**
 ```bash
 sudo apt update
-sudo apt install make gcc qemu-system xorriso clang-format clang-tidy kconfig-frontends libncurses-dev
+sudo apt install make gcc qemu-system xorriso clang-format clang-tidy kconfig-frontends libncurses-dev dos2unix
 ```
 
 **ArchLinux**
 ```bash
-pacman -Sy make gcc qemu-system xorriso clang-format clang-tidy kconfig-frontends libncurses-dev
+pacman -Sy make gcc qemu-system xorriso clang-format clang-tidy kconfig-frontends libncurses-dev dos2unix
 ```
 
 **Alpine**
 ```bash
 sudo apk update
-sudo apk add make gcc qemu-system xorriso clang-format clang-tidy kconfig-frontends libncurses-dev
+sudo apk add make gcc qemu-system xorriso clang-format clang-tidy kconfig-frontends libncurses-dev dos2unix
 ```
 
 ## Compilation Guide 📖

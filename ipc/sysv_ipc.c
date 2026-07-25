@@ -1032,9 +1032,7 @@ int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg)
 
 rollback:
     for (uint32_t i = 0; i < mapped; i++) (void)page_unmap_release(proc->user_page_dir, vaddr + i * PAGE_4K_SIZE);
-    if (mapped < seg->npages) {
-        (void)frame_release_range(seg->phys_addr + mapped * PAGE_4K_SIZE, seg->npages - mapped);
-    }
+    if (mapped < seg->npages) { (void)frame_release_range(seg->phys_addr + mapped * PAGE_4K_SIZE, seg->npages - mapped); }
     sysv_shm_vma_put(seg, (uint32_t)proc->task->pid);
     free(vma);
     return -ENOMEM;

@@ -51,7 +51,7 @@ typedef struct {
 
 typedef struct {
         page_table_t *table;
-        spinlock_t     lock;
+        spinlock_t    lock;
 } page_directory_t;
 
 typedef struct {

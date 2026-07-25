@@ -170,7 +170,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         if (!addr) return -EINVAL;
         if (addr > UINT64_MAX - pages) return -EINVAL;
         if (addr + pages > PROCESS_USER_STACK_TOP) return -EINVAL;
-        mmap_addr = addr;
+        mmap_addr        = addr;
         int unmap_result = unmap_physical_pages(proc, mmap_addr, pages);
         if (unmap_result) return unmap_result;
         int ret = vma_remove_range(proc, mmap_addr, mmap_addr + pages);
@@ -304,8 +304,8 @@ int sys_munmap_full(uint64_t addr, uint64_t length)
     if (!length || (addr & (PAGE_4K_SIZE - 1))) return -EINVAL;
     if (length > UINT64_MAX - PAGE_4K_SIZE) return -EINVAL;
 
-    size_t pages = ALIGN_UP(length, PAGE_4K_SIZE);
-    int unmap_result = unmap_physical_pages(proc, (uintptr_t)addr, pages);
+    size_t pages        = ALIGN_UP(length, PAGE_4K_SIZE);
+    int    unmap_result = unmap_physical_pages(proc, (uintptr_t)addr, pages);
     if (unmap_result) return unmap_result;
     return vma_remove_range(proc, (uintptr_t)addr, (uintptr_t)addr + pages);
 }
@@ -328,7 +328,7 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
         if (vma->start == (uintptr_t)addr) {
             vm_flags |= vma->flags & VM_SHARED;
             vma->flags = vm_flags;
-            pte_flags   = vm_flags_to_pte(vm_flags);
+            pte_flags  = vm_flags_to_pte(vm_flags);
             break;
         }
     }

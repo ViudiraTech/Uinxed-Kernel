@@ -69,11 +69,14 @@ mkfs_simplefs
 .config
 .config.old
 
+# Microsoft
+desktop.ini
+
 # Other
+.superpowers/
 .cache/
 compile_commands.json
 make.log
 *.bak
-
 *.img
 *.log

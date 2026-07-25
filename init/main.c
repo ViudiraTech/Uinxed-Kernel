@@ -49,7 +49,6 @@
 #include <ipc/posix_mq.h>
 #include <ipc/socket.h>
 #include <ipc/sysv_ipc.h>
-#include <kernel/boot_process.h>
 #include <kernel/cmdline.h>
 #include <kernel/debug.h>
 #include <kernel/device.h>
@@ -62,6 +61,7 @@
 #include <mem/heap.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
+#include <proc/boot_process.h>
 #include <proc/process.h>
 #include <proc/sched.h>
 #include <proc/sched_test.h>

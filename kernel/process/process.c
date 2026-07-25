@@ -843,9 +843,9 @@ static void process_free(process_t *proc)
 {
     if (!proc) return;
 
-    task_t *task = proc->task;
-    uint32_t pid = task ? (uint32_t)task->pid : 0;
-    proc->task   = NULL;
+    task_t  *task = proc->task;
+    uint32_t pid  = task ? (uint32_t)task->pid : 0;
+    proc->task    = NULL;
     if (task) task->process = NULL;
 
     process_ctty_clear(proc);
@@ -1068,9 +1068,7 @@ int process_wait(pid_t pid, int *exit_code)
 
     for (;;) {
         task_t *child_task = child->task;
-        if (child_task->state == TASK_ZOMBIE && !__atomic_load_n(&child_task->on_cpu, __ATOMIC_ACQUIRE)) {
-            break;
-        }
+        if (child_task->state == TASK_ZOMBIE && !__atomic_load_n(&child_task->on_cpu, __ATOMIC_ACQUIRE)) { break; }
         spin_unlock(&process_table_lock);
         spin_unlock(&scheduler.lock);
         task_sleep_ticks(1);

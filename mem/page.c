@@ -120,7 +120,7 @@ void page_table_clear(page_table_t *table)
 page_table_t *page_table_create(page_table_entry_t *entry)
 {
     if (!entry->value) {
-        uint64_t frame      = alloc_frames(1);
+        uint64_t frame = alloc_frames(1);
         if (!frame) return NULL;
         entry->value        = frame | PTE_PRESENT | PTE_WRITEABLE | PTE_USER;
         page_table_t *table = (page_table_t *)phys_to_virt(entry->value & PAGE_4K_MASK);
@@ -394,7 +394,7 @@ int page_resolve_cow_fault(page_directory_t *directory, uintptr_t addr)
 
         spin_lock(&directory->lock);
         cow_fault_leaf_t current;
-        int current_result = find_cow_leaf(directory, addr, &current);
+        int              current_result = find_cow_leaf(directory, addr, &current);
         if (!current_result && current.entry == leaf.entry && current.value == leaf.value) {
             __atomic_exchange_n(&current.entry->value, (new_frame & leaf.mask) | replacement_flags, __ATOMIC_ACQ_REL);
             flush_tlb(leaf.base);
@@ -477,7 +477,7 @@ page_directory_t *clone_directory(page_directory_t *src)
     page_directory_t *new_directory = malloc(sizeof(page_directory_t));
     if (!new_directory) return NULL;
 
-    uint64_t          frame         = alloc_frames(1);
+    uint64_t frame = alloc_frames(1);
     if (frame == 0) {
         free(new_directory);
         return 0;
@@ -517,16 +517,16 @@ static int page_map_to_status(page_directory_t *directory, uint64_t addr, uint64
     page_table_entry_t *created_entries[3] = {0};
     uint64_t            created_frames[3]  = {0};
     size_t              created_count      = 0;
-    page_table_t *l4_table = directory->table;
-    page_table_entry_t *l4_entry = &l4_table->entries[l4_index];
+    page_table_t       *l4_table           = directory->table;
+    page_table_entry_t *l4_entry           = &l4_table->entries[l4_index];
     if (l4_entry->value & PTE_HUGE) goto rollback;
     if (!(l4_entry->value & PTE_PRESENT)) {
         uint64_t table_frame = alloc_frames(1);
         if (!table_frame) goto rollback;
         page_table_clear(phys_to_virt(table_frame));
-        l4_entry->value                  = table_frame | PTE_PRESENT | PTE_WRITEABLE | PTE_USER;
-        created_entries[created_count]   = l4_entry;
-        created_frames[created_count++]  = table_frame;
+        l4_entry->value                 = table_frame | PTE_PRESENT | PTE_WRITEABLE | PTE_USER;
+        created_entries[created_count]  = l4_entry;
+        created_frames[created_count++] = table_frame;
     }
     page_table_t *l3_table = phys_to_virt(l4_entry->value & PAGE_4K_MASK);
 
@@ -536,9 +536,9 @@ static int page_map_to_status(page_directory_t *directory, uint64_t addr, uint64
         uint64_t table_frame = alloc_frames(1);
         if (!table_frame) goto rollback;
         page_table_clear(phys_to_virt(table_frame));
-        l3_entry->value                  = table_frame | PTE_PRESENT | PTE_WRITEABLE | PTE_USER;
-        created_entries[created_count]   = l3_entry;
-        created_frames[created_count++]  = table_frame;
+        l3_entry->value                 = table_frame | PTE_PRESENT | PTE_WRITEABLE | PTE_USER;
+        created_entries[created_count]  = l3_entry;
+        created_frames[created_count++] = table_frame;
     }
     page_table_t *l2_table = phys_to_virt(l3_entry->value & PAGE_4K_MASK);
 
@@ -548,9 +548,9 @@ static int page_map_to_status(page_directory_t *directory, uint64_t addr, uint64
         uint64_t table_frame = alloc_frames(1);
         if (!table_frame) goto rollback;
         page_table_clear(phys_to_virt(table_frame));
-        l2_entry->value                  = table_frame | PTE_PRESENT | PTE_WRITEABLE | PTE_USER;
-        created_entries[created_count]   = l2_entry;
-        created_frames[created_count++]  = table_frame;
+        l2_entry->value                 = table_frame | PTE_PRESENT | PTE_WRITEABLE | PTE_USER;
+        created_entries[created_count]  = l2_entry;
+        created_frames[created_count++] = table_frame;
     }
     page_table_t *l1_table = phys_to_virt(l2_entry->value & PAGE_4K_MASK);
 
@@ -651,36 +651,30 @@ int page_unmap_release(page_directory_t *directory, uint64_t addr)
 
         page_table_t *first_table = phys_to_virt(first_table_frame);
         page_table_clear(first_table);
-        uint64_t old_frame  = leaf.value & leaf.mask;
-        uint64_t leaf_flags = leaf.value & ~leaf.mask;
+        uint64_t old_frame   = leaf.value & leaf.mask;
+        uint64_t leaf_flags  = leaf.value & ~leaf.mask;
         uint64_t table_flags = PTE_PRESENT | PTE_WRITEABLE;
         table_flags |= leaf.value & (PTE_USER | PTE_PWT | PTE_PCD);
 
         if (leaf.size == PAGE_1G_SIZE) {
-            for (size_t i = 0; i < 512; i++) {
-                first_table->entries[i].value = (old_frame + i * PAGE_2M_SIZE) | leaf_flags;
-            }
+            for (size_t i = 0; i < 512; i++) { first_table->entries[i].value = (old_frame + i * PAGE_2M_SIZE) | leaf_flags; }
 
-            size_t        target_2m   = (addr >> 21) & 0x1ff;
+            size_t        target_2m    = (addr >> 21) & 0x1ff;
             page_table_t *second_table = phys_to_virt(second_table_frame);
             page_table_clear(second_table);
-            uint64_t target_frame = old_frame + target_2m * PAGE_2M_SIZE;
-            const uint64_t huge_pat = 1ULL << 12;
-            int            pat      = (leaf_flags & huge_pat) != 0;
-            uint64_t       pte_flags = leaf_flags & ~(PTE_HUGE | huge_pat);
+            uint64_t       target_frame = old_frame + target_2m * PAGE_2M_SIZE;
+            const uint64_t huge_pat     = 1ULL << 12;
+            int            pat          = (leaf_flags & huge_pat) != 0;
+            uint64_t       pte_flags    = leaf_flags & ~(PTE_HUGE | huge_pat);
             if (pat) pte_flags |= PTE_HUGE;
-            for (size_t i = 0; i < 512; i++) {
-                second_table->entries[i].value = (target_frame + i * PAGE_4K_SIZE) | pte_flags;
-            }
+            for (size_t i = 0; i < 512; i++) { second_table->entries[i].value = (target_frame + i * PAGE_4K_SIZE) | pte_flags; }
             first_table->entries[target_2m].value = second_table_frame | table_flags;
         } else {
             const uint64_t huge_pat = 1ULL << 12;
             int            pat      = (leaf_flags & huge_pat) != 0;
             leaf_flags &= ~(PTE_HUGE | huge_pat);
             if (pat) leaf_flags |= PTE_HUGE; /* Bit 7 is PAT in a 4 KiB PTE. */
-            for (size_t i = 0; i < 512; i++) {
-                first_table->entries[i].value = (old_frame + i * PAGE_4K_SIZE) | leaf_flags;
-            }
+            for (size_t i = 0; i < 512; i++) { first_table->entries[i].value = (old_frame + i * PAGE_4K_SIZE) | leaf_flags; }
         }
 
         __atomic_exchange_n(&leaf.entry->value, first_table_frame | table_flags, __ATOMIC_ACQ_REL);

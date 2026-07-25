@@ -1,11 +1,13 @@
 /*
- * ELF64 process-image loader.
+ *
  *      elf_loader.c
- *      ELF loader for user processes
+ *      ELF64 process-image loader
+ *
  *      2026/7/21 By Rainy101112
  *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
  */
-// 上面那个是原作者的注释，codex把他给删了我加上了 不知道对不对（
+
 #include <drivers/tty.h>
 #include <fs/vfs.h>
 #include <kernel/elf.h>

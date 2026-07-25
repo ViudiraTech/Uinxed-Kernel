@@ -1,3 +1,13 @@
+/*
+ *
+ *      elf_loader_entry.c
+ *      Elf loader entry
+ *
+ *      2026/7/26 By JiTianYu391
+ *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
+ */
+
 #include <kernel/elf_loader.h>
 #include <libs/std/stdbool.h>
 #include <proc/process.h>

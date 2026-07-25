@@ -41,16 +41,16 @@
 #    define SCHED_LOAD_BALANCE_INTERVAL 8
 #endif
 #ifndef SCHED_BASE_SLICE
-#    define SCHED_BASE_SLICE            2ULL /* 8 ms at the current 250 Hz timer      */
+#    define SCHED_BASE_SLICE 2ULL /* 8 ms at the current 250 Hz timer      */
 #endif
 #ifndef SCHED_LATENCY
-#    define SCHED_LATENCY               6ULL /* 24 ms target scheduling latency       */
+#    define SCHED_LATENCY 6ULL /* 24 ms target scheduling latency       */
 #endif
 #ifndef SCHED_MIN_GRANULARITY
-#    define SCHED_MIN_GRANULARITY       1ULL /* one 4 ms timer tick                   */
+#    define SCHED_MIN_GRANULARITY 1ULL /* one 4 ms timer tick                   */
 #endif
 #ifndef SCHED_WAKEUP_GRANULARITY
-#    define SCHED_WAKEUP_GRANULARITY    0ULL /* preempt on a strictly earlier VD      */
+#    define SCHED_WAKEUP_GRANULARITY 0ULL /* preempt on a strictly earlier VD      */
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -60,7 +60,7 @@
 scheduler_t     scheduler;
 eevdf_rq_t     *cpu_rqs;
 uint32_t        cpu_scheduler_count;
-static task_t   boot_task = { .pid = 0, .name = "swapper" };
+static task_t   boot_task = {.pid = 0, .name = "swapper"};
 static uint8_t  boot_stack_marker;
 static task_t  *ap_boot_tasks;
 static uint32_t next_task_cpu;
@@ -1109,8 +1109,8 @@ void task_exit(void)
     disable_intr();
     spin_lock(&scheduler.lock);
 
-    task_t *curr = local_current();
-    eevdf_rq_t *rq = local_rq();
+    task_t     *curr = local_current();
+    eevdf_rq_t *rq   = local_rq();
 
     /*
      * A running task is not present in rq->timeline: it was removed when

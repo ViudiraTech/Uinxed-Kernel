@@ -65,7 +65,7 @@ void init_frame(void)
     }
     bitmap_t *bitmap = &frame_allocator.bitmap;
     bitmap_init(bitmap, phys_to_virt(metadata_address), bitmap_size);
-    frame_allocator.refcounts = phys_to_virt(metadata_address + bitmap_size);
+    frame_allocator.refcounts   = phys_to_virt(metadata_address + bitmap_size);
     frame_allocator.frame_count = frame_count;
     memset(frame_allocator.refcounts, 0, refcount_size);
     size_t origin_frames = 0;
