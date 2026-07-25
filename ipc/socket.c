@@ -110,21 +110,24 @@ static size_t strnlen_local(const char *s, size_t maxlen)
 /*  Circular buffer helpers                                             */
 /* ------------------------------------------------------------------ */
 
-static void sock_buf_init(sock_buf_t *buf, uint32_t capacity)
+static int sock_buf_init(sock_buf_t *buf, uint32_t capacity)
 {
     if (capacity > SOCK_BUF_MAX) capacity = SOCK_BUF_MAX;
     if (capacity == 0) capacity = SOCK_BUF_SIZE;
 
-    buf->data     = calloc(1, capacity);
+    buf->data = calloc(1, capacity);
+    if (!buf->data) return -ENOMEM;
+
     buf->head     = 0;
     buf->tail     = 0;
     buf->size     = 0;
     buf->capacity = capacity;
-    /* spinlock is zero-initialised by calloc */
+    return EOK;
 }
 
 static void sock_buf_free(sock_buf_t *buf)
 {
+    if (!buf) return;
     if (buf->data) {
         free(buf->data);
         buf->data = NULL;
@@ -137,19 +140,23 @@ static void sock_buf_free(sock_buf_t *buf)
 
 static uint32_t sock_buf_available(sock_buf_t *buf)
 {
+    if (!buf || !buf->data) return 0;
     return buf->size;
 }
 
 static uint32_t sock_buf_space(sock_buf_t *buf)
 {
+    if (!buf || !buf->data) return 0;
     return buf->capacity - buf->size;
 }
 
 static uint32_t sock_buf_write(sock_buf_t *buf, const void *data, uint32_t len)
 {
-    uint32_t space = buf->capacity - buf->size;
     uint32_t written;
 
+    if (!buf || !buf->data) return 0;
+
+    uint32_t space = buf->capacity - buf->size;
     if (len > space) len = space;
     if (len == 0) return 0;
 
@@ -159,10 +166,8 @@ static uint32_t sock_buf_write(sock_buf_t *buf, const void *data, uint32_t len)
         uint32_t pos = buf->tail;
 
         if (pos >= buf->head && buf->size > 0) {
-            /* tail is at or after head, wrap at capacity */
             chunk = buf->capacity - pos;
         } else {
-            /* tail is before head */
             chunk = buf->head - pos;
         }
         if (chunk > len - written) chunk = len - written;
@@ -180,6 +185,7 @@ static uint32_t sock_buf_read(sock_buf_t *buf, void *data, uint32_t len)
 {
     uint32_t rd;
 
+    if (!buf || !buf->data) return 0;
     if (len > buf->size) len = buf->size;
     if (len == 0) return 0;
 
@@ -208,6 +214,8 @@ static uint32_t sock_buf_read(sock_buf_t *buf, void *data, uint32_t len)
 static uint32_t sock_buf_peek(sock_buf_t *buf, void *data, uint32_t len)
 {
     uint32_t pk;
+
+    if (!buf || !buf->data) return 0;
     uint32_t head = buf->head;
     uint32_t size = buf->size;
 
@@ -440,7 +448,10 @@ static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
     sk->protocol = protocol;
     sk->flags    = 0;
 
-    sock_buf_init(&sk->recv_buf, SOCK_BUF_SIZE);
+    if (sock_buf_init(&sk->recv_buf, SOCK_BUF_SIZE) != EOK) {
+        free(sk);
+        return NULL;
+    }
     sk->sndbuf      = SOCK_BUF_SIZE;
     sk->rcvbuf      = SOCK_BUF_SIZE;
     sk->rcvlowat    = 1;
@@ -570,6 +581,8 @@ int socket_fd_install(socket_t *sk)
 
 /* ------------------------------------------------------------------ */
 /*  socket_from_fd – find a socket by fd in the current process         */
+/*  NOTE: returns a weak pointer (no refcount bump).                    */
+/*  The caller must ensure the socket stays alive during use.           */
 /* ------------------------------------------------------------------ */
 
 socket_t *socket_from_fd(int fd)
@@ -815,8 +828,17 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
     server->flags    = 0;
     server->refcount = 1;
 
-    sock_buf_init(&server->recv_buf, SOCK_BUF_SIZE);
-    sock_buf_init(&server->send_buf, SOCK_BUF_SIZE);
+    if (sock_buf_init(&server->recv_buf, SOCK_BUF_SIZE) != EOK) {
+        free(server);
+        spin_unlock(&listener->lock);
+        return -ENOMEM;
+    }
+    if (sock_buf_init(&server->send_buf, SOCK_BUF_SIZE) != EOK) {
+        sock_buf_free(&server->recv_buf);
+        free(server);
+        spin_unlock(&listener->lock);
+        return -ENOMEM;
+    }
     server->sndbuf   = SOCK_BUF_SIZE;
     server->rcvbuf   = SOCK_BUF_SIZE;
     server->rcvlowat = 1;
@@ -1028,10 +1050,11 @@ static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags
 
 static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
 {
-    int      is_nonblock;
-    int      peek;
-    uint32_t total_read = 0;
-    int      ret;
+    int       is_nonblock;
+    int       peek;
+    uint32_t  total_read = 0;
+    socket_t *peer;
+    int       ret;
 
     if (sk->type != SOCK_STREAM && sk->type != SOCK_SEQPACKET) return -EOPNOTSUPP;
 
@@ -1039,6 +1062,7 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
     peek        = (flags & MSG_PEEK) ? 1 : 0;
 
     spin_lock(&sk->lock);
+    peer = sk->peer;
 
     while (total_read < len) {
         uint32_t avail = sock_buf_available(&sk->recv_buf);
@@ -1062,7 +1086,7 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
                 return -EAGAIN;
             }
             /* Check if peer is still connected */
-            if (!sk->peer || sk->peer->state == SOCK_STATE_DISCONNECTING) {
+            if (!peer || peer->state == SOCK_STATE_DISCONNECTING) {
                 spin_unlock(&sk->lock);
                 return 0;
             }
@@ -1071,6 +1095,7 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
             task_block();
             spin_lock(&sk->lock);
             sock_blocked_unregister(sk);
+            peer = sk->peer;
             continue;
         }
 
@@ -1090,11 +1115,10 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
 
     spin_unlock(&sk->lock);
 
-    /* Wake peer if it was blocked on send (buffer space freed) */
-    if (!peek && total_read > 0 && sk->peer) { sock_blocked_wake(sk->peer); }
+    if (!peek && total_read > 0 && peer) { sock_blocked_wake(peer); }
 
     ret = (int)total_read;
-    if (ret == 0 && !(flags & MSG_PEEK) && !(sk->shutdown_mask & SHUT_RD)) { return 0; /* EOF */ }
+    if (ret == 0 && !(flags & MSG_PEEK) && !(sk->shutdown_mask & SHUT_RD)) { return 0; }
     return ret;
 }
 
@@ -1294,18 +1318,21 @@ static int socket_poll(socket_t *sk, size_t events)
             revents |= 0x004;                               /* POLLOUT (always writable for listen) */
             break;
 
-        case SOCK_STATE_CONNECTED :
+        case SOCK_STATE_CONNECTED : {
+            socket_t *p = sk->peer;
+
             /* POLLIN = data available or peer closed */
             if (sock_buf_available(&sk->recv_buf) > 0) revents |= 0x001;
-            if (sk->shutdown_mask & SHUT_RD) revents |= 0x001; /* EOF readable */
+            if (sk->shutdown_mask & SHUT_RD) revents |= 0x001;
 
             /* POLLOUT = send buffer not full */
-            if (sk->peer && sock_buf_space(&sk->peer->recv_buf) > 0) revents |= 0x004;
-            if (sk->shutdown_mask & SHUT_WR) revents |= 0x004; /* write will error, but poll says writable */
+            if (p && sock_buf_space(&p->recv_buf) > 0) revents |= 0x004;
+            if (sk->shutdown_mask & SHUT_WR) revents |= 0x004;
 
             /* POLLHUP = peer disconnected */
-            if (!sk->peer || sk->peer->state == SOCK_STATE_DISCONNECTING) revents |= 0x010; /* POLLHUP */
+            if (!p || p->state == SOCK_STATE_DISCONNECTING) revents |= 0x010;
             break;
+        }
 
         case SOCK_STATE_UNCONNECTED :
             /* DGRAM sockets can always send/recv if bound */
@@ -1402,7 +1429,7 @@ static void socket_vfs_close(void *current)
     socket_t *sk = (socket_t *)current;
     if (!sk) return;
 
-    /* Wake blocked tasks */
+    sk->shutdown_mask |= SHUT_RD | SHUT_WR;
     sock_blocked_wake_all(sk);
 }
 
@@ -2039,12 +2066,10 @@ int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
     int       sv_kern[2];
 
     if (domain != AF_UNIX && domain != AF_LOCAL) return -EAFNOSUPPORT;
-
-    if (type != SOCK_STREAM && type != SOCK_DGRAM && type != SOCK_SEQPACKET) return -ESOCKTNOSUPPORT;
-
+    if (type != SOCK_STREAM) return -ESOCKTNOSUPPORT;
+    if (protocol != 0) return -EPROTONOSUPPORT;
     if (!sv) return -EFAULT;
 
-    /* Create two connected sockets */
     sk1 = socket_alloc((uint16_t)domain, (uint16_t)type, (uint16_t)protocol);
     if (!sk1) return -ENOMEM;
 
@@ -2054,23 +2079,11 @@ int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
         return -ENOMEM;
     }
 
-    /* Autobind both */
-    {
-        int r = unix_autobind(sk1);
-        if (r != EOK) {
-            socket_free(sk1);
-            socket_free(sk2);
-            return (int64_t)r;
-        }
-        r = unix_autobind(sk2);
-        if (r != EOK) {
-            socket_free(sk1);
-            socket_free(sk2);
-            return (int64_t)r;
-        }
-    }
+    sk1->shutdown_mask = 0;
+    sk1->so_error      = 0;
+    sk2->shutdown_mask = 0;
+    sk2->so_error      = 0;
 
-    /* Link them */
     sk1->peer = sk2;
     socket_ref(sk2);
     sk2->peer = sk1;
@@ -2079,16 +2092,13 @@ int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
     sk1->state = SOCK_STATE_CONNECTED;
     sk2->state = SOCK_STATE_CONNECTED;
 
-    /* Copy peer addresses */
-    memcpy(&sk1->peer_addr, &sk2->local_addr, sizeof(sockaddr_un_t));
-    sk1->peer_addr_len = sk2->local_addr_len;
-    memcpy(&sk2->peer_addr, &sk1->local_addr, sizeof(sockaddr_un_t));
-    sk2->peer_addr_len = sk1->local_addr_len;
+    memset(&sk1->peer_addr, 0, sizeof(sockaddr_un_t));
+    sk1->peer_addr_len = 0;
+    memset(&sk2->peer_addr, 0, sizeof(sockaddr_un_t));
+    sk2->peer_addr_len = 0;
 
-    /* Install file descriptors */
     fd1 = socket_fd_install(sk1);
     if (fd1 < 0) {
-        socket_free(sk1);
         socket_free(sk2);
         return (int64_t)fd1;
     }
@@ -2097,10 +2107,15 @@ int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
     if (fd2 < 0) {
         process_t *proc = process_current();
         if (proc) process_fd_close(proc, fd1);
-        socket_free(sk1);
-        socket_free(sk2);
+        if (sk1->node) {
+            vfs_free(sk1->node);
+            sk1->node = NULL;
+        }
         return (int64_t)fd2;
     }
+
+    socket_unref(sk1);
+    socket_unref(sk2);
 
     sv_kern[0] = fd1;
     sv_kern[1] = fd2;
@@ -2111,8 +2126,14 @@ int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
             process_fd_close(proc, fd1);
             process_fd_close(proc, fd2);
         }
-        socket_free(sk1);
-        socket_free(sk2);
+        if (sk1->node) {
+            vfs_free(sk1->node);
+            sk1->node = NULL;
+        }
+        if (sk2->node) {
+            vfs_free(sk2->node);
+            sk2->node = NULL;
+        }
         return -EFAULT;
     }
 
