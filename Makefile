@@ -172,6 +172,7 @@ INIT_ELF       := assets/Limine/init
 # Automatically find all C source files in tools/ and generate their binary targets
 TOOL_C_SOURCES := $(wildcard tools/*.c)
 TOOL_TARGETS   := $(TOOL_C_SOURCES:%.c=%)
+PS2_MOUSE_TEST := tools/ps2_mouse_protocol_test
 
 # If you want to get more details of `dump_stack`, you need to replace `-O3` with `-O0` or '-Os'.
 # `-fno-optimize-sibling-calls` is for `dump_stack` to work properly.
@@ -179,6 +180,12 @@ C_FLAGS        := -Wall -Wextra -Wno-unused-function -O3 -g3 -m64 -fpie -ffreest
 LD_FLAGS       := -nostdlib -pie -T assets/linker.ld -m elf_x86_64
 
 all: Uinxed-x64.iso
+
+test-ps2-mouse: $(PS2_MOUSE_TEST)
+	$(Q)./$(PS2_MOUSE_TEST)
+
+$(PS2_MOUSE_TEST): tools/ps2_mouse_protocol_test.c drivers/input/ps2_mouse_protocol.c include/drivers/ps2_mouse.h
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) -I include -o $@ tools/ps2_mouse_protocol_test.c drivers/input/ps2_mouse_protocol.c
 
 %.o: %.c
 	$(Q)printf "  CC      $@\n"
