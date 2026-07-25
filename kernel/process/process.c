@@ -1019,8 +1019,9 @@ void process_exit(int exit_code)
     proc->task->state = TASK_ZOMBIE;
     proc->exit_code   = exit_code;
 
-    /* Notify parent via SIGCHLD */
-    if (proc->parent) { signal_notify_child_exit(proc->parent, (pid_t)proc->task->pid, exit_code, 0); }
+    /* Take a reference on parent before releasing locks (prevent use-after-free) */
+    process_t *parent = proc->parent;
+    if (parent) process_get_locked(parent);
 
     slist_node_t *node = proc->children.head;
     while (node) {
@@ -1036,6 +1037,13 @@ void process_exit(int exit_code)
 
     spin_unlock(&process_table_lock);
     spin_unlock(&scheduler.lock);
+
+    /* Notify parent via SIGCHLD (outside the locks, because signal_notify_child_exit
+     * calls task_wakeup which acquires scheduler.lock, and we have just released it). */
+    if (parent) {
+        signal_notify_child_exit(parent, (pid_t)proc->task->pid, exit_code, 0);
+        process_put(parent);
+    }
 
     /* Notify set_tid_address with 0 (futex wake on clear_child_tid) */
     if (proc->clear_child_tid) {
