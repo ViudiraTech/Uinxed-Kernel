@@ -40,6 +40,12 @@ else
   C_CONFIG += -DBOOT_LOGO=0
 endif
 
+ifeq ($(CONFIG_NTFS_FS), y)
+  C_CONFIG += -DCONFIG_NTFS_FS=1
+else
+  C_CONFIG += -DCONFIG_NTFS_FS=0
+endif
+
 ifeq ($(CONFIG_SYSFS), y)
   C_CONFIG += -DCONFIG_SYSFS=1
 else
@@ -163,7 +169,7 @@ PWD            := $(shell pwd)
 HOST_CC        ?= $(CC)
 HOST_CFLAGS    := -Wall -Wextra -O2
 QEMU           := qemu-system-x86_64
-QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd -serial stdio -hda disk.img
+QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd -serial stdio
 
 AS             := $(CC)
 ASFLAGS        := -c -m64 -ffreestanding -nostdlib -fno-omit-frame-pointer -I include

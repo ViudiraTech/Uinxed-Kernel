@@ -145,6 +145,15 @@ menu "Device drivers"
 
   menu "Filesystem support"
 
+    config NTFS_FS
+      bool "NTFS filesystem support (read-only)"
+      default y
+      help
+        "Enable NTFS filesystem support for reading NTFS volumes.
+        This driver is read-only and supports basic file operations,
+        MFT parsing, and directory enumeration via INDEX_ROOT and
+        INDEX_ALLOCATION."
+
     config SYSFS
       bool "sysfs filesystem support"
       default y
