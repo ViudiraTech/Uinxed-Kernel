@@ -1118,7 +1118,7 @@ int process_wait(pid_t pid, int *exit_code)
 
     for (;;) {
         task_t *child_task = child->task;
-        if (child_task->state == TASK_ZOMBIE && (child_task->cpu_id >= cpu_scheduler_count || cpu_rqs[child_task->cpu_id].curr != child_task)) {
+        if (child_task->state == TASK_ZOMBIE && !__atomic_load_n(&child_task->on_cpu, __ATOMIC_ACQUIRE)) {
             break;
         }
         spin_unlock(&process_table_lock);

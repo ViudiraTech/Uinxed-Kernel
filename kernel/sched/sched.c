@@ -33,6 +33,9 @@
 /*  Constants                                                           */
 /* ------------------------------------------------------------------ */
 
+/*
+<<<<<<< Updated upstream
+<<<<<<< Updated upstream
 #ifndef SCHED_LOAD_BALANCE_INTERVAL
 #    define SCHED_LOAD_BALANCE_INTERVAL 16
 #endif
@@ -48,6 +51,18 @@
 #ifndef SCHED_WAKEUP_GRANULARITY
 #    define SCHED_WAKEUP_GRANULARITY 1ULL
 #endif
+=======
+=======
+>>>>>>> Stashed changes */ // MicroFish, what the fuck????
+#define SCHED_LOAD_BALANCE_INTERVAL 8
+#define SCHED_BASE_SLICE            2ULL /* 8 ms at the current 250 Hz timer      */
+#define SCHED_LATENCY               6ULL /* 24 ms target scheduling latency       */
+#define SCHED_MIN_GRANULARITY       1ULL /* one 4 ms timer tick                   */
+#define SCHED_WAKEUP_GRANULARITY    0ULL /* preempt on a strictly earlier VD      */
+/*<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
+>>>>>>> Stashed changes*/
 
 /* ------------------------------------------------------------------ */
 /*  Global state                                                        */
@@ -65,16 +80,17 @@ static uint32_t next_task_cpu;
 /*  Forward declarations                                                */
 /* ------------------------------------------------------------------ */
 
-void context_switch(task_context_t *prev, task_context_t *next);
+void context_switch(task_context_t *prev, task_context_t *next, volatile uint64_t *prev_on_cpu);
 
 /* ------------------------------------------------------------------ */
 /*  Context switch (naked assembly)                                     */
 /* ------------------------------------------------------------------ */
 
-__attribute__((naked)) void context_switch(task_context_t *prev, task_context_t *next)
+__attribute__((naked)) void context_switch(task_context_t *prev, task_context_t *next, volatile uint64_t *prev_on_cpu)
 {
     (void)prev;
     (void)next;
+    (void)prev_on_cpu;
     __asm__ volatile("movq %rsp, 0(%rdi)\n\t"
                      "movq %rbx, 8(%rdi)\n\t"
                      "movq %rbp, 16(%rdi)\n\t"
@@ -90,10 +106,12 @@ __attribute__((naked)) void context_switch(task_context_t *prev, task_context_t 
                      "movq 32(%rsi), %r13\n\t"
                      "movq 40(%rsi), %r14\n\t"
                      "movq 48(%rsi), %r15\n\t"
-                     "pushq 56(%rsi)\n\t"
-                     "popfq\n\t"
+                     "movq 56(%rsi), %rax\n\t"
                      "movq 64(%rsi), %rdi\n\t"
                      "movq 0(%rsi), %rsp\n\t"
+                     "movq $0, (%rdx)\n\t"
+                     "pushq %rax\n\t"
+                     "popfq\n\t"
                      "ret\n\t");
 }
 
@@ -306,6 +324,10 @@ static void place_entity(eevdf_rq_t *rq, task_t *task, int initial)
 
 static void enqueue_entity(eevdf_rq_t *rq, task_t *task)
 {
+    /* Only ready tasks belong to the EEVDF timeline.  In particular,
+     * never let a late wakeup resurrect a task that has already exited. */
+    if (!task || task->state != TASK_READY) return;
+
     avg_vruntime_add(rq, task);
     rb_insert_augmented(&rq->timeline, &task->run_node, entity_less, update_min_vruntime, NULL);
     rq->nr_running++;
@@ -416,13 +438,14 @@ void sched_dequeue_current(void)
     task_t     *curr = rq->curr;
 
     if (curr && curr != rq->idle) {
-        dequeue_entity(rq, curr);
+        /* rq->curr is already outside the RB-tree while it executes. */
         curr->state = TASK_BLOCKED;
     }
 }
 
 static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
 {
+    if (!task || task->state == TASK_ZOMBIE || task->state == TASK_IDLE) return;
     if (cpu_id >= cpu_scheduler_count) cpu_id = 0;
 
     eevdf_rq_t *rq = &cpu_rqs[cpu_id];
@@ -456,7 +479,7 @@ void enqueue_task_initial(task_t *task)
 
 static void wake_task_locked(task_t *task, int remove_linked_node)
 {
-    if (!task || task->state == TASK_READY || task->state == TASK_RUNNING || task->state == TASK_IDLE) return;
+    if (!task || task->state == TASK_READY || task->state == TASK_RUNNING || task->state == TASK_IDLE || task->state == TASK_ZOMBIE) return;
 
     if (remove_linked_node) ilist_remove(&task->sched_node);
     enqueue_task(task);
@@ -770,6 +793,7 @@ void sched_yield(void)
         next->time_slice = 0;
     }
 
+    __atomic_store_n(&next->on_cpu, 1, __ATOMIC_RELEASE);
     rq->curr = next;
     update_tss_stack(next);
     switch_page_directory(next->page_directory);
@@ -784,7 +808,7 @@ void sched_yield(void)
     wrmsr(0xC0000100, next->thread.fs_base);
     wrmsr(0xC0000101, next->thread.gs_base);
 
-    context_switch(&prev->context, &next->context);
+    context_switch(&prev->context, &next->context, &prev->on_cpu);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1097,22 +1121,25 @@ void task_exit(void)
     spin_lock(&scheduler.lock);
 
     task_t *curr = local_current();
-    curr->state  = TASK_ZOMBIE;
-
     eevdf_rq_t *rq = local_rq();
-    if (curr != rq->idle) { dequeue_entity(rq, curr); }
-    if (rq->curr == curr) { rq->curr = rq->idle; }
+
+    /*
+     * A running task is not present in rq->timeline: it was removed when
+     * it was selected.  Dequeuing it again corrupts the RB tree through
+     * the stale links left in run_node and can make the zombie runnable.
+     *
+     * Keep rq->curr pointing at the real execution context until
+     * sched_yield() saves that context and switches to the next task.
+     */
+    if (curr && curr != rq->idle) curr->state = TASK_ZOMBIE;
 
     spin_unlock(&scheduler.lock);
 
     cgroup_task_exit(curr);
+    sched_yield();
 
-    for (;;) {
-        enable_intr();
-        __asm__ volatile("hlt");
-        disable_intr();
-        sched_yield();
-    }
+    /* A zombie is never enqueued, so the switch above cannot return. */
+    panic("sched: zombie task resumed after exit.");
 }
 
 /* ------------------------------------------------------------------ */

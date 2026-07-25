@@ -67,18 +67,19 @@ typedef struct {
 } task_context_t;
 
 struct task {
-        uint64_t           pid;
-        task_state_t       state;
-        task_context_t     context;
-        thread_struct_t    thread;     /* per-thread arch state (fs_base, gs_base) */
-        rb_node_t          run_node;   /* EEVDF red-black tree node */
-        ilist_node_t       sched_node; /* sleep / wait_queue linkage */
-        ilist_node_t       timer_node; /* timed-waiter linkage (scheduler.timer_queue) */
-        page_directory_t  *page_directory;
-        uint8_t           *kernel_stack;
-        uint64_t           time_slice;
-        uint64_t           wake_tick;
-        wait_queue_t      *wait_queue;
+        uint64_t          pid;
+        task_state_t      state;
+        volatile uint64_t on_cpu;    /* cleared only after switching off this task's stack */
+        task_context_t    context;
+        thread_struct_t   thread;     /* per-thread arch state (fs_base, gs_base) */
+        rb_node_t         run_node;   /* EEVDF red-black tree node */
+        ilist_node_t      sched_node; /* sleep / wait_queue linkage */
+        ilist_node_t      timer_node; /* timed-waiter linkage (scheduler.timer_queue) */
+        page_directory_t *page_directory;
+        uint8_t          *kernel_stack;
+        uint64_t          time_slice;
+        uint64_t          wake_tick;
+        wait_queue_t     *wait_queue;
         task_wake_reason_t wake_reason;
         uint32_t           cpu_id;
         char               name[TASK_NAME_LEN];
