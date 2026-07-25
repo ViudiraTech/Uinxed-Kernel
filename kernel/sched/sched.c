@@ -34,35 +34,24 @@
 /* ------------------------------------------------------------------ */
 
 /*
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
+ * Build system may pre-define these via -D in the Makefile.
+ * The #ifndef guards ensure the command-line value takes precedence.
+ */
 #ifndef SCHED_LOAD_BALANCE_INTERVAL
-#    define SCHED_LOAD_BALANCE_INTERVAL 16
+#    define SCHED_LOAD_BALANCE_INTERVAL 8
 #endif
 #ifndef SCHED_BASE_SLICE
-#    define SCHED_BASE_SLICE 4ULL
+#    define SCHED_BASE_SLICE            2ULL /* 8 ms at the current 250 Hz timer      */
 #endif
 #ifndef SCHED_LATENCY
-#    define SCHED_LATENCY 8ULL
+#    define SCHED_LATENCY               6ULL /* 24 ms target scheduling latency       */
 #endif
 #ifndef SCHED_MIN_GRANULARITY
-#    define SCHED_MIN_GRANULARITY 1ULL
+#    define SCHED_MIN_GRANULARITY       1ULL /* one 4 ms timer tick                   */
 #endif
 #ifndef SCHED_WAKEUP_GRANULARITY
-#    define SCHED_WAKEUP_GRANULARITY 1ULL
+#    define SCHED_WAKEUP_GRANULARITY    0ULL /* preempt on a strictly earlier VD      */
 #endif
-=======
-=======
->>>>>>> Stashed changes */ // MicroFish, what the fuck????
-#define SCHED_LOAD_BALANCE_INTERVAL 8
-#define SCHED_BASE_SLICE            2ULL /* 8 ms at the current 250 Hz timer      */
-#define SCHED_LATENCY               6ULL /* 24 ms target scheduling latency       */
-#define SCHED_MIN_GRANULARITY       1ULL /* one 4 ms timer tick                   */
-#define SCHED_WAKEUP_GRANULARITY    0ULL /* preempt on a strictly earlier VD      */
-/*<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes*/
 
 /* ------------------------------------------------------------------ */
 /*  Global state                                                        */
@@ -71,7 +60,7 @@
 scheduler_t     scheduler;
 eevdf_rq_t     *cpu_rqs;
 uint32_t        cpu_scheduler_count;
-static task_t   boot_task;
+static task_t   boot_task = { .pid = 0, .name = "swapper" };
 static uint8_t  boot_stack_marker;
 static task_t  *ap_boot_tasks;
 static uint32_t next_task_cpu;
@@ -1148,5 +1137,6 @@ void task_exit(void)
 
 task_t *current_task(void)
 {
+    if (!cpu_rqs) return &boot_task;
     return cpu_rqs[get_current_cpu_id()].curr;
 }
