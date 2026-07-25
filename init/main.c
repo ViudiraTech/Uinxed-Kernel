@@ -9,11 +9,11 @@
  */
 
 #include <arch/cpuid.h>
-#include <cgroup/cgroup.h>
 #include <arch/eis.h>
 #include <arch/gdt.h>
 #include <arch/smp.h>
 #include <boot/limine_module.h>
+#include <cgroup/cgroup.h>
 #include <chipset/common.h>
 #include <chipset/smbios.h>
 #include <drivers/acpi.h>
@@ -32,11 +32,12 @@
 #include <drivers/tsc.h>
 #include <drivers/tty.h>
 #include <drivers/virt/gpu/virtgpu_drv.h>
-#include <fs/cpio.h>
 #include <fs/cgroupfs.h>
+#include <fs/cpio.h>
 #include <fs/devtmpfs.h>
 #include <fs/fatfs/fatfs_vfs.h>
 #include <fs/isofs/isofs.h>
+#include <fs/ntfs/ntfs_vfs.h>
 #include <fs/procfs.h>
 #include <fs/sysfs.h>
 #include <fs/tmpfs.h>
@@ -91,8 +92,7 @@ void swapper_run_init(void)
     init_process = init;
 
     char *init_argv[] = {"/init", NULL};
-    if (elf_loader_load_user_process(init, init_mod->data, init_mod->size, init_argv, NULL, NULL, NULL))
-        panic("Failed to load init ELF!");
+    if (elf_loader_load_user_process(init, init_mod->data, init_mod->size, init_argv, NULL, NULL, NULL)) panic("Failed to load init ELF!");
 
     spin_lock(&scheduler.lock);
     enqueue_task(init->task);
@@ -204,6 +204,7 @@ void kernel_entry(void)
     tmpfs_regist();                 // Temporary File System
     fatfs_vfs_regist();             // FAT File System
     isofs_regist();                 // ISO 9660 File System
+    ntfs_vfs_regist();              // NTFS File System
 
     if (!get_rootdir()->fsid && vfs_mount(0, get_rootdir()) != EOK) plogk("init: Cannot mount tmpfs to root_dir.\n");
 
@@ -229,7 +230,7 @@ void kernel_entry(void)
 
     /* Networking and graphics */
 #if !CONFIG_SYSFS
-    netlink_init();    // AF_NETLINK socket family
+    netlink_init(); // AF_NETLINK socket family
 #endif
     drm_init();        // Direct Rendering Manager
     virtio_gpu_init(); // VirtIO GPU driver (if present on PCI bus)
