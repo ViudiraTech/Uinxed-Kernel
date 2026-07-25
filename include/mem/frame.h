@@ -14,11 +14,15 @@
 #include <kernel/ringlog.h>
 #include <libs/std/stdint.h>
 #include <mem/bitmap.h>
+#include <sync/spin_lock.h>
 
 typedef struct {
-        bitmap_t bitmap;
-        size_t   origin_frames;
-        size_t   usable_frames;
+        bitmap_t   bitmap;
+        uint32_t  *refcounts;
+        size_t     frame_count;
+        size_t     origin_frames;
+        size_t     usable_frames;
+        spinlock_t lock;
 } frame_allocator_t;
 
 extern log_buffer_t      frame_log;
@@ -35,6 +39,15 @@ uint64_t alloc_frames_2M(size_t count);
 
 /* Allocate 1G memory frames */
 uint64_t alloc_frames_1G(size_t count);
+
+/* Retain ownership of a contiguous range of 4 KiB frames. */
+int frame_retain_range(uint64_t addr, size_t count);
+
+/* Release ownership of a range, returning final references to the bitmap. */
+int frame_release_range(uint64_t addr, size_t count);
+
+/* Return the current ownership count of a 4 KiB physical frame. */
+uint32_t frame_refcount(uint64_t addr);
 
 /* Free a memory frame */
 void free_frame(uint64_t addr);

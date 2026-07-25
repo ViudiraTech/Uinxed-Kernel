@@ -49,6 +49,7 @@
 #include <ipc/posix_mq.h>
 #include <ipc/socket.h>
 #include <ipc/sysv_ipc.h>
+#include <kernel/boot_process.h>
 #include <kernel/cmdline.h>
 #include <kernel/debug.h>
 #include <kernel/device.h>
@@ -90,10 +91,13 @@ void swapper_run_init(void)
 
     process_t *init = process_create("init", NULL, NULL);
     if (!init) panic("Failed to create init process.");
-    init_process = init;
+    if (!init->task || init->task->pid != 1) panic("User init did not receive PID 1.");
+    init_process   = init;
+    pid_t init_sid = 0;
+    if (process_setsid(init, &init_sid) || init_sid != 1 || init->pgid != 1) { panic("Failed to establish init session."); }
 
     char *init_argv[] = {"/init", NULL};
-    if (elf_loader_load_user_process(init, init_mod->data, init_mod->size, init_argv, NULL, NULL, NULL)) panic("Failed to load init ELF!");
+    if (elf_loader_load_initial_process(init, init_mod->data, init_mod->size, init_argv, NULL)) panic("Failed to load init ELF!");
 
     spin_lock(&scheduler.lock);
     enqueue_task(init->task);
@@ -236,8 +240,7 @@ void kernel_entry(void)
     signalfd_init(); // Signal File Descriptor
     mmap_init();     // Memory Map
 
-    sched_test_init();
-    swapper_run_init();
+    boot_start_init_before_debug(swapper_run_init, sched_test_init);
 
     enable_intr();
     sched_start();

@@ -422,7 +422,9 @@ int setup_process_page_dir(process_t *proc)
 
     page_table_t *pml4 = (page_table_t *)phys_to_virt(pml4_frame);
     page_table_clear(pml4);
-    new_dir->table = pml4;
+    new_dir->table       = pml4;
+    new_dir->lock.lock   = 0;
+    new_dir->lock.rflags = 0;
 
     page_directory_t *kern_dir  = get_kernel_pagedir();
     page_table_t     *kern_pml4 = kern_dir->table;
@@ -435,65 +437,9 @@ int setup_process_page_dir(process_t *proc)
     return 0;
 }
 
-static int clone_parent_mappings(process_t *child, const process_t *parent)
-{
-    page_table_t *src_pml4 = parent->user_page_dir->table;
-    page_table_t *dst_pml4 = child->user_page_dir->table;
-
-    for (int l4i = 0; l4i < 256; l4i++) {
-        uint64_t l4e = src_pml4->entries[l4i].value;
-        if (!(l4e & PTE_PRESENT)) continue;
-
-        if (l4e & PTE_HUGE) {
-            uint64_t frame = alloc_frames(512);
-            if (!frame) return 1;
-            memcpy(phys_to_virt(frame), phys_to_virt(l4e & PAGE_4K_MASK), PAGE_1G_SIZE);
-            dst_pml4->entries[l4i].value = frame | (l4e & 0xFFFULL);
-            continue;
-        }
-
-        page_table_t *src_l3   = (page_table_t *)phys_to_virt(l4e & PAGE_4K_MASK);
-        uint64_t      l3_frame = alloc_frames(1);
-        if (!l3_frame) return 1;
-        page_table_t *dst_l3 = (page_table_t *)phys_to_virt(l3_frame);
-        page_table_clear(dst_l3);
-        dst_pml4->entries[l4i].value = l3_frame | PTE_PRESENT | PTE_WRITEABLE | PTE_USER;
-
-        for (int l3i = 0; l3i < 512; l3i++) {
-            uint64_t l3e = src_l3->entries[l3i].value;
-            if (!(l3e & PTE_PRESENT)) continue;
-
-            if (l3e & PTE_HUGE) {
-                uint64_t frame = alloc_frames(512);
-                if (!frame) return 1;
-                memcpy(phys_to_virt(frame), phys_to_virt(l3e & PAGE_4K_MASK), PAGE_2M_SIZE * 512);
-                dst_l3->entries[l3i].value = frame | (l3e & 0xFFFULL);
-                continue;
-            }
-
-            page_table_t *src_l2   = (page_table_t *)phys_to_virt(l3e & PAGE_4K_MASK);
-            uint64_t      l2_frame = alloc_frames(1);
-            if (!l2_frame) return 1;
-            page_table_t *dst_l2 = (page_table_t *)phys_to_virt(l2_frame);
-            page_table_clear(dst_l2);
-            dst_l3->entries[l3i].value = l2_frame | PTE_PRESENT | PTE_WRITEABLE | PTE_USER;
-
-            for (int l2i = 0; l2i < 512; l2i++) {
-                uint64_t l2e = src_l2->entries[l2i].value;
-                if (!(l2e & PTE_PRESENT)) continue;
-                uint64_t frame = alloc_frames(1);
-                if (!frame) return 1;
-                memcpy(phys_to_virt(frame), phys_to_virt(l2e & PAGE_4K_MASK), PAGE_4K_SIZE);
-                dst_l2->entries[l2i].value = frame | (l2e & 0xFFFULL);
-            }
-        }
-    }
-    return 0;
-}
-
 vm_area_t *vm_area_alloc(uintptr_t start, uintptr_t end, vm_flags_t flags)
 {
-    vm_area_t *vma = malloc(sizeof(vm_area_t));
+    vm_area_t *vma = calloc(1, sizeof(vm_area_t));
     if (!vma) return NULL;
     vma->start = start;
     vma->end   = end;
@@ -526,26 +472,29 @@ int vm_area_insert(process_t *proc, vm_area_t *vma)
     return 0;
 }
 
-static void vm_area_free(vm_area_t *vma)
+static void vm_area_free(vm_area_t *vma, uint32_t pid)
 {
     while (vma) {
         vm_area_t *next = vma->next;
+        if (vma->type == VM_REGION_SHM && vma->vm_private_data) sysv_shm_vma_put(vma->vm_private_data, pid);
+        if (vma->vm_file) vfs_close(vma->vm_file);
         free(vma);
         vma = next;
     }
 }
 
-static void mmap_list_free(process_t *proc)
+static void mmap_list_free(process_t *proc, uint32_t pid)
 {
     spin_lock(&proc->mmap_lock);
-    vm_area_free(proc->mmap_list);
+    vm_area_t *list = proc->mmap_list;
     proc->mmap_list = NULL;
     spin_unlock(&proc->mmap_lock);
+    vm_area_free(list, pid);
 }
 
 void process_mmap_clear(process_t *proc)
 {
-    mmap_list_free(proc);
+    mmap_list_free(proc, proc && proc->task ? (uint32_t)proc->task->pid : 0);
 }
 
 static void process_fd_table_init(process_t *proc)
@@ -895,6 +844,7 @@ static void process_free(process_t *proc)
     if (!proc) return;
 
     task_t *task = proc->task;
+    uint32_t pid = task ? (uint32_t)task->pid : 0;
     proc->task   = NULL;
     if (task) task->process = NULL;
 
@@ -902,10 +852,10 @@ static void process_free(process_t *proc)
     process_fd_table_close(proc);
     signal_state_free(&proc->signal);
     if (proc->user_page_dir) {
-        free_page_table_recursive(proc->user_page_dir->table, 4);
+        page_destroy_user_space(proc->user_page_dir);
         free(proc->user_page_dir);
     }
-    mmap_list_free(proc);
+    mmap_list_free(proc, pid);
     free(proc->kernel_stack);
     slist_destroy(&proc->children, NULL);
     free(proc);
@@ -1268,7 +1218,7 @@ process_t *process_fork_status(int *error)
         return NULL;
     }
 
-    if (clone_parent_mappings(child, parent)) {
+    if (page_clone_user_cow(child->user_page_dir, parent->user_page_dir)) {
         if (error) *error = -ENOMEM;
         process_free(child);
         spin_unlock(&parent->mmap_lock);
@@ -1294,6 +1244,14 @@ process_t *process_fork_status(int *error)
          * The parent already holds a reference; the child needs
          * its own so the file isn't freed while the child lives. */
         if (copy->vm_file) copy->vm_file->refcount++;
+        if (copy->type == VM_REGION_SHM && sysv_shm_vma_get(copy->vm_private_data, (uint32_t)child->task->pid)) {
+            free(copy);
+            if (error) *error = -ENOMEM;
+            process_free(child);
+            spin_unlock(&parent->mmap_lock);
+            spin_unlock(&scheduler.lock);
+            return NULL;
+        }
 
         vm_area_insert(child, copy);
     }
@@ -1357,6 +1315,7 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
         if (!frame) return 1;
         uint64_t pte_flags = PTE_USER | PTE_PRESENT;
         if (flags & VM_WRITE) pte_flags |= PTE_WRITEABLE;
+        if (flags & VM_SHARED) pte_flags |= PTE_SHARED;
         if (!(flags & VM_EXEC)) pte_flags |= PTE_NO_EXECUTE;
         page_map_to(proc->user_page_dir, addr + i * PAGE_4K_SIZE, frame, pte_flags);
     }
@@ -1369,31 +1328,54 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
 
 int process_munmap(process_t *proc, uintptr_t addr, size_t length)
 {
-    vm_area_t *found = NULL;
-
     if (!proc || !length) return -EINVAL;
 
-    /* Remove the VMA covering @addr from the list. */
     spin_lock(&proc->mmap_lock);
-    {
-        vm_area_t **prev = &proc->mmap_list;
-        while (*prev) {
-            vm_area_t *vma = *prev;
-            if (vma->start == addr) {
-                *prev = vma->next;
-                found = vma;
-                break;
-            }
-            prev = &vma->next;
+    uintptr_t end = 0;
+    for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next) {
+        if (vma->start == addr) {
+            end = vma->end;
+            break;
         }
     }
     spin_unlock(&proc->mmap_lock);
 
-    if (!found) return -ENOENT;
+    if (!end) return -ENOENT;
+    return process_unmap_complete_range(proc, addr, end - addr);
+}
 
-    /* Release file reference if this VMA is file-backed. */
-    if (found->vm_file) vfs_close(found->vm_file);
+int process_unmap_complete_range(process_t *proc, uintptr_t addr, size_t length)
+{
+    if (!proc || !length || addr > UINT64_MAX - length) return -EINVAL;
+    uintptr_t end = addr + length;
 
-    free(found);
-    return 0;
+    spin_lock(&proc->mmap_lock);
+    for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next) {
+        if (addr < vma->end && end > vma->start && (vma->start < addr || vma->end > end)) {
+            spin_unlock(&proc->mmap_lock);
+            return -EINVAL;
+        }
+    }
+    spin_unlock(&proc->mmap_lock);
+
+    for (uintptr_t va = addr; va < end; va += PAGE_4K_SIZE) {
+        if (page_unmap_release(proc->user_page_dir, va) < 0) return -ENOMEM;
+    }
+
+    vm_area_t *removed = NULL;
+    spin_lock(&proc->mmap_lock);
+    vm_area_t **prev = &proc->mmap_list;
+    while (*prev) {
+        vm_area_t *vma = *prev;
+        if (vma->start >= addr && vma->end <= end) {
+            *prev     = vma->next;
+            vma->next = removed;
+            removed   = vma;
+            continue;
+        }
+        prev = &vma->next;
+    }
+    spin_unlock(&proc->mmap_lock);
+    vm_area_free(removed, proc->task ? (uint32_t)proc->task->pid : 0);
+    return EOK;
 }

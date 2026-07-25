@@ -511,6 +511,17 @@ int tty_dev_file_open(struct vfs_node *node, uint64_t flags, void **private_data
     return 0;
 }
 
+int tty_console_acquire(struct process *proc, uint64_t flags)
+{
+    if (!proc || !proc->task || (flags & (O_NOCTTY | O_PATH)) || (flags & O_ACCMODE) == O_WRONLY) return -EINVAL;
+
+    pid_t pid = (pid_t)proc->task->pid;
+    if (pid <= 0 || proc->sid != pid || proc->pgid != pid) return -EPERM;
+
+    tty_input_lazy_init();
+    return process_ctty_acquire(proc, &console_tty, false, NULL, NULL);
+}
+
 int64_t tty_dev_file_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     (void)ctx;

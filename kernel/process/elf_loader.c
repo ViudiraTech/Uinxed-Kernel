@@ -1,3 +1,12 @@
+/*
+ * ELF64 process-image loader.
+ *      elf_loader.c
+ *      ELF loader for user processes
+ *      2026/7/21 By Rainy101112
+ *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
+ */
+// 上面那个是原作者的注释，codex把他给删了我加上了 不知道对不对（
+#include <drivers/tty.h>
 #include <fs/vfs.h>
 #include <kernel/elf.h>
 #include <kernel/elf_loader.h>
@@ -12,6 +21,7 @@
 #include <proc/process.h>
 #include <proc/sched.h>
 #include <proc/uaccess.h>
+#include <syscall/fcntl.h>
 #include <syscall/syscall.h>
 
 #define INTERP_LOAD_BASE 0x7f0000000000ULL
@@ -436,8 +446,8 @@ __attribute__((naked)) static void user_process_enter(void)
                      "iretq\n\t");
 }
 
-int elf_loader_load_user_process(process_t *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[],
-                                 uintptr_t *entry_out, uintptr_t *rsp_out)
+int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[],
+                                     uintptr_t *entry_out, uintptr_t *rsp_out, bool acquire_console)
 {
     Elf64_Ehdr *ehdr = NULL;
     if (validate_elf(elf_data, elf_size, &ehdr)) {
@@ -487,15 +497,27 @@ int elf_loader_load_user_process(process_t *proc, const uint8_t *elf_data, size_
         return 1;
     }
 
-    vfs_node_t console = vfs_open("/dev/console");
-    if (console) {
-        int std_fd = process_fd_install(proc, console, O_RDWR);
-        if (std_fd == 0) {
-            process_fd_dup2(proc, 0, 1);
-            process_fd_dup2(proc, 0, 2);
+    if (acquire_console) {
+        vfs_node_t console = vfs_open("/dev/console");
+        if (!console) {
+            plogk("elf_loader: PID 1 cannot open /dev/console.\n");
+            return 1;
         }
-    } else {
-        plogk("elf_loader: warning - /dev/console not found.\n");
+
+        int std_fd = process_fd_install(proc, console, O_RDWR | O_NOCTTY);
+        if (std_fd != 0) {
+            if (std_fd < 0) vfs_close(console);
+            plogk("elf_loader: PID 1 failed to install /dev/console on standard input.\n");
+            return 1;
+        }
+
+        int stdout_fd = process_fd_dup2(proc, 0, 1);
+        int stderr_fd = process_fd_dup2(proc, 0, 2);
+        int ctty      = tty_console_acquire(proc, O_RDWR);
+        if (stdout_fd != 1 || stderr_fd != 2 || ctty) {
+            plogk("elf_loader: PID 1 failed to acquire /dev/console as its controlling terminal.\n");
+            return 1;
+        }
     }
 
     proc->task->thread.fs_base = 0;

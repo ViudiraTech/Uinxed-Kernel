@@ -71,6 +71,7 @@ typedef enum {
     VM_REGION_HEAP,
     VM_REGION_STACK,
     VM_REGION_MMAP,
+    VM_REGION_SHM,
     VM_REGION_VDSO,
 } vm_region_type_t;
 
@@ -210,6 +211,9 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
 
 /* Unmap a virtual memory area in the given process */
 int process_munmap(process_t *proc, uintptr_t addr, size_t length);
+
+/* Unmap a range whose overlapping VMAs are wholly contained in the range. */
+int process_unmap_complete_range(process_t *proc, uintptr_t addr, size_t length);
 
 /* Drop all VMA metadata when replacing a process image. */
 void process_mmap_clear(process_t *proc);

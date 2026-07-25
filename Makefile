@@ -316,9 +316,11 @@ ASFLAGS        := -c -m64 -ffreestanding -nostdlib -fno-omit-frame-pointer -I in
 INIT_ELF       := assets/Limine/init
 
 # Automatically find all C source files in tools/ and generate their binary targets
-TOOL_C_SOURCES := $(filter-out tools/ps2_mouse_protocol_test.c,$(wildcard tools/*.c))
+TOOL_C_SOURCES := $(filter-out tools/ps2_mouse_protocol_test.c tools/vm_cow_test.c tools/tty_job_control_test.c,$(wildcard tools/*.c))
 TOOL_TARGETS   := $(TOOL_C_SOURCES:%.c=%)
 PS2_MOUSE_TEST := .cache/ps2_mouse_protocol_test
+VM_COW_TEST    := .cache/vm_cow_test
+TTY_JOB_CONTROL_TEST := .cache/tty_job_control_test
 
 # If you want to get more details of `dump_stack`, you need to replace `-O3` with `-O0` or '-Os'.
 # `-fno-optimize-sibling-calls` is for `dump_stack` to work properly.
@@ -331,6 +333,19 @@ test-ps2-mouse:
 	$(Q)mkdir -p $(dir $(PS2_MOUSE_TEST))
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) -I include -o $(PS2_MOUSE_TEST) tools/ps2_mouse_protocol_test.c drivers/input/ps2_mouse_protocol.c
 	$(Q)./$(PS2_MOUSE_TEST)
+
+test-vm-cow:
+	$(Q)mkdir -p $(dir $(VM_COW_TEST))
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) -fno-builtin -ffunction-sections -fdata-sections -DVM_COW_HOST_TEST -I include \
+		-Wl,--gc-sections -o $(VM_COW_TEST) tools/vm_cow_test.c mem/page.c
+	$(Q)./$(VM_COW_TEST)
+
+test-tty-job-control:
+	$(Q)mkdir -p $(dir $(TTY_JOB_CONTROL_TEST))
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) -fno-builtin -ffunction-sections -fdata-sections -I include \
+		-Wl,--gc-sections -o $(TTY_JOB_CONTROL_TEST) tools/tty_job_control_test.c drivers/char/tty.c drivers/char/tty_core.c \
+		kernel/process/boot_process.c kernel/process/elf_loader_entry.c
+	$(Q)./$(TTY_JOB_CONTROL_TEST)
 
 %.o: %.c
 	$(Q)printf "  CC      $@\n"
@@ -375,7 +390,7 @@ Uinxed-x64.iso: info UxImage $(INIT_ELF)
 	$(Q)printf "Image: $@ is ready.\n"
 	$(Q)printf "Compilation complete.\n"
 
-.PHONY: help run clean format check gen.clangd menuconfig diskimg
+.PHONY: help run clean format check gen.clangd menuconfig diskimg test-ps2-mouse test-vm-cow test-tty-job-control
 
 help: info
 	$(Q)printf "Uinxed-Kernel Makefile Usage:\n"

@@ -72,8 +72,10 @@ static int tty_job_control_check(tty_core_t *tty, int signal)
     spin_unlock(&tty->lock);
     if (!background) return 0;
 
-    if (signal_is_blocked_or_ignored(current, signal) || process_pgrp_is_orphaned(current->pgid, current->sid)) return -EIO;
-    signal_send_pgrp(current->pgid, signal);
+    bool blocked_or_ignored = signal_is_blocked_or_ignored(current, signal);
+    if (signal == SIGTTOU && blocked_or_ignored) return 0;
+    if (blocked_or_ignored || process_pgrp_is_orphaned(current->pgid, current->sid)) return -EIO;
+    signal_send_pgrp_session(current->pgid, current->sid, signal);
     return -EINTR;
 }
 

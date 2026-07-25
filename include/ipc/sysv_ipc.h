@@ -188,6 +188,10 @@ int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg);
 int64_t sys_shmdt(const void *shmaddr);
 int64_t sys_shmctl(int shmid, int cmd, void *buf);
 
+/* VMA lifecycle hooks for an opaque System V shared-memory segment. */
+int  sysv_shm_vma_get(void *identity, uint32_t pid);
+void sysv_shm_vma_put(void *identity, uint32_t pid);
+
 int64_t sys_msgget(key_t key, int msgflg);
 int64_t sys_msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg);
 int64_t sys_msgrcv(int msqid, void *msgp, size_t msgsz, int64_t msgtyp, int msgflg);

@@ -801,6 +801,82 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
 /*  Shared memory subsystem                                             */
 /* ------------------------------------------------------------------ */
 
+int sysv_shm_vma_get(void *identity, uint32_t pid)
+{
+    shm_seg_t *seg = identity;
+    if (!seg) return -EINVAL;
+
+    spin_lock(&seg->lock);
+    if (seg->nattch == UINT32_MAX) {
+        spin_unlock(&seg->lock);
+        return -ENOMEM;
+    }
+    seg->nattch++;
+    seg->atime = sched_ticks();
+    seg->lpid  = pid;
+    spin_unlock(&seg->lock);
+    return EOK;
+}
+
+static shm_seg_t *shm_attach_get(int shmid, int mode, uint32_t pid, int *error)
+{
+    int idx = shmid & IPC_ID_MASK;
+    if (idx < 0 || idx >= SHM_MAX_SEGS) {
+        if (error) *error = -EINVAL;
+        return NULL;
+    }
+    uint16_t seq = (uint16_t)((shmid >> IPC_SEQ_SHIFT) & IPC_SEQ_MASK);
+
+    spin_lock(&shm_global_lock);
+    shm_seg_t *seg = shm_segs[idx];
+    if (!seg || shm_seq[idx] != seq) {
+        spin_unlock(&shm_global_lock);
+        if (error) *error = -EINVAL;
+        return NULL;
+    }
+
+    int permission = ipc_perm_check(&seg->perm, mode);
+    if (permission < 0) {
+        spin_unlock(&shm_global_lock);
+        if (error) *error = permission;
+        return NULL;
+    }
+
+    spin_lock(&seg->lock);
+    if (seg->nattch == UINT32_MAX) {
+        spin_unlock(&seg->lock);
+        spin_unlock(&shm_global_lock);
+        if (error) *error = -ENOMEM;
+        return NULL;
+    }
+    seg->nattch++;
+    seg->atime = sched_ticks();
+    seg->lpid  = pid;
+    spin_unlock(&seg->lock);
+    spin_unlock(&shm_global_lock);
+    if (error) *error = EOK;
+    return seg;
+}
+
+void sysv_shm_vma_put(void *identity, uint32_t pid)
+{
+    shm_seg_t *seg = identity;
+    if (!seg) return;
+
+    int destroy = 0;
+    spin_lock(&seg->lock);
+    if (seg->nattch) seg->nattch--;
+    seg->dtime = sched_ticks();
+    seg->lpid  = pid;
+    destroy    = seg->deleted && seg->nattch == 0;
+    spin_unlock(&seg->lock);
+
+    if (destroy) {
+        free_frames(seg->phys_addr, seg->npages);
+        free(seg);
+    }
+}
+
 /*
  *  sys_shmget - get or create a shared memory segment
  */
@@ -887,14 +963,12 @@ int64_t sys_shmget(key_t key, size_t size, int shmflg)
  */
 int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg)
 {
-    shm_seg_t *seg = (shm_seg_t *)ipc_id_lookup((void **)shm_segs, shm_seq, SHM_MAX_SEGS, &shm_global_lock, shmid);
-    if (seg == NULL) return -EINVAL;
-
-    int ret = ipc_perm_check(&seg->perm, (shmflg & SHM_RDONLY) ? 0444 : 0666);
-    if (ret < 0) return ret;
-
     process_t *proc = process_current();
     if (proc == NULL) return -ESRCH;
+
+    int        attach_error = EOK;
+    shm_seg_t *seg          = shm_attach_get(shmid, (shmflg & SHM_RDONLY) ? 0444 : 0666, (uint32_t)proc->task->pid, &attach_error);
+    if (!seg) return attach_error;
 
     /* Determine the virtual address for the mapping */
     uintptr_t vaddr;
@@ -912,46 +986,58 @@ int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg)
         if (next_shm_addr < SHM_MMAP_BASE) { next_shm_addr = SHM_MMAP_BASE; }
         spin_unlock(&shm_global_lock);
     }
+    if ((vaddr & (PAGE_4K_SIZE - 1)) || vaddr > UINT64_MAX - seg->size || vaddr + seg->size > PROCESS_USER_STACK_TOP) {
+        sysv_shm_vma_put(seg, (uint32_t)proc->task->pid);
+        return -EINVAL;
+    }
 
-    /* Map the physical pages into the process */
     vm_flags_t flags = VM_SHARED;
     if (!(shmflg & SHM_RDONLY)) flags |= VM_WRITE;
     if (shmflg & SHM_EXEC) flags |= VM_EXEC;
     flags |= VM_READ;
 
-    spin_lock(&seg->lock);
+    vm_area_t *vma = vm_area_alloc(vaddr, vaddr + seg->size, flags);
+    if (!vma) {
+        sysv_shm_vma_put(seg, (uint32_t)proc->task->pid);
+        return -ENOMEM;
+    }
+    vma->type            = VM_REGION_SHM;
+    vma->vm_private_data = seg;
+
+    if ((shmflg & SHM_REMAP) && process_unmap_complete_range(proc, vaddr, seg->size)) {
+        sysv_shm_vma_put(seg, (uint32_t)proc->task->pid);
+        free(vma);
+        return -EINVAL;
+    }
+
+    if (frame_retain_range(seg->phys_addr, seg->npages)) {
+        sysv_shm_vma_put(seg, (uint32_t)proc->task->pid);
+        free(vma);
+        return -ENOMEM;
+    }
+
+    uint64_t pte_flags = PTE_USER | PTE_PRESENT | PTE_SHARED;
+    if (flags & VM_WRITE) pte_flags |= PTE_WRITEABLE;
+    if (!(flags & VM_EXEC)) pte_flags |= PTE_NO_EXECUTE;
+
+    uint32_t mapped = 0;
     for (uint32_t i = 0; i < seg->npages; i++) {
-        uint64_t frame     = seg->phys_addr + i * PAGE_4K_SIZE;
-        uint64_t pte_flags = PTE_USER | PTE_PRESENT;
-        if (flags & VM_WRITE) pte_flags |= PTE_WRITEABLE;
-        if (!(flags & VM_EXEC)) pte_flags |= PTE_NO_EXECUTE;
-
-        page_map_to(proc->user_page_dir, vaddr + i * PAGE_4K_SIZE, frame, pte_flags);
+        uint64_t frame = seg->phys_addr + i * PAGE_4K_SIZE;
+        if (page_map_new_to(proc->user_page_dir, vaddr + i * PAGE_4K_SIZE, frame, pte_flags)) goto rollback;
+        mapped++;
     }
 
-    seg->nattch++;
-    seg->atime = sched_ticks();
-    seg->lpid  = (uint32_t)proc->task->pid;
-    spin_unlock(&seg->lock);
-
-    /* Register a VMA for tracking */
-    vm_area_t *vma = malloc(sizeof(vm_area_t));
-    if (vma != NULL) {
-        memset(vma, 0, sizeof(vm_area_t));
-        vma->start = vaddr;
-        vma->end   = vaddr + seg->size;
-        vma->flags = flags;
-        vma->type  = VM_REGION_MMAP;
-        vma->next  = NULL;
-
-        spin_lock(&proc->mmap_lock);
-        vm_area_t **prev = &proc->mmap_list;
-        while (*prev != NULL) prev = &(*prev)->next;
-        *prev = vma;
-        spin_unlock(&proc->mmap_lock);
-    }
-
+    vm_area_insert(proc, vma);
     return (int64_t)vaddr;
+
+rollback:
+    for (uint32_t i = 0; i < mapped; i++) (void)page_unmap_release(proc->user_page_dir, vaddr + i * PAGE_4K_SIZE);
+    if (mapped < seg->npages) {
+        (void)frame_release_range(seg->phys_addr + mapped * PAGE_4K_SIZE, seg->npages - mapped);
+    }
+    sysv_shm_vma_put(seg, (uint32_t)proc->task->pid);
+    free(vma);
+    return -ENOMEM;
 }
 
 /*
@@ -966,55 +1052,19 @@ int64_t sys_shmdt(const void *shmaddr)
 
     uintptr_t vaddr = (uintptr_t)shmaddr;
 
-    /* Find and remove the VMA */
+    /* Resolve the exact attachment by VMA identity. */
     spin_lock(&proc->mmap_lock);
-    vm_area_t **prev  = &proc->mmap_list;
-    vm_area_t  *found = NULL;
-    while (*prev != NULL) {
-        if ((*prev)->start == vaddr) {
-            found = *prev;
-            *prev = found->next;
+    size_t length = 0;
+    for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next) {
+        if (vma->start == vaddr && vma->type == VM_REGION_SHM && vma->vm_private_data) {
+            length = vma->end - vma->start;
             break;
         }
-        prev = &(*prev)->next;
     }
     spin_unlock(&proc->mmap_lock);
 
-    if (found == NULL) return -EINVAL;
-
-    size_t   length = found->end - found->start;
-    uint32_t npages = (uint32_t)((length + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE);
-    free(found);
-
-    /* Find the matching shm segment by size */
-    spin_lock(&shm_global_lock);
-    for (int i = 0; i < SHM_MAX_SEGS; i++) {
-        shm_seg_t *seg = shm_segs[i];
-        if (seg == NULL) continue;
-
-        spin_lock(&seg->lock);
-        if (seg->npages == npages && seg->nattch > 0) {
-            seg->nattch--;
-            seg->dtime = sched_ticks();
-            seg->lpid  = (uint32_t)proc->task->pid;
-
-            /* Clean up if segment was marked for deletion */
-            if (seg->deleted && seg->nattch == 0) {
-                spin_unlock(&seg->lock);
-                spin_unlock(&shm_global_lock);
-                free_frames(seg->phys_addr, seg->npages);
-                free(seg);
-                return 0;
-            }
-            spin_unlock(&seg->lock);
-            spin_unlock(&shm_global_lock);
-            return 0;
-        }
-        spin_unlock(&seg->lock);
-    }
-    spin_unlock(&shm_global_lock);
-
-    return 0;
+    if (!length) return -EINVAL;
+    return process_unmap_complete_range(proc, vaddr, length);
 }
 
 /*

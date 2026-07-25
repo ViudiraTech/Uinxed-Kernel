@@ -3046,7 +3046,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     switch_page_directory(proc->user_page_dir);
 
     if (old_dir) {
-        free_page_table_recursive(old_dir->table, 4);
+        page_destroy_user_space(old_dir);
         free(old_dir);
     }
     process_mmap_clear(proc);

@@ -46,6 +46,7 @@ static uint64_t vm_flags_to_pte(vm_flags_t flags)
 {
     uint64_t pte = PTE_USER | PTE_PRESENT;
     if (flags & VM_WRITE) pte |= PTE_WRITEABLE;
+    if (flags & VM_SHARED) pte |= PTE_SHARED;
     if (!(flags & VM_EXEC)) pte |= PTE_NO_EXECUTE;
     return pte;
 }
@@ -133,13 +134,13 @@ static int vma_remove_range(process_t *proc, uintptr_t start, uintptr_t end)
 }
 
 /* Unmap physical pages in a range from the page directory */
-static void unmap_physical_pages(process_t *proc, uintptr_t start, size_t length)
+static int unmap_physical_pages(process_t *proc, uintptr_t start, size_t length)
 {
     uintptr_t end = ALIGN_UP(start + length, PAGE_4K_SIZE);
     for (uintptr_t va = start; va < end; va += PAGE_4K_SIZE) {
-        uintptr_t phys = page_unmap(proc->user_page_dir, va);
-        if (phys) free_frame(phys);
+        if (page_unmap_release(proc->user_page_dir, va) < 0) return -ENOMEM;
     }
+    return EOK;
 }
 
 /* ---------- Full mmap syscall implementation ---------- */
@@ -170,7 +171,8 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         if (addr > UINT64_MAX - pages) return -EINVAL;
         if (addr + pages > PROCESS_USER_STACK_TOP) return -EINVAL;
         mmap_addr = addr;
-        unmap_physical_pages(proc, mmap_addr, pages);
+        int unmap_result = unmap_physical_pages(proc, mmap_addr, pages);
+        if (unmap_result) return unmap_result;
         int ret = vma_remove_range(proc, mmap_addr, mmap_addr + pages);
         if (ret) return ret;
     } else {
@@ -303,7 +305,8 @@ int sys_munmap_full(uint64_t addr, uint64_t length)
     if (length > UINT64_MAX - PAGE_4K_SIZE) return -EINVAL;
 
     size_t pages = ALIGN_UP(length, PAGE_4K_SIZE);
-    unmap_physical_pages(proc, (uintptr_t)addr, pages);
+    int unmap_result = unmap_physical_pages(proc, (uintptr_t)addr, pages);
+    if (unmap_result) return unmap_result;
     return vma_remove_range(proc, (uintptr_t)addr, (uintptr_t)addr + pages);
 }
 
@@ -323,7 +326,9 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
     spin_lock(&proc->mmap_lock);
     for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next) {
         if (vma->start == (uintptr_t)addr) {
+            vm_flags |= vma->flags & VM_SHARED;
             vma->flags = vm_flags;
+            pte_flags   = vm_flags_to_pte(vm_flags);
             break;
         }
     }
@@ -392,7 +397,10 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64
     size_t new_pages = ALIGN_UP(new_len, PAGE_4K_SIZE);
 
     if (new_len <= old_len) {
-        if (new_len < old_len) { unmap_physical_pages(proc, (uintptr_t)old_addr + new_pages, old_pages - new_pages); }
+        if (new_len < old_len) {
+            int unmap_result = unmap_physical_pages(proc, (uintptr_t)old_addr + new_pages, old_pages - new_pages);
+            if (unmap_result) return unmap_result;
+        }
         return (int64_t)old_addr;
     }
 

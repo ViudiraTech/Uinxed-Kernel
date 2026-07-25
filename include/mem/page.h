@@ -13,6 +13,7 @@
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
+#include <sync/spin_lock.h>
 
 #define MSR_IA32_PAT 0x277
 
@@ -22,6 +23,8 @@
 #define PTE_PWT          (0x1 << 3) /* Page Write-Through */
 #define PTE_PCD          (0x1 << 4) /* Page Cache Disable    */
 #define PTE_HUGE         (0x1 << 7)
+#define PTE_COW          (0x1 << 9)  /* Software: private copy-on-write leaf */
+#define PTE_SHARED       (0x1 << 10) /* Software: shared mapping leaf */
 #define PTE_NO_EXECUTE   (((uint64_t)0x1) << 63)
 #define KERNEL_PTE_FLAGS (PTE_PRESENT | PTE_WRITEABLE | PTE_NO_EXECUTE)
 
@@ -48,6 +51,7 @@ typedef struct {
 
 typedef struct {
         page_table_t *table;
+        spinlock_t     lock;
 } page_directory_t;
 
 typedef struct {
@@ -89,8 +93,14 @@ void free_directory(page_directory_t *dir);
 /* Maps a virtual address to a physical frame using 4KB pages */
 void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags);
 
+/* Map a new 4 KiB leaf, returning failure if the address is occupied or allocation fails. */
+int page_map_new_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags);
+
 /* Unmap a 4KB page and return its physical frame, or zero if unmapped */
 uint64_t page_unmap(page_directory_t *directory, uint64_t addr);
+
+/* Unmap a user leaf and release its physical ownership reference. */
+int page_unmap_release(page_directory_t *directory, uint64_t addr);
 
 /* Maps a virtual address to a physical frame using 2MB huge pages */
 void page_map_to_2M(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags);
@@ -118,6 +128,15 @@ void page_map_range_to_random_1G(page_directory_t *directory, uint64_t addr, uin
 
 /* Intelligently maps random non-contiguous physical pages to the virtual address range */
 void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64_t length, uint64_t flags);
+
+/* Clone the lower user half into an empty directory using COW leaves. */
+int page_clone_user_cow(page_directory_t *child, page_directory_t *parent);
+
+/* Resolve a write protection fault on a COW leaf. */
+int page_resolve_cow_fault(page_directory_t *directory, uintptr_t addr);
+
+/* Release all user leaves/tables and the PML4 frame, preserving kernel mappings. */
+void page_destroy_user_space(page_directory_t *directory);
 
 /* Get the PAT configuration */
 pat_config_t get_pat_config(void);
