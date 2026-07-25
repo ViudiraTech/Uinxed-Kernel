@@ -16,12 +16,14 @@
 #include <mem/heap.h>
 #include <mem/page.h>
 #include <proc/process.h>
+#include <sync/spin_lock.h>
 
 #define VFS_PATH_MAX 4096
 #define VFS_ACCESS_R 4
 #define VFS_ACCESS_W 2
 
 vfs_node_t rootdir = 0;
+static spinlock_t vfs_namespace_lock;
 
 /*
  * Check file access permissions against the current process.
@@ -163,7 +165,9 @@ static vfs_node_t vfs_child_append(vfs_node_t parent, const char *name, void *ha
 /* Find a child node by name within a parent directory */
 static vfs_node_t vfs_child_find(vfs_node_t parent, const char *name)
 {
-    return clist_first(parent->child, data, streq(name, ((vfs_node_t)data)->name));
+    return clist_first(parent->child, data,
+                       !(((vfs_node_t)data)->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED))
+                           && streq(name, ((vfs_node_t)data)->name));
 }
 
 /* Allocate a new vfs node with the given parent and name */
@@ -204,7 +208,9 @@ void set_rootdir(vfs_node_t node)
 /* Search for a file or directory by name in the specified directory */
 vfs_node_t vfs_do_search(vfs_node_t dir, const char *name)
 {
-    return clist_first(dir->child, data, streq(name, ((vfs_node_t)data)->name));
+    return clist_first(dir->child, data,
+                       !(((vfs_node_t)data)->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED))
+                           && streq(name, ((vfs_node_t)data)->name));
 }
 
 /* Update a file or directory, ensuring it is open and ready */
@@ -251,7 +257,7 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth)
             free(target_path);
             if (!target) goto err;
 
-            if (symlink_owned) vfs_close(current);
+            if (symlink_owned && current->refcount) current->refcount--;
             current       = target;
             symlink_owned = 1;
             continue;
@@ -261,14 +267,27 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth)
     free(path);
     return current;
 err:
-    if (symlink_owned) vfs_close(current);
+    if (symlink_owned && current->refcount) current->refcount--;
     free(path);
     return 0;
 }
 
 vfs_node_t vfs_open(const char *str)
 {
-    return vfs_open_internal(str, 0);
+    spin_lock(&vfs_namespace_lock);
+    vfs_node_t node = vfs_open_internal(str, 0);
+    spin_unlock(&vfs_namespace_lock);
+    return node;
+}
+
+vfs_node_t vfs_node_retain(vfs_node_t node)
+{
+    if (!node) return NULL;
+    spin_lock(&vfs_namespace_lock);
+    if (node->flags & VFS_NODE_FINALIZING) node = NULL;
+    if (node) node->refcount++;
+    spin_unlock(&vfs_namespace_lock);
+    return node;
 }
 
 /* Create a new directory at the specified path */
@@ -708,38 +727,173 @@ size_t vfs_write(vfs_node_t file, void *addr, size_t offset, size_t size)
     return ret;
 }
 
+int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
+{
+    if (!file || !addr) return -EINVAL;
+    if (vfs_access_check(file, VFS_ACCESS_R)) return -EACCES;
+    do_update(file);
+    if (file->type & file_dir) return -EISDIR;
+
+    if (callbackof(file, file_read) != vfs_empty_callback.file_read)
+        return callbackof(file, file_read)(file, private_data, flags, addr, offset, size);
+
+    size_t legacy_ret = callbackof(file, read)(file->handle, addr, offset, size);
+    return legacy_ret == (size_t)-1 ? -EIO : (int64_t)legacy_ret;
+}
+
+int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
+{
+    int64_t ret;
+
+    if (!file || !addr) return -EINVAL;
+    if (vfs_access_check(file, VFS_ACCESS_W)) return -EACCES;
+    do_update(file);
+    if (file->type & file_dir) return -EISDIR;
+
+    if (callbackof(file, file_write) != vfs_empty_callback.file_write) {
+        ret = callbackof(file, file_write)(file, private_data, flags, addr, offset, size);
+    } else {
+        size_t legacy_ret = callbackof(file, write)(file->handle, addr, offset, size);
+        ret               = legacy_ret == (size_t)-1 ? -EIO : (int64_t)legacy_ret;
+    }
+
+    do_update(file);
+    return ret;
+}
+
+int vfs_file_ioctl(vfs_node_t file, void *private_data, uint64_t flags, size_t req, void *arg)
+{
+    if (!file) return -EINVAL;
+    do_update(file);
+    if (file->type & file_dir) return -EISDIR;
+
+    if (callbackof(file, file_ioctl) != vfs_empty_callback.file_ioctl) return callbackof(file, file_ioctl)(file, private_data, flags, req, arg);
+    return callbackof(file, ioctl)(file->handle, req, arg);
+}
+
+int vfs_file_poll(vfs_node_t file, void *private_data, uint64_t flags, size_t events)
+{
+    if (!file) return -EINVAL;
+    do_update(file);
+    if (file->type & file_dir) return -EISDIR;
+
+    if (callbackof(file, file_poll) != vfs_empty_callback.file_poll) return callbackof(file, file_poll)(file, private_data, flags, events);
+    return callbackof(file, poll)(file->handle, events);
+}
+
 /* Close the file or directory node */
 int vfs_close(vfs_node_t node)
 {
     if (!node) return -EINVAL;
+
+    spin_lock(&vfs_namespace_lock);
     if (node->refcount) node->refcount--;
 
-    if (node == rootdir || !node->handle) return EOK;
-    if (node->type & file_proxy || node->refcount) return EOK;
-
-    if (node->type & file_delete) {
-        if ((node->type & file_dir) && node->child) return -ENOTEMPTY;
-
-        int res = callbackof(node, delete)(node->parent->handle, node);
-        if (res < 0) return res;
-
-        callbackof(node, close)(node->handle);
-        node->parent->child = clist_delete(node->parent->child, node);
-        callbackof(node, free)(node->handle);
-        node->handle = 0;
-        vfs_free(node);
-    } else {
-        callbackof(node, close)(node->handle);
+    if (node == rootdir || !node->handle || node->type & file_proxy || node->refcount) {
+        spin_unlock(&vfs_namespace_lock);
+        return EOK;
     }
+    if (!(node->type & file_delete)) {
+        spin_unlock(&vfs_namespace_lock);
+        callbackof(node, close)(node->handle);
+        return EOK;
+    }
+    node->flags |= VFS_NODE_FINALIZING;
+    spin_unlock(&vfs_namespace_lock);
+
+    if (node->type & file_dir) {
+        for (clist_t child = node->child; child; child = child->next) {
+            vfs_node_t vnode = child->data;
+            if (vnode && !(vnode->flags & VFS_NODE_VIRTUAL)) {
+                spin_lock(&vfs_namespace_lock);
+                node->flags &= ~VFS_NODE_FINALIZING;
+                spin_unlock(&vfs_namespace_lock);
+                return -ENOTEMPTY;
+            }
+        }
+    }
+
+    if (!(node->flags & VFS_NODE_DELETE_COMMITTED)) {
+        int res = callbackof(node, delete)(node->parent->handle, node);
+        if (res < 0) {
+            spin_lock(&vfs_namespace_lock);
+            node->flags &= ~VFS_NODE_FINALIZING;
+            spin_unlock(&vfs_namespace_lock);
+            return res;
+        }
+    }
+
+    callbackof(node, close)(node->handle);
+    spin_lock(&vfs_namespace_lock);
+    if (!(node->flags & VFS_NODE_UNLINKED)) {
+        node->parent->child = clist_delete(node->parent->child, node);
+        node->flags |= VFS_NODE_UNLINKED;
+    }
+    spin_unlock(&vfs_namespace_lock);
+    callbackof(node, free)(node->handle);
+    node->handle = 0;
+    vfs_free(node);
+    return EOK;
+}
+
+int vfs_namespace_unlink(vfs_node_t node)
+{
+    if (!node || node == rootdir) return -EINVAL;
+
+    spin_lock(&vfs_namespace_lock);
+    if (node->flags & (VFS_NODE_UNLINKED | VFS_NODE_UNLINKING)) {
+        spin_unlock(&vfs_namespace_lock);
+        return -ENOENT;
+    }
+    if (node->type & file_dir) {
+        for (clist_t child = node->child; child; child = child->next) {
+            vfs_node_t vnode = child->data;
+            if (vnode && !(vnode->flags & VFS_NODE_VIRTUAL)) {
+                spin_unlock(&vfs_namespace_lock);
+                return -ENOTEMPTY;
+            }
+        }
+    }
+
+    node->flags |= VFS_NODE_UNLINKING;
+    spin_unlock(&vfs_namespace_lock);
+
+    int status = callbackof(node, delete)(node->parent->handle, node);
+    if (status < 0) {
+        spin_lock(&vfs_namespace_lock);
+        node->flags &= ~VFS_NODE_UNLINKING;
+        spin_unlock(&vfs_namespace_lock);
+        return status;
+    }
+
+    spin_lock(&vfs_namespace_lock);
+    node->parent->child = clist_delete(node->parent->child, node);
+    node->flags &= ~VFS_NODE_UNLINKING;
+    node->flags |= VFS_NODE_DELETE_COMMITTED | VFS_NODE_UNLINKED;
+    node->type |= file_delete;
+    spin_unlock(&vfs_namespace_lock);
     return EOK;
 }
 
 /* Delete a VFS (Virtual File System) node and clean up associated resources */
 int vfs_delete(vfs_node_t node)
 {
+    int status;
+
     if (!node || node == rootdir) return -EINVAL;
 
     do_update(node);
+    if (node->type & file_dir) {
+        for (clist_t child = node->child; child; child = child->next) {
+            vfs_node_t vnode = child->data;
+            if (vnode && !(vnode->flags & VFS_NODE_VIRTUAL)) return -ENOTEMPTY;
+        }
+    }
+    if (node->flags & VFS_NODE_DELETE_SYNC) {
+        status = callbackof(node, delete)(node->parent->handle, node);
+        if (status < 0) return status;
+        node->flags |= VFS_NODE_DELETE_COMMITTED;
+    }
     node->type |= file_delete;
     if (!node->refcount) return vfs_close(node);
     return EOK;

@@ -156,7 +156,7 @@ int tmpfs_ioctl(void *file, size_t req, void *arg)
     tmpfs_file_t *handle = file;
 
     if (handle->device.ioctl) return handle->device.ioctl(handle->device.ctx, req, arg);
-    if (handle->type == tp_file_char || handle->type == tp_file_blk) { return EOK; }
+    if (handle->node_type != file_none && handle->node_type != file_dir && handle->node_type != file_symlink) return -ENOTTY;
     return EOK;
 }
 
@@ -252,6 +252,42 @@ static void *tmpfs_file_mmap(vfs_node_t node, void *private_data, size_t offset,
     return NULL;
 }
 
+static int64_t tmpfs_file_read(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
+{
+    tmpfs_file_t *f = node->handle;
+
+    if (!f) return -EINVAL;
+    if (f->device.file_read) return f->device.file_read(f->device.ctx, private_data, flags, addr, offset, size);
+    return (int64_t)tmpfs_read(f, addr, offset, size);
+}
+
+static int64_t tmpfs_file_write(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
+{
+    tmpfs_file_t *f = node->handle;
+
+    if (!f) return -EINVAL;
+    if (f->device.file_write) return f->device.file_write(f->device.ctx, private_data, flags, addr, offset, size);
+    return (int64_t)tmpfs_write(f, addr, offset, size);
+}
+
+static int tmpfs_file_poll(vfs_node_t node, void *private_data, uint64_t flags, size_t events)
+{
+    tmpfs_file_t *f = node->handle;
+
+    if (!f) return -EINVAL;
+    if (f->device.file_poll) return f->device.file_poll(f->device.ctx, private_data, flags, events);
+    return tmpfs_poll(f, events);
+}
+
+static int tmpfs_file_ioctl(vfs_node_t node, void *private_data, uint64_t flags, size_t req, void *arg)
+{
+    tmpfs_file_t *f = node->handle;
+
+    if (!f) return -EINVAL;
+    if (f->device.file_ioctl) return f->device.file_ioctl(f->device.ctx, private_data, flags, req, arg);
+    return tmpfs_ioctl(f, req, arg);
+}
+
 static struct vfs_callback tmpfs_callbacks = {
     .mount        = tmpfs_mount,
     .unmount      = tmpfs_umount,
@@ -274,6 +310,10 @@ static struct vfs_callback tmpfs_callbacks = {
     .file_open    = tmpfs_file_open,
     .file_release = tmpfs_file_release,
     .file_mmap    = tmpfs_file_mmap,
+    .file_read    = tmpfs_file_read,
+    .file_write   = tmpfs_file_write,
+    .file_ioctl   = tmpfs_file_ioctl,
+    .file_poll    = tmpfs_file_poll,
 };
 
 /* Register tmpfs with the VFS layer (initialize tmpfs) */

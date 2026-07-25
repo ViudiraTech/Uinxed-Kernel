@@ -87,27 +87,49 @@ static int vma_range_overlaps(process_t *proc, uintptr_t start, uintptr_t end)
     return 0;
 }
 
-/* Remove and free VMA entries that overlap with the given range.
- * Returns the number of VMAs removed. */
 static int vma_remove_range(process_t *proc, uintptr_t start, uintptr_t end)
 {
-    int removed = 0;
-
     spin_lock(&proc->mmap_lock);
     vm_area_t **prev = &proc->mmap_list;
     while (*prev) {
         vm_area_t *vma = *prev;
-        if (vma->start >= start && vma->end <= end) {
-            *prev = vma->next;
-            free(vma);
-            removed++;
+        if (end <= vma->start || start >= vma->end) {
+            prev = &vma->next;
             continue;
         }
+        if (start <= vma->start && end >= vma->end) {
+            *prev = vma->next;
+            free(vma);
+            continue;
+        }
+        if (start <= vma->start) {
+            size_t removed_pages = (end - vma->start) / PAGE_4K_SIZE;
+            vma->start = end;
+            vma->vm_pgoff += removed_pages;
+            prev = &vma->next;
+            continue;
+        }
+        if (end >= vma->end) {
+            vma->end = start;
+            prev = &vma->next;
+            continue;
+        }
+
+        vm_area_t *right = calloc(1, sizeof(*right));
+        if (!right) {
+            spin_unlock(&proc->mmap_lock);
+            return -ENOMEM;
+        }
+        *right = *vma;
+        right->start = end;
+        right->vm_pgoff += (end - vma->start) / PAGE_4K_SIZE;
+        right->next = vma->next;
+        vma->end = start;
+        vma->next = right;
         prev = &vma->next;
     }
     spin_unlock(&proc->mmap_lock);
-
-    return removed;
+    return 0;
 }
 
 /* Unmap physical pages in a range from the page directory */
@@ -115,20 +137,21 @@ static void unmap_physical_pages(process_t *proc, uintptr_t start, size_t length
 {
     uintptr_t end = ALIGN_UP(start + length, PAGE_4K_SIZE);
     for (uintptr_t va = start; va < end; va += PAGE_4K_SIZE) {
-        uintptr_t phys = walk_page_tables(proc->user_page_dir, va);
-        if (phys && phys != (uintptr_t)-1) { free_frame(phys); }
+        uintptr_t phys = page_unmap(proc->user_page_dir, va);
+        if (phys) free_frame(phys);
     }
 }
 
 /* ---------- Full mmap syscall implementation ---------- */
 
-int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t flags, uint64_t fd, uint64_t pgoff)
+int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t flags, uint64_t fd, uint64_t offset)
 {
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
     if (!length) return -EINVAL;
     if (length > UINT64_MAX - PAGE_4K_SIZE) return -EINVAL;
+    if (offset & (PAGE_4K_SIZE - 1)) return -EINVAL;
 
     size_t    pages = ALIGN_UP(length, PAGE_4K_SIZE);
     uintptr_t mmap_addr;
@@ -148,7 +171,8 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         if (addr + pages > PROCESS_USER_STACK_TOP) return -EINVAL;
         mmap_addr = addr;
         unmap_physical_pages(proc, mmap_addr, pages);
-        vma_remove_range(proc, mmap_addr, mmap_addr + pages);
+        int ret = vma_remove_range(proc, mmap_addr, mmap_addr + pages);
+        if (ret) return ret;
     } else {
         mmap_addr = find_free_vma_range(proc, pages);
         if (!mmap_addr) return -ENOMEM;
@@ -173,11 +197,11 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
 
         if (!file) return -EBADF;
 
-        if ((size_t)pgoff > SIZE_MAX / PAGE_4K_SIZE) {
+        if (offset > SIZE_MAX) {
             process_file_put(file);
             return -EINVAL;
         }
-        size_t file_offset = (size_t)pgoff * PAGE_4K_SIZE;
+        size_t file_offset = (size_t)offset;
 
         /* Check if the filesystem has a per-open mmap callback
          * (e.g., DRM GEM mmap). If so, use it to map device
@@ -190,7 +214,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
             vma.flags    = vm_flags;
             vma.type     = VM_REGION_MMAP;
             vma.vm_file  = file->node;
-            vma.vm_pgoff = pgoff;
+            vma.vm_pgoff = offset / PAGE_4K_SIZE;
             vma.vm_file->refcount++; /* VMA holds a reference */
 
             void *result = callbackof(file->node, file_mmap)(file->node, file->private_data, file_offset, pages, vm_flags, &vma);
@@ -242,13 +266,29 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         vma->type  = VM_REGION_MMAP;
         vma->next  = NULL;
 
-        spin_lock(&proc->mmap_lock);
-        vma->next       = proc->mmap_list;
-        proc->mmap_list = vma;
-        spin_unlock(&proc->mmap_lock);
+        vma->vm_pgoff = offset / PAGE_4K_SIZE;
+        vm_area_insert(proc, vma);
 
         process_file_put(file);
         return (int64_t)mmap_addr;
+    } else if (!(flags & MAP_ANONYMOUS)) {
+        return -EBADF;
+    } else {
+        uint64_t pte_flags = vm_flags_to_pte(vm_flags);
+        for (size_t i = 0; i < pages; i += PAGE_4K_SIZE) {
+            uint64_t frame = alloc_frames(1);
+            if (!frame) return -ENOMEM;
+            memset(phys_to_virt(frame), 0, PAGE_4K_SIZE);
+            page_map_to(proc->user_page_dir, mmap_addr + i, frame, pte_flags);
+        }
+
+        vm_area_t *vma = calloc(1, sizeof(*vma));
+        if (!vma) return -ENOMEM;
+        vma->start = mmap_addr;
+        vma->end   = mmap_addr + pages;
+        vma->flags = vm_flags;
+        vma->type  = VM_REGION_MMAP;
+        vm_area_insert(proc, vma);
     }
 
 vma_done:
@@ -264,9 +304,7 @@ int sys_munmap_full(uint64_t addr, uint64_t length)
 
     size_t pages = ALIGN_UP(length, PAGE_4K_SIZE);
     unmap_physical_pages(proc, (uintptr_t)addr, pages);
-    vma_remove_range(proc, (uintptr_t)addr, (uintptr_t)addr + pages);
-
-    return process_munmap(proc, (uintptr_t)addr, length);
+    return vma_remove_range(proc, (uintptr_t)addr, (uintptr_t)addr + pages);
 }
 
 int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)

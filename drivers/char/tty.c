@@ -10,14 +10,18 @@
 
 #include <drivers/serial.h>
 #include <drivers/tty.h>
+#include <drivers/tty_core.h>
 #include <kernel/cmdline.h>
+#include <kernel/errno.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
+#include <proc/process.h>
 #include <proc/task.h>
 #include <sync/spin_lock.h>
+#include <syscall/fcntl.h>
 #include <video/fbcon.h>
 #include <video/video.h>
 
@@ -33,11 +37,8 @@ static char           tty_vga_queue[TTY_VGA_QUEUE_SIZE] = {0};
 static size_t         tty_vga_head                      = 0;
 static size_t         tty_vga_tail                      = 0;
 
-static int tty_should_flush_now(const char ch)
+static int tty_should_flush_now(const tty_device_t *tty_device, const char ch, size_t used)
 {
-    tty_device_t *tty_device = get_boot_tty();
-    size_t        used       = (size_t)(tty_buff_ptr - tty_buff);
-
     if (!tty_device) return 1;
     if (used >= TTY_BUF_SIZE - 1) return 1;
     if (tty_device->type == TTY_DEVICE_SERIAL) return ch == '\n';
@@ -314,8 +315,8 @@ static void tty_buff_add(const char ch)
     if (ch == '\0') return;
     tty_device = get_boot_tty();
 
+    spin_lock(&tty_flush_spinlock);
     if (tty_device && (tty_device->type == TTY_DEVICE_VGA || tty_device->type == TTY_DEVICE_DRM) && tty_device->port == 0) {
-        spin_lock(&tty_flush_spinlock);
         tty_vga_queue_push(ch);
         if (tty_vga_queue_used() >= TTY_BUF_SIZE) tty_vga_flush_locked();
         spin_unlock(&tty_flush_spinlock);
@@ -324,12 +325,17 @@ static void tty_buff_add(const char ch)
 
     *tty_buff_ptr++ = ch;
 
-    if (tty_should_flush_now(ch)) {
-        /* Flush */
+    if (tty_should_flush_now(tty_device, ch, (size_t)(tty_buff_ptr - tty_buff))) {
         *tty_buff_ptr = '\0';
-        tty_buff_flush();
+        uint16_t serial_port = tty_device && tty_device->port == 1 ? SERIAL_PORT_2 :
+                               tty_device && tty_device->port == 2 ? SERIAL_PORT_3 :
+                               tty_device && tty_device->port == 3 ? SERIAL_PORT_4 :
+                                                                    SERIAL_PORT_1;
+        for (char *ptr = tty_buff; ptr < (char *)tty_buff_ptr && *ptr != '\0'; ptr++) write_serial(serial_port, *ptr);
+        tty_buff_ptr = tty_buff;
     }
     *tty_buff_ptr = '\0';
+    spin_unlock(&tty_flush_spinlock);
 }
 
 /* Print characters to tty */
@@ -348,32 +354,43 @@ void tty_print_str(const char *str)
     }
 }
 
-/* Write a byte buffer to the TTY device (standard Linux semantics) */
+static tty_core_t console_tty;
+static bool       console_tty_ready;
+static spinlock_t console_tty_init_lock;
+static spinlock_t console_emit_lock;
+
+static int console_emit(void *context, const uint8_t *data, size_t size, uint64_t flags)
+{
+    (void)context;
+    (void)flags;
+    spin_lock(&console_emit_lock);
+    for (size_t i = 0; i < size; i++) tty_print_ch((char)data[i]);
+    tty_deferred_flush();
+    spin_unlock(&console_emit_lock);
+    return (int)size;
+}
+
+static void tty_input_lazy_init(void)
+{
+    spin_lock(&console_tty_init_lock);
+    if (console_tty_ready) {
+        spin_unlock(&console_tty_init_lock);
+        return;
+    }
+    static const tty_core_ops_t operations = {.emit = console_emit, .event = NULL};
+    tty_core_init(&console_tty, &operations, NULL);
+    console_tty_ready = true;
+    spin_unlock(&console_tty_init_lock);
+}
+
 size_t tty_dev_write(void *ctx, const void *addr, size_t offset, size_t size)
 {
     (void)ctx;
     (void)offset;
-
-    const unsigned char *buf = (const unsigned char *)addr;
-    size_t               i;
-
-    for (i = 0; i < size; i++) { tty_print_ch((char)buf[i]); }
-    tty_deferred_flush();
-    return size;
+    tty_input_lazy_init();
+    int64_t result = tty_core_write(&console_tty, addr, size, 0);
+    return result < 0 ? 0 : (size_t)result;
 }
-
-/* ----------------------------------------------------------------- */
-/*               TTY input (keyboard → line discipline)              */
-/* ----------------------------------------------------------------- */
-
-#define TTY_INPUT_BUF_SIZE 4096
-
-static char         tty_input_buf[TTY_INPUT_BUF_SIZE];
-static size_t       tty_input_head = 0;
-static size_t       tty_input_tail = 0;
-static spinlock_t   tty_input_lock = {0};
-static wait_queue_t tty_input_wait;
-static int          tty_input_ready = 0;
 
 static bool tty_shift_pressed = false;
 static bool tty_ctrl_pressed  = false;
@@ -400,14 +417,6 @@ static const unsigned char tty_keymap_shift[128] = {
     '"', '~', 0,   '|', 'Z', 'X', 'C', 'V', 'B', 'N', /* 40-49 */
     'M', '<', '>', '?', 0,   '*', 0,   ' ', 0,        /* 50-58 */
 };
-
-static void tty_input_lazy_init(void)
-{
-    if (!tty_input_ready) {
-        wait_queue_init(&tty_input_wait);
-        tty_input_ready = 1;
-    }
-}
 
 /* Feed a scancode into the TTY line discipline */
 void tty_handle_scancode(uint8_t scancode, bool pressed)
@@ -473,95 +482,110 @@ void tty_handle_scancode(uint8_t scancode, bool pressed)
             break;
     }
 
-    /* Echo the character back to the TTY output */
-    if (ch == '\b') {
-        /* Backspace echo: move cursor back, clear, move back again */
-        tty_print_ch('\b');
-        tty_print_ch(' ');
-        tty_print_ch('\b');
-    } else {
-        tty_print_ch(ch);
-    }
-
-    /* If this is a backspace, remove one character from the input buffer */
-    if (ch == '\b') {
-        spin_lock(&tty_input_lock);
-        if (tty_input_head != tty_input_tail) { tty_input_head = (tty_input_head - 1) % TTY_INPUT_BUF_SIZE; }
-        spin_unlock(&tty_input_lock);
-        return;
-    }
-
-    /* Push the character into the input buffer */
-    spin_lock(&tty_input_lock);
-    {
-        size_t next = (tty_input_head + 1) % TTY_INPUT_BUF_SIZE;
-        if (next != tty_input_tail) {
-            tty_input_buf[tty_input_head] = ch;
-            tty_input_head                = next;
-        }
-    }
-    spin_unlock(&tty_input_lock);
-
-    /* Wake any task that is blocked waiting for TTY input */
-    wait_queue_wake_one(&tty_input_wait);
+    if (ch == '\b') ch = 127;
+    tty_core_receive(&console_tty, (const uint8_t *)&ch, 1, O_NONBLOCK);
 }
 
-/* Read a byte buffer from the TTY device (canonical / line-at-a-time) */
 size_t tty_dev_read(void *ctx, void *addr, size_t offset, size_t size)
 {
     (void)ctx;
     (void)offset;
-
-    if (!addr || !size) return 0;
-
     tty_input_lazy_init();
-
-    char  *buf    = (char *)addr;
-    size_t copied = 0;
-
-    for (;;) {
-        /* Wait until at least one character is available */
-        for (;;) {
-            spin_lock(&tty_input_lock);
-            int avail = tty_input_head != tty_input_tail;
-            spin_unlock(&tty_input_lock);
-            if (avail) break;
-            wait_queue_wait(&tty_input_wait);
-        }
-
-        /* Read one character from the ring buffer */
-        spin_lock(&tty_input_lock);
-        char ch        = tty_input_buf[tty_input_tail];
-        tty_input_tail = (tty_input_tail + 1) % TTY_INPUT_BUF_SIZE;
-        spin_unlock(&tty_input_lock);
-
-        /* Ctrl+D (0x04): flush or EOF */
-        if ((unsigned char)ch == 0x04) {
-            if (copied == 0) return 0; /* EOF – return 0 */
-            break;                     /* return what we have */
-        }
-
-        buf[copied++] = ch;
-
-        if (ch == '\n' || copied >= size) break;
-    }
-
-    return copied;
+    int64_t result = tty_core_read(&console_tty, addr, size, 0);
+    return result < 0 ? 0 : (size_t)result;
 }
 
-/* Poll TTY device for read/write readiness */
 int tty_dev_poll(void *ctx, size_t events)
 {
     (void)ctx;
+    tty_input_lazy_init();
+    return tty_core_poll(&console_tty, events);
+}
 
-    int revents = 0;
-    if (events & 0x0004) revents |= 0x0004; /* POLLOUT – TTY is always writable */
+int tty_dev_file_open(struct vfs_node *node, uint64_t flags, void **private_data)
+{
+    (void)node;
+    tty_input_lazy_init();
+    tty_core_auto_acquire(&console_tty, flags);
+    *private_data = NULL;
+    return 0;
+}
 
-    if (events & 0x0001) { /* POLLIN */
-        tty_input_lazy_init();
-        spin_lock(&tty_input_lock);
-        if (tty_input_head != tty_input_tail) revents |= 0x0001;
-        spin_unlock(&tty_input_lock);
-    }
-    return revents;
+int64_t tty_dev_file_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
+{
+    (void)ctx;
+    (void)private_data;
+    (void)offset;
+    tty_input_lazy_init();
+    return tty_core_read(&console_tty, addr, size, flags);
+}
+
+int64_t tty_dev_file_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
+{
+    (void)ctx;
+    (void)private_data;
+    (void)flags;
+    (void)offset;
+    tty_input_lazy_init();
+    return tty_core_write(&console_tty, addr, size, flags);
+}
+
+int tty_dev_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events)
+{
+    (void)ctx;
+    (void)private_data;
+    (void)flags;
+    return tty_dev_poll(NULL, events);
+}
+
+int tty_dev_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t request, void *arg)
+{
+    (void)ctx;
+    (void)private_data;
+    (void)flags;
+    tty_input_lazy_init();
+    return tty_core_ioctl(&console_tty, flags, request, arg);
+}
+
+int tty_ctty_file_open(struct vfs_node *node, uint64_t flags, void **private_data)
+{
+    (void)node;
+    (void)flags;
+    tty_core_t *tty = process_ctty_get(process_current());
+    if (!tty) return -ENXIO;
+    *private_data = tty;
+    return 0;
+}
+
+void tty_ctty_file_release(struct vfs_node *node, void *private_data)
+{
+    (void)node;
+    tty_core_release(private_data);
+}
+
+int64_t tty_ctty_file_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
+{
+    (void)ctx;
+    (void)offset;
+    return tty_core_read(private_data, addr, size, flags);
+}
+
+int64_t tty_ctty_file_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
+{
+    (void)ctx;
+    (void)offset;
+    return tty_core_write(private_data, addr, size, flags);
+}
+
+int tty_ctty_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events)
+{
+    (void)ctx;
+    (void)flags;
+    return tty_core_poll(private_data, events);
+}
+
+int tty_ctty_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t request, void *arg)
+{
+    (void)ctx;
+    return tty_core_ioctl(private_data, flags, request, arg);
 }

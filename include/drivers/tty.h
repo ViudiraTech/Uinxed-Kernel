@@ -15,6 +15,8 @@
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
 
+struct vfs_node;
+
 #define MAX_ARGC    1024
 #define MAX_CMDLINE 256
 
@@ -77,6 +79,18 @@ size_t tty_dev_read(void *ctx, void *addr, size_t offset, size_t size);
 
 /* Poll TTY device for write readiness */
 int tty_dev_poll(void *ctx, size_t events);
+
+int     tty_dev_file_open(struct vfs_node *node, uint64_t flags, void **private_data);
+int64_t tty_dev_file_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
+int64_t tty_dev_file_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
+int     tty_dev_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events);
+int     tty_dev_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t request, void *arg);
+int     tty_ctty_file_open(struct vfs_node *node, uint64_t flags, void **private_data);
+void    tty_ctty_file_release(struct vfs_node *node, void *private_data);
+int64_t tty_ctty_file_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
+int64_t tty_ctty_file_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
+int     tty_ctty_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events);
+int     tty_ctty_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t request, void *arg);
 
 /* Feed a scancode from a keyboard into the TTY input line discipline */
 void tty_handle_scancode(uint8_t scancode, bool pressed);

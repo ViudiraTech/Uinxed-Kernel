@@ -22,6 +22,7 @@
 #include <fs/tmpfs.h>
 #include <fs/vfs.h>
 #include <kernel/audio.h>
+#include <kernel/device.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
@@ -34,7 +35,7 @@
 /* Character-device registration table                                 */
 /* ------------------------------------------------------------------ */
 
-#define DEVTMPFS_MAX_DEVICES 128
+#define DEVTMPFS_MAX_DEVICES 512
 
 typedef struct devtmpfs_entry {
         char               path[256];
@@ -127,8 +128,14 @@ int devtmpfs_register_char_device(const char *path, uint64_t dev, uint64_t rdev,
     }
     spin_unlock(&devtmpfs_lock);
 
+    if (slot < 0) {
+        vfs_namespace_unlink(node);
+        vfs_close(node);
+        return -ENOSPC;
+    }
+
     plogk("devtmpfs: Registered %s as char device (dev=%llu, rdev=%llu)\n", path, dev, rdev);
-    vfs_close(node);
+    /* The registry owns the reference returned by vfs_open(). */
     return 0;
 }
 
@@ -156,7 +163,11 @@ int devtmpfs_unregister_char_device(const char *path)
     devtmpfs_table[slot].node   = NULL;
     spin_unlock(&devtmpfs_lock);
 
-    if (node) vfs_delete(node);
+    if (node) {
+        int status = vfs_namespace_unlink(node);
+        vfs_close(node);
+        if (status && status != -ENOENT) return status;
+    }
     plogk("devtmpfs: Unregistered %s\n", path);
     return 0;
 }
@@ -334,11 +345,14 @@ typedef struct {
 static void devtmpfs_create_tty_nodes(void)
 {
     static const tmpfs_device_ops_t tty_device = {
-        .read  = tty_dev_read,
-        .write = tty_dev_write,
-        .poll  = tty_dev_poll,
-        .ioctl = 0,
-        .ctx   = 0,
+        .read       = tty_dev_read,
+        .write      = tty_dev_write,
+        .poll       = tty_dev_poll,
+        .file_read  = tty_dev_file_read,
+        .file_write = tty_dev_file_write,
+        .file_poll  = tty_dev_file_poll,
+        .file_ioctl = tty_dev_file_ioctl,
+        .open       = tty_dev_file_open,
     };
 
     static const struct {
@@ -347,12 +361,27 @@ static void devtmpfs_create_tty_nodes(void)
             unsigned int minor;
     } tty_nodes[] = {
         {.path = "/dev/tty0",    .major = TTY_MAJOR,     .minor = 0},
-        {.path = "/dev/tty",     .major = TTY_AUX_MAJOR, .minor = 0},
         {.path = "/dev/console", .major = TTY_AUX_MAJOR, .minor = 1},
     };
 
     for (size_t i = 0; i < sizeof(tty_nodes) / sizeof(tty_nodes[0]); i++) {
-        devtmpfs_register_char_device(tty_nodes[i].path, tty_nodes[i].major, tty_nodes[i].minor, file_stream, &tty_device);
+        devtmpfs_register_char_device(tty_nodes[i].path, MKDEV(tty_nodes[i].major, tty_nodes[i].minor),
+                                      MKDEV(tty_nodes[i].major, tty_nodes[i].minor), file_stream, &tty_device);
+    }
+
+    static const tmpfs_device_ops_t controlling_tty_device = {
+        .open       = tty_ctty_file_open,
+        .release    = tty_ctty_file_release,
+        .file_read  = tty_ctty_file_read,
+        .file_write = tty_ctty_file_write,
+        .file_poll  = tty_ctty_file_poll,
+        .file_ioctl = tty_ctty_file_ioctl,
+    };
+    devtmpfs_register_char_device("/dev/tty", MKDEV(TTY_AUX_MAJOR, 0), MKDEV(TTY_AUX_MAJOR, 0), file_stream, &controlling_tty_device);
+    vfs_node_t node = vfs_open("/dev/tty");
+    if (node) {
+        node->mode = 0666;
+        vfs_close(node);
     }
 }
 
@@ -383,10 +412,9 @@ void devtmpfs_init(void)
         return;
     }
 
-    /* IDE ATA drives -> /dev/hda, /dev/hda1, hdb, hdb1, ... */
+    /* Register whole disks without issuing media I/O during early boot. */
+    /* IDE ATA drives -> /dev/hda, /dev/hdb, ... */
     for (uint8_t drive = 0; drive < 4; drive++) {
-        mbr_partition_entry_t parts[4] = {0};
-
         if (!ide_devices[drive].reserved || ide_devices[drive].type != IDE_ATA) continue;
 
         char dev_path[32];
@@ -394,18 +422,10 @@ void devtmpfs_init(void)
         devtmpfs_create_block_node(dev_path, (uint64_t)ide_devices[drive].size * 512, 512, drive, drive);
         total_devices++;
 
-        if (devtmpfs_scan_mbr_drive(drive, parts) == EOK) {
-            for (uint8_t part = 0; part < 4; part++) {
-                if (!parts[part].type || !parts[part].sectors) continue;
-                devtmpfs_create_partition_node(dev_path, 512, drive, drive, part, &parts[part]);
-            }
-        }
     }
 
-    /* AHCI SATA drives -> /dev/sda, /dev/sda1, sdb, sdb1, ... */
+    /* AHCI SATA drives -> /dev/sda, /dev/sdb, ... */
     for (uint8_t d = 0; d < (uint8_t)AHCI_MAX_DEVICES; d++) {
-        mbr_partition_entry_t parts[4] = {0};
-
         if (!ahci_devices[d].reserved || ahci_devices[d].type != AHCI_DEV_SATA) continue;
 
         char    dev_path[32];
@@ -415,12 +435,6 @@ void devtmpfs_init(void)
                                    encoded);
         total_devices++;
 
-        if (devtmpfs_scan_mbr_drive(encoded, parts) == EOK) {
-            for (uint8_t part = 0; part < 4; part++) {
-                if (!parts[part].type || !parts[part].sectors) continue;
-                devtmpfs_create_partition_node(dev_path, ahci_devices[d].sector_size, encoded, encoded, part, &parts[part]);
-            }
-        }
     }
 
     /* ATAPI drives (IDE + AHCI) -> /dev/sr0, /dev/sr1, ... */

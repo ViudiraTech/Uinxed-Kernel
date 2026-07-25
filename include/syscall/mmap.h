@@ -64,7 +64,7 @@
 /* ---------- Public API ---------- */
 
 /* Full mmap syscall implementation */
-int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t flags, uint64_t fd, uint64_t pgoff);
+int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t flags, uint64_t fd, uint64_t offset);
 
 /* munmap */
 int sys_munmap_full(uint64_t addr, uint64_t length);

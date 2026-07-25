@@ -9,6 +9,7 @@
  */
 
 #include <arch/cpuid.h>
+#include <cgroup/cgroup.h>
 #include <arch/eis.h>
 #include <arch/gdt.h>
 #include <arch/smp.h>
@@ -24,6 +25,7 @@
 #include <drivers/parallel.h>
 #include <drivers/pci.h>
 #include <drivers/ps2.h>
+#include <drivers/pty.h>
 #include <drivers/sb16.h>
 #include <drivers/serial.h>
 #include <drivers/tpm.h>
@@ -31,6 +33,7 @@
 #include <drivers/tty.h>
 #include <drivers/virt/gpu/virtgpu_drv.h>
 #include <fs/cpio.h>
+#include <fs/cgroupfs.h>
 #include <fs/devtmpfs.h>
 #include <fs/fatfs/fatfs_vfs.h>
 #include <fs/isofs/isofs.h>
@@ -87,7 +90,9 @@ void swapper_run_init(void)
     if (!init) panic("Failed to create init process.");
     init_process = init;
 
-    if (elf_loader_load_user_process(init, init_mod->data, init_mod->size, NULL, NULL)) panic("Failed to load init ELF!");
+    char *init_argv[] = {"/init", NULL};
+    if (elf_loader_load_user_process(init, init_mod->data, init_mod->size, init_argv, NULL, NULL, NULL))
+        panic("Failed to load init ELF!");
 
     spin_lock(&scheduler.lock);
     enqueue_task(init->task);
@@ -210,7 +215,9 @@ void kernel_entry(void)
 #endif                   //
     init_cpio();         // Copy In, Copy Out
     devtmpfs_init();     // Device Temporary File System
+    pty_init();          // Unix98 pseudo-terminals
     procfs_regist();     // Process File System
+    cgroupfs_regist();   // Unified Control Group File System
                          //
 #if CONFIG_SYSFS         //
     ksysfs_init();       // /sys/kernel/{version,cmdline,hostname,...}
@@ -235,6 +242,7 @@ void kernel_entry(void)
 
     /* Core kernel services */
     sched_init();    // Preemptive Scheduler
+    cgroup_init();   // Unified cgroup hierarchy and pids controller
     signal_init();   // POSIX Signals
     process_init();  // Process Management
     socket_init();   // UNIX Domain Sockets

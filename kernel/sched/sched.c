@@ -10,6 +10,7 @@
 
 #include <arch/gdt.h>
 #include <arch/smp.h>
+#include <cgroup/cgroup.h>
 #include <chipset/common.h>
 #include <drivers/apic.h>
 #include <kernel/debug.h>
@@ -98,6 +99,11 @@ static task_t *sched_node_to_task(ilist_node_t *node)
 static task_t *timer_node_to_task(ilist_node_t *node)
 {
     return (task_t *)((uint8_t *)node - offsetof(task_t, timer_node));
+}
+
+static int node_is_linked(const ilist_node_t *node)
+{
+    return node->prev && node->next && node->prev != node;
 }
 
 /* ------------------------------------------------------------------ */
@@ -446,6 +452,20 @@ static void wake_task_locked(task_t *task, int remove_linked_node)
     enqueue_task(task);
 }
 
+/* Wait-queue and timer membership are serialized by scheduler.lock. */
+static void finish_wait_locked(task_t *task, task_wake_reason_t reason)
+{
+    if (!task->wait_queue) return;
+
+    ilist_remove(&task->sched_node);
+    task->wait_queue = NULL;
+    task->wake_reason = reason;
+    task->wake_tick = 0;
+    if (node_is_linked(&task->timer_node)) ilist_remove(&task->timer_node);
+
+    if (task->state == TASK_BLOCKED) wake_task_locked(task, 0);
+}
+
 void request_task_cpu(task_t *task)
 {
     if (task && task->cpu_id != get_current_cpu_id() && scheduler.started) send_ipi_cpu(task->cpu_id, IPI_RESCHEDULE);
@@ -532,17 +552,8 @@ static void wake_sleeping_tasks(void)
         task_t       *task = timer_node_to_task(node);
 
         if (task->wake_tick <= scheduler.ticks) {
-            wait_queue_t *wq = task->wait_queue;
-            if (wq) {
-                spin_lock(&wq->lock);
-                if (task->wait_queue == wq) {
-                    ilist_remove(&task->sched_node);
-                    task->wait_queue = NULL;
-                }
-                spin_unlock(&wq->lock);
-            }
             ilist_remove(node);
-            wake_task_locked(task, 0);
+            finish_wait_locked(task, TASK_WAKE_TIMEOUT);
         }
         node = next;
     }
@@ -598,6 +609,7 @@ void sched_init(void)
     boot_task.process        = NULL;
     task_name_copy(&boot_task, "swapper/0");
     ilist_init(&boot_task.sched_node);
+    ilist_init(&boot_task.timer_node);
 
     /* boot_task is the swapper/0 idle task for CPU 0 */
     cpu_rqs[0].idle = &boot_task;
@@ -633,6 +645,7 @@ void sched_init(void)
         ap_boot_tasks[i].cpu_id         = i;
         ap_boot_tasks[i].weight         = SCHED_NICE_0_LOAD;
         ilist_init(&ap_boot_tasks[i].sched_node);
+        ilist_init(&ap_boot_tasks[i].timer_node);
         cpu_rqs[i].curr = &ap_boot_tasks[i];
     }
 }
@@ -722,6 +735,13 @@ void sched_yield(void)
     next = pick_eevdf(rq);
 
     if (prev == next) {
+        /* A remote wake may have queued this CPU's current task between
+         * committing a block and entering the scheduler. */
+        if (next != rq->idle && next->state == TASK_READY) {
+            dequeue_entity(rq, next);
+            next->state      = TASK_RUNNING;
+            next->time_slice = 0;
+        }
         spin_unlock(&scheduler.lock);
         return;
     }
@@ -832,23 +852,10 @@ int task_wakeup(task_t *task)
 {
     if (!task) return 1;
 
-    wait_queue_t *queue = task->wait_queue;
-
-    if (queue) {
-        spin_lock(&queue->lock);
-        spin_lock(&scheduler.lock);
-        if (task->wait_queue == queue) {
-            wake_task_locked(task, 1);
-            if (task->timer_node.prev != NULL) { ilist_remove(&task->timer_node); }
-        }
-        spin_unlock(&scheduler.lock);
-        spin_unlock(&queue->lock);
-        request_task_cpu(task);
-        return 0;
-    }
-
     spin_lock(&scheduler.lock);
-    if (task->state == TASK_SLEEPING) {
+    if (task->wait_queue) {
+        finish_wait_locked(task, TASK_WAKE_NORMAL);
+    } else if (task->state == TASK_SLEEPING) {
         wake_task_locked(task, 1);
     } else {
         wake_task_locked(task, 0);
@@ -878,30 +885,14 @@ void wait_queue_wait(wait_queue_t *queue)
         return;
     }
 
-    disable_intr();
-    spin_lock(&queue->lock);
-    spin_lock(&scheduler.lock);
-
-    eevdf_rq_t *rq   = local_rq();
-    task_t     *curr = rq->curr;
-
-    curr->vlag       = (int64_t)(avg_vruntime(rq) - curr->vruntime);
-    curr->state      = TASK_BLOCKED;
-    curr->wake_tick  = 0;
-    curr->wait_queue = queue;
-    ilist_insert_before(&queue->tasks, &curr->sched_node);
-
-    spin_unlock(&scheduler.lock);
-    spin_unlock(&queue->lock);
-    sched_yield();
-    enable_intr();
+    wait_queue_prepare(queue);
+    wait_queue_sleep();
 }
 
 /*
- * Prepare the current task to wait on a queue: add to queue, set
- * state to BLOCKED.  The caller must hold any external lock that
- * guards the condition.  After calling prepare, release the external
- * lock, then call wait_queue_sleep() to actually block.
+ * Prepare the current task to wait on a queue.  The caller must hold any
+ * external lock that guards the condition.  After calling prepare, release
+ * the external lock, then call wait_queue_sleep() to actually block.
  */
 void wait_queue_prepare(wait_queue_t *queue)
 {
@@ -910,22 +901,18 @@ void wait_queue_prepare(wait_queue_t *queue)
         return;
     }
 
-    disable_intr();
-    spin_lock(&queue->lock);
     spin_lock(&scheduler.lock);
 
     eevdf_rq_t *rq   = local_rq();
     task_t     *curr = rq->curr;
 
-    curr->vlag       = (int64_t)(avg_vruntime(rq) - curr->vruntime);
-    curr->state      = TASK_BLOCKED;
-    curr->wake_tick  = 0;
-    curr->wait_queue = queue;
+    curr->vlag        = (int64_t)(avg_vruntime(rq) - curr->vruntime);
+    curr->wake_tick   = 0;
+    curr->wait_queue  = queue;
+    curr->wake_reason = TASK_WAKE_NONE;
     ilist_insert_before(&queue->tasks, &curr->sched_node);
 
     spin_unlock(&scheduler.lock);
-    spin_unlock(&queue->lock);
-    /* interrupts remain disabled; caller must call wait_queue_sleep() */
 }
 
 /*
@@ -934,8 +921,17 @@ void wait_queue_prepare(wait_queue_t *queue)
  */
 void wait_queue_sleep(void)
 {
-    sched_yield();
-    enable_intr();
+    task_t *curr = local_current();
+    int     sleep = 0;
+
+    spin_lock(&scheduler.lock);
+    if (curr->wait_queue && curr->wake_reason == TASK_WAKE_NONE) {
+        curr->state = TASK_BLOCKED;
+        sleep       = 1;
+    }
+    spin_unlock(&scheduler.lock);
+
+    if (sleep) sched_yield();
 }
 
 /*
@@ -963,48 +959,41 @@ int wait_queue_wait_timed(wait_queue_t *queue, uint64_t deadline_ticks)
      * Now also add it to the timer queue so the scheduler tick can
      * wake it when the deadline expires.
      */
-    eevdf_rq_t *rq   = local_rq();
-    task_t     *curr = rq->curr;
+    task_t *curr  = local_current();
+    int     sleep = 0;
 
     spin_lock(&scheduler.lock);
-    curr->wake_tick = deadline_ticks;
-    ilist_insert_before(&scheduler.timer_queue, &curr->timer_node);
+    if (curr->wait_queue == queue && curr->wake_reason == TASK_WAKE_NONE) {
+        if (deadline_ticks <= scheduler.ticks) {
+            finish_wait_locked(curr, TASK_WAKE_TIMEOUT);
+        } else {
+            curr->wake_tick = deadline_ticks;
+            ilist_insert_before(&scheduler.timer_queue, &curr->timer_node);
+            curr->state = TASK_BLOCKED;
+            sleep       = 1;
+        }
+    }
     spin_unlock(&scheduler.lock);
 
-    sched_yield();
-    enable_intr();
+    if (sleep) sched_yield();
 
-    /*
-     * After wakeup, check whether we were timed out.
-     * The scheduler tick removes the task from the wait queue when
-     * the deadline expires, so wait_queue == NULL means timeout.
-     */
-    if (curr->wait_queue == NULL) { return -ETIMEDOUT; }
-
-    return 0;
+    return curr->wake_reason == TASK_WAKE_TIMEOUT ? -ETIMEDOUT : 0;
 }
 
 task_t *wait_queue_wake_one(wait_queue_t *queue)
 {
     if (!queue) return NULL;
 
-    spin_lock(&queue->lock);
+    spin_lock(&scheduler.lock);
     if (ilist_is_empty(&queue->tasks)) {
-        spin_unlock(&queue->lock);
+        spin_unlock(&scheduler.lock);
         return NULL;
     }
 
     ilist_node_t *node = queue->tasks.next;
     task_t       *task = sched_node_to_task(node);
 
-    ilist_remove(node);
-    task->wait_queue = NULL;
-    spin_unlock(&queue->lock);
-
-    spin_lock(&scheduler.lock);
-    wake_task_locked(task, 0);
-
-    if (task->timer_node.prev != NULL) { ilist_remove(&task->timer_node); }
+    finish_wait_locked(task, TASK_WAKE_NORMAL);
     spin_unlock(&scheduler.lock);
     request_task_cpu(task);
     return task;
@@ -1015,29 +1004,17 @@ uint64_t wait_queue_wake_all(wait_queue_t *queue)
     if (!queue) return 0;
 
     uint64_t count = 0;
-    task_t  *woken[16];
-    size_t   woken_count = 0;
 
-    spin_lock(&queue->lock);
+    spin_lock(&scheduler.lock);
     while (!ilist_is_empty(&queue->tasks)) {
         ilist_node_t *node = queue->tasks.next;
         task_t       *task = sched_node_to_task(node);
 
-        ilist_remove(node);
-        task->wait_queue = NULL;
-        if (woken_count < sizeof(woken) / sizeof(woken[0])) woken[woken_count++] = task;
+        finish_wait_locked(task, TASK_WAKE_NORMAL);
+        request_task_cpu(task);
         count++;
     }
-    spin_unlock(&queue->lock);
-
-    spin_lock(&scheduler.lock);
-    for (size_t i = 0; i < woken_count; i++) {
-        task_t *task = woken[i];
-        wake_task_locked(task, 0);
-        if (task->timer_node.prev != NULL) { ilist_remove(&task->timer_node); }
-    }
     spin_unlock(&scheduler.lock);
-    for (size_t i = 0; i < woken_count; i++) request_task_cpu(woken[i]);
     return count;
 }
 
@@ -1117,6 +1094,8 @@ void task_exit(void)
     if (rq->curr == curr) { rq->curr = rq->idle; }
 
     spin_unlock(&scheduler.lock);
+
+    cgroup_task_exit(curr);
 
     for (;;) {
         enable_intr();

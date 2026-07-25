@@ -68,6 +68,18 @@ menu "Device drivers"
         help
           "Buffer size for temporarily storing input and output data in the teletype driver."
 
+      config UNIX98_PTYS
+        bool "Unix98 pseudoterminal support"
+        default y
+        help
+          "Provides /dev/ptmx and dynamically allocated /dev/pts/N pseudoterminals."
+
+      config UNIX98_PTY_MAX
+        int "Maximum Unix98 pseudoterminals"
+        depends on UNIX98_PTYS
+        default 64
+        range 1 256
+
     endmenu
     menu "Serial port devices"
 

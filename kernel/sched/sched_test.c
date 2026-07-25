@@ -14,7 +14,12 @@
 static volatile uint64_t preempt_demo_sink;
 static wait_queue_t      demo_wait_queue;
 static wait_queue_t      migration_wait_queue;
+static wait_queue_t      wake_all_wait_queue;
 static task_t           *migration_task;
+static volatile uint32_t wake_all_ready;
+static volatile uint32_t wake_all_woken;
+
+#define WAKE_ALL_TEST_WAITERS 24
 
 static void scheduler_demo_thread(void *arg)
 {
@@ -87,6 +92,29 @@ static void migration_wake_thread(void *arg)
     plogk("sched: migration wake target task %llu\n", task ? task->pid : 0);
 }
 
+static void wake_all_wait_thread(void *arg)
+{
+    (void)arg;
+
+    wait_queue_prepare(&wake_all_wait_queue);
+    __atomic_add_fetch(&wake_all_ready, 1, __ATOMIC_RELEASE);
+    wait_queue_sleep();
+    __atomic_add_fetch(&wake_all_woken, 1, __ATOMIC_RELEASE);
+}
+
+static void wake_all_test_thread(void *arg)
+{
+    (void)arg;
+
+    while (__atomic_load_n(&wake_all_ready, __ATOMIC_ACQUIRE) < WAKE_ALL_TEST_WAITERS) sched_yield();
+
+    uint64_t count = wait_queue_wake_all(&wake_all_wait_queue);
+
+    while (__atomic_load_n(&wake_all_woken, __ATOMIC_ACQUIRE) < WAKE_ALL_TEST_WAITERS) sched_yield();
+    plogk("sched: wake_all test %s (%llu/%u waiters)\n", count == WAKE_ALL_TEST_WAITERS ? "passed" : "failed", count,
+          WAKE_ALL_TEST_WAITERS);
+}
+
 static void balance_demo_thread(void *arg)
 {
     const char *name = (const char *)arg;
@@ -105,6 +133,7 @@ static void kernel_init_thread(void *arg)
     plogk("init: Kernel init thread started as task %llu cpu %u\n", current_task()->pid, current_task()->cpu_id);
     wait_queue_init(&demo_wait_queue);
     wait_queue_init(&migration_wait_queue);
+    wait_queue_init(&wake_all_wait_queue);
     kthread_create("preempt-demo", preempt_demo_thread, "preempt-demo");
     kthread_create("demo-a", scheduler_demo_thread, "demo-a");
     kthread_create("demo-b", scheduler_demo_thread, "demo-b");
@@ -113,6 +142,8 @@ static void kernel_init_thread(void *arg)
     kthread_create("keyboard-wait", keyboard_wait_thread, NULL);
     migration_task = kthread_create_on_cpu("migration-wait", migration_wait_thread, NULL, 0);
     kthread_create("migration-wake", migration_wake_thread, NULL);
+    for (uint32_t i = 0; i < WAKE_ALL_TEST_WAITERS; i++) kthread_create("wake-all-wait", wake_all_wait_thread, NULL);
+    kthread_create("wake-all-test", wake_all_test_thread, NULL);
     if (sched_cpu_count() > 1) {
         kthread_create_on_cpu("balance-a", balance_demo_thread, "balance-a", 0);
         kthread_create_on_cpu("balance-b", balance_demo_thread, "balance-b", 0);

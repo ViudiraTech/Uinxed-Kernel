@@ -12,6 +12,7 @@
 #define INCLUDE_PROCESS_H_
 
 #include <libs/glist/singly_list.h>
+#include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <mem/page.h>
@@ -19,6 +20,7 @@
 #include <sync/signal.h>
 
 typedef struct vfs_node *vfs_node_t;
+typedef struct tty_core  tty_core_t;
 
 typedef struct syscall_frame syscall_frame_t;
 
@@ -83,7 +85,10 @@ typedef struct process_file {
         uint64_t   flags;
         uint32_t   refcount;
         spinlock_t lock;
+        wait_queue_t io_wait;
+        bool         io_busy;
         void      *private_data; /* per-open-instance driver-private data */
+        bool       file_opened;  /* file_open succeeded and requires release */
 } process_file_t;
 
 typedef struct process_fd_stat {
@@ -113,8 +118,10 @@ typedef struct process {
         process_file_t   *fds[PROCESS_MAX_FD];
         spinlock_t        fd_lock;
         signal_state_t    signal;
+        uint32_t          refcount;
         pid_t             pgid;
         pid_t             sid;
+        tty_core_t       *controlling_tty;
         char              name[PROCESS_NAME_LEN];
         char              root[256];       /* chroot path */
         char              cwd[256];        /* current working directory */
@@ -148,11 +155,37 @@ process_t *process_find(pid_t pid);
 /* Iterate all processes. Set *pos = 0 to start, returns NULL when done */
 process_t *process_iterate(size_t *pos);
 
+/* Pinned process-table access. Call process_put() on non-NULL results. */
+process_t *process_find_get(pid_t pid);
+process_t *process_iterate_get(size_t *pos);
+process_t *process_group_iterate_get(size_t *pos, pid_t pgid, pid_t sid);
+void       process_put(process_t *proc);
+
 /* Get information about the current process */
 process_t *process_current(void);
 
+/* Controlling terminal associations own a tty reference. */
+tty_core_t *process_ctty_get(process_t *proc);
+int         process_ctty_set(process_t *proc, tty_core_t *tty);
+void        process_ctty_clear(process_t *proc);
+void        process_ctty_clear_session(tty_core_t *tty, pid_t sid);
+void        process_ctty_clear_all(tty_core_t *tty);
+void        process_ctty_inherit(process_t *child, process_t *parent);
+bool        process_pgrp_in_session(pid_t pgid, pid_t sid);
+int         process_ctty_set_foreground(tty_core_t *tty, pid_t sid, pid_t pgid);
+int         process_ctty_acquire(process_t *proc, tty_core_t *tty, bool force, pid_t *old_sid, pid_t *old_pgid);
+pid_t       process_ctty_disassociate(tty_core_t *tty, pid_t sid);
+
+/* Process-group/session operations serialized by the process table lock. */
+int process_setpgid(process_t *caller, pid_t pid, pid_t pgid);
+int process_setsid(process_t *proc, pid_t *sid);
+bool        process_pgrp_is_orphaned(pid_t pgid, pid_t sid);
+
 /* Clone the current process (fork semantics) */
 process_t *process_fork(void);
+
+/* Clone the current process and preserve the allocation/admission errno. */
+process_t *process_fork_status(int *error);
 
 /* Clone the current process and make the child return from the syscall frame */
 process_t *process_fork_from_syscall(syscall_frame_t *frame);
@@ -171,6 +204,9 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
 
 /* Unmap a virtual memory area in the given process */
 int process_munmap(process_t *proc, uintptr_t addr, size_t length);
+
+/* Drop all VMA metadata when replacing a process image. */
+void process_mmap_clear(process_t *proc);
 
 /* Attach an opened VFS node to a file descriptor table */
 int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags);

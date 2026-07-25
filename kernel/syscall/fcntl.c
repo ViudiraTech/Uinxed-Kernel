@@ -90,11 +90,13 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
 
             proc->fds[newfd] = file;
             /* Set close-on-exec flag on the new FD */
+            spin_lock(&file->lock);
             if (file->flags & O_CLOEXEC) {
                 /* already has it from vfs? No, FD-level flag is separate.
                  * We store cloexec in the file flags for now */
                 file->flags |= O_CLOEXEC;
             }
+            spin_unlock(&file->lock);
             spin_unlock(&proc->fd_lock);
             result = newfd;
             break;
@@ -103,31 +105,39 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
         case F_GETFD : {
             /* Return close-on-exec flag */
             /* We store cloexec in the file flags field */
+            spin_lock(&file->lock);
             result = (file->flags & O_CLOEXEC) ? FD_CLOEXEC : 0;
+            spin_unlock(&file->lock);
             break;
         }
 
         case F_SETFD : {
             /* Set close-on-exec flag */
+            spin_lock(&file->lock);
             if (arg & FD_CLOEXEC) {
                 file->flags |= O_CLOEXEC;
             } else {
                 file->flags &= ~(uint64_t)O_CLOEXEC;
             }
+            spin_unlock(&file->lock);
             result = 0;
             break;
         }
 
         case F_GETFL : {
             /* Return file access mode and status flags */
+            spin_lock(&file->lock);
             result = (int64_t)(file->flags & (O_ACCMODE | O_NONBLOCK | O_APPEND));
+            spin_unlock(&file->lock);
             break;
         }
 
         case F_SETFL : {
             /* Only O_NONBLOCK and O_APPEND can be changed */
             uint64_t settable = O_NONBLOCK | O_APPEND;
+            spin_lock(&file->lock);
             file->flags       = (file->flags & ~settable) | (arg & settable);
+            spin_unlock(&file->lock);
             result            = 0;
             break;
         }

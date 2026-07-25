@@ -17,6 +17,14 @@
 
 #define callbackof(node, _name_) (fs_callbacks[(node)->fsid]->_name_)
 
+/* Filesystem-owned metadata children do not make a directory non-empty. */
+#define VFS_NODE_VIRTUAL (1ULL << 63)
+#define VFS_NODE_DELETE_COMMITTED (1ULL << 62)
+#define VFS_NODE_DELETE_SYNC (1ULL << 61)
+#define VFS_NODE_UNLINKED    (1ULL << 60)
+#define VFS_NODE_FINALIZING  (1ULL << 59)
+#define VFS_NODE_UNLINKING   (1ULL << 58)
+
 typedef struct vfs_node *vfs_node_t;
 struct vm_area; /* forward declaration for vfs_file_mmap_t */
 
@@ -53,6 +61,10 @@ typedef void *(*vfs_mmap_t)(void *file, size_t offset, size_t size, int flags);
 typedef void *(*vfs_file_mmap_t)(vfs_node_t node, void *private_data, size_t offset, size_t size, int flags, struct vm_area *vma);
 typedef int (*vfs_file_open_t)(vfs_node_t node, uint64_t flags, void **private_data);
 typedef void (*vfs_file_release_t)(vfs_node_t node, void *private_data);
+typedef int64_t (*vfs_file_read_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
+typedef int64_t (*vfs_file_write_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
+typedef int (*vfs_file_ioctl_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, size_t req, void *arg);
+typedef int (*vfs_file_poll_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, size_t events);
 
 enum {
     file_none     = 0x1UL,    // No information retrieved
@@ -74,28 +86,32 @@ enum {
 };
 
 typedef struct vfs_callback {
-        vfs_mount_t    mount;            // Mount the file system
-        vfs_umount_t   unmount;          // Unmount the file system (virtual file systems do not support unmounting)
-        vfs_open_t     open;             // Open a file handle
-        vfs_close_t    close;            // Close a file handle
-        vfs_read_t     read;             // Read a file
-        vfs_write_t    write;            // Write to a file
-        vfs_readlink_t readlink;         // Read a symbolic link
-        vfs_mk_t       mkdir;            // Create a folder
-        vfs_mk_t       mkfile;           // Create a file
-        vfs_mk_t       link;             // Create a hard link
-        vfs_mk_t       symlink;          // Create a symbolic link
-        vfs_stat_t     stat;             // Check file status information
-        vfs_ioctl_t    ioctl;            // I/O control interface (implemented only by special file systems such as devfs)
-        vfs_dup_t      dup;              // Copy file node
-        vfs_poll_t     poll;             // Polling file status (implemented only for special file systems such as devfs)
-        vfs_free_t     free;             // Release file handle
-        vfs_del_t delete;                // Delete files or folders
-        vfs_rename_t       rename;       // Rename files or folders
-        vfs_mmap_t         mmap;         // Memory-map a device/file into the process address space
-        vfs_file_open_t    file_open;    // Per-open-instance allocation callback
-        vfs_file_release_t file_release; // Per-open-instance teardown callback
-        vfs_file_mmap_t    file_mmap;    // Per-open mmap callback (for GEM, etc.)
+        vfs_mount_t    mount;             // Mount the file system
+        vfs_umount_t   unmount;           // Unmount the file system (virtual file systems do not support unmounting)
+        vfs_open_t     open;              // Open a file handle
+        vfs_close_t    close;             // Close a file handle
+        vfs_read_t     read;              // Read a file
+        vfs_write_t    write;             // Write to a file
+        vfs_readlink_t readlink;          // Read a symbolic link
+        vfs_mk_t       mkdir;             // Create a folder
+        vfs_mk_t       mkfile;            // Create a file
+        vfs_mk_t       link;              // Create a hard link
+        vfs_mk_t       symlink;           // Create a symbolic link
+        vfs_stat_t     stat;              // Check file status information
+        vfs_ioctl_t    ioctl;             // I/O control interface (implemented only by special file systems such as devfs)
+        vfs_dup_t      dup;               // Copy file node
+        vfs_poll_t     poll;              // Polling file status (implemented only for special file systems such as devfs)
+        vfs_free_t     free;              // Release file handle
+        vfs_del_t delete;                 // Delete files or folders
+        vfs_rename_t        rename;       // Rename files or folders
+        vfs_mmap_t          mmap;         // Memory-map a device/file into the process address space
+        vfs_file_open_t     file_open;    // Per-open-instance allocation callback
+        vfs_file_release_t  file_release; // Per-open-instance teardown callback
+        vfs_file_mmap_t     file_mmap;    // Per-open mmap callback (for GEM, etc.)
+        vfs_file_read_cb_t  file_read;    // Per-open read callback
+        vfs_file_write_cb_t file_write;   // Per-open write callback
+        vfs_file_ioctl_cb_t file_ioctl;   // Per-open ioctl callback
+        vfs_file_poll_cb_t  file_poll;    // Per-open poll callback
 } *vfs_callback_t;
 
 extern vfs_callback_t fs_callbacks[];
@@ -149,6 +165,9 @@ void vfs_update(vfs_node_t node);
 
 /* Open a file or directory by path */
 vfs_node_t vfs_open(const char *str);
+
+/* Retain an already resolved node without consulting the namespace. */
+vfs_node_t vfs_node_retain(vfs_node_t node);
 
 #define VFS_ACCESS_R 4
 #define VFS_ACCESS_W 2
@@ -205,11 +224,20 @@ size_t vfs_readlink(vfs_node_t node, char *buf, size_t bufsize);
 /* Write data from the provided memory buffer to a file node */
 size_t vfs_write(vfs_node_t file, void *addr, size_t offset, size_t size);
 
+/* Per-open operations, falling back to the legacy node callbacks. */
+int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
+int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
+int     vfs_file_ioctl(vfs_node_t file, void *private_data, uint64_t flags, size_t req, void *arg);
+int     vfs_file_poll(vfs_node_t file, void *private_data, uint64_t flags, size_t events);
+
 /* Close the file or directory node */
 int vfs_close(vfs_node_t node);
 
 /* Delete a VFS (Virtual File System) node and clean up associated resources */
 int vfs_delete(vfs_node_t node);
+
+/* Remove a node from pathname lookup immediately, retaining open references. */
+int vfs_namespace_unlink(vfs_node_t node);
 
 /* Rename a VFS (Virtual File System) node to a new name */
 int vfs_rename(vfs_node_t node, const char *new);

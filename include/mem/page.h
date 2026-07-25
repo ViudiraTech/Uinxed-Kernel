@@ -89,6 +89,9 @@ void free_directory(page_directory_t *dir);
 /* Maps a virtual address to a physical frame using 4KB pages */
 void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags);
 
+/* Unmap a 4KB page and return its physical frame, or zero if unmapped */
+uint64_t page_unmap(page_directory_t *directory, uint64_t addr);
+
 /* Maps a virtual address to a physical frame using 2MB huge pages */
 void page_map_to_2M(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags);
 

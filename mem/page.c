@@ -223,6 +223,31 @@ void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uin
     flush_tlb(addr);
 }
 
+uint64_t page_unmap(page_directory_t *directory, uint64_t addr)
+{
+    uint64_t l4_index = (addr >> 39) & 0x1ff;
+    uint64_t l3_index = (addr >> 30) & 0x1ff;
+    uint64_t l2_index = (addr >> 21) & 0x1ff;
+    uint64_t l1_index = (addr >> 12) & 0x1ff;
+
+    page_table_t *l4 = directory->table;
+    uint64_t l4e = l4->entries[l4_index].value;
+    if (!(l4e & PTE_PRESENT) || (l4e & PTE_HUGE)) return 0;
+    page_table_t *l3 = phys_to_virt(l4e & PAGE_4K_MASK);
+    uint64_t l3e = l3->entries[l3_index].value;
+    if (!(l3e & PTE_PRESENT) || (l3e & PTE_HUGE)) return 0;
+    page_table_t *l2 = phys_to_virt(l3e & PAGE_4K_MASK);
+    uint64_t l2e = l2->entries[l2_index].value;
+    if (!(l2e & PTE_PRESENT) || (l2e & PTE_HUGE)) return 0;
+    page_table_t *l1 = phys_to_virt(l2e & PAGE_4K_MASK);
+    uint64_t l1e = l1->entries[l1_index].value;
+    if (!(l1e & PTE_PRESENT)) return 0;
+
+    l1->entries[l1_index].value = 0;
+    flush_tlb(addr);
+    return l1e & PAGE_4K_MASK;
+}
+
 /* Maps a virtual address to a physical frame using 2MB huge pages */
 void page_map_to_2M(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags)
 {

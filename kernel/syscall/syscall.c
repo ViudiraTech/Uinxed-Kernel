@@ -16,6 +16,7 @@
 #include <ipc/posix_mq.h>
 #include <ipc/socket.h>
 #include <ipc/sysv_ipc.h>
+#include <kernel/device.h>
 #include <kernel/elf_loader.h>
 #include <kernel/errno.h>
 #include <kernel/interrupt.h>
@@ -169,7 +170,7 @@ static uint32_t linux_mode_from_type(uint16_t type, uint32_t mode)
         file_type = 0120000;
     else if (type & file_block)
         file_type = 0060000;
-    else if (type & (file_stream | file_keyboard | file_mouse | file_fbdev | file_audio))
+    else if (type & (file_stream | file_keyboard | file_mouse | file_fbdev | file_audio | file_ptmx | file_pts))
         file_type = 0020000;
     else if (type & file_pipe)
         file_type = 0010000;
@@ -179,16 +180,23 @@ static uint32_t linux_mode_from_type(uint16_t type, uint32_t mode)
     return file_type | (mode & 07777);
 }
 
+static uint64_t linux_encode_dev(uint64_t dev)
+{
+    uint32_t major = MAJOR(dev);
+    uint32_t minor = MINOR(dev);
+    return (minor & 0xffU) | ((uint64_t)major << 8) | ((uint64_t)(minor & ~0xffU) << 12);
+}
+
 static void fill_linux_stat(linux_stat_t *st, uint64_t uid, uint64_t gid, const process_fd_stat_t *src)
 {
     memset(st, 0, sizeof(*st));
-    st->st_dev     = src->dev;
+    st->st_dev     = linux_encode_dev(src->dev);
     st->st_ino     = src->inode;
     st->st_nlink   = 1;
     st->st_mode    = linux_mode_from_type(src->type, src->mode);
     st->st_uid     = (uint32_t)uid;
     st->st_gid     = (uint32_t)gid;
-    st->st_rdev    = src->rdev;
+    st->st_rdev    = linux_encode_dev(src->rdev);
     st->st_size    = (int64_t)src->size;
     st->st_blksize = src->blksz ? (int64_t)src->blksz : 4096;
     st->st_blocks  = (st->st_size + 511) / 512;
@@ -206,10 +214,10 @@ static void fill_linux_statx(linux_statx_t *stx, uint64_t uid, uint64_t gid, con
     stx->stx_ino        = src->inode;
     stx->stx_size       = src->size;
     stx->stx_blocks     = (src->size + 511) / 512;
-    stx->stx_rdev_major = (uint32_t)(src->rdev >> 8);
-    stx->stx_rdev_minor = (uint32_t)(src->rdev & 0xff);
-    stx->stx_dev_major  = (uint32_t)(src->dev >> 8);
-    stx->stx_dev_minor  = (uint32_t)(src->dev & 0xff);
+    stx->stx_rdev_major = MAJOR(src->rdev);
+    stx->stx_rdev_minor = MINOR(src->rdev);
+    stx->stx_dev_major  = MAJOR(src->dev);
+    stx->stx_dev_minor  = MINOR(src->dev);
 }
 
 static int64_t stat_path_to_user(uint64_t upath, uint64_t ubuf)
@@ -236,7 +244,7 @@ static int64_t stat_path_to_user(uint64_t upath, uint64_t ubuf)
         .blksz = node->blksz,
     };
     linux_stat_t st;
-    fill_linux_stat(&st, proc->uid, proc->gid, &src);
+    fill_linux_stat(&st, node->owner, node->group, &src);
     vfs_close(node);
     return copy_to_user((void *)ubuf, &st, sizeof(st)) ? -EFAULT : EOK;
 }
@@ -265,7 +273,7 @@ static int64_t statx_path_to_user(uint64_t upath, uint64_t ubuf)
         .blksz = node->blksz,
     };
     linux_statx_t stx;
-    fill_linux_statx(&stx, proc->uid, proc->gid, &src);
+    fill_linux_statx(&stx, node->owner, node->group, &src);
     vfs_close(node);
     return copy_to_user((void *)ubuf, &stx, sizeof(stx)) ? -EFAULT : EOK;
 }
@@ -646,42 +654,6 @@ static int64_t sys_dup3(uint64_t oldfd, uint64_t newfd, uint64_t flags, uint64_t
     return sys_dup2(oldfd, newfd, 0, 0, 0, 0);
 }
 
-/*
- * Terminal ioctl request codes (Linux-compatible)
- */
-#define TIOCGWINSZ 0x5413
-#define TIOCSWINSZ 0x5414
-#define TCGETS     0x5401
-#define TCSETS     0x5402
-#define TCSETSW    0x5403
-#define TCSETSF    0x5404
-#define TCSBRK     0x5409
-#define TCXONC     0x540A
-#define TCFLSH     0x540B
-#define TIOCGPGRP  0x540F
-#define TIOCSPGRP  0x5410
-#define TIOCSCTTY  0x540E
-#define TIOCNOTTY  0x5422
-#define FIONREAD   0x541B
-
-/* Linux termios structure (x86_64, ~60 bytes) */
-struct linux_termios {
-        uint32_t c_iflag;
-        uint32_t c_oflag;
-        uint32_t c_cflag;
-        uint32_t c_lflag;
-        uint8_t  c_line;
-        uint8_t  c_cc[19];
-};
-
-/* Linux winsize structure */
-struct linux_winsize {
-        uint16_t ws_row;
-        uint16_t ws_col;
-        uint16_t ws_xpixel;
-        uint16_t ws_ypixel;
-};
-
 static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -691,101 +663,7 @@ static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3,
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    /* Handle terminal ioctls at the syscall level for TTY/console fds */
-    switch ((unsigned long)req) {
-        case TCGETS : {
-            /* Return a minimal cooked terminal termios */
-            if (!arg) return -EFAULT;
-            struct linux_termios t;
-            memset(&t, 0, sizeof(t));
-            /* c_iflag: ICRNL | IXON */
-            t.c_iflag = 0x0400 | 0x0400; /* ICRNL */
-            /* c_oflag: OPOST | ONLCR */
-            t.c_oflag = 0x0001 | 0x0004; /* OPOST | ONLCR */
-            /* c_cflag: CREAD | CS8 | B38400 */
-            t.c_cflag = 0x0080 | 0x0030 | 0x000F; /* CREAD | CS8 | B38400 */
-            /* c_lflag: ISIG | ICANON | ECHO | ECHOE | ECHOK | ECHOCTL | ECHOKE */
-            t.c_lflag = 0x0001 | 0x0002 | 0x0008 | 0x0010 | 0x0020 | 0x0200 | 0x0800;
-            t.c_line  = 0;
-            /* c_cc: set VEOF=4 (^D), VEOL=0, VERASE=0x7f (BS), VINTR=3 (^C), VKILL=0x15 (^U), VMIN=1, VQUIT=0x1c (^\), VSTART=0x11, VSTOP=0x13, VSUSP=0x1a (^Z), VTIME=0 */
-            t.c_cc[0]  = 4;    /* VEOF */
-            t.c_cc[1]  = 0;    /* VEOL */
-            t.c_cc[2]  = 0x7f; /* VERASE */
-            t.c_cc[3]  = 3;    /* VINTR */
-            t.c_cc[4]  = 0x15; /* VKILL */
-            t.c_cc[5]  = 1;    /* VMIN */
-            t.c_cc[6]  = 0x1c; /* VQUIT */
-            t.c_cc[7]  = 0;    /* spare */
-            t.c_cc[8]  = 0x11; /* VSTART */
-            t.c_cc[9]  = 0x13; /* VSTOP */
-            t.c_cc[10] = 0x1a; /* VSUSP */
-            /* VTIME=0 */
-            if (copy_to_user((void *)arg, &t, sizeof(t))) return -EFAULT;
-            return 0;
-        }
-
-        case TCSETS :
-        case TCSETSW :
-        case TCSETSF :
-            /* Accept any terminal settings */
-            return 0;
-
-        case TIOCGWINSZ : {
-            if (!arg) return -EFAULT;
-            struct linux_winsize ws = {80, 25, 0, 0};
-            /* Try to get actual size from framebuffer */
-            if (copy_to_user((void *)arg, &ws, sizeof(ws))) return -EFAULT;
-            return 0;
-        }
-
-        case TIOCSWINSZ :
-            /* Accept window size change */
-            return 0;
-
-        case TIOCGPGRP : {
-            /* Return foreground process group */
-            if (!arg) return -EFAULT;
-            pid_t pgid = proc->pgid ? (pid_t)proc->pgid : (pid_t)proc->task->pid;
-            if (copy_to_user((void *)arg, &pgid, sizeof(pgid))) return -EFAULT;
-            return 0;
-        }
-
-        case TIOCSPGRP : {
-            /* Set foreground process group */
-            if (!arg) return -EFAULT;
-            pid_t pgid;
-            if (copy_from_user(&pgid, (const void *)arg, sizeof(pgid))) return -EFAULT;
-            proc->pgid = pgid;
-            return 0;
-        }
-
-        case TIOCSCTTY :
-            /* Make this terminal the controlling terminal */
-            return 0;
-
-        case TIOCNOTTY :
-            /* Release controlling terminal */
-            return 0;
-
-        case TCSBRK :
-        case TCXONC :
-        case TCFLSH :
-            /* Flow control / line discipline - accept silently */
-            return 0;
-
-        case FIONREAD : {
-            /* Return number of bytes available to read */
-            /* For now return 0 (nothing available) - this is approximate */
-            if (!arg) return -EFAULT;
-            int nread = 0;
-            if (copy_to_user((void *)arg, &nread, sizeof(nread))) return -EFAULT;
-            return 0;
-        }
-
-        default :
-            /* Delegate to VFS for device-specific ioctls */
-            return process_fd_ioctl(proc, (int)fd, (size_t)req, (void *)arg);
-    }
+    return process_fd_ioctl(proc, (int)fd, (size_t)req, (void *)arg);
 }
 
 static int64_t sys_poll(uint64_t fds, uint64_t nfds, uint64_t timeout, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -830,12 +708,24 @@ static int64_t sys_fstat(uint64_t fd, uint64_t statbuf, uint64_t arg2, uint64_t 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    process_fd_stat_t fdst;
-    int               ret = process_fd_stat(proc, (int)fd, &fdst);
-    if (ret != EOK) return ret;
+    process_file_t *file = process_fd_get(proc, (int)fd);
+    if (!file) return -EBADF;
+    vfs_update(file->node);
+    process_fd_stat_t fdst = {
+        .dev   = file->node->dev,
+        .inode = file->node->inode,
+        .mode  = file->node->mode,
+        .type  = file->node->type,
+        .rdev  = file->node->rdev,
+        .size  = file->node->size,
+        .blksz = file->node->blksz,
+    };
+    uint32_t owner = file->node->owner;
+    uint32_t group = file->node->group;
+    process_file_put(file);
 
     linux_stat_t st;
-    fill_linux_stat(&st, proc->uid, proc->gid, &fdst);
+    fill_linux_stat(&st, owner, group, &fdst);
     return copy_to_user((void *)statbuf, &st, sizeof(st)) ? -EFAULT : EOK;
 }
 
@@ -3085,7 +2975,7 @@ static void free_string_array(char **arr)
     free(arr);
 }
 
-static int64_t do_execve(const char *path, char *const argv[], char *const envp[])
+static int64_t do_execve(const char *path, char *const argv[], char *const envp[], syscall_frame_t *frame)
 {
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
@@ -3141,6 +3031,8 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     /* Reset TLS state for the new process image */
     proc->task->thread.fs_base = 0;
     proc->task->thread.gs_base = 0;
+    wrmsr(0xC0000100, 0);
+    wrmsr(0xC0000101, 0);
 
     page_directory_t *old_dir = proc->user_page_dir;
 
@@ -3151,20 +3043,33 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
         return -ENOMEM;
     }
 
+    switch_page_directory(proc->user_page_dir);
+
     if (old_dir) {
         free_page_table_recursive(old_dir->table, 4);
         free(old_dir);
     }
+    process_mmap_clear(proc);
 
     proc->heap_brk  = PROCESS_HEAP_START;
     proc->stack_brk = PROCESS_STACK_BASE - PROCESS_STACK_SIZE;
 
-    int ret = elf_loader_load_user_process(proc, elf_data, total, kargv, kenvp);
+    uintptr_t entry = 0;
+    uintptr_t rsp   = 0;
+    int ret = elf_loader_load_user_process(proc, elf_data, total, kargv, kenvp, &entry, &rsp);
     free(elf_data);
     free_string_array(kargv);
     free_string_array(kenvp);
 
     if (ret) return -ENOEXEC;
+    if (frame) {
+        memset(frame, 0, sizeof(*frame));
+        frame->rip    = entry;
+        frame->cs     = 0x1B;
+        frame->rflags = 0x202;
+        frame->rsp    = rsp;
+        frame->ss     = 0x23;
+    }
     return 0;
 }
 
@@ -3173,7 +3078,7 @@ static int64_t sys_execve_wrap(uint64_t path, uint64_t argv, uint64_t envp, uint
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    return do_execve((const char *)path, (char *const *)argv, (char *const *)envp);
+    return do_execve((const char *)path, (char *const *)argv, (char *const *)envp, NULL);
 }
 
 /* ---------- getdents64 ---------- */
@@ -3873,13 +3778,29 @@ void syscall_dispatch(syscall_frame_t *frame)
             frame->rax = (uint64_t)-EINVAL;
             return;
         }
-        process_t *child = process_fork_from_syscall(frame);
-        frame->rax       = child ? child->task->pid : (uint64_t)-ENOMEM;
+        int        error = EOK;
+        process_t *child = process_fork_status(&error);
+        if (child) {
+            uint64_t  kstack_top = (uint64_t)(child->kernel_stack + PROCESS_KERNEL_STACK);
+            uint64_t *kstack     = (uint64_t *)ALIGN_DOWN(kstack_top, 16ULL);
+            syscall_frame_t child_frame = *frame;
+            child_frame.rax             = 0;
+            kstack -= sizeof(syscall_frame_t) / sizeof(uint64_t);
+            memcpy(kstack, &child_frame, sizeof(syscall_frame_t));
+            *(--kstack)              = (uint64_t)syscall_return;
+            child->task->context.rsp = (uint64_t)kstack;
+        }
+        frame->rax = child ? child->task->pid : (uint64_t)error;
         goto check_signals;
     }
 
     if (num >= SYS_MAX || !syscall_table[num]) {
         frame->rax = (uint64_t)-ENOSYS;
+        goto check_signals;
+    }
+
+    if (num == SYS_EXECVE) {
+        frame->rax = (uint64_t)do_execve((const char *)frame->rdi, (char *const *)frame->rsi, (char *const *)frame->rdx, frame);
         goto check_signals;
     }
 

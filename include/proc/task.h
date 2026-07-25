@@ -19,6 +19,7 @@
 #include <sync/spin_lock.h>
 
 typedef struct process process_t;
+typedef struct cgroup cgroup_t;
 
 #define TASK_NAME_LEN      32
 #define TASK_KERNEL_STACK  0x10000
@@ -41,6 +42,12 @@ typedef enum {
     TASK_ZOMBIE,
     TASK_IDLE,
 } task_state_t;
+
+typedef enum {
+    TASK_WAKE_NONE,
+    TASK_WAKE_NORMAL,
+    TASK_WAKE_TIMEOUT,
+} task_wake_reason_t;
 
 typedef struct {
         uint64_t fs_base;
@@ -72,9 +79,12 @@ struct task {
         uint64_t          time_slice;
         uint64_t          wake_tick;
         wait_queue_t     *wait_queue;
+        task_wake_reason_t wake_reason;
         uint32_t          cpu_id;
         char              name[TASK_NAME_LEN];
         process_t        *process;
+        cgroup_t         *cgroup;
+        ilist_node_t      cgroup_node;
         /* ---- EEVDF scheduling fields ---- */
         uint64_t vruntime; /* virtual runtime */
         uint64_t deadline; /* virtual deadline */
@@ -129,6 +139,9 @@ uint64_t wait_queue_wake_all(wait_queue_t *queue);
 /* Allocate a task structure */
 task_t *task_alloc(const char *name);
 
+/* Allocate a task and preserve the Linux errno for admission failures. */
+task_t *task_alloc_status(const char *name, int *error);
+
 /* Free a task structure */
 void task_free(task_t *task);
 
@@ -143,5 +156,8 @@ void task_name_copy(task_t *task, const char *name);
 
 /* Find a task by PID (for PI futex) */
 task_t *pid_find_task(uint64_t pid);
+
+/* Return the next PID that will be allocated */
+uint64_t task_next_pid(void);
 
 #endif /* INCLUDE_TASK_H_ */

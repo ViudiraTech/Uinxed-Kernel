@@ -8,6 +8,8 @@
  *
  */
 
+#include <cgroup/cgroup.h>
+#include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -27,6 +29,7 @@ typedef struct pid_entry {
 } pid_entry_t;
 
 static pid_entry_t *pid_hash[PID_HASH_SIZE] = {NULL};
+static spinlock_t   pid_hash_lock           = {.lock = 0, .rflags = 0};
 
 static uint32_t pid_hash_index(uint64_t pid)
 {
@@ -36,11 +39,10 @@ static uint32_t pid_hash_index(uint64_t pid)
 /*
  * Register a task for PID-based lookup.
  */
-static void pid_hash_add(task_t *task)
+static void pid_hash_add(task_t *task, pid_entry_t *entry)
 {
-    uint32_t     idx   = pid_hash_index(task->pid);
-    pid_entry_t *entry = malloc(sizeof(pid_entry_t));
-    if (!entry) return;
+    uint32_t idx = pid_hash_index(task->pid);
+
     entry->task   = task;
     entry->next   = pid_hash[idx];
     pid_hash[idx] = entry;
@@ -49,19 +51,20 @@ static void pid_hash_add(task_t *task)
 /*
  * Remove a task from the PID hash table.
  */
-static void pid_hash_remove(task_t *task)
+static pid_entry_t *pid_hash_remove(task_t *task)
 {
     uint32_t      idx      = pid_hash_index(task->pid);
     pid_entry_t **indirect = &pid_hash[idx];
+
     while (*indirect) {
         pid_entry_t *cur = *indirect;
         if (cur->task == task) {
             *indirect = cur->next;
-            free(cur);
-            return;
+            return cur;
         }
         indirect = &cur->next;
     }
+    return NULL;
 }
 
 /*
@@ -70,10 +73,17 @@ static void pid_hash_remove(task_t *task)
 task_t *pid_find_task(uint64_t pid)
 {
     uint32_t idx = pid_hash_index(pid);
+    task_t  *task = NULL;
+
+    spin_lock(&pid_hash_lock);
     for (pid_entry_t *entry = pid_hash[idx]; entry; entry = entry->next) {
-        if (entry->task->pid == pid) return entry->task;
+        if (entry->task->pid == pid) {
+            task = entry->task;
+            break;
+        }
     }
-    return NULL;
+    spin_unlock(&pid_hash_lock);
+    return task;
 }
 
 typedef struct {
@@ -121,12 +131,23 @@ void task_name_copy(task_t *task, const char *name)
     task->name[i] = '\0';
 }
 
-task_t *task_alloc(const char *name)
+task_t *task_alloc_status(const char *name, int *error)
 {
-    task_t *task = calloc(1, sizeof(task_t));
-    if (!task) return NULL;
+    task_t *parent = NULL;
+    task_t *task   = calloc(1, sizeof(task_t));
+    if (error) *error = EOK;
+    if (!task) {
+        if (error) *error = -ENOMEM;
+        return NULL;
+    }
 
-    task->pid            = scheduler.next_pid++;
+    pid_entry_t *pid_entry = malloc(sizeof(pid_entry_t));
+    if (!pid_entry) {
+        free(task);
+        if (error) *error = -ENOMEM;
+        return NULL;
+    }
+
     task->page_directory = get_kernel_pagedir();
     task->time_slice     = TASK_DEFAULT_SLICE;
     task->cpu_id         = 0;
@@ -139,16 +160,50 @@ task_t *task_alloc(const char *name)
     task->thread.gs_base = 0;
     task_name_copy(task, name);
     ilist_init(&task->sched_node);
-    pid_hash_add(task);
+    ilist_init(&task->timer_node);
+    ilist_init(&task->cgroup_node);
+
+    if (cgroup_root()) parent = current_task();
+    int status = cgroup_task_fork(task, parent);
+    if (status != EOK) {
+        free(pid_entry);
+        free(task);
+        if (error) *error = status;
+        return NULL;
+    }
+
+    spin_lock(&pid_hash_lock);
+    task->pid = scheduler.next_pid++;
+    pid_hash_add(task, pid_entry);
+    spin_unlock(&pid_hash_lock);
     return task;
+}
+
+task_t *task_alloc(const char *name)
+{
+    return task_alloc_status(name, NULL);
 }
 
 void task_free(task_t *task)
 {
     if (!task) return;
-    pid_hash_remove(task);
+
+    cgroup_task_exit(task);
+
+    spin_lock(&pid_hash_lock);
+    pid_entry_t *pid_entry = pid_hash_remove(task);
+    spin_unlock(&pid_hash_lock);
+    free(pid_entry);
     free(task->kernel_stack);
     free(task);
+}
+
+uint64_t task_next_pid(void)
+{
+    spin_lock(&pid_hash_lock);
+    uint64_t pid = scheduler.next_pid;
+    spin_unlock(&pid_hash_lock);
+    return pid;
 }
 
 task_t *kthread_create_on_cpu(const char *name, kthread_entry_t entry, void *arg, uint32_t cpu_id)

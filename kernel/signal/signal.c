@@ -38,6 +38,8 @@ static const sig_dfl_action_t sig_default_action_table[NSIG] = {
     [SIGPWR] = SIG_DFL_TERM,  [SIGSYS] = SIG_DFL_CORE,
 };
 
+static int signal_send_group(int64_t pgid, int64_t sid, int sig, process_t *sender, int code);
+
 sig_dfl_action_t signal_default_action(int sig)
 {
     if (!sig_valid(sig)) return SIG_DFL_TERM;
@@ -365,9 +367,6 @@ static int signal_handle_default(process_t *proc, int sig)
 
         case SIG_DFL_TERM :
         case SIG_DFL_CORE :
-            /* Terminate process */
-            proc->exit_code = -sig;
-            if (proc->task) { proc->task->state = TASK_ZOMBIE; }
             return 1;
 
         default :
@@ -434,6 +433,17 @@ int signal_has_pending(signal_state_t *state)
     sigset_t ready = state->pending & ~state->blocked;
 
     return !sigisemptyset(&ready);
+}
+
+bool signal_is_blocked_or_ignored(process_t *proc, int sig)
+{
+    if (!proc || !sig_valid(sig)) return false;
+
+    signal_state_t *state = &proc->signal;
+    spin_lock(&state->lock);
+    bool blocked_or_ignored = sigismember(&state->blocked, sig) || state->sighand[sig].sa_handler == SIG_IGN;
+    spin_unlock(&state->lock);
+    return blocked_or_ignored;
 }
 
 /*
@@ -523,7 +533,7 @@ int signal_deliver_if_pending(syscall_frame_t *frame)
     int          sa_flags = sa->sa_flags;
     spin_unlock(&state->lock);
 
-    if (ret == 1) { return 1; }
+    if (ret == 1) process_exit(-sig);
 
     if (sa_flags & SA_RESTART) { return -ERESTART; }
     return -EINTR;
@@ -580,12 +590,18 @@ int64_t sys_kill_impl(int64_t pid, int sig)
     if (!sig_valid(sig)) return -EINVAL;
 
     if (pid > 0) {
-        process_t *proc = process_find(pid);
+        process_t *proc = process_find_get(pid);
         if (!proc) return -ESRCH;
 
         process_t *cur = process_current();
-        if (!cur) return -ESRCH;
-        if (signal_check_perm(cur, proc) < 0) return -EPERM;
+        if (!cur) {
+            process_put(proc);
+            return -ESRCH;
+        }
+        if (signal_check_perm(cur, proc) < 0) {
+            process_put(proc);
+            return -EPERM;
+        }
 
         siginfo_t info;
         memset(&info, 0, sizeof(info));
@@ -594,34 +610,15 @@ int64_t sys_kill_impl(int64_t pid, int sig)
         info.si_pid   = cur->task->pid;
         info.si_uid   = cur->uid;
 
-        return signal_send(proc, sig, &info);
+        int ret = signal_send(proc, sig, &info);
+        process_put(proc);
+        return ret;
     }
 
     if (pid == 0) {
-        /* Send to process group */
         process_t *cur = process_current();
         if (!cur) return -ESRCH;
-
-        size_t     pos = 0;
-        process_t *target;
-        int        ret   = 0;
-        int        found = 0;
-
-        while ((target = process_iterate(&pos))) {
-            if (target->pgid == cur->pgid) {
-                if (signal_check_perm(cur, target) < 0) continue;
-
-                siginfo_t info;
-                memset(&info, 0, sizeof(info));
-                info.si_signo = sig;
-                info.si_code  = SI_USER;
-                info.si_pid   = cur->task->pid;
-                info.si_uid   = cur->uid;
-                ret           = signal_send(target, sig, &info);
-                found         = 1;
-            }
-        }
-        return found ? ret : -ESRCH;
+        return signal_send_group(cur->pgid, 0, sig, cur, SI_USER);
     }
 
     if (pid == -1) {
@@ -633,10 +630,11 @@ int64_t sys_kill_impl(int64_t pid, int sig)
         process_t *target;
         int        found = 0;
 
-        while ((target = process_iterate(&pos))) {
-            if (target == cur) continue;
-            if (target->task->pid == 1) continue;
-            if (signal_check_perm(cur, target) < 0) continue;
+        while ((target = process_iterate_get(&pos))) {
+            if (target == cur || !target->task || target->task->pid == 1 || signal_check_perm(cur, target) < 0) {
+                process_put(target);
+                continue;
+            }
 
             siginfo_t info;
             memset(&info, 0, sizeof(info));
@@ -646,6 +644,7 @@ int64_t sys_kill_impl(int64_t pid, int sig)
             info.si_uid   = cur->uid;
             signal_send(target, sig, &info);
             found = 1;
+            process_put(target);
         }
         return found ? 0 : -ESRCH;
     }
@@ -656,25 +655,7 @@ int64_t sys_kill_impl(int64_t pid, int sig)
         process_t *cur  = process_current();
         if (!cur) return -ESRCH;
 
-        size_t     pos = 0;
-        process_t *target;
-        int        found = 0;
-
-        while ((target = process_iterate(&pos))) {
-            if (target->pgid == pgid) {
-                if (signal_check_perm(cur, target) < 0) continue;
-
-                siginfo_t info;
-                memset(&info, 0, sizeof(info));
-                info.si_signo = sig;
-                info.si_code  = SI_USER;
-                info.si_pid   = cur->task->pid;
-                info.si_uid   = cur->uid;
-                signal_send(target, sig, &info);
-                found = 1;
-            }
-        }
-        return found ? 0 : -ESRCH;
+        return signal_send_group(pgid, 0, sig, cur, SI_USER);
     }
 }
 
@@ -685,12 +666,18 @@ int64_t sys_tkill_impl(int64_t tid, int sig)
 {
     if (!sig_valid(sig)) return -EINVAL;
 
-    process_t *target = process_find(tid);
+    process_t *target = process_find_get(tid);
     if (!target) return -ESRCH;
 
     process_t *cur = process_current();
-    if (!cur) return -ESRCH;
-    if (signal_check_perm(cur, target) < 0) return -EPERM;
+    if (!cur) {
+        process_put(target);
+        return -ESRCH;
+    }
+    if (signal_check_perm(cur, target) < 0) {
+        process_put(target);
+        return -EPERM;
+    }
 
     siginfo_t info;
     memset(&info, 0, sizeof(info));
@@ -699,7 +686,9 @@ int64_t sys_tkill_impl(int64_t tid, int sig)
     info.si_pid   = cur->task->pid;
     info.si_uid   = cur->uid;
 
-    return signal_send_thread(target->task, sig, &info);
+    int ret = signal_send_thread(target->task, sig, &info);
+    process_put(target);
+    return ret;
 }
 
 /*
@@ -709,14 +698,23 @@ int64_t sys_tgkill(int64_t tgid, int64_t tid, int sig)
 {
     if (!sig_valid(sig)) return -EINVAL;
 
-    process_t *target = process_find(tgid);
+    process_t *target = process_find_get(tgid);
     if (!target) return -ESRCH;
 
-    if (target->task->pid != (uint64_t)tid) { return -ESRCH; }
+    if (!target->task || target->task->pid != (uint64_t)tid) {
+        process_put(target);
+        return -ESRCH;
+    }
 
     process_t *cur = process_current();
-    if (!cur) return -ESRCH;
-    if (signal_check_perm(cur, target) < 0) return -EPERM;
+    if (!cur) {
+        process_put(target);
+        return -ESRCH;
+    }
+    if (signal_check_perm(cur, target) < 0) {
+        process_put(target);
+        return -EPERM;
+    }
 
     siginfo_t info;
     memset(&info, 0, sizeof(info));
@@ -725,7 +723,9 @@ int64_t sys_tgkill(int64_t tgid, int64_t tid, int sig)
     info.si_pid   = cur->task->pid;
     info.si_uid   = cur->uid;
 
-    return signal_send_thread(target->task, sig, &info);
+    int ret = signal_send_thread(target->task, sig, &info);
+    process_put(target);
+    return ret;
 }
 
 /*
@@ -1006,19 +1006,30 @@ int64_t sys_rt_sigqueueinfo(int64_t pid, int sig, siginfo_t *info)
     if (!sig_valid(sig)) return -EINVAL;
     if (sig == SIGKILL || sig == SIGSTOP) return -EINVAL;
 
-    process_t *proc = process_find((int64_t)pid);
+    process_t *proc = process_find_get((int64_t)pid);
     if (!proc) return -ESRCH;
 
     siginfo_t user_info;
-    if (copy_from_user(&user_info, info, sizeof(siginfo_t))) return -EFAULT;
+    if (copy_from_user(&user_info, info, sizeof(siginfo_t))) {
+        process_put(proc);
+        return -EFAULT;
+    }
 
     user_info.si_signo = sig;
-    if (user_info.si_code >= 0) return -EPERM;
+    if (user_info.si_code >= 0) {
+        process_put(proc);
+        return -EPERM;
+    }
 
     process_t *cur = process_current();
-    if (signal_check_perm(cur, proc) < 0) return -EPERM;
+    if (signal_check_perm(cur, proc) < 0) {
+        process_put(proc);
+        return -EPERM;
+    }
 
-    return signal_send(proc, sig, &user_info);
+    int ret = signal_send(proc, sig, &user_info);
+    process_put(proc);
+    return ret;
 }
 
 /*
@@ -1029,21 +1040,35 @@ int64_t sys_rt_tgsigqueueinfo(int64_t tgid, int64_t tid, int sig, siginfo_t *inf
     if (!sig_valid(sig)) return -EINVAL;
     if (sig == SIGKILL || sig == SIGSTOP) return -EINVAL;
 
-    process_t *proc = process_find(tgid);
+    process_t *proc = process_find_get(tgid);
     if (!proc) return -ESRCH;
 
-    if ((int64_t)proc->task->pid != tid) return -ESRCH;
+    if (!proc->task || (int64_t)proc->task->pid != tid) {
+        process_put(proc);
+        return -ESRCH;
+    }
 
     siginfo_t user_info;
-    if (copy_from_user(&user_info, info, sizeof(siginfo_t))) return -EFAULT;
+    if (copy_from_user(&user_info, info, sizeof(siginfo_t))) {
+        process_put(proc);
+        return -EFAULT;
+    }
 
     user_info.si_signo = sig;
-    if (user_info.si_code >= 0) return -EPERM;
+    if (user_info.si_code >= 0) {
+        process_put(proc);
+        return -EPERM;
+    }
 
     process_t *cur = process_current();
-    if (signal_check_perm(cur, proc) < 0) return -EPERM;
+    if (signal_check_perm(cur, proc) < 0) {
+        process_put(proc);
+        return -EPERM;
+    }
 
-    return signal_send_thread(proc->task, sig, &user_info);
+    int ret = signal_send_thread(proc->task, sig, &user_info);
+    process_put(proc);
+    return ret;
 }
 
 /*
@@ -1084,21 +1109,7 @@ int64_t sys_rt_sigreturn(void)
 int64_t sys_setpgid(int64_t pid, int64_t pgid)
 {
     process_t *cur = process_current();
-    process_t *proc;
-    if (pid == 0) {
-        proc = cur;
-    } else {
-        proc = process_find(pid);
-    }
-
-    if (!cur || !proc) return -ESRCH;
-
-    if (cur->uid != 0 && cur->uid != proc->uid && cur != proc) return -EPERM;
-
-    if (pgid == 0) pgid = (int64_t)proc->task->pid;
-
-    proc->pgid = pgid;
-    return 0;
+    return process_setpgid(cur, pid, pgid);
 }
 
 /*
@@ -1117,20 +1128,9 @@ int64_t sys_getpgrp(void)
 int64_t sys_setsid(void)
 {
     process_t *proc = process_current();
-    if (!proc) return -ESRCH;
-
-    pid_t my_pid = (pid_t)proc->task->pid;
-
-    /* Check if already session leader */
-    if (proc->sid == my_pid) return -EPERM;
-
-    /* Check if process group leader */
-    if (proc->pgid == my_pid) return -EPERM;
-
-    proc->sid  = my_pid;
-    proc->pgid = my_pid;
-
-    return (int64_t)my_pid;
+    pid_t      sid;
+    int        ret = process_setsid(proc, &sid);
+    return ret ? ret : (int64_t)sid;
 }
 
 /*
@@ -1138,15 +1138,15 @@ int64_t sys_setsid(void)
  */
 int64_t sys_getsid(int64_t pid)
 {
-    process_t *proc;
     if (pid == 0) {
-        proc = process_current();
-    } else {
-        proc = process_find(pid);
+        process_t *proc = process_current();
+        return proc ? (int64_t)proc->sid : -ESRCH;
     }
-
+    process_t *proc = process_find_get(pid);
     if (!proc) return -ESRCH;
-    return (int64_t)proc->sid;
+    int64_t sid = proc->sid;
+    process_put(proc);
+    return sid;
 }
 
 /*
@@ -1154,13 +1154,53 @@ int64_t sys_getsid(int64_t pid)
  */
 int64_t sys_getpgid(int64_t pid)
 {
-    process_t *proc;
     if (pid == 0) {
-        proc = process_current();
-    } else {
-        proc = process_find(pid);
+        process_t *proc = process_current();
+        return proc ? (int64_t)proc->pgid : -ESRCH;
     }
-
+    process_t *proc = process_find_get(pid);
     if (!proc) return -ESRCH;
-    return (int64_t)proc->pgid;
+    int64_t pgid = proc->pgid;
+    process_put(proc);
+    return pgid;
+}
+
+static int signal_send_group(int64_t pgid, int64_t sid, int sig, process_t *sender, int code)
+{
+    if (pgid <= 0 || !sig_valid(sig)) return -EINVAL;
+
+    size_t     pos = 0;
+    process_t *target;
+    int        found = 0;
+    int        result = 0;
+    while ((target = process_group_iterate_get(&pos, pgid, sid))) {
+        if (sender && signal_check_perm(sender, target) < 0) {
+            process_put(target);
+            continue;
+        }
+        siginfo_t info;
+        memset(&info, 0, sizeof(info));
+        info.si_signo = sig;
+        info.si_code  = code;
+        if (sender) {
+            info.si_pid = sender->task ? (int64_t)sender->task->pid : 0;
+            info.si_uid = sender->uid;
+        }
+        int ret = signal_send(target, sig, &info);
+        if (ret && !result) result = ret;
+        found = 1;
+        process_put(target);
+    }
+    return found ? result : -ESRCH;
+}
+
+int signal_send_pgrp(int64_t pgid, int sig)
+{
+    return signal_send_group(pgid, 0, sig, NULL, SI_KERNEL);
+}
+
+int signal_send_pgrp_session(int64_t pgid, int64_t sid, int sig)
+{
+    if (sid <= 0) return -EINVAL;
+    return signal_send_group(pgid, sid, sig, NULL, SI_KERNEL);
 }

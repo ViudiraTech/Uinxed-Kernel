@@ -11,6 +11,7 @@
 #ifndef INCLUDE_SIGNAL_H_
 #define INCLUDE_SIGNAL_H_
 
+#include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
@@ -351,6 +352,12 @@ void signal_state_free(signal_state_t *state);
 /* Send a signal to a process */
 int signal_send(process_t *proc, int sig, const siginfo_t *info);
 
+/* Send a kernel-generated signal to every process in a process group. */
+int signal_send_pgrp(int64_t pgid, int sig);
+
+/* Restrict kernel-generated group delivery to a terminal session. */
+int signal_send_pgrp_session(int64_t pgid, int64_t sid, int sig);
+
 /* Send a signal to a specific thread */
 int signal_send_thread(task_t *task, int sig, const siginfo_t *info);
 
@@ -359,6 +366,9 @@ int signal_deliver_if_pending(syscall_frame_t *frame);
 
 /* Check if there is a pending signal that should be delivered */
 int signal_has_pending(signal_state_t *state);
+
+/* Query a process signal disposition while holding the signal-state lock. */
+bool signal_is_blocked_or_ignored(process_t *proc, int sig);
 
 /* Get the default action for a signal */
 sig_dfl_action_t signal_default_action(int sig);
