@@ -14,9 +14,7 @@
 #include <drivers/drm/drm_init.h>
 #include <drivers/evdev.h>
 #include <drivers/ide.h>
-#include <drivers/input_event.h>
 #include <drivers/nvme.h>
-#include <drivers/ps2.h>
 #include <drivers/tty.h>
 #include <fs/devtmpfs.h>
 #include <fs/tmpfs.h>
@@ -261,39 +259,6 @@ static void devtmpfs_create_partition_node(const char *dev_prefix, uint32_t blks
     vfs_close(node);
 }
 
-/* ---- evdev ioctl wrapper for PS/2 keyboard ---- */
-
-static evdev_client_t *ps2kbd_evdev_client;
-
-static int ps2kbd_evdev_ioctl(void *ctx, size_t req, void *arg)
-{
-    evdev_t *evdev = ps2_keyboard_evdev;
-
-    (void)ctx;
-
-    if (!evdev || !evdev->exist) return -ENODEV;
-
-    if (!ps2kbd_evdev_client) {
-        ps2kbd_evdev_client = evdev_fop_open(evdev);
-        if (!ps2kbd_evdev_client) return -ENOMEM;
-    }
-
-    return evdev_fop_ioctl(ps2kbd_evdev_client, (uint32_t)req, arg);
-}
-
-static void devtmpfs_create_input_event_node(void)
-{
-    static const tmpfs_device_ops_t ps2kbd_device = {
-        .read  = ps2kbd_read_events,
-        .poll  = ps2kbd_poll_events,
-        .ioctl = ps2kbd_evdev_ioctl,
-        .write = 0,
-        .ctx   = 0,
-    };
-
-    devtmpfs_register_char_device("/dev/input/event0", 1, 0, file_keyboard | file_stream, &ps2kbd_device);
-}
-
 static void devtmpfs_create_framebuffer_node(void)
 {
     static const tmpfs_device_ops_t fb_device = {
@@ -421,7 +386,6 @@ void devtmpfs_init(void)
         snprintf(dev_path, sizeof(dev_path), "/dev/hd%c", 'a' + drive);
         devtmpfs_create_block_node(dev_path, (uint64_t)ide_devices[drive].size * 512, 512, drive, drive);
         total_devices++;
-
     }
 
     /* AHCI SATA drives -> /dev/sda, /dev/sdb, ... */
@@ -434,7 +398,6 @@ void devtmpfs_init(void)
         devtmpfs_create_block_node(dev_path, (uint64_t)ahci_devices[d].size * ahci_devices[d].sector_size, ahci_devices[d].sector_size, encoded,
                                    encoded);
         total_devices++;
-
     }
 
     /* ATAPI drives (IDE + AHCI) -> /dev/sr0, /dev/sr1, ... */
@@ -504,7 +467,7 @@ void devtmpfs_init(void)
         }
     }
 
-    devtmpfs_create_input_event_node();
+    evdev_publish_nodes();
     devtmpfs_create_framebuffer_node();
     devtmpfs_create_audio_nodes();
     devtmpfs_create_tty_nodes();

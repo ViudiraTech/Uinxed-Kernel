@@ -1,0 +1,154 @@
+/*
+ *
+ *      mouse.c
+ *      PS/2 mouse driver for standard, wheel, and Explorer protocols
+ *
+ *      2026/7/25 By JiTianYu391
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
+ */
+#include <drivers/evdev.h>
+#include <drivers/ps2.h>
+#include <drivers/ps2_mouse.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <libs/std/string.h>
+
+static input_dev_t             ps2_mouse_dev;
+static enum ps2_mouse_protocol ps2_mouse_protocol;
+static struct ps2_mouse_stream ps2_mouse_stream;
+static struct ps2_mouse_packet ps2_mouse_previous;
+static bool                    ps2_mouse_ready;
+evdev_t                       *ps2_mouse_evdev;
+
+static void set_bit(unsigned int bit, uint32_t *bits)
+{
+    bits[bit / 32] |= 1U << (bit % 32);
+}
+
+static int ps2_mouse_read_id(uint8_t *id)
+{
+    int result = ps2_send_device_command(true, PS2_DEV_GET_ID);
+    if (result != EOK) return result;
+    return ps2_read_data_timeout(id);
+}
+
+static int ps2_mouse_set_rate(uint8_t rate)
+{
+    int result = ps2_send_device_command(true, PS2_DEV_SET_SAMPLE_RATE);
+    if (result != EOK) return result;
+    return ps2_send_device_data(true, rate);
+}
+
+static int ps2_mouse_negotiate(const uint8_t rates[3], uint8_t expected_id)
+{
+    uint8_t id;
+    for (size_t i = 0; i < 3; i++) {
+        int result = ps2_mouse_set_rate(rates[i]);
+        if (result != EOK) return result;
+    }
+    if (ps2_mouse_read_id(&id) != EOK) return -EIO;
+    return id == expected_id ? EOK : -ENODEV;
+}
+
+static void ps2_mouse_emit_button(uint16_t code, bool value, bool *previous)
+{
+    if (*previous == value) return;
+    *previous = value;
+    evdev_inject_event(&ps2_mouse_dev, EV_KEY, code, value ? 1 : 0);
+}
+
+static void ps2_mouse_report(const struct ps2_mouse_packet *packet)
+{
+    ps2_mouse_emit_button(BTN_LEFT, packet->left, &ps2_mouse_previous.left);
+    ps2_mouse_emit_button(BTN_RIGHT, packet->right, &ps2_mouse_previous.right);
+    ps2_mouse_emit_button(BTN_MIDDLE, packet->middle, &ps2_mouse_previous.middle);
+    if (ps2_mouse_protocol == PS2_MOUSE_EXPLORER) {
+        ps2_mouse_emit_button(BTN_SIDE, packet->side, &ps2_mouse_previous.side);
+        ps2_mouse_emit_button(BTN_EXTRA, packet->extra, &ps2_mouse_previous.extra);
+    }
+    if (packet->dx) evdev_inject_event(&ps2_mouse_dev, EV_REL, REL_X, packet->dx);
+    if (packet->dy) evdev_inject_event(&ps2_mouse_dev, EV_REL, REL_Y, -packet->dy);
+    if (packet->wheel) evdev_inject_event(&ps2_mouse_dev, EV_REL, REL_WHEEL, packet->wheel);
+    evdev_inject_syn(&ps2_mouse_dev);
+}
+
+void ps2_mouse_handle_byte(uint8_t byte)
+{
+    struct ps2_mouse_packet packet;
+
+    if (!ps2_mouse_ready) return;
+    if (ps2_mouse_stream_byte(&ps2_mouse_stream, byte, &packet) == 1) ps2_mouse_report(&packet);
+}
+
+bool ps2_mouse_available(void)
+{
+    return ps2_mouse_ready;
+}
+
+void ps2_mouse_init(void)
+{
+    static const uint8_t wheel_rates[]    = {200, 100, 80};
+    static const uint8_t explorer_rates[] = {200, 200, 80};
+    uint8_t              response;
+    uint8_t              id;
+    int                  result;
+
+    ps2_mouse_ready = false;
+    result          = ps2_send_device_command(true, PS2_DEV_RESET);
+    if (result != EOK) {
+        plogk("ps/2: mouse reset command failed: %d.\n", result);
+        return;
+    }
+    result = ps2_read_data_timeout(&response);
+    if (result != EOK || response != PS2_RESPONSE_RESET_OK) {
+        plogk("ps/2: mouse self-test response failed: status=%d response=0x%02x.\n", result, response);
+        return;
+    }
+    result = ps2_read_data_timeout(&id);
+    if (result != EOK) {
+        plogk("ps/2: mouse device ID read failed: %d.\n", result);
+        return;
+    }
+    if (ps2_send_device_command(true, PS2_DEV_DISABLE_REPORT) != EOK) return;
+
+    ps2_mouse_protocol = PS2_MOUSE_STANDARD;
+    if (ps2_mouse_negotiate(wheel_rates, 0x03) == EOK) {
+        ps2_mouse_protocol = PS2_MOUSE_WHEEL;
+        id                 = 0x03;
+    }
+    if (ps2_mouse_protocol == PS2_MOUSE_WHEEL && ps2_mouse_negotiate(explorer_rates, 0x04) == EOK) {
+        ps2_mouse_protocol = PS2_MOUSE_EXPLORER;
+        id                 = 0x04;
+    }
+    if (ps2_send_device_command(true, PS2_DEV_ENABLE_REPORT) != EOK) return;
+    ps2_mouse_stream_init(&ps2_mouse_stream, ps2_mouse_protocol);
+    ps2_mouse_previous = (struct ps2_mouse_packet) {0};
+
+    memset(&ps2_mouse_dev, 0, sizeof(ps2_mouse_dev));
+    strncpy(ps2_mouse_dev.name, "PS/2 Generic Mouse", EVDEV_MAX_NAME_LEN - 1);
+    strncpy(ps2_mouse_dev.phys, "isa0060/serio1/input0", EVDEV_MAX_NAME_LEN - 1);
+    ps2_mouse_dev.id.bustype             = BUS_I8042;
+    ps2_mouse_dev.id.vendor              = 1;
+    ps2_mouse_dev.id.product             = id;
+    ps2_mouse_dev.id.version             = 0x0100;
+    ps2_mouse_dev.hint_events_per_packet = 6;
+    ps2_mouse_dev.exist                  = true;
+    set_bit(EV_KEY, ps2_mouse_dev.evbit);
+    set_bit(EV_REL, ps2_mouse_dev.evbit);
+    set_bit(EV_SYN, ps2_mouse_dev.evbit);
+    set_bit(REL_X, ps2_mouse_dev.relbit);
+    set_bit(REL_Y, ps2_mouse_dev.relbit);
+    set_bit(BTN_LEFT, ps2_mouse_dev.keybit);
+    set_bit(BTN_RIGHT, ps2_mouse_dev.keybit);
+    set_bit(BTN_MIDDLE, ps2_mouse_dev.keybit);
+    if (ps2_mouse_protocol != PS2_MOUSE_STANDARD) set_bit(REL_WHEEL, ps2_mouse_dev.relbit);
+    if (ps2_mouse_protocol == PS2_MOUSE_EXPLORER) {
+        set_bit(BTN_SIDE, ps2_mouse_dev.keybit);
+        set_bit(BTN_EXTRA, ps2_mouse_dev.keybit);
+    }
+    ps2_mouse_evdev = evdev_create(&ps2_mouse_dev);
+    if (!ps2_mouse_evdev || evdev_register(ps2_mouse_evdev) != EOK) return;
+    ps2_mouse_ready = true;
+    plogk("evdev: PS/2 mouse protocol %d registered as event%d\n", ps2_mouse_protocol, ps2_mouse_evdev->minor);
+}

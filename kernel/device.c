@@ -339,7 +339,13 @@ int device_register(struct device *dev)
     }
 
     /* Create symlinks if the device has a class */
-    if (dev->class && dev->class->dev_kobj) {
+    if (dev->class) {
+        ret = sysfs_create_symlink(&dev->class->subsys.kobj, &dev->kobj, kobject_name(&dev->kobj));
+        if (ret != EOK) {
+            if (dev->groups) sysfs_remove_groups(&dev->kobj, dev->groups);
+            kobject_del(&dev->kobj);
+            return ret;
+        }
         /* /sys/class/<name>/<device>  → /sys/devices/.../device */
         /* For now just add to the class kset */
     }
@@ -350,6 +356,8 @@ int device_register(struct device *dev)
 void device_unregister(struct device *dev)
 {
     if (!dev) return;
+
+    if (dev->class) sysfs_remove_symlink(&dev->class->subsys.kobj, kobject_name(&dev->kobj));
 
     /* Remove groups */
     if (dev->groups) sysfs_remove_groups(&dev->kobj, dev->groups);

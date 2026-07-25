@@ -11,6 +11,10 @@
 #include <drivers/acpi.h>
 #include <drivers/evdev.h>
 #include <drivers/input_event.h>
+#include <drivers/input_sysfs.h>
+#include <fs/devtmpfs.h>
+#include <fs/tmpfs.h>
+#include <kernel/device.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/glist/intrusive_list.h>
@@ -21,6 +25,7 @@
 #include <mem/alloc.h>
 #include <proc/task.h>
 #include <sync/spin_lock.h>
+#include <syscall/syscall.h>
 
 /* ---- _IOC extraction macros ---- */
 
@@ -82,6 +87,58 @@ static inline size_t evdev_event_size(void)
 static evdev_t   *evdev_table[EVDEV_MAX_DEVICES];
 static spinlock_t evdev_table_lock  = {0};
 static bool       evdev_initialized = false;
+static bool       evdev_nodes_ready;
+
+#define EVDEV_MAJOR 13
+
+static int evdev_dev_open(vfs_node_t node, uint64_t flags, void **private_data)
+{
+    tmpfs_file_t   *file  = node ? node->handle : NULL;
+    evdev_t        *evdev = file ? file->device.ctx : NULL;
+    evdev_client_t *client;
+
+    if (!private_data || !evdev) return -ENODEV;
+    client = evdev_fop_open(evdev);
+    if (!client) return -ENOMEM;
+    (void)flags;
+    *private_data = client;
+    return EOK;
+}
+
+static void evdev_dev_release(vfs_node_t node, void *private_data)
+{
+    (void)node;
+    evdev_fop_release(private_data);
+}
+
+static int64_t evdev_dev_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
+{
+    (void)ctx;
+    if (offset) return -ESPIPE;
+    return evdev_fop_read(private_data, addr, size, (flags & O_NONBLOCK) != 0);
+}
+
+static int64_t evdev_dev_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
+{
+    (void)ctx;
+    (void)flags;
+    if (offset) return -ESPIPE;
+    return evdev_fop_write(private_data, addr, size);
+}
+
+static int evdev_dev_poll(void *ctx, void *private_data, uint64_t flags, size_t events)
+{
+    (void)ctx;
+    (void)flags;
+    return evdev_fop_poll(private_data, (int)events);
+}
+
+static int evdev_dev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t request, void *arg)
+{
+    (void)ctx;
+    (void)flags;
+    return evdev_fop_ioctl(private_data, (uint32_t)request, arg);
+}
 
 /* ---- evdev_get_mask_cnt ---- */
 
@@ -414,14 +471,16 @@ evdev_t *evdev_create(input_dev_t *dev)
     if (!evdev) return NULL;
 
     memset(evdev, 0, sizeof(evdev_t));
-    evdev->input_dev   = dev;
-    evdev->exist       = true;
-    evdev->client_list = (ilist_node_t) {&evdev->client_list, &evdev->client_list};
-    evdev->client_lock = (spinlock_t) {0};
-    evdev->mutex       = (spinlock_t) {0};
-    evdev->grab        = NULL;
-    evdev->open_count  = 0;
-    evdev->minor       = -1;
+    evdev->input_dev      = dev;
+    evdev->exist          = true;
+    evdev->client_list    = (ilist_node_t) {&evdev->client_list, &evdev->client_list};
+    evdev->client_lock    = (spinlock_t) {0};
+    evdev->mutex          = (spinlock_t) {0};
+    evdev->grab           = NULL;
+    evdev->open_count     = 0;
+    evdev->minor          = -1;
+    evdev->node_published = false;
+    evdev->sysfs_device   = NULL;
 
     return evdev;
 }
@@ -462,6 +521,9 @@ int evdev_register(evdev_t *evdev)
     evdev_table[minor] = evdev;
     spin_unlock(&evdev_table_lock);
 
+    input_sysfs_register_evdev(evdev);
+    if (evdev_nodes_ready) evdev_publish_node(evdev);
+
     return 0;
 }
 
@@ -469,7 +531,16 @@ int evdev_register(evdev_t *evdev)
 
 void evdev_unregister(evdev_t *evdev)
 {
+    char path[32];
+
     if (!evdev) return;
+
+    input_sysfs_unregister_evdev(evdev);
+    if (evdev->node_published) {
+        (void)snprintf(path, sizeof(path), "/dev/input/event%d", evdev->minor);
+        devtmpfs_unregister_char_device(path);
+        evdev->node_published = false;
+    }
 
     spin_lock(&evdev_table_lock);
     if (evdev->minor >= 0 && evdev->minor < EVDEV_MAX_DEVICES && evdev_table[evdev->minor] == evdev) evdev_table[evdev->minor] = NULL;
@@ -1008,5 +1079,42 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
 
         default :
             return -EINVAL;
+    }
+}
+
+uint64_t evdev_devt(const evdev_t *evdev)
+{
+    if (!evdev || evdev->minor < 0) return 0;
+    return MKDEV(EVDEV_MAJOR, EVDEV_MINOR_BASE + evdev->minor);
+}
+
+int evdev_publish_node(evdev_t *evdev)
+{
+    char                     path[32];
+    int                      result;
+    const tmpfs_device_ops_t ops = {
+        .open       = evdev_dev_open,
+        .release    = evdev_dev_release,
+        .file_read  = evdev_dev_read,
+        .file_write = evdev_dev_write,
+        .file_poll  = evdev_dev_poll,
+        .file_ioctl = evdev_dev_ioctl,
+        .ctx        = evdev,
+    };
+
+    if (!evdev || !evdev->exist) return -ENODEV;
+    if (evdev->node_published) return EOK;
+    (void)snprintf(path, sizeof(path), "/dev/input/event%d", evdev->minor);
+    result = devtmpfs_register_char_device(path, evdev_devt(evdev), evdev_devt(evdev), file_stream, &ops);
+    if (result == EOK) evdev->node_published = true;
+    return result;
+}
+
+void evdev_publish_nodes(void)
+{
+    evdev_nodes_ready = true;
+    for (int minor = 0; minor < EVDEV_MAX_DEVICES; minor++) {
+        evdev_t *evdev = evdev_find_by_minor(minor);
+        if (evdev) evdev_publish_node(evdev);
     }
 }

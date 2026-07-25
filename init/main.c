@@ -20,6 +20,7 @@
 #include <drivers/ahci.h>
 #include <drivers/drm/drm_init.h>
 #include <drivers/hda.h>
+#include <drivers/input_sysfs.h>
 #include <drivers/ide.h>
 #include <drivers/nvme.h>
 #include <drivers/parallel.h>
@@ -213,6 +214,7 @@ void kernel_entry(void)
     sysfs_regist();      // Register sysfs with the VFS layer
     sysfs_init();        // Mount sysfs at /sys and create top-level directories
     device_model_init(); // Initialise the device model (bus/class/device)
+    input_sysfs_init();  // /sys/class/input/eventX
 #endif                   //
     init_cpio();         // Copy In, Copy Out
     devtmpfs_init();     // Device Temporary File System

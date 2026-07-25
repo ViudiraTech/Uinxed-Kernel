@@ -19,6 +19,8 @@
 #include <proc/task.h>
 #include <sync/spin_lock.h>
 
+struct device;
+
 /* ---- evdev internal constants ---- */
 #define EVDEV_MINOR_BASE      64
 #define EVDEV_MINORS          32
@@ -84,6 +86,8 @@ typedef struct evdev {
         spinlock_t      mutex;       /* device-level mutex */
         bool            exist;       /* device is alive */
         int             minor;       /* assigned minor number */
+        bool            node_published;
+        struct device  *sysfs_device;
 } evdev_t;
 
 /* ---- Public API ---- */
@@ -105,6 +109,9 @@ void evdev_unregister(evdev_t *evdev);
 
 /* Find an evdev by minor number. Returns NULL if not found. */
 evdev_t *evdev_find_by_minor(int minor);
+uint64_t evdev_devt(const evdev_t *evdev);
+int      evdev_publish_node(evdev_t *evdev);
+void     evdev_publish_nodes(void);
 
 /* Initialize the evdev subsystem. Called once at boot. */
 void evdev_init(void);
