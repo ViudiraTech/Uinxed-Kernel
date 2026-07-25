@@ -313,6 +313,8 @@ void wfmt_arg(writer *writer, args_fmter *fmter, va_list args)
         /* Calc length of `%s` and set num_flag */
         switch (**fmt_ptr) {
             case 'c' :
+                /* The alignment loops subtract one for the character itself. */
+                if (num_fmter.size == 0) num_fmter.size = 1;
                 break;
             case 's' :
                 str_len = strlen(str);

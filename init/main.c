@@ -209,6 +209,7 @@ void kernel_entry(void)
 
         /* Device model and sysfs */
 #if CONFIG_SYSFS
+    netlink_init();      // Kobject creation emits netlink uevents
     sysfs_regist();      // Register sysfs with the VFS layer
     sysfs_init();        // Mount sysfs at /sys and create top-level directories
     device_model_init(); // Initialise the device model (bus/class/device)
@@ -227,7 +228,9 @@ void kernel_entry(void)
 #endif
 
     /* Networking and graphics */
+#if !CONFIG_SYSFS
     netlink_init();    // AF_NETLINK socket family
+#endif
     drm_init();        // Direct Rendering Manager
     virtio_gpu_init(); // VirtIO GPU driver (if present on PCI bus)
 
