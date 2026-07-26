@@ -161,7 +161,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
             memcpy(&ide_devices[count].signature, ide_buf + ATA_IDENT_DEVICETYPE, 2);
             memcpy(&ide_devices[count].capabilities, ide_buf + ATA_IDENT_CAPABILITIES, 2);
             memcpy(&ide_devices[count].command_sets, ide_buf + ATA_IDENT_COMMANDSETS, 4);
-            ide_devices[count].size         = 0;
+            ide_devices[count].size = 0;
 
             /* Get Size */
             if (ide_devices[count].command_sets & (1 << 26))

@@ -293,12 +293,12 @@ static int evdev_set_clk_type(evdev_client_t *client, int clk_type)
     spin_lock(&client->buffer_lock);
     client->clk_type = clk_type;
     ns               = nano_time();
-    dropped = (input_event_t) {
-        .sec   = ns / 1000000000ULL,
-        .usec  = (ns / 1000ULL) % 1000000ULL,
-        .type  = EV_SYN,
-        .code  = SYN_DROPPED,
-        .value = 0,
+    dropped          = (input_event_t) {
+                 .sec   = ns / 1000000000ULL,
+                 .usec  = (ns / 1000ULL) % 1000000ULL,
+                 .type  = EV_SYN,
+                 .code  = SYN_DROPPED,
+                 .value = 0,
     };
     evdev_queue_discard_pending(&client->queue, &dropped);
     spin_unlock(&client->buffer_lock);
@@ -971,9 +971,9 @@ static int evdev_fill_user(void *arg, uint8_t value, size_t size)
 
 static int evdev_get_mask(evdev_client_t *client, const input_mask_t *descriptor)
 {
-    size_t    bit_count = evdev_get_mask_cnt(descriptor->type);
-    size_t    bytes     = (bit_count + 7) / 8;
-    size_t    word_bits = sizeof(unsigned long) * 8;
+    size_t    bit_count  = evdev_get_mask_cnt(descriptor->type);
+    size_t    bytes      = (bit_count + 7) / 8;
+    size_t    word_bits  = sizeof(unsigned long) * 8;
     size_t    user_bytes = ((bit_count + word_bits - 1) / word_bits) * sizeof(unsigned long);
     size_t    copy_bytes;
     uint32_t *snapshot = NULL;
@@ -1000,8 +1000,7 @@ static int evdev_get_mask(evdev_client_t *client, const input_mask_t *descriptor
         free(snapshot);
         if (result != EOK) return result;
     }
-    if (copy_bytes < descriptor->codes_size)
-        return evdev_fill_user((uint8_t *)user + copy_bytes, 0, descriptor->codes_size - copy_bytes);
+    if (copy_bytes < descriptor->codes_size) return evdev_fill_user((uint8_t *)user + copy_bytes, 0, descriptor->codes_size - copy_bytes);
     return EOK;
 }
 
@@ -1150,19 +1149,17 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
             case EV_FF :
                 src = dev->ffbit;
                 break;
-        default :
+            default :
                 return -EINVAL;
         }
 
-        if (!src || cnt == 0) {
-            return evdev_fill_user(arg, 0, len) == EOK ? 0 : -EFAULT;
-        }
+        if (!src || cnt == 0) { return evdev_fill_user(arg, 0, len) == EOK ? 0 : -EFAULT; }
         return evdev_copy_bits_to_user(arg, src, cnt, len);
     }
 
     if (ev_type >= 0x40 && ev_type <= 0x5f) {
         /* EVIOCGABS(abs) */
-        unsigned int abs = ev_type - 0x40;
+        unsigned int    abs = ev_type - 0x40;
         input_absinfo_t info;
 
         if (!(_IOC_DIR(request) & _IOC_READ) || abs >= ABS_CNT || !test_bit(abs, dev->absbit)) return -EINVAL;
@@ -1258,11 +1255,14 @@ int evdev_publish_node(evdev_t *evdev)
     return result;
 }
 
-void evdev_publish_nodes(void)
+int evdev_publish_nodes(void)
 {
+    int count = 0;
+
     evdev_nodes_ready = true;
     for (int minor = 0; minor < EVDEV_MAX_DEVICES; minor++) {
         evdev_t *evdev = evdev_find_by_minor(minor);
-        if (evdev) evdev_publish_node(evdev);
+        if (evdev && evdev_publish_node(evdev) == EOK) count++;
     }
+    return count;
 }

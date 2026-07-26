@@ -285,26 +285,26 @@ void eventfd_init(void)
         plogk("eventfd: Failed to allocate callback.\n");
         return;
     }
-    cb->mount    = eventfd_stub_mount;
-    cb->unmount  = eventfd_stub_unmount;
-    cb->open     = eventfd_vfs_open;
-    cb->close    = eventfd_vfs_close;
-    cb->read     = eventfd_vfs_read;
-    cb->write    = eventfd_vfs_write;
-    cb->readlink = eventfd_stub_readlink;
-    cb->mkdir    = eventfd_stub_mk;
-    cb->mkfile   = eventfd_stub_mk;
-    cb->link     = eventfd_stub_mk;
-    cb->symlink  = eventfd_stub_mk;
-    cb->stat     = eventfd_stub_stat;
-    cb->ioctl    = eventfd_stub_ioctl;
-    cb->dup      = eventfd_stub_dup;
-    cb->poll     = eventfd_vfs_poll;
-    cb->file_read = eventfd_vfs_file_read;
+    cb->mount      = eventfd_stub_mount;
+    cb->unmount    = eventfd_stub_unmount;
+    cb->open       = eventfd_vfs_open;
+    cb->close      = eventfd_vfs_close;
+    cb->read       = eventfd_vfs_read;
+    cb->write      = eventfd_vfs_write;
+    cb->readlink   = eventfd_stub_readlink;
+    cb->mkdir      = eventfd_stub_mk;
+    cb->mkfile     = eventfd_stub_mk;
+    cb->link       = eventfd_stub_mk;
+    cb->symlink    = eventfd_stub_mk;
+    cb->stat       = eventfd_stub_stat;
+    cb->ioctl      = eventfd_stub_ioctl;
+    cb->dup        = eventfd_stub_dup;
+    cb->poll       = eventfd_vfs_poll;
+    cb->file_read  = eventfd_vfs_file_read;
     cb->file_write = eventfd_vfs_file_write;
-    cb->free     = eventfd_vfs_free;
-    cb->delete   = eventfd_stub_del;
-    cb->rename   = eventfd_stub_rename;
+    cb->free       = eventfd_vfs_free;
+    cb->delete     = eventfd_stub_del;
+    cb->rename     = eventfd_stub_rename;
 
     eventfd_fsid = vfs_regist(cb);
     if (eventfd_fsid < 0) {

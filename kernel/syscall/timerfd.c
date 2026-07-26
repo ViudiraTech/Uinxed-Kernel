@@ -8,8 +8,8 @@
  *
  */
 
-#include <fs/vfs.h>
 #include <arch/smp.h>
+#include <fs/vfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
@@ -35,7 +35,7 @@ typedef struct {
         timerfd_timespec_t it_value;
 } timerfd_itimerspec_t;
 
-static int timerfd_fsid = -1;
+static int          timerfd_fsid = -1;
 static ilist_node_t timerfd_list;
 static spinlock_t   timerfd_list_lock;
 
@@ -215,12 +215,12 @@ static vfs_node_t timerfd_node_create(int clockid, int flags)
     timerfd_ctx_t *ctx = calloc(1, sizeof(timerfd_ctx_t));
     if (!ctx) return NULL;
 
-    ctx->clockid      = (uint64_t)clockid;
-    ctx->flags        = (uint64_t)(flags & (TFD_NONBLOCK | TFD_CLOEXEC));
-    ctx->expire_count = 0;
-    ctx->interval_ns  = 0;
+    ctx->clockid       = (uint64_t)clockid;
+    ctx->flags         = (uint64_t)(flags & (TFD_NONBLOCK | TFD_CLOEXEC));
+    ctx->expire_count  = 0;
+    ctx->interval_ns   = 0;
     ctx->deadline_tick = 0;
-    ctx->armed        = 0;
+    ctx->armed         = 0;
     wait_queue_init(&ctx->wq);
     ilist_init(&ctx->timers);
 
@@ -311,8 +311,7 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
 
     uint64_t interval_ticks;
     uint64_t value_ticks;
-    if (timerfd_timespec_to_ticks(&new_its.it_interval, &interval_ticks) ||
-        timerfd_timespec_to_ticks(&new_its.it_value, &value_ticks)) {
+    if (timerfd_timespec_to_ticks(&new_its.it_interval, &interval_ticks) || timerfd_timespec_to_ticks(&new_its.it_value, &value_ticks)) {
         process_file_put(file);
         return -EINVAL;
     }
@@ -336,10 +335,10 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
     if (!value_ticks) {
         ctx->armed = 0;
     } else {
-        uint64_t now = sched_ticks();
+        uint64_t now       = sched_ticks();
         ctx->deadline_tick = (flags & TFD_TIMER_ABSTIME) ? value_ticks : now + value_ticks;
         if (ctx->deadline_tick <= now) ctx->deadline_tick = now + 1;
-        ctx->armed       = 1;
+        ctx->armed = 1;
     }
 
     spin_unlock(&ctx->lock);
@@ -406,8 +405,10 @@ void timerfd_tick(void)
             } else {
                 ctx->armed = 0;
             }
-            if (UINT64_MAX - ctx->expire_count < expirations) ctx->expire_count = UINT64_MAX;
-            else ctx->expire_count += expirations;
+            if (UINT64_MAX - ctx->expire_count < expirations)
+                ctx->expire_count = UINT64_MAX;
+            else
+                ctx->expire_count += expirations;
             spin_unlock(&ctx->lock);
             wait_queue_wake_all(&ctx->wq);
             continue;
@@ -425,25 +426,25 @@ void timerfd_init(void)
         plogk("timerfd: Failed to allocate callback.\n");
         return;
     }
-    cb->mount    = timerfd_stub_mount;
-    cb->unmount  = timerfd_stub_unmount;
-    cb->open     = timerfd_vfs_open;
-    cb->close    = timerfd_vfs_close;
-    cb->read     = timerfd_vfs_read;
-    cb->write    = timerfd_stub_write;
-    cb->readlink = timerfd_stub_readlink;
-    cb->mkdir    = timerfd_stub_mk;
-    cb->mkfile   = timerfd_stub_mk;
-    cb->link     = timerfd_stub_mk;
-    cb->symlink  = timerfd_stub_mk;
-    cb->stat     = timerfd_stub_stat;
-    cb->ioctl    = timerfd_stub_ioctl;
-    cb->dup      = timerfd_stub_dup;
-    cb->poll     = timerfd_vfs_poll;
+    cb->mount     = timerfd_stub_mount;
+    cb->unmount   = timerfd_stub_unmount;
+    cb->open      = timerfd_vfs_open;
+    cb->close     = timerfd_vfs_close;
+    cb->read      = timerfd_vfs_read;
+    cb->write     = timerfd_stub_write;
+    cb->readlink  = timerfd_stub_readlink;
+    cb->mkdir     = timerfd_stub_mk;
+    cb->mkfile    = timerfd_stub_mk;
+    cb->link      = timerfd_stub_mk;
+    cb->symlink   = timerfd_stub_mk;
+    cb->stat      = timerfd_stub_stat;
+    cb->ioctl     = timerfd_stub_ioctl;
+    cb->dup       = timerfd_stub_dup;
+    cb->poll      = timerfd_vfs_poll;
     cb->file_read = timerfd_vfs_file_read;
-    cb->free     = timerfd_vfs_free;
-    cb->delete   = timerfd_stub_del;
-    cb->rename   = timerfd_stub_rename;
+    cb->free      = timerfd_vfs_free;
+    cb->delete    = timerfd_stub_del;
+    cb->rename    = timerfd_stub_rename;
 
     timerfd_fsid = vfs_regist(cb);
     if (timerfd_fsid < 0) {

@@ -305,25 +305,25 @@ void signalfd_init(void)
         plogk("signalfd: Failed to allocate callback.\n");
         return;
     }
-    cb->mount    = signalfd_stub_mount;
-    cb->unmount  = signalfd_stub_unmount;
-    cb->open     = signalfd_vfs_open;
-    cb->close    = signalfd_vfs_close;
-    cb->read     = signalfd_vfs_read;
-    cb->write    = signalfd_stub_write;
-    cb->readlink = signalfd_stub_readlink;
-    cb->mkdir    = signalfd_stub_mk;
-    cb->mkfile   = signalfd_stub_mk;
-    cb->link     = signalfd_stub_mk;
-    cb->symlink  = signalfd_stub_mk;
-    cb->stat     = signalfd_stub_stat;
-    cb->ioctl    = signalfd_stub_ioctl;
-    cb->dup      = signalfd_stub_dup;
-    cb->poll     = signalfd_vfs_poll;
+    cb->mount     = signalfd_stub_mount;
+    cb->unmount   = signalfd_stub_unmount;
+    cb->open      = signalfd_vfs_open;
+    cb->close     = signalfd_vfs_close;
+    cb->read      = signalfd_vfs_read;
+    cb->write     = signalfd_stub_write;
+    cb->readlink  = signalfd_stub_readlink;
+    cb->mkdir     = signalfd_stub_mk;
+    cb->mkfile    = signalfd_stub_mk;
+    cb->link      = signalfd_stub_mk;
+    cb->symlink   = signalfd_stub_mk;
+    cb->stat      = signalfd_stub_stat;
+    cb->ioctl     = signalfd_stub_ioctl;
+    cb->dup       = signalfd_stub_dup;
+    cb->poll      = signalfd_vfs_poll;
     cb->file_read = signalfd_vfs_file_read;
-    cb->free     = signalfd_vfs_free;
-    cb->delete   = signalfd_stub_del;
-    cb->rename   = signalfd_stub_rename;
+    cb->free      = signalfd_vfs_free;
+    cb->delete    = signalfd_stub_del;
+    cb->rename    = signalfd_stub_rename;
 
     signalfd_fsid = vfs_regist(cb);
     if (signalfd_fsid < 0) {

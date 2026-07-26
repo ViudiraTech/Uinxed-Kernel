@@ -11,6 +11,7 @@
 #ifndef INCLUDE_SERIAL_H_
 #define INCLUDE_SERIAL_H_
 
+#include <kernel/ringlog.h>
 #include <libs/std/stdint.h>
 
 /* Register offset */
@@ -44,6 +45,8 @@
 #ifndef SERIAL_STOP_BITS
 #    define SERIAL_STOP_BITS 1
 #endif
+
+extern log_buffer_t serial_log;
 
 void    init_serial(void);                         // Initialize the serial port
 int     serial_received(uint16_t port);            // Check whether the serial port is ready to read

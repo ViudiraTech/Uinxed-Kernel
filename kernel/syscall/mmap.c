@@ -24,8 +24,8 @@
 #include <proc/sched.h>
 #include <proc/uaccess.h>
 #include <sync/spin_lock.h>
-#include <syscall/mmap.h>
 #include <syscall/memfd.h>
+#include <syscall/mmap.h>
 #include <syscall/syscall.h>
 
 #define MMAP_BASE_ADDR     0x00007f0000000000ULL
@@ -136,7 +136,7 @@ static int vma_remove_range(process_t *proc, uintptr_t start, uintptr_t end)
             right->vm_file->refcount++;
             memfd_vma_retain(right->vm_file, right->flags);
         }
-        prev        = &vma->next;
+        prev = &vma->next;
     }
     spin_unlock(&proc->mmap_lock);
     return 0;
@@ -516,8 +516,4 @@ int sys_mincore(uint64_t addr, uint64_t length, uint64_t vec)
     int ret = copy_to_user((void *)vec, residency, pages) ? -EFAULT : EOK;
     free(residency);
     return ret;
-}
-
-void mmap_init(void)
-{
 }

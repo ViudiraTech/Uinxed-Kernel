@@ -11,6 +11,7 @@
 #ifndef INCLUDE_PARALLEL_H_
 #define INCLUDE_PARALLEL_H_
 
+#include <kernel/ringlog.h>
 #include <libs/std/stdint.h>
 
 /* Register offset */
@@ -25,8 +26,10 @@
 
 #define PORT_TO_LPT(port) ((port) == 0x378 ? "LPT1" : (port) == 0x278 ? "LPT2" : (port) == 0x3bc ? "LPT3" : "Unknown")
 
+extern log_buffer_t parallel_log;
+
 /* Initialize parallel port */
-void init_parallel(void);
+void parallel_init(void);
 
 /* Check if the specified parallel port is busy */
 int parallel_port_busy(uint16_t port);

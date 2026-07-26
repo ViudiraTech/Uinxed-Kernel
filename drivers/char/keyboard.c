@@ -17,12 +17,12 @@
 #include <proc/sched.h>
 #include <sync/spin_lock.h>
 
-static input_dev_t  ps2_keyboard_dev;
-static wait_queue_t ps2kbd_event_wait;
-static spinlock_t   ps2kbd_wait_lock;
-static size_t       ps2kbd_pending_events;
+static input_dev_t            ps2_keyboard_dev;
+static wait_queue_t           ps2kbd_event_wait;
+static spinlock_t             ps2kbd_wait_lock;
+static size_t                 ps2kbd_pending_events;
 static ps2_keyboard_decoder_t ps2kbd_decoder;
-evdev_t            *ps2_keyboard_evdev;
+evdev_t                      *ps2_keyboard_evdev;
 
 static void set_bit(unsigned int bit, uint32_t *bits)
 {
@@ -56,7 +56,7 @@ void ps2_keyboard_init(void)
     ps2kbd_wait_lock      = (spinlock_t) {0};
     ps2kbd_pending_events = 0;
     ps2_keyboard_decoder_init(&ps2kbd_decoder);
-    ps2_keyboard_evdev    = evdev_create(&ps2_keyboard_dev);
+    ps2_keyboard_evdev = evdev_create(&ps2_keyboard_dev);
     if (!ps2_keyboard_evdev) {
         plogk("evdev: unable to allocate keyboard device.\n");
         return;
@@ -72,9 +72,9 @@ void ps2_keyboard_init(void)
 
 void ps2_keyboard_handle_byte(uint8_t byte)
 {
-    input_event_t  events[6];
+    input_event_t   events[6];
     ps2_key_event_t key;
-    size_t         count = 0;
+    size_t          count = 0;
 
     if (!ps2_keyboard_decode_byte(&ps2kbd_decoder, byte, &key)) return;
 

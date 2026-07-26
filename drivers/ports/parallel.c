@@ -10,8 +10,9 @@
 
 #include <chipset/common.h>
 #include <drivers/parallel.h>
-#include <kernel/printk.h>
 #include <kernel/timer.h>
+
+log_buffer_t parallel_log;
 
 /* Check if the specified parallel port exists */
 static int parallel_detect(uint16_t port)
@@ -31,11 +32,11 @@ static void init_parallel_port(uint16_t port)
     outb(port + CONTROL_REG, control);
 
     if (!(inb(port + STATUS_REG) & 0x40)) return;
-    plogk("parallel: Port %s, status 0x%02x\n", PORT_TO_LPT(port), inb(port + STATUS_REG));
+    log_buffer_write(&parallel_log, "parallel: Port %s, status 0x%02x\n", PORT_TO_LPT(port), inb(port + STATUS_REG));
 }
 
 /* Initialize parallel port */
-void init_parallel(void)
+void parallel_init(void)
 {
 #if CONFIG_PARPORT
     uint16_t lpt_port[3] = {PARALLEL_PORT_1, PARALLEL_PORT_2, PARALLEL_PORT_3};
@@ -47,7 +48,7 @@ void init_parallel(void)
             valid_ports++;
         }
     }
-    if (valid_ports > 0) plogk("parallel: %u port(s) available.\n", valid_ports);
+    if (valid_ports > 0) log_buffer_write(&parallel_log, "parallel: %u port(s) available.\n", valid_ports);
 #endif
 }
 

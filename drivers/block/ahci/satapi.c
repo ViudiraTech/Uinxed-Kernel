@@ -142,7 +142,7 @@ void ahci_satapi_init(void)
             ahci_devices[i].sector_size = blk_sz;
         }
 
-        plogk("satapi: Registered optical drive sr%u on AHCI port %u, %u blocks, %u bytes per block.\n", sr_idx, hw_port, sdev->lba_size,
+        plogk("ahci-satapi: Registered optical drive sr%u on AHCI port %u, %u blocks, %u bytes per block.\n", sr_idx, hw_port, sdev->lba_size,
               sdev->blk_size);
 
         sr_idx++;

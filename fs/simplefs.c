@@ -495,8 +495,8 @@ static int simplefs_mount(const char *src, vfs_node_t node)
         return status;
     }
 
-    if (blockdev_read_bytes(&handle->device, (uint64_t)SUPERBLOCK_SECTOR * SUPERBLOCK_BLOCK_SECTOR, &handle->disk, sizeof(handle->disk)) != EOK ||
-        !superblock_valid(&handle->disk)) {
+    if (blockdev_read_bytes(&handle->device, (uint64_t)SUPERBLOCK_SECTOR * SUPERBLOCK_BLOCK_SECTOR, &handle->disk, sizeof(handle->disk)) != EOK
+        || !superblock_valid(&handle->disk)) {
         free(handle);
         return -EINVAL;
     }

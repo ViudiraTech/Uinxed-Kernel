@@ -8,6 +8,7 @@
  *
  */
 
+#include <arch/cpuid.h>
 #include <chipset/common.h>
 #include <kernel/debug.h>
 #include <kernel/interrupt.h>
@@ -903,4 +904,5 @@ void page_init(void)
     page_table_t *kernel_page_table = phys_to_virt(get_cr3());
     kernel_page_dir                 = (page_directory_t) {.table = kernel_page_table};
     current_directory               = &kernel_page_dir;
+    cpu_enable_nx();
 }

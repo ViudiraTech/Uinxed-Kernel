@@ -36,8 +36,8 @@
 #include <sync/signal.h>
 #include <syscall/eventfd.h>
 #include <syscall/fcntl.h>
-#include <syscall/mmap.h>
 #include <syscall/memfd.h>
+#include <syscall/mmap.h>
 #include <syscall/signalfd.h>
 #include <syscall/syscall.h>
 #include <syscall/syscall_table.h>
@@ -1679,37 +1679,37 @@ static int64_t sys_reboot_impl(uint64_t magic, uint64_t magic2, uint64_t cmd, ui
     if (proc->uid != 0) return -EPERM;
 
     switch (cmd) {
-    case 0x00000000: /* RB_DISABLE_CAD */
-    case 0x89ABCDEF: /* RB_ENABLE_CAD */
-        /* Ctrl-Alt-Del is not handled specially by the input stack yet. */
-        return EOK;
-    case 0x01234567: /* RB_AUTOBOOT */
-    case 0xA1B2C3D4: /* RB_RESTART2 */
-        plogk("syscall: reboot requested.\n");
-        disable_intr();
-        power_reset();
-        for (uint32_t i = 0; i < 100000; i++) {
-            if (!(inb(0x64) & 0x02)) {
-                outb(0x64, 0xFE);
-                break;
+        case 0x00000000 : /* RB_DISABLE_CAD */
+        case 0x89ABCDEF : /* RB_ENABLE_CAD */
+            /* Ctrl-Alt-Del is not handled specially by the input stack yet. */
+            return EOK;
+        case 0x01234567 : /* RB_AUTOBOOT */
+        case 0xA1B2C3D4 : /* RB_RESTART2 */
+            plogk("syscall: reboot requested.\n");
+            disable_intr();
+            power_reset();
+            for (uint32_t i = 0; i < 100000; i++) {
+                if (!(inb(0x64) & 0x02)) {
+                    outb(0x64, 0xFE);
+                    break;
+                }
             }
-        }
-        outb(0xCF9, 0x06);
-        break;
-    case 0x4321FEDC: /* RB_POWER_OFF */
-        plogk("syscall: power-off requested.\n");
-        disable_intr();
-        power_off();
-        break;
-    case 0xCDEF0123: /* RB_HALT_SYSTEM */
-        plogk("syscall: halt requested.\n");
-        disable_intr();
-        break;
-    case 0x45584543: /* RB_KEXEC */
-    case 0xD000FCE2: /* RB_SW_SUSPEND */
-        return -ENOSYS;
-    default:
-        return -EINVAL;
+            outb(0xCF9, 0x06);
+            break;
+        case 0x4321FEDC : /* RB_POWER_OFF */
+            plogk("syscall: power-off requested.\n");
+            disable_intr();
+            power_off();
+            break;
+        case 0xCDEF0123 : /* RB_HALT_SYSTEM */
+            plogk("syscall: halt requested.\n");
+            disable_intr();
+            break;
+        case 0x45584543 : /* RB_KEXEC */
+        case 0xD000FCE2 : /* RB_SW_SUSPEND */
+            return -ENOSYS;
+        default :
+            return -EINVAL;
     }
 
     for (;;) __asm__ volatile("hlt");
@@ -2074,13 +2074,13 @@ static int64_t sys_select_stub(uint64_t nfds, uint64_t readfds, uint64_t writefd
             set_fd_in_set(kread, (int)i);
             ready++;
         } else if (readfds) {
-            kread[(int)i / 8] &= (uint8_t)~(1u << ((int)i % 8));
+            kread[(int)i / 8] &= (uint8_t) ~(1u << ((int)i % 8));
         }
         if (revents & 0x004) {
             set_fd_in_set(kwrite, (int)i);
             if (!(revents & 0x001)) ready++;
         } else if (writefds) {
-            kwrite[(int)i / 8] &= (uint8_t)~(1u << ((int)i % 8));
+            kwrite[(int)i / 8] &= (uint8_t) ~(1u << ((int)i % 8));
         }
     }
 
@@ -2261,7 +2261,6 @@ static int64_t sys_sync_file_range_stub(uint64_t fd, uint64_t offset, uint64_t n
     (void)arg5;
     return EOK;
 }
-
 
 static int64_t sys_renameat2_stub(uint64_t olddirfd, uint64_t oldpath, uint64_t newdirfd, uint64_t newpath, uint64_t flags, uint64_t arg5)
 {

@@ -35,8 +35,7 @@ compression_type_t get_compression_type(const void *data, size_t size)
     if (bytes[0] == 0x18 && bytes[1] == 0x4D && bytes[2] == 0x22 && bytes[3] == 0x04) return COMPRESSION_LZ4;
     if (bytes[0] == 0x28 && bytes[1] == 0xB5 && bytes[2] == 0x2F && bytes[3] == 0xFD) return COMPRESSION_ZSTD;
     if (bytes[0] == 0x5D && bytes[1] == 0x00 && bytes[2] == 0x00 && bytes[3] == 0x80) return COMPRESSION_LZMA;
-    if (size >= 6 && (strncmp((const char *)bytes, "070701", 6) == 0 || strncmp((const char *)bytes, "070702", 6) == 0))
-        return COMPRESSION_NONE;
+    if (size >= 6 && (strncmp((const char *)bytes, "070701", 6) == 0 || strncmp((const char *)bytes, "070702", 6) == 0)) return COMPRESSION_NONE;
 
     return COMPRESSION_UNKNOWN;
 }
@@ -68,10 +67,10 @@ void init_cpio(void)
         return;
     }
 
-    compression_type_t type    = get_compression_type(init_ramfs->data, init_ramfs->size);
-    uint8_t           *data_d  = 0;
+    compression_type_t type      = get_compression_type(init_ramfs->data, init_ramfs->size);
+    uint8_t           *data_d    = 0;
     size_t             data_size = init_ramfs->size;
-    int                is_free = 0;
+    int                is_free   = 0;
 
     char *compress_type;
     switch (type) {
@@ -92,8 +91,8 @@ void init_cpio(void)
         }
         default :
             if (init_ramfs->size >= 4) {
-                plogk("cpio: Cannot load initramfs, unknown format (magic: %02x %02x %02x %02x).\n", init_ramfs->data[0],
-                      init_ramfs->data[1], init_ramfs->data[2], init_ramfs->data[3]);
+                plogk("cpio: Cannot load initramfs, unknown format (magic: %02x %02x %02x %02x).\n", init_ramfs->data[0], init_ramfs->data[1],
+                      init_ramfs->data[2], init_ramfs->data[3]);
             } else {
                 plogk("cpio: Cannot load initramfs, data is too short (%llu bytes).\n", init_ramfs->size);
             }

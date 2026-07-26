@@ -505,7 +505,7 @@ int blockdev_open_name(const char *name, blockdev_device_t *device)
         }
     } else if (drive & BLKDEV_NVME_FLAG) {
         nvme_controller_t *controller = nvme_get_controller(drive & BLKDEV_DRIVE_MASK);
-        nvme_namespace_t  *namespace  = NULL;
+        nvme_namespace_t *namespace   = NULL;
         if (!controller) return -ENODEV;
         for (uint32_t i = 0; i < controller->num_namespaces; i++)
             if (controller->namespaces[i].ready && controller->namespaces[i].nsid == namespace_id) namespace = &controller->namespaces[i];

@@ -65,8 +65,8 @@ static int ps2_keyboard_decode_key(ps2_keyboard_decoder_t *decoder, uint8_t byte
     uint16_t scan;
     uint16_t keycode;
 
-    scan              = byte & 0x7f;
-    event->pressed    = (byte & 0x80) == 0;
+    scan                = byte & 0x7f;
+    event->pressed      = (byte & 0x80) == 0;
     event->auto_release = false;
     if (decoder->extended) scan |= 0x80;
     decoder->extended = false;

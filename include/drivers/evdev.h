@@ -113,7 +113,7 @@ void evdev_unregister(evdev_t *evdev);
 evdev_t *evdev_find_by_minor(int minor);
 uint64_t evdev_devt(const evdev_t *evdev);
 int      evdev_publish_node(evdev_t *evdev);
-void     evdev_publish_nodes(void);
+int      evdev_publish_nodes(void);
 
 /* Initialize the evdev subsystem. Called once at boot. */
 void evdev_init(void);

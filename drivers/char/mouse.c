@@ -54,7 +54,7 @@ static int ps2_mouse_negotiate(const uint8_t rates[3], uint8_t expected_id)
 static void ps2_mouse_append_button(input_event_t *events, size_t *count, uint16_t code, bool value, bool *previous)
 {
     if (*previous == value) return;
-    *previous = value;
+    *previous          = value;
     events[(*count)++] = (input_event_t) {.type = EV_KEY, .code = code, .value = value ? 1 : 0};
 }
 

@@ -12,8 +12,8 @@
 #ifndef INCLUDE_BLOCKDEV_H_
 #define INCLUDE_BLOCKDEV_H_
 
-#include <libs/std/stddef.h>
 #include <libs/std/stdbool.h>
+#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
 #define BLOCKDEV_SECTOR_SIZE 512

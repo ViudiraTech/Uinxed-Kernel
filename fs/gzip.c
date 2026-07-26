@@ -34,8 +34,7 @@ static const uint8_t length_extra[29] = {
 };
 
 static const uint16_t distance_base[30] = {
-    1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289,
-    16385, 24577,
+    1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577,
 };
 
 static const uint8_t distance_extra[30] = {
@@ -134,7 +133,7 @@ static int build_fixed_trees(deflate_huffman_t *literal_tree, deflate_huffman_t 
 
 static int build_dynamic_trees(deflate_stream_t *stream, deflate_huffman_t *literal_tree, deflate_huffman_t *distance_tree)
 {
-    static const uint8_t code_order[19] = {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
+    static const uint8_t code_order[19]   = {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
     uint8_t              code_lengths[19] = {0};
     uint8_t              lengths[286 + 32];
     deflate_huffman_t    code_tree;
@@ -248,7 +247,7 @@ static int inflate_stored_block(deflate_stream_t *stream, uint8_t *output, size_
 
 static int inflate_data(const uint8_t *input, size_t input_size, uint8_t *output, size_t output_capacity, size_t *output_size)
 {
-    deflate_stream_t stream = {.data = input, .size = input_size};
+    deflate_stream_t stream  = {.data = input, .size = input_size};
     size_t           written = 0;
     uint32_t         final;
 
@@ -261,8 +260,8 @@ static int inflate_data(const uint8_t *input, size_t input_size, uint8_t *output
         } else if (type == 1 || type == 2) {
             deflate_huffman_t literal_tree;
             deflate_huffman_t distance_tree;
-            int status = type == 1 ? build_fixed_trees(&literal_tree, &distance_tree)
-                                   : build_dynamic_trees(&stream, &literal_tree, &distance_tree);
+            int               status
+                = type == 1 ? build_fixed_trees(&literal_tree, &distance_tree) : build_dynamic_trees(&stream, &literal_tree, &distance_tree);
             if (status != EOK) return status;
             status = inflate_compressed_block(&stream, output, output_capacity, &written, &literal_tree, &distance_tree);
             if (status != EOK) return status;
@@ -301,9 +300,9 @@ int gzip_decompress(const uint8_t *input, size_t input_size, uint8_t **output, s
 
     if (input[0] != 0x1f || input[1] != 0x8b || input[2] != 8 || (input[3] & 0xe0)) return -EINVAL;
 
-    size_t offset        = 10;
-    size_t trailer       = input_size - 8;
-    uint8_t flags        = input[3];
+    size_t  offset  = 10;
+    size_t  trailer = input_size - 8;
+    uint8_t flags   = input[3];
     if (flags & 0x04) {
         if (offset + 2 > trailer) return -EINVAL;
         size_t extra_size = (size_t)input[offset] | ((size_t)input[offset + 1] << 8);
@@ -319,8 +318,8 @@ int gzip_decompress(const uint8_t *input, size_t input_size, uint8_t **output, s
     }
     if (offset >= trailer) return -EINVAL;
 
-    size_t expected_size = load_le32(input + input_size - 4);
-    uint8_t *result       = malloc(expected_size ? expected_size : 1);
+    size_t   expected_size = load_le32(input + input_size - 4);
+    uint8_t *result        = malloc(expected_size ? expected_size : 1);
     if (!result) return -ENOMEM;
 
     size_t actual_size;

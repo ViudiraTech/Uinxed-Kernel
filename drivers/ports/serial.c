@@ -12,8 +12,9 @@
 #include <drivers/serial.h>
 #include <libs/std/stdint.h>
 
-static int serial_initialized   = 0;
-static int serial_port_ready[4] = {0};
+log_buffer_t serial_log;
+static int   serial_initialized   = 0;
+static int   serial_port_ready[4] = {0};
 
 static int serial_port_index(uint16_t port)
 {
@@ -111,9 +112,14 @@ void init_serial(void)
     uint16_t com_ports[4] = {SERIAL_PORT_1, SERIAL_PORT_2, SERIAL_PORT_3, SERIAL_PORT_4};
     int      valid_ports  = 0;
 
-    for (int i = 0; i < 4; i++)
-        if (init_serial_port(com_ports[i])) valid_ports++;
-    (void)valid_ports;
+    for (int i = 0; i < 4; i++) {
+        if (init_serial_port(com_ports[i])) {
+            log_buffer_write(&serial_log, "serial: Port COM%d, status 0x%02x\n", i + 1, inb(com_ports[i] + 5));
+            valid_ports++;
+        }
+    }
+
+    log_buffer_write(&serial_log, "serial: %d port(s) available.\n", valid_ports);
     serial_initialized = 1;
 #endif
 }
