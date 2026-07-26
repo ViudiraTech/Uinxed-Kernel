@@ -501,10 +501,11 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
                     sem->semzcnt[snum]++;
                 }
             }
+            /* Prepare wait under lock, then block */
+            wait_queue_prepare(&sem->waitq[ksops[0].sem_num]);
             spin_unlock(&sem->lock);
 
-            /* Wait on the first semaphore's wait queue */
-            wait_queue_wait(&sem->waitq[ksops[0].sem_num]);
+            wait_queue_sleep();
 
             /* After waking, decrement wait counts */
             spin_lock(&sem->lock);
@@ -1316,8 +1317,9 @@ int64_t sys_msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg)
             free(msg);
             return -EAGAIN;
         }
+        wait_queue_prepare(&q->send_wq);
         spin_unlock(&q->lock);
-        wait_queue_wait(&q->send_wq);
+        wait_queue_sleep();
         spin_lock(&q->lock);
 
         if (q->deleted) {
@@ -1419,8 +1421,9 @@ int64_t sys_msgrcv(int msqid, void *msgp, size_t msgsz, int64_t msgtyp, int msgf
             return -ENOMSG;
         }
 
+        wait_queue_prepare(&q->recv_wq);
         spin_unlock(&q->lock);
-        wait_queue_wait(&q->recv_wq);
+        wait_queue_sleep();
         spin_lock(&q->lock);
 
         if (q->deleted) {

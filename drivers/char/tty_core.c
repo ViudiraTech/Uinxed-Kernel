@@ -76,7 +76,7 @@ static int tty_job_control_check(tty_core_t *tty, int signal)
     if (signal == SIGTTOU && blocked_or_ignored) return 0;
     if (blocked_or_ignored || process_pgrp_is_orphaned(current->pgid, current->sid)) return -EIO;
     signal_send_pgrp_session(current->pgid, current->sid, signal);
-    return -EINTR;
+    return -ERESTARTSYS;
 }
 
 static bool tty_signal_pending(process_t *current)
@@ -311,9 +311,9 @@ retry_character:;
                     tty->edit_count = 0;
                 } else {
                     if (!(flags & O_NONBLOCK)) {
-                        if (!tty_prepare_interruptible_wait(tty, &tty->input_space_wait)) return accepted ? (int64_t)accepted : -EINTR;
+                        if (!tty_prepare_interruptible_wait(tty, &tty->input_space_wait)) return accepted ? (int64_t)accepted : -ERESTARTSYS;
                         wait_queue_sleep();
-                        if (tty_signal_pending(process_current())) return accepted ? (int64_t)accepted : -EINTR;
+                        if (tty_signal_pending(process_current())) return accepted ? (int64_t)accepted : -ERESTARTSYS;
                         goto retry_character;
                     }
                     spin_unlock(&tty->lock);
@@ -348,9 +348,9 @@ retry_character:;
             if (wake) wait_queue_wake_all(&tty->read_wait);
         } else {
             if (!(flags & O_NONBLOCK)) {
-                if (!tty_prepare_interruptible_wait(tty, &tty->input_space_wait)) return accepted ? (int64_t)accepted : -EINTR;
+                if (!tty_prepare_interruptible_wait(tty, &tty->input_space_wait)) return accepted ? (int64_t)accepted : -ERESTARTSYS;
                 wait_queue_sleep();
-                if (tty_signal_pending(process_current())) return accepted ? (int64_t)accepted : -EINTR;
+                if (tty_signal_pending(process_current())) return accepted ? (int64_t)accepted : -ERESTARTSYS;
                 goto retry_character;
             }
             spin_unlock(&tty->lock);
@@ -420,7 +420,7 @@ int64_t tty_core_read(tty_core_t *tty, void *buffer, size_t size, uint64_t flags
             }
             if (deadline && sched_ticks() >= deadline) break;
         }
-        if (!tty_wait(tty, deadline)) return copied ? (int64_t)copied : -EINTR;
+        if (!tty_wait(tty, deadline)) return copied ? (int64_t)copied : -ERESTARTSYS;
         spin_lock(&tty->lock);
     }
 
@@ -469,9 +469,9 @@ int64_t tty_core_write(tty_core_t *tty, const void *buffer, size_t size, uint64_
                 spin_unlock(&tty->lock);
                 return done ? (int64_t)done : -EAGAIN;
             }
-            if (!tty_prepare_interruptible_wait(tty, &tty->write_wait)) return done ? (int64_t)done : -EINTR;
+            if (!tty_prepare_interruptible_wait(tty, &tty->write_wait)) return done ? (int64_t)done : -ERESTARTSYS;
             wait_queue_sleep();
-            if (tty_signal_pending(process_current())) return done ? (int64_t)done : -EINTR;
+            if (tty_signal_pending(process_current())) return done ? (int64_t)done : -ERESTARTSYS;
             spin_lock(&tty->lock);
         }
         if (tty->hung_up) {

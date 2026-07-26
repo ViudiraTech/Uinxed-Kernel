@@ -24,6 +24,7 @@
 #define VFS_NODE_UNLINKED         (1ULL << 60)
 #define VFS_NODE_FINALIZING       (1ULL << 59)
 #define VFS_NODE_UNLINKING        (1ULL << 58)
+#define VFS_NODE_CLOSED           (1ULL << 57)
 
 typedef struct vfs_node *vfs_node_t;
 struct vm_area; /* forward declaration for vfs_file_mmap_t */

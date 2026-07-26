@@ -24,6 +24,7 @@
 #include <proc/task.h>
 #include <proc/uaccess.h>
 #include <sync/spin_lock.h>
+#include <syscall/fcntl.h>
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                           */
@@ -87,6 +88,8 @@ static int unix_bind(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen);
 static int unix_listen(socket_t *sk, uint32_t backlog);
 static int unix_accept(socket_t *sk, sockaddr_un_t *addr, uint32_t *addrlen, int flags);
 static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen);
+static int socket_fd_install_flags(socket_t *sk, uint64_t fd_flags);
+
 static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags);
 static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags);
 static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sockaddr_un_t *addr, uint32_t addrlen, int flags);
@@ -548,6 +551,11 @@ static void socket_unref(socket_t *sk)
 
 int socket_fd_install(socket_t *sk)
 {
+    return socket_fd_install_flags(sk, 0);
+}
+
+int socket_fd_install_flags(socket_t *sk, uint64_t fd_flags)
+{
     process_t *proc;
     vfs_node_t node;
     int        fd;
@@ -569,10 +577,10 @@ int socket_fd_install(socket_t *sk)
     sk->node = node;
     socket_ref(sk);
 
-    fd = process_fd_install(proc, node, 0);
+    fd = process_fd_install(proc, node, fd_flags);
     if (fd < 0) {
         sk->node = NULL;
-        vfs_free(node);
+        vfs_close(node);
         return fd;
     }
 
@@ -1568,8 +1576,9 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
         extra_flags |= SOCK_NONBLOCK;
         type &= ~SOCK_NONBLOCK;
     }
+    uint64_t fd_flags = 0;
     if (type & SOCK_CLOEXEC) {
-        /* CLOEXEC handled by fd install flags */
+        fd_flags |= O_CLOEXEC;
         type &= ~SOCK_CLOEXEC;
     }
 
@@ -1590,7 +1599,7 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
 
     sk->flags = extra_flags;
 
-    fd = socket_fd_install(sk);
+    fd = socket_fd_install_flags(sk, fd_flags);
     if (fd < 0) {
         socket_free(sk);
         return fd;
@@ -2107,10 +2116,7 @@ int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
     if (fd2 < 0) {
         process_t *proc = process_current();
         if (proc) process_fd_close(proc, fd1);
-        if (sk1->node) {
-            vfs_free(sk1->node);
-            sk1->node = NULL;
-        }
+        sk1->node = NULL;
         return (int64_t)fd2;
     }
 
@@ -2126,14 +2132,8 @@ int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
             process_fd_close(proc, fd1);
             process_fd_close(proc, fd2);
         }
-        if (sk1->node) {
-            vfs_free(sk1->node);
-            sk1->node = NULL;
-        }
-        if (sk2->node) {
-            vfs_free(sk2->node);
-            sk2->node = NULL;
-        }
+        sk1->node = NULL;
+        sk2->node = NULL;
         return -EFAULT;
     }
 

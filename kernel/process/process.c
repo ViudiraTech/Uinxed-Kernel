@@ -680,7 +680,13 @@ int process_fd_dup(process_t *proc, int oldfd)
 int process_fd_dup2(process_t *proc, int oldfd, int newfd)
 {
     if (!proc || oldfd < 0 || oldfd >= PROCESS_MAX_FD || newfd < 0 || newfd >= PROCESS_MAX_FD) return -EBADF;
-    if (oldfd == newfd) return oldfd;
+    if (oldfd == newfd) {
+        /* Even when oldfd == newfd, POSIX requires EBADF if oldfd is not open */
+        spin_lock(&proc->fd_lock);
+        int valid = (proc->fds[oldfd] != NULL);
+        spin_unlock(&proc->fd_lock);
+        return valid ? oldfd : -EBADF;
+    }
 
     spin_lock(&proc->fd_lock);
     process_file_t *file = proc->fds[oldfd];
@@ -1077,11 +1083,38 @@ int process_wait(pid_t pid, int *exit_code)
     for (;;) {
         task_t *child_task = child->task;
         if (child_task->state == TASK_ZOMBIE && !__atomic_load_n(&child_task->on_cpu, __ATOMIC_ACQUIRE)) { break; }
+
+        /*
+         * Check for any pending signals that should interrupt the wait.
+         * A non-SIGCHLD signal (e.g., SIGINT, SIGTERM) should cause
+         * wait4 to return -ERESTARTSYS so the kernel can either restart
+         * it or convert to -EINTR after signal delivery.
+         */
+        process_t *parent = current_task()->process;
+        if (parent) {
+            signal_state_t *ss = &parent->signal;
+            spin_lock(&ss->lock);
+            bool has_signal = signal_has_pending(ss);
+            spin_unlock(&ss->lock);
+            if (has_signal) {
+                spin_unlock(&process_table_lock);
+                spin_unlock(&scheduler.lock);
+                return -ERESTARTSYS;
+            }
+        }
+
+        /*
+         * Release locks and block until woken (by child exit or signal).
+         * We use task_block() rather than task_sleep_ticks() so we
+         * don't waste CPU polling. signal_notify_child_exit() and
+         * signal_send() both call task_wakeup() which will wake us.
+         */
         spin_unlock(&process_table_lock);
         spin_unlock(&scheduler.lock);
-        task_sleep_ticks(1);
+        task_block();
         spin_lock(&scheduler.lock);
         spin_lock(&process_table_lock);
+
         child = pid_to_process_locked(pid);
         if (!child || child->parent != current_task()->process) {
             spin_unlock(&process_table_lock);

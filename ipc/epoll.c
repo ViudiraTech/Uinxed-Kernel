@@ -485,8 +485,7 @@ int64_t sys_epoll_create(int size)
 
     int fd = process_fd_install(proc, node, O_RDWR);
     if (fd < 0) {
-        epoll_vfs_free(node->handle);
-        vfs_free(node);
+        vfs_close(node);
         return fd;
     }
 
@@ -510,8 +509,7 @@ int64_t sys_epoll_create1(int flags)
 
     int fd = process_fd_install(proc, node, fd_flags);
     if (fd < 0) {
-        epoll_vfs_free(node->handle);
-        vfs_free(node);
+        vfs_close(node);
         return fd;
     }
 
@@ -660,18 +658,19 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
          * No events ready and timeout != 0: block.
          * Release the lock, sleep, re-acquire on wakeup.
          */
-        spin_unlock(&epi->lock);
-
         if (timeout > 0) {
             /* Convert milliseconds to scheduler ticks */
             uint64_t ticks = ((uint64_t)timeout * EPOLL_TICKS_PER_SEC + 999) / 1000;
+            spin_unlock(&epi->lock);
             task_sleep_ticks(ticks);
+            spin_lock(&epi->lock);
         } else {
             /* timeout == -1: block indefinitely until woken */
-            wait_queue_wait(&epi->wq);
+            wait_queue_prepare(&epi->wq);
+            spin_unlock(&epi->lock);
+            wait_queue_sleep();
+            spin_lock(&epi->lock);
         }
-
-        spin_lock(&epi->lock);
     }
 
     spin_unlock(&epi->lock);

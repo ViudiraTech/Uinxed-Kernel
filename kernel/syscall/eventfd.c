@@ -62,8 +62,9 @@ static size_t eventfd_vfs_read(void *file, void *addr, size_t offset, size_t siz
             spin_unlock(&ctx->lock);
             return (size_t)-1;
         }
+        wait_queue_prepare(&ctx->wq);
         spin_unlock(&ctx->lock);
-        wait_queue_wait(&ctx->wq);
+        wait_queue_sleep();
         spin_lock(&ctx->lock);
 
         if (ctx->count == 0) {
@@ -107,8 +108,9 @@ static size_t eventfd_vfs_write(void *file, const void *addr, size_t offset, siz
                 spin_unlock(&ctx->lock);
                 return (size_t)-1;
             }
+            wait_queue_prepare(&ctx->wq);
             spin_unlock(&ctx->lock);
-            wait_queue_wait(&ctx->wq);
+            wait_queue_sleep();
             spin_lock(&ctx->lock);
             continue;
         }
@@ -238,10 +240,12 @@ int sys_eventfd(unsigned int initval, int flags)
     vfs_node_t node = eventfd_node_create(initval, flags);
     if (!node) return -ENOMEM;
 
-    int fd = process_fd_install(proc, node, (uint64_t)((flags & EFD_NONBLOCK) ? (O_RDWR | O_NONBLOCK) : O_RDWR));
+    uint64_t fd_flags = O_RDWR;
+    if (flags & EFD_NONBLOCK) fd_flags |= O_NONBLOCK;
+    if (flags & EFD_CLOEXEC) fd_flags |= O_CLOEXEC;
+    int fd = process_fd_install(proc, node, fd_flags);
     if (fd < 0) {
-        eventfd_vfs_free(node->handle);
-        vfs_free(node);
+        vfs_close(node);
         return fd;
     }
     return fd;

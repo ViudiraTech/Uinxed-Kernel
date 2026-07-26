@@ -327,8 +327,9 @@ static size_t mq_vfs_read(void *file, void *addr, size_t offset, size_t size)
             spin_unlock(&queue->lock);
             return 0;
         }
+        wait_queue_prepare(&queue->recv_wq);
         spin_unlock(&queue->lock);
-        wait_queue_wait(&queue->recv_wq);
+        wait_queue_sleep();
         spin_lock(&queue->lock);
     }
 
@@ -369,8 +370,9 @@ static size_t mq_vfs_write(void *file, const void *addr, size_t offset, size_t s
             spin_unlock(&queue->lock);
             return (size_t)-1;
         }
+        wait_queue_prepare(&queue->send_wq);
         spin_unlock(&queue->lock);
-        wait_queue_wait(&queue->send_wq);
+        wait_queue_sleep();
         spin_lock(&queue->lock);
     }
 
@@ -749,8 +751,9 @@ int64_t sys_mq_timedsend(int mqdes, const char *msg_ptr, size_t msg_len, uint32_
             return -EBADF;
         }
 
+        wait_queue_prepare(&queue->send_wq);
         spin_unlock(&queue->lock);
-        wait_queue_wait(&queue->send_wq);
+        wait_queue_sleep();
 
         /* Re-check timeout after wakeup */
         if (has_timeout && sched_ticks() >= deadline) { return -ETIMEDOUT; }
@@ -832,8 +835,9 @@ int64_t sys_mq_timedreceive(int mqdes, char *msg_ptr, size_t msg_len, uint32_t *
             return -EBADF;
         }
 
+        wait_queue_prepare(&queue->recv_wq);
         spin_unlock(&queue->lock);
-        wait_queue_wait(&queue->recv_wq);
+        wait_queue_sleep();
 
         /* Re-check timeout after wakeup */
         if (has_timeout && sched_ticks() >= deadline) { return -ETIMEDOUT; }

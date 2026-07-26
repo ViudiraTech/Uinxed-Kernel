@@ -219,9 +219,10 @@ static size_t pipe_vfs_read(void *file, void *addr, size_t offset, size_t size)
             spin_unlock(&ring->lock);
             return 0; /* EOF — no writers left */
         }
-        /* release lock, block, re-acquire on wakeup */
+        /* prepare wait under lock, then block, re-acquire on wakeup */
+        wait_queue_prepare(&ring->read_wq);
         spin_unlock(&ring->lock);
-        wait_queue_wait(&ring->read_wq);
+        wait_queue_sleep();
         spin_lock(&ring->lock);
     }
 
@@ -272,8 +273,9 @@ static size_t pipe_vfs_write(void *file, const void *addr, size_t offset, size_t
                 spin_unlock(&ring->lock);
                 return (size_t)-1; /* -EPIPE */
             }
+            wait_queue_prepare(&ring->write_wq);
             spin_unlock(&ring->lock);
-            wait_queue_wait(&ring->write_wq);
+            wait_queue_sleep();
             spin_lock(&ring->lock);
         }
 
@@ -460,11 +462,11 @@ int64_t sys_pipe2(int pipefd[2], int flags)
 
     /*
      * Bump the node refcount so that both the read and write end
-     * must be closed before the VFS close callback fires.
-     * vfs_node_alloc starts at 1; we need 2 because two
-     * process_file_t will hold references.
+     * must be closed before the VFS node is freed.
+     * vfs_node_alloc starts at 0; we need 2 because two
+     * process_file_t will each call vfs_close on this node.
      */
-    node->refcount++;
+    node->refcount += 2;
 
     /* Build fd flags: O_RDONLY for read, O_WRONLY for write,
      * plus O_CLOEXEC and O_NONBLOCK from the flags argument. */
@@ -475,7 +477,6 @@ int64_t sys_pipe2(int pipefd[2], int flags)
     int fd_read = process_fd_install(proc, node, read_flags);
     if (fd_read < 0) {
         vfs_close(node);
-        vfs_delete(node);
         return fd_read;
     }
 
@@ -484,7 +485,6 @@ int64_t sys_pipe2(int pipefd[2], int flags)
     if (fd_write < 0) {
         process_fd_close(proc, fd_read);
         vfs_close(node);
-        vfs_delete(node);
         return fd_write;
     }
 
@@ -494,7 +494,6 @@ int64_t sys_pipe2(int pipefd[2], int flags)
         process_fd_close(proc, fd_read);
         process_fd_close(proc, fd_write);
         vfs_close(node);
-        vfs_delete(node);
         return -EFAULT;
     }
 
@@ -649,12 +648,17 @@ int pipe_open(vfs_node_t node, uint64_t flags)
             spin_unlock(&ring->lock);
             return -EIO;
         }
-        spin_unlock(&ring->lock);
         /*
-         * Wait on the appropriate queue.  The other end's open will
-         * wake us via wait_queue_wake_all.
+         * Prepare wait under lock, then block. The other end's open
+         * will wake us via wait_queue_wake_all.
          */
-        wait_queue_wait(is_read ? &ring->read_wq : &ring->write_wq);
+        if (is_read) {
+            wait_queue_prepare(&ring->read_wq);
+        } else {
+            wait_queue_prepare(&ring->write_wq);
+        }
+        spin_unlock(&ring->lock);
+        wait_queue_sleep();
         spin_lock(&ring->lock);
     }
 

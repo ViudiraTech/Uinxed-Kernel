@@ -1556,10 +1556,17 @@ static int64_t sys_restart_syscall(uint64_t arg0, uint64_t arg1, uint64_t arg2, 
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    /* restart_syscall is used by the signal handling path to restart
-     * interrupted syscalls. For now return -EINTR since we don't
-     * support full syscall restart machinery. */
-    return -EINTR;
+    /*
+     * restart_syscall is used when a syscall returned
+     * -ERESTART_RESTARTBLOCK and the kernel decided to restart.
+     * The actual restart is handled in syscall_dispatch by
+     * adjusting frame->rip back before the syscall instruction.
+     * When restart_syscall is invoked directly, it means the
+     * restart block mechanism is being used. For now, return 0
+     * since the callers re-issue the original syscall via RIP
+     * adjustment.
+     */
+    return 0;
 }
 
 /* ---------- chmod / chown helpers ---------- */
@@ -3043,6 +3050,48 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
         return -ENOMEM;
     }
 
+    /* Load ELF into the new page directory BEFORE destroying the old one.
+     * This way, if loading fails, we can restore the old address space. */
+
+    /* Close all file descriptors with FD_CLOEXEC (per POSIX) */
+    for (int i = 0; i < PROCESS_MAX_FD; i++) {
+        spin_lock(&proc->fd_lock);
+        process_file_t *file = proc->fds[i];
+        if (file) {
+            spin_lock(&file->lock);
+            bool cloexec = (file->flags & O_CLOEXEC) != 0;
+            spin_unlock(&file->lock);
+            if (cloexec) {
+                spin_unlock(&proc->fd_lock);
+                process_fd_close(proc, i);
+                continue;
+            }
+        }
+        spin_unlock(&proc->fd_lock);
+    }
+
+    /* Clear clear_child_tid — the old address is meaningless in the new image */
+    proc->clear_child_tid = 0;
+
+    uintptr_t entry = 0;
+    uintptr_t rsp   = 0;
+    int       ret   = elf_loader_load_user_process(proc, elf_data, total, kargv, kenvp, &entry, &rsp);
+    free(elf_data);
+    free_string_array(kargv);
+    free_string_array(kenvp);
+
+    if (ret) {
+        /* Loading failed. Destroy the new (incomplete) page directory
+         * and its VMAs, then restore the old address space. */
+        page_destroy_user_space(proc->user_page_dir);
+        free(proc->user_page_dir);
+        process_mmap_clear(proc);
+        proc->user_page_dir        = old_dir;
+        proc->task->page_directory = old_dir;
+        return -ENOEXEC;
+    }
+
+    /* Loading succeeded — atomically switch to the new address space. */
     switch_page_directory(proc->user_page_dir);
 
     if (old_dir) {
@@ -3054,14 +3103,9 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     proc->heap_brk  = PROCESS_HEAP_START;
     proc->stack_brk = PROCESS_STACK_BASE - PROCESS_STACK_SIZE;
 
-    uintptr_t entry = 0;
-    uintptr_t rsp   = 0;
-    int       ret   = elf_loader_load_user_process(proc, elf_data, total, kargv, kenvp, &entry, &rsp);
-    free(elf_data);
-    free_string_array(kargv);
-    free_string_array(kenvp);
+    /* Reset signal state for new program image (per POSIX) */
+    signal_exec_reset(proc);
 
-    if (ret) return -ENOEXEC;
     if (frame) {
         memset(frame, 0, sizeof(*frame));
         frame->rip    = entry;
@@ -3769,9 +3813,18 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_FACCESSAT2]             = sys_access_stub,
 };
 
+/*
+ * Helper: check if a return value is a kernel-internal restart code.
+ */
+static inline int is_restart_code(int64_t ret)
+{
+    return ret == -ERESTARTSYS || ret == -ERESTARTNOINTR || ret == -ERESTARTNOHAND || ret == -ERESTART_RESTARTBLOCK || ret == -ERESTART;
+}
+
 void syscall_dispatch(syscall_frame_t *frame)
 {
-    uint64_t num = frame->rax;
+    uint64_t num    = frame->rax;
+    int64_t  retval = 0;
 
     if (num == SYS_FORK || num == SYS_VFORK || num == SYS_CLONE) {
         if (num == SYS_CLONE && (frame->rdi & ~0xfffffULL) != 0) {
@@ -3790,35 +3843,154 @@ void syscall_dispatch(syscall_frame_t *frame)
             *(--kstack)              = (uint64_t)syscall_return;
             child->task->context.rsp = (uint64_t)kstack;
         }
-        frame->rax = child ? child->task->pid : (uint64_t)error;
+        retval     = child ? (int64_t)child->task->pid : (int64_t)error;
+        frame->rax = (uint64_t)retval;
         goto check_signals;
     }
 
     if (num >= SYS_MAX || !syscall_table[num]) {
-        frame->rax = (uint64_t)-ENOSYS;
+        retval     = -ENOSYS;
+        frame->rax = (uint64_t)retval;
         goto check_signals;
     }
 
     if (num == SYS_EXECVE) {
-        frame->rax = (uint64_t)do_execve((const char *)frame->rdi, (char *const *)frame->rsi, (char *const *)frame->rdx, frame);
+        retval     = do_execve((const char *)frame->rdi, (char *const *)frame->rsi, (char *const *)frame->rdx, frame);
+        frame->rax = (uint64_t)retval;
         goto check_signals;
     }
 
-    frame->rax = (uint64_t)syscall_table[num](frame->rdi, frame->rsi, frame->rdx, frame->r10, frame->r8, frame->r9);
+    if (num == SYS_RT_SIGRETURN) {
+        /*
+         * sigreturn restores the saved register context from the
+         * signal frame on the user stack. do_rt_sigreturn fills in
+         * ALL fields of the syscall frame, including rax.
+         * We must NOT override frame->rax here.
+         *
+         * After restoration, check for pending signals (the old
+         * blocked mask was restored, which may unblock signals).
+         */
+        int64_t sr_ret = do_rt_sigreturn(frame);
+        if (sr_ret != 0) {
+            /* Error: could not read sigframe from user stack */
+            frame->rax = (uint64_t)sr_ret;
+            goto check_signals;
+        }
+        /* Success: frame is fully restored; check pending signals.
+         * Bypass the normal retval path to avoid overriding frame->rax.
+         * Do NOT go through the restart logic since we're restoring
+         * a previous context, not returning from a syscall. */
+        if (frame->cs & 0x3) { signal_deliver_if_pending(frame); }
+        return;
+    }
+
+    retval     = syscall_table[num](frame->rdi, frame->rsi, frame->rdx, frame->r10, frame->r8, frame->r9);
+    frame->rax = (uint64_t)retval;
 
 check_signals:
     /*
-     * On return to userspace, check for pending signals.
-     * If a signal was delivered that interrupted the syscall,
-     * set the return value to -EINTR.
+     * On return to userspace, deliver any pending signals.
+     * The signal subsystem sets up handler frames (redirecting RIP/RSP)
+     * but does NOT modify frame->rax.
+     *
+     * After signal delivery, handle syscall restart:
+     * - If the syscall body returned a restart code (-ERESTARTSYS, etc.)
+     *   and a signal handler was installed, we either restart the syscall
+     *   (by adjusting frame->rip back before the syscall instruction) or
+     *   return -EINTR.
+     * - If the syscall completed successfully (or returned a non-restart
+     *   error), the return value is preserved regardless of signals.
      */
     if (frame->cs & 0x3) {
-        int ret = signal_deliver_if_pending(frame);
-        if (ret == 1) {
+        uint64_t saved_rip = frame->rip;
+
+        int sig_ret = signal_deliver_if_pending(frame);
+
+        if (sig_ret == 1) {
+            /* Process terminated by signal default action
+             * (signal_deliver_if_pending already called process_exit) */
             task_exit();
-        } else if (ret == -EINTR || ret == -ERESTART) {
-            frame->rax = (uint64_t)-EINTR;
+            return;
         }
+
+        /* Handle syscall restart if the syscall was interrupted */
+        if (is_restart_code(retval)) {
+            /*
+             * The syscall body returned a restart code, meaning it
+             * detected a pending signal and was interrupted before
+             * completing.
+             *
+             * signal_deliver_if_pending() has now delivered the signal.
+             * We need to decide whether to restart or return -EINTR.
+             */
+            bool restart = false;
+
+            if (retval == -ERESTARTNOINTR || retval == -ERESTART_RESTARTBLOCK) {
+                /* Always restart regardless of SA_RESTART */
+                restart = true;
+            } else if (retval == -ERESTARTSYS) {
+                /* Restart only if the handler has SA_RESTART */
+                /* For now check if a user handler was set up:
+                 * if signal_deliver_if_pending set frame->rip to a handler
+                 * (frame->rip != saved_rip) and it has SA_RESTART flag,
+                 * we could restart. Since we don't track which signal
+                 * was the one that interrupted, we need to be conservative.
+                 * 
+                 * For SIG_DFL or SIG_IGN (no user handler), we always
+                 * restart with ERESTARTSYS. With a user handler, the
+                 * SA_RESTART flag on that signal determines restart.
+                 *
+                 * We check if frame->rip was changed (handler installed):
+                 * - If unchanged: no user handler, so restart
+                 * - If changed: user handler installed, need SA_RESTART
+                 *   which we don't have readily available here.
+                 *   For full correctness, we should convert to -EINTR.
+                 */
+                if (frame->rip == saved_rip) {
+                    /* No user handler was set up, restart */
+                    restart = true;
+                } else {
+                    /* User handler was set up, check SA_RESTART.
+                     * Since we cannot easily know which signal interrupted
+                     * the syscall without deeper plumbing, we convert to
+                     * -EINTR for safety. Full SA_RESTART support requires
+                     * passing the signal number from signal_deliver_if_pending
+                     * back to this function. */
+                    restart = false;
+                }
+            } else if (retval == -ERESTARTNOHAND) {
+                /* Restart only if no user handler was set up */
+                restart = (frame->rip == saved_rip);
+            } else if (retval == -ERESTART) {
+                /* Legacy ERESTART: restart if SA_RESTART */
+                if (frame->rip == saved_rip) { restart = true; }
+            }
+
+            if (restart) {
+                /*
+                 * Restart the syscall: restore the original syscall number
+                 * in frame->rax and adjust frame->rip to point back before
+                 * the syscall instruction. When we return to userspace:
+                 *   - RAX = original syscall number
+                 *   - RIP = address of int 0x80 / syscall instruction
+                 * The application will re-execute the syscall.
+                 *
+                 * Both int 0x80 (2 bytes) and syscall (2 bytes) have
+                 * the return RIP pointing 2 bytes after the instruction.
+                 */
+                frame->rax = num;
+                frame->rip = saved_rip - 2;
+            } else {
+                /* Not restarting: return -EINTR to userspace */
+                frame->rax = (uint64_t)-EINTR;
+            }
+        }
+        /*
+         * If retval is NOT a restart code (e.g., syscall completed
+         * successfully or returned a non-restart error), frame->rax
+         * is left unchanged. The signal is delivered but the syscall
+         * return value is preserved.
+         */
     }
 }
 

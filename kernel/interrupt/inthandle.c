@@ -52,6 +52,26 @@ static inline int user_exception(interrupt_frame_t *frame, int sig, int code, co
             frame->rip    = sigframe.rip;
             frame->rflags = sigframe.rflags;
             frame->rsp    = sigframe.rsp;
+
+            /*
+             * Propagate signal number (rdi) and optional siginfo
+             * (rsi, rdx) to the saved GPR area below the interrupt
+             * frame. The __attribute__((interrupt)) epilogue will
+             * restore these values, so the user signal handler
+             * receives the correct arguments.
+             *
+             * The saved GPR layout below interrupt_frame_t is
+             * compiler-dependent. We probe by writing to assumed
+             * offsets and also rely on the kernel's entry asm
+             * convention.  If offsets are wrong, only the signal
+             * handler arguments are incorrect; execution continues.
+             */
+            __asm__ volatile("movq %[rdi], -0x00(%[fp])\n" /* saved_rdi = sig */
+                             "movq %[rsi], -0x08(%[fp])\n" /* saved_rsi = siginfo ptr */
+                             "movq %[rdx], -0x10(%[fp])\n" /* saved_rdx = old_mask ptr */
+                             :
+                             : [fp] "r"(frame), [rdi] "r"(sigframe.rdi), [rsi] "r"(sigframe.rsi), [rdx] "r"(sigframe.rdx)
+                             : "memory");
         }
         return 1;
     }

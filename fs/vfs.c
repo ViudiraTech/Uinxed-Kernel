@@ -787,17 +787,36 @@ int vfs_close(vfs_node_t node)
     if (!node) return -EINVAL;
 
     spin_lock(&vfs_namespace_lock);
-    if (node->refcount) node->refcount--;
 
-    if (node == rootdir || !node->handle || node->type & file_proxy || node->refcount) {
+    /* Prevent double-close: if the close callback has already been
+     * invoked on the non-delete path, skip it on the delete path. */
+    bool already_closed = (node->flags & VFS_NODE_CLOSED) != 0;
+
+    if (node->refcount) node->refcount--;
+    bool last_ref = (node->refcount == 0);
+
+    if (node == rootdir || !node->handle || node->type & file_proxy || (!last_ref && !already_closed)) {
         spin_unlock(&vfs_namespace_lock);
         return EOK;
     }
+
     if (!(node->type & file_delete)) {
+        /*
+         * Non-delete close: invoke the close callback once.
+         * For anonymous nodes (parent == NULL) that have no filesystem
+         * entry, free the handle and node now instead of leaking them.
+         */
+        node->flags |= VFS_NODE_CLOSED;
         spin_unlock(&vfs_namespace_lock);
         callbackof(node, close)(node->handle);
+        if (!node->parent) {
+            callbackof(node, free)(node->handle);
+            node->handle = 0;
+            vfs_free(node);
+        }
         return EOK;
     }
+
     node->flags |= VFS_NODE_FINALIZING;
     spin_unlock(&vfs_namespace_lock);
 
@@ -814,7 +833,7 @@ int vfs_close(vfs_node_t node)
     }
 
     if (!(node->flags & VFS_NODE_DELETE_COMMITTED)) {
-        int res = callbackof(node, delete)(node->parent->handle, node);
+        int res = node->parent ? callbackof(node, delete)(node->parent->handle, node) : EOK;
         if (res < 0) {
             spin_lock(&vfs_namespace_lock);
             node->flags &= ~VFS_NODE_FINALIZING;
@@ -823,9 +842,9 @@ int vfs_close(vfs_node_t node)
         }
     }
 
-    callbackof(node, close)(node->handle);
+    if (!already_closed) { callbackof(node, close)(node->handle); }
     spin_lock(&vfs_namespace_lock);
-    if (!(node->flags & VFS_NODE_UNLINKED)) {
+    if (!(node->flags & VFS_NODE_UNLINKED) && node->parent) {
         node->parent->child = clist_delete(node->parent->child, node);
         node->flags |= VFS_NODE_UNLINKED;
     }
@@ -839,6 +858,7 @@ int vfs_close(vfs_node_t node)
 int vfs_namespace_unlink(vfs_node_t node)
 {
     if (!node || node == rootdir) return -EINVAL;
+    if (!node->parent) return -EINVAL;
 
     spin_lock(&vfs_namespace_lock);
     if (node->flags & (VFS_NODE_UNLINKED | VFS_NODE_UNLINKING)) {
@@ -889,7 +909,7 @@ int vfs_delete(vfs_node_t node)
             if (vnode && !(vnode->flags & VFS_NODE_VIRTUAL)) return -ENOTEMPTY;
         }
     }
-    if (node->flags & VFS_NODE_DELETE_SYNC) {
+    if ((node->flags & VFS_NODE_DELETE_SYNC) && node->parent) {
         status = callbackof(node, delete)(node->parent->handle, node);
         if (status < 0) return status;
         node->flags |= VFS_NODE_DELETE_COMMITTED;

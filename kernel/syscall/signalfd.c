@@ -55,8 +55,9 @@ static size_t signalfd_vfs_read(void *file, void *addr, size_t offset, size_t si
             spin_unlock(&ctx->lock);
             return (size_t)-1;
         }
+        wait_queue_prepare(&ctx->wq);
         spin_unlock(&ctx->lock);
-        wait_queue_wait(&ctx->wq);
+        wait_queue_sleep();
         spin_lock(&ctx->lock);
 
         if (ctx->pending_count == 0) {
@@ -220,10 +221,11 @@ int sys_signalfd4(int fd, const void *mask, size_t sizemask, int flags)
         vfs_node_t node = signalfd_node_create(sigmask, flags);
         if (!node) return -ENOMEM;
 
-        int newfd = process_fd_install(proc, node, O_RDONLY);
+        uint64_t fd_flags = O_RDONLY;
+        if (flags & SFD_CLOEXEC) fd_flags |= O_CLOEXEC;
+        int newfd = process_fd_install(proc, node, fd_flags);
         if (newfd < 0) {
-            signalfd_vfs_free(node->handle);
-            vfs_free(node);
+            vfs_close(node);
             return newfd;
         }
         return newfd;

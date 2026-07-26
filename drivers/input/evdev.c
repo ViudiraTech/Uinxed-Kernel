@@ -335,9 +335,14 @@ static void evdev_events(input_dev_t *dev, const input_event_t *values, unsigned
 
     grab = evdev->grab;
     if (grab) {
-        /* Exclusive grab: only the grab client gets events */
-        spin_unlock(&evdev->client_lock);
+        /*
+         * Exclusive grab: only the grab client gets events.
+         * Hold client_lock across pass_values to prevent the grab
+         * client from being freed (by evdev_fop_release) while
+         * we are writing to it.
+         */
         evdev_pass_values(grab, values, count, time_ns);
+        spin_unlock(&evdev->client_lock);
         return;
     }
 
@@ -691,8 +696,11 @@ void evdev_fop_release(evdev_client_t *client)
 
     evdev_detach_client(evdev, client);
 
-    /* Release grab if this client held it */
+    /* Release grab if this client held it (under client_lock to
+     * synchronize with evdev_events which reads grab under the lock). */
+    spin_lock(&evdev->client_lock);
     if (evdev->grab == client) evdev->grab = NULL;
+    spin_unlock(&evdev->client_lock);
 
     /* Free event filter masks */
     for (i = 0; i < EV_CNT; i++) {
@@ -724,15 +732,24 @@ ssize_t evdev_fop_read(evdev_client_t *client, void *buf, size_t count, bool non
     spin_lock(&client->buffer_lock);
 
     while (client->tail == client->head) {
+        if (nonblock) {
+            spin_unlock(&client->buffer_lock);
+            return -EAGAIN;
+        }
+
+        if (!evdev->exist) {
+            spin_unlock(&client->buffer_lock);
+            return -ENODEV;
+        }
+
+        if (client->revoked) {
+            spin_unlock(&client->buffer_lock);
+            return -ENODEV;
+        }
+
+        wait_queue_prepare(&client->wait);
         spin_unlock(&client->buffer_lock);
-
-        if (nonblock) return -EAGAIN;
-
-        if (!evdev->exist) return -ENODEV;
-
-        if (client->revoked) return -ENODEV;
-
-        wait_queue_wait(&client->wait);
+        wait_queue_sleep();
 
         if (!evdev->exist) return -ENODEV;
 

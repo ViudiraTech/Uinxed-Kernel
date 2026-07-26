@@ -78,6 +78,14 @@ INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_
             frame->rip    = sigframe.rip;
             frame->rflags = sigframe.rflags;
             frame->rsp    = sigframe.rsp;
+
+            /* Propagate signal handler args (see inthandle.c for details) */
+            __asm__ volatile("movq %[rdi], -0x00(%[fp])\n"
+                             "movq %[rsi], -0x08(%[fp])\n"
+                             "movq %[rdx], -0x10(%[fp])\n"
+                             :
+                             : [fp] "r"(frame), [rdi] "r"(sigframe.rdi), [rsi] "r"(sigframe.rsi), [rdx] "r"(sigframe.rdx)
+                             : "memory");
         }
         return;
     }

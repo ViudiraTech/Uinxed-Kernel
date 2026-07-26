@@ -291,6 +291,30 @@ typedef struct {
 #define SS_ONSTACK 1
 #define SS_DISABLE 2
 
+/* ---------- Signal user-frame (on user stack for sigreturn) ---------- */
+
+typedef struct {
+        /* Handler's return address (restorer trampoline) - bottom of frame */
+        uint64_t pretcode;
+
+        /* Signal info passed via RSI */
+        siginfo_t info;
+
+        /* Old blocked mask to restore on sigreturn */
+        sigset_t old_mask;
+
+        /* Full register context (saved from syscall_frame_t) */
+        uint64_t rax, rbx, rcx, rdx;
+        uint64_t rsi, rdi, rbp;
+        uint64_t r8, r9, r10, r11, r12, r13, r14, r15;
+        uint64_t rip, rflags, rsp, cs, ss;
+} __attribute__((packed)) signal_user_frame_t;
+
+/* Return values for signal_deliver_one */
+#define SIG_DELIV_HANDLED 0 /* Default/ignore action, no frame change, continue */
+#define SIG_DELIV_TERM    1 /* Process terminated by default action */
+#define SIG_DELIV_HANDLER 2 /* User handler set up, frame modified */
+
 /* ---------- Signal queue / real-time ---------- */
 
 #define SIGQUEUE_MAX 32
@@ -361,7 +385,15 @@ int signal_send_pgrp_session(int64_t pgid, int64_t sid, int sig);
 /* Send a signal to a specific thread */
 int signal_send_thread(task_t *task, int sig, const siginfo_t *info);
 
-/* Check and deliver pending signals, called on return to userspace */
+/*
+ * Check and deliver pending signals, called on return to userspace.
+ * Delivers signals and sets up handler frame if needed.
+ * Does NOT modify frame->rax (syscall return value).
+ * For default/ignore signals, all are cleared in one call.
+ * For user handlers, only ONE signal is delivered per call (the rest
+ * remain pending and will be delivered on next return to userspace).
+ * Returns 0 if signals delivered (or none pending), 1 if process terminated.
+ */
 int signal_deliver_if_pending(syscall_frame_t *frame);
 
 /* Check if there is a pending signal that should be delivered */
@@ -400,6 +432,9 @@ static inline int sig_is_stop(int sig)
 /* Flush all pending signals for a process */
 void signal_flush(process_t *proc);
 
+/* Reset signal state for execve (per POSIX) */
+void signal_exec_reset(process_t *proc);
+
 /* Copy signal state for fork */
 void signal_state_copy(signal_state_t *dst, const signal_state_t *src);
 
@@ -408,6 +443,12 @@ int signal_check_perm(const process_t *from, const process_t *to);
 
 /* Notify the signal subsystem that a child process exited */
 void signal_notify_child_exit(process_t *parent, int64_t child_pid, int exit_code, int status);
+
+/*
+ * Called from syscall_dispatch with frame access to restore
+ * the interrupted process context after a signal handler returns.
+ */
+int64_t do_rt_sigreturn(syscall_frame_t *frame);
 
 /* ---------- Syscall implementations (called from syscall.c) ---------- */
 

@@ -86,6 +86,20 @@ static inline uint32_t futex_hash_index(uint32_t *uaddr)
 }
 
 /*
+ * Find an entry for uaddr in the given bucket (no creation).
+ * Must be called with the bucket lock held.
+ * Returns NULL if no entry exists.
+ */
+static futex_entry_t *futex_find(futex_bucket_t *bucket, uint32_t *uaddr)
+{
+    uintptr_t key = (uintptr_t)uaddr;
+    for (futex_entry_t *entry = bucket->head; entry; entry = entry->next) {
+        if (entry->key == key) return entry;
+    }
+    return NULL;
+}
+
+/*
  * Find or create an entry for uaddr in the given bucket.
  * Must be called with the bucket lock held.
  * Returns NULL on allocation failure.
@@ -94,20 +108,16 @@ static inline uint32_t futex_hash_index(uint32_t *uaddr)
  */
 static futex_entry_t *futex_find_or_create(futex_bucket_t *bucket, uint32_t *uaddr, uint32_t bitset)
 {
-    uintptr_t      key = (uintptr_t)uaddr;
-    futex_entry_t *entry;
-
-    for (entry = bucket->head; entry; entry = entry->next) {
-        if (entry->key == key) {
-            entry->bitset |= bitset;
-            return entry;
-        }
+    futex_entry_t *entry = futex_find(bucket, uaddr);
+    if (entry) {
+        entry->bitset |= bitset;
+        return entry;
     }
 
     entry = (futex_entry_t *)malloc(sizeof(futex_entry_t));
     if (!entry) return NULL;
 
-    entry->key      = key;
+    entry->key      = (uintptr_t)uaddr;
     entry->bitset   = bitset;
     entry->pi_mutex = NULL;
     wait_queue_init(&entry->wq);
@@ -128,6 +138,7 @@ static void futex_remove_entry_locked(futex_bucket_t *bucket, futex_entry_t *ent
     while (*indirect) {
         if (*indirect == entry) {
             *indirect = entry->next;
+            if (entry->pi_mutex) free(entry->pi_mutex);
             free(entry);
             return;
         }
@@ -209,9 +220,7 @@ static uint64_t futex_timespec_to_ticks(uint64_t timeout_ptr)
 static int futex_wait(uint32_t *uaddr, uint32_t val, uint64_t timeout, uint32_t bitset)
 {
     futex_bucket_t *bucket = &futex_hash[futex_hash_index(uaddr)];
-    futex_entry_t  *entry;
     uint32_t        cur_val;
-    int             ret;
 
     /* bitset must be non-zero per Linux ABI */
     if (bitset == 0) return -EINVAL;
@@ -228,63 +237,40 @@ static int futex_wait(uint32_t *uaddr, uint32_t val, uint64_t timeout, uint32_t 
         return -EAGAIN;
     }
 
-    entry = futex_find_or_create(bucket, uaddr, bitset);
-    if (!entry) {
-        spin_unlock(&bucket->lock);
-        return -ENOMEM;
-    }
-
-    /*
-     * Add the current task to the wait queue BEFORE releasing the
-     * bucket lock.  This closes the lost-wakeup window: if another
-     * thread calls futex_wake after we release the lock, it will
-     * find our task in the wait queue and wake it.
-     */
-    wait_queue_prepare(&entry->wq);
-    spin_unlock(&bucket->lock);
-
+    /* Handle zero timeout: re-check under lock (no sleeping needed) */
     if (timeout) {
         uint64_t timeout_ticks = futex_timespec_to_ticks(timeout);
-
         if (timeout_ticks == 0) {
-            /*
-             * Zero timeout: the task is already in the wait queue
-             * (via prepare), but we need to remove it before
-             * returning.  Re-check the value under the lock.
-             */
-            spin_lock(&bucket->lock);
-            if (copy_from_user(&cur_val, uaddr, sizeof(cur_val)) != 0) {
-                wait_queue_wake_one(&entry->wq);
-                futex_try_cleanup(bucket, entry);
-                spin_unlock(&bucket->lock);
-                return -EFAULT;
-            }
-            if (cur_val != val) {
-                wait_queue_wake_one(&entry->wq);
-                futex_try_cleanup(bucket, entry);
-                spin_unlock(&bucket->lock);
-                return -EAGAIN;
-            }
-            wait_queue_wake_one(&entry->wq);
-            futex_try_cleanup(bucket, entry);
             spin_unlock(&bucket->lock);
             return -ETIMEDOUT;
         }
-
         uint64_t deadline = sched_ticks() + timeout_ticks;
 
-        ret = wait_queue_wait_timed(&entry->wq, deadline);
+        futex_entry_t *entry = futex_find_or_create(bucket, uaddr, bitset);
+        if (!entry) {
+            spin_unlock(&bucket->lock);
+            return -ENOMEM;
+        }
+
+        wait_queue_prepare(&entry->wq);
+        spin_unlock(&bucket->lock);
+
+        int ret = wait_queue_wait_timed(&entry->wq, deadline);
 
         spin_lock(&bucket->lock);
 
+        /*
+         * After waking up, re-find the entry by key instead of using
+         * the cached pointer.  Another futex_wake may have freed the
+         * entry before we re-acquired the bucket lock.
+         */
+        entry = futex_find(bucket, uaddr);
+
         if (ret == -ETIMEDOUT) {
-            /*
-             * The scheduler removed us from the wait queue and
-             * woke us due to timeout.  Re-check the value one
-             * last time — if it changed, someone called futex_wake
-             * between the timeout and our re-acquisition of the
-             * lock.
-             */
+            if (!entry) {
+                spin_unlock(&bucket->lock);
+                return 0;
+            }
             if (copy_from_user(&cur_val, uaddr, sizeof(cur_val)) != 0) {
                 futex_try_cleanup(bucket, entry);
                 spin_unlock(&bucket->lock);
@@ -300,7 +286,10 @@ static int futex_wait(uint32_t *uaddr, uint32_t val, uint64_t timeout, uint32_t 
             return -ETIMEDOUT;
         }
 
-        /* Woken by futex_wake: verify and clean up */
+        if (!entry) {
+            spin_unlock(&bucket->lock);
+            return 0;
+        }
         if (copy_from_user(&cur_val, uaddr, sizeof(cur_val)) != 0) {
             futex_try_cleanup(bucket, entry);
             spin_unlock(&bucket->lock);
@@ -313,37 +302,46 @@ static int futex_wait(uint32_t *uaddr, uint32_t val, uint64_t timeout, uint32_t 
             return 0;
         }
 
-        /*
-         * Spurious wakeup: value hasn't changed.  This shouldn't
-         * happen with the timer_node approach, but handle it
-         * gracefully.
-         */
-        futex_try_cleanup(bucket, entry);
-        spin_unlock(&bucket->lock);
-        return -EAGAIN;
-    } else {
-        /* No timeout — block indefinitely */
-        wait_queue_sleep();
-
-        spin_lock(&bucket->lock);
-
-        if (copy_from_user(&cur_val, uaddr, sizeof(cur_val)) != 0) {
-            futex_try_cleanup(bucket, entry);
-            spin_unlock(&bucket->lock);
-            return -EFAULT;
-        }
-
-        if (cur_val != val) {
-            futex_try_cleanup(bucket, entry);
-            spin_unlock(&bucket->lock);
-            return 0;
-        }
-
-        /* Spurious wakeup */
         futex_try_cleanup(bucket, entry);
         spin_unlock(&bucket->lock);
         return -EAGAIN;
     }
+
+    /* No timeout — block indefinitely */
+    futex_entry_t *entry = futex_find_or_create(bucket, uaddr, bitset);
+    if (!entry) {
+        spin_unlock(&bucket->lock);
+        return -ENOMEM;
+    }
+
+    wait_queue_prepare(&entry->wq);
+    spin_unlock(&bucket->lock);
+
+    wait_queue_sleep();
+
+    spin_lock(&bucket->lock);
+
+    entry = futex_find(bucket, uaddr);
+    if (!entry) {
+        spin_unlock(&bucket->lock);
+        return 0;
+    }
+
+    if (copy_from_user(&cur_val, uaddr, sizeof(cur_val)) != 0) {
+        futex_try_cleanup(bucket, entry);
+        spin_unlock(&bucket->lock);
+        return -EFAULT;
+    }
+
+    if (cur_val != val) {
+        futex_try_cleanup(bucket, entry);
+        spin_unlock(&bucket->lock);
+        return 0;
+    }
+
+    futex_try_cleanup(bucket, entry);
+    spin_unlock(&bucket->lock);
+    return -EAGAIN;
 }
 
 /* ------------------------------------------------------------------ */
@@ -382,17 +380,13 @@ static int futex_wake(uint32_t *uaddr, int nr_wake, uint32_t bitset)
         break;
     }
 
-    /* Clean up empty entries */
-    futex_entry_t **indirect = &bucket->head;
-    while (*indirect) {
-        futex_entry_t *cur = *indirect;
-        if (futex_entry_empty(cur)) {
-            *indirect = cur->next;
-            free(cur);
-        } else {
-            indirect = &cur->next;
-        }
-    }
+    /*
+     * Do NOT free empty entries here — a futex_wait caller that was
+     * just woken may still hold a stale entry pointer and will access
+     * it after re-acquiring the bucket lock.  Cleanup is the
+     * responsibility of the final waiter (futex_try_cleanup in
+     * futex_wait).
+     */
 
     spin_unlock(&bucket->lock);
 
@@ -942,7 +936,13 @@ static int futex_cmp_requeue_pi(uint32_t *uaddr, int nr_wake, int nr_requeue, ui
 
         if (!entry2->pi_mutex) {
             entry2->pi_mutex = malloc(sizeof(rt_mutex_t));
-            if (entry2->pi_mutex) { rt_mutex_init(entry2->pi_mutex, uaddr2); }
+            if (!entry2->pi_mutex) {
+                futex_try_cleanup(bucket1, entry1);
+                if (bucket1 != bucket2) spin_unlock(&bucket2->lock);
+                spin_unlock(&bucket1->lock);
+                return woken > 0 ? woken : -ENOMEM;
+            }
+            rt_mutex_init(entry2->pi_mutex, uaddr2);
         }
 
         int requeued = 0;

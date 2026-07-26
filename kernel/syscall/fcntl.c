@@ -91,11 +91,7 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             proc->fds[newfd] = file;
             /* Set close-on-exec flag on the new FD */
             spin_lock(&file->lock);
-            if (file->flags & O_CLOEXEC) {
-                /* already has it from vfs? No, FD-level flag is separate.
-                 * We store cloexec in the file flags for now */
-                file->flags |= O_CLOEXEC;
-            }
+            file->flags |= O_CLOEXEC;
             spin_unlock(&file->lock);
             spin_unlock(&proc->fd_lock);
             result = newfd;

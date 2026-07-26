@@ -208,10 +208,11 @@ int sys_timerfd_create(int clockid, int flags)
     vfs_node_t node = timerfd_node_create(clockid, flags);
     if (!node) return -ENOMEM;
 
-    int fd = process_fd_install(proc, node, O_RDONLY);
+    uint64_t fd_flags = O_RDONLY;
+    if (flags & TFD_CLOEXEC) fd_flags |= O_CLOEXEC;
+    int fd = process_fd_install(proc, node, fd_flags);
     if (fd < 0) {
-        timerfd_vfs_free(node->handle);
-        vfs_free(node);
+        vfs_close(node);
         return fd;
     }
     return fd;
