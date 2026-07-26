@@ -8,7 +8,9 @@ EVDEV_QUEUE_SOURCES := evdev_queue_test.c ../drivers/input/evdev_queue.c
 PS2_KEYBOARD_SOURCES := ps2_keyboard_test.c ../drivers/input/ps2_keyboard_protocol.c
 PARTITION_SOURCES := partition_test.c ../drivers/block/partition.c
 BLOCKDEV_PARTITION_SOURCES := blockdev_partition_test.c ../drivers/block/blockdev.c
-TARGETS := kobject_sysfs_test evdev_queue_test ps2_keyboard_test partition_test blockdev_partition_test
+NTFS_WRITE_SOURCES := ntfs_write_test.c
+NTFS_WRITE_DEPS := ../fs/ntfs/ntfs_vfs.c
+TARGETS := kobject_sysfs_test evdev_queue_test ps2_keyboard_test partition_test blockdev_partition_test ntfs_write_test
 
 .PHONY: test clean
 
@@ -18,6 +20,7 @@ test: $(TARGETS)
 	./ps2_keyboard_test
 	./partition_test
 	./blockdev_partition_test
+	./ntfs_write_test
 
 kobject_sysfs_test: $(KOBJECT_SOURCES)
 	$(CC) $(CFLAGS) -fno-builtin-strdup -o $@ $(KOBJECT_SOURCES)
@@ -33,6 +36,9 @@ partition_test: $(PARTITION_SOURCES)
 
 blockdev_partition_test: $(BLOCKDEV_PARTITION_SOURCES)
 	$(CC) $(CFLAGS) -Werror -fno-builtin-strdup -ffunction-sections -fdata-sections -Wl,--gc-sections -o $@ $(BLOCKDEV_PARTITION_SOURCES)
+
+ntfs_write_test: $(NTFS_WRITE_SOURCES) $(NTFS_WRITE_DEPS)
+	$(CC) $(CFLAGS) -Werror -fno-builtin-strdup -ffunction-sections -fdata-sections -Wl,--gc-sections -o $@ $(NTFS_WRITE_SOURCES)
 
 clean:
 	$(RM) $(TARGETS)
