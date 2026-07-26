@@ -17,6 +17,11 @@
 #include <libs/std/string.h>
 #include <mem/heap.h>
 
+#define CPIO_MODE_IFMT  0170000
+#define CPIO_MODE_IFREG 0100000
+#define CPIO_MODE_IFDIR 0040000
+#define CPIO_MODE_IFLNK 0120000
+
 /* Determine the compression type of the data */
 compression_type_t get_compression_type(const void *data, size_t size)
 {
@@ -35,10 +40,18 @@ compression_type_t get_compression_type(const void *data, size_t size)
 }
 
 /* Reading values ​​from a hexadecimal string */
+static int hex_digit_value(char ch)
+{
+    if (ch >= '0' && ch <= '9') return ch - '0';
+    if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+    if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+    return 0;
+}
+
 static size_t read_num(const char *str, size_t count)
 {
     size_t val = 0;
-    for (size_t i = 0; i < count; ++i) val = val * 16 + (IS_DIGIT(str[i]) ? str[i] - '0' : str[i] - 'A' + 10);
+    for (size_t i = 0; i < count; ++i) val = val * 16 + hex_digit_value(str[i]);
     return val;
 }
 
@@ -104,17 +117,18 @@ void init_cpio(void)
         }
 
         file_num_all++;
-        size_t mode = read_num(hdr.c_mode, 8);
+        size_t mode      = read_num(hdr.c_mode, 8);
+        size_t file_type = mode & CPIO_MODE_IFMT;
         int    status;
 
-        if (mode & 040000) {
+        if (file_type == CPIO_MODE_IFDIR) {
             status = vfs_mkdir(filename);
             if (status != EOK) {
                 plogk("cpio: Cannot build initramfs directory(%s), error code: %d\n", filename, status);
                 free(filedata);
                 return;
             }
-        } else if ((mode & 0120000) == 0120000) {
+        } else if (file_type == CPIO_MODE_IFLNK) {
             char *symlink_path = calloc(1, filesize + 1);
 
             strncpy(symlink_path, filedata, filesize);
@@ -126,7 +140,7 @@ void init_cpio(void)
                 free(filedata);
                 return;
             }
-        } else {
+        } else if (file_type == CPIO_MODE_IFREG) {
             status = vfs_mkfile(filename);
             if (status != EOK) {
                 plogk("cpio: Cannot build initramfs file(%s), error code: %d\n", filename, status);
@@ -148,6 +162,8 @@ void init_cpio(void)
                 return;
             }
             vfs_close(file);
+        } else {
+            plogk("cpio: Skip unsupported initramfs entry(%s), mode: %llu\n", filename, mode);
         }
         free(filedata);
     }
