@@ -24,6 +24,7 @@
 #include <syscall/fcntl.h>
 #include <video/fbcon.h>
 #include <video/video.h>
+#include <video/vt_ansi.h>
 
 tty_device_t  boot_tty     = {0, 0};
 tty_device_t *boot_tty_ptr = 0;
@@ -73,7 +74,7 @@ static void tty_vga_flush_locked(void)
     }
 
     tty_buff[out] = '\0';
-    fbcon_put_string(tty_buff);
+    fbcon_ansi_write((const uint8_t *)tty_buff, out);
 }
 
 spinlock_t tty_flush_spinlock = {

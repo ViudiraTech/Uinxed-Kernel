@@ -11,6 +11,7 @@
 #ifndef INCLUDE_FBCON_H_
 #define INCLUDE_FBCON_H_
 
+#include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>
 
 /* Initialize framebuffer console */
@@ -19,25 +20,19 @@ void fbcon_init(void);
 /* Resize fbcon grids after framebuffer dimensions change */
 void fbcon_resize(void);
 
-/* Scroll to a position that units are characters */
-void fbcon_move_to(uint32_t cx, uint32_t cy);
+/* Draw a character with per-cell foreground and background color */
+void fbcon_draw_char_bg(const char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t bg);
 
-/* Screen scrolling operation */
-void fbcon_scroll(void);
+/* ANSI escape sequence aware rendering primitives */
+void fbcon_scroll_up(uint32_t top, uint32_t bottom, uint32_t lines);
+void fbcon_scroll_down(uint32_t top, uint32_t bottom, uint32_t lines);
+void fbcon_erase_display(uint32_t mode);
+void fbcon_erase_line(uint32_t mode, uint32_t y);
+void fbcon_erase_chars(uint32_t x, uint32_t y, uint32_t count);
+void fbcon_insert_chars(uint32_t x, uint32_t y, uint32_t n, uint32_t cols);
+void fbcon_delete_chars(uint32_t x, uint32_t y, uint32_t n, uint32_t cols);
 
-/* Draw a character at the specified coordinates on the screen */
-void fbcon_draw_char(const char c, uint32_t x, uint32_t y, uint32_t color);
-
-/* Flush character buffer to screen */
-void fbcon_flush_buffer(uint32_t color);
-
-/* Print a character at the specified coordinates on the screen */
-void fbcon_put_char(const char c, uint32_t color);
-
-/* Print a string at the specified coordinates on the screen */
-void fbcon_put_string(const char *str);
-
-/* Print a string with color at the specified coordinates on the screen */
-void fbcon_put_string_color(const char *str, uint32_t color);
+/* Process a buffer of characters through the ANSI escape sequence parser */
+void fbcon_ansi_write(const uint8_t *buf, size_t len);
 
 #endif // INCLUDE_FBCON_H_
