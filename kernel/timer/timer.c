@@ -19,6 +19,7 @@
 #include <libs/std/math.h>
 #include <libs/std/stdint.h>
 #include <proc/sched.h>
+#include <syscall/timerfd.h>
 
 /* Timer interrupt */
 INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)
@@ -28,6 +29,7 @@ INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)
     tty_deferred_flush();
     send_eoi();
     sched_tick();
+    timerfd_tick();
     enable_intr();
 }
 INTERRUPT_END

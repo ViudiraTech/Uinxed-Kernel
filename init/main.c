@@ -69,6 +69,7 @@
 #include <sync/spin_lock.h>
 #include <syscall/eventfd.h>
 #include <syscall/mmap.h>
+#include <syscall/memfd.h>
 #include <syscall/signalfd.h>
 #include <syscall/syscall.h>
 #include <syscall/timerfd.h>
@@ -238,6 +239,7 @@ void kernel_entry(void)
     eventfd_init();  // Event File Descriptor
     timerfd_init();  // Timer File Descriptor
     signalfd_init(); // Signal File Descriptor
+    memfd_init();    // Anonymous Memory File Descriptor
     mmap_init();     // Memory Map
 
     boot_start_init_before_debug(swapper_run_init, sched_test_init);

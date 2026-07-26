@@ -10,6 +10,7 @@
 
 #include <arch/tss.h>
 #include <chipset/common.h>
+#include <drivers/acpi.h>
 #include <fs/vfs.h>
 #include <ipc/epoll.h>
 #include <ipc/futex.h>
@@ -36,6 +37,7 @@
 #include <syscall/eventfd.h>
 #include <syscall/fcntl.h>
 #include <syscall/mmap.h>
+#include <syscall/memfd.h>
 #include <syscall/signalfd.h>
 #include <syscall/syscall.h>
 #include <syscall/syscall_table.h>
@@ -1072,12 +1074,12 @@ static int64_t sys_timerfd_gettime_wrap(uint64_t fd, uint64_t curr_value, uint64
     return sys_timerfd_gettime((int)fd, (void *)curr_value);
 }
 
-static int64_t sys_signalfd_wrap(uint64_t fd, uint64_t mask, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+static int64_t sys_signalfd_wrap(uint64_t fd, uint64_t mask, uint64_t sizemask, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    return sys_signalfd((int)fd, (const void *)mask, (int)flags);
+    return sys_signalfd4((int)fd, (const void *)mask, (size_t)sizemask, 0);
 }
 
 static int64_t sys_signalfd4_wrap(uint64_t fd, uint64_t mask, uint64_t sizemask, uint64_t flags, uint64_t arg4, uint64_t arg5)
@@ -1359,6 +1361,7 @@ static int64_t sys_ftruncate_stub(uint64_t fd, uint64_t length, uint64_t arg2, u
     (void)arg3;
     (void)arg4;
     (void)arg5;
+    if ((int64_t)length < 0) return -EINVAL;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     process_file_t *file = NULL;
@@ -1373,6 +1376,15 @@ static int64_t sys_ftruncate_stub(uint64_t fd, uint64_t length, uint64_t arg2, u
     }
     spin_unlock(&proc->fd_lock);
     if (!file) return -EBADF;
+    if ((file->flags & O_ACCMODE) == O_RDONLY) {
+        process_file_put(file);
+        return -EINVAL;
+    }
+    if (memfd_is_node(file->node)) {
+        int ret = memfd_resize(file->node, length);
+        process_file_put(file);
+        return ret;
+    }
     vfs_update(file->node);
     file->node->size = length;
     process_file_put(file);
@@ -1661,10 +1673,46 @@ static int64_t sys_reboot_impl(uint64_t magic, uint64_t magic2, uint64_t cmd, ui
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    if (magic != 0xfee1dead || magic2 != 0x28121969) return -EINVAL;
-    (void)cmd;
-    plogk("syscall: reboot not implemented.\n");
-    return -ENOSYS;
+    if (magic != 0xfee1dead || (magic2 != 0x28121969 && magic2 != 0x05121996 && magic2 != 0x16041998)) return -EINVAL;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    if (proc->uid != 0) return -EPERM;
+
+    switch (cmd) {
+    case 0x00000000: /* RB_DISABLE_CAD */
+    case 0x89ABCDEF: /* RB_ENABLE_CAD */
+        /* Ctrl-Alt-Del is not handled specially by the input stack yet. */
+        return EOK;
+    case 0x01234567: /* RB_AUTOBOOT */
+    case 0xA1B2C3D4: /* RB_RESTART2 */
+        plogk("syscall: reboot requested.\n");
+        disable_intr();
+        power_reset();
+        for (uint32_t i = 0; i < 100000; i++) {
+            if (!(inb(0x64) & 0x02)) {
+                outb(0x64, 0xFE);
+                break;
+            }
+        }
+        outb(0xCF9, 0x06);
+        break;
+    case 0x4321FEDC: /* RB_POWER_OFF */
+        plogk("syscall: power-off requested.\n");
+        disable_intr();
+        power_off();
+        break;
+    case 0xCDEF0123: /* RB_HALT_SYSTEM */
+        plogk("syscall: halt requested.\n");
+        disable_intr();
+        break;
+    case 0x45584543: /* RB_KEXEC */
+    case 0xD000FCE2: /* RB_SW_SUSPEND */
+        return -ENOSYS;
+    default:
+        return -EINVAL;
+    }
+
+    for (;;) __asm__ volatile("hlt");
 }
 
 static int64_t sys_personality_impl(uint64_t persona, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -2186,13 +2234,21 @@ static int64_t sys_fadvise64_stub(uint64_t fd, uint64_t offset, uint64_t len, ui
 
 static int64_t sys_fallocate_stub(uint64_t fd, uint64_t mode, uint64_t offset, uint64_t len, uint64_t arg4, uint64_t arg5)
 {
-    (void)fd;
-    (void)mode;
-    (void)offset;
-    (void)len;
     (void)arg4;
     (void)arg5;
-    return EOK;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    if ((int64_t)offset < 0 || (int64_t)len <= 0 || offset > UINT64_MAX - len) return -EINVAL;
+
+    process_file_t *file = process_fd_get(proc, (int)fd);
+    if (!file) return -EBADF;
+    if ((file->flags & O_ACCMODE) == O_RDONLY) {
+        process_file_put(file);
+        return -EBADF;
+    }
+    int ret = memfd_fallocate(file->node, (uint32_t)mode, offset, len);
+    process_file_put(file);
+    return ret;
 }
 
 static int64_t sys_sync_file_range_stub(uint64_t fd, uint64_t offset, uint64_t nbytes, uint64_t flags, uint64_t arg4, uint64_t arg5)
@@ -2206,16 +2262,6 @@ static int64_t sys_sync_file_range_stub(uint64_t fd, uint64_t offset, uint64_t n
     return EOK;
 }
 
-static int64_t sys_memfd_create_stub(uint64_t name, uint64_t flags, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)name;
-    (void)flags;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    return -ENOSYS;
-}
 
 static int64_t sys_renameat2_stub(uint64_t olddirfd, uint64_t oldpath, uint64_t newdirfd, uint64_t newpath, uint64_t flags, uint64_t arg5)
 {
@@ -3781,7 +3827,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_RENAMEAT2]              = sys_renameat2_stub,
     [SYS_SECCOMP]                = sys_stub,
     [SYS_GETRANDOM]              = sys_getrandom_stub,
-    [SYS_MEMFD_CREATE]           = sys_memfd_create_stub,
+    [SYS_MEMFD_CREATE]           = sys_memfd_create,
     [SYS_KEXEC_FILE_LOAD]        = sys_stub,
     [SYS_BPF]                    = sys_stub,
     [SYS_EXECVEAT]               = sys_execveat_stub,

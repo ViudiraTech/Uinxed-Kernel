@@ -73,7 +73,7 @@ static size_t signalfd_vfs_read(void *file, void *addr, size_t offset, size_t si
     spin_unlock(&ctx->lock);
     wait_queue_wake_all(&ctx->wq);
 
-    if (copy_to_user(addr, &info, sizeof(info))) return (size_t)-1;
+    memcpy(addr, &info, sizeof(info));
     return sizeof(signalfd_siginfo_t);
 }
 
@@ -85,9 +85,17 @@ static int signalfd_vfs_poll(void *file, size_t events)
     int revents = 0;
     spin_lock(&ctx->lock);
     if (ctx->pending_count > 0) revents |= 0x001;
-    revents |= 0x004;
     spin_unlock(&ctx->lock);
     return revents & (int)events;
+}
+
+static int64_t signalfd_vfs_file_read(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
+{
+    (void)private_data;
+    (void)flags;
+    if (size < sizeof(signalfd_siginfo_t)) return -EINVAL;
+    size_t ret = signalfd_vfs_read(node->handle, addr, offset, size);
+    return ret == (size_t)-1 ? -EAGAIN : (int64_t)ret;
 }
 
 static int signalfd_vfs_free(void *handle)
@@ -203,19 +211,12 @@ int sys_signalfd4(int fd, const void *mask, size_t sizemask, int flags)
 {
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
+    if (!mask || sizemask != sizeof(uint64_t) || (flags & ~(SFD_NONBLOCK | SFD_CLOEXEC))) return -EINVAL;
 
     sigset_t sigmask;
     sigemptyset(&sigmask);
 
-    if (mask) {
-        if (sizemask >= sizeof(sigset_t)) {
-            if (copy_from_user(&sigmask, mask, sizeof(sigset_t))) return -EFAULT;
-        } else {
-            uint32_t mask32 = 0;
-            if (copy_from_user(&mask32, mask, sizeof(uint32_t))) return -EFAULT;
-            sigmask = (sigset_t)mask32;
-        }
-    }
+    if (copy_from_user(&sigmask, mask, sizeof(sigmask))) return -EFAULT;
 
     if (fd == -1) {
         vfs_node_t node = signalfd_node_create(sigmask, flags);
@@ -243,7 +244,7 @@ int sys_signalfd4(int fd, const void *mask, size_t sizemask, int flags)
     }
     spin_unlock(&proc->fd_lock);
 
-    if (!file || !file->node || !file->node->handle) {
+    if (!file || !file->node || file->node->fsid != signalfd_fsid || !file->node->handle) {
         if (file) process_file_put(file);
         return -EBADF;
     }
@@ -266,7 +267,7 @@ void signalfd_deliver(process_t *proc, int sig)
     for (int i = 0; i < PROCESS_MAX_FD; i++) {
         process_file_t *file = proc->fds[i];
         if (!file || !file->node || !file->node->handle) continue;
-        if (file->node->type != file_stream) continue;
+        if (file->node->fsid != signalfd_fsid) continue;
 
         signalfd_ctx_t *ctx = (signalfd_ctx_t *)file->node->handle;
 
@@ -319,6 +320,7 @@ void signalfd_init(void)
     cb->ioctl    = signalfd_stub_ioctl;
     cb->dup      = signalfd_stub_dup;
     cb->poll     = signalfd_vfs_poll;
+    cb->file_read = signalfd_vfs_file_read;
     cb->free     = signalfd_vfs_free;
     cb->delete   = signalfd_stub_del;
     cb->rename   = signalfd_stub_rename;

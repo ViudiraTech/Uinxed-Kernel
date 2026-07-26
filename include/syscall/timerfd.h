@@ -12,6 +12,7 @@
 #define INCLUDE_TIMERFD_H_
 
 #include <fs/vfs.h>
+#include <libs/glist/intrusive_list.h>
 #include <libs/std/stdint.h>
 #include <proc/task.h>
 #include <sync/spin_lock.h>
@@ -32,12 +33,11 @@ typedef struct timerfd_ctx {
         uint64_t     flags;
         uint64_t     expire_count;
         uint64_t     interval_ns;
-        uint64_t     value_ns;
-        uint64_t     start_tick;
+        uint64_t     deadline_tick;
         int          armed;
-        int          one_shot;
         spinlock_t   lock;
         wait_queue_t wq;
+        ilist_node_t timers;
 } timerfd_ctx_t;
 
 /* Create a new timerfd file descriptor */
@@ -51,5 +51,8 @@ int sys_timerfd_gettime(int fd, void *curr_value);
 
 /* Initialize the timerfd subsystem */
 void timerfd_init(void);
+
+/* Account armed timerfds from the scheduler's global tick. */
+void timerfd_tick(void);
 
 #endif /* INCLUDE_TIMERFD_H_ */

@@ -139,6 +139,27 @@ static int eventfd_vfs_poll(void *file, size_t events)
     return revents & (int)events;
 }
 
+static int64_t eventfd_vfs_file_read(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
+{
+    (void)private_data;
+    (void)flags;
+    if (size < sizeof(uint64_t)) return -EINVAL;
+    size_t ret = eventfd_vfs_read(node->handle, addr, offset, size);
+    return ret == (size_t)-1 ? -EAGAIN : (int64_t)ret;
+}
+
+static int64_t eventfd_vfs_file_write(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
+{
+    (void)private_data;
+    (void)flags;
+    if (size < sizeof(uint64_t)) return -EINVAL;
+    uint64_t value;
+    memcpy(&value, addr, sizeof(value));
+    if (value == EVENTFD_UINT64_MAX) return -EINVAL;
+    size_t ret = eventfd_vfs_write(node->handle, addr, offset, size);
+    return ret == (size_t)-1 ? -EAGAIN : (int64_t)ret;
+}
+
 static int eventfd_vfs_free(void *handle)
 {
     eventfd_ctx_t *ctx = (eventfd_ctx_t *)handle;
@@ -234,6 +255,7 @@ static vfs_node_t eventfd_node_create(unsigned int initval, int flags)
 
 int sys_eventfd(unsigned int initval, int flags)
 {
+    if (flags & ~(EFD_SEMAPHORE | EFD_NONBLOCK | EFD_CLOEXEC)) return -EINVAL;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
@@ -278,6 +300,8 @@ void eventfd_init(void)
     cb->ioctl    = eventfd_stub_ioctl;
     cb->dup      = eventfd_stub_dup;
     cb->poll     = eventfd_vfs_poll;
+    cb->file_read = eventfd_vfs_file_read;
+    cb->file_write = eventfd_vfs_file_write;
     cb->free     = eventfd_vfs_free;
     cb->delete   = eventfd_stub_del;
     cb->rename   = eventfd_stub_rename;

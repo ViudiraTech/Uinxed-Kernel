@@ -116,14 +116,25 @@ acpi_facp_t *get_acpi_facp(void)
 /* Cycle the power */
 void power_reset(void)
 {
-    if (!SCI_EN || !facp->reset_reg.address || !facp->reset_value) return;
-    while (1) outb((uint32_t)facp->reset_reg.address, facp->reset_value);
+    if (!facp || !facp->reset_reg.address || !facp->reset_value) return;
+
+    generic_address_t *reg = &facp->reset_reg;
+    if (reg->address_space == 1) { /* System I/O */
+        if (reg->bit_width <= 8) outb((uint16_t)reg->address, facp->reset_value);
+        else if (reg->bit_width <= 16) outw((uint16_t)reg->address, facp->reset_value);
+        else outl((uint16_t)reg->address, facp->reset_value);
+    } else if (reg->address_space == 0) { /* System memory */
+        volatile uint8_t *addr = (volatile uint8_t *)phys_to_virt(reg->address);
+        if (reg->bit_width <= 8) *addr = facp->reset_value;
+        else if (reg->bit_width <= 16) *(volatile uint16_t *)addr = facp->reset_value;
+        else *(volatile uint32_t *)addr = facp->reset_value;
+    }
 }
 
 /* Power off */
 void power_off(void)
 {
-    if (!SCI_EN || !facp->pm1a_cnt_blk) return;
+    if (!facp || !SCI_EN || !facp->pm1a_cnt_blk) return;
     while (1) {
         outw((uint32_t)facp->pm1a_cnt_blk, SLP_TYPa | SLP_EN);
         if (facp->pm1b_cnt_blk) outw((uint32_t)facp->pm1b_cnt_blk, SLP_TYPb | SLP_EN);

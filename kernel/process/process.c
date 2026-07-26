@@ -29,6 +29,7 @@
 #include <mem/hhdm.h>
 #include <mem/page.h>
 #include <proc/process.h>
+#include <syscall/memfd.h>
 #include <proc/sched.h>
 #include <proc/uaccess.h>
 #include <sync/spin_lock.h>
@@ -477,7 +478,10 @@ static void vm_area_free(vm_area_t *vma, uint32_t pid)
     while (vma) {
         vm_area_t *next = vma->next;
         if (vma->type == VM_REGION_SHM && vma->vm_private_data) sysv_shm_vma_put(vma->vm_private_data, pid);
-        if (vma->vm_file) vfs_close(vma->vm_file);
+        if (vma->vm_file) {
+            memfd_vma_release(vma->vm_file, vma->flags);
+            vfs_close(vma->vm_file);
+        }
         free(vma);
         vma = next;
     }
@@ -1283,6 +1287,7 @@ process_t *process_fork_status(int *error)
          * The parent already holds a reference; the child needs
          * its own so the file isn't freed while the child lives. */
         if (copy->vm_file) copy->vm_file->refcount++;
+        if (copy->vm_file) memfd_vma_retain(copy->vm_file, copy->flags);
         if (copy->type == VM_REGION_SHM && sysv_shm_vma_get(copy->vm_private_data, (uint32_t)child->task->pid)) {
             free(copy);
             if (error) *error = -ENOMEM;

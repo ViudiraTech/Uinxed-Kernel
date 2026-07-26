@@ -25,6 +25,7 @@
 #include <proc/uaccess.h>
 #include <sync/spin_lock.h>
 #include <syscall/mmap.h>
+#include <syscall/memfd.h>
 #include <syscall/syscall.h>
 
 #define MMAP_BASE_ADDR     0x00007f0000000000ULL
@@ -100,6 +101,10 @@ static int vma_remove_range(process_t *proc, uintptr_t start, uintptr_t end)
         }
         if (start <= vma->start && end >= vma->end) {
             *prev = vma->next;
+            if (vma->vm_file) {
+                memfd_vma_release(vma->vm_file, vma->flags);
+                vfs_close(vma->vm_file);
+            }
             free(vma);
             continue;
         }
@@ -127,6 +132,10 @@ static int vma_remove_range(process_t *proc, uintptr_t start, uintptr_t end)
         right->next = vma->next;
         vma->end    = start;
         vma->next   = right;
+        if (right->vm_file) {
+            right->vm_file->refcount++;
+            memfd_vma_retain(right->vm_file, right->flags);
+        }
         prev        = &vma->next;
     }
     spin_unlock(&proc->mmap_lock);
@@ -205,28 +214,58 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         }
         size_t file_offset = (size_t)offset;
 
+        if (memfd_is_node(file->node) && (flags & MAP_SHARED)) {
+            vm_area_t *vma = calloc(1, sizeof(*vma));
+            if (!vma) {
+                process_file_put(file);
+                return -ENOMEM;
+            }
+            vma->start    = mmap_addr;
+            vma->end      = mmap_addr + pages;
+            vma->flags    = vm_flags;
+            vma->type     = VM_REGION_MMAP;
+            vma->vm_file  = file->node;
+            vma->vm_pgoff = offset / PAGE_4K_SIZE;
+            vma->vm_file->refcount++;
+
+            int ret = memfd_map(file->node, proc, mmap_addr, pages, offset, vm_flags);
+            if (ret) {
+                vma->vm_file->refcount--;
+                free(vma);
+                process_file_put(file);
+                return ret;
+            }
+            vm_area_insert(proc, vma);
+            process_file_put(file);
+            return (int64_t)mmap_addr;
+        }
+
         /* Check if the filesystem has a per-open mmap callback
          * (e.g., DRM GEM mmap). If so, use it to map device
          * backing pages directly instead of reading file content. */
-        if (callbackof(file->node, file_mmap)) {
-            vm_area_t vma;
-            memset(&vma, 0, sizeof(vma));
-            vma.start    = mmap_addr;
-            vma.end      = mmap_addr + pages;
-            vma.flags    = vm_flags;
-            vma.type     = VM_REGION_MMAP;
-            vma.vm_file  = file->node;
-            vma.vm_pgoff = offset / PAGE_4K_SIZE;
-            vma.vm_file->refcount++; /* VMA holds a reference */
+        if (callbackof(file->node, file_mmap) != vfs_empty_callback.file_mmap) {
+            vm_area_t *vma = calloc(1, sizeof(*vma));
+            if (!vma) {
+                process_file_put(file);
+                return -ENOMEM;
+            }
+            vma->start    = mmap_addr;
+            vma->end      = mmap_addr + pages;
+            vma->flags    = vm_flags;
+            vma->type     = VM_REGION_MMAP;
+            vma->vm_file  = file->node;
+            vma->vm_pgoff = offset / PAGE_4K_SIZE;
+            vma->vm_file->refcount++; /* VMA holds a reference */
 
-            void *result = callbackof(file->node, file_mmap)(file->node, file->private_data, file_offset, pages, vm_flags, &vma);
+            void *result = callbackof(file->node, file_mmap)(file->node, file->private_data, file_offset, pages, vm_flags, vma);
             if (!result) {
-                vma.vm_file->refcount--;
+                vma->vm_file->refcount--;
+                free(vma);
                 process_file_put(file);
                 return -ENODEV;
             }
 
-            vm_area_insert(proc, &vma);
+            vm_area_insert(proc, vma);
             process_file_put(file);
             goto vma_done;
         }
@@ -327,6 +366,11 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
     for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next) {
         if (vma->start == (uintptr_t)addr) {
             vm_flags |= vma->flags & VM_SHARED;
+            int ret = memfd_vma_protect(vma->vm_file, vma->flags, vm_flags);
+            if (ret) {
+                spin_unlock(&proc->mmap_lock);
+                return ret;
+            }
             vma->flags = vm_flags;
             pte_flags  = vm_flags_to_pte(vm_flags);
             break;

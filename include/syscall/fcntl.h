@@ -29,6 +29,15 @@
 #define F_SETOWN_EX     15
 #define F_GETOWN_EX     16
 #define F_DUPFD_CLOEXEC 1030
+#define F_ADD_SEALS     1033
+#define F_GET_SEALS     1034
+
+/* File seals for anonymous memory files. */
+#define F_SEAL_SEAL         0x0001
+#define F_SEAL_SHRINK       0x0002
+#define F_SEAL_GROW         0x0004
+#define F_SEAL_WRITE        0x0008
+#define F_SEAL_FUTURE_WRITE 0x0010
 
 /* FD flags (for F_GETFD/F_SETFD) */
 #define FD_CLOEXEC 1

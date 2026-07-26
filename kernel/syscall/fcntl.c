@@ -18,6 +18,7 @@
 #include <proc/uaccess.h>
 #include <sync/spin_lock.h>
 #include <syscall/fcntl.h>
+#include <syscall/memfd.h>
 #include <syscall/syscall.h>
 
 int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
@@ -135,6 +136,17 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             file->flags = (file->flags & ~settable) | (arg & settable);
             spin_unlock(&file->lock);
             result = 0;
+            break;
+        }
+
+        case F_ADD_SEALS :
+            result = memfd_add_seals(file->node, (uint32_t)arg);
+            break;
+
+        case F_GET_SEALS : {
+            uint32_t seals;
+            result = memfd_get_seals(file->node, &seals);
+            if (result == EOK) result = seals;
             break;
         }
 
