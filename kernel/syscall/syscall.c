@@ -3809,12 +3809,16 @@ void syscall_dispatch(syscall_frame_t *frame)
 check_signals:
     /*
      * On return to userspace, check for pending signals.
-     * Signal delivery must not overwrite a syscall result: the syscall
-     * implementation is responsible for returning -EINTR when interrupted.
+     * If a signal was delivered that interrupted the syscall,
+     * set the return value to -EINTR.
      */
     if (frame->cs & 0x3) {
         int ret = signal_deliver_if_pending(frame);
-        if (ret == 1) { task_exit(); }
+        if (ret == 1) {
+            task_exit();
+        } else if (ret == -EINTR || ret == -ERESTART) {
+            frame->rax = (uint64_t)-EINTR;
+        }
     }
 }
 
