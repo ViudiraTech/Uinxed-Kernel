@@ -240,6 +240,9 @@ int vfs_delete(vfs_node_t node);
 /* Remove a node from pathname lookup immediately, retaining open references. */
 int vfs_namespace_unlink(vfs_node_t node);
 
+/* Detach a kernel-owned virtual subtree, deferring frees until open references close. */
+void vfs_namespace_detach(vfs_node_t node);
+
 /* Rename a VFS (Virtual File System) node to a new name */
 int vfs_rename(vfs_node_t node, const char *new);
 

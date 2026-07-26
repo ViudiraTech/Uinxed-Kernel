@@ -29,21 +29,39 @@ typedef struct kref {
 /* Increment the reference count */
 static inline void kref_init(kref_t *kref)
 {
-    kref->refcount = 1;
+    __atomic_store_n(&kref->refcount, 1, __ATOMIC_RELEASE);
 }
 
-/* Take an additional reference */
+/* Take an additional reference without resurrecting a released object. */
+static inline int kref_get_unless_zero(kref_t *kref)
+{
+    uint32_t count = __atomic_load_n(&kref->refcount, __ATOMIC_ACQUIRE);
+
+    while (count) {
+        if (count == UINT32_MAX) return 0;
+        if (__atomic_compare_exchange_n(&kref->refcount, &count, count + 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) return 1;
+    }
+    return 0;
+}
+
 static inline void kref_get(kref_t *kref)
 {
-    kref->refcount++;
+    (void)kref_get_unless_zero(kref);
 }
 
 /* Drop a reference; returns 1 if the count reached zero */
 static inline int kref_put(kref_t *kref, void (*release)(kref_t *kref))
 {
-    if (--kref->refcount == 0) {
-        if (release) release(kref);
-        return 1;
+    uint32_t count = __atomic_load_n(&kref->refcount, __ATOMIC_ACQUIRE);
+
+    while (count) {
+        if (__atomic_compare_exchange_n(&kref->refcount, &count, count - 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            if (count == 1) {
+                if (release) release(kref);
+                return 1;
+            }
+            return 0;
+        }
     }
     return 0;
 }
@@ -51,7 +69,7 @@ static inline int kref_put(kref_t *kref, void (*release)(kref_t *kref))
 /* Return the current reference count */
 static inline uint32_t kref_read(const kref_t *kref)
 {
-    return kref->refcount;
+    return __atomic_load_n(&kref->refcount, __ATOMIC_ACQUIRE);
 }
 
 /* ------------------------------------------------------------------ */
@@ -107,14 +125,18 @@ struct kobject {
         kref_t            kref;   /* reference counter */
 
         /* internal */
-        clist_t    children;   /* circular list of child kobjects */
-        clist_t    attributes; /* circular list of sysfs_attr_entry_t */
-        clist_t    symlinks;   /* circular list of sysfs_symlink_entry_t */
-        vfs_node_t sd;         /* sysfs directory VFS node */
-        spinlock_t lock;       /* protects children/attributes/symlinks */
+        clist_t    children;       /* circular list of child kobjects */
+        clist_t    attributes;     /* circular list of sysfs_attr_entry_t */
+        clist_t    bin_attributes; /* list of sysfs_bin_attr_entry_t */
+        clist_t    symlinks;       /* circular list of sysfs_symlink_entry_t */
+        vfs_node_t sd;             /* sysfs directory VFS node */
+        spinlock_t lock;           /* protects children/attributes/symlinks */
 
-        unsigned int state_initialized : 1;
-        unsigned int state_in_sysfs    : 1;
+        unsigned int state_initialized        : 1;
+        unsigned int state_in_sysfs           : 1;
+        unsigned int state_in_kset            : 1;
+        unsigned int state_add_uevent_sent    : 1;
+        unsigned int state_remove_uevent_sent : 1;
 };
 
 /* ------------------------------------------------------------------ */
@@ -126,6 +148,7 @@ struct kset {
         spinlock_t                    list_lock; /* protects list modifications */
         struct kobject                kobj;      /* embedded kobject (the default parent) */
         const struct kset_uevent_ops *uevent_ops;
+        unsigned int                  dynamic : 1;
 };
 
 /* ------------------------------------------------------------------ */

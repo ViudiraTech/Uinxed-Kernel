@@ -64,10 +64,7 @@ struct sysfs_ops {
 #define __stringify_1(x) #x
 #define __stringify(x)   __stringify_1(x)
 
-#define __ATTR(_name, _mode)                      \
-    {                                             \
-        .name = __stringify(_name), .mode = _mode \
-    }
+#define __ATTR(_name, _mode) {.name = __stringify(_name), .mode = _mode}
 
 #define __ATTR_RO(_name) __ATTR(_name, 0444)
 #define __ATTR_WO(_name) __ATTR(_name, 0200)
@@ -75,10 +72,7 @@ struct sysfs_ops {
 
 #define __ATTR_RO_MODE(_name, _mode) __ATTR(_name, _mode)
 
-#define __ATTR_NULL  \
-    {                \
-        .name = NULL \
-    }
+#define __ATTR_NULL {.name = NULL}
 
 /* ------------------------------------------------------------------ */
 /*  sysfs buffer helpers (PAGE_SIZE semantics)                         */
@@ -153,7 +147,12 @@ int  sysfs_init(void);
 void sysfs_cleanup_kobject_files(struct kobject *kobj);
 
 /* Internal: notify sysfs that a kobject's name has changed */
-void sysfs_rename_dir(struct kobject *kobj, const char *new_name);
+int sysfs_rename_dir(struct kobject *kobj, const char *new_name);
+
+/* Internal: move a kobject directory below a new parent. */
+int sysfs_move_dir(struct kobject *kobj, struct kobject *new_parent);
+
+extern struct kobject *sysfs_root_kobj;
 
 /* Internal: get the absolute sysfs path of a kobject */
 char *kobject_get_path(struct kobject *kobj);

@@ -2026,13 +2026,13 @@ static int64_t sys_select_stub(uint64_t nfds, uint64_t readfds, uint64_t writefd
             set_fd_in_set(kread, (int)i);
             ready++;
         } else if (readfds) {
-            kread[(int)i / 8] &= (uint8_t) ~(1u << ((int)i % 8));
+            kread[(int)i / 8] &= (uint8_t)~(1u << ((int)i % 8));
         }
         if (revents & 0x004) {
             set_fd_in_set(kwrite, (int)i);
             if (!(revents & 0x001)) ready++;
         } else if (writefds) {
-            kwrite[(int)i / 8] &= (uint8_t) ~(1u << ((int)i % 8));
+            kwrite[(int)i / 8] &= (uint8_t)~(1u << ((int)i % 8));
         }
     }
 
@@ -2064,19 +2064,19 @@ static int64_t sys_pread64_stub(uint64_t fd, uint64_t buf, uint64_t count, uint6
     uint8_t tmp[SYSCALL_IO_CHUNK];
     size_t  done = 0;
     while (done < count) {
-        size_t chunk = (count - done) < sizeof(tmp) ? (count - done) : sizeof(tmp);
-        size_t ret   = vfs_read(file->node, tmp, offset + done, chunk);
-        if (ret == (size_t)-1) {
+        size_t  chunk = (count - done) < sizeof(tmp) ? (count - done) : sizeof(tmp);
+        int64_t ret   = vfs_file_read(file->node, file->private_data, file->flags, tmp, offset + done, chunk);
+        if (ret < 0) {
             process_file_put(file);
-            return done ? (int64_t)done : -EIO;
+            return done ? (int64_t)done : ret;
         }
         if (!ret) break;
-        if (copy_to_user((void *)(buf + done), tmp, ret)) {
+        if (copy_to_user((void *)(buf + done), tmp, (size_t)ret)) {
             process_file_put(file);
             return -EFAULT;
         }
-        done += ret;
-        if (ret < chunk) break;
+        done += (size_t)ret;
+        if ((size_t)ret < chunk) break;
     }
     process_file_put(file);
     return (int64_t)done;
@@ -2107,13 +2107,13 @@ static int64_t sys_pwrite64_impl(uint64_t fd, uint64_t buf, uint64_t count, uint
             process_file_put(file);
             return done ? (int64_t)done : -EFAULT;
         }
-        size_t ret = vfs_write(file->node, tmp, offset + done, chunk);
-        if (ret == (size_t)-1) {
+        int64_t ret = vfs_file_write(file->node, file->private_data, file->flags, tmp, offset + done, chunk);
+        if (ret < 0) {
             process_file_put(file);
-            return done ? (int64_t)done : -EIO;
+            return done ? (int64_t)done : ret;
         }
-        done += ret;
-        if (ret < chunk) break;
+        done += (size_t)ret;
+        if ((size_t)ret < chunk) break;
     }
     process_file_put(file);
     return (int64_t)done;

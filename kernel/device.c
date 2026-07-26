@@ -158,6 +158,11 @@ static void device_release_internal(struct kobject *kobj)
     if (dev->release) dev->release(dev);
 }
 
+static void device_create_release(struct device *dev)
+{
+    free(dev);
+}
+
 static struct kobj_type device_ktype = {
     .release       = device_release_internal,
     .sysfs_ops     = &dev_sysfs_ops,
@@ -245,6 +250,7 @@ int bus_register(struct bus_type *bus)
     bus->devices_kset = kset_create_and_add("devices", NULL, &bus->subsys.kobj);
     if (!bus->devices_kset) {
         kobject_del(&bus->subsys.kobj);
+        kobject_put(&bus->subsys.kobj);
         return -ENOMEM;
     }
 
@@ -252,10 +258,13 @@ int bus_register(struct bus_type *bus)
     bus->drivers_kset = kset_create_and_add("drivers", NULL, &bus->subsys.kobj);
     if (!bus->drivers_kset) {
         kset_unregister(bus->devices_kset);
+        bus->devices_kset = NULL;
         kobject_del(&bus->subsys.kobj);
+        kobject_put(&bus->subsys.kobj);
         return -ENOMEM;
     }
 
+    kobject_uevent(&bus->subsys.kobj, KOBJ_ADD);
     return EOK;
 }
 
@@ -265,7 +274,10 @@ void bus_unregister(struct bus_type *bus)
 
     if (bus->drivers_kset) kset_unregister(bus->drivers_kset);
     if (bus->devices_kset) kset_unregister(bus->devices_kset);
+    bus->drivers_kset = NULL;
+    bus->devices_kset = NULL;
     kobject_del(&bus->subsys.kobj);
+    kobject_put(&bus->subsys.kobj);
 }
 
 int bus_create_file(struct bus_type *bus, struct bus_attribute *attr)
@@ -350,6 +362,7 @@ int device_register(struct device *dev)
         /* For now just add to the class kset */
     }
 
+    kobject_uevent(&dev->kobj, KOBJ_ADD);
     return EOK;
 }
 
@@ -374,6 +387,7 @@ void device_unregister(struct device *dev)
     }
 
     kobject_del(&dev->kobj);
+    kobject_put(&dev->kobj);
 }
 
 struct device *device_create(struct class *cls, struct device *parent, dev_t devt, void *drvdata, const char *fmt, ...)
@@ -381,13 +395,15 @@ struct device *device_create(struct class *cls, struct device *parent, dev_t dev
     struct device *dev;
     va_list        args;
     char           namebuf[64];
+    int            length;
     int            ret;
 
     if (!cls || !fmt) return NULL;
 
     va_start(args, fmt);
-    vsnprintf(namebuf, sizeof(namebuf), fmt, args);
+    length = vsnprintf(namebuf, sizeof(namebuf), fmt, args);
     va_end(args);
+    if (length < 0 || length >= (int)sizeof(namebuf)) return NULL;
 
     dev = calloc(1, sizeof(struct device));
     if (!dev) return NULL;
@@ -396,6 +412,7 @@ struct device *device_create(struct class *cls, struct device *parent, dev_t dev
     dev->parent      = parent;
     dev->devt        = devt;
     dev->driver_data = drvdata;
+    dev->release     = cls->dev_release ? cls->dev_release : device_create_release;
 
     ret = kobject_set_name(&dev->kobj, "%s", namebuf);
     if (ret != EOK) {
@@ -405,8 +422,7 @@ struct device *device_create(struct class *cls, struct device *parent, dev_t dev
 
     ret = device_register(dev);
     if (ret != EOK) {
-        free((void *)dev->kobj.name);
-        free(dev);
+        kobject_put(&dev->kobj);
         return NULL;
     }
 
@@ -460,13 +476,21 @@ int driver_register(struct device_driver *drv)
     if (ret != EOK) return ret;
 
     /* Add driver groups */
-    if (drv->groups) { sysfs_create_groups(&drv->kobj, drv->groups); }
+    if (drv->groups) {
+        ret = sysfs_create_groups(&drv->kobj, drv->groups);
+        if (ret != EOK) {
+            kobject_del(&drv->kobj);
+            kobject_put(&drv->kobj);
+            return ret;
+        }
+    }
 
     /* Add driver to bus's driver kset */
     spin_lock(&drv->bus->drivers_kset->list_lock);
     drv->bus->drivers_kset->list = clist_append(drv->bus->drivers_kset->list, &drv->kobj);
     spin_unlock(&drv->bus->drivers_kset->list_lock);
 
+    kobject_uevent(&drv->kobj, KOBJ_ADD);
     return EOK;
 }
 
@@ -483,6 +507,7 @@ void driver_unregister(struct device_driver *drv)
 
     if (drv->groups) sysfs_remove_groups(&drv->kobj, drv->groups);
     kobject_del(&drv->kobj);
+    kobject_put(&drv->kobj);
 }
 
 int driver_create_file(struct device_driver *drv, const struct driver_attribute *attr)
@@ -518,8 +543,16 @@ int class_register(struct class *cls)
     if (ret != EOK) return ret;
 
     /* Create class attribute groups */
-    if (cls->class_groups) { sysfs_create_groups(&cls->subsys.kobj, cls->class_groups); }
+    if (cls->class_groups) {
+        ret = sysfs_create_groups(&cls->subsys.kobj, cls->class_groups);
+        if (ret != EOK) {
+            kobject_del(&cls->subsys.kobj);
+            kobject_put(&cls->subsys.kobj);
+            return ret;
+        }
+    }
 
+    kobject_uevent(&cls->subsys.kobj, KOBJ_ADD);
     return EOK;
 }
 
@@ -528,6 +561,7 @@ void class_unregister(struct class *cls)
     if (!cls) return;
     if (cls->class_groups) sysfs_remove_groups(&cls->subsys.kobj, cls->class_groups);
     kobject_del(&cls->subsys.kobj);
+    kobject_put(&cls->subsys.kobj);
 }
 
 int class_create_file(struct class *cls, const struct class_attribute *attr)

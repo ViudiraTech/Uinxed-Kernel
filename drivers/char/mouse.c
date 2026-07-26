@@ -51,26 +51,30 @@ static int ps2_mouse_negotiate(const uint8_t rates[3], uint8_t expected_id)
     return id == expected_id ? EOK : -ENODEV;
 }
 
-static void ps2_mouse_emit_button(uint16_t code, bool value, bool *previous)
+static void ps2_mouse_append_button(input_event_t *events, size_t *count, uint16_t code, bool value, bool *previous)
 {
     if (*previous == value) return;
     *previous = value;
-    evdev_inject_event(&ps2_mouse_dev, EV_KEY, code, value ? 1 : 0);
+    events[(*count)++] = (input_event_t) {.type = EV_KEY, .code = code, .value = value ? 1 : 0};
 }
 
 static void ps2_mouse_report(const struct ps2_mouse_packet *packet)
 {
-    ps2_mouse_emit_button(BTN_LEFT, packet->left, &ps2_mouse_previous.left);
-    ps2_mouse_emit_button(BTN_RIGHT, packet->right, &ps2_mouse_previous.right);
-    ps2_mouse_emit_button(BTN_MIDDLE, packet->middle, &ps2_mouse_previous.middle);
+    input_event_t events[9];
+    size_t        count = 0;
+
+    ps2_mouse_append_button(events, &count, BTN_LEFT, packet->left, &ps2_mouse_previous.left);
+    ps2_mouse_append_button(events, &count, BTN_RIGHT, packet->right, &ps2_mouse_previous.right);
+    ps2_mouse_append_button(events, &count, BTN_MIDDLE, packet->middle, &ps2_mouse_previous.middle);
     if (ps2_mouse_protocol == PS2_MOUSE_EXPLORER) {
-        ps2_mouse_emit_button(BTN_SIDE, packet->side, &ps2_mouse_previous.side);
-        ps2_mouse_emit_button(BTN_EXTRA, packet->extra, &ps2_mouse_previous.extra);
+        ps2_mouse_append_button(events, &count, BTN_SIDE, packet->side, &ps2_mouse_previous.side);
+        ps2_mouse_append_button(events, &count, BTN_EXTRA, packet->extra, &ps2_mouse_previous.extra);
     }
-    if (packet->dx) evdev_inject_event(&ps2_mouse_dev, EV_REL, REL_X, packet->dx);
-    if (packet->dy) evdev_inject_event(&ps2_mouse_dev, EV_REL, REL_Y, -packet->dy);
-    if (packet->wheel) evdev_inject_event(&ps2_mouse_dev, EV_REL, REL_WHEEL, packet->wheel);
-    evdev_inject_syn(&ps2_mouse_dev);
+    if (packet->dx) events[count++] = (input_event_t) {.type = EV_REL, .code = REL_X, .value = packet->dx};
+    if (packet->dy) events[count++] = (input_event_t) {.type = EV_REL, .code = REL_Y, .value = -packet->dy};
+    if (packet->wheel) events[count++] = (input_event_t) {.type = EV_REL, .code = REL_WHEEL, .value = packet->wheel};
+    events[count++] = (input_event_t) {.type = EV_SYN, .code = SYN_REPORT, .value = 0};
+    evdev_inject_events(&ps2_mouse_dev, events, count);
 }
 
 void ps2_mouse_handle_byte(uint8_t byte)
@@ -132,7 +136,7 @@ void ps2_mouse_init(void)
     ps2_mouse_dev.id.vendor              = 1;
     ps2_mouse_dev.id.product             = id;
     ps2_mouse_dev.id.version             = 0x0100;
-    ps2_mouse_dev.hint_events_per_packet = 6;
+    ps2_mouse_dev.hint_events_per_packet = 9;
     ps2_mouse_dev.exist                  = true;
     set_bit(EV_KEY, ps2_mouse_dev.evbit);
     set_bit(EV_REL, ps2_mouse_dev.evbit);
@@ -148,7 +152,18 @@ void ps2_mouse_init(void)
         set_bit(BTN_EXTRA, ps2_mouse_dev.keybit);
     }
     ps2_mouse_evdev = evdev_create(&ps2_mouse_dev);
-    if (!ps2_mouse_evdev || evdev_register(ps2_mouse_evdev) != EOK) return;
+    if (!ps2_mouse_evdev) {
+        (void)ps2_send_device_command(true, PS2_DEV_DISABLE_REPORT);
+        plogk("evdev: unable to allocate PS/2 mouse device.\n");
+        return;
+    }
+    if (evdev_register(ps2_mouse_evdev) != EOK) {
+        evdev_destroy(ps2_mouse_evdev);
+        ps2_mouse_evdev = NULL;
+        (void)ps2_send_device_command(true, PS2_DEV_DISABLE_REPORT);
+        plogk("evdev: unable to register PS/2 mouse device.\n");
+        return;
+    }
     ps2_mouse_ready = true;
     plogk("evdev: PS/2 mouse protocol %d registered as event%d\n", ps2_mouse_protocol, ps2_mouse_evdev->minor);
 }

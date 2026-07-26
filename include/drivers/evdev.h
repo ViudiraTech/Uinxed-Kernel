@@ -11,6 +11,7 @@
 #ifndef INCLUDE_EVDEV_H_
 #define INCLUDE_EVDEV_H_
 
+#include <drivers/evdev_queue.h>
 #include <drivers/input_event.h>
 #include <libs/glist/intrusive_list.h>
 #include <libs/std/stdbool.h>
@@ -20,6 +21,7 @@
 #include <sync/spin_lock.h>
 
 struct device;
+struct evdev;
 
 /* ---- evdev internal constants ---- */
 #define EVDEV_MINOR_BASE      64
@@ -55,21 +57,20 @@ typedef struct {
         uint32_t        sw_state[((SW_CNT) + 31) / 32];        /* current switch state */
         uint16_t        hint_events_per_packet;                /* hint for buffer sizing */
         int             rep[2];                                /* [0]=delay, [1]=period */
+        spinlock_t      event_lock;                            /* protects state and evdev binding */
+        struct evdev   *evdev;                                 /* registered event handler */
         bool            exist;                                 /* device is alive */
 } input_dev_t;
 
 /* ---- evdev client (one per open fd) ---- */
 typedef struct evdev_client {
-        unsigned int  head;        /* buffer write position */
-        unsigned int  tail;        /* buffer read position */
-        unsigned int  packet_head; /* first element of next packet */
+        evdev_queue_t queue;       /* packet-aware event ring */
         spinlock_t    buffer_lock; /* protects buffer, head, tail */
         wait_queue_t  wait;        /* wait queue for blocking reads */
         struct evdev *evdev;       /* back-pointer to evdev */
         ilist_node_t  node;        /* linkage in evdev->client_list */
         int           clk_type;    /* CLOCK_REALTIME / CLOCK_MONOTONIC / CLOCK_BOOTTIME */
         bool          revoked;     /* device access revoked */
-        unsigned int  bufsize;     /* size of buffer[] array (power of 2) */
         /* Event filter masks */
         uint32_t *evmasks[EV_CNT];
         /* Flexible array member (What the hell?) */
@@ -87,6 +88,7 @@ typedef struct evdev {
         bool            exist;       /* device is alive */
         int             minor;       /* assigned minor number */
         bool            node_published;
+        bool            registered;
         struct device  *sysfs_device;
 } evdev_t;
 
@@ -123,6 +125,9 @@ void evdev_init(void);
  * The event is passed to all clients of the evdev associated with dev. */
 void evdev_inject_event(input_dev_t *dev, uint16_t type, uint16_t code, int32_t value);
 
+/* Inject a bounded event frame with one lookup, timestamp, and client-list pass. */
+void evdev_inject_events(input_dev_t *dev, const input_event_t *events, size_t count);
+
 /* Inject a SYN_REPORT event to flush the current packet. */
 void evdev_inject_syn(input_dev_t *dev);
 
@@ -135,7 +140,7 @@ void evdev_inject_syn(input_dev_t *dev);
  * The 'ctx' parameter is the evdev_t pointer. */
 
 /* Called on open(). Returns evdev_client_t pointer to store in file->private. */
-evdev_client_t *evdev_fop_open(evdev_t *evdev);
+evdev_client_t *evdev_fop_open(evdev_t *evdev, int *error);
 
 /* Called on close(). client is file->private_data. */
 void evdev_fop_release(evdev_client_t *client);

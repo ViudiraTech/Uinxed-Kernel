@@ -31,7 +31,6 @@
 /* Default release function for dynamically-allocated kobjects */
 static void dynamic_kobj_release(struct kobject *kobj)
 {
-    if (kobj->name) { free((void *)kobj->name); }
     free(kobj);
 }
 
@@ -40,6 +39,46 @@ static struct kobj_type dynamic_kobj_ktype = {
     .sysfs_ops     = NULL,
     .default_attrs = NULL,
 };
+
+static void dynamic_kset_release(struct kobject *kobj)
+{
+    struct kset *kset = (struct kset *)((char *)kobj - offsetof(struct kset, kobj));
+    kset->list        = clist_free(kset->list);
+    free(kset);
+}
+
+static void static_kset_release(struct kobject *kobj)
+{
+    (void)kobj;
+}
+
+static struct kobj_type dynamic_kset_ktype = {
+    .release = dynamic_kset_release,
+};
+
+static struct kobj_type static_kset_ktype = {
+    .release = static_kset_release,
+};
+
+static int kobject_name_valid(const char *name)
+{
+    return name && name[0] && !strchr(name, '/');
+}
+
+static int kobject_list_add(clist_t *list, void *data)
+{
+    clist_t node = clist_alloc(data);
+    if (!node) return -ENOMEM;
+
+    if (!*list) {
+        *list = node;
+    } else {
+        clist_t tail = clist_tail(*list);
+        tail->next   = node;
+        node->prev   = tail;
+    }
+    return EOK;
+}
 
 /* ------------------------------------------------------------------ */
 /*  kobject_init                                                       */
@@ -52,17 +91,21 @@ void kobject_init(struct kobject *kobj, struct kobj_type *ktype)
     /* NOTE: does NOT zero the struct. The caller is responsible
      * for providing a pre-zeroed kobject (e.g. via calloc).
      * Fields that were set before init (like name) are preserved. */
-    kobj->ktype      = ktype;
-    kobj->kset       = NULL;
-    kobj->parent     = NULL;
-    kobj->sd         = NULL;
-    kobj->children   = NULL;
-    kobj->attributes = NULL;
-    kobj->symlinks   = NULL;
+    kobj->ktype          = ktype;
+    kobj->kset           = NULL;
+    kobj->parent         = NULL;
+    kobj->sd             = NULL;
+    kobj->children       = NULL;
+    kobj->attributes     = NULL;
+    kobj->bin_attributes = NULL;
+    kobj->symlinks       = NULL;
     memset(&kobj->lock, 0, sizeof(kobj->lock));
     kref_init(&kobj->kref);
-    kobj->state_initialized = 1;
-    kobj->state_in_sysfs    = 0;
+    kobj->state_initialized        = 1;
+    kobj->state_in_sysfs           = 0;
+    kobj->state_in_kset            = 0;
+    kobj->state_add_uevent_sent    = 0;
+    kobj->state_remove_uevent_sent = 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -75,22 +118,19 @@ int kobject_set_name(struct kobject *kobj, const char *fmt, ...)
     va_list args;
     int     n;
 
-    if (!kobj) return -EINVAL;
+    if (!kobj || !fmt) return -EINVAL;
 
     va_start(args, fmt);
     n = vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
 
-    if (n < 0) return -EINVAL;
+    if (n < 0 || n >= (int)sizeof(buf) || !kobject_name_valid(buf)) return n >= (int)sizeof(buf) ? -ENAMETOOLONG : -EINVAL;
 
-    /* Free old name if it was dynamically allocated */
-    if (kobj->name) {
-        /* Only free if the kobject owns it (set via kobject_set_name) */
-        free((void *)kobj->name);
-    }
+    char *name = strdup(buf);
+    if (!name) return -ENOMEM;
 
-    kobj->name = strdup(buf);
-    if (!kobj->name) return -ENOMEM;
+    free((void *)kobj->name);
+    kobj->name = name;
 
     return EOK;
 }
@@ -105,75 +145,89 @@ int kobject_add(struct kobject *kobj, struct kobject *parent, const char *fmt, .
     char    namebuf[KOBJ_NAME_LEN];
     int     ret;
 
-    if (!kobj) return -EINVAL;
-    if (!kobj->state_initialized) return -EINVAL;
+    struct kobject *held_parent = NULL;
+    struct kset    *held_kset   = NULL;
+
+    if (!kobj || !kobj->state_initialized || kobj->state_in_sysfs) return -EINVAL;
 
     /* Set the name */
     if (fmt) {
         va_start(args, fmt);
-        vsnprintf(namebuf, sizeof(namebuf), fmt, args);
+        int n = vsnprintf(namebuf, sizeof(namebuf), fmt, args);
         va_end(args);
+
+        if (n < 0 || n >= (int)sizeof(namebuf)) return n >= (int)sizeof(namebuf) ? -ENAMETOOLONG : -EINVAL;
 
         ret = kobject_set_name(kobj, "%s", namebuf);
         if (ret != EOK) return ret;
     }
+    if (!kobject_name_valid(kobj->name)) return -EINVAL;
 
     /* Determine parent */
-    if (parent) {
-        kobj->parent = parent;
-    } else if (kobj->kset) {
-        kobj->parent = &kobj->kset->kobj;
+    if (!parent && kobj->kset) parent = &kobj->kset->kobj;
+    if (parent && !(held_parent = kobject_get(parent))) return -EINVAL;
+    if (kobj->kset && !(held_kset = kset_get(kobj->kset))) {
+        kobject_put(held_parent);
+        return -EINVAL;
     }
+    kobj->parent = parent;
 
     /* Add to kset if one is set */
     if (kobj->kset) {
         spin_lock(&kobj->kset->list_lock);
-        kobj->kset->list = clist_append(kobj->kset->list, kobj);
+        ret = kobject_list_add(&kobj->kset->list, kobj);
         spin_unlock(&kobj->kset->list_lock);
 
-        /* Inherit ktype from kset if not set */
-        if (!kobj->ktype) { kobj->ktype = kobj->kset->kobj.ktype; }
-        /* Inherit parent from kset if not set */
-        if (!kobj->parent) { kobj->parent = &kobj->kset->kobj; }
+        if (ret != EOK) goto err_refs;
+        kobj->state_in_kset = 1;
     }
 
     /* Add to parent's child list */
     if (kobj->parent) {
         spin_lock(&kobj->parent->lock);
-        kobj->parent->children = clist_append(kobj->parent->children, kobj);
+        ret = kobject_list_add(&kobj->parent->children, kobj);
         spin_unlock(&kobj->parent->lock);
+        if (ret != EOK) goto err_kset;
     }
 
     /* Create sysfs directory */
     ret = sysfs_create_dir(kobj);
-    if (ret != EOK) {
-        /* Rollback: remove from parent's child list */
-        if (kobj->parent) {
-            spin_lock(&kobj->parent->lock);
-            kobj->parent->children = clist_delete(kobj->parent->children, kobj);
-            spin_unlock(&kobj->parent->lock);
-        }
-        /* Rollback: remove from kset */
-        if (kobj->kset) {
-            spin_lock(&kobj->kset->list_lock);
-            kobj->kset->list = clist_delete(kobj->kset->list, kobj);
-            spin_unlock(&kobj->kset->list_lock);
-        }
-        return ret;
-    }
+    if (ret != EOK) { goto err_parent; }
 
     /* Create default attributes */
     if (kobj->ktype && kobj->ktype->default_attrs) {
         struct attribute **attr;
         for (attr = kobj->ktype->default_attrs; *attr; attr++) {
-            if ((*attr)->name) { sysfs_create_file(kobj, *attr); }
+            if (!(*attr)->name) continue;
+            ret = sysfs_create_file(kobj, *attr);
+            if (ret != EOK) {
+                for (struct attribute **created = kobj->ktype->default_attrs; created < attr; created++) sysfs_remove_file(kobj, *created);
+                sysfs_remove_dir(kobj);
+                goto err_parent;
+            }
         }
     }
 
-    /* Send KOBJ_ADD uevent */
-    kobject_uevent(kobj, KOBJ_ADD);
-
     return EOK;
+
+err_parent:
+    if (kobj->parent) {
+        spin_lock(&kobj->parent->lock);
+        kobj->parent->children = clist_delete(kobj->parent->children, kobj);
+        spin_unlock(&kobj->parent->lock);
+    }
+err_kset:
+    if (kobj->state_in_kset) {
+        spin_lock(&kobj->kset->list_lock);
+        kobj->kset->list = clist_delete(kobj->kset->list, kobj);
+        spin_unlock(&kobj->kset->list_lock);
+        kobj->state_in_kset = 0;
+    }
+err_refs:
+    kobj->parent = NULL;
+    kset_put(held_kset);
+    kobject_put(held_parent);
+    return ret;
 }
 
 /* ------------------------------------------------------------------ */
@@ -184,20 +238,16 @@ int kobject_init_and_add(struct kobject *kobj, struct kobj_type *ktype, struct k
 {
     va_list args;
     char    namebuf[KOBJ_NAME_LEN];
-    int     ret;
+    int     n;
+
+    if (!kobj || !fmt) return -EINVAL;
+    va_start(args, fmt);
+    n = vsnprintf(namebuf, sizeof(namebuf), fmt, args);
+    va_end(args);
+    if (n < 0 || n >= (int)sizeof(namebuf)) return n >= (int)sizeof(namebuf) ? -ENAMETOOLONG : -EINVAL;
 
     kobject_init(kobj, ktype);
-
-    if (fmt) {
-        va_start(args, fmt);
-        vsnprintf(namebuf, sizeof(namebuf), fmt, args);
-        va_end(args);
-
-        ret = kobject_set_name(kobj, "%s", namebuf);
-        if (ret != EOK) return ret;
-    }
-
-    return kobject_add(kobj, parent, "%s", kobj->name);
+    return kobject_add(kobj, parent, "%s", namebuf);
 }
 
 /* ------------------------------------------------------------------ */
@@ -220,8 +270,6 @@ struct kobject *kobject_create_and_add(const char *name, struct kobject *parent)
         return NULL;
     }
 
-    /* kobject_get to return with ref held for caller */
-    kref_get(&kobj->kref);
     return kobj;
 }
 
@@ -231,13 +279,18 @@ struct kobject *kobject_create_and_add(const char *name, struct kobject *parent)
 
 struct kobject *kobject_get(struct kobject *kobj)
 {
-    if (kobj) kref_get(&kobj->kref);
+    if (!kobj || !kref_get_unless_zero(&kobj->kref)) return NULL;
     return kobj;
 }
 
 static void kobject_release_internal(kref_t *kref)
 {
     struct kobject *kobj = (struct kobject *)((char *)kref - offsetof(struct kobject, kref));
+
+    if (kobj->state_in_sysfs) kobject_del(kobj);
+    free((void *)kobj->name);
+    kobj->name              = NULL;
+    kobj->state_initialized = 0;
 
     /* Call the type-specific release */
     if (kobj->ktype && kobj->ktype->release) { kobj->ktype->release(kobj); }
@@ -255,10 +308,12 @@ void kobject_put(struct kobject *kobj)
 
 void kobject_del(struct kobject *kobj)
 {
-    if (!kobj) return;
+    struct kobject *parent;
+    struct kset    *kset;
 
-    /* Send KOBJ_REMOVE uevent */
-    kobject_uevent(kobj, KOBJ_REMOVE);
+    if (!kobj || !kobj->state_in_sysfs) return;
+
+    if (kobj->state_add_uevent_sent && !kobj->state_remove_uevent_sent) kobject_uevent(kobj, KOBJ_REMOVE);
 
     /* Remove default attributes */
     if (kobj->ktype && kobj->ktype->default_attrs) {
@@ -275,20 +330,27 @@ void kobject_del(struct kobject *kobj)
     sysfs_remove_dir(kobj);
 
     /* Remove from parent's child list */
-    if (kobj->parent) {
-        spin_lock(&kobj->parent->lock);
-        kobj->parent->children = clist_delete(kobj->parent->children, kobj);
-        spin_unlock(&kobj->parent->lock);
+    parent = kobj->parent;
+    kset   = kobj->kset;
+    if (parent) {
+        spin_lock(&parent->lock);
+        parent->children = clist_delete(parent->children, kobj);
+        spin_unlock(&parent->lock);
     }
 
     /* Remove from kset */
-    if (kobj->kset) {
-        spin_lock(&kobj->kset->list_lock);
-        kobj->kset->list = clist_delete(kobj->kset->list, kobj);
-        spin_unlock(&kobj->kset->list_lock);
+    if (kset && kobj->state_in_kset) {
+        spin_lock(&kset->list_lock);
+        kset->list = clist_delete(kset->list, kobj);
+        spin_unlock(&kset->list_lock);
+        kobj->state_in_kset = 0;
     }
 
     kobj->state_in_sysfs = 0;
+    kobj->parent         = NULL;
+    kobj->kset           = NULL;
+    kobject_put(parent);
+    kset_put(kset);
 }
 
 /* ------------------------------------------------------------------ */
@@ -297,26 +359,24 @@ void kobject_del(struct kobject *kobj)
 
 int kobject_rename(struct kobject *kobj, const char *new_name)
 {
-    if (!kobj || !new_name) return -EINVAL;
+    int ret;
 
-    char *old_name = (char *)kobj->name;
-    kobj->name     = strdup(new_name);
-    if (!kobj->name) {
-        kobj->name = old_name;
-        return -ENOMEM;
+    if (!kobj || !kobject_name_valid(new_name)) return -EINVAL;
+    if (kobj->name && streq(kobj->name, new_name)) return EOK;
+
+    char *replacement = strdup(new_name);
+    if (!replacement) return -ENOMEM;
+
+    if (kobj->state_in_sysfs) {
+        ret = sysfs_rename_dir(kobj, new_name);
+        if (ret != EOK) {
+            free(replacement);
+            return ret;
+        }
     }
 
-    if (old_name) free(old_name);
-
-    /* Rename the sysfs directory entry */
-    if (kobj->state_in_sysfs && kobj->sd) {
-        sysfs_rename_dir(kobj, new_name);
-
-        /* Also rename the VFS node */
-        if (kobj->sd->name) free((void *)kobj->sd->name);
-        kobj->sd->name = strdup(new_name);
-    }
-
+    free((void *)kobj->name);
+    kobj->name = replacement;
     kobject_uevent(kobj, KOBJ_MOVE);
     return EOK;
 }
@@ -327,21 +387,50 @@ int kobject_rename(struct kobject *kobj, const char *new_name)
 
 int kobject_move(struct kobject *kobj, struct kobject *new_parent)
 {
-    if (!kobj || !new_parent) return -EINVAL;
+    struct kobject *old_parent;
+    clist_t         new_link = NULL;
+    int             ret;
+
+    if (!kobj || !new_parent || !kobj->state_in_sysfs) return -EINVAL;
+    if (kobj->parent == new_parent) return EOK;
+    for (struct kobject *ancestor = new_parent; ancestor; ancestor = ancestor->parent)
+        if (ancestor == kobj) return -EINVAL;
+
+    if (!kobject_get(new_parent)) return -EINVAL;
+    new_link = clist_alloc(kobj);
+    if (!new_link) {
+        kobject_put(new_parent);
+        return -ENOMEM;
+    }
+
+    ret = sysfs_move_dir(kobj, new_parent);
+    if (ret != EOK) {
+        free(new_link);
+        kobject_put(new_parent);
+        return ret;
+    }
 
     /* Remove from old parent */
-    if (kobj->parent) {
-        spin_lock(&kobj->parent->lock);
-        kobj->parent->children = clist_delete(kobj->parent->children, kobj);
-        spin_unlock(&kobj->parent->lock);
+    old_parent = kobj->parent;
+    if (old_parent) {
+        spin_lock(&old_parent->lock);
+        old_parent->children = clist_delete(old_parent->children, kobj);
+        spin_unlock(&old_parent->lock);
     }
 
     /* Add to new parent */
     kobj->parent = new_parent;
     spin_lock(&new_parent->lock);
-    new_parent->children = clist_append(new_parent->children, kobj);
+    if (!new_parent->children) {
+        new_parent->children = new_link;
+    } else {
+        clist_t tail   = clist_tail(new_parent->children);
+        tail->next     = new_link;
+        new_link->prev = tail;
+    }
     spin_unlock(&new_parent->lock);
 
+    kobject_put(old_parent);
     kobject_uevent(kobj, KOBJ_MOVE);
     return EOK;
 }
@@ -365,7 +454,7 @@ void kset_init(struct kset *kset)
     if (!kset) return;
 
     memset(kset, 0, sizeof(*kset));
-    kobject_init(&kset->kobj, NULL);
+    kobject_init(&kset->kobj, &static_kset_ktype);
 }
 
 /* ------------------------------------------------------------------ */
@@ -381,13 +470,17 @@ struct kset *kset_create_and_add(const char *name, const struct kset_uevent_ops 
     if (!kset) return NULL;
 
     kset_init(kset);
+    kset->dynamic    = 1;
+    kset->kobj.ktype = &dynamic_kset_ktype;
     kset->uevent_ops = uevent_ops;
 
     ret = kobject_add(&kset->kobj, parent_kobj, "%s", name);
     if (ret != EOK) {
-        free(kset);
+        kobject_put(&kset->kobj);
         return NULL;
     }
+
+    kobject_uevent(&kset->kobj, KOBJ_ADD);
 
     return kset;
 }
@@ -399,23 +492,8 @@ struct kset *kset_create_and_add(const char *name, const struct kset_uevent_ops 
 void kset_unregister(struct kset *kset)
 {
     if (!kset) return;
-
-    /* Remove all children from the kset list */
-    spin_lock(&kset->list_lock);
-    {
-        clist_t node;
-        clist_t next;
-        for (node = kset->list; node; node = next) {
-            next                 = node->next;
-            struct kobject *kobj = node->data;
-            if (kobj) kobject_del(kobj);
-        }
-        kset->list = clist_free(kset->list);
-    }
-    spin_unlock(&kset->list_lock);
-
     kobject_del(&kset->kobj);
-    free(kset);
+    kobject_put(&kset->kobj);
 }
 
 /* ------------------------------------------------------------------ */
@@ -471,13 +549,13 @@ char *kobject_get_path(struct kobject *kobj)
 
 int kobject_uevent(struct kobject *kobj, enum kobject_action action)
 {
-#if CONFIG_UEVENT_HELPER
-    return kobject_uevent_env(kobj, action, NULL, 0);
-#else
-    (void)kobj;
-    (void)action;
-    return 0;
-#endif
+    int ret;
+
+    if (!kobj) return -EINVAL;
+    ret = kobject_uevent_env(kobj, action, NULL, 0);
+    if (ret == EOK && action == KOBJ_ADD) kobj->state_add_uevent_sent = 1;
+    if (ret == EOK && action == KOBJ_REMOVE) kobj->state_remove_uevent_sent = 1;
+    return ret;
 }
 
 /* ------------------------------------------------------------------ */
@@ -488,7 +566,7 @@ static uint64_t uevent_seqnum;
 
 uint64_t kobject_uevent_seqnum(void)
 {
-    return uevent_seqnum;
+    return __atomic_load_n(&uevent_seqnum, __ATOMIC_RELAXED);
 }
 
 /* ------------------------------------------------------------------ */
@@ -498,19 +576,41 @@ uint64_t kobject_uevent_seqnum(void)
 #define UEVENT_BUFFER_SIZE 2048
 #define UEVENT_NUM_ENVP    32
 
+#if CONFIG_UEVENT_HELPER
+static int uevent_append(char *buffer, size_t capacity, size_t *position, char **entry, const char *fmt, ...)
+{
+    va_list args;
+
+    if (!buffer || !position || *position >= capacity) return -ENOSPC;
+    if (entry) *entry = buffer + *position;
+
+    va_start(args, fmt);
+    int length = vsnprintf(buffer + *position, capacity - *position, fmt, args);
+    va_end(args);
+    if (length < 0) return -EINVAL;
+    if ((size_t)length >= capacity - *position) return -ENOSPC;
+
+    *position += (size_t)length + 1;
+    return EOK;
+}
+#endif
+
 int kobject_uevent_env(struct kobject *kobj, enum kobject_action action, char *envp[], int nenv)
 {
 #if CONFIG_UEVENT_HELPER
     struct kset *kset;
     const char  *action_string = NULL;
+    const char  *subsystem     = NULL;
+    const char  *event_path;
+    char        *event_envp[UEVENT_NUM_ENVP + 1];
     char        *devpath;
-    const char  *subsystem = NULL;
     char        *buffer;
     char        *nl_data;
     nlmsghdr_t  *nlh;
     size_t       buflen;
     size_t       pos;
     uint64_t     seq;
+    int          event_nenv;
     int          ret;
 
     if (!kobj) return -EINVAL;
@@ -541,8 +641,7 @@ int kobject_uevent_env(struct kobject *kobj, enum kobject_action action, char *e
             action_string = "unbind";
             break;
         default :
-            action_string = "unknown";
-            break;
+            return -EINVAL;
     }
 
     /* Find the kset that handles uevents */
@@ -565,62 +664,62 @@ int kobject_uevent_env(struct kobject *kobj, enum kobject_action action, char *e
         return -ENOMEM;
     }
 
-    /* Determine subsystem from kset */
-    if (kset) { subsystem = kobject_name(&kset->kobj); }
+    if (kset && kset->uevent_ops && kset->uevent_ops->name) subsystem = kset->uevent_ops->name(kset, kobj);
+    if (!subsystem && kset) subsystem = kobject_name(&kset->kobj);
 
-    /* Build environment string: KEY=VALUE\0KEY=VALUE\0...\0 */
-    pos = 0;
+    event_path = devpath;
+    if (strncmp(event_path, "/sys/", 5) == 0) event_path += 4;
+    if (streq(event_path, "/sys")) event_path = "/";
 
-    /* ACTION */
-    pos += (size_t)snprintf(buffer + pos, UEVENT_BUFFER_SIZE - pos, "ACTION=%s", action_string);
-    buffer[pos++] = '\0';
+    /* Linux kobject uevents start with "action@devpath", followed by a
+     * NUL-separated environment. */
+    pos        = 0;
+    event_nenv = 0;
+    ret        = uevent_append(buffer, UEVENT_BUFFER_SIZE, &pos, NULL, "%s@%s", action_string, event_path);
+    if (ret != EOK) goto err_buffer;
 
-    /* DEVPATH */
-    pos += (size_t)snprintf(buffer + pos, UEVENT_BUFFER_SIZE - pos, "DEVPATH=%s", devpath);
-    buffer[pos++] = '\0';
+    ret = uevent_append(buffer, UEVENT_BUFFER_SIZE, &pos, &event_envp[event_nenv], "ACTION=%s", action_string);
+    if (ret != EOK) goto err_buffer;
+    event_nenv++;
 
-    /* SUBSYSTEM */
+    ret = uevent_append(buffer, UEVENT_BUFFER_SIZE, &pos, &event_envp[event_nenv], "DEVPATH=%s", event_path);
+    if (ret != EOK) goto err_buffer;
+    event_nenv++;
+
     if (subsystem) {
-        pos += (size_t)snprintf(buffer + pos, UEVENT_BUFFER_SIZE - pos, "SUBSYSTEM=%s", subsystem);
-        buffer[pos++] = '\0';
+        ret = uevent_append(buffer, UEVENT_BUFFER_SIZE, &pos, &event_envp[event_nenv], "SUBSYSTEM=%s", subsystem);
+        if (ret != EOK) goto err_buffer;
+        event_nenv++;
     }
 
-    /* SEQNUM */
-    seq = uevent_seqnum++;
-    pos += (size_t)snprintf(buffer + pos, UEVENT_BUFFER_SIZE - pos, "SEQNUM=%llu", (unsigned long long)seq);
-    buffer[pos++] = '\0';
+    seq = __atomic_add_fetch(&uevent_seqnum, 1, __ATOMIC_RELAXED);
+    ret = uevent_append(buffer, UEVENT_BUFFER_SIZE, &pos, &event_envp[event_nenv], "SEQNUM=%llu", (unsigned long long)seq);
+    if (ret != EOK) goto err_buffer;
+    event_nenv++;
 
-    /* Add caller-supplied environment variables */
     if (envp && nenv > 0) {
-        for (int i = 0; i < nenv && i < UEVENT_NUM_ENVP; i++) {
+        for (int i = 0; i < nenv; i++) {
             if (!envp[i]) continue;
-            size_t elen = strlen(envp[i]);
-            if (pos + elen + 2 > UEVENT_BUFFER_SIZE) break;
-            memcpy(buffer + pos, envp[i], elen);
-            pos += elen;
-            buffer[pos++] = '\0';
+            if (event_nenv >= UEVENT_NUM_ENVP) {
+                ret = -E2BIG;
+                goto err_buffer;
+            }
+            ret = uevent_append(buffer, UEVENT_BUFFER_SIZE, &pos, &event_envp[event_nenv], "%s", envp[i]);
+            if (ret != EOK) goto err_buffer;
+            event_nenv++;
         }
     }
 
-    /* Call kset-specific uevent hook for additional variables */
+    event_envp[event_nenv] = NULL;
     if (kset && kset->uevent_ops && kset->uevent_ops->uevent) {
-        /* Extract extra env pointers into an array on stack */
-        char  *extra_envp[UEVENT_NUM_ENVP];
-        int    extra_nenv     = UEVENT_NUM_ENVP;
-        char  *remaining_buf  = buffer + pos;
-        size_t remaining_size = UEVENT_BUFFER_SIZE - pos;
-
-        /* Temporarily: use the remaining buffer space */
-        (void)extra_envp;
-        (void)extra_nenv;
-        (void)remaining_buf;
-        (void)remaining_size;
-        /* The uevent callback is called with existing envp;
-         * for simplicity, call it if space permits.
-         * Full implementation would split the buffer. */
+        ret = kset->uevent_ops->uevent(kset, kobj, event_envp, event_nenv);
+        if (ret != EOK) goto err_buffer;
     }
 
-    /* Terminate with extra NULL */
+    if (pos >= UEVENT_BUFFER_SIZE) {
+        ret = -ENOSPC;
+        goto err_buffer;
+    }
     buffer[pos++] = '\0';
     buflen        = pos;
 
@@ -654,11 +753,18 @@ int kobject_uevent_env(struct kobject *kobj, enum kobject_action action, char *e
 
     free(nl_data);
 
-    if (ret < 0) {
-        /* No listeners is not an error */
-        if (ret == -ECONNREFUSED) ret = EOK;
-    }
+    if (ret == -ECONNREFUSED) ret = EOK;
+    return ret;
 
+err_buffer:
+    free(devpath);
+    free(buffer);
+    return ret;
+#else
+    (void)kobj;
+    (void)action;
+    (void)envp;
+    (void)nenv;
     return EOK;
 #endif
 }

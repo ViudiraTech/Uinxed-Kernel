@@ -38,7 +38,15 @@ typedef struct sysfs_attr_entry {
         struct attribute *attr;
         vfs_node_t        vnode; /* VFS node for this file */
         struct kobject   *kobj;  /* owning kobject */
+        uint16_t          mode;
 } sysfs_attr_entry_t;
+
+typedef struct sysfs_bin_attr_entry {
+        struct bin_attribute *attr;
+        vfs_node_t            vnode;
+        struct kobject       *kobj;
+        uint16_t              mode;
+} sysfs_bin_attr_entry_t;
 
 typedef struct sysfs_symlink_entry {
         const char     *name;
@@ -49,12 +57,19 @@ typedef struct sysfs_symlink_entry {
 typedef struct sysfs_node {
         enum sysfs_node_type  type;
         struct kobject       *kobj;
-        struct attribute     *attr;         /* for SYSFS_ATTR */
-        struct bin_attribute *bin_attr;     /* for SYSFS_BIN_ATTR */
-        char                 *symlink_path; /* for SYSFS_SYMLINK */
-        char                 *content;      /* cached content buffer */
-        size_t                content_size;
+        struct attribute     *attr;           /* for SYSFS_ATTR */
+        struct bin_attribute *bin_attr;       /* for SYSFS_BIN_ATTR */
+        struct kobject       *symlink_target; /* for SYSFS_SYMLINK */
+        uint16_t              mode;
 } sysfs_node_t;
+
+typedef struct sysfs_open_file {
+        sysfs_node_t   *node;
+        struct kobject *kobj;
+        char           *buffer;
+        size_t          size;
+        int             generated;
+} sysfs_open_file_t;
 
 /* ------------------------------------------------------------------ */
 /*  Global state                                                       */
@@ -67,15 +82,11 @@ static vfs_node_t sysfs_root_vnode; /* /sys mount point VFS node */
 /* Forward declarations */
 static int  sysfs_stat(void *file, vfs_node_t node);
 static void sysfs_populate_dir(struct kobject *kobj);
+static void sysfs_unbind_dir(struct kobject *kobj);
 
 /* ------------------------------------------------------------------ */
 /*  Internal helpers                                                   */
 /* ------------------------------------------------------------------ */
-
-/* Dummy shit */
-static void sysfs_dummy(void)
-{ // dont understand why this is needed but it is
-}
 
 static sysfs_node_t *sysfs_node_alloc(enum sysfs_node_type type)
 {
@@ -88,8 +99,7 @@ static sysfs_node_t *sysfs_node_alloc(enum sysfs_node_type type)
 static void sysfs_node_free(sysfs_node_t *sn)
 {
     if (!sn) return;
-    free(sn->content);
-    free(sn->symlink_path);
+    kobject_put(sn->symlink_target);
     free(sn);
 }
 
@@ -119,6 +129,16 @@ static sysfs_attr_entry_t *sysfs_find_attr(struct kobject *kobj, const char *nam
     return NULL;
 }
 
+static sysfs_bin_attr_entry_t *sysfs_find_bin_attr(struct kobject *kobj, const char *name)
+{
+    if (!kobj || !name) return NULL;
+    for (clist_t node = kobj->bin_attributes; node; node = node->next) {
+        sysfs_bin_attr_entry_t *entry = node->data;
+        if (entry && entry->attr && entry->attr->attr.name && streq(entry->attr->attr.name, name)) return entry;
+    }
+    return NULL;
+}
+
 /* Look up a symlink entry by name */
 static sysfs_symlink_entry_t *sysfs_find_symlink(struct kobject *kobj, const char *name)
 {
@@ -133,37 +153,92 @@ static sysfs_symlink_entry_t *sysfs_find_symlink(struct kobject *kobj, const cha
 }
 
 /* Check if an attribute is writable */
-static int sysfs_attr_is_writable(const struct attribute *attr)
+static int sysfs_name_valid(const char *name)
 {
-    if (!attr) return 0;
-    /* Owner write or group write bit set */
-    return (attr->mode & 0200) != 0;
+    return name && name[0] && !strchr(name, '/') && !streq(name, ".") && !streq(name, "..");
+}
+
+static int sysfs_name_exists(struct kobject *kobj, const char *name)
+{
+    return sysfs_find_child_kobj(kobj, name) || sysfs_find_attr(kobj, name) || sysfs_find_bin_attr(kobj, name) || sysfs_find_symlink(kobj, name);
+}
+
+static int sysfs_list_add(clist_t *list, void *data)
+{
+    clist_t node = clist_alloc(data);
+    if (!node) return -ENOMEM;
+    if (!*list) {
+        *list = node;
+    } else {
+        clist_t tail = clist_tail(*list);
+        tail->next   = node;
+        node->prev   = tail;
+    }
+    return EOK;
+}
+
+static char *sysfs_relative_path(struct kobject *from, struct kobject *target)
+{
+    struct kobject *from_path[64];
+    struct kobject *target_path[64];
+    int             from_depth   = 0;
+    int             target_depth = 0;
+
+    for (struct kobject *node = from; node && from_depth < 64; node = node->parent) from_path[from_depth++] = node;
+    for (struct kobject *node = target; node && target_depth < 64; node = node->parent) target_path[target_depth++] = node;
+    if (!from_depth || !target_depth || from_path[from_depth - 1] != target_path[target_depth - 1]) return NULL;
+
+    int from_index   = from_depth - 1;
+    int target_index = target_depth - 1;
+    while (from_index >= 0 && target_index >= 0 && from_path[from_index] == target_path[target_index]) {
+        from_index--;
+        target_index--;
+    }
+
+    size_t length = (size_t)(from_index + 1) * 3;
+    for (int i = target_index; i >= 0; i--) length += strlen(target_path[i]->name) + (i ? 1 : 0);
+    if (!length) length = 1;
+
+    char *path = malloc(length + 1);
+    if (!path) return NULL;
+    path[0] = '\0';
+    for (int i = 0; i <= from_index; i++) strcat(path, "../");
+    for (int i = target_index; i >= 0; i--) {
+        strcat(path, target_path[i]->name);
+        if (i) strcat(path, "/");
+    }
+    if (!path[0]) strcpy(path, ".");
+    return path;
 }
 
 /* ------------------------------------------------------------------ */
 /*  Content generation (read path for attribute files)                 */
 /* ------------------------------------------------------------------ */
 
-static void sysfs_gen_attr_content(sysfs_node_t *sn)
+static ssize_t sysfs_gen_attr_content(sysfs_node_t *sn, char **content)
 {
     struct kobject   *kobj = sn->kobj;
     struct attribute *attr = sn->attr;
 
-    if (!kobj || !attr) return;
-    if (!kobj->ktype || !kobj->ktype->sysfs_ops) return;
-    if (!kobj->ktype->sysfs_ops->show) return;
+    if (!content) return -EINVAL;
+    *content = NULL;
+    if (!kobj || !attr || !kobj->ktype || !kobj->ktype->sysfs_ops || !kobj->ktype->sysfs_ops->show) return -EIO;
 
     char *buf = malloc(SYSFS_PAGE_SIZE);
-    if (!buf) return;
+    if (!buf) return -ENOMEM;
 
     ssize_t n = kobj->ktype->sysfs_ops->show(kobj, attr, buf);
     if (n < 0) {
         free(buf);
-        return;
+        return n;
+    }
+    if (n > SYSFS_PAGE_SIZE) {
+        free(buf);
+        return -EOVERFLOW;
     }
 
-    sn->content      = buf;
-    sn->content_size = (size_t)n;
+    *content = buf;
+    return n;
 }
 
 /* ------------------------------------------------------------------ */
@@ -173,6 +248,8 @@ static void sysfs_gen_attr_content(sysfs_node_t *sn)
 static int sysfs_mount(const char *handle, vfs_node_t node)
 {
     if (handle) return -EINVAL;
+    if (!node || !sysfs_root_kobj) return -EINVAL;
+    if (sysfs_root_vnode) return -EBUSY;
 
     node->fsid = sysfs_id;
 
@@ -199,6 +276,8 @@ static int sysfs_mount(const char *handle, vfs_node_t node)
 
 static void sysfs_umount(void *root)
 {
+    sysfs_unbind_dir(sysfs_root_kobj);
+    sysfs_root_vnode = NULL;
     sysfs_node_free(root);
 }
 
@@ -232,25 +311,46 @@ static void sysfs_open(void *parent_handle, const char *name, vfs_node_t node)
             if (attr_entry) {
                 sysfs_node_t *sn = sysfs_node_alloc(SYSFS_ATTR);
                 if (!sn) return;
-                sn->kobj     = parent_kobj;
-                sn->attr     = attr_entry->attr;
-                node->handle = sn;
-                node->type   = file_stream;
+                sn->kobj          = attr_entry->kobj;
+                sn->attr          = attr_entry->attr;
+                sn->mode          = attr_entry->mode;
+                node->handle      = sn;
+                node->type        = file_none;
+                attr_entry->vnode = node;
                 return;
             }
 
             /* Check for binary attribute — these are set up when created */
             /* Binary files are created proactively, skip here */
 
+            sysfs_bin_attr_entry_t *bin_entry = sysfs_find_bin_attr(parent_kobj, name);
+            if (bin_entry) {
+                sysfs_node_t *sn = sysfs_node_alloc(SYSFS_BIN_ATTR);
+                if (!sn) return;
+                sn->kobj         = bin_entry->kobj;
+                sn->bin_attr     = bin_entry->attr;
+                sn->mode         = bin_entry->mode;
+                node->handle     = sn;
+                node->type       = file_none;
+                node->size       = bin_entry->attr->size;
+                bin_entry->vnode = node;
+                return;
+            }
+
             /* Check for symlink */
             sysfs_symlink_entry_t *sym_entry = sysfs_find_symlink(parent_kobj, name);
             if (sym_entry) {
                 sysfs_node_t *sn = sysfs_node_alloc(SYSFS_SYMLINK);
                 if (!sn) return;
-                sn->kobj         = parent_kobj;
-                sn->symlink_path = kobject_get_path(sym_entry->target);
+                sn->kobj           = parent_kobj;
+                sn->symlink_target = kobject_get(sym_entry->target);
+                if (!sn->symlink_target) {
+                    sysfs_node_free(sn);
+                    return;
+                }
                 node->handle     = sn;
                 node->type       = file_symlink;
+                sym_entry->vnode = node;
                 return;
             }
             break;
@@ -302,10 +402,13 @@ static int sysfs_stat(void *file, vfs_node_t node)
                         child_vn->fsid = sysfs_id;
 
                         sysfs_node_t *child_sn = sysfs_node_alloc(SYSFS_DIR);
-                        if (child_sn) {
-                            child_sn->kobj   = child_kobj;
-                            child_vn->handle = child_sn;
+                        if (!child_sn) {
+                            node->child = clist_delete(node->child, child_vn);
+                            vfs_free(child_vn);
+                            continue;
                         }
+                        child_sn->kobj             = child_kobj;
+                        child_vn->handle           = child_sn;
                         child_kobj->sd             = child_vn;
                         child_kobj->state_in_sysfs = 1;
                     }
@@ -323,18 +426,47 @@ static int sysfs_stat(void *file, vfs_node_t node)
                     vfs_node_t file_vn = vfs_node_alloc(node, entry->attr->name);
                     if (!file_vn) continue;
 
-                    file_vn->type        = file_stream;
+                    file_vn->type        = file_none;
                     file_vn->fsid        = sysfs_id;
-                    file_vn->permissions = entry->attr->mode;
+                    file_vn->permissions = entry->mode;
 
                     sysfs_node_t *file_sn = sysfs_node_alloc(SYSFS_ATTR);
-                    if (file_sn) {
-                        file_sn->kobj   = kobj;
-                        file_sn->attr   = entry->attr;
-                        file_vn->handle = file_sn;
+                    if (!file_sn) {
+                        node->child = clist_delete(node->child, file_vn);
+                        vfs_free(file_vn);
+                        continue;
                     }
-                    entry->vnode = file_vn;
+                    file_sn->kobj   = entry->kobj;
+                    file_sn->attr   = entry->attr;
+                    file_sn->mode   = entry->mode;
+                    file_vn->handle = file_sn;
+                    entry->vnode    = file_vn;
                 }
+            }
+
+            /* Enumerate binary attribute files */
+            for (clist_t bin_node = kobj->bin_attributes; bin_node; bin_node = bin_node->next) {
+                sysfs_bin_attr_entry_t *entry = bin_node->data;
+                if (!entry || !entry->attr || !entry->attr->attr.name || entry->vnode) continue;
+
+                vfs_node_t file_vn = vfs_node_alloc(node, entry->attr->attr.name);
+                if (!file_vn) continue;
+                file_vn->type        = file_none;
+                file_vn->fsid        = sysfs_id;
+                file_vn->permissions = entry->mode;
+                file_vn->size        = entry->attr->size;
+
+                sysfs_node_t *file_sn = sysfs_node_alloc(SYSFS_BIN_ATTR);
+                if (!file_sn) {
+                    node->child = clist_delete(node->child, file_vn);
+                    vfs_free(file_vn);
+                    continue;
+                }
+                file_sn->kobj     = entry->kobj;
+                file_sn->bin_attr = entry->attr;
+                file_sn->mode     = entry->mode;
+                file_vn->handle   = file_sn;
+                entry->vnode      = file_vn;
             }
 
             /* Enumerate symlinks */
@@ -352,24 +484,32 @@ static int sysfs_stat(void *file, vfs_node_t node)
                     sym_vn->fsid = sysfs_id;
 
                     sysfs_node_t *sym_sn = sysfs_node_alloc(SYSFS_SYMLINK);
-                    if (sym_sn) {
-                        sym_sn->kobj         = kobj;
-                        sym_sn->symlink_path = kobject_get_path(entry->target);
-                        sym_vn->handle       = sym_sn;
+                    if (!sym_sn) {
+                        node->child = clist_delete(node->child, sym_vn);
+                        vfs_free(sym_vn);
+                        continue;
                     }
-                    entry->vnode = sym_vn;
+                    sym_sn->kobj           = kobj;
+                    sym_sn->symlink_target = kobject_get(entry->target);
+                    if (!sym_sn->symlink_target) {
+                        sysfs_node_free(sym_sn);
+                        node->child = clist_delete(node->child, sym_vn);
+                        vfs_free(sym_vn);
+                        continue;
+                    }
+                    sym_vn->handle = sym_sn;
+                    entry->vnode   = sym_vn;
                 }
             }
             break;
         }
         case SYSFS_ATTR : {
-            if (!sn->content) sysfs_gen_attr_content(sn);
-            node->type = file_stream;
-            if (sn->content) node->size = sn->content_size;
+            node->type = file_none;
+            node->size = 0;
             break;
         }
         case SYSFS_BIN_ATTR : {
-            node->type = file_stream;
+            node->type = file_none;
             if (sn->bin_attr) node->size = sn->bin_attr->size;
             break;
         }
@@ -389,17 +529,22 @@ static size_t sysfs_read(void *file, void *addr, size_t offset, size_t size)
 
     switch (sn->type) {
         case SYSFS_ATTR : {
-            if (!sn->content) sysfs_gen_attr_content(sn);
-            if (!sn->content) return 0;
-            if (offset >= sn->content_size) return 0;
-
-            size_t actual = (offset + size > sn->content_size) ? (sn->content_size - offset) : size;
-            memcpy(addr, sn->content + offset, actual);
+            char   *content = NULL;
+            ssize_t length  = sysfs_gen_attr_content(sn, &content);
+            if (length < 0) return (size_t)-1;
+            if (!length || offset >= (size_t)length) {
+                free(content);
+                return 0;
+            }
+            size_t actual = size > (size_t)length - offset ? (size_t)length - offset : size;
+            memcpy(addr, content + offset, actual);
+            free(content);
             return actual;
         }
         case SYSFS_BIN_ATTR : {
             if (!sn->bin_attr || !sn->bin_attr->read) return 0;
-            return sn->bin_attr->read(sn->kobj, sn->bin_attr, addr, (int64_t)offset, size);
+            ssize_t ret = sn->bin_attr->read(sn->kobj, sn->bin_attr, addr, (int64_t)offset, size);
+            return ret < 0 ? (size_t)-1 : (size_t)ret;
         }
         case SYSFS_DIR :
             return 0; /* cannot read a directory */
@@ -413,48 +558,144 @@ static size_t sysfs_read(void *file, void *addr, size_t offset, size_t size)
 static size_t sysfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
     sysfs_node_t *sn = file;
-    if (!sn) return 0;
+    if (!sn || offset || size >= SYSFS_PAGE_SIZE) return 0;
 
     switch (sn->type) {
         case SYSFS_ATTR : {
-            if (!sysfs_attr_is_writable(sn->attr)) return 0;
-            if (!sn->kobj || !sn->kobj->ktype) return 0;
-            if (!sn->kobj->ktype->sysfs_ops) return 0;
-            if (!sn->kobj->ktype->sysfs_ops->store) return 0;
-
-            /* Invalidate cached content so next read regenerates */
-            free(sn->content);
-            sn->content      = NULL;
-            sn->content_size = 0;
-
-            ssize_t ret = sn->kobj->ktype->sysfs_ops->store(sn->kobj, sn->attr, addr, size);
+            if (!(sn->mode & 0200)) return 0;
+            if (!sn->kobj || !sn->kobj->ktype || !sn->kobj->ktype->sysfs_ops || !sn->kobj->ktype->sysfs_ops->store) return 0;
+            char *buffer = malloc(size + 1);
+            if (!buffer) return 0;
+            memcpy(buffer, addr, size);
+            buffer[size] = '\0';
+            ssize_t ret  = sn->kobj->ktype->sysfs_ops->store(sn->kobj, sn->attr, buffer, size);
+            free(buffer);
             if (ret < 0) return 0;
-
-            /* Send KOBJ_CHANGE uevent */
-            kobject_uevent(sn->kobj, KOBJ_CHANGE);
-
             return (size_t)ret;
         }
         case SYSFS_BIN_ATTR : {
             if (!sn->bin_attr || !sn->bin_attr->write) return 0;
-            return sn->bin_attr->write(sn->kobj, sn->bin_attr, (char *)addr, (int64_t)offset, size);
+            ssize_t ret = sn->bin_attr->write(sn->kobj, sn->bin_attr, (char *)addr, (int64_t)offset, size);
+            return ret < 0 ? (size_t)-1 : (size_t)ret;
         }
         default :
             return 0;
     }
 }
 
+static int sysfs_file_open(vfs_node_t vnode, uint64_t flags, void **private_data)
+{
+    sysfs_node_t      *sn;
+    sysfs_open_file_t *open_file;
+
+    (void)flags;
+    if (!vnode || !private_data || !(sn = vnode->handle)) return -EINVAL;
+    if (sn->type == SYSFS_DIR) return -EISDIR;
+    if (sn->type == SYSFS_SYMLINK) return -EINVAL;
+
+    open_file = calloc(1, sizeof(*open_file));
+    if (!open_file) return -ENOMEM;
+    open_file->kobj = kobject_get(sn->kobj);
+    if (!open_file->kobj) {
+        free(open_file);
+        return -ENODEV;
+    }
+    open_file->node = sn;
+    *private_data   = open_file;
+    return EOK;
+}
+
+static void sysfs_file_release(vfs_node_t vnode, void *private_data)
+{
+    sysfs_open_file_t *open_file = private_data;
+    (void)vnode;
+    if (!open_file) return;
+    free(open_file->buffer);
+    kobject_put(open_file->kobj);
+    free(open_file);
+}
+
+static int64_t sysfs_file_read(vfs_node_t vnode, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
+{
+    sysfs_open_file_t *open_file = private_data;
+    sysfs_node_t      *sn;
+
+    (void)vnode;
+    (void)flags;
+    if (!open_file || !addr || !(sn = open_file->node)) return -EINVAL;
+
+    if (sn->type == SYSFS_BIN_ATTR) {
+        if (!sn->bin_attr || !sn->bin_attr->read) return -EIO;
+        return sn->bin_attr->read(open_file->kobj, sn->bin_attr, addr, (int64_t)offset, size);
+    }
+    if (sn->type != SYSFS_ATTR) return -EINVAL;
+
+    if (!open_file->generated || offset == 0) {
+        free(open_file->buffer);
+        open_file->buffer    = NULL;
+        open_file->size      = 0;
+        open_file->generated = 1;
+        ssize_t length       = sysfs_gen_attr_content(sn, &open_file->buffer);
+        if (length < 0) return length;
+        open_file->size = (size_t)length;
+    }
+    if (offset >= open_file->size) return 0;
+    if (size > open_file->size - offset) size = open_file->size - offset;
+    memcpy(addr, open_file->buffer + offset, size);
+    return (int64_t)size;
+}
+
+static int64_t sysfs_file_write(vfs_node_t vnode, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
+{
+    sysfs_open_file_t *open_file = private_data;
+    sysfs_node_t      *sn;
+
+    (void)vnode;
+    (void)flags;
+    if (!open_file || (!addr && size) || !(sn = open_file->node)) return -EINVAL;
+
+    if (sn->type == SYSFS_BIN_ATTR) {
+        if (!sn->bin_attr || !sn->bin_attr->write) return -EIO;
+        return sn->bin_attr->write(open_file->kobj, sn->bin_attr, (char *)addr, (int64_t)offset, size);
+    }
+    if (sn->type != SYSFS_ATTR) return -EINVAL;
+    if (offset) return -ESPIPE;
+    if (size >= SYSFS_PAGE_SIZE) return -EFBIG;
+    if (!(sn->mode & 0200)) return -EACCES;
+    if (!open_file->kobj->ktype || !open_file->kobj->ktype->sysfs_ops || !open_file->kobj->ktype->sysfs_ops->store) return -EIO;
+
+    char *buffer = malloc(size + 1);
+    if (!buffer) return -ENOMEM;
+    memcpy(buffer, addr, size);
+    buffer[size] = '\0';
+    ssize_t ret  = open_file->kobj->ktype->sysfs_ops->store(open_file->kobj, sn->attr, buffer, size);
+    free(buffer);
+    if (ret >= 0) {
+        free(open_file->buffer);
+        open_file->buffer    = NULL;
+        open_file->size      = 0;
+        open_file->generated = 0;
+    }
+    return ret;
+}
+
 static size_t sysfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t size)
 {
     sysfs_node_t *sn = node->handle;
     if (!sn || sn->type != SYSFS_SYMLINK) return 0;
-    if (!sn->symlink_path) return 0;
+    if (!sn->kobj || !sn->symlink_target) return 0;
 
-    size_t len = strlen(sn->symlink_path);
-    if (offset >= len) return 0;
+    char *path = sysfs_relative_path(sn->kobj, sn->symlink_target);
+    if (!path) return 0;
+    size_t len = strlen(path);
+    if (offset >= len) {
+        free(path);
+        return 0;
+    }
 
     size_t actual = (offset + size > len) ? (len - offset) : size;
-    memcpy(addr, sn->symlink_path + offset, actual);
+    memcpy(addr, path + offset, actual);
+    free(path);
     return actual;
 }
 
@@ -497,8 +738,11 @@ static int sysfs_free(void *handle)
 
 static vfs_node_t sysfs_dup(vfs_node_t node)
 {
+    if (!node) return NULL;
     sysfs_node_t *old_sn = node->handle;
+    sysfs_node_t *new_sn = NULL;
     vfs_node_t    copy   = vfs_node_alloc(node->parent, node->name);
+    if (!copy) return NULL;
 
     copy->type        = node->type;
     copy->size        = node->size;
@@ -508,19 +752,28 @@ static vfs_node_t sysfs_dup(vfs_node_t node)
     copy->fsid        = node->fsid;
 
     if (old_sn) {
-        /* Reference the same kobject/attribute — just share the pointer */
-        sysfs_node_t *new_sn = sysfs_node_alloc(old_sn->type);
-        if (new_sn) {
-            new_sn->kobj         = old_sn->kobj;
-            new_sn->attr         = old_sn->attr;
-            new_sn->bin_attr     = old_sn->bin_attr;
-            new_sn->symlink_path = old_sn->symlink_path ? strdup(old_sn->symlink_path) : NULL;
-            /* do not copy content — will be regenerated */
-            copy->handle = new_sn;
+        new_sn = sysfs_node_alloc(old_sn->type);
+        if (!new_sn) goto err_copy;
+        new_sn->kobj     = old_sn->kobj;
+        new_sn->attr     = old_sn->attr;
+        new_sn->bin_attr = old_sn->bin_attr;
+        new_sn->mode     = old_sn->mode;
+        if (old_sn->symlink_target) {
+            new_sn->symlink_target = kobject_get(old_sn->symlink_target);
+            if (!new_sn->symlink_target) goto err_new_sn;
         }
+        copy->handle = new_sn;
     }
 
     return copy;
+
+err_new_sn:
+    sysfs_node_free(new_sn);
+
+err_copy:
+    if (copy->parent) copy->parent->child = clist_delete(copy->parent->child, copy);
+    vfs_free(copy);
+    return NULL;
 }
 
 static int sysfs_poll(void *file, size_t events)
@@ -545,24 +798,28 @@ static int sysfs_ioctl(void *file, size_t req, void *arg)
 /* ------------------------------------------------------------------ */
 
 static struct vfs_callback sysfs_callbacks = {
-    .mount    = sysfs_mount,
-    .unmount  = sysfs_umount,
-    .open     = sysfs_open,
-    .close    = sysfs_close,
-    .read     = sysfs_read,
-    .write    = sysfs_write,
-    .readlink = sysfs_readlink,
-    .mkdir    = sysfs_mkdir,
-    .mkfile   = sysfs_mkfile,
-    .link     = (vfs_mk_t)sysfs_dummy,
-    .symlink  = (vfs_mk_t)sysfs_dummy,
-    .stat     = sysfs_stat,
-    .ioctl    = sysfs_ioctl,
-    .dup      = sysfs_dup,
-    .poll     = sysfs_poll,
-    .free     = sysfs_free,
-    .delete   = sysfs_delete,
-    .rename   = sysfs_rename_node,
+    .mount        = sysfs_mount,
+    .unmount      = sysfs_umount,
+    .open         = sysfs_open,
+    .close        = sysfs_close,
+    .read         = sysfs_read,
+    .write        = sysfs_write,
+    .readlink     = sysfs_readlink,
+    .mkdir        = sysfs_mkdir,
+    .mkfile       = sysfs_mkfile,
+    .link         = sysfs_mkfile,
+    .symlink      = sysfs_mkfile,
+    .stat         = sysfs_stat,
+    .ioctl        = sysfs_ioctl,
+    .dup          = sysfs_dup,
+    .poll         = sysfs_poll,
+    .free         = sysfs_free,
+    .delete       = sysfs_delete,
+    .rename       = sysfs_rename_node,
+    .file_open    = sysfs_file_open,
+    .file_release = sysfs_file_release,
+    .file_read    = sysfs_file_read,
+    .file_write   = sysfs_file_write,
 };
 
 /* ------------------------------------------------------------------ */
@@ -574,7 +831,14 @@ int sysfs_create_dir(struct kobject *kobj)
     vfs_node_t parent_vnode;
 
     if (!kobj) return -EINVAL;
-    if (kobj->state_in_sysfs && kobj->sd) return -EEXIST;
+    if (kobj->state_in_sysfs) return -EEXIST;
+    if (!kobj->name || !kobj->name[0]) return -EINVAL;
+    if (kobj->parent) {
+        struct kobject *collision = sysfs_find_child_kobj(kobj->parent, kobj->name);
+        if ((collision && collision != kobj) || sysfs_find_attr(kobj->parent, kobj->name) || sysfs_find_bin_attr(kobj->parent, kobj->name)
+            || sysfs_find_symlink(kobj->parent, kobj->name))
+            return -EEXIST;
+    }
 
     /* Mark as in-sysfs even before VFS node creation.
      * If sysfs is not yet mounted, the VFS node is created
@@ -582,17 +846,19 @@ int sysfs_create_dir(struct kobject *kobj)
     kobj->state_in_sysfs = 1;
 
     /* Determine the parent directory VFS node */
-    if (kobj->parent && kobj->parent->sd) {
+    if (kobj->parent)
         parent_vnode = kobj->parent->sd;
-    } else {
+    else
         parent_vnode = sysfs_root_vnode;
-    }
 
     /* If sysfs is not mounted yet, defer VFS node creation */
     if (!parent_vnode) return EOK;
 
     vfs_node_t vnode = vfs_node_alloc(parent_vnode, kobj->name ? kobj->name : "unknown");
-    if (!vnode) return -ENOMEM;
+    if (!vnode) {
+        kobj->state_in_sysfs = 0;
+        return -ENOMEM;
+    }
 
     vnode->type = file_dir;
     vnode->fsid = sysfs_id;
@@ -602,6 +868,7 @@ int sysfs_create_dir(struct kobject *kobj)
         /* Remove the VFS node we just created */
         parent_vnode->child = clist_delete(parent_vnode->child, vnode);
         vfs_free(vnode);
+        kobj->state_in_sysfs = 0;
         return -ENOMEM;
     }
 
@@ -615,34 +882,34 @@ int sysfs_create_dir(struct kobject *kobj)
 void sysfs_remove_dir(struct kobject *kobj)
 {
     if (!kobj) return;
-    if (!kobj->state_in_sysfs || !kobj->sd) return;
+    if (!kobj->state_in_sysfs) return;
+
+    if (!kobj->sd) {
+        kobj->state_in_sysfs = 0;
+        return;
+    }
 
     vfs_node_t vnode = kobj->sd;
 
-    /* Remove from parent VFS children */
-    if (vnode->parent) { vnode->parent->child = clist_delete(vnode->parent->child, vnode); }
-
-    /* Free the VFS node and its handle */
-    vfs_free(vnode);
-
-    kobj->sd             = NULL;
+    sysfs_unbind_dir(kobj);
     kobj->state_in_sysfs = 0;
+    vfs_namespace_detach(vnode);
 }
 
 /* ------------------------------------------------------------------ */
 /*  sysfs_create_file / sysfs_remove_file                              */
 /* ------------------------------------------------------------------ */
 
-int sysfs_create_file(struct kobject *kobj, const struct attribute *attr)
+static int sysfs_create_file_mode(struct kobject *dir_kobj, struct kobject *owner, const struct attribute *attr, uint16_t mode)
 {
     vfs_node_t dir_vnode;
 
-    if (!kobj || !attr || !attr->name) return -EINVAL;
+    if (!dir_kobj || !owner || !attr || !sysfs_name_valid(attr->name)) return -EINVAL;
 
     /* Check for duplicates */
-    if (sysfs_find_attr(kobj, attr->name)) return -EEXIST;
+    if (sysfs_name_exists(dir_kobj, attr->name)) return -EEXIST;
 
-    dir_vnode = kobj->sd;
+    dir_vnode = dir_kobj->sd;
     if (!dir_vnode) {
         /* Kobject not yet in sysfs — defer creation */
         /* Just track the attribute for later */
@@ -654,27 +921,41 @@ int sysfs_create_file(struct kobject *kobj, const struct attribute *attr)
     if (!entry) return -ENOMEM;
 
     entry->attr  = (struct attribute *)attr; /* const cast — safe since attr is const in struct */
-    entry->kobj  = kobj;
+    entry->kobj  = owner;
+    entry->mode  = mode;
     entry->vnode = NULL;
 
-    kobj->attributes = clist_append(kobj->attributes, entry);
+    int ret = sysfs_list_add(&dir_kobj->attributes, entry);
+    if (ret != EOK) {
+        free(entry);
+        return ret;
+    }
 
     /* If kobject is already in sysfs, create the VFS node immediately */
     if (dir_vnode) {
         vfs_node_t file_vn = vfs_node_alloc(dir_vnode, attr->name);
-        if (file_vn) {
-            file_vn->type        = file_stream;
-            file_vn->fsid        = sysfs_id;
-            file_vn->permissions = attr->mode;
-
-            sysfs_node_t *sn = sysfs_node_alloc(SYSFS_ATTR);
-            if (sn) {
-                sn->kobj        = kobj;
-                sn->attr        = entry->attr;
-                file_vn->handle = sn;
-            }
-            entry->vnode = file_vn;
+        if (!file_vn) {
+            dir_kobj->attributes = clist_delete(dir_kobj->attributes, entry);
+            free(entry);
+            return -ENOMEM;
         }
+        file_vn->type        = file_none;
+        file_vn->fsid        = sysfs_id;
+        file_vn->permissions = mode;
+
+        sysfs_node_t *sn = sysfs_node_alloc(SYSFS_ATTR);
+        if (!sn) {
+            dir_vnode->child = clist_delete(dir_vnode->child, file_vn);
+            vfs_free(file_vn);
+            dir_kobj->attributes = clist_delete(dir_kobj->attributes, entry);
+            free(entry);
+            return -ENOMEM;
+        }
+        sn->kobj        = owner;
+        sn->attr        = entry->attr;
+        sn->mode        = mode;
+        file_vn->handle = sn;
+        entry->vnode    = file_vn;
     }
 
     return EOK;
@@ -689,9 +970,7 @@ void sysfs_remove_file(struct kobject *kobj, const struct attribute *attr)
 
     /* Remove VFS node from parent */
     if (entry->vnode) {
-        vfs_node_t dir = entry->vnode->parent;
-        if (dir) { dir->child = clist_delete(dir->child, entry->vnode); }
-        vfs_free(entry->vnode);
+        vfs_namespace_detach(entry->vnode);
         entry->vnode = NULL;
     }
 
@@ -704,58 +983,67 @@ void sysfs_remove_file(struct kobject *kobj, const struct attribute *attr)
 /*  sysfs_create_bin_file / sysfs_remove_bin_file                      */
 /* ------------------------------------------------------------------ */
 
-int sysfs_create_bin_file(struct kobject *kobj, const struct bin_attribute *attr)
+static int sysfs_create_bin_file_mode(struct kobject *dir_kobj, struct kobject *owner, const struct bin_attribute *attr, uint16_t mode)
 {
-    vfs_node_t dir_vnode;
+    if (!dir_kobj || !owner || !attr || !sysfs_name_valid(attr->attr.name)) return -EINVAL;
+    if (sysfs_name_exists(dir_kobj, attr->attr.name)) return -EEXIST;
 
-    if (!kobj || !attr || !attr->attr.name) return -EINVAL;
+    sysfs_bin_attr_entry_t *entry = calloc(1, sizeof(*entry));
+    if (!entry) return -ENOMEM;
+    entry->attr = (struct bin_attribute *)attr;
+    entry->kobj = owner;
+    entry->mode = mode;
+    int ret     = sysfs_list_add(&dir_kobj->bin_attributes, entry);
+    if (ret != EOK) {
+        free(entry);
+        return ret;
+    }
 
-    dir_vnode = kobj->sd;
-    if (!dir_vnode) return -ENOENT;
+    vfs_node_t dir_vnode = dir_kobj->sd;
+    if (!dir_vnode) return EOK;
 
     vfs_node_t file_vn = vfs_node_alloc(dir_vnode, attr->attr.name);
-    if (!file_vn) return -ENOMEM;
+    if (!file_vn) goto err_entry;
 
-    file_vn->type        = file_stream;
+    file_vn->type        = file_none;
     file_vn->fsid        = sysfs_id;
-    file_vn->permissions = attr->attr.mode;
+    file_vn->permissions = mode;
     if (attr->size) file_vn->size = attr->size;
 
     sysfs_node_t *sn = sysfs_node_alloc(SYSFS_BIN_ATTR);
-    if (sn) {
-        sn->kobj        = kobj;
-        sn->bin_attr    = (struct bin_attribute *)attr;
-        file_vn->handle = sn;
+    if (!sn) {
+        dir_vnode->child = clist_delete(dir_vnode->child, file_vn);
+        vfs_free(file_vn);
+        goto err_entry;
     }
+    sn->kobj        = owner;
+    sn->bin_attr    = (struct bin_attribute *)attr;
+    sn->mode        = mode;
+    file_vn->handle = sn;
+    entry->vnode    = file_vn;
 
     return EOK;
+
+err_entry:
+    dir_kobj->bin_attributes = clist_delete(dir_kobj->bin_attributes, entry);
+    free(entry);
+    return -ENOMEM;
+}
+
+int sysfs_create_bin_file(struct kobject *kobj, const struct bin_attribute *attr)
+{
+    return sysfs_create_bin_file_mode(kobj, kobj, attr, attr ? attr->attr.mode : 0);
 }
 
 void sysfs_remove_bin_file(struct kobject *kobj, const struct bin_attribute *attr)
 {
     if (!kobj || !attr || !attr->attr.name) return;
 
-    /* Find and remove the VFS node */
-    if (kobj->sd && kobj->sd->child) {
-        vfs_node_t vnode = NULL;
-        {
-            clist_t cn;
-            for (cn = kobj->sd->child; cn; cn = cn->next) {
-                vfs_node_t cv = cn->data;
-                if (cv && cv->name && streq(cv->name, attr->attr.name)) {
-                    sysfs_node_t *sn = cv->handle;
-                    if (sn && sn->type == SYSFS_BIN_ATTR && sn->bin_attr == attr) {
-                        vnode = cv;
-                        break;
-                    }
-                }
-            }
-        }
-        if (vnode) {
-            kobj->sd->child = clist_delete(kobj->sd->child, vnode);
-            vfs_free(vnode);
-        }
-    }
+    sysfs_bin_attr_entry_t *entry = sysfs_find_bin_attr(kobj, attr->attr.name);
+    if (!entry || entry->attr != attr) return;
+    if (entry->vnode) { vfs_namespace_detach(entry->vnode); }
+    kobj->bin_attributes = clist_delete(kobj->bin_attributes, entry);
+    free(entry);
 }
 
 /* ------------------------------------------------------------------ */
@@ -766,40 +1054,70 @@ int sysfs_create_symlink(struct kobject *kobj, struct kobject *target, const cha
 {
     vfs_node_t dir_vnode;
 
-    if (!kobj || !target || !name) return -EINVAL;
+    if (!kobj || !target || !sysfs_name_valid(name)) return -EINVAL;
 
     /* Check for duplicates */
-    if (sysfs_find_symlink(kobj, name)) return -EEXIST;
+    if (sysfs_name_exists(kobj, name)) return -EEXIST;
 
     /* Create tracking entry */
     sysfs_symlink_entry_t *entry = calloc(1, sizeof(sysfs_symlink_entry_t));
     if (!entry) return -ENOMEM;
 
-    entry->name   = strdup(name);
-    entry->target = target;
-    entry->vnode  = NULL;
+    entry->name = strdup(name);
+    if (!entry->name) {
+        free(entry);
+        return -ENOMEM;
+    }
+    entry->target = kobject_get(target);
+    if (!entry->target) {
+        free((void *)entry->name);
+        free(entry);
+        return -ENODEV;
+    }
+    entry->vnode = NULL;
 
-    kobj->symlinks = clist_append(kobj->symlinks, entry);
+    int ret = sysfs_list_add(&kobj->symlinks, entry);
+    if (ret != EOK) {
+        kobject_put(entry->target);
+        free((void *)entry->name);
+        free(entry);
+        return ret;
+    }
 
     /* If kobject is already in sysfs, create VFS node immediately */
     dir_vnode = kobj->sd;
     if (dir_vnode) {
         vfs_node_t sym_vn = vfs_node_alloc(dir_vnode, name);
-        if (sym_vn) {
-            sym_vn->type = file_symlink;
-            sym_vn->fsid = sysfs_id;
+        if (!sym_vn) goto err_entry;
+        sym_vn->type = file_symlink;
+        sym_vn->fsid = sysfs_id;
 
-            sysfs_node_t *sn = sysfs_node_alloc(SYSFS_SYMLINK);
-            if (sn) {
-                sn->kobj         = kobj;
-                sn->symlink_path = kobject_get_path(target);
-                sym_vn->handle   = sn;
-            }
-            entry->vnode = sym_vn;
+        sysfs_node_t *sn = sysfs_node_alloc(SYSFS_SYMLINK);
+        if (!sn) {
+            dir_vnode->child = clist_delete(dir_vnode->child, sym_vn);
+            vfs_free(sym_vn);
+            goto err_entry;
         }
+        sn->kobj           = kobj;
+        sn->symlink_target = kobject_get(target);
+        if (!sn->symlink_target) {
+            sysfs_node_free(sn);
+            dir_vnode->child = clist_delete(dir_vnode->child, sym_vn);
+            vfs_free(sym_vn);
+            goto err_entry;
+        }
+        sym_vn->handle = sn;
+        entry->vnode   = sym_vn;
     }
 
     return EOK;
+
+err_entry:
+    kobj->symlinks = clist_delete(kobj->symlinks, entry);
+    kobject_put(entry->target);
+    free((void *)entry->name);
+    free(entry);
+    return -ENOMEM;
 }
 
 void sysfs_remove_symlink(struct kobject *kobj, const char *name)
@@ -811,14 +1129,13 @@ void sysfs_remove_symlink(struct kobject *kobj, const char *name)
 
     /* Remove VFS node */
     if (entry->vnode) {
-        vfs_node_t dir = entry->vnode->parent;
-        if (dir) { dir->child = clist_delete(dir->child, entry->vnode); }
-        vfs_free(entry->vnode);
+        vfs_namespace_detach(entry->vnode);
         entry->vnode = NULL;
     }
 
     /* Remove from tracking list */
     kobj->symlinks = clist_delete(kobj->symlinks, entry);
+    kobject_put(entry->target);
     free((void *)entry->name);
     free(entry);
 }
@@ -829,15 +1146,49 @@ void sysfs_remove_symlink(struct kobject *kobj, const char *name)
 
 int sysfs_create_group(struct kobject *kobj, const struct attribute_group *grp)
 {
-    struct kobject *target_kobj = kobj;
-    int             ret;
+    struct kobject        *target_kobj       = kobj;
+    struct attribute     **created_attrs     = NULL;
+    struct bin_attribute **created_bin_attrs = NULL;
+    size_t                 attr_capacity     = 0;
+    size_t                 bin_capacity      = 0;
+    size_t                 attr_count        = 0;
+    size_t                 bin_count         = 0;
+    int                    ret;
 
     if (!kobj || !grp) return -EINVAL;
 
+    if (grp->attrs)
+        while (grp->attrs[attr_capacity]) attr_capacity++;
+    if (grp->bin_attrs)
+        while (grp->bin_attrs[bin_capacity]) bin_capacity++;
+
+    if (attr_capacity) {
+        created_attrs = calloc(attr_capacity, sizeof(*created_attrs));
+        if (!created_attrs) return -ENOMEM;
+    }
+    if (bin_capacity) {
+        created_bin_attrs = calloc(bin_capacity, sizeof(*created_bin_attrs));
+        if (!created_bin_attrs) {
+            free(created_attrs);
+            return -ENOMEM;
+        }
+    }
+
     /* If the group has a name, create a subdirectory */
     if (grp->name) {
+        if (!sysfs_name_valid(grp->name)) {
+            ret = -EINVAL;
+            goto err_group;
+        }
+        if (sysfs_name_exists(kobj, grp->name)) {
+            ret = -EEXIST;
+            goto err_group;
+        }
         target_kobj = kobject_create_and_add(grp->name, kobj);
-        if (!target_kobj) return -ENOMEM;
+        if (!target_kobj) {
+            ret = -ENOMEM;
+            goto err_group;
+        }
     }
 
     /* Create regular attribute files */
@@ -846,15 +1197,16 @@ int sysfs_create_group(struct kobject *kobj, const struct attribute_group *grp)
         for (attr = grp->attrs; *attr; attr++) {
             if (!(*attr)->name) continue;
 
-            /* Check visibility */
-            if (grp->is_visible && !grp->is_visible(kobj, *attr, (int)(attr - grp->attrs))) { continue; }
-
-            ret = sysfs_create_file(target_kobj, *attr);
-            if (ret != EOK && ret != -EEXIST) {
-                /* Clean up on failure */
-                if (grp->name) kobject_del(target_kobj);
-                return ret;
+            uint16_t mode = (*attr)->mode;
+            if (grp->is_visible) {
+                int visible = grp->is_visible(kobj, *attr, (int)(attr - grp->attrs));
+                if (!visible) continue;
+                mode = (uint16_t)visible;
             }
+
+            ret = sysfs_create_file_mode(target_kobj, kobj, *attr, mode);
+            if (ret != EOK) goto err_group;
+            created_attrs[attr_count++] = *attr;
         }
     }
 
@@ -864,17 +1216,33 @@ int sysfs_create_group(struct kobject *kobj, const struct attribute_group *grp)
         for (bin = grp->bin_attrs; *bin; bin++) {
             if (!(*bin)->attr.name) continue;
 
-            if (grp->is_visible && !grp->is_visible(kobj, &(*bin)->attr, -1)) { continue; }
-
-            ret = sysfs_create_bin_file(target_kobj, *bin);
-            if (ret != EOK && ret != -EEXIST) {
-                if (grp->name) kobject_del(target_kobj);
-                return ret;
+            uint16_t mode = (*bin)->attr.mode;
+            if (grp->is_visible) {
+                int visible = grp->is_visible(kobj, &(*bin)->attr, (int)(bin - grp->bin_attrs));
+                if (!visible) continue;
+                mode = (uint16_t)visible;
             }
+
+            ret = sysfs_create_bin_file_mode(target_kobj, kobj, *bin, mode);
+            if (ret != EOK) goto err_group;
+            created_bin_attrs[bin_count++] = *bin;
         }
     }
 
+    free(created_attrs);
+    free(created_bin_attrs);
     return EOK;
+
+err_group:
+    while (attr_count) sysfs_remove_file(target_kobj, created_attrs[--attr_count]);
+    while (bin_count) sysfs_remove_bin_file(target_kobj, created_bin_attrs[--bin_count]);
+    if (grp->name && target_kobj != kobj) {
+        kobject_del(target_kobj);
+        kobject_put(target_kobj);
+    }
+    free(created_attrs);
+    free(created_bin_attrs);
+    return ret;
 }
 
 void sysfs_remove_group(struct kobject *kobj, const struct attribute_group *grp)
@@ -910,7 +1278,10 @@ void sysfs_remove_group(struct kobject *kobj, const struct attribute_group *grp)
     }
 
     /* Remove the subdirectory kobject if we created one */
-    if (grp->name) { kobject_del(target_kobj); }
+    if (grp->name) {
+        kobject_del(target_kobj);
+        kobject_put(target_kobj);
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -961,14 +1332,26 @@ void sysfs_cleanup_kobject_files(struct kobject *kobj)
 
             /* Remove VFS node */
             if (entry->vnode) {
-                vfs_node_t dir = entry->vnode->parent;
-                if (dir) { dir->child = clist_delete(dir->child, entry->vnode); }
-                vfs_free(entry->vnode);
+                vfs_namespace_detach(entry->vnode);
                 entry->vnode = NULL;
             }
 
             /* Remove from tracking list */
             kobj->attributes = clist_delete(kobj->attributes, entry);
+            free(entry);
+        }
+    }
+
+    /* Remove all binary attribute files */
+    {
+        clist_t node;
+        clist_t next;
+        for (node = kobj->bin_attributes; node; node = next) {
+            next                          = node->next;
+            sysfs_bin_attr_entry_t *entry = node->data;
+            if (!entry) continue;
+            if (entry->vnode) { vfs_namespace_detach(entry->vnode); }
+            kobj->bin_attributes = clist_delete(kobj->bin_attributes, entry);
             free(entry);
         }
     }
@@ -984,14 +1367,13 @@ void sysfs_cleanup_kobject_files(struct kobject *kobj)
 
             /* Remove VFS node */
             if (entry->vnode) {
-                vfs_node_t dir = entry->vnode->parent;
-                if (dir) { dir->child = clist_delete(dir->child, entry->vnode); }
-                vfs_free(entry->vnode);
+                vfs_namespace_detach(entry->vnode);
                 entry->vnode = NULL;
             }
 
             /* Remove from tracking list */
             kobj->symlinks = clist_delete(kobj->symlinks, entry);
+            kobject_put(entry->target);
             free((void *)entry->name);
             free(entry);
         }
@@ -1002,12 +1384,56 @@ void sysfs_cleanup_kobject_files(struct kobject *kobj)
 /*  sysfs_rename_dir                                                   */
 /* ------------------------------------------------------------------ */
 
-void sysfs_rename_dir(struct kobject *kobj, const char *new_name)
+int sysfs_rename_dir(struct kobject *kobj, const char *new_name)
 {
-    if (!kobj || !new_name) return;
-    /* The actual rename is handled by kobject_rename which
-     * updates the VFS node name directly */
-    (void)new_name;
+    if (!kobj || !new_name || !new_name[0]) return -EINVAL;
+    if (kobj->parent) {
+        struct kobject *collision = sysfs_find_child_kobj(kobj->parent, new_name);
+        if ((collision && collision != kobj) || sysfs_find_attr(kobj->parent, new_name) || sysfs_find_bin_attr(kobj->parent, new_name)
+            || sysfs_find_symlink(kobj->parent, new_name))
+            return -EEXIST;
+    }
+    if (!kobj->sd) return EOK;
+
+    char *replacement = strdup(new_name);
+    if (!replacement) return -ENOMEM;
+    free(kobj->sd->name);
+    kobj->sd->name = replacement;
+    if (kobj->sd->parent) kobj->sd->parent->visited = 0;
+    return EOK;
+}
+
+int sysfs_create_file(struct kobject *kobj, const struct attribute *attr)
+{
+    return sysfs_create_file_mode(kobj, kobj, attr, attr ? attr->mode : 0);
+}
+
+int sysfs_move_dir(struct kobject *kobj, struct kobject *new_parent)
+{
+    if (!kobj || !new_parent) return -EINVAL;
+    struct kobject *collision = sysfs_find_child_kobj(new_parent, kobj->name);
+    if ((collision && collision != kobj) || sysfs_find_attr(new_parent, kobj->name) || sysfs_find_bin_attr(new_parent, kobj->name)
+        || sysfs_find_symlink(new_parent, kobj->name))
+        return -EEXIST;
+    if (!kobj->sd && !new_parent->sd) return EOK;
+    if (!kobj->sd || !new_parent->sd) return -ENOENT;
+    for (clist_t node = new_parent->sd->child; node; node = node->next) {
+        vfs_node_t child = node->data;
+        if (child != kobj->sd && child && child->name && streq(child->name, kobj->name)) return -EEXIST;
+    }
+
+    clist_t new_link = clist_alloc(kobj->sd);
+    if (!new_link) return -ENOMEM;
+
+    vfs_node_t old_parent = kobj->sd->parent;
+    if (old_parent) old_parent->child = clist_delete(old_parent->child, kobj->sd);
+    kobj->sd->parent = new_parent->sd;
+    new_link->next   = new_parent->sd->child;
+    if (new_link->next) new_link->next->prev = new_link;
+    new_parent->sd->child = new_link;
+    if (old_parent) old_parent->visited = 0;
+    new_parent->sd->visited = 0;
+    return EOK;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1040,7 +1466,11 @@ static void sysfs_populate_dir(struct kobject *kobj)
         vnode->fsid = sysfs_id;
 
         sysfs_node_t *sn = sysfs_node_alloc(SYSFS_DIR);
-        if (!sn) continue;
+        if (!sn) {
+            kobj->sd->child = clist_delete(kobj->sd->child, vnode);
+            vfs_free(vnode);
+            continue;
+        }
         sn->kobj              = child;
         vnode->handle         = sn;
         child->sd             = vnode;
@@ -1051,38 +1481,80 @@ static void sysfs_populate_dir(struct kobject *kobj)
     }
 }
 
+/* VFS tears down its nodes before invoking ->unmount().  Clear every
+ * metadata back-pointer without dereferencing the already-freed vnodes so
+ * a later userspace mount can materialize a fresh namespace. */
+static void sysfs_unbind_dir(struct kobject *kobj)
+{
+    if (!kobj) return;
+
+    for (clist_t node = kobj->attributes; node; node = node->next) {
+        sysfs_attr_entry_t *entry = node->data;
+        if (entry) entry->vnode = NULL;
+    }
+    for (clist_t node = kobj->bin_attributes; node; node = node->next) {
+        sysfs_bin_attr_entry_t *entry = node->data;
+        if (entry) entry->vnode = NULL;
+    }
+    for (clist_t node = kobj->symlinks; node; node = node->next) {
+        sysfs_symlink_entry_t *entry = node->data;
+        if (entry) entry->vnode = NULL;
+    }
+    for (clist_t node = kobj->children; node; node = node->next) { sysfs_unbind_dir(node->data); }
+    kobj->sd = NULL;
+}
+
+static void sysfs_root_release(struct kobject *kobj)
+{
+    free(kobj);
+}
+
+static struct kobj_type sysfs_root_ktype = {
+    .release = sysfs_root_release,
+};
+
 int sysfs_init(void)
 {
 #if CONFIG_SYSFS
+    static const char *const top_level_names[] = {
+        "block", "bus", "class", "dev", "devices", "firmware", "fs", "kernel", "module", "power",
+    };
+
+    if (sysfs_root_kobj) return -EEXIST;
+
     /* Create the root kobject (only — mount creates the VFS nodes) */
     sysfs_root_kobj = calloc(1, sizeof(struct kobject));
     if (!sysfs_root_kobj) return -ENOMEM;
 
-    kobject_init(sysfs_root_kobj, NULL);
-    sysfs_root_kobj->name = strdup("sys");
-    if (!sysfs_root_kobj->name) {
-        free(sysfs_root_kobj);
-        sysfs_root_kobj = NULL;
-        return -ENOMEM;
-    }
+    kobject_init(sysfs_root_kobj, &sysfs_root_ktype);
+    int ret = kobject_set_name(sysfs_root_kobj, "%s", "sys");
+    if (ret != EOK) goto err_root;
 
-    sysfs_root_kobj->state_initialized = 1;
-    sysfs_root_kobj->state_in_sysfs    = 1;
+    sysfs_root_kobj->state_in_sysfs = 1;
 
     /* Create top-level directory kobjects as children of the root.
      * Since sysfs isn't mounted yet, sysfs_create_dir will defer
      * VFS node creation until the mount callback populates them. */
-    kobject_create_and_add("block", sysfs_root_kobj);
-    kobject_create_and_add("bus", sysfs_root_kobj);
-    kobject_create_and_add("class", sysfs_root_kobj);
-    kobject_create_and_add("dev", sysfs_root_kobj);
-    kobject_create_and_add("devices", sysfs_root_kobj);
-    kobject_create_and_add("firmware", sysfs_root_kobj);
-    kobject_create_and_add("fs", sysfs_root_kobj);
-    kobject_create_and_add("kernel", sysfs_root_kobj);
-    kobject_create_and_add("module", sysfs_root_kobj);
-    kobject_create_and_add("power", sysfs_root_kobj);
+    for (size_t i = 0; i < sizeof(top_level_names) / sizeof(top_level_names[0]); i++) {
+        if (!kobject_create_and_add(top_level_names[i], sysfs_root_kobj)) {
+            ret = -ENOMEM;
+            goto err_children;
+        }
+    }
 
+    return EOK;
+
+err_children:
+    while (sysfs_root_kobj->children) {
+        struct kobject *child = sysfs_root_kobj->children->data;
+        kobject_put(child);
+    }
+err_root:
+    sysfs_root_kobj->state_in_sysfs = 0;
+    kobject_put(sysfs_root_kobj);
+    sysfs_root_kobj = NULL;
+    return ret;
+#else
     return EOK;
 #endif
 }

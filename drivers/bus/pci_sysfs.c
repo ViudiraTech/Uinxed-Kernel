@@ -138,6 +138,7 @@ static void pci_dev_release(struct device *dev)
 {
     struct pci_sysfs_dev *psd = dev->driver_data;
     if (psd) free(psd);
+    free(dev);
 }
 
 /* ------------------------------------------------------------------ */
@@ -203,9 +204,7 @@ void pci_sysfs_init(void)
         ret = device_register(dev);
         if (ret != EOK) {
             plogk("pci_sysfs: device_register(%s) failed: %d\n", name, ret);
-            free((void *)dev->kobj.name);
-            free(dev);
-            free(psd);
+            kobject_put(&dev->kobj);
             continue;
         }
 

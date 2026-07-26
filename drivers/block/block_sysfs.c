@@ -154,9 +154,10 @@ static int block_add_one(struct kobject *parent, const char *name, uint8_t drive
     kobject_init(&bsd->kobj, &block_ktype);
     ret = kobject_add(&bsd->kobj, parent, "%s", name);
     if (ret != EOK) {
-        free(bsd);
+        kobject_put(&bsd->kobj);
         return ret;
     }
+    kobject_uevent(&bsd->kobj, KOBJ_ADD);
     return EOK;
 }
 

@@ -895,6 +895,33 @@ int vfs_namespace_unlink(vfs_node_t node)
     return EOK;
 }
 
+void vfs_namespace_detach(vfs_node_t node)
+{
+    if (!node || node == rootdir) return;
+
+    while (node->child) {
+        vfs_node_t child = node->child->data;
+        if (!child) {
+            node->child = clist_delete_node(node->child, node->child);
+            continue;
+        }
+        vfs_namespace_detach(child);
+    }
+
+    spin_lock(&vfs_namespace_lock);
+    if (node->flags & VFS_NODE_UNLINKED) {
+        spin_unlock(&vfs_namespace_lock);
+        return;
+    }
+    if (node->parent) node->parent->child = clist_delete(node->parent->child, node);
+    node->flags |= VFS_NODE_UNLINKED | VFS_NODE_DELETE_COMMITTED;
+    node->type |= file_delete;
+    int release_now = node->refcount == 0;
+    spin_unlock(&vfs_namespace_lock);
+
+    if (release_now) vfs_close(node);
+}
+
 /* Delete a VFS (Virtual File System) node and clean up associated resources */
 int vfs_delete(vfs_node_t node)
 {

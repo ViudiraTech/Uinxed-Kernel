@@ -286,7 +286,7 @@ else
   C_CONFIG += -DCONFIG_CGROUP=0
 endif
 
-C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*")
+C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*" -not -path "tests/*")
 C_HEADERS      := $(shell find * -name "*.h")
 OBJS           := $(C_SOURCES:%.c=%.o)
 DEPS           := $(OBJS:%.o=%.d)
