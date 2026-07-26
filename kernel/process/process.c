@@ -1278,7 +1278,7 @@ process_t *process_fork_status(int *error)
     spin_unlock(&scheduler.lock);
     request_task_cpu(child_task);
 
-    plogk("process: Forked process %llu from parent %llu\n", child->task->pid, parent->task->pid);
+    // plogk("process: Forked process %llu from parent %llu\n", child->task->pid, parent->task->pid); it is very noisy
     return child;
 }
 
