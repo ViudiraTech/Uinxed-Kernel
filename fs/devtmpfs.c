@@ -15,6 +15,7 @@
 #include <drivers/evdev.h>
 #include <drivers/ide.h>
 #include <drivers/nvme.h>
+#include <drivers/partition.h>
 #include <drivers/tty.h>
 #include <fs/devtmpfs.h>
 #include <fs/tmpfs.h>
@@ -170,93 +171,98 @@ int devtmpfs_unregister_char_device(const char *path)
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* MBR partition helpers (unchanged)                                   */
-/* ------------------------------------------------------------------ */
-
-typedef struct mbr_partition_entry {
-        uint8_t  status;
-        uint8_t  chs_first[3];
-        uint8_t  type;
-        uint8_t  chs_last[3];
-        uint32_t first_lba;
-        uint32_t sectors;
-} __attribute__((packed)) mbr_partition_entry_t;
-
-typedef struct mbr_sector {
-        uint8_t               boot_code[446];
-        mbr_partition_entry_t partitions[4];
-        uint16_t              signature;
-} __attribute__((packed)) mbr_sector_t;
-
-static int devtmpfs_scan_mbr_drive(uint8_t encoded_drive, mbr_partition_entry_t parts[4])
+static size_t devtmpfs_block_read(void *context, void *buffer, size_t offset, size_t size)
 {
-    blockdev_device_t device;
-    mbr_sector_t      mbr;
-    int               status;
-
-    status = blockdev_open_drive(encoded_drive, &device);
-    if (status != EOK) return status;
-    status = blockdev_read_bytes(&device, 0, &mbr, sizeof(mbr));
-    if (status != EOK) return status;
-    if (mbr.signature != 0xAA55) return -ENOENT;
-
-    for (int i = 0; i < 4; i++) parts[i] = mbr.partitions[i];
-    return EOK;
+    blockdev_device_t *device = context;
+    return blockdev_read_bytes(device, offset, buffer, size) == EOK ? size : 0;
 }
 
-static void devtmpfs_create_block_node(const char *dev_path, uint64_t size, uint32_t blksz, uint64_t dev, uint64_t rdev)
+static size_t devtmpfs_block_write(void *context, const void *buffer, size_t offset, size_t size)
 {
-    vfs_node_t node;
-    int        status;
+    blockdev_device_t *device = context;
+    return blockdev_write_bytes(device, offset, buffer, size) == EOK ? size : 0;
+}
+
+static int devtmpfs_create_block_node(const char *dev_path, const blockdev_device_t *device, uint64_t dev, uint64_t rdev)
+{
+    static const tmpfs_device_ops_t block_ops = {
+        .read  = devtmpfs_block_read,
+        .write = devtmpfs_block_write,
+    };
+    blockdev_device_t *context;
+    tmpfs_device_ops_t ops;
+    vfs_node_t         node;
+    int                status;
+
+    if (!device || !device->sector_size || device->sector_count > UINT64_MAX / device->sector_size) return -EINVAL;
 
     status = vfs_mkfile(dev_path);
     if (status != EOK && status != -EEXIST) {
         plogk("devtmpfs: Cannot create %s: %d\n", dev_path, status);
-        return;
+        return status;
     }
 
     node = vfs_open(dev_path);
     if (!node) {
         plogk("devtmpfs: Cannot open %s after creation.\n", dev_path);
-        return;
+        return -ENOENT;
     }
 
-    node->type  = file_block;
-    node->blksz = blksz;
+    context = malloc(sizeof(*context));
+    if (!context) {
+        vfs_close(node);
+        return -ENOMEM;
+    }
+    *context = *device;
+    ops      = block_ops;
+    ops.ctx  = context;
+    status   = tmpfs_bind_device(node, file_block, &ops);
+    if (status != EOK) {
+        free(context);
+        vfs_close(node);
+        return status;
+    }
+
+    node->blksz = device->sector_size;
     node->dev   = dev;
     node->rdev  = rdev;
-    node->size  = size;
+    node->size  = device->sector_count * device->sector_size;
     plogk("devtmpfs: Registered %s as block device.\n", dev_path);
     vfs_close(node);
+    return EOK;
 }
 
-static void devtmpfs_create_partition_node(const char *dev_prefix, uint32_t blksz, uint64_t dev, uint64_t rdev_base, uint8_t part_index,
-                                           const mbr_partition_entry_t *part)
+static void devtmpfs_create_partition_node(const char *dev_prefix, bool use_p_separator, const blockdev_device_t *parent, uint64_t dev,
+                                           uint64_t rdev_base, const partition_info_t *partition)
 {
-    char dev_path[64];
-    snprintf(dev_path, sizeof(dev_path), "%s%u", dev_prefix, part_index + 1);
+    char dev_path[96];
+    snprintf(dev_path, sizeof(dev_path), "%s%s%u", dev_prefix, use_p_separator ? "p" : "", partition->number);
 
-    vfs_node_t node;
-    int        status = vfs_mkfile(dev_path);
-    if (status != EOK && status != -EEXIST) {
-        plogk("devtmpfs: Cannot create %s: %d\n", dev_path, status);
-        return;
+    blockdev_device_t view;
+
+    if (blockdev_open_partition(parent, partition->start_lba, partition->sector_count, &view) != EOK) return;
+    if (partition->read_only) view.read_only = true;
+    if (devtmpfs_create_block_node(dev_path, &view, dev, (rdev_base << 8) | partition->number) == EOK)
+        plogk("devtmpfs: Registered %s, start %llu, sectors %llu%s%s\n", dev_path, (unsigned long long)partition->start_lba,
+              (unsigned long long)partition->sector_count, partition->name[0] ? ", name " : "", partition->name);
+}
+
+static int devtmpfs_create_partitions(const char *dev_prefix, bool use_p_separator, const blockdev_device_t *device, uint64_t dev, uint64_t rdev_base)
+{
+    partition_table_t table;
+    int               status;
+
+    status = partition_scan(device, &table);
+    if (status == -ENOENT) return 0;
+    if (status != EOK) {
+        plogk("devtmpfs: Ignoring invalid partition table on %s: %d\n", dev_prefix, status);
+        return 0;
     }
-
-    node = vfs_open(dev_path);
-    if (!node) {
-        plogk("devtmpfs: Cannot open %s after creation.\n", dev_path);
-        return;
-    }
-
-    node->type  = file_block;
-    node->blksz = blksz;
-    node->dev   = dev;
-    node->rdev  = (rdev_base << 8) | (part_index + 1);
-    node->size  = (uint64_t)part->sectors * 512;
-    plogk("devtmpfs: Registered %s for partition type 0x%02x, start %u, sectors %u\n", dev_path, part->type, part->first_lba, part->sectors);
-    vfs_close(node);
+    for (size_t i = 0; i < table.count; i++)
+        devtmpfs_create_partition_node(dev_prefix, use_p_separator, device, dev, rdev_base, &table.partitions[i]);
+    int count = (int)table.count;
+    partition_table_destroy(&table);
+    return count;
 }
 
 static void devtmpfs_create_framebuffer_node(void)
@@ -383,9 +389,12 @@ void devtmpfs_init(void)
         if (!ide_devices[drive].reserved || ide_devices[drive].type != IDE_ATA) continue;
 
         char dev_path[32];
+        blockdev_device_t device;
         snprintf(dev_path, sizeof(dev_path), "/dev/hd%c", 'a' + drive);
-        devtmpfs_create_block_node(dev_path, (uint64_t)ide_devices[drive].size * 512, 512, drive, drive);
-        total_devices++;
+        if (blockdev_open_ide(drive, &device) == EOK) {
+            if (devtmpfs_create_block_node(dev_path, &device, drive, drive) == EOK) total_devices++;
+            total_devices += devtmpfs_create_partitions(dev_path, false, &device, drive, drive);
+        }
     }
 
     /* AHCI SATA drives -> /dev/sda, /dev/sdb, ... */
@@ -394,10 +403,14 @@ void devtmpfs_init(void)
 
         char    dev_path[32];
         uint8_t encoded = BLKDEV_AHCI_FLAG | d;
-        snprintf(dev_path, sizeof(dev_path), "/dev/sd%c", 'a' + d);
-        devtmpfs_create_block_node(dev_path, (uint64_t)ahci_devices[d].size * ahci_devices[d].sector_size, ahci_devices[d].sector_size, encoded,
-                                   encoded);
-        total_devices++;
+        blockdev_device_t device;
+        char disk_name[16];
+        if (blockdev_format_disk_name(disk_name, sizeof(disk_name), d) != EOK) continue;
+        snprintf(dev_path, sizeof(dev_path), "/dev/%s", disk_name);
+        if (blockdev_open_ahci(d, &device) == EOK) {
+            if (devtmpfs_create_block_node(dev_path, &device, encoded, encoded) == EOK) total_devices++;
+            total_devices += devtmpfs_create_partitions(dev_path, false, &device, encoded, encoded);
+        }
     }
 
     /* ATAPI drives (IDE + AHCI) -> /dev/sr0, /dev/sr1, ... */
@@ -408,10 +421,9 @@ void devtmpfs_init(void)
             if (!atapi_devices[drive].reserved || atapi_devices[drive].type != IDE_ATAPI) continue;
 
             char dev_path[32];
+            blockdev_device_t device;
             snprintf(dev_path, sizeof(dev_path), "/dev/sr%u", (unsigned)sr_idx);
-            devtmpfs_create_block_node(dev_path, (uint64_t)atapi_devices[drive].lba_size * atapi_devices[drive].blk_size,
-                                       atapi_devices[drive].blk_size, drive, drive);
-            total_devices++;
+            if (blockdev_open_atapi(drive, &device) == EOK && devtmpfs_create_block_node(dev_path, &device, drive, drive) == EOK) total_devices++;
             sr_idx++;
         }
 
@@ -419,11 +431,10 @@ void devtmpfs_init(void)
             if (!ahci_devices[d].reserved || ahci_devices[d].type != AHCI_DEV_SATAPI) continue;
 
             char dev_path[32];
+            blockdev_device_t device;
             snprintf(dev_path, sizeof(dev_path), "/dev/sr%u", (unsigned)sr_idx);
             uint8_t encoded = BLKDEV_AHCI_FLAG | BLKDEV_ATAPI_FLAG | d;
-            devtmpfs_create_block_node(dev_path, (uint64_t)ahci_devices[d].size * ahci_devices[d].sector_size, ahci_devices[d].sector_size,
-                                       encoded, encoded);
-            total_devices++;
+            if (blockdev_open_ahci_atapi(d, &device) == EOK && devtmpfs_create_block_node(dev_path, &device, encoded, encoded) == EOK) total_devices++;
             sr_idx++;
         }
     }
@@ -437,32 +448,11 @@ void devtmpfs_init(void)
             if (!ctrl->namespaces[ns].ready) continue;
 
             char ns_path[64];
+            blockdev_device_t device;
             snprintf(ns_path, sizeof(ns_path), "/dev/nvme%dn%u", ctrl->id, ctrl->namespaces[ns].nsid);
-            devtmpfs_create_block_node(ns_path, ctrl->namespaces[ns].total_sectors * ctrl->namespaces[ns].sector_size,
-                                       ctrl->namespaces[ns].sector_size, ctrl->id, ctrl->namespaces[ns].nsid);
-            total_devices++;
-
-            mbr_partition_entry_t parts[4] = {0};
-            uint8_t               encoded  = BLKDEV_NVME_FLAG | (uint8_t)(ctrl->id & BLKDEV_DRIVE_MASK);
-            if (devtmpfs_scan_mbr_drive(encoded, parts) == EOK) {
-                for (uint8_t part = 0; part < 4; part++) {
-                    if (!parts[part].type || !parts[part].sectors) continue;
-                    char part_path[96];
-                    snprintf(part_path, sizeof(part_path), "/dev/nvme%dn%up%u", ctrl->id, ctrl->namespaces[ns].nsid, part + 1);
-                    vfs_node_t pnode;
-                    int        s = vfs_mkfile(part_path);
-                    if (s != EOK && s != -EEXIST) continue;
-                    pnode = vfs_open(part_path);
-                    if (!pnode) continue;
-                    pnode->type  = file_block;
-                    pnode->blksz = ctrl->namespaces[ns].sector_size;
-                    pnode->dev   = ctrl->id;
-                    pnode->rdev  = ((uint64_t)ctrl->namespaces[ns].nsid << 8) | (part + 1);
-                    pnode->size  = (uint64_t)parts[part].sectors * 512;
-                    plogk("devtmpfs: Registered %s for partition type 0x%02x, start %u, sectors %u\n", part_path, parts[part].type,
-                          parts[part].first_lba, parts[part].sectors);
-                    vfs_close(pnode);
-                }
+            if (blockdev_open_nvme(&ctrl->namespaces[ns], &device) == EOK) {
+                if (devtmpfs_create_block_node(ns_path, &device, ctrl->id, ctrl->namespaces[ns].nsid) == EOK) total_devices++;
+                total_devices += devtmpfs_create_partitions(ns_path, true, &device, ctrl->id, ctrl->namespaces[ns].nsid);
             }
         }
     }

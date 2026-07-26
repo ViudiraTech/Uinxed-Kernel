@@ -204,7 +204,7 @@ static int ahci_port_identify(ahci_port_state_t *port, ahci_device_t *dev)
     uint16_t *ident = (uint16_t *)port->dma_buf;
     uint32_t  cmds  = (uint32_t)ident[82] | ((uint32_t)ident[83] << 16);
     if (cmds & (1u << 26))
-        dev->size = (uint32_t)ident[100] | ((uint32_t)ident[101] << 16);
+        dev->size = (uint64_t)ident[100] | ((uint64_t)ident[101] << 16) | ((uint64_t)ident[102] << 32) | ((uint64_t)ident[103] << 48);
     else
         dev->size = (uint32_t)ident[60] | ((uint32_t)ident[61] << 16);
 
@@ -229,7 +229,7 @@ static int ahci_port_identify(ahci_port_state_t *port, ahci_device_t *dev)
 #define SATA_DMA_BUF_PAGES   8
 #define SATA_DMA_MAX_SECTORS (SATA_DMA_BUF_PAGES * 4096 / 512)
 
-int ahci_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, void *buffer)
+int ahci_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, void *buffer)
 {
     if (drive >= AHCI_MAX_DEVICES || !ahci_devices[drive].reserved) return -ENODEV;
     if (ahci_devices[drive].type != AHCI_DEV_SATA) return -ENOSYS;
@@ -254,6 +254,8 @@ int ahci_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, void *buffe
         cfis.lba1     = (uint8_t)((lba >> 8) & 0xFF);
         cfis.lba2     = (uint8_t)((lba >> 16) & 0xFF);
         cfis.lba3     = (uint8_t)((lba >> 24) & 0xFF);
+        cfis.lba4     = (uint8_t)((lba >> 32) & 0xFF);
+        cfis.lba5     = (uint8_t)((lba >> 40) & 0xFF);
         cfis.countl   = chunk;
 
         int slot = ahci_find_slot(port);
@@ -271,7 +273,7 @@ int ahci_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, void *buffe
     return 0;
 }
 
-int ahci_write_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, const void *buffer)
+int ahci_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, const void *buffer)
 {
     if (drive >= AHCI_MAX_DEVICES || !ahci_devices[drive].reserved) return -ENODEV;
     if (ahci_devices[drive].type != AHCI_DEV_SATA) return -ENOSYS;
@@ -298,6 +300,8 @@ int ahci_write_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, const void
         cfis.lba1     = (uint8_t)((lba >> 8) & 0xFF);
         cfis.lba2     = (uint8_t)((lba >> 16) & 0xFF);
         cfis.lba3     = (uint8_t)((lba >> 24) & 0xFF);
+        cfis.lba4     = (uint8_t)((lba >> 32) & 0xFF);
+        cfis.lba5     = (uint8_t)((lba >> 40) & 0xFF);
         cfis.countl   = chunk;
 
         int slot = ahci_find_slot(port);

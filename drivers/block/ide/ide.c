@@ -161,10 +161,11 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
             memcpy(&ide_devices[count].signature, ide_buf + ATA_IDENT_DEVICETYPE, 2);
             memcpy(&ide_devices[count].capabilities, ide_buf + ATA_IDENT_CAPABILITIES, 2);
             memcpy(&ide_devices[count].command_sets, ide_buf + ATA_IDENT_COMMANDSETS, 4);
+            ide_devices[count].size         = 0;
 
             /* Get Size */
             if (ide_devices[count].command_sets & (1 << 26))
-                memcpy(&ide_devices[count].size, ide_buf + ATA_IDENT_MAX_LBA_EXT, 4);
+                memcpy(&ide_devices[count].size, ide_buf + ATA_IDENT_MAX_LBA_EXT, 8);
             else
                 memcpy(&ide_devices[count].size, ide_buf + ATA_IDENT_MAX_LBA, 4);
 
@@ -185,7 +186,7 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
                 plogk("ide: Found ATAPI Drive %u blocks (%u bytes/block) - %s\n", atapi_devices[i].lba_size, atapi_devices[i].blk_size,
                       ide_devices[i].model);
             else
-                plogk("ide: Found ATA Drive %u (KiB) - %s\n", (ide_devices[i].size * 512) / 1024, ide_devices[i].model);
+                plogk("ide: Found ATA Drive %llu (KiB) - %s\n", (unsigned long long)(ide_devices[i].size / 2), ide_devices[i].model);
         }
 }
 
@@ -383,7 +384,7 @@ uint8_t ide_flush_cache(uint8_t drive)
 }
 
 /* Read and write ATA devices */
-uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t numsects, uint16_t *edi)
+uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint64_t lba, uint8_t numsects, uint16_t *edi)
 {
     uint8_t  lba_mode, cmd;
     uint8_t  lba_io[6];
@@ -402,9 +403,9 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t n
         lba_io[0] = (lba & 0x000000ff) >> 0;
         lba_io[1] = (lba & 0x0000ff00) >> 8;
         lba_io[2] = (lba & 0x00ff0000) >> 16;
-        lba_io[3] = (lba & 0xff000000) >> 24;
-        lba_io[4] = 0;
-        lba_io[5] = 0;
+        lba_io[3] = (lba >> 24) & 0xff;
+        lba_io[4] = (lba >> 32) & 0xff;
+        lba_io[5] = (lba >> 40) & 0xff;
         head      = 0;
     } else if (ide_devices[drive].capabilities & 0x200) {
         lba_mode  = 1;
@@ -472,12 +473,12 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t n
 }
 
 /* Read multiple sectors from an IDE device */
-void ide_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *edi)
+void ide_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *edi)
 {
     if (drive > 3 || !ide_devices[drive].reserved)
         package[0] = 0x1;
 
-    else if (((lba + numsects) > ide_devices[drive].size) && (ide_devices[drive].type == IDE_ATA))
+    else if ((lba >= ide_devices[drive].size || numsects > ide_devices[drive].size - lba) && (ide_devices[drive].type == IDE_ATA))
         package[0] = 0x2;
 
     else {
@@ -491,13 +492,13 @@ void ide_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *e
 }
 
 /* Write multiple sectors to an IDE device */
-void ide_write_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *edi)
+void ide_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *edi)
 {
     /* Check if the drive exists */
     if (drive > 3 || !ide_devices[drive].reserved) package[0] = 0x1;
 
     /* Check if the input is valid */
-    else if (((lba + numsects) > ide_devices[drive].size) && (ide_devices[drive].type == IDE_ATA))
+    else if ((lba >= ide_devices[drive].size || numsects > ide_devices[drive].size - lba) && (ide_devices[drive].type == IDE_ATA))
         package[0] = 0x2;
 
     /* Writing in PIO mode via polling and IRQ */

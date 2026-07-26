@@ -320,11 +320,8 @@ static int fatfs_vfs_mount(const char *src, vfs_node_t node)
     if (strlen(src) == 2 && src[1] == ':') {
         memcpy(vol_str, src, 3);
     } else {
-        uint8_t encoded;
-        if (blockdev_parse_drive(src, &encoded) != EOK) return -EINVAL;
-
         blockdev_device_t bdev;
-        if (blockdev_open_drive(encoded, &bdev) != EOK) return -ENODEV;
+        if (blockdev_open_name(src, &bdev) != EOK) return -ENODEV;
 
         uint8_t pdrv;
         for (pdrv = 0; pdrv < FF_VOLUMES; pdrv++) {

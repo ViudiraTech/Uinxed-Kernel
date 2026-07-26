@@ -13,6 +13,7 @@
 #define INCLUDE_BLOCKDEV_H_
 
 #include <libs/std/stddef.h>
+#include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>
 
 #define BLOCKDEV_SECTOR_SIZE 512
@@ -25,8 +26,8 @@ struct blockdev_device;
 
 /* Block device operations callback table */
 typedef struct blockdev_ops {
-        int (*read_sectors)(const struct blockdev_device *dev, uint32_t lba, uint32_t count, void *buf);
-        int (*write_sectors)(const struct blockdev_device *dev, uint32_t lba, uint32_t count, const void *buf);
+        int (*read_sectors)(const struct blockdev_device *dev, uint64_t lba, uint32_t count, void *buf);
+        int (*write_sectors)(const struct blockdev_device *dev, uint64_t lba, uint32_t count, const void *buf);
 } *blockdev_ops_t;
 
 /* Drive encoding for blockdev_open_drive / blockdev_parse_drive */
@@ -40,8 +41,9 @@ typedef struct blockdev_device {
         void    *backend_data;
         uint8_t  drive;
         uint32_t sector_size;
-        uint32_t base_lba;
-        uint32_t sector_count;
+        uint64_t base_lba;
+        uint64_t sector_count;
+        bool     read_only;
 } blockdev_device_t;
 
 /* Global ops table — populated by driver init */
@@ -72,17 +74,26 @@ int blockdev_open_drive(uint8_t drive, blockdev_device_t *device);
 /* Parse a drive name ("hda", "sda", "sr0", "nvme0n1", ...) into an encoded drive ID */
 int blockdev_parse_drive(const char *name, uint8_t *drive);
 
+/* Parse Linux disk and partition names. A partition value of zero names the whole disk. */
+int blockdev_parse_name(const char *name, uint8_t *drive, uint32_t *partition);
+
+/* Format a Linux SCSI-style disk name (sda ... sdz, sdaa ...). */
+int blockdev_format_disk_name(char *buffer, size_t size, uint32_t index);
+
+/* Open a whole disk or a numbered MBR/GPT partition by its Linux name. */
+int blockdev_open_name(const char *name, blockdev_device_t *device);
+
 /* Create a partition view of a parent block device.
  * Copies the parent's ops_id and wraps base_lba/sector_count. */
-int blockdev_open_partition(const blockdev_device_t *parent, uint32_t first_lba, uint32_t sector_count, blockdev_device_t *device);
+int blockdev_open_partition(const blockdev_device_t *parent, uint64_t first_lba, uint64_t sector_count, blockdev_device_t *device);
 
 /* ---- I/O ---- */
 
 /* Read `count` sectors starting at `lba` into `buffer` */
-int blockdev_read_sectors(const blockdev_device_t *device, uint32_t lba, uint32_t count, void *buffer);
+int blockdev_read_sectors(const blockdev_device_t *device, uint64_t lba, uint32_t count, void *buffer);
 
 /* Write `count` sectors starting at `lba` from `buffer` */
-int blockdev_write_sectors(const blockdev_device_t *device, uint32_t lba, uint32_t count, const void *buffer);
+int blockdev_write_sectors(const blockdev_device_t *device, uint64_t lba, uint32_t count, const void *buffer);
 
 /* Byte-granularity read (handles partial sectors internally) */
 int blockdev_read_bytes(const blockdev_device_t *device, uint64_t offset, void *buffer, size_t size);

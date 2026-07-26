@@ -59,7 +59,7 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
     if (!buff || !count) return RES_PARERR;
     if (disk_status(pdrv) & STA_NOINIT) return RES_NOTRDY;
 
-    if (blockdev_read_sectors(&fatfs_devices[pdrv], (uint32_t)sector, count, buff) != EOK) return RES_ERROR;
+    if (blockdev_read_sectors(&fatfs_devices[pdrv], sector, count, buff) != EOK) return RES_ERROR;
 
     if (!fatfs_logged_sector0[pdrv] && sector == 0 && count > 0) {
         fatfs_logged_sector0[pdrv] = 1;
@@ -75,7 +75,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
     if (!buff || !count) return RES_PARERR;
     if (disk_status(pdrv) & STA_NOINIT) return RES_NOTRDY;
 
-    return blockdev_write_sectors(&fatfs_devices[pdrv], (uint32_t)sector, count, buff) == EOK ? RES_OK : RES_ERROR;
+    return blockdev_write_sectors(&fatfs_devices[pdrv], sector, count, buff) == EOK ? RES_OK : RES_ERROR;
 }
 #endif
 

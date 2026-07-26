@@ -40,13 +40,6 @@ static uint16_t simplefs_type_to_vfs(uint16_t type)
     }
 }
 
-static int simplefs_parse_drive(const char *src, uint8_t *drive)
-{
-    if (!src || !drive) return -EINVAL;
-
-    return blockdev_parse_drive(src, drive);
-}
-
 static uint16_t simplefs_vfs_to_type(uint16_t type)
 {
     if (type & file_dir) return simplefs_inode_dir;
@@ -489,23 +482,21 @@ int simplefs_probe(uint8_t drive)
 
 static int simplefs_mount(const char *src, vfs_node_t node)
 {
-    uint8_t            drive;
     simplefs_vnode_t  *root;
     simplefs_handle_t *handle;
     int                status;
 
-    if (simplefs_parse_drive(src, &drive) != EOK) return -EINVAL;
-
     handle = calloc(1, sizeof(simplefs_handle_t));
     if (!handle) return -ENOMEM;
 
-    status = blockdev_open_drive(drive, &handle->device);
+    status = blockdev_open_name(src, &handle->device);
     if (status != EOK) {
         free(handle);
         return status;
     }
 
-    if (superblock_read(drive, &handle->disk) != EOK) {
+    if (blockdev_read_bytes(&handle->device, (uint64_t)SUPERBLOCK_SECTOR * SUPERBLOCK_BLOCK_SECTOR, &handle->disk, sizeof(handle->disk)) != EOK ||
+        !superblock_valid(&handle->disk)) {
         free(handle);
         return -EINVAL;
     }

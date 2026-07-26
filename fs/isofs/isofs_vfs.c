@@ -68,12 +68,6 @@ static void isofs_handle_destroy(isofs_handle_t *h)
 
 /* ─── Parse a drive specifier: "sr0", "sr1", ... ─── */
 
-static int isofs_parse_src(const char *src, uint8_t *drive)
-{
-    if (!src || !drive) return -EINVAL;
-    return blockdev_parse_drive(src, drive);
-}
-
 /* ─── Scan directory records to find a child by name ─── */
 
 static iso_directory_record_t *isofs_find_entry(isofs_mount_t *mnt, uint32_t dir_block, uint64_t dir_size, const char *name, uint32_t *out_block,
@@ -339,18 +333,14 @@ static int isofs_vfs_mount(const char *src, vfs_node_t node)
 {
     if (!src || !node) return -EINVAL;
 
-    uint8_t         drive;
     int             status;
     isofs_mount_t  *mnt;
     isofs_handle_t *root_h;
 
-    status = isofs_parse_src(src, &drive);
-    if (status != EOK) return status;
-
     mnt = calloc(1, sizeof(isofs_mount_t));
     if (!mnt) return -ENOMEM;
 
-    status = blockdev_open_drive(drive, &mnt->device);
+    status = blockdev_open_name(src, &mnt->device);
     if (status != EOK) {
         free(mnt);
         return status;
@@ -509,7 +499,7 @@ static int isofs_vfs_mount(const char *src, vfs_node_t node)
         return -EIO;
     }
 
-    plogk("isofs: Mounted atapi%u, block size %u, volume space %u blocks.\n", drive, mnt->block_size, mnt->vol_space_size);
+    plogk("isofs: Mounted atapi%u, block size %u, volume space %u blocks.\n", mnt->device.drive, mnt->block_size, mnt->vol_space_size);
     return EOK;
 }
 

@@ -326,7 +326,7 @@ typedef struct {
         uint8_t  reserved;
         uint8_t  type;
         uint8_t  port;
-        uint32_t size;
+        uint64_t size;
         uint32_t sector_size;
         char     model[41];
 } ahci_device_t;
@@ -361,7 +361,7 @@ extern ahci_port_state_t ahci_ports[AHCI_MAX_PORTS];
 
 /* AHCI SATA API */
 void init_ahci(void);
-int  ahci_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, void *buffer);
-int  ahci_write_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, const void *buffer);
+int  ahci_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, void *buffer);
+int  ahci_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, const void *buffer);
 
 #endif

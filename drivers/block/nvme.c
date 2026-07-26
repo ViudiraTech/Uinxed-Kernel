@@ -584,7 +584,7 @@ static int nvme_do_io(nvme_controller_t *ctrl, uint8_t opc, uint32_t nsid, uint6
  *  Backend I/O entry points (called via blockdev ops table)
  * ================================================================ */
 
-int nvme_read_sectors(const struct blockdev_device *dev, uint32_t lba, uint32_t count, void *buffer)
+int nvme_read_sectors(const struct blockdev_device *dev, uint64_t lba, uint32_t count, void *buffer)
 {
     nvme_namespace_t  *ns;
     nvme_controller_t *ctrl;
@@ -651,7 +651,7 @@ int nvme_read_sectors(const struct blockdev_device *dev, uint32_t lba, uint32_t 
     return EOK;
 }
 
-int nvme_write_sectors(const struct blockdev_device *dev, uint32_t lba, uint32_t count, const void *buffer)
+int nvme_write_sectors(const struct blockdev_device *dev, uint64_t lba, uint32_t count, const void *buffer)
 {
     nvme_namespace_t  *ns;
     nvme_controller_t *ctrl;

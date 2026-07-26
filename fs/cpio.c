@@ -10,6 +10,7 @@
 
 #include <boot/limine_module.h>
 #include <fs/cpio.h>
+#include <fs/gzip.h>
 #include <fs/vfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
@@ -69,6 +70,7 @@ void init_cpio(void)
 
     compression_type_t type    = get_compression_type(init_ramfs->data, init_ramfs->size);
     uint8_t           *data_d  = 0;
+    size_t             data_size = init_ramfs->size;
     int                is_free = 0;
 
     char *compress_type;
@@ -78,6 +80,16 @@ void init_cpio(void)
             is_free       = 0;
             compress_type = "cpio";
             break;
+        case COMPRESSION_GZIP : {
+            int status = gzip_decompress(init_ramfs->data, init_ramfs->size, &data_d, &data_size);
+            if (status != EOK) {
+                plogk("cpio: Cannot decompress gzip initramfs, error code: %d.\n", status);
+                return;
+            }
+            is_free       = 1;
+            compress_type = "gzip";
+            break;
+        }
         default :
             if (init_ramfs->size >= 4) {
                 plogk("cpio: Cannot load initramfs, unknown format (magic: %02x %02x %02x %02x).\n", init_ramfs->data[0],
@@ -88,17 +100,23 @@ void init_cpio(void)
             return;
     }
 
+    if (get_compression_type(data_d, data_size) != COMPRESSION_NONE) {
+        plogk("cpio: Decompressed initramfs is not a newc archive.\n");
+        if (is_free) free(data_d);
+        return;
+    }
+
     cpio_newc_header_t hdr;
     size_t             offset       = 0;
     size_t             file_num_all = 0;
 
     while (1) {
-        if (offset + sizeof(hdr) > init_ramfs->size) break;
+        if (offset + sizeof(hdr) > data_size) break;
         memcpy(&hdr, data_d + offset, sizeof(hdr));
         offset += sizeof(hdr);
 
         size_t namesize = read_num(hdr.c_namesize, 8);
-        if (namesize > 4096 || offset + namesize > init_ramfs->size) break;
+        if (namesize > 4096 || offset + namesize > data_size) break;
         char filename[4096];
         filename[0]    = '/';
         size_t copy_ns = namesize < sizeof(filename) - 1 ? namesize : sizeof(filename) - 1;
@@ -107,8 +125,8 @@ void init_cpio(void)
         offset                = (offset + namesize + 3) & ~3;
 
         size_t filesize = read_num(hdr.c_filesize, 8);
-        if (filesize > init_ramfs->size || offset + filesize > init_ramfs->size) break;
-        char *filedata = malloc(filesize);
+        if (filesize > data_size || offset + filesize > data_size) break;
+        char *filedata = malloc(filesize ? filesize : 1);
         if (!filedata) break;
         memcpy(filedata, data_d + offset, filesize);
         offset = (offset + filesize + 3) & ~3;
@@ -132,6 +150,7 @@ void init_cpio(void)
             if (status != EOK) {
                 plogk("cpio: Cannot build initramfs directory(%s), error code: %d\n", filename, status);
                 free(filedata);
+                if (is_free) free(data_d);
                 return;
             }
         } else if (file_type == CPIO_MODE_IFLNK) {
@@ -144,6 +163,7 @@ void init_cpio(void)
             if (status != EOK) {
                 plogk("cpio: Cannot build initramfs symlink(%s), error code: %d\n", filename, status);
                 free(filedata);
+                if (is_free) free(data_d);
                 return;
             }
         } else if (file_type == CPIO_MODE_IFREG) {
@@ -151,6 +171,7 @@ void init_cpio(void)
             if (status != EOK) {
                 plogk("cpio: Cannot build initramfs file(%s), error code: %d\n", filename, status);
                 free(filedata);
+                if (is_free) free(data_d);
                 return;
             }
 
@@ -158,6 +179,7 @@ void init_cpio(void)
             if (!file) {
                 plogk("cpio: Cannot build initramfs, open error(%s)\n", filename);
                 free(filedata);
+                if (is_free) free(data_d);
                 return;
             }
 
@@ -165,6 +187,7 @@ void init_cpio(void)
             if (status == -1) {
                 plogk("cpio: Cannot build initramfs, write error(%s): %d\n", filename, status);
                 free(filedata);
+                if (is_free) free(data_d);
                 return;
             }
             vfs_close(file);
@@ -174,5 +197,5 @@ void init_cpio(void)
         free(filedata);
     }
     if (is_free) free(data_d);
-    plogk("cpio: Loaded initramfs size: %llu, files: %llu, compress: %s\n", init_ramfs->size, file_num_all, compress_type);
+    plogk("cpio: Loaded initramfs size: %llu, files: %llu, compress: %s\n", data_size, file_num_all, compress_type);
 }

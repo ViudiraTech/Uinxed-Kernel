@@ -118,7 +118,7 @@ typedef struct {
         uint16_t signature;
         uint16_t capabilities;
         uint32_t command_sets;
-        uint32_t size;
+        uint64_t size;
         uint8_t  model[41];
 } ide_device_t;
 
@@ -134,8 +134,8 @@ void    ide_read_buffer(uint8_t channel, uint8_t reg, uint8_t *buffer, uint32_t 
 uint8_t ide_polling(uint8_t channel, uint32_t advanced_check);
 void    ide_soft_reset(uint8_t drive);
 uint8_t ide_flush_cache(uint8_t drive);
-uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint32_t lba, uint8_t numsects, uint16_t *edi);
-void    ide_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *edi);
-void    ide_write_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, uint16_t *edi);
+uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint64_t lba, uint8_t numsects, uint16_t *edi);
+void    ide_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *edi);
+void    ide_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *edi);
 
 #endif

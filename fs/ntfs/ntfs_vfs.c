@@ -596,10 +596,8 @@ static int ntfs_vfs_mount(const char *src, vfs_node_t node)
 {
     if (!src || !node) return -EINVAL;
 
-    uint8_t drive;
-    if (blockdev_parse_drive(src, &drive) < 0) return -ENODEV;
     blockdev_device_t dev;
-    if (blockdev_open_drive(drive, &dev) < 0) return -ENODEV;
+    if (blockdev_open_name(src, &dev) < 0) return -ENODEV;
 
     u8 boot[512];
     if (blockdev_read_bytes(&dev, 0, boot, 512) < 0) return -EIO;
