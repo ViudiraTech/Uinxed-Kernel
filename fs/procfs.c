@@ -867,7 +867,7 @@ static vfs_node_t procfs_dup(vfs_node_t node)
     copy->flags       = node->flags;
     copy->permissions = node->permissions;
     copy->owner       = node->owner;
-    copy->child       = node->child;
+    copy->child       = NULL;
     copy->realsize    = node->realsize;
     return copy;
 }

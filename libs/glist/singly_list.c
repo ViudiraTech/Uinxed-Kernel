@@ -101,7 +101,7 @@ int slist_remove_tail(slist_t *list, void **data)
 /* Get the number of nodes in a singly linked list */
 size_t slist_size(const slist_t *list)
 {
-    if (!list) return 1;
+    if (!list) return 0;
     return list->size;
 }
 
@@ -129,17 +129,21 @@ int slist_destroy(slist_t *list, void (*free_data)(void *))
 int slist_remove(slist_t *list, void *data)
 {
     if (!list || !data) return 1;
-    slist_node_t **cur = &list->head;
-    while (*cur) {
-        if ((*cur)->data == data) {
-            slist_node_t *node = *cur;
-            *cur               = node->next;
-            if (list->tail == node) list->tail = 0;
-            free(node);
+    slist_node_t *prev = NULL;
+    slist_node_t *cur  = list->head;
+    while (cur) {
+        if (cur->data == data) {
+            if (prev)
+                prev->next = cur->next;
+            else
+                list->head = cur->next;
+            if (list->tail == cur) list->tail = prev;
+            free(cur);
             list->size--;
             return 0;
         }
-        cur = &(*cur)->next;
+        prev = cur;
+        cur  = cur->next;
     }
     return 1;
 }

@@ -56,7 +56,7 @@ static enum drm_connector_status virtgpu_connector_detect(struct drm_connector *
     (void)force;
 
     /* VirtIO-GPU is always connected in a VM */
-    return vgdev->num_scanouts > 0 ? connector_status_connected : connector_status_connected;
+    return vgdev->num_scanouts > 0 ? connector_status_connected : connector_status_disconnected;
 }
 
 static int virtgpu_connector_get_modes(struct drm_connector *connector)

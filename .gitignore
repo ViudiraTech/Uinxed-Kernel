@@ -9,12 +9,12 @@
 # IntelliJ IDEA
 .idea/
 
-# Vibe Coding shit
+# AI assistant configs
 CLAUDE.md
 AGENTS.md
 docs/superpowers
 
-# shit
+# Miscellaneous
 nul
 
 # Prerequisites

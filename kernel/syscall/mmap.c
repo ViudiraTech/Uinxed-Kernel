@@ -277,6 +277,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
             for (size_t i = 0; i < pages; i += PAGE_4K_SIZE) {
                 uint64_t frame = alloc_frames(1);
                 if (!frame) {
+                    (void)unmap_physical_pages(proc, mmap_addr, i);
                     process_file_put(file);
                     return -ENOMEM;
                 }
@@ -298,6 +299,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         /* Record the VMA */
         vm_area_t *vma = calloc(1, sizeof(vm_area_t));
         if (!vma) {
+            (void)unmap_physical_pages(proc, mmap_addr, pages);
             process_file_put(file);
             return -ENOMEM;
         }
@@ -318,13 +320,19 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         uint64_t pte_flags = vm_flags_to_pte(vm_flags);
         for (size_t i = 0; i < pages; i += PAGE_4K_SIZE) {
             uint64_t frame = alloc_frames(1);
-            if (!frame) return -ENOMEM;
+            if (!frame) {
+                (void)unmap_physical_pages(proc, mmap_addr, i);
+                return -ENOMEM;
+            }
             memset(phys_to_virt(frame), 0, PAGE_4K_SIZE);
             page_map_to(proc->user_page_dir, mmap_addr + i, frame, pte_flags);
         }
 
         vm_area_t *vma = calloc(1, sizeof(*vma));
-        if (!vma) return -ENOMEM;
+        if (!vma) {
+            (void)unmap_physical_pages(proc, mmap_addr, pages);
+            return -ENOMEM;
+        }
         vma->start = mmap_addr;
         vma->end   = mmap_addr + pages;
         vma->flags = vm_flags;

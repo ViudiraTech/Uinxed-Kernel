@@ -789,6 +789,12 @@ void sched_yield(void)
 
     spin_unlock(&scheduler.lock);
 
+    /* Re-disable interrupts: between the unlock and context_switch a timer
+     * interrupt could fire and re-enter the scheduler, corrupting the
+     * runqueue and rb-tree.  Interrupts stay off until the next task's
+     * saved RFLAGS is restored by context_switch(). */
+    disable_intr();
+
     /* Save and restore FS/GS base across context switch */
     if (prev && prev != rq->idle) {
         prev->thread.fs_base = rdmsr(0xC0000100);

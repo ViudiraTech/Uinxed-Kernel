@@ -1115,6 +1115,10 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
     (void)data;
     (void)arg5;
 
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    if (proc->uid != 0) return -EPERM;
+
     char src[SYSCALL_PATH_MAX] = {0};
     char tgt[SYSCALL_PATH_MAX] = {0};
     char fst[SYSCALL_PATH_MAX] = {0};
@@ -1322,7 +1326,7 @@ static int64_t sys_fchdir_stub(uint64_t fd, uint64_t arg1, uint64_t arg2, uint64
 
     while (node && node != node->parent && off > 0) {
         size_t nlen = strlen(node->name);
-        if (off + nlen + 1 > sizeof(path)) break;
+        if (off < nlen + 1) break;
         off -= nlen;
         memcpy(path + off, node->name, nlen);
         if (off > 0) path[--off] = '/';
@@ -1349,6 +1353,10 @@ static int64_t sys_truncate_stub(uint64_t path, uint64_t length, uint64_t arg2, 
     if (copy_path_from_user(path, name) != EOK) return -EFAULT;
     vfs_node_t node = vfs_open(name);
     if (!node) return -ENOENT;
+    if (vfs_mount_is_readonly(node)) {
+        vfs_close(node);
+        return -EROFS;
+    }
     vfs_update(node);
     node->size = length;
     vfs_close(node);
@@ -1384,6 +1392,10 @@ static int64_t sys_ftruncate_stub(uint64_t fd, uint64_t length, uint64_t arg2, u
         int ret = memfd_resize(file->node, length);
         process_file_put(file);
         return ret;
+    }
+    if (vfs_mount_is_readonly(file->node)) {
+        process_file_put(file);
+        return -EROFS;
     }
     vfs_update(file->node);
     file->node->size = length;
@@ -1585,6 +1597,9 @@ static int64_t sys_restart_syscall(uint64_t arg0, uint64_t arg1, uint64_t arg2, 
 
 static int64_t sys_chmod_common(const char *path, uint64_t mode)
 {
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    if (proc->uid != 0) return -EPERM;
     vfs_node_t node = vfs_open(path);
     if (!node) return -ENOENT;
     node->mode = (uint16_t)(mode & 07777);
@@ -1612,6 +1627,7 @@ static int64_t sys_fchmod_impl(uint64_t fd, uint64_t mode, uint64_t arg2, uint64
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
+    if (proc->uid != 0) return -EPERM;
     process_file_t *file = process_fd_get(proc, (int)fd);
     if (!file) return -EBADF;
     file->node->mode = (uint16_t)(mode & 07777);
@@ -1621,6 +1637,9 @@ static int64_t sys_fchmod_impl(uint64_t fd, uint64_t mode, uint64_t arg2, uint64
 
 static int64_t sys_chown_common(const char *path, uint64_t owner, uint64_t group)
 {
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    if (proc->uid != 0) return -EPERM;
     vfs_node_t node = vfs_open(path);
     if (!node) return -ENOENT;
     node->owner = (uint32_t)owner;
@@ -1647,6 +1666,7 @@ static int64_t sys_fchown_impl(uint64_t fd, uint64_t owner, uint64_t group, uint
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
+    if (proc->uid != 0) return -EPERM;
     process_file_t *file = process_fd_get(proc, (int)fd);
     if (!file) return -EBADF;
     file->node->owner = (uint32_t)owner;
@@ -1803,9 +1823,23 @@ static int64_t sys_getrandom_stub(uint64_t buf, uint64_t buflen, uint64_t flags,
     (void)arg4;
     (void)arg5;
     if (!buf && buflen) return -EFAULT;
+
+    static uint64_t xorshift_state = 0;
+    if (!xorshift_state) xorshift_state = sched_ticks() ^ 0xDEADBEEFCAFEBABEULL;
+
     for (uint64_t i = 0; i < buflen; i++) {
-        uint8_t val = (uint8_t)(sched_ticks() ^ (i * 1103515245 + 12345));
-        if (copy_to_user((void *)(buf + i), &val, 1)) return i ? (int64_t)i : -EFAULT;
+        uint64_t val;
+        uint8_t  ok;
+        __asm__ volatile("rdrand %0; setc %1" : "=r"(val), "=q"(ok));
+        if (!ok) {
+            val = xorshift_state;
+            val ^= val << 13;
+            val ^= val >> 7;
+            val ^= val << 17;
+            xorshift_state = val;
+        }
+        uint8_t byte = (uint8_t)(val >> ((i % 8) * 8));
+        if (copy_to_user((void *)(buf + i), &byte, 1)) return i ? (int64_t)i : -EFAULT;
     }
     return (int64_t)buflen;
 }
@@ -1835,6 +1869,7 @@ static int64_t sys_setuid_stub(uint64_t uid, uint64_t arg1, uint64_t arg2, uint6
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
+    if (proc->uid != 0) return -EPERM;
     proc->uid = (uint32_t)uid;
     return EOK;
 }
@@ -1848,6 +1883,7 @@ static int64_t sys_setgid_stub(uint64_t gid, uint64_t arg1, uint64_t arg2, uint6
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
+    if (proc->uid != 0) return -EPERM;
     proc->gid = (uint32_t)gid;
     return EOK;
 }
@@ -3195,11 +3231,7 @@ static int64_t sys_getdents64_wrap(uint64_t fd, uint64_t dirent, uint64_t count,
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    process_file_t *file = process_fd_get(proc, (int)fd);
-    if (!file) return -EBADF;
-
     int64_t ret = sys_getdents64_impl(fd, dirent, count);
-    process_file_put(file);
     return ret;
 }
 

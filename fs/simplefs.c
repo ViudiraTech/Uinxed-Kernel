@@ -524,7 +524,13 @@ static int simplefs_mount(const char *src, vfs_node_t node)
 
 static void simplefs_unmount(void *root)
 {
-    (void)root;
+    vfs_node_t node = root;
+    if (!node || !node->handle) return;
+
+    simplefs_vnode_t *vnode = node->handle;
+    if (vnode->owns_fs && vnode->fs) { free(vnode->fs); }
+    free(vnode);
+    node->handle = NULL;
 }
 
 static void simplefs_open(void *parent, const char *name, vfs_node_t node)

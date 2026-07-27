@@ -89,16 +89,16 @@ void panic(const char *format, ...)
     int         i;
 
     va_start(args, format);
-    i = vsprintf(buff, format, args);
+    i = vsnprintf(buff, sizeof(buff), format, args);
     va_end(args);
 
-    buff[i] = '\0';
+    if (i < 0 || (size_t)i >= sizeof(buff)) buff[sizeof(buff) - 1] = '\0';
 
     plogk("\n");
     plogk("Kernel panic - not syncing: %s\n", buff);
     task_t     *panic_task = current_task();
-    int         panic_pid  = (int)panic_task->pid;
-    const char *panic_comm = panic_task->name;
+    int         panic_pid  = panic_task ? (int)panic_task->pid : -1;
+    const char *panic_comm = panic_task ? panic_task->name : "unknown";
     plogk("CPU: %d PID: %d Comm: %s Not tainted\n", get_current_cpu_id(), panic_pid, panic_comm);
     plogk("Hardware name: %s %s, BIOS %s %s\n", sys_vendor, sys_product, bios_version, bios_date);
     dump_stack();

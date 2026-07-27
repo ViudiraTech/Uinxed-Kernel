@@ -92,9 +92,8 @@ static bool tty_prepare_interruptible_wait(tty_core_t *tty, wait_queue_t *queue)
 {
     process_t *current = process_current();
     if (!current) {
-        wait_queue_prepare(queue);
         spin_unlock(&tty->lock);
-        return true;
+        return false;
     }
 
     spin_lock(&current->signal.lock);

@@ -152,6 +152,7 @@ clist_t clist_delete(clist_t clist, void *data)
     if (clist->data == data) {
         clist_t temp = clist;
         clist        = clist->next;
+        if (clist) clist->prev = NULL;
         free(temp);
         return clist;
     }
@@ -173,6 +174,7 @@ clist_t clist_delete_with(clist_t clist, void *data, free_t callback)
     if (clist->data == data) {
         clist_t temp = clist;
         clist        = clist->next;
+        if (clist) clist->prev = NULL;
         if (callback) callback(temp->data);
         free(temp);
         return clist;
@@ -196,6 +198,7 @@ clist_t clist_delete_node(clist_t clist, clist_t node)
     if (clist == node) {
         clist_t temp = clist;
         clist        = clist->next;
+        if (clist) clist->prev = NULL;
         free(temp);
         return clist;
     }
@@ -212,6 +215,7 @@ clist_t clist_delete_node_with(clist_t clist, clist_t node, free_t callback)
     if (clist == node) {
         clist_t temp = clist;
         clist        = clist->next;
+        if (clist) clist->prev = NULL;
         if (callback) callback(temp->data);
         free(temp);
         return clist;

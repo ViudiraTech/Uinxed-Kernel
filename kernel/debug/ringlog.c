@@ -30,7 +30,7 @@ void log_buffer_write(log_buffer_t *log, const char *fmt, ...)
     memset(log->logs[log->head], 0, LOG_MAX_LENGTH);
 
     va_start(args, fmt);
-    (void)vsprintf(log->logs[log->head], fmt, args);
+    (void)vsnprintf(log->logs[log->head], LOG_MAX_LENGTH, fmt, args);
     va_end(args);
 
     log->head = (log->head + 1) % LOG_BUFFER_SIZE;

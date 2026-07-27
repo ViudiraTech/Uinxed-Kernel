@@ -84,13 +84,14 @@ size_t tmpfs_read(void *file, void *addr, size_t offset, size_t size)
 /* Write data to a tmpfs regular file */
 size_t tmpfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
-    tmpfs_file_t *f   = (tmpfs_file_t *)file;
-    size_t        end = offset + size;
+    tmpfs_file_t *f = (tmpfs_file_t *)file;
     size_t        old_size;
 
     if (f->device.write) return f->device.write(f->device.ctx, addr, offset, size);
 
-    old_size = f->size;
+    if (offset > SIZE_MAX - size) return 0;
+    size_t end = offset + size;
+    old_size   = f->size;
 
     if (end > f->capacity) {
         size_t new_cap = end * 2;
@@ -171,7 +172,7 @@ vfs_node_t tmpfs_dup(vfs_node_t node)
     copy->flags       = node->flags;
     copy->permissions = node->permissions;
     copy->owner       = node->owner;
-    copy->child       = node->child;
+    copy->child       = NULL;
     copy->realsize    = node->realsize;
     return copy;
 }

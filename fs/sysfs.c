@@ -531,7 +531,7 @@ static size_t sysfs_read(void *file, void *addr, size_t offset, size_t size)
         case SYSFS_ATTR : {
             char   *content = NULL;
             ssize_t length  = sysfs_gen_attr_content(sn, &content);
-            if (length < 0) return (size_t)-1;
+            if (length < 0) return 0;
             if (!length || offset >= (size_t)length) {
                 free(content);
                 return 0;

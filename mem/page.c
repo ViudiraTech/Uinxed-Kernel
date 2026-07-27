@@ -409,7 +409,6 @@ int page_resolve_cow_fault(page_directory_t *directory, uintptr_t addr)
             flush_tlb(leaf.base);
             spin_unlock(&directory->lock);
             (void)frame_release_range(old_frame, leaf.frame_count);
-            (void)frame_release_range(old_frame, leaf.frame_count);
             return 0;
         }
 

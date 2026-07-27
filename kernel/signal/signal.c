@@ -132,6 +132,7 @@ void signal_state_copy(signal_state_t *dst, const signal_state_t *src)
     if (!dst || !src) return;
 
     spin_lock(&((signal_state_t *)src)->lock);
+    if (dst != src) spin_lock(&dst->lock);
 
     memcpy(dst->sighand, src->sighand, sizeof(dst->sighand));
     dst->pending = src->pending;
@@ -150,6 +151,7 @@ void signal_state_copy(signal_state_t *dst, const signal_state_t *src)
     dst->child_exit_pid     = src->child_exit_pid;
     dst->child_exit_status  = src->child_exit_status;
 
+    if (dst != src) spin_unlock(&dst->lock);
     spin_unlock(&((signal_state_t *)src)->lock);
 }
 
@@ -402,13 +404,18 @@ static int signal_handle_default(process_t *proc, int sig)
             return 0;
 
         case SIG_DFL_STOP :
-            if (proc->task) { proc->task->state = TASK_BLOCKED; }
+            if (proc->task) {
+                spin_lock(&scheduler.lock);
+                proc->task->state = TASK_BLOCKED;
+                spin_unlock(&scheduler.lock);
+            }
             return 0;
 
         case SIG_DFL_CONT :
             if (proc->task && proc->task->state == TASK_BLOCKED) {
-                proc->task->state = TASK_READY;
+                spin_lock(&scheduler.lock);
                 enqueue_task(proc->task);
+                spin_unlock(&scheduler.lock);
             }
             return 0;
 
@@ -978,6 +985,36 @@ int64_t sys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize)
 }
 
 /*
+ * Dequeue the first signal from the sigqueue that matches `filter`.
+ * Returns the signal number and fills `info`, or 0 if nothing matches.
+ * Caller must hold state->lock.
+ */
+static int sigqueue_dequeue_filtered(signal_state_t *state, const sigset_t *filter, siginfo_t *info)
+{
+    sigqueue_t *cur  = state->sigqueue_head;
+    sigqueue_t *prev = NULL;
+
+    while (cur) {
+        int sig = cur->info.si_signo;
+        if (sigismember(filter, sig) && !sigismember(&state->blocked, sig)) {
+            memcpy(info, &cur->info, sizeof(siginfo_t));
+            if (prev)
+                prev->next = cur->next;
+            else
+                state->sigqueue_head = cur->next;
+            if (cur == state->sigqueue_tail) state->sigqueue_tail = prev;
+            state->sigqueue_count--;
+            sigqueue_free(cur);
+            sigdelset(&state->pending, sig);
+            return sig;
+        }
+        prev = cur;
+        cur  = cur->next;
+    }
+    return 0;
+}
+
+/*
  * sys_rt_sigtimedwait - Synchronously wait for queued signals
  */
 int64_t sys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info, const void *timeout, size_t sigsetsize)
@@ -995,25 +1032,13 @@ int64_t sys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info, const void *ti
     if (timeout) {
         /* Non-blocking poll */
         spin_lock(&state->lock);
-        sigset_t ready = state->pending & wait_set;
-        if (sigisemptyset(&ready)) {
-            spin_unlock(&state->lock);
-            return -EAGAIN;
-        }
-        /* Dequeue first matching signal */
         siginfo_t found;
         memset(&found, 0, sizeof(found));
-        for (int sig = 1; sig <= SIGRTMAX; sig++) {
-            if (sigismember(&ready, sig)) {
-                found.si_signo = sig;
-                found.si_code  = SI_USER;
-                sigdelset(&state->pending, sig);
-                break;
-            }
-        }
+        int sig = sigqueue_dequeue_filtered(state, &wait_set, &found);
         spin_unlock(&state->lock);
+        if (!sig) return -EAGAIN;
         if (info && copy_to_user(info, &found, sizeof(siginfo_t))) return -EFAULT;
-        return found.si_signo;
+        return sig;
     }
 
     /* Blocking wait (no timeout): use wait queue for atomic sleep */
@@ -1021,22 +1046,13 @@ int64_t sys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info, const void *ti
     wait_queue_init(&wq);
 
     spin_lock(&state->lock);
-    sigset_t ready = state->pending & wait_set;
-    if (!sigisemptyset(&ready)) {
-        /* Dequeue first matching signal */
-        siginfo_t found;
-        memset(&found, 0, sizeof(found));
-        for (int sig = 1; sig <= SIGRTMAX; sig++) {
-            if (sigismember(&ready, sig)) {
-                found.si_signo = sig;
-                found.si_code  = SI_USER;
-                sigdelset(&state->pending, sig);
-                break;
-            }
-        }
+    siginfo_t found;
+    memset(&found, 0, sizeof(found));
+    int sig = sigqueue_dequeue_filtered(state, &wait_set, &found);
+    if (sig) {
         spin_unlock(&state->lock);
         if (info && copy_to_user(info, &found, sizeof(siginfo_t))) return -EFAULT;
-        return found.si_signo;
+        return sig;
     }
 
     /* No matching signals pending; prepare to sleep */
@@ -1047,23 +1063,13 @@ int64_t sys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info, const void *ti
 
     /* Re-check after wakeup */
     spin_lock(&state->lock);
-    ready = state->pending & wait_set;
-    if (!sigisemptyset(&ready)) {
-        siginfo_t found;
-        memset(&found, 0, sizeof(found));
-        for (int sig = 1; sig <= SIGRTMAX; sig++) {
-            if (sigismember(&ready, sig)) {
-                found.si_signo = sig;
-                found.si_code  = SI_USER;
-                sigdelset(&state->pending, sig);
-                break;
-            }
-        }
-        spin_unlock(&state->lock);
-        if (info && copy_to_user(info, &found, sizeof(siginfo_t))) return -EFAULT;
-        return found.si_signo;
-    }
+    memset(&found, 0, sizeof(found));
+    sig = sigqueue_dequeue_filtered(state, &wait_set, &found);
     spin_unlock(&state->lock);
+    if (sig) {
+        if (info && copy_to_user(info, &found, sizeof(siginfo_t))) return -EFAULT;
+        return sig;
+    }
     return -EINTR;
 }
 

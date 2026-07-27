@@ -175,12 +175,14 @@ void video_clear_color(uint32_t color)
 /* Draw a pixel at the specified coordinates on the screen */
 void video_draw_pixel(uint32_t x, uint32_t y, uint32_t color)
 {
+    if (x >= stride || y >= height) return;
     (buffer)[y * stride + x] = color;
 }
 
 /* Get a pixel at the specified coordinates on the screen */
 uint32_t video_get_pixel(uint32_t x, uint32_t y)
 {
+    if (x >= stride || y >= height) return 0;
     return (buffer)[y * stride + x];
 }
 
