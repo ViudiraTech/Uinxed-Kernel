@@ -18,6 +18,7 @@
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <proc/process.h>
+#include <proc/ptrace.h>
 #include <proc/sched.h>
 #include <proc/task.h>
 #include <proc/uaccess.h>
@@ -59,10 +60,10 @@ static void sigqueue_free(sigqueue_t *q)
     if (q) free(q);
 }
 
-static void sigqueue_push(signal_state_t *state, const siginfo_t *info)
+static int sigqueue_push(signal_state_t *state, const siginfo_t *info)
 {
     sigqueue_t *q = sigqueue_alloc();
-    if (!q) return;
+    if (!q) return -ENOMEM;
 
     memcpy(&q->info, info, sizeof(siginfo_t));
     q->next = NULL;
@@ -75,6 +76,7 @@ static void sigqueue_push(signal_state_t *state, const siginfo_t *info)
         state->sigqueue_tail       = q;
     }
     state->sigqueue_count++;
+    return 0;
 }
 
 static void sigqueue_flush(signal_state_t *state)
@@ -143,7 +145,7 @@ void signal_state_copy(signal_state_t *dst, const signal_state_t *src)
     sigqueue_flush(dst);
     sigqueue_t *cur = src->sigqueue_head;
     while (cur) {
-        sigqueue_push(dst, &cur->info);
+        (void)sigqueue_push(dst, &cur->info);
         cur = cur->next;
     }
 
@@ -228,18 +230,15 @@ int signal_check_perm(const process_t *from, const process_t *to)
 
 static int signal_send_locked(signal_state_t *state, process_t *proc, int sig, const siginfo_t *info)
 {
-    /* For standard signals, non-RT: if already pending, just set the bit */
+    /* Standard signals coalesce, but Linux retains the first siginfo. */
     if (!sig_is_rt(sig)) {
         if (sigismember(&state->pending, sig)) {
-            /* Already pending, skip (non-RT signals don't queue) */
             return 0;
         }
-        sigaddset(&state->pending, sig);
-        return 0;
     }
 
     /* Real-time signals: queue up to SIGQUEUE_MAX */
-    if (state->sigqueue_count >= SIGQUEUE_MAX) { return -EAGAIN; }
+    if (sig_is_rt(sig) && state->sigqueue_count >= SIGQUEUE_MAX) return -EAGAIN;
 
     siginfo_t queue_info;
     if (info) {
@@ -253,7 +252,8 @@ static int signal_send_locked(signal_state_t *state, process_t *proc, int sig, c
     }
     queue_info.si_signo = sig;
 
-    sigqueue_push(state, &queue_info);
+    int queued = state->sigqueue_count < SIGQUEUE_MAX ? sigqueue_push(state, &queue_info) : -ENOMEM;
+    if (queued && sig_is_rt(sig)) return -EAGAIN;
     sigaddset(&state->pending, sig);
     return 0;
 }
@@ -602,6 +602,18 @@ int signal_deliver_if_pending(syscall_frame_t *frame)
         int       sig = signal_dequeue(state, &info);
 
         if (sig < 0) break;
+
+        /* A tracer observes the signal before normal disposition.  The
+         * tracee sleeps outside signal.lock and resumes with either a
+         * replacement signal or zero to suppress delivery. */
+        if (ptrace_tracer_pid(current_task()) && sig != SIGKILL) {
+            spin_unlock(&state->lock);
+            int injected = ptrace_signal_delivery(frame, sig, &info);
+            spin_lock(&state->lock);
+            if (!injected) continue;
+            sig           = injected;
+            info.si_signo = injected;
+        }
 
         int ret = signal_deliver_one(frame, sig, &info);
 

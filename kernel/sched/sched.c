@@ -802,6 +802,7 @@ void sched_yield(void)
     }
     wrmsr(0xC0000100, next->thread.fs_base);
     wrmsr(0xC0000101, next->thread.gs_base);
+    ptrace_arch_switch(prev, next);
 
     context_switch(&prev->context, &next->context, &prev->on_cpu);
 }

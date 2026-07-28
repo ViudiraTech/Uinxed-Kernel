@@ -21,6 +21,7 @@
 #include <mem/heap.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
+#include <mem/swap.h>
 #include <proc/process.h>
 #include <proc/sched.h>
 #include <sync/signal.h>
@@ -57,6 +58,7 @@ INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_
         process_t *proc = process_current();
         if (proc) {
             if (present && rw && !reserved && proc->user_page_dir && page_resolve_cow_fault(proc->user_page_dir, faulting_address) == 0) return;
+            if (!present && !reserved && proc->user_page_dir && swap_fault(proc->user_page_dir, faulting_address) == 0) return;
 
             siginfo_t info = {0};
             info.si_signo  = SIGSEGV;
@@ -176,7 +178,11 @@ static void destroy_table(page_table_t *table, int level)
 {
     for (int i = 0; i < 512; i++) {
         uint64_t value = table->entries[i].value;
-        if (!(value & PTE_PRESENT)) continue;
+        if (!(value & PTE_PRESENT)) {
+            if (level == 1 && swap_entry_is_swap(value)) (void)swap_entry_release_pte(value);
+            table->entries[i].value = 0;
+            continue;
+        }
 
         if (level == 1 || (value & PTE_HUGE)) {
             uint64_t mask = leaf_address_mask(level);
@@ -214,7 +220,13 @@ static int clone_table_cow(page_table_t *destination, const page_table_t *source
 {
     for (int i = 0; i < 512; i++) {
         uint64_t value = __atomic_load_n(&source->entries[i].value, __ATOMIC_ACQUIRE);
-        if (!(value & PTE_PRESENT)) continue;
+        if (!(value & PTE_PRESENT)) {
+            if (level == 1 && swap_entry_is_swap(value)) {
+                if (swap_entry_retain_pte(value)) return -1;
+                destination->entries[i].value = cow_leaf_value(value);
+            }
+            continue;
+        }
 
         if (level == 1 || (value & PTE_HUGE)) {
             uint64_t mask  = leaf_address_mask(level);
@@ -242,7 +254,13 @@ static void mark_parent_table_cow(page_table_t *table, int level, uintptr_t base
     for (int i = 0; i < 512; i++) {
         page_table_entry_t *entry = &table->entries[i];
         uint64_t            value = __atomic_load_n(&entry->value, __ATOMIC_ACQUIRE);
-        if (!(value & PTE_PRESENT)) continue;
+        if (!(value & PTE_PRESENT)) {
+            if (level == 1 && swap_entry_is_swap(value)) {
+                uint64_t replacement = cow_leaf_value(value);
+                if (replacement != value) __atomic_store_n(&entry->value, replacement, __ATOMIC_RELEASE);
+            }
+            continue;
+        }
 
         uintptr_t leaf_base = base | ((uintptr_t)i << shift);
         if (level == 1 || (value & PTE_HUGE)) {
@@ -351,6 +369,22 @@ static int find_cow_leaf(page_directory_t *directory, uintptr_t addr, cow_fault_
     leaf->frame_count = 1;
     leaf->base        = ALIGN_DOWN(addr, PAGE_4K_SIZE);
     return (leaf->value & PTE_PRESENT) ? 0 : -1;
+}
+
+static page_table_entry_t *find_4k_pte(page_directory_t *directory, uintptr_t addr)
+{
+    if (!directory || !directory->table || ((addr >> 39) & 0x1ff) >= 256) return NULL;
+    page_table_t *table = directory->table;
+    uint64_t value = table->entries[(addr >> 39) & 0x1ff].value;
+    if (!(value & PTE_PRESENT) || (value & PTE_HUGE)) return NULL;
+    table = phys_to_virt(value & PAGE_4K_MASK);
+    value = table->entries[(addr >> 30) & 0x1ff].value;
+    if (!(value & PTE_PRESENT) || (value & PTE_HUGE)) return NULL;
+    table = phys_to_virt(value & PAGE_4K_MASK);
+    value = table->entries[(addr >> 21) & 0x1ff].value;
+    if (!(value & PTE_PRESENT) || (value & PTE_HUGE)) return NULL;
+    table = phys_to_virt(value & PAGE_4K_MASK);
+    return &table->entries[(addr >> 12) & 0x1ff];
 }
 
 int page_resolve_cow_fault(page_directory_t *directory, uintptr_t addr)
@@ -634,7 +668,21 @@ int page_unmap_release(page_directory_t *directory, uint64_t addr)
 {
     if (!directory || !directory->table || ((addr >> 39) & 0x1ff) >= 256) return -1;
 
+retry_swap:
     spin_lock(&directory->lock);
+    page_table_entry_t *swap_pte = find_4k_pte(directory, addr);
+    uint64_t swap_value = swap_pte ? __atomic_load_n(&swap_pte->value, __ATOMIC_ACQUIRE) : 0;
+    if (swap_entry_is_swap(swap_value)) {
+        if (swap_value & PTE_SWAP_BUSY) {
+            spin_unlock(&directory->lock);
+            __asm__ volatile("pause");
+            goto retry_swap;
+        }
+        __atomic_store_n(&swap_pte->value, 0, __ATOMIC_RELEASE);
+        flush_tlb(addr);
+        spin_unlock(&directory->lock);
+        return swap_entry_release_pte(swap_value);
+    }
     cow_fault_leaf_t leaf;
     if (find_cow_leaf(directory, addr, &leaf)) {
         spin_unlock(&directory->lock);

@@ -18,6 +18,7 @@
 #include <mem/frame.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
+#include <mem/swap.h>
 
 log_buffer_t      frame_log;
 frame_allocator_t frame_allocator;
@@ -100,11 +101,13 @@ uint64_t alloc_frames(size_t count)
 {
     if (!count) return 0;
 
+retry:
     spin_lock(&frame_allocator.lock);
     bitmap_t *bitmap      = &frame_allocator.bitmap;
     size_t    frame_index = bitmap_find_range(bitmap, count, 1);
     if (frame_index == (size_t)-1 || frame_index + count > frame_allocator.frame_count) {
         spin_unlock(&frame_allocator.lock);
+        if (count == 1 && swap_reclaim(1) > 0) goto retry;
         return 0;
     }
     bitmap_set_range(bitmap, frame_index, frame_index + count, 0);

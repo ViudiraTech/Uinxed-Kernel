@@ -66,6 +66,7 @@
 #include <mem/heap.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
+#include <mem/swap.h>
 #include <net/dhcp.h>
 #include <net/netdev.h>
 #include <proc/boot_process.h>
@@ -156,6 +157,7 @@ void kernel_entry(void)
     init_frame();           // Physical Memory Frame
     page_init();            // Standard 4-Level Page Table
     init_heap();            // Standard Memory Heap
+    swap_init();            // Anonymous-memory swap area manager
     lmodule_init();         // Limine Kernel Module
                             //
     /* Early Graphics */    //

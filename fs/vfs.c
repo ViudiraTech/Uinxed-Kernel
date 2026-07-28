@@ -891,6 +891,7 @@ size_t vfs_readlink(vfs_node_t node, char *buf, size_t bufsize)
 size_t vfs_write(vfs_node_t file, void *addr, size_t offset, size_t size)
 {
     if (!file || !addr) return (size_t)-1;
+    if (file->flags & VFS_NODE_SWAPFILE) return (size_t)-1;
     if (vfs_access_check(file, VFS_ACCESS_W)) return (size_t)-1;
     do_update(file);
 
@@ -932,6 +933,7 @@ int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, cons
     int64_t ret;
 
     if (!file || !addr) return -EINVAL;
+    if (file->flags & VFS_NODE_SWAPFILE) return -EBUSY;
     if (vfs_access_check(file, VFS_ACCESS_W)) return -EACCES;
     do_update(file);
     if (file->type & file_dir) return -EISDIR;
@@ -985,6 +987,7 @@ int vfs_sync_all(void)
 int vfs_truncate(vfs_node_t file, uint64_t size)
 {
     if (!file) return -EINVAL;
+    if (file->flags & VFS_NODE_SWAPFILE) return -EBUSY;
     do_update(file);
     if ((file->type & ~file_delete) != file_none) return file->type & file_dir ? -EISDIR : -EINVAL;
     pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
@@ -1258,6 +1261,7 @@ int vfs_close(vfs_node_t node)
 int vfs_namespace_unlink(vfs_node_t node)
 {
     if (!node || node == rootdir) return -EINVAL;
+    if (node->flags & VFS_NODE_SWAPFILE) return -EBUSY;
     if (!node->parent) return -EINVAL;
 
     spin_lock(&vfs_namespace_lock);
@@ -1338,6 +1342,7 @@ int vfs_delete(vfs_node_t node)
     int status;
 
     if (!node || node == rootdir) return -EINVAL;
+    if (node->flags & VFS_NODE_SWAPFILE) return -EBUSY;
 
     do_update(node);
     if (node->type & file_dir) {
@@ -1366,6 +1371,7 @@ int vfs_rename(vfs_node_t node, const char *new)
     int res;
 
     if (!node || !new) return -EINVAL;
+    if (node->flags & VFS_NODE_SWAPFILE) return -EBUSY;
     char *old      = strdup(node->name);
     char *new_name = strdup(new);
     if (!old || !new_name) {

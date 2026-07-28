@@ -173,6 +173,7 @@ process_t *process_iterate(size_t *pos);
 process_t *process_find_get(pid_t pid);
 process_t *process_iterate_get(size_t *pos);
 process_t *process_group_iterate_get(size_t *pos, pid_t pgid, pid_t sid);
+task_t    *process_task_find_get(pid_t pid, process_t **owner);
 void       process_put(process_t *proc);
 
 /* Get information about the current process */
@@ -200,6 +201,9 @@ process_t *process_fork(void);
 
 /* Clone the current process and preserve the allocation/admission errno. */
 process_t *process_fork_status(int *error);
+
+/* Fork while propagating a Linux ptrace creation event before enqueue. */
+process_t *process_fork_status_event(int *error, uint32_t ptrace_event);
 
 /* Clone the current process and make the child return from the syscall frame */
 process_t *process_fork_from_syscall(syscall_frame_t *frame);

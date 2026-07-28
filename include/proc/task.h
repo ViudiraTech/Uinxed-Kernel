@@ -16,6 +16,7 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <mem/page.h>
+#include <proc/ptrace.h>
 #include <sync/spin_lock.h>
 
 typedef struct process process_t;
@@ -99,6 +100,7 @@ struct task {
         uint32_t         pi_weight;   /* effective weight for PI waiter ordering */
         rb_node_t        pi_node;     /* rbtree node for pi_waiters */
         struct rt_mutex *blocked_on;  /* mutex this task is blocked on, or NULL */
+        ptrace_state_t   ptrace;      /* Linux ptrace state is per-thread */
 };
 
 /* Initialize a wait queue */

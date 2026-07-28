@@ -33,8 +33,11 @@
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
+#include <mem/frame.h>
 #include <mem/page.h>
+#include <mem/swap.h>
 #include <proc/process.h>
+#include <proc/ptrace.h>
 #include <proc/sched.h>
 #include <proc/task.h>
 #include <proc/uaccess.h>
@@ -495,6 +498,13 @@ static int64_t sys_wait4(uint64_t pid, uint64_t exit_code, uint64_t options, uin
 
     int flags  = (int)options;
     int status = 0;
+
+    int64_t traced = ptrace_wait_event((pid_t)pid, &status, flags);
+    if (traced != -ECHILD) {
+        if (traced < 0) return traced;
+        if (traced && exit_code && copy_to_user((void *)exit_code, &status, sizeof(status))) return -EFAULT;
+        return traced;
+    }
 
     if (flags & WNOHANG) {
         /*
@@ -1351,6 +1361,13 @@ static int64_t sys_signalfd4_wrap(uint64_t fd, uint64_t mask, uint64_t sizemask,
     return sys_signalfd4((int)fd, (const void *)mask, (size_t)sizemask, (int)flags);
 }
 
+static int64_t sys_ptrace_wrap(uint64_t request, uint64_t pid, uint64_t addr, uint64_t data, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg4;
+    (void)arg5;
+    return sys_ptrace((int)request, (int64_t)pid, (uintptr_t)addr, (uintptr_t)data);
+}
+
 static int64_t sys_inotify_init_wrap(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg0;
@@ -2090,13 +2107,24 @@ static int64_t sys_sysinfo_impl(uint64_t info, uint64_t arg1, uint64_t arg2, uin
     struct linux_sysinfo si;
     memset(&si, 0, sizeof(si));
     si.uptime   = (int64_t)(sched_ticks() / 100);
-    si.procs    = 1;
     si.mem_unit = 1;
-    /* Report a generous amount of RAM: 256MB */
-    si.totalram  = 256 * 1024 * 1024;
-    si.freeram   = 128 * 1024 * 1024;
-    si.totalswap = 0;
-    si.freeswap  = 0;
+
+    spin_lock(&frame_allocator.lock);
+    si.totalram = frame_allocator.origin_frames * PAGE_4K_SIZE;
+    si.freeram  = frame_allocator.usable_frames * PAGE_4K_SIZE;
+    spin_unlock(&frame_allocator.lock);
+
+    size_t     process_cursor = 0;
+    process_t *process;
+    while ((process = process_iterate_get(&process_cursor)) != NULL) {
+        si.procs++;
+        process_put(process);
+    }
+
+    swap_stats_t swap;
+    swap_get_stats(&swap);
+    si.totalswap = swap.total_pages * SWAP_PAGE_SIZE;
+    si.freeswap  = swap.free_pages * SWAP_PAGE_SIZE;
 
     if (copy_to_user((void *)info, &si, sizeof(si))) return -EFAULT;
     return 0;
@@ -3218,7 +3246,7 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
 
     switch ((int)which) {
         case P_PID :
-            if (copy_from_user(&pid, (const void *)upid, sizeof(pid))) return -EFAULT;
+            pid = (pid_t)upid;
             break;
         case P_PGID :
         case P_ALL :
@@ -3231,6 +3259,24 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
     /* For now, delegate to wait4 and ignore siginfo_t output */
     int     status = 0;
     int64_t ret;
+
+    if ((int)which == P_PID) {
+        ret = ptrace_wait_event(pid, &status, flags);
+        if (ret != -ECHILD) {
+            if (ret < 0) return ret;
+            if (!ret) return 0;
+            if (infop) {
+                siginfo_t info;
+                memset(&info, 0, sizeof(info));
+                info.si_signo  = SIGCHLD;
+                info.si_code   = CLD_TRAPPED;
+                info.si_pid    = pid;
+                info.si_status = (status >> 8) & 0xff;
+                if (copy_to_user((void *)infop, &info, sizeof(info))) return -EFAULT;
+            }
+            return 0;
+        }
+    }
 
     if (flags & WNOHANG) {
         process_t *child = process_find(pid);
@@ -3811,6 +3857,37 @@ static int copy_module_params(uint64_t user_params, char params[MODULE_PARAM_MAX
     return ret < 0 ? ret : EOK;
 }
 
+static int64_t sys_swapon(uint64_t path, uint64_t flags, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    if (proc->uid != 0) return -EPERM;
+    if (!path) return -EFAULT;
+    char name[SYSCALL_PATH_MAX] = {0};
+    if (strncpy_from_user(name, (const char *)path, sizeof(name)) < 0) return -EFAULT;
+    return swap_activate_path(name, (uint32_t)flags);
+}
+
+static int64_t sys_swapoff(uint64_t path, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    if (proc->uid != 0) return -EPERM;
+    if (!path) return -EFAULT;
+    char name[SYSCALL_PATH_MAX] = {0};
+    if (strncpy_from_user(name, (const char *)path, sizeof(name)) < 0) return -EFAULT;
+    return swap_deactivate_path(name);
+}
+
 static int64_t sys_init_module_impl(uint64_t image, uint64_t length, uint64_t user_params, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg3;
@@ -4002,7 +4079,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_GETRUSAGE]              = sys_getrusage_impl,
     [SYS_SYSINFO]                = sys_sysinfo_impl,
     [SYS_TIMES]                  = sys_times_stub,
-    [SYS_PTRACE]                 = sys_stub,
+    [SYS_PTRACE]                 = sys_ptrace_wrap,
     [SYS_GETUID]                 = sys_getuid,
     [SYS_SYSLOG]                 = sys_stub,
     [SYS_GETGID]                 = sys_getgid,
@@ -4068,8 +4145,8 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_SETTIMEOFDAY]           = sys_stub,
     [SYS_MOUNT]                  = sys_mount,
     [SYS_UMOUNT2]                = sys_umount2,
-    [SYS_SWAPON]                 = sys_stub,
-    [SYS_SWAPOFF]                = sys_stub,
+    [SYS_SWAPON]                 = sys_swapon,
+    [SYS_SWAPOFF]                = sys_swapoff,
     [SYS_REBOOT]                 = sys_reboot_impl,
     [SYS_SETHOSTNAME]            = sys_stub_ok,
     [SYS_SETDOMAINNAME]          = sys_stub_ok,
@@ -4265,6 +4342,9 @@ void syscall_dispatch(syscall_frame_t *frame)
     uint64_t num    = frame->rax;
     int64_t  retval = 0;
 
+    ptrace_syscall_enter(frame, num);
+    num = frame->rax;
+
     if (num == SYS_CLONE && (frame->rdi & CLONE_THREAD)) {
         uint64_t flags = frame->rdi;
         if ((flags & CLONE_PTHREAD_REQUIRED) != CLONE_PTHREAD_REQUIRED || (flags & ~CLONE_PTHREAD_ALLOWED)) {
@@ -4281,6 +4361,7 @@ void syscall_dispatch(syscall_frame_t *frame)
                                              (flags & CLONE_SETTLS) ? frame->r8 : current_task()->thread.fs_base, &error);
         retval        = child ? (int64_t)child->pid : error;
         frame->rax    = (uint64_t)retval;
+        if (child) ptrace_fork_event(frame, PTRACE_EVENT_CLONE, child->pid);
         goto check_signals;
     }
 
@@ -4290,7 +4371,8 @@ void syscall_dispatch(syscall_frame_t *frame)
             goto check_signals;
         }
         int        error = EOK;
-        process_t *child = process_fork_status(&error);
+        uint32_t   event = num == SYS_VFORK ? PTRACE_EVENT_VFORK : PTRACE_EVENT_FORK;
+        process_t *child = process_fork_status_event(&error, event);
         if (child) {
             uint64_t        kstack_top  = (uint64_t)(child->kernel_stack + PROCESS_KERNEL_STACK);
             uint64_t       *kstack      = (uint64_t *)ALIGN_DOWN(kstack_top, 16ULL);
@@ -4303,6 +4385,8 @@ void syscall_dispatch(syscall_frame_t *frame)
         }
         retval     = child ? (int64_t)child->task->pid : (int64_t)error;
         frame->rax = (uint64_t)retval;
+        if (child) ptrace_fork_event(frame, event, child->task->pid);
+        if (child && event == PTRACE_EVENT_VFORK) ptrace_fork_event(frame, PTRACE_EVENT_VFORK_DONE, child->task->pid);
         goto check_signals;
     }
 
@@ -4315,6 +4399,7 @@ void syscall_dispatch(syscall_frame_t *frame)
     if (num == SYS_EXECVE) {
         retval     = do_execve((const char *)frame->rdi, (char *const *)frame->rsi, (char *const *)frame->rdx, frame);
         frame->rax = (uint64_t)retval;
+        if (!retval) ptrace_exec_event(frame);
         goto check_signals;
     }
 
@@ -4346,6 +4431,8 @@ void syscall_dispatch(syscall_frame_t *frame)
     frame->rax = (uint64_t)retval;
 
 check_signals:
+    ptrace_syscall_exit(frame, (int64_t)frame->rax);
+    retval = (int64_t)frame->rax;
     /*
      * On return to userspace, deliver any pending signals.
      * The signal subsystem sets up handler frames (redirecting RIP/RSP)

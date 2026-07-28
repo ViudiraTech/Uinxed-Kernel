@@ -30,6 +30,7 @@
 #include <mem/hhdm.h>
 #include <mem/page.h>
 #include <proc/process.h>
+#include <proc/ptrace.h>
 #include <proc/sched.h>
 #include <proc/uaccess.h>
 #include <sync/spin_lock.h>
@@ -1087,6 +1088,9 @@ void process_exit(int exit_code)
     process_t *proc = current->process;
     if (proc == init_process) panic("init: Attempt to kill init!");
 
+    ptrace_exit_event(exit_code);
+    ptrace_tracer_exit((int64_t)current->pid);
+
     spin_lock(&process_table_lock);
     bool sibling_exit = proc->thread_count > 1;
     if (sibling_exit) {
@@ -1110,6 +1114,7 @@ void process_exit(int exit_code)
             copy_to_user((void *)current->clear_child_tid, &zero, sizeof(zero));
             sys_futex((uint32_t *)current->clear_child_tid, FUTEX_WAKE | FUTEX_PRIVATE_FLAG, 1, 0, NULL, 0);
         }
+        ptrace_exit_notify(exit_code);
         task_exit();
         return;
     }
@@ -1168,6 +1173,8 @@ void process_exit(int exit_code)
 
     process_fd_table_close(proc);
 
+    ptrace_exit_notify(exit_code);
+
     plogk("process: Process %llu (%s) exited with code %d\n", proc->task->pid, proc->task->name, exit_code);
 
     proc->task->state = TASK_ZOMBIE;
@@ -1196,6 +1203,9 @@ int process_wait(pid_t pid, int *exit_code)
             task_t *member = rb_entry(node, task_t, thread_node);
             if (member->state != TASK_ZOMBIE || __atomic_load_n(&member->on_cpu, __ATOMIC_ACQUIRE)) group_stopped = false;
         }
+        /* A real parent cannot reap a zombie until its ptrace tracer has
+         * consumed the final wait status and released the tracee. */
+        if (group_stopped && ptrace_tracer_pid(child_task)) group_stopped = false;
         if (group_stopped) break;
 
         /*
@@ -1299,7 +1309,7 @@ process_t *process_current(void)
     return task ? task->process : NULL;
 }
 
-process_t *process_fork_status(int *error)
+process_t *process_fork_status_event(int *error, uint32_t ptrace_event)
 {
     task_t    *current = current_task();
     process_t *parent  = current ? current->process : NULL;
@@ -1427,7 +1437,8 @@ process_t *process_fork_status(int *error)
 
     slist_insert_tail(&parent->children, child);
 
-    enqueue_task(child_task);
+    bool ptrace_stopped = ptrace_fork_child(current, child_task, ptrace_event);
+    if (!ptrace_stopped) enqueue_task(child_task);
 
     spin_unlock(&parent->mmap_lock);
     spin_unlock(&scheduler.lock);
@@ -1435,6 +1446,33 @@ process_t *process_fork_status(int *error)
 
     // plogk("process: Forked process %llu from parent %llu\n", child->task->pid, parent->task->pid); it is very noisy
     return child;
+}
+
+task_t *process_task_find_get(pid_t pid, process_t **owner)
+{
+    if (owner) *owner = NULL;
+    if (pid <= 0) return NULL;
+
+    spin_lock(&process_table_lock);
+    for (size_t index = 1; index < PROCESS_TABLE_SIZE; index++) {
+        process_t *proc = process_table[index];
+        if (!proc) continue;
+        for (ilist_node_t *node = proc->threads.next; node != &proc->threads; node = node->next) {
+            task_t *task = rb_entry(node, task_t, thread_node);
+            if ((pid_t)task->pid != pid) continue;
+            process_get_locked(proc);
+            if (owner) *owner = proc;
+            spin_unlock(&process_table_lock);
+            return task;
+        }
+    }
+    spin_unlock(&process_table_lock);
+    return NULL;
+}
+
+process_t *process_fork_status(int *error)
+{
+    return process_fork_status_event(error, PTRACE_EVENT_FORK);
 }
 
 process_t *process_fork(void)
@@ -1528,7 +1566,8 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
     ilist_insert_before(&proc->threads, &child->thread_node);
     proc->thread_count++;
     spin_unlock(&process_table_lock);
-    enqueue_task(child);
+    bool ptrace_stopped = ptrace_fork_child(current, child, PTRACE_EVENT_CLONE);
+    if (!ptrace_stopped) enqueue_task(child);
     spin_unlock(&scheduler.lock);
     request_task_cpu(child);
     return child;

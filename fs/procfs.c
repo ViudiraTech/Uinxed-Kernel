@@ -27,6 +27,7 @@
 #include <mem/heap.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
+#include <mem/swap.h>
 #include <net/abi/inet.h>
 #include <net/netdev.h>
 #include <proc/process.h>
@@ -163,6 +164,8 @@ static void gen_info_meminfo(procfs_file_t *pf)
     size_t inactive_kb  = cache.inactive * PAGE_4K_SIZE / 1024;
     size_t clean_pages  = cache.pages > cache.dirty ? cache.pages - cache.dirty : 0;
     size_t available_kb = free_kb + clean_pages * PAGE_4K_SIZE / 1024;
+    swap_stats_t swap;
+    swap_get_stats(&swap);
     int    n            = snprintf(buf, PROCFS_BUF_SIZE,
                                    "MemTotal:       %8zu kB\n"
                                                  "MemFree:        %8zu kB\n"
@@ -185,7 +188,8 @@ static void gen_info_meminfo(procfs_file_t *pf)
                                                  "VmallocTotal:   %8zu kB\n"
                                                  "VmallocUsed:    %8zu kB\n"
                                                  "VmallocChunk:   %8zu kB\n",
-                                   total_kb, free_kb, available_kb, 0UL, cached_kb, 0UL, active_kb, inactive_kb, 0UL, 0UL, dirty_kb, writeback_kb, 0UL, 0UL,
+                                    total_kb, free_kb, available_kb, 0UL, cached_kb, 0UL, active_kb, inactive_kb,
+                                    (size_t)(swap.total_pages * SWAP_PAGE_SIZE / 1024), (size_t)(swap.free_pages * SWAP_PAGE_SIZE / 1024), dirty_kb, writeback_kb, 0UL, 0UL,
                                    0UL, 0UL, 0UL, 0UL, (KERNEL_HEAP_SIZE) / 1024, 0UL, (KERNEL_HEAP_SIZE) / 1024);
 
     pf->content  = buf;
@@ -199,6 +203,8 @@ static void gen_info_vmstat(procfs_file_t *pf)
     if (!buf) return;
     pagecache_stats_t cache;
     pagecache_get_stats(&cache);
+    swap_stats_t swap;
+    swap_get_stats(&swap);
     int n        = snprintf(buf, PROCFS_BUF_SIZE,
                             "nr_file_pages %llu\n"
                                    "nr_active_file %llu\n"
@@ -206,13 +212,16 @@ static void gen_info_vmstat(procfs_file_t *pf)
                                    "nr_dirty %llu\n"
                                    "nr_writeback %llu\n"
                                    "pgpgin %llu\n"
-                                   "pgpgout %llu\n"
+                             "pgpgout %llu\n"
+                                    "pswpin %llu\n"
+                                    "pswpout %llu\n"
                                    "pgactivate %llu\n"
                                    "pgsteal_kswapd %llu\n"
                                    "workingset_refault_file %llu\n"
                                    "workingset_activate_file %llu\n"
                                    "nr_vmscan_write %llu\n",
-                            cache.pages, cache.active, cache.inactive, cache.dirty, cache.writeback, cache.reads * 4, cache.writes * 4, cache.active,
+                             cache.pages, cache.active, cache.inactive, cache.dirty, cache.writeback, cache.reads * 4, cache.writes * 4,
+                             swap.pages_in, swap.pages_out, cache.active,
                             cache.reclaimed, cache.misses, cache.hits, cache.writeback_errors);
     pf->content  = buf;
     pf->size     = n < 0 ? 0 : (size_t)n;
@@ -512,7 +521,7 @@ static void gen_pid_status(procfs_file_t *pf)
                      "Tgid:\t%llu\n"
                      "Pid:\t%llu\n"
                      "PPid:\t%llu\n"
-                     "TracerPid:\t0\n"
+                     "TracerPid:\t%llu\n"
                      "Uid:\t%u\t%u\t%u\t%u\n"
                      "Gid:\t%u\t%u\t%u\t%u\n"
                      "FDSize:\t%u\n"
@@ -536,8 +545,9 @@ static void gen_pid_status(procfs_file_t *pf)
                      "Mems_allowed_list:\t0\n"
                      "voluntary_ctxt_switches:\t0\n"
                      "nonvoluntary_ctxt_switches:\t0\n",
-                     proc->task->name, state_str, (uint64_t)pf->pid, (uint64_t)pf->pid, (uint64_t)ppid, proc->uid, proc->uid, proc->uid,
-                     proc->uid, proc->gid, proc->gid, proc->gid, proc->gid, 0U, 0U, vmsize / 1024, vmrss / 1024, vmdata / 1024, vmstack / 1024);
+                     proc->task->name, state_str, (uint64_t)pf->pid, (uint64_t)pf->pid, (uint64_t)ppid,
+                     (uint64_t)ptrace_tracer_pid(proc->task), proc->uid, proc->uid, proc->uid, proc->uid, proc->gid, proc->gid, proc->gid,
+                     proc->gid, 0U, 0U, vmsize / 1024, vmrss / 1024, vmdata / 1024, vmstack / 1024);
 
     pf->content  = buf;
     pf->size     = n < 0 ? 0 : (size_t)n;

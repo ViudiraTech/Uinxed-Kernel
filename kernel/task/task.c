@@ -158,6 +158,7 @@ task_t *task_alloc_status(const char *name, int *error)
     task->blocked_on     = NULL;
     task->thread.fs_base = 0;
     task->thread.gs_base = 0;
+    ptrace_state_init(&task->ptrace);
     task_name_copy(task, name);
     ilist_init(&task->sched_node);
     ilist_init(&task->timer_node);
