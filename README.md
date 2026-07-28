@@ -26,6 +26,7 @@ Uinxed is a UNIX-like operating system kernel developed from scratch, focusing o
   - Physical memory frame allocator
   - Virtual memory page management
   - High half memory mapping (HHDM)
+  - Unified page cache with page locking, LRU reclaim, dirty-page writeback, readahead, truncation, and statistics
 - **Interrupt management**:
   - Complete interrupt descriptor table (IDT) implementation
   - Exception interrupt handlers for both kernel and userspace
@@ -38,6 +39,7 @@ Uinxed is a UNIX-like operating system kernel developed from scratch, focusing o
   - `evdev` for event devices
   - `DRM` (Direct rendering manager) subsystem
   - IPC (Inter-Process Communication)
+  - Linux-style USB device, interface, bus, and sysfs integration
 - **Console meatures**:
   - Bitmap fonts (9x16 pixels)
   - High-speed framebuffer console implementation
@@ -56,6 +58,7 @@ Uinxed is a UNIX-like operating system kernel developed from scratch, focusing o
   - ISO 9660
   - procfs, sysfs, devtmpfs, cgroupfs
   - SimpleFS for test
+  - VFS-backed page-cache mappings for regular files and memory-mapped I/O
 - **Scheduler**:
   - Kernel thread scheduler
   - Load balance
@@ -76,15 +79,18 @@ Uinxed is a UNIX-like operating system kernel developed from scratch, focusing o
     1. PS/2 keyboard
     2. PS/2 mouse
     3. evdev subsystem
+    4. USB HID report-descriptor parser with USB keyboard, mouse, and consumer-control input
   - Storage
     1. ATA/ATAPI (IDE)
     2. AHCI (SATA)
     3. NVMe
+    4. USB Mass Storage Bulk-Only Transport with SCSI READ/WRITE and removable `/dev/sdX` disks
   - GPU
     1. DRM (Direct Rendering Manager) / KMS
     2. VirtIO-GPU (paravirtualized)
   - Bus
     1. PCI/PCIe (ECAM + legacy configuration)
+    2. PCI xHCI host controller with control, bulk, interrupt, root-port enumeration, and hotplug handling
   - Port
     1. Standard serial port (RS232)
     2. Standard parallel port (IEEE 1284)
@@ -146,13 +152,38 @@ cd Uinxed-Kernel
 make
 ```
 
+USB support is enabled by default in `.config-default`. The individual options are exposed in the `USB support` section of `Kconfig`:
+
+```text
+CONFIG_USB
+CONFIG_USB_XHCI
+CONFIG_USB_HID
+CONFIG_USB_STORAGE
+```
+
 ## Running Tests 🏃‍♂️
+
+### Protocol and subsystem tests
+
+The host-side test suite covers HID report decoding, xHCI ring cycle semantics, USB Mass Storage BOT/SCSI wire encoding, partition parsing, and existing VFS/input subsystems:
+
+```bash
+make -C tests
+```
 
 ### Virtual machine running
 
 ```bash
 make run
 ```
+
+To run the USB path in QEMU with an xHCI controller, USB keyboard, USB tablet, and `ahci_disk.img` attached as a USB mass-storage disk:
+
+```bash
+make run-usb
+```
+
+Expected device nodes include USB HID devices under `/dev/input/eventX` and the removable disk under `/dev/sdX`, with partition nodes when a valid MBR or GPT table is present.
 
 ### Physical machine operation
 
