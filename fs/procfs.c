@@ -26,6 +26,7 @@
 #include <mem/hhdm.h>
 #include <mem/page.h>
 #include <net/abi/inet.h>
+#include <net/netdev.h>
 #include <proc/process.h>
 #include <proc/sched.h>
 
@@ -328,6 +329,55 @@ static void gen_info_loadavg(procfs_file_t *pf)
     pf->capacity = 128;
 }
 
+typedef struct procfs_net_context {
+        char  *buf;
+        size_t length;
+        size_t capacity;
+} procfs_net_context_t;
+
+static void procfs_gen_net_dev(net_device_t *device, void *opaque)
+{
+    procfs_net_context_t *context = opaque;
+    netdev_stats_t        stats;
+    char                  name[NETDEV_NAME_MAX];
+    if (context->length >= context->capacity) return;
+    spin_lock(&device->lock);
+    strncpy(name, device->name, sizeof(name) - 1);
+    name[sizeof(name) - 1] = '\0';
+    spin_unlock(&device->lock);
+    netdev_get_stats(device, &stats);
+    int n = snprintf(context->buf + context->length, context->capacity - context->length,
+                     "%6s: %llu %llu %llu %llu 0 0 0 0 %llu %llu %llu %llu 0 0 0 0\n", name, (unsigned long long)stats.rx_bytes,
+                     (unsigned long long)stats.rx_packets, (unsigned long long)stats.rx_errors, (unsigned long long)stats.rx_dropped,
+                     (unsigned long long)stats.tx_bytes, (unsigned long long)stats.tx_packets, (unsigned long long)stats.tx_errors,
+                     (unsigned long long)stats.tx_dropped);
+    if (n > 0) context->length += (size_t)n < context->capacity - context->length ? (size_t)n : context->capacity - context->length;
+}
+
+static void procfs_gen_net_route(net_device_t *device, void *opaque)
+{
+    procfs_net_context_t *context = opaque;
+    char                  name[NETDEV_NAME_MAX];
+    uint32_t              address, netmask, gateway, mtu, flags;
+    spin_lock(&device->lock);
+    strncpy(name, device->name, sizeof(name) - 1);
+    name[sizeof(name) - 1] = '\0';
+    address                = device->ipv4_address;
+    netmask                = device->ipv4_netmask;
+    gateway                = device->ipv4_gateway;
+    mtu                    = device->mtu;
+    flags                  = device->flags;
+    spin_unlock(&device->lock);
+    if (!address || !netmask || !(flags & NETDEV_F_UP) || context->length >= context->capacity) return;
+    int n = snprintf(context->buf + context->length, context->capacity - context->length, "%s\t%08X\t00000000\t0001\t0\t0\t0\t%08X\t%u\t0\t0\n",
+                     name, __builtin_bswap32(address & netmask), __builtin_bswap32(netmask), mtu);
+    if (n > 0) context->length += (size_t)n < context->capacity - context->length ? (size_t)n : context->capacity - context->length;
+    if (!gateway || context->length >= context->capacity) return;
+    n = snprintf(context->buf + context->length, context->capacity - context->length, "%s\t00000000\t%08X\t0003\t0\t0\t0\t00000000\t%u\t0\t0\n",
+                 name, __builtin_bswap32(gateway), mtu);
+    if (n > 0) context->length += (size_t)n < context->capacity - context->length ? (size_t)n : context->capacity - context->length;
+}
+
 static void gen_net_file(procfs_file_t *pf)
 {
     static const char *headers[] = {
@@ -340,15 +390,25 @@ static void gen_net_file(procfs_file_t *pf)
     };
     char *buf = calloc(1, PROCFS_BUF_SIZE);
     if (!buf) return;
+    if (pf->subtype == PROC_NET_DEV || pf->subtype == PROC_NET_ROUTE) {
+        procfs_net_context_t context = {.buf = buf, .capacity = PROCFS_BUF_SIZE};
+        context.length               = strlen(headers[pf->subtype]);
+        memcpy(buf, headers[pf->subtype], context.length);
+        netdev_iterate(pf->subtype == PROC_NET_DEV ? procfs_gen_net_dev : procfs_gen_net_route, &context);
+        pf->content  = buf;
+        pf->size     = context.length;
+        pf->capacity = PROCFS_BUF_SIZE;
+        return;
+    }
     enum inet_proc_file file = (enum inet_proc_file)pf->subtype;
-    size_t n = inet_backend_proc_read(file, buf, PROCFS_BUF_SIZE);
+    size_t              n    = inet_backend_proc_read(file, buf, PROCFS_BUF_SIZE);
     if (!n) {
         n = strlen(headers[pf->subtype]);
         memcpy(buf, headers[pf->subtype], n);
     }
     if (n > PROCFS_BUF_SIZE) n = PROCFS_BUF_SIZE;
-    pf->content = buf;
-    pf->size = n;
+    pf->content  = buf;
+    pf->size     = n;
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
@@ -714,7 +774,7 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
                 pf->subtype = subtype;
             } else {
                 if (streq(name, "net")) {
-                    pf->type = PROCFS_NET_DIR;
+                    pf->type   = PROCFS_NET_DIR;
                     node->type = file_dir;
                     break;
                 }
@@ -761,7 +821,7 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
                 free(pf);
                 return;
             }
-            pf->type = PROCFS_NET_FILE;
+            pf->type    = PROCFS_NET_FILE;
             pf->subtype = subtype;
             break;
         }
@@ -808,7 +868,7 @@ static int procfs_stat(void *file, vfs_node_t node)
 
             vfs_node_t net = vfs_node_alloc(node, "net");
             if (net) {
-                net->type = file_dir;
+                net->type   = file_dir;
                 net->handle = procfs_file_alloc(PROCFS_NET_DIR, 0, 0);
             }
 
@@ -858,7 +918,7 @@ static int procfs_stat(void *file, vfs_node_t node)
             for (int i = 0; i < 5; i++) {
                 vfs_node_t child = vfs_node_alloc(node, names[i]);
                 if (!child) continue;
-                child->type = file_none;
+                child->type   = file_none;
                 child->handle = procfs_file_alloc(PROCFS_NET_FILE, 0, i);
             }
             break;

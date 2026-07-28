@@ -44,6 +44,11 @@
 #define TCP_QUICKACK 12
 #define TCP_CONGESTION 13
 
+typedef struct socket_timeval {
+        int64_t tv_sec;
+        int64_t tv_usec;
+} socket_timeval_t;
+
 typedef uint16_t sa_family_t;
 typedef uint32_t in_addr_t;
 
@@ -144,7 +149,7 @@ struct inet_backend_ops {
         int (*create)(int type, int protocol, uint32_t flags, void **context);
         void (*close)(void *context);
         int (*bind)(void *context, const struct sockaddr *addr, uint32_t addrlen);
-        int (*connect)(void *context, const struct sockaddr *addr, uint32_t addrlen);
+        int (*connect)(void *context, const struct sockaddr *addr, uint32_t addrlen, uint32_t flags);
         int (*listen)(void *context, int backlog);
         int (*accept)(void *context, void **accepted_context, struct sockaddr *addr, uint32_t *addrlen, uint32_t flags);
         int (*sendto)(void *context, const void *buf, size_t len, int flags, const struct sockaddr *addr, uint32_t addrlen);

@@ -81,6 +81,73 @@ typedef struct nlmsghdr {
 #define NLMSG_DONE    0x0003 /* End of a multipart dump */
 #define NLMSG_OVERRUN 0x0004 /* Data lost */
 
+/* Linux rtnetlink message types used for read-only network discovery. */
+#define RTM_NEWLINK  16
+#define RTM_GETLINK  18
+#define RTM_NEWADDR  20
+#define RTM_GETADDR  22
+#define RTM_NEWROUTE 24
+#define RTM_GETROUTE 26
+
+typedef struct ifinfomsg {
+        uint8_t  ifi_family;
+        uint8_t  __ifi_pad;
+        uint16_t ifi_type;
+        int32_t  ifi_index;
+        uint32_t ifi_flags;
+        uint32_t ifi_change;
+} ifinfomsg_t;
+
+typedef struct ifaddrmsg {
+        uint8_t  ifa_family;
+        uint8_t  ifa_prefixlen;
+        uint8_t  ifa_flags;
+        uint8_t  ifa_scope;
+        uint32_t ifa_index;
+} ifaddrmsg_t;
+
+typedef struct rtmsg {
+        uint8_t  rtm_family;
+        uint8_t  rtm_dst_len;
+        uint8_t  rtm_src_len;
+        uint8_t  rtm_tos;
+        uint8_t  rtm_table;
+        uint8_t  rtm_protocol;
+        uint8_t  rtm_scope;
+        uint8_t  rtm_type;
+        uint32_t rtm_flags;
+} rtmsg_t;
+
+typedef struct rtattr {
+        uint16_t rta_len;
+        uint16_t rta_type;
+} rtattr_t;
+
+#define RTA_ALIGNTO     4U
+#define RTA_ALIGN(len)  (((len) + RTA_ALIGNTO - 1) & ~(RTA_ALIGNTO - 1))
+#define RTA_LENGTH(len) (RTA_ALIGN(sizeof(rtattr_t)) + (uint32_t)(len))
+#define RTA_DATA(rta)   ((void *)((uint8_t *)(rta) + RTA_ALIGN(sizeof(rtattr_t))))
+
+#define IFLA_ADDRESS   1
+#define IFLA_IFNAME    3
+#define IFLA_MTU       4
+#define IFLA_OPERSTATE 16
+
+#define IFA_ADDRESS   1
+#define IFA_LOCAL     2
+#define IFA_LABEL     3
+#define IFA_BROADCAST 4
+
+#define RTA_DST     1
+#define RTA_OIF     4
+#define RTA_GATEWAY 5
+#define RTA_PREFSRC 7
+
+_Static_assert(sizeof(ifinfomsg_t) == 16, "Linux ifinfomsg ABI");
+_Static_assert(sizeof(ifaddrmsg_t) == 8, "Linux ifaddrmsg ABI");
+_Static_assert(sizeof(rtmsg_t) == 12, "Linux rtmsg ABI");
+_Static_assert(sizeof(rtattr_t) == 4, "Linux rtattr ABI");
+
 /* ------------------------------------------------------------------ */
 /*  Netlink error message (follows nlmsghdr)                           */
 /* ------------------------------------------------------------------ */

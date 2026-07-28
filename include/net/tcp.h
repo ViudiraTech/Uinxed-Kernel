@@ -8,6 +8,13 @@
 #define TCP_ACCEPT_MAX      16U
 #define TCP_RX_BUFFER_MAX   65535U
 #define TCP_TX_SEGMENT_MAX  32U
+#define TCP_OOO_SEGMENT_MAX 16U
+
+#define TCP_READY_READ   0x01U
+#define TCP_READY_WRITE  0x02U
+#define TCP_READY_ERROR  0x04U
+#define TCP_READY_HANGUP 0x08U
+#define TCP_READY_ACCEPT 0x10U
 
 typedef enum tcp_state {
     TCP_CLOSED,
@@ -58,6 +65,22 @@ typedef struct net_tcp_segment {
 } net_tcp_segment_t;
 
 typedef struct tcp_endpoint tcp_endpoint_t;
+typedef void (*tcp_event_callback_t)(tcp_endpoint_t *endpoint, uint32_t events, void *context);
+
+typedef struct tcp_endpoint_info {
+        uint32_t    local_address;
+        uint32_t    remote_address;
+        uint16_t    local_port;
+        uint16_t    remote_port;
+        tcp_state_t state;
+        uint32_t    receive_queued;
+        uint32_t    send_unacknowledged;
+        uint32_t    congestion_window;
+        uint16_t    receive_window;
+        uint16_t    send_window;
+        uint16_t    peer_mss;
+        uint32_t    retransmit_timeout;
+} tcp_endpoint_info_t;
 
 tcp_endpoint_t *tcp_open(void);
 void tcp_close(tcp_endpoint_t *endpoint);
@@ -70,6 +93,10 @@ int tcp_receive(tcp_endpoint_t *endpoint, void *data, size_t capacity);
 int tcp_shutdown(tcp_endpoint_t *endpoint);
 tcp_state_t tcp_get_state(const tcp_endpoint_t *endpoint);
 int tcp_get_error(tcp_endpoint_t *endpoint);
+uint32_t tcp_readiness(tcp_endpoint_t *endpoint);
+int tcp_get_info(tcp_endpoint_t *endpoint, tcp_endpoint_info_t *info);
+void tcp_set_event_callback(tcp_endpoint_t *endpoint, tcp_event_callback_t callback, void *context);
+wait_queue_t *tcp_wait_queue(tcp_endpoint_t *endpoint);
 int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet);
 void tcp_timer(uint64_t now_ticks);
 int net_tcp_parse(const void *data, size_t length, uint32_t source, uint32_t destination, net_tcp_segment_t *segment);

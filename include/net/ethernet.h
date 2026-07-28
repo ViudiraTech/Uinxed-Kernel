@@ -8,6 +8,8 @@
 #define ETH_TYPE_IPV4   0x0800U
 #define ETH_TYPE_ARP    0x0806U
 
+extern const uint8_t ethernet_broadcast_address[ETH_ADDRESS_LEN];
+
 typedef struct net_ethernet_frame {
         uint16_t       ether_type;
         const uint8_t *payload;

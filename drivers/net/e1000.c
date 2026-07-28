@@ -18,78 +18,79 @@
 #define E1000_RX_COUNT          256
 #define E1000_TX_COUNT          256
 #define E1000_BUFFER_SIZE       2048
-#define E1000_MAX_PACKET_SIZE   16384
+#define E1000_MAX_FRAME_SIZE    (E1000_MTU + 18)
 #define E1000_ISR_BUDGET        64
+#define E1000_TX_RECLAIM_BUDGET 64
 #define E1000_RESET_TIMEOUT_US  100000
 #define E1000_EEPROM_TIMEOUT_US 10000
 
-#define E1000_REG_CTRL      0x0000
-#define E1000_REG_STATUS    0x0008
-#define E1000_REG_EECD      0x0010
-#define E1000_REG_EERD      0x0014
-#define E1000_REG_CTRL_EXT  0x0018
-#define E1000_REG_ICR       0x00c0
-#define E1000_REG_ITR       0x00c4
-#define E1000_REG_ICS       0x00c8
-#define E1000_REG_IMS       0x00d0
-#define E1000_REG_IMC       0x00d8
-#define E1000_REG_RCTL      0x0100
-#define E1000_REG_TCTL      0x0400
-#define E1000_REG_TIPG      0x0410
-#define E1000_REG_RDBAL     0x2800
-#define E1000_REG_RDBAH     0x2804
-#define E1000_REG_RDLEN     0x2808
-#define E1000_REG_RDH       0x2810
-#define E1000_REG_RDT       0x2818
-#define E1000_REG_RDTR      0x2820
-#define E1000_REG_RADV      0x282c
-#define E1000_REG_TDBAL     0x3800
-#define E1000_REG_TDBAH     0x3804
-#define E1000_REG_TDLEN     0x3808
-#define E1000_REG_TDH       0x3810
-#define E1000_REG_TDT       0x3818
-#define E1000_REG_TIDV      0x3820
-#define E1000_REG_TADV      0x382c
-#define E1000_REG_RAL0      0x5400
-#define E1000_REG_RAH0      0x5404
-#define E1000_REG_MTA       0x5200
+#define E1000_REG_CTRL     0x0000
+#define E1000_REG_STATUS   0x0008
+#define E1000_REG_EECD     0x0010
+#define E1000_REG_EERD     0x0014
+#define E1000_REG_CTRL_EXT 0x0018
+#define E1000_REG_ICR      0x00c0
+#define E1000_REG_ITR      0x00c4
+#define E1000_REG_ICS      0x00c8
+#define E1000_REG_IMS      0x00d0
+#define E1000_REG_IMC      0x00d8
+#define E1000_REG_RCTL     0x0100
+#define E1000_REG_TCTL     0x0400
+#define E1000_REG_TIPG     0x0410
+#define E1000_REG_RDBAL    0x2800
+#define E1000_REG_RDBAH    0x2804
+#define E1000_REG_RDLEN    0x2808
+#define E1000_REG_RDH      0x2810
+#define E1000_REG_RDT      0x2818
+#define E1000_REG_RDTR     0x2820
+#define E1000_REG_RADV     0x282c
+#define E1000_REG_TDBAL    0x3800
+#define E1000_REG_TDBAH    0x3804
+#define E1000_REG_TDLEN    0x3808
+#define E1000_REG_TDH      0x3810
+#define E1000_REG_TDT      0x3818
+#define E1000_REG_TIDV     0x3820
+#define E1000_REG_TADV     0x382c
+#define E1000_REG_RAL0     0x5400
+#define E1000_REG_RAH0     0x5404
+#define E1000_REG_MTA      0x5200
 
-#define E1000_CTRL_SLU      (1u << 6)
-#define E1000_CTRL_RST      (1u << 26)
+#define E1000_CTRL_SLU          (1u << 6)
+#define E1000_CTRL_RST          (1u << 26)
 #define E1000_CTRL_EXT_DRV_LOAD (1u << 28)
-#define E1000_STATUS_LU     (1u << 1)
-#define E1000_RAH_AV        (1u << 31)
+#define E1000_STATUS_LU         (1u << 1)
+#define E1000_RAH_AV            (1u << 31)
 
-#define E1000_RCTL_EN       (1u << 1)
-#define E1000_RCTL_BAM      (1u << 15)
-#define E1000_RCTL_SECRC    (1u << 26)
-#define E1000_TCTL_EN       (1u << 1)
-#define E1000_TCTL_PSP      (1u << 3)
-#define E1000_TCTL_CT_SHIFT 4
+#define E1000_RCTL_EN         (1u << 1)
+#define E1000_RCTL_BAM        (1u << 15)
+#define E1000_RCTL_SECRC      (1u << 26)
+#define E1000_TCTL_EN         (1u << 1)
+#define E1000_TCTL_PSP        (1u << 3)
+#define E1000_TCTL_CT_SHIFT   4
 #define E1000_TCTL_COLD_SHIFT 12
 
-#define E1000_ICR_TXDW      (1u << 0)
-#define E1000_ICR_LSC       (1u << 2)
-#define E1000_ICR_RXSEQ     (1u << 3)
-#define E1000_ICR_RXDMT0    (1u << 4)
-#define E1000_ICR_RXO       (1u << 6)
-#define E1000_ICR_RXT0      (1u << 7)
-#define E1000_INT_MASK      (E1000_ICR_TXDW | E1000_ICR_LSC | E1000_ICR_RXSEQ | E1000_ICR_RXDMT0 | E1000_ICR_RXO | E1000_ICR_RXT0)
-#define E1000_RX_INT_MASK   (E1000_ICR_RXDMT0 | E1000_ICR_RXO | E1000_ICR_RXT0)
+#define E1000_ICR_TXDW    (1u << 0)
+#define E1000_ICR_LSC     (1u << 2)
+#define E1000_ICR_RXSEQ   (1u << 3)
+#define E1000_ICR_RXDMT0  (1u << 4)
+#define E1000_ICR_RXO     (1u << 6)
+#define E1000_ICR_RXT0    (1u << 7)
+#define E1000_INT_MASK    (E1000_ICR_TXDW | E1000_ICR_LSC | E1000_ICR_RXSEQ | E1000_ICR_RXDMT0 | E1000_ICR_RXO | E1000_ICR_RXT0)
+#define E1000_RX_INT_MASK (E1000_ICR_RXDMT0 | E1000_ICR_RXO | E1000_ICR_RXT0)
 
-#define E1000_RXD_STAT_DD   (1u << 0)
-#define E1000_RXD_STAT_EOP  (1u << 1)
-#define E1000_TXD_STAT_DD   (1u << 0)
-#define E1000_TXD_STAT_EC   (1u << 1)
-#define E1000_TXD_STAT_LC   (1u << 2)
-#define E1000_TXD_STAT_TU   (1u << 3)
-#define E1000_TXD_ERROR     (E1000_TXD_STAT_EC | E1000_TXD_STAT_LC | E1000_TXD_STAT_TU)
-#define E1000_TXD_CMD_EOP   (1u << 0)
-#define E1000_TXD_CMD_IFCS  (1u << 1)
-#define E1000_TXD_CMD_RS    (1u << 3)
+#define E1000_RXD_STAT_DD  (1u << 0)
+#define E1000_RXD_STAT_EOP (1u << 1)
+#define E1000_TXD_STAT_DD  (1u << 0)
+#define E1000_TXD_STAT_EC  (1u << 1)
+#define E1000_TXD_STAT_LC  (1u << 2)
+#define E1000_TXD_STAT_TU  (1u << 3)
+#define E1000_TXD_ERROR    (E1000_TXD_STAT_EC | E1000_TXD_STAT_LC | E1000_TXD_STAT_TU)
+#define E1000_TXD_CMD_EOP  (1u << 0)
+#define E1000_TXD_CMD_IFCS (1u << 1)
+#define E1000_TXD_CMD_RS   (1u << 3)
 
-#define E1000_F_EERD_SMALL  (1u << 0)
-#define E1000_F_E1000E      (1u << 1)
+#define E1000_F_EERD_SMALL (1u << 0)
+#define E1000_F_E1000E     (1u << 1)
 
 typedef struct {
         uint16_t device;
@@ -98,10 +99,10 @@ typedef struct {
 
 /* These IDs use the legacy RX/TX descriptor and register layout implemented here. */
 static const e1000_id_t e1000_ids[] = {
-    {0x100e, 0},                                      /* 82540EM, QEMU e1000 */
-    {0x100f, 0},                                      /* 82545EM */
-    {0x1010, 0},                                      /* 82546EB */
-    {0x107c, 0},                                      /* 82541PI */
+    {0x100e, 0                                  }, /* 82540EM, QEMU e1000 */
+    {0x100f, 0                                  }, /* 82545EM */
+    {0x1010, 0                                  }, /* 82546EB */
+    {0x107c, E1000_F_EERD_SMALL                 }, /* 82541PI */
     {0x10d3, E1000_F_EERD_SMALL | E1000_F_E1000E}, /* 82574L, QEMU e1000e */
 };
 
@@ -138,7 +139,11 @@ struct e1000_device {
         int                       using_msi;
         int                       using_legacy;
         int                       running;
+        int                       stopping;
+        int                       owns_hw;
         int                       link_up;
+        uint8_t                   irq_slot;
+        volatile uint32_t         irq_active;
         volatile e1000_rx_desc_t *rx_ring;
         volatile e1000_tx_desc_t *tx_ring;
         uint64_t                  rx_ring_phys;
@@ -149,8 +154,6 @@ struct e1000_device {
         uint16_t                  tx_next;
         uint16_t                  tx_clean;
         uint16_t                  tx_used;
-        uint8_t                  *rx_assembly;
-        size_t                    rx_assembly_len;
         int                       rx_dropping;
         spinlock_t                rx_lock;
         spinlock_t                tx_lock;
@@ -162,16 +165,8 @@ struct e1000_device {
 
 static e1000_device_t *e1000_devices;
 static size_t          e1000_device_count;
-
-static inline void e1000_wmb(void)
-{
-    __asm__ volatile("sfence" ::: "memory");
-}
-
-static inline void e1000_rmb(void)
-{
-    __asm__ volatile("lfence" ::: "memory");
-}
+static e1000_device_t *e1000_irq_slots[E1000_MAX_DEVICES];
+static spinlock_t      e1000_irq_lock;
 
 static inline uint32_t e1000_read(const e1000_device_t *device, uint32_t reg)
 {
@@ -235,8 +230,9 @@ static int e1000_read_mac(e1000_device_t *device)
             ok = 0;
             break;
         }
-        device->mac[i * 2]     = words[i] & 0xff;
-        device->mac[i * 2 + 1] = words[i] >> 8;
+        size_t byte           = (size_t)i * 2;
+        device->mac[byte]     = words[i] & 0xff;
+        device->mac[byte + 1] = words[i] >> 8;
     }
     if (ok && e1000_valid_mac(device->mac)) return 0;
 
@@ -255,8 +251,8 @@ static int e1000_read_mac(e1000_device_t *device)
 static int e1000_map_bar(e1000_device_t *device)
 {
     base_address_register_t bar = get_base_address_register(device->pci, 0);
-    uint32_t raw                 = read_bar_n(device->pci, 0);
-    uint64_t phys;
+    uint32_t                raw = read_bar_n(device->pci, 0);
+    uint64_t                phys;
 
     if (!bar.address || bar.type != mem_mapping || raw == 0xffffffff || (raw & 1) || (((raw >> 1) & 3) == BAR_Reserved)) return -ENODEV;
     phys = raw & ~0xfull;
@@ -313,10 +309,8 @@ static void e1000_free_dma(e1000_device_t *device)
     if (device->rx_ring_phys) free_frames(device->rx_ring_phys, 1);
     if (device->tx_ring_phys) free_frames(device->tx_ring_phys, 1);
     device->rx_ring_phys = device->tx_ring_phys = 0;
-    device->rx_ring = NULL;
-    device->tx_ring = NULL;
-    free(device->rx_assembly);
-    device->rx_assembly = NULL;
+    device->rx_ring                             = NULL;
+    device->tx_ring                             = NULL;
 }
 
 static int e1000_alloc_dma(e1000_device_t *device)
@@ -341,14 +335,14 @@ static int e1000_alloc_dma(e1000_device_t *device)
         device->tx_ring[i].address = device->tx_buffer_phys[i];
         device->tx_ring[i].status  = E1000_TXD_STAT_DD;
     }
-    device->rx_assembly = malloc(E1000_MAX_PACKET_SIZE);
-    return device->rx_assembly ? 0 : -ENOMEM;
+    dma_write_barrier();
+    return 0;
 }
 
 static void e1000_program_mac(e1000_device_t *device)
 {
-    uint32_t ral = (uint32_t)device->mac[0] | ((uint32_t)device->mac[1] << 8) | ((uint32_t)device->mac[2] << 16)
-                   | ((uint32_t)device->mac[3] << 24);
+    uint32_t ral
+        = (uint32_t)device->mac[0] | ((uint32_t)device->mac[1] << 8) | ((uint32_t)device->mac[2] << 16) | ((uint32_t)device->mac[3] << 24);
     uint32_t rah = (uint32_t)device->mac[4] | ((uint32_t)device->mac[5] << 8) | E1000_RAH_AV;
     e1000_write(device, E1000_REG_RAL0, ral);
     e1000_write(device, E1000_REG_RAH0, rah);
@@ -372,11 +366,10 @@ static void e1000_program_rings(e1000_device_t *device)
     e1000_write(device, E1000_REG_TDT, 0);
     e1000_write(device, E1000_REG_TIDV, 0);
     e1000_write(device, E1000_REG_TADV, 0);
-    e1000_wmb();
+    dma_write_barrier();
 
-    e1000_write(device, E1000_REG_TIPG, 10 | (8u << 10) | (6u << 20));
-    e1000_write(device, E1000_REG_TCTL,
-                E1000_TCTL_EN | E1000_TCTL_PSP | (0x0fu << E1000_TCTL_CT_SHIFT) | (0x40u << E1000_TCTL_COLD_SHIFT));
+    e1000_write(device, E1000_REG_TIPG, 8 | (8u << 10) | (6u << 20));
+    e1000_write(device, E1000_REG_TCTL, E1000_TCTL_EN | E1000_TCTL_PSP | (0x0fu << E1000_TCTL_CT_SHIFT) | (0x40u << E1000_TCTL_COLD_SHIFT));
     e1000_write(device, E1000_REG_RCTL, E1000_RCTL_EN | E1000_RCTL_BAM | E1000_RCTL_SECRC);
     e1000_write_flush(device);
 }
@@ -389,18 +382,22 @@ static void e1000_update_link(e1000_device_t *device)
     device->stats.link_changes++;
     if (device->netdev_registered) {
         spin_lock(&device->netdev.lock);
-        if (up && (device->netdev.flags & NETDEV_F_UP)) device->netdev.flags |= NETDEV_F_RUNNING;
-        else device->netdev.flags &= ~NETDEV_F_RUNNING;
+        if (up && (device->netdev.flags & NETDEV_F_UP))
+            device->netdev.flags |= NETDEV_F_RUNNING;
+        else
+            device->netdev.flags &= ~NETDEV_F_RUNNING;
         spin_unlock(&device->netdev.lock);
     }
 }
 
-static void e1000_tx_reclaim_locked(e1000_device_t *device)
+static size_t e1000_tx_reclaim_locked(e1000_device_t *device, size_t budget)
 {
-    while (device->tx_used) {
+    size_t reclaimed = 0;
+
+    while (device->tx_used && reclaimed < budget) {
         volatile e1000_tx_desc_t *desc = &device->tx_ring[device->tx_clean];
         if (!(desc->status & E1000_TXD_STAT_DD)) break;
-        e1000_rmb();
+        dma_read_barrier();
         if (desc->status & E1000_TXD_ERROR) {
             device->stats.tx_errors++;
         } else {
@@ -409,7 +406,9 @@ static void e1000_tx_reclaim_locked(e1000_device_t *device)
         }
         device->tx_clean = (device->tx_clean + 1) % E1000_TX_COUNT;
         device->tx_used--;
+        reclaimed++;
     }
+    return reclaimed;
 }
 
 static int e1000_net_open(net_device_t *netdev)
@@ -431,21 +430,44 @@ static int e1000_net_xmit(net_device_t *netdev, net_pbuf_t *packet)
     return e1000_transmit(device, packet->data, packet->length);
 }
 
+static int e1000_net_set_mtu(net_device_t *netdev, uint32_t mtu)
+{
+    (void)netdev;
+    return mtu == E1000_MTU ? 0 : -EOPNOTSUPP;
+}
+
 static const netdev_ops_t e1000_netdev_ops = {
-    .open = e1000_net_open,
-    .stop = e1000_net_stop,
-    .xmit = e1000_net_xmit,
+    .open    = e1000_net_open,
+    .stop    = e1000_net_stop,
+    .xmit    = e1000_net_xmit,
+    .set_mtu = e1000_net_set_mtu,
 };
 
 int e1000_transmit(e1000_device_t *device, const void *packet, size_t length)
 {
-    if (!device || !packet || length == 0 || length > E1000_BUFFER_SIZE) return -EINVAL;
+    if (!device || !packet || length == 0) return -EINVAL;
+    if (length > E1000_MAX_FRAME_SIZE) {
+        device->stats.tx_dropped++;
+        device->stats.tx_errors++;
+        return -EMSGSIZE;
+    }
     if (!device->running) return -ENODEV;
+    if (!device->link_up) return -ENETDOWN;
 
-    spin_lock(&device->tx_lock);
-    e1000_tx_reclaim_locked(device);
-    if (device->tx_used == E1000_TX_COUNT) {
-        spin_unlock(&device->tx_lock);
+    uint64_t rflags = spin_lock_irqsave(&device->tx_lock);
+    e1000_tx_reclaim_locked(device, E1000_TX_RECLAIM_BUDGET);
+    if (!device->running || device->stopping) {
+        spin_unlock_irqrestore(&device->tx_lock, rflags);
+        return -ENODEV;
+    }
+    if (!device->link_up) {
+        spin_unlock_irqrestore(&device->tx_lock, rflags);
+        return -ENETDOWN;
+    }
+    /* Keep one descriptor unused so equal head and tail always means empty. */
+    if (device->tx_used == E1000_TX_COUNT - 1) {
+        device->stats.tx_busy++;
+        spin_unlock_irqrestore(&device->tx_lock, rflags);
         return -EAGAIN;
     }
 
@@ -457,144 +479,233 @@ int e1000_transmit(e1000_device_t *device, const void *packet, size_t length)
     device->tx_ring[idx].css     = 0;
     device->tx_ring[idx].special = 0;
     device->tx_ring[idx].status  = 0;
-    device->tx_next = (idx + 1) % E1000_TX_COUNT;
+    device->tx_next              = (idx + 1) % E1000_TX_COUNT;
     device->tx_used++;
-    e1000_wmb();
+    dma_write_barrier();
     e1000_write(device, E1000_REG_TDT, device->tx_next);
-    spin_unlock(&device->tx_lock);
+    spin_unlock_irqrestore(&device->tx_lock, rflags);
     return 0;
 }
 
 size_t e1000_poll(e1000_device_t *device, size_t budget)
 {
-    size_t done = 0;
+    size_t  done = 0;
+    uint8_t frame[E1000_MAX_FRAME_SIZE];
     if (!device || !device->running) return 0;
 
-    spin_lock(&device->rx_lock);
+    uint64_t rflags = spin_lock_irqsave(&device->rx_lock);
+    if (!device->running || device->stopping) {
+        spin_unlock_irqrestore(&device->rx_lock, rflags);
+        return 0;
+    }
     while (done < budget) {
-        uint16_t                  idx  = device->rx_next;
-        volatile e1000_rx_desc_t *desc = &device->rx_ring[idx];
+        uint16_t                  idx    = device->rx_next;
+        volatile e1000_rx_desc_t *desc   = &device->rx_ring[idx];
         uint8_t                   status = desc->status;
         if (!(status & E1000_RXD_STAT_DD)) break;
-        e1000_rmb();
+        dma_read_barrier();
 
-        size_t length = desc->length;
-        if (desc->errors || length > E1000_BUFFER_SIZE) {
+        size_t length       = desc->length;
+        size_t frame_length = 0;
+        if (desc->errors || !length || length > E1000_MAX_FRAME_SIZE || !(status & E1000_RXD_STAT_EOP)) {
+            /* A standard frame fits one 2 KiB buffer; chained descriptors are jumbo input. */
+            if (!device->rx_dropping) device->stats.rx_errors++;
             device->rx_dropping = 1;
-            device->stats.rx_errors++;
         } else if (!device->rx_dropping) {
-            if (length > E1000_MAX_PACKET_SIZE - device->rx_assembly_len) {
-                device->rx_dropping = 1;
-                device->stats.rx_errors++;
-            } else {
-                memcpy(device->rx_assembly + device->rx_assembly_len, phys_to_virt(device->rx_buffer_phys[idx]), length);
-                device->rx_assembly_len += length;
-            }
+            memcpy(frame, phys_to_virt(device->rx_buffer_phys[idx]), length);
+            frame_length = length;
         }
 
         if (status & E1000_RXD_STAT_EOP) {
-            if (!device->rx_dropping && device->rx_assembly_len) {
-                net_pbuf_t *packet = net_pbuf_from(device->rx_assembly, device->rx_assembly_len, NET_PBUF_HEADROOM);
-                if (!packet) {
-                    device->stats.rx_dropped++;
-                } else {
-                    size_t packet_length = device->rx_assembly_len;
-                    if (netdev_rx(&device->netdev, packet)) device->stats.rx_dropped++;
-                    else {
-                        device->stats.rx_packets++;
-                        device->stats.rx_bytes += packet_length;
-                    }
-                }
-            } else {
-                device->stats.rx_dropped++;
-            }
-            device->rx_assembly_len = 0;
-            device->rx_dropping     = 0;
+            if (device->rx_dropping) device->stats.rx_dropped++;
+            device->rx_dropping = 0;
         }
 
         desc->length   = 0;
         desc->checksum = 0;
         desc->errors   = 0;
         desc->special  = 0;
-        e1000_wmb();
+        dma_write_barrier();
         desc->status = 0;
+        dma_write_barrier();
         device->rx_next = (idx + 1) % E1000_RX_COUNT;
         e1000_write(device, E1000_REG_RDT, idx);
         done++;
+
+        if (frame_length) {
+            spin_unlock_irqrestore(&device->rx_lock, rflags);
+            net_pbuf_t *packet = net_pbuf_from(frame, frame_length, NET_PBUF_HEADROOM);
+            if (!packet)
+                device->stats.rx_dropped++;
+            else {
+                if (netdev_rx(&device->netdev, packet))
+                    device->stats.rx_dropped++;
+                else {
+                    device->stats.rx_packets++;
+                    device->stats.rx_bytes += frame_length;
+                }
+            }
+            rflags = spin_lock_irqsave(&device->rx_lock);
+            if (!device->running) break;
+        }
     }
-    spin_unlock(&device->rx_lock);
+    spin_unlock_irqrestore(&device->rx_lock, rflags);
     return done;
 }
 
-static void e1000_interrupt_common(void *frame)
+static void e1000_interrupt_device(e1000_device_t *device)
+{
+    uint32_t cause = e1000_read(device, E1000_REG_ICR);
+    if (!(cause & E1000_INT_MASK) || !device->running) return;
+
+    device->stats.interrupts++;
+    if (cause & E1000_ICR_LSC) e1000_update_link(device);
+    if (cause & E1000_ICR_RXO) {
+        device->stats.rx_errors++;
+        device->stats.rx_overruns++;
+    }
+    if (cause & E1000_ICR_RXSEQ) device->stats.rx_errors++;
+    if (cause & E1000_RX_INT_MASK) {
+        size_t done = e1000_poll(device, E1000_ISR_BUDGET);
+        dma_read_barrier();
+        if (done == E1000_ISR_BUDGET && (device->rx_ring[device->rx_next].status & E1000_RXD_STAT_DD))
+            e1000_write(device, E1000_REG_ICS, E1000_ICR_RXT0);
+    }
+    if (cause & E1000_ICR_TXDW) {
+        uint64_t rflags    = spin_lock_irqsave(&device->tx_lock);
+        size_t   reclaimed = e1000_tx_reclaim_locked(device, E1000_TX_RECLAIM_BUDGET);
+        if (reclaimed == E1000_TX_RECLAIM_BUDGET && device->tx_used && (device->tx_ring[device->tx_clean].status & E1000_TXD_STAT_DD))
+            e1000_write(device, E1000_REG_ICS, E1000_ICR_TXDW);
+        spin_unlock_irqrestore(&device->tx_lock, rflags);
+    }
+}
+
+static void e1000_interrupt_slot(size_t slot, void *frame)
 {
     (void)frame;
-    for (e1000_device_t *device = e1000_devices; device; device = device->next) {
-        if (!device->running) continue;
-        uint32_t cause = e1000_read(device, E1000_REG_ICR);
-        if (!(cause & E1000_INT_MASK)) continue;
-        device->stats.interrupts++;
-        if (cause & E1000_ICR_LSC) e1000_update_link(device);
-        if (cause & E1000_ICR_RXO) device->stats.rx_errors++;
-        if (cause & E1000_RX_INT_MASK) {
-            size_t done = e1000_poll(device, E1000_ISR_BUDGET);
-            if (done == E1000_ISR_BUDGET && (device->rx_ring[device->rx_next].status & E1000_RXD_STAT_DD))
-                e1000_write(device, E1000_REG_ICS, E1000_ICR_RXT0);
-        }
-        if (cause & E1000_ICR_TXDW) {
-            spin_lock(&device->tx_lock);
-            e1000_tx_reclaim_locked(device);
-            spin_unlock(&device->tx_lock);
-        }
+    uint64_t        rflags = spin_lock_irqsave(&e1000_irq_lock);
+    e1000_device_t *device = e1000_irq_slots[slot];
+    if (device && !device->stopping)
+        device->irq_active++;
+    else
+        device = NULL;
+    spin_unlock_irqrestore(&e1000_irq_lock, rflags);
+
+    if (device) {
+        e1000_interrupt_device(device);
+        rflags = spin_lock_irqsave(&e1000_irq_lock);
+        device->irq_active--;
+        spin_unlock_irqrestore(&e1000_irq_lock, rflags);
     }
     send_eoi();
 }
 
+#define E1000_IRQ_WRAPPER(n)                     \
+    static void e1000_interrupt_##n(void *frame) \
+    {                                            \
+        e1000_interrupt_slot(n, frame);          \
+    }
+
+E1000_IRQ_WRAPPER(0)
+E1000_IRQ_WRAPPER(1)
+E1000_IRQ_WRAPPER(2)
+E1000_IRQ_WRAPPER(3)
+E1000_IRQ_WRAPPER(4)
+E1000_IRQ_WRAPPER(5)
+E1000_IRQ_WRAPPER(6)
+E1000_IRQ_WRAPPER(7)
+
+static const net_irq_handler_fn e1000_irq_handlers[E1000_MAX_DEVICES] = {
+    e1000_interrupt_0, e1000_interrupt_1, e1000_interrupt_2, e1000_interrupt_3,
+    e1000_interrupt_4, e1000_interrupt_5, e1000_interrupt_6, e1000_interrupt_7,
+};
+
 static int e1000_setup_interrupt(e1000_device_t *device)
 {
+    uint64_t rflags = spin_lock_irqsave(&e1000_irq_lock);
+    size_t   slot;
+    for (slot = 0; slot < E1000_MAX_DEVICES; slot++)
+        if (!e1000_irq_slots[slot]) break;
+    if (slot == E1000_MAX_DEVICES) {
+        spin_unlock_irqrestore(&e1000_irq_lock, rflags);
+        return -ENOSPC;
+    }
+    device->irq_slot      = (uint8_t)slot;
+    e1000_irq_slots[slot] = device;
+    spin_unlock_irqrestore(&e1000_irq_lock, rflags);
+
     pci_msi_init(device->pci);
-    if (pci_enable_msi(device->pci) >= 0) {
-        device->vector = pci_irq_vector(device->pci, 0);
-        if (device->vector < 0) {
-            pci_disable_msi(device->pci);
-            return -ENODEV;
-        }
-        register_interrupt_handler((uint16_t)device->vector, (void *)e1000_interrupt_common, 0, 0x8e);
+    device->vector = pci_enable_msi(device->pci);
+    if (device->vector >= 0) {
+        register_interrupt_handler((uint16_t)device->vector, (void *)e1000_irq_handlers[slot], 0, 0x8e);
         device->using_msi = 1;
         return 0;
     }
 
     device->irq = (uint8_t)pci_get_irq(device->pci);
-    if (device->irq == 0 || device->irq == 0xff || !net_irq_claim_legacy) return -ENODEV;
-    if (net_irq_claim_legacy(device->irq, e1000_interrupt_common)) return -ENODEV;
+    if (device->irq == 0 || device->irq == 0xff || !net_irq_claim_legacy || !net_irq_release_legacy) goto fail;
+    if (net_irq_claim_legacy(device->irq, e1000_irq_handlers[slot])) goto fail;
     device->using_legacy = 1;
     return 0;
+
+fail:
+    rflags                = spin_lock_irqsave(&e1000_irq_lock);
+    e1000_irq_slots[slot] = NULL;
+    spin_unlock_irqrestore(&e1000_irq_lock, rflags);
+    return -ENODEV;
 }
 
 static void e1000_release_interrupt(e1000_device_t *device)
 {
+    if (!device->using_msi && !device->using_legacy) return;
+    if (device->mmio) {
+        e1000_write(device, E1000_REG_IMC, 0xffffffff);
+        e1000_write_flush(device);
+    }
+    uint64_t rflags                   = spin_lock_irqsave(&e1000_irq_lock);
+    e1000_irq_slots[device->irq_slot] = NULL;
+    spin_unlock_irqrestore(&e1000_irq_lock, rflags);
+
     if (device->using_msi) pci_disable_msi(device->pci);
-    if (device->using_legacy && net_irq_release_legacy) net_irq_release_legacy(device->irq, e1000_interrupt_common);
+    if (device->using_legacy) net_irq_release_legacy(device->irq, e1000_irq_handlers[device->irq_slot]);
+    for (;;) {
+        rflags     = spin_lock_irqsave(&e1000_irq_lock);
+        int active = device->irq_active != 0;
+        spin_unlock_irqrestore(&e1000_irq_lock, rflags);
+        if (!active) break;
+        __asm__ volatile("pause" ::: "memory");
+    }
     device->using_msi = device->using_legacy = 0;
 }
 
 static void e1000_destroy(e1000_device_t *device)
 {
     if (!device) return;
-    if (device->mmio) {
-        e1000_write(device, E1000_REG_IMC, 0xffffffff);
-        e1000_write(device, E1000_REG_RCTL, 0);
-        e1000_write(device, E1000_REG_TCTL, 0);
-        if (device->features & E1000_F_E1000E)
-            e1000_write(device, E1000_REG_CTRL_EXT, e1000_read(device, E1000_REG_CTRL_EXT) & ~E1000_CTRL_EXT_DRV_LOAD);
-        e1000_write_flush(device);
-    }
-    device->running = 0;
+    device->stopping = 1;
+    device->running  = 0;
     e1000_release_interrupt(device);
     if (device->netdev_registered) {
         netdev_unregister(&device->netdev);
         device->netdev_registered = 0;
     }
+    uint64_t rflags = spin_lock_irqsave(&device->rx_lock);
+    spin_unlock_irqrestore(&device->rx_lock, rflags);
+    rflags = spin_lock_irqsave(&device->tx_lock);
+    spin_unlock_irqrestore(&device->tx_lock, rflags);
+    if (device->mmio) {
+        e1000_write(device, E1000_REG_IMC, 0xffffffff);
+        e1000_write(device, E1000_REG_RCTL, 0);
+        e1000_write(device, E1000_REG_TCTL, 0);
+        if (device->owns_hw) e1000_write(device, E1000_REG_CTRL_EXT, e1000_read(device, E1000_REG_CTRL_EXT) & ~E1000_CTRL_EXT_DRV_LOAD);
+        e1000_write_flush(device);
+        msleep(10);
+    }
+    if (device->pci) {
+        uint16_t command = pci_read_command_status(device->pci) & 0xffff;
+        pci_write_command_status(device->pci, command & ~(1u << 2));
+        (void)pci_read_command_status(device->pci);
+    }
+    dma_full_barrier();
     e1000_free_dma(device);
     if (device->pci) pci_write_command_status(device->pci, device->saved_command);
     free(device);
@@ -622,32 +733,46 @@ int e1000_probe(pci_device_cache_t *pci)
     int ret = e1000_map_bar(device);
     if (ret) goto fail;
     pci_write_command_status(pci, device->saved_command | (1u << 1) | (1u << 2));
-    if ((ret = e1000_reset(device))) goto fail;
-    if ((ret = e1000_read_mac(device))) goto fail;
-    if ((ret = e1000_alloc_dma(device))) goto fail;
+    if ((device->features & E1000_F_E1000E) && (e1000_read(device, E1000_REG_CTRL_EXT) & E1000_CTRL_EXT_DRV_LOAD)) {
+        ret = -EBUSY;
+        goto fail;
+    }
+    ret = e1000_reset(device);
+    if (ret) goto fail;
+    if (device->features & E1000_F_E1000E) {
+        e1000_write(device, E1000_REG_CTRL_EXT, e1000_read(device, E1000_REG_CTRL_EXT) | E1000_CTRL_EXT_DRV_LOAD);
+        e1000_write_flush(device);
+        device->owns_hw = 1;
+    }
+    ret = e1000_read_mac(device);
+    if (ret) goto fail;
+    ret = e1000_alloc_dma(device);
+    if (ret) goto fail;
 
     e1000_program_mac(device);
     e1000_program_rings(device);
-    if (device->features & E1000_F_E1000E)
-        e1000_write(device, E1000_REG_CTRL_EXT, e1000_read(device, E1000_REG_CTRL_EXT) | E1000_CTRL_EXT_DRV_LOAD);
     e1000_write(device, E1000_REG_CTRL, e1000_read(device, E1000_REG_CTRL) | E1000_CTRL_SLU);
     e1000_write(device, E1000_REG_ITR, 8000);
-    if ((ret = e1000_setup_interrupt(device))) goto fail;
+    ret = e1000_setup_interrupt(device);
+    if (ret) goto fail;
 
     char netdev_name[NETDEV_NAME_MAX];
-    snprintf(netdev_name, sizeof(netdev_name), "eth%u", (unsigned)e1000_device_count);
-    if ((ret = netdev_init(&device->netdev, netdev_name, &e1000_netdev_ops, device))) goto fail;
+    (void)snprintf(netdev_name, sizeof(netdev_name), "eth%u", (unsigned)e1000_device_count);
+    ret = netdev_init(&device->netdev, netdev_name, &e1000_netdev_ops, device);
+    if (ret) goto fail;
     memcpy(device->netdev.address, device->mac, sizeof(device->mac));
-    device->netdev.mtu = E1000_MTU;
+    device->netdev.mtu   = E1000_MTU;
     device->netdev.flags = NETDEV_F_BROADCAST;
-    if ((ret = netdev_register(&device->netdev))) goto fail;
+    ret                  = netdev_register(&device->netdev);
+    if (ret) goto fail;
     device->netdev_registered = 1;
-    device->next    = e1000_devices;
-    e1000_devices   = device;
-    device->running = 1;
+    device->next              = e1000_devices;
+    e1000_devices             = device;
+    device->running           = 1;
     e1000_device_count++;
     device->link_up = !!(e1000_read(device, E1000_REG_STATUS) & E1000_STATUS_LU);
-    if ((ret = netdev_set_up(&device->netdev, 1))) goto fail_linked;
+    ret             = netdev_set_up(&device->netdev, 1);
+    if (ret) goto fail_linked;
     if (!device->link_up) {
         spin_lock(&device->netdev.lock);
         device->netdev.flags &= ~NETDEV_F_RUNNING;

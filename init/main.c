@@ -63,6 +63,7 @@
 #include <mem/heap.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
+#include <net/dhcp.h>
 #include <net/netdev.h>
 #include <proc/boot_process.h>
 #include <proc/process.h>
@@ -206,6 +207,9 @@ void kernel_entry(void)
     /* Device Drivers */             //
 #if CONFIG_E1000
     e1000_init(); // Intel 8254x Gigabit Ethernet
+#endif
+#if CONFIG_NET
+    dhcp_init(); // Nonblocking IPv4 autoconfiguration
 #endif
     sb16_init();             // Sound Blaster 16
     hda_init();              // Intel HD Audio

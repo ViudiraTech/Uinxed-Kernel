@@ -32,7 +32,7 @@ INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)
     sched_tick();
     timerfd_tick();
 #if CONFIG_NET
-    net_timer(sched_ticks());
+    if (get_current_cpu_id() == 0) net_timer(sched_ticks());
 #endif
     enable_intr();
 }

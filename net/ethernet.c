@@ -5,6 +5,14 @@
 #include <net/ethernet.h>
 #include <net/ipv4.h>
 
+const uint8_t ethernet_broadcast_address[ETH_ADDRESS_LEN] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+
+static int ethernet_address_valid(const uint8_t address[ETH_ADDRESS_LEN])
+{
+    static const uint8_t zero[ETH_ADDRESS_LEN];
+    return memcmp(address, zero, ETH_ADDRESS_LEN) != 0;
+}
+
 int net_ethernet_parse(const void *data, size_t length, net_ethernet_frame_t *frame)
 {
     if (!data || !frame || length < ETH_HEADER_LEN) return -EBADMSG;
@@ -23,7 +31,8 @@ int ethernet_input(net_device_t *device, net_pbuf_t *packet)
     }
     const uint8_t *header = packet->data;
     uint16_t type = net_read_be16(header + 12);
-    if (memcmp(header, device->address, ETH_ADDRESS_LEN) && memcmp(header, "\xff\xff\xff\xff\xff\xff", ETH_ADDRESS_LEN)) {
+    if (!ethernet_address_valid(header + ETH_ADDRESS_LEN) || (header[ETH_ADDRESS_LEN] & 1U)
+        || (memcmp(header, device->address, ETH_ADDRESS_LEN) && memcmp(header, ethernet_broadcast_address, ETH_ADDRESS_LEN))) {
         net_pbuf_free(packet);
         return -EHOSTUNREACH;
     }
@@ -36,7 +45,7 @@ int ethernet_input(net_device_t *device, net_pbuf_t *packet)
 
 int ethernet_output(net_device_t *device, net_pbuf_t *packet, const uint8_t destination[6], uint16_t type)
 {
-    if (!device || !packet || !destination) return -EINVAL;
+    if (!device || !packet || !destination || !ethernet_address_valid(device->address) || !ethernet_address_valid(destination)) return -EINVAL;
     uint8_t *header = net_pbuf_push(packet, ETH_HEADER_LEN);
     if (!header) return -ENOBUFS;
     memcpy(header, destination, ETH_ADDRESS_LEN);

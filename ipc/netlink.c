@@ -20,6 +20,7 @@
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/heap.h>
+#include <net/netdev.h>
 #include <proc/process.h>
 #include <proc/sched.h>
 #include <proc/task.h>
@@ -33,6 +34,18 @@
 #define NL_RECV_QUEUE_MAX 256 /* max messages queued per socket */
 #define NL_BROADCAST_MAX  64  /* max sockets in a multicast group */
 #define NL_PROTO_MAX      32  /* NETLINK_MAX rounded up */
+
+#define AF_UNSPEC         0
+#define ARPHRD_ETHER      1
+#define IF_OPER_DOWN      2U
+#define IF_OPER_UP        6U
+#define RT_TABLE_MAIN     254U
+#define RTPROT_KERNEL     2U
+#define RTPROT_BOOT       3U
+#define RT_SCOPE_UNIVERSE 0U
+#define RT_SCOPE_LINK     253U
+#define RTN_UNICAST       1U
+#define RTMSG_BUF_SIZE    256U
 
 /* ------------------------------------------------------------------ */
 /*  Multicast group entry                                               */
@@ -104,6 +117,287 @@ static void nl_msg_put(nl_msg_t *msg)
 {
     if (!msg) return;
     if (--msg->refcount == 0) nl_msg_free(msg);
+}
+
+typedef struct rtnl_dump_context {
+        struct socket *sk;
+        uint32_t       seq;
+        int32_t        ifindex;
+        uint32_t       destination;
+        uint32_t       emitted;
+        int            has_destination;
+        int            multipart;
+        int            error;
+} rtnl_dump_context_t;
+
+typedef struct rtnl_device_info {
+        char     name[NETDEV_NAME_MAX];
+        uint8_t  address[6];
+        uint32_t mtu;
+        uint32_t flags;
+        uint32_t ipv4_address;
+        uint32_t ipv4_netmask;
+        uint32_t ipv4_gateway;
+        uint32_t ifindex;
+} rtnl_device_info_t;
+
+static uint32_t rtnl_be32(uint32_t value)
+{
+    return __builtin_bswap32(value);
+}
+
+static uint8_t rtnl_prefix_length(uint32_t mask)
+{
+    uint8_t length = 0;
+    while (mask) {
+        length += (uint8_t)(mask & 1U);
+        mask >>= 1;
+    }
+    return length;
+}
+
+static uint32_t rtnl_interface_flags(uint32_t flags)
+{
+    uint32_t result = 0;
+    if (flags & NETDEV_F_UP) result |= IFF_UP;
+    if (flags & NETDEV_F_BROADCAST) result |= IFF_BROADCAST;
+    if (flags & NETDEV_F_RUNNING) result |= IFF_RUNNING;
+    return result;
+}
+
+static int rtnl_add_attr(uint8_t *buffer, uint32_t capacity, uint32_t *length, uint16_t type, const void *data, uint16_t data_length)
+{
+    uint32_t attr_length = RTA_LENGTH(data_length);
+    uint32_t padded      = RTA_ALIGN(attr_length);
+    if (*length > capacity || padded > capacity - *length) return -EMSGSIZE;
+    rtattr_t *attr = (rtattr_t *)(buffer + *length);
+    attr->rta_len  = (uint16_t)attr_length;
+    attr->rta_type = type;
+    if (data_length) memcpy(RTA_DATA(attr), data, data_length);
+    if (padded > attr_length) memset(buffer + *length + attr_length, 0, padded - attr_length);
+    *length += padded;
+    return EOK;
+}
+
+static int rtnl_queue_message(struct socket *sk, uint16_t type, uint16_t flags, uint32_t seq, const void *payload, uint32_t payload_length)
+{
+    uint32_t length = NLMSG_LENGTH(payload_length);
+    uint8_t *buffer = calloc(1, NLMSG_ALIGN(length));
+    if (!buffer) return -ENOMEM;
+    nlmsghdr_t *header  = (nlmsghdr_t *)buffer;
+    header->nlmsg_len   = length;
+    header->nlmsg_type  = type;
+    header->nlmsg_flags = flags;
+    header->nlmsg_seq   = seq;
+    header->nlmsg_pid   = 0;
+    if (payload_length) memcpy(NLMSG_DATA(header), payload, payload_length);
+    int result = netlink_unicast(sk, buffer, NLMSG_ALIGN(length), 0);
+    free(buffer);
+    return result;
+}
+
+static int rtnl_queue_error(struct socket *sk, const nlmsghdr_t *request, int error)
+{
+    nlmsgerr_t response;
+    memset(&response, 0, sizeof(response));
+    response.error = error;
+    response.msg   = *request;
+    return rtnl_queue_message(sk, NLMSG_ERROR, 0, request->nlmsg_seq, &response, sizeof(response));
+}
+
+static void rtnl_snapshot_device(net_device_t *device, rtnl_device_info_t *info)
+{
+    spin_lock(&device->lock);
+    strncpy(info->name, device->name, sizeof(info->name) - 1);
+    memcpy(info->address, device->address, sizeof(info->address));
+    info->mtu          = device->mtu;
+    info->flags        = device->flags;
+    info->ipv4_address = device->ipv4_address;
+    info->ipv4_netmask = device->ipv4_netmask;
+    info->ipv4_gateway = device->ipv4_gateway;
+    info->ifindex      = device->ifindex;
+    spin_unlock(&device->lock);
+}
+
+static void rtnl_emit_link(net_device_t *device, void *opaque)
+{
+    rtnl_dump_context_t *context                 = opaque;
+    rtnl_device_info_t   info                    = {0};
+    uint8_t              payload[RTMSG_BUF_SIZE] = {0};
+    uint32_t             length                  = sizeof(ifinfomsg_t);
+    if (context->error) return;
+    rtnl_snapshot_device(device, &info);
+    if (context->ifindex && context->ifindex != (int32_t)info.ifindex) return;
+    ifinfomsg_t *message = (ifinfomsg_t *)payload;
+    message->ifi_family  = AF_UNSPEC;
+    message->ifi_type    = ARPHRD_ETHER;
+    message->ifi_index   = (int32_t)info.ifindex;
+    message->ifi_flags   = rtnl_interface_flags(info.flags);
+    if (rtnl_add_attr(payload, sizeof(payload), &length, IFLA_IFNAME, info.name, (uint16_t)(strlen(info.name) + 1))
+        || rtnl_add_attr(payload, sizeof(payload), &length, IFLA_MTU, &info.mtu, sizeof(info.mtu))
+        || rtnl_add_attr(payload, sizeof(payload), &length, IFLA_ADDRESS, info.address, sizeof(info.address))) {
+        context->error = -EMSGSIZE;
+        return;
+    }
+    uint8_t operstate = (info.flags & NETDEV_F_RUNNING) ? IF_OPER_UP : IF_OPER_DOWN;
+    if (rtnl_add_attr(payload, sizeof(payload), &length, IFLA_OPERSTATE, &operstate, sizeof(operstate))) {
+        context->error = -EMSGSIZE;
+        return;
+    }
+    context->error = rtnl_queue_message(context->sk, RTM_NEWLINK, context->multipart ? NLM_F_MULTI : 0, context->seq, payload, length);
+    if (!context->error) context->emitted++;
+}
+
+static void rtnl_emit_address(net_device_t *device, void *opaque)
+{
+    rtnl_dump_context_t *context                 = opaque;
+    rtnl_device_info_t   info                    = {0};
+    uint8_t              payload[RTMSG_BUF_SIZE] = {0};
+    uint32_t             length                  = sizeof(ifaddrmsg_t);
+    if (context->error) return;
+    rtnl_snapshot_device(device, &info);
+    if (!info.ipv4_address || (context->ifindex && context->ifindex != (int32_t)info.ifindex)) return;
+    ifaddrmsg_t *message   = (ifaddrmsg_t *)payload;
+    message->ifa_family    = AF_INET;
+    message->ifa_prefixlen = rtnl_prefix_length(info.ipv4_netmask);
+    message->ifa_scope     = RT_SCOPE_UNIVERSE;
+    message->ifa_index     = info.ifindex;
+    uint32_t address       = rtnl_be32(info.ipv4_address);
+    uint32_t broadcast     = rtnl_be32(info.ipv4_address | ~info.ipv4_netmask);
+    if (rtnl_add_attr(payload, sizeof(payload), &length, IFA_ADDRESS, &address, sizeof(address))
+        || rtnl_add_attr(payload, sizeof(payload), &length, IFA_LOCAL, &address, sizeof(address))
+        || rtnl_add_attr(payload, sizeof(payload), &length, IFA_BROADCAST, &broadcast, sizeof(broadcast))
+        || rtnl_add_attr(payload, sizeof(payload), &length, IFA_LABEL, info.name, (uint16_t)(strlen(info.name) + 1))) {
+        context->error = -EMSGSIZE;
+        return;
+    }
+    context->error = rtnl_queue_message(context->sk, RTM_NEWADDR, context->multipart ? NLM_F_MULTI : 0, context->seq, payload, length);
+    if (!context->error) context->emitted++;
+}
+
+static int rtnl_emit_one_route(rtnl_dump_context_t *context, const rtnl_device_info_t *info, int is_default)
+{
+    uint8_t  payload[RTMSG_BUF_SIZE] = {0};
+    uint32_t length                  = sizeof(rtmsg_t);
+    rtmsg_t *message                 = (rtmsg_t *)payload;
+    message->rtm_family              = AF_INET;
+    message->rtm_dst_len             = is_default ? 0 : rtnl_prefix_length(info->ipv4_netmask);
+    message->rtm_table               = RT_TABLE_MAIN;
+    message->rtm_protocol            = is_default ? RTPROT_BOOT : RTPROT_KERNEL;
+    message->rtm_scope               = is_default ? RT_SCOPE_UNIVERSE : RT_SCOPE_LINK;
+    message->rtm_type                = RTN_UNICAST;
+    uint32_t ifindex                 = info->ifindex;
+    uint32_t source                  = rtnl_be32(info->ipv4_address);
+    if (rtnl_add_attr(payload, sizeof(payload), &length, RTA_OIF, &ifindex, sizeof(ifindex))) return -EMSGSIZE;
+    if (is_default) {
+        uint32_t gateway = rtnl_be32(info->ipv4_gateway);
+        if (rtnl_add_attr(payload, sizeof(payload), &length, RTA_GATEWAY, &gateway, sizeof(gateway))) return -EMSGSIZE;
+    } else {
+        uint32_t destination = rtnl_be32(info->ipv4_address & info->ipv4_netmask);
+        if (rtnl_add_attr(payload, sizeof(payload), &length, RTA_DST, &destination, sizeof(destination))) return -EMSGSIZE;
+    }
+    if (rtnl_add_attr(payload, sizeof(payload), &length, RTA_PREFSRC, &source, sizeof(source))) return -EMSGSIZE;
+    return rtnl_queue_message(context->sk, RTM_NEWROUTE, context->multipart ? NLM_F_MULTI : 0, context->seq, payload, length);
+}
+
+static void rtnl_emit_routes(net_device_t *device, void *opaque)
+{
+    rtnl_dump_context_t *context = opaque;
+    rtnl_device_info_t   info    = {0};
+    if (context->error || (!context->multipart && context->emitted)) return;
+    rtnl_snapshot_device(device, &info);
+    if (!info.ipv4_address || !info.ipv4_netmask || !(info.flags & NETDEV_F_UP)
+        || (context->ifindex && context->ifindex != (int32_t)info.ifindex))
+        return;
+    int connected = !context->has_destination || ((context->destination & info.ipv4_netmask) == (info.ipv4_address & info.ipv4_netmask));
+    if (connected)
+        context->error = rtnl_emit_one_route(context, &info, 0);
+    else if (info.ipv4_gateway)
+        context->error = rtnl_emit_one_route(context, &info, 1);
+    else
+        return;
+    if (!context->error) context->emitted++;
+    if (context->multipart && connected && !context->error && info.ipv4_gateway) {
+        context->error = rtnl_emit_one_route(context, &info, 1);
+        if (!context->error) context->emitted++;
+    }
+}
+
+static int rtnl_parse_route_request(const nlmsghdr_t *request, rtnl_dump_context_t *context)
+{
+    uint32_t payload_length = NLMSG_PAYLOAD(request, 0);
+    uint32_t offset         = NLMSG_ALIGN(sizeof(rtmsg_t));
+    while (offset < payload_length) {
+        if (payload_length - offset < sizeof(rtattr_t)) return -EINVAL;
+        rtattr_t *attr = (rtattr_t *)((uint8_t *)NLMSG_DATA(request) + offset);
+        if (attr->rta_len < sizeof(rtattr_t) || attr->rta_len > payload_length - offset) return -EINVAL;
+        uint32_t data_length = attr->rta_len - RTA_ALIGN(sizeof(rtattr_t));
+        if (attr->rta_type == RTA_DST && data_length >= sizeof(uint32_t)) {
+            uint32_t destination;
+            memcpy(&destination, RTA_DATA(attr), sizeof(destination));
+            context->destination     = rtnl_be32(destination);
+            context->has_destination = 1;
+        } else if (attr->rta_type == RTA_OIF && data_length >= sizeof(uint32_t)) {
+            uint32_t ifindex;
+            memcpy(&ifindex, RTA_DATA(attr), sizeof(ifindex));
+            context->ifindex = (int32_t)ifindex;
+        }
+        offset += RTA_ALIGN(attr->rta_len);
+    }
+    return EOK;
+}
+
+static int rtnl_handle_request(struct socket *sk, const nlmsghdr_t *request)
+{
+    if (!(request->nlmsg_flags & NLM_F_REQUEST)) return rtnl_queue_error(sk, request, -EINVAL);
+    rtnl_dump_context_t context = {
+        .sk              = sk,
+        .seq             = request->nlmsg_seq,
+        .ifindex         = 0,
+        .destination     = 0,
+        .emitted         = 0,
+        .has_destination = 0,
+        .multipart       = (request->nlmsg_flags & NLM_F_DUMP) == NLM_F_DUMP,
+        .error           = 0,
+    };
+    uint32_t payload_length = NLMSG_PAYLOAD(request, 0);
+    uint32_t minimum_length;
+    if (request->nlmsg_type == RTM_GETLINK)
+        minimum_length = sizeof(ifinfomsg_t);
+    else if (request->nlmsg_type == RTM_GETADDR)
+        minimum_length = sizeof(ifaddrmsg_t);
+    else if (request->nlmsg_type == RTM_GETROUTE)
+        minimum_length = sizeof(rtmsg_t);
+    else
+        return rtnl_queue_error(sk, request, -EOPNOTSUPP);
+    if (payload_length < minimum_length) return rtnl_queue_error(sk, request, -EINVAL);
+    uint8_t family = payload_length ? *(uint8_t *)NLMSG_DATA(request) : AF_UNSPEC;
+    if (family != AF_UNSPEC && family != AF_INET && request->nlmsg_type != RTM_GETLINK) return rtnl_queue_error(sk, request, -EAFNOSUPPORT);
+    if (!context.multipart) {
+        if (request->nlmsg_type == RTM_GETLINK && payload_length >= sizeof(ifinfomsg_t))
+            context.ifindex = ((ifinfomsg_t *)NLMSG_DATA(request))->ifi_index;
+        else if (request->nlmsg_type == RTM_GETADDR && payload_length >= sizeof(ifaddrmsg_t))
+            context.ifindex = (int32_t)((ifaddrmsg_t *)NLMSG_DATA(request))->ifa_index;
+    }
+    if (request->nlmsg_type == RTM_GETROUTE && rtnl_parse_route_request(request, &context)) return rtnl_queue_error(sk, request, -EINVAL);
+    switch (request->nlmsg_type) {
+        case RTM_GETLINK :
+            netdev_iterate(rtnl_emit_link, &context);
+            break;
+        case RTM_GETADDR :
+            netdev_iterate(rtnl_emit_address, &context);
+            break;
+        case RTM_GETROUTE :
+            netdev_iterate(rtnl_emit_routes, &context);
+            break;
+        default :
+            return rtnl_queue_error(sk, request, -EOPNOTSUPP);
+    }
+    if (context.error) return context.error;
+    if (context.multipart) return rtnl_queue_message(sk, NLMSG_DONE, NLM_F_MULTI, request->nlmsg_seq, NULL, 0);
+    if (!context.emitted) return rtnl_queue_error(sk, request, -ENODEV);
+    if (request->nlmsg_flags & NLM_F_ACK) return rtnl_queue_error(sk, request, 0);
+    return EOK;
 }
 
 /* Assign a unique port ID for auto-bind */
@@ -375,8 +669,18 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
         struct socket *dest_sk;
 
         if (dest_pid == 0) {
-            /* Sending to kernel — deliver to protocol handler */
-            /* For now, kernel-side netlink receive is stubbed */
+            if (ns->nl_protocol == NETLINK_ROUTE) {
+                size_t offset = 0;
+                while (offset < len) {
+                    nlmsghdr_t *request   = (nlmsghdr_t *)((uint8_t *)buf + offset);
+                    size_t      remaining = len - offset;
+                    if (!NLMSG_OK(request, remaining)) return -EINVAL;
+                    int result = rtnl_handle_request(sk, request);
+                    if (result) return result;
+                    offset += NLMSG_ALIGN(request->nlmsg_len);
+                }
+                return (int)len;
+            }
             return (int)nlhdr_len;
         }
 
@@ -389,7 +693,18 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
     /* No destination — multicast if groups are set, else error */
     if (addrlen == 0 || !addr) {
         /* Send as a request to kernel (pid=0) */
-        /* Kernel-side receive not implemented; accept silently */
+        if (ns->nl_protocol == NETLINK_ROUTE) {
+            size_t offset = 0;
+            while (offset < len) {
+                nlmsghdr_t *request   = (nlmsghdr_t *)((uint8_t *)buf + offset);
+                size_t      remaining = len - offset;
+                if (!NLMSG_OK(request, remaining)) return -EINVAL;
+                int result = rtnl_handle_request(sk, request);
+                if (result) return result;
+                offset += NLMSG_ALIGN(request->nlmsg_len);
+            }
+            return (int)len;
+        }
         return (int)nlhdr_len;
     }
 

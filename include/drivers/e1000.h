@@ -15,10 +15,12 @@ typedef struct {
         uint64_t rx_bytes;
         uint64_t rx_dropped;
         uint64_t rx_errors;
+        uint64_t rx_overruns;
         uint64_t tx_packets;
         uint64_t tx_bytes;
         uint64_t tx_dropped;
         uint64_t tx_errors;
+        uint64_t tx_busy;
         uint64_t interrupts;
         uint64_t link_changes;
 } e1000_stats_t;

@@ -13,7 +13,10 @@
 #define TCP_FLAG_ACK         0x10U
 #define TCP_EPHEMERAL_FIRST  49152U
 #define TCP_DEFAULT_MSS      536U
+#define TCP_LOCAL_MSS        1460U
 #define TCP_RTO_TICKS        100U
+#define TCP_RTO_MIN          20U
+#define TCP_RTO_MAX          6000U
 #define TCP_RETRY_MAX        6U
 #define TCP_TIME_WAIT_TICKS  6000U
 
@@ -25,8 +28,18 @@ typedef struct tcp_tx_record {
         uint8_t               flags;
         uint8_t               retries;
         uint64_t              deadline;
+        uint64_t              sent_at;
+        uint8_t               retransmitted;
         uint8_t               data[];
 } tcp_tx_record_t;
+
+typedef struct tcp_ooo_record {
+        struct tcp_ooo_record *next;
+        uint32_t               sequence;
+        uint16_t               length;
+        uint8_t                fin;
+        uint8_t                data[];
+} tcp_ooo_record_t;
 
 struct tcp_endpoint {
         uint32_t         local_address;
@@ -38,7 +51,9 @@ struct tcp_endpoint {
         uint32_t         snd_nxt;
         uint32_t         rcv_nxt;
         uint16_t         peer_window;
+        uint16_t         peer_mss;
         uint16_t         rx_length;
+        uint16_t         ooo_length;
         uint8_t         *rx_data;
         int              error;
         uint8_t          bound;
@@ -47,11 +62,23 @@ struct tcp_endpoint {
         uint8_t          accept_tail;
         uint8_t          accept_count;
         uint64_t         time_wait_until;
+        uint32_t         cwnd;
+        uint32_t         ssthresh;
+        uint32_t         rto;
+        uint32_t         srtt;
+        uint32_t         rttvar;
+        uint32_t         last_ack;
+        uint8_t          duplicate_acks;
+        uint8_t          ooo_count;
+        uint8_t          orphaned;
         struct tcp_endpoint *parent;
         struct tcp_endpoint *accept_queue[TCP_ACCEPT_MAX];
         tcp_tx_record_t *tx_head;
+        tcp_ooo_record_t *ooo_head;
         wait_queue_t     wait;
         spinlock_t       lock;
+        tcp_event_callback_t event_callback;
+        void                 *event_context;
 };
 
 static tcp_endpoint_t *tcp_table[TCP_ENDPOINT_MAX];
@@ -59,6 +86,9 @@ static spinlock_t tcp_table_lock;
 static spinlock_t tcp_iss_lock;
 static uint16_t tcp_ephemeral = TCP_EPHEMERAL_FIRST;
 static uint32_t tcp_iss_counter;
+
+static int tcp_emit(tcp_endpoint_t *endpoint, uint32_t sequence, uint32_t acknowledgment, uint8_t flags, const void *data, size_t length,
+                    int track);
 
 static int seq_before(uint32_t a, uint32_t b) { return (int32_t)(a - b) < 0; }
 static int seq_after(uint32_t a, uint32_t b) { return (int32_t)(a - b) > 0; }
@@ -102,7 +132,34 @@ int net_tcp_parse(const void *data, size_t length, uint32_t source, uint32_t des
     return 0;
 }
 
-static uint16_t tcp_window(const tcp_endpoint_t *endpoint) { return (uint16_t)(TCP_RX_BUFFER_MAX - endpoint->rx_length); }
+static uint16_t tcp_window(const tcp_endpoint_t *endpoint)
+{
+    return (uint16_t)(TCP_RX_BUFFER_MAX - endpoint->rx_length - endpoint->ooo_length);
+}
+
+static uint32_t tcp_ready_locked(const tcp_endpoint_t *endpoint)
+{
+    uint32_t ready = 0;
+    if (endpoint->state == TCP_LISTEN) return endpoint->accept_count ? TCP_READY_ACCEPT | TCP_READY_READ : 0;
+    if (endpoint->rx_length || endpoint->state == TCP_CLOSE_WAIT || endpoint->state == TCP_CLOSED || endpoint->state == TCP_TIME_WAIT)
+        ready |= TCP_READY_READ;
+    if (endpoint->state == TCP_ESTABLISHED || endpoint->state == TCP_CLOSE_WAIT) {
+        uint32_t flight = endpoint->snd_nxt - endpoint->snd_una;
+        uint32_t limit = endpoint->peer_window < endpoint->cwnd ? endpoint->peer_window : endpoint->cwnd;
+        if (flight < limit) ready |= TCP_READY_WRITE;
+    }
+    if (endpoint->error) ready |= TCP_READY_ERROR;
+    if (endpoint->state == TCP_CLOSE_WAIT || endpoint->state == TCP_CLOSED || endpoint->state == TCP_TIME_WAIT) ready |= TCP_READY_HANGUP;
+    return ready;
+}
+
+static void tcp_notify(tcp_endpoint_t *endpoint, uint32_t events)
+{
+    wait_queue_wake_all(&endpoint->wait);
+    tcp_event_callback_t callback = endpoint->event_callback;
+    void *context = endpoint->event_context;
+    if (callback) callback(endpoint, events, context);
+}
 
 static uint32_t tcp_new_iss(void)
 {
@@ -143,6 +200,10 @@ static tcp_endpoint_t *tcp_alloc_locked(void)
     }
     endpoint->state = TCP_CLOSED;
     endpoint->peer_window = UINT16_MAX;
+    endpoint->peer_mss = TCP_DEFAULT_MSS;
+    endpoint->cwnd = TCP_LOCAL_MSS;
+    endpoint->ssthresh = UINT16_MAX;
+    endpoint->rto = TCP_RTO_TICKS;
     wait_queue_init(&endpoint->wait);
     if (tcp_insert_locked(endpoint)) {
         free(endpoint->rx_data);
@@ -169,15 +230,42 @@ static void tcp_records_free(tcp_tx_record_t *record)
     }
 }
 
+static void tcp_ooo_free(tcp_ooo_record_t *record)
+{
+    while (record) {
+        tcp_ooo_record_t *next = record->next;
+        free(record);
+        record = next;
+    }
+}
+
 void tcp_close(tcp_endpoint_t *endpoint)
 {
     if (!endpoint) return;
+    spin_lock(&endpoint->lock);
+    endpoint->event_callback = NULL;
+    endpoint->event_context = NULL;
+    if (endpoint->state == TCP_ESTABLISHED || endpoint->state == TCP_CLOSE_WAIT) {
+        tcp_state_t next = endpoint->state == TCP_ESTABLISHED ? TCP_FIN_WAIT_1 : TCP_LAST_ACK;
+        if (!tcp_emit(endpoint, endpoint->snd_nxt, endpoint->rcv_nxt, TCP_FLAG_FIN | TCP_FLAG_ACK, NULL, 0, 1)) {
+            endpoint->snd_nxt++;
+            endpoint->state = next;
+            endpoint->orphaned = 1;
+            spin_unlock(&endpoint->lock);
+            return;
+        }
+    }
+    spin_unlock(&endpoint->lock);
     spin_lock(&tcp_table_lock);
     for (unsigned i = 0; i < TCP_ENDPOINT_MAX; i++) if (tcp_table[i] == endpoint) tcp_table[i] = NULL;
     if (endpoint->parent) {
         tcp_endpoint_t *parent = endpoint->parent;
         spin_lock(&parent->lock);
-        for (unsigned i = 0; i < TCP_ACCEPT_MAX; i++) if (parent->accept_queue[i] == endpoint) parent->accept_queue[i] = NULL;
+        for (unsigned i = 0; i < TCP_ACCEPT_MAX; i++) {
+            if (parent->accept_queue[i] != endpoint) continue;
+            parent->accept_queue[i] = NULL;
+            if (parent->accept_count) parent->accept_count--;
+        }
         spin_unlock(&parent->lock);
     }
     spin_lock(&endpoint->lock);
@@ -186,16 +274,20 @@ void tcp_close(tcp_endpoint_t *endpoint)
         if (!child || child->parent != endpoint) continue;
         tcp_table[i] = NULL;
         tcp_records_free(child->tx_head);
+        tcp_ooo_free(child->ooo_head);
         free(child->rx_data);
         free(child);
     }
     memset(endpoint->accept_queue, 0, sizeof(endpoint->accept_queue));
     tcp_tx_record_t *records = endpoint->tx_head;
+    tcp_ooo_record_t *ooo = endpoint->ooo_head;
     endpoint->tx_head = NULL;
+    endpoint->ooo_head = NULL;
     spin_unlock(&endpoint->lock);
     spin_unlock(&tcp_table_lock);
     wait_queue_wake_all(&endpoint->wait);
     tcp_records_free(records);
+    tcp_ooo_free(ooo);
     free(endpoint->rx_data);
     free(endpoint);
 }
@@ -271,26 +363,32 @@ tcp_endpoint_t *tcp_accept(tcp_endpoint_t *endpoint)
 static int tcp_emit(tcp_endpoint_t *endpoint, uint32_t sequence, uint32_t acknowledgment, uint8_t flags, const void *data, size_t length,
                     int track)
 {
-    if (length > UINT16_MAX - TCP_HEADER_LEN) return -EMSGSIZE;
+    size_t header_length = TCP_HEADER_LEN + ((flags & TCP_FLAG_SYN) ? 4U : 0U);
+    if (length > UINT16_MAX - header_length) return -EMSGSIZE;
     net_device_t *device;
     uint32_t next_hop;
     int status = ipv4_route(endpoint->remote_address, &device, &next_hop);
     if (status) return status;
-    net_pbuf_t *packet = net_pbuf_alloc(TCP_HEADER_LEN + length, NET_PBUF_HEADROOM);
+    net_pbuf_t *packet = net_pbuf_alloc(header_length + length, NET_PBUF_HEADROOM);
     if (!packet) {
         netdev_put(device);
         return -ENOMEM;
     }
     uint8_t *tcp = packet->data;
-    memset(tcp, 0, TCP_HEADER_LEN);
+    memset(tcp, 0, header_length);
     net_write_be16(tcp, endpoint->local_port);
     net_write_be16(tcp + 2, endpoint->remote_port);
     net_write_be32(tcp + 4, sequence);
     net_write_be32(tcp + 8, acknowledgment);
-    tcp[12] = 5U << 4;
+    tcp[12] = (uint8_t)((header_length / 4U) << 4);
     tcp[13] = flags;
     net_write_be16(tcp + 14, tcp_window(endpoint));
-    if (length) memcpy(tcp + TCP_HEADER_LEN, data, length);
+    if (flags & TCP_FLAG_SYN) {
+        tcp[20] = 2;
+        tcp[21] = 4;
+        net_write_be16(tcp + 22, TCP_LOCAL_MSS);
+    }
+    if (length) memcpy(tcp + header_length, data, length);
     uint16_t checksum = net_checksum_ipv4_pseudo(endpoint->local_address, endpoint->remote_address, IPV4_PROTO_TCP, tcp, packet->length);
     net_write_be16(tcp + 16, checksum);
     tcp_tx_record_t *record = NULL;
@@ -308,7 +406,9 @@ static int tcp_emit(tcp_endpoint_t *endpoint, uint32_t sequence, uint32_t acknow
         record->length = (uint16_t)length;
         record->flags = flags;
         record->retries = 0;
-        record->deadline = sched_ticks() + TCP_RTO_TICKS;
+        record->deadline = sched_ticks() + endpoint->rto;
+        record->sent_at = sched_ticks();
+        record->retransmitted = 0;
         if (length) memcpy(record->data, data, length);
     }
     status = ipv4_output(device, endpoint->local_address, endpoint->remote_address, IPV4_PROTO_TCP, 64, packet);
@@ -365,10 +465,12 @@ int tcp_send(tcp_endpoint_t *endpoint, const void *data, size_t length)
     while (sent < length) {
         unsigned records = 0;
         for (tcp_tx_record_t *r = endpoint->tx_head; r; r = r->next) records++;
-        if (records >= TCP_TX_SEGMENT_MAX || endpoint->peer_window <= endpoint->snd_nxt - endpoint->snd_una) break;
-        size_t allowed = endpoint->peer_window - (endpoint->snd_nxt - endpoint->snd_una);
+        uint32_t flight = endpoint->snd_nxt - endpoint->snd_una;
+        uint32_t send_window = endpoint->peer_window < endpoint->cwnd ? endpoint->peer_window : endpoint->cwnd;
+        if (records >= TCP_TX_SEGMENT_MAX || send_window <= flight) break;
+        size_t allowed = send_window - flight;
         size_t chunk = length - sent;
-        if (chunk > TCP_DEFAULT_MSS) chunk = TCP_DEFAULT_MSS;
+        if (chunk > endpoint->peer_mss) chunk = endpoint->peer_mss;
         if (chunk > allowed) chunk = allowed;
         if (!chunk) break;
         int status = tcp_emit(endpoint, endpoint->snd_nxt, endpoint->rcv_nxt, TCP_FLAG_ACK | TCP_FLAG_PSH, (const uint8_t *)data + sent, chunk, 1);
@@ -397,6 +499,7 @@ int tcp_receive(tcp_endpoint_t *endpoint, void *data, size_t capacity)
         memcpy(data, endpoint->rx_data, copied);
         memmove(endpoint->rx_data, endpoint->rx_data + copied, endpoint->rx_length - copied);
         endpoint->rx_length -= (uint16_t)copied;
+        if (copied && tcp_window(endpoint) > copied) tcp_emit(endpoint, endpoint->snd_nxt, endpoint->rcv_nxt, TCP_FLAG_ACK, NULL, 0, 0);
     }
     spin_unlock(&endpoint->lock);
     return (int)copied;
@@ -422,7 +525,15 @@ int tcp_shutdown(tcp_endpoint_t *endpoint)
     return status;
 }
 
-tcp_state_t tcp_get_state(const tcp_endpoint_t *endpoint) { return endpoint ? endpoint->state : TCP_CLOSED; }
+tcp_state_t tcp_get_state(const tcp_endpoint_t *endpoint)
+{
+    if (!endpoint) return TCP_CLOSED;
+    tcp_endpoint_t *mutable = (tcp_endpoint_t *)endpoint;
+    spin_lock(&mutable->lock);
+    tcp_state_t state = mutable->state;
+    spin_unlock(&mutable->lock);
+    return state;
+}
 
 int tcp_get_error(tcp_endpoint_t *endpoint)
 {
@@ -436,12 +547,111 @@ int tcp_get_error(tcp_endpoint_t *endpoint)
 
 static void tcp_ack_records(tcp_endpoint_t *endpoint, uint32_t acknowledgment)
 {
+    uint32_t newly_acked = acknowledgment - endpoint->snd_una;
+    uint64_t now = sched_ticks();
     while (endpoint->tx_head && !seq_before(acknowledgment, endpoint->tx_head->end_sequence)) {
         tcp_tx_record_t *record = endpoint->tx_head;
         endpoint->tx_head = record->next;
+        if (!record->retransmitted) {
+            uint32_t sample = (uint32_t)(now - record->sent_at);
+            if (!sample) sample = 1;
+            if (!endpoint->srtt) {
+                endpoint->srtt = sample << 3;
+                endpoint->rttvar = sample << 1;
+            } else {
+                int32_t error = (int32_t)sample - (int32_t)(endpoint->srtt >> 3);
+                endpoint->srtt += error;
+                if (error < 0) error = -error;
+                endpoint->rttvar = (uint32_t)((int32_t)endpoint->rttvar + (error - (int32_t)(endpoint->rttvar >> 2)));
+            }
+            uint32_t rto = (endpoint->srtt >> 3) + endpoint->rttvar;
+            endpoint->rto = rto < TCP_RTO_MIN ? TCP_RTO_MIN : (rto > TCP_RTO_MAX ? TCP_RTO_MAX : rto);
+        }
         free(record);
     }
     endpoint->snd_una = acknowledgment;
+    if (newly_acked) {
+        if (endpoint->cwnd < endpoint->ssthresh) endpoint->cwnd += newly_acked < endpoint->peer_mss ? newly_acked : endpoint->peer_mss;
+        else {
+            uint32_t increase = endpoint->peer_mss * endpoint->peer_mss / endpoint->cwnd;
+            endpoint->cwnd += increase ? increase : 1;
+        }
+        endpoint->duplicate_acks = 0;
+        endpoint->last_ack = acknowledgment;
+    }
+}
+
+static uint16_t tcp_parse_mss(const uint8_t *tcp, size_t header_length)
+{
+    size_t offset = TCP_HEADER_LEN;
+    while (offset < header_length) {
+        uint8_t kind = tcp[offset];
+        if (!kind) break;
+        if (kind == 1) { offset++; continue; }
+        if (offset + 2 > header_length || tcp[offset + 1] < 2 || offset + tcp[offset + 1] > header_length) break;
+        if (kind == 2 && tcp[offset + 1] == 4) {
+            uint16_t mss = net_read_be16(tcp + offset + 2);
+            if (mss < TCP_DEFAULT_MSS) return TCP_DEFAULT_MSS;
+            return mss > TCP_LOCAL_MSS ? TCP_LOCAL_MSS : mss;
+        }
+        offset += tcp[offset + 1];
+    }
+    return TCP_DEFAULT_MSS;
+}
+
+static int tcp_queue_ooo(tcp_endpoint_t *endpoint, uint32_t sequence, const uint8_t *data, size_t length, int fin)
+{
+    if ((!length && !fin) || endpoint->ooo_count >= TCP_OOO_SEGMENT_MAX || length > UINT16_MAX
+        || length > TCP_RX_BUFFER_MAX - endpoint->rx_length - endpoint->ooo_length) return -ENOBUFS;
+    tcp_ooo_record_t **position = &endpoint->ooo_head;
+    while (*position && seq_before((*position)->sequence, sequence)) position = &(*position)->next;
+    if (*position && (*position)->sequence == sequence) return 0;
+    if (position != &endpoint->ooo_head) {
+        tcp_ooo_record_t *previous = endpoint->ooo_head;
+        while (previous->next != *position) previous = previous->next;
+        if (seq_after(previous->sequence + previous->length + previous->fin, sequence)) return 0;
+    }
+    if (*position && seq_after(sequence + (uint32_t)length + fin, (*position)->sequence)) return 0;
+    tcp_ooo_record_t *record = malloc(sizeof(*record) + length);
+    if (!record) return -ENOMEM;
+    record->next = *position;
+    record->sequence = sequence;
+    record->length = (uint16_t)length;
+    record->fin = (uint8_t)fin;
+    if (length) memcpy(record->data, data, length);
+    *position = record;
+    endpoint->ooo_count++;
+    endpoint->ooo_length += (uint16_t)length;
+    return 0;
+}
+
+static void tcp_received_fin(tcp_endpoint_t *endpoint)
+{
+    endpoint->rcv_nxt++;
+    if (endpoint->state == TCP_ESTABLISHED) endpoint->state = TCP_CLOSE_WAIT;
+    else if (endpoint->state == TCP_FIN_WAIT_1) endpoint->state = TCP_CLOSING;
+    else if (endpoint->state == TCP_FIN_WAIT_2) {
+        endpoint->state = TCP_TIME_WAIT;
+        endpoint->time_wait_until = sched_ticks() + TCP_TIME_WAIT_TICKS;
+    }
+}
+
+static void tcp_drain_ooo(tcp_endpoint_t *endpoint)
+{
+    while (endpoint->ooo_head && endpoint->ooo_head->sequence == endpoint->rcv_nxt) {
+        tcp_ooo_record_t *record = endpoint->ooo_head;
+        if (record->length > TCP_RX_BUFFER_MAX - endpoint->rx_length) break;
+        endpoint->ooo_head = record->next;
+        endpoint->ooo_count--;
+        endpoint->ooo_length -= record->length;
+        if (record->length) {
+            memcpy(endpoint->rx_data + endpoint->rx_length, record->data, record->length);
+            endpoint->rx_length += record->length;
+            endpoint->rcv_nxt += record->length;
+        }
+        if (record->fin) tcp_received_fin(endpoint);
+        free(record);
+    }
 }
 
 static tcp_endpoint_t *tcp_lookup_locked(const ipv4_info_t *ip, uint16_t source_port, uint16_t destination_port, tcp_endpoint_t **listener)
@@ -471,9 +681,11 @@ static int tcp_reset_reply(const ipv4_info_t *ip, uint16_t source_port, uint16_t
     return tcp_emit(&temporary, 0, ack, TCP_FLAG_RST | TCP_FLAG_ACK, NULL, 0, 0);
 }
 
-static int tcp_passive_open(tcp_endpoint_t *listener, const ipv4_info_t *ip, uint16_t source_port, uint32_t sequence)
+static int tcp_passive_open(tcp_endpoint_t *listener, const ipv4_info_t *ip, uint16_t source_port, uint32_t sequence, uint16_t peer_mss)
 {
-    if (listener->accept_count >= listener->backlog) return -ENOBUFS;
+    unsigned pending = 0;
+    for (unsigned i = 0; i < TCP_ENDPOINT_MAX; i++) if (tcp_table[i] && tcp_table[i]->parent == listener) pending++;
+    if (pending >= listener->backlog) return -ENOBUFS;
     tcp_endpoint_t *child = tcp_alloc_locked();
     if (!child) return -ENOBUFS;
     child->bound = 1;
@@ -485,6 +697,7 @@ static int tcp_passive_open(tcp_endpoint_t *listener, const ipv4_info_t *ip, uin
     child->snd_una = tcp_new_iss();
     child->snd_nxt = child->snd_una + 1;
     child->state = TCP_SYN_RECEIVED;
+    child->peer_mss = peer_mss;
     child->parent = listener;
     spin_lock(&child->lock);
     int status = tcp_emit(child, child->snd_una, child->rcv_nxt, TCP_FLAG_SYN | TCP_FLAG_ACK, NULL, 0, 1);
@@ -520,7 +733,7 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
     if (!endpoint) {
         if (listener && (flags & TCP_FLAG_SYN) && !(flags & TCP_FLAG_ACK)) {
             spin_lock(&listener->lock);
-            int status = tcp_passive_open(listener, ip, source_port, sequence);
+            int status = tcp_passive_open(listener, ip, source_port, sequence, tcp_parse_mss(tcp, header_length));
             spin_unlock(&listener->lock);
             spin_unlock(&tcp_table_lock);
             net_pbuf_free(packet);
@@ -535,14 +748,36 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
     spin_unlock(&tcp_table_lock);
 
     if (flags & TCP_FLAG_RST) {
+        int acceptable = endpoint->state == TCP_SYN_SENT
+                             ? ((flags & TCP_FLAG_ACK) && acknowledgment == endpoint->snd_nxt)
+                             : (!seq_before(sequence, endpoint->rcv_nxt)
+                                && !seq_after(sequence, endpoint->rcv_nxt + tcp_window(endpoint)));
+        if (!acceptable) {
+            spin_unlock(&endpoint->lock);
+            net_pbuf_free(packet);
+            return -EAGAIN;
+        }
         endpoint->state = TCP_CLOSED;
         endpoint->error = ECONNRESET;
         spin_unlock(&endpoint->lock);
-        wait_queue_wake_all(&endpoint->wait);
+        tcp_notify(endpoint, TCP_READY_ERROR | TCP_READY_READ | TCP_READY_HANGUP);
         net_pbuf_free(packet);
         return -ECONNRESET;
     }
     endpoint->peer_window = window;
+    if (endpoint->state != TCP_SYN_SENT && endpoint->state != TCP_SYN_RECEIVED && endpoint->state != TCP_LISTEN) {
+        uint16_t receive_window = tcp_window(endpoint);
+        int sequence_valid = receive_window ? (!seq_before(sequence, endpoint->rcv_nxt)
+                                               && seq_before(sequence, endpoint->rcv_nxt + receive_window))
+                                            : sequence == endpoint->rcv_nxt;
+        if (!sequence_valid && !(payload_length && seq_before(sequence, endpoint->rcv_nxt)
+                                 && seq_after(sequence + (uint32_t)payload_length, endpoint->rcv_nxt))) {
+            tcp_emit(endpoint, endpoint->snd_nxt, endpoint->rcv_nxt, TCP_FLAG_ACK, NULL, 0, 0);
+            spin_unlock(&endpoint->lock);
+            net_pbuf_free(packet);
+            return -EAGAIN;
+        }
+    }
     if (flags & TCP_FLAG_ACK) {
         if (seq_before(acknowledgment, endpoint->snd_una) || seq_after(acknowledgment, endpoint->snd_nxt)) {
             tcp_emit(endpoint, endpoint->snd_nxt, endpoint->rcv_nxt, TCP_FLAG_ACK, NULL, 0, 0);
@@ -550,7 +785,18 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
             net_pbuf_free(packet);
             return -EBADMSG;
         }
-        tcp_ack_records(endpoint, acknowledgment);
+        if (acknowledgment == endpoint->snd_una && endpoint->tx_head && !payload_length && !(flags & (TCP_FLAG_SYN | TCP_FLAG_FIN))) {
+            if (++endpoint->duplicate_acks == 3) {
+                uint32_t flight = endpoint->snd_nxt - endpoint->snd_una;
+                endpoint->ssthresh = flight / 2;
+                if (endpoint->ssthresh < 2U * endpoint->peer_mss) endpoint->ssthresh = 2U * endpoint->peer_mss;
+                endpoint->cwnd = endpoint->ssthresh + 3U * endpoint->peer_mss;
+                tcp_tx_record_t *record = endpoint->tx_head;
+                tcp_emit(endpoint, record->sequence, endpoint->rcv_nxt, record->flags, record->data, record->length, 0);
+                record->retransmitted = 1;
+                record->deadline = sched_ticks() + endpoint->rto;
+            } else if (endpoint->duplicate_acks > 3) endpoint->cwnd += endpoint->peer_mss;
+        } else if (seq_after(acknowledgment, endpoint->snd_una)) tcp_ack_records(endpoint, acknowledgment);
     }
 
     if (endpoint->state == TCP_SYN_SENT) {
@@ -560,8 +806,19 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
             return -EAGAIN;
         }
         endpoint->rcv_nxt = sequence + 1;
+        endpoint->peer_mss = tcp_parse_mss(tcp, header_length);
         endpoint->state = TCP_ESTABLISHED;
         tcp_emit(endpoint, endpoint->snd_nxt, endpoint->rcv_nxt, TCP_FLAG_ACK, NULL, 0, 0);
+    } else if (endpoint->state == TCP_SYN_RECEIVED && (flags & TCP_FLAG_SYN) && !(flags & TCP_FLAG_ACK)) {
+        tcp_tx_record_t *record = endpoint->tx_head;
+        if (record) {
+            tcp_emit(endpoint, record->sequence, endpoint->rcv_nxt, record->flags, NULL, 0, 0);
+            record->retransmitted = 1;
+            record->deadline = sched_ticks() + endpoint->rto;
+        }
+        spin_unlock(&endpoint->lock);
+        net_pbuf_free(packet);
+        return 0;
     } else if (endpoint->state == TCP_SYN_RECEIVED) {
         if (!(flags & TCP_FLAG_ACK) || acknowledgment != endpoint->snd_nxt || sequence != endpoint->rcv_nxt) {
             spin_unlock(&endpoint->lock);
@@ -584,8 +841,14 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
                 }
             }
             spin_unlock(&parent->lock);
-            wait_queue_wake_one(&parent->wait);
+            tcp_notify(parent, TCP_READY_ACCEPT | TCP_READY_READ);
         }
+    } else if (endpoint->state == TCP_TIME_WAIT) {
+        if (flags & TCP_FLAG_FIN) endpoint->time_wait_until = sched_ticks() + TCP_TIME_WAIT_TICKS;
+        tcp_emit(endpoint, endpoint->snd_nxt, endpoint->rcv_nxt, TCP_FLAG_ACK, NULL, 0, 0);
+        spin_unlock(&endpoint->lock);
+        net_pbuf_free(packet);
+        return 0;
     } else if (endpoint->state != TCP_ESTABLISHED && endpoint->state != TCP_FIN_WAIT_1 && endpoint->state != TCP_FIN_WAIT_2
                && endpoint->state != TCP_CLOSE_WAIT && endpoint->state != TCP_CLOSING && endpoint->state != TCP_LAST_ACK) {
         spin_unlock(&endpoint->lock);
@@ -593,43 +856,47 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
         return -ENOTCONN;
     }
 
-    if (endpoint->state == TCP_FIN_WAIT_1 && !seq_before(endpoint->snd_una, endpoint->snd_nxt)) endpoint->state = TCP_FIN_WAIT_2;
+    if (endpoint->state == TCP_FIN_WAIT_1 && !seq_before(endpoint->snd_una, endpoint->snd_nxt)) {
+        endpoint->state = TCP_FIN_WAIT_2;
+        endpoint->time_wait_until = sched_ticks() + TCP_TIME_WAIT_TICKS;
+    }
     else if (endpoint->state == TCP_CLOSING && !seq_before(endpoint->snd_una, endpoint->snd_nxt)) {
         endpoint->state = TCP_TIME_WAIT;
         endpoint->time_wait_until = sched_ticks() + TCP_TIME_WAIT_TICKS;
     } else if (endpoint->state == TCP_LAST_ACK && !seq_before(endpoint->snd_una, endpoint->snd_nxt)) endpoint->state = TCP_CLOSED;
 
     if (payload_length || (flags & TCP_FLAG_FIN)) {
-        if (sequence != endpoint->rcv_nxt) {
-            tcp_emit(endpoint, endpoint->snd_nxt, endpoint->rcv_nxt, TCP_FLAG_ACK, NULL, 0, 0);
-            spin_unlock(&endpoint->lock);
-            net_pbuf_free(packet);
-            return -EAGAIN;
-        }
-        if (payload_length > TCP_RX_BUFFER_MAX - endpoint->rx_length) {
-            tcp_emit(endpoint, endpoint->snd_nxt, endpoint->rcv_nxt, TCP_FLAG_ACK, NULL, 0, 0);
-            spin_unlock(&endpoint->lock);
-            net_pbuf_free(packet);
-            return -ENOBUFS;
-        }
-        if (payload_length) {
-            memcpy(endpoint->rx_data + endpoint->rx_length, tcp + header_length, payload_length);
-            endpoint->rx_length += (uint16_t)payload_length;
-            endpoint->rcv_nxt += (uint32_t)payload_length;
-        }
-        if (flags & TCP_FLAG_FIN) {
-            endpoint->rcv_nxt++;
-            if (endpoint->state == TCP_ESTABLISHED) endpoint->state = TCP_CLOSE_WAIT;
-            else if (endpoint->state == TCP_FIN_WAIT_1) endpoint->state = TCP_CLOSING;
-            else if (endpoint->state == TCP_FIN_WAIT_2) {
-                endpoint->state = TCP_TIME_WAIT;
-                endpoint->time_wait_until = sched_ticks() + TCP_TIME_WAIT_TICKS;
+        uint32_t data_sequence = sequence + !!(flags & TCP_FLAG_SYN);
+        const uint8_t *payload = tcp + header_length;
+        size_t accepted_length = payload_length;
+        int fin = !!(flags & TCP_FLAG_FIN);
+        if (seq_before(data_sequence, endpoint->rcv_nxt)) {
+            uint32_t overlap = endpoint->rcv_nxt - data_sequence;
+            if (overlap >= accepted_length) {
+                if (overlap > accepted_length || !fin) fin = 0;
+                accepted_length = 0;
+            } else {
+                payload += overlap;
+                accepted_length -= overlap;
             }
+            data_sequence = endpoint->rcv_nxt;
+        }
+        if (seq_after(data_sequence, endpoint->rcv_nxt)) {
+            if (data_sequence - endpoint->rcv_nxt <= tcp_window(endpoint))
+                tcp_queue_ooo(endpoint, data_sequence, payload, accepted_length, fin);
+        } else if (accepted_length <= TCP_RX_BUFFER_MAX - endpoint->rx_length) {
+            if (accepted_length) {
+                memcpy(endpoint->rx_data + endpoint->rx_length, payload, accepted_length);
+                endpoint->rx_length += (uint16_t)accepted_length;
+                endpoint->rcv_nxt += (uint32_t)accepted_length;
+            }
+            if (fin) tcp_received_fin(endpoint);
+            tcp_drain_ooo(endpoint);
         }
         tcp_emit(endpoint, endpoint->snd_nxt, endpoint->rcv_nxt, TCP_FLAG_ACK, NULL, 0, 0);
     }
     spin_unlock(&endpoint->lock);
-    wait_queue_wake_all(&endpoint->wait);
+    tcp_notify(endpoint, tcp_readiness(endpoint));
     net_pbuf_free(packet);
     return 0;
 bad:
@@ -639,12 +906,15 @@ bad:
 
 void tcp_timer(uint64_t now_ticks)
 {
+    tcp_endpoint_t *notify[TCP_ENDPOINT_MAX];
+    unsigned notify_count = 0;
     spin_lock(&tcp_table_lock);
     for (unsigned i = 0; i < TCP_ENDPOINT_MAX; i++) {
         tcp_endpoint_t *endpoint = tcp_table[i];
         if (!endpoint) continue;
         spin_lock(&endpoint->lock);
-        if (endpoint->state == TCP_TIME_WAIT && now_ticks >= endpoint->time_wait_until) endpoint->state = TCP_CLOSED;
+        if ((endpoint->state == TCP_TIME_WAIT || (endpoint->orphaned && endpoint->state == TCP_FIN_WAIT_2))
+            && now_ticks >= endpoint->time_wait_until) endpoint->state = TCP_CLOSED;
         tcp_tx_record_t *record = endpoint->tx_head;
         if (record && now_ticks >= record->deadline) {
             if (record->retries >= TCP_RETRY_MAX) {
@@ -653,13 +923,71 @@ void tcp_timer(uint64_t now_ticks)
                 tcp_records_free(endpoint->tx_head);
                 endpoint->tx_head = NULL;
                 wait_queue_wake_all(&endpoint->wait);
+                if (!endpoint->orphaned) notify[notify_count++] = endpoint;
             } else {
                 tcp_emit(endpoint, record->sequence, endpoint->rcv_nxt, record->flags, record->data, record->length, 0);
                 record->retries++;
-                record->deadline = now_ticks + (TCP_RTO_TICKS << (record->retries > 5 ? 5 : record->retries));
+                record->retransmitted = 1;
+                uint32_t flight = endpoint->snd_nxt - endpoint->snd_una;
+                endpoint->ssthresh = flight / 2;
+                if (endpoint->ssthresh < 2U * endpoint->peer_mss) endpoint->ssthresh = 2U * endpoint->peer_mss;
+                endpoint->cwnd = endpoint->peer_mss;
+                uint32_t backoff = endpoint->rto << (record->retries > 5 ? 5 : record->retries);
+                record->deadline = now_ticks + (backoff > TCP_RTO_MAX ? TCP_RTO_MAX : backoff);
             }
         }
+        int destroy = endpoint->orphaned && endpoint->state == TCP_CLOSED;
         spin_unlock(&endpoint->lock);
+        if (destroy) {
+            tcp_table[i] = NULL;
+            tcp_records_free(endpoint->tx_head);
+            tcp_ooo_free(endpoint->ooo_head);
+            free(endpoint->rx_data);
+            free(endpoint);
+        }
     }
     spin_unlock(&tcp_table_lock);
+    for (unsigned i = 0; i < notify_count; i++) tcp_notify(notify[i], tcp_readiness(notify[i]));
 }
+
+uint32_t tcp_readiness(tcp_endpoint_t *endpoint)
+{
+    if (!endpoint) return TCP_READY_ERROR | TCP_READY_HANGUP;
+    spin_lock(&endpoint->lock);
+    uint32_t ready = tcp_ready_locked(endpoint);
+    spin_unlock(&endpoint->lock);
+    return ready;
+}
+
+int tcp_get_info(tcp_endpoint_t *endpoint, tcp_endpoint_info_t *info)
+{
+    if (!endpoint || !info) return -EINVAL;
+    spin_lock(&endpoint->lock);
+    info->local_address = endpoint->local_address;
+    info->remote_address = endpoint->remote_address;
+    info->local_port = endpoint->local_port;
+    info->remote_port = endpoint->remote_port;
+    info->state = endpoint->state;
+    info->receive_queued = endpoint->rx_length;
+    info->send_unacknowledged = endpoint->snd_nxt - endpoint->snd_una;
+    info->congestion_window = endpoint->cwnd;
+    info->receive_window = tcp_window(endpoint);
+    info->send_window = endpoint->peer_window;
+    info->peer_mss = endpoint->peer_mss;
+    info->retransmit_timeout = endpoint->rto;
+    spin_unlock(&endpoint->lock);
+    return 0;
+}
+
+void tcp_set_event_callback(tcp_endpoint_t *endpoint, tcp_event_callback_t callback, void *context)
+{
+    if (!endpoint) return;
+    spin_lock(&endpoint->lock);
+    endpoint->event_callback = callback;
+    endpoint->event_context = callback ? context : NULL;
+    uint32_t ready = tcp_ready_locked(endpoint);
+    spin_unlock(&endpoint->lock);
+    if (callback) callback(endpoint, ready, context);
+}
+
+wait_queue_t *tcp_wait_queue(tcp_endpoint_t *endpoint) { return endpoint ? &endpoint->wait : NULL; }

@@ -2,8 +2,10 @@
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <net/arp.h>
+#include <net/dhcp.h>
 #include <net/endian.h>
 #include <net/ethernet.h>
+#include <net/ipv4.h>
 #include <net/netdev.h>
 #include <net/packet.h>
 #include <net/tcp.h>
@@ -170,6 +172,7 @@ void net_timer(uint64_t now_ticks)
 {
     arp_timer(now_ticks);
     tcp_timer(now_ticks);
+    dhcp_timer(now_ticks);
 }
 
 int netdev_register(net_device_t *device)
@@ -253,6 +256,7 @@ int netdev_unregister(net_device_t *device)
     if (lifecycle_notifier) lifecycle_notifier(device, NETDEV_UNREGISTERED, lifecycle_context);
     if (active && device->ops->stop) device->ops->stop(device);
     arp_device_removed(device);
+    dhcp_device_removed(device);
     netdev_put(device);
     return 0;
 }
@@ -373,6 +377,69 @@ int netdev_configure_ipv4(net_device_t *device, uint32_t address, uint32_t netma
     device->ipv4_gateway = gateway;
     spin_unlock(&device->lock);
     return 0;
+}
+
+int netdev_configure_dns(net_device_t *device, const uint32_t *servers, size_t count)
+{
+    if (!device || !device->registered) return -ENODEV;
+    if ((!servers && count) || count > NETDEV_DNS_MAX) return -EINVAL;
+    spin_lock(&device->lock);
+    memset(device->ipv4_dns, 0, sizeof(device->ipv4_dns));
+    if (count) memcpy(device->ipv4_dns, servers, count * sizeof(*servers));
+    spin_unlock(&device->lock);
+    return 0;
+}
+
+size_t netdev_get_dns_servers(net_device_t *device, uint32_t *servers, size_t capacity)
+{
+    if (!device || (!servers && capacity)) return 0;
+    size_t count  = 0;
+    size_t copied = 0;
+    spin_lock(&device->lock);
+    for (size_t i = 0; i < NETDEV_DNS_MAX; i++) {
+        if (device->ipv4_dns[i]) {
+            if (copied < capacity) servers[copied++] = device->ipv4_dns[i];
+            count++;
+        }
+    }
+    spin_unlock(&device->lock);
+    return count;
+}
+
+int netdev_udp_broadcast(net_device_t *device, uint32_t source, uint16_t source_port, uint16_t destination_port, const void *data,
+                         size_t length)
+{
+    enum { UDP_HEADER_LENGTH = 8 };
+    if (!device || !source_port || !destination_port || (!data && length)) return -EINVAL;
+    if (length > UINT16_MAX - UDP_HEADER_LENGTH - IPV4_HEADER_MIN || length + UDP_HEADER_LENGTH + IPV4_HEADER_MIN > device->mtu)
+        return -EMSGSIZE;
+    net_pbuf_t *packet = net_pbuf_alloc(UDP_HEADER_LENGTH + length, NET_PBUF_HEADROOM);
+    if (!packet) return -ENOMEM;
+    net_write_be16(packet->data, source_port);
+    net_write_be16(packet->data + 2, destination_port);
+    net_write_be16(packet->data + 4, (uint16_t)packet->length);
+    net_write_be16(packet->data + 6, 0);
+    if (length) memcpy(packet->data + UDP_HEADER_LENGTH, data, length);
+    uint16_t checksum = net_checksum_ipv4_pseudo(source, UINT32_MAX, IPV4_PROTO_UDP, packet->data, packet->length);
+    net_write_be16(packet->data + 6, checksum ? checksum : UINT16_MAX);
+
+    uint8_t *header = net_pbuf_push(packet, IPV4_HEADER_MIN);
+    if (!header) {
+        net_pbuf_free(packet);
+        return -ENOBUFS;
+    }
+    memset(header, 0, IPV4_HEADER_MIN);
+    header[0] = 0x45;
+    net_write_be16(header + 2, (uint16_t)packet->length);
+    net_write_be16(header + 6, 0x4000);
+    header[8] = 64;
+    header[9] = IPV4_PROTO_UDP;
+    net_write_be32(header + 12, source);
+    net_write_be32(header + 16, UINT32_MAX);
+    net_write_be16(header + 10, net_checksum(header, IPV4_HEADER_MIN));
+    int status = ethernet_output(device, packet, (const uint8_t *)"\xff\xff\xff\xff\xff\xff", ETH_TYPE_IPV4);
+    net_pbuf_free(packet);
+    return status;
 }
 
 void netdev_get_stats(net_device_t *device, netdev_stats_t *stats)

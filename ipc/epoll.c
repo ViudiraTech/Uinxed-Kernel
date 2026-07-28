@@ -637,6 +637,12 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
 
     int64_t ret;
 
+    uint64_t deadline = 0;
+    if (timeout > 0) {
+        uint64_t ticks = ((uint64_t)timeout * EPOLL_TICKS_PER_SEC + 999) / 1000;
+        deadline = sched_ticks() + ticks;
+    }
+
     spin_lock(&epi->lock);
 
     for (;;) {
@@ -649,28 +655,15 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
             break;
         }
 
-        if (timeout == 0) {
+        if (timeout == 0 || (deadline && sched_ticks() >= deadline)) {
             ret = 0;
             break;
         }
 
-        /*
-         * No events ready and timeout != 0: block.
-         * Release the lock, sleep, re-acquire on wakeup.
-         */
-        if (timeout > 0) {
-            /* Convert milliseconds to scheduler ticks */
-            uint64_t ticks = ((uint64_t)timeout * EPOLL_TICKS_PER_SEC + 999) / 1000;
-            spin_unlock(&epi->lock);
-            task_sleep_ticks(ticks);
-            spin_lock(&epi->lock);
-        } else {
-            /* timeout == -1: block indefinitely until woken */
-            wait_queue_prepare(&epi->wq);
-            spin_unlock(&epi->lock);
-            wait_queue_sleep();
-            spin_lock(&epi->lock);
-        }
+        /* The VFS poll interface does not expose readiness subscriptions. */
+        spin_unlock(&epi->lock);
+        task_sleep_ticks(1);
+        spin_lock(&epi->lock);
     }
 
     spin_unlock(&epi->lock);

@@ -4,6 +4,8 @@
 #include <net/netdev.h>
 
 #define ARP_CACHE_CAPACITY 64U
+#define ARP_PENDING_PER_ENTRY 64U
+#define ARP_PENDING_TOTAL     256U
 
 typedef struct net_arp_packet {
         uint16_t hardware_type;
