@@ -293,12 +293,12 @@ static void fill_linux_statx(linux_statx_t *stx, uint64_t uid, uint64_t gid, con
 static int64_t stat_path_to_user(uint64_t upath, uint64_t ubuf)
 {
     char path[SYSCALL_PATH_MAX];
-    int  ret = copy_path_from_user(upath, path);
-    if (ret != EOK) return ret;
     if (!ubuf) return -EFAULT;
 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
+    int ret = copy_resolved_path_at(proc, AT_FDCWD, upath, path);
+    if (ret != EOK) return ret;
 
     vfs_node_t node = vfs_open(path);
     if (!node) return -ENOENT;
@@ -340,12 +340,12 @@ static int64_t stat_node_to_user(vfs_node_t node, uint64_t ubuf)
 static int64_t statx_path_to_user(uint64_t upath, uint64_t ubuf)
 {
     char path[SYSCALL_PATH_MAX];
-    int  ret = copy_path_from_user(upath, path);
-    if (ret != EOK) return ret;
     if (!ubuf) return -EFAULT;
 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
+    int ret = copy_resolved_path_at(proc, AT_FDCWD, upath, path);
+    if (ret != EOK) return ret;
 
     vfs_node_t node = vfs_open(path);
     if (!node) return -ENOENT;
@@ -1191,22 +1191,29 @@ static int64_t sys_link(uint64_t oldpath, uint64_t newpath, uint64_t arg2, uint6
     (void)arg3;
     (void)arg4;
     (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
     char oldname[SYSCALL_PATH_MAX];
     char newname[SYSCALL_PATH_MAX];
-    int  ret = copy_path_from_user(oldpath, oldname);
+    int  ret = copy_resolved_path_at(proc, AT_FDCWD, oldpath, oldname);
     if (ret != EOK) return ret;
-    ret = copy_path_from_user(newpath, newname);
+    ret = copy_resolved_path_at(proc, AT_FDCWD, newpath, newname);
     if (ret != EOK) return ret;
     return vfs_link(newname, oldname);
 }
 
 static int64_t sys_linkat(uint64_t olddirfd, uint64_t oldpath, uint64_t newdirfd, uint64_t newpath, uint64_t flags, uint64_t arg5)
 {
-    (void)olddirfd;
-    (void)newdirfd;
     (void)flags;
     (void)arg5;
-    return sys_link(oldpath, newpath, 0, 0, 0, 0);
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    char oldname[SYSCALL_PATH_MAX];
+    char newname[SYSCALL_PATH_MAX];
+    int  ret = copy_resolved_path_at(proc, (int)olddirfd, oldpath, oldname);
+    if (ret != EOK) return ret;
+    ret = copy_resolved_path_at(proc, (int)newdirfd, newpath, newname);
+    return ret == EOK ? vfs_link(newname, oldname) : ret;
 }
 
 static int64_t sys_symlink(uint64_t target, uint64_t linkpath, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -1215,22 +1222,30 @@ static int64_t sys_symlink(uint64_t target, uint64_t linkpath, uint64_t arg2, ui
     (void)arg3;
     (void)arg4;
     (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
     char target_name[SYSCALL_PATH_MAX];
     char link_name[SYSCALL_PATH_MAX];
     int  ret = copy_path_from_user(target, target_name);
     if (ret != EOK) return ret;
-    ret = copy_path_from_user(linkpath, link_name);
+    ret = copy_resolved_path_at(proc, AT_FDCWD, linkpath, link_name);
     if (ret != EOK) return ret;
     return vfs_symlink(link_name, target_name);
 }
 
 static int64_t sys_symlinkat(uint64_t target, uint64_t newdirfd, uint64_t linkpath, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)newdirfd;
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    return sys_symlink(target, linkpath, 0, 0, 0, 0);
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    char target_name[SYSCALL_PATH_MAX];
+    char link_name[SYSCALL_PATH_MAX];
+    int  ret = copy_path_from_user(target, target_name);
+    if (ret != EOK) return ret;
+    ret = copy_resolved_path_at(proc, (int)newdirfd, linkpath, link_name);
+    return ret == EOK ? vfs_symlink(link_name, target_name) : ret;
 }
 
 static int64_t sys_readlink(uint64_t path, uint64_t buf, uint64_t bufsiz, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -1294,8 +1309,11 @@ static int64_t sys_getcwd(uint64_t buf, uint64_t size, uint64_t arg2, uint64_t a
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    const char *cwd = proc->cwd[0] ? proc->cwd : "/";
-    size_t      len = strlen(cwd) + 1;
+    const char *cwd      = proc->cwd[0] ? proc->cwd : "/";
+    const char *root     = proc->root[0] ? proc->root : "/";
+    size_t      root_len = strlen(root);
+    if (root_len != 1 && !strncmp(cwd, root, root_len) && (!cwd[root_len] || cwd[root_len] == '/')) cwd = cwd[root_len] ? cwd + root_len : "/";
+    size_t len = strlen(cwd) + 1;
     if (len > size) return -ERANGE;
     return copy_to_user((void *)buf, cwd, len) ? -EFAULT : (int64_t)len;
 }
@@ -1442,8 +1460,8 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
 
     if (!target) return -EFAULT;
 
-    /* Copy target path (required) */
-    if (strncpy_from_user(tgt, (const char *)target, sizeof(tgt)) < 0) return -EFAULT;
+    int path_ret = copy_resolved_path_at(proc, AT_FDCWD, target, tgt);
+    if (path_ret != EOK) return path_ret;
 
     /* Copy source path (optional — can be NULL for virtual filesystems) */
     if (source) {
@@ -1522,10 +1540,11 @@ static int64_t sys_umount2(uint64_t target, uint64_t flags, uint64_t arg2, uint6
     (void)arg4;
     (void)arg5;
 
-    char tgt[SYSCALL_PATH_MAX] = {0};
-
-    if (!target) return -EFAULT;
-    if (strncpy_from_user(tgt, (const char *)target, sizeof(tgt)) < 0) return -EFAULT;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    char tgt[SYSCALL_PATH_MAX];
+    int  ret = copy_resolved_path_at(proc, AT_FDCWD, target, tgt);
+    if (ret != EOK) return ret;
 
     /* MNT_FORCE: force unmount even if busy (not fully supported) */
     /* MNT_DETACH: lazy unmount — detach now, cleanup later (not fully supported) */
@@ -1564,8 +1583,11 @@ static int64_t sys_access_stub(uint64_t path, uint64_t mode, uint64_t arg2, uint
     (void)arg3;
     (void)arg4;
     (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
     char name[SYSCALL_PATH_MAX];
-    if (copy_path_from_user(path, name) != EOK) return -EFAULT;
+    int  ret = copy_resolved_path_at(proc, AT_FDCWD, path, name);
+    if (ret != EOK) return ret;
     vfs_node_t node = vfs_open(name);
     if (!node) return -ENOENT;
 
@@ -1655,6 +1677,13 @@ static int64_t sys_fchdir_stub(uint64_t fd, uint64_t arg1, uint64_t arg2, uint64
     memcpy(tmp, path + off, sizeof(path) - off);
     tmp[sizeof(path) - off] = '\0';
 
+    const char *root     = proc->root[0] ? proc->root : "/";
+    size_t      root_len = strlen(root);
+    if (root_len != 1 && (strncmp(tmp, root, root_len) || (tmp[root_len] && tmp[root_len] != '/'))) {
+        process_file_put(file);
+        return -EPERM;
+    }
+
     strncpy(proc->cwd, tmp, sizeof(proc->cwd) - 1);
     proc->cwd[sizeof(proc->cwd) - 1] = '\0';
     process_file_put(file);
@@ -1667,8 +1696,11 @@ static int64_t sys_truncate_stub(uint64_t path, uint64_t length, uint64_t arg2, 
     (void)arg3;
     (void)arg4;
     (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
     char name[SYSCALL_PATH_MAX];
-    if (copy_path_from_user(path, name) != EOK) return -EFAULT;
+    int  ret = copy_resolved_path_at(proc, AT_FDCWD, path, name);
+    if (ret != EOK) return ret;
     vfs_node_t node = vfs_open(name);
     if (!node) return -ENOENT;
     if (vfs_mount_is_readonly(node)) {
@@ -1934,8 +1966,10 @@ static int64_t sys_chmod_impl(uint64_t path, uint64_t mode, uint64_t arg2, uint6
     (void)arg3;
     (void)arg4;
     (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
     char name[SYSCALL_PATH_MAX];
-    int  ret = copy_path_from_user(path, name);
+    int  ret = copy_resolved_path_at(proc, AT_FDCWD, path, name);
     if (ret != EOK) return ret;
     return sys_chmod_common(name, mode);
 }
@@ -1976,8 +2010,10 @@ static int64_t sys_chown_impl(uint64_t path, uint64_t owner, uint64_t group, uin
     (void)arg3;
     (void)arg4;
     (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
     char name[SYSCALL_PATH_MAX];
-    int  ret = copy_path_from_user(path, name);
+    int  ret = copy_resolved_path_at(proc, AT_FDCWD, path, name);
     if (ret != EOK) return ret;
     return sys_chown_common(name, owner, group);
 }
@@ -2006,8 +2042,10 @@ static int64_t sys_mknod_impl(uint64_t path, uint64_t mode, uint64_t dev, uint64
     (void)arg3;
     (void)arg4;
     (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
     char name[SYSCALL_PATH_MAX];
-    int  ret = copy_path_from_user(path, name);
+    int  ret = copy_resolved_path_at(proc, AT_FDCWD, path, name);
     if (ret != EOK) return ret;
     return vfs_mkfile(name);
 }
@@ -3373,8 +3411,8 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     if (!proc) return -ESRCH;
 
     char kpath[SYSCALL_PATH_MAX];
-    if (strncpy_from_user(kpath, path, sizeof(kpath)) < 0) return -EFAULT;
-    kpath[sizeof(kpath) - 1] = '\0';
+    int  path_ret = copy_resolved_path_at(proc, AT_FDCWD, (uint64_t)path, kpath);
+    if (path_ret != EOK) return path_ret;
 
     int    argc = 0, envc = 0;
     char **kargv = copy_argv_from_user((const char *const *)argv, &argc);
@@ -3725,9 +3763,9 @@ static int64_t sys_chroot_wrap(uint64_t path, uint64_t arg1, uint64_t arg2, uint
     if (!proc) return -ESRCH;
     if (proc->uid != 0) return -EPERM;
 
-    char kpath[256];
-    if (strncpy_from_user(kpath, (const char *)path, sizeof(kpath)) < 0) return -EFAULT;
-    kpath[sizeof(kpath) - 1] = '\0';
+    char kpath[SYSCALL_PATH_MAX];
+    int  ret = copy_resolved_path_at(proc, AT_FDCWD, path, kpath);
+    if (ret != EOK) return ret;
 
     vfs_node_t node = vfs_open(kpath);
     if (!node) return -ENOENT;
@@ -3739,6 +3777,8 @@ static int64_t sys_chroot_wrap(uint64_t path, uint64_t arg1, uint64_t arg2, uint
 
     strncpy(proc->root, kpath, sizeof(proc->root) - 1);
     proc->root[sizeof(proc->root) - 1] = '\0';
+    strncpy(proc->cwd, kpath, sizeof(proc->cwd) - 1);
+    proc->cwd[sizeof(proc->cwd) - 1] = '\0';
     return 0;
 }
 

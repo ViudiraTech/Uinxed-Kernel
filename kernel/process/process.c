@@ -867,25 +867,40 @@ int process_fd_poll(process_t *proc, int fd, size_t events)
 
 int process_resolve_path_at(process_t *proc, int dirfd, const char *path, char *resolved, size_t size)
 {
-    char base[VFS_PATH_MAX];
+    char        base[VFS_PATH_MAX];
+    char        root[VFS_PATH_MAX];
+    const char *process_root;
+    int         ret;
 
     if (!proc || !path || !resolved) return -EINVAL;
-    if (path[0] == '/') return vfs_resolve_path("/", path, resolved, size);
 
-    if (dirfd == PROCESS_AT_FDCWD) {
-        const char *cwd = proc->cwd[0] ? proc->cwd : "/";
-        return vfs_resolve_path(cwd, path, resolved, size);
-    }
+    process_root = proc->root[0] ? proc->root : "/";
+    ret          = vfs_resolve_path("/", process_root, root, sizeof(root));
+    if (ret != EOK) return ret;
 
-    process_file_t *file = process_fd_get(proc, dirfd);
-    if (!file) return -EBADF;
-    if (!(file->node->type & file_dir)) {
+    if (path[0] == '/') {
+        while (*path == '/') path++;
+        ret = vfs_resolve_path(root, path, resolved, size);
+    } else if (dirfd == PROCESS_AT_FDCWD) {
+        const char *cwd = proc->cwd[0] ? proc->cwd : root;
+        ret             = vfs_resolve_path(cwd, path, resolved, size);
+    } else {
+        process_file_t *file = process_fd_get(proc, dirfd);
+        if (!file) return -EBADF;
+        if (!(file->node->type & file_dir)) {
+            process_file_put(file);
+            return -ENOTDIR;
+        }
+        ret = vfs_node_path(file->node, base, sizeof(base));
         process_file_put(file);
-        return -ENOTDIR;
+        if (ret == EOK) ret = vfs_resolve_path(base, path, resolved, size);
     }
-    int ret = vfs_node_path(file->node, base, sizeof(base));
-    process_file_put(file);
-    return ret == EOK ? vfs_resolve_path(base, path, resolved, size) : ret;
+
+    if (ret != EOK) return ret;
+
+    size_t root_len = strlen(root);
+    if (root_len != 1 && (strncmp(resolved, root, root_len) || (resolved[root_len] && resolved[root_len] != '/'))) return -EPERM;
+    return EOK;
 }
 
 int process_file_poll(process_file_t *file, size_t events)

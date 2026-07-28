@@ -12,6 +12,7 @@
 #include <fs/vfs.h>
 #include <kernel/elf.h>
 #include <kernel/elf_loader.h>
+#include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
@@ -222,7 +223,10 @@ static uintptr_t compute_load_bias(const Elf64_Ehdr *ehdr, const uint8_t *data, 
 
 int elf_loader_load_interpreter(struct process *proc, const char *interp_path, Elf64_Addr *base_out, Elf64_Addr *entry_out)
 {
-    vfs_node_t node = vfs_open(interp_path);
+    char resolved_path[VFS_PATH_MAX];
+    if (process_resolve_path_at(proc, PROCESS_AT_FDCWD, interp_path, resolved_path, sizeof(resolved_path)) != EOK) return -1;
+
+    vfs_node_t node = vfs_open(resolved_path);
     if (!node) {
         plogk("elf_loader: interpreter not found: %s\n", interp_path);
         return -1;

@@ -255,10 +255,19 @@ static char *vfs_node_absolute_path(vfs_node_t node)
 
 static char *vfs_resolve_link_path(vfs_node_t node)
 {
-    char *path;
+    char       *path;
+    process_t  *proc;
 
     if (!node || !node->linkname) return 0;
-    if (node->linkname[0] == '/') return normalize_path(node->linkname);
+    proc = process_current();
+    if (node->linkname[0] == '/') {
+        char resolved[VFS_PATH_MAX];
+        if (proc && proc->root[0]) {
+            if (process_resolve_path_at(proc, PROCESS_AT_FDCWD, node->linkname, resolved, sizeof(resolved)) != EOK) return 0;
+            return strdup(resolved);
+        }
+        return normalize_path(node->linkname);
+    }
 
     char *base = vfs_node_absolute_path(node->parent ? node->parent : node);
     if (!base) return 0;
@@ -282,6 +291,13 @@ static char *vfs_resolve_link_path(vfs_node_t node)
 
     char *normalized = normalize_path(path);
     free(path);
+    if (normalized && proc && proc->root[0]) {
+        size_t root_len = strlen(proc->root);
+        if (root_len != 1 && (strncmp(normalized, proc->root, root_len) || (normalized[root_len] && normalized[root_len] != '/'))) {
+            free(normalized);
+            return 0;
+        }
+    }
     return normalized;
 }
 
