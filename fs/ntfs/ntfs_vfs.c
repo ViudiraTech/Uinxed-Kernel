@@ -4086,6 +4086,15 @@ static int ntfs_vfs_stat(void *file, vfs_node_t nd)
 {
     ntfs_handle_t *h = file;
     if (!h || !nd) return -EINVAL;
+
+    /* VFS nodes from the directory index already have a handle, so VFS calls
+     * stat rather than open when first resolving them. Load the authoritative
+     * $DATA attribute here before publishing the size or serving reads. */
+    if (!h->is_dir && !h->runlist_buf) {
+        int status = ntfs_load_file_runlist(h, nd);
+        if (status < 0) return status;
+    }
+
     nd->size  = h->file_size;
     nd->inode = h->mft_no;
     nd->blksz = h->mnt->cluster_size;

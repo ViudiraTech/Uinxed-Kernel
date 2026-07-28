@@ -1103,6 +1103,43 @@ static void test_bitmap_update_rolls_back_partial_device_failure(void)
     test_fail_write_at = (size_t)-1;
 }
 
+static void test_stat_loads_resident_data_from_mft(void)
+{
+    ntfs_mount_t  mount;
+    ntfs_handle_t handle;
+    struct vfs_node node;
+    const u64     record_offset = 4 * 512 + 7 * 1024;
+    char          buffer[5];
+
+    tests_run++;
+    memset(test_image, 0, sizeof(test_image));
+    memset(&mount, 0, sizeof(mount));
+    memset(&handle, 0, sizeof(handle));
+    memset(&node, 0, sizeof(node));
+    make_resident_record(test_image + record_offset);
+
+    mount.dev.sector_size  = 512;
+    mount.dev.sector_count = TEST_IMAGE_SIZE / 512;
+    mount.sector_size      = 512;
+    mount.cluster_size     = 512;
+    mount.cluster_bits     = 9;
+    mount.cluster_mask     = 511;
+    mount.mft_size         = 1024;
+    mount.mft_lcn          = 4;
+    mount.nr_clusters      = TEST_IMAGE_SIZE / 512;
+    mount.mft_runlist      = linear_mft_runs;
+    mount.mft_runlist_size = sizeof(linear_mft_runs);
+    mount.mft_data_size    = 32 * 512;
+    handle.mnt             = &mount;
+    handle.mft_no          = 7;
+
+    EXPECT_TRUE(ntfs_vfs_stat(&handle, &node) == 0);
+    EXPECT_TRUE(node.size == 5);
+    EXPECT_TRUE(ntfs_vfs_read(&handle, buffer, 0, sizeof(buffer)) == sizeof(buffer));
+    EXPECT_TRUE(memcmp(buffer, "hello", sizeof(buffer)) == 0);
+    free(handle.runlist_buf);
+}
+
 int main(void)
 {
     test_resident_write_persists_protected_record();
@@ -1139,6 +1176,8 @@ int main(void)
     if (!tests_failed) printf("PASS resident I30 overflow promotes entries into protected INDX\n");
     test_bitmap_update_rolls_back_partial_device_failure();
     if (!tests_failed) printf("PASS NTFS bitmap update rolls back partial device failure\n");
+    test_stat_loads_resident_data_from_mft();
+    if (!tests_failed) printf("PASS NTFS stat loads authoritative file data from MFT\n");
     printf("%d tests, %d failures\n", tests_run, tests_failed);
     return tests_failed ? 1 : 0;
 }
