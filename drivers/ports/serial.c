@@ -106,7 +106,9 @@ static int init_serial_port(uint16_t port)
 /* Initialize the serial port */
 void init_serial(void)
 {
-#if CONFIG_SERIAL
+#if !CONFIG_SERIAL
+    return;
+#endif
     if (serial_initialized) return;
 
     uint16_t com_ports[4] = {SERIAL_PORT_1, SERIAL_PORT_2, SERIAL_PORT_3, SERIAL_PORT_4};
@@ -121,7 +123,6 @@ void init_serial(void)
 
     log_buffer_write(&serial_log, "serial: %d port(s) available.\n", valid_ports);
     serial_initialized = 1;
-#endif
 }
 
 /* Check whether the serial port is ready to read */

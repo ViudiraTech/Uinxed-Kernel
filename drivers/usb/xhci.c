@@ -1081,7 +1081,9 @@ invalid:
 
 void xhci_init(void)
 {
-#if CONFIG_USB_XHCI
+#if !CONFIG_USB_XHCI
+    return;
+#endif
     if (usb_core_init() != EOK) return;
     pci_devices_cache_t *cache = pci_get_devices_cache();
     if (!cache) return;
@@ -1098,12 +1100,13 @@ void xhci_init(void)
                   pci->device->func, status);
         }
     }
-#endif
 }
 
 void xhci_start_workers(void)
 {
-#if CONFIG_USB_XHCI
+#if !CONFIG_USB_XHCI
+    return;
+#endif
     for (size_t i = 0; i < xhci_controller_count; i++) {
         xhci_controller_t *controller = xhci_controllers[i];
         if (!controller || controller->worker_started) continue;
@@ -1113,7 +1116,6 @@ void xhci_start_workers(void)
         task_wakeup(controller->worker_task);
         if (controller->pending_ports) wait_queue_wake_one(&controller->worker_wait);
     }
-#endif
 }
 
 void xhci_shutdown(void)

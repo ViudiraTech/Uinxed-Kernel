@@ -38,7 +38,9 @@ static void init_parallel_port(uint16_t port)
 /* Initialize parallel port */
 void parallel_init(void)
 {
-#if CONFIG_PARPORT
+#if !CONFIG_PARPORT
+    return;
+#endif
     uint16_t lpt_port[3] = {PARALLEL_PORT_1, PARALLEL_PORT_2, PARALLEL_PORT_3};
     int      valid_ports = 0;
 
@@ -49,7 +51,6 @@ void parallel_init(void)
         }
     }
     if (valid_ports > 0) log_buffer_write(&parallel_log, "parallel: %u port(s) available.\n", valid_ports);
-#endif
 }
 
 /* Check if the specified parallel port is busy */

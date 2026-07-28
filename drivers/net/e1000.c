@@ -939,6 +939,9 @@ fail:
 
 int e1000_init(void)
 {
+#if !CONFIG_E1000
+    return 0;
+#endif
     int                  found = 0;
     pci_devices_cache_t *cache = pci_get_devices_cache();
     if (!cache) return -ENODEV;
@@ -950,6 +953,9 @@ int e1000_init(void)
 
 int e1000_start_workers(void)
 {
+#if !CONFIG_E1000
+    return 0;
+#endif
     int started = 0;
     int failed  = 0;
 

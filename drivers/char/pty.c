@@ -566,7 +566,9 @@ static int pty_ioctl(void *context, void *private_data, uint64_t flags, size_t r
 
 void pty_init(void)
 {
-#if CONFIG_UNIX98_PTYS
+#if !CONFIG_UNIX98_PTYS
+    return;
+#endif
     static bool initialized;
     if (initialized) return;
     initialized                                     = true;
@@ -587,5 +589,4 @@ void pty_init(void)
             vfs_close(node);
         }
     }
-#endif
 }

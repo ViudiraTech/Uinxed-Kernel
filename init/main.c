@@ -207,50 +207,43 @@ void kernel_entry(void)
     log_buffer_print(&lmodule_log);  //
                                      //
     /* Device Drivers */             //
-#if CONFIG_E1000
-    e1000_init(); // Intel 8254x Gigabit Ethernet
-#endif
-#if CONFIG_NET
-    net_init(); // Initialize ARP/NDP caches and DHCP client
-#endif
-    sb16_init();             // Sound Blaster 16
-    hda_init();              // Intel HD Audio
-                             //
-    init_ide();              // ATA / ATAPI
-    nvme_init();             // Non-Volatile Memory Express
-    init_ahci();             // Advanced Host Controller Interface
-                             //
-    /* Virtual Filesystem */ //
-    init_vfs();              // Virtual Filesystem
-    tmpfs_regist();          // Temporary File System
-    procfs_regist();         // Process File System
-    sysfs_regist();          // Register sysfs with the VFS layer
-    cgroupfs_regist();       // Unified Control Group File System
+    e1000_init();                    // Intel 8254x Gigabit Ethernet
+    net_init();                      // Initialize ARP/NDP caches and DHCP client
+    sb16_init();                     // Sound Blaster 16
+    hda_init();                      // Intel HD Audio
+    init_ide();                      // ATA / ATAPI
+    nvme_init();                     // Non-Volatile Memory Express
+    init_ahci();                     // Advanced Host Controller Interface
+                                     //
+    /* Virtual Filesystem */         //
+    init_vfs();                      // Virtual Filesystem
+    tmpfs_regist();                  // Temporary File System
+    procfs_regist();                 // Process File System
+    sysfs_regist();                  // Register sysfs with the VFS layer
+    cgroupfs_regist();               // Unified Control Group File System
 
     if (!get_rootdir()->fsid && vfs_mount(0, get_rootdir()) != EOK) plogk("init: Cannot mount tmpfs to root_dir.\n");
 
     /* Device Model */
-    sysfs_init();            // Create sysfs root kobject and top-level directories
-    module_subsystem_init(); // Loadable kernel module registry and /sys/module
-    device_model_init();     // Initialise the device model (bus/class/device)
-    devtmpfs_init();         // Device Temporary File System
-                             //
-    /* RAM Filesystem */     //
-    init_cpio();             // Copy In, Copy Out
-                             //
-    /* Sysfs Population */   //
-    ksysfs_init();           // /sys/kernel/{version,cmdline,hostname,...}
-    pci_sysfs_init();        // /sys/bus/pci/ + /sys/devices/pci*
-    input_sysfs_init();      // /sys/class/input/eventX
-    block_sysfs_init();      // /sys/block/{hdX,sdX,nvme*}
-    tty_sysfs_init();        // /sys/class/tty/
-#if CONFIG_USB_XHCI
-    xhci_init(); // USB xHCI host controllers and root devices
-#endif
-#if CONFIG_NET
-    net_sysfs_init(); // /sys/class/net/<interface>/
-#endif
-        //
+    sysfs_init();                  // Create sysfs root kobject and top-level directories
+    module_subsystem_init();       // Loadable kernel module registry and /sys/module
+    device_model_init();           // Initialise the device model (bus/class/device)
+    devtmpfs_init();               // Device Temporary File System
+                                   //
+    /* USB Subsystem */            //
+    xhci_init();                   // USB xHCI host controllers and root devices
+                                   //
+    /* RAM Filesystem */           //
+    init_cpio();                   // Copy In, Copy Out
+                                   //
+    /* Sysfs Population */         //
+    ksysfs_init();                 // /sys/kernel/{version,cmdline,hostname,...}
+    pci_sysfs_init();              // /sys/bus/pci/ + /sys/devices/pci*
+    input_sysfs_init();            // /sys/class/input/eventX
+    block_sysfs_init();            // /sys/block/{hdX,sdX,nvme*}
+    tty_sysfs_init();              // /sys/class/tty/
+    net_sysfs_init();              // /sys/class/net/<interface>/
+                                   //
     /* Filesystem Drivers */       //
     fatfs_vfs_regist();            // FAT File System
     isofs_regist();                // ISO 9660 File System
@@ -288,12 +281,8 @@ void kernel_entry(void)
         drm_init_fallback();       // Software fallback only without VirtIO-GPU
 
     boot_start_init_before_debug(swapper_run_init, sched_test_init);
-#if CONFIG_E1000
     e1000_start_workers();
-#endif
-#if CONFIG_USB_XHCI
     xhci_start_workers();
-#endif
 
     enable_intr();
     sched_start();

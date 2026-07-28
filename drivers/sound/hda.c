@@ -936,7 +936,9 @@ static void hda_interrupt_handler(interrupt_frame_t *frame)
 /* ------------------------------------------------------------------ */
 void hda_init(void)
 {
-#if CONFIG_SOUND_HDA
+#if !CONFIG_SOUND_HDA
+    return;
+#endif
     pci_device_cache_t  *dev;
     pci_device_request_t req;
     uint32_t             irq;
@@ -990,7 +992,7 @@ void hda_init(void)
         if (!hda_ctrl.mmio_size || hda_ctrl.mmio_size == 0xFFFFFFFF) hda_ctrl.mmio_size = 0x4000;
 
         /* Map the MMIO region into page tables.
-         * HHDM may not cover MMIO regions â€?must map with uncacheable flags. */
+         * HHDM may not cover MMIO regions ï¿½?must map with uncacheable flags. */
         {
             uint64_t map_start = bar_phys & ~(uint64_t)0xFFF;
             uint64_t map_len   = (bar_phys + hda_ctrl.mmio_size + 0xFFF) & ~(uint64_t)0xFFF;
@@ -1088,5 +1090,4 @@ void hda_init(void)
     hda_ctrl.audio_fmt     = fmt;
     audio_register_card("Intel HD Audio", &fmt, &hda_audio_ops, &hda_ctrl);
     hda_ctrl.audio_registered = 1;
-#endif
 }

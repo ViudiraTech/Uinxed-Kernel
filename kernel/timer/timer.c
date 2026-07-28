@@ -33,9 +33,7 @@ INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)
     sched_tick();
     timerfd_tick();
     if (get_current_cpu_id() == 0) drm_vblank_tick();
-#if CONFIG_NET
     if (get_current_cpu_id() == 0) net_timer(sched_ticks());
-#endif
     enable_intr();
 }
 INTERRUPT_END

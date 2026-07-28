@@ -178,6 +178,9 @@ int net_pbuf_trim(net_pbuf_t *pbuf, size_t length)
 
 void net_timer(uint64_t now_ticks)
 {
+#if !CONFIG_NET
+    return;
+#endif
     arp_timer(now_ticks);
     tcp_timer(now_ticks);
     dhcp_timer(now_ticks);
@@ -462,6 +465,9 @@ void netdev_get_stats(net_device_t *device, netdev_stats_t *stats)
 
 void net_init(void)
 {
+#if !CONFIG_NET
+    return;
+#endif
     arp_init();
     ndp_init();
     dhcp_init();

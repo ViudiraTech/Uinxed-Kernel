@@ -244,11 +244,12 @@ static void net_sysfs_lifecycle(net_device_t *netdev, netdev_lifecycle_event_t e
 
 void net_sysfs_init(void)
 {
-#if CONFIG_NET && CONFIG_SYSFS
+#if !CONFIG_NET || !CONFIG_SYSFS
+    return;
+#endif
     if (net_class_ready) return;
     if (class_register(&net_class) != EOK) return;
     net_class_ready = 1;
     if (netdev_set_lifecycle_notifier(net_sysfs_lifecycle, NULL) != EOK) return;
     netdev_iterate(net_sysfs_publish, NULL);
-#endif
 }
