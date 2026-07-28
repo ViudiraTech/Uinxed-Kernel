@@ -442,66 +442,79 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64
 {
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (!old_addr || !old_len) return -EINVAL;
+    if (!old_addr || !old_len || !new_len || (old_addr & (PAGE_4K_SIZE - 1))) return -EINVAL;
+    if (flags & ~(MREMAP_MAYMOVE | MREMAP_FIXED)) return -EINVAL;
+    if ((flags & MREMAP_FIXED) && (!(flags & MREMAP_MAYMOVE) || !new_addr || (new_addr & (PAGE_4K_SIZE - 1)))) return -EINVAL;
     if (old_len > UINT64_MAX - PAGE_4K_SIZE || new_len > UINT64_MAX - PAGE_4K_SIZE) return -EINVAL;
 
     size_t old_pages = ALIGN_UP(old_len, PAGE_4K_SIZE);
     size_t new_pages = ALIGN_UP(new_len, PAGE_4K_SIZE);
+    if (old_addr > UINT64_MAX - old_pages || old_addr + old_pages > PROCESS_USER_STACK_TOP) return -EINVAL;
+    if ((flags & MREMAP_FIXED) && (new_addr > UINT64_MAX - new_pages || new_addr + new_pages > PROCESS_USER_STACK_TOP)) return -EINVAL;
+    if ((flags & MREMAP_FIXED) && new_addr < old_addr + old_pages && new_addr + new_pages > old_addr) return -EINVAL;
 
-    if (new_len <= old_len) {
-        if (new_len < old_len) {
-            int unmap_result = unmap_physical_pages(proc, (uintptr_t)old_addr + new_pages, old_pages - new_pages);
-            if (unmap_result) return unmap_result;
-        }
+    spin_lock(&proc->mmap_lock);
+    vm_area_t *vma = proc->mmap_list;
+    while (vma && vma->start != (uintptr_t)old_addr) vma = vma->next;
+    if (!vma || vma->end != (uintptr_t)old_addr + old_pages) {
+        spin_unlock(&proc->mmap_lock);
+        return -EFAULT;
+    }
+    if (flags & MREMAP_FIXED) {
+        spin_unlock(&proc->mmap_lock);
+        return -ENOMEM;
+    }
+
+    if (new_pages == old_pages) {
+        spin_unlock(&proc->mmap_lock);
         return (int64_t)old_addr;
     }
-
-    /* Expanding: try to extend in-place if possible */
-    uintptr_t target = (uintptr_t)old_addr;
-    if (flags & 0x1) { /* MREMAP_MAYMOVE */
-        if (new_addr) {
-            if (new_addr > UINT64_MAX - new_pages) return -EINVAL;
-            if (new_addr + new_pages > PROCESS_USER_STACK_TOP) return -EINVAL;
-            target = (uintptr_t)new_addr;
-        } else if (vma_range_overlaps(proc, old_addr + old_pages, old_addr + new_pages)) {
-            target = find_free_vma_range(proc, new_pages);
-            if (!target) return -ENOMEM;
-        }
-    } else {
-        if (vma_range_overlaps(proc, old_addr + old_pages, old_addr + new_pages)) { return -ENOMEM; }
+    if (new_pages < old_pages) {
+        int result = unmap_physical_pages(proc, (uintptr_t)old_addr + new_pages, old_pages - new_pages);
+        if (!result) vma->end = (uintptr_t)old_addr + new_pages;
+        spin_unlock(&proc->mmap_lock);
+        return result ? result : (int64_t)old_addr;
     }
 
-    /* Map additional pages */
-    vm_flags_t vm_flags = VM_READ | VM_WRITE;
-    spin_lock(&proc->mmap_lock);
-    for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next) {
-        if (vma->start == (uintptr_t)old_addr) {
-            vm_flags = vma->flags;
-            break;
+    /* File, device, and shared-memory VMAs have no transactional growth contract yet. */
+    if (vma->vm_file || vma->vm_private_data || vma->type == VM_REGION_SHM) {
+        spin_unlock(&proc->mmap_lock);
+        return -ENOMEM;
+    }
+    uintptr_t extension_start = (uintptr_t)old_addr + old_pages;
+    uintptr_t extension_end   = (uintptr_t)old_addr + new_pages;
+    for (vm_area_t *other = proc->mmap_list; other; other = other->next) {
+        if (other != vma && extension_start < other->end && extension_end > other->start) {
+            spin_unlock(&proc->mmap_lock);
+            return -ENOMEM;
         }
     }
-    spin_unlock(&proc->mmap_lock);
 
-    uint64_t pte_flags = vm_flags_to_pte(vm_flags);
-    for (size_t i = old_pages; i < new_pages; i += PAGE_4K_SIZE) {
+    uint64_t pte_flags = vm_flags_to_pte(vma->flags);
+    size_t   mapped     = old_pages;
+    for (; mapped < new_pages; mapped += PAGE_4K_SIZE) {
         uint64_t frame = alloc_frames(1);
-        if (!frame) return -ENOMEM;
+        if (!frame) break;
         memset(phys_to_virt(frame), 0, PAGE_4K_SIZE);
-        page_map_to(proc->user_page_dir, target + i, frame, pte_flags);
-    }
-
-    /* Update VMA */
-    spin_lock(&proc->mmap_lock);
-    for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next) {
-        if (vma->start == (uintptr_t)old_addr) {
-            vma->end   = target + new_pages;
-            vma->start = target;
+        if (page_map_new_to(proc->user_page_dir, (uintptr_t)old_addr + mapped, frame, pte_flags) < 0) {
+            (void)frame_release_range(frame, 1);
             break;
         }
     }
-    spin_unlock(&proc->mmap_lock);
 
-    return (int64_t)target;
+    if (mapped != new_pages) {
+        while (mapped > old_pages) {
+            mapped -= PAGE_4K_SIZE;
+            uint64_t frame = page_unmap(proc->user_page_dir, (uintptr_t)old_addr + mapped);
+            if (frame) (void)frame_release_range(frame, 1);
+        }
+        spin_unlock(&proc->mmap_lock);
+        return -ENOMEM;
+    }
+
+    vma->end = (uintptr_t)old_addr + new_pages;
+    spin_unlock(&proc->mmap_lock);
+    return (int64_t)old_addr;
 }
 
 int sys_mincore(uint64_t addr, uint64_t length, uint64_t vec)

@@ -13,7 +13,9 @@
 
 #include <libs/glist/circular_list.h>
 #include <libs/glist/intrusive_list.h>
+#include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>
+#include <sync/spin_lock.h>
 
 #define callbackof(node, _name_) (fs_callbacks[(node)->fsid]->_name_)
 
@@ -27,6 +29,23 @@
 #define VFS_NODE_CLOSED           (1ULL << 57)
 
 typedef struct vfs_node *vfs_node_t;
+typedef struct vfs_poll_subscription vfs_poll_subscription_t;
+
+typedef void (*vfs_poll_notify_t)(vfs_poll_subscription_t *subscription, uint32_t events);
+
+struct vfs_poll_subscription {
+        vfs_poll_subscription_t *next;
+        vfs_poll_notify_t        notify;
+        void                    *context;
+        uint32_t                 events;
+        bool                     subscribed;
+};
+
+typedef struct vfs_poll_source {
+        spinlock_t               lock;
+        vfs_poll_subscription_t *subscribers;
+        bool                     closed;
+} vfs_poll_source_t;
 struct vm_area; /* forward declaration for vfs_file_mmap_t */
 
 typedef struct vfs_dirent {
@@ -144,10 +163,13 @@ typedef struct vfs_node {
         int        is_mount;    // Whether it is a mount point
         uint64_t   dev;         // Device number
         uint64_t   rdev;        // Real device number
+        vfs_poll_source_t poll_source;
 } *vfs_node_t;
 
 extern struct vfs_callback vfs_empty_callback;
 extern vfs_node_t          rootdir;
+
+#define VFS_PATH_MAX 4096
 
 /* Allocate a new vfs node with the given parent and name */
 vfs_node_t vfs_node_alloc(vfs_node_t parent, const char *name);
@@ -166,6 +188,15 @@ void vfs_update(vfs_node_t node);
 
 /* Open a file or directory by path */
 vfs_node_t vfs_open(const char *str);
+
+/* Open without following the final pathname component if it is a symlink. */
+vfs_node_t vfs_open_nofollow(const char *str);
+
+/* Build a normalized absolute path from an absolute base and a pathname. */
+int vfs_resolve_path(const char *base, const char *path, char *resolved, size_t size);
+
+/* Return the absolute namespace path of a node. */
+int vfs_node_path(vfs_node_t node, char *path, size_t size);
 
 /* Retain an already resolved node without consulting the namespace. */
 vfs_node_t vfs_node_retain(vfs_node_t node);
@@ -230,6 +261,15 @@ int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void 
 int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
 int     vfs_file_ioctl(vfs_node_t file, void *private_data, uint64_t flags, size_t req, void *arg);
 int     vfs_file_poll(vfs_node_t file, void *private_data, uint64_t flags, size_t events);
+void    vfs_poll_subscribe(vfs_node_t file, vfs_poll_subscription_t *subscription, uint32_t events,
+                           vfs_poll_notify_t notify, void *context);
+void    vfs_poll_unsubscribe(vfs_node_t file, vfs_poll_subscription_t *subscription);
+void    vfs_poll_notify(vfs_node_t file, uint32_t events);
+void    vfs_poll_source_init(vfs_poll_source_t *source);
+void    vfs_poll_source_subscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription,
+                                  uint32_t events, vfs_poll_notify_t notify, void *context);
+void    vfs_poll_source_unsubscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription);
+void    vfs_poll_source_notify(vfs_poll_source_t *source, uint32_t events);
 
 /* Close the file or directory node */
 int vfs_close(vfs_node_t node);

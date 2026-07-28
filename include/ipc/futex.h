@@ -44,6 +44,9 @@
 
 int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout, uint32_t *uaddr2, uint32_t val3);
 
+/* Kernel-side wake operation, including clear_child_tid users. */
+int futex_wake(uint32_t *uaddr, int nr_wake, uint32_t bitset);
+
 void futex_init(void);
 
 #endif /* INCLUDE_FUTEX_H_ */

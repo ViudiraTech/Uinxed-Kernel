@@ -30,6 +30,7 @@
 #include <mem/page.h>
 #include <proc/sched.h>
 #include <sync/spin_lock.h>
+#include <syscall/syscall.h>
 
 static cpu_processor_t *cpus;
 static size_t           cpu_count = 0;
@@ -136,6 +137,16 @@ uint32_t get_current_cpu_id(void)
     return 0; // Default to CPU 0 if not found
 }
 
+/* Get the per-CPU state for the processor executing this code. */
+cpu_processor_t *get_current_cpu(void)
+{
+    if (!cpus) return NULL;
+    uint32_t current_lapic_id = lapic_id();
+    for (size_t i = 0; i < cpu_count; i++)
+        if (cpus[i].lapic_id == current_lapic_id) return &cpus[i];
+    return NULL;
+}
+
 /* Initialize the TSS for the AP  */
 void ap_init_tss(cpu_processor_t *cpu)
 {
@@ -155,6 +166,7 @@ void ap_init_tss(cpu_processor_t *cpu)
     pointer_cast_t cast;
     cast.ptr         = cpu->kernel_stack;
     cpu->tss->rsp[0] = ALIGN_DOWN((uint64_t)cast.val + sizeof(kernel_stack_t), 16);
+    cpu->syscall.kernel_rsp = cpu->tss->rsp[0];
 
     __asm__ volatile("ltr %w[offset]" ::[offset] "rm"((uint16_t)0x28) : "memory");
 }
@@ -209,6 +221,9 @@ void ap_entry(struct limine_smp_info *info)
     /* Initializing the IDT */
     __asm__ volatile("lidt %0" ::"m"(idt_pointer) : "memory");
 
+    /* SYSCALL MSRs and GS bases are core-local. */
+    syscall_init_cpu((uint64_t)&cpu->syscall);
+
     /* Initializing Local APIC */
     local_apic_init();
 
@@ -245,6 +260,8 @@ void smp_init(void)
         struct limine_smp_info *cpu = smp->cpus[i];
         cpus[i].id                  = i;
         cpus[i].lapic_id            = cpu->lapic_id;
+        cpus[i].syscall.user_rsp     = 0;
+        cpus[i].syscall.kernel_rsp   = 0;
         /* Allocate kernel stack for each CPU */
         cpus[i].kernel_stack = malloc(sizeof(kernel_stack_t)); // 64 KiB stack
 

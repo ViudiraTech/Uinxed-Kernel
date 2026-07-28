@@ -80,6 +80,7 @@ static void setup_device(net_device_t *device, mock_link_t *link)
     CHECK(netdev_register(device) == 0, "mock netdev register");
     CHECK(netdev_configure_ipv4(device, LOCAL_IP, 0xffffff00U, 0) == 0, "mock IPv4 configuration");
     CHECK(netdev_set_up(device, 1) == 0, "mock netdev up");
+    memset(link, 0, sizeof(*link));
 }
 
 static void teardown_device(net_device_t *device)
@@ -281,6 +282,106 @@ static void test_tcp_so_error_reset_and_clear(void)
     teardown_device(&device);
 }
 
+static void establish_tcp(net_device_t *device, mock_link_t *link, tcp_endpoint_t **endpoint, net_tcp_segment_t *syn)
+{
+    ipv4_info_t inbound = {.source = REMOTE_IP, .destination = LOCAL_IP, .protocol = IPV4_PROTO_TCP};
+    *endpoint = tcp_open();
+    CHECK(*endpoint && tcp_connect(*endpoint, REMOTE_IP, 443) == -EINPROGRESS, "timer test connect");
+    net_ipv4_packet_t ip;
+    CHECK(parse_frame(link, 0, &ip, syn, NULL) == 0, "timer test SYN parse");
+    net_pbuf_t *packet = make_tcp_packet(REMOTE_IP, LOCAL_IP, 443, syn->source_port, 7000, syn->sequence + 1, 0x12, NULL, 0);
+    CHECK(packet && tcp_input(device, &inbound, packet) == 0 && tcp_get_state(*endpoint) == TCP_ESTABLISHED,
+          "timer test handshake");
+}
+
+static void test_tcp_loss_rto_and_long_idle(void)
+{
+    static const uint8_t remote_mac[6] = {0x02, 0, 0, 0, 0, 2};
+    net_device_t device;
+    mock_link_t link;
+    net_tcp_segment_t syn;
+    tcp_endpoint_info_t before, after;
+
+    mock_ticks = 1000;
+    setup_device(&device, &link);
+    arp_learn(&device, REMOTE_IP, remote_mac, mock_ticks);
+    tcp_endpoint_t *endpoint;
+    establish_tcp(&device, &link, &endpoint, &syn);
+    unsigned baseline = link.calls;
+    CHECK(tcp_send(endpoint, "loss", 4) == 4 && tcp_get_info(endpoint, &before) == 0, "loss test send");
+    CHECK(before.send_unacknowledged == 4 && before.queued_segments == 1, "loss was not tracked for retransmission");
+    tcp_timer(before.next_timer_ticks - 1);
+    CHECK(link.calls == baseline + 1, "data retransmitted before its RTO");
+    tcp_timer(before.next_timer_ticks);
+    CHECK(link.calls == baseline + 2 && tcp_get_info(endpoint, &after) == 0 && after.retransmissions == 1,
+          "RTO did not retransmit exactly once");
+    CHECK(after.congestion_window <= before.congestion_window, "RTO loss did not reduce congestion window");
+
+    ipv4_info_t inbound = {.source = REMOTE_IP, .destination = LOCAL_IP, .protocol = IPV4_PROTO_TCP};
+    net_pbuf_t *ack = make_tcp_packet(REMOTE_IP, LOCAL_IP, 443, syn.source_port, 7001, syn.sequence + 5, 0x10, NULL, 0);
+    mock_ticks = after.next_timer_ticks;
+    CHECK(ack && tcp_input(&device, &inbound, ack) == 0, "loss test acknowledgment");
+    CHECK(tcp_get_info(endpoint, &after) == 0 && after.send_unacknowledged == 0, "ACK did not clear retransmission queue");
+    baseline = link.calls;
+    tcp_timer(UINT64_C(1) << 40);
+    CHECK(tcp_get_state(endpoint) == TCP_ESTABLISHED && link.calls == baseline,
+          "healthy connection changed state or transmitted during long idle without keepalive");
+    tcp_close(endpoint);
+    teardown_device(&device);
+}
+
+static void test_tcp_zero_window_persist_and_keepalive(void)
+{
+    static const uint8_t remote_mac[6] = {0x02, 0, 0, 0, 0, 2};
+    net_device_t device;
+    mock_link_t link;
+    net_tcp_segment_t syn;
+    tcp_endpoint_info_t info;
+    ipv4_info_t inbound = {.source = REMOTE_IP, .destination = LOCAL_IP, .protocol = IPV4_PROTO_TCP};
+
+    mock_ticks = 2000;
+    setup_device(&device, &link);
+    arp_learn(&device, REMOTE_IP, remote_mac, mock_ticks);
+    tcp_endpoint_t *endpoint;
+    establish_tcp(&device, &link, &endpoint, &syn);
+    net_pbuf_t *window_zero = make_tcp_packet(REMOTE_IP, LOCAL_IP, 443, syn.source_port, 7001, syn.sequence + 1, 0x10, NULL, 0);
+    CHECK(window_zero != NULL, "zero-window packet allocation");
+    net_write_be16(window_zero->data + 14, 0);
+    net_write_be16(window_zero->data + 16, 0);
+    net_write_be16(window_zero->data + 16,
+                   net_checksum_ipv4_pseudo(REMOTE_IP, LOCAL_IP, IPV4_PROTO_TCP, window_zero->data, window_zero->length));
+    CHECK(tcp_input(&device, &inbound, window_zero) == 0, "zero-window update rejected");
+    CHECK(tcp_get_info(endpoint, &info) == 0 && info.send_window == 0, "zero-window advertisement was not recorded");
+    CHECK(tcp_send(endpoint, "queued", 6) == 1, "zero window did not retain exactly one byte for persist");
+    CHECK(tcp_get_info(endpoint, &info) == 0 && info.send_unacknowledged == 0,
+          "persist byte was incorrectly counted as transmitted");
+    tcp_timer(info.next_timer_ticks);
+    CHECK(tcp_get_info(endpoint, &info) == 0 && info.persist_probes == 1,
+          "persist timer did not account for one zero-window probe");
+
+    CHECK(tcp_set_option(endpoint, TCP_OPTION_KEEPIDLE_TICKS, 10) == 0
+              && tcp_set_option(endpoint, TCP_OPTION_KEEPINTVL_TICKS, 5) == 0
+              && tcp_set_option(endpoint, TCP_OPTION_KEEPCNT, 2) == 0
+              && tcp_set_option(endpoint, TCP_OPTION_KEEPALIVE, 1) == 0,
+          "keepalive option setup");
+    window_zero = make_tcp_packet(REMOTE_IP, LOCAL_IP, 443, syn.source_port, 7001, syn.sequence + 1, 0x10, NULL, 0);
+    CHECK(window_zero != NULL, "window reopen packet allocation");
+    CHECK(tcp_input(&device, &inbound, window_zero) == 0 && tcp_get_info(endpoint, &info) == 0,
+          "window reopen update rejected");
+    unsigned baseline = link.calls;
+    tcp_timer(info.next_timer_ticks);
+    CHECK(link.calls == baseline + 1 && tcp_get_info(endpoint, &info) == 0 && info.keepalive_probes == 1,
+          "keepalive idle timer did not emit first probe");
+    tcp_timer(info.next_timer_ticks);
+    CHECK(link.calls == baseline + 2 && tcp_get_info(endpoint, &info) == 0 && info.keepalive_probes == 2,
+          "keepalive interval did not emit second probe");
+    tcp_timer(info.next_timer_ticks);
+    CHECK(tcp_get_state(endpoint) == TCP_CLOSED && tcp_get_error(endpoint) == ETIMEDOUT,
+          "keepalive probe exhaustion did not time out connection");
+    tcp_close(endpoint);
+    teardown_device(&device);
+}
+
 static void test_arp_concurrent_pending_and_packet_ownership(void)
 {
     static const uint8_t resolved_mac[6] = {0x02, 0, 0, 0, 0, 3};
@@ -369,6 +470,8 @@ int main(void)
     test_dhcp_malformed_options();
     test_tcp_active_handshake_retransmission_reassembly_and_fin();
     test_tcp_so_error_reset_and_clear();
+    test_tcp_loss_rto_and_long_idle();
+    test_tcp_zero_window_persist_and_keepalive();
     test_arp_concurrent_pending_and_packet_ownership();
     test_ipv4_fragment_reassembly_and_rx_ownership();
 

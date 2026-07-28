@@ -18,10 +18,10 @@
 #include <proc/process.h>
 #include <sync/spin_lock.h>
 
-#define VFS_PATH_MAX 4096
 #define VFS_ACCESS_R 4
 #define VFS_ACCESS_W 2
 
+#ifndef VFS_PATH_TEST_ONLY
 vfs_node_t        rootdir = 0;
 static spinlock_t vfs_namespace_lock;
 
@@ -71,16 +71,82 @@ static char *pathtok(char **sp)
     *sp = next;
     return s;
 }
+#endif
+
+int vfs_resolve_path(const char *base, const char *path, char *resolved, size_t size)
+{
+    size_t out = 1;
+
+    if (!base || !path || !resolved || size < 2 || base[0] != '/') return -EINVAL;
+    resolved[0] = '/';
+    resolved[1] = '\0';
+
+    const char *parts[2] = {path[0] == '/' ? "" : base, path};
+    for (size_t part = 0; part < 2; part++) {
+        const char *cur = parts[part];
+        while (*cur) {
+            while (*cur == '/') cur++;
+            const char *component = cur;
+            while (*cur && *cur != '/') cur++;
+            size_t len = (size_t)(cur - component);
+
+            if (!len || (len == 1 && component[0] == '.')) continue;
+            if (len == 2 && component[0] == '.' && component[1] == '.') {
+                if (out > 1) {
+                    while (out > 1 && resolved[out - 1] != '/') out--;
+                    if (out > 1) out--;
+                    resolved[out] = '\0';
+                }
+                continue;
+            }
+            if (out + len + (out > 1) >= size) return -ENAMETOOLONG;
+            if (out > 1) resolved[out++] = '/';
+            memcpy(resolved + out, component, len);
+            out += len;
+            resolved[out] = '\0';
+        }
+    }
+    return EOK;
+}
+
+int vfs_node_path(vfs_node_t node, char *path, size_t size)
+{
+    size_t     len = 0;
+    vfs_node_t cur;
+
+    if (!node || !path || size < 2) return -EINVAL;
+    for (cur = node; cur && cur->parent; cur = cur->parent) len += strlen(cur->name) + 1;
+    if (!len) len = 1;
+    if (len + 1 > size) return -ENAMETOOLONG;
+
+    path[len] = '\0';
+    if (len == 1) {
+        path[0] = '/';
+        return EOK;
+    }
+
+    size_t pos = len;
+    for (cur = node; cur && cur->parent; cur = cur->parent) {
+        size_t name_len = strlen(cur->name);
+        pos -= name_len;
+        memcpy(path + pos, cur->name, name_len);
+        path[--pos] = '/';
+    }
+    return EOK;
+}
+
+#ifndef VFS_PATH_TEST_ONLY
 
 static char *vfs_node_absolute_path(vfs_node_t node)
 {
-    size_t     len = 1;
+    size_t     len = 0;
     vfs_node_t cur;
 
     if (!node) return 0;
 
     for (cur = node; cur && cur->parent; cur = cur->parent) len += strlen(cur->name) + 1;
 
+    if (!len) len = 1;
     char *path = malloc(len + 1);
     if (!path) return 0;
 
@@ -134,7 +200,7 @@ static char *vfs_resolve_link_path(vfs_node_t node)
     return normalized;
 }
 
-static vfs_node_t vfs_open_internal(const char *str, int symlink_depth);
+static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool follow_final);
 
 /* Open a file or directory, invoking the appropriate callback */
 static void do_open(vfs_node_t file)
@@ -187,6 +253,7 @@ vfs_node_t vfs_node_alloc(vfs_node_t parent, const char *name)
     node->blksz    = PAGE_4K_SIZE;
     node->mode     = 0777;
     node->linkto   = 0;
+    vfs_poll_source_init(&node->poll_source);
 
     if (parent) parent->child = clist_prepend(parent->child, node);
     return node;
@@ -220,12 +287,14 @@ void vfs_update(vfs_node_t node)
 }
 
 /* Open a file or directory by path */
-static vfs_node_t vfs_open_internal(const char *str, int symlink_depth)
+static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool follow_final)
 {
-    int symlink_owned = 0;
+    int  symlink_owned = 0;
+    bool trailing_slash;
 
     if (!str || str[0] != '/') return 0;
     if (symlink_depth > 16) return 0;
+    trailing_slash = str[1] != '\0' && str[strlen(str) - 1] == '/';
     if (str[1] == '\0') {
         rootdir->refcount++;
         return rootdir;
@@ -248,12 +317,12 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth)
         if (!current) goto err;
 
         do_update(current);
-        if (current->type & file_symlink) {
+        if ((current->type & file_symlink) && (follow_final || trailing_slash || *save_ptr != '\0')) {
             char      *target_path = vfs_resolve_link_path(current);
             vfs_node_t target;
 
             if (!target_path) goto err;
-            target = vfs_open_internal(target_path, symlink_depth + 1);
+            target = vfs_open_internal(target_path, symlink_depth + 1, true);
             free(target_path);
             if (!target) goto err;
 
@@ -263,6 +332,7 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth)
             continue;
         }
     }
+    if (trailing_slash && !(current->type & file_dir)) goto err;
     if (!symlink_owned) current->refcount++;
     free(path);
     return current;
@@ -275,7 +345,15 @@ err:
 vfs_node_t vfs_open(const char *str)
 {
     spin_lock(&vfs_namespace_lock);
-    vfs_node_t node = vfs_open_internal(str, 0);
+    vfs_node_t node = vfs_open_internal(str, 0, true);
+    spin_unlock(&vfs_namespace_lock);
+    return node;
+}
+
+vfs_node_t vfs_open_nofollow(const char *str)
+{
+    spin_lock(&vfs_namespace_lock);
+    vfs_node_t node = vfs_open_internal(str, 0, false);
     spin_unlock(&vfs_namespace_lock);
     return node;
 }
@@ -781,6 +859,67 @@ int vfs_file_poll(vfs_node_t file, void *private_data, uint64_t flags, size_t ev
     return callbackof(file, poll)(file->handle, events);
 }
 
+void vfs_poll_source_init(vfs_poll_source_t *source)
+{
+    if (!source) return;
+    memset(source, 0, sizeof(*source));
+}
+
+void vfs_poll_source_subscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription,
+                               uint32_t events, vfs_poll_notify_t notify, void *context)
+{
+    if (!source || !subscription || !notify) return;
+    spin_lock(&source->lock);
+    subscription->notify     = notify;
+    subscription->context    = context;
+    subscription->events     = events;
+    subscription->next       = source->subscribers;
+    subscription->subscribed = true;
+    source->subscribers = subscription;
+    bool closed = source->closed;
+    spin_unlock(&source->lock);
+    if (closed) notify(subscription, UINT32_MAX);
+}
+
+void vfs_poll_source_unsubscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription)
+{
+    if (!source || !subscription) return;
+    spin_lock(&source->lock);
+    vfs_poll_subscription_t **link = &source->subscribers;
+    while (*link && *link != subscription) link = &(*link)->next;
+    if (*link) *link = subscription->next;
+    subscription->next = NULL;
+    subscription->subscribed = false;
+    spin_unlock(&source->lock);
+}
+
+void vfs_poll_source_notify(vfs_poll_source_t *source, uint32_t events)
+{
+    if (!source) return;
+    spin_lock(&source->lock);
+    for (vfs_poll_subscription_t *sub = source->subscribers; sub; sub = sub->next) {
+        uint32_t matched = events & sub->events;
+        if (matched) sub->notify(sub, matched);
+    }
+    spin_unlock(&source->lock);
+}
+
+void vfs_poll_subscribe(vfs_node_t file, vfs_poll_subscription_t *subscription, uint32_t events,
+                        vfs_poll_notify_t notify, void *context)
+{
+    if (file) vfs_poll_source_subscribe(&file->poll_source, subscription, events, notify, context);
+}
+
+void vfs_poll_unsubscribe(vfs_node_t file, vfs_poll_subscription_t *subscription)
+{
+    if (file) vfs_poll_source_unsubscribe(&file->poll_source, subscription);
+}
+
+void vfs_poll_notify(vfs_node_t file, uint32_t events)
+{
+    if (file) vfs_poll_source_notify(&file->poll_source, events);
+}
+
 /* Close the file or directory node */
 int vfs_close(vfs_node_t node)
 {
@@ -807,7 +946,11 @@ int vfs_close(vfs_node_t node)
          * entry, free the handle and node now instead of leaking them.
          */
         node->flags |= VFS_NODE_CLOSED;
+        spin_lock(&node->poll_source.lock);
+        node->poll_source.closed = true;
+        spin_unlock(&node->poll_source.lock);
         spin_unlock(&vfs_namespace_lock);
+        vfs_poll_notify(node, UINT32_MAX);
         callbackof(node, close)(node->handle);
         if (!node->parent) {
             callbackof(node, free)(node->handle);
@@ -1014,3 +1157,5 @@ void init_vfs(void)
     rootdir->type = file_dir;
     plogk("vfs: Initial root directory of the virtual file system: '/'\n");
 }
+
+#endif

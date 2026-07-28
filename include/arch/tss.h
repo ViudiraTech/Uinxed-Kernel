@@ -11,6 +11,7 @@
 #ifndef INCLUDE_TSS_H_
 #define INCLUDE_TSS_H_
 
+#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
 typedef struct {
@@ -22,6 +23,9 @@ typedef struct {
         uint16_t unused3;
         uint16_t iopb;
 } __attribute__((packed)) tss_t;
+
+_Static_assert(offsetof(tss_t, rsp[0]) == 4, "x86_64 TSS RSP0 offset");
+_Static_assert(sizeof(tss_t) == 104, "x86_64 TSS size");
 
 typedef uint8_t tss_stack_t[1024];
 

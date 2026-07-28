@@ -13,18 +13,35 @@
 static const struct inet_backend_ops *inet_ops;
 
 typedef struct inet_core_socket {
+        int family;
         int type;
         int protocol;
         uint32_t flags;
         uint32_t local_address;
         uint32_t remote_address;
+        ipv6_address_t local_address6;
+        ipv6_address_t remote_address6;
         uint16_t local_port;
         uint16_t remote_port;
+        uint32_t local_scope_id;
+        uint32_t remote_scope_id;
         int listening;
         int connecting;
         int reuseaddr;
         int keepalive;
         int nodelay;
+        int v6only;
+        int ipv6_unicast_hops;
+        int ipv6_multicast_hops;
+        int ipv6_multicast_loop;
+        int ipv6_recvpktinfo;
+        int ipv6_recvhoplimit;
+        int ipv6_recvtclass;
+        int ipv6_tclass;
+        int ipv6_recverr;
+        int ipv6_mtu_discover;
+        int ipv6_freebind;
+        int ipv6_transparent;
         uint32_t sndbuf;
         uint32_t rcvbuf;
         uint64_t sndtimeo_ticks;
@@ -35,6 +52,8 @@ typedef struct inet_core_socket {
         wait_queue_t wait;
         spinlock_t event_lock;
         uint64_t event_generation;
+        void (*event_callback)(void *argument, uint32_t events);
+        void *event_argument;
         union {
                 udp_endpoint_t *udp;
                 tcp_endpoint_t *tcp;
@@ -65,8 +84,16 @@ static void inet_tcp_event(tcp_endpoint_t *endpoint, uint32_t events, void *cont
     inet_core_socket_t *sock = context;
     spin_lock(&sock->event_lock);
     sock->event_generation++;
+    void (*callback)(void *argument, uint32_t events) = sock->event_callback;
+    void *argument = sock->event_argument;
     spin_unlock(&sock->event_lock);
     wait_queue_wake_all(&sock->wait);
+    uint32_t poll_events = 0;
+    if (events & (TCP_READY_READ | TCP_READY_ACCEPT)) poll_events |= INET_POLLIN;
+    if (events & TCP_READY_WRITE) poll_events |= INET_POLLOUT;
+    if (events & TCP_READY_ERROR) poll_events |= INET_POLLERR;
+    if (events & TCP_READY_HANGUP) poll_events |= INET_POLLHUP;
+    if (callback) callback(argument, poll_events);
 }
 
 static void inet_udp_event(udp_endpoint_t *endpoint, uint32_t events, void *context)
@@ -76,8 +103,15 @@ static void inet_udp_event(udp_endpoint_t *endpoint, uint32_t events, void *cont
     inet_core_socket_t *sock = context;
     spin_lock(&sock->event_lock);
     sock->event_generation++;
+    void (*callback)(void *argument, uint32_t events) = sock->event_callback;
+    void *argument = sock->event_argument;
     spin_unlock(&sock->event_lock);
     wait_queue_wake_all(&sock->wait);
+    uint32_t poll_events = 0;
+    if (events & UDP_READY_READ) poll_events |= INET_POLLIN;
+    if (events & UDP_READY_WRITE) poll_events |= INET_POLLOUT;
+    if (events & UDP_READY_ERROR) poll_events |= INET_POLLERR;
+    if (callback) callback(argument, poll_events);
 }
 
 static uint64_t inet_event_snapshot(inet_core_socket_t *sock)
@@ -120,13 +154,58 @@ static uint32_t abi_be32(uint32_t value)
     return __builtin_bswap32(value);
 }
 
-static int inet_address(const struct sockaddr *addr, uint32_t length, uint32_t *address, uint16_t *port)
+static int inet6_is_any(const struct in6_addr *address)
 {
-    if (!addr || length < sizeof(sockaddr_in_t)) return -EINVAL;
-    const sockaddr_in_t *in = (const sockaddr_in_t *)addr;
-    if (in->sin_family != AF_INET) return -EAFNOSUPPORT;
-    *address = abi_be32(in->sin_addr.s_addr);
-    *port = abi_be16(in->sin_port);
+    static const uint8_t zero[16];
+    return memcmp(address->s6_addr, zero, sizeof(zero)) == 0;
+}
+
+static int inet6_is_mapped(const struct in6_addr *address)
+{
+    static const uint8_t prefix[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
+    return memcmp(address->s6_addr, prefix, sizeof(prefix)) == 0;
+}
+
+static uint32_t inet6_mapped_ipv4(const struct in6_addr *address)
+{
+    return ((uint32_t)address->s6_addr[12] << 24) | ((uint32_t)address->s6_addr[13] << 16)
+           | ((uint32_t)address->s6_addr[14] << 8) | address->s6_addr[15];
+}
+
+static int inet_address(inet_core_socket_t *sock, const struct sockaddr *addr, uint32_t length, uint32_t *address, uint16_t *port,
+                        ipv6_address_t *address6, uint32_t *scope_id, int binding, int *native6)
+{
+    if (!addr || length < sizeof(sa_family_t)) return -EINVAL;
+    if (sock->family == AF_INET) {
+        if (length < sizeof(sockaddr_in_t)) return -EINVAL;
+        const sockaddr_in_t *in = (const sockaddr_in_t *)addr;
+        if (in->sin_family != AF_INET) return -EAFNOSUPPORT;
+        *address = abi_be32(in->sin_addr.s_addr);
+        *port = abi_be16(in->sin_port);
+        if (scope_id) *scope_id = 0;
+        if (native6) *native6 = 0;
+        return EOK;
+    }
+    if (length < sizeof(sockaddr_in6_t)) return -EINVAL;
+    const sockaddr_in6_t *in6 = (const sockaddr_in6_t *)addr;
+    if (in6->sin6_family != AF_INET6) return -EAFNOSUPPORT;
+    *port = abi_be16(in6->sin6_port);
+    if (scope_id) *scope_id = in6->sin6_scope_id;
+    if (address6) memcpy(address6->bytes, in6->sin6_addr.s6_addr, 16);
+    if (inet6_is_any(&in6->sin6_addr)) {
+        if (!binding) return -ENETUNREACH;
+        *address = 0;
+        if (native6) *native6 = 1;
+        return EOK;
+    }
+    if (!inet6_is_mapped(&in6->sin6_addr)) {
+        *address = 0;
+        if (native6) *native6 = 1;
+        return EOK;
+    }
+    if (sock->v6only) return -EAFNOSUPPORT;
+    *address = inet6_mapped_ipv4(&in6->sin6_addr);
+    if (native6) *native6 = 0;
     return EOK;
 }
 
@@ -138,18 +217,58 @@ static void inet_make_address(sockaddr_in_t *addr, uint32_t address, uint16_t po
     addr->sin_port = abi_be16(port);
 }
 
-static int core_create(int type, int protocol, uint32_t flags, void **context)
+static void inet6_make_address(sockaddr_in6_t *addr, uint32_t address, uint16_t port, uint32_t scope_id)
+{
+    memset(addr, 0, sizeof(*addr));
+    addr->sin6_family = AF_INET6;
+    addr->sin6_port = abi_be16(port);
+    addr->sin6_scope_id = scope_id;
+    if (address) {
+        addr->sin6_addr.s6_addr[10] = 0xff;
+        addr->sin6_addr.s6_addr[11] = 0xff;
+        addr->sin6_addr.s6_addr[12] = (uint8_t)(address >> 24);
+        addr->sin6_addr.s6_addr[13] = (uint8_t)(address >> 16);
+        addr->sin6_addr.s6_addr[14] = (uint8_t)(address >> 8);
+        addr->sin6_addr.s6_addr[15] = (uint8_t)address;
+    }
+}
+
+static void inet6_make_native_address(sockaddr_in6_t *addr, const ipv6_address_t *address, uint16_t port, uint32_t scope_id)
+{
+    memset(addr, 0, sizeof(*addr));
+    addr->sin6_family = AF_INET6;
+    addr->sin6_port = abi_be16(port);
+    addr->sin6_scope_id = scope_id;
+    memcpy(addr->sin6_addr.s6_addr, address->bytes, 16);
+}
+
+static void inet_make_socket_address(inet_core_socket_t *sock, struct sockaddr *addr, uint32_t address, uint16_t port, uint32_t scope_id)
+{
+    if (sock->family == AF_INET6) inet6_make_address((sockaddr_in6_t *)addr, address, port, scope_id);
+    else inet_make_address((sockaddr_in_t *)addr, address, port);
+}
+
+static uint32_t inet_socket_address_size(const inet_core_socket_t *sock)
+{
+    return sock->family == AF_INET6 ? sizeof(sockaddr_in6_t) : sizeof(sockaddr_in_t);
+}
+
+static int core_create(int family, int type, int protocol, uint32_t flags, void **context)
 {
     inet_core_socket_t *sock = calloc(1, sizeof(*sock));
     if (!sock) return -ENOMEM;
+    sock->family = family;
     sock->type = type;
     sock->protocol = protocol;
     sock->flags = flags;
     sock->sndbuf = SOCK_BUF_SIZE;
     sock->rcvbuf = SOCK_BUF_SIZE;
+    sock->ipv6_unicast_hops = 64;
+    sock->ipv6_multicast_hops = 1;
+    sock->ipv6_multicast_loop = 1;
     wait_queue_init(&sock->wait);
-    if (type == SOCK_DGRAM) sock->endpoint.udp = udp_open();
-    else if (type == SOCK_STREAM) sock->endpoint.tcp = tcp_open();
+    if (type == SOCK_DGRAM) sock->endpoint.udp = udp_open_family((uint16_t)family);
+    else if (type == SOCK_STREAM) sock->endpoint.tcp = tcp_open_family((uint16_t)family);
     if ((type == SOCK_DGRAM && !sock->endpoint.udp) || (type == SOCK_STREAM && !sock->endpoint.tcp)) {
         free(sock);
         return -ENOMEM;
@@ -191,12 +310,24 @@ static int core_bind(void *context, const struct sockaddr *addr, uint32_t length
     inet_core_socket_t *sock = context;
     uint32_t address;
     uint16_t port;
-    int ret = inet_address(addr, length, &address, &port);
+    ipv6_address_t address6;
+    memset(&address6, 0, sizeof(address6));
+    uint32_t scope_id;
+    int native6;
+    int ret = inet_address(sock, addr, length, &address, &port, &address6, &scope_id, 1, &native6);
     if (ret) return ret;
-    ret = sock->type == SOCK_DGRAM ? udp_bind(sock->endpoint.udp, address, port) : tcp_bind(sock->endpoint.tcp, address, port);
+    if (native6) ret = sock->type == SOCK_DGRAM ? udp_bind6(sock->endpoint.udp, &address6, port)
+                                                 : tcp_bind6(sock->endpoint.tcp, &address6, port);
+    else ret = sock->type == SOCK_DGRAM ? udp_bind(sock->endpoint.udp, address, port) : tcp_bind(sock->endpoint.tcp, address, port);
     if (!ret) {
         sock->local_address = address;
-        sock->local_port = sock->type == SOCK_DGRAM ? udp_local_port(sock->endpoint.udp) : port;
+        sock->local_address6 = address6;
+        if (sock->type == SOCK_DGRAM) sock->local_port = udp_local_port(sock->endpoint.udp);
+        else {
+            tcp_endpoint_info_t info;
+            if (!tcp_get_info(sock->endpoint.tcp, &info)) sock->local_port = info.local_port;
+        }
+        sock->local_scope_id = scope_id;
     }
     return ret;
 }
@@ -210,12 +341,18 @@ static int core_connect(void *context, const struct sockaddr *addr, uint32_t len
         if (!ret) {
             sock->remote_address = 0;
             sock->remote_port = 0;
+            sock->remote_scope_id = 0;
+            memset(&sock->remote_address6, 0, sizeof(sock->remote_address6));
         }
         return ret;
     }
     uint32_t address;
     uint16_t port;
-    int ret = inet_address(addr, length, &address, &port);
+    ipv6_address_t address6;
+    memset(&address6, 0, sizeof(address6));
+    uint32_t scope_id;
+    int native6;
+    int ret = inet_address(sock, addr, length, &address, &port, &address6, &scope_id, 0, &native6);
     if (ret) return ret;
     if (sock->type == SOCK_STREAM && sock->connecting) {
         tcp_state_t state = tcp_get_state(sock->endpoint.tcp);
@@ -228,10 +365,14 @@ static int core_connect(void *context, const struct sockaddr *addr, uint32_t len
         int error = tcp_get_error(sock->endpoint.tcp);
         return -(error ? error : ECONNREFUSED);
     }
-    ret = sock->type == SOCK_DGRAM ? udp_connect(sock->endpoint.udp, address, port) : tcp_connect(sock->endpoint.tcp, address, port);
+    if (native6) ret = sock->type == SOCK_DGRAM ? udp_connect6(sock->endpoint.udp, &address6, port)
+                                                 : tcp_connect6(sock->endpoint.tcp, &address6, port);
+    else ret = sock->type == SOCK_DGRAM ? udp_connect(sock->endpoint.udp, address, port) : tcp_connect(sock->endpoint.tcp, address, port);
     if (!ret || ret == -EINPROGRESS) {
         sock->remote_address = address;
+        sock->remote_address6 = address6;
         sock->remote_port = port;
+        sock->remote_scope_id = scope_id;
         if (sock->type == SOCK_DGRAM) sock->local_port = udp_local_port(sock->endpoint.udp);
     }
     if (sock->type == SOCK_STREAM && ret == -EINPROGRESS) {
@@ -256,6 +397,13 @@ static int core_listen(void *context, int backlog)
 {
     inet_core_socket_t *sock = context;
     if (sock->type != SOCK_STREAM) return -EOPNOTSUPP;
+    tcp_endpoint_info_t info;
+    if (!tcp_get_info(sock->endpoint.tcp, &info) && !info.local_port) {
+        int bind_status = sock->family == AF_INET6 ? tcp_bind6(sock->endpoint.tcp, &sock->local_address6, 0)
+                                                   : tcp_bind(sock->endpoint.tcp, sock->local_address, 0);
+        if (bind_status) return bind_status;
+        if (!tcp_get_info(sock->endpoint.tcp, &info)) sock->local_port = info.local_port;
+    }
     int ret = tcp_listen(sock->endpoint.tcp, backlog < 0 ? 0U : (unsigned)backlog);
     if (!ret) sock->listening = 1;
     return ret;
@@ -281,12 +429,23 @@ static int core_accept(void *context, void **accepted, struct sockaddr *addr, ui
         return -ENOMEM;
     }
     sock->type = SOCK_STREAM;
+    sock->family = listener->family;
     sock->protocol = IPPROTO_TCP;
     sock->flags = flags;
     sock->sndbuf = listener->sndbuf;
     sock->rcvbuf = listener->rcvbuf;
     sock->sndtimeo_ticks = listener->sndtimeo_ticks;
     sock->rcvtimeo_ticks = listener->rcvtimeo_ticks;
+    sock->v6only = listener->v6only;
+    sock->ipv6_unicast_hops = listener->ipv6_unicast_hops;
+    sock->ipv6_multicast_hops = listener->ipv6_multicast_hops;
+    sock->ipv6_multicast_loop = listener->ipv6_multicast_loop;
+    sock->ipv6_recvpktinfo = listener->ipv6_recvpktinfo;
+    sock->ipv6_recvhoplimit = listener->ipv6_recvhoplimit;
+    sock->ipv6_recvtclass = listener->ipv6_recvtclass;
+    sock->ipv6_tclass = listener->ipv6_tclass;
+    sock->ipv6_recverr = listener->ipv6_recverr;
+    sock->ipv6_mtu_discover = listener->ipv6_mtu_discover;
     wait_queue_init(&sock->wait);
     sock->local_address = listener->local_address;
     sock->local_port = listener->local_port;
@@ -301,12 +460,16 @@ static int core_accept(void *context, void **accepted, struct sockaddr *addr, ui
     tcp_endpoint_info_t info;
     if (!tcp_get_info(endpoint, &info)) {
         sock->local_address = info.local_address;
+        sock->local_address6 = info.local_address6;
         sock->local_port = info.local_port;
         sock->remote_address = info.remote_address;
+        sock->remote_address6 = info.remote_address6;
         sock->remote_port = info.remote_port;
         if (addr && addrlen) {
-            inet_make_address((sockaddr_in_t *)addr, info.remote_address, info.remote_port);
-            *addrlen = sizeof(sockaddr_in_t);
+            if (sock->family == AF_INET6 && !ipv6_address_is_unspecified(&info.remote_address6))
+                inet6_make_native_address((sockaddr_in6_t *)addr, &info.remote_address6, info.remote_port, sock->remote_scope_id);
+            else inet_make_socket_address(sock, addr, info.remote_address, info.remote_port, sock->remote_scope_id);
+            *addrlen = inet_socket_address_size(sock);
         }
     }
     *accepted = sock;
@@ -335,11 +498,21 @@ static int core_sendto(void *context, const void *buf, size_t len, int flags, co
     }
     uint32_t address = 0;
     uint16_t port = 0;
+    ipv6_address_t address6;
+    memset(&address6, 0, sizeof(address6));
+    int native6 = 0;
     if (addr) {
-        int ret = inet_address(addr, addrlen, &address, &port);
+        int ret = inet_address(sock, addr, addrlen, &address, &port, &address6, NULL, 0, &native6);
         if (ret) return ret;
+    } else if (sock->family == AF_INET6) {
+        udp_endpoint_info_t info;
+        if (!udp_get_info(sock->endpoint.udp, &info) && !ipv6_address_is_unspecified(&info.remote_address6)) {
+            address6 = info.remote_address6;
+            native6 = 1;
+        }
     }
-    int ret = udp_send(sock->endpoint.udp, buf, len, address, port);
+    int ret = native6 ? udp_send6(sock->endpoint.udp, buf, len, &address6, port, (uint8_t)sock->ipv6_unicast_hops)
+                      : udp_send(sock->endpoint.udp, buf, len, address, port);
     sock->local_port = udp_local_port(sock->endpoint.udp);
     return ret;
 }
@@ -381,8 +554,10 @@ static int core_recvfrom(void *context, void *buf, size_t len, int flags, struct
         (void)inet_event_wait(sock, generation, deadline);
     } while (1);
     if (ret >= 0 && addr && addrlen) {
-        inet_make_address((sockaddr_in_t *)addr, info.source_address, info.source_port);
-        *addrlen = sizeof(sockaddr_in_t);
+        if (info.family == AF_INET6 && !ipv6_address_is_unspecified(&info.source_address6))
+            inet6_make_native_address((sockaddr_in6_t *)addr, &info.source_address6, info.source_port, 0);
+        else inet_make_socket_address(sock, addr, info.source_address, info.source_port, 0);
+        *addrlen = inet_socket_address_size(sock);
     }
     return ret;
 }
@@ -398,27 +573,38 @@ static int core_shutdown(void *context, int how)
 static int core_getsockname(void *context, struct sockaddr *addr, uint32_t *addrlen)
 {
     inet_core_socket_t *sock = context;
-    if (*addrlen < sizeof(sockaddr_in_t)) return -EINVAL;
-    if (sock->type == SOCK_DGRAM) sock->local_port = udp_local_port(sock->endpoint.udp);
+    uint32_t required = inet_socket_address_size(sock);
+    if (*addrlen < required) return -EINVAL;
+    if (sock->type == SOCK_DGRAM) {
+        udp_endpoint_info_t info;
+        sock->local_port = udp_local_port(sock->endpoint.udp);
+        if (!udp_get_info(sock->endpoint.udp, &info)) sock->local_address6 = info.local_address6;
+    }
     else {
         tcp_endpoint_info_t info;
         if (!tcp_get_info(sock->endpoint.tcp, &info)) {
             sock->local_address = info.local_address;
+            sock->local_address6 = info.local_address6;
             sock->local_port = info.local_port;
         }
     }
-    inet_make_address((sockaddr_in_t *)addr, sock->local_address, sock->local_port);
-    *addrlen = sizeof(sockaddr_in_t);
+    if (sock->family == AF_INET6 && !ipv6_address_is_unspecified(&sock->local_address6))
+        inet6_make_native_address((sockaddr_in6_t *)addr, &sock->local_address6, sock->local_port, sock->local_scope_id);
+    else inet_make_socket_address(sock, addr, sock->local_address, sock->local_port, sock->local_scope_id);
+    *addrlen = required;
     return EOK;
 }
 
 static int core_getpeername(void *context, struct sockaddr *addr, uint32_t *addrlen)
 {
     inet_core_socket_t *sock = context;
-    if (!sock->remote_address || !sock->remote_port) return -ENOTCONN;
-    if (*addrlen < sizeof(sockaddr_in_t)) return -EINVAL;
-    inet_make_address((sockaddr_in_t *)addr, sock->remote_address, sock->remote_port);
-    *addrlen = sizeof(sockaddr_in_t);
+    if ((!sock->remote_address && ipv6_address_is_unspecified(&sock->remote_address6)) || !sock->remote_port) return -ENOTCONN;
+    uint32_t required = inet_socket_address_size(sock);
+    if (*addrlen < required) return -EINVAL;
+    if (sock->family == AF_INET6 && !ipv6_address_is_unspecified(&sock->remote_address6))
+        inet6_make_native_address((sockaddr_in6_t *)addr, &sock->remote_address6, sock->remote_port, sock->remote_scope_id);
+    else inet_make_socket_address(sock, addr, sock->remote_address, sock->remote_port, sock->remote_scope_id);
+    *addrlen = required;
     return EOK;
 }
 
@@ -426,6 +612,44 @@ static int core_setsockopt(void *context, int level, int option, const void *val
 {
     inet_core_socket_t *sock = context;
     if (!value) return -EFAULT;
+    if (level == SOL_IPV6) {
+        if (sock->family != AF_INET6) return -ENOPROTOOPT;
+        if (option == IPV6_ADD_MEMBERSHIP || option == IPV6_DROP_MEMBERSHIP) return -EOPNOTSUPP;
+        if (option == IPV6_ADDRFORM || option == IPV6_PKTINFO || option == IPV6_HOPLIMIT || option == IPV6_MTU)
+            return -EOPNOTSUPP;
+        if (length < sizeof(int)) return -EINVAL;
+        int val = *(const int *)value;
+        switch (option) {
+            case IPV6_V6ONLY:
+                if (sock->local_port || sock->remote_port) return -EINVAL;
+                sock->v6only = val != 0;
+                if (sock->type == SOCK_DGRAM) udp_set_v6only(sock->endpoint.udp, sock->v6only);
+                else tcp_set_v6only(sock->endpoint.tcp, sock->v6only);
+                return EOK;
+            case IPV6_UNICAST_HOPS:
+                if (val < -1 || val > 255) return -EINVAL;
+                sock->ipv6_unicast_hops = val < 0 ? 64 : val;
+                return EOK;
+            case IPV6_MULTICAST_HOPS:
+                if (val < -1 || val > 255) return -EINVAL;
+                sock->ipv6_multicast_hops = val < 0 ? 1 : val;
+                return EOK;
+            case IPV6_MULTICAST_LOOP: sock->ipv6_multicast_loop = val != 0; return EOK;
+            case IPV6_RECVPKTINFO: sock->ipv6_recvpktinfo = val != 0; return EOK;
+            case IPV6_RECVHOPLIMIT: sock->ipv6_recvhoplimit = val != 0; return EOK;
+            case IPV6_RECVTCLASS: sock->ipv6_recvtclass = val != 0; return EOK;
+            case IPV6_TCLASS:
+                if (val < -1 || val > 255) return -EINVAL;
+                sock->ipv6_tclass = val < 0 ? 0 : val;
+                return EOK;
+            case IPV6_RECVERR: sock->ipv6_recverr = val != 0; return EOK;
+            case IPV6_MTU_DISCOVER: sock->ipv6_mtu_discover = val; return EOK;
+            case IPV6_FREEBIND: sock->ipv6_freebind = val != 0; return EOK;
+            case IPV6_TRANSPARENT: sock->ipv6_transparent = val != 0; return EOK;
+            case IPV6_MULTICAST_IF: return val ? -EOPNOTSUPP : EOK;
+            default: return -ENOPROTOOPT;
+        }
+    }
     if (level == SOL_TCP) {
         if (option != TCP_NODELAY || sock->type != SOCK_STREAM) return -ENOPROTOOPT;
         if (length < sizeof(int)) return -EINVAL;
@@ -456,6 +680,30 @@ static int core_getsockopt(void *context, int level, int option, void *value, ui
 {
     inet_core_socket_t *sock = context;
     int val;
+    if (level == SOL_IPV6) {
+        if (sock->family != AF_INET6) return -ENOPROTOOPT;
+        switch (option) {
+            case IPV6_V6ONLY: val = sock->v6only; break;
+            case IPV6_UNICAST_HOPS: val = sock->ipv6_unicast_hops; break;
+            case IPV6_MULTICAST_IF: val = 0; break;
+            case IPV6_MULTICAST_HOPS: val = sock->ipv6_multicast_hops; break;
+            case IPV6_MULTICAST_LOOP: val = sock->ipv6_multicast_loop; break;
+            case IPV6_RECVPKTINFO: val = sock->ipv6_recvpktinfo; break;
+            case IPV6_RECVHOPLIMIT: val = sock->ipv6_recvhoplimit; break;
+            case IPV6_RECVTCLASS: val = sock->ipv6_recvtclass; break;
+            case IPV6_TCLASS: val = sock->ipv6_tclass; break;
+            case IPV6_RECVERR: val = sock->ipv6_recverr; break;
+            case IPV6_MTU_DISCOVER: val = sock->ipv6_mtu_discover; break;
+            case IPV6_MTU: val = 1500; break;
+            case IPV6_FREEBIND: val = sock->ipv6_freebind; break;
+            case IPV6_TRANSPARENT: val = sock->ipv6_transparent; break;
+            default: return -ENOPROTOOPT;
+        }
+        if (*length < sizeof(int)) return -EINVAL;
+        memcpy(value, &val, sizeof(val));
+        *length = sizeof(val);
+        return EOK;
+    }
     if (level == SOL_SOCKET && (option == SO_RCVTIMEO || option == SO_SNDTIMEO)) {
         if (*length < sizeof(socket_timeval_t)) return -EINVAL;
         uint64_t ticks = option == SO_RCVTIMEO ? sock->rcvtimeo_ticks : sock->sndtimeo_ticks;
@@ -472,7 +720,7 @@ static int core_getsockopt(void *context, int level, int option, void *value, ui
         val = sock->nodelay;
     } else if (level == SOL_SOCKET && option == SO_TYPE) val = sock->type;
     else if (level == SOL_SOCKET && option == SO_PROTOCOL) val = sock->protocol;
-    else if (level == SOL_SOCKET && option == SO_DOMAIN) val = AF_INET;
+    else if (level == SOL_SOCKET && option == SO_DOMAIN) val = sock->family;
     else if (level == SOL_SOCKET && option == SO_ERROR) val = sock->type == SOCK_STREAM ? tcp_get_error(sock->endpoint.tcp) : 0;
     else if (level == SOL_SOCKET && option == SO_ACCEPTCONN) val = sock->listening;
     else if (level == SOL_SOCKET && option == SO_REUSEADDR) val = sock->reuseaddr;
@@ -513,6 +761,15 @@ static int core_poll(void *context, size_t events)
     return ready & ((int)events | INET_POLLERR | INET_POLLHUP);
 }
 
+static void core_set_event_callback(void *context, void (*callback)(void *argument, uint32_t events), void *argument)
+{
+    inet_core_socket_t *sock = context;
+    spin_lock(&sock->event_lock);
+    sock->event_callback = callback;
+    sock->event_argument = argument;
+    spin_unlock(&sock->event_lock);
+}
+
 static net_device_t *core_ifreq_device(ifreq_t *ifr)
 {
     ifr->ifr_name[IFNAMSIZ - 1] = '\0';
@@ -539,7 +796,8 @@ static int core_ioctl(void *context, size_t request, struct ifreq *ifr)
         case SIOCSIFADDR: {
             uint32_t address;
             uint16_t port;
-            ret = inet_address((const struct sockaddr *)&ifr->ifr_addr, sizeof(ifr->ifr_addr), &address, &port);
+            inet_core_socket_t ipv4 = {.family = AF_INET};
+            ret = inet_address(&ipv4, (const struct sockaddr *)&ifr->ifr_addr, sizeof(ifr->ifr_addr), &address, &port, NULL, NULL, 1, NULL);
             if (!ret) ret = netdev_configure_ipv4(dev, address, dev->ipv4_netmask, dev->ipv4_gateway);
             break;
         }
@@ -547,7 +805,8 @@ static int core_ioctl(void *context, size_t request, struct ifreq *ifr)
         case SIOCSIFNETMASK: {
             uint32_t netmask;
             uint16_t port;
-            ret = inet_address((const struct sockaddr *)&ifr->ifr_netmask, sizeof(ifr->ifr_netmask), &netmask, &port);
+            inet_core_socket_t ipv4 = {.family = AF_INET};
+            ret = inet_address(&ipv4, (const struct sockaddr *)&ifr->ifr_netmask, sizeof(ifr->ifr_netmask), &netmask, &port, NULL, NULL, 1, NULL);
             if (!ret) ret = netdev_configure_ipv4(dev, dev->ipv4_address, netmask, dev->ipv4_gateway);
             break;
         }
@@ -600,6 +859,7 @@ static const struct inet_backend_ops core_ops = {
     .listen = core_listen, .accept = core_accept, .sendto = core_sendto, .recvfrom = core_recvfrom,
     .shutdown = core_shutdown, .getsockname = core_getsockname, .getpeername = core_getpeername,
     .setsockopt = core_setsockopt, .getsockopt = core_getsockopt, .poll = core_poll,
+    .set_event_callback = core_set_event_callback,
     .ioctl = core_ioctl, .proc_read = core_proc_read,
 };
 
@@ -624,5 +884,10 @@ size_t inet_backend_proc_read(enum inet_proc_file file, char *buf, size_t capaci
 
 int inet_builtin_backend_register(void)
 {
-    return inet_backend_register(&core_ops);
+    int status = inet_backend_register(&core_ops);
+    if (status) return status;
+    status = ipv6_set_transport_handler(IPV6_NEXT_TCP, tcp_input6);
+    if (status && status != -EBUSY) return status;
+    status = ipv6_set_transport_handler(IPV6_NEXT_UDP, udp_input6);
+    return status == -EBUSY ? EOK : status;
 }

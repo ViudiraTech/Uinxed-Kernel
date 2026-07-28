@@ -56,7 +56,10 @@ typedef union epoll_data {
 typedef struct epoll_event {
         uint32_t     events;
         epoll_data_t data;
-} epoll_event_t;
+} __attribute__((packed)) epoll_event_t;
+
+_Static_assert(sizeof(epoll_event_t) == 12, "Linux x86_64 epoll_event must be 12 bytes");
+_Static_assert(__builtin_offsetof(epoll_event_t, data) == 4, "epoll_event.data must start at byte 4");
 
 /* ------------------------------------------------------------------ */
 /*  Epoll syscall interface                                            */

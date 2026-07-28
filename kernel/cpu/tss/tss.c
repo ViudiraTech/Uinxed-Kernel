@@ -9,6 +9,7 @@
  */
 
 #include <arch/gdt.h>
+#include <arch/smp.h>
 #include <arch/tss.h>
 #include <kernel/printk.h>
 #include <libs/std/stdint.h>
@@ -40,5 +41,12 @@ void tss_init(void)
 /* Setting up the kernel stack */
 void set_kernel_stack(uint64_t rsp)
 {
-    tss0.rsp[0] = rsp;
+    cpu_processor_t *cpu = get_current_cpu();
+    if (!cpu) {
+        tss0.rsp[0] = rsp;
+        return;
+    }
+
+    cpu->tss->rsp[0]          = rsp;
+    cpu->syscall.kernel_rsp   = rsp;
 }

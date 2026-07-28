@@ -28,6 +28,9 @@ typedef struct {
 /* Probe every explicitly supported Intel controller in the PCI cache. */
 int e1000_init(void);
 
+/* Create per-device workers after scheduler initialization. */
+int e1000_start_workers(void);
+
 /* Probe one PCI function. The function must have a supported Intel ID. */
 int e1000_probe(pci_device_cache_t *pci);
 
@@ -37,7 +40,7 @@ void e1000_shutdown(void);
 /* Synchronous transmit. Returns zero, -EAGAIN on backpressure, or an error. */
 int e1000_transmit(e1000_device_t *device, const void *packet, size_t length);
 
-/* Poll completed receive descriptors, primarily useful before IRQ setup. */
+/* Poll completed receive descriptors from task context. */
 size_t e1000_poll(e1000_device_t *device, size_t budget);
 
 int                  e1000_link_up(const e1000_device_t *device);

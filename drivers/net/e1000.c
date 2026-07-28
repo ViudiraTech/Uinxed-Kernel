@@ -12,6 +12,8 @@
 #include <mem/page.h>
 #include <net/netdev.h>
 #include <net/pbuf.h>
+#include <proc/sched.h>
+#include <proc/task.h>
 #include <sync/spin_lock.h>
 
 #define E1000_MAX_DEVICES       8
@@ -19,7 +21,7 @@
 #define E1000_TX_COUNT          256
 #define E1000_BUFFER_SIZE       2048
 #define E1000_MAX_FRAME_SIZE    (E1000_MTU + 18)
-#define E1000_ISR_BUDGET        64
+#define E1000_WORK_BUDGET       64
 #define E1000_TX_RECLAIM_BUDGET 64
 #define E1000_RESET_TIMEOUT_US  100000
 #define E1000_EEPROM_TIMEOUT_US 10000
@@ -69,14 +71,15 @@
 #define E1000_TCTL_CT_SHIFT   4
 #define E1000_TCTL_COLD_SHIFT 12
 
-#define E1000_ICR_TXDW    (1u << 0)
-#define E1000_ICR_LSC     (1u << 2)
-#define E1000_ICR_RXSEQ   (1u << 3)
-#define E1000_ICR_RXDMT0  (1u << 4)
-#define E1000_ICR_RXO     (1u << 6)
-#define E1000_ICR_RXT0    (1u << 7)
-#define E1000_INT_MASK    (E1000_ICR_TXDW | E1000_ICR_LSC | E1000_ICR_RXSEQ | E1000_ICR_RXDMT0 | E1000_ICR_RXO | E1000_ICR_RXT0)
-#define E1000_RX_INT_MASK (E1000_ICR_RXDMT0 | E1000_ICR_RXO | E1000_ICR_RXT0)
+#define E1000_ICR_TXDW     (1u << 0)
+#define E1000_ICR_LSC      (1u << 2)
+#define E1000_ICR_RXSEQ    (1u << 3)
+#define E1000_ICR_RXDMT0   (1u << 4)
+#define E1000_ICR_RXO      (1u << 6)
+#define E1000_ICR_RXT0     (1u << 7)
+#define E1000_INT_MASK     (E1000_ICR_TXDW | E1000_ICR_LSC | E1000_ICR_RXSEQ | E1000_ICR_RXDMT0 | E1000_ICR_RXO | E1000_ICR_RXT0)
+#define E1000_RX_INT_MASK  (E1000_ICR_RXDMT0 | E1000_ICR_RXO | E1000_ICR_RXT0)
+#define E1000_WORK_INITIAL (E1000_ICR_TXDW | E1000_ICR_LSC | E1000_ICR_RXT0)
 
 #define E1000_RXD_STAT_DD  (1u << 0)
 #define E1000_RXD_STAT_EOP (1u << 1)
@@ -144,6 +147,14 @@ struct e1000_device {
         int                       link_up;
         uint8_t                   irq_slot;
         volatile uint32_t         irq_active;
+        uint32_t                  work_pending;
+        uint32_t                  interrupts_pending;
+        int                       worker_started;
+        int                       worker_exited;
+        task_t                   *worker_task;
+        wait_queue_t              work_wait;
+        wait_queue_t              exit_wait;
+        spinlock_t                work_lock;
         volatile e1000_rx_desc_t *rx_ring;
         volatile e1000_tx_desc_t *tx_ring;
         uint64_t                  rx_ring_phys;
@@ -167,6 +178,7 @@ static e1000_device_t *e1000_devices;
 static size_t          e1000_device_count;
 static e1000_device_t *e1000_irq_slots[E1000_MAX_DEVICES];
 static spinlock_t      e1000_irq_lock;
+static int             e1000_scheduler_ready;
 
 static inline uint32_t e1000_read(const e1000_device_t *device, uint32_t reg)
 {
@@ -411,6 +423,34 @@ static size_t e1000_tx_reclaim_locked(e1000_device_t *device, size_t budget)
     return reclaimed;
 }
 
+static int e1000_rx_ready_locked(e1000_device_t *device)
+{
+    dma_read_barrier();
+    return !!(device->rx_ring[device->rx_next].status & E1000_RXD_STAT_DD);
+}
+
+static int e1000_rx_ready(e1000_device_t *device)
+{
+    uint64_t rflags = spin_lock_irqsave(&device->rx_lock);
+    int      ready  = e1000_rx_ready_locked(device);
+    spin_unlock_irqrestore(&device->rx_lock, rflags);
+    return ready;
+}
+
+static int e1000_tx_ready_locked(e1000_device_t *device)
+{
+    dma_read_barrier();
+    return device->tx_used && !!(device->tx_ring[device->tx_clean].status & E1000_TXD_STAT_DD);
+}
+
+static int e1000_tx_ready(e1000_device_t *device)
+{
+    uint64_t rflags = spin_lock_irqsave(&device->tx_lock);
+    int      ready  = e1000_tx_ready_locked(device);
+    spin_unlock_irqrestore(&device->tx_lock, rflags);
+    return ready;
+}
+
 static int e1000_net_open(net_device_t *netdev)
 {
     e1000_device_t *device = netdev_private(netdev);
@@ -553,31 +593,104 @@ size_t e1000_poll(e1000_device_t *device, size_t budget)
     return done;
 }
 
-static void e1000_interrupt_device(e1000_device_t *device)
+static void e1000_process_work(e1000_device_t *device, uint32_t cause)
 {
-    uint32_t cause = e1000_read(device, E1000_REG_ICR);
-    if (!(cause & E1000_INT_MASK) || !device->running) return;
-
-    device->stats.interrupts++;
     if (cause & E1000_ICR_LSC) e1000_update_link(device);
     if (cause & E1000_ICR_RXO) {
         device->stats.rx_errors++;
         device->stats.rx_overruns++;
     }
     if (cause & E1000_ICR_RXSEQ) device->stats.rx_errors++;
-    if (cause & E1000_RX_INT_MASK) {
-        size_t done = e1000_poll(device, E1000_ISR_BUDGET);
-        dma_read_barrier();
-        if (done == E1000_ISR_BUDGET && (device->rx_ring[device->rx_next].status & E1000_RXD_STAT_DD))
-            e1000_write(device, E1000_REG_ICS, E1000_ICR_RXT0);
+    if ((cause & E1000_RX_INT_MASK) || e1000_rx_ready(device)) (void)e1000_poll(device, E1000_WORK_BUDGET);
+
+    uint64_t rflags = spin_lock_irqsave(&device->tx_lock);
+    if ((cause & E1000_ICR_TXDW) || e1000_tx_ready_locked(device)) e1000_tx_reclaim_locked(device, E1000_TX_RECLAIM_BUDGET);
+    spin_unlock_irqrestore(&device->tx_lock, rflags);
+}
+
+static void e1000_worker(void *arg)
+{
+    e1000_device_t *device = arg;
+
+    for (;;) {
+        uint64_t rflags = spin_lock_irqsave(&device->work_lock);
+        while (!device->work_pending && !device->stopping) {
+            wait_queue_prepare(&device->work_wait);
+            spin_unlock_irqrestore(&device->work_lock, rflags);
+            wait_queue_sleep();
+            rflags = spin_lock_irqsave(&device->work_lock);
+        }
+        if (device->stopping) {
+            device->worker_exited  = 1;
+            device->worker_started = 0;
+            wait_queue_wake_all(&device->exit_wait);
+            spin_unlock_irqrestore(&device->work_lock, rflags);
+            return;
+        }
+        uint32_t cause             = device->work_pending;
+        uint32_t interrupts        = device->interrupts_pending;
+        device->work_pending       = 0;
+        device->interrupts_pending = 0;
+        spin_unlock_irqrestore(&device->work_lock, rflags);
+
+        device->stats.interrupts += interrupts;
+        e1000_process_work(device, cause);
+
+        rflags = spin_lock_irqsave(&device->work_lock);
+        if (!device->stopping && !device->work_pending && !e1000_rx_ready(device) && !e1000_tx_ready(device)) {
+            e1000_write(device, E1000_REG_IMS, E1000_INT_MASK);
+            e1000_write_flush(device);
+            cause = e1000_read(device, E1000_REG_ICR) & E1000_INT_MASK;
+            if (cause) {
+                e1000_write(device, E1000_REG_IMC, E1000_INT_MASK);
+                e1000_write_flush(device);
+                device->work_pending |= cause;
+            }
+        } else if (!device->stopping && !device->work_pending) {
+            device->work_pending = E1000_ICR_RXT0 | E1000_ICR_TXDW;
+        }
+        int more = !device->stopping && device->work_pending;
+        spin_unlock_irqrestore(&device->work_lock, rflags);
+        if (more) sched_yield();
     }
-    if (cause & E1000_ICR_TXDW) {
-        uint64_t rflags    = spin_lock_irqsave(&device->tx_lock);
-        size_t   reclaimed = e1000_tx_reclaim_locked(device, E1000_TX_RECLAIM_BUDGET);
-        if (reclaimed == E1000_TX_RECLAIM_BUDGET && device->tx_used && (device->tx_ring[device->tx_clean].status & E1000_TXD_STAT_DD))
-            e1000_write(device, E1000_REG_ICS, E1000_ICR_TXDW);
-        spin_unlock_irqrestore(&device->tx_lock, rflags);
+}
+
+static int e1000_start_worker(e1000_device_t *device)
+{
+    if (device->worker_started) return 0;
+
+    uint64_t rflags        = spin_lock_irqsave(&device->work_lock);
+    device->worker_started = 1;
+    device->worker_exited  = 0;
+    device->work_pending   = E1000_WORK_INITIAL;
+    spin_unlock_irqrestore(&device->work_lock, rflags);
+
+    task_t *worker = kthread_create("e1000-rx", e1000_worker, device);
+    if (!worker) {
+        rflags                 = spin_lock_irqsave(&device->work_lock);
+        device->worker_started = 0;
+        device->work_pending   = 0;
+        spin_unlock_irqrestore(&device->work_lock, rflags);
+        return -ENOMEM;
     }
+    device->worker_task = worker;
+    return 0;
+}
+
+static void e1000_interrupt_device(e1000_device_t *device)
+{
+    uint32_t cause = e1000_read(device, E1000_REG_ICR);
+    if (!(cause & E1000_INT_MASK)) return;
+
+    e1000_write(device, E1000_REG_IMC, E1000_INT_MASK);
+    e1000_write_flush(device);
+    uint64_t rflags = spin_lock_irqsave(&device->work_lock);
+    if (device->running && device->worker_started && !device->stopping) {
+        device->work_pending |= cause & E1000_INT_MASK;
+        device->interrupts_pending++;
+        wait_queue_wake_one(&device->work_wait);
+    }
+    spin_unlock_irqrestore(&device->work_lock, rflags);
 }
 
 static void e1000_interrupt_slot(size_t slot, void *frame)
@@ -681,14 +794,32 @@ static void e1000_release_interrupt(e1000_device_t *device)
 static void e1000_destroy(e1000_device_t *device)
 {
     if (!device) return;
+    uint64_t rflags  = spin_lock_irqsave(&device->work_lock);
     device->stopping = 1;
     device->running  = 0;
+    spin_unlock_irqrestore(&device->work_lock, rflags);
     e1000_release_interrupt(device);
+    if (device->worker_task) {
+        rflags = spin_lock_irqsave(&device->work_lock);
+        wait_queue_wake_all(&device->work_wait);
+        while (!device->worker_exited) {
+            wait_queue_prepare(&device->exit_wait);
+            spin_unlock_irqrestore(&device->work_lock, rflags);
+            wait_queue_sleep();
+            rflags = spin_lock_irqsave(&device->work_lock);
+        }
+        spin_unlock_irqrestore(&device->work_lock, rflags);
+        while (__atomic_load_n(&device->worker_task->state, __ATOMIC_ACQUIRE) != TASK_ZOMBIE
+               || __atomic_load_n(&device->worker_task->on_cpu, __ATOMIC_ACQUIRE))
+            sched_yield();
+        task_free(device->worker_task);
+        device->worker_task = NULL;
+    }
     if (device->netdev_registered) {
         netdev_unregister(&device->netdev);
         device->netdev_registered = 0;
     }
-    uint64_t rflags = spin_lock_irqsave(&device->rx_lock);
+    rflags = spin_lock_irqsave(&device->rx_lock);
     spin_unlock_irqrestore(&device->rx_lock, rflags);
     rflags = spin_lock_irqsave(&device->tx_lock);
     spin_unlock_irqrestore(&device->tx_lock, rflags);
@@ -727,6 +858,8 @@ int e1000_probe(pci_device_cache_t *pci)
     device->features      = id->flags;
     device->vector        = -1;
     device->saved_command = pci_read_command_status(pci) & 0xffff;
+    wait_queue_init(&device->work_wait);
+    wait_queue_init(&device->exit_wait);
 
     /* BAR sizing writes all ones, so memory decoding and DMA must be off. */
     pci_write_command_status(pci, device->saved_command & ~((1u << 1) | (1u << 2)));
@@ -779,8 +912,10 @@ int e1000_probe(pci_device_cache_t *pci)
         spin_unlock(&device->netdev.lock);
     }
     (void)e1000_read(device, E1000_REG_ICR);
-    e1000_write(device, E1000_REG_IMS, E1000_INT_MASK);
-    e1000_write_flush(device);
+    if (e1000_scheduler_ready) {
+        ret = e1000_start_worker(device);
+        if (ret) goto fail_linked;
+    }
     return 0;
 
 fail_linked:
@@ -801,6 +936,28 @@ int e1000_init(void)
         if (e1000_match((uint16_t)pci->vendor_id, (uint16_t)pci->device_id) && !e1000_probe(pci)) found++;
     }
     return found ? found : -ENODEV;
+}
+
+int e1000_start_workers(void)
+{
+    int started = 0;
+    int failed  = 0;
+
+    e1000_scheduler_ready = 1;
+    e1000_device_t **link = &e1000_devices;
+    while (*link) {
+        e1000_device_t *device = *link;
+        if (device->worker_started || !e1000_start_worker(device)) {
+            started++;
+            link = &device->next;
+            continue;
+        }
+        failed = 1;
+        *link  = device->next;
+        e1000_device_count--;
+        e1000_destroy(device);
+    }
+    return started ? started : (failed ? -ENOMEM : -ENODEV);
 }
 
 void e1000_shutdown(void)

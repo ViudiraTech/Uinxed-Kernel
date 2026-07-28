@@ -92,8 +92,14 @@ static int unix_accept(socket_t *sk, sockaddr_un_t *addr, uint32_t *addrlen, int
 static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen);
 static int socket_fd_install_flags(socket_t *sk, uint64_t fd_flags);
 static int socket_fd_nonblock(int fd);
-static socket_t *inet_socket_alloc(uint16_t type, uint16_t protocol, uint32_t flags, void *context);
+static socket_t *inet_socket_alloc(uint16_t family, uint16_t type, uint16_t protocol, uint32_t flags, void *context);
 static int socket_copy_address_to_user(sockaddr_t *addr, uint32_t *addrlen, const sockaddr_t *kaddr, uint32_t kaddrlen);
+
+static void socket_inet_event(void *argument, uint32_t events)
+{
+    socket_t *sk = argument;
+    if (sk && sk->node) vfs_poll_notify(sk->node, events);
+}
 
 static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags);
 static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags);
@@ -495,12 +501,12 @@ static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
     return sk;
 }
 
-static socket_t *inet_socket_alloc(uint16_t type, uint16_t protocol, uint32_t flags, void *context)
+static socket_t *inet_socket_alloc(uint16_t family, uint16_t type, uint16_t protocol, uint32_t flags, void *context)
 {
     socket_t *sk = calloc(1, sizeof(socket_t));
     if (!sk) return NULL;
     sk->state    = SOCK_STATE_UNCONNECTED;
-    sk->family   = AF_INET;
+    sk->family   = family;
     sk->type     = type;
     sk->protocol = protocol;
     sk->flags    = flags;
@@ -534,7 +540,7 @@ static void socket_free(socket_t *sk)
     sk->refcount--;
     if (sk->refcount > 0) return;
 
-    if (sk->family == AF_INET && sk->priv) {
+    if ((sk->family == AF_INET || sk->family == AF_INET6) && sk->priv) {
         const struct inet_backend_ops *ops = inet_backend_get();
         if (ops && ops->close) ops->close(sk->priv);
         sk->priv = NULL;
@@ -619,6 +625,10 @@ int socket_fd_install_flags(socket_t *sk, uint64_t fd_flags)
 
     sk->node = node;
     socket_ref(sk);
+    if (sk->family == AF_INET || sk->family == AF_INET6) {
+        const struct inet_backend_ops *ops = inet_backend_get();
+        if (ops && ops->set_event_callback) ops->set_event_callback(sk->priv, socket_inet_event, sk);
+    }
 
     fd = process_fd_install(proc, node, O_RDWR | fd_flags);
     if (fd < 0) {
@@ -937,6 +947,7 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
     spin_unlock(&listener->lock);
 
     sock_blocked_wake(listener);
+    if (listener->node) vfs_poll_notify(listener->node, 0x001);
 
     return EOK;
 }
@@ -1089,6 +1100,7 @@ static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags
 
     /* Wake the peer if it's blocked on recv */
     sock_blocked_wake(peer);
+    if (peer->node) vfs_poll_notify(peer->node, 0x001);
 
     socket_unref(peer);
 
@@ -1168,7 +1180,10 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
 
     spin_unlock(&sk->lock);
 
-    if (!peek && total_read > 0 && peer) { sock_blocked_wake(peer); }
+    if (!peek && total_read > 0 && peer) {
+        sock_blocked_wake(peer);
+        if (peer->node) vfs_poll_notify(peer->node, 0x004);
+    }
 
     ret = (int)total_read;
     if (ret == 0 && !(flags & MSG_PEEK) && !(sk->shutdown_mask & SOCK_SHUT_MASK(SHUT_RD))) { return 0; }
@@ -1252,6 +1267,7 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
 
     /* Wake destination */
     sock_blocked_wake(dest);
+    if (dest->node) vfs_poll_notify(dest->node, 0x001);
 
     if (written < (uint32_t)len) return -ENOBUFS;
 
@@ -1423,7 +1439,7 @@ static size_t socket_vfs_read(void *file, void *addr, size_t offset, size_t size
 
     if (!sk) return (size_t)-1;
 
-    if (sk->family == AF_INET) {
+    if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
         ret = ops && ops->recvfrom ? ops->recvfrom(sk->priv, addr, size, 0, NULL, NULL) : -EOPNOTSUPP;
         return ret < 0 ? (size_t)-1 : (size_t)ret;
@@ -1454,7 +1470,7 @@ static size_t socket_vfs_write(void *file, const void *addr, size_t offset, size
 
     if (!sk) return (size_t)-1;
 
-    if (sk->family == AF_INET) {
+    if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
         ret = ops && ops->sendto ? ops->sendto(sk->priv, addr, size, 0, NULL, 0) : -EOPNOTSUPP;
         return ret < 0 ? (size_t)-1 : (size_t)ret;
@@ -1483,7 +1499,7 @@ static int64_t socket_vfs_file_read(vfs_node_t node, void *private_data, uint64_
     (void)offset;
     socket_t *sk = node ? node->handle : NULL;
     if (!sk) return -EBADF;
-    if (sk->family == AF_INET) {
+    if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
         return ops && ops->recvfrom ? ops->recvfrom(sk->priv, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0, NULL, NULL) : -EOPNOTSUPP;
     }
@@ -1498,7 +1514,7 @@ static int64_t socket_vfs_file_write(vfs_node_t node, void *private_data, uint64
     (void)offset;
     socket_t *sk = node ? node->handle : NULL;
     if (!sk) return -EBADF;
-    if (sk->family == AF_INET) {
+    if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
         return ops && ops->sendto ? ops->sendto(sk->priv, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0, NULL, 0) : -EOPNOTSUPP;
     }
@@ -1511,7 +1527,7 @@ static int socket_vfs_poll(void *file, size_t events)
 {
     socket_t *sk = (socket_t *)file;
     if (!sk) return 0;
-    if (sk->family == AF_INET) {
+    if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
         return ops && ops->poll ? ops->poll(sk->priv, events) : 0;
     }
@@ -1527,6 +1543,7 @@ static void socket_vfs_close(void *current)
 
     sk->shutdown_mask |= SOCK_SHUT_MASK(SHUT_RD) | SOCK_SHUT_MASK(SHUT_WR);
     sock_blocked_wake_all(sk);
+    if (sk->node) vfs_poll_notify(sk->node, 0x01d);
 }
 
 static int socket_vfs_free(void *handle)
@@ -1534,7 +1551,7 @@ static int socket_vfs_free(void *handle)
     socket_t *sk = (socket_t *)handle;
     if (!sk) return -EINVAL;
 
-    if (sk->family == AF_INET && sk->priv) {
+    if ((sk->family == AF_INET || sk->family == AF_INET6) && sk->priv) {
         const struct inet_backend_ops *ops = inet_backend_get();
         if (ops && ops->close) ops->close(sk->priv);
         sk->priv = NULL;
@@ -1556,6 +1573,7 @@ static int socket_vfs_free(void *handle)
         peer->peer     = NULL;
         peer->state    = SOCK_STATE_DISCONNECTING;
         sock_blocked_wake_all(peer);
+        if (peer->node) vfs_poll_notify(peer->node, 0x01d);
         socket_unref(peer);
     }
 
@@ -1613,7 +1631,7 @@ static size_t socket_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s)
 static int socket_stub_ioctl(void *f, size_t o, void *a)
 {
     socket_t *sk = f;
-    if (!sk || sk->family != AF_INET) return -ENOTTY;
+    if (!sk || (sk->family != AF_INET && sk->family != AF_INET6)) return -ENOTTY;
     const struct inet_backend_ops *ops = inet_backend_get();
     if (!ops || !ops->ioctl) return -EOPNOTSUPP;
     if (!a) return -EFAULT;
@@ -1705,7 +1723,7 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
     if (sock_family == AF_NETLINK) {
         /* Netlink uses SOCK_RAW or SOCK_DGRAM */
         if (sock_type != SOCK_RAW && sock_type != SOCK_DGRAM) return -ESOCKTNOSUPPORT;
-    } else if (sock_family == AF_INET) {
+    } else if (sock_family == AF_INET || sock_family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
         void *context = NULL;
         int ret;
@@ -1714,9 +1732,9 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
         if ((sock_type == SOCK_STREAM && protocol != IPPROTO_TCP) || (sock_type == SOCK_DGRAM && protocol != IPPROTO_UDP))
             return -EPROTONOSUPPORT;
         if (!ops || !ops->create) return -EAFNOSUPPORT;
-        ret = ops->create(sock_type, (int)protocol, extra_flags, &context);
+        ret = ops->create(sock_family, sock_type, (int)protocol, extra_flags, &context);
         if (ret < 0) return ret;
-        sk = inet_socket_alloc(sock_type, (uint16_t)protocol, extra_flags, context);
+        sk = inet_socket_alloc(sock_family, sock_type, (uint16_t)protocol, extra_flags, context);
         if (!sk) {
             ops->close(context);
             return -ENOMEM;
@@ -1760,13 +1778,13 @@ int64_t sys_bind(int fd, const sockaddr_t *addr, uint32_t addrlen)
 
     if (!addr) return -EINVAL;
 
-    if (sk->family == AF_INET) {
+    if (sk->family == AF_INET || sk->family == AF_INET6) {
         sockaddr_storage_t kaddr;
         const struct inet_backend_ops *ops = inet_backend_get();
         if (addrlen < sizeof(sa_family_t) || addrlen > sizeof(kaddr)) return -EINVAL;
         memset(&kaddr, 0, sizeof(kaddr));
         if (copy_from_user(&kaddr, addr, addrlen)) return -EFAULT;
-        if (kaddr.ss_family != AF_INET) return -EAFNOSUPPORT;
+        if (kaddr.ss_family != sk->family) return -EAFNOSUPPORT;
         return ops && ops->bind ? ops->bind(sk->priv, (const sockaddr_t *)&kaddr, addrlen) : -EOPNOTSUPP;
     }
 
@@ -1802,7 +1820,7 @@ int64_t sys_listen(int fd, int backlog)
 
     if (backlog < 0) backlog = 0;
 
-    if (sk->family == AF_INET) {
+    if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
         return ops && ops->listen ? ops->listen(sk->priv, backlog) : -EOPNOTSUPP;
     }
@@ -1824,7 +1842,7 @@ int64_t sys_accept(int fd, sockaddr_t *addr, uint32_t *addrlen, int flags)
 
     if (flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)) return -EINVAL;
     if ((addr == NULL) != (addrlen == NULL)) return -EFAULT;
-    if (sk->family == AF_INET) {
+    if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
         sockaddr_storage_t kaddr;
         uint32_t kaddrlen = sizeof(kaddr);
@@ -1837,7 +1855,7 @@ int64_t sys_accept(int fd, sockaddr_t *addr, uint32_t *addrlen, int flags)
         if (socket_fd_nonblock(fd)) operation_flags |= SOCK_NONBLOCK;
         ret = ops->accept(sk->priv, &context, (sockaddr_t *)&kaddr, &kaddrlen, operation_flags);
         if (ret < 0) return ret;
-        accepted = inet_socket_alloc(sk->type, sk->protocol, flags & SOCK_NONBLOCK, context);
+        accepted = inet_socket_alloc(sk->family, sk->type, sk->protocol, flags & SOCK_NONBLOCK, context);
         if (!accepted) {
             ops->close(context);
             return -ENOMEM;
@@ -1873,13 +1891,13 @@ int64_t sys_connect(int fd, const sockaddr_t *addr, uint32_t addrlen)
 
     if (!addr) return -EINVAL;
 
-    if (sk->family == AF_INET) {
+    if (sk->family == AF_INET || sk->family == AF_INET6) {
         sockaddr_storage_t kaddr;
         const struct inet_backend_ops *ops = inet_backend_get();
         if (addrlen < sizeof(sa_family_t) || addrlen > sizeof(kaddr)) return -EINVAL;
         memset(&kaddr, 0, sizeof(kaddr));
         if (copy_from_user(&kaddr, addr, addrlen)) return -EFAULT;
-        if (kaddr.ss_family != AF_INET && kaddr.ss_family != AF_UNSPEC) return -EAFNOSUPPORT;
+        if (kaddr.ss_family != sk->family && kaddr.ss_family != AF_UNSPEC) return -EAFNOSUPPORT;
         uint32_t operation_flags = socket_fd_nonblock(fd) ? SOCK_NONBLOCK : 0;
         return ops && ops->connect ? ops->connect(sk->priv, (const sockaddr_t *)&kaddr, addrlen, operation_flags) : -EOPNOTSUPP;
     }
@@ -1929,7 +1947,7 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
 
     if (len > SOCK_BUF_MAX) return -EMSGSIZE;
 
-    if (sk->family == AF_INET) {
+    if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
         sockaddr_storage_t kaddr;
         const sockaddr_t *dest = NULL;
@@ -1940,7 +1958,7 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
             if (addrlen < sizeof(sa_family_t) || addrlen > sizeof(kaddr)) return -EINVAL;
             memset(&kaddr, 0, sizeof(kaddr));
             if (copy_from_user(&kaddr, addr, addrlen)) return -EFAULT;
-            if (kaddr.ss_family != AF_INET) return -EAFNOSUPPORT;
+            if (kaddr.ss_family != sk->family) return -EAFNOSUPPORT;
             dest = (const sockaddr_t *)&kaddr;
         } else if (addrlen) {
             return -EINVAL;
@@ -2024,7 +2042,7 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr,
 
     if (!buf && len) return -EFAULT;
 
-    if (sk->family == AF_INET) {
+    if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
         sockaddr_storage_t kaddr;
         uint32_t kaddrlen = sizeof(kaddr);
@@ -2100,7 +2118,7 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
     (void)fd;
     (void)iov;
 
-    if (sk->family == AF_INET) {
+    if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
         sockaddr_storage_t kaddr;
         const sockaddr_t *dest = NULL;
@@ -2109,7 +2127,7 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
             if (kmsg->msg_namelen < sizeof(sa_family_t) || kmsg->msg_namelen > sizeof(kaddr)) return -EINVAL;
             memset(&kaddr, 0, sizeof(kaddr));
             if (copy_from_user(&kaddr, kmsg->msg_name, kmsg->msg_namelen)) return -EFAULT;
-            if (kaddr.ss_family != AF_INET) return -EAFNOSUPPORT;
+            if (kaddr.ss_family != sk->family) return -EAFNOSUPPORT;
             dest = (const sockaddr_t *)&kaddr;
         } else if (kmsg->msg_namelen) {
             return -EINVAL;
@@ -2154,7 +2172,7 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
     int msg_flags = 0;
     (void)fd;
 
-    if (sk->family == AF_INET) {
+    if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
         sockaddr_storage_t kaddr;
         uint32_t kaddrlen = sizeof(kaddr);
@@ -2393,7 +2411,7 @@ int64_t sys_shutdown(int fd, int how)
 
     if (how != SHUT_RD && how != SHUT_WR && how != SHUT_RDWR) return -EINVAL;
 
-    if (sk->family == AF_INET) {
+    if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
         return ops && ops->shutdown ? ops->shutdown(sk->priv, how) : -EOPNOTSUPP;
     }
@@ -2413,6 +2431,9 @@ int64_t sys_shutdown(int fd, int how)
     if (sk->peer) { sock_blocked_wake_all(sk->peer); }
 
     spin_unlock(&sk->lock);
+
+    if (sk->node) vfs_poll_notify(sk->node, 0x01d);
+    if (sk->peer && sk->peer->node) vfs_poll_notify(sk->peer->node, 0x01d);
 
     return EOK;
 }
@@ -2503,7 +2524,7 @@ int64_t sys_getsockname(int fd, sockaddr_t *addr, uint32_t *addrlen)
 
     if (!addr || !addrlen) return -EINVAL;
 
-    if (sk->family == AF_INET) {
+    if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
         sockaddr_storage_t kaddr;
         uint32_t len = sizeof(kaddr);
@@ -2523,6 +2544,7 @@ int64_t sys_getsockname(int fd, sockaddr_t *addr, uint32_t *addrlen)
     }
 
     spin_unlock(&sk->lock);
+
     return socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&sk->local_addr, kaddrlen);
 }
 
@@ -2538,7 +2560,7 @@ int64_t sys_getpeername(int fd, sockaddr_t *addr, uint32_t *addrlen)
 
     if (!addr || !addrlen) return -EINVAL;
 
-    if (sk->family == AF_INET) {
+    if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
         sockaddr_storage_t kaddr;
         uint32_t len = sizeof(kaddr);
@@ -2573,7 +2595,7 @@ int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint3
     sk = socket_from_fd(fd);
     if (!sk) return -EBADF;
 
-    if (sk->family == AF_INET) {
+    if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
         void *value;
         int ret;
@@ -2740,7 +2762,7 @@ int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *o
     sk = socket_from_fd(fd);
     if (!sk) return -EBADF;
 
-    if (sk->family == AF_INET) {
+    if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
         uint32_t userlen;
         uint32_t length;

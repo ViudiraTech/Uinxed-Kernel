@@ -6,7 +6,9 @@
 #include <net/endian.h>
 #include <net/ethernet.h>
 #include <net/ipv4.h>
+#include <net/ipv6.h>
 #include <net/netdev.h>
+#include <net/ndp.h>
 #include <net/packet.h>
 #include <net/tcp.h>
 
@@ -173,6 +175,7 @@ void net_timer(uint64_t now_ticks)
     arp_timer(now_ticks);
     tcp_timer(now_ticks);
     dhcp_timer(now_ticks);
+    ndp_timer(now_ticks);
 }
 
 int netdev_register(net_device_t *device)
@@ -257,6 +260,7 @@ int netdev_unregister(net_device_t *device)
     if (active && device->ops->stop) device->ops->stop(device);
     arp_device_removed(device);
     dhcp_device_removed(device);
+    ndp_device_removed(device);
     netdev_put(device);
     return 0;
 }
@@ -345,6 +349,7 @@ int netdev_set_up(net_device_t *device, int up)
         spin_lock(&device->lock);
         device->flags |= NETDEV_F_UP | NETDEV_F_RUNNING;
         spin_unlock(&device->lock);
+        ndp_device_up(device);
     } else {
         spin_lock(&device->lock);
         int active = !!(device->flags & NETDEV_F_UP);

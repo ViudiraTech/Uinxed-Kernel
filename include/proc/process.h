@@ -11,6 +11,7 @@
 #ifndef INCLUDE_PROCESS_H_
 #define INCLUDE_PROCESS_H_
 
+#include <fs/vfs.h>
 #include <libs/glist/singly_list.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
@@ -19,7 +20,6 @@
 #include <proc/task.h>
 #include <sync/signal.h>
 
-typedef struct vfs_node *vfs_node_t;
 typedef struct tty_core  tty_core_t;
 
 typedef struct syscall_frame syscall_frame_t;
@@ -91,11 +91,14 @@ typedef struct process_file {
         size_t       offset;
         uint64_t     flags;
         uint32_t     refcount;
+        uint32_t     fd_refcount;
         spinlock_t   lock;
         wait_queue_t io_wait;
         bool         io_busy;
         void        *private_data; /* per-open-instance driver-private data */
         bool         file_opened;  /* file_open succeeded and requires release */
+        bool         descriptors_closed;
+        struct vfs_poll_source close_source;
 } process_file_t;
 
 typedef struct process_fd_stat {
@@ -107,6 +110,8 @@ typedef struct process_fd_stat {
         uint64_t size;
         uint64_t blksz;
 } process_fd_stat_t;
+
+#define PROCESS_AT_FDCWD -100
 
 typedef struct process {
         task_t           *task;
@@ -126,13 +131,14 @@ typedef struct process {
         spinlock_t        fd_lock;
         signal_state_t    signal;
         uint32_t          refcount;
+        uint32_t          thread_count;
+        ilist_node_t       threads;
         pid_t             pgid;
         pid_t             sid;
         tty_core_t       *controlling_tty;
         char              name[PROCESS_NAME_LEN];
-        char              root[256];       /* chroot path */
-        char              cwd[256];        /* current working directory */
-        uint64_t          clear_child_tid; /* set_tid_address target */
+        char              root[VFS_PATH_MAX]; /* chroot path */
+        char              cwd[VFS_PATH_MAX];  /* current working directory */
 } process_t;
 
 /* Initialize the process management subsystem */
@@ -197,6 +203,10 @@ process_t *process_fork_status(int *error);
 /* Clone the current process and make the child return from the syscall frame */
 process_t *process_fork_from_syscall(syscall_frame_t *frame);
 
+/* Create a pthread-style task sharing the current process resources. */
+task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uintptr_t parent_tid, uintptr_t child_set_tid,
+                             uintptr_t child_clear_tid, uintptr_t tls, int *error);
+
 /* Return the next available pid */
 pid_t process_next_pid(void);
 
@@ -246,6 +256,11 @@ int process_fd_stat(process_t *proc, int fd, process_fd_stat_t *stat);
 
 /* Decrement reference count on a file, freeing it when it reaches zero */
 void            process_file_put(process_file_t *file);
+void            process_file_get(process_file_t *file);
 process_file_t *process_fd_get(process_t *proc, int fd);
+int             process_file_poll(process_file_t *file, size_t events);
+
+/* Resolve a pathname against cwd or a directory descriptor. */
+int process_resolve_path_at(process_t *proc, int dirfd, const char *path, char *resolved, size_t size);
 
 #endif /* INCLUDE_PROCESS_H_ */

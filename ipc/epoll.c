@@ -31,7 +31,7 @@
 #ifndef EPOLL_MAX_FDS
 #    define EPOLL_MAX_FDS 1024
 #endif
-#define EPOLL_TICKS_PER_SEC 100 /* scheduler tick frequency */
+#define EPOLL_TICKS_PER_SEC 100
 
 /* poll event bits (matching pipe.c) */
 #define POLLIN  0x001
@@ -54,6 +54,11 @@ typedef struct epoll_item {
         int               active;
         uint32_t          last_revents;     /* previous poll result for edge-triggered */
         int               oneshot_disabled; /* EPOLLONESHOT re-arm flag */
+        process_file_t    *file;
+        vfs_poll_subscription_t subscription;
+        vfs_poll_subscription_t close_subscription;
+        uint32_t          pending_events;
+        bool              target_closed;
 } epoll_item_t;
 
 typedef struct epoll_instance {
@@ -63,6 +68,7 @@ typedef struct epoll_instance {
         spinlock_t       lock;
         struct vfs_node *node;
         uint32_t         refcount;
+        uint64_t         event_generation;
 } epoll_instance_t;
 
 /* ------------------------------------------------------------------ */
@@ -96,6 +102,28 @@ static uint32_t epoll_map_poll_result(int poll_result, uint32_t requested)
     return revents & (requested | EPOLLERR | EPOLLHUP);
 }
 
+static void epoll_item_notify(vfs_poll_subscription_t *subscription, uint32_t events)
+{
+    (void)events;
+    epoll_item_t *item = subscription->context;
+    if (__atomic_load_n(&item->active, __ATOMIC_ACQUIRE)) {
+        __atomic_fetch_or(&item->pending_events, events, __ATOMIC_RELEASE);
+        __atomic_add_fetch(&item->epi->event_generation, 1, __ATOMIC_RELEASE);
+        wait_queue_wake_all(&item->epi->wq);
+    }
+}
+
+static void epoll_target_close(vfs_poll_subscription_t *subscription, uint32_t events)
+{
+    (void)events;
+    epoll_item_t *item = subscription->context;
+    __atomic_store_n(&item->target_closed, true, __ATOMIC_RELEASE);
+    __atomic_fetch_or(&item->pending_events, EPOLLHUP, __ATOMIC_RELEASE);
+    vfs_poll_unsubscribe(item->file->node, &item->subscription);
+    __atomic_add_fetch(&item->epi->event_generation, 1, __ATOMIC_RELEASE);
+    wait_queue_wake_all(&item->epi->wq);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Item operations                                                     */
 /* ------------------------------------------------------------------ */
@@ -113,7 +141,7 @@ static epoll_item_t *epoll_item_find(epoll_instance_t *epi, int fd)
  * Add a new fd to the epoll set.  Must be called with epi->lock held.
  * Returns NULL on error (fd already present, or OOM).
  */
-static epoll_item_t *epoll_item_add(epoll_instance_t *epi, int fd, const epoll_event_t *event)
+static epoll_item_t *epoll_item_add(epoll_instance_t *epi, int fd, process_file_t *file, const epoll_event_t *event)
 {
     if (fd < 0 || fd >= EPOLL_MAX_FDS) return NULL;
     if (epi->items[fd]) return NULL; /* already present */
@@ -130,6 +158,7 @@ static epoll_item_t *epoll_item_add(epoll_instance_t *epi, int fd, const epoll_e
     item->active           = 1;
     item->last_revents     = 0;
     item->oneshot_disabled = 0;
+    item->file             = file;
 
     epi->items[fd] = item;
     epi->fd_count++;
@@ -141,18 +170,17 @@ static epoll_item_t *epoll_item_add(epoll_instance_t *epi, int fd, const epoll_e
  * Delete an fd from the epoll set.  Must be called with epi->lock held.
  * Returns 0 on success, -ENOENT if not found.
  */
-static int epoll_item_del(epoll_instance_t *epi, int fd)
+static epoll_item_t *epoll_item_del(epoll_instance_t *epi, int fd)
 {
-    if (fd < 0 || fd >= EPOLL_MAX_FDS) return -ENOENT;
+    if (fd < 0 || fd >= EPOLL_MAX_FDS) return NULL;
 
     epoll_item_t *item = epi->items[fd];
-    if (!item) return -ENOENT;
+    if (!item) return NULL;
 
     epi->items[fd] = NULL;
     epi->fd_count--;
-    free(item);
-
-    return EOK;
+    __atomic_store_n(&item->active, 0, __ATOMIC_RELEASE);
+    return item;
 }
 
 /*
@@ -182,19 +210,21 @@ static int epoll_item_mod(epoll_instance_t *epi, int fd, const epoll_event_t *ev
  */
 static int epoll_poll_all(epoll_instance_t *epi)
 {
-    process_t *proc = process_current();
-    if (!proc) return 0;
-
     int ready = 0;
 
     for (int fd = 0; fd < EPOLL_MAX_FDS; fd++) {
         epoll_item_t *item = epi->items[fd];
-        if (!item || !item->active) continue;
+        if (!item || !__atomic_load_n(&item->active, __ATOMIC_ACQUIRE)) continue;
+        if (__atomic_load_n(&item->target_closed, __ATOMIC_ACQUIRE)) {
+            item->revents = EPOLLHUP;
+            ready++;
+            continue;
+        }
 
         /* Skip one-shot items that have been disabled after reporting */
         if (item->oneshot_disabled) continue;
 
-        int      poll_result = process_fd_poll(proc, fd, (size_t)item->events);
+        int      poll_result = process_file_poll(item->file, (size_t)(item->events | POLLERR | POLLHUP));
         uint32_t current     = epoll_map_poll_result(poll_result, item->events);
 
         if (item->events & EPOLLET) {
@@ -202,6 +232,8 @@ static int epoll_poll_all(epoll_instance_t *epi)
              * Edge-triggered: only report events that transitioned
              * from not-ready to ready since the last poll.
              */
+            uint32_t changed = __atomic_exchange_n(&item->pending_events, 0, __ATOMIC_ACQ_REL);
+            item->last_revents &= ~changed;
             uint32_t new_ready = current & ~item->last_revents;
             item->last_revents = current;
             item->revents      = new_ready;
@@ -273,6 +305,15 @@ static void epoll_vfs_close(void *current)
     spin_unlock(&epi->lock);
 }
 
+static void epoll_item_release(epoll_item_t *item)
+{
+    if (!item) return;
+    vfs_poll_unsubscribe(item->file->node, &item->subscription);
+    vfs_poll_source_unsubscribe(&item->file->close_source, &item->close_subscription);
+    process_file_put(item->file);
+    free(item);
+}
+
 /*
  * epoll does not support read(); return -EINVAL.
  */
@@ -322,17 +363,12 @@ static int epoll_vfs_free(void *handle)
     epoll_instance_t *epi = (epoll_instance_t *)handle;
     if (!epi) return -EINVAL;
 
-    spin_lock(&epi->lock);
-
     for (int fd = 0; fd < EPOLL_MAX_FDS; fd++) {
-        epoll_item_t *item = epi->items[fd];
-        if (item) {
-            epi->items[fd] = NULL;
-            free(item);
-        }
+        spin_lock(&epi->lock);
+        epoll_item_t *item = epoll_item_del(epi, fd);
+        spin_unlock(&epi->lock);
+        epoll_item_release(item);
     }
-
-    spin_unlock(&epi->lock);
 
     free(epi);
     return EOK;
@@ -531,8 +567,18 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
     epoll_instance_t *epi     = epoll_resolve_fd(epfd, proc, &ep_file);
     if (!epi) return -EBADF;
 
-    epoll_event_t ev;
-    int64_t       ret;
+    epoll_event_t  ev;
+    int64_t        ret;
+    process_file_t *target  = NULL;
+    epoll_item_t   *release = NULL;
+
+    if (op == EPOLL_CTL_ADD) {
+        target = process_fd_get(proc, fd);
+        if (!target) {
+            process_file_put(ep_file);
+            return -EBADF;
+        }
+    }
 
     spin_lock(&epi->lock);
 
@@ -547,16 +593,23 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
                 break;
             }
 
-            epoll_item_t *item = epoll_item_add(epi, fd, &ev);
+            epoll_item_t *old = epoll_item_find(epi, fd);
+            if (old && __atomic_load_n(&old->target_closed, __ATOMIC_ACQUIRE)) release = epoll_item_del(epi, fd);
+            epoll_item_t *item = epoll_item_add(epi, fd, target, &ev);
             if (!item) {
                 ret = -EEXIST;
                 break;
             }
+            target = NULL;
+            vfs_poll_subscribe(item->file->node, &item->subscription, UINT32_MAX, epoll_item_notify, item);
+            vfs_poll_source_subscribe(&item->file->close_source, &item->close_subscription,
+                                      UINT32_MAX, epoll_target_close, item);
 
             /* Poll immediately for initial readiness */
-            int      poll_result = process_fd_poll(proc, fd, (size_t)item->events);
+            int      poll_result = process_file_poll(item->file, (size_t)(item->events | POLLERR | POLLHUP));
             uint32_t current     = epoll_map_poll_result(poll_result, item->events);
-            item->last_revents   = current;
+            item->last_revents   = 0;
+            item->pending_events = current;
             if (item->events & EPOLLET) {
                 item->revents = current;
             } else {
@@ -571,7 +624,8 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
         }
 
         case EPOLL_CTL_DEL : {
-            ret = epoll_item_del(epi, fd);
+            release = epoll_item_del(epi, fd);
+            ret     = release ? EOK : -ENOENT;
             break;
         }
 
@@ -589,7 +643,7 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
             if (ret != EOK) break;
 
             /* Re-poll for readiness after modification */
-            int      poll_result = process_fd_poll(proc, fd, (size_t)ev.events);
+            int      poll_result = process_file_poll(epi->items[fd]->file, (size_t)(ev.events | POLLERR | POLLHUP));
             uint32_t current     = epoll_map_poll_result(poll_result, ev.events);
 
             epoll_item_t *item = epoll_item_find(epi, fd);
@@ -614,6 +668,8 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
     }
 
     spin_unlock(&epi->lock);
+    if (target) process_file_put(target);
+    epoll_item_release(release);
     process_file_put(ep_file);
 
     return ret;
@@ -646,6 +702,7 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
     spin_lock(&epi->lock);
 
     for (;;) {
+        uint64_t generation = __atomic_load_n(&epi->event_generation, __ATOMIC_ACQUIRE);
         /* Poll all registered fds */
         int ready = epoll_poll_all(epi);
 
@@ -660,9 +717,14 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
             break;
         }
 
-        /* The VFS poll interface does not expose readiness subscriptions. */
+        wait_queue_prepare(&epi->wq);
+        if (__atomic_load_n(&epi->event_generation, __ATOMIC_ACQUIRE) != generation) wait_queue_wake_all(&epi->wq);
         spin_unlock(&epi->lock);
-        task_sleep_ticks(1);
+        if (deadline) {
+            (void)wait_queue_wait_timed(&epi->wq, deadline);
+        } else {
+            wait_queue_sleep();
+        }
         spin_lock(&epi->lock);
     }
 

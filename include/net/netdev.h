@@ -57,7 +57,15 @@ struct net_device {
         uint32_t            ipv4_address;
         uint32_t            ipv4_netmask;
         uint32_t            ipv4_gateway;
-        uint32_t            ipv4_dns[NETDEV_DNS_MAX];
+    uint32_t            ipv4_dns[NETDEV_DNS_MAX];
+        uint8_t             ipv6_link_local[16];
+        uint8_t             ipv6_address[16];
+        uint8_t             ipv6_prefix_length;
+        uint8_t             ipv6_default_router[16];
+        uint32_t            ipv6_mtu;
+        uint64_t            ipv6_valid_until;
+        uint64_t            ipv6_preferred_until;
+        uint64_t            ipv6_router_until;
         const netdev_ops_t *ops;
         void               *driver_data;
         netdev_stats_t      stats;

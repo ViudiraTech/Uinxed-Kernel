@@ -33,6 +33,10 @@
 #define MAP_STACK     0x20000
 #define MAP_HUGETLB   0x40000
 
+/* mremap flags */
+#define MREMAP_MAYMOVE 0x1
+#define MREMAP_FIXED   0x2
+
 /* msync flags */
 #define MS_ASYNC      0x01
 #define MS_INVALIDATE 0x02

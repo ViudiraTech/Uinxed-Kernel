@@ -10,7 +10,6 @@
 
 #include <ipc/futex.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
@@ -34,6 +33,13 @@
 #define FUTEX_HASH_SIZE (1 << FUTEX_HASH_BITS)
 
 #define FUTEX_TICKS_PER_SEC 100
+#define FUTEX_NSEC_PER_TICK (1000000000ULL / FUTEX_TICKS_PER_SEC)
+
+/* The syscall clock layer may provide the realtime clock in scheduler ticks. */
+#ifndef FUTEX_REALTIME_TICKS
+__attribute__((weak)) uint64_t futex_realtime_ticks(void) { return sched_ticks(); }
+#    define FUTEX_REALTIME_TICKS() futex_realtime_ticks()
+#endif
 
 /* FUTEX_WAKE_OP operation codes */
 #define FUTEX_OP_SET  0
@@ -127,6 +133,34 @@ static futex_entry_t *futex_find_or_create(futex_bucket_t *bucket, uint32_t *uad
     return entry;
 }
 
+static futex_entry_t *futex_find_waiter(futex_bucket_t *bucket, uint32_t *uaddr, uint32_t bitset)
+{
+    uintptr_t key = (uintptr_t)uaddr;
+
+    for (futex_entry_t *entry = bucket->head; entry; entry = entry->next) {
+        if (entry->key == key && entry->bitset == bitset && !entry->pi_mutex) return entry;
+    }
+    return NULL;
+}
+
+/* Separate queues per bitset make WAKE_BITSET selection exact. */
+static futex_entry_t *futex_create_waiter(futex_bucket_t *bucket, uint32_t *uaddr, uint32_t bitset)
+{
+    futex_entry_t *entry = futex_find_waiter(bucket, uaddr, bitset);
+    if (entry) return entry;
+
+    entry = (futex_entry_t *)malloc(sizeof(futex_entry_t));
+    if (!entry) return NULL;
+
+    entry->key      = (uintptr_t)uaddr;
+    entry->bitset   = bitset;
+    entry->pi_mutex = NULL;
+    wait_queue_init(&entry->wq);
+    entry->next  = bucket->head;
+    bucket->head = entry;
+    return entry;
+}
+
 /*
  * Remove an entry from the bucket's linked list and free it.
  * Must be called with the bucket lock held.
@@ -179,30 +213,45 @@ static int futex_try_cleanup(futex_bucket_t *bucket, futex_entry_t *entry)
     return 0;
 }
 
-/*
- * Convert a user-space timespec to scheduler ticks.
- * Returns 0 if the time is zero or negative.
- */
-static uint64_t futex_timespec_to_ticks(uint64_t timeout_ptr)
+/* Convert a validated user-space timespec to scheduler ticks. */
+typedef struct {
+        int64_t tv_sec;
+        int64_t tv_nsec;
+} futex_timespec_t;
+
+static int futex_read_timespec(uint64_t timeout_ptr, uint64_t *ticks)
 {
-    if (!timeout_ptr) return 0;
+    futex_timespec_t ts;
+    uint64_t         nsec_ticks;
 
-    int64_t tv_sec;
-    int64_t tv_nsec;
+    if (copy_from_user(&ts, (const void *)timeout_ptr, sizeof(ts)) != 0) return -EFAULT;
+    if (ts.tv_sec < 0 || ts.tv_nsec < 0 || ts.tv_nsec >= 1000000000LL) return -EINVAL;
+    if ((uint64_t)ts.tv_sec > UINT64_MAX / FUTEX_TICKS_PER_SEC) return -EINVAL;
 
-    if (copy_from_user(&tv_sec, (const void *)timeout_ptr, sizeof(tv_sec)) != 0) return 0;
-    if (copy_from_user(&tv_nsec, (const void *)(timeout_ptr + 8), sizeof(tv_nsec)) != 0) return 0;
+    *ticks     = (uint64_t)ts.tv_sec * FUTEX_TICKS_PER_SEC;
+    nsec_ticks = ((uint64_t)ts.tv_nsec + FUTEX_NSEC_PER_TICK - 1) / FUTEX_NSEC_PER_TICK;
+    if (nsec_ticks > UINT64_MAX - *ticks) return -EINVAL;
+    *ticks += nsec_ticks;
+    return 0;
+}
 
-    if (tv_sec < 0 || tv_nsec < 0) return 0;
-    if (tv_sec == 0 && tv_nsec == 0) return 0;
+static uint64_t futex_clock_ticks(int realtime)
+{
+    if (realtime) return FUTEX_REALTIME_TICKS();
+    return sched_ticks();
+}
 
-    uint64_t ticks = (uint64_t)tv_sec * FUTEX_TICKS_PER_SEC;
-    ticks += (uint64_t)tv_nsec / (1000000000ULL / FUTEX_TICKS_PER_SEC);
+static uint64_t futex_deadline(uint64_t ticks, int absolute, int realtime)
+{
+    uint64_t now = sched_ticks();
 
-    /* Always round up to at least 1 tick for non-zero timeout */
-    if (ticks == 0 && (tv_sec > 0 || tv_nsec > 0)) ticks = 1;
+    if (!absolute) return ticks > UINT64_MAX - now ? UINT64_MAX : now + ticks;
+    if (!realtime) return ticks;
 
-    return ticks;
+    uint64_t realtime_now = futex_clock_ticks(1);
+    if (ticks <= realtime_now) return now;
+    ticks -= realtime_now;
+    return ticks > UINT64_MAX - now ? UINT64_MAX : now + ticks;
 }
 
 /* ------------------------------------------------------------------ */
@@ -217,131 +266,51 @@ static uint64_t futex_timespec_to_ticks(uint64_t timeout_ptr)
  * bitset is the mask of bits that must match for wakeup;
  * FUTEX_BITSET_MATCH_ANY (0xffffffff) matches any wake.
  */
-static int futex_wait(uint32_t *uaddr, uint32_t val, uint64_t timeout, uint32_t bitset)
+static int futex_wait(uint32_t *uaddr, uint32_t val, uint64_t timeout, uint32_t bitset, int absolute, int realtime)
 {
     futex_bucket_t *bucket = &futex_hash[futex_hash_index(uaddr)];
+    futex_entry_t  *entry;
     uint32_t        cur_val;
+    uint64_t        deadline = 0;
+    int             ret;
 
-    /* bitset must be non-zero per Linux ABI */
     if (bitset == 0) return -EINVAL;
+    if (timeout) {
+        ret = futex_read_timespec(timeout, &deadline);
+        if (ret) return ret;
+        deadline = futex_deadline(deadline, absolute, realtime);
+    }
 
     spin_lock(&bucket->lock);
-
     if (copy_from_user(&cur_val, uaddr, sizeof(cur_val)) != 0) {
         spin_unlock(&bucket->lock);
         return -EFAULT;
     }
-
     if (cur_val != val) {
         spin_unlock(&bucket->lock);
         return -EAGAIN;
     }
 
-    /* Handle zero timeout: re-check under lock (no sleeping needed) */
-    if (timeout) {
-        uint64_t timeout_ticks = futex_timespec_to_ticks(timeout);
-        if (timeout_ticks == 0) {
-            spin_unlock(&bucket->lock);
-            return -ETIMEDOUT;
-        }
-        uint64_t deadline = sched_ticks() + timeout_ticks;
-
-        futex_entry_t *entry = futex_find_or_create(bucket, uaddr, bitset);
-        if (!entry) {
-            spin_unlock(&bucket->lock);
-            return -ENOMEM;
-        }
-
-        wait_queue_prepare(&entry->wq);
-        spin_unlock(&bucket->lock);
-
-        int ret = wait_queue_wait_timed(&entry->wq, deadline);
-
-        spin_lock(&bucket->lock);
-
-        /*
-         * After waking up, re-find the entry by key instead of using
-         * the cached pointer.  Another futex_wake may have freed the
-         * entry before we re-acquired the bucket lock.
-         */
-        entry = futex_find(bucket, uaddr);
-
-        if (ret == -ETIMEDOUT) {
-            if (!entry) {
-                spin_unlock(&bucket->lock);
-                return 0;
-            }
-            if (copy_from_user(&cur_val, uaddr, sizeof(cur_val)) != 0) {
-                futex_try_cleanup(bucket, entry);
-                spin_unlock(&bucket->lock);
-                return -EFAULT;
-            }
-            if (cur_val != val) {
-                futex_try_cleanup(bucket, entry);
-                spin_unlock(&bucket->lock);
-                return 0;
-            }
-            futex_try_cleanup(bucket, entry);
-            spin_unlock(&bucket->lock);
-            return -ETIMEDOUT;
-        }
-
-        if (!entry) {
-            spin_unlock(&bucket->lock);
-            return 0;
-        }
-        if (copy_from_user(&cur_val, uaddr, sizeof(cur_val)) != 0) {
-            futex_try_cleanup(bucket, entry);
-            spin_unlock(&bucket->lock);
-            return -EFAULT;
-        }
-
-        if (cur_val != val) {
-            futex_try_cleanup(bucket, entry);
-            spin_unlock(&bucket->lock);
-            return 0;
-        }
-
-        futex_try_cleanup(bucket, entry);
-        spin_unlock(&bucket->lock);
-        return -EAGAIN;
-    }
-
-    /* No timeout — block indefinitely */
-    futex_entry_t *entry = futex_find_or_create(bucket, uaddr, bitset);
+    entry = futex_create_waiter(bucket, uaddr, bitset);
     if (!entry) {
         spin_unlock(&bucket->lock);
         return -ENOMEM;
     }
-
     wait_queue_prepare(&entry->wq);
     spin_unlock(&bucket->lock);
 
-    wait_queue_sleep();
+    if (timeout)
+        ret = wait_queue_wait_timed(&entry->wq, deadline);
+    else {
+        wait_queue_sleep();
+        ret = 0;
+    }
 
     spin_lock(&bucket->lock);
-
-    entry = futex_find(bucket, uaddr);
-    if (!entry) {
-        spin_unlock(&bucket->lock);
-        return 0;
-    }
-
-    if (copy_from_user(&cur_val, uaddr, sizeof(cur_val)) != 0) {
-        futex_try_cleanup(bucket, entry);
-        spin_unlock(&bucket->lock);
-        return -EFAULT;
-    }
-
-    if (cur_val != val) {
-        futex_try_cleanup(bucket, entry);
-        spin_unlock(&bucket->lock);
-        return 0;
-    }
-
+    entry = futex_find_waiter(bucket, uaddr, bitset);
     futex_try_cleanup(bucket, entry);
     spin_unlock(&bucket->lock);
-    return -EAGAIN;
+    return ret;
 }
 
 /* ------------------------------------------------------------------ */
@@ -353,12 +322,13 @@ static int futex_wait(uint32_t *uaddr, uint32_t val, uint64_t timeout, uint32_t 
  * Only wake tasks whose bitset matches the wake bitset.
  * Returns the number of tasks actually woken.
  */
-static int futex_wake(uint32_t *uaddr, int nr_wake, uint32_t bitset)
+int futex_wake(uint32_t *uaddr, int nr_wake, uint32_t bitset)
 {
     futex_bucket_t *bucket = &futex_hash[futex_hash_index(uaddr)];
     futex_entry_t  *entry;
     int             woken = 0;
 
+    if (bitset == 0) return -EINVAL;
     if (nr_wake <= 0) return 0;
 
     spin_lock(&bucket->lock);
@@ -377,7 +347,6 @@ static int futex_wake(uint32_t *uaddr, int nr_wake, uint32_t bitset)
             if (!task) break;
             woken++;
         }
-        break;
     }
 
     /*
@@ -981,9 +950,11 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
 {
     int cmd           = futex_op & 0x7f;
     int flags         = futex_op & ~0x7f;
-    int private_futex = (flags & FUTEX_PRIVATE_FLAG) != 0;
+    int allowed_flags = FUTEX_PRIVATE_FLAG;
 
-    (void)private_futex;
+    if (cmd == FUTEX_WAIT_BITSET || cmd == FUTEX_WAIT_REQUEUE_PI || cmd == FUTEX_LOCK_PI2)
+        allowed_flags |= FUTEX_CLOCK_REALTIME;
+    if (flags & ~allowed_flags) return -EINVAL;
 
     switch (cmd) {
         case FUTEX_WAIT : {
@@ -991,19 +962,14 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
             if (!uaddr) return -EFAULT;
             if (user_access_ok(uaddr, sizeof(uint32_t), 0) != 0) return -EFAULT;
 
-            return futex_wait(uaddr, val, timeout, FUTEX_BITSET_MATCH_ANY);
+            return futex_wait(uaddr, val, timeout, FUTEX_BITSET_MATCH_ANY, 0, 0);
         }
 
         case FUTEX_WAIT_BITSET : {
             if (!uaddr) return -EFAULT;
             if (user_access_ok(uaddr, sizeof(uint32_t), 0) != 0) return -EFAULT;
 
-            if (!(flags & FUTEX_CLOCK_REALTIME)) {
-                /* val3 is the bitset */
-                return futex_wait(uaddr, val, timeout, val3);
-            }
-            /* FUTEX_CLOCK_REALTIME: timeout is absolute */
-            return futex_wait(uaddr, val, timeout, val3);
+            return futex_wait(uaddr, val, timeout, val3, 1, (flags & FUTEX_CLOCK_REALTIME) != 0);
         }
 
         case FUTEX_WAKE : {

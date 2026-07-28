@@ -1,18 +1,54 @@
-/* Linux x86_64 IPv4 socket ABI and kernel backend adapter. */
+/* Linux x86_64 Internet socket ABI and kernel backend adapter. */
 #ifndef INCLUDE_NET_ABI_INET_H_
 #define INCLUDE_NET_ABI_INET_H_
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
+#ifndef AF_UNSPEC
+#    define AF_UNSPEC 0
+#endif
+#ifndef AF_INET
+#    define AF_INET 2
+#endif
+#ifndef AF_INET6
+#    define AF_INET6 10
+#endif
+
 #define IPPROTO_IP   0
 #define IPPROTO_ICMP 1
 #define IPPROTO_TCP  6
 #define IPPROTO_UDP  17
+#define IPPROTO_IPV6 41
 #define IPPROTO_RAW  255
 
 #define SOL_IP  0
 #define SOL_TCP 6
+#define SOL_IPV6 41
+
+#define IPV6_ADDRFORM         1
+#define IPV6_2292PKTINFO      2
+#define IPV6_2292HOPOPTS      3
+#define IPV6_2292DSTOPTS      4
+#define IPV6_2292RTHDR        5
+#define IPV6_UNICAST_HOPS     16
+#define IPV6_MULTICAST_IF     17
+#define IPV6_MULTICAST_HOPS   18
+#define IPV6_MULTICAST_LOOP   19
+#define IPV6_ADD_MEMBERSHIP   20
+#define IPV6_DROP_MEMBERSHIP  21
+#define IPV6_MTU_DISCOVER     23
+#define IPV6_MTU              24
+#define IPV6_RECVERR          25
+#define IPV6_V6ONLY           26
+#define IPV6_RECVPKTINFO      49
+#define IPV6_PKTINFO          50
+#define IPV6_RECVHOPLIMIT     51
+#define IPV6_HOPLIMIT         52
+#define IPV6_RECVTCLASS       66
+#define IPV6_TCLASS           67
+#define IPV6_TRANSPARENT      75
+#define IPV6_FREEBIND         78
 
 #define IP_TOS              1
 #define IP_TTL              2
@@ -67,6 +103,37 @@ typedef struct sockaddr_in {
         struct in_addr  sin_addr;
         uint8_t         sin_zero[8];
 } sockaddr_in_t;
+
+typedef struct in6_addr {
+        union {
+                uint8_t  u6_addr8[16];
+                uint16_t u6_addr16[8];
+                uint32_t u6_addr32[4];
+        } in6_u;
+} in6_addr_t;
+
+#define IN6ADDR_ANY_INIT      {{{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}}
+#define IN6ADDR_LOOPBACK_INIT {{{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}}}
+
+#define s6_addr   in6_u.u6_addr8
+#define s6_addr16 in6_u.u6_addr16
+#define s6_addr32 in6_u.u6_addr32
+
+typedef struct sockaddr_in6 {
+        sa_family_t     sin6_family;
+        uint16_t        sin6_port;
+        uint32_t        sin6_flowinfo;
+        struct in6_addr sin6_addr;
+        uint32_t        sin6_scope_id;
+} sockaddr_in6_t;
+
+typedef struct ipv6_mreq {
+        struct in6_addr ipv6mr_multiaddr;
+        uint32_t        ipv6mr_interface;
+} ipv6_mreq_t;
+
+#define IPV6_JOIN_GROUP  IPV6_ADD_MEMBERSHIP
+#define IPV6_LEAVE_GROUP IPV6_DROP_MEMBERSHIP
 
 typedef struct sockaddr_storage {
         sa_family_t ss_family;
@@ -146,7 +213,7 @@ enum inet_proc_file {
 };
 
 struct inet_backend_ops {
-        int (*create)(int type, int protocol, uint32_t flags, void **context);
+        int (*create)(int family, int type, int protocol, uint32_t flags, void **context);
         void (*close)(void *context);
         int (*bind)(void *context, const struct sockaddr *addr, uint32_t addrlen);
         int (*connect)(void *context, const struct sockaddr *addr, uint32_t addrlen, uint32_t flags);
@@ -160,6 +227,7 @@ struct inet_backend_ops {
         int (*setsockopt)(void *context, int level, int optname, const void *value, uint32_t length);
         int (*getsockopt)(void *context, int level, int optname, void *value, uint32_t *length);
         int (*poll)(void *context, size_t events);
+        void (*set_event_callback)(void *context, void (*callback)(void *argument, uint32_t events), void *argument);
         int (*ioctl)(void *context, size_t request, struct ifreq *ifr);
         size_t (*proc_read)(enum inet_proc_file file, char *buf, size_t capacity);
 };
@@ -170,6 +238,9 @@ size_t inet_backend_proc_read(enum inet_proc_file file, char *buf, size_t capaci
 int inet_builtin_backend_register(void);
 
 _Static_assert(sizeof(struct sockaddr_in) == 16, "Linux sockaddr_in ABI");
+_Static_assert(sizeof(struct in6_addr) == 16, "Linux in6_addr ABI");
+_Static_assert(sizeof(struct sockaddr_in6) == 28, "Linux sockaddr_in6 ABI");
+_Static_assert(sizeof(struct ipv6_mreq) == 20, "Linux ipv6_mreq ABI");
 _Static_assert(sizeof(struct sockaddr_storage) == 128, "Linux sockaddr_storage ABI");
 _Static_assert(_Alignof(struct sockaddr_storage) == 8, "Linux sockaddr_storage alignment");
 _Static_assert(sizeof(struct ifreq) == 40, "Linux x86_64 ifreq ABI");

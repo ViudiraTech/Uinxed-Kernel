@@ -68,6 +68,7 @@ typedef struct {
 
 struct task {
         uint64_t           pid;
+        uint64_t           tgid;
         task_state_t       state;
         volatile uint64_t  on_cpu; /* cleared only after switching off this task's stack */
         task_context_t     context;
@@ -84,6 +85,8 @@ struct task {
         uint32_t           cpu_id;
         char               name[TASK_NAME_LEN];
         process_t         *process;
+        uint64_t           clear_child_tid;
+        ilist_node_t       thread_node;
         cgroup_t          *cgroup;
         ilist_node_t       cgroup_node;
         /* ---- EEVDF scheduling fields ---- */

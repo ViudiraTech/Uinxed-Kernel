@@ -7,6 +7,7 @@
 #define ETH_HEADER_LEN  14U
 #define ETH_TYPE_IPV4   0x0800U
 #define ETH_TYPE_ARP    0x0806U
+#define ETH_TYPE_IPV6   0x86ddU
 
 extern const uint8_t ethernet_broadcast_address[ETH_ADDRESS_LEN];
 

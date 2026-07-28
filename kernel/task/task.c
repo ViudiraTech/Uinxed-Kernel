@@ -161,6 +161,7 @@ task_t *task_alloc_status(const char *name, int *error)
     task_name_copy(task, name);
     ilist_init(&task->sched_node);
     ilist_init(&task->timer_node);
+    ilist_init(&task->thread_node);
     ilist_init(&task->cgroup_node);
 
     if (cgroup_root()) parent = current_task();
@@ -174,6 +175,7 @@ task_t *task_alloc_status(const char *name, int *error)
 
     spin_lock(&pid_hash_lock);
     task->pid = scheduler.next_pid++;
+    task->tgid = task->pid;
     pid_hash_add(task, pid_entry);
     spin_unlock(&pid_hash_lock);
     return task;

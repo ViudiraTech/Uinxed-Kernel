@@ -14,6 +14,7 @@
 #include <arch/gdt.h>
 #include <arch/tss.h>
 #include <boot/limine.h>
+#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
 #define KERNEL_STACK_SIZE 0x10000 // 64 KiB
@@ -24,13 +25,25 @@
 
 typedef uint8_t kernel_stack_t[KERNEL_STACK_SIZE];
 
+#define SYSCALL_CPU_USER_RSP_OFFSET   0
+#define SYSCALL_CPU_KERNEL_RSP_OFFSET 8
+
 typedef struct {
+        uint64_t user_rsp;
+        uint64_t kernel_rsp;
+} syscall_cpu_state_t;
+
+_Static_assert(offsetof(syscall_cpu_state_t, user_rsp) == SYSCALL_CPU_USER_RSP_OFFSET, "syscall user RSP offset");
+_Static_assert(offsetof(syscall_cpu_state_t, kernel_rsp) == SYSCALL_CPU_KERNEL_RSP_OFFSET, "syscall kernel RSP offset");
+
+typedef struct cpu_processor {
         uint64_t        id;
         uint64_t        lapic_id;
         gdt_t          *gdt;
         tss_stack_t    *tss_stack;
         tss_t          *tss;
         kernel_stack_t *kernel_stack;
+        syscall_cpu_state_t syscall;
 } cpu_processor_t;
 
 /* Send an IPI to all CPUs */
@@ -50,6 +63,9 @@ uint32_t get_cpu_count(void);
 
 /* Get the ID of the current CPU */
 uint32_t get_current_cpu_id(void);
+
+/* Get the current CPU's per-CPU state. */
+cpu_processor_t *get_current_cpu(void);
 
 /* Multi-core boot entry */
 void ap_entry(struct limine_smp_info *info);

@@ -4,6 +4,7 @@
 #include <net/endian.h>
 #include <net/ethernet.h>
 #include <net/ipv4.h>
+#include <net/ipv6.h>
 
 const uint8_t ethernet_broadcast_address[ETH_ADDRESS_LEN] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
@@ -32,13 +33,15 @@ int ethernet_input(net_device_t *device, net_pbuf_t *packet)
     const uint8_t *header = packet->data;
     uint16_t type = net_read_be16(header + 12);
     if (!ethernet_address_valid(header + ETH_ADDRESS_LEN) || (header[ETH_ADDRESS_LEN] & 1U)
-        || (memcmp(header, device->address, ETH_ADDRESS_LEN) && memcmp(header, ethernet_broadcast_address, ETH_ADDRESS_LEN))) {
+        || (memcmp(header, device->address, ETH_ADDRESS_LEN) && memcmp(header, ethernet_broadcast_address, ETH_ADDRESS_LEN)
+            && !(header[0] == 0x33 && header[1] == 0x33))) {
         net_pbuf_free(packet);
         return -EHOSTUNREACH;
     }
     net_pbuf_pull(packet, ETH_HEADER_LEN);
     if (type == ETH_TYPE_ARP) return arp_input(device, packet);
     if (type == ETH_TYPE_IPV4) return ipv4_input(device, packet);
+    if (type == ETH_TYPE_IPV6) return ipv6_input(device, packet);
     net_pbuf_free(packet);
     return -EPROTONOSUPPORT;
 }

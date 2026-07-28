@@ -280,6 +280,9 @@ void kernel_entry(void)
     virtio_gpu_init();             // VirtIO GPU driver (if present on PCI bus)
 
     boot_start_init_before_debug(swapper_run_init, sched_test_init);
+#if CONFIG_E1000
+    e1000_start_workers();
+#endif
 
     enable_intr();
     sched_start();
