@@ -12,6 +12,7 @@
 #include <arch/tss.h>
 #include <chipset/common.h>
 #include <drivers/acpi.h>
+#include <fs/inotify.h>
 #include <fs/vfs.h>
 #include <ipc/epoll.h>
 #include <ipc/futex.h>
@@ -42,6 +43,7 @@
 #include <syscall/fcntl.h>
 #include <syscall/memfd.h>
 #include <syscall/mmap.h>
+#include <syscall/poll.h>
 #include <syscall/signalfd.h>
 #include <syscall/syscall.h>
 #include <syscall/syscall_table.h>
@@ -132,12 +134,6 @@ typedef struct {
         int64_t tv_sec;
         int64_t tv_usec;
 } linux_timeval_t;
-
-typedef struct {
-        int32_t fd;
-        int16_t events;
-        int16_t revents;
-} linux_pollfd_t;
 
 typedef struct {
         int64_t  tv_sec;
@@ -874,37 +870,6 @@ static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3,
     return process_fd_ioctl(proc, (int)fd, (size_t)req, (void *)arg);
 }
 
-static int64_t sys_poll(uint64_t fds, uint64_t nfds, uint64_t timeout, uint64_t arg3, uint64_t arg4, uint64_t arg5)
-{
-    (void)timeout;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-
-    process_t *proc = process_current();
-    if (!proc) return -ESRCH;
-    if (!fds && nfds) return -EFAULT;
-    if (nfds > 65536) return -EINVAL;
-
-    int ready = 0;
-    for (uint64_t i = 0; i < nfds; i++) {
-        linux_pollfd_t pfd;
-        if (copy_from_user(&pfd, (const void *)(fds + i * sizeof(pfd)), sizeof(pfd))) return -EFAULT;
-        pfd.revents = 0;
-        if (pfd.fd >= 0) {
-            int ret = process_fd_poll(proc, pfd.fd, (size_t)pfd.events);
-            if (ret < 0) {
-                pfd.revents = 0x0020;
-            } else {
-                pfd.revents = (int16_t)ret;
-                if (pfd.revents) ready++;
-            }
-        }
-        if (copy_to_user((void *)(fds + i * sizeof(pfd)), &pfd, sizeof(pfd))) return -EFAULT;
-    }
-    return ready;
-}
-
 static int64_t sys_fstat(uint64_t fd, uint64_t statbuf, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg2;
@@ -1384,6 +1349,44 @@ static int64_t sys_signalfd4_wrap(uint64_t fd, uint64_t mask, uint64_t sizemask,
     (void)arg4;
     (void)arg5;
     return sys_signalfd4((int)fd, (const void *)mask, (size_t)sizemask, (int)flags);
+}
+
+static int64_t sys_inotify_init_wrap(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg0;
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_inotify_init();
+}
+
+static int64_t sys_inotify_init1_wrap(uint64_t flags, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_inotify_init1((int)flags);
+}
+
+static int64_t sys_inotify_add_watch_wrap(uint64_t fd, uint64_t pathname, uint64_t mask, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_inotify_add_watch((int)fd, (const char *)pathname, (uint32_t)mask);
+}
+
+static int64_t sys_inotify_rm_watch_wrap(uint64_t fd, uint64_t wd, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_inotify_rm_watch((int)fd, (int)wd);
 }
 
 /* ---------- mount / umount2 ---------- */
@@ -1903,6 +1906,7 @@ static int64_t sys_chmod_common(const char *path, uint64_t mode)
     vfs_node_t node = vfs_open(path);
     if (!node) return -ENOENT;
     node->mode = (uint16_t)(mode & 07777);
+    inotify_notify(node, IN_ATTRIB);
     vfs_close(node);
     return EOK;
 }
@@ -1931,6 +1935,7 @@ static int64_t sys_fchmod_impl(uint64_t fd, uint64_t mode, uint64_t arg2, uint64
     process_file_t *file = process_fd_get(proc, (int)fd);
     if (!file) return -EBADF;
     file->node->mode = (uint16_t)(mode & 07777);
+    inotify_notify(file->node, IN_ATTRIB);
     process_file_put(file);
     return EOK;
 }
@@ -1944,6 +1949,7 @@ static int64_t sys_chown_common(const char *path, uint64_t owner, uint64_t group
     if (!node) return -ENOENT;
     node->owner = (uint32_t)owner;
     node->group = (uint32_t)group;
+    inotify_notify(node, IN_ATTRIB);
     vfs_close(node);
     return EOK;
 }
@@ -1971,6 +1977,7 @@ static int64_t sys_fchown_impl(uint64_t fd, uint64_t owner, uint64_t group, uint
     if (!file) return -EBADF;
     file->node->owner = (uint32_t)owner;
     file->node->group = (uint32_t)group;
+    inotify_notify(file->node, IN_ATTRIB);
     process_file_put(file);
     return EOK;
 }
@@ -2322,105 +2329,6 @@ static int64_t sys_umask_stub(uint64_t mask, uint64_t arg1, uint64_t arg2, uint6
     return 022;
 }
 
-/* Linux fd_set: 1024 bits = 128 bytes */
-#define SELECT_FD_SET_SIZE 128
-#define SELECT_NFDS_MAX    1024
-
-static int test_fd_in_set(const uint8_t *fdset, int fd)
-{
-    return fdset[fd / 8] & (1u << (fd % 8));
-}
-
-static void set_fd_in_set(uint8_t *fdset, int fd)
-{
-    fdset[fd / 8] |= (uint8_t)(1u << (fd % 8));
-}
-
-static int64_t sys_select_stub(uint64_t nfds, uint64_t readfds, uint64_t writefds, uint64_t exceptfds, uint64_t timeout, uint64_t arg5)
-{
-    (void)exceptfds;
-    (void)arg5;
-
-    process_t *proc = process_current();
-    if (!proc) return -ESRCH;
-
-    if (nfds > SELECT_NFDS_MAX) return -EINVAL;
-
-    uint8_t kread[SELECT_FD_SET_SIZE]  = {0};
-    uint8_t kwrite[SELECT_FD_SET_SIZE] = {0};
-
-    if (readfds && copy_from_user(kread, (const void *)readfds, SELECT_FD_SET_SIZE)) return -EFAULT;
-    if (writefds && copy_from_user(kwrite, (const void *)writefds, SELECT_FD_SET_SIZE)) return -EFAULT;
-
-    if (timeout) {
-        linux_timeval_t tv;
-        if (copy_from_user(&tv, (const void *)timeout, sizeof(tv))) return -EFAULT;
-        if (tv.tv_sec < 0 || tv.tv_usec < 0) return -EINVAL;
-    }
-
-    /* If no fds to check, just sleep */
-    {
-        int has_work = 0;
-        if (readfds)
-            for (int b = 0; b < SELECT_FD_SET_SIZE; b++)
-                if (kread[b]) {
-                    has_work = 1;
-                    break;
-                }
-        if (!has_work && writefds)
-            for (int b = 0; b < SELECT_FD_SET_SIZE; b++)
-                if (kwrite[b]) {
-                    has_work = 1;
-                    break;
-                }
-        if (!has_work) {
-            if (timeout) {
-                linux_timeval_t tv;
-                if (copy_from_user(&tv, (const void *)timeout, sizeof(tv))) return -EFAULT;
-                uint64_t ticks = (uint64_t)tv.tv_sec * 100 + (uint64_t)((tv.tv_usec + 9999) / 10000);
-                if (ticks) task_sleep_ticks(ticks);
-            }
-            return 0;
-        }
-    }
-
-    int ready = 0;
-
-    for (uint64_t i = 0; i < nfds; i++) {
-        int revents = 0;
-
-        if (readfds && test_fd_in_set(kread, (int)i)) revents |= 0x001; /* POLLIN */
-
-        if (writefds && test_fd_in_set(kwrite, (int)i)) revents |= 0x004; /* POLLOUT */
-
-        if (revents) {
-            int ret = process_fd_poll(proc, (int)i, (size_t)revents);
-            if (ret < 0)
-                revents = 0;
-            else
-                revents = ret;
-        }
-
-        if (revents & 0x001) {
-            set_fd_in_set(kread, (int)i);
-            ready++;
-        } else if (readfds) {
-            kread[(int)i / 8] &= (uint8_t)~(1u << ((int)i % 8));
-        }
-        if (revents & 0x004) {
-            set_fd_in_set(kwrite, (int)i);
-            if (!(revents & 0x001)) ready++;
-        } else if (writefds) {
-            kwrite[(int)i / 8] &= (uint8_t)~(1u << ((int)i % 8));
-        }
-    }
-
-    if (readfds && copy_to_user((void *)readfds, kread, SELECT_FD_SET_SIZE)) return -EFAULT;
-    if (writefds && copy_to_user((void *)writefds, kwrite, SELECT_FD_SET_SIZE)) return -EFAULT;
-
-    return (int64_t)ready;
-}
-
 static int64_t sys_pread64_stub(uint64_t fd, uint64_t buf, uint64_t count, uint64_t offset, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
@@ -2718,21 +2626,6 @@ static int64_t sys_pkey_mprotect_stub(uint64_t addr, uint64_t len, uint64_t prot
     (void)arg4;
     (void)arg5;
     return sys_mprotect(addr, len, prot);
-}
-
-static int64_t sys_pselect6_stub(uint64_t nfds, uint64_t readfds, uint64_t writefds, uint64_t exceptfds, uint64_t timeout, uint64_t sigmask)
-{
-    (void)exceptfds;
-    (void)sigmask;
-    return sys_select_stub(nfds, readfds, writefds, 0, timeout, 0);
-}
-
-static int64_t sys_ppoll_stub(uint64_t fds, uint64_t nfds, uint64_t timeout, uint64_t sigmask, uint64_t sigsetsize, uint64_t arg5)
-{
-    (void)sigmask;
-    (void)sigsetsize;
-    (void)arg5;
-    return sys_poll(fds, nfds, timeout, 0, 0, 0);
 }
 
 /* ---------- mmap family wrappers (6-arg syscall -> actual function) ---------- */
@@ -4031,7 +3924,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_WRITEV]                 = sys_writev_wrap,
     [SYS_ACCESS]                 = sys_access_stub,
     [SYS_PIPE]                   = sys_pipe_wrap,
-    [SYS_SELECT]                 = sys_select_stub,
+    [SYS_SELECT]                 = sys_select,
     [SYS_SCHED_YIELD]            = sys_sched_yield,
     [SYS_MREMAP]                 = sys_mremap_wrap,
     [SYS_MSYNC]                  = sys_msync_wrap,
@@ -4261,9 +4154,9 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_KEYCTL]                 = sys_stub,
     [SYS_IOPRIO_SET]             = sys_stub,
     [SYS_IOPRIO_GET]             = sys_stub,
-    [SYS_INOTIFY_INIT]           = sys_stub,
-    [SYS_INOTIFY_ADD_WATCH]      = sys_stub,
-    [SYS_INOTIFY_RM_WATCH]       = sys_stub,
+    [SYS_INOTIFY_INIT]           = sys_inotify_init_wrap,
+    [SYS_INOTIFY_ADD_WATCH]      = sys_inotify_add_watch_wrap,
+    [SYS_INOTIFY_RM_WATCH]       = sys_inotify_rm_watch_wrap,
     [SYS_MIGRATE_PAGES]          = sys_stub,
     [SYS_OPENAT]                 = sys_openat,
     [SYS_MKDIRAT]                = sys_mkdirat,
@@ -4278,8 +4171,8 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_READLINKAT]             = sys_readlinkat,
     [SYS_FCHMODAT]               = sys_stub_ok,
     [SYS_FACCESSAT]              = sys_access_stub,
-    [SYS_PSELECT6]               = sys_pselect6_stub,
-    [SYS_PPOLL]                  = sys_ppoll_stub,
+    [SYS_PSELECT6]               = sys_pselect6,
+    [SYS_PPOLL]                  = sys_ppoll,
     [SYS_UNSHARE]                = sys_stub,
     [SYS_SET_ROBUST_LIST]        = sys_stub_ok,
     [SYS_GET_ROBUST_LIST]        = sys_stub,
@@ -4302,7 +4195,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_EPOLL_CREATE1]          = sys_epoll_create1_wrap,
     [SYS_DUP3]                   = sys_dup3,
     [SYS_PIPE2]                  = sys_pipe2_wrap,
-    [SYS_INOTIFY_INIT1]          = sys_stub,
+    [SYS_INOTIFY_INIT1]          = sys_inotify_init1_wrap,
     [SYS_PREADV]                 = sys_stub,
     [SYS_PWRITEV]                = sys_stub,
     [SYS_RT_TGSIGQUEUEINFO]      = sys_rt_tgsigqueueinfo_wrap,

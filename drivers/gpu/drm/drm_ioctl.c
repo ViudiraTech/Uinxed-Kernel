@@ -17,6 +17,7 @@
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
+#include <proc/uaccess.h>
 
 /* Forward declarations for all ioctl handler functions. */
 
@@ -122,13 +123,14 @@ int drm_get_cap(struct drm_device *dev, void *data, struct drm_file *file_priv)
             cap->value = 0;
             break;
         case DRM_CAP_PRIME :
-            cap->value = DRM_PRIME_CAP_EXPORT | DRM_PRIME_CAP_IMPORT;
+            cap->value = (dev->driver->driver_features & DRIVER_PRIME)
+                             ? (DRM_PRIME_CAP_EXPORT | DRM_PRIME_CAP_IMPORT) : 0;
             break;
         case DRM_CAP_TIMESTAMP_MONOTONIC :
             cap->value = 1;
             break;
         case DRM_CAP_ASYNC_PAGE_FLIP :
-            cap->value = 0;
+            cap->value = dev->mode_config.async_page_flip ? 1 : 0;
             break;
         case DRM_CAP_CURSOR_WIDTH :
             cap->value = dev->mode_config.cursor_width;
@@ -143,7 +145,7 @@ int drm_get_cap(struct drm_device *dev, void *data, struct drm_file *file_priv)
             cap->value = 0;
             break;
         case DRM_CAP_CRTC_IN_VBLANK_EVENT :
-            cap->value = 0;
+            cap->value = 1;
             break;
         case DRM_CAP_SYNCOBJ :
             cap->value = 0;
@@ -175,10 +177,13 @@ int drm_set_client_cap(struct drm_device *dev, void *data, struct drm_file *file
             file_priv->stereo3d_allowed_unused = (cap->value != 0);
             break;
         case DRM_CLIENT_CAP_UNIVERSAL_PLANES :
+            if (cap->value > 1) return -EINVAL;
             file_priv->universal_planes = (cap->value != 0);
             break;
         case DRM_CLIENT_CAP_ATOMIC :
+            if (cap->value > 1 || !(dev->driver->driver_features & DRIVER_ATOMIC)) return -EINVAL;
             file_priv->atomic = (cap->value != 0);
+            if (cap->value) file_priv->universal_planes = true;
             break;
         case DRM_CLIENT_CAP_ASPECT_RATIO :
             file_priv->aspect_ratio_allowed = (cap->value != 0);
@@ -232,7 +237,7 @@ static const struct drm_ioctl_desc drm_core_ioctls[] = {
     {DRM_IOCTL_MODE_GETPROPERTY,       drm_mode_getproperty_ioctl,       DRM_AUTH             },
     {DRM_IOCTL_MODE_SETPROPERTY,       NULL,                             DRM_MASTER | DRM_AUTH},
     {DRM_IOCTL_MODE_GETPROPBLOB,       NULL,                             DRM_AUTH             },
-    {DRM_IOCTL_MODE_GETFB,             drm_mode_getfb,                   DRM_AUTH             },
+    {DRM_IOCTL_MODE_GETFB,             drm_mode_getfb,                   DRM_MASTER | DRM_AUTH},
     {DRM_IOCTL_MODE_ADDFB,             drm_mode_addfb,                   DRM_MASTER | DRM_AUTH},
     {DRM_IOCTL_MODE_RMFB,              drm_mode_rmfb,                    DRM_MASTER | DRM_AUTH},
     {DRM_IOCTL_MODE_PAGE_FLIP,         drm_mode_page_flip_ioctl,         DRM_MASTER | DRM_AUTH},
@@ -248,7 +253,7 @@ static const struct drm_ioctl_desc drm_core_ioctls[] = {
     {DRM_IOCTL_MODE_OBJ_SETPROPERTY,   drm_mode_obj_setproperty_ioctl,   DRM_MASTER | DRM_AUTH},
     {DRM_IOCTL_MODE_CURSOR2,           drm_mode_cursor2_ioctl,           DRM_AUTH             },
     {DRM_IOCTL_MODE_ATOMIC,            drm_mode_atomic_ioctl,            DRM_MASTER | DRM_AUTH},
-    {DRM_IOCTL_MODE_GETFB2,            drm_mode_getfb2_ioctl,            DRM_AUTH             },
+    {DRM_IOCTL_MODE_GETFB2,            drm_mode_getfb2_ioctl,            DRM_MASTER | DRM_AUTH},
 };
 
 /* ------------------------------------------------------------------ */
@@ -297,7 +302,7 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
              * space in this freestanding kernel, but we still make a
              * private copy so the handler cannot scribble on user
              * memory. */
-            memcpy(kdata, user_data, size);
+            if (copy_from_user(kdata, user_data, size)) { free(kdata); return -EFAULT; }
         } else {
             memset(kdata, 0, size);
         }
@@ -334,6 +339,7 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
             struct drm_prime_handle *args = (struct drm_prime_handle *)kdata;
             ret                           = drm_ioctl_permit(DRM_AUTH, file_priv);
             if (ret) goto out;
+            if (!(dev->driver->driver_features & DRIVER_PRIME)) { ret = -EOPNOTSUPP; goto out; }
             ret = drm_gem_prime_handle_to_fd(dev, file_priv, args->handle, args->flags, &args->fd);
             goto copy_out;
         }
@@ -341,6 +347,7 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
             struct drm_prime_handle *args = (struct drm_prime_handle *)kdata;
             ret                           = drm_ioctl_permit(DRM_AUTH, file_priv);
             if (ret) goto out;
+            if (!(dev->driver->driver_features & DRIVER_PRIME)) { ret = -EOPNOTSUPP; goto out; }
             ret = drm_gem_prime_fd_to_handle(dev, file_priv, args->fd, &args->handle);
             goto copy_out;
         }
@@ -368,7 +375,7 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
 
 copy_out:
     /* 9. Copy results back to user if the ioctl reads data. */
-    if (ret == 0 && kdata && (dir & _IOC_READ)) memcpy(user_data, kdata, size);
+    if (ret == 0 && kdata && (dir & _IOC_READ) && copy_to_user(user_data, kdata, size)) ret = -EFAULT;
 
 out:
     free(kdata);

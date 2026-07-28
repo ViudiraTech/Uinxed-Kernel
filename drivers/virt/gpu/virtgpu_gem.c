@@ -29,6 +29,7 @@ struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_
     obj = malloc(sizeof(*obj));
     if (!obj) { return NULL; }
     memset(obj, 0, sizeof(*obj));
+    obj->context_lock.lock = 0;
 
     /* Initialise the embedded GEM object */
     drm_gem_object_init(dev, &obj->base, size);
@@ -45,12 +46,22 @@ struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_
         /* Set up a single memory entry for virtio-gpu backing */
         obj->num_entries = 1;
         obj->entries     = malloc(sizeof(struct virtio_gpu_mem_entry));
-        if (obj->entries) {
-            /* Host needs the physical address for DMA, not the virtual one. */
-            obj->entries[0].addr    = (uintptr_t)virt_any_to_phys((uintptr_t)obj->base.backing);
-            obj->entries[0].length  = size;
-            obj->entries[0].padding = 0;
+        if (!obj->entries) {
+            free(obj->base.backing);
+            free(obj);
+            return NULL;
         }
+        /* Host needs the physical address for DMA, not the virtual one. */
+        obj->entries[0].addr    = (uintptr_t)virt_any_to_phys((uintptr_t)obj->base.backing);
+        obj->entries[0].length  = (uint32_t)size;
+        obj->entries[0].padding = 0;
+    }
+
+    if (size && drm_gem_create_mmap_offset(&obj->base)) {
+        free(obj->entries);
+        free(obj->base.backing);
+        free(obj);
+        return NULL;
     }
 
     return obj;
@@ -66,7 +77,15 @@ void virtgpu_gem_free_object(struct drm_gem_object *gem_obj)
 
     /* Release host-side resource */
     if (obj->hw_res_handle) {
-        virtgpu_cmd_detach_backing(vgdev, obj->hw_res_handle);
+        while (obj->context_attachments) {
+            uint32_t ctx_id = obj->context_attachments->ctx_id;
+            if (virtgpu_object_detach_context(vgdev, obj, ctx_id)) {
+                struct virtio_gpu_context_attachment *stale = obj->context_attachments;
+                obj->context_attachments = stale->next;
+                free(stale);
+            }
+        }
+        if (obj->backing_attached) virtgpu_cmd_detach_backing(vgdev, obj->hw_res_handle);
         virtgpu_cmd_unref_resource(vgdev, obj->hw_res_handle);
     }
 
@@ -86,6 +105,10 @@ int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, 
     size_t                    size;
     int                       ret;
     uint32_t                  handle;
+
+    if (!args || !args->width || !args->height || args->bpp != 32 || args->flags) return -EINVAL;
+    if (args->width > dev->mode_config.max_width || args->height > dev->mode_config.max_height) return -EINVAL;
+    if (args->width > UINT32_MAX / 4) return -EINVAL;
 
     /* Round up pitch to alignment */
     args->pitch = ALIGN_UP(args->width * (args->bpp / 8), VIRTGPU_STRIDE_ALIGN);
@@ -108,6 +131,7 @@ int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, 
     /* Create 2D resource on host */
     ret = virtgpu_cmd_create_resource_2d(vgdev, obj);
     if (ret) {
+        obj->hw_res_handle = 0;
         virtgpu_gem_free_object(&obj->base);
         return ret;
     }
@@ -115,21 +139,20 @@ int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, 
     /* Attach backing storage */
     ret = virtgpu_cmd_attach_backing(vgdev, obj);
     if (ret) {
-        virtgpu_cmd_unref_resource(vgdev, obj->hw_res_handle);
         virtgpu_gem_free_object(&obj->base);
         return ret;
     }
+    obj->backing_attached = true;
 
     /* Create GEM handle for userspace */
     ret = drm_gem_handle_create(file_priv, &obj->base, &handle);
     if (ret) {
-        virtgpu_cmd_detach_backing(vgdev, obj->hw_res_handle);
-        virtgpu_cmd_unref_resource(vgdev, obj->hw_res_handle);
         virtgpu_gem_free_object(&obj->base);
         return ret;
     }
 
     args->handle = handle;
+    drm_gem_object_put(&obj->base);
     DRM_DEBUG_DRIVER("Dumb buffer created: %ux%u, pitch=%u, size=%llu, handle=%u\n", args->width, args->height, args->pitch, args->size, handle);
     return 0;
 }
@@ -144,7 +167,11 @@ int virtgpu_gem_dumb_map_offset(struct drm_file *file_priv, struct drm_device *d
 
     /* Use the GEM object's backing memory address as the mmap offset.
      * The core DRM mmap handler (drm_dev_mmap) will look it up. */
-    *offset = (uintptr_t)gem_obj->backing;
+    if (!gem_obj->mmap_offset) {
+        drm_gem_object_put(gem_obj);
+        return -EINVAL;
+    }
+    *offset = gem_obj->mmap_offset;
 
     drm_gem_object_put(gem_obj);
     return 0;

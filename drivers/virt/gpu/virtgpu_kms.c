@@ -39,7 +39,7 @@ static struct virtio_gpu_object *vgdev_flush_obj;
 extern struct drm_display_mode *drm_mode_create(struct drm_device *dev);
 extern void                     drm_mode_probed_add(struct drm_connector *connector, struct drm_display_mode *mode);
 extern void                     drm_mode_destroy(struct drm_device *dev, struct drm_display_mode *mode);
-extern int                      drm_framebuffer_init(struct drm_device *dev, struct drm_framebuffer *fb, void *funcs);
+extern const struct drm_framebuffer_funcs virtgpu_fb_funcs;
 
 /* Forward declaration of the page-flip helper defined in gpu.c */
 extern int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *fb, struct drm_framebuffer *old_fb);
@@ -172,7 +172,9 @@ static void virtgpu_crtc_atomic_enable(struct drm_crtc *crtc, struct drm_crtc_st
 
     DRM_DEBUG_KMS("CRTC-%d enabled\n", crtc->base.id);
 
-    if (plane && plane->state && plane->state->fb) { virtgpu_page_flip(vgdev, plane->state->fb, NULL); }
+    if (plane && plane->state && plane->state->fb && plane->state->fb != vgdev->current_fb) {
+        virtgpu_page_flip(vgdev, plane->state->fb, NULL);
+    }
 
     if (crtc->state && crtc->state->event) {
         drm_crtc_send_vblank_event(crtc, crtc->state->event);
@@ -204,6 +206,7 @@ static int virtgpu_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer 
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
     int                       ret;
 
+    (void)event;
     (void)flags;
 
     ret = virtgpu_page_flip(vgdev, fb, crtc->primary->state->fb);
@@ -211,8 +214,6 @@ static int virtgpu_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer 
 
     crtc->primary->state->fb = fb;
     crtc->primary->fb_id     = fb ? fb->base.id : 0;
-
-    if (event) { drm_crtc_send_vblank_event(crtc, event); }
 
     return 0;
 }
@@ -224,8 +225,6 @@ static int virtgpu_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer 
 static const uint32_t virtgpu_formats[] = {
     DRM_FORMAT_XRGB8888,
     DRM_FORMAT_ARGB8888,
-    DRM_FORMAT_RGB888,
-    DRM_FORMAT_RGB565,
 };
 
 /* ------------------------------------------------------------------ */
@@ -237,12 +236,44 @@ static const uint32_t virtgpu_formats[] = {
  * Transfers the guest-side framebuffer to the host GPU resource and
  * flushes the scanout so the new pixels become visible.
  */
-static void virtgpu_kms_flush_fb(void)
+static void virtgpu_kms_flush_fb(uint32_t x, uint32_t y, uint32_t width, uint32_t height)
 {
+    struct virtio_gpu_rect damage;
+    uint64_t               offset;
+
     if (!vgdev_flush_ctx || !vgdev_flush_obj) return;
 
-    virtgpu_cmd_transfer_to_host_2d(vgdev_flush_ctx, vgdev_flush_obj, 0);
-    virtgpu_cmd_resource_flush(vgdev_flush_ctx, vgdev_flush_obj, NULL);
+    if (x >= vgdev_flush_obj->width || y >= vgdev_flush_obj->height || !width || !height) return;
+    if (width > vgdev_flush_obj->width - x) width = vgdev_flush_obj->width - x;
+    if (height > vgdev_flush_obj->height - y) height = vgdev_flush_obj->height - y;
+
+    damage = (struct virtio_gpu_rect) {x, y, width, height};
+    offset = (uint64_t)y * vgdev_flush_obj->stride + (uint64_t)x * sizeof(uint32_t);
+    (void)virtgpu_cmd_update_2d(vgdev_flush_ctx, vgdev_flush_obj, &damage, offset);
+}
+
+static int virtgpu_crtc_cursor_set(struct drm_crtc *crtc, struct drm_gem_object *gem, uint32_t width, uint32_t height,
+                                   int32_t hot_x, int32_t hot_y)
+{
+    struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)crtc->dev->dev_private;
+    struct virtio_gpu_object *obj = gem ? to_virtio_gpu_object(gem) : NULL;
+    int ret;
+
+    if (obj) {
+        /* VirtIO 1.2 requires a 64x64 ARGB resource on the cursor fast path. */
+        if (width != 64 || height != 64 || gem->size < 64 * 64 * 4
+            || obj->width != 64 || obj->height != 64 || obj->format != DRM_FORMAT_ARGB8888
+            || obj->created_3d || obj->created_blob) return -EINVAL;
+        ret = virtgpu_cmd_transfer_to_host_2d(vgdev, obj, 0);
+        if (ret) return ret;
+    }
+    return virtgpu_cmd_update_cursor(vgdev, (uint32_t)crtc->index, obj, crtc->x, crtc->y, hot_x, hot_y);
+}
+
+static int virtgpu_crtc_cursor_move(struct drm_crtc *crtc, int32_t x, int32_t y)
+{
+    struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)crtc->dev->dev_private;
+    return virtgpu_cmd_move_cursor(vgdev, (uint32_t)crtc->index, x, y);
 }
 
 /*
@@ -314,13 +345,16 @@ static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
     obj->hw_res_handle = virtgpu_resource_id_alloc(vgdev);
 
     ret = virtgpu_cmd_create_resource_2d(vgdev, obj);
-    if (ret) { goto err_free_obj; }
+    if (ret) {
+        obj->hw_res_handle = 0;
+        goto err_free_obj;
+    }
 
     ret = virtgpu_cmd_attach_backing(vgdev, obj);
     if (ret) {
-        virtgpu_cmd_unref_resource(vgdev, obj->hw_res_handle);
         goto err_free_obj;
     }
+    obj->backing_attached = true;
 
     /* 4. Create and register the DRM framebuffer */
     fb = malloc(sizeof(*fb));
@@ -338,7 +372,7 @@ static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
     fb->offsets[0] = 0;
     fb->obj[0]     = &obj->base;
 
-    ret = drm_framebuffer_init(dev, fb, NULL);
+    ret = drm_framebuffer_init(dev, fb, &virtgpu_fb_funcs);
     if (ret) {
         free(fb);
         goto err_free_obj;
@@ -424,12 +458,14 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     primary = malloc(sizeof(*primary));
     if (!primary) { return -ENOMEM; }
     memset(primary, 0, sizeof(*primary));
+    vgdev->kms_primary = primary;
 
     ret = drm_plane_init(dev, primary, 1, NULL, virtgpu_formats, sizeof(virtgpu_formats) / sizeof(virtgpu_formats[0]), NULL,
                          DRM_PLANE_TYPE_PRIMARY, "virtgpu-primary");
     if (ret) {
         DRM_ERROR("Failed to init primary plane: %d\n", ret);
         free(primary);
+        vgdev->kms_primary = NULL;
         return ret;
     }
 
@@ -445,6 +481,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     crtc = malloc(sizeof(*crtc));
     if (!crtc) { return -ENOMEM; }
     memset(crtc, 0, sizeof(*crtc));
+    vgdev->kms_crtc = crtc;
 
     /*
      * Define CRTC helper functions that the DRM core will call
@@ -456,6 +493,8 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
         static const struct drm_crtc_helper_funcs crtc_helpers = {
             .mode_set       = virtgpu_crtc_atomic_flush,
             .page_flip      = virtgpu_crtc_page_flip,
+            .cursor_set     = virtgpu_crtc_cursor_set,
+            .cursor_move    = virtgpu_crtc_cursor_move,
             .atomic_enable  = virtgpu_crtc_atomic_enable,
             .atomic_disable = virtgpu_crtc_atomic_disable,
         };
@@ -464,9 +503,12 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
         if (ret) {
             DRM_ERROR("Failed to init CRTC: %d\n", ret);
             free(crtc);
+            vgdev->kms_crtc = NULL;
             return ret;
         }
     }
+
+    dev->mode_config.async_page_flip = true;
 
     crtc->state = malloc(sizeof(*crtc->state));
     if (!crtc->state) { return -ENOMEM; }
@@ -480,6 +522,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     encoder = malloc(sizeof(*encoder));
     if (!encoder) { return -ENOMEM; }
     memset(encoder, 0, sizeof(*encoder));
+    vgdev->kms_encoder = encoder;
 
     {
         static const struct drm_encoder_helper_funcs enc_helpers = {
@@ -490,6 +533,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
         if (ret) {
             DRM_ERROR("Failed to init encoder: %d\n", ret);
             free(encoder);
+            vgdev->kms_encoder = NULL;
             return ret;
         }
     }
@@ -501,6 +545,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     connector = malloc(sizeof(*connector));
     if (!connector) { return -ENOMEM; }
     memset(connector, 0, sizeof(*connector));
+    vgdev->kms_connector = connector;
 
     {
         static const struct drm_connector_helper_funcs conn_helpers = {
@@ -513,6 +558,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
         if (ret) {
             DRM_ERROR("Failed to init connector: %d\n", ret);
             free(connector);
+            vgdev->kms_connector = NULL;
             return ret;
         }
     }

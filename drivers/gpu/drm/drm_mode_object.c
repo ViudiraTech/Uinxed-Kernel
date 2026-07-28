@@ -16,6 +16,7 @@
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
+#include <proc/uaccess.h>
 #include <sync/spin_lock.h>
 
 #ifndef container_of
@@ -273,12 +274,37 @@ int drm_mode_obj_getproperties_ioctl(struct drm_device *dev, void *data, struct 
 
     if (obj->properties) {
         struct drm_property_set *set = obj->properties;
+        uint32_t user_count = req->count_props;
+        uint32_t copy_count;
+        uint32_t *ids = NULL;
+        uint64_t *values = NULL;
 
         spin_lock(&set->lock);
         req->count_props = set->count;
-        /* For MVP we only return the count; actual ID/value copy would
-         * require userspace pointers via req->props_ptr/prop_values_ptr. */
+        copy_count = user_count < set->count ? user_count : set->count;
+        if (copy_count) {
+            ids = malloc((size_t)copy_count * sizeof(*ids));
+            values = malloc((size_t)copy_count * sizeof(*values));
+            if (ids && values) {
+                memcpy(ids, set->ids, (size_t)copy_count * sizeof(*ids));
+                memcpy(values, set->values, (size_t)copy_count * sizeof(*values));
+            }
+        }
         spin_unlock(&set->lock);
+        if (copy_count && (!ids || !values)) {
+            free(ids); free(values);
+            drm_mode_object_put(obj);
+            return -ENOMEM;
+        }
+        if (copy_count && (!req->props_ptr || !req->prop_values_ptr
+            || copy_to_user((void *)(uintptr_t)req->props_ptr, ids, (size_t)copy_count * sizeof(*ids))
+            || copy_to_user((void *)(uintptr_t)req->prop_values_ptr, values, (size_t)copy_count * sizeof(*values)))) {
+            free(ids); free(values);
+            drm_mode_object_put(obj);
+            return -EFAULT;
+        }
+        free(ids);
+        free(values);
     } else {
         req->count_props = 0;
     }
@@ -314,8 +340,39 @@ int drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, struct dr
         return -ENOENT;
     }
 
-    /* Attach property if not already present, then set value */
-    drm_object_attach_property(obj, prop, req->value);
+    /* Atomic properties must be changed transactionally through MODE_ATOMIC. */
+    if ((prop->flags & DRM_MODE_PROP_ATOMIC) || !obj->properties) {
+        drm_mode_object_put(&prop->base);
+        drm_mode_object_put(obj);
+        return -EINVAL;
+    }
+    {
+        uint64_t ignored;
+        if (drm_object_property_get_value(obj, prop, &ignored)) {
+            drm_mode_object_put(&prop->base);
+            drm_mode_object_put(obj);
+            return -ENOENT;
+        }
+    }
+    if (prop->flags & DRM_MODE_PROP_IMMUTABLE) {
+        drm_mode_object_put(&prop->base);
+        drm_mode_object_put(obj);
+        return -EINVAL;
+    }
+    if ((prop->flags & DRM_MODE_PROP_RANGE)
+        && (req->value < prop->values[0] || req->value > prop->values[1])) {
+        drm_mode_object_put(&prop->base);
+        drm_mode_object_put(obj);
+        return -EINVAL;
+    }
+    {
+        int ret = drm_object_property_set_value(obj, prop, req->value);
+        if (ret) {
+            drm_mode_object_put(&prop->base);
+            drm_mode_object_put(obj);
+            return ret;
+        }
+    }
 
     drm_mode_object_put(&prop->base);
     drm_mode_object_put(obj);

@@ -124,6 +124,7 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
 {
     struct drm_device *dev;
     struct drm_minor  *minor;
+    int                ret;
 
     if (!driver) { return NULL; }
 
@@ -139,30 +140,27 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
     /* All spinlocks are zero-initialized by memset above (unlocked state). */
 
     ilist_init(&dev->filelist);
-    ilist_init(&dev->mode_config.fb_list);
-    ilist_init(&dev->mode_config.crtc_list);
-    ilist_init(&dev->mode_config.connector_list);
-    ilist_init(&dev->mode_config.encoder_list);
-    ilist_init(&dev->mode_config.plane_list);
-    ilist_init(&dev->mode_config.property_list);
-    ilist_init(&dev->mode_config.property_blob_list);
 
-    drm_idr_init(&dev->mode_config.object_idr);
-    drm_idr_init(&dev->mode_config.fb_idr);
+    /* KMS objects attach the standard atomic properties during their
+     * initialisation.  Create those properties before any driver KMS setup. */
+    ret = drm_mode_config_init(dev);
+    if (ret) {
+        DRM_ERROR("Failed to initialise KMS mode configuration: %d\n", ret);
+        free(dev);
+        return NULL;
+    }
 
     /* Allocate primary minor (dynamic index). */
     int primary_idx = drm_minor_alloc(DRM_MINOR_PRIMARY);
     if (primary_idx < 0) {
-        drm_idr_destroy(&dev->mode_config.fb_idr);
-        drm_idr_destroy(&dev->mode_config.object_idr);
+        drm_mode_config_cleanup(dev);
         free(dev);
         return NULL;
     }
     minor = malloc(sizeof(*minor));
     if (!minor) {
         drm_minor_free(DRM_MINOR_PRIMARY, primary_idx);
-        drm_idr_destroy(&dev->mode_config.fb_idr);
-        drm_idr_destroy(&dev->mode_config.object_idr);
+        drm_mode_config_cleanup(dev);
         free(dev);
         return NULL;
     }
@@ -183,8 +181,7 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
         free(dev->primary->device_node_name);
         free(dev->primary);
         drm_minor_free(DRM_MINOR_PRIMARY, primary_idx);
-        drm_idr_destroy(&dev->mode_config.fb_idr);
-        drm_idr_destroy(&dev->mode_config.object_idr);
+        drm_mode_config_cleanup(dev);
         free(dev);
         return NULL;
     }
@@ -194,8 +191,7 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
         free(dev->primary->device_node_name);
         free(dev->primary);
         drm_minor_free(DRM_MINOR_PRIMARY, primary_idx);
-        drm_idr_destroy(&dev->mode_config.fb_idr);
-        drm_idr_destroy(&dev->mode_config.object_idr);
+        drm_mode_config_cleanup(dev);
         free(dev);
         return NULL;
     }
@@ -254,7 +250,8 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
         drm_ops.ctx = dev;
 
         snprintf(path, sizeof(path), "/dev/dri/%s", dev->primary->device_node_name);
-        int ret = devtmpfs_register_char_device(path, MKDEV(226, dev->primary->index), dev->primary->index, file_stream, &drm_ops);
+        uint64_t devt = MKDEV(226, dev->primary->index);
+        int ret = devtmpfs_register_char_device(path, devt, devt, file_stream, &drm_ops);
         if (ret) {
             DRM_ERROR("Failed to register %s: %d\n", path, ret);
         } else {
@@ -266,12 +263,14 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
     if (dev->render && (dev->driver->driver_features & DRIVER_RENDER)) {
         char               path[64];
         tmpfs_device_ops_t render_ops;
+        uint64_t           devt;
 
         memset(&render_ops, 0, sizeof(render_ops));
         render_ops.ctx = dev;
 
         snprintf(path, sizeof(path), "/dev/dri/%s", dev->render->device_node_name);
-        int ret = devtmpfs_register_char_device(path, MKDEV(226, dev->render->index), dev->render->index, file_stream, &render_ops);
+        devt = MKDEV(226, 128 + dev->render->index);
+        int ret = devtmpfs_register_char_device(path, devt, devt, file_stream, &render_ops);
         if (ret) {
             DRM_ERROR("Failed to register %s: %d\n", path, ret);
         } else {
@@ -346,8 +345,6 @@ void drm_dev_put(struct drm_device *dev)
             dev->render = NULL;
         }
 
-        drm_idr_destroy(&dev->mode_config.fb_idr);
-        drm_idr_destroy(&dev->mode_config.object_idr);
         free(dev->unique);
         free(dev->busid_str);
         free(dev);
@@ -400,6 +397,8 @@ int drm_open(struct drm_device *dev, struct drm_file *file)
     file->universal_planes     = false;
     file->atomic               = false;
     file->aspect_ratio_allowed = false;
+    file->event_closing        = false;
+    wait_queue_init(&file->event_wait);
 
     /* Store back-pointer to device for use in drm_release. */
     file->minor_unused = dev;
@@ -439,6 +438,7 @@ void drm_release(struct drm_file *file)
     dev = (struct drm_device *)file->minor_unused;
 
     if (dev) {
+        drm_vblank_cancel_pending(dev, file);
         spin_lock(&dev->filelist_lock);
         ilist_remove(&file->head);
         dev->open_count--;
@@ -451,15 +451,30 @@ void drm_release(struct drm_file *file)
         ilist_remove(&file->head);
     }
 
+    /* Framebuffers own GEM references and must be removed before handles. */
+    while (file->fbs_head.next && file->fbs_head.next != &file->fbs_head) {
+        struct drm_framebuffer *fb = container_of(file->fbs_head.next, struct drm_framebuffer, filp_head);
+        uint32_t fb_id = fb->base.id;
+        if (drm_mode_rmfb(dev, &fb_id, file)) {
+            drm_framebuffer_cleanup(fb);
+            free(fb);
+        }
+    }
+
     /* Release any GEM handles still held by this file. */
     {
         ilist_node_t *node = file->object_list.next;
         while (node && node != &file->object_list) {
-            struct drm_gem_object *obj = container_of(node, struct drm_gem_object, handle_list_node);
-            node                       = node->next;
-            ilist_remove(&obj->handle_list_node);
+            struct drm_gem_handle_entry *entry = container_of(node, struct drm_gem_handle_entry, head);
+            struct drm_gem_object *obj = entry->obj;
+            node = node->next;
+            spin_lock(&file->table_lock);
+            drm_idr_remove(&file->object_idr, entry->handle);
+            ilist_remove(&entry->head);
+            spin_unlock(&file->table_lock);
             obj->handle_count--;
             drm_gem_object_put(obj);
+            free(entry);
         }
     }
 

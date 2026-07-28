@@ -89,8 +89,8 @@ int video_fb_ioctl(void *ctx, size_t req, void *arg);
 /* Initialize Video */
 void video_init(void);
 
-/* Flush callback type — called after framebuffer writes to push to host */
-typedef void (*video_flush_fn_t)(void);
+/* Flush callback type — pushes one damaged framebuffer rectangle to host. */
+typedef void (*video_flush_fn_t)(uint32_t x, uint32_t y, uint32_t width, uint32_t height);
 
 /*
  * Switch the console framebuffer to a DRM-backed buffer.
@@ -98,6 +98,9 @@ typedef void (*video_flush_fn_t)(void);
  * and @flush is called after each batch draw to push pixels to the host.
  */
 void video_switch_to_drm(void *backing, uint32_t w, uint32_t h, uint32_t pitch, video_flush_fn_t flush);
+
+/* Publish a damaged rectangle after a batch of framebuffer draws. */
+void video_flush_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h);
 
 /* Clear screen */
 void video_clear(void);

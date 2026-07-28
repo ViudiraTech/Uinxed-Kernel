@@ -14,6 +14,7 @@
 #include <drivers/apic.h>
 #include <drivers/tsc.h>
 #include <drivers/tty.h>
+#include <drivers/drm/drm_device.h>
 #include <kernel/interrupt.h>
 #include <kernel/printk.h>
 #include <libs/std/math.h>
@@ -31,6 +32,7 @@ INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)
     send_eoi();
     sched_tick();
     timerfd_tick();
+    if (get_current_cpu_id() == 0) drm_vblank_tick();
 #if CONFIG_NET
     if (get_current_cpu_id() == 0) net_timer(sched_ticks());
 #endif

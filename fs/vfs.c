@@ -8,6 +8,7 @@
  *
  */
 
+#include <fs/inotify.h>
 #include <fs/pagecache.h>
 #include <fs/vfs.h>
 #include <kernel/errno.h>
@@ -487,6 +488,7 @@ upd:
                 return status;
             }
             do_update(current);
+            inotify_notify_create(father, current);
         } else {
             do_update(current);
             if (!(current->type & file_dir)) goto err;
@@ -535,7 +537,8 @@ int vfs_mkfile(const char *name)
     if (status != EOK) {
         parent->child = clist_delete(parent->child, node);
         vfs_free(node);
-    }
+    } else
+        inotify_notify_create(parent, node);
     if (parent != rootdir) vfs_close(parent);
     free(fullpath);
     return status;
@@ -558,6 +561,7 @@ int vfs_readdir(vfs_node_t dir, size_t index, vfs_dirent_t *entry)
     entry->type      = child->type;
     entry->size      = child->size;
     entry->inode     = child->inode;
+    inotify_notify(dir, IN_ACCESS);
     return EOK;
 }
 
@@ -661,6 +665,7 @@ create:;
         free(path);
         return status;
     }
+    inotify_notify_create(current, node);
     free(path);
     return EOK;
 err:
@@ -727,6 +732,7 @@ create:;
         free(path);
         return status;
     }
+    inotify_notify_create(current, node);
     free(path);
     return EOK;
 err:
@@ -834,6 +840,7 @@ int vfs_umount(const char *path)
         vfs_node_t cur = node;
         node           = node->parent;
         if (cur->root == cur) {
+            inotify_notify_unmount(cur);
             vfs_free_child(cur);
             callbackof(cur, unmount)(cur->handle);
             cur->fsid     = node->fsid;
@@ -857,9 +864,9 @@ size_t vfs_read(vfs_node_t file, void *addr, size_t offset, size_t size)
 
     if (file->type & file_dir) return (size_t)-1;
     pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
-    if (!mapping) return callbackof(file, read)(file->handle, addr, offset, size);
-    int64_t result = pagecache_read(mapping, addr, offset, size);
-    file->size     = pagecache_size(mapping);
+    int64_t result = mapping ? pagecache_read(mapping, addr, offset, size) : (int64_t)callbackof(file, read)(file->handle, addr, offset, size);
+    if (mapping) file->size = pagecache_size(mapping);
+    if (result > 0) inotify_notify(file, IN_ACCESS);
     return (size_t)result;
 }
 
@@ -895,6 +902,7 @@ size_t vfs_write(vfs_node_t file, void *addr, size_t offset, size_t size)
         file->size = pagecache_size(mapping);
     else
         do_update(file);
+    if (ret > 0) inotify_notify(file, IN_MODIFY);
     return (size_t)ret;
 }
 
@@ -905,14 +913,18 @@ int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void 
     do_update(file);
     if (file->type & file_dir) return -EISDIR;
 
+    int64_t result;
     pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
-    if (mapping) return pagecache_read(mapping, addr, offset, size);
-
-    if (callbackof(file, file_read) != vfs_empty_callback.file_read)
-        return callbackof(file, file_read)(file, private_data, flags, addr, offset, size);
-
-    size_t legacy_ret = callbackof(file, read)(file->handle, addr, offset, size);
-    return legacy_ret == (size_t)-1 ? -EIO : (int64_t)legacy_ret;
+    if (mapping)
+        result = pagecache_read(mapping, addr, offset, size);
+    else if (callbackof(file, file_read) != vfs_empty_callback.file_read)
+        result = callbackof(file, file_read)(file, private_data, flags, addr, offset, size);
+    else {
+        size_t legacy_ret = callbackof(file, read)(file->handle, addr, offset, size);
+        result            = legacy_ret == (size_t)-1 ? -EIO : (int64_t)legacy_ret;
+    }
+    if (result > 0) inotify_notify(file, IN_ACCESS);
+    return result;
 }
 
 int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
@@ -940,6 +952,7 @@ int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, cons
     }
 
     if (!mapping) do_update(file);
+    if (ret > 0) inotify_notify(file, IN_MODIFY);
     return ret;
 }
 
@@ -982,7 +995,10 @@ int vfs_truncate(vfs_node_t file, uint64_t size)
         result = callbackof(file, resize)(file->handle, size);
     else
         result = -EOPNOTSUPP;
-    if (!result) file->size = size;
+    if (!result) {
+        file->size = size;
+        inotify_notify(file, IN_MODIFY);
+    }
     return result;
 }
 
@@ -1064,6 +1080,7 @@ int vfs_cache_mark_dirty_range(vfs_node_t file, uint64_t start, uint64_t end)
         }
         if (index == UINT64_MAX) break;
     }
+    inotify_notify(file, IN_MODIFY);
     return EOK;
 }
 
@@ -1269,6 +1286,11 @@ int vfs_namespace_unlink(vfs_node_t node)
         return status;
     }
 
+    if (!(node->flags & VFS_NODE_EVENT_DELETE)) {
+        node->flags |= VFS_NODE_EVENT_DELETE;
+        inotify_notify_delete(node);
+    }
+
     spin_lock(&vfs_namespace_lock);
     node->parent->child = clist_delete(node->parent->child, node);
     node->flags &= ~VFS_NODE_UNLINKING;
@@ -1289,6 +1311,11 @@ void vfs_namespace_detach(vfs_node_t node)
             continue;
         }
         vfs_namespace_detach(child);
+    }
+
+    if (!(node->flags & VFS_NODE_EVENT_DELETE)) {
+        node->flags |= VFS_NODE_EVENT_DELETE;
+        inotify_notify_delete(node);
     }
 
     spin_lock(&vfs_namespace_lock);
@@ -1324,6 +1351,10 @@ int vfs_delete(vfs_node_t node)
         if (status < 0) return status;
         node->flags |= VFS_NODE_DELETE_COMMITTED;
     }
+    if (!(node->flags & VFS_NODE_EVENT_DELETE)) {
+        node->flags |= VFS_NODE_EVENT_DELETE;
+        inotify_notify_delete(node);
+    }
     node->type |= file_delete;
     if (!node->refcount) return vfs_close(node);
     return EOK;
@@ -1335,12 +1366,25 @@ int vfs_rename(vfs_node_t node, const char *new)
     int res;
 
     if (!node || !new) return -EINVAL;
+    char *old      = strdup(node->name);
+    char *new_name = strdup(new);
+    if (!old || !new_name) {
+        free(old);
+        free(new_name);
+        return -ENOMEM;
+    }
     res = callbackof(node, rename)(node->handle, new);
-    if (res != EOK) return res;
+    if (res != EOK) {
+        free(old);
+        free(new_name);
+        return res;
+    }
 
     free(node->name);
-    node->name = strdup(new);
+    node->name = new_name;
     if (node->parent) node->parent->visited = 0;
+    inotify_notify_move(node, old, new);
+    free(old);
     return EOK;
 }
 

@@ -403,24 +403,30 @@ void drm_gem_object_put(struct drm_gem_object *obj)
 
 int drm_gem_handle_create(struct drm_file *file_priv, struct drm_gem_object *obj, uint32_t *handle_out)
 {
+    struct drm_gem_handle_entry *entry;
     int ret;
 
     if (!file_priv || !obj || !handle_out) { return -EINVAL; }
+
+    entry = malloc(sizeof(*entry));
+    if (!entry) return -ENOMEM;
+    memset(entry, 0, sizeof(*entry));
 
     spin_lock(&file_priv->table_lock);
 
     ret = drm_idr_alloc(&file_priv->object_idr, obj, 1, 0, handle_out);
     if (ret < 0) {
         spin_unlock(&file_priv->table_lock);
+        free(entry);
         return ret;
     }
-
-    spin_unlock(&file_priv->table_lock);
-
+    entry->handle = *handle_out;
+    entry->obj = obj;
+    /* A GEM handle owns an object reference independently of its caller. */
+    drm_gem_object_get(obj);
+    ilist_insert_after(&file_priv->object_list, &entry->head);
     obj->handle_count++;
-
-    /* Add to file's object list */
-    ilist_insert_after(&file_priv->object_list, &obj->handle_list_node);
+    spin_unlock(&file_priv->table_lock);
 
     return 0;
 }
@@ -438,16 +444,24 @@ int drm_gem_handle_delete(struct drm_file *file_priv, uint32_t handle)
     spin_lock(&file_priv->table_lock);
 
     obj = drm_idr_remove(&file_priv->object_idr, handle);
-
+    if (obj) {
+        ilist_node_t *node = file_priv->object_list.next;
+        while (node && node != &file_priv->object_list) {
+            struct drm_gem_handle_entry *entry = container_of(node, struct drm_gem_handle_entry, head);
+            node = node->next;
+            if (entry->handle == handle) {
+                ilist_remove(&entry->head);
+                free(entry);
+                break;
+            }
+        }
+        obj->handle_count--;
+    }
     spin_unlock(&file_priv->table_lock);
 
-    if (obj) {
-        ilist_remove(&obj->handle_list_node);
-        obj->handle_count--;
-        drm_gem_object_put(obj);
-    }
+    if (obj) drm_gem_object_put(obj);
 
-    return 0;
+    return obj ? 0 : -ENOENT;
 }
 
 /* ------------------------------------------------------------------ */
@@ -486,7 +500,8 @@ struct drm_gem_object *drm_gem_object_lookup_by_offset(struct drm_file *file_pri
     {
         ilist_node_t *node = file_priv->object_list.next;
         while (node && node != &file_priv->object_list) {
-            obj = container_of(node, struct drm_gem_object, handle_list_node);
+            struct drm_gem_handle_entry *entry = container_of(node, struct drm_gem_handle_entry, head);
+            obj = entry->obj;
             if (obj->mmap_offset == offset) {
                 drm_gem_object_get(obj);
                 spin_unlock(&file_priv->table_lock);
@@ -529,7 +544,7 @@ int drm_gem_open_ioctl(struct drm_device *dev, void *data, struct drm_file *file
 
     args->handle = handle;
     args->size   = obj->size;
-
+    /* Drop the temporary name lookup reference; the handle keeps its own. */
     drm_gem_object_put(obj);
     return 0;
 }
@@ -634,6 +649,9 @@ int drm_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, stru
     }
 
     args->handle = handle;
+
+    /* Transfer lifetime to the handle reference. */
+    drm_gem_object_put(obj);
 
     return 0;
 }
@@ -795,4 +813,12 @@ int drm_gem_prime_fd_to_handle(struct drm_device *dev, struct drm_file *file_pri
     *handle = new_handle;
     drm_gem_object_put(obj);
     return 0;
+}
+
+int drm_gem_create_mmap_offset(struct drm_gem_object *obj)
+{
+    if (!obj || !obj->size) return -EINVAL;
+    if (obj->mmap_offset) return 0;
+    obj->mmap_offset = dumb_offset_alloc(obj->size);
+    return obj->mmap_offset ? 0 : -ENOSPC;
 }

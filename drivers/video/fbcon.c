@@ -72,13 +72,39 @@ static void fbcon_redraw_row_range(uint32_t row, uint32_t first_col, uint32_t la
 
 static void fbcon_flush_dirty_rows(void)
 {
+    uint32_t damage_x1 = (uint32_t)width;
+    uint32_t damage_y1 = (uint32_t)height;
+    uint32_t damage_x2 = 0;
+    uint32_t damage_y2 = 0;
+    bool     damaged   = false;
+
     if (!dirty_first_col || !dirty_last_col) return;
     for (uint32_t row = 0; row < c_height; row++) {
         if (dirty_first_col[row] > dirty_last_col[row]) continue;
+
+#if BOOT_LOGO
+        uint32_t x1 = dirty_first_col[row] * font_width + fbcon_offset_x;
+        uint32_t y1 = row * font_height + fbcon_offset_y + fbcon_draw_offset_y;
+        uint32_t x2 = (dirty_last_col[row] + 1) * font_width + fbcon_offset_x;
+#else
+        uint32_t x1 = dirty_first_col[row] * font_width;
+        uint32_t y1 = row * font_height;
+        uint32_t x2 = (dirty_last_col[row] + 1) * font_width;
+#endif
+        uint32_t y2 = y1 + font_height;
+
+        if (x1 < damage_x1) damage_x1 = x1;
+        if (y1 < damage_y1) damage_y1 = y1;
+        if (x2 > damage_x2) damage_x2 = x2;
+        if (y2 > damage_y2) damage_y2 = y2;
+        damaged = true;
+
         fbcon_redraw_row_range(row, dirty_first_col[row], dirty_last_col[row]);
         dirty_first_col[row] = c_width;
         dirty_last_col[row]  = 0;
     }
+
+    if (damaged) video_flush_rect(damage_x1, damage_y1, damage_x2 - damage_x1, damage_y2 - damage_y1);
 }
 
 static void fbcon_redraw_screen(void)
@@ -101,7 +127,17 @@ static void fbcon_clear_uncovered_bottom(void)
 #else
     uint32_t used_height = c_height * font_height;
 #endif
-    if (used_height < height) video_draw_rect((position_t) {0, used_height}, (position_t) {stride - 1, height - 1}, back_color);
+    if (used_height < height) {
+        for (uint32_t y = used_height; y < height; y++) {
+            uint32_t *line  = buffer + (size_t)y * stride;
+            size_t    count = stride;
+#if defined(__x86_64__) || defined(__i386__)
+            __asm__ volatile("rep stosl" : "+D"(line), "+c"(count) : "a"(back_color) : "memory");
+#else
+            for (uint32_t x = 0; x < stride; x++) line[x] = back_color;
+#endif
+        }
+    }
 }
 
 void fbcon_scroll_up(uint32_t top, uint32_t bottom, uint32_t lines)
@@ -327,6 +363,7 @@ static void fbcon_flush_screen_updates(void)
         fbcon_redraw_screen();
         fbcon_clear_uncovered_bottom();
         full_redraw_pending = 0;
+        video_flush_rect(0, 0, (uint32_t)width, (uint32_t)height);
         return;
     }
 

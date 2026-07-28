@@ -57,6 +57,7 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             /* Reference the file for the new slot */
             spin_lock(&file->lock);
             file->refcount++;
+            file->fd_refcount++;
             spin_unlock(&file->lock);
 
             proc->fds[newfd] = file;
@@ -87,6 +88,7 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
 
             spin_lock(&file->lock);
             file->refcount++;
+            file->fd_refcount++;
             spin_unlock(&file->lock);
 
             proc->fds[newfd] = file;

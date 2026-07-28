@@ -41,7 +41,7 @@ extern void                     drm_mode_probed_add(struct drm_connector *connec
 static struct drm_device *drm_device_list[DRM_MAX_DEVICES];
 static spinlock_t         drm_device_list_lock = {.lock = 0, .rflags = 0};
 
-static void drm_device_list_add(struct drm_device *dev)
+void drm_device_list_add(struct drm_device *dev)
 {
     spin_lock(&drm_device_list_lock);
     for (int i = 0; i < DRM_MAX_DEVICES; i++) {
@@ -570,6 +570,22 @@ int drm_class_registered = 0;
 int drm_init(void)
 {
 #if CONFIG_DRM
+    /* Register core DRM services first.  The software fallback must not
+     * claim card0/renderD128 before a hardware driver probes. */
+    if (!drm_class_registered) {
+        int ret = class_register(&drm_class);
+        if (ret != EOK) return ret;
+        drm_class_registered = 1;
+    }
+    return 0;
+#else
+    return -ENODEV;
+#endif
+}
+
+int drm_init_fallback(void)
+{
+#if CONFIG_DRM
     struct drm_device *dev;
 
     dev = drm_dev_alloc(&drm_dummy_driver);
@@ -595,12 +611,8 @@ int drm_init(void)
 
     drm_device_list_add(dev);
 
-    /* Register DRM class once (shared by all DRM devices) */
-    if (!drm_class_registered) {
-        int cret = class_register(&drm_class);
-        if (cret == EOK) { drm_class_registered = 1; }
-    }
-
     return 0;
+#else
+    return -ENODEV;
 #endif
 }

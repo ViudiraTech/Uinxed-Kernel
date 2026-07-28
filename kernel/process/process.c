@@ -11,6 +11,7 @@
 #include <arch/smp.h>
 #include <chipset/common.h>
 #include <drivers/tty_core.h>
+#include <fs/inotify.h>
 #include <fs/vfs.h>
 #include <ipc/epoll.h>
 #include <ipc/futex.h>
@@ -582,6 +583,8 @@ void process_file_put(process_file_t *file)
     file->refcount = 0;
     spin_unlock(&file->lock);
 
+    inotify_notify(file->node, (file->flags & O_ACCMODE) == O_RDONLY ? IN_CLOSE_NOWRITE : IN_CLOSE_WRITE);
+
     /* Release per-open-instance private_data. */
     if (file->file_opened) callbackof(file->node, file_release)(file->node, file->private_data);
 
@@ -661,6 +664,7 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
         if (!proc->fds[i]) {
             proc->fds[i] = file;
             spin_unlock(&proc->fd_lock);
+            inotify_notify(node, IN_OPEN);
             return i;
         }
     }

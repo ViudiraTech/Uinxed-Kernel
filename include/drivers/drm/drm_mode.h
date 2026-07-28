@@ -378,7 +378,7 @@ struct drm_mode_get_fb2 {
 #define DRM_MODE_FB_DIRTY_ANNOTATE_COPY 0x01
 #define DRM_MODE_FB_DIRTY_ANNOTATE_FILL 0x02
 #define DRM_MODE_FB_DIRTY_FLAGS         0x03
-#define DRM_MODE_FB_DIRTY_NO_CLIP       0x04
+#define DRM_MODE_FB_DIRTY_MAX_CLIPS     256
 
 struct drm_mode_fb_dirty_cmd {
         __u32 fb_id;
@@ -459,9 +459,12 @@ struct drm_mode_destroy_dumb {
 };
 
 /* Atomic commit */
-#define DRM_MODE_ATOMIC_TEST_ONLY     (1 << 0)
-#define DRM_MODE_ATOMIC_NONBLOCK      (1 << 1)
-#define DRM_MODE_ATOMIC_ALLOW_MODESET (1 << 2)
+#define DRM_MODE_ATOMIC_TEST_ONLY     0x0100
+#define DRM_MODE_ATOMIC_NONBLOCK      0x0200
+#define DRM_MODE_ATOMIC_ALLOW_MODESET 0x0400
+#define DRM_MODE_ATOMIC_FLAGS \
+    (DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_PAGE_FLIP_ASYNC | DRM_MODE_ATOMIC_TEST_ONLY \
+     | DRM_MODE_ATOMIC_NONBLOCK | DRM_MODE_ATOMIC_ALLOW_MODESET)
 
 struct drm_mode_atomic {
         __u32 flags;

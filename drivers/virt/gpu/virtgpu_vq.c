@@ -74,8 +74,111 @@ static inline void cpu_relax(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* Synchronous control-queue command                                   */
+/* Synchronous control-queue commands                                  */
 /* ------------------------------------------------------------------ */
+
+/*
+ * Publish a group of independent descriptor chains, ring the MMIO
+ * doorbell once, then reap every response.  The device consumes chains
+ * in available-ring order, so transfer/set-scanout/flush sequences keep
+ * their protocol ordering without paying one notification and wait per
+ * command.
+ */
+int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_command *commands, uint32_t count)
+{
+    struct vp_virtqueue *vq;
+    uint32_t             submitted = 0;
+    uint32_t             completed = 0;
+    uint32_t             timeout   = 0;
+    uint32_t             len;
+    int                  ret = 0;
+
+    if (!vgdev || !commands || count == 0) return -EINVAL;
+    vq = &vgdev->ctrlq;
+
+    for (uint32_t i = 0; i < count; i++) {
+        if (!commands[i].cmd || !commands[i].resp || commands[i].cmd_size <= 0 || commands[i].resp_size <= 0) return -EINVAL;
+    }
+
+    /* Stack-backed command buffers must remain owned by this caller until
+     * every response has arrived.  This lock also prevents one CPU from
+     * reaping another CPU's completion. */
+    spin_lock(&vgdev->ctrlq_cmd_lock);
+
+    if (count > (uint32_t)vq->num_free / 2) {
+        ret = -ENOSPC;
+        goto out_unlock;
+    }
+
+    for (uint32_t i = 0; i < count; i++) {
+        struct virtio_gpu_ctrl_hdr *request = (struct virtio_gpu_ctrl_hdr *)commands[i].cmd;
+
+        /* A used descriptor only acknowledges queue consumption.  Fence every
+         * synchronous command so its response also proves host processing. */
+        request->flags |= VIRTIO_GPU_FLAG_FENCE;
+        spin_lock(&vgdev->fence_lock);
+        request->fence_id = vgdev->next_fence_id++;
+        if (request->fence_id == 0) request->fence_id = vgdev->next_fence_id++;
+        spin_unlock(&vgdev->fence_lock);
+        ret = virtqueue_add_out_in(vq, commands[i].cmd, commands[i].cmd_size, commands[i].resp, commands[i].resp_size);
+        if (ret) break;
+        submitted++;
+    }
+
+    if (submitted == 0) goto out_unlock;
+
+    /* One doorbell covers every avail entry published above. */
+    virtqueue_kick(vq);
+
+    while (completed < submitted) {
+        if (virtqueue_get_buf(vq, &len)) {
+            completed++;
+            timeout = 0;
+            continue;
+        }
+
+        cpu_relax();
+        compiler_barrier();
+        if (++timeout > 10000000) {
+            DRM_ERROR("Timed out waiting for GPU command batch (%u/%u complete)\n", completed, submitted);
+            ret = -EIO;
+            goto out_unlock;
+        }
+    }
+
+    if (submitted != count) goto out_unlock;
+
+    for (uint32_t i = 0; i < count; i++) {
+        struct virtio_gpu_ctrl_hdr *request = (struct virtio_gpu_ctrl_hdr *)commands[i].cmd;
+        struct virtio_gpu_ctrl_hdr *reply   = (struct virtio_gpu_ctrl_hdr *)commands[i].resp;
+        uint32_t expected;
+
+        switch (request->type) {
+            case VIRTIO_GPU_CMD_GET_DISPLAY_INFO: expected = VIRTIO_GPU_RESP_OK_DISPLAY_INFO; break;
+            case VIRTIO_GPU_CMD_GET_CAPSET_INFO: expected = VIRTIO_GPU_RESP_OK_CAPSET_INFO; break;
+            case VIRTIO_GPU_CMD_GET_CAPSET: expected = VIRTIO_GPU_RESP_OK_CAPSET; break;
+            case VIRTIO_GPU_CMD_GET_EDID: expected = VIRTIO_GPU_RESP_OK_EDID; break;
+            case VIRTIO_GPU_CMD_RESOURCE_ASSIGN_UUID: expected = VIRTIO_GPU_RESP_OK_RESOURCE_UUID; break;
+            case VIRTIO_GPU_CMD_RESOURCE_MAP_BLOB: expected = VIRTIO_GPU_RESP_OK_MAP_INFO; break;
+            default: expected = VIRTIO_GPU_RESP_OK_NODATA; break;
+        }
+
+        if (reply->type != expected) {
+            DRM_ERROR("GPU command 0x%04x returned 0x%04x, expected 0x%04x\n", request->type, reply->type, expected);
+            ret = -EIO;
+            break;
+        }
+        if (!(reply->flags & VIRTIO_GPU_FLAG_FENCE) || reply->fence_id != request->fence_id) {
+            DRM_ERROR("GPU command 0x%04x returned an invalid fence response\n", request->type);
+            ret = -EIO;
+            break;
+        }
+    }
+
+out_unlock:
+    spin_unlock(&vgdev->ctrlq_cmd_lock);
+    return ret;
+}
 
 /*
  * Send @cmd of @cmd_size bytes to the control queue, wait for a response
@@ -85,53 +188,46 @@ static inline void cpu_relax(void)
  * The caller must ensure that the command header is embedded in @cmd and
  * that @resp begins with a struct virtio_gpu_ctrl_hdr.
  */
-int virtgpu_ctrl_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size, void *resp, int resp_size, uint32_t *fence_id)
+int virtgpu_ctrl_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size, void *resp, int resp_size, uint64_t *fence_id)
 {
-    struct vp_virtqueue        *vq = &vgdev->ctrlq;
-    int                         ret;
-    uint32_t                    len;
+    struct virtgpu_vq_command  command;
     struct virtio_gpu_ctrl_hdr *hdr;
+    int                         ret;
 
     if (cmd_size <= 0 || resp_size <= 0) { return -EINVAL; }
 
-    /* Submit cmd + resp as a single descriptor chain:
-     * - out descriptor: driver writes cmd, device reads it
-     * - in descriptor:  device writes resp, driver reads it
-     * The device processes both atomically. */
-    ret = virtqueue_add_out_in(vq, cmd, cmd_size, resp, resp_size);
-    if (ret) {
-        DRM_ERROR("virtqueue_add_out_in failed: %d\n", ret);
-        return ret;
-    }
-    virtqueue_kick(vq);
+    command.cmd       = cmd;
+    command.cmd_size  = cmd_size;
+    command.resp      = resp;
+    command.resp_size = resp_size;
 
-    /* Spin waiting for the device to complete the chain.
-     * Getting back either buffer pointer means completion.
-     * Use cpu_relax() to improve performance and memory ordering.
-     *
-     * The counter provides a safety timeout: ~10M iterations (~1-2 s on QEMU)
-     * after which we bail out instead of hanging the kernel forever. */
-    {
-        uint32_t timeout = 0;
-
-        for (;;) {
-            void *buf = virtqueue_get_buf(vq, &len);
-            if (buf == cmd || buf == resp) { break; }
-            cpu_relax();
-            compiler_barrier();
-            if (++timeout > 10000000) {
-                DRM_ERROR("Timed out waiting for GPU response (cmd 0x%04x)\n", ((struct virtio_gpu_ctrl_hdr *)cmd)->type);
-                return -EIO;
-            }
-        }
-    }
+    ret = virtgpu_ctrl_cmd_batch(vgdev, &command, 1);
+    if (ret) return ret;
 
     hdr = (struct virtio_gpu_ctrl_hdr *)resp;
-    if (hdr->type >= VIRTIO_GPU_RESP_ERR_UNSPEC) {
-        DRM_ERROR("GPU command 0x%04x failed with 0x%04x\n", ((struct virtio_gpu_ctrl_hdr *)cmd)->type, hdr->type);
-        return -EIO;
-    }
-
     if (fence_id) { *fence_id = hdr->fence_id; }
     return 0;
+}
+
+int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
+{
+    uint32_t len, timeout = 0;
+    int ret;
+
+    if (!vgdev || !cmd || cmd_size < (int)sizeof(struct virtio_gpu_ctrl_hdr)) return -EINVAL;
+    spin_lock(&vgdev->cursorq_cmd_lock);
+    /* Cursorq requests are output-only and have no protocol response.  The
+     * preceding resource upload is fenced on controlq; here we only wait for
+     * the device to consume the cursor descriptor before returning. */
+    ret = virtqueue_add(&vgdev->cursorq, cmd, cmd_size, 0);
+    if (ret) goto out;
+    virtqueue_kick(&vgdev->cursorq);
+    while (!virtqueue_get_buf(&vgdev->cursorq, &len)) {
+        cpu_relax();
+        compiler_barrier();
+        if (++timeout > 10000000) { ret = -EIO; goto out; }
+    }
+out:
+    spin_unlock(&vgdev->cursorq_cmd_lock);
+    return ret;
 }

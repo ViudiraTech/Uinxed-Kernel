@@ -41,6 +41,7 @@
 #include <fs/devtmpfs.h>
 #include <fs/fatfs/fatfs_vfs.h>
 #include <fs/isofs/isofs.h>
+#include <fs/inotify.h>
 #include <fs/ntfs/ntfs_vfs.h>
 #include <fs/procfs.h>
 #include <fs/sysfs.h>
@@ -272,6 +273,7 @@ void kernel_entry(void)
     eventfd_init();                // Event File Descriptor
     timerfd_init();                // Timer File Descriptor
     signalfd_init();               // Signal File Descriptor
+    inotify_init();                // Filesystem Event Notification
     memfd_init();                  // Anonymous Memory File Descriptor
                                    //
     sysv_ipc_init();               // System V IPC
@@ -282,8 +284,9 @@ void kernel_entry(void)
     socket_init();                 // UNIX Domain Sockets
                                    //
     /* Graphics Stack */           //
-    drm_init();                    // Direct Rendering Manager
-    virtio_gpu_init();             // VirtIO GPU driver (if present on PCI bus)
+    drm_init();                    // DRM core services
+    if (virtio_gpu_init() != 0)    // Prefer VirtIO-GPU for card0/renderD128
+        drm_init_fallback();       // Software fallback only without VirtIO-GPU
 
     boot_start_init_before_debug(swapper_run_init, sched_test_init);
 #if CONFIG_E1000

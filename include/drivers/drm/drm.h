@@ -33,6 +33,24 @@ typedef uint32_t drm_context_t;
 typedef uint32_t drm_drawable_t;
 typedef uint32_t drm_magic_t;
 
+/* Generic DRM event ABI (byte-for-byte compatible with Linux). */
+#define DRM_EVENT_VBLANK        0x01
+#define DRM_EVENT_FLIP_COMPLETE 0x02
+
+struct drm_event {
+        __u32 type;
+        __u32 length;
+};
+
+struct drm_event_vblank {
+        struct drm_event base;
+        __u64            user_data;
+        __u32            tv_sec;
+        __u32            tv_usec;
+        __u32            sequence;
+        __u32            crtc_id;
+};
+
 /* ioctl encoding macros, x86-64 identical to Linux asm-generic/ioctl.h.
  * Guarded with #ifndef so they coexist with input_event.h which also
  * defines them (the project has no single asm/ioctl.h header). */

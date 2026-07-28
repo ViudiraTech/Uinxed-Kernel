@@ -101,6 +101,9 @@ size_t video_fb_write(void *ctx, const void *addr, size_t offset, size_t size)
 {
     uint8_t *dst;
     size_t   fb_size;
+    size_t   row_bytes;
+    size_t   start_row;
+    size_t   end_row;
 
     (void)ctx;
     if (!addr) return 0;
@@ -111,6 +114,21 @@ size_t video_fb_write(void *ctx, const void *addr, size_t offset, size_t size)
     if (size > fb_size - offset) size = fb_size - offset;
     dst = (uint8_t *)buffer + offset;
     memcpy(dst, addr, size);
+
+    /* /dev/fb0 writes are byte ranges.  Convert them to one conservative
+     * rectangle so DRM-backed consoles do not retransmit the whole frame. */
+    if (size) {
+        row_bytes = (size_t)stride * sizeof(uint32_t);
+        start_row = offset / row_bytes;
+        end_row   = (offset + size - 1) / row_bytes;
+        if (start_row == end_row) {
+            size_t x0 = (offset % row_bytes) / sizeof(uint32_t);
+            size_t x1 = ((offset % row_bytes) + size + sizeof(uint32_t) - 1) / sizeof(uint32_t);
+            video_flush_rect((uint32_t)x0, (uint32_t)start_row, (uint32_t)(x1 - x0), 1);
+        } else {
+            video_flush_rect(0, (uint32_t)start_row, (uint32_t)width, (uint32_t)(end_row - start_row + 1));
+        }
+    }
     return size;
 }
 
@@ -161,7 +179,7 @@ void video_clear(void)
     back_color = color_to_fb_color((color_t) {0x00, 0x00, 0x00});
     for (uint32_t i = 0; i < (stride * height); i++) buffer[i] = back_color;
     cx = cy = 0;
-    if (video_flush_cb) video_flush_cb();
+    video_flush_rect(0, 0, (uint32_t)width, (uint32_t)height);
 }
 
 /* Clear screen with color */
@@ -170,6 +188,7 @@ void video_clear_color(uint32_t color)
     back_color = color;
     for (uint32_t i = 0; i < (stride * height); i++) buffer[i] = back_color;
     cx = cy = 0;
+    video_flush_rect(0, 0, (uint32_t)width, (uint32_t)height);
 }
 
 /* Draw a pixel at the specified coordinates on the screen */
@@ -201,6 +220,10 @@ void video_draw_rect(position_t p0, position_t p1, uint32_t color)
     uint32_t y0 = p0.y;
     uint32_t x1 = p1.x;
     uint32_t y1 = p1.y;
+    if (x0 >= stride || y0 >= height) return;
+    if (x1 >= stride) x1 = (uint32_t)stride - 1;
+    if (y1 >= height) y1 = (uint32_t)height - 1;
+    if (x1 < x0 || y1 < y0) return;
     for (uint32_t y = y0; y <= y1; y++) {
         /* Draw horizontal line */
 #if defined(__x86_64__) || defined(__i386__)
@@ -211,7 +234,15 @@ void video_draw_rect(position_t p0, position_t p1, uint32_t color)
         for (uint32_t x = x0; x <= x1; x++) video_draw_pixel(x, y, color);
 #endif
     }
-    if (video_flush_cb) video_flush_cb();
+    video_flush_rect(x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+}
+
+void video_flush_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
+{
+    if (!video_flush_cb || !w || !h || x >= width || y >= height) return;
+    if (w > width - x) w = (uint32_t)width - x;
+    if (h > height - y) h = (uint32_t)height - y;
+    video_flush_cb(x, y, w, h);
 }
 
 /*
@@ -239,7 +270,7 @@ void video_switch_to_drm(void *backing, uint32_t w, uint32_t h, uint32_t pitch, 
     video_clear();
 #if BOOT_LOGO
     video_redraw_logo();
-    if (video_flush_cb) video_flush_cb(); /* flush logo pixels to host */
+    video_flush_rect(0, 0, w, h); /* flush logo pixels to host */
 #endif
 
     plogk("video: switched console to DRM framebuffer %ux%u stride=%u\n", w, h, (uint32_t)stride);

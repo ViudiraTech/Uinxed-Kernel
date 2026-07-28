@@ -337,6 +337,11 @@ typedef struct signal_state {
         sigaction_t sighand[SIG_ACTION_NUM];
         sigset_t    pending;
         sigset_t    blocked;
+        /* pselect6/ppoll keep their temporary mask installed until the
+         * return-to-userspace signal pass.  A handler frame must restore
+         * the mask that was active before the wait, not the temporary one. */
+        sigset_t    saved_mask;
+        bool        restore_mask;
         sigqueue_t *sigqueue_head;
         sigqueue_t *sigqueue_tail;
         int         sigqueue_count;

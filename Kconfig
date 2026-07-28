@@ -448,6 +448,28 @@ endmenu
 
 menu "File systems"
 
+  config INOTIFY_MAX_QUEUED_EVENTS
+    int "Maximum queued inotify events per instance"
+    default 16384
+    range 256 1048576
+    help
+      Maximum number of filesystem events retained by one inotify
+      instance before a single IN_Q_OVERFLOW record is generated.
+
+  config INOTIFY_MAX_USER_INSTANCES
+    int "Maximum inotify instances per user"
+    default 128
+    range 1 65536
+    help
+      Maximum number of inotify file descriptors owned by one UID.
+
+  config INOTIFY_MAX_USER_WATCHES
+    int "Maximum inotify watches per user"
+    default 8192
+    range 256 1048576
+    help
+      Maximum number of active inotify watches owned by one UID.
+
   config SYSFS
     bool "sysfs filesystem (/sys)"
     default y

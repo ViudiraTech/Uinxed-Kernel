@@ -135,8 +135,10 @@ void signal_state_copy(signal_state_t *dst, const signal_state_t *src)
     if (dst != src) spin_lock(&dst->lock);
 
     memcpy(dst->sighand, src->sighand, sizeof(dst->sighand));
-    dst->pending = src->pending;
-    dst->blocked = src->blocked;
+    dst->pending      = src->pending;
+    dst->blocked      = src->restore_mask ? src->saved_mask : src->blocked;
+    dst->saved_mask   = 0;
+    dst->restore_mask = false;
 
     sigqueue_flush(dst);
     sigqueue_t *cur = src->sigqueue_head;
@@ -179,6 +181,11 @@ void signal_exec_reset(process_t *proc)
     signal_state_t *state = &proc->signal;
 
     spin_lock(&state->lock);
+
+    if (state->restore_mask) {
+        state->blocked      = state->saved_mask;
+        state->restore_mask = false;
+    }
 
     sigemptyset(&state->pending);
     sigqueue_flush(state);
@@ -463,7 +470,7 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
     }
 
     /* User handler: save old mask before modifying */
-    sigset_t old_mask = state->blocked;
+    sigset_t old_mask = state->restore_mask ? state->saved_mask : state->blocked;
 
     /* Block the signal itself unless SA_NODEFER */
     if (!(sa->sa_flags & SA_NODEFER)) { sigaddset(&state->blocked, sig); }
@@ -479,6 +486,7 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
 
     /* Set up the signal frame on the user stack (saves old_mask for sigreturn) */
     signal_setup_frame(frame, sig, sa, info, old_mask);
+    state->restore_mask = false;
 
     /* Clear pending bit for this signal */
     sigdelset(&state->pending, sig);
@@ -613,6 +621,13 @@ int signal_deliver_if_pending(syscall_frame_t *frame)
 
         /* ret == SIG_DELIV_HANDLED: default/ignore action.
          * Continue loop to clear more pending default/ignore signals. */
+    }
+
+    /* No user handler consumed the deferred mask (for example, the signal
+     * was ignored or used a non-terminating default action). */
+    if (state->restore_mask) {
+        state->blocked      = state->saved_mask;
+        state->restore_mask = false;
     }
 
     spin_unlock(&state->lock);
