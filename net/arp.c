@@ -95,14 +95,24 @@ static int arp_send(net_device_t *device, uint16_t operation, const uint8_t targ
     return status;
 }
 
-static void arp_pool_init_locked(void)
+void arp_init(void)
 {
-    if (arp_pending_initialized) return;
     for (unsigned i = 0; i < ARP_PENDING_TOTAL; i++) {
         arp_pending_pool[i].next = arp_pending_free;
         arp_pending_free         = &arp_pending_pool[i];
     }
     arp_pending_initialized = 1;
+}
+
+static void arp_pool_init_locked(void)
+{
+    if (!arp_pending_initialized) {
+        for (unsigned i = 0; i < ARP_PENDING_TOTAL; i++) {
+            arp_pending_pool[i].next = arp_pending_free;
+            arp_pending_free         = &arp_pending_pool[i];
+        }
+        arp_pending_initialized = 1;
+    }
 }
 
 static arp_entry_t *arp_find_locked(net_device_t *device, uint32_t ipv4)
@@ -228,10 +238,7 @@ int arp_resolve(net_device_t *device, uint32_t ipv4, net_pbuf_t *packet)
         request         = 1;
     }
     spin_unlock(&arp_lock);
-    if (request) {
-        int status = arp_request(device, ipv4);
-        if (status) return status;
-    }
+    if (request) arp_request(device, ipv4);
     return -EINPROGRESS;
 }
 

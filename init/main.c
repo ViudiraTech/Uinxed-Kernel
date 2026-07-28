@@ -211,7 +211,7 @@ void kernel_entry(void)
     e1000_init(); // Intel 8254x Gigabit Ethernet
 #endif
 #if CONFIG_NET
-    dhcp_init(); // Nonblocking IPv4 autoconfiguration
+    net_init(); // Initialize ARP/NDP caches and DHCP client
 #endif
     sb16_init();             // Sound Blaster 16
     hda_init();              // Intel HD Audio

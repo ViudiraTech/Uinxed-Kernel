@@ -26,6 +26,7 @@
 #define NETDEV_F_UP        0x0001U
 #define NETDEV_F_RUNNING   0x0002U
 #define NETDEV_F_BROADCAST 0x0004U
+#define NETDEV_F_PROMISC   0x0008U
 
 typedef struct net_device net_device_t;
 typedef net_device_t      netdev_t;
@@ -52,10 +53,7 @@ typedef struct netdev_stats {
 typedef struct netdev_ops {
         int (*open)(net_device_t *device);
         void (*stop)(net_device_t *device);
-        union {
-                int (*xmit)(net_device_t *device, net_pbuf_t *packet);
-                int (*transmit)(netdev_t *device, net_packet_t *packet);
-        };
+        int (*xmit)(net_device_t *device, net_pbuf_t *packet);
         int (*set_mtu)(net_device_t *device, uint32_t mtu);
 } netdev_ops_t;
 
@@ -111,7 +109,5 @@ int       netdev_init(netdev_t *device, const char *name, const netdev_ops_t *op
 netdev_t *netdev_find(const char *name);
 void      netdev_get(netdev_t *device);
 void     *netdev_private(netdev_t *device);
-/* Compatibility transmit consumes packet; netdev_tx retains caller ownership. */
-int netdev_transmit(netdev_t *device, net_packet_t *packet);
 
 #endif

@@ -30,8 +30,13 @@ static void               *lifecycle_context;
 
 uint32_t net_checksum_add(uint32_t sum, const void *data, size_t length)
 {
-    const uint8_t *bytes = data;
-    while (length >= 2) {
+    const uint32_t *words = data;
+    while (length >= 4) {
+        sum += __builtin_bswap32(*words++);
+        length -= 4;
+    }
+    const uint8_t *bytes = (const uint8_t *)words;
+    if (length >= 2) {
         sum += ((uint16_t)bytes[0] << 8) | bytes[1];
         bytes += 2;
         length -= 2;
@@ -128,24 +133,19 @@ net_pbuf_t *net_pbuf_clone(const net_pbuf_t *pbuf, size_t headroom)
 void net_pbuf_ref(net_pbuf_t *pbuf)
 {
     if (!pbuf) return;
-    spin_lock(&pbuf->lock);
-    pbuf->refs++;
-    spin_unlock(&pbuf->lock);
+    __sync_add_and_fetch(&pbuf->refs, 1);
 }
 
 void net_pbuf_free(net_pbuf_t *pbuf)
 {
     if (!pbuf) return;
-    spin_lock(&pbuf->lock);
-    uint32_t refs = --pbuf->refs;
-    spin_unlock(&pbuf->lock);
-    if (!refs) {
-        if (pbuf->release) pbuf->release(pbuf->release_context, pbuf->storage);
-        if (!pbuf->external) {
-            free(pbuf->storage);
-            free(pbuf);
-        }
+    if (__sync_sub_and_fetch(&pbuf->refs, 1)) return;
+    if (pbuf->release) {
+        pbuf->release(pbuf->release_context, pbuf->storage);
+    } else if (!pbuf->external) {
+        free(pbuf->storage);
     }
+    free(pbuf);
 }
 
 size_t net_pbuf_headroom(const net_pbuf_t *pbuf)
@@ -202,8 +202,8 @@ int netdev_register(net_device_t *device)
         return -ENOSPC;
     }
     device->refs    = 1;
-    device->ifindex = next_ifindex++;
-    if (!next_ifindex) next_ifindex = 1;
+    device->ifindex = next_ifindex;
+    if (++next_ifindex == 0 || !next_ifindex) next_ifindex = 1;
     device->registered           = 1;
     devices[slot]                = device;
     netdev_lifecycle_fn notifier = lifecycle_notifier;
@@ -460,6 +460,13 @@ void netdev_get_stats(net_device_t *device, netdev_stats_t *stats)
     spin_unlock(&device->lock);
 }
 
+void net_init(void)
+{
+    arp_init();
+    ndp_init();
+    dhcp_init();
+}
+
 int netdev_rx(net_device_t *device, net_pbuf_t *packet)
 {
     if (!packet) return -EINVAL;
@@ -484,28 +491,16 @@ int netdev_tx(net_device_t *device, net_pbuf_t *packet)
 {
     if (!device || !packet) return -EINVAL;
     if (!device->registered || (device->flags & (NETDEV_F_UP | NETDEV_F_RUNNING)) != (NETDEV_F_UP | NETDEV_F_RUNNING)) return -ENETDOWN;
-    int status = device->ops->xmit(device, packet);
+    size_t length = packet->length;
+    int    status = device->ops->xmit(device, packet);
     spin_lock(&device->lock);
     if (!status) {
         device->stats.tx_packets++;
-        device->stats.tx_bytes += packet->length;
+        device->stats.tx_bytes += length;
     } else {
         device->stats.tx_errors++;
         device->stats.tx_dropped++;
     }
     spin_unlock(&device->lock);
-    return status;
-}
-
-int netdev_transmit(netdev_t *device, net_packet_t *packet)
-{
-    int status;
-    if (!device || !packet)
-        status = -EINVAL;
-    else if (!device->registered)
-        status = -ENODEV;
-    else
-        status = device->ops->xmit(device, packet);
-    net_packet_put(packet);
     return status;
 }

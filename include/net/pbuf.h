@@ -25,9 +25,8 @@ typedef struct net_pbuf {
         size_t   capacity;
         uint32_t refs;
         void (*release)(void *context, void *data);
-        void      *release_context;
-        uint8_t    external;
-        spinlock_t lock;
+        void   *release_context;
+        uint8_t external;
 } net_pbuf_t;
 
 net_pbuf_t *net_pbuf_alloc(size_t payload_length, size_t headroom);

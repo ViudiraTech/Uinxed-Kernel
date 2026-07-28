@@ -36,15 +36,15 @@ int net_ethernet_parse(const void *data, size_t length, net_ethernet_frame_t *fr
 
 int ethernet_input(net_device_t *device, net_pbuf_t *packet)
 {
-    if (!device || !packet || packet->length < ETH_HEADER_LEN) {
+    if (!device || !packet || packet->length <= ETH_HEADER_LEN) {
         net_pbuf_free(packet);
         return -EBADMSG;
     }
     const uint8_t *header = packet->data;
     uint16_t       type   = net_read_be16(header + 12);
     if (!ethernet_address_valid(header + ETH_ADDRESS_LEN) || (header[ETH_ADDRESS_LEN] & 1U)
-        || (memcmp(header, device->address, ETH_ADDRESS_LEN) && memcmp(header, ethernet_broadcast_address, ETH_ADDRESS_LEN)
-            && !(header[0] == 0x33 && header[1] == 0x33))) {
+        || (!(device->flags & NETDEV_F_PROMISC) && memcmp(header, device->address, ETH_ADDRESS_LEN)
+            && memcmp(header, ethernet_broadcast_address, ETH_ADDRESS_LEN) && !(header[0] == 0x33 && header[1] == 0x33))) {
         net_pbuf_free(packet);
         return -EHOSTUNREACH;
     }
@@ -64,7 +64,5 @@ int ethernet_output(net_device_t *device, net_pbuf_t *packet, const uint8_t dest
     memcpy(header, destination, ETH_ADDRESS_LEN);
     memcpy(header + 6, device->address, ETH_ADDRESS_LEN);
     net_write_be16(header + 12, type);
-    int status = netdev_tx(device, packet);
-    net_pbuf_pull(packet, ETH_HEADER_LEN);
-    return status;
+    return netdev_tx(device, packet);
 }

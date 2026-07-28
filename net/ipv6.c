@@ -162,10 +162,12 @@ int net_ipv6_parse(const void *data, size_t length, net_ipv6_packet_t *packet)
     if ((bytes[0] >> 4) != 6) return -EBADMSG;
     uint16_t payload_length = net_read_be16(bytes + 4);
     if ((size_t)payload_length > length - IPV6_HEADER_LEN || (!payload_length && length != IPV6_HEADER_LEN)) return -EBADMSG;
+    size_t ipv6_total = (size_t)IPV6_HEADER_LEN + payload_length;
+    if (ipv6_total > UINT16_MAX) return -EBADMSG;
 
     memset(packet, 0, sizeof(*packet));
     packet->flow_label = ((uint32_t)(bytes[1] & 0x0fU) << 16) | ((uint32_t)bytes[2] << 8) | bytes[3];
-    packet->total_len  = (uint16_t)(IPV6_HEADER_LEN + payload_length);
+    packet->total_len  = (uint16_t)ipv6_total;
     packet->hop_limit  = bytes[7];
     memcpy(packet->source.bytes, bytes + 8, IPV6_ADDRESS_LEN);
     memcpy(packet->destination.bytes, bytes + 24, IPV6_ADDRESS_LEN);
@@ -422,10 +424,37 @@ static net_pbuf_t *ipv6_reassemble(net_device_t *device, const net_ipv6_packet_t
     if ((entry->have_last && end > entry->total_length)
         || (!ip->more_fragments && ((entry->have_last && end != entry->total_length) || entry->highest_end > end)))
         goto overlap;
-    for (size_t i = ip->fragment_offset; i < end; i++)
-        if (entry->bitmap[i >> 3] & (1U << (i & 7U))) goto overlap;
+    {
+        uint8_t *bm      = entry->bitmap;
+        size_t   off     = ip->fragment_offset;
+        size_t   b_start = off >> 3;
+        size_t   b_end   = (end + 7) >> 3;
+        for (size_t j = b_start; j < b_end; j++) {
+            uint8_t m = 0xff;
+            if (j == b_start) m &= (uint8_t)(0xff << (off & 7));
+            if (j == b_end - 1) {
+                unsigned t = end & 7;
+                if (t) m &= (uint8_t)(0xff >> (8 - t));
+            }
+            if (bm[j] & m) goto overlap;
+        }
+    }
     memcpy(entry->data + ip->fragment_offset, ip->payload, ip->payload_len);
-    for (size_t i = ip->fragment_offset; i < end; i++) entry->bitmap[i >> 3] |= (uint8_t)(1U << (i & 7U));
+    {
+        uint8_t *bm      = entry->bitmap;
+        size_t   off     = ip->fragment_offset;
+        size_t   b_start = off >> 3;
+        size_t   b_end   = (end + 7) >> 3;
+        for (size_t j = b_start; j < b_end; j++) {
+            uint8_t m = 0xff;
+            if (j == b_start) m &= (uint8_t)(0xff << (off & 7));
+            if (j == b_end - 1) {
+                unsigned t = end & 7;
+                if (t) m &= (uint8_t)(0xff >> (8 - t));
+            }
+            bm[j] |= m;
+        }
+    }
     entry->received = (uint16_t)(entry->received + ip->payload_len);
     if (end > entry->highest_end) entry->highest_end = (uint16_t)end;
     if (!ip->fragment_offset) {

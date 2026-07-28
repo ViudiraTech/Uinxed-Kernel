@@ -79,35 +79,16 @@ int net_udp_parse(const void *data, size_t length, uint32_t source, uint32_t des
     return 0;
 }
 
-static uint32_t udp_checksum_add(uint32_t sum, const uint8_t *data, size_t length)
-{
-    while (length > 1) {
-        sum += ((uint16_t)data[0] << 8) | data[1];
-        data += 2;
-        length -= 2;
-    }
-    if (length) sum += (uint16_t)data[0] << 8;
-    return sum;
-}
-
-static uint16_t udp_checksum6(const struct in6_addr *source, const struct in6_addr *destination, const void *data, size_t length)
-{
-    uint32_t sum = udp_checksum_add(0, source->s6_addr, 16);
-    sum          = udp_checksum_add(sum, destination->s6_addr, 16);
-    sum += (uint32_t)(length >> 16) + (uint16_t)length + IPPROTO_UDP;
-    sum = udp_checksum_add(sum, data, length);
-    while (sum >> 16) sum = (sum & UINT16_MAX) + (sum >> 16);
-    return (uint16_t)~sum;
-}
-
 int net_udp_parse6(const void *data, size_t length, const struct in6_addr *source, const struct in6_addr *destination,
                    net_udp_datagram_t *datagram)
 {
     if (!data || !source || !destination || !datagram || length < UDP_HEADER_LEN) return -EBADMSG;
-    const uint8_t *bytes       = data;
-    uint16_t       wire_length = net_read_be16(bytes + 4);
+    const uint8_t        *bytes       = data;
+    uint16_t              wire_length = net_read_be16(bytes + 4);
+    const ipv6_address_t *src         = (const ipv6_address_t *)source->s6_addr;
+    const ipv6_address_t *dst         = (const ipv6_address_t *)destination->s6_addr;
     if (wire_length < UDP_HEADER_LEN || wire_length > length || !net_read_be16(bytes + 6)
-        || udp_checksum6(source, destination, bytes, wire_length) != 0)
+        || net_checksum_ipv6_pseudo(src, dst, IPV6_NEXT_UDP, bytes, wire_length) != 0)
         return -EBADMSG;
     datagram->source_port      = net_read_be16(bytes);
     datagram->destination_port = net_read_be16(bytes + 2);
@@ -405,9 +386,12 @@ int udp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
     target->tail = queued;
     target->queue_length++;
     target->queue_bytes += (uint32_t)payload_length;
+    udp_event_callback_t cb_udp  = target->event_callback;
+    void                *ctx_udp = target->event_context;
+    wait_queue_wake_all(&target->wait);
     spin_unlock(&target->lock);
     spin_unlock(&udp_table_lock);
-    udp_notify(target, UDP_READY_READ);
+    if (cb_udp) cb_udp(target, UDP_READY_READ, ctx_udp);
     net_pbuf_free(packet);
     return 0;
 bad:
@@ -470,9 +454,12 @@ int udp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
     target->tail = queued;
     target->queue_length++;
     target->queue_bytes += (uint32_t)payload_length;
+    udp_event_callback_t cb_udp6  = target->event_callback;
+    void                *ctx_udp6 = target->event_context;
+    wait_queue_wake_all(&target->wait);
     spin_unlock(&target->lock);
     spin_unlock(&udp_table_lock);
-    udp_notify(target, UDP_READY_READ);
+    if (cb_udp6) cb_udp6(target, UDP_READY_READ, ctx_udp6);
     net_pbuf_free(packet);
     return 0;
 bad:

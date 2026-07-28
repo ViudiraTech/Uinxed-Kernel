@@ -69,14 +69,24 @@ static uint64_t ndp_lifetime(uint64_t now, uint32_t seconds)
     return ticks > UINT64_MAX - now ? UINT64_MAX : now + ticks;
 }
 
-static void ndp_pool_init_locked(void)
+void ndp_init(void)
 {
-    if (ndp_pool_initialized) return;
     for (unsigned i = 0; i < NDP_PENDING_TOTAL; i++) {
         ndp_pending_pool[i].next = ndp_pending_free;
         ndp_pending_free         = &ndp_pending_pool[i];
     }
     ndp_pool_initialized = 1;
+}
+
+static void ndp_pool_init_locked(void)
+{
+    if (!ndp_pool_initialized) {
+        for (unsigned i = 0; i < NDP_PENDING_TOTAL; i++) {
+            ndp_pending_pool[i].next = ndp_pending_free;
+            ndp_pending_free         = &ndp_pending_pool[i];
+        }
+        ndp_pool_initialized = 1;
+    }
 }
 
 static ndp_entry_t *ndp_find_locked(net_device_t *device, const ipv6_address_t *address)
@@ -225,10 +235,7 @@ int ndp_resolve(net_device_t *device, const ipv6_address_t *address, net_pbuf_t 
         request         = 1;
     }
     spin_unlock(&ndp_lock);
-    if (request) {
-        int status = ndp_neighbor_solicit(device, address);
-        if (status) return status;
-    }
+    if (request) ndp_neighbor_solicit(device, address);
     return -EINPROGRESS;
 }
 
