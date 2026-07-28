@@ -58,6 +58,7 @@
 #include <kernel/elf_loader.h>
 #include <kernel/errno.h>
 #include <kernel/interrupt.h>
+#include <kernel/module.h>
 #include <kernel/printk.h>
 #include <kernel/uinxed.h>
 #include <mem/frame.h>
@@ -230,6 +231,7 @@ void kernel_entry(void)
 
     /* Device Model */
     sysfs_init();                  // Create sysfs root kobject and top-level directories
+    module_subsystem_init();       // Loadable kernel module registry and /sys/module
     device_model_init();           // Initialise the device model (bus/class/device)
     devtmpfs_init();               // Device Temporary File System
                                    //

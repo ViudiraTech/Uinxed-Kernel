@@ -23,6 +23,7 @@
 #include <kernel/elf_loader.h>
 #include <kernel/errno.h>
 #include <kernel/interrupt.h>
+#include <kernel/module.h>
 #include <kernel/printk.h>
 #include <kernel/timer.h>
 #include <kernel/uinxed.h>
@@ -3902,6 +3903,110 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
     }
 }
 
+#ifndef CONFIG_MODULE_MAX_SIZE_MIB
+#    define CONFIG_MODULE_MAX_SIZE_MIB 64
+#endif
+#define SYSCALL_MODULE_MAX_SIZE ((size_t)CONFIG_MODULE_MAX_SIZE_MIB * 1024U * 1024U)
+
+static int copy_module_params(uint64_t user_params, char params[MODULE_PARAM_MAX])
+{
+    if (!user_params) {
+        params[0] = 0;
+        return EOK;
+    }
+    int ret = strncpy_from_user(params, (const char *)user_params, MODULE_PARAM_MAX);
+    return ret < 0 ? ret : EOK;
+}
+
+static int64_t sys_init_module_impl(uint64_t image, uint64_t length, uint64_t user_params, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    process_t *process = process_current();
+    if (!process) return -ESRCH;
+    if (process->uid != 0) return -EPERM;
+    if (!image || !length) return -EINVAL;
+    if (length > SYSCALL_MODULE_MAX_SIZE) return -EFBIG;
+
+    char params[MODULE_PARAM_MAX];
+    int  ret = copy_module_params(user_params, params);
+    if (ret != EOK) return ret;
+    void *copy = malloc((size_t)length);
+    if (!copy) return -ENOMEM;
+    if (copy_from_user(copy, (const void *)image, (size_t)length)) {
+        free(copy);
+        return -EFAULT;
+    }
+    ret = module_load(copy, (size_t)length, params, 0, NULL);
+    free(copy);
+    return ret;
+}
+
+static int64_t sys_finit_module_impl(uint64_t fd, uint64_t user_params, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    process_t *process = process_current();
+    if (!process) return -ESRCH;
+    if (process->uid != 0) return -EPERM;
+
+    char params[MODULE_PARAM_MAX];
+    int  ret = copy_module_params(user_params, params);
+    if (ret != EOK) return ret;
+    process_file_t *file = process_fd_get(process, (int)fd);
+    if (!file) return -EBADF;
+    if ((file->flags & O_ACCMODE) == O_WRONLY) {
+        process_file_put(file);
+        return -EBADF;
+    }
+    size_t length = file->node ? file->node->size : 0;
+    if (!length || length > SYSCALL_MODULE_MAX_SIZE) {
+        process_file_put(file);
+        return length ? -EFBIG : -EINVAL;
+    }
+    void *image = malloc(length);
+    if (!image) {
+        process_file_put(file);
+        return -ENOMEM;
+    }
+    size_t total = 0;
+    while (total < length) {
+        int64_t count = vfs_file_read(file->node, file->private_data, file->flags, (uint8_t *)image + total, total, length - total);
+        if (count < 0) {
+            ret = (int)count;
+            goto out_finit;
+        }
+        if (!count) {
+            ret = -EIO;
+            goto out_finit;
+        }
+        total += (size_t)count;
+    }
+    ret = module_load(image, length, params, (unsigned int)flags, file->node->name);
+out_finit:
+    free(image);
+    process_file_put(file);
+    return ret;
+}
+
+static int64_t sys_delete_module_impl(uint64_t user_name, uint64_t flags, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    process_t *process = process_current();
+    if (!process) return -ESRCH;
+    if (process->uid != 0) return -EPERM;
+    char name[MODULE_NAME_LEN];
+    if (!user_name) return -EFAULT;
+    int ret = strncpy_from_user(name, (const char *)user_name, sizeof(name));
+    if (ret < 0) return ret;
+    return module_unload(name, (unsigned int)flags);
+}
+
 static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_READ]                   = sys_read,
     [SYS_WRITE]                  = sys_write,
@@ -4078,8 +4183,8 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_IOPL]                   = sys_stub,
     [SYS_IOPERM]                 = sys_stub,
     [SYS_CREATE_MODULE]          = sys_stub,
-    [SYS_INIT_MODULE]            = sys_stub,
-    [SYS_DELETE_MODULE]          = sys_stub,
+    [SYS_INIT_MODULE]            = sys_init_module_impl,
+    [SYS_DELETE_MODULE]          = sys_delete_module_impl,
     [SYS_GET_KERNEL_SYMS]        = sys_stub,
     [SYS_QUERY_MODULE]           = sys_stub,
     [SYS_QUOTACTL]               = sys_stub,
@@ -4216,7 +4321,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_PROCESS_VM_READV]       = sys_stub,
     [SYS_PROCESS_VM_WRITEV]      = sys_stub,
     [SYS_KCMP]                   = sys_stub,
-    [SYS_FINIT_MODULE]           = sys_stub,
+    [SYS_FINIT_MODULE]           = sys_finit_module_impl,
     [SYS_SCHED_SETATTR]          = sys_stub_ok,
     [SYS_SCHED_GETATTR]          = sys_stub_ok,
     [SYS_RENAMEAT2]              = sys_renameat2_stub,

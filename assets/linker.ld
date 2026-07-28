@@ -37,6 +37,11 @@ SECTIONS
     . = ALIGN(CONSTANT(MAXPAGESIZE));
     .rodata : {
         *(.rodata .rodata.*)
+        . = ALIGN(8);
+        __start___ksymtab = .;
+        KEEP(*(__ksymtab))
+        __stop___ksymtab = .;
+        KEEP(*(__ksymtab_strings))
     } :rodata
 
     . = ALIGN(CONSTANT(MAXPAGESIZE));

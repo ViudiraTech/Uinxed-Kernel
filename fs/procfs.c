@@ -15,6 +15,7 @@
 #include <fs/procfs.h>
 #include <fs/vfs.h>
 #include <kernel/errno.h>
+#include <kernel/module.h>
 #include <kernel/printk.h>
 #include <kernel/uinxed.h>
 #include <libs/std/stdarg.h>
@@ -45,6 +46,7 @@ enum procfs_info_type {
     PROC_INFO_VERSION,
     PROC_INFO_LOADAVG,
     PROC_INFO_VMSTAT,
+    PROC_INFO_MODULES,
 };
 
 enum procfs_net_file_type {
@@ -215,6 +217,16 @@ static void gen_info_vmstat(procfs_file_t *pf)
     pf->content  = buf;
     pf->size     = n < 0 ? 0 : (size_t)n;
     pf->capacity = PROCFS_BUF_SIZE;
+}
+
+static void gen_info_modules(procfs_file_t *pf)
+{
+    size_t capacity = 64 * 1024;
+    char  *buffer   = malloc(capacity);
+    if (!buffer) return;
+    pf->size     = module_format_proc(buffer, capacity);
+    pf->content  = buffer;
+    pf->capacity = capacity;
 }
 
 static void gen_info_cpuinfo(procfs_file_t *pf)
@@ -732,6 +744,9 @@ static void procfs_gen_content(procfs_file_t *pf, vfs_node_t node)
                 case PROC_INFO_VMSTAT :
                     gen_info_vmstat(pf);
                     break;
+                case PROC_INFO_MODULES :
+                    gen_info_modules(pf);
+                    break;
             }
             break;
         case PROCFS_PID_FILE :
@@ -812,6 +827,7 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
             if (streq(name, "version")) subtype = PROC_INFO_VERSION;
             if (streq(name, "loadavg")) subtype = PROC_INFO_LOADAVG;
             if (streq(name, "vmstat")) subtype = PROC_INFO_VMSTAT;
+            if (streq(name, "modules")) subtype = PROC_INFO_MODULES;
             if (subtype >= 0) {
                 pf->type    = PROCFS_INFO_FILE;
                 pf->subtype = subtype;
@@ -903,6 +919,7 @@ static int procfs_stat(void *file, vfs_node_t node)
                 {"version", PROC_INFO_VERSION},
                 {"loadavg", PROC_INFO_LOADAVG},
                 {"vmstat",  PROC_INFO_VMSTAT },
+                {"modules", PROC_INFO_MODULES},
             };
             for (size_t i = 0; i < sizeof(info_tab) / sizeof(info_tab[0]); i++) {
                 vfs_node_t child = vfs_node_alloc(node, info_tab[i].name);

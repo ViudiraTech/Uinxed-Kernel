@@ -19,7 +19,7 @@ NET_PATH_SOURCES ?= net_path_test.c $(wildcard ../net/*.c)
 NET_IPV6_SOURCES ?= net_ipv6_test.c $(wildcard ../net/*.c)
 NET_EPOLL_SOURCES ?= net_epoll_test.c net_epoll_mocks.c ../ipc/epoll.c
 NET_TEST_CFLAGS := -Werror -Wno-error=address -Wno-error=type-limits -include net_test_compat.h -fno-builtin-strdup -ffunction-sections -fdata-sections
-TARGETS := kobject_sysfs_test evdev_queue_test ps2_keyboard_test usb_hid_test xhci_ring_test usb_storage_test partition_test blockdev_partition_test ntfs_write_test path_at_test mmap_logic_test clock_sleep_test futex_test
+TARGETS := kobject_sysfs_test evdev_queue_test ps2_keyboard_test usb_hid_test xhci_ring_test usb_storage_test partition_test blockdev_partition_test ntfs_write_test path_at_test mmap_logic_test clock_sleep_test futex_test module_elf_test
 
 .PHONY: test futex-test net-test clean
 
@@ -37,6 +37,10 @@ test: $(TARGETS)
 	./mmap_logic_test
 	./clock_sleep_test
 	./futex_test
+	./module_elf_test
+
+module_elf_test: module_elf_test.c ../kernel/module/elf.c
+	$(CC) $(CFLAGS) -Werror -o $@ $^
 
 kobject_sysfs_test: $(KOBJECT_SOURCES)
 	$(CC) $(CFLAGS) -fno-builtin-strdup -o $@ $(KOBJECT_SOURCES)

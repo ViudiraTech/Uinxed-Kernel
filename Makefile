@@ -330,6 +330,34 @@ else
   C_CONFIG += -DCONFIG_CGROUP=0
 endif
 
+ifeq ($(CONFIG_MODULES), y)
+  C_CONFIG += -DCONFIG_MODULES=1
+else
+  C_CONFIG += -DCONFIG_MODULES=0
+endif
+
+ifeq ($(CONFIG_MODULE_FORCE_LOAD), y)
+  C_CONFIG += -DCONFIG_MODULE_FORCE_LOAD=1
+else
+  C_CONFIG += -DCONFIG_MODULE_FORCE_LOAD=0
+endif
+
+ifeq ($(CONFIG_MODULE_FORCE_UNLOAD), y)
+  C_CONFIG += -DCONFIG_MODULE_FORCE_UNLOAD=1
+else
+  C_CONFIG += -DCONFIG_MODULE_FORCE_UNLOAD=0
+endif
+
+ifeq ($(CONFIG_MODULE_SIG_FORCE), y)
+  C_CONFIG += -DCONFIG_MODULE_SIG_FORCE=1
+else
+  C_CONFIG += -DCONFIG_MODULE_SIG_FORCE=0
+endif
+
+ifneq ($(CONFIG_MODULE_MAX_SIZE),)
+  C_CONFIG += -DCONFIG_MODULE_MAX_SIZE_MIB=$(CONFIG_MODULE_MAX_SIZE)
+endif
+
 C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*" -not -path "tests/*")
 C_HEADERS      := $(shell find * -name "*.h")
 OBJS           := $(C_SOURCES:%.c=%.o)

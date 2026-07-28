@@ -493,6 +493,47 @@ menu "File systems"
 
 endmenu
 
+menu "Loadable module support"
+
+  config MODULES
+    bool "Enable loadable kernel module support"
+    default y
+    help
+      Load and unload ELF64 relocatable kernel modules through the Linux
+      init_module, finit_module, and delete_module system calls.
+
+  config MODULE_FORCE_LOAD
+    bool "Allow forced loading across version mismatches"
+    depends on MODULES
+    default n
+    help
+      Permit privileged callers to ignore module version magic. Modules
+      loaded this way taint the kernel.
+
+  config MODULE_FORCE_UNLOAD
+    bool "Allow forced unloading of busy modules"
+    depends on MODULES
+    default n
+    help
+      Permit privileged callers to unload modules with live references.
+      This is unsafe and taints the kernel.
+
+  config MODULE_SIG_FORCE
+    bool "Require valid module signatures"
+    depends on MODULES
+    default n
+    help
+      Reject unsigned modules and modules that cannot be verified by the
+      installed platform signature verifier.
+
+  config MODULE_MAX_SIZE
+    int "Maximum module image size (MiB)"
+    depends on MODULES
+    default 64
+    range 1 512
+
+endmenu
+
 menu "Kernel debugging"
 
   config KERNEL_LOG
