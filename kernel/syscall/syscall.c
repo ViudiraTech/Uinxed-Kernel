@@ -18,8 +18,8 @@
 #include <ipc/posix_mq.h>
 #include <ipc/socket.h>
 #include <ipc/sysv_ipc.h>
-#include <kernel/device.h>
 #include <kernel/debug.h>
+#include <kernel/device.h>
 #include <kernel/elf_loader.h>
 #include <kernel/errno.h>
 #include <kernel/interrupt.h>
@@ -57,16 +57,16 @@ _Static_assert(offsetof(syscall_frame_t, rip) == 15 * sizeof(uint64_t), "syscall
 _Static_assert(offsetof(syscall_frame_t, rsp) == 18 * sizeof(uint64_t), "syscall frame RSP offset");
 _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame size");
 
-#define CLONE_VM             0x00000100ULL
-#define CLONE_FS             0x00000200ULL
-#define CLONE_FILES          0x00000400ULL
-#define CLONE_SIGHAND        0x00000800ULL
-#define CLONE_SYSVSEM        0x00040000ULL
-#define CLONE_THREAD         0x00010000ULL
-#define CLONE_SETTLS         0x00080000ULL
-#define CLONE_PARENT_SETTID  0x00100000ULL
-#define CLONE_CHILD_CLEARTID 0x00200000ULL
-#define CLONE_CHILD_SETTID   0x01000000ULL
+#define CLONE_VM               0x00000100ULL
+#define CLONE_FS               0x00000200ULL
+#define CLONE_FILES            0x00000400ULL
+#define CLONE_SIGHAND          0x00000800ULL
+#define CLONE_SYSVSEM          0x00040000ULL
+#define CLONE_THREAD           0x00010000ULL
+#define CLONE_SETTLS           0x00080000ULL
+#define CLONE_PARENT_SETTID    0x00100000ULL
+#define CLONE_CHILD_CLEARTID   0x00200000ULL
+#define CLONE_CHILD_SETTID     0x01000000ULL
 #define CLONE_PTHREAD_REQUIRED (CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM)
 #define CLONE_PTHREAD_ALLOWED  (CLONE_PTHREAD_REQUIRED | CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)
 
@@ -74,15 +74,15 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
 static int64_t realtime_base_ns;
 
 /* Mount flag bits stored in vfs_node->flags */
-#define MOUNT_FLAG_RDONLY (1UL << 0)
-#define MOUNT_FLAG_NOSUID (1UL << 1)
-#define MOUNT_FLAG_NODEV  (1UL << 2)
-#define MOUNT_FLAG_NOEXEC (1UL << 3)
-#define AT_FDCWD          PROCESS_AT_FDCWD
+#define MOUNT_FLAG_RDONLY   (1UL << 0)
+#define MOUNT_FLAG_NOSUID   (1UL << 1)
+#define MOUNT_FLAG_NODEV    (1UL << 2)
+#define MOUNT_FLAG_NOEXEC   (1UL << 3)
+#define AT_FDCWD            PROCESS_AT_FDCWD
 #define AT_SYMLINK_NOFOLLOW 0x100
-#define AT_REMOVEDIR      0x200
-#define AT_EMPTY_PATH     0x1000
-#define STATX_BASIC_STATS 0x000007ffU
+#define AT_REMOVEDIR        0x200
+#define AT_EMPTY_PATH       0x1000
+#define STATX_BASIC_STATS   0x000007ffU
 
 typedef struct {
         int16_t l_type;
@@ -207,14 +207,14 @@ static vfs_node_t open_path_at(process_t *proc, int dirfd, uint64_t upath, bool 
         return NULL;
     }
     vfs_node_t node = nofollow ? vfs_open_nofollow(path) : vfs_open(path);
-    *error           = node ? EOK : -ENOENT;
+    *error          = node ? EOK : -ENOENT;
     return node;
 }
 
 static vfs_node_t open_empty_path_at(process_t *proc, int dirfd, int *error)
 {
     if (dirfd == AT_FDCWD) {
-        const char *cwd = proc->cwd[0] ? proc->cwd : "/";
+        const char *cwd  = proc->cwd[0] ? proc->cwd : "/";
         vfs_node_t  node = vfs_open(cwd);
         *error           = node ? EOK : -ENOENT;
         return node;
@@ -445,8 +445,8 @@ static int64_t clock_sleep(uint64_t clockid, uint64_t flags, uint64_t req, uint6
     if (!timer_sleep_duration(&request, now_ns, flags == TIMER_ABSTIME, &duration_ns, &sleep_ticks)) return -EINVAL;
     if (!sleep_ticks) return EOK;
 
-    uint64_t start_tick    = sched_ticks();
-    uint64_t deadline_tick = UINT64_MAX - start_tick < sleep_ticks ? UINT64_MAX : start_tick + sleep_ticks;
+    uint64_t     start_tick    = sched_ticks();
+    uint64_t     deadline_tick = UINT64_MAX - start_tick < sleep_ticks ? UINT64_MAX : start_tick + sleep_ticks;
     wait_queue_t sleep_queue;
     wait_queue_init(&sleep_queue);
 
@@ -459,10 +459,10 @@ static int64_t clock_sleep(uint64_t clockid, uint64_t flags, uint64_t req, uint6
         if (clock_sleep_signal_pending()) {
             wait_queue_wake_one(&sleep_queue);
             if (!(flags & TIMER_ABSTIME) && rem) {
-                uint64_t elapsed_ticks = now_tick - start_tick;
-                uint64_t elapsed_ns    = elapsed_ticks > UINT64_MAX / TIMER_TICK_NS ? UINT64_MAX : elapsed_ticks * TIMER_TICK_NS;
-                uint64_t remaining_ns  = elapsed_ns < duration_ns ? duration_ns - elapsed_ns : 0;
-                timer_timespec_t remaining = timer_ns_to_timespec(remaining_ns);
+                uint64_t         elapsed_ticks = now_tick - start_tick;
+                uint64_t         elapsed_ns    = elapsed_ticks > UINT64_MAX / TIMER_TICK_NS ? UINT64_MAX : elapsed_ticks * TIMER_TICK_NS;
+                uint64_t         remaining_ns  = elapsed_ns < duration_ns ? duration_ns - elapsed_ns : 0;
+                timer_timespec_t remaining     = timer_ns_to_timespec(remaining_ns);
                 if (copy_to_user((void *)rem, &remaining, sizeof(remaining))) return -EFAULT;
             }
             return -EINTR;
@@ -612,6 +612,18 @@ static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t a
         }
     }
 
+    if ((flags & O_TRUNC) && (flags & O_ACCMODE) != O_RDONLY && (node->type & ~file_delete) == file_none) {
+        if (vfs_mount_is_readonly(node)) {
+            vfs_close(node);
+            return -EROFS;
+        }
+        int result = vfs_truncate(node, 0);
+        if (result) {
+            vfs_close(node);
+            return result;
+        }
+    }
+
     int fd = process_fd_install(proc, node, flags);
     if (fd < 0) vfs_close(node);
     return fd;
@@ -656,6 +668,17 @@ static int64_t sys_openat(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_
         if (vfs_access_check(node, access)) {
             vfs_close(node);
             return -EACCES;
+        }
+    }
+    if ((flags & O_TRUNC) && (flags & O_ACCMODE) != O_RDONLY && (node->type & ~file_delete) == file_none) {
+        if (vfs_mount_is_readonly(node)) {
+            vfs_close(node);
+            return -EROFS;
+        }
+        ret = vfs_truncate(node, 0);
+        if (ret) {
+            vfs_close(node);
+            return ret;
         }
     }
     int fd = process_fd_install(proc, node, flags);
@@ -1122,9 +1145,12 @@ static int64_t sys_unlinkat(uint64_t dirfd, uint64_t path, uint64_t flags, uint6
     int        ret;
     vfs_node_t node = open_path_at(proc, (int)dirfd, path, true, &ret);
     if (!node) return ret;
-    if ((flags & AT_REMOVEDIR) && !(node->type & file_dir)) ret = -ENOTDIR;
-    else if (!(flags & AT_REMOVEDIR) && (node->type & file_dir)) ret = -EISDIR;
-    else ret = vfs_delete(node);
+    if ((flags & AT_REMOVEDIR) && !(node->type & file_dir))
+        ret = -ENOTDIR;
+    else if (!(flags & AT_REMOVEDIR) && (node->type & file_dir))
+        ret = -EISDIR;
+    else
+        ret = vfs_delete(node);
     vfs_close(node);
     return ret;
 }
@@ -1171,9 +1197,12 @@ static int64_t sys_renameat(uint64_t olddirfd, uint64_t oldpath, uint64_t newdir
     memcpy(newparent, newname, sizeof(newparent));
     vfs_node_t olddir = vfs_open_parent_of(oldparent);
     vfs_node_t newdir = vfs_open_parent_of(newparent);
-    if (!olddir || !newdir) ret = -ENOENT;
-    else if (olddir != newdir) ret = -EXDEV;
-    else ret = vfs_rename(node, path_basename(newname));
+    if (!olddir || !newdir)
+        ret = -ENOENT;
+    else if (olddir != newdir)
+        ret = -EXDEV;
+    else
+        ret = vfs_rename(node, path_basename(newname));
     if (olddir) vfs_close(olddir);
     if (newdir) vfs_close(newdir);
     vfs_close(node);
@@ -1264,8 +1293,7 @@ static int64_t sys_readlinkat(uint64_t dirfd, uint64_t path, uint64_t buf, uint6
     char input[SYSCALL_PATH_MAX];
     int  ret = copy_path_from_user(path, input);
     if (ret != EOK) return ret;
-    vfs_node_t node = input[0] ? open_path_at(proc, (int)dirfd, path, true, &ret)
-                               : open_empty_path_at(proc, (int)dirfd, &ret);
+    vfs_node_t node = input[0] ? open_path_at(proc, (int)dirfd, path, true, &ret) : open_empty_path_at(proc, (int)dirfd, &ret);
     if (!node) return ret;
     if (!(node->type & file_symlink)) {
         vfs_close(node);
@@ -1626,10 +1654,13 @@ static int64_t sys_truncate_stub(uint64_t path, uint64_t length, uint64_t arg2, 
         vfs_close(node);
         return -EROFS;
     }
-    vfs_update(node);
-    node->size = length;
+    if ((int64_t)length < 0) {
+        vfs_close(node);
+        return -EINVAL;
+    }
+    int result = vfs_truncate(node, length);
     vfs_close(node);
-    return EOK;
+    return result;
 }
 
 static int64_t sys_ftruncate_stub(uint64_t fd, uint64_t length, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -1666,10 +1697,9 @@ static int64_t sys_ftruncate_stub(uint64_t fd, uint64_t length, uint64_t arg2, u
         process_file_put(file);
         return -EROFS;
     }
-    vfs_update(file->node);
-    file->node->size = length;
+    int result = vfs_truncate(file->node, length);
     process_file_put(file);
-    return EOK;
+    return result;
 }
 
 #define CLOCK_REALTIME           0
@@ -2374,13 +2404,13 @@ static int64_t sys_select_stub(uint64_t nfds, uint64_t readfds, uint64_t writefd
             set_fd_in_set(kread, (int)i);
             ready++;
         } else if (readfds) {
-            kread[(int)i / 8] &= (uint8_t) ~(1u << ((int)i % 8));
+            kread[(int)i / 8] &= (uint8_t)~(1u << ((int)i % 8));
         }
         if (revents & 0x004) {
             set_fd_in_set(kwrite, (int)i);
             if (!(revents & 0x001)) ready++;
         } else if (writefds) {
-            kwrite[(int)i / 8] &= (uint8_t) ~(1u << ((int)i % 8));
+            kwrite[(int)i / 8] &= (uint8_t)~(1u << ((int)i % 8));
         }
     }
 
@@ -2486,7 +2516,55 @@ static int64_t sys_sync_stub(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64
     (void)arg3;
     (void)arg4;
     (void)arg5;
+    (void)vfs_sync_all();
     return EOK;
+}
+
+static int64_t sys_fsync_impl(uint64_t fd, uint64_t data_only, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)data_only;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    process_file_t *file = process_fd_get(proc, (int)fd);
+    if (!file) return -EBADF;
+    int result = vfs_fsync(file->node, 0);
+    process_file_put(file);
+    return result;
+}
+
+static int64_t sys_fdatasync_impl(uint64_t fd, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    process_file_t *file = process_fd_get(proc, (int)fd);
+    if (!file) return -EBADF;
+    int result = vfs_fsync(file->node, 1);
+    process_file_put(file);
+    return result;
+}
+
+static int64_t sys_syncfs_impl(uint64_t fd, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    process_file_t *file = process_fd_get(proc, (int)fd);
+    if (!file) return -EBADF;
+    process_file_put(file);
+    return vfs_sync_all();
 }
 
 static int64_t sys_prlimit64_stub(uint64_t pid, uint64_t resource, uint64_t new_rlim, uint64_t old_rlim, uint64_t arg4, uint64_t arg5)
@@ -2499,15 +2577,23 @@ static int64_t sys_prlimit64_stub(uint64_t pid, uint64_t resource, uint64_t new_
     return sys_getrlimit_stub(0, old_rlim, 0, 0, 0, 0);
 }
 
-static int64_t sys_readahead_stub(uint64_t fd, uint64_t offset, uint64_t count, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+static int64_t sys_readahead(uint64_t fd, uint64_t offset, uint64_t count, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)fd;
-    (void)offset;
-    (void)count;
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    return EOK;
+    if ((int64_t)offset < 0 || offset > UINT64_MAX - count) return -EINVAL;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    process_file_t *file = process_fd_get(proc, (int)fd);
+    if (!file) return -EBADF;
+    if ((file->flags & O_ACCMODE) == O_WRONLY) {
+        process_file_put(file);
+        return -EBADF;
+    }
+    int result = vfs_readahead(file->node, offset, (size_t)count);
+    process_file_put(file);
+    return result;
 }
 
 static int64_t sys_listxattr_stub(uint64_t path, uint64_t list, uint64_t size, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -2521,15 +2607,24 @@ static int64_t sys_listxattr_stub(uint64_t path, uint64_t list, uint64_t size, u
     return 0;
 }
 
-static int64_t sys_fadvise64_stub(uint64_t fd, uint64_t offset, uint64_t len, uint64_t advice, uint64_t arg4, uint64_t arg5)
+static int64_t sys_fadvise64(uint64_t fd, uint64_t offset, uint64_t len, uint64_t advice, uint64_t arg4, uint64_t arg5)
 {
-    (void)fd;
-    (void)offset;
-    (void)len;
-    (void)advice;
     (void)arg4;
     (void)arg5;
-    return EOK;
+    if (advice > 5 || offset > UINT64_MAX - len) return -EINVAL;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    process_file_t *file = process_fd_get(proc, (int)fd);
+    if (!file) return -EBADF;
+    int result = EOK;
+    if (advice == 3)
+        result = vfs_readahead(file->node, offset, (size_t)len);
+    else if (advice == 4) {
+        uint64_t end = len ? offset + len - 1 : UINT64_MAX;
+        result       = vfs_drop_pages(file->node, offset, end, 1);
+    }
+    process_file_put(file);
+    return result == -EOPNOTSUPP ? EOK : result;
 }
 
 static int64_t sys_fallocate_stub(uint64_t fd, uint64_t mode, uint64_t offset, uint64_t len, uint64_t arg4, uint64_t arg5)
@@ -2553,13 +2648,18 @@ static int64_t sys_fallocate_stub(uint64_t fd, uint64_t mode, uint64_t offset, u
 
 static int64_t sys_sync_file_range_stub(uint64_t fd, uint64_t offset, uint64_t nbytes, uint64_t flags, uint64_t arg4, uint64_t arg5)
 {
-    (void)fd;
-    (void)offset;
-    (void)nbytes;
-    (void)flags;
     (void)arg4;
     (void)arg5;
-    return EOK;
+    if (flags & ~7U) return -EINVAL;
+    if ((int64_t)offset < 0 || offset > UINT64_MAX - nbytes) return -EINVAL;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    process_file_t *file = process_fd_get(proc, (int)fd);
+    if (!file) return -EBADF;
+    uint64_t end    = nbytes ? offset + nbytes - 1 : UINT64_MAX;
+    int      result = vfs_writeback_range(file->node, offset, end, 1);
+    process_file_put(file);
+    return result;
 }
 
 static int64_t sys_renameat2_stub(uint64_t olddirfd, uint64_t oldpath, uint64_t newdirfd, uint64_t newpath, uint64_t flags, uint64_t arg5)
@@ -3877,8 +3977,8 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_MSGCTL]                 = sys_msgctl_wrap,
     [SYS_FCNTL]                  = sys_fcntl_wrap,
     [SYS_FLOCK]                  = sys_stub_ok,
-    [SYS_FSYNC]                  = sys_stub_ok,
-    [SYS_FDATASYNC]              = sys_stub_ok,
+    [SYS_FSYNC]                  = sys_fsync_impl,
+    [SYS_FDATASYNC]              = sys_fdatasync_impl,
     [SYS_TRUNCATE]               = sys_truncate_stub,
     [SYS_FTRUNCATE]              = sys_ftruncate_stub,
     [SYS_GETDENTS]               = sys_getdents64_wrap,
@@ -3990,7 +4090,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_TUXCALL]                = sys_stub,
     [SYS_SECURITY]               = sys_stub,
     [SYS_GETTID]                 = sys_gettid,
-    [SYS_READAHEAD]              = sys_readahead_stub,
+    [SYS_READAHEAD]              = sys_readahead,
     [SYS_SETXATTR]               = sys_stub,
     [SYS_LSETXATTR]              = sys_stub,
     [SYS_FSETXATTR]              = sys_stub,
@@ -4024,7 +4124,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_SET_TID_ADDRESS]        = sys_set_tid_address_stub,
     [SYS_RESTART_SYSCALL]        = sys_restart_syscall,
     [SYS_SEMTIMEDOP]             = sys_semtimedop_wrap,
-    [SYS_FADVISE64]              = sys_fadvise64_stub,
+    [SYS_FADVISE64]              = sys_fadvise64,
     [SYS_TIMER_CREATE]           = sys_stub,
     [SYS_TIMER_SETTIME]          = sys_stub,
     [SYS_TIMER_GETTIME]          = sys_stub,
@@ -4109,7 +4209,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_NAME_TO_HANDLE_AT]      = sys_stub,
     [SYS_OPEN_BY_HANDLE_AT]      = sys_stub,
     [SYS_CLOCK_ADJTIME]          = sys_stub,
-    [SYS_SYNCFS]                 = sys_stub_ok,
+    [SYS_SYNCFS]                 = sys_syncfs_impl,
     [SYS_SENDMMSG]               = sys_sendmmsg_wrap,
     [SYS_SETNS]                  = sys_stub,
     [SYS_GETCPU]                 = sys_getcpu_stub,
@@ -4173,18 +4273,16 @@ void syscall_dispatch(syscall_frame_t *frame)
             frame->rax = (uint64_t)-EINVAL;
             goto check_signals;
         }
-        if (((flags & CLONE_PARENT_SETTID) && !frame->rdx) ||
-            ((flags & (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)) && !frame->r10)) {
+        if (((flags & CLONE_PARENT_SETTID) && !frame->rdx) || ((flags & (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)) && !frame->r10)) {
             frame->rax = (uint64_t)-EFAULT;
             goto check_signals;
         }
         int     error = EOK;
         task_t *child = process_clone_thread(frame, frame->rsi, (flags & CLONE_PARENT_SETTID) ? frame->rdx : 0,
-                                             (flags & CLONE_CHILD_SETTID) ? frame->r10 : 0,
-                                             (flags & CLONE_CHILD_CLEARTID) ? frame->r10 : 0,
+                                             (flags & CLONE_CHILD_SETTID) ? frame->r10 : 0, (flags & CLONE_CHILD_CLEARTID) ? frame->r10 : 0,
                                              (flags & CLONE_SETTLS) ? frame->r8 : current_task()->thread.fs_base, &error);
-        retval     = child ? (int64_t)child->pid : error;
-        frame->rax = (uint64_t)retval;
+        retval        = child ? (int64_t)child->pid : error;
+        frame->rax    = (uint64_t)retval;
         goto check_signals;
     }
 
@@ -4401,34 +4499,38 @@ __attribute__((naked)) void syscall_entry(void)
 
 __attribute__((naked)) void syscall_entry_syscall(void)
 {
-    __asm__ volatile("swapgs\n\t"
-                     "movq %rsp, %gs:" SYSCALL_STRINGIFY(SYSCALL_CPU_USER_RSP_OFFSET) "\n\t"
-                     "movq %gs:" SYSCALL_STRINGIFY(SYSCALL_CPU_KERNEL_RSP_OFFSET) ", %rsp\n\t"
-                     "cld\n\t"
-                     "pushq $0x23\n\t"
-                     "pushq %gs:" SYSCALL_STRINGIFY(SYSCALL_CPU_USER_RSP_OFFSET) "\n\t"
-                     "pushq %r11\n\t"
-                     "pushq $0x1B\n\t"
-                     "pushq %rcx\n\t"
-                     "pushq %rax\n\t"
-                     "pushq %rbx\n\t"
-                     "pushq %rcx\n\t"
-                     "pushq %rdx\n\t"
-                     "pushq %rbp\n\t"
-                     "pushq %rsi\n\t"
-                     "pushq %rdi\n\t"
-                     "pushq %r8\n\t"
-                     "pushq %r9\n\t"
-                     "pushq %r10\n\t"
-                     "pushq %r11\n\t"
-                     "pushq %r12\n\t"
-                     "pushq %r13\n\t"
-                     "pushq %r14\n\t"
-                     "pushq %r15\n\t"
-                     "swapgs\n\t"
-                     "movq %rsp, %rdi\n\t"
-                     "call syscall_dispatch\n\t"
-                     "jmp syscall_return\n\t");
+    __asm__ volatile(
+        "swapgs\n\t"
+        "movq %rsp, %gs:" SYSCALL_STRINGIFY(
+            SYSCALL_CPU_USER_RSP_OFFSET) "\n\t"
+                                         "movq %gs:" SYSCALL_STRINGIFY(
+                                             SYSCALL_CPU_KERNEL_RSP_OFFSET) ", %rsp\n\t"
+                                                                            "cld\n\t"
+                                                                            "pushq $0x23\n\t"
+                                                                            "pushq %gs:" SYSCALL_STRINGIFY(
+                                                                                SYSCALL_CPU_USER_RSP_OFFSET) "\n\t"
+                                                                                                             "pushq %r11\n\t"
+                                                                                                             "pushq $0x1B\n\t"
+                                                                                                             "pushq %rcx\n\t"
+                                                                                                             "pushq %rax\n\t"
+                                                                                                             "pushq %rbx\n\t"
+                                                                                                             "pushq %rcx\n\t"
+                                                                                                             "pushq %rdx\n\t"
+                                                                                                             "pushq %rbp\n\t"
+                                                                                                             "pushq %rsi\n\t"
+                                                                                                             "pushq %rdi\n\t"
+                                                                                                             "pushq %r8\n\t"
+                                                                                                             "pushq %r9\n\t"
+                                                                                                             "pushq %r10\n\t"
+                                                                                                             "pushq %r11\n\t"
+                                                                                                             "pushq %r12\n\t"
+                                                                                                             "pushq %r13\n\t"
+                                                                                                             "pushq %r14\n\t"
+                                                                                                             "pushq %r15\n\t"
+                                                                                                             "swapgs\n\t"
+                                                                                                             "movq %rsp, %rdi\n\t"
+                                                                                                             "call syscall_dispatch\n\t"
+                                                                                                             "jmp syscall_return\n\t");
 }
 
 void syscall_init_cpu(uint64_t kernel_gs_base)

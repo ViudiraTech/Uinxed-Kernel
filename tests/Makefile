@@ -6,6 +6,9 @@ KOBJECT_SOURCES := kobject_sysfs_test.c ../kernel/kobject.c ../fs/sysfs.c \
 	../libs/glist/circular_list.c
 EVDEV_QUEUE_SOURCES := evdev_queue_test.c ../drivers/input/evdev_queue.c
 PS2_KEYBOARD_SOURCES := ps2_keyboard_test.c ../drivers/input/ps2_keyboard_protocol.c
+USB_HID_SOURCES := usb_hid_test.c ../drivers/usb/hid_parser.c
+XHCI_RING_SOURCES := xhci_ring_test.c ../drivers/usb/xhci_ring.c
+USB_STORAGE_SOURCES := usb_storage_test.c ../drivers/usb/storage_protocol.c
 PARTITION_SOURCES := partition_test.c ../drivers/block/partition.c
 BLOCKDEV_PARTITION_SOURCES := blockdev_partition_test.c ../drivers/block/blockdev.c
 NTFS_WRITE_SOURCES := ntfs_write_test.c
@@ -16,7 +19,7 @@ NET_PATH_SOURCES ?= net_path_test.c $(wildcard ../net/*.c)
 NET_IPV6_SOURCES ?= net_ipv6_test.c $(wildcard ../net/*.c)
 NET_EPOLL_SOURCES ?= net_epoll_test.c net_epoll_mocks.c ../ipc/epoll.c
 NET_TEST_CFLAGS := -Werror -Wno-error=address -Wno-error=type-limits -include net_test_compat.h -fno-builtin-strdup -ffunction-sections -fdata-sections
-TARGETS := kobject_sysfs_test evdev_queue_test ps2_keyboard_test partition_test blockdev_partition_test ntfs_write_test path_at_test mmap_logic_test clock_sleep_test futex_test
+TARGETS := kobject_sysfs_test evdev_queue_test ps2_keyboard_test usb_hid_test xhci_ring_test usb_storage_test partition_test blockdev_partition_test ntfs_write_test path_at_test mmap_logic_test clock_sleep_test futex_test
 
 .PHONY: test futex-test net-test clean
 
@@ -24,6 +27,9 @@ test: $(TARGETS)
 	./kobject_sysfs_test
 	./evdev_queue_test
 	./ps2_keyboard_test
+	./usb_hid_test
+	./xhci_ring_test
+	./usb_storage_test
 	./partition_test
 	./blockdev_partition_test
 	./ntfs_write_test
@@ -40,6 +46,15 @@ evdev_queue_test: $(EVDEV_QUEUE_SOURCES)
 
 ps2_keyboard_test: $(PS2_KEYBOARD_SOURCES)
 	$(CC) $(CFLAGS) -Werror -o $@ $(PS2_KEYBOARD_SOURCES)
+
+usb_hid_test: $(USB_HID_SOURCES)
+	$(CC) $(CFLAGS) -Werror -fno-builtin-strdup -o $@ $(USB_HID_SOURCES)
+
+xhci_ring_test: $(XHCI_RING_SOURCES)
+	$(CC) $(CFLAGS) -Werror -fno-builtin-strdup -o $@ $(XHCI_RING_SOURCES)
+
+usb_storage_test: $(USB_STORAGE_SOURCES)
+	$(CC) $(CFLAGS) -Werror -fno-builtin-strdup -o $@ $(USB_STORAGE_SOURCES)
 
 partition_test: $(PARTITION_SOURCES)
 	$(CC) $(CFLAGS) -Werror -fno-builtin-strdup -o $@ $(PARTITION_SOURCES)

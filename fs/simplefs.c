@@ -140,7 +140,11 @@ static size_t simplefs_inode_read(simplefs_vnode_t *vnode, void *addr, size_t of
 
         if (block_id >= SIMPLEFS_INODE_DIRECT_COUNT) break;
         disk_block = vnode->inode.direct[block_id];
-        if (!disk_block) break;
+        if (!disk_block) {
+            memset(out + done, 0, chunk);
+            done += chunk;
+            continue;
+        }
 
         if (simplefs_disk_read_bytes(fs, simplefs_block_offset(fs, disk_block), block_buf, fs->disk.block_size) != EOK) break;
         memcpy(out + done, block_buf + inblock, chunk);
@@ -566,6 +570,39 @@ static size_t simplefs_write_file(void *file, const void *addr, size_t offset, s
     return written;
 }
 
+static int simplefs_resize(void *file, uint64_t size)
+{
+    simplefs_vnode_t *vnode = file;
+    if (!vnode || vnode->inode.type != simplefs_inode_file) return -EINVAL;
+    uint64_t capacity = (uint64_t)vnode->fs->disk.block_size * SIMPLEFS_INODE_DIRECT_COUNT;
+    if (size > capacity) return -EFBIG;
+
+    if (size < vnode->inode.size) {
+        uint32_t keep = (uint32_t)((size + vnode->fs->disk.block_size - 1) / vnode->fs->disk.block_size);
+        if (size % vnode->fs->disk.block_size && keep && vnode->inode.direct[keep - 1]) {
+            size_t   tail       = (size_t)(size % vnode->fs->disk.block_size);
+            size_t   zeros_size = vnode->fs->disk.block_size - tail;
+            uint8_t *zeros      = calloc(1, zeros_size);
+            if (!zeros) return -ENOMEM;
+            int result = simplefs_disk_write_bytes(vnode->fs, simplefs_block_offset(vnode->fs, vnode->inode.direct[keep - 1]) + tail, zeros,
+                                                   zeros_size);
+            free(zeros);
+            if (result) return result;
+        }
+        for (uint32_t i = keep; i < SIMPLEFS_INODE_DIRECT_COUNT; i++) vnode->inode.direct[i] = 0;
+    }
+    vnode->inode.size = size;
+    return simplefs_write_inode(vnode->fs, vnode->inode_no, &vnode->inode);
+}
+
+static int simplefs_sync(void *file, int data_only)
+{
+    (void)data_only;
+    simplefs_vnode_t *vnode = file;
+    if (!vnode) return -EINVAL;
+    return simplefs_write_inode(vnode->fs, vnode->inode_no, &vnode->inode);
+}
+
 static size_t simplefs_readlink(vfs_node_t node, void *addr, size_t offset, size_t size)
 {
     if (!node || !node->handle) return 0;
@@ -683,6 +720,8 @@ static struct vfs_callback simplefs_callbacks = {
     .free     = simplefs_free,
     .delete   = simplefs_delete,
     .rename   = simplefs_rename,
+    .resize   = simplefs_resize,
+    .sync     = simplefs_sync,
 };
 
 void simplefs_regist(void)

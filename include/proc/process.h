@@ -20,7 +20,7 @@
 #include <proc/task.h>
 #include <sync/signal.h>
 
-typedef struct tty_core  tty_core_t;
+typedef struct tty_core tty_core_t;
 
 typedef struct syscall_frame syscall_frame_t;
 
@@ -84,20 +84,21 @@ typedef struct vm_area {
         vfs_node_t       vm_file;         /* owning file (NULL for anonymous) */
         uint64_t         vm_pgoff;        /* page offset within file */
         void            *vm_private_data; /* driver-private per-VMA data */
+        bool             vm_pagecache;    /* VMA pins a regular-file cache mapping */
 } vm_area_t;
 
 typedef struct process_file {
-        vfs_node_t   node;
-        size_t       offset;
-        uint64_t     flags;
-        uint32_t     refcount;
-        uint32_t     fd_refcount;
-        spinlock_t   lock;
-        wait_queue_t io_wait;
-        bool         io_busy;
-        void        *private_data; /* per-open-instance driver-private data */
-        bool         file_opened;  /* file_open succeeded and requires release */
-        bool         descriptors_closed;
+        vfs_node_t             node;
+        size_t                 offset;
+        uint64_t               flags;
+        uint32_t               refcount;
+        uint32_t               fd_refcount;
+        spinlock_t             lock;
+        wait_queue_t           io_wait;
+        bool                   io_busy;
+        void                  *private_data; /* per-open-instance driver-private data */
+        bool                   file_opened;  /* file_open succeeded and requires release */
+        bool                   descriptors_closed;
         struct vfs_poll_source close_source;
 } process_file_t;
 
@@ -132,7 +133,7 @@ typedef struct process {
         signal_state_t    signal;
         uint32_t          refcount;
         uint32_t          thread_count;
-        ilist_node_t       threads;
+        ilist_node_t      threads;
         pid_t             pgid;
         pid_t             sid;
         tty_core_t       *controlling_tty;

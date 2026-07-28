@@ -216,6 +216,30 @@ ifneq ($(CONFIG_INPUT_EVDEV_BUFSIZE),)
   C_CONFIG += -DINPUT_EVDEV_BUFSIZE=$(CONFIG_INPUT_EVDEV_BUFSIZE)
 endif
 
+ifeq ($(CONFIG_USB), y)
+  C_CONFIG += -DCONFIG_USB=1
+else
+  C_CONFIG += -DCONFIG_USB=0
+endif
+
+ifeq ($(CONFIG_USB_XHCI), y)
+  C_CONFIG += -DCONFIG_USB_XHCI=1
+else
+  C_CONFIG += -DCONFIG_USB_XHCI=0
+endif
+
+ifeq ($(CONFIG_USB_HID), y)
+  C_CONFIG += -DCONFIG_USB_HID=1
+else
+  C_CONFIG += -DCONFIG_USB_HID=0
+endif
+
+ifeq ($(CONFIG_USB_STORAGE), y)
+  C_CONFIG += -DCONFIG_USB_STORAGE=1
+else
+  C_CONFIG += -DCONFIG_USB_STORAGE=0
+endif
+
 ifeq ($(CONFIG_DRM), y)
   C_CONFIG += -DCONFIG_DRM=1
 else
@@ -375,13 +399,14 @@ Uinxed-x64.iso: info UxImage $(INIT_ELF)
 	$(Q)printf "Image: $@ is ready.\n"
 	$(Q)printf "Compilation complete.\n"
 
-.PHONY: help run run-net disk.img clean format check gen.clangd menuconfig
+.PHONY: help run run-net run-usb disk.img clean format check gen.clangd menuconfig
 
 help: info
 	$(Q)printf "Uinxed-Kernel Makefile Usage:\n"
 	$(Q)printf "  make all         - Build the entire project.\n"
 	$(Q)printf "  make run         - Run the Uinxed-x64.iso in QEMU.\n"
 	$(Q)printf "  make run-net     - Run with an isolated user-mode e1000 network.\n"
+	$(Q)printf "  make run-usb     - Run with xHCI, HID, and a USB mass-storage disk.\n"
 	$(Q)printf "  make disk.img    - Build a demo simplefs disk image.\n"
 	$(Q)printf "  make clean       - Clean all generated files.\n"
 	$(Q)printf "  make format      - Format all source files using clang-format.\n"
@@ -395,6 +420,10 @@ run: info Uinxed-x64.iso
 
 run-net: info Uinxed-x64.iso
 	$(QEMU) $(QEMU_FLAGS) -netdev user,id=net0,restrict=on -device e1000,netdev=net0 -cdrom $(word 2,$^)
+
+run-usb: info Uinxed-x64.iso
+	$(QEMU) $(QEMU_FLAGS) -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb-tablet,bus=xhci.0 \
+		-drive if=none,id=usbdisk,format=raw,file=ahci_disk.img -device usb-storage,bus=xhci.0,drive=usbdisk -cdrom $(word 2,$^)
 
 disk.img: info tools/mkfs_simplefs
 	$(Q)printf "  MKFS    $@\n\n"

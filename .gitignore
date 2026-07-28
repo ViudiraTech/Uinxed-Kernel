@@ -75,6 +75,7 @@ desktop.ini
 # Other
 .superpowers/
 .cache/
+tests/
 compile_commands.json
 make.log
 *.bak

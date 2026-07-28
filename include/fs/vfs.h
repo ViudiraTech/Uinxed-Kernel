@@ -27,8 +27,10 @@
 #define VFS_NODE_FINALIZING       (1ULL << 59)
 #define VFS_NODE_UNLINKING        (1ULL << 58)
 #define VFS_NODE_CLOSED           (1ULL << 57)
+#define VFS_NODE_NOCACHE          (1ULL << 56)
 
-typedef struct vfs_node *vfs_node_t;
+typedef struct vfs_node             *vfs_node_t;
+typedef struct pagecache_mapping     pagecache_mapping_t;
 typedef struct vfs_poll_subscription vfs_poll_subscription_t;
 
 typedef void (*vfs_poll_notify_t)(vfs_poll_subscription_t *subscription, uint32_t events);
@@ -65,7 +67,8 @@ typedef int (*vfs_mount_t)(const char *src, vfs_node_t node);
 typedef void (*vfs_umount_t)(void *root);
 typedef void (*vfs_open_t)(void *parent, const char *name, vfs_node_t node);
 typedef void (*vfs_close_t)(void *current);
-typedef void (*vfs_resize_t)(void *current, uint64_t size);
+typedef int (*vfs_resize_t)(void *current, uint64_t size);
+typedef int (*vfs_sync_t)(void *current, int data_only);
 typedef size_t (*vfs_write_t)(void *file, const void *addr, size_t offset, size_t size);
 typedef size_t (*vfs_read_t)(void *file, void *addr, size_t offset, size_t size);
 typedef size_t (*vfs_readlink_t)(vfs_node_t node, void *addr, size_t offset, size_t size);
@@ -132,38 +135,41 @@ typedef struct vfs_callback {
         vfs_file_write_cb_t file_write;   // Per-open write callback
         vfs_file_ioctl_cb_t file_ioctl;   // Per-open ioctl callback
         vfs_file_poll_cb_t  file_poll;    // Per-open poll callback
+        vfs_resize_t        resize;       // Change the persistent file size
+        vfs_sync_t          sync;         // Commit data and metadata to stable storage
 } *vfs_callback_t;
 
 extern vfs_callback_t fs_callbacks[];
 
 typedef struct vfs_node {
-        vfs_node_t parent;      // Parent directory
-        vfs_node_t linkto;      // Node pointed to by the symbolic link
-        char      *name;        // Name
-        char      *linkname;    // Symbolic link name
-        uint64_t   realsize;    // Actual space occupied by the project (optional)
-        uint64_t   size;        // File size or 0 if it is a folder
-        uint64_t   createtime;  // Creation time
-        uint64_t   readtime;    // Last read time
-        uint64_t   writetime;   // Last write time
-        uint64_t   inode;       // Node number
-        uint64_t   blksz;       // Block size
-        uint32_t   owner;       // Owner
-        uint32_t   group;       // All groups
-        uint32_t   permissions; // Permissions
-        uint16_t   type;        // Type
-        uint32_t   refcount;    // Reference count
-        uint16_t   mode;        // Mode
-        uint16_t   fsid;        // File system mount ID
-        void      *handle;      // Handle to the file
-        uint64_t   flags;       // File flags
-        clist_t    child;       // Child nodes
-        vfs_node_t root;        // Root directory
-        int        visited;     // Whether to synchronize with the specific file system
-        int        is_mount;    // Whether it is a mount point
-        uint64_t   dev;         // Device number
-        uint64_t   rdev;        // Real device number
-        vfs_poll_source_t poll_source;
+        vfs_node_t           parent;      // Parent directory
+        vfs_node_t           linkto;      // Node pointed to by the symbolic link
+        char                *name;        // Name
+        char                *linkname;    // Symbolic link name
+        uint64_t             realsize;    // Actual space occupied by the project (optional)
+        uint64_t             size;        // File size or 0 if it is a folder
+        uint64_t             createtime;  // Creation time
+        uint64_t             readtime;    // Last read time
+        uint64_t             writetime;   // Last write time
+        uint64_t             inode;       // Node number
+        uint64_t             blksz;       // Block size
+        uint32_t             owner;       // Owner
+        uint32_t             group;       // All groups
+        uint32_t             permissions; // Permissions
+        uint16_t             type;        // Type
+        uint32_t             refcount;    // Reference count
+        uint16_t             mode;        // Mode
+        uint16_t             fsid;        // File system mount ID
+        void                *handle;      // Handle to the file
+        uint64_t             flags;       // File flags
+        clist_t              child;       // Child nodes
+        vfs_node_t           root;        // Root directory
+        int                  visited;     // Whether to synchronize with the specific file system
+        int                  is_mount;    // Whether it is a mount point
+        uint64_t             dev;         // Device number
+        uint64_t             rdev;        // Real device number
+        vfs_poll_source_t    poll_source;
+        pagecache_mapping_t *mapping; // Unified cache for regular-file contents
 } *vfs_node_t;
 
 extern struct vfs_callback vfs_empty_callback;
@@ -256,18 +262,30 @@ size_t vfs_readlink(vfs_node_t node, char *buf, size_t bufsize);
 /* Write data from the provided memory buffer to a file node */
 size_t vfs_write(vfs_node_t file, void *addr, size_t offset, size_t size);
 
+/* Flush cached contents, truncate a regular file, or invalidate cached data. */
+int  vfs_fsync(vfs_node_t file, int data_only);
+int  vfs_writeback_range(vfs_node_t file, uint64_t start, uint64_t end, int data_only);
+int  vfs_sync_all(void);
+int  vfs_truncate(vfs_node_t file, uint64_t size);
+int  vfs_invalidate_pages(vfs_node_t file, uint64_t start, uint64_t end, int discard_dirty);
+int  vfs_drop_pages(vfs_node_t file, uint64_t start, uint64_t end, int writeback);
+int  vfs_readahead(vfs_node_t file, uint64_t offset, size_t size);
+int  vfs_cache_mapping_pin(vfs_node_t file);
+void vfs_cache_mapping_unpin(vfs_node_t file);
+int  vfs_cache_map_page(vfs_node_t file, uint64_t index, int dirty, uint64_t *physical);
+int  vfs_cache_mark_dirty_range(vfs_node_t file, uint64_t start, uint64_t end);
+
 /* Per-open operations, falling back to the legacy node callbacks. */
 int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
 int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
 int     vfs_file_ioctl(vfs_node_t file, void *private_data, uint64_t flags, size_t req, void *arg);
 int     vfs_file_poll(vfs_node_t file, void *private_data, uint64_t flags, size_t events);
-void    vfs_poll_subscribe(vfs_node_t file, vfs_poll_subscription_t *subscription, uint32_t events,
-                           vfs_poll_notify_t notify, void *context);
+void    vfs_poll_subscribe(vfs_node_t file, vfs_poll_subscription_t *subscription, uint32_t events, vfs_poll_notify_t notify, void *context);
 void    vfs_poll_unsubscribe(vfs_node_t file, vfs_poll_subscription_t *subscription);
 void    vfs_poll_notify(vfs_node_t file, uint32_t events);
 void    vfs_poll_source_init(vfs_poll_source_t *source);
-void    vfs_poll_source_subscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription,
-                                  uint32_t events, vfs_poll_notify_t notify, void *context);
+void    vfs_poll_source_subscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription, uint32_t events, vfs_poll_notify_t notify,
+                                  void *context);
 void    vfs_poll_source_unsubscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription);
 void    vfs_poll_source_notify(vfs_poll_source_t *source, uint32_t events);
 

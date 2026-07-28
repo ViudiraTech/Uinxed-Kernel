@@ -102,6 +102,7 @@ static int vma_remove_range(process_t *proc, uintptr_t start, uintptr_t end)
         if (start <= vma->start && end >= vma->end) {
             *prev = vma->next;
             if (vma->vm_file) {
+                if (vma->vm_pagecache) vfs_cache_mapping_unpin(vma->vm_file);
                 memfd_vma_release(vma->vm_file, vma->flags);
                 vfs_close(vma->vm_file);
             }
@@ -134,6 +135,7 @@ static int vma_remove_range(process_t *proc, uintptr_t start, uintptr_t end)
         vma->next   = right;
         if (right->vm_file) {
             right->vm_file->refcount++;
+            if (right->vm_pagecache) (void)vfs_cache_mapping_pin(right->vm_file);
             memfd_vma_retain(right->vm_file, right->flags);
         }
         prev = &vma->next;
@@ -234,6 +236,52 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
                 free(vma);
                 process_file_put(file);
                 return ret;
+            }
+            vm_area_insert(proc, vma);
+            process_file_put(file);
+            return (int64_t)mmap_addr;
+        }
+
+        /* Regular files map the same physical pages used by read/write I/O.
+         * Private writable mappings use the MM COW bit; shared writable
+         * mappings dirty their cache pages for msync/fsync writeback. */
+        if (vfs_cache_mapping_pin(file->node) == EOK) {
+            vm_area_t *vma = calloc(1, sizeof(*vma));
+            if (!vma) {
+                vfs_cache_mapping_unpin(file->node);
+                process_file_put(file);
+                return -ENOMEM;
+            }
+            vma->start        = mmap_addr;
+            vma->end          = mmap_addr + pages;
+            vma->flags        = vm_flags;
+            vma->type         = VM_REGION_MMAP;
+            vma->vm_file      = vfs_node_retain(file->node);
+            vma->vm_pgoff     = offset / PAGE_4K_SIZE;
+            vma->vm_pagecache = true;
+            if (!vma->vm_file) {
+                vfs_cache_mapping_unpin(file->node);
+                free(vma);
+                process_file_put(file);
+                return -ENOENT;
+            }
+
+            uint64_t pte_flags = vm_flags_to_pte(vm_flags);
+            if (!(vm_flags & VM_SHARED) && (vm_flags & VM_WRITE)) pte_flags = (pte_flags & ~PTE_WRITEABLE) | PTE_COW;
+            size_t mapped = 0;
+            for (; mapped < pages; mapped += PAGE_4K_SIZE) {
+                uint64_t frame;
+                int      result = vfs_cache_map_page(file->node, offset / PAGE_4K_SIZE + mapped / PAGE_4K_SIZE,
+                                                     (vm_flags & (VM_SHARED | VM_WRITE)) == (VM_SHARED | VM_WRITE), &frame);
+                if (result || page_map_new_to(proc->user_page_dir, mmap_addr + mapped, frame, pte_flags) < 0) {
+                    if (!result) (void)frame_release_range(frame, 1);
+                    (void)unmap_physical_pages(proc, mmap_addr, mapped);
+                    vfs_cache_mapping_unpin(file->node);
+                    vfs_close(vma->vm_file);
+                    free(vma);
+                    process_file_put(file);
+                    return result ? result : -ENOMEM;
+                }
             }
             vm_area_insert(proc, vma);
             process_file_put(file);
@@ -370,6 +418,7 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
     size_t     pages     = ALIGN_UP(length, PAGE_4K_SIZE);
 
     /* Update VMA flags */
+    bool pagecache_private = false;
     spin_lock(&proc->mmap_lock);
     for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next) {
         if (vma->start == (uintptr_t)addr) {
@@ -379,12 +428,14 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
                 spin_unlock(&proc->mmap_lock);
                 return ret;
             }
-            vma->flags = vm_flags;
-            pte_flags  = vm_flags_to_pte(vm_flags);
+            vma->flags        = vm_flags;
+            pagecache_private = vma->vm_pagecache && !(vm_flags & VM_SHARED);
+            pte_flags         = vm_flags_to_pte(vm_flags);
             break;
         }
     }
     spin_unlock(&proc->mmap_lock);
+    if (pagecache_private && (vm_flags & VM_WRITE)) pte_flags = (pte_flags & ~PTE_WRITEABLE) | PTE_COW;
 
     /* Update page table entries */
     for (size_t i = 0; i < pages; i += PAGE_4K_SIZE) {
@@ -398,11 +449,61 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
 
 int sys_msync(uint64_t addr, uint64_t length, uint64_t flags)
 {
-    (void)addr;
-    (void)length;
-    (void)flags;
-    /* For a non-MMU-writeback kernel, msync is a no-op */
-    return EOK;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    if (addr & (PAGE_4K_SIZE - 1)) return -EINVAL;
+    if (flags & ~(MS_ASYNC | MS_INVALIDATE | MS_SYNC)) return -EINVAL;
+    if ((flags & (MS_ASYNC | MS_SYNC)) == (MS_ASYNC | MS_SYNC)) return -EINVAL;
+    if (!length) return EOK;
+    if (addr > UINT64_MAX - length) return -EINVAL;
+    uintptr_t end = ALIGN_UP(addr + length, PAGE_4K_SIZE);
+
+    typedef struct {
+            vfs_node_t file;
+            uint64_t   start;
+            uint64_t   end;
+            bool       shared;
+            bool       writable;
+    } msync_range_t;
+
+    spin_lock(&proc->mmap_lock);
+    size_t count = 0;
+    for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next)
+        if (vma->vm_pagecache && addr < vma->end && end > vma->start) count++;
+    msync_range_t *ranges = count ? calloc(count, sizeof(*ranges)) : NULL;
+    if (count && !ranges) {
+        spin_unlock(&proc->mmap_lock);
+        return -ENOMEM;
+    }
+    size_t used = 0;
+    for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next) {
+        if (!vma->vm_pagecache || addr >= vma->end || end <= vma->start) continue;
+        uintptr_t overlap_start = addr > vma->start ? addr : vma->start;
+        uintptr_t overlap_end   = end < vma->end ? end : vma->end;
+        ranges[used].file       = vfs_node_retain(vma->vm_file);
+        ranges[used].start      = vma->vm_pgoff * PAGE_4K_SIZE + overlap_start - vma->start;
+        ranges[used].end        = ranges[used].start + overlap_end - overlap_start - 1;
+        ranges[used].shared     = (vma->flags & VM_SHARED) != 0;
+        ranges[used].writable   = (vma->flags & VM_WRITE) != 0;
+        used++;
+    }
+    spin_unlock(&proc->mmap_lock);
+
+    int result = EOK;
+    for (size_t i = 0; i < used; i++) {
+        if (ranges[i].file && ranges[i].shared) {
+            if (ranges[i].writable) result = vfs_cache_mark_dirty_range(ranges[i].file, ranges[i].start, ranges[i].end);
+            if (!result) result = vfs_writeback_range(ranges[i].file, ranges[i].start, ranges[i].end, 0);
+        }
+        if (ranges[i].file) vfs_close(ranges[i].file);
+        if (result) {
+            for (size_t j = i + 1; j < used; j++)
+                if (ranges[j].file) vfs_close(ranges[j].file);
+            break;
+        }
+    }
+    free(ranges);
+    return result;
 }
 
 int sys_madvise(uint64_t addr, uint64_t length, uint64_t advice)
@@ -491,7 +592,7 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64
     }
 
     uint64_t pte_flags = vm_flags_to_pte(vma->flags);
-    size_t   mapped     = old_pages;
+    size_t   mapped    = old_pages;
     for (; mapped < new_pages; mapped += PAGE_4K_SIZE) {
         uint64_t frame = alloc_frames(1);
         if (!frame) break;

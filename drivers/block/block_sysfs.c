@@ -10,6 +10,7 @@
 
 #include <drivers/ahci.h>
 #include <drivers/blockdev.h>
+#include <drivers/block_sysfs.h>
 #include <drivers/ide.h>
 #include <drivers/nvme.h>
 #include <drivers/partition.h>
@@ -34,8 +35,11 @@ struct block_sysfs_dev {
         uint32_t          partition;
         uint64_t          start_lba;
         int               read_only;
+        int               removable;
         int               valid;
 };
+
+static struct kobject *block_root_kobj;
 
 /* ------------------------------------------------------------------ */
 /*  Attribute show functions                                           */
@@ -84,9 +88,8 @@ static ssize_t start_show(struct kobject *kobj, struct attribute *attr, char *bu
 
 static ssize_t removable_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
-    (void)kobj;
     (void)attr;
-    return (ssize_t)sysfs_emit(buf, "0\n");
+    return (ssize_t)sysfs_emit(buf, "%d\n", to_bsd(kobj)->removable);
 }
 
 /* ------------------------------------------------------------------ */
@@ -235,6 +238,61 @@ static int block_add_one(struct kobject *parent, const char *name, uint8_t drive
     return EOK;
 }
 
+int block_sysfs_register_device(const char *name, const blockdev_device_t *device, bool removable,
+                                struct block_sysfs_dev **handle)
+{
+#if CONFIG_SYSFS
+    struct block_sysfs_dev *bsd;
+    int status;
+
+    if (!name || !device || !handle || !block_root_kobj) return -EINVAL;
+    *handle = NULL;
+    bsd = calloc(1, sizeof(*bsd));
+    if (!bsd) return -ENOMEM;
+    bsd->bdev       = *device;
+    bsd->read_only  = device->read_only;
+    bsd->removable  = removable;
+    bsd->valid      = 1;
+    strncpy(bsd->name, name, sizeof(bsd->name) - 1);
+    kobject_init(&bsd->kobj, &block_ktype);
+    status = kobject_add(&bsd->kobj, block_root_kobj, "%s", name);
+    if (status != EOK) {
+        kobject_put(&bsd->kobj);
+        return status;
+    }
+    kobject_uevent(&bsd->kobj, KOBJ_ADD);
+    status = block_add_partitions(bsd);
+    if (status != EOK && status != -ENOENT)
+        plogk("block_sysfs: Cannot scan partitions on %s: %d\n", name, status);
+    *handle = bsd;
+    return EOK;
+#else
+    (void)name;
+    (void)device;
+    (void)removable;
+    (void)handle;
+    return -ENOSYS;
+#endif
+}
+
+void block_sysfs_unregister_device(struct block_sysfs_dev *handle)
+{
+#if CONFIG_SYSFS
+    if (!handle) return;
+    handle->valid = 0;
+    while (handle->kobj.children) {
+        struct block_sysfs_dev *part = to_bsd(handle->kobj.children->data);
+        part->valid = 0;
+        kobject_del(&part->kobj);
+        kobject_put(&part->kobj);
+    }
+    kobject_del(&handle->kobj);
+    kobject_put(&handle->kobj);
+#else
+    (void)handle;
+#endif
+}
+
 /* ------------------------------------------------------------------ */
 /*  Initialization                                                     */
 /* ------------------------------------------------------------------ */
@@ -243,7 +301,6 @@ void block_sysfs_init(void)
 {
 #if CONFIG_SYSFS
     extern struct kobject *sysfs_root_kobj;
-    struct kobject        *block_kobj = NULL;
     clist_t                node;
     int                    count = 0;
 
@@ -252,12 +309,12 @@ void block_sysfs_init(void)
     for (node = sysfs_root_kobj->children; node; node = node->next) {
         struct kobject *child = node->data;
         if (child && child->name && streq(child->name, "block")) {
-            block_kobj = child;
+            block_root_kobj = child;
             break;
         }
     }
 
-    if (!block_kobj) {
+    if (!block_root_kobj) {
         plogk("block_sysfs: /sys/block/ kobject not found.\n");
         return;
     }
@@ -266,7 +323,7 @@ void block_sysfs_init(void)
         if (!ide_devices[d].reserved || ide_devices[d].type != IDE_ATA) continue;
         char name[8];
         snprintf(name, sizeof(name), "hd%c", 'a' + d);
-        block_add_one(block_kobj, name, d, 0, NULL);
+        block_add_one(block_root_kobj, name, d, 0, NULL);
         count++;
     }
 
@@ -274,7 +331,7 @@ void block_sysfs_init(void)
         if (!ahci_devices[d].reserved || ahci_devices[d].type != AHCI_DEV_SATA) continue;
         char name[16];
         if (blockdev_format_disk_name(name, sizeof(name), d) != EOK) continue;
-        block_add_one(block_kobj, name, d, 1, NULL);
+        block_add_one(block_root_kobj, name, d, 1, NULL);
         count++;
     }
 
@@ -285,7 +342,7 @@ void block_sysfs_init(void)
             if (!ctrl->namespaces[ns].ready) continue;
             char name[24];
             snprintf(name, sizeof(name), "nvme%dn%u", ctrl->id, ctrl->namespaces[ns].nsid);
-            block_add_one(block_kobj, name, (uint8_t)ctrl->id, 2, &ctrl->namespaces[ns]);
+            block_add_one(block_root_kobj, name, (uint8_t)ctrl->id, 2, &ctrl->namespaces[ns]);
             count++;
         }
     }

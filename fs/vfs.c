@@ -8,12 +8,15 @@
  *
  */
 
+#include <fs/pagecache.h>
 #include <fs/vfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
+#include <mem/frame.h>
 #include <mem/heap.h>
+#include <mem/hhdm.h>
 #include <mem/page.h>
 #include <proc/process.h>
 #include <sync/spin_lock.h>
@@ -70,6 +73,87 @@ static char *pathtok(char **sp)
 
     *sp = next;
     return s;
+}
+
+static void *vfs_page_alloc(uint64_t *physical)
+{
+    size_t reserve = frame_allocator.origin_frames / 32;
+    if (reserve < 256) reserve = 256;
+    size_t available = __atomic_load_n(&frame_allocator.usable_frames, __ATOMIC_ACQUIRE);
+    if (available <= reserve) {
+        size_t target = reserve - available + 1;
+        if (target > 64) target = 64;
+        (void)pagecache_reclaim(target);
+    }
+    uint64_t frame = alloc_frames(1);
+    if (!frame && pagecache_reclaim(64)) frame = alloc_frames(1);
+    if (!frame) return NULL;
+    *physical = frame;
+    return phys_to_virt(frame);
+}
+
+static void vfs_page_free(void *page, uint64_t physical)
+{
+    (void)page;
+    free_frames(physical, 1);
+}
+
+static int64_t vfs_page_read_backend(void *context, void *buffer, uint64_t offset, size_t size)
+{
+    vfs_node_t node = context;
+    return (int64_t)callbackof(node, read)(node->handle, buffer, (size_t)offset, size);
+}
+
+static int64_t vfs_page_write_backend(void *context, const void *buffer, uint64_t offset, size_t size)
+{
+    vfs_node_t node = context;
+    return (int64_t)callbackof(node, write)(node->handle, buffer, (size_t)offset, size);
+}
+
+static int vfs_page_resize_backend(void *context, uint64_t size)
+{
+    vfs_node_t node = context;
+    if (callbackof(node, resize) == vfs_empty_callback.resize) return -EOPNOTSUPP;
+    return callbackof(node, resize)(node->handle, size);
+}
+
+static int vfs_page_sync_backend(void *context)
+{
+    vfs_node_t node = context;
+    if (callbackof(node, sync) == vfs_empty_callback.sync) return EOK;
+    return callbackof(node, sync)(node->handle, 0);
+}
+
+static bool vfs_pagecache_eligible(vfs_node_t node)
+{
+    return node && (node->type & ~file_delete) == file_none && !(node->flags & VFS_NODE_NOCACHE) && node->handle
+           && callbackof(node, read) != vfs_empty_callback.read;
+}
+
+static pagecache_mapping_t *vfs_pagecache_mapping(vfs_node_t node, int create)
+{
+    pagecache_mapping_t *mapping = __atomic_load_n(&node->mapping, __ATOMIC_ACQUIRE);
+    if (mapping || !create || !vfs_pagecache_eligible(node)) return mapping;
+    pagecache_ops_t ops = {
+        .read   = vfs_page_read_backend,
+        .write  = callbackof(node, write) == vfs_empty_callback.write ? NULL : vfs_page_write_backend,
+        .resize = callbackof(node, resize) == vfs_empty_callback.resize ? NULL : vfs_page_resize_backend,
+        .sync   = vfs_page_sync_backend,
+    };
+    pagecache_mapping_t *new_mapping = pagecache_mapping_create(node, &ops, node->size, 0);
+    if (!new_mapping) return NULL;
+    mapping = NULL;
+    if (!__atomic_compare_exchange_n(&node->mapping, &mapping, new_mapping, 0, __ATOMIC_RELEASE, __ATOMIC_ACQUIRE)) {
+        pagecache_mapping_destroy(new_mapping);
+        return mapping;
+    }
+    return new_mapping;
+}
+
+static void vfs_pagecache_destroy(vfs_node_t node)
+{
+    pagecache_mapping_t *mapping = __atomic_exchange_n(&node->mapping, NULL, __ATOMIC_ACQ_REL);
+    if (mapping) pagecache_mapping_destroy(mapping);
 }
 #endif
 
@@ -216,6 +300,7 @@ static void do_open(vfs_node_t file)
 static void do_update(vfs_node_t file)
 {
     if (file->type & file_none || !file->handle || file->type & file_dir || file->type & file_symlink || file->type & file_pipe) do_open(file);
+    if (file->mapping) file->size = pagecache_size(file->mapping);
 }
 
 /* Add a child node to a parent directory */
@@ -771,7 +856,11 @@ size_t vfs_read(vfs_node_t file, void *addr, size_t offset, size_t size)
     do_update(file);
 
     if (file->type & file_dir) return (size_t)-1;
-    return callbackof(file, read)(file->handle, addr, offset, size);
+    pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
+    if (!mapping) return callbackof(file, read)(file->handle, addr, offset, size);
+    int64_t result = pagecache_read(mapping, addr, offset, size);
+    file->size     = pagecache_size(mapping);
+    return (size_t)result;
 }
 
 /* Read data from a link file node into the provided memory buffer */
@@ -799,10 +888,14 @@ size_t vfs_write(vfs_node_t file, void *addr, size_t offset, size_t size)
     do_update(file);
 
     if (file->type & file_dir) return (size_t)-1;
-    size_t ret = callbackof(file, write)(file->handle, addr, offset, size);
+    pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
+    int64_t ret = mapping ? pagecache_write(mapping, addr, offset, size) : (int64_t)callbackof(file, write)(file->handle, addr, offset, size);
 
-    do_update(file);
-    return ret;
+    if (mapping)
+        file->size = pagecache_size(mapping);
+    else
+        do_update(file);
+    return (size_t)ret;
 }
 
 int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
@@ -811,6 +904,9 @@ int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void 
     if (vfs_access_check(file, VFS_ACCESS_R)) return -EACCES;
     do_update(file);
     if (file->type & file_dir) return -EISDIR;
+
+    pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
+    if (mapping) return pagecache_read(mapping, addr, offset, size);
 
     if (callbackof(file, file_read) != vfs_empty_callback.file_read)
         return callbackof(file, file_read)(file, private_data, flags, addr, offset, size);
@@ -828,15 +924,147 @@ int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, cons
     do_update(file);
     if (file->type & file_dir) return -EISDIR;
 
-    if (callbackof(file, file_write) != vfs_empty_callback.file_write) {
+    pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
+    if (mapping) {
+        ret        = pagecache_write(mapping, addr, offset, size);
+        file->size = pagecache_size(mapping);
+        if (ret >= 0 && (flags & 0x101000U)) {
+            int sync_result = pagecache_writeback(mapping, offset, size ? offset + size - 1 : offset, PAGECACHE_WB_SYNC);
+            if (sync_result) ret = sync_result;
+        }
+    } else if (callbackof(file, file_write) != vfs_empty_callback.file_write) {
         ret = callbackof(file, file_write)(file, private_data, flags, addr, offset, size);
     } else {
         size_t legacy_ret = callbackof(file, write)(file->handle, addr, offset, size);
         ret               = legacy_ret == (size_t)-1 ? -EIO : (int64_t)legacy_ret;
     }
 
-    do_update(file);
+    if (!mapping) do_update(file);
     return ret;
+}
+
+int vfs_fsync(vfs_node_t file, int data_only)
+{
+    if (!file) return -EINVAL;
+    do_update(file);
+    if (file->type & file_dir) return -EINVAL;
+    pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 0);
+    if (mapping) return pagecache_writeback(mapping, 0, UINT64_MAX, PAGECACHE_WB_SYNC);
+    if (callbackof(file, sync) != vfs_empty_callback.sync) return callbackof(file, sync)(file->handle, data_only);
+    return EOK;
+}
+
+int vfs_writeback_range(vfs_node_t file, uint64_t start, uint64_t end, int data_only)
+{
+    if (!file || end < start) return -EINVAL;
+    do_update(file);
+    pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 0);
+    if (mapping) return pagecache_writeback(mapping, start, end, PAGECACHE_WB_SYNC);
+    if (callbackof(file, sync) != vfs_empty_callback.sync) return callbackof(file, sync)(file->handle, data_only);
+    return EOK;
+}
+
+int vfs_sync_all(void)
+{
+    return pagecache_writeback_all(PAGECACHE_WB_SYNC);
+}
+
+int vfs_truncate(vfs_node_t file, uint64_t size)
+{
+    if (!file) return -EINVAL;
+    do_update(file);
+    if ((file->type & ~file_delete) != file_none) return file->type & file_dir ? -EISDIR : -EINVAL;
+    pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
+    int                  result;
+    if (mapping)
+        result = pagecache_truncate(mapping, size);
+    else if (callbackof(file, resize) != vfs_empty_callback.resize)
+        result = callbackof(file, resize)(file->handle, size);
+    else
+        result = -EOPNOTSUPP;
+    if (!result) file->size = size;
+    return result;
+}
+
+int vfs_invalidate_pages(vfs_node_t file, uint64_t start, uint64_t end, int discard_dirty)
+{
+    if (!file) return -EINVAL;
+    pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 0);
+    if (!mapping) return EOK;
+    return pagecache_invalidate(mapping, start, end, discard_dirty ? PAGECACHE_INVALIDATE_DISCARD_DIRTY : 0);
+}
+
+int vfs_drop_pages(vfs_node_t file, uint64_t start, uint64_t end, int writeback)
+{
+    if (!file || end < start) return -EINVAL;
+    pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 0);
+    if (!mapping) return EOK;
+    return pagecache_evict(mapping, start, end, writeback ? PAGECACHE_EVICT_WRITEBACK : 0);
+}
+
+int vfs_readahead(vfs_node_t file, uint64_t offset, size_t size)
+{
+    if (!file) return -EINVAL;
+    do_update(file);
+    pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
+    return mapping ? pagecache_readahead(mapping, offset, size) : -EOPNOTSUPP;
+}
+
+int vfs_cache_mapping_pin(vfs_node_t file)
+{
+    if (!file) return -EINVAL;
+    pagecache_mapping_t *mapping = file->mapping;
+    if (!mapping) {
+        do_update(file);
+        mapping = vfs_pagecache_mapping(file, 1);
+    }
+    if (!mapping) return -EOPNOTSUPP;
+    pagecache_mapping_pin(mapping);
+    return EOK;
+}
+
+void vfs_cache_mapping_unpin(vfs_node_t file)
+{
+    if (file && file->mapping) pagecache_mapping_unpin(file->mapping);
+}
+
+int vfs_cache_map_page(vfs_node_t file, uint64_t index, int dirty, uint64_t *physical)
+{
+    if (!file || !physical) return -EINVAL;
+    pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
+    if (!mapping) return -EOPNOTSUPP;
+    pagecache_page_t *page = pagecache_get_page(mapping, index, 1);
+    if (!page) return -ENOMEM;
+    int result = pagecache_lock_page(page, 1);
+    if (!result) {
+        if (dirty) pagecache_mark_dirty(page);
+        *physical = pagecache_page_physical(page);
+        if (frame_retain_range(*physical, 1)) result = -ENOMEM;
+        pagecache_unlock_page(page);
+    }
+    pagecache_put_page(page);
+    return result;
+}
+
+int vfs_cache_mark_dirty_range(vfs_node_t file, uint64_t start, uint64_t end)
+{
+    if (!file || end < start || !file->mapping) return -EINVAL;
+    uint64_t first = start / PAGECACHE_PAGE_SIZE;
+    uint64_t last  = end / PAGECACHE_PAGE_SIZE;
+    for (uint64_t index = first; index <= last; index++) {
+        pagecache_page_t *page = pagecache_get_page(file->mapping, index, 0);
+        if (page) {
+            int result = pagecache_lock_page(page, 0);
+            if (!result) {
+                pagecache_mark_dirty(page);
+                pagecache_unlock_page(page);
+            }
+            pagecache_put_page(page);
+            if (result) return result;
+        }
+        if (index == UINT64_MAX) break;
+    }
+    return EOK;
 }
 
 int vfs_file_ioctl(vfs_node_t file, void *private_data, uint64_t flags, size_t req, void *arg)
@@ -865,8 +1093,8 @@ void vfs_poll_source_init(vfs_poll_source_t *source)
     memset(source, 0, sizeof(*source));
 }
 
-void vfs_poll_source_subscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription,
-                               uint32_t events, vfs_poll_notify_t notify, void *context)
+void vfs_poll_source_subscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription, uint32_t events, vfs_poll_notify_t notify,
+                               void *context)
 {
     if (!source || !subscription || !notify) return;
     spin_lock(&source->lock);
@@ -875,8 +1103,8 @@ void vfs_poll_source_subscribe(vfs_poll_source_t *source, vfs_poll_subscription_
     subscription->events     = events;
     subscription->next       = source->subscribers;
     subscription->subscribed = true;
-    source->subscribers = subscription;
-    bool closed = source->closed;
+    source->subscribers      = subscription;
+    bool closed              = source->closed;
     spin_unlock(&source->lock);
     if (closed) notify(subscription, UINT32_MAX);
 }
@@ -888,7 +1116,7 @@ void vfs_poll_source_unsubscribe(vfs_poll_source_t *source, vfs_poll_subscriptio
     vfs_poll_subscription_t **link = &source->subscribers;
     while (*link && *link != subscription) link = &(*link)->next;
     if (*link) *link = subscription->next;
-    subscription->next = NULL;
+    subscription->next       = NULL;
     subscription->subscribed = false;
     spin_unlock(&source->lock);
 }
@@ -904,8 +1132,7 @@ void vfs_poll_source_notify(vfs_poll_source_t *source, uint32_t events)
     spin_unlock(&source->lock);
 }
 
-void vfs_poll_subscribe(vfs_node_t file, vfs_poll_subscription_t *subscription, uint32_t events,
-                        vfs_poll_notify_t notify, void *context)
+void vfs_poll_subscribe(vfs_node_t file, vfs_poll_subscription_t *subscription, uint32_t events, vfs_poll_notify_t notify, void *context)
 {
     if (file) vfs_poll_source_subscribe(&file->poll_source, subscription, events, notify, context);
 }
@@ -951,6 +1178,8 @@ int vfs_close(vfs_node_t node)
         spin_unlock(&node->poll_source.lock);
         spin_unlock(&vfs_namespace_lock);
         vfs_poll_notify(node, UINT32_MAX);
+        if (node->mapping) (void)pagecache_writeback(node->mapping, 0, UINT64_MAX, PAGECACHE_WB_SYNC);
+        if (!node->parent) vfs_pagecache_destroy(node);
         callbackof(node, close)(node->handle);
         if (!node->parent) {
             callbackof(node, free)(node->handle);
@@ -975,6 +1204,16 @@ int vfs_close(vfs_node_t node)
         }
     }
 
+    if (node->mapping) {
+        int result = pagecache_writeback(node->mapping, 0, UINT64_MAX, PAGECACHE_WB_SYNC);
+        if (result) {
+            spin_lock(&vfs_namespace_lock);
+            node->flags &= ~VFS_NODE_FINALIZING;
+            spin_unlock(&vfs_namespace_lock);
+            return result;
+        }
+    }
+
     if (!(node->flags & VFS_NODE_DELETE_COMMITTED)) {
         int res = node->parent ? callbackof(node, delete)(node->parent->handle, node) : EOK;
         if (res < 0) {
@@ -985,6 +1224,7 @@ int vfs_close(vfs_node_t node)
         }
     }
 
+    vfs_pagecache_destroy(node);
     if (!already_closed) { callbackof(node, close)(node->handle); }
     spin_lock(&vfs_namespace_lock);
     if (!(node->flags & VFS_NODE_UNLINKED) && node->parent) {
@@ -1140,6 +1380,7 @@ void vfs_free(vfs_node_t vfs)
         vfs->linkto = 0;
     }
     if (vfs->handle) {
+        vfs_pagecache_destroy(vfs);
         callbackof(vfs, close)(vfs->handle);
         callbackof(vfs, free)(vfs->handle);
         vfs->handle = 0;
@@ -1153,6 +1394,10 @@ void vfs_free(vfs_node_t vfs)
 void init_vfs(void)
 {
     for (size_t i = 0; i < sizeof(struct vfs_callback) / sizeof(void *); i++) ((void **)&vfs_empty_callback)[i] = empty_func;
+    pagecache_allocator_t allocator = {.alloc = vfs_page_alloc, .free = vfs_page_free};
+    size_t                max_pages = frame_allocator.origin_frames / 2;
+    if (max_pages < 256) max_pages = 256;
+    (void)pagecache_init(&allocator, max_pages);
     rootdir       = vfs_node_alloc(0, "/");
     rootdir->type = file_dir;
     plogk("vfs: Initial root directory of the virtual file system: '/'\n");

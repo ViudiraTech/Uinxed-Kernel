@@ -47,9 +47,23 @@ static int blk_empty_write(const struct blockdev_device *dev, uint64_t lba, uint
     return -ENOSYS;
 }
 
+static int blk_empty_flush(const struct blockdev_device *dev)
+{
+    (void)dev;
+    return EOK;
+}
+
+static void blk_empty_reference(const struct blockdev_device *dev)
+{
+    (void)dev;
+}
+
 static struct blockdev_ops blk_empty_ops = {
     .read_sectors  = blk_empty_read,
     .write_sectors = blk_empty_write,
+    .flush         = blk_empty_flush,
+    .retain        = blk_empty_reference,
+    .release       = blk_empty_reference,
 };
 
 int blockdev_register_type(blockdev_ops_t ops)
@@ -564,6 +578,22 @@ int blockdev_write_sectors(const blockdev_device_t *device, uint64_t lba, uint32
     if (lba >= device->sector_count || count > device->sector_count - lba) return -EINVAL;
 
     return blk_ops(device, write_sectors)(device, lba, count, buffer);
+}
+
+int blockdev_flush(const blockdev_device_t *device)
+{
+    if (!device) return -EINVAL;
+    return blk_ops(device, flush)(device);
+}
+
+void blockdev_retain(const blockdev_device_t *device)
+{
+    if (device) blk_ops(device, retain)(device);
+}
+
+void blockdev_release(const blockdev_device_t *device)
+{
+    if (device) blk_ops(device, release)(device);
 }
 
 int blockdev_read_bytes(const blockdev_device_t *device, uint64_t offset, void *buffer, size_t size)

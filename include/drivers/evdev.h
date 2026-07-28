@@ -35,7 +35,7 @@ struct evdev;
 
 /* ---- input device descriptor (attached to each evdev) ---- */
 /* This represents the physical/virtual input device capabilities */
-typedef struct {
+typedef struct input_dev {
         char            name[EVDEV_MAX_NAME_LEN];              /* device name */
         char            phys[EVDEV_MAX_NAME_LEN];              /* physical path */
         char            uniq[EVDEV_MAX_NAME_LEN];              /* unique identifier */
@@ -59,6 +59,7 @@ typedef struct {
         int             rep[2];                                /* [0]=delay, [1]=period */
         spinlock_t      event_lock;                            /* protects state and evdev binding */
         struct evdev   *evdev;                                 /* registered event handler */
+        void          (*release)(struct input_dev *dev);        /* final owner release */
         bool            exist;                                 /* device is alive */
 } input_dev_t;
 

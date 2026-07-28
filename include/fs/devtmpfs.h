@@ -12,6 +12,7 @@
 #define INCLUDE_DEVTMPFS_H_
 
 #include <fs/tmpfs.h>
+#include <drivers/blockdev.h>
 #include <libs/std/stdint.h>
 
 /*
@@ -49,5 +50,14 @@ int devtmpfs_register_char_device(const char *path, uint64_t dev, uint64_t rdev,
  * Returns 0 on success, negative errno on failure.
  */
 int devtmpfs_unregister_char_device(const char *path);
+
+typedef struct devtmpfs_block_registration devtmpfs_block_registration_t;
+
+/* Publish a whole disk and, optionally, its MBR/GPT partition views. */
+int devtmpfs_register_block_device(const char *path, const blockdev_device_t *device, uint64_t dev, uint64_t rdev,
+                                   bool scan_partitions, devtmpfs_block_registration_t **registration);
+
+/* Remove all nodes in a dynamic block-device registration. */
+void devtmpfs_unregister_block_device(devtmpfs_block_registration_t *registration);
 
 #endif // INCLUDE_DEVTMPFS_H_

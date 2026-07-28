@@ -252,6 +252,7 @@ static int sysfs_mount(const char *handle, vfs_node_t node)
     if (sysfs_root_vnode) return -EBUSY;
 
     node->fsid = sysfs_id;
+    node->flags |= VFS_NODE_NOCACHE;
 
     sysfs_node_t *root_sn = sysfs_node_alloc(SYSFS_DIR);
     if (!root_sn) return -ENOMEM;
@@ -283,6 +284,7 @@ static void sysfs_umount(void *root)
 
 static void sysfs_open(void *parent_handle, const char *name, vfs_node_t node)
 {
+    node->flags |= VFS_NODE_NOCACHE;
     sysfs_node_t *psn = parent_handle;
     if (!psn || !name) return;
 
@@ -367,6 +369,7 @@ static void sysfs_close(void *current)
 
 static int sysfs_stat(void *file, vfs_node_t node)
 {
+    node->flags |= VFS_NODE_NOCACHE;
     sysfs_node_t *sn = file;
     if (!sn) return -ENOENT;
 

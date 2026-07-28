@@ -112,6 +112,26 @@ size_t tmpfs_write(void *file, const void *addr, size_t offset, size_t size)
     return size;
 }
 
+int tmpfs_resize(void *file, uint64_t size)
+{
+    tmpfs_file_t *f = file;
+    if (!f || f->type != tp_file_file || f->device.read || f->device.write) return -EINVAL;
+    if (size > SIZE_MAX) return -EFBIG;
+    size_t requested = (size_t)size;
+    if (requested > f->capacity) {
+        size_t capacity = requested;
+        if (capacity <= SIZE_MAX / 2) capacity *= 2;
+        char *data = realloc(f->data, capacity);
+        if (!data) return -ENOMEM;
+        f->data     = data;
+        f->capacity = capacity;
+    }
+    if (requested > f->size) memset(f->data + f->size, 0, requested - f->size);
+    f->size       = requested;
+    f->node->size = requested;
+    return EOK;
+}
+
 /* Get file status (type, size) of a tmpfs file/directory */
 int tmpfs_stat(void *file, vfs_node_t node)
 {
@@ -201,6 +221,8 @@ int tmpfs_free(void *handle)
     tmpfs_file_t *file = handle;
 
     if (!file) return EOK;
+
+    if (file->device.destroy) file->device.destroy(file->device.ctx);
 
     if (file->type != tp_file_file) {
         free(file);
@@ -315,6 +337,7 @@ static struct vfs_callback tmpfs_callbacks = {
     .file_write   = tmpfs_file_write,
     .file_ioctl   = tmpfs_file_ioctl,
     .file_poll    = tmpfs_file_poll,
+    .resize       = tmpfs_resize,
 };
 
 /* Register tmpfs with the VFS layer (initialize tmpfs) */
@@ -335,5 +358,6 @@ int tmpfs_bind_device(vfs_node_t node, uint16_t node_type, const tmpfs_device_op
     handle->device    = *device;
     handle->node_type = node_type;
     node->type        = node_type;
+    node->flags |= VFS_NODE_NOCACHE;
     return EOK;
 }

@@ -326,6 +326,39 @@ menu "Input device support"
 
 endmenu
 
+menu "USB support"
+
+  config USB
+    bool "USB host-side support"
+    default y
+    help
+      Enable the USB host core and USB device model integration.
+
+  config USB_XHCI
+    bool "xHCI host controller support"
+    depends on USB
+    default y
+    help
+      Enable PCI xHCI controllers for USB 2.0 and USB 3.x devices.
+
+  config USB_HID
+    bool "USB HID support"
+    depends on USB_XHCI && INPUT_EVDEV
+    default y
+    help
+      Enable report-descriptor based USB keyboard, mouse, controller,
+      and consumer-control input devices through evdev.
+
+  config USB_STORAGE
+    bool "USB Mass Storage support"
+    depends on USB_XHCI
+    default y
+    help
+      Enable Bulk-Only Transport devices using the SCSI transparent
+      command set, including removable disk and partition nodes.
+
+endmenu
+
 menu "Graphics support"
 
   config DRM

@@ -428,6 +428,16 @@ evdev_t *evdev_create(input_dev_t *dev)
     return evdev;
 }
 
+static void evdev_free(evdev_t *evdev)
+{
+    input_dev_t *input;
+
+    if (!evdev) return;
+    input = evdev->input_dev;
+    free(evdev);
+    if (input && input->release) input->release(input);
+}
+
 /* ---- evdev_destroy ---- */
 
 void evdev_destroy(evdev_t *evdev)
@@ -444,7 +454,7 @@ void evdev_destroy(evdev_t *evdev)
     spin_lock(&evdev->mutex);
     destroy = evdev->open_count == 0;
     spin_unlock(&evdev->mutex);
-    if (destroy) free(evdev);
+    if (destroy) evdev_free(evdev);
 }
 
 /* ---- evdev_register ---- */
@@ -538,7 +548,7 @@ void evdev_unregister(evdev_t *evdev)
     spin_lock(&evdev->mutex);
     destroy = evdev->open_count == 0;
     spin_unlock(&evdev->mutex);
-    if (destroy) free(evdev);
+    if (destroy) evdev_free(evdev);
 }
 
 /* ---- evdev_find_by_minor ---- */
@@ -720,7 +730,7 @@ evdev_client_t *evdev_fop_open(evdev_t *evdev, int *error)
     client = malloc(client_size);
     if (!client) {
         if (error) *error = -ENOMEM;
-        if (evdev_close_device(evdev)) free(evdev);
+        if (evdev_close_device(evdev)) evdev_free(evdev);
         return NULL;
     }
 
@@ -732,7 +742,7 @@ evdev_client_t *evdev_fop_open(evdev_t *evdev, int *error)
     if (!evdev_queue_init(&client->queue, client->buffer, bufsize)) {
         free(client);
         if (error) *error = -EINVAL;
-        if (evdev_close_device(evdev)) free(evdev);
+        if (evdev_close_device(evdev)) evdev_free(evdev);
         return NULL;
     }
     wait_queue_init(&client->wait);
@@ -767,7 +777,7 @@ void evdev_fop_release(evdev_client_t *client)
 
     destroy = evdev_close_device(evdev);
     free(client);
-    if (destroy) free(evdev);
+    if (destroy) evdev_free(evdev);
 }
 
 /* ---- evdev_fop_read ---- */

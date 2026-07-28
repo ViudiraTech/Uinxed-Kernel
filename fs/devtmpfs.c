@@ -26,6 +26,7 @@
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
+#include <mem/heap.h>
 #include <sync/spin_lock.h>
 #include <video/fbdev.h>
 #include <video/video.h>
@@ -35,6 +36,12 @@
 /* ------------------------------------------------------------------ */
 
 #define DEVTMPFS_MAX_DEVICES 512
+#define DEVTMPFS_MAX_BLOCK_NODES (PARTITION_MAX_COUNT + 1)
+
+struct devtmpfs_block_registration {
+        char   paths[DEVTMPFS_MAX_BLOCK_NODES][96];
+        size_t count;
+};
 
 typedef struct devtmpfs_entry {
         char               path[256];
@@ -133,7 +140,8 @@ int devtmpfs_register_char_device(const char *path, uint64_t dev, uint64_t rdev,
         return -ENOSPC;
     }
 
-    plogk("devtmpfs: Registered %s as char device (dev=%llu, rdev=%llu)\n", path, dev, rdev);
+    plogk("devtmpfs: Registered %s as %s device (dev=%llu, rdev=%llu)\n", path,
+          node_type & file_block ? "block" : "char", dev, rdev);
     /* The registry owns the reference returned by vfs_open(). */
     return 0;
 }
@@ -181,6 +189,95 @@ static size_t devtmpfs_block_write(void *context, const void *buffer, size_t off
 {
     blockdev_device_t *device = context;
     return blockdev_write_bytes(device, offset, buffer, size) == EOK ? size : 0;
+}
+
+static void devtmpfs_block_destroy(void *context)
+{
+    blockdev_release(context);
+    free(context);
+}
+
+static int devtmpfs_register_one_block(const char *path, const blockdev_device_t *device, uint64_t dev, uint64_t rdev)
+{
+    blockdev_device_t *context;
+    tmpfs_device_ops_t ops = {
+        .read    = devtmpfs_block_read,
+        .write   = devtmpfs_block_write,
+        .destroy = devtmpfs_block_destroy,
+    };
+    vfs_node_t node;
+    int status;
+
+    if (!path || !device || !device->sector_size || device->sector_count > UINT64_MAX / device->sector_size) return -EINVAL;
+    context = malloc(sizeof(*context));
+    if (!context) return -ENOMEM;
+    *context = *device;
+    blockdev_retain(context);
+    ops.ctx  = context;
+    status   = devtmpfs_register_char_device(path, dev, rdev, file_block, &ops);
+    if (status != EOK) {
+        blockdev_release(context);
+        free(context);
+        return status;
+    }
+    node = vfs_open(path);
+    if (!node) {
+        (void)devtmpfs_unregister_char_device(path);
+        return -ENOENT;
+    }
+    node->blksz = device->sector_size;
+    node->size  = device->sector_count * device->sector_size;
+    vfs_close(node);
+    return EOK;
+}
+
+int devtmpfs_register_block_device(const char *path, const blockdev_device_t *device, uint64_t dev, uint64_t rdev,
+                                   bool scan_partitions, devtmpfs_block_registration_t **registration)
+{
+    devtmpfs_block_registration_t *nodes;
+    partition_table_t table;
+    int status;
+
+    if (!registration) return -EINVAL;
+    *registration = NULL;
+    nodes = calloc(1, sizeof(*nodes));
+    if (!nodes) return -ENOMEM;
+    status = devtmpfs_register_one_block(path, device, dev, rdev);
+    if (status != EOK) {
+        free(nodes);
+        return status;
+    }
+    strncpy(nodes->paths[0], path, sizeof(nodes->paths[0]) - 1);
+    nodes->count = 1;
+
+    if (scan_partitions && partition_scan(device, &table) == EOK) {
+        bool separator = path[strlen(path) - 1] >= '0' && path[strlen(path) - 1] <= '9';
+        for (size_t i = 0; i < table.count && nodes->count < DEVTMPFS_MAX_BLOCK_NODES; i++) {
+            blockdev_device_t view;
+            char part_path[96];
+            const partition_info_t *part = &table.partitions[i];
+
+            if (blockdev_open_partition(device, part->start_lba, part->sector_count, &view) != EOK) continue;
+            if (part->read_only) view.read_only = true;
+            snprintf(part_path, sizeof(part_path), "%s%s%u", path, separator ? "p" : "", part->number);
+            if (devtmpfs_register_one_block(part_path, &view, dev, rdev + part->number) != EOK) continue;
+            strncpy(nodes->paths[nodes->count], part_path, sizeof(nodes->paths[nodes->count]) - 1);
+            nodes->count++;
+        }
+        partition_table_destroy(&table);
+    }
+    *registration = nodes;
+    return EOK;
+}
+
+void devtmpfs_unregister_block_device(devtmpfs_block_registration_t *registration)
+{
+    if (!registration) return;
+    while (registration->count) {
+        registration->count--;
+        (void)devtmpfs_unregister_char_device(registration->paths[registration->count]);
+    }
+    free(registration);
 }
 
 static int devtmpfs_create_block_node(const char *dev_path, const blockdev_device_t *device, uint64_t dev, uint64_t rdev, bool is_partition)
@@ -340,6 +437,7 @@ static int devtmpfs_create_tty_nodes(void)
             unsigned int minor;
     } tty_nodes[] = {
         {.path = "/dev/tty0",    .major = TTY_MAJOR,     .minor = 0},
+        {.path = "/dev/ttyS0",   .major = TTY_MAJOR,     .minor = 64},
         {.path = "/dev/console", .major = TTY_AUX_MAJOR, .minor = 1},
     };
 

@@ -479,6 +479,7 @@ static void vm_area_free(vm_area_t *vma, uint32_t pid)
         vm_area_t *next = vma->next;
         if (vma->type == VM_REGION_SHM && vma->vm_private_data) sysv_shm_vma_put(vma->vm_private_data, pid);
         if (vma->vm_file) {
+            if (vma->vm_pagecache) vfs_cache_mapping_unpin(vma->vm_file);
             memfd_vma_release(vma->vm_file, vma->flags);
             vfs_close(vma->vm_file);
         }
@@ -959,10 +960,10 @@ process_t *process_create(const char *name, void (*entry)(void *), void *arg)
         return NULL;
     }
 
-    proc->task            = task;
-    task->process         = proc;
-    proc->refcount        = 1;
-    proc->thread_count    = 1;
+    proc->task         = task;
+    task->process      = proc;
+    proc->refcount     = 1;
+    proc->thread_count = 1;
     ilist_init(&proc->threads);
     ilist_insert_before(&proc->threads, &task->thread_node);
     proc->kernel_page_dir = get_kernel_pagedir();
@@ -1035,10 +1036,10 @@ process_t *process_create_kernel(const char *name, void (*entry)(void *), void *
         return NULL;
     }
 
-    proc->task            = task;
-    task->process         = proc;
-    proc->refcount        = 1;
-    proc->thread_count    = 1;
+    proc->task         = task;
+    task->process      = proc;
+    proc->refcount     = 1;
+    proc->thread_count = 1;
     ilist_init(&proc->threads);
     ilist_insert_before(&proc->threads, &task->thread_node);
     proc->kernel_page_dir = get_kernel_pagedir();
@@ -1185,7 +1186,7 @@ int process_wait(pid_t pid, int *exit_code)
     }
 
     for (;;) {
-        task_t *child_task = child->task;
+        task_t *child_task    = child->task;
         bool    group_stopped = child_task->state == TASK_ZOMBIE;
         for (ilist_node_t *node = child->threads.next; group_stopped && node != &child->threads; node = node->next) {
             task_t *member = rb_entry(node, task_t, thread_node);
@@ -1332,20 +1333,20 @@ process_t *process_fork_status(int *error)
     child->thread_count = 1;
     ilist_init(&child->threads);
     ilist_insert_before(&child->threads, &child_task->thread_node);
-    child->task->state  = TASK_READY;
-    child->uid          = parent->uid;
-    child->gid          = parent->gid;
-    child->pgid         = parent->pgid;
-    child->sid          = parent->sid;
-    child->parent       = parent;
-    child->exit_code    = 0;
+    child->task->state = TASK_READY;
+    child->uid         = parent->uid;
+    child->gid         = parent->gid;
+    child->pgid        = parent->pgid;
+    child->sid         = parent->sid;
+    child->parent      = parent;
+    child->exit_code   = 0;
     strncpy(child->name, parent->name, sizeof(child->name) - 1);
     child->name[sizeof(child->name) - 1] = '\0';
     child->heap_brk                      = parent->heap_brk;
     child->stack_brk                     = parent->stack_brk;
     memcpy(child->root, parent->root, sizeof(child->root));
     memcpy(child->cwd, parent->cwd, sizeof(child->cwd));
-    child->kernel_stack                  = malloc(PROCESS_KERNEL_STACK);
+    child->kernel_stack = malloc(PROCESS_KERNEL_STACK);
     if (!child->kernel_stack) {
         if (error) *error = -ENOMEM;
         task_free(child_task);
@@ -1392,11 +1393,13 @@ process_t *process_fork_status(int *error)
         copy->vm_file         = vma->vm_file;
         copy->vm_pgoff        = vma->vm_pgoff;
         copy->vm_private_data = vma->vm_private_data;
+        copy->vm_pagecache    = vma->vm_pagecache;
 
         /* Bump the file reference if this VMA is file-backed.
          * The parent already holds a reference; the child needs
          * its own so the file isn't freed while the child lives. */
         if (copy->vm_file) copy->vm_file->refcount++;
+        if (copy->vm_file && copy->vm_pagecache) (void)vfs_cache_mapping_pin(copy->vm_file);
         if (copy->vm_file) memfd_vma_retain(copy->vm_file, copy->flags);
         if (copy->type == VM_REGION_SHM && sysv_shm_vma_get(copy->vm_private_data, (uint32_t)child->task->pid)) {
             free(copy);
@@ -1465,10 +1468,9 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
         if (error) *error = !child_stack || !frame ? -EINVAL : -ESRCH;
         return NULL;
     }
-    if (user_access_ok((void *)(child_stack - 1), 1, 1) ||
-        (parent_tid && user_access_ok((void *)parent_tid, sizeof(uint32_t), 1)) ||
-        (child_set_tid && user_access_ok((void *)child_set_tid, sizeof(uint32_t), 1)) ||
-        (child_clear_tid && user_access_ok((void *)child_clear_tid, sizeof(uint32_t), 1))) {
+    if (user_access_ok((void *)(child_stack - 1), 1, 1) || (parent_tid && user_access_ok((void *)parent_tid, sizeof(uint32_t), 1))
+        || (child_set_tid && user_access_ok((void *)child_set_tid, sizeof(uint32_t), 1))
+        || (child_clear_tid && user_access_ok((void *)child_clear_tid, sizeof(uint32_t), 1))) {
         if (error) *error = -EFAULT;
         return NULL;
     }
@@ -1487,30 +1489,30 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
     }
 
     uint32_t tid = (uint32_t)child->pid;
-    if ((child_set_tid && copy_to_user((void *)child_set_tid, &tid, sizeof(tid))) ||
-        (parent_tid && copy_to_user((void *)parent_tid, &tid, sizeof(tid)))) {
+    if ((child_set_tid && copy_to_user((void *)child_set_tid, &tid, sizeof(tid)))
+        || (parent_tid && copy_to_user((void *)parent_tid, &tid, sizeof(tid)))) {
         task_free(child);
         if (error) *error = -EFAULT;
         return NULL;
     }
 
     syscall_frame_t child_frame = *frame;
-    child_frame.rax              = 0;
-    child_frame.rsp              = child_stack;
-    uint64_t *kstack = (uint64_t *)ALIGN_DOWN((uint64_t)(child->kernel_stack + TASK_KERNEL_STACK), 16ULL);
+    child_frame.rax             = 0;
+    child_frame.rsp             = child_stack;
+    uint64_t *kstack            = (uint64_t *)ALIGN_DOWN((uint64_t)(child->kernel_stack + TASK_KERNEL_STACK), 16ULL);
     kstack -= sizeof(child_frame) / sizeof(uint64_t);
     memcpy(kstack, &child_frame, sizeof(child_frame));
     *(--kstack) = (uint64_t)syscall_return;
 
-    child->context.rsp       = (uint64_t)kstack;
-    child->thread.fs_base    = tls;
-    child->thread.gs_base    = current->thread.gs_base;
-    child->page_directory    = proc->user_page_dir;
-    child->process           = proc;
-    child->tgid              = proc->task->tgid;
-    child->clear_child_tid   = child_clear_tid;
-    child->cpu_id            = current->cpu_id;
-    child->state             = TASK_READY;
+    child->context.rsp     = (uint64_t)kstack;
+    child->thread.fs_base  = tls;
+    child->thread.gs_base  = current->thread.gs_base;
+    child->page_directory  = proc->user_page_dir;
+    child->process         = proc;
+    child->tgid            = proc->task->tgid;
+    child->clear_child_tid = child_clear_tid;
+    child->cpu_id          = current->cpu_id;
+    child->state           = TASK_READY;
 
     disable_intr();
     spin_lock(&scheduler.lock);

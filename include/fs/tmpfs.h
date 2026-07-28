@@ -29,6 +29,7 @@ typedef int64_t (*tmpfs_dev_file_read_t)(void *ctx, void *private_data, uint64_t
 typedef int64_t (*tmpfs_dev_file_write_t)(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
 typedef int (*tmpfs_dev_file_poll_t)(void *ctx, void *private_data, uint64_t flags, size_t events);
 typedef int (*tmpfs_dev_file_ioctl_t)(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg);
+typedef void (*tmpfs_dev_destroy_t)(void *ctx);
 
 /* Device operations used to turn a tmpfs node into a device-backed file. */
 typedef struct {
@@ -43,6 +44,7 @@ typedef struct {
         tmpfs_dev_file_write_t file_write;
         tmpfs_dev_file_poll_t  file_poll;
         tmpfs_dev_file_ioctl_t file_ioctl;
+        tmpfs_dev_destroy_t    destroy; /* final node teardown */
         void                  *ctx;
 } tmpfs_device_ops_t;
 
@@ -83,6 +85,9 @@ int tmpfs_mkfile(void *parent, const char *name, vfs_node_t node);
 
 /* Read data from a tmpfs regular file */
 size_t tmpfs_read(void *file, void *addr, size_t offset, size_t size);
+
+/* Resize a regular tmpfs file, zero-filling any extension. */
+int tmpfs_resize(void *file, uint64_t size);
 
 /* Get file status (type, size) of a tmpfs file/directory */
 int tmpfs_stat(void *file, vfs_node_t node);

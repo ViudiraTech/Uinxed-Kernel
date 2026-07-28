@@ -520,6 +520,29 @@ static size_t fatfs_vfs_write(void *file, const void *addr, size_t offset, size_
     return written;
 }
 
+static int fatfs_vfs_resize(void *file, uint64_t size)
+{
+    fatfs_handle_t *handle = file;
+    if (!handle || handle->is_dir || size > (FSIZE_t)-1) return -EINVAL;
+    int status = fatfs_prepare_file_handle(handle, FA_WRITE | FA_OPEN_EXISTING);
+    if (status != EOK) return status;
+    FRESULT result = f_lseek(&handle->file, (FSIZE_t)size);
+    if (result == FR_OK) result = f_truncate(&handle->file);
+    if (result == FR_OK) result = f_sync(&handle->file);
+    if (result != FR_OK) return fatfs_result_to_errno(result);
+    handle->info.fsize = (FSIZE_t)size;
+    return EOK;
+}
+
+static int fatfs_vfs_sync(void *file, int data_only)
+{
+    (void)data_only;
+    fatfs_handle_t *handle = file;
+    if (!handle || handle->is_dir) return -EINVAL;
+    if (!handle->opened) return EOK;
+    return fatfs_result_to_errno(f_sync(&handle->file));
+}
+
 static size_t fatfs_vfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t size)
 {
     (void)node;
@@ -659,6 +682,8 @@ static struct vfs_callback fatfs_vfs_callbacks = {
     .free     = fatfs_vfs_free,
     .delete   = fatfs_vfs_delete,
     .rename   = fatfs_vfs_rename,
+    .resize   = fatfs_vfs_resize,
+    .sync     = fatfs_vfs_sync,
 };
 
 void fatfs_vfs_regist(void)

@@ -28,6 +28,9 @@ struct blockdev_device;
 typedef struct blockdev_ops {
         int (*read_sectors)(const struct blockdev_device *dev, uint64_t lba, uint32_t count, void *buf);
         int (*write_sectors)(const struct blockdev_device *dev, uint64_t lba, uint32_t count, const void *buf);
+        int (*flush)(const struct blockdev_device *dev);
+        void (*retain)(const struct blockdev_device *dev);
+        void (*release)(const struct blockdev_device *dev);
 } *blockdev_ops_t;
 
 /* Drive encoding for blockdev_open_drive / blockdev_parse_drive */
@@ -94,6 +97,13 @@ int blockdev_read_sectors(const blockdev_device_t *device, uint64_t lba, uint32_
 
 /* Write `count` sectors starting at `lba` from `buffer` */
 int blockdev_write_sectors(const blockdev_device_t *device, uint64_t lba, uint32_t count, const void *buffer);
+
+/* Commit volatile device write caches, if the backend provides one. */
+int blockdev_flush(const blockdev_device_t *device);
+
+/* Hold/drop a backend reference for copied blockdev descriptors. */
+void blockdev_retain(const blockdev_device_t *device);
+void blockdev_release(const blockdev_device_t *device);
 
 /* Byte-granularity read (handles partial sectors internally) */
 int blockdev_read_bytes(const blockdev_device_t *device, uint64_t offset, void *buffer, size_t size);

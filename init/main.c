@@ -34,6 +34,7 @@
 #include <drivers/tpm.h>
 #include <drivers/tsc.h>
 #include <drivers/tty.h>
+#include <drivers/usb.h>
 #include <drivers/virt/gpu/virtgpu_drv.h>
 #include <fs/cgroupfs.h>
 #include <fs/cpio.h>
@@ -241,6 +242,9 @@ void kernel_entry(void)
     input_sysfs_init();            // /sys/class/input/eventX
     block_sysfs_init();            // /sys/block/{hdX,sdX,nvme*}
     tty_sysfs_init();              // /sys/class/tty/
+#if CONFIG_USB_XHCI
+    xhci_init();                   // USB xHCI host controllers and root devices
+#endif
 #if CONFIG_NET
     net_sysfs_init();              // /sys/class/net/<interface>/
 #endif
@@ -282,6 +286,9 @@ void kernel_entry(void)
     boot_start_init_before_debug(swapper_run_init, sched_test_init);
 #if CONFIG_E1000
     e1000_start_workers();
+#endif
+#if CONFIG_USB_XHCI
+    xhci_start_workers();
 #endif
 
     enable_intr();
