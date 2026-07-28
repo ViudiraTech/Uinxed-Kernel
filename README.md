@@ -14,7 +14,74 @@
 
 ## Overview 💡
 
-Uinxed is a UNIX-like operating system kernel developed from scratch, focusing on modern computer architecture and advanced system design concepts. The project aims to build an efficient, stable, and scalable operating system kernel while maintaining code clarity and maintainability.
+Uinxed is a monolithic UNIX-like x86_64 kernel, version 0.4.0, written from scratch in C. It boots via the Limine bootloader, supports SMP, and implements a Linux-compatible syscall ABI (440 syscalls matching Linux numbering). The kernel emphasizes modern scheduler design (EEVDF), comprehensive memory management including swap, and a full VFS/driver stack.
+
+## Architecture Overview
+
+**Boot Sequence** (`init/main.c:kernel_entry`)
+
+1. Limine bootloader hands off to `kernel_entry()`
+2. Early init: FPU/SSE → serial → physical frame allocator → 4-level paging → kernel heap → Limine modules
+3. Video (VESA/GOP framebuffer) → GDT → IDT → ISR registration → syscall init → AVX
+4. ACPI → TSC → SMP init (APs brought online)
+5. PCI enumeration → SB16 audio → IDE → parallel port → PS/2
+6. VFS init → tmpfs, FAT, cpio, devtmpfs, procfs, DRM, VirtIO-GPU
+7. Scheduler init (EEVDF) → process management → eventfd/timerfd/signalfd → mmap
+8. `swapper_run_init()` loads the `init` ELF from a Limine module
+9. Interrupts enabled → `sched_start()` (does not return)
+
+### Memory Management
+
+- **Frame allocator** (`mem/frame`): bitmap-based physical page tracking
+- **Page tables** (`mem/page`): standard x86_64 4-level paging (PML4 → PDPT → PD → PT). Supports 4KB, 2MB, and 1GB huge pages
+- **HHDM** (Higher Half Direct Map): all physical memory accessible via `phys_to_virt()`
+- **Kernel heap** (`mem/heap`): grows from `KERNEL_HEAP_START` within the higher-half mapping
+- **KASLR**: kernel address space layout randomization
+- **Swap** (`mem/swap`): anonymous memory swap subsystem with multiple swap areas, slot allocation, reclaim, and swap-in/swap-out fault handling
+
+### Scheduler (EEVDF)
+
+- Earliest Eligible Virtual Deadline First scheduler (`kernel/sched/`)
+- Per-CPU runqueues (`eevdf_rq_t`) with red-black tree timeline sorted by virtual deadline
+- SMP-aware: `choose_task_cpu_locked()` for initial placement, `task_set_cpu()` for migration
+- Wait queues with two-phase prepare/sleep to avoid lost wakeups, plus timed waits
+- Preemption via IPI (`sched_ipi_reschedule`)
+- Global `scheduler` struct holds sleep queue and timer queue (intrusive linked lists)
+- Priority Inheritance (PI) for robust mutex/futex semantics
+
+### Process & Task Model
+
+- `task_t` (`proc/task.h`): the schedulable entity. Contains CPU context (`task_context_t`), thread-local arch state (`thread_struct_t`: fs_base/gs_base), page directory pointer, kernel stack (64KB), EEVDF fields (vruntime, deadline, vlag, weight)
+- `process_t` (`proc/process.h`): holds the task, VMA list, file descriptor table, signal state, credentials
+- Task states: READY → RUNNING ↔ BLOCKED/SLEEPING → ZOMBIE; plus IDLE (per-CPU idle tasks)
+- Kernel threads via `kthread_create()` / `kthread_create_on_cpu()`
+- User processes loaded via `elf_loader_load_user_process()` from Limine modules
+- `ptrace` support: Linux-compatible process tracing with events, single-step, seccomp (`proc/ptrace.h`)
+- cgroups: control groups with pids controller (`cgroup/cgroup.h`)
+
+### Syscall Interface
+
+- Linux x86_64 ABI compatibility: syscalls invoked via `syscall` instruction with RAX=syscall number
+- 440 syscalls defined in `include/syscall/syscall_table.h` (enum `x86_syscall_table`)
+- Syscall handler in `kernel/syscall/` dispatches through a function pointer table
+- Not all 440 syscalls are implemented; unimplemented ones return `-ENOSYS`
+
+### Virtual Filesystem (VFS)
+
+- UNIX-like VFS with mount points (`fs/vfs`)
+- Filesystem callbacks: mount, unmount, open, close, read, write, readlink, mkdir, mkfile, link, symlink, stat, ioctl, dup, poll, free, delete, rename, mmap
+- `vfs_node_t`: inode-like structure with parent/child linkage (circular linked list), reference counting, permissions (owner/group/mode), timestamps
+- Supported filesystems: tmpfs (root), FAT12/16/32 (via FatFS library), procfs, devtmpfs, cpio
+- File types distinguished by bitmask flags (`file_dir`, `file_block`, `file_stream`, `file_symlink`, `file_fbdev`, `file_pipe`, `file_socket`, `file_epoll`, etc.)
+- TTY core with line discipline, controlling terminal, foreground process group
+- Unix98 PTY support (master/slave pairs, `/dev/ptmx`, `/dev/ttyX`, `/dev/pts/X`)
+
+### DRM Subsystem
+
+- Linux-compatible Direct Rendering Manager (`drivers/gpu/drm/`) with KMS (Kernel Mode Setting)
+- Atomic modesetting (`drm_atomic_uapi.c`), framebuffer management, connector/CRTC/encoder/plane model
+- Device nodes exposed via VFS at `/dev/dri/card0` and `/dev/dri/renderD*`
+- VirtIO-GPU driver (`drivers/virt/gpu/`) uses the DRM framework for paravirtualized GPU access
 
 ## Core Features 🌟
 
@@ -27,6 +94,7 @@ Uinxed is a UNIX-like operating system kernel developed from scratch, focusing o
   - Virtual memory page management
   - High half memory mapping (HHDM)
   - Unified page cache with page locking, LRU reclaim, dirty-page writeback, readahead, truncation, and statistics
+  - Swap subsystem for anonymous memory (swap areas, slot allocation, reclaim, swap-in/swap-out fault handling)
 - **Interrupt management**:
   - Complete interrupt descriptor table (IDT) implementation
   - Exception interrupt handlers for both kernel and userspace
@@ -40,14 +108,20 @@ Uinxed is a UNIX-like operating system kernel developed from scratch, focusing o
   - `DRM` (Direct rendering manager) subsystem
   - IPC (Inter-Process Communication)
   - Linux-style USB device, interface, bus, and sysfs integration
-- **Console meatures**:
+  - `ptrace` (Linux-compatible process tracing with events, single-step, seccomp)
+  - cgroups (control groups with pids controller)
+- **Console measures**:
   - Bitmap fonts (9x16 pixels)
   - High-speed framebuffer console implementation
+  - TTY core with line discipline, controlling terminal, foreground process group
+  - Unix98 PTY support (master/slave pairs, `/dev/ptmx`, `/dev/ttyX`, `/dev/pts/X`)
+  - POSIX termios and Linux TTY ioctl ABI
 - **Networking**:
   - Intel e1000/e1000e Gigabit Ethernet driver (82540EM, 82545EM, 82546EB, 82541PI, 82574L)
   - Generic network device abstraction
   - Ethernet/ARP/IPv4/ICMP/UDP/TCP protocol stack
-  - Linux AF_INET socket ABI (SOCK_DGRAM / SOCK_STREAM)
+  - IPv6 with NDP (Neighbor Discovery Protocol)
+  - Linux AF_INET / AF_INET6 socket ABI (SOCK_DGRAM / SOCK_STREAM)
   - `/proc/net/{dev,arp,route,tcp,udp}`
   - `/sys/class/net/<iface>/` with Linux-style attributes
 - **Filesystem**:
@@ -60,15 +134,20 @@ Uinxed is a UNIX-like operating system kernel developed from scratch, focusing o
   - SimpleFS for test
   - VFS-backed page-cache mappings for regular files and memory-mapped I/O
 - **Scheduler**:
-  - Kernel thread scheduler
-  - Load balance
-  - Preempt scheduling
-  - Multi-processor scheduling
+  - EEVDF (Earliest Eligible Virtual Deadline First) scheduler with per-CPU runqueues
+  - Red-black tree timeline sorted by virtual deadline (`vruntime`, `deadline`, `vlag`, `weight`)
+  - SMP-aware load balancing, CPU migration, and IPI-based preemption
+  - Priority Inheritance (PI) support for robust mutex/ futex semantics
+  - Wait queues with two-phase prepare/sleep to eliminate lost wakeups
+  - Timed waits backed by the scheduler timer queue
 - **ABI**:
   - Linux syscalls (440 syscalls matching x86-64 numbering)
-  - Linux AF_UNIX / AF_NETLINK / AF_INET sockets
+  - Linux AF_UNIX / AF_NETLINK / AF_INET / AF_INET6 sockets
   - epoll, eventfd, signalfd, timerfd
-  - POSIX message queues, System V IPC, futex
+  - POSIX message queues, System V IPC, futex with Priority Inheritance (PI)
+  - `mmap` / `munmap` / `mremap` with VFS-backed page-cache mappings
+  - `ptrace` (TRACEME, ATTACH, PEEKTEXT/POKETEXT, GETREGS, SYSCALL, seccomp, events)
+  - POSIX termios and Linux TTY ioctl ABI (including Unix98 PTY ioctls)
 - **Drivers**:
   - Network
     1. Intel e1000/e1000e (82540EM, 82545EM, 82546EB, 82541PI, 82574L)
