@@ -370,7 +370,7 @@ ifneq ($(CONFIG_MODULE_MAX_SIZE),)
   C_CONFIG += -DCONFIG_MODULE_MAX_SIZE_MIB=$(CONFIG_MODULE_MAX_SIZE)
 endif
 
-C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*" -not -path "tests/*")
+C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*")
 C_HEADERS      := $(shell find * -name "*.h")
 OBJS           := $(C_SOURCES:%.c=%.o)
 DEPS           := $(OBJS:%.o=%.d)

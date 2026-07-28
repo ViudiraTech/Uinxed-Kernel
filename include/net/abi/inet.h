@@ -1,4 +1,13 @@
-/* Linux x86_64 Internet socket ABI and kernel backend adapter. */
+/*
+ *
+ *      inet.h
+ *      Linux x86_64 Internet socket ABI and kernel backend adapter.
+ *
+ *      2026/7/28 By JiTianYu391
+ *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
+ */
+
 #ifndef INCLUDE_NET_ABI_INET_H_
 #define INCLUDE_NET_ABI_INET_H_
 
@@ -112,13 +121,21 @@ typedef struct in6_addr {
         } in6_u;
 } in6_addr_t;
 
-#define IN6ADDR_ANY_INIT                                                          \
-    {                                                                             \
-        {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}} \
+#define IN6ADDR_ANY_INIT                                       \
+    {                                                          \
+        {                                                      \
+            {                                                  \
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 \
+            }                                                  \
+        }                                                      \
     }
-#define IN6ADDR_LOOPBACK_INIT                                                     \
-    {                                                                             \
-        {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}} \
+#define IN6ADDR_LOOPBACK_INIT                                  \
+    {                                                          \
+        {                                                      \
+            {                                                  \
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 \
+            }                                                  \
+        }                                                      \
     }
 
 #define s6_addr   in6_u.u6_addr8

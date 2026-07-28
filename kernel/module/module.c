@@ -913,17 +913,17 @@ static int set_parameter(module_internal_t *internal, const struct kernel_param 
             return EOK;
         case MODULE_PARAM_INT :
             ret = parse_signed_value(value, &signed_value);
-            if (ret != EOK || signed_value < INT32_MIN || signed_value > INT32_MAX) return ret != EOK ? ret : -ERANGE;
+            if (ret != EOK || signed_value < (int64_t)INT32_MIN || signed_value > (int64_t)INT32_MAX) return ret != EOK ? ret : -ERANGE;
             *(int32_t *)parameter->arg = (int32_t)signed_value;
             return EOK;
         case MODULE_PARAM_UINT :
             ret = parse_unsigned_value(value, &unsigned_value);
-            if (ret != EOK || unsigned_value > UINT32_MAX) return ret != EOK ? ret : -ERANGE;
+            if (ret != EOK || unsigned_value > (uint64_t)UINT32_MAX) return ret != EOK ? ret : -ERANGE;
             *(uint32_t *)parameter->arg = (uint32_t)unsigned_value;
             return EOK;
         case MODULE_PARAM_LONG :
             ret = parse_signed_value(value, &signed_value);
-            if (ret == EOK) *(int64_t *)parameter->arg = signed_value;
+            if (ret == EOK && signed_value >= INT64_MIN && signed_value <= INT64_MAX) *(int64_t *)parameter->arg = signed_value;
             return ret;
         case MODULE_PARAM_ULONG :
             ret = parse_unsigned_value(value, &unsigned_value);

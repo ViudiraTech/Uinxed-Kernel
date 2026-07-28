@@ -1,3 +1,13 @@
+/*
+ *
+ *      netdev.h
+ *      Network device API
+ *
+ *      2026/7/28 By JiTianYu391
+ *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
+ */
+
 #ifndef INCLUDE_NET_NETDEV_H_
 #define INCLUDE_NET_NETDEV_H_
 

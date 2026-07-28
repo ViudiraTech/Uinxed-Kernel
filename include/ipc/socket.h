@@ -142,7 +142,7 @@ typedef struct cmsghdr {
         int    cmsg_type;
 } cmsghdr_t;
 
-#define CMSG_ALIGN(len)     (((len) + sizeof(size_t) - 1) & (size_t)~(sizeof(size_t) - 1))
+#define CMSG_ALIGN(len)     (((len) + sizeof(size_t) - 1) & (size_t) ~(sizeof(size_t) - 1))
 #define CMSG_DATA(cmsg)     ((void *)((uint8_t *)(cmsg) + sizeof(cmsghdr_t)))
 #define CMSG_FIRSTHDR(mhdr) ((mhdr)->msg_controllen >= sizeof(cmsghdr_t) ? (cmsghdr_t *)(mhdr)->msg_control : NULL)
 

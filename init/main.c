@@ -184,25 +184,22 @@ void kernel_entry(void)
     plogk("dmi: %s %s, BIOS %s %s\n", smbios_sys_manufacturer(), smbios_sys_product_name(), smbios_bios_version(), smbios_bios_release_date());
 
     /* Architecture */
-    init_gdt();                   // Global Descriptor Table
-    init_idt();                   // Interrupt Descriptor Table
-    isr_registe_handle();         //
-                                  //
-    /* Platform Discovery */      //
-    acpi_init();                  // Advanced Configuration and Power Interface
-    tpm_init();                   // Trusted Platform Module
-    tsc_init();                   // Time Stamp Counter
-    smp_init();                   // Symmetric Multiprocessing
-    parallel_init();              // IEEE 1284 Parallel Port
-                                  //
-    print_memory_map();           //
-    log_buffer_print(&frame_log); //
-                                  //
-    /* Hardware Bus & Input */    //
-    pci_init();                   // Peripheral Component Interconnect
-#if CONFIG_NET
-    net_init(); // Network device core, before NIC probes
-#endif
+    init_gdt();                      // Global Descriptor Table
+    init_idt();                      // Interrupt Descriptor Table
+    isr_registe_handle();            //
+                                     //
+    /* Platform Discovery */         //
+    acpi_init();                     // Advanced Configuration and Power Interface
+    tpm_init();                      // Trusted Platform Module
+    tsc_init();                      // Time Stamp Counter
+    smp_init();                      // Symmetric Multiprocessing
+    parallel_init();                 // IEEE 1284 Parallel Port
+                                     //
+    print_memory_map();              //
+    log_buffer_print(&frame_log);    //
+                                     //
+    /* Hardware Bus & Input */       //
+    pci_init();                      // Peripheral Component Interconnect
     init_ps2();                      // PS/2 Controller
                                      //
     log_buffer_print(&serial_log);   //

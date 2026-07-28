@@ -1,3 +1,13 @@
+/*
+ *
+ *      core.c
+ *      Network core functionality
+ *
+ *      2026/7/28 By JiTianYu391
+ *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
+ */
+
 #include <kernel/errno.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
@@ -164,10 +174,6 @@ int net_pbuf_trim(net_pbuf_t *pbuf, size_t length)
     if (!pbuf || length > pbuf->length) return -EINVAL;
     pbuf->length = length;
     return 0;
-}
-
-void net_init(void)
-{
 }
 
 void net_timer(uint64_t now_ticks)
