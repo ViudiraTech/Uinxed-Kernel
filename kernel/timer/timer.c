@@ -10,11 +10,11 @@
 
 #include <arch/smp.h>
 #include <chipset/common.h>
-#include <drivers/acpi.h>
-#include <drivers/apic.h>
-#include <drivers/drm/drm_device.h>
-#include <drivers/tsc.h>
-#include <drivers/tty.h>
+#include <drivers/acpi/acpi.h>
+#include <drivers/char/tty.h>
+#include <drivers/gpu/drm_device.h>
+#include <drivers/interrupt/apic.h>
+#include <drivers/timer/tsc.h>
 #include <kernel/interrupt.h>
 #include <kernel/printk.h>
 #include <libs/std/math.h>

@@ -5,7 +5,7 @@
  *
  */
 
-#include <drivers/ps2.h>
+#include <drivers/char/ps2.h>
 #include <kernel/printk.h>
 #include <proc/sched.h>
 #include <proc/sched_test.h>

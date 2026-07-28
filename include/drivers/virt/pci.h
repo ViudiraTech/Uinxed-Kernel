@@ -10,14 +10,14 @@
  *  Virtio-PCI spec (virtio 1.0+).  Provides capability-based MMIO
  *  discovery, common-config / notify / ISR / device-config access,
  *  virtqueue setup, and feature negotiation.  This is a "legacy-free"
- *  implementation â€” only modern (PCI capabilities) mode is supported.
+ *  implementation â€?only modern (PCI capabilities) mode is supported.
  *
  */
 
 #ifndef INCLUDE_VIRT_PCI_H_
 #define INCLUDE_VIRT_PCI_H_
 
-#include <drivers/pci.h>
+#include <drivers/bus/pci.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>

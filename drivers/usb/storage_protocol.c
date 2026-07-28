@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/usb_storage.h>
+#include <drivers/usb/usb_storage.h>
 #include <kernel/errno.h>
 #include <libs/std/string.h>
 

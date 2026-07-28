@@ -9,7 +9,7 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/apic.h>
+#include <drivers/interrupt/apic.h>
 #include <kernel/interrupt.h>
 #include <kernel/printk.h>
 

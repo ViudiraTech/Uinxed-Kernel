@@ -8,13 +8,13 @@
  *
  */
 
-#include <drivers/block_sysfs.h>
-#include <drivers/blockdev.h>
-#include <drivers/usb.h>
-#include <drivers/usb_storage.h>
+#include <drivers/base/device.h>
+#include <drivers/block/blockdev.h>
+#include <drivers/usb/usb.h>
+#include <drivers/usb/usb_storage.h>
 #include <fs/devtmpfs.h>
+#include <fs/sysfs/block_sysfs.h>
 #include <fs/vfs.h>
-#include <kernel/device.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer.h>

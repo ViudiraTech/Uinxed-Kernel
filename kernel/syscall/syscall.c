@@ -12,7 +12,8 @@
 #include <arch/smp.h>
 #include <arch/tss.h>
 #include <chipset/common.h>
-#include <drivers/acpi.h>
+#include <drivers/acpi/acpi.h>
+#include <drivers/base/device.h>
 #include <fs/inotify.h>
 #include <fs/vfs.h>
 #include <ipc/epoll.h>
@@ -21,7 +22,6 @@
 #include <ipc/socket.h>
 #include <ipc/sysv_ipc.h>
 #include <kernel/debug.h>
-#include <kernel/device.h>
 #include <kernel/elf_loader.h>
 #include <kernel/errno.h>
 #include <kernel/interrupt.h>
@@ -1464,12 +1464,12 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
     int path_ret = copy_resolved_path_at(proc, AT_FDCWD, target, tgt);
     if (path_ret != EOK) return path_ret;
 
-    /* Copy source path (optional â€” can be NULL for virtual filesystems) */
+    /* Copy source path (optional â€?can be NULL for virtual filesystems) */
     if (source) {
         if (strncpy_from_user(src, (const char *)source, sizeof(src)) < 0) return -EFAULT;
     }
 
-    /* Copy filesystem type (optional â€” can be NULL to let VFS probe) */
+    /* Copy filesystem type (optional â€?can be NULL to let VFS probe) */
     if (fstype) {
         if (strncpy_from_user(fst, (const char *)fstype, sizeof(fst)) < 0) return -EFAULT;
     }
@@ -1528,7 +1528,7 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
 
     vfs_close(node);
 
-    /* MS_REC: recursive â€” ignored for non-bind mounts */
+    /* MS_REC: recursive â€?ignored for non-bind mounts */
     (void)(flags & MS_REC);
 
     return EOK;
@@ -1548,7 +1548,7 @@ static int64_t sys_umount2(uint64_t target, uint64_t flags, uint64_t arg2, uint6
     if (ret != EOK) return ret;
 
     /* MNT_FORCE: force unmount even if busy (not fully supported) */
-    /* MNT_DETACH: lazy unmount â€” detach now, cleanup later (not fully supported) */
+    /* MNT_DETACH: lazy unmount â€?detach now, cleanup later (not fully supported) */
     if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE)) return -EINVAL;
 
     return vfs_umount(tgt);
@@ -3494,7 +3494,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
         spin_unlock(&proc->fd_lock);
     }
 
-    /* Clear clear_child_tid â€” the old address is meaningless in the new image */
+    /* Clear clear_child_tid â€?the old address is meaningless in the new image */
     proc->task->clear_child_tid = 0;
 
     uintptr_t entry = 0;
@@ -3515,7 +3515,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
         return -ENOEXEC;
     }
 
-    /* Loading succeeded â€” atomically switch to the new address space. */
+    /* Loading succeeded â€?atomically switch to the new address space. */
     switch_page_directory(proc->user_page_dir);
 
     if (old_dir) {

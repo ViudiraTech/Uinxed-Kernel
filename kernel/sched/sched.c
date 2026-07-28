@@ -13,7 +13,7 @@
 #include <arch/smp.h>
 #include <cgroup/cgroup.h>
 #include <chipset/common.h>
-#include <drivers/apic.h>
+#include <drivers/interrupt/apic.h>
 #include <kernel/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
@@ -245,7 +245,7 @@ static void avg_vruntime_sub(eevdf_rq_t *rq, task_t *task)
 }
 
 /* ------------------------------------------------------------------ */
-/*  EEVDF core: update_curr â€” advance vruntime of the running task      */
+/*  EEVDF core: update_curr â€?advance vruntime of the running task      */
 /* ------------------------------------------------------------------ */
 
 static void update_curr(eevdf_rq_t *rq, uint64_t delta_ticks)
@@ -261,7 +261,7 @@ static void update_curr(eevdf_rq_t *rq, uint64_t delta_ticks)
 }
 
 /* ------------------------------------------------------------------ */
-/*  EEVDF core: update_deadline â€” assign a new deadline slice           */
+/*  EEVDF core: update_deadline â€?assign a new deadline slice           */
 /* ------------------------------------------------------------------ */
 
 static void update_deadline(eevdf_rq_t *rq, task_t *task)
@@ -276,7 +276,7 @@ static void update_deadline(eevdf_rq_t *rq, task_t *task)
 }
 
 /* ------------------------------------------------------------------ */
-/*  EEVDF core: place_entity â€” set vruntime/deadline on enqueue         */
+/*  EEVDF core: place_entity â€?set vruntime/deadline on enqueue         */
 /* ------------------------------------------------------------------ */
 
 static void place_entity(eevdf_rq_t *rq, task_t *task, int initial)
@@ -331,7 +331,7 @@ static void dequeue_entity(eevdf_rq_t *rq, task_t *task)
 }
 
 /* ------------------------------------------------------------------ */
-/*  EEVDF core: pick_eevdf â€” select the next task to run                */
+/*  EEVDF core: pick_eevdf â€?select the next task to run                */
 /*                                                                      */
 /*  Strategy:                                                           */
 /*    1. If only one task is runnable, return it directly.              */
@@ -388,7 +388,7 @@ static task_t *pick_eevdf(eevdf_rq_t *rq)
             return curr;
         }
 
-        /* Neither left nor current is eligible â€” go right */
+        /* Neither left nor current is eligible â€?go right */
         node = node->right;
     }
 
@@ -598,7 +598,7 @@ static void idle_thread(void *arg)
 }
 
 /* ------------------------------------------------------------------ */
-/*  sched_init â€” bootstrap the scheduler                                */
+/*  sched_init â€?bootstrap the scheduler                                */
 /* ------------------------------------------------------------------ */
 
 void sched_init(void)
@@ -710,7 +710,7 @@ uint32_t sched_cpu_count(void)
 }
 
 /* ------------------------------------------------------------------ */
-/*  task_set_cpu â€” migrate a task to a different CPU                    */
+/*  task_set_cpu â€?migrate a task to a different CPU                    */
 /* ------------------------------------------------------------------ */
 
 int task_set_cpu(task_t *task, uint32_t cpu_id)
@@ -735,7 +735,7 @@ int task_set_cpu(task_t *task, uint32_t cpu_id)
 }
 
 /* ------------------------------------------------------------------ */
-/*  sched_yield â€” core context switch entry point                       */
+/*  sched_yield â€?core context switch entry point                       */
 /* ------------------------------------------------------------------ */
 
 void sched_yield(void)
@@ -809,7 +809,7 @@ void sched_yield(void)
 }
 
 /* ------------------------------------------------------------------ */
-/*  sched_start â€” launch the scheduler on the BSP                       */
+/*  sched_start â€?launch the scheduler on the BSP                       */
 /* ------------------------------------------------------------------ */
 
 void sched_start(void)
@@ -820,7 +820,7 @@ void sched_start(void)
     enable_intr();
     sched_yield();
 
-    /* swapper/0 resumed â€” enter idle loop */
+    /* swapper/0 resumed â€?enter idle loop */
     for (;;) {
         enable_intr();
         __asm__ volatile("hlt");
@@ -830,7 +830,7 @@ void sched_start(void)
 }
 
 /* ------------------------------------------------------------------ */
-/*  task_sleep_ticks â€” voluntary sleep for N ticks                      */
+/*  task_sleep_ticks â€?voluntary sleep for N ticks                      */
 /* ------------------------------------------------------------------ */
 
 void task_sleep_ticks(uint64_t ticks)
@@ -856,7 +856,7 @@ void task_sleep_ticks(uint64_t ticks)
 }
 
 /* ------------------------------------------------------------------ */
-/*  task_block â€” block the current task                                 */
+/*  task_block â€?block the current task                                 */
 /* ------------------------------------------------------------------ */
 
 void task_block(void)
@@ -876,7 +876,7 @@ void task_block(void)
 }
 
 /* ------------------------------------------------------------------ */
-/*  task_wakeup â€” wake a blocked or sleeping task                       */
+/*  task_wakeup â€?wake a blocked or sleeping task                       */
 /* ------------------------------------------------------------------ */
 
 int task_wakeup(task_t *task)
@@ -1050,7 +1050,7 @@ uint64_t wait_queue_wake_all(wait_queue_t *queue)
 }
 
 /* ------------------------------------------------------------------ */
-/*  sched_tick â€” periodic tick accounting and preemption                */
+/*  sched_tick â€?periodic tick accounting and preemption                */
 /* ------------------------------------------------------------------ */
 
 void sched_tick(void)
@@ -1100,7 +1100,7 @@ void sched_tick(void)
 }
 
 /* ------------------------------------------------------------------ */
-/*  sched_ticks â€” return the global tick count                          */
+/*  sched_ticks â€?return the global tick count                          */
 /* ------------------------------------------------------------------ */
 
 uint64_t sched_ticks(void)
@@ -1109,7 +1109,7 @@ uint64_t sched_ticks(void)
 }
 
 /* ------------------------------------------------------------------ */
-/*  task_exit â€” terminate the current task                              */
+/*  task_exit â€?terminate the current task                              */
 /* ------------------------------------------------------------------ */
 
 void task_exit(void)
@@ -1140,7 +1140,7 @@ void task_exit(void)
 }
 
 /* ------------------------------------------------------------------ */
-/*  current_task â€” return the task running on this CPU                  */
+/*  current_task â€?return the task running on this CPU                  */
 /* ------------------------------------------------------------------ */
 
 task_t *current_task(void)

@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/tty.h>
+#include <drivers/char/tty.h>
 #include <fs/vfs.h>
 #include <kernel/elf.h>
 #include <kernel/elf_loader.h>

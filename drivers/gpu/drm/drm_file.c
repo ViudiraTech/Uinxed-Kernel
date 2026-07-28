@@ -1,7 +1,7 @@
 /*
  *
  *      drm_file.c
- *      DRM file private helpers â€” event queue, read, poll
+ *      DRM file private helpers â€?event queue, read, poll
  *
  *      2026/7/22 By JiTianYu391
  *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -12,9 +12,9 @@
 #    define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
 #endif
 
-#include <drivers/drm/drm_device.h>
-#include <drivers/drm/drm_hashtab.h>
-#include <drivers/drm/drm_print.h>
+#include <drivers/gpu/drm_device.h>
+#include <drivers/gpu/drm_hashtab.h>
+#include <drivers/gpu/drm_print.h>
 #include <kernel/errno.h>
 #include <libs/glist/intrusive_list.h>
 #include <libs/std/stdbool.h>
@@ -26,7 +26,7 @@
 #include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */
-/* drm_file_alloc â€” allocate and initialize a drm_file                 */
+/* drm_file_alloc â€?allocate and initialize a drm_file                 */
 /* ------------------------------------------------------------------ */
 
 struct drm_file *drm_file_alloc(struct drm_device *dev)
@@ -63,7 +63,7 @@ struct drm_file *drm_file_alloc(struct drm_device *dev)
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_file_free â€” cleanup and free a drm_file                         */
+/* drm_file_free â€?cleanup and free a drm_file                         */
 /* ------------------------------------------------------------------ */
 
 void drm_file_free(struct drm_file *file)
@@ -97,7 +97,7 @@ void drm_file_free(struct drm_file *file)
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_send_event â€” enqueue a DRM event for userspace delivery         */
+/* drm_send_event â€?enqueue a DRM event for userspace delivery         */
 /* ------------------------------------------------------------------ */
 
 static void drm_event_release_file_ref(struct drm_pending_vblank_event *e)
@@ -183,7 +183,7 @@ int drm_send_event(struct drm_device *dev, struct drm_pending_vblank_event *e)
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_read â€” read events from the drm file (blocking)                 */
+/* drm_read â€?read events from the drm file (blocking)                 */
 /* ------------------------------------------------------------------ */
 
 int drm_read(struct drm_file *file_priv, char *buf, size_t count, size_t *offset)
@@ -231,7 +231,7 @@ int drm_read(struct drm_file *file_priv, char *buf, size_t count, size_t *offset
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_poll â€” poll for pending events                                  */
+/* drm_poll â€?poll for pending events                                  */
 /* ------------------------------------------------------------------ */
 
 unsigned int drm_poll(struct drm_file *file_priv, unsigned int events)

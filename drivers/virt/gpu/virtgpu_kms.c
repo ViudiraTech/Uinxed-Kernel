@@ -14,13 +14,13 @@
  *
  */
 
-#include <drivers/drm/drm_fourcc.h>
-#include <drivers/drm/drm_print.h>
-#include <drivers/tty.h>
-#include <drivers/virt/gpu/virtgpu_cmd.h>
-#include <drivers/virt/gpu/virtgpu_drv.h>
-#include <drivers/virt/gpu/virtgpu_gem.h>
-#include <drivers/virt/gpu/virtgpu_kms.h>
+#include <drivers/char/tty.h>
+#include <drivers/gpu/drm_fourcc.h>
+#include <drivers/gpu/drm_print.h>
+#include <drivers/virt/virtgpu_cmd.h>
+#include <drivers/virt/virtgpu_drv.h>
+#include <drivers/virt/virtgpu_gem.h>
+#include <drivers/virt/virtgpu_kms.h>
 #include <kernel/errno.h>
 #include <libs/std/stdlib.h>
 #include <mem/alloc.h>
@@ -226,7 +226,7 @@ static const uint32_t virtgpu_formats[] = {
 };
 
 /* ------------------------------------------------------------------ */
-/* Initial modeset â€” enable a framebuffer for immediate display        */
+/* Initial modeset â€?enable a framebuffer for immediate display        */
 /* ------------------------------------------------------------------ */
 
 /*
@@ -280,7 +280,7 @@ static int virtgpu_crtc_cursor_move(struct drm_crtc *crtc, int32_t x, int32_t y)
  * defaults to inactive and the screen stays blank until userspace opens
  * the DRM device and commits a mode.
  *
- * Returns 0 on success; negative errno on failure (non-fatal â€” the KMS
+ * Returns 0 on success; negative errno on failure (non-fatal â€?the KMS
  * pipeline stays registered and usable from userspace).
  */
 static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
@@ -304,11 +304,11 @@ static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
         if (conn->status == connector_status_connected) { break; }
     }
     if (!conn) {
-        DRM_INFO("No connected connector â€” skipping initial modeset\n");
+        DRM_INFO("No connected connector â€?skipping initial modeset\n");
         return -ENODEV;
     }
 
-    /* 2. Pick a mode â€” PREFERRED wins, otherwise first probed */
+    /* 2. Pick a mode â€?PREFERRED wins, otherwise first probed */
     for (node = conn->modes.next; node != &conn->modes; node = node->next) {
         struct drm_display_mode *m = container_of(node, struct drm_display_mode, head);
         if (!fallback) { fallback = m; }
@@ -319,7 +319,7 @@ static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
     }
     if (!pref) { pref = fallback; }
     if (!pref) {
-        DRM_INFO("No modes on connector â€” skipping initial modeset\n");
+        DRM_INFO("No modes on connector â€?skipping initial modeset\n");
         return -ENODEV;
     }
 
@@ -378,7 +378,7 @@ static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
     ret = virtgpu_page_flip(vgdev, fb, NULL);
     if (ret) {
         DRM_ERROR("Initial modeset page_flip failed: %d\n", ret);
-        /* Don't bail â€” FB is registered and usable; just not shown */
+        /* Don't bail â€?FB is registered and usable; just not shown */
     }
 
     /* 6. Update in-kernel CRTC and primary-plane state */
@@ -594,7 +594,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
              encoder->base.id, connector->base.id, vgdev->num_scanouts > 0 ? vgdev->num_scanouts : 1);
 
     /* Perform an initial modeset so the display is live immediately.
-     * Failure is non-fatal â€” the KMS pipeline remains registered. */
+     * Failure is non-fatal â€?the KMS pipeline remains registered. */
     ret = virtgpu_kms_initial_modeset(vgdev);
     if (ret) { DRM_INFO("Initial modeset deferred (display will activate on first userspace commit)\n"); }
 

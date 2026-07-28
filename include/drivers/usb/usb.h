@@ -11,7 +11,7 @@
 #ifndef INCLUDE_USB_H_
 #define INCLUDE_USB_H_
 
-#include <kernel/device.h>
+#include <drivers/base/device.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

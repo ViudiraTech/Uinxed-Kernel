@@ -22,20 +22,20 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/drm/drm.h>
-#include <drivers/drm/drm_device.h>
-#include <drivers/drm/drm_fourcc.h>
-#include <drivers/drm/drm_init.h>
-#include <drivers/drm/drm_mode.h>
-#include <drivers/drm/drm_print.h>
-#include <drivers/pci.h>
-#include <drivers/tty.h>
-#include <drivers/virt/gpu/virtgpu_cmd.h>
-#include <drivers/virt/gpu/virtgpu_drv.h>
-#include <drivers/virt/gpu/virtgpu_gem.h>
-#include <drivers/virt/gpu/virtgpu_kms.h>
-#include <drivers/virt/gpu/virtgpu_vq.h>
+#include <drivers/bus/pci.h>
+#include <drivers/char/tty.h>
+#include <drivers/gpu/drm.h>
+#include <drivers/gpu/drm_device.h>
+#include <drivers/gpu/drm_fourcc.h>
+#include <drivers/gpu/drm_init.h>
+#include <drivers/gpu/drm_mode.h>
+#include <drivers/gpu/drm_print.h>
 #include <drivers/virt/pci.h>
+#include <drivers/virt/virtgpu_cmd.h>
+#include <drivers/virt/virtgpu_drv.h>
+#include <drivers/virt/virtgpu_gem.h>
+#include <drivers/virt/virtgpu_kms.h>
+#include <drivers/virt/virtgpu_vq.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stdbool.h>
@@ -961,7 +961,7 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
 }
 
 /* ------------------------------------------------------------------ */
-/* DebugFS â€” simple feature dump                                       */
+/* DebugFS â€?simple feature dump                                       */
 /* ------------------------------------------------------------------ */
 
 static void virtgpu_debugfs_info(struct virtio_gpu_device *vgdev)
@@ -1034,7 +1034,7 @@ int virtio_gpu_driver_init(void)
     vgdev->capset_lock.lock       = 0;
 
     /*
-     * VirtIO spec Â§3.1.1: step 5 â€” set FEATURES_OK and verify.
+     * VirtIO spec Â§3.1.1: step 5 â€?set FEATURES_OK and verify.
      * DRIVER_OK must be set LAST, after all virtqueues are configured.
      */
     vp_set_status(vp, VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER | VIRTIO_STATUS_FEATURES_OK);
@@ -1058,7 +1058,7 @@ int virtio_gpu_driver_init(void)
     }
 
     /*
-     * VirtIO spec Â§3.1.1: step 8 â€” set DRIVER_OK after queues are ready.
+     * VirtIO spec Â§3.1.1: step 8 â€?set DRIVER_OK after queues are ready.
      * Use a write barrier to ensure all virtqueue setup stores are visible
      * to the device before the status write reaches it.
      */
@@ -1109,7 +1109,7 @@ int virtio_gpu_driver_init(void)
     ret = virtgpu_kms_init(vgdev);
     if (ret) {
         DRM_ERROR("KMS init failed: %d (continuing with render only)\n", ret);
-        /* Non-fatal â€” render node still works */
+        /* Non-fatal â€?render node still works */
     }
 
     /* Debug info */
@@ -1121,7 +1121,7 @@ int virtio_gpu_driver_init(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* Initialisation hook â€” called from kernel init                       */
+/* Initialisation hook â€?called from kernel init                       */
 /* ------------------------------------------------------------------ */
 
 /*

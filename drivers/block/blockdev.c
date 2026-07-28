@@ -4,18 +4,18 @@
  *      Block device abstraction layer
  *
  *      2026/5/18 By Rainy101112
- *      2026/7/23 By JiTianYu391 â€” VFS-style callback registration
+ *      2026/7/23 By JiTianYu391 â€?VFS-style callback registration
  *      Copyright Â© 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
-#include <drivers/ahci.h>
-#include <drivers/ahci/satapi.h>
-#include <drivers/atapi.h>
-#include <drivers/blockdev.h>
-#include <drivers/ide.h>
-#include <drivers/nvme.h>
-#include <drivers/partition.h>
+#include <drivers/block/ahci.h>
+#include <drivers/block/atapi.h>
+#include <drivers/block/blockdev.h>
+#include <drivers/block/ide.h>
+#include <drivers/block/nvme.h>
+#include <drivers/block/partition.h>
+#include <drivers/block/satapi.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stdlib.h>
@@ -28,7 +28,7 @@ static blockdev_ops_t _blk_ops_table[BLOCKDEV_MAX_TYPES];
 blockdev_ops_t       *blk_ops_table = _blk_ops_table;
 static int            blk_next_id   = 0;
 
-/* Default (empty) ops â€” returns -ENOSYS for everything */
+/* Default (empty) ops â€?returns -ENOSYS for everything */
 static int blk_empty_read(const struct blockdev_device *dev, uint64_t lba, uint32_t count, void *buf)
 {
     (void)dev;

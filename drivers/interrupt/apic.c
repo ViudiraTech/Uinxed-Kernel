@@ -12,8 +12,8 @@
 #include <arch/idt.h>
 #include <boot/limine.h>
 #include <chipset/common.h>
-#include <drivers/acpi.h>
-#include <drivers/apic.h>
+#include <drivers/acpi/acpi.h>
+#include <drivers/interrupt/apic.h>
 #include <kernel/printk.h>
 #include <kernel/uinxed.h>
 #include <libs/std/stddef.h>

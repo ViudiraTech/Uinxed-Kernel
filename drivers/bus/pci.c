@@ -9,9 +9,9 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/acpi.h>
-#include <drivers/apic.h>
-#include <drivers/pci.h>
+#include <drivers/acpi/acpi.h>
+#include <drivers/bus/pci.h>
+#include <drivers/interrupt/apic.h>
 #include <kernel/debug.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>

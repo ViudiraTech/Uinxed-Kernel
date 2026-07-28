@@ -9,8 +9,8 @@
  */
 
 #include <arch/idt.h>
-#include <drivers/acpi.h>
-#include <drivers/tsc.h>
+#include <drivers/acpi/acpi.h>
+#include <drivers/timer/tsc.h>
 #include <kernel/printk.h>
 #include <libs/std/stdint.h>
 #include <mem/hhdm.h>

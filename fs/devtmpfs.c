@@ -8,20 +8,20 @@
  *
  */
 
-#include <drivers/ahci.h>
-#include <drivers/atapi.h>
-#include <drivers/blockdev.h>
-#include <drivers/drm/drm_init.h>
-#include <drivers/evdev.h>
-#include <drivers/ide.h>
-#include <drivers/nvme.h>
-#include <drivers/partition.h>
-#include <drivers/tty.h>
+#include <drivers/base/device.h>
+#include <drivers/block/ahci.h>
+#include <drivers/block/atapi.h>
+#include <drivers/block/blockdev.h>
+#include <drivers/block/ide.h>
+#include <drivers/block/nvme.h>
+#include <drivers/block/partition.h>
+#include <drivers/char/tty.h>
+#include <drivers/gpu/drm_init.h>
+#include <drivers/input/evdev.h>
 #include <fs/devtmpfs.h>
 #include <fs/tmpfs.h>
 #include <fs/vfs.h>
 #include <kernel/audio.h>
-#include <kernel/device.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>

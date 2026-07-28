@@ -2,7 +2,7 @@
  * Decoder for i8042-translated keyboard scan-set-1 byte streams.
  */
 
-#include <drivers/ps2_keyboard.h>
+#include <drivers/input/ps2_keyboard.h>
 
 uint16_t ps2_keyboard_keycode_for_scancode(uint16_t scan)
 {

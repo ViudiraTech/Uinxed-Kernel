@@ -8,10 +8,10 @@
  *
  */
 
-#include <drivers/drm/drm.h>
-#include <drivers/drm/drm_device.h>
-#include <drivers/drm/drm_hashtab.h>
-#include <drivers/drm/drm_print.h>
+#include <drivers/gpu/drm.h>
+#include <drivers/gpu/drm_device.h>
+#include <drivers/gpu/drm_hashtab.h>
+#include <drivers/gpu/drm_print.h>
 #include <kernel/errno.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
@@ -21,7 +21,7 @@
 #include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */
-/* drm_master â€” full definition (also defined in drm_drv.c; consistent) */
+/* drm_master â€?full definition (also defined in drm_drv.c; consistent) */
 /* ------------------------------------------------------------------ */
 
 struct drm_master {
@@ -41,7 +41,7 @@ struct drm_master {
 static drm_magic_t magic_counter = 1;
 
 /* ------------------------------------------------------------------ */
-/* drm_getmagic â€” handle DRM_IOCTL_GET_MAGIC                           */
+/* drm_getmagic â€?handle DRM_IOCTL_GET_MAGIC                           */
 /* ------------------------------------------------------------------ */
 
 int drm_getmagic(struct drm_device *dev, void *data, struct drm_file *file_priv)
@@ -74,7 +74,7 @@ int drm_getmagic(struct drm_device *dev, void *data, struct drm_file *file_priv)
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_authmagic â€” handle DRM_IOCTL_AUTH_MAGIC                         */
+/* drm_authmagic â€?handle DRM_IOCTL_AUTH_MAGIC                         */
 /* ------------------------------------------------------------------ */
 
 int drm_authmagic(struct drm_device *dev, void *data, struct drm_file *file_priv)
@@ -95,14 +95,14 @@ int drm_authmagic(struct drm_device *dev, void *data, struct drm_file *file_priv
     }
     spin_unlock(&file_priv->magic_lock);
 
-    /* Magic found â€” authenticate this file. */
+    /* Magic found â€?authenticate this file. */
     file_priv->authenticated = true;
 
     return 0;
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_setmaster â€” handle DRM_IOCTL_SET_MASTER                         */
+/* drm_setmaster â€?handle DRM_IOCTL_SET_MASTER                         */
 /* ------------------------------------------------------------------ */
 
 int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv)
@@ -137,7 +137,7 @@ int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_dropmaster â€” handle DRM_IOCTL_DROP_MASTER                       */
+/* drm_dropmaster â€?handle DRM_IOCTL_DROP_MASTER                       */
 /* ------------------------------------------------------------------ */
 
 int drm_dropmaster(struct drm_device *dev, void *data, struct drm_file *file_priv)

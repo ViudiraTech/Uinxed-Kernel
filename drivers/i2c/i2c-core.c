@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/i2c.h>
+#include <drivers/i2c/i2c.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/glist/circular_list.h>

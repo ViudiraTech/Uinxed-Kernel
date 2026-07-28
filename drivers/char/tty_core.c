@@ -1,4 +1,4 @@
-#include <drivers/tty_core.h>
+#include <drivers/char/tty_core.h>
 #include <kernel/errno.h>
 #include <libs/std/string.h>
 #include <proc/process.h>

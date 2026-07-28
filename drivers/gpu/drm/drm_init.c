@@ -12,14 +12,14 @@
  *
  */
 
-#include <drivers/drm/drm.h>
-#include <drivers/drm/drm_device.h>
-#include <drivers/drm/drm_fourcc.h>
-#include <drivers/drm/drm_init.h>
-#include <drivers/drm/drm_mode.h>
-#include <drivers/drm/drm_print.h>
+#include <drivers/base/device.h>
+#include <drivers/gpu/drm.h>
+#include <drivers/gpu/drm_device.h>
+#include <drivers/gpu/drm_fourcc.h>
+#include <drivers/gpu/drm_init.h>
+#include <drivers/gpu/drm_mode.h>
+#include <drivers/gpu/drm_print.h>
 #include <fs/vfs.h>
-#include <kernel/device.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
@@ -211,7 +211,7 @@ static struct drm_encoder   pipeline_encoder;
 static struct drm_connector pipeline_connector;
 
 /* ------------------------------------------------------------------ */
-/* Configurable mode table â€” data-driven, not hardcoded in logic       */
+/* Configurable mode table â€?data-driven, not hardcoded in logic       */
 /* ------------------------------------------------------------------ */
 
 struct dummy_mode_cfg {

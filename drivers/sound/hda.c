@@ -9,7 +9,7 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/pci.h>
+#include <drivers/bus/pci.h>
 #include <kernel/audio.h>
 #include <kernel/errno.h>
 #include <kernel/interrupt.h>
@@ -990,7 +990,7 @@ void hda_init(void)
         if (!hda_ctrl.mmio_size || hda_ctrl.mmio_size == 0xFFFFFFFF) hda_ctrl.mmio_size = 0x4000;
 
         /* Map the MMIO region into page tables.
-         * HHDM may not cover MMIO regions â€” must map with uncacheable flags. */
+         * HHDM may not cover MMIO regions â€?must map with uncacheable flags. */
         {
             uint64_t map_start = bar_phys & ~(uint64_t)0xFFF;
             uint64_t map_len   = (bar_phys + hda_ctrl.mmio_size + 0xFFF) & ~(uint64_t)0xFFF;

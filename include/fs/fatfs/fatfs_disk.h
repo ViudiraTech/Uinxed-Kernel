@@ -11,7 +11,7 @@
 #ifndef INCLUDE_FATFS_DISK_H_
 #define INCLUDE_FATFS_DISK_H_
 
-#include <drivers/blockdev.h>
+#include <drivers/block/blockdev.h>
 #include <fs/fatfs/ff.h>
 #include <libs/std/stdint.h>
 

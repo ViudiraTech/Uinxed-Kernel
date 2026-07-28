@@ -9,10 +9,10 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/apic.h>
-#include <drivers/pci.h>
-#include <drivers/usb.h>
-#include <drivers/xhci.h>
+#include <drivers/bus/pci.h>
+#include <drivers/interrupt/apic.h>
+#include <drivers/usb/usb.h>
+#include <drivers/usb/xhci.h>
 #include <kernel/errno.h>
 #include <kernel/interrupt.h>
 #include <kernel/printk.h>

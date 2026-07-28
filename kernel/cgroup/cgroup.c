@@ -1,3 +1,13 @@
+/*
+ *
+ *      cgroup.c
+ *      Control group (cgroup) unified hierarchy implementation with PID controller
+ *
+ *      2026/7/29 By JiTianYu391
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
+ */
+
 #include <cgroup/cgroup.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>

@@ -16,7 +16,7 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/pci.h>
+#include <drivers/bus/pci.h>
 #include <drivers/virt/pci.h>
 #include <kernel/debug.h>
 #include <kernel/errno.h>
@@ -38,7 +38,7 @@
 #define VP_DBG(fmt, ...) plogk("vp: [debug] " fmt, ##__VA_ARGS__)
 
 /* ------------------------------------------------------------------ */
-/* Capability parsing â€” walk the PCI vendor-defined capability list    */
+/* Capability parsing â€?walk the PCI vendor-defined capability list    */
 /* ------------------------------------------------------------------ */
 
 /*
@@ -345,10 +345,10 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
      *   alloc:  head = free_head; free_head = free_descs[head]; num_free--;
      *   free:   free_descs[head] = free_head; free_head = head;  num_free++;
      *
-     * Initial chain: free_head â†’ 0 â†’ 1 â†’ 2 â†’ ... â†’ num-1
+     * Initial chain: free_head â†?0 â†?1 â†?2 â†?... â†?num-1
      */
     for (i = 0; i < num; i++) { vq->free_descs[i] = (uint16_t)(i + 1); }
-    /* The last descriptor has no next â€” its free_descs entry is never
+    /* The last descriptor has no next â€?its free_descs entry is never
      * read until it has first been pushed back (which overwrites it). */
 
     /*
@@ -431,13 +431,13 @@ int virtqueue_add_out_in(struct vp_virtqueue *vq, void *out_data, int out_len, v
     vq->free_head = vq->free_descs[in_desc];
     vq->num_free -= 2;
 
-    /* out descriptor: driver â†’ device (device reads) */
+    /* out descriptor: driver â†?device (device reads) */
     vq->desc[out_desc].addr  = (uint64_t)(uintptr_t)virt_any_to_phys((uintptr_t)out_data);
     vq->desc[out_desc].len   = out_len;
     vq->desc[out_desc].flags = VRING_DESC_F_NEXT;
     vq->desc[out_desc].next  = in_desc;
 
-    /* in descriptor: device â†’ driver (device writes) */
+    /* in descriptor: device â†?driver (device writes) */
     vq->desc[in_desc].addr  = (uint64_t)(uintptr_t)virt_any_to_phys((uintptr_t)in_data);
     vq->desc[in_desc].len   = in_len;
     vq->desc[in_desc].flags = VRING_DESC_F_WRITE;
@@ -584,7 +584,7 @@ void vp_release_device(struct vp_device *dev)
 }
 
 /* ------------------------------------------------------------------ */
-/* Module entry point â€” called by the virtio-gpu driver init           */
+/* Module entry point â€?called by the virtio-gpu driver init           */
 /* ------------------------------------------------------------------ */
 
 /* No standalone init/exit here; the GPU driver calls vp_find_device */

@@ -8,9 +8,9 @@
  *
  */
 
-#include <drivers/evdev.h>
-#include <drivers/usb.h>
-#include <drivers/usb_hid.h>
+#include <drivers/input/evdev.h>
+#include <drivers/usb/usb.h>
+#include <drivers/usb/usb_hid.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>

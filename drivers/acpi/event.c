@@ -10,7 +10,7 @@
 
 #include <arch/idt.h>
 #include <chipset/common.h>
-#include <drivers/acpi.h>
+#include <drivers/acpi/acpi.h>
 #include <kernel/interrupt.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>

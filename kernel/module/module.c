@@ -10,7 +10,7 @@
 
 #define UINXED_MODULE_CORE
 #include <boot/limine.h>
-#include <fs/sysfs.h>
+#include <fs/sysfs/sysfs.h>
 #include <kernel/elf.h>
 #include <kernel/errno.h>
 #include <kernel/kobject.h>

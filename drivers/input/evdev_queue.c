@@ -2,7 +2,7 @@
  * Linux-compatible evdev per-client packet queue.
  */
 
-#include <drivers/evdev_queue.h>
+#include <drivers/input/evdev_queue.h>
 
 static bool is_power_of_two(unsigned int value)
 {

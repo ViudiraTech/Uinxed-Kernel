@@ -9,7 +9,7 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/serial.h>
+#include <drivers/ports/serial.h>
 #include <libs/std/stdint.h>
 
 log_buffer_t serial_log;

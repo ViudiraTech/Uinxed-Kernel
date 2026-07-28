@@ -8,10 +8,10 @@
  *
  */
 
-#include <drivers/ahci/ahci.h>
-#include <drivers/ahci/satapi.h>
-#include <drivers/ide/atapi.h>
-#include <drivers/ide/ide.h>
+#include <drivers/block/ahci.h>
+#include <drivers/block/atapi.h>
+#include <drivers/block/ide.h>
+#include <drivers/block/satapi.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer.h>

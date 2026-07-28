@@ -8,9 +8,9 @@
  *
  */
 
-#include <drivers/serial.h>
-#include <drivers/tty.h>
-#include <drivers/tty_core.h>
+#include <drivers/char/tty.h>
+#include <drivers/char/tty_core.h>
+#include <drivers/ports/serial.h>
 #include <kernel/cmdline.h>
 #include <kernel/errno.h>
 #include <libs/std/stdbool.h>
@@ -398,7 +398,7 @@ static bool tty_ctrl_pressed  = false;
 static bool tty_caps_active   = false;
 
 /*
- * US QWERTY keymap (Setâ€¯1 scancode â†’ ASCII).
+ * US QWERTY keymap (Setâ€? scancode â†?ASCII).
  * scancodes that do not produce a printable character map to 0.
  */
 static const unsigned char tty_keymap[128] = {
@@ -478,7 +478,7 @@ void tty_handle_scancode(uint8_t scancode, bool pressed)
             }
             if (!ch) return;
 
-            /* Ctrl+letter â†’ control code */
+            /* Ctrl+letter â†?control code */
             if (tty_ctrl_pressed && ch >= 'a' && ch <= 'z') ch = (char)(ch - 'a' + 1);
             break;
     }

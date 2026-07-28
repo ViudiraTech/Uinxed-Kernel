@@ -20,7 +20,7 @@
 #    define PTE_NO_EXECUTE (1ULL << 63)
 #else
 #    include <chipset/common.h>
-#    include <drivers/blockdev.h>
+#    include <drivers/block/blockdev.h>
 #    include <fs/vfs.h>
 #    include <kernel/errno.h>
 #    include <libs/std/stdbool.h>

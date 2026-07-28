@@ -11,7 +11,7 @@
 #ifndef INCLUDE_SIMPLEFS_H_
 #define INCLUDE_SIMPLEFS_H_
 
-#include <drivers/blockdev.h>
+#include <drivers/block/blockdev.h>
 #include <fs/superblock.h>
 #include <libs/std/stdint.h>
 

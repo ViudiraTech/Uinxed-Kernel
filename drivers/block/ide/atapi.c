@@ -9,8 +9,8 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/ide/atapi.h>
-#include <drivers/ide/ide.h>
+#include <drivers/block/atapi.h>
+#include <drivers/block/ide.h>
 #include <kernel/printk.h>
 #include <kernel/timer.h>
 #include <libs/std/stddef.h>
@@ -207,7 +207,7 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
         }
     }
 
-    /* Select device and disable IRQ â€” we use polling, not interrupts. */
+    /* Select device and disable IRQ â€?we use polling, not interrupts. */
     ide_irq_invoked        = 0;
     channels[channel].nIEN = 0x02;
     ide_write(channel, ATA_REG_CONTROL, 0x02);
@@ -277,7 +277,7 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
         uint16_t *word_buf    = (uint16_t *)buf;
 
         while (transferred < *xfer_len) {
-            /* Poll for data ready instead of IRQ â€” interrupts may not be
+            /* Poll for data ready instead of IRQ â€?interrupts may not be
              * enabled yet when init_ide() runs. */
             err = atapi_wait_drq(channel);
             if (err) return err;

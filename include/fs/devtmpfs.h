@@ -11,7 +11,7 @@
 #ifndef INCLUDE_DEVTMPFS_H_
 #define INCLUDE_DEVTMPFS_H_
 
-#include <drivers/blockdev.h>
+#include <drivers/block/blockdev.h>
 #include <fs/tmpfs.h>
 #include <libs/std/stdint.h>
 

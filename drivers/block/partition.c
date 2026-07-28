@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/partition.h>
+#include <drivers/block/partition.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stdlib.h>

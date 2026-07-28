@@ -16,9 +16,9 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/blockdev.h>
-#include <drivers/nvme.h>
-#include <drivers/pci.h>
+#include <drivers/block/blockdev.h>
+#include <drivers/block/nvme.h>
+#include <drivers/bus/pci.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stdlib.h>
@@ -186,7 +186,7 @@ static int nvme_poll_completion(nvme_queue_t *q, uint32_t expected_cid, nvme_cqe
 
         if (NVME_CQE_PHASE(cqe) != q->cq_phase) continue;
 
-        /* Entry is new â€” check CID and consume it */
+        /* Entry is new â€?check CID and consume it */
         uint16_t sc  = NVME_CQE_SC(cqe);
         uint16_t sct = NVME_CQE_SCT(cqe);
         q->sq_head   = cqe->sq_head;
@@ -210,7 +210,7 @@ static int nvme_poll_completion(nvme_queue_t *q, uint32_t expected_cid, nvme_cqe
             return EOK;
         }
 
-        /* This completion isn't ours â€” it might be from a different command.
+        /* This completion isn't ours â€?it might be from a different command.
          * We already advanced the head, so just skip it. */
     }
 
@@ -270,13 +270,13 @@ static int nvme_build_prp(nvme_queue_t *q, uint64_t dma_phys, uint32_t byte_coun
     uint32_t remaining = byte_count - first_page_avail;
     uint64_t next_page = page_base + PAGE_4K_SIZE;
 
-    /* Fits in exactly two pages â€” PRP2 points directly to data */
+    /* Fits in exactly two pages â€?PRP2 points directly to data */
     if (remaining <= PAGE_4K_SIZE) {
         *prp2_out = next_page;
         return EOK;
     }
 
-    /* Need a PRP list page â€” use the pre-allocated one */
+    /* Need a PRP list page â€?use the pre-allocated one */
     if (q->prp_list_inuse) return -EBUSY;
     q->prp_list_inuse = 1;
 

@@ -8,12 +8,12 @@
  *
  */
 
-#include <drivers/drm/drm_device.h>
-#include <drivers/drm/drm_fourcc.h>
-#include <drivers/drm/drm_idr.h>
-#include <drivers/drm/drm_mode.h>
-#include <drivers/drm/drm_modeset_lock.h>
-#include <drivers/drm/drm_print.h>
+#include <drivers/gpu/drm_device.h>
+#include <drivers/gpu/drm_fourcc.h>
+#include <drivers/gpu/drm_idr.h>
+#include <drivers/gpu/drm_mode.h>
+#include <drivers/gpu/drm_modeset_lock.h>
+#include <drivers/gpu/drm_print.h>
 #include <kernel/errno.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

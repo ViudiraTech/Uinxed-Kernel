@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/ps2_mouse.h>
+#include <drivers/input/ps2_mouse.h>
 #include <kernel/errno.h>
 
 #define PS2_MOUSE_PACKET_SYNC       0x08

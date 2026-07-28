@@ -8,9 +8,9 @@
  *
  */
 
-#include <drivers/drm/drm.h>
-#include <drivers/drm/drm_device.h>
-#include <drivers/drm/drm_mode.h>
+#include <drivers/gpu/drm.h>
+#include <drivers/gpu/drm_device.h>
+#include <drivers/gpu/drm_mode.h>
 #include <kernel/errno.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
@@ -75,7 +75,7 @@ extern int drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, st
 extern int drm_mode_getfb2_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
 /* ------------------------------------------------------------------ */
-/* drm_ioctl_permit â€” check auth / master flags against file_priv      */
+/* drm_ioctl_permit â€?check auth / master flags against file_priv      */
 /* ------------------------------------------------------------------ */
 
 int drm_ioctl_permit(unsigned int flags, struct drm_file *file_priv)
@@ -90,7 +90,7 @@ int drm_ioctl_permit(unsigned int flags, struct drm_file *file_priv)
         if (!file_priv->master) { return -EACCES; }
     }
 
-    /* DRM_ROOT_ONLY â€” no root concept in freestanding kernel;
+    /* DRM_ROOT_ONLY â€?no root concept in freestanding kernel;
      * always deny for safety. */
     if (flags & DRM_ROOT_ONLY) { return -EACCES; }
 
@@ -98,7 +98,7 @@ int drm_ioctl_permit(unsigned int flags, struct drm_file *file_priv)
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_get_cap / drm_set_client_cap â€” handlers                         */
+/* drm_get_cap / drm_set_client_cap â€?handlers                         */
 /* ------------------------------------------------------------------ */
 
 int drm_get_cap(struct drm_device *dev, void *data, struct drm_file *file_priv)
@@ -200,7 +200,7 @@ int drm_set_client_cap(struct drm_device *dev, void *data, struct drm_file *file
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_ioctl â€” dispatch an ioctl command to the registered handler     */
+/* drm_ioctl â€?dispatch an ioctl command to the registered handler     */
 /* ------------------------------------------------------------------ */
 
 /* Built-in core ioctls that are always available. */
@@ -256,7 +256,7 @@ static const struct drm_ioctl_desc drm_core_ioctls[] = {
 };
 
 /* ------------------------------------------------------------------ */
-/* ioctl descriptor lookup â€” full command match                        */
+/* ioctl descriptor lookup â€?full command match                        */
 /* ------------------------------------------------------------------ */
 
 static const struct drm_ioctl_desc *find_ioctl_desc(unsigned int cmd, const struct drm_ioctl_desc *table, int count)
@@ -268,7 +268,7 @@ static const struct drm_ioctl_desc *find_ioctl_desc(unsigned int cmd, const stru
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_ioctl â€” validated dispatch                                     */
+/* drm_ioctl â€?validated dispatch                                     */
 /* ------------------------------------------------------------------ */
 
 int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct drm_file *file_priv)
@@ -391,7 +391,7 @@ out:
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_version â€” handle DRM_IOCTL_VERSION                              */
+/* drm_version â€?handle DRM_IOCTL_VERSION                              */
 /* ------------------------------------------------------------------ */
 
 int drm_version(struct drm_device *dev, void *data, struct drm_file *file_priv)
@@ -420,7 +420,7 @@ int drm_version(struct drm_device *dev, void *data, struct drm_file *file_priv)
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_setversion â€” handle DRM_IOCTL_SET_VERSION (accept any version)  */
+/* drm_setversion â€?handle DRM_IOCTL_SET_VERSION (accept any version)  */
 /* ------------------------------------------------------------------ */
 
 int drm_setversion(struct drm_device *dev, void *data, struct drm_file *file_priv)

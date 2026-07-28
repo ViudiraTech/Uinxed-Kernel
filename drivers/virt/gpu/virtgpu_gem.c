@@ -11,9 +11,9 @@
  *
  */
 
-#include <drivers/virt/gpu/virtgpu_drv.h>
-#include <drivers/virt/gpu/virtgpu_gem.h>
-#include <drivers/virt/gpu/virtgpu_kms.h>
+#include <drivers/virt/virtgpu_drv.h>
+#include <drivers/virt/virtgpu_gem.h>
+#include <drivers/virt/virtgpu_kms.h>
 #include <mem/alloc.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>

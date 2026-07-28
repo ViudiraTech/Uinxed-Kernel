@@ -10,7 +10,7 @@
 
 #include <arch/cpuid.h>
 #include <chipset/common.h>
-#include <drivers/tsc.h>
+#include <drivers/timer/tsc.h>
 #include <kernel/printk.h>
 
 static uint64_t tsc_frequency  = 0;

@@ -8,10 +8,10 @@
  *
  */
 
-#include <drivers/ahci.h>
-#include <drivers/atapi.h>
-#include <drivers/blockdev.h>
-#include <drivers/ide.h>
+#include <drivers/block/ahci.h>
+#include <drivers/block/atapi.h>
+#include <drivers/block/blockdev.h>
+#include <drivers/block/ide.h>
 #include <fs/isofs/isofs.h>
 #include <fs/isofs/rock.h>
 #include <fs/vfs.h>
@@ -473,7 +473,7 @@ static int isofs_vfs_mount(const char *src, vfs_node_t node)
     if (root_h->raw_de_buf) memcpy(root_h->raw_de_buf, root_de, sizeof(pri->root_directory_record));
     root_h->raw_de = (iso_directory_record_t *)root_h->raw_de_buf;
 
-    /* Root directory record timestamp â€“ save before freeing PVD copy */
+    /* Root directory record timestamp â€?save before freeing PVD copy */
     uint64_t root_ts = iso_date_from_de(root_de->date, 0);
 
     /* PVD copy no longer needed */

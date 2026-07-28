@@ -9,7 +9,7 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/acpi.h>
+#include <drivers/acpi/acpi.h>
 #include <kernel/printk.h>
 #include <kernel/timer.h>
 #include <libs/std/stdint.h>

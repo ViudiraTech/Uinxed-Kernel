@@ -11,7 +11,7 @@
 #ifndef INCLUDE_USB_HID_H_
 #define INCLUDE_USB_HID_H_
 
-#include <drivers/input_event.h>
+#include <drivers/input/input_event.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

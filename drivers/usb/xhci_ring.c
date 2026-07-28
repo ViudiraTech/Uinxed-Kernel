@@ -9,7 +9,7 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/xhci.h>
+#include <drivers/usb/xhci.h>
 #include <kernel/errno.h>
 #include <libs/std/string.h>
 

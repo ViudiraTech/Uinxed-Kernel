@@ -11,7 +11,7 @@
 #include <arch/eis.h>
 #include <arch/smp.h>
 #include <chipset/common.h>
-#include <drivers/tty_core.h>
+#include <drivers/char/tty_core.h>
 #include <fs/inotify.h>
 #include <fs/vfs.h>
 #include <ipc/epoll.h>
@@ -655,7 +655,7 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
             file->private_data = priv;
             file->file_opened  = true;
         } else if (ret != -ENOSYS) {
-            /* Real error from the callback â€” abort. */
+            /* Real error from the callback â€?abort. */
             free(file);
             return ret;
         }
@@ -672,7 +672,7 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
     }
     spin_unlock(&proc->fd_lock);
 
-    /* Failed to find a free FD slot â€” release private_data. */
+    /* Failed to find a free FD slot â€?release private_data. */
     if (file->file_opened) callbackof(node, file_release)(node, file->private_data);
     free(file);
     return -EMFILE;

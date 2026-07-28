@@ -8,11 +8,11 @@
  *
  */
 
-#include <drivers/drm/drm.h>
-#include <drivers/drm/drm_device.h>
-#include <drivers/drm/drm_init.h>
-#include <drivers/drm/drm_mode.h>
-#include <drivers/drm/drm_print.h>
+#include <drivers/gpu/drm.h>
+#include <drivers/gpu/drm_device.h>
+#include <drivers/gpu/drm_init.h>
+#include <drivers/gpu/drm_mode.h>
+#include <drivers/gpu/drm_print.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
@@ -55,7 +55,7 @@ static void test_gem_free(struct test_gem_object *obj)
 }
 
 /* ------------------------------------------------------------------ */
-/* DRM functional test â€” exercises GEM + framebuffer + ioctl           */
+/* DRM functional test â€?exercises GEM + framebuffer + ioctl           */
 /* ------------------------------------------------------------------ */
 
 void drm_run_test(void)

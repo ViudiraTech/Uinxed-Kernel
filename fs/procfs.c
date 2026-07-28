@@ -10,7 +10,7 @@
 
 #include <arch/cpuid.h>
 #include <arch/smp.h>
-#include <drivers/tsc.h>
+#include <drivers/timer/tsc.h>
 #include <fs/pagecache.h>
 #include <fs/procfs.h>
 #include <fs/vfs.h>
@@ -846,7 +846,7 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
                     node->type = file_dir;
                     break;
                 }
-                /* Try PID â€“ numeric directory name */
+                /* Try PID â€?numeric directory name */
                 char *end;
                 pid_t pid = (pid_t)strtol(name, &end, 10);
                 if (*end == '\0' && process_find(pid)) {

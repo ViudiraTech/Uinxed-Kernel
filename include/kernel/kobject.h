@@ -11,7 +11,7 @@
 #ifndef INCLUDE_KOBJECT_H_
 #define INCLUDE_KOBJECT_H_
 
-#include <fs/sysfs.h>
+#include <fs/sysfs/sysfs.h>
 #include <fs/vfs.h>
 #include <libs/glist/circular_list.h>
 #include <libs/std/stddef.h>
@@ -19,7 +19,7 @@
 #include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */
-/*  kref â€” reference-counting primitive                                */
+/*  kref â€?reference-counting primitive                                */
 /* ------------------------------------------------------------------ */
 
 typedef struct kref {
@@ -81,7 +81,7 @@ struct kset;
 struct kobj_type;
 
 /* ------------------------------------------------------------------ */
-/*  kobj_type â€” type descriptor for a kobject                          */
+/*  kobj_type â€?type descriptor for a kobject                          */
 /* ------------------------------------------------------------------ */
 
 struct kobj_type {
@@ -91,7 +91,7 @@ struct kobj_type {
 };
 
 /* ------------------------------------------------------------------ */
-/*  kset_uevent_ops â€” hotplug event callbacks for a kset               */
+/*  kset_uevent_ops â€?hotplug event callbacks for a kset               */
 /* ------------------------------------------------------------------ */
 
 enum kobject_action {
@@ -112,7 +112,7 @@ struct kset_uevent_ops {
 };
 
 /* ------------------------------------------------------------------ */
-/*  kobject â€” the core object-model primitive                          */
+/*  kobject â€?the core object-model primitive                          */
 /* ------------------------------------------------------------------ */
 
 #define KOBJ_NAME_LEN 64
@@ -140,7 +140,7 @@ struct kobject {
 };
 
 /* ------------------------------------------------------------------ */
-/*  kset â€” a collection of kobjects (appears as a sysfs subdirectory)  */
+/*  kset â€?a collection of kobjects (appears as a sysfs subdirectory)  */
 /* ------------------------------------------------------------------ */
 
 struct kset {

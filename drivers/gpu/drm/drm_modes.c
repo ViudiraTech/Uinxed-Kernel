@@ -8,12 +8,12 @@
  *
  */
 
-#include <drivers/drm/drm_device.h>
-#include <drivers/drm/drm_fourcc.h>
-#include <drivers/drm/drm_idr.h>
-#include <drivers/drm/drm_mode.h>
-#include <drivers/drm/drm_modeset_lock.h>
-#include <drivers/drm/drm_print.h>
+#include <drivers/gpu/drm_device.h>
+#include <drivers/gpu/drm_fourcc.h>
+#include <drivers/gpu/drm_idr.h>
+#include <drivers/gpu/drm_mode.h>
+#include <drivers/gpu/drm_modeset_lock.h>
+#include <drivers/gpu/drm_print.h>
 #include <kernel/errno.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -132,7 +132,7 @@ bool drm_mode_equal(const struct drm_display_mode *mode1, const struct drm_displ
  * Allocates a new drm_display_mode and fills it from the UAPI struct.
  * Note: the caller is responsible for registering the mode object via
  * drm_mode_object_idr_alloc if the mode needs an ID. This function does
- * NOT allocate an ID â€” it returns a raw struct suitable for probing.
+ * NOT allocate an ID â€?it returns a raw struct suitable for probing.
  * Returns the new mode or NULL on allocation failure.
  */
 struct drm_display_mode *drm_convert_umode(const struct drm_mode_modeinfo *umode)

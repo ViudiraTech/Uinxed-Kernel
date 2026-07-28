@@ -8,13 +8,13 @@
  *
  */
 
-#include <drivers/acpi.h>
-#include <drivers/evdev.h>
-#include <drivers/input_event.h>
-#include <drivers/input_sysfs.h>
+#include <drivers/acpi/acpi.h>
+#include <drivers/base/device.h>
+#include <drivers/input/evdev.h>
+#include <drivers/input/input_event.h>
 #include <fs/devtmpfs.h>
+#include <fs/sysfs/input_sysfs.h>
 #include <fs/tmpfs.h>
-#include <kernel/device.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/glist/intrusive_list.h>

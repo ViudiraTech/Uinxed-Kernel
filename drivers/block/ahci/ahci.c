@@ -9,9 +9,9 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/ahci/ahci.h>
-#include <drivers/ahci/satapi.h>
-#include <drivers/pci.h>
+#include <drivers/block/ahci.h>
+#include <drivers/block/satapi.h>
+#include <drivers/bus/pci.h>
 #include <kernel/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>

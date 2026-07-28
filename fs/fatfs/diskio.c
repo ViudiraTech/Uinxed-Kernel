@@ -2,7 +2,7 @@
 /* Low level disk I/O module for FatFs over blockdev                     */
 /*-----------------------------------------------------------------------*/
 
-#include <drivers/blockdev.h>
+#include <drivers/block/blockdev.h>
 #include <fs/fatfs/fatfs_disk.h>
 #include <fs/fatfs/ff.h>
 #include <fs/fatfs/ffdiskio.h>

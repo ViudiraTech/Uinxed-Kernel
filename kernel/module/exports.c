@@ -9,8 +9,8 @@
  */
 
 #define UINXED_MODULE_CORE
+#include <drivers/base/device.h>
 #include <fs/vfs.h>
-#include <kernel/device.h>
 #include <kernel/kobject.h>
 #include <kernel/module.h>
 #include <kernel/printk.h>

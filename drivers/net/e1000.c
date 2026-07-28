@@ -1,7 +1,17 @@
+/*
+ *
+ *      e1000.c
+ *      Intel e1000/e1000e network controller driver
+ *
+ *      2026/7/29 By JiTianYu391
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
+ */
+
 #include <arch/idt.h>
 #include <chipset/common.h>
-#include <drivers/apic.h>
-#include <drivers/e1000.h>
+#include <drivers/interrupt/apic.h>
+#include <drivers/net/e1000.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer.h>

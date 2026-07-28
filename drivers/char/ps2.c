@@ -9,9 +9,9 @@
  *
  */
 #include <chipset/common.h>
-#include <drivers/apic.h>
-#include <drivers/evdev.h>
-#include <drivers/ps2.h>
+#include <drivers/char/ps2.h>
+#include <drivers/input/evdev.h>
+#include <drivers/interrupt/apic.h>
 #include <kernel/errno.h>
 #include <kernel/interrupt.h>
 #include <kernel/printk.h>

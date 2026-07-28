@@ -9,7 +9,7 @@
  */
 
 #include <boot/limine.h>
-#include <drivers/tty.h>
+#include <drivers/char/tty.h>
 #include <kernel/uinxed.h>
 #include <libs/gfxs/bmp.h>
 #include <video/klogo.h>
