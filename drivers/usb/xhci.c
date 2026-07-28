@@ -15,8 +15,8 @@
 #include <drivers/xhci.h>
 #include <kernel/errno.h>
 #include <kernel/interrupt.h>
-#include <kernel/timer.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
@@ -35,63 +35,63 @@
 #define XHCI_CAP_DBOFF      0x14
 #define XHCI_CAP_RTSOFF     0x18
 
-#define XHCI_OP_USBCMD  0x00
-#define XHCI_OP_USBSTS  0x04
+#define XHCI_OP_USBCMD   0x00
+#define XHCI_OP_USBSTS   0x04
 #define XHCI_OP_PAGESIZE 0x08
-#define XHCI_OP_DNCTRL  0x14
-#define XHCI_OP_CRCR    0x18
-#define XHCI_OP_DCBAAP  0x30
-#define XHCI_OP_CONFIG  0x38
-#define XHCI_OP_PORTS   0x400
+#define XHCI_OP_DNCTRL   0x14
+#define XHCI_OP_CRCR     0x18
+#define XHCI_OP_DCBAAP   0x30
+#define XHCI_OP_CONFIG   0x38
+#define XHCI_OP_PORTS    0x400
 #define XHCI_PORT_STRIDE 0x10
 
-#define XHCI_CMD_RUN  (1U << 0)
-#define XHCI_CMD_RESET (1U << 1)
-#define XHCI_CMD_INTE (1U << 2)
-#define XHCI_CMD_HSEE (1U << 3)
+#define XHCI_CMD_RUN    (1U << 0)
+#define XHCI_CMD_RESET  (1U << 1)
+#define XHCI_CMD_INTE   (1U << 2)
+#define XHCI_CMD_HSEE   (1U << 3)
 #define XHCI_STS_HALTED (1U << 0)
 #define XHCI_STS_FATAL  (1U << 2)
 #define XHCI_STS_EINT   (1U << 3)
 #define XHCI_STS_PCD    (1U << 4)
 #define XHCI_STS_CNR    (1U << 11)
 
-#define XHCI_PORT_CCS (1U << 0)
-#define XHCI_PORT_PED (1U << 1)
-#define XHCI_PORT_PR  (1U << 4)
-#define XHCI_PORT_PP  (1U << 9)
+#define XHCI_PORT_CCS         (1U << 0)
+#define XHCI_PORT_PED         (1U << 1)
+#define XHCI_PORT_PR          (1U << 4)
+#define XHCI_PORT_PP          (1U << 9)
 #define XHCI_PORT_SPEED_SHIFT 10
 #define XHCI_PORT_SPEED_MASK  (0x0fU << XHCI_PORT_SPEED_SHIFT)
-#define XHCI_PORT_CSC (1U << 17)
-#define XHCI_PORT_PEC (1U << 18)
-#define XHCI_PORT_WRC (1U << 19)
-#define XHCI_PORT_OCC (1U << 20)
-#define XHCI_PORT_PRC (1U << 21)
-#define XHCI_PORT_PLC (1U << 22)
-#define XHCI_PORT_CEC (1U << 23)
+#define XHCI_PORT_CSC         (1U << 17)
+#define XHCI_PORT_PEC         (1U << 18)
+#define XHCI_PORT_WRC         (1U << 19)
+#define XHCI_PORT_OCC         (1U << 20)
+#define XHCI_PORT_PRC         (1U << 21)
+#define XHCI_PORT_PLC         (1U << 22)
+#define XHCI_PORT_CEC         (1U << 23)
 #define XHCI_PORT_CHANGE_BITS (XHCI_PORT_CSC | XHCI_PORT_PEC | XHCI_PORT_WRC | XHCI_PORT_OCC | XHCI_PORT_PRC | XHCI_PORT_PLC | XHCI_PORT_CEC)
 
 #define XHCI_RT_INTERRUPTER0 0x20
-#define XHCI_IR_IMAN  0x00
-#define XHCI_IR_IMOD  0x04
-#define XHCI_IR_ERSTSZ 0x08
-#define XHCI_IR_ERSTBA 0x10
-#define XHCI_IR_ERDP   0x18
-#define XHCI_IMAN_IP   (1U << 0)
-#define XHCI_IMAN_IE   (1U << 1)
-#define XHCI_ERDP_EHB  (1U << 3)
+#define XHCI_IR_IMAN         0x00
+#define XHCI_IR_IMOD         0x04
+#define XHCI_IR_ERSTSZ       0x08
+#define XHCI_IR_ERSTBA       0x10
+#define XHCI_IR_ERDP         0x18
+#define XHCI_IMAN_IP         (1U << 0)
+#define XHCI_IMAN_IE         (1U << 1)
+#define XHCI_ERDP_EHB        (1U << 3)
 
-#define XHCI_CONTEXT_ENTRIES_SHIFT 27
-#define XHCI_SLOT_SPEED_SHIFT      20
-#define XHCI_SLOT_ROOT_PORT_SHIFT  16
-#define XHCI_ENDPOINT_TYPE_SHIFT   3
-#define XHCI_ENDPOINT_MAX_BURST_SHIFT 8
-#define XHCI_ENDPOINT_MAX_PACKET_SHIFT 16
-#define XHCI_ENDPOINT_INTERVAL_SHIFT 16
+#define XHCI_CONTEXT_ENTRIES_SHIFT      27
+#define XHCI_SLOT_SPEED_SHIFT           20
+#define XHCI_SLOT_ROOT_PORT_SHIFT       16
+#define XHCI_ENDPOINT_TYPE_SHIFT        3
+#define XHCI_ENDPOINT_MAX_BURST_SHIFT   8
+#define XHCI_ENDPOINT_MAX_PACKET_SHIFT  16
+#define XHCI_ENDPOINT_INTERVAL_SHIFT    16
 #define XHCI_ENDPOINT_ERROR_COUNT_SHIFT 1
 
-#define XHCI_COMPLETION_SUCCESS     1
+#define XHCI_COMPLETION_SUCCESS      1
 #define XHCI_COMPLETION_SHORT_PACKET 13
-#define XHCI_COMPLETION_STOPPED     26
+#define XHCI_COMPLETION_STOPPED      26
 
 #define XHCI_RING_TRBS      (PAGE_4K_SIZE / sizeof(xhci_trb_t))
 #define XHCI_EVENT_TRBS     XHCI_RING_TRBS
@@ -109,8 +109,8 @@ typedef struct xhci_controller xhci_controller_t;
 typedef struct xhci_slot       xhci_slot_t;
 
 typedef struct {
-        xhci_ring_t ring;
-        uint64_t    ring_physical;
+        xhci_ring_t           ring;
+        uint64_t              ring_physical;
         struct xhci_transfer *periodic;
 } xhci_endpoint_state_t;
 
@@ -133,17 +133,17 @@ typedef struct xhci_transfer {
 } xhci_transfer_t;
 
 struct xhci_slot {
-        xhci_controller_t     *controller;
-        usb_device_t           usb;
-        uint8_t                slot_id;
-        uint8_t                port_id;
-        uint8_t                context_entries;
-        uint64_t               output_context_physical;
-        uint64_t               input_context_physical;
-        uint32_t              *output_context;
-        uint32_t              *input_context;
-        xhci_endpoint_state_t  endpoints[XHCI_MAX_ENDPOINTS];
-        xhci_transfer_t       *pending[XHCI_MAX_ENDPOINTS];
+        xhci_controller_t    *controller;
+        usb_device_t          usb;
+        uint8_t               slot_id;
+        uint8_t               port_id;
+        uint8_t               context_entries;
+        uint64_t              output_context_physical;
+        uint64_t              input_context_physical;
+        uint32_t             *output_context;
+        uint32_t             *input_context;
+        xhci_endpoint_state_t endpoints[XHCI_MAX_ENDPOINTS];
+        xhci_transfer_t      *pending[XHCI_MAX_ENDPOINTS];
 };
 
 typedef struct {
@@ -154,44 +154,44 @@ typedef struct {
 } xhci_command_wait_t;
 
 struct xhci_controller {
-        pci_device_cache_t *pci;
-        volatile uint8_t   *capability;
-        volatile uint8_t   *operational;
-        volatile uint8_t   *runtime;
-        volatile uint32_t  *doorbells;
-        uint8_t             capability_length;
-        uint8_t             max_slots;
-        uint8_t             max_ports;
-        uint8_t             context_size;
-        uint8_t             bus_number;
-        uint8_t             irq_slot;
-        int                 vector;
-        uint64_t            dcbaa_physical;
-        uint64_t           *dcbaa;
-        uint64_t            scratchpad_array_physical;
-        uint64_t           *scratchpad_array;
-        uint16_t            scratchpad_count;
-        xhci_ring_t         command_ring;
-        uint64_t            command_ring_physical;
-        xhci_trb_t         *event_ring;
-        uint64_t            event_ring_physical;
-        uint16_t            event_dequeue;
-        uint8_t             event_cycle;
-        uint64_t            erst_physical;
+        pci_device_cache_t  *pci;
+        volatile uint8_t    *capability;
+        volatile uint8_t    *operational;
+        volatile uint8_t    *runtime;
+        volatile uint32_t   *doorbells;
+        uint8_t              capability_length;
+        uint8_t              max_slots;
+        uint8_t              max_ports;
+        uint8_t              context_size;
+        uint8_t              bus_number;
+        uint8_t              irq_slot;
+        int                  vector;
+        uint64_t             dcbaa_physical;
+        uint64_t            *dcbaa;
+        uint64_t             scratchpad_array_physical;
+        uint64_t            *scratchpad_array;
+        uint16_t             scratchpad_count;
+        xhci_ring_t          command_ring;
+        uint64_t             command_ring_physical;
+        xhci_trb_t          *event_ring;
+        uint64_t             event_ring_physical;
+        uint16_t             event_dequeue;
+        uint8_t              event_cycle;
+        uint64_t             erst_physical;
         xhci_erst_entry_t   *erst;
         xhci_slot_t         *slots[XHCI_MAX_SLOTS + 1];
         xhci_command_wait_t *pending_command;
-        uint64_t            pending_ports;
-        wait_queue_t        worker_wait;
-        task_t             *worker_task;
-        spinlock_t          event_lock;
-        spinlock_t          command_lock;
-        spinlock_t          port_lock;
-        bool                running;
-        bool                interrupt_enabled;
-        bool                msix_enabled;
-        bool                worker_started;
-        bool                stopping;
+        uint64_t             pending_ports;
+        wait_queue_t         worker_wait;
+        task_t              *worker_task;
+        spinlock_t           event_lock;
+        spinlock_t           command_lock;
+        spinlock_t           port_lock;
+        bool                 running;
+        bool                 interrupt_enabled;
+        bool                 msix_enabled;
+        bool                 worker_started;
+        bool                 stopping;
 };
 
 static xhci_controller_t *xhci_controllers[USB_MAX_CONTROLLERS];
@@ -224,7 +224,7 @@ static void xhci_write64(volatile uint8_t *base, size_t offset, uint64_t value)
 
 static void *xhci_dma_alloc(size_t size, uint64_t *physical, size_t *pages)
 {
-    size_t count = (size + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
+    size_t   count   = (size + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
     uint64_t address = alloc_frames(count);
     if (!address) return NULL;
     void *memory = phys_to_virt(address);
@@ -291,9 +291,9 @@ static int xhci_submit_periodic(xhci_transfer_t *transfer)
     if (!xhci_ring_enqueue(&transfer->endpoint_state->ring, transfer->dma_physical, (uint32_t)transfer->length,
                            XHCI_TRB_TYPE(XHCI_TRB_NORMAL) | XHCI_TRB_IOC, &physical))
         return -EIO;
-    transfer->trb_physical = physical;
-    transfer->completed    = false;
-    uint8_t dci = xhci_endpoint_dci(transfer->endpoint);
+    transfer->trb_physical       = physical;
+    transfer->completed          = false;
+    uint8_t dci                  = xhci_endpoint_dci(transfer->endpoint);
     transfer->slot->pending[dci] = transfer;
     xhci_ring_doorbell(transfer->slot->controller, transfer->slot->slot_id, dci);
     return EOK;
@@ -309,11 +309,11 @@ static void xhci_handle_transfer_event(xhci_controller_t *controller, const xhci
     xhci_transfer_t *transfer = slot->pending[dci];
     if (!transfer || transfer->trb_physical != event->parameter) return;
 
-    uint8_t completion = event->status >> 24;
-    uint32_t residual  = event->status & 0x00ffffff;
-    transfer->status   = xhci_completion_status(completion);
-    transfer->actual   = residual <= transfer->length ? transfer->length - residual : 0;
-    slot->pending[dci] = NULL;
+    uint8_t  completion = event->status >> 24;
+    uint32_t residual   = event->status & 0x00ffffff;
+    transfer->status    = xhci_completion_status(completion);
+    transfer->actual    = residual <= transfer->length ? transfer->length - residual : 0;
+    slot->pending[dci]  = NULL;
     if (transfer->periodic) {
         if (transfer->active && transfer->complete)
             transfer->complete(transfer->endpoint, transfer->dma_virtual, transfer->actual, transfer->status, transfer->context);
@@ -390,7 +390,7 @@ static int xhci_command(xhci_controller_t *controller, uint64_t parameter, uint3
     }
     controller->pending_command = &wait;
     xhci_ring_doorbell(controller, 0, 0);
-    int result = xhci_wait_flag(controller, &wait.completed, USB_CTRL_TIMEOUT_MS);
+    int result                  = xhci_wait_flag(controller, &wait.completed, USB_CTRL_TIMEOUT_MS);
     controller->pending_command = NULL;
     if (result == EOK) result = xhci_completion_status(wait.completion_code);
     if (result == EOK && slot_id) *slot_id = wait.slot_id;
@@ -414,7 +414,7 @@ static int xhci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
     xhci_slot_t *slot = device ? device->hc_private : NULL;
     if (!slot || !setup || length > PAGE_4K_SIZE) return -EINVAL;
     xhci_endpoint_state_t *endpoint = &slot->endpoints[1];
-    xhci_transfer_t transfer = {.slot = slot, .endpoint_state = endpoint, .length = length, .active = true};
+    xhci_transfer_t        transfer = {.slot = slot, .endpoint_state = endpoint, .length = length, .active = true};
     if (length) {
         transfer.dma_virtual = xhci_dma_alloc(length, &transfer.dma_physical, &transfer.dma_pages);
         if (!transfer.dma_virtual) return -ENOMEM;
@@ -426,8 +426,9 @@ static int xhci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
     uint32_t transfer_type = length ? ((setup->request_type & USB_DIR_IN) ? 3U : 2U) : 0U;
     if (!xhci_ring_enqueue(&endpoint->ring, setup_data, 8, XHCI_TRB_TYPE(XHCI_TRB_SETUP_STAGE) | XHCI_TRB_IDT | (transfer_type << 16), NULL))
         goto io_error;
-    if (length && !xhci_ring_enqueue(&endpoint->ring, transfer.dma_physical, (uint32_t)length,
-                                     XHCI_TRB_TYPE(XHCI_TRB_DATA_STAGE) | ((setup->request_type & USB_DIR_IN) ? XHCI_TRB_DIR_IN : 0), NULL))
+    if (length
+        && !xhci_ring_enqueue(&endpoint->ring, transfer.dma_physical, (uint32_t)length,
+                              XHCI_TRB_TYPE(XHCI_TRB_DATA_STAGE) | ((setup->request_type & USB_DIR_IN) ? XHCI_TRB_DIR_IN : 0), NULL))
         goto io_error;
     uint32_t status_control = XHCI_TRB_TYPE(XHCI_TRB_STATUS_STAGE) | XHCI_TRB_IOC;
     if (!length || !(setup->request_type & USB_DIR_IN)) status_control |= XHCI_TRB_DIR_IN;
@@ -447,19 +448,19 @@ io_error:
 static int xhci_transfer(usb_endpoint_t *usb_endpoint, void *buffer, size_t length, size_t *actual, uint32_t timeout_ms)
 {
     if (!usb_endpoint || !buffer || !length || length > PAGE_4K_SIZE || !usb_endpoint->hc_private) return -EINVAL;
-    xhci_slot_t *slot = usb_endpoint->interface->device->hc_private;
+    xhci_slot_t           *slot     = usb_endpoint->interface->device->hc_private;
     xhci_endpoint_state_t *endpoint = usb_endpoint->hc_private;
-    xhci_transfer_t transfer = {.slot = slot, .endpoint = usb_endpoint, .endpoint_state = endpoint, .length = length, .active = true};
-    transfer.dma_virtual = xhci_dma_alloc(length, &transfer.dma_physical, &transfer.dma_pages);
+    xhci_transfer_t        transfer = {.slot = slot, .endpoint = usb_endpoint, .endpoint_state = endpoint, .length = length, .active = true};
+    transfer.dma_virtual            = xhci_dma_alloc(length, &transfer.dma_physical, &transfer.dma_pages);
     if (!transfer.dma_virtual) return -ENOMEM;
     bool input = (usb_endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK) != 0;
     if (!input) memcpy(transfer.dma_virtual, buffer, length);
-    if (!xhci_ring_enqueue(&endpoint->ring, transfer.dma_physical, (uint32_t)length,
-                           XHCI_TRB_TYPE(XHCI_TRB_NORMAL) | XHCI_TRB_IOC, &transfer.trb_physical)) {
+    if (!xhci_ring_enqueue(&endpoint->ring, transfer.dma_physical, (uint32_t)length, XHCI_TRB_TYPE(XHCI_TRB_NORMAL) | XHCI_TRB_IOC,
+                           &transfer.trb_physical)) {
         xhci_dma_free(transfer.dma_physical, transfer.dma_pages);
         return -EIO;
     }
-    uint8_t dci = xhci_endpoint_dci(usb_endpoint);
+    uint8_t dci        = xhci_endpoint_dci(usb_endpoint);
     slot->pending[dci] = &transfer;
     xhci_ring_doorbell(slot->controller, slot->slot_id, dci);
     int result = xhci_wait_transfer(&transfer, timeout_ms);
@@ -484,13 +485,13 @@ static int xhci_interrupt_start(usb_endpoint_t *usb_endpoint, size_t length, usb
     transfer->context        = context;
     transfer->periodic       = true;
     transfer->active         = true;
-    transfer->dma_virtual = xhci_dma_alloc(length, &transfer->dma_physical, &transfer->dma_pages);
+    transfer->dma_virtual    = xhci_dma_alloc(length, &transfer->dma_physical, &transfer->dma_pages);
     if (!transfer->dma_virtual) {
         free(transfer);
         return -ENOMEM;
     }
     endpoint->periodic = transfer;
-    int result = xhci_submit_periodic(transfer);
+    int result         = xhci_submit_periodic(transfer);
     if (result != EOK) {
         endpoint->periodic = NULL;
         xhci_dma_free(transfer->dma_physical, transfer->dma_pages);
@@ -502,10 +503,10 @@ static int xhci_interrupt_start(usb_endpoint_t *usb_endpoint, size_t length, usb
 static void xhci_interrupt_stop(usb_endpoint_t *usb_endpoint)
 {
     xhci_endpoint_state_t *endpoint = usb_endpoint ? usb_endpoint->hc_private : NULL;
-    xhci_transfer_t *transfer = endpoint ? endpoint->periodic : NULL;
+    xhci_transfer_t       *transfer = endpoint ? endpoint->periodic : NULL;
     if (!transfer) return;
     transfer->active = false;
-    uint8_t dci = xhci_endpoint_dci(usb_endpoint);
+    uint8_t dci      = xhci_endpoint_dci(usb_endpoint);
     (void)xhci_command(transfer->slot->controller, 0, 0,
                        XHCI_TRB_TYPE(XHCI_TRB_STOP_ENDPOINT) | ((uint32_t)dci << 16) | ((uint32_t)transfer->slot->slot_id << 24), NULL);
     uint64_t flags = spin_lock_irqsave(&transfer->slot->controller->event_lock);
@@ -519,7 +520,7 @@ static void xhci_interrupt_stop(usb_endpoint_t *usb_endpoint)
 static uint8_t xhci_endpoint_type(const usb_endpoint_t *endpoint)
 {
     uint8_t transfer = endpoint->descriptor.attributes & USB_ENDPOINT_XFERTYPE_MASK;
-    bool input = (endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK) != 0;
+    bool    input    = (endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK) != 0;
     if (transfer == USB_ENDPOINT_XFER_ISOC) return input ? 5 : 1;
     if (transfer == USB_ENDPOINT_XFER_BULK) return input ? 6 : 2;
     if (transfer == USB_ENDPOINT_XFER_INT) return input ? 7 : 3;
@@ -528,12 +529,12 @@ static uint8_t xhci_endpoint_type(const usb_endpoint_t *endpoint)
 
 static uint8_t xhci_endpoint_interval(const usb_endpoint_t *endpoint)
 {
-    uint8_t interval = endpoint->descriptor.interval;
-    usb_speed_t speed = endpoint->interface->device->speed;
+    uint8_t     interval = endpoint->descriptor.interval;
+    usb_speed_t speed    = endpoint->interface->device->speed;
     if (!interval) return 0;
     if (speed >= USB_SPEED_HIGH) return interval > 16 ? 15 : interval - 1;
     uint8_t exponent = 0;
-    uint8_t value = interval - 1;
+    uint8_t value    = interval - 1;
     while (value) {
         value >>= 1;
         exponent++;
@@ -545,7 +546,7 @@ static int xhci_configure_endpoint(usb_endpoint_t *usb_endpoint)
 {
     if (!usb_endpoint || !usb_endpoint->interface || !usb_endpoint->interface->device) return -EINVAL;
     xhci_slot_t *slot = usb_endpoint->interface->device->hc_private;
-    uint8_t dci = xhci_endpoint_dci(usb_endpoint);
+    uint8_t      dci  = xhci_endpoint_dci(usb_endpoint);
     if (!slot || dci < 2 || dci >= XHCI_MAX_ENDPOINTS) return -EINVAL;
     xhci_endpoint_state_t *endpoint = &slot->endpoints[dci];
     if (endpoint->ring.trbs) {
@@ -559,22 +560,22 @@ static int xhci_configure_endpoint(usb_endpoint_t *usb_endpoint)
 
     memset(slot->input_context, 0, PAGE_4K_SIZE);
     uint32_t *control = slot->input_context;
-    control[1] = 1U | (1U << dci);
+    control[1]        = 1U | (1U << dci);
     memcpy(xhci_input_context(slot, 0), xhci_output_context(slot, 0), slot->controller->context_size);
     if (dci > slot->context_entries) slot->context_entries = dci;
     uint32_t *slot_context = xhci_input_context(slot, 0);
     slot_context[0] &= ~(0x1fU << XHCI_CONTEXT_ENTRIES_SHIFT);
     slot_context[0] |= (uint32_t)slot->context_entries << XHCI_CONTEXT_ENTRIES_SHIFT;
 
-    uint32_t *context = xhci_input_context(slot, dci);
-    uint16_t max_packet = usb_endpoint->descriptor.max_packet_size & 0x07ff;
-    context[0] = (uint32_t)xhci_endpoint_interval(usb_endpoint) << XHCI_ENDPOINT_INTERVAL_SHIFT;
-    context[1] = (3U << XHCI_ENDPOINT_ERROR_COUNT_SHIFT) | ((uint32_t)xhci_endpoint_type(usb_endpoint) << XHCI_ENDPOINT_TYPE_SHIFT)
+    uint32_t *context    = xhci_input_context(slot, dci);
+    uint16_t  max_packet = usb_endpoint->descriptor.max_packet_size & 0x07ff;
+    context[0]           = (uint32_t)xhci_endpoint_interval(usb_endpoint) << XHCI_ENDPOINT_INTERVAL_SHIFT;
+    context[1]           = (3U << XHCI_ENDPOINT_ERROR_COUNT_SHIFT) | ((uint32_t)xhci_endpoint_type(usb_endpoint) << XHCI_ENDPOINT_TYPE_SHIFT)
                  | ((uint32_t)max_packet << XHCI_ENDPOINT_MAX_PACKET_SHIFT);
     uint64_t dequeue = endpoint->ring_physical | 1U;
-    context[2] = (uint32_t)dequeue;
-    context[3] = (uint32_t)(dequeue >> 32);
-    context[4] = max_packet | ((uint32_t)max_packet << 16);
+    context[2]       = (uint32_t)dequeue;
+    context[3]       = (uint32_t)(dequeue >> 32);
+    context[4]       = max_packet | ((uint32_t)max_packet << 16);
     dma_write_barrier();
     result = xhci_command(slot->controller, slot->input_context_physical, 0,
                           XHCI_TRB_TYPE(XHCI_TRB_CONFIGURE_ENDPOINT) | ((uint32_t)slot->slot_id << 24), NULL);
@@ -591,20 +592,16 @@ fail:
 static int xhci_clear_halt(usb_endpoint_t *usb_endpoint)
 {
     if (!usb_endpoint || !usb_endpoint->hc_private) return -EINVAL;
-    xhci_slot_t *slot = usb_endpoint->interface->device->hc_private;
+    xhci_slot_t           *slot     = usb_endpoint->interface->device->hc_private;
     xhci_endpoint_state_t *endpoint = usb_endpoint->hc_private;
-    uint8_t dci = xhci_endpoint_dci(usb_endpoint);
-    int status = xhci_command(slot->controller, 0, 0,
-                              XHCI_TRB_TYPE(XHCI_TRB_RESET_ENDPOINT) | ((uint32_t)dci << 16)
-                                  | ((uint32_t)slot->slot_id << 24),
-                              NULL);
+    uint8_t                dci      = xhci_endpoint_dci(usb_endpoint);
+    int                    status   = xhci_command(slot->controller, 0, 0,
+                                                   XHCI_TRB_TYPE(XHCI_TRB_RESET_ENDPOINT) | ((uint32_t)dci << 16) | ((uint32_t)slot->slot_id << 24), NULL);
     if (status != EOK) return status;
     uint64_t dequeue = endpoint->ring_physical + (uint64_t)endpoint->ring.enqueue * sizeof(xhci_trb_t);
     dequeue |= endpoint->ring.cycle;
     return xhci_command(slot->controller, dequeue, 0,
-                        XHCI_TRB_TYPE(XHCI_TRB_SET_TR_DEQUEUE) | ((uint32_t)dci << 16)
-                            | ((uint32_t)slot->slot_id << 24),
-                        NULL);
+                        XHCI_TRB_TYPE(XHCI_TRB_SET_TR_DEQUEUE) | ((uint32_t)dci << 16) | ((uint32_t)slot->slot_id << 24), NULL);
 }
 
 static void xhci_disable_device(usb_device_t *device)
@@ -624,7 +621,7 @@ static const usb_hcd_ops_t xhci_hcd_ops = {
 
 static int xhci_port_reset(xhci_controller_t *controller, uint8_t port_id)
 {
-    size_t offset = XHCI_OP_PORTS + (size_t)(port_id - 1) * XHCI_PORT_STRIDE;
+    size_t   offset = XHCI_OP_PORTS + (size_t)(port_id - 1) * XHCI_PORT_STRIDE;
     uint32_t status = xhci_read32(controller->operational, offset);
     if (!(status & XHCI_PORT_CCS)) return -ENODEV;
     if (!(status & XHCI_PORT_PED)) {
@@ -641,12 +638,18 @@ static int xhci_port_reset(xhci_controller_t *controller, uint8_t port_id)
 static usb_speed_t xhci_usb_speed(uint32_t port_status)
 {
     switch ((port_status & XHCI_PORT_SPEED_MASK) >> XHCI_PORT_SPEED_SHIFT) {
-        case 1 : return USB_SPEED_FULL;
-        case 2 : return USB_SPEED_LOW;
-        case 3 : return USB_SPEED_HIGH;
-        case 4 : return USB_SPEED_SUPER;
-        case 5 : return USB_SPEED_SUPER_PLUS;
-        default : return USB_SPEED_FULL;
+        case 1 :
+            return USB_SPEED_FULL;
+        case 2 :
+            return USB_SPEED_LOW;
+        case 3 :
+            return USB_SPEED_HIGH;
+        case 4 :
+            return USB_SPEED_SUPER;
+        case 5 :
+            return USB_SPEED_SUPER_PLUS;
+        default :
+            return USB_SPEED_FULL;
     }
 }
 
@@ -661,14 +664,14 @@ static int xhci_allocate_slot(xhci_controller_t *controller, uint8_t port_id, ui
 {
     xhci_slot_t *slot = calloc(1, sizeof(*slot));
     if (!slot) return -ENOMEM;
-    slot->controller = controller;
-    slot->slot_id    = slot_id;
-    slot->port_id    = port_id;
-    slot->context_entries = 1;
-    slot->output_context = xhci_dma_alloc(PAGE_4K_SIZE, &slot->output_context_physical, NULL);
-    slot->input_context  = xhci_dma_alloc(PAGE_4K_SIZE, &slot->input_context_physical, NULL);
+    slot->controller           = controller;
+    slot->slot_id              = slot_id;
+    slot->port_id              = port_id;
+    slot->context_entries      = 1;
+    slot->output_context       = xhci_dma_alloc(PAGE_4K_SIZE, &slot->output_context_physical, NULL);
+    slot->input_context        = xhci_dma_alloc(PAGE_4K_SIZE, &slot->input_context_physical, NULL);
     xhci_endpoint_state_t *ep0 = &slot->endpoints[1];
-    ep0->ring.trbs = xhci_dma_alloc(PAGE_4K_SIZE, &ep0->ring_physical, NULL);
+    ep0->ring.trbs             = xhci_dma_alloc(PAGE_4K_SIZE, &ep0->ring_physical, NULL);
     if (!slot->output_context || !slot->input_context || !ep0->ring.trbs
         || xhci_ring_init(&ep0->ring, ep0->ring.trbs, ep0->ring_physical, XHCI_RING_TRBS, true) != EOK) {
         xhci_dma_free(slot->output_context_physical, 1);
@@ -679,26 +682,26 @@ static int xhci_allocate_slot(xhci_controller_t *controller, uint8_t port_id, ui
     }
     controller->dcbaa[slot_id] = slot->output_context_physical;
     controller->slots[slot_id] = slot;
-    *result = slot;
+    *result                    = slot;
     return EOK;
 }
 
 static int xhci_address_slot(xhci_slot_t *slot, usb_speed_t speed)
 {
     memset(slot->input_context, 0, PAGE_4K_SIZE);
-    uint32_t *control = slot->input_context;
-    control[1] = 3;
+    uint32_t *control      = slot->input_context;
+    control[1]             = 3;
     uint32_t *slot_context = xhci_input_context(slot, 0);
-    slot_context[0] = ((uint32_t)speed << XHCI_SLOT_SPEED_SHIFT) | (1U << XHCI_CONTEXT_ENTRIES_SHIFT);
-    slot_context[1] = (uint32_t)slot->port_id << XHCI_SLOT_ROOT_PORT_SHIFT;
-    uint32_t *ep0_context = xhci_input_context(slot, 1);
-    uint16_t max_packet = xhci_ep0_packet_size(speed);
-    ep0_context[1] = (3U << XHCI_ENDPOINT_ERROR_COUNT_SHIFT) | (4U << XHCI_ENDPOINT_TYPE_SHIFT)
-                     | ((uint32_t)max_packet << XHCI_ENDPOINT_MAX_PACKET_SHIFT);
+    slot_context[0]        = ((uint32_t)speed << XHCI_SLOT_SPEED_SHIFT) | (1U << XHCI_CONTEXT_ENTRIES_SHIFT);
+    slot_context[1]        = (uint32_t)slot->port_id << XHCI_SLOT_ROOT_PORT_SHIFT;
+    uint32_t *ep0_context  = xhci_input_context(slot, 1);
+    uint16_t  max_packet   = xhci_ep0_packet_size(speed);
+    ep0_context[1]
+        = (3U << XHCI_ENDPOINT_ERROR_COUNT_SHIFT) | (4U << XHCI_ENDPOINT_TYPE_SHIFT) | ((uint32_t)max_packet << XHCI_ENDPOINT_MAX_PACKET_SHIFT);
     uint64_t dequeue = slot->endpoints[1].ring_physical | 1U;
-    ep0_context[2] = (uint32_t)dequeue;
-    ep0_context[3] = (uint32_t)(dequeue >> 32);
-    ep0_context[4] = 8;
+    ep0_context[2]   = (uint32_t)dequeue;
+    ep0_context[3]   = (uint32_t)(dequeue >> 32);
+    ep0_context[4]   = 8;
     dma_write_barrier();
     return xhci_command(slot->controller, slot->input_context_physical, 0,
                         XHCI_TRB_TYPE(XHCI_TRB_ADDRESS_DEVICE) | ((uint32_t)slot->slot_id << 24), NULL);
@@ -708,14 +711,14 @@ static int xhci_get_string(usb_device_t *device, uint8_t index, uint16_t languag
 {
     uint8_t descriptor[128];
     if (!index || !output || capacity < 2) return -EINVAL;
-    int result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR,
-                                 (USB_DT_STRING << 8) | index, language, descriptor, sizeof(descriptor), USB_CTRL_TIMEOUT_MS);
+    int result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, (USB_DT_STRING << 8) | index,
+                                 language, descriptor, sizeof(descriptor), USB_CTRL_TIMEOUT_MS);
     if (result != EOK || descriptor[0] < 2 || descriptor[1] != USB_DT_STRING) return -EIO;
     size_t characters = (descriptor[0] - 2) / 2;
     if (characters >= capacity) characters = capacity - 1;
     for (size_t i = 0; i < characters; i++) {
         uint16_t character = descriptor[2 + i * 2] | (uint16_t)descriptor[3 + i * 2] << 8;
-        output[i] = character >= 0x20 && character < 0x7f ? (char)character : '?';
+        output[i]          = character >= 0x20 && character < 0x7f ? (char)character : '?';
     }
     output[characters] = '\0';
     return EOK;
@@ -726,35 +729,36 @@ static int xhci_enumerate_port(xhci_controller_t *controller, uint8_t port_id)
     int result = xhci_port_reset(controller, port_id);
     if (result != EOK) return result;
     uint8_t slot_id = 0;
-    result = xhci_command(controller, 0, 0, XHCI_TRB_TYPE(XHCI_TRB_ENABLE_SLOT), &slot_id);
+    result          = xhci_command(controller, 0, 0, XHCI_TRB_TYPE(XHCI_TRB_ENABLE_SLOT), &slot_id);
     if (result != EOK || !slot_id || slot_id > controller->max_slots) return result != EOK ? result : -EIO;
     xhci_slot_t *slot;
     result = xhci_allocate_slot(controller, port_id, slot_id, &slot);
     if (result != EOK) goto disable_slot;
-    size_t port_offset = XHCI_OP_PORTS + (size_t)(port_id - 1) * XHCI_PORT_STRIDE;
-    usb_speed_t speed = xhci_usb_speed(xhci_read32(controller->operational, port_offset));
-    result = xhci_address_slot(slot, speed);
+    size_t      port_offset = XHCI_OP_PORTS + (size_t)(port_id - 1) * XHCI_PORT_STRIDE;
+    usb_speed_t speed       = xhci_usb_speed(xhci_read32(controller->operational, port_offset));
+    result                  = xhci_address_slot(slot, speed);
     if (result != EOK) goto free_slot;
 
-    usb_device_t *device = &slot->usb;
-    device->connected   = true;
-    device->speed       = speed;
-    device->bus_number  = controller->bus_number;
-    device->port_number = port_id;
-    device->hcd_ops     = &xhci_hcd_ops;
-    device->hc_private  = slot;
+    usb_device_t *device  = &slot->usb;
+    device->connected     = true;
+    device->speed         = speed;
+    device->bus_number    = controller->bus_number;
+    device->port_number   = port_id;
+    device->hcd_ops       = &xhci_hcd_ops;
+    device->hc_private    = slot;
     uint32_t *output_slot = xhci_output_context(slot, 0);
-    device->address = output_slot[3] & 0xff;
+    device->address       = output_slot[3] & 0xff;
     if (!device->address) device->address = slot_id;
     snprintf(device->path, sizeof(device->path), "%u-%u", device->bus_number, port_id);
 
-    result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR,
-                             USB_DT_DEVICE << 8, 0, &device->descriptor, sizeof(device->descriptor), USB_CTRL_TIMEOUT_MS);
+    result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_DEVICE << 8, 0,
+                             &device->descriptor, sizeof(device->descriptor), USB_CTRL_TIMEOUT_MS);
     if (result != EOK || device->descriptor.length < sizeof(device->descriptor)) goto remove_device;
     uint16_t language = 0x0409;
-    uint8_t language_descriptor[4];
-    if (usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR,
-                        USB_DT_STRING << 8, 0, language_descriptor, sizeof(language_descriptor), USB_CTRL_TIMEOUT_MS) == EOK
+    uint8_t  language_descriptor[4];
+    if (usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_STRING << 8, 0,
+                        language_descriptor, sizeof(language_descriptor), USB_CTRL_TIMEOUT_MS)
+            == EOK
         && language_descriptor[0] >= 4)
         language = language_descriptor[2] | (uint16_t)language_descriptor[3] << 8;
     (void)xhci_get_string(device, device->descriptor.manufacturer, language, device->manufacturer, sizeof(device->manufacturer));
@@ -762,16 +766,16 @@ static int xhci_enumerate_port(xhci_controller_t *controller, uint8_t port_id)
     (void)xhci_get_string(device, device->descriptor.serial_number, language, device->serial, sizeof(device->serial));
 
     usb_config_descriptor_t header;
-    result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR,
-                             USB_DT_CONFIG << 8, 0, &header, sizeof(header), USB_CTRL_TIMEOUT_MS);
+    result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0, &header,
+                             sizeof(header), USB_CTRL_TIMEOUT_MS);
     if (result != EOK || header.total_length < sizeof(header) || header.total_length > PAGE_4K_SIZE) goto remove_device;
     uint8_t *configuration = malloc(header.total_length);
     if (!configuration) {
         result = -ENOMEM;
         goto remove_device;
     }
-    result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR,
-                             USB_DT_CONFIG << 8, 0, configuration, header.total_length, USB_CTRL_TIMEOUT_MS);
+    result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0,
+                             configuration, header.total_length, USB_CTRL_TIMEOUT_MS);
     if (result == EOK) result = usb_add_device(device, configuration, header.total_length);
     free(configuration);
     if (result == EOK) return EOK;
@@ -781,7 +785,8 @@ remove_device:
 free_slot:
     controller->slots[slot_id] = NULL;
     controller->dcbaa[slot_id] = 0;
-    for (size_t dci = 1; dci < XHCI_MAX_ENDPOINTS; dci++) xhci_dma_free(slot->endpoints[dci].ring_physical, slot->endpoints[dci].ring_physical ? 1 : 0);
+    for (size_t dci = 1; dci < XHCI_MAX_ENDPOINTS; dci++)
+        xhci_dma_free(slot->endpoints[dci].ring_physical, slot->endpoints[dci].ring_physical ? 1 : 0);
     xhci_dma_free(slot->input_context_physical, 1);
     xhci_dma_free(slot->output_context_physical, 1);
     free(slot);
@@ -806,7 +811,8 @@ static void xhci_disconnect_port(xhci_controller_t *controller, uint8_t port_id)
     (void)xhci_command(controller, 0, 0, XHCI_TRB_TYPE(XHCI_TRB_DISABLE_SLOT) | ((uint32_t)slot_id << 24), NULL);
     controller->slots[slot_id] = NULL;
     controller->dcbaa[slot_id] = 0;
-    for (size_t dci = 1; dci < XHCI_MAX_ENDPOINTS; dci++) xhci_dma_free(slot->endpoints[dci].ring_physical, slot->endpoints[dci].ring_physical ? 1 : 0);
+    for (size_t dci = 1; dci < XHCI_MAX_ENDPOINTS; dci++)
+        xhci_dma_free(slot->endpoints[dci].ring_physical, slot->endpoints[dci].ring_physical ? 1 : 0);
     xhci_dma_free(slot->input_context_physical, 1);
     xhci_dma_free(slot->output_context_physical, 1);
     free(slot);
@@ -814,7 +820,7 @@ static void xhci_disconnect_port(xhci_controller_t *controller, uint8_t port_id)
 
 static void xhci_service_port(xhci_controller_t *controller, uint8_t port_id)
 {
-    size_t offset = XHCI_OP_PORTS + (size_t)(port_id - 1) * XHCI_PORT_STRIDE;
+    size_t   offset = XHCI_OP_PORTS + (size_t)(port_id - 1) * XHCI_PORT_STRIDE;
     uint32_t status = xhci_read32(controller->operational, offset);
     xhci_write32(controller->operational, offset, (status & ~XHCI_PORT_CHANGE_BITS) | (status & XHCI_PORT_CHANGE_BITS));
     xhci_slot_t *slot = xhci_slot_on_port(controller, port_id);
@@ -830,8 +836,8 @@ static void xhci_worker(void *argument)
 {
     xhci_controller_t *controller = argument;
     while (!controller->stopping) {
-        uint64_t flags = spin_lock_irqsave(&controller->port_lock);
-        uint64_t ports = controller->pending_ports;
+        uint64_t flags            = spin_lock_irqsave(&controller->port_lock);
+        uint64_t ports            = controller->pending_ports;
         controller->pending_ports = 0;
         if (!ports && !controller->stopping) wait_queue_prepare(&controller->worker_wait);
         spin_unlock_irqrestore(&controller->port_lock, flags);
@@ -847,7 +853,7 @@ static void xhci_worker(void *argument)
 static void xhci_interrupt_slot(size_t index, void *frame)
 {
     (void)frame;
-    uint64_t flags = spin_lock_irqsave(&xhci_irq_lock);
+    uint64_t           flags      = spin_lock_irqsave(&xhci_irq_lock);
     xhci_controller_t *controller = xhci_irq_slots[index];
     spin_unlock_irqrestore(&xhci_irq_lock, flags);
     if (controller && controller->running) {
@@ -860,7 +866,7 @@ static void xhci_interrupt_slot(size_t index, void *frame)
     send_eoi();
 }
 
-#define XHCI_IRQ_WRAPPER(index)                    \
+#define XHCI_IRQ_WRAPPER(index)                     \
     static void xhci_interrupt_##index(void *frame) \
     {                                               \
         xhci_interrupt_slot(index, frame);          \
@@ -884,11 +890,11 @@ static const xhci_irq_handler_t xhci_irq_handlers[USB_MAX_CONTROLLERS] = {
 static int xhci_take_ownership(xhci_controller_t *controller)
 {
     uint32_t hccparams = xhci_read32(controller->capability, XHCI_CAP_HCCPARAMS1);
-    size_t offset = (hccparams >> 16) * 4U;
+    size_t   offset    = (hccparams >> 16) * 4U;
     for (unsigned int count = 0; offset && count < 64; count++) {
         uint32_t capability = xhci_read32(controller->capability, offset);
-        uint8_t id = capability & 0xff;
-        size_t next = ((capability >> 8) & 0xff) * 4U;
+        uint8_t  id         = capability & 0xff;
+        size_t   next       = ((capability >> 8) & 0xff) * 4U;
         if (id == 1) {
             xhci_write32((volatile uint8_t *)controller->capability, offset, capability | (1U << 24));
             int result = xhci_wait_register((volatile uint8_t *)controller->capability, offset, 1U << 16, 0, 1000);
@@ -922,7 +928,7 @@ static int xhci_allocate_scratchpads(xhci_controller_t *controller, uint32_t hcs
 static int xhci_setup_interrupt(xhci_controller_t *controller)
 {
     uint64_t flags = spin_lock_irqsave(&xhci_irq_lock);
-    size_t slot;
+    size_t   slot;
     for (slot = 0; slot < USB_MAX_CONTROLLERS; slot++)
         if (!xhci_irq_slots[slot]) break;
     if (slot == USB_MAX_CONTROLLERS) {
@@ -941,7 +947,7 @@ static int xhci_setup_interrupt(xhci_controller_t *controller)
         }
     }
     if (controller->vector < 0) {
-        flags = spin_lock_irqsave(&xhci_irq_lock);
+        flags                = spin_lock_irqsave(&xhci_irq_lock);
         xhci_irq_slots[slot] = NULL;
         spin_unlock_irqrestore(&xhci_irq_lock, flags);
         return -ENODEV;
@@ -983,29 +989,29 @@ static void xhci_release_controller(xhci_controller_t *controller)
 
 static int xhci_probe(pci_device_cache_t *pci, uint8_t bus_number)
 {
-    int result = -EINVAL;
-    base_address_register_t bar = get_base_address_register(pci, 0);
+    int                     result = -EINVAL;
+    base_address_register_t bar    = get_base_address_register(pci, 0);
     if (bar.type != mem_mapping || !bar.address) return -ENODEV;
     uint64_t bar_physical = (uint64_t)virt_to_phys((uint64_t)bar.address);
-    uint64_t bar_size = bar.size & ~BAR_64BIT_FLAG;
+    uint64_t bar_size     = bar.size & ~BAR_64BIT_FLAG;
     if (!bar_size) bar_size = PAGE_4K_SIZE;
-    uint64_t map_start = ALIGN_DOWN(bar_physical, PAGE_4K_SIZE);
+    uint64_t map_start  = ALIGN_DOWN(bar_physical, PAGE_4K_SIZE);
     uint64_t map_length = ALIGN_UP(bar_physical + bar_size, PAGE_4K_SIZE) - map_start;
     page_map_range_to(get_kernel_pagedir(), map_start, map_length, PTE_MMIO_FLAGS);
     xhci_controller_t *controller = calloc(1, sizeof(*controller));
     if (!controller) return -ENOMEM;
-    controller->pci        = pci;
-    controller->capability = bar.address;
-    controller->bus_number = bus_number;
+    controller->pci               = pci;
+    controller->capability        = bar.address;
+    controller->bus_number        = bus_number;
     controller->capability_length = *(volatile uint8_t *)controller->capability;
-    controller->operational = controller->capability + controller->capability_length;
-    controller->runtime = controller->capability + (xhci_read32(controller->capability, XHCI_CAP_RTSOFF) & ~0x1fU);
-    controller->doorbells = (volatile uint32_t *)(controller->capability + (xhci_read32(controller->capability, XHCI_CAP_DBOFF) & ~3U));
-    uint32_t hcsparams1 = xhci_read32(controller->capability, XHCI_CAP_HCSPARAMS1);
-    uint32_t hcsparams2 = xhci_read32(controller->capability, XHCI_CAP_HCSPARAMS2);
-    uint32_t hccparams1 = xhci_read32(controller->capability, XHCI_CAP_HCCPARAMS1);
-    controller->max_slots = hcsparams1 & 0xff;
-    controller->max_ports = hcsparams1 >> 24;
+    controller->operational       = controller->capability + controller->capability_length;
+    controller->runtime           = controller->capability + (xhci_read32(controller->capability, XHCI_CAP_RTSOFF) & ~0x1fU);
+    controller->doorbells         = (volatile uint32_t *)(controller->capability + (xhci_read32(controller->capability, XHCI_CAP_DBOFF) & ~3U));
+    uint32_t hcsparams1           = xhci_read32(controller->capability, XHCI_CAP_HCSPARAMS1);
+    uint32_t hcsparams2           = xhci_read32(controller->capability, XHCI_CAP_HCSPARAMS2);
+    uint32_t hccparams1           = xhci_read32(controller->capability, XHCI_CAP_HCCPARAMS1);
+    controller->max_slots         = hcsparams1 & 0xff;
+    controller->max_ports         = hcsparams1 >> 24;
     if (!controller->max_slots || !controller->max_ports || controller->max_ports > XHCI_MAX_ROOT_PORTS) goto invalid;
     controller->context_size = (hccparams1 & (1U << 2)) ? 64 : 32;
     wait_queue_init(&controller->worker_wait);
@@ -1014,8 +1020,7 @@ static int xhci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     pci_write_command_status(pci, command | 0x06);
     result = xhci_take_ownership(controller);
     if (result != EOK) goto invalid;
-    xhci_write32(controller->operational, XHCI_OP_USBCMD,
-                 xhci_read32(controller->operational, XHCI_OP_USBCMD) & ~XHCI_CMD_RUN);
+    xhci_write32(controller->operational, XHCI_OP_USBCMD, xhci_read32(controller->operational, XHCI_OP_USBCMD) & ~XHCI_CMD_RUN);
     result = xhci_wait_register(controller->operational, XHCI_OP_USBSTS, XHCI_STS_HALTED, XHCI_STS_HALTED, 1000);
     if (result != EOK) goto invalid;
     xhci_write32(controller->operational, XHCI_OP_USBCMD, XHCI_CMD_RESET);
@@ -1023,21 +1028,20 @@ static int xhci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     if (result == EOK) result = xhci_wait_register(controller->operational, XHCI_OP_USBSTS, XHCI_STS_CNR, 0, 1000);
     if (result != EOK || !(xhci_read32(controller->operational, XHCI_OP_PAGESIZE) & 1U)) goto invalid;
 
-    controller->dcbaa = xhci_dma_alloc(PAGE_4K_SIZE, &controller->dcbaa_physical, NULL);
+    controller->dcbaa             = xhci_dma_alloc(PAGE_4K_SIZE, &controller->dcbaa_physical, NULL);
     controller->command_ring.trbs = xhci_dma_alloc(PAGE_4K_SIZE, &controller->command_ring_physical, NULL);
-    controller->event_ring = xhci_dma_alloc(PAGE_4K_SIZE, &controller->event_ring_physical, NULL);
-    controller->erst = xhci_dma_alloc(sizeof(*controller->erst), &controller->erst_physical, NULL);
+    controller->event_ring        = xhci_dma_alloc(PAGE_4K_SIZE, &controller->event_ring_physical, NULL);
+    controller->erst              = xhci_dma_alloc(sizeof(*controller->erst), &controller->erst_physical, NULL);
     if (!controller->dcbaa || !controller->command_ring.trbs || !controller->event_ring || !controller->erst) {
         result = -ENOMEM;
         goto fail;
     }
-    result = xhci_ring_init(&controller->command_ring, controller->command_ring.trbs, controller->command_ring_physical,
-                            XHCI_RING_TRBS, true);
+    result = xhci_ring_init(&controller->command_ring, controller->command_ring.trbs, controller->command_ring_physical, XHCI_RING_TRBS, true);
     if (result != EOK) goto fail;
-    controller->event_cycle = 1;
+    controller->event_cycle   = 1;
     controller->erst->address = controller->event_ring_physical;
     controller->erst->size    = XHCI_EVENT_TRBS;
-    result = xhci_allocate_scratchpads(controller, hcsparams2);
+    result                    = xhci_allocate_scratchpads(controller, hcsparams2);
     if (result != EOK) goto fail;
 
     xhci_write64(controller->operational, XHCI_OP_DCBAAP, controller->dcbaa_physical);
@@ -1058,7 +1062,7 @@ static int xhci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     xhci_controllers[xhci_controller_count++] = controller;
 
     for (uint8_t port = 1; port <= controller->max_ports; port++) {
-        size_t offset = XHCI_OP_PORTS + (size_t)(port - 1) * XHCI_PORT_STRIDE;
+        size_t   offset = XHCI_OP_PORTS + (size_t)(port - 1) * XHCI_PORT_STRIDE;
         uint32_t status = xhci_read32(controller->operational, offset);
         if (status & XHCI_PORT_CCS) {
             int port_status = xhci_enumerate_port(controller, port);
@@ -1086,12 +1090,12 @@ void xhci_init(void)
         if (pci->class_code != XHCI_PCI_CLASS) continue;
         int status = xhci_probe(pci, bus_number);
         if (status == EOK) {
-            plogk("xhci: Controller %04x:%02x:%02x.%u registered as usb%u\n", pci->device->domain, pci->device->bus,
-                  pci->device->slot, pci->device->func, bus_number);
+            plogk("xhci: Controller %04x:%02x:%02x.%u registered as usb%u\n", pci->device->domain, pci->device->bus, pci->device->slot,
+                  pci->device->func, bus_number);
             bus_number++;
         } else {
-            plogk("xhci: Controller %04x:%02x:%02x.%u initialization failed: %d\n", pci->device->domain, pci->device->bus,
-                  pci->device->slot, pci->device->func, status);
+            plogk("xhci: Controller %04x:%02x:%02x.%u initialization failed: %d\n", pci->device->domain, pci->device->bus, pci->device->slot,
+                  pci->device->func, status);
         }
     }
 #endif

@@ -28,23 +28,23 @@ typedef struct ndp_pending {
 } ndp_pending_t;
 
 typedef struct ndp_entry {
-        net_device_t *device;
+        net_device_t  *device;
         ipv6_address_t address;
-        uint8_t       mac[6];
-        uint8_t       state;
-        uint8_t       retries;
-        uint8_t       pending_count;
-        uint64_t      updated;
-        uint64_t      retry_at;
+        uint8_t        mac[6];
+        uint8_t        state;
+        uint8_t        retries;
+        uint8_t        pending_count;
+        uint64_t       updated;
+        uint64_t       retry_at;
         ndp_pending_t *head;
         ndp_pending_t *tail;
 } ndp_entry_t;
 
-static ndp_entry_t   ndp_cache[NDP_CACHE_CAPACITY];
-static ndp_pending_t ndp_pending_pool[NDP_PENDING_TOTAL];
+static ndp_entry_t    ndp_cache[NDP_CACHE_CAPACITY];
+static ndp_pending_t  ndp_pending_pool[NDP_PENDING_TOTAL];
 static ndp_pending_t *ndp_pending_free;
-static uint8_t       ndp_pool_initialized;
-static spinlock_t    ndp_lock;
+static uint8_t        ndp_pool_initialized;
+static spinlock_t     ndp_lock;
 
 static int ndp_mac_unicast(const uint8_t mac[6])
 {
@@ -83,8 +83,8 @@ static void ndp_drop_pending_locked(ndp_entry_t *entry)
         ndp_pending_t *pending = entry->head;
         entry->head            = pending->next;
         net_pbuf_free(pending->packet);
-        pending->packet = NULL;
-        pending->next   = ndp_pending_free;
+        pending->packet  = NULL;
+        pending->next    = ndp_pending_free;
         ndp_pending_free = pending;
     }
     entry->tail          = NULL;
@@ -110,10 +110,10 @@ static ndp_entry_t *ndp_alloc_locked(net_device_t *device, const ipv6_address_t 
     return slot;
 }
 
-static int ndp_send(net_device_t *device, const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t type,
-                    uint32_t flags, const ipv6_address_t *target, uint8_t option_type)
+static int ndp_send(net_device_t *device, const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t type, uint32_t flags,
+                    const ipv6_address_t *target, uint8_t option_type)
 {
-    size_t length = target ? 32U : 16U;
+    size_t      length = target ? 32U : 16U;
     net_pbuf_t *packet = net_pbuf_alloc(length, NET_PBUF_HEADROOM);
     if (!packet) return -ENOMEM;
     memset(packet->data, 0, length);
@@ -152,9 +152,9 @@ void ndp_learn(net_device_t *device, const ipv6_address_t *address, const uint8_
     ndp_entry_t *entry = ndp_find_locked(device, address);
     if (!entry) entry = ndp_alloc_locked(device, address, now_ticks);
     memcpy(entry->mac, mac, 6);
-    entry->state   = NDP_REACHABLE;
-    entry->updated = now_ticks;
-    entry->retries = 0;
+    entry->state           = NDP_REACHABLE;
+    entry->updated         = now_ticks;
+    entry->retries         = 0;
     ndp_pending_t *pending = entry->head;
     entry->head = entry->tail = NULL;
     entry->pending_count      = 0;
@@ -164,8 +164,8 @@ void ndp_learn(net_device_t *device, const ipv6_address_t *address, const uint8_
         ethernet_output(device, pending->packet, mac, ETH_TYPE_IPV6);
         net_pbuf_free(pending->packet);
         spin_lock(&ndp_lock);
-        pending->packet = NULL;
-        pending->next   = ndp_pending_free;
+        pending->packet  = NULL;
+        pending->next    = ndp_pending_free;
         ndp_pending_free = pending;
         spin_unlock(&ndp_lock);
         pending = next;
@@ -176,8 +176,8 @@ int ndp_resolve(net_device_t *device, const ipv6_address_t *address, net_pbuf_t 
 {
     if (!device || !address || !packet || !ipv6_address_is_unicast(address) || ipv6_address_is_loopback(address)) return -EINVAL;
     uint64_t now = sched_ticks();
-    uint8_t mac[6];
-    int request = 0;
+    uint8_t  mac[6];
+    int      request = 0;
     spin_lock(&ndp_lock);
     ndp_pool_init_locked();
     ndp_entry_t *entry = ndp_find_locked(device, address);
@@ -195,14 +195,16 @@ int ndp_resolve(net_device_t *device, const ipv6_address_t *address, net_pbuf_t 
     ndp_pending_free       = pending->next;
     pending->packet        = net_pbuf_clone(packet, NET_PBUF_HEADROOM);
     if (!pending->packet) {
-        pending->next   = ndp_pending_free;
+        pending->next    = ndp_pending_free;
         ndp_pending_free = pending;
         spin_unlock(&ndp_lock);
         return -ENOMEM;
     }
     pending->next = NULL;
-    if (entry->tail) entry->tail->next = pending;
-    else entry->head = pending;
+    if (entry->tail)
+        entry->tail->next = pending;
+    else
+        entry->head = pending;
     entry->tail = pending;
     entry->pending_count++;
     if (entry->state != NDP_INCOMPLETE || !entry->retries) {
@@ -223,7 +225,9 @@ int ndp_resolve(net_device_t *device, const ipv6_address_t *address, net_pbuf_t 
 int ndp_router_solicit(net_device_t *device)
 {
     if (!device) return -EINVAL;
-    static const ipv6_address_t all_routers = {.bytes = {0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2}};
+    static const ipv6_address_t all_routers = {
+        .bytes = {0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2}
+    };
     ipv6_address_t source;
     memcpy(source.bytes, device->ipv6_link_local, 16);
     if (!ipv6_address_is_link_local(&source)) return -EADDRNOTAVAIL;
@@ -280,7 +284,9 @@ static int ndp_neighbor_input(net_device_t *device, const ipv6_info_t *ip, net_p
         if (!ipv6_address_equal(&ip->destination, &target) && !ipv6_address_equal(&ip->destination, &solicited)) return -EBADMSG;
         if (ipv6_address_is_unspecified(&ip->source)) {
             if (source_ll || !ipv6_address_equal(&ip->destination, &solicited)) return -EBADMSG;
-            static const ipv6_address_t all_nodes = {.bytes = {0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}};
+            static const ipv6_address_t all_nodes = {
+                .bytes = {0xff, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}
+            };
             return ndp_send(device, &target, &all_nodes, ICMPV6_NEIGHBOR_ADVERT, 0x20000000U, &target, NDP_OPT_TARGET_LL);
         }
         if (source_ll && !ndp_mac_unicast(source_ll)) return -EBADMSG;
@@ -298,15 +304,15 @@ static int ndp_neighbor_input(net_device_t *device, const ipv6_info_t *ip, net_p
 static int ndp_router_advert(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
 {
     if (packet->length < 16 || packet->data[1] || !ipv6_address_is_link_local(&ip->source)) return -EBADMSG;
-    uint64_t now             = sched_ticks();
-    uint16_t router_lifetime = net_read_be16(packet->data + 6);
-    const uint8_t *options   = packet->data + 16;
-    size_t length            = packet->length - 16;
-    const uint8_t *source_ll = NULL;
+    uint64_t       now             = sched_ticks();
+    uint16_t       router_lifetime = net_read_be16(packet->data + 6);
+    const uint8_t *options         = packet->data + 16;
+    size_t         length          = packet->length - 16;
+    const uint8_t *source_ll       = NULL;
     ipv6_address_t address;
-    int have_address = 0;
-    uint64_t valid_until = 0, preferred_until = 0;
-    uint32_t advertised_mtu = 0;
+    int            have_address = 0;
+    uint64_t       valid_until = 0, preferred_until = 0;
+    uint32_t       advertised_mtu = 0;
     while (length) {
         if (length < 2 || !options[1]) return -EBADMSG;
         size_t option_length = (size_t)options[1] * 8U;
@@ -316,8 +322,8 @@ static int ndp_router_advert(net_device_t *device, const ipv6_info_t *ip, net_pb
             source_ll = options + 2;
         } else if (options[0] == NDP_OPT_PREFIX) {
             if (option_length != 32) return -EBADMSG;
-            uint32_t valid = net_read_be32(options + 4);
-            uint32_t preferred = net_read_be32(options + 8);
+            uint32_t       valid     = net_read_be32(options + 4);
+            uint32_t       preferred = net_read_be32(options + 8);
             ipv6_address_t prefix;
             memcpy(prefix.bytes, options + 16, 16);
             if (preferred > valid) return -EBADMSG;
@@ -348,8 +354,8 @@ static int ndp_router_advert(net_device_t *device, const ipv6_info_t *ip, net_pb
     }
     if (have_address) {
         memcpy(device->ipv6_address, address.bytes, 16);
-        device->ipv6_prefix_length  = 64;
-        device->ipv6_valid_until    = valid_until;
+        device->ipv6_prefix_length   = 64;
+        device->ipv6_valid_until     = valid_until;
         device->ipv6_preferred_until = preferred_until;
     }
     if (advertised_mtu) device->ipv6_mtu = advertised_mtu;
@@ -380,7 +386,7 @@ void ndp_timer(uint64_t now_ticks)
 {
     ipv6_timer(now_ticks);
     for (unsigned i = 0; i < NDP_CACHE_CAPACITY; i++) {
-        net_device_t *device = NULL;
+        net_device_t  *device = NULL;
         ipv6_address_t address;
         spin_lock(&ndp_lock);
         ndp_pool_init_locked();

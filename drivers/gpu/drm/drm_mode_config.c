@@ -163,20 +163,20 @@ int drm_mode_config_init(struct drm_device *dev)
     dev->mode_config.prop_writeback_pix_fmt       = NULL;
     dev->mode_config.prop_writeback_out_fence_ptr = NULL;
 
-    dev->mode_config.prop_fb_id     = drm_object_property(dev, "FB_ID", DRM_MODE_OBJECT_FB);
-    dev->mode_config.prop_crtc_id   = drm_object_property(dev, "CRTC_ID", DRM_MODE_OBJECT_CRTC);
-    dev->mode_config.prop_active    = drm_property_create_range(dev, DRM_MODE_PROP_ATOMIC, "ACTIVE", 0, 1);
-    dev->mode_config.prop_mode_id   = drm_property_create(dev, DRM_MODE_PROP_BLOB | DRM_MODE_PROP_ATOMIC, "MODE_ID", 0);
-    dev->mode_config.prop_src_x     = drm_property_create_range(dev, DRM_MODE_PROP_ATOMIC, "SRC_X", 0, UINT32_MAX);
-    dev->mode_config.prop_src_y     = drm_property_create_range(dev, DRM_MODE_PROP_ATOMIC, "SRC_Y", 0, UINT32_MAX);
-    dev->mode_config.prop_src_w     = drm_property_create_range(dev, DRM_MODE_PROP_ATOMIC, "SRC_W", 0, UINT32_MAX);
-    dev->mode_config.prop_src_h     = drm_property_create_range(dev, DRM_MODE_PROP_ATOMIC, "SRC_H", 0, UINT32_MAX);
-    dev->mode_config.prop_crtc_x    = drm_signed_property(dev, "CRTC_X", DRM_S32_MIN, DRM_S32_MAX);
-    dev->mode_config.prop_crtc_y    = drm_signed_property(dev, "CRTC_Y", DRM_S32_MIN, DRM_S32_MAX);
-    dev->mode_config.prop_crtc_w    = drm_property_create_range(dev, DRM_MODE_PROP_ATOMIC, "CRTC_W", 0, UINT32_MAX);
-    dev->mode_config.prop_crtc_h    = drm_property_create_range(dev, DRM_MODE_PROP_ATOMIC, "CRTC_H", 0, UINT32_MAX);
-    dev->mode_config.prop_zpos      = drm_property_create_range(dev, DRM_MODE_PROP_ATOMIC, "zpos", 0, 255);
-    dev->mode_config.prop_alpha     = drm_property_create_range(dev, DRM_MODE_PROP_ATOMIC, "alpha", 0, UINT16_MAX);
+    dev->mode_config.prop_fb_id   = drm_object_property(dev, "FB_ID", DRM_MODE_OBJECT_FB);
+    dev->mode_config.prop_crtc_id = drm_object_property(dev, "CRTC_ID", DRM_MODE_OBJECT_CRTC);
+    dev->mode_config.prop_active  = drm_property_create_range(dev, DRM_MODE_PROP_ATOMIC, "ACTIVE", 0, 1);
+    dev->mode_config.prop_mode_id = drm_property_create(dev, DRM_MODE_PROP_BLOB | DRM_MODE_PROP_ATOMIC, "MODE_ID", 0);
+    dev->mode_config.prop_src_x   = drm_property_create_range(dev, DRM_MODE_PROP_ATOMIC, "SRC_X", 0, UINT32_MAX);
+    dev->mode_config.prop_src_y   = drm_property_create_range(dev, DRM_MODE_PROP_ATOMIC, "SRC_Y", 0, UINT32_MAX);
+    dev->mode_config.prop_src_w   = drm_property_create_range(dev, DRM_MODE_PROP_ATOMIC, "SRC_W", 0, UINT32_MAX);
+    dev->mode_config.prop_src_h   = drm_property_create_range(dev, DRM_MODE_PROP_ATOMIC, "SRC_H", 0, UINT32_MAX);
+    dev->mode_config.prop_crtc_x  = drm_signed_property(dev, "CRTC_X", DRM_S32_MIN, DRM_S32_MAX);
+    dev->mode_config.prop_crtc_y  = drm_signed_property(dev, "CRTC_Y", DRM_S32_MIN, DRM_S32_MAX);
+    dev->mode_config.prop_crtc_w  = drm_property_create_range(dev, DRM_MODE_PROP_ATOMIC, "CRTC_W", 0, UINT32_MAX);
+    dev->mode_config.prop_crtc_h  = drm_property_create_range(dev, DRM_MODE_PROP_ATOMIC, "CRTC_H", 0, UINT32_MAX);
+    dev->mode_config.prop_zpos    = drm_property_create_range(dev, DRM_MODE_PROP_ATOMIC, "zpos", 0, 255);
+    dev->mode_config.prop_alpha   = drm_property_create_range(dev, DRM_MODE_PROP_ATOMIC, "alpha", 0, UINT16_MAX);
 
     {
         static const struct drm_mode_property_enum plane_types[] = {
@@ -382,18 +382,22 @@ int drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *f
 
     if (!dev || !res) { return -EINVAL; }
 
-    uint32_t user_fbs = res->count_fbs, user_crtcs = res->count_crtcs;
-    uint32_t user_connectors = res->count_connectors, user_encoders = res->count_encoders;
+    uint32_t  user_fbs = res->count_fbs, user_crtcs = res->count_crtcs;
+    uint32_t  user_connectors = res->count_connectors, user_encoders = res->count_encoders;
     uint32_t *fbs = NULL, *crtcs = NULL, *connectors = NULL, *encoders = NULL;
-    uint32_t n;
+    uint32_t  n;
 
     if (dev->mode_config.num_fb) fbs = malloc((size_t)dev->mode_config.num_fb * sizeof(*fbs));
     if (dev->mode_config.num_crtc) crtcs = malloc((size_t)dev->mode_config.num_crtc * sizeof(*crtcs));
     if (dev->mode_config.num_connector) connectors = malloc((size_t)dev->mode_config.num_connector * sizeof(*connectors));
     if (dev->mode_config.num_encoder) encoders = malloc((size_t)dev->mode_config.num_encoder * sizeof(*encoders));
-    if ((dev->mode_config.num_fb && !fbs) || (dev->mode_config.num_crtc && !crtcs)
-        || (dev->mode_config.num_connector && !connectors) || (dev->mode_config.num_encoder && !encoders)) {
-        free(fbs); free(crtcs); free(connectors); free(encoders); return -ENOMEM;
+    if ((dev->mode_config.num_fb && !fbs) || (dev->mode_config.num_crtc && !crtcs) || (dev->mode_config.num_connector && !connectors)
+        || (dev->mode_config.num_encoder && !encoders)) {
+        free(fbs);
+        free(crtcs);
+        free(connectors);
+        free(encoders);
+        return -ENOMEM;
     }
     n = 0;
     for (ilist_node_t *node = dev->mode_config.fb_list.next; node != &dev->mode_config.fb_list; node = node->next)
@@ -408,17 +412,38 @@ int drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *f
     for (ilist_node_t *node = dev->mode_config.encoder_list.next; node != &dev->mode_config.encoder_list; node = node->next)
         encoders[n++] = container_of(node, struct drm_encoder, head)->base.id;
 
-    if ((user_fbs && dev->mode_config.num_fb && (!res->fb_id_ptr || copy_to_user((void *)(uintptr_t)res->fb_id_ptr, fbs,
-         (size_t)(user_fbs < (uint32_t)dev->mode_config.num_fb ? user_fbs : (uint32_t)dev->mode_config.num_fb) * sizeof(*fbs))))
-        || (user_crtcs && dev->mode_config.num_crtc && (!res->crtc_id_ptr || copy_to_user((void *)(uintptr_t)res->crtc_id_ptr, crtcs,
-         (size_t)(user_crtcs < (uint32_t)dev->mode_config.num_crtc ? user_crtcs : (uint32_t)dev->mode_config.num_crtc) * sizeof(*crtcs))))
-        || (user_connectors && dev->mode_config.num_connector && (!res->connector_id_ptr || copy_to_user((void *)(uintptr_t)res->connector_id_ptr, connectors,
-         (size_t)(user_connectors < (uint32_t)dev->mode_config.num_connector ? user_connectors : (uint32_t)dev->mode_config.num_connector) * sizeof(*connectors))))
-        || (user_encoders && dev->mode_config.num_encoder && (!res->encoder_id_ptr || copy_to_user((void *)(uintptr_t)res->encoder_id_ptr, encoders,
-         (size_t)(user_encoders < (uint32_t)dev->mode_config.num_encoder ? user_encoders : (uint32_t)dev->mode_config.num_encoder) * sizeof(*encoders))))) {
-        free(fbs); free(crtcs); free(connectors); free(encoders); return -EFAULT;
+    if ((user_fbs && dev->mode_config.num_fb
+         && (!res->fb_id_ptr
+             || copy_to_user((void *)(uintptr_t)res->fb_id_ptr, fbs,
+                             (size_t)(user_fbs < (uint32_t)dev->mode_config.num_fb ? user_fbs : (uint32_t)dev->mode_config.num_fb)
+                                 * sizeof(*fbs))))
+        || (user_crtcs && dev->mode_config.num_crtc
+            && (!res->crtc_id_ptr
+                || copy_to_user((void *)(uintptr_t)res->crtc_id_ptr, crtcs,
+                                (size_t)(user_crtcs < (uint32_t)dev->mode_config.num_crtc ? user_crtcs : (uint32_t)dev->mode_config.num_crtc)
+                                    * sizeof(*crtcs))))
+        || (user_connectors && dev->mode_config.num_connector
+            && (!res->connector_id_ptr
+                || copy_to_user((void *)(uintptr_t)res->connector_id_ptr, connectors,
+                                (size_t)(user_connectors < (uint32_t)dev->mode_config.num_connector ? user_connectors :
+                                                                                                      (uint32_t)dev->mode_config.num_connector)
+                                    * sizeof(*connectors))))
+        || (user_encoders && dev->mode_config.num_encoder
+            && (!res->encoder_id_ptr
+                || copy_to_user(
+                    (void *)(uintptr_t)res->encoder_id_ptr, encoders,
+                    (size_t)(user_encoders < (uint32_t)dev->mode_config.num_encoder ? user_encoders : (uint32_t)dev->mode_config.num_encoder)
+                        * sizeof(*encoders))))) {
+        free(fbs);
+        free(crtcs);
+        free(connectors);
+        free(encoders);
+        return -EFAULT;
     }
-    free(fbs); free(crtcs); free(connectors); free(encoders);
+    free(fbs);
+    free(crtcs);
+    free(connectors);
+    free(encoders);
 
     res->min_width        = dev->mode_config.min_width;
     res->max_width        = dev->mode_config.max_width;

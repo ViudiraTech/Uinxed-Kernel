@@ -46,19 +46,19 @@
 typedef struct epoll_instance epoll_instance_t;
 
 typedef struct epoll_item {
-        int               fd;
-        uint32_t          events;
-        uint32_t          revents;
-        epoll_data_t      data;
-        epoll_instance_t *epi;
-        int               active;
-        uint32_t          last_revents;     /* previous poll result for edge-triggered */
-        int               oneshot_disabled; /* EPOLLONESHOT re-arm flag */
-        process_file_t    *file;
+        int                     fd;
+        uint32_t                events;
+        uint32_t                revents;
+        epoll_data_t            data;
+        epoll_instance_t       *epi;
+        int                     active;
+        uint32_t                last_revents;     /* previous poll result for edge-triggered */
+        int                     oneshot_disabled; /* EPOLLONESHOT re-arm flag */
+        process_file_t         *file;
         vfs_poll_subscription_t subscription;
         vfs_poll_subscription_t close_subscription;
-        uint32_t          pending_events;
-        bool              target_closed;
+        uint32_t                pending_events;
+        bool                    target_closed;
 } epoll_item_t;
 
 typedef struct epoll_instance {
@@ -567,8 +567,8 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
     epoll_instance_t *epi     = epoll_resolve_fd(epfd, proc, &ep_file);
     if (!epi) return -EBADF;
 
-    epoll_event_t  ev;
-    int64_t        ret;
+    epoll_event_t   ev;
+    int64_t         ret;
     process_file_t *target  = NULL;
     epoll_item_t   *release = NULL;
 
@@ -602,8 +602,7 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
             }
             target = NULL;
             vfs_poll_subscribe(item->file->node, &item->subscription, UINT32_MAX, epoll_item_notify, item);
-            vfs_poll_source_subscribe(&item->file->close_source, &item->close_subscription,
-                                      UINT32_MAX, epoll_target_close, item);
+            vfs_poll_source_subscribe(&item->file->close_source, &item->close_subscription, UINT32_MAX, epoll_target_close, item);
 
             /* Poll immediately for initial readiness */
             int      poll_result = process_file_poll(item->file, (size_t)(item->events | POLLERR | POLLHUP));
@@ -696,7 +695,7 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
     uint64_t deadline = 0;
     if (timeout > 0) {
         uint64_t ticks = ((uint64_t)timeout * EPOLL_TICKS_PER_SEC + 999) / 1000;
-        deadline = sched_ticks() + ticks;
+        deadline       = sched_ticks() + ticks;
     }
 
     spin_lock(&epi->lock);

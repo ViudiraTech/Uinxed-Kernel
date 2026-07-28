@@ -157,40 +157,40 @@ static void gen_info_meminfo(procfs_file_t *pf)
     size_t            free_kb  = (frame_allocator.usable_frames * PAGE_4K_SIZE) / 1024;
     pagecache_stats_t cache;
     pagecache_get_stats(&cache);
-    size_t cached_kb    = cache.pages * PAGE_4K_SIZE / 1024;
-    size_t dirty_kb     = cache.dirty * PAGE_4K_SIZE / 1024;
-    size_t writeback_kb = cache.writeback * PAGE_4K_SIZE / 1024;
-    size_t active_kb    = cache.active * PAGE_4K_SIZE / 1024;
-    size_t inactive_kb  = cache.inactive * PAGE_4K_SIZE / 1024;
-    size_t clean_pages  = cache.pages > cache.dirty ? cache.pages - cache.dirty : 0;
-    size_t available_kb = free_kb + clean_pages * PAGE_4K_SIZE / 1024;
+    size_t       cached_kb    = cache.pages * PAGE_4K_SIZE / 1024;
+    size_t       dirty_kb     = cache.dirty * PAGE_4K_SIZE / 1024;
+    size_t       writeback_kb = cache.writeback * PAGE_4K_SIZE / 1024;
+    size_t       active_kb    = cache.active * PAGE_4K_SIZE / 1024;
+    size_t       inactive_kb  = cache.inactive * PAGE_4K_SIZE / 1024;
+    size_t       clean_pages  = cache.pages > cache.dirty ? cache.pages - cache.dirty : 0;
+    size_t       available_kb = free_kb + clean_pages * PAGE_4K_SIZE / 1024;
     swap_stats_t swap;
     swap_get_stats(&swap);
-    int    n            = snprintf(buf, PROCFS_BUF_SIZE,
-                                   "MemTotal:       %8zu kB\n"
-                                                 "MemFree:        %8zu kB\n"
-                                                 "MemAvailable:   %8zu kB\n"
-                                                 "Buffers:        %8zu kB\n"
-                                                 "Cached:         %8zu kB\n"
-                                                 "SwapCached:     %8zu kB\n"
-                                                 "Active:         %8zu kB\n"
-                                                 "Inactive:       %8zu kB\n"
-                                                 "SwapTotal:      %8zu kB\n"
-                                                 "SwapFree:       %8zu kB\n"
-                                                 "Dirty:          %8zu kB\n"
-                                                 "Writeback:      %8zu kB\n"
-                                                 "AnonPages:      %8zu kB\n"
-                                                 "Mapped:         %8zu kB\n"
-                                                 "Slab:           %8zu kB\n"
-                                                 "PageTables:     %8zu kB\n"
-                                                 "NFS_Unstable:   %8zu kB\n"
-                                                 "Bounce:         %8zu kB\n"
-                                                 "VmallocTotal:   %8zu kB\n"
-                                                 "VmallocUsed:    %8zu kB\n"
-                                                 "VmallocChunk:   %8zu kB\n",
-                                    total_kb, free_kb, available_kb, 0UL, cached_kb, 0UL, active_kb, inactive_kb,
-                                    (size_t)(swap.total_pages * SWAP_PAGE_SIZE / 1024), (size_t)(swap.free_pages * SWAP_PAGE_SIZE / 1024), dirty_kb, writeback_kb, 0UL, 0UL,
-                                   0UL, 0UL, 0UL, 0UL, (KERNEL_HEAP_SIZE) / 1024, 0UL, (KERNEL_HEAP_SIZE) / 1024);
+    int n = snprintf(buf, PROCFS_BUF_SIZE,
+                     "MemTotal:       %8zu kB\n"
+                     "MemFree:        %8zu kB\n"
+                     "MemAvailable:   %8zu kB\n"
+                     "Buffers:        %8zu kB\n"
+                     "Cached:         %8zu kB\n"
+                     "SwapCached:     %8zu kB\n"
+                     "Active:         %8zu kB\n"
+                     "Inactive:       %8zu kB\n"
+                     "SwapTotal:      %8zu kB\n"
+                     "SwapFree:       %8zu kB\n"
+                     "Dirty:          %8zu kB\n"
+                     "Writeback:      %8zu kB\n"
+                     "AnonPages:      %8zu kB\n"
+                     "Mapped:         %8zu kB\n"
+                     "Slab:           %8zu kB\n"
+                     "PageTables:     %8zu kB\n"
+                     "NFS_Unstable:   %8zu kB\n"
+                     "Bounce:         %8zu kB\n"
+                     "VmallocTotal:   %8zu kB\n"
+                     "VmallocUsed:    %8zu kB\n"
+                     "VmallocChunk:   %8zu kB\n",
+                     total_kb, free_kb, available_kb, 0UL, cached_kb, 0UL, active_kb, inactive_kb,
+                     (size_t)(swap.total_pages * SWAP_PAGE_SIZE / 1024), (size_t)(swap.free_pages * SWAP_PAGE_SIZE / 1024), dirty_kb,
+                     writeback_kb, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL, (KERNEL_HEAP_SIZE) / 1024, 0UL, (KERNEL_HEAP_SIZE) / 1024);
 
     pf->content  = buf;
     pf->size     = n < 0 ? 0 : (size_t)n;
@@ -212,17 +212,16 @@ static void gen_info_vmstat(procfs_file_t *pf)
                                    "nr_dirty %llu\n"
                                    "nr_writeback %llu\n"
                                    "pgpgin %llu\n"
-                             "pgpgout %llu\n"
-                                    "pswpin %llu\n"
-                                    "pswpout %llu\n"
+                                   "pgpgout %llu\n"
+                                   "pswpin %llu\n"
+                                   "pswpout %llu\n"
                                    "pgactivate %llu\n"
                                    "pgsteal_kswapd %llu\n"
                                    "workingset_refault_file %llu\n"
                                    "workingset_activate_file %llu\n"
                                    "nr_vmscan_write %llu\n",
-                             cache.pages, cache.active, cache.inactive, cache.dirty, cache.writeback, cache.reads * 4, cache.writes * 4,
-                             swap.pages_in, swap.pages_out, cache.active,
-                            cache.reclaimed, cache.misses, cache.hits, cache.writeback_errors);
+                            cache.pages, cache.active, cache.inactive, cache.dirty, cache.writeback, cache.reads * 4, cache.writes * 4, swap.pages_in,
+                            swap.pages_out, cache.active, cache.reclaimed, cache.misses, cache.hits, cache.writeback_errors);
     pf->content  = buf;
     pf->size     = n < 0 ? 0 : (size_t)n;
     pf->capacity = PROCFS_BUF_SIZE;
@@ -545,9 +544,9 @@ static void gen_pid_status(procfs_file_t *pf)
                      "Mems_allowed_list:\t0\n"
                      "voluntary_ctxt_switches:\t0\n"
                      "nonvoluntary_ctxt_switches:\t0\n",
-                     proc->task->name, state_str, (uint64_t)pf->pid, (uint64_t)pf->pid, (uint64_t)ppid,
-                     (uint64_t)ptrace_tracer_pid(proc->task), proc->uid, proc->uid, proc->uid, proc->uid, proc->gid, proc->gid, proc->gid,
-                     proc->gid, 0U, 0U, vmsize / 1024, vmrss / 1024, vmdata / 1024, vmstack / 1024);
+                     proc->task->name, state_str, (uint64_t)pf->pid, (uint64_t)pf->pid, (uint64_t)ppid, (uint64_t)ptrace_tracer_pid(proc->task),
+                     proc->uid, proc->uid, proc->uid, proc->uid, proc->gid, proc->gid, proc->gid, proc->gid, 0U, 0U, vmsize / 1024, vmrss / 1024,
+                     vmdata / 1024, vmstack / 1024);
 
     pf->content  = buf;
     pf->size     = n < 0 ? 0 : (size_t)n;

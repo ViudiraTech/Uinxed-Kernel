@@ -12,9 +12,9 @@
 #include <chipset/common.h>
 #include <drivers/acpi.h>
 #include <drivers/apic.h>
+#include <drivers/drm/drm_device.h>
 #include <drivers/tsc.h>
 #include <drivers/tty.h>
-#include <drivers/drm/drm_device.h>
 #include <kernel/interrupt.h>
 #include <kernel/printk.h>
 #include <libs/std/math.h>

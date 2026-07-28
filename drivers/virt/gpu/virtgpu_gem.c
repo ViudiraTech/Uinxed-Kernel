@@ -81,7 +81,7 @@ void virtgpu_gem_free_object(struct drm_gem_object *gem_obj)
             uint32_t ctx_id = obj->context_attachments->ctx_id;
             if (virtgpu_object_detach_context(vgdev, obj, ctx_id)) {
                 struct virtio_gpu_context_attachment *stale = obj->context_attachments;
-                obj->context_attachments = stale->next;
+                obj->context_attachments                    = stale->next;
                 free(stale);
             }
         }

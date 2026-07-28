@@ -1563,9 +1563,9 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
     memcpy(kstack, &child_frame, sizeof(child_frame));
     *(--kstack) = (uint64_t)syscall_return;
 
-    child->context.rsp     = (uint64_t)kstack;
-    child->thread.fs_base  = tls;
-    child->thread.gs_base  = current->thread.gs_base;
+    child->context.rsp    = (uint64_t)kstack;
+    child->thread.fs_base = tls;
+    child->thread.gs_base = current->thread.gs_base;
     fpu_task_clone(current, child);
     child->page_directory  = proc->user_page_dir;
     child->process         = proc;

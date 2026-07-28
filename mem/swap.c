@@ -27,8 +27,8 @@
 #    include <libs/std/stdlib.h>
 #    include <libs/std/string.h>
 #    include <mem/frame.h>
-#    include <mem/hhdm.h>
 #    include <mem/heap.h>
+#    include <mem/hhdm.h>
 #    include <mem/page.h>
 #    include <proc/process.h>
 #    include <sync/spin_lock.h>
@@ -61,8 +61,7 @@ int swap_header_decode(const void *page, size_t bytes, uint64_t backing_pages, s
 uint64_t swap_entry_encode(uint32_t type, uint64_t offset, uint64_t pte_flags)
 {
     uint64_t preserve = pte_flags & (PTE_WRITEABLE | PTE_USER | PTE_COW | PTE_SHARED | PTE_NO_EXECUTE);
-    return PTE_SWAP | preserve | (((uint64_t)type & SWAP_TYPE_MASK) << SWAP_TYPE_SHIFT) |
-           ((offset & SWAP_OFFSET_MASK) << SWAP_OFFSET_SHIFT);
+    return PTE_SWAP | preserve | (((uint64_t)type & SWAP_TYPE_MASK) << SWAP_TYPE_SHIFT) | ((offset & SWAP_OFFSET_MASK) << SWAP_OFFSET_SHIFT);
 }
 
 int swap_entry_is_swap(uint64_t pte)
@@ -127,7 +126,7 @@ uint64_t swap_slot_alloc(swap_slot_map_t *map)
         if (slot > map->slots) slot -= map->slots;
         if (!swap_slot_used(map, slot)) {
             swap_slot_set(map, slot, 1);
-            map->refs[slot] = 1;
+            map->refs[slot]   = 1;
             map->cluster_next = slot == map->slots ? 1 : slot + 1;
             return slot;
         }
@@ -162,18 +161,18 @@ typedef enum {
 } swap_backend_t;
 
 typedef struct swap_area {
-    bool              active;
-    bool              draining;
-    uint8_t           type;
-    int               priority;
-    swap_backend_t    backend;
-    blockdev_device_t device;
-    vfs_node_t        file;
-    swap_slot_map_t   slots;
-    spinlock_t        lock;
-    uint64_t          pages_in;
-    uint64_t          pages_out;
-    char              path[VFS_PATH_MAX];
+        bool              active;
+        bool              draining;
+        uint8_t           type;
+        int               priority;
+        swap_backend_t    backend;
+        blockdev_device_t device;
+        vfs_node_t        file;
+        swap_slot_map_t   slots;
+        spinlock_t        lock;
+        uint64_t          pages_in;
+        uint64_t          pages_out;
+        char              path[VFS_PATH_MAX];
 } swap_area_t;
 
 static swap_area_t swap_areas[SWAP_MAX_AREAS];
@@ -184,12 +183,12 @@ static int swap_area_io(const swap_area_t *area, uint64_t slot, void *buffer, in
     if (!area || !area->active || !slot || slot > area->slots.slots) return -EINVAL;
     uint64_t offset = slot * SWAP_PAGE_SIZE;
     if (area->backend == SWAP_BACKEND_BLOCK) {
-        return write ? blockdev_write_bytes(&area->device, offset, buffer, SWAP_PAGE_SIZE)
-                     : blockdev_read_bytes(&area->device, offset, buffer, SWAP_PAGE_SIZE);
+        return write ? blockdev_write_bytes(&area->device, offset, buffer, SWAP_PAGE_SIZE) :
+                       blockdev_read_bytes(&area->device, offset, buffer, SWAP_PAGE_SIZE);
     }
 
-    size_t actual = write ? callbackof(area->file, write)(area->file->handle, buffer, (size_t)offset, SWAP_PAGE_SIZE)
-                          : callbackof(area->file, read)(area->file->handle, buffer, (size_t)offset, SWAP_PAGE_SIZE);
+    size_t actual = write ? callbackof(area->file, write)(area->file->handle, buffer, (size_t)offset, SWAP_PAGE_SIZE) :
+                            callbackof(area->file, read)(area->file->handle, buffer, (size_t)offset, SWAP_PAGE_SIZE);
     return actual == SWAP_PAGE_SIZE ? EOK : -EIO;
 }
 
@@ -232,8 +231,8 @@ static int swap_area_alloc(uint8_t *type, swap_area_t **area)
     for (uint32_t i = 0; i < SWAP_MAX_AREAS; i++) {
         if (!swap_areas[i].active && !swap_areas[i].draining) {
             swap_areas[i].draining = true;
-            *type = (uint8_t)i;
-            *area = &swap_areas[i];
+            *type                  = (uint8_t)i;
+            *area                  = &swap_areas[i];
             spin_unlock(&swap_lock);
             return EOK;
         }
@@ -246,7 +245,7 @@ static int swap_area_setup_slots(swap_area_t *area, uint64_t pages, const uint8_
 {
     swap_header_info_t info;
     if (swap_header_decode(header, SWAP_PAGE_SIZE, pages, &info)) return -EINVAL;
-    size_t words = (size_t)((info.slots + 64) / 64);
+    size_t words       = (size_t)((info.slots + 64) / 64);
     area->slots.bitmap = calloc(words, sizeof(uint64_t));
     area->slots.refs   = calloc((size_t)info.slots + 1, sizeof(uint32_t));
     if (!area->slots.bitmap || !area->slots.refs) {
@@ -279,17 +278,16 @@ int swap_activate_path(const char *path, uint32_t flags)
     if (result) return result;
 
     memset(area, 0, sizeof(*area));
-    area->type     = type;
-    area->draining = true;
-    area->priority = (flags & SWAP_FLAG_PREFER) ? (int)(flags & SWAP_FLAG_PRIO_MASK) : SWAP_PRIORITY_DEFAULT;
-    area->lock.lock = 0;
+    area->type        = type;
+    area->draining    = true;
+    area->priority    = (flags & SWAP_FLAG_PREFER) ? (int)(flags & SWAP_FLAG_PRIO_MASK) : SWAP_PRIORITY_DEFAULT;
+    area->lock.lock   = 0;
     area->lock.rflags = 0;
     strncpy(area->path, path, sizeof(area->path) - 1);
 
     uint8_t header[SWAP_PAGE_SIZE];
     if (!strncmp(path, "/dev/", 5) && blockdev_open_name(path, &area->device) == EOK) {
-        if (area->device.read_only || !area->device.sector_size ||
-            area->device.sector_count > UINT64_MAX / area->device.sector_size) {
+        if (area->device.read_only || !area->device.sector_size || area->device.sector_count > UINT64_MAX / area->device.sector_size) {
             memset(area, 0, sizeof(*area));
             return -EROFS;
         }
@@ -306,8 +304,8 @@ int swap_activate_path(const char *path, uint32_t flags)
             memset(area, 0, sizeof(*area));
             return -ENOENT;
         }
-        if ((file->type & ~file_delete) != file_none || file->size < 2 * SWAP_PAGE_SIZE || !file->handle ||
-            callbackof(file, read) == NULL || callbackof(file, write) == NULL) {
+        if ((file->type & ~file_delete) != file_none || file->size < 2 * SWAP_PAGE_SIZE || !file->handle || callbackof(file, read) == NULL
+            || callbackof(file, write) == NULL) {
             vfs_close(file);
             memset(area, 0, sizeof(*area));
             return -EINVAL;
@@ -332,7 +330,7 @@ int swap_activate_path(const char *path, uint32_t flags)
 
     spin_lock(&swap_lock);
     area->draining = false;
-    area->active = true;
+    area->active   = true;
     spin_unlock(&swap_lock);
     return EOK;
 }
@@ -341,7 +339,7 @@ static page_table_entry_t *swap_pte_lookup(page_directory_t *directory, uintptr_
 {
     if (!directory || !directory->table || ((address >> 39) & 0x1ff) >= 256) return NULL;
     page_table_t *table = directory->table;
-    uint64_t value = table->entries[(address >> 39) & 0x1ff].value;
+    uint64_t      value = table->entries[(address >> 39) & 0x1ff].value;
     if (!(value & PTE_PRESENT) || (value & PTE_HUGE)) return NULL;
     table = phys_to_virt(value & PAGE_4K_MASK);
     value = table->entries[(address >> 30) & 0x1ff].value;
@@ -358,11 +356,11 @@ int swap_fault(page_directory_t *directory, uintptr_t address)
     if (!directory) return -EINVAL;
     address = ALIGN_DOWN(address, SWAP_PAGE_SIZE);
 
-    uint64_t entry;
+    uint64_t            entry;
     page_table_entry_t *pte;
     for (;;) {
         spin_lock(&directory->lock);
-        pte = swap_pte_lookup(directory, address);
+        pte   = swap_pte_lookup(directory, address);
         entry = pte ? __atomic_load_n(&pte->value, __ATOMIC_ACQUIRE) : 0;
         if (!swap_entry_is_swap(entry)) {
             spin_unlock(&directory->lock);
@@ -376,9 +374,9 @@ int swap_fault(page_directory_t *directory, uintptr_t address)
     flush_tlb(address);
     spin_unlock(&directory->lock);
 
-    swap_area_t *area = swap_area_for_type(swap_entry_type(entry));
-    uint64_t frame = area ? alloc_frames(1) : 0;
-    int result = (!frame || !area) ? -ENOMEM : swap_area_io(area, swap_entry_offset(entry), phys_to_virt(frame), 0);
+    swap_area_t *area   = swap_area_for_type(swap_entry_type(entry));
+    uint64_t     frame  = area ? alloc_frames(1) : 0;
+    int          result = (!frame || !area) ? -ENOMEM : swap_area_io(area, swap_entry_offset(entry), phys_to_virt(frame), 0);
 
     spin_lock(&directory->lock);
     pte = swap_pte_lookup(directory, address);
@@ -420,10 +418,10 @@ static int swap_out_page(page_directory_t *directory, uintptr_t address)
     if (!slot) return -ENOSPC;
 
     spin_lock(&directory->lock);
-    page_table_entry_t *pte = swap_pte_lookup(directory, address);
-    uint64_t value = pte ? __atomic_load_n(&pte->value, __ATOMIC_ACQUIRE) : 0;
-    if (!pte || !(value & PTE_PRESENT) || !(value & PTE_USER) || (value & (PTE_SHARED | PTE_HUGE)) ||
-        frame_refcount(value & PAGE_4K_MASK) != 1) {
+    page_table_entry_t *pte   = swap_pte_lookup(directory, address);
+    uint64_t            value = pte ? __atomic_load_n(&pte->value, __ATOMIC_ACQUIRE) : 0;
+    if (!pte || !(value & PTE_PRESENT) || !(value & PTE_USER) || (value & (PTE_SHARED | PTE_HUGE))
+        || frame_refcount(value & PAGE_4K_MASK) != 1) {
         spin_unlock(&directory->lock);
         (void)swap_slot_release(&best->slots, slot);
         return -EAGAIN;
@@ -459,8 +457,8 @@ static int swap_out_page(page_directory_t *directory, uintptr_t address)
 
 int swap_reclaim(size_t target)
 {
-    size_t reclaimed = 0;
-    size_t cursor = 0;
+    size_t     reclaimed = 0;
+    size_t     cursor    = 0;
     process_t *proc;
     while (reclaimed < target && (proc = process_iterate_get(&cursor)) != NULL) {
         if (proc->user_page_dir) {
@@ -482,7 +480,7 @@ static int swapoff_area_in(page_directory_t *directory, page_table_t *table, int
 {
     uint64_t shift = level == 4 ? 39 : (level == 3 ? 30 : (level == 2 ? 21 : 12));
     for (uint32_t i = 0; i < 512; i++) {
-        uint64_t value = __atomic_load_n(&table->entries[i].value, __ATOMIC_ACQUIRE);
+        uint64_t  value   = __atomic_load_n(&table->entries[i].value, __ATOMIC_ACQUIRE);
         uintptr_t address = base | ((uintptr_t)i << shift);
         if (level == 1) {
             if (swap_entry_is_swap(value) && swap_entry_type(value) == type) {
@@ -505,7 +503,7 @@ int swap_deactivate_path(const char *path)
     spin_lock(&swap_lock);
     for (uint32_t i = 0; i < SWAP_MAX_AREAS; i++) {
         if (swap_areas[i].active && !strcmp(swap_areas[i].path, path)) {
-            area = &swap_areas[i];
+            area           = &swap_areas[i];
             area->draining = true;
             break;
         }
@@ -513,9 +511,9 @@ int swap_deactivate_path(const char *path)
     spin_unlock(&swap_lock);
     if (!area) return -EINVAL;
 
-    size_t cursor = 0;
+    size_t     cursor = 0;
     process_t *proc;
-    int result = EOK;
+    int        result = EOK;
     while ((proc = process_iterate_get(&cursor)) != NULL) {
         if (proc->user_page_dir) result = swapoff_area_in(proc->user_page_dir, proc->user_page_dir->table, 4, 0, area->type);
         process_put(proc);

@@ -34,23 +34,23 @@
 typedef struct usb_storage_device usb_storage_device_t;
 
 typedef struct {
-        usb_storage_device_t            *storage;
-        blockdev_device_t                blockdev;
-        struct block_sysfs_dev          *sysfs;
-        devtmpfs_block_registration_t   *devtmpfs;
-        uint64_t                         sector_count;
-        uint32_t                         sector_size;
-        uint16_t                         disk_index;
-        uint8_t                          lun;
-        char                             name[16];
-        bool                             read_only;
-        bool                             registered;
+        usb_storage_device_t          *storage;
+        blockdev_device_t              blockdev;
+        struct block_sysfs_dev        *sysfs;
+        devtmpfs_block_registration_t *devtmpfs;
+        uint64_t                       sector_count;
+        uint32_t                       sector_size;
+        uint16_t                       disk_index;
+        uint8_t                        lun;
+        char                           name[16];
+        bool                           read_only;
+        bool                           registered;
 } usb_storage_lun_t;
 
 struct usb_storage_device {
-        usb_interface_t *interface;
-        usb_endpoint_t  *bulk_in;
-        usb_endpoint_t  *bulk_out;
+        usb_interface_t  *interface;
+        usb_endpoint_t   *bulk_in;
+        usb_endpoint_t   *bulk_out;
         usb_storage_lun_t luns[USB_MSC_MAX_LUNS];
         uint32_t          next_tag;
         volatile uint32_t references;
@@ -59,8 +59,8 @@ struct usb_storage_device {
         uint8_t           lun_count;
 };
 
-static int usb_storage_type = -1;
-static bool usb_storage_disk_ids[USB_MSC_MAX_DISKS];
+static int        usb_storage_type = -1;
+static bool       usb_storage_disk_ids[USB_MSC_MAX_DISKS];
 static spinlock_t usb_storage_disk_lock;
 
 static uint32_t usb_scsi_be32(const uint8_t *data)
@@ -86,27 +86,26 @@ static void usb_storage_unlock(usb_storage_device_t *storage)
 static int usb_storage_bulk(usb_endpoint_t *endpoint, void *buffer, size_t length)
 {
     size_t actual = 0;
-    int status = usb_bulk_msg(endpoint, buffer, length, &actual, USB_IO_TIMEOUT_MS);
+    int    status = usb_bulk_msg(endpoint, buffer, length, &actual, USB_IO_TIMEOUT_MS);
     if (status != EOK) return status;
     return actual == length ? EOK : -EREMOTEIO;
 }
 
 static void usb_storage_reset(usb_storage_device_t *storage)
 {
-    (void)usb_control_msg(storage->interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
-                          USB_MSC_REQ_RESET, 0, storage->interface->descriptor.interface_number, NULL, 0,
-                          USB_CTRL_TIMEOUT_MS);
+    (void)usb_control_msg(storage->interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_MSC_REQ_RESET, 0,
+                          storage->interface->descriptor.interface_number, NULL, 0, USB_CTRL_TIMEOUT_MS);
     (void)usb_clear_halt(storage->bulk_in);
     (void)usb_clear_halt(storage->bulk_out);
 }
 
-static int usb_storage_command_locked(usb_storage_device_t *storage, uint8_t lun, const void *command,
-                                      uint8_t command_length, void *data, uint32_t data_length, bool input)
+static int usb_storage_command_locked(usb_storage_device_t *storage, uint8_t lun, const void *command, uint8_t command_length, void *data,
+                                      uint32_t data_length, bool input)
 {
     usb_msc_cbw_t cbw;
     usb_msc_csw_t csw;
-    uint32_t tag = ++storage->next_tag;
-    int status = usb_msc_build_cbw(&cbw, tag, lun, command, command_length, data_length, input);
+    uint32_t      tag    = ++storage->next_tag;
+    int           status = usb_msc_build_cbw(&cbw, tag, lun, command, command_length, data_length, input);
     if (status != EOK) return status;
 
     status = usb_storage_bulk(storage->bulk_out, &cbw, sizeof(cbw));
@@ -133,8 +132,7 @@ recover:
     return status;
 }
 
-static int usb_storage_command(usb_storage_lun_t *lun, const void *command, uint8_t command_length,
-                               void *data, uint32_t data_length, bool input)
+static int usb_storage_command(usb_storage_lun_t *lun, const void *command, uint8_t command_length, void *data, uint32_t data_length, bool input)
 {
     usb_storage_device_t *storage = lun->storage;
     if (!__atomic_load_n(&storage->connected, __ATOMIC_ACQUIRE)) return -ENODEV;
@@ -171,18 +169,17 @@ static int usb_storage_capacity(usb_storage_lun_t *lun)
 {
     uint8_t command10[10] = {0x25};
     uint8_t response10[8];
-    int status = usb_storage_command(lun, command10, sizeof(command10), response10, sizeof(response10), true);
+    int     status = usb_storage_command(lun, command10, sizeof(command10), response10, sizeof(response10), true);
     if (status != EOK) return status;
     uint32_t last_lba = usb_scsi_be32(response10);
-    if (last_lba != UINT32_MAX)
-        return usb_scsi_parse_capacity10(response10, &lun->sector_count, &lun->sector_size);
+    if (last_lba != UINT32_MAX) return usb_scsi_parse_capacity10(response10, &lun->sector_count, &lun->sector_size);
 
     uint8_t command16[16] = {0x9e, 0x10};
     uint8_t response16[32];
     command16[13] = sizeof(response16);
-    status = usb_storage_command(lun, command16, sizeof(command16), response16, sizeof(response16), true);
+    status        = usb_storage_command(lun, command16, sizeof(command16), response16, sizeof(response16), true);
     if (status != EOK) return status;
-    uint64_t last_lba16 = usb_scsi_be64(response16);
+    uint64_t last_lba16  = usb_scsi_be64(response16);
     uint32_t sector_size = usb_scsi_be32(response16 + 8);
     if (last_lba16 == UINT64_MAX || !sector_size || (sector_size & (sector_size - 1)) || sector_size < 512 || sector_size > 65536)
         return -EINVAL;
@@ -195,8 +192,7 @@ static void usb_storage_mode_sense(usb_storage_lun_t *lun)
 {
     uint8_t command[6] = {0x1a, 0, 0x3f, 0, 4, 0};
     uint8_t response[4];
-    if (usb_storage_command(lun, command, sizeof(command), response, sizeof(response), true) == EOK)
-        lun->read_only = (response[2] & 0x80) != 0;
+    if (usb_storage_command(lun, command, sizeof(command), response, sizeof(response), true) == EOK) lun->read_only = (response[2] & 0x80) != 0;
 }
 
 static void usb_scsi_build_rw16(uint8_t command[16], bool write, uint64_t lba, uint32_t blocks)
@@ -218,13 +214,13 @@ static int usb_storage_rw(const blockdev_device_t *device, uint64_t lba, uint32_
     if (lba > UINT64_MAX - device->base_lba) return -EOVERFLOW;
     lba += device->base_lba;
     uint8_t *position = buffer;
-    uint32_t maximum = USB_MSC_IO_CHUNK / lun->sector_size;
+    uint32_t maximum  = USB_MSC_IO_CHUNK / lun->sector_size;
     if (!maximum) return -EINVAL;
 
     while (count) {
         uint32_t blocks = count > maximum ? maximum : count;
-        uint32_t bytes = blocks * lun->sector_size;
-        int status;
+        uint32_t bytes  = blocks * lun->sector_size;
+        int      status;
         if (lba <= UINT32_MAX && blocks <= UINT16_MAX && lba + blocks - 1 <= UINT32_MAX) {
             uint8_t command[10];
             usb_scsi_build_rw10(command, write, (uint32_t)lba, (uint16_t)blocks, false);
@@ -254,8 +250,8 @@ static int usb_storage_write(const blockdev_device_t *device, uint64_t lba, uint
 
 static int usb_storage_flush(const blockdev_device_t *device)
 {
-    usb_storage_lun_t *lun = device ? device->backend_data : NULL;
-    uint8_t command[10] = {0x35};
+    usb_storage_lun_t *lun         = device ? device->backend_data : NULL;
+    uint8_t            command[10] = {0x35};
     if (!lun) return -ENODEV;
     if (lun->read_only) return EOK;
     return usb_storage_command(lun, command, sizeof(command), NULL, 0, false);
@@ -294,7 +290,7 @@ static int usb_storage_allocate_name(char *name, size_t size, uint16_t *disk_ind
             continue;
         }
         usb_storage_disk_ids[index] = true;
-        *disk_index = index;
+        *disk_index                 = index;
         spin_unlock(&usb_storage_disk_lock);
         return EOK;
     }
@@ -313,7 +309,7 @@ static void usb_storage_release_name(uint16_t index)
 static int usb_storage_register_lun(usb_storage_lun_t *lun)
 {
     char path[32];
-    int status = usb_storage_allocate_name(lun->name, sizeof(lun->name), &lun->disk_index);
+    int  status = usb_storage_allocate_name(lun->name, sizeof(lun->name), &lun->disk_index);
     if (status != EOK) return status;
     lun->blockdev.ops_id       = (uint8_t)usb_storage_type;
     lun->blockdev.backend_data = lun;
@@ -324,7 +320,7 @@ static int usb_storage_register_lun(usb_storage_lun_t *lun)
     lun->blockdev.read_only    = lun->read_only;
     snprintf(path, sizeof(path), "/dev/%s", lun->name);
     uint64_t devt = MKDEV(USB_MSC_MAJOR, (uint32_t)lun->disk_index * 16);
-    status = devtmpfs_register_block_device(path, &lun->blockdev, devt, devt, true, &lun->devtmpfs);
+    status        = devtmpfs_register_block_device(path, &lun->blockdev, devt, devt, true, &lun->devtmpfs);
     if (status != EOK) goto fail_name;
     status = block_sysfs_register_device(lun->name, &lun->blockdev, true, &lun->sysfs);
     if (status != EOK) goto fail_devtmpfs;
@@ -354,10 +350,9 @@ int usb_storage_probe(usb_interface_t *interface)
 {
 #if CONFIG_USB_STORAGE
     if (!interface || interface->driver_data || interface->descriptor.interface_class != USB_CLASS_MASS_STORAGE
-        || interface->descriptor.interface_subclass != USB_MSC_SUBCLASS_SCSI
-        || interface->descriptor.interface_protocol != USB_MSC_PROTOCOL_BOT)
+        || interface->descriptor.interface_subclass != USB_MSC_SUBCLASS_SCSI || interface->descriptor.interface_protocol != USB_MSC_PROTOCOL_BOT)
         return -ENODEV;
-    usb_endpoint_t *bulk_in = usb_find_endpoint(interface, USB_ENDPOINT_XFER_BULK, true);
+    usb_endpoint_t *bulk_in  = usb_find_endpoint(interface, USB_ENDPOINT_XFER_BULK, true);
     usb_endpoint_t *bulk_out = usb_find_endpoint(interface, USB_ENDPOINT_XFER_BULK, false);
     if (!bulk_in || !bulk_out) return -ENODEV;
     if (usb_storage_type < 0) {
@@ -373,20 +368,21 @@ int usb_storage_probe(usb_interface_t *interface)
     storage->connected  = true;
 
     uint8_t max_lun = 0;
-    if (usb_control_msg(interface->device, USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_MSC_REQ_MAX_LUN,
-                        0, interface->descriptor.interface_number, &max_lun, sizeof(max_lun), USB_CTRL_TIMEOUT_MS) != EOK)
+    if (usb_control_msg(interface->device, USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_MSC_REQ_MAX_LUN, 0,
+                        interface->descriptor.interface_number, &max_lun, sizeof(max_lun), USB_CTRL_TIMEOUT_MS)
+        != EOK)
         max_lun = 0;
     if (max_lun >= USB_MSC_MAX_LUNS) max_lun = USB_MSC_MAX_LUNS - 1;
     for (uint8_t index = 0; index <= max_lun; index++) {
         usb_storage_lun_t *lun = &storage->luns[index];
-        lun->storage = storage;
-        lun->lun     = index;
+        lun->storage           = storage;
+        lun->lun               = index;
         if (usb_storage_wait_ready(lun) != EOK || usb_storage_capacity(lun) != EOK) continue;
         usb_storage_mode_sense(lun);
         if (usb_storage_register_lun(lun) != EOK) continue;
         storage->lun_count++;
-        plogk("usb-storage: %s: %llu sectors, %u-byte logical blocks%s\n", lun->name,
-              (unsigned long long)lun->sector_count, lun->sector_size, lun->read_only ? ", read-only" : "");
+        plogk("usb-storage: %s: %llu sectors, %u-byte logical blocks%s\n", lun->name, (unsigned long long)lun->sector_count, lun->sector_size,
+              lun->read_only ? ", read-only" : "");
     }
     if (!storage->lun_count) {
         storage->connected = false;

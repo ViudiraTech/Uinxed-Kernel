@@ -199,7 +199,7 @@ int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_pr
     if (r->width > dev->mode_config.max_width || r->height > dev->mode_config.max_height) { return -EINVAL; }
 
     num_planes = 1;
-    min_pitch = r->width * 4;
+    min_pitch  = r->width * 4;
     if (r->pitches[0] < min_pitch) return -EINVAL;
     if (r->flags & DRM_MODE_FB_MODIFIERS) {
         if (r->modifier[0] != DRM_FORMAT_MOD_LINEAR) return -EINVAL;
@@ -242,8 +242,8 @@ int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_pr
         }
 
         /* Include the plane offset and protect the arithmetic from wrap. */
-        if (r->offsets[i] > obj->size || (r->height > 0
-            && ((uint64_t)r->pitches[i] * (r->height - 1) + min_pitch > obj->size - r->offsets[i]))) {
+        if (r->offsets[i] > obj->size
+            || (r->height > 0 && ((uint64_t)r->pitches[i] * (r->height - 1) + min_pitch > obj->size - r->offsets[i]))) {
             drm_gem_object_put(obj);
             ret = -EINVAL;
             goto err_cleanup;
@@ -301,16 +301,16 @@ int drm_mode_rmfb(struct drm_device *dev, void *data, struct drm_file *file_priv
         struct drm_plane *plane = container_of(node, struct drm_plane, head);
         if (!plane->state || plane->state->fb != fb) continue;
         if (plane->state->crtc && plane == plane->state->crtc->primary) {
-            struct drm_crtc *crtc = plane->state->crtc;
+            struct drm_crtc              *crtc    = plane->state->crtc;
             struct drm_crtc_helper_funcs *helpers = (struct drm_crtc_helper_funcs *)crtc->helper_private;
             if (!helpers || !helpers->page_flip) return -EBUSY;
             int ret = helpers->page_flip(crtc, NULL, NULL, 0);
             if (ret) return ret;
         }
-        plane->state->fb = NULL;
+        plane->state->fb   = NULL;
         plane->state->crtc = NULL;
-        plane->fb_id = 0;
-        plane->crtc_id = 0;
+        plane->fb_id       = 0;
+        plane->crtc_id     = 0;
     }
     drm_framebuffer_cleanup(fb);
     free(fb);
@@ -379,9 +379,7 @@ int drm_mode_getfb(struct drm_device *dev, void *data, struct drm_file *file_pri
 
     r->handle = 0;
     if (fb->obj[0]) {
-        if (drm_gem_handle_create(file_priv, fb->obj[0], &r->handle)) {
-            return -ENOMEM;
-        }
+        if (drm_gem_handle_create(file_priv, fb->obj[0], &r->handle)) { return -ENOMEM; }
     }
 
     return 0;
@@ -401,8 +399,8 @@ int drm_mode_dirtyfb(struct drm_device *dev, void *data, struct drm_file *file_p
     struct drm_mode_fb_dirty_cmd *r = (struct drm_mode_fb_dirty_cmd *)data;
     struct drm_framebuffer       *fb;
     struct drm_clip_rect         *clips = NULL;
-    unsigned int                 flags;
-    int                          ret = 0;
+    unsigned int                  flags;
+    int                           ret = 0;
 
     if (!dev || !r) { return -EINVAL; }
 
@@ -476,13 +474,14 @@ int drm_mode_getfb2_ioctl(struct drm_device *dev, void *data, struct drm_file *f
     r->pixel_format = fb->format;
     r->flags        = DRM_MODE_FB_MODIFIERS;
     for (int i = 0; i < 4; i++) {
-        r->handles[i] = 0;
+        r->handles[i]  = 0;
         r->modifier[i] = i == 0 ? fb->modifier : 0;
-        r->pitches[i] = fb->pitches[i];
-        r->offsets[i] = fb->offsets[i];
+        r->pitches[i]  = fb->pitches[i];
+        r->offsets[i]  = fb->offsets[i];
         if (fb->obj[i]) {
             if (drm_gem_handle_create(file_priv, fb->obj[i], &r->handles[i])) {
-                for (int j = 0; j < i; j++) if (r->handles[j]) drm_gem_handle_delete(file_priv, r->handles[j]);
+                for (int j = 0; j < i; j++)
+                    if (r->handles[j]) drm_gem_handle_delete(file_priv, r->handles[j]);
                 return -ENOMEM;
             }
         }

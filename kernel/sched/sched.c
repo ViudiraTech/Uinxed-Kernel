@@ -8,8 +8,8 @@
  *
  */
 
-#include <arch/gdt.h>
 #include <arch/eis.h>
+#include <arch/gdt.h>
 #include <arch/smp.h>
 #include <cgroup/cgroup.h>
 #include <chipset/common.h>

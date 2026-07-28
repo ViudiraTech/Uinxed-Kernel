@@ -36,16 +36,16 @@ xhci_trb_t *xhci_ring_enqueue(xhci_ring_t *ring, uint64_t parameter, uint32_t st
     spin_lock(&ring->lock);
     if (ring->enqueue == ring->count - 1) {
         xhci_trb_t *link = &ring->trbs[ring->count - 1];
-        link->control = XHCI_TRB_TYPE(XHCI_TRB_LINK) | XHCI_TRB_TOGGLE_CYCLE | ring->cycle;
+        link->control    = XHCI_TRB_TYPE(XHCI_TRB_LINK) | XHCI_TRB_TOGGLE_CYCLE | ring->cycle;
         dma_write_barrier();
         ring->enqueue = 0;
         ring->cycle ^= 1;
     }
-    uint16_t index = ring->enqueue++;
-    xhci_trb_t *trb = &ring->trbs[index];
-    trb->parameter = parameter;
-    trb->status    = status;
-    trb->control   = (control & ~XHCI_TRB_CYCLE) | ring->cycle;
+    uint16_t    index = ring->enqueue++;
+    xhci_trb_t *trb   = &ring->trbs[index];
+    trb->parameter    = parameter;
+    trb->status       = status;
+    trb->control      = (control & ~XHCI_TRB_CYCLE) | ring->cycle;
     dma_write_barrier();
     if (physical) *physical = ring->physical + (uint64_t)index * sizeof(*trb);
     spin_unlock(&ring->lock);

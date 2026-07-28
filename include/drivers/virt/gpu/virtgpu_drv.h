@@ -72,8 +72,8 @@ enum virtio_gpu_ctrl_type {
     VIRTIO_GPU_CMD_RESOURCE_MAP_BLOB     = 0x0208,
     VIRTIO_GPU_CMD_RESOURCE_UNMAP_BLOB   = 0x0209,
 
-    VIRTIO_GPU_CMD_UPDATE_CURSOR         = 0x0300,
-    VIRTIO_GPU_CMD_MOVE_CURSOR           = 0x0301,
+    VIRTIO_GPU_CMD_UPDATE_CURSOR = 0x0300,
+    VIRTIO_GPU_CMD_MOVE_CURSOR   = 0x0301,
 
     /* Responses */
     VIRTIO_GPU_RESP_OK_NODATA               = 0x1100,
@@ -284,12 +284,12 @@ struct virtio_gpu_cursor_pos {
 };
 
 struct virtio_gpu_update_cursor {
-        struct virtio_gpu_ctrl_hdr hdr;
+        struct virtio_gpu_ctrl_hdr   hdr;
         struct virtio_gpu_cursor_pos pos;
-        uint32_t resource_id;
-        uint32_t hot_x;
-        uint32_t hot_y;
-        uint32_t padding;
+        uint32_t                     resource_id;
+        uint32_t                     hot_x;
+        uint32_t                     hot_y;
+        uint32_t                     padding;
 };
 
 struct virtio_gpu_ctx_resource {
@@ -395,15 +395,15 @@ struct virtio_gpu_resp_map_info {
 #define DRM_IOCTL_VIRTGPU_CONTEXT_INIT DRM_IOWR(DRM_COMMAND_BASE + DRM_VIRTGPU_CONTEXT_INIT, struct drm_virtgpu_context_init)
 
 /* Param IDs */
-#define DRM_VIRTGPU_PARAM_3D_FEATURES         1
-#define DRM_VIRTGPU_PARAM_CAPSET_QUERY_FIX    2
-#define DRM_VIRTGPU_PARAM_RESOURCE_BLOB       3
-#define DRM_VIRTGPU_PARAM_HOST_VISIBLE        4
-#define DRM_VIRTGPU_PARAM_CROSS_DEVICE        5
-#define DRM_VIRTGPU_PARAM_CONTEXT_INIT        6
+#define DRM_VIRTGPU_PARAM_3D_FEATURES          1
+#define DRM_VIRTGPU_PARAM_CAPSET_QUERY_FIX     2
+#define DRM_VIRTGPU_PARAM_RESOURCE_BLOB        3
+#define DRM_VIRTGPU_PARAM_HOST_VISIBLE         4
+#define DRM_VIRTGPU_PARAM_CROSS_DEVICE         5
+#define DRM_VIRTGPU_PARAM_CONTEXT_INIT         6
 #define DRM_VIRTGPU_PARAM_SUPPORTED_CAPSET_IDs 7
-#define DRM_VIRTGPU_PARAM_EXPLICIT_DEBUG_NAME 8
-#define DRM_VIRTGPU_PARAM_BLOB_ALIGNMENT      9
+#define DRM_VIRTGPU_PARAM_EXPLICIT_DEBUG_NAME  8
+#define DRM_VIRTGPU_PARAM_BLOB_ALIGNMENT       9
 
 /* ------------------------------------------------------------------ */
 /* DRM UAPI structs (fixed-width for x86-64 compat)                    */
@@ -418,7 +418,7 @@ struct drm_virtgpu_map {
 struct drm_virtgpu_execbuffer {
         uint32_t flags;
         uint32_t size;
-        uint64_t command; /* pointer to command buffer */
+        uint64_t command;    /* pointer to command buffer */
         uint64_t bo_handles; /* pointer to BO handle array */
         uint32_t num_bo_handles;
         int32_t  fence_fd;
@@ -455,8 +455,7 @@ struct drm_virtgpu_resource_create {
 #define VIRTGPU_EXECBUF_FENCE_FD_IN  0x01
 #define VIRTGPU_EXECBUF_FENCE_FD_OUT 0x02
 #define VIRTGPU_EXECBUF_RING_IDX     0x04
-#define VIRTGPU_EXECBUF_FLAGS \
-        (VIRTGPU_EXECBUF_FENCE_FD_IN | VIRTGPU_EXECBUF_FENCE_FD_OUT | VIRTGPU_EXECBUF_RING_IDX)
+#define VIRTGPU_EXECBUF_FLAGS        (VIRTGPU_EXECBUF_FENCE_FD_IN | VIRTGPU_EXECBUF_FENCE_FD_OUT | VIRTGPU_EXECBUF_RING_IDX)
 
 #define VIRTGPU_EXECBUF_SYNCOBJ_RESET 0x01
 #define VIRTGPU_EXECBUF_SYNCOBJ_FLAGS VIRTGPU_EXECBUF_SYNCOBJ_RESET
@@ -519,10 +518,10 @@ struct drm_virtgpu_resource_create_blob {
 
 #define DRM_VIRTGPU_BLOB_FLAG_HINT_DEFER_MAPPING 0x0001
 
-#define VIRTGPU_CONTEXT_PARAM_CAPSET_ID      0x0001
-#define VIRTGPU_CONTEXT_PARAM_NUM_RINGS      0x0002
+#define VIRTGPU_CONTEXT_PARAM_CAPSET_ID       0x0001
+#define VIRTGPU_CONTEXT_PARAM_NUM_RINGS       0x0002
 #define VIRTGPU_CONTEXT_PARAM_POLL_RINGS_MASK 0x0003
-#define VIRTGPU_CONTEXT_PARAM_DEBUG_NAME     0x0004
+#define VIRTGPU_CONTEXT_PARAM_DEBUG_NAME      0x0004
 
 struct drm_virtgpu_context_set_param {
         uint64_t param;
@@ -542,12 +541,12 @@ struct drm_virtgpu_context_init {
 /* ------------------------------------------------------------------ */
 
 /* Capset IDs (matches virgl/drm virtgpu) */
-#define VIRTGPU_CAPSET_VIRGL           1
-#define VIRTGPU_CAPSET_VIRGL2          2
+#define VIRTGPU_CAPSET_VIRGL            1
+#define VIRTGPU_CAPSET_VIRGL2           2
 #define VIRTGPU_CAPSET_GFXSTREAM_VULKAN 3
-#define VIRTGPU_CAPSET_VENUS           4
-#define VIRTGPU_CAPSET_CROSS_DOMAIN    5
-#define VIRTGPU_CAPSET_DRM             6
+#define VIRTGPU_CAPSET_VENUS            4
+#define VIRTGPU_CAPSET_CROSS_DOMAIN     5
+#define VIRTGPU_CAPSET_DRM              6
 
 /* Per-context blob flags (kernel internal) */
 #define VIRTGPU_CONTEXT_INIT_CAPSET_ID_MASK  0xff
@@ -560,13 +559,13 @@ struct drm_virtgpu_context_init {
 #define VIRTGPU_DEBUG_NAME_MAX    64
 
 struct virtio_gpu_fpriv {
-        uint32_t ctx_id;
-        uint32_t context_init;
-        uint32_t num_rings;
-        uint64_t ring_idx_mask;
-        bool     context_created;
-        bool     explicit_debug_name;
-        char     debug_name[VIRTGPU_DEBUG_NAME_MAX];
+        uint32_t   ctx_id;
+        uint32_t   context_init;
+        uint32_t   num_rings;
+        uint64_t   ring_idx_mask;
+        bool       context_created;
+        bool       explicit_debug_name;
+        char       debug_name[VIRTGPU_DEBUG_NAME_MAX];
         spinlock_t context_lock;
 };
 
@@ -586,7 +585,7 @@ struct virtio_gpu_fence {
 
 struct virtio_gpu_context_attachment {
         struct virtio_gpu_context_attachment *next;
-        uint32_t                               ctx_id;
+        uint32_t                              ctx_id;
 };
 
 /* ------------------------------------------------------------------ */
@@ -602,14 +601,14 @@ struct virtio_gpu_object {
         uint32_t              stride;
         uint32_t              depth;
 
-        bool     created_3d;
-        bool     created_blob;
-        uint32_t blob_mem;
-        uint32_t blob_flags;
-        uint64_t blob_id;
-        uint32_t ctx_id;
-        bool     backing_attached;
-        spinlock_t context_lock;
+        bool                                  created_3d;
+        bool                                  created_blob;
+        uint32_t                              blob_mem;
+        uint32_t                              blob_flags;
+        uint64_t                              blob_id;
+        uint32_t                              ctx_id;
+        bool                                  backing_attached;
+        spinlock_t                            context_lock;
         struct virtio_gpu_context_attachment *context_attachments;
 
         /* Backing memory for guest-allocated resources */
@@ -655,13 +654,13 @@ struct virtio_gpu_device {
         spinlock_t          cursorq_cmd_lock;
 
         /* Feature flags negotiated */
-        bool has_virgl;
-        bool has_edid;
-        bool has_resource_blob;
-        bool has_context_init;
-        uint32_t num_capsets;
-        uint64_t capset_id_mask;
-        spinlock_t capset_lock;
+        bool                           has_virgl;
+        bool                           has_edid;
+        bool                           has_resource_blob;
+        bool                           has_context_init;
+        uint32_t                       num_capsets;
+        uint64_t                       capset_id_mask;
+        spinlock_t                     capset_lock;
         struct virtio_gpu_capset_cache capsets[64];
 
         /* Display info from host */
@@ -714,17 +713,16 @@ int virtgpu_cmd_attach_backing(struct virtio_gpu_device *vgdev, struct virtio_gp
 int virtgpu_cmd_detach_backing(struct virtio_gpu_device *vgdev, uint32_t res_id);
 int virtgpu_cmd_transfer_to_host_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint64_t offset);
 int virtgpu_cmd_transfer_to_host_2d_rect(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj,
-                                        const struct drm_virtgpu_3d_transfer *xf);
-int virtgpu_cmd_update_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct virtio_gpu_rect *rect,
-                          uint64_t offset);
+                                         const struct drm_virtgpu_3d_transfer *xf);
+int virtgpu_cmd_update_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct virtio_gpu_rect *rect, uint64_t offset);
 int virtgpu_cmd_update_scanout_2d(struct virtio_gpu_device *vgdev, int scanout_id, struct virtio_gpu_object *obj, bool set_scanout);
 int virtgpu_cmd_transfer_3d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id,
-                           const struct drm_virtgpu_3d_transfer *xf, bool to_host);
+                            const struct drm_virtgpu_3d_transfer *xf, bool to_host);
 int virtgpu_cmd_resource_flush(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, struct virtio_gpu_rect *rect);
 int virtgpu_cmd_set_scanout(struct virtio_gpu_device *vgdev, int scanout_id, struct virtio_gpu_object *obj);
 int virtgpu_cmd_set_scanout_blob(struct virtio_gpu_device *vgdev, int scanout_id, struct virtio_gpu_object *obj);
-int virtgpu_cmd_update_cursor(struct virtio_gpu_device *vgdev, uint32_t scanout_id, struct virtio_gpu_object *obj,
-                              int32_t x, int32_t y, int32_t hot_x, int32_t hot_y);
+int virtgpu_cmd_update_cursor(struct virtio_gpu_device *vgdev, uint32_t scanout_id, struct virtio_gpu_object *obj, int32_t x, int32_t y,
+                              int32_t hot_x, int32_t hot_y);
 int virtgpu_cmd_move_cursor(struct virtio_gpu_device *vgdev, uint32_t scanout_id, int32_t x, int32_t y);
 int virtgpu_cmd_ctx_create(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t context_init, const char *debug_name, uint32_t name_len);
 int virtgpu_cmd_ctx_destroy(struct virtio_gpu_device *vgdev, uint32_t ctx_id);
@@ -732,8 +730,8 @@ int virtgpu_cmd_ctx_attach_resource(struct virtio_gpu_device *vgdev, uint32_t ct
 int virtgpu_cmd_ctx_detach_resource(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t resource_id);
 int virtgpu_object_attach_context(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id);
 int virtgpu_object_detach_context(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id);
-int virtgpu_cmd_submit_3d(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t ring_idx, bool use_ring_idx,
-                          const void *cmd, uint32_t size, struct virtio_gpu_fence *fence);
+int virtgpu_cmd_submit_3d(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t ring_idx, bool use_ring_idx, const void *cmd, uint32_t size,
+                          struct virtio_gpu_fence *fence);
 int virtgpu_cmd_get_capset_info(struct virtio_gpu_device *vgdev, uint32_t idx, uint32_t *capset_id, uint32_t *max_version, uint32_t *max_size);
 int virtgpu_cmd_get_capset(struct virtio_gpu_device *vgdev, uint32_t capset_id, uint32_t version, void *data, uint32_t max_size);
 

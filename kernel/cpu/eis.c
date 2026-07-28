@@ -16,10 +16,10 @@
 #include <proc/sched.h>
 #include <proc/task.h>
 
-#define FPU_FXSAVE_SIZE      512U
-#define FPU_STATE_ALIGNMENT  64U
-#define FPU_DEFAULT_FCW      0x037fU
-#define FPU_DEFAULT_MXCSR    0x1f80U
+#define FPU_FXSAVE_SIZE     512U
+#define FPU_STATE_ALIGNMENT 64U
+#define FPU_DEFAULT_FCW     0x037fU
+#define FPU_DEFAULT_MXCSR   0x1f80U
 
 static size_t   fpu_save_size   = FPU_FXSAVE_SIZE;
 static uint64_t fpu_xstate_mask = 0x3;
@@ -64,7 +64,7 @@ static void fpu_state_set_initial(void *state)
 {
     if (!state) return;
     memset(state, 0, fpu_save_size);
-    *(uint16_t *)state                    = FPU_DEFAULT_FCW;
+    *(uint16_t *)state                   = FPU_DEFAULT_FCW;
     *(uint32_t *)((uint8_t *)state + 24) = FPU_DEFAULT_MXCSR;
 }
 

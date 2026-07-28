@@ -391,9 +391,8 @@ int drm_atomic_check_only(struct drm_atomic_state *state)
             if (plane_state->fb) {
                 int64_t fb_w = (int64_t)plane_state->fb->width << 16;
                 int64_t fb_h = (int64_t)plane_state->fb->height << 16;
-                if (plane_state->src.x1 < 0 || plane_state->src.y1 < 0
-                    || plane_state->src.x2 <= plane_state->src.x1 || plane_state->src.y2 <= plane_state->src.y1
-                    || plane_state->src.x2 > fb_w || plane_state->src.y2 > fb_h
+                if (plane_state->src.x1 < 0 || plane_state->src.y1 < 0 || plane_state->src.x2 <= plane_state->src.x1
+                    || plane_state->src.y2 <= plane_state->src.y1 || plane_state->src.x2 > fb_w || plane_state->src.y2 > fb_h
                     || plane_state->dst.x2 <= plane_state->dst.x1 || plane_state->dst.y2 <= plane_state->dst.y1)
                     return -EINVAL;
                 if (!(plane_state->plane->possible_crtcs & (1U << plane_state->crtc->index))) return -EINVAL;
@@ -450,14 +449,14 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
             s->event = malloc(sizeof(*s->event));
             if (!s->event) return -ENOMEM;
             memset(s->event, 0, sizeof(*s->event));
-            s->event->dev = dev;
-            s->event->file_priv = state->file_priv;
-            s->event->crtc = state->crtcs[i].ptr;
-            s->event->pipe = state->crtcs[i].ptr->index;
-            s->event->event.base.type = DRM_EVENT_FLIP_COMPLETE;
+            s->event->dev               = dev;
+            s->event->file_priv         = state->file_priv;
+            s->event->crtc              = state->crtcs[i].ptr;
+            s->event->pipe              = state->crtcs[i].ptr->index;
+            s->event->event.base.type   = DRM_EVENT_FLIP_COMPLETE;
             s->event->event.base.length = sizeof(s->event->event);
-            s->event->event.user_data = state->user_data;
-            s->event->event.crtc_id = state->crtcs[i].ptr->base.id;
+            s->event->event.user_data   = state->user_data;
+            s->event->event.crtc_id     = state->crtcs[i].ptr->base.id;
             event_crtcs++;
         }
         if (!event_crtcs) return -EINVAL;
@@ -465,16 +464,18 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
 
     /* Program scanout before publishing the new software state. */
     for (i = 0; i < config->num_crtc; i++) {
-        struct drm_crtc *crtc = state->crtcs[i].ptr;
-        struct drm_crtc_state *crtc_state = state->crtcs[i].state;
+        struct drm_crtc        *crtc          = state->crtcs[i].ptr;
+        struct drm_crtc_state  *crtc_state    = state->crtcs[i].state;
         struct drm_plane_state *primary_state = NULL;
         if (!crtc || !crtc_state) continue;
         for (int p = 0; p < config->num_total_plane; p++) {
-            if (state->planes[p].ptr == crtc->primary) { primary_state = state->planes[p].state; break; }
+            if (state->planes[p].ptr == crtc->primary) {
+                primary_state = state->planes[p].state;
+                break;
+            }
         }
         if (!primary_state && crtc->primary) primary_state = crtc->primary->state;
-        if (crtc_state->active && primary_state
-            && (!crtc->primary->state || primary_state->fb != crtc->primary->state->fb)) {
+        if (crtc_state->active && primary_state && (!crtc->primary->state || primary_state->fb != crtc->primary->state->fb)) {
             struct drm_crtc_helper_funcs *h = (struct drm_crtc_helper_funcs *)crtc->helper_private;
             if (!h || !h->page_flip) return -ENOSYS;
             ret = h->page_flip(crtc, primary_state->fb, NULL, 0);
@@ -500,7 +501,7 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
             struct drm_pending_vblank_event *event = crtc_state->event;
             memcpy(crtc_entry->ptr->state, crtc_state, sizeof(*crtc_state));
             crtc_entry->ptr->state->event = NULL;
-            crtc_state->event = event;
+            crtc_state->event             = event;
         }
     }
 
@@ -514,17 +515,17 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
 
             /* Apply framebuffer, including a complete plane disable. */
             if (plane_entry->ptr->state) {
-                    plane_entry->ptr->state->fb               = plane_state->fb;
-                    plane_entry->ptr->state->crtc             = plane_state->crtc;
-                    plane_entry->ptr->state->src              = plane_state->src;
-                    plane_entry->ptr->state->dst              = plane_state->dst;
-                    plane_entry->ptr->state->visible          = plane_state->visible;
-                    plane_entry->ptr->state->rotation         = plane_state->rotation;
-                    plane_entry->ptr->state->alpha            = plane_state->alpha;
-                    plane_entry->ptr->state->zpos             = plane_state->zpos;
-                    plane_entry->ptr->state->pixel_blend_mode = plane_state->pixel_blend_mode;
+                plane_entry->ptr->state->fb               = plane_state->fb;
+                plane_entry->ptr->state->crtc             = plane_state->crtc;
+                plane_entry->ptr->state->src              = plane_state->src;
+                plane_entry->ptr->state->dst              = plane_state->dst;
+                plane_entry->ptr->state->visible          = plane_state->visible;
+                plane_entry->ptr->state->rotation         = plane_state->rotation;
+                plane_entry->ptr->state->alpha            = plane_state->alpha;
+                plane_entry->ptr->state->zpos             = plane_state->zpos;
+                plane_entry->ptr->state->pixel_blend_mode = plane_state->pixel_blend_mode;
             }
-            plane_entry->ptr->fb_id = plane_state->fb ? plane_state->fb->base.id : 0;
+            plane_entry->ptr->fb_id   = plane_state->fb ? plane_state->fb->base.id : 0;
             plane_entry->ptr->crtc_id = plane_state->crtc ? plane_state->crtc->base.id : 0;
         }
     }
@@ -542,8 +543,8 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
     }
 
     for (i = 0; i < config->num_crtc; i++) {
-        struct drm_crtc *crtc = state->crtcs[i].ptr;
-        struct drm_crtc_state *s = state->crtcs[i].state;
+        struct drm_crtc       *crtc = state->crtcs[i].ptr;
+        struct drm_crtc_state *s    = state->crtcs[i].state;
         if (!crtc || !s) continue;
         if (s->active && s->active_changed && crtc->helper_private) {
             struct drm_crtc_helper_funcs *h = (struct drm_crtc_helper_funcs *)crtc->helper_private;
@@ -552,7 +553,7 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
         if (s->event) {
             if (crtc->enabled && drm_crtc_vblank_get(crtc) == 0) {
                 s->event->vblank_ref = true;
-                s->event->sequence = (uint64_t)drm_crtc_vblank_count(crtc) + 1;
+                s->event->sequence   = (uint64_t)drm_crtc_vblank_count(crtc) + 1;
                 drm_crtc_arm_vblank_event(crtc, s->event);
             } else {
                 drm_crtc_send_vblank_event(crtc, s->event);
@@ -595,7 +596,7 @@ static void drm_atomic_commit_finish_turn(struct drm_device *dev)
 int drm_atomic_commit(struct drm_atomic_state *state)
 {
     struct drm_device *dev;
-    int ret;
+    int                ret;
 
     if (!state || !state->dev) return -EINVAL;
     dev = state->dev;
@@ -616,10 +617,10 @@ int drm_atomic_commit(struct drm_atomic_state *state)
 
 static void drm_atomic_nonblock_worker(void *arg)
 {
-    struct drm_atomic_state *state = (struct drm_atomic_state *)arg;
-    struct drm_device *dev = state->dev;
-    struct drm_file *file_priv = state->file_priv;
-    int ret = drm_atomic_commit(state);
+    struct drm_atomic_state *state     = (struct drm_atomic_state *)arg;
+    struct drm_device       *dev       = state->dev;
+    struct drm_file         *file_priv = state->file_priv;
+    int                      ret       = drm_atomic_commit(state);
 
     if (ret) drm_atomic_state_free(state);
     if (file_priv) {
@@ -634,19 +635,22 @@ static void drm_atomic_nonblock_worker(void *arg)
 int drm_atomic_nonblocking_commit(struct drm_atomic_state *state)
 {
     struct drm_mode_config *config;
-    struct drm_file *file_priv;
-    task_t *worker;
+    struct drm_file        *file_priv;
+    task_t                 *worker;
 
     if (!state || !state->dev) return -EINVAL;
     {
         int ret = drm_atomic_check_only(state);
         if (ret) return ret;
     }
-    config = &state->dev->mode_config;
+    config    = &state->dev->mode_config;
     file_priv = state->file_priv;
     if (file_priv) {
         spin_lock(&file_priv->event_lock);
-        if (file_priv->event_closing) { spin_unlock(&file_priv->event_lock); return -ENOENT; }
+        if (file_priv->event_closing) {
+            spin_unlock(&file_priv->event_lock);
+            return -ENOENT;
+        }
         file_priv->event_refs++;
         spin_unlock(&file_priv->event_lock);
     }
@@ -672,7 +676,7 @@ int drm_atomic_nonblocking_commit(struct drm_atomic_state *state)
         return -EBUSY;
     }
     state->commit_seq = ++config->commit_queue_next;
-    worker = kthread_create("drm-atomic", drm_atomic_nonblock_worker, state);
+    worker            = kthread_create("drm-atomic", drm_atomic_nonblock_worker, state);
     if (!worker) config->commit_queue_next--;
     spin_unlock(&config->commit_queue_lock);
     if (!worker) {

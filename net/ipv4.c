@@ -10,9 +10,9 @@
 #include <proc/sched.h>
 
 #define IPV4_REASSEMBLY_TIMEOUT_TICKS 3000U
-#define IPV4_MAX_HEADER         60U
-#define IPV4_MAX_PAYLOAD        (UINT16_MAX - IPV4_HEADER_MIN)
-#define IPV4_BITMAP_SIZE        ((IPV4_MAX_PAYLOAD + 7U) / 8U)
+#define IPV4_MAX_HEADER               60U
+#define IPV4_MAX_PAYLOAD              (UINT16_MAX - IPV4_HEADER_MIN)
+#define IPV4_BITMAP_SIZE              ((IPV4_MAX_PAYLOAD + 7U) / 8U)
 
 typedef struct ipv4_reassembly {
         net_device_t *device;
@@ -32,12 +32,12 @@ typedef struct ipv4_reassembly {
         uint8_t      *bitmap;
 } ipv4_reassembly_t;
 
-static uint16_t ipv4_id;
-static spinlock_t ipv4_id_lock;
+static uint16_t          ipv4_id;
+static spinlock_t        ipv4_id_lock;
 static ipv4_reassembly_t ipv4_reassembly[IPV4_REASSEMBLY_SLOTS];
-static spinlock_t ipv4_reassembly_lock;
+static spinlock_t        ipv4_reassembly_lock;
 static ipv4_error_hook_t ipv4_error_hook;
-static spinlock_t ipv4_hook_lock;
+static spinlock_t        ipv4_hook_lock;
 
 static int ipv4_is_multicast(uint32_t address)
 {
@@ -46,8 +46,7 @@ static int ipv4_is_multicast(uint32_t address)
 
 static int ipv4_is_directed_broadcast(const net_device_t *device, uint32_t address)
 {
-    return device->ipv4_netmask && device->ipv4_netmask != UINT32_MAX
-        && address == (device->ipv4_address | ~device->ipv4_netmask);
+    return device->ipv4_netmask && device->ipv4_netmask != UINT32_MAX && address == (device->ipv4_address | ~device->ipv4_netmask);
 }
 
 static int ipv4_source_valid(uint32_t address)
@@ -58,34 +57,33 @@ static int ipv4_source_valid(uint32_t address)
 int net_ipv4_parse(const void *data, size_t length, net_ipv4_packet_t *packet)
 {
     if (!data || !packet || length < IPV4_HEADER_MIN) return -EBADMSG;
-    const uint8_t *bytes = data;
-    size_t header_length = (size_t)(bytes[0] & 0x0fU) * 4U;
-    if ((bytes[0] >> 4) != 4 || header_length < IPV4_HEADER_MIN || header_length > IPV4_MAX_HEADER || header_length > length)
-        return -EBADMSG;
-    uint16_t total = net_read_be16(bytes + 2);
+    const uint8_t *bytes         = data;
+    size_t         header_length = (size_t)(bytes[0] & 0x0fU) * 4U;
+    if ((bytes[0] >> 4) != 4 || header_length < IPV4_HEADER_MIN || header_length > IPV4_MAX_HEADER || header_length > length) return -EBADMSG;
+    uint16_t total    = net_read_be16(bytes + 2);
     uint16_t fragment = net_read_be16(bytes + 6);
     if (total < header_length || total > length || (fragment & 0x8000U) || net_checksum(bytes, header_length) != 0) return -EBADMSG;
-    packet->header_len = (uint8_t)header_length;
-    packet->total_len = total;
-    packet->protocol = bytes[9];
-    packet->source = net_read_be32(bytes + 12);
-    packet->destination = net_read_be32(bytes + 16);
-    packet->identification = net_read_be16(bytes + 4);
+    packet->header_len      = (uint8_t)header_length;
+    packet->total_len       = total;
+    packet->protocol        = bytes[9];
+    packet->source          = net_read_be32(bytes + 12);
+    packet->destination     = net_read_be32(bytes + 16);
+    packet->identification  = net_read_be16(bytes + 4);
     packet->fragment_offset = (uint16_t)((fragment & IPV4_FRAGMENT_MASK) * 8U);
-    packet->more_fragments = !!(fragment & IPV4_FLAG_MF);
-    packet->payload = bytes + header_length;
-    packet->payload_len = total - header_length;
+    packet->more_fragments  = !!(fragment & IPV4_FLAG_MF);
+    packet->payload         = bytes + header_length;
+    packet->payload_len     = total - header_length;
     if ((packet->more_fragments && (packet->payload_len & 7U)) || packet->fragment_offset + packet->payload_len > IPV4_MAX_PAYLOAD)
         return -EBADMSG;
     return 0;
 }
 
 typedef struct ipv4_route_search {
-        uint32_t destination;
+        uint32_t      destination;
         net_device_t *direct;
         net_device_t *gateway;
         net_device_t *fallback;
-        unsigned prefix;
+        unsigned      prefix;
 } ipv4_route_search_t;
 
 static unsigned ipv4_prefix_length(uint32_t mask)
@@ -128,18 +126,18 @@ int ipv4_route(uint32_t destination, net_device_t **device, uint32_t *next_hop)
     if (search.direct) {
         if (search.gateway) netdev_put(search.gateway);
         if (search.fallback) netdev_put(search.fallback);
-        *device = search.direct;
+        *device   = search.direct;
         *next_hop = destination;
         return 0;
     }
     if (search.gateway) {
         if (search.fallback) netdev_put(search.fallback);
-        *device = search.gateway;
+        *device   = search.gateway;
         *next_hop = destination == UINT32_MAX ? destination : search.gateway->ipv4_gateway;
         return 0;
     }
     if (destination == UINT32_MAX && search.fallback) {
-        *device = search.fallback;
+        *device   = search.fallback;
         *next_hop = destination;
         return 0;
     }
@@ -155,8 +153,8 @@ static uint16_t ipv4_next_id(void)
     return id;
 }
 
-static int ipv4_emit_fragment(net_device_t *device, uint32_t next_hop, uint32_t source, uint32_t destination, uint8_t protocol,
-                              uint8_t ttl, uint16_t id, uint16_t flags_offset, const uint8_t *data, size_t length)
+static int ipv4_emit_fragment(net_device_t *device, uint32_t next_hop, uint32_t source, uint32_t destination, uint8_t protocol, uint8_t ttl,
+                              uint16_t id, uint16_t flags_offset, const uint8_t *data, size_t length)
 {
     net_pbuf_t *fragment = net_pbuf_alloc(IPV4_HEADER_MIN + length, NET_PBUF_HEADROOM);
     if (!fragment) return -ENOMEM;
@@ -182,7 +180,7 @@ int ipv4_output(net_device_t *device, uint32_t source, uint32_t destination, uin
     if (!packet || !destination || packet->length > IPV4_MAX_PAYLOAD || ipv4_is_multicast(destination) || (destination >> 24) == 127U)
         return -EMSGSIZE;
     uint32_t next_hop;
-    int release = 0;
+    int      release = 0;
     if (!device) {
         int status = ipv4_route(destination, &device, &next_hop);
         if (status) return status;
@@ -204,8 +202,8 @@ int ipv4_output(net_device_t *device, uint32_t source, uint32_t destination, uin
         if (release) netdev_put(device);
         return -EMSGSIZE;
     }
-    uint16_t id = ipv4_next_id();
-    int result = 0;
+    uint16_t id     = ipv4_next_id();
+    int      result = 0;
     for (size_t offset = 0; offset < packet->length || (!packet->length && !offset);) {
         size_t length = packet->length - offset;
         if (length > fragment_payload) length = fragment_payload;
@@ -234,35 +232,37 @@ static void ipv4_reassembly_clear(ipv4_reassembly_t *entry)
 static ipv4_reassembly_t *ipv4_reassembly_find(net_device_t *device, const net_ipv4_packet_t *ip, uint64_t now)
 {
     ipv4_reassembly_t *free_entry = NULL;
-    ipv4_reassembly_t *oldest = NULL;
+    ipv4_reassembly_t *oldest     = NULL;
     for (unsigned i = 0; i < IPV4_REASSEMBLY_SLOTS; i++) {
         ipv4_reassembly_t *entry = &ipv4_reassembly[i];
         if (entry->device == device && entry->source == ip->source && entry->destination == ip->destination
             && entry->identification == ip->identification && entry->protocol == ip->protocol)
             return entry;
-        if (!entry->device) free_entry = entry;
-        else if (!oldest || entry->expires < oldest->expires) oldest = entry;
+        if (!entry->device)
+            free_entry = entry;
+        else if (!oldest || entry->expires < oldest->expires)
+            oldest = entry;
     }
     ipv4_reassembly_t *entry = free_entry ? free_entry : oldest;
     if (entry->device) ipv4_reassembly_clear(entry);
-    entry->data = malloc(IPV4_MAX_PAYLOAD);
+    entry->data   = malloc(IPV4_MAX_PAYLOAD);
     entry->bitmap = malloc(IPV4_BITMAP_SIZE);
     if (!entry->data || !entry->bitmap) {
         ipv4_reassembly_clear(entry);
         return NULL;
     }
     memset(entry->bitmap, 0, IPV4_BITMAP_SIZE);
-    entry->device = device;
-    entry->source = ip->source;
-    entry->destination = ip->destination;
+    entry->device         = device;
+    entry->source         = ip->source;
+    entry->destination    = ip->destination;
     entry->identification = ip->identification;
-    entry->protocol = ip->protocol;
-    entry->expires = now + IPV4_REASSEMBLY_TIMEOUT_TICKS;
+    entry->protocol       = ip->protocol;
+    entry->expires        = now + IPV4_REASSEMBLY_TIMEOUT_TICKS;
     return entry;
 }
 
-static net_pbuf_t *ipv4_reassemble(net_device_t *device, const net_ipv4_packet_t *ip, const uint8_t *header, uint64_t now,
-                                   uint8_t *quote, size_t *quote_length)
+static net_pbuf_t *ipv4_reassemble(net_device_t *device, const net_ipv4_packet_t *ip, const uint8_t *header, uint64_t now, uint8_t *quote,
+                                   size_t *quote_length)
 {
     net_pbuf_t *complete = NULL;
     spin_lock(&ipv4_reassembly_lock);
@@ -280,19 +280,19 @@ static net_pbuf_t *ipv4_reassemble(net_device_t *device, const net_ipv4_packet_t
     if (end > entry->highest_end) entry->highest_end = (uint16_t)end;
     entry->expires = now + IPV4_REASSEMBLY_TIMEOUT_TICKS;
     if (!ip->fragment_offset) {
-        entry->have_first = 1;
+        entry->have_first          = 1;
         entry->first_header_length = ip->header_len;
         memcpy(entry->first_header, header, ip->header_len);
     }
     if (!ip->more_fragments) {
-        entry->have_last = 1;
+        entry->have_last    = 1;
         entry->total_length = (uint16_t)end;
     }
     if (entry->have_first && entry->have_last && entry->received == entry->total_length) {
         complete = net_pbuf_from(entry->data, entry->total_length, NET_PBUF_HEADROOM);
         if (complete && quote && quote_length) {
             size_t payload_quote = entry->total_length < 8U ? entry->total_length : 8U;
-            *quote_length = entry->first_header_length + payload_quote;
+            *quote_length        = entry->first_header_length + payload_quote;
             memcpy(quote, entry->first_header, entry->first_header_length);
             memcpy(quote + entry->first_header_length, entry->data, payload_quote);
         }
@@ -311,8 +311,10 @@ static int ipv4_dispatch(net_device_t *device, const ipv4_info_t *info, net_pbuf
 {
     int status;
     if (info->protocol == IPV4_PROTO_ICMP) return icmp_input(device, info, packet);
-    if (info->protocol == IPV4_PROTO_UDP) status = udp_input(device, info, packet);
-    else if (info->protocol == IPV4_PROTO_TCP) status = tcp_input(device, info, packet);
+    if (info->protocol == IPV4_PROTO_UDP)
+        status = udp_input(device, info, packet);
+    else if (info->protocol == IPV4_PROTO_TCP)
+        status = tcp_input(device, info, packet);
     else {
         net_pbuf_free(packet);
         status = -EPROTONOSUPPORT;
@@ -330,33 +332,33 @@ int ipv4_input(net_device_t *device, net_pbuf_t *packet)
     net_ipv4_packet_t parsed;
     if (net_ipv4_parse(packet->data, packet->length, &parsed)) goto bad;
     if (!ipv4_source_valid(parsed.source)) goto bad;
-    uint32_t broadcast = device->ipv4_netmask ? device->ipv4_address | ~device->ipv4_netmask : UINT32_MAX;
-    int is_broadcast = parsed.destination == UINT32_MAX || parsed.destination == broadcast;
+    uint32_t broadcast    = device->ipv4_netmask ? device->ipv4_address | ~device->ipv4_netmask : UINT32_MAX;
+    int      is_broadcast = parsed.destination == UINT32_MAX || parsed.destination == broadcast;
     if (parsed.destination != device->ipv4_address && !is_broadcast) {
         net_pbuf_free(packet);
         return -EHOSTUNREACH;
     }
     if (parsed.destination == UINT32_MAX && (parsed.fragment_offset || parsed.more_fragments)) goto bad;
     ipv4_info_t info = {
-        .source = parsed.source,
-        .destination = parsed.destination,
-        .payload_length = (uint16_t)parsed.payload_len,
-        .protocol = parsed.protocol,
-        .ttl = packet->data[8],
-        .identification = parsed.identification,
+        .source          = parsed.source,
+        .destination     = parsed.destination,
+        .payload_length  = (uint16_t)parsed.payload_len,
+        .protocol        = parsed.protocol,
+        .ttl             = packet->data[8],
+        .identification  = parsed.identification,
         .fragment_offset = parsed.fragment_offset,
-        .more_fragments = parsed.more_fragments,
+        .more_fragments  = parsed.more_fragments,
     };
     uint8_t quoted[IPV4_MAX_HEADER + 8U];
-    size_t quoted_length = parsed.total_len < sizeof(quoted) ? parsed.total_len : sizeof(quoted);
+    size_t  quoted_length = parsed.total_len < sizeof(quoted) ? parsed.total_len : sizeof(quoted);
     memcpy(quoted, packet->data, quoted_length);
     if (parsed.fragment_offset || parsed.more_fragments) {
         net_pbuf_t *complete = ipv4_reassemble(device, &parsed, packet->data, sched_ticks(), quoted, &quoted_length);
         net_pbuf_free(packet);
         if (!complete) return -EINPROGRESS;
-        info.payload_length = (uint16_t)complete->length;
+        info.payload_length  = (uint16_t)complete->length;
         info.fragment_offset = 0;
-        info.more_fragments = 0;
+        info.more_fragments  = 0;
         return ipv4_dispatch(device, &info, complete, quoted, quoted_length, !is_broadcast);
     }
     net_pbuf_trim(packet, parsed.total_len);
@@ -382,17 +384,21 @@ int ipv4_set_error_hook(ipv4_error_hook_t hook)
 void ipv4_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *quoted, size_t quoted_length)
 {
     if (!quoted || quoted_length < IPV4_HEADER_MIN) return;
-    const uint8_t *bytes = quoted;
-    size_t header_length = (size_t)(bytes[0] & 0x0fU) * 4U;
+    const uint8_t *bytes         = quoted;
+    size_t         header_length = (size_t)(bytes[0] & 0x0fU) * 4U;
     if ((bytes[0] >> 4) != 4 || header_length < IPV4_HEADER_MIN || header_length > quoted_length
         || (net_read_be16(bytes + 6) & IPV4_FRAGMENT_MASK))
         return;
     int error = 0;
     if (type == ICMP_DEST_UNREACHABLE) {
-        if (code == ICMP_FRAGMENTATION_NEEDED) error = -EMSGSIZE;
-        else if (code == ICMP_PORT_UNREACHABLE) error = -ECONNREFUSED;
-        else if (code == ICMP_NET_UNREACHABLE || code == ICMP_HOST_UNREACHABLE) error = -EHOSTUNREACH;
-    } else if (type == ICMP_TIME_EXCEEDED) error = -ETIMEDOUT;
+        if (code == ICMP_FRAGMENTATION_NEEDED)
+            error = -EMSGSIZE;
+        else if (code == ICMP_PORT_UNREACHABLE)
+            error = -ECONNREFUSED;
+        else if (code == ICMP_NET_UNREACHABLE || code == ICMP_HOST_UNREACHABLE)
+            error = -EHOSTUNREACH;
+    } else if (type == ICMP_TIME_EXCEEDED)
+        error = -ETIMEDOUT;
     if (!error) return;
     spin_lock(&ipv4_hook_lock);
     ipv4_error_hook_t hook = ipv4_error_hook;
@@ -404,10 +410,10 @@ void ipv4_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *qu
 void ipv4_timer(uint64_t now_ticks)
 {
     for (unsigned i = 0; i < IPV4_REASSEMBLY_SLOTS; i++) {
-        uint8_t quote[IPV4_MAX_HEADER + 8U];
-        size_t quote_length = 0;
-        net_device_t *device = NULL;
-        uint32_t destination = 0;
+        uint8_t       quote[IPV4_MAX_HEADER + 8U];
+        size_t        quote_length = 0;
+        net_device_t *device       = NULL;
+        uint32_t      destination  = 0;
         spin_lock(&ipv4_reassembly_lock);
         ipv4_reassembly_t *entry = &ipv4_reassembly[i];
         if (entry->device && now_ticks >= entry->expires) {
@@ -415,7 +421,7 @@ void ipv4_timer(uint64_t now_ticks)
                 quote_length = entry->first_header_length + (entry->highest_end < 8U ? entry->highest_end : 8U);
                 memcpy(quote, entry->first_header, entry->first_header_length);
                 memcpy(quote + entry->first_header_length, entry->data, quote_length - entry->first_header_length);
-                device = entry->device;
+                device      = entry->device;
                 destination = entry->source;
             }
             ipv4_reassembly_clear(entry);

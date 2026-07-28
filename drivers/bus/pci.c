@@ -506,7 +506,7 @@ static void msi_vector_free(int vector)
 {
     if (vector < MSI_VECTOR_MIN || vector > MSI_VECTOR_MAX) return;
     uint64_t rflags = spin_lock_irqsave(&msi_lock);
-    int idx = vector - MSI_VECTOR_MIN;
+    int      idx    = vector - MSI_VECTOR_MIN;
     msi_vector_bmap[idx / 8] &= ~(1 << (idx % 8));
     spin_unlock_irqrestore(&msi_lock, rflags);
 }
@@ -611,7 +611,7 @@ int pci_enable_msi_range(pci_device_cache_t *dev, int nvec)
     /* Allocate vectors contiguously under the msi_lock. */
     msi_vector_init();
     uint64_t rflags = spin_lock_irqsave(&msi_lock);
-    int found = -1;
+    int      found  = -1;
     for (int i = MSI_VECTOR_MIN; i <= MSI_VECTOR_MAX - allocated_nvec + 1; i++) {
         if (i & (allocated_nvec - 1)) continue;
         int ok = 1;

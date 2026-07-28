@@ -27,12 +27,12 @@ typedef struct {
         usb_interface_t *interface;
         usb_endpoint_t  *endpoint;
         usb_hid_report_t report;
-        uint8_t          *report_descriptor;
-        size_t            report_descriptor_length;
-        input_dev_t      *input[USB_HID_MAX_APPLICATIONS];
-        evdev_t          *evdev[USB_HID_MAX_APPLICATIONS];
-        uint8_t           application_count;
-        bool              running;
+        uint8_t         *report_descriptor;
+        size_t           report_descriptor_length;
+        input_dev_t     *input[USB_HID_MAX_APPLICATIONS];
+        evdev_t         *evdev[USB_HID_MAX_APPLICATIONS];
+        uint8_t          application_count;
+        bool             running;
 } usb_hid_device_t;
 
 static void hid_input_release(input_dev_t *input)
@@ -56,25 +56,44 @@ static uint16_t hid_usage_at(const usb_hid_field_t *field, size_t index)
 static uint16_t hid_consumer_keycode(uint16_t usage)
 {
     switch (usage) {
-        case 0x030 : return KEY_POWER;
-        case 0x0b0 : return KEY_PLAY;
-        case 0x0b1 : return KEY_PAUSECD;
-        case 0x0b5 : return KEY_NEXTSONG;
-        case 0x0b6 : return KEY_PREVIOUSSONG;
-        case 0x0b7 : return KEY_STOPCD;
-        case 0x0cd : return KEY_PLAYPAUSE;
-        case 0x0e2 : return KEY_MUTE;
-        case 0x0e9 : return KEY_VOLUMEUP;
-        case 0x0ea : return KEY_VOLUMEDOWN;
-        case 0x18a : return KEY_MAIL;
-        case 0x192 : return KEY_CALC;
-        case 0x221 : return KEY_SEARCH;
-        case 0x223 : return KEY_HOMEPAGE;
-        case 0x224 : return KEY_BACK;
-        case 0x225 : return KEY_FORWARD;
-        case 0x227 : return KEY_REFRESH;
-        case 0x22a : return KEY_BOOKMARKS;
-        default : return 0;
+        case 0x030 :
+            return KEY_POWER;
+        case 0x0b0 :
+            return KEY_PLAY;
+        case 0x0b1 :
+            return KEY_PAUSECD;
+        case 0x0b5 :
+            return KEY_NEXTSONG;
+        case 0x0b6 :
+            return KEY_PREVIOUSSONG;
+        case 0x0b7 :
+            return KEY_STOPCD;
+        case 0x0cd :
+            return KEY_PLAYPAUSE;
+        case 0x0e2 :
+            return KEY_MUTE;
+        case 0x0e9 :
+            return KEY_VOLUMEUP;
+        case 0x0ea :
+            return KEY_VOLUMEDOWN;
+        case 0x18a :
+            return KEY_MAIL;
+        case 0x192 :
+            return KEY_CALC;
+        case 0x221 :
+            return KEY_SEARCH;
+        case 0x223 :
+            return KEY_HOMEPAGE;
+        case 0x224 :
+            return KEY_BACK;
+        case 0x225 :
+            return KEY_FORWARD;
+        case 0x227 :
+            return KEY_REFRESH;
+        case 0x22a :
+            return KEY_BOOKMARKS;
+        default :
+            return 0;
     }
 }
 
@@ -91,14 +110,29 @@ static void hid_enable_axis(input_dev_t *input, const usb_hid_field_t *field, ui
     uint16_t code;
 
     switch (usage) {
-        case 0x30 : code = relative ? REL_X : ABS_X; break;
-        case 0x31 : code = relative ? REL_Y : ABS_Y; break;
-        case 0x32 : code = relative ? REL_Z : ABS_Z; break;
-        case 0x33 : code = relative ? REL_RX : ABS_RX; break;
-        case 0x34 : code = relative ? REL_RY : ABS_RY; break;
-        case 0x35 : code = relative ? REL_RZ : ABS_RZ; break;
-        case 0x38 : code = relative ? REL_WHEEL : ABS_WHEEL; break;
-        default : return;
+        case 0x30 :
+            code = relative ? REL_X : ABS_X;
+            break;
+        case 0x31 :
+            code = relative ? REL_Y : ABS_Y;
+            break;
+        case 0x32 :
+            code = relative ? REL_Z : ABS_Z;
+            break;
+        case 0x33 :
+            code = relative ? REL_RX : ABS_RX;
+            break;
+        case 0x34 :
+            code = relative ? REL_RY : ABS_RY;
+            break;
+        case 0x35 :
+            code = relative ? REL_RZ : ABS_RZ;
+            break;
+        case 0x38 :
+            code = relative ? REL_WHEEL : ABS_WHEEL;
+            break;
+        default :
+            return;
     }
     if (relative) {
         if (code >= REL_CNT) return;
@@ -170,14 +204,13 @@ static int hid_register_inputs(usb_hid_device_t *hid)
         if (!input) return -ENOMEM;
         hid->input[i] = input;
         snprintf(input->name, sizeof(input->name), "%s", hid_application_name(&hid->report.applications[i]));
-        snprintf(input->phys, sizeof(input->phys), "%s/input%u", hid->interface->device->path,
-                 hid->interface->descriptor.interface_number);
-        input->id.bustype = BUS_USB;
-        input->id.vendor  = hid->interface->device->descriptor.vendor_id;
-        input->id.product = hid->interface->device->descriptor.product_id;
-        input->id.version = hid->interface->device->descriptor.device_version;
-        input->exist      = true;
-        input->release    = hid_input_release;
+        snprintf(input->phys, sizeof(input->phys), "%s/input%u", hid->interface->device->path, hid->interface->descriptor.interface_number);
+        input->id.bustype             = BUS_USB;
+        input->id.vendor              = hid->interface->device->descriptor.vendor_id;
+        input->id.product             = hid->interface->device->descriptor.product_id;
+        input->id.version             = hid->interface->device->descriptor.device_version;
+        input->exist                  = true;
+        input->release                = hid_input_release;
         input->hint_events_per_packet = 16;
         hid_set_bit(EV_SYN, input->evbit);
     }
@@ -210,8 +243,8 @@ static void hid_interrupt_complete(usb_endpoint_t *endpoint, const void *data, s
 {
     (void)endpoint;
     usb_hid_device_t *hid = context;
-    usb_hid_event_t events[USB_HID_EVENT_CAPACITY];
-    bool touched[USB_HID_MAX_APPLICATIONS] = {false};
+    usb_hid_event_t   events[USB_HID_EVENT_CAPACITY];
+    bool              touched[USB_HID_MAX_APPLICATIONS] = {false};
 
     if (!hid || !hid->running || status != EOK || !data || !length) return;
     int count = usb_hid_decode_report(&hid->report, data, length, events, USB_HID_EVENT_CAPACITY);
@@ -228,7 +261,7 @@ static void hid_interrupt_complete(usb_endpoint_t *endpoint, const void *data, s
 
 static int hid_report_descriptor_length(const usb_interface_t *interface, uint16_t *report_length)
 {
-    size_t length;
+    size_t         length;
     const uint8_t *descriptor = usb_find_extra_descriptor(interface, USB_DT_HID, &length);
     if (!descriptor || length < 9 || descriptor[5] == 0) return -EINVAL;
     size_t offset = 6;
@@ -246,7 +279,7 @@ static int hid_report_descriptor_length(const usb_interface_t *interface, uint16
 int usb_hid_probe(usb_interface_t *interface)
 {
     uint16_t report_length;
-    int result;
+    int      result;
 
     if (!interface || interface->driver_data || interface->descriptor.interface_class != USB_CLASS_HID) return -EINVAL;
     usb_endpoint_t *endpoint = usb_find_endpoint(interface, USB_ENDPOINT_XFER_INT, true);
@@ -256,17 +289,16 @@ int usb_hid_probe(usb_interface_t *interface)
 
     usb_hid_device_t *hid = calloc(1, sizeof(*hid));
     if (!hid) return -ENOMEM;
-    hid->interface = interface;
-    hid->endpoint  = endpoint;
+    hid->interface         = interface;
+    hid->endpoint          = endpoint;
     hid->report_descriptor = malloc(report_length);
     if (!hid->report_descriptor) {
         free(hid);
         return -ENOMEM;
     }
     hid->report_descriptor_length = report_length;
-    result = usb_control_msg(interface->device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_INTERFACE, USB_REQ_GET_DESCRIPTOR,
-                             USB_DT_REPORT << 8, interface->descriptor.interface_number, hid->report_descriptor, report_length,
-                             USB_CTRL_TIMEOUT_MS);
+    result = usb_control_msg(interface->device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_INTERFACE, USB_REQ_GET_DESCRIPTOR, USB_DT_REPORT << 8,
+                             interface->descriptor.interface_number, hid->report_descriptor, report_length, USB_CTRL_TIMEOUT_MS);
     if (result != EOK) goto fail;
     result = usb_hid_parse_report_descriptor(hid->report_descriptor, report_length, &hid->report);
     if (result != EOK) goto fail;
@@ -278,8 +310,8 @@ int usb_hid_probe(usb_interface_t *interface)
     result = hid_register_inputs(hid);
     if (result != EOK) goto fail_inputs;
     interface->driver_data = hid;
-    hid->running = true;
-    size_t packet_size = endpoint->descriptor.max_packet_size & 0x07ff;
+    hid->running           = true;
+    size_t packet_size     = endpoint->descriptor.max_packet_size & 0x07ff;
     if (!packet_size) {
         result = -EINVAL;
         goto fail_registered;
@@ -288,7 +320,7 @@ int usb_hid_probe(usb_interface_t *interface)
     if (result == EOK) return EOK;
 
 fail_registered:
-    hid->running = false;
+    hid->running           = false;
     interface->driver_data = NULL;
     hid_unregister_inputs(hid);
     goto fail;

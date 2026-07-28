@@ -24,9 +24,9 @@
 #define SWAP_PRIORITY_DEFAULT -2
 
 /* Linux swapon(2) flags. */
-#define SWAP_FLAG_PREFER  0x8000U
+#define SWAP_FLAG_PREFER    0x8000U
 #define SWAP_FLAG_PRIO_MASK 0x7fffU
-#define SWAP_FLAG_DISCARD 0x10000U
+#define SWAP_FLAG_DISCARD   0x10000U
 
 /* Non-present x86-64 PTE encoding for a swap entry. */
 #define PTE_SWAP          (1ULL << 11)
@@ -74,7 +74,7 @@ int      swap_slot_release(swap_slot_map_t *map, uint64_t slot);
 uint32_t swap_slot_refs(const swap_slot_map_t *map, uint64_t slot);
 
 #ifndef SWAP_TEST_ONLY
-#include <mem/page.h>
+#    include <mem/page.h>
 
 void swap_init(void);
 int  swap_activate_path(const char *path, uint32_t flags);

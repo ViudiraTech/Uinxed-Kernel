@@ -255,8 +255,8 @@ static char *vfs_node_absolute_path(vfs_node_t node)
 
 static char *vfs_resolve_link_path(vfs_node_t node)
 {
-    char       *path;
-    process_t  *proc;
+    char      *path;
+    process_t *proc;
 
     if (!node || !node->linkname) return 0;
     proc = process_current();
@@ -930,7 +930,7 @@ int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void 
     do_update(file);
     if (file->type & file_dir) return -EISDIR;
 
-    int64_t result;
+    int64_t              result;
     pagecache_mapping_t *mapping = vfs_pagecache_mapping(file, 1);
     if (mapping)
         result = pagecache_read(mapping, addr, offset, size);

@@ -156,7 +156,10 @@ int drm_send_event(struct drm_device *dev, struct drm_pending_vblank_event *e)
         wait_queue_wake_all(&file_priv->event_wait);
         free(node->event);
         free(node);
-        if (e->destroy) e->destroy(e); else free(e);
+        if (e->destroy)
+            e->destroy(e);
+        else
+            free(e);
         return 0;
     }
     if (file_priv->event_list_tail) {
@@ -171,8 +174,10 @@ int drm_send_event(struct drm_device *dev, struct drm_pending_vblank_event *e)
     spin_unlock(&file_priv->event_lock);
     wait_queue_wake_all(&file_priv->event_wait);
 
-    if (e->destroy) e->destroy(e);
-    else free(e);
+    if (e->destroy)
+        e->destroy(e);
+    else
+        free(e);
 
     return 0;
 }

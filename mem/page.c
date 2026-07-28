@@ -375,7 +375,7 @@ static page_table_entry_t *find_4k_pte(page_directory_t *directory, uintptr_t ad
 {
     if (!directory || !directory->table || ((addr >> 39) & 0x1ff) >= 256) return NULL;
     page_table_t *table = directory->table;
-    uint64_t value = table->entries[(addr >> 39) & 0x1ff].value;
+    uint64_t      value = table->entries[(addr >> 39) & 0x1ff].value;
     if (!(value & PTE_PRESENT) || (value & PTE_HUGE)) return NULL;
     table = phys_to_virt(value & PAGE_4K_MASK);
     value = table->entries[(addr >> 30) & 0x1ff].value;
@@ -670,8 +670,8 @@ int page_unmap_release(page_directory_t *directory, uint64_t addr)
 
 retry_swap:
     spin_lock(&directory->lock);
-    page_table_entry_t *swap_pte = find_4k_pte(directory, addr);
-    uint64_t swap_value = swap_pte ? __atomic_load_n(&swap_pte->value, __ATOMIC_ACQUIRE) : 0;
+    page_table_entry_t *swap_pte   = find_4k_pte(directory, addr);
+    uint64_t            swap_value = swap_pte ? __atomic_load_n(&swap_pte->value, __ATOMIC_ACQUIRE) : 0;
     if (swap_entry_is_swap(swap_value)) {
         if (swap_value & PTE_SWAP_BUSY) {
             spin_unlock(&directory->lock);

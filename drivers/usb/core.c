@@ -61,15 +61,26 @@ static ssize_t speed_show(struct device *dev, struct device_attribute *attribute
 {
     (void)attribute;
     usb_device_t *device = dev ? dev->driver_data : NULL;
-    const char *speed = "0";
+    const char   *speed  = "0";
     if (device) {
         switch (device->speed) {
-            case USB_SPEED_LOW : speed = "1.5"; break;
-            case USB_SPEED_FULL : speed = "12"; break;
-            case USB_SPEED_HIGH : speed = "480"; break;
-            case USB_SPEED_SUPER : speed = "5000"; break;
-            case USB_SPEED_SUPER_PLUS : speed = "10000"; break;
-            default : break;
+            case USB_SPEED_LOW :
+                speed = "1.5";
+                break;
+            case USB_SPEED_FULL :
+                speed = "12";
+                break;
+            case USB_SPEED_HIGH :
+                speed = "480";
+                break;
+            case USB_SPEED_SUPER :
+                speed = "5000";
+                break;
+            case USB_SPEED_SUPER_PLUS :
+                speed = "10000";
+                break;
+            default :
+                break;
         }
     }
     return sysfs_emit(buffer, "%s\n", speed);
@@ -83,10 +94,15 @@ static DEVICE_ATTR(serial, 0444, serial_show, NULL);
 static DEVICE_ATTR(speed, 0444, speed_show, NULL);
 
 static struct attribute *usb_device_attributes[] = {
-    &dev_attr_idVendor.attr, &dev_attr_idProduct.attr, &dev_attr_product.attr, &dev_attr_manufacturer.attr,
-    &dev_attr_serial.attr,   &dev_attr_speed.attr,     NULL,
+    &dev_attr_idVendor.attr,
+    &dev_attr_idProduct.attr,
+    &dev_attr_product.attr,
+    &dev_attr_manufacturer.attr,
+    &dev_attr_serial.attr,
+    &dev_attr_speed.attr,
+    NULL,
 };
-static const struct attribute_group usb_device_group = {.attrs = usb_device_attributes};
+static const struct attribute_group  usb_device_group    = {.attrs = usb_device_attributes};
 static const struct attribute_group *usb_device_groups[] = {&usb_device_group, NULL};
 
 int usb_core_init(void)
@@ -97,8 +113,8 @@ int usb_core_init(void)
     return result;
 }
 
-int usb_control_msg(usb_device_t *device, uint8_t request_type, uint8_t request, uint16_t value, uint16_t index,
-                    void *buffer, uint16_t length, uint32_t timeout_ms)
+int usb_control_msg(usb_device_t *device, uint8_t request_type, uint8_t request, uint16_t value, uint16_t index, void *buffer, uint16_t length,
+                    uint32_t timeout_ms)
 {
     usb_setup_packet_t setup = {
         .request_type = request_type,
@@ -139,8 +155,8 @@ int usb_clear_halt(usb_endpoint_t *endpoint)
 {
     if (!endpoint || !endpoint->interface || !endpoint->interface->device) return -EINVAL;
     usb_device_t *device = endpoint->interface->device;
-    int status = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_ENDPOINT, USB_REQ_CLEAR_FEATURE,
-                                 0, endpoint->descriptor.endpoint_address, NULL, 0, USB_CTRL_TIMEOUT_MS);
+    int           status = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_ENDPOINT, USB_REQ_CLEAR_FEATURE, 0,
+                                           endpoint->descriptor.endpoint_address, NULL, 0, USB_CTRL_TIMEOUT_MS);
     if (status != EOK) return status;
     if (!device->hcd_ops || !device->hcd_ops->clear_halt) return EOK;
     return device->hcd_ops->clear_halt(endpoint);
@@ -178,7 +194,7 @@ const uint8_t *usb_find_extra_descriptor(const usb_interface_t *interface, uint8
 static int usb_parse_configuration(usb_device_t *device, const uint8_t *buffer, size_t length)
 {
     usb_interface_t *interface = NULL;
-    size_t offset = 0;
+    size_t           offset    = 0;
 
     if (!device || !buffer || length < sizeof(usb_config_descriptor_t)) return -EINVAL;
     const usb_config_descriptor_t *configuration = (const usb_config_descriptor_t *)buffer;
@@ -188,8 +204,8 @@ static int usb_parse_configuration(usb_device_t *device, const uint8_t *buffer, 
     device->configuration = *configuration;
 
     while (offset + 2 <= total_length) {
-        const uint8_t *descriptor = buffer + offset;
-        size_t descriptor_length = descriptor[0];
+        const uint8_t *descriptor        = buffer + offset;
+        size_t         descriptor_length = descriptor[0];
         if (descriptor_length < 2 || descriptor_length > total_length - offset) return -EINVAL;
 
         if (descriptor[1] == USB_DT_INTERFACE && descriptor_length >= sizeof(usb_interface_descriptor_t)) {
@@ -200,22 +216,21 @@ static int usb_parse_configuration(usb_device_t *device, const uint8_t *buffer, 
                 if (device->interface_count >= USB_MAX_INTERFACES) return -E2BIG;
                 interface = &device->interfaces[device->interface_count++];
                 memset(interface, 0, sizeof(*interface));
-                interface->device = device;
+                interface->device     = device;
                 interface->descriptor = *source;
-                interface->extra = descriptor + descriptor_length;
+                interface->extra      = descriptor + descriptor_length;
             }
         } else if (descriptor[1] == USB_DT_ENDPOINT && descriptor_length >= sizeof(usb_endpoint_descriptor_t) && interface) {
             if (interface->endpoint_count >= USB_MAX_ENDPOINTS) return -E2BIG;
             usb_endpoint_t *endpoint = &interface->endpoints[interface->endpoint_count++];
             memset(endpoint, 0, sizeof(*endpoint));
-            endpoint->interface = interface;
+            endpoint->interface  = interface;
             endpoint->descriptor = *(const usb_endpoint_descriptor_t *)descriptor;
             if (interface->extra) interface->extra_length = (size_t)(descriptor - interface->extra);
         }
         offset += descriptor_length;
     }
-    if (interface && interface->extra && !interface->extra_length)
-        interface->extra_length = (size_t)(buffer + total_length - interface->extra);
+    if (interface && interface->extra && !interface->extra_length) interface->extra_length = (size_t)(buffer + total_length - interface->extra);
     return device->interface_count ? EOK : -EINVAL;
 }
 
@@ -227,7 +242,7 @@ static int usb_register_device_model(usb_device_t *device)
     device->dev.driver_data = device;
     device->dev.devid       = ((uint64_t)device->bus_number << 8) | device->address;
     device->dev.groups      = usb_device_groups;
-    result = kobject_set_name(&device->dev.kobj, "%s", device->path);
+    result                  = kobject_set_name(&device->dev.kobj, "%s", device->path);
     if (result != EOK) return result;
     result = device_register(&device->dev);
     if (result != EOK) return result;
@@ -238,8 +253,8 @@ static int usb_register_device_model(usb_device_t *device)
         interface->dev.bus         = &usb_bus_type;
         interface->dev.driver_data = interface;
         interface->dev.devid       = ((uint64_t)device->address << 8) | interface->descriptor.interface_number;
-        result = kobject_set_name(&interface->dev.kobj, "%s:%u.%u", device->path, interface->descriptor.interface_number,
-                                  interface->descriptor.alternate_setting);
+        result                     = kobject_set_name(&interface->dev.kobj, "%s:%u.%u", device->path, interface->descriptor.interface_number,
+                                                      interface->descriptor.alternate_setting);
         if (result != EOK || device_register(&interface->dev) != EOK) continue;
         interface->registered = true;
     }
@@ -265,7 +280,7 @@ int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t le
                              device->configuration.configuration_value, 0, NULL, 0, USB_CTRL_TIMEOUT_MS);
     if (result != EOK) return result;
     device->configured = true;
-    result = usb_register_device_model(device);
+    result             = usb_register_device_model(device);
     if (result != EOK) return result;
 
     for (size_t i = 0; i < device->interface_count; i++) {

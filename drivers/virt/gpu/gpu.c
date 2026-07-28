@@ -47,7 +47,7 @@
 #include <proc/uaccess.h>
 
 #ifndef container_of
-#define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
+#    define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -120,8 +120,7 @@ static int virtgpu_ensure_context(struct virtio_gpu_device *vgdev, struct virtio
     spin_lock(&vfpriv->context_lock);
     if (!vfpriv->context_created) {
         uint32_t nlen = vfpriv->explicit_debug_name ? (uint32_t)strlen(vfpriv->debug_name) : 0;
-        ret = virtgpu_cmd_ctx_create(vgdev, vfpriv->ctx_id, vfpriv->context_init,
-                                     vfpriv->explicit_debug_name ? vfpriv->debug_name : NULL, nlen);
+        ret = virtgpu_cmd_ctx_create(vgdev, vfpriv->ctx_id, vfpriv->context_init, vfpriv->explicit_debug_name ? vfpriv->debug_name : NULL, nlen);
         if (!ret) vfpriv->context_created = true;
     }
     spin_unlock(&vfpriv->context_lock);
@@ -131,7 +130,7 @@ static int virtgpu_ensure_context(struct virtio_gpu_device *vgdev, struct virtio
 int virtgpu_object_attach_context(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id)
 {
     struct virtio_gpu_context_attachment *attachment;
-    int ret;
+    int                                   ret;
 
     if (!vgdev || !obj || !ctx_id || !obj->hw_res_handle) return -EINVAL;
     attachment = malloc(sizeof(*attachment));
@@ -146,8 +145,8 @@ int virtgpu_object_attach_context(struct virtio_gpu_device *vgdev, struct virtio
     }
     ret = virtgpu_cmd_ctx_attach_resource(vgdev, ctx_id, obj->hw_res_handle);
     if (!ret) {
-        attachment->ctx_id = ctx_id;
-        attachment->next = obj->context_attachments;
+        attachment->ctx_id       = ctx_id;
+        attachment->next         = obj->context_attachments;
         obj->context_attachments = attachment;
     }
     spin_unlock(&obj->context_lock);
@@ -158,16 +157,19 @@ int virtgpu_object_attach_context(struct virtio_gpu_device *vgdev, struct virtio
 int virtgpu_object_detach_context(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id)
 {
     struct virtio_gpu_context_attachment **link;
-    struct virtio_gpu_context_attachment *attachment;
-    int ret;
+    struct virtio_gpu_context_attachment  *attachment;
+    int                                    ret;
 
     if (!vgdev || !obj || !ctx_id) return -EINVAL;
     spin_lock(&obj->context_lock);
     link = &obj->context_attachments;
     while (*link && (*link)->ctx_id != ctx_id) link = &(*link)->next;
-    if (!*link) { spin_unlock(&obj->context_lock); return 0; }
+    if (!*link) {
+        spin_unlock(&obj->context_lock);
+        return 0;
+    }
     attachment = *link;
-    ret = obj->hw_res_handle ? virtgpu_cmd_ctx_detach_resource(vgdev, ctx_id, obj->hw_res_handle) : 0;
+    ret        = obj->hw_res_handle ? virtgpu_cmd_ctx_detach_resource(vgdev, ctx_id, obj->hw_res_handle) : 0;
     if (!ret) *link = attachment->next;
     spin_unlock(&obj->context_lock);
     if (!ret) free(attachment);
@@ -181,11 +183,11 @@ static void virtgpu_postclose(struct drm_device *dev, struct drm_file *file)
     /* Release any contexts owned by this file */
     if (file->driver_priv) {
         struct virtio_gpu_fpriv *vfpriv = (struct virtio_gpu_fpriv *)file->driver_priv;
-        ilist_node_t *node;
+        ilist_node_t            *node;
         for (node = file->object_list.next; node && node != &file->object_list; node = node->next) {
             struct drm_gem_handle_entry *entry = container_of(node, struct drm_gem_handle_entry, head);
-            struct drm_gem_object *gem = entry->obj;
-            struct virtio_gpu_object *obj = to_virtio_gpu_object(gem);
+            struct drm_gem_object       *gem   = entry->obj;
+            struct virtio_gpu_object    *obj   = to_virtio_gpu_object(gem);
             virtgpu_object_detach_context(vgdev, obj, vfpriv->ctx_id);
         }
         if (vgdev->has_virgl && vfpriv->context_created) { virtgpu_cmd_ctx_destroy(vgdev, vfpriv->ctx_id); }
@@ -293,9 +295,9 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
     if (fb->format != DRM_FORMAT_XRGB8888 && fb->format != DRM_FORMAT_ARGB8888) return -EINVAL;
 
     if (!num_clips) {
-        rect.x = 0;
-        rect.y = 0;
-        rect.width = fb->width;
+        rect.x      = 0;
+        rect.y      = 0;
+        rect.width  = fb->width;
         rect.height = fb->height;
     } else {
         uint32_t x1 = fb->width, y1 = fb->height, x2 = 0, y2 = 0;
@@ -311,9 +313,9 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
             if (clip->y2 > y2) y2 = clip->y2;
         }
         if (x2 <= x1 || y2 <= y1) return 0;
-        rect.x = x1;
-        rect.y = y1;
-        rect.width = x2 - x1;
+        rect.x      = x1;
+        rect.y      = y1;
+        rect.width  = x2 - x1;
         rect.height = y2 - y1;
     }
     offset = fb->offsets[0] + (uint64_t)rect.y * obj->stride + (uint64_t)rect.x * 4;
@@ -358,11 +360,11 @@ static int virtgpu_ioctl_map(struct drm_device *dev, void *data, struct drm_file
 
 static int virtgpu_ioctl_execbuffer(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
-    struct virtio_gpu_device      *vgdev = (struct virtio_gpu_device *)dev->dev_private;
-    struct drm_virtgpu_execbuffer *args  = (struct drm_virtgpu_execbuffer *)data;
-    struct virtio_gpu_fpriv       *vfpriv = (struct virtio_gpu_fpriv *)file_priv->driver_priv;
+    struct virtio_gpu_device      *vgdev   = (struct virtio_gpu_device *)dev->dev_private;
+    struct drm_virtgpu_execbuffer *args    = (struct drm_virtgpu_execbuffer *)data;
+    struct virtio_gpu_fpriv       *vfpriv  = (struct virtio_gpu_fpriv *)file_priv->driver_priv;
     uint32_t                      *handles = NULL;
-    struct drm_gem_object        **bos = NULL;
+    struct drm_gem_object        **bos     = NULL;
     void                          *cmd_buf = NULL;
     int                            ret;
 
@@ -374,8 +376,7 @@ static int virtgpu_ioctl_execbuffer(struct drm_device *dev, void *data, struct d
      * reject them explicitly instead of silently dropping synchronization. */
     if (args->flags & ~VIRTGPU_EXECBUF_FLAGS) return -EINVAL;
     if (args->flags & (VIRTGPU_EXECBUF_FENCE_FD_IN | VIRTGPU_EXECBUF_FENCE_FD_OUT)) return -EINVAL;
-    if (args->syncobj_stride || args->num_in_syncobjs || args->num_out_syncobjs
-        || args->in_syncobjs || args->out_syncobjs) return -EINVAL;
+    if (args->syncobj_stride || args->num_in_syncobjs || args->num_out_syncobjs || args->in_syncobjs || args->out_syncobjs) return -EINVAL;
     if (args->flags & VIRTGPU_EXECBUF_RING_IDX) {
         if (!vgdev->has_context_init || !vfpriv->num_rings || args->ring_idx >= vfpriv->num_rings) return -EINVAL;
     } else if (args->ring_idx) {
@@ -386,15 +387,23 @@ static int virtgpu_ioctl_execbuffer(struct drm_device *dev, void *data, struct d
 
     if (args->num_bo_handles) {
         handles = malloc((size_t)args->num_bo_handles * sizeof(*handles));
-        bos = malloc((size_t)args->num_bo_handles * sizeof(*bos));
-        if (!handles || !bos) { ret = -ENOMEM; goto out; }
+        bos     = malloc((size_t)args->num_bo_handles * sizeof(*bos));
+        if (!handles || !bos) {
+            ret = -ENOMEM;
+            goto out;
+        }
         memset(bos, 0, (size_t)args->num_bo_handles * sizeof(*bos));
-        if (copy_from_user(handles, (const void *)(uintptr_t)args->bo_handles,
-                           (size_t)args->num_bo_handles * sizeof(*handles))) { ret = -EFAULT; goto out; }
+        if (copy_from_user(handles, (const void *)(uintptr_t)args->bo_handles, (size_t)args->num_bo_handles * sizeof(*handles))) {
+            ret = -EFAULT;
+            goto out;
+        }
         for (uint32_t i = 0; i < args->num_bo_handles; i++) {
             struct virtio_gpu_object *obj;
             bos[i] = drm_gem_object_lookup(file_priv, handles[i]);
-            if (!bos[i]) { ret = -ENOENT; goto out; }
+            if (!bos[i]) {
+                ret = -ENOENT;
+                goto out;
+            }
             obj = to_virtio_gpu_object(bos[i]);
             ret = virtgpu_object_attach_context(vgdev, obj, vfpriv->ctx_id);
             if (ret) goto out;
@@ -402,27 +411,30 @@ static int virtgpu_ioctl_execbuffer(struct drm_device *dev, void *data, struct d
     }
 
     cmd_buf = malloc(args->size);
-    if (!cmd_buf) { ret = -ENOMEM; goto out; }
+    if (!cmd_buf) {
+        ret = -ENOMEM;
+        goto out;
+    }
 
     /* Copy command buffer from userspace (in this kernel, userspace
      * pointers are accessible directly). */
     if (copy_from_user(cmd_buf, (const void *)(uintptr_t)args->command, args->size)) {
         free(cmd_buf);
         cmd_buf = NULL;
-        ret = -EFAULT;
+        ret     = -EFAULT;
         goto out;
     }
 
     /* Submit to host GPU */
-    ret = virtgpu_cmd_submit_3d(vgdev, vfpriv->ctx_id, args->ring_idx,
-                                !!(args->flags & VIRTGPU_EXECBUF_RING_IDX), cmd_buf, args->size, NULL);
+    ret = virtgpu_cmd_submit_3d(vgdev, vfpriv->ctx_id, args->ring_idx, !!(args->flags & VIRTGPU_EXECBUF_RING_IDX), cmd_buf, args->size, NULL);
 
     free(cmd_buf);
     cmd_buf = NULL;
 out:
     if (cmd_buf) free(cmd_buf);
     if (bos) {
-        for (uint32_t i = 0; i < args->num_bo_handles; i++) if (bos[i]) drm_gem_object_put(bos[i]);
+        for (uint32_t i = 0; i < args->num_bo_handles; i++)
+            if (bos[i]) drm_gem_object_put(bos[i]);
     }
     free(bos);
     free(handles);
@@ -498,10 +510,8 @@ static int virtgpu_ioctl_resource_create(struct drm_device *dev, void *data, str
         ret = virtgpu_ensure_context(vgdev, vfpriv);
         if (ret) return ret;
     } else {
-        if (args->target != 2 || args->depth > 1 || args->array_size > 1
-            || args->last_level > 1 || args->nr_samples > 1) return -EINVAL;
-        if (args->format != VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM
-            && args->format != VIRTIO_GPU_FORMAT_B8G8R8X8_UNORM) return -EINVAL;
+        if (args->target != 2 || args->depth > 1 || args->array_size > 1 || args->last_level > 1 || args->nr_samples > 1) return -EINVAL;
+        if (args->format != VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM && args->format != VIRTIO_GPU_FORMAT_B8G8R8X8_UNORM) return -EINVAL;
         if ((uint64_t)args->width * 4 * args->height > size) return -EINVAL;
     }
 
@@ -509,18 +519,16 @@ static int virtgpu_ioctl_resource_create(struct drm_device *dev, void *data, str
     if (!obj) { return -ENOMEM; }
 
     obj->hw_res_handle = virtgpu_resource_id_alloc(vgdev);
-    obj->format        = vgdev->has_virgl ? args->format
-                          : (args->format == VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM
-                                 ? DRM_FORMAT_ARGB8888 : DRM_FORMAT_XRGB8888);
-    obj->width         = args->width;
-    obj->height        = args->height;
-    obj->stride        = args->width * 4;
-    obj->depth         = args->depth;
-    obj->ctx_id        = vgdev->has_virgl ? vfpriv->ctx_id : 0;
-    obj->created_3d    = vgdev->has_virgl;
+    obj->format
+        = vgdev->has_virgl ? args->format : (args->format == VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM ? DRM_FORMAT_ARGB8888 : DRM_FORMAT_XRGB8888);
+    obj->width      = args->width;
+    obj->height     = args->height;
+    obj->stride     = args->width * 4;
+    obj->depth      = args->depth;
+    obj->ctx_id     = vgdev->has_virgl ? vfpriv->ctx_id : 0;
+    obj->created_3d = vgdev->has_virgl;
 
-    ret = vgdev->has_virgl ? virtgpu_cmd_create_resource_3d(vgdev, obj, args)
-                           : virtgpu_cmd_create_resource_2d(vgdev, obj);
+    ret = vgdev->has_virgl ? virtgpu_cmd_create_resource_3d(vgdev, obj, args) : virtgpu_cmd_create_resource_2d(vgdev, obj);
     if (ret) {
         obj->hw_res_handle = 0;
         virtgpu_gem_free_object(&obj->base);
@@ -628,7 +636,10 @@ static int virtgpu_ioctl_transfer_to_host(struct drm_device *dev, void *data, st
     obj = to_virtio_gpu_object(gem_obj);
 
     if (obj->created_3d || (obj->created_blob && obj->blob_mem != VIRTIO_GPU_BLOB_MEM_GUEST)) {
-        if (!vgdev->has_virgl || !vfpriv) { drm_gem_object_put(gem_obj); return -EINVAL; }
+        if (!vgdev->has_virgl || !vfpriv) {
+            drm_gem_object_put(gem_obj);
+            return -EINVAL;
+        }
         if (!args->box.w || !args->box.h || !args->box.d || args->level > 31
             || args->box.x >= (obj->width >> args->level ? obj->width >> args->level : 1)
             || args->box.y >= (obj->height >> args->level ? obj->height >> args->level : 1)
@@ -659,7 +670,7 @@ static int virtgpu_ioctl_transfer_to_host(struct drm_device *dev, void *data, st
 static int virtgpu_ioctl_wait(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_virtgpu_3d_wait *args = (struct drm_virtgpu_3d_wait *)data;
-    struct drm_gem_object    *gem_obj;
+    struct drm_gem_object      *gem_obj;
 
     (void)dev;
 
@@ -679,14 +690,14 @@ static int virtgpu_ioctl_wait(struct drm_device *dev, void *data, struct drm_fil
 
 static int virtgpu_ioctl_get_caps(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
-    struct virtio_gpu_device    *vgdev = (struct virtio_gpu_device *)dev->dev_private;
-    struct drm_virtgpu_get_caps *args  = (struct drm_virtgpu_get_caps *)data;
-    void                        *caps_data = NULL;
-    void                        *user_copy = NULL;
-    uint32_t                     max_size = 0, copy_size;
-    struct virtio_gpu_capset_cache *cache = NULL;
-    bool                         found = false;
-    int                          ret;
+    struct virtio_gpu_device       *vgdev     = (struct virtio_gpu_device *)dev->dev_private;
+    struct drm_virtgpu_get_caps    *args      = (struct drm_virtgpu_get_caps *)data;
+    void                           *caps_data = NULL;
+    void                           *user_copy = NULL;
+    uint32_t                        max_size  = 0, copy_size;
+    struct virtio_gpu_capset_cache *cache     = NULL;
+    bool                            found     = false;
+    int                             ret;
 
     (void)file_priv;
 
@@ -694,11 +705,10 @@ static int virtgpu_ioctl_get_caps(struct drm_device *dev, void *data, struct drm
     if (!args->addr || !args->size || args->pad) { return -EINVAL; }
 
     for (uint32_t i = 0; i < vgdev->num_capsets; i++) {
-        if (vgdev->capsets[i].id == args->cap_set_id
-            && args->cap_set_ver <= vgdev->capsets[i].max_version) {
-            cache = &vgdev->capsets[i];
+        if (vgdev->capsets[i].id == args->cap_set_id && args->cap_set_ver <= vgdev->capsets[i].max_version) {
+            cache    = &vgdev->capsets[i];
             max_size = cache->max_size;
-            found = true;
+            found    = true;
             break;
         }
     }
@@ -710,7 +720,10 @@ static int virtgpu_ioctl_get_caps(struct drm_device *dev, void *data, struct drm
         caps_data = cache->data;
     } else {
         caps_data = malloc(max_size);
-        if (!caps_data) { spin_unlock(&vgdev->capset_lock); return -ENOMEM; }
+        if (!caps_data) {
+            spin_unlock(&vgdev->capset_lock);
+            return -ENOMEM;
+        }
         ret = virtgpu_cmd_get_capset(vgdev, args->cap_set_id, args->cap_set_ver, caps_data, max_size);
         if (ret) {
             free(caps_data);
@@ -718,12 +731,15 @@ static int virtgpu_ioctl_get_caps(struct drm_device *dev, void *data, struct drm
             return ret;
         }
         free(cache->data);
-        cache->data = caps_data;
+        cache->data           = caps_data;
         cache->cached_version = args->cap_set_ver;
     }
 
     user_copy = malloc(copy_size);
-    if (!user_copy) { spin_unlock(&vgdev->capset_lock); return -ENOMEM; }
+    if (!user_copy) {
+        spin_unlock(&vgdev->capset_lock);
+        return -ENOMEM;
+    }
     memcpy(user_copy, caps_data, copy_size);
     spin_unlock(&vgdev->capset_lock);
     ret = copy_to_user((void *)(uintptr_t)args->addr, user_copy, copy_size) ? -EFAULT : 0;
@@ -748,19 +764,16 @@ static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data
 
     if (!vgdev->has_resource_blob) { return -EINVAL; }
     if (!args->size || args->size > UINT32_MAX || args->pad || args->pad2 || args->bo_handle || !vfpriv) return -EINVAL;
-    if (args->blob_flags & ~(VIRTIO_GPU_BLOB_FLAG_USE_MAPPABLE | VIRTIO_GPU_BLOB_FLAG_USE_SHAREABLE
-                             | VIRTIO_GPU_BLOB_FLAG_USE_CROSS_DEVICE)) return -EINVAL;
+    if (args->blob_flags & ~(VIRTIO_GPU_BLOB_FLAG_USE_MAPPABLE | VIRTIO_GPU_BLOB_FLAG_USE_SHAREABLE | VIRTIO_GPU_BLOB_FLAG_USE_CROSS_DEVICE))
+        return -EINVAL;
     if (args->blob_hints & ~DRM_VIRTGPU_BLOB_FLAG_HINT_DEFER_MAPPING) return -EINVAL;
     if (args->blob_flags & VIRTIO_GPU_BLOB_FLAG_USE_CROSS_DEVICE) return -EINVAL;
 
-    guest_blob = args->blob_mem == VIRTIO_GPU_BLOB_MEM_GUEST
-                 || args->blob_mem == VIRTIO_GPU_BLOB_MEM_HOST3D_GUEST;
-    host3d_blob = args->blob_mem == VIRTIO_GPU_BLOB_MEM_HOST3D
-                  || args->blob_mem == VIRTIO_GPU_BLOB_MEM_HOST3D_GUEST;
+    guest_blob  = args->blob_mem == VIRTIO_GPU_BLOB_MEM_GUEST || args->blob_mem == VIRTIO_GPU_BLOB_MEM_HOST3D_GUEST;
+    host3d_blob = args->blob_mem == VIRTIO_GPU_BLOB_MEM_HOST3D || args->blob_mem == VIRTIO_GPU_BLOB_MEM_HOST3D_GUEST;
     if (!guest_blob && !host3d_blob) return -EINVAL;
     if (host3d_blob) {
-        if (!vgdev->has_virgl || (args->cmd_size & 3) || args->cmd_size > 65536
-            || (args->cmd_size && !args->cmd)) return -EINVAL;
+        if (!vgdev->has_virgl || (args->cmd_size & 3) || args->cmd_size > 65536 || (args->cmd_size && !args->cmd)) return -EINVAL;
         ret = virtgpu_ensure_context(vgdev, vfpriv);
         if (ret) return ret;
         if (args->cmd_size) {
@@ -796,9 +809,9 @@ static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data
     if (!guest_blob) {
         free(obj->entries);
         free(obj->base.backing);
-        obj->entries = NULL;
+        obj->entries      = NULL;
         obj->base.backing = NULL;
-        obj->num_entries = 0;
+        obj->num_entries  = 0;
     }
 
     ret = virtgpu_cmd_create_blob(vgdev, obj, args);
@@ -814,8 +827,8 @@ static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data
         return ret;
     }
 
-    args->bo_handle   = handle;
-    args->res_handle  = obj->hw_res_handle;
+    args->bo_handle  = handle;
+    args->res_handle = obj->hw_res_handle;
     DRM_DEBUG_DRIVER("Blob resource created: handle=%u, res_id=%u, size=%llu, mem=%u flags=0x%x\n", handle, obj->hw_res_handle, args->size,
                      args->blob_mem, args->blob_flags);
     drm_gem_object_put(&obj->base);
@@ -828,43 +841,42 @@ static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data
 
 static int virtgpu_ioctl_context_init(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
-    struct virtio_gpu_device        *vgdev = (struct virtio_gpu_device *)dev->dev_private;
-    struct drm_virtgpu_context_init *args  = (struct drm_virtgpu_context_init *)data;
-    struct virtio_gpu_fpriv         *vfpriv = (struct virtio_gpu_fpriv *)file_priv->driver_priv;
+    struct virtio_gpu_device            *vgdev  = (struct virtio_gpu_device *)dev->dev_private;
+    struct drm_virtgpu_context_init     *args   = (struct drm_virtgpu_context_init *)data;
+    struct virtio_gpu_fpriv             *vfpriv = (struct virtio_gpu_fpriv *)file_priv->driver_priv;
     struct drm_virtgpu_context_set_param params[4];
-    uint32_t context_init = 0, num_rings = 0;
-    uint64_t ring_mask = 0;
-    char debug_name[VIRTGPU_DEBUG_NAME_MAX];
-    bool seen_capset = false, seen_rings = false, seen_mask = false, seen_name = false;
-    int                              ret;
+    uint32_t                             context_init = 0, num_rings = 0;
+    uint64_t                             ring_mask = 0;
+    char                                 debug_name[VIRTGPU_DEBUG_NAME_MAX];
+    bool                                 seen_capset = false, seen_rings = false, seen_mask = false, seen_name = false;
+    int                                  ret;
 
     if (!vgdev->has_virgl || !vgdev->has_context_init) { return -EINVAL; }
     if (!vfpriv || args->pad || args->num_params > 4 || (args->num_params && !args->ctx_set_params)) return -EINVAL;
     memset(params, 0, sizeof(params));
     memset(debug_name, 0, sizeof(debug_name));
-    if (args->num_params
-        && copy_from_user(params, (const void *)(uintptr_t)args->ctx_set_params,
-                          args->num_params * sizeof(params[0]))) return -EFAULT;
+    if (args->num_params && copy_from_user(params, (const void *)(uintptr_t)args->ctx_set_params, args->num_params * sizeof(params[0])))
+        return -EFAULT;
 
     for (uint32_t i = 0; i < args->num_params; i++) {
         switch (params[i].param) {
-            case VIRTGPU_CONTEXT_PARAM_CAPSET_ID:
+            case VIRTGPU_CONTEXT_PARAM_CAPSET_ID :
                 if (seen_capset || params[i].value >= 64) return -EINVAL;
                 if (params[i].value && !(vgdev->capset_id_mask & (1ULL << params[i].value))) return -EINVAL;
-                seen_capset = true;
+                seen_capset  = true;
                 context_init = (uint32_t)params[i].value;
                 break;
-            case VIRTGPU_CONTEXT_PARAM_NUM_RINGS:
+            case VIRTGPU_CONTEXT_PARAM_NUM_RINGS :
                 if (seen_rings || !params[i].value || params[i].value > VIRTGPU_MAX_CONTEXT_RINGS) return -EINVAL;
                 seen_rings = true;
-                num_rings = (uint32_t)params[i].value;
+                num_rings  = (uint32_t)params[i].value;
                 break;
-            case VIRTGPU_CONTEXT_PARAM_POLL_RINGS_MASK:
+            case VIRTGPU_CONTEXT_PARAM_POLL_RINGS_MASK :
                 if (seen_mask) return -EINVAL;
                 seen_mask = true;
                 ring_mask = params[i].value;
                 break;
-            case VIRTGPU_CONTEXT_PARAM_DEBUG_NAME: {
+            case VIRTGPU_CONTEXT_PARAM_DEBUG_NAME : {
                 int n;
                 if (seen_name || !params[i].value) return -EINVAL;
                 n = strncpy_from_user(debug_name, (const char *)(uintptr_t)params[i].value, sizeof(debug_name));
@@ -873,7 +885,7 @@ static int virtgpu_ioctl_context_init(struct drm_device *dev, void *data, struct
                 seen_name = true;
                 break;
             }
-            default:
+            default :
                 return -EINVAL;
         }
     }
@@ -884,13 +896,12 @@ static int virtgpu_ioctl_context_init(struct drm_device *dev, void *data, struct
         spin_unlock(&vfpriv->context_lock);
         return -EEXIST;
     }
-    vfpriv->context_init = context_init;
-    vfpriv->num_rings = num_rings;
-    vfpriv->ring_idx_mask = ring_mask;
+    vfpriv->context_init        = context_init;
+    vfpriv->num_rings           = num_rings;
+    vfpriv->ring_idx_mask       = ring_mask;
     vfpriv->explicit_debug_name = seen_name;
     if (seen_name) memcpy(vfpriv->debug_name, debug_name, sizeof(debug_name));
-    ret = virtgpu_cmd_ctx_create(vgdev, vfpriv->ctx_id, context_init,
-                                 seen_name ? vfpriv->debug_name : NULL,
+    ret = virtgpu_cmd_ctx_create(vgdev, vfpriv->ctx_id, context_init, seen_name ? vfpriv->debug_name : NULL,
                                  seen_name ? (uint32_t)strlen(vfpriv->debug_name) : 0);
     if (!ret) vfpriv->context_created = true;
     spin_unlock(&vfpriv->context_lock);
@@ -917,14 +928,14 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
         obj = to_virtio_gpu_object(gem_obj);
 
         if (obj->created_blob) {
-            obj->width = fb->width;
+            obj->width  = fb->width;
             obj->height = fb->height;
             obj->format = fb->format;
             obj->stride = fb->pitches[0];
-            ret = virtgpu_cmd_set_scanout_blob(vgdev, scanout_id, obj);
+            ret         = virtgpu_cmd_set_scanout_blob(vgdev, scanout_id, obj);
             if (ret) return ret;
             vgdev->current_scanout_obj = obj;
-            vgdev->current_fb = fb;
+            vgdev->current_fb          = fb;
             return 0;
         }
 
@@ -1064,9 +1075,9 @@ int virtio_gpu_driver_init(void)
     for (uint32_t i = 0; i < vgdev->num_capsets; i++) {
         uint32_t id, version, size;
         if (!virtgpu_cmd_get_capset_info(vgdev, i, &id, &version, &size)) {
-            vgdev->capsets[i].id = id;
+            vgdev->capsets[i].id          = id;
             vgdev->capsets[i].max_version = version;
-            vgdev->capsets[i].max_size = size;
+            vgdev->capsets[i].max_size    = size;
             if (id < 64) vgdev->capset_id_mask |= 1ULL << id;
         }
     }

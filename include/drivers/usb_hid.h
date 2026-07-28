@@ -17,7 +17,7 @@
 #include <libs/std/stdint.h>
 
 #define USB_HID_MAX_FIELDS       64
-#define USB_HID_MAX_USAGES      32
+#define USB_HID_MAX_USAGES       32
 #define USB_HID_MAX_APPLICATIONS 8
 #define USB_HID_MAX_REPORT_IDS   256
 
@@ -68,8 +68,7 @@ typedef struct {
 int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, usb_hid_report_t *report);
 
 /* Decode one input report and return the number of Linux input events. */
-int usb_hid_decode_report(usb_hid_report_t *report, const uint8_t *data, size_t length, usb_hid_event_t *events,
-                          size_t event_capacity);
+int usb_hid_decode_report(usb_hid_report_t *report, const uint8_t *data, size_t length, usb_hid_event_t *events, size_t event_capacity);
 
 /* Translate a HID keyboard-page usage into a Linux KEY_* code. */
 uint16_t usb_hid_keyboard_keycode(uint16_t usage);

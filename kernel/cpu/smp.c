@@ -164,8 +164,8 @@ void ap_init_tss(cpu_processor_t *cpu)
 
     /* Set kernel stack */
     pointer_cast_t cast;
-    cast.ptr         = cpu->kernel_stack;
-    cpu->tss->rsp[0] = ALIGN_DOWN((uint64_t)cast.val + sizeof(kernel_stack_t), 16);
+    cast.ptr                = cpu->kernel_stack;
+    cpu->tss->rsp[0]        = ALIGN_DOWN((uint64_t)cast.val + sizeof(kernel_stack_t), 16);
     cpu->syscall.kernel_rsp = cpu->tss->rsp[0];
 
     __asm__ volatile("ltr %w[offset]" ::[offset] "rm"((uint16_t)0x28) : "memory");
@@ -260,8 +260,8 @@ void smp_init(void)
         struct limine_smp_info *cpu = smp->cpus[i];
         cpus[i].id                  = i;
         cpus[i].lapic_id            = cpu->lapic_id;
-        cpus[i].syscall.user_rsp     = 0;
-        cpus[i].syscall.kernel_rsp   = 0;
+        cpus[i].syscall.user_rsp    = 0;
+        cpus[i].syscall.kernel_rsp  = 0;
         /* Allocate kernel stack for each CPU */
         cpus[i].kernel_stack = malloc(sizeof(kernel_stack_t)); // 64 KiB stack
 

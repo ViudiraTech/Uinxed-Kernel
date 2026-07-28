@@ -29,7 +29,7 @@
 #define VFS_NODE_CLOSED           (1ULL << 57)
 #define VFS_NODE_NOCACHE          (1ULL << 56)
 #define VFS_NODE_EVENT_DELETE     (1ULL << 55)
-#define VFS_NODE_SWAPFILE          (1ULL << 54)
+#define VFS_NODE_SWAPFILE         (1ULL << 54)
 
 typedef struct vfs_node             *vfs_node_t;
 typedef struct pagecache_mapping     pagecache_mapping_t;

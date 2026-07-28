@@ -23,35 +23,35 @@ typedef struct arp_pending {
 } arp_pending_t;
 
 typedef struct arp_entry {
-        net_device_t *device;
-        uint32_t      ipv4;
-        uint8_t       address[ETH_ADDRESS_LEN];
-        uint8_t       state;
-        uint8_t       retries;
-        uint8_t       pending_count;
-        uint64_t      updated;
-        uint64_t      retry_at;
+        net_device_t  *device;
+        uint32_t       ipv4;
+        uint8_t        address[ETH_ADDRESS_LEN];
+        uint8_t        state;
+        uint8_t        retries;
+        uint8_t        pending_count;
+        uint64_t       updated;
+        uint64_t       retry_at;
         arp_pending_t *head;
         arp_pending_t *tail;
 } arp_entry_t;
 
-static arp_entry_t arp_cache[ARP_CACHE_CAPACITY];
-static arp_pending_t arp_pending_pool[ARP_PENDING_TOTAL];
+static arp_entry_t    arp_cache[ARP_CACHE_CAPACITY];
+static arp_pending_t  arp_pending_pool[ARP_PENDING_TOTAL];
 static arp_pending_t *arp_pending_free;
-static uint8_t arp_pending_initialized;
-static spinlock_t arp_lock;
+static uint8_t        arp_pending_initialized;
+static spinlock_t     arp_lock;
 
 int net_arp_parse(const void *data, size_t length, net_arp_packet_t *arp)
 {
     if (!data || !arp || length < 8) return -EBADMSG;
-    const uint8_t *bytes = data;
-    size_t address_length = ((size_t)bytes[4] + bytes[5]) * 2U;
+    const uint8_t *bytes          = data;
+    size_t         address_length = ((size_t)bytes[4] + bytes[5]) * 2U;
     if (!bytes[4] || !bytes[5] || address_length > length - 8) return -EBADMSG;
     arp->hardware_type = net_read_be16(bytes);
     arp->protocol_type = net_read_be16(bytes + 2);
-    arp->hardware_len = bytes[4];
-    arp->protocol_len = bytes[5];
-    arp->operation = net_read_be16(bytes + 6);
+    arp->hardware_len  = bytes[4];
+    arp->protocol_len  = bytes[5];
+    arp->operation     = net_read_be16(bytes + 6);
     return 0;
 }
 
@@ -90,7 +90,7 @@ static void arp_pool_init_locked(void)
     if (arp_pending_initialized) return;
     for (unsigned i = 0; i < ARP_PENDING_TOTAL; i++) {
         arp_pending_pool[i].next = arp_pending_free;
-        arp_pending_free = &arp_pending_pool[i];
+        arp_pending_free         = &arp_pending_pool[i];
     }
     arp_pending_initialized = 1;
 }
@@ -106,13 +106,13 @@ static void arp_drop_pending_locked(arp_entry_t *entry)
 {
     while (entry->head) {
         arp_pending_t *pending = entry->head;
-        entry->head = pending->next;
+        entry->head            = pending->next;
         net_pbuf_free(pending->packet);
-        pending->packet = NULL;
-        pending->next = arp_pending_free;
+        pending->packet  = NULL;
+        pending->next    = arp_pending_free;
         arp_pending_free = pending;
     }
-    entry->tail = NULL;
+    entry->tail          = NULL;
     entry->pending_count = 0;
 }
 
@@ -128,10 +128,10 @@ static arp_entry_t *arp_alloc_locked(net_device_t *device, uint32_t ipv4, uint64
     }
     arp_drop_pending_locked(oldest);
     memset(oldest, 0, sizeof(*oldest));
-    oldest->device = device;
-    oldest->ipv4 = ipv4;
+    oldest->device  = device;
+    oldest->ipv4    = ipv4;
     oldest->updated = now;
-    oldest->state = ARP_INCOMPLETE;
+    oldest->state   = ARP_INCOMPLETE;
     return oldest;
 }
 
@@ -144,20 +144,20 @@ void arp_learn(net_device_t *device, uint32_t ipv4, const uint8_t address[ETH_AD
     arp_entry_t *entry = arp_find_locked(device, ipv4);
     if (!entry) entry = arp_alloc_locked(device, ipv4, now_ticks);
     memcpy(entry->address, address, ETH_ADDRESS_LEN);
-    entry->state = ARP_REACHABLE;
+    entry->state   = ARP_REACHABLE;
     entry->updated = now_ticks;
     entry->retries = 0;
-    pending = entry->head;
+    pending        = entry->head;
     entry->head = entry->tail = NULL;
-    entry->pending_count = 0;
+    entry->pending_count      = 0;
     spin_unlock(&arp_lock);
     while (pending) {
         arp_pending_t *next = pending->next;
         ethernet_output(device, pending->packet, address, ETH_TYPE_IPV4);
         net_pbuf_free(pending->packet);
         spin_lock(&arp_lock);
-        pending->packet = NULL;
-        pending->next = arp_pending_free;
+        pending->packet  = NULL;
+        pending->next    = arp_pending_free;
         arp_pending_free = pending;
         spin_unlock(&arp_lock);
         pending = next;
@@ -178,9 +178,9 @@ int arp_resolve(net_device_t *device, uint32_t ipv4, net_pbuf_t *packet)
     if (ipv4 == UINT32_MAX || ipv4 == broadcast) return ethernet_output(device, packet, ethernet_broadcast_address, ETH_TYPE_IPV4);
     if (!arp_ipv4_unicast(ipv4)) return -EHOSTUNREACH;
 
-    uint8_t address[ETH_ADDRESS_LEN];
-    uint64_t now = sched_ticks();
-    int request = 0;
+    uint8_t  address[ETH_ADDRESS_LEN];
+    uint64_t now     = sched_ticks();
+    int      request = 0;
     spin_lock(&arp_lock);
     arp_pool_init_locked();
     arp_entry_t *entry = arp_find_locked(device, ipv4);
@@ -195,25 +195,27 @@ int arp_resolve(net_device_t *device, uint32_t ipv4, net_pbuf_t *packet)
         return -ENOBUFS;
     }
     arp_pending_t *pending = arp_pending_free;
-    arp_pending_free = pending->next;
-    pending->packet = net_pbuf_clone(packet, NET_PBUF_HEADROOM);
+    arp_pending_free       = pending->next;
+    pending->packet        = net_pbuf_clone(packet, NET_PBUF_HEADROOM);
     if (!pending->packet) {
-        pending->next = arp_pending_free;
+        pending->next    = arp_pending_free;
         arp_pending_free = pending;
         spin_unlock(&arp_lock);
         return -ENOMEM;
     }
     pending->next = NULL;
-    if (entry->tail) entry->tail->next = pending;
-    else entry->head = pending;
+    if (entry->tail)
+        entry->tail->next = pending;
+    else
+        entry->head = pending;
     entry->tail = pending;
     entry->pending_count++;
     if (entry->state != ARP_INCOMPLETE || !entry->retries) {
-        entry->state = ARP_INCOMPLETE;
-        entry->retries = 1;
+        entry->state    = ARP_INCOMPLETE;
+        entry->retries  = 1;
         entry->retry_at = now + ARP_RETRY_TICKS;
-        entry->updated = now;
-        request = 1;
+        entry->updated  = now;
+        request         = 1;
     }
     spin_unlock(&arp_lock);
     if (request) {
@@ -229,8 +231,8 @@ int arp_input(net_device_t *device, net_pbuf_t *packet)
     const uint8_t *arp = packet->data;
     if (net_read_be16(arp) != 1 || net_read_be16(arp + 2) != ETH_TYPE_IPV4 || arp[4] != ETH_ADDRESS_LEN || arp[5] != 4) goto bad;
     uint16_t operation = net_read_be16(arp + 6);
-    uint32_t sender = net_read_be32(arp + 14);
-    uint32_t target = net_read_be32(arp + 24);
+    uint32_t sender    = net_read_be32(arp + 14);
+    uint32_t target    = net_read_be32(arp + 24);
     if ((operation != 1 && operation != 2) || !arp_mac_unicast(arp + 8) || !arp_ipv4_unicast(sender)) goto bad;
     if (target == device->ipv4_address || target == sender) arp_learn(device, sender, arp + 8, sched_ticks());
     int status = operation == 1 && target == device->ipv4_address ? arp_send(device, 2, arp + 8, sender) : 0;
@@ -246,7 +248,7 @@ void arp_timer(uint64_t now_ticks)
     ipv4_timer(now_ticks);
     for (unsigned i = 0; i < ARP_CACHE_CAPACITY; i++) {
         net_device_t *device = NULL;
-        uint32_t ipv4 = 0;
+        uint32_t      ipv4   = 0;
         spin_lock(&arp_lock);
         arp_pool_init_locked();
         arp_entry_t *entry = &arp_cache[i];
@@ -259,8 +261,8 @@ void arp_timer(uint64_t now_ticks)
             } else {
                 entry->retries++;
                 entry->retry_at = now_ticks + ARP_RETRY_TICKS;
-                device = entry->device;
-                ipv4 = entry->ipv4;
+                device          = entry->device;
+                ipv4            = entry->ipv4;
             }
         }
         spin_unlock(&arp_lock);

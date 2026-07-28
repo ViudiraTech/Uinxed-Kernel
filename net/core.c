@@ -7,8 +7,8 @@
 #include <net/ethernet.h>
 #include <net/ipv4.h>
 #include <net/ipv6.h>
-#include <net/netdev.h>
 #include <net/ndp.h>
+#include <net/netdev.h>
 #include <net/packet.h>
 #include <net/tcp.h>
 
@@ -411,8 +411,7 @@ size_t netdev_get_dns_servers(net_device_t *device, uint32_t *servers, size_t ca
     return count;
 }
 
-int netdev_udp_broadcast(net_device_t *device, uint32_t source, uint16_t source_port, uint16_t destination_port, const void *data,
-                         size_t length)
+int netdev_udp_broadcast(net_device_t *device, uint32_t source, uint16_t source_port, uint16_t destination_port, const void *data, size_t length)
 {
     enum { UDP_HEADER_LENGTH = 8 };
     if (!device || !source_port || !destination_port || (!data && length)) return -EINVAL;

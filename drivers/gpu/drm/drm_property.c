@@ -355,8 +355,8 @@ int drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_fi
     if (!prop) { return -ENOENT; }
 
     uint32_t user_values = prop_req->count_values;
-    uint32_t user_enums = prop_req->count_enum_blobs;
-    uint32_t enum_count = 0;
+    uint32_t user_enums  = prop_req->count_enum_blobs;
+    uint32_t enum_count  = 0;
 
     strncpy(prop_req->name, prop->name, DRM_PROP_NAME_LEN - 1);
     prop_req->name[DRM_PROP_NAME_LEN - 1] = '\0';
@@ -377,25 +377,25 @@ int drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_fi
     if (user_values && prop->num_values) {
         uint32_t count = user_values < prop->num_values ? user_values : prop->num_values;
         if (!prop_req->values_ptr
-            || copy_to_user((void *)(uintptr_t)prop_req->values_ptr, prop->values,
-                            (size_t)count * sizeof(*prop->values))) {
+            || copy_to_user((void *)(uintptr_t)prop_req->values_ptr, prop->values, (size_t)count * sizeof(*prop->values))) {
             drm_mode_object_put(&prop->base);
             return -EFAULT;
         }
     }
     if (user_enums && enum_count) {
-        uint32_t count = user_enums < enum_count ? user_enums : enum_count;
+        uint32_t                       count   = user_enums < enum_count ? user_enums : enum_count;
         struct drm_mode_property_enum *entries = malloc((size_t)count * sizeof(*entries));
-        ilist_node_t *node = prop->enum_list.next;
-        if (!entries) { drm_mode_object_put(&prop->base); return -ENOMEM; }
+        ilist_node_t                  *node    = prop->enum_list.next;
+        if (!entries) {
+            drm_mode_object_put(&prop->base);
+            return -ENOMEM;
+        }
         for (uint32_t i = 0; i < count; i++, node = node->next) {
             struct drm_property_enum *entry = container_of(node, struct drm_property_enum, head);
-            entries[i].value = entry->value;
+            entries[i].value                = entry->value;
             memcpy(entries[i].name, entry->name, sizeof(entries[i].name));
         }
-        if (!prop_req->enum_blob_ptr
-            || copy_to_user((void *)(uintptr_t)prop_req->enum_blob_ptr, entries,
-                            (size_t)count * sizeof(*entries))) {
+        if (!prop_req->enum_blob_ptr || copy_to_user((void *)(uintptr_t)prop_req->enum_blob_ptr, entries, (size_t)count * sizeof(*entries))) {
             free(entries);
             drm_mode_object_put(&prop->base);
             return -EFAULT;

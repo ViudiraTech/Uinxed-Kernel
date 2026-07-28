@@ -86,7 +86,7 @@ static inline void dumb_bitmap_set(uint32_t slot)
 
 static inline void dumb_bitmap_clear(uint32_t slot)
 {
-    if (slot < DUMB_OFFSET_MAX_SLOTS) { dumb_bitmap[slot / 8] &= (uint8_t) ~(1U << (slot % 8)); }
+    if (slot < DUMB_OFFSET_MAX_SLOTS) { dumb_bitmap[slot / 8] &= (uint8_t)~(1U << (slot % 8)); }
 }
 
 static struct dumb_slot_range *dumb_range_alloc_node(void)
@@ -404,7 +404,7 @@ void drm_gem_object_put(struct drm_gem_object *obj)
 int drm_gem_handle_create(struct drm_file *file_priv, struct drm_gem_object *obj, uint32_t *handle_out)
 {
     struct drm_gem_handle_entry *entry;
-    int ret;
+    int                          ret;
 
     if (!file_priv || !obj || !handle_out) { return -EINVAL; }
 
@@ -421,7 +421,7 @@ int drm_gem_handle_create(struct drm_file *file_priv, struct drm_gem_object *obj
         return ret;
     }
     entry->handle = *handle_out;
-    entry->obj = obj;
+    entry->obj    = obj;
     /* A GEM handle owns an object reference independently of its caller. */
     drm_gem_object_get(obj);
     ilist_insert_after(&file_priv->object_list, &entry->head);
@@ -448,7 +448,7 @@ int drm_gem_handle_delete(struct drm_file *file_priv, uint32_t handle)
         ilist_node_t *node = file_priv->object_list.next;
         while (node && node != &file_priv->object_list) {
             struct drm_gem_handle_entry *entry = container_of(node, struct drm_gem_handle_entry, head);
-            node = node->next;
+            node                               = node->next;
             if (entry->handle == handle) {
                 ilist_remove(&entry->head);
                 free(entry);
@@ -501,7 +501,7 @@ struct drm_gem_object *drm_gem_object_lookup_by_offset(struct drm_file *file_pri
         ilist_node_t *node = file_priv->object_list.next;
         while (node && node != &file_priv->object_list) {
             struct drm_gem_handle_entry *entry = container_of(node, struct drm_gem_handle_entry, head);
-            obj = entry->obj;
+            obj                                = entry->obj;
             if (obj->mmap_offset == offset) {
                 drm_gem_object_get(obj);
                 spin_unlock(&file_priv->table_lock);

@@ -4,12 +4,30 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
-static inline uint16_t net_bswap16(uint16_t value) { return __builtin_bswap16(value); }
-static inline uint32_t net_bswap32(uint32_t value) { return __builtin_bswap32(value); }
-static inline uint16_t net_htons(uint16_t value) { return net_bswap16(value); }
-static inline uint16_t net_ntohs(uint16_t value) { return net_bswap16(value); }
-static inline uint32_t net_htonl(uint32_t value) { return net_bswap32(value); }
-static inline uint32_t net_ntohl(uint32_t value) { return net_bswap32(value); }
+static inline uint16_t net_bswap16(uint16_t value)
+{
+    return __builtin_bswap16(value);
+}
+static inline uint32_t net_bswap32(uint32_t value)
+{
+    return __builtin_bswap32(value);
+}
+static inline uint16_t net_htons(uint16_t value)
+{
+    return net_bswap16(value);
+}
+static inline uint16_t net_ntohs(uint16_t value)
+{
+    return net_bswap16(value);
+}
+static inline uint32_t net_htonl(uint32_t value)
+{
+    return net_bswap32(value);
+}
+static inline uint32_t net_ntohl(uint32_t value)
+{
+    return net_bswap32(value);
+}
 
 static inline uint16_t net_read_be16(const void *ptr)
 {
@@ -26,17 +44,17 @@ static inline uint32_t net_read_be32(const void *ptr)
 static inline void net_write_be16(void *ptr, uint16_t value)
 {
     uint8_t *p = ptr;
-    p[0] = (uint8_t)(value >> 8);
-    p[1] = (uint8_t)value;
+    p[0]       = (uint8_t)(value >> 8);
+    p[1]       = (uint8_t)value;
 }
 
 static inline void net_write_be32(void *ptr, uint32_t value)
 {
     uint8_t *p = ptr;
-    p[0] = (uint8_t)(value >> 24);
-    p[1] = (uint8_t)(value >> 16);
-    p[2] = (uint8_t)(value >> 8);
-    p[3] = (uint8_t)value;
+    p[0]       = (uint8_t)(value >> 24);
+    p[1]       = (uint8_t)(value >> 16);
+    p[2]       = (uint8_t)(value >> 8);
+    p[3]       = (uint8_t)value;
 }
 
 uint32_t net_checksum_add(uint32_t sum, const void *data, size_t length);

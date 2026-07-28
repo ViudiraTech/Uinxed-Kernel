@@ -36,9 +36,9 @@ static struct virtio_gpu_object *vgdev_flush_obj;
 #endif
 
 /* Extern declarations for DRM core helpers used here */
-extern struct drm_display_mode *drm_mode_create(struct drm_device *dev);
-extern void                     drm_mode_probed_add(struct drm_connector *connector, struct drm_display_mode *mode);
-extern void                     drm_mode_destroy(struct drm_device *dev, struct drm_display_mode *mode);
+extern struct drm_display_mode           *drm_mode_create(struct drm_device *dev);
+extern void                               drm_mode_probed_add(struct drm_connector *connector, struct drm_display_mode *mode);
+extern void                               drm_mode_destroy(struct drm_device *dev, struct drm_display_mode *mode);
 extern const struct drm_framebuffer_funcs virtgpu_fb_funcs;
 
 /* Forward declaration of the page-flip helper defined in gpu.c */
@@ -172,9 +172,7 @@ static void virtgpu_crtc_atomic_enable(struct drm_crtc *crtc, struct drm_crtc_st
 
     DRM_DEBUG_KMS("CRTC-%d enabled\n", crtc->base.id);
 
-    if (plane && plane->state && plane->state->fb && plane->state->fb != vgdev->current_fb) {
-        virtgpu_page_flip(vgdev, plane->state->fb, NULL);
-    }
+    if (plane && plane->state && plane->state->fb && plane->state->fb != vgdev->current_fb) { virtgpu_page_flip(vgdev, plane->state->fb, NULL); }
 
     if (crtc->state && crtc->state->event) {
         drm_crtc_send_vblank_event(crtc, crtc->state->event);
@@ -252,18 +250,18 @@ static void virtgpu_kms_flush_fb(uint32_t x, uint32_t y, uint32_t width, uint32_
     (void)virtgpu_cmd_update_2d(vgdev_flush_ctx, vgdev_flush_obj, &damage, offset);
 }
 
-static int virtgpu_crtc_cursor_set(struct drm_crtc *crtc, struct drm_gem_object *gem, uint32_t width, uint32_t height,
-                                   int32_t hot_x, int32_t hot_y)
+static int virtgpu_crtc_cursor_set(struct drm_crtc *crtc, struct drm_gem_object *gem, uint32_t width, uint32_t height, int32_t hot_x,
+                                   int32_t hot_y)
 {
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)crtc->dev->dev_private;
-    struct virtio_gpu_object *obj = gem ? to_virtio_gpu_object(gem) : NULL;
-    int ret;
+    struct virtio_gpu_object *obj   = gem ? to_virtio_gpu_object(gem) : NULL;
+    int                       ret;
 
     if (obj) {
         /* VirtIO 1.2 requires a 64x64 ARGB resource on the cursor fast path. */
-        if (width != 64 || height != 64 || gem->size < 64 * 64 * 4
-            || obj->width != 64 || obj->height != 64 || obj->format != DRM_FORMAT_ARGB8888
-            || obj->created_3d || obj->created_blob) return -EINVAL;
+        if (width != 64 || height != 64 || gem->size < 64 * 64 * 4 || obj->width != 64 || obj->height != 64 || obj->format != DRM_FORMAT_ARGB8888
+            || obj->created_3d || obj->created_blob)
+            return -EINVAL;
         ret = virtgpu_cmd_transfer_to_host_2d(vgdev, obj, 0);
         if (ret) return ret;
     }
@@ -351,9 +349,7 @@ static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
     }
 
     ret = virtgpu_cmd_attach_backing(vgdev, obj);
-    if (ret) {
-        goto err_free_obj;
-    }
+    if (ret) { goto err_free_obj; }
     obj->backing_attached = true;
 
     /* 4. Create and register the DRM framebuffer */

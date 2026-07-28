@@ -232,9 +232,7 @@ static int signal_send_locked(signal_state_t *state, process_t *proc, int sig, c
 {
     /* Standard signals coalesce, but Linux retains the first siginfo. */
     if (!sig_is_rt(sig)) {
-        if (sigismember(&state->pending, sig)) {
-            return 0;
-        }
+        if (sigismember(&state->pending, sig)) { return 0; }
     }
 
     /* Real-time signals: queue up to SIGQUEUE_MAX */

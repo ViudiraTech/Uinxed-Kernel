@@ -123,7 +123,7 @@ static uint32_t crc32_update(uint32_t crc, const uint8_t *buffer, size_t size)
 {
     for (size_t i = 0; i < size; i++) {
         crc ^= buffer[i];
-        for (int bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ (0xEDB88320U & (uint32_t) - (int32_t)(crc & 1));
+        for (int bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ (0xEDB88320U & (uint32_t)-(int32_t)(crc & 1));
     }
     return crc;
 }

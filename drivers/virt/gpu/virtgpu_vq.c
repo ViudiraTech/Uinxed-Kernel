@@ -151,16 +151,30 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
     for (uint32_t i = 0; i < count; i++) {
         struct virtio_gpu_ctrl_hdr *request = (struct virtio_gpu_ctrl_hdr *)commands[i].cmd;
         struct virtio_gpu_ctrl_hdr *reply   = (struct virtio_gpu_ctrl_hdr *)commands[i].resp;
-        uint32_t expected;
+        uint32_t                    expected;
 
         switch (request->type) {
-            case VIRTIO_GPU_CMD_GET_DISPLAY_INFO: expected = VIRTIO_GPU_RESP_OK_DISPLAY_INFO; break;
-            case VIRTIO_GPU_CMD_GET_CAPSET_INFO: expected = VIRTIO_GPU_RESP_OK_CAPSET_INFO; break;
-            case VIRTIO_GPU_CMD_GET_CAPSET: expected = VIRTIO_GPU_RESP_OK_CAPSET; break;
-            case VIRTIO_GPU_CMD_GET_EDID: expected = VIRTIO_GPU_RESP_OK_EDID; break;
-            case VIRTIO_GPU_CMD_RESOURCE_ASSIGN_UUID: expected = VIRTIO_GPU_RESP_OK_RESOURCE_UUID; break;
-            case VIRTIO_GPU_CMD_RESOURCE_MAP_BLOB: expected = VIRTIO_GPU_RESP_OK_MAP_INFO; break;
-            default: expected = VIRTIO_GPU_RESP_OK_NODATA; break;
+            case VIRTIO_GPU_CMD_GET_DISPLAY_INFO :
+                expected = VIRTIO_GPU_RESP_OK_DISPLAY_INFO;
+                break;
+            case VIRTIO_GPU_CMD_GET_CAPSET_INFO :
+                expected = VIRTIO_GPU_RESP_OK_CAPSET_INFO;
+                break;
+            case VIRTIO_GPU_CMD_GET_CAPSET :
+                expected = VIRTIO_GPU_RESP_OK_CAPSET;
+                break;
+            case VIRTIO_GPU_CMD_GET_EDID :
+                expected = VIRTIO_GPU_RESP_OK_EDID;
+                break;
+            case VIRTIO_GPU_CMD_RESOURCE_ASSIGN_UUID :
+                expected = VIRTIO_GPU_RESP_OK_RESOURCE_UUID;
+                break;
+            case VIRTIO_GPU_CMD_RESOURCE_MAP_BLOB :
+                expected = VIRTIO_GPU_RESP_OK_MAP_INFO;
+                break;
+            default :
+                expected = VIRTIO_GPU_RESP_OK_NODATA;
+                break;
         }
 
         if (reply->type != expected) {
@@ -190,7 +204,7 @@ out_unlock:
  */
 int virtgpu_ctrl_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size, void *resp, int resp_size, uint64_t *fence_id)
 {
-    struct virtgpu_vq_command  command;
+    struct virtgpu_vq_command   command;
     struct virtio_gpu_ctrl_hdr *hdr;
     int                         ret;
 
@@ -212,7 +226,7 @@ int virtgpu_ctrl_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size, v
 int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
 {
     uint32_t len, timeout = 0;
-    int ret;
+    int      ret;
 
     if (!vgdev || !cmd || cmd_size < (int)sizeof(struct virtio_gpu_ctrl_hdr)) return -EINVAL;
     spin_lock(&vgdev->cursorq_cmd_lock);
@@ -225,7 +239,10 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
     while (!virtqueue_get_buf(&vgdev->cursorq, &len)) {
         cpu_relax();
         compiler_barrier();
-        if (++timeout > 10000000) { ret = -EIO; goto out; }
+        if (++timeout > 10000000) {
+            ret = -EIO;
+            goto out;
+        }
     }
 out:
     spin_unlock(&vgdev->cursorq_cmd_lock);

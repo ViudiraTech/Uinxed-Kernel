@@ -37,12 +37,12 @@ _Static_assert(offsetof(syscall_cpu_state_t, user_rsp) == SYSCALL_CPU_USER_RSP_O
 _Static_assert(offsetof(syscall_cpu_state_t, kernel_rsp) == SYSCALL_CPU_KERNEL_RSP_OFFSET, "syscall kernel RSP offset");
 
 typedef struct cpu_processor {
-        uint64_t        id;
-        uint64_t        lapic_id;
-        gdt_t          *gdt;
-        tss_stack_t    *tss_stack;
-        tss_t          *tss;
-        kernel_stack_t *kernel_stack;
+        uint64_t            id;
+        uint64_t            lapic_id;
+        gdt_t              *gdt;
+        tss_stack_t        *tss_stack;
+        tss_t              *tss;
+        kernel_stack_t     *kernel_stack;
         syscall_cpu_state_t syscall;
 } cpu_processor_t;
 

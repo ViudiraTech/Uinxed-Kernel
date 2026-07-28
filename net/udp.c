@@ -5,7 +5,7 @@
 #include <net/icmp.h>
 #include <net/udp.h>
 
-#define UDP_HEADER_LEN 8U
+#define UDP_HEADER_LEN      8U
 #define UDP_EPHEMERAL_FIRST 49152U
 
 typedef struct udp_packet {
@@ -19,29 +19,29 @@ typedef struct udp_packet {
 } udp_packet_t;
 
 struct udp_endpoint {
-        uint16_t      family;
-        uint8_t       native6;
-        uint8_t       v6only;
-        uint32_t      local_address;
-        uint32_t      remote_address;
-        ipv6_address_t local_address6;
-        ipv6_address_t remote_address6;
-        uint16_t      local_port;
-        uint16_t      remote_port;
-        uint16_t      queue_length;
-        uint32_t      queue_bytes;
-        uint8_t       bound;
-        udp_packet_t *head;
-        udp_packet_t *tail;
-        wait_queue_t  wait;
-        spinlock_t    lock;
+        uint16_t             family;
+        uint8_t              native6;
+        uint8_t              v6only;
+        uint32_t             local_address;
+        uint32_t             remote_address;
+        ipv6_address_t       local_address6;
+        ipv6_address_t       remote_address6;
+        uint16_t             local_port;
+        uint16_t             remote_port;
+        uint16_t             queue_length;
+        uint32_t             queue_bytes;
+        uint8_t              bound;
+        udp_packet_t        *head;
+        udp_packet_t        *tail;
+        wait_queue_t         wait;
+        spinlock_t           lock;
         udp_event_callback_t event_callback;
-        void                 *event_context;
+        void                *event_context;
 };
 
 static udp_endpoint_t *udp_table[UDP_ENDPOINT_MAX];
-static spinlock_t udp_table_lock;
-static uint16_t udp_ephemeral = UDP_EPHEMERAL_FIRST;
+static spinlock_t      udp_table_lock;
+static uint16_t        udp_ephemeral = UDP_EPHEMERAL_FIRST;
 
 static int udp_autobind(udp_endpoint_t *ep);
 
@@ -49,22 +49,22 @@ static void udp_notify(udp_endpoint_t *ep, uint32_t events)
 {
     wait_queue_wake_all(&ep->wait);
     udp_event_callback_t callback = ep->event_callback;
-    void *context = ep->event_context;
+    void                *context  = ep->event_context;
     if (callback) callback(ep, events, context);
 }
 
 int net_udp_parse(const void *data, size_t length, uint32_t source, uint32_t destination, net_udp_datagram_t *datagram)
 {
     if (!data || !datagram || length < UDP_HEADER_LEN) return -EBADMSG;
-    const uint8_t *bytes = data;
-    uint16_t wire_length = net_read_be16(bytes + 4);
-    uint16_t checksum = net_read_be16(bytes + 6);
+    const uint8_t *bytes       = data;
+    uint16_t       wire_length = net_read_be16(bytes + 4);
+    uint16_t       checksum    = net_read_be16(bytes + 6);
     if (wire_length < UDP_HEADER_LEN || wire_length > length) return -EBADMSG;
     if (checksum && net_checksum_ipv4_pseudo(source, destination, IPV4_PROTO_UDP, bytes, wire_length) != 0) return -EBADMSG;
-    datagram->source_port = net_read_be16(bytes);
+    datagram->source_port      = net_read_be16(bytes);
     datagram->destination_port = net_read_be16(bytes + 2);
-    datagram->payload = bytes + UDP_HEADER_LEN;
-    datagram->payload_len = wire_length - UDP_HEADER_LEN;
+    datagram->payload          = bytes + UDP_HEADER_LEN;
+    datagram->payload_len      = wire_length - UDP_HEADER_LEN;
     datagram->checksum_present = checksum != 0;
     return 0;
 }
@@ -83,7 +83,7 @@ static uint32_t udp_checksum_add(uint32_t sum, const uint8_t *data, size_t lengt
 static uint16_t udp_checksum6(const struct in6_addr *source, const struct in6_addr *destination, const void *data, size_t length)
 {
     uint32_t sum = udp_checksum_add(0, source->s6_addr, 16);
-    sum = udp_checksum_add(sum, destination->s6_addr, 16);
+    sum          = udp_checksum_add(sum, destination->s6_addr, 16);
     sum += (uint32_t)(length >> 16) + (uint16_t)length + IPPROTO_UDP;
     sum = udp_checksum_add(sum, data, length);
     while (sum >> 16) sum = (sum & UINT16_MAX) + (sum >> 16);
@@ -94,14 +94,15 @@ int net_udp_parse6(const void *data, size_t length, const struct in6_addr *sourc
                    net_udp_datagram_t *datagram)
 {
     if (!data || !source || !destination || !datagram || length < UDP_HEADER_LEN) return -EBADMSG;
-    const uint8_t *bytes = data;
-    uint16_t wire_length = net_read_be16(bytes + 4);
+    const uint8_t *bytes       = data;
+    uint16_t       wire_length = net_read_be16(bytes + 4);
     if (wire_length < UDP_HEADER_LEN || wire_length > length || !net_read_be16(bytes + 6)
-        || udp_checksum6(source, destination, bytes, wire_length) != 0) return -EBADMSG;
-    datagram->source_port = net_read_be16(bytes);
+        || udp_checksum6(source, destination, bytes, wire_length) != 0)
+        return -EBADMSG;
+    datagram->source_port      = net_read_be16(bytes);
     datagram->destination_port = net_read_be16(bytes + 2);
-    datagram->payload = bytes + UDP_HEADER_LEN;
-    datagram->payload_len = wire_length - UDP_HEADER_LEN;
+    datagram->payload          = bytes + UDP_HEADER_LEN;
+    datagram->payload_len      = wire_length - UDP_HEADER_LEN;
     datagram->checksum_present = 1;
     return 0;
 }
@@ -110,7 +111,8 @@ static int udp_port_used_locked(uint32_t address, uint16_t port, const udp_endpo
 {
     for (unsigned i = 0; i < UDP_ENDPOINT_MAX; i++) {
         udp_endpoint_t *ep = udp_table[i];
-        if (ep && ep != ignore && ep->bound && ep->local_port == port && (!ep->local_address || !address || ep->local_address == address)) return 1;
+        if (ep && ep != ignore && ep->bound && ep->local_port == port && (!ep->local_address || !address || ep->local_address == address))
+            return 1;
     }
     return 0;
 }
@@ -134,13 +136,17 @@ udp_endpoint_t *udp_open_family(uint16_t family)
     return NULL;
 }
 
-udp_endpoint_t *udp_open(void) { return udp_open_family(AF_INET); }
+udp_endpoint_t *udp_open(void)
+{
+    return udp_open_family(AF_INET);
+}
 
 void udp_close(udp_endpoint_t *ep)
 {
     if (!ep) return;
     spin_lock(&udp_table_lock);
-    for (unsigned i = 0; i < UDP_ENDPOINT_MAX; i++) if (udp_table[i] == ep) udp_table[i] = NULL;
+    for (unsigned i = 0; i < UDP_ENDPOINT_MAX; i++)
+        if (udp_table[i] == ep) udp_table[i] = NULL;
     spin_unlock(&udp_table_lock);
     spin_lock(&ep->lock);
     udp_packet_t *packet = ep->head;
@@ -169,8 +175,8 @@ int udp_bind(udp_endpoint_t *ep, uint32_t address, uint16_t port)
         return ep->bound ? -EINVAL : -EADDRINUSE;
     }
     ep->local_address = address;
-    ep->local_port = port;
-    ep->bound = 1;
+    ep->local_port    = port;
+    ep->bound         = 1;
     spin_unlock(&udp_table_lock);
     return 0;
 }
@@ -179,7 +185,7 @@ int udp_bind6(udp_endpoint_t *ep, const ipv6_address_t *address, uint16_t port)
 {
     if (!ep || !address || ep->family != AF_INET6) return -EINVAL;
     ep->native6 = 1;
-    int status = udp_bind(ep, 0, port);
+    int status  = udp_bind(ep, 0, port);
     if (!status) ep->local_address6 = *address;
     return status;
 }
@@ -193,7 +199,7 @@ static int udp_autobind(udp_endpoint_t *ep)
         if (udp_ephemeral < UDP_EPHEMERAL_FIRST) udp_ephemeral = UDP_EPHEMERAL_FIRST;
         if (!udp_port_used_locked(0, port, ep)) {
             ep->local_port = port;
-            ep->bound = 1;
+            ep->bound      = 1;
             spin_unlock(&udp_table_lock);
             return 0;
         }
@@ -208,9 +214,9 @@ int udp_connect(udp_endpoint_t *ep, uint32_t address, uint16_t port)
     int status = udp_autobind(ep);
     if (status) return status;
     spin_lock(&ep->lock);
-    ep->native6 = 0;
+    ep->native6        = 0;
     ep->remote_address = address;
-    ep->remote_port = port;
+    ep->remote_port    = port;
     spin_unlock(&ep->lock);
     return 0;
 }
@@ -220,7 +226,7 @@ int udp_connect6(udp_endpoint_t *ep, const ipv6_address_t *address, uint16_t por
     if (!ep || !address || ep->family != AF_INET6 || ipv6_address_is_unspecified(address) || !port) return -EINVAL;
     int status = udp_autobind(ep);
     if (status) return status;
-    net_device_t *device;
+    net_device_t  *device;
     ipv6_address_t source, next_hop;
     status = ipv6_route(address, &device, &source, &next_hop);
     if (status) return status;
@@ -229,7 +235,7 @@ int udp_connect6(udp_endpoint_t *ep, const ipv6_address_t *address, uint16_t por
     ep->native6 = 1;
     if (ipv6_address_is_unspecified(&ep->local_address6)) ep->local_address6 = source;
     ep->remote_address6 = *address;
-    ep->remote_port = port;
+    ep->remote_port     = port;
     spin_unlock(&ep->lock);
     return 0;
 }
@@ -255,7 +261,7 @@ int udp_send(udp_endpoint_t *ep, const void *data, size_t length, uint32_t desti
     if (!port) port = ep->remote_port;
     if (!destination || !port) return -EDESTADDRREQ;
     net_device_t *device;
-    uint32_t next_hop;
+    uint32_t      next_hop;
     status = ipv4_route(destination, &device, &next_hop);
     if (status) return status;
     net_pbuf_t *packet = net_pbuf_alloc(UDP_HEADER_LEN + length, NET_PBUF_HEADROOM);
@@ -268,7 +274,7 @@ int udp_send(udp_endpoint_t *ep, const void *data, size_t length, uint32_t desti
     net_write_be16(packet->data + 4, (uint16_t)packet->length);
     net_write_be16(packet->data + 6, 0);
     if (length) memcpy(packet->data + UDP_HEADER_LEN, data, length);
-    uint32_t source = ep->local_address ? ep->local_address : device->ipv4_address;
+    uint32_t source   = ep->local_address ? ep->local_address : device->ipv4_address;
     uint16_t checksum = net_checksum_ipv4_pseudo(source, destination, IPV4_PROTO_UDP, packet->data, packet->length);
     net_write_be16(packet->data + 6, checksum ? checksum : UINT16_MAX);
     status = ipv4_output(device, source, destination, IPV4_PROTO_UDP, 64, packet);
@@ -277,8 +283,7 @@ int udp_send(udp_endpoint_t *ep, const void *data, size_t length, uint32_t desti
     return status == -EINPROGRESS ? (int)length : (status ? status : (int)length);
 }
 
-int udp_send6(udp_endpoint_t *ep, const void *data, size_t length, const ipv6_address_t *destination, uint16_t port,
-              uint8_t hop_limit)
+int udp_send6(udp_endpoint_t *ep, const void *data, size_t length, const ipv6_address_t *destination, uint16_t port, uint8_t hop_limit)
 {
     if (!ep || (!data && length) || ep->family != AF_INET6 || length > UINT16_MAX - UDP_HEADER_LEN) return -EINVAL;
     int status = udp_autobind(ep);
@@ -286,7 +291,7 @@ int udp_send6(udp_endpoint_t *ep, const void *data, size_t length, const ipv6_ad
     if (!destination || ipv6_address_is_unspecified(destination)) destination = &ep->remote_address6;
     if (!port) port = ep->remote_port;
     if (ipv6_address_is_unspecified(destination) || !port) return -EDESTADDRREQ;
-    net_device_t *device;
+    net_device_t  *device;
     ipv6_address_t source, next_hop;
     status = ipv6_route(destination, &device, &source, &next_hop);
     if (status) return status;
@@ -321,11 +326,11 @@ int udp_receive(udp_endpoint_t *ep, void *data, size_t capacity, udp_datagram_t 
     size_t copied = packet->length < capacity ? packet->length : capacity;
     if (copied) memcpy(data, packet->data, copied);
     if (info) {
-        info->source_address = packet->source_address;
+        info->source_address  = packet->source_address;
         info->source_address6 = packet->source_address6;
-        info->family = packet->family;
-        info->source_port = packet->source_port;
-        info->length = packet->length;
+        info->family          = packet->family;
+        info->source_port     = packet->source_port;
+        info->length          = packet->length;
     }
     if (!peek) {
         ep->head = packet->next;
@@ -341,20 +346,19 @@ int udp_receive(udp_endpoint_t *ep, void *data, size_t capacity, udp_datagram_t 
 int udp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
 {
     if (!device || !ip || !packet || packet->length < UDP_HEADER_LEN) goto bad;
-    uint16_t source_port = net_read_be16(packet->data);
+    uint16_t source_port      = net_read_be16(packet->data);
     uint16_t destination_port = net_read_be16(packet->data + 2);
-    uint16_t length = net_read_be16(packet->data + 4);
-    uint16_t checksum = net_read_be16(packet->data + 6);
+    uint16_t length           = net_read_be16(packet->data + 4);
+    uint16_t checksum         = net_read_be16(packet->data + 6);
     if (!destination_port || length < UDP_HEADER_LEN || length > packet->length) goto bad;
     if (checksum && net_checksum_ipv4_pseudo(ip->source, ip->destination, IPV4_PROTO_UDP, packet->data, length) != 0) goto bad;
     udp_endpoint_t *target = NULL;
     spin_lock(&udp_table_lock);
     for (unsigned i = 0; i < UDP_ENDPOINT_MAX; i++) {
         udp_endpoint_t *ep = udp_table[i];
-        if (!ep || (ep->family != AF_INET
-                    && (ep->family != AF_INET6 || ep->v6only || !ipv6_address_is_unspecified(&ep->local_address6)))
-            || !ep->bound || ep->local_port != destination_port
-            || (ep->local_address && ep->local_address != ip->destination)) continue;
+        if (!ep || (ep->family != AF_INET && (ep->family != AF_INET6 || ep->v6only || !ipv6_address_is_unspecified(&ep->local_address6)))
+            || !ep->bound || ep->local_port != destination_port || (ep->local_address && ep->local_address != ip->destination))
+            continue;
         if (ep->remote_address && (ep->remote_address != ip->source || ep->remote_port != source_port)) continue;
         if (!target || ep->remote_address) target = ep;
     }
@@ -378,14 +382,16 @@ int udp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
         net_pbuf_free(packet);
         return -ENOMEM;
     }
-    queued->next = NULL;
-    queued->family = target->family;
+    queued->next           = NULL;
+    queued->family         = target->family;
     queued->source_address = ip->source;
-    queued->source_port = source_port;
-    queued->length = payload_length;
+    queued->source_port    = source_port;
+    queued->length         = payload_length;
     if (payload_length) memcpy(queued->data, packet->data + UDP_HEADER_LEN, payload_length);
-    if (target->tail) target->tail->next = queued;
-    else target->head = queued;
+    if (target->tail)
+        target->tail->next = queued;
+    else
+        target->head = queued;
     target->tail = queued;
     target->queue_length++;
     target->queue_bytes += (uint32_t)payload_length;
@@ -402,19 +408,22 @@ bad:
 int udp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
 {
     if (!device || !ip || !packet || packet->length < UDP_HEADER_LEN) goto bad;
-    uint16_t source_port = net_read_be16(packet->data);
+    uint16_t source_port      = net_read_be16(packet->data);
     uint16_t destination_port = net_read_be16(packet->data + 2);
-    uint16_t length = net_read_be16(packet->data + 4);
+    uint16_t length           = net_read_be16(packet->data + 4);
     if (!destination_port || length < UDP_HEADER_LEN || length > packet->length || !net_read_be16(packet->data + 6)
-        || net_checksum_ipv6_pseudo(&ip->source, &ip->destination, IPV6_NEXT_UDP, packet->data, length) != 0) goto bad;
+        || net_checksum_ipv6_pseudo(&ip->source, &ip->destination, IPV6_NEXT_UDP, packet->data, length) != 0)
+        goto bad;
     udp_endpoint_t *target = NULL;
     spin_lock(&udp_table_lock);
     for (unsigned i = 0; i < UDP_ENDPOINT_MAX; i++) {
         udp_endpoint_t *ep = udp_table[i];
         if (!ep || ep->family != AF_INET6 || !ep->bound || ep->local_port != destination_port
-            || (!ipv6_address_is_unspecified(&ep->local_address6) && !ipv6_address_equal(&ep->local_address6, &ip->destination))) continue;
+            || (!ipv6_address_is_unspecified(&ep->local_address6) && !ipv6_address_equal(&ep->local_address6, &ip->destination)))
+            continue;
         if (!ipv6_address_is_unspecified(&ep->remote_address6)
-            && (!ipv6_address_equal(&ep->remote_address6, &ip->source) || ep->remote_port != source_port)) continue;
+            && (!ipv6_address_equal(&ep->remote_address6, &ip->source) || ep->remote_port != source_port))
+            continue;
         if (!target || !ipv6_address_is_unspecified(&ep->remote_address6)) target = ep;
     }
     if (!target) {
@@ -437,15 +446,17 @@ int udp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
         net_pbuf_free(packet);
         return -ENOMEM;
     }
-    queued->next = NULL;
-    queued->family = AF_INET6;
-    queued->source_address = 0;
+    queued->next            = NULL;
+    queued->family          = AF_INET6;
+    queued->source_address  = 0;
     queued->source_address6 = ip->source;
-    queued->source_port = source_port;
-    queued->length = payload_length;
+    queued->source_port     = source_port;
+    queued->length          = payload_length;
     if (payload_length) memcpy(queued->data, packet->data + UDP_HEADER_LEN, payload_length);
-    if (target->tail) target->tail->next = queued;
-    else target->head = queued;
+    if (target->tail)
+        target->tail->next = queued;
+    else
+        target->head = queued;
     target->tail = queued;
     target->queue_length++;
     target->queue_bytes += (uint32_t)payload_length;
@@ -459,7 +470,10 @@ bad:
     return -EBADMSG;
 }
 
-uint16_t udp_local_port(const udp_endpoint_t *endpoint) { return endpoint ? endpoint->local_port : 0; }
+uint16_t udp_local_port(const udp_endpoint_t *endpoint)
+{
+    return endpoint ? endpoint->local_port : 0;
+}
 
 uint32_t udp_readiness(udp_endpoint_t *endpoint)
 {
@@ -474,16 +488,16 @@ int udp_get_info(udp_endpoint_t *endpoint, udp_endpoint_info_t *info)
 {
     if (!endpoint || !info) return -EINVAL;
     spin_lock(&endpoint->lock);
-    info->family = endpoint->family;
-    info->local_address = endpoint->local_address;
-    info->remote_address = endpoint->remote_address;
-    info->local_address6 = endpoint->local_address6;
-    info->remote_address6 = endpoint->remote_address6;
-    info->local_port = endpoint->local_port;
-    info->remote_port = endpoint->remote_port;
+    info->family           = endpoint->family;
+    info->local_address    = endpoint->local_address;
+    info->remote_address   = endpoint->remote_address;
+    info->local_address6   = endpoint->local_address6;
+    info->remote_address6  = endpoint->remote_address6;
+    info->local_port       = endpoint->local_port;
+    info->remote_port      = endpoint->remote_port;
     info->queued_datagrams = endpoint->queue_length;
-    info->queued_bytes = endpoint->queue_bytes;
-    info->connected = endpoint->remote_port && (endpoint->remote_address || !ipv6_address_is_unspecified(&endpoint->remote_address6));
+    info->queued_bytes     = endpoint->queue_bytes;
+    info->connected        = endpoint->remote_port && (endpoint->remote_address || !ipv6_address_is_unspecified(&endpoint->remote_address6));
     spin_unlock(&endpoint->lock);
     return 0;
 }
@@ -493,7 +507,7 @@ void udp_set_event_callback(udp_endpoint_t *endpoint, udp_event_callback_t callb
     if (!endpoint) return;
     spin_lock(&endpoint->lock);
     endpoint->event_callback = callback;
-    endpoint->event_context = callback ? context : NULL;
+    endpoint->event_context  = callback ? context : NULL;
     spin_unlock(&endpoint->lock);
     if (callback) callback(endpoint, udp_readiness(endpoint), context);
 }
@@ -506,4 +520,7 @@ void udp_set_v6only(udp_endpoint_t *endpoint, int enabled)
     spin_unlock(&endpoint->lock);
 }
 
-wait_queue_t *udp_wait_queue(udp_endpoint_t *endpoint) { return endpoint ? &endpoint->wait : NULL; }
+wait_queue_t *udp_wait_queue(udp_endpoint_t *endpoint)
+{
+    return endpoint ? &endpoint->wait : NULL;
+}

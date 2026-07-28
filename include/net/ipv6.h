@@ -3,10 +3,10 @@
 
 #include <net/netdev.h>
 
-#define IPV6_ADDRESS_LEN       16U
-#define IPV6_HEADER_LEN        40U
-#define IPV6_MIN_MTU           1280U
-#define IPV6_REASSEMBLY_SLOTS  4U
+#define IPV6_ADDRESS_LEN      16U
+#define IPV6_HEADER_LEN       40U
+#define IPV6_MIN_MTU          1280U
+#define IPV6_REASSEMBLY_SLOTS 4U
 
 #define IPV6_NEXT_HOP_BY_HOP 0U
 #define IPV6_NEXT_TCP        6U
@@ -53,12 +53,12 @@ typedef struct net_ipv6_packet {
 
 /* The input callback consumes packet on every return path. */
 typedef int (*ipv6_transport_input_t)(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet);
-typedef void (*ipv6_error_hook_t)(uint8_t protocol, const ipv6_address_t *source, const ipv6_address_t *destination,
-                                  const void *transport, size_t transport_length, int error, uint32_t mtu);
+typedef void (*ipv6_error_hook_t)(uint8_t protocol, const ipv6_address_t *source, const ipv6_address_t *destination, const void *transport,
+                                  size_t transport_length, int error, uint32_t mtu);
 
-int net_ipv6_parse(const void *data, size_t length, net_ipv6_packet_t *packet);
-uint16_t net_checksum_ipv6_pseudo(const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol,
-                                  const void *data, size_t length);
+int      net_ipv6_parse(const void *data, size_t length, net_ipv6_packet_t *packet);
+uint16_t net_checksum_ipv6_pseudo(const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol, const void *data,
+                                  size_t length);
 
 int  ipv6_address_equal(const ipv6_address_t *left, const ipv6_address_t *right);
 int  ipv6_address_is_unspecified(const ipv6_address_t *address);
@@ -70,12 +70,12 @@ void ipv6_link_local_from_mac(ipv6_address_t *address, const uint8_t mac[6]);
 void ipv6_solicited_node(const ipv6_address_t *address, ipv6_address_t *multicast);
 void ipv6_multicast_ethernet(const ipv6_address_t *address, uint8_t mac[6]);
 
-int ipv6_input(net_device_t *device, net_pbuf_t *packet);
-int ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol,
-                uint8_t hop_limit, net_pbuf_t *packet);
-int ipv6_route(const ipv6_address_t *destination, net_device_t **device, ipv6_address_t *source, ipv6_address_t *next_hop);
-int ipv6_set_transport_handler(uint8_t protocol, ipv6_transport_input_t handler);
-int ipv6_set_error_hook(ipv6_error_hook_t hook);
+int  ipv6_input(net_device_t *device, net_pbuf_t *packet);
+int  ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol, uint8_t hop_limit,
+                 net_pbuf_t *packet);
+int  ipv6_route(const ipv6_address_t *destination, net_device_t **device, ipv6_address_t *source, ipv6_address_t *next_hop);
+int  ipv6_set_transport_handler(uint8_t protocol, ipv6_transport_input_t handler);
+int  ipv6_set_error_hook(ipv6_error_hook_t hook);
 void ipv6_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *quoted, size_t quoted_length);
 void ipv6_timer(uint64_t now_ticks);
 void ipv6_device_removed(net_device_t *device);

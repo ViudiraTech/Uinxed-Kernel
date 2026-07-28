@@ -16,16 +16,16 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
-#define USB_MAX_INTERFACES 8
-#define USB_MAX_ENDPOINTS  16
+#define USB_MAX_INTERFACES  8
+#define USB_MAX_ENDPOINTS   16
 #define USB_MAX_CONTROLLERS 8
 #define USB_MAX_DEVICES     64
 
 #define USB_DIR_OUT 0x00
 #define USB_DIR_IN  0x80
 
-#define USB_TYPE_STANDARD (0x00 << 5)
-#define USB_TYPE_CLASS    (0x01 << 5)
+#define USB_TYPE_STANDARD   (0x00 << 5)
+#define USB_TYPE_CLASS      (0x01 << 5)
 #define USB_RECIP_DEVICE    0x00
 #define USB_RECIP_INTERFACE 0x01
 #define USB_RECIP_ENDPOINT  0x02
@@ -52,13 +52,13 @@
 #define USB_CLASS_HID          0x03
 #define USB_CLASS_MASS_STORAGE 0x08
 
-#define USB_ENDPOINT_NUMBER_MASK 0x0f
-#define USB_ENDPOINT_DIR_MASK    0x80
+#define USB_ENDPOINT_NUMBER_MASK   0x0f
+#define USB_ENDPOINT_DIR_MASK      0x80
 #define USB_ENDPOINT_XFERTYPE_MASK 0x03
-#define USB_ENDPOINT_XFER_CONTROL 0
-#define USB_ENDPOINT_XFER_ISOC    1
-#define USB_ENDPOINT_XFER_BULK    2
-#define USB_ENDPOINT_XFER_INT     3
+#define USB_ENDPOINT_XFER_CONTROL  0
+#define USB_ENDPOINT_XFER_ISOC     1
+#define USB_ENDPOINT_XFER_BULK     2
+#define USB_ENDPOINT_XFER_INT      3
 
 #define USB_CTRL_TIMEOUT_MS 1000
 #define USB_IO_TIMEOUT_MS   5000
@@ -145,7 +145,7 @@ typedef struct usb_hcd_ops {
 } usb_hcd_ops_t;
 
 typedef struct usb_endpoint {
-        struct usb_interface      *interface;
+        struct usb_interface     *interface;
         usb_endpoint_descriptor_t descriptor;
         void                     *hc_private;
 } usb_endpoint_t;
@@ -189,12 +189,12 @@ int  usb_core_init(void);
 int  usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t length);
 void usb_remove_device(usb_device_t *device);
 
-int usb_control_msg(usb_device_t *device, uint8_t request_type, uint8_t request, uint16_t value, uint16_t index,
-                    void *buffer, uint16_t length, uint32_t timeout_ms);
-int usb_bulk_msg(usb_endpoint_t *endpoint, void *buffer, size_t length, size_t *actual, uint32_t timeout_ms);
-int usb_interrupt_start(usb_endpoint_t *endpoint, size_t length, usb_interrupt_complete_t complete, void *context);
+int  usb_control_msg(usb_device_t *device, uint8_t request_type, uint8_t request, uint16_t value, uint16_t index, void *buffer, uint16_t length,
+                     uint32_t timeout_ms);
+int  usb_bulk_msg(usb_endpoint_t *endpoint, void *buffer, size_t length, size_t *actual, uint32_t timeout_ms);
+int  usb_interrupt_start(usb_endpoint_t *endpoint, size_t length, usb_interrupt_complete_t complete, void *context);
 void usb_interrupt_stop(usb_endpoint_t *endpoint);
-int usb_clear_halt(usb_endpoint_t *endpoint);
+int  usb_clear_halt(usb_endpoint_t *endpoint);
 
 usb_endpoint_t *usb_find_endpoint(usb_interface_t *interface, uint8_t transfer_type, bool input);
 const uint8_t  *usb_find_extra_descriptor(const usb_interface_t *interface, uint8_t descriptor_type, size_t *length);

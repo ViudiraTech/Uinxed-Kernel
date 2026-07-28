@@ -110,8 +110,8 @@ void ipv6_multicast_ethernet(const ipv6_address_t *address, uint8_t mac[6])
     memcpy(mac + 2, address->bytes + 12, 4);
 }
 
-uint16_t net_checksum_ipv6_pseudo(const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol,
-                                  const void *data, size_t length)
+uint16_t net_checksum_ipv6_pseudo(const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol, const void *data,
+                                  size_t length)
 {
     if (!source || !destination || (!data && length) || length > UINT32_MAX) return 0;
     uint8_t pseudo[40];
@@ -119,7 +119,7 @@ uint16_t net_checksum_ipv6_pseudo(const ipv6_address_t *source, const ipv6_addre
     memcpy(pseudo + 16, destination->bytes, IPV6_ADDRESS_LEN);
     net_write_be32(pseudo + 32, (uint32_t)length);
     pseudo[36] = pseudo[37] = pseudo[38] = 0;
-    pseudo[39]                         = protocol;
+    pseudo[39]                           = protocol;
     return net_checksum_finish(net_checksum_add(net_checksum_add(0, pseudo, sizeof(pseudo)), data, length));
 }
 
@@ -160,14 +160,13 @@ int net_ipv6_parse(const void *data, size_t length, net_ipv6_packet_t *packet)
     memcpy(packet->source.bytes, bytes + 8, IPV6_ADDRESS_LEN);
     memcpy(packet->destination.bytes, bytes + 24, IPV6_ADDRESS_LEN);
 
-    uint8_t next = bytes[6];
-    size_t  offset = IPV6_HEADER_LEN;
+    uint8_t  next       = bytes[6];
+    size_t   offset     = IPV6_HEADER_LEN;
     unsigned extensions = 0;
-    while (next == IPV6_NEXT_HOP_BY_HOP || next == IPV6_NEXT_ROUTING || next == IPV6_NEXT_FRAGMENT
-           || next == IPV6_NEXT_DEST_OPTS || next == IPV6_NEXT_AH || next == IPV6_NEXT_ESP) {
+    while (next == IPV6_NEXT_HOP_BY_HOP || next == IPV6_NEXT_ROUTING || next == IPV6_NEXT_FRAGMENT || next == IPV6_NEXT_DEST_OPTS
+           || next == IPV6_NEXT_AH || next == IPV6_NEXT_ESP) {
         if (++extensions > IPV6_MAX_EXTENSION_HEADERS) return -EBADMSG;
-        if (next == IPV6_NEXT_ROUTING || next == IPV6_NEXT_DEST_OPTS || next == IPV6_NEXT_AH || next == IPV6_NEXT_ESP)
-            return -EOPNOTSUPP;
+        if (next == IPV6_NEXT_ROUTING || next == IPV6_NEXT_DEST_OPTS || next == IPV6_NEXT_AH || next == IPV6_NEXT_ESP) return -EOPNOTSUPP;
         if (next == IPV6_NEXT_HOP_BY_HOP) {
             if (offset != IPV6_HEADER_LEN || payload_length < 8 || offset + 2 > packet->total_len) return -EBADMSG;
             size_t extension_length = ((size_t)bytes[offset + 1] + 1U) * 8U;
@@ -261,14 +260,14 @@ int ipv6_route(const ipv6_address_t *destination, net_device_t **device, ipv6_ad
     return 0;
 }
 
-int ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol,
-                uint8_t hop_limit, net_pbuf_t *packet)
+int ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol, uint8_t hop_limit,
+                net_pbuf_t *packet)
 {
     if (!destination || !packet || ipv6_address_is_unspecified(destination) || ipv6_address_is_loopback(destination)
         || packet->length > IPV6_MAX_PAYLOAD)
         return -EINVAL;
     ipv6_address_t selected_source, next_hop;
-    int release = 0;
+    int            release = 0;
     if (!device) {
         int status = ipv6_route(destination, &device, &selected_source, &next_hop);
         if (status) return status;
@@ -287,8 +286,7 @@ int ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_a
     uint32_t mtu = device->ipv6_mtu ? device->ipv6_mtu : device->mtu;
     if (device->mtu < IPV6_MIN_MTU || ipv6_address_is_loopback(&selected_source)
         || (!ipv6_address_is_unicast(&selected_source) && !ipv6_address_is_unspecified(&selected_source))
-        || packet->length + IPV6_HEADER_LEN > mtu
-        || packet->length + IPV6_HEADER_LEN > UINT16_MAX) {
+        || packet->length + IPV6_HEADER_LEN > mtu || packet->length + IPV6_HEADER_LEN > UINT16_MAX) {
         if (release) netdev_put(device);
         return -EMSGSIZE;
     }
@@ -435,7 +433,7 @@ static net_pbuf_t *ipv6_reassemble(net_device_t *device, const net_ipv6_packet_t
         memcpy(entry->first_quote + 48, ip->payload, quoted_payload);
     }
     if (!ip->more_fragments) {
-        entry->have_last   = 1;
+        entry->have_last    = 1;
         entry->total_length = (uint16_t)end;
     }
     entry->expires = now + IPV6_REASSEMBLY_TIMEOUT_TICKS;
@@ -478,7 +476,7 @@ int ipv6_input(net_device_t *device, net_pbuf_t *packet)
 {
     if (!device || !packet) goto bad;
     net_ipv6_packet_t parsed;
-    int parse_status = net_ipv6_parse(packet->data, packet->length, &parsed);
+    int               parse_status = net_ipv6_parse(packet->data, packet->length, &parsed);
     if (parse_status) goto bad_status;
     if (device->mtu < IPV6_MIN_MTU || ipv6_address_is_loopback(&parsed.source)
         || (!ipv6_address_is_unicast(&parsed.source) && !ipv6_address_is_unspecified(&parsed.source))
@@ -486,20 +484,20 @@ int ipv6_input(net_device_t *device, net_pbuf_t *packet)
         net_pbuf_free(packet);
         return -EHOSTUNREACH;
     }
-    ipv6_info_t info = {.source          = parsed.source,
-                        .destination     = parsed.destination,
-                        .flow_label      = parsed.flow_label,
-                        .payload_length  = parsed.payload_len,
-                        .protocol        = parsed.protocol,
-                        .hop_limit       = parsed.hop_limit,
-                        .fragment_id     = parsed.fragment_id,
-                        .fragment_offset = parsed.fragment_offset,
-                        .more_fragments  = parsed.more_fragments};
-    size_t quote_length = parsed.total_len < IPV6_MIN_MTU ? parsed.total_len : IPV6_MIN_MTU;
-    uint8_t quote[IPV6_MIN_MTU];
+    ipv6_info_t info         = {.source          = parsed.source,
+                                .destination     = parsed.destination,
+                                .flow_label      = parsed.flow_label,
+                                .payload_length  = parsed.payload_len,
+                                .protocol        = parsed.protocol,
+                                .hop_limit       = parsed.hop_limit,
+                                .fragment_id     = parsed.fragment_id,
+                                .fragment_offset = parsed.fragment_offset,
+                                .more_fragments  = parsed.more_fragments};
+    size_t      quote_length = parsed.total_len < IPV6_MIN_MTU ? parsed.total_len : IPV6_MIN_MTU;
+    uint8_t     quote[IPV6_MIN_MTU];
     memcpy(quote, packet->data, quote_length);
     if (parsed.has_fragment && (parsed.fragment_offset || parsed.more_fragments)) {
-        int reassembly_status;
+        int         reassembly_status;
         net_pbuf_t *complete = ipv6_reassemble(device, &parsed, sched_ticks(), &reassembly_status);
         net_pbuf_free(packet);
         if (!complete) return reassembly_status;
@@ -539,8 +537,8 @@ void ipv6_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *qu
     ipv6_address_t source, destination;
     memcpy(source.bytes, bytes + 8, 16);
     memcpy(destination.bytes, bytes + 24, 16);
-    uint8_t protocol = bytes[6];
-    size_t offset = IPV6_HEADER_LEN;
+    uint8_t  protocol   = bytes[6];
+    size_t   offset     = IPV6_HEADER_LEN;
     unsigned extensions = 0;
     while (protocol == IPV6_NEXT_HOP_BY_HOP || protocol == IPV6_NEXT_FRAGMENT) {
         if (++extensions > IPV6_MAX_EXTENSION_HEADERS || offset + 8U > quoted_length) return;
@@ -559,38 +557,40 @@ void ipv6_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *qu
         || protocol == IPV6_NEXT_NONE)
         return;
     int error = 0;
-    if (type == ICMPV6_PACKET_TOO_BIG) error = -EMSGSIZE;
-    else if (type == ICMPV6_TIME_EXCEEDED) error = -ETIMEDOUT;
-    else if (type == ICMPV6_DEST_UNREACHABLE) error = code == ICMPV6_PORT_UNREACHABLE ? -ECONNREFUSED : -EHOSTUNREACH;
-    else if (type == ICMPV6_PARAMETER_PROBLEM) error = -EPROTO;
+    if (type == ICMPV6_PACKET_TOO_BIG)
+        error = -EMSGSIZE;
+    else if (type == ICMPV6_TIME_EXCEEDED)
+        error = -ETIMEDOUT;
+    else if (type == ICMPV6_DEST_UNREACHABLE)
+        error = code == ICMPV6_PORT_UNREACHABLE ? -ECONNREFUSED : -EHOSTUNREACH;
+    else if (type == ICMPV6_PARAMETER_PROBLEM)
+        error = -EPROTO;
     if (!error) return;
     spin_lock(&ipv6_lock);
     ipv6_error_hook_t hook = ipv6_error_hook;
     spin_unlock(&ipv6_lock);
-    if (hook)
-        hook(protocol, &source, &destination, bytes + offset, quoted_length - offset, error, type == ICMPV6_PACKET_TOO_BIG ? mtu : 0);
+    if (hook) hook(protocol, &source, &destination, bytes + offset, quoted_length - offset, error, type == ICMPV6_PACKET_TOO_BIG ? mtu : 0);
 }
 
 void ipv6_timer(uint64_t now_ticks)
 {
     for (unsigned i = 0; i < IPV6_REASSEMBLY_SLOTS; i++) {
-        net_device_t *device = NULL;
+        net_device_t  *device = NULL;
         ipv6_address_t destination;
-        uint8_t quote[IPV6_HEADER_LEN + 16U];
-        size_t quote_length = 0;
+        uint8_t        quote[IPV6_HEADER_LEN + 16U];
+        size_t         quote_length = 0;
         spin_lock(&ipv6_reassembly_lock);
         if (ipv6_reassembly[i].device && now_ticks >= ipv6_reassembly[i].expires) {
             if (ipv6_reassembly[i].have_first) {
-                device      = ipv6_reassembly[i].device;
-                destination = ipv6_reassembly[i].source;
+                device       = ipv6_reassembly[i].device;
+                destination  = ipv6_reassembly[i].source;
                 quote_length = IPV6_HEADER_LEN + 8U + net_read_be16(ipv6_reassembly[i].first_quote + 4) - 8U;
                 memcpy(quote, ipv6_reassembly[i].first_quote, quote_length);
             }
             ipv6_reassembly_clear(&ipv6_reassembly[i]);
         }
         spin_unlock(&ipv6_reassembly_lock);
-        if (device)
-            icmpv6_error(device, &destination, ICMPV6_TIME_EXCEEDED, ICMPV6_REASSEMBLY_TIMEOUT, 0, quote, quote_length);
+        if (device) icmpv6_error(device, &destination, ICMPV6_TIME_EXCEEDED, ICMPV6_REASSEMBLY_TIMEOUT, 0, quote, quote_length);
     }
 }
 

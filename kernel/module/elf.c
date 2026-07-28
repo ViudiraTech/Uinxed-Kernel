@@ -14,10 +14,10 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
-#define ELFCLASS64   2
-#define ELFDATA2LSB  1
-#define EV_CURRENT   1
-#define EM_X86_64    62
+#define ELFCLASS64    2
+#define ELFDATA2LSB   1
+#define EV_CURRENT    1
+#define EM_X86_64     62
 #define R_X86_64_PC64 24
 
 static int range_valid(size_t offset, size_t length, size_t total)
@@ -35,10 +35,10 @@ int module_elf_validate(const void *image, size_t size, module_elf_view_t *view)
     if (!image || !view || size < sizeof(Elf64_Ehdr)) return -ENOEXEC;
 
     const Elf64_Ehdr *header = image;
-    if (header->e_ident[0] != 0x7f || header->e_ident[1] != 'E' || header->e_ident[2] != 'L' || header->e_ident[3] != 'F' ||
-        header->e_ident[4] != ELFCLASS64 || header->e_ident[5] != ELFDATA2LSB || header->e_ident[6] != EV_CURRENT || header->e_type != ET_REL ||
-        header->e_machine != EM_X86_64 || header->e_version != EV_CURRENT || header->e_ehsize != sizeof(Elf64_Ehdr) ||
-        header->e_shentsize != sizeof(Elf64_Shdr))
+    if (header->e_ident[0] != 0x7f || header->e_ident[1] != 'E' || header->e_ident[2] != 'L' || header->e_ident[3] != 'F'
+        || header->e_ident[4] != ELFCLASS64 || header->e_ident[5] != ELFDATA2LSB || header->e_ident[6] != EV_CURRENT || header->e_type != ET_REL
+        || header->e_machine != EM_X86_64 || header->e_version != EV_CURRENT || header->e_ehsize != sizeof(Elf64_Ehdr)
+        || header->e_shentsize != sizeof(Elf64_Shdr))
         return -ENOEXEC;
 
     if (!header->e_shoff || !range_valid((size_t)header->e_shoff, sizeof(Elf64_Shdr), size)) return -ENOEXEC;
@@ -52,11 +52,12 @@ int module_elf_validate(const void *image, size_t size, module_elf_view_t *view)
         const Elf64_Shdr *section = &sections[index];
         if (!power_of_two(section->sh_addralign)) return -ENOEXEC;
         if (section->sh_type != SHT_NOBITS && !range_valid((size_t)section->sh_offset, (size_t)section->sh_size, size)) return -ENOEXEC;
-        if ((section->sh_type == SHT_SYMTAB || section->sh_type == SHT_DYNSYM) &&
-            (section->sh_entsize != sizeof(Elf64_Sym) || section->sh_link >= count || section->sh_size % sizeof(Elf64_Sym)))
+        if ((section->sh_type == SHT_SYMTAB || section->sh_type == SHT_DYNSYM)
+            && (section->sh_entsize != sizeof(Elf64_Sym) || section->sh_link >= count || section->sh_size % sizeof(Elf64_Sym)))
             return -ENOEXEC;
-        if (section->sh_type == SHT_RELA &&
-            (section->sh_entsize != sizeof(Elf64_Rela) || section->sh_link >= count || section->sh_info >= count || section->sh_size % sizeof(Elf64_Rela)))
+        if (section->sh_type == SHT_RELA
+            && (section->sh_entsize != sizeof(Elf64_Rela) || section->sh_link >= count || section->sh_info >= count
+                || section->sh_size % sizeof(Elf64_Rela)))
             return -ENOEXEC;
         if (section->sh_type == SHT_REL) return -ENOEXEC;
     }

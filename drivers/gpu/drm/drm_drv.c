@@ -251,7 +251,7 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
 
         snprintf(path, sizeof(path), "/dev/dri/%s", dev->primary->device_node_name);
         uint64_t devt = MKDEV(226, dev->primary->index);
-        int ret = devtmpfs_register_char_device(path, devt, devt, file_stream, &drm_ops);
+        int      ret  = devtmpfs_register_char_device(path, devt, devt, file_stream, &drm_ops);
         if (ret) {
             DRM_ERROR("Failed to register %s: %d\n", path, ret);
         } else {
@@ -269,7 +269,7 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
         render_ops.ctx = dev;
 
         snprintf(path, sizeof(path), "/dev/dri/%s", dev->render->device_node_name);
-        devt = MKDEV(226, 128 + dev->render->index);
+        devt    = MKDEV(226, 128 + dev->render->index);
         int ret = devtmpfs_register_char_device(path, devt, devt, file_stream, &render_ops);
         if (ret) {
             DRM_ERROR("Failed to register %s: %d\n", path, ret);
@@ -453,8 +453,8 @@ void drm_release(struct drm_file *file)
 
     /* Framebuffers own GEM references and must be removed before handles. */
     while (file->fbs_head.next && file->fbs_head.next != &file->fbs_head) {
-        struct drm_framebuffer *fb = container_of(file->fbs_head.next, struct drm_framebuffer, filp_head);
-        uint32_t fb_id = fb->base.id;
+        struct drm_framebuffer *fb    = container_of(file->fbs_head.next, struct drm_framebuffer, filp_head);
+        uint32_t                fb_id = fb->base.id;
         if (drm_mode_rmfb(dev, &fb_id, file)) {
             drm_framebuffer_cleanup(fb);
             free(fb);
@@ -466,8 +466,8 @@ void drm_release(struct drm_file *file)
         ilist_node_t *node = file->object_list.next;
         while (node && node != &file->object_list) {
             struct drm_gem_handle_entry *entry = container_of(node, struct drm_gem_handle_entry, head);
-            struct drm_gem_object *obj = entry->obj;
-            node = node->next;
+            struct drm_gem_object       *obj   = entry->obj;
+            node                               = node->next;
             spin_lock(&file->table_lock);
             drm_idr_remove(&file->object_idr, entry->handle);
             ilist_remove(&entry->head);

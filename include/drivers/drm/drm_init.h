@@ -23,8 +23,8 @@ void drm_run_test(void);
 /* Return the singleton DRM device, or NULL before init. */
 struct drm_device *drm_get_singleton(void);
 struct drm_device *drm_get_device_by_minor(int type, int index);
-void drm_device_list_add(struct drm_device *dev);
-void drm_device_list_remove(struct drm_device *dev);
+void               drm_device_list_add(struct drm_device *dev);
+void               drm_device_list_remove(struct drm_device *dev);
 
 /* VFS callback wrappers used by devtmpfs to bind /dev/dri/card0. */
 void drm_vfs_open_cb(void *parent, const char *name, void *node);

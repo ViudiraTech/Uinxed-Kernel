@@ -123,8 +123,7 @@ int drm_get_cap(struct drm_device *dev, void *data, struct drm_file *file_priv)
             cap->value = 0;
             break;
         case DRM_CAP_PRIME :
-            cap->value = (dev->driver->driver_features & DRIVER_PRIME)
-                             ? (DRM_PRIME_CAP_EXPORT | DRM_PRIME_CAP_IMPORT) : 0;
+            cap->value = (dev->driver->driver_features & DRIVER_PRIME) ? (DRM_PRIME_CAP_EXPORT | DRM_PRIME_CAP_IMPORT) : 0;
             break;
         case DRM_CAP_TIMESTAMP_MONOTONIC :
             cap->value = 1;
@@ -302,7 +301,10 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
              * space in this freestanding kernel, but we still make a
              * private copy so the handler cannot scribble on user
              * memory. */
-            if (copy_from_user(kdata, user_data, size)) { free(kdata); return -EFAULT; }
+            if (copy_from_user(kdata, user_data, size)) {
+                free(kdata);
+                return -EFAULT;
+            }
         } else {
             memset(kdata, 0, size);
         }
@@ -339,7 +341,10 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
             struct drm_prime_handle *args = (struct drm_prime_handle *)kdata;
             ret                           = drm_ioctl_permit(DRM_AUTH, file_priv);
             if (ret) goto out;
-            if (!(dev->driver->driver_features & DRIVER_PRIME)) { ret = -EOPNOTSUPP; goto out; }
+            if (!(dev->driver->driver_features & DRIVER_PRIME)) {
+                ret = -EOPNOTSUPP;
+                goto out;
+            }
             ret = drm_gem_prime_handle_to_fd(dev, file_priv, args->handle, args->flags, &args->fd);
             goto copy_out;
         }
@@ -347,7 +352,10 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
             struct drm_prime_handle *args = (struct drm_prime_handle *)kdata;
             ret                           = drm_ioctl_permit(DRM_AUTH, file_priv);
             if (ret) goto out;
-            if (!(dev->driver->driver_features & DRIVER_PRIME)) { ret = -EOPNOTSUPP; goto out; }
+            if (!(dev->driver->driver_features & DRIVER_PRIME)) {
+                ret = -EOPNOTSUPP;
+                goto out;
+            }
             ret = drm_gem_prime_fd_to_handle(dev, file_priv, args->fd, &args->handle);
             goto copy_out;
         }

@@ -9,8 +9,8 @@
  */
 
 #include <drivers/ahci.h>
-#include <drivers/blockdev.h>
 #include <drivers/block_sysfs.h>
+#include <drivers/blockdev.h>
 #include <drivers/ide.h>
 #include <drivers/nvme.h>
 #include <drivers/partition.h>
@@ -238,21 +238,20 @@ static int block_add_one(struct kobject *parent, const char *name, uint8_t drive
     return EOK;
 }
 
-int block_sysfs_register_device(const char *name, const blockdev_device_t *device, bool removable,
-                                struct block_sysfs_dev **handle)
+int block_sysfs_register_device(const char *name, const blockdev_device_t *device, bool removable, struct block_sysfs_dev **handle)
 {
 #if CONFIG_SYSFS
     struct block_sysfs_dev *bsd;
-    int status;
+    int                     status;
 
     if (!name || !device || !handle || !block_root_kobj) return -EINVAL;
     *handle = NULL;
-    bsd = calloc(1, sizeof(*bsd));
+    bsd     = calloc(1, sizeof(*bsd));
     if (!bsd) return -ENOMEM;
-    bsd->bdev       = *device;
-    bsd->read_only  = device->read_only;
-    bsd->removable  = removable;
-    bsd->valid      = 1;
+    bsd->bdev      = *device;
+    bsd->read_only = device->read_only;
+    bsd->removable = removable;
+    bsd->valid     = 1;
     strncpy(bsd->name, name, sizeof(bsd->name) - 1);
     kobject_init(&bsd->kobj, &block_ktype);
     status = kobject_add(&bsd->kobj, block_root_kobj, "%s", name);
@@ -262,8 +261,7 @@ int block_sysfs_register_device(const char *name, const blockdev_device_t *devic
     }
     kobject_uevent(&bsd->kobj, KOBJ_ADD);
     status = block_add_partitions(bsd);
-    if (status != EOK && status != -ENOENT)
-        plogk("block_sysfs: Cannot scan partitions on %s: %d\n", name, status);
+    if (status != EOK && status != -ENOENT) plogk("block_sysfs: Cannot scan partitions on %s: %d\n", name, status);
     *handle = bsd;
     return EOK;
 #else
@@ -282,7 +280,7 @@ void block_sysfs_unregister_device(struct block_sysfs_dev *handle)
     handle->valid = 0;
     while (handle->kobj.children) {
         struct block_sysfs_dev *part = to_bsd(handle->kobj.children->data);
-        part->valid = 0;
+        part->valid                  = 0;
         kobject_del(&part->kobj);
         kobject_put(&part->kobj);
     }

@@ -184,7 +184,7 @@ task_t *task_alloc_status(const char *name, int *error)
     }
 
     spin_lock(&pid_hash_lock);
-    task->pid = scheduler.next_pid++;
+    task->pid  = scheduler.next_pid++;
     task->tgid = task->pid;
     pid_hash_add(task, pid_entry);
     spin_unlock(&pid_hash_lock);

@@ -16,33 +16,33 @@
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 
-#define XHCI_TRB_CYCLE       (1U << 0)
+#define XHCI_TRB_CYCLE        (1U << 0)
 #define XHCI_TRB_TOGGLE_CYCLE (1U << 1)
-#define XHCI_TRB_CHAIN       (1U << 4)
-#define XHCI_TRB_IOC         (1U << 5)
-#define XHCI_TRB_IDT         (1U << 6)
-#define XHCI_TRB_DIR_IN      (1U << 16)
-#define XHCI_TRB_TYPE_SHIFT  10
-#define XHCI_TRB_TYPE_MASK   (0x3fU << XHCI_TRB_TYPE_SHIFT)
-#define XHCI_TRB_TYPE(value) ((uint32_t)(value) << XHCI_TRB_TYPE_SHIFT)
+#define XHCI_TRB_CHAIN        (1U << 4)
+#define XHCI_TRB_IOC          (1U << 5)
+#define XHCI_TRB_IDT          (1U << 6)
+#define XHCI_TRB_DIR_IN       (1U << 16)
+#define XHCI_TRB_TYPE_SHIFT   10
+#define XHCI_TRB_TYPE_MASK    (0x3fU << XHCI_TRB_TYPE_SHIFT)
+#define XHCI_TRB_TYPE(value)  ((uint32_t)(value) << XHCI_TRB_TYPE_SHIFT)
 
 enum xhci_trb_type {
-    XHCI_TRB_NORMAL = 1,
-    XHCI_TRB_SETUP_STAGE = 2,
-    XHCI_TRB_DATA_STAGE = 3,
-    XHCI_TRB_STATUS_STAGE = 4,
-    XHCI_TRB_LINK = 6,
-    XHCI_TRB_ENABLE_SLOT = 9,
-    XHCI_TRB_DISABLE_SLOT = 10,
-    XHCI_TRB_ADDRESS_DEVICE = 11,
+    XHCI_TRB_NORMAL             = 1,
+    XHCI_TRB_SETUP_STAGE        = 2,
+    XHCI_TRB_DATA_STAGE         = 3,
+    XHCI_TRB_STATUS_STAGE       = 4,
+    XHCI_TRB_LINK               = 6,
+    XHCI_TRB_ENABLE_SLOT        = 9,
+    XHCI_TRB_DISABLE_SLOT       = 10,
+    XHCI_TRB_ADDRESS_DEVICE     = 11,
     XHCI_TRB_CONFIGURE_ENDPOINT = 12,
-    XHCI_TRB_EVALUATE_CONTEXT = 13,
-    XHCI_TRB_RESET_ENDPOINT = 14,
-    XHCI_TRB_STOP_ENDPOINT = 15,
-    XHCI_TRB_SET_TR_DEQUEUE = 16,
+    XHCI_TRB_EVALUATE_CONTEXT   = 13,
+    XHCI_TRB_RESET_ENDPOINT     = 14,
+    XHCI_TRB_STOP_ENDPOINT      = 15,
+    XHCI_TRB_SET_TR_DEQUEUE     = 16,
     XHCI_TRB_COMMAND_COMPLETION = 33,
     XHCI_TRB_PORT_STATUS_CHANGE = 34,
-    XHCI_TRB_TRANSFER_EVENT = 32,
+    XHCI_TRB_TRANSFER_EVENT     = 32,
 };
 
 typedef struct __attribute__((packed, aligned(16))) {

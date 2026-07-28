@@ -40,8 +40,8 @@
 #include <fs/cpio.h>
 #include <fs/devtmpfs.h>
 #include <fs/fatfs/fatfs_vfs.h>
-#include <fs/isofs/isofs.h>
 #include <fs/inotify.h>
+#include <fs/isofs/isofs.h>
 #include <fs/ntfs/ntfs_vfs.h>
 #include <fs/procfs.h>
 #include <fs/sysfs.h>
@@ -233,27 +233,27 @@ void kernel_entry(void)
     if (!get_rootdir()->fsid && vfs_mount(0, get_rootdir()) != EOK) plogk("init: Cannot mount tmpfs to root_dir.\n");
 
     /* Device Model */
-    sysfs_init();                  // Create sysfs root kobject and top-level directories
-    module_subsystem_init();       // Loadable kernel module registry and /sys/module
-    device_model_init();           // Initialise the device model (bus/class/device)
-    devtmpfs_init();               // Device Temporary File System
-                                   //
-    /* RAM Filesystem */           //
-    init_cpio();                   // Copy In, Copy Out
-                                   //
-    /* Sysfs Population */         //
-    ksysfs_init();                 // /sys/kernel/{version,cmdline,hostname,...}
-    pci_sysfs_init();              // /sys/bus/pci/ + /sys/devices/pci*
-    input_sysfs_init();            // /sys/class/input/eventX
-    block_sysfs_init();            // /sys/block/{hdX,sdX,nvme*}
-    tty_sysfs_init();              // /sys/class/tty/
+    sysfs_init();            // Create sysfs root kobject and top-level directories
+    module_subsystem_init(); // Loadable kernel module registry and /sys/module
+    device_model_init();     // Initialise the device model (bus/class/device)
+    devtmpfs_init();         // Device Temporary File System
+                             //
+    /* RAM Filesystem */     //
+    init_cpio();             // Copy In, Copy Out
+                             //
+    /* Sysfs Population */   //
+    ksysfs_init();           // /sys/kernel/{version,cmdline,hostname,...}
+    pci_sysfs_init();        // /sys/bus/pci/ + /sys/devices/pci*
+    input_sysfs_init();      // /sys/class/input/eventX
+    block_sysfs_init();      // /sys/block/{hdX,sdX,nvme*}
+    tty_sysfs_init();        // /sys/class/tty/
 #if CONFIG_USB_XHCI
-    xhci_init();                   // USB xHCI host controllers and root devices
+    xhci_init(); // USB xHCI host controllers and root devices
 #endif
 #if CONFIG_NET
-    net_sysfs_init();              // /sys/class/net/<interface>/
+    net_sysfs_init(); // /sys/class/net/<interface>/
 #endif
-                                   //
+        //
     /* Filesystem Drivers */       //
     fatfs_vfs_regist();            // FAT File System
     isofs_regist();                // ISO 9660 File System

@@ -23,7 +23,7 @@ int icmpv6_input(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet
         if (code || ipv6_address_is_unspecified(&ip->source)) goto bad;
         packet->data[0] = ICMPV6_ECHO_REPLY;
         packet->data[2] = packet->data[3] = 0;
-        ipv6_address_t source = ip->destination;
+        ipv6_address_t source             = ip->destination;
         if (ipv6_address_is_multicast(&source)) memcpy(source.bytes, device->ipv6_link_local, IPV6_ADDRESS_LEN);
         uint16_t checksum = net_checksum_ipv6_pseudo(&source, &ip->source, IPV6_NEXT_ICMP, packet->data, packet->length);
         net_write_be16(packet->data + 2, checksum ? checksum : UINT16_MAX);
@@ -43,8 +43,8 @@ bad:
     return -EBADMSG;
 }
 
-int icmpv6_error(net_device_t *device, const ipv6_address_t *destination, uint8_t type, uint8_t code, uint32_t value,
-                 const void *original, size_t original_length)
+int icmpv6_error(net_device_t *device, const ipv6_address_t *destination, uint8_t type, uint8_t code, uint32_t value, const void *original,
+                 size_t original_length)
 {
     if (!device || !destination || !ipv6_address_is_unicast(destination) || !original || original_length < IPV6_HEADER_LEN
         || (type != ICMPV6_DEST_UNREACHABLE && type != ICMPV6_PACKET_TOO_BIG && type != ICMPV6_TIME_EXCEEDED
@@ -59,8 +59,7 @@ int icmpv6_error(net_device_t *device, const ipv6_address_t *destination, uint8_
         && icmpv6_is_error(parsed.payload[0]))
         return -EINVAL;
     size_t quote_length = original_length;
-    if (quote_length > IPV6_MIN_MTU - IPV6_HEADER_LEN - ICMPV6_HEADER_LEN)
-        quote_length = IPV6_MIN_MTU - IPV6_HEADER_LEN - ICMPV6_HEADER_LEN;
+    if (quote_length > IPV6_MIN_MTU - IPV6_HEADER_LEN - ICMPV6_HEADER_LEN) quote_length = IPV6_MIN_MTU - IPV6_HEADER_LEN - ICMPV6_HEADER_LEN;
     net_pbuf_t *packet = net_pbuf_alloc(ICMPV6_HEADER_LEN + quote_length, NET_PBUF_HEADROOM);
     if (!packet) return -ENOMEM;
     memset(packet->data, 0, ICMPV6_HEADER_LEN);

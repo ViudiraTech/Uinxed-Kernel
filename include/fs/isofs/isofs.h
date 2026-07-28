@@ -28,7 +28,7 @@
 #define ISO_VD_SUPPLEMENTARY 2
 #define ISO_VD_END           255
 
-#define ISOFS_INVALID_MODE ((uint16_t) - 1)
+#define ISOFS_INVALID_MODE ((uint16_t)-1)
 
 /* ─── ISO 9660 on‑disk structures ─── */
 

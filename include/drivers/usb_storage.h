@@ -36,8 +36,8 @@ typedef struct __attribute__((packed)) {
         uint8_t  status;
 } usb_msc_csw_t;
 
-int  usb_msc_build_cbw(usb_msc_cbw_t *cbw, uint32_t tag, uint8_t lun, const void *command, uint8_t command_length,
-                       uint32_t transfer_length, bool input);
+int  usb_msc_build_cbw(usb_msc_cbw_t *cbw, uint32_t tag, uint8_t lun, const void *command, uint8_t command_length, uint32_t transfer_length,
+                       bool input);
 void usb_scsi_build_rw10(uint8_t command[10], bool write, uint32_t lba, uint16_t blocks, bool fua);
 int  usb_scsi_parse_capacity10(const uint8_t response[8], uint64_t *sector_count, uint32_t *sector_size);
 

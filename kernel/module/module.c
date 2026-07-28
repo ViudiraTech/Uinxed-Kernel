@@ -19,10 +19,10 @@
 #include <kernel/printk.h>
 #include <kernel/uinxed.h>
 #include <libs/glist/circular_list.h>
+#include <libs/std/math.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
-#include <libs/std/math.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
@@ -49,9 +49,9 @@
 #    define CONFIG_MODULE_MAX_SIZE_MIB 64
 #endif
 
-#define MODULE_MAX_SIZE       ((size_t)CONFIG_MODULE_MAX_SIZE_MIB * 1024U * 1024U)
-#define MODULE_VADDR_OFFSET   0x20000000ULL
-#define MODULE_VADDR_LIMIT    0x78000000ULL
+#define MODULE_MAX_SIZE         ((size_t)CONFIG_MODULE_MAX_SIZE_MIB * 1024U * 1024U)
+#define MODULE_VADDR_OFFSET     0x20000000ULL
+#define MODULE_VADDR_LIMIT      0x78000000ULL
 #define MODULE_MAX_DEPENDENCIES 256
 
 typedef struct module_dependency {
@@ -79,26 +79,26 @@ typedef struct module_sysfs {
 } module_sysfs_t;
 
 typedef struct module_internal {
-        struct module          *module;
-        struct module_internal *next;
-        uintptr_t               base;
-        size_t                  mapped_size;
-        uint64_t               *frames;
-        size_t                  page_count;
-        module_section_layout_t *sections;
-        size_t                   section_count;
-        module_dependency_t     *dependencies;
+        struct module              *module;
+        struct module_internal     *next;
+        uintptr_t                   base;
+        size_t                      mapped_size;
+        uint64_t                   *frames;
+        size_t                      page_count;
+        module_section_layout_t    *sections;
+        size_t                      section_count;
+        module_dependency_t        *dependencies;
         module_string_allocation_t *parameter_strings;
         const struct kernel_symbol *exports;
         size_t                      export_count;
         int (*init)(void);
         void (*exit)(void);
-        char             *license;
-        char             *version;
-        char             *srcversion;
-        char             *imports;
-        module_sysfs_t   *sysfs;
-        wait_queue_t      unload_wait;
+        char           *license;
+        char           *version;
+        char           *srcversion;
+        char           *imports;
+        module_sysfs_t *sysfs;
+        wait_queue_t    unload_wait;
 } module_internal_t;
 
 extern const struct kernel_symbol __start___ksymtab[];
@@ -218,7 +218,8 @@ static int module_name_valid(const char *name)
     size_t length = 0;
     for (; name[length]; length++) {
         char c = name[length];
-        if (length >= MODULE_NAME_LEN - 1 || !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-'))
+        if (length >= MODULE_NAME_LEN - 1
+            || !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-'))
             return 0;
     }
     return length != 0;
@@ -227,10 +228,14 @@ static int module_name_valid(const char *name)
 static const char *module_state_name(enum module_state state)
 {
     switch (state) {
-        case MODULE_STATE_COMING : return "coming";
-        case MODULE_STATE_LIVE : return "live";
-        case MODULE_STATE_GOING : return "going";
-        default : return "unformed";
+        case MODULE_STATE_COMING :
+            return "coming";
+        case MODULE_STATE_LIVE :
+            return "live";
+        case MODULE_STATE_GOING :
+            return "going";
+        default :
+            return "unformed";
     }
 }
 
@@ -307,9 +312,9 @@ void module_put(struct module *module)
 struct module *module_find_get(const char *name)
 {
     if (!name) return NULL;
-    struct module *result = NULL;
-    uint64_t       irq    = spin_lock_irqsave(&module_lock);
-    module_internal_t *item = module_find_locked(name);
+    struct module     *result = NULL;
+    uint64_t           irq    = spin_lock_irqsave(&module_lock);
+    module_internal_t *item   = module_find_locked(name);
     if (item && try_module_get(item->module)) result = item->module;
     spin_unlock_irqrestore(&module_lock, irq);
     return result;
@@ -351,9 +356,9 @@ static int dependency_add(module_internal_t *consumer, struct module *owner)
         module_put(owner);
         return -ENOMEM;
     }
-    dependency->owner       = owner;
-    dependency->next        = consumer->dependencies;
-    consumer->dependencies  = dependency;
+    dependency->owner      = owner;
+    dependency->next       = consumer->dependencies;
+    consumer->dependencies = dependency;
     return EOK;
 }
 
@@ -444,8 +449,8 @@ static int append_import(module_internal_t *internal, const char *value, size_t 
 
 static int prepare_metadata(module_internal_t *internal, const module_elf_view_t *view, unsigned int flags, const char *name_hint)
 {
-    size_t      length = 0;
-    const char *name   = modinfo_find(view, "name", 0, &length);
+    size_t      length     = 0;
+    const char *name       = modinfo_find(view, "name", 0, &length);
     char       *owned_name = NULL;
 
     if (!name && name_hint) {
@@ -517,7 +522,7 @@ static int load_declared_dependencies(module_internal_t *internal, const module_
         char *end = strchr(cursor, ',');
         if (end) *end = 0;
         if (*cursor) {
-            uint64_t irq = spin_lock_irqsave(&module_lock);
+            uint64_t           irq      = spin_lock_irqsave(&module_lock);
             module_internal_t *provider = module_find_locked(cursor);
             if (!provider)
                 result = -ENOENT;
@@ -603,7 +608,8 @@ static int map_sections(module_internal_t *internal, const module_elf_view_t *vi
         kernel_base = kernel_address_request.response->virtual_base;
     uintptr_t search = kernel_base + MODULE_VADDR_OFFSET;
     uintptr_t base   = walk_page_tables_find_free(get_kernel_pagedir(), search, internal->mapped_size, PAGE_4K_SIZE);
-    if (!base || base < search || base - kernel_base > MODULE_VADDR_LIMIT || internal->mapped_size > MODULE_VADDR_LIMIT - (base - kernel_base)) return -ENOMEM;
+    if (!base || base < search || base - kernel_base > MODULE_VADDR_LIMIT || internal->mapped_size > MODULE_VADDR_LIMIT - (base - kernel_base))
+        return -ENOMEM;
 
     internal->base       = base;
     internal->page_count = internal->mapped_size / PAGE_4K_SIZE;
@@ -612,8 +618,8 @@ static int map_sections(module_internal_t *internal, const module_elf_view_t *vi
 
     size_t offset = 0;
     for (size_t index = 0; index < view->section_count; index++) {
-        const Elf64_Shdr *section = &view->sections[index];
-        module_section_layout_t *layout = &internal->sections[index];
+        const Elf64_Shdr        *section = &view->sections[index];
+        module_section_layout_t *layout  = &internal->sections[index];
         if (!layout->alloc) continue;
         size_t alignment = section->sh_addralign;
         if (alignment < PAGE_4K_SIZE) alignment = PAGE_4K_SIZE;
@@ -643,20 +649,26 @@ static int map_sections(module_internal_t *internal, const module_elf_view_t *vi
 static size_t relocation_width(uint32_t type)
 {
     switch (type) {
-        case R_X86_64_NONE : return 0;
+        case R_X86_64_NONE :
+            return 0;
         case R_X86_64_8 :
-        case R_X86_64_PC8 : return 1;
+        case R_X86_64_PC8 :
+            return 1;
         case R_X86_64_16 :
-        case R_X86_64_PC16 : return 2;
+        case R_X86_64_PC16 :
+            return 2;
         case R_X86_64_PC32 :
         case R_X86_64_PLT32 :
         case R_X86_64_32 :
         case R_X86_64_32S :
-        case R_X86_64_SIZE32 : return 4;
+        case R_X86_64_SIZE32 :
+            return 4;
         case R_X86_64_64 :
         case R_X86_64_PC64 :
-        case R_X86_64_SIZE64 : return 8;
-        default : return SIZE_MAX;
+        case R_X86_64_SIZE64 :
+            return 8;
+        default :
+            return SIZE_MAX;
     }
 }
 
@@ -720,7 +732,8 @@ static int relocate_module(module_internal_t *internal, const module_elf_view_t 
             uint32_t type         = ELF64_R_TYPE(table[index].r_info);
             size_t   width        = relocation_width(type);
             size_t   symbol_index = ELF64_R_SYM(table[index].r_info);
-            if (width == SIZE_MAX || symbol_index >= symbol_count || table[index].r_offset > target->size || width > target->size - table[index].r_offset)
+            if (width == SIZE_MAX || symbol_index >= symbol_count || table[index].r_offset > target->size
+                || width > target->size - table[index].r_offset)
                 return -ENOEXEC;
             const Elf64_Sym *symbol = &symbol_table[symbol_index];
             if (ELF64_ST_TYPE(symbol->st_info) == STT_GNU_IFUNC || ELF64_ST_TYPE(symbol->st_info) == STT_TLS) return -ENOEXEC;
@@ -729,7 +742,7 @@ static int relocate_module(module_internal_t *internal, const module_elf_view_t 
             if (ret != EOK) return ret;
             if (type == R_X86_64_SIZE32 || type == R_X86_64_SIZE64) value = symbol->st_size;
             uintptr_t place = target->address + table[index].r_offset;
-            ret = module_elf_apply_relocation(type, (void *)place, value, table[index].r_addend, place);
+            ret             = module_elf_apply_relocation(type, (void *)place, value, table[index].r_addend, place);
             if (ret != EOK) return ret;
         }
     }
@@ -779,13 +792,13 @@ static int find_lifecycle(module_internal_t *internal, const module_elf_view_t *
     }
     if (!symbols) return -ENOEXEC;
     const Elf64_Sym *table = (const Elf64_Sym *)(view->image + symbols->sh_offset);
-    size_t count           = symbols->sh_size / sizeof(Elf64_Sym);
+    size_t           count = symbols->sh_size / sizeof(Elf64_Sym);
     for (size_t index = 0; index < count; index++) {
         const char *name = NULL;
         if (symbol_name_at(view, symbols, &table[index], &name) != EOK) return -ENOEXEC;
         if (!name[0] || (!streq(name, "init_module") && !streq(name, "cleanup_module"))) continue;
         uint64_t value = 0;
-        int ret = resolve_elf_symbol(internal, view, symbols, &table[index], &value);
+        int      ret   = resolve_elf_symbol(internal, view, symbols, &table[index], &value);
         if (ret != EOK || !module_range_mapped(internal, value, 1)) return -ENOEXEC;
         if (streq(name, "init_module"))
             internal->init = (int (*)(void))value;
@@ -807,8 +820,8 @@ static int validate_exports(module_internal_t *internal, const module_elf_view_t
 
     for (size_t index = 0; index < internal->export_count; index++) {
         const struct kernel_symbol *symbol = &internal->exports[index];
-        if (!module_string_valid(internal, symbol->name) || !symbol->name[0] || !module_range_mapped(internal, symbol->value, 1) ||
-            (symbol->namespace_name && !module_string_valid(internal, symbol->namespace_name)) || (symbol->flags & ~KERNEL_SYMBOL_GPL_ONLY))
+        if (!module_string_valid(internal, symbol->name) || !symbol->name[0] || !module_range_mapped(internal, symbol->value, 1)
+            || (symbol->namespace_name && !module_string_valid(internal, symbol->namespace_name)) || (symbol->flags & ~KERNEL_SYMBOL_GPL_ONLY))
             return -ENOEXEC;
         for (size_t prior = 0; prior < index; prior++)
             if (streq(internal->exports[prior].name, symbol->name)) return -EEXIST;
@@ -834,7 +847,7 @@ static int validate_exports(module_internal_t *internal, const module_elf_view_t
 static int parse_unsigned_value(const char *value, uint64_t *result)
 {
     if (!value || !value[0] || value[0] == '-') return -EINVAL;
-    unsigned int base = 10;
+    unsigned int base  = 10;
     size_t       index = 0;
     if (value[0] == '0' && (value[1] == 'x' || value[1] == 'X')) {
         base  = 16;
@@ -919,7 +932,8 @@ static int set_parameter(module_internal_t *internal, const struct kernel_param 
         case MODULE_PARAM_BOOL :
             if (streq(value, "1") || streq(value, "y") || streq(value, "Y") || streq(value, "yes") || streq(value, "true") || streq(value, "on"))
                 *(bool *)parameter->arg = true;
-            else if (streq(value, "0") || streq(value, "n") || streq(value, "N") || streq(value, "no") || streq(value, "false") || streq(value, "off"))
+            else if (streq(value, "0") || streq(value, "n") || streq(value, "N") || streq(value, "no") || streq(value, "false")
+                     || streq(value, "off"))
                 *(bool *)parameter->arg = false;
             else
                 return -EINVAL;
@@ -932,13 +946,14 @@ static int set_parameter(module_internal_t *internal, const struct kernel_param 
                 free(copy);
                 return -ENOMEM;
             }
-            allocation->value = copy;
-            allocation->next  = internal->parameter_strings;
+            allocation->value           = copy;
+            allocation->next            = internal->parameter_strings;
             internal->parameter_strings = allocation;
-            *(char **)parameter->arg = copy;
+            *(char **)parameter->arg    = copy;
             return EOK;
         }
-        default : return -ENOEXEC;
+        default :
+            return -ENOEXEC;
     }
 }
 
@@ -971,7 +986,7 @@ static int tokenize_parameter(char **cursor_ptr, char **name_out, char **value_o
             }
         }
         if (!quote && c == '=' && !equal) {
-            equal  = write;
+            equal    = write;
             *write++ = 0;
             continue;
         }
@@ -995,16 +1010,16 @@ static int apply_parameters(module_internal_t *internal, const module_elf_view_t
     module_section_layout_t *layout = &internal->sections[section_index];
     if (!layout->alloc) return -ENOEXEC;
     const struct kernel_param *parameters = (const struct kernel_param *)layout->address;
-    size_t count = section->sh_size / sizeof(struct kernel_param);
+    size_t                     count      = section->sh_size / sizeof(struct kernel_param);
 
     char *copy = strdup(arguments);
     if (!copy) return -ENOMEM;
     char *cursor = copy;
     int   result = EOK;
     for (;;) {
-        char *name = NULL;
+        char *name  = NULL;
         char *value = NULL;
-        int token = tokenize_parameter(&cursor, &name, &value);
+        int   token = tokenize_parameter(&cursor, &name, &value);
         if (token <= 0) {
             result = token;
             break;
@@ -1070,7 +1085,7 @@ static ssize_t module_attr_show(struct kobject *kobj, struct attribute *attribut
         uint32_t refs = module_refcount(module);
         result        = (ssize_t)sysfs_emit(buffer, "%u\n", refs ? refs - 1 : 0);
     } else if (attribute == &module_taint_attr) {
-        char taint[8];
+        char   taint[8];
         size_t length = 0;
         if (module->taints & MODULE_TAINT_PROPRIETARY) taint[length++] = 'P';
         if (module->taints & MODULE_TAINT_FORCED) taint[length++] = 'F';
@@ -1080,7 +1095,7 @@ static ssize_t module_attr_show(struct kobject *kobj, struct attribute *attribut
         result        = (ssize_t)sysfs_emit(buffer, "%s\n", taint);
     } else if (attribute == &module_version_attr) {
         module_internal_t *internal = module->loader_private;
-        result = (ssize_t)sysfs_emit(buffer, "%s\n", internal && internal->version ? internal->version : "");
+        result                      = (ssize_t)sysfs_emit(buffer, "%s\n", internal && internal->version ? internal->version : "");
     } else if (attribute == &module_coresize_attr) {
         result = (ssize_t)sysfs_emit(buffer, "%zu\n", module->core_size);
     } else if (attribute == &module_initsize_attr) {
@@ -1116,7 +1131,7 @@ static int create_module_sysfs(module_internal_t *internal)
     module_sysfs_t *entry = calloc(1, sizeof(*entry));
     if (!entry) return -ENOMEM;
     entry->module = internal->module;
-    int ret = kobject_init_and_add(&entry->kobj, &module_ktype, module_kobj, "%s", internal->module->name);
+    int ret       = kobject_init_and_add(&entry->kobj, &module_ktype, module_kobj, "%s", internal->module->name);
     if (ret != EOK) {
         kobject_put(&entry->kobj);
         return ret;
@@ -1141,7 +1156,7 @@ static void destroy_module_sysfs(module_internal_t *internal)
 
 static void remove_registry(module_internal_t *internal)
 {
-    uint64_t irq = spin_lock_irqsave(&module_lock);
+    uint64_t            irq  = spin_lock_irqsave(&module_lock);
     module_internal_t **link = &module_list;
     while (*link) {
         if (*link == internal) {
@@ -1200,7 +1215,7 @@ int module_load(const void *image, size_t size, const char *params, unsigned int
     if (result != EOK) goto out_operation;
 
     module_internal_t *internal = calloc(1, sizeof(*internal));
-    struct module      *module  = calloc(1, sizeof(*module));
+    struct module     *module   = calloc(1, sizeof(*module));
     if (!internal || !module) {
         free(internal);
         free(module);
@@ -1214,8 +1229,8 @@ int module_load(const void *image, size_t size, const char *params, unsigned int
 
     result = prepare_metadata(internal, &view, flags, name_hint);
     if (result != EOK) goto out_destroy;
-    uint64_t irq = spin_lock_irqsave(&module_lock);
-    int duplicate = module_find_locked(module->name) != NULL;
+    uint64_t irq       = spin_lock_irqsave(&module_lock);
+    int      duplicate = module_find_locked(module->name) != NULL;
     spin_unlock_irqrestore(&module_lock, irq);
     if (duplicate) {
         result = -EEXIST;
@@ -1238,8 +1253,8 @@ int module_load(const void *image, size_t size, const char *params, unsigned int
     result = protect_module(internal, 0);
     if (result != EOK) goto out_destroy;
 
-    module->state = MODULE_STATE_COMING;
-    irq           = spin_lock_irqsave(&module_lock);
+    module->state  = MODULE_STATE_COMING;
+    irq            = spin_lock_irqsave(&module_lock);
     internal->next = module_list;
     module_list    = internal;
     spin_unlock_irqrestore(&module_lock, irq);
@@ -1342,7 +1357,7 @@ size_t module_format_proc(char *buffer, size_t size)
     size_t   written = 0;
     uint64_t irq     = spin_lock_irqsave(&module_lock);
     for (module_internal_t *item = module_list; item && written < size - 1; item = item->next) {
-        char users[256];
+        char   users[256];
         size_t users_len = 0;
         for (module_internal_t *consumer = module_list; consumer; consumer = consumer->next) {
             for (module_dependency_t *dep = consumer->dependencies; dep; dep = dep->next) {

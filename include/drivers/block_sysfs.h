@@ -17,8 +17,7 @@
 struct block_sysfs_dev;
 
 void block_sysfs_init(void);
-int block_sysfs_register_device(const char *name, const blockdev_device_t *device, bool removable,
-                                struct block_sysfs_dev **handle);
+int  block_sysfs_register_device(const char *name, const blockdev_device_t *device, bool removable, struct block_sysfs_dev **handle);
 void block_sysfs_unregister_device(struct block_sysfs_dev *handle);
 
 #endif /* INCLUDE_BLOCK_SYSFS_H_ */

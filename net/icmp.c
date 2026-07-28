@@ -42,8 +42,8 @@ int icmp_error_mtu(net_device_t *device, uint32_t destination, uint8_t type, uin
                    size_t original_length)
 {
     if (!device || !destination || !original || original_length < IPV4_HEADER_MIN) return -EINVAL;
-    const uint8_t *ip = original;
-    size_t header_length = (size_t)(ip[0] & 0x0fU) * 4U;
+    const uint8_t *ip            = original;
+    size_t         header_length = (size_t)(ip[0] & 0x0fU) * 4U;
     if ((ip[0] >> 4) != 4 || header_length < IPV4_HEADER_MIN || header_length > original_length || (net_read_be16(ip + 6) & IPV4_FRAGMENT_MASK)
         || destination == UINT32_MAX || (device->ipv4_netmask && destination == (device->ipv4_address | ~device->ipv4_netmask)))
         return -EINVAL;

@@ -273,17 +273,17 @@ int drm_mode_obj_getproperties_ioctl(struct drm_device *dev, void *data, struct 
     if (!obj) { return -ENOENT; }
 
     if (obj->properties) {
-        struct drm_property_set *set = obj->properties;
-        uint32_t user_count = req->count_props;
-        uint32_t copy_count;
-        uint32_t *ids = NULL;
-        uint64_t *values = NULL;
+        struct drm_property_set *set        = obj->properties;
+        uint32_t                 user_count = req->count_props;
+        uint32_t                 copy_count;
+        uint32_t                *ids    = NULL;
+        uint64_t                *values = NULL;
 
         spin_lock(&set->lock);
         req->count_props = set->count;
-        copy_count = user_count < set->count ? user_count : set->count;
+        copy_count       = user_count < set->count ? user_count : set->count;
         if (copy_count) {
-            ids = malloc((size_t)copy_count * sizeof(*ids));
+            ids    = malloc((size_t)copy_count * sizeof(*ids));
             values = malloc((size_t)copy_count * sizeof(*values));
             if (ids && values) {
                 memcpy(ids, set->ids, (size_t)copy_count * sizeof(*ids));
@@ -292,14 +292,17 @@ int drm_mode_obj_getproperties_ioctl(struct drm_device *dev, void *data, struct 
         }
         spin_unlock(&set->lock);
         if (copy_count && (!ids || !values)) {
-            free(ids); free(values);
+            free(ids);
+            free(values);
             drm_mode_object_put(obj);
             return -ENOMEM;
         }
-        if (copy_count && (!req->props_ptr || !req->prop_values_ptr
-            || copy_to_user((void *)(uintptr_t)req->props_ptr, ids, (size_t)copy_count * sizeof(*ids))
-            || copy_to_user((void *)(uintptr_t)req->prop_values_ptr, values, (size_t)copy_count * sizeof(*values)))) {
-            free(ids); free(values);
+        if (copy_count
+            && (!req->props_ptr || !req->prop_values_ptr
+                || copy_to_user((void *)(uintptr_t)req->props_ptr, ids, (size_t)copy_count * sizeof(*ids))
+                || copy_to_user((void *)(uintptr_t)req->prop_values_ptr, values, (size_t)copy_count * sizeof(*values)))) {
+            free(ids);
+            free(values);
             drm_mode_object_put(obj);
             return -EFAULT;
         }
@@ -359,8 +362,7 @@ int drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, struct dr
         drm_mode_object_put(obj);
         return -EINVAL;
     }
-    if ((prop->flags & DRM_MODE_PROP_RANGE)
-        && (req->value < prop->values[0] || req->value > prop->values[1])) {
+    if ((prop->flags & DRM_MODE_PROP_RANGE) && (req->value < prop->values[0] || req->value > prop->values[1])) {
         drm_mode_object_put(&prop->base);
         drm_mode_object_put(obj);
         return -EINVAL;

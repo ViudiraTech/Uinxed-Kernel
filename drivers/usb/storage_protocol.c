@@ -17,8 +17,8 @@ static uint32_t usb_scsi_be32(const uint8_t *buffer)
     return (uint32_t)buffer[0] << 24 | (uint32_t)buffer[1] << 16 | (uint32_t)buffer[2] << 8 | buffer[3];
 }
 
-int usb_msc_build_cbw(usb_msc_cbw_t *cbw, uint32_t tag, uint8_t lun, const void *command, uint8_t command_length,
-                      uint32_t transfer_length, bool input)
+int usb_msc_build_cbw(usb_msc_cbw_t *cbw, uint32_t tag, uint8_t lun, const void *command, uint8_t command_length, uint32_t transfer_length,
+                      bool input)
 {
     if (!cbw || !command || !command_length || command_length > sizeof(cbw->command) || lun > 15) return -EINVAL;
     memset(cbw, 0, sizeof(*cbw));
@@ -48,7 +48,7 @@ void usb_scsi_build_rw10(uint8_t command[10], bool write, uint32_t lba, uint16_t
 int usb_scsi_parse_capacity10(const uint8_t response[8], uint64_t *sector_count, uint32_t *sector_size)
 {
     if (!response || !sector_count || !sector_size) return -EINVAL;
-    uint32_t last_lba = usb_scsi_be32(response);
+    uint32_t last_lba   = usb_scsi_be32(response);
     uint32_t block_size = usb_scsi_be32(response + 4);
     if (!block_size || (block_size & (block_size - 1)) || block_size < 512 || block_size > 65536) return -EINVAL;
     *sector_count = (uint64_t)last_lba + 1;

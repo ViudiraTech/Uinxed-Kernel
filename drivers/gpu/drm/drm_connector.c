@@ -157,10 +157,10 @@ int drm_mode_getconnector(struct drm_device *dev, void *data, struct drm_file *f
 
     if (!dev || !conn_req) { return -EINVAL; }
 
-    user_modes = conn_req->count_modes;
+    user_modes    = conn_req->count_modes;
     user_encoders = conn_req->count_encoders;
-    user_props = conn_req->count_props;
-    obj = drm_mode_object_find(dev, file_priv, conn_req->connector_id, DRM_MODE_OBJECT_CONNECTOR);
+    user_props    = conn_req->count_props;
+    obj           = drm_mode_object_find(dev, file_priv, conn_req->connector_id, DRM_MODE_OBJECT_CONNECTOR);
     if (!obj) { return -ENOENT; }
     connector = container_of(obj, struct drm_connector, base);
 
@@ -177,15 +177,19 @@ int drm_mode_getconnector(struct drm_device *dev, void *data, struct drm_file *f
     encoder_count = (int)connector->possible_encoders_count;
 
     if (user_modes && mode_count) {
-        uint32_t count = user_modes < (uint32_t)mode_count ? user_modes : (uint32_t)mode_count;
+        uint32_t                  count = user_modes < (uint32_t)mode_count ? user_modes : (uint32_t)mode_count;
         struct drm_mode_modeinfo *modes = malloc((size_t)count * sizeof(*modes));
-        ilist_node_t *node = connector->modes.next;
-        if (!modes) { drm_mode_object_put(obj); return -ENOMEM; }
+        ilist_node_t             *node  = connector->modes.next;
+        if (!modes) {
+            drm_mode_object_put(obj);
+            return -ENOMEM;
+        }
         for (uint32_t i = 0; i < count; i++, node = node->next)
             drm_convert_to_umode(&modes[i], container_of(node, struct drm_display_mode, head));
-        if (!conn_req->modes_ptr || copy_to_user((void *)(uintptr_t)conn_req->modes_ptr, modes,
-                                                 (size_t)count * sizeof(*modes))) {
-            free(modes); drm_mode_object_put(obj); return -EFAULT;
+        if (!conn_req->modes_ptr || copy_to_user((void *)(uintptr_t)conn_req->modes_ptr, modes, (size_t)count * sizeof(*modes))) {
+            free(modes);
+            drm_mode_object_put(obj);
+            return -EFAULT;
         }
         free(modes);
     }
@@ -194,18 +198,19 @@ int drm_mode_getconnector(struct drm_device *dev, void *data, struct drm_file *f
         if (!conn_req->encoders_ptr
             || copy_to_user((void *)(uintptr_t)conn_req->encoders_ptr, connector->possible_encoders_ids,
                             (size_t)count * sizeof(*connector->possible_encoders_ids))) {
-            drm_mode_object_put(obj); return -EFAULT;
+            drm_mode_object_put(obj);
+            return -EFAULT;
         }
     }
     if (connector->base.properties && user_props) {
         struct drm_property_set *set = connector->base.properties;
-        uint32_t count;
-        uint32_t *ids = NULL;
-        uint64_t *values = NULL;
+        uint32_t                 count;
+        uint32_t                *ids    = NULL;
+        uint64_t                *values = NULL;
         spin_lock(&set->lock);
         count = user_props < set->count ? user_props : set->count;
         if (count) {
-            ids = malloc((size_t)count * sizeof(*ids));
+            ids    = malloc((size_t)count * sizeof(*ids));
             values = malloc((size_t)count * sizeof(*values));
             if (ids && values) {
                 memcpy(ids, set->ids, (size_t)count * sizeof(*ids));
@@ -214,20 +219,25 @@ int drm_mode_getconnector(struct drm_device *dev, void *data, struct drm_file *f
         }
         spin_unlock(&set->lock);
         if (count && (!ids || !values)) {
-            free(ids); free(values); drm_mode_object_put(obj); return -ENOMEM;
+            free(ids);
+            free(values);
+            drm_mode_object_put(obj);
+            return -ENOMEM;
         }
-        if (count && (!conn_req->props_ptr || !conn_req->prop_values_ptr
-            || copy_to_user((void *)(uintptr_t)conn_req->props_ptr, ids, (size_t)count * sizeof(*ids))
-            || copy_to_user((void *)(uintptr_t)conn_req->prop_values_ptr, values,
-                            (size_t)count * sizeof(*values)))) {
-            free(ids); free(values); drm_mode_object_put(obj); return -EFAULT;
+        if (count
+            && (!conn_req->props_ptr || !conn_req->prop_values_ptr
+                || copy_to_user((void *)(uintptr_t)conn_req->props_ptr, ids, (size_t)count * sizeof(*ids))
+                || copy_to_user((void *)(uintptr_t)conn_req->prop_values_ptr, values, (size_t)count * sizeof(*values)))) {
+            free(ids);
+            free(values);
+            drm_mode_object_put(obj);
+            return -EFAULT;
         }
         free(ids);
         free(values);
     }
 
-    conn_req->encoder_id        = connector->state && connector->state->best_encoder
-                                      ? connector->state->best_encoder->base.id : 0;
+    conn_req->encoder_id        = connector->state && connector->state->best_encoder ? connector->state->best_encoder->base.id : 0;
     conn_req->connector_type    = connector->connector_type;
     conn_req->connector_type_id = connector->connector_type_id;
     conn_req->connection        = (__u32)connector->status;

@@ -35,8 +35,8 @@
 #ifndef SOCK_ACCEPT_QUEUE_MAX
 #    define SOCK_ACCEPT_QUEUE_MAX 1024
 #endif
-#define SOCK_BLOCKED_MAX 128
-#define SOCK_BOUND_MAX   256
+#define SOCK_BLOCKED_MAX    128
+#define SOCK_BOUND_MAX      256
 #define SOCK_SHUT_MASK(how) (1U << (uint32_t)(how))
 
 /* ------------------------------------------------------------------ */
@@ -84,16 +84,16 @@ static int  sock_bound_lookup(const sockaddr_un_t *addr, uint32_t addrlen, int a
 static int  sock_bound_add(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen, int abstract);
 static void sock_bound_remove(socket_t *sk);
 
-static int unix_addr_parse(const sockaddr_un_t *addr, uint32_t addrlen, int *is_abstract);
-static int unix_autobind(socket_t *sk);
-static int unix_bind(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen);
-static int unix_listen(socket_t *sk, uint32_t backlog);
-static int unix_accept(socket_t *sk, sockaddr_un_t *addr, uint32_t *addrlen, int flags);
-static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen);
-static int socket_fd_install_flags(socket_t *sk, uint64_t fd_flags);
-static int socket_fd_nonblock(int fd);
+static int       unix_addr_parse(const sockaddr_un_t *addr, uint32_t addrlen, int *is_abstract);
+static int       unix_autobind(socket_t *sk);
+static int       unix_bind(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen);
+static int       unix_listen(socket_t *sk, uint32_t backlog);
+static int       unix_accept(socket_t *sk, sockaddr_un_t *addr, uint32_t *addrlen, int flags);
+static int       unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen);
+static int       socket_fd_install_flags(socket_t *sk, uint64_t fd_flags);
+static int       socket_fd_nonblock(int fd);
 static socket_t *inet_socket_alloc(uint16_t family, uint16_t type, uint16_t protocol, uint32_t flags, void *context);
-static int socket_copy_address_to_user(sockaddr_t *addr, uint32_t *addrlen, const sockaddr_t *kaddr, uint32_t kaddrlen);
+static int       socket_copy_address_to_user(sockaddr_t *addr, uint32_t *addrlen, const sockaddr_t *kaddr, uint32_t kaddrlen);
 
 static void socket_inet_event(void *argument, uint32_t events)
 {
@@ -642,7 +642,7 @@ int socket_fd_install_flags(socket_t *sk, uint64_t fd_flags)
 
 static int socket_fd_nonblock(int fd)
 {
-    process_t *proc = process_current();
+    process_t      *proc = process_current();
     process_file_t *file = proc ? process_fd_get(proc, fd) : NULL;
     if (!file) return 0;
     spin_lock(&file->lock);
@@ -1441,7 +1441,7 @@ static size_t socket_vfs_read(void *file, void *addr, size_t offset, size_t size
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
-        ret = ops && ops->recvfrom ? ops->recvfrom(sk->priv, addr, size, 0, NULL, NULL) : -EOPNOTSUPP;
+        ret                                = ops && ops->recvfrom ? ops->recvfrom(sk->priv, addr, size, 0, NULL, NULL) : -EOPNOTSUPP;
         return ret < 0 ? (size_t)-1 : (size_t)ret;
     }
 
@@ -1472,7 +1472,7 @@ static size_t socket_vfs_write(void *file, const void *addr, size_t offset, size
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
-        ret = ops && ops->sendto ? ops->sendto(sk->priv, addr, size, 0, NULL, 0) : -EOPNOTSUPP;
+        ret                                = ops && ops->sendto ? ops->sendto(sk->priv, addr, size, 0, NULL, 0) : -EOPNOTSUPP;
         return ret < 0 ? (size_t)-1 : (size_t)ret;
     }
 
@@ -1504,8 +1504,8 @@ static int64_t socket_vfs_file_read(vfs_node_t node, void *private_data, uint64_
         return ops && ops->recvfrom ? ops->recvfrom(sk->priv, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0, NULL, NULL) : -EOPNOTSUPP;
     }
     if (sk->socket_read) return sk->socket_read(sk, addr, size, NULL, NULL);
-    return sk->type == SOCK_DGRAM ? unix_dgram_recv(sk, addr, size, NULL, NULL, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0)
-                                  : unix_stream_recv(sk, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0);
+    return sk->type == SOCK_DGRAM ? unix_dgram_recv(sk, addr, size, NULL, NULL, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0) :
+                                    unix_stream_recv(sk, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0);
 }
 
 static int64_t socket_vfs_file_write(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
@@ -1519,8 +1519,8 @@ static int64_t socket_vfs_file_write(vfs_node_t node, void *private_data, uint64
         return ops && ops->sendto ? ops->sendto(sk->priv, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0, NULL, 0) : -EOPNOTSUPP;
     }
     if (sk->socket_write) return sk->socket_write(sk, addr, size, NULL, 0);
-    return sk->type == SOCK_DGRAM ? unix_dgram_send(sk, addr, size, NULL, 0, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0)
-                                  : unix_stream_send(sk, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0);
+    return sk->type == SOCK_DGRAM ? unix_dgram_send(sk, addr, size, NULL, 0, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0) :
+                                    unix_stream_send(sk, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0);
 }
 
 static int socket_vfs_poll(void *file, size_t events)
@@ -1637,17 +1637,17 @@ static int socket_stub_ioctl(void *f, size_t o, void *a)
     if (!a) return -EFAULT;
 
     switch (o) {
-        case SIOCGIFFLAGS:
-        case SIOCSIFFLAGS:
-        case SIOCGIFADDR:
-        case SIOCGIFBRDADDR:
-        case SIOCGIFNETMASK:
-        case SIOCGIFMTU:
-        case SIOCSIFMTU:
-        case SIOCGIFHWADDR:
-        case SIOCGIFINDEX:
+        case SIOCGIFFLAGS :
+        case SIOCSIFFLAGS :
+        case SIOCGIFADDR :
+        case SIOCGIFBRDADDR :
+        case SIOCGIFNETMASK :
+        case SIOCGIFMTU :
+        case SIOCSIFMTU :
+        case SIOCGIFHWADDR :
+        case SIOCGIFINDEX :
             break;
-        default:
+        default :
             return -EOPNOTSUPP;
     }
 
@@ -1724,9 +1724,9 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
         /* Netlink uses SOCK_RAW or SOCK_DGRAM */
         if (sock_type != SOCK_RAW && sock_type != SOCK_DGRAM) return -ESOCKTNOSUPPORT;
     } else if (sock_family == AF_INET || sock_family == AF_INET6) {
-        const struct inet_backend_ops *ops = inet_backend_get();
-        void *context = NULL;
-        int ret;
+        const struct inet_backend_ops *ops     = inet_backend_get();
+        void                          *context = NULL;
+        int                            ret;
         if (sock_type != SOCK_DGRAM && sock_type != SOCK_STREAM) return -ESOCKTNOSUPPORT;
         if (protocol == 0) protocol = sock_type == SOCK_STREAM ? IPPROTO_TCP : IPPROTO_UDP;
         if ((sock_type == SOCK_STREAM && protocol != IPPROTO_TCP) || (sock_type == SOCK_DGRAM && protocol != IPPROTO_UDP))
@@ -1779,7 +1779,7 @@ int64_t sys_bind(int fd, const sockaddr_t *addr, uint32_t addrlen)
     if (!addr) return -EINVAL;
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
-        sockaddr_storage_t kaddr;
+        sockaddr_storage_t             kaddr;
         const struct inet_backend_ops *ops = inet_backend_get();
         if (addrlen < sizeof(sa_family_t) || addrlen > sizeof(kaddr)) return -EINVAL;
         memset(&kaddr, 0, sizeof(kaddr));
@@ -1844,12 +1844,12 @@ int64_t sys_accept(int fd, sockaddr_t *addr, uint32_t *addrlen, int flags)
     if ((addr == NULL) != (addrlen == NULL)) return -EFAULT;
     if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
-        sockaddr_storage_t kaddr;
-        uint32_t kaddrlen = sizeof(kaddr);
-        void *context = NULL;
-        socket_t *accepted;
-        int fd_new;
-        int ret;
+        sockaddr_storage_t             kaddr;
+        uint32_t                       kaddrlen = sizeof(kaddr);
+        void                          *context  = NULL;
+        socket_t                      *accepted;
+        int                            fd_new;
+        int                            ret;
         if (!ops || !ops->accept) return -EOPNOTSUPP;
         uint32_t operation_flags = (uint32_t)flags;
         if (socket_fd_nonblock(fd)) operation_flags |= SOCK_NONBLOCK;
@@ -1892,7 +1892,7 @@ int64_t sys_connect(int fd, const sockaddr_t *addr, uint32_t addrlen)
     if (!addr) return -EINVAL;
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
-        sockaddr_storage_t kaddr;
+        sockaddr_storage_t             kaddr;
         const struct inet_backend_ops *ops = inet_backend_get();
         if (addrlen < sizeof(sa_family_t) || addrlen > sizeof(kaddr)) return -EINVAL;
         memset(&kaddr, 0, sizeof(kaddr));
@@ -1949,10 +1949,10 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
-        sockaddr_storage_t kaddr;
-        const sockaddr_t *dest = NULL;
-        void *inet_buf = NULL;
-        int inet_ret;
+        sockaddr_storage_t             kaddr;
+        const sockaddr_t              *dest     = NULL;
+        void                          *inet_buf = NULL;
+        int                            inet_ret;
         if (!ops || !ops->sendto) return -EOPNOTSUPP;
         if (addr) {
             if (addrlen < sizeof(sa_family_t) || addrlen > sizeof(kaddr)) return -EINVAL;
@@ -1980,7 +1980,7 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
     /* Netlink: use polymorphic write op */
     if (sk->socket_write) {
         sockaddr_nl_t nladdr;
-        const void *nladdr_ptr = NULL;
+        const void   *nladdr_ptr = NULL;
         if (addr) {
             if (addrlen < sizeof(nladdr)) return -EINVAL;
             if (copy_from_user(&nladdr, addr, sizeof(nladdr))) return -EFAULT;
@@ -2044,10 +2044,10 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr,
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
-        sockaddr_storage_t kaddr;
-        uint32_t kaddrlen = sizeof(kaddr);
-        void *inet_buf = NULL;
-        int inet_ret;
+        sockaddr_storage_t             kaddr;
+        uint32_t                       kaddrlen = sizeof(kaddr);
+        void                          *inet_buf = NULL;
+        int                            inet_ret;
         if (!ops || !ops->recvfrom) return -EOPNOTSUPP;
         if ((addr == NULL) != (addrlen == NULL)) return -EFAULT;
         if (len) {
@@ -2089,8 +2089,8 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr,
 
     if (sk->type == SOCK_DGRAM) {
         sockaddr_un_t sender;
-        uint32_t sender_len = sizeof(sender);
-        ret = unix_dgram_recv(sk, kbuf, len, addr ? &sender : NULL, addr ? &sender_len : NULL, flags);
+        uint32_t      sender_len = sizeof(sender);
+        ret                      = unix_dgram_recv(sk, kbuf, len, addr ? &sender : NULL, addr ? &sender_len : NULL, flags);
         if (ret >= 0 && addr) {
             int copy_ret = socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&sender, sender_len);
             if (copy_ret < 0) ret = copy_ret;
@@ -2120,8 +2120,8 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
-        sockaddr_storage_t kaddr;
-        const sockaddr_t *dest = NULL;
+        sockaddr_storage_t             kaddr;
+        const sockaddr_t              *dest = NULL;
         if (!ops || !ops->sendto) return -EOPNOTSUPP;
         if (kmsg->msg_name) {
             if (kmsg->msg_namelen < sizeof(sa_family_t) || kmsg->msg_namelen > sizeof(kaddr)) return -EINVAL;
@@ -2139,7 +2139,7 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
     /* Netlink: copy the optional destination before entering the backend. */
     if (sk->socket_write) {
         sockaddr_nl_t nladdr;
-        const void *dest = NULL;
+        const void   *dest = NULL;
         if (kmsg->msg_name) {
             if (kmsg->msg_namelen < sizeof(nladdr)) return -EINVAL;
             if (copy_from_user(&nladdr, kmsg->msg_name, sizeof(nladdr))) return -EFAULT;
@@ -2174,15 +2174,14 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
-        sockaddr_storage_t kaddr;
-        uint32_t kaddrlen = sizeof(kaddr);
+        sockaddr_storage_t             kaddr;
+        uint32_t                       kaddrlen = sizeof(kaddr);
         if (!ops || !ops->recvfrom) return -EOPNOTSUPP;
         if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
-        ret = ops->recvfrom(sk->priv, kbuf, total_len, flags, kmsg->msg_name ? (sockaddr_t *)&kaddr : NULL,
-                            kmsg->msg_name ? &kaddrlen : NULL);
+        ret = ops->recvfrom(sk->priv, kbuf, total_len, flags, kmsg->msg_name ? (sockaddr_t *)&kaddr : NULL, kmsg->msg_name ? &kaddrlen : NULL);
         if (ret > 0) {
-            uint8_t *src = kbuf;
-            size_t remaining = (size_t)ret;
+            uint8_t *src       = kbuf;
+            size_t   remaining = (size_t)ret;
             for (size_t i = 0; i < kmsg->msg_iovlen && remaining; i++) {
                 size_t chunk = iov[i].iov_len < remaining ? iov[i].iov_len : remaining;
                 if (copy_to_user(iov[i].iov_base, src, chunk)) return -EFAULT;
@@ -2195,7 +2194,7 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
             if (copylen && copy_to_user(kmsg->msg_name, &kaddr, copylen)) return -EFAULT;
             kmsg->msg_namelen = kaddrlen;
         }
-        kmsg->msg_flags = 0;
+        kmsg->msg_flags      = 0;
         kmsg->msg_controllen = 0;
         return ret;
     }
@@ -2224,7 +2223,7 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
 
     if (sk->type == SOCK_DGRAM) {
         sockaddr_un_t sender;
-        uint32_t sender_len = sizeof(sender);
+        uint32_t      sender_len = sizeof(sender);
         ret = unix_dgram_recv(sk, kbuf, total_len, kmsg->msg_name ? &sender : NULL, kmsg->msg_name ? &sender_len : NULL, flags);
         if (ret >= 0 && kmsg->msg_name) {
             uint32_t copylen = kmsg->msg_namelen < sender_len ? kmsg->msg_namelen : sender_len;
@@ -2526,9 +2525,9 @@ int64_t sys_getsockname(int fd, sockaddr_t *addr, uint32_t *addrlen)
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
-        sockaddr_storage_t kaddr;
-        uint32_t len = sizeof(kaddr);
-        int ret;
+        sockaddr_storage_t             kaddr;
+        uint32_t                       len = sizeof(kaddr);
+        int                            ret;
         if (!ops || !ops->getsockname) return -EOPNOTSUPP;
         ret = ops->getsockname(sk->priv, (sockaddr_t *)&kaddr, &len);
         if (ret < 0) return ret;
@@ -2562,9 +2561,9 @@ int64_t sys_getpeername(int fd, sockaddr_t *addr, uint32_t *addrlen)
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
-        sockaddr_storage_t kaddr;
-        uint32_t len = sizeof(kaddr);
-        int ret;
+        sockaddr_storage_t             kaddr;
+        uint32_t                       len = sizeof(kaddr);
+        int                            ret;
         if (!ops || !ops->getpeername) return -EOPNOTSUPP;
         ret = ops->getpeername(sk->priv, (sockaddr_t *)&kaddr, &len);
         if (ret < 0) return ret;
@@ -2597,8 +2596,8 @@ int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint3
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
-        void *value;
-        int ret;
+        void                          *value;
+        int                            ret;
         if (!ops || !ops->setsockopt) return -ENOPROTOOPT;
         if (!optval && optlen) return -EFAULT;
         if (optlen > SOCK_BUF_MAX) return -EINVAL;
@@ -2764,18 +2763,18 @@ int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *o
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
-        uint32_t userlen;
-        uint32_t length;
-        void *value;
-        int ret;
+        uint32_t                       userlen;
+        uint32_t                       length;
+        void                          *value;
+        int                            ret;
         if (!optval || !optlen) return -EFAULT;
         if (!ops || !ops->getsockopt) return -ENOPROTOOPT;
         if (copy_from_user(&userlen, optlen, sizeof(userlen))) return -EFAULT;
         if (userlen > SOCK_BUF_MAX) return -EINVAL;
         length = userlen;
-        value = length ? malloc(length) : NULL;
+        value  = length ? malloc(length) : NULL;
         if (length && !value) return -ENOMEM;
-        ret = ops->getsockopt(sk->priv, level, optname, value, &length);
+        ret              = ops->getsockopt(sk->priv, level, optname, value, &length);
         uint32_t copylen = length < userlen ? length : userlen;
         if (ret >= 0 && copylen && copy_to_user(optval, value, copylen)) ret = -EFAULT;
         if (ret >= 0 && copy_to_user(optlen, &length, sizeof(length))) ret = -EFAULT;
@@ -3113,25 +3112,25 @@ void socket_init(void)
         return;
     }
 
-    cb->mount    = socket_stub_mount;
-    cb->unmount  = socket_stub_unmount;
-    cb->open     = socket_stub_open;
-    cb->close    = socket_vfs_close;
-    cb->read     = socket_vfs_read;
-    cb->write    = socket_vfs_write;
-    cb->readlink = socket_stub_readlink;
-    cb->mkdir    = socket_stub_mk;
-    cb->mkfile   = socket_stub_mk;
-    cb->link     = socket_stub_mk;
-    cb->symlink  = socket_stub_mk;
-    cb->stat     = socket_stub_stat;
-    cb->ioctl    = socket_stub_ioctl;
-    cb->dup      = socket_stub_dup;
-    cb->poll     = socket_vfs_poll;
-    cb->free     = socket_vfs_free;
-    cb->delete   = socket_stub_del;
-    cb->rename   = socket_stub_rename;
-    cb->file_read = socket_vfs_file_read;
+    cb->mount      = socket_stub_mount;
+    cb->unmount    = socket_stub_unmount;
+    cb->open       = socket_stub_open;
+    cb->close      = socket_vfs_close;
+    cb->read       = socket_vfs_read;
+    cb->write      = socket_vfs_write;
+    cb->readlink   = socket_stub_readlink;
+    cb->mkdir      = socket_stub_mk;
+    cb->mkfile     = socket_stub_mk;
+    cb->link       = socket_stub_mk;
+    cb->symlink    = socket_stub_mk;
+    cb->stat       = socket_stub_stat;
+    cb->ioctl      = socket_stub_ioctl;
+    cb->dup        = socket_stub_dup;
+    cb->poll       = socket_vfs_poll;
+    cb->free       = socket_vfs_free;
+    cb->delete     = socket_stub_del;
+    cb->rename     = socket_stub_rename;
+    cb->file_read  = socket_vfs_file_read;
     cb->file_write = socket_vfs_file_write;
 
     socket_fsid = vfs_regist(cb);

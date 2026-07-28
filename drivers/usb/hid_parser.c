@@ -20,14 +20,14 @@
 #define HID_MAIN_COLLECTION     10
 #define HID_MAIN_END_COLLECTION 12
 
-#define HID_GLOBAL_USAGE_PAGE  0
-#define HID_GLOBAL_LOGICAL_MIN 1
-#define HID_GLOBAL_LOGICAL_MAX 2
-#define HID_GLOBAL_REPORT_SIZE 7
-#define HID_GLOBAL_REPORT_ID   8
+#define HID_GLOBAL_USAGE_PAGE   0
+#define HID_GLOBAL_LOGICAL_MIN  1
+#define HID_GLOBAL_LOGICAL_MAX  2
+#define HID_GLOBAL_REPORT_SIZE  7
+#define HID_GLOBAL_REPORT_ID    8
 #define HID_GLOBAL_REPORT_COUNT 9
-#define HID_GLOBAL_PUSH        10
-#define HID_GLOBAL_POP         11
+#define HID_GLOBAL_PUSH         10
+#define HID_GLOBAL_POP          11
 
 #define HID_LOCAL_USAGE     0
 #define HID_LOCAL_USAGE_MIN 1
@@ -97,8 +97,8 @@ static uint16_t hid_field_usage(const usb_hid_field_t *field, size_t index)
     return field->usage_count ? field->usages[field->usage_count - 1] : 0;
 }
 
-static int hid_add_input_field(usb_hid_report_t *report, const hid_global_state_t *global, const hid_local_state_t *local,
-                               uint8_t application, uint8_t flags)
+static int hid_add_input_field(usb_hid_report_t *report, const hid_global_state_t *global, const hid_local_state_t *local, uint8_t application,
+                               uint8_t flags)
 {
     uint32_t bits = (uint32_t)global->report_size * global->report_count;
 
@@ -109,16 +109,16 @@ static int hid_add_input_field(usb_hid_report_t *report, const hid_global_state_
 
         usb_hid_field_t *field = &report->fields[report->field_count++];
         memset(field, 0, sizeof(*field));
-        field->report_id      = global->report_id;
-        field->application    = application;
-        field->usage_page     = global->usage_page;
-        field->usage_count    = local->usage_count;
-        field->usage_minimum  = local->has_usage_minimum ? local->usage_minimum : 0;
-        field->usage_maximum  = local->has_usage_maximum ? local->usage_maximum : 0;
-        field->bit_offset     = report->report_bits[global->report_id];
-        field->report_size    = global->report_size;
-        field->report_count   = global->report_count;
-        field->flags          = flags;
+        field->report_id       = global->report_id;
+        field->application     = application;
+        field->usage_page      = global->usage_page;
+        field->usage_count     = local->usage_count;
+        field->usage_minimum   = local->has_usage_minimum ? local->usage_minimum : 0;
+        field->usage_maximum   = local->has_usage_maximum ? local->usage_maximum : 0;
+        field->bit_offset      = report->report_bits[global->report_id];
+        field->report_size     = global->report_size;
+        field->report_count    = global->report_count;
+        field->flags           = flags;
         field->logical_minimum = global->logical_minimum;
         field->logical_maximum = global->logical_maximum;
         memcpy(field->usages, local->usages, sizeof(uint16_t) * local->usage_count);
@@ -131,11 +131,11 @@ int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, us
 {
     hid_global_state_t globals[5] = {0};
     hid_local_state_t  local;
-    uint8_t            global_depth = 0;
-    uint8_t            applications[16] = {0};
-    uint8_t            collection_depth = 0;
+    uint8_t            global_depth        = 0;
+    uint8_t            applications[16]    = {0};
+    uint8_t            collection_depth    = 0;
     uint8_t            current_application = 0;
-    size_t             offset = 0;
+    size_t             offset              = 0;
 
     if (!descriptor || !report) return -EINVAL;
     memset(report, 0, sizeof(*report));
@@ -155,9 +155,9 @@ int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, us
         size_t size = prefix & 3;
         if (size == 3) size = 4;
         if (size > length - offset) return -EINVAL;
-        uint8_t  type = (prefix >> 2) & 3;
-        uint8_t  tag = prefix >> 4;
-        uint32_t value = hid_unsigned_value(descriptor + offset, size);
+        uint8_t  type         = (prefix >> 2) & 3;
+        uint8_t  tag          = prefix >> 4;
+        uint32_t value        = hid_unsigned_value(descriptor + offset, size);
         int32_t  signed_value = hid_signed_value(descriptor + offset, size);
         offset += size;
 
@@ -179,7 +179,7 @@ int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, us
                     break;
                 case HID_GLOBAL_REPORT_ID :
                     if (!value || value >= USB_HID_MAX_REPORT_IDS) return -EINVAL;
-                    global->report_id = (uint8_t)value;
+                    global->report_id        = (uint8_t)value;
                     report->numbered_reports = true;
                     break;
                 case HID_GLOBAL_REPORT_COUNT :
@@ -234,11 +234,10 @@ int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, us
                 applications[collection_depth++] = current_application;
                 if ((uint8_t)value == HID_COLLECTION_APPLICATION) {
                     if (report->application_count >= USB_HID_MAX_APPLICATIONS) return -E2BIG;
-                    current_application = report->application_count++;
+                    current_application                = report->application_count++;
                     usb_hid_application_t *application = &report->applications[current_application];
-                    application->usage_page = global->usage_page;
-                    application->usage = local.usage_count ? local.usages[0]
-                                                           : (local.has_usage_minimum ? local.usage_minimum : 0);
+                    application->usage_page            = global->usage_page;
+                    application->usage = local.usage_count ? local.usages[0] : (local.has_usage_minimum ? local.usage_minimum : 0);
                 }
                 break;
             case HID_MAIN_END_COLLECTION :
@@ -278,20 +277,20 @@ uint16_t usb_hid_keyboard_keycode(uint16_t usage)
         [0x48] = KEY_PAUSE,      [0x49] = KEY_INSERT,     [0x4a] = KEY_HOME,       [0x4b] = KEY_PAGEUP,
         [0x4c] = KEY_DELETE,     [0x4d] = KEY_END,        [0x4e] = KEY_PAGEDOWN,   [0x4f] = KEY_RIGHT,
         [0x50] = KEY_LEFT,       [0x51] = KEY_DOWN,       [0x52] = KEY_UP,         [0x53] = KEY_NUMLOCK,
-        [0x54] = KEY_KPSLASH,    [0x55] = KEY_KPASTERISK,[0x56] = KEY_KPMINUS,    [0x57] = KEY_KPPLUS,
-        [0x58] = KEY_KPENTER,    [0x59] = KEY_KP1,       [0x5a] = KEY_KP2,       [0x5b] = KEY_KP3,
-        [0x5c] = KEY_KP4,        [0x5d] = KEY_KP5,       [0x5e] = KEY_KP6,       [0x5f] = KEY_KP7,
-        [0x60] = KEY_KP8,        [0x61] = KEY_KP9,       [0x62] = KEY_KP0,       [0x63] = KEY_KPDOT,
-        [0x64] = KEY_102ND,      [0x65] = KEY_COMPOSE,   [0x66] = KEY_POWER,     [0x67] = KEY_KPEQUAL,
-        [0x68] = KEY_F13,        [0x69] = KEY_F14,       [0x6a] = KEY_F15,       [0x6b] = KEY_F16,
-        [0x6c] = KEY_F17,        [0x6d] = KEY_F18,       [0x6e] = KEY_F19,       [0x6f] = KEY_F20,
-        [0x70] = KEY_F21,        [0x71] = KEY_F22,       [0x72] = KEY_F23,       [0x73] = KEY_F24,
-        [0x75] = KEY_HELP,       [0x76] = KEY_MENU,      [0x7a] = KEY_UNDO,      [0x7b] = KEY_CUT,
-        [0x7c] = KEY_COPY,       [0x7d] = KEY_PASTE,     [0x7e] = KEY_FIND,      [0x7f] = KEY_MUTE,
-        [0x80] = KEY_VOLUMEUP,   [0x81] = KEY_VOLUMEDOWN,[0x87] = KEY_RO,        [0x88] = KEY_KATAKANAHIRAGANA,
-        [0x89] = KEY_YEN,        [0x8a] = KEY_HENKAN,    [0x8b] = KEY_MUHENKAN,  [0x90] = KEY_HANGEUL,
-        [0x91] = KEY_HANJA,      [0xe0] = KEY_LEFTCTRL,  [0xe1] = KEY_LEFTSHIFT, [0xe2] = KEY_LEFTALT,
-        [0xe3] = KEY_LEFTMETA,   [0xe4] = KEY_RIGHTCTRL, [0xe5] = KEY_RIGHTSHIFT,[0xe6] = KEY_RIGHTALT,
+        [0x54] = KEY_KPSLASH,    [0x55] = KEY_KPASTERISK, [0x56] = KEY_KPMINUS,    [0x57] = KEY_KPPLUS,
+        [0x58] = KEY_KPENTER,    [0x59] = KEY_KP1,        [0x5a] = KEY_KP2,        [0x5b] = KEY_KP3,
+        [0x5c] = KEY_KP4,        [0x5d] = KEY_KP5,        [0x5e] = KEY_KP6,        [0x5f] = KEY_KP7,
+        [0x60] = KEY_KP8,        [0x61] = KEY_KP9,        [0x62] = KEY_KP0,        [0x63] = KEY_KPDOT,
+        [0x64] = KEY_102ND,      [0x65] = KEY_COMPOSE,    [0x66] = KEY_POWER,      [0x67] = KEY_KPEQUAL,
+        [0x68] = KEY_F13,        [0x69] = KEY_F14,        [0x6a] = KEY_F15,        [0x6b] = KEY_F16,
+        [0x6c] = KEY_F17,        [0x6d] = KEY_F18,        [0x6e] = KEY_F19,        [0x6f] = KEY_F20,
+        [0x70] = KEY_F21,        [0x71] = KEY_F22,        [0x72] = KEY_F23,        [0x73] = KEY_F24,
+        [0x75] = KEY_HELP,       [0x76] = KEY_MENU,       [0x7a] = KEY_UNDO,       [0x7b] = KEY_CUT,
+        [0x7c] = KEY_COPY,       [0x7d] = KEY_PASTE,      [0x7e] = KEY_FIND,       [0x7f] = KEY_MUTE,
+        [0x80] = KEY_VOLUMEUP,   [0x81] = KEY_VOLUMEDOWN, [0x87] = KEY_RO,         [0x88] = KEY_KATAKANAHIRAGANA,
+        [0x89] = KEY_YEN,        [0x8a] = KEY_HENKAN,     [0x8b] = KEY_MUHENKAN,   [0x90] = KEY_HANGEUL,
+        [0x91] = KEY_HANJA,      [0xe0] = KEY_LEFTCTRL,   [0xe1] = KEY_LEFTSHIFT,  [0xe2] = KEY_LEFTALT,
+        [0xe3] = KEY_LEFTMETA,   [0xe4] = KEY_RIGHTCTRL,  [0xe5] = KEY_RIGHTSHIFT, [0xe6] = KEY_RIGHTALT,
         [0xe7] = KEY_RIGHTMETA,
     };
 
@@ -301,27 +300,48 @@ uint16_t usb_hid_keyboard_keycode(uint16_t usage)
 static uint16_t hid_consumer_keycode(uint16_t usage)
 {
     switch (usage) {
-        case 0x030 : return KEY_POWER;
-        case 0x0b0 : return KEY_PLAY;
-        case 0x0b1 : return KEY_PAUSECD;
-        case 0x0b5 : return KEY_NEXTSONG;
-        case 0x0b6 : return KEY_PREVIOUSSONG;
-        case 0x0b7 : return KEY_STOPCD;
-        case 0x0cd : return KEY_PLAYPAUSE;
-        case 0x0e2 : return KEY_MUTE;
-        case 0x0e9 : return KEY_VOLUMEUP;
-        case 0x0ea : return KEY_VOLUMEDOWN;
-        case 0x183 : return KEY_CONFIG;
-        case 0x18a : return KEY_MAIL;
-        case 0x192 : return KEY_CALC;
-        case 0x194 : return KEY_FILE;
-        case 0x221 : return KEY_SEARCH;
-        case 0x223 : return KEY_HOMEPAGE;
-        case 0x224 : return KEY_BACK;
-        case 0x225 : return KEY_FORWARD;
-        case 0x227 : return KEY_REFRESH;
-        case 0x22a : return KEY_BOOKMARKS;
-        default : return 0;
+        case 0x030 :
+            return KEY_POWER;
+        case 0x0b0 :
+            return KEY_PLAY;
+        case 0x0b1 :
+            return KEY_PAUSECD;
+        case 0x0b5 :
+            return KEY_NEXTSONG;
+        case 0x0b6 :
+            return KEY_PREVIOUSSONG;
+        case 0x0b7 :
+            return KEY_STOPCD;
+        case 0x0cd :
+            return KEY_PLAYPAUSE;
+        case 0x0e2 :
+            return KEY_MUTE;
+        case 0x0e9 :
+            return KEY_VOLUMEUP;
+        case 0x0ea :
+            return KEY_VOLUMEDOWN;
+        case 0x183 :
+            return KEY_CONFIG;
+        case 0x18a :
+            return KEY_MAIL;
+        case 0x192 :
+            return KEY_CALC;
+        case 0x194 :
+            return KEY_FILE;
+        case 0x221 :
+            return KEY_SEARCH;
+        case 0x223 :
+            return KEY_HOMEPAGE;
+        case 0x224 :
+            return KEY_BACK;
+        case 0x225 :
+            return KEY_FORWARD;
+        case 0x227 :
+            return KEY_REFRESH;
+        case 0x22a :
+            return KEY_BOOKMARKS;
+        default :
+            return 0;
     }
 }
 
@@ -352,15 +372,14 @@ static bool hid_array_contains(const uint32_t *values, size_t count, uint32_t va
     return false;
 }
 
-static void hid_emit(usb_hid_event_t *events, size_t capacity, size_t *count, uint8_t application, uint16_t type,
-                     uint16_t code, int32_t value)
+static void hid_emit(usb_hid_event_t *events, size_t capacity, size_t *count, uint8_t application, uint16_t type, uint16_t code, int32_t value)
 {
     if (!type || (type == EV_KEY && !code) || *count >= capacity) return;
     events[(*count)++] = (usb_hid_event_t) {.application = application, .type = type, .code = code, .value = value};
 }
 
-static void hid_decode_array(usb_hid_field_t *field, const uint32_t *values, size_t value_count, usb_hid_event_t *events,
-                             size_t capacity, size_t *count)
+static void hid_decode_array(usb_hid_field_t *field, const uint32_t *values, size_t value_count, usb_hid_event_t *events, size_t capacity,
+                             size_t *count)
 {
     if (field->usage_page != HID_USAGE_PAGE_KEYBOARD) return;
     for (size_t i = 0; i < field->previous_count; i++) {
@@ -377,41 +396,55 @@ static void hid_decode_array(usb_hid_field_t *field, const uint32_t *values, siz
     memcpy(field->previous, values, value_count * sizeof(values[0]));
 }
 
-static void hid_decode_variable(usb_hid_field_t *field, size_t index, int32_t value, usb_hid_event_t *events,
-                                size_t capacity, size_t *count)
+static void hid_decode_variable(usb_hid_field_t *field, size_t index, int32_t value, usb_hid_event_t *events, size_t capacity, size_t *count)
 {
-    uint16_t usage = hid_field_usage(field, index);
-    bool relative = (field->flags & USB_HID_MAIN_RELATIVE) != 0;
-    uint16_t type = 0;
-    uint16_t code = 0;
+    uint16_t usage    = hid_field_usage(field, index);
+    bool     relative = (field->flags & USB_HID_MAIN_RELATIVE) != 0;
+    uint16_t type     = 0;
+    uint16_t code     = 0;
 
     switch (field->usage_page) {
         case HID_USAGE_PAGE_KEYBOARD :
-            type = EV_KEY;
-            code = usb_hid_keyboard_keycode(usage);
+            type  = EV_KEY;
+            code  = usb_hid_keyboard_keycode(usage);
             value = !!value;
             break;
         case HID_USAGE_PAGE_BUTTON :
-            type = EV_KEY;
-            code = usage && usage <= 8 ? BTN_LEFT + usage - 1 : 0;
+            type  = EV_KEY;
+            code  = usage && usage <= 8 ? BTN_LEFT + usage - 1 : 0;
             value = !!value;
             break;
         case HID_USAGE_PAGE_CONSUMER :
-            type = EV_KEY;
-            code = hid_consumer_keycode(usage);
+            type  = EV_KEY;
+            code  = hid_consumer_keycode(usage);
             value = !!value;
             break;
         case HID_USAGE_PAGE_GENERIC_DESKTOP :
             type = relative ? EV_REL : EV_ABS;
             switch (usage) {
-                case 0x30 : code = relative ? REL_X : ABS_X; break;
-                case 0x31 : code = relative ? REL_Y : ABS_Y; break;
-                case 0x32 : code = relative ? REL_Z : ABS_Z; break;
-                case 0x33 : code = relative ? REL_RX : ABS_RX; break;
-                case 0x34 : code = relative ? REL_RY : ABS_RY; break;
-                case 0x35 : code = relative ? REL_RZ : ABS_RZ; break;
-                case 0x38 : code = relative ? REL_WHEEL : ABS_WHEEL; break;
-                default : break;
+                case 0x30 :
+                    code = relative ? REL_X : ABS_X;
+                    break;
+                case 0x31 :
+                    code = relative ? REL_Y : ABS_Y;
+                    break;
+                case 0x32 :
+                    code = relative ? REL_Z : ABS_Z;
+                    break;
+                case 0x33 :
+                    code = relative ? REL_RX : ABS_RX;
+                    break;
+                case 0x34 :
+                    code = relative ? REL_RY : ABS_RY;
+                    break;
+                case 0x35 :
+                    code = relative ? REL_RZ : ABS_RZ;
+                    break;
+                case 0x38 :
+                    code = relative ? REL_WHEEL : ABS_WHEEL;
+                    break;
+                default :
+                    break;
             }
             break;
         default :
@@ -427,10 +460,9 @@ static void hid_decode_variable(usb_hid_field_t *field, size_t index, int32_t va
     hid_emit(events, capacity, count, field->application, type, code, value);
 }
 
-int usb_hid_decode_report(usb_hid_report_t *report, const uint8_t *data, size_t length, usb_hid_event_t *events,
-                          size_t event_capacity)
+int usb_hid_decode_report(usb_hid_report_t *report, const uint8_t *data, size_t length, usb_hid_event_t *events, size_t event_capacity)
 {
-    uint8_t report_id = 0;
+    uint8_t report_id   = 0;
     size_t  event_count = 0;
 
     if (!report || !data || (!events && event_capacity)) return -EINVAL;
@@ -444,17 +476,16 @@ int usb_hid_decode_report(usb_hid_report_t *report, const uint8_t *data, size_t 
 
     for (size_t field_index = 0; field_index < report->field_count; field_index++) {
         usb_hid_field_t *field = &report->fields[field_index];
-        uint32_t values[USB_HID_MAX_USAGES];
+        uint32_t         values[USB_HID_MAX_USAGES];
 
         if (field->report_id != report_id) continue;
         for (size_t i = 0; i < field->report_count; i++) {
             uint32_t raw = hid_extract_bits(data, length, field->bit_offset + i * field->report_size, field->report_size);
-            values[i] = raw;
+            values[i]    = raw;
             if (field->flags & USB_HID_MAIN_VARIABLE)
                 hid_decode_variable(field, i, hid_field_value(field, raw), events, event_capacity, &event_count);
         }
-        if (!(field->flags & USB_HID_MAIN_VARIABLE))
-            hid_decode_array(field, values, field->report_count, events, event_capacity, &event_count);
+        if (!(field->flags & USB_HID_MAIN_VARIABLE)) hid_decode_array(field, values, field->report_count, events, event_capacity, &event_count);
     }
     return (int)event_count;
 }

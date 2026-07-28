@@ -37,7 +37,10 @@
 
 /* The syscall clock layer may provide the realtime clock in scheduler ticks. */
 #ifndef FUTEX_REALTIME_TICKS
-__attribute__((weak)) uint64_t futex_realtime_ticks(void) { return sched_ticks(); }
+__attribute__((weak)) uint64_t futex_realtime_ticks(void)
+{
+    return sched_ticks();
+}
 #    define FUTEX_REALTIME_TICKS() futex_realtime_ticks()
 #endif
 
@@ -952,8 +955,7 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
     int flags         = futex_op & ~0x7f;
     int allowed_flags = FUTEX_PRIVATE_FLAG;
 
-    if (cmd == FUTEX_WAIT_BITSET || cmd == FUTEX_WAIT_REQUEUE_PI || cmd == FUTEX_LOCK_PI2)
-        allowed_flags |= FUTEX_CLOCK_REALTIME;
+    if (cmd == FUTEX_WAIT_BITSET || cmd == FUTEX_WAIT_REQUEUE_PI || cmd == FUTEX_LOCK_PI2) allowed_flags |= FUTEX_CLOCK_REALTIME;
     if (flags & ~allowed_flags) return -EINVAL;
 
     switch (cmd) {

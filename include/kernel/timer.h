@@ -14,12 +14,12 @@
 #include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>
 
-#define TIMER_TICK_NS        10000000ULL
-#define TIMER_NSEC_PER_SEC   1000000000ULL
-#define TIMER_ABSTIME        1
-#define TIMER_CLOCK_REALTIME 0
+#define TIMER_TICK_NS         10000000ULL
+#define TIMER_NSEC_PER_SEC    1000000000ULL
+#define TIMER_ABSTIME         1
+#define TIMER_CLOCK_REALTIME  0
 #define TIMER_CLOCK_MONOTONIC 1
-#define TIMER_CLOCK_BOOTTIME 7
+#define TIMER_CLOCK_BOOTTIME  7
 
 typedef struct {
         int64_t tv_sec;
@@ -28,8 +28,8 @@ typedef struct {
 
 static inline bool timer_clock_sleep_supported(uint64_t clockid, uint64_t flags)
 {
-    return (clockid == TIMER_CLOCK_REALTIME || clockid == TIMER_CLOCK_MONOTONIC || clockid == TIMER_CLOCK_BOOTTIME) &&
-           (flags == 0 || flags == TIMER_ABSTIME);
+    return (clockid == TIMER_CLOCK_REALTIME || clockid == TIMER_CLOCK_MONOTONIC || clockid == TIMER_CLOCK_BOOTTIME)
+           && (flags == 0 || flags == TIMER_ABSTIME);
 }
 
 static inline bool timer_timespec_to_ns(const timer_timespec_t *ts, uint64_t *ns)
@@ -55,8 +55,7 @@ static inline timer_timespec_t timer_ns_to_timespec(uint64_t ns)
     return ts;
 }
 
-static inline bool timer_sleep_duration(const timer_timespec_t *request, uint64_t now_ns, bool absolute, uint64_t *duration_ns,
-                                        uint64_t *ticks)
+static inline bool timer_sleep_duration(const timer_timespec_t *request, uint64_t now_ns, bool absolute, uint64_t *duration_ns, uint64_t *ticks)
 {
     uint64_t request_ns;
     if (!duration_ns || !ticks || !timer_timespec_to_ns(request, &request_ns)) return false;

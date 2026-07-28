@@ -59,8 +59,8 @@ typedef struct input_dev {
         int             rep[2];                                /* [0]=delay, [1]=period */
         spinlock_t      event_lock;                            /* protects state and evdev binding */
         struct evdev   *evdev;                                 /* registered event handler */
-        void          (*release)(struct input_dev *dev);        /* final owner release */
-        bool            exist;                                 /* device is alive */
+        void (*release)(struct input_dev *dev);                /* final owner release */
+        bool exist;                                            /* device is alive */
 } input_dev_t;
 
 /* ---- evdev client (one per open fd) ---- */

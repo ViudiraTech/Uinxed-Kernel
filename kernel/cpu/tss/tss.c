@@ -47,6 +47,6 @@ void set_kernel_stack(uint64_t rsp)
         return;
     }
 
-    cpu->tss->rsp[0]          = rsp;
-    cpu->syscall.kernel_rsp   = rsp;
+    cpu->tss->rsp[0]        = rsp;
+    cpu->syscall.kernel_rsp = rsp;
 }
