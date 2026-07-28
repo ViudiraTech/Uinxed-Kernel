@@ -1,0 +1,48 @@
+#include <kernel/errno.h>
+#include <libs/std/string.h>
+#include <net/arp.h>
+#include <net/endian.h>
+#include <net/ethernet.h>
+#include <net/ipv4.h>
+
+int net_ethernet_parse(const void *data, size_t length, net_ethernet_frame_t *frame)
+{
+    if (!data || !frame || length < ETH_HEADER_LEN) return -EBADMSG;
+    const uint8_t *bytes = data;
+    frame->ether_type = net_read_be16(bytes + 12);
+    frame->payload = bytes + ETH_HEADER_LEN;
+    frame->payload_len = length - ETH_HEADER_LEN;
+    return 0;
+}
+
+int ethernet_input(net_device_t *device, net_pbuf_t *packet)
+{
+    if (!device || !packet || packet->length < ETH_HEADER_LEN) {
+        net_pbuf_free(packet);
+        return -EBADMSG;
+    }
+    const uint8_t *header = packet->data;
+    uint16_t type = net_read_be16(header + 12);
+    if (memcmp(header, device->address, ETH_ADDRESS_LEN) && memcmp(header, "\xff\xff\xff\xff\xff\xff", ETH_ADDRESS_LEN)) {
+        net_pbuf_free(packet);
+        return -EHOSTUNREACH;
+    }
+    net_pbuf_pull(packet, ETH_HEADER_LEN);
+    if (type == ETH_TYPE_ARP) return arp_input(device, packet);
+    if (type == ETH_TYPE_IPV4) return ipv4_input(device, packet);
+    net_pbuf_free(packet);
+    return -EPROTONOSUPPORT;
+}
+
+int ethernet_output(net_device_t *device, net_pbuf_t *packet, const uint8_t destination[6], uint16_t type)
+{
+    if (!device || !packet || !destination) return -EINVAL;
+    uint8_t *header = net_pbuf_push(packet, ETH_HEADER_LEN);
+    if (!header) return -ENOBUFS;
+    memcpy(header, destination, ETH_ADDRESS_LEN);
+    memcpy(header + 6, device->address, ETH_ADDRESS_LEN);
+    net_write_be16(header + 12, type);
+    int status = netdev_tx(device, packet);
+    net_pbuf_pull(packet, ETH_HEADER_LEN);
+    return status;
+}

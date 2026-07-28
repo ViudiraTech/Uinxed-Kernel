@@ -19,9 +19,11 @@
 #include <drivers/acpi.h>
 #include <drivers/ahci.h>
 #include <drivers/drm/drm_init.h>
+#include <drivers/e1000.h>
 #include <drivers/hda.h>
 #include <drivers/ide.h>
 #include <drivers/input_sysfs.h>
+#include <drivers/net_sysfs.h>
 #include <drivers/nvme.h>
 #include <drivers/parallel.h>
 #include <drivers/pci.h>
@@ -61,6 +63,7 @@
 #include <mem/heap.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
+#include <net/netdev.h>
 #include <proc/boot_process.h>
 #include <proc/process.h>
 #include <proc/sched.h>
@@ -175,22 +178,25 @@ void kernel_entry(void)
     plogk("dmi: %s %s, BIOS %s %s\n", smbios_sys_manufacturer(), smbios_sys_product_name(), smbios_bios_version(), smbios_bios_release_date());
 
     /* Architecture */
-    init_gdt();                      // Global Descriptor Table
-    init_idt();                      // Interrupt Descriptor Table
-    isr_registe_handle();            //
-                                     //
-    /* Platform Discovery */         //
-    acpi_init();                     // Advanced Configuration and Power Interface
-    tpm_init();                      // Trusted Platform Module
-    tsc_init();                      // Time Stamp Counter
-    smp_init();                      // Symmetric Multiprocessing
-    parallel_init();                 // IEEE 1284 Parallel Port
-                                     //
-    print_memory_map();              //
-    log_buffer_print(&frame_log);    //
-                                     //
-    /* Hardware Bus & Input */       //
-    pci_init();                      // Peripheral Component Interconnect
+    init_gdt();                   // Global Descriptor Table
+    init_idt();                   // Interrupt Descriptor Table
+    isr_registe_handle();         //
+                                  //
+    /* Platform Discovery */      //
+    acpi_init();                  // Advanced Configuration and Power Interface
+    tpm_init();                   // Trusted Platform Module
+    tsc_init();                   // Time Stamp Counter
+    smp_init();                   // Symmetric Multiprocessing
+    parallel_init();              // IEEE 1284 Parallel Port
+                                  //
+    print_memory_map();           //
+    log_buffer_print(&frame_log); //
+                                  //
+    /* Hardware Bus & Input */    //
+    pci_init();                   // Peripheral Component Interconnect
+#if CONFIG_NET
+    net_init(); // Network device core, before NIC probes
+#endif
     init_ps2();                      // PS/2 Controller
                                      //
     log_buffer_print(&serial_log);   //
@@ -198,19 +204,22 @@ void kernel_entry(void)
     log_buffer_print(&lmodule_log);  //
                                      //
     /* Device Drivers */             //
-    sb16_init();                     // Sound Blaster 16
-    hda_init();                      // Intel HD Audio
-                                     //
-    init_ide();                      // ATA / ATAPI
-    nvme_init();                     // Non-Volatile Memory Express
-    init_ahci();                     // Advanced Host Controller Interface
-                                     //
-    /* Virtual Filesystem */         //
-    init_vfs();                      // Virtual Filesystem
-    tmpfs_regist();                  // Temporary File System
-    procfs_regist();                 // Process File System
-    sysfs_regist();                  // Register sysfs with the VFS layer
-    cgroupfs_regist();               // Unified Control Group File System
+#if CONFIG_E1000
+    e1000_init(); // Intel 8254x Gigabit Ethernet
+#endif
+    sb16_init();             // Sound Blaster 16
+    hda_init();              // Intel HD Audio
+                             //
+    init_ide();              // ATA / ATAPI
+    nvme_init();             // Non-Volatile Memory Express
+    init_ahci();             // Advanced Host Controller Interface
+                             //
+    /* Virtual Filesystem */ //
+    init_vfs();              // Virtual Filesystem
+    tmpfs_regist();          // Temporary File System
+    procfs_regist();         // Process File System
+    sysfs_regist();          // Register sysfs with the VFS layer
+    cgroupfs_regist();       // Unified Control Group File System
 
     if (!get_rootdir()->fsid && vfs_mount(0, get_rootdir()) != EOK) plogk("init: Cannot mount tmpfs to root_dir.\n");
 
@@ -228,6 +237,9 @@ void kernel_entry(void)
     input_sysfs_init();            // /sys/class/input/eventX
     block_sysfs_init();            // /sys/block/{hdX,sdX,nvme*}
     tty_sysfs_init();              // /sys/class/tty/
+#if CONFIG_NET
+    net_sysfs_init();              // /sys/class/net/<interface>/
+#endif
                                    //
     /* Filesystem Drivers */       //
     fatfs_vfs_regist();            // FAT File System
@@ -256,8 +268,8 @@ void kernel_entry(void)
     posix_mq_init();               // POSIX Message Queues
     futex_init();                  // Futexes
                                    //
-    socket_init();                 // UNIX Domain Sockets
     netlink_init();                // AF_NETLINK socket family (uevent delivery)
+    socket_init();                 // UNIX Domain Sockets
                                    //
     /* Graphics Stack */           //
     drm_init();                    // Direct Rendering Manager

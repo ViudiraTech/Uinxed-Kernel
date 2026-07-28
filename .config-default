@@ -46,6 +46,13 @@ CONFIG_SYSVIPC=y
 CONFIG_POSIX_MQ=y
 
 #
+# Networking support
+#
+CONFIG_NET=y
+CONFIG_INET=y
+CONFIG_E1000=y
+
+#
 # Device Drivers
 #
 

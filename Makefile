@@ -176,6 +176,24 @@ else
   C_CONFIG += -DCONFIG_POSIX_MQ=0
 endif
 
+ifeq ($(CONFIG_NET), y)
+  C_CONFIG += -DCONFIG_NET=1
+else
+  C_CONFIG += -DCONFIG_NET=0
+endif
+
+ifeq ($(CONFIG_INET), y)
+  C_CONFIG += -DCONFIG_INET=1
+else
+  C_CONFIG += -DCONFIG_INET=0
+endif
+
+ifeq ($(CONFIG_E1000), y)
+  C_CONFIG += -DCONFIG_E1000=1
+else
+  C_CONFIG += -DCONFIG_E1000=0
+endif
+
 ifeq ($(CONFIG_PS2_KEYBOARD_MOUSE), y)
   C_CONFIG += -DCONFIG_PS2_KEYBOARD_MOUSE=1
 else
@@ -357,12 +375,13 @@ Uinxed-x64.iso: info UxImage $(INIT_ELF)
 	$(Q)printf "Image: $@ is ready.\n"
 	$(Q)printf "Compilation complete.\n"
 
-.PHONY: help run disk.img clean format check gen.clangd menuconfig
+.PHONY: help run run-net disk.img clean format check gen.clangd menuconfig
 
 help: info
 	$(Q)printf "Uinxed-Kernel Makefile Usage:\n"
 	$(Q)printf "  make all         - Build the entire project.\n"
 	$(Q)printf "  make run         - Run the Uinxed-x64.iso in QEMU.\n"
+	$(Q)printf "  make run-net     - Run with an isolated user-mode e1000 network.\n"
 	$(Q)printf "  make disk.img    - Build a demo simplefs disk image.\n"
 	$(Q)printf "  make clean       - Clean all generated files.\n"
 	$(Q)printf "  make format      - Format all source files using clang-format.\n"
@@ -373,6 +392,9 @@ help: info
 
 run: info Uinxed-x64.iso
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(word 2,$^)
+
+run-net: info Uinxed-x64.iso
+	$(QEMU) $(QEMU_FLAGS) -netdev user,id=net0,restrict=on -device e1000,netdev=net0 -cdrom $(word 2,$^)
 
 disk.img: info tools/mkfs_simplefs
 	$(Q)printf "  MKFS    $@\n\n"

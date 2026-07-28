@@ -104,4 +104,13 @@ void krn_halt(void);
 /* Compiler barrier */
 void compiler_barrier(void);
 
+/* Order DMA reads before subsequent memory accesses. */
+void dma_read_barrier(void);
+
+/* Make prior memory writes visible before subsequent DMA/MMIO operations. */
+void dma_write_barrier(void);
+
+/* Fully order DMA and memory accesses. */
+void dma_full_barrier(void);
+
 #endif // INCLUDE_COMMON_H_

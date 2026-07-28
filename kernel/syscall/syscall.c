@@ -2611,7 +2611,7 @@ static int64_t sys_bind_wrap(uint64_t fd, uint64_t addr, uint64_t addrlen, uint6
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    return sys_bind((int)fd, (const sockaddr_un_t *)addr, (uint32_t)addrlen);
+    return sys_bind((int)fd, (const sockaddr_t *)addr, (uint32_t)addrlen);
 }
 
 static int64_t sys_listen_wrap(uint64_t fd, uint64_t backlog, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -2628,14 +2628,14 @@ static int64_t sys_accept_wrap(uint64_t fd, uint64_t addr, uint64_t addrlen, uin
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    return sys_accept((int)fd, (sockaddr_un_t *)addr, (uint32_t *)addrlen, 0);
+    return sys_accept((int)fd, (sockaddr_t *)addr, (uint32_t *)addrlen, 0);
 }
 
 static int64_t sys_accept4_wrap(uint64_t fd, uint64_t addr, uint64_t addrlen, uint64_t flags, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
     (void)arg5;
-    return sys_accept((int)fd, (sockaddr_un_t *)addr, (uint32_t *)addrlen, (int)flags);
+    return sys_accept((int)fd, (sockaddr_t *)addr, (uint32_t *)addrlen, (int)flags);
 }
 
 static int64_t sys_connect_wrap(uint64_t fd, uint64_t addr, uint64_t addrlen, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -2643,17 +2643,17 @@ static int64_t sys_connect_wrap(uint64_t fd, uint64_t addr, uint64_t addrlen, ui
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    return sys_connect((int)fd, (const sockaddr_un_t *)addr, (uint32_t)addrlen);
+    return sys_connect((int)fd, (const sockaddr_t *)addr, (uint32_t)addrlen);
 }
 
 static int64_t sys_sendto_wrap(uint64_t fd, uint64_t buf, uint64_t len, uint64_t flags, uint64_t addr, uint64_t addrlen)
 {
-    return sys_sendto((int)fd, (const void *)buf, (size_t)len, (int)flags, (const sockaddr_un_t *)addr, (uint32_t)addrlen);
+    return sys_sendto((int)fd, (const void *)buf, (size_t)len, (int)flags, (const sockaddr_t *)addr, (uint32_t)addrlen);
 }
 
 static int64_t sys_recvfrom_wrap(uint64_t fd, uint64_t buf, uint64_t len, uint64_t flags, uint64_t addr, uint64_t addrlen)
 {
-    return sys_recvfrom((int)fd, (void *)buf, (size_t)len, (int)flags, (sockaddr_un_t *)addr, (uint32_t *)addrlen);
+    return sys_recvfrom((int)fd, (void *)buf, (size_t)len, (int)flags, (sockaddr_t *)addr, (uint32_t *)addrlen);
 }
 
 static int64_t sys_sendmsg_wrap(uint64_t fd, uint64_t msg, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -2693,7 +2693,7 @@ static int64_t sys_getsockname_wrap(uint64_t fd, uint64_t addr, uint64_t addrlen
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    return sys_getsockname((int)fd, (sockaddr_un_t *)addr, (uint32_t *)addrlen);
+    return sys_getsockname((int)fd, (sockaddr_t *)addr, (uint32_t *)addrlen);
 }
 
 static int64_t sys_getpeername_wrap(uint64_t fd, uint64_t addr, uint64_t addrlen, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -2701,7 +2701,7 @@ static int64_t sys_getpeername_wrap(uint64_t fd, uint64_t addr, uint64_t addrlen
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    return sys_getpeername((int)fd, (sockaddr_un_t *)addr, (uint32_t *)addrlen);
+    return sys_getpeername((int)fd, (sockaddr_t *)addr, (uint32_t *)addrlen);
 }
 
 static int64_t sys_setsockopt_wrap(uint64_t fd, uint64_t level, uint64_t optname, uint64_t optval, uint64_t optlen, uint64_t arg5)

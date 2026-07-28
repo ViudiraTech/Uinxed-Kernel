@@ -184,6 +184,31 @@ menu "IPC (Inter-Process Communication)"
 
 endmenu
 
+menu "Networking support"
+
+  config NET
+    bool "Networking support"
+    default y
+    help
+      Enable the kernel networking core and network device support.
+
+  config INET
+    bool "TCP/IP networking"
+    depends on NET
+    default y
+    help
+      Enable the IPv4 protocol family and Internet sockets.
+
+  config E1000
+    bool "Intel E1000 Gigabit Ethernet support"
+    depends on NET
+    default y
+    help
+      Enable support for Intel 8254x-compatible Gigabit Ethernet
+      controllers, including QEMU's e1000 device.
+
+endmenu
+
 menu "Device Drivers"
 
 menu "Character devices"

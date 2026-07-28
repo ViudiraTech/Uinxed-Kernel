@@ -41,35 +41,59 @@ Uinxed is a UNIX-like operating system kernel developed from scratch, focusing o
 - **Console meatures**:
   - Bitmap fonts (9x16 pixels)
   - High-speed framebuffer console implementation
+- **Networking**:
+  - Intel e1000/e1000e Gigabit Ethernet driver (82540EM, 82545EM, 82546EB, 82541PI, 82574L)
+  - Generic network device abstraction
+  - Ethernet/ARP/IPv4/ICMP/UDP/TCP protocol stack
+  - Linux AF_INET socket ABI (SOCK_DGRAM / SOCK_STREAM)
+  - `/proc/net/{dev,arp,route,tcp,udp}`
+  - `/sys/class/net/<iface>/` with Linux-style attributes
 - **Filesystem**:
   - UNIX-like virtual filesystem (VFS)
-  - FatFS filesystems (FAT12, FAT16, FAT32)
+  - tmpfs (default root filesystem)
+  - FatFS (FAT12, FAT16, FAT32)
+  - NTFS with write support
+  - ISO 9660
+  - procfs, sysfs, devtmpfs, cgroupfs
   - SimpleFS for test
-  - procfs
 - **Scheduler**:
   - Kernel thread scheduler
   - Load balance
   - Preempt scheduling
   - Multi-processor scheduling
 - **ABI**:
-  - Linux syscalls support
+  - Linux syscalls (440 syscalls matching x86-64 numbering)
+  - Linux AF_UNIX / AF_NETLINK / AF_INET sockets
+  - epoll, eventfd, signalfd, timerfd
+  - POSIX message queues, System V IPC, futex
 - **Drivers**:
+  - Network
+    1. Intel e1000/e1000e (82540EM, 82545EM, 82546EB, 82541PI, 82574L)
   - Audio
-    1. SoundBlaster16
+    1. Sound Blaster 16
+    2. Intel HD Audio
   - Input
     1. PS/2 keyboard
     2. PS/2 mouse
-  - Stoarge
-    1. ATA disk
+    3. evdev subsystem
+  - Storage
+    1. ATA/ATAPI (IDE)
+    2. AHCI (SATA)
+    3. NVMe
+  - GPU
+    1. DRM (Direct Rendering Manager) / KMS
+    2. VirtIO-GPU (paravirtualized)
   - Bus
-    1. PCI/PCIe
+    1. PCI/PCIe (ECAM + legacy configuration)
   - Port
     1. Standard serial port (RS232)
     2. Standard parallel port (IEEE 1284)
   - Security
-    1. Trusted Platform Module (TPM)
+    1. Trusted Platform Module (TPM 1.2/2.0, TIS + CRB)
   - Video
     1. VESA/GOP framebuffer
+  - Virtualization
+    1. VirtIO (PCI transport)
 - **Userspace**:
   - `init`
     1. Load `init` from Limine module.
@@ -175,6 +199,7 @@ Uinxed-Kernel/
 ├── include/         # Header file.
 ├── init/            # Code entry.
 ├── ipc/             # Inter-process communication.
+├── net/             # Networking stack (Ethernet, ARP, IPv4, ICMP, UDP, TCP, ABI).
 ├── kernel/          # Kernel part.
 ├── libs/            # Library file.
 ├── mem/             # Memory management.

@@ -25,6 +25,7 @@
 #include <mem/heap.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
+#include <net/abi/inet.h>
 #include <proc/process.h>
 #include <proc/sched.h>
 
@@ -43,6 +44,14 @@ enum procfs_info_type {
     PROC_INFO_LOADAVG,
 };
 
+enum procfs_net_file_type {
+    PROC_NET_DEV,
+    PROC_NET_ARP,
+    PROC_NET_ROUTE,
+    PROC_NET_TCP,
+    PROC_NET_UDP,
+};
+
 enum procfs_pid_file_type {
     PROC_PID_STATUS,
     PROC_PID_MAPS,
@@ -57,6 +66,8 @@ enum procfs_type {
     PROCFS_PID_DIR,
     PROCFS_INFO_FILE,
     PROCFS_PID_FILE,
+    PROCFS_NET_DIR,
+    PROCFS_NET_FILE,
 };
 
 typedef struct procfs_file {
@@ -315,6 +326,30 @@ static void gen_info_loadavg(procfs_file_t *pf)
     pf->content  = buf;
     pf->size     = n < 0 ? 0 : (size_t)n;
     pf->capacity = 128;
+}
+
+static void gen_net_file(procfs_file_t *pf)
+{
+    static const char *headers[] = {
+        "Inter-|   Receive                                                |  Transmit\n"
+        " face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n",
+        "IP address       HW type     Flags       HW address            Mask     Device\n",
+        "Iface\tDestination Gateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n",
+        "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n",
+        "   sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode ref pointer drops\n",
+    };
+    char *buf = calloc(1, PROCFS_BUF_SIZE);
+    if (!buf) return;
+    enum inet_proc_file file = (enum inet_proc_file)pf->subtype;
+    size_t n = inet_backend_proc_read(file, buf, PROCFS_BUF_SIZE);
+    if (!n) {
+        n = strlen(headers[pf->subtype]);
+        memcpy(buf, headers[pf->subtype], n);
+    }
+    if (n > PROCFS_BUF_SIZE) n = PROCFS_BUF_SIZE;
+    pf->content = buf;
+    pf->size = n;
+    pf->capacity = PROCFS_BUF_SIZE;
 }
 
 static void gen_pid_status(procfs_file_t *pf)
@@ -621,11 +656,14 @@ static void procfs_gen_content(procfs_file_t *pf, vfs_node_t node)
                     break;
             }
             break;
+        case PROCFS_NET_FILE :
+            gen_net_file(pf);
+            break;
         default :
             break;
     }
 
-    if (pf->content && pf->size > 0) node->size = pf->size;
+    if (node && pf->content && pf->size > 0) node->size = pf->size;
 }
 
 /* ------------------------------------------------------------------ */
@@ -675,6 +713,11 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
                 pf->type    = PROCFS_INFO_FILE;
                 pf->subtype = subtype;
             } else {
+                if (streq(name, "net")) {
+                    pf->type = PROCFS_NET_DIR;
+                    node->type = file_dir;
+                    break;
+                }
                 /* Try PID – numeric directory name */
                 char *end;
                 pid_t pid = (pid_t)strtol(name, &end, 10);
@@ -705,6 +748,21 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
                 free(pf);
                 return;
             }
+            break;
+        }
+        case PROCFS_NET_DIR : {
+            int subtype = -1;
+            if (streq(name, "dev")) subtype = PROC_NET_DEV;
+            if (streq(name, "arp")) subtype = PROC_NET_ARP;
+            if (streq(name, "route")) subtype = PROC_NET_ROUTE;
+            if (streq(name, "tcp")) subtype = PROC_NET_TCP;
+            if (streq(name, "udp")) subtype = PROC_NET_UDP;
+            if (subtype < 0) {
+                free(pf);
+                return;
+            }
+            pf->type = PROCFS_NET_FILE;
+            pf->subtype = subtype;
             break;
         }
         default :
@@ -748,6 +806,12 @@ static int procfs_stat(void *file, vfs_node_t node)
                 child->handle = procfs_file_alloc(PROCFS_INFO_FILE, 0, info_tab[i].subtype);
             }
 
+            vfs_node_t net = vfs_node_alloc(node, "net");
+            if (net) {
+                net->type = file_dir;
+                net->handle = procfs_file_alloc(PROCFS_NET_DIR, 0, 0);
+            }
+
             size_t     pos = 0;
             process_t *proc;
             while ((proc = process_iterate(&pos))) {
@@ -787,8 +851,21 @@ static int procfs_stat(void *file, vfs_node_t node)
             }
             break;
         }
+        case PROCFS_NET_DIR : {
+            static const char *names[] = {"dev", "arp", "route", "tcp", "udp"};
+            clear_children(node);
+            node->type = file_dir;
+            for (int i = 0; i < 5; i++) {
+                vfs_node_t child = vfs_node_alloc(node, names[i]);
+                if (!child) continue;
+                child->type = file_none;
+                child->handle = procfs_file_alloc(PROCFS_NET_FILE, 0, i);
+            }
+            break;
+        }
         case PROCFS_INFO_FILE :
         case PROCFS_PID_FILE :
+        case PROCFS_NET_FILE :
             if (!pf->content) procfs_gen_content(pf, node);
             node->type = file_stream;
             if (pf->content) node->size = pf->size;

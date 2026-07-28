@@ -1,0 +1,714 @@
+#include <arch/idt.h>
+#include <chipset/common.h>
+#include <drivers/apic.h>
+#include <drivers/e1000.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <kernel/timer.h>
+#include <libs/std/string.h>
+#include <mem/alloc.h>
+#include <mem/frame.h>
+#include <mem/hhdm.h>
+#include <mem/page.h>
+#include <net/netdev.h>
+#include <net/pbuf.h>
+#include <sync/spin_lock.h>
+
+#define E1000_MAX_DEVICES       8
+#define E1000_RX_COUNT          256
+#define E1000_TX_COUNT          256
+#define E1000_BUFFER_SIZE       2048
+#define E1000_MAX_PACKET_SIZE   16384
+#define E1000_ISR_BUDGET        64
+#define E1000_RESET_TIMEOUT_US  100000
+#define E1000_EEPROM_TIMEOUT_US 10000
+
+#define E1000_REG_CTRL      0x0000
+#define E1000_REG_STATUS    0x0008
+#define E1000_REG_EECD      0x0010
+#define E1000_REG_EERD      0x0014
+#define E1000_REG_CTRL_EXT  0x0018
+#define E1000_REG_ICR       0x00c0
+#define E1000_REG_ITR       0x00c4
+#define E1000_REG_ICS       0x00c8
+#define E1000_REG_IMS       0x00d0
+#define E1000_REG_IMC       0x00d8
+#define E1000_REG_RCTL      0x0100
+#define E1000_REG_TCTL      0x0400
+#define E1000_REG_TIPG      0x0410
+#define E1000_REG_RDBAL     0x2800
+#define E1000_REG_RDBAH     0x2804
+#define E1000_REG_RDLEN     0x2808
+#define E1000_REG_RDH       0x2810
+#define E1000_REG_RDT       0x2818
+#define E1000_REG_RDTR      0x2820
+#define E1000_REG_RADV      0x282c
+#define E1000_REG_TDBAL     0x3800
+#define E1000_REG_TDBAH     0x3804
+#define E1000_REG_TDLEN     0x3808
+#define E1000_REG_TDH       0x3810
+#define E1000_REG_TDT       0x3818
+#define E1000_REG_TIDV      0x3820
+#define E1000_REG_TADV      0x382c
+#define E1000_REG_RAL0      0x5400
+#define E1000_REG_RAH0      0x5404
+#define E1000_REG_MTA       0x5200
+
+#define E1000_CTRL_SLU      (1u << 6)
+#define E1000_CTRL_RST      (1u << 26)
+#define E1000_CTRL_EXT_DRV_LOAD (1u << 28)
+#define E1000_STATUS_LU     (1u << 1)
+#define E1000_RAH_AV        (1u << 31)
+
+#define E1000_RCTL_EN       (1u << 1)
+#define E1000_RCTL_BAM      (1u << 15)
+#define E1000_RCTL_SECRC    (1u << 26)
+#define E1000_TCTL_EN       (1u << 1)
+#define E1000_TCTL_PSP      (1u << 3)
+#define E1000_TCTL_CT_SHIFT 4
+#define E1000_TCTL_COLD_SHIFT 12
+
+#define E1000_ICR_TXDW      (1u << 0)
+#define E1000_ICR_LSC       (1u << 2)
+#define E1000_ICR_RXSEQ     (1u << 3)
+#define E1000_ICR_RXDMT0    (1u << 4)
+#define E1000_ICR_RXO       (1u << 6)
+#define E1000_ICR_RXT0      (1u << 7)
+#define E1000_INT_MASK      (E1000_ICR_TXDW | E1000_ICR_LSC | E1000_ICR_RXSEQ | E1000_ICR_RXDMT0 | E1000_ICR_RXO | E1000_ICR_RXT0)
+#define E1000_RX_INT_MASK   (E1000_ICR_RXDMT0 | E1000_ICR_RXO | E1000_ICR_RXT0)
+
+#define E1000_RXD_STAT_DD   (1u << 0)
+#define E1000_RXD_STAT_EOP  (1u << 1)
+#define E1000_TXD_STAT_DD   (1u << 0)
+#define E1000_TXD_STAT_EC   (1u << 1)
+#define E1000_TXD_STAT_LC   (1u << 2)
+#define E1000_TXD_STAT_TU   (1u << 3)
+#define E1000_TXD_ERROR     (E1000_TXD_STAT_EC | E1000_TXD_STAT_LC | E1000_TXD_STAT_TU)
+#define E1000_TXD_CMD_EOP   (1u << 0)
+#define E1000_TXD_CMD_IFCS  (1u << 1)
+#define E1000_TXD_CMD_RS    (1u << 3)
+
+#define E1000_F_EERD_SMALL  (1u << 0)
+#define E1000_F_E1000E      (1u << 1)
+
+typedef struct {
+        uint16_t device;
+        uint16_t flags;
+} e1000_id_t;
+
+/* These IDs use the legacy RX/TX descriptor and register layout implemented here. */
+static const e1000_id_t e1000_ids[] = {
+    {0x100e, 0},                                      /* 82540EM, QEMU e1000 */
+    {0x100f, 0},                                      /* 82545EM */
+    {0x1010, 0},                                      /* 82546EB */
+    {0x107c, 0},                                      /* 82541PI */
+    {0x10d3, E1000_F_EERD_SMALL | E1000_F_E1000E}, /* 82574L, QEMU e1000e */
+};
+
+typedef struct {
+        uint64_t address;
+        uint16_t length;
+        uint16_t checksum;
+        uint8_t  status;
+        uint8_t  errors;
+        uint16_t special;
+} __attribute__((packed, aligned(16))) e1000_rx_desc_t;
+
+typedef struct {
+        uint64_t address;
+        uint16_t length;
+        uint8_t  cso;
+        uint8_t  command;
+        uint8_t  status;
+        uint8_t  css;
+        uint16_t special;
+} __attribute__((packed, aligned(16))) e1000_tx_desc_t;
+
+struct e1000_device {
+        pci_device_cache_t       *pci;
+        volatile uint8_t         *mmio;
+        uint64_t                  mmio_phys;
+        uint32_t                  mmio_size;
+        uint16_t                  device_id;
+        uint16_t                  features;
+        uint16_t                  saved_command;
+        uint8_t                   mac[6];
+        uint8_t                   irq;
+        int                       vector;
+        int                       using_msi;
+        int                       using_legacy;
+        int                       running;
+        int                       link_up;
+        volatile e1000_rx_desc_t *rx_ring;
+        volatile e1000_tx_desc_t *tx_ring;
+        uint64_t                  rx_ring_phys;
+        uint64_t                  tx_ring_phys;
+        uint64_t                  rx_buffer_phys[E1000_RX_COUNT];
+        uint64_t                  tx_buffer_phys[E1000_TX_COUNT];
+        uint16_t                  rx_next;
+        uint16_t                  tx_next;
+        uint16_t                  tx_clean;
+        uint16_t                  tx_used;
+        uint8_t                  *rx_assembly;
+        size_t                    rx_assembly_len;
+        int                       rx_dropping;
+        spinlock_t                rx_lock;
+        spinlock_t                tx_lock;
+        e1000_stats_t             stats;
+        net_device_t              netdev;
+        int                       netdev_registered;
+        struct e1000_device      *next;
+};
+
+static e1000_device_t *e1000_devices;
+static size_t          e1000_device_count;
+
+static inline void e1000_wmb(void)
+{
+    __asm__ volatile("sfence" ::: "memory");
+}
+
+static inline void e1000_rmb(void)
+{
+    __asm__ volatile("lfence" ::: "memory");
+}
+
+static inline uint32_t e1000_read(const e1000_device_t *device, uint32_t reg)
+{
+    return *(volatile uint32_t *)(device->mmio + reg);
+}
+
+static inline void e1000_write(e1000_device_t *device, uint32_t reg, uint32_t value)
+{
+    *(volatile uint32_t *)(device->mmio + reg) = value;
+}
+
+static inline void e1000_write_flush(e1000_device_t *device)
+{
+    (void)e1000_read(device, E1000_REG_STATUS);
+}
+
+static const e1000_id_t *e1000_match(uint16_t vendor, uint16_t device)
+{
+    if (vendor != E1000_VENDOR_INTEL) return NULL;
+    for (size_t i = 0; i < sizeof(e1000_ids) / sizeof(e1000_ids[0]); i++) {
+        if (e1000_ids[i].device == device) return &e1000_ids[i];
+    }
+    return NULL;
+}
+
+static int e1000_valid_mac(const uint8_t mac[6])
+{
+    uint8_t any = 0;
+    uint8_t all = 0xff;
+    for (size_t i = 0; i < 6; i++) {
+        any |= mac[i];
+        all &= mac[i];
+    }
+    return any != 0 && all != 0xff && !(mac[0] & 1);
+}
+
+static int e1000_eeprom_read(e1000_device_t *device, uint8_t word, uint16_t *value)
+{
+    uint32_t done       = (device->features & E1000_F_EERD_SMALL) ? (1u << 1) : (1u << 4);
+    uint32_t addr_shift = (device->features & E1000_F_EERD_SMALL) ? 2 : 8;
+
+    e1000_write(device, E1000_REG_EERD, 1u | ((uint32_t)word << addr_shift));
+    for (uint32_t i = 0; i < E1000_EEPROM_TIMEOUT_US; i++) {
+        uint32_t eerd = e1000_read(device, E1000_REG_EERD);
+        if (eerd & done) {
+            *value = (uint16_t)(eerd >> 16);
+            return 0;
+        }
+        usleep(1);
+    }
+    return -ETIMEDOUT;
+}
+
+static int e1000_read_mac(e1000_device_t *device)
+{
+    uint16_t words[3];
+    int      ok = 1;
+
+    for (uint8_t i = 0; i < 3; i++) {
+        if (e1000_eeprom_read(device, i, &words[i])) {
+            ok = 0;
+            break;
+        }
+        device->mac[i * 2]     = words[i] & 0xff;
+        device->mac[i * 2 + 1] = words[i] >> 8;
+    }
+    if (ok && e1000_valid_mac(device->mac)) return 0;
+
+    uint32_t ral = e1000_read(device, E1000_REG_RAL0);
+    uint32_t rah = e1000_read(device, E1000_REG_RAH0);
+    if (!(rah & E1000_RAH_AV)) return -ENODEV;
+    device->mac[0] = ral;
+    device->mac[1] = ral >> 8;
+    device->mac[2] = ral >> 16;
+    device->mac[3] = ral >> 24;
+    device->mac[4] = rah;
+    device->mac[5] = rah >> 8;
+    return e1000_valid_mac(device->mac) ? 0 : -ENODEV;
+}
+
+static int e1000_map_bar(e1000_device_t *device)
+{
+    base_address_register_t bar = get_base_address_register(device->pci, 0);
+    uint32_t raw                 = read_bar_n(device->pci, 0);
+    uint64_t phys;
+
+    if (!bar.address || bar.type != mem_mapping || raw == 0xffffffff || (raw & 1) || (((raw >> 1) & 3) == BAR_Reserved)) return -ENODEV;
+    phys = raw & ~0xfull;
+    if (((raw >> 1) & 3) == BAR_S64) {
+        uint32_t high = read_bar_n(device->pci, 1);
+        if (high == 0xffffffff) return -ENODEV;
+        phys |= (uint64_t)high << 32;
+    }
+    if (!phys) return -ENODEV;
+
+    device->mmio_size = bar.size & ~BAR_64BIT_FLAG;
+    if (device->mmio_size < E1000_REG_RAH0 + sizeof(uint32_t)) return -ENODEV;
+    if (phys + device->mmio_size < phys) return -EINVAL;
+    uint64_t start = phys & ~(PAGE_4K_SIZE - 1);
+    uint64_t end   = (phys + device->mmio_size + PAGE_4K_SIZE - 1) & ~(PAGE_4K_SIZE - 1);
+    page_map_range_to(get_kernel_pagedir(), start, end - start, PTE_MMIO_FLAGS);
+    device->mmio_phys = phys;
+    device->mmio      = (volatile uint8_t *)phys_to_virt(phys);
+    return 0;
+}
+
+static int e1000_reset(e1000_device_t *device)
+{
+    e1000_write(device, E1000_REG_IMC, 0xffffffff);
+    e1000_write(device, E1000_REG_RCTL, 0);
+    e1000_write(device, E1000_REG_TCTL, 0);
+    e1000_write_flush(device);
+    msleep(10);
+
+    e1000_write(device, E1000_REG_CTRL, e1000_read(device, E1000_REG_CTRL) | E1000_CTRL_RST);
+    e1000_write_flush(device);
+    for (uint32_t i = 0; i < E1000_RESET_TIMEOUT_US; i++) {
+        if (!(e1000_read(device, E1000_REG_CTRL) & E1000_CTRL_RST)) {
+            msleep(10);
+            e1000_write(device, E1000_REG_IMC, 0xffffffff);
+            (void)e1000_read(device, E1000_REG_ICR);
+            return 0;
+        }
+        usleep(1);
+    }
+    return -ETIMEDOUT;
+}
+
+static void e1000_free_dma(e1000_device_t *device)
+{
+    for (size_t i = 0; i < E1000_RX_COUNT; i++) {
+        if (device->rx_buffer_phys[i]) free_frames(device->rx_buffer_phys[i], 1);
+        device->rx_buffer_phys[i] = 0;
+    }
+    for (size_t i = 0; i < E1000_TX_COUNT; i++) {
+        if (device->tx_buffer_phys[i]) free_frames(device->tx_buffer_phys[i], 1);
+        device->tx_buffer_phys[i] = 0;
+    }
+    if (device->rx_ring_phys) free_frames(device->rx_ring_phys, 1);
+    if (device->tx_ring_phys) free_frames(device->tx_ring_phys, 1);
+    device->rx_ring_phys = device->tx_ring_phys = 0;
+    device->rx_ring = NULL;
+    device->tx_ring = NULL;
+    free(device->rx_assembly);
+    device->rx_assembly = NULL;
+}
+
+static int e1000_alloc_dma(e1000_device_t *device)
+{
+    device->rx_ring_phys = alloc_frames(1);
+    if (!device->rx_ring_phys) return -ENOMEM;
+    device->tx_ring_phys = alloc_frames(1);
+    if (!device->tx_ring_phys) return -ENOMEM;
+    device->rx_ring = (volatile e1000_rx_desc_t *)phys_to_virt(device->rx_ring_phys);
+    device->tx_ring = (volatile e1000_tx_desc_t *)phys_to_virt(device->tx_ring_phys);
+    memset((void *)device->rx_ring, 0, PAGE_4K_SIZE);
+    memset((void *)device->tx_ring, 0, PAGE_4K_SIZE);
+
+    for (size_t i = 0; i < E1000_RX_COUNT; i++) {
+        device->rx_buffer_phys[i] = alloc_frames(1);
+        if (!device->rx_buffer_phys[i]) return -ENOMEM;
+        device->rx_ring[i].address = device->rx_buffer_phys[i];
+    }
+    for (size_t i = 0; i < E1000_TX_COUNT; i++) {
+        device->tx_buffer_phys[i] = alloc_frames(1);
+        if (!device->tx_buffer_phys[i]) return -ENOMEM;
+        device->tx_ring[i].address = device->tx_buffer_phys[i];
+        device->tx_ring[i].status  = E1000_TXD_STAT_DD;
+    }
+    device->rx_assembly = malloc(E1000_MAX_PACKET_SIZE);
+    return device->rx_assembly ? 0 : -ENOMEM;
+}
+
+static void e1000_program_mac(e1000_device_t *device)
+{
+    uint32_t ral = (uint32_t)device->mac[0] | ((uint32_t)device->mac[1] << 8) | ((uint32_t)device->mac[2] << 16)
+                   | ((uint32_t)device->mac[3] << 24);
+    uint32_t rah = (uint32_t)device->mac[4] | ((uint32_t)device->mac[5] << 8) | E1000_RAH_AV;
+    e1000_write(device, E1000_REG_RAL0, ral);
+    e1000_write(device, E1000_REG_RAH0, rah);
+    for (size_t i = 0; i < 128; i++) e1000_write(device, E1000_REG_MTA + (uint32_t)i * 4, 0);
+}
+
+static void e1000_program_rings(e1000_device_t *device)
+{
+    e1000_write(device, E1000_REG_RDBAL, (uint32_t)device->rx_ring_phys);
+    e1000_write(device, E1000_REG_RDBAH, (uint32_t)(device->rx_ring_phys >> 32));
+    e1000_write(device, E1000_REG_RDLEN, E1000_RX_COUNT * sizeof(e1000_rx_desc_t));
+    e1000_write(device, E1000_REG_RDH, 0);
+    e1000_write(device, E1000_REG_RDT, E1000_RX_COUNT - 1);
+    e1000_write(device, E1000_REG_RDTR, 0);
+    e1000_write(device, E1000_REG_RADV, 0);
+
+    e1000_write(device, E1000_REG_TDBAL, (uint32_t)device->tx_ring_phys);
+    e1000_write(device, E1000_REG_TDBAH, (uint32_t)(device->tx_ring_phys >> 32));
+    e1000_write(device, E1000_REG_TDLEN, E1000_TX_COUNT * sizeof(e1000_tx_desc_t));
+    e1000_write(device, E1000_REG_TDH, 0);
+    e1000_write(device, E1000_REG_TDT, 0);
+    e1000_write(device, E1000_REG_TIDV, 0);
+    e1000_write(device, E1000_REG_TADV, 0);
+    e1000_wmb();
+
+    e1000_write(device, E1000_REG_TIPG, 10 | (8u << 10) | (6u << 20));
+    e1000_write(device, E1000_REG_TCTL,
+                E1000_TCTL_EN | E1000_TCTL_PSP | (0x0fu << E1000_TCTL_CT_SHIFT) | (0x40u << E1000_TCTL_COLD_SHIFT));
+    e1000_write(device, E1000_REG_RCTL, E1000_RCTL_EN | E1000_RCTL_BAM | E1000_RCTL_SECRC);
+    e1000_write_flush(device);
+}
+
+static void e1000_update_link(e1000_device_t *device)
+{
+    int up = !!(e1000_read(device, E1000_REG_STATUS) & E1000_STATUS_LU);
+    if (up == device->link_up) return;
+    device->link_up = up;
+    device->stats.link_changes++;
+    if (device->netdev_registered) {
+        spin_lock(&device->netdev.lock);
+        if (up && (device->netdev.flags & NETDEV_F_UP)) device->netdev.flags |= NETDEV_F_RUNNING;
+        else device->netdev.flags &= ~NETDEV_F_RUNNING;
+        spin_unlock(&device->netdev.lock);
+    }
+}
+
+static void e1000_tx_reclaim_locked(e1000_device_t *device)
+{
+    while (device->tx_used) {
+        volatile e1000_tx_desc_t *desc = &device->tx_ring[device->tx_clean];
+        if (!(desc->status & E1000_TXD_STAT_DD)) break;
+        e1000_rmb();
+        if (desc->status & E1000_TXD_ERROR) {
+            device->stats.tx_errors++;
+        } else {
+            device->stats.tx_packets++;
+            device->stats.tx_bytes += desc->length;
+        }
+        device->tx_clean = (device->tx_clean + 1) % E1000_TX_COUNT;
+        device->tx_used--;
+    }
+}
+
+static int e1000_net_open(net_device_t *netdev)
+{
+    e1000_device_t *device = netdev_private(netdev);
+    if (!device || !device->running) return -ENODEV;
+    return 0;
+}
+
+static void e1000_net_stop(net_device_t *netdev)
+{
+    (void)netdev;
+}
+
+static int e1000_net_xmit(net_device_t *netdev, net_pbuf_t *packet)
+{
+    e1000_device_t *device = netdev_private(netdev);
+    if (!packet) return -EINVAL;
+    return e1000_transmit(device, packet->data, packet->length);
+}
+
+static const netdev_ops_t e1000_netdev_ops = {
+    .open = e1000_net_open,
+    .stop = e1000_net_stop,
+    .xmit = e1000_net_xmit,
+};
+
+int e1000_transmit(e1000_device_t *device, const void *packet, size_t length)
+{
+    if (!device || !packet || length == 0 || length > E1000_BUFFER_SIZE) return -EINVAL;
+    if (!device->running) return -ENODEV;
+
+    spin_lock(&device->tx_lock);
+    e1000_tx_reclaim_locked(device);
+    if (device->tx_used == E1000_TX_COUNT) {
+        spin_unlock(&device->tx_lock);
+        return -EAGAIN;
+    }
+
+    uint16_t idx = device->tx_next;
+    memcpy(phys_to_virt(device->tx_buffer_phys[idx]), packet, length);
+    device->tx_ring[idx].length  = (uint16_t)length;
+    device->tx_ring[idx].cso     = 0;
+    device->tx_ring[idx].command = E1000_TXD_CMD_EOP | E1000_TXD_CMD_IFCS | E1000_TXD_CMD_RS;
+    device->tx_ring[idx].css     = 0;
+    device->tx_ring[idx].special = 0;
+    device->tx_ring[idx].status  = 0;
+    device->tx_next = (idx + 1) % E1000_TX_COUNT;
+    device->tx_used++;
+    e1000_wmb();
+    e1000_write(device, E1000_REG_TDT, device->tx_next);
+    spin_unlock(&device->tx_lock);
+    return 0;
+}
+
+size_t e1000_poll(e1000_device_t *device, size_t budget)
+{
+    size_t done = 0;
+    if (!device || !device->running) return 0;
+
+    spin_lock(&device->rx_lock);
+    while (done < budget) {
+        uint16_t                  idx  = device->rx_next;
+        volatile e1000_rx_desc_t *desc = &device->rx_ring[idx];
+        uint8_t                   status = desc->status;
+        if (!(status & E1000_RXD_STAT_DD)) break;
+        e1000_rmb();
+
+        size_t length = desc->length;
+        if (desc->errors || length > E1000_BUFFER_SIZE) {
+            device->rx_dropping = 1;
+            device->stats.rx_errors++;
+        } else if (!device->rx_dropping) {
+            if (length > E1000_MAX_PACKET_SIZE - device->rx_assembly_len) {
+                device->rx_dropping = 1;
+                device->stats.rx_errors++;
+            } else {
+                memcpy(device->rx_assembly + device->rx_assembly_len, phys_to_virt(device->rx_buffer_phys[idx]), length);
+                device->rx_assembly_len += length;
+            }
+        }
+
+        if (status & E1000_RXD_STAT_EOP) {
+            if (!device->rx_dropping && device->rx_assembly_len) {
+                net_pbuf_t *packet = net_pbuf_from(device->rx_assembly, device->rx_assembly_len, NET_PBUF_HEADROOM);
+                if (!packet) {
+                    device->stats.rx_dropped++;
+                } else {
+                    size_t packet_length = device->rx_assembly_len;
+                    if (netdev_rx(&device->netdev, packet)) device->stats.rx_dropped++;
+                    else {
+                        device->stats.rx_packets++;
+                        device->stats.rx_bytes += packet_length;
+                    }
+                }
+            } else {
+                device->stats.rx_dropped++;
+            }
+            device->rx_assembly_len = 0;
+            device->rx_dropping     = 0;
+        }
+
+        desc->length   = 0;
+        desc->checksum = 0;
+        desc->errors   = 0;
+        desc->special  = 0;
+        e1000_wmb();
+        desc->status = 0;
+        device->rx_next = (idx + 1) % E1000_RX_COUNT;
+        e1000_write(device, E1000_REG_RDT, idx);
+        done++;
+    }
+    spin_unlock(&device->rx_lock);
+    return done;
+}
+
+static void e1000_interrupt_common(void *frame)
+{
+    (void)frame;
+    for (e1000_device_t *device = e1000_devices; device; device = device->next) {
+        if (!device->running) continue;
+        uint32_t cause = e1000_read(device, E1000_REG_ICR);
+        if (!(cause & E1000_INT_MASK)) continue;
+        device->stats.interrupts++;
+        if (cause & E1000_ICR_LSC) e1000_update_link(device);
+        if (cause & E1000_ICR_RXO) device->stats.rx_errors++;
+        if (cause & E1000_RX_INT_MASK) {
+            size_t done = e1000_poll(device, E1000_ISR_BUDGET);
+            if (done == E1000_ISR_BUDGET && (device->rx_ring[device->rx_next].status & E1000_RXD_STAT_DD))
+                e1000_write(device, E1000_REG_ICS, E1000_ICR_RXT0);
+        }
+        if (cause & E1000_ICR_TXDW) {
+            spin_lock(&device->tx_lock);
+            e1000_tx_reclaim_locked(device);
+            spin_unlock(&device->tx_lock);
+        }
+    }
+    send_eoi();
+}
+
+static int e1000_setup_interrupt(e1000_device_t *device)
+{
+    pci_msi_init(device->pci);
+    if (pci_enable_msi(device->pci) >= 0) {
+        device->vector = pci_irq_vector(device->pci, 0);
+        if (device->vector < 0) {
+            pci_disable_msi(device->pci);
+            return -ENODEV;
+        }
+        register_interrupt_handler((uint16_t)device->vector, (void *)e1000_interrupt_common, 0, 0x8e);
+        device->using_msi = 1;
+        return 0;
+    }
+
+    device->irq = (uint8_t)pci_get_irq(device->pci);
+    if (device->irq == 0 || device->irq == 0xff || !net_irq_claim_legacy) return -ENODEV;
+    if (net_irq_claim_legacy(device->irq, e1000_interrupt_common)) return -ENODEV;
+    device->using_legacy = 1;
+    return 0;
+}
+
+static void e1000_release_interrupt(e1000_device_t *device)
+{
+    if (device->using_msi) pci_disable_msi(device->pci);
+    if (device->using_legacy && net_irq_release_legacy) net_irq_release_legacy(device->irq, e1000_interrupt_common);
+    device->using_msi = device->using_legacy = 0;
+}
+
+static void e1000_destroy(e1000_device_t *device)
+{
+    if (!device) return;
+    if (device->mmio) {
+        e1000_write(device, E1000_REG_IMC, 0xffffffff);
+        e1000_write(device, E1000_REG_RCTL, 0);
+        e1000_write(device, E1000_REG_TCTL, 0);
+        if (device->features & E1000_F_E1000E)
+            e1000_write(device, E1000_REG_CTRL_EXT, e1000_read(device, E1000_REG_CTRL_EXT) & ~E1000_CTRL_EXT_DRV_LOAD);
+        e1000_write_flush(device);
+    }
+    device->running = 0;
+    e1000_release_interrupt(device);
+    if (device->netdev_registered) {
+        netdev_unregister(&device->netdev);
+        device->netdev_registered = 0;
+    }
+    e1000_free_dma(device);
+    if (device->pci) pci_write_command_status(device->pci, device->saved_command);
+    free(device);
+}
+
+int e1000_probe(pci_device_cache_t *pci)
+{
+    if (!pci || e1000_device_count >= E1000_MAX_DEVICES) return -ENOSPC;
+    const e1000_id_t *id = e1000_match((uint16_t)pci->vendor_id, (uint16_t)pci->device_id);
+    if (!id) return -ENODEV;
+    for (e1000_device_t *it = e1000_devices; it; it = it->next)
+        if (it->pci == pci) return -EEXIST;
+
+    e1000_device_t *device = malloc(sizeof(*device));
+    if (!device) return -ENOMEM;
+    memset(device, 0, sizeof(*device));
+    device->pci           = pci;
+    device->device_id     = id->device;
+    device->features      = id->flags;
+    device->vector        = -1;
+    device->saved_command = pci_read_command_status(pci) & 0xffff;
+
+    /* BAR sizing writes all ones, so memory decoding and DMA must be off. */
+    pci_write_command_status(pci, device->saved_command & ~((1u << 1) | (1u << 2)));
+    int ret = e1000_map_bar(device);
+    if (ret) goto fail;
+    pci_write_command_status(pci, device->saved_command | (1u << 1) | (1u << 2));
+    if ((ret = e1000_reset(device))) goto fail;
+    if ((ret = e1000_read_mac(device))) goto fail;
+    if ((ret = e1000_alloc_dma(device))) goto fail;
+
+    e1000_program_mac(device);
+    e1000_program_rings(device);
+    if (device->features & E1000_F_E1000E)
+        e1000_write(device, E1000_REG_CTRL_EXT, e1000_read(device, E1000_REG_CTRL_EXT) | E1000_CTRL_EXT_DRV_LOAD);
+    e1000_write(device, E1000_REG_CTRL, e1000_read(device, E1000_REG_CTRL) | E1000_CTRL_SLU);
+    e1000_write(device, E1000_REG_ITR, 8000);
+    if ((ret = e1000_setup_interrupt(device))) goto fail;
+
+    char netdev_name[NETDEV_NAME_MAX];
+    snprintf(netdev_name, sizeof(netdev_name), "eth%u", (unsigned)e1000_device_count);
+    if ((ret = netdev_init(&device->netdev, netdev_name, &e1000_netdev_ops, device))) goto fail;
+    memcpy(device->netdev.address, device->mac, sizeof(device->mac));
+    device->netdev.mtu = E1000_MTU;
+    device->netdev.flags = NETDEV_F_BROADCAST;
+    if ((ret = netdev_register(&device->netdev))) goto fail;
+    device->netdev_registered = 1;
+    device->next    = e1000_devices;
+    e1000_devices   = device;
+    device->running = 1;
+    e1000_device_count++;
+    device->link_up = !!(e1000_read(device, E1000_REG_STATUS) & E1000_STATUS_LU);
+    if ((ret = netdev_set_up(&device->netdev, 1))) goto fail_linked;
+    if (!device->link_up) {
+        spin_lock(&device->netdev.lock);
+        device->netdev.flags &= ~NETDEV_F_RUNNING;
+        spin_unlock(&device->netdev.lock);
+    }
+    (void)e1000_read(device, E1000_REG_ICR);
+    e1000_write(device, E1000_REG_IMS, E1000_INT_MASK);
+    e1000_write_flush(device);
+    return 0;
+
+fail_linked:
+    if (e1000_devices == device) e1000_devices = device->next;
+    if (e1000_device_count) e1000_device_count--;
+
+fail:
+    e1000_destroy(device);
+    return ret;
+}
+
+int e1000_init(void)
+{
+    int                  found = 0;
+    pci_devices_cache_t *cache = pci_get_devices_cache();
+    if (!cache) return -ENODEV;
+    for (pci_device_cache_t *pci = cache->head; pci; pci = pci->next) {
+        if (e1000_match((uint16_t)pci->vendor_id, (uint16_t)pci->device_id) && !e1000_probe(pci)) found++;
+    }
+    return found ? found : -ENODEV;
+}
+
+void e1000_shutdown(void)
+{
+    while (e1000_devices) {
+        e1000_device_t *device = e1000_devices;
+        e1000_devices          = device->next;
+        e1000_device_count--;
+        e1000_destroy(device);
+    }
+}
+
+int e1000_link_up(const e1000_device_t *device)
+{
+    return device && device->link_up;
+}
+
+const uint8_t *e1000_mac_address(const e1000_device_t *device)
+{
+    return device ? device->mac : NULL;
+}
+
+const e1000_stats_t *e1000_get_stats(const e1000_device_t *device)
+{
+    return device ? &device->stats : NULL;
+}
+
+e1000_device_t *e1000_first_device(void)
+{
+    return e1000_devices;
+}
+
+e1000_device_t *e1000_next_device(e1000_device_t *device)
+{
+    return device ? device->next : NULL;
+}

@@ -19,6 +19,7 @@
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/heap.h>
+#include <net/abi/inet.h>
 #include <proc/process.h>
 #include <proc/sched.h>
 #include <proc/task.h>
@@ -36,6 +37,7 @@
 #endif
 #define SOCK_BLOCKED_MAX 128
 #define SOCK_BOUND_MAX   256
+#define SOCK_SHUT_MASK(how) (1U << (uint32_t)(how))
 
 /* ------------------------------------------------------------------ */
 /*  Blocked-socket tracking – maps a blocked socket to its task         */
@@ -89,6 +91,8 @@ static int unix_listen(socket_t *sk, uint32_t backlog);
 static int unix_accept(socket_t *sk, sockaddr_un_t *addr, uint32_t *addrlen, int flags);
 static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen);
 static int socket_fd_install_flags(socket_t *sk, uint64_t fd_flags);
+static socket_t *inet_socket_alloc(uint16_t type, uint16_t protocol, uint32_t flags, void *context);
+static int socket_copy_address_to_user(sockaddr_t *addr, uint32_t *addrlen, const sockaddr_t *kaddr, uint32_t kaddrlen);
 
 static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags);
 static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags);
@@ -490,12 +494,50 @@ static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
     return sk;
 }
 
+static socket_t *inet_socket_alloc(uint16_t type, uint16_t protocol, uint32_t flags, void *context)
+{
+    socket_t *sk = calloc(1, sizeof(socket_t));
+    if (!sk) return NULL;
+    sk->state    = SOCK_STATE_UNCONNECTED;
+    sk->family   = AF_INET;
+    sk->type     = type;
+    sk->protocol = protocol;
+    sk->flags    = flags;
+    sk->sndbuf   = SOCK_BUF_SIZE;
+    sk->rcvbuf   = SOCK_BUF_SIZE;
+    sk->rcvlowat = 1;
+    sk->sndlowat = 1;
+    sk->refcount = 1;
+    sk->priv     = context;
+    return sk;
+}
+
+static int socket_copy_address_to_user(sockaddr_t *addr, uint32_t *addrlen, const sockaddr_t *kaddr, uint32_t kaddrlen)
+{
+    uint32_t userlen;
+    uint32_t copylen;
+
+    if (!addr && !addrlen) return EOK;
+    if (!addr || !addrlen) return -EFAULT;
+    if (copy_from_user(&userlen, addrlen, sizeof(userlen))) return -EFAULT;
+    copylen = userlen < kaddrlen ? userlen : kaddrlen;
+    if (copylen && copy_to_user(addr, kaddr, copylen)) return -EFAULT;
+    if (copy_to_user(addrlen, &kaddrlen, sizeof(kaddrlen))) return -EFAULT;
+    return EOK;
+}
+
 static void socket_free(socket_t *sk)
 {
     if (!sk) return;
 
     sk->refcount--;
     if (sk->refcount > 0) return;
+
+    if (sk->family == AF_INET && sk->priv) {
+        const struct inet_backend_ops *ops = inet_backend_get();
+        if (ops && ops->close) ops->close(sk->priv);
+        sk->priv = NULL;
+    }
 
     /* Netlink cleanup */
     if (sk->family == AF_NETLINK && sk->priv) { netlink_close(sk); }
@@ -934,28 +976,18 @@ static int unix_accept(socket_t *sk, sockaddr_un_t *addr, uint32_t *addrlen, int
 
     /* Copy peer address to user */
     if (addr && addrlen) {
-        uint32_t kaddrlen;
         if (client->peer_addr_len > 0) {
-            kaddrlen = client->peer_addr_len;
-            uint32_t userlen;
-            if (copy_from_user(&userlen, addrlen, sizeof(uint32_t))) {
+            int ret = socket_copy_address_to_user((sockaddr_t *)addr, addrlen, (sockaddr_t *)&client->peer_addr, client->peer_addr_len);
+            if (ret < 0) {
                 socket_unref(client);
-                return -EFAULT;
-            }
-            if (kaddrlen > userlen) kaddrlen = userlen;
-            if (copy_to_user(addr, &client->peer_addr, kaddrlen)) {
-                socket_unref(client);
-                return -EFAULT;
-            }
-            if (copy_to_user(addrlen, &kaddrlen, sizeof(uint32_t))) {
-                socket_unref(client);
-                return -EFAULT;
+                return ret;
             }
         }
     }
 
     /* Install the client socket into the current process */
-    return socket_fd_install(client);
+    client->flags = (uint32_t)(flags & SOCK_NONBLOCK);
+    return socket_fd_install_flags(client, ((flags & SOCK_CLOEXEC) ? O_CLOEXEC : 0) | ((flags & SOCK_NONBLOCK) ? O_NONBLOCK : 0));
 }
 
 /* ------------------------------------------------------------------ */
@@ -975,7 +1007,7 @@ static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags
 
     spin_lock(&sk->lock);
 
-    if (sk->shutdown_mask & SHUT_WR) {
+    if (sk->shutdown_mask & SOCK_SHUT_MASK(SHUT_WR)) {
         spin_unlock(&sk->lock);
         return -EPIPE;
     }
@@ -995,7 +1027,7 @@ static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags
 
     spin_lock(&peer->lock);
 
-    if (peer->shutdown_mask & SHUT_RD) {
+    if (peer->shutdown_mask & SOCK_SHUT_MASK(SHUT_RD)) {
         spin_unlock(&peer->lock);
         socket_unref(peer);
         return -EPIPE;
@@ -1021,7 +1053,7 @@ static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags
             spin_lock(&peer->lock);
             sock_blocked_unregister(sk);
 
-            if (peer->shutdown_mask & SHUT_RD) {
+            if (peer->shutdown_mask & SOCK_SHUT_MASK(SHUT_RD)) {
                 spin_unlock(&peer->lock);
                 socket_unref(peer);
                 return -EPIPE;
@@ -1077,7 +1109,7 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
 
         if (avail == 0) {
             if (total_read > 0) break;
-            if (sk->shutdown_mask & SHUT_RD) {
+            if (sk->shutdown_mask & SOCK_SHUT_MASK(SHUT_RD)) {
                 spin_unlock(&sk->lock);
                 return 0;
             }
@@ -1126,7 +1158,7 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
     if (!peek && total_read > 0 && peer) { sock_blocked_wake(peer); }
 
     ret = (int)total_read;
-    if (ret == 0 && !(flags & MSG_PEEK) && !(sk->shutdown_mask & SHUT_RD)) { return 0; }
+    if (ret == 0 && !(flags & MSG_PEEK) && !(sk->shutdown_mask & SOCK_SHUT_MASK(SHUT_RD))) { return 0; }
     return ret;
 }
 
@@ -1294,14 +1326,11 @@ static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *a
 
     spin_unlock(&sk->lock);
 
-    /* Copy sender address to user */
+    /* Return the sender to the syscall layer in a kernel buffer. */
     if (addr && addrlen) {
-        uint32_t userlen;
-        if (copy_from_user(&userlen, addrlen, sizeof(uint32_t))) { return -EFAULT; }
-        uint32_t copy_len = sizeof(sockaddr_un_t);
-        if (copy_len > userlen) copy_len = userlen;
-        if (copy_to_user(addr, &sender_addr, copy_len)) { return -EFAULT; }
-        if (copy_to_user(addrlen, &copy_len, sizeof(uint32_t))) { return -EFAULT; }
+        uint32_t copy_len = *addrlen < sizeof(sender_addr) ? *addrlen : sizeof(sender_addr);
+        memcpy(addr, &sender_addr, copy_len);
+        *addrlen = sizeof(sender_addr);
     }
 
     return (int)rd;
@@ -1331,11 +1360,11 @@ static int socket_poll(socket_t *sk, size_t events)
 
             /* POLLIN = data available or peer closed */
             if (sock_buf_available(&sk->recv_buf) > 0) revents |= 0x001;
-            if (sk->shutdown_mask & SHUT_RD) revents |= 0x001;
+            if (sk->shutdown_mask & SOCK_SHUT_MASK(SHUT_RD)) revents |= 0x001;
 
             /* POLLOUT = send buffer not full */
             if (p && sock_buf_space(&p->recv_buf) > 0) revents |= 0x004;
-            if (sk->shutdown_mask & SHUT_WR) revents |= 0x004;
+            if (sk->shutdown_mask & SOCK_SHUT_MASK(SHUT_WR)) revents |= 0x004;
 
             /* POLLHUP = peer disconnected */
             if (!p || p->state == SOCK_STATE_DISCONNECTING) revents |= 0x010;
@@ -1381,6 +1410,12 @@ static size_t socket_vfs_read(void *file, void *addr, size_t offset, size_t size
 
     if (!sk) return (size_t)-1;
 
+    if (sk->family == AF_INET) {
+        const struct inet_backend_ops *ops = inet_backend_get();
+        ret = ops && ops->recvfrom ? ops->recvfrom(sk->priv, addr, size, 0, NULL, NULL) : -EOPNOTSUPP;
+        return ret < 0 ? (size_t)-1 : (size_t)ret;
+    }
+
     /* Use polymorphic op if set (netlink) */
     if (sk->socket_read) {
         ret = sk->socket_read(sk, addr, size, NULL, NULL);
@@ -1406,6 +1441,12 @@ static size_t socket_vfs_write(void *file, const void *addr, size_t offset, size
 
     if (!sk) return (size_t)-1;
 
+    if (sk->family == AF_INET) {
+        const struct inet_backend_ops *ops = inet_backend_get();
+        ret = ops && ops->sendto ? ops->sendto(sk->priv, addr, size, 0, NULL, 0) : -EOPNOTSUPP;
+        return ret < 0 ? (size_t)-1 : (size_t)ret;
+    }
+
     /* Use polymorphic op if set (netlink) */
     if (sk->socket_write) {
         ret = sk->socket_write(sk, addr, size, NULL, 0);
@@ -1427,6 +1468,10 @@ static int socket_vfs_poll(void *file, size_t events)
 {
     socket_t *sk = (socket_t *)file;
     if (!sk) return 0;
+    if (sk->family == AF_INET) {
+        const struct inet_backend_ops *ops = inet_backend_get();
+        return ops && ops->poll ? ops->poll(sk->priv, events) : 0;
+    }
     /* Use polymorphic op if set (netlink) */
     if (sk->socket_poll) return sk->socket_poll(sk, events);
     return socket_poll(sk, events);
@@ -1437,7 +1482,7 @@ static void socket_vfs_close(void *current)
     socket_t *sk = (socket_t *)current;
     if (!sk) return;
 
-    sk->shutdown_mask |= SHUT_RD | SHUT_WR;
+    sk->shutdown_mask |= SOCK_SHUT_MASK(SHUT_RD) | SOCK_SHUT_MASK(SHUT_WR);
     sock_blocked_wake_all(sk);
 }
 
@@ -1445,6 +1490,12 @@ static int socket_vfs_free(void *handle)
 {
     socket_t *sk = (socket_t *)handle;
     if (!sk) return -EINVAL;
+
+    if (sk->family == AF_INET && sk->priv) {
+        const struct inet_backend_ops *ops = inet_backend_get();
+        if (ops && ops->close) ops->close(sk->priv);
+        sk->priv = NULL;
+    }
 
     /* Netlink cleanup */
     if (sk->family == AF_NETLINK && sk->priv) { netlink_close(sk); }
@@ -1518,10 +1569,33 @@ static size_t socket_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s)
 
 static int socket_stub_ioctl(void *f, size_t o, void *a)
 {
-    (void)f;
-    (void)o;
-    (void)a;
-    return -ENOSYS;
+    socket_t *sk = f;
+    if (!sk || sk->family != AF_INET) return -ENOTTY;
+    const struct inet_backend_ops *ops = inet_backend_get();
+    if (!ops || !ops->ioctl) return -EOPNOTSUPP;
+    if (!a) return -EFAULT;
+
+    switch (o) {
+        case SIOCGIFFLAGS:
+        case SIOCSIFFLAGS:
+        case SIOCGIFADDR:
+        case SIOCGIFBRDADDR:
+        case SIOCGIFNETMASK:
+        case SIOCGIFMTU:
+        case SIOCSIFMTU:
+        case SIOCGIFHWADDR:
+        case SIOCGIFINDEX:
+            break;
+        default:
+            return -EOPNOTSUPP;
+    }
+
+    ifreq_t ifr;
+    if (copy_from_user(&ifr, a, sizeof(ifr))) return -EFAULT;
+    int ret = ops->ioctl(sk->priv, o, &ifr);
+    if (ret < 0) return ret;
+    if (copy_to_user(a, &ifr, sizeof(ifr))) return -EFAULT;
+    return ret;
 }
 
 static vfs_node_t socket_stub_dup(vfs_node_t n)
@@ -1588,6 +1662,28 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
     if (sock_family == AF_NETLINK) {
         /* Netlink uses SOCK_RAW or SOCK_DGRAM */
         if (sock_type != SOCK_RAW && sock_type != SOCK_DGRAM) return -ESOCKTNOSUPPORT;
+    } else if (sock_family == AF_INET) {
+        const struct inet_backend_ops *ops = inet_backend_get();
+        void *context = NULL;
+        int ret;
+        if (sock_type != SOCK_DGRAM && sock_type != SOCK_STREAM) return -ESOCKTNOSUPPORT;
+        if (protocol == 0) protocol = sock_type == SOCK_STREAM ? IPPROTO_TCP : IPPROTO_UDP;
+        if ((sock_type == SOCK_STREAM && protocol != IPPROTO_TCP) || (sock_type == SOCK_DGRAM && protocol != IPPROTO_UDP))
+            return -EPROTONOSUPPORT;
+        if (!ops || !ops->create) return -EAFNOSUPPORT;
+        ret = ops->create(sock_type, (int)protocol, extra_flags, &context);
+        if (ret < 0) return ret;
+        sk = inet_socket_alloc(sock_type, (uint16_t)protocol, extra_flags, context);
+        if (!sk) {
+            ops->close(context);
+            return -ENOMEM;
+        }
+        fd = socket_fd_install_flags(sk, fd_flags | (extra_flags ? O_NONBLOCK : 0));
+        if (fd < 0) {
+            socket_free(sk);
+            return fd;
+        }
+        return fd;
     } else if (sock_family != AF_UNIX && sock_family != AF_LOCAL) {
         return -EAFNOSUPPORT;
     } else {
@@ -1599,7 +1695,7 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
 
     sk->flags = extra_flags;
 
-    fd = socket_fd_install_flags(sk, fd_flags);
+    fd = socket_fd_install_flags(sk, fd_flags | (extra_flags ? O_NONBLOCK : 0));
     if (fd < 0) {
         socket_free(sk);
         return fd;
@@ -1610,7 +1706,7 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
 
 /* ---- sys_bind ---- */
 
-int64_t sys_bind(int fd, const sockaddr_un_t *addr, uint32_t addrlen)
+int64_t sys_bind(int fd, const sockaddr_t *addr, uint32_t addrlen)
 {
     socket_t     *sk;
     sockaddr_un_t kaddr;
@@ -1620,6 +1716,16 @@ int64_t sys_bind(int fd, const sockaddr_un_t *addr, uint32_t addrlen)
     if (!sk) return -EBADF;
 
     if (!addr) return -EINVAL;
+
+    if (sk->family == AF_INET) {
+        sockaddr_storage_t kaddr;
+        const struct inet_backend_ops *ops = inet_backend_get();
+        if (addrlen < sizeof(sa_family_t) || addrlen > sizeof(kaddr)) return -EINVAL;
+        memset(&kaddr, 0, sizeof(kaddr));
+        if (copy_from_user(&kaddr, addr, addrlen)) return -EFAULT;
+        if (kaddr.ss_family != AF_INET) return -EAFNOSUPPORT;
+        return ops && ops->bind ? ops->bind(sk->priv, (const sockaddr_t *)&kaddr, addrlen) : -EOPNOTSUPP;
+    }
 
     /* Netlink bind */
     if (sk->family == AF_NETLINK) {
@@ -1631,6 +1737,7 @@ int64_t sys_bind(int fd, const sockaddr_un_t *addr, uint32_t addrlen)
 
     if (addrlen > sizeof(sockaddr_un_t)) return -EINVAL;
 
+    memset(&kaddr, 0, sizeof(kaddr));
     if (copy_from_user(&kaddr, addr, addrlen)) return -EFAULT;
 
     spin_lock(&sk->lock);
@@ -1652,6 +1759,11 @@ int64_t sys_listen(int fd, int backlog)
 
     if (backlog < 0) backlog = 0;
 
+    if (sk->family == AF_INET) {
+        const struct inet_backend_ops *ops = inet_backend_get();
+        return ops && ops->listen ? ops->listen(sk->priv, backlog) : -EOPNOTSUPP;
+    }
+
     ret = unix_listen(sk, (uint32_t)backlog);
 
     return (int64_t)ret;
@@ -1659,7 +1771,7 @@ int64_t sys_listen(int fd, int backlog)
 
 /* ---- sys_accept ---- */
 
-int64_t sys_accept(int fd, sockaddr_un_t *addr, uint32_t *addrlen, int flags)
+int64_t sys_accept(int fd, sockaddr_t *addr, uint32_t *addrlen, int flags)
 {
     socket_t *sk;
     int       ret;
@@ -1667,14 +1779,42 @@ int64_t sys_accept(int fd, sockaddr_un_t *addr, uint32_t *addrlen, int flags)
     sk = socket_from_fd(fd);
     if (!sk) return -EBADF;
 
-    ret = unix_accept(sk, addr, addrlen, flags);
+    if (flags & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)) return -EINVAL;
+    if ((addr == NULL) != (addrlen == NULL)) return -EFAULT;
+    if (sk->family == AF_INET) {
+        const struct inet_backend_ops *ops = inet_backend_get();
+        sockaddr_storage_t kaddr;
+        uint32_t kaddrlen = sizeof(kaddr);
+        void *context = NULL;
+        socket_t *accepted;
+        int fd_new;
+        int ret;
+        if (!ops || !ops->accept) return -EOPNOTSUPP;
+        ret = ops->accept(sk->priv, &context, (sockaddr_t *)&kaddr, &kaddrlen, (uint32_t)flags);
+        if (ret < 0) return ret;
+        accepted = inet_socket_alloc(sk->type, sk->protocol, flags & SOCK_NONBLOCK, context);
+        if (!accepted) {
+            ops->close(context);
+            return -ENOMEM;
+        }
+        ret = socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&kaddr, kaddrlen);
+        if (ret < 0) {
+            socket_free(accepted);
+            return ret;
+        }
+        fd_new = socket_fd_install_flags(accepted, ((flags & SOCK_CLOEXEC) ? O_CLOEXEC : 0) | ((flags & SOCK_NONBLOCK) ? O_NONBLOCK : 0));
+        if (fd_new < 0) socket_free(accepted);
+        return fd_new;
+    }
+
+    ret = unix_accept(sk, (sockaddr_un_t *)addr, addrlen, flags);
 
     return (int64_t)ret;
 }
 
 /* ---- sys_connect ---- */
 
-int64_t sys_connect(int fd, const sockaddr_un_t *addr, uint32_t addrlen)
+int64_t sys_connect(int fd, const sockaddr_t *addr, uint32_t addrlen)
 {
     socket_t     *sk;
     sockaddr_un_t kaddr;
@@ -1688,8 +1828,19 @@ int64_t sys_connect(int fd, const sockaddr_un_t *addr, uint32_t addrlen)
 
     if (!addr) return -EINVAL;
 
+    if (sk->family == AF_INET) {
+        sockaddr_storage_t kaddr;
+        const struct inet_backend_ops *ops = inet_backend_get();
+        if (addrlen < sizeof(sa_family_t) || addrlen > sizeof(kaddr)) return -EINVAL;
+        memset(&kaddr, 0, sizeof(kaddr));
+        if (copy_from_user(&kaddr, addr, addrlen)) return -EFAULT;
+        if (kaddr.ss_family != AF_INET && kaddr.ss_family != AF_UNSPEC) return -EAFNOSUPPORT;
+        return ops && ops->connect ? ops->connect(sk->priv, (const sockaddr_t *)&kaddr, addrlen) : -EOPNOTSUPP;
+    }
+
     if (addrlen > sizeof(sockaddr_un_t)) return -EINVAL;
 
+    memset(&kaddr, 0, sizeof(kaddr));
     if (copy_from_user(&kaddr, addr, addrlen)) return -EFAULT;
 
     spin_lock(&sk->lock);
@@ -1718,7 +1869,7 @@ int64_t sys_connect(int fd, const sockaddr_un_t *addr, uint32_t addrlen)
 
 /* ---- sys_sendto ---- */
 
-int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockaddr_un_t *addr, uint32_t addrlen)
+int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockaddr_t *addr, uint32_t addrlen)
 {
     socket_t     *sk;
     sockaddr_un_t kaddr;
@@ -1732,23 +1883,61 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
 
     if (len > SOCK_BUF_MAX) return -EMSGSIZE;
 
+    if (sk->family == AF_INET) {
+        const struct inet_backend_ops *ops = inet_backend_get();
+        sockaddr_storage_t kaddr;
+        const sockaddr_t *dest = NULL;
+        void *inet_buf = NULL;
+        int inet_ret;
+        if (!ops || !ops->sendto) return -EOPNOTSUPP;
+        if (addr) {
+            if (addrlen < sizeof(sa_family_t) || addrlen > sizeof(kaddr)) return -EINVAL;
+            memset(&kaddr, 0, sizeof(kaddr));
+            if (copy_from_user(&kaddr, addr, addrlen)) return -EFAULT;
+            if (kaddr.ss_family != AF_INET) return -EAFNOSUPPORT;
+            dest = (const sockaddr_t *)&kaddr;
+        } else if (addrlen) {
+            return -EINVAL;
+        }
+        if (len) {
+            inet_buf = malloc(len);
+            if (!inet_buf) return -ENOMEM;
+            if (copy_from_user(inet_buf, buf, len)) {
+                free(inet_buf);
+                return -EFAULT;
+            }
+        }
+        inet_ret = ops->sendto(sk->priv, inet_buf, len, flags, dest, addrlen);
+        free(inet_buf);
+        return inet_ret;
+    }
+
     /* Netlink: use polymorphic write op */
     if (sk->socket_write) {
-        void *kbuf_nl = malloc(len);
-        if (!kbuf_nl) return -ENOMEM;
-        if (copy_from_user(kbuf_nl, buf, len)) {
+        sockaddr_nl_t nladdr;
+        const void *nladdr_ptr = NULL;
+        if (addr) {
+            if (addrlen < sizeof(nladdr)) return -EINVAL;
+            if (copy_from_user(&nladdr, addr, sizeof(nladdr))) return -EFAULT;
+            nladdr_ptr = &nladdr;
+        } else if (addrlen) {
+            return -EINVAL;
+        }
+        void *kbuf_nl = len ? malloc(len) : NULL;
+        if (len && !kbuf_nl) return -ENOMEM;
+        if (len && copy_from_user(kbuf_nl, buf, len)) {
             free(kbuf_nl);
             return -EFAULT;
         }
-        int ret_nl = sk->socket_write(sk, kbuf_nl, len, (void *)addr, addrlen);
+        int ret_nl = sk->socket_write(sk, kbuf_nl, len, nladdr_ptr, addr ? sizeof(nladdr) : 0);
         free(kbuf_nl);
         return (int64_t)ret_nl;
     }
 
-    kbuf = malloc(len);
-    if (!kbuf) return -ENOMEM;
+    kbuf = len ? malloc(len) : NULL;
+    if (len && !kbuf) return -ENOMEM;
 
-    if (copy_from_user(kbuf, buf, len)) {
+    if (len && copy_from_user(kbuf, buf, len)) {
         free(kbuf);
         return -EFAULT;
     }
@@ -1777,7 +1966,7 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
 
 /* ---- sys_recvfrom ---- */
 
-int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_un_t *addr, uint32_t *addrlen)
+int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr, uint32_t *addrlen)
 {
     socket_t *sk;
     void     *kbuf;
@@ -1786,7 +1975,31 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_un_t *ad
     sk = socket_from_fd(fd);
     if (!sk) return -EBADF;
 
-    if (!buf || len == 0) return -EINVAL;
+    if (!buf && len) return -EFAULT;
+
+    if (sk->family == AF_INET) {
+        const struct inet_backend_ops *ops = inet_backend_get();
+        sockaddr_storage_t kaddr;
+        uint32_t kaddrlen = sizeof(kaddr);
+        void *inet_buf = NULL;
+        int inet_ret;
+        if (!ops || !ops->recvfrom) return -EOPNOTSUPP;
+        if ((addr == NULL) != (addrlen == NULL)) return -EFAULT;
+        if (len) {
+            inet_buf = malloc(len);
+            if (!inet_buf) return -ENOMEM;
+        }
+        inet_ret = ops->recvfrom(sk->priv, inet_buf, len, flags, addr ? (sockaddr_t *)&kaddr : NULL, addr ? &kaddrlen : NULL);
+        if (inet_ret > 0 && copy_to_user(buf, inet_buf, (size_t)inet_ret)) inet_ret = -EFAULT;
+        if (inet_ret >= 0 && addr) {
+            int copy_ret = socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&kaddr, kaddrlen);
+            if (copy_ret < 0) inet_ret = copy_ret;
+        }
+        free(inet_buf);
+        return inet_ret;
+    }
+
+    if (len == 0) return 0;
 
     if (len > SOCK_BUF_MAX) len = SOCK_BUF_MAX;
 
@@ -1809,7 +2022,13 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_un_t *ad
     if (!kbuf) return -ENOMEM;
 
     if (sk->type == SOCK_DGRAM) {
-        ret = unix_dgram_recv(sk, kbuf, len, addr, addrlen, flags);
+        sockaddr_un_t sender;
+        uint32_t sender_len = sizeof(sender);
+        ret = unix_dgram_recv(sk, kbuf, len, addr ? &sender : NULL, addr ? &sender_len : NULL, flags);
+        if (ret >= 0 && addr) {
+            int copy_ret = socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&sender, sender_len);
+            if (copy_ret < 0) ret = copy_ret;
+        }
     } else {
         ret = unix_stream_recv(sk, kbuf, len, flags);
     }
@@ -1833,8 +2052,36 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
     (void)fd;
     (void)iov;
 
-    /* Netlink: use polymorphic write */
-    if (sk->socket_write) { return (int64_t)sk->socket_write(sk, kbuf, total_len, kmsg->msg_name, kmsg->msg_namelen); }
+    if (sk->family == AF_INET) {
+        const struct inet_backend_ops *ops = inet_backend_get();
+        sockaddr_storage_t kaddr;
+        const sockaddr_t *dest = NULL;
+        if (!ops || !ops->sendto) return -EOPNOTSUPP;
+        if (kmsg->msg_name) {
+            if (kmsg->msg_namelen < sizeof(sa_family_t) || kmsg->msg_namelen > sizeof(kaddr)) return -EINVAL;
+            memset(&kaddr, 0, sizeof(kaddr));
+            if (copy_from_user(&kaddr, kmsg->msg_name, kmsg->msg_namelen)) return -EFAULT;
+            if (kaddr.ss_family != AF_INET) return -EAFNOSUPPORT;
+            dest = (const sockaddr_t *)&kaddr;
+        } else if (kmsg->msg_namelen) {
+            return -EINVAL;
+        }
+        return ops->sendto(sk->priv, kbuf, total_len, flags, dest, kmsg->msg_namelen);
+    }
+
+    /* Netlink: copy the optional destination before entering the backend. */
+    if (sk->socket_write) {
+        sockaddr_nl_t nladdr;
+        const void *dest = NULL;
+        if (kmsg->msg_name) {
+            if (kmsg->msg_namelen < sizeof(nladdr)) return -EINVAL;
+            if (copy_from_user(&nladdr, kmsg->msg_name, sizeof(nladdr))) return -EFAULT;
+            dest = &nladdr;
+        } else if (kmsg->msg_namelen) {
+            return -EINVAL;
+        }
+        return (int64_t)sk->socket_write(sk, kbuf, total_len, dest, dest ? sizeof(nladdr) : 0);
+    }
 
     if (sk->type == SOCK_DGRAM) {
         sockaddr_un_t kaddr;
@@ -1858,9 +2105,38 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
     int msg_flags = 0;
     (void)fd;
 
+    if (sk->family == AF_INET) {
+        const struct inet_backend_ops *ops = inet_backend_get();
+        sockaddr_storage_t kaddr;
+        uint32_t kaddrlen = sizeof(kaddr);
+        if (!ops || !ops->recvfrom) return -EOPNOTSUPP;
+        ret = ops->recvfrom(sk->priv, kbuf, total_len, flags, kmsg->msg_name ? (sockaddr_t *)&kaddr : NULL,
+                            kmsg->msg_name ? &kaddrlen : NULL);
+        if (ret > 0) {
+            uint8_t *src = kbuf;
+            size_t remaining = (size_t)ret;
+            for (size_t i = 0; i < kmsg->msg_iovlen && remaining; i++) {
+                size_t chunk = iov[i].iov_len < remaining ? iov[i].iov_len : remaining;
+                if (copy_to_user(iov[i].iov_base, src, chunk)) return -EFAULT;
+                src += chunk;
+                remaining -= chunk;
+            }
+        }
+        if (ret >= 0 && kmsg->msg_name) {
+            uint32_t copylen = kmsg->msg_namelen < kaddrlen ? kmsg->msg_namelen : kaddrlen;
+            if (copylen && copy_to_user(kmsg->msg_name, &kaddr, copylen)) return -EFAULT;
+            kmsg->msg_namelen = kaddrlen;
+        }
+        kmsg->msg_flags = 0;
+        kmsg->msg_controllen = 0;
+        return ret;
+    }
+
     /* Netlink: use polymorphic read */
     if (sk->socket_read) {
-        ret = sk->socket_read(sk, kbuf, total_len, (void *)(uintptr_t)kmsg->msg_name, (uint32_t *)(uintptr_t)kmsg->msg_namelen);
+        /* The legacy netlink callback handles user addresses internally; recvmsg
+         * cannot provide its scalar msg_namelen as an addrlen pointer safely. */
+        ret = sk->socket_read(sk, kbuf, total_len, NULL, NULL);
         if (ret > 0) {
             uint8_t *src       = (uint8_t *)kbuf;
             size_t   remaining = (size_t)ret;
@@ -1874,11 +2150,19 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
         }
         kmsg->msg_flags      = 0;
         kmsg->msg_controllen = 0;
+        kmsg->msg_namelen    = 0;
         return (int64_t)ret;
     }
 
     if (sk->type == SOCK_DGRAM) {
-        ret = unix_dgram_recv(sk, kbuf, total_len, (sockaddr_un_t *)(uintptr_t)kmsg->msg_name, (uint32_t *)(uintptr_t)kmsg->msg_namelen, flags);
+        sockaddr_un_t sender;
+        uint32_t sender_len = sizeof(sender);
+        ret = unix_dgram_recv(sk, kbuf, total_len, kmsg->msg_name ? &sender : NULL, kmsg->msg_name ? &sender_len : NULL, flags);
+        if (ret >= 0 && kmsg->msg_name) {
+            uint32_t copylen = kmsg->msg_namelen < sender_len ? kmsg->msg_namelen : sender_len;
+            if (copylen && copy_to_user(kmsg->msg_name, &sender, copylen)) return -EFAULT;
+            kmsg->msg_namelen = sender_len;
+        }
     } else {
         ret = unix_stream_recv(sk, kbuf, total_len, flags);
     }
@@ -2047,6 +2331,11 @@ int64_t sys_shutdown(int fd, int how)
 
     if (how != SHUT_RD && how != SHUT_WR && how != SHUT_RDWR) return -EINVAL;
 
+    if (sk->family == AF_INET) {
+        const struct inet_backend_ops *ops = inet_backend_get();
+        return ops && ops->shutdown ? ops->shutdown(sk->priv, how) : -EOPNOTSUPP;
+    }
+
     spin_lock(&sk->lock);
 
     if (sk->state != SOCK_STATE_CONNECTED && sk->state != SOCK_STATE_LISTENING) {
@@ -2054,7 +2343,7 @@ int64_t sys_shutdown(int fd, int how)
         return -ENOTCONN;
     }
 
-    sk->shutdown_mask |= (uint32_t)how;
+    sk->shutdown_mask |= SOCK_SHUT_MASK(how);
 
     /* Wake blocked tasks */
     sock_blocked_wake_all(sk);
@@ -2142,7 +2431,7 @@ int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
 
 /* ---- sys_getsockname ---- */
 
-int64_t sys_getsockname(int fd, sockaddr_un_t *addr, uint32_t *addrlen)
+int64_t sys_getsockname(int fd, sockaddr_t *addr, uint32_t *addrlen)
 {
     socket_t *sk;
     uint32_t  kaddrlen;
@@ -2151,6 +2440,17 @@ int64_t sys_getsockname(int fd, sockaddr_un_t *addr, uint32_t *addrlen)
     if (!sk) return -EBADF;
 
     if (!addr || !addrlen) return -EINVAL;
+
+    if (sk->family == AF_INET) {
+        const struct inet_backend_ops *ops = inet_backend_get();
+        sockaddr_storage_t kaddr;
+        uint32_t len = sizeof(kaddr);
+        int ret;
+        if (!ops || !ops->getsockname) return -EOPNOTSUPP;
+        ret = ops->getsockname(sk->priv, (sockaddr_t *)&kaddr, &len);
+        if (ret < 0) return ret;
+        return socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&kaddr, len);
+    }
 
     spin_lock(&sk->lock);
 
@@ -2160,23 +2460,13 @@ int64_t sys_getsockname(int fd, sockaddr_un_t *addr, uint32_t *addrlen)
         return -EADDRNOTAVAIL;
     }
 
-    uint32_t userlen;
     spin_unlock(&sk->lock);
-
-    if (copy_from_user(&userlen, addrlen, sizeof(uint32_t))) return -EFAULT;
-
-    if (kaddrlen > userlen) kaddrlen = userlen;
-
-    if (copy_to_user(addr, &sk->local_addr, kaddrlen)) return -EFAULT;
-
-    if (copy_to_user(addrlen, &kaddrlen, sizeof(uint32_t))) return -EFAULT;
-
-    return EOK;
+    return socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&sk->local_addr, kaddrlen);
 }
 
 /* ---- sys_getpeername ---- */
 
-int64_t sys_getpeername(int fd, sockaddr_un_t *addr, uint32_t *addrlen)
+int64_t sys_getpeername(int fd, sockaddr_t *addr, uint32_t *addrlen)
 {
     socket_t *sk;
     uint32_t  kaddrlen;
@@ -2185,6 +2475,17 @@ int64_t sys_getpeername(int fd, sockaddr_un_t *addr, uint32_t *addrlen)
     if (!sk) return -EBADF;
 
     if (!addr || !addrlen) return -EINVAL;
+
+    if (sk->family == AF_INET) {
+        const struct inet_backend_ops *ops = inet_backend_get();
+        sockaddr_storage_t kaddr;
+        uint32_t len = sizeof(kaddr);
+        int ret;
+        if (!ops || !ops->getpeername) return -EOPNOTSUPP;
+        ret = ops->getpeername(sk->priv, (sockaddr_t *)&kaddr, &len);
+        if (ret < 0) return ret;
+        return socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&kaddr, len);
+    }
 
     spin_lock(&sk->lock);
 
@@ -2196,16 +2497,7 @@ int64_t sys_getpeername(int fd, sockaddr_un_t *addr, uint32_t *addrlen)
     kaddrlen = sk->peer_addr_len;
     spin_unlock(&sk->lock);
 
-    uint32_t userlen;
-    if (copy_from_user(&userlen, addrlen, sizeof(uint32_t))) return -EFAULT;
-
-    if (kaddrlen > userlen) kaddrlen = userlen;
-
-    if (copy_to_user(addr, &sk->peer_addr, kaddrlen)) return -EFAULT;
-
-    if (copy_to_user(addrlen, &kaddrlen, sizeof(uint32_t))) return -EFAULT;
-
-    return EOK;
+    return socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&sk->peer_addr, kaddrlen);
 }
 
 /* ---- sys_setsockopt ---- */
@@ -2218,6 +2510,24 @@ int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint3
 
     sk = socket_from_fd(fd);
     if (!sk) return -EBADF;
+
+    if (sk->family == AF_INET) {
+        const struct inet_backend_ops *ops = inet_backend_get();
+        void *value;
+        int ret;
+        if (!ops || !ops->setsockopt) return -ENOPROTOOPT;
+        if (!optval && optlen) return -EFAULT;
+        if (optlen > SOCK_BUF_MAX) return -EINVAL;
+        value = optlen ? malloc(optlen) : NULL;
+        if (optlen && !value) return -ENOMEM;
+        if (optlen && copy_from_user(value, optval, optlen)) {
+            free(value);
+            return -EFAULT;
+        }
+        ret = ops->setsockopt(sk->priv, level, optname, value, optlen);
+        free(value);
+        return ret;
+    }
 
     /* SOL_NETLINK options */
     if (level == SOL_NETLINK) {
@@ -2367,6 +2677,27 @@ int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *o
 
     sk = socket_from_fd(fd);
     if (!sk) return -EBADF;
+
+    if (sk->family == AF_INET) {
+        const struct inet_backend_ops *ops = inet_backend_get();
+        uint32_t userlen;
+        uint32_t length;
+        void *value;
+        int ret;
+        if (!optval || !optlen) return -EFAULT;
+        if (!ops || !ops->getsockopt) return -ENOPROTOOPT;
+        if (copy_from_user(&userlen, optlen, sizeof(userlen))) return -EFAULT;
+        if (userlen > SOCK_BUF_MAX) return -EINVAL;
+        length = userlen;
+        value = length ? malloc(length) : NULL;
+        if (length && !value) return -ENOMEM;
+        ret = ops->getsockopt(sk->priv, level, optname, value, &length);
+        if (ret >= 0 && length > userlen) ret = -EOVERFLOW;
+        if (ret >= 0 && length && copy_to_user(optval, value, length)) ret = -EFAULT;
+        if (ret >= 0 && copy_to_user(optlen, &length, sizeof(length))) ret = -EFAULT;
+        free(value);
+        return ret;
+    }
 
     /* SOL_NETLINK options */
     if (level == SOL_NETLINK) {
@@ -2678,6 +3009,7 @@ void socket_init(void)
 {
     memset(sock_blocked_tab, 0, sizeof(sock_blocked_tab));
     memset(sock_bound_tab, 0, sizeof(sock_bound_tab));
+    if (!inet_backend_get()) (void)inet_builtin_backend_register();
 
     vfs_callback_t cb = calloc(1, sizeof(struct vfs_callback));
     if (!cb) {

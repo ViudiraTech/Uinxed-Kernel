@@ -10,9 +10,10 @@ PARTITION_SOURCES := partition_test.c ../drivers/block/partition.c
 BLOCKDEV_PARTITION_SOURCES := blockdev_partition_test.c ../drivers/block/blockdev.c
 NTFS_WRITE_SOURCES := ntfs_write_test.c
 NTFS_WRITE_DEPS := ../fs/ntfs/ntfs_vfs.c
+NET_CORE_SOURCES ?= net_core_test.c $(wildcard ../net/*.c)
 TARGETS := kobject_sysfs_test evdev_queue_test ps2_keyboard_test partition_test blockdev_partition_test ntfs_write_test
 
-.PHONY: test clean
+.PHONY: test net-test clean
 
 test: $(TARGETS)
 	./kobject_sysfs_test
@@ -40,5 +41,11 @@ blockdev_partition_test: $(BLOCKDEV_PARTITION_SOURCES)
 ntfs_write_test: $(NTFS_WRITE_SOURCES) $(NTFS_WRITE_DEPS)
 	$(CC) $(CFLAGS) -Werror -fno-builtin-strdup -ffunction-sections -fdata-sections -Wl,--gc-sections -o $@ $(NTFS_WRITE_SOURCES)
 
+net-test: net_core_test
+	./net_core_test
+
+net_core_test: $(NET_CORE_SOURCES)
+	$(CC) $(CFLAGS) -Werror -fno-builtin-strdup -ffunction-sections -fdata-sections -Wl,--gc-sections -o $@ $(NET_CORE_SOURCES)
+
 clean:
-	$(RM) $(TARGETS)
+	$(RM) $(TARGETS) net_core_test

@@ -13,6 +13,7 @@
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
+#include <net/abi/inet.h>
 #include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */
@@ -104,15 +105,6 @@
 
 #define SCM_RIGHTS      0x01
 #define SCM_CREDENTIALS 0x02
-
-/* ------------------------------------------------------------------ */
-/*  struct sockaddr - generic socket address                            */
-/* ------------------------------------------------------------------ */
-
-typedef struct sockaddr {
-        uint16_t sa_family;
-        char     sa_data[14];
-} sockaddr_t;
 
 /* ------------------------------------------------------------------ */
 /*  struct sockaddr_un - UNIX domain socket address                     */
@@ -228,8 +220,8 @@ struct socket {
 
         /* Peer */
         socket_t     *peer;
-        sockaddr_un_t local_addr;
-        sockaddr_un_t peer_addr;
+        sockaddr_storage_t local_addr;
+        sockaddr_storage_t peer_addr;
         uint32_t      local_addr_len;
         uint32_t      peer_addr_len;
 
@@ -283,18 +275,18 @@ struct socket {
 /* ------------------------------------------------------------------ */
 
 int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol);
-int64_t sys_bind(int fd, const sockaddr_un_t *addr, uint32_t addrlen);
+int64_t sys_bind(int fd, const sockaddr_t *addr, uint32_t addrlen);
 int64_t sys_listen(int fd, int backlog);
-int64_t sys_accept(int fd, sockaddr_un_t *addr, uint32_t *addrlen, int flags);
-int64_t sys_connect(int fd, const sockaddr_un_t *addr, uint32_t addrlen);
-int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockaddr_un_t *addr, uint32_t addrlen);
-int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_un_t *addr, uint32_t *addrlen);
+int64_t sys_accept(int fd, sockaddr_t *addr, uint32_t *addrlen, int flags);
+int64_t sys_connect(int fd, const sockaddr_t *addr, uint32_t addrlen);
+int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockaddr_t *addr, uint32_t addrlen);
+int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr, uint32_t *addrlen);
 int64_t sys_sendmsg(int fd, const msghdr_t *msg, int flags);
 int64_t sys_recvmsg(int fd, msghdr_t *msg, int flags);
 int64_t sys_shutdown(int fd, int how);
 int64_t sys_socketpair(int domain, int type, int protocol, int sv[2]);
-int64_t sys_getsockname(int fd, sockaddr_un_t *addr, uint32_t *addrlen);
-int64_t sys_getpeername(int fd, sockaddr_un_t *addr, uint32_t *addrlen);
+int64_t sys_getsockname(int fd, sockaddr_t *addr, uint32_t *addrlen);
+int64_t sys_getpeername(int fd, sockaddr_t *addr, uint32_t *addrlen);
 int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint32_t optlen);
 int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *optlen);
 

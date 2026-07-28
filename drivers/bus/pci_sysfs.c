@@ -104,6 +104,29 @@ static ssize_t pci_header_type_show(struct device *dev, struct device_attribute 
     return (ssize_t)sysfs_emit(buf, "0x%02x\n", (uint32_t)psd->cache->header_type);
 }
 
+static ssize_t pci_modalias_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    struct pci_sysfs_dev *psd = dev->driver_data;
+    pci_device_reg_t      reg;
+    uint32_t              subsystem_vendor;
+    uint32_t              subsystem_device;
+    uint32_t              class_code;
+
+    (void)attr;
+    if (!psd || !psd->cache) return -EIO;
+
+    reg.parent       = psd->cache;
+    reg.offset       = 0x2C;
+    subsystem_vendor = read_pci(reg) & 0xFFFF;
+    reg.offset       = 0x2E;
+    subsystem_device = read_pci(reg) & 0xFFFF;
+    class_code       = psd->cache->class_code;
+
+    return (ssize_t)sysfs_emit(buf, "pci:v0000%04Xd0000%04Xsv0000%04Xsd0000%04Xbc%02Xsc%02Xi%02X\n", psd->cache->vendor_id,
+                               psd->cache->device_id, subsystem_vendor, subsystem_device, (class_code >> 16) & 0xFF, (class_code >> 8) & 0xFF,
+                               class_code & 0xFF);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Device attributes                                                  */
 /* ------------------------------------------------------------------ */
@@ -115,10 +138,12 @@ static DEVICE_ATTR(revision, 0444, pci_revision_show, NULL);
 static DEVICE_ATTR(subsystem_vendor, 0444, pci_subsystem_vendor_show, NULL);
 static DEVICE_ATTR(subsystem_device, 0444, pci_subsystem_device_show, NULL);
 static DEVICE_ATTR(header_type, 0444, pci_header_type_show, NULL);
+static DEVICE_ATTR(modalias, 0444, pci_modalias_show, NULL);
 
 static struct attribute *pci_dev_attrs[] = {
-    &dev_attr_vendor.attr,           &dev_attr_device.attr,           &dev_attr_class.attr,       &dev_attr_revision.attr,
-    &dev_attr_subsystem_vendor.attr, &dev_attr_subsystem_device.attr, &dev_attr_header_type.attr, NULL,
+    &dev_attr_vendor.attr,      &dev_attr_device.attr,           &dev_attr_class.attr,
+    &dev_attr_revision.attr,    &dev_attr_subsystem_vendor.attr, &dev_attr_subsystem_device.attr,
+    &dev_attr_header_type.attr, &dev_attr_modalias.attr,         NULL,
 };
 
 static struct attribute_group pci_dev_attr_group = {

@@ -18,6 +18,7 @@
 #include <kernel/printk.h>
 #include <libs/std/math.h>
 #include <libs/std/stdint.h>
+#include <net/netdev.h>
 #include <proc/sched.h>
 #include <syscall/timerfd.h>
 
@@ -30,6 +31,9 @@ INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)
     send_eoi();
     sched_tick();
     timerfd_tick();
+#if CONFIG_NET
+    net_timer(sched_ticks());
+#endif
     enable_intr();
 }
 INTERRUPT_END

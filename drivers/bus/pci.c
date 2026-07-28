@@ -20,6 +20,7 @@
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
+#include <mem/page.h>
 #include <sync/spin_lock.h>
 
 mcfg_t mcfg_info;
@@ -462,9 +463,9 @@ static spinlock_t msi_lock;
 /* Initialize MSI vector allocator */
 static void msi_vector_init(void)
 {
-    spin_lock(&msi_lock);
+    uint64_t rflags = spin_lock_irqsave(&msi_lock);
     if (msi_initialized) {
-        spin_unlock(&msi_lock);
+        spin_unlock_irqrestore(&msi_lock, rflags);
         return;
     }
     msi_initialized = 1;
@@ -479,7 +480,7 @@ static void msi_vector_init(void)
             msi_vector_bmap[idx / 8] |= (1 << (idx % 8));
         }
     }
-    spin_unlock(&msi_lock);
+    spin_unlock_irqrestore(&msi_lock, rflags);
 }
 
 /* Allocate a single MSI vector. Returns vector number or -1 on failure. */
@@ -487,16 +488,16 @@ static int msi_vector_alloc(int nvec)
 {
     (void)nvec;
     msi_vector_init();
-    spin_lock(&msi_lock);
+    uint64_t rflags = spin_lock_irqsave(&msi_lock);
     for (int i = MSI_VECTOR_MIN; i <= MSI_VECTOR_MAX; i++) {
         int idx = i - MSI_VECTOR_MIN;
         if (!(msi_vector_bmap[idx / 8] & (1 << (idx % 8)))) {
             msi_vector_bmap[idx / 8] |= (1 << (idx % 8));
-            spin_unlock(&msi_lock);
+            spin_unlock_irqrestore(&msi_lock, rflags);
             return i;
         }
     }
-    spin_unlock(&msi_lock);
+    spin_unlock_irqrestore(&msi_lock, rflags);
     return -1;
 }
 
@@ -504,10 +505,10 @@ static int msi_vector_alloc(int nvec)
 static void msi_vector_free(int vector)
 {
     if (vector < MSI_VECTOR_MIN || vector > MSI_VECTOR_MAX) return;
-    spin_lock(&msi_lock);
+    uint64_t rflags = spin_lock_irqsave(&msi_lock);
     int idx = vector - MSI_VECTOR_MIN;
     msi_vector_bmap[idx / 8] &= ~(1 << (idx % 8));
-    spin_unlock(&msi_lock);
+    spin_unlock_irqrestore(&msi_lock, rflags);
 }
 
 /* Compute MSI message address for targeting local APIC */
@@ -578,7 +579,8 @@ void pci_msi_init(pci_device_cache_t *dev)
 /* Enable MSI with a single vector. Returns the allocated vector number, or -1 on error. */
 int pci_enable_msi(pci_device_cache_t *dev)
 {
-    return pci_enable_msi_range(dev, 1);
+    if (pci_enable_msi_range(dev, 1) != 1) return -1;
+    return dev->msi.msi_vectors[0];
 }
 
 /* Enable MSI with up to nvec vectors. Returns number of vectors allocated, or -1 on error. */
@@ -599,20 +601,21 @@ int pci_enable_msi_range(pci_device_cache_t *dev, int nvec)
     int max_nvec  = 1 << multi_cap;
     if (nvec > max_nvec) nvec = max_nvec;
 
-    /* For multi-MSI, vectors must be contiguous (power of 2) */
-    int aligned_nvec = 1;
-    while (aligned_nvec < nvec) aligned_nvec <<= 1;
+    /* Multiple Message Enable is a power of two and must not exceed the request. */
+    int allocated_nvec = 1;
+    while ((allocated_nvec << 1) <= nvec) allocated_nvec <<= 1;
 
     int qsize = 0;
-    while ((1 << qsize) < aligned_nvec) qsize++;
+    while ((1 << qsize) < allocated_nvec) qsize++;
 
     /* Allocate vectors contiguously under the msi_lock. */
     msi_vector_init();
-    spin_lock(&msi_lock);
+    uint64_t rflags = spin_lock_irqsave(&msi_lock);
     int found = -1;
-    for (int i = MSI_VECTOR_MIN; i <= MSI_VECTOR_MAX - nvec + 1; i++) {
+    for (int i = MSI_VECTOR_MIN; i <= MSI_VECTOR_MAX - allocated_nvec + 1; i++) {
+        if (i & (allocated_nvec - 1)) continue;
         int ok = 1;
-        for (int j = 0; j < nvec; j++) {
+        for (int j = 0; j < allocated_nvec; j++) {
             int idx = (i + j) - MSI_VECTOR_MIN;
             if (msi_vector_bmap[idx / 8] & (1 << (idx % 8))) {
                 ok = 0;
@@ -620,7 +623,7 @@ int pci_enable_msi_range(pci_device_cache_t *dev, int nvec)
             }
         }
         if (ok) {
-            for (int j = 0; j < nvec; j++) {
+            for (int j = 0; j < allocated_nvec; j++) {
                 int idx = (i + j) - MSI_VECTOR_MIN;
                 msi_vector_bmap[idx / 8] |= (1 << (idx % 8));
                 dev->msi.msi_vectors[j] = i + j;
@@ -629,7 +632,7 @@ int pci_enable_msi_range(pci_device_cache_t *dev, int nvec)
             break;
         }
     }
-    spin_unlock(&msi_lock);
+    spin_unlock_irqrestore(&msi_lock, rflags);
     if (found < 0) return -1;
 
     int first_vector = dev->msi.msi_vectors[0];
@@ -643,7 +646,7 @@ int pci_enable_msi_range(pci_device_cache_t *dev, int nvec)
     write_pci(flags_reg, flags & ~PCI_MSI_FLAGS_ENABLE);
 
     /* Program the MSI capability registers */
-    pci_device_reg_t reg;
+    pci_device_reg_t reg = {dev, 0};
 
     reg.offset = cap + PCI_MSI_ADDRESS_LO;
     write_pci(reg, addr_lo);
@@ -681,8 +684,8 @@ int pci_enable_msi_range(pci_device_cache_t *dev, int nvec)
     cmd |= (1 << 10);
     write_pci(reg, cmd);
 
-    dev->msi.msi_nvec = nvec;
-    return nvec;
+    dev->msi.msi_nvec = allocated_nvec;
+    return allocated_nvec;
 }
 
 /* Disable MSI */
@@ -710,7 +713,7 @@ void pci_disable_msi(pci_device_cache_t *dev)
 }
 
 /* Map MSI-X table from PCI BAR */
-static int msix_map_table(pci_device_cache_t *dev)
+static int msix_map_table(pci_device_cache_t *dev, int nvec)
 {
     int              cap        = dev->msi.msix_cap;
     pci_device_reg_t reg        = {dev, cap + PCI_MSIX_TABLE};
@@ -718,12 +721,22 @@ static int msix_map_table(pci_device_cache_t *dev)
 
     int      bir          = table_info & PCI_MSIX_TABLE_BIR;
     uint32_t table_offset = table_info & PCI_MSIX_TABLE_OFFSET;
+    if (bir >= 6) return -1;
 
     base_address_register_t bar = get_base_address_register(dev, bir);
     if (!bar.address) return -1;
     if (bar.type != mem_mapping) return -1;
 
-    dev->msi.msix_table = (void *)((uintptr_t)bar.address + table_offset);
+    uint64_t bar_size   = bar.size & ~BAR_64BIT_FLAG;
+    uint64_t table_size = (uint64_t)nvec * PCI_MSIX_ENTRY_SIZE;
+    if (table_offset >= bar_size || table_size > bar_size - table_offset) return -1;
+
+    uint64_t table_phys = (uint64_t)(uintptr_t)virt_to_phys((uint64_t)(uintptr_t)bar.address) + table_offset;
+    uint64_t map_start  = table_phys & ~(PAGE_4K_SIZE - 1);
+    uint64_t map_end    = (table_phys + table_size + PAGE_4K_SIZE - 1) & ~(PAGE_4K_SIZE - 1);
+    page_map_range_to(get_kernel_pagedir(), map_start, map_end - map_start, PTE_MMIO_FLAGS);
+
+    dev->msi.msix_table = phys_to_virt(table_phys);
 
     return 0;
 }
@@ -745,7 +758,7 @@ int pci_enable_msix(pci_device_cache_t *dev, int nvec)
     if (nvec > table_size) nvec = table_size;
 
     /* Map the MSI-X table */
-    if (msix_map_table(dev) < 0) return -1;
+    if (msix_map_table(dev, nvec) < 0) return -1;
     if (!dev->msi.msix_table) return -1;
 
     /* Allocate vectors */
@@ -771,17 +784,18 @@ int pci_enable_msix(pci_device_cache_t *dev, int nvec)
         uint32_t msg_data = msi_message_data(dev->msi.msix_vectors[i]);
 
         entry[PCI_MSIX_ENTRY_VECTOR_CTRL / 4] |= PCI_MSIX_ENTRY_CTRL_MASKBIT;
-        compiler_barrier();
+        dma_full_barrier();
 
         entry[PCI_MSIX_ENTRY_LOWER_ADDR / 4] = addr_lo;
         entry[PCI_MSIX_ENTRY_UPPER_ADDR / 4] = addr_hi;
         entry[PCI_MSIX_ENTRY_DATA / 4]       = msg_data;
-        compiler_barrier();
+        dma_full_barrier();
 
         entry[PCI_MSIX_ENTRY_VECTOR_CTRL / 4] &= ~PCI_MSIX_ENTRY_CTRL_MASKBIT;
     }
 
     /* Clear MaskAll and set Enable */
+    dma_full_barrier();
     write_pci(flags_reg, (flags & ~PCI_MSIX_FLAGS_MASKALL) | PCI_MSIX_FLAGS_ENABLE);
 
     /* Disable INTx */
@@ -806,14 +820,15 @@ void pci_disable_msix(pci_device_cache_t *dev)
     uint16_t         flags     = read_pci(flags_reg) & 0xFFFF;
     write_pci(flags_reg, (flags & ~PCI_MSIX_FLAGS_ENABLE) | PCI_MSIX_FLAGS_MASKALL);
 
-    /* Mask each entry and free vectors */
+    /* Mask every entry before any vector can be reused. */
     for (int i = 0; i < dev->msi.msix_nvec; i++) {
         if (dev->msi.msix_table) {
             volatile uint32_t *entry = (volatile uint32_t *)((uintptr_t)dev->msi.msix_table + i * PCI_MSIX_ENTRY_SIZE);
             entry[PCI_MSIX_ENTRY_VECTOR_CTRL / 4] |= PCI_MSIX_ENTRY_CTRL_MASKBIT;
         }
-        msi_vector_free(dev->msi.msix_vectors[i]);
     }
+    dma_full_barrier();
+    for (int i = 0; i < dev->msi.msix_nvec; i++) msi_vector_free(dev->msi.msix_vectors[i]);
 
     /* Re-enable INTx */
     pci_device_reg_t cmd_reg = {dev, PCI_CONF_COMMAND};

@@ -1,0 +1,24 @@
+#ifndef INCLUDE_NET_ARP_H_
+#define INCLUDE_NET_ARP_H_
+
+#include <net/netdev.h>
+
+#define ARP_CACHE_CAPACITY 64U
+
+typedef struct net_arp_packet {
+        uint16_t hardware_type;
+        uint16_t protocol_type;
+        uint8_t  hardware_len;
+        uint8_t  protocol_len;
+        uint16_t operation;
+} net_arp_packet_t;
+
+int net_arp_parse(const void *data, size_t length, net_arp_packet_t *arp);
+int arp_input(net_device_t *device, net_pbuf_t *packet);
+int arp_resolve(net_device_t *device, uint32_t ipv4, net_pbuf_t *packet);
+int arp_request(net_device_t *device, uint32_t ipv4);
+void arp_learn(net_device_t *device, uint32_t ipv4, const uint8_t address[6], uint64_t now_ticks);
+void arp_timer(uint64_t now_ticks);
+void arp_device_removed(net_device_t *device);
+
+#endif

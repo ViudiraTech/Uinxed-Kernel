@@ -11,6 +11,8 @@
 #ifndef INCLUDE_PROCFS_H_
 #define INCLUDE_PROCFS_H_
 
+#define PROCFS_NET_PATH "/proc/net"
+
 /* Register procfs with the VFS layer */
 void procfs_regist(void);
 
