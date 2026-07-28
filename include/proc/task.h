@@ -53,6 +53,9 @@ typedef enum {
 typedef struct {
         uint64_t fs_base;
         uint64_t gs_base;
+        void    *fpu_state;       /* 64-byte aligned FXSAVE/XSAVE area */
+        uint8_t  fpu_initialized; /* state contains this thread's FP registers */
+        uint8_t  fpu_active;      /* state is currently live in this CPU */
 } thread_struct_t;
 
 typedef struct {

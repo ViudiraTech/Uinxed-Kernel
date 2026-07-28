@@ -8,6 +8,7 @@
  *
  */
 
+#include <arch/eis.h>
 #include <arch/smp.h>
 #include <chipset/common.h>
 #include <drivers/tty_core.h>
@@ -1445,6 +1446,7 @@ process_t *process_fork_status_event(int *error, uint32_t ptrace_event)
     memcpy(&child_task->context, &current->context, sizeof(task_context_t));
     child_task->thread.fs_base = current->thread.fs_base;
     child_task->thread.gs_base = current->thread.gs_base;
+    fpu_task_clone(current, child_task);
 
     child_task->cpu_id = current->cpu_id;
 
@@ -1564,6 +1566,7 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
     child->context.rsp     = (uint64_t)kstack;
     child->thread.fs_base  = tls;
     child->thread.gs_base  = current->thread.gs_base;
+    fpu_task_clone(current, child);
     child->page_directory  = proc->user_page_dir;
     child->process         = proc;
     child->tgid            = proc->task->tgid;

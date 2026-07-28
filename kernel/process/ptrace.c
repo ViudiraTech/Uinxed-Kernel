@@ -186,8 +186,14 @@ static void ptrace_debug_restore(const task_t *task)
 
 void ptrace_arch_switch(task_t *previous, task_t *next)
 {
-    ptrace_debug_save(previous);
-    ptrace_debug_restore(next);
+    int previous_active = previous && previous->ptrace.debug_regs[7];
+    int next_active     = next && next->ptrace.debug_regs[7];
+
+    /* Debug-register accesses serialize execution.  The overwhelmingly
+     * common case has no hardware breakpoints and needs no DR traffic. */
+    if (!previous_active && !next_active) return;
+    if (previous_active) ptrace_debug_save(previous);
+    ptrace_debug_restore(next_active ? next : NULL);
 }
 
 static void ptrace_build_user_area(task_t *target, ptrace_user_area_t *area)

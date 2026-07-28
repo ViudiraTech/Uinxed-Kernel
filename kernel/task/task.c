@@ -8,6 +8,7 @@
  *
  */
 
+#include <arch/eis.h>
 #include <cgroup/cgroup.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
@@ -148,6 +149,13 @@ task_t *task_alloc_status(const char *name, int *error)
         return NULL;
     }
 
+    if (fpu_task_init(task)) {
+        free(pid_entry);
+        free(task);
+        if (error) *error = -ENOMEM;
+        return NULL;
+    }
+
     task->page_directory = get_kernel_pagedir();
     task->time_slice     = TASK_DEFAULT_SLICE;
     task->cpu_id         = 0;
@@ -169,6 +177,7 @@ task_t *task_alloc_status(const char *name, int *error)
     int status = cgroup_task_fork(task, parent);
     if (status != EOK) {
         free(pid_entry);
+        fpu_task_destroy(task);
         free(task);
         if (error) *error = status;
         return NULL;
@@ -198,6 +207,7 @@ void task_free(task_t *task)
     spin_unlock(&pid_hash_lock);
     free(pid_entry);
     free(task->kernel_stack);
+    fpu_task_destroy(task);
     free(task);
 }
 

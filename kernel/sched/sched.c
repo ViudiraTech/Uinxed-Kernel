@@ -9,6 +9,7 @@
  */
 
 #include <arch/gdt.h>
+#include <arch/eis.h>
 #include <arch/smp.h>
 #include <cgroup/cgroup.h>
 #include <chipset/common.h>
@@ -785,7 +786,9 @@ void sched_yield(void)
     __atomic_store_n(&next->on_cpu, 1, __ATOMIC_RELEASE);
     rq->curr = next;
     update_tss_stack(next);
-    switch_page_directory(next->page_directory);
+    /* Retaining CR3 preserves the TLB when switching between threads in
+     * the same address space (and for kernel threads). */
+    if (!prev || prev->page_directory != next->page_directory) switch_page_directory(next->page_directory);
 
     spin_unlock(&scheduler.lock);
 
@@ -795,15 +798,13 @@ void sched_yield(void)
      * saved RFLAGS is restored by context_switch(). */
     disable_intr();
 
-    /* Save and restore FS/GS base across context switch */
-    if (prev && prev != rq->idle) {
-        prev->thread.fs_base = rdmsr(0xC0000100);
-        prev->thread.gs_base = rdmsr(0xC0000101);
-    }
-    wrmsr(0xC0000100, next->thread.fs_base);
-    wrmsr(0xC0000101, next->thread.gs_base);
+    /* arch_prctl keeps the software values authoritative, so avoid two
+     * serializing RDMSRs and skip WRMSRs whose values do not change. */
+    if (!prev || prev->thread.fs_base != next->thread.fs_base) wrmsr(0xC0000100, next->thread.fs_base);
+    if (!prev || prev->thread.gs_base != next->thread.gs_base) wrmsr(0xC0000101, next->thread.gs_base);
     ptrace_arch_switch(prev, next);
 
+    fpu_context_switch(prev);
     context_switch(&prev->context, &next->context, &prev->on_cpu);
 }
 

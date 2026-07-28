@@ -8,6 +8,7 @@
  *
  */
 
+#include <arch/eis.h>
 #include <arch/smp.h>
 #include <arch/tss.h>
 #include <chipset/common.h>
@@ -3528,6 +3529,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
 
     /* Reset signal state for new program image (per POSIX) */
     signal_exec_reset(proc);
+    fpu_task_reset(proc->task);
 
     if (frame) {
         memset(frame, 0, sizeof(*frame));
