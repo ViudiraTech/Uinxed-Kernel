@@ -5,6 +5,7 @@
  *
  *      Based on Linux ext2 source code.
  *      Adapted for Uinxed-Kernel VFS layer.
+ *      2026/7/29 By JiTianYu391
  *
  *      Copyright (C) 1992, 1993 Remy Card, Laboratoire MASI - Institut Blaise Pascal
  *      Copyright (C) 2026 ViudiraTech, based on the Apache 2.0 license.
@@ -15,7 +16,11 @@
 #define INCLUDE_FS_EXTFS_H_
 
 #include <drivers/block/blockdev.h>
+#include <fs/core/fs_txn.h>
 #include <libs/std/stdint.h>
+#include <sync/spin_lock.h>
+
+struct extfs_journal;
 
 /*
  * Special inode numbers
@@ -71,14 +76,39 @@
  * Feature flags
  */
 #define EXT2_FEATURE_INCOMPAT_FILETYPE 0x0002
+#define EXT3_FEATURE_INCOMPAT_RECOVER  0x0004
+#define EXT3_FEATURE_INCOMPAT_JOURNAL_DEV 0x0008
 #define EXT2_FEATURE_INCOMPAT_META_BG  0x0010
+#define EXT4_FEATURE_INCOMPAT_EXTENTS  0x0040
+#define EXT4_FEATURE_INCOMPAT_64BIT    0x0080
+#define EXT4_FEATURE_INCOMPAT_MMP      0x0100
+#define EXT4_FEATURE_INCOMPAT_FLEX_BG  0x0200
+#define EXT4_FEATURE_INCOMPAT_EA_INODE 0x0400
+#define EXT4_FEATURE_INCOMPAT_DIRDATA  0x1000
+#define EXT4_FEATURE_INCOMPAT_CSUM_SEED 0x2000
+#define EXT4_FEATURE_INCOMPAT_LARGEDIR 0x4000
+#define EXT4_FEATURE_INCOMPAT_INLINE_DATA 0x8000
+#define EXT4_FEATURE_INCOMPAT_ENCRYPT  0x10000
 
 #define EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER 0x0001
 #define EXT2_FEATURE_RO_COMPAT_LARGE_FILE   0x0002
 #define EXT2_FEATURE_RO_COMPAT_BTREE_DIR    0x0004
+#define EXT4_FEATURE_RO_COMPAT_HUGE_FILE    0x0008
+#define EXT4_FEATURE_RO_COMPAT_GDT_CSUM     0x0010
+#define EXT4_FEATURE_RO_COMPAT_DIR_NLINK    0x0020
+#define EXT4_FEATURE_RO_COMPAT_EXTRA_ISIZE  0x0040
+#define EXT4_FEATURE_RO_COMPAT_QUOTA        0x0100
+#define EXT4_FEATURE_RO_COMPAT_BIGALLOC     0x0200
+#define EXT4_FEATURE_RO_COMPAT_METADATA_CSUM 0x0400
+#define EXT4_FEATURE_RO_COMPAT_READONLY     0x1000
+#define EXT4_FEATURE_RO_COMPAT_PROJECT      0x2000
+#define EXT4_FEATURE_RO_COMPAT_VERITY       0x8000
+#define EXT4_FEATURE_RO_COMPAT_ORPHAN_PRESENT 0x10000
 
 #define EXT2_FEATURE_COMPAT_EXT_ATTR  0x0008
 #define EXT2_FEATURE_COMPAT_DIR_INDEX 0x0020
+#define EXT3_FEATURE_COMPAT_HAS_JOURNAL 0x0004
+#define EXT4_FEATURE_COMPAT_SPARSE_SUPER2 0x0200
 
 /*
  * Directory file types
@@ -117,6 +147,13 @@
 #define EXT2_S_IROTH  0x0004
 #define EXT2_S_IWOTH  0x0002
 #define EXT2_S_IXOTH  0x0001
+
+#define EXT4_EXTENTS_FL 0x00080000U
+#define EXT4_INDEX_FL   0x00001000U
+#define EXT4_EXT_MAGIC  0xF30AU
+#define EXT4_BG_INODE_UNINIT 0x0001U
+#define EXT4_BG_BLOCK_UNINIT 0x0002U
+#define EXT4_BG_INODE_ZEROED 0x0004U
 
 /*
  * On-disk structures
@@ -162,7 +199,7 @@ typedef struct ext2_super_block {
         uint32_t s_algorithm_usage_bitmap;
         uint8_t  s_prealloc_blocks;
         uint8_t  s_prealloc_dir_blocks;
-        uint16_t s_padding1;
+        uint16_t s_reserved_gdt_blocks;
         uint8_t  s_journal_uuid[16];
         uint32_t s_journal_inum;
         uint32_t s_journal_dev;
@@ -170,13 +207,13 @@ typedef struct ext2_super_block {
         uint32_t s_hash_seed[4];
         uint8_t  s_def_hash_version;
         uint8_t  s_reserved_char_pad;
-        uint16_t s_reserved_word_pad;
+        uint16_t s_desc_size;
         uint32_t s_default_mount_opts;
         uint32_t s_first_meta_bg;
         uint32_t s_reserved[190];
 } __attribute__((packed)) ext2_super_block_t;
 
-/* Block group descriptor - 32 bytes */
+/* Normalized ext4 block group descriptor (the ext2 disk form is its first 32 bytes). */
 typedef struct ext2_group_desc {
         uint32_t bg_block_bitmap;
         uint32_t bg_inode_bitmap;
@@ -184,8 +221,23 @@ typedef struct ext2_group_desc {
         uint16_t bg_free_blocks_count;
         uint16_t bg_free_inodes_count;
         uint16_t bg_used_dirs_count;
-        uint16_t bg_pad;
-        uint32_t bg_reserved[3];
+        uint16_t bg_flags;
+        uint32_t bg_exclude_bitmap_lo;
+        uint16_t bg_block_bitmap_csum_lo;
+        uint16_t bg_inode_bitmap_csum_lo;
+        uint16_t bg_itable_unused_lo;
+        uint16_t bg_checksum;
+        uint32_t bg_block_bitmap_hi;
+        uint32_t bg_inode_bitmap_hi;
+        uint32_t bg_inode_table_hi;
+        uint16_t bg_free_blocks_count_hi;
+        uint16_t bg_free_inodes_count_hi;
+        uint16_t bg_used_dirs_count_hi;
+        uint16_t bg_itable_unused_hi;
+        uint32_t bg_exclude_bitmap_hi;
+        uint16_t bg_block_bitmap_csum_hi;
+        uint16_t bg_inode_bitmap_csum_hi;
+        uint32_t bg_reserved;
 } __attribute__((packed)) ext2_group_desc_t;
 
 /* Inode - 128 bytes (minimum) */
@@ -207,12 +259,12 @@ typedef struct ext2_inode {
         uint32_t i_file_acl;
         uint32_t i_dir_acl;
         uint32_t i_faddr;
-        uint8_t  i_frag;
-        uint8_t  i_fsize;
-        uint16_t i_pad1;
+        uint16_t l_i_blocks_high;
+        uint16_t l_i_file_acl_high;
         uint16_t l_i_uid_high;
         uint16_t l_i_gid_high;
-        uint32_t l_i_reserved2;
+        uint16_t l_i_checksum_lo;
+        uint16_t l_i_reserved;
 } __attribute__((packed)) ext2_inode_t;
 
 /* Directory entry (new format with file_type) */
@@ -238,12 +290,21 @@ typedef struct extfs_sb_info {
         uint32_t            inodes_per_group;
         uint32_t            groups_count;
         uint32_t            desc_per_block;
+        uint32_t            desc_size;
+        uint64_t            blocks_count;
+        uint32_t            checksum_seed;
         uint32_t            s_first_data_block;
         uint32_t            inode_size;
         uint32_t            s_first_ino;
         uint32_t            gdb_count; /* Group descriptor blocks count */
         uint32_t            sb_block;  /* Superblock block number */
         uint8_t             log_block_size;
+        spinlock_t          lock;
+        int                 read_only;
+        fs_txn_log_t        transaction_log;
+        fs_txn_t           *active_transaction;
+        int                 transaction_log_initialized;
+        struct extfs_journal *journal;
 } extfs_sb_info_t;
 
 /* Per-inode info */
@@ -269,7 +330,7 @@ typedef struct extfs_handle {
  */
 
 /* super.c */
-int  extfs_read_super(extfs_sb_info_t *sb, uint8_t drive);
+int  extfs_read_super(extfs_sb_info_t *sb, const blockdev_device_t *device);
 int  extfs_write_super(extfs_sb_info_t *sb);
 void extfs_free_super(extfs_sb_info_t *sb);
 int  extfs_read_inode_raw(extfs_sb_info_t *sb, uint32_t ino, ext2_inode_t *raw);
@@ -278,12 +339,18 @@ int  extfs_read_group_desc(extfs_sb_info_t *sb, uint32_t group, ext2_group_desc_
 int  extfs_write_group_desc(extfs_sb_info_t *sb, uint32_t group, const ext2_group_desc_t *desc);
 int  extfs_read_block(extfs_sb_info_t *sb, uint32_t phys_block, void *buf);
 int  extfs_write_block(extfs_sb_info_t *sb, uint32_t phys_block, const void *buf);
+int  extfs_write_data_block(extfs_sb_info_t *sb, uint32_t phys_block, const void *buf);
+int  extfs_update_bitmap_checksum(extfs_sb_info_t *sb, uint32_t group, int inode_bitmap, const void *bitmap);
+int  extfs_transaction_begin(extfs_sb_info_t *sb, fs_txn_t *transaction, uint32_t credits);
+int  extfs_transaction_commit(extfs_sb_info_t *sb, fs_txn_t *transaction);
+void extfs_transaction_abort(extfs_sb_info_t *sb, fs_txn_t *transaction, int error);
 
 /* alloc.c */
 int      extfs_alloc_block(extfs_sb_info_t *sb, uint32_t goal, uint32_t *out);
 void     extfs_free_block(extfs_sb_info_t *sb, uint32_t block);
 int      extfs_alloc_inode(extfs_sb_info_t *sb, uint32_t *out);
 void     extfs_free_inode(extfs_sb_info_t *sb, uint32_t ino);
+int      extfs_adjust_used_dirs(extfs_sb_info_t *sb, uint32_t ino, int delta);
 uint32_t extfs_count_free_blocks(extfs_sb_info_t *sb);
 uint32_t extfs_count_free_inodes(extfs_sb_info_t *sb);
 
@@ -291,10 +358,18 @@ uint32_t extfs_count_free_inodes(extfs_sb_info_t *sb);
 extfs_handle_t *extfs_alloc_handle(extfs_sb_info_t *sb, uint32_t ino);
 int             extfs_load_inode(extfs_handle_t *h);
 int             extfs_flush_inode(extfs_handle_t *h);
+uint32_t        extfs_map_block(extfs_handle_t *h, uint32_t logical, int create);
 int             extfs_read_data(extfs_handle_t *h, void *buf, uint64_t offset, size_t size);
 int             extfs_write_data(extfs_handle_t *h, const void *buf, uint64_t offset, size_t size);
 int             extfs_truncate(extfs_handle_t *h, uint64_t size);
 void            extfs_free_inode_blocks(extfs_handle_t *h);
+int             extfs_release_xattr_block(extfs_handle_t *h);
+
+/* extents.c */
+uint32_t extfs_extent_map_block(extfs_handle_t *h, uint32_t logical, int create);
+int      extfs_extent_remove_space(extfs_handle_t *h, uint32_t first, uint32_t last);
+int      extfs_extent_free_all(extfs_handle_t *h);
+int      extfs_extent_count_blocks(extfs_handle_t *h, uint64_t *blocks);
 
 /* dir.c */
 int extfs_dir_lookup(extfs_handle_t *dir_h, const char *name, uint32_t *ino);
@@ -303,6 +378,7 @@ int extfs_dir_remove_entry(extfs_handle_t *dir_h, const char *name);
 int extfs_dir_read_entries(extfs_handle_t *dir_h, void *buf, size_t bufsize, size_t *done);
 int extfs_make_empty_dir(extfs_handle_t *dir_h, uint32_t self_ino, uint32_t parent_ino);
 int extfs_dir_empty(extfs_handle_t *dir_h);
+int extfs_dir_block_verify(extfs_handle_t *dir_h, uint32_t logical, const void *block);
 
 /* extfs.c - registration */
 void extfs_regist(void);

@@ -223,7 +223,7 @@ char *strstr(const char *haystack, const char *needle)
 }
 
 /* Make a copy of the string and return it */
-void *strdup(const char *s)
+char *strdup(const char *s)
 {
 #if defined(__builtin_strdup)
     return __builtin_strdup(s);

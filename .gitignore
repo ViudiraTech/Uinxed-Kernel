@@ -76,6 +76,8 @@ desktop.ini
 .superpowers/
 .cache/
 tests/
+!tools/tests/
+!tools/tests/fs_txn_test.c
 compile_commands.json
 make.log
 *.bak

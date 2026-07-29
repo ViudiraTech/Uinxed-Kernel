@@ -10,10 +10,12 @@
  */
 
 #include <drivers/block/blockdev.h>
+#include <fs/core/fs_txn.h>
 #include <fs/core/vfs.h>
 #include <fs/ntfs/ntfs_vfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
@@ -55,7 +57,7 @@ typedef int64_t  s64;
 
 #define LCN_HOLE ((s64) - 2)
 
-/* on-disk layout structs â€?packed because NTFS has no natural alignment */
+/* on-disk layout structs â€”packed because NTFS has no natural alignment */
 struct ntfs_boot_sector {
         u8  jump[3];
         u64 oem_id;
@@ -178,6 +180,9 @@ typedef struct {
         spinlock_t        write_lock;
         int               write_enabled;
         int               dirty_owned;
+        fs_txn_log_t      transaction_log;
+        fs_txn_t         *active_transaction;
+        int               transaction_log_initialized;
 } ntfs_mount_t;
 
 typedef struct {
@@ -228,6 +233,46 @@ static inline void put_le64(u8 *p, u64 value)
 {
     put_le32(p, (u32)value);
     put_le32(p + sizeof(u32), (u32)(value >> 32));
+}
+
+static u64 ntfs_current_filetime(void)
+{
+    return ((u64)timer_realtime_seconds32() + 11644473600ULL) * 10000000ULL;
+}
+
+static int ntfs_record_touch(u8 *record, u32 record_size, int data_changed)
+{
+    if (!record || record_size < 48 || le32(record) != MFT_MAGIC) return -EIO;
+    u32 used = le32(record + 0x18);
+    u32 offset = le16(record + 0x14);
+    u64 now = ntfs_current_filetime();
+    if (used > record_size || offset > used) return -EIO;
+    while (offset + 24 <= used) {
+        struct attr_rec *attribute = (struct attr_rec *)(record + offset);
+        u32 type = le32((u8 *)&attribute->type);
+        u32 length = le32((u8 *)&attribute->length);
+        if (type == AT_END) break;
+        if (length < 24 || length > used - offset) return -EIO;
+        if (!attribute->non_resident && !attribute->name_length
+            && (type == AT_STANDARD_INFORMATION || type == AT_FILE_NAME)) {
+            u16 value_offset = le16((u8 *)&attribute->d.res.value_offset);
+            u32 value_length = le32((u8 *)&attribute->d.res.value_length);
+            if (value_offset > length || value_length > length - value_offset) return -EIO;
+            u8 *value = (u8 *)attribute + value_offset;
+            if (type == AT_STANDARD_INFORMATION) {
+                if (value_length < 32) return -EIO;
+                if (data_changed) put_le64(value + 8, now);
+                put_le64(value + 16, now);
+            } else {
+                if (value_length < sizeof(struct fname_attr)) return -EIO;
+                struct fname_attr *file_name = (struct fname_attr *)value;
+                if (data_changed) put_le64((u8 *)&file_name->mtime_data, now);
+                put_le64((u8 *)&file_name->mtime_mft, now);
+            }
+        }
+        offset += length;
+    }
+    return EOK;
 }
 
 static int ntfs_record_layout(ntfs_mount_t *mnt, u8 *record, u32 record_size, u16 *usa_offset, u16 *usa_count)
@@ -289,7 +334,7 @@ static int ntfs_record_pack(ntfs_mount_t *mnt, u8 *record, u32 record_size)
     return 0;
 }
 
-/* ---------- utf16 â†?utf8 ---------- */
+/* ---------- utf16 â†’utf8 ---------- */
 static u16 *utf16_from(const u8 *buf, int ofs, int len)
 {
     if (len <= 0 || len > 255) return NULL;
@@ -348,6 +393,8 @@ static char *utf8_from_utf16(const u16 *u, int len)
 
 static int mft_read(ntfs_mount_t *mnt, u64 mft_no, u8 *buf);
 static int mft_write(ntfs_mount_t *mnt, u64 mft_no, const u8 *buf);
+static int dev_read(ntfs_mount_t *mnt, u64 byte_off, u8 *buf, size_t size);
+static int dev_write(ntfs_mount_t *mnt, u64 byte_off, const u8 *buf, size_t size);
 static int read_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, u8 *buf, size_t size, u64 max_size);
 static s64 write_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, const u8 *buf, size_t size, u64 max_size);
 
@@ -947,12 +994,21 @@ static int ntfs_build_file_record(ntfs_mount_t *mnt, u8 *record, u64 record_numb
     put_le32(record + 0x1c, mnt->mft_size);
     put_le16(record + 0x28, directory ? 3 : 4);
     put_le32(record + 0x2c, (u32)record_number);
+    u64 now = ntfs_current_filetime();
+    put_le64(standard, now);
+    put_le64(standard + 8, now);
+    put_le64(standard + 16, now);
+    put_le64(standard + 24, now);
     put_le32(standard + 32, attributes);
 
     offset = ntfs_resident_attribute(record, 0x38, AT_STANDARD_INFORMATION, 0, NULL, 0, standard, sizeof(standard));
     memset(file_name_value, 0, sizeof(struct fname_attr) + (u32)name_length * sizeof(u16));
     struct fname_attr *file_name = (struct fname_attr *)file_name_value;
     put_le64((u8 *)&file_name->parent_dir, parent_reference);
+    put_le64((u8 *)&file_name->crtime, now);
+    put_le64((u8 *)&file_name->mtime_data, now);
+    put_le64((u8 *)&file_name->mtime_mft, now);
+    put_le64((u8 *)&file_name->atime, now);
     put_le32((u8 *)&file_name->fa, attributes);
     file_name->name_len  = name_length;
     file_name->name_type = 1;
@@ -1092,7 +1148,7 @@ static int mft_bootstrap_runlist(ntfs_mount_t *mnt)
     if (!mnt || mnt->mft_runlist || !mnt->mft_size || mnt->mft_lcn < 0) return mnt && mnt->mft_runlist ? 0 : -EINVAL;
     record = malloc(mnt->mft_size);
     if (!record) return -ENOMEM;
-    if (blockdev_read_bytes(&mnt->dev, (u64)mnt->mft_lcn << mnt->cluster_bits, record, mnt->mft_size) < 0
+    if (dev_read(mnt, (u64)mnt->mft_lcn << mnt->cluster_bits, record, mnt->mft_size) < 0
         || ntfs_record_unpack(mnt, record, mnt->mft_size) < 0 || le32(record) != MFT_MAGIC)
         goto out;
 
@@ -1161,7 +1217,7 @@ static int mft_read(ntfs_mount_t *mnt, u64 mft_no, u8 *buf)
             return -EIO;
     } else {
         u64 byte_offset = ((u64)mnt->mft_lcn << mnt->cluster_bits) + logical_offset;
-        if (blockdev_read_bytes(&mnt->dev, byte_offset, buf, mnt->mft_size) < 0) return -EIO;
+        if (dev_read(mnt, byte_offset, buf, mnt->mft_size) < 0) return -EIO;
     }
     return ntfs_record_unpack(mnt, buf, mnt->mft_size);
 }
@@ -1188,13 +1244,13 @@ static int mft_write(ntfs_mount_t *mnt, u64 mft_no, const u8 *buf)
                 status = -EIO;
         } else {
             byte_off += (u64)mnt->mft_lcn << mnt->cluster_bits;
-            if (blockdev_write_bytes(&mnt->dev, byte_off, record, mnt->mft_size) < 0) status = -EIO;
+            if (dev_write(mnt, byte_off, record, mnt->mft_size) < 0) status = -EIO;
         }
         if (status == 0 && mnt->mftmirr_lcn > 0) {
             u64 mirror_records = mnt->cluster_size / mnt->mft_size;
             if (mirror_records < 4) mirror_records = 4;
             if (mft_no < mirror_records
-                && blockdev_write_bytes(&mnt->dev, ((u64)mnt->mftmirr_lcn << mnt->cluster_bits) + mft_no * mnt->mft_size, record, mnt->mft_size)
+                && dev_write(mnt, ((u64)mnt->mftmirr_lcn << mnt->cluster_bits) + mft_no * mnt->mft_size, record, mnt->mft_size)
                        < 0)
                 status = -EIO;
         }
@@ -1386,6 +1442,7 @@ static int ntfs_set_volume_dirty(ntfs_mount_t *mnt, int dirty)
                 volume_flags &= (u16)~1U;
             put_le16((u8 *)attribute + value_offset + 10, volume_flags);
             status = mft_write(mnt, 3, record);
+            if (status == EOK) status = blockdev_flush(&mnt->dev);
             goto out;
         }
         offset += length;
@@ -1396,14 +1453,41 @@ out:
     return status;
 }
 
+static int ntfs_transaction_begin(ntfs_mount_t *mnt, fs_txn_t *transaction, u32 credits)
+{
+    int status;
+    if (!mnt || !transaction || !credits || mnt->active_transaction || !mnt->transaction_log_initialized) return -EINVAL;
+    status = fs_txn_begin(&mnt->transaction_log, credits, transaction);
+    if (status == EOK) mnt->active_transaction = transaction;
+    return status;
+}
+
+static int ntfs_transaction_finish(ntfs_mount_t *mnt, fs_txn_t *transaction, int status)
+{
+    if (!mnt || !transaction || mnt->active_transaction != transaction) return -EINVAL;
+    mnt->active_transaction = NULL;
+    if (status != EOK) {
+        fs_txn_abort(transaction, status);
+        return status;
+    }
+    status = fs_txn_commit(transaction);
+    if (status != EOK) mnt->write_enabled = 0;
+    return status;
+}
+
 static int dev_read(ntfs_mount_t *mnt, u64 byte_off, u8 *buf, size_t size)
 {
-    return blockdev_read_bytes(&mnt->dev, byte_off, buf, size);
+    if (!mnt || !buf || byte_off > UINT64_MAX - size) return -EINVAL;
+    if (!mnt->active_transaction) return blockdev_read_bytes(&mnt->dev, byte_off, buf, size);
+    return fs_txn_read_bytes(mnt->active_transaction, byte_off, buf, size);
 }
 
 static int dev_write(ntfs_mount_t *mnt, u64 byte_off, const u8 *buf, size_t size)
 {
-    return blockdev_write_bytes(&mnt->dev, byte_off, buf, size);
+    if (!mnt || !buf || mnt->dev.read_only || byte_off > UINT64_MAX - size)
+        return mnt && mnt->dev.read_only ? -EROFS : -EINVAL;
+    if (!mnt->active_transaction) return blockdev_write_bytes(&mnt->dev, byte_off, buf, size);
+    return fs_txn_stage_bytes(mnt->active_transaction, byte_off, buf, size, FS_TXN_METADATA);
 }
 
 /* ---------- runlist parser ---------- */
@@ -3034,6 +3118,12 @@ static size_t ntfs_nonresident_grow(ntfs_handle_t *h, u8 *mft, struct attr_rec *
     put_le64((u8 *)&attribute->d.nres.alloc_size, new_allocated_size);
     put_le64((u8 *)&attribute->d.nres.data_size, write_end);
     put_le64((u8 *)&attribute->d.nres.init_size, write_end);
+    if (ntfs_record_touch(mft, h->mnt->mft_size, 1) < 0) {
+        bitmap_change_extents(h->mnt, new_lcn, new_length, extent_count, 0);
+        free(new_cache);
+        free(mapping);
+        return 0;
+    }
     if (mft_write(h->mnt, h->mft_no, mft) < 0) {
         bitmap_change_extents(h->mnt, new_lcn, new_length, extent_count, 0);
         free(new_cache);
@@ -3125,6 +3215,12 @@ static size_t ntfs_resident_convert(ntfs_handle_t *h, u8 *mft, struct attr_rec *
     put_le64((u8 *)&attribute->d.nres.init_size, write_end);
     memcpy((u8 *)attribute + 64, mapping, (size_t)encoded_size);
     put_le32(mft + 0x18, bytes_in_use + new_length - old_length);
+    if (ntfs_record_touch(mft, h->mnt->mft_size, 1) < 0) {
+        bitmap_change_extents(h->mnt, extent_lcn, extent_length, extent_count, 0);
+        free(new_cache);
+        free(mapping);
+        return 0;
+    }
     if (mft_write(h->mnt, h->mft_no, mft) < 0) {
         bitmap_change_extents(h->mnt, extent_lcn, extent_length, extent_count, 0);
         free(new_cache);
@@ -3383,6 +3479,7 @@ static int ntfs_load_file_runlist(ntfs_handle_t *h, vfs_node_t node)
 /* ---------- VFS callbacks ---------- */
 static int ntfs_vfs_mount(const char *src, vfs_node_t node)
 {
+    int status;
     if (!src || !node) return -EINVAL;
 
     blockdev_device_t dev;
@@ -3441,6 +3538,19 @@ static int ntfs_vfs_mount(const char *src, vfs_node_t node)
     mnt->indx_vcn_per_cluster = mnt->cluster_size / mnt->indx_size;
     if (mnt->indx_vcn_per_cluster == 0) mnt->indx_vcn_per_cluster = 1;
 
+    status = fs_txn_log_init(&mnt->transaction_log, &mnt->dev, mnt->dev.sector_size, NULL, NULL);
+    if (status != EOK) {
+        free(mnt);
+        return status;
+    }
+    mnt->transaction_log_initialized = 1;
+    status = fs_txn_recover(&mnt->transaction_log);
+    if (status != EOK) {
+        fs_txn_log_destroy(&mnt->transaction_log);
+        free(mnt);
+        return status;
+    }
+
     if (ntfs_prepare_write(mnt) < 0) plogk("ntfs: volume mounted with write path disabled.\n");
 
     ntfs_handle_t *root_h = calloc(1, sizeof(ntfs_handle_t));
@@ -3448,6 +3558,7 @@ static int ntfs_vfs_mount(const char *src, vfs_node_t node)
         free(mnt->upcase);
         free(mnt->bitmap_runlist);
         free(mnt->mft_runlist);
+        fs_txn_log_destroy(&mnt->transaction_log);
         free(mnt);
         return -ENOMEM;
     }
@@ -3463,6 +3574,7 @@ static int ntfs_vfs_mount(const char *src, vfs_node_t node)
         free(mnt->upcase);
         free(mnt->bitmap_runlist);
         free(mnt->mft_runlist);
+        fs_txn_log_destroy(&mnt->transaction_log);
         free(mnt);
         return -EIO;
     }
@@ -3474,11 +3586,20 @@ static void ntfs_vfs_unmount(void *root)
 {
     ntfs_handle_t *h = root;
     if (!h) return;
-    if (h->mnt->dirty_owned && ntfs_set_volume_dirty(h->mnt, 0) < 0) plogk("ntfs: failed to clear volume dirty flag.\n");
+    if (h->mnt->dirty_owned) {
+        int status = blockdev_flush(&h->mnt->dev);
+        if (status == EOK) status = ntfs_set_volume_dirty(h->mnt, 0);
+        if (status == EOK) status = blockdev_flush(&h->mnt->dev);
+        if (status != EOK)
+            plogk("ntfs: sync failed; volume dirty flag was preserved.\n");
+        else
+            h->mnt->dirty_owned = 0;
+    }
     free(h->runlist_buf);
     free(h->mnt->upcase);
     free(h->mnt->bitmap_runlist);
     free(h->mnt->mft_runlist);
+    if (h->mnt->transaction_log_initialized) fs_txn_log_destroy(&h->mnt->transaction_log);
     free(h->mnt);
     free(h);
 }
@@ -3584,16 +3705,15 @@ static size_t ntfs_vfs_write_locked(ntfs_handle_t *h, const void *addr, size_t o
                 }
                 written
                     = write_by_runlist(h->mnt, (u8 *)attribute + mapping_offset, (int)(length - mapping_offset), offset, addr, size, data_size);
-                if (write_end > initialized_size) {
-                    if (written != (s64)size) {
-                        free(mft);
-                        return 0;
-                    }
+                if (written != (s64)size) {
+                    free(mft);
+                    return 0;
+                }
+                if (write_end > initialized_size)
                     put_le64((u8 *)&attribute->d.nres.init_size, write_end);
-                    if (mft_write(h->mnt, h->mft_no, mft) < 0) {
-                        free(mft);
-                        return 0;
-                    }
+                if (ntfs_record_touch(mft, h->mnt->mft_size, 1) < 0 || mft_write(h->mnt, h->mft_no, mft) < 0) {
+                    free(mft);
+                    return 0;
                 }
                 free(mft);
                 return written > 0 ? (size_t)written : 0;
@@ -3625,7 +3745,7 @@ static size_t ntfs_vfs_write_locked(ntfs_handle_t *h, const void *addr, size_t o
                     return 0;
                 }
                 memcpy(new_cache, (u8 *)attribute + value_offset, value_length);
-                if (mft_write(h->mnt, h->mft_no, mft) < 0) {
+                if (ntfs_record_touch(mft, h->mnt->mft_size, 1) < 0 || mft_write(h->mnt, h->mft_no, mft) < 0) {
                     free(new_cache);
                     free(mft);
                     return 0;
@@ -3655,6 +3775,8 @@ static size_t ntfs_vfs_write(void *file, const void *addr, size_t offset, size_t
 #if NTFS_HOST_TEST
     written = ntfs_vfs_write_locked(h, addr, offset, size);
 #else
+    fs_txn_t transaction;
+    int status;
     spin_lock(&h->mnt->write_lock);
     if (!h->mnt->dirty_owned) {
         if (ntfs_set_volume_dirty(h->mnt, 1) < 0) {
@@ -3663,7 +3785,14 @@ static size_t ntfs_vfs_write(void *file, const void *addr, size_t offset, size_t
         }
         h->mnt->dirty_owned = 1;
     }
+    u64 credits = ((u64)size + h->mnt->dev.sector_size - 1) / h->mnt->dev.sector_size + 8192;
+    if (credits > UINT32_MAX || ntfs_transaction_begin(h->mnt, &transaction, (u32)credits) != EOK) {
+        spin_unlock(&h->mnt->write_lock);
+        return 0;
+    }
     written = ntfs_vfs_write_locked(h, addr, offset, size);
+    status = ntfs_transaction_finish(h->mnt, &transaction, written == size ? EOK : -EIO);
+    if (status != EOK) written = 0;
     spin_unlock(&h->mnt->write_lock);
 #endif
     return written;
@@ -3811,6 +3940,7 @@ static int ntfs_namespace_create(ntfs_handle_t *parent, const char *name, vfs_no
 #if NTFS_HOST_TEST
     status = ntfs_namespace_create_locked(parent, name, node, directory);
 #else
+    fs_txn_t transaction;
     spin_lock(&parent->mnt->write_lock);
     if (!parent->mnt->dirty_owned) {
         status = ntfs_set_volume_dirty(parent->mnt, 1);
@@ -3820,7 +3950,13 @@ static int ntfs_namespace_create(ntfs_handle_t *parent, const char *name, vfs_no
         }
         parent->mnt->dirty_owned = 1;
     }
+    status = ntfs_transaction_begin(parent->mnt, &transaction, 65536);
+    if (status != EOK) {
+        spin_unlock(&parent->mnt->write_lock);
+        return status;
+    }
     status = ntfs_namespace_create_locked(parent, name, node, directory);
+    status = ntfs_transaction_finish(parent->mnt, &transaction, status);
     spin_unlock(&parent->mnt->write_lock);
 #endif
     return status;
@@ -3921,6 +4057,7 @@ static int ntfs_namespace_hardlink(ntfs_handle_t *parent, ntfs_handle_t *target,
     return ntfs_namespace_hardlink_locked(parent, target, name, node);
 #else
     int status;
+    fs_txn_t transaction;
     spin_lock(&parent->mnt->write_lock);
     if (!parent->mnt->dirty_owned) {
         status = ntfs_set_volume_dirty(parent->mnt, 1);
@@ -3930,7 +4067,13 @@ static int ntfs_namespace_hardlink(ntfs_handle_t *parent, ntfs_handle_t *target,
         }
         parent->mnt->dirty_owned = 1;
     }
+    status = ntfs_transaction_begin(parent->mnt, &transaction, 65536);
+    if (status != EOK) {
+        spin_unlock(&parent->mnt->write_lock);
+        return status;
+    }
     status = ntfs_namespace_hardlink_locked(parent, target, name, node);
+    status = ntfs_transaction_finish(parent->mnt, &transaction, status);
     spin_unlock(&parent->mnt->write_lock);
     return status;
 #endif
@@ -4038,6 +4181,7 @@ static int ntfs_namespace_symlink(ntfs_handle_t *parent, const char *name, const
     return ntfs_namespace_symlink_locked(parent, name, target, node);
 #else
     int status;
+    fs_txn_t transaction;
     if (!parent || !parent->mnt) return -EINVAL;
     spin_lock(&parent->mnt->write_lock);
     if (!parent->mnt->dirty_owned) {
@@ -4048,7 +4192,13 @@ static int ntfs_namespace_symlink(ntfs_handle_t *parent, const char *name, const
         }
         parent->mnt->dirty_owned = 1;
     }
+    status = ntfs_transaction_begin(parent->mnt, &transaction, 65536);
+    if (status != EOK) {
+        spin_unlock(&parent->mnt->write_lock);
+        return status;
+    }
     status = ntfs_namespace_symlink_locked(parent, name, target, node);
+    status = ntfs_transaction_finish(parent->mnt, &transaction, status);
     spin_unlock(&parent->mnt->write_lock);
     return status;
 #endif
@@ -4135,6 +4285,10 @@ static int ntfs_vfs_delete(void *p, vfs_node_t n)
     int            index_extents       = 0;
     int            namespace_committed = 0;
     int            status;
+#if !NTFS_HOST_TEST
+    fs_txn_t       transaction;
+    int            transaction_started = 0;
+#endif
 
     if (!parent || !n || !n->handle) return -EINVAL;
     child = n->handle;
@@ -4158,6 +4312,9 @@ static int ntfs_vfs_delete(void *p, vfs_node_t n)
         if (status < 0) goto unlock;
         mnt->dirty_owned = 1;
     }
+    status = ntfs_transaction_begin(mnt, &transaction, 65536);
+    if (status < 0) goto unlock;
+    transaction_started = 1;
 #endif
     if (mft_read(mnt, parent->mft_no, parent_record) < 0 || mft_read(mnt, child->mft_no, child_record) < 0) {
         status = -EIO;
@@ -4281,6 +4438,7 @@ static int ntfs_vfs_delete(void *p, vfs_node_t n)
 unlock:
     if (status < 0 && !namespace_committed) ntfs_index_reclaim_abort(mnt);
 #if !NTFS_HOST_TEST
+    if (transaction_started) status = ntfs_transaction_finish(mnt, &transaction, status);
     spin_unlock(&mnt->write_lock);
 #endif
     free(child_record);
@@ -4302,6 +4460,10 @@ static int ntfs_vfs_rename(void *c, const char *nn)
     u64            child_reference;
     int            namespace_committed = 0;
     int            status;
+#if !NTFS_HOST_TEST
+    fs_txn_t       transaction;
+    int            transaction_started = 0;
+#endif
 
     if (!child || !child->mnt || !nn || !child->name || !child->name_length) return -EINVAL;
     mnt = child->mnt;
@@ -4332,6 +4494,9 @@ static int ntfs_vfs_rename(void *c, const char *nn)
         if (status < 0) goto unlock_rename;
         mnt->dirty_owned = 1;
     }
+    status = ntfs_transaction_begin(mnt, &transaction, 65536);
+    if (status < 0) goto unlock_rename;
+    transaction_started = 1;
 #endif
     if (mft_read(mnt, child->parent_mft_no, parent_record) < 0 || mft_read(mnt, child->mft_no, child_record) < 0) {
         status = -EIO;
@@ -4380,15 +4545,19 @@ static int ntfs_vfs_rename(void *c, const char *nn)
     namespace_committed = 1;
     status              = ntfs_index_reclaim_commit(mnt);
     if (status < 0) goto unlock_rename;
-    free(child->name);
-    child->name        = new_name;
-    child->name_length = new_length;
-    new_name           = NULL;
 unlock_rename:
     if (status < 0 && !namespace_committed) ntfs_index_reclaim_abort(mnt);
 #if !NTFS_HOST_TEST
+    if (transaction_started) status = ntfs_transaction_finish(mnt, &transaction, status);
     spin_unlock(&mnt->write_lock);
 #endif
+    /* Publish the in-memory namespace only after the complete disk transaction is durable. */
+    if (status == EOK) {
+        free(child->name);
+        child->name        = new_name;
+        child->name_length = new_length;
+        new_name           = NULL;
+    }
 out:
     free(new_name);
     free(old_record);

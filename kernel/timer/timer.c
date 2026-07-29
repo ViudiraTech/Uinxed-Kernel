@@ -17,11 +17,31 @@
 #include <drivers/timer/tsc.h>
 #include <kernel/interrupt.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <libs/std/math.h>
 #include <libs/std/stdint.h>
 #include <net/netdev.h>
 #include <proc/sched.h>
 #include <syscall/timerfd.h>
+
+static int64_t timer_realtime_base_ns;
+
+int64_t timer_realtime_ns(void)
+{
+    return (int64_t)(sched_ticks() * TIMER_TICK_NS) + timer_realtime_base_ns;
+}
+
+void timer_realtime_set_ns(int64_t nanoseconds)
+{
+    timer_realtime_base_ns = nanoseconds - (int64_t)(sched_ticks() * TIMER_TICK_NS);
+}
+
+uint32_t timer_realtime_seconds32(void)
+{
+    int64_t nanoseconds = timer_realtime_ns();
+    uint64_t seconds = nanoseconds > 0 ? (uint64_t)nanoseconds / TIMER_NSEC_PER_SEC : 1;
+    return seconds > UINT32_MAX ? UINT32_MAX : (uint32_t)seconds;
+}
 
 /* Timer interrupt */
 INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)

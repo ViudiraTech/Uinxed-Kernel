@@ -363,5 +363,6 @@ extern ahci_port_state_t ahci_ports[AHCI_MAX_PORTS];
 void init_ahci(void);
 int  ahci_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, void *buffer);
 int  ahci_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, const void *buffer);
+int  ahci_flush_cache(uint8_t drive);
 
 #endif

@@ -320,6 +320,29 @@ int ahci_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, const void
 
 /* ─── AHCI initialization ─── */
 
+int ahci_flush_cache(uint8_t drive)
+{
+    fis_reg_h2d_t      cfis;
+    ahci_port_state_t *port;
+    int                slot;
+
+    if (drive >= AHCI_MAX_DEVICES || !ahci_devices[drive].reserved) return -ENODEV;
+    if (ahci_devices[drive].type != AHCI_DEV_SATA) return -ENOSYS;
+
+    port = &ahci_ports[ahci_devices[drive].port];
+    slot = ahci_find_slot(port);
+    if (slot < 0) return -EBUSY;
+
+    memset(&cfis, 0, sizeof(cfis));
+    cfis.fis_type = FIS_TYPE_REG_H2D;
+    cfis.c        = 1;
+    /* AHCI data I/O uses the 48-bit command set, so pair it with FLUSH CACHE EXT. */
+    cfis.command  = ATA_CMD_CACHE_FLUSH_EXT;
+    cfis.device   = 1 << 6;
+
+    return ahci_issue_cmd(port, slot, (uint8_t *)&cfis, 0, 0, 0);
+}
+
 void init_ahci(void)
 {
     pci_device_find(&ahci_pci_request);

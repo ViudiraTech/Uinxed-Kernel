@@ -74,4 +74,9 @@ void usleep(uint64_t us);
 /* Millisecond-based delay functions */
 void msleep(uint64_t ms);
 
+/* Wall-clock time shared by syscalls and persistent filesystem timestamps. */
+int64_t  timer_realtime_ns(void);
+void     timer_realtime_set_ns(int64_t nanoseconds);
+uint32_t timer_realtime_seconds32(void);
+
 #endif // INCLUDE_TIMER_H_

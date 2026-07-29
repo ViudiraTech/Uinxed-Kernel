@@ -54,7 +54,7 @@ char *strrchr(const char *str, int c);
 char *strstr(const char *haystack, const char *needle);
 
 /* Make a copy of the string and return it */
-void *strdup(const char *s);
+char *strdup(const char *s);
 
 /* String equality check */
 int streq(const char *s1, const char *s2);

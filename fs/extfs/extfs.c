@@ -3,6 +3,7 @@
  *      extfs.c
  *      ext2/ext3/ext4 filesystem - VFS integration
  *
+ *      2026/7/29 By JiTianYu391
  *      Copyright (C) 2026 ViudiraTech, based on the Apache 2.0 license.
  *
  */
@@ -13,6 +14,7 @@
 #include <fs/extfs/extfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
@@ -22,11 +24,22 @@ static int extfs_id = 0;
 
 static uint16_t extfs_mode_to_vfs(uint16_t mode)
 {
-    if (mode & EXT2_S_IFDIR) return file_dir;
-    if (mode & EXT2_S_IFLNK) return file_symlink;
-    if (mode & EXT2_S_IFBLK) return file_block;
-    if (mode & EXT2_S_IFIFO) return file_pipe;
-    return file_none;
+    switch (mode & 0xF000) {
+        case EXT2_S_IFDIR:
+            return file_dir;
+        case EXT2_S_IFLNK:
+            return file_symlink;
+        case EXT2_S_IFBLK:
+            return file_block;
+        case EXT2_S_IFCHR:
+            return file_stream;
+        case EXT2_S_IFIFO:
+            return file_pipe;
+        case EXT2_S_IFSOCK:
+            return file_socket;
+        default:
+            return file_none;
+    }
 }
 
 static void extfs_fill_node(vfs_node_t node, extfs_handle_t *h)
@@ -47,7 +60,8 @@ static void extfs_fill_node(vfs_node_t node, extfs_handle_t *h)
     node->writetime   = raw.i_mtime;
     node->size        = raw.i_size;
     node->realsize    = raw.i_size;
-    if (raw.i_dir_acl) node->size = node->realsize = ((uint64_t)raw.i_dir_acl << 32) | raw.i_size;
+    if ((raw.i_mode & 0xF000) == EXT2_S_IFREG)
+        node->size = node->realsize = ((uint64_t)raw.i_dir_acl << 32) | raw.i_size;
 }
 
 static extfs_handle_t *extfs_get_handle(vfs_node_t node)
@@ -56,10 +70,106 @@ static extfs_handle_t *extfs_get_handle(vfs_node_t node)
     return (extfs_handle_t *)node->handle;
 }
 
+static void extfs_init_new_inode(extfs_sb_info_t *sb, ext2_inode_t *raw)
+{
+    uint32_t now = timer_realtime_seconds32();
+    raw->i_atime = now;
+    raw->i_ctime = now;
+    raw->i_mtime = now;
+    if (!(sb->es->s_feature_incompat & EXT4_FEATURE_INCOMPAT_EXTENTS)) return;
+    raw->i_flags |= EXT4_EXTENTS_FL;
+    uint8_t header[12] = {
+        (uint8_t)EXT4_EXT_MAGIC, (uint8_t)(EXT4_EXT_MAGIC >> 8), 0, 0,
+        (uint8_t)((sizeof(raw->i_block) - 12) / 12), 0, 0, 0, 0, 0, 0, 0,
+    };
+    memcpy(raw->i_block, header, sizeof(header));
+}
+
+static int extfs_touch_inode(extfs_sb_info_t *sb, uint32_t ino, int modify)
+{
+    ext2_inode_t raw;
+    int status = extfs_read_inode_raw(sb, ino, &raw);
+    if (status != EOK) return status;
+    raw.i_ctime = timer_realtime_seconds32();
+    if (modify) raw.i_mtime = raw.i_ctime;
+    return extfs_write_inode_raw(sb, ino, &raw);
+}
+
+static int extfs_valid_dirent(extfs_sb_info_t *sb, ext2_dir_entry_t *de, uint32_t offset)
+{
+    uint32_t remaining = sb->block_size - offset;
+    if (remaining < 8 || de->rec_len < 8 || (de->rec_len & EXT2_DIR_ROUND) || de->rec_len > remaining) return 0;
+    if (de->name_len > de->rec_len - 8) return 0;
+    return de->inode <= sb->es->s_inodes_count;
+}
+
+static int extfs_load_directory(vfs_node_t node)
+{
+    extfs_handle_t  *h = extfs_get_handle(node);
+    extfs_sb_info_t *sb;
+    ext2_inode_t     raw;
+    uint8_t         *block;
+    uint64_t         offset = 0;
+
+    if (!h || !(node->type & file_dir)) return -ENOTDIR;
+    if (node->visited) return EOK;
+    sb = h->sb;
+    if (extfs_read_inode_raw(sb, h->inode_no, &raw) != EOK) return -EIO;
+    block = malloc(sb->block_size);
+    if (!block) return -ENOMEM;
+
+    while (offset < raw.i_size) {
+        uint32_t logical = (uint32_t)(offset / sb->block_size);
+        uint32_t boff    = (uint32_t)(offset % sb->block_size);
+        uint32_t phys    = extfs_map_block(h, logical, 0);
+        if (!phys || extfs_read_block(sb, phys, block) != EOK) {
+            free(block);
+            return -EIO;
+        }
+        if (!extfs_dir_block_verify(h, logical, block)) {
+            free(block);
+            return -EIO;
+        }
+
+        ext2_dir_entry_t *de = (ext2_dir_entry_t *)(block + boff);
+        if (!extfs_valid_dirent(sb, de, boff)) {
+            free(block);
+            return -EIO;
+        }
+        if (de->inode && !(de->name_len == 1 && de->name[0] == '.')
+            && !(de->name_len == 2 && de->name[0] == '.' && de->name[1] == '.')) {
+            char name[EXT2_NAME_LEN + 1];
+            memcpy(name, de->name, de->name_len);
+            name[de->name_len] = '\0';
+            if (!vfs_do_search(node, name)) {
+                extfs_handle_t *child_h = extfs_alloc_handle(sb, de->inode);
+                if (!child_h) {
+                    free(block);
+                    return -EIO;
+                }
+                vfs_node_t child = vfs_node_alloc(node, name);
+                if (!child) {
+                    free(child_h);
+                    free(block);
+                    return -ENOMEM;
+                }
+                child->handle = child_h;
+                extfs_fill_node(child, child_h);
+            }
+        }
+        offset += de->rec_len;
+    }
+
+    free(block);
+    node->visited = 1;
+    return EOK;
+}
+
 static int extfs_mount(const char *src, vfs_node_t node)
 {
     extfs_sb_info_t *sb;
     extfs_handle_t  *h;
+    blockdev_device_t device;
     int              status;
 
     if (!src || !node) return -EINVAL;
@@ -67,7 +177,8 @@ static int extfs_mount(const char *src, vfs_node_t node)
     sb = calloc(1, sizeof(extfs_sb_info_t));
     if (!sb) return -ENOMEM;
 
-    status = extfs_read_super(sb, 0);
+    status = blockdev_open_name(src, &device);
+    if (status == EOK) status = extfs_read_super(sb, &device);
     if (status != EOK) {
         free(sb);
         return status;
@@ -83,9 +194,42 @@ static int extfs_mount(const char *src, vfs_node_t node)
     h->owns_sb   = 1;
     node->handle = h;
     extfs_fill_node(node, h);
+    if (!(node->type & file_dir) || !node->size) {
+        extfs_free_super(sb);
+        free(sb);
+        free(h);
+        node->handle = 0;
+        return -EIO;
+    }
     node->visited = 0;
+    status        = extfs_load_directory(node);
+    if (status != EOK) {
+        extfs_free_super(sb);
+        free(sb);
+        free(h);
+        node->handle = 0;
+        return status;
+    }
 
-    plogk("extfs: Mounted ext2 volume '%s', block size %u, %u groups\n", sb->es->s_volume_name, sb->block_size, sb->groups_count);
+    if (!sb->read_only) {
+        sb->es->s_state &= (uint16_t)~EXT2_VALID_FS;
+        if (sb->journal) sb->es->s_feature_incompat |= EXT3_FEATURE_INCOMPAT_RECOVER;
+        status = extfs_write_super(sb);
+        if (status == EOK) status = blockdev_flush(&sb->device);
+        if (status != EOK) {
+            extfs_free_super(sb);
+            free(sb);
+            free(h);
+            node->handle = 0;
+            return status;
+        }
+    }
+
+    const char *version = (sb->es->s_feature_incompat & (EXT4_FEATURE_INCOMPAT_EXTENTS | EXT4_FEATURE_INCOMPAT_64BIT))
+                              ? "4"
+                              : (sb->journal ? "3" : "2");
+    plogk("extfs: Mounted ext%s volume '%.16s', block size %u, %u groups\n",
+          version, sb->es->s_volume_name, sb->block_size, sb->groups_count);
 
     return EOK;
 }
@@ -101,7 +245,11 @@ static void extfs_unmount(void *root)
     if (!h) return;
 
     if (h->owns_sb && h->sb) {
-        extfs_write_super(h->sb);
+        if (!h->sb->read_only && blockdev_flush(&h->sb->device) == EOK) {
+            h->sb->es->s_state |= EXT2_VALID_FS;
+            if (h->sb->journal) h->sb->es->s_feature_incompat &= ~EXT3_FEATURE_INCOMPAT_RECOVER;
+            if (extfs_write_super(h->sb) == EOK) (void)blockdev_flush(&h->sb->device);
+        }
         extfs_free_super(h->sb);
         free(h->sb);
     }
@@ -127,6 +275,7 @@ static void extfs_open(void *parent, const char *name, vfs_node_t node)
 
     node->handle = child_h;
     extfs_fill_node(node, child_h);
+    if (node->type & file_dir) (void)extfs_load_directory(node);
 }
 
 static void extfs_close(void *current)
@@ -145,15 +294,39 @@ static size_t extfs_read_file(void *file, void *addr, size_t offset, size_t size
 static size_t extfs_write_file(void *file, const void *addr, size_t offset, size_t size)
 {
     extfs_handle_t *h = file;
+    fs_txn_t        transaction;
+    int             status;
     if (!h) return 0;
-    return extfs_write_data(h, addr, offset, size);
+    status = extfs_transaction_begin(h->sb, &transaction, 8192);
+    if (status != EOK) return 0;
+    int written = extfs_write_data(h, addr, offset, size);
+    if (written < 0 || (size_t)written != size) {
+        extfs_transaction_abort(h->sb, &transaction, written < 0 ? written : -EIO);
+        (void)extfs_load_inode(h);
+        return 0;
+    }
+    status = extfs_transaction_commit(h->sb, &transaction);
+    if (status != EOK) (void)extfs_load_inode(h);
+    return status == EOK ? (size_t)written : 0;
 }
 
 static int extfs_resize(void *file, uint64_t size)
 {
     extfs_handle_t *h = file;
+    fs_txn_t        transaction;
+    int             status;
     if (!h) return -EINVAL;
-    return extfs_truncate(h, size);
+    status = extfs_transaction_begin(h->sb, &transaction, 8192);
+    if (status != EOK) return status;
+    status = extfs_truncate(h, size);
+    if (status != EOK) {
+        extfs_transaction_abort(h->sb, &transaction, status);
+        (void)extfs_load_inode(h);
+        return status;
+    }
+    status = extfs_transaction_commit(h->sb, &transaction);
+    if (status != EOK) (void)extfs_load_inode(h);
+    return status;
 }
 
 static int extfs_sync(void *file, int data_only)
@@ -161,7 +334,10 @@ static int extfs_sync(void *file, int data_only)
     extfs_handle_t *h = file;
     (void)data_only;
     if (!h) return -EINVAL;
-    return extfs_flush_inode(h);
+    int status = extfs_flush_inode(h);
+    if (status == EOK) status = blockdev_flush(&h->sb->device);
+    if (status != EOK) h->sb->read_only = 1;
+    return status;
 }
 
 static size_t extfs_readlink_file(vfs_node_t node, void *addr, size_t offset, size_t size)
@@ -178,17 +354,19 @@ static size_t extfs_readlink_file(vfs_node_t node, void *addr, size_t offset, si
     if (extfs_read_inode_raw(sb, h->inode_no, &raw) != EOK) return 0;
 
     uint32_t symlink_len = raw.i_size;
-    if (symlink_len == 0) symlink_len = 60;
-    if (symlink_len > 60) symlink_len = 60;
 
     if (offset >= symlink_len) return 0;
     if (offset + size > symlink_len) size = symlink_len - offset;
 
-    memcpy(addr, (uint8_t *)raw.i_block + offset, size);
-    return size;
+    if (symlink_len <= sizeof(raw.i_block)) {
+        memcpy(addr, (uint8_t *)raw.i_block + offset, size);
+        return size;
+    }
+    int status = extfs_read_data(h, addr, offset, size);
+    return status > 0 ? (size_t)status : 0;
 }
 
-static int extfs_mkdir_cb(void *parent, const char *name, vfs_node_t node)
+static int extfs_mkdir_impl(void *parent, const char *name, vfs_node_t node)
 {
     extfs_handle_t  *dir_h;
     extfs_sb_info_t *sb;
@@ -205,12 +383,26 @@ static int extfs_mkdir_cb(void *parent, const char *name, vfs_node_t node)
     sb = dir_h->sb;
 
     uint32_t dummy;
-    if (extfs_dir_lookup(dir_h, name, &dummy) == EOK) return -EEXIST;
+    status = extfs_dir_lookup(dir_h, name, &dummy);
+    if (status == EOK) return -EEXIST;
+    if (status != -ENOENT) return status;
+
+    ext2_inode_t parent_raw;
+    status = extfs_read_inode_raw(sb, dir_h->inode_no, &parent_raw);
+    if (status != EOK) return status;
+    if (parent_raw.i_links_count == UINT16_MAX) {
+        if (!(sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_DIR_NLINK)) return -EMLINK;
+        parent_raw.i_links_count = 1;
+    } else if (parent_raw.i_links_count != 1
+               || !(sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_DIR_NLINK)) {
+        parent_raw.i_links_count++;
+    }
 
     status = extfs_alloc_inode(sb, &new_ino);
     if (status != EOK) return status;
 
     memset(&new_raw, 0, sizeof(new_raw));
+    extfs_init_new_inode(sb, &new_raw);
     new_raw.i_mode        = EXT2_S_IFDIR | 0755;
     new_raw.i_links_count = 2;
 
@@ -241,10 +433,20 @@ static int extfs_mkdir_cb(void *parent, const char *name, vfs_node_t node)
         return status;
     }
 
-    ext2_inode_t parent_raw;
-    if (extfs_read_inode_raw(sb, dir_h->inode_no, &parent_raw) == EOK) {
-        parent_raw.i_links_count++;
-        extfs_write_inode_raw(sb, dir_h->inode_no, &parent_raw);
+    status = extfs_adjust_used_dirs(sb, new_ino, 1);
+    if (status != EOK) {
+        extfs_free_inode_blocks(new_h);
+        extfs_free_inode(sb, new_ino);
+        free(new_h);
+        return status;
+    }
+
+    parent_raw.i_ctime = timer_realtime_seconds32();
+    parent_raw.i_mtime = parent_raw.i_ctime;
+    status = extfs_write_inode_raw(sb, dir_h->inode_no, &parent_raw);
+    if (status != EOK) {
+        free(new_h);
+        return status;
     }
 
     node->handle = new_h;
@@ -253,7 +455,7 @@ static int extfs_mkdir_cb(void *parent, const char *name, vfs_node_t node)
     return EOK;
 }
 
-static int extfs_mkfile_cb(void *parent, const char *name, vfs_node_t node)
+static int extfs_mkfile_impl(void *parent, const char *name, vfs_node_t node)
 {
     extfs_handle_t  *dir_h;
     extfs_sb_info_t *sb;
@@ -270,12 +472,15 @@ static int extfs_mkfile_cb(void *parent, const char *name, vfs_node_t node)
     sb = dir_h->sb;
 
     uint32_t dummy;
-    if (extfs_dir_lookup(dir_h, name, &dummy) == EOK) return -EEXIST;
+    status = extfs_dir_lookup(dir_h, name, &dummy);
+    if (status == EOK) return -EEXIST;
+    if (status != -ENOENT) return status;
 
     status = extfs_alloc_inode(sb, &new_ino);
     if (status != EOK) return status;
 
     memset(&new_raw, 0, sizeof(new_raw));
+    extfs_init_new_inode(sb, &new_raw);
     new_raw.i_mode        = EXT2_S_IFREG | 0644;
     new_raw.i_links_count = 1;
 
@@ -290,6 +495,8 @@ static int extfs_mkfile_cb(void *parent, const char *name, vfs_node_t node)
         extfs_free_inode(sb, new_ino);
         return status;
     }
+    status = extfs_touch_inode(sb, dir_h->inode_no, 1);
+    if (status != EOK) return status;
 
     new_h = extfs_alloc_handle(sb, new_ino);
     if (!new_h) return -EIO;
@@ -300,7 +507,7 @@ static int extfs_mkfile_cb(void *parent, const char *name, vfs_node_t node)
     return EOK;
 }
 
-static int extfs_link_cb(void *parent, const char *name, vfs_node_t node)
+static int extfs_link_impl(void *parent, const char *name, vfs_node_t node)
 {
     extfs_handle_t  *dir_h;
     extfs_handle_t  *target_h;
@@ -318,13 +525,15 @@ static int extfs_link_cb(void *parent, const char *name, vfs_node_t node)
     sb = dir_h->sb;
 
     uint32_t dummy;
-    if (extfs_dir_lookup(dir_h, name, &dummy) == EOK) return -EEXIST;
+    status = extfs_dir_lookup(dir_h, name, &dummy);
+    if (status == EOK) return -EEXIST;
+    if (status != -ENOENT) return status;
 
     if (extfs_read_inode_raw(sb, target_h->inode_no, &raw) != EOK) return -EIO;
 
-    if (raw.i_mode & EXT2_S_IFDIR)
-        file_type = EXT2_FT_DIR;
-    else if (raw.i_mode & EXT2_S_IFLNK)
+    if ((raw.i_mode & 0xF000) == EXT2_S_IFDIR) return -EPERM;
+    if (raw.i_links_count == UINT16_MAX) return -EMLINK;
+    if ((raw.i_mode & 0xF000) == EXT2_S_IFLNK)
         file_type = EXT2_FT_SYMLINK;
     else
         file_type = EXT2_FT_REG_FILE;
@@ -333,12 +542,13 @@ static int extfs_link_cb(void *parent, const char *name, vfs_node_t node)
     if (status != EOK) return status;
 
     raw.i_links_count++;
-    extfs_write_inode_raw(sb, target_h->inode_no, &raw);
-
-    return EOK;
+    raw.i_ctime = timer_realtime_seconds32();
+    status = extfs_write_inode_raw(sb, target_h->inode_no, &raw);
+    if (status != EOK) return status;
+    return extfs_touch_inode(sb, dir_h->inode_no, 1);
 }
 
-static int extfs_symlink_cb(void *parent, const char *name, vfs_node_t node)
+static int extfs_symlink_impl(void *parent, const char *name, vfs_node_t node)
 {
     extfs_handle_t  *dir_h;
     extfs_sb_info_t *sb;
@@ -355,19 +565,30 @@ static int extfs_symlink_cb(void *parent, const char *name, vfs_node_t node)
     sb = dir_h->sb;
 
     uint32_t dummy;
-    if (extfs_dir_lookup(dir_h, name, &dummy) == EOK) return -EEXIST;
+    status = extfs_dir_lookup(dir_h, name, &dummy);
+    if (status == EOK) return -EEXIST;
+    if (status != -ENOENT) return status;
 
     status = extfs_alloc_inode(sb, &new_ino);
     if (status != EOK) return status;
 
     memset(&new_raw, 0, sizeof(new_raw));
+    extfs_init_new_inode(sb, &new_raw);
     new_raw.i_mode        = EXT2_S_IFLNK | 0777;
     new_raw.i_links_count = 1;
 
     uint32_t target_len = strlen(node->linkname ? node->linkname : "");
-    if (target_len > 60) target_len = 60;
-    new_raw.i_size = target_len;
-    memcpy(new_raw.i_block, node->linkname ? node->linkname : "", target_len);
+    if (target_len > EXT2_NAME_LEN * 16) {
+        extfs_free_inode(sb, new_ino);
+        return -ENAMETOOLONG;
+    }
+
+    if (target_len <= sizeof(new_raw.i_block)) {
+        new_raw.i_flags &= ~EXT4_EXTENTS_FL;
+        memset(new_raw.i_block, 0, sizeof(new_raw.i_block));
+        new_raw.i_size = target_len;
+        memcpy(new_raw.i_block, node->linkname ? node->linkname : "", target_len);
+    }
 
     status = extfs_write_inode_raw(sb, new_ino, &new_raw);
     if (status != EOK) {
@@ -375,14 +596,33 @@ static int extfs_symlink_cb(void *parent, const char *name, vfs_node_t node)
         return status;
     }
 
-    status = extfs_dir_add_entry(dir_h, name, new_ino, EXT2_FT_SYMLINK);
-    if (status != EOK) {
+    new_h = extfs_alloc_handle(sb, new_ino);
+    if (!new_h) {
         extfs_free_inode(sb, new_ino);
-        return status;
+        return -EIO;
+    }
+    if (target_len > sizeof(new_raw.i_block)) {
+        status = extfs_write_data(new_h, node->linkname, 0, target_len);
+        if (status != (int)target_len) {
+            extfs_free_inode_blocks(new_h);
+            extfs_free_inode(sb, new_ino);
+            free(new_h);
+            return status < 0 ? status : -EIO;
+        }
     }
 
-    new_h = extfs_alloc_handle(sb, new_ino);
-    if (!new_h) return -EIO;
+    status = extfs_dir_add_entry(dir_h, name, new_ino, EXT2_FT_SYMLINK);
+    if (status != EOK) {
+        extfs_free_inode_blocks(new_h);
+        extfs_free_inode(sb, new_ino);
+        free(new_h);
+        return status;
+    }
+    status = extfs_touch_inode(sb, dir_h->inode_no, 1);
+    if (status != EOK) {
+        free(new_h);
+        return status;
+    }
 
     node->handle = new_h;
     node->type   = file_symlink;
@@ -391,7 +631,7 @@ static int extfs_symlink_cb(void *parent, const char *name, vfs_node_t node)
     return EOK;
 }
 
-static int extfs_delete(void *parent, vfs_node_t node)
+static int extfs_delete_impl(void *parent, vfs_node_t node)
 {
     extfs_handle_t  *dir_h;
     extfs_handle_t  *file_h;
@@ -409,23 +649,37 @@ static int extfs_delete(void *parent, vfs_node_t node)
 
     status = extfs_read_inode_raw(sb, file_h->inode_no, &raw);
     if (status != EOK) return status;
+    if ((raw.i_mode & 0xF000) == EXT2_S_IFDIR) return -EISDIR;
 
     status = extfs_dir_remove_entry(dir_h, node->name);
     if (status != EOK) return status;
 
+    if (!raw.i_links_count) return -EIO;
     raw.i_links_count--;
     if (raw.i_links_count == 0) {
         extfs_free_inode_blocks(file_h);
-        extfs_write_inode_raw(sb, file_h->inode_no, &raw);
+        status = extfs_release_xattr_block(file_h);
+        if (status != EOK) return status;
+        memset(raw.i_block, 0, sizeof(raw.i_block));
+        raw.i_size = 0;
+        raw.i_blocks = 0;
+        raw.i_file_acl = 0;
+        raw.l_i_file_acl_high = 0;
+        raw.i_dtime = timer_realtime_seconds32();
+        raw.i_ctime = raw.i_dtime;
+        status = extfs_write_inode_raw(sb, file_h->inode_no, &raw);
+        if (status != EOK) return status;
         extfs_free_inode(sb, file_h->inode_no);
     } else {
-        extfs_write_inode_raw(sb, file_h->inode_no, &raw);
+        raw.i_ctime = timer_realtime_seconds32();
+        status = extfs_write_inode_raw(sb, file_h->inode_no, &raw);
+        if (status != EOK) return status;
     }
 
-    return EOK;
+    return extfs_touch_inode(sb, dir_h->inode_no, 1);
 }
 
-static int extfs_rmdir(void *parent, const char *name)
+static int extfs_rmdir_impl(void *parent, const char *name)
 {
     extfs_handle_t  *dir_h;
     extfs_sb_info_t *sb;
@@ -447,14 +701,15 @@ static int extfs_rmdir(void *parent, const char *name)
     status = extfs_read_inode_raw(sb, child_ino, &raw);
     if (status != EOK) return status;
 
-    if (!(raw.i_mode & EXT2_S_IFDIR)) return -ENOTDIR;
+    if ((raw.i_mode & 0xF000) != EXT2_S_IFDIR) return -ENOTDIR;
 
     child_h = extfs_alloc_handle(sb, child_ino);
     if (!child_h) return -EIO;
 
-    if (!extfs_dir_empty(child_h)) {
+    status = extfs_dir_empty(child_h);
+    if (status <= 0) {
         free(child_h);
-        return -ENOTEMPTY;
+        return status < 0 ? status : -ENOTEMPTY;
     }
 
     status = extfs_dir_remove_entry(dir_h, name);
@@ -463,25 +718,52 @@ static int extfs_rmdir(void *parent, const char *name)
         return status;
     }
 
-    raw.i_links_count--;
-    if (raw.i_links_count == 0) {
-        extfs_write_inode_raw(sb, child_ino, &raw);
-        extfs_free_inode(sb, child_ino);
-    } else {
-        extfs_write_inode_raw(sb, child_ino, &raw);
+    extfs_free_inode_blocks(child_h);
+    status = extfs_release_xattr_block(child_h);
+    if (status != EOK) {
+        free(child_h);
+        return status;
+    }
+    memset(raw.i_block, 0, sizeof(raw.i_block));
+    raw.i_links_count = 0;
+    raw.i_size        = 0;
+    raw.i_blocks      = 0;
+    raw.i_file_acl    = 0;
+    raw.l_i_file_acl_high = 0;
+    raw.i_dtime       = timer_realtime_seconds32();
+    raw.i_ctime       = raw.i_dtime;
+    status = extfs_write_inode_raw(sb, child_ino, &raw);
+    if (status != EOK) {
+        free(child_h);
+        return status;
+    }
+    extfs_free_inode(sb, child_ino);
+    status = extfs_adjust_used_dirs(sb, child_ino, -1);
+    if (status != EOK) {
+        free(child_h);
+        return status;
     }
 
     /* Update parent link count */
     ext2_inode_t parent_raw;
-    if (extfs_read_inode_raw(sb, dir_h->inode_no, &parent_raw) == EOK) {
-        if (parent_raw.i_links_count > 2) parent_raw.i_links_count--;
-        extfs_write_inode_raw(sb, dir_h->inode_no, &parent_raw);
+    status = extfs_read_inode_raw(sb, dir_h->inode_no, &parent_raw);
+    if (status != EOK) {
+        free(child_h);
+        return status;
+    }
+    if (parent_raw.i_links_count > 2) parent_raw.i_links_count--;
+    parent_raw.i_ctime = timer_realtime_seconds32();
+    parent_raw.i_mtime = parent_raw.i_ctime;
+    status = extfs_write_inode_raw(sb, dir_h->inode_no, &parent_raw);
+    if (status != EOK) {
+        free(child_h);
+        return status;
     }
 
     free(child_h);
     return EOK;
 }
-static int extfs_rename_cb(void *current, const char *new_name)
+static int extfs_rename_impl(void *current, const char *new_name)
 {
     vfs_node_t       node = current;
     extfs_handle_t  *old_h;
@@ -492,6 +774,7 @@ static int extfs_rename_cb(void *current, const char *new_name)
     int              status;
 
     if (!node || !new_name) return -EINVAL;
+    if (strcmp(node->name, new_name) == 0) return EOK;
 
     old_h = extfs_get_handle(node);
     if (!old_h) return -EINVAL;
@@ -501,25 +784,145 @@ static int extfs_rename_cb(void *current, const char *new_name)
 
     sb = old_h->sb;
 
-    /* Remove from old parent */
-    status = extfs_dir_remove_entry(parent_h, node->name);
+    /* Determine file type */
+    status = extfs_read_inode_raw(sb, old_h->inode_no, &raw);
     if (status != EOK) return status;
 
-    /* Determine file type */
-    if (extfs_read_inode_raw(sb, old_h->inode_no, &raw) != EOK) return -EIO;
-
-    if (raw.i_mode & EXT2_S_IFDIR)
+    if ((raw.i_mode & 0xF000) == EXT2_S_IFDIR)
         file_type = EXT2_FT_DIR;
-    else if (raw.i_mode & EXT2_S_IFLNK)
+    else if ((raw.i_mode & 0xF000) == EXT2_S_IFLNK)
         file_type = EXT2_FT_SYMLINK;
     else
         file_type = EXT2_FT_REG_FILE;
 
-    /* Add to same parent with new name */
+    uint32_t existing;
+    status = extfs_dir_lookup(parent_h, new_name, &existing);
+    if (status == EOK) return -EEXIST;
+    if (status != -ENOENT) return status;
+
+    /* The transaction makes the add/remove pair atomic to crash recovery. */
     status = extfs_dir_add_entry(parent_h, new_name, old_h->inode_no, file_type);
     if (status != EOK) return status;
+    status = extfs_dir_remove_entry(parent_h, node->name);
+    if (status != EOK) return status;
+    status = extfs_touch_inode(sb, old_h->inode_no, 0);
+    if (status != EOK) return status;
+    return extfs_touch_inode(sb, parent_h->inode_no, 1);
+}
 
-    return EOK;
+static int extfs_finish_mutation(extfs_sb_info_t *sb, fs_txn_t *transaction, int status)
+{
+    if (status != EOK) {
+        extfs_transaction_abort(sb, transaction, status);
+        return status;
+    }
+    return extfs_transaction_commit(sb, transaction);
+}
+
+static int extfs_mkdir_cb(void *parent, const char *name, vfs_node_t node)
+{
+    extfs_handle_t *h = node ? extfs_get_handle(node->parent) : 0;
+    fs_txn_t transaction;
+    int status;
+    if (!h) return -EINVAL;
+    status = extfs_transaction_begin(h->sb, &transaction, 8192);
+    if (status != EOK) return status;
+    status = extfs_mkdir_impl(parent, name, node);
+    status = extfs_finish_mutation(h->sb, &transaction, status);
+    if (status != EOK) (void)extfs_load_inode(h);
+    return status;
+}
+
+static int extfs_mkfile_cb(void *parent, const char *name, vfs_node_t node)
+{
+    extfs_handle_t *h = node ? extfs_get_handle(node->parent) : 0;
+    fs_txn_t transaction;
+    int status;
+    if (!h) return -EINVAL;
+    status = extfs_transaction_begin(h->sb, &transaction, 8192);
+    if (status != EOK) return status;
+    status = extfs_mkfile_impl(parent, name, node);
+    status = extfs_finish_mutation(h->sb, &transaction, status);
+    if (status != EOK) (void)extfs_load_inode(h);
+    return status;
+}
+
+static int extfs_link_cb(void *parent, const char *name, vfs_node_t node)
+{
+    extfs_handle_t *h = node ? extfs_get_handle(node->parent) : 0;
+    fs_txn_t transaction;
+    int status;
+    if (!h) return -EINVAL;
+    status = extfs_transaction_begin(h->sb, &transaction, 8192);
+    if (status != EOK) return status;
+    status = extfs_link_impl(parent, name, node);
+    status = extfs_finish_mutation(h->sb, &transaction, status);
+    if (status != EOK) (void)extfs_load_inode(h);
+    return status;
+}
+
+static int extfs_symlink_cb(void *parent, const char *name, vfs_node_t node)
+{
+    extfs_handle_t *h = node ? extfs_get_handle(node->parent) : 0;
+    fs_txn_t transaction;
+    int status;
+    if (!h) return -EINVAL;
+    status = extfs_transaction_begin(h->sb, &transaction, 8192);
+    if (status != EOK) return status;
+    status = extfs_symlink_impl(parent, name, node);
+    status = extfs_finish_mutation(h->sb, &transaction, status);
+    if (status != EOK) (void)extfs_load_inode(h);
+    return status;
+}
+
+static int extfs_delete(void *parent, vfs_node_t node)
+{
+    extfs_handle_t *h = extfs_get_handle(parent);
+    fs_txn_t transaction;
+    int status;
+    if (!h) return -EINVAL;
+    status = extfs_transaction_begin(h->sb, &transaction, 8192);
+    if (status != EOK) return status;
+    status = node && (node->type & file_dir) ? extfs_rmdir_impl(parent, node->name) : extfs_delete_impl(parent, node);
+    status = extfs_finish_mutation(h->sb, &transaction, status);
+    if (status != EOK) {
+        (void)extfs_load_inode(h);
+        if (node && extfs_get_handle(node)) (void)extfs_load_inode(extfs_get_handle(node));
+    }
+    return status;
+}
+
+static int extfs_rmdir(void *parent, const char *name)
+{
+    extfs_handle_t *h = extfs_get_handle(parent);
+    fs_txn_t transaction;
+    int status;
+    if (!h) return -EINVAL;
+    status = extfs_transaction_begin(h->sb, &transaction, 8192);
+    if (status != EOK) return status;
+    status = extfs_rmdir_impl(parent, name);
+    status = extfs_finish_mutation(h->sb, &transaction, status);
+    if (status != EOK) (void)extfs_load_inode(h);
+    return status;
+}
+
+static int extfs_rename_cb(void *current, const char *new_name)
+{
+    vfs_node_t node = current;
+    extfs_handle_t *h = node ? extfs_get_handle(node) : 0;
+    fs_txn_t transaction;
+    int status;
+    if (!h) return -EINVAL;
+    status = extfs_transaction_begin(h->sb, &transaction, 8192);
+    if (status != EOK) return status;
+    status = extfs_rename_impl(current, new_name);
+    status = extfs_finish_mutation(h->sb, &transaction, status);
+    if (status != EOK) {
+        (void)extfs_load_inode(h);
+        extfs_handle_t *parent_h = node && node->parent ? extfs_get_handle(node->parent) : 0;
+        if (parent_h) (void)extfs_load_inode(parent_h);
+    }
+    return status;
 }
 
 static int extfs_stat(void *file, vfs_node_t node)
@@ -631,9 +1034,10 @@ void extfs_regist(void)
 
     for (uint8_t drive = 0; drive < 4; drive++) {
         extfs_sb_info_t sb;
+        blockdev_device_t device;
         if (!ide_devices[drive].reserved || ide_devices[drive].type != IDE_ATA) continue;
-        if (extfs_read_super(&sb, drive) == EOK) {
-            plogk("extfs: Detected ext2 on ide%u, volume '%s'\n", drive, sb.es->s_volume_name);
+        if (blockdev_open_drive(drive, &device) == EOK && extfs_read_super(&sb, &device) == EOK) {
+            plogk("extfs: Detected ext2 on ide%u, volume '%.16s'\n", drive, sb.es->s_volume_name);
             extfs_free_super(&sb);
         }
     }

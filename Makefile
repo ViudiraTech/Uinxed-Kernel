@@ -376,7 +376,7 @@ ifneq ($(CONFIG_MODULE_MAX_SIZE),)
   C_CONFIG += -DCONFIG_MODULE_MAX_SIZE_MIB=$(CONFIG_MODULE_MAX_SIZE)
 endif
 
-C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*")
+C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*" -not -path "tests/*")
 C_HEADERS      := $(shell find * -name "*.h")
 OBJS           := $(C_SOURCES:%.c=%.o)
 DEPS           := $(OBJS:%.o=%.d)
@@ -445,7 +445,7 @@ Uinxed-x64.iso: info UxImage $(INIT_ELF)
 	$(Q)printf "Image: $@ is ready.\n"
 	$(Q)printf "Compilation complete.\n"
 
-.PHONY: help run run-net run-usb disk.img clean format check gen.clangd menuconfig
+.PHONY: help run run-net run-usb disk.img fs-test clean format check gen.clangd menuconfig
 
 help: info
 	$(Q)printf "Uinxed-Kernel Makefile Usage:\n"
@@ -454,6 +454,7 @@ help: info
 	$(Q)printf "  make run-net     - Run with an isolated user-mode e1000 network.\n"
 	$(Q)printf "  make run-usb     - Run with xHCI, HID, and a USB mass-storage disk.\n"
 	$(Q)printf "  make disk.img    - Build a demo simplefs disk image.\n"
+	$(Q)printf "  make fs-test     - Run native ext2/ext3/ext4, JBD2 and NTFS regression tests.\n"
 	$(Q)printf "  make clean       - Clean all generated files.\n"
 	$(Q)printf "  make format      - Format all source files using clang-format.\n"
 	$(Q)printf "  make check       - Run static code checks using clang-tidy.\n"
@@ -474,6 +475,9 @@ run-usb: info Uinxed-x64.iso
 disk.img: info tools/mkfs_simplefs
 	$(Q)printf "  MKFS    $@\n\n"
 	$(Q)./tools/mkfs_simplefs $@
+
+fs-test:
+	$(Q)bash tools/tests/run_fs_tests.sh
 
 clean: info
 	$(Q)$(RM) $(OBJS) $(DEPS) UxImage Uinxed-x64.iso tools/mkfs_simplefs disk.img assets/init.o

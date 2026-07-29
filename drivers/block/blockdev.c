@@ -4,7 +4,7 @@
  *      Block device abstraction layer
  *
  *      2026/5/18 By Rainy101112
- *      2026/7/23 By JiTianYu391 â€?VFS-style callback registration
+ *      2026/7/23 By JiTianYu391 - VFS-style callback registration
  *      Copyright Â© 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
@@ -28,7 +28,7 @@ static blockdev_ops_t _blk_ops_table[BLOCKDEV_MAX_TYPES];
 blockdev_ops_t       *blk_ops_table = _blk_ops_table;
 static int            blk_next_id   = 0;
 
-/* Default (empty) ops â€?returns -ENOSYS for everything */
+/* Default (empty) ops - returns -ENOSYS for everything */
 static int blk_empty_read(const struct blockdev_device *dev, uint64_t lba, uint32_t count, void *buf)
 {
     (void)dev;
@@ -50,7 +50,8 @@ static int blk_empty_write(const struct blockdev_device *dev, uint64_t lba, uint
 static int blk_empty_flush(const struct blockdev_device *dev)
 {
     (void)dev;
-    return EOK;
+    /* A successful flush is a stable-storage guarantee. */
+    return -EOPNOTSUPP;
 }
 
 static void blk_empty_reference(const struct blockdev_device *dev)
@@ -122,9 +123,16 @@ static int blk_ide_write_sectors(const blockdev_device_t *dev, uint64_t lba, uin
     return EOK;
 }
 
+static int blk_ide_flush(const blockdev_device_t *dev)
+{
+    if (!dev) return -EINVAL;
+    return ide_flush_cache(dev->drive) == 0 ? EOK : -EIO;
+}
+
 static struct blockdev_ops blk_ide_ops = {
     .read_sectors  = blk_ide_read_sectors,
     .write_sectors = blk_ide_write_sectors,
+    .flush         = blk_ide_flush,
 };
 
 static int blk_ide_type_id = -1;
@@ -133,10 +141,12 @@ static int blk_ide_type_id = -1;
 
 extern int nvme_read_sectors(const struct blockdev_device *dev, uint64_t lba, uint32_t count, void *buffer);
 extern int nvme_write_sectors(const struct blockdev_device *dev, uint64_t lba, uint32_t count, const void *buffer);
+extern int nvme_flush(const struct blockdev_device *dev);
 
 static struct blockdev_ops blk_nvme_ops = {
     .read_sectors  = nvme_read_sectors,
     .write_sectors = nvme_write_sectors,
+    .flush         = nvme_flush,
 };
 
 static int blk_nvme_type_id = -1;
@@ -173,9 +183,16 @@ static int blk_ahci_write_sectors(const blockdev_device_t *dev, uint64_t lba, ui
     return EOK;
 }
 
+static int blk_ahci_flush(const blockdev_device_t *dev)
+{
+    if (!dev) return -EINVAL;
+    return ahci_flush_cache(dev->drive);
+}
+
 static struct blockdev_ops blk_ahci_ops = {
     .read_sectors  = blk_ahci_read_sectors,
     .write_sectors = blk_ahci_write_sectors,
+    .flush         = blk_ahci_flush,
 };
 
 static int blk_ahci_type_id = -1;

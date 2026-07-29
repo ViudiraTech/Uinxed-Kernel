@@ -77,9 +77,6 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
 #define CLONE_PTHREAD_REQUIRED (CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM)
 #define CLONE_PTHREAD_ALLOWED  (CLONE_PTHREAD_REQUIRED | CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)
 
-/* Realtime clock base offset (ns since epoch, set by clock_settime) */
-static int64_t realtime_base_ns;
-
 /* Mount flag bits stored in vfs_node->flags */
 #define MOUNT_FLAG_RDONLY   (1UL << 0)
 #define MOUNT_FLAG_NOSUID   (1UL << 1)
@@ -422,7 +419,7 @@ static uint64_t clock_sleep_now_ns(int clockid)
     uint64_t uptime_ns = sched_ticks() * TIMER_TICK_NS;
     if (clockid != TIMER_CLOCK_REALTIME) return uptime_ns;
 
-    int64_t realtime_ns = (int64_t)uptime_ns + realtime_base_ns;
+    int64_t realtime_ns = timer_realtime_ns();
     return realtime_ns > 0 ? (uint64_t)realtime_ns : 0;
 }
 
@@ -931,7 +928,7 @@ static int64_t sys_gettimeofday(uint64_t tv, uint64_t tz, uint64_t arg2, uint64_
     (void)arg5;
     if (!tv) return 0;
 
-    int64_t         uptime_ns = (int64_t)(sched_ticks() * 10000000LL) + realtime_base_ns;
+    int64_t         uptime_ns = timer_realtime_ns();
     linux_timeval_t now       = {
               .tv_sec  = uptime_ns / 1000000000LL,
               .tv_usec = (uptime_ns % 1000000000LL) / 1000,
@@ -946,7 +943,7 @@ static int64_t sys_time(uint64_t tloc, uint64_t arg1, uint64_t arg2, uint64_t ar
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    int64_t now = ((int64_t)(sched_ticks() * 10000000LL) + realtime_base_ns) / 1000000000LL;
+    int64_t now = timer_realtime_ns() / 1000000000LL;
     if (tloc && copy_to_user((void *)tloc, &now, sizeof(now))) return -EFAULT;
     return now;
 }
@@ -1464,12 +1461,12 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
     int path_ret = copy_resolved_path_at(proc, AT_FDCWD, target, tgt);
     if (path_ret != EOK) return path_ret;
 
-    /* Copy source path (optional â€?can be NULL for virtual filesystems) */
+    /* Copy source path (optional â€”can be NULL for virtual filesystems) */
     if (source) {
         if (strncpy_from_user(src, (const char *)source, sizeof(src)) < 0) return -EFAULT;
     }
 
-    /* Copy filesystem type (optional â€?can be NULL to let VFS probe) */
+    /* Copy filesystem type (optional â€”can be NULL to let VFS probe) */
     if (fstype) {
         if (strncpy_from_user(fst, (const char *)fstype, sizeof(fst)) < 0) return -EFAULT;
     }
@@ -1528,7 +1525,7 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
 
     vfs_close(node);
 
-    /* MS_REC: recursive â€?ignored for non-bind mounts */
+    /* MS_REC: recursive â€”ignored for non-bind mounts */
     (void)(flags & MS_REC);
 
     return EOK;
@@ -1548,7 +1545,7 @@ static int64_t sys_umount2(uint64_t target, uint64_t flags, uint64_t arg2, uint6
     if (ret != EOK) return ret;
 
     /* MNT_FORCE: force unmount even if busy (not fully supported) */
-    /* MNT_DETACH: lazy unmount â€?detach now, cleanup later (not fully supported) */
+    /* MNT_DETACH: lazy unmount â€”detach now, cleanup later (not fully supported) */
     if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE)) return -EINVAL;
 
     return vfs_umount(tgt);
@@ -1781,8 +1778,7 @@ static int64_t sys_clock_settime_impl(uint64_t clockid, uint64_t tp, uint64_t ar
     if (copy_from_user(&ts, (const void *)tp, sizeof(ts))) return -EFAULT;
     if (ts.tv_nsec < 0 || ts.tv_nsec >= 1000000000LL) return -EINVAL;
 
-    int64_t uptime_ns = (int64_t)(sched_ticks() * 10000000LL);
-    realtime_base_ns  = ts.tv_sec * 1000000000LL + ts.tv_nsec - uptime_ns;
+    timer_realtime_set_ns(ts.tv_sec * 1000000000LL + ts.tv_nsec);
     return EOK;
 }
 
@@ -1803,7 +1799,7 @@ static int64_t sys_clock_gettime_stub(uint64_t clockid, uint64_t tp, uint64_t ar
         case CLOCK_REALTIME_COARSE :
         case CLOCK_REALTIME_ALARM :
             /* Wall clock time since epoch */
-            uptime_ns += realtime_base_ns;
+            uptime_ns = timer_realtime_ns();
             ts.tv_sec  = uptime_ns / 1000000000LL;
             ts.tv_nsec = uptime_ns % 1000000000LL;
             break;
@@ -3494,7 +3490,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
         spin_unlock(&proc->fd_lock);
     }
 
-    /* Clear clear_child_tid â€?the old address is meaningless in the new image */
+    /* Clear clear_child_tid â€”the old address is meaningless in the new image */
     proc->task->clear_child_tid = 0;
 
     uintptr_t entry = 0;
@@ -3515,7 +3511,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
         return -ENOEXEC;
     }
 
-    /* Loading succeeded â€?atomically switch to the new address space. */
+    /* Loading succeeded â€”atomically switch to the new address space. */
     switch_page_directory(proc->user_page_dir);
 
     if (old_dir) {
