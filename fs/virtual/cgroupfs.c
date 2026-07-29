@@ -91,7 +91,7 @@ static int populate(vfs_node_t dir)
 
 static int mount_cgroup2(const char *src, vfs_node_t node)
 {
-    (void)src;
+    if (src) return -EINVAL;
     if (!cgroup_root()) return -ENODEV;
     node->handle = new_handle(CGROUPFS_DIR, cgroup_root());
     if (!node->handle) return -ENOMEM;
