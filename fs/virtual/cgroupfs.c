@@ -1,6 +1,6 @@
 #include <cgroup/cgroup.h>
-#include <fs/cgroupfs.h>
-#include <fs/vfs.h>
+#include <fs/core/vfs.h>
+#include <fs/virtual/cgroupfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stdlib.h>

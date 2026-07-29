@@ -12,7 +12,7 @@
 #define INCLUDE_SIMPLEFS_H_
 
 #include <drivers/block/blockdev.h>
-#include <fs/superblock.h>
+#include <fs/core/superblock.h>
 #include <libs/std/stdint.h>
 
 #define SIMPLEFS_INODE_DIRECT_COUNT 12

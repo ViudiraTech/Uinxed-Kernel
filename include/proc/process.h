@@ -11,7 +11,7 @@
 #ifndef INCLUDE_PROCESS_H_
 #define INCLUDE_PROCESS_H_
 
-#include <fs/vfs.h>
+#include <fs/core/vfs.h>
 #include <libs/glist/singly_list.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>

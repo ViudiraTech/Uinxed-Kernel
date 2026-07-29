@@ -992,7 +992,7 @@ void hda_init(void)
         if (!hda_ctrl.mmio_size || hda_ctrl.mmio_size == 0xFFFFFFFF) hda_ctrl.mmio_size = 0x4000;
 
         /* Map the MMIO region into page tables.
-         * HHDM may not cover MMIO regions ï¿½?must map with uncacheable flags. */
+         * HHDM may not cover MMIO regions ï¿?must map with uncacheable flags. */
         {
             uint64_t map_start = bar_phys & ~(uint64_t)0xFFF;
             uint64_t map_len   = (bar_phys + hda_ctrl.mmio_size + 0xFFF) & ~(uint64_t)0xFFF;

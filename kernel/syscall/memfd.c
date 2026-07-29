@@ -8,7 +8,7 @@
  *
  */
 
-#include <fs/vfs.h>
+#include <fs/core/vfs.h>
 #include <kernel/errno.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

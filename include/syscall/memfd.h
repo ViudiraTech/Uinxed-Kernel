@@ -11,7 +11,7 @@
 #ifndef INCLUDE_SYSCALL_MEMFD_H_
 #define INCLUDE_SYSCALL_MEMFD_H_
 
-#include <fs/vfs.h>
+#include <fs/core/vfs.h>
 #include <libs/std/stdint.h>
 #include <proc/process.h>
 

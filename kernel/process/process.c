@@ -12,8 +12,8 @@
 #include <arch/smp.h>
 #include <chipset/common.h>
 #include <drivers/char/tty_core.h>
-#include <fs/inotify.h>
-#include <fs/vfs.h>
+#include <fs/core/inotify.h>
+#include <fs/core/vfs.h>
 #include <ipc/epoll.h>
 #include <ipc/futex.h>
 #include <ipc/posix_mq.h>

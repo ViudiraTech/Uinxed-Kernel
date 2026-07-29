@@ -8,7 +8,7 @@
  *
  */
 
-#include <fs/tmpfs.h>
+#include <fs/virtual/tmpfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
@@ -240,7 +240,7 @@ void tmpfs_dummy(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* Per-open-instance callbacks â€” delegate to device ops               */
+/* Per-open-instance callbacks â€?delegate to device ops               */
 /* ------------------------------------------------------------------ */
 
 static int tmpfs_file_open(vfs_node_t node, uint64_t flags, void **private_data)

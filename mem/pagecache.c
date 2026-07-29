@@ -8,10 +8,10 @@
  *
  */
 
-#include <fs/pagecache.h>
 #include <kernel/errno.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
+#include <mem/pagecache.h>
 
 #define PAGECACHE_HASH_BITS     6U
 #define PAGECACHE_HASH_SIZE     (1U << PAGECACHE_HASH_BITS)

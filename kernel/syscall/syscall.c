@@ -14,8 +14,8 @@
 #include <chipset/common.h>
 #include <drivers/acpi/acpi.h>
 #include <drivers/base/device.h>
-#include <fs/inotify.h>
-#include <fs/vfs.h>
+#include <fs/core/inotify.h>
+#include <fs/core/vfs.h>
 #include <ipc/epoll.h>
 #include <ipc/futex.h>
 #include <ipc/posix_mq.h>

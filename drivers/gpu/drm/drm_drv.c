@@ -16,8 +16,8 @@
 #include <drivers/gpu/drm_device.h>
 #include <drivers/gpu/drm_hashtab.h>
 #include <drivers/gpu/drm_print.h>
-#include <fs/devtmpfs.h>
-#include <fs/tmpfs.h>
+#include <fs/virtual/devtmpfs.h>
+#include <fs/virtual/tmpfs.h>
 #include <kernel/errno.h>
 #include <libs/glist/intrusive_list.h>
 #include <libs/std/stdbool.h>

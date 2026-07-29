@@ -8,7 +8,7 @@
  *
  */
 
-#include <fs/inotify.h>
+#include <fs/core/inotify.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/termios.h>

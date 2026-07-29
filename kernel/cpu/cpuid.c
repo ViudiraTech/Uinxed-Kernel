@@ -230,7 +230,7 @@ int cpu_support_avx2(void)
     return ((ebx & (1 << 5)) != 0);
 }
 
-/* Safe CPUID wrapper â€“ uses local temporaries to avoid register clobber issues */
+/* Safe CPUID wrapper â€?uses local temporaries to avoid register clobber issues */
 void cpuid_safe(uint32_t leaf, uint32_t sub, uint32_t *a, uint32_t *b, uint32_t *c, uint32_t *d)
 {
     uint32_t _a, _b, _c, _d;

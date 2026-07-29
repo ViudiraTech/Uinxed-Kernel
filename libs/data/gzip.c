@@ -5,8 +5,8 @@
  *
  */
 
-#include <fs/gzip.h>
 #include <kernel/errno.h>
+#include <libs/data/gzip.h>
 #include <mem/alloc.h>
 
 #define DEFLATE_MAX_BITS    15

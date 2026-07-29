@@ -11,8 +11,8 @@
 #ifndef INCLUDE_KOBJECT_H_
 #define INCLUDE_KOBJECT_H_
 
+#include <fs/core/vfs.h>
 #include <fs/sysfs/sysfs.h>
-#include <fs/vfs.h>
 #include <libs/glist/circular_list.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

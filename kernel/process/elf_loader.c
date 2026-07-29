@@ -9,7 +9,7 @@
  */
 
 #include <drivers/char/tty.h>
-#include <fs/vfs.h>
+#include <fs/core/vfs.h>
 #include <kernel/elf.h>
 #include <kernel/elf_loader.h>
 #include <kernel/errno.h>

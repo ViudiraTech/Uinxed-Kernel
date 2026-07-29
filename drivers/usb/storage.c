@@ -12,9 +12,9 @@
 #include <drivers/block/blockdev.h>
 #include <drivers/usb/usb.h>
 #include <drivers/usb/usb_storage.h>
-#include <fs/devtmpfs.h>
+#include <fs/core/vfs.h>
 #include <fs/sysfs/block_sysfs.h>
-#include <fs/vfs.h>
+#include <fs/virtual/devtmpfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer.h>

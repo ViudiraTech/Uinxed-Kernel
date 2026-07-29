@@ -8,7 +8,7 @@
  *
  */
 
-#include <fs/vfs.h>
+#include <fs/core/vfs.h>
 #include <ipc/netlink.h>
 #include <ipc/socket.h>
 #include <kernel/errno.h>
@@ -690,7 +690,7 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
         return netlink_unicast(dest_sk, buf, nlhdr_len, 0);
     }
 
-    /* No destination â€” multicast if groups are set, else error */
+    /* No destination â€?multicast if groups are set, else error */
     if (addrlen == 0 || !addr) {
         /* Send as a request to kernel (pid=0) */
         if (ns->nl_protocol == NETLINK_ROUTE) {
@@ -1081,7 +1081,7 @@ int netlink_has_listeners(uint32_t protocol, uint32_t group)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Wrapper functions â€” match socket_t polymorphic op signatures       */
+/*  Wrapper functions â€?match socket_t polymorphic op signatures       */
 /* ------------------------------------------------------------------ */
 
 static int netlink_wrap_read(struct socket *sk, void *buf, size_t sz, void *addr, uint32_t *addrlen)

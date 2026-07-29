@@ -8,7 +8,7 @@
  *
  */
 
-#include <fs/vfs.h>
+#include <fs/core/vfs.h>
 #include <ipc/epoll.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>

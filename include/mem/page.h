@@ -28,7 +28,7 @@
 #define PTE_NO_EXECUTE   (((uint64_t)0x1) << 63)
 #define KERNEL_PTE_FLAGS (PTE_PRESENT | PTE_WRITEABLE | PTE_NO_EXECUTE)
 
-/* MMIO flags: uncacheable, no-execute â€” required for PCI BAR mappings */
+/* MMIO flags: uncacheable, no-execute â€?required for PCI BAR mappings */
 #define PTE_MMIO_FLAGS (PTE_PRESENT | PTE_WRITEABLE | PTE_PCD | PTE_NO_EXECUTE)
 
 /* Page size constants */

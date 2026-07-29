@@ -8,8 +8,8 @@
  *
  */
 
+#include <fs/core/vfs.h>
 #include <fs/sysfs/sysfs.h>
-#include <fs/vfs.h>
 #include <ipc/netlink.h>
 #include <kernel/errno.h>
 #include <kernel/kobject.h>

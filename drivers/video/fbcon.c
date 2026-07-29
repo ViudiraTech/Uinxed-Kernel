@@ -422,7 +422,7 @@ void fbcon_init(void)
 }
 
 /*
- * fbcon_resize â€” reallocate text/color/dirty grids after a framebuffer
+ * fbcon_resize â€?reallocate text/color/dirty grids after a framebuffer
  * switch changes the screen dimensions.  Preserves the font size but
  * recalculates the character grid.
  */

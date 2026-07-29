@@ -9,11 +9,11 @@
  */
 
 #include <boot/limine_module.h>
-#include <fs/cpio.h>
-#include <fs/gzip.h>
-#include <fs/vfs.h>
+#include <fs/core/vfs.h>
+#include <fs/virtual/cpio.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <libs/data/gzip.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>

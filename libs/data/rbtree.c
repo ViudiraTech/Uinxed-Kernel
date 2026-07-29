@@ -97,7 +97,7 @@ static void rb_insert_rebalance(rb_root_t *root, rb_node_t *node, rb_augment_fn 
         if (parent == grandparent->left) {
             uncle = grandparent->right;
 
-            /* Case 1: uncle is RED â€” recolor and move up */
+            /* Case 1: uncle is RED â€?recolor and move up */
             if (uncle && uncle->color == RB_RED) {
                 parent->color      = RB_BLACK;
                 uncle->color       = RB_BLACK;
@@ -106,7 +106,7 @@ static void rb_insert_rebalance(rb_root_t *root, rb_node_t *node, rb_augment_fn 
                 continue;
             }
 
-            /* Case 2: node is right child â€” rotate left */
+            /* Case 2: node is right child â€?rotate left */
             if (node == parent->right) {
                 node = parent;
                 rb_rotate_left(root, node, augment, data);
@@ -114,14 +114,14 @@ static void rb_insert_rebalance(rb_root_t *root, rb_node_t *node, rb_augment_fn 
                 grandparent = parent->parent;
             }
 
-            /* Case 3: node is left child â€” rotate right */
+            /* Case 3: node is left child â€?rotate right */
             parent->color      = RB_BLACK;
             grandparent->color = RB_RED;
             rb_rotate_right(root, grandparent, augment, data);
         } else {
             uncle = grandparent->left;
 
-            /* Case 1: uncle is RED â€” recolor and move up */
+            /* Case 1: uncle is RED â€?recolor and move up */
             if (uncle && uncle->color == RB_RED) {
                 parent->color      = RB_BLACK;
                 uncle->color       = RB_BLACK;
@@ -130,7 +130,7 @@ static void rb_insert_rebalance(rb_root_t *root, rb_node_t *node, rb_augment_fn 
                 continue;
             }
 
-            /* Case 2: node is left child â€” rotate right */
+            /* Case 2: node is left child â€?rotate right */
             if (node == parent->left) {
                 node = parent;
                 rb_rotate_right(root, node, augment, data);
@@ -138,7 +138,7 @@ static void rb_insert_rebalance(rb_root_t *root, rb_node_t *node, rb_augment_fn 
                 grandparent = parent->parent;
             }
 
-            /* Case 3: node is right child â€” rotate left */
+            /* Case 3: node is right child â€?rotate left */
             parent->color      = RB_BLACK;
             grandparent->color = RB_RED;
             rb_rotate_left(root, grandparent, augment, data);

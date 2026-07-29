@@ -353,7 +353,7 @@ int futex_wake(uint32_t *uaddr, int nr_wake, uint32_t bitset)
     }
 
     /*
-     * Do NOT free empty entries here â€” a futex_wait caller that was
+     * Do NOT free empty entries here â€?a futex_wait caller that was
      * just woken may still hold a stale entry pointer and will access
      * it after re-acquiring the bucket lock.  Cleanup is the
      * responsibility of the final waiter (futex_try_cleanup in
@@ -662,7 +662,7 @@ static rt_mutex_t *futex_get_pi_mutex(futex_bucket_t *bucket, uint32_t *uaddr)
 
 /*
  * FUTEX_LOCK_PI: acquire a PI mutex.
- * Userspace fastpath: cmpxchg(*uaddr, 0, tid) â†’ success.
+ * Userspace fastpath: cmpxchg(*uaddr, 0, tid) â†?success.
  * Kernel slowpath (this function): block with priority inheritance.
  */
 static int futex_lock_pi(uint32_t *uaddr)
@@ -743,7 +743,7 @@ static int futex_lock_pi(uint32_t *uaddr)
 
 /*
  * FUTEX_UNLOCK_PI: release a PI mutex.
- * Userspace fastpath: cmpxchg(*uaddr, tid, 0) â†’ success if no waiters.
+ * Userspace fastpath: cmpxchg(*uaddr, tid, 0) â†?success if no waiters.
  * Kernel slowpath (this function): wake the highest-priority waiter.
  */
 static int futex_unlock_pi(uint32_t *uaddr)

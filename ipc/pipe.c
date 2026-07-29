@@ -8,7 +8,7 @@
  *
  */
 
-#include <fs/vfs.h>
+#include <fs/core/vfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
@@ -217,7 +217,7 @@ static size_t pipe_vfs_read(void *file, void *addr, size_t offset, size_t size)
         }
         if (ring->writers == 0) {
             spin_unlock(&ring->lock);
-            return 0; /* EOF â€” no writers left */
+            return 0; /* EOF â€?no writers left */
         }
         /* prepare wait under lock, then block, re-acquire on wakeup */
         wait_queue_prepare(&ring->read_wq);
@@ -258,7 +258,7 @@ static size_t pipe_vfs_write(void *file, const void *addr, size_t offset, size_t
 
         if (ring->closed || ring->readers == 0) {
             spin_unlock(&ring->lock);
-            return (size_t)-1; /* -EPIPE â€” no readers */
+            return (size_t)-1; /* -EPIPE â€?no readers */
         }
 
         /*
@@ -629,7 +629,7 @@ int pipe_open(vfs_node_t node, uint64_t flags)
      */
     if (flags & O_NONBLOCK) {
         if (is_write && ring->readers == 0) {
-            /* Opening write-only with no readers and O_NONBLOCK â†’ ENXIO */
+            /* Opening write-only with no readers and O_NONBLOCK â†?ENXIO */
             ring->writers--;
             spin_unlock(&ring->lock);
             return -ENXIO;

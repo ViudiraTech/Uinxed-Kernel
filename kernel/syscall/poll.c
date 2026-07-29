@@ -3,7 +3,7 @@
  * Linux-compatible poll, select, pselect6, and ppoll syscalls.
  */
 
-#include <fs/vfs.h>
+#include <fs/core/vfs.h>
 #include <kernel/errno.h>
 #include <kernel/timer.h>
 #include <libs/std/stdbool.h>

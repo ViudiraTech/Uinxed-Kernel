@@ -9,7 +9,7 @@
  */
 
 #include <drivers/block/blockdev.h>
-#include <fs/superblock.h>
+#include <fs/core/superblock.h>
 #include <kernel/errno.h>
 #include <mem/heap.h>
 

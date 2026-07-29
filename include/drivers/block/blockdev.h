@@ -4,7 +4,7 @@
  *      Block device abstraction layer
  *
  *      2026/5/18 By Rainy101112
- *      2026/7/23 By JiTianYu391 â€” VFS-style callback registration
+ *      2026/7/23 By JiTianYu391 â€?VFS-style callback registration
  *      Copyright Â© 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
@@ -18,7 +18,7 @@
 
 #define BLOCKDEV_SECTOR_SIZE 512
 
-/* Ops dispatch macro â€” mirrors VFS callbackof() */
+/* Ops dispatch macro â€?mirrors VFS callbackof() */
 #define blk_ops(dev, _name_) (blk_ops_table[(dev)->ops_id]->_name_)
 
 /* Forward declaration */
@@ -49,7 +49,7 @@ typedef struct blockdev_device {
         bool     read_only;
 } blockdev_device_t;
 
-/* Global ops table â€” populated by driver init */
+/* Global ops table â€?populated by driver init */
 extern blockdev_ops_t *blk_ops_table;
 #define BLOCKDEV_MAX_TYPES 16
 

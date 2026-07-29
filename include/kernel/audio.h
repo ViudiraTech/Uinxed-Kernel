@@ -11,7 +11,7 @@
 #ifndef INCLUDE_SOUND_AUDIO_H_
 #define INCLUDE_SOUND_AUDIO_H_
 
-#include <fs/tmpfs.h>
+#include <fs/virtual/tmpfs.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 

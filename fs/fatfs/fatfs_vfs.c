@@ -10,10 +10,10 @@
 
 #include <drivers/block/blockdev.h>
 #include <drivers/block/ide.h>
+#include <fs/core/vfs.h>
 #include <fs/fatfs/fatfs_disk.h>
 #include <fs/fatfs/fatfs_vfs.h>
 #include <fs/fatfs/ff.h>
-#include <fs/vfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>

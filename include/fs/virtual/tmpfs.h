@@ -11,7 +11,7 @@
 #ifndef INCLUDE_TMPFS_H_
 #define INCLUDE_TMPFS_H_
 
-#include <fs/vfs.h>
+#include <fs/core/vfs.h>
 
 /* Forward declaration for callback signatures. */
 typedef struct vfs_node *vfs_node_t;

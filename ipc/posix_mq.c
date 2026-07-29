@@ -8,7 +8,7 @@
  *
  */
 
-#include <fs/vfs.h>
+#include <fs/core/vfs.h>
 #include <ipc/posix_mq.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
@@ -848,7 +848,7 @@ int64_t sys_mq_timedreceive(int mqdes, char *msg_ptr, size_t msg_len, uint32_t *
     /* Dequeue highest priority message */
     mq_message_t *msg = mq_dequeue(queue);
 
-    /* Clear notification pending flag â€” a successful receive
+    /* Clear notification pending flag â€?a successful receive
          * means the queue is no longer non-empty, so the notification
          * condition is cleared. */
     queue->notify_pending = 0;

@@ -18,9 +18,9 @@
 #include <drivers/char/tty.h>
 #include <drivers/gpu/drm_init.h>
 #include <drivers/input/evdev.h>
-#include <fs/devtmpfs.h>
-#include <fs/tmpfs.h>
-#include <fs/vfs.h>
+#include <fs/core/vfs.h>
+#include <fs/virtual/devtmpfs.h>
+#include <fs/virtual/tmpfs.h>
 #include <kernel/audio.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>

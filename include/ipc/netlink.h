@@ -187,7 +187,7 @@ typedef struct nlmsgerr {
 #define NETLINK_MAX            24
 
 /* ------------------------------------------------------------------ */
-/*  Netlink socket state â€” per-socket private data                     */
+/*  Netlink socket state â€?per-socket private data                     */
 /* ------------------------------------------------------------------ */
 
 #define NL_SOCK_RECV_BUF_SIZE (128 * 1024) /* 128KB default recv buffer */

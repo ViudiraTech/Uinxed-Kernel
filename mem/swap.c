@@ -21,7 +21,7 @@
 #else
 #    include <chipset/common.h>
 #    include <drivers/block/blockdev.h>
-#    include <fs/vfs.h>
+#    include <fs/core/vfs.h>
 #    include <kernel/errno.h>
 #    include <libs/std/stdbool.h>
 #    include <libs/std/stdlib.h>

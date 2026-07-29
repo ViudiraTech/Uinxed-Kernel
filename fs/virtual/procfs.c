@@ -11,9 +11,8 @@
 #include <arch/cpuid.h>
 #include <arch/smp.h>
 #include <drivers/timer/tsc.h>
-#include <fs/pagecache.h>
-#include <fs/procfs.h>
-#include <fs/vfs.h>
+#include <fs/core/vfs.h>
+#include <fs/virtual/procfs.h>
 #include <kernel/errno.h>
 #include <kernel/module.h>
 #include <kernel/printk.h>
@@ -27,6 +26,7 @@
 #include <mem/heap.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
+#include <mem/pagecache.h>
 #include <mem/swap.h>
 #include <net/abi/inet.h>
 #include <net/netdev.h>

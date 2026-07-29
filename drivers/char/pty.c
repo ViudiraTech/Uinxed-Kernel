@@ -1,8 +1,8 @@
 #include <drivers/base/device.h>
 #include <drivers/char/pty.h>
 #include <drivers/char/tty_core.h>
-#include <fs/devtmpfs.h>
-#include <fs/tmpfs.h>
+#include <fs/virtual/devtmpfs.h>
+#include <fs/virtual/tmpfs.h>
 #include <kernel/errno.h>
 #include <kernel/termios.h>
 #include <libs/std/stdbool.h>

@@ -10,8 +10,8 @@
 
 #include <drivers/block/blockdev.h>
 #include <drivers/block/ide.h>
-#include <fs/simplefs.h>
-#include <fs/vfs.h>
+#include <fs/core/vfs.h>
+#include <fs/simplefs/simplefs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stdlib.h>

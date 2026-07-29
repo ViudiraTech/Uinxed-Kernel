@@ -1,14 +1,14 @@
 /*
  *
  *      socket.c
- *      BSD Socket API implementation â€” UNIX domain sockets
+ *      BSD Socket API implementation â€?UNIX domain sockets
  *
  *      2026/7/22 By JiTianYu391
  *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
-#include <fs/vfs.h>
+#include <fs/core/vfs.h>
 #include <ipc/netlink.h>
 #include <ipc/socket.h>
 #include <kernel/errno.h>
@@ -40,7 +40,7 @@
 #define SOCK_SHUT_MASK(how) (1U << (uint32_t)(how))
 
 /* ------------------------------------------------------------------ */
-/*  Blocked-socket tracking â€“ maps a blocked socket to its task         */
+/*  Blocked-socket tracking â€?maps a blocked socket to its task         */
 /* ------------------------------------------------------------------ */
 
 typedef struct sock_blocked {
@@ -52,7 +52,7 @@ static sock_blocked_t sock_blocked_tab[SOCK_BLOCKED_MAX];
 static spinlock_t     sock_blocked_lock;
 
 /* ------------------------------------------------------------------ */
-/*  Bound-address registry â€“ UNIX-domain namespace                      */
+/*  Bound-address registry â€?UNIX-domain namespace                      */
 /* ------------------------------------------------------------------ */
 
 typedef struct sock_bound {
@@ -72,7 +72,7 @@ static spinlock_t   sock_bound_lock;
 static int socket_fsid = -1;
 
 /* ------------------------------------------------------------------ */
-/*  Forward declarations â€“ internal helpers                             */
+/*  Forward declarations â€?internal helpers                             */
 /* ------------------------------------------------------------------ */
 
 static void sock_blocked_register(socket_t *sk, task_t *task);
@@ -446,7 +446,7 @@ static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
 {
     socket_t *sk;
 
-    /* Validate family â€” Netlink handled by netlink layer */
+    /* Validate family â€?Netlink handled by netlink layer */
     if (family == AF_NETLINK) { return netlink_sock_alloc(protocol); }
     if (family != AF_UNIX && family != AF_LOCAL) return NULL;
 
@@ -653,7 +653,7 @@ static int socket_fd_nonblock(int fd)
 }
 
 /* ------------------------------------------------------------------ */
-/*  socket_from_fd â€“ find a socket by fd in the current process         */
+/*  socket_from_fd â€?find a socket by fd in the current process         */
 /*  NOTE: returns a weak pointer (no refcount bump).                    */
 /*  The caller must ensure the socket stays alive during use.           */
 /* ------------------------------------------------------------------ */
@@ -828,7 +828,7 @@ static int unix_listen(socket_t *sk, uint32_t backlog)
     spin_lock(&sk->lock);
 
     if (sk->state == SOCK_STATE_LISTENING) {
-        /* Already listening â€“ just update backlog */
+        /* Already listening â€?just update backlog */
         if (backlog > SOCK_ACCEPT_QUEUE_MAX) backlog = SOCK_ACCEPT_QUEUE_MAX;
         sk->backlog = backlog;
         spin_unlock(&sk->lock);

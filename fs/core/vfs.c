@@ -8,9 +8,8 @@
  *
  */
 
-#include <fs/inotify.h>
-#include <fs/pagecache.h>
-#include <fs/vfs.h>
+#include <fs/core/inotify.h>
+#include <fs/core/vfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stdlib.h>
@@ -19,6 +18,7 @@
 #include <mem/heap.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
+#include <mem/pagecache.h>
 #include <proc/process.h>
 #include <sync/spin_lock.h>
 

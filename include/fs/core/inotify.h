@@ -11,7 +11,7 @@
 #ifndef INCLUDE_FS_INOTIFY_H_
 #define INCLUDE_FS_INOTIFY_H_
 
-#include <fs/vfs.h>
+#include <fs/core/vfs.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

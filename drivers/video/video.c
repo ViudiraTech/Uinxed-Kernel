@@ -23,7 +23,7 @@
 #include <video/klogo.h>
 #include <video/video.h>
 
-/* DRM-flush callback â€” set by video_switch_to_drm, invoked after draws */
+/* DRM-flush callback â€?set by video_switch_to_drm, invoked after draws */
 static video_flush_fn_t video_flush_cb = NULL;
 
 uint64_t  width;  // Screen width
@@ -246,7 +246,7 @@ void video_flush_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 }
 
 /*
- * video_switch_to_drm â€” redirect fbcon output to a DRM GEM backing buffer.
+ * video_switch_to_drm â€?redirect fbcon output to a DRM GEM backing buffer.
  *
  * After this call all printk / tty output renders into the DRM buffer
  * instead of the boot-time Limine framebuffer.  The @flush callback is
