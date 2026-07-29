@@ -12,6 +12,7 @@
 #include <drivers/block/ide.h>
 #include <fs/core/vfs.h>
 #include <fs/extfs/extfs.h>
+#include <fs/virtual/devtmpfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer.h>
@@ -25,19 +26,19 @@ static int extfs_id = 0;
 static uint16_t extfs_mode_to_vfs(uint16_t mode)
 {
     switch (mode & 0xF000) {
-        case EXT2_S_IFDIR:
+        case EXT2_S_IFDIR :
             return file_dir;
-        case EXT2_S_IFLNK:
+        case EXT2_S_IFLNK :
             return file_symlink;
-        case EXT2_S_IFBLK:
+        case EXT2_S_IFBLK :
             return file_block;
-        case EXT2_S_IFCHR:
+        case EXT2_S_IFCHR :
             return file_stream;
-        case EXT2_S_IFIFO:
+        case EXT2_S_IFIFO :
             return file_pipe;
-        case EXT2_S_IFSOCK:
+        case EXT2_S_IFSOCK :
             return file_socket;
-        default:
+        default :
             return file_none;
     }
 }
@@ -60,8 +61,7 @@ static void extfs_fill_node(vfs_node_t node, extfs_handle_t *h)
     node->writetime   = raw.i_mtime;
     node->size        = raw.i_size;
     node->realsize    = raw.i_size;
-    if ((raw.i_mode & 0xF000) == EXT2_S_IFREG)
-        node->size = node->realsize = ((uint64_t)raw.i_dir_acl << 32) | raw.i_size;
+    if ((raw.i_mode & 0xF000) == EXT2_S_IFREG) node->size = node->realsize = ((uint64_t)raw.i_dir_acl << 32) | raw.i_size;
 }
 
 static extfs_handle_t *extfs_get_handle(vfs_node_t node)
@@ -79,8 +79,7 @@ static void extfs_init_new_inode(extfs_sb_info_t *sb, ext2_inode_t *raw)
     if (!(sb->es->s_feature_incompat & EXT4_FEATURE_INCOMPAT_EXTENTS)) return;
     raw->i_flags |= EXT4_EXTENTS_FL;
     uint8_t header[12] = {
-        (uint8_t)EXT4_EXT_MAGIC, (uint8_t)(EXT4_EXT_MAGIC >> 8), 0, 0,
-        (uint8_t)((sizeof(raw->i_block) - 12) / 12), 0, 0, 0, 0, 0, 0, 0,
+        (uint8_t)EXT4_EXT_MAGIC, (uint8_t)(EXT4_EXT_MAGIC >> 8), 0, 0, (uint8_t)((sizeof(raw->i_block) - 12) / 12), 0, 0, 0, 0, 0, 0, 0,
     };
     memcpy(raw->i_block, header, sizeof(header));
 }
@@ -88,7 +87,7 @@ static void extfs_init_new_inode(extfs_sb_info_t *sb, ext2_inode_t *raw)
 static int extfs_touch_inode(extfs_sb_info_t *sb, uint32_t ino, int modify)
 {
     ext2_inode_t raw;
-    int status = extfs_read_inode_raw(sb, ino, &raw);
+    int          status = extfs_read_inode_raw(sb, ino, &raw);
     if (status != EOK) return status;
     raw.i_ctime = timer_realtime_seconds32();
     if (modify) raw.i_mtime = raw.i_ctime;
@@ -136,8 +135,7 @@ static int extfs_load_directory(vfs_node_t node)
             free(block);
             return -EIO;
         }
-        if (de->inode && !(de->name_len == 1 && de->name[0] == '.')
-            && !(de->name_len == 2 && de->name[0] == '.' && de->name[1] == '.')) {
+        if (de->inode && !(de->name_len == 1 && de->name[0] == '.') && !(de->name_len == 2 && de->name[0] == '.' && de->name[1] == '.')) {
             char name[EXT2_NAME_LEN + 1];
             memcpy(name, de->name, de->name_len);
             name[de->name_len] = '\0';
@@ -167,18 +165,34 @@ static int extfs_load_directory(vfs_node_t node)
 
 static int extfs_mount(const char *src, vfs_node_t node)
 {
-    extfs_sb_info_t *sb;
-    extfs_handle_t  *h;
+    extfs_sb_info_t  *sb;
+    extfs_handle_t   *h;
     blockdev_device_t device;
-    int              status;
+    bool              device_retained = false;
+    int               status;
 
     if (!src || !node) return -EINVAL;
 
     sb = calloc(1, sizeof(extfs_sb_info_t));
     if (!sb) return -ENOMEM;
 
-    status = blockdev_open_name(src, &device);
-    if (status == EOK) status = extfs_read_super(sb, &device);
+    /*
+     * A /dev name is only a namespace label.  In particular, removable USB
+     * disks and AHCI disks can both use sdX names, so reparsing the string
+     * cannot identify the correct backend.  Prefer the descriptor bound to
+     * the device node and retain the legacy parser for kernel-only names.
+     */
+    status = devtmpfs_open_block_device(src, &device);
+    if (status == EOK) {
+        device_retained = true;
+    } else if (status == -ENOENT) {
+        status = blockdev_open_name(src, &device);
+    }
+
+    if (status == EOK) {
+        status = extfs_read_super(sb, &device);
+        if (device_retained) blockdev_release(&device);
+    }
     if (status != EOK) {
         free(sb);
         return status;
@@ -225,11 +239,8 @@ static int extfs_mount(const char *src, vfs_node_t node)
         }
     }
 
-    const char *version = (sb->es->s_feature_incompat & (EXT4_FEATURE_INCOMPAT_EXTENTS | EXT4_FEATURE_INCOMPAT_64BIT))
-                              ? "4"
-                              : (sb->journal ? "3" : "2");
-    plogk("extfs: Mounted ext%s volume '%.16s', block size %u, %u groups\n",
-          version, sb->es->s_volume_name, sb->block_size, sb->groups_count);
+    plogk("extfs: Mounted ext%d volume '%.16s', block size %u, %u groups\n", extfs_detect_version(sb->es), sb->es->s_volume_name, sb->block_size,
+          sb->groups_count);
 
     return EOK;
 }
@@ -393,8 +404,7 @@ static int extfs_mkdir_impl(void *parent, const char *name, vfs_node_t node)
     if (parent_raw.i_links_count == UINT16_MAX) {
         if (!(sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_DIR_NLINK)) return -EMLINK;
         parent_raw.i_links_count = 1;
-    } else if (parent_raw.i_links_count != 1
-               || !(sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_DIR_NLINK)) {
+    } else if (parent_raw.i_links_count != 1 || !(sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_DIR_NLINK)) {
         parent_raw.i_links_count++;
     }
 
@@ -447,7 +457,7 @@ static int extfs_mkdir_impl(void *parent, const char *name, vfs_node_t node)
 
     parent_raw.i_ctime = timer_realtime_seconds32();
     parent_raw.i_mtime = parent_raw.i_ctime;
-    status = extfs_write_inode_raw(sb, dir_h->inode_no, &parent_raw);
+    status             = extfs_write_inode_raw(sb, dir_h->inode_no, &parent_raw);
     if (status != EOK) {
         free(new_h);
         return status;
@@ -575,7 +585,7 @@ static int extfs_link_impl(void *parent, const char *target_name, vfs_node_t nod
 
     raw.i_links_count++;
     raw.i_ctime = timer_realtime_seconds32();
-    status = extfs_write_inode_raw(sb, target_h->inode_no, &raw);
+    status      = extfs_write_inode_raw(sb, target_h->inode_no, &raw);
     if (status != EOK) goto out;
     status = extfs_touch_inode(sb, dir_h->inode_no, 1);
     if (status != EOK) goto out;
@@ -716,18 +726,18 @@ static int extfs_delete_impl(void *parent, vfs_node_t node)
         status = extfs_release_xattr_block(file_h);
         if (status != EOK) return status;
         memset(raw.i_block, 0, sizeof(raw.i_block));
-        raw.i_size = 0;
-        raw.i_blocks = 0;
-        raw.i_file_acl = 0;
+        raw.i_size            = 0;
+        raw.i_blocks          = 0;
+        raw.i_file_acl        = 0;
         raw.l_i_file_acl_high = 0;
-        raw.i_dtime = timer_realtime_seconds32();
-        raw.i_ctime = raw.i_dtime;
-        status = extfs_write_inode_raw(sb, file_h->inode_no, &raw);
+        raw.i_dtime           = timer_realtime_seconds32();
+        raw.i_ctime           = raw.i_dtime;
+        status                = extfs_write_inode_raw(sb, file_h->inode_no, &raw);
         if (status != EOK) return status;
         extfs_free_inode(sb, file_h->inode_no);
     } else {
         raw.i_ctime = timer_realtime_seconds32();
-        status = extfs_write_inode_raw(sb, file_h->inode_no, &raw);
+        status      = extfs_write_inode_raw(sb, file_h->inode_no, &raw);
         if (status != EOK) return status;
     }
 
@@ -780,14 +790,14 @@ static int extfs_rmdir_impl(void *parent, const char *name)
         return status;
     }
     memset(raw.i_block, 0, sizeof(raw.i_block));
-    raw.i_links_count = 0;
-    raw.i_size        = 0;
-    raw.i_blocks      = 0;
-    raw.i_file_acl    = 0;
+    raw.i_links_count     = 0;
+    raw.i_size            = 0;
+    raw.i_blocks          = 0;
+    raw.i_file_acl        = 0;
     raw.l_i_file_acl_high = 0;
-    raw.i_dtime       = timer_realtime_seconds32();
-    raw.i_ctime       = raw.i_dtime;
-    status = extfs_write_inode_raw(sb, child_ino, &raw);
+    raw.i_dtime           = timer_realtime_seconds32();
+    raw.i_ctime           = raw.i_dtime;
+    status                = extfs_write_inode_raw(sb, child_ino, &raw);
     if (status != EOK) {
         free(child_h);
         return status;
@@ -809,7 +819,7 @@ static int extfs_rmdir_impl(void *parent, const char *name)
     if (parent_raw.i_links_count > 2) parent_raw.i_links_count--;
     parent_raw.i_ctime = timer_realtime_seconds32();
     parent_raw.i_mtime = parent_raw.i_ctime;
-    status = extfs_write_inode_raw(sb, dir_h->inode_no, &parent_raw);
+    status             = extfs_write_inode_raw(sb, dir_h->inode_no, &parent_raw);
     if (status != EOK) {
         free(child_h);
         return status;
@@ -877,8 +887,8 @@ static int extfs_finish_mutation(extfs_sb_info_t *sb, fs_txn_t *transaction, int
 static int extfs_mkdir_cb(void *parent, const char *name, vfs_node_t node)
 {
     extfs_handle_t *h = node ? extfs_get_handle(node->parent) : 0;
-    fs_txn_t transaction;
-    int status;
+    fs_txn_t        transaction;
+    int             status;
     if (!h) return -EINVAL;
     status = extfs_transaction_begin(h->sb, &transaction, 8192);
     if (status != EOK) return status;
@@ -891,8 +901,8 @@ static int extfs_mkdir_cb(void *parent, const char *name, vfs_node_t node)
 static int extfs_mkfile_cb(void *parent, const char *name, vfs_node_t node)
 {
     extfs_handle_t *h = node ? extfs_get_handle(node->parent) : 0;
-    fs_txn_t transaction;
-    int status;
+    fs_txn_t        transaction;
+    int             status;
     if (!h) return -EINVAL;
     status = extfs_transaction_begin(h->sb, &transaction, 8192);
     if (status != EOK) return status;
@@ -905,8 +915,8 @@ static int extfs_mkfile_cb(void *parent, const char *name, vfs_node_t node)
 static int extfs_link_cb(void *parent, const char *name, vfs_node_t node)
 {
     extfs_handle_t *h = node ? extfs_get_handle(node->parent) : 0;
-    fs_txn_t transaction;
-    int status;
+    fs_txn_t        transaction;
+    int             status;
     if (!h) return -EINVAL;
     status = extfs_transaction_begin(h->sb, &transaction, 8192);
     if (status != EOK) return status;
@@ -919,8 +929,8 @@ static int extfs_link_cb(void *parent, const char *name, vfs_node_t node)
 static int extfs_symlink_cb(void *parent, const char *name, vfs_node_t node)
 {
     extfs_handle_t *h = node ? extfs_get_handle(node->parent) : 0;
-    fs_txn_t transaction;
-    int status;
+    fs_txn_t        transaction;
+    int             status;
     if (!h) return -EINVAL;
     status = extfs_transaction_begin(h->sb, &transaction, 8192);
     if (status != EOK) return status;
@@ -933,8 +943,8 @@ static int extfs_symlink_cb(void *parent, const char *name, vfs_node_t node)
 static int extfs_delete(void *parent, vfs_node_t node)
 {
     extfs_handle_t *h = extfs_get_handle(parent);
-    fs_txn_t transaction;
-    int status;
+    fs_txn_t        transaction;
+    int             status;
     if (!h) return -EINVAL;
     status = extfs_transaction_begin(h->sb, &transaction, 8192);
     if (status != EOK) return status;
@@ -950,8 +960,8 @@ static int extfs_delete(void *parent, vfs_node_t node)
 static int extfs_rmdir(void *parent, const char *name)
 {
     extfs_handle_t *h = extfs_get_handle(parent);
-    fs_txn_t transaction;
-    int status;
+    fs_txn_t        transaction;
+    int             status;
     if (!h) return -EINVAL;
     status = extfs_transaction_begin(h->sb, &transaction, 8192);
     if (status != EOK) return status;
@@ -963,10 +973,10 @@ static int extfs_rmdir(void *parent, const char *name)
 
 static int extfs_rename_cb(void *current, const char *new_name)
 {
-    vfs_node_t node = current;
-    extfs_handle_t *h = node ? extfs_get_handle(node) : 0;
-    fs_txn_t transaction;
-    int status;
+    vfs_node_t      node = current;
+    extfs_handle_t *h    = node ? extfs_get_handle(node) : 0;
+    fs_txn_t        transaction;
+    int             status;
     if (!h) return -EINVAL;
     status = extfs_transaction_begin(h->sb, &transaction, 8192);
     if (status != EOK) return status;
@@ -1088,7 +1098,7 @@ void extfs_regist(void)
     plogk("extfs: Filesystem registered (fsid=%d)\n", extfs_id);
 
     for (uint8_t drive = 0; drive < 4; drive++) {
-        extfs_sb_info_t sb;
+        extfs_sb_info_t   sb;
         blockdev_device_t device;
         if (!ide_devices[drive].reserved || ide_devices[drive].type != IDE_ATA) continue;
         if (blockdev_open_drive(drive, &device) == EOK && extfs_read_super(&sb, &device) == EOK) {

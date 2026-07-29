@@ -572,15 +572,15 @@ int vfs_mkdir_mode(const char *name, uint16_t mode)
         status = -ENOMEM;
         goto out;
     }
-    node->type = file_dir;
-    node->mode = mode & 07777;
+    node->type        = file_dir;
+    node->mode        = mode & 07777;
     node->permissions = node->mode;
-    process_t *proc = process_current();
+    process_t *proc   = process_current();
     if (proc) {
         node->owner = proc->uid;
         node->group = proc->gid;
     }
-    status     = callbackof(parent, mkdir)(parent->handle, filename, node);
+    status = callbackof(parent, mkdir)(parent->handle, filename, node);
     if (status != EOK) {
         vfs_abort_created_node(parent, node);
     } else {
@@ -617,15 +617,15 @@ int vfs_mkfile_mode(const char *name, uint16_t mode)
         status = -ENOMEM;
         goto out;
     }
-    node->type = file_none;
-    node->mode = mode & 07777;
+    node->type        = file_none;
+    node->mode        = mode & 07777;
     node->permissions = node->mode;
-    process_t *proc = process_current();
+    process_t *proc   = process_current();
     if (proc) {
         node->owner = proc->uid;
         node->group = proc->gid;
     }
-    status     = callbackof(parent, mkfile)(parent->handle, filename, node);
+    status = callbackof(parent, mkfile)(parent->handle, filename, node);
     if (status != EOK)
         vfs_abort_created_node(parent, node);
     else
@@ -743,7 +743,7 @@ static int vfs_link_internal(const char *name, const char *target_name, bool fol
         goto out_link;
     }
     const char *callback_target = target_name;
-    char resolved_target[VFS_PATH_MAX];
+    char        resolved_target[VFS_PATH_MAX];
     if (follow) {
         status = vfs_node_path(target, resolved_target, sizeof(resolved_target));
         if (status != EOK) {
@@ -797,10 +797,10 @@ int vfs_symlink(const char *name, const char *target_name)
         status = -ENOMEM;
         goto out;
     }
-    node->type     = file_symlink;
-    node->mode     = 0777;
+    node->type        = file_symlink;
+    node->mode        = 0777;
     node->permissions = 0777;
-    process_t *proc = process_current();
+    process_t *proc   = process_current();
     if (proc) {
         node->owner = proc->uid;
         node->group = proc->gid;
@@ -894,6 +894,11 @@ int vfs_mount(const char *src, vfs_node_t node)
 
     if (!node || !(node->type & file_dir)) return -EINVAL;
     for (int i = 1; i < fs_nextid; i++) {
+        /* Anonymous VFS types are implementation details (pipe, socket,
+         * eventfd, ...), not filesystem probes.  A missing mount callback is
+         * likewise represented by empty_func and must not hide a disk
+         * filesystem's diagnostic with -ENOSYS. */
+        if (!fs_names[i] || fs_callbacks[i]->mount == vfs_empty_callback.mount) continue;
         int status = vfs_mount_id(src, node, i);
         if (status == EOK) return EOK;
         if (status != -ENOENT) last_error = status;
@@ -1308,7 +1313,7 @@ int vfs_close(vfs_node_t node)
         }
     }
 
-    if (node->mapping) {
+    if (node->mapping && !(node->flags & VFS_NODE_DELETE_COMMITTED)) {
         int result = pagecache_writeback(node->mapping, 0, UINT64_MAX, PAGECACHE_WB_SYNC);
         if (result) {
             spin_lock(&vfs_namespace_lock);
@@ -1328,6 +1333,10 @@ int vfs_close(vfs_node_t node)
         }
     }
 
+    /* A synchronous unlink has already released the backing inode/blocks.
+     * Never let mapping destruction write stale pages back to that storage. */
+    if (node->mapping && (node->flags & VFS_NODE_DELETE_COMMITTED))
+        (void)pagecache_invalidate(node->mapping, 0, UINT64_MAX, PAGECACHE_INVALIDATE_DISCARD_DIRTY);
     vfs_pagecache_destroy(node);
     if (!already_closed) { callbackof(node, close)(node->handle); }
     spin_lock(&vfs_namespace_lock);
@@ -1436,6 +1445,12 @@ int vfs_delete(vfs_node_t node)
         }
     }
     if ((node->flags & VFS_NODE_DELETE_SYNC) && node->parent) {
+        /* Flush while the filesystem object still exists.  Once delete()
+         * succeeds, the callback may have freed its inode and data blocks. */
+        if (node->mapping) {
+            status = pagecache_writeback(node->mapping, 0, UINT64_MAX, PAGECACHE_WB_SYNC);
+            if (status < 0) return status;
+        }
         status = callbackof(node, delete)(node->parent->handle, node);
         if (status < 0) return status;
         node->flags |= VFS_NODE_DELETE_COMMITTED;

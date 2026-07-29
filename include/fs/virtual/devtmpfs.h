@@ -53,6 +53,13 @@ int devtmpfs_unregister_char_device(const char *path);
 
 typedef struct devtmpfs_block_registration devtmpfs_block_registration_t;
 
+/*
+ * Resolve a published /dev block node to the backend descriptor bound to it.
+ * The returned descriptor holds a backend reference which the caller must
+ * release with blockdev_release().
+ */
+int devtmpfs_open_block_device(const char *path, blockdev_device_t *device);
+
 /* Publish a whole disk and, optionally, its MBR/GPT partition views. */
 int devtmpfs_register_block_device(const char *path, const blockdev_device_t *device, uint64_t dev, uint64_t rdev, bool scan_partitions,
                                    devtmpfs_block_registration_t **registration);

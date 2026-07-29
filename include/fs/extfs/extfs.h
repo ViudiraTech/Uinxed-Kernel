@@ -75,39 +75,39 @@ struct extfs_journal;
 /*
  * Feature flags
  */
-#define EXT2_FEATURE_INCOMPAT_FILETYPE 0x0002
-#define EXT3_FEATURE_INCOMPAT_RECOVER  0x0004
+#define EXT2_FEATURE_INCOMPAT_FILETYPE    0x0002
+#define EXT3_FEATURE_INCOMPAT_RECOVER     0x0004
 #define EXT3_FEATURE_INCOMPAT_JOURNAL_DEV 0x0008
-#define EXT2_FEATURE_INCOMPAT_META_BG  0x0010
-#define EXT4_FEATURE_INCOMPAT_EXTENTS  0x0040
-#define EXT4_FEATURE_INCOMPAT_64BIT    0x0080
-#define EXT4_FEATURE_INCOMPAT_MMP      0x0100
-#define EXT4_FEATURE_INCOMPAT_FLEX_BG  0x0200
-#define EXT4_FEATURE_INCOMPAT_EA_INODE 0x0400
-#define EXT4_FEATURE_INCOMPAT_DIRDATA  0x1000
-#define EXT4_FEATURE_INCOMPAT_CSUM_SEED 0x2000
-#define EXT4_FEATURE_INCOMPAT_LARGEDIR 0x4000
+#define EXT2_FEATURE_INCOMPAT_META_BG     0x0010
+#define EXT4_FEATURE_INCOMPAT_EXTENTS     0x0040
+#define EXT4_FEATURE_INCOMPAT_64BIT       0x0080
+#define EXT4_FEATURE_INCOMPAT_MMP         0x0100
+#define EXT4_FEATURE_INCOMPAT_FLEX_BG     0x0200
+#define EXT4_FEATURE_INCOMPAT_EA_INODE    0x0400
+#define EXT4_FEATURE_INCOMPAT_DIRDATA     0x1000
+#define EXT4_FEATURE_INCOMPAT_CSUM_SEED   0x2000
+#define EXT4_FEATURE_INCOMPAT_LARGEDIR    0x4000
 #define EXT4_FEATURE_INCOMPAT_INLINE_DATA 0x8000
-#define EXT4_FEATURE_INCOMPAT_ENCRYPT  0x10000
+#define EXT4_FEATURE_INCOMPAT_ENCRYPT     0x10000
 
-#define EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER 0x0001
-#define EXT2_FEATURE_RO_COMPAT_LARGE_FILE   0x0002
-#define EXT2_FEATURE_RO_COMPAT_BTREE_DIR    0x0004
-#define EXT4_FEATURE_RO_COMPAT_HUGE_FILE    0x0008
-#define EXT4_FEATURE_RO_COMPAT_GDT_CSUM     0x0010
-#define EXT4_FEATURE_RO_COMPAT_DIR_NLINK    0x0020
-#define EXT4_FEATURE_RO_COMPAT_EXTRA_ISIZE  0x0040
-#define EXT4_FEATURE_RO_COMPAT_QUOTA        0x0100
-#define EXT4_FEATURE_RO_COMPAT_BIGALLOC     0x0200
-#define EXT4_FEATURE_RO_COMPAT_METADATA_CSUM 0x0400
-#define EXT4_FEATURE_RO_COMPAT_READONLY     0x1000
-#define EXT4_FEATURE_RO_COMPAT_PROJECT      0x2000
-#define EXT4_FEATURE_RO_COMPAT_VERITY       0x8000
+#define EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER   0x0001
+#define EXT2_FEATURE_RO_COMPAT_LARGE_FILE     0x0002
+#define EXT2_FEATURE_RO_COMPAT_BTREE_DIR      0x0004
+#define EXT4_FEATURE_RO_COMPAT_HUGE_FILE      0x0008
+#define EXT4_FEATURE_RO_COMPAT_GDT_CSUM       0x0010
+#define EXT4_FEATURE_RO_COMPAT_DIR_NLINK      0x0020
+#define EXT4_FEATURE_RO_COMPAT_EXTRA_ISIZE    0x0040
+#define EXT4_FEATURE_RO_COMPAT_QUOTA          0x0100
+#define EXT4_FEATURE_RO_COMPAT_BIGALLOC       0x0200
+#define EXT4_FEATURE_RO_COMPAT_METADATA_CSUM  0x0400
+#define EXT4_FEATURE_RO_COMPAT_READONLY       0x1000
+#define EXT4_FEATURE_RO_COMPAT_PROJECT        0x2000
+#define EXT4_FEATURE_RO_COMPAT_VERITY         0x8000
 #define EXT4_FEATURE_RO_COMPAT_ORPHAN_PRESENT 0x10000
 
-#define EXT2_FEATURE_COMPAT_EXT_ATTR  0x0008
-#define EXT2_FEATURE_COMPAT_DIR_INDEX 0x0020
-#define EXT3_FEATURE_COMPAT_HAS_JOURNAL 0x0004
+#define EXT2_FEATURE_COMPAT_EXT_ATTR      0x0008
+#define EXT2_FEATURE_COMPAT_DIR_INDEX     0x0020
+#define EXT3_FEATURE_COMPAT_HAS_JOURNAL   0x0004
 #define EXT4_FEATURE_COMPAT_SPARSE_SUPER2 0x0200
 
 /*
@@ -148,9 +148,9 @@ struct extfs_journal;
 #define EXT2_S_IWOTH  0x0002
 #define EXT2_S_IXOTH  0x0001
 
-#define EXT4_EXTENTS_FL 0x00080000U
-#define EXT4_INDEX_FL   0x00001000U
-#define EXT4_EXT_MAGIC  0xF30AU
+#define EXT4_EXTENTS_FL      0x00080000U
+#define EXT4_INDEX_FL        0x00001000U
+#define EXT4_EXT_MAGIC       0xF30AU
 #define EXT4_BG_INODE_UNINIT 0x0001U
 #define EXT4_BG_BLOCK_UNINIT 0x0002U
 #define EXT4_BG_INODE_ZEROED 0x0004U
@@ -282,28 +282,28 @@ typedef struct ext2_dir_entry {
 
 /* Per-filesystem superblock info */
 typedef struct extfs_sb_info {
-        blockdev_device_t   device;
-        ext2_super_block_t *es;         /* Pointer to on-disk superblock */
-        ext2_group_desc_t  *group_desc; /* Array of group descriptors */
-        uint32_t            block_size;
-        uint32_t            blocks_per_group;
-        uint32_t            inodes_per_group;
-        uint32_t            groups_count;
-        uint32_t            desc_per_block;
-        uint32_t            desc_size;
-        uint64_t            blocks_count;
-        uint32_t            checksum_seed;
-        uint32_t            s_first_data_block;
-        uint32_t            inode_size;
-        uint32_t            s_first_ino;
-        uint32_t            gdb_count; /* Group descriptor blocks count */
-        uint32_t            sb_block;  /* Superblock block number */
-        uint8_t             log_block_size;
-        spinlock_t          lock;
-        int                 read_only;
-        fs_txn_log_t        transaction_log;
-        fs_txn_t           *active_transaction;
-        int                 transaction_log_initialized;
+        blockdev_device_t     device;
+        ext2_super_block_t   *es;         /* Pointer to on-disk superblock */
+        ext2_group_desc_t    *group_desc; /* Array of group descriptors */
+        uint32_t              block_size;
+        uint32_t              blocks_per_group;
+        uint32_t              inodes_per_group;
+        uint32_t              groups_count;
+        uint32_t              desc_per_block;
+        uint32_t              desc_size;
+        uint64_t              blocks_count;
+        uint32_t              checksum_seed;
+        uint32_t              s_first_data_block;
+        uint32_t              inode_size;
+        uint32_t              s_first_ino;
+        uint32_t              gdb_count; /* Group descriptor blocks count */
+        uint32_t              sb_block;  /* Superblock block number */
+        uint8_t               log_block_size;
+        spinlock_t            lock;
+        int                   read_only;
+        fs_txn_log_t          transaction_log;
+        fs_txn_t             *active_transaction;
+        int                   transaction_log_initialized;
         struct extfs_journal *journal;
 } extfs_sb_info_t;
 
@@ -331,6 +331,7 @@ typedef struct extfs_handle {
 
 /* super.c */
 int  extfs_read_super(extfs_sb_info_t *sb, const blockdev_device_t *device);
+int  extfs_detect_version(const ext2_super_block_t *es);
 int  extfs_write_super(extfs_sb_info_t *sb);
 void extfs_free_super(extfs_sb_info_t *sb);
 int  extfs_read_inode_raw(extfs_sb_info_t *sb, uint32_t ino, ext2_inode_t *raw);

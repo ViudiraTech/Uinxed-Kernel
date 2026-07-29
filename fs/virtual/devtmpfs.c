@@ -196,6 +196,31 @@ static void devtmpfs_block_destroy(void *context)
     free(context);
 }
 
+int devtmpfs_open_block_device(const char *path, blockdev_device_t *device)
+{
+    vfs_node_t node;
+
+    if (!path || !device) return -EINVAL;
+
+    node = vfs_open(path);
+    if (!node) return -ENOENT;
+    if (!(node->type & file_block)) {
+        vfs_close(node);
+        return -ENOTBLK;
+    }
+
+    tmpfs_file_t *handle = node->handle;
+    if (!handle || !(handle->node_type & file_block) || handle->device.read != devtmpfs_block_read || !handle->device.ctx) {
+        vfs_close(node);
+        return -ENODEV;
+    }
+
+    *device = *(blockdev_device_t *)handle->device.ctx;
+    blockdev_retain(device);
+    vfs_close(node);
+    return EOK;
+}
+
 static int devtmpfs_register_one_block(const char *path, const blockdev_device_t *device, uint64_t dev, uint64_t rdev)
 {
     blockdev_device_t *context;

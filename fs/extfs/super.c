@@ -17,6 +17,22 @@
 #include <mem/alloc.h>
 #include <mem/heap.h>
 
+int extfs_detect_version(const ext2_super_block_t *es)
+{
+    const uint32_t ext4_compat   = EXT4_FEATURE_COMPAT_SPARSE_SUPER2;
+    const uint32_t ext4_incompat = EXT4_FEATURE_INCOMPAT_EXTENTS | EXT4_FEATURE_INCOMPAT_64BIT | EXT4_FEATURE_INCOMPAT_FLEX_BG
+                                   | EXT4_FEATURE_INCOMPAT_CSUM_SEED | EXT4_FEATURE_INCOMPAT_LARGEDIR;
+    const uint32_t ext4_ro = EXT4_FEATURE_RO_COMPAT_HUGE_FILE | EXT4_FEATURE_RO_COMPAT_GDT_CSUM | EXT4_FEATURE_RO_COMPAT_DIR_NLINK
+                             | EXT4_FEATURE_RO_COMPAT_EXTRA_ISIZE | EXT4_FEATURE_RO_COMPAT_METADATA_CSUM;
+
+    if (!es) return 0;
+    if ((es->s_feature_compat & ext4_compat) || (es->s_feature_incompat & ext4_incompat) || (es->s_feature_ro_compat & ext4_ro)) return 4;
+    if ((es->s_feature_compat & EXT3_FEATURE_COMPAT_HAS_JOURNAL)
+        || (es->s_feature_incompat & (EXT3_FEATURE_INCOMPAT_RECOVER | EXT3_FEATURE_INCOMPAT_JOURNAL_DEV)))
+        return 3;
+    return 2;
+}
+
 static uint64_t extfs_block_offset(extfs_sb_info_t *sb, uint32_t block)
 {
     return (uint64_t)block * sb->block_size;
@@ -32,7 +48,7 @@ static int extfs_disk_read(extfs_sb_info_t *sb, uint64_t offset, void *buf, size
             uint64_t logical = offset / sb->block_size;
             uint32_t within  = (uint32_t)(offset % sb->block_size);
             size_t   chunk   = size < sb->block_size - within ? size : sb->block_size - within;
-            int status = fs_txn_read(sb->active_transaction, logical, block);
+            int      status  = fs_txn_read(sb->active_transaction, logical, block);
             if (status != EOK) {
                 free(block);
                 return status;
@@ -70,21 +86,26 @@ static uint16_t extfs_crc16(uint16_t crc, const void *data, size_t size)
     return crc;
 }
 
-static uint16_t extfs_group_desc_checksum(extfs_sb_info_t *sb, uint32_t group, ext2_group_desc_t *desc)
+static uint16_t extfs_group_desc_checksum(extfs_sb_info_t *sb, uint32_t group, const ext2_group_desc_t *desc)
 {
-    uint16_t stored = desc->bg_checksum;
-    desc->bg_checksum = 0;
-    uint16_t result = 0;
+    const uint8_t *bytes           = (const uint8_t *)desc;
+    size_t         checksum_offset = offsetof(ext2_group_desc_t, bg_checksum);
+    size_t         checksum_end    = checksum_offset + sizeof(desc->bg_checksum);
+    uint16_t       result          = 0;
+
     if (sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM) {
-        uint32_t checksum = crc32c_update(sb->checksum_seed, &group, sizeof(group));
-        checksum = crc32c_update(checksum, desc, sb->desc_size);
+        static const uint8_t zero[2]  = {0};
+        uint32_t             checksum = crc32c_update(sb->checksum_seed, &group, sizeof(group));
+        checksum                      = crc32c_update(checksum, bytes, checksum_offset);
+        checksum                      = crc32c_update(checksum, &zero, sizeof(zero));
+        if (checksum_end < sb->desc_size) checksum = crc32c_update(checksum, bytes + checksum_end, sb->desc_size - checksum_end);
         result = (uint16_t)checksum;
     } else if (sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_GDT_CSUM) {
         result = extfs_crc16((uint16_t)~0U, sb->es->s_uuid, sizeof(sb->es->s_uuid));
         result = extfs_crc16(result, &group, sizeof(group));
-        result = extfs_crc16(result, desc, sb->desc_size);
+        result = extfs_crc16(result, bytes, checksum_offset);
+        if (checksum_end < sb->desc_size) result = extfs_crc16(result, bytes + checksum_end, sb->desc_size - checksum_end);
     }
-    desc->bg_checksum = stored;
     return result;
 }
 
@@ -109,8 +130,8 @@ static uint32_t extfs_inode_checksum(extfs_sb_info_t *sb, uint32_t ino, uint8_t 
     }
     memcpy(&generation, inode + 100, sizeof(generation));
     uint32_t checksum = crc32c_update(sb->checksum_seed, &ino, sizeof(ino));
-    checksum = crc32c_update(checksum, &generation, sizeof(generation));
-    checksum = crc32c_update(checksum, inode, sb->inode_size);
+    checksum          = crc32c_update(checksum, &generation, sizeof(generation));
+    checksum          = crc32c_update(checksum, inode, sb->inode_size);
     memcpy(inode + 124, &checksum_lo, sizeof(checksum_lo));
     if (has_hi) memcpy(inode + 130, &checksum_hi, sizeof(checksum_hi));
     return checksum;
@@ -120,9 +141,9 @@ int extfs_update_bitmap_checksum(extfs_sb_info_t *sb, uint32_t group, int inode_
 {
     if (!sb || !bitmap || group >= sb->groups_count) return -EINVAL;
     if (!(sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM)) return EOK;
-    ext2_group_desc_t *desc = &sb->group_desc[group];
-    size_t bytes = inode_bitmap ? (sb->inodes_per_group + 7) / 8 : (sb->blocks_per_group + 7) / 8;
-    uint32_t checksum = crc32c_update(sb->checksum_seed, bitmap, bytes);
+    ext2_group_desc_t *desc     = &sb->group_desc[group];
+    size_t             bytes    = inode_bitmap ? (sb->inodes_per_group + 7) / 8 : (sb->blocks_per_group + 7) / 8;
+    uint32_t           checksum = crc32c_update(sb->checksum_seed, bitmap, bytes);
     if (inode_bitmap) {
         desc->bg_inode_bitmap_csum_lo = (uint16_t)checksum;
         if (sb->desc_size >= 64) desc->bg_inode_bitmap_csum_hi = (uint16_t)(checksum >> 16);
@@ -143,7 +164,7 @@ static int extfs_disk_write(extfs_sb_info_t *sb, uint64_t offset, const void *bu
             uint64_t logical = offset / sb->block_size;
             uint32_t within  = (uint32_t)(offset % sb->block_size);
             size_t   chunk   = size < sb->block_size - within ? size : sb->block_size - within;
-            int status = fs_txn_read(sb->active_transaction, logical, block);
+            int      status  = fs_txn_read(sb->active_transaction, logical, block);
             if (status == EOK) {
                 memcpy(block + within, input, chunk);
                 status = fs_txn_stage(sb->active_transaction, logical, block, FS_TXN_METADATA);
@@ -208,7 +229,7 @@ int extfs_transaction_commit(extfs_sb_info_t *sb, fs_txn_t *transaction)
 {
     if (!sb || !transaction || sb->active_transaction != transaction) return -EINVAL;
     sb->active_transaction = 0;
-    int status = fs_txn_commit(transaction);
+    int status             = fs_txn_commit(transaction);
     if (status != EOK) sb->read_only = 1;
     return status;
 }
@@ -229,8 +250,9 @@ void extfs_transaction_abort(extfs_sb_info_t *sb, fs_txn_t *transaction, int err
         if (remaining < count) count = remaining;
         uint64_t offset = extfs_block_offset(sb, sb->s_first_data_block + 1 + i);
         for (uint32_t j = 0; j < count; j++) {
-            if (blockdev_read_bytes(&sb->device, offset + (uint64_t)j * sb->desc_size,
-                                    &sb->group_desc[i * sb->desc_per_block + j], sb->desc_size) != EOK) {
+            if (blockdev_read_bytes(&sb->device, offset + (uint64_t)j * sb->desc_size, &sb->group_desc[i * sb->desc_per_block + j],
+                                    sb->desc_size)
+                != EOK) {
                 sb->read_only = 1;
                 return;
             }
@@ -258,8 +280,8 @@ int extfs_read_inode_raw(extfs_sb_info_t *sb, uint32_t ino, ext2_inode_t *raw)
         memcpy(&stored_lo, inode + 124, sizeof(stored_lo));
         if (extfs_inode_has_checksum_hi(sb, inode)) memcpy(&stored_hi, inode + 130, sizeof(stored_hi));
         uint32_t calculated = extfs_inode_checksum(sb, ino, inode);
-        uint32_t stored = stored_lo | (uint32_t)stored_hi << 16;
-        uint32_t mask = extfs_inode_has_checksum_hi(sb, inode) ? UINT32_MAX : UINT16_MAX;
+        uint32_t stored     = stored_lo | (uint32_t)stored_hi << 16;
+        uint32_t mask       = extfs_inode_has_checksum_hi(sb, inode) ? UINT32_MAX : UINT16_MAX;
         if ((stored & mask) != (calculated & mask)) status = -EIO;
     }
     memset(raw, 0, sizeof(*raw));
@@ -333,8 +355,8 @@ int extfs_write_group_desc(extfs_sb_info_t *sb, uint32_t group, const ext2_group
     desc_offset = group % sb->desc_per_block;
     byte_offset = extfs_block_offset(sb, desc_block) + desc_offset * sb->desc_size;
 
-    ext2_group_desc_t copy = *desc;
-    copy.bg_checksum = extfs_group_desc_checksum(sb, group, &copy);
+    ext2_group_desc_t copy            = *desc;
+    copy.bg_checksum                  = extfs_group_desc_checksum(sb, group, &copy);
     sb->group_desc[group].bg_checksum = copy.bg_checksum;
     return extfs_disk_write(sb, byte_offset, &copy, sb->desc_size);
 }
@@ -368,16 +390,15 @@ int extfs_read_super(extfs_sb_info_t *sb, const blockdev_device_t *device)
         return -EINVAL;
     }
 
-    if (sb->es->s_rev_level > EXT2_MAX_SUPP_REV || sb->es->s_log_block_size > 2 || !sb->es->s_blocks_per_group
-        || !sb->es->s_inodes_per_group || sb->es->s_blocks_count <= sb->es->s_first_data_block) {
+    if (sb->es->s_rev_level > EXT2_MAX_SUPP_REV || sb->es->s_log_block_size > 2 || !sb->es->s_blocks_per_group || !sb->es->s_inodes_per_group
+        || sb->es->s_blocks_count <= sb->es->s_first_data_block) {
         free(sb->es);
         blockdev_release(&sb->device);
         return -EINVAL;
     }
 
-    uint32_t supported_incompat = EXT2_FEATURE_INCOMPAT_FILETYPE | EXT3_FEATURE_INCOMPAT_RECOVER
-                                  | EXT4_FEATURE_INCOMPAT_EXTENTS | EXT4_FEATURE_INCOMPAT_64BIT
-                                  | EXT4_FEATURE_INCOMPAT_FLEX_BG | EXT4_FEATURE_INCOMPAT_CSUM_SEED
+    uint32_t supported_incompat = EXT2_FEATURE_INCOMPAT_FILETYPE | EXT3_FEATURE_INCOMPAT_RECOVER | EXT4_FEATURE_INCOMPAT_EXTENTS
+                                  | EXT4_FEATURE_INCOMPAT_64BIT | EXT4_FEATURE_INCOMPAT_FLEX_BG | EXT4_FEATURE_INCOMPAT_CSUM_SEED
                                   | EXT4_FEATURE_INCOMPAT_LARGEDIR;
     uint32_t unsupported_incompat = sb->es->s_feature_incompat & ~supported_incompat;
     if (unsupported_incompat || (sb->es->s_feature_incompat & EXT3_FEATURE_INCOMPAT_JOURNAL_DEV)) {
@@ -391,8 +412,7 @@ int extfs_read_super(extfs_sb_info_t *sb, const blockdev_device_t *device)
     sb->read_only      = device->read_only;
 
     sb->blocks_count = sb->es->s_blocks_count;
-    if (sb->es->s_feature_incompat & EXT4_FEATURE_INCOMPAT_64BIT)
-        sb->blocks_count |= (uint64_t)extfs_super_u32(sb->es, 336) << 32;
+    if (sb->es->s_feature_incompat & EXT4_FEATURE_INCOMPAT_64BIT) sb->blocks_count |= (uint64_t)extfs_super_u32(sb->es, 336) << 32;
     if (sb->blocks_count > UINT32_MAX) {
         free(sb->es);
         blockdev_release(&sb->device);
@@ -405,26 +425,22 @@ int extfs_read_super(extfs_sb_info_t *sb, const blockdev_device_t *device)
         return -EOPNOTSUPP;
     }
 
-    sb->checksum_seed = (sb->es->s_feature_incompat & EXT4_FEATURE_INCOMPAT_CSUM_SEED)
-                            ? extfs_super_u32(sb->es, 624)
-                            : crc32c_update(~0U, sb->es->s_uuid, sizeof(sb->es->s_uuid));
+    sb->checksum_seed = (sb->es->s_feature_incompat & EXT4_FEATURE_INCOMPAT_CSUM_SEED) ?
+                            extfs_super_u32(sb->es, 624) :
+                            crc32c_update(~0U, sb->es->s_uuid, sizeof(sb->es->s_uuid));
     if (sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM) {
-        if (*((uint8_t *)sb->es + 373) != 1
-            || extfs_super_u32(sb->es, 1020) != crc32c_update(~0U, sb->es, 1020)) {
+        if (*((uint8_t *)sb->es + 373) != 1 || extfs_super_u32(sb->es, 1020) != crc32c_update(~0U, sb->es, 1020)) {
             free(sb->es);
             blockdev_release(&sb->device);
             return -EIO;
         }
     }
 
-    uint32_t supported_ro = EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER | EXT2_FEATURE_RO_COMPAT_LARGE_FILE
-                            | EXT2_FEATURE_RO_COMPAT_BTREE_DIR | EXT4_FEATURE_RO_COMPAT_HUGE_FILE
-                            | EXT4_FEATURE_RO_COMPAT_GDT_CSUM | EXT4_FEATURE_RO_COMPAT_DIR_NLINK
+    uint32_t supported_ro = EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER | EXT2_FEATURE_RO_COMPAT_LARGE_FILE | EXT2_FEATURE_RO_COMPAT_BTREE_DIR
+                            | EXT4_FEATURE_RO_COMPAT_HUGE_FILE | EXT4_FEATURE_RO_COMPAT_GDT_CSUM | EXT4_FEATURE_RO_COMPAT_DIR_NLINK
                             | EXT4_FEATURE_RO_COMPAT_EXTRA_ISIZE | EXT4_FEATURE_RO_COMPAT_METADATA_CSUM;
     if (sb->es->s_feature_ro_compat & ~supported_ro) sb->read_only = 1;
-    if (!(sb->es->s_state & EXT2_VALID_FS)
-        && !(sb->es->s_feature_compat & EXT3_FEATURE_COMPAT_HAS_JOURNAL))
-        sb->read_only = 1;
+    if (!(sb->es->s_state & EXT2_VALID_FS) && !(sb->es->s_feature_compat & EXT3_FEATURE_COMPAT_HAS_JOURNAL)) sb->read_only = 1;
 
     if (sb->es->s_blocks_per_group > sb->block_size * 8 || sb->es->s_inodes_per_group > sb->block_size * 8) {
         free(sb->es);
@@ -474,8 +490,7 @@ int extfs_read_super(extfs_sb_info_t *sb, const blockdev_device_t *device)
         if (remaining < count) count = remaining;
 
         for (uint32_t j = 0; j < count; j++) {
-            status = extfs_disk_read(sb, off + (uint64_t)j * sb->desc_size,
-                                     &sb->group_desc[i * sb->desc_per_block + j], sb->desc_size);
+            status = extfs_disk_read(sb, off + (uint64_t)j * sb->desc_size, &sb->group_desc[i * sb->desc_per_block + j], sb->desc_size);
             if (status != EOK) {
                 extfs_free_super(sb);
                 return -EIO;
@@ -485,9 +500,8 @@ int extfs_read_super(extfs_sb_info_t *sb, const blockdev_device_t *device)
 
     for (i = 0; i < sb->groups_count; i++) {
         ext2_group_desc_t *desc = &sb->group_desc[i];
-        if (desc->bg_block_bitmap_hi || desc->bg_inode_bitmap_hi || desc->bg_inode_table_hi
-            || desc->bg_block_bitmap >= sb->blocks_count || desc->bg_inode_bitmap >= sb->blocks_count
-            || desc->bg_inode_table >= sb->blocks_count
+        if (desc->bg_block_bitmap_hi || desc->bg_inode_bitmap_hi || desc->bg_inode_table_hi || desc->bg_block_bitmap >= sb->blocks_count
+            || desc->bg_inode_bitmap >= sb->blocks_count || desc->bg_inode_table >= sb->blocks_count
             || desc->bg_checksum != extfs_group_desc_checksum(sb, i, desc)) {
             extfs_free_super(sb);
             return -EINVAL;
@@ -528,8 +542,7 @@ int extfs_write_super(extfs_sb_info_t *sb)
 {
     if (!sb || !sb->es) return -EINVAL;
     if (sb->read_only) return -EROFS;
-    if (sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM)
-        extfs_super_put_u32(sb->es, 1020, crc32c_update(~0U, sb->es, 1020));
+    if (sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM) extfs_super_put_u32(sb->es, 1020, crc32c_update(~0U, sb->es, 1020));
     return extfs_disk_write(sb, 1024, sb->es, sizeof(ext2_super_block_t));
 }
 
