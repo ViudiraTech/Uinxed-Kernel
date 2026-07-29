@@ -37,6 +37,7 @@
 #include <drivers/virt/virtgpu_drv.h>
 #include <fs/core/inotify.h>
 #include <fs/core/vfs.h>
+#include <fs/extfs/extfs.h>
 #include <fs/fatfs/fatfs_vfs.h>
 #include <fs/isofs/isofs.h>
 #include <fs/ntfs/ntfs_vfs.h>
@@ -248,6 +249,7 @@ void kernel_entry(void)
     fatfs_vfs_regist();            // FAT File System
     isofs_regist();                // ISO 9660 File System
     ntfs_vfs_regist();             // New Technology File System
+    extfs_regist();                // ext2/ext3/ext4 File System
                                    //
     /* Terminal Devices */         //
     pty_init();                    // Unix98 pseudo-terminals

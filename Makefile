@@ -336,6 +336,12 @@ else
   C_CONFIG += -DCONFIG_ISO9660_FS=0
 endif
 
+ifeq ($(CONFIG_EXTFS), y)
+  C_CONFIG += -DCONFIG_EXTFS=1
+else
+  C_CONFIG += -DCONFIG_EXTFS=0
+endif
+
 ifeq ($(CONFIG_CGROUP), y)
   C_CONFIG += -DCONFIG_CGROUP=1
 else

@@ -506,6 +506,15 @@ menu "File systems"
       ISO 9660 (CD-ROM) filesystem support with Rock Ridge
       extensions for optical disc access.
 
+  config EXTFS
+    bool "ext2/ext3/ext4 filesystem support"
+    default y
+    help
+      ext2/ext3/ext4 filesystem support for reading and writing
+      ext2-formatted disks. Supports basic ext2 operations
+      including block allocation, directory management, and
+      hard/soft links.
+
   config CGROUP
     bool "Control group (cgroup) support"
     default y
