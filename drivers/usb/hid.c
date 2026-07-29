@@ -53,50 +53,6 @@ static uint16_t hid_usage_at(const usb_hid_field_t *field, size_t index)
     return 0;
 }
 
-static uint16_t hid_consumer_keycode(uint16_t usage)
-{
-    switch (usage) {
-        case 0x030 :
-            return KEY_POWER;
-        case 0x0b0 :
-            return KEY_PLAY;
-        case 0x0b1 :
-            return KEY_PAUSECD;
-        case 0x0b5 :
-            return KEY_NEXTSONG;
-        case 0x0b6 :
-            return KEY_PREVIOUSSONG;
-        case 0x0b7 :
-            return KEY_STOPCD;
-        case 0x0cd :
-            return KEY_PLAYPAUSE;
-        case 0x0e2 :
-            return KEY_MUTE;
-        case 0x0e9 :
-            return KEY_VOLUMEUP;
-        case 0x0ea :
-            return KEY_VOLUMEDOWN;
-        case 0x18a :
-            return KEY_MAIL;
-        case 0x192 :
-            return KEY_CALC;
-        case 0x221 :
-            return KEY_SEARCH;
-        case 0x223 :
-            return KEY_HOMEPAGE;
-        case 0x224 :
-            return KEY_BACK;
-        case 0x225 :
-            return KEY_FORWARD;
-        case 0x227 :
-            return KEY_REFRESH;
-        case 0x22a :
-            return KEY_BOOKMARKS;
-        default :
-            return 0;
-    }
-}
-
 static void hid_enable_key(input_dev_t *input, uint16_t keycode)
 {
     if (!keycode || keycode >= KEY_CNT) return;
@@ -278,6 +234,7 @@ static int hid_report_descriptor_length(const usb_interface_t *interface, uint16
 
 int usb_hid_probe(usb_interface_t *interface)
 {
+#if CONFIG_USB_HID
     uint16_t report_length;
     int      result;
 
@@ -330,10 +287,15 @@ fail:
     free(hid->report_descriptor);
     free(hid);
     return result;
+#else
+    (void)interface;
+    return -ENOSYS;
+#endif
 }
 
 void usb_hid_disconnect(usb_interface_t *interface)
 {
+#if CONFIG_USB_HID
     usb_hid_device_t *hid = interface ? interface->driver_data : NULL;
     if (!hid) return;
     hid->running = false;
@@ -342,4 +304,7 @@ void usb_hid_disconnect(usb_interface_t *interface)
     interface->driver_data = NULL;
     free(hid->report_descriptor);
     free(hid);
+#else
+    (void)interface;
+#endif
 }

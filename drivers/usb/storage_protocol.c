@@ -12,7 +12,7 @@
 #include <kernel/errno.h>
 #include <libs/std/string.h>
 
-static uint32_t usb_scsi_be32(const uint8_t *buffer)
+uint32_t usb_scsi_be32(const uint8_t *buffer)
 {
     return (uint32_t)buffer[0] << 24 | (uint32_t)buffer[1] << 16 | (uint32_t)buffer[2] << 8 | buffer[3];
 }

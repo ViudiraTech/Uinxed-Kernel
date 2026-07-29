@@ -63,11 +63,6 @@ static int        usb_storage_type = -1;
 static bool       usb_storage_disk_ids[USB_MSC_MAX_DISKS];
 static spinlock_t usb_storage_disk_lock;
 
-static uint32_t usb_scsi_be32(const uint8_t *data)
-{
-    return (uint32_t)data[0] << 24 | (uint32_t)data[1] << 16 | (uint32_t)data[2] << 8 | data[3];
-}
-
 static uint64_t usb_scsi_be64(const uint8_t *data)
 {
     return (uint64_t)usb_scsi_be32(data) << 32 | usb_scsi_be32(data + 4);
@@ -252,7 +247,7 @@ static int usb_storage_flush(const blockdev_device_t *device)
 {
     usb_storage_lun_t *lun         = device ? device->backend_data : NULL;
     uint8_t            command[10] = {0x35};
-    if (!lun) return -ENODEV;
+    if (!lun || !lun->storage) return -ENODEV;
     if (lun->read_only) return EOK;
     return usb_storage_command(lun, command, sizeof(command), NULL, 0, false);
 }

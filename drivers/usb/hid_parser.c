@@ -297,7 +297,7 @@ uint16_t usb_hid_keyboard_keycode(uint16_t usage)
     return usage < sizeof(keycodes) / sizeof(keycodes[0]) ? keycodes[usage] : 0;
 }
 
-static uint16_t hid_consumer_keycode(uint16_t usage)
+uint16_t hid_consumer_keycode(uint16_t usage)
 {
     switch (usage) {
         case 0x030 :

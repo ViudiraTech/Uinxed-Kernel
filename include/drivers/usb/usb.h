@@ -187,6 +187,7 @@ extern struct bus_type usb_bus_type;
 
 int  usb_core_init(void);
 int  usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t length);
+void usb_disconnect_device(usb_device_t *device);
 void usb_remove_device(usb_device_t *device);
 
 int  usb_control_msg(usb_device_t *device, uint8_t request_type, uint8_t request, uint16_t value, uint16_t index, void *buffer, uint16_t length,
