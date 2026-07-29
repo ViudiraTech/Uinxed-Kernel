@@ -1,5 +1,11 @@
 /*
- * Linux-compatible evdev per-client packet queue.
+ *
+ *      evdev_queue.c
+ *      Linux-compatible evdev per-client packet queue
+ *
+ *      2026/7/26 By JiTianYu391
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
  */
 
 #include <drivers/input/evdev_queue.h>

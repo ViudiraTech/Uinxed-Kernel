@@ -3,6 +3,9 @@
  *      init.ld
  *      Linker script for userspace init program
  *
+ *      2026/7/21 By JiTianYu391
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
  */
 
 OUTPUT_FORMAT(elf64-x86-64)

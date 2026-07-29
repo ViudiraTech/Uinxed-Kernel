@@ -1,5 +1,11 @@
 /*
- * Decoder for i8042-translated keyboard scan-set-1 byte streams.
+ *
+ *      ps2_keyboard_protocol.c
+ *      Decoder for i8042-translated keyboard scan-set-1 byte streams
+ *
+ *      2026/7/26 By JiTianYu391
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
  */
 
 #include <drivers/input/ps2_keyboard.h>

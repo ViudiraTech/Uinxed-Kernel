@@ -1,3 +1,13 @@
+/*
+ *
+ *      init.S
+ *      Userspace init entry point
+ *
+ *      2026/7/21 By Rainy101112
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
+ */
+
 .global _start
 .section .text
 _start:

@@ -1,5 +1,11 @@
 /*
- * Linux-compatible poll/select syscall family.
+ *
+ *      poll.h
+ *      Linux-compatible poll/select syscall family definitions
+ *
+ *      2026/7/28 By JiTianYu391
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
  */
 
 #ifndef INCLUDE_SYSCALL_POLL_H_

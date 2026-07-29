@@ -1,3 +1,13 @@
+/*
+ *
+ *      pty.c
+ *      Pseudoterminal driver
+ *
+ *      2026/7/25 By JiTianYu391
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
+ */
+
 #include <drivers/base/device.h>
 #include <drivers/char/pty.h>
 #include <drivers/char/tty_core.h>

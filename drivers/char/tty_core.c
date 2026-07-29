@@ -1,3 +1,13 @@
+/*
+ *
+ *      tty_core.c
+ *      TTY core implementation
+ *
+ *      2026/7/25 By JiTianYu391
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
+ */
+
 #include <drivers/char/tty_core.h>
 #include <kernel/errno.h>
 #include <libs/std/string.h>

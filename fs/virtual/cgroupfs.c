@@ -1,3 +1,13 @@
+/*
+ *
+ *      cgroupfs.c
+ *      Control group virtual filesystem
+ *
+ *      2026/7/25 By JiTianYu391
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
+ */
+
 #include <cgroup/cgroup.h>
 #include <fs/core/vfs.h>
 #include <fs/virtual/cgroupfs.h>
