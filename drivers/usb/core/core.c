@@ -8,15 +8,20 @@
  *
  */
 
-#include <drivers/usb/usb.h>
+#include <drivers/usb/core/usb.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
+#include <mem/alloc.h>
+
+#define min(a, b)                       ((a) < (b) ? (a) : (b))
+#define USB_MAX_STRING_DESC_SIZE        256
+#define USB_MAX_ENDPOINTS_PER_INTERFACE 31
 
 struct bus_type usb_bus_type = {.name = "usb", .dev_name = NULL};
 static bool     usb_core_ready;
 
-static uint16_t usb_get_le16(const void *address)
+uint16_t usb_get_le16(const void *address)
 {
     const uint8_t *bytes = address;
     return (uint16_t)bytes[0] | (uint16_t)bytes[1] << 8;
@@ -60,29 +65,10 @@ static ssize_t serial_show(struct device *dev, struct device_attribute *attribut
 static ssize_t speed_show(struct device *dev, struct device_attribute *attribute, char *buffer)
 {
     (void)attribute;
-    usb_device_t *device = dev ? dev->driver_data : NULL;
-    const char   *speed  = "0";
-    if (device) {
-        switch (device->speed) {
-            case USB_SPEED_LOW :
-                speed = "1.5";
-                break;
-            case USB_SPEED_FULL :
-                speed = "12";
-                break;
-            case USB_SPEED_HIGH :
-                speed = "480";
-                break;
-            case USB_SPEED_SUPER :
-                speed = "5000";
-                break;
-            case USB_SPEED_SUPER_PLUS :
-                speed = "10000";
-                break;
-            default :
-                break;
-        }
-    }
+    usb_device_t *device        = dev ? dev->driver_data : NULL;
+    const char   *speed_table[] = {"0", "1.5", "12", "480", "5000", "10000"};
+    const char   *speed         = "0";
+    if (device && device->speed > 0 && device->speed <= USB_SPEED_SUPER_PLUS) { speed = speed_table[device->speed]; }
     return sysfs_emit(buffer, "%s\n", speed);
 }
 
@@ -223,7 +209,7 @@ static int usb_parse_configuration(usb_device_t *device, const uint8_t *buffer, 
                 interface->extra      = descriptor + descriptor_length;
             }
         } else if (descriptor[1] == USB_DT_ENDPOINT && descriptor_length >= sizeof(usb_endpoint_descriptor_t) && interface) {
-            if (interface->endpoint_count >= USB_MAX_ENDPOINTS) return -E2BIG;
+            if (interface->endpoint_count >= USB_MAX_ENDPOINTS_PER_INTERFACE) return -E2BIG;
             usb_endpoint_t *endpoint = &interface->endpoints[interface->endpoint_count++];
             memset(endpoint, 0, sizeof(*endpoint));
             endpoint->interface  = interface;
@@ -279,6 +265,13 @@ int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t le
 {
     if (!usb_core_ready || !device || !device->connected || !device->hcd_ops) return -EINVAL;
     if (!device->hcd_ops->configure_endpoint) return -ENOSYS;
+
+    if (!configuration) return -EINVAL;
+    if (length < sizeof(usb_config_descriptor_t)) return -EINVAL;
+
+    const usb_config_descriptor_t *config_header = (const usb_config_descriptor_t *)configuration;
+    if (config_header->length < sizeof(*config_header) || length < config_header->length) return -EINVAL;
+
     int result = usb_parse_configuration(device, configuration, length);
     if (result != EOK) return result;
 
@@ -293,11 +286,11 @@ int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t le
         }
     }
 
-    result = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_CONFIGURATION,
-                             device->configuration.configuration_value, 0, NULL, 0, USB_CTRL_TIMEOUT_MS);
-    if (result != EOK) {
+    int temp_result = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_CONFIGURATION,
+                                      device->configuration.configuration_value, 0, NULL, 0, USB_CTRL_TIMEOUT_MS);
+    if (temp_result != EOK) {
         usb_cleanup_endpoints(device, device->interface_count, 0);
-        return result;
+        return temp_result;
     }
     device->configured = true;
     result             = usb_register_device_model(device);
@@ -311,6 +304,10 @@ int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t le
         }
         if (device->hcd_ops && device->hcd_ops->disable_device) device->hcd_ops->disable_device(device);
         usb_cleanup_endpoints(device, device->interface_count, 0);
+
+        temp_result = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_CONFIGURATION, 0U, 0, NULL, 0,
+                                      USB_CTRL_TIMEOUT_MS);
+        if (temp_result != EOK) { plogk("usb-core: Failed to reset device configuration: %d\n", temp_result); }
         return result;
     }
 
@@ -336,6 +333,46 @@ void usb_disconnect_device(usb_device_t *device)
             usb_storage_disconnect(interface);
     }
     if (device->hcd_ops && device->hcd_ops->disable_device) device->hcd_ops->disable_device(device);
+}
+
+int usb_get_string_descriptor(usb_device_t *device, uint8_t index, uint16_t language, char *output, size_t capacity)
+{
+    uint8_t descriptor[USB_MAX_STRING_DESC_SIZE];
+    if (!index || !output || capacity < 2) return -EINVAL;
+    int result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, (USB_DT_STRING << 8) | index,
+                                 language, descriptor, sizeof(descriptor), USB_CTRL_TIMEOUT_MS);
+    if (result != EOK || descriptor[0] < 2 || descriptor[1] != USB_DT_STRING) return -EIO;
+    size_t characters = (descriptor[0] - 2) / 2;
+    if (characters >= capacity) characters = capacity - 1;
+    for (size_t i = 0; i < characters; i++) {
+        uint16_t character = descriptor[2 + i * 2] | (uint16_t)descriptor[3 + i * 2] << 8;
+        output[i]          = character >= 0x20 && character < 0x7f ? (char)character : '?';
+    }
+    output[characters] = '\0';
+    return EOK;
+}
+
+int usb_read_config_descriptor(usb_device_t *device, uint8_t **config_out, uint16_t *length_out)
+{
+    if (!device || !config_out || !length_out) return -EINVAL;
+    if (!device->connected || !device->hcd_ops) return -ENODEV;
+    usb_config_descriptor_t header;
+    int result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0,
+                                 &header, sizeof(header), USB_CTRL_TIMEOUT_MS);
+    if (result != EOK) return result;
+    uint16_t total_length = usb_get_le16(&header.total_length);
+    if (total_length < sizeof(header) || total_length > USB_MAX_STRING_DESC_SIZE) return -EINVAL;
+    uint8_t *config = malloc(total_length);
+    if (!config) return -ENOMEM;
+    result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0, config,
+                             total_length, USB_CTRL_TIMEOUT_MS);
+    if (result != EOK) {
+        free(config);
+        return result;
+    }
+    *config_out = config;
+    *length_out = total_length;
+    return EOK;
 }
 
 void usb_remove_device(usb_device_t *device)

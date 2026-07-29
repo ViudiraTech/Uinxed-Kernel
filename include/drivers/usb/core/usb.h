@@ -8,18 +8,18 @@
  *
  */
 
-#ifndef INCLUDE_USB_H_
-#define INCLUDE_USB_H_
+#ifndef INCLUDE_USB_CORE_H_
+#define INCLUDE_USB_CORE_H_
 
 #include <drivers/base/device.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
-#define USB_MAX_INTERFACES  8
-#define USB_MAX_ENDPOINTS   16
-#define USB_MAX_CONTROLLERS 8
-#define USB_MAX_DEVICES     64
+#define USB_MAX_INTERFACES  64
+#define USB_MAX_ENDPOINTS   512
+#define USB_MAX_CONTROLLERS 16
+#define USB_MAX_DEVICES     128
 
 #define USB_DIR_OUT 0x00
 #define USB_DIR_IN  0x80
@@ -200,13 +200,14 @@ int  usb_clear_halt(usb_endpoint_t *endpoint);
 usb_endpoint_t *usb_find_endpoint(usb_interface_t *interface, uint8_t transfer_type, bool input);
 const uint8_t  *usb_find_extra_descriptor(const usb_interface_t *interface, uint8_t descriptor_type, size_t *length);
 
+int      usb_get_string_descriptor(usb_device_t *device, uint8_t index, uint16_t language, char *output, size_t capacity);
+int      usb_read_config_descriptor(usb_device_t *device, uint8_t **config_out, uint16_t *length_out);
+uint16_t usb_get_le16(const void *address);
+int      usb_add_config_descriptor(usb_device_t *device, uint8_t *configuration, uint16_t length);
+
 int  usb_hid_probe(usb_interface_t *interface);
 void usb_hid_disconnect(usb_interface_t *interface);
 int  usb_storage_probe(usb_interface_t *interface);
 void usb_storage_disconnect(usb_interface_t *interface);
 
-void xhci_init(void);
-void xhci_start_workers(void);
-void xhci_shutdown(void);
-
-#endif /* INCLUDE_USB_H_ */
+#endif /* INCLUDE_USB_CORE_H_ */

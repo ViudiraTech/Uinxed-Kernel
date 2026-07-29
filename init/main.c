@@ -33,7 +33,8 @@
 #include <drivers/sound/hda.h>
 #include <drivers/sound/sb16.h>
 #include <drivers/timer/tsc.h>
-#include <drivers/usb/usb.h>
+#include <drivers/usb/core/usb.h>
+#include <drivers/usb/host/host.h>
 #include <drivers/virt/virtgpu_drv.h>
 #include <fs/core/inotify.h>
 #include <fs/core/vfs.h>
@@ -232,7 +233,7 @@ void kernel_entry(void)
     devtmpfs_init();               // Device Temporary File System
                                    //
     /* USB Subsystem */            //
-    xhci_init();                   // USB xHCI host controllers and root devices
+    usb_host_pci_scan();           // Discover and init all USB host controllers
                                    //
     /* RAM Filesystem */           //
     init_cpio();                   // Copy In, Copy Out
@@ -284,7 +285,7 @@ void kernel_entry(void)
 
     boot_start_init_before_debug(swapper_run_init, sched_test_init);
     e1000_start_workers();
-    xhci_start_workers();
+    usb_host_start_workers();
 
     enable_intr();
     sched_start();

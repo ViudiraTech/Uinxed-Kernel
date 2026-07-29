@@ -334,8 +334,29 @@ menu "USB support"
     help
       Enable the USB host core and USB device model integration.
 
+  config USB_UHCI
+    bool "UHCI (Universal HCI) host controller support"
+    depends on USB
+    default y
+    help
+      Enable PCI UHCI controllers for USB 1.x Full/Low-Speed devices.
+
+  config USB_OHCI
+    bool "OHCI (Open HCI) host controller support"
+    depends on USB
+    default y
+    help
+      Enable PCI OHCI controllers for USB 1.x Full/Low-Speed devices.
+
+  config USB_EHCI
+    bool "EHCI (Enhanced HCI) host controller support"
+    depends on USB
+    default y
+    help
+      Enable PCI EHCI controllers for USB 2.0 High-Speed devices.
+
   config USB_XHCI
-    bool "xHCI host controller support"
+    bool "xHCI (eXtensible HCI) host controller support"
     depends on USB
     default y
     help
@@ -343,7 +364,7 @@ menu "USB support"
 
   config USB_HID
     bool "USB HID support"
-    depends on USB_XHCI && INPUT_EVDEV
+    depends on (USB_UHCI || USB_OHCI || USB_EHCI || USB_XHCI) && INPUT_EVDEV
     default y
     help
       Enable report-descriptor based USB keyboard, mouse, controller,
@@ -351,7 +372,7 @@ menu "USB support"
 
   config USB_STORAGE
     bool "USB Mass Storage support"
-    depends on USB_XHCI
+    depends on (USB_UHCI || USB_OHCI || USB_EHCI || USB_XHCI)
     default y
     help
       Enable Bulk-Only Transport devices using the SCSI transparent

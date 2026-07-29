@@ -64,16 +64,9 @@ typedef struct {
         int32_t  value;
 } usb_hid_event_t;
 
-/* Parse one HID report descriptor into a bounded report layout. */
-int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, usb_hid_report_t *report);
-
-/* Decode one input report and return the number of Linux input events. */
-int usb_hid_decode_report(usb_hid_report_t *report, const uint8_t *data, size_t length, usb_hid_event_t *events, size_t event_capacity);
-
-/* Translate a HID keyboard-page usage into a Linux KEY_* code. */
+int      usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, usb_hid_report_t *report);
+int      usb_hid_decode_report(usb_hid_report_t *report, const uint8_t *data, size_t length, usb_hid_event_t *events, size_t event_capacity);
 uint16_t usb_hid_keyboard_keycode(uint16_t usage);
-
-/* Translate a HID consumer-page usage into a Linux KEY_* code. */
 uint16_t hid_consumer_keycode(uint16_t usage);
 
 #endif /* INCLUDE_USB_HID_H_ */

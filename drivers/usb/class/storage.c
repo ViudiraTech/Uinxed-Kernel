@@ -10,8 +10,8 @@
 
 #include <drivers/base/device.h>
 #include <drivers/block/blockdev.h>
-#include <drivers/usb/usb.h>
-#include <drivers/usb/usb_storage.h>
+#include <drivers/usb/class/usb_storage.h>
+#include <drivers/usb/core/usb.h>
 #include <fs/core/vfs.h>
 #include <fs/sysfs/block_sysfs.h>
 #include <fs/virtual/devtmpfs.h>

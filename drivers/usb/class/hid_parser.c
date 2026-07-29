@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/usb/usb_hid.h>
+#include <drivers/usb/class/usb_hid.h>
 #include <kernel/errno.h>
 #include <libs/std/string.h>
 

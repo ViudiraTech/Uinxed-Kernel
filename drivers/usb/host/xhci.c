@@ -11,8 +11,9 @@
 #include <chipset/common.h>
 #include <drivers/bus/pci.h>
 #include <drivers/interrupt/apic.h>
-#include <drivers/usb/usb.h>
-#include <drivers/usb/xhci.h>
+#include <drivers/usb/core/usb.h>
+#include <drivers/usb/host/host.h>
+#include <drivers/usb/host/xhci.h>
 #include <kernel/errno.h>
 #include <kernel/interrupt.h>
 #include <kernel/printk.h>
@@ -581,8 +582,9 @@ static int xhci_configure_endpoint(usb_endpoint_t *usb_endpoint)
 
     uint32_t *context    = xhci_input_context(slot, dci);
     uint16_t  max_packet = usb_endpoint->descriptor.max_packet_size & 0x07ff;
-    context[0]           = (uint32_t)xhci_endpoint_interval(usb_endpoint) << XHCI_ENDPOINT_INTERVAL_SHIFT;
-    context[1]           = (3U << XHCI_ENDPOINT_ERROR_COUNT_SHIFT) | ((uint32_t)xhci_endpoint_type(usb_endpoint) << XHCI_ENDPOINT_TYPE_SHIFT)
+    if (max_packet < 1 || max_packet > 1024) max_packet = 512;
+    context[0] = (uint32_t)xhci_endpoint_interval(usb_endpoint) << XHCI_ENDPOINT_INTERVAL_SHIFT;
+    context[1] = (3U << XHCI_ENDPOINT_ERROR_COUNT_SHIFT) | ((uint32_t)xhci_endpoint_type(usb_endpoint) << XHCI_ENDPOINT_TYPE_SHIFT)
                  | ((uint32_t)max_packet << XHCI_ENDPOINT_MAX_PACKET_SHIFT);
     uint64_t dequeue = endpoint->ring_physical | 1U;
     context[2]       = (uint32_t)dequeue;
@@ -742,10 +744,14 @@ static int xhci_enumerate_port(xhci_controller_t *controller, uint8_t port_id)
     if (result != EOK) return result;
     uint8_t slot_id = 0;
     result          = xhci_command(controller, 0, 0, XHCI_TRB_TYPE(XHCI_TRB_ENABLE_SLOT), &slot_id);
-    if (result != EOK || !slot_id || slot_id > controller->max_slots) return result != EOK ? result : -EIO;
-    xhci_slot_t *slot;
-    result = xhci_allocate_slot(controller, port_id, slot_id, &slot);
-    if (result != EOK) goto disable_slot;
+    if (result != EOK) return result;
+    if (!slot_id || slot_id > controller->max_slots) {
+        (void)xhci_command(controller, 0, 0, XHCI_TRB_TYPE(XHCI_TRB_DISABLE_SLOT) | ((uint32_t)slot_id << 24), NULL);
+        return -EIO;
+    }
+    xhci_slot_t *slot = NULL;
+    result            = xhci_allocate_slot(controller, port_id, slot_id, &slot);
+    if (result != EOK) goto free_slot;
     size_t      port_offset = XHCI_OP_PORTS + (size_t)(port_id - 1) * XHCI_PORT_STRIDE;
     usb_speed_t speed       = xhci_usb_speed(xhci_read32(controller->operational, port_offset));
     result                  = xhci_address_slot(slot, speed);
@@ -805,12 +811,14 @@ remove_device:
 free_slot:
     controller->slots[slot_id] = NULL;
     controller->dcbaa[slot_id] = 0;
-    for (size_t dci = 1; dci < XHCI_MAX_ENDPOINTS; dci++)
-        xhci_dma_free(slot->endpoints[dci].ring_physical, slot->endpoints[dci].ring_physical ? 1 : 0);
-    xhci_dma_free(slot->input_context_physical, 1);
-    xhci_dma_free(slot->output_context_physical, 1);
-    free(slot);
-disable_slot:
+    if (slot) {
+        for (size_t dci = 1; dci < XHCI_MAX_ENDPOINTS; dci++) {
+            if (slot->endpoints[dci].ring_physical) { xhci_dma_free(slot->endpoints[dci].ring_physical, 1); }
+        }
+        if (slot->input_context_physical) { xhci_dma_free(slot->input_context_physical, 1); }
+        if (slot->output_context_physical) { xhci_dma_free(slot->output_context_physical, 1); }
+        free(slot);
+    }
     (void)xhci_command(controller, 0, 0, XHCI_TRB_TYPE(XHCI_TRB_DISABLE_SLOT) | ((uint32_t)slot_id << 24), NULL);
     return result;
 }
@@ -960,11 +968,16 @@ static int xhci_take_ownership(xhci_controller_t *controller)
 
 static void xhci_free_scratchpads(xhci_controller_t *controller)
 {
+    if (!controller) return;
     if (!controller->scratchpad_array) return;
-    for (uint16_t i = 0; i < controller->scratchpad_count; i++) xhci_dma_free(controller->scratchpad_array[i], 1);
+    for (uint16_t i = 0; i < controller->scratchpad_count; i++) {
+        if (controller->scratchpad_array[i]) { xhci_dma_free(controller->scratchpad_array[i], 1); }
+    }
     size_t pages = ((size_t)controller->scratchpad_count * sizeof(uint64_t) + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
-    xhci_dma_free(controller->scratchpad_array_physical, pages);
-    controller->scratchpad_array = NULL;
+    if (controller->scratchpad_array_physical) { xhci_dma_free(controller->scratchpad_array_physical, pages); }
+    controller->scratchpad_array          = NULL;
+    controller->scratchpad_array_physical = 0;
+    controller->scratchpad_count          = 0;
 }
 
 static int xhci_allocate_scratchpads(xhci_controller_t *controller, uint32_t hcsparams2)
@@ -1038,10 +1051,10 @@ static void xhci_release_controller(xhci_controller_t *controller)
             pci_disable_msi(controller->pci);
     }
     xhci_free_scratchpads(controller);
-    xhci_dma_free(controller->erst_physical, controller->erst ? 1 : 0);
-    xhci_dma_free(controller->event_ring_physical, controller->event_ring ? 1 : 0);
-    xhci_dma_free(controller->command_ring_physical, controller->command_ring.trbs ? 1 : 0);
-    xhci_dma_free(controller->dcbaa_physical, controller->dcbaa ? 1 : 0);
+    if (controller->erst_physical) xhci_dma_free(controller->erst_physical, controller->erst ? 1 : 0);
+    if (controller->event_ring_physical) xhci_dma_free(controller->event_ring_physical, controller->event_ring ? 1 : 0);
+    if (controller->command_ring_physical) xhci_dma_free(controller->command_ring_physical, controller->command_ring.trbs ? 1 : 0);
+    if (controller->dcbaa_physical) xhci_dma_free(controller->dcbaa_physical, controller->dcbaa ? 1 : 0);
     free(controller);
 }
 

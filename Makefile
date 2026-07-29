@@ -234,6 +234,24 @@ else
   C_CONFIG += -DCONFIG_USB=0
 endif
 
+ifeq ($(CONFIG_USB_UHCI), y)
+  C_CONFIG += -DCONFIG_USB_UHCI=1
+else
+  C_CONFIG += -DCONFIG_USB_UHCI=0
+endif
+
+ifeq ($(CONFIG_USB_OHCI), y)
+  C_CONFIG += -DCONFIG_USB_OHCI=1
+else
+  C_CONFIG += -DCONFIG_USB_OHCI=0
+endif
+
+ifeq ($(CONFIG_USB_EHCI), y)
+  C_CONFIG += -DCONFIG_USB_EHCI=1
+else
+  C_CONFIG += -DCONFIG_USB_EHCI=0
+endif
+
 ifeq ($(CONFIG_USB_XHCI), y)
   C_CONFIG += -DCONFIG_USB_XHCI=1
 else

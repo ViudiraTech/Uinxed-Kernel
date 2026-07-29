@@ -9,7 +9,7 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/usb/xhci.h>
+#include <drivers/usb/host/xhci.h>
 #include <kernel/errno.h>
 #include <libs/std/string.h>
 
@@ -50,4 +50,17 @@ xhci_trb_t *xhci_ring_enqueue(xhci_ring_t *ring, uint64_t parameter, uint32_t st
     if (physical) *physical = ring->physical + (uint64_t)index * sizeof(*trb);
     spin_unlock(&ring->lock);
     return trb;
+}
+
+void xhci_ring_dequeue(xhci_ring_t *ring, uint16_t index)
+{
+    if (!ring || !ring->trbs || index >= ring->count) return;
+    spin_lock(&ring->lock);
+    if (index < ring->enqueue) {
+        xhci_trb_t *trb = &ring->trbs[index];
+        trb->parameter  = 0;
+        trb->status     = 0;
+        trb->control    = 0;
+    }
+    spin_unlock(&ring->lock);
 }
