@@ -181,12 +181,14 @@ const uint8_t *usb_find_extra_descriptor(const usb_interface_t *interface, uint8
     size_t offset = 0;
     while (offset + 2 <= interface->extra_length) {
         const uint8_t *descriptor = interface->extra + offset;
-        if (descriptor[0] < 2 || descriptor[0] > interface->extra_length - offset) return NULL;
+        uint8_t        desc_len   = descriptor[0];
+        if (desc_len < 2 || desc_len > interface->extra_length - offset) return NULL;
         if (descriptor[1] == descriptor_type) {
-            if (length) *length = descriptor[0];
+            if (length) *length = desc_len;
             return descriptor;
         }
-        offset += descriptor[0];
+        if (!desc_len) break;
+        offset += desc_len;
     }
     return NULL;
 }
@@ -226,7 +228,7 @@ static int usb_parse_configuration(usb_device_t *device, const uint8_t *buffer, 
             memset(endpoint, 0, sizeof(*endpoint));
             endpoint->interface  = interface;
             endpoint->descriptor = *(const usb_endpoint_descriptor_t *)descriptor;
-            if (interface->extra) interface->extra_length = (size_t)(descriptor - interface->extra);
+            if (interface->extra && !interface->extra_length) interface->extra_length = (size_t)(descriptor - interface->extra);
         }
         offset += descriptor_length;
     }
@@ -261,27 +263,56 @@ static int usb_register_device_model(usb_device_t *device)
     return EOK;
 }
 
+static void usb_cleanup_endpoints(usb_device_t *device, size_t up_to_interface, size_t up_to_endpoint)
+{
+    for (size_t i = 0; i < up_to_interface; i++) {
+        usb_interface_t *intf  = &device->interfaces[i];
+        size_t           limit = (i == up_to_interface) ? up_to_endpoint : intf->endpoint_count;
+        for (size_t j = 0; j < limit; j++) {
+            usb_endpoint_t *ep = &intf->endpoints[j];
+            if (device->hcd_ops && device->hcd_ops->clear_halt) device->hcd_ops->clear_halt(ep);
+        }
+    }
+}
+
 int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t length)
 {
     if (!usb_core_ready || !device || !device->connected || !device->hcd_ops) return -EINVAL;
+    if (!device->hcd_ops->configure_endpoint) return -ENOSYS;
     int result = usb_parse_configuration(device, configuration, length);
     if (result != EOK) return result;
 
     for (size_t interface_index = 0; interface_index < device->interface_count; interface_index++) {
         usb_interface_t *interface = &device->interfaces[interface_index];
         for (size_t endpoint_index = 0; endpoint_index < interface->endpoint_count; endpoint_index++) {
-            if (!device->hcd_ops->configure_endpoint) return -ENOSYS;
             result = device->hcd_ops->configure_endpoint(&interface->endpoints[endpoint_index]);
-            if (result != EOK) return result;
+            if (result != EOK) {
+                usb_cleanup_endpoints(device, interface_index, endpoint_index);
+                return result;
+            }
         }
     }
 
     result = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_CONFIGURATION,
                              device->configuration.configuration_value, 0, NULL, 0, USB_CTRL_TIMEOUT_MS);
-    if (result != EOK) return result;
+    if (result != EOK) {
+        usb_cleanup_endpoints(device, device->interface_count, 0);
+        return result;
+    }
     device->configured = true;
     result             = usb_register_device_model(device);
-    if (result != EOK) return result;
+    if (result != EOK) {
+        device->configured = false;
+        for (size_t i = 0; i < device->interface_count; i++) {
+            if (device->interfaces[i].registered) {
+                device_unregister(&device->interfaces[i].dev);
+                device->interfaces[i].registered = false;
+            }
+        }
+        if (device->hcd_ops && device->hcd_ops->disable_device) device->hcd_ops->disable_device(device);
+        usb_cleanup_endpoints(device, device->interface_count, 0);
+        return result;
+    }
 
     for (size_t i = 0; i < device->interface_count; i++) {
         usb_interface_t *interface = &device->interfaces[i];
@@ -293,7 +324,7 @@ int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t le
     return EOK;
 }
 
-void usb_remove_device(usb_device_t *device)
+void usb_disconnect_device(usb_device_t *device)
 {
     if (!device || !device->connected) return;
     device->connected = false;
@@ -303,12 +334,21 @@ void usb_remove_device(usb_device_t *device)
             usb_hid_disconnect(interface);
         else if (interface->descriptor.interface_class == USB_CLASS_MASS_STORAGE)
             usb_storage_disconnect(interface);
-        if (interface->registered) {
-            device_unregister(&interface->dev);
-            interface->registered = false;
-        }
     }
     if (device->hcd_ops && device->hcd_ops->disable_device) device->hcd_ops->disable_device(device);
+}
+
+void usb_remove_device(usb_device_t *device)
+{
+    if (!device || !device->connected) return;
+    usb_disconnect_device(device);
+    for (size_t i = 0; i < device->interface_count; i++) {
+        usb_interface_t *intf = &device->interfaces[i];
+        if (intf->registered) {
+            device_unregister(&intf->dev);
+            intf->registered = false;
+        }
+    }
     device_unregister(&device->dev);
     device->configured = false;
 }

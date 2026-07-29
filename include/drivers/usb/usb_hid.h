@@ -73,4 +73,7 @@ int usb_hid_decode_report(usb_hid_report_t *report, const uint8_t *data, size_t 
 /* Translate a HID keyboard-page usage into a Linux KEY_* code. */
 uint16_t usb_hid_keyboard_keycode(uint16_t usage);
 
+/* Translate a HID consumer-page usage into a Linux KEY_* code. */
+uint16_t hid_consumer_keycode(uint16_t usage);
+
 #endif /* INCLUDE_USB_HID_H_ */
