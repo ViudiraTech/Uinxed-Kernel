@@ -56,6 +56,7 @@ extern spinlock_t  usb_host_lock;
 
 int         usb_host_register(usb_host_t *host);
 int         usb_host_unregister(usb_host_t *host);
+int         usb_host_allocate_bus_number(void);
 void        usb_host_pci_scan(void);
 void        usb_host_start_workers(void);
 void        usb_host_shutdown_all(void);

@@ -575,7 +575,7 @@ static int fatfs_vfs_no_link(void *parent, const char *name, vfs_node_t node)
     (void)parent;
     (void)name;
     (void)node;
-    return -ENOSYS;
+    return -EPERM;
 }
 
 static int fatfs_vfs_stat(void *file, vfs_node_t node)
@@ -593,7 +593,7 @@ static int fatfs_vfs_ioctl(void *file, size_t req, void *arg)
     (void)file;
     (void)req;
     (void)arg;
-    return -ENOSYS;
+    return -ENOTTY;
 }
 
 static vfs_node_t fatfs_vfs_dup(vfs_node_t node)

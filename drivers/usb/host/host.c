@@ -19,11 +19,30 @@
 
 usb_host_t *usb_host_list;
 spinlock_t  usb_host_lock;
+static uint16_t usb_host_next_bus_number = 1;
+
+int usb_host_allocate_bus_number(void)
+{
+    uint64_t flags = spin_lock_irqsave(&usb_host_lock);
+    if (usb_host_next_bus_number > UINT8_MAX) {
+        spin_unlock_irqrestore(&usb_host_lock, flags);
+        return -ENOSPC;
+    }
+    int bus_number = usb_host_next_bus_number++;
+    spin_unlock_irqrestore(&usb_host_lock, flags);
+    return bus_number;
+}
 
 int usb_host_register(usb_host_t *host)
 {
-    if (!host) return -EINVAL;
+    if (!host || !host->bus_number) return -EINVAL;
     uint64_t flags = spin_lock_irqsave(&usb_host_lock);
+    for (usb_host_t *entry = usb_host_list; entry; entry = entry->next) {
+        if (entry->bus_number == host->bus_number) {
+            spin_unlock_irqrestore(&usb_host_lock, flags);
+            return -EEXIST;
+        }
+    }
     host->next     = usb_host_list;
     usb_host_list  = host;
     spin_unlock_irqrestore(&usb_host_lock, flags);

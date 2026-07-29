@@ -116,7 +116,8 @@ int usb_control_msg(usb_device_t *device, uint8_t request_type, uint8_t request,
 
 int usb_bulk_msg(usb_endpoint_t *endpoint, void *buffer, size_t length, size_t *actual, uint32_t timeout_ms)
 {
-    if (!endpoint || !endpoint->interface || !endpoint->interface->device || !buffer) return -EINVAL;
+    if (actual) *actual = 0;
+    if (!endpoint || !endpoint->interface || !endpoint->interface->device || (length && !buffer)) return -EINVAL;
     usb_device_t *device = endpoint->interface->device;
     if (!device->connected || !device->hcd_ops || !device->hcd_ops->transfer) return -ENODEV;
     return device->hcd_ops->transfer(endpoint, buffer, length, actual, timeout_ms);
@@ -234,6 +235,7 @@ static int usb_register_device_model(usb_device_t *device)
     if (result != EOK) return result;
     result = device_register(&device->dev);
     if (result != EOK) return result;
+    device->registered = true;
 
     for (size_t i = 0; i < device->interface_count; i++) {
         usb_interface_t *interface = &device->interfaces[i];
@@ -251,12 +253,13 @@ static int usb_register_device_model(usb_device_t *device)
 
 static void usb_cleanup_endpoints(usb_device_t *device, size_t up_to_interface, size_t up_to_endpoint)
 {
-    for (size_t i = 0; i < up_to_interface; i++) {
+    for (size_t i = 0; i <= up_to_interface && i < device->interface_count; i++) {
         usb_interface_t *intf  = &device->interfaces[i];
-        size_t           limit = (i == up_to_interface) ? up_to_endpoint : intf->endpoint_count;
+        size_t           limit = i == up_to_interface ? up_to_endpoint : intf->endpoint_count;
         for (size_t j = 0; j < limit; j++) {
             usb_endpoint_t *ep = &intf->endpoints[j];
-            if (device->hcd_ops && device->hcd_ops->clear_halt) device->hcd_ops->clear_halt(ep);
+            if (device->hcd_ops && device->hcd_ops->disable_endpoint) device->hcd_ops->disable_endpoint(ep);
+            ep->hc_private = NULL;
         }
     }
 }
@@ -361,7 +364,8 @@ int usb_read_config_descriptor(usb_device_t *device, uint8_t **config_out, uint1
                                  &header, sizeof(header), USB_CTRL_TIMEOUT_MS);
     if (result != EOK) return result;
     uint16_t total_length = usb_get_le16(&header.total_length);
-    if (total_length < sizeof(header) || total_length > USB_MAX_STRING_DESC_SIZE) return -EINVAL;
+    if (header.descriptor_type != USB_DT_CONFIG || header.length < sizeof(header) || total_length < sizeof(header))
+        return -EINVAL;
     uint8_t *config = malloc(total_length);
     if (!config) return -ENOMEM;
     result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0, config,
@@ -377,8 +381,8 @@ int usb_read_config_descriptor(usb_device_t *device, uint8_t **config_out, uint1
 
 void usb_remove_device(usb_device_t *device)
 {
-    if (!device || !device->connected) return;
-    usb_disconnect_device(device);
+    if (!device) return;
+    if (device->connected) usb_disconnect_device(device);
     for (size_t i = 0; i < device->interface_count; i++) {
         usb_interface_t *intf = &device->interfaces[i];
         if (intf->registered) {
@@ -386,6 +390,9 @@ void usb_remove_device(usb_device_t *device)
             intf->registered = false;
         }
     }
-    device_unregister(&device->dev);
     device->configured = false;
+    if (device->registered) {
+        device->registered = false;
+        device_unregister(&device->dev);
+    }
 }

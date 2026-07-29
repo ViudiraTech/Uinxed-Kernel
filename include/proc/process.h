@@ -127,6 +127,7 @@ typedef struct process {
         int               exit_code;
         uint32_t          uid;
         uint32_t          gid;
+        uint16_t          umask;
         uint8_t          *kernel_stack;
         process_file_t   *fds[PROCESS_MAX_FD];
         spinlock_t        fd_lock;

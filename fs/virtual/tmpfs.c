@@ -177,8 +177,7 @@ int tmpfs_ioctl(void *file, size_t req, void *arg)
     tmpfs_file_t *handle = file;
 
     if (handle->device.ioctl) return handle->device.ioctl(handle->device.ctx, req, arg);
-    if (handle->node_type != file_none && handle->node_type != file_dir && handle->node_type != file_symlink) return -ENOTTY;
-    return EOK;
+    return -ENOTTY;
 }
 
 /* Duplicate a VFS node bound to tmpfs */
@@ -240,7 +239,7 @@ void tmpfs_dummy(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* Per-open-instance callbacks â€?delegate to device ops               */
+/* Per-open-instance callbacks --delegate to device ops               */
 /* ------------------------------------------------------------------ */
 
 static int tmpfs_file_open(vfs_node_t node, uint64_t flags, void **private_data)

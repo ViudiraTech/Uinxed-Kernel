@@ -403,7 +403,11 @@ static int extfs_mkdir_impl(void *parent, const char *name, vfs_node_t node)
 
     memset(&new_raw, 0, sizeof(new_raw));
     extfs_init_new_inode(sb, &new_raw);
-    new_raw.i_mode        = EXT2_S_IFDIR | 0755;
+    new_raw.i_mode        = EXT2_S_IFDIR | (node->mode & 07777);
+    new_raw.i_uid         = (uint16_t)node->owner;
+    new_raw.l_i_uid_high  = (uint16_t)(node->owner >> 16);
+    new_raw.i_gid         = (uint16_t)node->group;
+    new_raw.l_i_gid_high  = (uint16_t)(node->group >> 16);
     new_raw.i_links_count = 2;
 
     status = extfs_write_inode_raw(sb, new_ino, &new_raw);
@@ -481,7 +485,11 @@ static int extfs_mkfile_impl(void *parent, const char *name, vfs_node_t node)
 
     memset(&new_raw, 0, sizeof(new_raw));
     extfs_init_new_inode(sb, &new_raw);
-    new_raw.i_mode        = EXT2_S_IFREG | 0644;
+    new_raw.i_mode        = EXT2_S_IFREG | (node->mode & 07777);
+    new_raw.i_uid         = (uint16_t)node->owner;
+    new_raw.l_i_uid_high  = (uint16_t)(node->owner >> 16);
+    new_raw.i_gid         = (uint16_t)node->group;
+    new_raw.l_i_gid_high  = (uint16_t)(node->group >> 16);
     new_raw.i_links_count = 1;
 
     status = extfs_write_inode_raw(sb, new_ino, &new_raw);
@@ -507,45 +515,88 @@ static int extfs_mkfile_impl(void *parent, const char *name, vfs_node_t node)
     return EOK;
 }
 
-static int extfs_link_impl(void *parent, const char *name, vfs_node_t node)
+static int extfs_link_impl(void *parent, const char *target_name, vfs_node_t node)
 {
     extfs_handle_t  *dir_h;
     extfs_handle_t  *target_h;
+    extfs_handle_t  *new_h = NULL;
     extfs_sb_info_t *sb;
     ext2_inode_t     raw;
-    int              status;
+    vfs_node_t       target = NULL;
+    int              status = -EINVAL;
     uint8_t          file_type;
 
-    if (!parent || !name || !node) return -EINVAL;
+    if (!parent || !target_name || !node || !node->name) return -EINVAL;
 
-    dir_h    = extfs_get_handle(node->parent);
-    target_h = extfs_get_handle(node);
-    if (!dir_h || !target_h) return -EINVAL;
+    dir_h = extfs_get_handle(node->parent);
+    if (!dir_h) return -EINVAL;
+    target = vfs_open_nofollow(target_name);
+    if (!target) return -ENOENT;
+    target_h = extfs_get_handle(target);
+    if (!target_h) {
+        status = -ENOENT;
+        goto out;
+    }
 
     sb = dir_h->sb;
+    if (target_h->sb != sb) {
+        status = -EXDEV;
+        goto out;
+    }
 
     uint32_t dummy;
-    status = extfs_dir_lookup(dir_h, name, &dummy);
-    if (status == EOK) return -EEXIST;
-    if (status != -ENOENT) return status;
+    status = extfs_dir_lookup(dir_h, node->name, &dummy);
+    if (status == EOK) {
+        status = -EEXIST;
+        goto out;
+    }
+    if (status != -ENOENT) goto out;
 
-    if (extfs_read_inode_raw(sb, target_h->inode_no, &raw) != EOK) return -EIO;
+    if (extfs_read_inode_raw(sb, target_h->inode_no, &raw) != EOK) {
+        status = -EIO;
+        goto out;
+    }
 
-    if ((raw.i_mode & 0xF000) == EXT2_S_IFDIR) return -EPERM;
-    if (raw.i_links_count == UINT16_MAX) return -EMLINK;
+    if ((raw.i_mode & 0xF000) == EXT2_S_IFDIR) {
+        status = -EPERM;
+        goto out;
+    }
+    if (raw.i_links_count == UINT16_MAX) {
+        status = -EMLINK;
+        goto out;
+    }
     if ((raw.i_mode & 0xF000) == EXT2_S_IFLNK)
         file_type = EXT2_FT_SYMLINK;
     else
         file_type = EXT2_FT_REG_FILE;
 
-    status = extfs_dir_add_entry(dir_h, name, target_h->inode_no, file_type);
-    if (status != EOK) return status;
+    status = extfs_dir_add_entry(dir_h, node->name, target_h->inode_no, file_type);
+    if (status != EOK) goto out;
 
     raw.i_links_count++;
     raw.i_ctime = timer_realtime_seconds32();
     status = extfs_write_inode_raw(sb, target_h->inode_no, &raw);
-    if (status != EOK) return status;
-    return extfs_touch_inode(sb, dir_h->inode_no, 1);
+    if (status != EOK) goto out;
+    status = extfs_touch_inode(sb, dir_h->inode_no, 1);
+    if (status != EOK) goto out;
+
+    new_h = extfs_alloc_handle(sb, target_h->inode_no);
+    if (!new_h) {
+        status = -ENOMEM;
+        goto out;
+    }
+    if (extfs_load_inode(new_h) != EOK) {
+        free(new_h);
+        status = -EIO;
+        goto out;
+    }
+    node->handle = new_h;
+    extfs_fill_node(node, new_h);
+    status = EOK;
+
+out:
+    vfs_close(target);
+    return status;
 }
 
 static int extfs_symlink_impl(void *parent, const char *name, vfs_node_t node)
@@ -575,6 +626,10 @@ static int extfs_symlink_impl(void *parent, const char *name, vfs_node_t node)
     memset(&new_raw, 0, sizeof(new_raw));
     extfs_init_new_inode(sb, &new_raw);
     new_raw.i_mode        = EXT2_S_IFLNK | 0777;
+    new_raw.i_uid         = (uint16_t)node->owner;
+    new_raw.l_i_uid_high  = (uint16_t)(node->owner >> 16);
+    new_raw.i_gid         = (uint16_t)node->group;
+    new_raw.l_i_gid_high  = (uint16_t)(node->group >> 16);
     new_raw.i_links_count = 1;
 
     uint32_t target_len = strlen(node->linkname ? node->linkname : "");
@@ -936,9 +991,9 @@ static int extfs_stat(void *file, vfs_node_t node)
 static int extfs_ioctl_cb(void *file, size_t req, void *arg)
 {
     (void)file;
+    (void)req;
     (void)arg;
-    if (req == 0) return -ENOSYS;
-    return -ENOSYS;
+    return -ENOTTY;
 }
 
 static vfs_node_t extfs_dup(vfs_node_t node)
@@ -997,7 +1052,7 @@ static int extfs_no_link(void *parent, const char *name, vfs_node_t node)
     (void)parent;
     (void)name;
     (void)node;
-    return -ENOSYS;
+    return -EPERM;
 }
 
 static struct vfs_callback extfs_callbacks = {

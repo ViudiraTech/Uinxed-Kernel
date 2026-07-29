@@ -85,6 +85,7 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
 #define AT_FDCWD            PROCESS_AT_FDCWD
 #define AT_SYMLINK_NOFOLLOW 0x100
 #define AT_REMOVEDIR        0x200
+#define AT_SYMLINK_FOLLOW   0x400
 #define AT_EMPTY_PATH       0x1000
 #define STATX_BASIC_STATS   0x000007ffU
 
@@ -573,7 +574,6 @@ static int64_t sys_brk(uint64_t addr, uint64_t arg1, uint64_t arg2, uint64_t arg
 
 static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)mode;
     (void)arg3;
     (void)arg4;
     (void)arg5;
@@ -593,7 +593,7 @@ static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t a
         return -EEXIST;
     }
     if (!node && (flags & O_CREAT)) {
-        int ret = vfs_mkfile(name);
+        int ret = vfs_mkfile_mode(name, (uint16_t)(mode & 07777U & ~proc->umask));
         if (ret != EOK && ret != -EEXIST) return ret;
         node = vfs_open(name);
     }
@@ -636,7 +636,6 @@ static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t a
 
 static int64_t sys_openat(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_t mode, uint64_t arg4, uint64_t arg5)
 {
-    (void)mode;
     (void)arg4;
     (void)arg5;
     if (!path) return -EFAULT;
@@ -652,7 +651,7 @@ static int64_t sys_openat(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_
         return -EEXIST;
     }
     if (!node && (flags & O_CREAT)) {
-        ret = vfs_mkfile(name);
+        ret = vfs_mkfile_mode(name, (uint16_t)(mode & 07777U & ~proc->umask));
         if (ret != EOK && ret != -EEXIST) return ret;
         node = vfs_open(name);
     }
@@ -1062,7 +1061,6 @@ static int64_t sys_gettid(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t 
 
 static int64_t sys_mkdir(uint64_t path, uint64_t mode, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)mode;
     (void)arg2;
     (void)arg3;
     (void)arg4;
@@ -1071,12 +1069,11 @@ static int64_t sys_mkdir(uint64_t path, uint64_t mode, uint64_t arg2, uint64_t a
     if (!proc) return -ESRCH;
     char name[SYSCALL_PATH_MAX];
     int  ret = copy_resolved_path_at(proc, AT_FDCWD, path, name);
-    return ret != EOK ? ret : vfs_mkdir(name);
+    return ret != EOK ? ret : vfs_mkdir_mode(name, (uint16_t)(mode & 07777U & ~proc->umask));
 }
 
 static int64_t sys_mkdirat(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)mode;
     (void)arg3;
     (void)arg4;
     (void)arg5;
@@ -1084,7 +1081,7 @@ static int64_t sys_mkdirat(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_
     if (!proc) return -ESRCH;
     char name[SYSCALL_PATH_MAX];
     int  ret = copy_resolved_path_at(proc, (int)dirfd, path, name);
-    return ret == EOK ? vfs_mkdir(name) : ret;
+    return ret == EOK ? vfs_mkdir_mode(name, (uint16_t)(mode & 07777U & ~proc->umask)) : ret;
 }
 
 static int64_t sys_unlink(uint64_t path, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -1202,8 +1199,8 @@ static int64_t sys_link(uint64_t oldpath, uint64_t newpath, uint64_t arg2, uint6
 
 static int64_t sys_linkat(uint64_t olddirfd, uint64_t oldpath, uint64_t newdirfd, uint64_t newpath, uint64_t flags, uint64_t arg5)
 {
-    (void)flags;
     (void)arg5;
+    if (flags & ~(AT_EMPTY_PATH | AT_SYMLINK_FOLLOW)) return -EINVAL;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     char oldname[SYSCALL_PATH_MAX];
@@ -1211,7 +1208,8 @@ static int64_t sys_linkat(uint64_t olddirfd, uint64_t oldpath, uint64_t newdirfd
     int  ret = copy_resolved_path_at(proc, (int)olddirfd, oldpath, oldname);
     if (ret != EOK) return ret;
     ret = copy_resolved_path_at(proc, (int)newdirfd, newpath, newname);
-    return ret == EOK ? vfs_link(newname, oldname) : ret;
+    if (ret != EOK) return ret;
+    return (flags & AT_SYMLINK_FOLLOW) ? vfs_link_follow(newname, oldname) : vfs_link(newname, oldname);
 }
 
 static int64_t sys_symlink(uint64_t target, uint64_t linkpath, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -1258,15 +1256,15 @@ static int64_t sys_readlink(uint64_t path, uint64_t buf, uint64_t bufsiz, uint64
     int  ret = copy_resolved_path_at(proc, AT_FDCWD, path, name);
     if (ret != EOK) return ret;
 
-    char parent_path[SYSCALL_PATH_MAX];
-    memcpy(parent_path, name, sizeof(parent_path));
-    vfs_node_t parent = vfs_open_parent_of(parent_path);
-    if (!parent) return -ENOENT;
-    vfs_node_t node = vfs_do_search(parent, path_basename(name));
-    vfs_close(parent);
+    vfs_node_t node = vfs_open_nofollow(name);
     if (!node) return -ENOENT;
+    if (!(node->type & file_symlink)) {
+        vfs_close(node);
+        return -EINVAL;
+    }
     char   tmp[SYSCALL_PATH_MAX];
     size_t len = vfs_readlink(node, tmp, sizeof(tmp));
+    vfs_close(node);
     if (len > bufsiz) len = bufsiz;
     if (len && copy_to_user((void *)buf, tmp, len)) return -EFAULT;
     return (int64_t)len;
@@ -2383,13 +2381,16 @@ static int64_t sys_sched_getaffinity_stub(uint64_t pid, uint64_t cpusetsize, uin
 
 static int64_t sys_umask_stub(uint64_t mask, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)mask;
     (void)arg1;
     (void)arg2;
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    return 022;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    uint16_t previous = proc->umask;
+    proc->umask = (uint16_t)(mask & 0777U);
+    return previous;
 }
 
 static int64_t sys_pread64_stub(uint64_t fd, uint64_t buf, uint64_t count, uint64_t offset, uint64_t arg4, uint64_t arg5)

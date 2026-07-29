@@ -463,7 +463,7 @@ Uinxed-x64.iso: info UxImage $(INIT_ELF)
 	$(Q)printf "Image: $@ is ready.\n"
 	$(Q)printf "Compilation complete.\n"
 
-.PHONY: help run run-net run-usb disk.img fs-test clean format check gen.clangd menuconfig
+.PHONY: help run run-net run-usb disk.img fs-test usb-test clean format check gen.clangd menuconfig
 
 help: info
 	$(Q)printf "Uinxed-Kernel Makefile Usage:\n"
@@ -473,6 +473,7 @@ help: info
 	$(Q)printf "  make run-usb     - Run with xHCI, HID, and a USB mass-storage disk.\n"
 	$(Q)printf "  make disk.img    - Build a demo simplefs disk image.\n"
 	$(Q)printf "  make fs-test     - Run native ext2/ext3/ext4, JBD2 and NTFS regression tests.\n"
+	$(Q)printf "  make usb-test    - Run native UHCI, BOT/SCSI and HID protocol tests.\n"
 	$(Q)printf "  make clean       - Clean all generated files.\n"
 	$(Q)printf "  make format      - Format all source files using clang-format.\n"
 	$(Q)printf "  make check       - Run static code checks using clang-tidy.\n"
@@ -496,6 +497,9 @@ disk.img: info tools/mkfs_simplefs
 
 fs-test:
 	$(Q)bash tools/tests/run_fs_tests.sh
+
+usb-test:
+	$(Q)bash tools/tests/run_usb_tests.sh
 
 clean: info
 	$(Q)$(RM) $(OBJS) $(DEPS) UxImage Uinxed-x64.iso tools/mkfs_simplefs disk.img assets/init.o

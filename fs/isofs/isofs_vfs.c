@@ -473,7 +473,7 @@ static int isofs_vfs_mount(const char *src, vfs_node_t node)
     if (root_h->raw_de_buf) memcpy(root_h->raw_de_buf, root_de, sizeof(pri->root_directory_record));
     root_h->raw_de = (iso_directory_record_t *)root_h->raw_de_buf;
 
-    /* Root directory record timestamp â€?save before freeing PVD copy */
+    /* Root directory record timestamp --save before freeing PVD copy */
     uint64_t root_ts = iso_date_from_de(root_de->date, 0);
 
     /* PVD copy no longer needed */
@@ -590,7 +590,6 @@ static size_t isofs_vfs_readlink(vfs_node_t node, void *addr, size_t offset, siz
 
     size_t copy = (size_t)len < size ? (size_t)len : size;
     memcpy(addr, buf, copy);
-    ((char *)addr)[copy] = '\0';
     return copy;
 }
 
@@ -632,7 +631,7 @@ static int isofs_vfs_ioctl(void *file, size_t req, void *arg)
     (void)file;
     (void)req;
     (void)arg;
-    return -ENOSYS;
+    return -ENOTTY;
 }
 
 static vfs_node_t isofs_vfs_dup(vfs_node_t node)
@@ -750,7 +749,8 @@ void isofs_mount_all(void)
         snprintf(path, sizeof(path), "/mnt/cdrom%u", (unsigned)sr_idx);
         snprintf(src, sizeof(src), "sr%u", (unsigned)sr_idx);
 
-        if (vfs_mkdir(path) != EOK && vfs_mkdir(path) != -EEXIST) {
+        int mkdir_status = vfs_mkdir(path);
+        if (mkdir_status != EOK && mkdir_status != -EEXIST) {
             sr_idx++;
             continue;
         }
@@ -783,7 +783,8 @@ void isofs_mount_all(void)
         snprintf(path, sizeof(path), "/mnt/cdrom%u", (unsigned)sr_idx);
         snprintf(src, sizeof(src), "sr%u", (unsigned)sr_idx);
 
-        if (vfs_mkdir(path) != EOK && vfs_mkdir(path) != -EEXIST) {
+        int mkdir_status = vfs_mkdir(path);
+        if (mkdir_status != EOK && mkdir_status != -EEXIST) {
             sr_idx++;
             continue;
         }

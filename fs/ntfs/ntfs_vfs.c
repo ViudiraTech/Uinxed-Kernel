@@ -4218,7 +4218,7 @@ static int ntfs_vfs_link(void *p, const char *target_name, vfs_node_t node)
     int        status;
 
     if (!p || !target_name || !node || !node->name) return -EINVAL;
-    target = vfs_open(target_name);
+    target = vfs_open_nofollow(target_name);
     if (!target || !target->handle) {
         if (target) vfs_close(target);
         return -ENOENT;
@@ -4255,7 +4255,7 @@ static int ntfs_vfs_ioctl(void *f, size_t r, void *a)
     (void)f;
     (void)r;
     (void)a;
-    return -ENOSYS;
+    return -ENOTTY;
 }
 
 static int ntfs_vfs_free(void *handle)

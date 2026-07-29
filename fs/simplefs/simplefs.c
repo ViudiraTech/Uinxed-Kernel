@@ -110,6 +110,7 @@ static void simplefs_fill_node(vfs_node_t node, const simplefs_vnode_t *vnode)
     node->realsize    = vnode->inode.size;
     node->blksz       = vnode->fs->disk.block_size;
     node->permissions = vnode->inode.permissions;
+    node->mode        = vnode->inode.permissions & 07777;
     node->owner       = vnode->inode.owner;
     node->group       = vnode->inode.group;
     node->createtime  = vnode->inode.create_time;
@@ -334,7 +335,9 @@ static int simplefs_create_node(vfs_node_t parent, const char *name, vfs_node_t 
     inode.inode       = inode_no;
     inode.type        = type;
     inode.links       = 1;
-    inode.permissions = type == simplefs_inode_dir ? 0755 : 0644;
+    inode.permissions = node->mode & 07777;
+    inode.owner       = node->owner;
+    inode.group       = node->group;
 
     status = simplefs_write_inode(handle->fs, inode_no, &inode);
     if (status != EOK) return status;
@@ -380,7 +383,7 @@ static int simplefs_no_link(void *parent, const char *name, vfs_node_t node)
     (void)parent;
     (void)name;
     (void)node;
-    return -ENOSYS;
+    return -EPERM;
 }
 
 static int simplefs_load_directory(vfs_node_t node)
@@ -625,7 +628,7 @@ static int simplefs_ioctl(void *file, size_t req, void *arg)
     simplefs_vnode_t *handle = file;
 
     if (!handle) return -EINVAL;
-    if (req != 0 || !arg) return -ENOSYS;
+    if (req != 0 || !arg) return -ENOTTY;
 
     memcpy(arg, &handle->fs->disk, sizeof(handle->fs->disk));
     return EOK;

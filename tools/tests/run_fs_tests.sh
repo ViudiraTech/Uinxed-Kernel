@@ -32,6 +32,8 @@ common_cflags=(-std=gnu11 -Wall -Wextra -Werror -I"$root_dir/include")
 
 gcc "${common_cflags[@]}" "$root_dir/tools/tests/fs_txn_test.c" \
     "$root_dir/fs/core/fs_txn.c" -o "$test_dir/fs_txn_test"
+gcc "${common_cflags[@]}" -DVFS_PATH_TEST_ONLY "$root_dir/tools/tests/vfs_path_test.c" \
+    "$root_dir/fs/core/vfs.c" -o "$test_dir/vfs_path_test"
 gcc "${common_cflags[@]}" "$root_dir/tools/tests/extfs_extents_test.c" \
     "$root_dir/fs/extfs/extents.c" "$root_dir/libs/data/crc32c.c" -o "$test_dir/extfs_extents_test"
 gcc "${common_cflags[@]}" "$root_dir/tools/tests/extfs_inode_test.c" \
@@ -48,6 +50,7 @@ gcc "${common_cflags[@]}" -ffunction-sections -fdata-sections "$root_dir/tools/t
     "$root_dir/fs/core/fs_txn.c" -Wl,--gc-sections -o "$test_dir/ntfs_image_test"
 
 "$test_dir/fs_txn_test"
+"$test_dir/vfs_path_test"
 "$test_dir/extfs_extents_test"
 "$test_dir/extfs_inode_test"
 "$test_dir/jbd2_recovery_test"

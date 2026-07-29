@@ -12,6 +12,7 @@
 #define INCLUDE_UHCI_H_
 
 #include <libs/std/stdint.h>
+#include <libs/std/stddef.h>
 
 #define UHCI_PCI_CLASS 0x0c0300
 
@@ -82,6 +83,10 @@ typedef struct __attribute__((packed, aligned(16))) {
 
 /* TD control/status bits */
 #define UHCI_TD_ACTIVE      (1U << 23)
+#define UHCI_TD_IOC         (1U << 24)
+#define UHCI_TD_LOW_SPEED   (1U << 26)
+#define UHCI_TD_ERROR_COUNT (3U << 27)
+#define UHCI_TD_SHORT_PACKET (1U << 29)
 #define UHCI_TD_STALLED     (1U << 22)
 #define UHCI_TD_DBUFERR     (1U << 21)
 #define UHCI_TD_BABBLE      (1U << 20)
@@ -111,5 +116,16 @@ typedef struct __attribute__((packed, aligned(16))) {
 #define UHCI_LINK_QH        (1U << 1)
 #define UHCI_LINK_DEPTH     (1U << 2)
 #define UHCI_LINK_MASK      0xfffffff0U
+
+static inline uint32_t uhci_td_encode_length(size_t length)
+{
+    return length ? (uint32_t)(length - 1) & 0x7ffU : 0x7ffU;
+}
+
+static inline size_t uhci_td_decode_length(uint32_t control_status)
+{
+    uint32_t encoded = control_status & UHCI_TD_ACTLEN_MASK;
+    return encoded == 0x7ffU ? 0 : (size_t)encoded + 1;
+}
 
 #endif /* INCLUDE_UHCI_H_ */

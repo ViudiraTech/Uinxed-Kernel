@@ -655,7 +655,7 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
             file->private_data = priv;
             file->file_opened  = true;
         } else if (ret != -ENOSYS) {
-            /* Real error from the callback â€?abort. */
+            /* Real error from the callback --abort. */
             free(file);
             return ret;
         }
@@ -672,7 +672,7 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
     }
     spin_unlock(&proc->fd_lock);
 
-    /* Failed to find a free FD slot â€?release private_data. */
+    /* Failed to find a free FD slot --release private_data. */
     if (file->file_opened) callbackof(node, file_release)(node, file->private_data);
     free(file);
     return -EMFILE;
@@ -874,6 +874,7 @@ int process_resolve_path_at(process_t *proc, int dirfd, const char *path, char *
     int         ret;
 
     if (!proc || !path || !resolved) return -EINVAL;
+    if (!path[0]) return -ENOENT;
 
     process_root = proc->root[0] ? proc->root : "/";
     ret          = vfs_resolve_path("/", process_root, root, sizeof(root));
@@ -1005,6 +1006,7 @@ process_t *process_create(const char *name, void (*entry)(void *), void *arg)
     proc->task->state = TASK_RUNNING;
     proc->uid         = 1000;
     proc->gid         = 1000;
+    proc->umask       = 022;
     proc->pgid        = 0;
     proc->sid         = 0;
     proc->heap_brk    = PROCESS_HEAP_START;
@@ -1069,6 +1071,7 @@ process_t *process_create_kernel(const char *name, void (*entry)(void *), void *
     proc->task->state = TASK_READY;
     proc->uid         = 0;
     proc->gid         = 0;
+    proc->umask       = 022;
     proc->pgid        = 0;
     proc->sid         = 0;
     proc->heap_brk    = 0;
@@ -1366,6 +1369,7 @@ process_t *process_fork_status_event(int *error, uint32_t ptrace_event)
     child->task->state = TASK_READY;
     child->uid         = parent->uid;
     child->gid         = parent->gid;
+    child->umask       = parent->umask;
     child->pgid        = parent->pgid;
     child->sid         = parent->sid;
     child->parent      = parent;

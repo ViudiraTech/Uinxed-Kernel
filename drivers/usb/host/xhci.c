@@ -603,6 +603,13 @@ fail:
     return result;
 }
 
+static void xhci_disable_endpoint(usb_endpoint_t *usb_endpoint)
+{
+    xhci_endpoint_state_t *endpoint = usb_endpoint ? usb_endpoint->hc_private : NULL;
+    if (!endpoint) return;
+    xhci_interrupt_stop(usb_endpoint);
+}
+
 static int xhci_clear_halt(usb_endpoint_t *usb_endpoint)
 {
     if (!usb_endpoint || !usb_endpoint->hc_private) return -EINVAL;
@@ -629,6 +636,7 @@ static const usb_hcd_ops_t xhci_hcd_ops = {
     .interrupt_start    = xhci_interrupt_start,
     .interrupt_stop     = xhci_interrupt_stop,
     .configure_endpoint = xhci_configure_endpoint,
+    .disable_endpoint   = xhci_disable_endpoint,
     .clear_halt         = xhci_clear_halt,
     .disable_device     = xhci_disable_device,
 };
@@ -1159,14 +1167,14 @@ void xhci_init(void)
     if (usb_core_init() != EOK) return;
     pci_devices_cache_t *cache = pci_get_devices_cache();
     if (!cache) return;
-    uint8_t bus_number = 1;
     for (pci_device_cache_t *pci = cache->head; pci && xhci_controller_count < USB_MAX_CONTROLLERS; pci = pci->next) {
         if (pci->class_code != XHCI_PCI_CLASS) continue;
-        int status = xhci_probe(pci, bus_number);
+        int bus_number = usb_host_allocate_bus_number();
+        if (bus_number < 0) break;
+        int status = xhci_probe(pci, (uint8_t)bus_number);
         if (status == EOK) {
             plogk("xhci: Controller %04x:%02x:%02x.%u registered as usb%u\n", pci->device->domain, pci->device->bus, pci->device->slot,
                   pci->device->func, bus_number);
-            bus_number++;
         } else {
             plogk("xhci: Controller %04x:%02x:%02x.%u initialization failed: %d\n", pci->device->domain, pci->device->bus, pci->device->slot,
                   pci->device->func, status);

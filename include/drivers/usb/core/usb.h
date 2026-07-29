@@ -140,6 +140,7 @@ typedef struct usb_hcd_ops {
         int (*interrupt_start)(struct usb_endpoint *endpoint, size_t length, usb_interrupt_complete_t complete, void *context);
         void (*interrupt_stop)(struct usb_endpoint *endpoint);
         int (*configure_endpoint)(struct usb_endpoint *endpoint);
+        void (*disable_endpoint)(struct usb_endpoint *endpoint);
         int (*clear_halt)(struct usb_endpoint *endpoint);
         void (*disable_device)(struct usb_device *device);
 } usb_hcd_ops_t;
@@ -148,6 +149,7 @@ typedef struct usb_endpoint {
         struct usb_interface     *interface;
         usb_endpoint_descriptor_t descriptor;
         void                     *hc_private;
+        uint8_t                   data_toggle;
 } usb_endpoint_t;
 
 typedef struct usb_interface {
@@ -181,6 +183,7 @@ typedef struct usb_device {
         struct device           dev;
         bool                    configured;
         bool                    connected;
+        bool                    registered;
 } usb_device_t;
 
 extern struct bus_type usb_bus_type;

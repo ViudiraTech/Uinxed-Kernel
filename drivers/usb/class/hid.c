@@ -53,6 +53,13 @@ static uint16_t hid_usage_at(const usb_hid_field_t *field, size_t index)
     return 0;
 }
 
+static uint16_t hid_usage_page_at(const usb_hid_field_t *field, size_t index)
+{
+    if (index < field->usage_count) return field->usage_pages[index];
+    if (field->usage_minimum_page == field->usage_maximum_page) return field->usage_minimum_page;
+    return field->usage_page;
+}
+
 static void hid_enable_key(input_dev_t *input, uint16_t keycode)
 {
     if (!keycode || keycode >= KEY_CNT) return;
@@ -112,7 +119,7 @@ static void hid_build_capabilities(usb_hid_device_t *hid)
 
         for (size_t usage_index = 0; usage_index < field->report_count; usage_index++) {
             uint16_t usage = hid_usage_at(field, usage_index);
-            switch (field->usage_page) {
+            switch (hid_usage_page_at(field, usage_index)) {
                 case 0x01 :
                     hid_enable_axis(input, field, usage);
                     break;

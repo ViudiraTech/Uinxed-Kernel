@@ -218,9 +218,11 @@ int vfs_access_check(vfs_node_t node, uint32_t access_mask);
 
 /* Create a new directory at the specified path */
 int vfs_mkdir(const char *name);
+int vfs_mkdir_mode(const char *name, uint16_t mode);
 
 /* Create a new file at the specified path */
 int vfs_mkfile(const char *name);
+int vfs_mkfile_mode(const char *name, uint16_t mode);
 
 /* Read a directory entry by index from the specified directory node */
 int vfs_readdir(vfs_node_t dir, size_t index, vfs_dirent_t *entry);
@@ -236,6 +238,7 @@ int vfs_closedir(vfs_dir_t dir);
 
 /* Create a hard link at the specified path */
 int vfs_link(const char *name, const char *target_name);
+int vfs_link_follow(const char *name, const char *target_name);
 
 /* Create a symlink at the specified path */
 int vfs_symlink(const char *name, const char *target_name);

@@ -111,8 +111,8 @@ typedef struct __attribute__((packed, aligned(16))) {
 #define OHCI_ED_EN_MASK   (0x0fU << 7)
 #define OHCI_ED_D_SHIFT   11
 #define OHCI_ED_D_MASK    (3U << 11)
-#define OHCI_ED_D_IN      (1U << 11)
-#define OHCI_ED_D_OUT     (2U << 11)
+#define OHCI_ED_D_OUT     (1U << 11)
+#define OHCI_ED_D_IN      (2U << 11)
 #define OHCI_ED_S         (1U << 13)
 #define OHCI_ED_K         (1U << 14)
 #define OHCI_ED_F         (1U << 15)
@@ -132,23 +132,31 @@ typedef struct __attribute__((packed, aligned(16))) {
 #define OHCI_TD_DP_SHIFT    19
 #define OHCI_TD_DP_MASK     (3U << 19)
 #define OHCI_TD_DP_SETUP    (0U << 19)
-#define OHCI_TD_DP_IN       (1U << 19)
-#define OHCI_TD_DP_OUT      (2U << 19)
+#define OHCI_TD_DP_OUT      (1U << 19)
+#define OHCI_TD_DP_IN       (2U << 19)
 #define OHCI_TD_DI_SHIFT    21
 #define OHCI_TD_DI_MASK     (7U << 21)
 #define OHCI_TD_DI_NONE     (7U << 21)
-#define OHCI_TD_T           (1U << 24)
-#define OHCI_TD_EC_SHIFT    25
-#define OHCI_TD_EC_MASK     (3U << 25)
+#define OHCI_TD_TOGGLE_CARRY (0U << 24)
+#define OHCI_TD_TOGGLE_DATA0 (2U << 24)
+#define OHCI_TD_TOGGLE_DATA1 (3U << 24)
+#define OHCI_TD_EC_SHIFT     26
+#define OHCI_TD_EC_MASK      (3U << 26)
 #define OHCI_TD_CC_SHIFT    28
 #define OHCI_TD_CC_MASK     (0x0fU << 28)
 #define OHCI_TD_CC_NOERROR  0
 #define OHCI_TD_CC_CRC      1
 #define OHCI_TD_CC_BITSTUFF 2
-#define OHCI_TD_CC_ABORT    3
+#define OHCI_TD_CC_TOGGLE   3
 #define OHCI_TD_CC_STALL    4
-#define OHCI_TD_CC_NAK      13
-#define OHCI_TD_CC_BUFFER   14
+#define OHCI_TD_CC_NORESPONSE     5
+#define OHCI_TD_CC_PID            6
+#define OHCI_TD_CC_UNEXPECTED_PID 7
+#define OHCI_TD_CC_DATA_OVERRUN   8
+#define OHCI_TD_CC_DATA_UNDERRUN  9
+#define OHCI_TD_CC_BUFFER_OVERRUN 12
+#define OHCI_TD_CC_BUFFER_UNDERRUN 13
+#define OHCI_TD_CC_NOT_ACCESSED   15
 
 /* HCCA (Host Controller Communication Area) */
 typedef struct __attribute__((packed, aligned(256))) {

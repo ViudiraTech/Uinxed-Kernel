@@ -35,9 +35,12 @@ typedef struct {
         uint8_t  application;
         uint16_t usage_page;
         uint16_t usages[USB_HID_MAX_USAGES];
+        uint16_t usage_pages[USB_HID_MAX_USAGES];
         uint16_t usage_count;
         uint16_t usage_minimum;
         uint16_t usage_maximum;
+        uint16_t usage_minimum_page;
+        uint16_t usage_maximum_page;
         uint16_t bit_offset;
         uint8_t  report_size;
         uint8_t  report_count;

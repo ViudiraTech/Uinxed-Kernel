@@ -78,20 +78,31 @@ static void usb_storage_unlock(usb_storage_device_t *storage)
     __atomic_clear(&storage->io_busy, __ATOMIC_RELEASE);
 }
 
-static int usb_storage_bulk(usb_endpoint_t *endpoint, void *buffer, size_t length)
+static int usb_storage_bulk(usb_endpoint_t *endpoint, void *buffer, size_t length, size_t *actual)
+{
+    size_t transferred = 0;
+    int    status      = usb_bulk_msg(endpoint, buffer, length, &transferred, USB_IO_TIMEOUT_MS);
+    if (actual) *actual = transferred;
+    return status;
+}
+
+static int usb_storage_bulk_exact(usb_endpoint_t *endpoint, void *buffer, size_t length)
 {
     size_t actual = 0;
-    int    status = usb_bulk_msg(endpoint, buffer, length, &actual, USB_IO_TIMEOUT_MS);
+    int status = usb_storage_bulk(endpoint, buffer, length, &actual);
     if (status != EOK) return status;
     return actual == length ? EOK : -EREMOTEIO;
 }
 
-static void usb_storage_reset(usb_storage_device_t *storage)
+static int usb_storage_reset(usb_storage_device_t *storage)
 {
-    (void)usb_control_msg(storage->interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_MSC_REQ_RESET, 0,
-                          storage->interface->descriptor.interface_number, NULL, 0, USB_CTRL_TIMEOUT_MS);
-    (void)usb_clear_halt(storage->bulk_in);
-    (void)usb_clear_halt(storage->bulk_out);
+    int status = usb_control_msg(storage->interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_MSC_REQ_RESET, 0,
+                                 storage->interface->descriptor.interface_number, NULL, 0, USB_CTRL_TIMEOUT_MS);
+    int in_status  = usb_clear_halt(storage->bulk_in);
+    int out_status = usb_clear_halt(storage->bulk_out);
+    if (status != EOK) return status;
+    if (in_status != EOK) return in_status;
+    return out_status;
 }
 
 static int usb_storage_command_locked(usb_storage_device_t *storage, uint8_t lun, const void *command, uint8_t command_length, void *data,
@@ -103,27 +114,52 @@ static int usb_storage_command_locked(usb_storage_device_t *storage, uint8_t lun
     int           status = usb_msc_build_cbw(&cbw, tag, lun, command, command_length, data_length, input);
     if (status != EOK) return status;
 
-    status = usb_storage_bulk(storage->bulk_out, &cbw, sizeof(cbw));
+    status = usb_storage_bulk_exact(storage->bulk_out, &cbw, sizeof(cbw));
     if (status != EOK) goto recover;
+    uint32_t transferred = 0;
     for (uint32_t offset = 0; offset < data_length;) {
         uint32_t chunk = data_length - offset;
         if (chunk > USB_MSC_IO_CHUNK) chunk = USB_MSC_IO_CHUNK;
-        status = usb_storage_bulk(input ? storage->bulk_in : storage->bulk_out, (uint8_t *)data + offset, chunk);
+        size_t actual = 0;
+        usb_endpoint_t *data_endpoint = input ? storage->bulk_in : storage->bulk_out;
+        status = usb_storage_bulk(data_endpoint, (uint8_t *)data + offset, chunk, &actual);
+        if (actual > chunk) {
+            status = -EPROTO;
+            goto recover;
+        }
+        transferred += (uint32_t)actual;
+        offset += (uint32_t)actual;
+        if (status == -EPIPE) {
+            status = usb_clear_halt(data_endpoint);
+            if (status != EOK) goto recover;
+            break;
+        }
         if (status != EOK) goto recover;
-        offset += chunk;
+        if (actual != chunk) {
+            if (!input) {
+                status = -EREMOTEIO;
+                goto recover;
+            }
+            break;
+        }
     }
-    status = usb_storage_bulk(storage->bulk_in, &csw, sizeof(csw));
+    status = usb_storage_bulk_exact(storage->bulk_in, &csw, sizeof(csw));
+    if (status == -EPIPE) {
+        status = usb_clear_halt(storage->bulk_in);
+        if (status == EOK) status = usb_storage_bulk_exact(storage->bulk_in, &csw, sizeof(csw));
+    }
     if (status != EOK) goto recover;
     if (csw.signature != USB_MSC_CSW_SIGNATURE || csw.tag != tag || csw.residue > data_length || csw.status > 2) {
         status = -EPROTO;
         goto recover;
     }
-    if (csw.status == 0) return EOK;
+    uint32_t expected_residue = data_length - transferred;
+    if (csw.status == 0) return csw.residue == expected_residue && csw.residue == 0 ? EOK : -EREMOTEIO;
     if (csw.status == 1) return -EIO;
     status = -EPROTO;
 
 recover:
-    usb_storage_reset(storage);
+    (void)usb_storage_reset(storage);
     return status;
 }
 
