@@ -4,6 +4,7 @@
  *      Intel HD Audio driver
  *
  *      2026/7/23 By MicroFish
+ *      2026/7/30 By JiTianYu391: 重构 audio 子系统 - 多BDL、捕获、中断完善、音量回读
  *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
@@ -28,6 +29,7 @@
 #define HDA_MAX_STREAMS     8
 #define HDA_BDL_ENTRIES     256
 #define HDA_DMA_BUFFER_SIZE (64 * 1024)
+#define HDA_PERIOD_FRAGS    32
 
 /* Global registers (offset from MMIO base) */
 #define GCAP      0x00
@@ -89,9 +91,6 @@
 #define AZX_RBCTL_IRQ_EN     (1 << 1)
 #define AZX_MAX_CORB_ENTRIES 256
 #define AZX_MAX_RIRB_ENTRIES 256
-
-/* CORB size encoding (spec section 3.3.25):
- *  0x02 -> 256 entries */
 #define HDA_CORB_ENTRIES 256
 #define HDA_RIRB_ENTRIES 256
 
@@ -100,15 +99,17 @@
 #define AZX_IRS_VALID (1 << 1)
 
 /* Stream control bits */
-#define SD_CTL_DMA_START (1 << 1)
-#define SD_INT_MASK      (1 << 2)
+#define SD_CTL_DMA_START   (1 << 1)
+#define SD_INT_MASK        (1 << 2)
+#define SD_STS_DMA_COMPLETE (1 << 2)
+#define SD_STS_FIFO_READY  (1 << 3)
 
 /* BDL descriptor */
 struct hda_bdle {
-        uint32_t addr_low;
-        uint32_t addr_high;
-        uint32_t length;
-        uint32_t ioc;
+    uint32_t addr_low;
+    uint32_t addr_high;
+    uint32_t length;
+    uint32_t ioc;
 } __attribute__((packed));
 
 /* Codec verbs */
@@ -118,6 +119,7 @@ struct hda_bdle {
 #define AC_VERB_SET_STREAM_FORMAT      0x200
 #define AC_VERB_SET_CHANNEL_STREAMID   0x600
 #define AC_VERB_SET_AMP_GAIN_MUTE      0x300
+#define AC_VERB_GET_AMP_GAIN_MUTE      0x300
 #define AC_VERB_SET_PIN_WIDGET_CONTROL 0x700
 #define AC_VERB_SET_CONNECT_SEL        0x701
 #define AC_VERB_SET_POWER_STATE        0x705
@@ -162,6 +164,10 @@ struct hda_bdle {
 #define AC_EAPD_BTLENABLE (1 << 1)
 
 /* AMP payload */
+#define AC_AMP_GET_OUTPUT  0
+#define AC_AMP_GET_INPUT   (1 << 14)
+#define AC_AMP_GET_LEFT    (1 << 13)
+#define AC_AMP_GET_RIGHT   0
 #define AC_AMP_SET_OUTPUT  0
 #define AC_AMP_SET_INPUT   (1 << 11)
 #define AC_AMP_SET_LEFT    (1 << 10)
@@ -201,69 +207,81 @@ struct hda_bdle {
 
 /* HDA codec widget descriptor */
 struct hda_widget {
-        uint16_t  nid;
-        uint8_t   type;
-        uint32_t  wcap;
-        uint32_t  pincap;
-        uint32_t  def_conf;
-        uint8_t   num_conns;
-        uint16_t *conns;
+    uint16_t  nid;
+    uint8_t   type;
+    uint32_t  wcap;
+    uint32_t  pincap;
+    uint32_t  def_conf;
+    uint8_t   num_conns;
+    uint16_t *conns;
 };
 
 /* HDA codec descriptor */
 struct hda_codec {
-        uint8_t            addr;
-        uint16_t           vendor_id;
-        uint16_t           device_id;
-        int                afg_nid;
-        int                num_widgets;
-        struct hda_widget *widgets;
-        int                dac_count;
-        int                adc_count;
-        int                pin_count;
-        int                dac_nid;
-        int                adc_nid;
-        int                pin_nid;
+    uint8_t            addr;
+    uint16_t           vendor_id;
+    uint16_t           device_id;
+    int                afg_nid;
+    int                num_widgets;
+    struct hda_widget *widgets;
+    int                dac_count;
+    int                adc_count;
+    int                pin_count;
+    int                dac_nid;
+    int                adc_nid;
+    int                pin_nid;
 };
 
 /* HDA controller state */
 struct hda_controller {
-        int                 found;
-        volatile void      *mmio;
-        pci_device_cache_t *pci_dev;
-        uint32_t            irq;
-        uint32_t            mmio_size;
+    int                 found;
+    volatile void      *mmio;
+    pci_device_cache_t *pci_dev;
+    uint32_t            irq;
+    uint32_t            mmio_size;
 
-        struct hda_codec codecs[HDA_MAX_CODECS];
-        int              num_codecs;
+    struct hda_codec codecs[HDA_MAX_CODECS];
+    int              num_codecs;
 
-        spinlock_t lock;
+    spinlock_t lock;
 
-        /* CORB/RIRB DMA buffers */
-        volatile uint32_t *corb_buf;
-        volatile uint32_t *rirb_buf;
-        uint64_t           corb_phys;
-        uint64_t           rirb_phys;
-        int                rirb_rp;
-        int                corb_entries;
-        int                rirb_entries;
-        int                cmd_count[HDA_MAX_CODECS];
-        uint32_t           res[HDA_MAX_CODECS];
+    /* CORB/RIRB DMA buffers */
+    volatile uint32_t *corb_buf;
+    volatile uint32_t *rirb_buf;
+    uint64_t           corb_phys;
+    uint64_t           rirb_phys;
+    int                rirb_rp;
+    int                corb_entries;
+    int                rirb_entries;
+    int                cmd_count[HDA_MAX_CODECS];
+    uint32_t           res[HDA_MAX_CODECS];
 
-        /* Streams */
-        struct {
-                int               allocated;
-                volatile uint8_t *buf;
-                uint64_t          buf_phys;
-                size_t            buf_size;
-                volatile void    *bdl;
-                uint64_t          bdl_phys;
-                int               running;
-        } streams[HDA_MAX_STREAMS];
+    /* Streams */
+    struct {
+        int               allocated;
+        int               direction;  /* 0=playback, 1=capture */
+        volatile uint8_t *buf;
+        uint64_t          buf_phys;
+        size_t            buf_size;
+        volatile void    *bdl;
+        uint64_t          bdl_phys;
+        int               running;
+        int               period_frags;
+        snd_pcm_uframes_t period_frames;
+        snd_pcm_uframes_t total_frames;
+        snd_pcm_uframes_t hw_pos;      /* frames consumed */
+        audio_pcm_file_t *pcm_file;    /* owner */
+    } streams[HDA_MAX_STREAMS];
 
-        /* Audio interface */
-        audio_pcm_format_t audio_fmt;
-        int                audio_registered;
+    /* Audio interface */
+    audio_pcm_format_t audio_fmt;
+    int                audio_registered;
+    size_t             buffer_bytes;
+    size_t             period_bytes;
+
+    /* Playback / capture stream index */
+    int playback_stream;
+    int capture_stream;
 };
 
 static struct hda_controller hda_ctrl;
@@ -290,7 +308,7 @@ static inline uint16_t hda_read16(uint16_t reg)
 static inline void hda_write16(uint16_t reg, uint16_t val)
 {
     volatile uint16_t *ptr = (volatile uint16_t *)((uintptr_t)hda_ctrl.mmio + reg);
-    *ptr                   = val;
+    *ptr = val;
 }
 
 static inline uint8_t hda_read8(uint16_t reg)
@@ -302,7 +320,7 @@ static inline uint8_t hda_read8(uint16_t reg)
 static inline void hda_write8(uint16_t reg, uint8_t val)
 {
     volatile uint8_t *ptr = (volatile uint8_t *)((uintptr_t)hda_ctrl.mmio + reg);
-    *ptr                  = val;
+    *ptr = val;
 }
 
 static inline uint32_t sd_read32(int stream, uint16_t reg)
@@ -431,7 +449,7 @@ static int hda_verb_exec(int addr, uint16_t nid, uint32_t verb_id, uint32_t payl
 static uint32_t hda_get_param(int addr, uint16_t nid, int param)
 {
     uint32_t res = 0;
-    int      ret = hda_verb_exec(addr, nid, AC_VERB_PARAMETERS, param, &res);
+    int ret = hda_verb_exec(addr, nid, AC_VERB_PARAMETERS, param, &res);
     if (ret) { plogk("hda: GET_PARAM addr=%d nid=0x%02x param=0x%02x failed: %d\n", addr, nid, param, ret); }
     return res;
 }
@@ -455,24 +473,19 @@ static void hda_reset_controller(void)
 {
     int timeout;
 
-    /* Clear states before reset */
     hda_write32(INTCTL, 0);
     hda_write16(STATESTS, 0x7fff);
 
-    /* Enter reset */
     hda_write32(GCTL, hda_read32(GCTL) & ~AZX_GCTL_RESET);
     timeout = 200;
     while ((hda_read32(GCTL) & AZX_GCTL_RESET) && timeout--) usleep(500);
-
     if (timeout <= 0) plogk("hda: Timeout waiting for CRST=0.\n");
 
     usleep(2000);
 
-    /* Exit reset */
     hda_write32(GCTL, hda_read32(GCTL) | AZX_GCTL_RESET);
     timeout = 200;
     while (!(hda_read32(GCTL) & AZX_GCTL_RESET) && timeout--) usleep(500);
-
     if (timeout <= 0) plogk("hda: Timeout waiting for CRST=1.\n");
 
     msleep(2);
@@ -569,7 +582,6 @@ static int hda_parse_widgets(struct hda_codec *codec)
     codec->adc_count = 0;
     codec->pin_count = 0;
 
-    /* Step 0: read root node count to know the valid NID range */
     uint32_t root_count  = hda_get_param(codec->addr, 0, AC_PAR_NODE_COUNT);
     uint16_t total_nodes = (uint16_t)(root_count & 0xffff);
     if (total_nodes == 0) {
@@ -578,10 +590,8 @@ static int hda_parse_widgets(struct hda_codec *codec)
     }
     plogk("hda: Codec #%d total nodes: %u\n", codec->addr, total_nodes);
 
-    /* Step 1: find AFG within valid node range */
     for (int nid = 1; nid <= total_nodes; nid++) {
         uint32_t ftype = hda_get_param(codec->addr, (uint16_t)nid, AC_PAR_FUNCTION_TYPE);
-        plogk("hda:   nid=0x%02x ftype=0x%08x\n", nid, ftype);
         if (ftype == AC_GRP_AUDIO_FUNCTION) {
             codec->afg_nid = nid;
             break;
@@ -589,26 +599,20 @@ static int hda_parse_widgets(struct hda_codec *codec)
     }
 
     if (codec->afg_nid < 1) {
-        plogk("hda: Codec #%d has no AFG (scanned %u nodes)\n", codec->addr, total_nodes);
+        plogk("hda: Codec #%d has no AFG\n", codec->addr);
         return -ENODEV;
     }
 
-    plogk("hda: Codec #%d AFG at nid=0x%02x\n", codec->addr, codec->afg_nid);
-
-    /* Step 2: get widget range from AFG node count */
     uint32_t node_count   = hda_get_param(codec->addr, (uint16_t)codec->afg_nid, AC_PAR_NODE_COUNT);
     uint16_t start_nid    = (uint16_t)(node_count >> 16);
     uint16_t widget_total = (uint16_t)(node_count & 0xffff);
     int      count        = (int)widget_total;
-
-    plogk("hda: AFG widget range: start=0x%02x count=%u\n", start_nid, count);
 
     codec->num_widgets = count;
     codec->widgets     = malloc(sizeof(struct hda_widget) * count);
     if (!codec->widgets) return -ENOMEM;
     memset(codec->widgets, 0, sizeof(struct hda_widget) * count);
 
-    /* Step 3: enumerate each widget */
     for (int i = 0; i < count; i++) {
         uint16_t           nid = start_nid + (uint16_t)i;
         struct hda_widget *w   = &codec->widgets[i];
@@ -648,7 +652,8 @@ static int hda_parse_widgets(struct hda_codec *codec)
         }
     }
 
-    plogk("hda: Codec #%d widgets: %d (DAC=%d, ADC=%d, PIN=%d)\n", codec->addr, count, codec->dac_count, codec->adc_count, codec->pin_count);
+    plogk("hda: Codec #%d widgets: %d (DAC=%d, ADC=%d, PIN=%d)\n",
+          codec->addr, count, codec->dac_count, codec->adc_count, codec->pin_count);
     return 0;
 }
 
@@ -657,15 +662,18 @@ static int hda_parse_widgets(struct hda_codec *codec)
 /* ------------------------------------------------------------------ */
 static void hda_config_codec(struct hda_codec *codec)
 {
-    if (codec->dac_nid < 0) {
-        plogk("hda: Codec #%d has no DAC, skipping.\n", codec->addr);
+    if (codec->dac_nid < 0 && codec->adc_nid < 0) {
+        plogk("hda: Codec #%d has no DAC/ADC, skipping.\n", codec->addr);
         return;
     }
 
     int addr = codec->addr;
 
     hda_set_verb(addr, (uint16_t)codec->afg_nid, AC_VERB_SET_POWER_STATE, AC_PWRST_D0);
-    hda_set_verb(addr, (uint16_t)codec->dac_nid, AC_VERB_SET_POWER_STATE, AC_PWRST_D0);
+
+    if (codec->dac_nid > 0) {
+        hda_set_verb(addr, (uint16_t)codec->dac_nid, AC_VERB_SET_POWER_STATE, AC_PWRST_D0);
+    }
 
     if (codec->pin_nid > 0) {
         hda_set_verb(addr, (uint16_t)codec->pin_nid, AC_VERB_SET_POWER_STATE, AC_PWRST_D0);
@@ -719,45 +727,92 @@ static void hda_config_codec(struct hda_codec *codec)
             }
         }
 
-        hda_set_verb(addr, (uint16_t)codec->dac_nid, AC_VERB_SET_AMP_GAIN_MUTE,
-                     AC_AMP_SET_OUTPUT | AC_AMP_SET_LEFT | AC_AMP_SET_UNMUTE | AC_AMP_SET_GAIN(0x4c));
-        hda_set_verb(addr, (uint16_t)codec->dac_nid, AC_VERB_SET_AMP_GAIN_MUTE,
-                     AC_AMP_SET_OUTPUT | AC_AMP_SET_RIGHT | AC_AMP_SET_UNMUTE | AC_AMP_SET_GAIN(0x4c));
+        if (codec->dac_nid > 0) {
+            hda_set_verb(addr, (uint16_t)codec->dac_nid, AC_VERB_SET_AMP_GAIN_MUTE,
+                         AC_AMP_SET_OUTPUT | AC_AMP_SET_LEFT | AC_AMP_SET_UNMUTE | AC_AMP_SET_GAIN(0x4c));
+            hda_set_verb(addr, (uint16_t)codec->dac_nid, AC_VERB_SET_AMP_GAIN_MUTE,
+                         AC_AMP_SET_OUTPUT | AC_AMP_SET_RIGHT | AC_AMP_SET_UNMUTE | AC_AMP_SET_GAIN(0x4c));
+        }
+    }
+
+    /* Configure ADC for capture if available */
+    if (codec->adc_nid > 0 && codec->pin_nid > 0) {
+        hda_set_verb(addr, (uint16_t)codec->adc_nid, AC_VERB_SET_POWER_STATE, AC_PWRST_D0);
+        /* Route pin to ADC */
+        int cur_nid = codec->adc_nid;
+        uint32_t clen = hda_get_param(addr, (uint16_t)cur_nid, AC_PAR_CONNLIST_LEN);
+        int conns = clen & 0xff;
+        if (conns > 0) {
+            for (int c = 0; c < conns; c++) {
+                uint32_t entry = hda_get_verb(addr, (uint16_t)cur_nid, AC_VERB_GET_CONNECT_LIST, (uint32_t)c);
+                uint16_t conn  = (uint16_t)(entry & 0xff);
+                for (int wi = 0; wi < codec->num_widgets; wi++) {
+                    if (codec->widgets[wi].nid == conn) {
+                        hda_set_verb(addr, (uint16_t)cur_nid, AC_VERB_SET_CONNECT_SEL, (uint32_t)c);
+                        break;
+                    }
+                }
+            }
+        }
     }
 }
 
 /* ------------------------------------------------------------------ */
-/* Stream DMA                                                         */
+/* Stream DMA with multi-BDL entries                                  */
 /* ------------------------------------------------------------------ */
-static int hda_setup_stream(int stream_idx, uint32_t format, size_t buf_size)
+static int hda_setup_stream(int stream_idx, uint32_t format, size_t buf_size,
+                            size_t period_bytes, int direction)
 {
-    if (stream_idx >= HDA_MAX_STREAMS || hda_ctrl.streams[stream_idx].allocated) return -EBUSY;
+    if (stream_idx >= HDA_MAX_STREAMS || hda_ctrl.streams[stream_idx].allocated)
+        return -EBUSY;
 
-    size_t   bdl_size = sizeof(struct hda_bdle) * HDA_BDL_ENTRIES;
-    size_t   total    = ALIGN_UP(buf_size + bdl_size, PAGE_4K_SIZE);
-    uint64_t frame    = alloc_frames(total / PAGE_4K_SIZE);
+    size_t period_frags = HDA_BDL_ENTRIES;
+    size_t bdl_entries  = HDA_BDL_ENTRIES;
+    if (period_bytes > 0 && period_bytes <= buf_size) {
+        period_frags = buf_size / period_bytes;
+        if (period_frags > HDA_BDL_ENTRIES) period_frags = HDA_BDL_ENTRIES;
+        if (period_frags == 0) period_frags = 1;
+        bdl_entries = period_frags;
+    }
+
+    size_t   bdl_bytes = sizeof(struct hda_bdle) * bdl_entries;
+    size_t   total     = ALIGN_UP(buf_size + bdl_bytes, PAGE_4K_SIZE);
+    uint64_t frame     = alloc_frames(total / PAGE_4K_SIZE);
     if (!frame) return -ENOMEM;
 
     struct hda_bdle *bdl = (struct hda_bdle *)phys_to_virt(frame + buf_size);
 
-    hda_ctrl.streams[stream_idx].allocated = 1;
-    hda_ctrl.streams[stream_idx].buf_phys  = frame;
-    hda_ctrl.streams[stream_idx].buf       = (volatile uint8_t *)phys_to_virt(frame);
-    hda_ctrl.streams[stream_idx].buf_size  = buf_size;
-    hda_ctrl.streams[stream_idx].bdl_phys  = frame + buf_size;
-    hda_ctrl.streams[stream_idx].bdl       = (volatile void *)bdl;
-    hda_ctrl.streams[stream_idx].running   = 0;
+    hda_ctrl.streams[stream_idx].allocated     = 1;
+    hda_ctrl.streams[stream_idx].direction      = direction;
+    hda_ctrl.streams[stream_idx].buf_phys       = frame;
+    hda_ctrl.streams[stream_idx].buf            = (volatile uint8_t *)phys_to_virt(frame);
+    hda_ctrl.streams[stream_idx].buf_size       = buf_size;
+    hda_ctrl.streams[stream_idx].bdl_phys       = frame + buf_size;
+    hda_ctrl.streams[stream_idx].bdl            = (volatile void *)bdl;
+    hda_ctrl.streams[stream_idx].running        = 0;
+    hda_ctrl.streams[stream_idx].period_frags   = (int)period_frags;
+    hda_ctrl.streams[stream_idx].hw_pos         = 0;
 
     memset((void *)hda_ctrl.streams[stream_idx].buf, 0, buf_size);
-    memset(bdl, 0, bdl_size);
+    memset(bdl, 0, bdl_bytes);
 
-    bdl[0].addr_low  = (uint32_t)(frame & 0xFFFFFFFF);
-    bdl[0].addr_high = (uint32_t)(frame >> 32);
-    bdl[0].length    = (uint32_t)buf_size;
-    bdl[0].ioc       = 1;
+    /* Set up BDL with fragment entries */
+    size_t frag_size = buf_size / bdl_entries;
+    if (frag_size == 0) frag_size = buf_size;
+
+    for (size_t i = 0; i < bdl_entries; i++) {
+        uint64_t frag_phys = frame + i * frag_size;
+        size_t   frag_sz   = (i == bdl_entries - 1) ?
+                             buf_size - i * frag_size : frag_size;
+
+        bdl[i].addr_low  = (uint32_t)(frag_phys & 0xFFFFFFFF);
+        bdl[i].addr_high = (uint32_t)(frag_phys >> 32);
+        bdl[i].length    = (uint32_t)frag_sz;
+        bdl[i].ioc       = 1;  /* Interrupt on completion for each fragment */
+    }
 
     sd_write32(stream_idx, SD_CBL, (uint32_t)buf_size);
-    sd_write16(stream_idx, SD_LVI, 0);
+    sd_write16(stream_idx, SD_LVI, (uint16_t)(bdl_entries - 1));
     sd_write16(stream_idx, SD_FORMAT, (uint16_t)format);
     sd_write32(stream_idx, SD_BDLPL, (uint32_t)(hda_ctrl.streams[stream_idx].bdl_phys & 0xFFFFFFFF));
     sd_write32(stream_idx, SD_BDLPU, (uint32_t)(hda_ctrl.streams[stream_idx].bdl_phys >> 32));
@@ -770,6 +825,10 @@ static void hda_start_stream(int stream_idx)
 {
     if (stream_idx >= HDA_MAX_STREAMS || !hda_ctrl.streams[stream_idx].allocated) return;
     if (hda_ctrl.streams[stream_idx].running) return;
+
+    /* Clear stream status */
+    sd_write8(stream_idx, SD_STS, 0x1c);
+
     hda_write32(INTCTL, hda_read32(INTCTL) | (1u << stream_idx));
     sd_write8(stream_idx, SD_CTL, SD_CTL_DMA_START | SD_INT_MASK);
     hda_ctrl.streams[stream_idx].running = 1;
@@ -779,7 +838,7 @@ static void hda_stop_stream(int stream_idx)
 {
     if (stream_idx >= HDA_MAX_STREAMS || !hda_ctrl.streams[stream_idx].allocated) return;
     sd_write8(stream_idx, SD_CTL, 0);
-    sd_write8(stream_idx, SD_STS, SD_INT_MASK);
+    sd_write8(stream_idx, SD_STS, 0x1c);
     hda_write32(INTCTL, hda_read32(INTCTL) & ~(1u << stream_idx));
     hda_ctrl.streams[stream_idx].running   = 0;
     hda_ctrl.streams[stream_idx].allocated = 0;
@@ -788,105 +847,204 @@ static void hda_stop_stream(int stream_idx)
 /* ------------------------------------------------------------------ */
 /* Audio subsystem interface                                          */
 /* ------------------------------------------------------------------ */
-static int playback_stream = -1;
-
-static size_t hda_audio_write(audio_card_t *card, const void *addr, size_t offset, size_t size)
+static int hda_allocate_stream(int direction)
 {
+    for (int s = 0; s < HDA_MAX_STREAMS; s++) {
+        if (!hda_ctrl.streams[s].allocated) {
+            if (direction == 0) hda_ctrl.playback_stream = s;
+            else                hda_ctrl.capture_stream  = s;
+            return s;
+        }
+    }
+    return -EBUSY;
+}
+
+static int hda_audio_start(audio_card_t *card)
+{
+    (void)card;
+    spin_lock(&hda_ctrl.lock);
+    if (hda_ctrl.playback_stream >= 0 && hda_ctrl.streams[hda_ctrl.playback_stream].allocated) {
+        hda_start_stream(hda_ctrl.playback_stream);
+    }
+    if (hda_ctrl.capture_stream >= 0 && hda_ctrl.streams[hda_ctrl.capture_stream].allocated) {
+        hda_start_stream(hda_ctrl.capture_stream);
+    }
+    spin_unlock(&hda_ctrl.lock);
+    return EOK;
+}
+
+static int hda_audio_stop(audio_card_t *card)
+{
+    (void)card;
+    spin_lock(&hda_ctrl.lock);
+    if (hda_ctrl.playback_stream >= 0) hda_stop_stream(hda_ctrl.playback_stream);
+    if (hda_ctrl.capture_stream >= 0)  hda_stop_stream(hda_ctrl.capture_stream);
+    spin_unlock(&hda_ctrl.lock);
+    return EOK;
+}
+
+static int hda_audio_drain(audio_card_t *card)
+{
+    (void)card;
+    /* Wait for all pending DMA to complete */
+    spin_lock(&hda_ctrl.lock);
+    if (hda_ctrl.playback_stream >= 0 && hda_ctrl.streams[hda_ctrl.playback_stream].running) {
+        /* Let the BDL finish, then stop */
+        int timeout = 50000;
+        while (timeout--) {
+            uint32_t lpib = sd_read32(hda_ctrl.playback_stream, SD_LPIB);
+            if (lpib >= hda_ctrl.streams[hda_ctrl.playback_stream].buf_size) break;
+            usleep(10);
+        }
+        hda_stop_stream(hda_ctrl.playback_stream);
+    }
+    spin_unlock(&hda_ctrl.lock);
+    return EOK;
+}
+
+static size_t hda_audio_write(audio_card_t *card, const void *addr,
+                               size_t offset, size_t size)
+{
+    (void)card;
     (void)offset;
-    struct hda_controller *ctrl = card->driver_data;
-    if (!ctrl || playback_stream < 0) return 0;
-    spin_lock(&ctrl->lock);
-    if (!ctrl->streams[playback_stream].running) hda_start_stream(playback_stream);
-    size_t to_copy = (size > ctrl->streams[playback_stream].buf_size) ? ctrl->streams[playback_stream].buf_size : size;
-    memcpy((void *)ctrl->streams[playback_stream].buf, addr, to_copy);
-    spin_unlock(&ctrl->lock);
+    if (hda_ctrl.playback_stream < 0) return 0;
+
+    spin_lock(&hda_ctrl.lock);
+    if (!hda_ctrl.streams[hda_ctrl.playback_stream].allocated) {
+        spin_unlock(&hda_ctrl.lock);
+        return 0;
+    }
+
+    size_t buf_sz = hda_ctrl.streams[hda_ctrl.playback_stream].buf_size;
+    size_t to_copy = (size > buf_sz) ? buf_sz : size;
+
+    memcpy((void *)hda_ctrl.streams[hda_ctrl.playback_stream].buf, addr, to_copy);
+
+    spin_unlock(&hda_ctrl.lock);
+    return to_copy;
+}
+
+static size_t hda_audio_read(audio_card_t *card, void *addr,
+                              size_t offset, size_t size)
+{
+    (void)card;
+    (void)offset;
+    if (hda_ctrl.capture_stream < 0) return 0;
+
+    spin_lock(&hda_ctrl.lock);
+    if (!hda_ctrl.streams[hda_ctrl.capture_stream].allocated) {
+        spin_unlock(&hda_ctrl.lock);
+        return 0;
+    }
+
+    size_t buf_sz = hda_ctrl.streams[hda_ctrl.capture_stream].buf_size;
+    size_t to_copy = (size > buf_sz) ? buf_sz : size;
+
+    memcpy(addr, (const void *)hda_ctrl.streams[hda_ctrl.capture_stream].buf, to_copy);
+
+    spin_unlock(&hda_ctrl.lock);
     return to_copy;
 }
 
 static int hda_audio_set_format(audio_card_t *card, const audio_pcm_format_t *format)
 {
     if (!card || !format) return -EINVAL;
-    struct hda_controller *ctrl = card->driver_data;
-    if (!ctrl) return -ENODEV;
-
     if (format->channels < 1 || format->channels > 8) return -EINVAL;
     if (format->bits != 8 && format->bits != 16 && format->bits != 24 && format->bits != 32) return -EINVAL;
     if (format->sample_rate < 8000 || format->sample_rate > 192000) return -EINVAL;
 
-    spin_lock(&ctrl->lock);
+    spin_lock(&hda_ctrl.lock);
     card->format = *format;
+    hda_ctrl.audio_fmt = *format;
+    spin_unlock(&hda_ctrl.lock);
+    return EOK;
+}
 
-    uint16_t fmt_val = (uint16_t)((format->channels - 1) & 0xf);
+static int hda_audio_set_params(audio_card_t *card, const audio_pcm_format_t *fmt,
+                                 size_t buffer_bytes, size_t period_bytes)
+{
+    if (!card || !fmt) return -EINVAL;
+    spin_lock(&hda_ctrl.lock);
 
-    switch (format->bits) {
-        case 8 :
-            fmt_val |= (uint16_t)(0 << 4);
-            break;
-        case 16 :
-            fmt_val |= (uint16_t)(1 << 4);
-            break;
-        case 24 :
-            fmt_val |= (uint16_t)(3 << 4);
-            break;
-        case 32 :
-            fmt_val |= (uint16_t)(4 << 4);
-            break;
+    card->format = *fmt;
+    hda_ctrl.audio_fmt     = *fmt;
+    hda_ctrl.buffer_bytes  = buffer_bytes;
+    hda_ctrl.period_bytes  = period_bytes;
+
+    uint16_t fmt_val = (uint16_t)((fmt->channels - 1) & 0xf);
+    switch (fmt->bits) {
+        case 8:  fmt_val |= (uint16_t)(0 << 4); break;
+        case 16: fmt_val |= (uint16_t)(1 << 4); break;
+        case 24: fmt_val |= (uint16_t)(3 << 4); break;
+        case 32: fmt_val |= (uint16_t)(4 << 4); break;
     }
 
     uint32_t base = AC_FMT_BASE_RATE;
-    uint32_t rate = format->sample_rate;
+    uint32_t rate = fmt->sample_rate;
     uint32_t mult = rate / base;
     if (rate % base == 0 && mult >= 1 && mult <= 4) {
         fmt_val |= (uint16_t)((mult - 1) << 11);
     } else if (base % rate == 0 && base / rate <= 8) {
         fmt_val |= (uint16_t)((base / rate - 1) << 8);
-    } else {
-        plogk("hda: Unsupported sample rate %u Hz, using %u Hz.\n", rate, base);
     }
 
-    if (playback_stream >= 0) hda_stop_stream(playback_stream);
-
-    for (int s = 0; s < HDA_MAX_STREAMS; s++) {
-        if (!hda_ctrl.streams[s].allocated) {
-            playback_stream = s;
-            break;
+    /* Set format verbs for all codecs */
+    for (int c = 0; c < hda_ctrl.num_codecs; c++) {
+        struct hda_codec *codec = &hda_ctrl.codecs[c];
+        if (codec->dac_nid > 0) {
+            hda_set_verb(codec->addr, (uint16_t)codec->dac_nid, AC_VERB_SET_STREAM_FORMAT, fmt_val);
+            hda_set_verb(codec->addr, (uint16_t)codec->dac_nid, AC_VERB_SET_CHANNEL_STREAMID, 0);
+        }
+        if (codec->adc_nid > 0) {
+            hda_set_verb(codec->addr, (uint16_t)codec->adc_nid, AC_VERB_SET_STREAM_FORMAT, fmt_val);
+            hda_set_verb(codec->addr, (uint16_t)codec->adc_nid, AC_VERB_SET_CHANNEL_STREAMID, 1);
         }
     }
-    if (playback_stream < 0) {
-        spin_unlock(&ctrl->lock);
-        return -EBUSY;
+
+    /* Set up playback stream */
+    if (hda_ctrl.playback_stream >= 0) {
+        hda_stop_stream(hda_ctrl.playback_stream);
+        hda_ctrl.playback_stream = -1;
     }
 
-    int err = hda_setup_stream(playback_stream, fmt_val, HDA_DMA_BUFFER_SIZE);
-    if (err) {
-        spin_unlock(&ctrl->lock);
-        return err;
+    int ps = hda_allocate_stream(0);
+    if (ps >= 0) {
+        int err = hda_setup_stream(ps, fmt_val, buffer_bytes, period_bytes, 0);
+        if (err) {
+            spin_unlock(&hda_ctrl.lock);
+            return err;
+        }
     }
 
-    ctrl->audio_fmt = *format;
-    plogk("hda: Stream %d format %dHz %dbit %dch fmt=0x%04x\n", playback_stream, format->sample_rate, format->bits, format->channels, fmt_val);
-    spin_unlock(&ctrl->lock);
-    return EOK;
-}
+    /* Set up capture stream (if ADC available) */
+    if (hda_ctrl.capture_stream >= 0) {
+        hda_stop_stream(hda_ctrl.capture_stream);
+        hda_ctrl.capture_stream = -1;
+    }
 
-static int hda_audio_stop(audio_card_t *card)
-{
-    if (!card) return -EINVAL;
-    struct hda_controller *ctrl = card->driver_data;
-    if (ctrl) spin_lock(&ctrl->lock);
-    if (playback_stream >= 0) hda_stop_stream(playback_stream);
-    if (ctrl) spin_unlock(&ctrl->lock);
+    int has_adc = 0;
+    for (int c = 0; c < hda_ctrl.num_codecs; c++) {
+        if (hda_ctrl.codecs[c].adc_nid > 0) { has_adc = 1; break; }
+    }
+
+    if (has_adc) {
+        int cs = hda_allocate_stream(1);
+        if (cs >= 0) {
+            hda_setup_stream(cs, fmt_val, buffer_bytes, period_bytes, 1);
+        }
+    }
+
+    plogk("hda: Params set %dHz %dbit %dch buf=%zu per=%zu fmt=0x%04x\n",
+          fmt->sample_rate, fmt->bits, fmt->channels, buffer_bytes, period_bytes, fmt_val);
+    spin_unlock(&hda_ctrl.lock);
     return EOK;
 }
 
 static int hda_audio_set_volume(audio_card_t *card, const audio_volume_t *volume)
 {
     if (!card || !volume) return -EINVAL;
-    struct hda_controller *ctrl = card->driver_data;
-    if (!ctrl) return -ENODEV;
-
-    for (int c = 0; c < ctrl->num_codecs; c++) {
-        struct hda_codec *codec = &ctrl->codecs[c];
+    for (int c = 0; c < hda_ctrl.num_codecs; c++) {
+        struct hda_codec *codec = &hda_ctrl.codecs[c];
         if (codec->dac_nid > 0) {
             uint32_t gl = ((uint32_t)volume->left * 0x7f) / 255;
             uint32_t gr = ((uint32_t)volume->right * 0x7f) / 255;
@@ -902,18 +1060,73 @@ static int hda_audio_set_volume(audio_card_t *card, const audio_volume_t *volume
 static int hda_audio_get_volume(audio_card_t *card, audio_volume_t *volume)
 {
     if (!card || !volume) return -EINVAL;
+
+    /* Read volume from first available codec's DAC */
+    for (int c = 0; c < hda_ctrl.num_codecs; c++) {
+        struct hda_codec *codec = &hda_ctrl.codecs[c];
+        if (codec->dac_nid > 0) {
+            uint32_t vl = hda_get_verb(codec->addr, (uint16_t)codec->dac_nid,
+                                        AC_VERB_GET_AMP_GAIN_MUTE,
+                                        AC_AMP_GET_OUTPUT | AC_AMP_GET_LEFT);
+            uint32_t vr = hda_get_verb(codec->addr, (uint16_t)codec->dac_nid,
+                                        AC_VERB_GET_AMP_GAIN_MUTE,
+                                        AC_AMP_GET_OUTPUT | AC_AMP_GET_RIGHT);
+            volume->left  = (uint8_t)((vl & 0x7f) * 255 / 0x7f);
+            volume->right = (uint8_t)((vr & 0x7f) * 255 / 0x7f);
+            return EOK;
+        }
+    }
+
     volume->left  = 0x80;
     volume->right = 0x80;
     return EOK;
 }
 
+static int hda_audio_get_position(audio_card_t *card, snd_pcm_uframes_t *pos)
+{
+    (void)card;
+    if (!pos) return -EINVAL;
+
+    spin_lock(&hda_ctrl.lock);
+    if (hda_ctrl.playback_stream >= 0 &&
+        hda_ctrl.streams[hda_ctrl.playback_stream].running) {
+        uint32_t lpib = sd_read32(hda_ctrl.playback_stream, SD_LPIB);
+        size_t fb = (hda_ctrl.audio_fmt.bits / 8) * hda_ctrl.audio_fmt.channels;
+        if (fb > 0) *pos = lpib / fb;
+    }
+    spin_unlock(&hda_ctrl.lock);
+    return EOK;
+}
+
+static int hda_audio_get_avail(audio_card_t *card, size_t *avail)
+{
+    (void)card;
+    if (!avail) return -EINVAL;
+    spin_lock(&hda_ctrl.lock);
+    if (hda_ctrl.playback_stream >= 0 && hda_ctrl.streams[hda_ctrl.playback_stream].allocated) {
+        uint32_t lpib = sd_read32(hda_ctrl.playback_stream, SD_LPIB);
+        size_t buf_sz = hda_ctrl.streams[hda_ctrl.playback_stream].buf_size;
+        if (lpib > buf_sz) *avail = 0;
+        else *avail = buf_sz - lpib;
+    } else {
+        *avail = 0;
+    }
+    spin_unlock(&hda_ctrl.lock);
+    return EOK;
+}
+
 static const audio_card_ops_t hda_audio_ops = {
-    .pcm_read   = NULL,
-    .pcm_write  = hda_audio_write,
-    .set_format = hda_audio_set_format,
-    .stop       = hda_audio_stop,
-    .set_volume = hda_audio_set_volume,
-    .get_volume = hda_audio_get_volume,
+    .pcm_read      = hda_audio_read,
+    .pcm_write     = hda_audio_write,
+    .set_format    = hda_audio_set_format,
+    .start         = hda_audio_start,
+    .stop          = hda_audio_stop,
+    .drain         = hda_audio_drain,
+    .set_volume    = hda_audio_set_volume,
+    .get_volume    = hda_audio_get_volume,
+    .get_position  = hda_audio_get_position,
+    .get_avail     = hda_audio_get_avail,
+    .set_params    = hda_audio_set_params,
 };
 
 /* ------------------------------------------------------------------ */
@@ -925,10 +1138,46 @@ static void hda_interrupt_handler(interrupt_frame_t *frame)
     uint32_t intsts = hda_read32(INTSTS);
     if (intsts == 0 || intsts == 0xffffffff) return;
 
+    /* Handle RIRB response interrupt */
     uint8_t rirb_sts = hda_read8(RIRBSTS);
     if (rirb_sts & 0x05) {
         hda_write8(RIRBSTS, rirb_sts);
         if (rirb_sts & 0x01) hda_read16(RIRBWP);
+    }
+
+    /* Handle stream interrupts */
+    for (int s = 0; s < HDA_MAX_STREAMS; s++) {
+        if (!(intsts & (1u << s))) continue;
+        if (!hda_ctrl.streams[s].allocated) continue;
+
+        uint8_t sts = sd_read8(s, SD_STS);
+        if (sts & SD_STS_DMA_COMPLETE) {
+            /* DMA completed a BDL entry - update position */
+            hda_ctrl.streams[s].hw_pos +=
+                hda_ctrl.streams[s].buf_size / hda_ctrl.streams[s].period_frags;
+
+            if (hda_ctrl.streams[s].hw_pos >= hda_ctrl.streams[s].buf_size)
+                hda_ctrl.streams[s].hw_pos = 0;
+
+            /* Notify the PCM layer */
+            if (hda_ctrl.streams[s].pcm_file) {
+                audio_pcm_file_t *pf = hda_ctrl.streams[s].pcm_file;
+                spin_lock(&pf->lock);
+                snd_pcm_uframes_t frames_consumed =
+                    hda_ctrl.streams[s].buf_size /
+                    ((hda_ctrl.audio_fmt.bits / 8) * hda_ctrl.audio_fmt.channels) /
+                    hda_ctrl.streams[s].period_frags;
+
+                pcm_ring_buffer_advance_hw(pf, frames_consumed);
+                pf->period_event = 1;
+                spin_unlock(&pf->lock);
+                wait_queue_wake_all(&pf->write_wait);
+                wait_queue_wake_all(&pf->read_wait);
+            }
+
+            /* Clear status bit */
+            sd_write8(s, SD_STS, SD_STS_DMA_COMPLETE);
+        }
     }
 }
 
@@ -945,10 +1194,9 @@ void hda_init(void)
     uint32_t             irq;
 
     memset(&hda_ctrl, 0, sizeof(hda_ctrl));
-    hda_ctrl.lock.lock   = 0;
-    hda_ctrl.lock.rflags = 0;
+    hda_ctrl.playback_stream = -1;
+    hda_ctrl.capture_stream  = -1;
 
-    /* Find HDA controller by vendor, then by class */
     req.vendor_id = PCI_VENDOR_INTEL;
     req.device_id = 0;
     dev           = NULL;
@@ -963,10 +1211,10 @@ void hda_init(void)
     }
     if (!dev) return;
 
-    plogk("hda: Controller at PCI %04x:%02x:%02x.%01x, vendor 0x%04x, device 0x%04x\n", dev->device->domain, dev->device->bus, dev->device->slot,
+    plogk("hda: Controller at PCI %04x:%02x:%02x.%01x, vendor 0x%04x, device 0x%04x\n",
+          dev->device->domain, dev->device->bus, dev->device->slot,
           dev->device->func, dev->vendor_id, dev->device_id);
 
-    /* Read and map BAR0 */
     {
         pci_device_reg_t bar_reg  = {.parent = dev, .offset = 0x10};
         uint64_t         bar_phys = read_pci(bar_reg);
@@ -992,8 +1240,6 @@ void hda_init(void)
         hda_ctrl.mmio_size = hda_read_bar_size(dev, 0);
         if (!hda_ctrl.mmio_size || hda_ctrl.mmio_size == 0xFFFFFFFF) hda_ctrl.mmio_size = 0x4000;
 
-        /* Map the MMIO region into page tables.
-         * HHDM may not cover MMIO regions; map with uncacheable flags. */
         {
             uint64_t map_start = bar_phys & ~(uint64_t)0xFFF;
             uint64_t map_len   = (bar_phys + hda_ctrl.mmio_size + 0xFFF) & ~(uint64_t)0xFFF;
@@ -1011,7 +1257,6 @@ void hda_init(void)
     hda_ctrl.pci_dev = dev;
     hda_ctrl.irq     = irq;
 
-    /* GCAP */
     {
         uint32_t gcap  = hda_read32(GCAP);
         uint8_t  major = hda_read8(VMAJ);
@@ -1022,17 +1267,14 @@ void hda_init(void)
         plogk("hda: GCAP=0x%08x rev %d.%d, ISS=%d, OSS=%d, BSS=%d\n", gcap, major, minor, iss, oss, bss);
     }
 
-    /* Enable bus master and MMIO */
     {
         uint32_t cmd = pci_read_command_status(dev) & 0xFFFF;
         cmd |= (1u << 1) | (1u << 2);
         pci_write_command_status(dev, cmd);
     }
 
-    /* Controller reset */
     hda_reset_controller();
 
-    /* Allocate and initialize CORB/RIRB */
     if (hda_alloc_corb_rirb()) {
         plogk("hda: CORB/RIRB allocation failed.\n");
         return;
@@ -1040,11 +1282,9 @@ void hda_init(void)
     hda_init_corb_rirb();
     plogk("hda: CORB/RIRB configured, %d entries each\n", hda_ctrl.corb_entries);
 
-    /* Register IRQ and enable interrupts */
     register_interrupt_handler(IRQ_0 + irq, hda_interrupt_handler, 0, 0x8e);
     hda_write32(INTCTL, AZX_INT_GLOBAL_EN | AZX_INT_CTRL_EN);
 
-    /* Poll STATESTS with retries for codec detection */
     uint16_t state_sts  = 0;
     int      codec_mask = 0;
     for (int retry = 0; retry < 6; retry++) {
@@ -1061,7 +1301,6 @@ void hda_init(void)
         codec_mask = 0x0f;
     }
 
-    /* Probe codecs */
     for (int i = 0; i < HDA_MAX_CODECS; i++) {
         if (codec_mask & (1u << i)) {
             if (hda_probe_codec(i) == 0) {
@@ -1083,12 +1322,13 @@ void hda_init(void)
         return;
     }
 
-    /* Configure codecs */
     for (int c = 0; c < hda_ctrl.num_codecs; c++) hda_config_codec(&hda_ctrl.codecs[c]);
 
-    /* Register with audio subsystem */
     audio_pcm_format_t fmt = {.sample_rate = 48000, .bits = 16, .channels = 2};
     hda_ctrl.audio_fmt     = fmt;
+    hda_ctrl.buffer_bytes  = HDA_DMA_BUFFER_SIZE;
+    hda_ctrl.period_bytes  = HDA_DMA_BUFFER_SIZE / HDA_PERIOD_FRAGS;
+
     audio_register_card("Intel HD Audio", &fmt, &hda_audio_ops, &hda_ctrl);
     hda_ctrl.audio_registered = 1;
 }
