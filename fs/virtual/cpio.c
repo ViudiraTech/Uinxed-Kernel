@@ -118,7 +118,7 @@ void init_cpio(void)
         if (namesize > 4096 || offset + namesize > data_size) break;
         char filename[4096];
         filename[0]    = '/';
-        size_t copy_ns = namesize < sizeof(filename) - 1 ? namesize : sizeof(filename) - 1;
+        size_t copy_ns = namesize < sizeof(filename) - 2 ? namesize : sizeof(filename) - 2;
         memcpy(filename + 1, data_d + offset, copy_ns);
         filename[copy_ns + 1] = '\0';
         offset                = (offset + namesize + 3) & ~3;
@@ -154,6 +154,12 @@ void init_cpio(void)
             }
         } else if (file_type == CPIO_MODE_IFLNK) {
             char *symlink_path = calloc(1, filesize + 1);
+
+            if (!symlink_path) {
+                free(filedata);
+                if (is_free) free(data_d);
+                return;
+            }
 
             strncpy(symlink_path, filedata, filesize);
             status = vfs_symlink(filename, symlink_path);

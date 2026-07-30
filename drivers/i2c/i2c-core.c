@@ -148,6 +148,7 @@ static int32_t i2c_smbus_xfer_emulated(struct i2c_adapter *adap, uint16_t addr, 
     int            nmsgs = 0;
     int            ret   = 0;
     uint8_t        dummy;
+    uint8_t        tmp[I2C_SMBUS_BLOCK_MAX + 2];
 
     if (adap->owners <= 0) return -ENODEV;
 
@@ -201,7 +202,6 @@ static int32_t i2c_smbus_xfer_emulated(struct i2c_adapter *adap, uint16_t addr, 
                 msg[1].buf   = (uint8_t *)&data->word;
                 nmsgs        = 2;
             } else {
-                uint8_t tmp[3];
                 tmp[0]       = command;
                 tmp[1]       = data->word & 0xFF;
                 tmp[2]       = (data->word >> 8) & 0xFF;
@@ -229,7 +229,6 @@ static int32_t i2c_smbus_xfer_emulated(struct i2c_adapter *adap, uint16_t addr, 
                 return ret < 0 ? ret : 0;
             } else {
                 uint8_t len = data->block[0];
-                uint8_t tmp[I2C_SMBUS_BLOCK_MAX + 2];
                 if (len > I2C_SMBUS_BLOCK_MAX) return -EINVAL;
                 tmp[0] = command;
                 tmp[1] = len;
@@ -257,7 +256,6 @@ static int32_t i2c_smbus_xfer_emulated(struct i2c_adapter *adap, uint16_t addr, 
                 nmsgs        = 2;
             } else {
                 uint8_t len = data->block[0];
-                uint8_t tmp[I2C_SMBUS_BLOCK_MAX + 1];
                 if (len > I2C_SMBUS_BLOCK_MAX) return -EINVAL;
                 tmp[0] = command;
                 memcpy(&tmp[1], &data->block[1], len);

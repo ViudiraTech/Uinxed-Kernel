@@ -47,7 +47,10 @@ int tmpfs_mk(void *parent, const char *name, vfs_node_t node, int is_dir)
 {
     (void)parent;
     tmpfs_file_t *f = calloc(1, sizeof(tmpfs_file_t));
-    strncpy(f->name, name, sizeof(f->name));
+    if (!f) return -ENOMEM;
+
+    strncpy(f->name, name, sizeof(f->name) - 1);
+    f->name[sizeof(f->name) - 1] = '\0';
 
     f->type      = is_dir ? tp_file_dir : tp_file_file;
     f->node_type = is_dir ? file_dir : file_none;
@@ -94,7 +97,8 @@ size_t tmpfs_write(void *file, const void *addr, size_t offset, size_t size)
     old_size   = f->size;
 
     if (end > f->capacity) {
-        size_t new_cap = end * 2;
+        size_t new_cap = end;
+        if (new_cap <= SIZE_MAX / 2) new_cap *= 2;
         char  *new_buf = realloc(f->data, new_cap);
 
         if (!new_buf) return 0;
@@ -155,7 +159,8 @@ int tmpfs_delete(void *parent, vfs_node_t node)
 int tmpfs_rename(void *current, const char *new_name)
 {
     tmpfs_file_t *f = (tmpfs_file_t *)current;
-    strncpy(f->name, new_name, sizeof(f->name));
+    strncpy(f->name, new_name, sizeof(f->name) - 1);
+    f->name[sizeof(f->name) - 1] = '\0';
     return EOK;
 }
 
@@ -205,7 +210,8 @@ int tmpfs_symlink(void *parent, const char *name, vfs_node_t node)
 
     if (!f) return -ENOMEM;
 
-    strncpy(f->name, node->name, sizeof(f->name));
+    strncpy(f->name, node->name, sizeof(f->name) - 1);
+    f->name[sizeof(f->name) - 1] = '\0';
     f->type      = tp_file_symlink;
     f->node_type = file_symlink;
     node->handle = f;

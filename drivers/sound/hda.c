@@ -621,6 +621,7 @@ static int hda_parse_widgets(struct hda_codec *codec)
             w->num_conns = cl & 0xff;
             if (w->num_conns > 0) {
                 w->conns = malloc(sizeof(uint16_t) * w->num_conns);
+                if (!w->conns) return -ENOMEM;
                 for (int j = 0; j < w->num_conns; j += 4) {
                     uint32_t entry  = hda_get_verb(codec->addr, nid, AC_VERB_GET_CONNECT_LIST, (uint32_t)j);
                     int      remain = w->num_conns - j;
@@ -992,7 +993,7 @@ void hda_init(void)
         if (!hda_ctrl.mmio_size || hda_ctrl.mmio_size == 0xFFFFFFFF) hda_ctrl.mmio_size = 0x4000;
 
         /* Map the MMIO region into page tables.
-         * HHDM may not cover MMIO regions ï¿?must map with uncacheable flags. */
+         * HHDM may not cover MMIO regions; map with uncacheable flags. */
         {
             uint64_t map_start = bar_phys & ~(uint64_t)0xFFF;
             uint64_t map_len   = (bar_phys + hda_ctrl.mmio_size + 0xFFF) & ~(uint64_t)0xFFF;
