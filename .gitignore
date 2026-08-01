@@ -76,6 +76,8 @@ desktop.ini
 alpine-rootfs/
 *.rootfs.tar.gz
 rootfs.tar.gz
+*.cpio
+tools/build-alpine-xfce-rootfs.sh
 
 # Other
 .superpowers/
