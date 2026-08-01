@@ -13,17 +13,25 @@
 
 #include <kernel/ringlog.h>
 #include <libs/std/stdint.h>
-#include <mem/bitmap.h>
+#include <mem/buddy.h>
 #include <sync/spin_lock.h>
 
 typedef struct {
-        bitmap_t   bitmap;
-        uint32_t  *refcounts;
-        size_t     frame_count;
-        size_t     origin_frames;
-        size_t     usable_frames;
-        spinlock_t lock;
+        buddy_allocator_t buddy;
+        size_t            frame_count;
+        size_t            origin_frames;
+        size_t            usable_frames;
+        size_t            metadata_frames;
+        spinlock_t        lock;
 } frame_allocator_t;
+
+typedef struct {
+        size_t   total_frames;
+        size_t   free_frames;
+        size_t   metadata_frames;
+        size_t   free_blocks[BUDDY_MAX_ORDER + 1];
+        unsigned max_order;
+} frame_stats_t;
 
 extern log_buffer_t      frame_log;
 extern frame_allocator_t frame_allocator;
@@ -48,6 +56,10 @@ int frame_release_range(uint64_t addr, size_t count);
 
 /* Return the current ownership count of a 4 KiB physical frame. */
 uint32_t frame_refcount(uint64_t addr);
+
+/* Snapshot allocator accounting and validate all buddy-list invariants. */
+void frame_get_stats(frame_stats_t *stats);
+int  frame_validate(void);
 
 /* Free a memory frame */
 void free_frame(uint64_t addr);

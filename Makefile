@@ -398,7 +398,7 @@ C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*" -not -path "te
 C_HEADERS      := $(shell find * -name "*.h")
 OBJS           := $(C_SOURCES:%.c=%.o)
 DEPS           := $(OBJS:%.o=%.d)
-LIBS           := $(wildcard libs/lib*.a)
+LIBS           := $(filter-out libs/liballoc-x86_64.a,$(wildcard libs/lib*.a))
 PWD            := $(shell pwd)
 
 HOST_CC        ?= $(CC)
@@ -463,7 +463,7 @@ Uinxed-x64.iso: info UxImage $(INIT_ELF)
 	$(Q)printf "Image: $@ is ready.\n"
 	$(Q)printf "Compilation complete.\n"
 
-.PHONY: help run run-net run-usb disk.img fs-test usb-test clean format check gen.clangd menuconfig
+.PHONY: help run run-net run-usb disk.img allocator-test fs-test usb-test clean format check gen.clangd menuconfig
 
 help: info
 	$(Q)printf "Uinxed-Kernel Makefile Usage:\n"
@@ -472,6 +472,7 @@ help: info
 	$(Q)printf "  make run-net     - Run with an isolated user-mode e1000 network.\n"
 	$(Q)printf "  make run-usb     - Run with xHCI, HID, and a USB mass-storage disk.\n"
 	$(Q)printf "  make disk.img    - Build a demo simplefs disk image.\n"
+	$(Q)printf "  make allocator-test - Run native buddy/slab allocator tests.\n"
 	$(Q)printf "  make fs-test     - Run native ext2/ext3/ext4, JBD2 and NTFS regression tests.\n"
 	$(Q)printf "  make usb-test    - Run native UHCI, BOT/SCSI and HID protocol tests.\n"
 	$(Q)printf "  make clean       - Clean all generated files.\n"
@@ -494,6 +495,9 @@ run-usb: info Uinxed-x64.iso
 disk.img: info tools/mkfs_simplefs
 	$(Q)printf "  MKFS    $@\n\n"
 	$(Q)./tools/mkfs_simplefs $@
+
+allocator-test:
+	$(Q)bash tools/tests/run_allocator_tests.sh
 
 fs-test:
 	$(Q)bash tools/tests/run_fs_tests.sh

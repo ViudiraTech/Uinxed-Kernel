@@ -32,10 +32,10 @@ Uinxed is a monolithic UNIX-like x86_64 kernel, version 0.4.0, written from scra
 
 ### Memory Management
 
-- **Frame allocator** (`mem/frame`): bitmap-based physical page tracking
+- **Frame allocator** (`mem/frame`, `mem/buddy`): binary buddy free areas with eager splitting/coalescing, exact-length contiguous allocations, aligned huge-page allocations, and per-frame ownership counts
 - **Page tables** (`mem/page`): standard x86_64 4-level paging (PML4 → PDPT → PD → PT). Supports 4KB, 2MB, and 1GB huge pages
 - **HHDM** (Higher Half Direct Map): all physical memory accessible via `phys_to_virt()`
-- **Kernel heap** (`mem/heap`): grows from `KERNEL_HEAP_START` within the higher-half mapping
+- **Kernel heap** (`mem/heap`, `mem/alloc`): buddy-backed slab caches with partial/full/empty slab lists, cache coloring, typed caches, aligned large allocations, reclamation, poisoning, statistics, and invariant checks
 - **KASLR**: kernel address space layout randomization
 - **Swap** (`mem/swap`): anonymous memory swap subsystem with multiple swap areas, slot allocation, reclaim, and swap-in/swap-out fault handling
 

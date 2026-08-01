@@ -13,6 +13,7 @@
 #include <drivers/interrupt/apic.h>
 #include <drivers/net/e1000.h>
 #include <kernel/errno.h>
+#include <kernel/interrupt.h>
 #include <kernel/printk.h>
 #include <kernel/timer.h>
 #include <libs/std/string.h>
@@ -151,6 +152,7 @@ struct e1000_device {
         int                       vector;
         int                       using_msi;
         int                       using_legacy;
+        int                       using_direct_legacy;
         int                       running;
         int                       stopping;
         int                       owns_hw;
@@ -723,24 +725,36 @@ static void e1000_interrupt_slot(size_t slot, void *frame)
     send_eoi();
 }
 
-#define E1000_IRQ_WRAPPER(n)                     \
-    static void e1000_interrupt_##n(void *frame) \
-    {                                            \
-        e1000_interrupt_slot(n, frame);          \
-    }
+#define E1000_IRQ_WRAPPERS(n)                                      \
+    static void e1000_legacy_interrupt_##n(void *frame)             \
+    {                                                               \
+        e1000_interrupt_slot(n, frame);                              \
+    }                                                               \
+    INTERRUPT_BEGIN static void e1000_idt_interrupt_##n(interrupt_frame_t *frame) \
+    {                                                               \
+        e1000_interrupt_slot(n, frame);                              \
+    }                                                               \
+    INTERRUPT_END
 
-E1000_IRQ_WRAPPER(0)
-E1000_IRQ_WRAPPER(1)
-E1000_IRQ_WRAPPER(2)
-E1000_IRQ_WRAPPER(3)
-E1000_IRQ_WRAPPER(4)
-E1000_IRQ_WRAPPER(5)
-E1000_IRQ_WRAPPER(6)
-E1000_IRQ_WRAPPER(7)
+E1000_IRQ_WRAPPERS(0)
+E1000_IRQ_WRAPPERS(1)
+E1000_IRQ_WRAPPERS(2)
+E1000_IRQ_WRAPPERS(3)
+E1000_IRQ_WRAPPERS(4)
+E1000_IRQ_WRAPPERS(5)
+E1000_IRQ_WRAPPERS(6)
+E1000_IRQ_WRAPPERS(7)
 
-static const net_irq_handler_fn e1000_irq_handlers[E1000_MAX_DEVICES] = {
-    e1000_interrupt_0, e1000_interrupt_1, e1000_interrupt_2, e1000_interrupt_3,
-    e1000_interrupt_4, e1000_interrupt_5, e1000_interrupt_6, e1000_interrupt_7,
+static const net_irq_handler_fn e1000_legacy_irq_handlers[E1000_MAX_DEVICES] = {
+    e1000_legacy_interrupt_0, e1000_legacy_interrupt_1, e1000_legacy_interrupt_2, e1000_legacy_interrupt_3,
+    e1000_legacy_interrupt_4, e1000_legacy_interrupt_5, e1000_legacy_interrupt_6, e1000_legacy_interrupt_7,
+};
+
+static void *const e1000_idt_irq_handlers[E1000_MAX_DEVICES] = {
+    (void *)e1000_idt_interrupt_0, (void *)e1000_idt_interrupt_1,
+    (void *)e1000_idt_interrupt_2, (void *)e1000_idt_interrupt_3,
+    (void *)e1000_idt_interrupt_4, (void *)e1000_idt_interrupt_5,
+    (void *)e1000_idt_interrupt_6, (void *)e1000_idt_interrupt_7,
 };
 
 static int e1000_setup_interrupt(e1000_device_t *device)
@@ -760,14 +774,28 @@ static int e1000_setup_interrupt(e1000_device_t *device)
     pci_msi_init(device->pci);
     device->vector = pci_enable_msi(device->pci);
     if (device->vector >= 0) {
-        register_interrupt_handler((uint16_t)device->vector, (void *)e1000_irq_handlers[slot], 0, 0x8e);
+        register_interrupt_handler((uint16_t)device->vector, e1000_idt_irq_handlers[slot], 0, 0x8e);
         device->using_msi = 1;
         return 0;
     }
 
     device->irq = (uint8_t)pci_get_irq(device->pci);
-    if (device->irq == 0 || device->irq == 0xff || !net_irq_claim_legacy || !net_irq_release_legacy) goto fail;
-    if (net_irq_claim_legacy(device->irq, e1000_irq_handlers[slot])) goto fail;
+    if (device->irq == 0 || device->irq == 0xff) goto fail;
+    if (net_irq_claim_legacy && net_irq_release_legacy) {
+        if (net_irq_claim_legacy(device->irq, e1000_legacy_irq_handlers[slot])) goto fail;
+    } else {
+        /*
+         * Some platforms (including QEMU's 82540EM) expose only INTx and
+         * this kernel may be built without a shared legacy-IRQ dispatcher.
+         * Install an exclusive fallback route so the device is not rejected
+         * before its RX worker can start.
+        */
+        device->vector = IRQ_0 + device->irq;
+        register_interrupt_handler((uint16_t)device->vector, e1000_idt_irq_handlers[slot], 0, 0x8e);
+        ioapic_routing_t routing = {(uint8_t)device->vector, device->irq};
+        ioapic_add(&routing);
+        device->using_direct_legacy = 1;
+    }
     device->using_legacy = 1;
     return 0;
 
@@ -790,7 +818,8 @@ static void e1000_release_interrupt(e1000_device_t *device)
     spin_unlock_irqrestore(&e1000_irq_lock, rflags);
 
     if (device->using_msi) pci_disable_msi(device->pci);
-    if (device->using_legacy) net_irq_release_legacy(device->irq, e1000_irq_handlers[device->irq_slot]);
+    if (device->using_legacy && !device->using_direct_legacy && net_irq_release_legacy)
+        net_irq_release_legacy(device->irq, e1000_legacy_irq_handlers[device->irq_slot]);
     for (;;) {
         rflags     = spin_lock_irqsave(&e1000_irq_lock);
         int active = device->irq_active != 0;
@@ -798,7 +827,7 @@ static void e1000_release_interrupt(e1000_device_t *device)
         if (!active) break;
         __asm__ volatile("pause" ::: "memory");
     }
-    device->using_msi = device->using_legacy = 0;
+    device->using_msi = device->using_legacy = device->using_direct_legacy = 0;
 }
 
 static void e1000_destroy(e1000_device_t *device)
@@ -870,6 +899,7 @@ int e1000_probe(pci_device_cache_t *pci)
     device->saved_command = pci_read_command_status(pci) & 0xffff;
     wait_queue_init(&device->work_wait);
     wait_queue_init(&device->exit_wait);
+    const char *stage = "BAR mapping";
 
     /* BAR sizing writes all ones, so memory decoding and DMA must be off. */
     pci_write_command_status(pci, device->saved_command & ~((1u << 1) | (1u << 2)));
@@ -877,9 +907,11 @@ int e1000_probe(pci_device_cache_t *pci)
     if (ret) goto fail;
     pci_write_command_status(pci, device->saved_command | (1u << 1) | (1u << 2));
     if ((device->features & E1000_F_E1000E) && (e1000_read(device, E1000_REG_CTRL_EXT) & E1000_CTRL_EXT_DRV_LOAD)) {
+        stage = "hardware ownership";
         ret = -EBUSY;
         goto fail;
     }
+    stage = "reset";
     ret = e1000_reset(device);
     if (ret) goto fail;
     if (device->features & E1000_F_E1000E) {
@@ -887,8 +919,10 @@ int e1000_probe(pci_device_cache_t *pci)
         e1000_write_flush(device);
         device->owns_hw = 1;
     }
+    stage = "MAC address";
     ret = e1000_read_mac(device);
     if (ret) goto fail;
+    stage = "DMA rings";
     ret = e1000_alloc_dma(device);
     if (ret) goto fail;
 
@@ -896,16 +930,19 @@ int e1000_probe(pci_device_cache_t *pci)
     e1000_program_rings(device);
     e1000_write(device, E1000_REG_CTRL, e1000_read(device, E1000_REG_CTRL) | E1000_CTRL_SLU);
     e1000_write(device, E1000_REG_ITR, 8000);
+    stage = "interrupt setup";
     ret = e1000_setup_interrupt(device);
     if (ret) goto fail;
 
     char netdev_name[NETDEV_NAME_MAX];
     (void)snprintf(netdev_name, sizeof(netdev_name), "eth%u", (unsigned)e1000_device_count);
+    stage = "netdev initialization";
     ret = netdev_init(&device->netdev, netdev_name, &e1000_netdev_ops, device);
     if (ret) goto fail;
     memcpy(device->netdev.address, device->mac, sizeof(device->mac));
     device->netdev.mtu   = E1000_MTU;
     device->netdev.flags = NETDEV_F_BROADCAST;
+    stage               = "netdev registration";
     ret                  = netdev_register(&device->netdev);
     if (ret) goto fail;
     device->netdev_registered = 1;
@@ -914,6 +951,7 @@ int e1000_probe(pci_device_cache_t *pci)
     device->running           = 1;
     e1000_device_count++;
     device->link_up = !!(e1000_read(device, E1000_REG_STATUS) & E1000_STATUS_LU);
+    stage           = "netdev activation";
     ret             = netdev_set_up(&device->netdev, 1);
     if (ret) goto fail_linked;
     if (!device->link_up) {
@@ -923,6 +961,7 @@ int e1000_probe(pci_device_cache_t *pci)
     }
     (void)e1000_read(device, E1000_REG_ICR);
     if (e1000_scheduler_ready) {
+        stage = "worker startup";
         ret = e1000_start_worker(device);
         if (ret) goto fail_linked;
     }
@@ -933,6 +972,7 @@ fail_linked:
     if (e1000_device_count) e1000_device_count--;
 
 fail:
+    plogk("e1000: Probe failed during %s (%d).\n", stage, ret);
     e1000_destroy(device);
     return ret;
 }
@@ -946,7 +986,8 @@ int e1000_init(void)
     pci_devices_cache_t *cache = pci_get_devices_cache();
     if (!cache) return -ENODEV;
     for (pci_device_cache_t *pci = cache->head; pci; pci = pci->next) {
-        if (e1000_match((uint16_t)pci->vendor_id, (uint16_t)pci->device_id) && !e1000_probe(pci)) found++;
+        if (!e1000_match((uint16_t)pci->vendor_id, (uint16_t)pci->device_id)) continue;
+        if (!e1000_probe(pci)) found++;
     }
     return found ? found : -ENODEV;
 }

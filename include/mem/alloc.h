@@ -19,6 +19,17 @@ typedef enum {
     layout_error,
 } heap_error_t;
 
+typedef struct {
+        size_t arena_bytes;
+        size_t metadata_bytes;
+        size_t free_page_bytes;
+        size_t live_allocations;
+        size_t allocated_bytes;
+        size_t allocation_calls;
+        size_t free_calls;
+        size_t failed_allocations;
+} heap_stats_t;
+
 typedef void (*error_handler)(heap_error_t error, void *ptr);
 
 /* Initializes the heap memory arena */
@@ -41,5 +52,9 @@ void *realloc(void *ptr, size_t new_size);
 
 /* Frees memory previously allocated */
 void free(void *ptr);
+
+/* Allocator diagnostics. */
+void heap_get_stats(heap_stats_t *stats);
+int  heap_validate(void);
 
 #endif // INCLUDE_ALLOC_H_

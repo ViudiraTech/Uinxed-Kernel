@@ -55,7 +55,7 @@ void init_heap(void)
 
     pointer_cast_t cast;
     cast.val = KERNEL_HEAP_START;
-    heap_init(cast.ptr, KERNEL_HEAP_SIZE);
+    if (heap_init(cast.ptr, KERNEL_HEAP_SIZE)) krn_halt();
 }
 
 /* Allocate an empty memory */

@@ -25,7 +25,7 @@ _start:
     xor %rdx, %rdx          # mode = 0
     syscall
     test %rax, %rax
-    js exit
+    js idle
 
 1:
     mov %rax, %rdi          # fd returned by open
@@ -34,10 +34,10 @@ _start:
     mov $msg_len, %rdx      # count
     syscall
 
-exit:
-    mov $60, %rax           # SYS_exit
-    xor %rdi, %rdi          # status = 0
+idle:
+    mov $34, %rax           # SYS_pause; PID 1 must remain alive
     syscall
+    jmp idle
 .section .rodata
 console_path:
     .asciz "/dev/console"

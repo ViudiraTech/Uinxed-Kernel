@@ -54,7 +54,7 @@ INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)
     timerfd_tick();
     if (get_current_cpu_id() == 0) drm_vblank_tick();
     if (get_current_cpu_id() == 0) net_timer(sched_ticks());
-    enable_intr();
+    /* iretq restores IF; enabling it here would make the saved frame re-entrant. */
 }
 INTERRUPT_END
 
