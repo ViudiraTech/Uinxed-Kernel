@@ -13,8 +13,12 @@
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 
-static struct class input_class = {.name = "input"};
 static bool input_class_ready;
+
+static bool input_test_bit(unsigned int bit, const uint32_t *bits)
+{
+    return bits && ((bits[bit / 32] >> (bit % 32)) & 1U);
+}
 
 static evdev_t *input_evdev(struct device *dev)
 {
@@ -31,11 +35,6 @@ static ssize_t phys_show(struct device *dev, struct device_attribute *attr, char
     (void)attr;
     evdev_t *evdev = input_evdev(dev);
     return sysfs_emit(buf, "%s\n", evdev && evdev->input_dev ? evdev->input_dev->phys : "");
-}
-static ssize_t dev_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-    (void)attr;
-    return sysfs_emit(buf, "%u:%u\n", MAJOR(dev->devt), MINOR(dev->devt));
 }
 static ssize_t bustype_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -90,15 +89,54 @@ static DEVICE_ATTR(bustype, 0444, bustype_show, NULL);
 static DEVICE_ATTR(vendor, 0444, vendor_show, NULL);
 static DEVICE_ATTR(product, 0444, product_show, NULL);
 static DEVICE_ATTR(version, 0444, version_show, NULL);
-static DEVICE_ATTR(dev, 0444, dev_show, NULL);
 static DEVICE_ATTR(ev, 0444, ev_show, NULL);
 static DEVICE_ATTR(key, 0444, key_show, NULL);
 static DEVICE_ATTR(rel, 0444, rel_show, NULL);
 
-static const struct device_attribute *input_evdev_attributes[] = {
-    &dev_attr_name,    &dev_attr_phys, &dev_attr_bustype, &dev_attr_vendor, &dev_attr_product,
-    &dev_attr_version, &dev_attr_dev,  &dev_attr_ev,      &dev_attr_key,    &dev_attr_rel,
+static struct attribute *input_evdev_attributes[] = {
+    &dev_attr_name.attr,    &dev_attr_phys.attr, &dev_attr_bustype.attr, &dev_attr_vendor.attr, &dev_attr_product.attr,
+    &dev_attr_version.attr, &dev_attr_ev.attr,      &dev_attr_key.attr,    &dev_attr_rel.attr, NULL,
 };
+
+static struct attribute_group input_evdev_group = {
+    .attrs = input_evdev_attributes,
+};
+
+static int input_device_uevent(struct device *device, struct kobj_uevent_env *env)
+{
+    evdev_t *evdev = input_evdev(device);
+    if (!evdev || !evdev->input_dev) return -ENODEV;
+    input_dev_t *input = evdev->input_dev;
+    int          ret   = add_uevent_var(env, "PRODUCT=%x/%x/%x/%x", input->id.bustype, input->id.vendor, input->id.product, input->id.version);
+    if (ret) return ret;
+    /* libinput consumes these standard udev properties.  The generic
+     * input_id builtin cannot infer them reliably from this kernel's compact
+     * sysfs capability files, so publish the authoritative device classes at
+     * the source uevent just like Linux input drivers do. */
+    ret = add_uevent_var(env, "ID_INPUT=1");
+    if (ret) return ret;
+    if (input_test_bit(EV_KEY, input->evbit)) {
+        ret = add_uevent_var(env, "ID_INPUT_KEYBOARD=1");
+        if (ret) return ret;
+    }
+    if (input_test_bit(EV_REL, input->evbit)) {
+        ret = add_uevent_var(env, "ID_INPUT_MOUSE=1");
+        if (ret) return ret;
+    }
+    if (input->name[0]) {
+        ret = add_uevent_var(env, "NAME=\"%s\"", input->name);
+        if (ret) return ret;
+    }
+    if (input->phys[0]) return add_uevent_var(env, "PHYS=\"%s\"", input->phys);
+    return EOK;
+}
+
+static const struct attribute_group *input_dev_groups[] = {
+    &input_evdev_group,
+    NULL,
+};
+
+static struct class input_class = {.name = "input", .dev_uevent = input_device_uevent, .dev_groups = input_dev_groups};
 
 void input_sysfs_init(void)
 {
@@ -122,19 +160,18 @@ int input_sysfs_register_evdev(evdev_t *evdev)
     struct device *device;
 
     if (!evdev) return -EINVAL;
-    if (!input_class_ready || evdev->sysfs_device) return EOK;
+    if (evdev->sysfs_device) return EOK;
+    if (!input_class_ready) {
+        plogk("input_sysfs: event%d deferred (input class not ready)\n", evdev->minor);
+        return EOK;
+    }
     (void)snprintf(name, sizeof(name), "event%d", evdev->minor);
     device = device_create(&input_class, NULL, evdev_devt(evdev), evdev, "%s", name);
-    if (!device) return -ENOMEM;
-    evdev->sysfs_device = device;
-    for (size_t i = 0; i < sizeof(input_evdev_attributes) / sizeof(input_evdev_attributes[0]); i++) {
-        int result = device_create_file(device, input_evdev_attributes[i]);
-        if (result == EOK) continue;
-        while (i) device_remove_file(device, input_evdev_attributes[--i]);
-        device_unregister(device);
-        evdev->sysfs_device = NULL;
-        return result;
+    if (!device) {
+        plogk("input_sysfs: event%d class device creation FAILED\n", evdev->minor);
+        return -ENOMEM;
     }
+    evdev->sysfs_device = device;
     plogk("input_sysfs: /sys/class/input/event%d registered (%u:%u)\n", evdev->minor, MAJOR(device->devt), MINOR(device->devt));
     return EOK;
 }
@@ -145,8 +182,6 @@ void input_sysfs_unregister_evdev(evdev_t *evdev)
 
     if (!evdev || !evdev->sysfs_device) return;
     device = evdev->sysfs_device;
-    for (size_t i = 0; i < sizeof(input_evdev_attributes) / sizeof(input_evdev_attributes[0]); i++)
-        device_remove_file(device, input_evdev_attributes[i]);
     device_unregister(device);
     evdev->sysfs_device = NULL;
 }

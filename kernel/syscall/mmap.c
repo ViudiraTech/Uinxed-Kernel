@@ -254,7 +254,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
             }
             vma->start        = mmap_addr;
             vma->end          = mmap_addr + pages;
-            vma->flags        = vm_flags;
+            vma->flags        = vm_flags | VM_LAZY;
             vma->type         = VM_REGION_MMAP;
             vma->vm_file      = vfs_node_retain(file->node);
             vma->vm_pgoff     = offset / PAGE_4K_SIZE;
@@ -266,23 +266,6 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
                 return -ENOENT;
             }
 
-            uint64_t pte_flags = vm_flags_to_pte(vm_flags);
-            if (!(vm_flags & VM_SHARED) && (vm_flags & VM_WRITE)) pte_flags = (pte_flags & ~PTE_WRITEABLE) | PTE_COW;
-            size_t mapped = 0;
-            for (; mapped < pages; mapped += PAGE_4K_SIZE) {
-                uint64_t frame;
-                int      result = vfs_cache_map_page(file->node, offset / PAGE_4K_SIZE + mapped / PAGE_4K_SIZE,
-                                                     (vm_flags & (VM_SHARED | VM_WRITE)) == (VM_SHARED | VM_WRITE), &frame);
-                if (result || page_map_new_to(proc->user_page_dir, mmap_addr + mapped, frame, pte_flags) < 0) {
-                    if (!result) (void)frame_release_range(frame, 1);
-                    (void)unmap_physical_pages(proc, mmap_addr, mapped);
-                    vfs_cache_mapping_unpin(file->node);
-                    vfs_close(vma->vm_file);
-                    free(vma);
-                    process_file_put(file);
-                    return result ? result : -ENOMEM;
-                }
-            }
             vm_area_insert(proc, vma);
             process_file_put(file);
             return (int64_t)mmap_addr;
@@ -313,51 +296,51 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
                 return -ENODEV;
             }
 
+            uintptr_t backing = (uintptr_t)result;
+            if (backing & (PAGE_4K_SIZE - 1)) {
+                vma->vm_file->refcount--;
+                free(vma);
+                process_file_put(file);
+                return -EINVAL;
+            }
+
+            uint64_t pte_flags = vm_flags_to_pte(vm_flags);
+            size_t   mapped    = 0;
+            for (; mapped < pages; mapped += PAGE_4K_SIZE) {
+                uint64_t frame    = (uint64_t)virt_any_to_phys(backing + mapped) & PAGE_4K_MASK;
+                bool     retained = frame && frame_retain_range(frame, 1) == 0;
+                if (!retained || page_map_new_to(proc->user_page_dir, mmap_addr + mapped, frame, pte_flags) < 0) {
+                    if (retained) (void)frame_release_range(frame, 1);
+                    (void)unmap_physical_pages(proc, mmap_addr, mapped);
+                    vma->vm_file->refcount--;
+                    free(vma);
+                    process_file_put(file);
+                    return -ENOMEM;
+                }
+            }
+
             vm_area_insert(proc, vma);
             process_file_put(file);
             goto vma_done;
         }
 
         /* Fallback: read file content into new frames. */
-        {
-            uint64_t pte_flags = vm_flags_to_pte(vm_flags);
-
-            for (size_t i = 0; i < pages; i += PAGE_4K_SIZE) {
-                uint64_t frame = alloc_frames(1);
-                if (!frame) {
-                    (void)unmap_physical_pages(proc, mmap_addr, i);
-                    process_file_put(file);
-                    return -ENOMEM;
-                }
-
-                void *virt = phys_to_virt(frame);
-                memset(virt, 0, PAGE_4K_SIZE);
-
-                size_t read_offset = file_offset + i;
-                size_t to_read     = PAGE_4K_SIZE;
-                if (read_offset < file->node->size) {
-                    if (read_offset + to_read > file->node->size) { to_read = file->node->size - read_offset; }
-                    vfs_read(file->node, virt, read_offset, to_read);
-                }
-
-                page_map_to(proc->user_page_dir, mmap_addr + i, frame, pte_flags);
-            }
-        }
-
-        /* Record the VMA */
         vm_area_t *vma = calloc(1, sizeof(vm_area_t));
         if (!vma) {
-            (void)unmap_physical_pages(proc, mmap_addr, pages);
             process_file_put(file);
             return -ENOMEM;
         }
-        vma->start = mmap_addr;
-        vma->end   = mmap_addr + pages;
-        vma->flags = vm_flags;
-        vma->type  = VM_REGION_MMAP;
-        vma->next  = NULL;
-
+        vma->start   = mmap_addr;
+        vma->end     = mmap_addr + pages;
+        vma->flags   = vm_flags | VM_LAZY;
+        vma->type    = VM_REGION_MMAP;
+        vma->vm_file = vfs_node_retain(file->node);
         vma->vm_pgoff = offset / PAGE_4K_SIZE;
+        if (!vma->vm_file) {
+            free(vma);
+            process_file_put(file);
+            return -ENOENT;
+        }
         vm_area_insert(proc, vma);
 
         process_file_put(file);
@@ -365,25 +348,11 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
     } else if (!(flags & MAP_ANONYMOUS)) {
         return -EBADF;
     } else {
-        uint64_t pte_flags = vm_flags_to_pte(vm_flags);
-        for (size_t i = 0; i < pages; i += PAGE_4K_SIZE) {
-            uint64_t frame = alloc_frames(1);
-            if (!frame) {
-                (void)unmap_physical_pages(proc, mmap_addr, i);
-                return -ENOMEM;
-            }
-            memset(phys_to_virt(frame), 0, PAGE_4K_SIZE);
-            page_map_to(proc->user_page_dir, mmap_addr + i, frame, pte_flags);
-        }
-
         vm_area_t *vma = calloc(1, sizeof(*vma));
-        if (!vma) {
-            (void)unmap_physical_pages(proc, mmap_addr, pages);
-            return -ENOMEM;
-        }
+        if (!vma) return -ENOMEM;
         vma->start = mmap_addr;
         vma->end   = mmap_addr + pages;
-        vma->flags = vm_flags;
+        vma->flags = vm_flags | VM_LAZY;
         vma->type  = VM_REGION_MMAP;
         vm_area_insert(proc, vma);
     }
@@ -589,28 +558,6 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64
             spin_unlock(&proc->mmap_lock);
             return -ENOMEM;
         }
-    }
-
-    uint64_t pte_flags = vm_flags_to_pte(vma->flags);
-    size_t   mapped    = old_pages;
-    for (; mapped < new_pages; mapped += PAGE_4K_SIZE) {
-        uint64_t frame = alloc_frames(1);
-        if (!frame) break;
-        memset(phys_to_virt(frame), 0, PAGE_4K_SIZE);
-        if (page_map_new_to(proc->user_page_dir, (uintptr_t)old_addr + mapped, frame, pte_flags) < 0) {
-            (void)frame_release_range(frame, 1);
-            break;
-        }
-    }
-
-    if (mapped != new_pages) {
-        while (mapped > old_pages) {
-            mapped -= PAGE_4K_SIZE;
-            uint64_t frame = page_unmap(proc->user_page_dir, (uintptr_t)old_addr + mapped);
-            if (frame) (void)frame_release_range(frame, 1);
-        }
-        spin_unlock(&proc->mmap_lock);
-        return -ENOMEM;
     }
 
     vma->end = (uintptr_t)old_addr + new_pages;

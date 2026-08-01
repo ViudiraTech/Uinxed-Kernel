@@ -149,8 +149,8 @@ static const struct drm_ioctl_desc drm_dummy_ioctls[] = {
     {DRM_IOCTL_VERSION,                drm_version,                      0                    },
     {DRM_IOCTL_GET_MAGIC,              drm_getmagic,                     DRM_AUTH             },
     {DRM_IOCTL_SET_VERSION,            drm_setversion,                   DRM_MASTER | DRM_AUTH},
-    {DRM_IOCTL_SET_MASTER,             drm_setmaster,                    DRM_MASTER           },
-    {DRM_IOCTL_DROP_MASTER,            drm_dropmaster,                   DRM_MASTER           },
+    {DRM_IOCTL_SET_MASTER,             drm_setmaster,                    0                    },
+    {DRM_IOCTL_DROP_MASTER,            drm_dropmaster,                   0                    },
     {DRM_IOCTL_AUTH_MAGIC,             drm_authmagic,                    DRM_AUTH             },
     {DRM_IOCTL_GEM_CLOSE,              drm_gem_close_ioctl,              DRM_AUTH             },
     {DRM_IOCTL_GEM_FLINK,              drm_gem_flink_ioctl,              DRM_AUTH             },
@@ -211,7 +211,7 @@ static struct drm_encoder   pipeline_encoder;
 static struct drm_connector pipeline_connector;
 
 /* ------------------------------------------------------------------ */
-/* Configurable mode table â€?data-driven, not hardcoded in logic       */
+/* Configurable mode table - data-driven, not hardcoded in logic       */
 /* ------------------------------------------------------------------ */
 
 struct dummy_mode_cfg {
@@ -447,6 +447,80 @@ int drm_dev_ioctl(void *file, size_t req, void *arg)
     return drm_ioctl(dev, (unsigned int)req, arg, file_priv);
 }
 
+/* tmpfs/devtmpfs per-open bridge. A VFS node is shared by all processes, so
+ * storing drm_file in node->handle is incorrect: one close could release
+ * another client's state. */
+int drm_dev_open(void *node_ptr, uint64_t flags, void **private_data)
+{
+    struct drm_device *dev;
+    struct drm_file   *file;
+    int                ret;
+
+    (void)node_ptr;
+    (void)flags;
+    if (!private_data) return -EINVAL;
+    *private_data = NULL;
+
+    dev = drm_get_singleton();
+    if (!dev) return -ENODEV;
+    file = malloc(sizeof(*file));
+    if (!file) return -ENOMEM;
+    memset(file, 0, sizeof(*file));
+    ret = drm_open(dev, file);
+    if (ret) {
+        free(file);
+        return ret;
+    }
+
+    /* A root compositor opening the primary node is already trusted for
+     * DRM_AUTH ioctls.  Weston performs GETRESOURCES immediately after the
+     * open (before issuing SET_MASTER); leaving this bit clear makes the
+     * otherwise valid KMS device look absent to its DRM backend.  Render
+     * nodes intentionally keep the normal unauthenticated state. */
+    vfs_node_t node = (vfs_node_t)node_ptr;
+    process_t *proc = process_current();
+    if (node && node->name && !strncmp(node->name, "card", 4) && proc && proc->uid == 0) file->authenticated = true;
+    *private_data = file;
+    return 0;
+}
+
+void drm_dev_release(void *node_ptr, void *private_data)
+{
+    (void)node_ptr;
+    if (private_data) {
+        drm_release((struct drm_file *)private_data);
+        free(private_data);
+    }
+}
+
+int drm_dev_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg)
+{
+    (void)ctx;
+    (void)flags;
+    return drm_dev_ioctl(private_data, req, arg);
+}
+
+int64_t drm_dev_file_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
+{
+    (void)ctx;
+    (void)flags;
+    return (int64_t)drm_dev_read(private_data, addr, offset, size);
+}
+
+int64_t drm_dev_file_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
+{
+    (void)ctx;
+    (void)flags;
+    return (int64_t)drm_dev_write(private_data, addr, offset, size);
+}
+
+int drm_dev_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events)
+{
+    (void)ctx;
+    (void)flags;
+    return drm_dev_poll(private_data, events);
+}
+
 int drm_dev_poll(void *file, size_t events)
 {
     (void)file;
@@ -493,6 +567,7 @@ void *drm_dev_file_mmap(void *ctx, void *private_data, size_t offset, size_t siz
     (void)size;
     (void)flags;
 
+    if (!dev) dev = drm_get_singleton();
     if (!dev || !file_priv || !vma) return NULL;
 
     /* Look up the GEM object by its mmap offset. */
@@ -560,7 +635,17 @@ void drm_vfs_close_cb(void *current)
 /* DRM class (global, shared by all DRM devices)                       */
 /* ------------------------------------------------------------------ */
 
-struct class drm_class   = {.name = "drm"};
+static int drm_device_uevent(struct device *dev, struct kobj_uevent_env *env)
+{
+    (void)dev;
+    /* Match the Linux DRM minor contract consumed by eudev/libudev. */
+    return add_uevent_var(env, "DEVTYPE=drm_minor");
+}
+
+struct class drm_class = {
+    .name      = "drm",
+    .dev_uevent = drm_device_uevent,
+};
 int drm_class_registered = 0;
 
 /* ------------------------------------------------------------------ */

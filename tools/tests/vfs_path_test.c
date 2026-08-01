@@ -25,6 +25,8 @@ int main(void)
 
     expect_path("/work/tree", "../file", "/work/file");
     expect_path("/work/tree", "/etc///./config", "/etc/config");
+    expect_path("/work/tree", "/", "/");
+    expect_path("/work/tree", "////", "/");
     expect_path("/", "../../etc", "/etc");
 
     if (vfs_resolve_path("/work", "", output, sizeof(output)) != -ENOENT) {

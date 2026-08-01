@@ -52,12 +52,19 @@ static void static_kset_release(struct kobject *kobj)
     (void)kobj;
 }
 
+static const char *kset_uevent_name(struct kobject *kobj)
+{
+    return kobj && kobj->name ? kobj->name : "kset";
+}
+
 static struct kobj_type dynamic_kset_ktype = {
-    .release = dynamic_kset_release,
+    .release     = dynamic_kset_release,
+    .uevent_name = kset_uevent_name,
 };
 
 static struct kobj_type static_kset_ktype = {
-    .release = static_kset_release,
+    .release     = static_kset_release,
+    .uevent_name = kset_uevent_name,
 };
 
 static int kobject_name_valid(const char *name)
@@ -106,6 +113,7 @@ void kobject_init(struct kobject *kobj, struct kobj_type *ktype)
     kobj->state_in_kset            = 0;
     kobj->state_add_uevent_sent    = 0;
     kobj->state_remove_uevent_sent = 0;
+    kobj->uevent_suppress           = 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -359,7 +367,8 @@ void kobject_del(struct kobject *kobj)
 
 int kobject_rename(struct kobject *kobj, const char *new_name)
 {
-    int ret;
+    char *old_path;
+    int   ret;
 
     if (!kobj || !kobject_name_valid(new_name)) return -EINVAL;
     if (kobj->name && streq(kobj->name, new_name)) return EOK;
@@ -367,9 +376,16 @@ int kobject_rename(struct kobject *kobj, const char *new_name)
     char *replacement = strdup(new_name);
     if (!replacement) return -ENOMEM;
 
+    old_path = kobject_get_path(kobj);
+    if (!old_path) {
+        free(replacement);
+        return -ENOMEM;
+    }
+
     if (kobj->state_in_sysfs) {
         ret = sysfs_rename_dir(kobj, new_name);
         if (ret != EOK) {
+            free(old_path);
             free(replacement);
             return ret;
         }
@@ -377,7 +393,15 @@ int kobject_rename(struct kobject *kobj, const char *new_name)
 
     free((void *)kobj->name);
     kobj->name = replacement;
-    kobject_uevent(kobj, KOBJ_MOVE);
+    const char *event_old_path = old_path;
+    if (strncmp(event_old_path, "/sys/", 5) == 0) event_old_path += 4;
+    char old_path_env[UEVENT_BUFFER_SIZE];
+    int  length = snprintf(old_path_env, sizeof(old_path_env), "DEVPATH_OLD=%s", event_old_path);
+    if (length > 0 && length < (int)sizeof(old_path_env)) {
+        char *envp[] = {old_path_env};
+        (void)kobject_uevent_env(kobj, KOBJ_MOVE, envp, 1);
+    }
+    free(old_path);
     return EOK;
 }
 
@@ -388,6 +412,7 @@ int kobject_rename(struct kobject *kobj, const char *new_name)
 int kobject_move(struct kobject *kobj, struct kobject *new_parent)
 {
     struct kobject *old_parent;
+    char           *old_path;
     clist_t         new_link = NULL;
     int             ret;
 
@@ -396,15 +421,22 @@ int kobject_move(struct kobject *kobj, struct kobject *new_parent)
     for (struct kobject *ancestor = new_parent; ancestor; ancestor = ancestor->parent)
         if (ancestor == kobj) return -EINVAL;
 
-    if (!kobject_get(new_parent)) return -EINVAL;
+    old_path = kobject_get_path(kobj);
+    if (!old_path) return -ENOMEM;
+    if (!kobject_get(new_parent)) {
+        free(old_path);
+        return -EINVAL;
+    }
     new_link = clist_alloc(kobj);
     if (!new_link) {
+        free(old_path);
         kobject_put(new_parent);
         return -ENOMEM;
     }
 
     ret = sysfs_move_dir(kobj, new_parent);
     if (ret != EOK) {
+        free(old_path);
         free(new_link);
         kobject_put(new_parent);
         return ret;
@@ -431,7 +463,15 @@ int kobject_move(struct kobject *kobj, struct kobject *new_parent)
     spin_unlock(&new_parent->lock);
 
     kobject_put(old_parent);
-    kobject_uevent(kobj, KOBJ_MOVE);
+    const char *event_old_path = old_path;
+    if (strncmp(event_old_path, "/sys/", 5) == 0) event_old_path += 4;
+    char old_path_env[UEVENT_BUFFER_SIZE];
+    int  length = snprintf(old_path_env, sizeof(old_path_env), "DEVPATH_OLD=%s", event_old_path);
+    if (length > 0 && length < (int)sizeof(old_path_env)) {
+        char *envp[] = {old_path_env};
+        (void)kobject_uevent_env(kobj, KOBJ_MOVE, envp, 1);
+    }
+    free(old_path);
     return EOK;
 }
 
@@ -549,13 +589,8 @@ char *kobject_get_path(struct kobject *kobj)
 
 int kobject_uevent(struct kobject *kobj, enum kobject_action action)
 {
-    int ret;
-
     if (!kobj) return -EINVAL;
-    ret = kobject_uevent_env(kobj, action, NULL, 0);
-    if (ret == EOK && action == KOBJ_ADD) kobj->state_add_uevent_sent = 1;
-    if (ret == EOK && action == KOBJ_REMOVE) kobj->state_remove_uevent_sent = 1;
-    return ret;
+    return kobject_uevent_env(kobj, action, NULL, 0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -570,201 +605,251 @@ uint64_t kobject_uevent_seqnum(void)
 }
 
 /* ------------------------------------------------------------------ */
-/*  kobject_uevent_env â€?build and broadcast uevent                    */
+/*  kobject_uevent_env - build and broadcast the Linux uevent ABI      */
 /* ------------------------------------------------------------------ */
 
-#define UEVENT_BUFFER_SIZE 2048
-#define UEVENT_NUM_ENVP    32
+static const char *const kobject_actions[] = {
+    [KOBJ_ADD]     = "add",
+    [KOBJ_REMOVE]  = "remove",
+    [KOBJ_CHANGE]  = "change",
+    [KOBJ_MOVE]    = "move",
+    [KOBJ_ONLINE]  = "online",
+    [KOBJ_OFFLINE] = "offline",
+    [KOBJ_BIND]    = "bind",
+    [KOBJ_UNBIND]  = "unbind",
+};
 
-#if CONFIG_UEVENT_HELPER
-static int uevent_append(char *buffer, size_t capacity, size_t *position, char **entry, const char *fmt, ...)
+const char *kobject_action_name(enum kobject_action action)
+{
+    if ((unsigned int)action >= sizeof(kobject_actions) / sizeof(kobject_actions[0])) return NULL;
+    return kobject_actions[action];
+}
+
+int kobject_action_type(const char *name, enum kobject_action *action)
+{
+    if (!name || !action) return -EINVAL;
+    for (unsigned int i = 0; i < sizeof(kobject_actions) / sizeof(kobject_actions[0]); i++) {
+        if (kobject_actions[i] && streq(name, kobject_actions[i])) {
+            *action = (enum kobject_action)i;
+            return EOK;
+        }
+    }
+    return -EINVAL;
+}
+
+int add_uevent_var(struct kobj_uevent_env *env, const char *fmt, ...)
 {
     va_list args;
+    int     length;
 
-    if (!buffer || !position || *position >= capacity) return -ENOSPC;
-    if (entry) *entry = buffer + *position;
+    if (!env || !fmt || env->envp_idx < 0 || env->buflen < 0) return -EINVAL;
+    if (env->envp_idx >= UEVENT_NUM_ENVP - 1) return -ENOMEM;
+    if (env->buflen >= UEVENT_BUFFER_SIZE) return -ENOMEM;
 
+    env->envp[env->envp_idx] = env->envbuf + env->buflen;
     va_start(args, fmt);
-    int length = vsnprintf(buffer + *position, capacity - *position, fmt, args);
+    length = vsnprintf(env->envbuf + env->buflen, UEVENT_BUFFER_SIZE - (size_t)env->buflen, fmt, args);
     va_end(args);
     if (length < 0) return -EINVAL;
-    if ((size_t)length >= capacity - *position) return -ENOSPC;
+    if (length >= UEVENT_BUFFER_SIZE - env->buflen) return -ENOMEM;
 
-    *position += (size_t)length + 1;
+    env->buflen += length + 1;
+    env->envp_idx++;
+    env->envp[env->envp_idx] = NULL;
     return EOK;
 }
-#endif
+
+static struct kset *kobject_uevent_kset(struct kobject *kobj)
+{
+    for (struct kobject *cursor = kobj; cursor; cursor = cursor->parent) {
+        if (cursor->kset) return cursor->kset;
+    }
+    return NULL;
+}
+
+static void zap_modalias_env(struct kobj_uevent_env *env)
+{
+    for (int i = 0; i < env->envp_idx; i++) {
+        if (strncmp(env->envp[i], "MODALIAS=", 9) != 0) continue;
+        for (int j = i; j + 1 < env->envp_idx; j++) env->envp[j] = env->envp[j + 1];
+        env->envp_idx--;
+        env->envp[env->envp_idx] = NULL;
+        return;
+    }
+}
+
+static int kobject_uevent_message(struct kobj_uevent_env *env, const char *action, const char *devpath, uint8_t **message, uint32_t *message_len)
+{
+    size_t header_len;
+    size_t total;
+    size_t offset;
+
+    header_len = strlen(action) + 1 + strlen(devpath) + 1;
+    total      = header_len + (size_t)env->buflen;
+    if (total > UINT32_MAX) return -EOVERFLOW;
+
+    *message = malloc(total);
+    if (!*message) return -ENOMEM;
+
+    int written = snprintf((char *)*message, header_len, "%s@%s", action, devpath);
+    if (written < 0 || (size_t)written + 1 != header_len) {
+        free(*message);
+        *message = NULL;
+        return -EINVAL;
+    }
+
+    offset = header_len;
+    for (int i = 0; i < env->envp_idx; i++) {
+        size_t length = strlen(env->envp[i]) + 1;
+        memcpy(*message + offset, env->envp[i], length);
+        offset += length;
+    }
+    *message_len = (uint32_t)offset;
+    return EOK;
+}
 
 int kobject_uevent_env(struct kobject *kobj, enum kobject_action action, char *envp[], int nenv)
 {
-#if CONFIG_UEVENT_HELPER
-    struct kset *kset;
-    const char  *action_string = NULL;
-    const char  *subsystem     = NULL;
-    const char  *event_path;
-    char        *event_envp[UEVENT_NUM_ENVP + 1];
-    char        *devpath;
-    char        *buffer;
-    char        *nl_data;
-    nlmsghdr_t  *nlh;
-    size_t       buflen;
-    size_t       pos;
-    uint64_t     seq;
-    int          event_nenv;
-    int          ret;
+    struct kobj_uevent_env *env;
+    struct kset            *kset;
+    const char             *action_string;
+    const char             *subsystem = NULL;
+    const char             *event_path;
+    char                   *devpath;
+    uint8_t                *message = NULL;
+    uint32_t                message_len;
+    uint64_t                seq;
+    int                     ret;
 
     if (!kobj) return -EINVAL;
+    if (nenv < 0 || nenv >= UEVENT_NUM_ENVP) return -EINVAL;
+    action_string = kobject_action_name(action);
+    if (!action_string) return -EINVAL;
+    if (action == KOBJ_REMOVE) kobj->state_remove_uevent_sent = 1;
+    if (kobj->uevent_suppress) return EOK;
 
-    switch (action) {
-        case KOBJ_ADD :
-            action_string = "add";
-            break;
-        case KOBJ_REMOVE :
-            action_string = "remove";
-            break;
-        case KOBJ_CHANGE :
-            action_string = "change";
-            break;
-        case KOBJ_MOVE :
-            action_string = "move";
-            break;
-        case KOBJ_ONLINE :
-            action_string = "online";
-            break;
-        case KOBJ_OFFLINE :
-            action_string = "offline";
-            break;
-        case KOBJ_BIND :
-            action_string = "bind";
-            break;
-        case KOBJ_UNBIND :
-            action_string = "unbind";
-            break;
-        default :
-            return -EINVAL;
-    }
-
-    /* Find the kset that handles uevents */
-    kset = kobj->kset;
-    if (!kset && kobj->parent) kset = kobj->parent->kset;
+    kset = kobject_uevent_kset(kobj);
 
     /* Apply event filter */
     if (kset && kset->uevent_ops && kset->uevent_ops->filter) {
-        if (!kset->uevent_ops->filter(kset, kobj)) return EOK;
+        if (!kset->uevent_ops->filter(kobj)) return EOK;
     }
 
-    /* Allocate buffer for the environment string */
-    buffer = malloc(UEVENT_BUFFER_SIZE);
-    if (!buffer) return -ENOMEM;
+    env = calloc(1, sizeof(*env));
+    if (!env) return -ENOMEM;
 
-    /* Build the device path */
     devpath = kobject_get_path(kobj);
     if (!devpath) {
-        free(buffer);
+        free(env);
         return -ENOMEM;
     }
 
-    if (kset && kset->uevent_ops && kset->uevent_ops->name) subsystem = kset->uevent_ops->name(kset, kobj);
+    if (kset && kset->uevent_ops && kset->uevent_ops->name) subsystem = kset->uevent_ops->name(kobj);
     if (!subsystem && kset) subsystem = kobject_name(&kset->kobj);
+    if (!subsystem && kobj->ktype && kobj->ktype->uevent_name) subsystem = kobj->ktype->uevent_name(kobj);
+    if (!subsystem || !subsystem[0]) {
+        ret = -EINVAL;
+        goto out;
+    }
 
     event_path = devpath;
     if (strncmp(event_path, "/sys/", 5) == 0) event_path += 4;
     if (streq(event_path, "/sys")) event_path = "/";
 
-    /* Linux kobject uevents start with "action@devpath", followed by a
-     * NUL-separated environment. */
-    pos        = 0;
-    event_nenv = 0;
-    ret        = uevent_append(buffer, UEVENT_BUFFER_SIZE, &pos, NULL, "%s@%s", action_string, event_path);
-    if (ret != EOK) goto err_buffer;
-
-    ret = uevent_append(buffer, UEVENT_BUFFER_SIZE, &pos, &event_envp[event_nenv], "ACTION=%s", action_string);
-    if (ret != EOK) goto err_buffer;
-    event_nenv++;
-
-    ret = uevent_append(buffer, UEVENT_BUFFER_SIZE, &pos, &event_envp[event_nenv], "DEVPATH=%s", event_path);
-    if (ret != EOK) goto err_buffer;
-    event_nenv++;
-
-    if (subsystem) {
-        ret = uevent_append(buffer, UEVENT_BUFFER_SIZE, &pos, &event_envp[event_nenv], "SUBSYSTEM=%s", subsystem);
-        if (ret != EOK) goto err_buffer;
-        event_nenv++;
-    }
-
-    seq = __atomic_add_fetch(&uevent_seqnum, 1, __ATOMIC_RELAXED);
-    ret = uevent_append(buffer, UEVENT_BUFFER_SIZE, &pos, &event_envp[event_nenv], "SEQNUM=%llu", (unsigned long long)seq);
-    if (ret != EOK) goto err_buffer;
-    event_nenv++;
+    ret = add_uevent_var(env, "ACTION=%s", action_string);
+    if (ret) goto out;
+    ret = add_uevent_var(env, "DEVPATH=%s", event_path);
+    if (ret) goto out;
+    ret = add_uevent_var(env, "SUBSYSTEM=%s", subsystem);
+    if (ret) goto out;
 
     if (envp && nenv > 0) {
         for (int i = 0; i < nenv; i++) {
             if (!envp[i]) continue;
-            if (event_nenv >= UEVENT_NUM_ENVP) {
-                ret = -E2BIG;
-                goto err_buffer;
+            if (!strchr(envp[i], '=') || envp[i][0] == '=') {
+                ret = -EINVAL;
+                goto out;
             }
-            ret = uevent_append(buffer, UEVENT_BUFFER_SIZE, &pos, &event_envp[event_nenv], "%s", envp[i]);
-            if (ret != EOK) goto err_buffer;
-            event_nenv++;
+            ret = add_uevent_var(env, "%s", envp[i]);
+            if (ret) goto out;
         }
     }
 
-    event_envp[event_nenv] = NULL;
     if (kset && kset->uevent_ops && kset->uevent_ops->uevent) {
-        ret = kset->uevent_ops->uevent(kset, kobj, event_envp, event_nenv);
-        if (ret != EOK) goto err_buffer;
+        ret = kset->uevent_ops->uevent(kobj, env);
+        if (ret) goto out;
+    }
+    if (kobj->ktype && kobj->ktype->uevent) {
+        ret = kobj->ktype->uevent(kobj, env);
+        if (ret) goto out;
     }
 
-    if (pos >= UEVENT_BUFFER_SIZE) {
-        ret = -ENOSPC;
-        goto err_buffer;
-    }
-    buffer[pos++] = '\0';
-    buflen        = pos;
+    if (action == KOBJ_UNBIND) zap_modalias_env(env);
 
+    if (action == KOBJ_ADD) kobj->state_add_uevent_sent = 1;
+
+    seq = __atomic_add_fetch(&uevent_seqnum, 1, __ATOMIC_RELAXED);
+    ret = add_uevent_var(env, "SEQNUM=%llu", (unsigned long long)seq);
+    if (ret) goto out;
+
+    ret = kobject_uevent_message(env, action_string, event_path, &message, &message_len);
+    if (ret) goto out;
+    ret = netlink_broadcast(NETLINK_KOBJECT_UEVENT, 1U, message, message_len, 0);
+    plogk("uevent: %s@%s subsystem=%s seq=%llu broadcast=%d\n", action_string, event_path, subsystem, (unsigned long long)seq, ret);
+    if (ret >= 0 || ret == -ESRCH || ret == -ECONNREFUSED || ret == -ENOBUFS) ret = EOK;
+
+out:
+    free(message);
     free(devpath);
+    free(env);
+    return ret;
+}
 
-    /* Build netlink message: nlmsghdr + environment string */
-    {
-        uint32_t nl_len = NLMSG_HDRLEN + (uint32_t)buflen;
-
-        nl_data = malloc(nl_len);
-        if (!nl_data) {
-            free(buffer);
-            return -ENOMEM;
+static int synth_uuid_valid(const char *uuid)
+{
+    if (!uuid || strlen(uuid) != 36) return 0;
+    for (int i = 0; i < 36; i++) {
+        if (i == 8 || i == 13 || i == 18 || i == 23) {
+            if (uuid[i] != '-') return 0;
+        } else if (!((uuid[i] >= '0' && uuid[i] <= '9') || (uuid[i] >= 'a' && uuid[i] <= 'f') || (uuid[i] >= 'A' && uuid[i] <= 'F'))) {
+            return 0;
         }
+    }
+    return 1;
+}
 
-        nlh              = (nlmsghdr_t *)nl_data;
-        nlh->nlmsg_len   = nl_len;
-        nlh->nlmsg_type  = (uint16_t)action; /* KOBJ_ADD=1, KOBJ_REMOVE=2, ... */
-        nlh->nlmsg_flags = 0;
-        nlh->nlmsg_seq   = (uint32_t)seq;
-        nlh->nlmsg_pid   = 0; /* from kernel */
+int kobject_synth_uevent(struct kobject *kobj, const char *buf, size_t count)
+{
+    enum kobject_action action;
+    char                command[128];
+    char               *argument = NULL;
+    size_t              length;
 
-        /* Copy environment string after the header */
-        memcpy((uint8_t *)nl_data + NLMSG_HDRLEN, buffer, buflen);
+    if (!kobj || !buf || count == 0 || count >= sizeof(command)) return -EINVAL;
+    memcpy(command, buf, count);
+    command[count] = '\0';
+
+    length = count;
+    while (length && (command[length - 1] == '\n' || command[length - 1] == '\r' || command[length - 1] == ' ' || command[length - 1] == '\t')) command[--length] = '\0';
+    if (!length) return -EINVAL;
+
+    for (size_t i = 0; i < length; i++) {
+        if (command[i] != ' ' && command[i] != '\t') continue;
+        command[i] = '\0';
+        argument   = command + i + 1;
+        while (*argument == ' ' || *argument == '\t') argument++;
+        if (!*argument || strchr(argument, ' ') || strchr(argument, '\t')) return -EINVAL;
+        break;
     }
 
-    free(buffer);
+    int ret = kobject_action_type(command, &action);
+    if (ret) return ret;
+    if (!argument) return kobject_uevent(kobj, action);
+    if (!synth_uuid_valid(argument)) return -EINVAL;
 
-    /* Broadcast to NETLINK_KOBJECT_UEVENT listeners */
-    ret = netlink_broadcast(NETLINK_KOBJECT_UEVENT, 1, nl_data, ((nlmsghdr_t *)nl_data)->nlmsg_len, 0);
-
-    free(nl_data);
-
-    if (ret == -ECONNREFUSED) ret = EOK;
-    return ret;
-
-err_buffer:
-    free(devpath);
-    free(buffer);
-    return ret;
-#else
-    (void)kobj;
-    (void)action;
-    (void)envp;
-    (void)nenv;
-    return EOK;
-#endif
+    char synth_uuid[48];
+    int  written = snprintf(synth_uuid, sizeof(synth_uuid), "SYNTH_UUID=%s", argument);
+    if (written < 0 || written >= (int)sizeof(synth_uuid)) return -EINVAL;
+    char *envp[] = {synth_uuid};
+    return kobject_uevent_env(kobj, action, envp, 1);
 }

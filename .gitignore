@@ -72,6 +72,11 @@ mkfs_simplefs
 # Microsoft
 desktop.ini
 
+# Alpine rootfs
+alpine-rootfs/
+*.rootfs.tar.gz
+rootfs.tar.gz
+
 # Other
 .superpowers/
 .cache/

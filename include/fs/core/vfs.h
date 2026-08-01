@@ -31,6 +31,12 @@
 #define VFS_NODE_EVENT_DELETE     (1ULL << 55)
 #define VFS_NODE_SWAPFILE         (1ULL << 54)
 
+/* Persistent mount attributes kept on the namespace mount-point node. */
+#define MOUNT_FLAG_RDONLY (1ULL << 0)
+#define MOUNT_FLAG_NOSUID (1ULL << 1)
+#define MOUNT_FLAG_NODEV  (1ULL << 2)
+#define MOUNT_FLAG_NOEXEC (1ULL << 3)
+
 typedef struct vfs_node             *vfs_node_t;
 typedef struct pagecache_mapping     pagecache_mapping_t;
 typedef struct vfs_poll_subscription vfs_poll_subscription_t;
@@ -110,6 +116,10 @@ enum {
     file_audio    = 0x8000UL, // Audio device
 };
 
+enum {
+    VFS_FS_NODEV = 1U << 0, /* filesystem has no block-device backing */
+};
+
 typedef struct vfs_callback {
         vfs_mount_t    mount;             // Mount the file system
         vfs_umount_t   unmount;           // Unmount the file system (virtual file systems do not support unmounting)
@@ -154,6 +164,7 @@ typedef struct vfs_node {
         uint64_t             readtime;    // Last read time
         uint64_t             writetime;   // Last write time
         uint64_t             inode;       // Node number
+        uint32_t             nlink;       // Number of namespace links to the inode
         uint64_t             blksz;       // Block size
         uint32_t             owner;       // Owner
         uint32_t             group;       // All groups
@@ -168,6 +179,8 @@ typedef struct vfs_node {
         vfs_node_t           root;        // Root directory
         int                  visited;     // Whether to synchronize with the specific file system
         int                  is_mount;    // Whether it is a mount point
+        uint64_t             mount_id;    // Stable namespace mount identifier
+        char                *mount_source; // Informational source shown by procfs
         uint64_t             dev;         // Device number
         uint64_t             rdev;        // Real device number
         vfs_poll_source_t    poll_source;
@@ -248,6 +261,10 @@ int vfs_regist(vfs_callback_t callback);
 
 /* Register a vfs callback with a filesystem name */
 int vfs_regist_fs(const char *name, vfs_callback_t callback);
+int vfs_regist_fs_flags(const char *name, vfs_callback_t callback, uint32_t flags);
+size_t vfs_format_filesystems(char *buffer, size_t capacity);
+/* Return the stable userspace filesystem type registered for an fsid. */
+const char *vfs_filesystem_name(uint16_t fsid);
 
 /* Mount a file system to a directory */
 int vfs_mount(const char *src, vfs_node_t node);
@@ -258,6 +275,9 @@ int vfs_mount_fs(const char *fstype, const char *src, vfs_node_t node);
 /* Unmount a file system from a directory */
 int vfs_umount(const char *path);
 
+/* Format the current namespace in Linux /proc/mounts or mountinfo syntax. */
+size_t vfs_format_mount_table(char *buffer, size_t capacity, bool mountinfo);
+
 /* Read data from a file node into the provided memory buffer */
 size_t vfs_read(vfs_node_t file, void *addr, size_t offset, size_t size);
 
@@ -265,7 +285,7 @@ size_t vfs_read(vfs_node_t file, void *addr, size_t offset, size_t size);
 size_t vfs_readlink(vfs_node_t node, char *buf, size_t bufsize);
 
 /* Write data from the provided memory buffer to a file node */
-size_t vfs_write(vfs_node_t file, void *addr, size_t offset, size_t size);
+size_t vfs_write(vfs_node_t file, const void *addr, size_t offset, size_t size);
 
 /* Flush cached contents, truncate a regular file, or invalidate cached data. */
 int  vfs_fsync(vfs_node_t file, int data_only);

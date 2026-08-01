@@ -101,7 +101,9 @@ static int populate(vfs_node_t dir)
 
 static int mount_cgroup2(const char *src, vfs_node_t node)
 {
-    if (src) return -EINVAL;
+    /* cgroup2 is nodev; the source operand is informational. */
+    (void)src;
+    if (!node) return -EINVAL;
     if (!cgroup_root()) return -ENODEV;
     node->handle = new_handle(CGROUPFS_DIR, cgroup_root());
     if (!node->handle) return -ENOMEM;
@@ -207,7 +209,9 @@ static int stat_node(void *handle, vfs_node_t node)
         node->type = file_dir;
         return populate(node);
     }
-    node->type = file_stream;
+    /* cgroup control files have regular-file offset semantics even though
+     * their contents are generated dynamically. */
+    node->type = file_none;
     return EOK;
 }
 
@@ -283,7 +287,7 @@ static struct vfs_callback callbacks = {
 void cgroupfs_regist(void)
 {
 #if CONFIG_CGROUP
-    cgroupfs_id = vfs_regist_fs("cgroup2", &callbacks);
+    cgroupfs_id = vfs_regist_fs_flags("cgroup2", &callbacks, VFS_FS_NODEV);
     if (cgroupfs_id & ERRNO_MASK) plogk("cgroup2: registration failed (%d)\n", cgroupfs_id);
 #endif
 }

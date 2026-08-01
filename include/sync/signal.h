@@ -404,6 +404,11 @@ int signal_deliver_if_pending(syscall_frame_t *frame);
 /* Check if there is a pending signal that should be delivered */
 int signal_has_pending(signal_state_t *state);
 
+/* True when an unblocked pending signal has a disposition that can actually
+ * interrupt a blocking syscall.  Default-ignored signals (notably SIGCHLD)
+ * must not turn a successful wait into EINTR.  Caller holds state->lock. */
+int signal_has_interrupting_pending(signal_state_t *state);
+
 /* Query a process signal disposition while holding the signal-state lock. */
 bool signal_is_blocked_or_ignored(process_t *proc, int sig);
 

@@ -30,6 +30,34 @@
 page_directory_t  kernel_page_dir;
 page_directory_t *current_directory = 0;
 
+static uint64_t page_fault_leaf_value(page_directory_t *directory, uintptr_t address, int *level)
+{
+    if (level) *level = 0;
+    if (!directory || !directory->table) return 0;
+
+    page_table_t *l4  = directory->table;
+    uint64_t      l4e = l4->entries[(address >> 39) & 0x1ff].value;
+    if (!(l4e & PTE_PRESENT)) return l4e;
+
+    page_table_t *l3  = phys_to_virt(l4e & PAGE_4K_MASK);
+    uint64_t      l3e = l3->entries[(address >> 30) & 0x1ff].value;
+    if (!(l3e & PTE_PRESENT) || (l3e & PTE_HUGE)) {
+        if (level) *level = 3;
+        return l3e;
+    }
+
+    page_table_t *l2  = phys_to_virt(l3e & PAGE_4K_MASK);
+    uint64_t      l2e = l2->entries[(address >> 21) & 0x1ff].value;
+    if (!(l2e & PTE_PRESENT) || (l2e & PTE_HUGE)) {
+        if (level) *level = 2;
+        return l2e;
+    }
+
+    page_table_t *l1 = phys_to_virt(l2e & PAGE_4K_MASK);
+    if (level) *level = 1;
+    return l1->entries[(address >> 12) & 0x1ff].value;
+}
+
 /* Page fault handling */
 INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_code)
 {
@@ -59,13 +87,17 @@ INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_
         if (proc) {
             if (present && rw && !reserved && proc->user_page_dir && page_resolve_cow_fault(proc->user_page_dir, faulting_address) == 0) return;
             if (!present && !reserved && proc->user_page_dir && swap_fault(proc->user_page_dir, faulting_address) == 0) return;
+            if (!present && !reserved && proc->user_page_dir && process_demand_fault(proc, faulting_address, rw, id) == 0) return;
 
             siginfo_t info = {0};
             info.si_signo  = SIGSEGV;
             info.si_code   = present ? SEGV_ACCERR : SEGV_MAPERR;
             info.si_addr   = (void *)faulting_address;
 
-            plogk("#PF (pid=%llu): Segmentation fault at 0x%016llx\n", proc->task->pid, faulting_address);
+            int      leaf_level = 0;
+            uint64_t leaf_value = page_fault_leaf_value(proc->user_page_dir, faulting_address, &leaf_level);
+            plogk("#PF (pid=%llu): %s %s fault at 0x%016llx, rip=0x%016llx err=0x%02llx pte(L%d)=0x%016llx\n", proc->task->pid,
+                  pf_msg, id ? "execute" : (rw ? "write" : "read"), faulting_address, frame->rip, error_code, leaf_level, leaf_value);
             signal_send_thread(proc->task, SIGSEGV, &info);
 
             syscall_frame_t sigframe = {0};

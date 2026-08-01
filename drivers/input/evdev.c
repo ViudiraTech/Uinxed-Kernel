@@ -495,10 +495,14 @@ int evdev_register(evdev_t *evdev)
     spin_unlock(&evdev->input_dev->event_lock);
 
     result = input_sysfs_register_evdev(evdev);
+    plogk("evdev: event%d sysfs register result=%d\n", minor, result);
     if (result != EOK) goto rollback_binding;
     if (evdev_nodes_ready) {
         result = evdev_publish_node(evdev);
+        plogk("evdev: event%d node publish result=%d\n", minor, result);
         if (result != EOK) goto rollback_sysfs;
+    } else {
+        plogk("evdev: event%d deferred node publish (devtmpfs not ready)\n", minor);
     }
 
     return 0;
@@ -1274,5 +1278,6 @@ int evdev_publish_nodes(void)
         evdev_t *evdev = evdev_find_by_minor(minor);
         if (evdev && evdev_publish_node(evdev) == EOK) count++;
     }
+    plogk("evdev: published %d input node(s)\n", count);
     return count;
 }

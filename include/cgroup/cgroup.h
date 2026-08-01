@@ -50,5 +50,7 @@ int cgroup_show_events(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_pids_current(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_pids_max(cgroup_t *cgroup, char *buf, size_t size);
 int cgroup_show_pids_events(cgroup_t *cgroup, char *buf, size_t size);
+int cgroup_format_path(cgroup_t *cgroup, char *buf, size_t size);
+int cgroup_format_proc_cgroups(char *buf, size_t size);
 
 #endif

@@ -43,6 +43,7 @@
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
+#include <mem/frame.h>
 #include <mem/heap.h>
 #include <proc/uaccess.h>
 
@@ -808,10 +809,12 @@ static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data
 
     if (!guest_blob) {
         free(obj->entries);
-        free(obj->base.backing);
+        if (obj->backing_phys) free_frames(obj->backing_phys, obj->backing_page_count);
         obj->entries      = NULL;
         obj->base.backing = NULL;
         obj->num_entries  = 0;
+        obj->backing_phys = 0;
+        obj->backing_page_count = 0;
     }
 
     ret = virtgpu_cmd_create_blob(vgdev, obj, args);
@@ -961,7 +964,7 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
 }
 
 /* ------------------------------------------------------------------ */
-/* DebugFS โ€?simple feature dump                                       */
+/* DebugFS ?simple feature dump                                       */
 /* ------------------------------------------------------------------ */
 
 static void virtgpu_debugfs_info(struct virtio_gpu_device *vgdev)
@@ -1034,7 +1037,7 @@ int virtio_gpu_driver_init(void)
     vgdev->capset_lock.lock       = 0;
 
     /*
-     * VirtIO spec ยง3.1.1: step 5 โ€?set FEATURES_OK and verify.
+     * VirtIO spec ยง3.1.1: step 5 ?set FEATURES_OK and verify.
      * DRIVER_OK must be set LAST, after all virtqueues are configured.
      */
     vp_set_status(vp, VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER | VIRTIO_STATUS_FEATURES_OK);
@@ -1058,7 +1061,7 @@ int virtio_gpu_driver_init(void)
     }
 
     /*
-     * VirtIO spec ยง3.1.1: step 8 โ€?set DRIVER_OK after queues are ready.
+     * VirtIO spec ยง3.1.1: step 8 ?set DRIVER_OK after queues are ready.
      * Use a write barrier to ensure all virtqueue setup stores are visible
      * to the device before the status write reaches it.
      */
@@ -1109,7 +1112,7 @@ int virtio_gpu_driver_init(void)
     ret = virtgpu_kms_init(vgdev);
     if (ret) {
         DRM_ERROR("KMS init failed: %d (continuing with render only)\n", ret);
-        /* Non-fatal โ€?render node still works */
+        /* Non-fatal ?render node still works */
     }
 
     /* Debug info */
@@ -1121,7 +1124,7 @@ int virtio_gpu_driver_init(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* Initialisation hook โ€?called from kernel init                       */
+/* Initialisation hook ?called from kernel init                       */
 /* ------------------------------------------------------------------ */
 
 /*

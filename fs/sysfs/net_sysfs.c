@@ -24,7 +24,6 @@
 #define IFF_RUNNING   0x0040U
 #define ARPHRD_ETHER  1U
 
-static struct class net_class = {.name = "net"};
 static int net_class_ready;
 static struct {
         net_device_t  *netdev;
@@ -144,8 +143,8 @@ static DEVICE_ATTR(tx_packets, 0444, statistic_show, NULL);
 static DEVICE_ATTR(tx_errors, 0444, statistic_show, NULL);
 static DEVICE_ATTR(tx_dropped, 0444, statistic_show, NULL);
 
-static const struct device_attribute *net_attributes[] = {
-    &dev_attr_address, &dev_attr_mtu, &dev_attr_operstate, &dev_attr_flags, &dev_attr_type, &dev_attr_ifindex,
+static struct attribute *net_attributes[] = {
+    &dev_attr_address.attr, &dev_attr_mtu.attr, &dev_attr_operstate.attr, &dev_attr_flags.attr, &dev_attr_type.attr, &dev_attr_ifindex.attr, NULL,
 };
 
 static struct attribute *statistics_attributes[] = {
@@ -159,11 +158,31 @@ static const struct attribute_group statistics_group = {
     .attrs = statistics_attributes,
 };
 
+static struct attribute_group net_group = {
+    .attrs = net_attributes,
+};
+
+static int net_device_uevent(struct device *device, struct kobj_uevent_env *env)
+{
+    net_device_t *netdev = to_netdev(device);
+    if (!netdev) return -ENODEV;
+    int ret = add_uevent_var(env, "INTERFACE=%s", netdev->name);
+    if (ret) return ret;
+    return add_uevent_var(env, "IFINDEX=%u", netdev->ifindex);
+}
+
+static const struct attribute_group *net_dev_groups[] = {
+    &net_group,
+    &statistics_group,
+    NULL,
+};
+
+static struct class net_class = {.name = "net", .dev_uevent = net_device_uevent, .dev_groups = net_dev_groups};
+
 static void net_sysfs_publish(net_device_t *netdev, void *context)
 {
     struct device *device;
     int            slot    = -1;
-    size_t         created = 0;
     (void)context;
     if (!net_class_ready || !netdev || !netdev->registered) return;
     spin_lock(&net_devices_lock);
@@ -182,26 +201,13 @@ static void net_sysfs_publish(net_device_t *netdev, void *context)
     spin_unlock(&net_devices_lock);
     device = device_create(&net_class, NULL, 0, netdev, "%s", netdev->name);
     if (!device) goto clear_slot;
-    for (; created < sizeof(net_attributes) / sizeof(net_attributes[0]); created++) {
-        if (device_create_file(device, net_attributes[created]) == EOK) continue;
-        while (created) device_remove_file(device, net_attributes[--created]);
-        device_unregister(device);
-        goto clear_slot;
-    }
-    if (sysfs_create_group(&device->kobj, &statistics_group) == EOK) {
-        spin_lock(&net_devices_lock);
-        if (net_devices[slot].netdev == netdev && netdev->registered) {
-            net_devices[slot].device = device;
-            spin_unlock(&net_devices_lock);
-            return;
-        }
+    spin_lock(&net_devices_lock);
+    if (net_devices[slot].netdev == netdev && netdev->registered) {
+        net_devices[slot].device = device;
         spin_unlock(&net_devices_lock);
-        sysfs_remove_group(&device->kobj, &statistics_group);
-        while (created) device_remove_file(device, net_attributes[--created]);
-        device_unregister(device);
         return;
     }
-    while (created) device_remove_file(device, net_attributes[--created]);
+    spin_unlock(&net_devices_lock);
     device_unregister(device);
 
 clear_slot:
@@ -228,8 +234,6 @@ static void net_sysfs_unpublish(net_device_t *netdev)
     spin_unlock(&net_devices_lock);
     if (!device) return;
     device->driver_data = NULL;
-    sysfs_remove_group(&device->kobj, &statistics_group);
-    for (size_t i = 0; i < sizeof(net_attributes) / sizeof(net_attributes[0]); i++) device_remove_file(device, net_attributes[i]);
     device_unregister(device);
 }
 

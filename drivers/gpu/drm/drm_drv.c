@@ -15,6 +15,7 @@
 #include <drivers/base/device.h>
 #include <drivers/gpu/drm_device.h>
 #include <drivers/gpu/drm_hashtab.h>
+#include <drivers/gpu/drm_init.h>
 #include <drivers/gpu/drm_print.h>
 #include <fs/virtual/devtmpfs.h>
 #include <fs/virtual/tmpfs.h>
@@ -32,7 +33,7 @@ extern struct class drm_class;
 extern int drm_class_registered;
 
 /* ------------------------------------------------------------------ */
-/* Minor allocator â€?per-type bitmaps for indices 0..DRM_MAX_MINOR-1  */
+/* Minor allocator ???per-type bitmaps for indices 0..DRM_MAX_MINOR-1  */
 /* ------------------------------------------------------------------ */
 
 static uint64_t   drm_minor_bitmap_primary;
@@ -96,7 +97,7 @@ void drm_minor_free(int type, int index)
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_master â€?full definition (forward-declared in drm_device.h)    */
+/* drm_master ???full definition (forward-declared in drm_device.h)    */
 /* ------------------------------------------------------------------ */
 
 struct drm_master {
@@ -117,7 +118,7 @@ struct drm_file *drm_file_alloc(struct drm_device *dev);
 void             drm_file_free(struct drm_file *file);
 
 /* ------------------------------------------------------------------ */
-/* drm_dev_alloc â€?allocate and zero-initialize a drm_device           */
+/* drm_dev_alloc ???allocate and zero-initialize a drm_device           */
 /* ------------------------------------------------------------------ */
 
 struct drm_device *drm_dev_alloc(struct drm_driver *driver)
@@ -210,7 +211,7 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_dev_register â€?register device, expose KMS defaults             */
+/* drm_dev_register ???register device, expose KMS defaults             */
 /* ------------------------------------------------------------------ */
 
 int drm_dev_register(struct drm_device *dev, uint64_t flags)
@@ -247,7 +248,14 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
         tmpfs_device_ops_t drm_ops;
 
         memset(&drm_ops, 0, sizeof(drm_ops));
-        drm_ops.ctx = dev;
+        drm_ops.open       = (tmpfs_dev_open_t)drm_dev_open;
+        drm_ops.release    = (tmpfs_dev_release_t)drm_dev_release;
+        drm_ops.mmap       = drm_dev_file_mmap;
+        drm_ops.file_read  = drm_dev_file_read;
+        drm_ops.file_write = drm_dev_file_write;
+        drm_ops.file_poll  = drm_dev_file_poll;
+        drm_ops.file_ioctl = drm_dev_file_ioctl;
+        drm_ops.ctx        = dev;
 
         snprintf(path, sizeof(path), "/dev/dri/%s", dev->primary->device_node_name);
         uint64_t devt = MKDEV(226, dev->primary->index);
@@ -266,7 +274,14 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
         uint64_t           devt;
 
         memset(&render_ops, 0, sizeof(render_ops));
-        render_ops.ctx = dev;
+        render_ops.open       = (tmpfs_dev_open_t)drm_dev_open;
+        render_ops.release    = (tmpfs_dev_release_t)drm_dev_release;
+        render_ops.mmap       = drm_dev_file_mmap;
+        render_ops.file_read  = drm_dev_file_read;
+        render_ops.file_write = drm_dev_file_write;
+        render_ops.file_poll  = drm_dev_file_poll;
+        render_ops.file_ioctl = drm_dev_file_ioctl;
+        render_ops.ctx        = dev;
 
         snprintf(path, sizeof(path), "/dev/dri/%s", dev->render->device_node_name);
         devt    = MKDEV(226, 128 + dev->render->index);
@@ -282,7 +297,7 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_dev_unregister â€?unregister a device (drop reference)           */
+/* drm_dev_unregister ???unregister a device (drop reference)           */
 /* ------------------------------------------------------------------ */
 
 void drm_dev_unregister(struct drm_device *dev)
@@ -292,7 +307,7 @@ void drm_dev_unregister(struct drm_device *dev)
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_dev_get â€?acquire a reference to the device                     */
+/* drm_dev_get ???acquire a reference to the device                     */
 /* ------------------------------------------------------------------ */
 
 struct drm_device *drm_dev_get(struct drm_device *dev)
@@ -310,7 +325,7 @@ struct drm_device *drm_dev_get(struct drm_device *dev)
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_dev_put â€?release a reference; free when refcount hits zero     */
+/* drm_dev_put ???release a reference; free when refcount hits zero     */
 /* ------------------------------------------------------------------ */
 
 void drm_dev_put(struct drm_device *dev)
@@ -352,7 +367,7 @@ void drm_dev_put(struct drm_device *dev)
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_dev_unplug â€?mark device as removed, prevent new opens          */
+/* drm_dev_unplug ???mark device as removed, prevent new opens          */
 /* ------------------------------------------------------------------ */
 
 void drm_dev_unplug(struct drm_device *dev)
@@ -365,7 +380,7 @@ void drm_dev_unplug(struct drm_device *dev)
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_open â€?open a /dev/dri file; allocate and init drm_file         */
+/* drm_open ???open a /dev/dri file; allocate and init drm_file         */
 /* ------------------------------------------------------------------ */
 
 int drm_open(struct drm_device *dev, struct drm_file *file)
@@ -426,7 +441,7 @@ int drm_open(struct drm_device *dev, struct drm_file *file)
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_release â€?close a /dev/dri file; cleanup and free drm_file      */
+/* drm_release ???close a /dev/dri file; cleanup and free drm_file      */
 /* ------------------------------------------------------------------ */
 
 void drm_release(struct drm_file *file)

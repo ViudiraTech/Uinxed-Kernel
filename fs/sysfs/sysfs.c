@@ -1,7 +1,7 @@
 /*
  *
  *      sysfs.c
- *      sysfs â€?the filesystem for exporting kernel objects
+ *      sysfs ?the filesystem for exporting kernel objects
  *
  *      2026/7/23 By JiTianYu391
  *      Copyright Â© 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -247,7 +247,8 @@ static ssize_t sysfs_gen_attr_content(sysfs_node_t *sn, char **content)
 
 static int sysfs_mount(const char *handle, vfs_node_t node)
 {
-    if (handle) return -EINVAL;
+    /* sysfs is nodev; tolerate the conventional "sysfs" source operand. */
+    (void)handle;
     if (!node || !sysfs_root_kobj) return -EINVAL;
     if (sysfs_root_vnode) return -EBUSY;
 
@@ -322,7 +323,7 @@ static void sysfs_open(void *parent_handle, const char *name, vfs_node_t node)
                 return;
             }
 
-            /* Check for binary attribute â€?these are set up when created */
+            /* Check for binary attribute ?these are set up when created */
             /* Binary files are created proactively, skip here */
 
             sysfs_bin_attr_entry_t *bin_entry = sysfs_find_bin_attr(parent_kobj, name);
@@ -593,7 +594,14 @@ static int sysfs_file_open(vfs_node_t vnode, uint64_t flags, void **private_data
 
     (void)flags;
     if (!vnode || !private_data || !(sn = vnode->handle)) return -EINVAL;
-    if (sn->type == SYSFS_DIR) return -EISDIR;
+    /* Directories are valid open-file descriptions.  readdir(2), fstat(2)
+     * and *at(2) operations use the vnode itself and do not need a private
+     * sysfs stream; rejecting the open here makes libudev unable to inspect
+     * /sys/bus and /sys/class. */
+    if (sn->type == SYSFS_DIR) {
+        *private_data = NULL;
+        return EOK;
+    }
     if (sn->type == SYSFS_SYMLINK) return -EINVAL;
 
     open_file = calloc(1, sizeof(*open_file));
@@ -914,7 +922,7 @@ static int sysfs_create_file_mode(struct kobject *dir_kobj, struct kobject *owne
 
     dir_vnode = dir_kobj->sd;
     if (!dir_vnode) {
-        /* Kobject not yet in sysfs â€?defer creation */
+        /* Kobject not yet in sysfs ?defer creation */
         /* Just track the attribute for later */
         ;
     }
@@ -923,7 +931,7 @@ static int sysfs_create_file_mode(struct kobject *dir_kobj, struct kobject *owne
     sysfs_attr_entry_t *entry = calloc(1, sizeof(sysfs_attr_entry_t));
     if (!entry) return -ENOMEM;
 
-    entry->attr  = (struct attribute *)attr; /* const cast â€?safe since attr is const in struct */
+    entry->attr  = (struct attribute *)attr; /* const cast ?safe since attr is const in struct */
     entry->kobj  = owner;
     entry->mode  = mode;
     entry->vnode = NULL;
@@ -1446,17 +1454,62 @@ int sysfs_move_dir(struct kobject *kobj, struct kobject *new_parent)
 void sysfs_regist(void)
 {
 #if CONFIG_SYSFS
-    sysfs_id = vfs_regist_fs("sysfs", &sysfs_callbacks);
+    sysfs_id = vfs_regist_fs_flags("sysfs", &sysfs_callbacks, VFS_FS_NODEV);
     if (!(sysfs_id & ERRNO_MASK)) plogk("sysfs: Filesystem registered (fsid=%d)\n", sysfs_id);
     if (sysfs_id & ERRNO_MASK) plogk("sysfs: Register error.\n");
 #endif
 }
 
 /* Recursively create VFS nodes for pending kobjects after mount */
+static void sysfs_populate_symlinks(struct kobject *kobj)
+{
+    if (!kobj || !kobj->sd) return;
+
+    /*
+     * Symlinks created before sysfs was mounted are tracked in the
+     * kobject, but have no VFS node yet.  They must be materialized during
+     * the mount walk: vfs_readdir() enumerates the VFS child list directly
+     * and does not call sysfs_stat() first.  Without this step, class links
+     * such as /sys/class/drm/card0 are invisible to libudev, even though
+     * the corresponding DRM device is registered and /dev/dri exists.
+     */
+    for (clist_t node = kobj->symlinks; node; node = node->next) {
+        sysfs_symlink_entry_t *entry = node->data;
+        if (!entry || !entry->name || entry->vnode || !entry->target) continue;
+
+        vfs_node_t sym_vn = vfs_node_alloc(kobj->sd, entry->name);
+        if (!sym_vn) continue;
+        sym_vn->type = file_symlink;
+        sym_vn->fsid = sysfs_id;
+
+        sysfs_node_t *sn = sysfs_node_alloc(SYSFS_SYMLINK);
+        if (!sn) {
+            kobj->sd->child = clist_delete(kobj->sd->child, sym_vn);
+            vfs_free(sym_vn);
+            continue;
+        }
+
+        sn->kobj = kobj;
+        sn->symlink_target = kobject_get(entry->target);
+        if (!sn->symlink_target) {
+            sysfs_node_free(sn);
+            kobj->sd->child = clist_delete(kobj->sd->child, sym_vn);
+            vfs_free(sym_vn);
+            continue;
+        }
+
+        sym_vn->handle = sn;
+        entry->vnode = sym_vn;
+    }
+}
+
 static void sysfs_populate_dir(struct kobject *kobj)
 {
     clist_t node;
     if (!kobj || !kobj->sd) return;
+
+    /* Materialize class/device links before walking children. */
+    sysfs_populate_symlinks(kobj);
 
     for (node = kobj->children; node; node = node->next) {
         struct kobject *child = node->data;
@@ -1525,7 +1578,7 @@ int sysfs_init(void)
 
     if (sysfs_root_kobj) return -EEXIST;
 
-    /* Create the root kobject (only â€?mount creates the VFS nodes) */
+    /* Create the root kobject (only ?mount creates the VFS nodes) */
     sysfs_root_kobj = calloc(1, sizeof(struct kobject));
     if (!sysfs_root_kobj) return -ENOMEM;
 
@@ -1543,6 +1596,16 @@ int sysfs_init(void)
             ret = -ENOMEM;
             goto err_children;
         }
+    }
+
+    /* cgroup2 is mounted on this kernel-owned sysfs mountpoint.  sysfs is
+     * intentionally read-only to userspace, so the directory must exist in
+     * the kernel object tree before OpenRC/elogind attempt mount(2), matching
+     * Linux's /sys/fs/cgroup ABI. */
+    struct kobject *fs_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "fs");
+    if (!fs_kobj || !kobject_create_and_add("cgroup", fs_kobj)) {
+        ret = -ENOMEM;
+        goto err_children;
     }
 
     return EOK;

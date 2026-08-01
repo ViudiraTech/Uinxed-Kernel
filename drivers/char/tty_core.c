@@ -50,8 +50,37 @@ void tty_core_init(tty_core_t *tty, const tty_core_ops_t *ops, void *context)
     tty_default_termios(&tty->termios);
     tty->winsize.ws_row = 25;
     tty->winsize.ws_col = 80;
+    tty->vt_mode.mode   = VT_AUTO;
+    tty->kd_mode        = KD_TEXT;
+    tty->kb_mode        = K_UNICODE;
     if (ops) tty->ops = *ops;
     tty->context = context;
+}
+
+void tty_core_mark_virtual_console(tty_core_t *tty)
+{
+    if (!tty) return;
+    spin_lock(&tty->lock);
+    tty->is_vt = true;
+    spin_unlock(&tty->lock);
+}
+
+bool tty_core_graphics_mode(tty_core_t *tty)
+{
+    if (!tty) return false;
+    spin_lock(&tty->lock);
+    bool graphics = tty->is_vt && tty->kd_mode == KD_GRAPHICS;
+    spin_unlock(&tty->lock);
+    return graphics;
+}
+
+uint8_t tty_core_keyboard_mode(tty_core_t *tty)
+{
+    if (!tty) return K_OFF;
+    spin_lock(&tty->lock);
+    uint8_t mode = tty->kb_mode;
+    spin_unlock(&tty->lock);
+    return mode;
 }
 
 void tty_core_retain(tty_core_t *tty)
@@ -512,12 +541,20 @@ size_t tty_core_readable(tty_core_t *tty)
     return value;
 }
 
-int tty_core_ioctl(tty_core_t *tty, uint64_t flags, size_t request, void *user_arg)
+static bool tty_is_vt_ioctl(size_t request)
+{
+    return (request >= KDGETLED && request <= KDSKBMODE) || (request >= VT_OPENQRY && request <= VT_DISALLOCATE);
+}
+
+int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, void *user_arg, bool virtual_console)
 {
     struct termios termios;
     struct winsize winsize;
     process_t     *current = process_current();
     int            value;
+
+    if (!tty) return -EINVAL;
+    if (tty_is_vt_ioctl(request) && (!tty->is_vt || !virtual_console)) return -ENOTTY;
 
     switch (request) {
         case TCSETS :
@@ -572,6 +609,83 @@ int tty_core_ioctl(tty_core_t *tty, uint64_t flags, size_t request, void *user_a
             winsize = tty->winsize;
             spin_unlock(&tty->lock);
             return copy_to_user(user_arg, &winsize, sizeof(winsize)) ? -EFAULT : 0;
+        case KDGETMODE :
+            spin_lock(&tty->lock);
+            value = tty->kd_mode;
+            spin_unlock(&tty->lock);
+            return copy_to_user(user_arg, &value, sizeof(value)) ? -EFAULT : 0;
+        case KDSETMODE :
+            value = (int)(uintptr_t)user_arg;
+            if (value != KD_TEXT && value != KD_GRAPHICS) return -EINVAL;
+            spin_lock(&tty->lock);
+            tty->kd_mode = (uint8_t)value;
+            spin_unlock(&tty->lock);
+            return 0;
+        case KDGKBMODE :
+            spin_lock(&tty->lock);
+            value = tty->kb_mode;
+            spin_unlock(&tty->lock);
+            return copy_to_user(user_arg, &value, sizeof(value)) ? -EFAULT : 0;
+        case KDSKBMODE :
+            value = (int)(uintptr_t)user_arg;
+            if (value < K_RAW || value > K_OFF) return -EINVAL;
+            spin_lock(&tty->lock);
+            tty->kb_mode = (uint8_t)value;
+            spin_unlock(&tty->lock);
+            return 0;
+        case KDGETLED : {
+            spin_lock(&tty->lock);
+            uint8_t leds = tty->led_state;
+            spin_unlock(&tty->lock);
+            return copy_to_user(user_arg, &leds, sizeof(leds)) ? -EFAULT : 0;
+        }
+        case KDSETLED :
+            value = (int)(uintptr_t)user_arg;
+            if (value != 0xff && (value < 0 || value > 7)) return -EINVAL;
+            spin_lock(&tty->lock);
+            tty->led_state = (uint8_t)value;
+            spin_unlock(&tty->lock);
+            return 0;
+        case KDGKBTYPE : {
+            uint8_t keyboard_type = KB_101;
+            return copy_to_user(user_arg, &keyboard_type, sizeof(keyboard_type)) ? -EFAULT : 0;
+        }
+        case VT_GETMODE : {
+            spin_lock(&tty->lock);
+            struct vt_mode mode = tty->vt_mode;
+            spin_unlock(&tty->lock);
+            return copy_to_user(user_arg, &mode, sizeof(mode)) ? -EFAULT : 0;
+        }
+        case VT_SETMODE : {
+            struct vt_mode mode;
+            if (copy_from_user(&mode, user_arg, sizeof(mode))) return -EFAULT;
+            if (mode.mode != VT_AUTO && mode.mode != VT_PROCESS) return -EINVAL;
+            if (mode.mode == VT_PROCESS
+                && (mode.relsig <= 0 || mode.relsig > SIGRTMAX || mode.acqsig <= 0 || mode.acqsig > SIGRTMAX || mode.frsig < 0
+                    || mode.frsig > SIGRTMAX))
+                return -EINVAL;
+            mode.waitv = mode.waitv ? 1 : 0;
+            spin_lock(&tty->lock);
+            tty->vt_mode = mode;
+            tty->vt_owner_pid = mode.mode == VT_PROCESS && current && current->task ? (int64_t)current->task->pid : 0;
+            spin_unlock(&tty->lock);
+            return 0;
+        }
+        case VT_GETSTATE : {
+            struct vt_stat state = {.v_active = 1, .v_signal = 0, .v_state = (uint16_t)(1U << 1)};
+            return copy_to_user(user_arg, &state, sizeof(state)) ? -EFAULT : 0;
+        }
+        case VT_OPENQRY :
+            value = 1;
+            return copy_to_user(user_arg, &value, sizeof(value)) ? -EFAULT : 0;
+        case VT_ACTIVATE :
+        case VT_WAITACTIVE :
+            return (int)(uintptr_t)user_arg == 1 ? 0 : -ENXIO;
+        case VT_RELDISP :
+            return (int)(uintptr_t)user_arg == VT_ACKACQ ? 0 : -EINVAL;
+        case VT_DISALLOCATE :
+            value = (int)(uintptr_t)user_arg;
+            return value == 0 || value == 1 ? 0 : -ENXIO;
         case TIOCSWINSZ :
             if (copy_from_user(&winsize, user_arg, sizeof(winsize))) return -EFAULT;
             spin_lock(&tty->lock);
@@ -615,24 +729,37 @@ int tty_core_ioctl(tty_core_t *tty, uint64_t flags, size_t request, void *user_a
         case TIOCSETD :
             if (copy_from_user(&value, user_arg, sizeof(value))) return -EFAULT;
             return value == N_TTY ? 0 : -EINVAL;
-        case TIOCGPGRP :
-            if (!current || !tty_current_associated(tty, current)) return -ENOTTY;
+        case TIOCGPGRP : {
+            if (!current) return -ENOTTY;
+            int64_t session = tty->session;
+            if (session != current->sid && tty->session == 0 && current->task && current->sid == (pid_t)current->task->pid
+                && current->uid == 0) {
+                /* Unattached tty claimed by a root session leader (this
+                 * kernel has no getty; the shell respawned via setsid). */
+                int result = process_ctty_acquire(current, tty, false, NULL, NULL);
+                if (result) return result;
+                session = tty->session;
+            }
+            if (session != current->sid) return -ENOTTY;
             spin_lock(&tty->lock);
-            value = tty->session == current->sid ? (int)tty->foreground_pgid : 0;
+            value = (int)tty->foreground_pgid;
             spin_unlock(&tty->lock);
             return value > 0 ? (copy_to_user(user_arg, &value, sizeof(value)) ? -EFAULT : 0) : -ENOTTY;
-        case TIOCSPGRP :
+        }
+        case TIOCSPGRP : {
             if (!current) return -ESRCH;
-            if (!tty_current_associated(tty, current)) return -ENOTTY;
             if (copy_from_user(&value, user_arg, sizeof(value))) return -EFAULT;
-            spin_lock(&tty->lock);
             int64_t session = tty->session;
-            if (!session || session != current->sid || value <= 0) {
-                spin_unlock(&tty->lock);
-                return -EPERM;
+            if (session != current->sid && tty->session == 0 && current->task && current->sid == (pid_t)current->task->pid
+                && current->uid == 0) {
+                /* Unattached tty claimed by a root session leader. */
+                int result = process_ctty_acquire(current, tty, false, NULL, NULL);
+                if (result) return result;
+                session = tty->session;
             }
-            spin_unlock(&tty->lock);
+            if (session != current->sid || value <= 0) return -EPERM;
             return process_ctty_set_foreground(tty, session, value);
+        }
         case TIOCGSID :
             if (!current || !tty_current_associated(tty, current)) return -ENOTTY;
             spin_lock(&tty->lock);
@@ -682,6 +809,11 @@ int tty_core_ioctl(tty_core_t *tty, uint64_t flags, size_t request, void *user_a
         default :
             return -ENOTTY;
     }
+}
+
+int tty_core_ioctl(tty_core_t *tty, uint64_t flags, size_t request, void *user_arg)
+{
+    return tty_core_ioctl_terminal(tty, flags, request, user_arg, tty && tty->is_vt);
 }
 
 int tty_core_poll(tty_core_t *tty, size_t events)

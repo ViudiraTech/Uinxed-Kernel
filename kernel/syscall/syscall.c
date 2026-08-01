@@ -8,6 +8,7 @@
  *
  */
 
+#include <arch/cpuid.h>
 #include <arch/eis.h>
 #include <arch/smp.h>
 #include <arch/tss.h>
@@ -35,6 +36,7 @@
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/frame.h>
+#include <mem/heap.h>
 #include <mem/page.h>
 #include <mem/swap.h>
 #include <proc/process.h>
@@ -68,6 +70,7 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
 #define CLONE_FS               0x00000200ULL
 #define CLONE_FILES            0x00000400ULL
 #define CLONE_SIGHAND          0x00000800ULL
+#define CLONE_VFORK            0x00004000ULL
 #define CLONE_SYSVSEM          0x00040000ULL
 #define CLONE_THREAD           0x00010000ULL
 #define CLONE_SETTLS           0x00080000ULL
@@ -77,17 +80,18 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
 #define CLONE_PTHREAD_REQUIRED (CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM)
 #define CLONE_PTHREAD_ALLOWED  (CLONE_PTHREAD_REQUIRED | CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)
 
-/* Mount flag bits stored in vfs_node->flags */
-#define MOUNT_FLAG_RDONLY   (1UL << 0)
-#define MOUNT_FLAG_NOSUID   (1UL << 1)
-#define MOUNT_FLAG_NODEV    (1UL << 2)
-#define MOUNT_FLAG_NOEXEC   (1UL << 3)
 #define AT_FDCWD            PROCESS_AT_FDCWD
 #define AT_SYMLINK_NOFOLLOW 0x100
+#define AT_EACCESS          0x200
 #define AT_REMOVEDIR        0x200
 #define AT_SYMLINK_FOLLOW   0x400
+#define AT_NO_AUTOMOUNT     0x800
 #define AT_EMPTY_PATH       0x1000
+#define AT_STATX_SYNC_TYPE  0x6000
+#define AT_STATX_DONT_SYNC  0x4000
 #define STATX_BASIC_STATS   0x000007ffU
+#define STATX_MNT_ID        0x00001000U
+#define STATX_ATTR_MOUNT_ROOT 0x00002000ULL
 
 typedef struct {
         int16_t l_type;
@@ -164,7 +168,15 @@ typedef struct {
         uint32_t                stx_rdev_minor;
         uint32_t                stx_dev_major;
         uint32_t                stx_dev_minor;
-        uint64_t                __spare2[14];
+        uint64_t                stx_mnt_id;
+        uint32_t                stx_dio_mem_align;
+        uint32_t                stx_dio_offset_align;
+        uint64_t                stx_subvol;
+        uint32_t                stx_atomic_write_unit_min;
+        uint32_t                stx_atomic_write_unit_max;
+        uint32_t                stx_atomic_write_segments_max;
+        uint32_t                stx_dio_read_offset_align;
+        uint64_t                __spare3[9];
 } linux_statx_t;
 
 /* Check if the filesystem containing this node is mounted read-only.
@@ -261,7 +273,7 @@ static void fill_linux_stat(linux_stat_t *st, uint64_t uid, uint64_t gid, const 
     memset(st, 0, sizeof(*st));
     st->st_dev     = linux_encode_dev(src->dev);
     st->st_ino     = src->inode;
-    st->st_nlink   = 1;
+    st->st_nlink   = src->nlink ? src->nlink : 1;
     st->st_mode    = linux_mode_from_type(src->type, src->mode);
     st->st_uid     = (uint32_t)uid;
     st->st_gid     = (uint32_t)gid;
@@ -271,12 +283,21 @@ static void fill_linux_stat(linux_stat_t *st, uint64_t uid, uint64_t gid, const 
     st->st_blocks  = (st->st_size + 511) / 512;
 }
 
-static void fill_linux_statx(linux_statx_t *stx, uint64_t uid, uint64_t gid, const process_fd_stat_t *src)
+static vfs_node_t vfs_containing_mount(vfs_node_t node)
+{
+    for (vfs_node_t current = node; current; current = current->parent) {
+        if (current->is_mount) return current;
+        if (current == current->parent) break;
+    }
+    return NULL;
+}
+
+static void fill_linux_statx(linux_statx_t *stx, uint64_t uid, uint64_t gid, const process_fd_stat_t *src, vfs_node_t node)
 {
     memset(stx, 0, sizeof(*stx));
     stx->stx_mask       = STATX_BASIC_STATS;
     stx->stx_blksize    = src->blksz ? (uint32_t)src->blksz : 4096;
-    stx->stx_nlink      = 1;
+    stx->stx_nlink      = src->nlink ? src->nlink : 1;
     stx->stx_uid        = (uint32_t)uid;
     stx->stx_gid        = (uint32_t)gid;
     stx->stx_mode       = (uint16_t)linux_mode_from_type(src->type, src->mode);
@@ -287,6 +308,13 @@ static void fill_linux_statx(linux_statx_t *stx, uint64_t uid, uint64_t gid, con
     stx->stx_rdev_minor = MINOR(src->rdev);
     stx->stx_dev_major  = MAJOR(src->dev);
     stx->stx_dev_minor  = MINOR(src->dev);
+    vfs_node_t mount = vfs_containing_mount(node);
+    if (mount) {
+        stx->stx_mask |= STATX_MNT_ID;
+        stx->stx_mnt_id = mount->mount_id;
+    }
+    stx->stx_attributes_mask |= STATX_ATTR_MOUNT_ROOT;
+    if (node->is_mount || node == rootdir) stx->stx_attributes |= STATX_ATTR_MOUNT_ROOT;
 }
 
 static int64_t stat_path_to_user(uint64_t upath, uint64_t ubuf)
@@ -306,6 +334,7 @@ static int64_t stat_path_to_user(uint64_t upath, uint64_t ubuf)
     process_fd_stat_t src = {
         .dev   = node->dev,
         .inode = node->inode,
+        .nlink = node->nlink,
         .mode  = node->mode,
         .type  = node->type,
         .rdev  = node->rdev,
@@ -325,6 +354,7 @@ static int64_t stat_node_to_user(vfs_node_t node, uint64_t ubuf)
     process_fd_stat_t src = {
         .dev   = node->dev,
         .inode = node->inode,
+        .nlink = node->nlink,
         .mode  = node->mode,
         .type  = node->type,
         .rdev  = node->rdev,
@@ -336,23 +366,15 @@ static int64_t stat_node_to_user(vfs_node_t node, uint64_t ubuf)
     return copy_to_user((void *)ubuf, &st, sizeof(st)) ? -EFAULT : EOK;
 }
 
-static int64_t statx_path_to_user(uint64_t upath, uint64_t ubuf)
+static int64_t statx_node_to_user(vfs_node_t node, uint64_t ubuf)
 {
-    char path[SYSCALL_PATH_MAX];
     if (!ubuf) return -EFAULT;
-
-    process_t *proc = process_current();
-    if (!proc) return -ESRCH;
-    int ret = copy_resolved_path_at(proc, AT_FDCWD, upath, path);
-    if (ret != EOK) return ret;
-
-    vfs_node_t node = vfs_open(path);
-    if (!node) return -ENOENT;
     vfs_update(node);
 
     process_fd_stat_t src = {
         .dev   = node->dev,
         .inode = node->inode,
+        .nlink = node->nlink,
         .mode  = node->mode,
         .type  = node->type,
         .rdev  = node->rdev,
@@ -360,8 +382,7 @@ static int64_t statx_path_to_user(uint64_t upath, uint64_t ubuf)
         .blksz = node->blksz,
     };
     linux_statx_t stx;
-    fill_linux_statx(&stx, node->owner, node->group, &src);
-    vfs_close(node);
+    fill_linux_statx(&stx, node->owner, node->group, &src, node);
     return copy_to_user((void *)ubuf, &stx, sizeof(stx)) ? -EFAULT : EOK;
 }
 
@@ -498,6 +519,8 @@ static int64_t sys_wait4(uint64_t pid, uint64_t exit_code, uint64_t options, uin
     int flags  = (int)options;
     int status = 0;
 
+    if (flags & ~(WNOHANG | WUNTRACED | WCONTINUED)) return -EINVAL;
+
     int64_t traced = ptrace_wait_event((pid_t)pid, &status, flags);
     if (traced != -ECHILD) {
         if (traced < 0) return traced;
@@ -505,26 +528,12 @@ static int64_t sys_wait4(uint64_t pid, uint64_t exit_code, uint64_t options, uin
         return traced;
     }
 
-    if (flags & WNOHANG) {
-        /*
-         * Non-blocking poll: check if child is zombie.
-         * If zombie, call process_wait which will find it immediately.
-         * If not zombie, return 0 without blocking.
-         */
-        process_t *child = process_find((pid_t)pid);
-        process_t *proc  = process_current();
-
-        if (!child || !proc || child->parent != proc) return -ECHILD;
-        if (child->task->state != TASK_ZOMBIE) return 0;
-
-        /* Child is zombie - process_wait will return immediately */
-    }
-
-    /* Blocking wait */
-    int ret = process_wait((pid_t)pid, &status);
-    if (ret) return -ECHILD;
+    pid_t waited_pid = 0;
+    int   ret = process_wait_select((pid_t)pid, &status, (flags & WNOHANG) ? PROCESS_WAIT_NOHANG : 0, &waited_pid);
+    if (ret < 0) return ret;
+    if (!waited_pid) return 0;
     if (exit_code && copy_to_user((void *)exit_code, &status, sizeof(status))) return -EFAULT;
-    return (int64_t)pid;
+    return (int64_t)waited_pid;
 }
 
 static int64_t sys_kill(uint64_t pid, uint64_t sig, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -560,16 +569,35 @@ static int64_t sys_brk(uint64_t addr, uint64_t arg1, uint64_t arg2, uint64_t arg
 
     process_t *proc = process_current();
     if (!proc) return 0;
-    if (!addr) return (int64_t)proc->heap_brk;
-    if (addr < PROCESS_HEAP_START || addr > PROCESS_HEAP_MAX) return (int64_t)proc->heap_brk;
+    spin_lock(&proc->brk_lock);
+    uintptr_t old_brk = proc->heap_brk;
+    if (!addr) {
+        spin_unlock(&proc->brk_lock);
+        return (int64_t)old_brk;
+    }
+    if (addr < PROCESS_HEAP_START || addr > PROCESS_HEAP_MAX) {
+        spin_unlock(&proc->brk_lock);
+        return (int64_t)old_brk;
+    }
 
-    if (addr > proc->heap_brk) {
-        uintptr_t start = ALIGN_UP(proc->heap_brk, PAGE_4K_SIZE);
+    if (addr > old_brk) {
+        uintptr_t start = ALIGN_UP(old_brk, PAGE_4K_SIZE);
         uintptr_t end   = ALIGN_UP(addr, PAGE_4K_SIZE);
-        if (end > start && process_mmap(proc, start, end - start, VM_READ | VM_WRITE)) return (int64_t)proc->heap_brk;
+        if (end > start && process_mmap(proc, start, end - start, VM_READ | VM_WRITE | VM_LAZY)) {
+            spin_unlock(&proc->brk_lock);
+            return (int64_t)old_brk;
+        }
+    } else if (addr < old_brk) {
+        uintptr_t start = ALIGN_UP(addr, PAGE_4K_SIZE);
+        uintptr_t end   = ALIGN_UP(old_brk, PAGE_4K_SIZE);
+        if (end > start && sys_munmap_full(start, end - start) != EOK) {
+            spin_unlock(&proc->brk_lock);
+            return (int64_t)old_brk;
+        }
     }
     proc->heap_brk = addr;
-    return (int64_t)proc->heap_brk;
+    spin_unlock(&proc->brk_lock);
+    return (int64_t)addr;
 }
 
 static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -861,8 +889,19 @@ static int64_t sys_dup3(uint64_t oldfd, uint64_t newfd, uint64_t flags, uint64_t
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    if (flags) return -EINVAL;
-    return sys_dup2(oldfd, newfd, 0, 0, 0, 0);
+    if (flags & ~(uint64_t)O_CLOEXEC) return -EINVAL;
+    if (oldfd == newfd) return -EINVAL;
+    int64_t result = sys_dup2(oldfd, newfd, 0, 0, 0, 0);
+    if (result < 0 || !(flags & O_CLOEXEC)) return result;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    spin_lock(&proc->fd_lock);
+    if (newfd < PROCESS_MAX_FD && proc->fds[newfd])
+        proc->fd_flags[newfd] = FD_CLOEXEC;
+    else
+        result = -EBADF;
+    spin_unlock(&proc->fd_lock);
+    return result;
 }
 
 static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -894,6 +933,7 @@ static int64_t sys_fstat(uint64_t fd, uint64_t statbuf, uint64_t arg2, uint64_t 
     process_fd_stat_t fdst = {
         .dev   = file->node->dev,
         .inode = file->node->inode,
+        .nlink = file->node->nlink,
         .mode  = file->node->mode,
         .type  = file->node->type,
         .rdev  = file->node->rdev,
@@ -911,11 +951,40 @@ static int64_t sys_fstat(uint64_t fd, uint64_t statbuf, uint64_t arg2, uint64_t 
 
 static int64_t sys_statx(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_t mask, uint64_t statbuf, uint64_t arg5)
 {
-    (void)dirfd;
-    (void)flags;
-    (void)mask;
     (void)arg5;
-    return statx_path_to_user(path, statbuf);
+    if (!statbuf) return -EFAULT;
+    if (flags & ~(uint64_t)(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT | AT_EMPTY_PATH | AT_STATX_SYNC_TYPE)) return -EINVAL;
+    if ((flags & AT_STATX_SYNC_TYPE) == AT_STATX_SYNC_TYPE) return -EINVAL;
+    (void)mask; /* All implemented basic fields are returned, as Linux permits. */
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    char input[SYSCALL_PATH_MAX];
+    int ret;
+    if (!path) {
+        if (!(flags & AT_EMPTY_PATH)) return -EFAULT;
+        input[0] = '\0';
+    } else {
+        ret = copy_path_from_user(path, input);
+        if (ret != EOK) return ret;
+    }
+
+    vfs_node_t node = NULL;
+    if (!input[0]) {
+        if (!(flags & AT_EMPTY_PATH)) return -ENOENT;
+        node = open_empty_path_at(proc, (int)dirfd, &ret);
+    } else {
+        char resolved[SYSCALL_PATH_MAX];
+        ret = process_resolve_path_at(proc, (int)dirfd, input, resolved, sizeof(resolved));
+        if (ret == EOK)
+            node = (flags & AT_SYMLINK_NOFOLLOW) ? vfs_open_nofollow(resolved) : vfs_open(resolved);
+        if (!node && ret == EOK) ret = -ENOENT;
+    }
+    if (!node) return ret;
+    ret = (int)statx_node_to_user(node, statbuf);
+    vfs_close(node);
+    return ret;
 }
 
 static int64_t sys_gettimeofday(uint64_t tv, uint64_t tz, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -1573,19 +1642,27 @@ static int64_t sys_stub_ok(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t
     return EOK;
 }
 
-static int64_t sys_access_stub(uint64_t path, uint64_t mode, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+static int64_t sys_access_common(int dirfd, uint64_t path, uint64_t mode, uint64_t flags)
 {
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
+    if (mode & ~7ULL) return -EINVAL;
+    if (flags & ~(uint64_t)(AT_EACCESS | AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH)) return -EINVAL;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    char name[SYSCALL_PATH_MAX];
-    int  ret = copy_resolved_path_at(proc, AT_FDCWD, path, name);
+    char input[SYSCALL_PATH_MAX];
+    int  ret = copy_path_from_user(path, input);
     if (ret != EOK) return ret;
-    vfs_node_t node = vfs_open(name);
-    if (!node) return -ENOENT;
+
+    vfs_node_t node = NULL;
+    if (!input[0]) {
+        if (!(flags & AT_EMPTY_PATH)) return -ENOENT;
+        node = open_empty_path_at(proc, dirfd, &ret);
+    } else {
+        char name[SYSCALL_PATH_MAX];
+        ret = process_resolve_path_at(proc, dirfd, input, name, sizeof(name));
+        if (ret == EOK) node = (flags & AT_SYMLINK_NOFOLLOW) ? vfs_open_nofollow(name) : vfs_open(name);
+        if (!node && ret == EOK) ret = -ENOENT;
+    }
+    if (!node) return ret;
 
     /* R_OK=4, W_OK=2, X_OK=1, F_OK=0 */
     if (mode & 4) { /* R_OK */
@@ -1608,6 +1685,30 @@ static int64_t sys_access_stub(uint64_t path, uint64_t mode, uint64_t arg2, uint
     }
     vfs_close(node);
     return EOK;
+}
+
+static int64_t sys_access_impl(uint64_t path, uint64_t mode, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_access_common(AT_FDCWD, path, mode, 0);
+}
+
+static int64_t sys_faccessat_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    return sys_access_common((int)dirfd, path, mode, 0);
+}
+
+static int64_t sys_faccessat2_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t flags, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg4;
+    (void)arg5;
+    return sys_access_common((int)dirfd, path, mode, flags);
 }
 
 static int64_t sys_chdir_stub(uint64_t path, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -1863,7 +1964,17 @@ struct linux_statfs {
         int64_t  f_spare[4];
 };
 
-#define TMPFS_MAGIC 0x01021994
+#define TMPFS_MAGIC        0x01021994
+#define SYSFS_MAGIC        0x62656572
+#define PROC_SUPER_MAGIC   0x00009fa0
+#define CGROUP2_SUPER_MAGIC 0x63677270
+#define ISOFS_SUPER_MAGIC  0x00009660
+#define EXT4_SUPER_MAGIC   0x0000ef53
+#define MSDOS_SUPER_MAGIC  0x00004d44
+#define NTFS_SB_MAGIC      0x5346544e
+#define SOCKFS_MAGIC       0x534f434b
+#define PIPEFS_MAGIC       0x50495045
+#define SIMPLEFS_MAGIC     0x53494d50
 
 /* ---------- personality ---------- */
 
@@ -2103,29 +2214,80 @@ static int64_t sys_personality_impl(uint64_t persona, uint64_t arg1, uint64_t ar
     return PER_LINUX;
 }
 
-static int64_t sys_statfs_impl(uint64_t path_or_fd, uint64_t buf, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+static int64_t linux_statfs_type(vfs_node_t node)
 {
-    (void)path_or_fd;
-    (void)arg2;
-    (void)arg3;
-    (void)arg4;
-    (void)arg5;
-    if (!buf) return -EFAULT;
+    const char *name = node ? vfs_filesystem_name(node->fsid) : NULL;
+    if (!name) {
+        if (node && (node->type & file_socket)) return SOCKFS_MAGIC;
+        if (node && (node->type & file_pipe)) return PIPEFS_MAGIC;
+        return SIMPLEFS_MAGIC;
+    }
+    if (streq(name, "tmpfs") || streq(name, "devtmpfs")) return TMPFS_MAGIC;
+    if (streq(name, "sysfs")) return SYSFS_MAGIC;
+    if (streq(name, "proc")) return PROC_SUPER_MAGIC;
+    if (streq(name, "cgroup2")) return CGROUP2_SUPER_MAGIC;
+    if (streq(name, "isofs")) return ISOFS_SUPER_MAGIC;
+    if (streq(name, "extfs")) return EXT4_SUPER_MAGIC;
+    if (streq(name, "fatfs")) return MSDOS_SUPER_MAGIC;
+    if (streq(name, "ntfs")) return NTFS_SB_MAGIC;
+    if (streq(name, "simplefs")) return SIMPLEFS_MAGIC;
+    return SOCKFS_MAGIC;
+}
 
+static int64_t copy_statfs_to_user(vfs_node_t node, uint64_t buf)
+{
     struct linux_statfs sf;
     memset(&sf, 0, sizeof(sf));
-    sf.f_type    = TMPFS_MAGIC;
+    sf.f_type    = linux_statfs_type(node);
     sf.f_bsize   = 4096;
     sf.f_blocks  = 65536;
     sf.f_bfree   = 32768;
     sf.f_bavail  = 32768;
     sf.f_files   = 0;
     sf.f_ffree   = 0;
+    vfs_node_t mount = vfs_containing_mount(node);
+    sf.f_fsid    = mount && mount->mount_id ? mount->mount_id : node->fsid;
     sf.f_namelen = 255;
     sf.f_frsize  = 4096;
+    if (mount) sf.f_flags = (int64_t)(mount->flags & (MOUNT_FLAG_RDONLY | MOUNT_FLAG_NOSUID | MOUNT_FLAG_NODEV | MOUNT_FLAG_NOEXEC));
 
     if (copy_to_user((void *)buf, &sf, sizeof(sf))) return -EFAULT;
     return 0;
+}
+
+static int64_t sys_statfs_impl(uint64_t path, uint64_t buf, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    if (!path || !buf) return -EFAULT;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    char resolved[SYSCALL_PATH_MAX];
+    int ret = copy_resolved_path_at(proc, AT_FDCWD, path, resolved);
+    if (ret != EOK) return ret;
+    vfs_node_t node = vfs_open(resolved);
+    if (!node) return -ENOENT;
+    ret = (int)copy_statfs_to_user(node, buf);
+    vfs_close(node);
+    return ret;
+}
+
+static int64_t sys_fstatfs_impl(uint64_t fd, uint64_t buf, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    if (!buf) return -EFAULT;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    process_file_t *file = process_fd_get(proc, (int)fd);
+    if (!file) return -EBADF;
+    int ret = (int)copy_statfs_to_user(file->node, buf);
+    process_file_put(file);
+    return ret;
 }
 
 static int64_t sys_sysinfo_impl(uint64_t info, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -2191,12 +2353,19 @@ static int64_t sys_getrandom_stub(uint64_t buf, uint64_t buflen, uint64_t flags,
     if (!buf && buflen) return -EFAULT;
 
     static uint64_t xorshift_state = 0;
+    uint32_t        eax, ebx, ecx, edx;
+    cpuid(0x00000001, &eax, &ebx, &ecx, &edx);
+    bool has_rdrand = (ecx & (1U << 30)) != 0;
     if (!xorshift_state) xorshift_state = sched_ticks() ^ 0xDEADBEEFCAFEBABEULL;
 
     for (uint64_t i = 0; i < buflen; i++) {
-        uint64_t val;
-        uint8_t  ok;
-        __asm__ volatile("rdrand %0; setc %1" : "=r"(val), "=q"(ok));
+        uint64_t val = 0;
+        uint8_t  ok  = 0;
+        if (has_rdrand) {
+            /* RDRAND may transiently report that no value is available. */
+            for (int retry = 0; retry < 10 && !ok; retry++)
+                __asm__ volatile("rdrand %0; setc %1" : "=r"(val), "=q"(ok));
+        }
         if (!ok) {
             val = xorshift_state;
             val ^= val << 13;
@@ -2278,19 +2447,67 @@ static int64_t sys_getresgid_stub(uint64_t rgid, uint64_t egid, uint64_t sgid, u
     return EOK;
 }
 
-static int64_t sys_getrlimit_stub(uint64_t resource, uint64_t rlim, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+typedef struct linux_rlimit64 {
+        uint64_t rlim_cur;
+        uint64_t rlim_max;
+} linux_rlimit64_t;
+
+static int process_rlimit_snapshot(process_t *target, uint64_t resource, linux_rlimit64_t *limit)
 {
-    (void)resource;
+    if (!target || !limit) return -EINVAL;
+    if (resource >= PROCESS_RLIMIT_COUNT) return -EINVAL;
+    spin_lock(&target->rlimit_lock);
+    limit->rlim_cur = target->rlimits[resource].current;
+    limit->rlim_max = target->rlimits[resource].maximum;
+    spin_unlock(&target->rlimit_lock);
+    return EOK;
+}
+
+static int process_rlimit_update(process_t *caller, process_t *target, uint64_t resource, const linux_rlimit64_t *limit)
+{
+    if (!caller || !target || !limit) return -EINVAL;
+    if (resource >= PROCESS_RLIMIT_COUNT || limit->rlim_cur > limit->rlim_max) return -EINVAL;
+
+    spin_lock(&target->rlimit_lock);
+    uint64_t old_max = target->rlimits[resource].maximum;
+    if (caller->uid != 0 && limit->rlim_max > old_max) {
+        spin_unlock(&target->rlimit_lock);
+        return -EPERM;
+    }
+    if (resource == PROCESS_RLIMIT_NOFILE && limit->rlim_max > PROCESS_MAX_FD) {
+        spin_unlock(&target->rlimit_lock);
+        return -EPERM;
+    }
+    target->rlimits[resource].current = limit->rlim_cur;
+    target->rlimits[resource].maximum = limit->rlim_max;
+    spin_unlock(&target->rlimit_lock);
+    return EOK;
+}
+
+static int64_t sys_getrlimit_impl(uint64_t resource, uint64_t rlim, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
     (void)arg2;
     (void)arg3;
     (void)arg4;
     (void)arg5;
     if (!rlim) return -EFAULT;
-    struct {
-            uint64_t rlim_cur;
-            uint64_t rlim_max;
-    } rl = {(uint64_t)-1, (uint64_t)-1};
+    linux_rlimit64_t rl;
+    int result = process_rlimit_snapshot(process_current(), resource, &rl);
+    if (result != EOK) return result;
     return copy_to_user((void *)rlim, &rl, sizeof(rl)) ? -EFAULT : EOK;
+}
+
+static int64_t sys_setrlimit_impl(uint64_t resource, uint64_t rlim, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    if (!rlim) return -EFAULT;
+    linux_rlimit64_t limit;
+    if (copy_from_user(&limit, (const void *)rlim, sizeof(limit))) return -EFAULT;
+    process_t *proc = process_current();
+    return process_rlimit_update(proc, proc, resource, &limit);
 }
 
 static int64_t sys_times_stub(uint64_t tms, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -2540,14 +2757,35 @@ static int64_t sys_syncfs_impl(uint64_t fd, uint64_t arg1, uint64_t arg2, uint64
     return vfs_sync_all();
 }
 
-static int64_t sys_prlimit64_stub(uint64_t pid, uint64_t resource, uint64_t new_rlim, uint64_t old_rlim, uint64_t arg4, uint64_t arg5)
+static int64_t sys_prlimit64_impl(uint64_t pid, uint64_t resource, uint64_t new_rlim, uint64_t old_rlim, uint64_t arg4, uint64_t arg5)
 {
-    (void)pid;
-    (void)resource;
-    (void)new_rlim;
     (void)arg4;
     (void)arg5;
-    return sys_getrlimit_stub(0, old_rlim, 0, 0, 0, 0);
+    if (resource >= PROCESS_RLIMIT_COUNT) return -EINVAL;
+
+    process_t *caller = process_current();
+    if (!caller) return -ESRCH;
+    process_t *target = pid == 0 ? caller : process_find_get((pid_t)pid);
+    bool       pinned = pid != 0;
+    if (!target) return -ESRCH;
+    if (caller->uid != 0 && caller->uid != target->uid) {
+        if (pinned) process_put(target);
+        return -EPERM;
+    }
+
+    linux_rlimit64_t old_limit;
+    int result = process_rlimit_snapshot(target, resource, &old_limit);
+    if (result == EOK && old_rlim && copy_to_user((void *)old_rlim, &old_limit, sizeof(old_limit))) result = -EFAULT;
+
+    if (result == EOK && new_rlim) {
+        linux_rlimit64_t new_limit;
+        if (copy_from_user(&new_limit, (const void *)new_rlim, sizeof(new_limit)))
+            result = -EFAULT;
+        else
+            result = process_rlimit_update(caller, target, resource, &new_limit);
+    }
+    if (pinned) process_put(target);
+    return result;
 }
 
 static int64_t sys_readahead(uint64_t fd, uint64_t offset, uint64_t count, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -3270,23 +3508,34 @@ static int64_t sys_epoll_pwait_wrap(uint64_t epfd, uint64_t events, uint64_t max
 #define P_PGID  2
 #define P_ALL   3
 #define WEXITED 0x00000004
-#define WNOHANG 0x00000001
+#define WSTOPPED 0x00000002
+#define WNOWAIT  0x01000000
 
 static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, uint64_t options, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
     (void)arg5;
 
-    pid_t pid;
+    pid_t selector;
     int   flags = (int)options;
+
+    if (!(flags & (WEXITED | WSTOPPED | WCONTINUED)) || (flags & ~(WNOHANG | WEXITED | WSTOPPED | WCONTINUED | WNOWAIT))) return -EINVAL;
+    /* Non-destructive wait snapshots require retained per-child wait events;
+     * reject WNOWAIT until that ABI is available rather than consuming state. */
+    if (flags & WNOWAIT) return -EINVAL;
 
     switch ((int)which) {
         case P_PID :
-            pid = (pid_t)upid;
+            selector = (pid_t)upid;
+            if (selector <= 0) return -EINVAL;
             break;
-        case P_PGID :
+        case P_PGID : {
+            if (upid > INT64_MAX) return -EINVAL;
+            selector = upid ? -(pid_t)upid : 0;
+            break;
+        }
         case P_ALL :
-            pid = -1; /* Wait for any child */
+            selector = -1;
             break;
         default :
             return -EINVAL;
@@ -3297,7 +3546,7 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
     int64_t ret;
 
     if ((int)which == P_PID) {
-        ret = ptrace_wait_event(pid, &status, flags);
+        ret = ptrace_wait_event(selector, &status, flags);
         if (ret != -ECHILD) {
             if (ret < 0) return ret;
             if (!ret) return 0;
@@ -3306,7 +3555,7 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
                 memset(&info, 0, sizeof(info));
                 info.si_signo  = SIGCHLD;
                 info.si_code   = CLD_TRAPPED;
-                info.si_pid    = pid;
+                info.si_pid    = selector;
                 info.si_status = (status >> 8) & 0xff;
                 if (copy_to_user((void *)infop, &info, sizeof(info))) return -EFAULT;
             }
@@ -3314,25 +3563,26 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
         }
     }
 
-    if (flags & WNOHANG) {
-        process_t *child = process_find(pid);
-        process_t *proc  = process_current();
-        if (!child || !proc || child->parent != proc) return -ECHILD;
-        if (child->task->state != TASK_ZOMBIE) return 0;
-    }
-
-    ret = (int64_t)process_wait(pid, &status);
-    if (ret) return -ECHILD;
+    pid_t waited_pid = 0;
+    ret = process_wait_select(selector, &status, (flags & WNOHANG) ? PROCESS_WAIT_NOHANG : 0, &waited_pid);
+    if (ret < 0) return ret;
 
     /* Populate siginfo_t if requested */
     if (infop) {
         siginfo_t info;
         memset(&info, 0, sizeof(info));
-        info.si_signo  = SIGCHLD;
-        info.si_code   = CLD_EXITED;
-        info.si_pid    = pid;
-        info.si_uid    = 0;
-        info.si_status = status;
+        if (waited_pid) {
+            info.si_signo = SIGCHLD;
+            info.si_pid   = waited_pid;
+            info.si_uid   = 0;
+            if (status & 0x7f) {
+                info.si_code   = CLD_KILLED;
+                info.si_status = status & 0x7f;
+            } else {
+                info.si_code   = CLD_EXITED;
+                info.si_status = (status >> 8) & 0xff;
+            }
+        }
         if (copy_to_user((void *)infop, &info, sizeof(info))) return -EFAULT;
     }
 
@@ -3411,60 +3661,163 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     char kpath[SYSCALL_PATH_MAX];
     int  path_ret = copy_resolved_path_at(proc, AT_FDCWD, (uint64_t)path, kpath);
     if (path_ret != EOK) return path_ret;
+    char exec_name[PROCESS_NAME_LEN];
+    strncpy(exec_name, path_basename(kpath), sizeof(exec_name) - 1);
+    exec_name[sizeof(exec_name) - 1] = '\0';
 
     int    argc = 0, envc = 0;
     char **kargv = copy_argv_from_user((const char *const *)argv, &argc);
     char **kenvp = copy_argv_from_user((const char *const *)envp, &envc);
+    (void)envc;
 
-    vfs_node_t node = vfs_open(kpath);
-    if (!node) {
-        free_string_array(kargv);
-        free_string_array(kenvp);
-        return -ENOENT;
-    }
+    uint8_t *elf_data = NULL;
+    size_t   total    = 0;
 
-    if (node->size == 0 || node->size > 0x4000000) {
+    /* Linux binfmt_script semantics: replace argv[0] with the interpreter,
+     * insert its optional argument as one word, then the script pathname,
+     * while preserving the caller's argv[1..].  Resolve at most four nested
+     * interpreters so malformed shebang loops fail deterministically. */
+    for (int depth = 0;; depth++) {
+        vfs_node_t node = vfs_open(kpath);
+        if (!node) {
+            free_string_array(kargv);
+            free_string_array(kenvp);
+            return -ENOENT;
+        }
+        if (node->size == 0 || node->size > 0x4000000) {
+            vfs_close(node);
+            free_string_array(kargv);
+            free_string_array(kenvp);
+            return -ENOEXEC;
+        }
+
+        elf_data = malloc(node->size);
+        if (!elf_data) {
+            vfs_close(node);
+            free_string_array(kargv);
+            free_string_array(kenvp);
+            return -ENOMEM;
+        }
+        total        = 0;
+        size_t chunk = SYSCALL_IO_CHUNK;
+        while (total < node->size) {
+            size_t remaining = node->size - total;
+            size_t to_read   = remaining < chunk ? remaining : chunk;
+            size_t n         = vfs_read(node, elf_data + total, total, to_read);
+            if (n == 0) break;
+            total += n;
+        }
         vfs_close(node);
-        free_string_array(kargv);
-        free_string_array(kenvp);
-        return -ENOEXEC;
+
+        if (total >= 2 && elf_data[0] == '#' && elf_data[1] == '!') {
+            if (depth >= 4) {
+                free(elf_data);
+                free_string_array(kargv);
+                free_string_array(kenvp);
+                return -ELOOP;
+            }
+
+            size_t limit = total < 256 ? total : 256;
+            size_t end   = 2;
+            while (end < limit && elf_data[end] != '\n') end++;
+            if (end == limit && (end == total || elf_data[end - 1] != '\n')) {
+                free(elf_data);
+                free_string_array(kargv);
+                free_string_array(kenvp);
+                return -ENOEXEC;
+            }
+            while (end > 2 && (elf_data[end - 1] == ' ' || elf_data[end - 1] == '\t' || elf_data[end - 1] == '\r')) end--;
+            size_t start = 2;
+            while (start < end && (elf_data[start] == ' ' || elf_data[start] == '\t')) start++;
+            size_t interp_end = start;
+            while (interp_end < end && elf_data[interp_end] != ' ' && elf_data[interp_end] != '\t') interp_end++;
+            if (interp_end == start || interp_end - start >= 256) {
+                free(elf_data);
+                free_string_array(kargv);
+                free_string_array(kenvp);
+                return -ENOEXEC;
+            }
+
+            char interpreter[256];
+            memcpy(interpreter, elf_data + start, interp_end - start);
+            interpreter[interp_end - start] = '\0';
+            size_t optional = interp_end;
+            while (optional < end && (elf_data[optional] == ' ' || elf_data[optional] == '\t')) optional++;
+
+            int    new_argc = 1 + (optional < end ? 1 : 0) + 1 + (argc > 0 ? argc - 1 : 0);
+            char **new_argv = calloc((size_t)new_argc + 1, sizeof(char *));
+            if (!new_argv) {
+                free(elf_data);
+                free_string_array(kargv);
+                free_string_array(kenvp);
+                return -ENOMEM;
+            }
+
+            int out = 0;
+            new_argv[out++] = strdup(interpreter);
+            if (optional < end) {
+                size_t optional_len = end - optional;
+                new_argv[out]       = malloc(optional_len + 1);
+                if (new_argv[out]) {
+                    memcpy(new_argv[out], elf_data + optional, optional_len);
+                    new_argv[out][optional_len] = '\0';
+                }
+                out++;
+            }
+            new_argv[out++] = strdup(kpath);
+            for (int i = 1; i < argc; i++) new_argv[out++] = strdup(kargv[i]);
+            bool allocation_failed = false;
+            for (int i = 0; i < new_argc; i++)
+                if (!new_argv[i]) allocation_failed = true;
+            if (allocation_failed) {
+                free(elf_data);
+                free_string_array(new_argv);
+                free_string_array(kargv);
+                free_string_array(kenvp);
+                return -ENOMEM;
+            }
+
+            int resolve_status = process_resolve_path_at(proc, PROCESS_AT_FDCWD, interpreter, kpath, sizeof(kpath));
+            if (resolve_status != EOK) {
+                free(elf_data);
+                free_string_array(new_argv);
+                free_string_array(kargv);
+                free_string_array(kenvp);
+                return resolve_status;
+            }
+            free(elf_data);
+            elf_data = NULL;
+            free_string_array(kargv);
+            kargv = new_argv;
+            argc  = new_argc;
+            continue;
+        }
+
+        if (total < sizeof(uint32_t)) {
+            free(elf_data);
+            free_string_array(kargv);
+            free_string_array(kenvp);
+            return -ENOEXEC;
+        }
+        break;
     }
 
-    uint8_t *elf_data = malloc(node->size);
-    if (!elf_data) {
-        vfs_close(node);
-        free_string_array(kargv);
-        free_string_array(kenvp);
-        return -ENOMEM;
-    }
+    page_directory_t *old_dir       = proc->user_page_dir;
+    vm_area_t        *old_mmaps     = process_mmap_replace(proc, NULL);
+    uintptr_t         old_heap_brk  = proc->heap_brk;
+    uintptr_t         old_stack_brk = proc->stack_brk;
+    uint64_t          old_fs_base   = proc->task->thread.fs_base;
+    uint64_t          old_gs_base   = proc->task->thread.gs_base;
+    task_context_t    old_context   = proc->task->context;
 
-    size_t total = 0;
-    size_t chunk = SYSCALL_IO_CHUNK;
-    while (total < node->size) {
-        size_t remaining = node->size - total;
-        size_t to_read   = remaining < chunk ? remaining : chunk;
-        size_t n         = vfs_read(node, elf_data + total, total, to_read);
-        if (n == 0) break;
-        total += n;
-    }
-    vfs_close(node);
-
-    if (total < sizeof(uint32_t)) {
-        free(elf_data);
-        free_string_array(kargv);
-        free_string_array(kenvp);
-        return -ENOEXEC;
-    }
-
-    /* Reset TLS state for the new process image */
-    proc->task->thread.fs_base = 0;
-    proc->task->thread.gs_base = 0;
-    wrmsr(0xC0000100, 0);
-    wrmsr(0xC0000101, 0);
-
-    page_directory_t *old_dir = proc->user_page_dir;
+    /* Build the replacement image against a clean, private set of VMAs. */
+    proc->heap_brk  = PROCESS_HEAP_START;
+    proc->stack_brk = PROCESS_STACK_BASE - PROCESS_STACK_SIZE;
 
     if (setup_process_page_dir(proc)) {
+        (void)process_mmap_replace(proc, old_mmaps);
+        proc->heap_brk              = old_heap_brk;
+        proc->stack_brk             = old_stack_brk;
         free(elf_data);
         free_string_array(kargv);
         free_string_array(kenvp);
@@ -3473,26 +3826,6 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
 
     /* Load ELF into the new page directory BEFORE destroying the old one.
      * This way, if loading fails, we can restore the old address space. */
-
-    /* Close all file descriptors with FD_CLOEXEC (per POSIX) */
-    for (int i = 0; i < PROCESS_MAX_FD; i++) {
-        spin_lock(&proc->fd_lock);
-        process_file_t *file = proc->fds[i];
-        if (file) {
-            spin_lock(&file->lock);
-            bool cloexec = (file->flags & O_CLOEXEC) != 0;
-            spin_unlock(&file->lock);
-            if (cloexec) {
-                spin_unlock(&proc->fd_lock);
-                process_fd_close(proc, i);
-                continue;
-            }
-        }
-        spin_unlock(&proc->fd_lock);
-    }
-
-    /* Clear clear_child_tid —the old address is meaningless in the new image */
-    proc->task->clear_child_tid = 0;
 
     uintptr_t entry = 0;
     uintptr_t rsp   = 0;
@@ -3504,29 +3837,57 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     if (ret) {
         /* Loading failed. Destroy the new (incomplete) page directory
          * and its VMAs, then restore the old address space. */
+        vm_area_t *failed_mmaps = process_mmap_replace(proc, old_mmaps);
         page_destroy_user_space(proc->user_page_dir);
         free(proc->user_page_dir);
-        process_mmap_clear(proc);
+        process_mmap_destroy_detached(proc, failed_mmaps);
         proc->user_page_dir        = old_dir;
         proc->task->page_directory = old_dir;
+        proc->heap_brk              = old_heap_brk;
+        proc->stack_brk             = old_stack_brk;
+        proc->task->thread.fs_base  = old_fs_base;
+        proc->task->thread.gs_base  = old_gs_base;
+        proc->task->context         = old_context;
         return -ENOEXEC;
     }
 
-    /* Loading succeeded —atomically switch to the new address space. */
+    /* Loading succeeded: from this point onward exec cannot fail.  Apply
+     * close-on-exec only after the replacement image is known to be valid. */
+    for (int i = 0; i < PROCESS_MAX_FD; i++) {
+        spin_lock(&proc->fd_lock);
+        if (proc->fds[i] && (proc->fd_flags[i] & FD_CLOEXEC)) {
+            spin_unlock(&proc->fd_lock);
+            process_fd_close(proc, i);
+            continue;
+        }
+        spin_unlock(&proc->fd_lock);
+    }
+
+    proc->task->clear_child_tid = 0;
     switch_page_directory(proc->user_page_dir);
+
+    proc->task->thread.fs_base = 0;
+    proc->task->thread.gs_base = 0;
+    wrmsr(0xC0000100, 0);
+    wrmsr(0xC0000101, 0);
 
     if (old_dir) {
         page_destroy_user_space(old_dir);
         free(old_dir);
     }
-    process_mmap_clear(proc);
-
-    proc->heap_brk  = PROCESS_HEAP_START;
-    proc->stack_brk = PROCESS_STACK_BASE - PROCESS_STACK_SIZE;
+    process_mmap_destroy_detached(proc, old_mmaps);
 
     /* Reset signal state for new program image (per POSIX) */
     signal_exec_reset(proc);
     fpu_task_reset(proc->task);
+    task_name_copy(proc->task, exec_name);
+    strncpy(proc->name, exec_name, sizeof(proc->name) - 1);
+    proc->name[sizeof(proc->name) - 1] = '\0';
+
+    /* Publish exec completion only after CLOEXEC descriptors and the old
+     * address space have been retired.  This is the release point required
+     * by vfork/posix_spawn. */
+    process_vfork_complete(proc);
 
     if (frame) {
         memset(frame, 0, sizeof(*frame));
@@ -3558,8 +3919,30 @@ struct linux_dirent64 {
 };
 
 #define DT_UNKNOWN 0
+#define DT_FIFO    1
+#define DT_CHR     2
 #define DT_DIR     4
+#define DT_BLK     6
 #define DT_REG     8
+#define DT_LNK     10
+#define DT_SOCK    12
+
+/* Map an internal VFS node type to a Linux d_type.  libudev (and therefore
+ * Weston's DRM backend) enumerates devices by listing /sys/class/<subsystem>/
+ * and only accepts entries whose d_type is DT_DIR or DT_LNK (see
+ * relevant_sysfs_subdir() in sd-device).  Reporting a sysfs class symlink
+ * (e.g. /sys/class/drm/card0) as DT_REG made the enumeration empty, so
+ * find_primary_gpu() found nothing and Weston logged "no drm device found". */
+static unsigned char vfs_node_to_dtype(uint16_t type)
+{
+    if (type & file_dir) return DT_DIR;
+    if (type & file_symlink) return DT_LNK;
+    if (type & file_block) return DT_BLK;
+    if (type & (file_stream | file_fbdev | file_keyboard | file_mouse | file_audio | file_ptmx | file_pts)) return DT_CHR;
+    if (type & file_pipe) return DT_FIFO;
+    if (type & file_socket) return DT_SOCK;
+    return DT_REG;
+}
 
 static int64_t sys_getdents64_impl(int fd, uint64_t dirent, uint64_t count);
 
@@ -3618,7 +4001,7 @@ static int64_t sys_getdents64_impl(int fd, uint64_t dirent, uint64_t count)
         de->d_ino                 = entry.inode;
         de->d_off                 = (int64_t)(index + 1);
         de->d_reclen              = reclen;
-        de->d_type                = (entry.type & file_dir) ? DT_DIR : DT_REG;
+        de->d_type                = vfs_node_to_dtype((uint16_t)entry.type);
         memcpy(de->d_name, entry.name, name_len);
         de->d_name[name_len] = '\0';
 
@@ -4038,7 +4421,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_PWRITE64]               = sys_pwrite64_impl,
     [SYS_READV]                  = sys_readv_wrap,
     [SYS_WRITEV]                 = sys_writev_wrap,
-    [SYS_ACCESS]                 = sys_access_stub,
+    [SYS_ACCESS]                 = sys_access_impl,
     [SYS_PIPE]                   = sys_pipe_wrap,
     [SYS_SELECT]                 = sys_select,
     [SYS_SCHED_YIELD]            = sys_sched_yield,
@@ -4114,7 +4497,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_LCHOWN]                 = sys_chown_impl,
     [SYS_UMASK]                  = sys_umask_stub,
     [SYS_GETTIMEOFDAY]           = sys_gettimeofday,
-    [SYS_GETRLIMIT]              = sys_getrlimit_stub,
+    [SYS_GETRLIMIT]              = sys_getrlimit_impl,
     [SYS_GETRUSAGE]              = sys_getrusage_impl,
     [SYS_SYSINFO]                = sys_sysinfo_impl,
     [SYS_TIMES]                  = sys_times_stub,
@@ -4155,7 +4538,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_PERSONALITY]            = sys_personality_impl,
     [SYS_USTAT]                  = sys_stub,
     [SYS_STATFS]                 = sys_statfs_impl,
-    [SYS_FSTATFS]                = sys_statfs_impl,
+    [SYS_FSTATFS]                = sys_fstatfs_impl,
     [SYS_SYSFS]                  = sys_stub,
     [SYS_GETPRIORITY]            = sys_stub_ok,
     [SYS_SETPRIORITY]            = sys_stub_ok,
@@ -4177,7 +4560,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_PRCTL]                  = sys_prctl_impl,
     [SYS_ARCH_PRCTL]             = sys_arch_prctl,
     [SYS_ADJTIMEX]               = sys_stub,
-    [SYS_SETRLIMIT]              = sys_stub_ok,
+    [SYS_SETRLIMIT]              = sys_setrlimit_impl,
     [SYS_CHROOT]                 = sys_chroot_wrap,
     [SYS_SYNC]                   = sys_sync_stub,
     [SYS_ACCT]                   = sys_stub,
@@ -4286,7 +4669,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_SYMLINKAT]              = sys_symlinkat,
     [SYS_READLINKAT]             = sys_readlinkat,
     [SYS_FCHMODAT]               = sys_stub_ok,
-    [SYS_FACCESSAT]              = sys_access_stub,
+    [SYS_FACCESSAT]              = sys_faccessat_impl,
     [SYS_PSELECT6]               = sys_pselect6,
     [SYS_PPOLL]                  = sys_ppoll,
     [SYS_UNSHARE]                = sys_stub,
@@ -4319,7 +4702,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_RECVMMSG]               = sys_recvmmsg_wrap,
     [SYS_FANOTIFY_INIT]          = sys_stub,
     [SYS_FANOTIFY_MARK]          = sys_stub,
-    [SYS_PRLIMIT64]              = sys_prlimit64_stub,
+    [SYS_PRLIMIT64]              = sys_prlimit64_impl,
     [SYS_NAME_TO_HANDLE_AT]      = sys_stub,
     [SYS_OPEN_BY_HANDLE_AT]      = sys_stub,
     [SYS_CLOCK_ADJTIME]          = sys_stub,
@@ -4365,7 +4748,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_PIDFD_OPEN]             = sys_stub,
     [SYS_CLONE3]                 = sys_stub,
     [SYS_CLOSE_RANGE]            = sys_close_range,
-    [SYS_FACCESSAT2]             = sys_access_stub,
+    [SYS_FACCESSAT2]             = sys_faccessat2_impl,
 };
 
 /*
@@ -4405,18 +4788,23 @@ void syscall_dispatch(syscall_frame_t *frame)
     }
 
     if (num == SYS_FORK || num == SYS_VFORK || num == SYS_CLONE) {
-        if (num == SYS_CLONE && frame->rdi != SIGCHLD) {
+        uint64_t clone_flags = num == SYS_CLONE ? frame->rdi : SIGCHLD;
+        bool     vfork       = num == SYS_VFORK || (clone_flags & CLONE_VFORK);
+        uint64_t supported   = vfork ? (CLONE_VM | CLONE_VFORK | SIGCHLD) : SIGCHLD;
+        if ((num == SYS_CLONE && (clone_flags & ~supported)) || (num == SYS_CLONE && vfork && !(clone_flags & CLONE_VM))
+            || ((clone_flags & 0xff) != SIGCHLD) || (vfork && num == SYS_CLONE && !frame->rsi)) {
             frame->rax = (uint64_t)-EINVAL;
             goto check_signals;
         }
         int        error = EOK;
-        uint32_t   event = num == SYS_VFORK ? PTRACE_EVENT_VFORK : PTRACE_EVENT_FORK;
-        process_t *child = process_fork_status_event(&error, event);
+        uint32_t   event = vfork ? PTRACE_EVENT_VFORK : PTRACE_EVENT_FORK;
+        process_t *child = process_fork_status_event_mode(&error, event, vfork);
         if (child) {
             uint64_t        kstack_top  = (uint64_t)(child->kernel_stack + PROCESS_KERNEL_STACK);
             uint64_t       *kstack      = (uint64_t *)ALIGN_DOWN(kstack_top, 16ULL);
             syscall_frame_t child_frame = *frame;
             child_frame.rax             = 0;
+            if (vfork && num == SYS_CLONE) child_frame.rsp = frame->rsi;
             kstack -= sizeof(syscall_frame_t) / sizeof(uint64_t);
             memcpy(kstack, &child_frame, sizeof(syscall_frame_t));
             *(--kstack)              = (uint64_t)syscall_return;
@@ -4425,7 +4813,10 @@ void syscall_dispatch(syscall_frame_t *frame)
         retval     = child ? (int64_t)child->task->pid : (int64_t)error;
         frame->rax = (uint64_t)retval;
         if (child) ptrace_fork_event(frame, event, child->task->pid);
-        if (child && event == PTRACE_EVENT_VFORK) ptrace_fork_event(frame, PTRACE_EVENT_VFORK_DONE, child->task->pid);
+        if (child && vfork) {
+            process_vfork_wait(child);
+            ptrace_fork_event(frame, PTRACE_EVENT_VFORK_DONE, child->task->pid);
+        }
         goto check_signals;
     }
 

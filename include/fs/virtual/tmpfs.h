@@ -12,6 +12,8 @@
 #define INCLUDE_TMPFS_H_
 
 #include <fs/core/vfs.h>
+#include <libs/std/stdbool.h>
+#include <sync/spin_lock.h>
 
 /* Forward declaration for callback signatures. */
 typedef struct vfs_node *vfs_node_t;
@@ -64,6 +66,10 @@ typedef struct {
         vfs_node_t         node;
         vfs_node_t         root;
         size_t             capacity;
+        bool               data_external;
+        spinlock_t         data_lock;
+        spinlock_t         link_lock;
+        uint32_t           link_count;
         uint16_t           node_type;
         tmpfs_device_ops_t device;
 } tmpfs_file_t;
@@ -83,11 +89,22 @@ int tmpfs_mkdir(void *parent, const char *name, vfs_node_t node);
 /* Create a regular file in tmpfs */
 int tmpfs_mkfile(void *parent, const char *name, vfs_node_t node);
 
+/* Create another directory entry referring to an existing tmpfs inode. */
+int tmpfs_link(void *parent, const char *target_name, vfs_node_t node);
+
 /* Read data from a tmpfs regular file */
 size_t tmpfs_read(void *file, void *addr, size_t offset, size_t size);
 
 /* Resize a regular tmpfs file, zero-filling any extension. */
 int tmpfs_resize(void *file, uint64_t size);
+
+/*
+ * Install immutable, externally owned storage for a regular file.  tmpfs
+ * switches to private heap storage on the first write or size change.
+ * The caller must keep the supplied storage alive for the lifetime of the
+ * file (Limine modules satisfy this requirement).
+ */
+int tmpfs_adopt_file_data(vfs_node_t node, const void *data, size_t size);
 
 /* Get file status (type, size) of a tmpfs file/directory */
 int tmpfs_stat(void *file, vfs_node_t node);
@@ -127,5 +144,10 @@ void tmpfs_regist(void);
  * as `file_keyboard | file_stream` for /dev/input/event0.
  */
 int tmpfs_bind_device(vfs_node_t node, uint16_t node_type, const tmpfs_device_ops_t *device);
+
+/* Change the persistent inode type without replacing tmpfs ownership of its
+ * handle.  This is used for namespace-only special files such as AF_UNIX
+ * pathname sockets, whose live endpoint is tracked outside the filesystem. */
+int tmpfs_set_node_type(vfs_node_t node, uint16_t node_type);
 
 #endif // INCLUDE_TMPFS_H_

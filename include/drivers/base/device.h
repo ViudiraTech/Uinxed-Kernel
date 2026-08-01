@@ -76,7 +76,7 @@ struct class_attribute {
 };
 
 /* ------------------------------------------------------------------ */
-/*  bus_type â€?a communication channel between CPUs and devices         */
+/*  bus_type ?a communication channel between CPUs and devices         */
 /* ------------------------------------------------------------------ */
 
 struct bus_type {
@@ -87,7 +87,7 @@ struct bus_type {
         struct kset *drivers_kset; /* kset containing all drivers */
 
         int (*match)(struct device *dev, struct device_driver *drv);
-        int (*uevent)(struct device *dev, char *envp[], int nenv);
+        int (*uevent)(struct device *dev, struct kobj_uevent_env *env);
         int (*probe)(struct device *dev);
         int (*remove)(struct device *dev);
         void (*shutdown)(struct device *dev);
@@ -100,7 +100,7 @@ struct bus_type {
 };
 
 /* ------------------------------------------------------------------ */
-/*  device_driver â€?binds to a bus and handles a class of devices       */
+/*  device_driver ?binds to a bus and handles a class of devices       */
 /* ------------------------------------------------------------------ */
 
 struct device_driver {
@@ -118,7 +118,7 @@ struct device_driver {
 };
 
 /* ------------------------------------------------------------------ */
-/*  device â€?represents a physical or virtual device in the system      */
+/*  device ?represents a physical or virtual device in the system      */
 /* ------------------------------------------------------------------ */
 
 struct device {
@@ -131,17 +131,18 @@ struct device {
         void    *driver_data; /* private driver data */
         dev_t    devt;        /* major:minor device number */
         uint64_t devid;       /* bus-specific device ID */
+        const char *devnode;   /* optional /dev-relative node name */
 
         void (*release)(struct device *dev);
 
         const struct attribute_group **groups;
 
         /* hotplug */
-        int (*uevent)(struct device *dev, char *envp[], int nenv);
+        int (*uevent)(struct device *dev, struct kobj_uevent_env *env);
 };
 
 /* ------------------------------------------------------------------ */
-/*  class â€?groups devices by functional type (e.g. "net", "tty")       */
+/*  class ?groups devices by functional type (e.g. "net", "tty")       */
 /* ------------------------------------------------------------------ */
 
 struct class
@@ -150,10 +151,11 @@ struct class
         struct kset     subsys;   /* kset under /sys/class/ */
         struct kobject *dev_kobj; /* for /sys/class/<name>/devices/ */
 
-        int (*dev_uevent)(struct device *dev, char *envp[], int nenv);
+        int (*dev_uevent)(struct device *dev, struct kobj_uevent_env *env);
         void (*dev_release)(struct device *dev);
 
         const struct attribute_group **class_groups;
+        const struct attribute_group **dev_groups;
 };
 
 /* ------------------------------------------------------------------ */

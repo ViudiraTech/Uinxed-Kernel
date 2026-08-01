@@ -23,6 +23,7 @@
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
+#include <proc/process.h>
 
 /* ------------------------------------------------------------------ */
 /*  Per-block-device wrapper                                           */
@@ -104,12 +105,31 @@ static ssize_t block_attr_show(struct kobject *kobj, struct attribute *attr, cha
     if (streq(attr->name, "removable")) return removable_show(kobj, attr, buf);
     if (streq(attr->name, "partition")) return partition_show(kobj, attr, buf);
     if (streq(attr->name, "start")) return start_show(kobj, attr, buf);
+    if (streq(attr->name, "uevent")) {
+        struct kobj_uevent_env env = {0};
+        struct block_sysfs_dev *bsd = to_bsd(kobj);
+        int ret = add_uevent_var(&env, "DEVNAME=%s", bsd->name);
+        if (!ret) ret = add_uevent_var(&env, "DEVTYPE=%s", bsd->partition ? "partition" : "disk");
+        if (ret) return ret;
+        int at = 0;
+        for (int i = 0; i < env.envp_idx; i++) at += sysfs_emit_at(buf, at, "%s\n", env.envp[i]);
+        return at;
+    }
     return -EIO;
+}
+
+static ssize_t block_attr_store(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count)
+{
+    if (!streq(attr->name, "uevent")) return -EIO;
+    process_t *process = process_current();
+    if (!process || process->uid != 0) return -EPERM;
+    int ret = kobject_synth_uevent(kobj, buf, count);
+    return ret ? ret : (ssize_t)count;
 }
 
 static const struct sysfs_ops block_sysfs_ops = {
     .show  = block_attr_show,
-    .store = NULL,
+    .store = block_attr_store,
 };
 
 /* ------------------------------------------------------------------ */
@@ -122,13 +142,14 @@ static struct attribute ro_attr          = __ATTR_RO(ro);
 static struct attribute removable_attr   = __ATTR_RO(removable);
 static struct attribute partition_attr   = __ATTR_RO(partition);
 static struct attribute start_attr       = __ATTR_RO(start);
+static struct attribute uevent_attr      = __ATTR(uevent, 0644);
 
 static struct attribute *block_attrs[] = {
-    &size_attr, &sector_size_attr, &ro_attr, &removable_attr, NULL,
+    &size_attr, &sector_size_attr, &ro_attr, &removable_attr, &uevent_attr, NULL,
 };
 
 static struct attribute *partition_attrs[] = {
-    &size_attr, &partition_attr, &start_attr, &ro_attr, NULL,
+    &size_attr, &partition_attr, &start_attr, &ro_attr, &uevent_attr, NULL,
 };
 
 static void block_kobj_release(struct kobject *kobj)
@@ -137,16 +158,34 @@ static void block_kobj_release(struct kobject *kobj)
     free(bsd);
 }
 
+static const char *block_uevent_name(struct kobject *kobj)
+{
+    (void)kobj;
+    return "block";
+}
+
+static int block_kobj_uevent(struct kobject *kobj, struct kobj_uevent_env *env)
+{
+    struct block_sysfs_dev *bsd = to_bsd(kobj);
+    int ret = add_uevent_var(env, "DEVNAME=%s", bsd->name);
+    if (ret) return ret;
+    return add_uevent_var(env, "DEVTYPE=%s", bsd->partition ? "partition" : "disk");
+}
+
 static struct kobj_type block_ktype = {
     .release       = block_kobj_release,
     .sysfs_ops     = &block_sysfs_ops,
     .default_attrs = block_attrs,
+    .uevent_name   = block_uevent_name,
+    .uevent        = block_kobj_uevent,
 };
 
 static struct kobj_type partition_ktype = {
     .release       = block_kobj_release,
     .sysfs_ops     = &block_sysfs_ops,
     .default_attrs = partition_attrs,
+    .uevent_name   = block_uevent_name,
+    .uevent        = block_kobj_uevent,
 };
 
 static int block_add_partitions(struct block_sysfs_dev *disk)

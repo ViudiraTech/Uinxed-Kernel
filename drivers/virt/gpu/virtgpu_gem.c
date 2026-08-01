@@ -15,8 +15,10 @@
 #include <drivers/virt/virtgpu_gem.h>
 #include <drivers/virt/virtgpu_kms.h>
 #include <mem/alloc.h>
+#include <mem/frame.h>
 #include <mem/heap.h>
 #include <mem/hhdm.h>
+#include <mem/page.h>
 
 /* ------------------------------------------------------------------ */
 /* Object alloc / free                                                 */
@@ -34,32 +36,42 @@ struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_
     /* Initialise the embedded GEM object */
     drm_gem_object_init(dev, &obj->base, size);
 
-    /* Allocate backing storage for the guest */
+    /*
+     * Virtio DMA descriptors carry physical ranges.  Allocate the resource
+     * from the frame allocator so it is page-aligned and physically
+     * contiguous; ordinary heap allocations may span unrelated frames and
+     * must never be advertised to the host as one DMA segment.
+     */
     if (size > 0) {
-        obj->base.backing = malloc(size);
-        if (!obj->base.backing) {
+        if (size > UINT32_MAX || size > SIZE_MAX - (PAGE_4K_SIZE - 1)) {
             free(obj);
             return NULL;
         }
-        memset(obj->base.backing, 0, size);
+        obj->backing_page_count = ALIGN_UP(size, PAGE_4K_SIZE) / PAGE_4K_SIZE;
+        obj->backing_phys       = alloc_frames(obj->backing_page_count);
+        if (!obj->backing_phys) {
+            free(obj);
+            return NULL;
+        }
+        obj->base.backing = phys_to_virt(obj->backing_phys);
+        memset(obj->base.backing, 0, obj->backing_page_count * PAGE_4K_SIZE);
 
         /* Set up a single memory entry for virtio-gpu backing */
         obj->num_entries = 1;
         obj->entries     = malloc(sizeof(struct virtio_gpu_mem_entry));
         if (!obj->entries) {
-            free(obj->base.backing);
+            free_frames(obj->backing_phys, obj->backing_page_count);
             free(obj);
             return NULL;
         }
-        /* Host needs the physical address for DMA, not the virtual one. */
-        obj->entries[0].addr    = (uintptr_t)virt_any_to_phys((uintptr_t)obj->base.backing);
+        obj->entries[0].addr    = obj->backing_phys;
         obj->entries[0].length  = (uint32_t)size;
         obj->entries[0].padding = 0;
     }
 
     if (size && drm_gem_create_mmap_offset(&obj->base)) {
         free(obj->entries);
-        free(obj->base.backing);
+        free_frames(obj->backing_phys, obj->backing_page_count);
         free(obj);
         return NULL;
     }
@@ -90,7 +102,8 @@ void virtgpu_gem_free_object(struct drm_gem_object *gem_obj)
     }
 
     free(obj->entries);
-    free(obj->base.backing);
+    if (obj->backing_phys) free_frames(obj->backing_phys, obj->backing_page_count);
+    obj->base.backing = NULL;
     free(obj);
 }
 

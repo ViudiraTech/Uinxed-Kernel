@@ -21,7 +21,7 @@
 #include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */
-/* drm_master â€?full definition (also defined in drm_drv.c; consistent) */
+/* drm_master ï¿½?full definition (also defined in drm_drv.c; consistent) */
 /* ------------------------------------------------------------------ */
 
 struct drm_master {
@@ -41,7 +41,7 @@ struct drm_master {
 static drm_magic_t magic_counter = 1;
 
 /* ------------------------------------------------------------------ */
-/* drm_getmagic â€?handle DRM_IOCTL_GET_MAGIC                           */
+/* drm_getmagic ï¿½?handle DRM_IOCTL_GET_MAGIC                           */
 /* ------------------------------------------------------------------ */
 
 int drm_getmagic(struct drm_device *dev, void *data, struct drm_file *file_priv)
@@ -74,7 +74,7 @@ int drm_getmagic(struct drm_device *dev, void *data, struct drm_file *file_priv)
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_authmagic â€?handle DRM_IOCTL_AUTH_MAGIC                         */
+/* drm_authmagic ï¿½?handle DRM_IOCTL_AUTH_MAGIC                         */
 /* ------------------------------------------------------------------ */
 
 int drm_authmagic(struct drm_device *dev, void *data, struct drm_file *file_priv)
@@ -95,14 +95,14 @@ int drm_authmagic(struct drm_device *dev, void *data, struct drm_file *file_priv
     }
     spin_unlock(&file_priv->magic_lock);
 
-    /* Magic found â€?authenticate this file. */
+    /* Magic found ï¿½?authenticate this file. */
     file_priv->authenticated = true;
 
     return 0;
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_setmaster â€?handle DRM_IOCTL_SET_MASTER                         */
+/* drm_setmaster ï¿½?handle DRM_IOCTL_SET_MASTER                         */
 /* ------------------------------------------------------------------ */
 
 int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv)
@@ -114,6 +114,8 @@ int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv
     if (!dev || !file_priv) { return -EINVAL; }
 
     if (file_priv->master) { return -EINVAL; }
+
+    plogk("drm: SET_MASTER called\n");
 
     master = malloc(sizeof(*master));
     if (!master) { return -ENOMEM; }
@@ -137,7 +139,7 @@ int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_dropmaster â€?handle DRM_IOCTL_DROP_MASTER                       */
+/* drm_dropmaster ï¿½?handle DRM_IOCTL_DROP_MASTER                       */
 /* ------------------------------------------------------------------ */
 
 int drm_dropmaster(struct drm_device *dev, void *data, struct drm_file *file_priv)

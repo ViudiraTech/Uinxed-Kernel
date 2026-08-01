@@ -19,7 +19,7 @@
 #include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */
-/*  kref â€?reference-counting primitive                                */
+/*  kref ?reference-counting primitive                                */
 /* ------------------------------------------------------------------ */
 
 typedef struct kref {
@@ -80,18 +80,30 @@ struct kobject;
 struct kset;
 struct kobj_type;
 
+#define UEVENT_NUM_ENVP    64
+#define UEVENT_BUFFER_SIZE 2048
+
+struct kobj_uevent_env {
+        char envbuf[UEVENT_BUFFER_SIZE];
+        char *envp[UEVENT_NUM_ENVP];
+        int   envp_idx;
+        int   buflen;
+};
+
 /* ------------------------------------------------------------------ */
-/*  kobj_type â€?type descriptor for a kobject                          */
+/*  kobj_type ?type descriptor for a kobject                          */
 /* ------------------------------------------------------------------ */
 
 struct kobj_type {
         void (*release)(struct kobject *kobj);
         const struct sysfs_ops *sysfs_ops;
         struct attribute      **default_attrs;
+        const char *(*uevent_name)(struct kobject *kobj);
+        int (*uevent)(struct kobject *kobj, struct kobj_uevent_env *env);
 };
 
 /* ------------------------------------------------------------------ */
-/*  kset_uevent_ops â€?hotplug event callbacks for a kset               */
+/*  kset_uevent_ops ?hotplug event callbacks for a kset               */
 /* ------------------------------------------------------------------ */
 
 enum kobject_action {
@@ -106,13 +118,13 @@ enum kobject_action {
 };
 
 struct kset_uevent_ops {
-        int (*filter)(struct kset *kset, struct kobject *kobj);
-        const char *(*name)(struct kset *kset, struct kobject *kobj);
-        int (*uevent)(struct kset *kset, struct kobject *kobj, char *envp[], int nenv);
+        int (*filter)(struct kobject *kobj);
+        const char *(*name)(struct kobject *kobj);
+        int (*uevent)(struct kobject *kobj, struct kobj_uevent_env *env);
 };
 
 /* ------------------------------------------------------------------ */
-/*  kobject â€?the core object-model primitive                          */
+/*  kobject ?the core object-model primitive                          */
 /* ------------------------------------------------------------------ */
 
 #define KOBJ_NAME_LEN 64
@@ -137,10 +149,11 @@ struct kobject {
         unsigned int state_in_kset            : 1;
         unsigned int state_add_uevent_sent    : 1;
         unsigned int state_remove_uevent_sent : 1;
+        unsigned int uevent_suppress           : 1;
 };
 
 /* ------------------------------------------------------------------ */
-/*  kset â€?a collection of kobjects (appears as a sysfs subdirectory)  */
+/*  kset ?a collection of kobjects (appears as a sysfs subdirectory)  */
 /* ------------------------------------------------------------------ */
 
 struct kset {
@@ -223,6 +236,16 @@ int kobject_uevent(struct kobject *kobj, enum kobject_action action);
 
 /* Send a KOBJ_ADD event with environment variables */
 int kobject_uevent_env(struct kobject *kobj, enum kobject_action action, char *envp[], int nenv);
+
+/* Append one KEY=value entry to a type or subsystem uevent callback. */
+int add_uevent_var(struct kobj_uevent_env *env, const char *fmt, ...);
+
+/* Parse and emit a userspace-triggered action written to a sysfs uevent file. */
+int kobject_synth_uevent(struct kobject *kobj, const char *buf, size_t count);
+
+/* Translate between the stable textual ABI and internal action values. */
+const char *kobject_action_name(enum kobject_action action);
+int         kobject_action_type(const char *name, enum kobject_action *action);
 
 /* Get the current uevent sequence number */
 uint64_t kobject_uevent_seqnum(void);

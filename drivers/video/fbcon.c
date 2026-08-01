@@ -122,6 +122,7 @@ static void fbcon_redraw_screen(void)
 
 static void fbcon_clear_uncovered_bottom(void)
 {
+    if (!buffer) return;
 #if BOOT_LOGO
     uint32_t used_height = fbcon_offset_y + fbcon_draw_offset_y + c_height * font_height;
 #else
@@ -380,8 +381,8 @@ void fbcon_init(void)
     cx = cy = 0;
 
 #if BOOT_LOGO
-    c_width  = (width - fbcon_offset_x) / font_width;
-    c_height = (height - fbcon_offset_y) / font_height;
+    c_width  = width > fbcon_offset_x ? (width - fbcon_offset_x) / font_width : 80;
+    c_height = height > fbcon_offset_y ? (height - fbcon_offset_y) / font_height : 25;
 #else
     c_width  = width / font_width;
     c_height = height / font_height;
@@ -422,7 +423,7 @@ void fbcon_init(void)
 }
 
 /*
- * fbcon_resize â€?reallocate text/color/dirty grids after a framebuffer
+ * fbcon_resize ?reallocate text/color/dirty grids after a framebuffer
  * switch changes the screen dimensions.  Preserves the font size but
  * recalculates the character grid.
  */
@@ -481,6 +482,7 @@ void fbcon_resize(void)
 /* Draw a character with per-cell foreground and background color */
 void fbcon_draw_char_bg(const char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t bg)
 {
+    if (!buffer) return;
     uint8_t *char_font = ascii_font + (size_t)(uint8_t)c * font_height;
 #if BOOT_LOGO
     uint32_t char_base_addr = (y + fbcon_offset_y + fbcon_draw_offset_y) * stride + (x + fbcon_offset_x);

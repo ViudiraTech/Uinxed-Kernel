@@ -181,10 +181,9 @@ INTERRUPT_END
 
 INTERRUPT_BEGIN static void ISR_13_handle(interrupt_frame_t *frame, uint64_t error_code)
 {
-    (void)error_code;
     carry_error_code = 1; // carry error code
     if (user_exception(frame, SIGSEGV, SEGV_ACCERR, "#GP", "Segmentation fault")) return;
-    panic("Kernel exception: #GP");
+    panic("Kernel exception: #GP rip=%p cs=0x%llx error=0x%llx", (void *)frame->rip, frame->cs, error_code);
 }
 INTERRUPT_END
 

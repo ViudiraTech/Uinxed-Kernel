@@ -43,10 +43,11 @@ void tty_sysfs_init(void)
     }
 
     /* Register standard TTY devices */
-    /* tty0 â€?current console */
+    /* tty0 ?current console */
     device_create(&tty_class, NULL, MKDEV(4, 0), NULL, "tty0");
+    device_create(&tty_class, NULL, MKDEV(4, 1), NULL, "tty1");
 
-    /* ttyS0, ttyS1 â€?serial ports */
+    /* ttyS0, ttyS1 ?serial ports */
     device_create(&tty_class, NULL, MKDEV(4, 64), NULL, "ttyS0");
     device_create(&tty_class, NULL, MKDEV(4, 65), NULL, "ttyS1");
 #endif

@@ -78,6 +78,44 @@ static int user_translate(uintptr_t uaddr, int write, void **kaddr, size_t *page
     return 1;
 }
 
+/*
+ * A private writable mapping is deliberately made read-only when an address
+ * space is cloned.  Kernel writes through copy_to_user() must take the same
+ * COW fault path as a user-mode store; writing through the direct-map alias
+ * without resolving COW would corrupt the parent's page, while rejecting the
+ * mapping would spuriously return EFAULT for perfectly valid user memory.
+ *
+ * Resolve only after the ordinary writable walk fails.  This preserves the
+ * fast path for writable mappings and ensures that genuinely read-only or
+ * unmapped memory remains inaccessible.  The second walk is required because
+ * page_resolve_cow_fault() may replace the physical leaf, and also closes the
+ * race with another thread resolving the same mapping concurrently.
+ */
+static int user_translate_writable(uintptr_t uaddr, void **kaddr, size_t *page_left)
+{
+    if (user_translate(uaddr, 1, kaddr, page_left)) return 1;
+
+    process_t *proc = process_current();
+    if (!proc || !proc->user_page_dir) return 0;
+    if (page_resolve_cow_fault(proc->user_page_dir, uaddr) < 0) return 0;
+
+    return user_translate(uaddr, 1, kaddr, page_left);
+}
+
+static int user_translate_access(uintptr_t uaddr, int write, void **kaddr, size_t *page_left)
+{
+    if (write) {
+        if (user_translate_writable(uaddr, kaddr, page_left)) return 1;
+        process_t *proc = process_current();
+        if (proc && process_demand_fault(proc, uaddr, 1, 0) == 0 && user_translate_writable(uaddr, kaddr, page_left)) return 1;
+        return 0;
+    }
+    if (user_translate(uaddr, 0, kaddr, page_left)) return 1;
+    process_t *proc = process_current();
+    if (proc && process_demand_fault(proc, uaddr, 0, 0) == 0 && user_translate(uaddr, 0, kaddr, page_left)) return 1;
+    return 0;
+}
+
 int user_access_ok(const void *uaddr, size_t size, int write)
 {
     uintptr_t cur = (uintptr_t)uaddr;
@@ -89,7 +127,7 @@ int user_access_ok(const void *uaddr, size_t size, int write)
     while (remaining) {
         void  *kaddr;
         size_t page_left;
-        if (!user_translate(cur, write, &kaddr, &page_left)) return 0;
+        if (!user_translate_access(cur, write, &kaddr, &page_left)) return 0;
         (void)kaddr;
 
         size_t step = remaining < page_left ? remaining : page_left;
@@ -111,7 +149,7 @@ static int copy_user_bytes(void *dst, const void *src, size_t size, int to_user)
     while (remaining) {
         void  *kaddr;
         size_t page_left;
-        if (!user_translate(user, to_user, &kaddr, &page_left)) return -EFAULT;
+        if (!user_translate_access(user, to_user, &kaddr, &page_left)) return -EFAULT;
 
         size_t step = remaining < page_left ? remaining : page_left;
         if (to_user) {

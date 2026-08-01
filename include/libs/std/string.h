@@ -26,6 +26,9 @@ void *memmove(void *str1, const void *str2, size_t n);
 /* Compares the first n bytes of memory area str1 with those of memory area str2 */
 int memcmp(const void *str1, const void *str2, size_t n);
 
+/* Finds the first occurrence of c in the first n bytes of a memory area */
+void *memchr(const void *str, int c, size_t n);
+
 /* Calculates the length of the string str */
 size_t strlen(const char *str);
 

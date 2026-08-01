@@ -22,6 +22,7 @@
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/heap.h>
+#include <proc/process.h>
 #include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */
@@ -163,22 +164,140 @@ static void device_create_release(struct device *dev)
     free(dev);
 }
 
+static const char *device_uevent_name(struct kobject *kobj)
+{
+    struct device *dev = (struct device *)((char *)kobj - offsetof(struct device, kobj));
+    if (dev->bus && dev->bus->name) return dev->bus->name;
+    if (dev->class && dev->class->name) return dev->class->name;
+    return "devices";
+}
+
+static const char *device_devnode(struct device *dev, char *buffer, size_t capacity)
+{
+    const char *name = dev_name(dev);
+    if (dev->devnode && dev->devnode[0]) return dev->devnode;
+    if (!dev->class || !dev->class->name) return name;
+
+    if (streq(dev->class->name, "input")) {
+        snprintf(buffer, capacity, "input/%s", name);
+        return buffer;
+    }
+    if (streq(dev->class->name, "drm")) {
+        snprintf(buffer, capacity, "dri/%s", name);
+        return buffer;
+    }
+    return name;
+}
+
+static int device_build_uevent(struct device *dev, struct kobj_uevent_env *env)
+{
+    char devnode_buffer[128];
+    int  ret;
+
+    if (dev->devt) {
+        ret = add_uevent_var(env, "MAJOR=%u", MAJOR(dev->devt));
+        if (ret) return ret;
+        ret = add_uevent_var(env, "MINOR=%u", MINOR(dev->devt));
+        if (ret) return ret;
+        const char *devnode = device_devnode(dev, devnode_buffer, sizeof(devnode_buffer));
+        if (!devnode || !devnode[0] || strlen(devnode) >= sizeof(devnode_buffer)) return -EINVAL;
+        ret = add_uevent_var(env, "DEVNAME=%s", devnode);
+        if (ret) return ret;
+    }
+    if (dev->driver && dev->driver->name) {
+        ret = add_uevent_var(env, "DRIVER=%s", dev->driver->name);
+        if (ret) return ret;
+    }
+    if (dev->bus && dev->bus->uevent) {
+        ret = dev->bus->uevent(dev, env);
+        if (ret) return ret;
+    }
+    if (dev->class && dev->class->dev_uevent) {
+        ret = dev->class->dev_uevent(dev, env);
+        if (ret) return ret;
+    }
+    if (dev->uevent) return dev->uevent(dev, env);
+    return EOK;
+}
+
+static int device_kobj_uevent(struct kobject *kobj, struct kobj_uevent_env *env)
+{
+    struct device *dev = (struct device *)((char *)kobj - offsetof(struct device, kobj));
+    return device_build_uevent(dev, env);
+}
+
+static ssize_t device_uevent_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    struct kobj_uevent_env env = {0};
+    int                    at  = 0;
+    (void)attr;
+
+    int ret = device_build_uevent(dev, &env);
+    if (ret) return ret;
+    for (int i = 0; i < env.envp_idx; i++) {
+        int written = sysfs_emit_at(buf, at, "%s\n", env.envp[i]);
+        if (written <= 0 || at > SYSFS_PAGE_SIZE - written) return -EOVERFLOW;
+        at += written;
+    }
+    return at;
+}
+
+static ssize_t device_uevent_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+    process_t *process = process_current();
+    (void)attr;
+    plogk("udev: uevent store on %s uid=%u count=%zu\n", kobject_name(&dev->kobj), process ? process->uid : 0, count);
+    if (!process || process->uid != 0) return -EPERM;
+    int ret = kobject_synth_uevent(&dev->kobj, buf, count);
+    return ret ? ret : (ssize_t)count;
+}
+
+static DEVICE_ATTR(uevent, 0644, device_uevent_show, device_uevent_store);
+
+/* libudev (and therefore Weston's DRM backend) discovers a class device's
+ * character node from the standard sysfs `dev` attribute.  Without this,
+ * `/sys/class/drm/card0` exists but udev cannot resolve it to /dev/dri/card0
+ * and Weston reports "no drm device found". */
+static ssize_t device_dev_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    (void)attr;
+    if (!dev || !dev->devt) return 0;
+    return snprintf(buf, SYSFS_PAGE_SIZE, "%u:%u\n", MAJOR(dev->devt), MINOR(dev->devt));
+}
+
+static DEVICE_ATTR(dev, 0444, device_dev_show, NULL);
+
+static struct attribute *device_default_attrs[] = {
+    &dev_attr_uevent.attr,
+    &dev_attr_dev.attr,
+    NULL,
+};
+
 static struct kobj_type device_ktype = {
     .release       = device_release_internal,
     .sysfs_ops     = &dev_sysfs_ops,
-    .default_attrs = NULL,
+    .default_attrs = device_default_attrs,
+    .uevent_name   = device_uevent_name,
+    .uevent        = device_kobj_uevent,
 };
 
 static void bus_release_internal(struct kobject *kobj)
 {
-    /* Bus types are typically static â€?nothing to free */
+    /* Bus types are typically static ?nothing to free */
     (void)kobj;
+}
+
+static const char *bus_uevent_name(struct kobject *kobj)
+{
+    struct bus_type *bus = (struct bus_type *)((char *)kobj - offsetof(struct bus_type, subsys.kobj));
+    return bus->name ? bus->name : "bus";
 }
 
 static struct kobj_type bus_ktype = {
     .release       = bus_release_internal,
     .sysfs_ops     = &bus_sysfs_ops,
     .default_attrs = NULL,
+    .uevent_name   = bus_uevent_name,
 };
 
 static void driver_release_internal(struct kobject *kobj)
@@ -187,10 +306,17 @@ static void driver_release_internal(struct kobject *kobj)
     (void)kobj;
 }
 
+static const char *driver_uevent_name(struct kobject *kobj)
+{
+    struct device_driver *driver = (struct device_driver *)((char *)kobj - offsetof(struct device_driver, kobj));
+    return driver->bus && driver->bus->name ? driver->bus->name : "drivers";
+}
+
 static struct kobj_type driver_ktype = {
     .release       = driver_release_internal,
     .sysfs_ops     = &drv_sysfs_ops,
     .default_attrs = NULL,
+    .uevent_name   = driver_uevent_name,
 };
 
 static void class_release_internal(struct kobject *kobj)
@@ -198,10 +324,17 @@ static void class_release_internal(struct kobject *kobj)
     (void)kobj;
 }
 
+static const char *class_uevent_name(struct kobject *kobj)
+{
+    struct class *cls = (struct class *)((char *)kobj - offsetof(struct class, subsys.kobj));
+    return cls->name ? cls->name : "class";
+}
+
 static struct kobj_type class_ktype = {
     .release       = class_release_internal,
     .sysfs_ops     = &class_sysfs_ops,
     .default_attrs = NULL,
+    .uevent_name   = class_uevent_name,
 };
 
 /* ------------------------------------------------------------------ */
@@ -272,6 +405,8 @@ void bus_unregister(struct bus_type *bus)
 {
     if (!bus) return;
 
+    if (bus->subsys.kobj.state_add_uevent_sent && !bus->subsys.kobj.state_remove_uevent_sent) (void)kobject_uevent(&bus->subsys.kobj, KOBJ_REMOVE);
+
     if (bus->drivers_kset) kset_unregister(bus->drivers_kset);
     if (bus->devices_kset) kset_unregister(bus->devices_kset);
     bus->drivers_kset = NULL;
@@ -316,24 +451,54 @@ int device_register(struct device *dev)
 
     if (!parent) return -ENOENT;
 
-    /* Pick a name: use bus dev_name if available, else device ID */
-    if (dev->bus && dev->bus->dev_name) {
-        ret = kobject_add(&dev->kobj, parent, "%s%llu", dev->bus->dev_name, dev->devid);
-    } else if (dev->kobj.name) {
+    /* An explicit device name (for example a PCI BDF) is authoritative. */
+    if (dev->kobj.name) {
         ret = kobject_add(&dev->kobj, parent, "%s", dev->kobj.name);
+    } else if (dev->bus && dev->bus->dev_name) {
+        ret = kobject_add(&dev->kobj, parent, "%s%llu", dev->bus->dev_name, dev->devid);
     } else {
         ret = kobject_add(&dev->kobj, parent, "device%llu", dev->devid);
     }
 
     if (ret != EOK) return ret;
 
-    /* Create sysfs groups */
-    if (dev->groups) {
-        ret = sysfs_create_groups(&dev->kobj, dev->groups);
+    /* Publish every property group before the ADD event.  This ordering is
+     * part of the userspace hotplug contract: udev may inspect attributes as
+     * soon as it dequeues the event. */
+    if (dev->bus && dev->bus->dev_groups) {
+        ret = sysfs_create_groups(&dev->kobj, dev->bus->dev_groups);
         if (ret != EOK) {
             kobject_del(&dev->kobj);
             return ret;
         }
+    }
+    if (dev->class && dev->class->dev_groups) {
+        ret = sysfs_create_groups(&dev->kobj, dev->class->dev_groups);
+        if (ret != EOK) {
+            plogk("device: class dev_groups failed for %s: %d\n", kobject_name(&dev->kobj), ret);
+            goto rollback_bus_groups;
+        }
+    }
+    if (dev->groups) {
+        ret = sysfs_create_groups(&dev->kobj, dev->groups);
+        if (ret != EOK) goto rollback_class_groups;
+    }
+
+    /* Linux-compatible topology links used by libudev and Xorg. */
+    if (dev->bus) {
+        ret = sysfs_create_symlink(&dev->kobj, &dev->bus->subsys.kobj, "subsystem");
+        if (ret != EOK) goto rollback_groups;
+        if (dev->bus->devices_kset) {
+            ret = sysfs_create_symlink(&dev->bus->devices_kset->kobj, &dev->kobj, kobject_name(&dev->kobj));
+            if (ret != EOK) goto rollback_subsystem;
+        }
+    } else if (dev->class) {
+        ret = sysfs_create_symlink(&dev->kobj, &dev->class->subsys.kobj, "subsystem");
+        if (ret != EOK) goto rollback_groups;
+    }
+    if (dev->class && dev->parent) {
+        ret = sysfs_create_symlink(&dev->kobj, &dev->parent->kobj, "device");
+        if (ret != EOK) goto rollback_bus_device;
     }
 
     /* Add to bus's device kset if the device has a bus */
@@ -354,26 +519,46 @@ int device_register(struct device *dev)
     if (dev->class) {
         ret = sysfs_create_symlink(&dev->class->subsys.kobj, &dev->kobj, kobject_name(&dev->kobj));
         if (ret != EOK) {
-            if (dev->groups) sysfs_remove_groups(&dev->kobj, dev->groups);
-            kobject_del(&dev->kobj);
-            return ret;
+            goto rollback_device_link;
         }
-        /* /sys/class/<name>/<device>  â†?/sys/devices/.../device */
+        /* /sys/class/<name>/<device>  ?/sys/devices/.../device */
         /* For now just add to the class kset */
     }
 
     kobject_uevent(&dev->kobj, KOBJ_ADD);
     return EOK;
+
+rollback_device_link:
+    if (dev->class && dev->parent) sysfs_remove_symlink(&dev->kobj, "device");
+rollback_bus_device:
+    if (dev->bus && dev->bus->devices_kset) sysfs_remove_symlink(&dev->bus->devices_kset->kobj, kobject_name(&dev->kobj));
+rollback_subsystem:
+    if (dev->bus || dev->class) sysfs_remove_symlink(&dev->kobj, "subsystem");
+rollback_groups:
+    if (dev->groups) sysfs_remove_groups(&dev->kobj, dev->groups);
+rollback_class_groups:
+    if (dev->class && dev->class->dev_groups) sysfs_remove_groups(&dev->kobj, dev->class->dev_groups);
+rollback_bus_groups:
+    if (dev->bus && dev->bus->dev_groups) sysfs_remove_groups(&dev->kobj, dev->bus->dev_groups);
+    kobject_del(&dev->kobj);
+    return ret;
 }
 
 void device_unregister(struct device *dev)
 {
     if (!dev) return;
 
+    if (dev->kobj.state_add_uevent_sent && !dev->kobj.state_remove_uevent_sent) (void)kobject_uevent(&dev->kobj, KOBJ_REMOVE);
+
     if (dev->class) sysfs_remove_symlink(&dev->class->subsys.kobj, kobject_name(&dev->kobj));
+    if (dev->class && dev->parent) sysfs_remove_symlink(&dev->kobj, "device");
+    if (dev->bus && dev->bus->devices_kset) sysfs_remove_symlink(&dev->bus->devices_kset->kobj, kobject_name(&dev->kobj));
+    if (dev->bus || dev->class) sysfs_remove_symlink(&dev->kobj, "subsystem");
 
     /* Remove groups */
     if (dev->groups) sysfs_remove_groups(&dev->kobj, dev->groups);
+    if (dev->class && dev->class->dev_groups) sysfs_remove_groups(&dev->kobj, dev->class->dev_groups);
+    if (dev->bus && dev->bus->dev_groups) sysfs_remove_groups(&dev->kobj, dev->bus->dev_groups);
 
     /* Remove from bus device kset */
     if (dev->bus && dev->bus->devices_kset) {
@@ -498,6 +683,8 @@ void driver_unregister(struct device_driver *drv)
 {
     if (!drv) return;
 
+    if (drv->kobj.state_add_uevent_sent && !drv->kobj.state_remove_uevent_sent) (void)kobject_uevent(&drv->kobj, KOBJ_REMOVE);
+
     /* Remove from bus */
     if (drv->bus && drv->bus->drivers_kset) {
         spin_lock(&drv->bus->drivers_kset->list_lock);
@@ -559,6 +746,7 @@ int class_register(struct class *cls)
 void class_unregister(struct class *cls)
 {
     if (!cls) return;
+    if (cls->subsys.kobj.state_add_uevent_sent && !cls->subsys.kobj.state_remove_uevent_sent) (void)kobject_uevent(&cls->subsys.kobj, KOBJ_REMOVE);
     if (cls->class_groups) sysfs_remove_groups(&cls->subsys.kobj, cls->class_groups);
     kobject_del(&cls->subsys.kobj);
     kobject_put(&cls->subsys.kobj);
@@ -582,7 +770,7 @@ struct device *class_find_device(struct class *cls, struct device *start, const 
     (void)start;
     (void)data;
     (void)match;
-    /* For now, return NULL â€?full implementation would
+    /* For now, return NULL ?full implementation would
      * iterate over the class's device list */
     return NULL;
 }
@@ -625,7 +813,7 @@ int device_model_init(void)
     /* They are children of sysfs_root_kobj */
     extern struct kobject *sysfs_root_kobj;
 
-    /* Wait â€?we need sysfs_root_kobj to find these.
+    /* Wait ?we need sysfs_root_kobj to find these.
      * The kobject_create_and_add calls in sysfs_init already
      * create them under sysfs_root_kobj. We just need to find them. */
 

@@ -143,6 +143,8 @@ typedef struct cmsghdr {
 } cmsghdr_t;
 
 #define CMSG_ALIGN(len)     (((len) + sizeof(size_t) - 1) & (size_t) ~(sizeof(size_t) - 1))
+#define CMSG_LEN(len)       (CMSG_ALIGN(sizeof(cmsghdr_t)) + (size_t)(len))
+#define CMSG_SPACE(len)     (CMSG_ALIGN(sizeof(cmsghdr_t)) + CMSG_ALIGN(len))
 #define CMSG_DATA(cmsg)     ((void *)((uint8_t *)(cmsg) + sizeof(cmsghdr_t)))
 #define CMSG_FIRSTHDR(mhdr) ((mhdr)->msg_controllen >= sizeof(cmsghdr_t) ? (cmsghdr_t *)(mhdr)->msg_control : NULL)
 
@@ -254,7 +256,8 @@ struct socket {
         int so_error;
 
         /* VFS */
-        struct vfs_node *node;
+        struct vfs_node *node;       /* anonymous descriptor node */
+        struct vfs_node *bound_node; /* pathname namespace inode, if any */
         uint32_t         refcount;
 
         /* Polymorphic operations */
@@ -302,5 +305,8 @@ socket_t *socket_from_fd(int fd);
 /* Sendmmsg/recvmmsg */
 int64_t sys_sendmmsg(int fd, void *msgvec, uint32_t vlen, int flags);
 int64_t sys_recvmmsg(int fd, void *msgvec, uint32_t vlen, int flags, void *timeout);
+
+/* Format the Linux-compatible /proc/net/unix listener/socket table. */
+size_t socket_format_unix_table(char *buffer, size_t capacity);
 
 #endif /* INCLUDE_SOCKET_H_ */

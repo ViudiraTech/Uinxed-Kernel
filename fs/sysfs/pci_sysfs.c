@@ -22,20 +22,45 @@
 #include <mem/heap.h>
 
 /* ------------------------------------------------------------------ */
+/*  Per-device private data                                            */
+/* ------------------------------------------------------------------ */
+
+struct pci_sysfs_dev {
+        pci_device_cache_t *cache;
+};
+
+static int pci_device_uevent(struct device *dev, struct kobj_uevent_env *env)
+{
+    struct pci_sysfs_dev *psd = dev->driver_data;
+    pci_device_reg_t      reg;
+    uint32_t              subsystem_vendor;
+    uint32_t              subsystem_device;
+    uint32_t              class_code;
+    int                   ret;
+
+    if (!psd || !psd->cache) return -ENODEV;
+    reg.parent       = psd->cache;
+    reg.offset       = 0x2C;
+    subsystem_vendor = read_pci(reg) & 0xFFFF;
+    reg.offset       = 0x2E;
+    subsystem_device = read_pci(reg) & 0xFFFF;
+    class_code       = psd->cache->class_code;
+
+    ret = add_uevent_var(env, "PCI_SLOT_NAME=%s", dev_name(dev));
+    if (ret) return ret;
+    return add_uevent_var(env, "MODALIAS=pci:v0000%04Xd0000%04Xsv0000%04Xsd0000%04Xbc%02Xsc%02Xi%02X", psd->cache->vendor_id,
+                          psd->cache->device_id, subsystem_vendor, subsystem_device, (class_code >> 16) & 0xFF, (class_code >> 8) & 0xFF,
+                          class_code & 0xFF);
+}
+
+/* ------------------------------------------------------------------ */
 /*  PCI bus type                                                       */
 /* ------------------------------------------------------------------ */
 
 static struct bus_type pci_bus_type = {
     .name     = "pci",
     .dev_name = "0000",
-};
-
-/* ------------------------------------------------------------------ */
-/*  Per-device private data                                            */
-/* ------------------------------------------------------------------ */
-
-struct pci_sysfs_dev {
-        pci_device_cache_t *cache;
+    .uevent   = pci_device_uevent,
 };
 
 /* ------------------------------------------------------------------ */

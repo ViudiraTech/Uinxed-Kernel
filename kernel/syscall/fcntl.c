@@ -36,15 +36,20 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
     switch (cmd) {
         case F_DUPFD : {
             int start = (int)arg;
+            uint32_t limit = process_fd_limit(proc);
             if (start < 0) {
+                result = -EINVAL;
+                break;
+            }
+            if ((uint32_t)start >= limit) {
                 result = -EINVAL;
                 break;
             }
             spin_lock(&proc->fd_lock);
             int newfd = -1;
-            for (int i = start; i < PROCESS_MAX_FD; i++) {
+            for (uint32_t i = (uint32_t)start; i < limit; i++) {
                 if (!proc->fds[i]) {
-                    newfd = i;
+                    newfd = (int)i;
                     break;
                 }
             }
@@ -61,6 +66,7 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             spin_unlock(&file->lock);
 
             proc->fds[newfd] = file;
+            proc->fd_flags[newfd] = 0;
             spin_unlock(&proc->fd_lock);
             result = newfd;
             break;
@@ -68,15 +74,20 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
 
         case F_DUPFD_CLOEXEC : {
             int start = (int)arg;
+            uint32_t limit = process_fd_limit(proc);
             if (start < 0) {
+                result = -EINVAL;
+                break;
+            }
+            if ((uint32_t)start >= limit) {
                 result = -EINVAL;
                 break;
             }
             spin_lock(&proc->fd_lock);
             int newfd = -1;
-            for (int i = start; i < PROCESS_MAX_FD; i++) {
+            for (uint32_t i = (uint32_t)start; i < limit; i++) {
                 if (!proc->fds[i]) {
-                    newfd = i;
+                    newfd = (int)i;
                     break;
                 }
             }
@@ -92,41 +103,39 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             spin_unlock(&file->lock);
 
             proc->fds[newfd] = file;
-            /* Set close-on-exec flag on the new FD */
-            spin_lock(&file->lock);
-            file->flags |= O_CLOEXEC;
-            spin_unlock(&file->lock);
+            proc->fd_flags[newfd] = FD_CLOEXEC;
             spin_unlock(&proc->fd_lock);
             result = newfd;
             break;
         }
 
         case F_GETFD : {
-            /* Return close-on-exec flag */
-            /* We store cloexec in the file flags field */
-            spin_lock(&file->lock);
-            result = (file->flags & O_CLOEXEC) ? FD_CLOEXEC : 0;
-            spin_unlock(&file->lock);
+            spin_lock(&proc->fd_lock);
+            result = proc->fds[fd] ? proc->fd_flags[fd] : -EBADF;
+            spin_unlock(&proc->fd_lock);
             break;
         }
 
         case F_SETFD : {
-            /* Set close-on-exec flag */
-            spin_lock(&file->lock);
-            if (arg & FD_CLOEXEC) {
-                file->flags |= O_CLOEXEC;
-            } else {
-                file->flags &= ~(uint64_t)O_CLOEXEC;
+            if (arg & ~(uint64_t)FD_CLOEXEC) {
+                result = -EINVAL;
+                break;
             }
-            spin_unlock(&file->lock);
-            result = 0;
+            spin_lock(&proc->fd_lock);
+            if (proc->fds[fd]) {
+                proc->fd_flags[fd] = (uint8_t)(arg & FD_CLOEXEC);
+                result = 0;
+            } else {
+                result = -EBADF;
+            }
+            spin_unlock(&proc->fd_lock);
             break;
         }
 
         case F_GETFL : {
             /* Return file access mode and status flags */
             spin_lock(&file->lock);
-            result = (int64_t)(file->flags & (O_ACCMODE | O_NONBLOCK | O_APPEND));
+            result = (int64_t)(file->flags & (O_ACCMODE | O_NONBLOCK | O_APPEND | O_PATH));
             spin_unlock(&file->lock);
             break;
         }

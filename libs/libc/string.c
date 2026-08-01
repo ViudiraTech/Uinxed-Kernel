@@ -84,6 +84,18 @@ int memcmp(const void *str1, const void *str2, size_t n)
 #endif
 }
 
+/* Finds the first occurrence of c in the first n bytes of a memory area */
+void *memchr(const void *str, int c, size_t n)
+{
+    const uint8_t *bytes = (const uint8_t *)str;
+    const uint8_t  value = (uint8_t)c;
+
+    for (size_t i = 0; i < n; i++) {
+        if (bytes[i] == value) return (void *)(bytes + i);
+    }
+    return NULL;
+}
+
 /* Calculates the length of the string str */
 size_t strlen(const char *str)
 {
@@ -114,10 +126,19 @@ char *strncpy(char *dest, const char *src, size_t n)
 #if defined(__builtin_strncpy)
     return __builtin_strncpy(dest, src, n);
 #else
-    char       *_dest = dest;
-    const char *end   = src + n;
-    while (src < end && *src != '\0') *(dest++) = *(src++);
-    return _dest;
+    char  *result = dest;
+    size_t i      = 0;
+
+    /* ISO C requires the remainder of the destination field to be padded
+     * with null bytes after the first source terminator.  A large amount of
+     * kernel code uses strncpy() for fixed-width ABI and object fields; not
+     * padding here leaves stack/heap bytes embedded in otherwise valid names. */
+    while (i < n && src[i] != '\0') {
+        dest[i] = src[i];
+        i++;
+    }
+    while (i < n) dest[i++] = '\0';
+    return result;
 #endif
 }
 

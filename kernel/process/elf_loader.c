@@ -133,7 +133,11 @@ static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr, const uint
                 if (file_offset + (file_end - file_start) > elf_size) return 1;
                 memcpy(page + page_offset, data + file_offset, file_end - file_start);
             }
-            page_map_to(proc->user_page_dir, va, frame, pte_flags);
+            if (page_map_new_to(proc->user_page_dir, va, frame, pte_flags)) {
+                (void)frame_release_range(frame, 1);
+                plogk("elf_loader: PT_LOAD page collision at %p\n", (void *)va);
+                return 1;
+            }
         }
 
         vm_flags_t vm_flags = 0;
@@ -314,7 +318,6 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
     *entry_out = iehdr->e_entry + load_bias;
 
     free(elf_data);
-    plogk("elf_loader: loaded interpreter %s base=%p entry=%p\n", interp_path, (void *)*base_out, (void *)*entry_out);
     return 0;
 }
 
@@ -534,7 +537,6 @@ int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, s
     uintptr_t  actual_entry      = ehdr->e_entry + load_bias;
 
     if (info.has_interp) {
-        plogk("elf_loader: program requires interpreter: %s\n", info.interp_path);
         if (elf_loader_load_interpreter(proc, info.interp_path, &interpreter_base, &interpreter_entry)) {
             plogk("elf_loader: Failed to load required interpreter.\n");
             return 1;
@@ -590,6 +592,5 @@ int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, s
     if (entry_out) *entry_out = actual_entry;
     if (rsp_out) *rsp_out = user_rsp;
 
-    plogk("elf_loader: Loaded process %llu (%s) entry=%p\n", proc->task->pid, proc->task->name, (void *)actual_entry);
     return 0;
 }

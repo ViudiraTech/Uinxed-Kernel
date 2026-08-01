@@ -14,6 +14,8 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
+struct vm_area;
+
 typedef struct {
         uint8_t red;
         uint8_t green;
@@ -86,10 +88,16 @@ size_t video_fb_write(void *ctx, const void *addr, size_t offset, size_t size);
 /* Query /dev/fb0 metadata such as dimensions, stride and pixel layout. */
 int video_fb_ioctl(void *ctx, size_t req, void *arg);
 
+/* Map the live framebuffer into a userspace VMA. */
+void *video_fb_mmap(void *ctx, void *private_data, size_t offset, size_t size, int flags, struct vm_area *vma);
+
+/* Start periodic virtio-gpu refreshes after PID 1 has been allocated. */
+void video_start_refresh_worker(void);
+
 /* Initialize Video */
 void video_init(void);
 
-/* Flush callback type â€?pushes one damaged framebuffer rectangle to host. */
+/* Flush callback type ?pushes one damaged framebuffer rectangle to host. */
 typedef void (*video_flush_fn_t)(uint32_t x, uint32_t y, uint32_t width, uint32_t height);
 
 /*

@@ -11,6 +11,7 @@
 #include <drivers/char/tty.h>
 #include <drivers/char/tty_core.h>
 #include <drivers/ports/serial.h>
+#include <fs/core/vfs.h>
 #include <kernel/cmdline.h>
 #include <kernel/errno.h>
 #include <libs/std/stdbool.h>
@@ -37,6 +38,10 @@ static volatile char *tty_buff_ptr                      = tty_buff;
 static char           tty_vga_queue[TTY_VGA_QUEUE_SIZE] = {0};
 static size_t         tty_vga_head                      = 0;
 static size_t         tty_vga_tail                      = 0;
+static tty_core_t     console_tty;
+static bool           console_tty_ready;
+static spinlock_t     console_tty_init_lock;
+static spinlock_t     console_emit_lock;
 
 static int tty_should_flush_now(const tty_device_t *tty_device, const char ch, size_t used)
 {
@@ -233,6 +238,8 @@ tty_device_t *get_boot_tty(void)
 /* Update the TTY device type (e.g., switch to DRM after virtio-gpu init) */
 void tty_set_device_type(tty_device_kind_t type)
 {
+    /* A requested serial console remains the diagnostic console. */
+    if (boot_tty_ptr && boot_tty.type == TTY_DEVICE_SERIAL) return;
     boot_tty.type = type;
 }
 
@@ -318,6 +325,11 @@ static void tty_buff_add(const char ch)
 
     spin_lock(&tty_flush_spinlock);
     if (tty_device && (tty_device->type == TTY_DEVICE_VGA || tty_device->type == TTY_DEVICE_DRM) && tty_device->port == 0) {
+        /* Linux stops fbcon rendering while the active VT owns graphics. */
+        if (console_tty_ready && tty_core_graphics_mode(&console_tty)) {
+            spin_unlock(&tty_flush_spinlock);
+            return;
+        }
         tty_vga_queue_push(ch);
         if (tty_vga_queue_used() >= TTY_BUF_SIZE) tty_vga_flush_locked();
         spin_unlock(&tty_flush_spinlock);
@@ -355,11 +367,6 @@ void tty_print_str(const char *str)
     }
 }
 
-static tty_core_t console_tty;
-static bool       console_tty_ready;
-static spinlock_t console_tty_init_lock;
-static spinlock_t console_emit_lock;
-
 static int console_emit(void *context, const uint8_t *data, size_t size, uint64_t flags)
 {
     (void)context;
@@ -380,6 +387,7 @@ static void tty_input_lazy_init(void)
     }
     static const tty_core_ops_t operations = {.emit = console_emit, .event = NULL};
     tty_core_init(&console_tty, &operations, NULL);
+    tty_core_mark_virtual_console(&console_tty);
     console_tty_ready = true;
     spin_unlock(&console_tty_init_lock);
 }
@@ -398,7 +406,7 @@ static bool tty_ctrl_pressed  = false;
 static bool tty_caps_active   = false;
 
 /*
- * US QWERTY keymap (Setâ€? scancode â†?ASCII).
+ * US QWERTY keymap (Set? scancode ?ASCII).
  * scancodes that do not produce a printable character map to 0.
  */
 static const unsigned char tty_keymap[128] = {
@@ -423,6 +431,7 @@ static const unsigned char tty_keymap_shift[128] = {
 void tty_handle_scancode(uint8_t scancode, bool pressed)
 {
     tty_input_lazy_init();
+    if (tty_core_keyboard_mode(&console_tty) == K_OFF) return;
 
     /* Track modifier keys */
     switch (scancode) {
@@ -454,8 +463,8 @@ void tty_handle_scancode(uint8_t scancode, bool pressed)
         case 14 : /* BACKSPACE */
             ch = '\b';
             break;
-        case 28 : /* ENTER */
-            ch = '\n';
+        case 28 : /* ENTER - send CR; canonical mode converts to LF via ICRNL */
+            ch = '\r';
             break;
         case 15 : /* TAB */
             ch = '\t';
@@ -478,7 +487,7 @@ void tty_handle_scancode(uint8_t scancode, bool pressed)
             }
             if (!ch) return;
 
-            /* Ctrl+letter â†?control code */
+            /* Ctrl+letter ?control code */
             if (tty_ctrl_pressed && ch >= 'a' && ch <= 'z') ch = (char)(ch - 'a' + 1);
             break;
     }
@@ -505,10 +514,10 @@ int tty_dev_poll(void *ctx, size_t events)
 
 int tty_dev_file_open(struct vfs_node *node, uint64_t flags, void **private_data)
 {
-    (void)node;
     tty_input_lazy_init();
     tty_core_auto_acquire(&console_tty, flags);
-    *private_data = NULL;
+    /* Non-NULL marks aliases that expose Linux virtual-console ioctls. */
+    *private_data = node && (streq(node->name, "tty0") || streq(node->name, "tty1") || streq(node->name, "console")) ? (void *)(uintptr_t)1 : NULL;
     return 0;
 }
 
@@ -556,7 +565,7 @@ int tty_dev_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req
     (void)private_data;
     (void)flags;
     tty_input_lazy_init();
-    return tty_core_ioctl(&console_tty, flags, request, arg);
+    return tty_core_ioctl_terminal(&console_tty, flags, request, arg, private_data != NULL);
 }
 
 int tty_ctty_file_open(struct vfs_node *node, uint64_t flags, void **private_data)

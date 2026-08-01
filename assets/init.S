@@ -11,27 +11,16 @@
 .global _start
 .section .text
 _start:
-    mov $2, %rax            # SYS_open
-    lea console_path(%rip), %rdi
-    mov $2, %rsi            # O_RDWR
-    xor %rdx, %rdx          # mode = 0
+    mov $59, %rax           # SYS_execve
+    lea init_path(%rip), %rdi
+    lea init_argv(%rip), %rsi
+    lea init_envp(%rip), %rdx
     syscall
-    test %rax, %rax
-    jns 1f
 
-    mov $2, %rax            # SYS_open
-    lea tty_path(%rip), %rdi
-    mov $2, %rsi            # O_RDWR
-    xor %rdx, %rdx          # mode = 0
-    syscall
-    test %rax, %rax
-    js idle
-
-1:
-    mov %rax, %rdi          # fd returned by open
     mov $1, %rax            # SYS_write
-    lea msg(%rip), %rsi     # buf
-    mov $msg_len, %rdx      # count
+    mov $2, %rdi            # stderr, installed by the kernel for PID 1
+    lea exec_error(%rip), %rsi
+    mov $exec_error_len, %rdx
     syscall
 
 idle:
@@ -39,10 +28,28 @@ idle:
     syscall
     jmp idle
 .section .rodata
-console_path:
-    .asciz "/dev/console"
-tty_path:
-    .asciz "/dev/tty"
-msg:
-    .ascii "Hello world!\n"
-msg_len = . - msg
+init_path:
+    .asciz "/sbin/init"
+path_env:
+    .asciz "PATH=/sbin:/bin:/usr/sbin:/usr/bin"
+home_env:
+    .asciz "HOME=/root"
+term_env:
+    .asciz "TERM=linux"
+shell_env:
+    .asciz "SHELL=/bin/sh"
+exec_error:
+    .ascii "init: execve(/sbin/init) failed\n"
+exec_error_len = . - exec_error
+
+.section .data
+.align 8
+init_argv:
+    .quad init_path
+    .quad 0
+init_envp:
+    .quad path_env
+    .quad home_env
+    .quad term_env
+    .quad shell_env
+    .quad 0

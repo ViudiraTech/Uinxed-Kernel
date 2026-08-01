@@ -186,8 +186,20 @@ typedef struct nlmsgerr {
 #define NETLINK_INET_DIAG      23 /* INET socket monitoring */
 #define NETLINK_MAX            24
 
+#define NETLINK_ADD_MEMBERSHIP  1
+#define NETLINK_DROP_MEMBERSHIP 2
+#define NETLINK_PKTINFO         3
+#define NETLINK_BROADCAST_ERROR 4
+#define NETLINK_NO_ENOBUFS      5
+#define NETLINK_LISTEN_ALL_NSID 8
+#define NETLINK_CAP_ACK         10
+
+typedef struct nl_pktinfo {
+        uint32_t group;
+} nl_pktinfo_t;
+
 /* ------------------------------------------------------------------ */
-/*  Netlink socket state â€?per-socket private data                     */
+/*  Netlink socket state ?per-socket private data                     */
 /* ------------------------------------------------------------------ */
 
 #define NL_SOCK_RECV_BUF_SIZE (128 * 1024) /* 128KB default recv buffer */
@@ -197,14 +209,19 @@ typedef struct nl_sock {
         uint32_t nl_groups;    /* Multicast groups subscribed */
         uint32_t nl_protocol;  /* Netlink protocol (NETLINK_*) */
         uint32_t nl_seq;       /* Next outgoing sequence number */
-        int      nl_bound : 1; /* Socket is bound */
-        int      nl_pad   : 31;
+        int      nl_bound        : 1; /* Socket is bound */
+        int      no_enobufs      : 1;
+        int      broadcast_error : 1;
+        int      packet_info     : 1;
+        int      overrun         : 1;
+        int      nl_pad          : 27;
 
         /* Receive queue: each entry is a complete nlmsghdr-framed message */
         /* stored as a contiguous allocation (header + payload) */
         clist_t    recv_queue;     /* circular list of nl_msg_t */
         uint32_t   recv_queue_len; /* number of messages queued */
         uint32_t   recv_queue_max; /* max messages (prevents DoS) */
+        uint32_t   recv_queue_bytes;
         spinlock_t recv_lock;      /* protects recv_queue */
 
         /* Blocking support */
@@ -219,8 +236,12 @@ typedef struct nl_sock {
 /* ------------------------------------------------------------------ */
 
 typedef struct nl_msg {
-        uint8_t *data;     /* nlmsghdr + payload */
+        uint8_t *data;     /* complete datagram (not necessarily nlmsghdr-framed) */
         uint32_t len;      /* total length */
+        uint32_t sender_pid;
+        uint32_t sender_groups;
+        uint32_t sender_uid;
+        uint32_t sender_gid;
         uint32_t refcount; /* for potential shared delivery */
 } nl_msg_t;
 
@@ -281,17 +302,25 @@ struct socket *netlink_sock_alloc(uint32_t protocol);
 /* Netlink-specific bind */
 int netlink_bind(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen);
 
+int netlink_getsockname(struct socket *sk, sockaddr_nl_t *addr);
+
 /* Netlink-specific sendmsg */
 int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockaddr_nl_t *addr, uint32_t addrlen, int flags);
 
 /* Netlink-specific recvmsg */
 int netlink_recvmsg(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *addr, uint32_t *addrlen, int flags);
 
+/* Kernel-buffer variant used by recvmsg/recvfrom to preserve metadata. */
+int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *addr, int flags, uint32_t *sender_uid, uint32_t *sender_gid,
+                        int *msg_flags);
+
 /* Netlink-specific close cleanup */
 void netlink_close(struct socket *sk);
 
 /* Netlink-specific poll */
 int netlink_poll(struct socket *sk, size_t events);
+
+int netlink_packet_info_enabled(struct socket *sk);
 
 /* Netlink-specific setsockopt */
 int netlink_setsockopt(struct socket *sk, int optname, const void *optval, uint32_t optlen);

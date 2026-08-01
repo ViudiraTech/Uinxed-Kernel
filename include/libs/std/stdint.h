@@ -79,6 +79,14 @@ typedef __INTMAX_TYPE__  intmax_t;
 #define UINT16_MAX 0xFFFFU
 #define UINT32_MAX 0xFFFFFFFFU
 #define UINT64_MAX 0xFFFFFFFFFFFFFFFFULL
+#define INT8_MAX   0x7F
+#define INT16_MAX  0x7FFF
+#define INT32_MAX  0x7FFFFFFF
+#define INT64_MAX  0x7FFFFFFFFFFFFFFFLL
+#define INT8_MIN   (-INT8_MAX - 1)
+#define INT16_MIN  (-INT16_MAX - 1)
+#define INT32_MIN  (-INT32_MAX - 1)
+#define INT64_MIN  (-INT64_MAX - 1)
 
 /* Cast pointer and address with union */
 typedef union {

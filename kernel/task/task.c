@@ -125,11 +125,14 @@ static int setup_kernel_stack(task_t *task, kthread_bootstrap_t *bootstrap)
 
 void task_name_copy(task_t *task, const char *name)
 {
+    if (!task) return;
     const char *src = name ? name : "kthread";
     size_t      i   = 0;
 
     for (; i + 1 < TASK_NAME_LEN && src[i]; i++) task->name[i] = src[i];
-    task->name[i] = '\0';
+    /* Clear the unused suffix too: task names are copied to fixed-width ABI
+     * fields by procfs/prctl, and must never expose a previous exec name. */
+    for (; i < TASK_NAME_LEN; i++) task->name[i] = '\0';
 }
 
 task_t *task_alloc_status(const char *name, int *error)

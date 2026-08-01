@@ -18,6 +18,7 @@
 #include <drivers/char/tty.h>
 #include <drivers/gpu/drm_init.h>
 #include <drivers/input/evdev.h>
+#include <chipset/common.h>
 #include <fs/core/vfs.h>
 #include <fs/virtual/devtmpfs.h>
 #include <fs/virtual/tmpfs.h>
@@ -56,6 +57,122 @@ typedef struct devtmpfs_entry {
 static devtmpfs_entry_t devtmpfs_table[DEVTMPFS_MAX_DEVICES];
 static spinlock_t       devtmpfs_lock = {.lock = 0, .rflags = 0};
 static bool             devtmpfs_table_inited;
+
+enum devtmpfs_memory_kind {
+    DEVTMPFS_MEM_NULL,
+    DEVTMPFS_MEM_ZERO,
+    DEVTMPFS_MEM_FULL,
+    DEVTMPFS_MEM_RANDOM,
+};
+
+typedef struct {
+        enum devtmpfs_memory_kind kind;
+} devtmpfs_memory_device_t;
+
+static spinlock_t devtmpfs_random_lock = {.lock = 0, .rflags = 0};
+static uint64_t   devtmpfs_random_state[4];
+
+static uint64_t devtmpfs_random_word(void)
+{
+    spin_lock(&devtmpfs_random_lock);
+    if (!(devtmpfs_random_state[0] | devtmpfs_random_state[1] | devtmpfs_random_state[2] | devtmpfs_random_state[3])) {
+        uint64_t seed = rdtsc() ^ (uintptr_t)&devtmpfs_random_state ^ 0x9e3779b97f4a7c15ULL;
+        for (size_t i = 0; i < 4; i++) {
+            seed += 0x9e3779b97f4a7c15ULL;
+            uint64_t z = seed;
+            z          = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+            z          = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+            devtmpfs_random_state[i] = z ^ (z >> 31);
+        }
+    }
+
+    /* xoshiro256**.  The kernel getrandom path can later feed additional
+     * hardware/platform entropy into the same state without changing the
+     * character-device ABI. */
+    uint64_t result = ((devtmpfs_random_state[1] * 5) << 7 | (devtmpfs_random_state[1] * 5) >> 57) * 9;
+    uint64_t t      = devtmpfs_random_state[1] << 17;
+    devtmpfs_random_state[2] ^= devtmpfs_random_state[0];
+    devtmpfs_random_state[3] ^= devtmpfs_random_state[1];
+    devtmpfs_random_state[1] ^= devtmpfs_random_state[2];
+    devtmpfs_random_state[0] ^= devtmpfs_random_state[3];
+    devtmpfs_random_state[2] ^= t;
+    devtmpfs_random_state[3] = (devtmpfs_random_state[3] << 45) | (devtmpfs_random_state[3] >> 19);
+    spin_unlock(&devtmpfs_random_lock);
+    return result;
+}
+
+static int64_t devtmpfs_memory_read(void *context, void *private_data, uint64_t flags, void *buffer, size_t offset, size_t size)
+{
+    devtmpfs_memory_device_t *device = context;
+    (void)private_data;
+    (void)flags;
+    (void)offset;
+    if (!device || (!buffer && size)) return -EINVAL;
+    if (device->kind == DEVTMPFS_MEM_NULL) return 0;
+    if (device->kind == DEVTMPFS_MEM_ZERO || device->kind == DEVTMPFS_MEM_FULL) {
+        memset(buffer, 0, size);
+        return (int64_t)size;
+    }
+
+    uint8_t *out = buffer;
+    while (size) {
+        uint64_t word  = devtmpfs_random_word();
+        size_t   chunk = size < sizeof(word) ? size : sizeof(word);
+        memcpy(out, &word, chunk);
+        out += chunk;
+        size -= chunk;
+    }
+    return (int64_t)(out - (uint8_t *)buffer);
+}
+
+static int64_t devtmpfs_memory_write(void *context, void *private_data, uint64_t flags, const void *buffer, size_t offset, size_t size)
+{
+    devtmpfs_memory_device_t *device = context;
+    (void)private_data;
+    (void)flags;
+    (void)buffer;
+    (void)offset;
+    if (!device) return -EINVAL;
+    return device->kind == DEVTMPFS_MEM_FULL ? -ENOSPC : (int64_t)size;
+}
+
+static int64_t devtmpfs_kmsg_read(void *context, void *private_data, uint64_t flags, void *buffer, size_t offset, size_t size)
+{
+    (void)context;
+    (void)private_data;
+    (void)flags;
+    (void)buffer;
+    (void)offset;
+    (void)size;
+    /* The kernel currently exposes printk output through its consoles.  A
+     * nonblocking kmsg reader observes no queued record rather than EOF. */
+    return -EAGAIN;
+}
+
+static int64_t devtmpfs_kmsg_write(void *context, void *private_data, uint64_t flags, const void *buffer, size_t offset, size_t size)
+{
+    (void)context;
+    (void)private_data;
+    (void)flags;
+    (void)offset;
+    if (!buffer && size) return -EINVAL;
+    if (!size) return 0;
+
+    char *message = malloc(size + 1);
+    if (!message) return -ENOMEM;
+    memcpy(message, buffer, size);
+    message[size] = '\0';
+    /* /dev/kmsg writers may prefix a syslog priority as "<n>".  The console
+     * backend has no severity lanes yet, but should not print that framing. */
+    char *text = message;
+    if (text[0] == '<') {
+        char *end = strchr(text, '>');
+        if (end && (size_t)(end - text) <= 4) text = end + 1;
+    }
+    printk("%s", text);
+    free(message);
+    return (int64_t)size;
+}
 
 static void devtmpfs_table_init(void)
 {
@@ -396,6 +513,7 @@ static int devtmpfs_create_framebuffer_node(void)
         .write = video_fb_write,
         .poll  = 0,
         .ioctl = video_fb_ioctl,
+        .mmap  = video_fb_mmap,
         .ctx   = 0,
     };
 
@@ -407,6 +525,64 @@ static int devtmpfs_create_framebuffer_node(void)
             video_info_t info = video_get_info();
             node->blksz       = sizeof(uint32_t);
             node->size        = info.stride * info.height * sizeof(uint32_t);
+            vfs_close(node);
+        }
+        return 1;
+    }
+    return 0;
+}
+
+static int devtmpfs_create_memory_nodes(void)
+{
+    static devtmpfs_memory_device_t devices[] = {
+        {.kind = DEVTMPFS_MEM_NULL  },
+        {.kind = DEVTMPFS_MEM_ZERO  },
+        {.kind = DEVTMPFS_MEM_FULL  },
+        {.kind = DEVTMPFS_MEM_RANDOM},
+        {.kind = DEVTMPFS_MEM_RANDOM},
+    };
+    static const struct {
+            const char *path;
+            uint8_t     minor;
+    } nodes[] = {
+        {.path = "/dev/null",    .minor = 3},
+        {.path = "/dev/zero",    .minor = 5},
+        {.path = "/dev/full",    .minor = 7},
+        {.path = "/dev/random",  .minor = 8},
+        {.path = "/dev/urandom", .minor = 9},
+    };
+
+    int count = 0;
+    for (size_t i = 0; i < sizeof(nodes) / sizeof(nodes[0]); i++) {
+        tmpfs_device_ops_t ops = {
+            .file_read  = devtmpfs_memory_read,
+            .file_write = devtmpfs_memory_write,
+            .ctx        = &devices[i],
+        };
+        uint64_t devt = MKDEV(1, nodes[i].minor);
+        if (devtmpfs_register_char_device(nodes[i].path, devt, devt, file_stream, &ops) != EOK) continue;
+        vfs_node_t node = vfs_open(nodes[i].path);
+        if (node) {
+            node->mode = 0666;
+            vfs_close(node);
+        }
+        count++;
+    }
+    return count;
+}
+
+static int devtmpfs_create_kmsg_node(void)
+{
+    tmpfs_device_ops_t ops = {
+        .file_read  = devtmpfs_kmsg_read,
+        .file_write = devtmpfs_kmsg_write,
+    };
+    uint64_t devt = MKDEV(1, 11);
+    int      ret  = devtmpfs_register_char_device("/dev/kmsg", devt, devt, file_stream, &ops);
+    if (ret == EOK) {
+        vfs_node_t node = vfs_open("/dev/kmsg");
+        if (node) {
+            node->mode = 0600;
             vfs_close(node);
         }
         return 1;
@@ -461,6 +637,7 @@ static int devtmpfs_create_tty_nodes(void)
             unsigned int minor;
     } tty_nodes[] = {
         {.path = "/dev/tty0",    .major = TTY_MAJOR,     .minor = 0 },
+        {.path = "/dev/tty1",    .major = TTY_MAJOR,     .minor = 1 },
         {.path = "/dev/ttyS0",   .major = TTY_MAJOR,     .minor = 64},
         {.path = "/dev/console", .major = TTY_AUX_MAJOR, .minor = 1 },
     };
@@ -495,17 +672,29 @@ static int devtmpfs_create_tty_nodes(void)
 static int devtmpfs_create_drm_node(void)
 {
     static const tmpfs_device_ops_t drm_device = {
-        .read  = 0,
-        .write = 0,
-        .poll  = 0,
-        .ioctl = 0,
-        .ctx   = 0,
+        .read       = 0,
+        .write      = 0,
+        .poll       = 0,
+        .ioctl      = 0,
+        .open       = (tmpfs_dev_open_t)drm_dev_open,
+        .release    = (tmpfs_dev_release_t)drm_dev_release,
+        .mmap       = drm_dev_file_mmap,
+        .file_read  = drm_dev_file_read,
+        .file_write = drm_dev_file_write,
+        .file_poll  = drm_dev_file_poll,
+        .file_ioctl = drm_dev_file_ioctl,
+        .ctx        = 0,
     };
 
     struct drm_device *drm_dev = drm_get_singleton();
     if (!drm_dev) return 0;
 
-    return devtmpfs_register_char_device("/dev/dri/card0", 226, 0, file_stream, &drm_device) == 0 ? 1 : 0;
+    int total = 0;
+    if (devtmpfs_register_char_device("/dev/dri/card0", MKDEV(226, 0), MKDEV(226, 0), file_stream, &drm_device) == 0) total++;
+    /* libdrm probes the canonical render node as well. The current kernel
+     * shares the DRM device implementation for this render-only minor. */
+    if (devtmpfs_register_char_device("/dev/dri/renderD128", MKDEV(226, 128), MKDEV(226, 128), file_stream, &drm_device) == 0) total++;
+    return total;
 }
 
 void devtmpfs_init(void)
@@ -518,6 +707,26 @@ void devtmpfs_init(void)
         plogk("devtmpfs: Cannot create /dev: %d\n", status);
         return;
     }
+
+    /* CONFIG_DEVTMPFS_MOUNT semantics: establish /dev as a real devtmpfs
+     * mount before publishing nodes.  OpenRC/eudev intentionally verify both
+     * the filesystem type and the mount point, not merely the directory. */
+    vfs_node_t dev_root = vfs_open("/dev");
+    if (!dev_root) {
+        plogk("devtmpfs: Cannot open /dev mount point.\n");
+        return;
+    }
+    if (!dev_root->is_mount) status = vfs_mount_fs("devtmpfs", "devtmpfs", dev_root);
+    vfs_close(dev_root);
+    if (status != EOK) {
+        plogk("devtmpfs: Cannot mount /dev: %d\n", status);
+        return;
+    }
+
+    status = vfs_mkdir("/dev/pts");
+    if (status != EOK && status != -EEXIST) plogk("devtmpfs: Cannot create /dev/pts: %d\n", status);
+    status = vfs_mkdir("/dev/shm");
+    if (status != EOK && status != -EEXIST) plogk("devtmpfs: Cannot create /dev/shm: %d\n", status);
 
     /* Register whole disks without issuing media I/O during early boot. */
     /* IDE ATA drives -> /dev/hda, /dev/hdb, ... */
@@ -596,10 +805,22 @@ void devtmpfs_init(void)
     }
 
     total_devices += evdev_publish_nodes();
+    total_devices += devtmpfs_create_memory_nodes();
+    total_devices += devtmpfs_create_kmsg_node();
     total_devices += devtmpfs_create_framebuffer_node();
     total_devices += devtmpfs_create_audio_nodes();
     total_devices += devtmpfs_create_tty_nodes();
     total_devices += devtmpfs_create_drm_node();
+
+    /* Conventional process-fd aliases expected by libc and service scripts. */
+    status = vfs_symlink("/dev/fd", "/proc/self/fd");
+    if (status != EOK && status != -EEXIST) plogk("devtmpfs: Cannot create /dev/fd: %d\n", status);
+    status = vfs_symlink("/dev/stdin", "/proc/self/fd/0");
+    if (status != EOK && status != -EEXIST) plogk("devtmpfs: Cannot create /dev/stdin: %d\n", status);
+    status = vfs_symlink("/dev/stdout", "/proc/self/fd/1");
+    if (status != EOK && status != -EEXIST) plogk("devtmpfs: Cannot create /dev/stdout: %d\n", status);
+    status = vfs_symlink("/dev/stderr", "/proc/self/fd/2");
+    if (status != EOK && status != -EEXIST) plogk("devtmpfs: Cannot create /dev/stderr: %d\n", status);
 
     plogk("devtmpfs: %d device(s) created in /dev\n", total_devices);
 }

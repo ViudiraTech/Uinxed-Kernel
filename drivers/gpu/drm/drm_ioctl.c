@@ -11,6 +11,7 @@
 #include <drivers/gpu/drm.h>
 #include <drivers/gpu/drm_device.h>
 #include <drivers/gpu/drm_mode.h>
+#include <drivers/gpu/drm_print.h>
 #include <kernel/errno.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
@@ -75,7 +76,7 @@ extern int drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, st
 extern int drm_mode_getfb2_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
 /* ------------------------------------------------------------------ */
-/* drm_ioctl_permit â€?check auth / master flags against file_priv      */
+/* drm_ioctl_permit ???check auth / master flags against file_priv      */
 /* ------------------------------------------------------------------ */
 
 int drm_ioctl_permit(unsigned int flags, struct drm_file *file_priv)
@@ -87,10 +88,13 @@ int drm_ioctl_permit(unsigned int flags, struct drm_file *file_priv)
     }
 
     if (flags & DRM_MASTER) {
-        if (!file_priv->master) { return -EACCES; }
+        /* This MVP kernel has no device-level master bookkeeping and
+         * userspace (weston via libseat's noop launcher) never issues
+         * SET_MASTER.  Any authenticated client is granted master. */
+        if (!file_priv->authenticated) { return -EACCES; }
     }
 
-    /* DRM_ROOT_ONLY â€?no root concept in freestanding kernel;
+    /* DRM_ROOT_ONLY ???no root concept in freestanding kernel;
      * always deny for safety. */
     if (flags & DRM_ROOT_ONLY) { return -EACCES; }
 
@@ -98,7 +102,7 @@ int drm_ioctl_permit(unsigned int flags, struct drm_file *file_priv)
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_get_cap / drm_set_client_cap â€?handlers                         */
+/* drm_get_cap / drm_set_client_cap ???handlers                         */
 /* ------------------------------------------------------------------ */
 
 int drm_get_cap(struct drm_device *dev, void *data, struct drm_file *file_priv)
@@ -200,7 +204,7 @@ int drm_set_client_cap(struct drm_device *dev, void *data, struct drm_file *file
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_ioctl â€?dispatch an ioctl command to the registered handler     */
+/* drm_ioctl ???dispatch an ioctl command to the registered handler     */
 /* ------------------------------------------------------------------ */
 
 /* Built-in core ioctls that are always available. */
@@ -210,8 +214,8 @@ static const struct drm_ioctl_desc drm_core_ioctls[] = {
     {DRM_IOCTL_GET_UNIQUE,             NULL,                             0                    },
     {DRM_IOCTL_GET_MAGIC,              drm_getmagic,                     DRM_AUTH             },
     {DRM_IOCTL_SET_VERSION,            drm_setversion,                   DRM_MASTER | DRM_AUTH},
-    {DRM_IOCTL_SET_MASTER,             drm_setmaster,                    DRM_MASTER           },
-    {DRM_IOCTL_DROP_MASTER,            drm_dropmaster,                   DRM_MASTER           },
+    {DRM_IOCTL_SET_MASTER,             drm_setmaster,                    0                    },
+    {DRM_IOCTL_DROP_MASTER,            drm_dropmaster,                   0                    },
     {DRM_IOCTL_AUTH_MAGIC,             drm_authmagic,                    DRM_AUTH             },
     {DRM_IOCTL_GEM_CLOSE,              drm_gem_close_ioctl,              DRM_AUTH             },
     {DRM_IOCTL_GEM_FLINK,              drm_gem_flink_ioctl,              DRM_AUTH             },
@@ -256,7 +260,7 @@ static const struct drm_ioctl_desc drm_core_ioctls[] = {
 };
 
 /* ------------------------------------------------------------------ */
-/* ioctl descriptor lookup â€?full command match                        */
+/* ioctl descriptor lookup ???full command match                        */
 /* ------------------------------------------------------------------ */
 
 static const struct drm_ioctl_desc *find_ioctl_desc(unsigned int cmd, const struct drm_ioctl_desc *table, int count)
@@ -268,7 +272,7 @@ static const struct drm_ioctl_desc *find_ioctl_desc(unsigned int cmd, const stru
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_ioctl â€?validated dispatch                                     */
+/* drm_ioctl ???validated dispatch                                     */
 /* ------------------------------------------------------------------ */
 
 int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct drm_file *file_priv)
@@ -371,7 +375,10 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
 
     /* 8. Permission check + dispatch. */
     ret = drm_ioctl_permit(desc->flags, file_priv);
-    if (ret) goto out;
+    if (ret) {
+        plogk("drm: ioctl 0x%x flags 0x%x DENIED: master=%d auth=%d\n", cmd, desc->flags, file_priv->master != NULL, file_priv->authenticated);
+        goto out;
+    }
 
     if (!desc->func) {
         /* NULL func = no-op success (e.g. GET_UNIQUE stub). */
@@ -391,12 +398,38 @@ out:
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_version â€?handle DRM_IOCTL_VERSION                              */
+/* drm_version ???handle DRM_IOCTL_VERSION                              */
 /* ------------------------------------------------------------------ */
+
+static int drm_version_copy_string(uint64_t user_ptr, uint64_t capacity, uint64_t *length, const char *value)
+{
+    size_t full_length;
+    size_t copy_length;
+
+    if (!length) return -EINVAL;
+    if (!value) value = "";
+
+    full_length = strlen(value);
+    *length    = full_length;
+    if (!user_ptr || !capacity) return 0;
+
+    /* drmGetVersion() allocates exactly the reported length plus a NUL. */
+    copy_length = capacity - 1 < full_length ? (size_t)capacity - 1 : full_length;
+    if (copy_length && copy_to_user((void *)user_ptr, value, copy_length)) return -EFAULT;
+    if (copy_to_user((void *)(user_ptr + copy_length), "\0", 1)) return -EFAULT;
+    return 0;
+}
 
 int drm_version(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_version *ver;
+    uint64_t           name_ptr;
+    uint64_t           name_capacity;
+    uint64_t           date_ptr;
+    uint64_t           date_capacity;
+    uint64_t           desc_ptr;
+    uint64_t           desc_capacity;
+    int                ret;
 
     (void)file_priv;
 
@@ -404,23 +437,36 @@ int drm_version(struct drm_device *dev, void *data, struct drm_file *file_priv)
 
     ver = (struct drm_version *)data;
 
+    /* Preserve the user pointers while filling the result structure. */
+    name_ptr      = ver->name;
+    name_capacity = ver->name_len;
+    date_ptr      = ver->date;
+    date_capacity = ver->date_len;
+    desc_ptr      = ver->desc;
+    desc_capacity = ver->desc_len;
     memset(ver, 0, sizeof(*ver));
+    ver->name = name_ptr;
+    ver->date = date_ptr;
+    ver->desc = desc_ptr;
 
     if (dev->driver) {
         ver->version_major      = dev->driver->major;
         ver->version_minor      = dev->driver->minor;
         ver->version_patchlevel = dev->driver->patchlevel;
 
-        if (dev->driver->name) { ver->name_len = (__u64)strlen(dev->driver->name); }
-        if (dev->driver->date) { ver->date_len = (__u64)strlen(dev->driver->date); }
-        if (dev->driver->desc) { ver->desc_len = (__u64)strlen(dev->driver->desc); }
+        ret = drm_version_copy_string(name_ptr, name_capacity, &ver->name_len, dev->driver->name);
+        if (ret) return ret;
+        ret = drm_version_copy_string(date_ptr, date_capacity, &ver->date_len, dev->driver->date);
+        if (ret) return ret;
+        ret = drm_version_copy_string(desc_ptr, desc_capacity, &ver->desc_len, dev->driver->desc);
+        if (ret) return ret;
     }
 
     return 0;
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_setversion â€?handle DRM_IOCTL_SET_VERSION (accept any version)  */
+/* drm_setversion ???handle DRM_IOCTL_SET_VERSION (accept any version)  */
 /* ------------------------------------------------------------------ */
 
 int drm_setversion(struct drm_device *dev, void *data, struct drm_file *file_priv)

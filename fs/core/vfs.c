@@ -28,6 +28,8 @@
 #ifndef VFS_PATH_TEST_ONLY
 vfs_node_t        rootdir = 0;
 static spinlock_t vfs_namespace_lock;
+static uint64_t   vfs_next_ino = 1;
+static uint64_t   vfs_next_mount_id = 1;
 
 /*
  * Check file access permissions against the current process.
@@ -47,6 +49,7 @@ int vfs_access_check(vfs_node_t node, uint32_t access_mask)
 struct vfs_callback vfs_empty_callback;
 vfs_callback_t      fs_callbacks[256] = {[0] = &vfs_empty_callback};
 static const char  *fs_names[256];
+static uint32_t     fs_flags[256];
 static int          fs_nextid = 1;
 
 /* Default callback function (does nothing) */
@@ -261,23 +264,33 @@ static char *vfs_resolve_link_path(vfs_node_t node)
 {
     char      *path;
     process_t *proc;
+    char       dynamic_target[VFS_PATH_MAX];
+    const char *linkname;
 
-    if (!node || !node->linkname) return 0;
+    if (!node) return 0;
+    linkname = node->linkname;
+    if (!linkname && node->fsid && callbackof(node, readlink) != vfs_empty_callback.readlink) {
+        size_t length = callbackof(node, readlink)(node, dynamic_target, 0, sizeof(dynamic_target) - 1);
+        if (!length || length >= sizeof(dynamic_target)) return 0;
+        dynamic_target[length] = '\0';
+        linkname              = dynamic_target;
+    }
+    if (!linkname) return 0;
     proc = process_current();
-    if (node->linkname[0] == '/') {
+    if (linkname[0] == '/') {
         char resolved[VFS_PATH_MAX];
         if (proc && proc->root[0]) {
-            if (process_resolve_path_at(proc, PROCESS_AT_FDCWD, node->linkname, resolved, sizeof(resolved)) != EOK) return 0;
+            if (process_resolve_path_at(proc, PROCESS_AT_FDCWD, linkname, resolved, sizeof(resolved)) != EOK) return 0;
             return strdup(resolved);
         }
-        return normalize_path(node->linkname);
+        return normalize_path(linkname);
     }
 
     char *base = vfs_node_absolute_path(node->parent ? node->parent : node);
     if (!base) return 0;
 
     size_t base_len = strlen(base);
-    size_t link_len = strlen(node->linkname);
+    size_t link_len = strlen(linkname);
     if (base_len + link_len + 2 > VFS_PATH_MAX) {
         free(base);
         return 0;
@@ -290,7 +303,7 @@ static char *vfs_resolve_link_path(vfs_node_t node)
 
     memcpy(path, base, base_len);
     path[base_len] = '/';
-    memcpy(path + base_len + 1, node->linkname, link_len + 1);
+    memcpy(path + base_len + 1, linkname, link_len + 1);
     free(base);
 
     char *normalized = normalize_path(path);
@@ -359,6 +372,12 @@ vfs_node_t vfs_node_alloc(vfs_node_t parent, const char *name)
     node->fsid     = parent ? parent->fsid : 0;
     node->root     = parent ? parent->root : node;
     node->dev      = parent ? parent->dev : 0;
+    /* Virtual filesystems need real inode identity too.  In particular,
+     * dynamic linkers use (st_dev, st_ino) to decide whether a shared object
+     * is already loaded.  Zero for every tmpfs node aliases unrelated files. */
+    node->inode    = __atomic_fetch_add(&vfs_next_ino, 1, __ATOMIC_RELAXED);
+    if (!node->inode) node->inode = __atomic_fetch_add(&vfs_next_ino, 1, __ATOMIC_RELAXED);
+    node->nlink    = 1;
     node->refcount = 0;
     node->blksz    = PAGE_4K_SIZE;
     node->mode     = 0777;
@@ -393,7 +412,10 @@ vfs_node_t vfs_do_search(vfs_node_t dir, const char *name)
 /* Update a file or directory, ensuring it is open and ready */
 void vfs_update(vfs_node_t node)
 {
+    if (!node) return;
+    spin_lock(&vfs_namespace_lock);
     do_update(node);
+    spin_unlock(&vfs_namespace_lock);
 }
 
 /* Open a file or directory by path */
@@ -645,20 +667,35 @@ int vfs_mkfile(const char *name)
 /* Read a directory entry by index from the specified directory node */
 int vfs_readdir(vfs_node_t dir, size_t index, vfs_dirent_t *entry)
 {
-    clist_t list;
-
     if (!dir || !entry) return -EINVAL;
+
+    spin_lock(&vfs_namespace_lock);
     do_update(dir);
-    if (!(dir->type & file_dir)) return -ENOTDIR;
+    if (!(dir->type & file_dir)) {
+        spin_unlock(&vfs_namespace_lock);
+        return -ENOTDIR;
+    }
 
-    list = clist_nth(dir->child, index);
-    if (!list || !list->data) return -ENOENT;
+    vfs_node_t child = NULL;
+    size_t visible = 0;
+    for (clist_t list = dir->child; list; list = list->next) {
+        vfs_node_t candidate = list->data;
+        if (!candidate || (candidate->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED))) continue;
+        if (visible++ == index) {
+            child = candidate;
+            break;
+        }
+    }
+    if (!child) {
+        spin_unlock(&vfs_namespace_lock);
+        return -ENOENT;
+    }
 
-    vfs_node_t child = list->data;
     entry->name      = child->name;
     entry->type      = child->type;
     entry->size      = child->size;
     entry->inode     = child->inode;
+    spin_unlock(&vfs_namespace_lock);
     inotify_notify(dir, IN_ACCESS);
     return EOK;
 }
@@ -834,6 +871,11 @@ int vfs_regist(vfs_callback_t callback)
 /* Register a vfs callback with a filesystem name */
 int vfs_regist_fs(const char *name, vfs_callback_t callback)
 {
+    return vfs_regist_fs_flags(name, callback, 0);
+}
+
+int vfs_regist_fs_flags(const char *name, vfs_callback_t callback, uint32_t flags)
+{
     if (!callback) return -EINVAL;
     if (name) {
         for (int i = 1; i < fs_nextid; i++) {
@@ -862,7 +904,34 @@ int vfs_regist_fs(const char *name, vfs_callback_t callback)
 
     fs_callbacks[id] = cb_copy;
     fs_names[id]     = name;
+    fs_flags[id]     = flags;
     return id;
+}
+
+size_t vfs_format_filesystems(char *buffer, size_t capacity)
+{
+    if (!buffer || !capacity) return 0;
+
+    size_t used = 0;
+    buffer[0]   = '\0';
+    for (int i = 1; i < fs_nextid; i++) {
+        if (!fs_names[i] || !fs_names[i][0] || fs_callbacks[i]->mount == vfs_empty_callback.mount) continue;
+        const char *prefix = (fs_flags[i] & VFS_FS_NODEV) ? "nodev\t" : "\t";
+        int length = snprintf(used < capacity ? buffer + used : buffer + capacity - 1, used < capacity ? capacity - used : 0,
+                              "%s%s\n", prefix, fs_names[i]);
+        if (length > 0) used += (size_t)length;
+    }
+    if (used >= capacity) {
+        buffer[capacity - 1] = '\0';
+        return capacity - 1;
+    }
+    return used;
+}
+
+const char *vfs_filesystem_name(uint16_t fsid)
+{
+    if (!fsid || fsid >= (uint16_t)fs_nextid) return NULL;
+    return fs_names[fsid];
 }
 
 static int vfs_mount_id(const char *src, vfs_node_t node, int fsid)
@@ -873,16 +942,25 @@ static int vfs_mount_id(const char *src, vfs_node_t node, int fsid)
     if (!node || !(node->type & file_dir)) return -EINVAL;
     if (fsid <= 0 || fsid >= fs_nextid || !fs_callbacks[fsid]) return -ENOENT;
 
+    const char *display_source = src && src[0] ? src : fs_names[fsid] ? fs_names[fsid] : "none";
+    char       *source_copy    = strdup(display_source);
+    if (!source_copy) return -ENOMEM;
+
     old_fsid   = node->fsid;
     node->fsid = fsid;
 
     status = fs_callbacks[fsid]->mount(src, node);
     if (status == EOK) {
-        node->root     = node;
-        node->is_mount = 1;
+        free(node->mount_source);
+        node->mount_source = source_copy;
+        node->mount_id     = __atomic_fetch_add(&vfs_next_mount_id, 1, __ATOMIC_RELAXED);
+        if (!node->mount_id) node->mount_id = __atomic_fetch_add(&vfs_next_mount_id, 1, __ATOMIC_RELAXED);
+        node->root          = node;
+        node->is_mount      = 1;
         return EOK;
     }
 
+    free(source_copy);
     node->fsid = old_fsid;
     return status;
 }
@@ -933,6 +1011,9 @@ int vfs_umount(const char *path)
             inotify_notify_unmount(cur);
             vfs_free_child(cur);
             callbackof(cur, unmount)(cur->handle);
+            free(cur->mount_source);
+            cur->mount_source = NULL;
+            cur->mount_id     = 0;
             cur->fsid     = node->fsid;
             cur->root     = node->root;
             cur->handle   = 0;
@@ -943,6 +1024,122 @@ int vfs_umount(const char *path)
         }
     }
     return -ENOENT;
+}
+
+typedef struct vfs_mount_format_scratch {
+        char path[VFS_PATH_MAX];
+        char escaped_path[VFS_PATH_MAX * 4];
+        char escaped_source[VFS_PATH_MAX * 4];
+        char options[64];
+} vfs_mount_format_scratch_t;
+
+static size_t vfs_mount_escape(char *output, size_t capacity, const char *input)
+{
+    size_t used = 0;
+    if (!input) input = "none";
+    for (size_t i = 0; input[i]; i++) {
+        const char *escape = NULL;
+        switch (input[i]) {
+            case ' ' :
+                escape = "\\040";
+                break;
+            case '\t' :
+                escape = "\\011";
+                break;
+            case '\n' :
+                escape = "\\012";
+                break;
+            case '\\' :
+                escape = "\\134";
+                break;
+            default :
+                break;
+        }
+        if (escape) {
+            for (size_t j = 0; escape[j]; j++) {
+                if (used + 1 < capacity) output[used] = escape[j];
+                used++;
+            }
+        } else {
+            if (used + 1 < capacity) output[used] = input[i];
+            used++;
+        }
+    }
+    if (capacity) output[used < capacity ? used : capacity - 1] = '\0';
+    return used;
+}
+
+static size_t vfs_mount_options(char *output, size_t capacity, const vfs_node_t node)
+{
+    size_t used = 0;
+#define APPEND_OPTION(_text)                                                                                                                \
+    do {                                                                                                                                     \
+        const char *_option = (_text);                                                                                                      \
+        for (size_t _i = 0; _option[_i]; _i++) {                                                                                           \
+            if (used + 1 < capacity) output[used] = _option[_i];                                                                            \
+            used++;                                                                                                                          \
+        }                                                                                                                                    \
+    } while (0)
+    APPEND_OPTION((node->flags & MOUNT_FLAG_RDONLY) ? "ro" : "rw");
+    if (node->flags & MOUNT_FLAG_NOSUID) APPEND_OPTION(",nosuid");
+    if (node->flags & MOUNT_FLAG_NODEV) APPEND_OPTION(",nodev");
+    if (node->flags & MOUNT_FLAG_NOEXEC) APPEND_OPTION(",noexec");
+#undef APPEND_OPTION
+    if (capacity) output[used < capacity ? used : capacity - 1] = '\0';
+    return used;
+}
+
+static uint64_t vfs_parent_mount_id(vfs_node_t node)
+{
+    for (vfs_node_t parent = node ? node->parent : NULL; parent; parent = parent->parent)
+        if (parent->is_mount && parent->mount_id) return parent->mount_id;
+    return node && node->mount_id ? node->mount_id : 0;
+}
+
+static void vfs_format_mount_subtree(vfs_node_t node, char *buffer, size_t capacity, size_t *used, bool mountinfo,
+                                     vfs_mount_format_scratch_t *scratch)
+{
+    if (!node) return;
+    if (node->is_mount && node->mount_id && vfs_node_path(node, scratch->path, sizeof(scratch->path)) == EOK) {
+        vfs_mount_escape(scratch->escaped_path, sizeof(scratch->escaped_path), scratch->path);
+        vfs_mount_escape(scratch->escaped_source, sizeof(scratch->escaped_source), node->mount_source);
+        vfs_mount_options(scratch->options, sizeof(scratch->options), node);
+        const char *type = node->fsid < (uint16_t)fs_nextid && fs_names[node->fsid] ? fs_names[node->fsid] : "unknown";
+        char       *destination = *used < capacity ? buffer + *used : buffer + capacity - 1;
+        size_t      remaining   = *used < capacity ? capacity - *used : 0;
+        int         length;
+        if (mountinfo) {
+            length = snprintf(destination, remaining, "%llu %llu 0:%u / %s %s - %s %s %s\n", node->mount_id,
+                              vfs_parent_mount_id(node), (unsigned)node->fsid, scratch->escaped_path, scratch->options, type,
+                              scratch->escaped_source, (node->flags & MOUNT_FLAG_RDONLY) ? "ro" : "rw");
+        } else {
+            length = snprintf(destination, remaining, "%s %s %s %s 0 0\n", scratch->escaped_source, scratch->escaped_path, type,
+                              scratch->options);
+        }
+        if (length > 0) *used += (size_t)length;
+    }
+    for (clist_t child = node->child; child; child = child->next)
+        vfs_format_mount_subtree((vfs_node_t)child->data, buffer, capacity, used, mountinfo, scratch);
+}
+
+size_t vfs_format_mount_table(char *buffer, size_t capacity, bool mountinfo)
+{
+    if (!buffer || !capacity) return 0;
+    vfs_mount_format_scratch_t *scratch = malloc(sizeof(*scratch));
+    if (!scratch) return 0;
+
+    size_t used = 0;
+    buffer[0]   = '\0';
+    spin_lock(&vfs_namespace_lock);
+    vfs_format_mount_subtree(rootdir, buffer, capacity, &used, mountinfo, scratch);
+    spin_unlock(&vfs_namespace_lock);
+    free(scratch);
+
+    if (used >= capacity) {
+        buffer[capacity - 1] = '\0';
+        return capacity - 1;
+    }
+    return used;
 }
 
 /* Read data from a file node into the provided memory buffer */
@@ -977,7 +1174,7 @@ size_t vfs_readlink(vfs_node_t node, char *buf, size_t bufsize)
 }
 
 /* Write data from the provided memory buffer to a file node */
-size_t vfs_write(vfs_node_t file, void *addr, size_t offset, size_t size)
+size_t vfs_write(vfs_node_t file, const void *addr, size_t offset, size_t size)
 {
     if (!file || !addr) return (size_t)-1;
     if (file->flags & VFS_NODE_SWAPFILE) return (size_t)-1;
@@ -1013,6 +1210,10 @@ int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void 
         size_t legacy_ret = callbackof(file, read)(file->handle, addr, offset, size);
         result            = legacy_ret == (size_t)-1 ? -EIO : (int64_t)legacy_ret;
     }
+    /* A filesystem callback may return a short read, but never more bytes
+     * than the caller supplied.  Enforce the contract before the syscall
+     * layer copies from its bounded bounce buffer. */
+    if (result > 0 && (uint64_t)result > size) return -EIO;
     if (result > 0) inotify_notify(file, IN_ACCESS);
     return result;
 }
@@ -1041,6 +1242,7 @@ int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, cons
         size_t legacy_ret = callbackof(file, write)(file->handle, addr, offset, size);
         ret               = legacy_ret == (size_t)-1 ? -EIO : (int64_t)legacy_ret;
     }
+    if (ret > 0 && (uint64_t)ret > size) return -EIO;
 
     if (!mapping) do_update(file);
     if (ret > 0) inotify_notify(file, IN_MODIFY);
@@ -1535,6 +1737,7 @@ void vfs_free(vfs_node_t vfs)
         vfs->handle = 0;
     }
     free(vfs->linkname);
+    free(vfs->mount_source);
     free(vfs->name);
     free(vfs);
 }

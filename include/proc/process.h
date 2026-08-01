@@ -48,11 +48,38 @@ typedef int64_t pid_t;
 #define PROCESS_USER_CODE_MAX  0x00007fffffe00000
 #define PROCESS_USER_STACK_TOP PROCESS_STACK_BASE
 
+/* Linux resource-limit ABI indices.  Keep the table process-owned so limits
+ * are shared by threads, inherited by fork, and preserved across exec. */
+#define PROCESS_RLIMIT_CPU        0
+#define PROCESS_RLIMIT_FSIZE      1
+#define PROCESS_RLIMIT_DATA       2
+#define PROCESS_RLIMIT_STACK      3
+#define PROCESS_RLIMIT_CORE       4
+#define PROCESS_RLIMIT_RSS        5
+#define PROCESS_RLIMIT_NPROC      6
+#define PROCESS_RLIMIT_NOFILE     7
+#define PROCESS_RLIMIT_MEMLOCK    8
+#define PROCESS_RLIMIT_AS         9
+#define PROCESS_RLIMIT_LOCKS      10
+#define PROCESS_RLIMIT_SIGPENDING 11
+#define PROCESS_RLIMIT_MSGQUEUE   12
+#define PROCESS_RLIMIT_NICE       13
+#define PROCESS_RLIMIT_RTPRIO     14
+#define PROCESS_RLIMIT_RTTIME     15
+#define PROCESS_RLIMIT_COUNT      16
+#define PROCESS_RLIM_INFINITY     UINT64_MAX
+
+typedef struct process_rlimit {
+        uint64_t current;
+        uint64_t maximum;
+} process_rlimit_t;
+
 typedef enum {
     VM_READ   = 0x1,
     VM_WRITE  = 0x2,
     VM_EXEC   = 0x4,
     VM_SHARED = 0x8,
+    VM_LAZY   = 0x10,
 } vm_flags_t;
 
 typedef enum {
@@ -105,6 +132,7 @@ typedef struct process_file {
 typedef struct process_fd_stat {
         uint64_t dev;
         uint64_t inode;
+        uint32_t nlink;
         uint32_t mode;
         uint16_t type;
         uint64_t rdev;
@@ -120,17 +148,30 @@ typedef struct process {
         page_directory_t *kernel_page_dir;
         vm_area_t        *mmap_list;
         spinlock_t        mmap_lock;
+        spinlock_t        brk_lock;
         uintptr_t         heap_brk;
         uintptr_t         stack_brk;
         struct process   *parent;
         slist_t           children;
+        wait_queue_t      child_wait; /* fork/exit/wait condition queue */
+        /* vfork completion is separate from child exit: a successful exec
+         * releases the parent while the child remains alive.  The condition
+         * and waiter list are both protected by vfork_wait.lock. */
+        wait_queue_t      vfork_wait;
+        bool              vfork_done;
         int               exit_code;
         uint32_t          uid;
         uint32_t          gid;
         uint16_t          umask;
         uint8_t          *kernel_stack;
         process_file_t   *fds[PROCESS_MAX_FD];
+        /* Descriptor flags belong to an fd table entry, not to the shared
+         * open-file description.  At present Linux defines FD_CLOEXEC as the
+         * sole descriptor flag; keep a full byte per slot for ABI growth. */
+        uint8_t           fd_flags[PROCESS_MAX_FD];
         spinlock_t        fd_lock;
+        process_rlimit_t  rlimits[PROCESS_RLIMIT_COUNT];
+        spinlock_t        rlimit_lock;
         signal_state_t    signal;
         uint32_t          refcount;
         uint32_t          thread_count;
@@ -160,6 +201,12 @@ void process_exit(int exit_code);
 
 /* Reap a zombie child process and collect its exit status */
 int process_wait(pid_t pid, int *exit_code);
+
+#define PROCESS_WAIT_NOHANG 0x00000001U
+
+/* Linux waitpid/wait4 selector semantics.  Returns 0 with *waited_pid == 0
+ * for a successful nonblocking poll, or a negative errno. */
+int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_t *waited_pid);
 
 /* Send a signal to terminate the given process */
 int process_kill(pid_t pid);
@@ -206,6 +253,14 @@ process_t *process_fork_status(int *error);
 /* Fork while propagating a Linux ptrace creation event before enqueue. */
 process_t *process_fork_status_event(int *error, uint32_t ptrace_event);
 
+/* Fork with a pre-published vfork completion state.  The state must be set
+ * before the child is runnable, otherwise a fast exec/exit can be lost. */
+process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, bool vfork);
+
+/* Suspend/release the vfork parent around child exec or exit. */
+void process_vfork_wait(process_t *child);
+void process_vfork_complete(process_t *proc);
+
 /* Clone the current process and make the child return from the syscall frame */
 process_t *process_fork_from_syscall(syscall_frame_t *frame);
 
@@ -225,6 +280,10 @@ int vm_area_insert(process_t *proc, vm_area_t *vma);
 /* Allocate a new virtual memory area in the given process */
 int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flags);
 
+/* Demand-fault a page inside a VM_LAZY mapping: resolve the VMA covering
+ * addr, validate permissions, then allocate and map the physical page. */
+int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec);
+
 /* Unmap a virtual memory area in the given process */
 int process_munmap(process_t *proc, uintptr_t addr, size_t length);
 
@@ -233,6 +292,12 @@ int process_unmap_complete_range(process_t *proc, uintptr_t addr, size_t length)
 
 /* Drop all VMA metadata when replacing a process image. */
 void process_mmap_clear(process_t *proc);
+
+/* Atomically replace a process VMA list and return the detached old list. */
+vm_area_t *process_mmap_replace(process_t *proc, vm_area_t *replacement);
+
+/* Release a detached VMA list, including its file/shared-memory references. */
+void process_mmap_destroy_detached(process_t *proc, vm_area_t *list);
 
 /* Attach an opened VFS node to a file descriptor table */
 int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags);
@@ -259,6 +324,9 @@ int process_fd_poll(process_t *proc, int fd, size_t events);
 
 /* Snapshot metadata from an opened file descriptor */
 int process_fd_stat(process_t *proc, int fd, process_fd_stat_t *stat);
+
+/* Effective descriptor table ceiling after applying RLIMIT_NOFILE. */
+uint32_t process_fd_limit(process_t *proc);
 
 /* Decrement reference count on a file, freeing it when it reaches zero */
 void            process_file_put(process_file_t *file);

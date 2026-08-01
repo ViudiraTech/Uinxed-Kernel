@@ -177,8 +177,8 @@ void ap_init_gdt(cpu_processor_t *cpu)
     cpu->gdt->entries[0] = 0x0000000000000000; // NULL descriptor
     cpu->gdt->entries[1] = 0x00a09a0000000000; // Kernel code segment
     cpu->gdt->entries[2] = 0x00c0920000000000; // Kernel data segment
-    cpu->gdt->entries[3] = 0x00c0f20000000000; // User code segment
-    cpu->gdt->entries[4] = 0x00a0fa0000000000; // User data segment
+    cpu->gdt->entries[3] = 0x00a0fa0000000000; // User code segment
+    cpu->gdt->entries[4] = 0x00c0f20000000000; // User data segment
 
     cpu->gdt->pointer = ((gdt_register_t) {
         .size = (uint16_t)(sizeof(gdt_entries_t) - 1),

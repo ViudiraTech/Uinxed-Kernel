@@ -15,18 +15,23 @@
 #include <mem/heap.h>
 
 int tmpfs_id = 0;
+static int devtmpfs_id = 0;
 
 /* Mount the tmpfs file system to a specified VFS node */
 int tmpfs_mount(const char *handle, vfs_node_t node)
 {
-    if (handle) return -EINVAL;
-    node->fsid = tmpfs_id;
+    /* tmpfs has no block-device source.  mount(8) conventionally supplies
+     * "tmpfs" as the source operand, which is intentionally ignored. */
+    (void)handle;
+    if (!node) return -EINVAL;
 
-    tmpfs_file_t *tmpfs_root = (tmpfs_file_t *)malloc(sizeof(tmpfs_file_t));
+    tmpfs_file_t *tmpfs_root = calloc(1, sizeof(*tmpfs_root));
+    if (!tmpfs_root) return -ENOMEM;
     tmpfs_root->type         = tp_file_dir;
     tmpfs_root->node_type    = file_dir;
     tmpfs_root->node         = node;
     tmpfs_root->root         = node;
+    tmpfs_root->link_count   = 1;
 
     strcpy(tmpfs_root->name, "tmp");
     node->handle = tmpfs_root;
@@ -54,6 +59,7 @@ int tmpfs_mk(void *parent, const char *name, vfs_node_t node, int is_dir)
 
     f->type      = is_dir ? tp_file_dir : tp_file_file;
     f->node_type = is_dir ? file_dir : file_none;
+    f->link_count = 1;
     node->handle = f;
     f->node      = node;
 
@@ -72,16 +78,93 @@ int tmpfs_mkfile(void *parent, const char *name, vfs_node_t node)
     return tmpfs_mk(parent, name, node, 0);
 }
 
+int tmpfs_link(void *parent, const char *target_name, vfs_node_t node)
+{
+    (void)parent;
+    if (!target_name || !node) return -EINVAL;
+
+    vfs_node_t target = vfs_open_nofollow(target_name);
+    if (!target) return -ENOENT;
+    if (target->fsid != tmpfs_id || !target->handle) {
+        vfs_close(target);
+        return -EXDEV;
+    }
+    if (target->type & file_dir) {
+        vfs_close(target);
+        return -EPERM;
+    }
+
+    tmpfs_file_t *inode = target->handle;
+    spin_lock(&inode->link_lock);
+    if (inode->link_count == UINT32_MAX) {
+        spin_unlock(&inode->link_lock);
+        vfs_close(target);
+        return -EMLINK;
+    }
+    inode->link_count++;
+    uint32_t links = inode->link_count;
+    spin_unlock(&inode->link_lock);
+
+    node->handle      = inode;
+    node->type        = target->type & ~file_delete;
+    node->size        = target->size;
+    node->inode       = target->inode;
+    node->nlink       = links;
+    node->blksz       = target->blksz;
+    node->owner       = target->owner;
+    node->group       = target->group;
+    node->mode        = target->mode;
+    node->permissions = target->permissions;
+    node->dev         = target->dev;
+    node->rdev        = target->rdev;
+    node->flags |= target->flags & (MOUNT_FLAG_NOSUID | MOUNT_FLAG_NODEV | MOUNT_FLAG_NOEXEC | MOUNT_FLAG_RDONLY);
+    target->nlink = links;
+    vfs_close(target);
+    return EOK;
+}
+
 /* Read data from a tmpfs regular file */
 size_t tmpfs_read(void *file, void *addr, size_t offset, size_t size)
 {
     tmpfs_file_t *f = (tmpfs_file_t *)file;
+    if (!f || (!addr && size)) return 0;
     if (f->device.read) return f->device.read(f->device.ctx, addr, offset, size);
-    if (offset >= f->size) return 0;
 
+    spin_lock(&f->data_lock);
+    if (offset >= f->size) {
+        spin_unlock(&f->data_lock);
+        return 0;
+    }
     size_t actual = (offset + size > f->size) ? (f->size - offset) : size;
     memcpy(addr, f->data + offset, actual);
+    spin_unlock(&f->data_lock);
     return actual;
+}
+
+static int tmpfs_make_private_locked(tmpfs_file_t *f, size_t minimum_capacity)
+{
+    size_t capacity = f->capacity;
+    char  *data;
+
+    if (minimum_capacity <= capacity && !f->data_external) return EOK;
+    if (capacity < minimum_capacity) {
+        capacity = minimum_capacity;
+        if (capacity <= SIZE_MAX / 2) capacity *= 2;
+    }
+    if (!capacity) capacity = 1;
+
+    if (!f->data_external) {
+        data = realloc(f->data, capacity);
+        if (!data) return -ENOMEM;
+    } else {
+        data = malloc(capacity);
+        if (!data) return -ENOMEM;
+        if (f->size) memcpy(data, f->data, f->size);
+    }
+    f->data          = data;
+    f->capacity      = capacity;
+    f->data_external = false;
+    return EOK;
 }
 
 /* Write data to a tmpfs regular file */
@@ -90,21 +173,20 @@ size_t tmpfs_write(void *file, const void *addr, size_t offset, size_t size)
     tmpfs_file_t *f = (tmpfs_file_t *)file;
     size_t        old_size;
 
+    if (!f || (!addr && size)) return 0;
     if (f->device.write) return f->device.write(f->device.ctx, addr, offset, size);
+    if (!size) return 0;
 
     if (offset > SIZE_MAX - size) return 0;
     size_t end = offset + size;
+    spin_lock(&f->data_lock);
     old_size   = f->size;
 
-    if (end > f->capacity) {
-        size_t new_cap = end;
-        if (new_cap <= SIZE_MAX / 2) new_cap *= 2;
-        char  *new_buf = realloc(f->data, new_cap);
-
-        if (!new_buf) return 0;
-
-        f->data     = new_buf;
-        f->capacity = new_cap;
+    if (end > f->capacity || f->data_external) {
+        if (tmpfs_make_private_locked(f, end) != EOK) {
+            spin_unlock(&f->data_lock);
+            return 0;
+        }
     }
 
     if (offset > old_size) memset(f->data + old_size, 0, offset - old_size);
@@ -112,7 +194,7 @@ size_t tmpfs_write(void *file, const void *addr, size_t offset, size_t size)
     memcpy(f->data + offset, addr, size);
     if (end > f->size) f->size = end;
 
-    f->node->size = f->size;
+    spin_unlock(&f->data_lock);
     return size;
 }
 
@@ -122,17 +204,36 @@ int tmpfs_resize(void *file, uint64_t size)
     if (!f || f->type != tp_file_file || f->device.read || f->device.write) return -EINVAL;
     if (size > SIZE_MAX) return -EFBIG;
     size_t requested = (size_t)size;
-    if (requested > f->capacity) {
-        size_t capacity = requested;
-        if (capacity <= SIZE_MAX / 2) capacity *= 2;
-        char *data = realloc(f->data, capacity);
-        if (!data) return -ENOMEM;
-        f->data     = data;
-        f->capacity = capacity;
+    spin_lock(&f->data_lock);
+    if (requested > f->capacity || (f->data_external && requested != f->size)) {
+        int status = tmpfs_make_private_locked(f, requested);
+        if (status != EOK) {
+            spin_unlock(&f->data_lock);
+            return status;
+        }
     }
     if (requested > f->size) memset(f->data + f->size, 0, requested - f->size);
-    f->size       = requested;
-    f->node->size = requested;
+    f->size = requested;
+    spin_unlock(&f->data_lock);
+    return EOK;
+}
+
+int tmpfs_adopt_file_data(vfs_node_t node, const void *data, size_t size)
+{
+    tmpfs_file_t *f;
+
+    if (!node || node->fsid != tmpfs_id || (!data && size)) return -EINVAL;
+    f = node->handle;
+    if (!f || f->type != tp_file_file || f->device.read || f->device.write || f->device.file_read || f->device.file_write) return -EINVAL;
+
+    spin_lock(&f->data_lock);
+    if (f->data && !f->data_external) free(f->data);
+    f->data          = (char *)data;
+    f->size          = size;
+    f->capacity      = size;
+    f->data_external = true;
+    node->size       = size;
+    spin_unlock(&f->data_lock);
     return EOK;
 }
 
@@ -144,6 +245,9 @@ int tmpfs_stat(void *file, vfs_node_t node)
 
     node->type = file0->node_type;
     node->size = file0->type == tp_file_dir ? 0 : file0->size;
+    spin_lock(&file0->link_lock);
+    node->nlink = file0->link_count;
+    spin_unlock(&file0->link_lock);
     return EOK;
 }
 
@@ -192,12 +296,26 @@ vfs_node_t tmpfs_dup(vfs_node_t node)
     copy->handle      = node->handle;
     copy->type        = node->type;
     copy->size        = node->size;
+    copy->inode       = node->inode;
+    copy->nlink       = node->nlink;
+    copy->dev         = node->dev;
+    copy->rdev        = node->rdev;
+    copy->fsid        = node->fsid;
     copy->linkname    = node->linkname == 0 ? 0 : strdup(node->linkname);
     copy->flags       = node->flags;
     copy->permissions = node->permissions;
+    copy->mode        = node->mode;
     copy->owner       = node->owner;
+    copy->group       = node->group;
     copy->child       = NULL;
     copy->realsize    = node->realsize;
+    tmpfs_file_t *inode = node->handle;
+    if (inode) {
+        spin_lock(&inode->link_lock);
+        if (inode->link_count != UINT32_MAX) inode->link_count++;
+        copy->nlink = inode->link_count;
+        spin_unlock(&inode->link_lock);
+    }
     return copy;
 }
 
@@ -214,6 +332,7 @@ int tmpfs_symlink(void *parent, const char *name, vfs_node_t node)
     f->name[sizeof(f->name) - 1] = '\0';
     f->type      = tp_file_symlink;
     f->node_type = file_symlink;
+    f->link_count = 1;
     node->handle = f;
     f->node      = node;
 
@@ -227,13 +346,22 @@ int tmpfs_free(void *handle)
 
     if (!file) return EOK;
 
+    spin_lock(&file->link_lock);
+    if (file->link_count > 1) {
+        file->link_count--;
+        spin_unlock(&file->link_lock);
+        return EOK;
+    }
+    file->link_count = 0;
+    spin_unlock(&file->link_lock);
+
     if (file->device.destroy) file->device.destroy(file->device.ctx);
 
     if (file->type != tp_file_file) {
         free(file);
         return EOK;
     }
-    if (file->data) free(file->data);
+    if (file->data && !file->data_external) free(file->data);
 
     free(file);
     return EOK;
@@ -326,7 +454,7 @@ static struct vfs_callback tmpfs_callbacks = {
     .readlink     = (vfs_readlink_t)tmpfs_dummy,
     .mkdir        = tmpfs_mkdir,
     .mkfile       = tmpfs_mkfile,
-    .link         = (vfs_mk_t)tmpfs_dummy,
+    .link         = tmpfs_link,
     .symlink      = tmpfs_symlink,
     .stat         = tmpfs_stat,
     .ioctl        = tmpfs_ioctl,
@@ -348,9 +476,15 @@ static struct vfs_callback tmpfs_callbacks = {
 /* Register tmpfs with the VFS layer (initialize tmpfs) */
 void tmpfs_regist(void)
 {
-    tmpfs_id = vfs_regist_fs("tmpfs", &tmpfs_callbacks);
+    tmpfs_id = vfs_regist_fs_flags("tmpfs", &tmpfs_callbacks, VFS_FS_NODEV);
     if (!(tmpfs_id & ERRNO_MASK)) plogk("tmpfs: Filesystem registered (fsid=%d)\n", tmpfs_id);
     if (tmpfs_id & ERRNO_MASK) plogk("tmpfs: Register error.\n");
+
+    /* devtmpfs uses tmpfs storage and device callbacks, but is a distinct
+     * mount type in the userspace ABI (/proc/filesystems and mountinfo). */
+    devtmpfs_id = vfs_regist_fs_flags("devtmpfs", &tmpfs_callbacks, VFS_FS_NODEV);
+    if (!(devtmpfs_id & ERRNO_MASK)) plogk("devtmpfs: Filesystem registered (fsid=%d)\n", devtmpfs_id);
+    if (devtmpfs_id & ERRNO_MASK) plogk("devtmpfs: Register error.\n");
 }
 
 int tmpfs_bind_device(vfs_node_t node, uint16_t node_type, const tmpfs_device_ops_t *device)
@@ -364,5 +498,15 @@ int tmpfs_bind_device(vfs_node_t node, uint16_t node_type, const tmpfs_device_op
     handle->node_type = node_type;
     node->type        = node_type;
     node->flags |= VFS_NODE_NOCACHE;
+    return EOK;
+}
+
+int tmpfs_set_node_type(vfs_node_t node, uint16_t node_type)
+{
+    if (!node || !node->handle) return -EINVAL;
+    tmpfs_file_t *handle = node->handle;
+    if (handle->type != tp_file_file) return -EINVAL;
+    handle->node_type = node_type;
+    node->type        = node_type;
     return EOK;
 }

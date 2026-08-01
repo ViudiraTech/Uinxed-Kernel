@@ -137,23 +137,22 @@ void signal_state_copy(signal_state_t *dst, const signal_state_t *src)
     if (dst != src) spin_lock(&dst->lock);
 
     memcpy(dst->sighand, src->sighand, sizeof(dst->sighand));
-    dst->pending      = src->pending;
+    /* POSIX fork inheritance copies dispositions and the signal mask, but the
+     * child starts with no pending signals and no inherited child-status
+     * notification.  Copying the parent's SIGCHLD here made freshly forked
+     * helpers spuriously interrupt their first blocking syscall. */
+    sigemptyset(&dst->pending);
     dst->blocked      = src->restore_mask ? src->saved_mask : src->blocked;
     dst->saved_mask   = 0;
     dst->restore_mask = false;
 
     sigqueue_flush(dst);
-    sigqueue_t *cur = src->sigqueue_head;
-    while (cur) {
-        (void)sigqueue_push(dst, &cur->info);
-        cur = cur->next;
-    }
 
     dst->altstack           = src->altstack;
-    dst->child_exit_code    = src->child_exit_code;
-    dst->child_exit_pending = src->child_exit_pending;
-    dst->child_exit_pid     = src->child_exit_pid;
-    dst->child_exit_status  = src->child_exit_status;
+    dst->child_exit_code    = 0;
+    dst->child_exit_pending = 0;
+    dst->child_exit_pid     = 0;
+    dst->child_exit_status  = 0;
 
     if (dst != src) spin_unlock(&dst->lock);
     spin_unlock(&((signal_state_t *)src)->lock);
@@ -506,6 +505,24 @@ int signal_has_pending(signal_state_t *state)
     return !sigisemptyset(&ready);
 }
 
+int signal_has_interrupting_pending(signal_state_t *state)
+{
+    if (!state) return 0;
+
+    sigset_t ready = state->pending & ~state->blocked;
+    for (int sig = 1; sig < NSIG; sig++) {
+        if (!sigismember(&ready, sig)) continue;
+
+        sigaction_t *action = &state->sighand[sig];
+        if (action->sa_handler == SIG_IGN) continue;
+        if (action->sa_handler != SIG_DFL) return 1;
+
+        sig_dfl_action_t disposition = signal_default_action(sig);
+        if (disposition == SIG_DFL_TERM || disposition == SIG_DFL_CORE || disposition == SIG_DFL_STOP) return 1;
+    }
+    return 0;
+}
+
 bool signal_is_blocked_or_ignored(process_t *proc, int sig)
 {
     if (!proc || !sig_valid(sig)) return false;
@@ -553,9 +570,26 @@ static int signal_dequeue(signal_state_t *state, siginfo_t *info)
     sigset_t ready = state->pending & ~state->blocked;
     for (int sig = 1; sig < SIGRTMIN; sig++) {
         if (sigismember(&ready, sig)) {
-            memset(info, 0, sizeof(siginfo_t));
-            info->si_signo = sig;
-            info->si_code  = SI_USER;
+            sigqueue_t *cur  = state->sigqueue_head;
+            sigqueue_t *prev = NULL;
+            while (cur && cur->info.si_signo != sig) {
+                prev = cur;
+                cur  = cur->next;
+            }
+            if (cur) {
+                memcpy(info, &cur->info, sizeof(*info));
+                if (prev)
+                    prev->next = cur->next;
+                else
+                    state->sigqueue_head = cur->next;
+                if (state->sigqueue_tail == cur) state->sigqueue_tail = prev;
+                state->sigqueue_count--;
+                sigqueue_free(cur);
+            } else {
+                memset(info, 0, sizeof(*info));
+                info->si_signo = sig;
+                info->si_code  = SI_USER;
+            }
             sigdelset(&state->pending, sig);
             return sig;
         }

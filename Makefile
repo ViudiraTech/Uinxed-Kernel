@@ -405,7 +405,7 @@ HOST_CC        ?= $(CC)
 HOST_CFLAGS    := -Wall -Wextra -O2
 
 QEMU           := qemu-system-x86_64
-QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd -serial stdio
+QEMU_FLAGS     := -machine q35 -m 2048 -smp 4 -bios assets/ovmf-code.fd -serial stdio
 
 TOOL_C_SOURCES := $(wildcard tools/*.c)
 TOOL_TARGETS   := $(TOOL_C_SOURCES:%.c=%)
@@ -417,6 +417,7 @@ CC_FLAGS       := -Wall -Wextra -Wno-unused-function -O3 -g3 -m64 -fpie -ffreest
 LD_FLAGS       := -nostdlib -pie -T assets/linker.ld -m elf_x86_64
 
 INIT_ELF       := assets/Limine/init
+INITRAMFS      := assets/initramfs.cpio
 
 all: Uinxed-x64.iso
 
@@ -446,15 +447,19 @@ $(INIT_ELF): assets/init.S assets/init.ld
 	$(Q)$(LD) -nostdlib -static -T assets/init.ld -m elf_x86_64 -o $@ assets/init.o
 	$(Q)$(RM) assets/init.o
 
+$(INITRAMFS): tools/build-alpine-xfce-rootfs.sh
+	$(Q)tools/build-alpine-xfce-rootfs.sh
+
 UxImage: $(TOOL_TARGETS) $(OBJS) $(LIBS)
 	$(Q)printf "  LD      $@\n"
 	$(Q)$(LD) $(LD_FLAGS) -o $@ $(filter-out $(TOOL_TARGETS),$^)
 
-Uinxed-x64.iso: info UxImage $(INIT_ELF)
+Uinxed-x64.iso: info UxImage $(INIT_ELF) $(INITRAMFS)
 	$(Q)printf "  XORRISO $@\n\n"
 	$(Q)cp -a assets/Limine iso
-	$(Q)cp $(word 2,$^) iso/EFI/Boot
+	$(Q)cp UxImage iso/EFI/Boot
 	$(Q)cp $(INIT_ELF) iso/
+	$(Q)cp $(INITRAMFS) iso/
 	$(Q)xorriso -as mkisofs -R -r -J -b Limine/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 -boot-info-table \
                 -hfsplus -apm-block-size 2048 -efi-boot-part --efi-boot-image --protective-msdos-label \
                 --efi-boot Limine/limine-uefi-cd.bin -o $@ iso
@@ -463,11 +468,12 @@ Uinxed-x64.iso: info UxImage $(INIT_ELF)
 	$(Q)printf "Image: $@ is ready.\n"
 	$(Q)printf "Compilation complete.\n"
 
-.PHONY: help run run-net run-usb disk.img allocator-test fs-test usb-test clean format check gen.clangd menuconfig
+.PHONY: help rootfs run run-net run-usb disk.img allocator-test fs-test usb-test clean format check gen.clangd menuconfig
 
 help: info
 	$(Q)printf "Uinxed-Kernel Makefile Usage:\n"
 	$(Q)printf "  make all         - Build the entire project.\n"
+	$(Q)printf "  make rootfs      - Build the Alpine Xfce initramfs.\n"
 	$(Q)printf "  make run         - Run the Uinxed-x64.iso in QEMU.\n"
 	$(Q)printf "  make run-net     - Run with an isolated user-mode e1000 network.\n"
 	$(Q)printf "  make run-usb     - Run with xHCI, HID, and a USB mass-storage disk.\n"
@@ -481,6 +487,8 @@ help: info
 	$(Q)printf "  make gen.clangd  - Generate .clangd configuration file.\n"
 	$(Q)printf "  make menuconfig  - Run menuconfig to configure the kernel.\n"
 	$(Q)printf "  make help        - Display this help message.\n"
+
+rootfs: $(INITRAMFS)
 
 run: info Uinxed-x64.iso
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(word 2,$^)

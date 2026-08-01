@@ -17,7 +17,7 @@
 #include <libs/std/stdint.h>
 
 /* ===================================================================
- * NCCS â€?number of control characters in c_cc array
+ * NCCS ?number of control characters in c_cc array
  * =================================================================== */
 
 #define NCCS 19
@@ -58,7 +58,7 @@
 #define _VSUSP  VSUSP
 
 /* ===================================================================
- * c_iflag â€?input mode flags
+ * c_iflag ?input mode flags
  * =================================================================== */
 
 #define IGNBRK  0x0001 /* Ignore break condition */
@@ -67,10 +67,10 @@
 #define PARMRK  0x0008 /* Mark parity errors */
 #define INPCK   0x0010 /* Enable input parity check */
 #define ISTRIP  0x0020 /* Strip 8th bit */
-#define INLCR   0x0040 /* Map NL â†?CR on input */
+#define INLCR   0x0040 /* Map NL ?CR on input */
 #define IGNCR   0x0080 /* Ignore CR */
-#define ICRNL   0x0100 /* Map CR â†?NL on input */
-#define IUCLC   0x0200 /* Map uppercase â†?lowercase on input */
+#define ICRNL   0x0100 /* Map CR ?NL on input */
+#define IUCLC   0x0200 /* Map uppercase ?lowercase on input */
 #define IXON    0x0400 /* Enable XON/XOFF flow control on output */
 #define IXANY   0x0800 /* Any character restarts output */
 #define IXOFF   0x1000 /* Enable XON/XOFF flow control on input */
@@ -78,13 +78,13 @@
 #define IUTF8   0x4000 /* Input is UTF-8 */
 
 /* ===================================================================
- * c_oflag â€?output mode flags
+ * c_oflag ?output mode flags
  * =================================================================== */
 
 #define OPOST  0x0001 /* Enable output processing */
-#define OLCUC  0x0002 /* Map lowercase â†?uppercase on output */
-#define ONLCR  0x0004 /* Map NL â†?CR-NL on output */
-#define OCRNL  0x0008 /* Map CR â†?NL on output */
+#define OLCUC  0x0002 /* Map lowercase ?uppercase on output */
+#define ONLCR  0x0004 /* Map NL ?CR-NL on output */
+#define OCRNL  0x0008 /* Map CR ?NL on output */
 #define ONOCR  0x0010 /* No CR output at column 0 */
 #define ONLRET 0x0020 /* NL performs CR function */
 #define OFILL  0x0040 /* Use fill characters for delay */
@@ -114,7 +114,7 @@
 #define XTABS  TAB3 /* Alias for TAB3 (tab expansion) */
 
 /* ===================================================================
- * c_cflag â€?control mode flags
+ * c_cflag ?control mode flags
  * =================================================================== */
 
 #define CBAUD  0x0000100f /* Baud rate mask (legacy) */
@@ -173,7 +173,7 @@
 #define CRTSCTS 0x80000000 /* RTS/CTS (hardware) flow control */
 
 /* ===================================================================
- * c_lflag â€?local mode flags
+ * c_lflag ?local mode flags
  * =================================================================== */
 
 #define ISIG    0x00000001 /* Enable signal-generating chars */
@@ -211,7 +211,7 @@ struct termios {
 };
 
 /* ===================================================================
- * termios2 â€?extended termios with separate input/output baud
+ * termios2 ?extended termios with separate input/output baud
  * =================================================================== */
 
 struct termios2 {
@@ -226,7 +226,7 @@ struct termios2 {
 };
 
 /* ===================================================================
- * winsize â€?terminal window size
+ * winsize ?terminal window size
  * =================================================================== */
 
 struct winsize {
@@ -237,7 +237,7 @@ struct winsize {
 };
 
 /* ===================================================================
- * _IOC macros â€?construct ioctl command numbers
+ * _IOC macros ?construct ioctl command numbers
  * =================================================================== */
 
 #define _IOC_NRBITS   8
@@ -365,6 +365,49 @@ struct winsize {
 
 /* Session ID */
 #define TIOCGSID 0x5429
+
+/* Linux virtual-terminal and console display ioctls used by Xorg. */
+#define KDGETLED   0x4B31
+#define KDSETLED   0x4B32
+#define KDGKBTYPE  0x4B33
+#define KDSETMODE  0x4B3A
+#define KDGETMODE  0x4B3B
+#define KDGKBMODE  0x4B44
+#define KDSKBMODE  0x4B45
+#define KD_TEXT     0x00
+#define KD_GRAPHICS 0x01
+#define K_RAW       0x00
+#define K_XLATE     0x01
+#define K_MEDIUMRAW 0x02
+#define K_UNICODE   0x03
+#define K_OFF       0x04
+#define KB_101      0x02
+
+#define VT_OPENQRY     0x5600
+#define VT_GETMODE     0x5601
+#define VT_SETMODE     0x5602
+#define VT_GETSTATE    0x5603
+#define VT_RELDISP     0x5605
+#define VT_ACTIVATE    0x5606
+#define VT_WAITACTIVE  0x5607
+#define VT_DISALLOCATE 0x5608
+#define VT_AUTO        0x00
+#define VT_PROCESS     0x01
+#define VT_ACKACQ      0x02
+
+struct vt_mode {
+        char  mode;
+        char  waitv;
+        short relsig;
+        short acqsig;
+        short frsig;
+};
+
+struct vt_stat {
+        uint16_t v_active;
+        uint16_t v_signal;
+        uint16_t v_state;
+};
 
 /* RS-485 mode (stubbed) */
 #define TIOCGRS485 0x542E

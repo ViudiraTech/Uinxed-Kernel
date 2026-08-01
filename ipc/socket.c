@@ -1,7 +1,7 @@
 /*
  *
  *      socket.c
- *      BSD Socket API implementation â€?UNIX domain sockets
+ *      BSD Socket API implementation ?UNIX domain sockets
  *
  *      2026/7/22 By JiTianYu391
  *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -9,6 +9,7 @@
  */
 
 #include <fs/core/vfs.h>
+#include <fs/virtual/tmpfs.h>
 #include <ipc/netlink.h>
 #include <ipc/socket.h>
 #include <kernel/errno.h>
@@ -40,7 +41,7 @@
 #define SOCK_SHUT_MASK(how) (1U << (uint32_t)(how))
 
 /* ------------------------------------------------------------------ */
-/*  Blocked-socket tracking â€?maps a blocked socket to its task         */
+/*  Blocked-socket tracking ?maps a blocked socket to its task         */
 /* ------------------------------------------------------------------ */
 
 typedef struct sock_blocked {
@@ -52,7 +53,7 @@ static sock_blocked_t sock_blocked_tab[SOCK_BLOCKED_MAX];
 static spinlock_t     sock_blocked_lock;
 
 /* ------------------------------------------------------------------ */
-/*  Bound-address registry â€?UNIX-domain namespace                      */
+/*  Bound-address registry ?UNIX-domain namespace                      */
 /* ------------------------------------------------------------------ */
 
 typedef struct sock_bound {
@@ -72,7 +73,7 @@ static spinlock_t   sock_bound_lock;
 static int socket_fsid = -1;
 
 /* ------------------------------------------------------------------ */
-/*  Forward declarations â€?internal helpers                             */
+/*  Forward declarations ?internal helpers                             */
 /* ------------------------------------------------------------------ */
 
 static void sock_blocked_register(socket_t *sk, task_t *task);
@@ -104,7 +105,8 @@ static void socket_inet_event(void *argument, uint32_t events)
 static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags);
 static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags);
 static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sockaddr_un_t *addr, uint32_t addrlen, int flags);
-static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *addr, uint32_t *addrlen, int flags);
+static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *addr, uint32_t *addrlen, int flags,
+                           ucred_t *credentials, int *message_flags, size_t *record_size);
 
 static size_t socket_vfs_read(void *file, void *addr, size_t offset, size_t size);
 static size_t socket_vfs_write(void *file, const void *addr, size_t offset, size_t size);
@@ -254,6 +256,33 @@ static uint32_t sock_buf_peek(sock_buf_t *buf, void *data, uint32_t len)
     }
 
     return pk;
+}
+
+static uint32_t sock_buf_peek_at(sock_buf_t *buf, uint32_t offset, void *data, uint32_t len)
+{
+    if (!buf || !buf->data || offset > buf->size) return 0;
+    uint32_t available = buf->size - offset;
+    if (len > available) len = available;
+    if (!len) return 0;
+
+    uint32_t position = (buf->head + offset) % buf->capacity;
+    uint32_t copied = 0;
+    while (copied < len) {
+        uint32_t chunk = buf->capacity - position;
+        if (chunk > len - copied) chunk = len - copied;
+        memcpy((uint8_t *)data + copied, buf->data + position, chunk);
+        copied += chunk;
+        position = (position + chunk) % buf->capacity;
+    }
+    return copied;
+}
+
+static void sock_buf_discard(sock_buf_t *buf, uint32_t len)
+{
+    if (!buf || !buf->data) return;
+    if (len > buf->size) len = buf->size;
+    buf->head = (buf->head + len) % buf->capacity;
+    buf->size -= len;
 }
 
 /* ------------------------------------------------------------------ */
@@ -411,6 +440,53 @@ static void sock_bound_remove(socket_t *sk)
     spin_unlock(&sock_bound_lock);
 }
 
+size_t socket_format_unix_table(char *buffer, size_t capacity)
+{
+    if (!buffer || !capacity) return 0;
+    size_t used = 0;
+    int n = snprintf(buffer, capacity, "Num       RefCount Protocol Flags    Type St Inode Path\n");
+    if (n < 0) return 0;
+    used = (size_t)n < capacity ? (size_t)n : capacity - 1;
+
+    spin_lock(&sock_bound_lock);
+    for (int i = 0; i < SOCK_BOUND_MAX && used < capacity - 1; i++) {
+        sock_bound_t *bound = &sock_bound_tab[i];
+        socket_t     *sk    = bound->sk;
+        if (!sk) continue;
+
+        char   path[UNIX_PATH_MAX + 1];
+        size_t path_len = bound->addrlen > sizeof(uint16_t) ? bound->addrlen - sizeof(uint16_t) : 0;
+        if (path_len > UNIX_PATH_MAX) path_len = UNIX_PATH_MAX;
+        if (bound->abstract) {
+            path[0] = '@';
+            size_t copy_len = path_len > 0 ? path_len - 1 : 0;
+            if (copy_len > UNIX_PATH_MAX - 1) copy_len = UNIX_PATH_MAX - 1;
+            memcpy(path + 1, bound->addr.sun_path + 1, copy_len);
+            path[copy_len + 1] = '\0';
+        } else {
+            size_t copy_len = strnlen_local(bound->addr.sun_path, UNIX_PATH_MAX);
+            memcpy(path, bound->addr.sun_path, copy_len);
+            path[copy_len] = '\0';
+        }
+
+        uint32_t flags = sk->state == SOCK_STATE_LISTENING ? 0x00010000U : 0;
+        uint32_t state = sk->state == SOCK_STATE_CONNECTED ? 3U : sk->state == SOCK_STATE_LISTENING ? 1U : 1U;
+        uint64_t inode = sk->bound_node ? sk->bound_node->inode : sk->node ? sk->node->inode : 0;
+        n = snprintf(buffer + used, capacity - used, "%016llx: %08x %08x %08x %04x %02x %llu %s\n",
+                     (unsigned long long)(uintptr_t)sk, sk->refcount, 0U, flags, sk->type, state, (unsigned long long)inode, path);
+        if (n < 0) break;
+        size_t appended = (size_t)n;
+        if (appended >= capacity - used) {
+            used = capacity - 1;
+            break;
+        }
+        used += appended;
+    }
+    spin_unlock(&sock_bound_lock);
+    buffer[used] = '\0';
+    return used;
+}
+
 /* ------------------------------------------------------------------ */
 /*  UNIX address parsing                                                */
 /* ------------------------------------------------------------------ */
@@ -446,8 +522,12 @@ static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
 {
     socket_t *sk;
 
-    /* Validate family â€?Netlink handled by netlink layer */
-    if (family == AF_NETLINK) { return netlink_sock_alloc(protocol); }
+    /* Validate family ?Netlink handled by netlink layer */
+    if (family == AF_NETLINK) {
+        sk = netlink_sock_alloc(protocol);
+        if (sk) sk->type = type;
+        return sk;
+    }
     if (family != AF_UNIX && family != AF_LOCAL) return NULL;
 
     /* Validate type */
@@ -552,6 +632,13 @@ static void socket_free(socket_t *sk)
     /* Remove from bound registry */
     sock_bound_remove(sk);
 
+    /* A pathname socket inode persists after close, as on Linux.  Drop only
+     * the endpoint's retained VFS reference; unlink(2) owns namespace removal. */
+    if (sk->bound_node) {
+        vfs_close(sk->bound_node);
+        sk->bound_node = NULL;
+    }
+
     /* Wake any blocked tasks */
     sock_blocked_wake_all(sk);
 
@@ -653,7 +740,7 @@ static int socket_fd_nonblock(int fd)
 }
 
 /* ------------------------------------------------------------------ */
-/*  socket_from_fd â€?find a socket by fd in the current process         */
+/*  socket_from_fd ?find a socket by fd in the current process         */
 /*  NOTE: returns a weak pointer (no refcount bump).                    */
 /*  The caller must ensure the socket stays alive during use.           */
 /* ------------------------------------------------------------------ */
@@ -772,39 +859,30 @@ static int unix_bind(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen)
         /* Check path length */
         if (strnlen_local(path, UNIX_PATH_MAX) >= UNIX_PATH_MAX) return -ENAMETOOLONG;
 
-        /* Try to create the file */
+        /* AF_UNIX pathname ownership follows the filesystem namespace.  An
+         * existing inode is EADDRINUSE even with SO_REUSEADDR; applications
+         * that own a stale entry must unlink it explicitly. */
         ret = vfs_mkfile(path);
-        if (ret != EOK) {
-            /* If file exists, try to unlink it first (if SO_REUSEADDR) */
-            if (sk->reuseaddr) {
-                vfs_node_t existing = vfs_open(path);
-                if (existing) {
-                    if (existing->type == file_socket) { vfs_delete(existing); }
-                    vfs_close(existing);
-                }
-                ret = vfs_mkfile(path);
-                if (ret != EOK) return -EADDRINUSE;
-            } else {
-                return -EADDRINUSE;
-            }
-        }
+        if (ret != EOK) return ret == -EEXIST ? -EADDRINUSE : ret;
 
         file_node = vfs_open(path);
-        if (!file_node) return -EADDRNOTAVAIL;
-
-        file_node->type   = file_socket;
-        file_node->handle = sk;
-        file_node->fsid   = socket_fsid;
-        sk->node          = file_node;
-
-        /* Mark as visited */
-        file_node->visited = 1;
+        if (!file_node) return -EIO;
+        ret = tmpfs_set_node_type(file_node, file_socket);
+        if (ret != EOK) {
+            vfs_delete(file_node);
+            vfs_close(file_node);
+            return ret;
+        }
+        sk->bound_node = file_node;
     }
 
     /* Register in bound table */
     ret = sock_bound_add(sk, addr, addrlen, abstract);
     if (ret != EOK) {
-        if (!abstract && sk->node) { /* Clean up VFS node */
+        if (!abstract && sk->bound_node) {
+            vfs_delete(sk->bound_node);
+            vfs_close(sk->bound_node);
+            sk->bound_node = NULL;
         }
         return ret;
     }
@@ -828,7 +906,7 @@ static int unix_listen(socket_t *sk, uint32_t backlog)
     spin_lock(&sk->lock);
 
     if (sk->state == SOCK_STATE_LISTENING) {
-        /* Already listening â€?just update backlog */
+        /* Already listening ?just update backlog */
         if (backlog > SOCK_ACCEPT_QUEUE_MAX) backlog = SOCK_ACCEPT_QUEUE_MAX;
         sk->backlog = backlog;
         spin_unlock(&sk->lock);
@@ -879,6 +957,10 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
     if (listener->state != SOCK_STATE_LISTENING) {
         spin_unlock(&listener->lock);
         return -ECONNREFUSED;
+    }
+    if (listener->type != sk->type) {
+        spin_unlock(&listener->lock);
+        return -EPROTOTYPE;
     }
 
     /* Check backlog */
@@ -1190,6 +1272,135 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
     return ret;
 }
 
+/* SOCK_SEQPACKET preserves record boundaries.  Store each record as a native
+ * 32-bit length followed by its bytes in the peer's private ring.  The ring is
+ * protected by peer->lock, so publishing the header and payload is atomic to
+ * readers. */
+static int unix_seqpacket_send(socket_t *sk, const void *buf, size_t len, int flags)
+{
+    const uint32_t header_size = sizeof(uint32_t);
+    int is_nonblock = (flags & MSG_DONTWAIT) || (sk->flags & SOCK_NONBLOCK);
+    if (len > UINT32_MAX || len > SOCK_BUF_MAX - header_size) return -EMSGSIZE;
+
+    spin_lock(&sk->lock);
+    if (sk->shutdown_mask & SOCK_SHUT_MASK(SHUT_WR)) {
+        spin_unlock(&sk->lock);
+        return -EPIPE;
+    }
+    if (sk->state != SOCK_STATE_CONNECTED || !sk->peer) {
+        spin_unlock(&sk->lock);
+        return -ENOTCONN;
+    }
+    socket_t *peer = sk->peer;
+    socket_ref(peer);
+    spin_unlock(&sk->lock);
+
+    spin_lock(&peer->lock);
+    uint32_t needed = header_size + (uint32_t)len;
+    if (needed > peer->recv_buf.capacity) {
+        spin_unlock(&peer->lock);
+        socket_unref(peer);
+        return -EMSGSIZE;
+    }
+    while (sock_buf_space(&peer->recv_buf) < needed) {
+        if (peer->shutdown_mask & SOCK_SHUT_MASK(SHUT_RD) || peer->state == SOCK_STATE_DISCONNECTING) {
+            spin_unlock(&peer->lock);
+            socket_unref(peer);
+            return -EPIPE;
+        }
+        if (is_nonblock) {
+            spin_unlock(&peer->lock);
+            socket_unref(peer);
+            return -EAGAIN;
+        }
+        sock_blocked_register(sk, current_task());
+        spin_unlock(&peer->lock);
+        task_block();
+        spin_lock(&peer->lock);
+        sock_blocked_unregister(sk);
+    }
+
+    uint32_t record_len = (uint32_t)len;
+    if (sock_buf_write(&peer->recv_buf, &record_len, header_size) != header_size ||
+        (record_len && sock_buf_write(&peer->recv_buf, buf, record_len) != record_len)) {
+        /* Space was reserved while holding the lock; reaching this path means
+         * ring corruption rather than a short write. */
+        spin_unlock(&peer->lock);
+        socket_unref(peer);
+        return -EIO;
+    }
+    spin_unlock(&peer->lock);
+
+    sock_blocked_wake(peer);
+    if (peer->node) vfs_poll_notify(peer->node, 0x001);
+    socket_unref(peer);
+    return (int)len;
+}
+
+static int unix_seqpacket_recv(socket_t *sk, void *buf, size_t len, int flags, int *message_flags, size_t *record_size)
+{
+    const uint32_t header_size = sizeof(uint32_t);
+    int is_nonblock = (flags & MSG_DONTWAIT) || (sk->flags & SOCK_NONBLOCK);
+    int peek = (flags & MSG_PEEK) != 0;
+    socket_t *peer;
+    uint32_t packet_len;
+
+    if (message_flags) *message_flags = 0;
+    if (record_size) *record_size = 0;
+
+    spin_lock(&sk->lock);
+    for (;;) {
+        uint32_t available = sock_buf_available(&sk->recv_buf);
+        if (available >= header_size) {
+            if (sock_buf_peek(&sk->recv_buf, &packet_len, header_size) != header_size ||
+                packet_len > sk->recv_buf.capacity - header_size) {
+                spin_unlock(&sk->lock);
+                return -EIO;
+            }
+            if (available >= header_size + packet_len) break;
+        }
+
+        peer = sk->peer;
+        if (sk->shutdown_mask & SOCK_SHUT_MASK(SHUT_RD) || sk->state == SOCK_STATE_DISCONNECTING || !peer) {
+            spin_unlock(&sk->lock);
+            return 0;
+        }
+        if (sk->state != SOCK_STATE_CONNECTED) {
+            spin_unlock(&sk->lock);
+            return -ENOTCONN;
+        }
+        if (is_nonblock) {
+            spin_unlock(&sk->lock);
+            return -EAGAIN;
+        }
+        sock_blocked_register(sk, current_task());
+        spin_unlock(&sk->lock);
+        task_block();
+        spin_lock(&sk->lock);
+        sock_blocked_unregister(sk);
+    }
+
+    size_t copied = len < packet_len ? len : packet_len;
+    if (copied && sock_buf_peek_at(&sk->recv_buf, header_size, buf, (uint32_t)copied) != copied) {
+        spin_unlock(&sk->lock);
+        return -EIO;
+    }
+    if (!peek) sock_buf_discard(&sk->recv_buf, header_size + packet_len);
+    peer = sk->peer;
+    spin_unlock(&sk->lock);
+
+    if (message_flags) {
+        *message_flags |= MSG_EOR;
+        if (copied < packet_len) *message_flags |= MSG_TRUNC;
+    }
+    if (record_size) *record_size = packet_len;
+    if (!peek && peer) {
+        sock_blocked_wake(peer);
+        if (peer->node) vfs_poll_notify(peer->node, 0x004);
+    }
+    return (int)copied;
+}
+
 /* ------------------------------------------------------------------ */
 /*  UNIX datagram send                                                  */
 /* ------------------------------------------------------------------ */
@@ -1205,7 +1416,8 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
 
     is_nonblock = (flags & MSG_DONTWAIT) || (sk->flags & SOCK_NONBLOCK);
 
-    if (len > SOCK_BUF_MAX) return -EMSGSIZE;
+    const uint32_t header_size = sizeof(uint32_t) + sizeof(sockaddr_un_t) + sizeof(ucred_t);
+    if (len > SOCK_BUF_MAX - header_size) return -EMSGSIZE;
 
     /* If no destination address, use peer address (connected dgram) */
     if (addr && addrlen > 0) {
@@ -1223,45 +1435,40 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
     if (dest == sk) return -EINVAL;
 
     spin_lock(&dest->lock);
-
-    /* Check if there's enough space */
-    uint32_t space = sock_buf_space(&dest->recv_buf);
-    if (len > space) {
+    uint32_t total = header_size + (uint32_t)len;
+    if (total > dest->recv_buf.capacity) {
+        spin_unlock(&dest->lock);
+        return -EMSGSIZE;
+    }
+    while (sock_buf_space(&dest->recv_buf) < total) {
+        if (dest->shutdown_mask & SOCK_SHUT_MASK(SHUT_RD) || dest->state == SOCK_STATE_DISCONNECTING) {
+            spin_unlock(&dest->lock);
+            return -ECONNREFUSED;
+        }
         if (is_nonblock) {
             spin_unlock(&dest->lock);
             return -EAGAIN;
         }
-        /* Wait for space */
-        while (sock_buf_space(&dest->recv_buf) < (uint32_t)len) {
-            sock_blocked_register(sk, current_task());
-            spin_unlock(&dest->lock);
-            task_block();
-            spin_lock(&dest->lock);
-            sock_blocked_unregister(sk);
-        }
-    }
-
-    /* For dgram, we need to preserve message boundaries. */
-    /* We prepend a small header with the sender address and length. */
-
-    /* Calculate total: 4 bytes length + sender address */
-    uint32_t hdr_len = 4 + sizeof(sockaddr_un_t);
-    uint32_t total   = hdr_len + (uint32_t)len;
-
-    if (total > sock_buf_space(&dest->recv_buf)) {
+        sock_blocked_register(dest, current_task());
         spin_unlock(&dest->lock);
-        return -ENOBUFS;
+        task_block();
+        spin_lock(&dest->lock);
+        sock_blocked_unregister(dest);
     }
 
-    /* Write header: message length */
+    ucred_t sender = {0};
+    process_t *process = process_current();
+    if (process) {
+        sender.pid = (uint32_t)(process->task ? process->task->tgid : 0);
+        sender.uid = process->uid;
+        sender.gid = process->gid;
+    }
     uint32_t msg_len = (uint32_t)len;
-    sock_buf_write(&dest->recv_buf, &msg_len, 4);
-
-    /* Write header: sender address */
-    sock_buf_write(&dest->recv_buf, &sk->local_addr, sizeof(sockaddr_un_t));
-
-    /* Write payload */
-    uint32_t written = sock_buf_write(&dest->recv_buf, buf, (uint32_t)len);
+    uint32_t written = 0;
+    if (sock_buf_write(&dest->recv_buf, &msg_len, sizeof(msg_len)) == sizeof(msg_len) &&
+        sock_buf_write(&dest->recv_buf, &sk->local_addr, sizeof(sockaddr_un_t)) == sizeof(sockaddr_un_t) &&
+        sock_buf_write(&dest->recv_buf, &sender, sizeof(sender)) == sizeof(sender))
+        written = msg_len ? sock_buf_write(&dest->recv_buf, buf, msg_len) : 0;
 
     spin_unlock(&dest->lock);
 
@@ -1269,7 +1476,7 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
     sock_blocked_wake(dest);
     if (dest->node) vfs_poll_notify(dest->node, 0x001);
 
-    if (written < (uint32_t)len) return -ENOBUFS;
+    if (written < (uint32_t)len) return -EIO;
 
     return (int)written;
 }
@@ -1278,25 +1485,43 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
 /*  UNIX datagram recv                                                  */
 /* ------------------------------------------------------------------ */
 
-static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *addr, uint32_t *addrlen, int flags)
+static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *addr, uint32_t *addrlen, int flags,
+                           ucred_t *credentials, int *message_flags, size_t *record_size)
 {
     int           is_nonblock;
     int           peek;
     uint32_t      msg_len;
     sockaddr_un_t sender_addr;
+    ucred_t       sender_credentials;
+    const uint32_t header_size = sizeof(uint32_t) + sizeof(sockaddr_un_t) + sizeof(ucred_t);
 
     if (sk->type != SOCK_DGRAM) return -EOPNOTSUPP;
 
     is_nonblock = (flags & MSG_DONTWAIT) || (sk->flags & SOCK_NONBLOCK);
     peek        = (flags & MSG_PEEK) ? 1 : 0;
+    if (message_flags) *message_flags = 0;
+    if (record_size) *record_size = 0;
 
     spin_lock(&sk->lock);
 
-    /* Wait for at least the header */
-    while (sock_buf_available(&sk->recv_buf) < 4 + sizeof(sockaddr_un_t)) {
+    /* Writers publish a complete framed datagram under this same lock. */
+    for (;;) {
+        uint32_t available = sock_buf_available(&sk->recv_buf);
+        if (available >= header_size) {
+            if (sock_buf_peek_at(&sk->recv_buf, 0, &msg_len, sizeof(msg_len)) != sizeof(msg_len) ||
+                msg_len > sk->recv_buf.capacity - header_size) {
+                spin_unlock(&sk->lock);
+                return -EIO;
+            }
+            if (available >= header_size + msg_len) break;
+        }
         if (is_nonblock) {
             spin_unlock(&sk->lock);
             return -EAGAIN;
+        }
+        if (sk->shutdown_mask & SOCK_SHUT_MASK(SHUT_RD) || sk->state == SOCK_STATE_DISCONNECTING) {
+            spin_unlock(&sk->lock);
+            return 0;
         }
         sock_blocked_register(sk, current_task());
         spin_unlock(&sk->lock);
@@ -1305,53 +1530,23 @@ static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *a
         sock_blocked_unregister(sk);
     }
 
-    /* Read header */
-    if (peek) {
-        sock_buf_peek(&sk->recv_buf, &msg_len, 4);
-        sock_buf_peek(&sk->recv_buf, &sender_addr, sizeof(sockaddr_un_t));
-        /* Need to peek past the header - skip 4 bytes then peek addr */
-        /* Actually, peek is sequential, so we need to re-peek from start */
-        /* Let's read and then push back. For simplicity, read and discard. */
-        /* For proper peek, we'd need a more complex approach. */
-        /* For now, peek reads the header but doesn't advance. */
-        uint8_t hdr_buf[4 + sizeof(sockaddr_un_t)];
-        sock_buf_peek(&sk->recv_buf, hdr_buf, sizeof(hdr_buf));
-        memcpy(&msg_len, hdr_buf, 4);
-        memcpy(&sender_addr, hdr_buf + 4, sizeof(sockaddr_un_t));
-    } else {
-        sock_buf_read(&sk->recv_buf, &msg_len, 4);
-        sock_buf_read(&sk->recv_buf, &sender_addr, sizeof(sockaddr_un_t));
+    if (sock_buf_peek_at(&sk->recv_buf, sizeof(uint32_t), &sender_addr, sizeof(sender_addr)) != sizeof(sender_addr) ||
+        sock_buf_peek_at(&sk->recv_buf, sizeof(uint32_t) + sizeof(sender_addr), &sender_credentials,
+                         sizeof(sender_credentials)) != sizeof(sender_credentials)) {
+        spin_unlock(&sk->lock);
+        return -EIO;
     }
 
     /* Now read the payload */
     uint32_t payload = (uint32_t)len;
     if (payload > msg_len) payload = msg_len;
 
-    uint32_t avail = sock_buf_available(&sk->recv_buf);
-    if (payload > avail) payload = avail;
-
-    uint32_t rd;
-    if (peek) {
-        rd = sock_buf_peek(&sk->recv_buf, buf, payload);
-    } else {
-        rd = sock_buf_read(&sk->recv_buf, buf, payload);
+    uint32_t rd = payload ? sock_buf_peek_at(&sk->recv_buf, header_size, buf, payload) : 0;
+    if (rd != payload) {
+        spin_unlock(&sk->lock);
+        return -EIO;
     }
-
-    /* If we read less than the full message, discard the rest */
-    if (!peek && msg_len > rd) {
-        uint32_t remaining  = msg_len - rd;
-        uint32_t to_discard = remaining;
-        if (to_discard > sock_buf_available(&sk->recv_buf)) to_discard = sock_buf_available(&sk->recv_buf);
-        /* Discard by advancing head */
-        while (to_discard > 0) {
-            uint32_t chunk     = to_discard;
-            uint32_t avail_now = sock_buf_available(&sk->recv_buf);
-            if (chunk > avail_now) chunk = avail_now;
-            sk->recv_buf.head = (sk->recv_buf.head + chunk) % sk->recv_buf.capacity;
-            sk->recv_buf.size -= chunk;
-            to_discard -= chunk;
-        }
-    }
+    if (!peek) sock_buf_discard(&sk->recv_buf, header_size + msg_len);
 
     spin_unlock(&sk->lock);
 
@@ -1360,6 +1555,15 @@ static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *a
         uint32_t copy_len = *addrlen < sizeof(sender_addr) ? *addrlen : sizeof(sender_addr);
         memcpy(addr, &sender_addr, copy_len);
         *addrlen = sizeof(sender_addr);
+    }
+
+    if (credentials) *credentials = sender_credentials;
+    if (message_flags && rd < msg_len) *message_flags |= MSG_TRUNC;
+    if (record_size) *record_size = msg_len;
+
+    if (!peek) {
+        sock_blocked_wake_all(sk);
+        if (sk->node) vfs_poll_notify(sk->node, 0x004);
     }
 
     return (int)rd;
@@ -1453,7 +1657,9 @@ static size_t socket_vfs_read(void *file, void *addr, size_t offset, size_t size
     }
 
     if (sk->type == SOCK_DGRAM) {
-        ret = unix_dgram_recv(sk, addr, size, NULL, NULL, sk->flags);
+        ret = unix_dgram_recv(sk, addr, size, NULL, NULL, sk->flags, NULL, NULL, NULL);
+    } else if (sk->type == SOCK_SEQPACKET) {
+        ret = unix_seqpacket_recv(sk, addr, size, 0, NULL, NULL);
     } else {
         ret = unix_stream_recv(sk, addr, size, 0);
     }
@@ -1485,6 +1691,8 @@ static size_t socket_vfs_write(void *file, const void *addr, size_t offset, size
 
     if (sk->type == SOCK_DGRAM) {
         ret = unix_dgram_send(sk, addr, size, NULL, 0, sk->flags);
+    } else if (sk->type == SOCK_SEQPACKET) {
+        ret = unix_seqpacket_send(sk, addr, size, 0);
     } else {
         ret = unix_stream_send(sk, addr, size, 0);
     }
@@ -1504,8 +1712,11 @@ static int64_t socket_vfs_file_read(vfs_node_t node, void *private_data, uint64_
         return ops && ops->recvfrom ? ops->recvfrom(sk->priv, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0, NULL, NULL) : -EOPNOTSUPP;
     }
     if (sk->socket_read) return sk->socket_read(sk, addr, size, NULL, NULL);
-    return sk->type == SOCK_DGRAM ? unix_dgram_recv(sk, addr, size, NULL, NULL, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0) :
-                                    unix_stream_recv(sk, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0);
+    if (sk->type == SOCK_DGRAM)
+        return unix_dgram_recv(sk, addr, size, NULL, NULL, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0, NULL, NULL, NULL);
+    if (sk->type == SOCK_SEQPACKET)
+        return unix_seqpacket_recv(sk, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0, NULL, NULL);
+    return unix_stream_recv(sk, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0);
 }
 
 static int64_t socket_vfs_file_write(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
@@ -1519,8 +1730,9 @@ static int64_t socket_vfs_file_write(vfs_node_t node, void *private_data, uint64
         return ops && ops->sendto ? ops->sendto(sk->priv, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0, NULL, 0) : -EOPNOTSUPP;
     }
     if (sk->socket_write) return sk->socket_write(sk, addr, size, NULL, 0);
-    return sk->type == SOCK_DGRAM ? unix_dgram_send(sk, addr, size, NULL, 0, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0) :
-                                    unix_stream_send(sk, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0);
+    if (sk->type == SOCK_DGRAM) return unix_dgram_send(sk, addr, size, NULL, 0, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0);
+    if (sk->type == SOCK_SEQPACKET) return unix_seqpacket_send(sk, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0);
+    return unix_stream_send(sk, addr, size, (flags & O_NONBLOCK) ? MSG_DONTWAIT : 0);
 }
 
 static int socket_vfs_poll(void *file, size_t events)
@@ -1562,6 +1774,11 @@ static int socket_vfs_free(void *handle)
 
     /* Remove from bound registry */
     sock_bound_remove(sk);
+
+    if (sk->bound_node) {
+        vfs_close(sk->bound_node);
+        sk->bound_node = NULL;
+    }
 
     /* Wake all blocked tasks */
     sock_blocked_wake_all(sk);
@@ -1977,8 +2194,8 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
         return inet_ret;
     }
 
-    /* Netlink: use polymorphic write op */
-    if (sk->socket_write) {
+    /* Netlink datagrams retain their destination and operation flags. */
+    if (sk->family == AF_NETLINK) {
         sockaddr_nl_t nladdr;
         const void   *nladdr_ptr = NULL;
         if (addr) {
@@ -1994,7 +2211,8 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
             free(kbuf_nl);
             return -EFAULT;
         }
-        int ret_nl = sk->socket_write(sk, kbuf_nl, len, nladdr_ptr, addr ? sizeof(nladdr) : 0);
+        if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
+        int ret_nl = netlink_sendmsg(sk, kbuf_nl, len, nladdr_ptr, addr ? sizeof(nladdr) : 0, flags);
         free(kbuf_nl);
         return (int64_t)ret_nl;
     }
@@ -2021,6 +2239,8 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
         } else {
             ret = unix_dgram_send(sk, kbuf, len, NULL, 0, flags);
         }
+    } else if (sk->type == SOCK_SEQPACKET) {
+        ret = unix_seqpacket_send(sk, kbuf, len, flags);
     } else {
         ret = unix_stream_send(sk, kbuf, len, flags);
     }
@@ -2065,35 +2285,66 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr,
         return inet_ret;
     }
 
-    if (len == 0) return 0;
-
     if (len > SOCK_BUF_MAX) len = SOCK_BUF_MAX;
 
-    /* Netlink: use polymorphic read op */
-    if (sk->socket_read) {
+    if (sk->family == AF_NETLINK) {
+        sockaddr_nl_t sender;
+        uint32_t      sender_uid;
+        uint32_t      sender_gid;
+        int           message_flags;
+
+        if ((addr == NULL) != (addrlen == NULL)) return -EFAULT;
         kbuf = malloc(len);
         if (!kbuf) return -ENOMEM;
-        ret = sk->socket_read(sk, kbuf, len, addr, addrlen);
+        if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
+        ret = netlink_recvmsg_kern(sk, kbuf, len, addr ? &sender : NULL, flags, &sender_uid, &sender_gid, &message_flags);
         if (ret > 0) {
-            if (copy_to_user(buf, kbuf, (size_t)ret)) {
+            size_t copied = (size_t)ret < len ? (size_t)ret : len;
+            if (copy_to_user(buf, kbuf, copied)) {
                 free(kbuf);
                 return -EFAULT;
             }
+        }
+        if (ret >= 0 && addr) {
+            int copy_ret = socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&sender, sizeof(sender));
+            if (copy_ret < 0) ret = copy_ret;
         }
         free(kbuf);
         return (int64_t)ret;
     }
 
-    kbuf = malloc(len);
-    if (!kbuf) return -ENOMEM;
+    kbuf = len ? malloc(len) : NULL;
+    if (len && !kbuf) return -ENOMEM;
 
     if (sk->type == SOCK_DGRAM) {
         sockaddr_un_t sender;
         uint32_t      sender_len = sizeof(sender);
-        ret                      = unix_dgram_recv(sk, kbuf, len, addr ? &sender : NULL, addr ? &sender_len : NULL, flags);
+        size_t record_len = 0;
+        ret = unix_dgram_recv(sk, kbuf, len, addr ? &sender : NULL, addr ? &sender_len : NULL, flags, NULL, NULL, &record_len);
         if (ret >= 0 && addr) {
             int copy_ret = socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&sender, sender_len);
             if (copy_ret < 0) ret = copy_ret;
+        }
+        if (ret >= 0 && (flags & MSG_TRUNC)) {
+            int copied = ret;
+            if (copied > 0 && copy_to_user(buf, kbuf, (size_t)copied)) {
+                free(kbuf);
+                return -EFAULT;
+            }
+            free(kbuf);
+            return (int64_t)record_len;
+        }
+    } else if (sk->type == SOCK_SEQPACKET) {
+        size_t record_len = 0;
+        ret = unix_seqpacket_recv(sk, kbuf, len, flags, NULL, &record_len);
+        if (ret >= 0 && (flags & MSG_TRUNC)) {
+            int copied = ret;
+            if (copied > 0 && copy_to_user(buf, kbuf, (size_t)copied)) {
+                free(kbuf);
+                return -EFAULT;
+            }
+            free(kbuf);
+            return (int64_t)record_len;
         }
     } else {
         ret = unix_stream_recv(sk, kbuf, len, flags);
@@ -2137,7 +2388,7 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
     }
 
     /* Netlink: copy the optional destination before entering the backend. */
-    if (sk->socket_write) {
+    if (sk->family == AF_NETLINK) {
         sockaddr_nl_t nladdr;
         const void   *dest = NULL;
         if (kmsg->msg_name) {
@@ -2147,7 +2398,8 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
         } else if (kmsg->msg_namelen) {
             return -EINVAL;
         }
-        return (int64_t)sk->socket_write(sk, kbuf, total_len, dest, dest ? sizeof(nladdr) : 0);
+        if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
+        return (int64_t)netlink_sendmsg(sk, kbuf, total_len, dest, dest ? sizeof(nladdr) : 0, flags);
     }
 
     if (sk->type == SOCK_DGRAM) {
@@ -2159,6 +2411,8 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
         } else {
             ret = unix_dgram_send(sk, kbuf, total_len, NULL, 0, flags);
         }
+    } else if (sk->type == SOCK_SEQPACKET) {
+        ret = unix_seqpacket_send(sk, kbuf, total_len, flags);
     } else {
         ret = unix_stream_send(sk, kbuf, total_len, flags);
     }
@@ -2199,14 +2453,16 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
         return ret;
     }
 
-    /* Netlink: use polymorphic read */
-    if (sk->socket_read) {
-        /* The legacy netlink callback handles user addresses internally; recvmsg
-         * cannot provide its scalar msg_namelen as an addrlen pointer safely. */
-        ret = sk->socket_read(sk, kbuf, total_len, NULL, NULL);
+    if (sk->family == AF_NETLINK) {
+        sockaddr_nl_t sender;
+        uint32_t      sender_uid = 0;
+        uint32_t      sender_gid = 0;
+
+        if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
+        ret = netlink_recvmsg_kern(sk, kbuf, total_len, &sender, flags, &sender_uid, &sender_gid, &msg_flags);
         if (ret > 0) {
             uint8_t *src       = (uint8_t *)kbuf;
-            size_t   remaining = (size_t)ret;
+            size_t   remaining = (size_t)ret < total_len ? (size_t)ret : total_len;
             for (size_t i = 0; i < kmsg->msg_iovlen && remaining > 0; i++) {
                 size_t chunk = iov[i].iov_len;
                 if (chunk > remaining) chunk = remaining;
@@ -2215,20 +2471,114 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
                 remaining -= chunk;
             }
         }
-        kmsg->msg_flags      = 0;
-        kmsg->msg_controllen = 0;
-        kmsg->msg_namelen    = 0;
+        if (ret >= 0 && kmsg->msg_name) {
+            uint32_t copylen = kmsg->msg_namelen < sizeof(sender) ? kmsg->msg_namelen : sizeof(sender);
+            if (copylen && copy_to_user(kmsg->msg_name, &sender, copylen)) return -EFAULT;
+            kmsg->msg_namelen = sizeof(sender);
+        } else if (ret >= 0) {
+            kmsg->msg_namelen = 0;
+        }
+
+        size_t control_capacity = kmsg->msg_controllen;
+        kmsg->msg_controllen    = 0;
+        if (ret >= 0 && (sk->passcred || netlink_packet_info_enabled(sk))) {
+            uint8_t control[CMSG_SPACE(sizeof(ucred_t)) + CMSG_SPACE(sizeof(nl_pktinfo_t))];
+            size_t  used = 0;
+            memset(control, 0, sizeof(control));
+
+            if (sk->passcred) {
+                cmsghdr_t *cmsg = (cmsghdr_t *)(control + used);
+                cmsg->cmsg_len   = CMSG_LEN(sizeof(ucred_t));
+                cmsg->cmsg_level = SOL_SOCKET;
+                cmsg->cmsg_type  = SCM_CREDENTIALS;
+                ucred_t credentials = {.pid = sender.nl_pid, .uid = sender_uid, .gid = sender_gid};
+                memcpy(CMSG_DATA(cmsg), &credentials, sizeof(credentials));
+                used += CMSG_SPACE(sizeof(credentials));
+            }
+            if (netlink_packet_info_enabled(sk)) {
+                cmsghdr_t *cmsg = (cmsghdr_t *)(control + used);
+                cmsg->cmsg_len   = CMSG_LEN(sizeof(nl_pktinfo_t));
+                cmsg->cmsg_level = SOL_NETLINK;
+                cmsg->cmsg_type  = NETLINK_PKTINFO;
+                nl_pktinfo_t packet_info = {.group = sender.nl_groups ? (uint32_t)__builtin_ctz(sender.nl_groups) + 1U : 0U};
+                memcpy(CMSG_DATA(cmsg), &packet_info, sizeof(packet_info));
+                used += CMSG_SPACE(sizeof(packet_info));
+            }
+            if (kmsg->msg_control && control_capacity >= used) {
+                if (copy_to_user(kmsg->msg_control, control, used)) return -EFAULT;
+                kmsg->msg_controllen = used;
+            } else if (used) {
+                msg_flags |= MSG_CTRUNC;
+            }
+        }
+        kmsg->msg_flags = msg_flags;
         return (int64_t)ret;
     }
 
     if (sk->type == SOCK_DGRAM) {
         sockaddr_un_t sender;
         uint32_t      sender_len = sizeof(sender);
-        ret = unix_dgram_recv(sk, kbuf, total_len, kmsg->msg_name ? &sender : NULL, kmsg->msg_name ? &sender_len : NULL, flags);
+        ucred_t       sender_credentials;
+        size_t        record_len = 0;
+        ret = unix_dgram_recv(sk, kbuf, total_len, kmsg->msg_name ? &sender : NULL, kmsg->msg_name ? &sender_len : NULL, flags,
+                              &sender_credentials, &msg_flags, &record_len);
         if (ret >= 0 && kmsg->msg_name) {
             uint32_t copylen = kmsg->msg_namelen < sender_len ? kmsg->msg_namelen : sender_len;
             if (copylen && copy_to_user(kmsg->msg_name, &sender, copylen)) return -EFAULT;
             kmsg->msg_namelen = sender_len;
+        }
+        size_t control_capacity = kmsg->msg_controllen;
+        kmsg->msg_controllen = 0;
+        if (ret >= 0 && sk->passcred) {
+            uint8_t control[CMSG_SPACE(sizeof(ucred_t))];
+            memset(control, 0, sizeof(control));
+            cmsghdr_t *cmsg = (cmsghdr_t *)control;
+            cmsg->cmsg_len = CMSG_LEN(sizeof(ucred_t));
+            cmsg->cmsg_level = SOL_SOCKET;
+            cmsg->cmsg_type = SCM_CREDENTIALS;
+            memcpy(CMSG_DATA(cmsg), &sender_credentials, sizeof(sender_credentials));
+            if (kmsg->msg_control && control_capacity >= sizeof(control)) {
+                if (copy_to_user(kmsg->msg_control, control, sizeof(control))) return -EFAULT;
+                kmsg->msg_controllen = sizeof(control);
+            } else {
+                msg_flags |= MSG_CTRUNC;
+            }
+        }
+        if (ret >= 0 && (flags & MSG_TRUNC)) {
+            int copied = ret;
+            if (copied > 0) {
+                uint8_t *src = (uint8_t *)kbuf;
+                size_t remaining = (size_t)copied;
+                for (size_t i = 0; i < kmsg->msg_iovlen && remaining; i++) {
+                    size_t chunk = iov[i].iov_len < remaining ? iov[i].iov_len : remaining;
+                    if (copy_to_user(iov[i].iov_base, src, chunk)) return -EFAULT;
+                    src += chunk;
+                    remaining -= chunk;
+                }
+            }
+            kmsg->msg_flags = msg_flags;
+            return (int64_t)record_len;
+        }
+    } else if (sk->type == SOCK_SEQPACKET) {
+        size_t record_len = 0;
+        ret = unix_seqpacket_recv(sk, kbuf, total_len, flags, &msg_flags, &record_len);
+        if (ret >= 0 && (flags & MSG_TRUNC)) {
+            /* Scatter only the bytes that fit; recvmsg's return value may
+             * still report the complete record length with MSG_TRUNC. */
+            int copied = ret;
+            if (copied > 0) {
+                uint8_t *src = (uint8_t *)kbuf;
+                size_t remaining = (size_t)copied;
+                for (size_t i = 0; i < kmsg->msg_iovlen && remaining; i++) {
+                    size_t chunk = iov[i].iov_len < remaining ? iov[i].iov_len : remaining;
+                    if (copy_to_user(iov[i].iov_base, src, chunk)) return -EFAULT;
+                    src += chunk;
+                    remaining -= chunk;
+                }
+            }
+            kmsg->msg_flags = msg_flags;
+            kmsg->msg_controllen = 0;
+            return (int64_t)record_len;
         }
     } else {
         ret = unix_stream_recv(sk, kbuf, total_len, flags);
@@ -2249,7 +2599,7 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
 
     /* Write back msg_flags */
     kmsg->msg_flags      = msg_flags;
-    kmsg->msg_controllen = 0;
+    if (sk->type != SOCK_DGRAM) kmsg->msg_controllen = 0;
 
     return (int64_t)ret;
 }
@@ -2298,13 +2648,13 @@ int64_t sys_sendmsg(int fd, const msghdr_t *msg, int flags)
         return -EMSGSIZE;
     }
 
-    if (total_len == 0) {
+    if (total_len == 0 && sk->type != SOCK_DGRAM && sk->type != SOCK_SEQPACKET) {
         free(iov);
         return 0;
     }
 
-    kbuf = malloc(total_len);
-    if (!kbuf) {
+    kbuf = total_len ? malloc(total_len) : NULL;
+    if (total_len && !kbuf) {
         free(iov);
         return -ENOMEM;
     }
@@ -2369,15 +2719,15 @@ int64_t sys_recvmsg(int fd, msghdr_t *msg, int flags)
         total_len += iov[i].iov_len;
     }
 
-    if (total_len == 0) {
+    if (total_len == 0 && sk->type != SOCK_DGRAM && sk->type != SOCK_SEQPACKET) {
         free(iov);
         return 0;
     }
 
     if (total_len > SOCK_BUF_MAX) total_len = SOCK_BUF_MAX;
 
-    kbuf = malloc(total_len);
-    if (!kbuf) {
+    kbuf = total_len ? malloc(total_len) : NULL;
+    if (total_len && !kbuf) {
         free(iov);
         return -ENOMEM;
     }
@@ -2444,16 +2794,19 @@ int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
     socket_t *sk1, *sk2;
     int       fd1, fd2;
     int       sv_kern[2];
+    uint32_t  socket_flags = (uint32_t)type & (SOCK_NONBLOCK | SOCK_CLOEXEC);
+    int       socket_type  = type & ~(SOCK_NONBLOCK | SOCK_CLOEXEC);
 
     if (domain != AF_UNIX && domain != AF_LOCAL) return -EAFNOSUPPORT;
-    if (type != SOCK_STREAM) return -ESOCKTNOSUPPORT;
+    if (type & ~(SOCK_STREAM | SOCK_DGRAM | SOCK_SEQPACKET | SOCK_NONBLOCK | SOCK_CLOEXEC)) return -EINVAL;
+    if (socket_type != SOCK_STREAM && socket_type != SOCK_DGRAM && socket_type != SOCK_SEQPACKET) return -ESOCKTNOSUPPORT;
     if (protocol != 0) return -EPROTONOSUPPORT;
     if (!sv) return -EFAULT;
 
-    sk1 = socket_alloc((uint16_t)domain, (uint16_t)type, (uint16_t)protocol);
+    sk1 = socket_alloc((uint16_t)domain, (uint16_t)socket_type, (uint16_t)protocol);
     if (!sk1) return -ENOMEM;
 
-    sk2 = socket_alloc((uint16_t)domain, (uint16_t)type, (uint16_t)protocol);
+    sk2 = socket_alloc((uint16_t)domain, (uint16_t)socket_type, (uint16_t)protocol);
     if (!sk2) {
         socket_free(sk1);
         return -ENOMEM;
@@ -2461,8 +2814,10 @@ int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
 
     sk1->shutdown_mask = 0;
     sk1->so_error      = 0;
+    sk1->flags         = socket_flags & SOCK_NONBLOCK;
     sk2->shutdown_mask = 0;
     sk2->so_error      = 0;
+    sk2->flags         = socket_flags & SOCK_NONBLOCK;
 
     sk1->peer = sk2;
     socket_ref(sk2);
@@ -2477,17 +2832,17 @@ int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
     memset(&sk2->peer_addr, 0, sizeof(sockaddr_un_t));
     sk2->peer_addr_len = 0;
 
-    fd1 = socket_fd_install(sk1);
+    uint64_t fd_flags = ((socket_flags & SOCK_CLOEXEC) ? O_CLOEXEC : 0) | ((socket_flags & SOCK_NONBLOCK) ? O_NONBLOCK : 0);
+    fd1 = socket_fd_install_flags(sk1, fd_flags);
     if (fd1 < 0) {
         socket_free(sk2);
         return (int64_t)fd1;
     }
 
-    fd2 = socket_fd_install(sk2);
+    fd2 = socket_fd_install_flags(sk2, fd_flags);
     if (fd2 < 0) {
         process_t *proc = process_current();
         if (proc) process_fd_close(proc, fd1);
-        sk1->node = NULL;
         return (int64_t)fd2;
     }
 
@@ -2503,8 +2858,6 @@ int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
             process_fd_close(proc, fd1);
             process_fd_close(proc, fd2);
         }
-        sk1->node = NULL;
-        sk2->node = NULL;
         return -EFAULT;
     }
 
@@ -2532,6 +2885,13 @@ int64_t sys_getsockname(int fd, sockaddr_t *addr, uint32_t *addrlen)
         ret = ops->getsockname(sk->priv, (sockaddr_t *)&kaddr, &len);
         if (ret < 0) return ret;
         return socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&kaddr, len);
+    }
+
+    if (sk->family == AF_NETLINK) {
+        sockaddr_nl_t local;
+        int ret = netlink_getsockname(sk, &local);
+        if (ret) return ret;
+        return socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&local, sizeof(local));
     }
 
     spin_lock(&sk->lock);
