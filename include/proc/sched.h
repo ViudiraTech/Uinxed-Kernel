@@ -89,6 +89,9 @@ void task_block(void);
 /* Wake a blocked or sleeping task and put it back in the ready queue */
 int task_wakeup(task_t *task);
 
+/* Resume a task held in the job-control stopped state. */
+int task_continue(task_t *task);
+
 /* Account one scheduler tick and preempt the current task if needed */
 void sched_tick(void);
 

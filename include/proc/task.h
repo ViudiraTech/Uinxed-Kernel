@@ -40,6 +40,7 @@ typedef enum {
     TASK_RUNNING,
     TASK_BLOCKED,
     TASK_SLEEPING,
+    TASK_STOPPED,
     TASK_ZOMBIE,
     TASK_IDLE,
 } task_state_t;

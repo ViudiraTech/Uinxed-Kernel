@@ -9,11 +9,13 @@
  */
 
 #include <chipset/common.h>
+#include <drivers/char/tty.h>
 #include <libs/gfxs/gfx_proc.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
+#include <sync/spin_lock.h>
 #include <video/fbcon.h>
 #include <video/klogo.h>
 #include <video/video.h>
@@ -31,6 +33,24 @@ static uint32_t *dirty_first_col = 0;
 static uint32_t *dirty_last_col  = 0;
 static uint8_t   full_redraw_pending;
 static uint8_t   redraw_deferred;
+
+/*
+ * Serializes all text-grid / framebuffer mutations: tty and printk output
+ * (console_emit_lock -> fbcon_lock) plus the cursor blink path, which takes
+ * only fbcon_lock.  Never acquire console_emit_lock or video_state_lock
+ * while holding this lock.
+ */
+static spinlock_t fbcon_lock;
+
+/* Blink state.  cursor_drawn records where the block cursor currently sits
+ * so the next phase flip can restore that cell from the text grid. */
+#define CURSOR_BLINK_INTERVAL 40 /* scheduler ticks per phase flip */
+
+static uint64_t cursor_last_tick;
+static bool     cursor_phase;
+static bool     cursor_drawn;
+static uint32_t cursor_drawn_row;
+static uint32_t cursor_drawn_col;
 
 #if BOOT_LOGO
 static uint32_t fbcon_offset_x      = 0;
@@ -418,8 +438,13 @@ void fbcon_init(void)
     full_redraw_pending = 0;
     redraw_deferred     = 0;
 
+    cursor_last_tick = 0;
+    cursor_phase     = false;
+    cursor_drawn     = false;
+
     vt_ansi_init(&vt_ansi_state, c_width, c_height);
     vt_ansi_set_default_colors(&vt_ansi_state, 0xaaaaaa, 0x000000);
+    tty_console_resize((uint16_t)c_height, (uint16_t)c_width);
 }
 
 /*
@@ -472,8 +497,13 @@ void fbcon_resize(void)
     cy              = 0;
     redraw_deferred = 0;
 
+    cursor_last_tick = 0;
+    cursor_phase     = false;
+    cursor_drawn     = false;
+
     vt_ansi_init(&vt_ansi_state, c_width, c_height);
     vt_ansi_set_default_colors(&vt_ansi_state, 0xaaaaaa, 0x000000);
+    tty_console_resize((uint16_t)c_height, (uint16_t)c_width);
 
     full_redraw_pending = 1;
     fbcon_flush_screen_updates();
@@ -586,8 +616,43 @@ static const vt_ansi_callbacks_t vt_ansi_cb = {
 /* Process a buffer of characters through the ANSI escape sequence parser */
 void fbcon_ansi_write(const uint8_t *buf, size_t len)
 {
+    spin_lock(&fbcon_lock);
     redraw_deferred++;
     for (size_t i = 0; i < len; i++) { vt_ansi_process(&vt_ansi_state, buf[i], &vt_ansi_cb, NULL); }
     redraw_deferred--;
     fbcon_flush_screen_updates();
+    spin_unlock(&fbcon_lock);
+}
+
+/* Flip the block cursor phase and repaint directly into the framebuffer. */
+void fbcon_cursor_tick(uint64_t now_ticks)
+{
+    spin_lock(&fbcon_lock);
+    if (now_ticks - cursor_last_tick < CURSOR_BLINK_INTERVAL) goto out;
+    cursor_last_tick = now_ticks;
+    cursor_phase     = !cursor_phase;
+
+    /* Restore the cell where the cursor was drawn last phase. */
+    if (cursor_drawn) {
+        if (cursor_drawn_row < c_height && cursor_drawn_col < c_width)
+            fbcon_redraw_row_range(cursor_drawn_row, cursor_drawn_col, cursor_drawn_col);
+        cursor_drawn = false;
+    }
+
+    /* Paint the block cursor at the current cursor position (reverse video). */
+    if (cursor_phase && vt_ansi_state.cursor_visible && text_grid && color_grid) {
+        uint32_t row = vt_ansi_state.y;
+        uint32_t col = vt_ansi_state.x;
+        if (row < c_height && col < c_width) {
+            size_t   idx = (size_t)row * c_width + col;
+            uint32_t fg  = color_grid[idx];
+            uint32_t bg  = bg_grid ? bg_grid[idx] : back_color;
+            fbcon_draw_char_bg(text_grid[idx], col * font_width, row * font_height, bg, fg);
+            cursor_drawn     = true;
+            cursor_drawn_row = row;
+            cursor_drawn_col = col;
+        }
+    }
+out:
+    spin_unlock(&fbcon_lock);
 }

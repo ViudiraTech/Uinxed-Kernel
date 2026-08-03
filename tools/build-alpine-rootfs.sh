@@ -1,5 +1,5 @@
 #!/bin/sh
-# Reproducible Alpine/Xfce initramfs builder for the Uinxed kernel.
+# Reproducible Alpine CLI initramfs builder for the Uinxed kernel.
 set -eu
 
 PROJECT_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -13,7 +13,7 @@ MINIROOTFS="alpine-minirootfs-${ALPINE_VERSION}-${ALPINE_ARCH}.tar.gz"
 MINIROOTFS_URL="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION%.*}/releases/${ALPINE_ARCH}/${MINIROOTFS}"
 MINIROOTFS_SHA256=41f73e3cf5fa919b8aa5ca6b30dc48f0da2720776d7423e2a7748211456fe081
 
-for tool in bwrap cpio curl fakeroot sha256sum sort tar; do
+for tool in bwrap cpio curl fakeroot find grep sha256sum sort tar; do
     command -v "$tool" >/dev/null 2>&1 || {
         echo "rootfs: required host tool is missing: $tool" >&2
         exit 1
@@ -40,14 +40,25 @@ in_root() {
         --ro-bind /etc/resolv.conf /etc/resolv.conf "$@"
 }
 
-# Build a clean, reproducible Weston image.  Weston is the Wayland reference
-# compositor and its desktop shell is the only graphical session in this
-# profile; there is no Xorg/Xfce/display-manager fallback.
+# Keep the image limited to the requested CLI userland.
 in_root /sbin/apk add --no-scripts --usermode \
     alpine-base openrc busybox-openrc \
     eudev eudev-openrc eudev-hwids udev-init-scripts-openrc \
     dbus dbus-openrc \
     bash clang binutils python3 nano
+
+gui_packages=$(
+    in_root /sbin/apk info | while IFS= read -r package; do
+        case "$package" in
+            *xorg*|*icewm*|*xfce*|*weston*) printf '%s\n' "$package" ;;
+        esac
+    done
+)
+if [ -n "$gui_packages" ]; then
+    # Package names cannot contain whitespace, so intentional word splitting is safe.
+    # shellcheck disable=SC2086
+    in_root /sbin/apk del --no-scripts --usermode $gui_packages
+fi
 
 # --usermode deliberately avoids privileged package scripts on the host.
 # Reproduce their required account and cache effects inside the isolated root.
@@ -65,8 +76,39 @@ in_root /bin/sh -eu -c '
 
 cp -a "$OVERLAY/." "$ROOTFS/"
 
+# Do not allow package helpers or overlay content for excluded GUI stacks into
+# the archive (alpine-conf, for example, supplies setup-xorg-base).
+find "$ROOTFS" -xdev -depth \
+    \( -iname '*xorg*' -o -iname '*icewm*' -o -iname '*xfce*' -o -iname '*weston*' \) \
+    -exec rm -rf -- {} +
+
+remaining_gui_packages=$(
+    in_root /sbin/apk info | while IFS= read -r package; do
+        case "$package" in
+            *xorg*|*icewm*|*xfce*|*weston*) printf '%s\n' "$package" ;;
+        esac
+    done
+)
+if [ -n "$remaining_gui_packages" ]; then
+    echo "rootfs: excluded GUI package remains installed" >&2
+    exit 1
+fi
+if find "$ROOTFS" -xdev \
+    \( -iname '*xorg*' -o -iname '*icewm*' -o -iname '*xfce*' -o -iname '*weston*' \) \
+    -print -quit | grep -q .
+then
+    echo "rootfs: excluded GUI file remains in rootfs" >&2
+    exit 1
+fi
+for executable in /bin/bash /usr/bin/python3 /usr/bin/clang /usr/bin/nano; do
+    if [ ! -x "$ROOTFS$executable" ]; then
+        echo "rootfs: required userland executable is missing: $executable" >&2
+        exit 1
+    fi
+done
+
 # Use the distro service definitions and enforce the required ordering:
-# daemon -> coldplug trigger -> settle, followed by desktop services.
+# daemon -> coldplug trigger -> settle, followed by base services.
 in_root /bin/sh -eu -c '
     /sbin/rc-update del mdev sysinit >/dev/null 2>&1 || true
     /sbin/rc-update add udev sysinit

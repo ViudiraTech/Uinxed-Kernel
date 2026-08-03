@@ -528,8 +528,11 @@ static int64_t sys_wait4(uint64_t pid, uint64_t exit_code, uint64_t options, uin
         return traced;
     }
 
+    uint32_t wait_options = (flags & WNOHANG) ? PROCESS_WAIT_NOHANG : 0;
+    if (flags & WUNTRACED) wait_options |= PROCESS_WAIT_STOPPED;
+    if (flags & WCONTINUED) wait_options |= PROCESS_WAIT_CONTINUED;
     pid_t waited_pid = 0;
-    int   ret = process_wait_select((pid_t)pid, &status, (flags & WNOHANG) ? PROCESS_WAIT_NOHANG : 0, &waited_pid);
+    int   ret = process_wait_select((pid_t)pid, &status, wait_options, &waited_pid);
     if (ret < 0) return ret;
     if (!waited_pid) return 0;
     if (exit_code && copy_to_user((void *)exit_code, &status, sizeof(status))) return -EFAULT;
@@ -575,7 +578,7 @@ static int64_t sys_brk(uint64_t addr, uint64_t arg1, uint64_t arg2, uint64_t arg
         spin_unlock(&proc->brk_lock);
         return (int64_t)old_brk;
     }
-    if (addr < PROCESS_HEAP_START || addr > PROCESS_HEAP_MAX) {
+    if (addr < proc->start_brk || addr > PROCESS_HEAP_MAX) {
         spin_unlock(&proc->brk_lock);
         return (int64_t)old_brk;
     }
@@ -3564,7 +3567,10 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
     }
 
     pid_t waited_pid = 0;
-    ret = process_wait_select(selector, &status, (flags & WNOHANG) ? PROCESS_WAIT_NOHANG : 0, &waited_pid);
+    uint32_t wait_options = (flags & WNOHANG) ? PROCESS_WAIT_NOHANG : 0;
+    if (flags & WSTOPPED) wait_options |= PROCESS_WAIT_STOPPED;
+    if (flags & WCONTINUED) wait_options |= PROCESS_WAIT_CONTINUED;
+    ret = process_wait_select(selector, &status, wait_options, &waited_pid);
     if (ret < 0) return ret;
 
     /* Populate siginfo_t if requested */
@@ -3575,7 +3581,13 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
             info.si_signo = SIGCHLD;
             info.si_pid   = waited_pid;
             info.si_uid   = 0;
-            if (status & 0x7f) {
+            if (status == 0xffff) {
+                info.si_code   = CLD_CONTINUED;
+                info.si_status = SIGCONT;
+            } else if ((status & 0xff) == 0x7f) {
+                info.si_code   = CLD_STOPPED;
+                info.si_status = (status >> 8) & 0xff;
+            } else if (status & 0x7f) {
                 info.si_code   = CLD_KILLED;
                 info.si_status = status & 0x7f;
             } else {
@@ -3804,6 +3816,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
 
     page_directory_t *old_dir       = proc->user_page_dir;
     vm_area_t        *old_mmaps     = process_mmap_replace(proc, NULL);
+    uintptr_t         old_start_brk = proc->start_brk;
     uintptr_t         old_heap_brk  = proc->heap_brk;
     uintptr_t         old_stack_brk = proc->stack_brk;
     uint64_t          old_fs_base   = proc->task->thread.fs_base;
@@ -3811,11 +3824,13 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     task_context_t    old_context   = proc->task->context;
 
     /* Build the replacement image against a clean, private set of VMAs. */
+    proc->start_brk = PROCESS_HEAP_START;
     proc->heap_brk  = PROCESS_HEAP_START;
     proc->stack_brk = PROCESS_STACK_BASE - PROCESS_STACK_SIZE;
 
     if (setup_process_page_dir(proc)) {
         (void)process_mmap_replace(proc, old_mmaps);
+        proc->start_brk             = old_start_brk;
         proc->heap_brk              = old_heap_brk;
         proc->stack_brk             = old_stack_brk;
         free(elf_data);
@@ -3843,6 +3858,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
         process_mmap_destroy_detached(proc, failed_mmaps);
         proc->user_page_dir        = old_dir;
         proc->task->page_directory = old_dir;
+        proc->start_brk             = old_start_brk;
         proc->heap_brk              = old_heap_brk;
         proc->stack_brk             = old_stack_brk;
         proc->task->thread.fs_base  = old_fs_base;
@@ -4809,6 +4825,7 @@ void syscall_dispatch(syscall_frame_t *frame)
             memcpy(kstack, &child_frame, sizeof(syscall_frame_t));
             *(--kstack)              = (uint64_t)syscall_return;
             child->task->context.rsp = (uint64_t)kstack;
+            process_fork_publish(child);
         }
         retval     = child ? (int64_t)child->task->pid : (int64_t)error;
         frame->rax = (uint64_t)retval;

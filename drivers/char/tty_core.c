@@ -166,10 +166,15 @@ void tty_core_auto_acquire(tty_core_t *tty, uint64_t flags)
 
 void tty_core_set_winsize(tty_core_t *tty, uint16_t rows, uint16_t cols)
 {
+    if (!tty) return;
     spin_lock(&tty->lock);
+    bool changed            = tty->winsize.ws_row != rows || tty->winsize.ws_col != cols;
     tty->winsize.ws_row = rows;
     tty->winsize.ws_col = cols;
+    int64_t foreground_pgid = tty->foreground_pgid;
+    int64_t session         = tty->session;
     spin_unlock(&tty->lock);
+    if (changed && foreground_pgid > 0 && session > 0) signal_send_pgrp_session(foreground_pgid, session, SIGWINCH);
 }
 
 static bool tty_cc_matches(const struct termios *termios, size_t index, uint8_t ch)

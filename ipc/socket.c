@@ -1944,9 +1944,15 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
         const struct inet_backend_ops *ops     = inet_backend_get();
         void                          *context = NULL;
         int                            ret;
-        if (sock_type != SOCK_DGRAM && sock_type != SOCK_STREAM) return -ESOCKTNOSUPPORT;
+        if (sock_type != SOCK_DGRAM && sock_type != SOCK_STREAM && sock_type != SOCK_RAW) return -ESOCKTNOSUPPORT;
+        if (sock_type == SOCK_RAW) {
+            process_t *proc = process_current();
+            if (!proc || proc->uid != 0) return -EPERM;
+            if (sock_family != AF_INET || protocol != IPPROTO_ICMP) return -EPROTONOSUPPORT;
+        }
         if (protocol == 0) protocol = sock_type == SOCK_STREAM ? IPPROTO_TCP : IPPROTO_UDP;
-        if ((sock_type == SOCK_STREAM && protocol != IPPROTO_TCP) || (sock_type == SOCK_DGRAM && protocol != IPPROTO_UDP))
+        if ((sock_type == SOCK_STREAM && protocol != IPPROTO_TCP) || (sock_type == SOCK_DGRAM && protocol != IPPROTO_UDP)
+            || (sock_type == SOCK_RAW && protocol != IPPROTO_ICMP))
             return -EPROTONOSUPPORT;
         if (!ops || !ops->create) return -EAFNOSUPPORT;
         ret = ops->create(sock_family, sock_type, (int)protocol, extra_flags, &context);

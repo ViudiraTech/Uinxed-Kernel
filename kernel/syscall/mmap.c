@@ -8,7 +8,9 @@
  *
  */
 
+#include <arch/smp.h>
 #include <fs/core/vfs.h>
+#include <ipc/sysv_ipc.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
@@ -29,7 +31,7 @@
 #include <syscall/syscall.h>
 
 #define MMAP_BASE_ADDR     0x00007f0000000000ULL
-#define MMAP_END_ADDR      0x00007fffffffffffULL
+#define MMAP_END_ADDR      PROCESS_USER_STACK_TOP
 #define MMAP_DEFAULT_ALIGN PAGE_4K_SIZE
 
 /* Convert Linux mmap prot to internal vm_flags_t */
@@ -154,6 +156,41 @@ static int unmap_physical_pages(process_t *proc, uintptr_t start, size_t length)
     return EOK;
 }
 
+static vm_area_t *vma_split_locked(process_t *proc, vm_area_t *vma, uintptr_t split)
+{
+    if (split <= vma->start || split >= vma->end) return vma;
+
+    vm_area_t *right = calloc(1, sizeof(*right));
+    if (!right) return NULL;
+    *right       = *vma;
+    right->start = split;
+    right->vm_pgoff += (split - vma->start) / PAGE_4K_SIZE;
+
+    if (right->vm_file) {
+        right->vm_file = vfs_node_retain(vma->vm_file);
+        if (!right->vm_file) goto fail;
+        if (right->vm_pagecache && vfs_cache_mapping_pin(right->vm_file) != EOK) goto fail_file;
+        memfd_vma_retain(right->vm_file, right->flags);
+    }
+    if (right->type == VM_REGION_SHM && right->vm_private_data
+        && sysv_shm_vma_get(right->vm_private_data, proc->task ? (uint32_t)proc->task->pid : 0))
+        goto fail_backing;
+
+    vma->end   = split;
+    right->next = vma->next;
+    vma->next   = right;
+    return right;
+
+fail_backing:
+    if (right->vm_file) memfd_vma_release(right->vm_file, right->flags);
+    if (right->vm_file && right->vm_pagecache) vfs_cache_mapping_unpin(right->vm_file);
+fail_file:
+    if (right->vm_file) vfs_close(right->vm_file);
+fail:
+    free(right);
+    return NULL;
+}
+
 /* ---------- Full mmap syscall implementation ---------- */
 
 int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t flags, uint64_t fd, uint64_t offset)
@@ -164,21 +201,28 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
     if (!length) return -EINVAL;
     if (length > UINT64_MAX - PAGE_4K_SIZE) return -EINVAL;
     if (offset & (PAGE_4K_SIZE - 1)) return -EINVAL;
+    if (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) return -EINVAL;
+    if ((flags & (MAP_SHARED | MAP_PRIVATE)) != MAP_SHARED && (flags & (MAP_SHARED | MAP_PRIVATE)) != MAP_PRIVATE) return -EINVAL;
+
+    const uint64_t supported_flags = MAP_SHARED | MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS | MAP_GROWSDOWN | MAP_LOCKED | MAP_POPULATE
+                                     | MAP_NORESERVE | MAP_STACK;
+    if (flags & ~supported_flags) return -EINVAL;
 
     size_t    pages = ALIGN_UP(length, PAGE_4K_SIZE);
     uintptr_t mmap_addr;
 
     /* Determine target address */
     if (addr && !(flags & MAP_FIXED)) {
-        /* Hint address - use it if possible */
-        if (!vma_range_overlaps(proc, addr, addr + pages)) {
-            mmap_addr = addr;
+        /* A non-fixed address is a page-aligned hint. */
+        uintptr_t hint = ALIGN_DOWN(addr, PAGE_4K_SIZE);
+        if (hint < PROCESS_USER_STACK_TOP && pages <= PROCESS_USER_STACK_TOP - hint && !vma_range_overlaps(proc, hint, hint + pages)) {
+            mmap_addr = hint;
         } else {
             mmap_addr = find_free_vma_range(proc, pages);
             if (!mmap_addr) return -ENOMEM;
         }
     } else if (flags & MAP_FIXED) {
-        if (!addr) return -EINVAL;
+        if (!addr || (addr & (PAGE_4K_SIZE - 1))) return -EINVAL;
         if (addr > UINT64_MAX - pages) return -EINVAL;
         if (addr + pages > PROCESS_USER_STACK_TOP) return -EINVAL;
         mmap_addr        = addr;
@@ -190,7 +234,6 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         mmap_addr = find_free_vma_range(proc, pages);
         if (!mmap_addr) return -ENOMEM;
     }
-
     vm_flags_t vm_flags = prot_to_vm_flags(prot);
     if (flags & MAP_SHARED) vm_flags |= VM_SHARED;
 
@@ -237,7 +280,12 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
                 process_file_put(file);
                 return ret;
             }
-            vm_area_insert(proc, vma);
+            if (vm_area_insert(proc, vma)) {
+                vma->vm_file->refcount--;
+                free(vma);
+                process_file_put(file);
+                return -ENOMEM;
+            }
             process_file_put(file);
             return (int64_t)mmap_addr;
         }
@@ -266,7 +314,13 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
                 return -ENOENT;
             }
 
-            vm_area_insert(proc, vma);
+            if (vm_area_insert(proc, vma)) {
+                vfs_cache_mapping_unpin(file->node);
+                vfs_close(vma->vm_file);
+                free(vma);
+                process_file_put(file);
+                return -ENOMEM;
+            }
             process_file_put(file);
             return (int64_t)mmap_addr;
         }
@@ -319,7 +373,13 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
                 }
             }
 
-            vm_area_insert(proc, vma);
+            if (vm_area_insert(proc, vma)) {
+                (void)unmap_physical_pages(proc, mmap_addr, pages);
+                vma->vm_file->refcount--;
+                free(vma);
+                process_file_put(file);
+                return -ENOMEM;
+            }
             process_file_put(file);
             goto vma_done;
         }
@@ -341,7 +401,12 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
             process_file_put(file);
             return -ENOENT;
         }
-        vm_area_insert(proc, vma);
+        if (vm_area_insert(proc, vma)) {
+            vfs_close(vma->vm_file);
+            free(vma);
+            process_file_put(file);
+            return -ENOMEM;
+        }
 
         process_file_put(file);
         return (int64_t)mmap_addr;
@@ -354,7 +419,10 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         vma->end   = mmap_addr + pages;
         vma->flags = vm_flags | VM_LAZY;
         vma->type  = VM_REGION_MMAP;
-        vm_area_insert(proc, vma);
+        if (vm_area_insert(proc, vma)) {
+            free(vma);
+            return -ENOMEM;
+        }
     }
 
 vma_done:
@@ -379,40 +447,96 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     if (!length || (addr & (PAGE_4K_SIZE - 1))) return -EINVAL;
+    if (length > UINT64_MAX - (PAGE_4K_SIZE - 1)) return -EINVAL;
 
     if (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) return -EINVAL;
 
-    vm_flags_t vm_flags  = prot_to_vm_flags(prot);
-    uint64_t   pte_flags = vm_flags_to_pte(vm_flags);
+    vm_flags_t requested = prot_to_vm_flags(prot);
     size_t     pages     = ALIGN_UP(length, PAGE_4K_SIZE);
+    if (addr > UINT64_MAX - pages || addr + pages > PROCESS_USER_STACK_TOP) return -ENOMEM;
+    uintptr_t end = (uintptr_t)addr + pages;
 
-    /* Update VMA flags */
-    bool pagecache_private = false;
+    typedef struct {
+            vm_area_t  *vma;
+            vm_flags_t old_flags;
+    } protect_change_t;
+
     spin_lock(&proc->mmap_lock);
-    for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next) {
-        if (vma->start == (uintptr_t)addr) {
-            vm_flags |= vma->flags & VM_SHARED;
-            int ret = memfd_vma_protect(vma->vm_file, vma->flags, vm_flags);
-            if (ret) {
-                spin_unlock(&proc->mmap_lock);
-                return ret;
-            }
-            vma->flags        = vm_flags;
-            pagecache_private = vma->vm_pagecache && !(vm_flags & VM_SHARED);
-            pte_flags         = vm_flags_to_pte(vm_flags);
-            break;
+    vm_area_t *first = proc->mmap_list;
+    while (first && first->end <= (uintptr_t)addr) first = first->next;
+    if (!first || first->start > (uintptr_t)addr) {
+        spin_unlock(&proc->mmap_lock);
+        return -ENOMEM;
+    }
+
+    uintptr_t covered = (uintptr_t)addr;
+    size_t    count   = 0;
+    for (vm_area_t *vma = first; covered < end; vma = vma ? vma->next : NULL) {
+        if (!vma || vma->start > covered) {
+            spin_unlock(&proc->mmap_lock);
+            return -ENOMEM;
+        }
+        if (vma->end > covered) {
+            covered = MIN(vma->end, end);
+            count++;
         }
     }
-    spin_unlock(&proc->mmap_lock);
-    if (pagecache_private && (vm_flags & VM_WRITE)) pte_flags = (pte_flags & ~PTE_WRITEABLE) | PTE_COW;
 
-    /* Update page table entries */
-    for (size_t i = 0; i < pages; i += PAGE_4K_SIZE) {
-        uintptr_t va   = (uintptr_t)addr + i;
-        uintptr_t phys = walk_page_tables(proc->user_page_dir, va);
-        if (phys && phys != (uintptr_t)-1) { page_map_to(proc->user_page_dir, va, phys, pte_flags); }
+    protect_change_t *changes = calloc(count, sizeof(*changes));
+    if (!changes) {
+        spin_unlock(&proc->mmap_lock);
+        return -ENOMEM;
     }
 
+    if (first->start < (uintptr_t)addr) {
+        first = vma_split_locked(proc, first, (uintptr_t)addr);
+        if (!first) {
+            free(changes);
+            spin_unlock(&proc->mmap_lock);
+            return -ENOMEM;
+        }
+    }
+    for (vm_area_t *vma = first; vma && vma->start < end; vma = vma->next) {
+        if (vma->end > end && !vma_split_locked(proc, vma, end)) {
+            free(changes);
+            spin_unlock(&proc->mmap_lock);
+            return -ENOMEM;
+        }
+    }
+
+    size_t changed = 0;
+    for (vm_area_t *vma = first; vma && vma->start < end; vma = vma->next) {
+        vm_flags_t new_flags = (vma->flags & ~(VM_READ | VM_WRITE | VM_EXEC)) | requested;
+        int ret = memfd_vma_protect(vma->vm_file, vma->flags, new_flags);
+        if (ret) {
+            while (changed) {
+                changed--;
+                (void)memfd_vma_protect(changes[changed].vma->vm_file, changes[changed].vma->flags, changes[changed].old_flags);
+                changes[changed].vma->flags = changes[changed].old_flags;
+            }
+            free(changes);
+            spin_unlock(&proc->mmap_lock);
+            return ret;
+        }
+        changes[changed].vma       = vma;
+        changes[changed].old_flags = vma->flags;
+        changed++;
+        vma->flags = new_flags;
+    }
+
+    for (size_t i = 0; i < changed; i++) {
+        vm_area_t *vma      = changes[i].vma;
+        uint64_t pte_flags = vm_flags_to_pte(vma->flags);
+        if (vma->vm_pagecache && !(vma->flags & VM_SHARED) && (vma->flags & VM_WRITE))
+            pte_flags = (pte_flags & ~PTE_WRITEABLE) | PTE_COW;
+        for (uintptr_t va = vma->start; va < vma->end; va += PAGE_4K_SIZE) {
+            uintptr_t phys = walk_page_tables(proc->user_page_dir, va);
+            if (phys && phys != (uintptr_t)-1) page_map_to(proc->user_page_dir, va, phys, pte_flags);
+        }
+    }
+    free(changes);
+    spin_unlock(&proc->mmap_lock);
+    flush_tlb_all();
     return EOK;
 }
 

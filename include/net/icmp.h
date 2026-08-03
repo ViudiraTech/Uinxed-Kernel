@@ -25,9 +25,24 @@
 #define ICMP_FRAGMENTATION_NEEDED 4U
 #define ICMP_REASSEMBLY_TIMEOUT   1U
 
+typedef struct icmp_endpoint icmp_endpoint_t;
+typedef void (*icmp_event_callback_t)(icmp_endpoint_t *endpoint, uint32_t events, void *context);
+
+#define ICMP_READY_READ  0x01U
+#define ICMP_READY_WRITE 0x02U
+
 int icmp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet);
 int icmp_error(net_device_t *device, uint32_t destination, uint8_t type, uint8_t code, const void *original, size_t original_length);
 int icmp_error_mtu(net_device_t *device, uint32_t destination, uint8_t type, uint8_t code, uint16_t mtu, const void *original,
                    size_t original_length);
+icmp_endpoint_t *icmp_open(void);
+void             icmp_close(icmp_endpoint_t *endpoint);
+int              icmp_bind(icmp_endpoint_t *endpoint, uint32_t address);
+int              icmp_connect(icmp_endpoint_t *endpoint, uint32_t address);
+int              icmp_disconnect(icmp_endpoint_t *endpoint);
+int              icmp_send(icmp_endpoint_t *endpoint, const void *data, size_t length, uint32_t destination, uint8_t ttl);
+int              icmp_receive(icmp_endpoint_t *endpoint, void *data, size_t capacity, uint32_t *source, int peek);
+uint32_t         icmp_readiness(icmp_endpoint_t *endpoint);
+void             icmp_set_event_callback(icmp_endpoint_t *endpoint, icmp_event_callback_t callback, void *context);
 
 #endif

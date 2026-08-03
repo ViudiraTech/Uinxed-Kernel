@@ -58,6 +58,9 @@ void flush_tlb_all(void);
 /* Flushing TLB by address range */
 void flush_tlb_range(uint64_t start, uint64_t end);
 
+/* Handle an NMI used for a pending TLB shootdown. */
+int smp_handle_nmi(void);
+
 /* Get the number of CPUs */
 uint32_t get_cpu_count(void);
 

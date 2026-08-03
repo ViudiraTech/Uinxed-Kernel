@@ -11,6 +11,7 @@
 #include <arch/cpuid.h>
 #include <arch/smp.h>
 #include <cgroup/cgroup.h>
+#include <drivers/char/tty_core.h>
 #include <drivers/timer/tsc.h>
 #include <fs/core/vfs.h>
 #include <fs/virtual/procfs.h>
@@ -604,6 +605,9 @@ static void gen_pid_status(procfs_file_t *pf)
         case TASK_SLEEPING :
             state_str = "S (sleeping)";
             break;
+        case TASK_STOPPED :
+            state_str = "T (stopped)";
+            break;
         case TASK_ZOMBIE :
             state_str = "Z (zombie)";
             break;
@@ -728,7 +732,8 @@ static void gen_pid_maps(procfs_file_t *pf)
                 break;
         }
 
-        n = snprintf(p, remaining, "%016lx-%016lx %s %08lx 00:00 0%s\n", vma->start, vma->end, perm, 0UL, region_name);
+        n = snprintf(p, remaining, "%016lx-%016lx %s%c %08lx 00:00 0%s\n", vma->start, vma->end, perm,
+                     (vma->flags & VM_SHARED) ? 's' : 'p', 0UL, region_name);
         p += n;
         remaining -= n;
         vma = vma->next;
@@ -824,11 +829,17 @@ static void gen_pid_mem(procfs_file_t *pf)
 
 static void gen_pid_stat(procfs_file_t *pf)
 {
-    process_t *proc = process_find(pf->pid);
-    if (!proc) return;
+    process_t *proc = process_find_get(pf->pid);
+    if (!proc || !proc->task) {
+        process_put(proc);
+        return;
+    }
 
-    char *buf = malloc(512);
-    if (!buf) return;
+    char *buf = malloc(1024);
+    if (!buf) {
+        process_put(proc);
+        return;
+    }
 
     char state_char = '?';
     switch (proc->task->state) {
@@ -844,6 +855,9 @@ static void gen_pid_stat(procfs_file_t *pf)
         case TASK_SLEEPING :
             state_char = 'S';
             break;
+        case TASK_STOPPED :
+            state_char = 'T';
+            break;
         case TASK_ZOMBIE :
             state_char = 'Z';
             break;
@@ -852,15 +866,74 @@ static void gen_pid_stat(procfs_file_t *pf)
             break;
     }
 
-    pid_t ppid = proc->parent ? proc->parent->task->pid : 0;
+    char     name[PROCESS_NAME_LEN];
+    uint32_t cpu_id       = proc->task->cpu_id;
+    uint32_t thread_count = proc->thread_count ? proc->thread_count : 1;
+    pid_t    ppid         = proc->parent && proc->parent->task ? (pid_t)proc->parent->task->tgid : 0;
+    pid_t    pgid         = proc->pgid;
+    pid_t    sid          = proc->sid;
+    int64_t  tty_nr       = 0;
+    int64_t  tpgid        = -1;
+    int64_t  exit_code    = proc->task->state == TASK_ZOMBIE ? proc->exit_code : 0;
+    memcpy(name, proc->task->name, sizeof(name));
+    name[sizeof(name) - 1] = '\0';
 
-    int n = snprintf(buf, 512, "%llu (%s) %c %llu %llu %llu %llu -1 %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu",
-                     (uint64_t)pf->pid, proc->task->name, state_char, (uint64_t)ppid, (uint64_t)pf->pid, (uint64_t)pf->pid, 0ULL, 0ULL, 0ULL,
-                     0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL);
+    tty_core_t *tty = process_ctty_get(proc);
+    if (tty) {
+        spin_lock(&tty->lock);
+        tpgid = tty->foreground_pgid;
+        spin_unlock(&tty->lock);
+        /* Linux virtual consoles use major 4; this kernel exposes tty1. */
+        tty_nr = (4 << 8) | 1;
+        tty_core_release(tty);
+    }
+
+    uint64_t vsize = 0, start_code = 0, end_code = 0, start_data = 0, end_data = 0, start_brk = 0;
+    spin_lock(&proc->mmap_lock);
+    for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next) {
+        vsize += vma->end - vma->start;
+        if (vma->type == VM_REGION_CODE) {
+            if (!start_code || vma->start < start_code) start_code = vma->start;
+            if (vma->end > end_code) end_code = vma->end;
+        } else if (vma->type == VM_REGION_DATA) {
+            if (!start_data || vma->start < start_data) start_data = vma->start;
+            if (vma->end > end_data) end_data = vma->end;
+        } else if (vma->type == VM_REGION_HEAP && !start_brk) {
+            start_brk = vma->start;
+        }
+    }
+    spin_unlock(&proc->mmap_lock);
+
+    uint64_t rss_limit;
+    spin_lock(&proc->rlimit_lock);
+    rss_limit = proc->rlimits[PROCESS_RLIMIT_RSS].current;
+    spin_unlock(&proc->rlimit_lock);
+
+    /* Keep all Linux proc_pid_stat fields in their ABI positions.  Unknown
+     * accounting values are zero rather than omitted; parsers such as
+     * BusyBox ps expect fields through exit_code (52). */
+    int n = snprintf(buf, 1024,
+                     "%lld (%s) %c "
+                     "%lld %lld %lld %lld %lld %u "
+                     "%llu %llu %llu %llu %llu %llu "
+                     "%lld %lld %lld %lld %lld %lld "
+                     "%llu %llu %lld %llu "
+                     "%llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu "
+                     "%lld %lld %u %u %llu %llu %lld "
+                     "%llu %llu %llu %llu %llu %llu %llu %lld\n",
+                     (int64_t)pf->pid, name, state_char,
+                     (int64_t)ppid, (int64_t)pgid, (int64_t)sid, tty_nr, tpgid, 0U,
+                     0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL,
+                     0LL, 0LL, 20LL, 0LL, (int64_t)thread_count, 0LL,
+                     0ULL, vsize, 0LL, rss_limit,
+                     start_code, end_code, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL,
+                     (int64_t)SIGCHLD, (int64_t)cpu_id, 0U, 0U, 0ULL, 0ULL, 0LL,
+                     start_data, end_data, start_brk, 0ULL, 0ULL, 0ULL, 0ULL, exit_code);
+    process_put(proc);
 
     pf->content  = buf;
     pf->size     = n < 0 ? 0 : (size_t)n;
-    pf->capacity = 512;
+    pf->capacity = 1024;
 }
 
 static void procfs_gen_content(procfs_file_t *pf, vfs_node_t node)

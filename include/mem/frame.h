@@ -76,4 +76,7 @@ void free_frames_1G(uint64_t addr);
 /* Print memory map */
 void print_memory_map(void);
 
+/* Dump the recent physical-frame operation history to the log. */
+void frame_log_dump(void);
+
 #endif // INCLUDE_FRAME_H_

@@ -149,6 +149,7 @@ typedef struct process {
         vm_area_t        *mmap_list;
         spinlock_t        mmap_lock;
         spinlock_t        brk_lock;
+        uintptr_t         start_brk;
         uintptr_t         heap_brk;
         uintptr_t         stack_brk;
         struct process   *parent;
@@ -160,6 +161,9 @@ typedef struct process {
         wait_queue_t      vfork_wait;
         bool              vfork_done;
         int               exit_code;
+        int               wait_stop_signal;
+        bool              wait_stop_pending;
+        bool              wait_continue_pending;
         uint32_t          uid;
         uint32_t          gid;
         uint16_t          umask;
@@ -203,10 +207,14 @@ void process_exit(int exit_code);
 int process_wait(pid_t pid, int *exit_code);
 
 #define PROCESS_WAIT_NOHANG 0x00000001U
+#define PROCESS_WAIT_STOPPED 0x00000002U
+#define PROCESS_WAIT_CONTINUED 0x00000004U
 
 /* Linux waitpid/wait4 selector semantics.  Returns 0 with *waited_pid == 0
  * for a successful nonblocking poll, or a negative errno. */
 int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_t *waited_pid);
+void process_child_stopped(process_t *child, int signal);
+void process_child_continued(process_t *child);
 
 /* Send a signal to terminate the given process */
 int process_kill(pid_t pid);
@@ -219,6 +227,7 @@ process_t *process_iterate(size_t *pos);
 
 /* Pinned process-table access. Call process_put() on non-NULL results. */
 process_t *process_find_get(pid_t pid);
+void       process_debug_dump_tasks(void);
 process_t *process_iterate_get(size_t *pos);
 process_t *process_group_iterate_get(size_t *pos, pid_t pgid, pid_t sid);
 task_t    *process_task_find_get(pid_t pid, process_t **owner);
@@ -256,6 +265,7 @@ process_t *process_fork_status_event(int *error, uint32_t ptrace_event);
 /* Fork with a pre-published vfork completion state.  The state must be set
  * before the child is runnable, otherwise a fast exec/exit can be lost. */
 process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, bool vfork);
+void       process_fork_publish(process_t *child);
 
 /* Suspend/release the vfork parent around child exec or exit. */
 void process_vfork_wait(process_t *child);

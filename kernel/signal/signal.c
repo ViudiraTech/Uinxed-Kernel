@@ -268,7 +268,11 @@ int signal_send(process_t *proc, int sig, const siginfo_t *info)
 
     spin_unlock(&state->lock);
 
-    if (ret == 0) {
+    bool resumed = false;
+    if (ret == 0 && (sig == SIGCONT || sig == SIGKILL) && proc->task) resumed = task_continue(proc->task) == 0;
+    if (resumed && sig == SIGCONT) process_child_continued(proc);
+
+    if (ret == 0 && !resumed) {
         /* Wake the task if it's blocked */
         if (proc->task) { task_wakeup(proc->task); }
     }
@@ -290,7 +294,10 @@ int signal_send_thread(task_t *task, int sig, const siginfo_t *info)
 
     spin_unlock(&state->lock);
 
-    if (ret == 0) { task_wakeup(task); }
+    bool resumed = false;
+    if (ret == 0 && (sig == SIGCONT || sig == SIGKILL)) resumed = task_continue(task) == 0;
+    if (resumed && sig == SIGCONT) process_child_continued(proc);
+    if (ret == 0 && !resumed) task_wakeup(task);
 
     return ret;
 }
@@ -410,17 +417,14 @@ static int signal_handle_default(process_t *proc, int sig)
         case SIG_DFL_STOP :
             if (proc->task) {
                 spin_lock(&scheduler.lock);
-                proc->task->state = TASK_BLOCKED;
+                bool stopped = proc->task->state != TASK_STOPPED;
+                proc->task->state = TASK_STOPPED;
                 spin_unlock(&scheduler.lock);
+                if (stopped) process_child_stopped(proc, sig);
             }
             return 0;
 
         case SIG_DFL_CONT :
-            if (proc->task && proc->task->state == TASK_BLOCKED) {
-                spin_lock(&scheduler.lock);
-                enqueue_task(proc->task);
-                spin_unlock(&scheduler.lock);
-            }
             return 0;
 
         case SIG_DFL_TERM :
@@ -674,7 +678,9 @@ int signal_deliver_if_pending(syscall_frame_t *frame)
         state->restore_mask = false;
     }
 
+    bool stopped = proc->task && proc->task->state == TASK_STOPPED;
     spin_unlock(&state->lock);
+    if (stopped) sched_yield();
     return 0;
 }
 
@@ -713,6 +719,26 @@ void signal_notify_child_exit(process_t *parent, int64_t child_pid, int exit_cod
     spin_unlock(&state->lock);
 
     if (parent->task) { task_wakeup(parent->task); }
+}
+
+void signal_notify_child_status(process_t *parent, int64_t child_pid, int status, int code)
+{
+    if (!parent) return;
+
+    signal_state_t *state = &parent->signal;
+    spin_lock(&state->lock);
+    sigaction_t *sa = &state->sighand[SIGCHLD];
+    if (!(sa->sa_flags & SA_NOCLDSTOP)) {
+        siginfo_t info;
+        memset(&info, 0, sizeof(info));
+        info.si_signo  = SIGCHLD;
+        info.si_code   = code;
+        info.si_pid    = child_pid;
+        info.si_status = status;
+        signal_send_locked(state, parent, SIGCHLD, &info);
+    }
+    spin_unlock(&state->lock);
+    if (parent->task) task_wakeup(parent->task);
 }
 
 /* ---------- Syscall implementations ---------- */

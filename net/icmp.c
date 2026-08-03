@@ -10,11 +10,211 @@
 
 #include <kernel/errno.h>
 #include <libs/std/string.h>
+#include <mem/heap.h>
 #include <net/endian.h>
 #include <net/icmp.h>
 
 #define ICMP_HEADER_LEN 8U
 #define ICMP_QUOTE_LEN  8U
+#define ICMP_ENDPOINT_MAX 16U
+#define ICMP_RX_QUEUE_MAX 64U
+#define ICMP_RX_BYTES_MAX 131072U
+
+typedef struct icmp_packet {
+        struct icmp_packet *next;
+        uint32_t            source;
+        size_t              length;
+        uint8_t             data[];
+} icmp_packet_t;
+
+struct icmp_endpoint {
+        uint32_t              local_address;
+        uint32_t              remote_address;
+        uint16_t              queue_length;
+        uint32_t              queue_bytes;
+        icmp_packet_t        *head;
+        icmp_packet_t        *tail;
+        spinlock_t            lock;
+        icmp_event_callback_t event_callback;
+        void                 *event_context;
+};
+
+static icmp_endpoint_t *icmp_table[ICMP_ENDPOINT_MAX];
+static spinlock_t       icmp_table_lock;
+
+icmp_endpoint_t *icmp_open(void)
+{
+    icmp_endpoint_t *endpoint = calloc(1, sizeof(*endpoint));
+    if (!endpoint) return NULL;
+    spin_lock(&icmp_table_lock);
+    for (unsigned i = 0; i < ICMP_ENDPOINT_MAX; i++) {
+        if (!icmp_table[i]) {
+            icmp_table[i] = endpoint;
+            spin_unlock(&icmp_table_lock);
+            return endpoint;
+        }
+    }
+    spin_unlock(&icmp_table_lock);
+    free(endpoint);
+    return NULL;
+}
+
+void icmp_close(icmp_endpoint_t *endpoint)
+{
+    if (!endpoint) return;
+    spin_lock(&icmp_table_lock);
+    for (unsigned i = 0; i < ICMP_ENDPOINT_MAX; i++)
+        if (icmp_table[i] == endpoint) icmp_table[i] = NULL;
+    spin_unlock(&icmp_table_lock);
+    spin_lock(&endpoint->lock);
+    icmp_packet_t *packet = endpoint->head;
+    endpoint->head = endpoint->tail = NULL;
+    spin_unlock(&endpoint->lock);
+    while (packet) {
+        icmp_packet_t *next = packet->next;
+        free(packet);
+        packet = next;
+    }
+    free(endpoint);
+}
+
+int icmp_bind(icmp_endpoint_t *endpoint, uint32_t address)
+{
+    if (!endpoint) return -EINVAL;
+    spin_lock(&endpoint->lock);
+    endpoint->local_address = address;
+    spin_unlock(&endpoint->lock);
+    return 0;
+}
+
+int icmp_connect(icmp_endpoint_t *endpoint, uint32_t address)
+{
+    if (!endpoint || !address) return -EINVAL;
+    spin_lock(&endpoint->lock);
+    endpoint->remote_address = address;
+    spin_unlock(&endpoint->lock);
+    return 0;
+}
+
+int icmp_disconnect(icmp_endpoint_t *endpoint)
+{
+    if (!endpoint) return -EINVAL;
+    spin_lock(&endpoint->lock);
+    endpoint->remote_address = 0;
+    spin_unlock(&endpoint->lock);
+    return 0;
+}
+
+int icmp_send(icmp_endpoint_t *endpoint, const void *data, size_t length, uint32_t destination, uint8_t ttl)
+{
+    if (!endpoint || (!data && length)) return -EINVAL;
+    if (length > UINT16_MAX - IPV4_HEADER_MIN) return -EMSGSIZE;
+    if (!destination) destination = endpoint->remote_address;
+    if (!destination) return -EDESTADDRREQ;
+    net_device_t *device;
+    uint32_t      next_hop;
+    int status = ipv4_route(destination, &device, &next_hop);
+    if (status) return status;
+    net_pbuf_t *packet = net_pbuf_from(data, length, NET_PBUF_HEADROOM);
+    if (!packet) {
+        netdev_put(device);
+        return -ENOMEM;
+    }
+    uint32_t source = endpoint->local_address ? endpoint->local_address : device->ipv4_address;
+    status          = ipv4_output(device, source, destination, IPV4_PROTO_ICMP, ttl, packet);
+    net_pbuf_free(packet);
+    netdev_put(device);
+    return status == -EINPROGRESS ? (int)length : (status ? status : (int)length);
+}
+
+int icmp_receive(icmp_endpoint_t *endpoint, void *data, size_t capacity, uint32_t *source, int peek)
+{
+    if (!endpoint || (!data && capacity)) return -EINVAL;
+    spin_lock(&endpoint->lock);
+    icmp_packet_t *packet = endpoint->head;
+    if (!packet) {
+        spin_unlock(&endpoint->lock);
+        return -EAGAIN;
+    }
+    size_t copied = packet->length < capacity ? packet->length : capacity;
+    if (copied) memcpy(data, packet->data, copied);
+    if (source) *source = packet->source;
+    if (!peek) {
+        endpoint->head = packet->next;
+        if (!endpoint->head) endpoint->tail = NULL;
+        endpoint->queue_length--;
+        endpoint->queue_bytes -= (uint32_t)packet->length;
+    }
+    spin_unlock(&endpoint->lock);
+    if (!peek) free(packet);
+    return (int)copied;
+}
+
+uint32_t icmp_readiness(icmp_endpoint_t *endpoint)
+{
+    if (!endpoint) return 0;
+    spin_lock(&endpoint->lock);
+    uint32_t events = ICMP_READY_WRITE | (endpoint->head ? ICMP_READY_READ : 0);
+    spin_unlock(&endpoint->lock);
+    return events;
+}
+
+void icmp_set_event_callback(icmp_endpoint_t *endpoint, icmp_event_callback_t callback, void *context)
+{
+    if (!endpoint) return;
+    spin_lock(&endpoint->lock);
+    endpoint->event_callback = callback;
+    endpoint->event_context  = callback ? context : NULL;
+    spin_unlock(&endpoint->lock);
+    if (callback) callback(endpoint, icmp_readiness(endpoint), context);
+}
+
+static void icmp_deliver(const ipv4_info_t *ip, const net_pbuf_t *packet)
+{
+    size_t length = IPV4_HEADER_MIN + packet->length;
+    spin_lock(&icmp_table_lock);
+    for (unsigned i = 0; i < ICMP_ENDPOINT_MAX; i++) {
+        icmp_endpoint_t *endpoint = icmp_table[i];
+        if (!endpoint) continue;
+        spin_lock(&endpoint->lock);
+        if ((endpoint->local_address && endpoint->local_address != ip->destination)
+            || (endpoint->remote_address && endpoint->remote_address != ip->source) || endpoint->queue_length >= ICMP_RX_QUEUE_MAX
+            || length > ICMP_RX_BYTES_MAX - endpoint->queue_bytes) {
+            spin_unlock(&endpoint->lock);
+            continue;
+        }
+        icmp_packet_t *queued = malloc(sizeof(*queued) + length);
+        if (!queued) {
+            spin_unlock(&endpoint->lock);
+            continue;
+        }
+        queued->next   = NULL;
+        queued->source = ip->source;
+        queued->length = length;
+        memset(queued->data, 0, IPV4_HEADER_MIN);
+        queued->data[0] = 0x45;
+        net_write_be16(queued->data + 2, (uint16_t)length);
+        net_write_be16(queued->data + 4, ip->identification);
+        queued->data[8] = ip->ttl;
+        queued->data[9] = IPV4_PROTO_ICMP;
+        net_write_be32(queued->data + 12, ip->source);
+        net_write_be32(queued->data + 16, ip->destination);
+        net_write_be16(queued->data + 10, net_checksum(queued->data, IPV4_HEADER_MIN));
+        memcpy(queued->data + IPV4_HEADER_MIN, packet->data, packet->length);
+        if (endpoint->tail)
+            endpoint->tail->next = queued;
+        else
+            endpoint->head = queued;
+        endpoint->tail = queued;
+        endpoint->queue_length++;
+        endpoint->queue_bytes += (uint32_t)length;
+        icmp_event_callback_t callback = endpoint->event_callback;
+        void                 *context  = endpoint->event_context;
+        spin_unlock(&endpoint->lock);
+        if (callback) callback(endpoint, ICMP_READY_READ, context);
+    }
+    spin_unlock(&icmp_table_lock);
+}
 
 static int icmp_is_error(uint8_t type)
 {
@@ -24,6 +224,7 @@ static int icmp_is_error(uint8_t type)
 int icmp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
 {
     if (!device || !ip || !packet || packet->length < ICMP_HEADER_LEN || net_checksum(packet->data, packet->length) != 0) goto bad;
+    icmp_deliver(ip, packet);
     uint8_t type = packet->data[0];
     uint8_t code = packet->data[1];
     if (type == ICMP_ECHO_REQUEST) {

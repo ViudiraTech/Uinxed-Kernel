@@ -483,6 +483,12 @@ static void vt_ansi_dec_hl(vt_ansi_state_t *s, bool set, const vt_ansi_callbacks
                 if (cb && cb->cursor_visible) cb->cursor_visible(set);
                 break;
             case 1049 :
+                if (!set) {
+                    s->scroll_top    = 0;
+                    s->scroll_bottom = s->rows;
+                    s->origin_mode   = false;
+                    s->wrap_next     = false;
+                }
                 break;
             case 2004 :
                 s->bracketed_paste = set;

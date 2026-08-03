@@ -241,7 +241,7 @@ static int ptrace_translate(process_t *proc, uintptr_t addr, bool write, void **
 {
     if (!proc || !proc->user_page_dir || !proc->user_page_dir->table || addr >= PROCESS_USER_STACK_TOP) return -EIO;
 
-    if (write && page_resolve_cow_fault(proc->user_page_dir, addr) < 0) { /* Non-COW writable mappings continue through the normal walk. */
+    if (write && page_resolve_cow_fault(proc, addr) < 0) { /* Non-COW writable mappings continue through the normal walk. */
     }
 
     uint16_t l4i = (addr >> 39) & 0x1ff;

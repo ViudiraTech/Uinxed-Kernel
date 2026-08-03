@@ -9,6 +9,7 @@
  */
 
 #include <arch/eis.h>
+#include <arch/smp.h>
 #include <kernel/debug.h>
 #include <kernel/interrupt.h>
 #include <kernel/printk.h>
@@ -61,15 +62,16 @@ static inline int user_exception(interrupt_frame_t *frame, int sig, int code, co
              * restore these values, so the user signal handler
              * receives the correct arguments.
              *
-             * The saved GPR layout below interrupt_frame_t is
-             * compiler-dependent. We probe by writing to assumed
-             * offsets and also rely on the kernel's entry asm
-             * convention.  If offsets are wrong, only the signal
-             * handler arguments are incorrect; execution continues.
+             * GCC's interrupt prologue saves the GPRs in this order
+             * below the iret frame (confirmed by disassembly):
+             *   r15..r8, rdi(rbp-72), rsi(rbp-80), rbx(rbp-88),
+             *   rcx(rbp-96), rdx(rbp-104), rax(rbp-112)
+             * with frame == rbp+8, so:
+             *   rdi -> frame-80, rsi -> frame-88, rdx -> frame-112
              */
-            __asm__ volatile("movq %[rdi], -0x00(%[fp])\n" /* saved_rdi = sig */
-                             "movq %[rsi], -0x08(%[fp])\n" /* saved_rsi = siginfo ptr */
-                             "movq %[rdx], -0x10(%[fp])\n" /* saved_rdx = old_mask ptr */
+            __asm__ volatile("movq %[rdi], -0x50(%[fp])\n" /* saved_rdi = sig */
+                             "movq %[rsi], -0x58(%[fp])\n" /* saved_rsi = siginfo ptr */
+                             "movq %[rdx], -0x70(%[fp])\n" /* saved_rdx = old_mask ptr */
                              :
                              : [fp] "r"(frame), [rdi] "r"(sigframe.rdi), [rsi] "r"(sigframe.rsi), [rdx] "r"(sigframe.rdx)
                              : "memory");
@@ -96,6 +98,7 @@ INTERRUPT_END
 INTERRUPT_BEGIN static void ISR_2_handle(interrupt_frame_t *frame)
 {
     (void)frame;
+    if (smp_handle_nmi()) return;
     panic("Kernel fatal error: NMI");
 }
 INTERRUPT_END

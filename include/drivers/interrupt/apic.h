@@ -40,6 +40,7 @@
 #define IPI_FIXED         0x0
 #define IPI_LOWEST        0x100
 #define IPI_SMI           0x200
+#define IPI_NMI           0x400
 #define IPI_REMOTE        0x4000
 #define IPI_EDGE          0x8000
 #define IPI_DEASSERT      0x0

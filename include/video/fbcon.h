@@ -35,4 +35,12 @@ void fbcon_delete_chars(uint32_t x, uint32_t y, uint32_t n, uint32_t cols);
 /* Process a buffer of characters through the ANSI escape sequence parser */
 void fbcon_ansi_write(const uint8_t *buf, size_t len);
 
+/*
+ * Periodic cursor blink driver.  Called from the video refresh worker;
+ * flips the block-cursor phase roughly every CURSOR_BLINK_INTERVAL
+ * scheduler ticks and repaints the affected cells directly into the
+ * framebuffer (the worker's frame-diff then flushes them).
+ */
+void fbcon_cursor_tick(uint64_t now_ticks);
+
 #endif // INCLUDE_FBCON_H_

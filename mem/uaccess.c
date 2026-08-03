@@ -97,7 +97,7 @@ static int user_translate_writable(uintptr_t uaddr, void **kaddr, size_t *page_l
 
     process_t *proc = process_current();
     if (!proc || !proc->user_page_dir) return 0;
-    if (page_resolve_cow_fault(proc->user_page_dir, uaddr) < 0) return 0;
+    if (page_resolve_cow_fault(proc, uaddr) < 0) return 0;
 
     return user_translate(uaddr, 1, kaddr, page_left);
 }
@@ -141,9 +141,10 @@ static int copy_user_bytes(void *dst, const void *src, size_t size, int to_user)
 {
     uintptr_t user = (uintptr_t)(to_user ? dst : src);
     uintptr_t kern = (uintptr_t)(to_user ? src : dst);
+    process_t *proc = process_current();
     size_t    remaining;
 
-    if (!user_ptr_range_ok(user, size)) return -EFAULT;
+    if (!proc || !proc->user_page_dir || !user_ptr_range_ok(user, size)) return -EFAULT;
     remaining = size;
 
     while (remaining) {
@@ -151,12 +152,22 @@ static int copy_user_bytes(void *dst, const void *src, size_t size, int to_user)
         size_t page_left;
         if (!user_translate_access(user, to_user, &kaddr, &page_left)) return -EFAULT;
 
+        /* Keep the leaf mapping alive until the direct-map copy completes.
+         * A concurrent COW or munmap may otherwise release and reuse the
+         * translated frame between the page-table walk and memcpy(). */
+        spin_lock(&proc->user_page_dir->lock);
+        if (!user_translate(user, to_user, &kaddr, &page_left)) {
+            spin_unlock(&proc->user_page_dir->lock);
+            continue;
+        }
+
         size_t step = remaining < page_left ? remaining : page_left;
         if (to_user) {
             memcpy(kaddr, (const void *)kern, step);
         } else {
             memcpy((void *)kern, kaddr, step);
         }
+        spin_unlock(&proc->user_page_dir->lock);
         user += step;
         kern += step;
         remaining -= step;

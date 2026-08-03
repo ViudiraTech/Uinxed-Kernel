@@ -15,6 +15,7 @@
 #include <mem/alloc.h>
 #include <mem/heap.h>
 #include <net/abi/inet.h>
+#include <net/icmp.h>
 #include <net/netdev.h>
 #include <net/tcp.h>
 #include <net/udp.h>
@@ -52,6 +53,7 @@ typedef struct inet_core_socket {
         int             ipv6_mtu_discover;
         int             ipv6_freebind;
         int             ipv6_transparent;
+        int             ip_ttl;
         uint32_t        sndbuf;
         uint32_t        rcvbuf;
         uint64_t        sndtimeo_ticks;
@@ -67,6 +69,7 @@ typedef struct inet_core_socket {
         union {
                 udp_endpoint_t *udp;
                 tcp_endpoint_t *tcp;
+                icmp_endpoint_t *icmp;
         } endpoint;
 } inet_core_socket_t;
 
@@ -124,6 +127,22 @@ static void inet_udp_event(udp_endpoint_t *endpoint, uint32_t events, void *cont
     if (events & UDP_READY_READ) poll_events |= INET_POLLIN;
     if (events & UDP_READY_WRITE) poll_events |= INET_POLLOUT;
     if (events & UDP_READY_ERROR) poll_events |= INET_POLLERR;
+    if (callback) callback(argument, poll_events);
+}
+
+static void inet_icmp_event(icmp_endpoint_t *endpoint, uint32_t events, void *context)
+{
+    (void)endpoint;
+    inet_core_socket_t *sock = context;
+    spin_lock(&sock->event_lock);
+    sock->event_generation++;
+    void (*callback)(void *argument, uint32_t events) = sock->event_callback;
+    void *argument                                    = sock->event_argument;
+    spin_unlock(&sock->event_lock);
+    wait_queue_wake_all(&sock->wait);
+    uint32_t poll_events = 0;
+    if (events & ICMP_READY_READ) poll_events |= INET_POLLIN;
+    if (events & ICMP_READY_WRITE) poll_events |= INET_POLLOUT;
     if (callback) callback(argument, poll_events);
 }
 
@@ -281,12 +300,16 @@ static int core_create(int family, int type, int protocol, uint32_t flags, void 
     sock->ipv6_unicast_hops   = 64;
     sock->ipv6_multicast_hops = 1;
     sock->ipv6_multicast_loop = 1;
+    sock->ip_ttl               = 64;
     wait_queue_init(&sock->wait);
     if (type == SOCK_DGRAM)
         sock->endpoint.udp = udp_open_family((uint16_t)family);
     else if (type == SOCK_STREAM)
         sock->endpoint.tcp = tcp_open_family((uint16_t)family);
-    if ((type == SOCK_DGRAM && !sock->endpoint.udp) || (type == SOCK_STREAM && !sock->endpoint.tcp)) {
+    else if (type == SOCK_RAW)
+        sock->endpoint.icmp = icmp_open();
+    if ((type == SOCK_DGRAM && !sock->endpoint.udp) || (type == SOCK_STREAM && !sock->endpoint.tcp)
+        || (type == SOCK_RAW && !sock->endpoint.icmp)) {
         free(sock);
         return -ENOMEM;
     }
@@ -298,8 +321,10 @@ static int core_create(int family, int type, int protocol, uint32_t flags, void 
             return -ENOMEM;
         }
         tcp_set_event_callback(sock->endpoint.tcp, inet_tcp_event, sock);
-    } else {
+    } else if (type == SOCK_DGRAM) {
         udp_set_event_callback(sock->endpoint.udp, inet_udp_event, sock);
+    } else {
+        icmp_set_event_callback(sock->endpoint.icmp, inet_icmp_event, sock);
     }
     *context = sock;
     return EOK;
@@ -312,11 +337,14 @@ static void core_close(void *context)
     if (sock->type == SOCK_DGRAM) {
         udp_set_event_callback(sock->endpoint.udp, NULL, NULL);
         udp_close(sock->endpoint.udp);
-    } else {
+    } else if (sock->type == SOCK_STREAM) {
         tcp_set_event_callback(sock->endpoint.tcp, NULL, NULL);
         if (sock->pending_accept) tcp_close(sock->pending_accept);
         tcp_close(sock->endpoint.tcp);
         free(sock->rx_data);
+    } else {
+        icmp_set_event_callback(sock->endpoint.icmp, NULL, NULL);
+        icmp_close(sock->endpoint.icmp);
     }
     free(sock);
 }
@@ -332,6 +360,11 @@ static int core_bind(void *context, const struct sockaddr *addr, uint32_t length
     int      native6;
     int      ret = inet_address(sock, addr, length, &address, &port, &address6, &scope_id, 1, &native6);
     if (ret) return ret;
+    if (sock->type == SOCK_RAW) {
+        ret = icmp_bind(sock->endpoint.icmp, address);
+        if (!ret) sock->local_address = address;
+        return ret;
+    }
     if (native6)
         ret = sock->type == SOCK_DGRAM ? udp_bind6(sock->endpoint.udp, &address6, port) : tcp_bind6(sock->endpoint.tcp, &address6, port);
     else
@@ -354,8 +387,8 @@ static int core_connect(void *context, const struct sockaddr *addr, uint32_t len
 {
     inet_core_socket_t *sock = context;
     if (addr && length >= sizeof(sa_family_t) && addr->sa_family == AF_UNSPEC) {
-        if (sock->type != SOCK_DGRAM) return -EAFNOSUPPORT;
-        int ret = udp_disconnect(sock->endpoint.udp);
+        if (sock->type != SOCK_DGRAM && sock->type != SOCK_RAW) return -EAFNOSUPPORT;
+        int ret = sock->type == SOCK_RAW ? icmp_disconnect(sock->endpoint.icmp) : udp_disconnect(sock->endpoint.udp);
         if (!ret) {
             sock->remote_address  = 0;
             sock->remote_port     = 0;
@@ -372,6 +405,11 @@ static int core_connect(void *context, const struct sockaddr *addr, uint32_t len
     int      native6;
     int      ret = inet_address(sock, addr, length, &address, &port, &address6, &scope_id, 0, &native6);
     if (ret) return ret;
+    if (sock->type == SOCK_RAW) {
+        ret = icmp_connect(sock->endpoint.icmp, address);
+        if (!ret) sock->remote_address = address;
+        return ret;
+    }
     if (sock->type == SOCK_STREAM && sock->connecting) {
         tcp_state_t state = tcp_get_state(sock->endpoint.tcp);
         if (state == TCP_ESTABLISHED) {
@@ -516,6 +554,15 @@ static int core_sendto(void *context, const void *buf, size_t len, int flags, co
         }
         return (int)sent;
     }
+    if (sock->type == SOCK_RAW) {
+        uint32_t address = 0;
+        uint16_t port    = 0;
+        if (addr) {
+            int ret = inet_address(sock, addr, addrlen, &address, &port, NULL, NULL, 0, NULL);
+            if (ret) return ret;
+        }
+        return icmp_send(sock->endpoint.icmp, buf, len, address, (uint8_t)sock->ip_ttl);
+    }
     uint32_t       address = 0;
     uint16_t       port    = 0;
     ipv6_address_t address6;
@@ -564,6 +611,22 @@ static int core_recvfrom(void *context, void *buf, size_t len, int flags, struct
             (void)inet_event_wait(sock, generation, deadline);
         }
     }
+    if (sock->type == SOCK_RAW) {
+        uint32_t source;
+        int      ret;
+        uint64_t deadline = sock->rcvtimeo_ticks ? sched_ticks() + sock->rcvtimeo_ticks : 0;
+        do {
+            uint64_t generation = inet_event_snapshot(sock);
+            ret                 = icmp_receive(sock->endpoint.icmp, buf, len, &source, (flags & MSG_PEEK) != 0);
+            if (ret != -EAGAIN || (flags & MSG_DONTWAIT) || inet_timed_out(deadline)) break;
+            (void)inet_event_wait(sock, generation, deadline);
+        } while (1);
+        if (ret >= 0 && addr && addrlen) {
+            inet_make_address((sockaddr_in_t *)addr, source, 0);
+            *addrlen = sizeof(sockaddr_in_t);
+        }
+        return ret;
+    }
     udp_datagram_t info;
     int            ret;
     uint64_t       deadline = sock->rcvtimeo_ticks ? sched_ticks() + sock->rcvtimeo_ticks : 0;
@@ -596,7 +659,9 @@ static int core_getsockname(void *context, struct sockaddr *addr, uint32_t *addr
     inet_core_socket_t *sock     = context;
     uint32_t            required = inet_socket_address_size(sock);
     if (*addrlen < required) return -EINVAL;
-    if (sock->type == SOCK_DGRAM) {
+    if (sock->type == SOCK_RAW) {
+        /* Raw IPv4 socket addresses have no transport port. */
+    } else if (sock->type == SOCK_DGRAM) {
         udp_endpoint_info_t info;
         sock->local_port = udp_local_port(sock->endpoint.udp);
         if (!udp_get_info(sock->endpoint.udp, &info)) sock->local_address6 = info.local_address6;
@@ -619,7 +684,8 @@ static int core_getsockname(void *context, struct sockaddr *addr, uint32_t *addr
 static int core_getpeername(void *context, struct sockaddr *addr, uint32_t *addrlen)
 {
     inet_core_socket_t *sock = context;
-    if ((!sock->remote_address && ipv6_address_is_unspecified(&sock->remote_address6)) || !sock->remote_port) return -ENOTCONN;
+    if ((!sock->remote_address && ipv6_address_is_unspecified(&sock->remote_address6)) || (!sock->remote_port && sock->type != SOCK_RAW))
+        return -ENOTCONN;
     uint32_t required = inet_socket_address_size(sock);
     if (*addrlen < required) return -EINVAL;
     if (sock->family == AF_INET6 && !ipv6_address_is_unspecified(&sock->remote_address6))
@@ -634,6 +700,14 @@ static int core_setsockopt(void *context, int level, int option, const void *val
 {
     inet_core_socket_t *sock = context;
     if (!value) return -EFAULT;
+    if (level == SOL_IP) {
+        if (sock->family != AF_INET || option != IP_TTL) return -ENOPROTOOPT;
+        if (length < sizeof(int)) return -EINVAL;
+        int val = *(const int *)value;
+        if (val < 1 || val > 255) return -EINVAL;
+        sock->ip_ttl = val;
+        return EOK;
+    }
     if (level == SOL_IPV6) {
         if (sock->family != AF_INET6) return -ENOPROTOOPT;
         if (option == IPV6_ADD_MEMBERSHIP || option == IPV6_DROP_MEMBERSHIP) return -EOPNOTSUPP;
@@ -717,6 +791,8 @@ static int core_setsockopt(void *context, int level, int option, const void *val
         case SO_KEEPALIVE :
             sock->keepalive = val != 0;
             return EOK;
+        case SO_BROADCAST :
+            return EOK;
         case SO_SNDBUF :
             if (val <= 0) return -EINVAL;
             sock->sndbuf = (uint32_t)val > SOCK_BUF_MAX ? SOCK_BUF_MAX : (uint32_t)val;
@@ -734,6 +810,14 @@ static int core_getsockopt(void *context, int level, int option, void *value, ui
 {
     inet_core_socket_t *sock = context;
     int                 val;
+    if (level == SOL_IP) {
+        if (sock->family != AF_INET || option != IP_TTL) return -ENOPROTOOPT;
+        val = sock->ip_ttl;
+        if (*length < sizeof(int)) return -EINVAL;
+        memcpy(value, &val, sizeof(val));
+        *length = sizeof(val);
+        return EOK;
+    }
     if (level == SOL_IPV6) {
         if (sock->family != AF_INET6) return -ENOPROTOOPT;
         switch (option) {
@@ -831,7 +915,11 @@ static int core_poll(void *context, size_t events)
 {
     inet_core_socket_t *sock  = context;
     int                 ready = 0;
-    if (sock->type == SOCK_DGRAM) {
+    if (sock->type == SOCK_RAW) {
+        uint32_t state = icmp_readiness(sock->endpoint.icmp);
+        if ((events & INET_POLLIN) && (state & ICMP_READY_READ)) ready |= INET_POLLIN;
+        if ((events & INET_POLLOUT) && (state & ICMP_READY_WRITE)) ready |= INET_POLLOUT;
+    } else if (sock->type == SOCK_DGRAM) {
         if (events & INET_POLLOUT) ready |= INET_POLLOUT;
         if (events & INET_POLLIN) {
             udp_datagram_t info;

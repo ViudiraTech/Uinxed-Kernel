@@ -366,14 +366,27 @@ int memfd_map(vfs_node_t node, process_t *proc, uintptr_t addr, size_t length, u
     if (flags & VM_WRITE) pte_flags |= PTE_WRITEABLE;
     if (flags & VM_SHARED) pte_flags |= PTE_SHARED;
     if (!(flags & VM_EXEC)) pte_flags |= PTE_NO_EXECUTE;
-    for (size_t done = 0; done < length; done += PAGE_4K_SIZE) {
-        size_t page = (offset + done) / PAGE_4K_SIZE;
-        frame_retain_range(file->pages[page], 1);
-        page_map_to(proc->user_page_dir, addr + done, file->pages[page], pte_flags);
+    size_t mapped = 0;
+    for (; mapped < length; mapped += PAGE_4K_SIZE) {
+        size_t page = (offset + mapped) / PAGE_4K_SIZE;
+        if (frame_retain_range(file->pages[page], 1)) goto rollback;
+        if (page_map_new_to(proc->user_page_dir, addr + mapped, file->pages[page], pte_flags)) {
+            (void)frame_release_range(file->pages[page], 1);
+            goto rollback;
+        }
     }
     file->mappings++;
     spin_unlock(&file->lock);
     return EOK;
+
+rollback:
+    while (mapped) {
+        mapped -= PAGE_4K_SIZE;
+        (void)page_unmap_release(proc->user_page_dir, addr + mapped);
+    }
+    spin_unlock(&file->lock);
+    if ((flags & VM_SHARED) && (flags & VM_WRITE)) memfd_vma_release(node, flags);
+    return -ENOMEM;
 }
 
 void memfd_vma_retain(vfs_node_t node, vm_flags_t flags)

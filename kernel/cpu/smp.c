@@ -36,7 +36,26 @@ static cpu_processor_t *cpus;
 static size_t           cpu_count = 0;
 
 static volatile uint64_t ap_ready_count = 0;
+static volatile uint64_t tlb_shootdown_generation;
+static volatile uint64_t *tlb_shootdown_ack;
+static volatile uint32_t smp_ready;
 spinlock_t               ap_start_lock  = {0};
+static spinlock_t         tlb_shootdown_lock;
+
+int smp_handle_nmi(void)
+{
+    if (!__atomic_load_n(&smp_ready, __ATOMIC_ACQUIRE) || !tlb_shootdown_ack) return 0;
+    uint32_t cpu_id = get_current_cpu_id();
+    if (cpu_id >= cpu_count) return 0;
+    uint64_t generation = __atomic_load_n(&tlb_shootdown_generation, __ATOMIC_ACQUIRE);
+    if (__atomic_load_n(&tlb_shootdown_ack[cpu_id], __ATOMIC_ACQUIRE) >= generation) return 0;
+
+    uint64_t cr3;
+    __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
+    __asm__ volatile("mov %0, %%cr3" ::"r"(cr3) : "memory");
+    __atomic_store_n(&tlb_shootdown_ack[cpu_id], generation, __ATOMIC_RELEASE);
+    return 1;
+}
 
 /* Rescheduling Requests */
 INTERRUPT_BEGIN static void ipi_reschedule_handler(interrupt_frame_t *frame)
@@ -77,6 +96,9 @@ INTERRUPT_BEGIN static void ipi_tlb_shootdown_handler(interrupt_frame_t *frame)
     uint64_t cr3;
     __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
     __asm__ volatile("mov %0, %%cr3" ::"r"(cr3) : "memory");
+    uint32_t cpu_id     = get_current_cpu_id();
+    uint64_t generation = __atomic_load_n(&tlb_shootdown_generation, __ATOMIC_ACQUIRE);
+    if (tlb_shootdown_ack && cpu_id < cpu_count) __atomic_store_n(&tlb_shootdown_ack[cpu_id], generation, __ATOMIC_RELEASE);
     send_eoi();
     enable_intr();
 }
@@ -114,7 +136,22 @@ void send_ipi_cpu(uint32_t cpu_id, uint8_t vector)
 /* Flush TLBs of all CPUs */
 void flush_tlb_all(void)
 {
-    send_ipi_all(IPI_TLB_SHOOTDOWN);
+    uint64_t cr3;
+    __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
+    __asm__ volatile("mov %0, %%cr3" ::"r"(cr3) : "memory");
+    if (!__atomic_load_n(&smp_ready, __ATOMIC_ACQUIRE) || cpu_count < 2 || !tlb_shootdown_ack) return;
+
+    uint64_t irq_flags = spin_lock_irqsave(&tlb_shootdown_lock);
+    uint32_t self       = get_current_cpu_id();
+    uint64_t generation = __atomic_add_fetch(&tlb_shootdown_generation, 1, __ATOMIC_ACQ_REL);
+    __atomic_store_n(&tlb_shootdown_ack[self], generation, __ATOMIC_RELEASE);
+    for (size_t i = 0; i < cpu_count; i++)
+        if (i != self) send_ipi(cpus[i].lapic_id, IPI_NMI | APIC_ICR_PHYSICAL);
+    for (size_t i = 0; i < cpu_count; i++) {
+        if (i == self) continue;
+        while (__atomic_load_n(&tlb_shootdown_ack[i], __ATOMIC_ACQUIRE) < generation) __asm__ volatile("pause");
+    }
+    spin_unlock_irqrestore(&tlb_shootdown_lock, irq_flags);
 }
 
 /* Flushing TLB by address range */
@@ -252,7 +289,9 @@ void smp_init(void)
     }
 
     cpu_count = (!CPU_MAX_COUNT) ? smp->cpu_count : (smp->cpu_count > CPU_MAX_COUNT ? CPU_MAX_COUNT : smp->cpu_count);
-    cpus      = (cpu_processor_t *)aligned_alloc(16, sizeof(cpu_processor_t) * cpu_count);
+    cpus              = (cpu_processor_t *)aligned_alloc(16, sizeof(cpu_processor_t) * cpu_count);
+    tlb_shootdown_ack = calloc(cpu_count, sizeof(*tlb_shootdown_ack));
+    if (!cpus || !tlb_shootdown_ack) panic("smp: Cannot allocate CPU state.");
     plogk("smp: Found %d CPUs.\n", cpu_count);
 
     /* Init BootStrap Processor */
@@ -296,6 +335,7 @@ void smp_init(void)
 
     /* Wait for all APs to be ready */
     while (ap_ready_count < cpu_count - 1) __asm__ volatile("pause");
+    __atomic_store_n(&smp_ready, 1, __ATOMIC_RELEASE);
     for (size_t i = 0; i < cpu_count; i++)
         plogk("smp: CPU %03u: tss_stack = %p, kernel_stack = %p\n", cpus[i].id, cpus[i].tss_stack, cpus[i].kernel_stack);
     plogk("smp: All APs are up, total %llu CPUs.\n", cpu_count);

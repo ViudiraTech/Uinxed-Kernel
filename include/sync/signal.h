@@ -76,21 +76,21 @@ static inline void sigfillset(sigset_t *set)
 
 static inline int sigaddset(sigset_t *set, int signo)
 {
-    if (signo <= 0 || signo > NSIG) return -1;
+    if (signo <= 0 || signo >= NSIG) return -1;
     *set |= (1ULL << (signo - 1));
     return 0;
 }
 
 static inline int sigdelset(sigset_t *set, int signo)
 {
-    if (signo <= 0 || signo > NSIG) return -1;
+    if (signo <= 0 || signo >= NSIG) return -1;
     *set &= ~(1ULL << (signo - 1));
     return 0;
 }
 
 static inline int sigismember(const sigset_t *set, int signo)
 {
-    if (signo <= 0 || signo > NSIG) return 0;
+    if (signo <= 0 || signo >= NSIG) return 0;
     return !!(*set & (1ULL << (signo - 1)));
 }
 
@@ -424,7 +424,7 @@ static inline int sig_is_rt(int sig)
 /* Check if a signal number is valid */
 static inline int sig_valid(int sig)
 {
-    return sig > 0 && sig <= NSIG;
+    return sig > 0 && sig < NSIG;
 }
 
 /* Check if a signal is ignorable (cannot be ignored, caught, or blocked) */
@@ -453,6 +453,7 @@ int signal_check_perm(const process_t *from, const process_t *to);
 
 /* Notify the signal subsystem that a child process exited */
 void signal_notify_child_exit(process_t *parent, int64_t child_pid, int exit_code, int status);
+void signal_notify_child_status(process_t *parent, int64_t child_pid, int status, int code);
 
 /*
  * Called from syscall_dispatch with frame access to restore

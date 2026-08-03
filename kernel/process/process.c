@@ -124,6 +124,24 @@ process_t *process_iterate_get(size_t *pos)
     return NULL;
 }
 
+void process_debug_dump_tasks(void)
+{
+    spin_lock(&process_table_lock);
+    plogk("task-dump: begin\n");
+    for (size_t i = 1; i < PROCESS_TABLE_SIZE; i++) {
+        process_t *proc = process_table[i];
+        if (!proc) continue;
+        for (ilist_node_t *node = proc->threads.next; node != &proc->threads; node = node->next) {
+            task_t *task = rb_entry(node, task_t, thread_node);
+            if (task->state == TASK_ZOMBIE) continue;
+            plogk("task-dump: pid=%llu name=%s state=%u cpu=%u on_cpu=%llu wait=%p wake=%u tick=%llu\n", task->pid, task->name,
+                  task->state, task->cpu_id, task->on_cpu, task->wait_queue, task->wake_reason, task->wake_tick);
+        }
+    }
+    plogk("task-dump: end\n");
+    spin_unlock(&process_table_lock);
+}
+
 process_t *process_group_iterate_get(size_t *pos, pid_t pgid, pid_t sid)
 {
     if (!pos || pgid <= 0) return NULL;
@@ -456,23 +474,23 @@ vm_area_t *vm_area_alloc(uintptr_t start, uintptr_t end, vm_flags_t flags)
 
 int vm_area_insert(process_t *proc, vm_area_t *vma)
 {
+    if (!proc || !vma || vma->start >= vma->end || (vma->start & (PAGE_4K_SIZE - 1)) || (vma->end & (PAGE_4K_SIZE - 1))
+        || vma->end > PROCESS_USER_STACK_TOP)
+        return -EINVAL;
+
     spin_lock(&proc->mmap_lock);
-    if (!proc->mmap_list) {
-        proc->mmap_list = vma;
-    } else {
-        vm_area_t *prev = NULL;
-        for (vm_area_t *cur = proc->mmap_list; cur; cur = cur->next) {
-            if (vma->end <= cur->start) break;
-            prev = cur;
-        }
-        if (prev) {
-            vma->next  = prev->next;
-            prev->next = vma;
-        } else {
-            vma->next       = proc->mmap_list;
-            proc->mmap_list = vma;
-        }
+    vm_area_t **link = &proc->mmap_list;
+    vm_area_t  *prev = NULL;
+    while (*link && (*link)->start < vma->start) {
+        prev = *link;
+        link = &(*link)->next;
     }
+    if ((prev && prev->end > vma->start) || (*link && vma->end > (*link)->start)) {
+        spin_unlock(&proc->mmap_lock);
+        return -EEXIST;
+    }
+    vma->next = *link;
+    *link     = vma;
     spin_unlock(&proc->mmap_lock);
     return 0;
 }
@@ -1118,6 +1136,7 @@ process_t *process_create(const char *name, void (*entry)(void *), void *arg)
     proc->umask       = 022;
     proc->pgid        = 0;
     proc->sid         = 0;
+    proc->start_brk   = PROCESS_HEAP_START;
     proc->heap_brk    = PROCESS_HEAP_START;
     proc->stack_brk   = PROCESS_STACK_BASE - PROCESS_STACK_SIZE;
     proc->parent      = init_process;
@@ -1189,6 +1208,7 @@ process_t *process_create_kernel(const char *name, void (*entry)(void *), void *
     proc->umask       = 022;
     proc->pgid        = 0;
     proc->sid         = 0;
+    proc->start_brk   = 0;
     proc->heap_brk    = 0;
     proc->stack_brk   = 0;
     proc->parent      = init_process;
@@ -1363,18 +1383,62 @@ static int process_wait_status(const process_t *child)
     return (child->exit_code & 0xff) << 8;
 }
 
+static void process_child_wait_event(process_t *child, int stop_signal, bool continued)
+{
+    if (!child) return;
+
+    spin_lock(&process_table_lock);
+    process_t *parent = child->parent;
+    if (parent) process_get_locked(parent);
+    spin_unlock(&process_table_lock);
+    if (!parent) return;
+
+    bool published = false;
+    spin_lock(&parent->child_wait.lock);
+    spin_lock(&process_table_lock);
+    if (child->parent == parent) {
+        if (continued) {
+            child->wait_continue_pending = true;
+        } else {
+            child->wait_stop_signal  = stop_signal;
+            child->wait_stop_pending = true;
+        }
+        published = true;
+    }
+    spin_unlock(&process_table_lock);
+    if (published) wait_queue_wake_all(&parent->child_wait);
+    spin_unlock(&parent->child_wait.lock);
+
+    if (published)
+        signal_notify_child_status(parent, (pid_t)child->task->tgid, continued ? SIGCONT : stop_signal,
+                                   continued ? CLD_CONTINUED : CLD_STOPPED);
+    process_put(parent);
+}
+
+void process_child_stopped(process_t *child, int signal)
+{
+    process_child_wait_event(child, signal, false);
+}
+
+void process_child_continued(process_t *child)
+{
+    process_child_wait_event(child, 0, true);
+}
+
 int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_t *waited_pid)
 {
     if (waited_pid) *waited_pid = 0;
     if (!init_process) return -ECHILD;
     if (selector == INT64_MIN) return -ESRCH;
-    if (options & ~PROCESS_WAIT_NOHANG) return -EINVAL;
+    if (options & ~(PROCESS_WAIT_NOHANG | PROCESS_WAIT_STOPPED | PROCESS_WAIT_CONTINUED)) return -EINVAL;
 
     process_t *parent = process_current();
     if (!parent) return -ECHILD;
 
     for (;;) {
         process_t *zombie = NULL;
+        process_t *event  = NULL;
+        int        event_status = 0;
         bool       has_matching_child = false;
 
         /* Serialize the condition check with child-exit notification.  The
@@ -1389,6 +1453,27 @@ int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_
                 zombie = child;
                 break;
             }
+            if ((options & PROCESS_WAIT_STOPPED) && child->wait_stop_pending) {
+                event                         = child;
+                event_status                  = ((child->wait_stop_signal & 0xff) << 8) | 0x7f;
+                child->wait_stop_pending      = false;
+                break;
+            }
+            if ((options & PROCESS_WAIT_CONTINUED) && child->wait_continue_pending) {
+                event                            = child;
+                event_status                     = 0xffff;
+                child->wait_continue_pending     = false;
+                break;
+            }
+        }
+
+        if (event) {
+            pid_t event_pid = (pid_t)event->task->tgid;
+            spin_unlock(&process_table_lock);
+            spin_unlock(&parent->child_wait.lock);
+            if (wait_status) *wait_status = event_status;
+            if (waited_pid) *waited_pid = event_pid;
+            return EOK;
         }
 
         if (zombie) {
@@ -1551,6 +1636,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     child->exit_code   = 0;
     strncpy(child->name, parent->name, sizeof(child->name) - 1);
     child->name[sizeof(child->name) - 1] = '\0';
+    child->start_brk                     = parent->start_brk;
     child->heap_brk                      = parent->heap_brk;
     child->stack_brk                     = parent->stack_brk;
     memcpy(child->root, parent->root, sizeof(child->root));
@@ -1629,7 +1715,19 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
             return NULL;
         }
 
-        vm_area_insert(child, copy);
+        if (vm_area_insert(child, copy)) {
+            if (copy->vm_file) {
+                if (copy->vm_pagecache) vfs_cache_mapping_unpin(copy->vm_file);
+                memfd_vma_release(copy->vm_file, copy->flags);
+                vfs_close(copy->vm_file);
+            }
+            free(copy);
+            if (error) *error = -ENOMEM;
+            process_free(child);
+            spin_unlock(&parent->mmap_lock);
+            spin_unlock(&scheduler.lock);
+            return NULL;
+        }
     }
 
     memcpy(&child_task->context, &current->context, sizeof(task_context_t));
@@ -1643,15 +1741,23 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
 
     slist_insert_tail(&parent->children, child);
 
-    bool ptrace_stopped = ptrace_fork_child(current, child_task, ptrace_event);
-    if (!ptrace_stopped) enqueue_task(child_task);
+    (void)ptrace_fork_child(current, child_task, ptrace_event);
 
     spin_unlock(&parent->mmap_lock);
     spin_unlock(&scheduler.lock);
-    request_task_cpu(child_task);
+    flush_tlb_all();
 
     // plogk("process: Forked process %llu from parent %llu\n", child->task->pid, parent->task->pid); it is very noisy
     return child;
+}
+
+void process_fork_publish(process_t *child)
+{
+    if (!child || !child->task || child->task->state != TASK_READY) return;
+    spin_lock(&scheduler.lock);
+    enqueue_task(child->task);
+    spin_unlock(&scheduler.lock);
+    request_task_cpu(child->task);
 }
 
 process_t *process_fork_status_event(int *error, uint32_t ptrace_event)
@@ -1734,6 +1840,7 @@ process_t *process_fork_from_syscall(syscall_frame_t *frame)
     memcpy(kstack, &child_frame, sizeof(syscall_frame_t));
     *(--kstack)              = (uint64_t)syscall_return;
     child->task->context.rsp = (uint64_t)kstack;
+    process_fork_publish(child);
     return child;
 }
 
@@ -1964,6 +2071,20 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
         memset(phys_to_virt(frame), 0, PAGE_4K_SIZE);
     }
 
+    spin_lock(&proc->mmap_lock);
+    vma = proc->mmap_list;
+    while (vma && vma->end <= page) vma = vma->next;
+    if (!vma || vma->start > page || page >= vma->end || vma->flags != flags || vma->vm_file != vm_file || vma->vm_pagecache != pagecache
+        || (vm_file && vma->vm_pgoff + (page - vma->start) / PAGE_4K_SIZE != pgoff + index / PAGE_4K_SIZE)) {
+        spin_unlock(&proc->mmap_lock);
+        (void)frame_release_range(frame, 1);
+        goto fail;
+    }
+    flags = vma->flags;
+    if (exec && !(flags & VM_EXEC)) goto fail_frame_locked;
+    if (write && !(flags & VM_WRITE)) goto fail_frame_locked;
+    if (!(flags & VM_READ)) goto fail_frame_locked;
+
     uint64_t pte_flags = PTE_USER | PTE_PRESENT;
     if (flags & VM_WRITE) pte_flags |= PTE_WRITEABLE;
     if (flags & VM_SHARED) pte_flags |= PTE_SHARED;
@@ -1972,10 +2093,21 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
 
     if (page_map_new_to(proc->user_page_dir, page, frame, pte_flags) < 0) {
         (void)frame_release_range(frame, 1);
-        goto fail;
+        /* Another thread may have satisfied the same fault while this page
+         * was being allocated or read.  Accept its mapping if it permits the
+         * original access. */
+        if (!page_user_accessible(proc->user_page_dir, page, write, exec)) {
+            spin_unlock(&proc->mmap_lock);
+            goto fail;
+        }
     }
+    spin_unlock(&proc->mmap_lock);
     if (vm_file) vfs_close(vm_file);
     return 0;
+
+fail_frame_locked:
+    spin_unlock(&proc->mmap_lock);
+    (void)frame_release_range(frame, 1);
 
 fail:
     if (vm_file) vfs_close(vm_file);

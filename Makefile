@@ -418,6 +418,8 @@ LD_FLAGS       := -nostdlib -pie -T assets/linker.ld -m elf_x86_64
 
 INIT_ELF       := assets/Limine/init
 INITRAMFS      := assets/initramfs.cpio
+ROOTFS_BUILDER := tools/build-alpine-rootfs.sh
+ROOTFS_OVERLAY := $(shell find assets/rootfs-overlay -print)
 
 all: Uinxed-x64.iso
 
@@ -447,8 +449,8 @@ $(INIT_ELF): assets/init.S assets/init.ld
 	$(Q)$(LD) -nostdlib -static -T assets/init.ld -m elf_x86_64 -o $@ assets/init.o
 	$(Q)$(RM) assets/init.o
 
-$(INITRAMFS): tools/build-alpine-xfce-rootfs.sh
-	$(Q)tools/build-alpine-xfce-rootfs.sh
+$(INITRAMFS): $(ROOTFS_BUILDER) $(ROOTFS_OVERLAY)
+	$(Q)sh $(ROOTFS_BUILDER)
 
 UxImage: $(TOOL_TARGETS) $(OBJS) $(LIBS)
 	$(Q)printf "  LD      $@\n"
@@ -468,17 +470,18 @@ Uinxed-x64.iso: info UxImage $(INIT_ELF) $(INITRAMFS)
 	$(Q)printf "Image: $@ is ready.\n"
 	$(Q)printf "Compilation complete.\n"
 
-.PHONY: help rootfs run run-net run-usb disk.img allocator-test fs-test usb-test clean format check gen.clangd menuconfig
+.PHONY: help rootfs run run-net run-usb disk.img allocator-test vm-cow-test fs-test usb-test clean format check gen.clangd menuconfig
 
 help: info
 	$(Q)printf "Uinxed-Kernel Makefile Usage:\n"
 	$(Q)printf "  make all         - Build the entire project.\n"
-	$(Q)printf "  make rootfs      - Build the Alpine Xfce initramfs.\n"
+	$(Q)printf "  make rootfs      - Build the Alpine CLI initramfs.\n"
 	$(Q)printf "  make run         - Run the Uinxed-x64.iso in QEMU.\n"
 	$(Q)printf "  make run-net     - Run with an isolated user-mode e1000 network.\n"
 	$(Q)printf "  make run-usb     - Run with xHCI, HID, and a USB mass-storage disk.\n"
 	$(Q)printf "  make disk.img    - Build a demo simplefs disk image.\n"
 	$(Q)printf "  make allocator-test - Run native buddy/slab allocator tests.\n"
+	$(Q)printf "  make vm-cow-test  - Run native VM/COW write-fault regressions.\n"
 	$(Q)printf "  make fs-test     - Run native ext2/ext3/ext4, JBD2 and NTFS regression tests.\n"
 	$(Q)printf "  make usb-test    - Run native UHCI, BOT/SCSI and HID protocol tests.\n"
 	$(Q)printf "  make clean       - Clean all generated files.\n"
@@ -506,6 +509,9 @@ disk.img: info tools/mkfs_simplefs
 
 allocator-test:
 	$(Q)bash tools/tests/run_allocator_tests.sh
+
+vm-cow-test:
+	$(Q)bash tools/tests/run_vm_cow_tests.sh
 
 fs-test:
 	$(Q)bash tools/tests/run_fs_tests.sh

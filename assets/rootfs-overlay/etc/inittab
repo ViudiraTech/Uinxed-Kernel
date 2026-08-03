@@ -3,9 +3,9 @@
 ::sysinit:/sbin/openrc boot
 ::wait:/sbin/openrc default
 
-# Drop straight into a root shell on the first virtual console.  setsid makes
-# bash a session/process-group leader so interactive job control works.
-tty1::respawn:/bin/busybox setsid /bin/bash
+# BusyBox init creates a session before opening tty1, so Bash inherits the
+# controlling terminal and foreground process group needed for job control.
+tty1::respawn:/bin/bash
 
 ::ctrlaltdel:/sbin/reboot
 ::shutdown:/sbin/openrc shutdown

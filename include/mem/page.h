@@ -15,6 +15,8 @@
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 
+struct process;
+
 #define MSR_IA32_PAT 0x277
 
 #define PTE_PRESENT      (0x1 << 0)
@@ -28,7 +30,7 @@
 #define PTE_NO_EXECUTE   (((uint64_t)0x1) << 63)
 #define KERNEL_PTE_FLAGS (PTE_PRESENT | PTE_WRITEABLE | PTE_NO_EXECUTE)
 
-/* MMIO flags: uncacheable, no-execute â€?required for PCI BAR mappings */
+/* MMIO flags: uncacheable and no-execute, required for PCI BAR mappings. */
 #define PTE_MMIO_FLAGS (PTE_PRESENT | PTE_WRITEABLE | PTE_PCD | PTE_NO_EXECUTE)
 
 /* Page size constants */
@@ -96,6 +98,9 @@ void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uin
 /* Map a new 4 KiB leaf, returning failure if the address is occupied or allocation fails. */
 int page_map_new_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags);
 
+/* Test whether a present user leaf permits the requested access. */
+int page_user_accessible(page_directory_t *directory, uintptr_t addr, int write, int exec);
+
 /* Unmap a 4KB page and return its physical frame, or zero if unmapped */
 uint64_t page_unmap(page_directory_t *directory, uint64_t addr);
 
@@ -132,8 +137,8 @@ void page_map_range_to_random(page_directory_t *directory, uint64_t addr, uint64
 /* Clone the lower user half into an empty directory using COW leaves. */
 int page_clone_user_cow(page_directory_t *child, page_directory_t *parent);
 
-/* Resolve a write protection fault on a COW leaf. */
-int page_resolve_cow_fault(page_directory_t *directory, uintptr_t addr);
+/* Resolve a write protection fault on a COW leaf in a writable VMA. */
+int page_resolve_cow_fault(struct process *proc, uintptr_t addr);
 
 /* Release all user leaves/tables and the PML4 frame, preserving kernel mappings. */
 void page_destroy_user_space(page_directory_t *directory);

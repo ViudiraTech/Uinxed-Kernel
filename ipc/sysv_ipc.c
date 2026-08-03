@@ -1028,7 +1028,12 @@ int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg)
         mapped++;
     }
 
-    vm_area_insert(proc, vma);
+    if (vm_area_insert(proc, vma)) {
+        for (uint32_t i = 0; i < seg->npages; i++) (void)page_unmap_release(proc->user_page_dir, vaddr + i * PAGE_4K_SIZE);
+        sysv_shm_vma_put(seg, (uint32_t)proc->task->pid);
+        free(vma);
+        return -ENOMEM;
+    }
     return (int64_t)vaddr;
 
 rollback:

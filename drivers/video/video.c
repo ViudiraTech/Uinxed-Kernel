@@ -313,6 +313,9 @@ static void video_refresh_worker(void *arg)
     for (;;) {
         task_sleep_ticks(4);
 
+        /* Flip the block cursor phase; the frame-diff below flushes it. */
+        fbcon_cursor_tick(sched_ticks());
+
         spin_lock(&video_state_lock);
         uint8_t         *front      = (uint8_t *)buffer;
         uint32_t         active_w   = (uint32_t)width;

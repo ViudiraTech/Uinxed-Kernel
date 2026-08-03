@@ -392,6 +392,12 @@ static void tty_input_lazy_init(void)
     spin_unlock(&console_tty_init_lock);
 }
 
+void tty_console_resize(uint16_t rows, uint16_t cols)
+{
+    tty_input_lazy_init();
+    tty_core_set_winsize(&console_tty, rows, cols);
+}
+
 size_t tty_dev_write(void *ctx, const void *addr, size_t offset, size_t size)
 {
     (void)ctx;
@@ -528,8 +534,10 @@ int tty_console_acquire(struct process *proc, uint64_t flags)
     pid_t pid = (pid_t)proc->task->pid;
     if (pid <= 0 || proc->sid != pid || proc->pgid != pid) return -EPERM;
 
+    /* PID 1 needs console descriptors, but leaving the VT unattached lets
+     * the session leader started by inittab acquire it for job control. */
     tty_input_lazy_init();
-    return process_ctty_acquire(proc, &console_tty, false, NULL, NULL);
+    return 0;
 }
 
 int64_t tty_dev_file_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
