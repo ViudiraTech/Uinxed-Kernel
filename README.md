@@ -14,7 +14,7 @@
 
 ## Overview 💡
 
-Uinxed is a monolithic UNIX-like x86_64 kernel, written from scratch in C. It boots via the Limine bootloader, supports SMP, and implements a Linux-compatible syscall ABI (440 syscalls matching Linux numbering). The kernel emphasizes modern scheduler design (EEVDF), comprehensive memory management including swap, and a full VFS/driver stack.
+Uinxed is a monolithic UNIX-like x86_64 kernel, written from scratch in C. It boots via the Limine bootloader, supports SMP, and implements a Linux-compatible syscall ABI (Linux 6.12 x86_64 numbering, syscall 0-462). The kernel emphasizes modern scheduler design (EEVDF), comprehensive memory management including swap, and a full VFS/driver stack.
 
 ## Architecture Overview
 
@@ -62,9 +62,9 @@ Uinxed is a monolithic UNIX-like x86_64 kernel, written from scratch in C. It bo
 ### Syscall Interface
 
 - Linux x86_64 ABI compatibility: syscalls invoked via `syscall` instruction with RAX=syscall number
-- 440 syscalls defined in `include/syscall/syscall_table.h` (enum `x86_syscall_table`)
+- Syscall table aligned with Linux 6.12 x86_64 ABI (syscall 0-462) in `include/syscall/syscall_table.h` (enum `x86_syscall_table`)
 - Syscall handler in `kernel/syscall/` dispatches through a function pointer table
-- Not all 440 syscalls are implemented; unimplemented ones return `-ENOSYS`
+- Not all syscalls are implemented; unimplemented ones return `-ENOSYS`
 
 ### Virtual Filesystem (VFS)
 
@@ -141,7 +141,7 @@ Uinxed is a monolithic UNIX-like x86_64 kernel, written from scratch in C. It bo
   - Wait queues with two-phase prepare/sleep to eliminate lost wakeups
   - Timed waits backed by the scheduler timer queue
 - **ABI**:
-  - Linux syscalls (440 syscalls matching x86-64 numbering)
+  - Linux syscalls (x86-64 numbering aligned with Linux 6.12, syscall 0-462)
   - Linux AF_UNIX / AF_NETLINK / AF_INET / AF_INET6 sockets
   - epoll, eventfd, signalfd, timerfd
   - POSIX message queues, System V IPC, futex with Priority Inheritance (PI)
