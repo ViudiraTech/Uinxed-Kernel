@@ -1853,9 +1853,9 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
         if (error) *error = !child_stack || !frame ? -EINVAL : -ESRCH;
         return NULL;
     }
-    if (user_access_ok((void *)(child_stack - 1), 1, 1) || (parent_tid && user_access_ok((void *)parent_tid, sizeof(uint32_t), 1))
-        || (child_set_tid && user_access_ok((void *)child_set_tid, sizeof(uint32_t), 1))
-        || (child_clear_tid && user_access_ok((void *)child_clear_tid, sizeof(uint32_t), 1))) {
+    if (!user_access_ok((void *)(child_stack - 1), 1, 1) || (parent_tid && !user_access_ok((void *)parent_tid, sizeof(uint32_t), 1))
+        || (child_set_tid && !user_access_ok((void *)child_set_tid, sizeof(uint32_t), 1))
+        || (child_clear_tid && !user_access_ok((void *)child_clear_tid, sizeof(uint32_t), 1))) {
         if (error) *error = -EFAULT;
         return NULL;
     }

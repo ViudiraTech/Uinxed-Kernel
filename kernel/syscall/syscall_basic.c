@@ -9,6 +9,7 @@
  */
 
 #include <arch/smp.h>
+#include <fs/core/inotify.h>
 #include <fs/core/vfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
@@ -409,12 +410,38 @@ int64_t sys_futimesat_impl(uint64_t dirfd, uint64_t path, uint64_t times, uint64
     return 0;
 }
 
-int64_t sys_fchmodat_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+/*
+ * fchmodat(int dirfd, const char *pathname, mode_t mode, int flags)
+ *
+ * Linux: flags must be 0; AT_SYMLINK_NOFOLLOW is not supported by the
+ * classic call (use fchmodat2), and anything else is -EINVAL.
+ */
+int64_t sys_fchmodat_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t flags, uint64_t arg4, uint64_t arg5)
 {
-    (void)dirfd; (void)path; (void)mode; (void)arg3; (void)arg4; (void)arg5;
+    (void)arg4;
+    (void)arg5;
     process_t *proc = process_current();
-    if (!proc || proc->uid != 0) return -EPERM;
-    return 0;
+    if (!proc) return -ESRCH;
+    if (proc->uid != 0) return -EPERM;
+
+    if (flags == 0x100) return -EOPNOTSUPP; /* AT_SYMLINK_NOFOLLOW: use fchmodat2 */
+    if (flags != 0) return -EINVAL;
+
+    char input[SYSCALL_PATH_MAX];
+    int  ret = copy_path_from_user_fwd(path, input, sizeof(input));
+    if (ret != 0) return ret;
+    if (!input[0]) return -ENOENT;
+
+    char resolved[SYSCALL_PATH_MAX];
+    ret = process_resolve_path_at(proc, (int)dirfd, input, resolved, sizeof(resolved));
+    if (ret != 0) return ret;
+
+    vfs_node_t node = vfs_open(resolved);
+    if (!node) return -ENOENT;
+    node->mode = (uint16_t)(mode & 07777);
+    inotify_notify(node, IN_ATTRIB);
+    vfs_close(node);
+    return EOK;
 }
 
 /* ======================================================================

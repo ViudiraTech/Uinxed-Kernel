@@ -65,7 +65,7 @@ __attribute__((weak)) uint64_t futex_realtime_ticks(void)
 
 typedef struct futex_entry {
         uintptr_t           key;
-        uint32_t            bitset; /* bitset mask for FUTEX_WAIT_BITSET */
+        uint64_t            bitset; /* mask/bitset: classic FUTEX_WAIT_BITSET or futex2 mask */
         wait_queue_t        wq;
         struct futex_entry *next;
         rt_mutex_t         *pi_mutex; /* non-NULL for PI futex entries */
@@ -115,7 +115,7 @@ static futex_entry_t *futex_find(futex_bucket_t *bucket, uint32_t *uaddr)
  * If the entry already exists, its bitset is OR-ed with the new bitset
  * so that all waiters on the same futex can be woken by a matching wake.
  */
-static futex_entry_t *futex_find_or_create(futex_bucket_t *bucket, uint32_t *uaddr, uint32_t bitset)
+static futex_entry_t *futex_find_or_create(futex_bucket_t *bucket, uint32_t *uaddr, uint64_t bitset)
 {
     futex_entry_t *entry = futex_find(bucket, uaddr);
     if (entry) {
@@ -136,7 +136,7 @@ static futex_entry_t *futex_find_or_create(futex_bucket_t *bucket, uint32_t *uad
     return entry;
 }
 
-static futex_entry_t *futex_find_waiter(futex_bucket_t *bucket, uint32_t *uaddr, uint32_t bitset)
+static futex_entry_t *futex_find_waiter(futex_bucket_t *bucket, uint32_t *uaddr, uint64_t bitset)
 {
     uintptr_t key = (uintptr_t)uaddr;
 
@@ -147,7 +147,7 @@ static futex_entry_t *futex_find_waiter(futex_bucket_t *bucket, uint32_t *uaddr,
 }
 
 /* Separate queues per bitset make WAKE_BITSET selection exact. */
-static futex_entry_t *futex_create_waiter(futex_bucket_t *bucket, uint32_t *uaddr, uint32_t bitset)
+static futex_entry_t *futex_create_waiter(futex_bucket_t *bucket, uint32_t *uaddr, uint64_t bitset)
 {
     futex_entry_t *entry = futex_find_waiter(bucket, uaddr, bitset);
     if (entry) return entry;
@@ -269,7 +269,7 @@ static uint64_t futex_deadline(uint64_t ticks, int absolute, int realtime)
  * bitset is the mask of bits that must match for wakeup;
  * FUTEX_BITSET_MATCH_ANY (0xffffffff) matches any wake.
  */
-static int futex_wait(uint32_t *uaddr, uint32_t val, uint64_t timeout, uint32_t bitset, int absolute, int realtime)
+static int futex_wait(uint32_t *uaddr, uint32_t val, uint64_t timeout, uint64_t bitset, int absolute, int realtime)
 {
     futex_bucket_t *bucket = &futex_hash[futex_hash_index(uaddr)];
     futex_entry_t  *entry;
@@ -325,7 +325,7 @@ static int futex_wait(uint32_t *uaddr, uint32_t val, uint64_t timeout, uint32_t 
  * Only wake tasks whose bitset matches the wake bitset.
  * Returns the number of tasks actually woken.
  */
-int futex_wake(uint32_t *uaddr, int nr_wake, uint32_t bitset)
+int futex_wake(uint32_t *uaddr, int nr_wake, uint64_t bitset)
 {
     futex_bucket_t *bucket = &futex_hash[futex_hash_index(uaddr)];
     futex_entry_t  *entry;
@@ -353,7 +353,7 @@ int futex_wake(uint32_t *uaddr, int nr_wake, uint32_t bitset)
     }
 
     /*
-     * Do NOT free empty entries here â€?a futex_wait caller that was
+     * Do NOT free empty entries here ï¿½?a futex_wait caller that was
      * just woken may still hold a stale entry pointer and will access
      * it after re-acquiring the bucket lock.  Cleanup is the
      * responsibility of the final waiter (futex_try_cleanup in
@@ -662,7 +662,7 @@ static rt_mutex_t *futex_get_pi_mutex(futex_bucket_t *bucket, uint32_t *uaddr)
 
 /*
  * FUTEX_LOCK_PI: acquire a PI mutex.
- * Userspace fastpath: cmpxchg(*uaddr, 0, tid) â†?success.
+ * Userspace fastpath: cmpxchg(*uaddr, 0, tid) ï¿½?success.
  * Kernel slowpath (this function): block with priority inheritance.
  */
 static int futex_lock_pi(uint32_t *uaddr)
@@ -743,7 +743,7 @@ static int futex_lock_pi(uint32_t *uaddr)
 
 /*
  * FUTEX_UNLOCK_PI: release a PI mutex.
- * Userspace fastpath: cmpxchg(*uaddr, tid, 0) â†?success if no waiters.
+ * Userspace fastpath: cmpxchg(*uaddr, tid, 0) ï¿½?success if no waiters.
  * Kernel slowpath (this function): wake the highest-priority waiter.
  */
 static int futex_unlock_pi(uint32_t *uaddr)
@@ -962,36 +962,36 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
         case FUTEX_WAIT : {
             /* Validate user address */
             if (!uaddr) return -EFAULT;
-            if (user_access_ok(uaddr, sizeof(uint32_t), 0) != 0) return -EFAULT;
+            if (user_access_ok(uaddr, sizeof(uint32_t), 0) == 0) return -EFAULT;
 
             return futex_wait(uaddr, val, timeout, FUTEX_BITSET_MATCH_ANY, 0, 0);
         }
 
         case FUTEX_WAIT_BITSET : {
             if (!uaddr) return -EFAULT;
-            if (user_access_ok(uaddr, sizeof(uint32_t), 0) != 0) return -EFAULT;
+            if (user_access_ok(uaddr, sizeof(uint32_t), 0) == 0) return -EFAULT;
 
-            return futex_wait(uaddr, val, timeout, val3, 1, (flags & FUTEX_CLOCK_REALTIME) != 0);
+            return futex_wait(uaddr, val, timeout, (uint64_t)val3, 1, (flags & FUTEX_CLOCK_REALTIME) != 0);
         }
 
         case FUTEX_WAKE : {
             if (!uaddr) return -EFAULT;
-            if (user_access_ok(uaddr, sizeof(uint32_t), 0) != 0) return -EFAULT;
+            if (user_access_ok(uaddr, sizeof(uint32_t), 0) == 0) return -EFAULT;
 
             return futex_wake(uaddr, (int)val, FUTEX_BITSET_MATCH_ANY);
         }
 
         case FUTEX_WAKE_BITSET : {
             if (!uaddr) return -EFAULT;
-            if (user_access_ok(uaddr, sizeof(uint32_t), 0) != 0) return -EFAULT;
+            if (user_access_ok(uaddr, sizeof(uint32_t), 0) == 0) return -EFAULT;
 
-            return futex_wake(uaddr, (int)val, val3);
+            return futex_wake(uaddr, (int)val, (uint64_t)val3);
         }
 
         case FUTEX_REQUEUE : {
             if (!uaddr || !uaddr2) return -EFAULT;
-            if (user_access_ok(uaddr, sizeof(uint32_t), 0) != 0) return -EFAULT;
-            if (user_access_ok(uaddr2, sizeof(uint32_t), 0) != 0) return -EFAULT;
+            if (user_access_ok(uaddr, sizeof(uint32_t), 0) == 0) return -EFAULT;
+            if (user_access_ok(uaddr2, sizeof(uint32_t), 0) == 0) return -EFAULT;
 
             /*
          * val   = nr_wake
@@ -1009,8 +1009,8 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
 
         case FUTEX_CMP_REQUEUE : {
             if (!uaddr || !uaddr2) return -EFAULT;
-            if (user_access_ok(uaddr, sizeof(uint32_t), 0) != 0) return -EFAULT;
-            if (user_access_ok(uaddr2, sizeof(uint32_t), 0) != 0) return -EFAULT;
+            if (user_access_ok(uaddr, sizeof(uint32_t), 0) == 0) return -EFAULT;
+            if (user_access_ok(uaddr2, sizeof(uint32_t), 0) == 0) return -EFAULT;
 
             /*
          * val   = nr_wake
@@ -1022,8 +1022,8 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
 
         case FUTEX_WAKE_OP : {
             if (!uaddr || !uaddr2) return -EFAULT;
-            if (user_access_ok(uaddr, sizeof(uint32_t), 0) != 0) return -EFAULT;
-            if (user_access_ok(uaddr2, sizeof(uint32_t), 1) != 0) return -EFAULT;
+            if (user_access_ok(uaddr, sizeof(uint32_t), 0) == 0) return -EFAULT;
+            if (user_access_ok(uaddr2, sizeof(uint32_t), 1) == 0) return -EFAULT;
 
             /*
          * val   = nr_wake
@@ -1039,44 +1039,44 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
 
         case FUTEX_LOCK_PI : {
             if (!uaddr) return -EFAULT;
-            if (user_access_ok(uaddr, sizeof(uint32_t), 1) != 0) return -EFAULT;
+            if (user_access_ok(uaddr, sizeof(uint32_t), 1) == 0) return -EFAULT;
 
             return futex_lock_pi(uaddr);
         }
 
         case FUTEX_UNLOCK_PI : {
             if (!uaddr) return -EFAULT;
-            if (user_access_ok(uaddr, sizeof(uint32_t), 1) != 0) return -EFAULT;
+            if (user_access_ok(uaddr, sizeof(uint32_t), 1) == 0) return -EFAULT;
 
             return futex_unlock_pi(uaddr);
         }
 
         case FUTEX_TRYLOCK_PI : {
             if (!uaddr) return -EFAULT;
-            if (user_access_ok(uaddr, sizeof(uint32_t), 1) != 0) return -EFAULT;
+            if (user_access_ok(uaddr, sizeof(uint32_t), 1) == 0) return -EFAULT;
 
             return futex_trylock_pi(uaddr);
         }
 
         case FUTEX_CMP_REQUEUE_PI : {
             if (!uaddr || !uaddr2) return -EFAULT;
-            if (user_access_ok(uaddr, sizeof(uint32_t), 0) != 0) return -EFAULT;
-            if (user_access_ok(uaddr2, sizeof(uint32_t), 1) != 0) return -EFAULT;
+            if (user_access_ok(uaddr, sizeof(uint32_t), 0) == 0) return -EFAULT;
+            if (user_access_ok(uaddr2, sizeof(uint32_t), 1) == 0) return -EFAULT;
 
             return futex_cmp_requeue_pi(uaddr, (int)val, (int)timeout, uaddr2, val3);
         }
 
         case FUTEX_WAIT_REQUEUE_PI : {
             if (!uaddr || !uaddr2) return -EFAULT;
-            if (user_access_ok(uaddr, sizeof(uint32_t), 0) != 0) return -EFAULT;
-            if (user_access_ok(uaddr2, sizeof(uint32_t), 1) != 0) return -EFAULT;
+            if (user_access_ok(uaddr, sizeof(uint32_t), 0) == 0) return -EFAULT;
+            if (user_access_ok(uaddr2, sizeof(uint32_t), 1) == 0) return -EFAULT;
 
             return futex_cmp_requeue_pi(uaddr, 0, (int)val, uaddr2, val3);
         }
 
         case FUTEX_LOCK_PI2 : {
             if (!uaddr) return -EFAULT;
-            if (user_access_ok(uaddr, sizeof(uint32_t), 1) != 0) return -EFAULT;
+            if (user_access_ok(uaddr, sizeof(uint32_t), 1) == 0) return -EFAULT;
 
             return futex_lock_pi(uaddr);
         }
@@ -1084,6 +1084,345 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
         default :
             return -EINVAL;
     }
+}
+
+/* ------------------------------------------------------------------ */
+/*  futex2: sys_futex_wake / sys_futex_wait / sys_futex_requeue        */
+/* ------------------------------------------------------------------ */
+
+/*
+ * futex2 is the Linux 6.7+ "futex2" syscall family.  Unlike the classic
+ * futex() multiplexer, each operation is its own syscall:
+ *
+ *   futex_wait (455):  block while *uaddr == val, waking only when a
+ *                      futex_wake with an overlapping mask arrives.
+ *   futex_wake (454):  wake up to nr waiters whose wait-mask overlaps
+ *                      the wake mask.
+ *   futex_requeue (456): wake up to nr_wake waiters on uaddr, then move
+ *                      up to nr_requeue remaining waiters to uaddr2
+ *                      (CMP_REQUEUE semantics: *uaddr must equal val).
+ *
+ * The classic futex hash table is reused.  A futex2 futex is addressed by
+ * a size-aware key (uaddr >> (size_code + 1), matching Linux), so futexes
+ * of different widths never collide even if they share an address.  Every
+ * waiter keeps its own 64-bit mask: entries are keyed by (key, mask) like
+ * classic bitset waiters, and a wake selects entries whose mask has any
+ * bit in common with the wake mask.
+ */
+
+/* Return the byte width for a FUTEX2_SIZE_* code. */
+static int futex2_size_bytes(unsigned int size_code)
+{
+    switch (size_code) {
+        case FUTEX2_SIZE_U8:
+            return 1;
+        case FUTEX2_SIZE_U16:
+            return 2;
+        case FUTEX2_SIZE_U64:
+            return 8;
+        default:
+            return 4; /* FUTEX2_SIZE_U32 */
+    }
+}
+
+/*
+ * Linux futex_validate_input(): val/mask must not carry bits outside the
+ * width of the futex word.
+ */
+static int futex2_validate_value(unsigned int size_code, uint64_t value)
+{
+    uint64_t width_mask;
+
+    switch (size_code) {
+        case FUTEX2_SIZE_U8:
+            width_mask = 0x00000000000000ffULL;
+            break;
+        case FUTEX2_SIZE_U16:
+            width_mask = 0x000000000000ffffULL;
+            break;
+        case FUTEX2_SIZE_U32:
+            width_mask = 0x00000000ffffffffULL;
+            break;
+        default:
+            width_mask = 0xffffffffffffffffULL;
+            break;
+    }
+    return (value & ~width_mask) == 0;
+}
+
+/*
+ * Futex key for futex2 words.  Linux derives the hash key from the page
+ * address plus the offset within the page; the classic futex path in this
+ * kernel keys on the raw user address, so futex2 uses the same key to keep
+ * classic and futex2 futexes on the same address interoperable.  The
+ * FUTEX2_SIZE_* width only affects how val/mask are validated and how the
+ * word is read, not the key.
+ */
+static inline uintptr_t futex2_key(uint64_t uaddr, unsigned int size_code)
+{
+    (void)size_code;
+    return (uintptr_t)uaddr;
+}
+
+/* Read the futex word (1/2/4/8 bytes) from user space. */
+static int futex2_read_word(uint64_t uaddr, unsigned int size_code, uint64_t *out)
+{
+    *out = 0;
+    if (copy_from_user(out, (const void *)(uintptr_t)uaddr, futex2_size_bytes(size_code)) != 0) return -EFAULT;
+    return 0;
+}
+
+/*
+ * Block on a futex2 word.  The timeout (if any) is an absolute timeout on
+ * the clock selected by `realtime` (CLOCK_REALTIME) or CLOCK_MONOTONIC.
+ */
+static int futex2_wait_core(uint64_t uaddr, unsigned int size_code, uint64_t val,
+                            uint64_t mask, uint64_t timeout, int realtime)
+{
+    futex_bucket_t *bucket;
+    futex_entry_t  *entry;
+    uint64_t        cur_val;
+    uint64_t        deadline = 0;
+    int             ret;
+
+    if (mask == 0) return -EINVAL; /* same as classic bitset == 0 */
+
+    uintptr_t key = futex2_key(uaddr, size_code);
+    bucket         = &futex_hash[futex_hash_index((uint32_t *)(uintptr_t)key)];
+
+    if (timeout) {
+        ret = futex_read_timespec(timeout, &deadline);
+        if (ret) return ret;
+        deadline = futex_deadline(deadline, 1, realtime); /* absolute */
+    }
+
+    spin_lock(&bucket->lock);
+    if (futex2_read_word(uaddr, size_code, &cur_val) != 0) {
+        spin_unlock(&bucket->lock);
+        return -EFAULT;
+    }
+    if (cur_val != val) {
+        spin_unlock(&bucket->lock);
+        return -EAGAIN;
+    }
+
+    entry = futex_create_waiter(bucket, (uint32_t *)(uintptr_t)key, mask);
+    if (!entry) {
+        spin_unlock(&bucket->lock);
+        return -ENOMEM;
+    }
+    wait_queue_prepare(&entry->wq);
+    spin_unlock(&bucket->lock);
+
+    if (timeout)
+        ret = wait_queue_wait_timed(&entry->wq, deadline);
+    else {
+        wait_queue_sleep();
+        ret = 0;
+    }
+
+    spin_lock(&bucket->lock);
+    entry = futex_find_waiter(bucket, (uint32_t *)(uintptr_t)key, mask);
+    futex_try_cleanup(bucket, entry);
+    spin_unlock(&bucket->lock);
+    return ret;
+}
+
+/*
+ * Wake up to nr_wake waiters whose mask overlaps `mask` on the futex2
+ * word identified by `key`.  Returns the number actually woken.
+ */
+static int futex2_wake_core(uintptr_t key, int nr_wake, uint64_t mask)
+{
+    futex_bucket_t *bucket = &futex_hash[futex_hash_index((uint32_t *)(uintptr_t)key)];
+    futex_entry_t  *entry;
+    int             woken = 0;
+
+    if (nr_wake <= 0) return 0;
+
+    spin_lock(&bucket->lock);
+    for (entry = bucket->head; entry; entry = entry->next) {
+        if (entry->key != key) continue;
+        if (!(entry->bitset & mask)) continue;
+
+        while (woken < nr_wake) {
+            task_t *task = wait_queue_wake_one(&entry->wq);
+            if (!task) break;
+            woken++;
+        }
+    }
+    /* Cleanup is deferred to the final waiter, like classic futex_wake. */
+    spin_unlock(&bucket->lock);
+    return woken;
+}
+
+/* Find the first entry with the given key (bucket lock must be held). */
+static futex_entry_t *futex2_find_key(futex_bucket_t *bucket, uintptr_t key)
+{
+    for (futex_entry_t *entry = bucket->head; entry; entry = entry->next) {
+        if (entry->key == key) return entry;
+    }
+    return NULL;
+}
+
+/*
+ * futex_requeue(): CMP_REQUEUE semantics.  If *uaddr != cmpval return
+ * -EAGAIN.  Otherwise wake up to nr_wake waiters on key1, then move up
+ * to nr_requeue remaining waiters to key2.  Moved waiters keep their own
+ * mask: each lands in the (key2, mask) queue.
+ */
+static int futex2_requeue_core(uint64_t uaddr, unsigned int size_code1,
+                               uint64_t uaddr2, unsigned int size_code2,
+                               int nr_wake, int nr_requeue, uint64_t cmpval)
+{
+    uintptr_t       key1 = futex2_key(uaddr, size_code1);
+    uintptr_t       key2 = futex2_key(uaddr2, size_code2);
+    futex_bucket_t *bucket1 = &futex_hash[futex_hash_index((uint32_t *)(uintptr_t)key1)];
+    futex_bucket_t *bucket2 = &futex_hash[futex_hash_index((uint32_t *)(uintptr_t)key2)];
+    futex_entry_t  *entry;
+    uint64_t        cur_val;
+    int             woken    = 0;
+    int             requeued = 0;
+
+    if (nr_wake < 0 || nr_requeue < 0) return -EINVAL;
+
+    /* Lock both buckets in address order to avoid deadlock. */
+    if (bucket1 < bucket2) {
+        spin_lock(&bucket1->lock);
+        spin_lock(&bucket2->lock);
+    } else if (bucket1 > bucket2) {
+        spin_lock(&bucket2->lock);
+        spin_lock(&bucket1->lock);
+    } else {
+        spin_lock(&bucket1->lock);
+    }
+
+    if (futex2_read_word(uaddr, size_code1, &cur_val) != 0) {
+        if (bucket1 != bucket2) spin_unlock(&bucket2->lock);
+        spin_unlock(&bucket1->lock);
+        return -EFAULT;
+    }
+    if (cur_val != cmpval) {
+        if (bucket1 != bucket2) spin_unlock(&bucket2->lock);
+        spin_unlock(&bucket1->lock);
+        return -EAGAIN;
+    }
+
+    /* Phase 1: wake up to nr_wake waiters on key1. */
+    for (entry = bucket1->head; entry && woken < nr_wake; entry = entry->next) {
+        if (entry->key != key1) continue;
+        while (woken < nr_wake) {
+            task_t *task = wait_queue_wake_one(&entry->wq);
+            if (!task) break;
+            woken++;
+        }
+    }
+
+    /* Phase 2: move up to nr_requeue waiters to key2, preserving masks. */
+    if (nr_requeue > 0) {
+        for (entry = bucket1->head; entry && requeued < nr_requeue; entry = entry->next) {
+            if (entry->key != key1) continue;
+
+            while (requeued < nr_requeue) {
+                futex_entry_t *dst = futex_find_waiter(bucket2, (uint32_t *)(uintptr_t)key2, entry->bitset);
+                if (!dst) {
+                    dst = futex_create_waiter(bucket2, (uint32_t *)(uintptr_t)key2, entry->bitset);
+                    if (!dst) goto requeue_done;
+                }
+                if (!futex_move_waiter(&entry->wq, &dst->wq)) break;
+                requeued++;
+            }
+        }
+    }
+
+requeue_done:
+    /* Remove entries left empty by wake/requeue. */
+    while ((entry = futex2_find_key(bucket1, key1)) != NULL) {
+        if (!futex_try_cleanup(bucket1, entry)) break;
+    }
+    if (bucket1 != bucket2) {
+        while ((entry = futex2_find_key(bucket2, key2)) != NULL) {
+            if (!futex_try_cleanup(bucket2, entry)) break;
+        }
+        spin_unlock(&bucket2->lock);
+    }
+    spin_unlock(&bucket1->lock);
+
+    return woken;
+}
+
+/*
+ * sys_futex_wake(uaddr, mask, nr, flags)
+ * Wake up to nr waiters on uaddr whose mask overlaps `mask`.
+ */
+int64_t sys_futex_wake(uint64_t uaddr, uint64_t mask, uint64_t nr, uint64_t flags, uint64_t a4, uint64_t a5)
+{
+    unsigned int size_code = (unsigned int)(flags & FUTEX2_SIZE_MASK);
+
+    (void)a4;
+    (void)a5;
+    if (flags & ~FUTEX2_VALID_MASK) return -EINVAL;
+    if (!futex2_validate_value(size_code, mask)) return -EINVAL;
+    if (!uaddr) return -EFAULT;
+    if (user_access_ok((void *)(uintptr_t)uaddr, futex2_size_bytes(size_code), 0) == 0) return -EFAULT;
+
+    return futex2_wake_core(futex2_key(uaddr, size_code), (int)nr, mask);
+}
+
+/*
+ * sys_futex_wait(uaddr, val, mask, flags, timeout, clockid)
+ * Block while *uaddr == val.  timeout is an absolute struct timespec on
+ * the clock given by clockid (CLOCK_REALTIME=0, CLOCK_MONOTONIC=1).
+ */
+int64_t sys_futex_wait(uint64_t uaddr, uint64_t val, uint64_t mask, uint64_t flags,
+                       uint64_t timeout, uint64_t clockid)
+{
+    unsigned int size_code = (unsigned int)(flags & FUTEX2_SIZE_MASK);
+
+    if (flags & ~FUTEX2_VALID_MASK) return -EINVAL;
+    if (!futex2_validate_value(size_code, val) || !futex2_validate_value(size_code, mask)) return -EINVAL;
+    if (timeout && clockid != 0 && clockid != 1) return -EINVAL; /* CLOCK_REALTIME / CLOCK_MONOTONIC */
+    if (!uaddr) return -EFAULT;
+    if (user_access_ok((void *)(uintptr_t)uaddr, futex2_size_bytes(size_code), 0) == 0) return -EFAULT;
+
+    return futex2_wait_core(uaddr, size_code, val, mask, timeout, clockid == 0);
+}
+
+/*
+ * sys_futex_requeue(waiters, flags, nr_wake, nr_requeue)
+ * waiters points to two struct futex_waitv entries:
+ *   [0] = source futex (uaddr + expected val + flags)
+ *   [1] = destination futex (uaddr + flags; val ignored)
+ * The syscall-level flags argument must be zero (Linux behavior).
+ */
+int64_t sys_futex_requeue(uint64_t waiters, uint64_t flags, uint64_t nr_wake, uint64_t nr_requeue,
+                          uint64_t a4, uint64_t a5)
+{
+    struct futex_waitv wv[2];
+    unsigned int       size_code0;
+    unsigned int       size_code1;
+
+    (void)a4;
+    (void)a5;
+    if (flags) return -EINVAL;
+    if (!waiters) return -EINVAL;
+
+    if (copy_from_user(wv, (const void *)(uintptr_t)waiters, sizeof(wv)) != 0) return -EFAULT;
+
+    for (int i = 0; i < 2; i++) {
+        if (wv[i].__reserved) return -EINVAL;
+        if (wv[i].flags & ~FUTEX2_VALID_MASK) return -EINVAL;
+        if (!wv[i].uaddr) return -EINVAL;
+    }
+
+    size_code0 = (unsigned int)(wv[0].flags & FUTEX2_SIZE_MASK);
+    size_code1 = (unsigned int)(wv[1].flags & FUTEX2_SIZE_MASK);
+    if (!futex2_validate_value(size_code0, wv[0].val)) return -EINVAL;
+    if (user_access_ok((void *)(uintptr_t)wv[0].uaddr, futex2_size_bytes(size_code0), 0) == 0) return -EFAULT;
+    if (user_access_ok((void *)(uintptr_t)wv[1].uaddr, futex2_size_bytes(size_code1), 0) == 0) return -EFAULT;
+
+    return futex2_requeue_core(wv[0].uaddr, size_code0, wv[1].uaddr, size_code1,
+                               (int)nr_wake, (int)nr_requeue, wv[0].val);
 }
 
 /* ------------------------------------------------------------------ */

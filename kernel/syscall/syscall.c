@@ -2101,6 +2101,37 @@ static int64_t sys_fchmod_impl(uint64_t fd, uint64_t mode, uint64_t arg2, uint64
     return EOK;
 }
 
+/*
+ * fchmodat2(int dirfd, const char *pathname, mode_t mode, int flags)
+ *
+ * Linux 6.6+.  Identical to fchmodat() but with an explicit flags
+ * argument; since Linux 6.8 the AT_SYMLINK_NOFOLLOW flag changes the
+ * permission bits of the symbolic link itself instead of its target.
+ * Any other flag yields -EINVAL.
+ */
+static int64_t sys_fchmodat2_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t flags,
+                                  uint64_t arg4, uint64_t arg5)
+{
+    (void)arg4;
+    (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    if (proc->uid != 0) return -EPERM;
+
+    if (flags & ~(uint64_t)AT_SYMLINK_NOFOLLOW) return -EINVAL;
+
+    char name[SYSCALL_PATH_MAX];
+    int  ret = copy_resolved_path_at(proc, (int)dirfd, path, name);
+    if (ret != EOK) return ret;
+
+    vfs_node_t node = (flags & AT_SYMLINK_NOFOLLOW) ? vfs_open_nofollow(name) : vfs_open(name);
+    if (!node) return -ENOENT;
+    node->mode = (uint16_t)(mode & 07777);
+    inotify_notify(node, IN_ATTRIB);
+    vfs_close(node);
+    return EOK;
+}
+
 static int64_t sys_chown_common(const char *path, uint64_t owner, uint64_t group)
 {
     process_t *proc = process_current();
@@ -5132,6 +5163,10 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_FACCESSAT2]             = sys_faccessat2_impl,
     [SYS_PROCESS_MADVISE]        = sys_process_madvise_impl,
     [SYS_EPOLL_PWAIT2]           = sys_epoll_pwait2_impl,
+    [SYS_FUTEX_WAKE]             = sys_futex_wake,
+    [SYS_FUTEX_WAIT]             = sys_futex_wait,
+    [SYS_FUTEX_REQUEUE]          = sys_futex_requeue,
+    [SYS_FCHMODAT2]              = sys_fchmodat2_impl,
 };
 
 /*
