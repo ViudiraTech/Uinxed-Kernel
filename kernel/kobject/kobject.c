@@ -789,7 +789,6 @@ int kobject_uevent_env(struct kobject *kobj, enum kobject_action action, char *e
     ret = kobject_uevent_message(env, action_string, event_path, &message, &message_len);
     if (ret) goto out;
     ret = netlink_broadcast(NETLINK_KOBJECT_UEVENT, 1U, message, message_len, 0);
-    plogk("uevent: %s@%s subsystem=%s seq=%llu broadcast=%d\n", action_string, event_path, subsystem, (unsigned long long)seq, ret);
     if (ret >= 0 || ret == -ESRCH || ret == -ECONNREFUSED || ret == -ENOBUFS) ret = EOK;
 
 out:

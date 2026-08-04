@@ -86,7 +86,7 @@ static inline void dumb_bitmap_set(uint32_t slot)
 
 static inline void dumb_bitmap_clear(uint32_t slot)
 {
-    if (slot < DUMB_OFFSET_MAX_SLOTS) { dumb_bitmap[slot / 8] &= (uint8_t) ~(1U << (slot % 8)); }
+    if (slot < DUMB_OFFSET_MAX_SLOTS) { dumb_bitmap[slot / 8] &= (uint8_t)~(1U << (slot % 8)); }
 }
 
 static struct dumb_slot_range *dumb_range_alloc_node(void)

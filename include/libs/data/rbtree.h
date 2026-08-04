@@ -32,10 +32,7 @@ typedef struct {
 typedef int (*rb_less_fn)(const rb_node_t *a, const rb_node_t *b);
 typedef void (*rb_augment_fn)(rb_node_t *node, void *data);
 
-#define RB_ROOT_INIT \
-    {                \
-        NULL, NULL   \
-    }
+#define RB_ROOT_INIT                {NULL, NULL}
 #define rb_entry(ptr, type, member) ((type *)((uint8_t *)(ptr) - offsetof(type, member)))
 
 /* Initialize an empty red-black tree root */

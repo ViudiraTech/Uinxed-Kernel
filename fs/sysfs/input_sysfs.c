@@ -161,18 +161,11 @@ int input_sysfs_register_evdev(evdev_t *evdev)
 
     if (!evdev) return -EINVAL;
     if (evdev->sysfs_device) return EOK;
-    if (!input_class_ready) {
-        plogk("input_sysfs: event%d deferred (input class not ready)\n", evdev->minor);
-        return EOK;
-    }
+    if (!input_class_ready) { return EOK; }
     (void)snprintf(name, sizeof(name), "event%d", evdev->minor);
     device = device_create(&input_class, NULL, evdev_devt(evdev), evdev, "%s", name);
-    if (!device) {
-        plogk("input_sysfs: event%d class device creation FAILED\n", evdev->minor);
-        return -ENOMEM;
-    }
+    if (!device) { return -ENOMEM; }
     evdev->sysfs_device = device;
-    plogk("input_sysfs: /sys/class/input/event%d registered (%u:%u)\n", evdev->minor, MAJOR(device->devt), MINOR(device->devt));
     return EOK;
 }
 

@@ -81,7 +81,7 @@ static uint16_t extfs_crc16(uint16_t crc, const void *data, size_t size)
     const uint8_t *bytes = data;
     while (size--) {
         crc ^= *bytes++;
-        for (uint32_t bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ (uint16_t)(0xA001U & (uint16_t) - (int16_t)(crc & 1));
+        for (uint32_t bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ (uint16_t)(0xA001U & (uint16_t)-(int16_t)(crc & 1));
     }
     return crc;
 }

@@ -236,12 +236,6 @@ void kernel_entry(void)
     sysfs_init();                  // Create sysfs root kobject and top-level directories
     module_subsystem_init();       // Loadable kernel module registry and /sys/module
     device_model_init();           // Initialise the device model (bus/class/device)
-                                   //
-    /* Graphics Stack */           // Initialise before /dev/fb0 snapshots its size
-    drm_init();                    // DRM core services
-    if (virtio_gpu_init() != 0)    // Prefer VirtIO-GPU for card0/renderD128
-        drm_init_fallback();       // Software fallback only without VirtIO-GPU
-                                   //
     devtmpfs_init();               // Device Temporary File System
                                    //
     /* USB Subsystem */            //
@@ -291,6 +285,11 @@ void kernel_entry(void)
     netlink_init();                // AF_NETLINK socket family (uevent delivery)
     socket_init();                 // UNIX Domain Sockets
                                    //
+    /* Graphics Stack */           // Initialise before /dev/fb0 snapshots its size
+    drm_init();                    // DRM core services
+    if (virtio_gpu_init() != 0)    // Prefer VirtIO-GPU for card0/renderD128
+        drm_init_fallback();       // Software fallback only without VirtIO-GPU
+
     boot_start_init_before_debug(swapper_run_init, sched_test_init);
     e1000_start_workers();
     usb_host_start_workers();

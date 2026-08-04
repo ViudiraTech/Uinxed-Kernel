@@ -15,7 +15,7 @@
 #include <libs/std/stdint.h>
 
 #define BUDDY_MAX_ORDER  30U
-#define BUDDY_INDEX_NONE ((int32_t) - 1)
+#define BUDDY_INDEX_NONE ((int32_t)-1)
 
 typedef enum {
     BUDDY_PAGE_RESERVED = 0,
