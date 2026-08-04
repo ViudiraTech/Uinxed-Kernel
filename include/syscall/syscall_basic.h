@@ -98,5 +98,7 @@ int64_t sys_adjtimex_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint
 int64_t sys_settimeofday_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 int64_t sys_clock_adjtime_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 int64_t sys_acct_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+int64_t sys_openat2_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
+int64_t sys_pidfd_getfd_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 
 #endif /* INCLUDE_SYSCALL_BASIC_H_ */

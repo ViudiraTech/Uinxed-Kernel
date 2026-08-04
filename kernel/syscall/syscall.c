@@ -5127,9 +5127,11 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_PIDFD_OPEN]             = sys_pidfd_open_impl,
     [SYS_CLONE3]                 = sys_clone3_impl,
     [SYS_CLOSE_RANGE]            = sys_close_range,
+    [SYS_OPENAT2]                = sys_openat2_impl,
+    [SYS_PIDFD_GETFD]            = sys_pidfd_getfd_impl,
+    [SYS_FACCESSAT2]             = sys_faccessat2_impl,
     [SYS_PROCESS_MADVISE]        = sys_process_madvise_impl,
     [SYS_EPOLL_PWAIT2]           = sys_epoll_pwait2_impl,
-    [SYS_FACCESSAT2]             = sys_faccessat2_impl,
 };
 
 /*

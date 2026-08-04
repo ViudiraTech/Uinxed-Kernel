@@ -1293,3 +1293,91 @@ int64_t sys_acct_impl(uint64_t filename, uint64_t arg1, uint64_t arg2, uint64_t 
  * that don't exist yet.  They remain as sys_stub (return -ENOSYS).
  * See syscall.c for the table entries.
  */
+
+/* ======================================================================
+ *  openat2 (437)
+ *  Modern openat with extensible how argument.
+ *  For now, delegate to openat.
+ * ====================================================================== */
+
+struct open_how {
+    uint64_t flags;
+    uint64_t mode;
+    uint64_t resolve;
+};
+
+int64_t sys_openat2_impl(uint64_t dirfd, uint64_t path, uint64_t how, uint64_t usize, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg4; (void)arg5;
+    if (!path || !how) return -EFAULT;
+    if (usize < sizeof(struct open_how)) return -EINVAL;
+    if (usize > sizeof(struct open_how)) return -E2BIG;
+
+    struct open_how oh;
+    if (copy_from_user(&oh, (const void *)how, sizeof(oh))) return -EFAULT;
+
+    if (oh.resolve & ~31ULL) return -EINVAL;
+
+    /* Delegate to the same logic as openat: open a file by dirfd+path */
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    char input[VFS_PATH_MAX];
+    int ret = copy_path_from_user_fwd(path, input, sizeof(input));
+    if (ret) return ret;
+
+    char resolved[VFS_PATH_MAX];
+    ret = process_resolve_path_at(proc, (int)dirfd, input, resolved, sizeof(resolved));
+    if (ret) return ret;
+
+    vfs_node_t node = vfs_open(resolved);
+    if (!node) {
+        return -ENOENT;
+    }
+
+    (void)oh.resolve; /* resolve flags not enforced yet */
+    return process_fd_install(proc, node, oh.flags);
+}
+
+/* ======================================================================
+ *  pidfd_getfd (438)
+ *  Get a duplicate of another process's file descriptor via pidfd.
+ * ====================================================================== */
+
+int64_t sys_pidfd_getfd_impl(uint64_t pidfd, uint64_t targetfd, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3; (void)arg4; (void)arg5;
+    if (flags) return -EINVAL;
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    /* pidfd is a file descriptor pointing to a process */
+    process_file_t *pf = process_fd_get(proc, (int)pidfd);
+    process_t *target = NULL;
+
+    if (pf && pf->node && pf->node->handle) {
+        target = (process_t *)pf->node->handle;
+    }
+    if (!target) {
+        if (pf) process_file_put(pf);
+        target = process_find_get((pid_t)pidfd);
+        if (!target) return -ESRCH;
+    }
+
+    /* Get the target's fd */
+    process_file_t *tf = process_fd_get(target, (int)targetfd);
+    if (!tf) {
+        if (pf) process_file_put(pf);
+        else process_put(target);
+        return -EBADF;
+    }
+
+    /* Install in current process */
+    int newfd = process_fd_install(proc, tf->node, tf->flags);
+    process_file_put(tf);
+    if (pf) process_file_put(pf);
+    else process_put(target);
+
+    return newfd;
+}
