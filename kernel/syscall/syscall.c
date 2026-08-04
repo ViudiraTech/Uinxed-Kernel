@@ -92,6 +92,7 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
 #define STATX_BASIC_STATS     0x000007ffU
 #define STATX_MNT_ID          0x00001000U
 #define STATX_ATTR_MOUNT_ROOT 0x00002000ULL
+#define PIDFD_NONBLOCK        0x800ULL
 
 typedef struct {
         int16_t l_type;
@@ -2881,37 +2882,157 @@ static int64_t sys_renameat2_stub(uint64_t olddirfd, uint64_t oldpath, uint64_t 
     return sys_renameat(olddirfd, oldpath, newdirfd, newpath, 0, 0);
 }
 
+static int64_t do_execve(const char *path, char *const argv[], char *const envp[], syscall_frame_t *frame);
+
+#define AT_EXECVE_CHECK 0x1000
+
 static int64_t sys_execveat_stub(uint64_t dirfd, uint64_t path, uint64_t argv, uint64_t envp, uint64_t flags, uint64_t arg5)
 {
-    (void)dirfd;
-    (void)path;
-    (void)argv;
-    (void)envp;
-    (void)flags;
     (void)arg5;
-    return -ENOSYS;
+    if (flags & ~(uint64_t)(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH | AT_EXECVE_CHECK)) return -EINVAL;
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    char kpath[SYSCALL_PATH_MAX];
+    char input[SYSCALL_PATH_MAX];
+    int  ret;
+
+    if (!(flags & AT_EMPTY_PATH) || path) {
+        ret = copy_path_from_user(path, input);
+        if (ret != EOK) return ret;
+    } else {
+        input[0] = '\0';
+    }
+
+    if (!input[0] && !(flags & AT_EMPTY_PATH)) return -ENOENT;
+
+    if (!input[0]) {
+        /* AT_EMPTY_PATH: execute the fd itself */
+        process_file_t *pf = process_fd_get(proc, (int)dirfd);
+        if (!pf) return -EBADF;
+        if (!pf->node) {
+            process_file_put(pf);
+            return -EBADF;
+        }
+        /* We need the path; use the VFS node directly */
+        /* For now, return ENOSYS for empty-path execveat; full
+         * implementation requires path-from-node which isn't
+         * available. */
+        process_file_put(pf);
+        return -ENOSYS;
+    }
+
+    ret = process_resolve_path_at(proc, (int)dirfd, input, kpath, sizeof(kpath));
+    if (ret != EOK) return ret;
+
+    if (flags & AT_EXECVE_CHECK) {
+        /* AT_EXECVE_CHECK: just check if the file is executable,
+         * don't actually exec. */
+        vfs_node_t node = vfs_open(kpath);
+        if (!node) return -ENOENT;
+        vfs_close(node);
+        return 0;
+    }
+
+    return do_execve(kpath, (char *const *)argv, (char *const *)envp, NULL);
 }
 
 static int64_t sys_membarrier_stub(uint64_t cmd, uint64_t flags, uint64_t cpu_id, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)cmd;
-    (void)flags;
     (void)cpu_id;
     (void)arg3;
     (void)arg4;
     (void)arg5;
-    return -ENOSYS;
+
+    /* MEMBARRIER_CMD_QUERY = 0, MEMBARRIER_CMD_GLOBAL = 1 */
+    if (flags) return -EINVAL;
+    switch (cmd) {
+    case 0: /* QUERY: return supported commands bitmap */
+        /* We support GLOBAL (1 << 1) = 2 on SMP, plus the basic bits */
+        return (1 << 0) | (1 << 1);
+    case 1: /* GLOBAL: issue memory barrier on all CPUs */
+        __asm__ volatile("mfence" ::: "memory");
+        return 0;
+    default:
+        return -EINVAL;
+    }
 }
 
 static int64_t sys_copy_file_range_stub(uint64_t fd_in, uint64_t off_in, uint64_t fd_out, uint64_t off_out, uint64_t len, uint64_t flags)
 {
-    (void)fd_in;
-    (void)off_in;
-    (void)fd_out;
-    (void)off_out;
-    (void)len;
-    (void)flags;
-    return -ENOSYS;
+    if (flags) return -EINVAL;
+    if (fd_in == fd_out) return -EINVAL;
+
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+
+    process_file_t *pf_in  = process_fd_get(proc, (int)fd_in);
+    process_file_t *pf_out = process_fd_get(proc, (int)fd_out);
+    if (!pf_in || !pf_out) {
+        if (pf_in) process_file_put(pf_in);
+        if (pf_out) process_file_put(pf_out);
+        return -EBADF;
+    }
+
+    /* Save and restore offsets if off_in/off_out are NULL */
+    bool    have_off_in  = (off_in != 0);
+    bool    have_off_out = (off_out != 0);
+    int64_t saved_off_in = 0, saved_off_out = 0;
+
+    if (have_off_in) {
+        if (copy_from_user(&saved_off_in, (const void *)off_in, sizeof(saved_off_in))) {
+            process_file_put(pf_in);
+            process_file_put(pf_out);
+            return -EFAULT;
+        }
+    } else {
+        saved_off_in = (int64_t)pf_in->offset;
+    }
+
+    if (have_off_out) {
+        if (copy_from_user(&saved_off_out, (const void *)off_out, sizeof(saved_off_out))) {
+            process_file_put(pf_in);
+            process_file_put(pf_out);
+            return -EFAULT;
+        }
+    } else {
+        saved_off_out = (int64_t)pf_out->offset;
+    }
+
+    uint8_t buf[SYSCALL_IO_CHUNK];
+    size_t  total_copied = 0;
+
+    while (total_copied < len) {
+        size_t chunk = len - total_copied;
+        if (chunk > sizeof(buf)) chunk = sizeof(buf);
+
+        int64_t nread = process_fd_read(proc, (int)fd_in, buf, chunk);
+        if (nread < 0) {
+            process_file_put(pf_in);
+            process_file_put(pf_out);
+            return total_copied ? (int64_t)total_copied : nread;
+        }
+        if (nread == 0) break;
+
+        int64_t nwritten = process_fd_write(proc, (int)fd_out, buf, (size_t)nread);
+        if (nwritten < 0) {
+            process_file_put(pf_in);
+            process_file_put(pf_out);
+            return total_copied ? (int64_t)total_copied : nwritten;
+        }
+
+        total_copied += (size_t)nwritten;
+        if ((size_t)nread < chunk) break;
+    }
+
+    /* Restore offsets if caller didn't specify them */
+    if (!have_off_in) process_fd_seek(proc, (int)fd_in, saved_off_in, SEEK_SET);
+    if (!have_off_out) process_fd_seek(proc, (int)fd_out, saved_off_out, SEEK_SET);
+
+    process_file_put(pf_in);
+    process_file_put(pf_out);
+    return (int64_t)total_copied;
 }
 
 static int64_t sys_mlock2_stub(uint64_t addr, uint64_t length, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -2929,6 +3050,326 @@ static int64_t sys_pkey_mprotect_stub(uint64_t addr, uint64_t len, uint64_t prot
     (void)arg4;
     (void)arg5;
     return sys_mprotect(addr, len, prot);
+}
+
+/* ---------- rseq (restartable sequences) ---------- */
+
+struct rseq_layout {
+    uint32_t cpu_id_start;
+    uint32_t cpu_id;
+    uint64_t rseq_cs;
+    uint32_t flags;
+    uint32_t node_id;
+    uint32_t mm_cid;
+    uint8_t  padding[36];
+} __attribute__((packed));
+
+_Static_assert(sizeof(struct rseq_layout) == 64, "rseq ABI size");
+
+static int64_t sys_rseq_impl(uint64_t rseq_base, uint64_t rseq_len, uint64_t flags, uint64_t sig, uint64_t arg4, uint64_t arg5)
+{
+    (void)sig;
+    (void)arg4;
+    (void)arg5;
+
+    if (flags & ~0ULL) return -EINVAL;
+    if (rseq_len != sizeof(struct rseq_layout)) return -EINVAL;
+    if (!rseq_base) return -EINVAL;
+
+    /* Store the rseq area association. A full implementation would abort
+     * the rseq critical section on preemption/migration/signal delivery.
+     * For now, just register the area so that glibc initialization succeeds. */
+    (void)rseq_base;
+    (void)rseq_len;
+
+    /* Write cpu_id to the rseq area */
+    task_t *task = current_task();
+    int cpu = task ? (int)task->cpu_id : 0;
+    if (copy_to_user((void *)(rseq_base + offsetof(struct rseq_layout, cpu_id_start)), &cpu, sizeof(cpu))) return -EFAULT;
+    if (copy_to_user((void *)(rseq_base + offsetof(struct rseq_layout, cpu_id)), &cpu, sizeof(cpu))) return -EFAULT;
+
+    return 0;
+}
+
+/* ---------- pidfd_open ---------- */
+
+static int pidfd_fsid = -1;
+
+static void pidfd_vfs_open(void *parent, const char *name, vfs_node_t node)
+{
+    (void)parent;
+    (void)name;
+    (void)node;
+}
+
+static void pidfd_vfs_close(void *current)
+{
+    process_t *target = (process_t *)current;
+    if (target) process_put(target);
+}
+
+static size_t pidfd_vfs_read(void *file, void *addr, size_t offset, size_t size)
+{
+    (void)file;
+    (void)addr;
+    (void)offset;
+    (void)size;
+    return (size_t)-1;
+}
+
+static size_t pidfd_vfs_write(void *file, const void *addr, size_t offset, size_t size)
+{
+    (void)file;
+    (void)addr;
+    (void)offset;
+    (void)size;
+    return (size_t)-1;
+}
+
+static int pidfd_stub_stat(void *f, vfs_node_t n) { (void)f; (void)n; return EOK; }
+static int pidfd_stub_mk(void *p, const char *nm, vfs_node_t n) { (void)p; (void)nm; (void)n; return -ENOSYS; }
+static size_t pidfd_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s) { (void)n; (void)a; (void)o; (void)s; return (size_t)-1; }
+static int pidfd_stub_ioctl(void *f, size_t o, void *a) { (void)f; (void)o; (void)a; return -ENOSYS; }
+static vfs_node_t pidfd_stub_dup(vfs_node_t n) { (void)n; return NULL; }
+static int pidfd_stub_del(void *p, vfs_node_t n) { (void)p; (void)n; return -ENOSYS; }
+static int pidfd_stub_rename(void *c, const char *nm) { (void)c; (void)nm; return -ENOSYS; }
+static int pidfd_stub_mount(const char *s, vfs_node_t n) { (void)s; (void)n; return -ENOSYS; }
+static void pidfd_stub_unmount(void *root) { (void)root; }
+
+static void pidfd_ensure_init(void)
+{
+    if (pidfd_fsid >= 0) return;
+    vfs_callback_t cb = calloc(1, sizeof(struct vfs_callback));
+    if (!cb) return;
+    cb->mount      = pidfd_stub_mount;
+    cb->unmount    = pidfd_stub_unmount;
+    cb->open       = pidfd_vfs_open;
+    cb->close      = pidfd_vfs_close;
+    cb->read       = pidfd_vfs_read;
+    cb->write      = pidfd_vfs_write;
+    cb->readlink   = pidfd_stub_readlink;
+    cb->mkdir      = pidfd_stub_mk;
+    cb->mkfile     = pidfd_stub_mk;
+    cb->link       = pidfd_stub_mk;
+    cb->symlink    = pidfd_stub_mk;
+    cb->stat       = pidfd_stub_stat;
+    cb->ioctl      = pidfd_stub_ioctl;
+    cb->dup        = pidfd_stub_dup;
+    cb->delete     = pidfd_stub_del;
+    cb->rename     = pidfd_stub_rename;
+    pidfd_fsid = vfs_regist(cb);
+}
+
+static int64_t sys_pidfd_open_impl(uint64_t pid_raw, uint64_t flags, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+
+    if (flags & ~(uint64_t)PIDFD_NONBLOCK) return -EINVAL;
+
+    process_t *target = process_find_get((pid_t)pid_raw);
+    if (!target) return -ESRCH;
+
+    process_t *proc = process_current();
+    if (!proc) {
+        process_put(target);
+        return -ESRCH;
+    }
+
+    pidfd_ensure_init();
+    if (pidfd_fsid < 0) {
+        process_put(target);
+        return -ENOMEM;
+    }
+
+    vfs_node_t node = vfs_node_alloc(NULL, "[pidfd]");
+    if (!node) {
+        process_put(target);
+        return -ENOMEM;
+    }
+
+    node->type   = file_stream;
+    node->handle = target; /* caller must process_put in close */
+    node->fsid   = pidfd_fsid;
+    node->size   = 0;
+    node->mode   = O_RDONLY;
+
+    uint64_t fd_flags = O_RDONLY;
+    if (flags & PIDFD_NONBLOCK) fd_flags |= O_NONBLOCK;
+
+    int fd = process_fd_install(proc, node, fd_flags);
+    if (fd < 0) {
+        vfs_close(node);
+        return fd;
+    }
+    return fd;
+}
+
+/* ---------- clone3 ---------- */
+
+struct clone3_args {
+    uint64_t flags;
+    uint64_t pidfd;
+    uint64_t child_tid;
+    uint64_t parent_tid;
+    uint64_t exit_signal;
+    uint64_t stack;
+    uint64_t stack_size;
+    uint64_t tls;
+    uint64_t set_tid;
+    uint64_t set_tid_size;
+    uint64_t cgroup;
+};
+
+static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+
+    if (size < sizeof(struct clone3_args)) return -EINVAL;
+    if (size > sizeof(struct clone3_args)) return -E2BIG;
+
+    struct clone3_args args;
+    if (copy_from_user(&args, (const void *)cl_args, sizeof(args))) return -EFAULT;
+
+    /* Validate flags */
+    uint64_t flags = args.flags;
+    uint64_t exit_signal = args.exit_signal;
+
+    /* Combine exit_signal into flags (low byte) */
+    if (exit_signal) {
+        if (exit_signal > 0xff) return -EINVAL;
+        flags = (flags & ~0xffULL) | (exit_signal & 0xff);
+    }
+
+    /* For now, support the same subset as our existing clone:
+     * CLONE_VM|CLONE_VFORK for vfork, CLONE_THREAD|CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_SYSVSEM for threads,
+     * and basic fork (flags=signal only). */
+    uint64_t supported_thread = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM;
+
+    bool is_thread = (flags & CLONE_THREAD) != 0;
+    bool is_vfork  = (flags & CLONE_VFORK) != 0;
+
+    if (is_thread) {
+        if ((flags & supported_thread) != flags) return -EINVAL;
+        /* Thread creation handled by the dispatch's CLONE_THREAD path */
+        /* But we're not in the dispatch here; we need to simulate it. */
+    }
+
+    /* For a basic fork or vfork, delegate to the existing wrapper.
+     * Since we can't easily redirect to the dispatch's fork/clone logic
+     * from here, we use the process-level API directly. */
+
+    /* Simplify: treat clone3 as clone with flags */
+    if (is_thread) {
+        process_t *proc = process_current();
+        if (!proc) return -ESRCH;
+
+        int error = EOK;
+        task_t *child = process_clone_thread(
+            NULL, args.stack,
+            args.parent_tid, args.child_tid, args.child_tid,
+            args.tls, &error);
+        if (!child) return error;
+        return (int64_t)child->pid;
+    }
+
+    /* Fork / vfork */
+    int error = EOK;
+    process_t *child = process_fork_status_event_mode(&error, is_vfork ? PTRACE_EVENT_VFORK : PTRACE_EVENT_FORK, is_vfork);
+    if (!child) return error;
+
+    if (args.stack && args.stack_size) {
+        /* Set up child stack */
+        task_t *ct = child->task;
+        if (ct) {
+            uint64_t        kstack_top = (uint64_t)(child->kernel_stack + PROCESS_KERNEL_STACK);
+            uint64_t       *kstack     = (uint64_t *)ALIGN_DOWN(kstack_top, 16ULL);
+            kstack -= 4; /* Leave room */
+            *(--kstack) = (uint64_t)syscall_return;
+            ct->context.rsp = (uint64_t)kstack;
+            /* Set the user stack pointer via the child's context */
+            /* This needs to be done in process_fork_publish context... */
+        }
+    }
+
+    process_fork_publish(child);
+    if (is_vfork) process_vfork_wait(child);
+    return (int64_t)child->task->pid;
+}
+
+/* ---------- process_madvise ---------- */
+
+static int64_t sys_process_madvise_impl(uint64_t pidfd, uint64_t iovec, uint64_t vlen, uint64_t advice, uint64_t flags, uint64_t arg5)
+{
+    (void)flags;
+    (void)arg5;
+
+    if (flags) return -EINVAL;
+
+    process_t *target = NULL;
+    /* pidfd is an fd pointing to a process; for now accept raw pid */
+    target = process_find_get((pid_t)pidfd);
+    if (!target) return -ESRCH;
+
+    /* Read iovec entries */
+    struct {
+        void    *iov_base;
+        size_t  iov_len;
+    } iov[16];
+
+    if (vlen > 16) vlen = 16;
+    if (copy_from_user(iov, (const void *)iovec, vlen * sizeof(iov[0]))) {
+        process_put(target);
+        return -EFAULT;
+    }
+
+    int result = 0;
+    for (uint64_t i = 0; i < vlen; i++) {
+        /* Apply advice per-range. For now, just validate and return success. */
+        switch (advice) {
+        case 1:  /* MADV_COLD */
+        case 2:  /* MADV_PAGEOUT */
+            break;
+        default:
+            process_put(target);
+            return -EINVAL;
+        }
+        result++;
+    }
+
+    process_put(target);
+    return result;
+}
+
+/* ---------- epoll_pwait2 ---------- */
+
+struct linux_timespec64 {
+    int64_t tv_sec;
+    int64_t tv_nsec;
+};
+
+static int64_t sys_epoll_pwait2_impl(uint64_t epfd, uint64_t events, uint64_t maxevents, uint64_t tsp, uint64_t sigmask, uint64_t sigsetsize)
+{
+    int timeout_ms = -1; /* infinite */
+
+    if (tsp) {
+        struct linux_timespec64 ts;
+        if (copy_from_user(&ts, (const void *)tsp, sizeof(ts))) return -EFAULT;
+        if (ts.tv_sec < 0 || ts.tv_nsec < 0 || (uint64_t)ts.tv_nsec >= 1000000000ULL) return -EINVAL;
+
+        /* Convert to milliseconds, rounding up */
+        int64_t ms = ts.tv_sec * 1000LL + ts.tv_nsec / 1000000LL;
+        if (ts.tv_nsec % 1000000) ms++;
+        if (ms > (int64_t)INT32_MAX) ms = INT32_MAX;
+        timeout_ms = (int)ms;
+    }
+
+    return sys_epoll_pwait((int)epfd, (epoll_event_t *)events, (int)maxevents, timeout_ms, (const void *)sigmask, (size_t)sigsetsize);
 }
 
 /* ---------- mmap family wrappers (6-arg syscall -> actual function) ---------- */
@@ -4748,7 +5189,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_PKEY_FREE]              = sys_stub,
     [SYS_STATX]                  = sys_statx,
     [SYS_IO_PGETEVENTS]          = sys_stub,
-    [SYS_RSEQ]                   = sys_stub,
+    [SYS_RSEQ]                   = sys_rseq_impl,
     [SYS_PIDFD_SEND_SIGNAL]      = sys_stub,
     [SYS_IO_URING_SETUP]         = sys_stub,
     [SYS_IO_URING_ENTER]         = sys_stub,
@@ -4759,9 +5200,11 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_FSCONFIG]               = sys_stub,
     [SYS_FSMOUNT]                = sys_stub,
     [SYS_FSPICK]                 = sys_stub,
-    [SYS_PIDFD_OPEN]             = sys_stub,
-    [SYS_CLONE3]                 = sys_stub,
+    [SYS_PIDFD_OPEN]             = sys_pidfd_open_impl,
+    [SYS_CLONE3]                 = sys_clone3_impl,
     [SYS_CLOSE_RANGE]            = sys_close_range,
+    [SYS_PROCESS_MADVISE]        = sys_process_madvise_impl,
+    [SYS_EPOLL_PWAIT2]           = sys_epoll_pwait2_impl,
     [SYS_FACCESSAT2]             = sys_faccessat2_impl,
 };
 

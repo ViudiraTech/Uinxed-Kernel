@@ -347,7 +347,6 @@ enum x86_syscall_table {
     SYS_STATX,
     SYS_IO_PGETEVENTS,
     SYS_RSEQ,
-    /* Syscall 336 ~ 423 not implemented */
     SYS_PIDFD_SEND_SIGNAL = 424,
     SYS_IO_URING_SETUP,
     SYS_IO_URING_ENTER,
@@ -361,7 +360,8 @@ enum x86_syscall_table {
     SYS_PIDFD_OPEN,
     SYS_CLONE3,
     SYS_CLOSE_RANGE,
-    // Syscall 437 ~ 438 not implemented
+    SYS_PROCESS_MADVISE,
+    SYS_EPOLL_PWAIT2,
     SYS_FACCESSAT2 = 439,
     SYS_MAX        = 440,
 };
