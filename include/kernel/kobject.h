@@ -84,7 +84,7 @@ struct kobj_type;
 #define UEVENT_BUFFER_SIZE 2048
 
 struct kobj_uevent_env {
-        char envbuf[UEVENT_BUFFER_SIZE];
+        char  envbuf[UEVENT_BUFFER_SIZE];
         char *envp[UEVENT_NUM_ENVP];
         int   envp_idx;
         int   buflen;
@@ -149,7 +149,7 @@ struct kobject {
         unsigned int state_in_kset            : 1;
         unsigned int state_add_uevent_sent    : 1;
         unsigned int state_remove_uevent_sent : 1;
-        unsigned int uevent_suppress           : 1;
+        unsigned int uevent_suppress          : 1;
 };
 
 /* ------------------------------------------------------------------ */

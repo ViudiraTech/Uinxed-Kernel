@@ -36,15 +36,15 @@ typedef struct fs_txn_backend_ops {
 } fs_txn_backend_ops_t;
 
 typedef struct fs_txn_log {
-        blockdev_device_t          device;
+        blockdev_device_t           device;
         const fs_txn_backend_ops_t *ops;
-        void                      *backend_context;
-        uint32_t                   block_size;
-        uint32_t                   next_transaction_id;
-        int                        aborted;
-        int                        last_error;
-        int                        transaction_active;
-        spinlock_t                 lock;
+        void                       *backend_context;
+        uint32_t                    block_size;
+        uint32_t                    next_transaction_id;
+        int                         aborted;
+        int                         last_error;
+        int                         transaction_active;
+        spinlock_t                  lock;
 } fs_txn_log_t;
 
 typedef struct fs_txn {
@@ -58,8 +58,8 @@ typedef struct fs_txn {
         int              active;
 } fs_txn_t;
 
-int  fs_txn_log_init(fs_txn_log_t *log, const blockdev_device_t *device, uint32_t block_size,
-                     const fs_txn_backend_ops_t *ops, void *backend_context);
+int  fs_txn_log_init(fs_txn_log_t *log, const blockdev_device_t *device, uint32_t block_size, const fs_txn_backend_ops_t *ops,
+                     void *backend_context);
 void fs_txn_log_destroy(fs_txn_log_t *log);
 int  fs_txn_recover(fs_txn_log_t *log);
 int  fs_txn_begin(fs_txn_log_t *log, uint32_t credits, fs_txn_t *transaction);

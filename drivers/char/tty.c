@@ -523,7 +523,8 @@ int tty_dev_file_open(struct vfs_node *node, uint64_t flags, void **private_data
     tty_input_lazy_init();
     tty_core_auto_acquire(&console_tty, flags);
     /* Non-NULL marks aliases that expose Linux virtual-console ioctls. */
-    *private_data = node && (streq(node->name, "tty0") || streq(node->name, "tty1") || streq(node->name, "console")) ? (void *)(uintptr_t)1 : NULL;
+    *private_data
+        = node && (streq(node->name, "tty0") || streq(node->name, "tty1") || streq(node->name, "console")) ? (void *)(uintptr_t)1 : NULL;
     return 0;
 }
 

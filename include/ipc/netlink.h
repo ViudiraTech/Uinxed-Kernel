@@ -205,10 +205,10 @@ typedef struct nl_pktinfo {
 #define NL_SOCK_RECV_BUF_SIZE (128 * 1024) /* 128KB default recv buffer */
 
 typedef struct nl_sock {
-        uint32_t nl_pid;       /* Our port ID (0 = unbound/kernel) */
-        uint32_t nl_groups;    /* Multicast groups subscribed */
-        uint32_t nl_protocol;  /* Netlink protocol (NETLINK_*) */
-        uint32_t nl_seq;       /* Next outgoing sequence number */
+        uint32_t nl_pid;              /* Our port ID (0 = unbound/kernel) */
+        uint32_t nl_groups;           /* Multicast groups subscribed */
+        uint32_t nl_protocol;         /* Netlink protocol (NETLINK_*) */
+        uint32_t nl_seq;              /* Next outgoing sequence number */
         int      nl_bound        : 1; /* Socket is bound */
         int      no_enobufs      : 1;
         int      broadcast_error : 1;
@@ -222,7 +222,7 @@ typedef struct nl_sock {
         uint32_t   recv_queue_len; /* number of messages queued */
         uint32_t   recv_queue_max; /* max messages (prevents DoS) */
         uint32_t   recv_queue_bytes;
-        spinlock_t recv_lock;      /* protects recv_queue */
+        spinlock_t recv_lock; /* protects recv_queue */
 
         /* Blocking support */
         void *blocked_task; /* task_t waiting on recv */
@@ -236,8 +236,8 @@ typedef struct nl_sock {
 /* ------------------------------------------------------------------ */
 
 typedef struct nl_msg {
-        uint8_t *data;     /* complete datagram (not necessarily nlmsghdr-framed) */
-        uint32_t len;      /* total length */
+        uint8_t *data; /* complete datagram (not necessarily nlmsghdr-framed) */
+        uint32_t len;  /* total length */
         uint32_t sender_pid;
         uint32_t sender_groups;
         uint32_t sender_uid;
@@ -312,7 +312,7 @@ int netlink_recvmsg(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *add
 
 /* Kernel-buffer variant used by recvmsg/recvfrom to preserve metadata. */
 int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *addr, int flags, uint32_t *sender_uid, uint32_t *sender_gid,
-                        int *msg_flags);
+                         int *msg_flags);
 
 /* Netlink-specific close cleanup */
 void netlink_close(struct socket *sk);

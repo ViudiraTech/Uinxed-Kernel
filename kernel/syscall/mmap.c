@@ -176,7 +176,7 @@ static vm_area_t *vma_split_locked(process_t *proc, vm_area_t *vma, uintptr_t sp
         && sysv_shm_vma_get(right->vm_private_data, proc->task ? (uint32_t)proc->task->pid : 0))
         goto fail_backing;
 
-    vma->end   = split;
+    vma->end    = split;
     right->next = vma->next;
     vma->next   = right;
     return right;
@@ -204,8 +204,8 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
     if (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) return -EINVAL;
     if ((flags & (MAP_SHARED | MAP_PRIVATE)) != MAP_SHARED && (flags & (MAP_SHARED | MAP_PRIVATE)) != MAP_PRIVATE) return -EINVAL;
 
-    const uint64_t supported_flags = MAP_SHARED | MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS | MAP_GROWSDOWN | MAP_LOCKED | MAP_POPULATE
-                                     | MAP_NORESERVE | MAP_STACK;
+    const uint64_t supported_flags
+        = MAP_SHARED | MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS | MAP_GROWSDOWN | MAP_LOCKED | MAP_POPULATE | MAP_NORESERVE | MAP_STACK;
     if (flags & ~supported_flags) return -EINVAL;
 
     size_t    pages = ALIGN_UP(length, PAGE_4K_SIZE);
@@ -390,11 +390,11 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
             process_file_put(file);
             return -ENOMEM;
         }
-        vma->start   = mmap_addr;
-        vma->end     = mmap_addr + pages;
-        vma->flags   = vm_flags | VM_LAZY;
-        vma->type    = VM_REGION_MMAP;
-        vma->vm_file = vfs_node_retain(file->node);
+        vma->start    = mmap_addr;
+        vma->end      = mmap_addr + pages;
+        vma->flags    = vm_flags | VM_LAZY;
+        vma->type     = VM_REGION_MMAP;
+        vma->vm_file  = vfs_node_retain(file->node);
         vma->vm_pgoff = offset / PAGE_4K_SIZE;
         if (!vma->vm_file) {
             free(vma);
@@ -457,7 +457,7 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
     uintptr_t end = (uintptr_t)addr + pages;
 
     typedef struct {
-            vm_area_t  *vma;
+            vm_area_t *vma;
             vm_flags_t old_flags;
     } protect_change_t;
 
@@ -507,7 +507,7 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
     size_t changed = 0;
     for (vm_area_t *vma = first; vma && vma->start < end; vma = vma->next) {
         vm_flags_t new_flags = (vma->flags & ~(VM_READ | VM_WRITE | VM_EXEC)) | requested;
-        int ret = memfd_vma_protect(vma->vm_file, vma->flags, new_flags);
+        int        ret       = memfd_vma_protect(vma->vm_file, vma->flags, new_flags);
         if (ret) {
             while (changed) {
                 changed--;
@@ -525,10 +525,9 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
     }
 
     for (size_t i = 0; i < changed; i++) {
-        vm_area_t *vma      = changes[i].vma;
-        uint64_t pte_flags = vm_flags_to_pte(vma->flags);
-        if (vma->vm_pagecache && !(vma->flags & VM_SHARED) && (vma->flags & VM_WRITE))
-            pte_flags = (pte_flags & ~PTE_WRITEABLE) | PTE_COW;
+        vm_area_t *vma       = changes[i].vma;
+        uint64_t   pte_flags = vm_flags_to_pte(vma->flags);
+        if (vma->vm_pagecache && !(vma->flags & VM_SHARED) && (vma->flags & VM_WRITE)) pte_flags = (pte_flags & ~PTE_WRITEABLE) | PTE_COW;
         for (uintptr_t va = vma->start; va < vma->end; va += PAGE_4K_SIZE) {
             uintptr_t phys = walk_page_tables(proc->user_page_dir, va);
             if (phys && phys != (uintptr_t)-1) page_map_to(proc->user_page_dir, va, phys, pte_flags);

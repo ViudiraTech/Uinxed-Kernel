@@ -394,34 +394,32 @@ ifneq ($(CONFIG_MODULE_MAX_SIZE),)
   C_CONFIG += -DCONFIG_MODULE_MAX_SIZE_MIB=$(CONFIG_MODULE_MAX_SIZE)
 endif
 
-C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*" -not -path "tests/*")
+C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*" -not -path "assets/*")
 C_HEADERS      := $(shell find * -name "*.h")
 OBJS           := $(C_SOURCES:%.c=%.o)
 DEPS           := $(OBJS:%.o=%.d)
-LIBS           := $(filter-out libs/liballoc-x86_64.a,$(wildcard libs/lib*.a))
+ELFS           := $(shell find * -name "*.elf")
+LIBS           := $(wildcard libs/lib*.a)
 PWD            := $(shell pwd)
 
-HOST_CC        ?= $(CC)
+HOST_CC        := $(CC)
 HOST_CFLAGS    := -Wall -Wextra -O2
 
 QEMU           := qemu-system-x86_64
-QEMU_FLAGS     := -machine q35 -m 2048 -smp 4 -bios assets/ovmf-code.fd -serial stdio
+QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd -serial stdio
 
 TOOL_C_SOURCES := $(wildcard tools/*.c)
-TOOL_TARGETS   := $(TOOL_C_SOURCES:%.c=%)
+TOOL_TARGETS   := $(TOOL_C_SOURCES:%.c=%.elf)
 
 # If you want to get more details of `dump_stack`, you need to replace `-O3` with `-O0` or '-Os'.
 # `-fno-optimize-sibling-calls` is for `dump_stack` to work properly.
-AS_FLAGS       := -c -m64 -ffreestanding -nostdlib -fno-omit-frame-pointer -I include
 CC_FLAGS       := -Wall -Wextra -Wno-unused-function -O3 -g3 -m64 -fpie -ffreestanding -fno-optimize-sibling-calls -fno-stack-protector -fno-omit-frame-pointer -mstackrealign -mno-red-zone -I include -MMD
 LD_FLAGS       := -nostdlib -pie -T assets/linker.ld -m elf_x86_64
 
-INIT_ELF       := assets/Limine/init
-INITRAMFS      := assets/initramfs.cpio
-ROOTFS_BUILDER := tools/build-alpine-rootfs.sh
-ROOTFS_OVERLAY := $(shell find assets/rootfs-overlay -print)
-
 all: Uinxed-x64.iso
+
+info:
+	$(Q)printf "Uinxed Compiling Script - Apache License Version 2.0.\n\n"
 
 %.o: %.c
 	$(Q)printf "  CC      $@\n"
@@ -435,33 +433,22 @@ all: Uinxed-x64.iso
 	$(Q)printf "  TIDY    $<\n"
 	$(Q)clang-tidy $< -- $(CC_FLAGS)
 
-info:
-	$(Q)printf "Uinxed Compiling Script - Apache License Version 2.0.\n\n"
-
-tools/%: tools/%.c
+tools/%.elf: tools/%.c
 	$(Q)printf "  HOSTCC  $@\n"
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) -o $@ $<
 
-$(INIT_ELF): assets/init.S assets/init.ld
-	$(Q)printf "  AS      assets/init.o\n"
-	$(Q)$(CC) $(AS_FLAGS) -o assets/init.o $<
-	$(Q)printf "  LD      $@\n"
-	$(Q)$(LD) -nostdlib -static -T assets/init.ld -m elf_x86_64 -o $@ assets/init.o
-	$(Q)$(RM) assets/init.o
-
-$(INITRAMFS): $(ROOTFS_BUILDER) $(ROOTFS_OVERLAY)
-	$(Q)sh $(ROOTFS_BUILDER)
+assets/Limine/init.elf: assets/init/main.c
+	$(Q)printf "  HOSTCC  $@\n"
+	$(Q)$(HOST_CC) $(HOST_CFLAGS) -static -o $@ $<
 
 UxImage: $(TOOL_TARGETS) $(OBJS) $(LIBS)
 	$(Q)printf "  LD      $@\n"
 	$(Q)$(LD) $(LD_FLAGS) -o $@ $(filter-out $(TOOL_TARGETS),$^)
 
-Uinxed-x64.iso: info UxImage $(INIT_ELF) $(INITRAMFS)
+Uinxed-x64.iso: info UxImage assets/Limine/init.elf
 	$(Q)printf "  XORRISO $@\n\n"
 	$(Q)cp -a assets/Limine iso
-	$(Q)cp UxImage iso/EFI/Boot
-	$(Q)cp $(INIT_ELF) iso/
-	$(Q)cp $(INITRAMFS) iso/
+	$(Q)cp $(word 2,$^) iso/EFI/Boot
 	$(Q)xorriso -as mkisofs -R -r -J -b Limine/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 -boot-info-table \
                 -hfsplus -apm-block-size 2048 -efi-boot-part --efi-boot-image --protective-msdos-label \
                 --efi-boot Limine/limine-uefi-cd.bin -o $@ iso
@@ -470,20 +457,12 @@ Uinxed-x64.iso: info UxImage $(INIT_ELF) $(INITRAMFS)
 	$(Q)printf "Image: $@ is ready.\n"
 	$(Q)printf "Compilation complete.\n"
 
-.PHONY: help rootfs run run-net run-usb disk.img allocator-test vm-cow-test fs-test usb-test clean format check gen.clangd menuconfig
+.PHONY: help run clean format check gen.clangd menuconfig
 
 help: info
 	$(Q)printf "Uinxed-Kernel Makefile Usage:\n"
 	$(Q)printf "  make all         - Build the entire project.\n"
-	$(Q)printf "  make rootfs      - Build the Alpine CLI initramfs.\n"
 	$(Q)printf "  make run         - Run the Uinxed-x64.iso in QEMU.\n"
-	$(Q)printf "  make run-net     - Run with an isolated user-mode e1000 network.\n"
-	$(Q)printf "  make run-usb     - Run with xHCI, HID, and a USB mass-storage disk.\n"
-	$(Q)printf "  make disk.img    - Build a demo simplefs disk image.\n"
-	$(Q)printf "  make allocator-test - Run native buddy/slab allocator tests.\n"
-	$(Q)printf "  make vm-cow-test  - Run native VM/COW write-fault regressions.\n"
-	$(Q)printf "  make fs-test     - Run native ext2/ext3/ext4, JBD2 and NTFS regression tests.\n"
-	$(Q)printf "  make usb-test    - Run native UHCI, BOT/SCSI and HID protocol tests.\n"
 	$(Q)printf "  make clean       - Clean all generated files.\n"
 	$(Q)printf "  make format      - Format all source files using clang-format.\n"
 	$(Q)printf "  make check       - Run static code checks using clang-tidy.\n"
@@ -491,36 +470,11 @@ help: info
 	$(Q)printf "  make menuconfig  - Run menuconfig to configure the kernel.\n"
 	$(Q)printf "  make help        - Display this help message.\n"
 
-rootfs: $(INITRAMFS)
-
 run: info Uinxed-x64.iso
 	$(QEMU) $(QEMU_FLAGS) -cdrom $(word 2,$^)
 
-run-net: info Uinxed-x64.iso
-	$(QEMU) $(QEMU_FLAGS) -netdev user,id=net0,restrict=on -device e1000,netdev=net0 -cdrom $(word 2,$^)
-
-run-usb: info Uinxed-x64.iso
-	$(QEMU) $(QEMU_FLAGS) -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 -device usb-tablet,bus=xhci.0 \
-		-drive if=none,id=usbdisk,format=raw,file=ahci_disk.img -device usb-storage,bus=xhci.0,drive=usbdisk -cdrom $(word 2,$^)
-
-disk.img: info tools/mkfs_simplefs
-	$(Q)printf "  MKFS    $@\n\n"
-	$(Q)./tools/mkfs_simplefs $@
-
-allocator-test:
-	$(Q)bash tools/tests/run_allocator_tests.sh
-
-vm-cow-test:
-	$(Q)bash tools/tests/run_vm_cow_tests.sh
-
-fs-test:
-	$(Q)bash tools/tests/run_fs_tests.sh
-
-usb-test:
-	$(Q)bash tools/tests/run_usb_tests.sh
-
 clean: info
-	$(Q)$(RM) $(OBJS) $(DEPS) UxImage Uinxed-x64.iso tools/mkfs_simplefs disk.img assets/init.o
+	$(Q)$(RM) $(OBJS) $(DEPS) $(ELFS) UxImage Uinxed-x64.iso
 	$(Q)printf "Clean completed.\n"
 
 format: info $(C_SOURCES:%=%.fmt) $(C_HEADERS:%=%.fmt)

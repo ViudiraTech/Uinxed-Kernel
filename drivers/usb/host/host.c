@@ -17,8 +17,8 @@
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 
-usb_host_t *usb_host_list;
-spinlock_t  usb_host_lock;
+usb_host_t     *usb_host_list;
+spinlock_t      usb_host_lock;
 static uint16_t usb_host_next_bus_number = 1;
 
 int usb_host_allocate_bus_number(void)
@@ -43,8 +43,8 @@ int usb_host_register(usb_host_t *host)
             return -EEXIST;
         }
     }
-    host->next     = usb_host_list;
-    usb_host_list  = host;
+    host->next    = usb_host_list;
+    usb_host_list = host;
     spin_unlock_irqrestore(&usb_host_lock, flags);
     plogk("usb-host: Registered %s (bus %u, type %d)\n", host->name, host->bus_number, host->type);
     return EOK;

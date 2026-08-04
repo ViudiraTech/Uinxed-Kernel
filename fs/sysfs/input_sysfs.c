@@ -95,7 +95,7 @@ static DEVICE_ATTR(rel, 0444, rel_show, NULL);
 
 static struct attribute *input_evdev_attributes[] = {
     &dev_attr_name.attr,    &dev_attr_phys.attr, &dev_attr_bustype.attr, &dev_attr_vendor.attr, &dev_attr_product.attr,
-    &dev_attr_version.attr, &dev_attr_ev.attr,      &dev_attr_key.attr,    &dev_attr_rel.attr, NULL,
+    &dev_attr_version.attr, &dev_attr_ev.attr,   &dev_attr_key.attr,     &dev_attr_rel.attr,    NULL,
 };
 
 static struct attribute_group input_evdev_group = {

@@ -154,35 +154,35 @@ typedef struct vfs_callback {
 extern vfs_callback_t fs_callbacks[];
 
 typedef struct vfs_node {
-        vfs_node_t           parent;      // Parent directory
-        vfs_node_t           linkto;      // Node pointed to by the symbolic link
-        char                *name;        // Name
-        char                *linkname;    // Symbolic link name
-        uint64_t             realsize;    // Actual space occupied by the project (optional)
-        uint64_t             size;        // File size or 0 if it is a folder
-        uint64_t             createtime;  // Creation time
-        uint64_t             readtime;    // Last read time
-        uint64_t             writetime;   // Last write time
-        uint64_t             inode;       // Node number
-        uint32_t             nlink;       // Number of namespace links to the inode
-        uint64_t             blksz;       // Block size
-        uint32_t             owner;       // Owner
-        uint32_t             group;       // All groups
-        uint32_t             permissions; // Permissions
-        uint16_t             type;        // Type
-        uint32_t             refcount;    // Reference count
-        uint16_t             mode;        // Mode
-        uint16_t             fsid;        // File system mount ID
-        void                *handle;      // Handle to the file
-        uint64_t             flags;       // File flags
-        clist_t              child;       // Child nodes
-        vfs_node_t           root;        // Root directory
-        int                  visited;     // Whether to synchronize with the specific file system
-        int                  is_mount;    // Whether it is a mount point
-        uint64_t             mount_id;    // Stable namespace mount identifier
+        vfs_node_t           parent;       // Parent directory
+        vfs_node_t           linkto;       // Node pointed to by the symbolic link
+        char                *name;         // Name
+        char                *linkname;     // Symbolic link name
+        uint64_t             realsize;     // Actual space occupied by the project (optional)
+        uint64_t             size;         // File size or 0 if it is a folder
+        uint64_t             createtime;   // Creation time
+        uint64_t             readtime;     // Last read time
+        uint64_t             writetime;    // Last write time
+        uint64_t             inode;        // Node number
+        uint32_t             nlink;        // Number of namespace links to the inode
+        uint64_t             blksz;        // Block size
+        uint32_t             owner;        // Owner
+        uint32_t             group;        // All groups
+        uint32_t             permissions;  // Permissions
+        uint16_t             type;         // Type
+        uint32_t             refcount;     // Reference count
+        uint16_t             mode;         // Mode
+        uint16_t             fsid;         // File system mount ID
+        void                *handle;       // Handle to the file
+        uint64_t             flags;        // File flags
+        clist_t              child;        // Child nodes
+        vfs_node_t           root;         // Root directory
+        int                  visited;      // Whether to synchronize with the specific file system
+        int                  is_mount;     // Whether it is a mount point
+        uint64_t             mount_id;     // Stable namespace mount identifier
         char                *mount_source; // Informational source shown by procfs
-        uint64_t             dev;         // Device number
-        uint64_t             rdev;        // Real device number
+        uint64_t             dev;          // Device number
+        uint64_t             rdev;         // Real device number
         vfs_poll_source_t    poll_source;
         pagecache_mapping_t *mapping; // Unified cache for regular-file contents
 } *vfs_node_t;
@@ -260,8 +260,8 @@ int vfs_symlink(const char *name, const char *target_name);
 int vfs_regist(vfs_callback_t callback);
 
 /* Register a vfs callback with a filesystem name */
-int vfs_regist_fs(const char *name, vfs_callback_t callback);
-int vfs_regist_fs_flags(const char *name, vfs_callback_t callback, uint32_t flags);
+int    vfs_regist_fs(const char *name, vfs_callback_t callback);
+int    vfs_regist_fs_flags(const char *name, vfs_callback_t callback, uint32_t flags);
 size_t vfs_format_filesystems(char *buffer, size_t capacity);
 /* Return the stable userspace filesystem type registered for an fsid. */
 const char *vfs_filesystem_name(uint16_t fsid);

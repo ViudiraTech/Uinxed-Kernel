@@ -35,7 +35,7 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
     /* We use raw fd table access for operations that need it */
     switch (cmd) {
         case F_DUPFD : {
-            int start = (int)arg;
+            int      start = (int)arg;
             uint32_t limit = process_fd_limit(proc);
             if (start < 0) {
                 result = -EINVAL;
@@ -65,7 +65,7 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             file->fd_refcount++;
             spin_unlock(&file->lock);
 
-            proc->fds[newfd] = file;
+            proc->fds[newfd]      = file;
             proc->fd_flags[newfd] = 0;
             spin_unlock(&proc->fd_lock);
             result = newfd;
@@ -73,7 +73,7 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
         }
 
         case F_DUPFD_CLOEXEC : {
-            int start = (int)arg;
+            int      start = (int)arg;
             uint32_t limit = process_fd_limit(proc);
             if (start < 0) {
                 result = -EINVAL;
@@ -102,7 +102,7 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             file->fd_refcount++;
             spin_unlock(&file->lock);
 
-            proc->fds[newfd] = file;
+            proc->fds[newfd]      = file;
             proc->fd_flags[newfd] = FD_CLOEXEC;
             spin_unlock(&proc->fd_lock);
             result = newfd;
@@ -124,7 +124,7 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             spin_lock(&proc->fd_lock);
             if (proc->fds[fd]) {
                 proc->fd_flags[fd] = (uint8_t)(arg & FD_CLOEXEC);
-                result = 0;
+                result             = 0;
             } else {
                 result = -EBADF;
             }

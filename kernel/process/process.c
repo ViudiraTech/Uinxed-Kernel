@@ -134,8 +134,8 @@ void process_debug_dump_tasks(void)
         for (ilist_node_t *node = proc->threads.next; node != &proc->threads; node = node->next) {
             task_t *task = rb_entry(node, task_t, thread_node);
             if (task->state == TASK_ZOMBIE) continue;
-            plogk("task-dump: pid=%llu name=%s state=%u cpu=%u on_cpu=%llu wait=%p wake=%u tick=%llu\n", task->pid, task->name,
-                  task->state, task->cpu_id, task->on_cpu, task->wait_queue, task->wake_reason, task->wake_tick);
+            plogk("task-dump: pid=%llu name=%s state=%u cpu=%u on_cpu=%llu wait=%p wake=%u tick=%llu\n", task->pid, task->name, task->state,
+                  task->cpu_id, task->on_cpu, task->wait_queue, task->wake_reason, task->wake_tick);
         }
     }
     plogk("task-dump: end\n");
@@ -528,7 +528,7 @@ vm_area_t *process_mmap_replace(process_t *proc, vm_area_t *replacement)
 {
     if (!proc) return NULL;
     spin_lock(&proc->mmap_lock);
-    vm_area_t *old = proc->mmap_list;
+    vm_area_t *old  = proc->mmap_list;
     proc->mmap_list = replacement;
     spin_unlock(&proc->mmap_lock);
     return old;
@@ -560,22 +560,22 @@ static void process_rlimit_init(process_t *proc)
     /* Limits backed by fixed kernel tables must report their real ceilings;
      * advertising infinity makes libc and applications derive invalid ABI
      * values (notably sysconf(_SC_OPEN_MAX)). */
-    proc->rlimits[PROCESS_RLIMIT_NOFILE].current = PROCESS_MAX_FD;
-    proc->rlimits[PROCESS_RLIMIT_NOFILE].maximum = PROCESS_MAX_FD;
-    proc->rlimits[PROCESS_RLIMIT_NPROC].current  = 4096;
-    proc->rlimits[PROCESS_RLIMIT_NPROC].maximum  = 4096;
-    proc->rlimits[PROCESS_RLIMIT_STACK].current  = PROCESS_STACK_SIZE;
-    proc->rlimits[PROCESS_RLIMIT_STACK].maximum  = PROCESS_STACK_SIZE;
-    proc->rlimits[PROCESS_RLIMIT_MEMLOCK].current = 64 * 1024;
-    proc->rlimits[PROCESS_RLIMIT_MEMLOCK].maximum = 64 * 1024;
+    proc->rlimits[PROCESS_RLIMIT_NOFILE].current     = PROCESS_MAX_FD;
+    proc->rlimits[PROCESS_RLIMIT_NOFILE].maximum     = PROCESS_MAX_FD;
+    proc->rlimits[PROCESS_RLIMIT_NPROC].current      = 4096;
+    proc->rlimits[PROCESS_RLIMIT_NPROC].maximum      = 4096;
+    proc->rlimits[PROCESS_RLIMIT_STACK].current      = PROCESS_STACK_SIZE;
+    proc->rlimits[PROCESS_RLIMIT_STACK].maximum      = PROCESS_STACK_SIZE;
+    proc->rlimits[PROCESS_RLIMIT_MEMLOCK].current    = 64 * 1024;
+    proc->rlimits[PROCESS_RLIMIT_MEMLOCK].maximum    = 64 * 1024;
     proc->rlimits[PROCESS_RLIMIT_SIGPENDING].current = 4096;
     proc->rlimits[PROCESS_RLIMIT_SIGPENDING].maximum = 4096;
-    proc->rlimits[PROCESS_RLIMIT_MSGQUEUE].current = 819200;
-    proc->rlimits[PROCESS_RLIMIT_MSGQUEUE].maximum = 819200;
-    proc->rlimits[PROCESS_RLIMIT_NICE].current = 0;
-    proc->rlimits[PROCESS_RLIMIT_NICE].maximum = 0;
-    proc->rlimits[PROCESS_RLIMIT_RTPRIO].current = 0;
-    proc->rlimits[PROCESS_RLIMIT_RTPRIO].maximum = 0;
+    proc->rlimits[PROCESS_RLIMIT_MSGQUEUE].current   = 819200;
+    proc->rlimits[PROCESS_RLIMIT_MSGQUEUE].maximum   = 819200;
+    proc->rlimits[PROCESS_RLIMIT_NICE].current       = 0;
+    proc->rlimits[PROCESS_RLIMIT_NICE].maximum       = 0;
+    proc->rlimits[PROCESS_RLIMIT_RTPRIO].current     = 0;
+    proc->rlimits[PROCESS_RLIMIT_RTPRIO].maximum     = 0;
 }
 
 uint32_t process_fd_limit(process_t *proc)
@@ -691,7 +691,7 @@ static void process_fd_table_copy(process_t *child, process_t *parent)
 
     spin_lock(&parent->fd_lock);
     for (int i = 0; i < PROCESS_MAX_FD; i++) {
-        child->fds[i] = parent->fds[i];
+        child->fds[i]      = parent->fds[i];
         child->fd_flags[i] = parent->fd_flags[i];
         process_file_fd_get(child->fds[i]);
     }
@@ -716,7 +716,7 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
     process_file_t *file = calloc(1, sizeof(process_file_t));
     if (!file) return -ENOMEM;
 
-    file->node        = node;
+    file->node = node;
     /* O_CLOEXEC is a descriptor creation flag.  It must not be shared by
      * dup(2) or forked open-file descriptions through file->flags. */
     file->flags       = flags & ~(uint64_t)O_CLOEXEC;
@@ -751,7 +751,7 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
     uint32_t limit = process_fd_limit(proc);
     for (uint32_t i = 0; i < limit; i++) {
         if (!proc->fds[i]) {
-            proc->fds[i] = file;
+            proc->fds[i]      = file;
             proc->fd_flags[i] = (flags & O_CLOEXEC) ? FD_CLOEXEC : 0;
             spin_unlock(&proc->fd_lock);
             inotify_notify(node, IN_OPEN);
@@ -776,7 +776,7 @@ int process_fd_close(process_t *proc, int fd)
         spin_unlock(&proc->fd_lock);
         return -EBADF;
     }
-    proc->fds[fd] = NULL;
+    proc->fds[fd]      = NULL;
     proc->fd_flags[fd] = 0;
     spin_unlock(&proc->fd_lock);
 
@@ -1144,7 +1144,7 @@ process_t *process_create(const char *name, void (*entry)(void *), void *arg)
     slist_init(&proc->children);
     wait_queue_init(&proc->child_wait);
     wait_queue_init(&proc->vfork_wait);
-    proc->vfork_done = true;
+    proc->vfork_done       = true;
     proc->mmap_lock.lock   = 0;
     proc->mmap_lock.rflags = 0;
     proc->brk_lock.lock    = 0;
@@ -1216,7 +1216,7 @@ process_t *process_create_kernel(const char *name, void (*entry)(void *), void *
     slist_init(&proc->children);
     wait_queue_init(&proc->child_wait);
     wait_queue_init(&proc->vfork_wait);
-    proc->vfork_done = true;
+    proc->vfork_done       = true;
     proc->mmap_lock.lock   = 0;
     proc->mmap_lock.rflags = 0;
     proc->brk_lock.lock    = 0;
@@ -1410,8 +1410,7 @@ static void process_child_wait_event(process_t *child, int stop_signal, bool con
     spin_unlock(&parent->child_wait.lock);
 
     if (published)
-        signal_notify_child_status(parent, (pid_t)child->task->tgid, continued ? SIGCONT : stop_signal,
-                                   continued ? CLD_CONTINUED : CLD_STOPPED);
+        signal_notify_child_status(parent, (pid_t)child->task->tgid, continued ? SIGCONT : stop_signal, continued ? CLD_CONTINUED : CLD_STOPPED);
     process_put(parent);
 }
 
@@ -1436,9 +1435,9 @@ int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_
     if (!parent) return -ECHILD;
 
     for (;;) {
-        process_t *zombie = NULL;
-        process_t *event  = NULL;
-        int        event_status = 0;
+        process_t *zombie             = NULL;
+        process_t *event              = NULL;
+        int        event_status       = 0;
         bool       has_matching_child = false;
 
         /* Serialize the condition check with child-exit notification.  The
@@ -1454,15 +1453,15 @@ int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_
                 break;
             }
             if ((options & PROCESS_WAIT_STOPPED) && child->wait_stop_pending) {
-                event                         = child;
-                event_status                  = ((child->wait_stop_signal & 0xff) << 8) | 0x7f;
-                child->wait_stop_pending      = false;
+                event                    = child;
+                event_status             = ((child->wait_stop_signal & 0xff) << 8) | 0x7f;
+                child->wait_stop_pending = false;
                 break;
             }
             if ((options & PROCESS_WAIT_CONTINUED) && child->wait_continue_pending) {
-                event                            = child;
-                event_status                     = 0xffff;
-                child->wait_continue_pending     = false;
+                event                        = child;
+                event_status                 = 0xffff;
+                child->wait_continue_pending = false;
                 break;
             }
         }
@@ -2007,7 +2006,7 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
 
     vma->type = VM_REGION_MMAP;
     if (previous) {
-        vma->next     = previous->next;
+        vma->next      = previous->next;
         previous->next = vma;
     } else {
         vma->next       = proc->mmap_list;

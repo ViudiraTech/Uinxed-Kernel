@@ -80,17 +80,17 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
 #define CLONE_PTHREAD_REQUIRED (CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM)
 #define CLONE_PTHREAD_ALLOWED  (CLONE_PTHREAD_REQUIRED | CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)
 
-#define AT_FDCWD            PROCESS_AT_FDCWD
-#define AT_SYMLINK_NOFOLLOW 0x100
-#define AT_EACCESS          0x200
-#define AT_REMOVEDIR        0x200
-#define AT_SYMLINK_FOLLOW   0x400
-#define AT_NO_AUTOMOUNT     0x800
-#define AT_EMPTY_PATH       0x1000
-#define AT_STATX_SYNC_TYPE  0x6000
-#define AT_STATX_DONT_SYNC  0x4000
-#define STATX_BASIC_STATS   0x000007ffU
-#define STATX_MNT_ID        0x00001000U
+#define AT_FDCWD              PROCESS_AT_FDCWD
+#define AT_SYMLINK_NOFOLLOW   0x100
+#define AT_EACCESS            0x200
+#define AT_REMOVEDIR          0x200
+#define AT_SYMLINK_FOLLOW     0x400
+#define AT_NO_AUTOMOUNT       0x800
+#define AT_EMPTY_PATH         0x1000
+#define AT_STATX_SYNC_TYPE    0x6000
+#define AT_STATX_DONT_SYNC    0x4000
+#define STATX_BASIC_STATS     0x000007ffU
+#define STATX_MNT_ID          0x00001000U
 #define STATX_ATTR_MOUNT_ROOT 0x00002000ULL
 
 typedef struct {
@@ -308,7 +308,7 @@ static void fill_linux_statx(linux_statx_t *stx, uint64_t uid, uint64_t gid, con
     stx->stx_rdev_minor = MINOR(src->rdev);
     stx->stx_dev_major  = MAJOR(src->dev);
     stx->stx_dev_minor  = MINOR(src->dev);
-    vfs_node_t mount = vfs_containing_mount(node);
+    vfs_node_t mount    = vfs_containing_mount(node);
     if (mount) {
         stx->stx_mask |= STATX_MNT_ID;
         stx->stx_mnt_id = mount->mount_id;
@@ -532,7 +532,7 @@ static int64_t sys_wait4(uint64_t pid, uint64_t exit_code, uint64_t options, uin
     if (flags & WUNTRACED) wait_options |= PROCESS_WAIT_STOPPED;
     if (flags & WCONTINUED) wait_options |= PROCESS_WAIT_CONTINUED;
     pid_t waited_pid = 0;
-    int   ret = process_wait_select((pid_t)pid, &status, wait_options, &waited_pid);
+    int   ret        = process_wait_select((pid_t)pid, &status, wait_options, &waited_pid);
     if (ret < 0) return ret;
     if (!waited_pid) return 0;
     if (exit_code && copy_to_user((void *)exit_code, &status, sizeof(status))) return -EFAULT;
@@ -964,7 +964,7 @@ static int64_t sys_statx(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_t
     if (!proc) return -ESRCH;
 
     char input[SYSCALL_PATH_MAX];
-    int ret;
+    int  ret;
     if (!path) {
         if (!(flags & AT_EMPTY_PATH)) return -EFAULT;
         input[0] = '\0';
@@ -980,8 +980,7 @@ static int64_t sys_statx(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_t
     } else {
         char resolved[SYSCALL_PATH_MAX];
         ret = process_resolve_path_at(proc, (int)dirfd, input, resolved, sizeof(resolved));
-        if (ret == EOK)
-            node = (flags & AT_SYMLINK_NOFOLLOW) ? vfs_open_nofollow(resolved) : vfs_open(resolved);
+        if (ret == EOK) node = (flags & AT_SYMLINK_NOFOLLOW) ? vfs_open_nofollow(resolved) : vfs_open(resolved);
         if (!node && ret == EOK) ret = -ENOENT;
     }
     if (!node) return ret;
@@ -1901,7 +1900,7 @@ static int64_t sys_clock_gettime_stub(uint64_t clockid, uint64_t tp, uint64_t ar
         case CLOCK_REALTIME_COARSE :
         case CLOCK_REALTIME_ALARM :
             /* Wall clock time since epoch */
-            uptime_ns = timer_realtime_ns();
+            uptime_ns  = timer_realtime_ns();
             ts.tv_sec  = uptime_ns / 1000000000LL;
             ts.tv_nsec = uptime_ns % 1000000000LL;
             break;
@@ -1967,17 +1966,17 @@ struct linux_statfs {
         int64_t  f_spare[4];
 };
 
-#define TMPFS_MAGIC        0x01021994
-#define SYSFS_MAGIC        0x62656572
-#define PROC_SUPER_MAGIC   0x00009fa0
+#define TMPFS_MAGIC         0x01021994
+#define SYSFS_MAGIC         0x62656572
+#define PROC_SUPER_MAGIC    0x00009fa0
 #define CGROUP2_SUPER_MAGIC 0x63677270
-#define ISOFS_SUPER_MAGIC  0x00009660
-#define EXT4_SUPER_MAGIC   0x0000ef53
-#define MSDOS_SUPER_MAGIC  0x00004d44
-#define NTFS_SB_MAGIC      0x5346544e
-#define SOCKFS_MAGIC       0x534f434b
-#define PIPEFS_MAGIC       0x50495045
-#define SIMPLEFS_MAGIC     0x53494d50
+#define ISOFS_SUPER_MAGIC   0x00009660
+#define EXT4_SUPER_MAGIC    0x0000ef53
+#define MSDOS_SUPER_MAGIC   0x00004d44
+#define NTFS_SB_MAGIC       0x5346544e
+#define SOCKFS_MAGIC        0x534f434b
+#define PIPEFS_MAGIC        0x50495045
+#define SIMPLEFS_MAGIC      0x53494d50
 
 /* ---------- personality ---------- */
 
@@ -2241,17 +2240,17 @@ static int64_t copy_statfs_to_user(vfs_node_t node, uint64_t buf)
 {
     struct linux_statfs sf;
     memset(&sf, 0, sizeof(sf));
-    sf.f_type    = linux_statfs_type(node);
-    sf.f_bsize   = 4096;
-    sf.f_blocks  = 65536;
-    sf.f_bfree   = 32768;
-    sf.f_bavail  = 32768;
-    sf.f_files   = 0;
-    sf.f_ffree   = 0;
+    sf.f_type        = linux_statfs_type(node);
+    sf.f_bsize       = 4096;
+    sf.f_blocks      = 65536;
+    sf.f_bfree       = 32768;
+    sf.f_bavail      = 32768;
+    sf.f_files       = 0;
+    sf.f_ffree       = 0;
     vfs_node_t mount = vfs_containing_mount(node);
-    sf.f_fsid    = mount && mount->mount_id ? mount->mount_id : node->fsid;
-    sf.f_namelen = 255;
-    sf.f_frsize  = 4096;
+    sf.f_fsid        = mount && mount->mount_id ? mount->mount_id : node->fsid;
+    sf.f_namelen     = 255;
+    sf.f_frsize      = 4096;
     if (mount) sf.f_flags = (int64_t)(mount->flags & (MOUNT_FLAG_RDONLY | MOUNT_FLAG_NOSUID | MOUNT_FLAG_NODEV | MOUNT_FLAG_NOEXEC));
 
     if (copy_to_user((void *)buf, &sf, sizeof(sf))) return -EFAULT;
@@ -2268,7 +2267,7 @@ static int64_t sys_statfs_impl(uint64_t path, uint64_t buf, uint64_t arg2, uint6
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     char resolved[SYSCALL_PATH_MAX];
-    int ret = copy_resolved_path_at(proc, AT_FDCWD, path, resolved);
+    int  ret = copy_resolved_path_at(proc, AT_FDCWD, path, resolved);
     if (ret != EOK) return ret;
     vfs_node_t node = vfs_open(resolved);
     if (!node) return -ENOENT;
@@ -2366,8 +2365,7 @@ static int64_t sys_getrandom_stub(uint64_t buf, uint64_t buflen, uint64_t flags,
         uint8_t  ok  = 0;
         if (has_rdrand) {
             /* RDRAND may transiently report that no value is available. */
-            for (int retry = 0; retry < 10 && !ok; retry++)
-                __asm__ volatile("rdrand %0; setc %1" : "=r"(val), "=q"(ok));
+            for (int retry = 0; retry < 10 && !ok; retry++) __asm__ volatile("rdrand %0; setc %1" : "=r"(val), "=q"(ok));
         }
         if (!ok) {
             val = xorshift_state;
@@ -2495,7 +2493,7 @@ static int64_t sys_getrlimit_impl(uint64_t resource, uint64_t rlim, uint64_t arg
     (void)arg5;
     if (!rlim) return -EFAULT;
     linux_rlimit64_t rl;
-    int result = process_rlimit_snapshot(process_current(), resource, &rl);
+    int              result = process_rlimit_snapshot(process_current(), resource, &rl);
     if (result != EOK) return result;
     return copy_to_user((void *)rlim, &rl, sizeof(rl)) ? -EFAULT : EOK;
 }
@@ -2609,7 +2607,7 @@ static int64_t sys_umask_stub(uint64_t mask, uint64_t arg1, uint64_t arg2, uint6
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     uint16_t previous = proc->umask;
-    proc->umask = (uint16_t)(mask & 0777U);
+    proc->umask       = (uint16_t)(mask & 0777U);
     return previous;
 }
 
@@ -2777,7 +2775,7 @@ static int64_t sys_prlimit64_impl(uint64_t pid, uint64_t resource, uint64_t new_
     }
 
     linux_rlimit64_t old_limit;
-    int result = process_rlimit_snapshot(target, resource, &old_limit);
+    int              result = process_rlimit_snapshot(target, resource, &old_limit);
     if (result == EOK && old_rlim && copy_to_user((void *)old_rlim, &old_limit, sizeof(old_limit))) result = -EFAULT;
 
     if (result == EOK && new_rlim) {
@@ -3507,10 +3505,10 @@ static int64_t sys_epoll_pwait_wrap(uint64_t epfd, uint64_t events, uint64_t max
 
 /* ---------- waitid wrapper ---------- */
 
-#define P_PID   1
-#define P_PGID  2
-#define P_ALL   3
-#define WEXITED 0x00000004
+#define P_PID    1
+#define P_PGID   2
+#define P_ALL    3
+#define WEXITED  0x00000004
 #define WSTOPPED 0x00000002
 #define WNOWAIT  0x01000000
 
@@ -3566,7 +3564,7 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
         }
     }
 
-    pid_t waited_pid = 0;
+    pid_t    waited_pid   = 0;
     uint32_t wait_options = (flags & WNOHANG) ? PROCESS_WAIT_NOHANG : 0;
     if (flags & WSTOPPED) wait_options |= PROCESS_WAIT_STOPPED;
     if (flags & WCONTINUED) wait_options |= PROCESS_WAIT_CONTINUED;
@@ -3753,7 +3751,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
             char interpreter[256];
             memcpy(interpreter, elf_data + start, interp_end - start);
             interpreter[interp_end - start] = '\0';
-            size_t optional = interp_end;
+            size_t optional                 = interp_end;
             while (optional < end && (elf_data[optional] == ' ' || elf_data[optional] == '\t')) optional++;
 
             int    new_argc = 1 + (optional < end ? 1 : 0) + 1 + (argc > 0 ? argc - 1 : 0);
@@ -3765,7 +3763,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
                 return -ENOMEM;
             }
 
-            int out = 0;
+            int out         = 0;
             new_argv[out++] = strdup(interpreter);
             if (optional < end) {
                 size_t optional_len = end - optional;
@@ -3830,9 +3828,9 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
 
     if (setup_process_page_dir(proc)) {
         (void)process_mmap_replace(proc, old_mmaps);
-        proc->start_brk             = old_start_brk;
-        proc->heap_brk              = old_heap_brk;
-        proc->stack_brk             = old_stack_brk;
+        proc->start_brk = old_start_brk;
+        proc->heap_brk  = old_heap_brk;
+        proc->stack_brk = old_stack_brk;
         free(elf_data);
         free_string_array(kargv);
         free_string_array(kenvp);
@@ -3858,12 +3856,12 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
         process_mmap_destroy_detached(proc, failed_mmaps);
         proc->user_page_dir        = old_dir;
         proc->task->page_directory = old_dir;
-        proc->start_brk             = old_start_brk;
-        proc->heap_brk              = old_heap_brk;
-        proc->stack_brk             = old_stack_brk;
-        proc->task->thread.fs_base  = old_fs_base;
-        proc->task->thread.gs_base  = old_gs_base;
-        proc->task->context         = old_context;
+        proc->start_brk            = old_start_brk;
+        proc->heap_brk             = old_heap_brk;
+        proc->stack_brk            = old_stack_brk;
+        proc->task->thread.fs_base = old_fs_base;
+        proc->task->thread.gs_base = old_gs_base;
+        proc->task->context        = old_context;
         return -ENOEXEC;
     }
 

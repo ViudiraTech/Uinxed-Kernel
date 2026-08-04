@@ -15,7 +15,7 @@ uint32_t crc32c_update(uint32_t crc, const void *data, size_t size)
     const uint8_t *bytes = data;
     while (size--) {
         crc ^= *bytes++;
-        for (uint32_t bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ (0x82F63B78U & (uint32_t)-(int32_t)(crc & 1));
+        for (uint32_t bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ (0x82F63B78U & (uint32_t) - (int32_t)(crc & 1));
     }
     return crc;
 }

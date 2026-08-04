@@ -118,9 +118,9 @@ static bool cpio_make_path(const char *archive_name, size_t namesize, char path[
 static int cpio_ensure_parents(char *path)
 {
     for (char *slash = strchr(path + 1, '/'); slash; slash = strchr(slash + 1, '/')) {
-        *slash = '\0';
+        *slash     = '\0';
         int status = vfs_mkdir_mode(path, 0755);
-        *slash = '/';
+        *slash     = '/';
         if (status != EOK && status != -EEXIST) return status;
     }
     return EOK;
@@ -141,8 +141,8 @@ static uint32_t cpio_data_checksum(const uint8_t *data, size_t size)
     return checksum;
 }
 
-static int cpio_install_entry(char *path, uint32_t mode, uint32_t uid, uint32_t gid, uint32_t mtime, const uint8_t *filedata,
-                              size_t filesize, bool zero_copy)
+static int cpio_install_entry(char *path, uint32_t mode, uint32_t uid, uint32_t gid, uint32_t mtime, const uint8_t *filedata, size_t filesize,
+                              bool zero_copy)
 {
     uint32_t file_type = mode & CPIO_MODE_IFMT;
     int      status;
@@ -234,7 +234,7 @@ void init_cpio(void)
         return;
     }
 
-    size_t offset = 0;
+    size_t offset  = 0;
     size_t entries = 0;
     bool   trailer = false;
     int    failure = EOK;

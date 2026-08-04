@@ -89,15 +89,15 @@ static int usb_storage_bulk(usb_endpoint_t *endpoint, void *buffer, size_t lengt
 static int usb_storage_bulk_exact(usb_endpoint_t *endpoint, void *buffer, size_t length)
 {
     size_t actual = 0;
-    int status = usb_storage_bulk(endpoint, buffer, length, &actual);
+    int    status = usb_storage_bulk(endpoint, buffer, length, &actual);
     if (status != EOK) return status;
     return actual == length ? EOK : -EREMOTEIO;
 }
 
 static int usb_storage_reset(usb_storage_device_t *storage)
 {
-    int status = usb_control_msg(storage->interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_MSC_REQ_RESET, 0,
-                                 storage->interface->descriptor.interface_number, NULL, 0, USB_CTRL_TIMEOUT_MS);
+    int status     = usb_control_msg(storage->interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_MSC_REQ_RESET, 0,
+                                     storage->interface->descriptor.interface_number, NULL, 0, USB_CTRL_TIMEOUT_MS);
     int in_status  = usb_clear_halt(storage->bulk_in);
     int out_status = usb_clear_halt(storage->bulk_out);
     if (status != EOK) return status;
@@ -120,9 +120,9 @@ static int usb_storage_command_locked(usb_storage_device_t *storage, uint8_t lun
     for (uint32_t offset = 0; offset < data_length;) {
         uint32_t chunk = data_length - offset;
         if (chunk > USB_MSC_IO_CHUNK) chunk = USB_MSC_IO_CHUNK;
-        size_t actual = 0;
+        size_t          actual        = 0;
         usb_endpoint_t *data_endpoint = input ? storage->bulk_in : storage->bulk_out;
-        status = usb_storage_bulk(data_endpoint, (uint8_t *)data + offset, chunk, &actual);
+        status                        = usb_storage_bulk(data_endpoint, (uint8_t *)data + offset, chunk, &actual);
         if (actual > chunk) {
             status = -EPROTO;
             goto recover;

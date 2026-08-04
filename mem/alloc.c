@@ -1,5 +1,11 @@
 /*
- * Kernel slab allocator backed by a page-granularity binary buddy.
+ *
+ *      alloc.c
+ *      Kernel slab allocator backed by a page-granularity binary buddy.
+ *
+ *      2026/8/1 By JiTianYu391
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
  */
 
 #include <libs/std/stddef.h>

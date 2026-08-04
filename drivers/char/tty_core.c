@@ -169,8 +169,8 @@ void tty_core_set_winsize(tty_core_t *tty, uint16_t rows, uint16_t cols)
     if (!tty) return;
     spin_lock(&tty->lock);
     bool changed            = tty->winsize.ws_row != rows || tty->winsize.ws_col != cols;
-    tty->winsize.ws_row = rows;
-    tty->winsize.ws_col = cols;
+    tty->winsize.ws_row     = rows;
+    tty->winsize.ws_col     = cols;
     int64_t foreground_pgid = tty->foreground_pgid;
     int64_t session         = tty->session;
     spin_unlock(&tty->lock);
@@ -671,7 +671,7 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
                 return -EINVAL;
             mode.waitv = mode.waitv ? 1 : 0;
             spin_lock(&tty->lock);
-            tty->vt_mode = mode;
+            tty->vt_mode      = mode;
             tty->vt_owner_pid = mode.mode == VT_PROCESS && current && current->task ? (int64_t)current->task->pid : 0;
             spin_unlock(&tty->lock);
             return 0;

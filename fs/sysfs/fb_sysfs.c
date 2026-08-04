@@ -1,9 +1,11 @@
 /*
- * Framebuffer sysfs integration.
  *
- * Exposes a platform-backed /sys/class/graphics/fb0 hierarchy.  Xorg's
- * fbdev probe deliberately rejects PCI framebuffer devices, so the device
- * and subsystem links are part of the userspace ABI rather than decoration.
+ *      fb_sysfs.c
+ *      Framebuffer sysfs integration.
+ *
+ *      2026/8/2 By JiTianYu391
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
  */
 
 #include <drivers/base/device.h>
@@ -65,8 +67,7 @@ static DEVICE_ATTR(virtual_size, 0444, fb_virtual_size_show, NULL);
 static DEVICE_ATTR(modes, 0444, fb_modes_show, NULL);
 
 static struct attribute *framebuffer_attributes[] = {
-    &dev_attr_name.attr, &dev_attr_stride.attr, &dev_attr_bits_per_pixel.attr, &dev_attr_virtual_size.attr,
-    &dev_attr_modes.attr, NULL,
+    &dev_attr_name.attr, &dev_attr_stride.attr, &dev_attr_bits_per_pixel.attr, &dev_attr_virtual_size.attr, &dev_attr_modes.attr, NULL,
 };
 
 static struct attribute_group framebuffer_group = {

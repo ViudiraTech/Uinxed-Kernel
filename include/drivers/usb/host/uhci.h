@@ -11,8 +11,8 @@
 #ifndef INCLUDE_UHCI_H_
 #define INCLUDE_UHCI_H_
 
-#include <libs/std/stdint.h>
 #include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
 
 #define UHCI_PCI_CLASS 0x0c0300
 
@@ -82,18 +82,18 @@ typedef struct __attribute__((packed, aligned(16))) {
 } uhci_qh_t;
 
 /* TD control/status bits */
-#define UHCI_TD_ACTIVE      (1U << 23)
-#define UHCI_TD_IOC         (1U << 24)
-#define UHCI_TD_LOW_SPEED   (1U << 26)
-#define UHCI_TD_ERROR_COUNT (3U << 27)
+#define UHCI_TD_ACTIVE       (1U << 23)
+#define UHCI_TD_IOC          (1U << 24)
+#define UHCI_TD_LOW_SPEED    (1U << 26)
+#define UHCI_TD_ERROR_COUNT  (3U << 27)
 #define UHCI_TD_SHORT_PACKET (1U << 29)
-#define UHCI_TD_STALLED     (1U << 22)
-#define UHCI_TD_DBUFERR     (1U << 21)
-#define UHCI_TD_BABBLE      (1U << 20)
-#define UHCI_TD_NAK         (1U << 19)
-#define UHCI_TD_CRCTIMEO    (1U << 18)
-#define UHCI_TD_BITSTUFF    (1U << 17)
-#define UHCI_TD_ACTLEN_MASK 0x000007ff
+#define UHCI_TD_STALLED      (1U << 22)
+#define UHCI_TD_DBUFERR      (1U << 21)
+#define UHCI_TD_BABBLE       (1U << 20)
+#define UHCI_TD_NAK          (1U << 19)
+#define UHCI_TD_CRCTIMEO     (1U << 18)
+#define UHCI_TD_BITSTUFF     (1U << 17)
+#define UHCI_TD_ACTLEN_MASK  0x000007ff
 
 /* TD token bits */
 #define UHCI_TOKEN_PID_SHIFT     0

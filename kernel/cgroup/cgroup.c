@@ -484,7 +484,7 @@ int cgroup_format_path(cgroup_t *cg, char *buf, size_t size)
     }
 
     size_t at = size - 1;
-    buf[at] = '\0';
+    buf[at]   = '\0';
     for (cgroup_t *current = cg; current && current != &root_cgroup; current = current->parent) {
         size_t length = strlen(current->name);
         if (!length || length + 1 > at) {
@@ -513,12 +513,12 @@ int cgroup_format_proc_cgroups(char *buf, size_t size)
 {
     if (!buf || !size) return -EINVAL;
     spin_lock(&cgroup_lock);
-    uint64_t count = cgroup_ready ? cgroup_count_locked(&root_cgroup) : 0;
+    uint64_t count       = cgroup_ready ? cgroup_count_locked(&root_cgroup) : 0;
     uint64_t controllers = registered_controllers;
     spin_unlock(&cgroup_lock);
 
-    int length = snprintf(buf, size, "#subsys_name\thierarchy\tnum_cgroups\tenabled\n%s",
-                          (controllers & CGROUP_CONTROLLER_PIDS) ? "pids\t0\t" : "");
+    int length
+        = snprintf(buf, size, "#subsys_name\thierarchy\tnum_cgroups\tenabled\n%s", (controllers & CGROUP_CONTROLLER_PIDS) ? "pids\t0\t" : "");
     if (!(controllers & CGROUP_CONTROLLER_PIDS) || length < 0 || (size_t)length >= size) return length;
     int tail = snprintf(buf + length, size - (size_t)length, "%llu\t1\n", count);
     if (tail < 0) return tail;

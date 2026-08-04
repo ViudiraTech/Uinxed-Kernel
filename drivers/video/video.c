@@ -14,15 +14,15 @@
 #include <kernel/printk.h>
 #include <kernel/uinxed.h>
 #include <libs/gfxs/gfx_proc.h>
-#include <libs/std/stdlib.h>
-#include <libs/std/stddef.h>
 #include <libs/std/stdbool.h>
+#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
+#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/page.h>
-#include <proc/sched.h>
 #include <proc/process.h>
+#include <proc/sched.h>
 #include <proc/task.h>
 #include <proc/uaccess.h>
 #include <sync/spin_lock.h>
@@ -58,7 +58,7 @@ video_info_t video_get_info(void)
     video_info_t info;
 
     spin_lock(&video_state_lock);
-    info = video_active_info;
+    info            = video_active_info;
     info.c_width    = font_width ? info.width / font_width : 0;
     info.c_height   = font_height ? info.height / font_height : 0;
     info.cx         = cx;
@@ -111,8 +111,8 @@ size_t video_fb_write(void *ctx, const void *addr, size_t offset, size_t size)
     (void)ctx;
     if (!addr || !buffer) return 0;
 
-    video_info_t info = video_get_info();
-    size_t bytes_per_pixel = (info.bpp + 7U) / 8U;
+    video_info_t info            = video_get_info();
+    size_t       bytes_per_pixel = (info.bpp + 7U) / 8U;
     if (!bytes_per_pixel || info.stride > SIZE_MAX / info.height || info.stride * info.height > SIZE_MAX / bytes_per_pixel) return 0;
     fb_size = (size_t)(info.stride * info.height * bytes_per_pixel);
     if (offset >= fb_size) return 0;
@@ -141,8 +141,7 @@ size_t video_fb_write(void *ctx, const void *addr, size_t offset, size_t size)
 static size_t video_fb_size(const video_info_t *info)
 {
     size_t bytes_per_pixel = (info->bpp + 7U) / 8U;
-    if (!bytes_per_pixel || !info->height || info->stride > SIZE_MAX / info->height
-        || info->stride * info->height > SIZE_MAX / bytes_per_pixel)
+    if (!bytes_per_pixel || !info->height || info->stride > SIZE_MAX / info->height || info->stride * info->height > SIZE_MAX / bytes_per_pixel)
         return 0;
     return (size_t)(info->stride * info->height * bytes_per_pixel);
 }
@@ -150,9 +149,9 @@ static size_t video_fb_size(const video_info_t *info)
 static fbdev_var_screeninfo_t video_fb_var(const video_info_t *info)
 {
     fbdev_var_screeninfo_t var;
-    uint64_t htotal;
-    uint64_t vtotal;
-    uint64_t clock_khz;
+    uint64_t               htotal;
+    uint64_t               vtotal;
+    uint64_t               clock_khz;
 
     memset(&var, 0, sizeof(var));
     var.xres           = (uint32_t)info->width;
@@ -186,7 +185,7 @@ static fbdev_var_screeninfo_t video_fb_var(const video_info_t *info)
 
 static int video_fb_validate_mode(const video_info_t *info, const fbdev_var_screeninfo_t *requested)
 {
-    fbdev_var_screeninfo_t current = video_fb_var(info);
+    fbdev_var_screeninfo_t current  = video_fb_var(info);
     uint32_t               activate = requested->activate & FB_ACTIVATE_MASK;
 
     if (activate != FB_ACTIVATE_NOW && activate != FB_ACTIVATE_TEST) return -EINVAL;
@@ -273,8 +272,9 @@ int video_fb_ioctl(void *ctx, size_t req, void *arg)
             if (copy_from_user(&cmap, arg, sizeof(cmap))) return -EFAULT;
             if (cmap.start > 256 || cmap.len > 256 - cmap.start || (cmap.len && (!cmap.red || !cmap.green || !cmap.blue))) return -EINVAL;
             size_t bytes = (size_t)cmap.len * sizeof(uint16_t);
-            if (bytes && (copy_from_user(scratch, cmap.red, bytes) || copy_from_user(scratch, cmap.green, bytes)
-                          || copy_from_user(scratch, cmap.blue, bytes) || (cmap.transp && copy_from_user(scratch, cmap.transp, bytes))))
+            if (bytes
+                && (copy_from_user(scratch, cmap.red, bytes) || copy_from_user(scratch, cmap.green, bytes)
+                    || copy_from_user(scratch, cmap.blue, bytes) || (cmap.transp && copy_from_user(scratch, cmap.transp, bytes))))
                 return -EFAULT;
             return EOK;
         }
@@ -394,25 +394,25 @@ void video_init(void)
         return;
     }
 
-    buffer                                 = framebuffer->address;
-    width                                  = framebuffer->width;
-    height                                 = framebuffer->height;
-    stride                                 = framebuffer->pitch / (framebuffer->bpp / 8);
+    buffer = framebuffer->address;
+    width  = framebuffer->width;
+    height = framebuffer->height;
+    stride = framebuffer->pitch / (framebuffer->bpp / 8);
 
-    video_active_info.framebuffer       = framebuffer->address;
-    video_active_info.width             = framebuffer->width;
-    video_active_info.height            = framebuffer->height;
-    video_active_info.stride            = stride;
-    video_active_info.bpp               = framebuffer->bpp;
-    video_active_info.memory_model      = framebuffer->memory_model;
-    video_active_info.red_mask_size     = framebuffer->red_mask_size;
-    video_active_info.red_mask_shift    = framebuffer->red_mask_shift;
-    video_active_info.green_mask_size   = framebuffer->green_mask_size;
-    video_active_info.green_mask_shift  = framebuffer->green_mask_shift;
-    video_active_info.blue_mask_size    = framebuffer->blue_mask_size;
-    video_active_info.blue_mask_shift   = framebuffer->blue_mask_shift;
-    video_active_info.edid_size         = framebuffer->edid_size;
-    video_active_info.edid              = framebuffer->edid;
+    video_active_info.framebuffer      = framebuffer->address;
+    video_active_info.width            = framebuffer->width;
+    video_active_info.height           = framebuffer->height;
+    video_active_info.stride           = stride;
+    video_active_info.bpp              = framebuffer->bpp;
+    video_active_info.memory_model     = framebuffer->memory_model;
+    video_active_info.red_mask_size    = framebuffer->red_mask_size;
+    video_active_info.red_mask_shift   = framebuffer->red_mask_shift;
+    video_active_info.green_mask_size  = framebuffer->green_mask_size;
+    video_active_info.green_mask_shift = framebuffer->green_mask_shift;
+    video_active_info.blue_mask_size   = framebuffer->blue_mask_size;
+    video_active_info.blue_mask_shift  = framebuffer->blue_mask_shift;
+    video_active_info.edid_size        = framebuffer->edid_size;
+    video_active_info.edid             = framebuffer->edid;
     fbcon_init();
     video_clear();
 }
@@ -510,19 +510,19 @@ void video_switch_to_drm(void *backing, uint32_t w, uint32_t h, uint32_t pitch, 
     if ((uintptr_t)backing & (PAGE_4K_SIZE - 1) || pitch < w * sizeof(uint32_t) || (pitch & (sizeof(uint32_t) - 1))) return;
 
     spin_lock(&video_state_lock);
-    buffer = (uint32_t *)backing;
-    width  = w;
-    height = h;
-    stride = pitch / sizeof(uint32_t); /* pixels per line */
-    video_flush_cb                   = flush;
-    video_active_info.framebuffer    = backing;
-    video_active_info.width          = w;
-    video_active_info.height         = h;
-    video_active_info.stride         = stride;
-    video_active_info.bpp            = 32;
-    video_active_info.memory_model   = 1;
-    video_active_info.red_mask_size  = 8;
-    video_active_info.red_mask_shift = 16;
+    buffer                             = (uint32_t *)backing;
+    width                              = w;
+    height                             = h;
+    stride                             = pitch / sizeof(uint32_t); /* pixels per line */
+    video_flush_cb                     = flush;
+    video_active_info.framebuffer      = backing;
+    video_active_info.width            = w;
+    video_active_info.height           = h;
+    video_active_info.stride           = stride;
+    video_active_info.bpp              = 32;
+    video_active_info.memory_model     = 1;
+    video_active_info.red_mask_size    = 8;
+    video_active_info.red_mask_shift   = 16;
     video_active_info.green_mask_size  = 8;
     video_active_info.green_mask_shift = 8;
     video_active_info.blue_mask_size   = 8;

@@ -14,8 +14,8 @@
 #include <net/endian.h>
 #include <net/icmp.h>
 
-#define ICMP_HEADER_LEN 8U
-#define ICMP_QUOTE_LEN  8U
+#define ICMP_HEADER_LEN   8U
+#define ICMP_QUOTE_LEN    8U
 #define ICMP_ENDPOINT_MAX 16U
 #define ICMP_RX_QUEUE_MAX 64U
 #define ICMP_RX_BYTES_MAX 131072U
@@ -113,7 +113,7 @@ int icmp_send(icmp_endpoint_t *endpoint, const void *data, size_t length, uint32
     if (!destination) return -EDESTADDRREQ;
     net_device_t *device;
     uint32_t      next_hop;
-    int status = ipv4_route(destination, &device, &next_hop);
+    int           status = ipv4_route(destination, &device, &next_hop);
     if (status) return status;
     net_pbuf_t *packet = net_pbuf_from(data, length, NET_PBUF_HEADROOM);
     if (!packet) {

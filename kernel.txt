@@ -1,9 +1,0 @@
-
-               presentation clock resolution: 0.010000000 s
-[00:00:19.300] Loading module '/usr/lib/weston/desktop-shell.so'
-[00:00:19.310] launching '/usr/libexec/weston-keyboard'
-[00:00:19.320] launching '/usr/libexec/weston-desktop-shell'
-[   10.012716] drm: ioctl 0xc06864b8 flags 0x3 DENIED: master=0 auth=1
-[   10.014906] drm: ioctl 0xc01c64ae flags 0x3 DENIED: master=0 auth=1
-[00:00:19.370] failed to create kms fb: Permission denied
-[00:00:19.370] failed to get drm_fb for bo

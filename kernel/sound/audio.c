@@ -4,11 +4,11 @@
  *      Generic audio subsystem
  *
  *      2026/7/20 By Rainy101112
- *      2026/7/30 By JiTianYu391: 重构 audio 子系统 - ring buffer、混音、阻塞IO、ALSA兼容、混音器、捕获
  *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
+#include <fs/core/vfs.h>
 #include <kernel/audio.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
@@ -16,7 +16,6 @@
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <proc/uaccess.h>
-#include <fs/core/vfs.h>
 
 #define NODES_PER_CARD 4
 #define MAX_NODES      (AUDIO_MAX_CARDS * NODES_PER_CARD)
@@ -33,10 +32,14 @@ static size_t              audio_nodes_count;
 static const char *audio_node_suffix(audio_node_type_t type)
 {
     switch (type) {
-        case audio_node_control:      return "controlC%u";
-        case audio_node_pcm_playback: return "pcmC%uD0p";
-        case audio_node_pcm_capture:  return "pcmC%uD0c";
-        case audio_node_mixer:        return "mixerC%uD0";
+        case audio_node_control :
+            return "controlC%u";
+        case audio_node_pcm_playback :
+            return "pcmC%uD0p";
+        case audio_node_pcm_capture :
+            return "pcmC%uD0c";
+        case audio_node_mixer :
+            return "mixerC%uD0";
     }
     return "unknownC%u";
 }
@@ -48,23 +51,22 @@ static int audio_add_node(audio_card_t *card, audio_node_type_t type)
     if (audio_nodes_count >= MAX_NODES) return -ENOSPC;
 
     node = &audio_nodes[audio_nodes_count];
-    snprintf(audio_node_names[audio_nodes_count], sizeof(audio_node_names[audio_nodes_count]),
-             audio_node_suffix(type), card->id);
+    snprintf(audio_node_names[audio_nodes_count], sizeof(audio_node_names[audio_nodes_count]), audio_node_suffix(type), card->id);
 
-    node->card               = card;
-    node->type               = type;
-    node->name               = audio_node_names[audio_nodes_count];
-    node->tmpfs_ops.open     = audio_file_open;
-    node->tmpfs_ops.release  = audio_file_release;
+    node->card                 = card;
+    node->type                 = type;
+    node->name                 = audio_node_names[audio_nodes_count];
+    node->tmpfs_ops.open       = audio_file_open;
+    node->tmpfs_ops.release    = audio_file_release;
     node->tmpfs_ops.file_read  = audio_file_read;
     node->tmpfs_ops.file_write = audio_file_write;
     node->tmpfs_ops.file_poll  = audio_file_poll;
     node->tmpfs_ops.file_ioctl = audio_file_ioctl;
-    node->tmpfs_ops.read     = audio_device_read;
-    node->tmpfs_ops.write    = audio_device_write;
-    node->tmpfs_ops.poll     = audio_device_poll;
-    node->tmpfs_ops.ioctl    = audio_device_ioctl;
-    node->tmpfs_ops.ctx      = node;
+    node->tmpfs_ops.read       = audio_device_read;
+    node->tmpfs_ops.write      = audio_device_write;
+    node->tmpfs_ops.poll       = audio_device_poll;
+    node->tmpfs_ops.ioctl      = audio_device_ioctl;
+    node->tmpfs_ops.ctx        = node;
 
     audio_nodes_count++;
     return EOK;
@@ -83,8 +85,7 @@ static void audio_fill_info(audio_card_t *card, audio_card_info_t *info)
 /* ------------------------------------------------------------------ */
 /* Registration                                                       */
 /* ------------------------------------------------------------------ */
-int audio_register_card(const char *name, const audio_pcm_format_t *format,
-                        const audio_card_ops_t *ops, void *driver_data)
+int audio_register_card(const char *name, const audio_pcm_format_t *format, const audio_card_ops_t *ops, void *driver_data)
 {
     audio_card_t *card;
     int           status;
@@ -96,10 +97,10 @@ int audio_register_card(const char *name, const audio_pcm_format_t *format,
     card = &audio_cards[audio_cards_count];
     memset(card, 0, sizeof(*card));
 
-    card->id          = audio_cards_count;
-    card->format      = *format;
-    card->ops         = ops;
-    card->driver_data = driver_data;
+    card->id           = audio_cards_count;
+    card->format       = *format;
+    card->ops          = ops;
+    card->driver_data  = driver_data;
     card->volume.left  = 0xCC;
     card->volume.right = 0xCC;
     strncpy(card->name, name, sizeof(card->name) - 1);
@@ -130,8 +131,14 @@ audio_card_t *audio_get_card(uint32_t card)
     return &audio_cards[card];
 }
 
-size_t audio_card_count(void) { return audio_cards_count; }
-size_t audio_device_node_count(void) { return audio_nodes_count; }
+size_t audio_card_count(void)
+{
+    return audio_cards_count;
+}
+size_t audio_device_node_count(void)
+{
+    return audio_nodes_count;
+}
 
 audio_device_node_t *audio_get_device_node(size_t index)
 {
@@ -164,8 +171,7 @@ int pcm_ring_buffer_init(audio_pcm_file_t *pf, size_t size_frames)
     }
     if (pf->avail_min == 0) pf->avail_min = pf->period_size;
     if (pf->start_threshold == 0) pf->start_threshold = pf->period_size * 2;
-    if (pf->period_bytes == 0)
-        pf->period_bytes = pf->period_size * fb;
+    if (pf->period_bytes == 0) pf->period_bytes = pf->period_size * fb;
 
     return EOK;
 }
@@ -202,8 +208,8 @@ void pcm_ring_buffer_advance_hw(audio_pcm_file_t *pf, snd_pcm_uframes_t frames)
 
 size_t pcm_ring_buffer_write_frames(audio_pcm_file_t *pf, const void *data, size_t frames)
 {
-    size_t fb     = frame_bytes(&pf->fmt);
-    size_t space  = (size_t)pcm_ring_buffer_space(pf);
+    size_t fb      = frame_bytes(&pf->fmt);
+    size_t space   = (size_t)pcm_ring_buffer_space(pf);
     size_t to_copy = (frames < space) ? frames : space;
 
     if (to_copy == 0) return 0;
@@ -225,8 +231,8 @@ size_t pcm_ring_buffer_write_frames(audio_pcm_file_t *pf, const void *data, size
 
 size_t pcm_ring_buffer_read_frames(audio_pcm_file_t *pf, void *data, size_t frames)
 {
-    size_t fb    = frame_bytes(&pf->fmt);
-    size_t avail = (size_t)pcm_ring_buffer_avail(pf);
+    size_t fb      = frame_bytes(&pf->fmt);
+    size_t avail   = (size_t)pcm_ring_buffer_avail(pf);
     size_t to_copy = (frames < avail) ? frames : avail;
 
     if (to_copy == 0) return 0;
@@ -249,8 +255,7 @@ size_t pcm_ring_buffer_read_frames(audio_pcm_file_t *pf, void *data, size_t fram
 /* ================================================================== */
 /*  Software additive mixer                                            */
 /* ================================================================== */
-size_t audio_mix_interleaved_s16(int16_t *dst, const int16_t *src,
-                                  size_t frames, unsigned int channels)
+size_t audio_mix_interleaved_s16(int16_t *dst, const int16_t *src, size_t frames, unsigned int channels)
 {
     size_t total = frames * channels;
     for (size_t i = 0; i < total; i++) {
@@ -273,11 +278,11 @@ static audio_pcm_file_t *audio_pcm_create(audio_device_node_t *node)
     if (!pf) return 0;
     memset(pf, 0, sizeof(*pf));
 
-    pf->card = node->card;
-    pf->type = node->type;
-    pf->fmt  = node->card->format;
-    pf->state = SNDRV_PCM_STATE_OPEN;
-    pf->nonblock = 0;
+    pf->card        = node->card;
+    pf->type        = node->type;
+    pf->fmt         = node->card->format;
+    pf->state       = SNDRV_PCM_STATE_OPEN;
+    pf->nonblock    = 0;
     pf->lock.lock   = 0;
     pf->lock.rflags = 0;
     wait_queue_init(&pf->read_wait);
@@ -303,7 +308,7 @@ static void audio_pcm_destroy(audio_pcm_file_t *pf)
 int audio_file_open(vfs_node_t vnode, uint64_t flags, void **private_data)
 {
     (void)flags;
-    tmpfs_file_t *f = (tmpfs_file_t *)vnode->handle;
+    tmpfs_file_t        *f          = (tmpfs_file_t *)vnode->handle;
     audio_device_node_t *audio_node = (audio_device_node_t *)(f ? f->device.ctx : NULL);
     audio_pcm_file_t    *pf;
 
@@ -325,14 +330,13 @@ void audio_file_release(vfs_node_t node, void *private_data)
 /* ================================================================== */
 /*  Per-open PCM read/write (file_*)                                  */
 /* ================================================================== */
-int64_t audio_file_read(void *ctx, void *private_data, uint64_t flags,
-                         void *addr, size_t offset, size_t size)
+int64_t audio_file_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     (void)ctx;
     (void)flags;
-    audio_pcm_file_t *pf   = private_data;
+    audio_pcm_file_t *pf = private_data;
     audio_card_t     *card;
-    size_t            ret  = 0;
+    size_t            ret = 0;
 
     (void)offset;
     if (!pf || !addr || !size) return 0;
@@ -348,7 +352,7 @@ int64_t audio_file_read(void *ctx, void *private_data, uint64_t flags,
 
     if (pf->type == audio_node_mixer) {
         audio_volume_t vol;
-        vol = card->volume;
+        vol        = card->volume;
         size_t cpy = (size < sizeof(vol)) ? size : sizeof(vol);
         memcpy(addr, &vol, cpy);
         return (int64_t)cpy;
@@ -366,9 +370,11 @@ int64_t audio_file_read(void *ctx, void *private_data, uint64_t flags,
     while (frames > 0) {
         snd_pcm_sframes_t avail = pcm_ring_buffer_avail(pf);
         if (avail <= 0) {
-            if (pf->nonblock) { ret = ret ? ret : (size_t)(-EAGAIN); break; }
-            if (pf->state == SNDRV_PCM_STATE_DRAINING ||
-                pf->state == SNDRV_PCM_STATE_XRUN) break;
+            if (pf->nonblock) {
+                ret = ret ? ret : (size_t)(-EAGAIN);
+                break;
+            }
+            if (pf->state == SNDRV_PCM_STATE_DRAINING || pf->state == SNDRV_PCM_STATE_XRUN) break;
             wait_queue_prepare(&pf->read_wait);
             spin_unlock(&pf->lock);
             wait_queue_sleep();
@@ -380,28 +386,26 @@ int64_t audio_file_read(void *ctx, void *private_data, uint64_t flags,
         size_t done  = pcm_ring_buffer_read_frames(pf, (uint8_t *)addr + ret * fb, chunk);
         if (done == 0) break;
 
-        ret    += done;
+        ret += done;
         frames -= done;
     }
     spin_unlock(&pf->lock);
     return (int64_t)(ret * fb);
 }
 
-int64_t audio_file_write(void *ctx, void *private_data, uint64_t flags,
-                          const void *addr, size_t offset, size_t size)
+int64_t audio_file_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     (void)ctx;
     (void)flags;
-    audio_pcm_file_t *pf   = private_data;
+    audio_pcm_file_t *pf = private_data;
     audio_card_t     *card;
-    size_t            ret  = 0;
+    size_t            ret = 0;
 
     (void)offset;
     if (!pf || !addr || !size) return 0;
     card = pf->card;
 
-    if (pf->type == audio_node_control ||
-        pf->type == audio_node_mixer) return 0;
+    if (pf->type == audio_node_control || pf->type == audio_node_mixer) return 0;
 
     if (pf->type != audio_node_pcm_playback) return 0;
 
@@ -417,9 +421,7 @@ int64_t audio_file_write(void *ctx, void *private_data, uint64_t flags,
             pf->period_size     = 1024;
             pf->start_threshold = 2048;
             pf->avail_min       = 1024;
-            if (pcm_ring_buffer_init(pf, pf->start_threshold * 4) != EOK) {
-                return -ENOMEM;
-            }
+            if (pcm_ring_buffer_init(pf, pf->start_threshold * 4) != EOK) { return -ENOMEM; }
             pf->period_bytes = pf->period_size * fb;
         }
         pf->state = SNDRV_PCM_STATE_PREPARED;
@@ -429,7 +431,10 @@ int64_t audio_file_write(void *ctx, void *private_data, uint64_t flags,
     while (frames > 0) {
         snd_pcm_sframes_t space = pcm_ring_buffer_space(pf);
         if (space <= 0) {
-            if (pf->nonblock) { ret = ret ? ret : (size_t)(-EAGAIN); break; }
+            if (pf->nonblock) {
+                ret = ret ? ret : (size_t)(-EAGAIN);
+                break;
+            }
             wait_queue_prepare(&pf->write_wait);
             spin_unlock(&pf->lock);
             wait_queue_sleep();
@@ -438,23 +443,19 @@ int64_t audio_file_write(void *ctx, void *private_data, uint64_t flags,
         }
 
         size_t chunk = (frames < (size_t)space) ? frames : (size_t)space;
-        size_t done  = pcm_ring_buffer_write_frames(pf,
-                        (const uint8_t *)addr + ret * fb, chunk);
+        size_t done  = pcm_ring_buffer_write_frames(pf, (const uint8_t *)addr + ret * fb, chunk);
         if (done == 0) break;
 
-        ret    += done;
+        ret += done;
         frames -= done;
 
-        if (card->ops->start &&
-            pf->state == SNDRV_PCM_STATE_PREPARED &&
-            (snd_pcm_sframes_t)pcm_ring_buffer_avail(pf) >= (snd_pcm_sframes_t)pf->start_threshold) {
+        if (card->ops->start && pf->state == SNDRV_PCM_STATE_PREPARED
+            && (snd_pcm_sframes_t)pcm_ring_buffer_avail(pf) >= (snd_pcm_sframes_t)pf->start_threshold) {
             card->ops->start(card);
             pf->state = SNDRV_PCM_STATE_RUNNING;
         }
 
-        if (pf->period_event) {
-            pf->period_event = 0;
-        }
+        if (pf->period_event) { pf->period_event = 0; }
     }
     spin_unlock(&pf->lock);
     wait_queue_wake_all(&pf->read_wait);
@@ -468,24 +469,24 @@ int audio_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events
 {
     (void)ctx;
     (void)flags;
-    audio_pcm_file_t *pf = private_data;
+    audio_pcm_file_t *pf      = private_data;
     int               revents = 0;
 
     if (!pf) return 0;
 
     switch (pf->type) {
-        case audio_node_pcm_playback: {
+        case audio_node_pcm_playback : {
             snd_pcm_sframes_t space = pcm_ring_buffer_space(pf);
             if (space > 0) revents |= POLLOUT;
             break;
         }
-        case audio_node_pcm_capture: {
+        case audio_node_pcm_capture : {
             snd_pcm_sframes_t avail = pcm_ring_buffer_avail(pf);
             if (avail > 0) revents |= POLLIN;
             break;
         }
-        case audio_node_control:
-        case audio_node_mixer:
+        case audio_node_control :
+        case audio_node_mixer :
             revents |= POLLIN | POLLOUT;
             break;
     }
@@ -499,22 +500,22 @@ int audio_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events
 static int audio_hw_params_ioctl(audio_pcm_file_t *pf, struct snd_pcm_hw_params *uarg)
 {
     struct snd_pcm_hw_params params;
-    audio_pcm_format_t  fmt = pf->fmt;
+    audio_pcm_format_t       fmt = pf->fmt;
 
     if (!uarg) return -EFAULT;
     if (copy_from_user(&params, uarg, sizeof(params))) return -EFAULT;
 
     switch (params.format) {
-        case SNDRV_PCM_FORMAT_U8:
+        case SNDRV_PCM_FORMAT_U8 :
             fmt.bits = 8;
             break;
-        case SNDRV_PCM_FORMAT_S16_LE:
+        case SNDRV_PCM_FORMAT_S16_LE :
             fmt.bits = 16;
             break;
-        default:
+        default :
             return -EINVAL;
     }
-    fmt.channels    = (uint8_t)(params.channels & 0xff);
+    fmt.channels = (uint8_t)(params.channels & 0xff);
     if (fmt.channels < 1 || fmt.channels > 8) return -EINVAL;
 
     fmt.sample_rate = params.rate;
@@ -529,7 +530,7 @@ static int audio_hw_params_ioctl(audio_pcm_file_t *pf, struct snd_pcm_hw_params 
 
     if (pf->ring_buf) pcm_ring_buffer_destroy(pf);
 
-    size_t fb     = frame_bytes(&fmt);
+    size_t fb         = frame_bytes(&fmt);
     size_t buf_frames = params.buffer_size;
     if (buf_frames == 0) buf_frames = params.period_size * params.periods;
     if (buf_frames == 0) buf_frames = 4096;
@@ -542,8 +543,7 @@ static int audio_hw_params_ioctl(audio_pcm_file_t *pf, struct snd_pcm_hw_params 
     int r = pcm_ring_buffer_init(pf, buf_frames);
     if (r != EOK) return r;
 
-    if (pf->card->ops->set_params)
-        pf->card->ops->set_params(pf->card, &fmt, buf_frames * fb, pf->period_bytes);
+    if (pf->card->ops->set_params) pf->card->ops->set_params(pf->card, &fmt, buf_frames * fb, pf->period_bytes);
 
     params.buffer_size  = (unsigned int)pf->boundary;
     params.period_size  = (unsigned int)pf->period_size;
@@ -583,11 +583,11 @@ static int audio_status_ioctl(audio_pcm_file_t *pf, void *uarg)
     struct snd_pcm_status st;
     memset(&st, 0, sizeof(st));
 
-    st.state   = (snd_pcm_state_t)pf->state;
-    st.appl_ptr = pf->appl_ptr;
-    st.hw_ptr   = pf->hw_ptr;
-    st.avail    = (snd_pcm_uframes_t)pcm_ring_buffer_avail(pf);
-    st.delay    = 0;
+    st.state     = (snd_pcm_state_t)pf->state;
+    st.appl_ptr  = pf->appl_ptr;
+    st.hw_ptr    = pf->hw_ptr;
+    st.avail     = (snd_pcm_uframes_t)pcm_ring_buffer_avail(pf);
+    st.delay     = 0;
     st.avail_max = st.avail;
 
     return copy_to_user(uarg, &st, sizeof(st)) ? -EFAULT : EOK;
@@ -615,8 +615,7 @@ static int audio_sync_ptr_ioctl(audio_pcm_file_t *pf, void *uarg)
 /* ------------------------------------------------------------------ */
 /*  file_ioctl (ALSA + legacy)                                         */
 /* ------------------------------------------------------------------ */
-int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags,
-                      size_t req, void *arg)
+int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg)
 {
     (void)flags;
     (void)ctx;
@@ -628,57 +627,57 @@ int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags,
     card = pf->card;
 
     switch (req) {
-        case SNDRV_PCM_IOCTL_PVERSION: {
+        case SNDRV_PCM_IOCTL_PVERSION : {
             unsigned int ver = (2 << 16) | (0 << 8) | 14;
             if (copy_to_user(arg, &ver, sizeof(ver))) return -EFAULT;
             return EOK;
         }
-        case SNDRV_PCM_IOCTL_INFO: {
+        case SNDRV_PCM_IOCTL_INFO : {
             struct snd_pcm_info info;
             memset(&info, 0, sizeof(info));
-            info.card    = card->id;
-            info.device  = 0;
-            info.stream  = (pf->type == audio_node_pcm_capture) ? 1 : 0;
+            info.card   = card->id;
+            info.device = 0;
+            info.stream = (pf->type == audio_node_pcm_capture) ? 1 : 0;
             strncpy((char *)info.name, card->name, sizeof(info.name) - 1);
             if (copy_to_user(arg, &info, sizeof(info))) return -EFAULT;
             return EOK;
         }
-        case SNDRV_PCM_IOCTL_HW_PARAMS:
+        case SNDRV_PCM_IOCTL_HW_PARAMS :
             return audio_hw_params_ioctl(pf, arg);
-        case SNDRV_PCM_IOCTL_HW_FREE:
+        case SNDRV_PCM_IOCTL_HW_FREE :
             pcm_ring_buffer_destroy(pf);
             pf->state = SNDRV_PCM_STATE_OPEN;
             return EOK;
-        case SNDRV_PCM_IOCTL_SW_PARAMS:
+        case SNDRV_PCM_IOCTL_SW_PARAMS :
             return audio_sw_params_ioctl(pf, arg);
-        case SNDRV_PCM_IOCTL_STATUS:
+        case SNDRV_PCM_IOCTL_STATUS :
             return audio_status_ioctl(pf, arg);
-        case SNDRV_PCM_IOCTL_PREPARE:
-            pf->state = SNDRV_PCM_STATE_PREPARED;
+        case SNDRV_PCM_IOCTL_PREPARE :
+            pf->state    = SNDRV_PCM_STATE_PREPARED;
             pf->appl_ptr = 0;
             pf->hw_ptr   = 0;
             pf->xrun     = 0;
             return EOK;
-        case SNDRV_PCM_IOCTL_START:
+        case SNDRV_PCM_IOCTL_START :
             if (pf->state == SNDRV_PCM_STATE_PREPARED) {
                 if (card->ops->start) card->ops->start(card);
                 pf->state = SNDRV_PCM_STATE_RUNNING;
             }
             return EOK;
-        case SNDRV_PCM_IOCTL_DROP:
+        case SNDRV_PCM_IOCTL_DROP :
             if (card->ops->stop) card->ops->stop(card);
-            pf->state = SNDRV_PCM_STATE_SETUP;
+            pf->state    = SNDRV_PCM_STATE_SETUP;
             pf->appl_ptr = 0;
             pf->hw_ptr   = 0;
             wait_queue_wake_all(&pf->write_wait);
             return EOK;
-        case SNDRV_PCM_IOCTL_DRAIN:
+        case SNDRV_PCM_IOCTL_DRAIN :
             if (pf->state == SNDRV_PCM_STATE_RUNNING) {
                 pf->state = SNDRV_PCM_STATE_DRAINING;
                 if (card->ops->drain) card->ops->drain(card);
             }
             return EOK;
-        case SNDRV_PCM_IOCTL_PAUSE: {
+        case SNDRV_PCM_IOCTL_PAUSE : {
             int pause;
             if (copy_from_user(&pause, arg, sizeof(pause))) return -EFAULT;
             if (pause) {
@@ -690,60 +689,58 @@ int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags,
             }
             return EOK;
         }
-        case SNDRV_PCM_IOCTL_HWSYNC:
-        case SNDRV_PCM_IOCTL_RESET:
+        case SNDRV_PCM_IOCTL_HWSYNC :
+        case SNDRV_PCM_IOCTL_RESET :
             return EOK;
-        case SNDRV_PCM_IOCTL_SYNC_PTR:
+        case SNDRV_PCM_IOCTL_SYNC_PTR :
             return audio_sync_ptr_ioctl(pf, arg);
-        case SNDRV_PCM_IOCTL_DELAY: {
+        case SNDRV_PCM_IOCTL_DELAY : {
             snd_pcm_sframes_t delay = 0;
             if (copy_to_user(arg, &delay, sizeof(delay))) return -EFAULT;
             return EOK;
         }
-        case SNDRV_PCM_IOCTL_REWIND: {
+        case SNDRV_PCM_IOCTL_REWIND : {
             snd_pcm_uframes_t frames;
             if (copy_from_user(&frames, arg, sizeof(frames))) return -EFAULT;
             pf->appl_ptr = (pf->appl_ptr >= frames) ? pf->appl_ptr - frames : 0;
             return EOK;
         }
-        case SNDRV_PCM_IOCTL_FORWARD: {
+        case SNDRV_PCM_IOCTL_FORWARD : {
             snd_pcm_uframes_t frames;
             if (copy_from_user(&frames, arg, sizeof(frames))) return -EFAULT;
             pf->appl_ptr = (pf->appl_ptr + frames) % pf->boundary;
             return EOK;
         }
-        case SNDRV_PCM_IOCTL_WRITEI_FRAMES: {
+        case SNDRV_PCM_IOCTL_WRITEI_FRAMES : {
             struct snd_xferi xf;
             if (copy_from_user(&xf, arg, sizeof(xf))) return -EFAULT;
-            xf.result = (snd_pcm_sframes_t)(
-                audio_file_write(ctx, pf, flags, xf.buf, 0,
-                    xf.frames * frame_bytes(&pf->fmt)) / frame_bytes(&pf->fmt));
+            xf.result
+                = (snd_pcm_sframes_t)(audio_file_write(ctx, pf, flags, xf.buf, 0, xf.frames * frame_bytes(&pf->fmt)) / frame_bytes(&pf->fmt));
             if (copy_to_user(arg, &xf, sizeof(xf))) return -EFAULT;
             return EOK;
         }
-        case SNDRV_PCM_IOCTL_READI_FRAMES: {
+        case SNDRV_PCM_IOCTL_READI_FRAMES : {
             struct snd_xferi xf;
             if (copy_from_user(&xf, arg, sizeof(xf))) return -EFAULT;
-            xf.result = (snd_pcm_sframes_t)(
-                audio_file_read(ctx, pf, flags, xf.buf, 0,
-                    xf.frames * frame_bytes(&pf->fmt)) / frame_bytes(&pf->fmt));
+            xf.result
+                = (snd_pcm_sframes_t)(audio_file_read(ctx, pf, flags, xf.buf, 0, xf.frames * frame_bytes(&pf->fmt)) / frame_bytes(&pf->fmt));
             if (copy_to_user(arg, &xf, sizeof(xf))) return -EFAULT;
             return EOK;
         }
-        case SNDRV_PCM_IOCTL_LINK:
-        case SNDRV_PCM_IOCTL_UNLINK:
+        case SNDRV_PCM_IOCTL_LINK :
+        case SNDRV_PCM_IOCTL_UNLINK :
             return EOK;
     }
 
     /* Legacy ioctls */
     switch (req) {
-        case AUDIO_IOCTL_GET_INFO: {
+        case AUDIO_IOCTL_GET_INFO : {
             audio_card_info_t info;
             audio_fill_info(card, &info);
             if (copy_to_user(arg, &info, sizeof(info))) return -EFAULT;
             return EOK;
         }
-        case AUDIO_IOCTL_SET_FORMAT: {
+        case AUDIO_IOCTL_SET_FORMAT : {
             audio_pcm_format_t fmt;
             if (copy_from_user(&fmt, arg, sizeof(fmt))) return -EFAULT;
             if (card->ops->set_format) {
@@ -756,54 +753,51 @@ int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags,
             pf->start_threshold = 2048;
             pf->avail_min       = 1024;
             pf->period_bytes    = pf->period_size * frame_bytes(&fmt);
-            status = pcm_ring_buffer_init(pf, 16384);
-            if (card->ops->set_params)
-                card->ops->set_params(card, &fmt,
-                    16384 * frame_bytes(&fmt), pf->period_bytes);
+            status              = pcm_ring_buffer_init(pf, 16384);
+            if (card->ops->set_params) card->ops->set_params(card, &fmt, 16384 * frame_bytes(&fmt), pf->period_bytes);
             return status;
         }
-        case AUDIO_IOCTL_STOP:
+        case AUDIO_IOCTL_STOP :
             if (card->ops->stop) card->ops->stop(card);
             pf->state = SNDRV_PCM_STATE_SETUP;
             return EOK;
-        case AUDIO_IOCTL_START:
+        case AUDIO_IOCTL_START :
             if (pf->type != audio_node_pcm_playback) return -EINVAL;
-            if (pf->state == SNDRV_PCM_STATE_PREPARED ||
-                pf->state == SNDRV_PCM_STATE_SETUP) {
+            if (pf->state == SNDRV_PCM_STATE_PREPARED || pf->state == SNDRV_PCM_STATE_SETUP) {
                 if (card->ops->start) card->ops->start(card);
                 pf->state = SNDRV_PCM_STATE_RUNNING;
             }
             return EOK;
-        case AUDIO_IOCTL_DRAIN:
+        case AUDIO_IOCTL_DRAIN :
             if (pf->state == SNDRV_PCM_STATE_RUNNING) {
                 pf->state = SNDRV_PCM_STATE_DRAINING;
                 if (card->ops->drain) card->ops->drain(card);
             }
             return EOK;
-        case AUDIO_IOCTL_SET_VOLUME: {
+        case AUDIO_IOCTL_SET_VOLUME : {
             audio_volume_t vol;
             if (copy_from_user(&vol, arg, sizeof(vol))) return -EFAULT;
             card->volume = vol;
             if (card->ops->set_volume) return card->ops->set_volume(card, &vol);
             return EOK;
         }
-        case AUDIO_IOCTL_GET_VOLUME: {
+        case AUDIO_IOCTL_GET_VOLUME : {
             audio_volume_t vol = card->volume;
             if (card->ops->get_volume) card->ops->get_volume(card, &vol);
             if (copy_to_user(arg, &vol, sizeof(vol))) return -EFAULT;
             return EOK;
         }
-        case AUDIO_IOCTL_GET_POS: {
+        case AUDIO_IOCTL_GET_POS : {
             snd_pcm_uframes_t pos = pf->hw_ptr;
             if (card->ops->get_position) card->ops->get_position(card, &pos);
             if (copy_to_user(arg, &pos, sizeof(pos))) return -EFAULT;
             return EOK;
         }
-        case AUDIO_IOCTL_SET_PARAMS: {
+        case AUDIO_IOCTL_SET_PARAMS : {
             struct {
-                audio_pcm_format_t fmt;
-                size_t buf_bytes;
-                size_t per_bytes;
+                    audio_pcm_format_t fmt;
+                    size_t             buf_bytes;
+                    size_t             per_bytes;
             } p;
             if (copy_from_user(&p, arg, sizeof(p))) return -EFAULT;
             if (card->ops->set_format) {
@@ -812,16 +806,15 @@ int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags,
             }
             pf->fmt = p.fmt;
             if (pf->ring_buf) pcm_ring_buffer_destroy(pf);
-            pf->period_bytes = p.per_bytes;
-            pf->period_size  = p.per_bytes / frame_bytes(&p.fmt);
+            pf->period_bytes    = p.per_bytes;
+            pf->period_size     = p.per_bytes / frame_bytes(&p.fmt);
             pf->start_threshold = pf->period_size * 2;
             pf->avail_min       = pf->period_size;
-            status = pcm_ring_buffer_init(pf, p.buf_bytes / frame_bytes(&p.fmt));
-            if (card->ops->set_params)
-                card->ops->set_params(card, &p.fmt, p.buf_bytes, p.per_bytes);
+            status              = pcm_ring_buffer_init(pf, p.buf_bytes / frame_bytes(&p.fmt));
+            if (card->ops->set_params) card->ops->set_params(card, &p.fmt, p.buf_bytes, p.per_bytes);
             return status;
         }
-        default:
+        default :
             return -EINVAL;
     }
 }

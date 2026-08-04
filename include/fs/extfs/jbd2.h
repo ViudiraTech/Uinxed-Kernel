@@ -68,8 +68,8 @@ typedef struct jbd2_superblock {
         uint8_t       user_uuids[16 * 48];
 } __attribute__((packed)) jbd2_superblock_t;
 
-int  extfs_jbd2_open(struct extfs_sb_info *sb, extfs_journal_t **journal);
-void extfs_jbd2_close(extfs_journal_t *journal);
+int                         extfs_jbd2_open(struct extfs_sb_info *sb, extfs_journal_t **journal);
+void                        extfs_jbd2_close(extfs_journal_t *journal);
 const fs_txn_backend_ops_t *extfs_jbd2_backend_ops(void);
 
 #endif /* INCLUDE_FS_EXTFS_JBD2_H_ */

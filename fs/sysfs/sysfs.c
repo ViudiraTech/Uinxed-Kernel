@@ -1489,7 +1489,7 @@ static void sysfs_populate_symlinks(struct kobject *kobj)
             continue;
         }
 
-        sn->kobj = kobj;
+        sn->kobj           = kobj;
         sn->symlink_target = kobject_get(entry->target);
         if (!sn->symlink_target) {
             sysfs_node_free(sn);
@@ -1499,7 +1499,7 @@ static void sysfs_populate_symlinks(struct kobject *kobj)
         }
 
         sym_vn->handle = sn;
-        entry->vnode = sym_vn;
+        entry->vnode   = sym_vn;
     }
 }
 

@@ -4,7 +4,6 @@
  *      Sound Blaster 16 driver header file
  *
  *      2026/7/20 By JiTianYu391
- *      2026/7/30 By JiTianYu391: 重构 audio 子系统 - 添加捕获、DMA 通道管理
  *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
@@ -34,35 +33,35 @@
 #define SB16_MIXER_DATA 0x5
 
 /* DSP commands */
-#define SB16_DSP_CMD_DMA8_OUT        0x14
-#define SB16_DSP_CMD_DMA8_IN         0x24
-#define SB16_DSP_CMD_SET_TIME_CONST  0x40
-#define SB16_DSP_CMD_SET_RATE16      0x41
-#define SB16_DSP_CMD_DMA16_OUT       0xB0
-#define SB16_DSP_CMD_DMA16_IN        0xBE
-#define SB16_DSP_CMD_HALT_DMA        0xD0
-#define SB16_DSP_CMD_CONT_DMA        0xD1
-#define SB16_DSP_CMD_GET_VERSION     0xE1
-#define SB16_DSP_CMD_VERSION         0xE1
-#define SB16_DSP_CMD_IRQ_STATUS      0xF8
+#define SB16_DSP_CMD_DMA8_OUT       0x14
+#define SB16_DSP_CMD_DMA8_IN        0x24
+#define SB16_DSP_CMD_SET_TIME_CONST 0x40
+#define SB16_DSP_CMD_SET_RATE16     0x41
+#define SB16_DSP_CMD_DMA16_OUT      0xB0
+#define SB16_DSP_CMD_DMA16_IN       0xBE
+#define SB16_DSP_CMD_HALT_DMA       0xD0
+#define SB16_DSP_CMD_CONT_DMA       0xD1
+#define SB16_DSP_CMD_GET_VERSION    0xE1
+#define SB16_DSP_CMD_VERSION        0xE1
+#define SB16_DSP_CMD_IRQ_STATUS     0xF8
 
 /* Mixer registers */
-#define SB16_MIXER_MASTER_L 0x00
-#define SB16_MIXER_MASTER_R 0x01
-#define SB16_MIXER_DAC_L    0x02
-#define SB16_MIXER_DAC_R    0x03
-#define SB16_MIXER_FM_L     0x04
-#define SB16_MIXER_FM_R     0x05
-#define SB16_MIXER_CD_L     0x06
-#define SB16_MIXER_CD_R     0x07
-#define SB16_MIXER_LINE_L   0x08
-#define SB16_MIXER_LINE_R   0x09
-#define SB16_MIXER_MIC      0x0A
-#define SB16_MIXER_SPKR     0x0B
+#define SB16_MIXER_MASTER_L    0x00
+#define SB16_MIXER_MASTER_R    0x01
+#define SB16_MIXER_DAC_L       0x02
+#define SB16_MIXER_DAC_R       0x03
+#define SB16_MIXER_FM_L        0x04
+#define SB16_MIXER_FM_R        0x05
+#define SB16_MIXER_CD_L        0x06
+#define SB16_MIXER_CD_R        0x07
+#define SB16_MIXER_LINE_L      0x08
+#define SB16_MIXER_LINE_R      0x09
+#define SB16_MIXER_MIC         0x0A
+#define SB16_MIXER_SPKR        0x0B
 #define SB16_MIXER_INPUT_SRC_L 0x0C
 #define SB16_MIXER_INPUT_SRC_R 0x0D
-#define SB16_MIXER_OUT_SRC  0x10
-#define SB16_MIXER_RESET    0x80
+#define SB16_MIXER_OUT_SRC     0x10
+#define SB16_MIXER_RESET       0x80
 
 /* Mixer output source */
 #define SB16_MIXER_SRC_DAC  0x01
@@ -71,9 +70,9 @@
 #define SB16_MIXER_SRC_MIC  0x08
 
 /* Input source */
-#define SB16_MIXER_INPUT_MIC   0x00
-#define SB16_MIXER_INPUT_CD    0x01
-#define SB16_MIXER_INPUT_LINE  0x02
+#define SB16_MIXER_INPUT_MIC  0x00
+#define SB16_MIXER_INPUT_CD   0x01
+#define SB16_MIXER_INPUT_LINE 0x02
 
 /* IRQ values */
 #define SB16_IRQ_5  5
@@ -90,44 +89,44 @@
 
 /* SB16 device state */
 typedef struct sb16_device {
-    uint16_t base;            /* I/O port base address */
-    uint8_t  irq;             /* IRQ line */
-    uint8_t  dma8;            /* 8-bit DMA channel */
-    uint8_t  dma16;           /* 16-bit DMA channel */
-    uint8_t  detected;        /* Non-zero if card found */
-    uint32_t dma_buffer_phys; /* Physical address of DMA buffer */
-    uint8_t *dma_buffer_virt; /* Virtual address of DMA buffer */
-    uint32_t dma_buffer_size; /* Size of DMA buffer */
-    uint32_t sample_rate;     /* Current sample rate */
-    uint8_t  bits;            /* Sample bit depth */
-    uint8_t  channels;        /* Number of audio channels */
-    uint8_t  volume_left;     /* Cached master volume */
-    uint8_t  volume_right;    /* Cached master volume */
-    uint8_t  input_source;    /* Current input source */
-    int      playing;         /* Non-zero if playback active */
-    int      capturing;       /* Non-zero if capture active */
+        uint16_t base;            /* I/O port base address */
+        uint8_t  irq;             /* IRQ line */
+        uint8_t  dma8;            /* 8-bit DMA channel */
+        uint8_t  dma16;           /* 16-bit DMA channel */
+        uint8_t  detected;        /* Non-zero if card found */
+        uint32_t dma_buffer_phys; /* Physical address of DMA buffer */
+        uint8_t *dma_buffer_virt; /* Virtual address of DMA buffer */
+        uint32_t dma_buffer_size; /* Size of DMA buffer */
+        uint32_t sample_rate;     /* Current sample rate */
+        uint8_t  bits;            /* Sample bit depth */
+        uint8_t  channels;        /* Number of audio channels */
+        uint8_t  volume_left;     /* Cached master volume */
+        uint8_t  volume_right;    /* Cached master volume */
+        uint8_t  input_source;    /* Current input source */
+        int      playing;         /* Non-zero if playback active */
+        int      capturing;       /* Non-zero if capture active */
 } sb16_device_t;
 
 void sb16_init(void);
 
-int  sb16_detect(sb16_device_t *dev);
-int  sb16_dsp_reset(sb16_device_t *dev);
-int  sb16_dsp_version(sb16_device_t *dev, uint8_t *major, uint8_t *minor);
-int  sb16_dsp_wait_write(sb16_device_t *dev);
-int  sb16_dsp_write(sb16_device_t *dev, uint8_t cmd);
-int  sb16_dsp_read(sb16_device_t *dev, uint8_t *val);
-int  sb16_set_rate8(sb16_device_t *dev, uint16_t rate);
-int  sb16_set_rate16(sb16_device_t *dev, uint16_t rate);
-int  sb16_play_8bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
-int  sb16_play_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
-int  sb16_capture_8bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
-int  sb16_capture_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
-void sb16_stop(sb16_device_t *dev);
-void sb16_set_master_volume(sb16_device_t *dev, uint8_t left, uint8_t right);
-void sb16_set_dac_volume(sb16_device_t *dev, uint8_t left, uint8_t right);
-void sb16_set_input_source(sb16_device_t *dev, uint8_t source);
+int     sb16_detect(sb16_device_t *dev);
+int     sb16_dsp_reset(sb16_device_t *dev);
+int     sb16_dsp_version(sb16_device_t *dev, uint8_t *major, uint8_t *minor);
+int     sb16_dsp_wait_write(sb16_device_t *dev);
+int     sb16_dsp_write(sb16_device_t *dev, uint8_t cmd);
+int     sb16_dsp_read(sb16_device_t *dev, uint8_t *val);
+int     sb16_set_rate8(sb16_device_t *dev, uint16_t rate);
+int     sb16_set_rate16(sb16_device_t *dev, uint16_t rate);
+int     sb16_play_8bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
+int     sb16_play_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
+int     sb16_capture_8bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
+int     sb16_capture_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
+void    sb16_stop(sb16_device_t *dev);
+void    sb16_set_master_volume(sb16_device_t *dev, uint8_t left, uint8_t right);
+void    sb16_set_dac_volume(sb16_device_t *dev, uint8_t left, uint8_t right);
+void    sb16_set_input_source(sb16_device_t *dev, uint8_t source);
 uint8_t sb16_mixer_read(sb16_device_t *dev, uint8_t reg);
-void sb16_mixer_write(sb16_device_t *dev, uint8_t reg, uint8_t value);
-void sb16_beep(uint16_t freq, uint32_t ms);
+void    sb16_mixer_write(sb16_device_t *dev, uint8_t reg, uint8_t value);
+void    sb16_beep(uint16_t freq, uint32_t ms);
 
 #endif /* INCLUDE_SOUND_SB16_H_ */

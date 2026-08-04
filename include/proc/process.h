@@ -158,34 +158,34 @@ typedef struct process {
         /* vfork completion is separate from child exit: a successful exec
          * releases the parent while the child remains alive.  The condition
          * and waiter list are both protected by vfork_wait.lock. */
-        wait_queue_t      vfork_wait;
-        bool              vfork_done;
-        int               exit_code;
-        int               wait_stop_signal;
-        bool              wait_stop_pending;
-        bool              wait_continue_pending;
-        uint32_t          uid;
-        uint32_t          gid;
-        uint16_t          umask;
-        uint8_t          *kernel_stack;
-        process_file_t   *fds[PROCESS_MAX_FD];
+        wait_queue_t    vfork_wait;
+        bool            vfork_done;
+        int             exit_code;
+        int             wait_stop_signal;
+        bool            wait_stop_pending;
+        bool            wait_continue_pending;
+        uint32_t        uid;
+        uint32_t        gid;
+        uint16_t        umask;
+        uint8_t        *kernel_stack;
+        process_file_t *fds[PROCESS_MAX_FD];
         /* Descriptor flags belong to an fd table entry, not to the shared
          * open-file description.  At present Linux defines FD_CLOEXEC as the
          * sole descriptor flag; keep a full byte per slot for ABI growth. */
-        uint8_t           fd_flags[PROCESS_MAX_FD];
-        spinlock_t        fd_lock;
-        process_rlimit_t  rlimits[PROCESS_RLIMIT_COUNT];
-        spinlock_t        rlimit_lock;
-        signal_state_t    signal;
-        uint32_t          refcount;
-        uint32_t          thread_count;
-        ilist_node_t      threads;
-        pid_t             pgid;
-        pid_t             sid;
-        tty_core_t       *controlling_tty;
-        char              name[PROCESS_NAME_LEN];
-        char              root[VFS_PATH_MAX]; /* chroot path */
-        char              cwd[VFS_PATH_MAX];  /* current working directory */
+        uint8_t          fd_flags[PROCESS_MAX_FD];
+        spinlock_t       fd_lock;
+        process_rlimit_t rlimits[PROCESS_RLIMIT_COUNT];
+        spinlock_t       rlimit_lock;
+        signal_state_t   signal;
+        uint32_t         refcount;
+        uint32_t         thread_count;
+        ilist_node_t     threads;
+        pid_t            pgid;
+        pid_t            sid;
+        tty_core_t      *controlling_tty;
+        char             name[PROCESS_NAME_LEN];
+        char             root[VFS_PATH_MAX]; /* chroot path */
+        char             cwd[VFS_PATH_MAX];  /* current working directory */
 } process_t;
 
 /* Initialize the process management subsystem */
@@ -206,13 +206,13 @@ void process_exit(int exit_code);
 /* Reap a zombie child process and collect its exit status */
 int process_wait(pid_t pid, int *exit_code);
 
-#define PROCESS_WAIT_NOHANG 0x00000001U
-#define PROCESS_WAIT_STOPPED 0x00000002U
+#define PROCESS_WAIT_NOHANG    0x00000001U
+#define PROCESS_WAIT_STOPPED   0x00000002U
 #define PROCESS_WAIT_CONTINUED 0x00000004U
 
 /* Linux waitpid/wait4 selector semantics.  Returns 0 with *waited_pid == 0
  * for a successful nonblocking poll, or a negative errno. */
-int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_t *waited_pid);
+int  process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_t *waited_pid);
 void process_child_stopped(process_t *child, int signal);
 void process_child_continued(process_t *child);
 

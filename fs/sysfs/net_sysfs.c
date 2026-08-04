@@ -144,7 +144,13 @@ static DEVICE_ATTR(tx_errors, 0444, statistic_show, NULL);
 static DEVICE_ATTR(tx_dropped, 0444, statistic_show, NULL);
 
 static struct attribute *net_attributes[] = {
-    &dev_attr_address.attr, &dev_attr_mtu.attr, &dev_attr_operstate.attr, &dev_attr_flags.attr, &dev_attr_type.attr, &dev_attr_ifindex.attr, NULL,
+    &dev_attr_address.attr,
+    &dev_attr_mtu.attr,
+    &dev_attr_operstate.attr,
+    &dev_attr_flags.attr,
+    &dev_attr_type.attr,
+    &dev_attr_ifindex.attr,
+    NULL,
 };
 
 static struct attribute *statistics_attributes[] = {
@@ -182,7 +188,7 @@ static struct class net_class = {.name = "net", .dev_uevent = net_device_uevent,
 static void net_sysfs_publish(net_device_t *netdev, void *context)
 {
     struct device *device;
-    int            slot    = -1;
+    int            slot = -1;
     (void)context;
     if (!net_class_ready || !netdev || !netdev->registered) return;
     spin_lock(&net_devices_lock);

@@ -35,11 +35,11 @@
 static cpu_processor_t *cpus;
 static size_t           cpu_count = 0;
 
-static volatile uint64_t ap_ready_count = 0;
-static volatile uint64_t tlb_shootdown_generation;
+static volatile uint64_t  ap_ready_count = 0;
+static volatile uint64_t  tlb_shootdown_generation;
 static volatile uint64_t *tlb_shootdown_ack;
-static volatile uint32_t smp_ready;
-spinlock_t               ap_start_lock  = {0};
+static volatile uint32_t  smp_ready;
+spinlock_t                ap_start_lock = {0};
 static spinlock_t         tlb_shootdown_lock;
 
 int smp_handle_nmi(void)
@@ -141,7 +141,7 @@ void flush_tlb_all(void)
     __asm__ volatile("mov %0, %%cr3" ::"r"(cr3) : "memory");
     if (!__atomic_load_n(&smp_ready, __ATOMIC_ACQUIRE) || cpu_count < 2 || !tlb_shootdown_ack) return;
 
-    uint64_t irq_flags = spin_lock_irqsave(&tlb_shootdown_lock);
+    uint64_t irq_flags  = spin_lock_irqsave(&tlb_shootdown_lock);
     uint32_t self       = get_current_cpu_id();
     uint64_t generation = __atomic_add_fetch(&tlb_shootdown_generation, 1, __ATOMIC_ACQ_REL);
     __atomic_store_n(&tlb_shootdown_ack[self], generation, __ATOMIC_RELEASE);
@@ -288,7 +288,7 @@ void smp_init(void)
         return;
     }
 
-    cpu_count = (!CPU_MAX_COUNT) ? smp->cpu_count : (smp->cpu_count > CPU_MAX_COUNT ? CPU_MAX_COUNT : smp->cpu_count);
+    cpu_count         = (!CPU_MAX_COUNT) ? smp->cpu_count : (smp->cpu_count > CPU_MAX_COUNT ? CPU_MAX_COUNT : smp->cpu_count);
     cpus              = (cpu_processor_t *)aligned_alloc(16, sizeof(cpu_processor_t) * cpu_count);
     tlb_shootdown_ack = calloc(cpu_count, sizeof(*tlb_shootdown_ack));
     if (!cpus || !tlb_shootdown_ack) panic("smp: Cannot allocate CPU state.");

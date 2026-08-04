@@ -417,7 +417,7 @@ static int signal_handle_default(process_t *proc, int sig)
         case SIG_DFL_STOP :
             if (proc->task) {
                 spin_lock(&scheduler.lock);
-                bool stopped = proc->task->state != TASK_STOPPED;
+                bool stopped      = proc->task->state != TASK_STOPPED;
                 proc->task->state = TASK_STOPPED;
                 spin_unlock(&scheduler.lock);
                 if (stopped) process_child_stopped(proc, sig);

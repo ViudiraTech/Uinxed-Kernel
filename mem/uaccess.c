@@ -139,10 +139,10 @@ int user_access_ok(const void *uaddr, size_t size, int write)
 
 static int copy_user_bytes(void *dst, const void *src, size_t size, int to_user)
 {
-    uintptr_t user = (uintptr_t)(to_user ? dst : src);
-    uintptr_t kern = (uintptr_t)(to_user ? src : dst);
+    uintptr_t  user = (uintptr_t)(to_user ? dst : src);
+    uintptr_t  kern = (uintptr_t)(to_user ? src : dst);
     process_t *proc = process_current();
-    size_t    remaining;
+    size_t     remaining;
 
     if (!proc || !proc->user_page_dir || !user_ptr_range_ok(user, size)) return -EFAULT;
     remaining = size;

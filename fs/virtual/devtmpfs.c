@@ -8,6 +8,7 @@
  *
  */
 
+#include <chipset/common.h>
 #include <drivers/base/device.h>
 #include <drivers/block/ahci.h>
 #include <drivers/block/atapi.h>
@@ -18,7 +19,6 @@
 #include <drivers/char/tty.h>
 #include <drivers/gpu/drm_init.h>
 #include <drivers/input/evdev.h>
-#include <chipset/common.h>
 #include <fs/core/vfs.h>
 #include <fs/virtual/devtmpfs.h>
 #include <fs/virtual/tmpfs.h>
@@ -79,9 +79,9 @@ static uint64_t devtmpfs_random_word(void)
         uint64_t seed = rdtsc() ^ (uintptr_t)&devtmpfs_random_state ^ 0x9e3779b97f4a7c15ULL;
         for (size_t i = 0; i < 4; i++) {
             seed += 0x9e3779b97f4a7c15ULL;
-            uint64_t z = seed;
-            z          = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
-            z          = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+            uint64_t z               = seed;
+            z                        = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+            z                        = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
             devtmpfs_random_state[i] = z ^ (z >> 31);
         }
     }
@@ -535,11 +535,8 @@ static int devtmpfs_create_framebuffer_node(void)
 static int devtmpfs_create_memory_nodes(void)
 {
     static devtmpfs_memory_device_t devices[] = {
-        {.kind = DEVTMPFS_MEM_NULL  },
-        {.kind = DEVTMPFS_MEM_ZERO  },
-        {.kind = DEVTMPFS_MEM_FULL  },
-        {.kind = DEVTMPFS_MEM_RANDOM},
-        {.kind = DEVTMPFS_MEM_RANDOM},
+        {.kind = DEVTMPFS_MEM_NULL},   {.kind = DEVTMPFS_MEM_ZERO},   {.kind = DEVTMPFS_MEM_FULL},
+        {.kind = DEVTMPFS_MEM_RANDOM}, {.kind = DEVTMPFS_MEM_RANDOM},
     };
     static const struct {
             const char *path;

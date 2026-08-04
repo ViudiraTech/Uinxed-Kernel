@@ -67,8 +67,8 @@ typedef struct inet_core_socket {
         void (*event_callback)(void *argument, uint32_t events);
         void *event_argument;
         union {
-                udp_endpoint_t *udp;
-                tcp_endpoint_t *tcp;
+                udp_endpoint_t  *udp;
+                tcp_endpoint_t  *tcp;
                 icmp_endpoint_t *icmp;
         } endpoint;
 } inet_core_socket_t;
@@ -300,7 +300,7 @@ static int core_create(int family, int type, int protocol, uint32_t flags, void 
     sock->ipv6_unicast_hops   = 64;
     sock->ipv6_multicast_hops = 1;
     sock->ipv6_multicast_loop = 1;
-    sock->ip_ttl               = 64;
+    sock->ip_ttl              = 64;
     wait_queue_init(&sock->wait);
     if (type == SOCK_DGRAM)
         sock->endpoint.udp = udp_open_family((uint16_t)family);

@@ -14,7 +14,7 @@
 #include <libs/std/string.h>
 #include <mem/heap.h>
 
-int tmpfs_id = 0;
+int        tmpfs_id    = 0;
 static int devtmpfs_id = 0;
 
 /* Mount the tmpfs file system to a specified VFS node */
@@ -27,11 +27,11 @@ int tmpfs_mount(const char *handle, vfs_node_t node)
 
     tmpfs_file_t *tmpfs_root = calloc(1, sizeof(*tmpfs_root));
     if (!tmpfs_root) return -ENOMEM;
-    tmpfs_root->type         = tp_file_dir;
-    tmpfs_root->node_type    = file_dir;
-    tmpfs_root->node         = node;
-    tmpfs_root->root         = node;
-    tmpfs_root->link_count   = 1;
+    tmpfs_root->type       = tp_file_dir;
+    tmpfs_root->node_type  = file_dir;
+    tmpfs_root->node       = node;
+    tmpfs_root->root       = node;
+    tmpfs_root->link_count = 1;
 
     strcpy(tmpfs_root->name, "tmp");
     node->handle = tmpfs_root;
@@ -57,11 +57,11 @@ int tmpfs_mk(void *parent, const char *name, vfs_node_t node, int is_dir)
     strncpy(f->name, name, sizeof(f->name) - 1);
     f->name[sizeof(f->name) - 1] = '\0';
 
-    f->type      = is_dir ? tp_file_dir : tp_file_file;
-    f->node_type = is_dir ? file_dir : file_none;
+    f->type       = is_dir ? tp_file_dir : tp_file_file;
+    f->node_type  = is_dir ? file_dir : file_none;
     f->link_count = 1;
-    node->handle = f;
-    f->node      = node;
+    node->handle  = f;
+    f->node       = node;
 
     return EOK;
 }
@@ -180,7 +180,7 @@ size_t tmpfs_write(void *file, const void *addr, size_t offset, size_t size)
     if (offset > SIZE_MAX - size) return 0;
     size_t end = offset + size;
     spin_lock(&f->data_lock);
-    old_size   = f->size;
+    old_size = f->size;
 
     if (end > f->capacity || f->data_external) {
         if (tmpfs_make_private_locked(f, end) != EOK) {
@@ -292,23 +292,23 @@ int tmpfs_ioctl(void *file, size_t req, void *arg)
 /* Duplicate a VFS node bound to tmpfs */
 vfs_node_t tmpfs_dup(vfs_node_t node)
 {
-    vfs_node_t copy   = vfs_node_alloc(node->parent, node->name);
-    copy->handle      = node->handle;
-    copy->type        = node->type;
-    copy->size        = node->size;
-    copy->inode       = node->inode;
-    copy->nlink       = node->nlink;
-    copy->dev         = node->dev;
-    copy->rdev        = node->rdev;
-    copy->fsid        = node->fsid;
-    copy->linkname    = node->linkname == 0 ? 0 : strdup(node->linkname);
-    copy->flags       = node->flags;
-    copy->permissions = node->permissions;
-    copy->mode        = node->mode;
-    copy->owner       = node->owner;
-    copy->group       = node->group;
-    copy->child       = NULL;
-    copy->realsize    = node->realsize;
+    vfs_node_t copy     = vfs_node_alloc(node->parent, node->name);
+    copy->handle        = node->handle;
+    copy->type          = node->type;
+    copy->size          = node->size;
+    copy->inode         = node->inode;
+    copy->nlink         = node->nlink;
+    copy->dev           = node->dev;
+    copy->rdev          = node->rdev;
+    copy->fsid          = node->fsid;
+    copy->linkname      = node->linkname == 0 ? 0 : strdup(node->linkname);
+    copy->flags         = node->flags;
+    copy->permissions   = node->permissions;
+    copy->mode          = node->mode;
+    copy->owner         = node->owner;
+    copy->group         = node->group;
+    copy->child         = NULL;
+    copy->realsize      = node->realsize;
     tmpfs_file_t *inode = node->handle;
     if (inode) {
         spin_lock(&inode->link_lock);
@@ -330,11 +330,11 @@ int tmpfs_symlink(void *parent, const char *name, vfs_node_t node)
 
     strncpy(f->name, node->name, sizeof(f->name) - 1);
     f->name[sizeof(f->name) - 1] = '\0';
-    f->type      = tp_file_symlink;
-    f->node_type = file_symlink;
-    f->link_count = 1;
-    node->handle = f;
-    f->node      = node;
+    f->type                      = tp_file_symlink;
+    f->node_type                 = file_symlink;
+    f->link_count                = 1;
+    node->handle                 = f;
+    f->node                      = node;
 
     return EOK;
 }

@@ -1,5 +1,11 @@
 /*
- * Kernel slab-cache interface.
+ *
+ *      slab.h
+ *      Kernel slab-cache interface.
+ *
+ *      2026/8/1 By JiTianYu391
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
  */
 
 #ifndef INCLUDE_MEM_SLAB_H_

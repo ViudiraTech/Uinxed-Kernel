@@ -355,10 +355,10 @@ static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t
     size_t       strings_size = argv_strs + envp_strs + strlen(execfn) + 1 + sizeof("x86_64") + 16;
     size_t       total_needed = ALIGN_UP(vector_words * sizeof(uint64_t) + strings_size + 16, 16);
     if (total_needed > PROCESS_STACK_SIZE) return 0;
-    uintptr_t    base_rsp     = ALIGN_DOWN(PROCESS_USER_STACK_TOP - total_needed, 16);
-    uintptr_t    string_area  = base_rsp + vector_words * sizeof(uint64_t);
-    uint64_t    *vectors      = calloc(vector_words, sizeof(uint64_t));
-    uint8_t     *strings      = calloc(1, strings_size);
+    uintptr_t base_rsp    = ALIGN_DOWN(PROCESS_USER_STACK_TOP - total_needed, 16);
+    uintptr_t string_area = base_rsp + vector_words * sizeof(uint64_t);
+    uint64_t *vectors     = calloc(vector_words, sizeof(uint64_t));
+    uint8_t  *strings     = calloc(1, strings_size);
     if (!vectors || !strings) {
         free(vectors);
         free(strings);

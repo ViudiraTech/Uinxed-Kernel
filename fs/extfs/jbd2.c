@@ -17,10 +17,10 @@
 
 #define JBD2_CRC32C_CHKSUM 4U
 #define JBD2_CRC32_CHKSUM  1U
-#define JBD2_KNOWN_COMPAT JBD2_FEATURE_COMPAT_CHECKSUM
-#define JBD2_KNOWN_INCOMPAT                                                                                           \
-    (JBD2_FEATURE_INCOMPAT_REVOKE | JBD2_FEATURE_INCOMPAT_64BIT | JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT                 \
-     | JBD2_FEATURE_INCOMPAT_CSUM_V2 | JBD2_FEATURE_INCOMPAT_CSUM_V3)
+#define JBD2_KNOWN_COMPAT  JBD2_FEATURE_COMPAT_CHECKSUM
+#define JBD2_KNOWN_INCOMPAT                                                                                                          \
+    (JBD2_FEATURE_INCOMPAT_REVOKE | JBD2_FEATURE_INCOMPAT_64BIT | JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT | JBD2_FEATURE_INCOMPAT_CSUM_V2 \
+     | JBD2_FEATURE_INCOMPAT_CSUM_V3)
 
 typedef struct jbd2_record {
         uint64_t            home;
@@ -69,17 +69,17 @@ static uint32_t jbd2_get_be32(const void *address)
 static void jbd2_put_be16(void *address, uint16_t value)
 {
     uint8_t *p = address;
-    p[0] = (uint8_t)(value >> 8);
-    p[1] = (uint8_t)value;
+    p[0]       = (uint8_t)(value >> 8);
+    p[1]       = (uint8_t)value;
 }
 
 static void jbd2_put_be32(void *address, uint32_t value)
 {
     uint8_t *p = address;
-    p[0] = (uint8_t)(value >> 24);
-    p[1] = (uint8_t)(value >> 16);
-    p[2] = (uint8_t)(value >> 8);
-    p[3] = (uint8_t)value;
+    p[0]       = (uint8_t)(value >> 24);
+    p[1]       = (uint8_t)(value >> 16);
+    p[2]       = (uint8_t)(value >> 8);
+    p[3]       = (uint8_t)value;
 }
 
 static uint32_t jbd2_crc32_be(uint32_t crc, const void *data, size_t size)
@@ -87,7 +87,7 @@ static uint32_t jbd2_crc32_be(uint32_t crc, const void *data, size_t size)
     const uint8_t *bytes = data;
     while (size--) {
         crc ^= (uint32_t)*bytes++ << 24;
-        for (uint32_t bit = 0; bit < 8; bit++) crc = (crc << 1) ^ (0x04C11DB7U & (uint32_t)-(int32_t)(crc >> 31));
+        for (uint32_t bit = 0; bit < 8; bit++) crc = (crc << 1) ^ (0x04C11DB7U & (uint32_t) - (int32_t)(crc >> 31));
     }
     return crc;
 }
@@ -105,8 +105,8 @@ static int jbd2_logical_io(extfs_journal_t *journal, uint32_t logical, void *dat
     physical = extfs_map_block(journal->inode, logical, 0);
     if (!physical || physical >= journal->sb->blocks_count) return -EIO;
     uint64_t offset = (uint64_t)physical * journal->block_size;
-    return write ? blockdev_write_bytes(&journal->sb->device, offset, data, journal->block_size)
-                 : blockdev_read_bytes(&journal->sb->device, offset, data, journal->block_size);
+    return write ? blockdev_write_bytes(&journal->sb->device, offset, data, journal->block_size) :
+                   blockdev_read_bytes(&journal->sb->device, offset, data, journal->block_size);
 }
 
 static int jbd2_read(extfs_journal_t *journal, uint32_t logical, void *data)
@@ -156,13 +156,12 @@ static size_t jbd2_tag_size(const extfs_journal_t *journal)
     return (journal->incompat & JBD2_FEATURE_INCOMPAT_64BIT) ? 12 : 8;
 }
 
-static int jbd2_parse_tag(extfs_journal_t *journal, const uint8_t *tag, uint64_t *home, uint32_t *flags,
-                          uint32_t *checksum)
+static int jbd2_parse_tag(extfs_journal_t *journal, const uint8_t *tag, uint64_t *home, uint32_t *flags, uint32_t *checksum)
 {
     *home = jbd2_get_be32(tag);
     if (journal->incompat & JBD2_FEATURE_INCOMPAT_CSUM_V3) {
-        *flags    = jbd2_get_be32(tag + 4);
-        *home    |= (uint64_t)jbd2_get_be32(tag + 8) << 32;
+        *flags = jbd2_get_be32(tag + 4);
+        *home |= (uint64_t)jbd2_get_be32(tag + 8) << 32;
         *checksum = jbd2_get_be32(tag + 12);
     } else {
         *checksum = jbd2_get_be16(tag + 4);
@@ -182,8 +181,7 @@ static uint32_t jbd2_data_checksum(extfs_journal_t *journal, uint32_t sequence, 
 
 static int jbd2_verify_commit(extfs_journal_t *journal, uint8_t *block, uint32_t sequence)
 {
-    if (jbd2_get_be32(block) != JBD2_MAGIC_NUMBER || jbd2_get_be32(block + 4) != JBD2_COMMIT_BLOCK
-        || jbd2_get_be32(block + 8) != sequence)
+    if (jbd2_get_be32(block) != JBD2_MAGIC_NUMBER || jbd2_get_be32(block + 4) != JBD2_COMMIT_BLOCK || jbd2_get_be32(block + 8) != sequence)
         return -EIO;
     if (!(journal->incompat & (JBD2_FEATURE_INCOMPAT_CSUM_V2 | JBD2_FEATURE_INCOMPAT_CSUM_V3))) return EOK;
     if (block[12] != JBD2_CRC32C_CHKSUM || block[13] != 4) return -EIO;
@@ -197,7 +195,7 @@ static int jbd2_verify_commit(extfs_journal_t *journal, uint8_t *block, uint32_t
 static int jbd2_verify_descriptor(extfs_journal_t *journal, uint8_t *block)
 {
     if (!(journal->incompat & (JBD2_FEATURE_INCOMPAT_CSUM_V2 | JBD2_FEATURE_INCOMPAT_CSUM_V3))) return EOK;
-    uint8_t *tail = block + journal->block_size - sizeof(uint32_t);
+    uint8_t *tail   = block + journal->block_size - sizeof(uint32_t);
     uint32_t stored = jbd2_get_be32(tail);
     jbd2_put_be32(tail, 0);
     uint32_t calculated = crc32c_update(journal->checksum_seed, block, journal->block_size);
@@ -214,15 +212,15 @@ static void jbd2_set_descriptor_checksum(extfs_journal_t *journal, uint8_t *bloc
 }
 
 /* Walk one committed transaction. Descriptor data blocks are checked while walking. */
-static int jbd2_walk_transaction(extfs_journal_t *journal, uint32_t start, uint32_t sequence, uint32_t *next,
-                                 jbd2_revoke_t **revokes, int replay)
+static int jbd2_walk_transaction(extfs_journal_t *journal, uint32_t start, uint32_t sequence, uint32_t *next, jbd2_revoke_t **revokes,
+                                 int replay)
 {
-    uint8_t *block = malloc(journal->block_size);
-    uint8_t *data  = malloc(journal->block_size);
-    uint32_t cursor = start;
+    uint8_t *block           = malloc(journal->block_size);
+    uint8_t *data            = malloc(journal->block_size);
+    uint32_t cursor          = start;
     uint32_t transaction_crc = ~0U;
-    uint32_t walked = 0;
-    int      status = block && data ? EOK : -ENOMEM;
+    uint32_t walked          = 0;
+    int      status          = block && data ? EOK : -ENOMEM;
     while (status == EOK) {
         if (++walked > journal->usable_end - journal->first) {
             status = -EIO;
@@ -240,13 +238,12 @@ static int jbd2_walk_transaction(extfs_journal_t *journal, uint32_t start, uint3
         if (type == JBD2_DESCRIPTOR_BLOCK) {
             status = jbd2_verify_descriptor(journal, block);
             if (status != EOK) break;
-            if (journal->compat & JBD2_FEATURE_COMPAT_CHECKSUM)
-                transaction_crc = jbd2_crc32_be(transaction_crc, block, journal->block_size);
+            if (journal->compat & JBD2_FEATURE_COMPAT_CHECKSUM) transaction_crc = jbd2_crc32_be(transaction_crc, block, journal->block_size);
             size_t tag_size = jbd2_tag_size(journal);
             size_t offset   = sizeof(jbd2_header_t);
-            size_t limit = journal->block_size;
+            size_t limit    = journal->block_size;
             if (journal->incompat & (JBD2_FEATURE_INCOMPAT_CSUM_V2 | JBD2_FEATURE_INCOMPAT_CSUM_V3)) limit -= 4;
-            int    last     = 0;
+            int last = 0;
             while (!last) {
                 uint64_t home;
                 uint32_t flags, checksum;
@@ -270,12 +267,10 @@ static int jbd2_walk_transaction(extfs_journal_t *journal, uint32_t start, uint3
                 cursor = jbd2_next_block(journal, cursor);
                 status = jbd2_read(journal, cursor, data);
                 if (status != EOK) break;
-                if (journal->compat & JBD2_FEATURE_COMPAT_CHECKSUM)
-                    transaction_crc = jbd2_crc32_be(transaction_crc, data, journal->block_size);
+                if (journal->compat & JBD2_FEATURE_COMPAT_CHECKSUM) transaction_crc = jbd2_crc32_be(transaction_crc, data, journal->block_size);
                 if (journal->incompat & (JBD2_FEATURE_INCOMPAT_CSUM_V2 | JBD2_FEATURE_INCOMPAT_CSUM_V3)) {
                     uint32_t actual = jbd2_data_checksum(journal, sequence, data);
-                    if ((journal->incompat & JBD2_FEATURE_INCOMPAT_CSUM_V3) ? actual != checksum
-                                                                          : (uint16_t)actual != (uint16_t)checksum) {
+                    if ((journal->incompat & JBD2_FEATURE_INCOMPAT_CSUM_V3) ? actual != checksum : (uint16_t)actual != (uint16_t)checksum) {
                         status = -EIO;
                         break;
                     }
@@ -289,14 +284,13 @@ static int jbd2_walk_transaction(extfs_journal_t *journal, uint32_t start, uint3
                             break;
                         }
                     if (!revoked)
-                        status = blockdev_write_bytes(&journal->sb->device, home * (uint64_t)journal->block_size, data,
-                                                      journal->block_size);
+                        status = blockdev_write_bytes(&journal->sb->device, home * (uint64_t)journal->block_size, data, journal->block_size);
                 }
                 last = !!(flags & JBD2_FLAG_LAST_TAG);
             }
         } else if (type == JBD2_REVOKE_BLOCK) {
-            uint32_t bytes = jbd2_get_be32(block + 12);
-            size_t entry_size = (journal->incompat & JBD2_FEATURE_INCOMPAT_64BIT) ? 8 : 4;
+            uint32_t bytes      = jbd2_get_be32(block + 12);
+            size_t   entry_size = (journal->incompat & JBD2_FEATURE_INCOMPAT_64BIT) ? 8 : 4;
             if (bytes < 16 || bytes > journal->block_size || (bytes - 16) % entry_size) {
                 status = -EIO;
                 break;
@@ -322,10 +316,7 @@ static int jbd2_walk_transaction(extfs_journal_t *journal, uint32_t start, uint3
             }
         } else if (type == JBD2_COMMIT_BLOCK) {
             if (journal->compat & JBD2_FEATURE_COMPAT_CHECKSUM) {
-                status = block[12] == JBD2_CRC32_CHKSUM && block[13] == 4
-                                 && jbd2_get_be32(block + 16) == transaction_crc
-                             ? EOK
-                             : -EIO;
+                status = block[12] == JBD2_CRC32_CHKSUM && block[13] == 4 && jbd2_get_be32(block + 16) == transaction_crc ? EOK : -EIO;
             } else {
                 status = jbd2_verify_commit(journal, block, sequence);
             }
@@ -342,32 +333,36 @@ static int jbd2_walk_transaction(extfs_journal_t *journal, uint32_t start, uint3
     return status;
 }
 
-static int jbd2_v1_transaction_checksum(extfs_journal_t *journal, uint32_t start, uint32_t end,
-                                         uint32_t sequence, uint32_t *result)
+static int jbd2_v1_transaction_checksum(extfs_journal_t *journal, uint32_t start, uint32_t end, uint32_t sequence, uint32_t *result)
 {
-    uint8_t *block = malloc(journal->block_size);
-    uint8_t *data = malloc(journal->block_size);
+    uint8_t *block  = malloc(journal->block_size);
+    uint8_t *data   = malloc(journal->block_size);
     uint32_t cursor = start, crc = ~0U;
-    int status = block && data ? EOK : -ENOMEM;
+    int      status = block && data ? EOK : -ENOMEM;
     while (status == EOK && cursor != end) {
         status = jbd2_read(journal, cursor, block);
-        if (status != EOK || jbd2_get_be32(block) != JBD2_MAGIC_NUMBER
-            || jbd2_get_be32(block + 4) != JBD2_DESCRIPTOR_BLOCK || jbd2_get_be32(block + 8) != sequence) {
+        if (status != EOK || jbd2_get_be32(block) != JBD2_MAGIC_NUMBER || jbd2_get_be32(block + 4) != JBD2_DESCRIPTOR_BLOCK
+            || jbd2_get_be32(block + 8) != sequence) {
             if (status == EOK) status = -EIO;
             break;
         }
-        crc = jbd2_crc32_be(crc, block, journal->block_size);
+        crc           = jbd2_crc32_be(crc, block, journal->block_size);
         size_t offset = sizeof(jbd2_header_t), tag_size = jbd2_tag_size(journal);
-        int last = 0;
+        int    last = 0;
         while (!last && status == EOK) {
-            if (offset + tag_size > journal->block_size) { status = -EIO; break; }
-            uint32_t flags = (journal->incompat & JBD2_FEATURE_INCOMPAT_CSUM_V3)
-                                 ? jbd2_get_be32(block + offset + 4)
-                                 : jbd2_get_be16(block + offset + 6);
+            if (offset + tag_size > journal->block_size) {
+                status = -EIO;
+                break;
+            }
+            uint32_t flags
+                = (journal->incompat & JBD2_FEATURE_INCOMPAT_CSUM_V3) ? jbd2_get_be32(block + offset + 4) : jbd2_get_be16(block + offset + 6);
             offset += tag_size + ((flags & JBD2_FLAG_SAME_UUID) ? 0 : 16);
             cursor = jbd2_next_block(journal, cursor);
-            if (cursor == end || (status = jbd2_read(journal, cursor, data)) != EOK) { status = -EIO; break; }
-            crc = jbd2_crc32_be(crc, data, journal->block_size);
+            if (cursor == end || (status = jbd2_read(journal, cursor, data)) != EOK) {
+                status = -EIO;
+                break;
+            }
+            crc  = jbd2_crc32_be(crc, data, journal->block_size);
             last = !!(flags & JBD2_FLAG_LAST_TAG);
         }
         cursor = jbd2_next_block(journal, cursor);
@@ -391,12 +386,12 @@ static int jbd2_recover(void *context)
 {
     extfs_journal_t *journal = context;
     jbd2_revoke_t   *revokes = 0;
-    uint32_t cursor, sequence, end_sequence;
-    int status = EOK;
+    uint32_t         cursor, sequence, end_sequence;
+    int              status = EOK;
     if (!journal->start) return EOK;
 
     /* Pass one: find the first incomplete transaction without changing home blocks. */
-    cursor = journal->start;
+    cursor   = journal->start;
     sequence = journal->sequence;
     for (;;) {
         uint32_t next;
@@ -414,7 +409,7 @@ static int jbd2_recover(void *context)
     /* Pass two: collect revokes from every complete transaction. */
     jbd2_free_revokes(revokes);
     revokes = 0;
-    cursor = journal->start;
+    cursor  = journal->start;
     for (sequence = journal->sequence; sequence != end_sequence; sequence++) {
         uint32_t next;
         status = jbd2_walk_transaction(journal, cursor, sequence, &next, &revokes, 0);
@@ -445,20 +440,19 @@ static int jbd2_begin(void *context, uint32_t transaction_id, uint32_t buffers)
     (void)transaction_id;
     jbd2_free_records(journal);
     journal->transaction_sequence = journal->sequence;
-    size_t descriptor_space = journal->block_size - sizeof(jbd2_header_t);
+    size_t descriptor_space       = journal->block_size - sizeof(jbd2_header_t);
     if (journal->incompat & (JBD2_FEATURE_INCOMPAT_CSUM_V2 | JBD2_FEATURE_INCOMPAT_CSUM_V3)) descriptor_space -= 4;
     uint32_t tags = descriptor_space > 16 ? (uint32_t)((descriptor_space - 16) / jbd2_tag_size(journal)) : 0;
     if (!tags) return -ENOSPC;
     uint64_t descriptors = (buffers + tags - 1) / tags;
-    uint64_t required = descriptors + buffers + 1;
+    uint64_t required    = descriptors + buffers + 1;
     return required < journal->usable_end - journal->first ? EOK : -ENOSPC;
 }
 
-static int jbd2_log_block(void *context, uint32_t transaction_id, uint64_t home_block, const void *data,
-                          uint32_t flags)
+static int jbd2_log_block(void *context, uint32_t transaction_id, uint64_t home_block, const void *data, uint32_t flags)
 {
     extfs_journal_t *journal = context;
-    jbd2_record_t *record;
+    jbd2_record_t   *record;
     (void)transaction_id;
     (void)flags;
     if (home_block >= journal->sb->blocks_count) return -EIO;
@@ -482,13 +476,13 @@ static int jbd2_log_block(void *context, uint32_t transaction_id, uint64_t home_
 
 static int jbd2_commit(void *context, uint32_t transaction_id)
 {
-    extfs_journal_t *journal = context;
-    jbd2_record_t   *record = journal->records;
+    extfs_journal_t *journal    = context;
+    jbd2_record_t   *record     = journal->records;
     uint8_t         *descriptor = malloc(journal->block_size);
-    uint8_t         *copy = malloc(journal->block_size);
-    uint32_t         cursor = journal->head;
-    uint32_t         sequence = journal->transaction_sequence;
-    int status = descriptor && copy ? EOK : -ENOMEM;
+    uint8_t         *copy       = malloc(journal->block_size);
+    uint32_t         cursor     = journal->head;
+    uint32_t         sequence   = journal->transaction_sequence;
+    int              status     = descriptor && copy ? EOK : -ENOMEM;
     (void)transaction_id;
     if (status != EOK) goto out;
     if (!record) goto out;
@@ -501,17 +495,16 @@ static int jbd2_commit(void *context, uint32_t transaction_id)
         jbd2_put_be32(descriptor + 4, JBD2_DESCRIPTOR_BLOCK);
         jbd2_put_be32(descriptor + 8, sequence);
         uint32_t descriptor_block = cursor;
-        cursor = jbd2_next_block(journal, cursor);
-        size_t offset = sizeof(jbd2_header_t);
-        size_t limit = journal->block_size;
+        cursor                    = jbd2_next_block(journal, cursor);
+        size_t offset             = sizeof(jbd2_header_t);
+        size_t limit              = journal->block_size;
         if (journal->incompat & (JBD2_FEATURE_INCOMPAT_CSUM_V2 | JBD2_FEATURE_INCOMPAT_CSUM_V3)) limit -= 4;
         int first = 1;
         while (record) {
             size_t required = jbd2_tag_size(journal) + (first ? 16 : 0);
             if (offset + required > limit) break;
             uint32_t flags = first ? 0 : JBD2_FLAG_SAME_UUID;
-            if (!record->next || offset + required + jbd2_tag_size(journal) > limit)
-                flags |= JBD2_FLAG_LAST_TAG;
+            if (!record->next || offset + required + jbd2_tag_size(journal) > limit) flags |= JBD2_FLAG_LAST_TAG;
             memcpy(copy, record->data, journal->block_size);
             if (jbd2_get_be32(copy) == JBD2_MAGIC_NUMBER) {
                 jbd2_put_be32(copy, 0);
@@ -526,8 +519,7 @@ static int jbd2_commit(void *context, uint32_t transaction_id)
             } else {
                 jbd2_put_be16(descriptor + offset + 4, (uint16_t)checksum);
                 jbd2_put_be16(descriptor + offset + 6, (uint16_t)flags);
-                if (journal->incompat & JBD2_FEATURE_INCOMPAT_64BIT)
-                    jbd2_put_be32(descriptor + offset + 8, (uint32_t)(record->home >> 32));
+                if (journal->incompat & JBD2_FEATURE_INCOMPAT_64BIT) jbd2_put_be32(descriptor + offset + 8, (uint32_t)(record->home >> 32));
             }
             offset += jbd2_tag_size(journal);
             if (first) {
@@ -538,7 +530,7 @@ static int jbd2_commit(void *context, uint32_t transaction_id)
             if (status != EOK) break;
             cursor = jbd2_next_block(journal, cursor);
             record = record->next;
-            first = 0;
+            first  = 0;
             if (flags & JBD2_FLAG_LAST_TAG) break;
         }
         if (status == EOK) {
@@ -590,8 +582,8 @@ static int jbd2_checkpoint(void *context, uint32_t transaction_id)
 
 static void jbd2_abort(void *context, uint32_t transaction_id, int error)
 {
-    extfs_journal_t *journal = context;
-    jbd2_superblock_t *super = (jbd2_superblock_t *)journal->super_buffer;
+    extfs_journal_t   *journal = context;
+    jbd2_superblock_t *super   = (jbd2_superblock_t *)journal->super_buffer;
     (void)transaction_id;
     jbd2_put_be32(&super->error, (uint32_t)(error < 0 ? -error : error));
     (void)jbd2_write_super(journal, journal->start, journal->sequence);
@@ -610,16 +602,16 @@ static const fs_txn_backend_ops_t jbd2_ops = {
 
 int extfs_jbd2_open(struct extfs_sb_info *sb, extfs_journal_t **out)
 {
-    extfs_journal_t *journal;
+    extfs_journal_t   *journal;
     jbd2_superblock_t *super;
-    ext2_inode_t inode;
-    int status;
+    ext2_inode_t       inode;
+    int                status;
     if (!sb || !out || !sb->es->s_journal_inum) return -EINVAL;
-    *out = 0;
+    *out    = 0;
     journal = calloc(1, sizeof(*journal));
     if (!journal) return -ENOMEM;
-    journal->sb = sb;
-    journal->inode = extfs_alloc_handle(sb, sb->es->s_journal_inum);
+    journal->sb           = sb;
+    journal->inode        = extfs_alloc_handle(sb, sb->es->s_journal_inum);
     journal->super_buffer = malloc(sb->block_size);
     if (!journal->inode || !journal->super_buffer) {
         extfs_jbd2_close(journal);
@@ -631,31 +623,28 @@ int extfs_jbd2_open(struct extfs_sb_info *sb, extfs_journal_t **out)
         return -EINVAL;
     }
     journal->block_size = sb->block_size;
-    status = jbd2_read(journal, 0, journal->super_buffer);
+    status              = jbd2_read(journal, 0, journal->super_buffer);
     if (status != EOK) {
         extfs_jbd2_close(journal);
         return status;
     }
-    super = (jbd2_superblock_t *)journal->super_buffer;
-    uint32_t type = jbd2_get_be32(&super->header.block_type);
-    journal->max_length = jbd2_get_be32(&super->max_length);
-    journal->first      = jbd2_get_be32(&super->first);
-    journal->sequence   = jbd2_get_be32(&super->sequence);
-    journal->start      = jbd2_get_be32(&super->start);
-    journal->compat     = jbd2_get_be32(&super->feature_compat);
-    journal->incompat   = jbd2_get_be32(&super->feature_incompat);
+    super                = (jbd2_superblock_t *)journal->super_buffer;
+    uint32_t type        = jbd2_get_be32(&super->header.block_type);
+    journal->max_length  = jbd2_get_be32(&super->max_length);
+    journal->first       = jbd2_get_be32(&super->first);
+    journal->sequence    = jbd2_get_be32(&super->sequence);
+    journal->start       = jbd2_get_be32(&super->start);
+    journal->compat      = jbd2_get_be32(&super->feature_compat);
+    journal->incompat    = jbd2_get_be32(&super->feature_incompat);
     uint32_t fast_blocks = jbd2_get_be32(&super->fast_commit_blocks);
-    uint64_t inode_size = inode.i_size | ((uint64_t)inode.i_dir_acl << 32);
-    if (jbd2_get_be32(&super->header.magic) != JBD2_MAGIC_NUMBER
-        || (type != JBD2_SUPERBLOCK_V1 && type != JBD2_SUPERBLOCK_V2)
-        || jbd2_get_be32(&super->block_size) != sb->block_size || journal->max_length > inode_size / sb->block_size
-        || journal->first == 0 || journal->first >= journal->max_length || journal->start >= journal->max_length
-        || journal->compat & ~JBD2_KNOWN_COMPAT || journal->incompat & ~JBD2_KNOWN_INCOMPAT
-        || fast_blocks >= journal->max_length - journal->first
+    uint64_t inode_size  = inode.i_size | ((uint64_t)inode.i_dir_acl << 32);
+    if (jbd2_get_be32(&super->header.magic) != JBD2_MAGIC_NUMBER || (type != JBD2_SUPERBLOCK_V1 && type != JBD2_SUPERBLOCK_V2)
+        || jbd2_get_be32(&super->block_size) != sb->block_size || journal->max_length > inode_size / sb->block_size || journal->first == 0
+        || journal->first >= journal->max_length || journal->start >= journal->max_length || journal->compat & ~JBD2_KNOWN_COMPAT
+        || journal->incompat & ~JBD2_KNOWN_INCOMPAT || fast_blocks >= journal->max_length - journal->first
         || ((journal->incompat & JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT)
             && !(journal->incompat & (JBD2_FEATURE_INCOMPAT_CSUM_V2 | JBD2_FEATURE_INCOMPAT_CSUM_V3)))
-        || ((journal->incompat & JBD2_FEATURE_INCOMPAT_CSUM_V2)
-            && (journal->incompat & JBD2_FEATURE_INCOMPAT_CSUM_V3))) {
+        || ((journal->incompat & JBD2_FEATURE_INCOMPAT_CSUM_V2) && (journal->incompat & JBD2_FEATURE_INCOMPAT_CSUM_V3))) {
         extfs_jbd2_close(journal);
         return -EOPNOTSUPP;
     }
@@ -684,7 +673,7 @@ int extfs_jbd2_open(struct extfs_sb_info *sb, extfs_journal_t **out)
         }
     }
     journal->usable_end = journal->max_length - fast_blocks;
-    journal->head = jbd2_get_be32(&super->head);
+    journal->head       = jbd2_get_be32(&super->head);
     if (journal->head < journal->first || journal->head >= journal->usable_end) journal->head = journal->first;
     *out = journal;
     return EOK;

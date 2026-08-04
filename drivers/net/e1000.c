@@ -725,15 +725,15 @@ static void e1000_interrupt_slot(size_t slot, void *frame)
     send_eoi();
 }
 
-#define E1000_IRQ_WRAPPERS(n)                                      \
-    static void e1000_legacy_interrupt_##n(void *frame)             \
-    {                                                               \
-        e1000_interrupt_slot(n, frame);                              \
-    }                                                               \
+#define E1000_IRQ_WRAPPERS(n)                                                     \
+    static void e1000_legacy_interrupt_##n(void *frame)                           \
+    {                                                                             \
+        e1000_interrupt_slot(n, frame);                                           \
+    }                                                                             \
     INTERRUPT_BEGIN static void e1000_idt_interrupt_##n(interrupt_frame_t *frame) \
-    {                                                               \
-        e1000_interrupt_slot(n, frame);                              \
-    }                                                               \
+    {                                                                             \
+        e1000_interrupt_slot(n, frame);                                           \
+    }                                                                             \
     INTERRUPT_END
 
 E1000_IRQ_WRAPPERS(0)
@@ -751,10 +751,8 @@ static const net_irq_handler_fn e1000_legacy_irq_handlers[E1000_MAX_DEVICES] = {
 };
 
 static void *const e1000_idt_irq_handlers[E1000_MAX_DEVICES] = {
-    (void *)e1000_idt_interrupt_0, (void *)e1000_idt_interrupt_1,
-    (void *)e1000_idt_interrupt_2, (void *)e1000_idt_interrupt_3,
-    (void *)e1000_idt_interrupt_4, (void *)e1000_idt_interrupt_5,
-    (void *)e1000_idt_interrupt_6, (void *)e1000_idt_interrupt_7,
+    (void *)e1000_idt_interrupt_0, (void *)e1000_idt_interrupt_1, (void *)e1000_idt_interrupt_2, (void *)e1000_idt_interrupt_3,
+    (void *)e1000_idt_interrupt_4, (void *)e1000_idt_interrupt_5, (void *)e1000_idt_interrupt_6, (void *)e1000_idt_interrupt_7,
 };
 
 static int e1000_setup_interrupt(e1000_device_t *device)
@@ -908,11 +906,11 @@ int e1000_probe(pci_device_cache_t *pci)
     pci_write_command_status(pci, device->saved_command | (1u << 1) | (1u << 2));
     if ((device->features & E1000_F_E1000E) && (e1000_read(device, E1000_REG_CTRL_EXT) & E1000_CTRL_EXT_DRV_LOAD)) {
         stage = "hardware ownership";
-        ret = -EBUSY;
+        ret   = -EBUSY;
         goto fail;
     }
     stage = "reset";
-    ret = e1000_reset(device);
+    ret   = e1000_reset(device);
     if (ret) goto fail;
     if (device->features & E1000_F_E1000E) {
         e1000_write(device, E1000_REG_CTRL_EXT, e1000_read(device, E1000_REG_CTRL_EXT) | E1000_CTRL_EXT_DRV_LOAD);
@@ -920,10 +918,10 @@ int e1000_probe(pci_device_cache_t *pci)
         device->owns_hw = 1;
     }
     stage = "MAC address";
-    ret = e1000_read_mac(device);
+    ret   = e1000_read_mac(device);
     if (ret) goto fail;
     stage = "DMA rings";
-    ret = e1000_alloc_dma(device);
+    ret   = e1000_alloc_dma(device);
     if (ret) goto fail;
 
     e1000_program_mac(device);
@@ -931,18 +929,18 @@ int e1000_probe(pci_device_cache_t *pci)
     e1000_write(device, E1000_REG_CTRL, e1000_read(device, E1000_REG_CTRL) | E1000_CTRL_SLU);
     e1000_write(device, E1000_REG_ITR, 8000);
     stage = "interrupt setup";
-    ret = e1000_setup_interrupt(device);
+    ret   = e1000_setup_interrupt(device);
     if (ret) goto fail;
 
     char netdev_name[NETDEV_NAME_MAX];
     (void)snprintf(netdev_name, sizeof(netdev_name), "eth%u", (unsigned)e1000_device_count);
     stage = "netdev initialization";
-    ret = netdev_init(&device->netdev, netdev_name, &e1000_netdev_ops, device);
+    ret   = netdev_init(&device->netdev, netdev_name, &e1000_netdev_ops, device);
     if (ret) goto fail;
     memcpy(device->netdev.address, device->mac, sizeof(device->mac));
     device->netdev.mtu   = E1000_MTU;
     device->netdev.flags = NETDEV_F_BROADCAST;
-    stage               = "netdev registration";
+    stage                = "netdev registration";
     ret                  = netdev_register(&device->netdev);
     if (ret) goto fail;
     device->netdev_registered = 1;
@@ -962,7 +960,7 @@ int e1000_probe(pci_device_cache_t *pci)
     (void)e1000_read(device, E1000_REG_ICR);
     if (e1000_scheduler_ready) {
         stage = "worker startup";
-        ret = e1000_start_worker(device);
+        ret   = e1000_start_worker(device);
         if (ret) goto fail_linked;
     }
     return 0;

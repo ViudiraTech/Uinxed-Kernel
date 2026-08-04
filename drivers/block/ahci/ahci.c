@@ -337,8 +337,8 @@ int ahci_flush_cache(uint8_t drive)
     cfis.fis_type = FIS_TYPE_REG_H2D;
     cfis.c        = 1;
     /* AHCI data I/O uses the 48-bit command set, so pair it with FLUSH CACHE EXT. */
-    cfis.command  = ATA_CMD_CACHE_FLUSH_EXT;
-    cfis.device   = 1 << 6;
+    cfis.command = ATA_CMD_CACHE_FLUSH_EXT;
+    cfis.device  = 1 << 6;
 
     return ahci_issue_cmd(port, slot, (uint8_t *)&cfis, 0, 0, 0);
 }

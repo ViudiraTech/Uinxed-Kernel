@@ -4,7 +4,6 @@
  *      Sound Blaster 16 driver
  *
  *      2026/7/20 By JiTianYu391
- *      2026/7/30 By JiTianYu391: 重构 audio 子系统 - 添加捕获、DMA 通道管理、全双工
  *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
@@ -33,33 +32,39 @@ static const uint16_t sb16_ports[] = {0x220, 0x240, 0x260, 0x280};
 static sb16_device_t sb16_dev;
 static spinlock_t    sb16_lock;
 
-static int  sb16_audio_start(audio_card_t *card);
-static int  sb16_audio_stop(audio_card_t *card);
-static int  sb16_audio_drain(audio_card_t *card);
+static int    sb16_audio_start(audio_card_t *card);
+static int    sb16_audio_stop(audio_card_t *card);
+static int    sb16_audio_drain(audio_card_t *card);
 static size_t sb16_audio_write(audio_card_t *card, const void *addr, size_t offset, size_t size);
 static size_t sb16_audio_read(audio_card_t *card, void *addr, size_t offset, size_t size);
-static int  sb16_audio_set_format(audio_card_t *card, const audio_pcm_format_t *format);
-static int  sb16_audio_set_volume(audio_card_t *card, const audio_volume_t *volume);
-static int  sb16_audio_get_volume(audio_card_t *card, audio_volume_t *volume);
-static int  sb16_audio_get_position(audio_card_t *card, snd_pcm_uframes_t *pos);
-static int  sb16_audio_set_params(audio_card_t *card, const audio_pcm_format_t *fmt, size_t buffer_bytes, size_t period_bytes);
+static int    sb16_audio_set_format(audio_card_t *card, const audio_pcm_format_t *format);
+static int    sb16_audio_set_volume(audio_card_t *card, const audio_volume_t *volume);
+static int    sb16_audio_get_volume(audio_card_t *card, audio_volume_t *volume);
+static int    sb16_audio_get_position(audio_card_t *card, snd_pcm_uframes_t *pos);
+static int    sb16_audio_set_params(audio_card_t *card, const audio_pcm_format_t *fmt, size_t buffer_bytes, size_t period_bytes);
 
 static const audio_card_ops_t sb16_audio_ops = {
-    .pcm_read      = sb16_audio_read,
-    .pcm_write     = sb16_audio_write,
-    .set_format    = sb16_audio_set_format,
-    .start         = sb16_audio_start,
-    .stop          = sb16_audio_stop,
-    .drain         = sb16_audio_drain,
-    .set_volume    = sb16_audio_set_volume,
-    .get_volume    = sb16_audio_get_volume,
-    .get_position  = sb16_audio_get_position,
-    .get_avail     = 0,
-    .set_params    = sb16_audio_set_params,
+    .pcm_read     = sb16_audio_read,
+    .pcm_write    = sb16_audio_write,
+    .set_format   = sb16_audio_set_format,
+    .start        = sb16_audio_start,
+    .stop         = sb16_audio_stop,
+    .drain        = sb16_audio_drain,
+    .set_volume   = sb16_audio_set_volume,
+    .get_volume   = sb16_audio_get_volume,
+    .get_position = sb16_audio_get_position,
+    .get_avail    = 0,
+    .set_params   = sb16_audio_set_params,
 };
 
-static inline uint8_t sb16_inb(uint16_t port) { return inb(port); }
-static inline void sb16_outb(uint16_t port, uint8_t val) { outb(port, val); }
+static inline uint8_t sb16_inb(uint16_t port)
+{
+    return inb(port);
+}
+static inline void sb16_outb(uint16_t port, uint8_t val)
+{
+    outb(port, val);
+}
 
 /* ------------------------------------------------------------------ */
 /* DMA channel helpers                                                */
@@ -74,7 +79,7 @@ static void sb16_dma_program(uint8_t channel, uint32_t phys_addr, uint32_t size,
     /* Validate address range (< 16MB for 8-bit, < 16MB for 16-bit too on most chips) */
     if (phys_addr + size > 0x1000000) return;
 
-    uint8_t page  = (uint8_t)(phys_addr >> 16);
+    uint8_t  page = (uint8_t)(phys_addr >> 16);
     uint16_t offset;
 
     uint8_t mask_reg  = (channel < 4) ? 0x0A : 0xD4;
@@ -93,7 +98,7 @@ static void sb16_dma_program(uint8_t channel, uint32_t phys_addr, uint32_t size,
     count_port = count_ports[channel];
 
     mode |= (channel & 3);
-    offset = (uint16_t)(channel < 4 ? phys_addr : phys_addr / 2);
+    offset         = (uint16_t)(channel < 4 ? phys_addr : phys_addr / 2);
     uint16_t count = (uint16_t)(channel < 4 ? size - 1 : size / 2 - 1);
 
     disable_intr();
@@ -204,16 +209,19 @@ void sb16_set_input_source(sb16_device_t *dev, uint8_t source)
 {
     uint8_t l = 0, r = 0;
     switch (source) {
-        case SB16_MIXER_INPUT_MIC:
-            l = 0x00; r = 0x00;
+        case SB16_MIXER_INPUT_MIC :
+            l = 0x00;
+            r = 0x00;
             break;
-        case SB16_MIXER_INPUT_CD:
-            l = 0x03; r = 0x03;
+        case SB16_MIXER_INPUT_CD :
+            l = 0x03;
+            r = 0x03;
             break;
-        case SB16_MIXER_INPUT_LINE:
-            l = 0x01; r = 0x01;
+        case SB16_MIXER_INPUT_LINE :
+            l = 0x01;
+            r = 0x01;
             break;
-        default:
+        default :
             return;
     }
     sb16_mixer_write(dev, SB16_MIXER_INPUT_SRC_L, l);
@@ -276,7 +284,7 @@ int sb16_play_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
     if (sb16_set_rate16(dev, dev->sample_rate)) return -1;
 
     uint16_t words = (uint16_t)(size / 2 - 1);
-    uint8_t  d0    = 0x10;  /* FIFO threshold */
+    uint8_t  d0    = 0x10; /* FIFO threshold */
     if (sb16_dsp_write(dev, SB16_DSP_CMD_DMA16_OUT)) return -1;
     if (sb16_dsp_write(dev, d0)) return -1;
     if (sb16_dsp_write(dev, words & 0xFF)) return -1;
@@ -392,8 +400,7 @@ static int sb16_audio_drain(audio_card_t *card)
     return EOK;
 }
 
-static size_t sb16_audio_write(audio_card_t *card, const void *addr,
-                                size_t offset, size_t size)
+static size_t sb16_audio_write(audio_card_t *card, const void *addr, size_t offset, size_t size)
 {
     sb16_device_t *dev = card->driver_data;
     (void)offset;
@@ -420,8 +427,7 @@ static size_t sb16_audio_write(audio_card_t *card, const void *addr,
     return chunk;
 }
 
-static size_t sb16_audio_read(audio_card_t *card, void *addr,
-                               size_t offset, size_t size)
+static size_t sb16_audio_read(audio_card_t *card, void *addr, size_t offset, size_t size)
 {
     sb16_device_t *dev = card->driver_data;
     (void)offset;
@@ -469,8 +475,7 @@ static int sb16_audio_set_format(audio_card_t *card, const audio_pcm_format_t *f
     return EOK;
 }
 
-static int sb16_audio_set_params(audio_card_t *card, const audio_pcm_format_t *fmt,
-                                  size_t buffer_bytes, size_t period_bytes)
+static int sb16_audio_set_params(audio_card_t *card, const audio_pcm_format_t *fmt, size_t buffer_bytes, size_t period_bytes)
 {
     sb16_device_t *dev = card->driver_data;
     (void)buffer_bytes;
@@ -508,8 +513,8 @@ static int sb16_audio_get_volume(audio_card_t *card, audio_volume_t *volume)
     if (!dev) return -ENODEV;
 
     spin_lock(&sb16_lock);
-    volume->left  = sb16_mixer_read(dev, SB16_MIXER_MASTER_L);
-    volume->right = sb16_mixer_read(dev, SB16_MIXER_MASTER_R);
+    volume->left      = sb16_mixer_read(dev, SB16_MIXER_MASTER_L);
+    volume->right     = sb16_mixer_read(dev, SB16_MIXER_MASTER_R);
     dev->volume_left  = volume->left;
     dev->volume_right = volume->right;
     spin_unlock(&sb16_lock);
@@ -604,8 +609,7 @@ void sb16_init(void)
     sb16_dev.dma_buffer_phys = (uint32_t)frame;
     sb16_dev.dma_buffer_virt = (uint8_t *)phys_to_virt(frame);
 
-    plogk("sb16: IRQ %u, DMA8 %u, DMA16 %u, DMA buffer %u bytes.\n",
-          sb16_dev.irq, sb16_dev.dma8, sb16_dev.dma16, sb16_dev.dma_buffer_size);
+    plogk("sb16: IRQ %u, DMA8 %u, DMA16 %u, DMA buffer %u bytes.\n", sb16_dev.irq, sb16_dev.dma8, sb16_dev.dma16, sb16_dev.dma_buffer_size);
 
     audio_pcm_format_t format = {
         .sample_rate = sb16_dev.sample_rate,

@@ -62,16 +62,16 @@
 #define EHCI_INTR_IAA (1U << 5)
 
 /* PORTSC bits */
-#define EHCI_PORT_CCS         (1U << 0)
-#define EHCI_PORT_PED         (1U << 1)
-#define EHCI_PORT_PR          (1U << 8)
-#define EHCI_PORT_PP          (1U << 12)
-#define EHCI_PORT_PO          (1U << 13)
-#define EHCI_PORT_LS_SHIFT    10
-#define EHCI_PORT_LS_MASK     (3U << 10)
-#define EHCI_PORT_LS_KSTATE   (1U << 10)
-#define EHCI_PORT_PTC_SHIFT   3
-#define EHCI_PORT_PTC_MASK    (0x0fU << 3)
+#define EHCI_PORT_CCS       (1U << 0)
+#define EHCI_PORT_PED       (1U << 1)
+#define EHCI_PORT_PR        (1U << 8)
+#define EHCI_PORT_PP        (1U << 12)
+#define EHCI_PORT_PO        (1U << 13)
+#define EHCI_PORT_LS_SHIFT  10
+#define EHCI_PORT_LS_MASK   (3U << 10)
+#define EHCI_PORT_LS_KSTATE (1U << 10)
+#define EHCI_PORT_PTC_SHIFT 3
+#define EHCI_PORT_PTC_MASK  (0x0fU << 3)
 /* Bits 26-27 are controller-specific on some implementations; do not use them
  * to infer speed on a standards-compliant EHCI controller. */
 #define EHCI_PORT_CSC         (1U << 17)

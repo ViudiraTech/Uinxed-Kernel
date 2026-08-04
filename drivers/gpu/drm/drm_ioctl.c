@@ -410,7 +410,7 @@ static int drm_version_copy_string(uint64_t user_ptr, uint64_t capacity, uint64_
     if (!value) value = "";
 
     full_length = strlen(value);
-    *length    = full_length;
+    *length     = full_length;
     if (!user_ptr || !capacity) return 0;
 
     /* drmGetVersion() allocates exactly the reported length plus a NUL. */
@@ -423,13 +423,13 @@ static int drm_version_copy_string(uint64_t user_ptr, uint64_t capacity, uint64_
 int drm_version(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_version *ver;
-    uint64_t           name_ptr;
-    uint64_t           name_capacity;
-    uint64_t           date_ptr;
-    uint64_t           date_capacity;
-    uint64_t           desc_ptr;
-    uint64_t           desc_capacity;
-    int                ret;
+    uint64_t            name_ptr;
+    uint64_t            name_capacity;
+    uint64_t            date_ptr;
+    uint64_t            date_capacity;
+    uint64_t            desc_ptr;
+    uint64_t            desc_capacity;
+    int                 ret;
 
     (void)file_priv;
 

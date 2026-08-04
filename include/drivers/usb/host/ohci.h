@@ -128,35 +128,35 @@ typedef struct __attribute__((packed, aligned(16))) {
 } ohci_gtd_t;
 
 /* TD control bits */
-#define OHCI_TD_R           (1U << 18)
-#define OHCI_TD_DP_SHIFT    19
-#define OHCI_TD_DP_MASK     (3U << 19)
-#define OHCI_TD_DP_SETUP    (0U << 19)
-#define OHCI_TD_DP_OUT      (1U << 19)
-#define OHCI_TD_DP_IN       (2U << 19)
-#define OHCI_TD_DI_SHIFT    21
-#define OHCI_TD_DI_MASK     (7U << 21)
-#define OHCI_TD_DI_NONE     (7U << 21)
-#define OHCI_TD_TOGGLE_CARRY (0U << 24)
-#define OHCI_TD_TOGGLE_DATA0 (2U << 24)
-#define OHCI_TD_TOGGLE_DATA1 (3U << 24)
-#define OHCI_TD_EC_SHIFT     26
-#define OHCI_TD_EC_MASK      (3U << 26)
-#define OHCI_TD_CC_SHIFT    28
-#define OHCI_TD_CC_MASK     (0x0fU << 28)
-#define OHCI_TD_CC_NOERROR  0
-#define OHCI_TD_CC_CRC      1
-#define OHCI_TD_CC_BITSTUFF 2
-#define OHCI_TD_CC_TOGGLE   3
-#define OHCI_TD_CC_STALL    4
-#define OHCI_TD_CC_NORESPONSE     5
-#define OHCI_TD_CC_PID            6
-#define OHCI_TD_CC_UNEXPECTED_PID 7
-#define OHCI_TD_CC_DATA_OVERRUN   8
-#define OHCI_TD_CC_DATA_UNDERRUN  9
-#define OHCI_TD_CC_BUFFER_OVERRUN 12
+#define OHCI_TD_R                  (1U << 18)
+#define OHCI_TD_DP_SHIFT           19
+#define OHCI_TD_DP_MASK            (3U << 19)
+#define OHCI_TD_DP_SETUP           (0U << 19)
+#define OHCI_TD_DP_OUT             (1U << 19)
+#define OHCI_TD_DP_IN              (2U << 19)
+#define OHCI_TD_DI_SHIFT           21
+#define OHCI_TD_DI_MASK            (7U << 21)
+#define OHCI_TD_DI_NONE            (7U << 21)
+#define OHCI_TD_TOGGLE_CARRY       (0U << 24)
+#define OHCI_TD_TOGGLE_DATA0       (2U << 24)
+#define OHCI_TD_TOGGLE_DATA1       (3U << 24)
+#define OHCI_TD_EC_SHIFT           26
+#define OHCI_TD_EC_MASK            (3U << 26)
+#define OHCI_TD_CC_SHIFT           28
+#define OHCI_TD_CC_MASK            (0x0fU << 28)
+#define OHCI_TD_CC_NOERROR         0
+#define OHCI_TD_CC_CRC             1
+#define OHCI_TD_CC_BITSTUFF        2
+#define OHCI_TD_CC_TOGGLE          3
+#define OHCI_TD_CC_STALL           4
+#define OHCI_TD_CC_NORESPONSE      5
+#define OHCI_TD_CC_PID             6
+#define OHCI_TD_CC_UNEXPECTED_PID  7
+#define OHCI_TD_CC_DATA_OVERRUN    8
+#define OHCI_TD_CC_DATA_UNDERRUN   9
+#define OHCI_TD_CC_BUFFER_OVERRUN  12
 #define OHCI_TD_CC_BUFFER_UNDERRUN 13
-#define OHCI_TD_CC_NOT_ACCESSED   15
+#define OHCI_TD_CC_NOT_ACCESSED    15
 
 /* HCCA (Host Controller Communication Area) */
 typedef struct __attribute__((packed, aligned(256))) {

@@ -106,9 +106,9 @@ static ssize_t block_attr_show(struct kobject *kobj, struct attribute *attr, cha
     if (streq(attr->name, "partition")) return partition_show(kobj, attr, buf);
     if (streq(attr->name, "start")) return start_show(kobj, attr, buf);
     if (streq(attr->name, "uevent")) {
-        struct kobj_uevent_env env = {0};
+        struct kobj_uevent_env  env = {0};
         struct block_sysfs_dev *bsd = to_bsd(kobj);
-        int ret = add_uevent_var(&env, "DEVNAME=%s", bsd->name);
+        int                     ret = add_uevent_var(&env, "DEVNAME=%s", bsd->name);
         if (!ret) ret = add_uevent_var(&env, "DEVTYPE=%s", bsd->partition ? "partition" : "disk");
         if (ret) return ret;
         int at = 0;
@@ -167,7 +167,7 @@ static const char *block_uevent_name(struct kobject *kobj)
 static int block_kobj_uevent(struct kobject *kobj, struct kobj_uevent_env *env)
 {
     struct block_sysfs_dev *bsd = to_bsd(kobj);
-    int ret = add_uevent_var(env, "DEVNAME=%s", bsd->name);
+    int                     ret = add_uevent_var(env, "DEVNAME=%s", bsd->name);
     if (ret) return ret;
     return add_uevent_var(env, "DEVTYPE=%s", bsd->partition ? "partition" : "disk");
 }

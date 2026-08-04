@@ -38,8 +38,8 @@ void timer_realtime_set_ns(int64_t nanoseconds)
 
 uint32_t timer_realtime_seconds32(void)
 {
-    int64_t nanoseconds = timer_realtime_ns();
-    uint64_t seconds = nanoseconds > 0 ? (uint64_t)nanoseconds / TIMER_NSEC_PER_SEC : 1;
+    int64_t  nanoseconds = timer_realtime_ns();
+    uint64_t seconds     = nanoseconds > 0 ? (uint64_t)nanoseconds / TIMER_NSEC_PER_SEC : 1;
     return seconds > UINT32_MAX ? UINT32_MAX : (uint32_t)seconds;
 }
 

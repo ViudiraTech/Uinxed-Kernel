@@ -58,9 +58,7 @@ static int fs_txn_flush(fs_txn_log_t *log)
 
 static int fs_txn_home_block_valid(const fs_txn_log_t *log, uint64_t home_block)
 {
-    if (!log || !log->device.sector_size || log->block_size < log->device.sector_size
-        || log->block_size % log->device.sector_size)
-        return 0;
+    if (!log || !log->device.sector_size || log->block_size < log->device.sector_size || log->block_size % log->device.sector_size) return 0;
     uint64_t sectors_per_block = log->block_size / log->device.sector_size;
     return home_block < log->device.sector_count / sectors_per_block;
 }
@@ -88,11 +86,10 @@ static void fs_txn_finish(fs_txn_t *transaction)
     fs_txn_release_log(log);
 }
 
-int fs_txn_log_init(fs_txn_log_t *log, const blockdev_device_t *device, uint32_t block_size,
-                    const fs_txn_backend_ops_t *ops, void *backend_context)
+int fs_txn_log_init(fs_txn_log_t *log, const blockdev_device_t *device, uint32_t block_size, const fs_txn_backend_ops_t *ops,
+                    void *backend_context)
 {
-    if (!log || !device || !device->sector_size || !device->sector_count || block_size < device->sector_size
-        || block_size % device->sector_size)
+    if (!log || !device || !device->sector_size || !device->sector_count || block_size < device->sector_size || block_size % device->sector_size)
         return -EINVAL;
     memset(log, 0, sizeof(*log));
     log->device              = *device;
@@ -205,15 +202,15 @@ int fs_txn_read_bytes(fs_txn_t *transaction, uint64_t offset, void *data, size_t
 {
     if (!size) return EOK;
     if (!data || !fs_txn_byte_range_valid(transaction, offset, size)) return -EINVAL;
-    uint8_t *output = data;
+    uint8_t *output     = data;
     uint32_t block_size = transaction->log->block_size;
-    uint8_t *block = malloc(block_size);
+    uint8_t *block      = malloc(block_size);
     if (!block) return -ENOMEM;
     while (size) {
         uint64_t logical = offset / block_size;
-        uint32_t within = (uint32_t)(offset % block_size);
-        size_t chunk = size < block_size - within ? size : block_size - within;
-        int status = fs_txn_read(transaction, logical, block);
+        uint32_t within  = (uint32_t)(offset % block_size);
+        size_t   chunk   = size < block_size - within ? size : block_size - within;
+        int      status  = fs_txn_read(transaction, logical, block);
         if (status != EOK) {
             free(block);
             return status;
@@ -231,15 +228,15 @@ int fs_txn_stage_bytes(fs_txn_t *transaction, uint64_t offset, const void *data,
 {
     if (!size) return EOK;
     if (!data || !fs_txn_byte_range_valid(transaction, offset, size)) return -EINVAL;
-    const uint8_t *input = data;
-    uint32_t block_size = transaction->log->block_size;
-    uint8_t *block = malloc(block_size);
+    const uint8_t *input      = data;
+    uint32_t       block_size = transaction->log->block_size;
+    uint8_t       *block      = malloc(block_size);
     if (!block) return -ENOMEM;
     while (size) {
         uint64_t logical = offset / block_size;
-        uint32_t within = (uint32_t)(offset % block_size);
-        size_t chunk = size < block_size - within ? size : block_size - within;
-        int status = fs_txn_read(transaction, logical, block);
+        uint32_t within  = (uint32_t)(offset % block_size);
+        size_t   chunk   = size < block_size - within ? size : block_size - within;
+        int      status  = fs_txn_read(transaction, logical, block);
         if (status == EOK) {
             memcpy(block + within, input, chunk);
             status = fs_txn_stage(transaction, logical, block, flags);
@@ -281,14 +278,12 @@ int fs_txn_commit(fs_txn_t *transaction)
             if (status != EOK) break;
         }
     }
-    if (status == EOK && log->ops && log->ops->commit)
-        status = log->ops->commit(log->backend_context, transaction->transaction_id);
+    if (status == EOK && log->ops && log->ops->commit) status = log->ops->commit(log->backend_context, transaction->transaction_id);
     if (status == EOK && log->ops && transaction->used) status = fs_txn_flush(log);
 
     if (status == EOK) status = fs_txn_write_home(transaction, FS_TXN_METADATA);
     if (status == EOK && transaction->used) status = fs_txn_flush(log);
-    if (status == EOK && log->ops && log->ops->checkpoint)
-        status = log->ops->checkpoint(log->backend_context, transaction->transaction_id);
+    if (status == EOK && log->ops && log->ops->checkpoint) status = log->ops->checkpoint(log->backend_context, transaction->transaction_id);
     if (status == EOK && log->ops && transaction->used) status = fs_txn_flush(log);
 
     if (status != EOK) {

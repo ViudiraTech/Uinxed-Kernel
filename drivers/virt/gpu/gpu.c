@@ -810,10 +810,10 @@ static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data
     if (!guest_blob) {
         free(obj->entries);
         if (obj->backing_phys) free_frames(obj->backing_phys, obj->backing_page_count);
-        obj->entries      = NULL;
-        obj->base.backing = NULL;
-        obj->num_entries  = 0;
-        obj->backing_phys = 0;
+        obj->entries            = NULL;
+        obj->base.backing       = NULL;
+        obj->num_entries        = 0;
+        obj->backing_phys       = 0;
         obj->backing_page_count = 0;
     }
 

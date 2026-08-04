@@ -28,7 +28,7 @@
 #ifndef VFS_PATH_TEST_ONLY
 vfs_node_t        rootdir = 0;
 static spinlock_t vfs_namespace_lock;
-static uint64_t   vfs_next_ino = 1;
+static uint64_t   vfs_next_ino      = 1;
 static uint64_t   vfs_next_mount_id = 1;
 
 /*
@@ -262,9 +262,9 @@ static char *vfs_node_absolute_path(vfs_node_t node)
 
 static char *vfs_resolve_link_path(vfs_node_t node)
 {
-    char      *path;
-    process_t *proc;
-    char       dynamic_target[VFS_PATH_MAX];
+    char       *path;
+    process_t  *proc;
+    char        dynamic_target[VFS_PATH_MAX];
     const char *linkname;
 
     if (!node) return 0;
@@ -273,7 +273,7 @@ static char *vfs_resolve_link_path(vfs_node_t node)
         size_t length = callbackof(node, readlink)(node, dynamic_target, 0, sizeof(dynamic_target) - 1);
         if (!length || length >= sizeof(dynamic_target)) return 0;
         dynamic_target[length] = '\0';
-        linkname              = dynamic_target;
+        linkname               = dynamic_target;
     }
     if (!linkname) return 0;
     proc = process_current();
@@ -368,14 +368,14 @@ vfs_node_t vfs_node_alloc(vfs_node_t parent, const char *name)
         free(node);
         return 0;
     }
-    node->type     = file_none;
-    node->fsid     = parent ? parent->fsid : 0;
-    node->root     = parent ? parent->root : node;
-    node->dev      = parent ? parent->dev : 0;
+    node->type = file_none;
+    node->fsid = parent ? parent->fsid : 0;
+    node->root = parent ? parent->root : node;
+    node->dev  = parent ? parent->dev : 0;
     /* Virtual filesystems need real inode identity too.  In particular,
      * dynamic linkers use (st_dev, st_ino) to decide whether a shared object
      * is already loaded.  Zero for every tmpfs node aliases unrelated files. */
-    node->inode    = __atomic_fetch_add(&vfs_next_ino, 1, __ATOMIC_RELAXED);
+    node->inode = __atomic_fetch_add(&vfs_next_ino, 1, __ATOMIC_RELAXED);
     if (!node->inode) node->inode = __atomic_fetch_add(&vfs_next_ino, 1, __ATOMIC_RELAXED);
     node->nlink    = 1;
     node->refcount = 0;
@@ -676,8 +676,8 @@ int vfs_readdir(vfs_node_t dir, size_t index, vfs_dirent_t *entry)
         return -ENOTDIR;
     }
 
-    vfs_node_t child = NULL;
-    size_t visible = 0;
+    vfs_node_t child   = NULL;
+    size_t     visible = 0;
     for (clist_t list = dir->child; list; list = list->next) {
         vfs_node_t candidate = list->data;
         if (!candidate || (candidate->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED))) continue;
@@ -691,10 +691,10 @@ int vfs_readdir(vfs_node_t dir, size_t index, vfs_dirent_t *entry)
         return -ENOENT;
     }
 
-    entry->name      = child->name;
-    entry->type      = child->type;
-    entry->size      = child->size;
-    entry->inode     = child->inode;
+    entry->name  = child->name;
+    entry->type  = child->type;
+    entry->size  = child->size;
+    entry->inode = child->inode;
     spin_unlock(&vfs_namespace_lock);
     inotify_notify(dir, IN_ACCESS);
     return EOK;
@@ -917,8 +917,8 @@ size_t vfs_format_filesystems(char *buffer, size_t capacity)
     for (int i = 1; i < fs_nextid; i++) {
         if (!fs_names[i] || !fs_names[i][0] || fs_callbacks[i]->mount == vfs_empty_callback.mount) continue;
         const char *prefix = (fs_flags[i] & VFS_FS_NODEV) ? "nodev\t" : "\t";
-        int length = snprintf(used < capacity ? buffer + used : buffer + capacity - 1, used < capacity ? capacity - used : 0,
-                              "%s%s\n", prefix, fs_names[i]);
+        int length = snprintf(used < capacity ? buffer + used : buffer + capacity - 1, used < capacity ? capacity - used : 0, "%s%s\n", prefix,
+                              fs_names[i]);
         if (length > 0) used += (size_t)length;
     }
     if (used >= capacity) {
@@ -955,8 +955,8 @@ static int vfs_mount_id(const char *src, vfs_node_t node, int fsid)
         node->mount_source = source_copy;
         node->mount_id     = __atomic_fetch_add(&vfs_next_mount_id, 1, __ATOMIC_RELAXED);
         if (!node->mount_id) node->mount_id = __atomic_fetch_add(&vfs_next_mount_id, 1, __ATOMIC_RELAXED);
-        node->root          = node;
-        node->is_mount      = 1;
+        node->root     = node;
+        node->is_mount = 1;
         return EOK;
     }
 
@@ -1014,11 +1014,11 @@ int vfs_umount(const char *path)
             free(cur->mount_source);
             cur->mount_source = NULL;
             cur->mount_id     = 0;
-            cur->fsid     = node->fsid;
-            cur->root     = node->root;
-            cur->handle   = 0;
-            cur->child    = 0;
-            cur->is_mount = 0;
+            cur->fsid         = node->fsid;
+            cur->root         = node->root;
+            cur->handle       = 0;
+            cur->child        = 0;
+            cur->is_mount     = 0;
             if (cur->fsid) do_update(cur);
             return EOK;
         }
@@ -1072,19 +1072,19 @@ static size_t vfs_mount_escape(char *output, size_t capacity, const char *input)
 static size_t vfs_mount_options(char *output, size_t capacity, const vfs_node_t node)
 {
     size_t used = 0;
-#define APPEND_OPTION(_text)                                                                                                                \
-    do {                                                                                                                                     \
-        const char *_option = (_text);                                                                                                      \
-        for (size_t _i = 0; _option[_i]; _i++) {                                                                                           \
-            if (used + 1 < capacity) output[used] = _option[_i];                                                                            \
-            used++;                                                                                                                          \
-        }                                                                                                                                    \
-    } while (0)
+#    define APPEND_OPTION(_text)                                     \
+        do {                                                         \
+            const char *_option = (_text);                           \
+            for (size_t _i = 0; _option[_i]; _i++) {                 \
+                if (used + 1 < capacity) output[used] = _option[_i]; \
+                used++;                                              \
+            }                                                        \
+        } while (0)
     APPEND_OPTION((node->flags & MOUNT_FLAG_RDONLY) ? "ro" : "rw");
     if (node->flags & MOUNT_FLAG_NOSUID) APPEND_OPTION(",nosuid");
     if (node->flags & MOUNT_FLAG_NODEV) APPEND_OPTION(",nodev");
     if (node->flags & MOUNT_FLAG_NOEXEC) APPEND_OPTION(",noexec");
-#undef APPEND_OPTION
+#    undef APPEND_OPTION
     if (capacity) output[used < capacity ? used : capacity - 1] = '\0';
     return used;
 }
@@ -1104,17 +1104,17 @@ static void vfs_format_mount_subtree(vfs_node_t node, char *buffer, size_t capac
         vfs_mount_escape(scratch->escaped_path, sizeof(scratch->escaped_path), scratch->path);
         vfs_mount_escape(scratch->escaped_source, sizeof(scratch->escaped_source), node->mount_source);
         vfs_mount_options(scratch->options, sizeof(scratch->options), node);
-        const char *type = node->fsid < (uint16_t)fs_nextid && fs_names[node->fsid] ? fs_names[node->fsid] : "unknown";
+        const char *type        = node->fsid < (uint16_t)fs_nextid && fs_names[node->fsid] ? fs_names[node->fsid] : "unknown";
         char       *destination = *used < capacity ? buffer + *used : buffer + capacity - 1;
         size_t      remaining   = *used < capacity ? capacity - *used : 0;
         int         length;
         if (mountinfo) {
-            length = snprintf(destination, remaining, "%llu %llu 0:%u / %s %s - %s %s %s\n", node->mount_id,
-                              vfs_parent_mount_id(node), (unsigned)node->fsid, scratch->escaped_path, scratch->options, type,
-                              scratch->escaped_source, (node->flags & MOUNT_FLAG_RDONLY) ? "ro" : "rw");
+            length = snprintf(destination, remaining, "%llu %llu 0:%u / %s %s - %s %s %s\n", node->mount_id, vfs_parent_mount_id(node),
+                              (unsigned)node->fsid, scratch->escaped_path, scratch->options, type, scratch->escaped_source,
+                              (node->flags & MOUNT_FLAG_RDONLY) ? "ro" : "rw");
         } else {
-            length = snprintf(destination, remaining, "%s %s %s %s 0 0\n", scratch->escaped_source, scratch->escaped_path, type,
-                              scratch->options);
+            length
+                = snprintf(destination, remaining, "%s %s %s %s 0 0\n", scratch->escaped_source, scratch->escaped_path, type, scratch->options);
         }
         if (length > 0) *used += (size_t)length;
     }

@@ -253,7 +253,7 @@ int extfs_read_data(extfs_handle_t *h, void *buf, uint64_t offset, size_t size)
     if (!block_buf) return -ENOMEM;
 
     while (done < size) {
-        uint64_t abs_pos = offset + done;
+        uint64_t abs_pos   = offset + done;
         uint64_t logical64 = abs_pos / sb->block_size;
         if (logical64 > UINT32_MAX) break;
         uint32_t logical = (uint32_t)logical64;
@@ -266,7 +266,7 @@ int extfs_read_data(extfs_handle_t *h, void *buf, uint64_t offset, size_t size)
         extfs_handle_t tmp_h = *h;
         memcpy(tmp_h.ei.i_data, raw.i_block, sizeof(raw.i_block));
         tmp_h.ei.i_flags = raw.i_flags;
-        phys = extfs_map_block(&tmp_h, logical, 0);
+        phys             = extfs_map_block(&tmp_h, logical, 0);
 
         if (phys == 0) {
             memset((uint8_t *)buf + done, 0, chunk);
@@ -293,7 +293,7 @@ int extfs_write_data(extfs_handle_t *h, const void *buf, uint64_t offset, size_t
     int              status;
 
     if (!h || !h->sb || !buf || size == 0) return 0;
-    sb = h->sb;
+    sb                    = h->sb;
     uint64_t maximum_size = (uint64_t)UINT32_MAX * sb->block_size;
     if (size > (UINT32_MAX >> 1) || offset >= maximum_size || size > maximum_size - offset) return -EFBIG;
 
@@ -304,7 +304,7 @@ int extfs_write_data(extfs_handle_t *h, const void *buf, uint64_t offset, size_t
     if (!block_buf) return -ENOMEM;
 
     while (done < size) {
-        uint64_t abs_pos = offset + done;
+        uint64_t abs_pos   = offset + done;
         uint64_t logical64 = abs_pos / sb->block_size;
         if (logical64 > UINT32_MAX) break;
         uint32_t logical = (uint32_t)logical64;
@@ -349,7 +349,7 @@ int extfs_write_data(extfs_handle_t *h, const void *buf, uint64_t offset, size_t
         }
         raw.i_mtime = timer_realtime_seconds32();
         raw.i_ctime = raw.i_mtime;
-        status = extfs_write_inode_raw(sb, h->inode_no, &raw);
+        status      = extfs_write_inode_raw(sb, h->inode_no, &raw);
         if (status != EOK) {
             free(block_buf);
             return status;
@@ -444,8 +444,8 @@ int extfs_release_xattr_block(extfs_handle_t *h)
 {
     if (!h || !h->sb) return -EINVAL;
     extfs_sb_info_t *sb = h->sb;
-    ext2_inode_t raw;
-    int status = extfs_read_inode_raw(sb, h->inode_no, &raw);
+    ext2_inode_t     raw;
+    int              status = extfs_read_inode_raw(sb, h->inode_no, &raw);
     if (status != EOK) return status;
     uint64_t block = raw.i_file_acl | (uint64_t)raw.l_i_file_acl_high << 32;
     if (!block) return EOK;
@@ -465,10 +465,10 @@ int extfs_release_xattr_block(extfs_handle_t *h)
         uint32_t stored;
         memcpy(&stored, buffer + 16, sizeof(stored));
         uint32_t checksum = crc32c_update(sb->checksum_seed, &block, sizeof(block));
-        checksum = crc32c_update(checksum, buffer, 16);
-        uint32_t zero = 0;
-        checksum = crc32c_update(checksum, &zero, sizeof(zero));
-        checksum = crc32c_update(checksum, buffer + 20, sb->block_size - 20);
+        checksum          = crc32c_update(checksum, buffer, 16);
+        uint32_t zero     = 0;
+        checksum          = crc32c_update(checksum, &zero, sizeof(zero));
+        checksum          = crc32c_update(checksum, buffer + 20, sb->block_size - 20);
         if (stored != checksum) status = -EIO;
     }
     if (status == EOK && refcount > 1) {
@@ -478,9 +478,9 @@ int extfs_release_xattr_block(extfs_handle_t *h)
             uint32_t zero = 0;
             memcpy(buffer + 16, &zero, sizeof(zero));
             uint32_t checksum = crc32c_update(sb->checksum_seed, &block, sizeof(block));
-            checksum = crc32c_update(checksum, buffer, 16);
-            checksum = crc32c_update(checksum, &zero, sizeof(zero));
-            checksum = crc32c_update(checksum, buffer + 20, sb->block_size - 20);
+            checksum          = crc32c_update(checksum, buffer, 16);
+            checksum          = crc32c_update(checksum, &zero, sizeof(zero));
+            checksum          = crc32c_update(checksum, buffer + 20, sb->block_size - 20);
             memcpy(buffer + 16, &checksum, sizeof(checksum));
         }
         status = extfs_write_block(sb, (uint32_t)block, buffer);
@@ -501,12 +501,11 @@ static int extfs_block_array_empty(const uint32_t *blocks, uint32_t count)
 }
 
 /* Remove data blocks in [first, last) from an indirect subtree. */
-static int extfs_free_branch_range(extfs_sb_info_t *sb, uint32_t block, uint32_t depth, uint64_t first, uint64_t last,
-                                   int *empty)
+static int extfs_free_branch_range(extfs_sb_info_t *sb, uint32_t block, uint32_t depth, uint64_t first, uint64_t last, int *empty)
 {
     uint32_t  ptrs = sb->block_size / sizeof(uint32_t);
     uint32_t *entries;
-    uint64_t  span = 1;
+    uint64_t  span    = 1;
     int       changed = 0;
     int       status  = EOK;
 
@@ -538,7 +537,7 @@ static int extfs_free_branch_range(extfs_sb_info_t *sb, uint32_t block, uint32_t
             changed = 1;
         } else {
             int child_empty = 0;
-            status = extfs_free_branch_range(sb, child, depth - 1, child_first, child_last, &child_empty);
+            status          = extfs_free_branch_range(sb, child, depth - 1, child_first, child_last, &child_empty);
             if (status != EOK) break;
             if (child_empty) {
                 entries[i] = 0;
@@ -562,7 +561,7 @@ static int extfs_truncate_block_tree(extfs_handle_t *h, uint64_t first, uint64_t
 
     for (uint32_t i = 0; i < EXT2_NDIR_BLOCKS; i++) {
         if (i < first || i >= last || !h->ei.i_data[i]) continue;
-        uint32_t block = h->ei.i_data[i];
+        uint32_t block  = h->ei.i_data[i];
         h->ei.i_data[i] = 0;
         extfs_free_block(sb, block);
     }
@@ -580,7 +579,7 @@ static int extfs_truncate_block_tree(extfs_handle_t *h, uint64_t first, uint64_t
             uint32_t root       = h->ei.i_data[root_index];
             if (root) {
                 int empty = 0;
-                status = extfs_free_branch_range(sb, root, depth, range_first, range_last, &empty);
+                status    = extfs_free_branch_range(sb, root, depth, range_first, range_last, &empty);
                 if (status != EOK) return status;
                 if (empty) {
                     h->ei.i_data[root_index] = 0;
@@ -688,21 +687,21 @@ int extfs_truncate(extfs_handle_t *h, uint64_t size)
         }
 
         /* Update inode size */
-        raw.i_size    = (uint32_t)size;
+        raw.i_size = (uint32_t)size;
         if ((raw.i_mode & 0xF000) == EXT2_S_IFREG) raw.i_dir_acl = (uint32_t)(size >> 32);
         memcpy(raw.i_block, h->ei.i_data, sizeof(raw.i_block));
         status = extfs_update_i_blocks(h, &raw);
         if (status != EOK) return status;
         raw.i_mtime = timer_realtime_seconds32();
         raw.i_ctime = raw.i_mtime;
-        status = extfs_write_inode_raw(sb, h->inode_no, &raw);
+        status      = extfs_write_inode_raw(sb, h->inode_no, &raw);
         if (status != EOK) return status;
     } else if (size > old_size) {
         raw.i_size = (uint32_t)size;
         if ((raw.i_mode & 0xF000) == EXT2_S_IFREG) raw.i_dir_acl = (uint32_t)(size >> 32);
         raw.i_mtime = timer_realtime_seconds32();
         raw.i_ctime = raw.i_mtime;
-        status = extfs_write_inode_raw(sb, h->inode_no, &raw);
+        status      = extfs_write_inode_raw(sb, h->inode_no, &raw);
         if (status != EOK) return status;
     }
 

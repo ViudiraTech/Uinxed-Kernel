@@ -42,8 +42,8 @@
 #include <fs/fatfs/fatfs_vfs.h>
 #include <fs/isofs/isofs.h>
 #include <fs/ntfs/ntfs_vfs.h>
-#include <fs/sysfs/input_sysfs.h>
 #include <fs/sysfs/fb_sysfs.h>
+#include <fs/sysfs/input_sysfs.h>
 #include <fs/sysfs/net_sysfs.h>
 #include <fs/sysfs/sysfs.h>
 #include <fs/virtual/cgroupfs.h>
@@ -106,8 +106,8 @@ void swapper_run_init(void)
     if (!init->task || init->task->pid != 1) panic("User init did not receive PID 1.");
     /* PID 1 starts with full system credentials.  Login/session services are
      * responsible for dropping to the configured desktop user later. */
-    init->uid     = 0;
-    init->gid     = 0;
+    init->uid      = 0;
+    init->gid      = 0;
     init_process   = init;
     pid_t init_sid = 0;
     if (process_setsid(init, &init_sid) || init_sid != 1 || init->pgid != 1) { panic("Failed to establish init session."); }

@@ -128,10 +128,10 @@ struct device {
         struct device_driver *driver; /* driver bound to this device */
         struct class *class;          /* optional class grouping */
 
-        void    *driver_data; /* private driver data */
-        dev_t    devt;        /* major:minor device number */
-        uint64_t devid;       /* bus-specific device ID */
-        const char *devnode;   /* optional /dev-relative node name */
+        void       *driver_data; /* private driver data */
+        dev_t       devt;        /* major:minor device number */
+        uint64_t    devid;       /* bus-specific device ID */
+        const char *devnode;     /* optional /dev-relative node name */
 
         void (*release)(struct device *dev);
 

@@ -68,18 +68,18 @@ typedef struct ohci_controller {
         uint8_t             irq_slot;
         uint8_t             num_ports;
 
-        ohci_hcca_t *hcca;
-        uint64_t     hcca_physical;
-        spinlock_t   lock;
+        ohci_hcca_t  *hcca;
+        uint64_t      hcca_physical;
+        spinlock_t    lock;
         volatile bool io_busy;
 
-        ohci_td_phys_t tds[OHCI_NUM_TD];
-        ohci_ed_phys_t eds[OHCI_NUM_ED];
-        usb_device_t  *devices[OHCI_MAX_PORTS];
+        ohci_td_phys_t            tds[OHCI_NUM_TD];
+        ohci_ed_phys_t            eds[OHCI_NUM_ED];
+        usb_device_t             *devices[OHCI_MAX_PORTS];
         ohci_periodic_transfer_t *periodic[OHCI_MAX_PERIODIC];
-        uint64_t       pending_ports;
-        task_t        *worker_task;
-        bool           running;
+        uint64_t                  pending_ports;
+        task_t                   *worker_task;
+        bool                      running;
 } ohci_controller_t;
 
 static ohci_controller_t *ohci_controllers[OHCI_MAX_CONTROLLERS];
@@ -201,15 +201,14 @@ static int ohci_wait_td(ohci_controller_t *ctrl, ohci_gtd_t *td, bool allow_shor
     }
 }
 
-static int ohci_wait_control(ohci_controller_t *ctrl, const int *td_indices, size_t count, size_t data_position, bool input,
-                             uint32_t timeout_ms)
+static int ohci_wait_control(ohci_controller_t *ctrl, const int *td_indices, size_t count, size_t data_position, bool input, uint32_t timeout_ms)
 {
     uint64_t deadline = nano_time() + (uint64_t)timeout_ms * 1000000ULL;
     for (size_t position = 0; position < count; position++) {
         for (;;) {
             if (!ctrl->running) return -ESHUTDOWN;
             bool allow_short = input && position == data_position;
-            int status = ohci_td_result(ctrl->tds[td_indices[position]].virtual, allow_short);
+            int  status      = ohci_td_result(ctrl->tds[td_indices[position]].virtual, allow_short);
             if (status != -EINPROGRESS) {
                 if (status != EOK) return status;
                 break;
@@ -231,18 +230,18 @@ static size_t ohci_td_actual(const ohci_gtd_t *td, uint32_t buffer_start, size_t
 
 static uint32_t ohci_ed_control(const usb_device_t *device, uint8_t endpoint, uint16_t max_packet)
 {
-    uint32_t control = (uint32_t)device->address << OHCI_ED_FA_SHIFT | (uint32_t)endpoint << OHCI_ED_EN_SHIFT
-                     | (uint32_t)max_packet << OHCI_ED_MPS_SHIFT;
+    uint32_t control
+        = (uint32_t)device->address << OHCI_ED_FA_SHIFT | (uint32_t)endpoint << OHCI_ED_EN_SHIFT | (uint32_t)max_packet << OHCI_ED_MPS_SHIFT;
     if (device->speed == USB_SPEED_LOW) control |= OHCI_ED_S;
     return control;
 }
 
 static void ohci_fill_td(ohci_gtd_t *td, uint32_t flags, uint32_t buffer, size_t length, uint32_t next)
 {
-    td->control = flags | ((uint32_t)OHCI_TD_CC_NOT_ACCESSED << OHCI_TD_CC_SHIFT);
+    td->control                = flags | ((uint32_t)OHCI_TD_CC_NOT_ACCESSED << OHCI_TD_CC_SHIFT);
     td->current_buffer_pointer = length ? buffer : 0;
-    td->buffer_end = length ? buffer + (uint32_t)length - 1 : 0;
-    td->next_td = next;
+    td->buffer_end             = length ? buffer + (uint32_t)length - 1 : 0;
+    td->next_td                = next;
 }
 
 static int ohci_control(usb_device_t *device, const usb_setup_packet_t *setup, void *buffer, size_t length, uint32_t timeout_ms)
@@ -254,13 +253,13 @@ static int ohci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
     bool input = (setup->request_type & USB_DIR_IN) != 0;
 
     ohci_io_lock(ctrl);
-    int status = -ENOMEM;
-    int ed_index = -1;
-    int td_indices[4] = {-1, -1, -1, -1};
-    size_t td_count = length ? 4 : 3;
+    int      status         = -ENOMEM;
+    int      ed_index       = -1;
+    int      td_indices[4]  = {-1, -1, -1, -1};
+    size_t   td_count       = length ? 4 : 3;
     uint64_t setup_physical = 0, data_physical = 0;
-    void *setup_dma = ohci_dma_alloc(sizeof(*setup), &setup_physical);
-    void *data_dma = NULL;
+    void    *setup_dma = ohci_dma_alloc(sizeof(*setup), &setup_physical);
+    void    *data_dma  = NULL;
     if (!setup_dma || setup_physical > UINT32_MAX) goto control_cleanup;
     memcpy(setup_dma, setup, sizeof(*setup));
     if (length) {
@@ -275,25 +274,24 @@ static int ohci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
         if (td_indices[i] < 0) goto control_cleanup;
     }
 
-    size_t data_position = 1;
+    size_t data_position   = 1;
     size_t status_position = length ? 2 : 1;
-    size_t dummy_position = status_position + 1;
-    ohci_fill_td(ctrl->tds[td_indices[0]].virtual, OHCI_TD_DP_SETUP | OHCI_TD_TOGGLE_DATA0 | OHCI_TD_DI_NONE,
-                 (uint32_t)setup_physical, sizeof(*setup), (uint32_t)ctrl->tds[td_indices[data_position]].physical);
+    size_t dummy_position  = status_position + 1;
+    ohci_fill_td(ctrl->tds[td_indices[0]].virtual, OHCI_TD_DP_SETUP | OHCI_TD_TOGGLE_DATA0 | OHCI_TD_DI_NONE, (uint32_t)setup_physical,
+                 sizeof(*setup), (uint32_t)ctrl->tds[td_indices[data_position]].physical);
     if (length) {
         ohci_fill_td(ctrl->tds[td_indices[data_position]].virtual,
-                     (input ? OHCI_TD_DP_IN | OHCI_TD_R : OHCI_TD_DP_OUT) | OHCI_TD_TOGGLE_DATA1 | OHCI_TD_DI_NONE,
-                     (uint32_t)data_physical, length, (uint32_t)ctrl->tds[td_indices[status_position]].physical);
+                     (input ? OHCI_TD_DP_IN | OHCI_TD_R : OHCI_TD_DP_OUT) | OHCI_TD_TOGGLE_DATA1 | OHCI_TD_DI_NONE, (uint32_t)data_physical,
+                     length, (uint32_t)ctrl->tds[td_indices[status_position]].physical);
     }
-    ohci_fill_td(ctrl->tds[td_indices[status_position]].virtual,
-                 (input && length ? OHCI_TD_DP_OUT : OHCI_TD_DP_IN) | OHCI_TD_TOGGLE_DATA1,
-                 0, 0, (uint32_t)ctrl->tds[td_indices[dummy_position]].physical);
+    ohci_fill_td(ctrl->tds[td_indices[status_position]].virtual, (input && length ? OHCI_TD_DP_OUT : OHCI_TD_DP_IN) | OHCI_TD_TOGGLE_DATA1, 0, 0,
+                 (uint32_t)ctrl->tds[td_indices[dummy_position]].physical);
 
-    ohci_ed_t *ed = ctrl->eds[ed_index].virtual;
-    ed->control = ohci_ed_control(device, 0, max_packet);
+    ohci_ed_t *ed    = ctrl->eds[ed_index].virtual;
+    ed->control      = ohci_ed_control(device, 0, max_packet);
     ed->tail_pointer = (uint32_t)ctrl->tds[td_indices[dummy_position]].physical;
     ed->head_pointer = (uint32_t)ctrl->tds[td_indices[0]].physical;
-    ed->next_ed = 0;
+    ed->next_ed      = 0;
     dma_write_barrier();
     ohci_write32(ctrl, OHCI_HcControlHeadED, (uint32_t)ctrl->eds[ed_index].physical);
     ohci_write32(ctrl, OHCI_HcCommandStatus, OHCI_CMD_CLF);
@@ -310,7 +308,8 @@ static int ohci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
 
 control_cleanup:
     if (ed_index >= 0) ohci_free_ed(ctrl, ed_index);
-    for (size_t i = 0; i < td_count; i++) if (td_indices[i] >= 0) ohci_free_td(ctrl, td_indices[i]);
+    for (size_t i = 0; i < td_count; i++)
+        if (td_indices[i] >= 0) ohci_free_td(ctrl, td_indices[i]);
     if (setup_dma) ohci_dma_free(setup_physical, sizeof(*setup));
     if (data_dma) ohci_dma_free(data_physical, length);
     ohci_io_unlock(ctrl);
@@ -322,33 +321,32 @@ static int ohci_transfer(usb_endpoint_t *endpoint, void *buffer, size_t length, 
     if (!endpoint || !endpoint->interface || !endpoint->interface->device || (length && !buffer) || length > PAGE_4K_SIZE) return -EINVAL;
     if (actual) *actual = 0;
     if (!length) return EOK;
-    usb_device_t *device = endpoint->interface->device;
-    ohci_controller_t *ctrl = device->hc_private;
-    uint16_t max_packet = usb_get_le16(&endpoint->descriptor.max_packet_size) & 0x07ff;
+    usb_device_t      *device     = endpoint->interface->device;
+    ohci_controller_t *ctrl       = device->hc_private;
+    uint16_t           max_packet = usb_get_le16(&endpoint->descriptor.max_packet_size) & 0x07ff;
     if (!ctrl || !max_packet || max_packet > 1023) return -EINVAL;
-    bool input = (endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK) != 0;
+    bool    input           = (endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK) != 0;
     uint8_t endpoint_number = endpoint->descriptor.endpoint_address & USB_ENDPOINT_NUMBER_MASK;
 
     ohci_io_lock(ctrl);
-    int status = -ENOMEM;
-    int ed_index = -1, data_index = -1, dummy_index = -1;
+    int      status   = -ENOMEM;
+    int      ed_index = -1, data_index = -1, dummy_index = -1;
     uint64_t data_physical = 0;
-    void *data_dma = ohci_dma_alloc(length, &data_physical);
+    void    *data_dma      = ohci_dma_alloc(length, &data_physical);
     if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) goto transfer_cleanup;
     if (!input) memcpy(data_dma, buffer, length);
-    ed_index = ohci_find_free_ed(ctrl);
-    data_index = ohci_find_free_td(ctrl);
+    ed_index    = ohci_find_free_ed(ctrl);
+    data_index  = ohci_find_free_td(ctrl);
     dummy_index = ohci_find_free_td(ctrl);
     if (ed_index < 0 || data_index < 0 || dummy_index < 0) goto transfer_cleanup;
 
-    ohci_fill_td(ctrl->tds[data_index].virtual,
-                 (input ? OHCI_TD_DP_IN | OHCI_TD_R : OHCI_TD_DP_OUT) | OHCI_TD_TOGGLE_CARRY,
+    ohci_fill_td(ctrl->tds[data_index].virtual, (input ? OHCI_TD_DP_IN | OHCI_TD_R : OHCI_TD_DP_OUT) | OHCI_TD_TOGGLE_CARRY,
                  (uint32_t)data_physical, length, (uint32_t)ctrl->tds[dummy_index].physical);
-    ohci_ed_t *ed = ctrl->eds[ed_index].virtual;
-    ed->control = ohci_ed_control(device, endpoint_number, max_packet);
+    ohci_ed_t *ed    = ctrl->eds[ed_index].virtual;
+    ed->control      = ohci_ed_control(device, endpoint_number, max_packet);
     ed->tail_pointer = (uint32_t)ctrl->tds[dummy_index].physical;
     ed->head_pointer = (uint32_t)ctrl->tds[data_index].physical | (endpoint->data_toggle ? 2U : 0U);
-    ed->next_ed = 0;
+    ed->next_ed      = 0;
     dma_write_barrier();
     ohci_write32(ctrl, OHCI_HcBulkHeadED, (uint32_t)ctrl->eds[ed_index].physical);
     ohci_write32(ctrl, OHCI_HcCommandStatus, OHCI_CMD_BLF);
@@ -390,18 +388,18 @@ static int ohci_interrupt_start(usb_endpoint_t *endpoint, size_t length, usb_int
         free(transfer);
         return -ENOMEM;
     }
-    transfer->endpoint = endpoint;
-    transfer->complete = complete;
-    transfer->context = context;
-    transfer->length = length;
+    transfer->endpoint    = endpoint;
+    transfer->complete    = complete;
+    transfer->context     = context;
+    transfer->length      = length;
     transfer->interval_ms = endpoint->descriptor.interval ? endpoint->descriptor.interval : 1;
-    transfer->next_poll = nano_time();
-    transfer->active = true;
+    transfer->next_poll   = nano_time();
+    transfer->active      = true;
 
     uint64_t flags = spin_lock_irqsave(&ctrl->lock);
     for (size_t i = 0; i < OHCI_MAX_PERIODIC; i++) {
         if (!ctrl->periodic[i]) {
-            ctrl->periodic[i] = transfer;
+            ctrl->periodic[i]    = transfer;
             endpoint->hc_private = transfer;
             spin_unlock_irqrestore(&ctrl->lock, flags);
             return EOK;
@@ -417,9 +415,9 @@ static void ohci_interrupt_stop(usb_endpoint_t *endpoint)
 {
     ohci_periodic_transfer_t *transfer = endpoint ? endpoint->hc_private : NULL;
     if (!transfer || !endpoint->interface || !endpoint->interface->device) return;
-    ohci_controller_t *ctrl = endpoint->interface->device->hc_private;
-    uint64_t flags = spin_lock_irqsave(&ctrl->lock);
-    transfer->active = false;
+    ohci_controller_t *ctrl  = endpoint->interface->device->hc_private;
+    uint64_t           flags = spin_lock_irqsave(&ctrl->lock);
+    transfer->active         = false;
     for (size_t i = 0; i < OHCI_MAX_PERIODIC; i++)
         if (ctrl->periodic[i] == transfer) ctrl->periodic[i] = NULL;
     endpoint->hc_private = NULL;
@@ -530,16 +528,15 @@ static int ohci_enumerate_port(ohci_controller_t *ctrl, uint8_t port)
     snprintf(device->path, sizeof(device->path), "%u-%u", device->bus_number, port + 1);
 
     uint8_t address = port + 1;
-    result = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_ADDRESS, address, 0, NULL, 0,
-                             USB_CTRL_TIMEOUT_MS);
+    result          = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_ADDRESS, address, 0, NULL, 0,
+                                      USB_CTRL_TIMEOUT_MS);
     if (result != EOK) goto fail;
     msleep(10);
     device->address = address;
 
     result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_DEVICE << 8, 0,
                              &device->descriptor, sizeof(device->descriptor), USB_CTRL_TIMEOUT_MS);
-    if (result != EOK || device->descriptor.length < sizeof(device->descriptor)
-        || device->descriptor.descriptor_type != USB_DT_DEVICE) {
+    if (result != EOK || device->descriptor.length < sizeof(device->descriptor) || device->descriptor.descriptor_type != USB_DT_DEVICE) {
         if (result == EOK) result = -EPROTO;
         goto fail;
     }
@@ -560,7 +557,8 @@ static int ohci_enumerate_port(ohci_controller_t *ctrl, uint8_t port)
                              sizeof(header), USB_CTRL_TIMEOUT_MS);
     if (result != EOK) goto fail;
     uint16_t total_length = usb_get_le16(&header.total_length);
-    if (header.descriptor_type != USB_DT_CONFIG || header.length < sizeof(header) || total_length < sizeof(header) || total_length > PAGE_4K_SIZE) {
+    if (header.descriptor_type != USB_DT_CONFIG || header.length < sizeof(header) || total_length < sizeof(header)
+        || total_length > PAGE_4K_SIZE) {
         result = -EPROTO;
         goto fail;
     }
@@ -579,8 +577,7 @@ static int ohci_enumerate_port(ohci_controller_t *ctrl, uint8_t port)
         return EOK;
     }
 
-fail:
-{
+fail: {
     bool registered = device->registered;
     usb_remove_device(device);
     if (!registered) free(device);
@@ -601,7 +598,7 @@ static void ohci_service_periodic(ohci_controller_t *ctrl)
 {
     uint64_t now = nano_time();
     for (size_t i = 0; i < OHCI_MAX_PERIODIC; i++) {
-        uint64_t flags = spin_lock_irqsave(&ctrl->lock);
+        uint64_t                  flags    = spin_lock_irqsave(&ctrl->lock);
         ohci_periodic_transfer_t *transfer = ctrl->periodic[i];
         if (!transfer || !transfer->active || transfer->in_callback || now < transfer->next_poll) {
             spin_unlock_irqrestore(&ctrl->lock, flags);
@@ -611,7 +608,7 @@ static void ohci_service_periodic(ohci_controller_t *ctrl)
         spin_unlock_irqrestore(&ctrl->lock, flags);
 
         size_t actual = 0;
-        int status = ohci_transfer(transfer->endpoint, transfer->buffer, transfer->length, &actual, USB_IO_TIMEOUT_MS);
+        int    status = ohci_transfer(transfer->endpoint, transfer->buffer, transfer->length, &actual, USB_IO_TIMEOUT_MS);
         if (__atomic_load_n(&transfer->active, __ATOMIC_ACQUIRE))
             transfer->complete(transfer->endpoint, transfer->buffer, actual, status, transfer->context);
         transfer->next_poll = nano_time() + (uint64_t)transfer->interval_ms * 1000000ULL;

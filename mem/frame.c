@@ -38,14 +38,14 @@ static spinlock_t            frame_history_lock;
 static void frame_history_record(uint8_t op, uint64_t addr, size_t count, void *caller)
 {
     if (!addr) return;
-    uint64_t rflags        = spin_lock_irqsave(&frame_history_lock);
-    task_t  *task          = current_task();
-    uint64_t idx           = frame_history_idx++ % FRAME_HISTORY_ENTRIES;
-    frame_history[idx].addr = addr;
-    frame_history[idx].count = count;
+    uint64_t rflags           = spin_lock_irqsave(&frame_history_lock);
+    task_t  *task             = current_task();
+    uint64_t idx              = frame_history_idx++ % FRAME_HISTORY_ENTRIES;
+    frame_history[idx].addr   = addr;
+    frame_history[idx].count  = count;
     frame_history[idx].caller = caller;
-    frame_history[idx].pid = task ? task->pid : 0;
-    frame_history[idx].op = op;
+    frame_history[idx].pid    = task ? task->pid : 0;
+    frame_history[idx].op     = op;
     spin_unlock_irqrestore(&frame_history_lock, rflags);
 }
 
@@ -55,8 +55,8 @@ void frame_log_dump(void)
     for (uint64_t i = 0; i < FRAME_HISTORY_ENTRIES; i++) {
         frame_history_entry_t *e = &frame_history[(frame_history_idx - FRAME_HISTORY_ENTRIES + i) % FRAME_HISTORY_ENTRIES];
         if (!e->addr) continue;
-        plogk("frame-hist: %c addr=%p count=%zu pid=%llu caller=%p\n", e->op == 0 ? 'A' : (e->op == 1 ? 'R' : 'T'), e->addr,
-              e->count, e->pid, e->caller);
+        plogk("frame-hist: %c addr=%p count=%zu pid=%llu caller=%p\n", e->op == 0 ? 'A' : (e->op == 1 ? 'R' : 'T'), e->addr, e->count, e->pid,
+              e->caller);
     }
     spin_unlock(&frame_history_lock);
 }
@@ -182,7 +182,7 @@ retry:
     spin_unlock(&frame_allocator.lock);
     /* alloc_frames/2M/1G tail-call into this function, so the top return
      * address only identifies the wrapper.  Skip it to find the real caller. */
-    frame_history_record(0, frame_index * PAGE_4K_SIZE, count, __builtin_return_address(1));
+    frame_history_record(0, frame_index * PAGE_4K_SIZE, count, __builtin_return_address(0));
     return frame_index * PAGE_4K_SIZE;
 }
 
@@ -219,15 +219,15 @@ int frame_retain_range(uint64_t addr, size_t count)
         if (page->state != BUDDY_PAGE_ALLOC_HEAD || page->order != 0) {
             spin_unlock(&frame_allocator.lock);
             if (!__atomic_exchange_n(&frame_retain_error_logged, 1, __ATOMIC_ACQ_REL))
-                plogk("frame: invalid retain addr=%p index=%zu state=%u order=%u refs=%u caller=%p\n", addr, frame_index + i,
-                      page->state, page->order, refs, __builtin_return_address(0));
+                plogk("frame: invalid retain addr=%p index=%zu state=%u order=%u refs=%u caller=%p\n", addr, frame_index + i, page->state,
+                      page->order, refs, __builtin_return_address(0));
             return -1;
         }
         if (!refs || refs == UINT32_MAX) {
             spin_unlock(&frame_allocator.lock);
             if (!__atomic_exchange_n(&frame_retain_error_logged, 1, __ATOMIC_ACQ_REL))
-                plogk("frame: invalid retain addr=%p index=%zu state=%u order=%u refs=%u caller=%p\n", addr, frame_index + i,
-                      page->state, page->order, refs, __builtin_return_address(0));
+                plogk("frame: invalid retain addr=%p index=%zu state=%u order=%u refs=%u caller=%p\n", addr, frame_index + i, page->state,
+                      page->order, refs, __builtin_return_address(0));
             return -1;
         }
     }
@@ -249,8 +249,8 @@ int frame_release_range(uint64_t addr, size_t count)
         if (page->state != BUDDY_PAGE_ALLOC_HEAD || page->order != 0 || !page->tag) {
             spin_unlock(&frame_allocator.lock);
             if (!__atomic_exchange_n(&frame_release_error_logged, 1, __ATOMIC_ACQ_REL))
-                plogk("frame: invalid release addr=%p index=%zu state=%u order=%u refs=%u caller=%p\n", addr, frame_index + i,
-                      page->state, page->order, page->tag, __builtin_return_address(0));
+                plogk("frame: invalid release addr=%p index=%zu state=%u order=%u refs=%u caller=%p\n", addr, frame_index + i, page->state,
+                      page->order, page->tag, __builtin_return_address(0));
             return -1;
         }
     }

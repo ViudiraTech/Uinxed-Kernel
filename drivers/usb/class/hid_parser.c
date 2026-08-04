@@ -118,20 +118,20 @@ static int hid_add_input_field(usb_hid_report_t *report, const hid_global_state_
 
         usb_hid_field_t *field = &report->fields[report->field_count++];
         memset(field, 0, sizeof(*field));
-        field->report_id       = global->report_id;
-        field->application     = application;
-        field->usage_page      = global->usage_page;
-        field->usage_count     = local->usage_count;
-        field->usage_minimum   = local->has_usage_minimum ? local->usage_minimum : 0;
-        field->usage_maximum   = local->has_usage_maximum ? local->usage_maximum : 0;
+        field->report_id          = global->report_id;
+        field->application        = application;
+        field->usage_page         = global->usage_page;
+        field->usage_count        = local->usage_count;
+        field->usage_minimum      = local->has_usage_minimum ? local->usage_minimum : 0;
+        field->usage_maximum      = local->has_usage_maximum ? local->usage_maximum : 0;
         field->usage_minimum_page = local->has_usage_minimum ? local->usage_minimum_page : global->usage_page;
         field->usage_maximum_page = local->has_usage_maximum ? local->usage_maximum_page : global->usage_page;
-        field->bit_offset      = report->report_bits[global->report_id];
-        field->report_size     = global->report_size;
-        field->report_count    = global->report_count;
-        field->flags           = flags;
-        field->logical_minimum = global->logical_minimum;
-        field->logical_maximum = global->logical_maximum;
+        field->bit_offset         = report->report_bits[global->report_id];
+        field->report_size        = global->report_size;
+        field->report_count       = global->report_count;
+        field->flags              = flags;
+        field->logical_minimum    = global->logical_minimum;
+        field->logical_maximum    = global->logical_maximum;
         memcpy(field->usages, local->usages, sizeof(uint16_t) * local->usage_count);
         memcpy(field->usage_pages, local->usage_pages, sizeof(uint16_t) * local->usage_count);
     }
@@ -224,14 +224,14 @@ int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, us
                     local.usage_count++;
                     break;
                 case HID_LOCAL_USAGE_MIN :
-                    local.usage_minimum     = usage;
+                    local.usage_minimum      = usage;
                     local.usage_minimum_page = usage_page;
-                    local.has_usage_minimum = true;
+                    local.has_usage_minimum  = true;
                     break;
                 case HID_LOCAL_USAGE_MAX :
-                    local.usage_maximum     = usage;
+                    local.usage_maximum      = usage;
                     local.usage_maximum_page = usage_page;
-                    local.has_usage_maximum = true;
+                    local.has_usage_maximum  = true;
                     break;
                 default :
                     break;
@@ -253,8 +253,8 @@ int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, us
                     if (report->application_count >= USB_HID_MAX_APPLICATIONS) return -E2BIG;
                     current_application                = report->application_count++;
                     usb_hid_application_t *application = &report->applications[current_application];
-                    application->usage_page = local.usage_count ? local.usage_pages[0]
-                                                                : (local.has_usage_minimum ? local.usage_minimum_page : global->usage_page);
+                    application->usage_page
+                        = local.usage_count ? local.usage_pages[0] : (local.has_usage_minimum ? local.usage_minimum_page : global->usage_page);
                     application->usage = local.usage_count ? local.usages[0] : (local.has_usage_minimum ? local.usage_minimum : 0);
                 }
                 break;
@@ -416,11 +416,11 @@ static void hid_decode_array(usb_hid_field_t *field, const uint32_t *values, siz
 
 static void hid_decode_variable(usb_hid_field_t *field, size_t index, int32_t value, usb_hid_event_t *events, size_t capacity, size_t *count)
 {
-    uint16_t usage    = hid_field_usage(field, index);
+    uint16_t usage      = hid_field_usage(field, index);
     uint16_t usage_page = hid_field_usage_page(field, index);
-    bool     relative = (field->flags & USB_HID_MAIN_RELATIVE) != 0;
-    uint16_t type     = 0;
-    uint16_t code     = 0;
+    bool     relative   = (field->flags & USB_HID_MAIN_RELATIVE) != 0;
+    uint16_t type       = 0;
+    uint16_t code       = 0;
 
     switch (usage_page) {
         case HID_USAGE_PAGE_KEYBOARD :

@@ -33,7 +33,7 @@
 #ifndef PIPE_BUF_SIZE
 #    define PIPE_BUF_SIZE 65536
 #endif
-#define PIPE_ATOMIC_SIZE 4096
+#define PIPE_ATOMIC_SIZE  4096
 #define PIPE_DEFAULT_MODE 0644
 
 /* poll event bits */
@@ -295,9 +295,9 @@ static void pipe_file_release(vfs_node_t node, void *private_data)
 {
     pipe_endpoint_t *endpoint = private_data;
     if (!endpoint) return;
-    pipe_ring_t *ring = endpoint->ring;
-    bool last_reader = false;
-    bool last_writer = false;
+    pipe_ring_t *ring        = endpoint->ring;
+    bool         last_reader = false;
+    bool         last_writer = false;
 
     spin_lock(&ring->lock);
     if (endpoint->readable && ring->readers) last_reader = --ring->readers == 0;
@@ -406,9 +406,9 @@ static int64_t pipe_write_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fl
             return total_written ? (int64_t)total_written : -EPIPE;
         }
 
-        size_t remaining = size - total_written;
-        bool atomic = size <= PIPE_ATOMIC_SIZE;
-        uint32_t needed = atomic ? (uint32_t)remaining : 1;
+        size_t   remaining = size - total_written;
+        bool     atomic    = size <= PIPE_ATOMIC_SIZE;
+        uint32_t needed    = atomic ? (uint32_t)remaining : 1;
 
         while (pipe_ring_writable(ring) < needed) {
             if (ring->closed || ring->readers == 0) {
@@ -431,7 +431,7 @@ static int64_t pipe_write_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fl
         }
 
         uint32_t writable = pipe_ring_writable(ring);
-        uint32_t chunk = (uint32_t)(remaining < writable ? remaining : writable);
+        uint32_t chunk    = (uint32_t)(remaining < writable ? remaining : writable);
 
         pipe_ring_copy_in(ring, src + total_written, chunk);
         pipe_ring_produce(ring, chunk);
@@ -490,8 +490,8 @@ static int pipe_file_poll(vfs_node_t node, void *private_data, uint64_t flags, s
     (void)flags;
     pipe_endpoint_t *endpoint = private_data;
     if (!endpoint) return POLLERR;
-    pipe_ring_t *ring = endpoint->ring;
-    int revents = 0;
+    pipe_ring_t *ring    = endpoint->ring;
+    int          revents = 0;
 
     spin_lock(&ring->lock);
     if (endpoint->readable) {
@@ -872,29 +872,29 @@ void pipe_init(void)
         return;
     }
 
-    cb->mount    = pipe_stub_mount;
-    cb->unmount  = pipe_stub_unmount;
-    cb->open     = pipe_vfs_open;
-    cb->close    = pipe_vfs_close;
-    cb->read     = pipe_vfs_read;
-    cb->write    = pipe_vfs_write;
-    cb->readlink = pipe_stub_readlink;
-    cb->mkdir    = pipe_stub_mk;
-    cb->mkfile   = pipe_stub_mk;
-    cb->link     = pipe_stub_mk;
-    cb->symlink  = pipe_stub_mk;
-    cb->stat     = pipe_vfs_stat;
-    cb->ioctl    = pipe_stub_ioctl;
-    cb->dup      = pipe_stub_dup;
-    cb->poll     = pipe_vfs_poll;
-    cb->free     = pipe_vfs_free;
-    cb->delete   = pipe_stub_del;
-    cb->rename   = pipe_stub_rename;
-    cb->file_open = pipe_file_open;
+    cb->mount        = pipe_stub_mount;
+    cb->unmount      = pipe_stub_unmount;
+    cb->open         = pipe_vfs_open;
+    cb->close        = pipe_vfs_close;
+    cb->read         = pipe_vfs_read;
+    cb->write        = pipe_vfs_write;
+    cb->readlink     = pipe_stub_readlink;
+    cb->mkdir        = pipe_stub_mk;
+    cb->mkfile       = pipe_stub_mk;
+    cb->link         = pipe_stub_mk;
+    cb->symlink      = pipe_stub_mk;
+    cb->stat         = pipe_vfs_stat;
+    cb->ioctl        = pipe_stub_ioctl;
+    cb->dup          = pipe_stub_dup;
+    cb->poll         = pipe_vfs_poll;
+    cb->free         = pipe_vfs_free;
+    cb->delete       = pipe_stub_del;
+    cb->rename       = pipe_stub_rename;
+    cb->file_open    = pipe_file_open;
     cb->file_release = pipe_file_release;
-    cb->file_read = pipe_file_read;
-    cb->file_write = pipe_file_write;
-    cb->file_poll = pipe_file_poll;
+    cb->file_read    = pipe_file_read;
+    cb->file_write   = pipe_file_write;
+    cb->file_poll    = pipe_file_poll;
 
     pipe_fsid = vfs_regist(cb);
     if (pipe_fsid < 0) {

@@ -116,8 +116,8 @@ INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_
 
             int      leaf_level = 0;
             uint64_t leaf_value = page_fault_leaf_value(proc->user_page_dir, faulting_address, &leaf_level);
-            plogk("#PF (pid=%llu): %s %s fault at 0x%016llx, rip=0x%016llx err=0x%02llx pte(L%d)=0x%016llx\n", proc->task->pid,
-                  pf_msg, id ? "execute" : (rw ? "write" : "read"), faulting_address, frame->rip, error_code, leaf_level, leaf_value);
+            plogk("#PF (pid=%llu): %s %s fault at 0x%016llx, rip=0x%016llx err=0x%02llx pte(L%d)=0x%016llx\n", proc->task->pid, pf_msg,
+                  id ? "execute" : (rw ? "write" : "read"), faulting_address, frame->rip, error_code, leaf_level, leaf_value);
             plogk("#PF: comm=%s rsp=0x%016llx fs=0x%016llx\n", proc->task->name, frame->rsp, proc->task->thread.fs_base);
             page_fault_log_vma(proc, "rip", frame->rip);
             page_fault_log_vma(proc, "addr", faulting_address);
@@ -125,9 +125,9 @@ INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_
             {
                 uint64_t cr3_now = 0;
                 __asm__ volatile("mov %%cr3, %0" : "=r"(cr3_now));
-                uint64_t dir_phys = proc->user_page_dir && proc->user_page_dir->table
-                                        ? (uint64_t)virt_to_phys((uint64_t)proc->user_page_dir->table) & PAGE_4K_MASK
-                                        : 0;
+                uint64_t dir_phys = proc->user_page_dir && proc->user_page_dir->table ?
+                                        (uint64_t)virt_to_phys((uint64_t)proc->user_page_dir->table) & PAGE_4K_MASK :
+                                        0;
                 plogk("#PF: cr3=0x%016llx proc-dir=0x%016llx match=%d\n", cr3_now, dir_phys, cr3_now == dir_phys);
                 uint64_t *g = (uint64_t *)((char *)frame - 120);
                 for (int j = 0; j < 15; j++) plogk("#PF: gpr[%d]=0x%016llx\n", j, g[j]);
@@ -140,8 +140,8 @@ INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_
                         while (vma && vma->end <= target) vma = vma->next;
                         if (vma && vma->start <= target && target < vma->end)
                             plogk("#PF: rdx+0x10-vma 0x%016llx-0x%016llx flags=%c%c%c%c\n", vma->start, vma->end,
-                                  (vma->flags & VM_READ) ? 'r' : '-', (vma->flags & VM_WRITE) ? 'w' : '-',
-                                  (vma->flags & VM_EXEC) ? 'x' : '-', (vma->flags & VM_SHARED) ? 's' : 'p');
+                                  (vma->flags & VM_READ) ? 'r' : '-', (vma->flags & VM_WRITE) ? 'w' : '-', (vma->flags & VM_EXEC) ? 'x' : '-',
+                                  (vma->flags & VM_SHARED) ? 's' : 'p');
                         else
                             plogk("#PF: rdx+0x10-vma=unmapped\n");
                         spin_unlock(&proc->mmap_lock);
@@ -154,8 +154,7 @@ INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_
                     if (pte && (pte->value & PTE_PRESENT)) {
                         uint64_t phys = pte->value & PAGE_4K_MASK;
                         uint8_t *p    = (uint8_t *)phys_to_virt(phys) + (frame->rip & 0xfff);
-                        plogk("#PF: rip-pte=0x%016llx phys=0x%016llx refcount=%u bytes=", pte->value, phys,
-                              frame_refcount(phys));
+                        plogk("#PF: rip-pte=0x%016llx phys=0x%016llx refcount=%u bytes=", pte->value, phys, frame_refcount(phys));
                         for (int j = 0; j < 16; j++) plogk("%02x ", p[j]);
                         plogk("\n");
                     }
@@ -328,8 +327,8 @@ static int clone_table_cow(page_table_t *destination, const page_table_t *source
         }
 
         if (level == 1 || (value & PTE_HUGE)) {
-            uint64_t mask  = leaf_address_mask(level);
-            size_t   count = leaf_frame_count(level);
+            uint64_t mask      = leaf_address_mask(level);
+            size_t   count     = leaf_frame_count(level);
             uint64_t old_frame = value & mask;
             if (value & PTE_SHARED) {
                 if (frame_retain_range(old_frame, count)) return -1;
@@ -746,9 +745,8 @@ int page_user_accessible(page_directory_t *directory, uintptr_t addr, int write,
     if (!directory || !directory->table) return 0;
     spin_lock(&directory->lock);
     cow_fault_leaf_t leaf;
-    int accessible = find_cow_leaf(directory, addr, &leaf) == 0 && (leaf.value & PTE_USER)
-                     && (!write || (leaf.value & (PTE_WRITEABLE | PTE_COW)))
-                     && (!exec || !(leaf.value & PTE_NO_EXECUTE));
+    int              accessible = find_cow_leaf(directory, addr, &leaf) == 0 && (leaf.value & PTE_USER)
+                     && (!write || (leaf.value & (PTE_WRITEABLE | PTE_COW))) && (!exec || !(leaf.value & PTE_NO_EXECUTE));
     spin_unlock(&directory->lock);
     return accessible;
 }

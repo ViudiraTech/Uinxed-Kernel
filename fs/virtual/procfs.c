@@ -15,12 +15,12 @@
 #include <drivers/timer/tsc.h>
 #include <fs/core/vfs.h>
 #include <fs/virtual/procfs.h>
-#include <kernel/errno.h>
+#include <ipc/socket.h>
 #include <kernel/cmdline.h>
+#include <kernel/errno.h>
 #include <kernel/module.h>
 #include <kernel/printk.h>
 #include <kernel/uinxed.h>
-#include <ipc/socket.h>
 #include <libs/std/stdarg.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -134,8 +134,7 @@ static procfs_file_t *procfs_file_alloc(enum procfs_type type, pid_t pid, int su
     return pf;
 }
 
-static vfs_node_t procfs_ensure_child(vfs_node_t parent, const char *name, enum procfs_type type, pid_t pid, int subtype,
-                                      uint16_t node_type)
+static vfs_node_t procfs_ensure_child(vfs_node_t parent, const char *name, enum procfs_type type, pid_t pid, int subtype, uint16_t node_type)
 {
     vfs_node_t child = procfs_find_child(parent, name);
     if (!child) {
@@ -164,8 +163,8 @@ static void procfs_deactivate_pid_nodes(vfs_node_t root)
 {
     if (!root) return;
     for (clist_t link = root->child; link; link = link->next) {
-        vfs_node_t child = link->data;
-        procfs_file_t *pf = child ? child->handle : NULL;
+        vfs_node_t     child = link->data;
+        procfs_file_t *pf    = child ? child->handle : NULL;
         if (!pf || pf->type != PROCFS_PID_DIR) continue;
         child->flags |= VFS_NODE_UNLINKED;
         child->type = file_none;
@@ -323,14 +322,14 @@ static void gen_info_cmdline(procfs_file_t *pf)
     const char *cmdline = get_cmdline();
     if (!cmdline) cmdline = "";
     size_t length = strlen(cmdline);
-    char *buffer = malloc(length + 2);
+    char  *buffer = malloc(length + 2);
     if (!buffer) return;
     memcpy(buffer, cmdline, length);
     buffer[length++] = '\n';
-    buffer[length] = '\0';
-    pf->content = buffer;
-    pf->size = length;
-    pf->capacity = length + 1;
+    buffer[length]   = '\0';
+    pf->content      = buffer;
+    pf->size         = length;
+    pf->capacity     = length + 1;
 }
 
 static void gen_info_cgroups(procfs_file_t *pf)
@@ -339,8 +338,8 @@ static void gen_info_cgroups(procfs_file_t *pf)
     if (!buffer) return;
     int length = cgroup_format_proc_cgroups(buffer, PROCFS_BUF_SIZE);
     if (length < 0) length = 0;
-    pf->content = buffer;
-    pf->size = (size_t)length;
+    pf->content  = buffer;
+    pf->size     = (size_t)length;
     pf->capacity = PROCFS_BUF_SIZE;
 }
 
@@ -732,8 +731,8 @@ static void gen_pid_maps(procfs_file_t *pf)
                 break;
         }
 
-        n = snprintf(p, remaining, "%016lx-%016lx %s%c %08lx 00:00 0%s\n", vma->start, vma->end, perm,
-                     (vma->flags & VM_SHARED) ? 's' : 'p', 0UL, region_name);
+        n = snprintf(p, remaining, "%016lx-%016lx %s%c %08lx 00:00 0%s\n", vma->start, vma->end, perm, (vma->flags & VM_SHARED) ? 's' : 'p', 0UL,
+                     region_name);
         p += n;
         remaining -= n;
         vma = vma->next;
@@ -769,16 +768,16 @@ static void gen_pid_cgroup(procfs_file_t *pf)
     if (!cgroup) return;
 
     char path[VFS_PATH_MAX];
-    int path_length = cgroup_format_path(cgroup, path, sizeof(path));
+    int  path_length = cgroup_format_path(cgroup, path, sizeof(path));
     cgroup_put(cgroup);
     if (path_length < 0) return;
 
     size_t capacity = (size_t)path_length + 6;
-    char *buffer = malloc(capacity);
+    char  *buffer   = malloc(capacity);
     if (!buffer) return;
-    int length = snprintf(buffer, capacity, "0::%s\n", path);
-    pf->content = buffer;
-    pf->size = length < 0 ? 0 : (size_t)length;
+    int length   = snprintf(buffer, capacity, "0::%s\n", path);
+    pf->content  = buffer;
+    pf->size     = length < 0 ? 0 : (size_t)length;
     pf->capacity = capacity;
 }
 
@@ -921,14 +920,10 @@ static void gen_pid_stat(procfs_file_t *pf)
                      "%llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu "
                      "%lld %lld %u %u %llu %llu %lld "
                      "%llu %llu %llu %llu %llu %llu %llu %lld\n",
-                     (int64_t)pf->pid, name, state_char,
-                     (int64_t)ppid, (int64_t)pgid, (int64_t)sid, tty_nr, tpgid, 0U,
-                     0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL,
-                     0LL, 0LL, 20LL, 0LL, (int64_t)thread_count, 0LL,
-                     0ULL, vsize, 0LL, rss_limit,
-                     start_code, end_code, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL,
-                     (int64_t)SIGCHLD, (int64_t)cpu_id, 0U, 0U, 0ULL, 0ULL, 0LL,
-                     start_data, end_data, start_brk, 0ULL, 0ULL, 0ULL, 0ULL, exit_code);
+                     (int64_t)pf->pid, name, state_char, (int64_t)ppid, (int64_t)pgid, (int64_t)sid, tty_nr, tpgid, 0U, 0ULL, 0ULL, 0ULL, 0ULL,
+                     0ULL, 0ULL, 0LL, 0LL, 20LL, 0LL, (int64_t)thread_count, 0LL, 0ULL, vsize, 0LL, rss_limit, start_code, end_code, 0ULL, 0ULL,
+                     0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, (int64_t)SIGCHLD, (int64_t)cpu_id, 0U, 0U, 0ULL, 0ULL, 0LL, start_data,
+                     end_data, start_brk, 0ULL, 0ULL, 0ULL, 0ULL, exit_code);
     process_put(proc);
 
     pf->content  = buf;
@@ -1160,7 +1155,7 @@ static void procfs_close(void *current)
 
 static size_t procfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t size)
 {
-    procfs_file_t *pf = node ? node->handle : NULL;
+    procfs_file_t *pf   = node ? node->handle : NULL;
     process_t     *proc = process_current();
     if (!pf || pf->type != PROCFS_SELF_LINK || !proc || !proc->task || !addr) return 0;
 
@@ -1225,19 +1220,19 @@ static int procfs_stat(void *file, vfs_node_t node)
                     const char *name;
                     int         subtype;
             } info_tab[] = {
-                {"stat",      PROC_INFO_STAT     },
-                {"meminfo",   PROC_INFO_MEMINFO  },
-                {"cpuinfo",   PROC_INFO_CPUINFO  },
-                {"uptime",    PROC_INFO_UPTIME   },
-                {"version",   PROC_INFO_VERSION  },
-                {"loadavg",   PROC_INFO_LOADAVG  },
-                {"vmstat",    PROC_INFO_VMSTAT   },
-                {"modules",   PROC_INFO_MODULES  },
-                {"mounts",    PROC_INFO_MOUNTS   },
-                {"mountinfo", PROC_INFO_MOUNTINFO},
+                {"stat",        PROC_INFO_STAT       },
+                {"meminfo",     PROC_INFO_MEMINFO    },
+                {"cpuinfo",     PROC_INFO_CPUINFO    },
+                {"uptime",      PROC_INFO_UPTIME     },
+                {"version",     PROC_INFO_VERSION    },
+                {"loadavg",     PROC_INFO_LOADAVG    },
+                {"vmstat",      PROC_INFO_VMSTAT     },
+                {"modules",     PROC_INFO_MODULES    },
+                {"mounts",      PROC_INFO_MOUNTS     },
+                {"mountinfo",   PROC_INFO_MOUNTINFO  },
                 {"filesystems", PROC_INFO_FILESYSTEMS},
-                {"cmdline", PROC_INFO_CMDLINE},
-                {"cgroups", PROC_INFO_CGROUPS},
+                {"cmdline",     PROC_INFO_CMDLINE    },
+                {"cgroups",     PROC_INFO_CGROUPS    },
             };
             for (size_t i = 0; i < sizeof(info_tab) / sizeof(info_tab[0]); i++) {
                 (void)procfs_ensure_child(node, info_tab[i].name, PROCFS_INFO_FILE, 0, info_tab[i].subtype, file_none);
@@ -1251,7 +1246,7 @@ static int procfs_stat(void *file, vfs_node_t node)
             size_t     pos = 0;
             process_t *proc;
             while ((proc = process_iterate_get(&pos))) {
-                char pid_str[16];
+                char  pid_str[16];
                 pid_t pid = proc->task ? (pid_t)proc->task->tgid : 0;
                 if (pid > 0) {
                     snprintf(pid_str, sizeof(pid_str), "%llu", (uint64_t)pid);
@@ -1280,7 +1275,7 @@ static int procfs_stat(void *file, vfs_node_t node)
                 {"mem",       PROC_PID_MEM      },
                 {"mounts",    PROC_PID_MOUNTS   },
                 {"mountinfo", PROC_PID_MOUNTINFO},
-                {"cgroup",   PROC_PID_CGROUP   },
+                {"cgroup",    PROC_PID_CGROUP   },
             };
             for (size_t i = 0; i < sizeof(pid_tab) / sizeof(pid_tab[0]); i++) {
                 (void)procfs_ensure_child(node, pid_tab[i].name, PROCFS_PID_FILE, pf->pid, pid_tab[i].subtype, file_none);
@@ -1289,10 +1284,8 @@ static int procfs_stat(void *file, vfs_node_t node)
         }
         case PROCFS_NET_DIR : {
             static const char *names[] = {"dev", "arp", "route", "tcp", "udp", "unix"};
-            node->type = file_dir;
-            for (int i = 0; i < 6; i++) {
-                (void)procfs_ensure_child(node, names[i], PROCFS_NET_FILE, 0, i, file_none);
-            }
+            node->type                 = file_dir;
+            for (int i = 0; i < 6; i++) { (void)procfs_ensure_child(node, names[i], PROCFS_NET_FILE, 0, i, file_none); }
             break;
         }
         case PROCFS_SELF_LINK :
@@ -1414,27 +1407,27 @@ static int procfs_ioctl(void *file, size_t req, void *arg)
 /* ------------------------------------------------------------------ */
 
 static struct vfs_callback procfs_callbacks = {
-    .mount    = procfs_mount,
-    .unmount  = procfs_umount,
-    .open     = procfs_open,
-    .close    = procfs_close,
-    .read     = procfs_read,
-    .write    = procfs_write,
-    .readlink = procfs_readlink,
-    .mkdir    = procfs_mkdir,
-    .mkfile   = procfs_mkfile,
-    .link     = (vfs_mk_t)procfs_dummy,
-    .symlink  = (vfs_mk_t)procfs_dummy,
-    .stat     = procfs_stat,
-    .ioctl    = procfs_ioctl,
-    .dup      = procfs_dup,
-    .poll     = procfs_poll,
-    .free     = procfs_free,
-    .delete   = procfs_delete,
-    .rename   = procfs_rename,
-    .file_open = procfs_file_open,
+    .mount        = procfs_mount,
+    .unmount      = procfs_umount,
+    .open         = procfs_open,
+    .close        = procfs_close,
+    .read         = procfs_read,
+    .write        = procfs_write,
+    .readlink     = procfs_readlink,
+    .mkdir        = procfs_mkdir,
+    .mkfile       = procfs_mkfile,
+    .link         = (vfs_mk_t)procfs_dummy,
+    .symlink      = (vfs_mk_t)procfs_dummy,
+    .stat         = procfs_stat,
+    .ioctl        = procfs_ioctl,
+    .dup          = procfs_dup,
+    .poll         = procfs_poll,
+    .free         = procfs_free,
+    .delete       = procfs_delete,
+    .rename       = procfs_rename,
+    .file_open    = procfs_file_open,
     .file_release = procfs_file_release,
-    .file_read = procfs_file_read,
+    .file_read    = procfs_file_read,
 };
 
 /* ------------------------------------------------------------------ */

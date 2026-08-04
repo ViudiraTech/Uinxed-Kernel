@@ -364,8 +364,7 @@ int usb_read_config_descriptor(usb_device_t *device, uint8_t **config_out, uint1
                                  &header, sizeof(header), USB_CTRL_TIMEOUT_MS);
     if (result != EOK) return result;
     uint16_t total_length = usb_get_le16(&header.total_length);
-    if (header.descriptor_type != USB_DT_CONFIG || header.length < sizeof(header) || total_length < sizeof(header))
-        return -EINVAL;
+    if (header.descriptor_type != USB_DT_CONFIG || header.length < sizeof(header) || total_length < sizeof(header)) return -EINVAL;
     uint8_t *config = malloc(total_length);
     if (!config) return -ENOMEM;
     result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0, config,

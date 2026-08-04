@@ -405,7 +405,8 @@ void bus_unregister(struct bus_type *bus)
 {
     if (!bus) return;
 
-    if (bus->subsys.kobj.state_add_uevent_sent && !bus->subsys.kobj.state_remove_uevent_sent) (void)kobject_uevent(&bus->subsys.kobj, KOBJ_REMOVE);
+    if (bus->subsys.kobj.state_add_uevent_sent && !bus->subsys.kobj.state_remove_uevent_sent)
+        (void)kobject_uevent(&bus->subsys.kobj, KOBJ_REMOVE);
 
     if (bus->drivers_kset) kset_unregister(bus->drivers_kset);
     if (bus->devices_kset) kset_unregister(bus->devices_kset);
@@ -518,9 +519,7 @@ int device_register(struct device *dev)
     /* Create symlinks if the device has a class */
     if (dev->class) {
         ret = sysfs_create_symlink(&dev->class->subsys.kobj, &dev->kobj, kobject_name(&dev->kobj));
-        if (ret != EOK) {
-            goto rollback_device_link;
-        }
+        if (ret != EOK) { goto rollback_device_link; }
         /* /sys/class/<name>/<device>  ?/sys/devices/.../device */
         /* For now just add to the class kset */
     }
@@ -746,7 +745,8 @@ int class_register(struct class *cls)
 void class_unregister(struct class *cls)
 {
     if (!cls) return;
-    if (cls->subsys.kobj.state_add_uevent_sent && !cls->subsys.kobj.state_remove_uevent_sent) (void)kobject_uevent(&cls->subsys.kobj, KOBJ_REMOVE);
+    if (cls->subsys.kobj.state_add_uevent_sent && !cls->subsys.kobj.state_remove_uevent_sent)
+        (void)kobject_uevent(&cls->subsys.kobj, KOBJ_REMOVE);
     if (cls->class_groups) sysfs_remove_groups(&cls->subsys.kobj, cls->class_groups);
     kobject_del(&cls->subsys.kobj);
     kobject_put(&cls->subsys.kobj);

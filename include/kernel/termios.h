@@ -367,13 +367,13 @@ struct winsize {
 #define TIOCGSID 0x5429
 
 /* Linux virtual-terminal and console display ioctls used by Xorg. */
-#define KDGETLED   0x4B31
-#define KDSETLED   0x4B32
-#define KDGKBTYPE  0x4B33
-#define KDSETMODE  0x4B3A
-#define KDGETMODE  0x4B3B
-#define KDGKBMODE  0x4B44
-#define KDSKBMODE  0x4B45
+#define KDGETLED    0x4B31
+#define KDSETLED    0x4B32
+#define KDGKBTYPE   0x4B33
+#define KDSETMODE   0x4B3A
+#define KDGETMODE   0x4B3B
+#define KDGKBMODE   0x4B44
+#define KDSKBMODE   0x4B45
 #define KD_TEXT     0x00
 #define KD_GRAPHICS 0x01
 #define K_RAW       0x00

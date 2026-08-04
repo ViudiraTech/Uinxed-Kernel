@@ -34,7 +34,7 @@
 
 #define NL_RECV_QUEUE_MAX 1024 /* secondary cap; rcvbuf is the primary limit */
 #define NL_BROADCAST_MAX  256  /* bounded per-protocol socket registry */
-#define NL_PROTO_MAX      32  /* NETLINK_MAX rounded up */
+#define NL_PROTO_MAX      32   /* NETLINK_MAX rounded up */
 
 #define AF_UNSPEC         0
 #define ARPHRD_ETHER      1
@@ -86,7 +86,8 @@ static nl_sock_t *nl_sk(struct socket *sk)
     return (nl_sock_t *)sk->priv;
 }
 
-static nl_msg_t *nl_msg_alloc(const void *data, uint32_t len, uint32_t sender_pid, uint32_t sender_groups, uint32_t sender_uid, uint32_t sender_gid)
+static nl_msg_t *nl_msg_alloc(const void *data, uint32_t len, uint32_t sender_pid, uint32_t sender_groups, uint32_t sender_uid,
+                              uint32_t sender_gid)
 {
     nl_msg_t *msg;
 
@@ -565,16 +566,16 @@ struct socket *netlink_sock_alloc(uint32_t protocol)
     plogk("netlink: sock proto=%u pid=%u\n", protocol, sk->pid);
 
     /* Initialise netlink-specific fields */
-    ns->nl_pid         = 0; /* unbound */
-    ns->nl_groups      = 0;
-    ns->nl_protocol    = protocol;
-    ns->nl_seq         = 0;
-    ns->nl_bound       = 0;
-    ns->recv_queue     = NULL;
-    ns->recv_queue_len = 0;
-    ns->recv_queue_max = NL_RECV_QUEUE_MAX;
+    ns->nl_pid           = 0; /* unbound */
+    ns->nl_groups        = 0;
+    ns->nl_protocol      = protocol;
+    ns->nl_seq           = 0;
+    ns->nl_bound         = 0;
+    ns->recv_queue       = NULL;
+    ns->recv_queue_len   = 0;
+    ns->recv_queue_max   = NL_RECV_QUEUE_MAX;
     ns->recv_queue_bytes = 0;
-    ns->sk             = sk;
+    ns->sk               = sk;
 
     return sk;
 }
@@ -600,8 +601,8 @@ void netlink_close(struct socket *sk)
         nl_msg_t *msg = node->data;
         nl_msg_put(msg);
     }
-    ns->recv_queue     = clist_free(ns->recv_queue);
-    ns->recv_queue_len = 0;
+    ns->recv_queue       = clist_free(ns->recv_queue);
+    ns->recv_queue_len   = 0;
     ns->recv_queue_bytes = 0;
     spin_unlock(&ns->recv_lock);
 
@@ -727,7 +728,7 @@ static int nl_broadcast_datagram(uint32_t protocol, uint32_t groups, const void 
                                  uint32_t sender_gid)
 {
     nl_mcast_table_t *tab;
-    int               delivered = 0;
+    int               delivered   = 0;
     int               first_error = EOK;
 
     if (protocol >= NL_PROTO_MAX) return -EPROTONOSUPPORT;
@@ -740,8 +741,10 @@ static int nl_broadcast_datagram(uint32_t protocol, uint32_t groups, const void 
     for (uint32_t i = 0; i < tab->count; i++) {
         if (!tab->entries[i].sk || !(tab->entries[i].groups & groups)) continue;
         int ret = nl_queue_datagram(tab->entries[i].sk, data, len, sender_pid, groups, sender_uid, sender_gid);
-        if (!ret) delivered++;
-        else if (!first_error) first_error = ret;
+        if (!ret)
+            delivered++;
+        else if (!first_error)
+            first_error = ret;
     }
     spin_unlock(&tab->lock);
 
@@ -755,7 +758,7 @@ static int nl_broadcast_datagram(uint32_t protocol, uint32_t groups, const void 
 
 int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockaddr_nl_t *addr, uint32_t addrlen, int flags)
 {
-    nl_sock_t  *ns;
+    nl_sock_t *ns;
 
     (void)flags;
 
@@ -767,7 +770,7 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
 
     if (!ns->nl_bound) {
         sockaddr_nl_t local = {.nl_family = AF_NETLINK};
-        int ret = netlink_bind(sk, &local, sizeof(local));
+        int           ret   = netlink_bind(sk, &local, sizeof(local));
         if (ret) return ret;
     }
 
@@ -788,7 +791,7 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
             }
         }
         if (!at || at[1] != '/') return -EINVAL;
-        char action_name[16];
+        char   action_name[16];
         size_t action_len = (size_t)(at - (const char *)buf);
         if (!action_len || action_len >= sizeof(action_name)) return -EINVAL;
         memcpy(action_name, buf, action_len);
@@ -973,8 +976,7 @@ dequeue:
 
     spin_unlock(&ns->recv_lock);
 
-    if (ns->nl_protocol == NETLINK_KOBJECT_UEVENT)
-        plogk("netlink: uevent recv len=%u copy=%u peek=%d\n", full_len, copy_len, peek);
+    if (ns->nl_protocol == NETLINK_KOBJECT_UEVENT) plogk("netlink: uevent recv len=%u copy=%u peek=%d\n", full_len, copy_len, peek);
 
     return (flags & MSG_TRUNC) ? (int)full_len : (int)copy_len;
 }
@@ -1073,9 +1075,12 @@ int netlink_setsockopt(struct socket *sk, int optname, const void *optval, uint3
             if (optlen < sizeof(int)) return -EINVAL;
             if (copy_from_user(&ival, optval, sizeof(int))) return -EFAULT;
             spin_lock(&sk->lock);
-            if (optname == NETLINK_NO_ENOBUFS) ns->no_enobufs = ival != 0;
-            else if (optname == NETLINK_BROADCAST_ERROR) ns->broadcast_error = ival != 0;
-            else ns->packet_info = ival != 0;
+            if (optname == NETLINK_NO_ENOBUFS)
+                ns->no_enobufs = ival != 0;
+            else if (optname == NETLINK_BROADCAST_ERROR)
+                ns->broadcast_error = ival != 0;
+            else
+                ns->packet_info = ival != 0;
             spin_unlock(&sk->lock);
             return EOK;
 

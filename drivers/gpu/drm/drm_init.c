@@ -643,7 +643,7 @@ static int drm_device_uevent(struct device *dev, struct kobj_uevent_env *env)
 }
 
 struct class drm_class = {
-    .name      = "drm",
+    .name       = "drm",
     .dev_uevent = drm_device_uevent,
 };
 int drm_class_registered = 0;

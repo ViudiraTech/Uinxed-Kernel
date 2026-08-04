@@ -113,7 +113,7 @@ void kobject_init(struct kobject *kobj, struct kobj_type *ktype)
     kobj->state_in_kset            = 0;
     kobj->state_add_uevent_sent    = 0;
     kobj->state_remove_uevent_sent = 0;
-    kobj->uevent_suppress           = 0;
+    kobj->uevent_suppress          = 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -392,7 +392,7 @@ int kobject_rename(struct kobject *kobj, const char *new_name)
     }
 
     free((void *)kobj->name);
-    kobj->name = replacement;
+    kobj->name                 = replacement;
     const char *event_old_path = old_path;
     if (strncmp(event_old_path, "/sys/", 5) == 0) event_old_path += 4;
     char old_path_env[UEVENT_BUFFER_SIZE];
@@ -609,14 +609,8 @@ uint64_t kobject_uevent_seqnum(void)
 /* ------------------------------------------------------------------ */
 
 static const char *const kobject_actions[] = {
-    [KOBJ_ADD]     = "add",
-    [KOBJ_REMOVE]  = "remove",
-    [KOBJ_CHANGE]  = "change",
-    [KOBJ_MOVE]    = "move",
-    [KOBJ_ONLINE]  = "online",
-    [KOBJ_OFFLINE] = "offline",
-    [KOBJ_BIND]    = "bind",
-    [KOBJ_UNBIND]  = "unbind",
+    [KOBJ_ADD] = "add",       [KOBJ_REMOVE] = "remove",   [KOBJ_CHANGE] = "change", [KOBJ_MOVE] = "move",
+    [KOBJ_ONLINE] = "online", [KOBJ_OFFLINE] = "offline", [KOBJ_BIND] = "bind",     [KOBJ_UNBIND] = "unbind",
 };
 
 const char *kobject_action_name(enum kobject_action action)
@@ -830,7 +824,8 @@ int kobject_synth_uevent(struct kobject *kobj, const char *buf, size_t count)
     command[count] = '\0';
 
     length = count;
-    while (length && (command[length - 1] == '\n' || command[length - 1] == '\r' || command[length - 1] == ' ' || command[length - 1] == '\t')) command[--length] = '\0';
+    while (length && (command[length - 1] == '\n' || command[length - 1] == '\r' || command[length - 1] == ' ' || command[length - 1] == '\t'))
+        command[--length] = '\0';
     if (!length) return -EINVAL;
 
     for (size_t i = 0; i < length; i++) {

@@ -1,8 +1,11 @@
 /*
- * Generic binary buddy allocator.
  *
- * The allocator manages numbered, equally-sized units.  It performs no
- * allocation for its own metadata and no locking; callers provide both.
+ *      buddy.h
+ *      Generic binary buddy allocator.
+ *
+ *      2026/8/1 By JiTianYu391
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
  */
 
 #ifndef INCLUDE_MEM_BUDDY_H_
@@ -12,7 +15,7 @@
 #include <libs/std/stdint.h>
 
 #define BUDDY_MAX_ORDER  30U
-#define BUDDY_INDEX_NONE ((int32_t)-1)
+#define BUDDY_INDEX_NONE ((int32_t) - 1)
 
 typedef enum {
     BUDDY_PAGE_RESERVED = 0,

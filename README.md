@@ -14,7 +14,7 @@
 
 ## Overview 💡
 
-Uinxed is a monolithic UNIX-like x86_64 kernel, version 0.4.0, written from scratch in C. It boots via the Limine bootloader, supports SMP, and implements a Linux-compatible syscall ABI (440 syscalls matching Linux numbering). The kernel emphasizes modern scheduler design (EEVDF), comprehensive memory management including swap, and a full VFS/driver stack.
+Uinxed is a monolithic UNIX-like x86_64 kernel, written from scratch in C. It boots via the Limine bootloader, supports SMP, and implements a Linux-compatible syscall ABI (440 syscalls matching Linux numbering). The kernel emphasizes modern scheduler design (EEVDF), comprehensive memory management including swap, and a full VFS/driver stack.
 
 ## Architecture Overview
 
@@ -231,24 +231,7 @@ cd Uinxed-Kernel
 make
 ```
 
-USB support is enabled by default in `.config-default`. The individual options are exposed in the `USB support` section of `Kconfig`:
-
-```text
-CONFIG_USB
-CONFIG_USB_XHCI
-CONFIG_USB_HID
-CONFIG_USB_STORAGE
-```
-
 ## Running Tests 🏃‍♂️
-
-### Protocol and subsystem tests
-
-The host-side test suite covers HID report decoding, xHCI ring cycle semantics, USB Mass Storage BOT/SCSI wire encoding, partition parsing, and existing VFS/input subsystems:
-
-```bash
-make -C tests
-```
 
 ### Virtual machine running
 
