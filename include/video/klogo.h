@@ -16,7 +16,7 @@
 #define KLOGO_WIDTH       77
 #define KLOGO_HEIGHT      90
 #define KLOGO_AREA_HEIGHT 112
-#define KLOGO_LEFT_MARGIN 5
+#define KLOGO_LEFT_MARGIN 15
 #define KLOGO_GAP         15
 
 #ifndef BOOT_LOGO

@@ -86,6 +86,7 @@
 #include <syscall/signalfd.h>
 #include <syscall/syscall.h>
 #include <syscall/timerfd.h>
+#include <video/fbcon.h>
 #include <video/klogo.h>
 #include <video/video.h>
 
@@ -118,6 +119,12 @@ static void swapper_run_init(void)
     for (uint32_t i = 0; i < sched_cpu_count(); i++)
         if (cpu_rqs[i].idle) cpu_rqs[i].idle->process = init;
     plogk("swapper/0: Init process (pid=1) ready.\n");
+
+    /* Kernel init is complete: hand the full screen back to the console.
+     * The boot logo is not cleared or redrawn - it stays on screen and the
+     * first console scrolls naturally cover it line by line (Linux fbcon
+     * behaviour). */
+    fbcon_release_logo();
     video_start_refresh_worker();
 }
 

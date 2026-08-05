@@ -36,6 +36,18 @@ void fbcon_delete_chars(uint32_t x, uint32_t y, uint32_t n, uint32_t cols);
 void fbcon_ansi_write(const uint8_t *buf, size_t len);
 
 /*
+ * Boot-logo area control.
+ *
+ * While the boot logo is active fbcon treats the top of the screen as an
+ * overlay: the console keeps the full framebuffer grid but scrolls below
+ * the logo.  fbcon_release_logo() hands the whole screen back without
+ * touching the logo pixels - the very next console scrolls then reclaims
+ * the logo area line by line, exactly like Linux fbcon.
+ */
+void fbcon_set_logo_active(bool active);
+void fbcon_release_logo(void);
+
+/*
  * Periodic cursor blink driver.  Called from the video refresh worker;
  * flips the block-cursor phase roughly every CURSOR_BLINK_INTERVAL
  * scheduler ticks and repaints the affected cells directly into the

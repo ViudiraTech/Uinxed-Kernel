@@ -53,10 +53,25 @@ static uint32_t cursor_drawn_row;
 static uint32_t cursor_drawn_col;
 
 #if BOOT_LOGO
-static uint32_t fbcon_offset_x      = 0;
-static uint32_t fbcon_offset_y      = 98;
-static uint32_t fbcon_draw_offset_y = 12;
+static uint32_t logo_rows;       /* grid rows covered by the boot logo */
+static uint32_t logo_cover_rows; /* top rows still showing the logo (redraw-protected) */
+static bool     logo_released;   /* true once kernel init handed the screen back */
 #endif
+
+/* True while a row still sits inside the boot-logo area.  Such rows must
+ * never be repainted from the (blank) text grid, otherwise the logo bitmap
+ * drawn on top of them would be erased before the console scrolls over it.
+ * After kernel init this count shrinks line by line as scrolling consumes
+ * the blank rows, so the logo fades out naturally. */
+static bool fbcon_row_logo_protected(uint32_t row)
+{
+#if BOOT_LOGO
+    return row < logo_cover_rows;
+#else
+    (void)row;
+    return false;
+#endif
+}
 
 static void fbcon_mark_cell_dirty(uint32_t row, uint32_t col)
 {
@@ -64,6 +79,69 @@ static void fbcon_mark_cell_dirty(uint32_t row, uint32_t col)
 
     if (dirty_first_col[row] > col) dirty_first_col[row] = col;
     if (dirty_last_col[row] < col) dirty_last_col[row] = col;
+}
+
+#if BOOT_LOGO
+/* Reserve the top logo_rows rows for the boot logo.  The console scrolls
+ * below them; text starts just under the logo.  Once kernel init has handed
+ * the screen back (fbcon_release_logo) a late redraw never re-reserves. */
+static void fbcon_set_logo_active_locked(bool active)
+{
+    if (!active) {
+        logo_cover_rows          = 0;
+        vt_ansi_state.scroll_top = 0;
+        return;
+    }
+    if (logo_released) return;
+    if (!logo_rows && font_height) logo_rows = (KLOGO_AREA_HEIGHT + font_height - 1) / font_height;
+    if (logo_rows == 0 || logo_rows >= c_height) return;
+    logo_cover_rows          = logo_rows;
+    vt_ansi_state.scroll_top = logo_rows;
+    if (vt_ansi_state.y < logo_rows) vt_ansi_state.y = logo_rows;
+}
+
+/* An explicit erase that reaches above the logo reclaims the area for good
+ * (like Linux clearing above vc_top); the logo is then wiped by the clear. */
+static void fbcon_erase_release_logo_locked(void)
+{
+    if (!logo_cover_rows) return;
+    logo_cover_rows          = 0;
+    vt_ansi_state.scroll_top = 0;
+}
+
+/* Kernel-init completion: hand the whole screen back to the console without
+ * touching the logo pixels.  The top rows stay blank (logo still visible)
+ * and the first console scrolls cover them line by line. */
+static void fbcon_release_logo_locked(void)
+{
+    if (!logo_cover_rows) return;
+    logo_released            = true;
+    vt_ansi_state.scroll_top = 0;
+}
+#endif
+
+/* Reserve the boot-logo area (called when the logo is actually drawn). */
+void fbcon_set_logo_active(bool active)
+{
+#if BOOT_LOGO
+    spin_lock(&fbcon_lock);
+    fbcon_set_logo_active_locked(active);
+    spin_unlock(&fbcon_lock);
+#else
+    (void)active;
+#endif
+}
+
+/* Release the boot-logo area at kernel-init completion.  The logo bitmap is
+ * left untouched; the console merely reclaims the full screen and scrolling
+ * gradually covers it, matching Linux fbcon behaviour. */
+void fbcon_release_logo(void)
+{
+#if BOOT_LOGO
+    spin_lock(&fbcon_lock);
+    fbcon_release_logo_locked();
+    spin_unlock(&fbcon_lock);
+#endif
 }
 
 static void fbcon_clear_row(uint32_t row)
@@ -81,6 +159,7 @@ static void fbcon_clear_row(uint32_t row)
 static void fbcon_redraw_row_range(uint32_t row, uint32_t first_col, uint32_t last_col)
 {
     if (!text_grid || !color_grid || row >= c_height) return;
+    if (fbcon_row_logo_protected(row)) return;
     if (first_col >= c_width || last_col >= c_width || first_col > last_col) return;
 
     for (uint32_t col = first_col; col <= last_col; col++) {
@@ -101,16 +180,15 @@ static void fbcon_flush_dirty_rows(void)
     if (!dirty_first_col || !dirty_last_col) return;
     for (uint32_t row = 0; row < c_height; row++) {
         if (dirty_first_col[row] > dirty_last_col[row]) continue;
+        if (fbcon_row_logo_protected(row)) {
+            dirty_first_col[row] = c_width;
+            dirty_last_col[row]  = 0;
+            continue;
+        }
 
-#if BOOT_LOGO
-        uint32_t x1 = dirty_first_col[row] * font_width + fbcon_offset_x;
-        uint32_t y1 = row * font_height + fbcon_offset_y + fbcon_draw_offset_y;
-        uint32_t x2 = (dirty_last_col[row] + 1) * font_width + fbcon_offset_x;
-#else
         uint32_t x1 = dirty_first_col[row] * font_width;
         uint32_t y1 = row * font_height;
         uint32_t x2 = (dirty_last_col[row] + 1) * font_width;
-#endif
         uint32_t y2 = y1 + font_height;
 
         if (x1 < damage_x1) damage_x1 = x1;
@@ -143,11 +221,7 @@ static void fbcon_redraw_screen(void)
 static void fbcon_clear_uncovered_bottom(void)
 {
     if (!buffer) return;
-#if BOOT_LOGO
-    uint32_t used_height = fbcon_offset_y + fbcon_draw_offset_y + c_height * font_height;
-#else
     uint32_t used_height = c_height * font_height;
-#endif
     if (used_height < height) {
         for (uint32_t y = used_height; y < height; y++) {
             uint32_t *line  = buffer + (size_t)y * stride;
@@ -191,6 +265,16 @@ void fbcon_scroll_up(uint32_t top, uint32_t bottom, uint32_t lines)
             dirty_last_col[r]  = c_width - 1;
         }
     }
+#if BOOT_LOGO
+    /* A scroll that spans the top of the screen consumes the blank rows
+     * still hiding the logo, so the logo is covered one line at a time. */
+    if (top == 0 && logo_cover_rows) {
+        if (lines >= logo_cover_rows)
+            logo_cover_rows = 0;
+        else
+            logo_cover_rows -= lines;
+    }
+#endif
     full_redraw_pending = 1;
 }
 
@@ -230,6 +314,12 @@ void fbcon_scroll_down(uint32_t top, uint32_t bottom, uint32_t lines)
 void fbcon_erase_display(uint32_t mode)
 {
     if (!text_grid || !color_grid) return;
+#if BOOT_LOGO
+    /* A clear that reaches above the logo reclaims the area just like Linux
+     * (clearing above vc_top releases the logo).  Mode 0 reaches the top
+     * rows only when the cursor sits inside the logo area. */
+    if (logo_cover_rows && (mode == 1 || mode == 2 || mode == 3 || (mode == 0 && cy < logo_cover_rows))) fbcon_erase_release_logo_locked();
+#endif
     switch (mode) {
         case 0 :
             for (uint32_t col = cx; col < c_width; col++) {
@@ -288,6 +378,9 @@ void fbcon_erase_display(uint32_t mode)
 void fbcon_erase_line(uint32_t mode, uint32_t y)
 {
     if (!text_grid || !color_grid || y >= c_height) return;
+#if BOOT_LOGO
+    if (logo_cover_rows && y < logo_cover_rows) fbcon_erase_release_logo_locked();
+#endif
     switch (mode) {
         case 0 :
             for (uint32_t col = cx; col < c_width; col++) {
@@ -400,13 +493,11 @@ void fbcon_init(void)
 
     cx = cy = 0;
 
-#if BOOT_LOGO
-    c_width  = width > fbcon_offset_x ? (width - fbcon_offset_x) / font_width : 80;
-    c_height = height > fbcon_offset_y ? (height - fbcon_offset_y) / font_height : 25;
-#else
-    c_width  = width / font_width;
-    c_height = height / font_height;
-#endif
+    /* The console always owns the full framebuffer grid.  The boot logo is
+     * an overlay on top of the first rows, not a reduction of the console
+     * area; it is reserved (and later reclaimed by scrolling) dynamically. */
+    c_width  = width ? (uint32_t)(width / font_width) : 80;
+    c_height = height ? (uint32_t)((height + font_height - 1) / font_height) : 25;
 
     fore_color = color_to_fb_color((color_t) {0xaa, 0xaa, 0xaa});
     back_color = color_to_fb_color((color_t) {0x00, 0x00, 0x00});
@@ -444,83 +535,125 @@ void fbcon_init(void)
 
     vt_ansi_init(&vt_ansi_state, c_width, c_height);
     vt_ansi_set_default_colors(&vt_ansi_state, 0xaaaaaa, 0x000000);
+
+#if BOOT_LOGO
+    logo_rows       = (KLOGO_AREA_HEIGHT + font_height - 1) / font_height;
+    logo_cover_rows = 0;
+    logo_released   = false;
+#endif
+
     tty_console_resize((uint16_t)c_height, (uint16_t)c_width);
 }
 
 /*
  * fbcon_resize ?reallocate text/color/dirty grids after a framebuffer
  * switch changes the screen dimensions.  Preserves the font size but
- * recalculates the character grid.
+ * recalculates the character grid.  When the resolution is unchanged the
+ * existing grids and cursor state are kept so a seamless buffer handoff
+ * (e.g. boot framebuffer -> DRM GEM) keeps the visible content intact.
  */
 void fbcon_resize(void)
 {
-    free(text_grid);
-    free(color_grid);
-    free(bg_grid);
-    free(dirty_first_col);
-    free(dirty_last_col);
+    uint32_t new_cw  = width ? (uint32_t)(width / font_width) : 80;
+    uint32_t new_ch  = height ? (uint32_t)((height + font_height - 1) / font_height) : 25;
+    bool     rebuilt = false;
 
-#if BOOT_LOGO
-    c_width  = (width - fbcon_offset_x) / font_width;
-    c_height = (height - fbcon_offset_y) / font_height;
-#else
-    c_width  = width / font_width;
-    c_height = height / font_height;
-#endif
+    if (new_cw != c_width || new_ch != c_height) {
+        rebuilt = true;
 
-    text_grid       = calloc((size_t)c_width * c_height, sizeof(char));
-    color_grid      = malloc((size_t)c_width * c_height * sizeof(uint32_t));
-    bg_grid         = malloc((size_t)c_width * c_height * sizeof(uint32_t));
-    dirty_first_col = malloc((size_t)c_height * sizeof(uint32_t));
-    dirty_last_col  = malloc((size_t)c_height * sizeof(uint32_t));
-
-    if (!text_grid || !color_grid || !dirty_first_col || !dirty_last_col) {
         free(text_grid);
         free(color_grid);
         free(bg_grid);
         free(dirty_first_col);
         free(dirty_last_col);
+
         text_grid       = NULL;
         color_grid      = NULL;
         bg_grid         = NULL;
         dirty_first_col = NULL;
         dirty_last_col  = NULL;
-    } else {
-        for (uint32_t row = 0; row < c_height; row++) {
-            fbcon_clear_row(row);
-            dirty_first_col[row] = c_width;
-            dirty_last_col[row]  = 0;
+
+        c_width  = new_cw;
+        c_height = new_ch;
+
+        text_grid       = calloc((size_t)c_width * c_height, sizeof(char));
+        color_grid      = malloc((size_t)c_width * c_height * sizeof(uint32_t));
+        bg_grid         = malloc((size_t)c_width * c_height * sizeof(uint32_t));
+        dirty_first_col = malloc((size_t)c_height * sizeof(uint32_t));
+        dirty_last_col  = malloc((size_t)c_height * sizeof(uint32_t));
+
+        if (!text_grid || !color_grid || !dirty_first_col || !dirty_last_col) {
+            free(text_grid);
+            free(color_grid);
+            free(bg_grid);
+            free(dirty_first_col);
+            free(dirty_last_col);
+            text_grid       = NULL;
+            color_grid      = NULL;
+            bg_grid         = NULL;
+            dirty_first_col = NULL;
+            dirty_last_col  = NULL;
+        } else {
+            for (uint32_t row = 0; row < c_height; row++) {
+                fbcon_clear_row(row);
+                dirty_first_col[row] = c_width;
+                dirty_last_col[row]  = 0;
+            }
         }
+
+        cx = 0;
+        cy = 0;
+
+        vt_ansi_init(&vt_ansi_state, c_width, c_height);
+        vt_ansi_set_default_colors(&vt_ansi_state, 0xaaaaaa, 0x000000);
     }
 
-    cx              = 0;
-    cy              = 0;
-    redraw_deferred = 0;
+#if BOOT_LOGO
+    /* Keep the boot-logo reservation in sync after any rebuild. */
+    if (logo_cover_rows) {
+        if (logo_rows && c_height > logo_rows) {
+            vt_ansi_state.scroll_top = logo_rows;
+            if (vt_ansi_state.y < logo_rows) vt_ansi_state.y = logo_rows;
+        } else {
+            logo_cover_rows = 0;
+        }
+    }
+#endif
 
     cursor_last_tick = 0;
     cursor_phase     = false;
     cursor_drawn     = false;
 
-    vt_ansi_init(&vt_ansi_state, c_width, c_height);
-    vt_ansi_set_default_colors(&vt_ansi_state, 0xaaaaaa, 0x000000);
+    redraw_deferred = 0;
+
     tty_console_resize((uint16_t)c_height, (uint16_t)c_width);
 
-    full_redraw_pending = 1;
-    fbcon_flush_screen_updates();
+    /* Only a resolution change invalidates the pixels; when the geometry is
+     * unchanged the caller carries the old frame over instead, so repainting
+     * here would only flash the logo area blank for one frame. */
+    if (rebuilt) {
+        full_redraw_pending = 1;
+        fbcon_flush_screen_updates();
+    }
 }
 
-/* Draw a character with per-cell foreground and background color */
+/* Draw a character with per-cell foreground and background color.  The
+ * grid uses ceil(height / font_height) rows so the console fills the whole
+ * screen; the last row may extend past the physical height and is clipped
+ * here. */
 void fbcon_draw_char_bg(const char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t bg)
 {
-    if (!buffer) return;
-    uint8_t *char_font = ascii_font + (size_t)(uint8_t)c * font_height;
-#if BOOT_LOGO
-    uint32_t char_base_addr = (y + fbcon_offset_y + fbcon_draw_offset_y) * stride + (x + fbcon_offset_x);
-#else
-    uint32_t char_base_addr = y * stride + x;
-#endif
+    uint32_t draw_rows;
+    uint32_t row;
 
-    for (uint32_t row = 0; row < font_height; row++) {
+    if (!buffer || y >= (uint32_t)height) return;
+    draw_rows = font_height;
+    if ((uint64_t)y + font_height > height) draw_rows = (uint32_t)height - y;
+
+    uint8_t *char_font      = ascii_font + (size_t)(uint8_t)c * font_height;
+    uint32_t char_base_addr = y * stride + x;
+
+    for (row = 0; row < draw_rows; row++) {
         uint32_t *row_buf  = buffer + char_base_addr + row * stride;
         uint8_t   font_row = char_font[row];
         for (uint32_t col = 0; col < font_width; col++) row_buf[col] = (font_row & (0x80 >> col)) ? fg : bg;
@@ -639,11 +772,12 @@ void fbcon_cursor_tick(uint64_t now_ticks)
         cursor_drawn = false;
     }
 
-    /* Paint the block cursor at the current cursor position (reverse video). */
+    /* Paint the block cursor at the current cursor position (reverse video).
+     * Never paint over the still-visible boot logo. */
     if (cursor_phase && vt_ansi_state.cursor_visible && text_grid && color_grid) {
         uint32_t row = vt_ansi_state.y;
         uint32_t col = vt_ansi_state.x;
-        if (row < c_height && col < c_width) {
+        if (row < c_height && col < c_width && !fbcon_row_logo_protected(row)) {
             size_t   idx = (size_t)row * c_width + col;
             uint32_t fg  = color_grid[idx];
             uint32_t bg  = bg_grid ? bg_grid[idx] : back_color;

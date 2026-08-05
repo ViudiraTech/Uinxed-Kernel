@@ -502,14 +502,30 @@ void video_flush_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
  * After this call all printk / tty output renders into the DRM buffer
  * instead of the boot-time Limine framebuffer.  The @flush callback is
  * invoked after each batch draw to push pixels to the host GPU.
+ *
+ * When the new resolution matches the boot framebuffer the previous frame
+ * (boot logo and everything already rendered) is carried over pixel-for-
+ * pixel into the new buffer: no clear, no logo redraw.  The console just
+ * continues on the DRM surface and the logo is eventually covered by
+ * normal scrolling after fbcon_release_logo().
  */
 void video_switch_to_drm(void *backing, uint32_t w, uint32_t h, uint32_t pitch, video_flush_fn_t flush)
 {
+    uint32_t *old_buffer;
+    uint64_t  old_width;
+    uint64_t  old_height;
+    uint64_t  old_stride;
+
     if (!backing || !flush) return;
 
     if ((uintptr_t)backing & (PAGE_4K_SIZE - 1) || pitch < w * sizeof(uint32_t) || (pitch & (sizeof(uint32_t) - 1))) return;
 
     spin_lock(&video_state_lock);
+    old_buffer = buffer;
+    old_width  = width;
+    old_height = height;
+    old_stride = stride;
+
     buffer                             = (uint32_t *)backing;
     width                              = w;
     height                             = h;
@@ -532,15 +548,29 @@ void video_switch_to_drm(void *backing, uint32_t w, uint32_t h, uint32_t pitch, 
     video_generation++;
     spin_unlock(&video_state_lock);
 
-    /* Rebuild the fbcon character grid for the new resolution */
+    /* Rebuild the fbcon character grid for the new resolution.  When the
+     * resolution is unchanged the grids and cursor state are preserved. */
     fbcon_resize();
 
-    /* Clear to black and flush, then redraw the boot logo and flush */
-    video_clear();
+    if (old_buffer && old_width == w && old_height == h) {
+        /* Seamless handoff: move the previous frame into the new buffer so
+         * the logo and all boot messages survive without being redrawn. */
+        if (old_stride == stride) {
+            memcpy(buffer, old_buffer, (size_t)stride * h * sizeof(uint32_t));
+        } else {
+            for (uint32_t y = 0; y < h; y++)
+                memcpy(buffer + (size_t)y * stride, old_buffer + (size_t)y * old_stride, (size_t)w * sizeof(uint32_t));
+        }
+    } else {
+        /* Resolution changed: rebuild the display from scratch. */
+        video_clear();
 #if BOOT_LOGO
-    video_redraw_logo();
-    video_flush_rect(0, 0, w, h); /* flush logo pixels to host */
+        video_redraw_logo();
 #endif
+    }
+
+    /* Push the carried-over frame (or the rebuilt one) to the host. */
+    video_flush_rect(0, 0, w, h);
 
     plogk("video: switched console to DRM framebuffer %ux%u stride=%u\n", w, h, (uint32_t)stride);
 }
