@@ -9,7 +9,7 @@
  */
 
 #include <arch/cpuid.h>
-#include <arch/eis.h>
+#include <arch/fpu.h>
 #include <arch/gdt.h>
 #include <arch/smp.h>
 #include <boot/limine_module.h>
@@ -154,9 +154,7 @@ void executable_entry(void)
 void kernel_entry(void)
 {
     /* CPU Features */
-    init_fpu();             // Floating-Point Unit / Streaming SIMD Extensions
-    init_sse();             // Streaming SIMD Extensions / 2
-    init_avx();             // Advanced Vector Extensions / 2
+    fpu_init();             // Floating-Point Unit / Streaming SIMD Extensions
                             //
     /* Early Platform */    //
     init_serial();          // Standard RS-232 Serial Port

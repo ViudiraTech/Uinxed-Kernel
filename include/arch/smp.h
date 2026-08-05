@@ -36,6 +36,15 @@ typedef struct {
 _Static_assert(offsetof(syscall_cpu_state_t, user_rsp) == SYSCALL_CPU_USER_RSP_OFFSET, "syscall user RSP offset");
 _Static_assert(offsetof(syscall_cpu_state_t, kernel_rsp) == SYSCALL_CPU_KERNEL_RSP_OFFSET, "syscall kernel RSP offset");
 
+struct task;
+
+/* Per-CPU floating-point state (see <arch/fpu.h>) */
+typedef struct {
+        struct task *fpu_live;       /* task whose FPU state is currently loaded on this CPU */
+        uint8_t      fpu_kernel_cnt; /* nested kernel_fpu_begin() depth */
+        uint8_t      fpu_irq_saved;  /* RFLAGS.IF of the outermost kernel_fpu_begin() */
+} fpu_percpu_t;
+
 typedef struct cpu_processor {
         uint64_t            id;
         uint64_t            lapic_id;
@@ -44,6 +53,7 @@ typedef struct cpu_processor {
         tss_t              *tss;
         kernel_stack_t     *kernel_stack;
         syscall_cpu_state_t syscall;
+        fpu_percpu_t        fpu;
 } cpu_processor_t;
 
 /* Send an IPI to all CPUs */

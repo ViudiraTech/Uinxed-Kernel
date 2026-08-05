@@ -43,16 +43,16 @@
 /*  futex2 flags (Linux 6.7+ futex_wake / futex_wait / futex_requeue)  */
 /* ------------------------------------------------------------------ */
 
-#define FUTEX2_SIZE_U8         0x00
-#define FUTEX2_SIZE_U16        0x01
-#define FUTEX2_SIZE_U32        0x02
-#define FUTEX2_SIZE_U64        0x03
-#define FUTEX2_SIZE_MASK       0x03
+#define FUTEX2_SIZE_U8   0x00
+#define FUTEX2_SIZE_U16  0x01
+#define FUTEX2_SIZE_U32  0x02
+#define FUTEX2_SIZE_U64  0x03
+#define FUTEX2_SIZE_MASK 0x03
 
-#define FUTEX2_PRIVATE         FUTEX_PRIVATE_FLAG
-#define FUTEX2_CLOCK_REALTIME  0x10
+#define FUTEX2_PRIVATE        FUTEX_PRIVATE_FLAG
+#define FUTEX2_CLOCK_REALTIME 0x10
 
-#define FUTEX2_VALID_MASK      (FUTEX2_SIZE_MASK | FUTEX2_PRIVATE | FUTEX2_CLOCK_REALTIME)
+#define FUTEX2_VALID_MASK (FUTEX2_SIZE_MASK | FUTEX2_PRIVATE | FUTEX2_CLOCK_REALTIME)
 
 /* The futex_waitv descriptor used by futex_requeue() (and futex_waitv). */
 struct futex_waitv {

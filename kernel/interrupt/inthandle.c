@@ -8,7 +8,6 @@
  *
  */
 
-#include <arch/eis.h>
 #include <arch/smp.h>
 #include <kernel/debug.h>
 #include <kernel/interrupt.h>
@@ -133,7 +132,6 @@ INTERRUPT_END
 
 INTERRUPT_BEGIN static void ISR_7_handle(interrupt_frame_t *frame)
 {
-    if (fpu_handle_device_not_available()) return;
     if (user_exception(frame, SIGFPE, FPE_FLTINV, "#NM", "Device not available")) return;
     panic("Kernel exception: #NM");
 }

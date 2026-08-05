@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/eis.h>
+#include <arch/fpu.h>
 #include <arch/gdt.h>
 #include <arch/smp.h>
 #include <cgroup/cgroup.h>
@@ -818,7 +818,7 @@ void sched_yield(void)
     if (!prev || prev->thread.gs_base != next->thread.gs_base) wrmsr(0xC0000101, next->thread.gs_base);
     ptrace_arch_switch(prev, next);
 
-    fpu_context_switch(prev);
+    fpu_switch(prev, next);
     context_switch(&prev->context, &next->context, &prev->on_cpu);
 }
 

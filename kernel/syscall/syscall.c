@@ -9,7 +9,7 @@
  */
 
 #include <arch/cpuid.h>
-#include <arch/eis.h>
+#include <arch/fpu.h>
 #include <arch/smp.h>
 #include <arch/tss.h>
 #include <chipset/common.h>
@@ -2109,8 +2109,7 @@ static int64_t sys_fchmod_impl(uint64_t fd, uint64_t mode, uint64_t arg2, uint64
  * permission bits of the symbolic link itself instead of its target.
  * Any other flag yields -EINVAL.
  */
-static int64_t sys_fchmodat2_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t flags,
-                                  uint64_t arg4, uint64_t arg5)
+static int64_t sys_fchmodat2_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t flags, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
     (void)arg5;
@@ -2903,14 +2902,14 @@ static int64_t sys_membarrier_stub(uint64_t cmd, uint64_t flags, uint64_t cpu_id
     /* MEMBARRIER_CMD_QUERY = 0, MEMBARRIER_CMD_GLOBAL = 1 */
     if (flags) return -EINVAL;
     switch (cmd) {
-    case 0: /* QUERY: return supported commands bitmap */
-        /* We support GLOBAL (1 << 1) = 2 on SMP, plus the basic bits */
-        return (1 << 0) | (1 << 1);
-    case 1: /* GLOBAL: issue memory barrier on all CPUs */
-        __asm__ volatile("mfence" ::: "memory");
-        return 0;
-    default:
-        return -EINVAL;
+        case 0 : /* QUERY: return supported commands bitmap */
+            /* We support GLOBAL (1 << 1) = 2 on SMP, plus the basic bits */
+            return (1 << 0) | (1 << 1);
+        case 1 : /* GLOBAL: issue memory barrier on all CPUs */
+            __asm__ volatile("mfence" ::: "memory");
+            return 0;
+        default :
+            return -EINVAL;
     }
 }
 
@@ -3010,13 +3009,13 @@ static int64_t sys_pkey_mprotect_stub(uint64_t addr, uint64_t len, uint64_t prot
 /* ---------- rseq (restartable sequences) ---------- */
 
 struct rseq_layout {
-    uint32_t cpu_id_start;
-    uint32_t cpu_id;
-    uint64_t rseq_cs;
-    uint32_t flags;
-    uint32_t node_id;
-    uint32_t mm_cid;
-    uint8_t  padding[36];
+        uint32_t cpu_id_start;
+        uint32_t cpu_id;
+        uint64_t rseq_cs;
+        uint32_t flags;
+        uint32_t node_id;
+        uint32_t mm_cid;
+        uint8_t  padding[36];
 } __attribute__((packed));
 
 _Static_assert(sizeof(struct rseq_layout) == 64, "rseq ABI size");
@@ -3039,7 +3038,7 @@ static int64_t sys_rseq_impl(uint64_t rseq_base, uint64_t rseq_len, uint64_t fla
 
     /* Write cpu_id to the rseq area */
     task_t *task = current_task();
-    int cpu = task ? (int)task->cpu_id : 0;
+    int     cpu  = task ? (int)task->cpu_id : 0;
     if (copy_to_user((void *)(rseq_base + offsetof(struct rseq_layout, cpu_id_start)), &cpu, sizeof(cpu))) return -EFAULT;
     if (copy_to_user((void *)(rseq_base + offsetof(struct rseq_layout, cpu_id)), &cpu, sizeof(cpu))) return -EFAULT;
 
@@ -3081,38 +3080,84 @@ static size_t pidfd_vfs_write(void *file, const void *addr, size_t offset, size_
     return (size_t)-1;
 }
 
-static int pidfd_stub_stat(void *f, vfs_node_t n) { (void)f; (void)n; return EOK; }
-static int pidfd_stub_mk(void *p, const char *nm, vfs_node_t n) { (void)p; (void)nm; (void)n; return -ENOSYS; }
-static size_t pidfd_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s) { (void)n; (void)a; (void)o; (void)s; return (size_t)-1; }
-static int pidfd_stub_ioctl(void *f, size_t o, void *a) { (void)f; (void)o; (void)a; return -ENOSYS; }
-static vfs_node_t pidfd_stub_dup(vfs_node_t n) { (void)n; return NULL; }
-static int pidfd_stub_del(void *p, vfs_node_t n) { (void)p; (void)n; return -ENOSYS; }
-static int pidfd_stub_rename(void *c, const char *nm) { (void)c; (void)nm; return -ENOSYS; }
-static int pidfd_stub_mount(const char *s, vfs_node_t n) { (void)s; (void)n; return -ENOSYS; }
-static void pidfd_stub_unmount(void *root) { (void)root; }
+static int pidfd_stub_stat(void *f, vfs_node_t n)
+{
+    (void)f;
+    (void)n;
+    return EOK;
+}
+static int pidfd_stub_mk(void *p, const char *nm, vfs_node_t n)
+{
+    (void)p;
+    (void)nm;
+    (void)n;
+    return -ENOSYS;
+}
+static size_t pidfd_stub_readlink(vfs_node_t n, void *a, size_t o, size_t s)
+{
+    (void)n;
+    (void)a;
+    (void)o;
+    (void)s;
+    return (size_t)-1;
+}
+static int pidfd_stub_ioctl(void *f, size_t o, void *a)
+{
+    (void)f;
+    (void)o;
+    (void)a;
+    return -ENOSYS;
+}
+static vfs_node_t pidfd_stub_dup(vfs_node_t n)
+{
+    (void)n;
+    return NULL;
+}
+static int pidfd_stub_del(void *p, vfs_node_t n)
+{
+    (void)p;
+    (void)n;
+    return -ENOSYS;
+}
+static int pidfd_stub_rename(void *c, const char *nm)
+{
+    (void)c;
+    (void)nm;
+    return -ENOSYS;
+}
+static int pidfd_stub_mount(const char *s, vfs_node_t n)
+{
+    (void)s;
+    (void)n;
+    return -ENOSYS;
+}
+static void pidfd_stub_unmount(void *root)
+{
+    (void)root;
+}
 
 static void pidfd_ensure_init(void)
 {
     if (pidfd_fsid >= 0) return;
     vfs_callback_t cb = calloc(1, sizeof(struct vfs_callback));
     if (!cb) return;
-    cb->mount      = pidfd_stub_mount;
-    cb->unmount    = pidfd_stub_unmount;
-    cb->open       = pidfd_vfs_open;
-    cb->close      = pidfd_vfs_close;
-    cb->read       = pidfd_vfs_read;
-    cb->write      = pidfd_vfs_write;
-    cb->readlink   = pidfd_stub_readlink;
-    cb->mkdir      = pidfd_stub_mk;
-    cb->mkfile     = pidfd_stub_mk;
-    cb->link       = pidfd_stub_mk;
-    cb->symlink    = pidfd_stub_mk;
-    cb->stat       = pidfd_stub_stat;
-    cb->ioctl      = pidfd_stub_ioctl;
-    cb->dup        = pidfd_stub_dup;
-    cb->delete     = pidfd_stub_del;
-    cb->rename     = pidfd_stub_rename;
-    pidfd_fsid = vfs_regist(cb);
+    cb->mount    = pidfd_stub_mount;
+    cb->unmount  = pidfd_stub_unmount;
+    cb->open     = pidfd_vfs_open;
+    cb->close    = pidfd_vfs_close;
+    cb->read     = pidfd_vfs_read;
+    cb->write    = pidfd_vfs_write;
+    cb->readlink = pidfd_stub_readlink;
+    cb->mkdir    = pidfd_stub_mk;
+    cb->mkfile   = pidfd_stub_mk;
+    cb->link     = pidfd_stub_mk;
+    cb->symlink  = pidfd_stub_mk;
+    cb->stat     = pidfd_stub_stat;
+    cb->ioctl    = pidfd_stub_ioctl;
+    cb->dup      = pidfd_stub_dup;
+    cb->delete   = pidfd_stub_del;
+    cb->rename   = pidfd_stub_rename;
+    pidfd_fsid   = vfs_regist(cb);
 }
 
 static int64_t sys_pidfd_open_impl(uint64_t pid_raw, uint64_t flags, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -3165,17 +3210,17 @@ static int64_t sys_pidfd_open_impl(uint64_t pid_raw, uint64_t flags, uint64_t ar
 /* ---------- clone3 ---------- */
 
 struct clone3_args {
-    uint64_t flags;
-    uint64_t pidfd;
-    uint64_t child_tid;
-    uint64_t parent_tid;
-    uint64_t exit_signal;
-    uint64_t stack;
-    uint64_t stack_size;
-    uint64_t tls;
-    uint64_t set_tid;
-    uint64_t set_tid_size;
-    uint64_t cgroup;
+        uint64_t flags;
+        uint64_t pidfd;
+        uint64_t child_tid;
+        uint64_t parent_tid;
+        uint64_t exit_signal;
+        uint64_t stack;
+        uint64_t stack_size;
+        uint64_t tls;
+        uint64_t set_tid;
+        uint64_t set_tid_size;
+        uint64_t cgroup;
 };
 
 static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -3192,7 +3237,7 @@ static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, u
     if (copy_from_user(&args, (const void *)cl_args, sizeof(args))) return -EFAULT;
 
     /* Validate flags */
-    uint64_t flags = args.flags;
+    uint64_t flags       = args.flags;
     uint64_t exit_signal = args.exit_signal;
 
     /* Combine exit_signal into flags (low byte) */
@@ -3224,17 +3269,14 @@ static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, u
         process_t *proc = process_current();
         if (!proc) return -ESRCH;
 
-        int error = EOK;
-        task_t *child = process_clone_thread(
-            NULL, args.stack,
-            args.parent_tid, args.child_tid, args.child_tid,
-            args.tls, &error);
+        int     error = EOK;
+        task_t *child = process_clone_thread(NULL, args.stack, args.parent_tid, args.child_tid, args.child_tid, args.tls, &error);
         if (!child) return error;
         return (int64_t)child->pid;
     }
 
     /* Fork / vfork */
-    int error = EOK;
+    int        error = EOK;
     process_t *child = process_fork_status_event_mode(&error, is_vfork ? PTRACE_EVENT_VFORK : PTRACE_EVENT_FORK, is_vfork);
     if (!child) return error;
 
@@ -3242,10 +3284,10 @@ static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, u
         /* Set up child stack */
         task_t *ct = child->task;
         if (ct) {
-            uint64_t        kstack_top = (uint64_t)(child->kernel_stack + PROCESS_KERNEL_STACK);
-            uint64_t       *kstack     = (uint64_t *)ALIGN_DOWN(kstack_top, 16ULL);
+            uint64_t  kstack_top = (uint64_t)(child->kernel_stack + PROCESS_KERNEL_STACK);
+            uint64_t *kstack     = (uint64_t *)ALIGN_DOWN(kstack_top, 16ULL);
             kstack -= 4; /* Leave room */
-            *(--kstack) = (uint64_t)syscall_return;
+            *(--kstack)     = (uint64_t)syscall_return;
             ct->context.rsp = (uint64_t)kstack;
             /* Set the user stack pointer via the child's context */
             /* This needs to be done in process_fork_publish context... */
@@ -3273,8 +3315,8 @@ static int64_t sys_process_madvise_impl(uint64_t pidfd, uint64_t iovec, uint64_t
 
     /* Read iovec entries */
     struct {
-        void    *iov_base;
-        size_t  iov_len;
+            void  *iov_base;
+            size_t iov_len;
     } iov[16];
 
     if (vlen > 16) vlen = 16;
@@ -3287,12 +3329,12 @@ static int64_t sys_process_madvise_impl(uint64_t pidfd, uint64_t iovec, uint64_t
     for (uint64_t i = 0; i < vlen; i++) {
         /* Apply advice per-range. For now, just validate and return success. */
         switch (advice) {
-        case 1:  /* MADV_COLD */
-        case 2:  /* MADV_PAGEOUT */
-            break;
-        default:
-            process_put(target);
-            return -EINVAL;
+            case 1 : /* MADV_COLD */
+            case 2 : /* MADV_PAGEOUT */
+                break;
+            default :
+                process_put(target);
+                return -EINVAL;
         }
         result++;
     }
@@ -3304,8 +3346,8 @@ static int64_t sys_process_madvise_impl(uint64_t pidfd, uint64_t iovec, uint64_t
 /* ---------- epoll_pwait2 ---------- */
 
 struct linux_timespec64 {
-    int64_t tv_sec;
-    int64_t tv_nsec;
+        int64_t tv_sec;
+        int64_t tv_nsec;
 };
 
 static int64_t sys_epoll_pwait2_impl(uint64_t epfd, uint64_t events, uint64_t maxevents, uint64_t tsp, uint64_t sigmask, uint64_t sigsetsize)

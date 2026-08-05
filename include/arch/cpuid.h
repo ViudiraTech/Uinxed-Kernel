@@ -101,4 +101,7 @@ int cpu_xcr0_supports(uint64_t mask);
 /* Check CPU supports AVX2 */
 int cpu_support_avx2(void);
 
+/* Check CPU supports AVX-512F (base AVX-512) */
+int cpu_support_avx512f(void);
+
 #endif // INCLUDE_CPUID_H_

@@ -363,7 +363,7 @@ enum x86_syscall_table {
     SYS_CLOSE_RANGE,
     SYS_OPENAT2,
     SYS_PIDFD_GETFD,
-    SYS_FACCESSAT2 = 439,
+    SYS_FACCESSAT2      = 439,
     SYS_PROCESS_MADVISE = 440,
     SYS_EPOLL_PWAIT2,
     SYS_MOUNT_SETATTR,
@@ -387,7 +387,7 @@ enum x86_syscall_table {
     SYS_LSM_SET_SELF_ATTR,
     SYS_LSM_LIST_MODULES,
     SYS_MSEAL,
-    SYS_MAX        = 463,
+    SYS_MAX = 463,
 };
 
 #endif // INCLUDE_SYSCALL_TABLE_H_

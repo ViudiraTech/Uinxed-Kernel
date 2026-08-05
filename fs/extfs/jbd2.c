@@ -87,7 +87,7 @@ static uint32_t jbd2_crc32_be(uint32_t crc, const void *data, size_t size)
     const uint8_t *bytes = data;
     while (size--) {
         crc ^= (uint32_t)*bytes++ << 24;
-        for (uint32_t bit = 0; bit < 8; bit++) crc = (crc << 1) ^ (0x04C11DB7U & (uint32_t)-(int32_t)(crc >> 31));
+        for (uint32_t bit = 0; bit < 8; bit++) crc = (crc << 1) ^ (0x04C11DB7U & (uint32_t) - (int32_t)(crc >> 31));
     }
     return crc;
 }

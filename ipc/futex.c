@@ -1114,13 +1114,13 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
 static int futex2_size_bytes(unsigned int size_code)
 {
     switch (size_code) {
-        case FUTEX2_SIZE_U8:
+        case FUTEX2_SIZE_U8 :
             return 1;
-        case FUTEX2_SIZE_U16:
+        case FUTEX2_SIZE_U16 :
             return 2;
-        case FUTEX2_SIZE_U64:
+        case FUTEX2_SIZE_U64 :
             return 8;
-        default:
+        default :
             return 4; /* FUTEX2_SIZE_U32 */
     }
 }
@@ -1134,16 +1134,16 @@ static int futex2_validate_value(unsigned int size_code, uint64_t value)
     uint64_t width_mask;
 
     switch (size_code) {
-        case FUTEX2_SIZE_U8:
+        case FUTEX2_SIZE_U8 :
             width_mask = 0x00000000000000ffULL;
             break;
-        case FUTEX2_SIZE_U16:
+        case FUTEX2_SIZE_U16 :
             width_mask = 0x000000000000ffffULL;
             break;
-        case FUTEX2_SIZE_U32:
+        case FUTEX2_SIZE_U32 :
             width_mask = 0x00000000ffffffffULL;
             break;
-        default:
+        default :
             width_mask = 0xffffffffffffffffULL;
             break;
     }
@@ -1176,8 +1176,7 @@ static int futex2_read_word(uint64_t uaddr, unsigned int size_code, uint64_t *ou
  * Block on a futex2 word.  The timeout (if any) is an absolute timeout on
  * the clock selected by `realtime` (CLOCK_REALTIME) or CLOCK_MONOTONIC.
  */
-static int futex2_wait_core(uint64_t uaddr, unsigned int size_code, uint64_t val,
-                            uint64_t mask, uint64_t timeout, int realtime)
+static int futex2_wait_core(uint64_t uaddr, unsigned int size_code, uint64_t val, uint64_t mask, uint64_t timeout, int realtime)
 {
     futex_bucket_t *bucket;
     futex_entry_t  *entry;
@@ -1188,7 +1187,7 @@ static int futex2_wait_core(uint64_t uaddr, unsigned int size_code, uint64_t val
     if (mask == 0) return -EINVAL; /* same as classic bitset == 0 */
 
     uintptr_t key = futex2_key(uaddr, size_code);
-    bucket         = &futex_hash[futex_hash_index((uint32_t *)(uintptr_t)key)];
+    bucket        = &futex_hash[futex_hash_index((uint32_t *)(uintptr_t)key)];
 
     if (timeout) {
         ret = futex_read_timespec(timeout, &deadline);
@@ -1271,12 +1270,11 @@ static futex_entry_t *futex2_find_key(futex_bucket_t *bucket, uintptr_t key)
  * to nr_requeue remaining waiters to key2.  Moved waiters keep their own
  * mask: each lands in the (key2, mask) queue.
  */
-static int futex2_requeue_core(uint64_t uaddr, unsigned int size_code1,
-                               uint64_t uaddr2, unsigned int size_code2,
-                               int nr_wake, int nr_requeue, uint64_t cmpval)
+static int futex2_requeue_core(uint64_t uaddr, unsigned int size_code1, uint64_t uaddr2, unsigned int size_code2, int nr_wake, int nr_requeue,
+                               uint64_t cmpval)
 {
-    uintptr_t       key1 = futex2_key(uaddr, size_code1);
-    uintptr_t       key2 = futex2_key(uaddr2, size_code2);
+    uintptr_t       key1    = futex2_key(uaddr, size_code1);
+    uintptr_t       key2    = futex2_key(uaddr2, size_code2);
     futex_bucket_t *bucket1 = &futex_hash[futex_hash_index((uint32_t *)(uintptr_t)key1)];
     futex_bucket_t *bucket2 = &futex_hash[futex_hash_index((uint32_t *)(uintptr_t)key2)];
     futex_entry_t  *entry;
@@ -1374,8 +1372,7 @@ int64_t sys_futex_wake(uint64_t uaddr, uint64_t mask, uint64_t nr, uint64_t flag
  * Block while *uaddr == val.  timeout is an absolute struct timespec on
  * the clock given by clockid (CLOCK_REALTIME=0, CLOCK_MONOTONIC=1).
  */
-int64_t sys_futex_wait(uint64_t uaddr, uint64_t val, uint64_t mask, uint64_t flags,
-                       uint64_t timeout, uint64_t clockid)
+int64_t sys_futex_wait(uint64_t uaddr, uint64_t val, uint64_t mask, uint64_t flags, uint64_t timeout, uint64_t clockid)
 {
     unsigned int size_code = (unsigned int)(flags & FUTEX2_SIZE_MASK);
 
@@ -1395,8 +1392,7 @@ int64_t sys_futex_wait(uint64_t uaddr, uint64_t val, uint64_t mask, uint64_t fla
  *   [1] = destination futex (uaddr + flags; val ignored)
  * The syscall-level flags argument must be zero (Linux behavior).
  */
-int64_t sys_futex_requeue(uint64_t waiters, uint64_t flags, uint64_t nr_wake, uint64_t nr_requeue,
-                          uint64_t a4, uint64_t a5)
+int64_t sys_futex_requeue(uint64_t waiters, uint64_t flags, uint64_t nr_wake, uint64_t nr_requeue, uint64_t a4, uint64_t a5)
 {
     struct futex_waitv wv[2];
     unsigned int       size_code0;
@@ -1421,8 +1417,7 @@ int64_t sys_futex_requeue(uint64_t waiters, uint64_t flags, uint64_t nr_wake, ui
     if (user_access_ok((void *)(uintptr_t)wv[0].uaddr, futex2_size_bytes(size_code0), 0) == 0) return -EFAULT;
     if (user_access_ok((void *)(uintptr_t)wv[1].uaddr, futex2_size_bytes(size_code1), 0) == 0) return -EFAULT;
 
-    return futex2_requeue_core(wv[0].uaddr, size_code0, wv[1].uaddr, size_code1,
-                               (int)nr_wake, (int)nr_requeue, wv[0].val);
+    return futex2_requeue_core(wv[0].uaddr, size_code0, wv[1].uaddr, size_code1, (int)nr_wake, (int)nr_requeue, wv[0].val);
 }
 
 /* ------------------------------------------------------------------ */

@@ -230,7 +230,17 @@ int cpu_support_avx2(void)
     return ((ebx & (1 << 5)) != 0);
 }
 
-/* Safe CPUID wrapper â€?uses local temporaries to avoid register clobber issues */
+/* Check CPU supports AVX-512F (base AVX-512) */
+int cpu_support_avx512f(void)
+{
+    uint32_t eax, ebx, ecx, edx;
+    cpuid(0x00000000, &eax, &ebx, &ecx, &edx);
+    if (eax < 7) return 0;
+    cpuid_count(0x00000007, 0, &eax, &ebx, &ecx, &edx);
+    return ((ebx & (1 << 16)) != 0);
+}
+
+/* Safe CPUID wrapper ï¿½?uses local temporaries to avoid register clobber issues */
 void cpuid_safe(uint32_t leaf, uint32_t sub, uint32_t *a, uint32_t *b, uint32_t *c, uint32_t *d)
 {
     uint32_t _a, _b, _c, _d;

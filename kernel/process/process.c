@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/eis.h>
+#include <arch/fpu.h>
 #include <arch/smp.h>
 #include <chipset/common.h>
 #include <drivers/char/tty_core.h>

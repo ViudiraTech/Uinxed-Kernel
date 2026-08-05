@@ -74,22 +74,32 @@ ifneq ($(CONFIG_CPU_MAX_COUNT),)
   C_CONFIG += -DCPU_MAX_COUNT=$(CONFIG_CPU_MAX_COUNT)
 endif
 
+# Kernel code must not emit FPU/SSE/AVX instructions implicitly: any
+# kernel floating-point use must opt in per-file (or per-function) with
+# `#pragma GCC target("sse2")` and be wrapped in kernel_fpu_begin()/
+# kernel_fpu_end() (see include/arch/fpu.h).
 ifeq ($(CONFIG_CPU_FEATURE_FPU), y)
   C_CONFIG += -DCPU_FEATURE_FPU=1
 else
-  C_CONFIG += -DCPU_FEATURE_FPU=0 -mno-mmx -mno-80387
+  C_CONFIG += -DCPU_FEATURE_FPU=0
 endif
 
 ifeq ($(CONFIG_CPU_FEATURE_SSE), y)
   C_CONFIG += -DCPU_FEATURE_SSE=1
 else
-  C_CONFIG += -DCPU_FEATURE_SSE=0 -mno-sse -mno-sse2
+  C_CONFIG += -DCPU_FEATURE_SSE=0
 endif
 
 ifeq ($(CONFIG_CPU_FEATURE_AVX), y)
   C_CONFIG += -DCPU_FEATURE_AVX=1
 else
-  C_CONFIG += -DCPU_FEATURE_AVX=0 -mno-avx -mno-avx2
+  C_CONFIG += -DCPU_FEATURE_AVX=0
+endif
+
+ifeq ($(CONFIG_CPU_FEATURE_AVX512), y)
+  C_CONFIG += -DCPU_FEATURE_AVX512=1
+else
+  C_CONFIG += -DCPU_FEATURE_AVX512=0
 endif
 
 ifneq ($(CONFIG_KERNEL_HEAP_MAX_SIZE),)
@@ -413,7 +423,7 @@ TOOL_TARGETS   := $(TOOL_C_SOURCES:%.c=%.elf)
 
 # If you want to get more details of `dump_stack`, you need to replace `-O3` with `-O0` or '-Os'.
 # `-fno-optimize-sibling-calls` is for `dump_stack` to work properly.
-CC_FLAGS       := -Wall -Wextra -Wno-unused-function -O3 -g3 -m64 -fpie -ffreestanding -fno-optimize-sibling-calls -fno-stack-protector -fno-omit-frame-pointer -mstackrealign -mno-red-zone -I include -MMD
+CC_FLAGS       := -Wall -Wextra -Wno-unused-function -O3 -g3 -m64 -fpie -ffreestanding -fno-optimize-sibling-calls -fno-stack-protector -fno-omit-frame-pointer -mstackrealign -mno-red-zone -mno-sse -mno-sse2 -mno-mmx -mno-80387 -I include -MMD
 LD_FLAGS       := -nostdlib -pie -T assets/linker.ld -m elf_x86_64
 
 all: Uinxed-x64.iso

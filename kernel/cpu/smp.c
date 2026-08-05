@@ -9,7 +9,7 @@
  */
 
 #include <arch/cpuid.h>
-#include <arch/eis.h>
+#include <arch/fpu.h>
 #include <arch/gdt.h>
 #include <arch/smp.h>
 #include <arch/tss.h>
@@ -237,9 +237,7 @@ void ap_init_gdt(cpu_processor_t *cpu)
 /* Multi-core boot entry */
 void ap_entry(struct limine_smp_info *info)
 {
-    init_fpu();
-    init_sse();
-    init_avx();
+    fpu_init();
     cpu_enable_nx();
 
     /* load page table */
@@ -301,6 +299,9 @@ void smp_init(void)
         cpus[i].lapic_id            = cpu->lapic_id;
         cpus[i].syscall.user_rsp    = 0;
         cpus[i].syscall.kernel_rsp  = 0;
+        cpus[i].fpu.fpu_live        = NULL;
+        cpus[i].fpu.fpu_kernel_cnt  = 0;
+        cpus[i].fpu.fpu_irq_saved   = 0;
         /* Allocate kernel stack for each CPU */
         cpus[i].kernel_stack = malloc(sizeof(kernel_stack_t)); // 64 KiB stack
 

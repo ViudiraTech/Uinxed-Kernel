@@ -8,7 +8,7 @@
  *
  */
 
-#include <arch/eis.h>
+#include <arch/fpu.h>
 #include <cgroup/cgroup.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
