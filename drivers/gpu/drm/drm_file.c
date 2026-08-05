@@ -4,7 +4,7 @@
  *      DRM file private helpers â€?event queue, read, poll
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright Â© 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

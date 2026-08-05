@@ -23,6 +23,7 @@
 #    include <drivers/block/blockdev.h>
 #    include <fs/core/vfs.h>
 #    include <kernel/errno.h>
+#    include <kernel/printk.h>
 #    include <libs/std/stdbool.h>
 #    include <libs/std/stdlib.h>
 #    include <libs/std/string.h>
@@ -288,40 +289,39 @@ int swap_activate_path(const char *path, uint32_t flags)
     uint8_t header[SWAP_PAGE_SIZE];
     if (!strncmp(path, "/dev/", 5) && blockdev_open_name(path, &area->device) == EOK) {
         if (area->device.read_only || !area->device.sector_size || area->device.sector_count > UINT64_MAX / area->device.sector_size) {
-            memset(area, 0, sizeof(*area));
-            return -EROFS;
+            result = -EROFS;
+            goto fail;
         }
         uint64_t pages = area->device.sector_count * area->device.sector_size / SWAP_PAGE_SIZE;
         if (blockdev_read_bytes(&area->device, 0, header, sizeof(header)) != EOK || (result = swap_area_setup_slots(area, pages, header))) {
             blockdev_release(&area->device);
-            memset(area, 0, sizeof(*area));
-            return result ? result : -EIO;
+            result = result ? result : -EIO;
+            goto fail;
         }
         area->backend = SWAP_BACKEND_BLOCK;
     } else {
         vfs_node_t file = vfs_open(path);
         if (!file) {
-            memset(area, 0, sizeof(*area));
-            return -ENOENT;
+            result = -ENOENT;
+            goto fail;
         }
         if ((file->type & ~file_delete) != file_none || file->size < 2 * SWAP_PAGE_SIZE || !file->handle || callbackof(file, read) == NULL
             || callbackof(file, write) == NULL) {
             vfs_close(file);
-            memset(area, 0, sizeof(*area));
-            return -EINVAL;
+            result = -EINVAL;
+            goto fail;
         }
         result = vfs_writeback_range(file, 0, file->size - 1, 1);
         if (!result) result = vfs_invalidate_pages(file, 0, file->size - 1, 0);
         if (result) {
             vfs_close(file);
-            memset(area, 0, sizeof(*area));
-            return result;
+            goto fail;
         }
         size_t actual = callbackof(file, read)(file->handle, header, 0, sizeof(header));
         if (actual != sizeof(header) || (result = swap_area_setup_slots(area, file->size / SWAP_PAGE_SIZE, header))) {
             vfs_close(file);
-            memset(area, 0, sizeof(*area));
-            return result ? result : -EIO;
+            result = result ? result : -EIO;
+            goto fail;
         }
         area->backend = SWAP_BACKEND_FILE;
         area->file    = file;
@@ -333,6 +333,11 @@ int swap_activate_path(const char *path, uint32_t flags)
     area->active   = true;
     spin_unlock(&swap_lock);
     return EOK;
+
+fail:
+    memset(area, 0, sizeof(*area));
+    plogk("swap: failed to activate %s: %d\n", path, result);
+    return result;
 }
 
 static page_table_entry_t *swap_pte_lookup(page_directory_t *directory, uintptr_t address)

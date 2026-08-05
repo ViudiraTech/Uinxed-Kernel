@@ -4,7 +4,7 @@
  *      ext2/ext3/ext4 filesystem - inode operations and block mapping
  *
  *      2026/7/29 By JiTianYu391
- *      Copyright (C) 2026 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright © 2026 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

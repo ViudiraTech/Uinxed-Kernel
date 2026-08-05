@@ -4,7 +4,7 @@
  *      Linux-compatible poll, select, pselect6, and ppoll syscalls
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

@@ -4,7 +4,7 @@
  *      VirtIO-GPU DRM driver (full 3D / render-node / KMS)
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  *  Industrial-grade virtio-gpu DRM driver implementing:
  *    - KMS display pipeline (CRTC, plane, encoder, connector)

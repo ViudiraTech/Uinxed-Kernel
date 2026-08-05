@@ -1,10 +1,15 @@
-/*-----------------------------------------------------------------------*/
-/* FatFs logical-volume to partition mapping                             */
-/*-----------------------------------------------------------------------*/
+/*
+ *
+ *      volpart.c
+ *      FatFs logical-volume to partition mapping.
+ *
+ *      2026/5/22 By Rainy101112
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
+ */
 
 #include <fs/fatfs/fatfs_disk.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
 
 PARTITION VolToPart[FF_VOLUMES];
 
@@ -14,7 +19,6 @@ int fatfs_assign_volume(uint8_t volume, uint8_t drive, uint8_t partition)
 
     VolToPart[volume].pd = drive;
     VolToPart[volume].pt = partition;
-    plogk("fatfs: volume %u -> pd %u, pt %u\n", volume, drive, partition);
     return EOK;
 }
 

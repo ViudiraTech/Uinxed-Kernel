@@ -4,7 +4,7 @@
  *      DRM subsystem initialization entry point
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  *  Creates a singleton DRM device, registers it, and exposes
  *  /dev/dri/card0 via devtmpfs. Designed to be called once from

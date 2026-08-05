@@ -4,7 +4,7 @@
  *      VirtIO-GPU GEM object management
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  *  Implements GEM object allocation, dumb buffer helpers, and PRIME
  *  export/import stubs for the virtio-gpu driver.

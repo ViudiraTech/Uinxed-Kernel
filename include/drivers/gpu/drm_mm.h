@@ -4,7 +4,7 @@
  *      DRM range allocator (drm_mm)
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  *  Adapted from the Linux drm_mm API (include/drm/drm_mm.h). Backed by
  *  an augmented red-black tree keyed by node start, with each subtree

@@ -4,7 +4,7 @@
  *      Loadable kernel module registry, linker and lifecycle
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -1284,9 +1284,11 @@ int module_load(const void *image, size_t size, const char *params, unsigned int
         goto out_destroy;
     }
     operation_end();
+    plogk("module: loaded \"%s\"\n", module->name);
     return EOK;
 
 out_destroy:
+    plogk("module: load of \"%s\" failed: %d\n", internal->module->name[0] ? internal->module->name : "(unnamed)", result);
     destroy_internal(internal);
 out_operation:
     operation_end();

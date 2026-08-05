@@ -4,7 +4,7 @@
  *      Integer ID allocator (radix-free hash-backed IDR)
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  *  Faithful subset of the Linux IDR API used by the DRM subsystem for
  *  mode-object and GEM-handle IDs. Backed by an open-addressing hash

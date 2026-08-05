@@ -1,19 +1,23 @@
-/*-----------------------------------------------------------------------*/
-/* Low level disk I/O module for FatFs over blockdev                     */
-/*-----------------------------------------------------------------------*/
+/*
+ *
+ *      diskio.c
+ *      Low level disk I/O module for FatFs over blockdev.
+ *
+ *      2026/5/22 By Rainy101112
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
+ */
 
 #include <drivers/block/blockdev.h>
 #include <fs/fatfs/fatfs_disk.h>
 #include <fs/fatfs/ff.h>
 #include <fs/fatfs/ffdiskio.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
 #include <libs/std/string.h>
 
 static blockdev_device_t fatfs_devices[FF_VOLUMES];
 static BYTE              fatfs_ready[FF_VOLUMES];
 static BYTE              fatfs_bound[FF_VOLUMES];
-static BYTE              fatfs_logged_sector0[FF_VOLUMES];
 
 int fatfs_bind_device(uint8_t drive, const blockdev_device_t *device)
 {
@@ -60,11 +64,6 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
     if (disk_status(pdrv) & STA_NOINIT) return RES_NOTRDY;
 
     if (blockdev_read_sectors(&fatfs_devices[pdrv], sector, count, buff) != EOK) return RES_ERROR;
-
-    if (!fatfs_logged_sector0[pdrv] && sector == 0 && count > 0) {
-        fatfs_logged_sector0[pdrv] = 1;
-        plogk("fatfs-disk: pdrv=%u sector0 sig=%02x%02x oem=%.8s\n", pdrv, buff[510], buff[511], (char *)(buff + 3));
-    }
 
     return RES_OK;
 }

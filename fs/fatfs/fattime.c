@@ -1,6 +1,12 @@
-/*-----------------------------------------------------------------------*/
-/* FatFs timestamp helper                                                */
-/*-----------------------------------------------------------------------*/
+/*
+ *
+ *      fattime.c
+ *      FatFs timestamp helper.
+ *
+ *      2026/5/18 By Rainy101112
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
+ */
 
 #include <chipset/cmos.h>
 #include <fs/fatfs/ff.h>

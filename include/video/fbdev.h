@@ -4,7 +4,7 @@
  *      Framebuffer device interface
  *
  *      2026/6/12 By Rainy101112
- *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

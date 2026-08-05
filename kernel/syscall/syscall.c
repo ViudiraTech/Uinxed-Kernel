@@ -4,7 +4,7 @@
  *      System call dispatch
  *
  *      2026/7/20 By Rainy101112 & JiTianYu391
- *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -2387,9 +2387,20 @@ static int64_t sys_getrandom_stub(uint64_t buf, uint64_t buflen, uint64_t flags,
     if (!buf && buflen) return -EFAULT;
 
     static uint64_t xorshift_state = 0;
-    uint32_t        eax, ebx, ecx, edx;
-    cpuid(0x00000001, &eax, &ebx, &ecx, &edx);
-    bool has_rdrand = (ecx & (1U << 30)) != 0;
+    static bool     has_rdrand     = false;
+    static bool     rdrand_checked = false;
+    if (!rdrand_checked) {
+        uint32_t max_leaf, eax, ebx, ecx, edx;
+        cpuid(0x00000000, &max_leaf, &ebx, &ecx, &edx);
+        has_rdrand = false;
+        if (max_leaf >= 1) {
+            /* Zero ECX (subleaf) before querying leaf 1, otherwise some CPUs
+             * may return garbage and spuriously claim RDRAND support. */
+            cpuid_safe(0x00000001, 0, &eax, &ebx, &ecx, &edx);
+            has_rdrand = (ecx & (1U << 30)) != 0;
+        }
+        rdrand_checked = true;
+    }
     if (!xorshift_state) xorshift_state = sched_ticks() ^ 0xDEADBEEFCAFEBABEULL;
 
     for (uint64_t i = 0; i < buflen; i++) {
@@ -5282,6 +5293,8 @@ void syscall_dispatch(syscall_frame_t *frame)
     }
 
     if (num >= SYS_MAX || !syscall_table[num]) {
+        task_t *task = current_task();
+        plogk("syscall: unimplemented syscall %llu from pid %llu (%s)\n", num, task ? task->pid : 0, task ? task->name : "?");
         retval     = -ENOSYS;
         frame->rax = (uint64_t)retval;
         goto check_signals;

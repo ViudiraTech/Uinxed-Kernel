@@ -4,7 +4,7 @@
  *      DRM central contract header (device / driver / file / KMS objects)
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  *  Adapted from the Linux DRM core type definitions (include/drm/drm_*.h).
  *  This is the single source of truth for cross-module type layout; every

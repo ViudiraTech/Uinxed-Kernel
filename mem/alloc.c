@@ -175,6 +175,7 @@ static void *page_address(size_t index)
     return heap.base + index * PAGE_4K_SIZE;
 }
 
+/* Tag allocated pages so pointer_owner() can locate the owning block. */
 static size_t page_alloc(unsigned order)
 {
     uint64_t rflags = spin_lock_irqsave(&heap.page_lock);
@@ -245,6 +246,7 @@ static void list_remove(slab_cache_t *cache, slab_header_t *slab)
     (*count)--;
 }
 
+/* Choose the slab order that wastes the least space per slab. */
 static int cache_layout(slab_cache_t *cache)
 {
     cache->payload_offset = align_up_size(sizeof(slab_object_header_t), cache->alignment);
@@ -295,6 +297,7 @@ static int cache_init(slab_cache_t *cache, const char *name, size_t size, size_t
     return cache_layout(cache);
 }
 
+/* Allocate a new slab and carve it into free objects. */
 static slab_header_t *slab_create_locked(slab_cache_t *cache)
 {
     size_t page_index = page_alloc(cache->slab_order);
@@ -334,6 +337,7 @@ static slab_header_t *slab_create_locked(slab_cache_t *cache)
     return slab;
 }
 
+/* Return a slab's pages to the buddy allocator. */
 static void slab_release_locked(slab_cache_t *cache, slab_header_t *slab)
 {
     size_t   page_index = slab->page_index;
@@ -344,6 +348,7 @@ static void slab_release_locked(slab_cache_t *cache, slab_header_t *slab)
     (void)page_free(page_index, order);
 }
 
+/* Take one object from a cache, growing a new slab when empty. */
 static void *cache_alloc_requested(slab_cache_t *cache, size_t requested)
 {
     if (!cache || cache->destroying) return NULL;
@@ -373,6 +378,7 @@ static void *cache_alloc_requested(slab_cache_t *cache, size_t requested)
     return result;
 }
 
+/* Put an object back on its slab and update the cache bookkeeping. */
 static int cache_free_object(slab_cache_t *expected, slab_header_t *slab, void *pointer, size_t *released)
 {
     slab_cache_t *cache = slab ? slab->cache : NULL;
@@ -426,6 +432,7 @@ static int cache_free_object(slab_cache_t *expected, slab_header_t *slab, void *
     return 0;
 }
 
+/* Find the smallest size class that fits size. */
 static slab_cache_t *cache_for_size(size_t size)
 {
     for (size_t i = 0; i < SIZE_CACHE_COUNT; i++) {
@@ -434,6 +441,7 @@ static slab_cache_t *cache_for_size(size_t size)
     return NULL;
 }
 
+/* Resolve a heap pointer to the page index and owner of its block. */
 static int pointer_owner(void *pointer, size_t *owner_index, void **owner)
 {
     uintptr_t address = (uintptr_t)pointer;
@@ -453,6 +461,7 @@ static int pointer_owner(void *pointer, size_t *owner_index, void **owner)
     return 0;
 }
 
+/* Allocate a page-multiple block with an embedded large header. */
 static void *large_alloc(size_t alignment, size_t size)
 {
     if (alignment > heap.size || size > SIZE_MAX - sizeof(large_header_t) - alignment) return NULL;
@@ -480,6 +489,7 @@ static void *large_alloc(size_t alignment, size_t size)
     return (void *)user;
 }
 
+/* Initialize the heap: buddy allocator plus size-class caches. */
 int heap_init(uint8_t *address, size_t size)
 {
     if (!address || ((uintptr_t)address & (PAGE_4K_SIZE - 1)) || size < PAGE_4K_SIZE * 16) return -1;
@@ -511,6 +521,7 @@ void heap_onerror(error_handler handler)
     heap.onerror = handler;
 }
 
+/* Allocate size bytes from the fitting size class or large path. */
 void *malloc(size_t size)
 {
     if (!size || !__atomic_load_n(&heap.online, __ATOMIC_ACQUIRE)) return NULL;
@@ -527,6 +538,7 @@ void *malloc(size_t size)
     return result;
 }
 
+/* Allocate with an explicit alignment, via the large path when needed. */
 void *aligned_alloc(size_t alignment, size_t size)
 {
     if (!size || !valid_alignment(alignment) || alignment < sizeof(void *) || !__atomic_load_n(&heap.online, __ATOMIC_ACQUIRE)) return NULL;
@@ -543,6 +555,7 @@ void *aligned_alloc(size_t alignment, size_t size)
     return result;
 }
 
+/* Return the usable capacity of an allocation. */
 size_t usable_size(void *pointer)
 {
     if (!pointer) return 0;
@@ -568,6 +581,7 @@ size_t usable_size(void *pointer)
     return 0;
 }
 
+/* Return the size the caller originally requested. */
 static size_t requested_size(void *pointer)
 {
     size_t owner_index;
@@ -592,6 +606,7 @@ static size_t requested_size(void *pointer)
     return 0;
 }
 
+/* Release an allocation back to its slab or the buddy allocator. */
 void free(void *pointer)
 {
     if (!pointer) return;
@@ -632,6 +647,7 @@ void free(void *pointer)
     stat_add(&heap.free_calls, 1);
 }
 
+/* Resize in place when capacity allows, otherwise move and copy. */
 void *realloc(void *pointer, size_t new_size)
 {
     if (!pointer) return malloc(new_size);
@@ -672,6 +688,7 @@ void *realloc(void *pointer, size_t new_size)
     return replacement;
 }
 
+/* Create a dynamic cache for fixed-size objects. */
 slab_cache_t *slab_cache_create(const char *name, size_t object_size, size_t alignment, slab_ctor_t ctor, slab_dtor_t dtor)
 {
     if (!heap.online) return NULL;
@@ -699,6 +716,7 @@ int slab_cache_free(slab_cache_t *cache, void *object)
     return cache_free_object(cache, (slab_header_t *)owner, object, NULL);
 }
 
+/* Return all empty slabs to the buddy; reports the pages released. */
 size_t slab_cache_shrink(slab_cache_t *cache)
 {
     if (!cache) return 0;
@@ -713,6 +731,7 @@ size_t slab_cache_shrink(slab_cache_t *cache)
     return pages;
 }
 
+/* Tear down a dynamic cache once it holds no objects. */
 int slab_cache_destroy(slab_cache_t *cache)
 {
     if (!cache || !cache->dynamic) return -1;
@@ -775,6 +794,7 @@ static int validate_list(slab_cache_t *cache, slab_header_t *head, unsigned expe
     return count == expected_count ? 0 : -1;
 }
 
+/* Check buddy and size-cache invariants; for debugging. */
 int heap_validate(void)
 {
     if (!heap.online) return -1;

@@ -981,6 +981,11 @@ int vfs_mount(const char *src, vfs_node_t node)
         if (status == EOK) return EOK;
         if (status != -ENOENT) last_error = status;
     }
+    {
+        char path[VFS_PATH_MAX];
+        if (vfs_node_path(node, path, sizeof(path)) != EOK) strcpy(path, "?");
+        plogk("vfs: mount of %s on %s failed: %d\n", src ? src : "(null)", path, last_error);
+    }
     return last_error;
 }
 

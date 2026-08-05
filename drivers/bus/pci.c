@@ -926,7 +926,7 @@ void pci_device_find(pci_finding_request_t *req) // Notice: the req should be a 
             *req->response = pci_device_finding(0, req);
             break;
         default :
-            plogk("PCI: Unknown finding type %d\n", req->type);
+            plogk("pci: unknown finding type %d\n", req->type);
             req->response->device = 0;
             req->response->error  = PCI_FINDING_ERROR;
             break;
@@ -957,7 +957,7 @@ void pci_device_find_next(pci_finding_request_t *request, volatile pci_finding_r
                 *next_response = pci_device_finding(response->device->next, request);
                 break;
             default :
-                plogk("PCI: Unknown finding type %d\n", request->type);
+                plogk("pci: unknown finding type %d\n", request->type);
                 next_response->device = 0;
                 next_response->error  = PCI_FINDING_ERROR;
                 break;

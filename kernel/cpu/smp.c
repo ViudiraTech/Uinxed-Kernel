@@ -282,7 +282,7 @@ void smp_init(void)
     struct limine_smp_response *smp = smp_request.response;
 
     if (!smp) {
-        plogk("SMP: No SMP response.\n");
+        plogk("smp: no SMP response.\n");
         return;
     }
 

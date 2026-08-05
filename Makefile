@@ -448,7 +448,7 @@ tools/%.elf: tools/%.c
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) -o $@ $<
 
 assets/Limine/init.elf: assets/init/main.c
-	$(Q)printf "  HOSTCC  $@\n"
+	$(Q)printf "\n  HOSTCC  $@\n"
 	$(Q)$(HOST_CC) $(HOST_CFLAGS) -static -o $@ $<
 
 UxImage: $(TOOL_TARGETS) $(OBJS) $(LIBS)

@@ -4,7 +4,7 @@
  *      Basic syscall implementations — upgrading stubs to real code
  *
  *      2025 By JiTianYu391
- *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

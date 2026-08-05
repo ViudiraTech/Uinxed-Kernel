@@ -1,6 +1,12 @@
-/*------------------------------------------------------------------------*/
-/* A Sample Code of User Provided OS Dependent Functions for FatFs        */
-/*------------------------------------------------------------------------*/
+/*
+ *
+ *      ffsystem.c
+ *      User provided OS dependent functions for FatFs.
+ *
+ *      2026/5/18 By Rainy101112
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
+ */
 
 #include <fs/fatfs/ff.h>
 

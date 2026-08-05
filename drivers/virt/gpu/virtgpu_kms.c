@@ -4,7 +4,7 @@
  *      VirtIO-GPU KMS display pipeline
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  *  Implements the full KMS pipeline: CRTC, plane, encoder, connector,
  *  atomic commit, page flip, and framebuffer-to-scanout connection.

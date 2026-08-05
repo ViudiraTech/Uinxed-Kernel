@@ -4,7 +4,7 @@
  *      Direct Rendering Manager core UAPI
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  *  Adapted from the Linux DRM UAPI (include/uapi/drm/drm.h). Layouts are
  *  byte-compatible with Linux on x86-64: pointer and `unsigned long` UAPI
