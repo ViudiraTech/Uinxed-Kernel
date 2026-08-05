@@ -9,6 +9,7 @@
  */
 
 #include <fs/core/vfs.h>
+#include <ipc/pipe.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
@@ -698,7 +699,7 @@ int64_t sys_pipe2(int pipefd[2], int flags)
 /*  Syscall: mknod / mkfifo (FIFO / named pipe)                         */
 /* ------------------------------------------------------------------ */
 
-int64_t sys_mknod(const char *path, uint32_t mode, uint64_t dev)
+static int64_t sys_mknod(const char *path, uint32_t mode, uint64_t dev)
 {
     (void)dev;
 
@@ -770,7 +771,7 @@ int64_t sys_mknod(const char *path, uint32_t mode, uint64_t dev)
     return EOK;
 }
 
-int64_t sys_mkfifo(const char *path, uint32_t mode)
+static int64_t sys_mkfifo(const char *path, uint32_t mode)
 {
     return sys_mknod(path, 0010000 | (mode & 07777), 0);
 }
@@ -792,7 +793,7 @@ int64_t sys_mkfifo(const char *path, uint32_t mode)
 /*    -ENXIO  - O_NONBLOCK | O_WRONLY and no reader exists              */
 /* ------------------------------------------------------------------ */
 
-int pipe_open(vfs_node_t node, uint64_t flags)
+static int pipe_open(vfs_node_t node, uint64_t flags)
 {
     if (!node || !(node->type & file_pipe)) return -EINVAL;
 

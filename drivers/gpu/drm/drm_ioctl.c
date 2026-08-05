@@ -23,57 +23,28 @@
 /* Forward declarations for all ioctl handler functions. */
 
 /* auth (drm_auth.c) */
-extern int drm_getmagic(struct drm_device *dev, void *data, struct drm_file *file_priv);
-extern int drm_authmagic(struct drm_device *dev, void *data, struct drm_file *file_priv);
-extern int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv);
-extern int drm_dropmaster(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
 /* GEM (drm_gem.c) */
-extern int drm_gem_open_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
-extern int drm_gem_close_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
-extern int drm_gem_flink_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
 /* KMS CRTC (drm_crtc.c) */
-extern int drm_mode_getcrtc(struct drm_device *dev, void *data, struct drm_file *file_priv);
-extern int drm_mode_setcrtc(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
 /* KMS encoder (drm_encoder.c) */
-extern int drm_mode_getencoder(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
 /* KMS connector (drm_connector.c) */
-extern int drm_mode_getconnector(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
 /* KMS plane (drm_plane.c) */
-extern int drm_mode_getplane_res(struct drm_device *dev, void *data, struct drm_file *file_priv);
-extern int drm_mode_getplane(struct drm_device *dev, void *data, struct drm_file *file_priv);
-extern int drm_mode_setplane(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
 /* KMS framebuffer (drm_framebuffer.c) */
-extern int drm_mode_addfb(struct drm_device *dev, void *data, struct drm_file *file_priv);
-extern int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_priv);
-extern int drm_mode_rmfb(struct drm_device *dev, void *data, struct drm_file *file_priv);
-extern int drm_mode_getfb(struct drm_device *dev, void *data, struct drm_file *file_priv);
-extern int drm_mode_dirtyfb(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
 /* KMS cursor / page-flip / atomic (drm_atomic_uapi.c) */
-extern int drm_mode_cursor_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
-extern int drm_mode_cursor2_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
-extern int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
-extern int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
 /* KMS vblank (drm_vblank.c) */
-extern int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
 /* KMS resources (drm_mode_config.c) */
-extern int drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
 /* KMS property (drm_property.c) */
-extern int drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
-extern int drm_mode_obj_getproperties_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
-extern int drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
 /* KMS getfb2 (drm_framebuffer.c) */
-extern int drm_mode_getfb2_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
 /* ------------------------------------------------------------------ */
 /* drm_ioctl_permit ???check auth / master flags against file_priv      */

@@ -28,6 +28,11 @@ struct drm_device *drm_get_device_by_minor(int type, int index);
 void               drm_device_list_add(struct drm_device *dev);
 void               drm_device_list_remove(struct drm_device *dev);
 
+/* DRM device-class registration state (defined in drm_init.c). */
+struct class;
+extern struct class drm_class;
+extern int drm_class_registered;
+
 /* VFS callback wrappers used by devtmpfs to bind /dev/dri/card0. */
 void drm_vfs_open_cb(void *parent, const char *name, void *node);
 void drm_vfs_close_cb(void *current);

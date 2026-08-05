@@ -32,18 +32,11 @@
 /* Forward declarations for cross-file calls                           */
 /* ------------------------------------------------------------------ */
 
-extern struct drm_crtc_state      *drm_atomic_get_crtc_state(struct drm_atomic_state *state, struct drm_crtc *crtc);
-extern struct drm_plane_state     *drm_atomic_get_plane_state(struct drm_atomic_state *state, struct drm_plane *plane);
-extern struct drm_connector_state *drm_atomic_get_connector_state(struct drm_atomic_state *state, struct drm_connector *connector);
-extern int                         drm_atomic_add_affected_planes(struct drm_atomic_state *state, struct drm_crtc *crtc);
-extern int                         drm_atomic_add_affected_connectors(struct drm_atomic_state *state, struct drm_crtc *crtc);
-extern void                        drm_atomic_state_free(struct drm_atomic_state *state);
-
 /* ------------------------------------------------------------------ */
 /* drm_atomic_helper_check_modeset: check CRTC mode changes            */
 /* ------------------------------------------------------------------ */
 
-int drm_atomic_helper_check_modeset(struct drm_device *dev, struct drm_atomic_state *state)
+static int drm_atomic_helper_check_modeset(struct drm_device *dev, struct drm_atomic_state *state)
 {
     struct drm_mode_config *config = &dev->mode_config;
     int                     i;
@@ -101,7 +94,7 @@ int drm_atomic_helper_check_modeset(struct drm_device *dev, struct drm_atomic_st
 /* drm_atomic_helper_check_planes: validate plane fb format            */
 /* ------------------------------------------------------------------ */
 
-int drm_atomic_helper_check_planes(struct drm_device *dev, struct drm_atomic_state *state)
+static int drm_atomic_helper_check_planes(struct drm_device *dev, struct drm_atomic_state *state)
 {
     struct drm_mode_config *config = &dev->mode_config;
     int                     i;
@@ -153,7 +146,7 @@ int drm_atomic_helper_check_planes(struct drm_device *dev, struct drm_atomic_sta
 /* drm_atomic_helper_commit_modeset_disables: disable CRTCs            */
 /* ------------------------------------------------------------------ */
 
-void drm_atomic_helper_commit_modeset_disables(struct drm_device *dev, struct drm_atomic_state *state)
+static void drm_atomic_helper_commit_modeset_disables(struct drm_device *dev, struct drm_atomic_state *state)
 {
     struct drm_mode_config *config = &dev->mode_config;
     int                     i;
@@ -176,7 +169,7 @@ void drm_atomic_helper_commit_modeset_disables(struct drm_device *dev, struct dr
 /* drm_atomic_helper_commit_modeset_enables: enable CRTCs, set mode    */
 /* ------------------------------------------------------------------ */
 
-void drm_atomic_helper_commit_modeset_enables(struct drm_device *dev, struct drm_atomic_state *state)
+static void drm_atomic_helper_commit_modeset_enables(struct drm_device *dev, struct drm_atomic_state *state)
 {
     struct drm_mode_config *config = &dev->mode_config;
     int                     i;
@@ -203,7 +196,7 @@ void drm_atomic_helper_commit_modeset_enables(struct drm_device *dev, struct drm
 /* drm_atomic_helper_commit_planes: apply plane fb and coordinates     */
 /* ------------------------------------------------------------------ */
 
-void drm_atomic_helper_commit_planes(struct drm_device *dev, struct drm_atomic_state *state, uint32_t flags)
+static void drm_atomic_helper_commit_planes(struct drm_device *dev, struct drm_atomic_state *state, uint32_t flags)
 {
     struct drm_mode_config *config = &dev->mode_config;
     int                     i;
@@ -237,7 +230,7 @@ void drm_atomic_helper_commit_planes(struct drm_device *dev, struct drm_atomic_s
 /* drm_atomic_helper_setup_commit: stub                                 */
 /* ------------------------------------------------------------------ */
 
-int drm_atomic_helper_setup_commit(struct drm_atomic_state *state, bool nonblocking)
+static int drm_atomic_helper_setup_commit(struct drm_atomic_state *state, bool nonblocking)
 {
     (void)state;
     (void)nonblocking;
@@ -248,7 +241,7 @@ int drm_atomic_helper_setup_commit(struct drm_atomic_state *state, bool nonblock
 /* drm_atomic_helper_wait_for_vblanks: stub (no vblank yet)            */
 /* ------------------------------------------------------------------ */
 
-void drm_atomic_helper_wait_for_vblanks(struct drm_device *dev, struct drm_atomic_state *state)
+static void drm_atomic_helper_wait_for_vblanks(struct drm_device *dev, struct drm_atomic_state *state)
 {
     (void)dev;
     (void)state;
@@ -258,7 +251,7 @@ void drm_atomic_helper_wait_for_vblanks(struct drm_device *dev, struct drm_atomi
 /* drm_atomic_helper_wait_for_flip_done: stub                           */
 /* ------------------------------------------------------------------ */
 
-int drm_atomic_helper_wait_for_flip_done(struct drm_device *dev, struct drm_atomic_state *state)
+static int drm_atomic_helper_wait_for_flip_done(struct drm_device *dev, struct drm_atomic_state *state)
 {
     (void)dev;
     (void)state;
@@ -269,7 +262,7 @@ int drm_atomic_helper_wait_for_flip_done(struct drm_device *dev, struct drm_atom
 /* drm_atomic_helper_cleanup_planes: free old plane states, put old fbs */
 /* ------------------------------------------------------------------ */
 
-void drm_atomic_helper_cleanup_planes(struct drm_device *dev, struct drm_atomic_state *state)
+static void drm_atomic_helper_cleanup_planes(struct drm_device *dev, struct drm_atomic_state *state)
 {
     struct drm_mode_config *config = &dev->mode_config;
     int                     i;
@@ -299,7 +292,7 @@ void drm_atomic_helper_cleanup_planes(struct drm_device *dev, struct drm_atomic_
 /* drm_atomic_helper_commit_tail: default commit tail sequence         */
 /* ------------------------------------------------------------------ */
 
-void drm_atomic_helper_commit_tail(struct drm_atomic_state *state)
+static void drm_atomic_helper_commit_tail(struct drm_atomic_state *state)
 {
     struct drm_device *dev = state->dev;
 

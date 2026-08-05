@@ -29,7 +29,6 @@
 #define DRM_S32_MAX ((int32_t)0x7fffffff)
 
 /* Internal helpers from drm_mode_object.c */
-extern int drm_mode_object_idr_alloc(struct drm_device *dev, struct drm_mode_object *obj, uint32_t type);
 
 /*
  * drm_plane_init - Initialise a plane object.

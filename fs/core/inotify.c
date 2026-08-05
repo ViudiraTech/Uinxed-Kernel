@@ -52,7 +52,7 @@ static bool inotify_events_equal(const inotify_queue_event_t *queued, int32_t wd
     return memcmp(queued->event.name, name, strlen(name) + 1U) == 0;
 }
 
-int inotify_queue_event(inotify_context_t *context, int32_t wd, uint32_t mask, uint32_t cookie, const char *name)
+static int inotify_queue_event(inotify_context_t *context, int32_t wd, uint32_t mask, uint32_t cookie, const char *name)
 {
     if (!context) return -EINVAL;
 
@@ -118,7 +118,7 @@ static bool inotify_signal_pending(void)
 #endif
 }
 
-int64_t inotify_read_events(inotify_context_t *context, uint64_t flags, void *buffer, size_t size)
+static int64_t inotify_read_events(inotify_context_t *context, uint64_t flags, void *buffer, size_t size)
 {
     if (!context || (!buffer && size)) return -EINVAL;
 

@@ -26,6 +26,8 @@ typedef struct syscall_frame syscall_frame_t;
 
 typedef int64_t pid_t;
 
+extern process_t *init_process;
+
 #define PROCESS_NAME_LEN     32
 #define PROCESS_MAX_MMAP     256
 #define PROCESS_MAX_ARGV     64

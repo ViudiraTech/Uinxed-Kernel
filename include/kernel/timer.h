@@ -11,6 +11,7 @@
 #ifndef INCLUDE_TIMER_H_
 #define INCLUDE_TIMER_H_
 
+#include <kernel/interrupt.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>
 
@@ -78,5 +79,8 @@ void msleep(uint64_t ms);
 int64_t  timer_realtime_ns(void);
 void     timer_realtime_set_ns(int64_t nanoseconds);
 uint32_t timer_realtime_seconds32(void);
+
+/* Periodic timer interrupt handler. */
+INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame);
 
 #endif // INCLUDE_TIMER_H_

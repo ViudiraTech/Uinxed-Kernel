@@ -24,7 +24,6 @@
 #endif
 
 /* External helper from drm_property.c */
-extern struct drm_property *drm_property_find(struct drm_device *dev, struct drm_file *file_priv, uint32_t id);
 
 /* Initial backing-array capacity for a freshly attached property set. */
 #define DRM_OBJECT_PROP_INITIAL_CAPACITY 16u
@@ -248,7 +247,7 @@ int drm_object_attach_property(struct drm_mode_object *obj, struct drm_property 
 }
 
 /* Initialise an empty property set (zero capacity, no backing storage). */
-void drm_property_set_init(struct drm_property_set *set)
+static void drm_property_set_init(struct drm_property_set *set)
 {
     if (!set) return;
     memset(set, 0, sizeof(*set));

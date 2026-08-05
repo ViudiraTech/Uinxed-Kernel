@@ -16,6 +16,7 @@
 #include <fs/core/vfs.h>
 #include <ipc/epoll.h>
 #include <ipc/futex.h>
+#include <ipc/pipe.h>
 #include <ipc/posix_mq.h>
 #include <ipc/socket.h>
 #include <ipc/sysv_ipc.h>
@@ -40,7 +41,6 @@
 #include <syscall/syscall.h>
 
 /* Pipe init extern declaration */
-extern void pipe_init(void);
 
 #ifndef PROCESS_TABLE_SIZE
 #    define PROCESS_TABLE_SIZE 4096

@@ -224,7 +224,7 @@ void drm_crtc_send_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank
 /* drm_crtc_vblank_off: turn off vblank for a CRTC                     */
 /* ------------------------------------------------------------------ */
 
-void drm_crtc_vblank_off(struct drm_crtc *crtc)
+static void drm_crtc_vblank_off(struct drm_crtc *crtc)
 {
     struct drm_device      *dev;
     struct drm_vblank_crtc *vblank;
@@ -247,7 +247,7 @@ void drm_crtc_vblank_off(struct drm_crtc *crtc)
 /* drm_crtc_vblank_on: turn on vblank for a CRTC                       */
 /* ------------------------------------------------------------------ */
 
-void drm_crtc_vblank_on(struct drm_crtc *crtc)
+static void drm_crtc_vblank_on(struct drm_crtc *crtc)
 {
     struct drm_device      *dev;
     struct drm_vblank_crtc *vblank;

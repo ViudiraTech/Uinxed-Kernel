@@ -30,7 +30,7 @@
  * In a full implementation this would also create a DRM range property
  * and attach it; MVP stores the value only.
  */
-void drm_plane_create_zpos_property(struct drm_plane *plane, unsigned int zpos)
+static void drm_plane_create_zpos_property(struct drm_plane *plane, unsigned int zpos)
 {
     if (!plane) { return; }
 
@@ -45,7 +45,7 @@ void drm_plane_create_zpos_property(struct drm_plane *plane, unsigned int zpos)
  * MVP stub: the property infrastructure is not yet wired.
  * Returns 0.
  */
-int drm_plane_create_rotation_property(struct drm_plane *plane, unsigned int rotation)
+static int drm_plane_create_rotation_property(struct drm_plane *plane, unsigned int rotation)
 {
     if (!plane) { return -EINVAL; }
 
@@ -63,7 +63,7 @@ int drm_plane_create_rotation_property(struct drm_plane *plane, unsigned int rot
  * MVP stub: the property infrastructure is not yet wired.
  * Returns 0.
  */
-int drm_plane_create_blend_mode_property(struct drm_plane *plane, unsigned int blend_mode)
+static int drm_plane_create_blend_mode_property(struct drm_plane *plane, unsigned int blend_mode)
 {
     if (!plane) { return -EINVAL; }
 
@@ -80,7 +80,7 @@ int drm_plane_create_blend_mode_property(struct drm_plane *plane, unsigned int b
  * MVP stub: the property infrastructure is not yet wired.
  * Returns 0.
  */
-int drm_plane_create_alpha_property(struct drm_plane *plane)
+static int drm_plane_create_alpha_property(struct drm_plane *plane)
 {
     if (!plane) { return -EINVAL; }
 

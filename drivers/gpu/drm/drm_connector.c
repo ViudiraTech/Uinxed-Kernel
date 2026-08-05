@@ -27,10 +27,6 @@
 #endif
 
 /* Internal helpers from drm_mode_object.c and drm_property.c */
-extern int                       drm_mode_object_idr_alloc(struct drm_device *dev, struct drm_mode_object *obj, uint32_t type);
-extern struct drm_property_blob *drm_property_create_blob(struct drm_device *dev, const void *data, size_t length);
-extern void                      drm_property_blob_put(struct drm_property_blob *blob);
-extern void                      drm_convert_to_umode(struct drm_mode_modeinfo *out, const struct drm_display_mode *in);
 
 /*
  * drm_connector_init - Initialise a connector object.

@@ -33,22 +33,6 @@
 /* Cross-file forward declarations                                     */
 /* ------------------------------------------------------------------ */
 
-extern struct drm_atomic_state    *drm_atomic_state_alloc(struct drm_device *dev);
-extern struct drm_crtc_state      *drm_atomic_get_crtc_state(struct drm_atomic_state *state, struct drm_crtc *crtc);
-extern struct drm_plane_state     *drm_atomic_get_plane_state(struct drm_atomic_state *state, struct drm_plane *plane);
-extern struct drm_connector_state *drm_atomic_get_connector_state(struct drm_atomic_state *state, struct drm_connector *connector);
-extern int                         drm_atomic_check_only(struct drm_atomic_state *state);
-extern int                         drm_atomic_commit(struct drm_atomic_state *state);
-extern void                        drm_atomic_state_free(struct drm_atomic_state *state);
-extern struct drm_mode_object     *drm_mode_object_find(struct drm_device *dev, struct drm_file *file_priv, uint32_t id, uint32_t type);
-extern struct drm_framebuffer     *drm_framebuffer_lookup(struct drm_device *dev, struct drm_file *file_priv, uint32_t id);
-extern void                        drm_crtc_arm_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_event *e);
-extern void                        drm_crtc_send_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_event *e);
-extern void                        drm_handle_vblank(struct drm_device *dev, unsigned int pipe);
-extern struct drm_property_blob   *drm_property_lookup_blob(struct drm_device *dev, uint32_t id);
-extern void                        drm_property_blob_put(struct drm_property_blob *blob);
-extern struct drm_display_mode    *drm_convert_umode(const struct drm_mode_modeinfo *umode);
-
 static bool drm_atomic_object_has_property(struct drm_mode_object *obj, uint32_t property_id, uint64_t *current)
 {
     struct drm_property_set *set   = obj ? obj->properties : NULL;

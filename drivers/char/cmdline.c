@@ -9,6 +9,7 @@
  */
 
 #include <boot/limine.h>
+#include <kernel/cmdline.h>
 #include <kernel/uinxed.h>
 
 /* Get the kernel command line */

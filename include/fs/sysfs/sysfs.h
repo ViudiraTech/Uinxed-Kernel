@@ -258,4 +258,9 @@ char *kobject_get_path(struct kobject *kobj);
         .store = NULL,                            \
     }
 
+/* Per-subsystem sysfs init hooks */
+void ksysfs_init(void);
+void pci_sysfs_init(void);
+void tty_sysfs_init(void);
+
 #endif // INCLUDE_SYSFS_H_

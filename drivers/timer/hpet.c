@@ -12,13 +12,12 @@
 #include <drivers/acpi/acpi.h>
 #include <drivers/timer/tsc.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <libs/std/stdint.h>
 #include <mem/hhdm.h>
 
 hpet_info_t    *hpet_addr;
 static uint32_t hpet_period = 0;
-
-void timer_handle(interrupt_frame_t *frame);
 
 /* Returns the nanosecond value of the current time */
 uint64_t nano_time(void)

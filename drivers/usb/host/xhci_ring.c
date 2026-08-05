@@ -52,7 +52,7 @@ xhci_trb_t *xhci_ring_enqueue(xhci_ring_t *ring, uint64_t parameter, uint32_t st
     return trb;
 }
 
-void xhci_ring_dequeue(xhci_ring_t *ring, uint16_t index)
+static void xhci_ring_dequeue(xhci_ring_t *ring, uint16_t index)
 {
     if (!ring || !ring->trbs || index >= ring->count) return;
     spin_lock(&ring->lock);

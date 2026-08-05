@@ -139,10 +139,6 @@ static int blk_ide_type_id = -1;
 
 /* ---- NVMe backend ops (forwarders to nvme.c) ---- */
 
-extern int nvme_read_sectors(const struct blockdev_device *dev, uint64_t lba, uint32_t count, void *buffer);
-extern int nvme_write_sectors(const struct blockdev_device *dev, uint64_t lba, uint32_t count, const void *buffer);
-extern int nvme_flush(const struct blockdev_device *dev);
-
 static struct blockdev_ops blk_nvme_ops = {
     .read_sectors  = nvme_read_sectors,
     .write_sectors = nvme_write_sectors,

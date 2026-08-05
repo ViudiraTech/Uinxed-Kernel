@@ -10,6 +10,7 @@
 
 #include <chipset/common.h>
 #include <drivers/char/tty.h>
+#include <libs/gfxs/fonts.h>
 #include <libs/gfxs/gfx_proc.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -24,7 +25,6 @@
 vt_ansi_state_t vt_ansi_state;
 
 /* Bitmap fonts */
-extern uint8_t ascii_font[];
 
 static char     *text_grid       = 0;
 static uint32_t *color_grid      = 0;

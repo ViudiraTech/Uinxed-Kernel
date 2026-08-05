@@ -10,6 +10,7 @@
 
 #include <chipset/common.h>
 #include <drivers/bus/pci.h>
+#include <drivers/sound/hda.h>
 #include <kernel/audio.h>
 #include <kernel/errno.h>
 #include <kernel/interrupt.h>

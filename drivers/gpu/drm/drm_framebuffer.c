@@ -27,7 +27,6 @@
 #endif
 
 /* Internal helper from drm_mode_object.c */
-extern int drm_mode_object_idr_alloc(struct drm_device *dev, struct drm_mode_object *obj, uint32_t type);
 
 /*
  * drm_framebuffer_init - Initialise a framebuffer object.

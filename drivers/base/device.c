@@ -29,8 +29,6 @@
 /*  Global sysfs root kobjects (initialised in sysfs_init)             */
 /* ------------------------------------------------------------------ */
 
-extern struct kobject *sysfs_root_kobj;
-
 static struct kobject *devices_kobj; /* /sys/devices */
 static struct kobject *bus_kobj;     /* /sys/bus */
 static struct kobject *class_kobj;   /* /sys/class */
@@ -810,7 +808,6 @@ int device_model_init(void)
 #if CONFIG_SYSFS
     /* Locate the top-level sysfs kobjects created by sysfs_init */
     /* They are children of sysfs_root_kobj */
-    extern struct kobject *sysfs_root_kobj;
 
     /* Wait ?we need sysfs_root_kobj to find these.
      * The kobject_create_and_add calls in sysfs_init already

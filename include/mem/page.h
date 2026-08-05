@@ -11,6 +11,7 @@
 #ifndef INCLUDE_PAGE_H_
 #define INCLUDE_PAGE_H_
 
+#include <kernel/interrupt.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
@@ -148,5 +149,8 @@ pat_config_t get_pat_config(void);
 
 /* Initialize memory page table */
 void page_init(void);
+
+/* Page-fault handler (invoked by the interrupt dispatcher). */
+INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_code);
 
 #endif // INCLUDE_PAGE_H_

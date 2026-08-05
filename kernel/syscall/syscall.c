@@ -19,6 +19,7 @@
 #include <fs/core/vfs.h>
 #include <ipc/epoll.h>
 #include <ipc/futex.h>
+#include <ipc/pipe.h>
 #include <ipc/posix_mq.h>
 #include <ipc/socket.h>
 #include <ipc/sysv_ipc.h>
@@ -3733,9 +3734,6 @@ static int64_t sys_recvmmsg_wrap(uint64_t fd, uint64_t msgvec, uint64_t vlen, ui
 }
 
 /* Pipe wrappers */
-extern int64_t sys_pipe(int pipefd[2]);
-extern int64_t sys_pipe2(int pipefd[2], int flags);
-
 static int64_t sys_pipe_wrap(uint64_t pipefd, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     (void)arg1;
@@ -5479,7 +5477,7 @@ __attribute__((naked)) void syscall_entry(void)
                      "jmp syscall_return\n\t");
 }
 
-__attribute__((naked)) void syscall_entry_syscall(void)
+__attribute__((naked)) static void syscall_entry_syscall(void)
 {
     __asm__ volatile(
         "swapgs\n\t"

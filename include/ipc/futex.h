@@ -78,4 +78,7 @@ int futex_wake(uint32_t *uaddr, int nr_wake, uint64_t bitset);
 
 void futex_init(void);
 
+/* Weak default realtime-clock hook (overridable by the syscall clock layer). */
+uint64_t futex_realtime_ticks(void);
+
 #endif /* INCLUDE_FUTEX_H_ */

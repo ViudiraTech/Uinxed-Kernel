@@ -343,7 +343,7 @@ int drm_gem_object_init(struct drm_device *dev, struct drm_gem_object *obj, size
 /* drm_gem_private_object_init: same as drm_gem_object_init             */
 /* ------------------------------------------------------------------ */
 
-int drm_gem_private_object_init(struct drm_device *dev, struct drm_gem_object *obj, size_t size)
+static int drm_gem_private_object_init(struct drm_device *dev, struct drm_gem_object *obj, size_t size)
 {
     return drm_gem_object_init(dev, obj, size);
 }

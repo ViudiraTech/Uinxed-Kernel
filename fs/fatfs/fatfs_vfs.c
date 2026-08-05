@@ -21,8 +21,6 @@
 
 static int fatfs_vfs_id = 0;
 
-extern PARTITION VolToPart[];
-
 typedef struct fatfs_mount {
         FATFS fs;
         char  drive[4];

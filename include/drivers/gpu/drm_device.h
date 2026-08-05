@@ -988,4 +988,22 @@ int  drm_connector_update_edid_property(struct drm_connector *connector, const u
 /* drm_setversion handler. */
 int drm_setversion(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
+/* --- Internal DRM helpers shared across the DRM core --- */
+
+int                       drm_atomic_add_affected_planes(struct drm_atomic_state *state, struct drm_crtc *crtc);
+int                       drm_atomic_add_affected_connectors(struct drm_atomic_state *state, struct drm_crtc *crtc);
+int                       drm_atomic_check_only(struct drm_atomic_state *state);
+void                      drm_encoder_cleanup(struct drm_encoder *encoder);
+struct drm_file          *drm_file_alloc(struct drm_device *dev);
+void                      drm_file_free(struct drm_file *file);
+struct drm_display_mode  *drm_mode_create(struct drm_device *dev);
+void                      drm_mode_destroy(struct drm_device *dev, struct drm_display_mode *mode);
+void                      drm_mode_probed_add(struct drm_connector *connector, struct drm_display_mode *mode);
+struct drm_display_mode  *drm_convert_umode(const struct drm_mode_modeinfo *umode);
+void                      drm_convert_to_umode(struct drm_mode_modeinfo *out, const struct drm_display_mode *in);
+struct drm_property      *drm_property_create_bitmask(struct drm_device *dev, uint32_t flags, const char *name,
+                                                      const struct drm_mode_property_enum *enums, int num_enums, uint32_t supported_bits);
+struct drm_property_blob *drm_property_create_blob(struct drm_device *dev, const void *data, size_t length);
+void                      drm_property_destroy(struct drm_device *dev, struct drm_property *property);
+
 #endif /* INCLUDE_DRM_DRM_DEVICE_H_ */

@@ -30,7 +30,7 @@
 
 _Static_assert(sizeof(cpio_newc_header_t) == CPIO_HEADER_SIZE, "newc header layout mismatch");
 
-compression_type_t get_compression_type(const void *data, size_t size)
+static compression_type_t get_compression_type(const void *data, size_t size)
 {
     if (!data || size < 4) return COMPRESSION_UNKNOWN;
     const unsigned char *bytes = data;

@@ -12,9 +12,6 @@
 #include <libs/std/stdbool.h>
 #include <proc/process.h>
 
-extern int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[],
-                                            uintptr_t *entry_out, uintptr_t *rsp_out, bool acquire_console);
-
 int elf_loader_load_user_process(process_t *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[],
                                  uintptr_t *entry_out, uintptr_t *rsp_out)
 {

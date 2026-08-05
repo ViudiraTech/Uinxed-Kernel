@@ -26,7 +26,6 @@
 #endif
 
 /* Internal helper from drm_mode_object.c */
-extern int drm_mode_object_idr_alloc(struct drm_device *dev, struct drm_mode_object *obj, uint32_t type);
 
 /*
  * drm_mode_create - Allocate and register a new display mode object.
@@ -98,7 +97,7 @@ void drm_mode_probed_add(struct drm_connector *connector, struct drm_display_mod
  *
  * Copies all fields of the display mode from src to dst using memcpy.
  */
-void drm_mode_copy(struct drm_display_mode *dst, const struct drm_display_mode *src)
+static void drm_mode_copy(struct drm_display_mode *dst, const struct drm_display_mode *src)
 {
     if (!dst || !src) { return; }
 
@@ -113,7 +112,7 @@ void drm_mode_copy(struct drm_display_mode *dst, const struct drm_display_mode *
  * Compares clock, hdisplay, vdisplay, flags, type, and the mode name.
  * Returns true if the modes are equal, false otherwise.
  */
-bool drm_mode_equal(const struct drm_display_mode *mode1, const struct drm_display_mode *mode2)
+static bool drm_mode_equal(const struct drm_display_mode *mode1, const struct drm_display_mode *mode2)
 {
     if (!mode1 || !mode2) { return false; }
 
@@ -207,7 +206,7 @@ void drm_convert_to_umode(struct drm_mode_modeinfo *out, const struct drm_displa
  * Outputs the mode via DRM_DEBUG_KMS in the format:
  *   "name" clock hdisp hsync-start hsync-end htotal vdisp vsync-start vsync-end vtotal flags type
  */
-void drm_mode_debug_printmodeline(const struct drm_display_mode *mode)
+static void drm_mode_debug_printmodeline(const struct drm_display_mode *mode)
 {
     if (!mode) {
         DRM_DEBUG_KMS("modeline: (null)\n");

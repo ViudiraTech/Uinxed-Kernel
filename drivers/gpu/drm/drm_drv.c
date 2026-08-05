@@ -29,8 +29,6 @@
 #include <sync/spin_lock.h>
 
 /* Forward: DRM class (registered once by drm_init) */
-extern struct class drm_class;
-extern int drm_class_registered;
 
 /* ------------------------------------------------------------------ */
 /* Minor allocator ???per-type bitmaps for indices 0..DRM_MAX_MINOR-1  */
@@ -330,7 +328,6 @@ void drm_dev_put(struct drm_device *dev)
 
     if (new_ref == 0) {
         /* Remove from global device list (defined in drm_init.c). */
-        extern void drm_device_list_remove(struct drm_device * d);
         drm_device_list_remove(dev);
 
         /* Call driver release hook. */
@@ -360,7 +357,7 @@ void drm_dev_put(struct drm_device *dev)
 /* drm_dev_unplug ???mark device as removed, prevent new opens          */
 /* ------------------------------------------------------------------ */
 
-void drm_dev_unplug(struct drm_device *dev)
+static void drm_dev_unplug(struct drm_device *dev)
 {
     if (!dev) return;
 

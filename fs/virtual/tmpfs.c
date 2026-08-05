@@ -168,7 +168,7 @@ static int tmpfs_make_private_locked(tmpfs_file_t *f, size_t minimum_capacity)
 }
 
 /* Write data to a tmpfs regular file */
-size_t tmpfs_write(void *file, const void *addr, size_t offset, size_t size)
+static size_t tmpfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
     tmpfs_file_t *f = (tmpfs_file_t *)file;
     size_t        old_size;

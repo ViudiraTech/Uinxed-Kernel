@@ -36,13 +36,8 @@ static struct virtio_gpu_object *vgdev_flush_obj;
 #endif
 
 /* Extern declarations for DRM core helpers used here */
-extern struct drm_display_mode           *drm_mode_create(struct drm_device *dev);
-extern void                               drm_mode_probed_add(struct drm_connector *connector, struct drm_display_mode *mode);
-extern void                               drm_mode_destroy(struct drm_device *dev, struct drm_display_mode *mode);
-extern const struct drm_framebuffer_funcs virtgpu_fb_funcs;
 
 /* Forward declaration of the page-flip helper defined in gpu.c */
-extern int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *fb, struct drm_framebuffer *old_fb);
 
 /* ------------------------------------------------------------------ */
 /* Connector helper functions                                         */

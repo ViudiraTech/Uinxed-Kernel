@@ -13,8 +13,7 @@
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/heap.h>
-
-extern void sched_yield(void);
+#include <proc/sched.h>
 
 static void fs_txn_claim_log(fs_txn_log_t *log)
 {

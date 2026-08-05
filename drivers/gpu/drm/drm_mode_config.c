@@ -30,8 +30,6 @@
 #define DRM_S32_MIN (-DRM_S32_MAX - 1)
 
 /* Internal helpers from drm_property.c */
-extern void drm_property_destroy(struct drm_device *dev, struct drm_property *property);
-extern void drm_property_blob_put(struct drm_property_blob *blob);
 
 static struct drm_property *drm_object_property(struct drm_device *dev, const char *name, uint32_t object_type)
 {
@@ -51,11 +49,6 @@ static struct drm_property *drm_signed_property(struct drm_device *dev, const ch
 }
 
 /* Forward declarations of cleanup functions from sibling compilation units. */
-extern void drm_crtc_cleanup(struct drm_crtc *crtc);
-extern void drm_connector_cleanup(struct drm_connector *connector);
-extern void drm_encoder_cleanup(struct drm_encoder *encoder);
-extern void drm_plane_cleanup(struct drm_plane *plane);
-extern void drm_framebuffer_cleanup(struct drm_framebuffer *fb);
 
 /*
  * drm_mode_config_init - Initialise the mode configuration for a DRM device.
@@ -465,7 +458,7 @@ int drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *f
  * a cleanup action with the device resource manager; MVP delegates to the
  * manual cleanup path. Returns 0 on success.
  */
-int drmm_mode_config_init(struct drm_device *dev)
+static int drmm_mode_config_init(struct drm_device *dev)
 {
     if (!dev) { return -EINVAL; }
 

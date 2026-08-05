@@ -9,6 +9,7 @@
  */
 
 #include <chipset/common.h>
+#include <drivers/sound/speaker.h>
 
 /* Set the system speaker status */
 void system_speaker(int hertz)

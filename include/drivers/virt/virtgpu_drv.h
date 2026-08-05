@@ -795,4 +795,10 @@ static inline uint32_t virtgpu_resource_id_alloc(struct virtio_gpu_device *vgdev
     return id;
 }
 
+/* Page-flip helper used by the KMS atomic commit path. */
+int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *fb, struct drm_framebuffer *old_fb);
+
+/* Framebuffer functions provided by the KMS driver. */
+extern const struct drm_framebuffer_funcs virtgpu_fb_funcs;
+
 #endif /* INCLUDE_VIRTGPU_DRV_H_ */

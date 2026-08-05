@@ -42,6 +42,7 @@
 #include <fs/fatfs/fatfs_vfs.h>
 #include <fs/isofs/isofs.h>
 #include <fs/ntfs/ntfs_vfs.h>
+#include <fs/sysfs/block_sysfs.h>
 #include <fs/sysfs/fb_sysfs.h>
 #include <fs/sysfs/input_sysfs.h>
 #include <fs/sysfs/net_sysfs.h>
@@ -54,6 +55,7 @@
 #include <ipc/epoll.h>
 #include <ipc/futex.h>
 #include <ipc/netlink.h>
+#include <ipc/pipe.h>
 #include <ipc/posix_mq.h>
 #include <ipc/socket.h>
 #include <ipc/sysv_ipc.h>
@@ -87,15 +89,8 @@
 #include <video/klogo.h>
 #include <video/video.h>
 
-extern process_t *init_process;
-extern void       pipe_init(void);
-extern void       ksysfs_init(void);
-extern void       pci_sysfs_init(void);
-extern void       block_sysfs_init(void);
-extern void       tty_sysfs_init(void);
-
 /* Create init process */
-void swapper_run_init(void)
+static void swapper_run_init(void)
 {
     lmodule_t *init_mod = get_lmodule("init");
     if (!init_mod || !init_mod->data || init_mod->size == 0) panic("No working init found.");

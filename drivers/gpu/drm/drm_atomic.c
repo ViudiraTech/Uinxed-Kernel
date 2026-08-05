@@ -73,7 +73,7 @@ struct drm_atomic_state *drm_atomic_state_alloc(struct drm_device *dev)
 /* drm_atomic_state_default_clear: free all sub-state allocations      */
 /* ------------------------------------------------------------------ */
 
-void drm_atomic_state_default_clear(struct drm_atomic_state *state)
+static void drm_atomic_state_default_clear(struct drm_atomic_state *state)
 {
     struct drm_device      *dev    = state->dev;
     struct drm_mode_config *config = &dev->mode_config;
@@ -145,7 +145,7 @@ void drm_atomic_state_default_clear(struct drm_atomic_state *state)
 /* drm_atomic_state_clear: reset state after default clear             */
 /* ------------------------------------------------------------------ */
 
-void drm_atomic_state_clear(struct drm_atomic_state *state)
+static void drm_atomic_state_clear(struct drm_atomic_state *state)
 {
     drm_atomic_state_default_clear(state);
     state->allow_modeset        = 0;

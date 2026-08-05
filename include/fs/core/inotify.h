@@ -112,9 +112,4 @@ void     inotify_notify_move(vfs_node_t node, const char *old_name, const char *
 void     inotify_notify_unmount(vfs_node_t mount_root);
 uint32_t inotify_next_cookie(void);
 
-#ifdef INOTIFY_HOST_TEST
-int     inotify_queue_event(inotify_context_t *context, int32_t wd, uint32_t mask, uint32_t cookie, const char *name);
-int64_t inotify_read_events(inotify_context_t *context, uint64_t flags, void *buffer, size_t size);
-#endif
-
 #endif /* INCLUDE_FS_INOTIFY_H_ */

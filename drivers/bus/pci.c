@@ -229,7 +229,7 @@ mcfg_info_t *get_acpi_mcfg(void)
 }
 
 /* Search MCFG entry by bus */
-mcfg_entry_t *mcfg_search_entry(uint16_t bus)
+static mcfg_entry_t *mcfg_search_entry(uint16_t bus)
 {
     for (size_t i = 0; i < mcfg_info.count; i++) {
         mcfg_entry_t *entry = &mcfg_info.mcfg->entries[i];

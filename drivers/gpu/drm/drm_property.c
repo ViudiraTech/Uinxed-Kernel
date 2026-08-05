@@ -28,10 +28,8 @@
 /* ------------------------------------------------------------------ */
 
 /* Allocate a mode-object ID and init the header; see drm_mode_object.c. */
-extern int drm_mode_object_idr_alloc(struct drm_device *dev, struct drm_mode_object *obj, uint32_t type);
 
 /* Decrement refcount under lock; return true iff it reached zero. */
-extern bool drm_mode_object_put_dec_and_test(struct drm_mode_object *obj);
 
 /* ------------------------------------------------------------------ */
 /* Local helpers                                                      */
@@ -407,7 +405,7 @@ int drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_fi
 }
 
 /* User-initiated property destruction (same as drm_property_destroy). */
-void drm_property_destroy_user(struct drm_device *dev, struct drm_property *property)
+static void drm_property_destroy_user(struct drm_device *dev, struct drm_property *property)
 {
     drm_property_destroy(dev, property);
 }

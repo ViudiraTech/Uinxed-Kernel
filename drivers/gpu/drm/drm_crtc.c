@@ -29,8 +29,6 @@
 #define DRM_S32_MAX ((int32_t)0x7fffffff)
 
 /* Internal helper from drm_mode_object.c */
-extern int                     drm_mode_object_idr_alloc(struct drm_device *dev, struct drm_mode_object *obj, uint32_t type);
-extern struct drm_framebuffer *drm_framebuffer_lookup(struct drm_device *dev, struct drm_file *file_priv, uint32_t id);
 
 /*
  * drm_crtc_init_with_planes - Initialise a new CRTC object with primary and cursor planes.
@@ -100,7 +98,7 @@ int drm_crtc_init_with_planes(struct drm_device *dev, struct drm_crtc *crtc, str
  * Creates ACTIVE, MODE_ID, and OUT_FENCE_PTR properties for all registered
  * CRTCs. In the MVP this is a stub; returns 0.
  */
-int drm_crtc_create_properties(struct drm_device *dev)
+static int drm_crtc_create_properties(struct drm_device *dev)
 {
     if (!dev) { return -EINVAL; }
 
@@ -116,7 +114,7 @@ int drm_crtc_create_properties(struct drm_device *dev)
  *
  * Copies the mode into crtc->mode and marks the CRTC as enabled.
  */
-void drm_crtc_set_mode_prop_for_crtc(struct drm_crtc *crtc, const struct drm_display_mode *mode)
+static void drm_crtc_set_mode_prop_for_crtc(struct drm_crtc *crtc, const struct drm_display_mode *mode)
 {
     if (!crtc || !mode) { return; }
 
