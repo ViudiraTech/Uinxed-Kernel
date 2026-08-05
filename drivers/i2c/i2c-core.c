@@ -137,6 +137,7 @@ int i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
         return -ENODEV;
     }
     ret = __i2c_transfer(adap, msgs, num);
+    if (ret == -ETIMEDOUT) { plogk("i2c: transfer timed out on adapter %s (msg count %d)\n", adap->name, num); }
     spin_unlock(&adap->bus_lock);
     return ret < 0 ? ret : num;
 }

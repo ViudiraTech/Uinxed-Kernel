@@ -91,6 +91,8 @@ INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_
                              :
                              : [fp] "r"(frame), [rdi] "r"(sigframe.rdi), [rsi] "r"(sigframe.rsi), [rdx] "r"(sigframe.rdx)
                              : "memory");
+        } else {
+            plogk("#PF: user-mode fault at 0x%016llx (err 0x%llx) with no process context\n", faulting_address, error_code);
         }
         return;
     }

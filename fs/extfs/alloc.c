@@ -87,6 +87,7 @@ static int extfs_free_bit_in_bitmap(extfs_sb_info_t *sb, uint32_t group, int ino
     }
 
     if (!extfs_test_bit(buf, bit)) {
+        plogk("extfs: drive %u: %s bitmap bit %u not allocated (double free)\n", sb->device.drive, inode_bitmap ? "inode" : "block", bit);
         free(buf);
         return -EINVAL;
     }

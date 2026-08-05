@@ -9,6 +9,7 @@
  */
 
 #include <drivers/input/evdev_queue.h>
+#include <kernel/printk.h>
 
 static bool is_power_of_two(unsigned int value)
 {
@@ -19,11 +20,12 @@ bool evdev_queue_init(evdev_queue_t *queue, input_event_t *buffer, unsigned int 
 {
     if (!queue || !buffer || size < 4 || !is_power_of_two(size)) return false;
 
-    queue->head        = 0;
-    queue->tail        = 0;
-    queue->packet_head = 0;
-    queue->size        = size;
-    queue->buffer      = buffer;
+    queue->head              = 0;
+    queue->tail              = 0;
+    queue->packet_head       = 0;
+    queue->size              = size;
+    queue->buffer            = buffer;
+    queue->overflow_reported = false;
     return true;
 }
 
@@ -54,6 +56,10 @@ bool evdev_queue_push(evdev_queue_t *queue, const input_event_t *event)
             .value = 0,
         };
         queue->packet_head = queue->tail;
+        if (!queue->overflow_reported) {
+            queue->overflow_reported = true;
+            plogk("evdev: client event queue overflow, events dropped\n");
+        }
     }
 
     if (event->type == EV_SYN && event->code == SYN_REPORT) {
@@ -75,6 +81,7 @@ size_t evdev_queue_read(evdev_queue_t *queue, input_event_t *events, size_t max_
         events[count++] = queue->buffer[queue->tail];
         queue->tail     = (queue->tail + 1) & mask;
     }
+    if (queue->head == queue->tail) queue->overflow_reported = false;
     return count;
 }
 

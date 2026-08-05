@@ -9,6 +9,7 @@
  */
 
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <net/arp.h>
 #include <net/endian.h>
@@ -79,7 +80,11 @@ static int arp_mac_unicast(const uint8_t address[ETH_ADDRESS_LEN])
 static int arp_send(net_device_t *device, uint16_t operation, const uint8_t target_address[ETH_ADDRESS_LEN], uint32_t target_ipv4)
 {
     net_pbuf_t *packet = net_pbuf_alloc(ARP_PACKET_LEN, NET_PBUF_HEADROOM);
-    if (!packet) return -ENOMEM;
+    if (!packet) {
+        plogk("arp: %s: request alloc failed (target=%u.%u.%u.%u).\n", device->name, (unsigned)(target_ipv4 >> 24) & 0xff,
+              (unsigned)(target_ipv4 >> 16) & 0xff, (unsigned)(target_ipv4 >> 8) & 0xff, (unsigned)target_ipv4 & 0xff);
+        return -ENOMEM;
+    }
     uint8_t *arp = packet->data;
     net_write_be16(arp, 1);
     net_write_be16(arp + 2, ETH_TYPE_IPV4);
@@ -212,6 +217,8 @@ int arp_resolve(net_device_t *device, uint32_t ipv4, net_pbuf_t *packet)
     if (!entry) entry = arp_alloc_locked(device, ipv4, now);
     if (entry->pending_count >= ARP_PENDING_PER_ENTRY || !arp_pending_free) {
         spin_unlock(&arp_lock);
+        plogk("arp: %s: pending pool exhausted for %u.%u.%u.%u.\n", device->name, (unsigned)(ipv4 >> 24) & 0xff, (unsigned)(ipv4 >> 16) & 0xff,
+              (unsigned)(ipv4 >> 8) & 0xff, (unsigned)ipv4 & 0xff);
         return -ENOBUFS;
     }
     arp_pending_t *pending = arp_pending_free;
@@ -221,6 +228,8 @@ int arp_resolve(net_device_t *device, uint32_t ipv4, net_pbuf_t *packet)
         pending->next    = arp_pending_free;
         arp_pending_free = pending;
         spin_unlock(&arp_lock);
+        plogk("arp: %s: pending packet clone failed (%u.%u.%u.%u).\n", device->name, (unsigned)(ipv4 >> 24) & 0xff,
+              (unsigned)(ipv4 >> 16) & 0xff, (unsigned)(ipv4 >> 8) & 0xff, (unsigned)ipv4 & 0xff);
         return -ENOMEM;
     }
     pending->next = NULL;

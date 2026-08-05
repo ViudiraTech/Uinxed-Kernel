@@ -254,18 +254,30 @@ static int ehci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
     uint64_t setup_physical = 0, data_physical = 0;
     void    *setup_dma = ehci_dma_alloc(sizeof(*setup), &setup_physical);
     void    *data_dma  = NULL;
-    if (!setup_dma || setup_physical > UINT32_MAX) goto control_cleanup;
+    if (!setup_dma || setup_physical > UINT32_MAX) {
+        plogk("ehci: control DMA allocation failed on bus %u\n", ctrl->bus_number);
+        goto control_cleanup;
+    }
     memcpy(setup_dma, setup, sizeof(*setup));
     if (length) {
         data_dma = ehci_dma_alloc(length, &data_physical);
-        if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) goto control_cleanup;
+        if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) {
+            plogk("ehci: control data DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
+            goto control_cleanup;
+        }
         if (!input) memcpy(data_dma, buffer, length);
     }
     qh_index = ehci_find_free_qh(ctrl);
-    if (qh_index < 0) goto control_cleanup;
+    if (qh_index < 0) {
+        plogk("ehci: QH pool exhausted on bus %u\n", ctrl->bus_number);
+        goto control_cleanup;
+    }
     for (size_t i = 0; i < qtd_count; i++) {
         qtd_indices[i] = ehci_find_free_qtd(ctrl);
-        if (qtd_indices[i] < 0) goto control_cleanup;
+        if (qtd_indices[i] < 0) {
+            plogk("ehci: QTD pool exhausted on bus %u\n", ctrl->bus_number);
+            goto control_cleanup;
+        }
     }
     size_t status_position = length ? 2 : 1;
     ehci_fill_qtd(ctrl->qtds[qtd_indices[0]].virtual, EHCI_QTD_PID_SETUP, 0, (uint32_t)setup_physical, sizeof(*setup),
@@ -322,11 +334,17 @@ static int ehci_transfer(usb_endpoint_t *endpoint, void *buffer, size_t length, 
     int      qh_index = -1, qtd_index = -1;
     uint64_t data_physical = 0;
     void    *data_dma      = ehci_dma_alloc(length, &data_physical);
-    if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) goto transfer_cleanup;
+    if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) {
+        plogk("ehci: transfer DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
+        goto transfer_cleanup;
+    }
     if (!input) memcpy(data_dma, buffer, length);
     qh_index  = ehci_find_free_qh(ctrl);
     qtd_index = ehci_find_free_qtd(ctrl);
-    if (qh_index < 0 || qtd_index < 0) goto transfer_cleanup;
+    if (qh_index < 0 || qtd_index < 0) {
+        plogk("ehci: QH/QTD pool exhausted on bus %u\n", ctrl->bus_number);
+        goto transfer_cleanup;
+    }
     ehci_fill_qtd(ctrl->qtds[qtd_index].virtual, input ? EHCI_QTD_PID_IN : EHCI_QTD_PID_OUT, endpoint->data_toggle ? EHCI_QTD_TOGGLE : 0,
                   (uint32_t)data_physical, length, EHCI_QTD_NEXT_TERMINATE, true);
     ehci_qh_t *qh      = ctrl->qhs[qh_index].virtual;
@@ -645,7 +663,7 @@ static void ehci_interrupt_handler(void *frame)
         ehci_controller_t *ctrl = ehci_controllers[i];
         if (!ctrl || !ctrl->running) continue;
         uint32_t sts = ehci_read32(ctrl->operational, EHCI_OP_USBSTS);
-        if (!(sts & (EHCI_STS_INT | EHCI_STS_PCD | EHCI_STS_ERR | EHCI_STS_IAA))) continue;
+        if (!(sts & (EHCI_STS_INT | EHCI_STS_PCD | EHCI_STS_ERR | EHCI_STS_IAA | EHCI_STS_HSE))) continue;
         if (sts & EHCI_STS_PCD) {
             ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_PCD);
             uint64_t flags = spin_lock_irqsave(&ctrl->lock);
@@ -654,6 +672,10 @@ static void ehci_interrupt_handler(void *frame)
         }
         if (sts & EHCI_STS_INT) { ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_INT); }
         if (sts & EHCI_STS_ERR) { ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_ERR); }
+        if (sts & EHCI_STS_HSE) {
+            ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_HSE);
+            plogk("ehci: Host system error on bus %u\n", ctrl->bus_number);
+        }
         if (sts & EHCI_STS_IAA) { ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_IAA); }
     }
     send_eoi();

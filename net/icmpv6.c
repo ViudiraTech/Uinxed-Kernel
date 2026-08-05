@@ -9,6 +9,7 @@
  */
 
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <net/endian.h>
 #include <net/icmpv6.h>
@@ -71,7 +72,10 @@ int icmpv6_error(net_device_t *device, const ipv6_address_t *destination, uint8_
     size_t quote_length = original_length;
     if (quote_length > IPV6_MIN_MTU - IPV6_HEADER_LEN - ICMPV6_HEADER_LEN) quote_length = IPV6_MIN_MTU - IPV6_HEADER_LEN - ICMPV6_HEADER_LEN;
     net_pbuf_t *packet = net_pbuf_alloc(ICMPV6_HEADER_LEN + quote_length, NET_PBUF_HEADROOM);
-    if (!packet) return -ENOMEM;
+    if (!packet) {
+        plogk("icmpv6: error message alloc failed (type=%u code=%u).\n", (unsigned)type, (unsigned)code);
+        return -ENOMEM;
+    }
     memset(packet->data, 0, ICMPV6_HEADER_LEN);
     packet->data[0] = type;
     packet->data[1] = code;

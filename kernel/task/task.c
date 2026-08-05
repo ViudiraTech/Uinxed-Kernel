@@ -11,7 +11,6 @@
 #include <arch/fpu.h>
 #include <cgroup/cgroup.h>
 #include <kernel/errno.h>
-#include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
@@ -251,7 +250,6 @@ task_t *kthread_create_on_cpu(const char *name, kthread_entry_t entry, void *arg
     spin_unlock(&scheduler.lock);
     request_task_cpu(task);
 
-    plogk("task: Created task %llu (%s) on CPU %u\n", task->pid, task->name, task->cpu_id);
     return task;
 }
 

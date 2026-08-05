@@ -150,6 +150,8 @@ static int usb_storage_command_locked(usb_storage_device_t *storage, uint8_t lun
     }
     if (status != EOK) goto recover;
     if (csw.signature != USB_MSC_CSW_SIGNATURE || csw.tag != tag || csw.residue > data_length || csw.status > 2) {
+        plogk("usb-storage: %s: CSW protocol error sig=0x%08x tag=0x%08x residue=%u\n", storage->interface->device->path, csw.signature, csw.tag,
+              csw.residue);
         status = -EPROTO;
         goto recover;
     }

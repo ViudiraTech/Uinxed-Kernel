@@ -397,6 +397,9 @@ int swap_fault(page_directory_t *directory, uintptr_t address)
         (void)swap_entry_release_pte(entry);
         area->pages_in++;
     } else {
+        if (result != -ENOMEM)
+            plogk("swap: swap-in failed type=%u slot=%llu addr=0x%016llx err=%d\n", swap_entry_type(entry), swap_entry_offset(entry),
+                  (uint64_t)address, result);
         __atomic_store_n(&pte->value, entry, __ATOMIC_RELEASE);
         flush_tlb(address);
         if (frame) (void)frame_release_range(frame, 1);
@@ -448,6 +451,7 @@ static int swap_out_page(page_directory_t *directory, uintptr_t address)
             (void)frame_release_range(value & PAGE_4K_MASK, 1);
             best->pages_out++;
         } else {
+            plogk("swap: swap-out failed type=%u slot=%llu addr=0x%016llx err=%d\n", best->type, slot, (uint64_t)address, result);
             __atomic_store_n(&pte->value, value, __ATOMIC_RELEASE);
             flush_tlb(address);
             (void)swap_slot_release(&best->slots, slot);

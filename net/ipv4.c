@@ -9,6 +9,7 @@
  */
 
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <net/arp.h>
@@ -168,7 +169,11 @@ static int ipv4_emit_fragment(net_device_t *device, uint32_t next_hop, uint32_t 
                               uint16_t id, uint16_t flags_offset, const uint8_t *data, size_t length)
 {
     net_pbuf_t *fragment = net_pbuf_alloc(IPV4_HEADER_MIN + length, NET_PBUF_HEADROOM);
-    if (!fragment) return -ENOMEM;
+    if (!fragment) {
+        plogk("ipv4: %s: fragment alloc failed (dest=%u.%u.%u.%u len=%lu).\n", device->name, (unsigned)(destination >> 24) & 0xff,
+              (unsigned)(destination >> 16) & 0xff, (unsigned)(destination >> 8) & 0xff, (unsigned)destination & 0xff, (unsigned long)length);
+        return -ENOMEM;
+    }
     uint8_t *header = fragment->data;
     memset(header, 0, IPV4_HEADER_MIN);
     header[0] = 0x45;
@@ -260,6 +265,9 @@ static ipv4_reassembly_t *ipv4_reassembly_find(net_device_t *device, const net_i
     entry->data   = malloc(IPV4_MAX_PAYLOAD);
     entry->bitmap = malloc(IPV4_BITMAP_SIZE);
     if (!entry->data || !entry->bitmap) {
+        plogk("ipv4: %s: reassembly buffer alloc failed (src=%u.%u.%u.%u id=%u).\n", device->name, (unsigned)(ip->source >> 24) & 0xff,
+              (unsigned)(ip->source >> 16) & 0xff, (unsigned)(ip->source >> 8) & 0xff, (unsigned)ip->source & 0xff,
+              (unsigned)ip->identification);
         ipv4_reassembly_clear(entry);
         return NULL;
     }

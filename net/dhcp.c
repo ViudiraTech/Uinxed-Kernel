@@ -9,6 +9,7 @@
  */
 
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <net/dhcp.h>
 #include <net/endian.h>
@@ -227,8 +228,13 @@ static int dhcp_send(dhcp_client_t *client, uint8_t message_type, int broadcast)
     packet[offset++] = DHCP_OPT_END;
     if (offset < 300U) offset = 300U;
 
-    if (broadcast) return netdev_udp_broadcast(client->device, client->device->ipv4_address, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, packet, offset);
+    if (broadcast) {
+        int status = netdev_udp_broadcast(client->device, client->device->ipv4_address, DHCP_CLIENT_PORT, DHCP_SERVER_PORT, packet, offset);
+        if (status < 0) plogk("dhcp: %s: broadcast failed (%d).\n", client->device->name, status);
+        return status < 0 ? status : 0;
+    }
     int status = udp_send(dhcp_endpoint, packet, offset, client->server_identifier, DHCP_SERVER_PORT);
+    if (status < 0) plogk("dhcp: %s: send to server failed (%d).\n", client->device->name, status);
     return status < 0 ? status : 0;
 }
 
@@ -265,7 +271,11 @@ static int dhcp_apply_lease(dhcp_client_t *client, const dhcp_reply_t *reply, ui
     uint32_t netmask = reply->has_netmask ? reply->netmask : client->device->ipv4_netmask;
     uint32_t gateway = reply->has_gateway ? reply->gateway : client->device->ipv4_gateway;
     if (!netmask) netmask = dhcp_default_netmask(address);
-    if (!address || netdev_configure_ipv4(client->device, address, netmask, gateway)) return -EINVAL;
+    if (!address || netdev_configure_ipv4(client->device, address, netmask, gateway)) {
+        plogk("dhcp: %s: lease apply failed (address=%u.%u.%u.%u).\n", client->device->name, (unsigned)(address >> 24) & 0xff,
+              (unsigned)(address >> 16) & 0xff, (unsigned)(address >> 8) & 0xff, (unsigned)address & 0xff);
+        return -EINVAL;
+    }
     if (reply->has_dns) netdev_configure_dns(client->device, reply->dns, reply->dns_count);
 
     uint32_t lease = reply->has_lease && reply->lease_seconds ? reply->lease_seconds : DHCP_DEFAULT_LEASE;
@@ -326,6 +336,7 @@ static void dhcp_receive_replies(uint64_t now)
                    && (client->state == DHCP_STATE_REQUESTING || client->state == DHCP_STATE_RENEWING || client->state == DHCP_STATE_REBINDING)
                    && (client->state != DHCP_STATE_REQUESTING || !reply.server_identifier
                        || reply.server_identifier == client->server_identifier)) {
+            plogk("dhcp: %s: server NAK, restarting.\n", client->device->name);
             dhcp_schedule_restart(client, now, DHCP_INITIAL_RETRY);
         }
         spin_unlock(&dhcp_lock);
@@ -388,6 +399,7 @@ static void dhcp_advance(dhcp_client_t *client, uint64_t now)
         return;
     }
     if ((client->state == DHCP_STATE_RENEWING || client->state == DHCP_STATE_REBINDING) && now >= client->lease_expiry) {
+        plogk("dhcp: %s: lease expired, restarting.\n", client->device->name);
         dhcp_schedule_restart(client, now, 0);
         return;
     }
@@ -397,6 +409,7 @@ static void dhcp_advance(dhcp_client_t *client, uint64_t now)
     }
     if ((client->state == DHCP_STATE_SELECTING || client->state == DHCP_STATE_REQUESTING) && now >= client->next_action) {
         if (client->retries >= DHCP_RETRY_LIMIT) {
+            plogk("dhcp: %s: no reply after %u attempts, restarting.\n", client->device->name, (unsigned)DHCP_RETRY_LIMIT);
             dhcp_schedule_restart(client, now, DHCP_RESTART_DELAY);
             return;
         }
@@ -414,8 +427,12 @@ void dhcp_init(void)
 {
     if (dhcp_endpoint) return;
     dhcp_endpoint = udp_open();
-    if (!dhcp_endpoint) return;
+    if (!dhcp_endpoint) {
+        plogk("dhcp: endpoint open failed.\n");
+        return;
+    }
     if (udp_bind(dhcp_endpoint, 0, DHCP_CLIENT_PORT)) {
+        plogk("dhcp: bind to port %u failed.\n", (unsigned)DHCP_CLIENT_PORT);
         udp_close(dhcp_endpoint);
         dhcp_endpoint = NULL;
     }

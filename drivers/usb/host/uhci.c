@@ -391,13 +391,22 @@ static int uhci_submit_bulk(usb_endpoint_t *endpoint, void *buffer, size_t lengt
     void    *dma_buffer      = uhci_dma_alloc(length, &dma_physical);
     bool     input           = (endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK) != 0;
     uint8_t  endpoint_number = endpoint->descriptor.endpoint_address & USB_ENDPOINT_NUMBER_MASK;
-    if (!dma_buffer || dma_physical > UINT32_MAX || dma_physical + length - 1 > UINT32_MAX) goto cleanup_bulk;
+    if (!dma_buffer || dma_physical > UINT32_MAX || dma_physical + length - 1 > UINT32_MAX) {
+        plogk("uhci: transfer DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
+        goto cleanup_bulk;
+    }
     if (!input) memcpy(dma_buffer, buffer, length);
     qh_index = uhci_find_free_qh(ctrl);
-    if (qh_index < 0) goto cleanup_bulk;
+    if (qh_index < 0) {
+        plogk("uhci: QH pool exhausted on bus %u\n", ctrl->bus_number);
+        goto cleanup_bulk;
+    }
     for (size_t i = 0; i < td_count; i++) {
         int index = uhci_find_free_td(ctrl);
-        if (index < 0) goto cleanup_bulk;
+        if (index < 0) {
+            plogk("uhci: TD pool exhausted on bus %u\n", ctrl->bus_number);
+            goto cleanup_bulk;
+        }
         td_indices[allocated++] = index;
     }
 
@@ -703,7 +712,10 @@ static void uhci_interrupt_handler(void *frame)
             }
             spin_unlock_irqrestore(&ctrl->lock, flags);
         }
-        if (sts & UHCI_STS_HSE) { uhci_writew(ctrl, UHCI_USBSTS, UHCI_STS_HSE); }
+        if (sts & UHCI_STS_HSE) {
+            uhci_writew(ctrl, UHCI_USBSTS, UHCI_STS_HSE);
+            plogk("uhci: Host system error on bus %u\n", ctrl->bus_number);
+        }
     }
     send_eoi();
 }

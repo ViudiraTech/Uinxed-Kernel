@@ -9,6 +9,7 @@
  */
 
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <net/arp.h>
 #include <net/endian.h>
@@ -60,7 +61,10 @@ int ethernet_output(net_device_t *device, net_pbuf_t *packet, const uint8_t dest
 {
     if (!device || !packet || !destination || !ethernet_address_valid(device->address) || !ethernet_address_valid(destination)) return -EINVAL;
     uint8_t *header = net_pbuf_push(packet, ETH_HEADER_LEN);
-    if (!header) return -ENOBUFS;
+    if (!header) {
+        plogk("ethernet: %s: output header push failed (%d bytes).\n", device->name, ETH_HEADER_LEN);
+        return -ENOBUFS;
+    }
     memcpy(header, destination, ETH_ADDRESS_LEN);
     memcpy(header + 6, device->address, ETH_ADDRESS_LEN);
     net_write_be16(header + 12, type);

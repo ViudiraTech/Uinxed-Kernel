@@ -246,7 +246,6 @@ static ssize_t device_uevent_store(struct device *dev, struct device_attribute *
 {
     process_t *process = process_current();
     (void)attr;
-    plogk("udev: uevent store on %s uid=%u count=%zu\n", kobject_name(&dev->kobj), process ? process->uid : 0, count);
     if (!process || process->uid != 0) return -EPERM;
     int ret = kobject_synth_uevent(&dev->kobj, buf, count);
     return ret ? ret : (ssize_t)count;

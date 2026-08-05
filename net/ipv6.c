@@ -9,6 +9,7 @@
  */
 
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <net/endian.h>
@@ -304,6 +305,11 @@ int ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_a
     }
     uint8_t *header = net_pbuf_push(packet, IPV6_HEADER_LEN);
     if (!header) {
+        plogk("ipv6: %s: header push failed (dest=%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x len=%lu).\n",
+              device->name, destination->bytes[0], destination->bytes[1], destination->bytes[2], destination->bytes[3], destination->bytes[4],
+              destination->bytes[5], destination->bytes[6], destination->bytes[7], destination->bytes[8], destination->bytes[9],
+              destination->bytes[10], destination->bytes[11], destination->bytes[12], destination->bytes[13], destination->bytes[14],
+              destination->bytes[15], (unsigned long)packet->length);
         if (release) netdev_put(device);
         return -ENOBUFS;
     }
@@ -399,6 +405,11 @@ static ipv6_reassembly_t *ipv6_reassembly_find(net_device_t *device, const net_i
     slot->data   = malloc(IPV6_MAX_PAYLOAD);
     slot->bitmap = malloc(IPV6_REASSEMBLY_BITMAP_SIZE);
     if (!slot->data || !slot->bitmap) {
+        plogk("ipv6: %s: reassembly buffer alloc failed (src=%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x id=%u).\n",
+              device->name, ip->source.bytes[0], ip->source.bytes[1], ip->source.bytes[2], ip->source.bytes[3], ip->source.bytes[4],
+              ip->source.bytes[5], ip->source.bytes[6], ip->source.bytes[7], ip->source.bytes[8], ip->source.bytes[9], ip->source.bytes[10],
+              ip->source.bytes[11], ip->source.bytes[12], ip->source.bytes[13], ip->source.bytes[14], ip->source.bytes[15],
+              (unsigned)ip->fragment_id);
         ipv6_reassembly_clear(slot);
         return NULL;
     }

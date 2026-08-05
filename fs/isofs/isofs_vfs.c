@@ -29,7 +29,9 @@ static int isofs_read_block(isofs_mount_t *mnt, uint32_t block, void *buf, uint3
 {
     uint64_t offset = (uint64_t)block * mnt->block_size;
     uint32_t rsize  = size > mnt->block_size ? mnt->block_size : size;
-    return blockdev_read_bytes(&mnt->device, offset, buf, rsize);
+    int      status = blockdev_read_bytes(&mnt->device, offset, buf, rsize);
+    if (status != EOK) plogk("isofs: drive %u: block %u read failed: %d\n", mnt->device.drive, block, status);
+    return status;
 }
 
 /* wrapper matching rr_read_block signature for Rock Ridge */
@@ -40,7 +42,10 @@ static int isofs_rr_read_block(void *ctx, uint32_t block, void *buf, uint32_t si
 
 static int isofs_read_bytes(isofs_mount_t *mnt, uint64_t offset, void *buf, uint32_t size)
 {
-    return blockdev_read_bytes(&mnt->device, offset, buf, size);
+    int status = blockdev_read_bytes(&mnt->device, offset, buf, size);
+    if (status != EOK)
+        plogk("isofs: drive %u: read failed at byte %llu (size %u): %d\n", mnt->device.drive, (unsigned long long)offset, size, status);
+    return status;
 }
 
 /* ─── ISO date helper ─── */

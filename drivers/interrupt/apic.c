@@ -164,7 +164,13 @@ void send_ipi(uint32_t apic_id, uint32_t command)
         lapic_write(APIC_ICR_HIGH, apic_id << 24);
         lapic_write(APIC_ICR_LOW, command);
     }
-    while (lapic_read(APIC_ICR_LOW) & (1 << 12));
+    int tout = 1000000;
+    while (lapic_read(APIC_ICR_LOW) & (1 << 12)) {
+        if (--tout <= 0) {
+            plogk("apic: IPI to APIC %u still pending (ICR=0x%x)\n", apic_id, command);
+            return;
+        }
+    }
 }
 
 /* Initialize APIC */

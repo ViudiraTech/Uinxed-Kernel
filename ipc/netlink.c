@@ -528,10 +528,14 @@ struct socket *netlink_sock_alloc(uint32_t protocol)
     if (protocol >= NL_PROTO_MAX) return NULL;
 
     sk = calloc(1, sizeof(struct socket));
-    if (!sk) return NULL;
+    if (!sk) {
+        plogk("netlink: socket alloc failed (protocol=%u).\n", (unsigned)protocol);
+        return NULL;
+    }
 
     ns = calloc(1, sizeof(nl_sock_t));
     if (!ns) {
+        plogk("netlink: socket state alloc failed (protocol=%u).\n", (unsigned)protocol);
         free(sk);
         return NULL;
     }
@@ -562,8 +566,6 @@ struct socket *netlink_sock_alloc(uint32_t protocol)
     sk->socket_write = netlink_wrap_write;
     sk->socket_poll  = netlink_wrap_poll;
     sk->socket_close = netlink_wrap_close;
-
-    plogk("netlink: sock proto=%u pid=%u\n", protocol, sk->pid);
 
     /* Initialise netlink-specific fields */
     ns->nl_pid           = 0; /* unbound */
@@ -660,7 +662,6 @@ int netlink_bind(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen)
     ns->nl_bound = 1;
     spin_unlock(&sk->lock);
 
-    plogk("netlink: bind proto=%u pid=%u groups=%u\n", ns->nl_protocol, ns->nl_pid, ns->nl_groups);
     return EOK;
 }
 
@@ -975,8 +976,6 @@ dequeue:
     }
 
     spin_unlock(&ns->recv_lock);
-
-    if (ns->nl_protocol == NETLINK_KOBJECT_UEVENT) plogk("netlink: uevent recv len=%u copy=%u peek=%d\n", full_len, copy_len, peek);
 
     return (flags & MSG_TRUNC) ? (int)full_len : (int)copy_len;
 }

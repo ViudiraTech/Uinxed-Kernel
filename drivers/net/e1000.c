@@ -404,6 +404,7 @@ static void e1000_update_link(e1000_device_t *device)
     if (up == device->link_up) return;
     device->link_up = up;
     device->stats.link_changes++;
+    if (!up) plogk("e1000: %s: link down.\n", device->netdev.name);
     if (device->netdev_registered) {
         spin_lock(&device->netdev.lock);
         if (up && (device->netdev.flags & NETDEV_F_UP))
@@ -424,6 +425,7 @@ static size_t e1000_tx_reclaim_locked(e1000_device_t *device, size_t budget)
         dma_read_barrier();
         if (desc->status & E1000_TXD_ERROR) {
             device->stats.tx_errors++;
+            plogk("e1000: %s: TX descriptor error (status=%#x).\n", device->netdev.name, (unsigned)desc->status);
         } else {
             device->stats.tx_packets++;
             device->stats.tx_bytes += desc->length;
@@ -611,6 +613,7 @@ static void e1000_process_work(e1000_device_t *device, uint32_t cause)
     if (cause & E1000_ICR_RXO) {
         device->stats.rx_errors++;
         device->stats.rx_overruns++;
+        plogk("e1000: %s: RX overrun.\n", device->netdev.name);
     }
     if (cause & E1000_ICR_RXSEQ) device->stats.rx_errors++;
     if ((cause & E1000_RX_INT_MASK) || e1000_rx_ready(device)) (void)e1000_poll(device, E1000_WORK_BUDGET);
@@ -1008,7 +1011,8 @@ int e1000_start_workers(void)
             continue;
         }
         failed = 1;
-        *link  = device->next;
+        plogk("e1000: %s: worker startup failed.\n", device->netdev.name);
+        *link = device->next;
         e1000_device_count--;
         e1000_destroy(device);
     }

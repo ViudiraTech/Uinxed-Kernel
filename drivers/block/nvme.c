@@ -623,13 +623,18 @@ int nvme_read_sectors(const struct blockdev_device *dev, uint64_t lba, uint32_t 
 
         /* Allocate DMA buffer */
         uint64_t dma_phys = alloc_frames(pages);
-        if (!dma_phys) return -ENOMEM;
+        if (!dma_phys) {
+            plogk("nvme: ns%u: failed to allocate %u pages for read at LBA %llu\n", ns->nsid, pages, (unsigned long long)(dev->base_lba + lba));
+            return -ENOMEM;
+        }
         void *dma_virt = phys_to_virt(dma_phys);
 
         /* Build PRP */
         uint64_t prp1, prp2;
         ret = nvme_build_prp(q, dma_phys, bytes, &prp1, &prp2);
         if (ret) {
+            plogk("nvme: ns%u: PRP build failed for read at LBA %llu (%u bytes): %d\n", ns->nsid, (unsigned long long)(dev->base_lba + lba),
+                  bytes, ret);
             free_frames(dma_phys, pages);
             return ret;
         }
@@ -687,7 +692,10 @@ int nvme_write_sectors(const struct blockdev_device *dev, uint64_t lba, uint32_t
         uint32_t pages = (bytes + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
 
         uint64_t dma_phys = alloc_frames(pages);
-        if (!dma_phys) return -ENOMEM;
+        if (!dma_phys) {
+            plogk("nvme: ns%u: failed to allocate %u pages for write at LBA %llu\n", ns->nsid, pages, (unsigned long long)(dev->base_lba + lba));
+            return -ENOMEM;
+        }
         void *dma_virt = phys_to_virt(dma_phys);
 
         /* Copy caller data into DMA buffer */
@@ -696,6 +704,8 @@ int nvme_write_sectors(const struct blockdev_device *dev, uint64_t lba, uint32_t
         uint64_t prp1, prp2;
         ret = nvme_build_prp(q, dma_phys, bytes, &prp1, &prp2);
         if (ret) {
+            plogk("nvme: ns%u: PRP build failed for write at LBA %llu (%u bytes): %d\n", ns->nsid, (unsigned long long)(dev->base_lba + lba),
+                  bytes, ret);
             free_frames(dma_phys, pages);
             return ret;
         }

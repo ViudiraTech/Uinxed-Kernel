@@ -9,6 +9,7 @@
  */
 
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <net/endian.h>
 #include <net/ethernet.h>
@@ -135,7 +136,10 @@ static int ndp_send(net_device_t *device, const ipv6_address_t *source, const ip
 {
     size_t      length = target ? 32U : 16U;
     net_pbuf_t *packet = net_pbuf_alloc(length, NET_PBUF_HEADROOM);
-    if (!packet) return -ENOMEM;
+    if (!packet) {
+        plogk("ndp: %s: message alloc failed (type=%u).\n", device->name, (unsigned)type);
+        return -ENOMEM;
+    }
     memset(packet->data, 0, length);
     packet->data[0] = type;
     if (target) {
@@ -209,6 +213,7 @@ int ndp_resolve(net_device_t *device, const ipv6_address_t *address, net_pbuf_t 
     if (!entry) entry = ndp_alloc_locked(device, address, now);
     if (entry->pending_count >= NDP_PENDING_PER_ENTRY || !ndp_pending_free) {
         spin_unlock(&ndp_lock);
+        plogk("ndp: %s: pending pool exhausted for neighbor.\n", device->name);
         return -ENOBUFS;
     }
     ndp_pending_t *pending = ndp_pending_free;
@@ -218,6 +223,7 @@ int ndp_resolve(net_device_t *device, const ipv6_address_t *address, net_pbuf_t 
         pending->next    = ndp_pending_free;
         ndp_pending_free = pending;
         spin_unlock(&ndp_lock);
+        plogk("ndp: %s: pending packet clone failed.\n", device->name);
         return -ENOMEM;
     }
     pending->next = NULL;

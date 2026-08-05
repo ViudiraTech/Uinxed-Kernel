@@ -90,9 +90,15 @@ int extfs_dir_block_verify(extfs_handle_t *dir_h, uint32_t logical, const void *
     ext4_dir_entry_tail_t *tail = extfs_dir_tail(dir_h, block);
     if (tail) {
         uint32_t checksum = crc32c_update(extfs_dir_checksum_seed(dir_h), block, dir_h->sb->block_size - sizeof(*tail));
-        return checksum == tail->checksum;
+        if (checksum != tail->checksum) {
+            plogk("extfs: drive %u: dir %u block %u checksum mismatch\n", dir_h->sb->device.drive, dir_h->inode_no, logical);
+            return 0;
+        }
+        return 1;
     }
-    return (dir_h->ei.i_flags & EXT4_INDEX_FL) && extfs_dx_checksum_verify(dir_h, logical, block);
+    int valid = (dir_h->ei.i_flags & EXT4_INDEX_FL) && extfs_dx_checksum_verify(dir_h, logical, block);
+    if (!valid) plogk("extfs: drive %u: dir %u block %u failed verification\n", dir_h->sb->device.drive, dir_h->inode_no, logical);
+    return valid;
 }
 
 static void extfs_dir_block_checksum_set(extfs_handle_t *dir_h, void *block)
@@ -230,9 +236,21 @@ static uint32_t extfs_dir_rec_len(uint32_t name_len)
 static int extfs_dirent_valid(extfs_sb_info_t *sb, ext2_dir_entry_t *de, uint32_t offset)
 {
     uint32_t remaining = sb->block_size - offset;
-    if (remaining < 8 || de->rec_len < 8 || (de->rec_len & EXT2_DIR_ROUND) || de->rec_len > remaining) return 0;
-    if (de->name_len > de->rec_len - 8) return 0;
-    return de->inode <= sb->es->s_inodes_count;
+    if (remaining < 8 || de->rec_len < 8 || (de->rec_len & EXT2_DIR_ROUND) || de->rec_len > remaining) {
+        plogk("extfs: drive %u: invalid directory entry at offset %u (inode %u, rec_len %u)\n", sb->device.drive, offset, de->inode,
+              de->rec_len);
+        return 0;
+    }
+    if (de->name_len > de->rec_len - 8) {
+        plogk("extfs: drive %u: invalid directory entry name at offset %u (inode %u, name_len %u)\n", sb->device.drive, offset, de->inode,
+              de->name_len);
+        return 0;
+    }
+    if (de->inode > sb->es->s_inodes_count) {
+        plogk("extfs: drive %u: directory entry %u references out-of-range inode %u\n", sb->device.drive, offset, de->inode);
+        return 0;
+    }
+    return 1;
 }
 
 int extfs_dir_lookup(extfs_handle_t *dir_h, const char *name, uint32_t *ino)

@@ -259,10 +259,16 @@ int ahci_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, void *buffe
         cfis.countl   = chunk;
 
         int slot = ahci_find_slot(port);
-        if (slot < 0) return -EBUSY;
+        if (slot < 0) {
+            plogk("ahci: port %u: no free command slot for read at LBA %llu\n", port_idx, (unsigned long long)lba);
+            return -EBUSY;
+        }
 
         int ret = ahci_issue_cmd(port, slot, (uint8_t *)&cfis, 0, port->dma_buf_phys, bytes);
-        if (ret != 0) return ret;
+        if (ret != 0) {
+            plogk("ahci: port %u: read error at LBA %llu: %d\n", port_idx, (unsigned long long)lba, ret);
+            return ret;
+        }
 
         memcpy(out, port->dma_buf, bytes);
         out += bytes;
@@ -305,10 +311,16 @@ int ahci_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, const void
         cfis.countl   = chunk;
 
         int slot = ahci_find_slot(port);
-        if (slot < 0) return -EBUSY;
+        if (slot < 0) {
+            plogk("ahci: port %u: no free command slot for write at LBA %llu\n", port_idx, (unsigned long long)lba);
+            return -EBUSY;
+        }
 
         int ret = ahci_issue_cmd(port, slot, (uint8_t *)&cfis, 1, port->dma_buf_phys, bytes);
-        if (ret != 0) return ret;
+        if (ret != 0) {
+            plogk("ahci: port %u: write error at LBA %llu: %d\n", port_idx, (unsigned long long)lba, ret);
+            return ret;
+        }
 
         in += bytes;
         lba += chunk;
@@ -331,7 +343,10 @@ int ahci_flush_cache(uint8_t drive)
 
     port = &ahci_ports[ahci_devices[drive].port];
     slot = ahci_find_slot(port);
-    if (slot < 0) return -EBUSY;
+    if (slot < 0) {
+        plogk("ahci: port %u: no free command slot for cache flush\n", ahci_devices[drive].port);
+        return -EBUSY;
+    }
 
     memset(&cfis, 0, sizeof(cfis));
     cfis.fis_type = FIS_TYPE_REG_H2D;
@@ -340,7 +355,9 @@ int ahci_flush_cache(uint8_t drive)
     cfis.command = ATA_CMD_CACHE_FLUSH_EXT;
     cfis.device  = 1 << 6;
 
-    return ahci_issue_cmd(port, slot, (uint8_t *)&cfis, 0, 0, 0);
+    int ret = ahci_issue_cmd(port, slot, (uint8_t *)&cfis, 0, 0, 0);
+    if (ret != 0) plogk("ahci: port %u: cache flush failed: %d\n", ahci_devices[drive].port, ret);
+    return ret;
 }
 
 void init_ahci(void)

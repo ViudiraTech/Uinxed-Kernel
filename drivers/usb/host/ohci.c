@@ -260,18 +260,30 @@ static int ohci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
     uint64_t setup_physical = 0, data_physical = 0;
     void    *setup_dma = ohci_dma_alloc(sizeof(*setup), &setup_physical);
     void    *data_dma  = NULL;
-    if (!setup_dma || setup_physical > UINT32_MAX) goto control_cleanup;
+    if (!setup_dma || setup_physical > UINT32_MAX) {
+        plogk("ohci: control DMA allocation failed on bus %u\n", ctrl->bus_number);
+        goto control_cleanup;
+    }
     memcpy(setup_dma, setup, sizeof(*setup));
     if (length) {
         data_dma = ohci_dma_alloc(length, &data_physical);
-        if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) goto control_cleanup;
+        if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) {
+            plogk("ohci: control data DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
+            goto control_cleanup;
+        }
         if (!input) memcpy(data_dma, buffer, length);
     }
     ed_index = ohci_find_free_ed(ctrl);
-    if (ed_index < 0) goto control_cleanup;
+    if (ed_index < 0) {
+        plogk("ohci: ED pool exhausted on bus %u\n", ctrl->bus_number);
+        goto control_cleanup;
+    }
     for (size_t i = 0; i < td_count; i++) {
         td_indices[i] = ohci_find_free_td(ctrl);
-        if (td_indices[i] < 0) goto control_cleanup;
+        if (td_indices[i] < 0) {
+            plogk("ohci: TD pool exhausted on bus %u\n", ctrl->bus_number);
+            goto control_cleanup;
+        }
     }
 
     size_t data_position   = 1;
@@ -333,12 +345,18 @@ static int ohci_transfer(usb_endpoint_t *endpoint, void *buffer, size_t length, 
     int      ed_index = -1, data_index = -1, dummy_index = -1;
     uint64_t data_physical = 0;
     void    *data_dma      = ohci_dma_alloc(length, &data_physical);
-    if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) goto transfer_cleanup;
+    if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) {
+        plogk("ohci: transfer DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
+        goto transfer_cleanup;
+    }
     if (!input) memcpy(data_dma, buffer, length);
     ed_index    = ohci_find_free_ed(ctrl);
     data_index  = ohci_find_free_td(ctrl);
     dummy_index = ohci_find_free_td(ctrl);
-    if (ed_index < 0 || data_index < 0 || dummy_index < 0) goto transfer_cleanup;
+    if (ed_index < 0 || data_index < 0 || dummy_index < 0) {
+        plogk("ohci: ED/TD pool exhausted on bus %u\n", ctrl->bus_number);
+        goto transfer_cleanup;
+    }
 
     ohci_fill_td(ctrl->tds[data_index].virtual, (input ? OHCI_TD_DP_IN | OHCI_TD_R : OHCI_TD_DP_OUT) | OHCI_TD_TOGGLE_CARRY,
                  (uint32_t)data_physical, length, (uint32_t)ctrl->tds[dummy_index].physical);

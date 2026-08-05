@@ -720,6 +720,7 @@ evdev_client_t *evdev_fop_open(evdev_t *evdev, int *error)
 
     ret = evdev_open_device(evdev);
     if (ret < 0) {
+        plogk("evdev: open of \"%s\" failed: %d\n", evdev->input_dev->name, ret);
         if (error) *error = ret;
         return NULL;
     }
@@ -729,6 +730,7 @@ evdev_client_t *evdev_fop_open(evdev_t *evdev, int *error)
 
     client = malloc(client_size);
     if (!client) {
+        plogk("evdev: failed to allocate client for \"%s\" (%u bytes)\n", evdev->input_dev->name, client_size);
         if (error) *error = -ENOMEM;
         if (evdev_close_device(evdev)) evdev_free(evdev);
         return NULL;
@@ -740,6 +742,7 @@ evdev_client_t *evdev_fop_open(evdev_t *evdev, int *error)
     client->clk_type    = CLOCK_REALTIME;
     client->revoked     = false;
     if (!evdev_queue_init(&client->queue, client->buffer, bufsize)) {
+        plogk("evdev: queue init failed for \"%s\" (size %u)\n", evdev->input_dev->name, bufsize);
         free(client);
         if (error) *error = -EINVAL;
         if (evdev_close_device(evdev)) evdev_free(evdev);

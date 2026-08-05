@@ -53,14 +53,21 @@ static uint64_t simplefs_block_offset(const simplefs_handle_t *fs, uint32_t bloc
 }
 
 static int simplefs_disk_read_bytes(const simplefs_handle_t *fs, uint64_t offset, void *buffer, size_t size)
-
 {
-    return blockdev_read_bytes(&fs->device, offset, buffer, size);
+    int status = blockdev_read_bytes(&fs->device, offset, buffer, size);
+    if (status != EOK)
+        plogk("simplefs: drive %u: block read failed at byte %llu (size %u): %d\n", fs->device.drive, (unsigned long long)offset, (unsigned)size,
+              status);
+    return status;
 }
 
 static int simplefs_disk_write_bytes(const simplefs_handle_t *fs, uint64_t offset, const void *buffer, size_t size)
 {
-    return blockdev_write_bytes(&fs->device, offset, buffer, size);
+    int status = blockdev_write_bytes(&fs->device, offset, buffer, size);
+    if (status != EOK)
+        plogk("simplefs: drive %u: block write failed at byte %llu (size %u): %d\n", fs->device.drive, (unsigned long long)offset,
+              (unsigned)size, status);
+    return status;
 }
 
 static int simplefs_read_inode(const simplefs_handle_t *fs, uint32_t inode_no, simplefs_inode_disk_t *inode)

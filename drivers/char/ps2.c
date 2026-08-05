@@ -121,6 +121,9 @@ INTERRUPT_BEGIN static void ps2_irq(interrupt_frame_t *frame)
 
     (void)frame;
     status = ps2_read_status();
+    if (status & (0x40 | 0x80)) {
+        plogk("ps/2: %s receive error (status=0x%02x)\n", (status & PS2_STATUS_AUX_DATA) ? "mouse" : "keyboard", status);
+    }
     if (status & PS2_STATUS_OUTPUT_FULL) {
         data = inb(PS2_DATA_PORT);
         if (status & PS2_STATUS_AUX_DATA)

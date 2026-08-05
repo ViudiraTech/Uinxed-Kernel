@@ -9,6 +9,7 @@
  */
 
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <net/endian.h>
@@ -293,9 +294,13 @@ static int tcp_insert_locked(tcp_endpoint_t *endpoint)
 static tcp_endpoint_t *tcp_alloc_locked(void)
 {
     tcp_endpoint_t *endpoint = calloc(1, sizeof(*endpoint));
-    if (!endpoint) return NULL;
+    if (!endpoint) {
+        plogk("tcp: PCB alloc failed.\n");
+        return NULL;
+    }
     endpoint->rx_data = malloc(TCP_RX_BUFFER_MAX);
     if (!endpoint->rx_data) {
+        plogk("tcp: RX buffer alloc failed (%u bytes).\n", (unsigned)TCP_RX_BUFFER_MAX);
         free(endpoint);
         return NULL;
     }
@@ -312,6 +317,7 @@ static tcp_endpoint_t *tcp_alloc_locked(void)
     endpoint->data_retries       = TCP_DATA_RETRIES_DEFAULT;
     wait_queue_init(&endpoint->wait);
     if (tcp_insert_locked(endpoint)) {
+        plogk("tcp: PCB table full.\n");
         free(endpoint->rx_data);
         free(endpoint);
         return NULL;
@@ -547,6 +553,8 @@ static int tcp_emit(tcp_endpoint_t *endpoint, uint32_t sequence, uint32_t acknow
     if (status) return status;
     net_pbuf_t *packet = net_pbuf_alloc(header_length + length, NET_PBUF_HEADROOM);
     if (!packet) {
+        plogk("tcp: segment alloc failed (local=%u remote=%u len=%lu).\n", (unsigned)endpoint->local_port, (unsigned)endpoint->remote_port,
+              (unsigned long)(header_length + length));
         netdev_put(device);
         return -ENOMEM;
     }
@@ -575,6 +583,8 @@ static int tcp_emit(tcp_endpoint_t *endpoint, uint32_t sequence, uint32_t acknow
     if (track && sequence_length) {
         record = malloc(sizeof(*record) + length);
         if (!record) {
+            plogk("tcp: TX record alloc failed (local=%u remote=%u len=%lu).\n", (unsigned)endpoint->local_port, (unsigned)endpoint->remote_port,
+                  (unsigned long)length);
             net_pbuf_free(packet);
             netdev_put(device);
             return -ENOMEM;
@@ -966,7 +976,11 @@ static int tcp_queue_ooo(tcp_endpoint_t *endpoint, uint32_t sequence, const uint
     }
     if (*position && seq_after(sequence + (uint32_t)length + fin, (*position)->sequence)) return 0;
     tcp_ooo_record_t *record = malloc(sizeof(*record) + length);
-    if (!record) return -ENOMEM;
+    if (!record) {
+        plogk("tcp: OOO record alloc failed (local=%u remote=%u len=%lu).\n", (unsigned)endpoint->local_port, (unsigned)endpoint->remote_port,
+              (unsigned long)length);
+        return -ENOMEM;
+    }
     record->next     = *position;
     record->sequence = sequence;
     record->length   = (uint16_t)length;
@@ -1063,7 +1077,12 @@ static int tcp_passive_open(tcp_endpoint_t *listener, const ipv4_info_t *ip, uin
         if (tcp_table[i] && tcp_table[i]->parent == listener) pending++;
     if (pending >= listener->backlog) return -ENOBUFS;
     tcp_endpoint_t *child = tcp_alloc_locked();
-    if (!child) return -ENOBUFS;
+    if (!child) {
+        plogk("tcp: passive open alloc failed (local port=%u peer=%u.%u.%u.%u:%u).\n", (unsigned)listener->local_port,
+              (unsigned)(ip->source >> 24) & 0xff, (unsigned)(ip->source >> 16) & 0xff, (unsigned)(ip->source >> 8) & 0xff,
+              (unsigned)ip->source & 0xff, (unsigned)source_port);
+        return -ENOBUFS;
+    }
     child->bound              = 1;
     child->family             = listener->family;
     child->native6            = 0;
@@ -1104,7 +1123,10 @@ static int tcp_passive_open6(tcp_endpoint_t *listener, const ipv6_info_t *ip, ui
         if (tcp_table[i] && tcp_table[i]->parent == listener) pending++;
     if (pending >= listener->backlog) return -ENOBUFS;
     tcp_endpoint_t *child = tcp_alloc_locked();
-    if (!child) return -ENOBUFS;
+    if (!child) {
+        plogk("tcp: passive open6 alloc failed (local port=%u peer=%u).\n", (unsigned)listener->local_port, (unsigned)source_port);
+        return -ENOBUFS;
+    }
     child->bound           = 1;
     child->family          = AF_INET6;
     child->native6         = 1;
@@ -1251,6 +1273,8 @@ int tcp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
         }
     } else if (endpoint->state != TCP_ESTABLISHED && endpoint->state != TCP_FIN_WAIT_1 && endpoint->state != TCP_FIN_WAIT_2
                && endpoint->state != TCP_CLOSE_WAIT && endpoint->state != TCP_CLOSING && endpoint->state != TCP_LAST_ACK) {
+        plogk("tcp: segment on closed connection (local=%u remote=%u:%u).\n", (unsigned)endpoint->local_port, (unsigned)endpoint->remote_port,
+              (unsigned)source_port);
         spin_unlock(&endpoint->lock);
         net_pbuf_free(packet);
         return -ENOTCONN;
@@ -1505,6 +1529,8 @@ int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
         }
     } else if (endpoint->state != TCP_ESTABLISHED && endpoint->state != TCP_FIN_WAIT_1 && endpoint->state != TCP_FIN_WAIT_2
                && endpoint->state != TCP_CLOSE_WAIT && endpoint->state != TCP_CLOSING && endpoint->state != TCP_LAST_ACK) {
+        plogk("tcp: segment on closed connection (local=%u remote=%u:%u).\n", (unsigned)endpoint->local_port, (unsigned)endpoint->remote_port,
+              (unsigned)source_port);
         spin_unlock(&endpoint->lock);
         net_pbuf_free(packet);
         return -ENOTCONN;
@@ -1597,6 +1623,8 @@ void tcp_timer(uint64_t now_ticks)
             uint8_t retry_limit
                 = (endpoint->state == TCP_SYN_SENT || endpoint->state == TCP_SYN_RECEIVED) ? endpoint->syn_retries : endpoint->data_retries;
             if (record->retries >= retry_limit) {
+                plogk("tcp: retransmission timed out (local=%u remote=%u state=%u).\n", (unsigned)endpoint->local_port,
+                      (unsigned)endpoint->remote_port, (unsigned)endpoint->state);
                 tcp_fail_locked(endpoint, ETIMEDOUT);
                 failed = 1;
             } else {
@@ -1617,6 +1645,7 @@ void tcp_timer(uint64_t now_ticks)
             }
         } else if (endpoint->keepalive_enabled && endpoint->state == TCP_ESTABLISHED && !record && now_ticks >= endpoint->keepalive_deadline) {
             if (endpoint->keepalive_probe_count >= endpoint->keepalive_count) {
+                plogk("tcp: keepalive timed out (local=%u remote=%u).\n", (unsigned)endpoint->local_port, (unsigned)endpoint->remote_port);
                 tcp_fail_locked(endpoint, ETIMEDOUT);
                 failed = 1;
             } else {

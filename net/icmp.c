@@ -9,6 +9,7 @@
  */
 
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <net/endian.h>
@@ -117,6 +118,8 @@ int icmp_send(icmp_endpoint_t *endpoint, const void *data, size_t length, uint32
     if (status) return status;
     net_pbuf_t *packet = net_pbuf_from(data, length, NET_PBUF_HEADROOM);
     if (!packet) {
+        plogk("icmp: send alloc failed (dest=%u.%u.%u.%u len=%lu).\n", (unsigned)(destination >> 24) & 0xff,
+              (unsigned)(destination >> 16) & 0xff, (unsigned)(destination >> 8) & 0xff, (unsigned)destination & 0xff, (unsigned long)length);
         netdev_put(device);
         return -ENOMEM;
     }
@@ -185,6 +188,8 @@ static void icmp_deliver(const ipv4_info_t *ip, const net_pbuf_t *packet)
         }
         icmp_packet_t *queued = malloc(sizeof(*queued) + length);
         if (!queued) {
+            plogk("icmp: rx queue alloc failed (src=%u.%u.%u.%u len=%lu).\n", (unsigned)(ip->source >> 24) & 0xff,
+                  (unsigned)(ip->source >> 16) & 0xff, (unsigned)(ip->source >> 8) & 0xff, (unsigned)ip->source & 0xff, (unsigned long)length);
             spin_unlock(&endpoint->lock);
             continue;
         }
@@ -262,7 +267,12 @@ int icmp_error_mtu(net_device_t *device, uint32_t destination, uint8_t type, uin
     size_t quote_length = header_length + ICMP_QUOTE_LEN;
     if (quote_length > original_length) quote_length = original_length;
     net_pbuf_t *packet = net_pbuf_alloc(ICMP_HEADER_LEN + quote_length, NET_PBUF_HEADROOM);
-    if (!packet) return -ENOMEM;
+    if (!packet) {
+        plogk("icmp: error message alloc failed (type=%u code=%u dest=%u.%u.%u.%u).\n", (unsigned)type, (unsigned)code,
+              (unsigned)(destination >> 24) & 0xff, (unsigned)(destination >> 16) & 0xff, (unsigned)(destination >> 8) & 0xff,
+              (unsigned)destination & 0xff);
+        return -ENOMEM;
+    }
     memset(packet->data, 0, ICMP_HEADER_LEN);
     packet->data[0] = type;
     packet->data[1] = code;

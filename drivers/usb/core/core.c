@@ -327,6 +327,7 @@ int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t le
 void usb_disconnect_device(usb_device_t *device)
 {
     if (!device || !device->connected) return;
+    plogk("usb-core: device %s (addr %u) disconnected\n", device->path, device->address);
     device->connected = false;
     for (size_t i = 0; i < device->interface_count; i++) {
         usb_interface_t *interface = &device->interfaces[i];

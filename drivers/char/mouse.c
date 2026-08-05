@@ -80,9 +80,14 @@ static void ps2_mouse_report(const struct ps2_mouse_packet *packet)
 void ps2_mouse_handle_byte(uint8_t byte)
 {
     struct ps2_mouse_packet packet;
+    int                     result;
 
     if (!ps2_mouse_ready) return;
-    if (ps2_mouse_stream_byte(&ps2_mouse_stream, byte, &packet) == 1) ps2_mouse_report(&packet);
+    result = ps2_mouse_stream_byte(&ps2_mouse_stream, byte, &packet);
+    if (result == 1)
+        ps2_mouse_report(&packet);
+    else if (result < 0)
+        plogk("ps/2: mouse packet decode error: %d\n", result);
 }
 
 bool ps2_mouse_available(void)

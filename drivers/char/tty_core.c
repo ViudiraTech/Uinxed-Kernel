@@ -10,6 +10,7 @@
 
 #include <drivers/char/tty_core.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <proc/process.h>
 #include <proc/sched.h>
@@ -494,7 +495,10 @@ int64_t tty_core_write(tty_core_t *tty, const void *buffer, size_t size, uint64_
     const uint8_t *input = buffer;
     size_t         done  = 0;
 
-    if (!tty->ops.emit) return -EIO;
+    if (!tty->ops.emit) {
+        plogk("tty: write to a tty without an output backend\n");
+        return -EIO;
+    }
     if (!size) return 0;
     spin_lock(&tty->lock);
     bool tostop = (tty->termios.c_lflag & TOSTOP) != 0;

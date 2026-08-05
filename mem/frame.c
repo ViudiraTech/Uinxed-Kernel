@@ -130,6 +130,7 @@ retry:
         return 0;
     }
     if (buddy_trim_allocation(&frame_allocator.buddy, frame_index, order, count)) {
+        plogk("frame: trim failed for order %u block at 0x%016llx (keep %llu frames)\n", order, frame_index * PAGE_4K_SIZE, (uint64_t)count);
         (void)buddy_free(&frame_allocator.buddy, frame_index, order);
         spin_unlock(&frame_allocator.lock);
         return 0;
@@ -194,6 +195,8 @@ int frame_release_range(uint64_t addr, size_t count)
     for (size_t i = 0; i < count; i++) {
         buddy_page_t *page = &frame_allocator.buddy.pages[frame_index + i];
         if (page->state != BUDDY_PAGE_ALLOC_HEAD || page->order != 0 || !page->tag) {
+            plogk("frame: invalid release at 0x%016llx (state %u, order %u, refs %u)\n", addr + i * PAGE_4K_SIZE, page->state, page->order,
+                  page->tag);
             spin_unlock(&frame_allocator.lock);
             return -1;
         }
@@ -204,6 +207,7 @@ int frame_release_range(uint64_t addr, size_t count)
         page->tag--;
         if (!page->tag) {
             if (buddy_free(&frame_allocator.buddy, index, 0)) {
+                plogk("frame: buddy release failed for 0x%016llx\n", addr + i * PAGE_4K_SIZE);
                 spin_unlock(&frame_allocator.lock);
                 return -1;
             }

@@ -8,6 +8,7 @@
  *
  */
 
+#include <kernel/printk.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
@@ -66,6 +67,11 @@ uint8_t page_walk_execute(page_walk_state_t *state)
     /* L4 lookup */
     uint64_t l4_entry;
     if (!page_table_lookup(state->l4_table, state->l4_index, &state->l3_table, &l4_entry)) {
+        state->is_valid = 0;
+        return 0;
+    }
+    if (is_huge_page(&state->l4_table->entries[state->l4_index])) {
+        plogk("page_walk: illegal L4 huge-page entry for virtual address 0x%016llx (page table corruption)\n", (uint64_t)state->virtual_addr);
         state->is_valid = 0;
         return 0;
     }

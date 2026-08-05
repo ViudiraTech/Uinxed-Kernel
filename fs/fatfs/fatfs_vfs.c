@@ -491,10 +491,16 @@ static size_t fatfs_vfs_read(void *file, void *addr, size_t offset, size_t size)
     }
 
     res = f_lseek(&handle->file, offset);
-    if (res != FR_OK) return 0;
+    if (res != FR_OK) {
+        plogk("fatfs: %s: seek failed: %d\n", handle->path, res);
+        return 0;
+    }
 
     res = f_read(&handle->file, addr, size, &read_count);
-    if (res != FR_OK) return 0;
+    if (res != FR_OK) {
+        plogk("fatfs: %s: read failed: %d\n", handle->path, res);
+        return 0;
+    }
     return read_count;
 }
 
@@ -508,11 +514,20 @@ static size_t fatfs_vfs_write(void *file, const void *addr, size_t offset, size_
     if (fatfs_prepare_file_handle(handle, FA_WRITE | FA_OPEN_EXISTING) != EOK) return 0;
 
     res = f_lseek(&handle->file, offset);
-    if (res != FR_OK) return 0;
+    if (res != FR_OK) {
+        plogk("fatfs: %s: seek failed: %d\n", handle->path, res);
+        return 0;
+    }
 
     res = f_write(&handle->file, addr, size, &written);
-    if (res != FR_OK) return 0;
-    if (f_sync(&handle->file) != FR_OK) return 0;
+    if (res != FR_OK) {
+        if (res != FR_DENIED) plogk("fatfs: %s: write failed: %d\n", handle->path, res);
+        return 0;
+    }
+    if (f_sync(&handle->file) != FR_OK) {
+        plogk("fatfs: %s: sync failed\n", handle->path);
+        return 0;
+    }
 
     if (handle->info.fsize < offset + written) handle->info.fsize = offset + written;
     handle->open_mode = FA_WRITE | FA_OPEN_EXISTING;

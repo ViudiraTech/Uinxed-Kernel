@@ -240,6 +240,8 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
         cpu_relax();
         compiler_barrier();
         if (++timeout > 10000000) {
+            struct virtio_gpu_ctrl_hdr *hdr = (struct virtio_gpu_ctrl_hdr *)cmd;
+            DRM_ERROR("Timed out waiting for cursor command 0x%04x consumption\n", hdr ? hdr->type : 0);
             ret = -EIO;
             goto out;
         }

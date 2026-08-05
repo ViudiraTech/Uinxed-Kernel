@@ -467,11 +467,13 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint64_t lba, uint8_t n
         /* PIO Write */
         uint16_t *word_ = edi;
         for (i = 0; i < numsects; i++) {
-            ide_polling(channel, 0);
+            err = ide_polling(channel, 0);
+            if (err != 0) plogk("ide: PIO write poll error %u on drive %u LBA %llu\n", err, drive, (unsigned long long)lba);
             for (uint32_t h = 0; h < words; h++) outw(bus, word_[i * words + h]);
         }
         ide_write(channel, ATA_REG_COMMAND, (char[]) {ATA_CMD_CACHE_FLUSH, ATA_CMD_CACHE_FLUSH, ATA_CMD_CACHE_FLUSH_EXT}[lba_mode]);
-        ide_polling(channel, 0);
+        err = ide_polling(channel, 0);
+        if (err != 0) plogk("ide: PIO write flush poll error %u on drive %u LBA %llu\n", err, drive, (unsigned long long)lba);
     }
     return 0;
 }

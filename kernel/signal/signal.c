@@ -63,7 +63,10 @@ static void sigqueue_free(sigqueue_t *q)
 static int sigqueue_push(signal_state_t *state, const siginfo_t *info)
 {
     sigqueue_t *q = sigqueue_alloc();
-    if (!q) return -ENOMEM;
+    if (!q) {
+        plogk("signal: sigqueue allocation failed (sig %d)\n", info->si_signo);
+        return -ENOMEM;
+    }
 
     memcpy(&q->info, info, sizeof(siginfo_t));
     q->next = NULL;
@@ -486,7 +489,9 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
     }
 
     /* Set up the signal frame on the user stack (saves old_mask for sigreturn) */
-    signal_setup_frame(frame, sig, sa, info, old_mask);
+    if (signal_setup_frame(frame, sig, sa, info, old_mask) < 0) {
+        plogk("signal: failed to set up frame for sig %d pid %llu\n", sig, proc->task ? proc->task->pid : 0);
+    }
     state->restore_mask = false;
 
     /* Clear pending bit for this signal */

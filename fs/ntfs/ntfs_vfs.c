@@ -304,7 +304,10 @@ static int ntfs_record_unpack(ntfs_mount_t *mnt, u8 *record, u32 record_size)
 
     for (u16 i = 1; i < usa_count; i++) {
         u32 trailer = (u32)i * mnt->sector_size - sizeof(u16);
-        if (le16(record + trailer) != sequence) return -EIO;
+        if (le16(record + trailer) != sequence) {
+            plogk("ntfs: drive %u: record checksum mismatch (size %u)\n", mnt->dev.drive, record_size);
+            return -EIO;
+        }
     }
     for (u16 i = 1; i < usa_count; i++) {
         u32 trailer = (u32)i * mnt->sector_size - sizeof(u16);
@@ -1199,6 +1202,7 @@ static int mft_bootstrap_runlist(ntfs_mount_t *mnt)
     }
 
 out:
+    if (status != EOK && status != -ENOMEM) plogk("ntfs: drive %u: MFT data attribute parse failed\n", mnt->dev.drive);
     free(record);
     return status;
 }
@@ -1217,7 +1221,11 @@ static int mft_read(ntfs_mount_t *mnt, u64 mft_no, u8 *buf)
             return -EIO;
     } else {
         u64 byte_offset = ((u64)mnt->mft_lcn << mnt->cluster_bits) + logical_offset;
-        if (dev_read(mnt, byte_offset, buf, mnt->mft_size) < 0) return -EIO;
+        if (dev_read(mnt, byte_offset, buf, mnt->mft_size) < 0) {
+            plogk("ntfs: drive %u: failed to read MFT record %llu at byte %llu\n", mnt->dev.drive, (unsigned long long)mft_no,
+                  (unsigned long long)byte_offset);
+            return -EIO;
+        }
     }
     return ntfs_record_unpack(mnt, buf, mnt->mft_size);
 }
@@ -1254,6 +1262,7 @@ static int mft_write(ntfs_mount_t *mnt, u64 mft_no, const u8 *buf)
                 status = -EIO;
         }
     }
+    if (status != EOK) plogk("ntfs: drive %u: MFT record %llu write failed: %d\n", mnt->dev.drive, (unsigned long long)mft_no, status);
     free(record);
     return status;
 }
@@ -1605,7 +1614,11 @@ static int read_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, u8
 {
     s64 v[256], l[256], r[256];
     int n = runlist_parse(rl, rl_len, v, l, r, 256);
-    if (n <= 0 || !size || offset >= max_size) return 0;
+    if (n <= 0) {
+        plogk("ntfs: drive %u: corrupt runlist in read path\n", mnt->dev.drive);
+        return 0;
+    }
+    if (!size || offset >= max_size) return 0;
 
     size_t done = 0;
     while (done < size && offset + done < max_size) {
@@ -1643,7 +1656,11 @@ static int read_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, u8
             s64 max_cl  = (s64)mnt->cluster_size - cl_off;
             if (to_read > max_cl) to_read = max_cl;
             s64 byte_off = (found_lcn << mnt->cluster_bits) + cl_off;
-            if (dev_read(mnt, (u64)byte_off, buf + done, (size_t)to_read) < 0) return done > 0 ? (int)done : -EIO;
+            if (dev_read(mnt, (u64)byte_off, buf + done, (size_t)to_read) < 0) {
+                plogk("ntfs: drive %u: block read failed at byte %llu (%llu bytes)\n", mnt->dev.drive, (unsigned long long)byte_off,
+                      (unsigned long long)(size - done));
+                return done > 0 ? (int)done : -EIO;
+            }
             done += (size_t)to_read;
         }
     }
@@ -1658,7 +1675,10 @@ static s64 write_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, c
 
     if (!mnt || !buf || !size || offset > max_size || size > max_size - offset) return -EINVAL;
     n = runlist_parse(rl, rl_len, v, l, r, 256);
-    if (n <= 0) return -EIO;
+    if (n <= 0) {
+        plogk("ntfs: drive %u: corrupt runlist in write path\n", mnt->dev.drive);
+        return -EIO;
+    }
 
     while (done < size) {
         u64 position = offset + done;
@@ -1675,14 +1695,23 @@ static s64 write_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, c
                 break;
             }
         }
-        if (run_lcn < 0 || run_lcn >= mnt->nr_clusters) return done ? (s64)done : -EIO;
+        if (run_lcn < 0 || run_lcn >= mnt->nr_clusters) {
+            plogk("ntfs: drive %u: write target LCN %lld out of range (nr_clusters=%llu)\n", mnt->dev.drive, (long long)run_lcn,
+                  (unsigned long long)mnt->nr_clusters);
+            return done ? (s64)done : -EIO;
+        }
 
         size_t cluster_offset = (size_t)(position & mnt->cluster_mask);
         size_t chunk          = (size_t)(run_end - (s64)position);
         if (chunk > size - done) chunk = size - done;
-        if ((u64)run_lcn + (cluster_offset + chunk + mnt->cluster_size - 1) / mnt->cluster_size > (u64)mnt->nr_clusters)
+        if ((u64)run_lcn + (cluster_offset + chunk + mnt->cluster_size - 1) / mnt->cluster_size > (u64)mnt->nr_clusters) {
+            plogk("ntfs: drive %u: write overruns volume end at LCN %lld\n", mnt->dev.drive, (long long)run_lcn);
             return done ? (s64)done : -EIO;
-        if (dev_write(mnt, ((u64)run_lcn << mnt->cluster_bits) + cluster_offset, buf + done, chunk) < 0) return done ? (s64)done : -EIO;
+        }
+        if (dev_write(mnt, ((u64)run_lcn << mnt->cluster_bits) + cluster_offset, buf + done, chunk) < 0) {
+            plogk("ntfs: drive %u: block write failed at LCN %lld\n", mnt->dev.drive, (long long)run_lcn);
+            return done ? (s64)done : -EIO;
+        }
         done += chunk;
     }
     return (s64)done;

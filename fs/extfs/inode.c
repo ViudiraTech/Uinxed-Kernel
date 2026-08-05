@@ -459,7 +459,11 @@ int extfs_release_xattr_block(extfs_handle_t *h)
         memcpy(&magic, buffer, sizeof(magic));
         memcpy(&refcount, buffer + 4, sizeof(refcount));
         memcpy(&blocks, buffer + 8, sizeof(blocks));
-        if (magic != 0xEA020000U || !refcount || blocks != 1) status = -EIO;
+        if (magic != 0xEA020000U || !refcount || blocks != 1) {
+            plogk("extfs: drive %u: inode %u xattr block %llu has invalid header (magic 0x%x)\n", sb->device.drive, h->inode_no,
+                  (unsigned long long)block, magic);
+            status = -EIO;
+        }
     }
     if (status == EOK && (sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM)) {
         uint32_t stored;
@@ -469,7 +473,10 @@ int extfs_release_xattr_block(extfs_handle_t *h)
         uint32_t zero     = 0;
         checksum          = crc32c_update(checksum, &zero, sizeof(zero));
         checksum          = crc32c_update(checksum, buffer + 20, sb->block_size - 20);
-        if (stored != checksum) status = -EIO;
+        if (stored != checksum) {
+            plogk("extfs: drive %u: inode %u xattr block %llu checksum mismatch\n", sb->device.drive, h->inode_no, (unsigned long long)block);
+            status = -EIO;
+        }
     }
     if (status == EOK && refcount > 1) {
         refcount--;

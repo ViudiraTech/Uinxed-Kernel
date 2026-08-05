@@ -115,8 +115,6 @@ int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv
 
     if (file_priv->master) { return -EINVAL; }
 
-    plogk("drm: SET_MASTER called\n");
-
     master = malloc(sizeof(*master));
     if (!master) { return -ENOMEM; }
     memset(master, 0, sizeof(*master));

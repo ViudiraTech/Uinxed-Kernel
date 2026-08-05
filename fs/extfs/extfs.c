@@ -97,9 +97,21 @@ static int extfs_touch_inode(extfs_sb_info_t *sb, uint32_t ino, int modify)
 static int extfs_valid_dirent(extfs_sb_info_t *sb, ext2_dir_entry_t *de, uint32_t offset)
 {
     uint32_t remaining = sb->block_size - offset;
-    if (remaining < 8 || de->rec_len < 8 || (de->rec_len & EXT2_DIR_ROUND) || de->rec_len > remaining) return 0;
-    if (de->name_len > de->rec_len - 8) return 0;
-    return de->inode <= sb->es->s_inodes_count;
+    if (remaining < 8 || de->rec_len < 8 || (de->rec_len & EXT2_DIR_ROUND) || de->rec_len > remaining) {
+        plogk("extfs: drive %u: invalid directory entry at offset %u (inode %u, rec_len %u)\n", sb->device.drive, offset, de->inode,
+              de->rec_len);
+        return 0;
+    }
+    if (de->name_len > de->rec_len - 8) {
+        plogk("extfs: drive %u: invalid directory entry name at offset %u (inode %u, name_len %u)\n", sb->device.drive, offset, de->inode,
+              de->name_len);
+        return 0;
+    }
+    if (de->inode > sb->es->s_inodes_count) {
+        plogk("extfs: drive %u: directory entry %u references out-of-range inode %u\n", sb->device.drive, offset, de->inode);
+        return 0;
+    }
+    return 1;
 }
 
 static int extfs_load_directory(vfs_node_t node)

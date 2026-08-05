@@ -101,7 +101,8 @@
 #define SD_CTL_DMA_START    (1 << 1)
 #define SD_INT_MASK         (1 << 2)
 #define SD_STS_DMA_COMPLETE (1 << 2)
-#define SD_STS_FIFO_READY   (1 << 3)
+#define SD_STS_FIFO_ERROR   (1 << 3)
+#define SD_STS_DESC_ERROR   (1 << 4)
 
 /* BDL descriptor */
 struct hda_bdle {
@@ -429,6 +430,7 @@ static int hda_get_resp_rirb(int addr, uint32_t *res)
             return 0;
         }
     }
+    plogk("hda: RIRB response timeout addr=%d (cmd_count=%d)\n", addr, hda_ctrl.cmd_count[addr]);
     return -EIO;
 }
 
@@ -887,6 +889,10 @@ static int hda_audio_drain(audio_card_t *card)
             if (lpib >= hda_ctrl.streams[hda_ctrl.playback_stream].buf_size) break;
             usleep(10);
         }
+        if (timeout < 0) {
+            plogk("hda: playback stream %d drain timed out (LPIB=0x%x)\n", hda_ctrl.playback_stream,
+                  sd_read32(hda_ctrl.playback_stream, SD_LPIB));
+        }
         hda_stop_stream(hda_ctrl.playback_stream);
     }
     spin_unlock(&hda_ctrl.lock);
@@ -1007,9 +1013,14 @@ static int hda_audio_set_params(audio_card_t *card, const audio_pcm_format_t *fm
     if (ps >= 0) {
         int err = hda_setup_stream(ps, fmt_val, buffer_bytes, period_bytes, 0);
         if (err) {
+            plogk("hda: playback stream %d setup failed: %d\n", ps, err);
             spin_unlock(&hda_ctrl.lock);
             return err;
         }
+    } else {
+        plogk("hda: no playback stream available\n");
+        spin_unlock(&hda_ctrl.lock);
+        return ps;
     }
 
     /* Set up capture stream (if ADC available) */
@@ -1028,11 +1039,14 @@ static int hda_audio_set_params(audio_card_t *card, const audio_pcm_format_t *fm
 
     if (has_adc) {
         int cs = hda_allocate_stream(1);
-        if (cs >= 0) { hda_setup_stream(cs, fmt_val, buffer_bytes, period_bytes, 1); }
+        if (cs >= 0) {
+            int err = hda_setup_stream(cs, fmt_val, buffer_bytes, period_bytes, 1);
+            if (err) plogk("hda: capture stream %d setup failed: %d\n", cs, err);
+        } else {
+            plogk("hda: no capture stream available\n");
+        }
     }
 
-    plogk("hda: Params set %dHz %dbit %dch buf=%zu per=%zu fmt=0x%04x\n", fmt->sample_rate, fmt->bits, fmt->channels, buffer_bytes, period_bytes,
-          fmt_val);
     spin_unlock(&hda_ctrl.lock);
     return EOK;
 }
@@ -1167,6 +1181,15 @@ static void hda_interrupt_handler(interrupt_frame_t *frame)
 
             /* Clear status bit */
             sd_write8(s, SD_STS, SD_STS_DMA_COMPLETE);
+        }
+
+        if (sts & SD_STS_FIFO_ERROR) {
+            plogk("hda: stream %d FIFO error (sts=0x%02x)\n", s, sts);
+            sd_write8(s, SD_STS, SD_STS_FIFO_ERROR);
+        }
+        if (sts & SD_STS_DESC_ERROR) {
+            plogk("hda: stream %d descriptor error (sts=0x%02x)\n", s, sts);
+            sd_write8(s, SD_STS, SD_STS_DESC_ERROR);
         }
     }
 }

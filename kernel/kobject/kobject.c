@@ -232,6 +232,8 @@ err_kset:
         kobj->state_in_kset = 0;
     }
 err_refs:
+    plogk("kobject: add of \"%s\" (parent \"%s\") failed: %d\n", kobj->name ? kobj->name : "(unnamed)",
+          parent && parent->name ? parent->name : "(none)", ret);
     kobj->parent = NULL;
     kset_put(held_kset);
     kobject_put(held_parent);

@@ -179,9 +179,15 @@ int ahci_satapi_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, void
         cdb[9] = chunk & 0xFF;
 
         int slot = satapi_find_slot(port);
-        if (slot < 0) return -EBUSY;
+        if (slot < 0) {
+            plogk("ahci-satapi: drive %u: no free command slot for read at LBA %u\n", drive, lba);
+            return -EBUSY;
+        }
         int ret = satapi_issue_packet(port, slot, cdb, 12, SATAPI_PROT_PIO, 0, port->dma_buf_phys, total_bytes);
-        if (ret != 0) return ret;
+        if (ret != 0) {
+            plogk("ahci-satapi: drive %u: read error at LBA %u: %d\n", drive, lba, ret);
+            return ret;
+        }
         memcpy(out, port->dma_buf, total_bytes);
         out += total_bytes;
         lba += chunk;

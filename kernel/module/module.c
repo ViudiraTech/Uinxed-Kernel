@@ -1284,7 +1284,6 @@ int module_load(const void *image, size_t size, const char *params, unsigned int
         goto out_destroy;
     }
     operation_end();
-    plogk("module: loaded \"%s\"\n", module->name);
     return EOK;
 
 out_destroy:

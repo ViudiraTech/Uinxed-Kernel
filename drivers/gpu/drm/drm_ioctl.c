@@ -283,7 +283,10 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
     unsigned int                 size;
     int                          ret;
 
-    if (!dev || !dev->driver || !file_priv) return -EINVAL;
+    if (!dev || !dev->driver || !file_priv) {
+        plogk("drm: ioctl 0x%x on invalid device/file state\n", cmd);
+        return -EINVAL;
+    }
 
     /* 1. Validate DRM magic type byte. */
     if (_IOC_TYPE(cmd) != DRM_IOCTL_BASE) return -ENOTTY;
@@ -299,7 +302,10 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
     /* 4. Allocate kernel buffer and copy from user if needed. */
     if (size > 0) {
         kdata = malloc(size);
-        if (!kdata) return -ENOMEM;
+        if (!kdata) {
+            plogk("drm: ioctl 0x%x buffer allocation failed (%u bytes)\n", cmd, size);
+            return -ENOMEM;
+        }
         if (dir & _IOC_WRITE) {
             /* copy_from_user: kernel and user share the same address
              * space in this freestanding kernel, but we still make a

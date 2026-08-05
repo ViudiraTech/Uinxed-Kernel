@@ -214,7 +214,10 @@ static void dispatch_gpes(void)
 {
     for (int i = 0; i < gpe_handler_count; i++) {
         uint8_t block, bit;
-        if (gpe_number_to_bit(gpe_handlers[i].gpe_number, &block, &bit)) continue;
+        if (gpe_number_to_bit(gpe_handlers[i].gpe_number, &block, &bit)) {
+            plogk("acpi: GPE %u no longer maps to a GPE block; handler dropped\n", gpe_handlers[i].gpe_number);
+            continue;
+        }
         uint8_t sts = acpi_gpe_status(block);
         if (sts & (1 << bit)) {
             acpi_gpe_status_clear(block, bit);

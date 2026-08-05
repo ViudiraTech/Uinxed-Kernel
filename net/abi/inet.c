@@ -290,7 +290,10 @@ static uint32_t inet_socket_address_size(const inet_core_socket_t *sock)
 static int core_create(int family, int type, int protocol, uint32_t flags, void **context)
 {
     inet_core_socket_t *sock = calloc(1, sizeof(*sock));
-    if (!sock) return -ENOMEM;
+    if (!sock) {
+        plogk("inet: socket alloc failed.\n");
+        return -ENOMEM;
+    }
     sock->family              = family;
     sock->type                = type;
     sock->protocol            = protocol;
@@ -310,12 +313,14 @@ static int core_create(int family, int type, int protocol, uint32_t flags, void 
         sock->endpoint.icmp = icmp_open();
     if ((type == SOCK_DGRAM && !sock->endpoint.udp) || (type == SOCK_STREAM && !sock->endpoint.tcp)
         || (type == SOCK_RAW && !sock->endpoint.icmp)) {
+        plogk("inet: endpoint open failed (family=%u type=%u).\n", (unsigned)family, (unsigned)type);
         free(sock);
         return -ENOMEM;
     }
     if (type == SOCK_STREAM) {
         sock->rx_data = malloc(TCP_RX_BUFFER_MAX);
         if (!sock->rx_data) {
+            plogk("inet: socket RX buffer alloc failed (%u bytes).\n", (unsigned)TCP_RX_BUFFER_MAX);
             tcp_close(sock->endpoint.tcp);
             free(sock);
             return -ENOMEM;
@@ -482,6 +487,7 @@ static int core_accept(void *context, void **accepted, struct sockaddr *addr, ui
     }
     inet_core_socket_t *sock = calloc(1, sizeof(*sock));
     if (!sock) {
+        plogk("inet: accept socket alloc failed.\n");
         tcp_close(endpoint);
         return -ENOMEM;
     }
@@ -509,6 +515,7 @@ static int core_accept(void *context, void **accepted, struct sockaddr *addr, ui
     sock->endpoint.tcp  = endpoint;
     sock->rx_data       = malloc(TCP_RX_BUFFER_MAX);
     if (!sock->rx_data) {
+        plogk("inet: accept socket RX buffer alloc failed (%u bytes).\n", (unsigned)TCP_RX_BUFFER_MAX);
         tcp_close(endpoint);
         free(sock);
         return -ENOMEM;

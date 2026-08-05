@@ -11,6 +11,7 @@
 #include <fs/extfs/extfs.h>
 #include <fs/extfs/jbd2.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/data/crc32c.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
@@ -189,7 +190,11 @@ static int jbd2_verify_commit(extfs_journal_t *journal, uint8_t *block, uint32_t
     jbd2_put_be32(block + 16, 0);
     uint32_t calculated = crc32c_update(journal->checksum_seed, block, journal->block_size);
     jbd2_put_be32(block + 16, stored);
-    return stored == calculated ? EOK : -EIO;
+    if (stored != calculated) {
+        plogk("extfs: drive %u: journal commit block %u checksum mismatch\n", journal->sb->device.drive, sequence);
+        return -EIO;
+    }
+    return EOK;
 }
 
 static int jbd2_verify_descriptor(extfs_journal_t *journal, uint8_t *block)
@@ -200,7 +205,12 @@ static int jbd2_verify_descriptor(extfs_journal_t *journal, uint8_t *block)
     jbd2_put_be32(tail, 0);
     uint32_t calculated = crc32c_update(journal->checksum_seed, block, journal->block_size);
     jbd2_put_be32(tail, stored);
-    return stored == calculated ? EOK : -EIO;
+    if (stored != calculated) {
+        plogk("extfs: drive %u: journal descriptor block checksum mismatch (sequence %u)\n", journal->sb->device.drive,
+              jbd2_get_be32(block + 8));
+        return -EIO;
+    }
+    return EOK;
 }
 
 static void jbd2_set_descriptor_checksum(extfs_journal_t *journal, uint8_t *block)
@@ -271,6 +281,8 @@ static int jbd2_walk_transaction(extfs_journal_t *journal, uint32_t start, uint3
                 if (journal->incompat & (JBD2_FEATURE_INCOMPAT_CSUM_V2 | JBD2_FEATURE_INCOMPAT_CSUM_V3)) {
                     uint32_t actual = jbd2_data_checksum(journal, sequence, data);
                     if ((journal->incompat & JBD2_FEATURE_INCOMPAT_CSUM_V3) ? actual != checksum : (uint16_t)actual != (uint16_t)checksum) {
+                        plogk("extfs: drive %u: journal data block checksum mismatch (sequence %u, home %llu)\n", journal->sb->device.drive,
+                              sequence, (unsigned long long)home);
                         status = -EIO;
                         break;
                     }

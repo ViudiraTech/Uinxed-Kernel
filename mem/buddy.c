@@ -8,6 +8,7 @@
  *
  */
 
+#include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <mem/buddy.h>
@@ -162,9 +163,17 @@ int buddy_free(buddy_allocator_t *allocator, size_t index, unsigned order)
     if (!allocator || order > allocator->max_order || index >= allocator->page_count) return -1;
     size_t units = order_units(order);
     if ((index & (units - 1)) || units > allocator->page_count - index) return -1;
-    if (allocator->pages[index].state != BUDDY_PAGE_ALLOC_HEAD || allocator->pages[index].order != order) return -1;
+    if (allocator->pages[index].state != BUDDY_PAGE_ALLOC_HEAD || allocator->pages[index].order != order) {
+        plogk("buddy: invalid free at page 0x%llx order %u (state %u, stored order %u)\n", (uint64_t)index, order, allocator->pages[index].state,
+              allocator->pages[index].order);
+        return -1;
+    }
     for (size_t i = 1; i < units; i++) {
-        if (allocator->pages[index + i].state != BUDDY_PAGE_ALLOC_TAIL) return -1;
+        if (allocator->pages[index + i].state != BUDDY_PAGE_ALLOC_TAIL) {
+            plogk("buddy: corrupted block at page 0x%llx order %u (tail page 0x%llx state %u)\n", (uint64_t)index, order, (uint64_t)(index + i),
+                  allocator->pages[index + i].state);
+            return -1;
+        }
     }
 
     for (size_t i = 0; i < units; i++) {

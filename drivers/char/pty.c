@@ -14,6 +14,7 @@
 #include <fs/virtual/devtmpfs.h>
 #include <fs/virtual/tmpfs.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <kernel/termios.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>
@@ -125,6 +126,7 @@ static int pty_allocate_number(void)
         }
     }
     spin_unlock(&pty_id_lock);
+    plogk("pty: no free pty numbers (limit %d)\n", CONFIG_UNIX98_PTY_MAX);
     return -ENOSPC;
 }
 
@@ -257,7 +259,10 @@ static int pty_open(vfs_node_t node, uint64_t flags, void **private_data)
 {
     if ((flags & O_PATH) || (flags & O_ACCMODE) == O_ACCMODE) return -EINVAL;
     pty_endpoint_t *endpoint = calloc(1, sizeof(*endpoint));
-    if (!endpoint) return -ENOMEM;
+    if (!endpoint) {
+        plogk("pty: failed to allocate endpoint\n");
+        return -ENOMEM;
+    }
 
     if (node->type & file_ptmx) {
         int number = pty_allocate_number();
@@ -271,6 +276,7 @@ static int pty_open(vfs_node_t node, uint64_t flags, void **private_data)
             pty_ids[number / 64] &= ~(1ULL << (number % 64));
             spin_unlock(&pty_id_lock);
             free(endpoint);
+            plogk("pty: failed to allocate pair for /dev/pts/%d\n", number);
             return -ENOMEM;
         }
         pair->number       = (unsigned int)number;
@@ -288,6 +294,7 @@ static int pty_open(vfs_node_t node, uint64_t flags, void **private_data)
         spin_unlock(&pty_lifetime_lock);
         int result = pty_create_slave(pair);
         if (result) {
+            plogk("pty: failed to create slave node /dev/pts/%u: %d\n", pair->number, result);
             spin_lock(&pty_lifetime_lock);
             pty_pairs[pair->number] = NULL;
             spin_unlock(&pty_lifetime_lock);

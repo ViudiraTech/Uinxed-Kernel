@@ -61,7 +61,11 @@ static int extfs_disk_read(extfs_sb_info_t *sb, uint64_t offset, void *buf, size
         free(block);
         return EOK;
     }
-    return blockdev_read_bytes(&sb->device, offset, buf, size);
+    int status = blockdev_read_bytes(&sb->device, offset, buf, size);
+    if (status != EOK)
+        plogk("extfs: drive %u: block read failed at byte %llu (size %llu): %d\n", sb->device.drive, (unsigned long long)offset,
+              (unsigned long long)size, status);
+    return status;
 }
 
 static uint32_t extfs_super_u32(const ext2_super_block_t *super, size_t offset)
@@ -181,12 +185,21 @@ static int extfs_disk_write(extfs_sb_info_t *sb, uint64_t offset, const void *bu
         free(block);
         return EOK;
     }
-    return blockdev_write_bytes(&sb->device, offset, buf, size);
+    int status = blockdev_write_bytes(&sb->device, offset, buf, size);
+    if (status != EOK)
+        plogk("extfs: drive %u: block write failed at byte %llu (size %llu): %d\n", sb->device.drive, (unsigned long long)offset,
+              (unsigned long long)size, status);
+    return status;
 }
 
 int extfs_read_block(extfs_sb_info_t *sb, uint32_t phys_block, void *buf)
 {
-    if (!sb || !sb->es || !buf || phys_block >= sb->blocks_count) return -EIO;
+    if (!sb || !sb->es || !buf || phys_block >= sb->blocks_count) {
+        if (sb && sb->es)
+            plogk("extfs: drive %u: read of block %u out of range (count %llu)\n", sb->device.drive, phys_block,
+                  (unsigned long long)sb->blocks_count);
+        return -EIO;
+    }
     if (sb->active_transaction) return fs_txn_read(sb->active_transaction, phys_block, buf);
     return extfs_disk_read(sb, extfs_block_offset(sb, phys_block), buf, sb->block_size);
 }
@@ -194,7 +207,11 @@ int extfs_read_block(extfs_sb_info_t *sb, uint32_t phys_block, void *buf)
 int extfs_write_block(extfs_sb_info_t *sb, uint32_t phys_block, const void *buf)
 {
     if (!sb || !sb->es || !buf || sb->read_only) return sb && sb->read_only ? -EROFS : -EINVAL;
-    if (phys_block >= sb->blocks_count) return -EIO;
+    if (phys_block >= sb->blocks_count) {
+        plogk("extfs: drive %u: write to block %u out of range (count %llu)\n", sb->device.drive, phys_block,
+              (unsigned long long)sb->blocks_count);
+        return -EIO;
+    }
     if (sb->active_transaction) {
         int status = fs_txn_stage(sb->active_transaction, phys_block, buf, FS_TXN_METADATA);
         if (status != EOK) sb->active_transaction->error = status;
@@ -206,7 +223,11 @@ int extfs_write_block(extfs_sb_info_t *sb, uint32_t phys_block, const void *buf)
 int extfs_write_data_block(extfs_sb_info_t *sb, uint32_t phys_block, const void *buf)
 {
     if (!sb || !sb->es || !buf || sb->read_only) return sb && sb->read_only ? -EROFS : -EINVAL;
-    if (phys_block >= sb->blocks_count) return -EIO;
+    if (phys_block >= sb->blocks_count) {
+        plogk("extfs: drive %u: data write to block %u out of range (count %llu)\n", sb->device.drive, phys_block,
+              (unsigned long long)sb->blocks_count);
+        return -EIO;
+    }
     if (sb->active_transaction) {
         int status = fs_txn_stage(sb->active_transaction, phys_block, buf, FS_TXN_ORDERED_DATA);
         if (status != EOK) sb->active_transaction->error = status;
@@ -282,7 +303,10 @@ int extfs_read_inode_raw(extfs_sb_info_t *sb, uint32_t ino, ext2_inode_t *raw)
         uint32_t calculated = extfs_inode_checksum(sb, ino, inode);
         uint32_t stored     = stored_lo | (uint32_t)stored_hi << 16;
         uint32_t mask       = extfs_inode_has_checksum_hi(sb, inode) ? UINT32_MAX : UINT16_MAX;
-        if ((stored & mask) != (calculated & mask)) status = -EIO;
+        if ((stored & mask) != (calculated & mask)) {
+            plogk("extfs: drive %u: inode %u checksum mismatch\n", sb->device.drive, ino);
+            status = -EIO;
+        }
     }
     memset(raw, 0, sizeof(*raw));
     if (status == EOK) memcpy(raw, inode, sizeof(*raw));

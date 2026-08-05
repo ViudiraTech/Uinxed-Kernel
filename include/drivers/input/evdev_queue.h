@@ -19,6 +19,7 @@ typedef struct {
         unsigned int   tail;
         unsigned int   packet_head;
         unsigned int   size;
+        bool           overflow_reported;
         input_event_t *buffer;
 } evdev_queue_t;
 

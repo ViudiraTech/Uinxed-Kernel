@@ -627,6 +627,7 @@ int drm_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, stru
      * The offset is page-granular and unique per buffer so that
      * drm_gem_mmap can later look up the GEM object by offset. */
     obj->mmap_offset = dumb_offset_alloc(size);
+    if (!obj->mmap_offset) plogk("drm: dumb mmap offset space exhausted (size=%zu)\n", size);
 
     /* Allocate backing memory for the dumb buffer */
     if (size > 0) {

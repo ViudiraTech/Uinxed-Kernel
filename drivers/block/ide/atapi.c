@@ -326,6 +326,10 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
             if (!(st & (ATA_SR_BSY | ATA_SR_DRQ))) break;
             nsleep(100);
         }
+        if (timeout < 0) {
+            plogk("atapi: completion timeout after data phase on ch%u drv%u\n", channel, slavebit);
+            return 3;
+        }
     }
 
     return 0;

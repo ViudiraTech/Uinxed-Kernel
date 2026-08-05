@@ -378,7 +378,10 @@ static int xhci_wait_flag(xhci_controller_t *controller, volatile bool *complete
     uint64_t deadline = nano_time() + (uint64_t)timeout_ms * 1000000ULL;
     while (!__atomic_load_n(completed, __ATOMIC_ACQUIRE)) {
         xhci_process_events(controller);
-        if (xhci_read32(controller->operational, XHCI_OP_USBSTS) & XHCI_STS_FATAL) return -EIO;
+        if (xhci_read32(controller->operational, XHCI_OP_USBSTS) & XHCI_STS_FATAL) {
+            plogk("xhci: Host system error on bus %u\n", controller->bus_number);
+            return -EIO;
+        }
         if (nano_time() >= deadline) return -ETIMEDOUT;
         __asm__ volatile("pause");
     }
@@ -425,7 +428,10 @@ static int xhci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
     xhci_transfer_t        transfer = {.slot = slot, .endpoint_state = endpoint, .length = length, .active = true};
     if (length) {
         transfer.dma_virtual = xhci_dma_alloc(length, &transfer.dma_physical, &transfer.dma_pages);
-        if (!transfer.dma_virtual) return -ENOMEM;
+        if (!transfer.dma_virtual) {
+            plogk("xhci: control transfer DMA allocation failed on bus %u (%zu bytes)\n", slot->controller->bus_number, length);
+            return -ENOMEM;
+        }
         if (!(setup->request_type & USB_DIR_IN)) memcpy(transfer.dma_virtual, buffer, length);
     }
 
@@ -464,7 +470,10 @@ static int xhci_transfer(usb_endpoint_t *usb_endpoint, void *buffer, size_t leng
     xhci_endpoint_state_t *endpoint = usb_endpoint->hc_private;
     xhci_transfer_t        transfer = {.slot = slot, .endpoint = usb_endpoint, .endpoint_state = endpoint, .length = length, .active = true};
     transfer.dma_virtual            = xhci_dma_alloc(length, &transfer.dma_physical, &transfer.dma_pages);
-    if (!transfer.dma_virtual) return -ENOMEM;
+    if (!transfer.dma_virtual) {
+        plogk("xhci: bulk transfer DMA allocation failed on bus %u (%zu bytes)\n", slot->controller->bus_number, length);
+        return -ENOMEM;
+    }
     bool input = (usb_endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK) != 0;
     if (!input) memcpy(transfer.dma_virtual, buffer, length);
     if (!xhci_ring_enqueue(&endpoint->ring, transfer.dma_physical, (uint32_t)length, XHCI_TRB_TYPE(XHCI_TRB_NORMAL) | XHCI_TRB_IOC,
@@ -499,6 +508,7 @@ static int xhci_interrupt_start(usb_endpoint_t *usb_endpoint, size_t length, usb
     transfer->active         = true;
     transfer->dma_virtual    = xhci_dma_alloc(length, &transfer->dma_physical, &transfer->dma_pages);
     if (!transfer->dma_virtual) {
+        plogk("xhci: interrupt transfer DMA allocation failed on bus %u (%zu bytes)\n", transfer->slot->controller->bus_number, length);
         free(transfer);
         return -ENOMEM;
     }

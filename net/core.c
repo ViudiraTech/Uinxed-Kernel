@@ -9,6 +9,7 @@
  */
 
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <net/arp.h>
@@ -69,12 +70,19 @@ uint16_t net_checksum_ipv4_pseudo(uint32_t source, uint32_t destination, uint8_t
 
 net_pbuf_t *net_pbuf_alloc(size_t payload_length, size_t headroom)
 {
-    if (payload_length > NET_PBUF_MAX_SIZE || headroom > NET_PBUF_MAX_SIZE || payload_length > NET_PBUF_MAX_SIZE - headroom) return NULL;
+    if (payload_length > NET_PBUF_MAX_SIZE || headroom > NET_PBUF_MAX_SIZE || payload_length > NET_PBUF_MAX_SIZE - headroom) {
+        plogk("net: pbuf alloc rejected (payload=%lu headroom=%lu): size limit.\n", (unsigned long)payload_length, (unsigned long)headroom);
+        return NULL;
+    }
     net_pbuf_t *pbuf = calloc(1, sizeof(*pbuf));
-    if (!pbuf) return NULL;
+    if (!pbuf) {
+        plogk("net: pbuf struct alloc failed (payload=%lu headroom=%lu).\n", (unsigned long)payload_length, (unsigned long)headroom);
+        return NULL;
+    }
     size_t total  = payload_length + headroom;
     pbuf->storage = malloc(total ? total : 1);
     if (!pbuf->storage) {
+        plogk("net: pbuf storage alloc failed (payload=%lu headroom=%lu).\n", (unsigned long)payload_length, (unsigned long)headroom);
         free(pbuf);
         return NULL;
     }
@@ -196,6 +204,7 @@ int netdev_register(net_device_t *device)
     for (unsigned i = 0; i < NETDEV_MAX; i++) {
         if (devices[i] && !strncmp(devices[i]->name, device->name, NETDEV_NAME_MAX)) {
             spin_unlock(&devices_lock);
+            plogk("net: register %s failed: name already in use.\n", device->name);
             return -EEXIST;
         }
         if (!devices[i] && slot < 0) slot = (int)i;
@@ -506,6 +515,7 @@ int netdev_tx(net_device_t *device, net_pbuf_t *packet)
     } else {
         device->stats.tx_errors++;
         device->stats.tx_dropped++;
+        if (status != -EAGAIN && status != -ENETDOWN) plogk("net: %s: TX failed (%d).\n", device->name, status);
     }
     spin_unlock(&device->lock);
     return status;
