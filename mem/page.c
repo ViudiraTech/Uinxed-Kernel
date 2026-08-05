@@ -31,53 +31,6 @@
 page_directory_t  kernel_page_dir;
 page_directory_t *current_directory = 0;
 
-static page_table_entry_t *find_4k_pte(page_directory_t *directory, uintptr_t addr);
-
-static uint64_t page_fault_leaf_value(page_directory_t *directory, uintptr_t address, int *level)
-{
-    if (level) *level = 0;
-    if (!directory || !directory->table) return 0;
-
-    page_table_t *l4  = directory->table;
-    uint64_t      l4e = l4->entries[(address >> 39) & 0x1ff].value;
-    if (!(l4e & PTE_PRESENT)) return l4e;
-
-    page_table_t *l3  = phys_to_virt(l4e & PAGE_4K_MASK);
-    uint64_t      l3e = l3->entries[(address >> 30) & 0x1ff].value;
-    if (!(l3e & PTE_PRESENT) || (l3e & PTE_HUGE)) {
-        if (level) *level = 3;
-        return l3e;
-    }
-
-    page_table_t *l2  = phys_to_virt(l3e & PAGE_4K_MASK);
-    uint64_t      l2e = l2->entries[(address >> 21) & 0x1ff].value;
-    if (!(l2e & PTE_PRESENT) || (l2e & PTE_HUGE)) {
-        if (level) *level = 2;
-        return l2e;
-    }
-
-    page_table_t *l1 = phys_to_virt(l2e & PAGE_4K_MASK);
-    if (level) *level = 1;
-    return l1->entries[(address >> 12) & 0x1ff].value;
-}
-
-static void page_fault_log_vma(process_t *proc, const char *label, uintptr_t address)
-{
-    if (!proc) return;
-    spin_lock(&proc->mmap_lock);
-    vm_area_t *vma = proc->mmap_list;
-    while (vma && vma->end <= address) vma = vma->next;
-    if (vma && vma->start <= address && address < vma->end) {
-        const char *name = vma->vm_file && vma->vm_file->name ? vma->vm_file->name : "anonymous";
-        plogk("#PF: %s-vma=0x%016llx-0x%016llx flags=%c%c%c%c file=%s pgoff=%llu\n", label, vma->start, vma->end,
-              (vma->flags & VM_READ) ? 'r' : '-', (vma->flags & VM_WRITE) ? 'w' : '-', (vma->flags & VM_EXEC) ? 'x' : '-',
-              (vma->flags & VM_SHARED) ? 's' : 'p', name, vma->vm_pgoff);
-    } else {
-        plogk("#PF: %s-vma=unmapped\n", label);
-    }
-    spin_unlock(&proc->mmap_lock);
-}
-
 /* Page fault handling */
 INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_code)
 {
@@ -114,54 +67,8 @@ INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_
             info.si_code   = present ? SEGV_ACCERR : SEGV_MAPERR;
             info.si_addr   = (void *)faulting_address;
 
-            int      leaf_level = 0;
-            uint64_t leaf_value = page_fault_leaf_value(proc->user_page_dir, faulting_address, &leaf_level);
-            plogk("#PF (pid=%llu): %s %s fault at 0x%016llx, rip=0x%016llx err=0x%02llx pte(L%d)=0x%016llx\n", proc->task->pid, pf_msg,
-                  id ? "execute" : (rw ? "write" : "read"), faulting_address, frame->rip, error_code, leaf_level, leaf_value);
-            plogk("#PF: comm=%s rsp=0x%016llx fs=0x%016llx\n", proc->task->name, frame->rsp, proc->task->thread.fs_base);
-            page_fault_log_vma(proc, "rip", frame->rip);
-            page_fault_log_vma(proc, "addr", faulting_address);
-            frame_log_dump();
-            {
-                uint64_t cr3_now = 0;
-                __asm__ volatile("mov %%cr3, %0" : "=r"(cr3_now));
-                uint64_t dir_phys = proc->user_page_dir && proc->user_page_dir->table ?
-                                        (uint64_t)virt_to_phys((uint64_t)proc->user_page_dir->table) & PAGE_4K_MASK :
-                                        0;
-                plogk("#PF: cr3=0x%016llx proc-dir=0x%016llx match=%d\n", cr3_now, dir_phys, cr3_now == dir_phys);
-                uint64_t *g = (uint64_t *)((char *)frame - 120);
-                for (int j = 0; j < 15; j++) plogk("#PF: gpr[%d]=0x%016llx\n", j, g[j]);
-                {
-                    uint64_t rdx_v = g[1];
-                    if (rdx_v >= 0x400000 && rdx_v < PROCESS_USER_STACK_TOP) {
-                        uintptr_t target = rdx_v + 0x10;
-                        spin_lock(&proc->mmap_lock);
-                        vm_area_t *vma = proc->mmap_list;
-                        while (vma && vma->end <= target) vma = vma->next;
-                        if (vma && vma->start <= target && target < vma->end)
-                            plogk("#PF: rdx+0x10-vma 0x%016llx-0x%016llx flags=%c%c%c%c\n", vma->start, vma->end,
-                                  (vma->flags & VM_READ) ? 'r' : '-', (vma->flags & VM_WRITE) ? 'w' : '-', (vma->flags & VM_EXEC) ? 'x' : '-',
-                                  (vma->flags & VM_SHARED) ? 's' : 'p');
-                        else
-                            plogk("#PF: rdx+0x10-vma=unmapped\n");
-                        spin_unlock(&proc->mmap_lock);
-                        page_table_entry_t *pte = find_4k_pte(proc->user_page_dir, target);
-                        plogk("#PF: rdx+0x10-pte=0x%016llx\n", pte ? pte->value : 0);
-                    }
-                }
-                if (frame->rip >= 0x400000 && frame->rip < PROCESS_USER_STACK_TOP) {
-                    page_table_entry_t *pte = find_4k_pte(proc->user_page_dir, frame->rip);
-                    if (pte && (pte->value & PTE_PRESENT)) {
-                        uint64_t phys = pte->value & PAGE_4K_MASK;
-                        uint8_t *p    = (uint8_t *)phys_to_virt(phys) + (frame->rip & 0xfff);
-                        plogk("#PF: rip-pte=0x%016llx phys=0x%016llx refcount=%u bytes=", pte->value, phys, frame_refcount(phys));
-                        for (int j = 0; j < 16; j++) plogk("%02x ", p[j]);
-                        plogk("\n");
-                    }
-                }
-            }
+            plogk("#PF (pid=%llu): Segmentation fault at 0x%016llx\n", proc->task->pid, faulting_address);
             signal_send_thread(proc->task, SIGSEGV, &info);
-            for (;;) __asm__ volatile("hlt");
 
             syscall_frame_t sigframe = {0};
             sigframe.rip             = frame->rip;
@@ -188,10 +95,7 @@ INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_
         return;
     }
 
-    process_t *proc = process_current();
-    panic("PAGE_FAULT-%s-Address: 0x%016llx RIP: 0x%016llx RSP: 0x%016llx ERR: 0x%02llx CR3: 0x%016llx PID: %llu Comm: %s", pf_msg,
-          faulting_address, frame->rip, frame->rsp, error_code, get_cr3(), proc && proc->task ? proc->task->pid : 0,
-          proc && proc->task ? proc->task->name : "none");
+    panic("PAGE_FAULT-%s-Address: 0x%016llx", pf_msg, faulting_address);
 }
 INTERRUPT_END
 
