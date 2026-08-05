@@ -36,7 +36,7 @@ typedef struct usb_storage_device usb_storage_device_t;
 typedef struct {
         usb_storage_device_t          *storage;
         blockdev_device_t              blockdev;
-        struct block_sysfs_dev        *sysfs;
+        block_sysfs_dev_t             *sysfs;
         devtmpfs_block_registration_t *devtmpfs;
         uint64_t                       sector_count;
         uint32_t                       sector_size;
@@ -47,7 +47,7 @@ typedef struct {
         bool                           registered;
 } usb_storage_lun_t;
 
-struct usb_storage_device {
+typedef struct usb_storage_device {
         usb_interface_t  *interface;
         usb_endpoint_t   *bulk_in;
         usb_endpoint_t   *bulk_out;
@@ -57,7 +57,7 @@ struct usb_storage_device {
         volatile bool     io_busy;
         volatile bool     connected;
         uint8_t           lun_count;
-};
+} usb_storage_device_t;
 
 static int        usb_storage_type = -1;
 static bool       usb_storage_disk_ids[USB_MSC_MAX_DISKS];

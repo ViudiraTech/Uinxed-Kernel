@@ -79,10 +79,10 @@ typedef struct {
         bool                    closed;
 } poll_watch_t;
 
-struct poll_wait_context {
+typedef struct poll_wait_context {
         wait_queue_t wq;
         uint64_t     generation;
-};
+} poll_wait_context_t;
 
 typedef struct {
         bool     infinite;

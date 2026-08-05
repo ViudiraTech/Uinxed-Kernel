@@ -37,23 +37,23 @@ static inline void crb_write32(tpm_device_t *dev, uint32_t offset, uint32_t valu
  *  CRB register polling
  * ====================================================================== */
 
-struct crb_reg32_ctx {
+typedef struct crb_reg32_ctx {
         tpm_device_t *dev;
         uint32_t      offset;
         uint32_t      mask;
         uint32_t      expected;
-};
+} crb_reg32_ctx_t;
 
 static int check_reg32(void *ctx)
 {
-    struct crb_reg32_ctx *c   = (struct crb_reg32_ctx *)ctx;
-    uint32_t              val = crb_read32(c->dev, c->offset);
+    crb_reg32_ctx_t *c   = (crb_reg32_ctx_t *)ctx;
+    uint32_t         val = crb_read32(c->dev, c->offset);
     return ((val & c->mask) == c->expected) ? 1 : 0;
 }
 
 static int crb_wait_reg32(tpm_device_t *dev, uint32_t offset, uint32_t mask, uint32_t expected, uint32_t timeout_ms)
 {
-    struct crb_reg32_ctx ctx;
+    crb_reg32_ctx_t ctx;
     ctx.dev      = dev;
     ctx.offset   = offset;
     ctx.mask     = mask;

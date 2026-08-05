@@ -265,9 +265,8 @@ static const struct drm_ioctl_desc drm_core_ioctls[] = {
 
 static const struct drm_ioctl_desc *find_ioctl_desc(unsigned int cmd, const struct drm_ioctl_desc *table, int count)
 {
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < count; i++)
         if (table[i].cmd == cmd) return &table[i];
-    }
     return NULL;
 }
 

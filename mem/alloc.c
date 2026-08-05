@@ -44,7 +44,7 @@ typedef struct slab_object_header {
         uint32_t                   cookie;
 } slab_object_header_t;
 
-struct slab_header {
+typedef struct slab_header {
         uint64_t              magic;
         uint64_t              cookie;
         slab_cache_t         *cache;
@@ -58,9 +58,9 @@ struct slab_header {
         uint8_t               order;
         uint8_t               reserved;
         uintptr_t             object_start;
-};
+} slab_header_t;
 
-struct slab_cache {
+typedef struct slab_cache {
         spinlock_t     lock;
         char           name[SLAB_NAME_LENGTH];
         size_t         object_size;
@@ -83,7 +83,7 @@ struct slab_cache {
         slab_dtor_t    dtor;
         uint8_t        dynamic;
         uint8_t        destroying;
-};
+} slab_cache_t;
 
 typedef struct {
         uint64_t magic;
@@ -436,9 +436,8 @@ static int cache_free_object(slab_cache_t *expected, slab_header_t *slab, void *
 /* Find the smallest size class that fits size. */
 static slab_cache_t *cache_for_size(size_t size)
 {
-    for (size_t i = 0; i < SIZE_CACHE_COUNT; i++) {
+    for (size_t i = 0; i < SIZE_CACHE_COUNT; i++)
         if (size <= size_classes[i]) return &size_caches[i];
-    }
     return NULL;
 }
 
@@ -510,9 +509,8 @@ int heap_init(uint8_t *address, size_t size)
     if (buddy_init(&heap.pages, (buddy_page_t *)address, page_count, heap_max_order(page_count))) return -1;
     if (buddy_add_range(&heap.pages, metadata_pages, page_count - metadata_pages)) return -1;
 
-    for (size_t i = 0; i < SIZE_CACHE_COUNT; i++) {
+    for (size_t i = 0; i < SIZE_CACHE_COUNT; i++)
         if (cache_init(&size_caches[i], "kmalloc", size_classes[i], HEAP_MIN_ALIGNMENT, NULL, NULL, 0)) return -1;
-    }
     __atomic_store_n(&heap.online, 1, __ATOMIC_RELEASE);
     return 0;
 }

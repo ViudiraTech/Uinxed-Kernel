@@ -39,10 +39,10 @@
 #define DEVTMPFS_MAX_DEVICES     512
 #define DEVTMPFS_MAX_BLOCK_NODES (PARTITION_MAX_COUNT + 1)
 
-struct devtmpfs_block_registration {
+typedef struct devtmpfs_block_registration {
         char   paths[DEVTMPFS_MAX_BLOCK_NODES][96];
         size_t count;
-};
+} devtmpfs_block_registration_t;
 
 typedef struct devtmpfs_entry {
         char               path[256];
@@ -58,15 +58,15 @@ static devtmpfs_entry_t devtmpfs_table[DEVTMPFS_MAX_DEVICES];
 static spinlock_t       devtmpfs_lock = {.lock = 0, .rflags = 0};
 static bool             devtmpfs_table_inited;
 
-enum devtmpfs_memory_kind {
+typedef enum devtmpfs_memory_kind {
     DEVTMPFS_MEM_NULL,
     DEVTMPFS_MEM_ZERO,
     DEVTMPFS_MEM_FULL,
     DEVTMPFS_MEM_RANDOM,
-};
+} devtmpfs_memory_kind_t;
 
 typedef struct {
-        enum devtmpfs_memory_kind kind;
+        devtmpfs_memory_kind_t kind;
 } devtmpfs_memory_device_t;
 
 static spinlock_t devtmpfs_random_lock = {.lock = 0, .rflags = 0};

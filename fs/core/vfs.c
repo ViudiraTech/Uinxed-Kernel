@@ -520,9 +520,8 @@ static int vfs_prepare_create(const char *name, bool allow_trailing_slash, char 
 
     char *path = strdup(name);
     if (!path) return -ENOMEM;
-    if (allow_trailing_slash) {
+    if (allow_trailing_slash)
         while (length > 1 && path[length - 1] == '/') path[--length] = '\0';
-    }
     if (length == 1) {
         free(path);
         return -EEXIST;
@@ -878,9 +877,8 @@ int vfs_regist_fs_flags(const char *name, vfs_callback_t callback, uint32_t flag
 {
     if (!callback) return -EINVAL;
     if (name) {
-        for (int i = 1; i < fs_nextid; i++) {
+        for (int i = 1; i < fs_nextid; i++)
             if (fs_names[i] && streq(fs_names[i], name)) return -EEXIST;
-        }
     }
 
     int id = fs_nextid++;

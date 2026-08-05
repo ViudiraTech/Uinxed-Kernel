@@ -27,12 +27,12 @@
 /*  Internal types                                                     */
 /* ------------------------------------------------------------------ */
 
-enum sysfs_node_type {
+typedef enum sysfs_node_type {
     SYSFS_DIR,      /* kobject directory */
     SYSFS_ATTR,     /* regular attribute file */
     SYSFS_BIN_ATTR, /* binary attribute file */
     SYSFS_SYMLINK,  /* symbolic link */
-};
+} sysfs_node_type_t;
 
 typedef struct sysfs_attr_entry {
         struct attribute *attr;
@@ -55,7 +55,7 @@ typedef struct sysfs_symlink_entry {
 } sysfs_symlink_entry_t;
 
 typedef struct sysfs_node {
-        enum sysfs_node_type  type;
+        sysfs_node_type_t     type;
         struct kobject       *kobj;
         struct attribute     *attr;           /* for SYSFS_ATTR */
         struct bin_attribute *bin_attr;       /* for SYSFS_BIN_ATTR */
@@ -88,7 +88,7 @@ static void sysfs_unbind_dir(struct kobject *kobj);
 /*  Internal helpers                                                   */
 /* ------------------------------------------------------------------ */
 
-static sysfs_node_t *sysfs_node_alloc(enum sysfs_node_type type)
+static sysfs_node_t *sysfs_node_alloc(sysfs_node_type_t type)
 {
     sysfs_node_t *sn = calloc(1, sizeof(sysfs_node_t));
     if (!sn) return NULL;

@@ -56,11 +56,20 @@ struct drm_framebuffer;
 struct drm_gem_object;
 struct drm_atomic_state;
 struct drm_pending_vblank_event;
-struct drm_master;
 struct drm_minor;
 struct drm_mode_set;
 struct drm_fb_helper;
 struct drm_framebuffer_funcs;
+
+typedef struct drm_master {
+        struct drm_device   *dev;
+        spinlock_t           lock;
+        int                  unique_len;
+        char                *unique;
+        struct drm_open_hash magiclist;
+        ilist_node_t         magicfree;
+        int                  refcount;
+} drm_master_t;
 
 struct drm_pending_vblank_event {
         struct drm_device      *dev;
@@ -723,9 +732,9 @@ struct drm_file {
         spinlock_t     table_lock; /* protects object_idr / GEM handle table */
         struct drm_idr object_idr; /* per-file object handles */
 
-        struct drm_master *master; /* current master */
-        struct drm_master *is_current_unmatched_unused;
-        struct drm_master *render_master_unused;
+        drm_master_t *master; /* current master */
+        drm_master_t *is_current_unmatched_unused;
+        drm_master_t *render_master_unused;
 
         /* legacy magic authentication */
         spinlock_t           magic_lock;

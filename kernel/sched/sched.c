@@ -512,9 +512,8 @@ uint32_t choose_task_cpu_locked(void)
 {
     uint32_t best = next_task_cpu++ % cpu_scheduler_count;
 
-    for (uint32_t i = 0; i < cpu_scheduler_count; i++) {
+    for (uint32_t i = 0; i < cpu_scheduler_count; i++)
         if (cpu_rqs[i].nr_running < cpu_rqs[best].nr_running) best = i;
-    }
     return best;
 }
 
@@ -668,9 +667,8 @@ void sched_init(void)
         cpu_rqs[i].idle->context.rflags = 0x202;
     }
     plogk("task: Created task 0 (swapper/0) on CPU 0\n");
-    for (unsigned int i = 1; i < cpu_scheduler_count; i++) {
+    for (unsigned int i = 1; i < cpu_scheduler_count; i++)
         plogk("task: Created task %llu (%s) on CPU %u\n", cpu_rqs[i].idle->pid, cpu_rqs[i].idle->name, cpu_rqs[i].idle->cpu_id);
-    }
     plogk("sched: %u CPU(s) registered, using EEVDF scheduler.\n", cpu_scheduler_count);
 
     scheduler.next_pid = 1;

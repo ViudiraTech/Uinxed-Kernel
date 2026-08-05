@@ -134,9 +134,8 @@ static void sb16_dma_program(uint8_t channel, uint32_t phys_addr, uint32_t size,
 /* ------------------------------------------------------------------ */
 int sb16_dsp_wait_write(sb16_device_t *dev)
 {
-    for (int i = 0; i < 10000; i++) {
+    for (int i = 0; i < 10000; i++)
         if (!(sb16_inb(dev->base + SB16_DSP_WRITE) & 0x80)) return 0;
-    }
     return -1;
 }
 

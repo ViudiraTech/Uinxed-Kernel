@@ -65,9 +65,8 @@ static int ahci_find_slot(ahci_port_state_t *port)
     uint32_t slots = ((ahci_read32(hba_mmio, HOST_CAP) >> 8) & 0x1F) + 1;
     uint32_t ci    = ahci_read32(port->port_mmio, PORT_CI);
     uint32_t sact  = ahci_read32(port->port_mmio, PORT_SACT);
-    for (uint32_t i = 0; i < slots; i++) {
+    for (uint32_t i = 0; i < slots; i++)
         if (!((ci | sact) & (1u << i))) return (int)i;
-    }
     return -1;
 }
 
@@ -80,15 +79,13 @@ static int ahci_port_stop(ahci_port_state_t *port)
 
     ahci_write32(p, PORT_CMD, ahci_read32(p, PORT_CMD) & ~PORT_CMD_ST);
     tout = 500000;
-    while (ahci_read32(p, PORT_CMD) & PORT_CMD_CR) {
+    while (ahci_read32(p, PORT_CMD) & PORT_CMD_CR)
         if (--tout <= 0) return -ETIMEDOUT;
-    }
 
     ahci_write32(p, PORT_CMD, ahci_read32(p, PORT_CMD) & ~PORT_CMD_FRE);
     tout = 500000;
-    while (ahci_read32(p, PORT_CMD) & PORT_CMD_FR) {
+    while (ahci_read32(p, PORT_CMD) & PORT_CMD_FR)
         if (--tout <= 0) return -ETIMEDOUT;
-    }
     return EOK;
 }
 
@@ -111,15 +108,13 @@ static int ahci_port_start(ahci_port_state_t *port)
 
     ahci_write32(p, PORT_CMD, ahci_read32(p, PORT_CMD) | PORT_CMD_FRE);
     tout = 500000;
-    while (!(ahci_read32(p, PORT_CMD) & PORT_CMD_FR)) {
+    while (!(ahci_read32(p, PORT_CMD) & PORT_CMD_FR))
         if (--tout <= 0) return -ETIMEDOUT;
-    }
 
     ahci_write32(p, PORT_CMD, ahci_read32(p, PORT_CMD) | PORT_CMD_ST);
     tout = 500000;
-    while (!(ahci_read32(p, PORT_CMD) & PORT_CMD_CR)) {
+    while (!(ahci_read32(p, PORT_CMD) & PORT_CMD_CR))
         if (--tout <= 0) return -ETIMEDOUT;
-    }
 
     return 0;
 }
@@ -152,9 +147,8 @@ static int ahci_issue_cmd(ahci_port_state_t *port, int slot, uint8_t *cfis, int 
     hdr->ctbau = (uint32_t)(port->ct_phys >> 32);
 
     tout = 1000000;
-    while (ahci_read32(p, PORT_TFDATA) & 0x88) {
+    while (ahci_read32(p, PORT_TFDATA) & 0x88)
         if (--tout <= 0) return -EBUSY;
-    }
 
     ahci_write32(p, PORT_CI, (uint32_t)(1 << slot));
 

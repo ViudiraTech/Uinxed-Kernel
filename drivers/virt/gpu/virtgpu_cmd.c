@@ -45,9 +45,8 @@ int virtgpu_cmd_get_display_info(struct virtio_gpu_device *vgdev)
     }
 
     DRM_INFO("Display info: %d scanout(s)\n", vgdev->num_scanouts);
-    for (i = 0; i < vgdev->num_scanouts && i < 16; i++) {
+    for (i = 0; i < vgdev->num_scanouts && i < 16; i++)
         DRM_INFO("  scanout[%d]: %ux%u\n", i, vgdev->scanouts[i].width, vgdev->scanouts[i].height);
-    }
     return 0;
 }
 

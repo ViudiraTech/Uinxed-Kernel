@@ -327,9 +327,8 @@ void netdev_iterate(netdev_iter_fn callback, void *context)
     net_device_t *snapshot[NETDEV_MAX];
     size_t        count = 0;
     spin_lock(&devices_lock);
-    for (size_t i = 0; i < NETDEV_MAX; i++) {
+    for (size_t i = 0; i < NETDEV_MAX; i++)
         if (devices[i]) snapshot[count++] = device_get_locked(devices[i]);
-    }
     spin_unlock(&devices_lock);
     for (size_t i = 0; i < count; i++) {
         callback(snapshot[i], context);

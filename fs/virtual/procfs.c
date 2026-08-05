@@ -43,7 +43,7 @@ static int procfs_id;
 /*  Internal types                                                     */
 /* ------------------------------------------------------------------ */
 
-enum procfs_info_type {
+typedef enum procfs_info_type {
     PROC_INFO_STAT,
     PROC_INFO_MEMINFO,
     PROC_INFO_CPUINFO,
@@ -57,18 +57,18 @@ enum procfs_info_type {
     PROC_INFO_FILESYSTEMS,
     PROC_INFO_CMDLINE,
     PROC_INFO_CGROUPS,
-};
+} procfs_info_type_t;
 
-enum procfs_net_file_type {
+typedef enum procfs_net_file_type {
     PROC_NET_DEV,
     PROC_NET_ARP,
     PROC_NET_ROUTE,
     PROC_NET_TCP,
     PROC_NET_UDP,
     PROC_NET_UNIX,
-};
+} procfs_net_file_type_t;
 
-enum procfs_pid_file_type {
+typedef enum procfs_pid_file_type {
     PROC_PID_STATUS,
     PROC_PID_MAPS,
     PROC_PID_CMDLINE,
@@ -78,9 +78,9 @@ enum procfs_pid_file_type {
     PROC_PID_MOUNTS,
     PROC_PID_MOUNTINFO,
     PROC_PID_CGROUP,
-};
+} procfs_pid_file_type_t;
 
-enum procfs_type {
+typedef enum procfs_type {
     PROCFS_ROOT,
     PROCFS_PID_DIR,
     PROCFS_INFO_FILE,
@@ -88,15 +88,15 @@ enum procfs_type {
     PROCFS_NET_DIR,
     PROCFS_NET_FILE,
     PROCFS_SELF_LINK,
-};
+} procfs_type_t;
 
 typedef struct procfs_file {
-        enum procfs_type type;
-        pid_t            pid;
-        int              subtype;
-        char            *content;
-        size_t           size;
-        size_t           capacity;
+        procfs_type_t type;
+        pid_t         pid;
+        int           subtype;
+        char         *content;
+        size_t        size;
+        size_t        capacity;
 } procfs_file_t;
 
 #define PROCFS_BUF_SIZE 4096
@@ -124,7 +124,7 @@ static vfs_node_t procfs_find_child(vfs_node_t parent, const char *name)
     return NULL;
 }
 
-static procfs_file_t *procfs_file_alloc(enum procfs_type type, pid_t pid, int subtype)
+static procfs_file_t *procfs_file_alloc(procfs_type_t type, pid_t pid, int subtype)
 {
     procfs_file_t *pf = calloc(1, sizeof(procfs_file_t));
     if (!pf) return NULL;
@@ -134,7 +134,7 @@ static procfs_file_t *procfs_file_alloc(enum procfs_type type, pid_t pid, int su
     return pf;
 }
 
-static vfs_node_t procfs_ensure_child(vfs_node_t parent, const char *name, enum procfs_type type, pid_t pid, int subtype, uint16_t node_type)
+static vfs_node_t procfs_ensure_child(vfs_node_t parent, const char *name, procfs_type_t type, pid_t pid, int subtype, uint16_t node_type)
 {
     vfs_node_t child = procfs_find_child(parent, name);
     if (!child) {
@@ -1234,9 +1234,8 @@ static int procfs_stat(void *file, vfs_node_t node)
                 {"cmdline",     PROC_INFO_CMDLINE    },
                 {"cgroups",     PROC_INFO_CGROUPS    },
             };
-            for (size_t i = 0; i < sizeof(info_tab) / sizeof(info_tab[0]); i++) {
+            for (size_t i = 0; i < sizeof(info_tab) / sizeof(info_tab[0]); i++)
                 (void)procfs_ensure_child(node, info_tab[i].name, PROCFS_INFO_FILE, 0, info_tab[i].subtype, file_none);
-            }
 
             (void)procfs_ensure_child(node, "net", PROCFS_NET_DIR, 0, 0, file_dir);
             (void)procfs_ensure_child(node, "self", PROCFS_SELF_LINK, 0, 0, file_symlink);
@@ -1277,9 +1276,8 @@ static int procfs_stat(void *file, vfs_node_t node)
                 {"mountinfo", PROC_PID_MOUNTINFO},
                 {"cgroup",    PROC_PID_CGROUP   },
             };
-            for (size_t i = 0; i < sizeof(pid_tab) / sizeof(pid_tab[0]); i++) {
+            for (size_t i = 0; i < sizeof(pid_tab) / sizeof(pid_tab[0]); i++)
                 (void)procfs_ensure_child(node, pid_tab[i].name, PROCFS_PID_FILE, pf->pid, pid_tab[i].subtype, file_none);
-            }
             break;
         }
         case PROCFS_NET_DIR : {

@@ -20,7 +20,7 @@
 #include <proc/task.h>
 #include <sync/spin_lock.h>
 
-struct cgroup {
+typedef struct cgroup {
         char        *name;
         cgroup_t    *parent;
         clist_t      children;
@@ -31,7 +31,7 @@ struct cgroup {
         uint64_t     pids_events_max;
         uint32_t     refcount;
         int          dying;
-};
+} cgroup_t;
 
 static cgroup_t   root_cgroup;
 static spinlock_t cgroup_lock;
@@ -58,9 +58,8 @@ static int parse_u64(const char *value, size_t size, uint64_t *result)
 
 static int is_descendant(cgroup_t *cgroup, cgroup_t *ancestor)
 {
-    for (; cgroup; cgroup = cgroup->parent) {
+    for (; cgroup; cgroup = cgroup->parent)
         if (cgroup == ancestor) return 1;
-    }
     return 0;
 }
 
@@ -88,9 +87,8 @@ static int charge_locked(cgroup_t *cgroup)
 
 static void uncharge_locked(cgroup_t *cgroup)
 {
-    for (cgroup_t *cg = cgroup; cg; cg = cg->parent) {
+    for (cgroup_t *cg = cgroup; cg; cg = cg->parent)
         if (cg->pids_current) cg->pids_current--;
-    }
 }
 
 static task_t *find_task_locked(cgroup_t *cg, uint64_t pid)

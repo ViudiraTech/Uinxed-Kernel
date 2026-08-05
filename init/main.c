@@ -120,9 +120,8 @@ void swapper_run_init(void)
     spin_unlock(&scheduler.lock);
     request_task_cpu(init->task);
 
-    for (uint32_t i = 0; i < sched_cpu_count(); i++) {
+    for (uint32_t i = 0; i < sched_cpu_count(); i++)
         if (cpu_rqs[i].idle) cpu_rqs[i].idle->process = init;
-    }
     plogk("swapper/0: Init process (pid=1) ready.\n");
     video_start_refresh_worker();
 }

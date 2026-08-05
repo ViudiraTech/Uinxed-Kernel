@@ -258,11 +258,11 @@ static void vt_ansi_csi_p(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
     s->wrap_next = false;
 }
 
-struct rgb {
+typedef struct rgb {
         uint8_t r, g, b;
-};
+} rgb_t;
 
-static void vt_ansi_rgb_from_256_color(uint8_t i, struct rgb *c)
+static void vt_ansi_rgb_from_256_color(uint8_t i, rgb_t *c)
 {
     if (i < 16) {
         uint32_t p = vt_ansi_palette(i);
@@ -282,19 +282,19 @@ static void vt_ansi_rgb_from_256_color(uint8_t i, struct rgb *c)
     }
 }
 
-static void vt_ansi_set_fg_rgb(vt_ansi_state_t *s, const struct rgb *c)
+static void vt_ansi_set_fg_rgb(vt_ansi_state_t *s, const rgb_t *c)
 {
     s->fg_color.fg = ((uint32_t)c->r << 16) | ((uint32_t)c->g << 8) | c->b;
 }
 
-static void vt_ansi_set_bg_rgb(vt_ansi_state_t *s, const struct rgb *c)
+static void vt_ansi_set_bg_rgb(vt_ansi_state_t *s, const rgb_t *c)
 {
     s->bg_color.fg = ((uint32_t)c->r << 16) | ((uint32_t)c->g << 8) | c->b;
 }
 
 static int vt_ansi_t416_color(vt_ansi_state_t *s, int i, int is_fg)
 {
-    struct rgb c;
+    rgb_t c;
     i++;
     if ((uint32_t)i > s->npar) return i;
     if (s->par[i] == 5 && (uint32_t)(i + 1) <= s->npar) {
@@ -645,9 +645,8 @@ process_byte:
                         vt_ansi_cr(s);
                         vt_ansi_lf(s, cb);
                     }
-                    if (s->insert_mode) {
+                    if (s->insert_mode)
                         if (cb && cb->insert_chars) cb->insert_chars(s->x, s->y, 1, s->cols);
-                    }
                     vt_ansi_put_char(s, cb, (char)c);
                     if (s->x + 1 >= s->cols) {
                         s->wrap_next = s->auto_wrap;

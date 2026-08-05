@@ -28,7 +28,7 @@ typedef struct icmp_packet {
         uint8_t             data[];
 } icmp_packet_t;
 
-struct icmp_endpoint {
+typedef struct icmp_endpoint {
         uint32_t              local_address;
         uint32_t              remote_address;
         uint16_t              queue_length;
@@ -38,7 +38,7 @@ struct icmp_endpoint {
         spinlock_t            lock;
         icmp_event_callback_t event_callback;
         void                 *event_context;
-};
+} icmp_endpoint_t;
 
 static icmp_endpoint_t *icmp_table[ICMP_ENDPOINT_MAX];
 static spinlock_t       icmp_table_lock;

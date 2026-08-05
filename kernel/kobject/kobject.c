@@ -657,9 +657,8 @@ int add_uevent_var(struct kobj_uevent_env *env, const char *fmt, ...)
 
 static struct kset *kobject_uevent_kset(struct kobject *kobj)
 {
-    for (struct kobject *cursor = kobj; cursor; cursor = cursor->parent) {
+    for (struct kobject *cursor = kobj; cursor; cursor = cursor->parent)
         if (cursor->kset) return cursor->kset;
-    }
     return NULL;
 }
 
@@ -727,9 +726,8 @@ int kobject_uevent_env(struct kobject *kobj, enum kobject_action action, char *e
     kset = kobject_uevent_kset(kobj);
 
     /* Apply event filter */
-    if (kset && kset->uevent_ops && kset->uevent_ops->filter) {
+    if (kset && kset->uevent_ops && kset->uevent_ops->filter)
         if (!kset->uevent_ops->filter(kobj)) return EOK;
-    }
 
     env = calloc(1, sizeof(*env));
     if (!env) return -ENOMEM;

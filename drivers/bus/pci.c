@@ -41,10 +41,12 @@ static void     pci_scan_bus(pci_device_cache_t *cache, uint16_t bus, uint16_t e
 static spinlock_t pci_legacy_lock;
 
 /* PCI operations (For MCFG and legacy mode) */
-struct PCIOps {
+typedef struct PCIOps {
         uint32_t (*read)(pci_device_reg_t reg);
         void (*write)(pci_device_reg_t reg, uint32_t value);
-} pci_ops = {
+} pci_ops_t;
+
+pci_ops_t pci_ops = {
     .read  = pci_legacy_read,
     .write = pci_legacy_write,
 };
@@ -210,7 +212,7 @@ void mcfg_init(mcfg_info_t *mcfg)
         mcfg_info.enabled = 1;
 
         /* Set PCI operations */
-        pci_ops = (struct PCIOps) {
+        pci_ops = (pci_ops_t) {
             .read  = pci_mcfg_read,
             .write = pci_mcfg_write,
         };

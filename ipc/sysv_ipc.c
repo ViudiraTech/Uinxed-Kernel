@@ -209,9 +209,8 @@ static int ipc_id_remove(void **table, uint16_t *seq_table, int max, spinlock_t 
 static sem_undo_t *sem_undo_find(process_t *proc, int semid)
 {
     sem_undo_t *u;
-    for (u = sem_undo_list; u != NULL; u = u->next) {
+    for (u = sem_undo_list; u != NULL; u = u->next)
         if (u->proc == proc && u->semid == semid) return u;
-    }
     return NULL;
 }
 
@@ -266,9 +265,8 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
                 sem_array_t *sem = sem_sets[i];
                 spin_unlock(&sem_global_lock);
 
-                if (semflg & (IPC_CREAT | IPC_EXCL)) {
+                if (semflg & (IPC_CREAT | IPC_EXCL))
                     if ((semflg & (IPC_CREAT | IPC_EXCL)) == (IPC_CREAT | IPC_EXCL)) return -EEXIST;
-                }
 
                 int ret = ipc_perm_check(&sem->perm, semflg & 0777);
                 if (ret < 0) return ret;
@@ -761,9 +759,8 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
             if (cmd == SEM_INFO) {
                 spin_lock(&sem_global_lock);
                 int used = 0;
-                for (int i = 0; i < SEM_MAX_SETS; i++) {
+                for (int i = 0; i < SEM_MAX_SETS; i++)
                     if (sem_sets[i] != NULL) used++;
-                }
                 spin_unlock(&sem_global_lock);
                 return used;
             }
@@ -893,9 +890,8 @@ int64_t sys_shmget(key_t key, size_t size, int shmflg)
                 shm_seg_t *seg = shm_segs[i];
                 spin_unlock(&shm_global_lock);
 
-                if (shmflg & (IPC_CREAT | IPC_EXCL)) {
+                if (shmflg & (IPC_CREAT | IPC_EXCL))
                     if ((shmflg & (IPC_CREAT | IPC_EXCL)) == (IPC_CREAT | IPC_EXCL)) return -EEXIST;
-                }
 
                 int ret = ipc_perm_check(&seg->perm, shmflg & 0777);
                 if (ret < 0) return ret;
@@ -1171,9 +1167,8 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
             if (cmd == SHM_INFO) {
                 spin_lock(&shm_global_lock);
                 int used = 0;
-                for (int i = 0; i < SHM_MAX_SEGS; i++) {
+                for (int i = 0; i < SHM_MAX_SEGS; i++)
                     if (shm_segs[i] != NULL) used++;
-                }
                 spin_unlock(&shm_global_lock);
                 return used;
             }
@@ -1229,9 +1224,8 @@ int64_t sys_msgget(key_t key, int msgflg)
                 msg_queue_t *q = msg_queues[i];
                 spin_unlock(&msg_global_lock);
 
-                if (msgflg & (IPC_CREAT | IPC_EXCL)) {
+                if (msgflg & (IPC_CREAT | IPC_EXCL))
                     if ((msgflg & (IPC_CREAT | IPC_EXCL)) == (IPC_CREAT | IPC_EXCL)) return -EEXIST;
-                }
 
                 int ret = ipc_perm_check(&q->perm, msgflg & 0777);
                 if (ret < 0) return ret;
@@ -1571,9 +1565,8 @@ int64_t sys_msgctl(int msqid, int cmd, void *buf)
             if (cmd == MSG_INFO) {
                 spin_lock(&msg_global_lock);
                 int used = 0;
-                for (int i = 0; i < MSG_MAX_QUEUES; i++) {
+                for (int i = 0; i < MSG_MAX_QUEUES; i++)
                     if (msg_queues[i] != NULL) used++;
-                }
                 spin_unlock(&msg_global_lock);
                 return used;
             }

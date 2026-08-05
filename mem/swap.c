@@ -474,9 +474,8 @@ int swap_reclaim(size_t target)
             spin_lock(&proc->mmap_lock);
             for (vm_area_t *vma = proc->mmap_list; vma && reclaimed < target; vma = vma->next) {
                 if (vma->vm_file || (vma->flags & VM_SHARED)) continue;
-                for (uintptr_t va = vma->start; va < vma->end && reclaimed < target; va += SWAP_PAGE_SIZE) {
+                for (uintptr_t va = vma->start; va < vma->end && reclaimed < target; va += SWAP_PAGE_SIZE)
                     if (swap_out_page(proc->user_page_dir, va) == EOK) reclaimed++;
-                }
             }
             spin_unlock(&proc->mmap_lock);
         }
@@ -566,9 +565,8 @@ void swap_get_stats(swap_stats_t *stats)
         stats->total_pages += area->slots.slots;
         stats->pages_in += area->pages_in;
         stats->pages_out += area->pages_out;
-        for (uint64_t slot = 1; slot <= area->slots.slots; slot++) {
+        for (uint64_t slot = 1; slot <= area->slots.slots; slot++)
             if (swap_slot_refs(&area->slots, slot)) stats->used_pages++;
-        }
     }
     spin_unlock(&swap_lock);
     stats->free_pages = stats->total_pages - stats->used_pages;

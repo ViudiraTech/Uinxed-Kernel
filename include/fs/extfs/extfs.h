@@ -20,7 +20,7 @@
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 
-struct extfs_journal;
+typedef struct extfs_journal extfs_journal_t;
 
 /*
  * Special inode numbers
@@ -282,29 +282,29 @@ typedef struct ext2_dir_entry {
 
 /* Per-filesystem superblock info */
 typedef struct extfs_sb_info {
-        blockdev_device_t     device;
-        ext2_super_block_t   *es;         /* Pointer to on-disk superblock */
-        ext2_group_desc_t    *group_desc; /* Array of group descriptors */
-        uint32_t              block_size;
-        uint32_t              blocks_per_group;
-        uint32_t              inodes_per_group;
-        uint32_t              groups_count;
-        uint32_t              desc_per_block;
-        uint32_t              desc_size;
-        uint64_t              blocks_count;
-        uint32_t              checksum_seed;
-        uint32_t              s_first_data_block;
-        uint32_t              inode_size;
-        uint32_t              s_first_ino;
-        uint32_t              gdb_count; /* Group descriptor blocks count */
-        uint32_t              sb_block;  /* Superblock block number */
-        uint8_t               log_block_size;
-        spinlock_t            lock;
-        int                   read_only;
-        fs_txn_log_t          transaction_log;
-        fs_txn_t             *active_transaction;
-        int                   transaction_log_initialized;
-        struct extfs_journal *journal;
+        blockdev_device_t   device;
+        ext2_super_block_t *es;         /* Pointer to on-disk superblock */
+        ext2_group_desc_t  *group_desc; /* Array of group descriptors */
+        uint32_t            block_size;
+        uint32_t            blocks_per_group;
+        uint32_t            inodes_per_group;
+        uint32_t            groups_count;
+        uint32_t            desc_per_block;
+        uint32_t            desc_size;
+        uint64_t            blocks_count;
+        uint32_t            checksum_seed;
+        uint32_t            s_first_data_block;
+        uint32_t            inode_size;
+        uint32_t            s_first_ino;
+        uint32_t            gdb_count; /* Group descriptor blocks count */
+        uint32_t            sb_block;  /* Superblock block number */
+        uint8_t             log_block_size;
+        spinlock_t          lock;
+        int                 read_only;
+        fs_txn_log_t        transaction_log;
+        fs_txn_t           *active_transaction;
+        int                 transaction_log_initialized;
+        extfs_journal_t    *journal;
 } extfs_sb_info_t;
 
 /* Per-inode info */

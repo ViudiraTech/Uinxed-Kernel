@@ -90,9 +90,8 @@ void *memchr(const void *str, int c, size_t n)
     const uint8_t *bytes = (const uint8_t *)str;
     const uint8_t  value = (uint8_t)c;
 
-    for (size_t i = 0; i < n; i++) {
+    for (size_t i = 0; i < n; i++)
         if (bytes[i] == value) return (void *)(bytes + i);
-    }
     return NULL;
 }
 
@@ -202,9 +201,8 @@ char *strchr(const char *str, int c)
 #if defined(__builtin_strchr)
     return __builtin_strchr(str, c);
 #else
-    for (; *str != '\0'; str++) {
+    for (; *str != '\0'; str++)
         if (*str == c) return (char *)str;
-    }
     return 0;
 #endif
 }
@@ -216,9 +214,8 @@ char *strrchr(const char *str, int c)
     return __builtin_strrchr(str, c);
 #else
     const char *finded = 0;
-    for (; *str != '\0'; str++) {
+    for (; *str != '\0'; str++)
         if (*str == c) finded = str;
-    }
     return (char *)finded;
 #endif
 }
@@ -236,9 +233,8 @@ char *strstr(const char *haystack, const char *needle)
 
     const char *s = haystack, *t = needle;
 
-    for (size_t i = 0; i <= _sn - _tn; i++) {
+    for (size_t i = 0; i <= _sn - _tn; i++)
         if (!strncmp(s + i, t, _tn)) return (char *)(s + i);
-    }
     return 0;
 #endif
 }

@@ -21,17 +21,15 @@ static bool ps2_port2_ok;
 
 int wait_ps2_read(void)
 {
-    for (size_t i = 0; i < 10000; i++) {
+    for (size_t i = 0; i < 10000; i++)
         if (ps2_read_status() & PS2_STATUS_OUTPUT_FULL) return EOK;
-    }
     return -ETIMEDOUT;
 }
 
 int wait_ps2_write(void)
 {
-    for (size_t i = 0; i < 10000; i++) {
+    for (size_t i = 0; i < 10000; i++)
         if (!(ps2_read_status() & PS2_STATUS_INPUT_FULL)) return EOK;
-    }
     return -ETIMEDOUT;
 }
 
@@ -121,9 +119,7 @@ INTERRUPT_BEGIN static void ps2_irq(interrupt_frame_t *frame)
 
     (void)frame;
     status = ps2_read_status();
-    if (status & (0x40 | 0x80)) {
-        plogk("ps/2: %s receive error (status=0x%02x)\n", (status & PS2_STATUS_AUX_DATA) ? "mouse" : "keyboard", status);
-    }
+    if (status & (0x40 | 0x80)) plogk("ps/2: %s receive error (status=0x%02x)\n", (status & PS2_STATUS_AUX_DATA) ? "mouse" : "keyboard", status);
     if (status & PS2_STATUS_OUTPUT_FULL) {
         data = inb(PS2_DATA_PORT);
         if (status & PS2_STATUS_AUX_DATA)

@@ -57,21 +57,21 @@ static spinlock_t gem_name_lock    = {.lock = 0, .rflags = 0};
 #define DUMB_BITMAP_SIZE      (DUMB_OFFSET_MAX_SLOTS / 8) /* 128 KB bitmap */
 
 /* Slot range in the free list */
-struct dumb_slot_range {
+typedef struct dumb_slot_range {
         uint32_t                start; /* start slot index */
         uint32_t                count; /* number of contiguous slots */
         struct dumb_slot_range *next;
-};
+} dumb_slot_range_t;
 
-static uint8_t                 dumb_bitmap[DUMB_BITMAP_SIZE];
-static struct dumb_slot_range *dumb_free_list;
-static uint32_t                dumb_next_slot; /* high watermark for fresh allocations */
-static spinlock_t              dumb_alloc_lock = {.lock = 0, .rflags = 0};
+static uint8_t            dumb_bitmap[DUMB_BITMAP_SIZE];
+static dumb_slot_range_t *dumb_free_list;
+static uint32_t           dumb_next_slot; /* high watermark for fresh allocations */
+static spinlock_t         dumb_alloc_lock = {.lock = 0, .rflags = 0};
 
 /* Small pool for slot-range nodes (avoids malloc churn) */
 #define DUMB_RANGE_POOL_SIZE 256
-static struct dumb_slot_range dumb_range_pool[DUMB_RANGE_POOL_SIZE];
-static uint32_t               dumb_range_pool_used = 0;
+static dumb_slot_range_t dumb_range_pool[DUMB_RANGE_POOL_SIZE];
+static uint32_t          dumb_range_pool_used = 0;
 
 static inline int dumb_bitmap_get(uint32_t slot)
 {
@@ -89,22 +89,22 @@ static inline void dumb_bitmap_clear(uint32_t slot)
     if (slot < DUMB_OFFSET_MAX_SLOTS) { dumb_bitmap[slot / 8] &= (uint8_t) ~(1U << (slot % 8)); }
 }
 
-static struct dumb_slot_range *dumb_range_alloc_node(void)
+static dumb_slot_range_t *dumb_range_alloc_node(void)
 {
     if (dumb_range_pool_used < DUMB_RANGE_POOL_SIZE) {
-        struct dumb_slot_range *r = &dumb_range_pool[dumb_range_pool_used++];
+        dumb_slot_range_t *r = &dumb_range_pool[dumb_range_pool_used++];
         memset(r, 0, sizeof(*r));
         return r;
     }
     /* Pool exhausted â€?fall back to malloc */
     {
-        struct dumb_slot_range *r = malloc(sizeof(*r));
+        dumb_slot_range_t *r = malloc(sizeof(*r));
         if (r) memset(r, 0, sizeof(*r));
         return r;
     }
 }
 
-static void dumb_range_free_node(struct dumb_slot_range *r)
+static void dumb_range_free_node(dumb_slot_range_t *r)
 {
     /* Pool-allocated nodes cannot be freed individually.
      * Only malloc'd nodes are returned to the heap. */
@@ -146,8 +146,8 @@ static uint64_t dumb_offset_alloc(size_t size)
 
     /* First-fit search in the free list */
     {
-        struct dumb_slot_range **prev = &dumb_free_list;
-        struct dumb_slot_range  *cur  = dumb_free_list;
+        dumb_slot_range_t **prev = &dumb_free_list;
+        dumb_slot_range_t  *cur  = dumb_free_list;
 
         while (cur) {
             if (cur->count >= need) {
@@ -218,9 +218,9 @@ static void dumb_offset_free(uint64_t offset, size_t size)
 
     /* Insert into free list, sorted by start slot, and merge adjacent */
     {
-        struct dumb_slot_range **prev = &dumb_free_list;
-        struct dumb_slot_range  *cur  = dumb_free_list;
-        struct dumb_slot_range  *new_range;
+        dumb_slot_range_t **prev = &dumb_free_list;
+        dumb_slot_range_t  *cur  = dumb_free_list;
+        dumb_slot_range_t  *new_range;
 
         /* Find insertion point */
         while (cur && cur->start < start) {

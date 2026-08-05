@@ -21,18 +21,8 @@
 #include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */
-/* drm_master �?full definition (also defined in drm_drv.c; consistent) */
+/* drm_master type is defined in <drivers/gpu/drm_device.h>           */
 /* ------------------------------------------------------------------ */
-
-struct drm_master {
-        struct drm_device   *dev;
-        spinlock_t           lock;
-        int                  unique_len;
-        char                *unique;
-        struct drm_open_hash magiclist;
-        ilist_node_t         magicfree;
-        int                  refcount;
-};
 
 /* ------------------------------------------------------------------ */
 /* Static counter for magic number generation.                         */
@@ -107,7 +97,7 @@ int drm_authmagic(struct drm_device *dev, void *data, struct drm_file *file_priv
 
 int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
-    struct drm_master *master;
+    drm_master_t *master;
 
     (void)data;
 
@@ -142,7 +132,7 @@ int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv
 
 int drm_dropmaster(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
-    struct drm_master *master;
+    drm_master_t *master;
 
     (void)dev;
     (void)data;

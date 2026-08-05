@@ -137,7 +137,7 @@ typedef struct xhci_transfer {
         volatile bool            active;
 } xhci_transfer_t;
 
-struct xhci_slot {
+typedef struct xhci_slot {
         xhci_controller_t    *controller;
         usb_device_t          usb;
         uint8_t               slot_id;
@@ -149,7 +149,7 @@ struct xhci_slot {
         uint32_t             *input_context;
         xhci_endpoint_state_t endpoints[XHCI_MAX_ENDPOINTS];
         xhci_transfer_t      *pending[XHCI_MAX_ENDPOINTS];
-};
+} xhci_slot_t;
 
 typedef struct {
         uint64_t      trb_physical;
@@ -158,7 +158,7 @@ typedef struct {
         uint8_t       slot_id;
 } xhci_command_wait_t;
 
-struct xhci_controller {
+typedef struct xhci_controller {
         pci_device_cache_t  *pci;
         volatile uint8_t    *capability;
         volatile uint8_t    *operational;
@@ -197,7 +197,7 @@ struct xhci_controller {
         bool                 msix_enabled;
         bool                 worker_started;
         bool                 stopping;
-};
+} xhci_controller_t;
 
 static xhci_controller_t *xhci_controllers[USB_MAX_CONTROLLERS];
 static xhci_controller_t *xhci_irq_slots[USB_MAX_CONTROLLERS];

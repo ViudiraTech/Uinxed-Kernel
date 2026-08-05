@@ -297,9 +297,8 @@ static int dhcp_apply_lease(dhcp_client_t *client, const dhcp_reply_t *reply, ui
 
 static dhcp_client_t *dhcp_find_client(uint32_t xid, const uint8_t hardware_address[6])
 {
-    for (unsigned i = 0; i < NETDEV_MAX; i++) {
+    for (unsigned i = 0; i < NETDEV_MAX; i++)
         if (clients[i].device && clients[i].xid == xid && !memcmp(clients[i].device->address, hardware_address, 6)) return &clients[i];
-    }
     return NULL;
 }
 
@@ -444,9 +443,8 @@ void dhcp_timer(uint64_t now_ticks)
     netdev_iterate(dhcp_track_device, NULL);
     dhcp_receive_replies(now_ticks);
     spin_lock(&dhcp_lock);
-    for (unsigned i = 0; i < NETDEV_MAX; i++) {
+    for (unsigned i = 0; i < NETDEV_MAX; i++)
         if (clients[i].device) dhcp_advance(&clients[i], now_ticks);
-    }
     spin_unlock(&dhcp_lock);
 }
 

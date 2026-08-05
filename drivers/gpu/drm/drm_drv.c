@@ -97,18 +97,8 @@ void drm_minor_free(int type, int index)
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_master ???full definition (forward-declared in drm_device.h)    */
+/* drm_master type is defined in <drivers/gpu/drm_device.h>           */
 /* ------------------------------------------------------------------ */
-
-struct drm_master {
-        struct drm_device   *dev;
-        spinlock_t           lock;
-        int                  unique_len;
-        char                *unique;
-        struct drm_open_hash magiclist;
-        ilist_node_t         magicfree;
-        int                  refcount;
-};
 
 /* ------------------------------------------------------------------ */
 /* Forward declarations for cross-file helpers (defined in drm_file.c) */

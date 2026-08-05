@@ -186,9 +186,8 @@ struct drm_property *drm_property_create_bitmask(struct drm_device *dev, uint32_
     if (num_enums < 0) return NULL;
     if (num_enums > 0 && !enums) return NULL;
 
-    for (i = 0, j = 0; i < num_enums; i++) {
+    for (i = 0, j = 0; i < num_enums; i++)
         if (i < 32 && (supported_bits & (1U << i))) j++;
-    }
 
     prop = drm_property_create(dev, DRM_MODE_PROP_BITMASK | flags, name, j);
     if (!prop) return NULL;

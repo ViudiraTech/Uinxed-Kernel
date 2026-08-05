@@ -21,15 +21,15 @@
 #include <mem/alloc.h>
 
 /* Dummy GEM object with allocated backing buffer. */
-struct test_gem_object {
+typedef struct test_gem_object {
         struct drm_gem_object base;
         void                 *vaddr;
         size_t                size;
-};
+} test_gem_object_t;
 
-static struct test_gem_object *test_gem_alloc(struct drm_device *dev, size_t sz)
+static test_gem_object_t *test_gem_alloc(struct drm_device *dev, size_t sz)
 {
-    struct test_gem_object *obj = malloc(sizeof(*obj));
+    test_gem_object_t *obj = malloc(sizeof(*obj));
 
     if (!obj) { return NULL; }
 
@@ -46,7 +46,7 @@ static struct test_gem_object *test_gem_alloc(struct drm_device *dev, size_t sz)
     return obj;
 }
 
-static void test_gem_free(struct test_gem_object *obj)
+static void test_gem_free(test_gem_object_t *obj)
 {
     if (!obj) { return; }
 
@@ -74,7 +74,7 @@ void drm_run_test(void)
     create.height                      = 600;
     create.bpp                         = 32;
 
-    struct test_gem_object *gem = test_gem_alloc(dev, create.width * create.height * 4);
+    test_gem_object_t *gem = test_gem_alloc(dev, create.width * create.height * 4);
     if (!gem) {
         DRM_ERROR("Test: GEM buffer allocation failed.\n");
         return;

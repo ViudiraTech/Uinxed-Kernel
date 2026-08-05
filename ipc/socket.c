@@ -3254,9 +3254,8 @@ int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *o
 
     spin_unlock(&sk->lock);
 
-    if (koptlen == sizeof(int)) {
+    if (koptlen == sizeof(int))
         if (copy_to_user(optval, &ival, sizeof(int))) return -EFAULT;
-    }
 
     if (copy_to_user(optlen, &koptlen, sizeof(uint32_t))) return -EFAULT;
 

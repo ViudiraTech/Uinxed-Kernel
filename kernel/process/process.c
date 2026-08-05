@@ -1990,9 +1990,8 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
     }
 
     size_t mapped = 0;
-    for (; mapped < pages; mapped++) {
+    for (; mapped < pages; mapped++)
         if (page_map_new_to(proc->user_page_dir, addr + mapped * PAGE_4K_SIZE, frames[mapped], pte_flags) < 0) break;
-    }
     if (mapped != pages) {
         for (size_t i = 0; i < mapped; i++) (void)page_unmap_release(proc->user_page_dir, addr + i * PAGE_4K_SIZE);
         spin_unlock(&proc->mmap_lock);
@@ -2143,9 +2142,8 @@ int process_unmap_complete_range(process_t *proc, uintptr_t addr, size_t length)
     }
     spin_unlock(&proc->mmap_lock);
 
-    for (uintptr_t va = addr; va < end; va += PAGE_4K_SIZE) {
+    for (uintptr_t va = addr; va < end; va += PAGE_4K_SIZE)
         if (page_unmap_release(proc->user_page_dir, va) < 0) return -ENOMEM;
-    }
 
     vm_area_t *removed = NULL;
     spin_lock(&proc->mmap_lock);

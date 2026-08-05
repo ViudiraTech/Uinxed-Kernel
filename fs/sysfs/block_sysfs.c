@@ -29,7 +29,7 @@
 /*  Per-block-device wrapper                                           */
 /* ------------------------------------------------------------------ */
 
-struct block_sysfs_dev {
+typedef struct block_sysfs_dev {
         struct kobject    kobj;
         blockdev_device_t bdev;
         char              name[32];
@@ -38,7 +38,7 @@ struct block_sysfs_dev {
         int               read_only;
         int               removable;
         int               valid;
-};
+} block_sysfs_dev_t;
 
 static struct kobject *block_root_kobj;
 
@@ -46,14 +46,14 @@ static struct kobject *block_root_kobj;
 /*  Attribute show functions                                           */
 /* ------------------------------------------------------------------ */
 
-static struct block_sysfs_dev *to_bsd(struct kobject *kobj)
+static block_sysfs_dev_t *to_bsd(struct kobject *kobj)
 {
-    return (struct block_sysfs_dev *)((char *)kobj - offsetof(struct block_sysfs_dev, kobj));
+    return (block_sysfs_dev_t *)((char *)kobj - offsetof(block_sysfs_dev_t, kobj));
 }
 
 static ssize_t size_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
-    struct block_sysfs_dev *bsd = to_bsd(kobj);
+    block_sysfs_dev_t *bsd = to_bsd(kobj);
     (void)attr;
     if (!bsd->valid) return -EIO;
     uint64_t sz = bsd->bdev.sector_count * (bsd->bdev.sector_size / 512);
@@ -62,7 +62,7 @@ static ssize_t size_show(struct kobject *kobj, struct attribute *attr, char *buf
 
 static ssize_t sector_size_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
-    struct block_sysfs_dev *bsd = to_bsd(kobj);
+    block_sysfs_dev_t *bsd = to_bsd(kobj);
     (void)attr;
     if (!bsd->valid) return -EIO;
     return (ssize_t)sysfs_emit(buf, "%u\n", bsd->bdev.sector_size);
@@ -82,7 +82,7 @@ static ssize_t partition_show(struct kobject *kobj, struct attribute *attr, char
 
 static ssize_t start_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
-    struct block_sysfs_dev *bsd = to_bsd(kobj);
+    block_sysfs_dev_t *bsd = to_bsd(kobj);
     (void)attr;
     return (ssize_t)sysfs_emit(buf, "%llu\n", (unsigned long long)(bsd->start_lba * (bsd->bdev.sector_size / 512)));
 }
@@ -106,9 +106,9 @@ static ssize_t block_attr_show(struct kobject *kobj, struct attribute *attr, cha
     if (streq(attr->name, "partition")) return partition_show(kobj, attr, buf);
     if (streq(attr->name, "start")) return start_show(kobj, attr, buf);
     if (streq(attr->name, "uevent")) {
-        struct kobj_uevent_env  env = {0};
-        struct block_sysfs_dev *bsd = to_bsd(kobj);
-        int                     ret = add_uevent_var(&env, "DEVNAME=%s", bsd->name);
+        struct kobj_uevent_env env = {0};
+        block_sysfs_dev_t     *bsd = to_bsd(kobj);
+        int                    ret = add_uevent_var(&env, "DEVNAME=%s", bsd->name);
         if (!ret) ret = add_uevent_var(&env, "DEVTYPE=%s", bsd->partition ? "partition" : "disk");
         if (ret) return ret;
         int at = 0;
@@ -154,7 +154,7 @@ static struct attribute *partition_attrs[] = {
 
 static void block_kobj_release(struct kobject *kobj)
 {
-    struct block_sysfs_dev *bsd = to_bsd(kobj);
+    block_sysfs_dev_t *bsd = to_bsd(kobj);
     free(bsd);
 }
 
@@ -166,8 +166,8 @@ static const char *block_uevent_name(struct kobject *kobj)
 
 static int block_kobj_uevent(struct kobject *kobj, struct kobj_uevent_env *env)
 {
-    struct block_sysfs_dev *bsd = to_bsd(kobj);
-    int                     ret = add_uevent_var(env, "DEVNAME=%s", bsd->name);
+    block_sysfs_dev_t *bsd = to_bsd(kobj);
+    int                ret = add_uevent_var(env, "DEVNAME=%s", bsd->name);
     if (ret) return ret;
     return add_uevent_var(env, "DEVTYPE=%s", bsd->partition ? "partition" : "disk");
 }
@@ -188,7 +188,7 @@ static struct kobj_type partition_ktype = {
     .uevent        = block_kobj_uevent,
 };
 
-static int block_add_partitions(struct block_sysfs_dev *disk)
+static int block_add_partitions(block_sysfs_dev_t *disk)
 {
     partition_table_t table;
     int               status;
@@ -199,7 +199,7 @@ static int block_add_partitions(struct block_sysfs_dev *disk)
 
     for (size_t i = 0; i < table.count; i++) {
         const partition_info_t *info = &table.partitions[i];
-        struct block_sysfs_dev *part = calloc(1, sizeof(*part));
+        block_sysfs_dev_t      *part = calloc(1, sizeof(*part));
         if (!part) {
             status = -ENOMEM;
             break;
@@ -236,9 +236,9 @@ static int block_add_partitions(struct block_sysfs_dev *disk)
 
 static int block_add_one(struct kobject *parent, const char *name, uint8_t drive, int type, void *ns_ptr)
 {
-    struct block_sysfs_dev *bsd;
-    blockdev_device_t       bdev;
-    int                     ret;
+    block_sysfs_dev_t *bsd;
+    blockdev_device_t  bdev;
+    int                ret;
 
     memset(&bdev, 0, sizeof(bdev));
 
@@ -277,11 +277,11 @@ static int block_add_one(struct kobject *parent, const char *name, uint8_t drive
     return EOK;
 }
 
-int block_sysfs_register_device(const char *name, const blockdev_device_t *device, bool removable, struct block_sysfs_dev **handle)
+int block_sysfs_register_device(const char *name, const blockdev_device_t *device, bool removable, block_sysfs_dev_t **handle)
 {
 #if CONFIG_SYSFS
-    struct block_sysfs_dev *bsd;
-    int                     status;
+    block_sysfs_dev_t *bsd;
+    int                status;
 
     if (!name || !device || !handle || !block_root_kobj) return -EINVAL;
     *handle = NULL;
@@ -312,14 +312,14 @@ int block_sysfs_register_device(const char *name, const blockdev_device_t *devic
 #endif
 }
 
-void block_sysfs_unregister_device(struct block_sysfs_dev *handle)
+void block_sysfs_unregister_device(block_sysfs_dev_t *handle)
 {
 #if CONFIG_SYSFS
     if (!handle) return;
     handle->valid = 0;
     while (handle->kobj.children) {
-        struct block_sysfs_dev *part = to_bsd(handle->kobj.children->data);
-        part->valid                  = 0;
+        block_sysfs_dev_t *part = to_bsd(handle->kobj.children->data);
+        part->valid             = 0;
         kobject_del(&part->kobj);
         kobject_put(&part->kobj);
     }

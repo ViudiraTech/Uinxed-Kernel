@@ -96,9 +96,8 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
     if (!vgdev || !commands || count == 0) return -EINVAL;
     vq = &vgdev->ctrlq;
 
-    for (uint32_t i = 0; i < count; i++) {
+    for (uint32_t i = 0; i < count; i++)
         if (!commands[i].cmd || !commands[i].resp || commands[i].cmd_size <= 0 || commands[i].resp_size <= 0) return -EINVAL;
-    }
 
     /* Stack-backed command buffers must remain owned by this caller until
      * every response has arrived.  This lock also prevents one CPU from

@@ -52,7 +52,7 @@ typedef struct tcp_ooo_record {
         uint8_t                data[];
 } tcp_ooo_record_t;
 
-struct tcp_endpoint {
+typedef struct tcp_endpoint {
         uint16_t             family;
         uint8_t              native6;
         uint8_t              v6only;
@@ -115,7 +115,7 @@ struct tcp_endpoint {
         spinlock_t           lock;
         tcp_event_callback_t event_callback;
         void                *event_context;
-};
+} tcp_endpoint_t;
 
 static tcp_endpoint_t *tcp_table[TCP_ENDPOINT_MAX];
 static spinlock_t      tcp_table_lock;

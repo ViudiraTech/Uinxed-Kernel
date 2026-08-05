@@ -215,9 +215,8 @@ static int simplefs_scan_next_block(const simplefs_handle_t *fs, uint32_t *block
         }
         if (!inode.inode || inode.type == simplefs_inode_none) continue;
 
-        for (size_t j = 0; j < SIMPLEFS_INODE_DIRECT_COUNT; j++) {
+        for (size_t j = 0; j < SIMPLEFS_INODE_DIRECT_COUNT; j++)
             if (inode.direct[j] && inode.direct[j] < fs->disk.block_count) used[inode.direct[j]] = 1;
-        }
     }
 
     for (uint32_t i = fs->disk.data_block_start; i < fs->disk.block_count; i++) {

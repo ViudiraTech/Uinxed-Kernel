@@ -1070,9 +1070,8 @@ static void clear_share(/* Clear all lock entries of the volume */
 {
     UINT i;
 
-    for (i = 0; i < FF_FS_LOCK; i++) {
+    for (i = 0; i < FF_FS_LOCK; i++)
         if (Files[i].fs == fs) Files[i].fs = 0;
-    }
 }
 
 #endif /* FF_FS_LOCK */
@@ -2136,9 +2135,8 @@ static FRESULT load_xdir(        /* FR_INT_ERR: invalid entry block */
     } while ((i += SZDIRE) < sz_ent);
 
     /* Sanity check (do it for only accessible object) */
-    if (i <= MAXDIRB(FF_MAX_LFN)) {
+    if (i <= MAXDIRB(FF_MAX_LFN))
         if (xdir_sum(dirb) != ld_16(dirb + XDIR_SetSum)) return FR_INT_ERR;
-    }
 
     return FR_OK;
 }

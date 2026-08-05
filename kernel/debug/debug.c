@@ -28,10 +28,12 @@ void dump_stack(void)
 {
     uintptr_t current_address = kernel_address_request.response->virtual_base;
 
-    union rbp_node {
+    typedef union rbp_node {
             uintptr_t       inner;
             union rbp_node *next;
-    } *rbp;
+    } rbp_node_t;
+
+    rbp_node_t *rbp;
 
     uintptr_t rip;
     __asm__ volatile("movq %%rbp, %0" : "=r"(rbp));

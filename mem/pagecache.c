@@ -32,7 +32,7 @@ typedef struct {
         volatile uint32_t value;
 } pc_lock_t;
 
-struct pagecache_page {
+typedef struct pagecache_page {
         pagecache_mapping_t *mapping;
         pagecache_page_t    *hash_next;
         pagecache_page_t    *lru_prev;
@@ -43,9 +43,9 @@ struct pagecache_page {
         volatile uint32_t    flags;
         volatile uint32_t    references;
         pc_lock_t            lock;
-};
+} pagecache_page_t;
 
-struct pagecache_mapping {
+typedef struct pagecache_mapping {
         void                *context;
         pagecache_ops_t      ops;
         pagecache_page_t    *buckets[PAGECACHE_HASH_SIZE];
@@ -62,7 +62,7 @@ struct pagecache_mapping {
         uint64_t             readahead_last;
         uint32_t             readahead_window;
         uint32_t             readahead_valid;
-};
+} pagecache_mapping_t;
 
 typedef struct {
         pc_lock_t             lock;
@@ -88,9 +88,8 @@ static inline void pc_relax(void)
 
 static void pc_lock(pc_lock_t *lock)
 {
-    while (__atomic_exchange_n(&lock->value, 1, __ATOMIC_ACQUIRE)) {
+    while (__atomic_exchange_n(&lock->value, 1, __ATOMIC_ACQUIRE))
         while (__atomic_load_n(&lock->value, __ATOMIC_RELAXED)) pc_relax();
-    }
 }
 
 static int pc_trylock(pc_lock_t *lock)
@@ -181,9 +180,8 @@ static void pc_touch(pagecache_page_t *page)
 
 static pagecache_page_t *pc_find_locked(pagecache_mapping_t *mapping, uint64_t index)
 {
-    for (pagecache_page_t *page = mapping->buckets[pc_hash(index)]; page; page = page->hash_next) {
+    for (pagecache_page_t *page = mapping->buckets[pc_hash(index)]; page; page = page->hash_next)
         if (page->index == index && !(__atomic_load_n(&page->flags, __ATOMIC_ACQUIRE) & PC_PAGE_EVICTING)) return page;
-    }
     return NULL;
 }
 
@@ -347,9 +345,8 @@ static pagecache_page_t *pc_get_page(pagecache_mapping_t *mapping, uint64_t inde
     pc_unlock(&mapping->lock);
     if (!create) return NULL;
 
-    if (__atomic_load_n(&pagecache.stats.pages, __ATOMIC_RELAXED) >= pagecache.max_pages) {
+    if (__atomic_load_n(&pagecache.stats.pages, __ATOMIC_RELAXED) >= pagecache.max_pages)
         if (!reclaim || !pagecache_reclaim(1)) return NULL;
-    }
     page = calloc(1, sizeof(*page));
     if (!page) return NULL;
     page->data = pagecache.allocator.alloc(&page->physical);

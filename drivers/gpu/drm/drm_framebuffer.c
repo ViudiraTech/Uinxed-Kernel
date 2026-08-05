@@ -203,9 +203,8 @@ int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_pr
     if (r->pitches[0] < min_pitch) return -EINVAL;
     if (r->flags & DRM_MODE_FB_MODIFIERS) {
         if (r->modifier[0] != DRM_FORMAT_MOD_LINEAR) return -EINVAL;
-        for (i = 1; i < 4; i++) {
+        for (i = 1; i < 4; i++)
             if (r->handles[i] || r->pitches[i] || r->offsets[i] || r->modifier[i]) return -EINVAL;
-        }
     } else {
         /* Linux treats modifier[] as ignored unless the flag is set. */
         r->modifier[0] = DRM_FORMAT_MOD_LINEAR;

@@ -22,13 +22,13 @@
 #define INOTIFY_EVENT_MASK  (IN_ALL_EVENTS | IN_UNMOUNT | IN_Q_OVERFLOW | IN_IGNORED)
 #define INOTIFY_WATCH_FLAGS (IN_ONLYDIR | IN_DONT_FOLLOW | IN_EXCL_UNLINK | IN_MASK_CREATE | IN_MASK_ADD | IN_ONESHOT)
 
-struct inotify_watch {
+typedef struct inotify_watch {
         inotify_watch_t *next;
         inotify_watch_t *release_next;
         vfs_node_t       node;
         int32_t          wd;
         uint32_t         mask;
-};
+} inotify_watch_t;
 
 static spinlock_t         inotify_global_lock;
 static inotify_context_t *inotify_contexts;

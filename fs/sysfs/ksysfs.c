@@ -208,9 +208,8 @@ void ksysfs_init(void)
     /* Create default attribute files */
     if (kernel_ktype.default_attrs) {
         struct attribute **attr;
-        for (attr = kernel_ktype.default_attrs; *attr; attr++) {
+        for (attr = kernel_ktype.default_attrs; *attr; attr++)
             if ((*attr)->name) sysfs_create_file(kernel_kobj, *attr);
-        }
     }
 #endif
 }

@@ -54,21 +54,16 @@ static int copy_path_from_user_fwd(uint64_t upath, char *path, size_t sz)
 /* ======================================================================
  *  struct timespec64 (used by multiple syscalls)
  * ====================================================================== */
-struct linux_timespec64 {
-        int64_t tv_sec;
-        int64_t tv_nsec;
-};
-
 /* ======================================================================
  *  getitimer / setitimer / alarm
  * ====================================================================== */
 
-struct linux_itimerval {
+typedef struct linux_itimerval {
         uint64_t it_interval_sec;
         uint64_t it_interval_usec;
         uint64_t it_value_sec;
         uint64_t it_value_usec;
-};
+} linux_itimerval_t;
 
 int64_t sys_getitimer_impl(uint64_t which, uint64_t curr_value, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -78,7 +73,7 @@ int64_t sys_getitimer_impl(uint64_t which, uint64_t curr_value, uint64_t arg2, u
     (void)arg5;
     if (which > 2) return -EINVAL;
     if (!curr_value) return -EFAULT;
-    struct linux_itimerval tv = {0};
+    linux_itimerval_t tv = {0};
     return copy_to_user((void *)curr_value, &tv, sizeof(tv)) ? -EFAULT : 0;
 }
 
@@ -90,7 +85,7 @@ int64_t sys_setitimer_impl(uint64_t which, uint64_t new_value, uint64_t old_valu
     if (which > 2) return -EINVAL;
     (void)new_value;
     if (old_value) {
-        struct linux_itimerval tv = {0};
+        linux_itimerval_t tv = {0};
         if (copy_to_user((void *)old_value, &tv, sizeof(tv))) return -EFAULT;
     }
     return 0;
@@ -144,16 +139,16 @@ int64_t sys_setgroups_impl(uint64_t size, uint64_t list, uint64_t arg2, uint64_t
  *  capget / capset
  * ====================================================================== */
 
-struct linux_cap_header {
+typedef struct linux_cap_header {
         uint32_t version;
         int32_t  pid;
-};
+} linux_cap_header_t;
 
-struct linux_cap_data {
+typedef struct linux_cap_data {
         uint32_t effective;
         uint32_t permitted;
         uint32_t inheritable;
-};
+} linux_cap_data_t;
 
 int64_t sys_capget_impl(uint64_t header, uint64_t data, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -162,14 +157,14 @@ int64_t sys_capget_impl(uint64_t header, uint64_t data, uint64_t arg2, uint64_t 
     (void)arg4;
     (void)arg5;
     if (!header) return -EFAULT;
-    struct linux_cap_header hdr;
+    linux_cap_header_t hdr;
     if (copy_from_user(&hdr, (const void *)header, sizeof(hdr))) return -EFAULT;
     if (hdr.version != 0x20080522) return -EINVAL;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     process_t *target = (hdr.pid == 0 || hdr.pid == (int32_t)proc->task->pid) ? proc : process_find_get((pid_t)hdr.pid);
     if (!target) return -ESRCH;
-    struct linux_cap_data caps = {0};
+    linux_cap_data_t caps = {0};
     if (target->uid == 0) { caps.effective = caps.permitted = caps.inheritable = 0xFFFFFFFFu; }
     if (target != proc) process_put(target);
     if (data && copy_to_user((void *)data, &caps, sizeof(caps))) return -EFAULT;
@@ -184,7 +179,7 @@ int64_t sys_capset_impl(uint64_t header, uint64_t data, uint64_t arg2, uint64_t 
     (void)arg5;
     (void)data;
     if (!header) return -EFAULT;
-    struct linux_cap_header hdr;
+    linux_cap_header_t hdr;
     if (copy_from_user(&hdr, (const void *)header, sizeof(hdr))) return -EFAULT;
     if (hdr.version != 0x20080522) return -EINVAL;
     process_t *proc = process_current();
@@ -354,7 +349,7 @@ int64_t sys_sched_rr_get_interval_impl(uint64_t pid, uint64_t tp, uint64_t arg2,
     (void)arg4;
     (void)arg5;
     if (!tp) return -EFAULT;
-    struct linux_timespec64 ts = {.tv_sec = 0, .tv_nsec = 100000000};
+    linux_timespec64_t ts = {.tv_sec = 0, .tv_nsec = 100000000};
     return copy_to_user((void *)tp, &ts, sizeof(ts)) ? -EFAULT : 0;
 }
 
@@ -560,12 +555,12 @@ int64_t sys_fchmodat_impl(uint64_t dirfd, uint64_t path, uint64_t mode, uint64_t
  *  times
  * ====================================================================== */
 
-struct linux_tms {
+typedef struct linux_tms {
         int64_t tms_utime;
         int64_t tms_stime;
         int64_t tms_cutime;
         int64_t tms_cstime;
-};
+} linux_tms_t;
 
 int64_t sys_times_impl(uint64_t tms, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -575,8 +570,8 @@ int64_t sys_times_impl(uint64_t tms, uint64_t arg1, uint64_t arg2, uint64_t arg3
     (void)arg4;
     (void)arg5;
     if (!tms) return -EFAULT;
-    int64_t          now = timer_realtime_ns() / 10000000; /* ns → 100Hz ticks */
-    struct linux_tms buf = {.tms_utime = now, .tms_stime = 0, .tms_cutime = 0, .tms_cstime = 0};
+    int64_t     now = timer_realtime_ns() / 10000000; /* ns → 100Hz ticks */
+    linux_tms_t buf = {.tms_utime = now, .tms_stime = 0, .tms_cutime = 0, .tms_cstime = 0};
     if (copy_to_user((void *)tms, &buf, sizeof(buf))) return -EFAULT;
     return (int64_t)now;
 }
@@ -1010,8 +1005,8 @@ int64_t sys_clock_gettime_impl(uint64_t clockid, uint64_t tp, uint64_t arg2, uin
     (void)arg4;
     (void)arg5;
     if (!tp) return -EFAULT;
-    struct linux_timespec64 ts;
-    int64_t                 ns;
+    linux_timespec64_t ts;
+    int64_t            ns;
     switch (clockid) {
         case 0 :
         case 5 : /* CLOCK_REALTIME / CLOCK_REALTIME_COARSE */
@@ -1041,7 +1036,7 @@ int64_t sys_clock_getres_impl(uint64_t clockid, uint64_t res, uint64_t arg2, uin
     (void)arg4;
     (void)arg5;
     if (!res) return 0;
-    struct linux_timespec64 ts;
+    linux_timespec64_t ts;
     switch (clockid) {
         case 0 :
         case 1 :
@@ -1225,10 +1220,10 @@ int64_t sys_sendfile_impl(uint64_t out_fd, uint64_t in_fd, uint64_t offset, uint
  *  preadv / pwritev
  * ====================================================================== */
 
-struct sys_iovec {
+typedef struct sys_iovec {
         void  *iov_base;
         size_t iov_len;
-};
+} sys_iovec_t;
 
 int64_t sys_preadv_impl(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t offset, uint64_t arg4, uint64_t arg5)
 {
@@ -1241,7 +1236,7 @@ int64_t sys_preadv_impl(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t off
     process_fd_seek(proc, (int)fd, (int64_t)offset, SEEK_SET);
     size_t total = 0;
     for (uint64_t i = 0; i < iovcnt; i++) {
-        struct sys_iovec v;
+        sys_iovec_t v;
         if (copy_from_user(&v, (const void *)(iov + i * sizeof(v)), sizeof(v))) {
             process_fd_seek(proc, (int)fd, old, SEEK_SET);
             return total ? (int64_t)total : -EFAULT;
@@ -1284,7 +1279,7 @@ int64_t sys_pwritev_impl(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t of
     process_fd_seek(proc, (int)fd, (int64_t)offset, SEEK_SET);
     size_t total = 0;
     for (uint64_t i = 0; i < iovcnt; i++) {
-        struct sys_iovec v;
+        sys_iovec_t v;
         if (copy_from_user(&v, (const void *)(iov + i * sizeof(v)), sizeof(v))) {
             process_fd_seek(proc, (int)fd, old, SEEK_SET);
             return total ? (int64_t)total : -EFAULT;
@@ -1553,7 +1548,7 @@ int64_t sys_timer_settime_impl(uint64_t timerid, uint64_t flags, uint64_t new_va
     (void)arg4;
     (void)arg5;
     if (old_value) {
-        struct linux_itimerval tv = {0};
+        linux_itimerval_t tv = {0};
         if (copy_to_user((void *)old_value, &tv, sizeof(tv))) return -EFAULT;
     }
     return 0;
@@ -1567,7 +1562,7 @@ int64_t sys_timer_gettime_impl(uint64_t timerid, uint64_t curr_value, uint64_t a
     (void)arg4;
     (void)arg5;
     if (!curr_value) return -EFAULT;
-    struct linux_itimerval tv = {0};
+    linux_itimerval_t tv = {0};
     return copy_to_user((void *)curr_value, &tv, sizeof(tv)) ? -EFAULT : 0;
 }
 
@@ -1702,21 +1697,21 @@ int64_t sys_acct_impl(uint64_t filename, uint64_t arg1, uint64_t arg2, uint64_t 
  *  For now, delegate to openat.
  * ====================================================================== */
 
-struct open_how {
+typedef struct open_how {
         uint64_t flags;
         uint64_t mode;
         uint64_t resolve;
-};
+} open_how_t;
 
 int64_t sys_openat2_impl(uint64_t dirfd, uint64_t path, uint64_t how, uint64_t usize, uint64_t arg4, uint64_t arg5)
 {
     (void)arg4;
     (void)arg5;
     if (!path || !how) return -EFAULT;
-    if (usize < sizeof(struct open_how)) return -EINVAL;
-    if (usize > sizeof(struct open_how)) return -E2BIG;
+    if (usize < sizeof(open_how_t)) return -EINVAL;
+    if (usize > sizeof(open_how_t)) return -E2BIG;
 
-    struct open_how oh;
+    open_how_t oh;
     if (copy_from_user(&oh, (const void *)how, sizeof(oh))) return -EFAULT;
 
     if (oh.resolve & ~31ULL) return -EINVAL;

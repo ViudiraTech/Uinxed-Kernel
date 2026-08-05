@@ -214,7 +214,7 @@ static struct drm_connector pipeline_connector;
 /* Configurable mode table - data-driven, not hardcoded in logic       */
 /* ------------------------------------------------------------------ */
 
-struct dummy_mode_cfg {
+typedef struct dummy_mode_cfg {
         const char *name;
         int         clock;
         int         hdisplay;
@@ -228,9 +228,9 @@ struct dummy_mode_cfg {
         int         vrefresh;
         unsigned    flags;
         unsigned    type;
-};
+} dummy_mode_cfg_t;
 
-static const struct dummy_mode_cfg dummy_modes[] = {
+static const dummy_mode_cfg_t dummy_modes[] = {
     {
      .name        = "1920x1080",
      .clock       = 148500,
@@ -270,8 +270,8 @@ static int drm_dummy_kms_add_modes(struct drm_device *dev, struct drm_connector 
     (void)dev;
 
     for (i = 0; i < sizeof(dummy_modes) / sizeof(dummy_modes[0]); i++) {
-        const struct dummy_mode_cfg *cfg = &dummy_modes[i];
-        struct drm_display_mode     *mode;
+        const dummy_mode_cfg_t  *cfg = &dummy_modes[i];
+        struct drm_display_mode *mode;
 
         mode = drm_mode_create(dev);
         if (!mode) { return -ENOMEM; }

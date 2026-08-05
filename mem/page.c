@@ -515,9 +515,7 @@ void free_page_table_recursive(page_table_t *table, int level)
         page_table_entry_t *entry = &table->entries[i];
         if (entry->value == 0 || is_huge_page(entry)) continue;
         if (level == 1) {
-            if (entry->value & PTE_PRESENT && entry->value & PTE_WRITEABLE && entry->value & PTE_USER) {
-                free_frame(entry->value & PAGE_4K_MASK);
-            }
+            if (entry->value & PTE_PRESENT && entry->value & PTE_WRITEABLE && entry->value & PTE_USER) free_frame(entry->value & PAGE_4K_MASK);
         } else {
             free_page_table_recursive(phys_to_virt(entry->value & PAGE_4K_MASK), level - 1);
         }
@@ -616,9 +614,8 @@ static int page_map_to_status(page_directory_t *directory, uint64_t addr, uint64
         if (require_empty || (old_value & PAGE_4K_MASK) != (frame & PAGE_4K_MASK)) goto rollback;
         if (old_value & PTE_SHARED) flags |= PTE_SHARED;
         if ((old_value & PTE_COW) && (flags & PTE_WRITEABLE) && !(flags & PTE_SHARED)) flags = (flags & ~PTE_WRITEABLE) | PTE_COW;
-        if ((flags & PTE_WRITEABLE) && !(flags & PTE_SHARED) && frame_refcount(frame & PAGE_4K_MASK) > 1) {
+        if ((flags & PTE_WRITEABLE) && !(flags & PTE_SHARED) && frame_refcount(frame & PAGE_4K_MASK) > 1)
             flags = (flags & ~PTE_WRITEABLE) | PTE_COW;
-        }
     }
     l1_table->entries[l1_index].value = (frame & PAGE_4K_MASK) | flags;
     flush_tlb(addr);
@@ -906,9 +903,7 @@ static void map_unaligned_region(page_directory_t *directory, uint64_t start_add
     const uint64_t aligned_2m_end   = ALIGN_DOWN(end_addr, PAGE_2M_SIZE);
 
     /* Map aligned middle region with 2M pages */
-    if (aligned_2m_start < aligned_2m_end) {
-        page_map_range_to_random_2M(directory, aligned_2m_start, aligned_2m_end - aligned_2m_start, flags);
-    }
+    if (aligned_2m_start < aligned_2m_end) page_map_range_to_random_2M(directory, aligned_2m_start, aligned_2m_end - aligned_2m_start, flags);
 
     /* Map leading unaligned region with 4K pages */
     if (start_addr < aligned_2m_start) {

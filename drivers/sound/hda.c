@@ -105,12 +105,12 @@
 #define SD_STS_DESC_ERROR   (1 << 4)
 
 /* BDL descriptor */
-struct hda_bdle {
+typedef struct hda_bdle {
         uint32_t addr_low;
         uint32_t addr_high;
         uint32_t length;
         uint32_t ioc;
-} __attribute__((packed));
+} __attribute__((packed)) hda_bdle_t;
 
 /* Codec verbs */
 #define AC_VERB_PARAMETERS             0xf00
@@ -206,7 +206,7 @@ struct hda_bdle {
 #define PCI_CLASS_HDA    0x040300
 
 /* HDA codec widget descriptor */
-struct hda_widget {
+typedef struct hda_widget {
         uint16_t  nid;
         uint8_t   type;
         uint32_t  wcap;
@@ -214,34 +214,34 @@ struct hda_widget {
         uint32_t  def_conf;
         uint8_t   num_conns;
         uint16_t *conns;
-};
+} hda_widget_t;
 
 /* HDA codec descriptor */
-struct hda_codec {
-        uint8_t            addr;
-        uint16_t           vendor_id;
-        uint16_t           device_id;
-        int                afg_nid;
-        int                num_widgets;
-        struct hda_widget *widgets;
-        int                dac_count;
-        int                adc_count;
-        int                pin_count;
-        int                dac_nid;
-        int                adc_nid;
-        int                pin_nid;
-};
+typedef struct hda_codec {
+        uint8_t       addr;
+        uint16_t      vendor_id;
+        uint16_t      device_id;
+        int           afg_nid;
+        int           num_widgets;
+        hda_widget_t *widgets;
+        int           dac_count;
+        int           adc_count;
+        int           pin_count;
+        int           dac_nid;
+        int           adc_nid;
+        int           pin_nid;
+} hda_codec_t;
 
 /* HDA controller state */
-struct hda_controller {
+typedef struct hda_controller {
         int                 found;
         volatile void      *mmio;
         pci_device_cache_t *pci_dev;
         uint32_t            irq;
         uint32_t            mmio_size;
 
-        struct hda_codec codecs[HDA_MAX_CODECS];
-        int              num_codecs;
+        hda_codec_t codecs[HDA_MAX_CODECS];
+        int         num_codecs;
 
         spinlock_t lock;
 
@@ -282,9 +282,9 @@ struct hda_controller {
         /* Playback / capture stream index */
         int playback_stream;
         int capture_stream;
-};
+} hda_controller_t;
 
-static struct hda_controller hda_ctrl;
+static hda_controller_t hda_ctrl;
 
 /* ------------------------------------------------------------------ */
 /* MMIO access helpers                                                */
@@ -561,7 +561,7 @@ static int hda_probe_codec(int addr)
     uint32_t vid = hda_get_param(addr, 0, AC_PAR_VENDOR_ID);
     if (vid == 0 || vid == 0xffffffff) return -ENODEV;
 
-    struct hda_codec *codec = &hda_ctrl.codecs[hda_ctrl.num_codecs];
+    hda_codec_t *codec = &hda_ctrl.codecs[hda_ctrl.num_codecs];
     memset(codec, 0, sizeof(*codec));
     codec->addr      = addr;
     codec->vendor_id = (vid >> 16) & 0xffff;
@@ -573,7 +573,7 @@ static int hda_probe_codec(int addr)
     return 0;
 }
 
-static int hda_parse_widgets(struct hda_codec *codec)
+static int hda_parse_widgets(hda_codec_t *codec)
 {
     codec->afg_nid   = -1;
     codec->dac_nid   = -1;
@@ -610,16 +610,16 @@ static int hda_parse_widgets(struct hda_codec *codec)
     int      count        = (int)widget_total;
 
     codec->num_widgets = count;
-    codec->widgets     = malloc(sizeof(struct hda_widget) * count);
+    codec->widgets     = malloc(sizeof(hda_widget_t) * count);
     if (!codec->widgets) return -ENOMEM;
-    memset(codec->widgets, 0, sizeof(struct hda_widget) * count);
+    memset(codec->widgets, 0, sizeof(hda_widget_t) * count);
 
     for (int i = 0; i < count; i++) {
-        uint16_t           nid = start_nid + (uint16_t)i;
-        struct hda_widget *w   = &codec->widgets[i];
-        w->nid                 = nid;
-        w->wcap                = hda_get_param(codec->addr, nid, AC_PAR_AUDIO_WIDGET_CAP);
-        w->type                = (w->wcap >> AC_WCAP_TYPE_SHIFT) & AC_WCAP_TYPE_MASK;
+        uint16_t      nid = start_nid + (uint16_t)i;
+        hda_widget_t *w   = &codec->widgets[i];
+        w->nid            = nid;
+        w->wcap           = hda_get_param(codec->addr, nid, AC_PAR_AUDIO_WIDGET_CAP);
+        w->type           = (w->wcap >> AC_WCAP_TYPE_SHIFT) & AC_WCAP_TYPE_MASK;
 
         if (w->wcap & AC_WCAP_CONN_LIST) {
             uint32_t cl  = hda_get_param(codec->addr, nid, AC_PAR_CONNLIST_LEN);
@@ -660,7 +660,7 @@ static int hda_parse_widgets(struct hda_codec *codec)
 /* ------------------------------------------------------------------ */
 /* Codec configuration                                                */
 /* ------------------------------------------------------------------ */
-static void hda_config_codec(struct hda_codec *codec)
+static void hda_config_codec(hda_codec_t *codec)
 {
     if (codec->dac_nid < 0 && codec->adc_nid < 0) {
         plogk("hda: Codec #%d has no DAC/ADC, skipping.\n", codec->addr);
@@ -771,12 +771,12 @@ static int hda_setup_stream(int stream_idx, uint32_t format, size_t buf_size, si
         bdl_entries = period_frags;
     }
 
-    size_t   bdl_bytes = sizeof(struct hda_bdle) * bdl_entries;
+    size_t   bdl_bytes = sizeof(hda_bdle_t) * bdl_entries;
     size_t   total     = ALIGN_UP(buf_size + bdl_bytes, PAGE_4K_SIZE);
     uint64_t frame     = alloc_frames(total / PAGE_4K_SIZE);
     if (!frame) return -ENOMEM;
 
-    struct hda_bdle *bdl = (struct hda_bdle *)phys_to_virt(frame + buf_size);
+    hda_bdle_t *bdl = (hda_bdle_t *)phys_to_virt(frame + buf_size);
 
     hda_ctrl.streams[stream_idx].allocated    = 1;
     hda_ctrl.streams[stream_idx].direction    = direction;
@@ -992,7 +992,7 @@ static int hda_audio_set_params(audio_card_t *card, const audio_pcm_format_t *fm
 
     /* Set format verbs for all codecs */
     for (int c = 0; c < hda_ctrl.num_codecs; c++) {
-        struct hda_codec *codec = &hda_ctrl.codecs[c];
+        hda_codec_t *codec = &hda_ctrl.codecs[c];
         if (codec->dac_nid > 0) {
             hda_set_verb(codec->addr, (uint16_t)codec->dac_nid, AC_VERB_SET_STREAM_FORMAT, fmt_val);
             hda_set_verb(codec->addr, (uint16_t)codec->dac_nid, AC_VERB_SET_CHANNEL_STREAMID, 0);
@@ -1055,7 +1055,7 @@ static int hda_audio_set_volume(audio_card_t *card, const audio_volume_t *volume
 {
     if (!card || !volume) return -EINVAL;
     for (int c = 0; c < hda_ctrl.num_codecs; c++) {
-        struct hda_codec *codec = &hda_ctrl.codecs[c];
+        hda_codec_t *codec = &hda_ctrl.codecs[c];
         if (codec->dac_nid > 0) {
             uint32_t gl = ((uint32_t)volume->left * 0x7f) / 255;
             uint32_t gr = ((uint32_t)volume->right * 0x7f) / 255;
@@ -1074,7 +1074,7 @@ static int hda_audio_get_volume(audio_card_t *card, audio_volume_t *volume)
 
     /* Read volume from first available codec's DAC */
     for (int c = 0; c < hda_ctrl.num_codecs; c++) {
-        struct hda_codec *codec = &hda_ctrl.codecs[c];
+        hda_codec_t *codec = &hda_ctrl.codecs[c];
         if (codec->dac_nid > 0) {
             uint32_t vl   = hda_get_verb(codec->addr, (uint16_t)codec->dac_nid, AC_VERB_GET_AMP_GAIN_MUTE, AC_AMP_GET_OUTPUT | AC_AMP_GET_LEFT);
             uint32_t vr   = hda_get_verb(codec->addr, (uint16_t)codec->dac_nid, AC_VERB_GET_AMP_GAIN_MUTE, AC_AMP_GET_OUTPUT | AC_AMP_GET_RIGHT);
@@ -1316,7 +1316,7 @@ void hda_init(void)
     for (int i = 0; i < HDA_MAX_CODECS; i++) {
         if (codec_mask & (1u << i)) {
             if (hda_probe_codec(i) == 0) {
-                struct hda_codec *codec = &hda_ctrl.codecs[hda_ctrl.num_codecs - 1];
+                hda_codec_t *codec = &hda_ctrl.codecs[hda_ctrl.num_codecs - 1];
                 if (hda_parse_widgets(codec) != 0) {
                     if (codec->widgets) {
                         for (int wi = 0; wi < codec->num_widgets; wi++)

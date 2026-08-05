@@ -150,9 +150,8 @@ static int vma_remove_range(process_t *proc, uintptr_t start, uintptr_t end)
 static int unmap_physical_pages(process_t *proc, uintptr_t start, size_t length)
 {
     uintptr_t end = ALIGN_UP(start + length, PAGE_4K_SIZE);
-    for (uintptr_t va = start; va < end; va += PAGE_4K_SIZE) {
+    for (uintptr_t va = start; va < end; va += PAGE_4K_SIZE)
         if (page_unmap_release(proc->user_page_dir, va) < 0) return -ENOMEM;
-    }
     return EOK;
 }
 

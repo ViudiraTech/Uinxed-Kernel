@@ -112,9 +112,8 @@ int buddy_add_range(buddy_allocator_t *allocator, size_t start, size_t count)
 {
     if (!allocator || !count || start >= allocator->page_count || count > allocator->page_count - start) return -1;
 
-    for (size_t i = start; i < start + count; i++) {
+    for (size_t i = start; i < start + count; i++)
         if (allocator->pages[i].state != BUDDY_PAGE_RESERVED) return -1;
-    }
 
     while (count) {
         unsigned order = buddy_order_for_units(count);
@@ -192,9 +191,8 @@ int buddy_trim_allocation(buddy_allocator_t *allocator, size_t index, unsigned o
     size_t units = order_units(order);
     if (!keep_units || keep_units > units || units > allocator->page_count - index) return -1;
     if (allocator->pages[index].state != BUDDY_PAGE_ALLOC_HEAD || allocator->pages[index].order != order) return -1;
-    for (size_t i = 1; i < units; i++) {
+    for (size_t i = 1; i < units; i++)
         if (allocator->pages[index + i].state != BUDDY_PAGE_ALLOC_TAIL) return -1;
-    }
 
     for (size_t i = 0; i < units; i++) {
         allocator->pages[index + i].state = BUDDY_PAGE_RESERVED;
@@ -240,9 +238,8 @@ int buddy_validate(const buddy_allocator_t *allocator)
             const buddy_page_t *page  = &allocator->pages[index];
             if (page->state != BUDDY_PAGE_FREE_HEAD || page->order != order || page->prev != previous) return -1;
             if ((index & (units - 1)) || units > allocator->page_count - index) return -1;
-            for (size_t i = 1; i < units; i++) {
+            for (size_t i = 1; i < units; i++)
                 if (allocator->pages[index + i].state == BUDDY_PAGE_FREE_HEAD) return -1;
-            }
             if (order < allocator->max_order) {
                 size_t buddy = index ^ units;
                 if (buddy < allocator->page_count && allocator->pages[buddy].state == BUDDY_PAGE_FREE_HEAD

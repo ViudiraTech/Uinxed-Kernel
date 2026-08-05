@@ -63,20 +63,20 @@ static int tpm_tis_ready(tpm_device_t *dev)
     return 0;
 }
 
-struct tis_stat_ctx {
+typedef struct tis_stat_ctx {
         tpm_device_t *dev;
         uint8_t       mask;
-};
+} tis_stat_ctx_t;
 
 static int check_status(void *ctx)
 {
-    struct tis_stat_ctx *c = (struct tis_stat_ctx *)ctx;
+    tis_stat_ctx_t *c = (tis_stat_ctx_t *)ctx;
     return ((c->dev->status(c->dev) & c->mask) == c->mask) ? 1 : 0;
 }
 
 static int wait_for_stat(tpm_device_t *dev, uint8_t mask, uint32_t timeout_ms)
 {
-    struct tis_stat_ctx ctx;
+    tis_stat_ctx_t ctx;
     ctx.dev  = dev;
     ctx.mask = mask;
     if (check_status(&ctx)) return 0;

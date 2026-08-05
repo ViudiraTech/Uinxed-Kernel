@@ -102,9 +102,8 @@ static inline uint32_t futex_hash_index(uint32_t *uaddr)
 static futex_entry_t *futex_find(futex_bucket_t *bucket, uint32_t *uaddr)
 {
     uintptr_t key = (uintptr_t)uaddr;
-    for (futex_entry_t *entry = bucket->head; entry; entry = entry->next) {
+    for (futex_entry_t *entry = bucket->head; entry; entry = entry->next)
         if (entry->key == key) return entry;
-    }
     return NULL;
 }
 
@@ -140,9 +139,8 @@ static futex_entry_t *futex_find_waiter(futex_bucket_t *bucket, uint32_t *uaddr,
 {
     uintptr_t key = (uintptr_t)uaddr;
 
-    for (futex_entry_t *entry = bucket->head; entry; entry = entry->next) {
+    for (futex_entry_t *entry = bucket->head; entry; entry = entry->next)
         if (entry->key == key && entry->bitset == bitset && !entry->pi_mutex) return entry;
-    }
     return NULL;
 }
 
@@ -431,9 +429,8 @@ static int futex_requeue(uint32_t *uaddr, int nr_wake, int nr_requeue, uint32_t 
     }
 
     /* Find entry for uaddr */
-    for (entry1 = bucket1->head; entry1; entry1 = entry1->next) {
+    for (entry1 = bucket1->head; entry1; entry1 = entry1->next)
         if (entry1->key == (uintptr_t)uaddr) break;
-    }
 
     if (!entry1) {
         if (bucket1 != bucket2) spin_unlock(&bucket2->lock);
@@ -756,9 +753,8 @@ static int futex_unlock_pi(uint32_t *uaddr)
     spin_lock(&bucket->lock);
 
     futex_entry_t *entry;
-    for (entry = bucket->head; entry; entry = entry->next) {
+    for (entry = bucket->head; entry; entry = entry->next)
         if (entry->key == (uintptr_t)uaddr) break;
-    }
 
     if (!entry || !entry->pi_mutex) {
         spin_unlock(&bucket->lock);
@@ -865,9 +861,8 @@ static int futex_cmp_requeue_pi(uint32_t *uaddr, int nr_wake, int nr_requeue, ui
         spin_lock(&bucket1->lock);
     }
 
-    for (entry1 = bucket1->head; entry1; entry1 = entry1->next) {
+    for (entry1 = bucket1->head; entry1; entry1 = entry1->next)
         if (entry1->key == (uintptr_t)uaddr) break;
-    }
 
     if (!entry1) {
         if (bucket1 != bucket2) spin_unlock(&bucket2->lock);
@@ -1258,9 +1253,8 @@ static int futex2_wake_core(uintptr_t key, int nr_wake, uint64_t mask)
 /* Find the first entry with the given key (bucket lock must be held). */
 static futex_entry_t *futex2_find_key(futex_bucket_t *bucket, uintptr_t key)
 {
-    for (futex_entry_t *entry = bucket->head; entry; entry = entry->next) {
+    for (futex_entry_t *entry = bucket->head; entry; entry = entry->next)
         if (entry->key == key) return entry;
-    }
     return NULL;
 }
 
@@ -1335,13 +1329,11 @@ static int futex2_requeue_core(uint64_t uaddr, unsigned int size_code1, uint64_t
 
 requeue_done:
     /* Remove entries left empty by wake/requeue. */
-    while ((entry = futex2_find_key(bucket1, key1)) != NULL) {
+    while ((entry = futex2_find_key(bucket1, key1)) != NULL)
         if (!futex_try_cleanup(bucket1, entry)) break;
-    }
     if (bucket1 != bucket2) {
-        while ((entry = futex2_find_key(bucket2, key2)) != NULL) {
+        while ((entry = futex2_find_key(bucket2, key2)) != NULL)
             if (!futex_try_cleanup(bucket2, entry)) break;
-        }
         spin_unlock(&bucket2->lock);
     }
     spin_unlock(&bucket1->lock);

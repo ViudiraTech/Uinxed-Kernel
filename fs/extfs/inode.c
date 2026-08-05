@@ -317,9 +317,8 @@ int extfs_write_data(extfs_handle_t *h, const void *buf, uint64_t offset, size_t
         phys = extfs_map_block(h, logical, 1);
         if (phys == 0) break;
 
-        if (inblock > 0 || chunk < sb->block_size) {
+        if (inblock > 0 || chunk < sb->block_size)
             if (extfs_read_block(sb, phys, block_buf) != EOK) break;
-        }
 
         memcpy(block_buf + inblock, (const uint8_t *)buf + done, chunk);
 
@@ -385,9 +384,8 @@ void extfs_free_inode_blocks(extfs_handle_t *h)
     phys = h->ei.i_data[EXT2_IND_BLOCK];
     if (phys) {
         if (extfs_read_block(sb, phys, buf) == EOK) {
-            for (j = 0; j < ptrs_per; j++) {
+            for (j = 0; j < ptrs_per; j++)
                 if (buf[j]) extfs_free_block(sb, buf[j]);
-            }
         }
         extfs_free_block(sb, phys);
         h->ei.i_data[EXT2_IND_BLOCK] = 0;
@@ -401,9 +399,8 @@ void extfs_free_inode_blocks(extfs_handle_t *h)
             for (i = 0; i < ptrs_per; i++) {
                 if (dindir_buf[i] == 0) continue;
                 if (extfs_read_block(sb, dindir_buf[i], buf) == EOK) {
-                    for (j = 0; j < ptrs_per; j++) {
+                    for (j = 0; j < ptrs_per; j++)
                         if (buf[j]) extfs_free_block(sb, buf[j]);
-                    }
                 }
                 extfs_free_block(sb, dindir_buf[i]);
             }
@@ -425,9 +422,8 @@ void extfs_free_inode_blocks(extfs_handle_t *h)
                         uint32_t k;
                         uint32_t t3[1024];
                         if (extfs_read_block(sb, t2[j], t3) == EOK) {
-                            for (k = 0; k < ptrs_per; k++) {
+                            for (k = 0; k < ptrs_per; k++)
                                 if (t3[k]) extfs_free_block(sb, t3[k]);
-                            }
                         }
                         extfs_free_block(sb, t2[j]);
                     }

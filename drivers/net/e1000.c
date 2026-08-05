@@ -139,7 +139,7 @@ typedef struct {
         uint16_t special;
 } __attribute__((packed, aligned(16))) e1000_tx_desc_t;
 
-struct e1000_device {
+typedef struct e1000_device {
         pci_device_cache_t       *pci;
         volatile uint8_t         *mmio;
         uint64_t                  mmio_phys;
@@ -184,7 +184,7 @@ struct e1000_device {
         net_device_t              netdev;
         int                       netdev_registered;
         struct e1000_device      *next;
-};
+} e1000_device_t;
 
 static e1000_device_t *e1000_devices;
 static size_t          e1000_device_count;
@@ -210,9 +210,8 @@ static inline void e1000_write_flush(e1000_device_t *device)
 static const e1000_id_t *e1000_match(uint16_t vendor, uint16_t device)
 {
     if (vendor != E1000_VENDOR_INTEL) return NULL;
-    for (size_t i = 0; i < sizeof(e1000_ids) / sizeof(e1000_ids[0]); i++) {
+    for (size_t i = 0; i < sizeof(e1000_ids) / sizeof(e1000_ids[0]); i++)
         if (e1000_ids[i].device == device) return &e1000_ids[i];
-    }
     return NULL;
 }
 

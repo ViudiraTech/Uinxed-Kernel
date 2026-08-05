@@ -19,7 +19,7 @@
 
 #define CGROUPFS_BUFSIZE 4096
 
-enum cgroupfs_type {
+typedef enum cgroupfs_type {
     CGROUPFS_DIR,
     CGROUPFS_CONTROLLERS,
     CGROUPFS_SUBTREE_CONTROL,
@@ -29,16 +29,16 @@ enum cgroupfs_type {
     CGROUPFS_PIDS_CURRENT,
     CGROUPFS_PIDS_MAX,
     CGROUPFS_PIDS_EVENTS,
-};
+} cgroupfs_type_t;
 
 typedef struct {
-        enum cgroupfs_type type;
-        cgroup_t          *cgroup;
+        cgroupfs_type_t type;
+        cgroup_t       *cgroup;
 } cgroupfs_node_t;
 
 static int cgroupfs_id;
 
-static cgroupfs_node_t *new_handle(enum cgroupfs_type type, cgroup_t *cgroup)
+static cgroupfs_node_t *new_handle(cgroupfs_type_t type, cgroup_t *cgroup)
 {
     cgroupfs_node_t *handle = calloc(1, sizeof(*handle));
     if (handle) {
@@ -53,7 +53,7 @@ static cgroupfs_node_t *new_handle(enum cgroupfs_type type, cgroup_t *cgroup)
     return handle;
 }
 
-static int add_file(vfs_node_t parent, const char *name, enum cgroupfs_type type, uint16_t mode)
+static int add_file(vfs_node_t parent, const char *name, cgroupfs_type_t type, uint16_t mode)
 {
     vfs_node_t node = vfs_node_alloc(parent, name);
     if (!node) return -ENOMEM;
@@ -73,9 +73,9 @@ static int add_file(vfs_node_t parent, const char *name, enum cgroupfs_type type
 static int populate(vfs_node_t dir)
 {
     static const struct {
-            const char        *name;
-            enum cgroupfs_type type;
-            uint16_t           mode;
+            const char     *name;
+            cgroupfs_type_t type;
+            uint16_t        mode;
     } files[] = {
         {"cgroup.controllers",     CGROUPFS_CONTROLLERS,     0444},
         {"cgroup.subtree_control", CGROUPFS_SUBTREE_CONTROL, 0644},

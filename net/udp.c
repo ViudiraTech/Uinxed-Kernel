@@ -29,7 +29,7 @@ typedef struct udp_packet {
         uint8_t            data[];
 } udp_packet_t;
 
-struct udp_endpoint {
+typedef struct udp_endpoint {
         uint16_t             family;
         uint8_t              native6;
         uint8_t              v6only;
@@ -48,7 +48,7 @@ struct udp_endpoint {
         spinlock_t           lock;
         udp_event_callback_t event_callback;
         void                *event_context;
-};
+} udp_endpoint_t;
 
 static udp_endpoint_t *udp_table[UDP_ENDPOINT_MAX];
 static spinlock_t      udp_table_lock;

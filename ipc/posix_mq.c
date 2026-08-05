@@ -54,7 +54,7 @@ typedef struct mq_des {
         spinlock_t  lock;
 } mq_des_t;
 
-struct mq_queue {
+typedef struct mq_queue {
         char          name[MQ_NAME_MAX];
         mq_attr_t     attr;
         mq_message_t *head;
@@ -69,7 +69,7 @@ struct mq_queue {
         sigevent_t notify;
         task_t    *notify_task;
         int        notify_pending;
-};
+} mq_queue_t;
 
 /* ------------------------------------------------------------------ */
 /*  Global queue registry                                               */

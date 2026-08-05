@@ -184,9 +184,8 @@ static int memfd_free(void *handle)
 {
     memfd_file_t *file = handle;
     if (!file) return EOK;
-    for (size_t i = 0; i < file->page_count; i++) {
+    for (size_t i = 0; i < file->page_count; i++)
         if (file->pages[i]) free_frames(file->pages[i], 1);
-    }
     free(file->pages);
     free(file);
     return EOK;

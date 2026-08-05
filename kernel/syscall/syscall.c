@@ -1533,14 +1533,12 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
     if (path_ret != EOK) return path_ret;
 
     /* Copy source path (optional —can be NULL for virtual filesystems) */
-    if (source) {
+    if (source)
         if (strncpy_from_user(src, (const char *)source, sizeof(src)) < 0) return -EFAULT;
-    }
 
     /* Copy filesystem type (optional —can be NULL to let VFS probe) */
-    if (fstype) {
+    if (fstype)
         if (strncpy_from_user(fst, (const char *)fstype, sizeof(fst)) < 0) return -EFAULT;
-    }
 
     /* Open the target mount point */
     vfs_node_t node = vfs_open(tgt);
@@ -1934,7 +1932,7 @@ static int64_t sys_clock_gettime_stub(uint64_t clockid, uint64_t tp, uint64_t ar
 
 /* ---------- sysinfo ---------- */
 
-struct linux_sysinfo {
+typedef struct linux_sysinfo {
         int64_t  uptime;
         uint64_t loads[3];
         uint64_t totalram;
@@ -1949,11 +1947,11 @@ struct linux_sysinfo {
         uint64_t freehigh;
         uint32_t mem_unit;
         char     _f[20 - 2 * sizeof(uint64_t) - sizeof(uint32_t)];
-};
+} linux_sysinfo_t;
 
 /* ---------- statfs ---------- */
 
-struct linux_statfs {
+typedef struct linux_statfs {
         int64_t  f_type;
         int64_t  f_bsize;
         uint64_t f_blocks;
@@ -1966,7 +1964,7 @@ struct linux_statfs {
         int64_t  f_frsize;
         int64_t  f_flags;
         int64_t  f_spare[4];
-};
+} linux_statfs_t;
 
 #define TMPFS_MAGIC         0x01021994
 #define SYSFS_MAGIC         0x62656572
@@ -1986,7 +1984,7 @@ struct linux_statfs {
 
 /* ---------- getrusage ---------- */
 
-struct linux_rusage {
+typedef struct linux_rusage {
         uint64_t ru_utime_sec;
         uint64_t ru_utime_usec;
         uint64_t ru_stime_sec;
@@ -2005,7 +2003,7 @@ struct linux_rusage {
         int64_t  ru_nsignals;
         int64_t  ru_nvcsw;
         int64_t  ru_nivcsw;
-};
+} linux_rusage_t;
 
 #define RUSAGE_SELF     0
 #define RUSAGE_CHILDREN -1
@@ -2019,7 +2017,7 @@ static int64_t sys_getrusage_impl(uint64_t who, uint64_t usage, uint64_t arg2, u
     if (!usage) return -EFAULT;
     if ((int)who != RUSAGE_SELF && (int)who != RUSAGE_CHILDREN) return -EINVAL;
 
-    struct linux_rusage ru;
+    linux_rusage_t ru;
     memset(&ru, 0, sizeof(ru));
     /* Return some approximate usage values */
     uint64_t ticks   = sched_ticks();
@@ -2270,7 +2268,7 @@ static int64_t linux_statfs_type(vfs_node_t node)
 
 static int64_t copy_statfs_to_user(vfs_node_t node, uint64_t buf)
 {
-    struct linux_statfs sf;
+    linux_statfs_t sf;
     memset(&sf, 0, sizeof(sf));
     sf.f_type        = linux_statfs_type(node);
     sf.f_bsize       = 4096;
@@ -2333,7 +2331,7 @@ static int64_t sys_sysinfo_impl(uint64_t info, uint64_t arg1, uint64_t arg2, uin
     (void)arg5;
     if (!info) return -EFAULT;
 
-    struct linux_sysinfo si;
+    linux_sysinfo_t si;
     memset(&si, 0, sizeof(si));
     si.uptime   = (int64_t)(sched_ticks() / 100);
     si.mem_unit = 1;
@@ -3019,7 +3017,7 @@ static int64_t sys_pkey_mprotect_stub(uint64_t addr, uint64_t len, uint64_t prot
 
 /* ---------- rseq (restartable sequences) ---------- */
 
-struct rseq_layout {
+typedef struct rseq_layout {
         uint32_t cpu_id_start;
         uint32_t cpu_id;
         uint64_t rseq_cs;
@@ -3027,9 +3025,9 @@ struct rseq_layout {
         uint32_t node_id;
         uint32_t mm_cid;
         uint8_t  padding[36];
-} __attribute__((packed));
+} __attribute__((packed)) rseq_layout_t;
 
-_Static_assert(sizeof(struct rseq_layout) == 64, "rseq ABI size");
+_Static_assert(sizeof(rseq_layout_t) == 64, "rseq ABI size");
 
 static int64_t sys_rseq_impl(uint64_t rseq_base, uint64_t rseq_len, uint64_t flags, uint64_t sig, uint64_t arg4, uint64_t arg5)
 {
@@ -3038,7 +3036,7 @@ static int64_t sys_rseq_impl(uint64_t rseq_base, uint64_t rseq_len, uint64_t fla
     (void)arg5;
 
     if (flags & ~0ULL) return -EINVAL;
-    if (rseq_len != sizeof(struct rseq_layout)) return -EINVAL;
+    if (rseq_len != sizeof(rseq_layout_t)) return -EINVAL;
     if (!rseq_base) return -EINVAL;
 
     /* Store the rseq area association. A full implementation would abort
@@ -3050,8 +3048,8 @@ static int64_t sys_rseq_impl(uint64_t rseq_base, uint64_t rseq_len, uint64_t fla
     /* Write cpu_id to the rseq area */
     task_t *task = current_task();
     int     cpu  = task ? (int)task->cpu_id : 0;
-    if (copy_to_user((void *)(rseq_base + offsetof(struct rseq_layout, cpu_id_start)), &cpu, sizeof(cpu))) return -EFAULT;
-    if (copy_to_user((void *)(rseq_base + offsetof(struct rseq_layout, cpu_id)), &cpu, sizeof(cpu))) return -EFAULT;
+    if (copy_to_user((void *)(rseq_base + offsetof(rseq_layout_t, cpu_id_start)), &cpu, sizeof(cpu))) return -EFAULT;
+    if (copy_to_user((void *)(rseq_base + offsetof(rseq_layout_t, cpu_id)), &cpu, sizeof(cpu))) return -EFAULT;
 
     return 0;
 }
@@ -3220,7 +3218,7 @@ static int64_t sys_pidfd_open_impl(uint64_t pid_raw, uint64_t flags, uint64_t ar
 
 /* ---------- clone3 ---------- */
 
-struct clone3_args {
+typedef struct clone3_args {
         uint64_t flags;
         uint64_t pidfd;
         uint64_t child_tid;
@@ -3232,7 +3230,7 @@ struct clone3_args {
         uint64_t set_tid;
         uint64_t set_tid_size;
         uint64_t cgroup;
-};
+} clone3_args_t;
 
 static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -3241,10 +3239,10 @@ static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, u
     (void)arg4;
     (void)arg5;
 
-    if (size < sizeof(struct clone3_args)) return -EINVAL;
-    if (size > sizeof(struct clone3_args)) return -E2BIG;
+    if (size < sizeof(clone3_args_t)) return -EINVAL;
+    if (size > sizeof(clone3_args_t)) return -E2BIG;
 
-    struct clone3_args args;
+    clone3_args_t args;
     if (copy_from_user(&args, (const void *)cl_args, sizeof(args))) return -EFAULT;
 
     /* Validate flags */
@@ -3356,17 +3354,12 @@ static int64_t sys_process_madvise_impl(uint64_t pidfd, uint64_t iovec, uint64_t
 
 /* ---------- epoll_pwait2 ---------- */
 
-struct linux_timespec64 {
-        int64_t tv_sec;
-        int64_t tv_nsec;
-};
-
 static int64_t sys_epoll_pwait2_impl(uint64_t epfd, uint64_t events, uint64_t maxevents, uint64_t tsp, uint64_t sigmask, uint64_t sigsetsize)
 {
     int timeout_ms = -1; /* infinite */
 
     if (tsp) {
-        struct linux_timespec64 ts;
+        linux_timespec64_t ts;
         if (copy_from_user(&ts, (const void *)tsp, sizeof(ts))) return -EFAULT;
         if (ts.tv_sec < 0 || ts.tv_nsec < 0 || (uint64_t)ts.tv_nsec >= 1000000000ULL) return -EINVAL;
 
@@ -4373,13 +4366,13 @@ static int64_t sys_execve_wrap(uint64_t path, uint64_t argv, uint64_t envp, uint
 
 /* ---------- getdents64 ---------- */
 
-struct linux_dirent64 {
+typedef struct linux_dirent64 {
         uint64_t       d_ino;
         int64_t        d_off;
         unsigned short d_reclen;
         unsigned char  d_type;
         char           d_name[];
-};
+} linux_dirent64_t;
 
 #define DT_UNKNOWN 0
 #define DT_FIFO    1
@@ -4455,16 +4448,16 @@ static int64_t sys_getdents64_impl(int fd, uint64_t dirent, uint64_t count)
         if (vfs_readdir(node, index, &entry) != EOK) break;
 
         size_t         name_len = strlen(entry.name);
-        unsigned short reclen   = (unsigned short)(sizeof(struct linux_dirent64) + name_len + 1);
+        unsigned short reclen   = (unsigned short)(sizeof(linux_dirent64_t) + name_len + 1);
         reclen                  = (unsigned short)ALIGN_UP(reclen, 8);
 
         if (written + reclen > count) break;
 
-        struct linux_dirent64 *de = (struct linux_dirent64 *)(kbuf + written);
-        de->d_ino                 = entry.inode;
-        de->d_off                 = (int64_t)(index + 1);
-        de->d_reclen              = reclen;
-        de->d_type                = vfs_node_to_dtype((uint16_t)entry.type);
+        linux_dirent64_t *de = (linux_dirent64_t *)(kbuf + written);
+        de->d_ino            = entry.inode;
+        de->d_off            = (int64_t)(index + 1);
+        de->d_reclen         = reclen;
+        de->d_type           = vfs_node_to_dtype((uint16_t)entry.type);
         memcpy(de->d_name, entry.name, name_len);
         de->d_name[name_len] = '\0';
 

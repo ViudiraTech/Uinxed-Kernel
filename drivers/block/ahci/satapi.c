@@ -35,9 +35,8 @@ static int satapi_find_slot(ahci_port_state_t *port)
     uint32_t slots = ((ahci_read32(hba_mmio, HOST_CAP) >> 8) & 0x1F) + 1;
     uint32_t ci    = ahci_read32(port->port_mmio, PORT_CI);
     uint32_t sact  = ahci_read32(port->port_mmio, PORT_SACT);
-    for (uint32_t i = 0; i < slots; i++) {
+    for (uint32_t i = 0; i < slots; i++)
         if (!((ci | sact) & (1u << i))) return (int)i;
-    }
     return -1;
 }
 
@@ -88,9 +87,8 @@ static int satapi_issue_packet(ahci_port_state_t *port, int slot, const uint8_t 
     hdr->ctbau = (uint32_t)(port->ct_phys >> 32);
 
     tout = 1000000;
-    while (ahci_read32(p, PORT_TFDATA) & 0x88) {
+    while (ahci_read32(p, PORT_TFDATA) & 0x88)
         if (--tout <= 0) return -EBUSY;
-    }
 
     ahci_write32(p, PORT_IRQ_STAT, 0xFFFFFFFF);
     ahci_write32(p, PORT_CI, (uint32_t)(1 << slot));
@@ -117,9 +115,8 @@ void ahci_satapi_init(void)
     ahci_satapi_device_count = 0;
     uint8_t sr_idx           = 0;
 
-    for (uint8_t d = 0; d < 4; d++) {
+    for (uint8_t d = 0; d < 4; d++)
         if (atapi_devices[d].reserved && atapi_devices[d].type == IDE_ATAPI) sr_idx++;
-    }
 
     for (int i = 0; i < AHCI_MAX_DEVICES; i++) {
         if (!ahci_devices[i].reserved || ahci_devices[i].type != AHCI_DEV_SATAPI) continue;

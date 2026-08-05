@@ -489,9 +489,8 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
     }
 
     /* Set up the signal frame on the user stack (saves old_mask for sigreturn) */
-    if (signal_setup_frame(frame, sig, sa, info, old_mask) < 0) {
+    if (signal_setup_frame(frame, sig, sa, info, old_mask) < 0)
         plogk("signal: failed to set up frame for sig %d pid %llu\n", sig, proc->task ? proc->task->pid : 0);
-    }
     state->restore_mask = false;
 
     /* Clear pending bit for this signal */

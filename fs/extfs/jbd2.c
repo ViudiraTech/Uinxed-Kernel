@@ -35,7 +35,7 @@ typedef struct jbd2_revoke {
         struct jbd2_revoke *next;
 } jbd2_revoke_t;
 
-struct extfs_journal {
+typedef struct extfs_journal {
         extfs_sb_info_t *sb;
         extfs_handle_t  *inode;
         uint8_t         *super_buffer;
@@ -53,7 +53,7 @@ struct extfs_journal {
         jbd2_record_t   *records;
         jbd2_record_t   *tail;
         uint32_t         record_count;
-};
+} extfs_journal_t;
 
 static uint16_t jbd2_get_be16(const void *address)
 {

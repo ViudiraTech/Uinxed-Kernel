@@ -16,6 +16,11 @@
 
 #define SYSCALL_VECTOR 0x80
 
+typedef struct linux_timespec64 {
+        int64_t tv_sec;
+        int64_t tv_nsec;
+} linux_timespec64_t;
+
 #define O_RDONLY   0x0000
 #define O_WRONLY   0x0001
 #define O_RDWR     0x0002
