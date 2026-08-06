@@ -6780,7 +6780,11 @@ int f_puts(const TCHAR *str, /* Pointer to the string to be output */
 /* The whole kernel is compiled without SSE/AVX; this region opts the
  * floating-point helpers back in.  All of them run inside a kernel FPU
  * section opened by f_printf_float(). */
-#            pragma GCC target("sse2")
+#            if defined(__clang__)
+#                pragma clang attribute push(__attribute__((target("sse2"))), apply_to = function)
+#            else
+#                pragma GCC target("sse2")
+#            endif
 
 static int ilog10(double n) /* Calculate log10(n) in integer output */
 {
@@ -6907,20 +6911,32 @@ static void ftoa(char  *buf,  /* Buffer to output the floating point string */
     *buf = 0; /* Term */
 }
 
-#            pragma GCC reset_options
+#            if defined(__clang__)
+#                pragma clang attribute pop
+#            else
+#                pragma GCC reset_options
+#            endif
 
 /* Consume a floating-point vararg and format it.  This function must be
  * compiled with SSE enabled (va_arg of type double is otherwise a
  * compile-time error in -mno-sse code), and it owns the kernel FPU
  * section around the whole ftoa()/ilog10()/i10x() call chain. */
-#            pragma GCC target("sse2")
+#            if defined(__clang__)
+#                pragma clang attribute push(__attribute__((target("sse2"))), apply_to = function)
+#            else
+#                pragma GCC target("sse2")
+#            endif
 static void f_printf_float(char *str, va_list arp, int prec, TCHAR fmt)
 {
     kernel_fpu_begin();
     ftoa(str, va_arg(arp, double), prec, fmt);
     kernel_fpu_end();
 }
-#            pragma GCC reset_options
+#            if defined(__clang__)
+#                pragma clang attribute pop
+#            else
+#                pragma GCC reset_options
+#            endif
 #        endif /* FF_PRINT_FLOAT && FF_INTDEF == 2 */
 
 int f_printf(FIL         *fp,  /* Pointer to the file object */
