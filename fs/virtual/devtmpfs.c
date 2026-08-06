@@ -635,7 +635,16 @@ static int devtmpfs_create_tty_nodes(void)
     } tty_nodes[] = {
         {.path = "/dev/tty0",    .major = TTY_MAJOR,     .minor = 0 },
         {.path = "/dev/tty1",    .major = TTY_MAJOR,     .minor = 1 },
+        {.path = "/dev/tty2",    .major = TTY_MAJOR,     .minor = 2 },
+        {.path = "/dev/tty3",    .major = TTY_MAJOR,     .minor = 3 },
+        {.path = "/dev/tty4",    .major = TTY_MAJOR,     .minor = 4 },
+        {.path = "/dev/tty5",    .major = TTY_MAJOR,     .minor = 5 },
+        {.path = "/dev/tty6",    .major = TTY_MAJOR,     .minor = 6 },
+        {.path = "/dev/tty7",    .major = TTY_MAJOR,     .minor = 7 },
         {.path = "/dev/ttyS0",   .major = TTY_MAJOR,     .minor = 64},
+        {.path = "/dev/ttyS1",   .major = TTY_MAJOR,     .minor = 65},
+        {.path = "/dev/ttyS2",   .major = TTY_MAJOR,     .minor = 66},
+        {.path = "/dev/ttyS3",   .major = TTY_MAJOR,     .minor = 67},
         {.path = "/dev/console", .major = TTY_AUX_MAJOR, .minor = 1 },
     };
 
@@ -694,6 +703,222 @@ static int devtmpfs_create_drm_node(void)
     return total;
 }
 
+/* ------------------------------------------------------------------ */
+/*  /proc block-device export helpers                                  */
+/* ------------------------------------------------------------------ */
+
+typedef void (*devtmpfs_block_walk_fn)(const char *name, uint32_t major, uint32_t minor, uint64_t blocks, void *opaque);
+
+static void devtmpfs_walk_partitions(devtmpfs_block_walk_fn fn, void *opaque, uint32_t major, uint32_t minor_base, const char *disk_name,
+                                     const blockdev_device_t *device, bool use_p)
+{
+    (void)use_p;
+    partition_table_t table;
+    if (partition_scan(device, &table) != EOK) return;
+    bool separator = disk_name[strlen(disk_name) - 1] >= '0' && disk_name[strlen(disk_name) - 1] <= '9';
+    for (size_t i = 0; i < table.count; i++) {
+        const partition_info_t *part = &table.partitions[i];
+        blockdev_device_t       view;
+        if (blockdev_open_partition(device, part->start_lba, part->sector_count, &view) != EOK) continue;
+        char name[96];
+        snprintf(name, sizeof(name), "%s%s%u", disk_name, separator ? "p" : "", part->number);
+        fn(name, major, minor_base + part->number, view.sector_count * view.sector_size / 1024, opaque);
+    }
+    partition_table_destroy(&table);
+}
+
+static void devtmpfs_emit_block(devtmpfs_block_walk_fn fn, void *opaque, uint32_t major, uint32_t minor, const char *name,
+                                const blockdev_device_t *device)
+{
+    fn(name, major, minor, device->sector_count * device->sector_size / 1024, opaque);
+}
+
+/* Enumerate every published whole disk plus its partitions.  Minor numbers
+ * follow the conventional per-backend layout (hd=3, sd=8, sr=11, nvme=259). */
+static void devtmpfs_walk_block_devices(devtmpfs_block_walk_fn fn, void *opaque)
+{
+    for (uint8_t drive = 0; drive < 4; drive++) {
+        if (!ide_devices[drive].reserved || ide_devices[drive].type != IDE_ATA) continue;
+        blockdev_device_t device;
+        if (blockdev_open_ide(drive, &device) != EOK) continue;
+        char name[32];
+        snprintf(name, sizeof(name), "hd%c", 'a' + drive);
+        devtmpfs_emit_block(fn, opaque, 3, drive, name, &device);
+        devtmpfs_walk_partitions(fn, opaque, 3, drive, name, &device, false);
+    }
+    for (uint8_t d = 0; d < (uint8_t)AHCI_MAX_DEVICES; d++) {
+        if (!ahci_devices[d].reserved || ahci_devices[d].type != AHCI_DEV_SATA) continue;
+        char disk_name[16];
+        if (blockdev_format_disk_name(disk_name, sizeof(disk_name), d) != EOK) continue;
+        blockdev_device_t device;
+        if (blockdev_open_ahci(d, &device) != EOK) continue;
+        devtmpfs_emit_block(fn, opaque, 8, d, disk_name, &device);
+        devtmpfs_walk_partitions(fn, opaque, 8, d, disk_name, &device, false);
+    }
+    {
+        uint8_t sr_idx = 0;
+        for (uint8_t drive = 0; drive < 4; drive++) {
+            if (!atapi_devices[drive].reserved || atapi_devices[drive].type != IDE_ATAPI) continue;
+            blockdev_device_t device;
+            if (blockdev_open_atapi(drive, &device) != EOK) continue;
+            char name[32];
+            snprintf(name, sizeof(name), "sr%u", (unsigned)sr_idx);
+            devtmpfs_emit_block(fn, opaque, 11, sr_idx, name, &device);
+            sr_idx++;
+        }
+        for (uint8_t d = 0; d < (uint8_t)AHCI_MAX_DEVICES; d++) {
+            if (!ahci_devices[d].reserved || ahci_devices[d].type != AHCI_DEV_SATAPI) continue;
+            blockdev_device_t device;
+            if (blockdev_open_ahci_atapi(d, &device) != EOK) continue;
+            char name[32];
+            snprintf(name, sizeof(name), "sr%u", (unsigned)sr_idx);
+            devtmpfs_emit_block(fn, opaque, 11, sr_idx, name, &device);
+            sr_idx++;
+        }
+    }
+    for (int c = 0; c < nvme_controller_count(); c++) {
+        nvme_controller_t *ctrl = nvme_get_controller(c);
+        if (!ctrl || !ctrl->initialised) continue;
+        for (uint32_t ns = 0; ns < ctrl->num_namespaces; ns++) {
+            if (!ctrl->namespaces[ns].ready) continue;
+            blockdev_device_t device;
+            if (blockdev_open_nvme(&ctrl->namespaces[ns], &device) != EOK) continue;
+            char name[64];
+            snprintf(name, sizeof(name), "nvme%dn%u", ctrl->id, ctrl->namespaces[ns].nsid);
+            devtmpfs_emit_block(fn, opaque, 259, ctrl->namespaces[ns].nsid, name, &device);
+            devtmpfs_walk_partitions(fn, opaque, 259, ctrl->namespaces[ns].nsid, name, &device, true);
+        }
+    }
+}
+
+static const char *devtmpfs_block_class(const char *name)
+{
+    if (!strncmp(name, "sd", 2)) return "sd";
+    if (!strncmp(name, "hd", 2)) return "ide";
+    if (!strncmp(name, "sr", 2)) return "sr";
+    if (!strncmp(name, "nvme", 4)) return "nvme";
+    return "block";
+}
+
+typedef struct {
+        uint32_t major;
+        char     cls[8];
+} devtmpfs_class_entry_t;
+
+typedef struct {
+        char                  *buf;
+        size_t                 cap;
+        size_t                 off;
+        devtmpfs_class_entry_t seen[16];
+        size_t                 seen_count;
+} devtmpfs_devices_ctx_t;
+
+static void devtmpfs_devices_block(const char *name, uint32_t major, uint32_t minor, uint64_t blocks, void *opaque)
+{
+    devtmpfs_devices_ctx_t *ctx = opaque;
+    const char             *cls = devtmpfs_block_class(name);
+    (void)minor;
+    (void)blocks;
+    for (size_t i = 0; i < ctx->seen_count; i++) {
+        if (ctx->seen[i].major == major) return;
+    }
+    if (ctx->seen_count >= sizeof(ctx->seen) / sizeof(ctx->seen[0])) return;
+    ctx->seen[ctx->seen_count].major = major;
+    strncpy(ctx->seen[ctx->seen_count].cls, cls, sizeof(ctx->seen[0].cls) - 1);
+    ctx->seen[ctx->seen_count].cls[sizeof(ctx->seen[0].cls) - 1] = '\0';
+    ctx->seen_count++;
+    int n = snprintf(ctx->buf + ctx->off, ctx->cap - ctx->off, "  %3u %s\n", major, cls);
+    if (n > 0 && (size_t)n < ctx->cap - ctx->off) ctx->off += (size_t)n;
+}
+
+/* Linux /proc/devices: one line per character/block device major. */
+int devtmpfs_format_proc_devices(char *buf, size_t cap)
+{
+    devtmpfs_devices_ctx_t ctx;
+    size_t                 off = 0;
+    if (!buf || cap < 128) return 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.buf = buf;
+    ctx.cap = cap;
+
+    off += (size_t)snprintf(buf + off, cap - off, "Character devices:\n");
+    spin_lock(&devtmpfs_lock);
+    for (int i = 0; i < DEVTMPFS_MAX_DEVICES; i++) {
+        if (!devtmpfs_table[i].active || (devtmpfs_table[i].node_type & file_block)) continue;
+        uint32_t    major = MAJOR(devtmpfs_table[i].dev);
+        const char *leaf  = strrchr(devtmpfs_table[i].path, '/');
+        leaf              = leaf ? leaf + 1 : devtmpfs_table[i].path;
+        bool dup          = false;
+        for (int j = 0; j < i; j++) {
+            if (!devtmpfs_table[j].active || (devtmpfs_table[j].node_type & file_block)) continue;
+            if (MAJOR(devtmpfs_table[j].dev) != major) continue;
+            const char *leaf2 = strrchr(devtmpfs_table[j].path, '/');
+            leaf2             = leaf2 ? leaf2 + 1 : devtmpfs_table[j].path;
+            if (streq(leaf, leaf2)) {
+                dup = true;
+                break;
+            }
+        }
+        if (dup) continue;
+        int n = snprintf(buf + off, cap - off, "  %3u %s\n", major, leaf);
+        if (n <= 0 || (size_t)n >= cap - off) break;
+        off += (size_t)n;
+    }
+    spin_unlock(&devtmpfs_lock);
+
+    off += (size_t)snprintf(buf + off, cap - off, "\nBlock devices:\n");
+    ctx.off = off;
+    devtmpfs_walk_block_devices(devtmpfs_devices_block, &ctx);
+    return (int)ctx.off;
+}
+
+typedef struct {
+        char  *buf;
+        size_t cap;
+        size_t off;
+} devtmpfs_block_file_ctx_t;
+
+static void devtmpfs_partitions_block(const char *name, uint32_t major, uint32_t minor, uint64_t blocks, void *opaque)
+{
+    devtmpfs_block_file_ctx_t *ctx = opaque;
+    int n = snprintf(ctx->buf + ctx->off, ctx->cap - ctx->off, "  %u        %u %9llu %s\n", major, minor, (unsigned long long)blocks, name);
+    if (n > 0 && (size_t)n < ctx->cap - ctx->off) ctx->off += (size_t)n;
+}
+
+/* Linux /proc/partitions: whole disks and their MBR/GPT partition views. */
+int devtmpfs_format_proc_partitions(char *buf, size_t cap)
+{
+    devtmpfs_block_file_ctx_t ctx;
+    if (!buf || cap < 128) return 0;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.buf = buf;
+    ctx.cap = cap;
+    ctx.off += (size_t)snprintf(buf + ctx.off, cap - ctx.off, "major minor  #blocks  name\n\n");
+    devtmpfs_walk_block_devices(devtmpfs_partitions_block, &ctx);
+    return (int)ctx.off;
+}
+
+static void devtmpfs_diskstats_block(const char *name, uint32_t major, uint32_t minor, uint64_t blocks, void *opaque)
+{
+    devtmpfs_block_file_ctx_t *ctx = opaque;
+    (void)blocks;
+    int n = snprintf(ctx->buf + ctx->off, ctx->cap - ctx->off, "%4u %4u %s 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n", major, minor, name);
+    if (n > 0 && (size_t)n < ctx->cap - ctx->off) ctx->off += (size_t)n;
+}
+
+/* Linux /proc/diskstats: per-disk and per-partition I/O counters. */
+int devtmpfs_format_proc_diskstats(char *buf, size_t cap)
+{
+    devtmpfs_block_file_ctx_t ctx;
+    if (!buf || cap < 128) return 0;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.buf = buf;
+    ctx.cap = cap;
+    devtmpfs_walk_block_devices(devtmpfs_diskstats_block, &ctx);
+    return (int)ctx.off;
+}
+
 void devtmpfs_init(void)
 {
     int status;
@@ -722,8 +947,21 @@ void devtmpfs_init(void)
 
     status = vfs_mkdir("/dev/pts");
     if (status != EOK && status != -EEXIST) plogk("devtmpfs: Cannot create /dev/pts: %d\n", status);
+
+    /* /dev/shm is a private tmpfs mount with the sticky bit set, matching
+     * the Linux devtmpfs layout (openrc mounts tmpfs there at boot). */
     status = vfs_mkdir("/dev/shm");
     if (status != EOK && status != -EEXIST) plogk("devtmpfs: Cannot create /dev/shm: %d\n", status);
+    vfs_node_t shm_root = vfs_open("/dev/shm");
+    if (shm_root) {
+        if (!shm_root->is_mount) {
+            status = vfs_mount_fs("tmpfs", "tmpfs", shm_root);
+            if (status != EOK) plogk("devtmpfs: Cannot mount tmpfs on /dev/shm: %d\n", status);
+        }
+        shm_root->mode        = 01777;
+        shm_root->permissions = 01777;
+        vfs_close(shm_root);
+    }
 
     /* Register whole disks without issuing media I/O during early boot. */
     /* IDE ATA drives -> /dev/hda, /dev/hdb, ... */

@@ -9,6 +9,7 @@
  */
 
 #include <drivers/i2c/i2c.h>
+#include <fs/sysfs/i2c_sysfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/glist/circular_list.h>
@@ -48,6 +49,9 @@ int i2c_add_adapter(struct i2c_adapter *adap)
     spin_unlock(&i2c_adapter_lock);
 
     plogk("i2c: adapter '%s' registered as bus %d\n", adap->name, adap->nr);
+#    if CONFIG_SYSFS
+    (void)i2c_sysfs_adapter_add(adap);
+#    endif
     return 0;
 }
 
@@ -72,6 +76,9 @@ int i2c_del_adapter(struct i2c_adapter *adap)
     spin_unlock(&i2c_adapter_lock);
     spin_unlock(&adap->bus_lock);
 
+#    if CONFIG_SYSFS
+    i2c_sysfs_adapter_del(adap);
+#    endif
     plogk("i2c: adapter '%s' (bus %d) unregistered.\n", adap->name, adap->nr);
     return 0;
 }

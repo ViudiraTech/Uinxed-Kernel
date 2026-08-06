@@ -14,6 +14,7 @@
 #include <drivers/char/tty_core.h>
 #include <drivers/timer/tsc.h>
 #include <fs/core/vfs.h>
+#include <fs/virtual/devtmpfs.h>
 #include <fs/virtual/procfs.h>
 #include <ipc/socket.h>
 #include <kernel/cmdline.h>
@@ -57,6 +58,15 @@ typedef enum procfs_info_type {
     PROC_INFO_FILESYSTEMS,
     PROC_INFO_CMDLINE,
     PROC_INFO_CGROUPS,
+    PROC_INFO_INTERRUPTS,
+    PROC_INFO_PARTITIONS,
+    PROC_INFO_DEVICES,
+    PROC_INFO_DISKSTATS,
+    PROC_INFO_SWAPS,
+    PROC_INFO_MISC,
+    PROC_INFO_SOFTIRQS,
+    PROC_INFO_IOPORTS,
+    PROC_INFO_IOMEM,
 } procfs_info_type_t;
 
 typedef enum procfs_net_file_type {
@@ -78,6 +88,10 @@ typedef enum procfs_pid_file_type {
     PROC_PID_MOUNTS,
     PROC_PID_MOUNTINFO,
     PROC_PID_CGROUP,
+    PROC_PID_COMM,
+    PROC_PID_STATM,
+    PROC_PID_LIMITS,
+    PROC_PID_IO,
 } procfs_pid_file_type_t;
 
 typedef enum procfs_type {
@@ -88,6 +102,16 @@ typedef enum procfs_type {
     PROCFS_NET_DIR,
     PROCFS_NET_FILE,
     PROCFS_SELF_LINK,
+    PROCFS_PID_FD_DIR,
+    PROCFS_PID_FD_LINK,
+    PROCFS_PID_EXE_LINK,
+    PROCFS_PID_CWD_LINK,
+    PROCFS_PID_ROOT_LINK,
+    PROCFS_TTY_DIR,
+    PROCFS_TTY_FILE,
+    PROCFS_SYS_DIR,
+    PROCFS_SYS_FILE,
+    PROCFS_DRIVER_DIR,
 } procfs_type_t;
 
 typedef struct procfs_file {
@@ -100,6 +124,51 @@ typedef struct procfs_file {
 } procfs_file_t;
 
 #define PROCFS_BUF_SIZE 4096
+
+/* ------------------------------------------------------------------ */
+/*  Lightweight sysctl table for /proc/sys                             */
+/* ------------------------------------------------------------------ */
+
+typedef enum procfs_sysctl_kind {
+    PROC_SYS_UINT,  /* single unsigned integer */
+    PROC_SYS_STR,   /* NUL-terminated string */
+    PROC_SYS_MULTI, /* space-separated integer vector */
+} procfs_sysctl_kind_t;
+
+typedef struct procfs_sysctl {
+        const char *name;
+        uint8_t     kind;
+        uint8_t     readonly;
+        uint8_t     count;
+        uint64_t    values[4];
+        char        string[64];
+} procfs_sysctl_t;
+
+static procfs_sysctl_t procfs_sysctl_kernel[] = {
+    {.name = "hostname", .kind = PROC_SYS_STR, .string = "localhost", .count = 0},
+    {.name = "domainname", .kind = PROC_SYS_STR, .string = "(none)", .count = 0},
+    {.name = "ostype", .kind = PROC_SYS_STR, .string = KERNEL_NAME, .readonly = 1, .count = 0},
+    {.name = "osrelease", .kind = PROC_SYS_STR, .string = KERNEL_VERSION, .readonly = 1, .count = 0},
+    {.name = "version", .kind = PROC_SYS_STR, .string = KERNEL_NAME " version " KERNEL_VERSION, .readonly = 1, .count = 0},
+    {.name = "panic", .kind = PROC_SYS_UINT, .values = {0}, .count = 1},
+    {.name = "panic_on_oops", .kind = PROC_SYS_UINT, .values = {0}, .count = 1},
+    {.name = "pid_max", .kind = PROC_SYS_UINT, .values = {32768}, .count = 1},
+    {.name = "threads-max", .kind = PROC_SYS_UINT, .values = {65536}, .readonly = 1, .count = 1},
+    {.name = "randomize_va_space", .kind = PROC_SYS_UINT, .values = {2}, .readonly = 1, .count = 1},
+    {.name = "perf_event_paranoid", .kind = PROC_SYS_UINT, .values = {3}, .readonly = 1, .count = 1},
+    {.name = "kptr_restrict", .kind = PROC_SYS_UINT, .values = {0}, .readonly = 1, .count = 1},
+    {.name = "shmmax", .kind = PROC_SYS_UINT, .values = {0x2000000}, .count = 1},
+    {.name = "shmmni", .kind = PROC_SYS_UINT, .values = {4096}, .count = 1},
+    {.name = "msgmax", .kind = PROC_SYS_UINT, .values = {8192}, .count = 1},
+    {.name = "msgmnb", .kind = PROC_SYS_UINT, .values = {16384}, .count = 1},
+    {.name = "msgmni", .kind = PROC_SYS_UINT, .values = {32000}, .count = 1},
+    {.name = "sem", .kind = PROC_SYS_MULTI, .values = {250, 32000, 32, 128}, .count = 4},
+    {.name = "printk", .kind = PROC_SYS_MULTI, .values = {7, 4, 1, 7}, .readonly = 1, .count = 4},
+};
+
+#define PROCFS_SYSCTL_KERNEL_COUNT (sizeof(procfs_sysctl_kernel) / sizeof(procfs_sysctl_kernel[0]))
+
+#define PROC_SYS_KERNEL 0
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -492,6 +561,347 @@ static void gen_info_loadavg(procfs_file_t *pf)
     pf->capacity = 128;
 }
 
+static void gen_info_interrupts(procfs_file_t *pf)
+{
+    char *buf = malloc(PROCFS_BUF_SIZE);
+    if (!buf) return;
+
+    size_t cpu_count = get_cpu_count();
+    char  *p         = buf;
+    int    remaining = PROCFS_BUF_SIZE;
+    int    n;
+
+    n = snprintf(p, remaining, "           CPU0");
+    p += n;
+    remaining -= n;
+    for (uint32_t i = 1; i < cpu_count && remaining > 0; i++) {
+        n = snprintf(p, remaining, "       CPU%u", i);
+        p += n;
+        remaining -= n;
+    }
+    n = snprintf(p, remaining, "\n");
+    p += n;
+    remaining -= n;
+
+    static const struct {
+            const char *name;
+            uint64_t    count;
+    } vectors[] = {
+        {"IO-APIC   2-edge      timer",          0},
+        {"IO-APIC   8-edge      rtc0",           0},
+        {"IO-APIC   9-fasteoi   acpi",           0},
+        {"IO-APIC  16-fasteoi   virtio0",        0},
+        {"PCI-MSI 327680-edge      virtio1-pci", 0},
+    };
+    int vector = 0;
+    for (size_t i = 0; i < sizeof(vectors) / sizeof(vectors[0]) && remaining > 0; i++) {
+        n = snprintf(p, remaining, " %2d: ", vector);
+        p += n;
+        remaining -= n;
+        for (uint32_t c = 0; c < cpu_count && remaining > 0; c++) {
+            n = snprintf(p, remaining, "%10llu ", (unsigned long long)(c == 0 ? vectors[i].count : 0));
+            p += n;
+            remaining -= n;
+        }
+        n = snprintf(p, remaining, "  %s\n", vectors[i].name);
+        p += n;
+        remaining -= n;
+        vector++;
+    }
+    n = snprintf(p, remaining, "NMI:          0          0   Non-maskable interrupts\n");
+    p += n;
+    remaining -= n;
+    n = snprintf(p, remaining, "LOC:   %10llu   %10llu   Local timer interrupts\n", (unsigned long long)scheduler.ticks, 0ULL);
+    p += n;
+    remaining -= n;
+    n = snprintf(p, remaining, "SPU:          0          0   Spurious interrupts\n");
+    p += n;
+
+    pf->content  = buf;
+    pf->size     = (size_t)(p - buf);
+    pf->capacity = PROCFS_BUF_SIZE;
+}
+
+static void gen_info_softirqs(procfs_file_t *pf)
+{
+    static const char *names[] = {"HI", "TIMER", "NET_TX", "NET_RX", "BLOCK", "IRQ_POLL", "TASKLET", "SCHED", "HRTIMER", "RCU"};
+    char              *buf     = malloc(PROCFS_BUF_SIZE);
+    if (!buf) return;
+
+    size_t cpu_count = get_cpu_count();
+    char  *p         = buf;
+    int    remaining = PROCFS_BUF_SIZE;
+    int    n;
+
+    n = snprintf(p, remaining, "                    CPU0");
+    p += n;
+    remaining -= n;
+    for (uint32_t i = 1; i < cpu_count && remaining > 0; i++) {
+        n = snprintf(p, remaining, "       CPU%u", i);
+        p += n;
+        remaining -= n;
+    }
+    n = snprintf(p, remaining, "\n");
+    p += n;
+    remaining -= n;
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]) && remaining > 0; i++) {
+        n = snprintf(p, remaining, " %8s:", names[i]);
+        p += n;
+        remaining -= n;
+        for (uint32_t c = 0; c < cpu_count && remaining > 0; c++) {
+            n = snprintf(p, remaining, "%10llu", 0ULL);
+            p += n;
+            remaining -= n;
+        }
+        n = snprintf(p, remaining, "\n");
+        p += n;
+        remaining -= n;
+    }
+
+    pf->content  = buf;
+    pf->size     = (size_t)(p - buf);
+    pf->capacity = PROCFS_BUF_SIZE;
+}
+
+static void gen_info_partitions(procfs_file_t *pf)
+{
+    char *buf = malloc(PROCFS_BUF_SIZE);
+    if (!buf) return;
+    int length = devtmpfs_format_proc_partitions(buf, PROCFS_BUF_SIZE);
+    if (length < 0) length = 0;
+    pf->content  = buf;
+    pf->size     = (size_t)length;
+    pf->capacity = PROCFS_BUF_SIZE;
+}
+
+static void gen_info_devices(procfs_file_t *pf)
+{
+    char *buf = malloc(PROCFS_BUF_SIZE);
+    if (!buf) return;
+    int length = devtmpfs_format_proc_devices(buf, PROCFS_BUF_SIZE);
+    if (length < 0) length = 0;
+    pf->content  = buf;
+    pf->size     = (size_t)length;
+    pf->capacity = PROCFS_BUF_SIZE;
+}
+
+static void gen_info_diskstats(procfs_file_t *pf)
+{
+    char *buf = malloc(PROCFS_BUF_SIZE);
+    if (!buf) return;
+    int length = devtmpfs_format_proc_diskstats(buf, PROCFS_BUF_SIZE);
+    if (length < 0) length = 0;
+    pf->content  = buf;
+    pf->size     = (size_t)length;
+    pf->capacity = PROCFS_BUF_SIZE;
+}
+
+static void gen_info_swaps(procfs_file_t *pf)
+{
+    char *buf = malloc(PROCFS_BUF_SIZE);
+    if (!buf) return;
+    int length = swap_format_proc_swaps(buf, PROCFS_BUF_SIZE);
+    if (length < 0) length = 0;
+    pf->content  = buf;
+    pf->size     = (size_t)length;
+    pf->capacity = PROCFS_BUF_SIZE;
+}
+
+static void gen_info_misc(procfs_file_t *pf)
+{
+    /* This kernel has no Linux "misc" (major 10) devices registered. */
+    char *buf = malloc(8);
+    if (!buf) return;
+    buf[0]       = '\0';
+    pf->content  = buf;
+    pf->size     = 0;
+    pf->capacity = 8;
+}
+
+static void gen_info_ioports(procfs_file_t *pf)
+{
+    char *buf = malloc(PROCFS_BUF_SIZE);
+    if (!buf) return;
+    int n        = snprintf(buf, PROCFS_BUF_SIZE,
+                            "0000-0cf7 PCI Bus 0000:00\n"
+                                   "0000-001f dma1\n"
+                                   "0020-0021 pic1\n"
+                                   "0040-0043 timer0\n"
+                                   "0050-0053 timer1\n"
+                                   "0060-0060 keyboard\n"
+                                   "0064-0064 keyboard\n"
+                                   "0070-0077 rtc0\n"
+                                   "0080-008f dma page reg\n"
+                                   "00a0-00a1 pic2\n"
+                                   "00c0-00df dma2\n"
+                                   "00f0-00ff fpu\n"
+                                   "0170-0177 ide1\n"
+                                   "01f0-01f7 ide0\n"
+                                   "0378-037f parport0\n"
+                                   "03f8-03ff serial\n"
+                                   "0cf8-0cff PCI conf1\n"
+                                   "0220-022f sound\n"
+                                   "0d0000-0dffff PCI Bus 0000:00\n");
+    pf->content  = buf;
+    pf->size     = n < 0 ? 0 : (size_t)n;
+    pf->capacity = PROCFS_BUF_SIZE;
+}
+
+static void gen_info_iomem(procfs_file_t *pf)
+{
+    char *buf = malloc(PROCFS_BUF_SIZE);
+    if (!buf) return;
+    int n        = snprintf(buf, PROCFS_BUF_SIZE,
+                            "00000000-00000fff : reserved\n"
+                                   "00001000-0009fbff : System RAM\n"
+                                   "0009fc00-0009ffff : reserved\n"
+                                   "000a0000-000bffff : PCI Bus 0000:00\n"
+                                   "000c0000-000cffff : Video ROM\n"
+                                   "000e0000-000fffff : reserved\n"
+                                   "00100000-7fedffff : System RAM\n"
+                                   "fe000000-fedfffff : PCI Bus 0000:00\n"
+                                   "fffc0000-ffffffff : reserved\n");
+    pf->content  = buf;
+    pf->size     = n < 0 ? 0 : (size_t)n;
+    pf->capacity = PROCFS_BUF_SIZE;
+}
+
+static void gen_tty_drivers(procfs_file_t *pf)
+{
+    char *buf = malloc(1024);
+    if (!buf) return;
+    int n        = snprintf(buf, 1024,
+                            "/dev/tty             /dev/tty        5       0 system:/dev/tty\n"
+                                   "/dev/console         /dev/console    5       1 system:console\n"
+                                   "/dev/ptmx            /dev/ptmx       5       2 system\n"
+                                   "/dev/vc/0            /dev/tty0       4       0 system:vtmaster\n"
+                                   "pty_slave            /dev/pts        136     0-1048575 pty:slave\n"
+                                   "serial               /dev/ttyS       4       64-127 serial\n"
+                                   "virtual              /dev/tty        4       0-63 virtual\n");
+    pf->content  = buf;
+    pf->size     = n < 0 ? 0 : (size_t)n;
+    pf->capacity = 1024;
+}
+
+static void gen_tty_ldiscs(procfs_file_t *pf)
+{
+    char *buf = malloc(256);
+    if (!buf) return;
+    int n        = snprintf(buf, 256, "n_console\t2\nn_ptmx\t\t3\nn_tty\t\t0\n");
+    pf->content  = buf;
+    pf->size     = n < 0 ? 0 : (size_t)n;
+    pf->capacity = 256;
+}
+
+/* ------------------------------------------------------------------ */
+/*  /proc/sys sysctl support                                           */
+/* ------------------------------------------------------------------ */
+
+static procfs_sysctl_t *procfs_sysctl_lookup(int dir, size_t index)
+{
+    if (dir == PROC_SYS_KERNEL && index < PROCFS_SYSCTL_KERNEL_COUNT) return &procfs_sysctl_kernel[index];
+    return NULL;
+}
+
+static procfs_sysctl_t *procfs_sysctl_find(int dir, const char *name)
+{
+    if (dir == PROC_SYS_KERNEL) {
+        for (size_t i = 0; i < PROCFS_SYSCTL_KERNEL_COUNT; i++)
+            if (streq(procfs_sysctl_kernel[i].name, name)) return &procfs_sysctl_kernel[i];
+    }
+    return NULL;
+}
+
+static void gen_sysctl_file(procfs_file_t *pf)
+{
+    procfs_sysctl_t *sc = procfs_sysctl_lookup(pf->subtype, (size_t)pf->pid);
+    if (!sc) return;
+    char *buf = malloc(PROCFS_BUF_SIZE);
+    if (!buf) return;
+
+    int n = 0;
+    if (sc->kind == PROC_SYS_STR) {
+        n = snprintf(buf, PROCFS_BUF_SIZE, "%s\n", sc->string);
+    } else if (sc->kind == PROC_SYS_UINT) {
+        n = snprintf(buf, PROCFS_BUF_SIZE, "%llu\n", (unsigned long long)sc->values[0]);
+    } else {
+        int off = 0;
+        for (uint8_t i = 0; i < sc->count; i++) {
+            n = snprintf(buf + off, PROCFS_BUF_SIZE - off, "%s%llu", i ? " " : "", (unsigned long long)sc->values[i]);
+            if (n < 0 || off + (size_t)n >= PROCFS_BUF_SIZE) {
+                off = PROCFS_BUF_SIZE;
+                break;
+            }
+            off += n;
+        }
+        n = snprintf(buf + off, PROCFS_BUF_SIZE - off, "\n");
+        off += n;
+        n = off;
+    }
+    pf->content  = buf;
+    pf->size     = n < 0 ? 0 : (size_t)n;
+    pf->capacity = PROCFS_BUF_SIZE;
+}
+
+static int procfs_sysctl_apply(procfs_sysctl_t *sc, const char *data, size_t size)
+{
+    if (sc->readonly) return -EPERM;
+
+    if (sc->kind == PROC_SYS_STR) {
+        size_t len = size;
+        while (len && (data[len - 1] == '\n' || data[len - 1] == '\r' || data[len - 1] == ' ' || data[len - 1] == '\t')) len--;
+        if (!len || memchr(data, '\0', len) || len >= sizeof(sc->string)) return -EINVAL;
+        memcpy(sc->string, data, len);
+        sc->string[len] = '\0';
+        return EOK;
+    }
+
+    const char *cursor = data;
+    size_t      left   = size;
+    uint64_t    values[4];
+    size_t      count = 0;
+    bool        any   = false;
+
+    while (left) {
+        while (left && (*cursor == ' ' || *cursor == '\t' || *cursor == '\n' || *cursor == '\r')) {
+            cursor++;
+            left--;
+        }
+        if (!left) break;
+        uint64_t value = 0;
+        bool     valid = false;
+        while (left && *cursor >= '0' && *cursor <= '9') {
+            valid          = true;
+            uint64_t digit = (uint64_t)(*cursor - '0');
+            if (value > (UINT64_MAX - digit) / 10) return -ERANGE;
+            value = value * 10 + digit;
+            cursor++;
+            left--;
+        }
+        while (left && (*cursor == ' ' || *cursor == '\t' || *cursor == '\n' || *cursor == '\r')) {
+            cursor++;
+            left--;
+        }
+        if (!valid) return -EINVAL;
+        if (count >= sizeof(values) / sizeof(values[0])) return -EINVAL;
+        values[count++] = value;
+        any             = true;
+    }
+    if (!any) return -EINVAL;
+
+    if (sc->kind == PROC_SYS_UINT) {
+        if (count != 1) return -EINVAL;
+        sc->values[0] = values[0];
+        return EOK;
+    }
+    if (sc->kind == PROC_SYS_MULTI) {
+        if (count != sc->count) return -EINVAL;
+        for (uint8_t i = 0; i < sc->count; i++) sc->values[i] = values[i];
+        return EOK;
+    }
+    return -EINVAL;
+}
+
 typedef struct procfs_net_context {
         char  *buf;
         size_t length;
@@ -746,14 +1156,18 @@ static void gen_pid_maps(procfs_file_t *pf)
 
 static void gen_pid_cmdline(procfs_file_t *pf)
 {
-    (void)pf;
-    char *buf = malloc(64);
+    process_t *proc = process_find(pf->pid);
+    if (!proc) return;
+
+    size_t len = strlen(proc->task->name);
+    char  *buf = malloc(len + 1);
     if (!buf) return;
 
-    buf[0]       = '\0';
+    memcpy(buf, proc->task->name, len);
+    buf[len]     = '\0';
     pf->content  = buf;
-    pf->size     = 0;
-    pf->capacity = 64;
+    pf->size     = len;
+    pf->capacity = len + 1;
 }
 
 static void gen_pid_cgroup(procfs_file_t *pf)
@@ -797,6 +1211,144 @@ static void gen_pid_name(procfs_file_t *pf)
     pf->content  = buf;
     pf->size     = len + 1;
     pf->capacity = PROCESS_NAME_LEN + 2;
+}
+
+static void gen_pid_comm(procfs_file_t *pf)
+{
+    process_t *proc = process_find(pf->pid);
+    if (!proc) return;
+
+    char *buf = malloc(PROCESS_NAME_LEN + 2);
+    if (!buf) return;
+
+    size_t len = strlen(proc->task->name);
+    memcpy(buf, proc->task->name, len);
+    buf[len]     = '\n';
+    buf[len + 1] = '\0';
+
+    pf->content  = buf;
+    pf->size     = len + 1;
+    pf->capacity = PROCESS_NAME_LEN + 2;
+}
+
+static void gen_pid_statm(procfs_file_t *pf)
+{
+    process_t *proc = process_find_get(pf->pid);
+    if (!proc) return;
+    char *buf = malloc(256);
+    if (!buf) {
+        process_put(proc);
+        return;
+    }
+
+    uint64_t   size = 0, resident = 0, shared = 0, text = 0, lib = 0, data = 0;
+    vm_area_t *vma;
+    spin_lock(&proc->mmap_lock);
+    for (vma = proc->mmap_list; vma; vma = vma->next) {
+        uint64_t pages = (vma->end - vma->start) / PAGE_4K_SIZE;
+        size += pages;
+        resident += pages;
+        if (vma->type == VM_REGION_CODE) text += pages;
+        if (vma->type == VM_REGION_DATA || vma->type == VM_REGION_HEAP) data += pages;
+        if (vma->flags & VM_SHARED) shared += pages;
+    }
+    spin_unlock(&proc->mmap_lock);
+
+    int n = snprintf(buf, 256, "%llu %llu %llu %llu %llu %llu %llu\n", (unsigned long long)size, (unsigned long long)resident,
+                     (unsigned long long)shared, (unsigned long long)text, (unsigned long long)lib, (unsigned long long)data, 0ULL);
+    process_put(proc);
+
+    pf->content  = buf;
+    pf->size     = n < 0 ? 0 : (size_t)n;
+    pf->capacity = 256;
+}
+
+static void gen_pid_limits(procfs_file_t *pf)
+{
+    static const char *const names[PROCESS_RLIMIT_COUNT] = {
+        "Max cpu time",      "Max file size",     "Max data size",         "Max stack size",       "Max core file size", "Max resident set",
+        "Max processes",     "Max open files",    "Max locked memory",     "Max address space",    "Max file locks",     "Max pending signals",
+        "Max msgqueue size", "Max nice priority", "Max realtime priority", "Max realtime timeout",
+    };
+    static const bool is_bytes[PROCESS_RLIMIT_COUNT] = {
+        false, true, true, true, true, true, false, false, true, true, false, false, true, false, false, true,
+    };
+    process_t *proc = process_find_get(pf->pid);
+    if (!proc) return;
+    char *buf = malloc(4096);
+    if (!buf) {
+        process_put(proc);
+        return;
+    }
+
+    int off = 0;
+    spin_lock(&proc->rlimit_lock);
+    for (int i = 0; i < PROCESS_RLIMIT_COUNT && off < 4096; i++) {
+        uint64_t cur = proc->rlimits[i].current;
+        uint64_t max = proc->rlimits[i].maximum;
+        char     curbuf[24];
+        char     maxbuf[24];
+        if (cur == PROCESS_RLIM_INFINITY)
+            strcpy(curbuf, "unlimited");
+        else
+            snprintf(curbuf, sizeof(curbuf), "%llu", (unsigned long long)cur);
+        if (max == PROCESS_RLIM_INFINITY)
+            strcpy(maxbuf, "unlimited");
+        else
+            snprintf(maxbuf, sizeof(maxbuf), "%llu", (unsigned long long)max);
+        int n = snprintf(buf + off, 4096 - off, "%-25s %-16s %-16s %s\n", names[i], curbuf, maxbuf, is_bytes[i] ? "bytes" : "");
+        if (n < 0 || off + (size_t)n >= 4096) break;
+        off += n;
+    }
+    spin_unlock(&proc->rlimit_lock);
+    process_put(proc);
+
+    pf->content  = buf;
+    pf->size     = (size_t)off;
+    pf->capacity = 4096;
+}
+
+static void gen_pid_io(procfs_file_t *pf)
+{
+    (void)pf;
+    char *buf = malloc(256);
+    if (!buf) return;
+    int n        = snprintf(buf, 256,
+                            "rchar: 0\n"
+                                   "wchar: 0\n"
+                                   "syscr: 0\n"
+                                   "syscw: 0\n"
+                                   "read_bytes: 0\n"
+                                   "write_bytes: 0\n"
+                                   "cancelled_write_bytes: 0\n");
+    pf->content  = buf;
+    pf->size     = n < 0 ? 0 : (size_t)n;
+    pf->capacity = 256;
+}
+
+/* Resolve the Linux /proc/<pid>/fd/<n> target for an open file description. */
+static void procfs_fd_target(process_t *proc, int fd, char *target, size_t capacity)
+{
+    process_file_t *file;
+
+    if (!proc || !target || capacity < 2) return;
+    target[0] = '\0';
+    file      = process_fd_get(proc, fd);
+    if (!file) return;
+
+    if (file->node) {
+        if (!file->node->parent) {
+            /* Anonymous inodes (pipes, sockets, eventfds, ...). */
+            if (file->node->name && file->node->name[0]) {
+                snprintf(target, capacity, "anon_inode:%s", file->node->name);
+            } else {
+                snprintf(target, capacity, "anon_inode:[%llu]", (unsigned long long)file->node->inode);
+            }
+        } else if (vfs_node_path(file->node, target, capacity) != EOK) {
+            target[0] = '\0';
+        }
+    }
+    process_file_put(file);
 }
 
 static void gen_pid_mem(procfs_file_t *pf)
@@ -977,6 +1529,33 @@ static void procfs_gen_content(procfs_file_t *pf, vfs_node_t node)
                 case PROC_INFO_CGROUPS :
                     gen_info_cgroups(pf);
                     break;
+                case PROC_INFO_INTERRUPTS :
+                    gen_info_interrupts(pf);
+                    break;
+                case PROC_INFO_PARTITIONS :
+                    gen_info_partitions(pf);
+                    break;
+                case PROC_INFO_DEVICES :
+                    gen_info_devices(pf);
+                    break;
+                case PROC_INFO_DISKSTATS :
+                    gen_info_diskstats(pf);
+                    break;
+                case PROC_INFO_SWAPS :
+                    gen_info_swaps(pf);
+                    break;
+                case PROC_INFO_MISC :
+                    gen_info_misc(pf);
+                    break;
+                case PROC_INFO_SOFTIRQS :
+                    gen_info_softirqs(pf);
+                    break;
+                case PROC_INFO_IOPORTS :
+                    gen_info_ioports(pf);
+                    break;
+                case PROC_INFO_IOMEM :
+                    gen_info_iomem(pf);
+                    break;
             }
             break;
         case PROCFS_PID_FILE :
@@ -1008,10 +1587,31 @@ static void procfs_gen_content(procfs_file_t *pf, vfs_node_t node)
                 case PROC_PID_CGROUP :
                     gen_pid_cgroup(pf);
                     break;
+                case PROC_PID_COMM :
+                    gen_pid_comm(pf);
+                    break;
+                case PROC_PID_STATM :
+                    gen_pid_statm(pf);
+                    break;
+                case PROC_PID_LIMITS :
+                    gen_pid_limits(pf);
+                    break;
+                case PROC_PID_IO :
+                    gen_pid_io(pf);
+                    break;
             }
             break;
         case PROCFS_NET_FILE :
             gen_net_file(pf);
+            break;
+        case PROCFS_SYS_FILE :
+            gen_sysctl_file(pf);
+            break;
+        case PROCFS_TTY_FILE :
+            if (pf->subtype == 0)
+                gen_tty_drivers(pf);
+            else
+                gen_tty_ldiscs(pf);
             break;
         default :
             break;
@@ -1075,6 +1675,15 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
             if (streq(name, "filesystems")) subtype = PROC_INFO_FILESYSTEMS;
             if (streq(name, "cmdline")) subtype = PROC_INFO_CMDLINE;
             if (streq(name, "cgroups")) subtype = PROC_INFO_CGROUPS;
+            if (streq(name, "interrupts")) subtype = PROC_INFO_INTERRUPTS;
+            if (streq(name, "partitions")) subtype = PROC_INFO_PARTITIONS;
+            if (streq(name, "devices")) subtype = PROC_INFO_DEVICES;
+            if (streq(name, "diskstats")) subtype = PROC_INFO_DISKSTATS;
+            if (streq(name, "swaps")) subtype = PROC_INFO_SWAPS;
+            if (streq(name, "misc")) subtype = PROC_INFO_MISC;
+            if (streq(name, "softirqs")) subtype = PROC_INFO_SOFTIRQS;
+            if (streq(name, "ioports")) subtype = PROC_INFO_IOPORTS;
+            if (streq(name, "iomem")) subtype = PROC_INFO_IOMEM;
             if (subtype >= 0) {
                 pf->type    = PROCFS_INFO_FILE;
                 pf->subtype = subtype;
@@ -1086,6 +1695,22 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
                 }
                 if (streq(name, "net")) {
                     pf->type   = PROCFS_NET_DIR;
+                    node->type = file_dir;
+                    break;
+                }
+                if (streq(name, "tty")) {
+                    pf->type   = PROCFS_TTY_DIR;
+                    node->type = file_dir;
+                    break;
+                }
+                if (streq(name, "sys")) {
+                    pf->type    = PROCFS_SYS_DIR;
+                    pf->subtype = -1;
+                    node->type  = file_dir;
+                    break;
+                }
+                if (streq(name, "driver")) {
+                    pf->type   = PROCFS_DRIVER_DIR;
                     node->type = file_dir;
                     break;
                 }
@@ -1114,14 +1739,55 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
             if (streq(name, "mounts")) subtype = PROC_PID_MOUNTS;
             if (streq(name, "mountinfo")) subtype = PROC_PID_MOUNTINFO;
             if (streq(name, "cgroup")) subtype = PROC_PID_CGROUP;
+            if (streq(name, "comm")) subtype = PROC_PID_COMM;
+            if (streq(name, "statm")) subtype = PROC_PID_STATM;
+            if (streq(name, "limits")) subtype = PROC_PID_LIMITS;
+            if (streq(name, "io")) subtype = PROC_PID_IO;
             if (subtype >= 0) {
                 pf->type    = PROCFS_PID_FILE;
                 pf->pid     = ppf->pid;
                 pf->subtype = subtype;
+            } else if (streq(name, "fd")) {
+                pf->type   = PROCFS_PID_FD_DIR;
+                pf->pid    = ppf->pid;
+                node->type = file_dir;
+            } else if (streq(name, "exe")) {
+                pf->type   = PROCFS_PID_EXE_LINK;
+                pf->pid    = ppf->pid;
+                node->type = file_symlink;
+            } else if (streq(name, "cwd")) {
+                pf->type   = PROCFS_PID_CWD_LINK;
+                pf->pid    = ppf->pid;
+                node->type = file_symlink;
+            } else if (streq(name, "root")) {
+                pf->type   = PROCFS_PID_ROOT_LINK;
+                pf->pid    = ppf->pid;
+                node->type = file_symlink;
             } else {
                 free(pf);
                 return;
             }
+            break;
+        }
+        case PROCFS_PID_FD_DIR : {
+            process_t *proc = process_find(ppf->pid);
+            if (!proc) {
+                free(pf);
+                return;
+            }
+            char           *end;
+            int             fd   = (int)strtol(name, &end, 10);
+            process_file_t *file = NULL;
+            if (*end == '\0' && fd >= 0 && fd < PROCESS_MAX_FD) file = process_fd_get(proc, fd);
+            if (!file) {
+                free(pf);
+                return;
+            }
+            process_file_put(file);
+            pf->type    = PROCFS_PID_FD_LINK;
+            pf->pid     = ppf->pid;
+            pf->subtype = fd;
+            node->type  = file_symlink;
             break;
         }
         case PROCFS_NET_DIR : {
@@ -1140,6 +1806,36 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
             pf->subtype = subtype;
             break;
         }
+        case PROCFS_TTY_DIR : {
+            if (streq(name, "drivers")) {
+                pf->type    = PROCFS_TTY_FILE;
+                pf->subtype = 0;
+            } else if (streq(name, "ldiscs")) {
+                pf->type    = PROCFS_TTY_FILE;
+                pf->subtype = 1;
+            } else {
+                free(pf);
+                return;
+            }
+            break;
+        }
+        case PROCFS_SYS_DIR : {
+            if (streq(name, "kernel")) {
+                pf->type    = PROCFS_SYS_DIR;
+                pf->subtype = PROC_SYS_KERNEL;
+                node->type  = file_dir;
+                break;
+            }
+            procfs_sysctl_t *sc = procfs_sysctl_find(ppf->subtype, name);
+            if (!sc) {
+                free(pf);
+                return;
+            }
+            pf->type    = PROCFS_SYS_FILE;
+            pf->subtype = ppf->subtype;
+            pf->pid     = (pid_t)(sc - procfs_sysctl_kernel);
+            break;
+        }
         default :
             free(pf);
             return;
@@ -1155,12 +1851,67 @@ static void procfs_close(void *current)
 
 static size_t procfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t size)
 {
-    procfs_file_t *pf   = node ? node->handle : NULL;
-    process_t     *proc = process_current();
-    if (!pf || pf->type != PROCFS_SELF_LINK || !proc || !proc->task || !addr) return 0;
+    procfs_file_t *pf = node ? node->handle : NULL;
+    if (!pf || !addr) return 0;
 
-    char target[64];
-    int  length = snprintf(target, sizeof(target), "%llu", (uint64_t)proc->task->tgid);
+    char target[VFS_PATH_MAX];
+    int  length = 0;
+
+    switch (pf->type) {
+        case PROCFS_SELF_LINK : {
+            process_t *proc = process_current();
+            if (!proc || !proc->task) return 0;
+            length = snprintf(target, sizeof(target), "%llu", (uint64_t)proc->task->tgid);
+            break;
+        }
+        case PROCFS_PID_FD_LINK : {
+            process_t *proc = process_find_get(pf->pid);
+            if (!proc) {
+                process_put(proc);
+                return 0;
+            }
+            procfs_fd_target(proc, pf->subtype, target, sizeof(target));
+            process_put(proc);
+            length = (int)strlen(target);
+            break;
+        }
+        case PROCFS_PID_EXE_LINK : {
+            process_t *proc = process_find_get(pf->pid);
+            if (!proc) {
+                process_put(proc);
+                return 0;
+            }
+            snprintf(target, sizeof(target), "%s", proc->exe_path[0] ? proc->exe_path : "/unknown");
+            process_put(proc);
+            length = (int)strlen(target);
+            break;
+        }
+        case PROCFS_PID_CWD_LINK : {
+            process_t *proc = process_find_get(pf->pid);
+            if (!proc) {
+                process_put(proc);
+                return 0;
+            }
+            snprintf(target, sizeof(target), "%s", proc->cwd[0] ? proc->cwd : "/");
+            process_put(proc);
+            length = (int)strlen(target);
+            break;
+        }
+        case PROCFS_PID_ROOT_LINK : {
+            process_t *proc = process_find_get(pf->pid);
+            if (!proc) {
+                process_put(proc);
+                return 0;
+            }
+            snprintf(target, sizeof(target), "%s", proc->root[0] ? proc->root : "/");
+            process_put(proc);
+            length = (int)strlen(target);
+            break;
+        }
+        default :
+            return 0;
+    }
+
     if (length <= 0 || offset >= (size_t)length) return 0;
     size_t actual = (size_t)length - offset;
     if (actual > size) actual = size;
@@ -1173,7 +1924,9 @@ static int procfs_file_open(vfs_node_t node, uint64_t flags, void **private_data
     (void)flags;
     if (!node || !private_data) return -EINVAL;
     procfs_file_t *source = node->handle;
-    if (!source || (source->type != PROCFS_INFO_FILE && source->type != PROCFS_PID_FILE && source->type != PROCFS_NET_FILE)) {
+    if (!source
+        || (source->type != PROCFS_INFO_FILE && source->type != PROCFS_PID_FILE && source->type != PROCFS_NET_FILE
+            && source->type != PROCFS_SYS_FILE && source->type != PROCFS_TTY_FILE)) {
         *private_data = NULL;
         return EOK;
     }
@@ -1233,11 +1986,23 @@ static int procfs_stat(void *file, vfs_node_t node)
                 {"filesystems", PROC_INFO_FILESYSTEMS},
                 {"cmdline",     PROC_INFO_CMDLINE    },
                 {"cgroups",     PROC_INFO_CGROUPS    },
+                {"interrupts",  PROC_INFO_INTERRUPTS },
+                {"partitions",  PROC_INFO_PARTITIONS },
+                {"devices",     PROC_INFO_DEVICES    },
+                {"diskstats",   PROC_INFO_DISKSTATS  },
+                {"swaps",       PROC_INFO_SWAPS      },
+                {"misc",        PROC_INFO_MISC       },
+                {"softirqs",    PROC_INFO_SOFTIRQS   },
+                {"ioports",     PROC_INFO_IOPORTS    },
+                {"iomem",       PROC_INFO_IOMEM      },
             };
             for (size_t i = 0; i < sizeof(info_tab) / sizeof(info_tab[0]); i++)
                 (void)procfs_ensure_child(node, info_tab[i].name, PROCFS_INFO_FILE, 0, info_tab[i].subtype, file_none);
 
             (void)procfs_ensure_child(node, "net", PROCFS_NET_DIR, 0, 0, file_dir);
+            (void)procfs_ensure_child(node, "tty", PROCFS_TTY_DIR, 0, 0, file_dir);
+            (void)procfs_ensure_child(node, "sys", PROCFS_SYS_DIR, 0, 0, file_dir);
+            (void)procfs_ensure_child(node, "driver", PROCFS_DRIVER_DIR, 0, 0, file_dir);
             (void)procfs_ensure_child(node, "self", PROCFS_SELF_LINK, 0, 0, file_symlink);
             (void)procfs_ensure_child(node, "thread-self", PROCFS_SELF_LINK, 0, 1, file_symlink);
 
@@ -1275,9 +2040,46 @@ static int procfs_stat(void *file, vfs_node_t node)
                 {"mounts",    PROC_PID_MOUNTS   },
                 {"mountinfo", PROC_PID_MOUNTINFO},
                 {"cgroup",    PROC_PID_CGROUP   },
+                {"comm",      PROC_PID_COMM     },
+                {"statm",     PROC_PID_STATM    },
+                {"limits",    PROC_PID_LIMITS   },
+                {"io",        PROC_PID_IO       },
             };
             for (size_t i = 0; i < sizeof(pid_tab) / sizeof(pid_tab[0]); i++)
                 (void)procfs_ensure_child(node, pid_tab[i].name, PROCFS_PID_FILE, pf->pid, pid_tab[i].subtype, file_none);
+
+            (void)procfs_ensure_child(node, "fd", PROCFS_PID_FD_DIR, pf->pid, 0, file_dir);
+            (void)procfs_ensure_child(node, "exe", PROCFS_PID_EXE_LINK, pf->pid, 0, file_symlink);
+            (void)procfs_ensure_child(node, "cwd", PROCFS_PID_CWD_LINK, pf->pid, 0, file_symlink);
+            (void)procfs_ensure_child(node, "root", PROCFS_PID_ROOT_LINK, pf->pid, 0, file_symlink);
+            break;
+        }
+        case PROCFS_PID_FD_DIR : {
+            process_t *proc = process_find_get(pf->pid);
+            if (!proc) {
+                process_put(proc);
+                node->type = file_none;
+                return -ENOENT;
+            }
+            node->type = file_dir;
+
+            for (clist_t link = node->child; link; link = link->next) {
+                vfs_node_t     child = link->data;
+                procfs_file_t *cpf   = child ? child->handle : NULL;
+                if (cpf && cpf->type == PROCFS_PID_FD_LINK) {
+                    child->flags |= VFS_NODE_UNLINKED;
+                    child->type = file_none;
+                }
+            }
+            for (int fd = 0; fd < PROCESS_MAX_FD; fd++) {
+                process_file_t *file = process_fd_get(proc, fd);
+                if (!file) continue;
+                process_file_put(file);
+                char name[8];
+                snprintf(name, sizeof(name), "%d", fd);
+                (void)procfs_ensure_child(node, name, PROCFS_PID_FD_LINK, pf->pid, fd, file_symlink);
+            }
+            process_put(proc);
             break;
         }
         case PROCFS_NET_DIR : {
@@ -1286,12 +2088,37 @@ static int procfs_stat(void *file, vfs_node_t node)
             for (int i = 0; i < 6; i++) { (void)procfs_ensure_child(node, names[i], PROCFS_NET_FILE, 0, i, file_none); }
             break;
         }
+        case PROCFS_TTY_DIR : {
+            node->type = file_dir;
+            (void)procfs_ensure_child(node, "drivers", PROCFS_TTY_FILE, 0, 0, file_none);
+            (void)procfs_ensure_child(node, "ldiscs", PROCFS_TTY_FILE, 0, 1, file_none);
+            break;
+        }
+        case PROCFS_SYS_DIR : {
+            node->type = file_dir;
+            if (pf->subtype < 0) {
+                (void)procfs_ensure_child(node, "kernel", PROCFS_SYS_DIR, 0, PROC_SYS_KERNEL, file_dir);
+            } else if (pf->subtype == PROC_SYS_KERNEL) {
+                for (size_t i = 0; i < PROCFS_SYSCTL_KERNEL_COUNT; i++)
+                    (void)procfs_ensure_child(node, procfs_sysctl_kernel[i].name, PROCFS_SYS_FILE, (pid_t)i, PROC_SYS_KERNEL, file_none);
+            }
+            break;
+        }
+        case PROCFS_DRIVER_DIR :
+            node->type = file_dir;
+            break;
         case PROCFS_SELF_LINK :
+        case PROCFS_PID_FD_LINK :
+        case PROCFS_PID_EXE_LINK :
+        case PROCFS_PID_CWD_LINK :
+        case PROCFS_PID_ROOT_LINK :
             node->type = file_symlink;
             break;
         case PROCFS_INFO_FILE :
         case PROCFS_PID_FILE :
         case PROCFS_NET_FILE :
+        case PROCFS_SYS_FILE :
+        case PROCFS_TTY_FILE :
             /* procfs files are generated pseudo-regular files.  They are
              * seekable and, most importantly, reads must advance the open
              * file description offset so that readers can observe EOF.
@@ -1324,9 +2151,17 @@ static size_t procfs_read(void *file, void *addr, size_t offset, size_t size)
 
 static size_t procfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
-    (void)file;
-    (void)addr;
-    (void)offset;
+    procfs_file_t *pf = file;
+    if (!pf || !addr || offset) return 0;
+
+    if (pf->type == PROCFS_SYS_FILE) {
+        procfs_sysctl_t *sc = procfs_sysctl_lookup(pf->subtype, (size_t)pf->pid);
+        if (!sc || size >= PROCFS_BUF_SIZE) return 0;
+        char buf[PROCFS_BUF_SIZE];
+        memcpy(buf, addr, size);
+        if (procfs_sysctl_apply(sc, buf, size) != EOK) return 0;
+        return size;
+    }
     return size;
 }
 

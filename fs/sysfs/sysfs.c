@@ -78,6 +78,8 @@ typedef struct sysfs_open_file {
 static int        sysfs_id;         /* VFS filesystem ID */
 struct kobject   *sysfs_root_kobj;  /* /sys root kobject (global) */
 static vfs_node_t sysfs_root_vnode; /* /sys mount point VFS node */
+struct kobject   *sysfs_dev_char_kobj;
+struct kobject   *sysfs_dev_block_kobj;
 
 /* Forward declarations */
 static int  sysfs_stat(void *file, vfs_node_t node);
@@ -1606,6 +1608,18 @@ int sysfs_init(void)
     if (!fs_kobj || !kobject_create_and_add("cgroup", fs_kobj)) {
         ret = -ENOMEM;
         goto err_children;
+    }
+
+    /* /sys/dev/char and /sys/dev/block hold the major:minor -> device
+     * symlinks that udev uses to resolve a device number to a node. */
+    struct kobject *dev_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "dev");
+    if (dev_kobj) {
+        sysfs_dev_char_kobj  = kobject_create_and_add("char", dev_kobj);
+        sysfs_dev_block_kobj = kobject_create_and_add("block", dev_kobj);
+        if (!sysfs_dev_char_kobj || !sysfs_dev_block_kobj) {
+            ret = -ENOMEM;
+            goto err_children;
+        }
     }
 
     return EOK;

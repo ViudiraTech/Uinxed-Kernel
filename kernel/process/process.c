@@ -1638,6 +1638,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     child->stack_brk                     = parent->stack_brk;
     memcpy(child->root, parent->root, sizeof(child->root));
     memcpy(child->cwd, parent->cwd, sizeof(child->cwd));
+    memcpy(child->exe_path, parent->exe_path, sizeof(child->exe_path));
     child->kernel_stack = malloc(PROCESS_KERNEL_STACK);
     if (!child->kernel_stack) {
         if (error) *error = -ENOMEM;

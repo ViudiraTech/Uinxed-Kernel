@@ -24,6 +24,7 @@
 #include <drivers/bus/pci.h>
 #include <drivers/char/ps2.h>
 #include <drivers/char/pty.h>
+#include <drivers/char/rtc.h>
 #include <drivers/char/tty.h>
 #include <drivers/gpu/drm_init.h>
 #include <drivers/net/e1000.h>
@@ -43,10 +44,16 @@
 #include <fs/isofs/isofs.h>
 #include <fs/ntfs/ntfs_vfs.h>
 #include <fs/sysfs/block_sysfs.h>
+#include <fs/sysfs/dmi_sysfs.h>
 #include <fs/sysfs/fb_sysfs.h>
+#include <fs/sysfs/i2c_sysfs.h>
 #include <fs/sysfs/input_sysfs.h>
+#include <fs/sysfs/mem_sysfs.h>
 #include <fs/sysfs/net_sysfs.h>
+#include <fs/sysfs/rtc_sysfs.h>
+#include <fs/sysfs/sound_sysfs.h>
 #include <fs/sysfs/sysfs.h>
+#include <fs/sysfs/tpm_sysfs.h>
 #include <fs/virtual/cgroupfs.h>
 #include <fs/virtual/cpio.h>
 #include <fs/virtual/devtmpfs.h>
@@ -109,6 +116,8 @@ static void swapper_run_init(void)
     if (process_setsid(init, &init_sid) || init_sid != 1 || init->pgid != 1) { panic("Failed to establish init session."); }
 
     char *init_argv[] = {"/init", NULL};
+    strncpy(init->exe_path, "/init", sizeof(init->exe_path) - 1);
+    init->exe_path[sizeof(init->exe_path) - 1] = '\0';
     if (elf_loader_load_initial_process(init, init_mod->data, init_mod->size, init_argv, NULL)) panic("Failed to load init ELF!");
 
     spin_lock(&scheduler.lock);
@@ -251,6 +260,14 @@ void kernel_entry(void)
     tty_sysfs_init();              // /sys/class/tty/
     net_sysfs_init();              // /sys/class/net/<interface>/
     fb_sysfs_init();               // /sys/class/graphics/fb0 + platform topology
+    mem_sysfs_init();              // /sys/class/mem/ (null, zero, full, random, urandom)
+    sound_sysfs_init();            // /sys/class/sound/cardN + ALSA node sub-devices
+    tpm_vfs_init();                // /dev/tpm0, /dev/tpmrm0
+    tpm_sysfs_init();              // /sys/class/tpm{,rm}
+    rtc_vfs_init();                // /dev/rtc0
+    rtc_sysfs_init();              // /sys/class/rtc/rtc0
+    i2c_sysfs_init();              // /sys/bus/i2c + /sys/class/i2c-dev
+    dmi_sysfs_init();              // /sys/class/dmi/id + /sys/firmware/dmi/tables
                                    //
     /* Filesystem Drivers */       //
     fatfs_vfs_regist();            // FAT File System

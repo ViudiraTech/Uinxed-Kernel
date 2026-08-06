@@ -67,4 +67,13 @@ int devtmpfs_register_block_device(const char *path, const blockdev_device_t *de
 /* Remove all nodes in a dynamic block-device registration. */
 void devtmpfs_unregister_block_device(devtmpfs_block_registration_t *registration);
 
+/* Linux /proc/devices : one line per character/block device major. */
+int devtmpfs_format_proc_devices(char *buf, size_t cap);
+
+/* Linux /proc/partitions : whole disks and their partition views. */
+int devtmpfs_format_proc_partitions(char *buf, size_t cap);
+
+/* Linux /proc/diskstats : per-disk and per-partition I/O counters. */
+int devtmpfs_format_proc_diskstats(char *buf, size_t cap);
+
 #endif // INCLUDE_DEVTMPFS_H_

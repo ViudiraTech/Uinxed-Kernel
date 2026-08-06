@@ -572,4 +572,28 @@ void swap_get_stats(swap_stats_t *stats)
     stats->free_pages = stats->total_pages - stats->used_pages;
 }
 
+/* Linux /proc/swaps : header plus one line per active swap area. */
+int swap_format_proc_swaps(char *buf, size_t cap)
+{
+    size_t off = 0;
+    if (!buf || cap < 128) return 0;
+
+    off += (size_t)snprintf(buf + off, cap - off, "Filename\t\t\t\tType\t\tSize\tUsed\tPriority\n");
+    spin_lock(&swap_lock);
+    for (uint32_t i = 0; i < SWAP_MAX_AREAS; i++) {
+        swap_area_t *area = &swap_areas[i];
+        if (!area->active) continue;
+        uint64_t used = 0;
+        for (uint64_t slot = 1; slot <= area->slots.slots; slot++)
+            if (swap_slot_refs(&area->slots, slot)) used++;
+        int n = snprintf(buf + off, cap - off, "%s\t\t\t\t%s\t\t%llu\t%llu\t%d\n", area->path,
+                         area->backend == SWAP_BACKEND_BLOCK ? "partition" : "file", (unsigned long long)area->slots.slots,
+                         (unsigned long long)used, area->priority);
+        if (n <= 0 || off + (size_t)n >= cap) break;
+        off += (size_t)n;
+    }
+    spin_unlock(&swap_lock);
+    return (int)off;
+}
+
 #endif /* !SWAP_TEST_ONLY */

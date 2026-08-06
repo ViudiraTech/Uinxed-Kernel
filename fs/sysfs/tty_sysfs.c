@@ -43,12 +43,25 @@ void tty_sysfs_init(void)
     }
 
     /* Register standard TTY devices */
-    /* tty0 ?current console */
+    /* tty0-7 ?virtual consoles */
     device_create(&tty_class, NULL, MKDEV(4, 0), NULL, "tty0");
     device_create(&tty_class, NULL, MKDEV(4, 1), NULL, "tty1");
+    device_create(&tty_class, NULL, MKDEV(4, 2), NULL, "tty2");
+    device_create(&tty_class, NULL, MKDEV(4, 3), NULL, "tty3");
+    device_create(&tty_class, NULL, MKDEV(4, 4), NULL, "tty4");
+    device_create(&tty_class, NULL, MKDEV(4, 5), NULL, "tty5");
+    device_create(&tty_class, NULL, MKDEV(4, 6), NULL, "tty6");
+    device_create(&tty_class, NULL, MKDEV(4, 7), NULL, "tty7");
 
-    /* ttyS0, ttyS1 ?serial ports */
+    /* ttyS0-3 ?serial ports */
     device_create(&tty_class, NULL, MKDEV(4, 64), NULL, "ttyS0");
     device_create(&tty_class, NULL, MKDEV(4, 65), NULL, "ttyS1");
+    device_create(&tty_class, NULL, MKDEV(4, 66), NULL, "ttyS2");
+    device_create(&tty_class, NULL, MKDEV(4, 67), NULL, "ttyS3");
+
+    /* Auxiliary tty devices */
+    device_create(&tty_class, NULL, MKDEV(5, 0), NULL, "tty");
+    device_create(&tty_class, NULL, MKDEV(5, 1), NULL, "console");
+    device_create(&tty_class, NULL, MKDEV(5, 2), NULL, "ptmx");
 #endif
 }

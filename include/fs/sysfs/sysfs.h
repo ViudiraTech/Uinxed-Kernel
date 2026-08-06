@@ -160,6 +160,10 @@ int sysfs_move_dir(struct kobject *kobj, struct kobject *new_parent);
 
 extern struct kobject *sysfs_root_kobj;
 
+/* /sys/dev/{char,block} : major:minor symlink directories used by udev. */
+extern struct kobject *sysfs_dev_char_kobj;
+extern struct kobject *sysfs_dev_block_kobj;
+
 /* Internal: get the absolute sysfs path of a kobject */
 char *kobject_get_path(struct kobject *kobj);
 

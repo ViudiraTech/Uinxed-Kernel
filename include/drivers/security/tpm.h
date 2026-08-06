@@ -293,6 +293,11 @@ struct tpm_device {
 /* Initialize TPM subsystem (auto-detection, interface init, startup) */
 int tpm_init(void);
 
+/* Register the TPM character devices (/dev/tpm0, /dev/tpmrm0).  The sysfs
+ * side (/sys/class/tpm, /sys/class/tpmrm) lives in fs/sysfs/tpm_sysfs.c.
+ * Must be called after devtmpfs is ready. */
+void tpm_vfs_init(void);
+
 /* Get the global TPM device (NULL if none found) */
 tpm_device_t *tpm_get_device(void);
 

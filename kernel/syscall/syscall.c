@@ -4337,6 +4337,8 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     task_name_copy(proc->task, exec_name);
     strncpy(proc->name, exec_name, sizeof(proc->name) - 1);
     proc->name[sizeof(proc->name) - 1] = '\0';
+    strncpy(proc->exe_path, kpath, sizeof(proc->exe_path) - 1);
+    proc->exe_path[sizeof(proc->exe_path) - 1] = '\0';
 
     /* Publish exec completion only after CLOEXEC descriptors and the old
      * address space have been retired.  This is the release point required

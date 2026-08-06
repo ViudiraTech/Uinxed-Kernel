@@ -521,6 +521,13 @@ int device_register(struct device *dev)
         /* For now just add to the class kset */
     }
 
+    /* /sys/dev/char/<major>:<minor> ?/sys/devices/...  (udev device-node map) */
+    if (dev->devt && sysfs_dev_char_kobj) {
+        char dev_link[24];
+        snprintf(dev_link, sizeof(dev_link), "%u:%u", MAJOR(dev->devt), MINOR(dev->devt));
+        (void)sysfs_create_symlink(sysfs_dev_char_kobj, &dev->kobj, dev_link);
+    }
+
     kobject_uevent(&dev->kobj, KOBJ_ADD);
     return EOK;
 
@@ -546,6 +553,11 @@ void device_unregister(struct device *dev)
 
     if (dev->kobj.state_add_uevent_sent && !dev->kobj.state_remove_uevent_sent) (void)kobject_uevent(&dev->kobj, KOBJ_REMOVE);
 
+    if (dev->devt && sysfs_dev_char_kobj) {
+        char dev_link[24];
+        snprintf(dev_link, sizeof(dev_link), "%u:%u", MAJOR(dev->devt), MINOR(dev->devt));
+        sysfs_remove_symlink(sysfs_dev_char_kobj, dev_link);
+    }
     if (dev->class) sysfs_remove_symlink(&dev->class->subsys.kobj, kobject_name(&dev->kobj));
     if (dev->class && dev->parent) sysfs_remove_symlink(&dev->kobj, "device");
     if (dev->bus && dev->bus->devices_kset) sysfs_remove_symlink(&dev->bus->devices_kset->kobj, kobject_name(&dev->kobj));

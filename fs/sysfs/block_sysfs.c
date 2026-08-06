@@ -51,6 +51,9 @@ static block_sysfs_dev_t *to_bsd(struct kobject *kobj)
     return (block_sysfs_dev_t *)((char *)kobj - offsetof(block_sysfs_dev_t, kobj));
 }
 
+static void block_sysfs_dev_publish(block_sysfs_dev_t *bsd);
+static void block_sysfs_dev_unpublish(block_sysfs_dev_t *bsd);
+
 static ssize_t size_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
     block_sysfs_dev_t *bsd = to_bsd(kobj);
@@ -225,6 +228,7 @@ static int block_add_partitions(block_sysfs_dev_t *disk)
             break;
         }
         kobject_uevent(&part->kobj, KOBJ_ADD);
+        block_sysfs_dev_publish(part);
     }
     partition_table_destroy(&table);
     return status;
@@ -233,6 +237,68 @@ static int block_add_partitions(block_sysfs_dev_t *disk)
 /* ------------------------------------------------------------------ */
 /*  Helper: add a single block device                                  */
 /* ------------------------------------------------------------------ */
+
+/* Map a Linux disk/partition name ("sda", "nvme0n1p2", "hdb", "sr1", ...)
+ * to the conventional (major, minor) pair used by /sys/dev/block. */
+static void block_sysfs_devt(const char *name, uint32_t *major, uint32_t *minor)
+{
+    const char *n  = name;
+    uint32_t    ma = 8, mi = 0;
+
+    if (!strncmp(n, "/dev/", 5)) n += 5;
+
+    if (!strncmp(n, "hd", 2)) {
+        ma = 3;
+        mi = n[2] >= 'a' ? (uint32_t)(n[2] - 'a') : 0;
+        mi += (uint32_t)strtol(n + 3, NULL, 10);
+    } else if (!strncmp(n, "sr", 2)) {
+        ma = 11;
+        mi = (uint32_t)strtol(n + 2, NULL, 10);
+    } else if (!strncmp(n, "nvme", 4)) {
+        const char *cursor = n + 4;
+        ma                 = 259;
+        while (*cursor >= '0' && *cursor <= '9') cursor++; /* controller */
+        if (*cursor == 'n') cursor++;
+        uint32_t    nsid = (uint32_t)strtol(cursor, NULL, 10);
+        const char *part = strchr(cursor, 'p');
+        mi               = part ? (nsid << 4) | (uint32_t)strtol(part + 1, NULL, 10) : nsid;
+    } else { /* sdX, sdaa, ... */
+        const char *cursor = n + 2;
+        uint32_t    index  = 0;
+        ma                 = 8;
+        while (*cursor >= 'a' && *cursor <= 'z') {
+            index = index * 26 + (uint32_t)(*cursor - 'a') + 1;
+            cursor++;
+        }
+        mi = index ? index - 1 : 0;
+        mi += (uint32_t)strtol(cursor, NULL, 10);
+    }
+
+    *major = ma;
+    *minor = mi;
+}
+
+static void block_sysfs_dev_publish(block_sysfs_dev_t *bsd)
+{
+    uint32_t               major, minor;
+    char                   link[24];
+    extern struct kobject *sysfs_dev_block_kobj;
+    if (!bsd || !bsd->name[0]) return;
+    block_sysfs_devt(bsd->name, &major, &minor);
+    snprintf(link, sizeof(link), "%u:%u", major, minor);
+    if (sysfs_dev_block_kobj) (void)sysfs_create_symlink(sysfs_dev_block_kobj, &bsd->kobj, link);
+}
+
+static void block_sysfs_dev_unpublish(block_sysfs_dev_t *bsd)
+{
+    uint32_t               major, minor;
+    char                   link[24];
+    extern struct kobject *sysfs_dev_block_kobj;
+    if (!bsd || !bsd->name[0]) return;
+    block_sysfs_devt(bsd->name, &major, &minor);
+    snprintf(link, sizeof(link), "%u:%u", major, minor);
+    if (sysfs_dev_block_kobj) sysfs_remove_symlink(sysfs_dev_block_kobj, link);
+}
 
 static int block_add_one(struct kobject *parent, const char *name, uint8_t drive, int type, void *ns_ptr)
 {
@@ -272,6 +338,7 @@ static int block_add_one(struct kobject *parent, const char *name, uint8_t drive
         return ret;
     }
     kobject_uevent(&bsd->kobj, KOBJ_ADD);
+    block_sysfs_dev_publish(bsd);
     ret = block_add_partitions(bsd);
     if (ret != EOK && ret != -ENOENT) plogk("block_sysfs: Cannot scan partitions on %s: %d\n", name, ret);
     return EOK;
@@ -299,6 +366,7 @@ int block_sysfs_register_device(const char *name, const blockdev_device_t *devic
         return status;
     }
     kobject_uevent(&bsd->kobj, KOBJ_ADD);
+    block_sysfs_dev_publish(bsd);
     status = block_add_partitions(bsd);
     if (status != EOK && status != -ENOENT) plogk("block_sysfs: Cannot scan partitions on %s: %d\n", name, status);
     *handle = bsd;
@@ -320,9 +388,11 @@ void block_sysfs_unregister_device(block_sysfs_dev_t *handle)
     while (handle->kobj.children) {
         block_sysfs_dev_t *part = to_bsd(handle->kobj.children->data);
         part->valid             = 0;
+        block_sysfs_dev_unpublish(part);
         kobject_del(&part->kobj);
         kobject_put(&part->kobj);
     }
+    block_sysfs_dev_unpublish(handle);
     kobject_del(&handle->kobj);
     kobject_put(&handle->kobj);
 #else

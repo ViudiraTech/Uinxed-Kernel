@@ -186,8 +186,9 @@ typedef struct process {
         pid_t            sid;
         tty_core_t      *controlling_tty;
         char             name[PROCESS_NAME_LEN];
-        char             root[VFS_PATH_MAX]; /* chroot path */
-        char             cwd[VFS_PATH_MAX];  /* current working directory */
+        char             root[VFS_PATH_MAX];     /* chroot path */
+        char             cwd[VFS_PATH_MAX];      /* current working directory */
+        char             exe_path[VFS_PATH_MAX]; /* executable path (procfs /proc/<pid>/exe) */
 } process_t;
 
 /* Initialize the process management subsystem */
