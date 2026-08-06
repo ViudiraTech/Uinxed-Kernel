@@ -316,7 +316,14 @@ static void enqueue_entity(eevdf_rq_t *rq, task_t *task)
 {
     /* Only ready tasks belong to the EEVDF timeline.  In particular,
      * never let a late wakeup resurrect a task that has already exited. */
-    if (!task || task->state != TASK_READY) return;
+    if (!task || task->state != TASK_READY) {
+        static uint64_t last_log;
+        if (task && scheduler.ticks - last_log >= 1000) {
+            plogk("sched: refusing to enqueue task %llu (%s) in state %u\n", task->pid, task->name, task->state);
+            last_log = scheduler.ticks;
+        }
+        return;
+    }
 
     avg_vruntime_add(rq, task);
     rb_insert_augmented(&rq->timeline, &task->run_node, entity_less, update_min_vruntime, NULL);
@@ -470,8 +477,16 @@ void enqueue_task_initial(task_t *task)
 static void wake_task_locked(task_t *task, int remove_linked_node)
 {
     if (!task || task->state == TASK_READY || task->state == TASK_RUNNING || task->state == TASK_STOPPED || task->state == TASK_IDLE
-        || task->state == TASK_ZOMBIE)
+        || task->state == TASK_ZOMBIE) {
+        if (task) {
+            static uint64_t last_log;
+            if (scheduler.ticks - last_log >= 1000) {
+                plogk("sched: spurious wake of task %llu (%s) in state %u\n", task->pid, task->name, task->state);
+                last_log = scheduler.ticks;
+            }
+        }
         return;
+    }
 
     if (remove_linked_node) ilist_remove(&task->sched_node);
     enqueue_task(task);

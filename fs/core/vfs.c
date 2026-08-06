@@ -425,7 +425,10 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool fol
     bool       trailing_slash;
 
     if (!str || str[0] != '/') return 0;
-    if (symlink_depth > 40) return 0;
+    if (symlink_depth > 40) {
+        plogk("vfs: symlink depth exceeded while resolving %s\n", str);
+        return 0;
+    }
     trailing_slash = str[1] != '\0' && str[strlen(str) - 1] == '/';
     if (str[1] == '\0') {
         rootdir->refcount++;
@@ -433,7 +436,10 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool fol
     }
 
     char *path = strdup(str + 1);
-    if (!path) return 0;
+    if (!path) {
+        plogk("vfs: path allocation failed while resolving %s\n", str);
+        return 0;
+    }
 
     char      *save_ptr = path;
     vfs_node_t current  = rootdir;
@@ -590,6 +596,7 @@ int vfs_mkdir_mode(const char *name, uint16_t mode)
     }
     vfs_node_t node = vfs_child_append(parent, filename, NULL);
     if (!node) {
+        plogk("vfs: mkdir %s failed (node allocation)\n", name);
         status = -ENOMEM;
         goto out;
     }
@@ -603,6 +610,7 @@ int vfs_mkdir_mode(const char *name, uint16_t mode)
     }
     status = callbackof(parent, mkdir)(parent->handle, filename, node);
     if (status != EOK) {
+        plogk("vfs: mkdir %s failed (%d)\n", name, status);
         vfs_abort_created_node(parent, node);
     } else {
         do_update(node);
@@ -635,6 +643,7 @@ int vfs_mkfile_mode(const char *name, uint16_t mode)
     }
     vfs_node_t node = vfs_child_append(parent, filename, NULL);
     if (!node) {
+        plogk("vfs: mkfile %s failed (node allocation)\n", name);
         status = -ENOMEM;
         goto out;
     }
@@ -647,9 +656,10 @@ int vfs_mkfile_mode(const char *name, uint16_t mode)
         node->group = proc->gid;
     }
     status = callbackof(parent, mkfile)(parent->handle, filename, node);
-    if (status != EOK)
+    if (status != EOK) {
+        plogk("vfs: mkfile %s failed (%d)\n", name, status);
         vfs_abort_created_node(parent, node);
-    else
+    } else
         inotify_notify_create(parent, node);
 
 out:
@@ -997,6 +1007,7 @@ int vfs_mount_fs(const char *fstype, const char *src, vfs_node_t node)
         return vfs_mount_id(src, node, i);
     }
 
+    plogk("vfs: unknown filesystem type '%s'\n", fstype);
     return -ENOENT;
 }
 
@@ -1216,7 +1227,10 @@ int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void 
     /* A filesystem callback may return a short read, but never more bytes
      * than the caller supplied.  Enforce the contract before the syscall
      * layer copies from its bounded bounce buffer. */
-    if (result > 0 && (uint64_t)result > size) return -EIO;
+    if (result > 0 && (uint64_t)result > size) {
+        plogk("vfs: read overrun from %s callback: returned %lld for %lu requested.\n", file->name, (long long)result, (unsigned long)size);
+        return -EIO;
+    }
     if (result > 0) inotify_notify(file, IN_ACCESS);
     return result;
 }
@@ -1237,7 +1251,10 @@ int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, cons
         file->size = pagecache_size(mapping);
         if (ret >= 0 && (flags & 0x101000U)) {
             int sync_result = pagecache_writeback(mapping, offset, size ? offset + size - 1 : offset, PAGECACHE_WB_SYNC);
-            if (sync_result) ret = sync_result;
+            if (sync_result) {
+                plogk("vfs: writeback of %s failed (%d)\n", file->name, sync_result);
+                ret = sync_result;
+            }
         }
     } else if (callbackof(file, file_write) != vfs_empty_callback.file_write) {
         ret = callbackof(file, file_write)(file, private_data, flags, addr, offset, size);

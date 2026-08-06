@@ -147,7 +147,10 @@ static epoll_item_t *epoll_item_add(epoll_instance_t *epi, int fd, process_file_
     if (epi->items[fd]) return NULL; /* already present */
 
     epoll_item_t *item = malloc(sizeof(epoll_item_t));
-    if (!item) return NULL;
+    if (!item) {
+        plogk("epoll: item allocation failed (fd %d)\n", fd);
+        return NULL;
+    }
     memset(item, 0, sizeof(epoll_item_t));
 
     item->fd               = fd;
@@ -449,7 +452,10 @@ static vfs_node_t epoll_node_create(void)
     if (epoll_fsid < 0) return NULL;
 
     epoll_instance_t *epi = malloc(sizeof(epoll_instance_t));
-    if (!epi) return NULL;
+    if (!epi) {
+        plogk("epoll: instance allocation failed.\n");
+        return NULL;
+    }
     memset(epi, 0, sizeof(epoll_instance_t));
 
     epi->fd_count = 0;
@@ -458,6 +464,7 @@ static vfs_node_t epoll_node_create(void)
 
     vfs_node_t node = vfs_node_alloc(NULL, "[epoll]");
     if (!node) {
+        plogk("epoll: node allocation failed.\n");
         free(epi);
         return NULL;
     }

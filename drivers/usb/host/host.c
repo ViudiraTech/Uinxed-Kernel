@@ -123,7 +123,11 @@ void usb_host_start_workers(void)
     for (usb_host_t *host = usb_host_list; host; host = host->next) {
         if (host->controller_ops && host->controller_ops->host_start && !host->running) {
             int ret = host->controller_ops->host_start(host);
-            if (ret == EOK) host->running = true;
+            if (ret == EOK) {
+                host->running = true;
+            } else {
+                plogk("usb-host: %s: start failed (%d)\n", host->name[0] ? host->name : "controller", ret);
+            }
         }
     }
     spin_unlock_irqrestore(&usb_host_lock, flags);

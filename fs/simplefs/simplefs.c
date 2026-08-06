@@ -504,6 +504,7 @@ static int simplefs_mount(const char *src, vfs_node_t node)
 
     status = blockdev_open_name(src, &handle->device);
     if (status != EOK) {
+        plogk("simplefs: %s: block device open failed (%d)\n", src ? src : "?", status);
         free(handle);
         return status;
     }
@@ -516,6 +517,7 @@ static int simplefs_mount(const char *src, vfs_node_t node)
 
     root = simplefs_vnode_alloc(handle, handle->disk.root_inode);
     if (!root) {
+        plogk("simplefs: %s: root inode allocation failed.\n", src ? src : "?");
         free(handle);
         return -EIO;
     }

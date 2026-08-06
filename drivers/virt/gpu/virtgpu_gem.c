@@ -14,6 +14,7 @@
 #include <drivers/virt/virtgpu_drv.h>
 #include <drivers/virt/virtgpu_gem.h>
 #include <drivers/virt/virtgpu_kms.h>
+#include <kernel/printk.h>
 #include <mem/alloc.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
@@ -50,6 +51,7 @@ struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_
         obj->backing_page_count = ALIGN_UP(size, PAGE_4K_SIZE) / PAGE_4K_SIZE;
         obj->backing_phys       = alloc_frames(obj->backing_page_count);
         if (!obj->backing_phys) {
+            plogk("virtgpu: GEM backing frame allocation failed (%lu pages)\n", (unsigned long)obj->backing_page_count);
             free(obj);
             return NULL;
         }
@@ -60,6 +62,7 @@ struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_
         obj->num_entries = 1;
         obj->entries     = malloc(sizeof(struct virtio_gpu_mem_entry));
         if (!obj->entries) {
+            plogk("virtgpu: GEM memory entry allocation failed (size=%lu)\n", (unsigned long)size);
             free_frames(obj->backing_phys, obj->backing_page_count);
             free(obj);
             return NULL;

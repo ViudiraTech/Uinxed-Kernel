@@ -15,6 +15,7 @@
 #include <net/endian.h>
 #include <net/icmp.h>
 #include <net/udp.h>
+#include <proc/sched.h>
 
 #define UDP_HEADER_LEN      8U
 #define UDP_EPHEMERAL_FIRST 49152U
@@ -371,6 +372,12 @@ int udp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
     spin_lock(&target->lock);
     size_t payload_length = length - UDP_HEADER_LEN;
     if (target->queue_length >= UDP_RX_QUEUE_MAX || payload_length > UDP_RX_BYTES_MAX - target->queue_bytes) {
+        static uint64_t last_log;
+        if (sched_ticks() - last_log >= 1000) {
+            plogk("udp: %s: rx queue overflow, dropping datagram from %u.%u.%u.%u:%u\n", device->name, (unsigned)(ip->source >> 24) & 0xff,
+                  (unsigned)(ip->source >> 16) & 0xff, (unsigned)(ip->source >> 8) & 0xff, (unsigned)ip->source & 0xff, (unsigned)source_port);
+            last_log = sched_ticks();
+        }
         spin_unlock(&target->lock);
         spin_unlock(&udp_table_lock);
         net_pbuf_free(packet);
@@ -441,6 +448,11 @@ int udp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
     spin_lock(&target->lock);
     size_t payload_length = length - UDP_HEADER_LEN;
     if (target->queue_length >= UDP_RX_QUEUE_MAX || payload_length > UDP_RX_BYTES_MAX - target->queue_bytes) {
+        static uint64_t last_log6;
+        if (sched_ticks() - last_log6 >= 1000) {
+            plogk("udp: %s: rx6 queue overflow, dropping datagram.\n", device->name);
+            last_log6 = sched_ticks();
+        }
         spin_unlock(&target->lock);
         spin_unlock(&udp_table_lock);
         net_pbuf_free(packet);

@@ -731,7 +731,10 @@ static int extfs_delete_impl(void *parent, vfs_node_t node)
     status = extfs_dir_remove_entry(dir_h, node->name);
     if (status != EOK) return status;
 
-    if (!raw.i_links_count) return -EIO;
+    if (!raw.i_links_count) {
+        plogk("extfs: inode %llu has zero link count during unlink (corrupt on-disk state)\n", (unsigned long long)file_h->inode_no);
+        return -EIO;
+    }
     raw.i_links_count--;
     if (raw.i_links_count == 0) {
         extfs_free_inode_blocks(file_h);

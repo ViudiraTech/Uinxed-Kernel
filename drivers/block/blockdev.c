@@ -631,7 +631,10 @@ int blockdev_read_bytes(const blockdev_device_t *device, uint64_t offset, void *
     scratch       = malloc((size_t)sector_count * device->sector_size);
     if (!scratch) return -ENOMEM;
 
-    if (blockdev_read_sectors(device, start_sector, sector_count, scratch) != EOK) {
+    int status = blockdev_read_sectors(device, start_sector, sector_count, scratch);
+    if (status != EOK) {
+        plogk("blockdev: read failed at LBA %llu count %u (offset %llu size %lu): %d\n", (unsigned long long)start_sector,
+              (unsigned)sector_count, (unsigned long long)offset, (unsigned long)size, status);
         free(scratch);
         return -EIO;
     }
@@ -664,13 +667,18 @@ int blockdev_write_bytes(const blockdev_device_t *device, uint64_t offset, const
     scratch       = malloc((size_t)sector_count * device->sector_size);
     if (!scratch) return -ENOMEM;
 
-    if (blockdev_read_sectors(device, start_sector, sector_count, scratch) != EOK) {
+    int status = blockdev_read_sectors(device, start_sector, sector_count, scratch);
+    if (status != EOK) {
+        plogk("blockdev: read-modify-write read failed at LBA %llu count %u (offset %llu size %lu): %d\n", (unsigned long long)start_sector,
+              (unsigned)sector_count, (unsigned long long)offset, (unsigned long)size, status);
         free(scratch);
         return -EIO;
     }
 
     memcpy(scratch + sector_offset, buffer, size);
     if (blockdev_write_sectors(device, start_sector, sector_count, scratch) != EOK) {
+        plogk("blockdev: write failed at LBA %llu count %u (offset %llu size %lu)\n", (unsigned long long)start_sector, (unsigned)sector_count,
+              (unsigned long long)offset, (unsigned long)size);
         free(scratch);
         return -EIO;
     }

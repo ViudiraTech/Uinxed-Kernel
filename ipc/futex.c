@@ -10,6 +10,7 @@
 
 #include <ipc/futex.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
@@ -123,7 +124,10 @@ static futex_entry_t *futex_find_or_create(futex_bucket_t *bucket, uint32_t *uad
     }
 
     entry = (futex_entry_t *)malloc(sizeof(futex_entry_t));
-    if (!entry) return NULL;
+    if (!entry) {
+        plogk("futex: entry allocation failed for %p\n", (void *)uaddr);
+        return NULL;
+    }
 
     entry->key      = (uintptr_t)uaddr;
     entry->bitset   = bitset;
@@ -151,7 +155,10 @@ static futex_entry_t *futex_create_waiter(futex_bucket_t *bucket, uint32_t *uadd
     if (entry) return entry;
 
     entry = (futex_entry_t *)malloc(sizeof(futex_entry_t));
-    if (!entry) return NULL;
+    if (!entry) {
+        plogk("futex: waiter allocation failed for %p\n", (void *)uaddr);
+        return NULL;
+    }
 
     entry->key      = (uintptr_t)uaddr;
     entry->bitset   = bitset;
@@ -650,7 +657,10 @@ static rt_mutex_t *futex_get_pi_mutex(futex_bucket_t *bucket, uint32_t *uaddr)
 
     if (!entry->pi_mutex) {
         entry->pi_mutex = malloc(sizeof(rt_mutex_t));
-        if (!entry->pi_mutex) return NULL;
+        if (!entry->pi_mutex) {
+            plogk("futex: PI mutex allocation failed for %p\n", (void *)uaddr);
+            return NULL;
+        }
         rt_mutex_init(entry->pi_mutex, uaddr);
     }
 
@@ -895,6 +905,7 @@ static int futex_cmp_requeue_pi(uint32_t *uaddr, int nr_wake, int nr_requeue, ui
     if (nr_requeue > 0) {
         entry2 = futex_find_or_create(bucket2, uaddr2, FUTEX_BITSET_MATCH_ANY);
         if (!entry2) {
+            plogk("futex: cmp_requeue_pi requeue entry allocation failed for %p\n", (void *)uaddr2);
             futex_try_cleanup(bucket1, entry1);
             if (bucket1 != bucket2) spin_unlock(&bucket2->lock);
             spin_unlock(&bucket1->lock);
@@ -904,6 +915,7 @@ static int futex_cmp_requeue_pi(uint32_t *uaddr, int nr_wake, int nr_requeue, ui
         if (!entry2->pi_mutex) {
             entry2->pi_mutex = malloc(sizeof(rt_mutex_t));
             if (!entry2->pi_mutex) {
+                plogk("futex: cmp_requeue_pi PI mutex allocation failed for %p\n", (void *)uaddr2);
                 futex_try_cleanup(bucket1, entry1);
                 if (bucket1 != bucket2) spin_unlock(&bucket2->lock);
                 spin_unlock(&bucket1->lock);
@@ -1202,6 +1214,7 @@ static int futex2_wait_core(uint64_t uaddr, unsigned int size_code, uint64_t val
 
     entry = futex_create_waiter(bucket, (uint32_t *)(uintptr_t)key, mask);
     if (!entry) {
+        plogk("futex: futex2 waiter allocation failed for %#lx\n", (unsigned long)uaddr);
         spin_unlock(&bucket->lock);
         return -ENOMEM;
     }

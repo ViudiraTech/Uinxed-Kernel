@@ -129,10 +129,14 @@ static uint32_t pipe_ring_copy_in(pipe_ring_t *ring, const uint8_t *src, uint32_
 static pipe_ring_t *pipe_ring_alloc(void)
 {
     pipe_ring_t *ring = calloc(1, sizeof(pipe_ring_t));
-    if (!ring) return NULL;
+    if (!ring) {
+        plogk("pipe: ring allocation failed.\n");
+        return NULL;
+    }
 
     ring->buf = malloc(PIPE_BUF_SIZE);
     if (!ring->buf) {
+        plogk("pipe: ring buffer allocation failed (%d bytes)\n", PIPE_BUF_SIZE);
         free(ring);
         return NULL;
     }
@@ -192,7 +196,10 @@ static void pipe_vfs_open(void *parent, const char *name, vfs_node_t node)
      */
     if (!node->handle) {
         pipe_ring_t *ring = pipe_ring_alloc();
-        if (!ring) return;
+        if (!ring) {
+            plogk("pipe: FIFO %s open failed (ring allocation)\n", name ? name : "?");
+            return;
+        }
         node->handle = ring;
     }
 }
@@ -234,7 +241,10 @@ static int pipe_file_open(vfs_node_t node, uint64_t flags, void **private_data)
     if (access != O_RDONLY && access != O_WRONLY && access != O_RDWR) return -EINVAL;
 
     pipe_endpoint_t *endpoint = calloc(1, sizeof(*endpoint));
-    if (!endpoint) return -ENOMEM;
+    if (!endpoint) {
+        plogk("pipe: endpoint allocation failed.\n");
+        return -ENOMEM;
+    }
     endpoint->ring     = ring;
     endpoint->readable = access != O_WRONLY;
     endpoint->writable = access != O_RDONLY;
@@ -649,6 +659,7 @@ int64_t sys_pipe2(int pipefd[2], int flags)
     /* Create the VFS node */
     vfs_node_t node = pipe_node_create(ring);
     if (!node) {
+        plogk("pipe: sys_pipe2 node creation failed.\n");
         pipe_ring_free(ring);
         return -ENOMEM;
     }

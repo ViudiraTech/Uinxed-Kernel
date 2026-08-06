@@ -41,7 +41,10 @@ static DRESULT fatfs_open_drive(BYTE pdrv)
 {
     if (pdrv >= FF_VOLUMES) return RES_PARERR;
     if (fatfs_bound[pdrv]) return RES_OK;
-    if (blockdev_open_drive(pdrv, &fatfs_devices[pdrv]) != EOK) return RES_NOTRDY;
+    if (blockdev_open_drive(pdrv, &fatfs_devices[pdrv]) != EOK) {
+        plogk("fatfs: drive %u: block device open failed.\n", pdrv);
+        return RES_NOTRDY;
+    }
 
     fatfs_ready[pdrv] = 1;
     return RES_OK;

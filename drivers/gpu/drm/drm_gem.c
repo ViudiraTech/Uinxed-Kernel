@@ -633,6 +633,7 @@ int drm_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, stru
     if (size > 0) {
         obj->backing = aligned_alloc(4096, size);
         if (!obj->backing) {
+            plogk("drm: dumb buffer backing allocation failed (size=%zu)\n", size);
             free(obj);
             return -ENOMEM;
         }

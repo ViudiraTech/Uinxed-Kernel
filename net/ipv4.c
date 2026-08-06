@@ -153,6 +153,12 @@ int ipv4_route(uint32_t destination, net_device_t **device, uint32_t *next_hop)
         return 0;
     }
     if (search.fallback) netdev_put(search.fallback);
+    static uint64_t last_log;
+    if (sched_ticks() - last_log >= 1000) {
+        plogk("ipv4: no route to %u.%u.%u.%u\n", (unsigned)(destination >> 24) & 0xff, (unsigned)(destination >> 16) & 0xff,
+              (unsigned)(destination >> 8) & 0xff, (unsigned)destination & 0xff);
+        last_log = sched_ticks();
+    }
     return -ENETUNREACH;
 }
 
@@ -210,6 +216,13 @@ int ipv4_output(net_device_t *device, uint32_t source, uint32_t destination, uin
     }
     if (!source) source = device->ipv4_address;
     if (!ipv4_source_valid(source) || !next_hop || device->mtu <= IPV4_HEADER_MIN) {
+        static uint64_t last_log;
+        if (sched_ticks() - last_log >= 1000) {
+            plogk("ipv4: %s: output dropped (source %u.%u.%u.%u, next hop %u.%u.%u.%u)\n", device->name, (unsigned)(source >> 24) & 0xff,
+                  (unsigned)(source >> 16) & 0xff, (unsigned)(source >> 8) & 0xff, (unsigned)source & 0xff, (unsigned)(next_hop >> 24) & 0xff,
+                  (unsigned)(next_hop >> 16) & 0xff, (unsigned)(next_hop >> 8) & 0xff, (unsigned)next_hop & 0xff);
+            last_log = sched_ticks();
+        }
         if (release) netdev_put(device);
         return -ENETUNREACH;
     }

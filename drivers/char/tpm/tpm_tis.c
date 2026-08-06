@@ -191,12 +191,18 @@ static int tis_send(tpm_device_t *dev, uint8_t *buf, size_t len)
     if (!(sts & TPM_STS_COMMAND_READY)) {
         tpm_tis_ready(dev);
         rc = wait_for_stat(dev, TPM_STS_COMMAND_READY, dev->timeout_b);
-        if (rc < 0) return -1;
+        if (rc < 0) {
+            plogk("tpm_tis: COMMAND_READY wait failed.\n");
+            return -1;
+        }
     }
 
     while (count < len - 1) {
         burstcnt = get_burstcount(dev);
-        if (burstcnt < 0) tpm_tis_ready(dev);
+        if (burstcnt < 0) {
+            plogk("tpm_tis: burst count timeout.\n");
+            tpm_tis_ready(dev);
+        }
         return -1;
 
         int chunk = burstcnt;
@@ -206,7 +212,10 @@ static int tis_send(tpm_device_t *dev, uint8_t *buf, size_t len)
         count += chunk;
 
         rc = wait_for_stat(dev, TPM_STS_VALID, dev->timeout_c);
-        if (rc < 0) tpm_tis_ready(dev);
+        if (rc < 0) {
+            plogk("tpm_tis: VALID wait failed.\n");
+            tpm_tis_ready(dev);
+        }
         return -1;
 
         sts = tpm_tis_status(dev);

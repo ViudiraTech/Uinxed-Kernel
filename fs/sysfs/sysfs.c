@@ -227,7 +227,10 @@ static ssize_t sysfs_gen_attr_content(sysfs_node_t *sn, char **content)
     if (!kobj || !attr || !kobj->ktype || !kobj->ktype->sysfs_ops || !kobj->ktype->sysfs_ops->show) return -EIO;
 
     char *buf = malloc(SYSFS_PAGE_SIZE);
-    if (!buf) return -ENOMEM;
+    if (!buf) {
+        plogk("sysfs: attribute content allocation failed.\n");
+        return -ENOMEM;
+    }
 
     ssize_t n = kobj->ktype->sysfs_ops->show(kobj, attr, buf);
     if (n < 0) {
@@ -537,7 +540,12 @@ static size_t sysfs_read(void *file, void *addr, size_t offset, size_t size)
         case SYSFS_ATTR : {
             char   *content = NULL;
             ssize_t length  = sysfs_gen_attr_content(sn, &content);
-            if (length < 0) return 0;
+            if (length < 0) {
+                if (length != -ENODEV && length != -EIO) {
+                    plogk("sysfs: show() for %s failed (%d)\n", sn->attr && sn->attr->name ? sn->attr->name : "?", (int)length);
+                }
+                return 0;
+            }
             if (!length || offset >= (size_t)length) {
                 free(content);
                 return 0;

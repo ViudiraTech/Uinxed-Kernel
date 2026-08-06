@@ -4143,6 +4143,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
 
         elf_data = malloc(node->size);
         if (!elf_data) {
+            plogk("syscall: exec of %s failed (image allocation, %llu bytes)\n", kpath, (unsigned long long)node->size);
             vfs_close(node);
             free_string_array(kargv);
             free_string_array(kenvp);
@@ -4197,6 +4198,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
             int    new_argc = 1 + (optional < end ? 1 : 0) + 1 + (argc > 0 ? argc - 1 : 0);
             char **new_argv = calloc((size_t)new_argc + 1, sizeof(char *));
             if (!new_argv) {
+                plogk("syscall: exec of %s failed (shebang argv allocation)\n", kpath);
                 free(elf_data);
                 free_string_array(kargv);
                 free_string_array(kenvp);
@@ -4220,6 +4222,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
             for (int i = 0; i < new_argc; i++)
                 if (!new_argv[i]) allocation_failed = true;
             if (allocation_failed) {
+                plogk("syscall: exec of %s failed (shebang argv element allocation)\n", kpath);
                 free(elf_data);
                 free_string_array(new_argv);
                 free_string_array(kargv);
@@ -4267,6 +4270,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     proc->stack_brk = PROCESS_STACK_BASE - PROCESS_STACK_SIZE;
 
     if (setup_process_page_dir(proc)) {
+        plogk("syscall: exec of %s failed (page directory setup)\n", kpath);
         (void)process_mmap_replace(proc, old_mmaps);
         proc->start_brk = old_start_brk;
         proc->heap_brk  = old_heap_brk;
@@ -4436,6 +4440,7 @@ static int64_t sys_getdents64_impl(int fd, uint64_t dirent, uint64_t count)
 
     uint8_t *kbuf = malloc(count);
     if (!kbuf) {
+        plogk("syscall: getdents64 buffer allocation failed (%llu bytes)\n", (unsigned long long)count);
         process_file_put(file);
         return -ENOMEM;
     }
@@ -4498,7 +4503,10 @@ static int64_t sys_writev_wrap(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint6
 
     if (iovcnt > 16) {
         vec = malloc(iovcnt * sizeof(iovec_t));
-        if (!vec) return -ENOMEM;
+        if (!vec) {
+            plogk("syscall: writev iovec allocation failed (%llu entries)\n", (unsigned long long)iovcnt);
+            return -ENOMEM;
+        }
         alloc = 1;
     }
 
@@ -4550,7 +4558,10 @@ static int64_t sys_readv_wrap(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64
 
     if (iovcnt > 16) {
         vec = malloc(iovcnt * sizeof(iovec_t));
-        if (!vec) return -ENOMEM;
+        if (!vec) {
+            plogk("syscall: readv iovec allocation failed (%llu entries)\n", (unsigned long long)iovcnt);
+            return -ENOMEM;
+        }
         alloc = 1;
     }
 
@@ -4781,7 +4792,10 @@ static int64_t sys_init_module_impl(uint64_t image, uint64_t length, uint64_t us
     int  ret = copy_module_params(user_params, params);
     if (ret != EOK) return ret;
     void *copy = malloc((size_t)length);
-    if (!copy) return -ENOMEM;
+    if (!copy) {
+        plogk("syscall: init_module image allocation failed (%llu bytes)\n", (unsigned long long)length);
+        return -ENOMEM;
+    }
     if (copy_from_user(copy, (const void *)image, (size_t)length)) {
         free(copy);
         return -EFAULT;
@@ -4816,6 +4830,7 @@ static int64_t sys_finit_module_impl(uint64_t fd, uint64_t user_params, uint64_t
     }
     void *image = malloc(length);
     if (!image) {
+        plogk("syscall: finit_module image allocation failed (%llu bytes)\n", (unsigned long long)length);
         process_file_put(file);
         return -ENOMEM;
     }

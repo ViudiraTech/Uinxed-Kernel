@@ -11,6 +11,7 @@
 #include <arch/fpu.h>
 #include <cgroup/cgroup.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
@@ -104,7 +105,10 @@ static void kthread_trampoline(kthread_bootstrap_t *bootstrap)
 static int setup_kernel_stack(task_t *task, kthread_bootstrap_t *bootstrap)
 {
     task->kernel_stack = malloc(TASK_KERNEL_STACK);
-    if (!task->kernel_stack) return 1;
+    if (!task->kernel_stack) {
+        plogk("task: %s: kernel stack allocation failed (%d bytes)\n", task->name, TASK_KERNEL_STACK);
+        return 1;
+    }
 
     uint64_t *stack = (uint64_t *)ALIGN_DOWN((uint64_t)(task->kernel_stack + TASK_KERNEL_STACK), 16ULL);
     *(--stack)      = 0;
@@ -140,18 +144,21 @@ task_t *task_alloc_status(const char *name, int *error)
     task_t *task   = calloc(1, sizeof(task_t));
     if (error) *error = EOK;
     if (!task) {
+        plogk("task: %s: task control block allocation failed.\n", name ? name : "unnamed");
         if (error) *error = -ENOMEM;
         return NULL;
     }
 
     pid_entry_t *pid_entry = malloc(sizeof(pid_entry_t));
     if (!pid_entry) {
+        plogk("task: %s: PID table entry allocation failed.\n", name ? name : "unnamed");
         free(task);
         if (error) *error = -ENOMEM;
         return NULL;
     }
 
     if (fpu_task_init(task)) {
+        plogk("task: %s: FPU state allocation failed.\n", name ? name : "unnamed");
         free(pid_entry);
         free(task);
         if (error) *error = -ENOMEM;
@@ -178,6 +185,7 @@ task_t *task_alloc_status(const char *name, int *error)
     if (cgroup_root()) parent = current_task();
     int status = cgroup_task_fork(task, parent);
     if (status != EOK) {
+        plogk("task: %s: cgroup fork failed (%d)\n", name ? name : "unnamed", status);
         free(pid_entry);
         fpu_task_destroy(task);
         free(task);
@@ -227,10 +235,14 @@ task_t *kthread_create_on_cpu(const char *name, kthread_entry_t entry, void *arg
     if (cpu_id >= cpu_scheduler_count) cpu_id = 0;
 
     kthread_bootstrap_t *bootstrap = malloc(sizeof(kthread_bootstrap_t));
-    if (!bootstrap) return NULL;
+    if (!bootstrap) {
+        plogk("task: kthread '%s' bootstrap allocation failed.\n", name ? name : "unnamed");
+        return NULL;
+    }
 
     task_t *task = task_alloc(name);
     if (!task) {
+        plogk("task: kthread '%s' creation failed.\n", name ? name : "unnamed");
         free(bootstrap);
         return NULL;
     }
@@ -240,6 +252,7 @@ task_t *kthread_create_on_cpu(const char *name, kthread_entry_t entry, void *arg
     bootstrap->arg   = arg;
 
     if (setup_kernel_stack(task, bootstrap)) {
+        plogk("task: kthread '%s' kernel stack setup failed.\n", name ? name : "unnamed");
         free(bootstrap);
         task_free(task);
         return NULL;

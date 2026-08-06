@@ -3694,6 +3694,7 @@ static size_t ntfs_vfs_write_locked(ntfs_handle_t *h, const void *addr, size_t o
     mft = malloc(h->mnt->mft_size);
     if (!mft) return 0;
     if (mft_read(h->mnt, h->mft_no, mft) < 0 || le32(mft) != MFT_MAGIC) {
+        plogk("ntfs: drive %u: MFT read failed or bad magic for record %llu during write.\n", h->mnt->dev.drive, (unsigned long long)h->mft_no);
         free(mft);
         return 0;
     }
@@ -3707,6 +3708,7 @@ static size_t ntfs_vfs_write_locked(ntfs_handle_t *h, const void *addr, size_t o
         if (type == AT_END) break;
         if (length < 24 || attr_offset + length > h->mnt->mft_size) break;
         if (type == AT_ATTRIBUTE_LIST) {
+            plogk("ntfs: drive %u: write of record %llu with unsupported ATTRIBUTE_LIST.\n", h->mnt->dev.drive, (unsigned long long)h->mft_no);
             free(mft);
             return 0;
         }
@@ -3715,6 +3717,8 @@ static size_t ntfs_vfs_write_locked(ntfs_handle_t *h, const void *addr, size_t o
             u64 write_end = (u64)offset + size;
 
             if (flags & (ATTR_IS_COMPRESSED | ATTR_IS_ENCRYPTED | ATTR_IS_SPARSE)) {
+                plogk("ntfs: drive %u: write to record %llu with unsupported attribute flags 0x%04x\n", h->mnt->dev.drive,
+                      (unsigned long long)h->mft_no, flags);
                 free(mft);
                 return 0;
             }
@@ -3726,6 +3730,8 @@ static size_t ntfs_vfs_write_locked(ntfs_handle_t *h, const void *addr, size_t o
                 s64 written;
 
                 if (length < 64 || le64((u8 *)&attribute->d.nres.lowest_vcn) != 0) {
+                    plogk("ntfs: drive %u: corrupt non-resident attribute in record %llu (corrupt runlist)\n", h->mnt->dev.drive,
+                          (unsigned long long)h->mft_no);
                     free(mft);
                     return 0;
                 }
@@ -3733,6 +3739,7 @@ static size_t ntfs_vfs_write_locked(ntfs_handle_t *h, const void *addr, size_t o
                 data_size        = le64((u8 *)&attribute->d.nres.data_size);
                 initialized_size = le64((u8 *)&attribute->d.nres.init_size);
                 if (mapping_offset < 64 || mapping_offset >= length || initialized_size > data_size) {
+                    plogk("ntfs: drive %u: invalid attribute layout in record %llu\n", h->mnt->dev.drive, (unsigned long long)h->mft_no);
                     free(mft);
                     return 0;
                 }

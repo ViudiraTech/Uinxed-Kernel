@@ -262,7 +262,17 @@ int ipv6_route(const ipv6_address_t *destination, net_device_t **device, ipv6_ad
     ipv6_route_search_t search = {.destination = destination};
     netdev_iterate(ipv6_route_visit, &search);
     net_device_t *selected = search.direct ? search.direct : search.router;
-    if (!selected) return -ENETUNREACH;
+    if (!selected) {
+        static uint64_t last_log;
+        if (sched_ticks() - last_log >= 1000) {
+            plogk("ipv6: no route to %02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x\n", destination->bytes[0],
+                  destination->bytes[1], destination->bytes[2], destination->bytes[3], destination->bytes[4], destination->bytes[5],
+                  destination->bytes[6], destination->bytes[7], destination->bytes[8], destination->bytes[9], destination->bytes[10],
+                  destination->bytes[11], destination->bytes[12], destination->bytes[13], destination->bytes[14], destination->bytes[15]);
+            last_log = sched_ticks();
+        }
+        return -ENETUNREACH;
+    }
     if (search.direct && search.router) netdev_put(search.router);
     memcpy(next_hop->bytes, search.direct || ipv6_address_is_multicast(destination) ? destination->bytes : selected->ipv6_default_router, 16);
     if (!ipv6_destination_link_scope(destination) && selected->ipv6_prefix_length && selected->ipv6_valid_until > sched_ticks())
@@ -328,6 +338,11 @@ int ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_a
     } else if (ipv6_address_is_unicast(&next_hop)) {
         status = ndp_resolve(device, &next_hop, packet);
     } else {
+        static uint64_t last_log;
+        if (sched_ticks() - last_log >= 1000) {
+            plogk("ipv6: %s: output dropped, no valid next hop for destination.\n", device->name);
+            last_log = sched_ticks();
+        }
         status = -ENETUNREACH;
     }
     net_pbuf_pull(packet, IPV6_HEADER_LEN);

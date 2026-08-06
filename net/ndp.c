@@ -418,6 +418,7 @@ void ndp_timer(uint64_t now_ticks)
             memset(entry, 0, sizeof(*entry));
         } else if (entry->state == NDP_INCOMPLETE && now_ticks >= entry->retry_at) {
             if (entry->retries >= NDP_MAX_RETRIES) {
+                plogk("ndp: %s: neighbor resolution timed out, dropping pending packets.\n", entry->device ? entry->device->name : "?");
                 ndp_drop_pending_locked(entry);
                 memset(entry, 0, sizeof(*entry));
             } else {

@@ -483,7 +483,10 @@ static size_t fatfs_vfs_read(void *file, void *addr, size_t offset, size_t size)
     if (!handle || !addr || handle->is_dir) return 0;
     if (!handle->opened || handle->open_mode != (FA_READ | FA_OPEN_EXISTING)) {
         res = f_open(&handle->file, handle->path, FA_READ | FA_OPEN_EXISTING);
-        if (res != FR_OK) return 0;
+        if (res != FR_OK) {
+            plogk("fatfs: %s: open for read failed: %d\n", handle->path, res);
+            return 0;
+        }
         handle->opened    = 1;
         handle->open_mode = FA_READ | FA_OPEN_EXISTING;
     }
@@ -509,7 +512,10 @@ static size_t fatfs_vfs_write(void *file, const void *addr, size_t offset, size_
     FRESULT         res;
 
     if (!handle || !addr || handle->is_dir) return 0;
-    if (fatfs_prepare_file_handle(handle, FA_WRITE | FA_OPEN_EXISTING) != EOK) return 0;
+    if (fatfs_prepare_file_handle(handle, FA_WRITE | FA_OPEN_EXISTING) != EOK) {
+        plogk("fatfs: %s: prepare for write failed.\n", handle->path);
+        return 0;
+    }
 
     res = f_lseek(&handle->file, offset);
     if (res != FR_OK) {

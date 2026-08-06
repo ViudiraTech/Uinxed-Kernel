@@ -775,7 +775,10 @@ static int hda_setup_stream(int stream_idx, uint32_t format, size_t buf_size, si
     size_t   bdl_bytes = sizeof(hda_bdle_t) * bdl_entries;
     size_t   total     = ALIGN_UP(buf_size + bdl_bytes, PAGE_4K_SIZE);
     uint64_t frame     = alloc_frames(total / PAGE_4K_SIZE);
-    if (!frame) return -ENOMEM;
+    if (!frame) {
+        plogk("hda: stream %u DMA buffer allocation failed (%zu bytes)\n", stream_idx, buf_size);
+        return -ENOMEM;
+    }
 
     hda_bdle_t *bdl = (hda_bdle_t *)phys_to_virt(frame + buf_size);
 

@@ -112,10 +112,16 @@ static mq_queue_t *mq_queue_create(const char *name, const mq_attr_t *attr)
             break;
         }
     }
-    if (slot < 0) return NULL;
+    if (slot < 0) {
+        plogk("posix_mq: queue registry full (max %d)\n", MQ_MAX_QUEUES);
+        return NULL;
+    }
 
     queue = malloc(sizeof(mq_queue_t));
-    if (!queue) return NULL;
+    if (!queue) {
+        plogk("posix_mq: queue allocation failed (%s)\n", name ? name : "?");
+        return NULL;
+    }
     memset(queue, 0, sizeof(mq_queue_t));
 
     strncpy(queue->name, name, MQ_NAME_MAX - 1);
@@ -378,6 +384,7 @@ static size_t mq_vfs_write(void *file, const void *addr, size_t offset, size_t s
 
     mq_message_t *msg = malloc(sizeof(mq_message_t) + size);
     if (!msg) {
+        plogk("posix_mq: message allocation failed (queue %s, size %lu)\n", queue->name, (unsigned long)size);
         spin_unlock(&queue->lock);
         return (size_t)-1;
     }
@@ -581,6 +588,7 @@ int64_t sys_mq_open(const char *name, int oflag, uint32_t mode, mq_attr_t *attr)
     /* Allocate descriptor */
     mq_des_t *des = malloc(sizeof(mq_des_t));
     if (!des) {
+        plogk("posix_mq: descriptor allocation failed (%s)\n", queue->name);
         spin_lock(&mq_registry_lock);
         spin_lock(&queue->lock);
         queue->refcount--;
@@ -764,6 +772,7 @@ int64_t sys_mq_timedsend(int mqdes, const char *msg_ptr, size_t msg_len, uint32_
     /* Allocate and populate message */
     mq_message_t *msg = malloc(sizeof(mq_message_t) + msg_len);
     if (!msg) {
+        plogk("posix_mq: timedsend message allocation failed (queue %s, size %lu)\n", queue->name, (unsigned long)msg_len);
         spin_unlock(&queue->lock);
         return -ENOMEM;
     }

@@ -17,12 +17,14 @@
 #include <fs/core/vfs.h>
 #include <kernel/cmdline.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <proc/process.h>
+#include <proc/sched.h>
 #include <proc/task.h>
 #include <sync/spin_lock.h>
 #include <syscall/fcntl.h>
@@ -63,7 +65,15 @@ static void tty_vga_queue_push(char ch)
 {
     size_t next = (tty_vga_head + 1) % TTY_VGA_QUEUE_SIZE;
 
-    if (next == tty_vga_tail) tty_vga_tail = (tty_vga_tail + 1) % TTY_VGA_QUEUE_SIZE;
+    if (next == tty_vga_tail) {
+        static uint64_t last_log;
+        uint64_t        now = sched_ticks();
+        if (now - last_log >= 1000) {
+            plogk("tty: VGA output queue overflow, dropping console data.\n");
+            last_log = now;
+        }
+        tty_vga_tail = (tty_vga_tail + 1) % TTY_VGA_QUEUE_SIZE;
+    }
     tty_vga_queue[tty_vga_head] = ch;
     tty_vga_head                = next;
 }
@@ -260,6 +270,7 @@ void tty_buff_flush(void)
                     tty_vga_flush_locked();
                 } else {
                     /* Bad port number */
+                    plogk("tty: bad VGA console port %u, falling back to %s\n", tty_device->port, TTY_DEFAULT_DEV);
                     early_break = 0;
                     boot_tty    = parse_boot_tty_str(TTY_DEFAULT_DEV);
                     tty_device  = &boot_tty;
@@ -282,6 +293,7 @@ void tty_buff_flush(void)
                         break;
                     default :
                         /* Bad port number */
+                        plogk("tty: bad serial console port %u, falling back to %s\n", tty_device->port, TTY_DEFAULT_DEV);
                         early_break = 0;
                         boot_tty    = parse_boot_tty_str(TTY_DEFAULT_DEV);
                         tty_device  = &boot_tty;

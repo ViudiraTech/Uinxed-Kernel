@@ -643,6 +643,7 @@ int netlink_bind(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen)
         /* Check if PID is already in use */
         struct socket *existing = nl_mcast_find_by_pid(ns->nl_protocol, addr->nl_pid);
         if (existing && existing != sk) {
+            plogk("netlink: bind failed, pid %u already in use.\n", (unsigned)addr->nl_pid);
             spin_unlock(&sk->lock);
             return -EADDRINUSE;
         }
@@ -691,15 +692,24 @@ static int nl_queue_datagram(struct socket *sk, const void *data, uint32_t len, 
 
     if (!ns || !data || !len) return -EINVAL;
     msg = nl_msg_alloc(data, len, sender_pid, sender_groups, sender_uid, sender_gid);
-    if (!msg) return -ENOMEM;
+    if (!msg) {
+        plogk("netlink: datagram message allocation failed (len=%u)\n", len);
+        return -ENOMEM;
+    }
     node = clist_alloc(msg);
     if (!node) {
+        plogk("netlink: datagram queue node allocation failed (len=%u)\n", len);
         nl_msg_put(msg);
         return -ENOMEM;
     }
 
     spin_lock(&ns->recv_lock);
     if (ns->recv_queue_len >= ns->recv_queue_max || len > sk->rcvbuf || ns->recv_queue_bytes > sk->rcvbuf - len) {
+        static uint64_t last_log;
+        if (sched_ticks() - last_log >= 1000) {
+            plogk("netlink: receive queue overflow, dropping datagram (len=%u)\n", len);
+            last_log = sched_ticks();
+        }
         ns->overrun = 1;
         if (!ns->no_enobufs) sk->so_error = -ENOBUFS;
         spin_unlock(&ns->recv_lock);

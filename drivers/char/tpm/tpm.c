@@ -109,6 +109,7 @@ int tpm_transmit(tpm_device_t *dev, uint8_t *buf, size_t bufsiz, size_t len)
         }
         return rc;
     }
+    plogk("tpm: transmit failed after %u attempts.\n", TPM_RETRY);
     return -1;
 }
 

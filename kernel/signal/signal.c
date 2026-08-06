@@ -238,7 +238,15 @@ static int signal_send_locked(signal_state_t *state, process_t *proc, int sig, c
     }
 
     /* Real-time signals: queue up to SIGQUEUE_MAX */
-    if (sig_is_rt(sig) && state->sigqueue_count >= SIGQUEUE_MAX) return -EAGAIN;
+    if (sig_is_rt(sig) && state->sigqueue_count >= SIGQUEUE_MAX) {
+        static uint64_t last_log;
+        if (sched_ticks() - last_log >= 1000) {
+            plogk("signal: rt signal %d to pid %llu dropped, queue full.\n", sig,
+                  proc && proc->task ? (unsigned long long)proc->task->pid : 0ULL);
+            last_log = sched_ticks();
+        }
+        return -EAGAIN;
+    }
 
     siginfo_t queue_info;
     if (info) {

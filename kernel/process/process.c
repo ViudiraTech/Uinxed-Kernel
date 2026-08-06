@@ -435,10 +435,14 @@ bool process_pgrp_is_orphaned(pid_t pgid, pid_t sid)
 int setup_process_page_dir(process_t *proc)
 {
     page_directory_t *new_dir = malloc(sizeof(page_directory_t));
-    if (!new_dir) return 1;
+    if (!new_dir) {
+        plogk("process: %s: page directory struct allocation failed.\n", proc ? proc->name : "?");
+        return 1;
+    }
 
     uint64_t pml4_frame = alloc_frames(1);
     if (!pml4_frame) {
+        plogk("process: %s: page directory frame allocation failed.\n", proc ? proc->name : "?");
         free(new_dir);
         return 1;
     }
@@ -463,7 +467,10 @@ int setup_process_page_dir(process_t *proc)
 vm_area_t *vm_area_alloc(uintptr_t start, uintptr_t end, vm_flags_t flags)
 {
     vm_area_t *vma = calloc(1, sizeof(vm_area_t));
-    if (!vma) return NULL;
+    if (!vma) {
+        plogk("process: VMA allocation failed (start=%#lx end=%#lx)\n", (unsigned long)start, (unsigned long)end);
+        return NULL;
+    }
     vma->start = start;
     vma->end   = end;
     vma->flags = flags;
@@ -1101,10 +1108,14 @@ process_t *process_create(const char *name, void (*entry)(void *), void *arg)
     (void)arg;
 
     process_t *proc = calloc(1, sizeof(process_t));
-    if (!proc) return NULL;
+    if (!proc) {
+        plogk("process: process '%s' creation failed (control block OOM).\n", name ? name : "?");
+        return NULL;
+    }
 
     task_t *task = task_alloc(name);
     if (!task) {
+        plogk("process: '%s' task allocation failed.\n", name ? name : "?");
         free(proc);
         return NULL;
     }
@@ -1118,12 +1129,14 @@ process_t *process_create(const char *name, void (*entry)(void *), void *arg)
     proc->kernel_page_dir = get_kernel_pagedir();
     proc->kernel_stack    = malloc(PROCESS_KERNEL_STACK);
     if (!proc->kernel_stack) {
+        plogk("process: '%s' kernel stack allocation failed (%d bytes)\n", name ? name : "?", PROCESS_KERNEL_STACK);
         task_free(task);
         free(proc);
         return NULL;
     }
 
     if (setup_process_page_dir(proc)) {
+        plogk("process: '%s' page directory setup failed.\n", name ? name : "?");
         free(proc->kernel_stack);
         task_free(task);
         free(proc);
@@ -1167,10 +1180,14 @@ process_t *process_create(const char *name, void (*entry)(void *), void *arg)
 process_t *process_create_kernel(const char *name, void (*entry)(void *), void *arg)
 {
     process_t *proc = calloc(1, sizeof(process_t));
-    if (!proc) return NULL;
+    if (!proc) {
+        plogk("process: kernel process '%s' creation failed (control block OOM)\n", name ? name : "?");
+        return NULL;
+    }
 
     proc->kernel_stack = malloc(PROCESS_KERNEL_STACK);
     if (!proc->kernel_stack) {
+        plogk("process: kernel process '%s' kernel stack allocation failed (%d bytes)\n", name ? name : "?", PROCESS_KERNEL_STACK);
         free(proc);
         return NULL;
     }
@@ -1187,6 +1204,7 @@ process_t *process_create_kernel(const char *name, void (*entry)(void *), void *
         }
     }
     if (!task) {
+        plogk("process: kernel process '%s' task allocation failed.\n", name ? name : "?");
         free(proc->kernel_stack);
         free(proc);
         return NULL;
@@ -1601,6 +1619,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
 
     process_t *child = calloc(1, sizeof(process_t));
     if (!child) {
+        plogk("process: fork of '%s' failed (control block OOM)\n", parent->name);
         if (error) *error = -ENOMEM;
         spin_unlock(&parent->mmap_lock);
         spin_unlock(&scheduler.lock);
@@ -1610,6 +1629,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     int     task_error = EOK;
     task_t *child_task = task_alloc_status(parent->task->name, &task_error);
     if (!child_task) {
+        plogk("process: fork of '%s' failed (task allocation, errno %d)\n", parent->name, task_error);
         if (error) *error = task_error;
         free(child);
         spin_unlock(&parent->mmap_lock);
@@ -1641,6 +1661,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     memcpy(child->exe_path, parent->exe_path, sizeof(child->exe_path));
     child->kernel_stack = malloc(PROCESS_KERNEL_STACK);
     if (!child->kernel_stack) {
+        plogk("process: fork of '%s' failed (kernel stack OOM).\n", parent->name);
         if (error) *error = -ENOMEM;
         task_free(child_task);
         free(child);
@@ -1668,6 +1689,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     child->vfork_done = !vfork;
 
     if (setup_process_page_dir(child)) {
+        plogk("process: fork of '%s' failed (page directory setup)\n", parent->name);
         if (error) *error = -ENOMEM;
         process_free(child);
         spin_unlock(&parent->mmap_lock);
@@ -1676,6 +1698,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     }
 
     if (page_clone_user_cow(child->user_page_dir, parent->user_page_dir)) {
+        plogk("process: fork of '%s' failed (user pages COW clone)\n", parent->name);
         if (error) *error = -ENOMEM;
         process_free(child);
         spin_unlock(&parent->mmap_lock);
@@ -1686,6 +1709,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     for (vm_area_t *vma = parent->mmap_list; vma; vma = vma->next) {
         vm_area_t *copy = vm_area_alloc(vma->start, vma->end, vma->flags);
         if (!copy) {
+            plogk("process: fork of '%s' failed (VMA copy OOM)\n", parent->name);
             if (error) *error = -ENOMEM;
             process_free(child);
             spin_unlock(&parent->mmap_lock);
@@ -1705,6 +1729,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         if (copy->vm_file && copy->vm_pagecache) (void)vfs_cache_mapping_pin(copy->vm_file);
         if (copy->vm_file) memfd_vma_retain(copy->vm_file, copy->flags);
         if (copy->type == VM_REGION_SHM && sysv_shm_vma_get(copy->vm_private_data, (uint32_t)child->task->pid)) {
+            plogk("process: fork of '%s' failed (SHM VMA lookup)\n", parent->name);
             free(copy);
             if (error) *error = -ENOMEM;
             process_free(child);
@@ -1714,6 +1739,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         }
 
         if (vm_area_insert(child, copy)) {
+            plogk("process: fork of '%s' failed (VMA insert)\n", parent->name);
             if (copy->vm_file) {
                 if (copy->vm_pagecache) vfs_cache_mapping_unpin(copy->vm_file);
                 memfd_vma_release(copy->vm_file, copy->flags);
@@ -1862,11 +1888,13 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
     int     task_error = EOK;
     task_t *child      = task_alloc_status(current->name, &task_error);
     if (!child) {
+        plogk("process: thread clone of '%s' failed (task allocation, errno %d)\n", current->name, task_error);
         if (error) *error = task_error;
         return NULL;
     }
     child->kernel_stack = malloc(TASK_KERNEL_STACK);
     if (!child->kernel_stack) {
+        plogk("process: thread clone of '%s' failed (kernel stack OOM)\n", current->name);
         task_free(child);
         if (error) *error = -ENOMEM;
         return NULL;
@@ -1960,6 +1988,7 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
 
     uint64_t *frames = calloc(pages, sizeof(*frames));
     if (!frames) {
+        plogk("process: %s: mmap frame list allocation failed (%lu pages at %#lx)\n", proc->name, (unsigned long)pages, (unsigned long)addr);
         free(vma);
         return 1;
     }
@@ -1969,7 +1998,11 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
     size_t allocated = 0;
     for (; allocated < pages; allocated++) {
         frames[allocated] = alloc_frames(1);
-        if (!frames[allocated]) goto rollback_frames;
+        if (!frames[allocated]) {
+            plogk("process: %s: mmap frame allocation failed (%lu/%lu pages at %#lx)\n", proc->name, (unsigned long)allocated,
+                  (unsigned long)pages, (unsigned long)addr);
+            goto rollback_frames;
+        }
         memset(phys_to_virt(frames[allocated]), 0, PAGE_4K_SIZE);
     }
 
@@ -1994,6 +2027,8 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
     for (; mapped < pages; mapped++)
         if (page_map_new_to(proc->user_page_dir, addr + mapped * PAGE_4K_SIZE, frames[mapped], pte_flags) < 0) break;
     if (mapped != pages) {
+        plogk("process: %s: mmap page map failed at %#lx (%lu/%lu pages)\n", proc->name, (unsigned long)addr, (unsigned long)mapped,
+              (unsigned long)pages);
         for (size_t i = 0; i < mapped; i++) (void)page_unmap_release(proc->user_page_dir, addr + i * PAGE_4K_SIZE);
         spin_unlock(&proc->mmap_lock);
         allocated = pages;

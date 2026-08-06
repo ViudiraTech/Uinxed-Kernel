@@ -282,6 +282,9 @@ void arp_timer(uint64_t now_ticks)
             memset(entry, 0, sizeof(*entry));
         } else if (entry->state == ARP_INCOMPLETE && now_ticks >= entry->retry_at) {
             if (entry->retries >= ARP_MAX_RETRIES) {
+                plogk("arp: %s: neighbor resolution timed out for %u.%u.%u.%u, dropping pending packets.\n",
+                      entry->device ? entry->device->name : "?", (unsigned)(entry->ipv4 >> 24) & 0xff, (unsigned)(entry->ipv4 >> 16) & 0xff,
+                      (unsigned)(entry->ipv4 >> 8) & 0xff, (unsigned)entry->ipv4 & 0xff);
                 arp_drop_pending_locked(entry);
                 memset(entry, 0, sizeof(*entry));
             } else {

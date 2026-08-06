@@ -671,7 +671,10 @@ static void ehci_interrupt_handler(void *frame)
             spin_unlock_irqrestore(&ctrl->lock, flags);
         }
         if (sts & EHCI_STS_INT) { ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_INT); }
-        if (sts & EHCI_STS_ERR) { ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_ERR); }
+        if (sts & EHCI_STS_ERR) {
+            ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_ERR);
+            plogk("ehci: USB error interrupt on bus %u\n", ctrl->bus_number);
+        }
         if (sts & EHCI_STS_HSE) {
             ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_HSE);
             plogk("ehci: Host system error on bus %u\n", ctrl->bus_number);

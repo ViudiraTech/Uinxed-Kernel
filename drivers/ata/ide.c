@@ -380,10 +380,19 @@ uint8_t ide_flush_cache(uint8_t drive)
         cmd = ATA_CMD_CACHE_FLUSH;
 
     ide_write(channel, ATA_REG_COMMAND, cmd);
-    if (ide_polling(channel, 0)) return 3;
+    if (ide_polling(channel, 0)) {
+        plogk("ide: cache flush poll failed on drive %u\n", drive);
+        return 3;
+    }
     uint8_t status = ide_read(channel, ATA_REG_STATUS);
-    if (status & ATA_SR_ERR) return 2;
-    if (status & ATA_SR_DF) return 1;
+    if (status & ATA_SR_ERR) {
+        plogk("ide: cache flush error on drive %u\n", drive);
+        return 2;
+    }
+    if (status & ATA_SR_DF) {
+        plogk("ide: cache flush device fault on drive %u\n", drive);
+        return 1;
+    }
     return 0;
 }
 

@@ -120,7 +120,10 @@ static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr, const uint
 
         for (uintptr_t va = seg_start; va < seg_end; va += PAGE_4K_SIZE) {
             uint64_t frame = alloc_frames(1);
-            if (!frame) return 1;
+            if (!frame) {
+                plogk("elf_loader: PT_LOAD frame allocation failed at %p\n", (void *)va);
+                return 1;
+            }
 
             uint8_t *page = phys_to_virt(frame);
             memset(page, 0, PAGE_4K_SIZE);
@@ -145,12 +148,16 @@ static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr, const uint
         if (phdr[i].flags & PF_W) vm_flags |= VM_WRITE;
         if (phdr[i].flags & PF_X) vm_flags |= VM_EXEC;
         vm_area_t *vma = calloc(1, sizeof(*vma));
-        if (!vma) return 1;
+        if (!vma) {
+            plogk("elf_loader: PT_LOAD VMA allocation failed at %p\n", (void *)seg_start);
+            return 1;
+        }
         vma->start = seg_start;
         vma->end   = seg_end;
         vma->flags = vm_flags;
         vma->type  = VM_REGION_MMAP;
         if (vm_area_insert(proc, vma)) {
+            plogk("elf_loader: PT_LOAD VMA insert failed at %p\n", (void *)seg_start);
             free(vma);
             return 1;
         }
@@ -248,6 +255,7 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
 
     uint8_t *elf_data = malloc(node->size);
     if (!elf_data) {
+        plogk("elf_loader: interpreter image allocation failed (%llu bytes): %s\n", (unsigned long long)node->size, interp_path);
         vfs_close(node);
         return -1;
     }
@@ -263,6 +271,7 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
     vfs_close(node);
 
     if (total < sizeof(Elf64_Ehdr)) {
+        plogk("elf_loader: interpreter truncated (%lu bytes): %s\n", (unsigned long)total, interp_path);
         free(elf_data);
         return -1;
     }
@@ -285,6 +294,7 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
         if (end > image_end) image_end = end;
     }
     if (image_start == UINT64_MAX || image_end <= image_start) {
+        plogk("elf_loader: interpreter has no PT_LOAD segment: %s\n", interp_path);
         free(elf_data);
         return -1;
     }
@@ -314,6 +324,8 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
         if (valid_entry) { break; }
     }
     if (!valid_entry) {
+        plogk("elf_loader: interpreter entry %#lx outside any executable segment: %s\n", (unsigned long)(iehdr->e_entry + load_bias),
+              interp_path);
         free(elf_data);
         return -1;
     }

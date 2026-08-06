@@ -14,6 +14,7 @@
 #include <kernel/printk.h>
 #include <libs/glist/circular_list.h>
 #include <libs/std/string.h>
+#include <proc/sched.h>
 #include <sync/spin_lock.h>
 
 #if CONFIG_I2C
@@ -144,7 +145,13 @@ int i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
         return -ENODEV;
     }
     ret = __i2c_transfer(adap, msgs, num);
-    if (ret == -ETIMEDOUT) { plogk("i2c: transfer timed out on adapter %s (msg count %d)\n", adap->name, num); }
+    if (ret < 0 && ret != -EAGAIN && ret != -ENXIO && ret != -EINVAL && ret != -ENODEV) {
+        static uint64_t last_log;
+        if (sched_ticks() - last_log >= 1000) {
+            plogk("i2c: transfer failed on adapter %s (msg count %d): %d\n", adap->name, num, ret);
+            last_log = sched_ticks();
+        }
+    }
     spin_unlock(&adap->bus_lock);
     return ret < 0 ? ret : num;
 }

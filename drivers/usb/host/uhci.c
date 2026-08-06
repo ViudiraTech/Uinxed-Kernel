@@ -296,18 +296,30 @@ static int uhci_submit_control(usb_device_t *device, const usb_setup_packet_t *s
     bool     input          = (setup->request_type & USB_DIR_IN) != 0;
 
     setup_dma = uhci_dma_alloc(sizeof(*setup), &setup_physical);
-    if (!setup_dma || setup_physical > UINT32_MAX) goto cleanup;
+    if (!setup_dma || setup_physical > UINT32_MAX) {
+        plogk("uhci: %s: control setup DMA allocation failed.\n", device->path);
+        goto cleanup;
+    }
     memcpy(setup_dma, setup, sizeof(*setup));
     if (length) {
         data_dma = uhci_dma_alloc(length, &data_physical);
-        if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) goto cleanup;
+        if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) {
+            plogk("uhci: %s: control data DMA allocation failed (%zu bytes)\n", device->path, length);
+            goto cleanup;
+        }
         if (!input) memcpy(data_dma, buffer, length);
     }
     qh_index = uhci_find_free_qh(ctrl);
-    if (qh_index < 0) goto cleanup;
+    if (qh_index < 0) {
+        plogk("uhci: %s: no free queue head for control transfer.\n", device->path);
+        goto cleanup;
+    }
     for (size_t i = 0; i < data_count + 2; i++) {
         int index = uhci_find_free_td(ctrl);
-        if (index < 0) goto cleanup;
+        if (index < 0) {
+            plogk("uhci: %s: no free transfer descriptor for control transfer.\n", device->path);
+            goto cleanup;
+        }
         td_indices[td_count++] = index;
     }
 
@@ -702,7 +714,10 @@ static void uhci_interrupt_handler(void *frame)
         if (!ctrl || !ctrl->running) continue;
         uint16_t sts = uhci_readw(ctrl, UHCI_USBSTS);
         if (sts & UHCI_STS_USBINT) { uhci_writew(ctrl, UHCI_USBSTS, UHCI_STS_USBINT); }
-        if (sts & UHCI_STS_ERROR) { uhci_writew(ctrl, UHCI_USBSTS, UHCI_STS_ERROR); }
+        if (sts & UHCI_STS_ERROR) {
+            uhci_writew(ctrl, UHCI_USBSTS, UHCI_STS_ERROR);
+            plogk("uhci: USB error interrupt on bus %u\n", ctrl->bus_number);
+        }
         if (sts & UHCI_STS_RD) {
             uhci_writew(ctrl, UHCI_USBSTS, UHCI_STS_RD);
             uint64_t flags = spin_lock_irqsave(&ctrl->lock);

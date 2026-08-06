@@ -163,7 +163,10 @@ static int extfs_disk_write(extfs_sb_info_t *sb, uint64_t offset, const void *bu
     const uint8_t *input = buf;
     if (sb->active_transaction && sb->block_size) {
         uint8_t *block = malloc(sb->block_size);
-        if (!block) return -ENOMEM;
+        if (!block) {
+            plogk("extfs: drive %u: transaction write buffer allocation failed.\n", sb->device.drive);
+            return -ENOMEM;
+        }
         while (size) {
             uint64_t logical = offset / sb->block_size;
             uint32_t within  = (uint32_t)(offset % sb->block_size);
@@ -174,6 +177,7 @@ static int extfs_disk_write(extfs_sb_info_t *sb, uint64_t offset, const void *bu
                 status = fs_txn_stage(sb->active_transaction, logical, block, FS_TXN_METADATA);
             }
             if (status != EOK) {
+                plogk("extfs: drive %u: transaction write failed at block %llu (%d)\n", sb->device.drive, (unsigned long long)logical, status);
                 sb->active_transaction->error = status;
                 free(block);
                 return status;
@@ -214,7 +218,10 @@ int extfs_write_block(extfs_sb_info_t *sb, uint32_t phys_block, const void *buf)
     }
     if (sb->active_transaction) {
         int status = fs_txn_stage(sb->active_transaction, phys_block, buf, FS_TXN_METADATA);
-        if (status != EOK) sb->active_transaction->error = status;
+        if (status != EOK) {
+            plogk("extfs: drive %u: metadata stage of block %u failed (%d)\n", sb->device.drive, phys_block, status);
+            sb->active_transaction->error = status;
+        }
         return status;
     }
     return extfs_disk_write(sb, extfs_block_offset(sb, phys_block), buf, sb->block_size);
@@ -230,7 +237,10 @@ int extfs_write_data_block(extfs_sb_info_t *sb, uint32_t phys_block, const void 
     }
     if (sb->active_transaction) {
         int status = fs_txn_stage(sb->active_transaction, phys_block, buf, FS_TXN_ORDERED_DATA);
-        if (status != EOK) sb->active_transaction->error = status;
+        if (status != EOK) {
+            plogk("extfs: drive %u: data stage of block %u failed (%d)\n", sb->device.drive, phys_block, status);
+            sb->active_transaction->error = status;
+        }
         return status;
     }
     return blockdev_write_bytes(&sb->device, extfs_block_offset(sb, phys_block), buf, sb->block_size);

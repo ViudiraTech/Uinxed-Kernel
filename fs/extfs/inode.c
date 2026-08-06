@@ -317,8 +317,12 @@ int extfs_write_data(extfs_handle_t *h, const void *buf, uint64_t offset, size_t
         phys = extfs_map_block(h, logical, 1);
         if (phys == 0) break;
 
-        if (inblock > 0 || chunk < sb->block_size)
-            if (extfs_read_block(sb, phys, block_buf) != EOK) break;
+        if (inblock > 0 || chunk < sb->block_size) {
+            if (extfs_read_block(sb, phys, block_buf) != EOK) {
+                plogk("extfs: read of inode %llu failed at block %u\n", (unsigned long long)h->inode_no, phys);
+                break;
+            }
+        }
 
         memcpy(block_buf + inblock, (const uint8_t *)buf + done, chunk);
 

@@ -347,10 +347,10 @@ static int isofs_vfs_mount(const char *src, vfs_node_t node)
 
     status = blockdev_open_name(src, &mnt->device);
     if (status != EOK) {
+        plogk("isofs: %s: block device open failed (%d)\n", src ? src : "?", status);
         free(mnt);
         return status;
     }
-
     mnt->owns_device   = 1;
     mnt->rock_ridge    = 1;
     mnt->rock_offset   = -1;

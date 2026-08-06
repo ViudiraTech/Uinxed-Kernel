@@ -681,7 +681,10 @@ static void ohci_interrupt_handler(void *frame)
             ohci_write32(ctrl, OHCI_HcInterruptStatus, OHCI_INTR_UE);
             plogk("ohci: Controller error on bus %u\n", ctrl->bus_number);
         }
-        if (sts & OHCI_INTR_SO) { ohci_write32(ctrl, OHCI_HcInterruptStatus, OHCI_INTR_SO); }
+        if (sts & OHCI_INTR_SO) {
+            ohci_write32(ctrl, OHCI_HcInterruptStatus, OHCI_INTR_SO);
+            plogk("ohci: Scheduling overrun on bus %u\n", ctrl->bus_number);
+        }
     }
     send_eoi();
 }

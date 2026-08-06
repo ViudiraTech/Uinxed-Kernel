@@ -12,6 +12,7 @@
 #include <arch/fpu.h>
 #include <arch/smp.h>
 #include <kernel/debug.h>
+#include <kernel/printk.h>
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
@@ -213,7 +214,10 @@ int fpu_task_init(struct task *task)
 #if CPU_FEATURE_FPU
     if (!task) return -1;
     task->thread.fpu_state = aligned_alloc(FPU_STATE_ALIGNMENT, fpu_save_size);
-    if (!task->thread.fpu_state) return -1;
+    if (!task->thread.fpu_state) {
+        plogk("fpu: %s: FPU state allocation failed (%zu bytes)\n", task->name, fpu_save_size);
+        return -1;
+    }
     fpu_state_set_initial(task->thread.fpu_state);
     task->thread.fpu_initialized = 0;
     task->thread.fpu_active      = 0;

@@ -588,9 +588,14 @@ size_t e1000_poll(e1000_device_t *device, size_t budget)
         if (frame_length) {
             spin_unlock_irqrestore(&device->rx_lock, rflags);
             net_pbuf_t *packet = net_pbuf_from(frame, frame_length, NET_PBUF_HEADROOM);
-            if (!packet)
+            if (!packet) {
+                static uint64_t last_log;
+                if (sched_ticks() - last_log >= 1000) {
+                    plogk("e1000: %s: RX frame allocation failed.\n", device->netdev.name);
+                    last_log = sched_ticks();
+                }
                 device->stats.rx_dropped++;
-            else {
+            } else {
                 if (netdev_rx(&device->netdev, packet))
                     device->stats.rx_dropped++;
                 else {

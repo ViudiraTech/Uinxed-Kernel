@@ -157,7 +157,10 @@ static int usb_storage_command_locked(usb_storage_device_t *storage, uint8_t lun
     }
     uint32_t expected_residue = data_length - transferred;
     if (csw.status == 0) return csw.residue == expected_residue && csw.residue == 0 ? EOK : -EREMOTEIO;
-    if (csw.status == 1) return -EIO;
+    if (csw.status == 1) {
+        plogk("usb-storage: %s: device reported SCSI check condition (residue=%u)\n", storage->interface->device->path, csw.residue);
+        return -EIO;
+    }
     status = -EPROTO;
 
 recover:
