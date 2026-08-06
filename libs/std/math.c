@@ -23,6 +23,7 @@
 /* Round a floating-point number to the nearest integer */
 int round(float64_t x)
 {
+    if (!kernel_sse_available()) return 0;
     kernel_fpu_begin();
     int r;
     if (x >= 0.0)
@@ -36,6 +37,11 @@ int round(float64_t x)
 /* Convert a float to a string with a specified precision */
 char *ftoa(double f, char *buf, int precision)
 {
+    if (!kernel_sse_available()) {
+        buf[0] = '0';
+        buf[1] = '\0';
+        return buf;
+    }
     kernel_fpu_begin();
 
     char *ptr = buf;
@@ -103,6 +109,7 @@ char *ftoa(double f, char *buf, int precision)
 /* Return the smallest integer value greater than or equal to the argument */
 float ceilf(float x)
 {
+    if (!kernel_sse_available()) return 0.0f;
     kernel_fpu_begin();
     float fract = x - (float)(int)x;
     float r     = (fract > 0) ? (float)((int)x + 1) : (float)(int)x;
@@ -113,6 +120,7 @@ float ceilf(float x)
 /* Return the largest integer value less than or equal to the argument */
 float floorf(float x)
 {
+    if (!kernel_sse_available()) return 0.0f;
     kernel_fpu_begin();
     float fract = x - (float)(int)x;
     float r     = (fract < 0) ? (float)((int)x - 1) : (float)(int)x;
@@ -123,6 +131,7 @@ float floorf(float x)
 /* Round a floating-point number to the nearest integer */
 float roundf(float number)
 {
+    if (!kernel_sse_available()) return 0.0f;
     kernel_fpu_begin();
     float r;
     if (number < 0.0f)
@@ -136,6 +145,7 @@ float roundf(float number)
 /* Return the absolute value of a double */
 double fabs(double x)
 {
+    if (!kernel_sse_available()) return 0.0;
     kernel_fpu_begin();
     double r = (x < 0) ? -x : x;
     kernel_fpu_end();
@@ -145,6 +155,7 @@ double fabs(double x)
 /* Return the largest integer less than or equal to x */
 double floor(double x)
 {
+    if (!kernel_sse_available()) return 0.0;
     kernel_fpu_begin();
     double fract = x - (int)x;
     double r     = (fract < 0) ? (int)x - 1 : (int)x;
@@ -155,6 +166,7 @@ double floor(double x)
 /* Return the smallest integer greater than or equal to x */
 double ceil(double x)
 {
+    if (!kernel_sse_available()) return 0.0;
     kernel_fpu_begin();
     double fract = x - (int)x;
     double r     = (fract > 0) ? (int)x + 1 : (int)x;
@@ -165,6 +177,7 @@ double ceil(double x)
 /* Return the remainder of x divided by y */
 double fmod(double x, double y)
 {
+    if (!kernel_sse_available()) return 0.0;
     kernel_fpu_begin();
     double r;
     if (y == 0) {
@@ -186,6 +199,7 @@ double fmod(double x, double y)
 /* Calculate the cosine of x (in radians) */
 double cos(double x)
 {
+    if (!kernel_sse_available()) return 0.0;
     kernel_fpu_begin();
     double sum  = 0.0;
     double term = x;
@@ -202,6 +216,7 @@ double cos(double x)
 /* Calculate the square root of a number */
 double sqrt(double number)
 {
+    if (!kernel_sse_available()) return 0.0;
     kernel_fpu_begin();
     double r;
     if (number < 0) {
@@ -224,6 +239,7 @@ double sqrt(double number)
 /* Calculate the arc cosine (inverse cosine) of x */
 double acos(double x)
 {
+    if (!kernel_sse_available()) return 0.0;
     kernel_fpu_begin();
     double x0             = x;
     double x1             = x0;
@@ -244,6 +260,7 @@ double acos(double x)
 /* Calculate x raised to the power of y */
 double pow(double x, int y)
 {
+    if (!kernel_sse_available()) return 0.0;
     kernel_fpu_begin();
     double result = 1.0;
     for (int i = 0; i < y; i++) result *= x;
@@ -254,6 +271,7 @@ double pow(double x, int y)
 /* Multiply x by 2 raised to the power of exp */
 double ldexp(double x, int exp)
 {
+    if (!kernel_sse_available()) return 0.0;
     kernel_fpu_begin();
     int n = 2;
     for (int i = 0; i < exp - 1; i++) n *= 2;

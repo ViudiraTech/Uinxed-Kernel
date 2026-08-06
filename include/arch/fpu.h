@@ -42,4 +42,10 @@ void fpu_switch(struct task *prev, struct task *next);
 void kernel_fpu_begin(void);
 void kernel_fpu_end(void);
 
+/* True once fpu_init() enabled SSE in hardware (CR4.OSFXSR set).  Kernel
+ * SIMD paths (SSE2/AVX/SSE4.2 crc32) must check this before executing any
+ * such instruction, otherwise they fault with #UD when FPU/SSE support is
+ * disabled by the build configuration. */
+int kernel_sse_available(void);
+
 #endif /* INCLUDE_FPU_H_ */

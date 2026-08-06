@@ -53,26 +53,25 @@ static uint32_t net_checksum_add_words(uint32_t sum, const uint8_t *bytes, size_
 typedef unsigned short csum_v8hu __attribute__((__vector_size__(16)));
 typedef unsigned int   csum_v4su __attribute__((__vector_size__(16)));
 
-__attribute__((target("sse2")))
-static uint32_t net_checksum_add_sse2(uint32_t sum, const uint8_t *bytes, size_t length)
+__attribute__((target("sse2"))) static uint32_t net_checksum_add_sse2(uint32_t sum, const uint8_t *bytes, size_t length)
 {
     kernel_fpu_begin();
 
-    size_t bulk = length & ~(size_t)15;
-    csum_v4su acc = {0, 0, 0, 0};
-    size_t    i   = 0;
+    size_t    bulk = length & ~(size_t)15;
+    csum_v4su acc  = {0, 0, 0, 0};
+    size_t    i    = 0;
     for (; i + 16 <= bulk; i += 16) {
         csum_v8hu word;
         __builtin_memcpy(&word, bytes + i, 16);
         csum_v8hu swapped = (word << 8) | (word >> 8);
         csum_v4su wide;
         __builtin_memcpy(&wide, &swapped, 16);
-        csum_v4su lo = wide & (csum_v4su){0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu};
+        csum_v4su lo = wide & (csum_v4su) {0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu};
         csum_v4su hi = wide >> 16;
         acc          = acc + lo + hi;
         if (i && !(i & 0xFFF)) {
-            acc = (acc & (csum_v4su){0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu}) + (acc >> 16);
-            acc = (acc & (csum_v4su){0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu}) + (acc >> 16);
+            acc = (acc & (csum_v4su) {0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu}) + (acc >> 16);
+            acc = (acc & (csum_v4su) {0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu}) + (acc >> 16);
         }
     }
     kernel_fpu_end();
@@ -88,7 +87,7 @@ uint32_t net_checksum_add(uint32_t sum, const void *data, size_t length)
     static uint8_t sse_ok;
 
     if (!sse_checked) {
-        sse_ok      = cpu_support_sse2() != 0;
+        sse_ok      = kernel_sse_available() != 0 && cpu_support_sse2() != 0;
         sse_checked = 1;
     }
     /* FPU-section overhead only pays off for buffers of at least a few vectors */

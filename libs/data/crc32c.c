@@ -9,6 +9,7 @@
  */
 
 #include <arch/cpuid.h>
+#include <arch/fpu.h>
 #include <libs/data/crc32c.h>
 
 /* SSE4.2 `crc32` is a scalar GPR instruction (CRC32C / Castagnoli, same
@@ -44,31 +45,34 @@ uint32_t crc32c_update(uint32_t crc, const void *data, size_t size)
     static uint8_t hw_checked;
     static uint8_t hw_ok;
 
+    /* The crc32 instruction needs SSE enabled in hardware (CR4.OSFXSR);
+     * that only happens when the build enables FPU+SSE and fpu_init() ran. */
     if (!hw_checked) {
-        hw_ok      = cpu_support_sse42() != 0;
+        hw_ok      = kernel_sse_available() != 0 && cpu_support_sse42() != 0;
         hw_checked = 1;
     }
-    if (!hw_ok) return crc32c_software(crc, data, size);
-
-    const uint8_t *p = data;
-    while (size && ((uintptr_t)p & 7)) {
-        crc = crc32c_hw_byte(crc, *p++);
-        size--;
+    if (hw_ok) {
+        const uint8_t *p = data;
+        while (size && ((uintptr_t)p & 7)) {
+            crc = crc32c_hw_byte(crc, *p++);
+            size--;
+        }
+        while (size >= 8) {
+            uint64_t chunk;
+            __builtin_memcpy(&chunk, p, 8);
+            crc = crc32c_hw_qword(crc, chunk);
+            p += 8;
+            size -= 8;
+        }
+        while (size >= 4) {
+            uint32_t chunk;
+            __builtin_memcpy(&chunk, p, 4);
+            crc = crc32c_hw_dword(crc, chunk);
+            p += 4;
+            size -= 4;
+        }
+        while (size--) crc = crc32c_hw_byte(crc, *p++);
+        return crc;
     }
-    while (size >= 8) {
-        uint64_t chunk;
-        __builtin_memcpy(&chunk, p, 8);
-        crc = crc32c_hw_qword(crc, chunk);
-        p += 8;
-        size -= 8;
-    }
-    while (size >= 4) {
-        uint32_t chunk;
-        __builtin_memcpy(&chunk, p, 4);
-        crc = crc32c_hw_dword(crc, chunk);
-        p += 4;
-        size -= 4;
-    }
-    while (size--) crc = crc32c_hw_byte(crc, *p++);
-    return crc;
+    return crc32c_software(crc, data, size);
 }

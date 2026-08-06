@@ -6929,6 +6929,15 @@ static void ftoa(char  *buf,  /* Buffer to output the floating point string */
 static void f_printf_float(char *str, va_list arp, int prec, TCHAR fmt)
 {
     kernel_fpu_begin();
+    if (!kernel_sse_available()) {
+        /* Kernel built without FPU/SSE: consume the argument and emit a
+         * placeholder instead of executing SSE code (which would #UD). */
+        (void)va_arg(arp, double);
+        str[0] = (TCHAR)'?';
+        str[1] = 0;
+        kernel_fpu_end();
+        return;
+    }
     ftoa(str, va_arg(arp, double), prec, fmt);
     kernel_fpu_end();
 }

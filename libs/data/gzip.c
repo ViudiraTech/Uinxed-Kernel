@@ -217,11 +217,15 @@ static int inflate_compressed_block_impl(deflate_stream_t *stream, uint8_t *outp
         if (decode_symbol(stream, literal_tree, &symbol) != EOK) return -EINVAL;
 
         if (symbol < 256) {
-            /* Buffer literals and flush 16 at once with one SSE2 store. */
+            /* Buffer literals and flush 16 at once with one SSE2 store when
+             * the kernel has SSE enabled (otherwise a plain 16-byte copy). */
             if (*output_offset + literal_count + 1 > output_capacity) return -EOVERFLOW;
             literals[literal_count++] = (uint8_t)symbol;
             if (literal_count == 16) {
-                gzip_copy16(output + *output_offset, literals);
+                if (kernel_sse_available())
+                    gzip_copy16(output + *output_offset, literals);
+                else
+                    __builtin_memcpy(output + *output_offset, literals, 16);
                 *output_offset += 16;
                 literal_count = 0;
             }

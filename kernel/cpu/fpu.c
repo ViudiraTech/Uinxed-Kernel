@@ -47,6 +47,16 @@ static uint64_t fpu_xstate_mask = XCR0_FPU_MASK;
 static uint8_t  fpu_use_xsave;
 static uint8_t  fpu_use_xsaveopt;
 
+/* Set only when fpu_init() actually enabled SSE in hardware (CR4.OSFXSR).
+ * Kernel SIMD paths must check kernel_sse_available() before executing any
+ * SSE/AVX/crc32 instruction: with CR4.OSFXSR clear those raise #UD. */
+static uint8_t fpu_sse_enabled;
+
+int kernel_sse_available(void)
+{
+    return fpu_sse_enabled;
+}
+
 /* Initial (XINIT-style) extended-state template: x87 inits, MXCSR and
  * zeroed XMM/YMM, with the XSTATE_BV header covering every enabled
  * component.  Built in fpu_init() and XRSTORed whenever a task that has
@@ -152,6 +162,7 @@ void fpu_init(void)
         cr4 |= (1ULL << CR4_OSFXSR_SHIFT);
         cr4 |= (1ULL << CR4_OSXMMEXCPT_SHIFT);
         __asm__ volatile("mov %0, %%cr4" : : "r"(cr4) : "memory");
+        fpu_sse_enabled = 1;
     }
 #    endif
 
