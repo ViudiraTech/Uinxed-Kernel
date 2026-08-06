@@ -8,6 +8,8 @@
  *
  */
 
+#include <arch/cpuid.h>
+#include <arch/fpu.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
@@ -29,21 +31,69 @@ static uint32_t            next_ifindex = 1;
 static netdev_lifecycle_fn lifecycle_notifier;
 static void               *lifecycle_context;
 
-uint32_t net_checksum_add(uint32_t sum, const void *data, size_t length)
+/* RFC 1071 checksum accumulation over 16-bit big-endian words.  The running
+ * sum is folded below 2^16 as words are added so the 32-bit accumulator can
+ * never wrap: a wrap would corrupt the result because 2^32 ≡ 1 (mod 2^16-1). */
+static uint32_t net_checksum_add_words(uint32_t sum, const uint8_t *bytes, size_t length)
 {
-    const uint32_t *words = data;
-    while (length >= 4) {
-        sum += __builtin_bswap32(*words++);
-        length -= 4;
-    }
-    const uint8_t *bytes = (const uint8_t *)words;
-    if (length >= 2) {
+    while (length >= 2) {
         sum += ((uint16_t)bytes[0] << 8) | bytes[1];
         bytes += 2;
         length -= 2;
+        if (sum >> 16) sum = (sum & 0xffffU) + (sum >> 16);
     }
     if (length) sum += (uint16_t)bytes[0] << 8;
     return sum;
+}
+
+/* SSE2 fast path: eight 16-bit words per 16-byte vector, byte-swapped by a
+ * pair of 16-bit lane shifts (pure SSE2, no SSSE3 required).  Partial sums
+ * live in four 32-bit lanes and are folded periodically so no lane can
+ * overflow.  Runs inside a kernel_fpu_begin()/end() section. */
+typedef unsigned short csum_v8hu __attribute__((__vector_size__(16)));
+typedef unsigned int   csum_v4su __attribute__((__vector_size__(16)));
+
+__attribute__((target("sse2")))
+static uint32_t net_checksum_add_sse2(uint32_t sum, const uint8_t *bytes, size_t length)
+{
+    kernel_fpu_begin();
+
+    size_t bulk = length & ~(size_t)15;
+    csum_v4su acc = {0, 0, 0, 0};
+    size_t    i   = 0;
+    for (; i + 16 <= bulk; i += 16) {
+        csum_v8hu word;
+        __builtin_memcpy(&word, bytes + i, 16);
+        csum_v8hu swapped = (word << 8) | (word >> 8);
+        csum_v4su wide;
+        __builtin_memcpy(&wide, &swapped, 16);
+        csum_v4su lo = wide & (csum_v4su){0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu};
+        csum_v4su hi = wide >> 16;
+        acc          = acc + lo + hi;
+        if (i && !(i & 0xFFF)) {
+            acc = (acc & (csum_v4su){0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu}) + (acc >> 16);
+            acc = (acc & (csum_v4su){0xFFFFu, 0xFFFFu, 0xFFFFu, 0xFFFFu}) + (acc >> 16);
+        }
+    }
+    kernel_fpu_end();
+
+    sum += acc[0] + acc[1] + acc[2] + acc[3];
+    while (sum >> 16) sum = (sum & 0xffffU) + (sum >> 16);
+    return net_checksum_add_words(sum, bytes + bulk, length - bulk);
+}
+
+uint32_t net_checksum_add(uint32_t sum, const void *data, size_t length)
+{
+    static uint8_t sse_checked;
+    static uint8_t sse_ok;
+
+    if (!sse_checked) {
+        sse_ok      = cpu_support_sse2() != 0;
+        sse_checked = 1;
+    }
+    /* FPU-section overhead only pays off for buffers of at least a few vectors */
+    if (sse_ok && length >= 128) return net_checksum_add_sse2(sum, data, length);
+    return net_checksum_add_words(sum, data, length);
 }
 
 uint16_t net_checksum_finish(uint32_t sum)

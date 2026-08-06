@@ -8,12 +8,23 @@
  *
  */
 
+#include <arch/fpu.h>
 #include <kernel/errno.h>
 #include <libs/data/gzip.h>
 #include <mem/alloc.h>
-
 #define DEFLATE_MAX_BITS    15
 #define DEFLATE_MAX_SYMBOLS 288
+
+typedef unsigned char gzip_v16u __attribute__((__vector_size__(16)));
+
+/* SSE2 16-byte copy (movdqu load + store).  Only ever called while a
+ * kernel_fpu_begin()/end() section is active. */
+__attribute__((target("sse2"))) static void gzip_copy16(uint8_t *dst, const uint8_t *src)
+{
+    gzip_v16u v;
+    __builtin_memcpy(&v, src, 16);
+    __builtin_memcpy(dst, &v, 16);
+}
 
 typedef struct {
         const uint8_t *data;
@@ -194,20 +205,32 @@ static int build_dynamic_trees(deflate_stream_t *stream, deflate_huffman_t *lite
     return build_huffman(distance_tree, lengths + literal_count, distance_count);
 }
 
-static int inflate_compressed_block(deflate_stream_t *stream, uint8_t *output, size_t output_capacity, size_t *output_offset,
-                                    const deflate_huffman_t *literal_tree, const deflate_huffman_t *distance_tree)
+static int inflate_compressed_block_impl(deflate_stream_t *stream, uint8_t *output, size_t output_capacity, size_t *output_offset,
+                                         const deflate_huffman_t *literal_tree, const deflate_huffman_t *distance_tree)
 {
+    uint8_t literals[16];
+    size_t  literal_count = 0;
+
     while (1) {
         uint16_t symbol;
         uint32_t extra;
         if (decode_symbol(stream, literal_tree, &symbol) != EOK) return -EINVAL;
 
         if (symbol < 256) {
-            if (*output_offset >= output_capacity) return -EOVERFLOW;
-            output[(*output_offset)++] = (uint8_t)symbol;
+            /* Buffer literals and flush 16 at once with one SSE2 store. */
+            if (*output_offset + literal_count + 1 > output_capacity) return -EOVERFLOW;
+            literals[literal_count++] = (uint8_t)symbol;
+            if (literal_count == 16) {
+                gzip_copy16(output + *output_offset, literals);
+                *output_offset += 16;
+                literal_count = 0;
+            }
             continue;
         }
-        if (symbol == 256) return EOK;
+        if (symbol == 256) {
+            for (size_t k = 0; k < literal_count; k++) output[(*output_offset)++] = literals[k];
+            return EOK;
+        }
         if (symbol < 257 || symbol > 285) return -EINVAL;
 
         size_t length_index = symbol - 257;
@@ -224,12 +247,34 @@ static int inflate_compressed_block(deflate_stream_t *stream, uint8_t *output, s
             distance += extra;
         }
 
-        if (!distance || distance > *output_offset || length > output_capacity - *output_offset) return -EOVERFLOW;
-        for (size_t i = 0; i < length; i++) {
-            output[*output_offset] = output[*output_offset - distance];
-            (*output_offset)++;
+        if (!distance) return -EOVERFLOW;
+
+        /* Flush buffered literals first so output offsets are current for
+         * both the distance and the capacity checks below. */
+        for (size_t k = 0; k < literal_count; k++) output[(*output_offset)++] = literals[k];
+        literal_count = 0;
+
+        if (distance > *output_offset || length > output_capacity - *output_offset) return -EOVERFLOW;
+
+        size_t src = *output_offset - distance;
+        if (distance >= length) {
+            /* Non-overlapping match: bulk copy. */
+            __builtin_memcpy(output + *output_offset, output + src, length);
+            *output_offset += length;
+        } else {
+            /* Overlapping match: byte-at-a-time, LZ77 semantics. */
+            for (size_t i = 0; i < length; i++) output[(*output_offset)++] = output[src + i];
         }
     }
+}
+
+static int inflate_compressed_block(deflate_stream_t *stream, uint8_t *output, size_t output_capacity, size_t *output_offset,
+                                    const deflate_huffman_t *literal_tree, const deflate_huffman_t *distance_tree)
+{
+    kernel_fpu_begin();
+    int status = inflate_compressed_block_impl(stream, output, output_capacity, output_offset, literal_tree, distance_tree);
+    kernel_fpu_end();
+    return status;
 }
 
 static int inflate_stored_block(deflate_stream_t *stream, uint8_t *output, size_t output_capacity, size_t *output_offset)
