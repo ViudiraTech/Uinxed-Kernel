@@ -74,7 +74,7 @@ void drm_run_test(void)
     create.height                      = 600;
     create.bpp                         = 32;
 
-    test_gem_object_t *gem = test_gem_alloc(dev, create.width * create.height * 4);
+    test_gem_object_t *gem = test_gem_alloc(dev, (size_t)create.width * create.height * 4);
     if (!gem) {
         DRM_ERROR("Test: GEM buffer allocation failed.\n");
         return;

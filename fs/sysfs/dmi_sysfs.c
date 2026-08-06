@@ -56,9 +56,7 @@ static ssize_t str_show(struct device *dev, struct device_attribute *attr, char 
         getter = smbios_sys_product_name;
     else if (attr == &dev_attr_product_version)
         getter = smbios_sys_version;
-    else if (attr == &dev_attr_product_serial)
-        getter = smbios_sys_serial_number;
-    else if (attr == &dev_attr_board_serial)
+    else if (attr == &dev_attr_product_serial || attr == &dev_attr_board_serial)
         getter = smbios_sys_serial_number;
     if (!getter) return -EIO;
     return sysfs_emit(buf, "%s\n", getter() ? getter() : "");

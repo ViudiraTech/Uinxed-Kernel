@@ -103,12 +103,8 @@ void evdev_queue_flush_type(evdev_queue_t *queue, unsigned int type)
         input_event_t *event     = &queue->buffer[index];
         bool           is_report = event->type == EV_SYN && event->code == SYN_REPORT;
 
-        if (event->type == type)
-            continue;
-        else if (is_report && !count)
-            continue;
-        else if (head != index)
-            queue->buffer[head] = *event;
+        if (event->type == type || (is_report && !count)) continue;
+        if (head != index) queue->buffer[head] = *event;
 
         count++;
         head = (head + 1) & mask;

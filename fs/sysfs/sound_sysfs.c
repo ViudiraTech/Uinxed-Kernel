@@ -110,7 +110,7 @@ void sound_sysfs_init(void)
 {
 #if CONFIG_SYSFS
     size_t         cards;
-    struct device *card_devs[AUDIO_MAX_CARDS];
+    struct device *card_devs[AUDIO_MAX_CARDS] = {0};
 
     if (sound_class_ready) return;
     if (class_register(&sound_class) != EOK) {

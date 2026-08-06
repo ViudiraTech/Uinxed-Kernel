@@ -616,11 +616,7 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
             uint32_t current     = epoll_map_poll_result(poll_result, item->events);
             item->last_revents   = 0;
             item->pending_events = current;
-            if (item->events & EPOLLET) {
-                item->revents = current;
-            } else {
-                item->revents = current;
-            }
+            item->revents        = current;
 
             /* Wake any waiters if this fd is immediately ready */
             if (item->revents) { wait_queue_wake_all(&epi->wq); }
@@ -655,11 +651,7 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
             epoll_item_t *item = epoll_item_find(epi, fd);
             if (item) {
                 item->last_revents = current;
-                if (ev.events & EPOLLET) {
-                    item->revents = current;
-                } else {
-                    item->revents = current;
-                }
+                item->revents      = current;
 
                 if (item->revents) { wait_queue_wake_all(&epi->wq); }
             }

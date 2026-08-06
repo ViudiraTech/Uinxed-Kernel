@@ -205,16 +205,16 @@ typedef struct nl_pktinfo {
 #define NL_SOCK_RECV_BUF_SIZE (128 * 1024) /* 128KB default recv buffer */
 
 typedef struct nl_sock {
-        uint32_t nl_pid;              /* Our port ID (0 = unbound/kernel) */
-        uint32_t nl_groups;           /* Multicast groups subscribed */
-        uint32_t nl_protocol;         /* Netlink protocol (NETLINK_*) */
-        uint32_t nl_seq;              /* Next outgoing sequence number */
-        int      nl_bound        : 1; /* Socket is bound */
-        int      no_enobufs      : 1;
-        int      broadcast_error : 1;
-        int      packet_info     : 1;
-        int      overrun         : 1;
-        int      nl_pad          : 27;
+        uint32_t     nl_pid;              /* Our port ID (0 = unbound/kernel) */
+        uint32_t     nl_groups;           /* Multicast groups subscribed */
+        uint32_t     nl_protocol;         /* Netlink protocol (NETLINK_*) */
+        uint32_t     nl_seq;              /* Next outgoing sequence number */
+        unsigned int nl_bound        : 1; /* Socket is bound */
+        unsigned int no_enobufs      : 1;
+        unsigned int broadcast_error : 1;
+        unsigned int packet_info     : 1;
+        unsigned int overrun         : 1;
+        unsigned int nl_pad          : 27;
 
         /* Receive queue: each entry is a complete nlmsghdr-framed message */
         /* stored as a contiguous allocation (header + payload) */

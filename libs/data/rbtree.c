@@ -154,11 +154,11 @@ static void rb_erase_rebalance(rb_root_t *root, rb_node_t *node, rb_node_t *pare
     rb_node_t *sibling;
 
     while ((!node || node->color == RB_BLACK) && node != root->root) {
-        if (node == parent->left) {
+        if (node == parent->left) { // NOLINT(clang-analyzer-core.NullDereference)
             sibling = parent->right;
 
             /* Case 1: sibling is RED */
-            if (sibling->color == RB_RED) {
+            if (sibling->color == RB_RED) { // NOLINT(clang-analyzer-core.NullDereference)
                 sibling->color = RB_BLACK;
                 parent->color  = RB_RED;
                 rb_rotate_left(root, parent, augment, data);

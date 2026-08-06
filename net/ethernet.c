@@ -44,8 +44,8 @@ int ethernet_input(net_device_t *device, net_pbuf_t *packet)
     const uint8_t *header = packet->data;
     uint16_t       type   = net_read_be16(header + 12);
     if (!ethernet_address_valid(header + ETH_ADDRESS_LEN) || (header[ETH_ADDRESS_LEN] & 1U)
-        || (!(device->flags & NETDEV_F_PROMISC) && memcmp(header, device->address, ETH_ADDRESS_LEN)
-            && memcmp(header, ethernet_broadcast_address, ETH_ADDRESS_LEN) && !(header[0] == 0x33 && header[1] == 0x33))) {
+        || (!(device->flags & NETDEV_F_PROMISC) && memcmp(header, device->address, ETH_ADDRESS_LEN) != 0
+            && memcmp(header, ethernet_broadcast_address, ETH_ADDRESS_LEN) != 0 && !(header[0] == 0x33 && header[1] == 0x33))) {
         net_pbuf_free(packet);
         return -EHOSTUNREACH;
     }

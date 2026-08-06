@@ -207,9 +207,8 @@ int ipv4_output(net_device_t *device, uint32_t source, uint32_t destination, uin
         int status = ipv4_route(destination, &device, &next_hop);
         if (status) return status;
         release = 1;
-    } else if (destination == UINT32_MAX || ipv4_is_directed_broadcast(device, destination)) {
-        next_hop = destination;
-    } else if (device->ipv4_netmask && (destination & device->ipv4_netmask) == (device->ipv4_address & device->ipv4_netmask)) {
+    } else if (destination == UINT32_MAX || ipv4_is_directed_broadcast(device, destination)
+               || (device->ipv4_netmask && (destination & device->ipv4_netmask) == (device->ipv4_address & device->ipv4_netmask))) {
         next_hop = destination;
     } else {
         next_hop = device->ipv4_gateway;

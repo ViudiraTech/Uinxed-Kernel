@@ -177,11 +177,11 @@ static const char *device_devnode(struct device *dev, char *buffer, size_t capac
     if (!dev->class || !dev->class->name) return name;
 
     if (streq(dev->class->name, "input")) {
-        snprintf(buffer, capacity, "input/%s", name);
+        (void)snprintf(buffer, capacity, "input/%s", name);
         return buffer;
     }
     if (streq(dev->class->name, "drm")) {
-        snprintf(buffer, capacity, "dri/%s", name);
+        (void)snprintf(buffer, capacity, "dri/%s", name);
         return buffer;
     }
     return name;
@@ -524,7 +524,7 @@ int device_register(struct device *dev)
     /* /sys/dev/char/<major>:<minor> ?/sys/devices/...  (udev device-node map) */
     if (dev->devt && sysfs_dev_char_kobj) {
         char dev_link[24];
-        snprintf(dev_link, sizeof(dev_link), "%u:%u", MAJOR(dev->devt), MINOR(dev->devt));
+        (void)snprintf(dev_link, sizeof(dev_link), "%u:%u", MAJOR(dev->devt), MINOR(dev->devt));
         (void)sysfs_create_symlink(sysfs_dev_char_kobj, &dev->kobj, dev_link);
     }
 
@@ -555,7 +555,7 @@ void device_unregister(struct device *dev)
 
     if (dev->devt && sysfs_dev_char_kobj) {
         char dev_link[24];
-        snprintf(dev_link, sizeof(dev_link), "%u:%u", MAJOR(dev->devt), MINOR(dev->devt));
+        (void)snprintf(dev_link, sizeof(dev_link), "%u:%u", MAJOR(dev->devt), MINOR(dev->devt));
         sysfs_remove_symlink(sysfs_dev_char_kobj, dev_link);
     }
     if (dev->class) sysfs_remove_symlink(&dev->class->subsys.kobj, kobject_name(&dev->kobj));

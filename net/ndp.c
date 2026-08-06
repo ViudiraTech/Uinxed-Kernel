@@ -60,7 +60,7 @@ static spinlock_t     ndp_lock;
 static int ndp_mac_unicast(const uint8_t mac[6])
 {
     static const uint8_t zero[6];
-    return mac && !(mac[0] & 1U) && memcmp(mac, zero, sizeof(zero));
+    return mac && !(mac[0] & 1U) && memcmp(mac, zero, sizeof(zero)) != 0;
 }
 
 static uint64_t ndp_lifetime(uint64_t now, uint32_t seconds)

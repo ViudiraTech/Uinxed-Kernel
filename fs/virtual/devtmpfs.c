@@ -200,7 +200,7 @@ int devtmpfs_register_char_device(const char *path, uint64_t dev, uint64_t rdev,
         /* Skip leading '/' and walk components. */
         while ((slash = strchr(save + 1, '/'))) {
             *slash = '\0';
-            status = vfs_mkdir(path_copy);
+            (void)vfs_mkdir(path_copy);
             *slash = '/';
             save   = slash;
         }
@@ -400,7 +400,7 @@ int devtmpfs_register_block_device(const char *path, const blockdev_device_t *de
 
             if (blockdev_open_partition(device, part->start_lba, part->sector_count, &view) != EOK) continue;
             if (part->read_only) view.read_only = true;
-            snprintf(part_path, sizeof(part_path), "%s%s%u", path, separator ? "p" : "", part->number);
+            (void)snprintf(part_path, sizeof(part_path), "%s%s%u", path, separator ? "p" : "", part->number);
             if (devtmpfs_register_one_block(part_path, &view, dev, rdev + part->number) != EOK) continue;
             strncpy(nodes->paths[nodes->count], part_path, sizeof(nodes->paths[nodes->count]) - 1);
             nodes->count++;
@@ -476,7 +476,7 @@ static void devtmpfs_create_partition_node(const char *dev_prefix, bool use_p_se
                                            uint64_t rdev_base, const partition_info_t *partition)
 {
     char dev_path[96];
-    snprintf(dev_path, sizeof(dev_path), "%s%s%u", dev_prefix, use_p_separator ? "p" : "", partition->number);
+    (void)snprintf(dev_path, sizeof(dev_path), "%s%s%u", dev_prefix, use_p_separator ? "p" : "", partition->number);
 
     blockdev_device_t view;
 
@@ -599,7 +599,7 @@ static int devtmpfs_create_audio_nodes(void)
 
         if (!audio_node) continue;
 
-        snprintf(dev_path, sizeof(dev_path), "/dev/snd/%s", audio_node->name);
+        (void)snprintf(dev_path, sizeof(dev_path), "/dev/snd/%s", audio_node->name);
         if (devtmpfs_register_char_device(dev_path, audio_node->card->id, i, file_audio | file_stream, &audio_node->tmpfs_ops) == 0) count++;
     }
     return count;
@@ -721,7 +721,7 @@ static void devtmpfs_walk_partitions(devtmpfs_block_walk_fn fn, void *opaque, ui
         blockdev_device_t       view;
         if (blockdev_open_partition(device, part->start_lba, part->sector_count, &view) != EOK) continue;
         char name[96];
-        snprintf(name, sizeof(name), "%s%s%u", disk_name, separator ? "p" : "", part->number);
+        (void)snprintf(name, sizeof(name), "%s%s%u", disk_name, separator ? "p" : "", part->number);
         fn(name, major, minor_base + part->number, view.sector_count * view.sector_size / 1024, opaque);
     }
     partition_table_destroy(&table);
@@ -742,7 +742,7 @@ static void devtmpfs_walk_block_devices(devtmpfs_block_walk_fn fn, void *opaque)
         blockdev_device_t device;
         if (blockdev_open_ide(drive, &device) != EOK) continue;
         char name[32];
-        snprintf(name, sizeof(name), "hd%c", 'a' + drive);
+        (void)snprintf(name, sizeof(name), "hd%c", 'a' + drive);
         devtmpfs_emit_block(fn, opaque, 3, drive, name, &device);
         devtmpfs_walk_partitions(fn, opaque, 3, drive, name, &device, false);
     }
@@ -762,7 +762,7 @@ static void devtmpfs_walk_block_devices(devtmpfs_block_walk_fn fn, void *opaque)
             blockdev_device_t device;
             if (blockdev_open_atapi(drive, &device) != EOK) continue;
             char name[32];
-            snprintf(name, sizeof(name), "sr%u", (unsigned)sr_idx);
+            (void)snprintf(name, sizeof(name), "sr%u", (unsigned)sr_idx);
             devtmpfs_emit_block(fn, opaque, 11, sr_idx, name, &device);
             sr_idx++;
         }
@@ -771,7 +771,7 @@ static void devtmpfs_walk_block_devices(devtmpfs_block_walk_fn fn, void *opaque)
             blockdev_device_t device;
             if (blockdev_open_ahci_atapi(d, &device) != EOK) continue;
             char name[32];
-            snprintf(name, sizeof(name), "sr%u", (unsigned)sr_idx);
+            (void)snprintf(name, sizeof(name), "sr%u", (unsigned)sr_idx);
             devtmpfs_emit_block(fn, opaque, 11, sr_idx, name, &device);
             sr_idx++;
         }
@@ -784,7 +784,7 @@ static void devtmpfs_walk_block_devices(devtmpfs_block_walk_fn fn, void *opaque)
             blockdev_device_t device;
             if (blockdev_open_nvme(&ctrl->namespaces[ns], &device) != EOK) continue;
             char name[64];
-            snprintf(name, sizeof(name), "nvme%dn%u", ctrl->id, ctrl->namespaces[ns].nsid);
+            (void)snprintf(name, sizeof(name), "nvme%dn%u", ctrl->id, ctrl->namespaces[ns].nsid);
             devtmpfs_emit_block(fn, opaque, 259, ctrl->namespaces[ns].nsid, name, &device);
             devtmpfs_walk_partitions(fn, opaque, 259, ctrl->namespaces[ns].nsid, name, &device, true);
         }
@@ -970,7 +970,7 @@ void devtmpfs_init(void)
 
         char              dev_path[32];
         blockdev_device_t device;
-        snprintf(dev_path, sizeof(dev_path), "/dev/hd%c", 'a' + drive);
+        (void)snprintf(dev_path, sizeof(dev_path), "/dev/hd%c", 'a' + drive);
         if (blockdev_open_ide(drive, &device) == EOK) {
             if (devtmpfs_create_block_node(dev_path, &device, drive, drive, false) == EOK) total_devices++;
             total_devices += devtmpfs_create_partitions(dev_path, false, &device, drive, drive);
@@ -986,7 +986,7 @@ void devtmpfs_init(void)
         blockdev_device_t device;
         char              disk_name[16];
         if (blockdev_format_disk_name(disk_name, sizeof(disk_name), d) != EOK) continue;
-        snprintf(dev_path, sizeof(dev_path), "/dev/%s", disk_name);
+        (void)snprintf(dev_path, sizeof(dev_path), "/dev/%s", disk_name);
         if (blockdev_open_ahci(d, &device) == EOK) {
             if (devtmpfs_create_block_node(dev_path, &device, encoded, encoded, false) == EOK) total_devices++;
             total_devices += devtmpfs_create_partitions(dev_path, false, &device, encoded, encoded);
@@ -1002,7 +1002,7 @@ void devtmpfs_init(void)
 
             char              dev_path[32];
             blockdev_device_t device;
-            snprintf(dev_path, sizeof(dev_path), "/dev/sr%u", (unsigned)sr_idx);
+            (void)snprintf(dev_path, sizeof(dev_path), "/dev/sr%u", (unsigned)sr_idx);
             if (blockdev_open_atapi(drive, &device) == EOK && devtmpfs_create_block_node(dev_path, &device, drive, drive, false) == EOK)
                 total_devices++;
             sr_idx++;
@@ -1013,7 +1013,7 @@ void devtmpfs_init(void)
 
             char              dev_path[32];
             blockdev_device_t device;
-            snprintf(dev_path, sizeof(dev_path), "/dev/sr%u", (unsigned)sr_idx);
+            (void)snprintf(dev_path, sizeof(dev_path), "/dev/sr%u", (unsigned)sr_idx);
             uint8_t encoded = BLKDEV_AHCI_FLAG | BLKDEV_ATAPI_FLAG | d;
             if (blockdev_open_ahci_atapi(d, &device) == EOK && devtmpfs_create_block_node(dev_path, &device, encoded, encoded, false) == EOK)
                 total_devices++;
@@ -1031,7 +1031,7 @@ void devtmpfs_init(void)
 
             char              ns_path[64];
             blockdev_device_t device;
-            snprintf(ns_path, sizeof(ns_path), "/dev/nvme%dn%u", ctrl->id, ctrl->namespaces[ns].nsid);
+            (void)snprintf(ns_path, sizeof(ns_path), "/dev/nvme%dn%u", ctrl->id, ctrl->namespaces[ns].nsid);
             if (blockdev_open_nvme(&ctrl->namespaces[ns], &device) == EOK) {
                 if (devtmpfs_create_block_node(ns_path, &device, ctrl->id, ctrl->namespaces[ns].nsid, false) == EOK) total_devices++;
                 total_devices += devtmpfs_create_partitions(ns_path, true, &device, ctrl->id, ctrl->namespaces[ns].nsid);

@@ -792,7 +792,7 @@ static int xhci_enumerate_port(xhci_controller_t *controller, uint8_t port_id)
     uint32_t *output_slot = xhci_output_context(slot, 0);
     device->address       = output_slot[3] & 0xff;
     if (!device->address) device->address = slot_id;
-    snprintf(device->path, sizeof(device->path), "%u-%u", device->bus_number, port_id);
+    (void)snprintf(device->path, sizeof(device->path), "%u-%u", device->bus_number, port_id);
 
     result = usb_control_msg(device, USB_DIR_IN | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_GET_DESCRIPTOR, USB_DT_DEVICE << 8, 0,
                              &device->descriptor, sizeof(device->descriptor), USB_CTRL_TIMEOUT_MS);
@@ -973,11 +973,11 @@ static const xhci_irq_handler_t xhci_irq_handlers[USB_MAX_CONTROLLERS] = {
 static int xhci_take_ownership(xhci_controller_t *controller)
 {
     uint32_t hccparams = xhci_read32(controller->capability, XHCI_CAP_HCCPARAMS1);
-    size_t   offset    = (hccparams >> 16) * 4U;
+    size_t   offset    = (size_t)(hccparams >> 16) * 4U;
     for (unsigned int count = 0; offset && count < 64; count++) {
         uint32_t capability = xhci_read32(controller->capability, offset);
         uint8_t  id         = capability & 0xff;
-        size_t   next       = ((capability >> 8) & 0xff) * 4U;
+        size_t   next       = (size_t)((capability >> 8) & 0xff) * 4U;
         if (id == 1) {
             xhci_write32((volatile uint8_t *)controller->capability, offset, capability | (1U << 24));
             int result = xhci_wait_register((volatile uint8_t *)controller->capability, offset, 1U << 16, 0, 1000);

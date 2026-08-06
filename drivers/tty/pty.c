@@ -288,7 +288,7 @@ static int pty_open(vfs_node_t node, uint64_t flags, void **private_data)
         static const tty_core_ops_t core_operations
             = {.emit = pty_slave_emit, .event = pty_slave_event, .retain = pty_tty_retain, .release = pty_tty_release};
         tty_core_init(&pair->slave_tty, &core_operations, pair);
-        snprintf(pair->slave_path, sizeof(pair->slave_path), "/dev/pts/%u", pair->number);
+        (void)snprintf(pair->slave_path, sizeof(pair->slave_path), "/dev/pts/%u", pair->number);
         spin_lock(&pty_lifetime_lock);
         pty_pairs[pair->number] = pair;
         spin_unlock(&pty_lifetime_lock);

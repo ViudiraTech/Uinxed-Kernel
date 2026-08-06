@@ -64,9 +64,9 @@ struct sysfs_ops {
 #define __stringify_1(x) #x
 #define __stringify(x)   __stringify_1(x)
 
-#define __ATTR(_name, _mode)                      \
-    {                                             \
-        .name = __stringify(_name), .mode = _mode \
+#define __ATTR(_name, _mode)                        \
+    {                                               \
+        .name = __stringify(_name), .mode = (_mode) \
     }
 
 #define __ATTR_RO(_name) __ATTR(_name, 0444)
@@ -174,8 +174,8 @@ char *kobject_get_path(struct kobject *kobj);
 #define DEVICE_ATTR(_name, _mode, _show, _store) \
     struct device_attribute dev_attr_##_name = { \
         .attr  = __ATTR(_name, _mode),           \
-        .show  = _show,                          \
-        .store = _store,                         \
+        .show  = (_show),                        \
+        .store = (_store),                       \
     }
 
 #define DEVICE_ATTR_RO(_name)                    \
@@ -202,8 +202,8 @@ char *kobject_get_path(struct kobject *kobj);
 #define BUS_ATTR(_name, _mode, _show, _store) \
     struct bus_attribute bus_attr_##_name = { \
         .attr  = __ATTR(_name, _mode),        \
-        .show  = _show,                       \
-        .store = _store,                      \
+        .show  = (_show),                     \
+        .store = (_store),                    \
     }
 
 #define BUS_ATTR_RO(_name)                    \
@@ -230,8 +230,8 @@ char *kobject_get_path(struct kobject *kobj);
 #define DRIVER_ATTR(_name, _mode, _show, _store)    \
     struct driver_attribute driver_attr_##_name = { \
         .attr  = __ATTR(_name, _mode),              \
-        .show  = _show,                             \
-        .store = _store,                            \
+        .show  = (_show),                           \
+        .store = (_store),                          \
     }
 
 #define DRIVER_ATTR_RO(_name)                       \
@@ -251,8 +251,8 @@ char *kobject_get_path(struct kobject *kobj);
 #define CLASS_ATTR(_name, _mode, _show, _store)   \
     struct class_attribute class_attr_##_name = { \
         .attr  = __ATTR(_name, _mode),            \
-        .show  = _show,                           \
-        .store = _store,                          \
+        .show  = (_show),                         \
+        .store = (_store),                        \
     }
 
 #define CLASS_ATTR_RO(_name)                      \

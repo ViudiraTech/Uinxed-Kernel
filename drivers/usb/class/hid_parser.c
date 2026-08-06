@@ -377,7 +377,7 @@ static uint32_t hid_extract_bits(const uint8_t *data, size_t length, uint16_t bi
 
 static int32_t hid_field_value(const usb_hid_field_t *field, uint32_t value)
 {
-    if (field->logical_minimum >= 0 || field->report_size == 32) return (int32_t)value;
+    if (field->logical_minimum >= 0 || field->report_size == 32 || field->report_size == 0) return (int32_t)value;
     uint32_t sign = 1U << (field->report_size - 1);
     if (value & sign) value |= UINT32_MAX << field->report_size;
     return (int32_t)value;
@@ -442,25 +442,25 @@ static void hid_decode_variable(usb_hid_field_t *field, size_t index, int32_t va
             type = relative ? EV_REL : EV_ABS;
             switch (usage) {
                 case 0x30 :
-                    code = relative ? REL_X : ABS_X;
+                    code = relative ? REL_X : ABS_X; // NOLINT(bugprone-branch-clone)
                     break;
                 case 0x31 :
-                    code = relative ? REL_Y : ABS_Y;
+                    code = relative ? REL_Y : ABS_Y; // NOLINT(bugprone-branch-clone)
                     break;
                 case 0x32 :
-                    code = relative ? REL_Z : ABS_Z;
+                    code = relative ? REL_Z : ABS_Z; // NOLINT(bugprone-branch-clone)
                     break;
                 case 0x33 :
-                    code = relative ? REL_RX : ABS_RX;
+                    code = relative ? REL_RX : ABS_RX; // NOLINT(bugprone-branch-clone)
                     break;
                 case 0x34 :
-                    code = relative ? REL_RY : ABS_RY;
+                    code = relative ? REL_RY : ABS_RY; // NOLINT(bugprone-branch-clone)
                     break;
                 case 0x35 :
-                    code = relative ? REL_RZ : ABS_RZ;
+                    code = relative ? REL_RZ : ABS_RZ; // NOLINT(bugprone-branch-clone)
                     break;
                 case 0x38 :
-                    code = relative ? REL_WHEEL : ABS_WHEEL;
+                    code = relative ? REL_WHEEL : ABS_WHEEL; // NOLINT(bugprone-branch-clone)
                     break;
                 default :
                     break;

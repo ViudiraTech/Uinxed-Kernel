@@ -21,7 +21,7 @@
 
 #define SWAP_PAGE_SIZE        4096ULL
 #define SWAP_MAX_AREAS        32
-#define SWAP_PRIORITY_DEFAULT -2
+#define SWAP_PRIORITY_DEFAULT (-2)
 
 /* Linux swapon(2) flags. */
 #define SWAP_FLAG_PREFER    0x8000U

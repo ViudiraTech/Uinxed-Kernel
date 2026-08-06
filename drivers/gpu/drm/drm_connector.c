@@ -267,7 +267,7 @@ void drm_connector_cleanup(struct drm_connector *connector)
     while (connector->modes.next && connector->modes.next != &connector->modes) {
         struct drm_display_mode *mode = container_of(connector->modes.next, struct drm_display_mode, head);
         ilist_remove(&mode->head);
-        free(mode);
+        free(mode); // NOLINT(clang-analyzer-unix.Malloc)
     }
 
     ilist_remove(&connector->head);

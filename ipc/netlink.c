@@ -335,7 +335,7 @@ static int rtnl_parse_route_request(const nlmsghdr_t *request, rtnl_dump_context
     uint32_t offset         = NLMSG_ALIGN(sizeof(rtmsg_t));
     while (offset < payload_length) {
         if (payload_length - offset < sizeof(rtattr_t)) return -EINVAL;
-        rtattr_t *attr = (rtattr_t *)((uint8_t *)NLMSG_DATA(request) + offset);
+        rtattr_t *attr = (rtattr_t *)((uint8_t *)request + NLMSG_ALIGN(NLMSG_HDRLEN) + offset);
         if (attr->rta_len < sizeof(rtattr_t) || attr->rta_len > payload_length - offset) return -EINVAL;
         uint32_t data_length = attr->rta_len - RTA_ALIGN(sizeof(rtattr_t));
         if (attr->rta_type == RTA_DST && data_length >= sizeof(uint32_t)) {
@@ -377,13 +377,13 @@ static int rtnl_handle_request(struct socket *sk, const nlmsghdr_t *request)
     else
         return rtnl_queue_error(sk, request, -EOPNOTSUPP);
     if (payload_length < minimum_length) return rtnl_queue_error(sk, request, -EINVAL);
-    uint8_t family = payload_length ? *(uint8_t *)NLMSG_DATA(request) : AF_UNSPEC;
+    uint8_t family = payload_length ? *((uint8_t *)request + NLMSG_ALIGN(NLMSG_HDRLEN)) : AF_UNSPEC;
     if (family != AF_UNSPEC && family != AF_INET && request->nlmsg_type != RTM_GETLINK) return rtnl_queue_error(sk, request, -EAFNOSUPPORT);
     if (!context.multipart) {
         if (request->nlmsg_type == RTM_GETLINK && payload_length >= sizeof(ifinfomsg_t))
-            context.ifindex = ((ifinfomsg_t *)NLMSG_DATA(request))->ifi_index;
+            context.ifindex = ((ifinfomsg_t *)((uint8_t *)request + NLMSG_ALIGN(NLMSG_HDRLEN)))->ifi_index;
         else if (request->nlmsg_type == RTM_GETADDR && payload_length >= sizeof(ifaddrmsg_t))
-            context.ifindex = (int32_t)((ifaddrmsg_t *)NLMSG_DATA(request))->ifa_index;
+            context.ifindex = (int32_t)((ifaddrmsg_t *)((uint8_t *)request + NLMSG_ALIGN(NLMSG_HDRLEN)))->ifa_index;
     }
     if (request->nlmsg_type == RTM_GETROUTE && rtnl_parse_route_request(request, &context)) return rtnl_queue_error(sk, request, -EINVAL);
     switch (request->nlmsg_type) {

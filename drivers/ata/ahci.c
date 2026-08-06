@@ -425,7 +425,7 @@ void init_ahci(void)
 
         ahci_port_state_t *port = &ahci_ports[ahci_port_count];
         memset(port, 0, sizeof(*port));
-        port->port_mmio = hba_mmio + 0x100 + i * 0x80;
+        port->port_mmio = hba_mmio + 0x100 + (size_t)i * 0x80;
         port->port_no   = (uint8_t)i;
 
         /* PI describes implemented controller ports, not attached devices.

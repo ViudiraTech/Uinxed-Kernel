@@ -310,7 +310,7 @@ static char *vfs_resolve_link_path(vfs_node_t node)
     free(path);
     if (normalized && proc && proc->root[0]) {
         size_t root_len = strlen(proc->root);
-        if (root_len != 1 && (strncmp(normalized, proc->root, root_len) || (normalized[root_len] && normalized[root_len] != '/'))) {
+        if (root_len != 1 && (strncmp(normalized, proc->root, root_len) != 0 || (normalized[root_len] && normalized[root_len] != '/'))) {
             free(normalized);
             return 0;
         }

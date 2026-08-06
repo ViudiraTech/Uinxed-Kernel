@@ -252,7 +252,7 @@ void init_cpio(void)
         offset += sizeof(header);
 
         bool crc = !memcmp(header.c_magic, "070702", 6);
-        if (!crc && memcmp(header.c_magic, "070701", 6)) {
+        if (!crc && memcmp(header.c_magic, "070701", 6) != 0) {
             failure = -EBADMSG;
             break;
         }

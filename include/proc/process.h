@@ -142,7 +142,7 @@ typedef struct process_fd_stat {
         uint64_t blksz;
 } process_fd_stat_t;
 
-#define PROCESS_AT_FDCWD -100
+#define PROCESS_AT_FDCWD (-100)
 
 typedef struct process {
         task_t           *task;

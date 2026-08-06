@@ -31,7 +31,7 @@ static void __drm_printk_printer(void *arg, const char *fmt, va_list args)
     if (plen >= sizeof(buf)) plen = sizeof(buf) - 1;
     if (plen) memcpy(buf, prefix, plen);
 
-    vsnprintf(buf + plen, sizeof(buf) - plen, fmt, args);
+    (void)vsnprintf(buf + plen, sizeof(buf) - plen, fmt, args);
     plogk("%s", buf);
 }
 
@@ -90,12 +90,12 @@ void drm_dev_printk(const struct drm_device *dev, const char *level, const char 
     va_list args;
 
     if (dev)
-        snprintf(prefix, sizeof(prefix), "drm: [%s] %p ", level, (const void *)dev);
+        (void)snprintf(prefix, sizeof(prefix), "drm: [%s] %p ", level, (const void *)dev);
     else
-        snprintf(prefix, sizeof(prefix), "drm: [%s] ", level);
+        (void)snprintf(prefix, sizeof(prefix), "drm: [%s] ", level);
 
     va_start(args, fmt);
-    vsnprintf(msg, sizeof(msg), fmt, args);
+    (void)vsnprintf(msg, sizeof(msg), fmt, args);
     va_end(args);
 
     plogk("%s%s", prefix, msg);

@@ -159,7 +159,7 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
     minor->dev   = dev;
     {
         char name[32];
-        snprintf(name, sizeof(name), "card%d", primary_idx);
+        (void)snprintf(name, sizeof(name), "card%d", primary_idx);
         minor->device_node_name = strdup(name);
     }
     dev->primary = minor;
@@ -190,7 +190,7 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
     minor->dev   = dev;
     {
         char name[32];
-        snprintf(name, sizeof(name), "renderD%d", 128 + render_idx);
+        (void)snprintf(name, sizeof(name), "renderD%d", 128 + render_idx);
         minor->device_node_name = strdup(name);
     }
     dev->render = minor;
@@ -221,8 +221,10 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
         dev->mode_config.poll_enabled               = true;
     }
 
-    DRM_INFO("Initialized %s %d.%d.%d %s\n", dev->driver->name, dev->driver->major, dev->driver->minor, dev->driver->patchlevel,
-             dev->driver->date);
+    if (dev->driver) {
+        DRM_INFO("Initialized %s %d.%d.%d %s\n", dev->driver->name, dev->driver->major, dev->driver->minor, dev->driver->patchlevel,
+                 dev->driver->date);
+    }
 
     /* Register under /sys/class/drm/ (one entry per GPU) */
     if (drm_class_registered && dev->primary) {
@@ -245,7 +247,7 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
         drm_ops.file_ioctl = drm_dev_file_ioctl;
         drm_ops.ctx        = dev;
 
-        snprintf(path, sizeof(path), "/dev/dri/%s", dev->primary->device_node_name);
+        (void)snprintf(path, sizeof(path), "/dev/dri/%s", dev->primary->device_node_name);
         uint64_t devt = MKDEV(226, dev->primary->index);
         int      ret  = devtmpfs_register_char_device(path, devt, devt, file_stream, &drm_ops);
         if (ret) {
@@ -256,7 +258,7 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
     }
 
     /* Register /dev/dri/renderDN if the driver supports rendering. */
-    if (dev->render && (dev->driver->driver_features & DRIVER_RENDER)) {
+    if (dev->render && dev->driver && (dev->driver->driver_features & DRIVER_RENDER)) {
         char               path[64];
         tmpfs_device_ops_t render_ops;
         uint64_t           devt;
@@ -271,7 +273,7 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
         render_ops.file_ioctl = drm_dev_file_ioctl;
         render_ops.ctx        = dev;
 
-        snprintf(path, sizeof(path), "/dev/dri/%s", dev->render->device_node_name);
+        (void)snprintf(path, sizeof(path), "/dev/dri/%s", dev->render->device_node_name);
         devt    = MKDEV(226, 128 + dev->render->index);
         int ret = devtmpfs_register_char_device(path, devt, devt, file_stream, &render_ops);
         if (ret) {

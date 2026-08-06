@@ -90,7 +90,7 @@ static uint64_t dhcp_deadline(uint64_t now, uint64_t delay)
 static uint64_t dhcp_retry_delay(uint8_t retries)
 {
     uint64_t delay = DHCP_INITIAL_RETRY << (retries > 4 ? 4 : retries);
-    return delay > DHCP_MAX_RETRY ? DHCP_MAX_RETRY : delay;
+    return delay > (uint64_t)DHCP_MAX_RETRY ? (uint64_t)DHCP_MAX_RETRY : delay;
 }
 
 static void dhcp_count_retry(dhcp_client_t *client)
@@ -150,7 +150,7 @@ static int dhcp_parse_options(const uint8_t *options, size_t length, dhcp_reply_
             case DHCP_OPT_DNS :
                 if (!option_length || (option_length & 3U)) return -EBADMSG;
                 reply->dns_count = (uint8_t)(option_length / 4U > NETDEV_DNS_MAX ? NETDEV_DNS_MAX : option_length / 4U);
-                for (uint8_t i = 0; i < reply->dns_count; i++) reply->dns[i] = net_read_be32(value + i * 4U);
+                for (uint8_t i = 0; i < reply->dns_count; i++) reply->dns[i] = net_read_be32(value + (size_t)i * 4U);
                 reply->has_dns = 1;
                 break;
             case DHCP_OPT_LEASE :
@@ -168,6 +168,8 @@ static int dhcp_parse_options(const uint8_t *options, size_t length, dhcp_reply_
                 reply->rebinding_seconds = net_read_be32(value);
                 reply->has_rebinding     = 1;
                 break;
+            default :
+                break;
         }
         offset += option_length;
     }
@@ -179,7 +181,7 @@ int dhcp_parse_reply(const void *data, size_t length, uint32_t expected_xid, con
     if (!data || !hardware_address || !reply || length < DHCP_FIXED_LENGTH) return -EBADMSG;
     const uint8_t *packet = data;
     if (packet[0] != 2 || packet[1] != 1 || packet[2] != 6 || net_read_be32(packet + 4) != expected_xid
-        || memcmp(packet + 28, hardware_address, 6) || net_read_be32(packet + 236) != DHCP_MAGIC_COOKIE)
+        || memcmp(packet + 28, hardware_address, 6) != 0 || net_read_be32(packet + 236) != DHCP_MAGIC_COOKIE)
         return -EBADMSG;
     memset(reply, 0, sizeof(*reply));
     reply->offered_address = net_read_be32(packet + 16);
@@ -409,7 +411,7 @@ static void dhcp_advance(dhcp_client_t *client, uint64_t now)
     if ((client->state == DHCP_STATE_SELECTING || client->state == DHCP_STATE_REQUESTING) && now >= client->next_action) {
         if (client->retries >= DHCP_RETRY_LIMIT) {
             plogk("dhcp: %s: no reply after %u attempts, restarting.\n", client->device->name, (unsigned)DHCP_RETRY_LIMIT);
-            dhcp_schedule_restart(client, now, DHCP_RESTART_DELAY);
+            dhcp_schedule_restart(client, now, (uint64_t)DHCP_RESTART_DELAY);
             return;
         }
         dhcp_send(client, client->state == DHCP_STATE_SELECTING ? DHCP_DISCOVER : DHCP_REQUEST, 1);

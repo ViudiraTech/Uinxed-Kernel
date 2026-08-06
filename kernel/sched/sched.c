@@ -76,11 +76,9 @@ void context_switch(task_context_t *prev, task_context_t *next, volatile uint64_
 /*  Context switch (naked assembly)                                     */
 /* ------------------------------------------------------------------ */
 
-__attribute__((naked)) void context_switch(task_context_t *prev, task_context_t *next, volatile uint64_t *prev_on_cpu)
+__attribute__((naked)) void context_switch(task_context_t *prev __attribute__((unused)), task_context_t *next __attribute__((unused)),
+                                           volatile uint64_t *prev_on_cpu __attribute__((unused)))
 {
-    (void)prev;
-    (void)next;
-    (void)prev_on_cpu;
     __asm__ volatile("movq %rsp, 0(%rdi)\n\t"
                      "movq %rbx, 8(%rdi)\n\t"
                      "movq %rbp, 16(%rdi)\n\t"
@@ -668,7 +666,7 @@ void sched_init(void)
     for (uint32_t i = 1; i < cpu_scheduler_count; i++) {
         cpu_rqs[i].idle = task_alloc("swapper");
         if (!cpu_rqs[i].idle) panic("sched: Cannot create idle task.");
-        snprintf(cpu_rqs[i].idle->name, sizeof(cpu_rqs[i].idle->name), "swapper/%u", i);
+        (void)snprintf(cpu_rqs[i].idle->name, sizeof(cpu_rqs[i].idle->name), "swapper/%u", i);
         cpu_rqs[i].idle->pid          = 0;
         cpu_rqs[i].idle->state        = TASK_IDLE;
         cpu_rqs[i].idle->cpu_id       = i;
@@ -678,7 +676,7 @@ void sched_init(void)
         uint64_t *stack                 = (uint64_t *)ALIGN_DOWN((uint64_t)(cpu_rqs[i].idle->kernel_stack + TASK_KERNEL_STACK), 16ULL);
         *(--stack)                      = (uint64_t)idle_thread;
         cpu_rqs[i].idle->context.rsp    = (uint64_t)stack;
-        cpu_rqs[i].idle->context.rdi    = (uint64_t)NULL;
+        cpu_rqs[i].idle->context.rdi    = (uint64_t)(uintptr_t)NULL; // NOLINT(bugprone-casting-through-void)
         cpu_rqs[i].idle->context.rflags = 0x202;
     }
     plogk("task: Created task 0 (swapper/0) on CPU 0\n");
@@ -787,7 +785,7 @@ void sched_yield(void)
     if (prev == next) {
         /* A remote wake may have queued this CPU's current task between
          * committing a block and entering the scheduler. */
-        if (next != rq->idle && next->state == TASK_READY) {
+        if (next && next != rq->idle && next->state == TASK_READY) {
             dequeue_entity(rq, next);
             next->state      = TASK_RUNNING;
             next->time_slice = 0;

@@ -34,7 +34,7 @@ static ssize_t fb_stride_show(struct device *dev, struct device_attribute *attr,
     (void)dev;
     (void)attr;
     video_info_t info = video_get_info();
-    return sysfs_emit(buf, "%llu\n", (unsigned long long)(info.stride * (info.bpp / 8)));
+    return sysfs_emit(buf, "%llu\n", (unsigned long long)info.stride * (info.bpp / 8));
 }
 
 static ssize_t fb_bpp_show(struct device *dev, struct device_attribute *attr, char *buf)

@@ -86,8 +86,6 @@ int drm_get_cap(struct drm_device *dev, void *data, struct drm_file *file_priv)
 
     switch (cap->capability) {
         case DRM_CAP_DUMB_BUFFER :
-            cap->value = 1;
-            break;
         case DRM_CAP_VBLANK_HIGH_CRTC :
             cap->value = 1;
             break;
@@ -113,8 +111,6 @@ int drm_get_cap(struct drm_device *dev, void *data, struct drm_file *file_priv)
             cap->value = dev->mode_config.cursor_height;
             break;
         case DRM_CAP_ADDFB2_MODIFIERS :
-            cap->value = 0;
-            break;
         case DRM_CAP_PAGE_FLIP_TARGET :
             cap->value = 0;
             break;
@@ -122,14 +118,8 @@ int drm_get_cap(struct drm_device *dev, void *data, struct drm_file *file_priv)
             cap->value = 1;
             break;
         case DRM_CAP_SYNCOBJ :
-            cap->value = 0;
-            break;
         case DRM_CAP_SYNCOBJ_TIMELINE :
-            cap->value = 0;
-            break;
         case DRM_CAP_ATOMIC_ASYNC_PAGE_FLIP :
-            cap->value = 0;
-            break;
         default :
             cap->value = 0;
             break;

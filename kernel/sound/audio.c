@@ -18,7 +18,7 @@
 #include <proc/uaccess.h>
 
 #define NODES_PER_CARD 4
-#define MAX_NODES      (AUDIO_MAX_CARDS * NODES_PER_CARD)
+#define MAX_NODES      ((size_t)AUDIO_MAX_CARDS * NODES_PER_CARD)
 
 static audio_card_t        audio_cards[AUDIO_MAX_CARDS];
 static audio_device_node_t audio_nodes[MAX_NODES];
@@ -51,7 +51,7 @@ static int audio_add_node(audio_card_t *card, audio_node_type_t type)
     if (audio_nodes_count >= MAX_NODES) return -ENOSPC;
 
     node = &audio_nodes[audio_nodes_count];
-    snprintf(audio_node_names[audio_nodes_count], sizeof(audio_node_names[audio_nodes_count]), audio_node_suffix(type), card->id);
+    (void)snprintf(audio_node_names[audio_nodes_count], sizeof(audio_node_names[audio_nodes_count]), audio_node_suffix(type), card->id);
 
     node->card                 = card;
     node->type                 = type;
@@ -151,9 +151,9 @@ audio_device_node_t *audio_get_device_node(size_t index)
 /* ================================================================== */
 int pcm_ring_buffer_init(audio_pcm_file_t *pf, size_t size_frames)
 {
-    size_t fb    = (pf->fmt.bits / 8) * pf->fmt.channels;
+    size_t fb    = (size_t)(pf->fmt.bits / 8) * pf->fmt.channels;
     size_t bytes = size_frames * fb;
-    if (bytes == 0 || bytes > (2 * 1024 * 1024)) return -EINVAL;
+    if (bytes == 0 || bytes > ((size_t)2 * 1024 * 1024)) return -EINVAL;
 
     pf->ring_buf = malloc(bytes);
     if (!pf->ring_buf) return -ENOMEM;
@@ -185,7 +185,7 @@ void pcm_ring_buffer_destroy(audio_pcm_file_t *pf)
 
 static size_t frame_bytes(const audio_pcm_format_t *fmt)
 {
-    return (fmt->bits / 8) * fmt->channels;
+    return (size_t)(fmt->bits / 8) * fmt->channels;
 }
 
 snd_pcm_sframes_t pcm_ring_buffer_avail(audio_pcm_file_t *pf)
@@ -532,7 +532,7 @@ static int audio_hw_params_ioctl(audio_pcm_file_t *pf, struct snd_pcm_hw_params 
 
     size_t fb         = frame_bytes(&fmt);
     size_t buf_frames = params.buffer_size;
-    if (buf_frames == 0) buf_frames = params.period_size * params.periods;
+    if (buf_frames == 0) buf_frames = (size_t)params.period_size * params.periods;
     if (buf_frames == 0) buf_frames = 4096;
 
     pf->period_size     = params.period_size;
@@ -730,6 +730,8 @@ int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, 
         case SNDRV_PCM_IOCTL_LINK :
         case SNDRV_PCM_IOCTL_UNLINK :
             return EOK;
+        default :
+            break;
     }
 
     /* Legacy ioctls */

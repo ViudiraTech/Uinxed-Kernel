@@ -470,7 +470,7 @@ size_t socket_format_unix_table(char *buffer, size_t capacity)
         }
 
         uint32_t flags = sk->state == SOCK_STATE_LISTENING ? 0x00010000U : 0;
-        uint32_t state = sk->state == SOCK_STATE_CONNECTED ? 3U : sk->state == SOCK_STATE_LISTENING ? 1U : 1U;
+        uint32_t state = sk->state == SOCK_STATE_CONNECTED ? 3U : 1U;
         uint64_t inode = sk->bound_node ? sk->bound_node->inode : sk->node ? sk->node->inode : 0;
         n = snprintf(buffer + used, capacity - used, "%016llx: %08x %08x %08x %04x %02x %llu %s\n", (unsigned long long)(uintptr_t)sk,
                      sk->refcount, 0U, flags, sk->type, state, (unsigned long long)inode, path);
@@ -567,14 +567,10 @@ static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
         }
     }
 
-    /* Set polymorphic operations */
-    if (type == SOCK_DGRAM) {
-        sk->socket_read  = NULL; /* dgram uses recvfrom directly */
-        sk->socket_write = NULL; /* dgram uses sendto directly */
-    } else {
-        sk->socket_read  = NULL; /* handled by type-specific paths */
-        sk->socket_write = NULL;
-    }
+    /* Set polymorphic operations: dgram/seqpacket/stream all route reads and
+     * writes through their type-specific paths. */
+    sk->socket_read  = NULL;
+    sk->socket_write = NULL;
     sk->socket_poll  = NULL;
     sk->socket_close = NULL;
 
@@ -2285,6 +2281,7 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr,
     if (!sk) return -EBADF;
 
     if (!buf && len) return -EFAULT;
+    if (!len) return 0;
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
@@ -3264,10 +3261,6 @@ int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *o
 
         case SO_RCVTIMEO :
         case SO_SNDTIMEO :
-            /* Not implemented */
-            spin_unlock(&sk->lock);
-            return -ENOPROTOOPT;
-
         default :
             spin_unlock(&sk->lock);
             return -ENOPROTOOPT;

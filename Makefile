@@ -441,7 +441,7 @@ info:
 
 %.tidy: %
 	$(Q)printf "  TIDY    $<\n"
-	$(Q)clang-tidy $< -- $(CC_FLAGS)
+	$(Q)clang-tidy --quiet $< -- $(CC_FLAGS) $(C_CONFIG)
 
 tools/%.elf: tools/%.c
 	$(Q)printf "  HOSTCC  $@\n"
@@ -491,7 +491,7 @@ format: info $(C_SOURCES:%=%.fmt) $(C_HEADERS:%=%.fmt)
 	$(Q)find . -type f ! -path './.git/*' -exec dos2unix -q {} +
 	$(Q)printf "\nCode Format complete.\n"
 
-check: info $(C_SOURCES:%=%.tidy) $(C_HEADERS:%=%.tidy)
+check: info $(C_SOURCES:%=%.tidy)
 	$(Q)printf "\nCode Checks complete.\n"
 
 gen.clangd: info

@@ -171,6 +171,8 @@ static int vp_scan_caps(struct vp_device *dev)
                 dev->device_cfg = vp_map_cap_bar(dev, &cap);
                 if (dev->device_cfg) { VP_DBG("device cfg at BAR%u+0x%x (len %u)\n", cap.bar, cap.offset, cap.length); }
                 break;
+            default :
+                break;
         }
 
         cap_off = cap.cap_next;

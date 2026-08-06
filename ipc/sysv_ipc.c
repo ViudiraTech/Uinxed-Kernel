@@ -403,7 +403,7 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
         }
     }
 
-    int ret = ipc_perm_check(&sem->perm, (nsops > 0 && ksops[0].sem_op >= 0) ? 0222 : 0222);
+    int ret = ipc_perm_check(&sem->perm, 0222);
     if (ret < 0) {
         free(ksops);
         return ret;
@@ -532,11 +532,7 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
         /* Apply all operations atomically */
         for (size_t i = 0; i < nsops; i++) {
             uint16_t snum = ksops[i].sem_num;
-            if (ksops[i].sem_op > 0) {
-                sem->values[snum] = (uint16_t)((int32_t)sem->values[snum] + ksops[i].sem_op);
-            } else if (ksops[i].sem_op < 0) {
-                sem->values[snum] = (uint16_t)((int32_t)sem->values[snum] + ksops[i].sem_op);
-            }
+            if (ksops[i].sem_op > 0 || ksops[i].sem_op < 0) { sem->values[snum] = (uint16_t)((int32_t)sem->values[snum] + ksops[i].sem_op); }
             /* sem_op == 0: no change to value */
 
             if (ksops[i].sem_op != 0) { sem->sempid[snum] = proc ? (uint32_t)proc->task->pid : 0; }
@@ -1178,7 +1174,7 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
             info.shmmin = 1;
             info.shmmni = SHM_MAX_SEGS;
             info.shmseg = SHM_MAX_SEGS;
-            info.shmall = SHM_MAX_SEGS * 256;
+            info.shmall = (uint64_t)SHM_MAX_SEGS * 256;
             if (copy_to_user(buf, &info, sizeof(shminfo_t)) != 0) return -EFAULT;
 
             if (cmd == SHM_INFO) {

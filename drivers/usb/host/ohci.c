@@ -543,7 +543,7 @@ static int ohci_enumerate_port(ohci_controller_t *ctrl, uint8_t port)
     device->hcd_ops     = &ohci_hcd_ops;
     device->hc_private  = ctrl;
     device->dev.release = ohci_usb_device_release;
-    snprintf(device->path, sizeof(device->path), "%u-%u", device->bus_number, port + 1);
+    (void)snprintf(device->path, sizeof(device->path), "%u-%u", device->bus_number, port + 1);
 
     uint8_t address = port + 1;
     result          = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_ADDRESS, address, 0, NULL, 0,
@@ -758,7 +758,7 @@ static int ohci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     ctrl->hcd.hcd_ops        = &ohci_hcd_ops;
     ctrl->hcd.controller_ops = &ohci_controller_ops;
     ctrl->hcd.hc_private     = ctrl;
-    snprintf(ctrl->hcd.name, sizeof(ctrl->hcd.name), "ohci-usb%u", bus_number);
+    (void)snprintf(ctrl->hcd.name, sizeof(ctrl->hcd.name), "ohci-usb%u", bus_number);
 
     uint32_t command = pci_read_command_status(pci) & 0xffff;
     pci_write_command_status(pci, command | 0x06);

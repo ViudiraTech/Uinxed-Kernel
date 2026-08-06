@@ -32,7 +32,7 @@
 tty_device_t  boot_tty     = {0, 0};
 tty_device_t *boot_tty_ptr = 0;
 
-#define TTY_VGA_QUEUE_SIZE (TTY_BUF_SIZE * 8)
+#define TTY_VGA_QUEUE_SIZE ((size_t)TTY_BUF_SIZE * 8)
 
 static char           boot_tty_str_buf[16]              = {0}; // Persistent buffer
 static char           tty_buff[TTY_BUF_SIZE]            = {0};
@@ -221,12 +221,10 @@ tty_device_t *get_boot_tty(void)
 
                 /* Determine the legality of the device */
                 int valid = 0;
-                if (tmp_tty.type == TTY_DEVICE_VGA) {
+                if (tmp_tty.type == TTY_DEVICE_VGA || tmp_tty.type == TTY_DEVICE_DRM) {
                     if (!tmp_tty.port) valid = 1;
                 } else if (tmp_tty.type == TTY_DEVICE_SERIAL) {
                     if (tmp_tty.port <= 3) valid = 1;
-                } else if (tmp_tty.type == TTY_DEVICE_DRM) {
-                    if (!tmp_tty.port) valid = 1;
                 }
 
                 if (valid) {

@@ -98,8 +98,8 @@ void enable_intr(void);
 /* Disable interrupts */
 void disable_intr(void);
 
-/* Kernel halt */
-void krn_halt(void);
+/* Kernel halt (never returns) */
+__attribute__((noreturn)) void krn_halt(void);
 
 /* Compiler barrier */
 void compiler_barrier(void);

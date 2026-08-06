@@ -74,25 +74,25 @@ static void hid_enable_axis(input_dev_t *input, const usb_hid_field_t *field, ui
 
     switch (usage) {
         case 0x30 :
-            code = relative ? REL_X : ABS_X;
+            code = relative ? REL_X : ABS_X; // NOLINT(bugprone-branch-clone)
             break;
         case 0x31 :
-            code = relative ? REL_Y : ABS_Y;
+            code = relative ? REL_Y : ABS_Y; // NOLINT(bugprone-branch-clone)
             break;
         case 0x32 :
-            code = relative ? REL_Z : ABS_Z;
+            code = relative ? REL_Z : ABS_Z; // NOLINT(bugprone-branch-clone)
             break;
         case 0x33 :
-            code = relative ? REL_RX : ABS_RX;
+            code = relative ? REL_RX : ABS_RX; // NOLINT(bugprone-branch-clone)
             break;
         case 0x34 :
-            code = relative ? REL_RY : ABS_RY;
+            code = relative ? REL_RY : ABS_RY; // NOLINT(bugprone-branch-clone)
             break;
         case 0x35 :
-            code = relative ? REL_RZ : ABS_RZ;
+            code = relative ? REL_RZ : ABS_RZ; // NOLINT(bugprone-branch-clone)
             break;
         case 0x38 :
-            code = relative ? REL_WHEEL : ABS_WHEEL;
+            code = relative ? REL_WHEEL : ABS_WHEEL; // NOLINT(bugprone-branch-clone)
             break;
         default :
             return;
@@ -166,8 +166,9 @@ static int hid_register_inputs(usb_hid_device_t *hid)
         input_dev_t *input = calloc(1, sizeof(*input));
         if (!input) return -ENOMEM;
         hid->input[i] = input;
-        snprintf(input->name, sizeof(input->name), "%s", hid_application_name(&hid->report.applications[i]));
-        snprintf(input->phys, sizeof(input->phys), "%s/input%u", hid->interface->device->path, hid->interface->descriptor.interface_number);
+        (void)snprintf(input->name, sizeof(input->name), "%s", hid_application_name(&hid->report.applications[i]));
+        (void)snprintf(input->phys, sizeof(input->phys), "%s/input%u", hid->interface->device->path,
+                       hid->interface->descriptor.interface_number);
         input->id.bustype             = BUS_USB;
         input->id.vendor              = hid->interface->device->descriptor.vendor_id;
         input->id.product             = hid->interface->device->descriptor.product_id;

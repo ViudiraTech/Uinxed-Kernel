@@ -74,7 +74,7 @@ static int arp_ipv4_unicast(uint32_t address)
 static int arp_mac_unicast(const uint8_t address[ETH_ADDRESS_LEN])
 {
     static const uint8_t zero[ETH_ADDRESS_LEN];
-    return !(address[0] & 1U) && memcmp(address, zero, sizeof(zero));
+    return !(address[0] & 1U) && memcmp(address, zero, sizeof(zero)) != 0;
 }
 
 static int arp_send(net_device_t *device, uint16_t operation, const uint8_t target_address[ETH_ADDRESS_LEN], uint32_t target_ipv4)

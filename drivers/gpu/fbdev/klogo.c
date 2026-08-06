@@ -8,6 +8,7 @@
  *
  */
 
+#include <arch/smp.h>
 #include <boot/limine.h>
 #include <drivers/gpu/fbcon.h>
 #include <drivers/gpu/klogo.h>

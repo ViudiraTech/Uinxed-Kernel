@@ -300,7 +300,7 @@ int cgroup_set_subtree_control(cgroup_t *cg, const char *value, size_t size)
         while (i < size && (value[i] == ' ' || value[i] == '\t' || value[i] == '\n')) i++;
         if (i == size) break;
         op = value[i++];
-        if ((op != '+' && op != '-') || i + 4 > size || memcmp(value + i, "pids", 4)) {
+        if ((op != '+' && op != '-') || i + 4 > size || memcmp(value + i, "pids", 4) != 0) {
             spin_unlock(&cgroup_lock);
             return -EINVAL;
         }

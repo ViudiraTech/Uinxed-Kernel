@@ -393,17 +393,21 @@ int drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *f
         return -ENOMEM;
     }
     n = 0;
-    for (ilist_node_t *node = dev->mode_config.fb_list.next; node != &dev->mode_config.fb_list; node = node->next)
-        fbs[n++] = container_of(node, struct drm_framebuffer, head)->base.id;
+    if (fbs)
+        for (ilist_node_t *node = dev->mode_config.fb_list.next; node != &dev->mode_config.fb_list; node = node->next)
+            fbs[n++] = container_of(node, struct drm_framebuffer, head)->base.id;
     n = 0;
-    for (ilist_node_t *node = dev->mode_config.crtc_list.next; node != &dev->mode_config.crtc_list; node = node->next)
-        crtcs[n++] = container_of(node, struct drm_crtc, head)->base.id;
+    if (crtcs)
+        for (ilist_node_t *node = dev->mode_config.crtc_list.next; node != &dev->mode_config.crtc_list; node = node->next)
+            crtcs[n++] = container_of(node, struct drm_crtc, head)->base.id;
     n = 0;
-    for (ilist_node_t *node = dev->mode_config.connector_list.next; node != &dev->mode_config.connector_list; node = node->next)
-        connectors[n++] = container_of(node, struct drm_connector, head)->base.id;
+    if (connectors)
+        for (ilist_node_t *node = dev->mode_config.connector_list.next; node != &dev->mode_config.connector_list; node = node->next)
+            connectors[n++] = container_of(node, struct drm_connector, head)->base.id;
     n = 0;
-    for (ilist_node_t *node = dev->mode_config.encoder_list.next; node != &dev->mode_config.encoder_list; node = node->next)
-        encoders[n++] = container_of(node, struct drm_encoder, head)->base.id;
+    if (encoders)
+        for (ilist_node_t *node = dev->mode_config.encoder_list.next; node != &dev->mode_config.encoder_list; node = node->next)
+            encoders[n++] = container_of(node, struct drm_encoder, head)->base.id;
 
     if ((user_fbs && dev->mode_config.num_fb
          && (!res->fb_id_ptr

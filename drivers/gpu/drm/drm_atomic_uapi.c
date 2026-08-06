@@ -337,7 +337,7 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
                 ret = -EINVAL;
                 break;
             }
-            for (j = 0; j < obj_count; j++) {
+            for (j = 0; props && j < obj_count; j++) {
                 struct drm_property *prop = drm_property_find(dev, file_priv, props[prop_offset + j]);
                 if (!prop) {
                     ret = -ENOENT;
@@ -373,7 +373,7 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
                 offset += count_props[i];
                 continue;
             }
-            for (uint32_t j = 0; j < count_props[i]; j++) {
+            for (uint32_t j = 0; props && j < count_props[i]; j++) {
                 struct drm_property *prop = drm_property_find(dev, file_priv, props[offset + j]);
                 if (prop) {
                     drm_object_property_set_value(obj, prop, prop_values[offset + j]);

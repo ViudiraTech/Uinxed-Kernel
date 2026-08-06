@@ -51,7 +51,7 @@ uint64_t iso_date_to_unix(const uint8_t *p, int flags)
         hour   = (p[8] - '0') * 10 + (p[9] - '0');
         minute = (p[10] - '0') * 10 + (p[11] - '0');
         second = (p[12] - '0') * 10 + (p[13] - '0');
-        tz     = (int8_t)p[16];
+        tz     = p[16] < 128 ? (int)p[16] : (int)p[16] - 256;
     } else {
         year   = p[0];
         month  = p[1];
@@ -59,7 +59,7 @@ uint64_t iso_date_to_unix(const uint8_t *p, int flags)
         hour   = p[3];
         minute = p[4];
         second = p[5];
-        tz     = (flags & ISO_DATE_HIGH_SIERRA) ? 0 : (int8_t)p[6];
+        tz     = (flags & ISO_DATE_HIGH_SIERRA) ? 0 : (p[6] < 128 ? (int)p[6] : (int)p[6] - 256);
     }
 
     if (year < 0) return 0;

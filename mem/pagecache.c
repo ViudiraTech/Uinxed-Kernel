@@ -591,7 +591,7 @@ int pagecache_writeback(pagecache_mapping_t *mapping, uint64_t start, uint64_t e
     pc_lock(&mapping->lock);
     size_t             capacity = mapping->pages;
     size_t             slots    = capacity ? capacity : 1;
-    pagecache_page_t **pages    = (pagecache_page_t **)malloc(slots * sizeof(*pages));
+    pagecache_page_t **pages    = (pagecache_page_t **)malloc(slots * sizeof(*pages)); // NOLINT(bugprone-sizeof-expression)
     if (!pages) {
         pc_unlock(&mapping->lock);
         return -ENOMEM;
@@ -641,7 +641,7 @@ int pagecache_writeback_all(uint32_t flags)
     for (pagecache_mapping_t *mapping = pagecache.mappings; mapping; mapping = mapping->global_next)
         if (!mapping->dying) count++;
     size_t                slots    = count ? count : 1;
-    pagecache_mapping_t **mappings = (pagecache_mapping_t **)malloc(slots * sizeof(*mappings));
+    pagecache_mapping_t **mappings = (pagecache_mapping_t **)malloc(slots * sizeof(*mappings)); // NOLINT(bugprone-sizeof-expression)
     if (!mappings) {
         pc_unlock(&pagecache.lock);
         return -ENOMEM;

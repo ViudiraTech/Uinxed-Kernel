@@ -358,7 +358,7 @@ static void gen_info_vmstat(procfs_file_t *pf)
 
 static void gen_info_modules(procfs_file_t *pf)
 {
-    size_t capacity = 64 * 1024;
+    size_t capacity = (size_t)64 * 1024;
     char  *buffer   = malloc(capacity);
     if (!buffer) return;
     pf->size     = module_format_proc(buffer, capacity);
@@ -368,7 +368,7 @@ static void gen_info_modules(procfs_file_t *pf)
 
 static void gen_mount_table(procfs_file_t *pf, bool mountinfo)
 {
-    size_t capacity = 64 * 1024;
+    size_t capacity = (size_t)64 * 1024;
     char  *buffer   = malloc(capacity);
     if (!buffer) return;
     pf->size     = vfs_format_mount_table(buffer, capacity, mountinfo);
@@ -451,10 +451,8 @@ static void gen_info_cpuinfo(procfs_file_t *pf)
         uint32_t line_size  = (cb & 0xFFF) + 1;
         uint32_t sets       = cc + 1;
         uint32_t size_kb    = (ways * partitions * line_size * sets) / 1024;
-        if (cache_type == 1)
-            l1d_kb = size_kb; /* data cache */
-        else if (cache_type == 2)
-            l1d_kb = size_kb; /* instruction cache */
+        if (cache_type == 1 || cache_type == 2)
+            l1d_kb = size_kb; /* data / instruction cache */
         else if (cache_type == 3)
             l2_kb = size_kb; /* unified L2 */
     }
@@ -856,11 +854,11 @@ static int procfs_sysctl_apply(procfs_sysctl_t *sc, const char *data, size_t siz
         return EOK;
     }
 
-    const char *cursor = data;
-    size_t      left   = size;
-    uint64_t    values[4];
-    size_t      count = 0;
-    bool        any   = false;
+    const char *cursor    = data;
+    size_t      left      = size;
+    uint64_t    values[4] = {0};
+    size_t      count     = 0;
+    bool        any       = false;
 
     while (left) {
         while (left && (*cursor == ' ' || *cursor == '\t' || *cursor == '\n' || *cursor == '\r')) {
@@ -954,8 +952,7 @@ static void procfs_gen_net_route(net_device_t *device, void *opaque)
 static void gen_net_file(procfs_file_t *pf)
 {
     static const char *headers[] = {
-        "Inter-|   Receive                                                |  Transmit\n"
-        " face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n",
+        "Inter-|   Receive                                                |  Transmit\n face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n",
         "IP address       HW type     Flags       HW address            Mask     Device\n",
         "Iface\tDestination Gateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n",
         "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n",
@@ -1003,14 +1000,10 @@ static void gen_pid_status(procfs_file_t *pf)
     const char *state_str;
     switch (proc->task->state) {
         case TASK_READY :
-            state_str = "R (running)";
-            break;
         case TASK_RUNNING :
             state_str = "R (running)";
             break;
         case TASK_BLOCKED :
-            state_str = "S (sleeping)";
-            break;
         case TASK_SLEEPING :
             state_str = "S (sleeping)";
             break;
@@ -1117,9 +1110,11 @@ static void gen_pid_maps(procfs_file_t *pf)
             case VM_READ | VM_WRITE | VM_EXEC :
                 perm = "rwx";
                 break;
+            default :
+                break;
         }
 
-        const char *region_name = "";
+        const char *region_name;
         switch (vma->type) {
             case VM_REGION_CODE :
                 region_name = "  [code]";
@@ -1291,11 +1286,11 @@ static void gen_pid_limits(procfs_file_t *pf)
         if (cur == PROCESS_RLIM_INFINITY)
             strcpy(curbuf, "unlimited");
         else
-            snprintf(curbuf, sizeof(curbuf), "%llu", (unsigned long long)cur);
+            (void)snprintf(curbuf, sizeof(curbuf), "%llu", (unsigned long long)cur);
         if (max == PROCESS_RLIM_INFINITY)
             strcpy(maxbuf, "unlimited");
         else
-            snprintf(maxbuf, sizeof(maxbuf), "%llu", (unsigned long long)max);
+            (void)snprintf(maxbuf, sizeof(maxbuf), "%llu", (unsigned long long)max);
         int n = snprintf(buf + off, 4096 - off, "%-25s %-16s %-16s %s\n", names[i], curbuf, maxbuf, is_bytes[i] ? "bytes" : "");
         if (n < 0 || off + (size_t)n >= 4096) break;
         off += n;
@@ -1340,9 +1335,9 @@ static void procfs_fd_target(process_t *proc, int fd, char *target, size_t capac
         if (!file->node->parent) {
             /* Anonymous inodes (pipes, sockets, eventfds, ...). */
             if (file->node->name && file->node->name[0]) {
-                snprintf(target, capacity, "anon_inode:%s", file->node->name);
+                (void)snprintf(target, capacity, "anon_inode:%s", file->node->name);
             } else {
-                snprintf(target, capacity, "anon_inode:[%llu]", (unsigned long long)file->node->inode);
+                (void)snprintf(target, capacity, "anon_inode:[%llu]", (unsigned long long)file->node->inode);
             }
         } else if (vfs_node_path(file->node, target, capacity) != EOK) {
             target[0] = '\0';
@@ -1395,14 +1390,10 @@ static void gen_pid_stat(procfs_file_t *pf)
     char state_char = '?';
     switch (proc->task->state) {
         case TASK_READY :
-            state_char = 'R';
-            break;
         case TASK_RUNNING :
             state_char = 'R';
             break;
         case TASK_BLOCKED :
-            state_char = 'S';
-            break;
         case TASK_SLEEPING :
             state_char = 'S';
             break;
@@ -1556,6 +1547,8 @@ static void procfs_gen_content(procfs_file_t *pf, vfs_node_t node)
                 case PROC_INFO_IOMEM :
                     gen_info_iomem(pf);
                     break;
+                default :
+                    break;
             }
             break;
         case PROCFS_PID_FILE :
@@ -1598,6 +1591,8 @@ static void procfs_gen_content(procfs_file_t *pf, vfs_node_t node)
                     break;
                 case PROC_PID_IO :
                     gen_pid_io(pf);
+                    break;
+                default :
                     break;
             }
             break;
@@ -1881,7 +1876,7 @@ static size_t procfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t
                 process_put(proc);
                 return 0;
             }
-            snprintf(target, sizeof(target), "%s", proc->exe_path[0] ? proc->exe_path : "/unknown");
+            (void)snprintf(target, sizeof(target), "%s", proc->exe_path[0] ? proc->exe_path : "/unknown");
             process_put(proc);
             length = (int)strlen(target);
             break;
@@ -1892,7 +1887,7 @@ static size_t procfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t
                 process_put(proc);
                 return 0;
             }
-            snprintf(target, sizeof(target), "%s", proc->cwd[0] ? proc->cwd : "/");
+            (void)snprintf(target, sizeof(target), "%s", proc->cwd[0] ? proc->cwd : "/");
             process_put(proc);
             length = (int)strlen(target);
             break;
@@ -1903,7 +1898,7 @@ static size_t procfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t
                 process_put(proc);
                 return 0;
             }
-            snprintf(target, sizeof(target), "%s", proc->root[0] ? proc->root : "/");
+            (void)snprintf(target, sizeof(target), "%s", proc->root[0] ? proc->root : "/");
             process_put(proc);
             length = (int)strlen(target);
             break;
@@ -2013,7 +2008,7 @@ static int procfs_stat(void *file, vfs_node_t node)
                 char  pid_str[16];
                 pid_t pid = proc->task ? (pid_t)proc->task->tgid : 0;
                 if (pid > 0) {
-                    snprintf(pid_str, sizeof(pid_str), "%llu", (uint64_t)pid);
+                    (void)snprintf(pid_str, sizeof(pid_str), "%llu", (uint64_t)pid);
                     (void)procfs_ensure_child(node, pid_str, PROCFS_PID_DIR, pid, 0, file_dir);
                 }
                 process_put(proc);
@@ -2076,7 +2071,7 @@ static int procfs_stat(void *file, vfs_node_t node)
                 if (!file) continue;
                 process_file_put(file);
                 char name[8];
-                snprintf(name, sizeof(name), "%d", fd);
+                (void)snprintf(name, sizeof(name), "%d", fd);
                 (void)procfs_ensure_child(node, name, PROCFS_PID_FD_LINK, pf->pid, fd, file_symlink);
             }
             process_put(proc);

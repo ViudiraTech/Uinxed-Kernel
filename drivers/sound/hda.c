@@ -609,6 +609,10 @@ static int hda_parse_widgets(hda_codec_t *codec)
     uint16_t start_nid    = (uint16_t)(node_count >> 16);
     uint16_t widget_total = (uint16_t)(node_count & 0xffff);
     int      count        = (int)widget_total;
+    if (count <= 0) {
+        plogk("hda: Codec #%d has no widgets\n", codec->addr);
+        return -ENODEV;
+    }
 
     codec->num_widgets = count;
     codec->widgets     = malloc(sizeof(hda_widget_t) * count);
@@ -983,6 +987,8 @@ static int hda_audio_set_params(audio_card_t *card, const audio_pcm_format_t *fm
         case 32 :
             fmt_val |= (uint16_t)(4 << 4);
             break;
+        default :
+            break;
     }
 
     uint32_t base = AC_FMT_BASE_RATE;
@@ -1101,7 +1107,7 @@ static int hda_audio_get_position(audio_card_t *card, snd_pcm_uframes_t *pos)
     spin_lock(&hda_ctrl.lock);
     if (hda_ctrl.playback_stream >= 0 && hda_ctrl.streams[hda_ctrl.playback_stream].running) {
         uint32_t lpib = sd_read32(hda_ctrl.playback_stream, SD_LPIB);
-        size_t   fb   = (hda_ctrl.audio_fmt.bits / 8) * hda_ctrl.audio_fmt.channels;
+        size_t   fb   = (size_t)(hda_ctrl.audio_fmt.bits / 8) * hda_ctrl.audio_fmt.channels;
         if (fb > 0) *pos = lpib / fb;
     }
     spin_unlock(&hda_ctrl.lock);
@@ -1173,7 +1179,8 @@ static void hda_interrupt_handler(interrupt_frame_t *frame)
             if (hda_ctrl.streams[s].pcm_file) {
                 audio_pcm_file_t *pf = hda_ctrl.streams[s].pcm_file;
                 spin_lock(&pf->lock);
-                snd_pcm_uframes_t frames_consumed = hda_ctrl.streams[s].buf_size / ((hda_ctrl.audio_fmt.bits / 8) * hda_ctrl.audio_fmt.channels)
+                snd_pcm_uframes_t frames_consumed = hda_ctrl.streams[s].buf_size
+                                                    / ((size_t)(hda_ctrl.audio_fmt.bits / 8) * hda_ctrl.audio_fmt.channels)
                                                     / hda_ctrl.streams[s].period_frags;
 
                 pcm_ring_buffer_advance_hw(pf, frames_consumed);
@@ -1342,7 +1349,7 @@ void hda_init(void)
 
     audio_pcm_format_t fmt = {.sample_rate = 48000, .bits = 16, .channels = 2};
     hda_ctrl.audio_fmt     = fmt;
-    hda_ctrl.buffer_bytes  = HDA_DMA_BUFFER_SIZE;
+    hda_ctrl.buffer_bytes  = (size_t)HDA_DMA_BUFFER_SIZE;
     hda_ctrl.period_bytes  = HDA_DMA_BUFFER_SIZE / HDA_PERIOD_FRAGS;
 
     audio_register_card("Intel HD Audio", &fmt, &hda_audio_ops, &hda_ctrl);

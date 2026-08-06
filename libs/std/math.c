@@ -11,7 +11,9 @@
 #include <arch/fpu.h>
 #include <libs/std/math.h>
 
-#pragma GCC target("sse2")
+#if !defined(__clang__)
+#    pragma GCC target("sse2")
+#endif
 
 /* Round a floating-point number to the nearest integer */
 int round(float64_t x)

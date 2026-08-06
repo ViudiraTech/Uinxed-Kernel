@@ -739,7 +739,7 @@ int tcp_receive(tcp_endpoint_t *endpoint, void *data, size_t capacity)
         memcpy(data, endpoint->rx_data, copied);
         memmove(endpoint->rx_data, endpoint->rx_data + copied, endpoint->rx_length - copied);
         endpoint->rx_length -= (uint16_t)copied;
-        if (copied && tcp_window(endpoint) > copied) tcp_emit(endpoint, endpoint->snd_nxt, endpoint->rcv_nxt, TCP_FLAG_ACK, NULL, 0, 0);
+        if (tcp_window(endpoint) > copied) tcp_emit(endpoint, endpoint->snd_nxt, endpoint->rcv_nxt, TCP_FLAG_ACK, NULL, 0, 0);
     }
     spin_unlock(&endpoint->lock);
     return (int)copied;

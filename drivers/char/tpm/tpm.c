@@ -159,8 +159,8 @@ static int tpm2_startup(tpm_device_t *dev)
 
 int tpm2_get_property(tpm_device_t *dev, uint32_t property, uint32_t *value)
 {
-    uint8_t params[12];
-    uint8_t rsp[32];
+    uint8_t params[12] = {0};
+    uint8_t rsp[32]    = {0};
 
     cpu_to_be32(TPM2_CAP_TPM_PROPERTIES, &params[0]);
     cpu_to_be32(property, &params[4]);
@@ -176,7 +176,7 @@ int tpm2_get_property(tpm_device_t *dev, uint32_t property, uint32_t *value)
      * [9..12] property[0]  (UINT32, 4)
      * [13..16] value[0]    (UINT32, 4)     */
     if (rc >= 17 && value) {
-        *value = be32_to_cpu(*(uint32_t *)&rsp[13]);
+        *value = ((uint32_t)rsp[13] << 24) | ((uint32_t)rsp[14] << 16) | ((uint32_t)rsp[15] << 8) | (uint32_t)rsp[16];
         return 0;
     }
     return -1;

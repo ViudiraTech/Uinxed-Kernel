@@ -319,7 +319,7 @@ static int usb_storage_allocate_name(char *name, size_t size, uint16_t *disk_ind
     for (uint16_t index = 0; index < USB_MSC_MAX_DISKS; index++) {
         if (usb_storage_disk_ids[index] || blockdev_format_disk_name(name, size, index) != EOK) continue;
         char path[32];
-        snprintf(path, sizeof(path), "/dev/%s", name);
+        (void)snprintf(path, sizeof(path), "/dev/%s", name);
         vfs_node_t existing = vfs_open(path);
         if (existing) {
             vfs_close(existing);
@@ -354,7 +354,7 @@ static int usb_storage_register_lun(usb_storage_lun_t *lun)
     lun->blockdev.base_lba     = 0;
     lun->blockdev.sector_count = lun->sector_count;
     lun->blockdev.read_only    = lun->read_only;
-    snprintf(path, sizeof(path), "/dev/%s", lun->name);
+    (void)snprintf(path, sizeof(path), "/dev/%s", lun->name);
     uint64_t devt = MKDEV(USB_MSC_MAJOR, (uint32_t)lun->disk_index * 16);
     status        = devtmpfs_register_block_device(path, &lun->blockdev, devt, devt, true, &lun->devtmpfs);
     if (status != EOK) goto fail_name;

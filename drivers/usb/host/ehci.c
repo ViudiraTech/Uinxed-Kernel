@@ -537,7 +537,7 @@ static int ehci_enumerate_port(ehci_controller_t *ctrl, uint8_t port)
     device->hcd_ops     = &ehci_hcd_ops;
     device->hc_private  = ctrl;
     device->dev.release = ehci_usb_device_release;
-    snprintf(device->path, sizeof(device->path), "%u-%u", device->bus_number, port + 1);
+    (void)snprintf(device->path, sizeof(device->path), "%u-%u", device->bus_number, port + 1);
 
     uint8_t address = port + 1;
     result          = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_ADDRESS, address, 0, NULL, 0,
@@ -752,7 +752,7 @@ static int ehci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     ctrl->hcd.hcd_ops        = &ehci_hcd_ops;
     ctrl->hcd.controller_ops = &ehci_controller_ops;
     ctrl->hcd.hc_private     = ctrl;
-    snprintf(ctrl->hcd.name, sizeof(ctrl->hcd.name), "ehci-usb%u", bus_number);
+    (void)snprintf(ctrl->hcd.name, sizeof(ctrl->hcd.name), "ehci-usb%u", bus_number);
 
     ctrl->caplength = *(volatile uint8_t *)ctrl->capability;
     if (ctrl->caplength < 0x20) ctrl->caplength = 0x20;

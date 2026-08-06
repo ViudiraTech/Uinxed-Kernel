@@ -181,36 +181,14 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             break;
         }
 
-        case F_SETLK : {
-            /* Non-blocking lock - no-op (no mandatory locking) */
+        case F_SETLK :
+        case F_SETLKW :
+        case F_SETOWN :
+        case F_GETOWN :
+        case F_SETOWN_EX :
+            /* Non-blocking / blocking lock - no-op (no mandatory locking) */
             result = 0;
             break;
-        }
-
-        case F_SETLKW : {
-            /* Blocking lock - no-op (no mandatory locking) */
-            result = 0;
-            break;
-        }
-
-        case F_SETOWN : {
-            /* Set process/thread that receives SIGIO/SIGURG */
-            /* Store in vfs node? For now just accept */
-            result = 0;
-            break;
-        }
-
-        case F_GETOWN : {
-            /* Get process/thread that receives SIGIO/SIGURG */
-            result = 0; /* Return 0, meaning no owner set */
-            break;
-        }
-
-        case F_SETOWN_EX : {
-            /* Set owner (struct f_owner_ex) - no-op */
-            result = 0;
-            break;
-        }
 
         case F_GETOWN_EX : {
             /* Get owner (struct f_owner_ex) - return empty */
@@ -228,17 +206,10 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             break;
         }
 
-        case F_SETSIG : {
-            /* Set signal sent on I/O events - no-op */
+        case F_SETSIG :
+        case F_GETSIG :
             result = 0;
             break;
-        }
-
-        case F_GETSIG : {
-            /* Get signal sent on I/O events - return 0 (default=SIGIO) */
-            result = 0;
-            break;
-        }
 
         default :
             result = -EINVAL;

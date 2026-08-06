@@ -87,7 +87,7 @@ static ssize_t start_show(struct kobject *kobj, struct attribute *attr, char *bu
 {
     block_sysfs_dev_t *bsd = to_bsd(kobj);
     (void)attr;
-    return (ssize_t)sysfs_emit(buf, "%llu\n", (unsigned long long)(bsd->start_lba * (bsd->bdev.sector_size / 512)));
+    return (ssize_t)sysfs_emit(buf, "%llu\n", (unsigned long long)bsd->start_lba * (bsd->bdev.sector_size / 512));
 }
 
 static ssize_t removable_show(struct kobject *kobj, struct attribute *attr, char *buf)
@@ -217,9 +217,9 @@ static int block_add_partitions(block_sysfs_dev_t *disk)
         part->read_only = info->read_only;
         part->valid     = 1;
         if (disk->name[strlen(disk->name) - 1] >= '0' && disk->name[strlen(disk->name) - 1] <= '9')
-            snprintf(part->name, sizeof(part->name), "%sp%u", disk->name, info->number);
+            (void)snprintf(part->name, sizeof(part->name), "%sp%u", disk->name, info->number);
         else
-            snprintf(part->name, sizeof(part->name), "%s%u", disk->name, info->number);
+            (void)snprintf(part->name, sizeof(part->name), "%s%u", disk->name, info->number);
 
         kobject_init(&part->kobj, &partition_ktype);
         status = kobject_add(&part->kobj, &disk->kobj, "%s", part->name);
@@ -285,7 +285,7 @@ static void block_sysfs_dev_publish(block_sysfs_dev_t *bsd)
     extern struct kobject *sysfs_dev_block_kobj;
     if (!bsd || !bsd->name[0]) return;
     block_sysfs_devt(bsd->name, &major, &minor);
-    snprintf(link, sizeof(link), "%u:%u", major, minor);
+    (void)snprintf(link, sizeof(link), "%u:%u", major, minor);
     if (sysfs_dev_block_kobj) (void)sysfs_create_symlink(sysfs_dev_block_kobj, &bsd->kobj, link);
 }
 
@@ -296,7 +296,7 @@ static void block_sysfs_dev_unpublish(block_sysfs_dev_t *bsd)
     extern struct kobject *sysfs_dev_block_kobj;
     if (!bsd || !bsd->name[0]) return;
     block_sysfs_devt(bsd->name, &major, &minor);
-    snprintf(link, sizeof(link), "%u:%u", major, minor);
+    (void)snprintf(link, sizeof(link), "%u:%u", major, minor);
     if (sysfs_dev_block_kobj) sysfs_remove_symlink(sysfs_dev_block_kobj, link);
 }
 
@@ -429,7 +429,7 @@ void block_sysfs_init(void)
     for (uint8_t d = 0; d < 4; d++) {
         if (!ide_devices[d].reserved || ide_devices[d].type != IDE_ATA) continue;
         char name[8];
-        snprintf(name, sizeof(name), "hd%c", 'a' + d);
+        (void)snprintf(name, sizeof(name), "hd%c", 'a' + d);
         block_add_one(block_root_kobj, name, d, 0, NULL);
         count++;
     }
@@ -448,7 +448,7 @@ void block_sysfs_init(void)
         for (uint32_t ns = 0; ns < ctrl->num_namespaces; ns++) {
             if (!ctrl->namespaces[ns].ready) continue;
             char name[24];
-            snprintf(name, sizeof(name), "nvme%dn%u", ctrl->id, ctrl->namespaces[ns].nsid);
+            (void)snprintf(name, sizeof(name), "nvme%dn%u", ctrl->id, ctrl->namespaces[ns].nsid);
             block_add_one(block_root_kobj, name, (uint8_t)ctrl->id, 2, &ctrl->namespaces[ns]);
             count++;
         }

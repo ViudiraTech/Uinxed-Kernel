@@ -207,6 +207,8 @@ void parse_rock_ridge_inode(void *raw_de, isofs_handle_t *handle, isofs_mount_t 
                             case 8 :
                                 symlink_len += 1;
                                 break;
+                            default :
+                                break;
                         }
                         slen -= slp->len + 2;
                         slp = (struct SL_component *)((char *)slp + slp->len + 2);
@@ -306,6 +308,8 @@ int get_rock_ridge_symlink(void *raw_de, isofs_mount_t *mount, char *buf, int bu
                                 if (rpnt >= end) goto out;
                                 *rpnt++ = '/';
                                 break;
+                            default :
+                                break;
                         }
                         slen -= slp->len + 2;
                         slp = (struct SL_component *)((char *)slp + slp->len + 2);
@@ -326,6 +330,8 @@ int get_rock_ridge_symlink(void *raw_de, isofs_mount_t *mount, char *buf, int bu
                     rs.cont_extent = isonum_733(rr->u.CE.extent);
                     rs.cont_offset = isonum_733(rr->u.CE.offset);
                     rs.cont_size   = isonum_733(rr->u.CE.size);
+                    break;
+                default :
                     break;
             }
         }

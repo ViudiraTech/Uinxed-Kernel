@@ -387,7 +387,7 @@ static int isofs_vfs_mount(const char *src, vfs_node_t node)
     /* Read volume descriptors starting at LBA 16 */
     uint8_t                   vd_buf[2048];
     iso_primary_descriptor_t *pri      = NULL;
-    uint8_t                  *pri_copy = NULL;
+    iso_primary_descriptor_t *pri_copy = NULL;
     int                       found    = 0;
 
     for (uint32_t blk = 16; blk < 100; blk++) {
@@ -724,16 +724,6 @@ void isofs_regist(void)
         plogk("isofs: Register error.\n");
         return;
     }
-
-    uint8_t sr_idx = 0;
-    for (uint8_t drive = 0; drive < 4; drive++) {
-        if (!atapi_devices[drive].reserved || atapi_devices[drive].type != IDE_ATAPI) continue;
-        sr_idx++;
-    }
-    for (int d = 0; d < AHCI_MAX_DEVICES; d++) {
-        if (!ahci_devices[d].reserved || ahci_devices[d].type != AHCI_DEV_SATAPI) continue;
-        sr_idx++;
-    }
 #endif
 }
 
@@ -751,8 +741,8 @@ void isofs_mount_all(void)
         char       src[16];
         vfs_node_t node;
 
-        snprintf(path, sizeof(path), "/mnt/cdrom%u", (unsigned)sr_idx);
-        snprintf(src, sizeof(src), "sr%u", (unsigned)sr_idx);
+        (void)snprintf(path, sizeof(path), "/mnt/cdrom%u", (unsigned)sr_idx);
+        (void)snprintf(src, sizeof(src), "sr%u", (unsigned)sr_idx);
 
         int mkdir_status = vfs_mkdir(path);
         if (mkdir_status != EOK && mkdir_status != -EEXIST) {
@@ -785,8 +775,8 @@ void isofs_mount_all(void)
         char       src[16];
         vfs_node_t node;
 
-        snprintf(path, sizeof(path), "/mnt/cdrom%u", (unsigned)sr_idx);
-        snprintf(src, sizeof(src), "sr%u", (unsigned)sr_idx);
+        (void)snprintf(path, sizeof(path), "/mnt/cdrom%u", (unsigned)sr_idx);
+        (void)snprintf(src, sizeof(src), "sr%u", (unsigned)sr_idx);
 
         int mkdir_status = vfs_mkdir(path);
         if (mkdir_status != EOK && mkdir_status != -EEXIST) {

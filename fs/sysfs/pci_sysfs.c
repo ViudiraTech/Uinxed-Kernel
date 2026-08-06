@@ -228,7 +228,8 @@ void pci_sysfs_init(void)
         psd->cache = item;
 
         /* Format: 0000:bb:dd.f (domain:bus:slot.func) */
-        snprintf(name, sizeof(name), "%04x:%02x:%02x.%01x", item->device->domain, item->device->bus, item->device->slot, item->device->func);
+        (void)snprintf(name, sizeof(name), "%04x:%02x:%02x.%01x", item->device->domain, item->device->bus, item->device->slot,
+                       item->device->func);
 
         dev = calloc(1, sizeof(struct device));
         if (!dev) {

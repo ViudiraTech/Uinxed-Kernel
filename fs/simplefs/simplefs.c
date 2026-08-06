@@ -453,8 +453,8 @@ static int simplefs_lookup(vfs_node_t parent, const char *name, vfs_node_t node)
     if (!parent || !node || !name || !dir) return -EINVAL;
     if (simplefs_load_directory(parent) != EOK) return -EIO;
 
-    node = vfs_do_search(parent, name);
-    if (node && node->handle) return EOK;
+    vfs_node_t found = vfs_do_search(parent, name);
+    if (found && found->handle) return EOK;
     if (!dir->inode.size) return -ENOENT;
 
     entries = malloc((size_t)dir->inode.size);

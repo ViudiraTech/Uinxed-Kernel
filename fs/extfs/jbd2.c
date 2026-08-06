@@ -268,7 +268,7 @@ static int jbd2_walk_transaction(extfs_journal_t *journal, uint32_t start, uint3
                 }
                 offset += tag_size;
                 if (!(flags & JBD2_FLAG_SAME_UUID)) {
-                    if (offset + 16 > limit || memcmp(block + offset, journal->sb->es->s_uuid, 16)) {
+                    if (offset + 16 > limit || memcmp(block + offset, journal->sb->es->s_uuid, 16) != 0) {
                         status = -EIO;
                         break;
                     }
@@ -370,7 +370,7 @@ static int jbd2_v1_transaction_checksum(extfs_journal_t *journal, uint32_t start
                 = (journal->incompat & JBD2_FEATURE_INCOMPAT_CSUM_V3) ? jbd2_get_be32(block + offset + 4) : jbd2_get_be16(block + offset + 6);
             offset += tag_size + ((flags & JBD2_FLAG_SAME_UUID) ? 0 : 16);
             cursor = jbd2_next_block(journal, cursor);
-            if (cursor == end || (status = jbd2_read(journal, cursor, data)) != EOK) {
+            if (cursor == end || (status = jbd2_read(journal, cursor, data)) != EOK) { // NOLINT(bugprone-assignment-in-if-condition)
                 status = -EIO;
                 break;
             }
@@ -408,10 +408,7 @@ static int jbd2_recover(void *context)
     for (;;) {
         uint32_t next;
         status = jbd2_walk_transaction(journal, cursor, sequence, &next, &revokes, 0);
-        if (status != EOK) {
-            status = EOK;
-            break;
-        }
+        if (status != EOK) { break; }
         cursor = next;
         sequence++;
         if (cursor == journal->start) return -EIO;
@@ -665,7 +662,7 @@ int extfs_jbd2_open(struct extfs_sb_info *sb, extfs_journal_t **out)
         extfs_jbd2_close(journal);
         return -EINVAL;
     }
-    if (memcmp(super->uuid, sb->es->s_uuid, 16)) {
+    if (memcmp(super->uuid, sb->es->s_uuid, 16) != 0) {
         extfs_jbd2_close(journal);
         return -EINVAL;
     }

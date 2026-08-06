@@ -72,7 +72,7 @@ static int virtgpu_connector_get_modes(struct drm_connector *connector)
         mode = drm_mode_create(dev);
         if (!mode) { return -ENOMEM; }
 
-        snprintf(mode->name, DRM_DISPLAY_MODE_LEN - 1, "%dx%d", dm->width, dm->height);
+        (void)snprintf(mode->name, DRM_DISPLAY_MODE_LEN - 1, "%dx%d", dm->width, dm->height);
         mode->name[DRM_DISPLAY_MODE_LEN - 1] = '\0';
         mode->clock                          = dm->width * dm->height * (dm->vrefresh ? dm->vrefresh : 60) / 1000;
         mode->hdisplay                       = dm->width;
@@ -99,7 +99,7 @@ static int virtgpu_connector_get_modes(struct drm_connector *connector)
 
         if (!mode) { return -ENOMEM; }
 
-        snprintf(mode->name, DRM_DISPLAY_MODE_LEN - 1, "%dx%d", VIRTGPU_DEFAULT_WIDTH, VIRTGPU_DEFAULT_HEIGHT);
+        (void)snprintf(mode->name, DRM_DISPLAY_MODE_LEN - 1, "%dx%d", VIRTGPU_DEFAULT_WIDTH, VIRTGPU_DEFAULT_HEIGHT);
         mode->clock       = VIRTGPU_DEFAULT_WIDTH * VIRTGPU_DEFAULT_HEIGHT * 60 / 1000;
         mode->hdisplay    = VIRTGPU_DEFAULT_WIDTH;
         mode->hsync_start = VIRTGPU_DEFAULT_WIDTH + 80;

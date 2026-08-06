@@ -218,7 +218,8 @@ static int ipv6_prefix_matches(const uint8_t left[16], const uint8_t right[16], 
 {
     unsigned bytes = prefix / 8U;
     unsigned bits  = prefix & 7U;
-    if (bytes && memcmp(left, right, bytes)) return 0;
+    if (!left || !right) return 0;
+    if (bytes && memcmp(left, right, bytes) != 0) return 0;
     return !bits || !((left[bytes] ^ right[bytes]) & (uint8_t)(0xffU << (8U - bits)));
 }
 

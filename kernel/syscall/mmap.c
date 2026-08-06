@@ -409,19 +409,19 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
 
         process_file_put(file);
         return (int64_t)mmap_addr;
-    } else if (!(flags & MAP_ANONYMOUS)) {
-        return -EBADF;
-    } else {
-        vm_area_t *vma = calloc(1, sizeof(*vma));
-        if (!vma) return -ENOMEM;
-        vma->start = mmap_addr;
-        vma->end   = mmap_addr + pages;
-        vma->flags = vm_flags | VM_LAZY;
-        vma->type  = VM_REGION_MMAP;
-        if (vm_area_insert(proc, vma)) {
-            free(vma);
-            return -ENOMEM;
-        }
+    }
+
+    if (!(flags & MAP_ANONYMOUS)) { return -EBADF; }
+
+    vm_area_t *vma = calloc(1, sizeof(*vma));
+    if (!vma) return -ENOMEM;
+    vma->start = mmap_addr;
+    vma->end   = mmap_addr + pages;
+    vma->flags = vm_flags | VM_LAZY;
+    vma->type  = VM_REGION_MMAP;
+    if (vm_area_insert(proc, vma)) {
+        free(vma);
+        return -ENOMEM;
     }
 
 vma_done:
@@ -481,7 +481,7 @@ int sys_mprotect(uint64_t addr, uint64_t length, uint64_t prot)
         }
     }
 
-    protect_change_t *changes = calloc(count, sizeof(*changes));
+    protect_change_t *changes = calloc(count, sizeof(*changes)); // NOLINT(clang-analyzer-optin.portability.UnixAPI)
     if (!changes) {
         spin_unlock(&proc->mmap_lock);
         return -ENOMEM;

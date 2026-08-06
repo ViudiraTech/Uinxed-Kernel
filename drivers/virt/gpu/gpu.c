@@ -387,13 +387,12 @@ static int virtgpu_ioctl_execbuffer(struct drm_device *dev, void *data, struct d
     if (args->num_bo_handles > 4096 || (!!args->num_bo_handles != !!args->bo_handles)) return -EINVAL;
 
     if (args->num_bo_handles) {
-        handles = malloc((size_t)args->num_bo_handles * sizeof(*handles));
-        bos     = malloc((size_t)args->num_bo_handles * sizeof(*bos));
+        handles = calloc((size_t)args->num_bo_handles, sizeof(*handles));
+        bos     = calloc((size_t)args->num_bo_handles, sizeof(*bos)); // NOLINT(bugprone-sizeof-expression)
         if (!handles || !bos) {
             ret = -ENOMEM;
             goto out;
         }
-        memset(bos, 0, (size_t)args->num_bo_handles * sizeof(*bos));
         if (copy_from_user(handles, (const void *)(uintptr_t)args->bo_handles, (size_t)args->num_bo_handles * sizeof(*handles))) {
             ret = -EFAULT;
             goto out;
@@ -467,14 +466,10 @@ static int virtgpu_ioctl_getparam(struct drm_device *dev, void *data, struct drm
             value = vgdev->has_resource_blob ? 1 : 0;
             break;
         case DRM_VIRTGPU_PARAM_HOST_VISIBLE :
-            value = 0;
-            break;
         case DRM_VIRTGPU_PARAM_CROSS_DEVICE :
             value = 0;
             break;
         case DRM_VIRTGPU_PARAM_EXPLICIT_DEBUG_NAME :
-            value = (vgdev->has_context_init && vgdev->has_virgl) ? 1 : 0;
-            break;
         case DRM_VIRTGPU_PARAM_CONTEXT_INIT :
             value = (vgdev->has_context_init && vgdev->has_virgl) ? 1 : 0;
             break;

@@ -614,7 +614,7 @@ static int extfs_count_branch(extfs_sb_info_t *sb, uint32_t block, uint32_t dept
             if (!entries[i]) continue;
             if (depth == 1)
                 (*blocks)++;
-            else if ((status = extfs_count_branch(sb, entries[i], depth - 1, blocks)) != EOK)
+            else if ((status = extfs_count_branch(sb, entries[i], depth - 1, blocks)) != EOK) // NOLINT(bugprone-assignment-in-if-condition)
                 break;
         }
     }

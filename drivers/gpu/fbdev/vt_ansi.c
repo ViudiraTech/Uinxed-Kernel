@@ -270,7 +270,8 @@ static void vt_ansi_rgb_from_256_color(uint8_t i, rgb_t *c)
         c->g       = (p >> 8) & 0xFF;
         c->b       = p & 0xFF;
         return;
-    } else if (i < 232) {
+    }
+    if (i < 232) {
         i -= 16;
         c->b = (i % 6) * 255 / 6;
         i /= 6;
@@ -441,6 +442,8 @@ static void vt_ansi_sgr(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
             case 107 :
                 s->bg_color.fg = vt_ansi_palette(s->par[i] - 100 + 8);
                 break;
+            default :
+                break;
         }
     }
 }
@@ -454,6 +457,7 @@ static void vt_ansi_hl(vt_ansi_state_t *s, bool set, const vt_ansi_callbacks_t *
                 s->insert_mode = set;
                 break;
             case 20 :
+            default :
                 break;
         }
     }
@@ -464,7 +468,6 @@ static void vt_ansi_dec_hl(vt_ansi_state_t *s, bool set, const vt_ansi_callbacks
     for (uint32_t i = 0; i <= s->npar; i++) {
         switch (s->par[i]) {
             case 1 :
-                break;
             case 3 :
                 break;
             case 5 :
@@ -492,6 +495,8 @@ static void vt_ansi_dec_hl(vt_ansi_state_t *s, bool set, const vt_ansi_callbacks
                 break;
             case 2004 :
                 s->bracketed_paste = set;
+                break;
+            default :
                 break;
         }
     }
@@ -714,7 +719,6 @@ process_byte:
                     if (cb && cb->erase_display) cb->erase_display(2, 0, 0);
                     return;
                 case '>' :
-                    return;
                 case '=' :
                     return;
                 case '_' :
@@ -727,9 +731,6 @@ process_byte:
             }
 
         case ANSI_charset_g0 :
-            s->state = ANSI_normal;
-            return;
-
         case ANSI_charset_g1 :
             s->state = ANSI_normal;
             return;
@@ -751,6 +752,8 @@ process_byte:
                 case '>' :
                     s->priv = ANSI_priv_gt;
                     return;
+                default :
+                    break;
             }
             s->priv = ANSI_priv_ecma;
             goto csi_getpars;
@@ -759,11 +762,6 @@ process_byte:
 csi_getpars:
             switch (c) {
                 case ';' :
-                    if (s->npar < VT_ANSI_NPAR - 1) {
-                        s->npar++;
-                        return;
-                    }
-                    return;
                 case ':' :
                     if (s->npar < VT_ANSI_NPAR - 1) {
                         s->npar++;
@@ -773,6 +771,8 @@ csi_getpars:
                 case '0' ... '9' :
                     s->par[s->npar] = s->par[s->npar] * 10 + (c - '0');
                     return;
+                default :
+                    break;
             }
             if ((c >= ' ' && c <= '/') || c == ':' || (c >= '<' && c <= '?')) {
                 s->state = ANSI_csi_ignore;
@@ -870,7 +870,6 @@ csi_exec:
                 if (cb && cb->write_response) { cb->write_response("\033[?1;2c", 7); }
                 return;
             case 'm' :
-                return;
             default :
                 return;
         }
@@ -1016,9 +1015,7 @@ csi_exec:
             s->bg_color = s->saved_bg_color;
             return;
         case 't' :
-            return;
         case ']' :
-            return;
         default :
             return;
     }

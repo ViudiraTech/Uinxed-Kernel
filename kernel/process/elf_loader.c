@@ -81,6 +81,8 @@ int elf_loader_parse_elf_info(const uint8_t *data, size_t size, elf_load_info_t 
                 info->tls_size  = phdr[i].memsz;
                 info->tls_align = phdr[i].align;
                 break;
+            default :
+                break;
         }
     }
     return 0;
@@ -366,7 +368,7 @@ static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t
     size_t       vector_words = 1 + (size_t)argc + 1 + (size_t)envc + 1 + aux_pairs * 2;
     size_t       strings_size = argv_strs + envp_strs + strlen(execfn) + 1 + sizeof("x86_64") + 16;
     size_t       total_needed = ALIGN_UP(vector_words * sizeof(uint64_t) + strings_size + 16, 16);
-    if (total_needed > PROCESS_STACK_SIZE) return 0;
+    if (total_needed > (size_t)PROCESS_STACK_SIZE) return 0;
     uintptr_t base_rsp    = ALIGN_DOWN(PROCESS_USER_STACK_TOP - total_needed, 16);
     uintptr_t string_area = base_rsp + vector_words * sizeof(uint64_t);
     uint64_t *vectors     = calloc(vector_words, sizeof(uint64_t));
@@ -414,7 +416,6 @@ static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t
         random_state ^= random_state << 17;
         sp[i] = (uint8_t)random_state;
     }
-    sp += 16;
 
     vectors[n++] = AT_PHDR;
     vectors[n++] = phdr_addr;
@@ -518,7 +519,7 @@ int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, s
         return 1;
     }
 
-    if (process_mmap(proc, proc->stack_brk, PROCESS_STACK_SIZE, VM_READ | VM_WRITE | VM_LAZY)) {
+    if (process_mmap(proc, proc->stack_brk, (size_t)PROCESS_STACK_SIZE, VM_READ | VM_WRITE | VM_LAZY)) {
         plogk("elf_loader: Failed to allocate user stack.\n");
         return 1;
     }

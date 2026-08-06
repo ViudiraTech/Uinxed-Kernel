@@ -127,7 +127,7 @@ int module_set_signature_verifier(module_signature_verifier_t verifier);
 #define __EXPORT_SYMBOL(symbol, namespace_value, export_flags)                                            \
     static const char __kstrtab_##symbol[] __module_used __module_section("__ksymtab_strings") = #symbol; \
     static const struct kernel_symbol __ksymtab_##symbol __module_used __module_section("__ksymtab")      \
-        = {(uintptr_t) & symbol, __kstrtab_##symbol, namespace_value, export_flags, 0}
+        = {(uintptr_t) & (symbol), __kstrtab_##symbol, namespace_value, export_flags, 0}
 #define EXPORT_SYMBOL(symbol)            __EXPORT_SYMBOL(symbol, NULL, 0)
 #define EXPORT_SYMBOL_GPL(symbol)        __EXPORT_SYMBOL(symbol, NULL, KERNEL_SYMBOL_GPL_ONLY)
 #define EXPORT_SYMBOL_NS(symbol, ns)     __EXPORT_SYMBOL(symbol, __MODULE_STRING(ns), 0)

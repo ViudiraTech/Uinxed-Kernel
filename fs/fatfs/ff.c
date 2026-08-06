@@ -531,7 +531,7 @@ static const BYTE GUID_MS_Basic[16] = {0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33,
 #        error Wrong setting of FF_LFN_UNICODE
 #    endif
 static const BYTE LfnOfs[] = {1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30}; /* FAT: Offset of LFN characters in the directory entry */
-#    define MAXDIRB(nc) ((nc + 44U) / 15 * SZDIRE) /* exFAT: Size of directory entry block scratchpad buffer needed for the name length */
+#    define MAXDIRB(nc) (((nc) + 44U) / 15 * SZDIRE) /* exFAT: Size of directory entry block scratchpad buffer needed for the name length */
 
 #    if FF_USE_LFN == 1 /* LFN enabled with static working buffer */
 #        if FF_FS_EXFAT
@@ -1307,6 +1307,9 @@ static FRESULT put_fat(             /* FR_OK(0):succeeded, !=0:error */
                 if (!FF_FS_EXFAT || fs->fs_type != FS_EXFAT) { val = (val & 0x0FFFFFFF) | (ld_32(fs->win + clst * 4 % SS(fs)) & 0xF0000000); }
                 st_32(fs->win + clst * 4 % SS(fs), val);
                 fs->wflag = 1;
+                break;
+
+            default :
                 break;
         }
     }
@@ -3379,7 +3382,7 @@ static UINT find_volume(            /* Returns BS status found in the hosting dr
 #endif
     if (FF_MULTI_PARTITION && part > 4) return 3; /* MBR has four primary partitions max (FatFs does not support logical partition) */
     for (i = 0; i < 4; i++) {                     /* Load partition offset in the MBR */
-        mbr_pt[i] = ld_32(fs->win + MBR_Table + i * SZ_PTE + PTE_StLba);
+        mbr_pt[i] = ld_32(fs->win + MBR_Table + (size_t)i * SZ_PTE + PTE_StLba);
     }
     i = part ? part - 1 : 0;                           /* Table index to find first */
     do {                                               /* Find an FAT volume */
@@ -3918,7 +3921,7 @@ FRESULT f_read(FIL  *fp,   /* Open file to be read */
 
     *br = 0;                                                                  /* Clear read byte counter */
     res = validate(&fp->obj, &fs);                                            /* Check validity of the file object */
-    if (res != FR_OK || (res = (FRESULT)fp->err) != FR_OK) LEAVE_FF(fs, res); /* Check validity */
+    if (res != FR_OK || (res = (FRESULT)fp->err) != FR_OK) LEAVE_FF(fs, res); // NOLINT(bugprone-assignment-in-if-condition)
     if (!(fp->flag & FA_READ)) LEAVE_FF(fs, FR_DENIED);                       /* Check access mode */
     remain = fp->obj.objsize - fp->fptr;
     if (btr > remain) btr = (UINT)remain; /* Truncate btr by remaining bytes */
@@ -3958,7 +3961,7 @@ FRESULT f_read(FIL  *fp,   /* Open file to be read */
 #    if FF_FS_TINY
                 if (fs->wflag && fs->winsect - sect < cc) { memcpy(rbuff + ((fs->winsect - sect) * SS(fs)), fs->win, SS(fs)); }
 #    else
-                if ((fp->flag & FA_DIRTY) && fp->sect - sect < cc) { memcpy(rbuff + ((fp->sect - sect) * SS(fs)), fp->buf, SS(fs)); }
+                if ((fp->flag & FA_DIRTY) && fp->sect - sect < cc) { memcpy(rbuff + ((size_t)(fp->sect - sect) * SS(fs)), fp->buf, SS(fs)); }
 #    endif
 #endif
                 rcnt = SS(fs) * cc; /* Number of bytes transferred */
@@ -4010,7 +4013,7 @@ FRESULT f_write(FIL        *fp,   /* Open file to be written */
 
     *bw = 0;                                                                  /* Clear write byte counter */
     res = validate(&fp->obj, &fs);                                            /* Check validity of the file object */
-    if (res != FR_OK || (res = (FRESULT)fp->err) != FR_OK) LEAVE_FF(fs, res); /* Check validity */
+    if (res != FR_OK || (res = (FRESULT)fp->err) != FR_OK) LEAVE_FF(fs, res); // NOLINT(bugprone-assignment-in-if-condition)
     if (!(fp->flag & FA_WRITE)) LEAVE_FF(fs, FR_DENIED);                      /* Check access mode */
 
     /* Check fptr wrap-around (file size cannot reach 4 GiB at FAT volume) */
@@ -4067,7 +4070,7 @@ FRESULT f_write(FIL        *fp,   /* Open file to be written */
                 }
 #        else
                 if (fp->sect - sect < cc) { /* Refill sector cache if it gets invalidated by the direct write */
-                    memcpy(fp->buf, wbuff + ((fp->sect - sect) * SS(fs)), SS(fs));
+                    memcpy(fp->buf, wbuff + ((size_t)(fp->sect - sect) * SS(fs)), SS(fs));
                     fp->flag &= (BYTE)~FA_DIRTY;
                 }
 #        endif
@@ -4881,8 +4884,8 @@ FRESULT f_truncate(FIL *fp /* Pointer to the file object */
 
     /* Check validity of the file object */
     res = validate(&fp->obj, &fs);
-    if (res != FR_OK || (res = (FRESULT)fp->err) != FR_OK) LEAVE_FF(fs, res);
-    if (!(fp->flag & FA_WRITE)) LEAVE_FF(fs, FR_DENIED); /* Check access mode */
+    if (res != FR_OK || (res = (FRESULT)fp->err) != FR_OK) LEAVE_FF(fs, res); // NOLINT(bugprone-assignment-in-if-condition)
+    if (!(fp->flag & FA_WRITE)) LEAVE_FF(fs, FR_DENIED);                      /* Check access mode */
 
     if (fp->fptr < fp->obj.objsize) { /* Process when fptr is not on the eof */
         if (fp->fptr == 0) {          /* When set file size to zero, remove entire cluster chain */
@@ -5170,7 +5173,7 @@ FRESULT f_rename(const TCHAR *path_old, /* Pointer to the object name to be rena
                             } else {
                                 /* Start of critical section where an interruption can cause a cross-link */
                                 res = move_window(fs, sect);
-                                dir = fs->win + SZDIRE * 1; /* Pointer to .. entry */
+                                dir = fs->win + (size_t)SZDIRE * 1; /* Pointer to .. entry */
                                 if (res == FR_OK && dir[1] == '.') {
                                     st_clust(fs, dir, djn.obj.sclust);
                                     fs->wflag = 1;

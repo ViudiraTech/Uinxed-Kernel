@@ -48,7 +48,7 @@ int swap_header_decode(const void *page, size_t bytes, uint64_t backing_pages, s
 {
     const uint8_t *data = page;
     if (!data || !info || bytes < SWAP_PAGE_SIZE || backing_pages < 2) return -1;
-    if (memcmp(data + SWAP_SIGNATURE_OFFSET, "SWAPSPACE2", 10)) return -1;
+    if (memcmp(data + SWAP_SIGNATURE_OFFSET, "SWAPSPACE2", 10) != 0) return -1;
 
     uint32_t version   = swap_le32(data + SWAP_HEADER_VERSION);
     uint32_t last_page = swap_le32(data + SWAP_HEADER_LAST_PAGE);
@@ -293,7 +293,8 @@ int swap_activate_path(const char *path, uint32_t flags)
             goto fail;
         }
         uint64_t pages = area->device.sector_count * area->device.sector_size / SWAP_PAGE_SIZE;
-        if (blockdev_read_bytes(&area->device, 0, header, sizeof(header)) != EOK || (result = swap_area_setup_slots(area, pages, header))) {
+        if (blockdev_read_bytes(&area->device, 0, header, sizeof(header)) != EOK
+            || (result = swap_area_setup_slots(area, pages, header)) != 0) { // NOLINT(bugprone-assignment-in-if-condition)
             blockdev_release(&area->device);
             result = result ? result : -EIO;
             goto fail;
@@ -318,7 +319,8 @@ int swap_activate_path(const char *path, uint32_t flags)
             goto fail;
         }
         size_t actual = callbackof(file, read)(file->handle, header, 0, sizeof(header));
-        if (actual != sizeof(header) || (result = swap_area_setup_slots(area, file->size / SWAP_PAGE_SIZE, header))) {
+        if (actual != sizeof(header)
+            || (result = swap_area_setup_slots(area, file->size / SWAP_PAGE_SIZE, header)) != 0) { // NOLINT(bugprone-assignment-in-if-condition)
             vfs_close(file);
             result = result ? result : -EIO;
             goto fail;

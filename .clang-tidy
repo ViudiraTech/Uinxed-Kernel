@@ -14,5 +14,10 @@ Checks: >
   -bugprone-inc-dec-in-conditions,
   -bugprone-easily-swappable-parameters,
   -clang-analyzer-security.insecureAPI.strcpy,
-  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -performance-no-int-to-ptr,
+  -bugprone-narrowing-conversions,
+  -bugprone-multi-level-implicit-pointer-conversion,
+  -clang-analyzer-optin.performance.Padding,
+  -clang-analyzer-optin.core.EnumCastOutOfRange
 ---

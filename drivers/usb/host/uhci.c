@@ -284,16 +284,16 @@ static int uhci_submit_control(usb_device_t *device, const usb_setup_packet_t *s
     if (data_count + 2 > UHCI_NUM_TD) return -EMSGSIZE;
 
     uhci_io_lock(ctrl);
-    int      status   = -ENOMEM;
-    int      qh_index = -1;
-    int      td_indices[UHCI_NUM_TD];
-    size_t   packet_lengths[UHCI_NUM_TD];
-    size_t   td_count       = 0;
-    void    *setup_dma      = NULL;
-    void    *data_dma       = NULL;
-    uint64_t setup_physical = 0;
-    uint64_t data_physical  = 0;
-    bool     input          = (setup->request_type & USB_DIR_IN) != 0;
+    int      status                      = -ENOMEM;
+    int      qh_index                    = -1;
+    int      td_indices[UHCI_NUM_TD]     = {0};
+    size_t   packet_lengths[UHCI_NUM_TD] = {0};
+    size_t   td_count                    = 0;
+    void    *setup_dma                   = NULL;
+    void    *data_dma                    = NULL;
+    uint64_t setup_physical              = 0;
+    uint64_t data_physical               = 0;
+    bool     input                       = (setup->request_type & USB_DIR_IN) != 0;
 
     setup_dma = uhci_dma_alloc(sizeof(*setup), &setup_physical);
     if (!setup_dma || setup_physical > UINT32_MAX) {
@@ -394,15 +394,15 @@ static int uhci_submit_bulk(usb_endpoint_t *endpoint, void *buffer, size_t lengt
     if (td_count > UHCI_NUM_TD) return -EMSGSIZE;
 
     uhci_io_lock(ctrl);
-    int      status   = -ENOMEM;
-    int      qh_index = -1;
-    int      td_indices[UHCI_NUM_TD];
-    size_t   packet_lengths[UHCI_NUM_TD];
-    size_t   allocated       = 0;
-    uint64_t dma_physical    = 0;
-    void    *dma_buffer      = uhci_dma_alloc(length, &dma_physical);
-    bool     input           = (endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK) != 0;
-    uint8_t  endpoint_number = endpoint->descriptor.endpoint_address & USB_ENDPOINT_NUMBER_MASK;
+    int      status                      = -ENOMEM;
+    int      qh_index                    = -1;
+    int      td_indices[UHCI_NUM_TD]     = {0};
+    size_t   packet_lengths[UHCI_NUM_TD] = {0};
+    size_t   allocated                   = 0;
+    uint64_t dma_physical                = 0;
+    void    *dma_buffer                  = uhci_dma_alloc(length, &dma_physical);
+    bool     input                       = (endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK) != 0;
+    uint8_t  endpoint_number             = endpoint->descriptor.endpoint_address & USB_ENDPOINT_NUMBER_MASK;
     if (!dma_buffer || dma_physical > UINT32_MAX || dma_physical + length - 1 > UINT32_MAX) {
         plogk("uhci: transfer DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
         goto cleanup_bulk;
@@ -603,7 +603,7 @@ static int uhci_enumerate_port(uhci_controller_t *ctrl, uint8_t port)
     device->hcd_ops     = &uhci_hcd_ops;
     device->hc_private  = ctrl;
     device->dev.release = uhci_usb_device_release;
-    snprintf(device->path, sizeof(device->path), "%u-%u", device->bus_number, port + 1);
+    (void)snprintf(device->path, sizeof(device->path), "%u-%u", device->bus_number, port + 1);
 
     uint8_t address = port + 1;
     result          = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_ADDRESS, address, 0, NULL, 0,
@@ -797,7 +797,7 @@ static int uhci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     ctrl->hcd.controller_ops = &uhci_controller_ops;
     ctrl->hcd.hc_private     = ctrl;
     ctrl->hcd.max_ports      = UHCI_MAX_PORTS;
-    snprintf(ctrl->hcd.name, sizeof(ctrl->hcd.name), "uhci-usb%u", bus_number);
+    (void)snprintf(ctrl->hcd.name, sizeof(ctrl->hcd.name), "uhci-usb%u", bus_number);
 
     uint32_t command = pci_read_command_status(pci) & 0xffff;
     pci_write_command_status(pci, command | 0x05);

@@ -41,7 +41,7 @@ int i2c_add_adapter(struct i2c_adapter *adap)
     if (adap->retries <= 0) adap->retries = 3;
 
     adap->nr = i2c_adapter_next_nr++;
-    if (!adap->name[0]) snprintf(adap->name, sizeof(adap->name), "i2c-%d", adap->nr);
+    if (!adap->name[0]) (void)snprintf(adap->name, sizeof(adap->name), "i2c-%d", adap->nr);
     i2c_adapter_list = clist_append(i2c_adapter_list, adap);
     if (!clist_search(i2c_adapter_list, adap)) {
         spin_unlock(&i2c_adapter_lock);
@@ -239,7 +239,7 @@ static int32_t i2c_smbus_xfer_emulated(struct i2c_adapter *adap, uint16_t addr, 
                 msg[1].len   = I2C_SMBUS_BLOCK_MAX + 1;
                 msg[1].buf   = data->block;
                 nmsgs        = 2;
-                ret          = __i2c_transfer(adap, msg, 2);
+                ret          = __i2c_transfer(adap, msg, nmsgs);
                 if (ret >= 0 && data->block[0] > I2C_SMBUS_BLOCK_MAX) data->block[0] = I2C_SMBUS_BLOCK_MAX;
                 return ret < 0 ? ret : 0;
             } else {

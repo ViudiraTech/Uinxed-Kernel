@@ -250,14 +250,14 @@ struct drm_connector_state *drm_atomic_get_connector_state(struct drm_atomic_sta
         struct drm_connector       **new_connectors;
         struct drm_connector_state **new_states;
 
-        new_connectors = realloc(state->connectors, sizeof(*new_connectors) * new_count);
+        new_connectors = realloc(state->connectors, sizeof(*new_connectors) * new_count); // NOLINT(bugprone-sizeof-expression)
         if (!new_connectors) { return NULL; }
 
-        new_states = realloc(state->connector_states, sizeof(*new_states) * new_count);
+        new_states = realloc(state->connector_states, sizeof(*new_states) * new_count); // NOLINT(bugprone-sizeof-expression)
         if (!new_states) {
             /* realloc for connectors succeeded but states failed;
              * revert connectors to old size (realloc with old size). */
-            state->connectors = realloc(new_connectors, sizeof(*new_connectors) * state->num_connector);
+            state->connectors = realloc(new_connectors, sizeof(*new_connectors) * state->num_connector); // NOLINT(bugprone-sizeof-expression)
             return NULL;
         }
 

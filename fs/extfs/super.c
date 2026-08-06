@@ -372,7 +372,7 @@ int extfs_read_group_desc(extfs_sb_info_t *sb, uint32_t group, ext2_group_desc_t
     if (!sb || !desc || group >= sb->groups_count) return -EINVAL;
     desc_block  = sb->s_first_data_block + 1 + group / sb->desc_per_block;
     desc_offset = group % sb->desc_per_block;
-    byte_offset = extfs_block_offset(sb, desc_block) + desc_offset * sb->desc_size;
+    byte_offset = extfs_block_offset(sb, desc_block) + (uint64_t)desc_offset * sb->desc_size;
 
     memset(desc, 0, sizeof(*desc));
     return extfs_disk_read(sb, byte_offset, desc, sb->desc_size);
@@ -387,7 +387,7 @@ int extfs_write_group_desc(extfs_sb_info_t *sb, uint32_t group, const ext2_group
     if (group >= sb->groups_count) return -EINVAL;
     desc_block  = sb->s_first_data_block + 1 + group / sb->desc_per_block;
     desc_offset = group % sb->desc_per_block;
-    byte_offset = extfs_block_offset(sb, desc_block) + desc_offset * sb->desc_size;
+    byte_offset = extfs_block_offset(sb, desc_block) + (uint64_t)desc_offset * sb->desc_size;
 
     ext2_group_desc_t copy            = *desc;
     copy.bg_checksum                  = extfs_group_desc_checksum(sb, group, &copy);

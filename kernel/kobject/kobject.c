@@ -173,8 +173,8 @@ int kobject_add(struct kobject *kobj, struct kobject *parent, const char *fmt, .
 
     /* Determine parent */
     if (!parent && kobj->kset) parent = &kobj->kset->kobj;
-    if (parent && !(held_parent = kobject_get(parent))) return -EINVAL;
-    if (kobj->kset && !(held_kset = kset_get(kobj->kset))) {
+    if (parent && (held_parent = kobject_get(parent)) == NULL) return -EINVAL; // NOLINT(bugprone-assignment-in-if-condition)
+    if (kobj->kset && (held_kset = kset_get(kobj->kset)) == NULL) {            // NOLINT(bugprone-assignment-in-if-condition)
         kobject_put(held_parent);
         return -EINVAL;
     }

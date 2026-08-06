@@ -241,7 +241,7 @@ int i2c_sysfs_adapter_add(struct i2c_adapter *adap)
     adev->dev.bus     = &i2c_bus_type;
     adev->dev.devid   = (uint64_t)adap->nr;
     adev->dev.release = i2c_adapter_release;
-    snprintf(dev_name, sizeof(dev_name), "i2c-%d", adap->nr);
+    (void)snprintf(dev_name, sizeof(dev_name), "i2c-%d", adap->nr);
     status = kobject_set_name(&adev->dev.kobj, "%s", adap->name);
     if (status != EOK || device_register(&adev->dev) != EOK) {
         free(adev);
@@ -252,7 +252,7 @@ int i2c_sysfs_adapter_add(struct i2c_adapter *adap)
 
     (void)device_create(&i2c_dev_class, &adev->dev, MKDEV(I2C_DEV_MAJOR, (uint32_t)adap->nr), adap, "%s", dev_name);
 
-    snprintf(node_path, sizeof(node_path), "/dev/i2c-%d", adap->nr);
+    (void)snprintf(node_path, sizeof(node_path), "/dev/i2c-%d", adap->nr);
     tmpfs_device_ops_t ops = {
         .open       = i2c_dev_open,
         .release    = i2c_dev_release,
@@ -288,7 +288,7 @@ void i2c_sysfs_adapter_del(struct i2c_adapter *adap)
     i2c_sysfs_adapters[slot].adap = NULL;
     i2c_sysfs_adapters[slot].adev = NULL;
 
-    snprintf(node_path, sizeof(node_path), "/dev/i2c-%d", adap->nr);
+    (void)snprintf(node_path, sizeof(node_path), "/dev/i2c-%d", adap->nr);
     (void)devtmpfs_unregister_char_device(node_path);
     if (adev) { device_unregister(&adev->dev); }
 #endif

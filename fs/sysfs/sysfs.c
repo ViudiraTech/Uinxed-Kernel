@@ -561,9 +561,8 @@ static size_t sysfs_read(void *file, void *addr, size_t offset, size_t size)
             return ret < 0 ? (size_t)-1 : (size_t)ret;
         }
         case SYSFS_DIR :
-            return 0; /* cannot read a directory */
         case SYSFS_SYMLINK :
-            return 0; /* use readlink instead */
+            return 0; /* cannot read a directory */
     }
 
     return 0;
@@ -603,7 +602,7 @@ static int sysfs_file_open(vfs_node_t vnode, uint64_t flags, void **private_data
     sysfs_open_file_t *open_file;
 
     (void)flags;
-    if (!vnode || !private_data || !(sn = vnode->handle)) return -EINVAL;
+    if (!vnode || !private_data || !(sn = vnode->handle)) return -EINVAL; // NOLINT(bugprone-assignment-in-if-condition)
     /* Directories are valid open-file descriptions.  readdir(2), fstat(2)
      * and *at(2) operations use the vnode itself and do not need a private
      * sysfs stream; rejecting the open here makes libudev unable to inspect
@@ -643,7 +642,7 @@ static int64_t sysfs_file_read(vfs_node_t vnode, void *private_data, uint64_t fl
 
     (void)vnode;
     (void)flags;
-    if (!open_file || !addr || !(sn = open_file->node)) return -EINVAL;
+    if (!open_file || !addr || !(sn = open_file->node)) return -EINVAL; // NOLINT(bugprone-assignment-in-if-condition)
 
     if (sn->type == SYSFS_BIN_ATTR) {
         if (!sn->bin_attr || !sn->bin_attr->read) return -EIO;
@@ -673,7 +672,7 @@ static int64_t sysfs_file_write(vfs_node_t vnode, void *private_data, uint64_t f
 
     (void)vnode;
     (void)flags;
-    if (!open_file || (!addr && size) || !(sn = open_file->node)) return -EINVAL;
+    if (!open_file || (!addr && size) || !(sn = open_file->node)) return -EINVAL; // NOLINT(bugprone-assignment-in-if-condition)
 
     if (sn->type == SYSFS_BIN_ATTR) {
         if (!sn->bin_attr || !sn->bin_attr->write) return -EIO;
@@ -1184,11 +1183,11 @@ int sysfs_create_group(struct kobject *kobj, const struct attribute_group *grp)
         while (grp->bin_attrs[bin_capacity]) bin_capacity++;
 
     if (attr_capacity) {
-        created_attrs = calloc(attr_capacity, sizeof(*created_attrs));
+        created_attrs = calloc(attr_capacity, sizeof(*created_attrs)); // NOLINT(bugprone-sizeof-expression)
         if (!created_attrs) return -ENOMEM;
     }
     if (bin_capacity) {
-        created_bin_attrs = calloc(bin_capacity, sizeof(*created_bin_attrs));
+        created_bin_attrs = calloc(bin_capacity, sizeof(*created_bin_attrs)); // NOLINT(bugprone-sizeof-expression)
         if (!created_bin_attrs) {
             free(created_attrs);
             return -ENOMEM;

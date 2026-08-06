@@ -14403,8 +14403,8 @@ WCHAR ff_uni2oem(           /* Returns OEM code character, zero on error */
             li = 0;
             for (n = 16; n; n--) {
                 i = li + (hi - li) / 2;
-                if (uc == p[i * 2]) break;
-                if (uc > p[i * 2]) {
+                if (uc == p[(unsigned long)i * 2]) break;
+                if (uc > p[(unsigned long)i * 2]) {
                     li = i;
                 } else {
                     hi = i;
@@ -14436,8 +14436,8 @@ WCHAR ff_oem2uni(           /* Returns Unicode character in UTF-16, zero on erro
             li = 0;
             for (n = 16; n; n--) {
                 i = li + (hi - li) / 2;
-                if (oem == p[i * 2]) break;
-                if (oem > p[i * 2]) {
+                if (oem == p[(unsigned long)i * 2]) break;
+                if (oem > p[(unsigned long)i * 2]) {
                     li = i;
                 } else {
                     hi = i;
@@ -14691,6 +14691,8 @@ DWORD ff_wtoupper(          /* Returns up-converted code point */
                     case 8 :
                         uc -= 0x1C60;
                         break; /* Shift -0x1C60 */
+                    default :
+                        break;
                 }
                 break;
             }

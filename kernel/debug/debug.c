@@ -45,7 +45,6 @@ void dump_stack(void)
     for (int i = 0; i < 16; ++i) {
         if (carry_error_code && frame_count == 3) {
             if ((uintptr_t)(rbp + 1) <= 0x1000) break;
-            rip = *(uintptr_t *)(rbp + 1);
             if ((uintptr_t)rbp->next <= 0x1000) break;
             rbp = rbp->next;
             ++frame_count;

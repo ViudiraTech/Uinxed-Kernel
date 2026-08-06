@@ -119,7 +119,6 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
                 uint8_t ch = ide_read(i, ATA_REG_LBA2);
 
                 if ((cl == 0x14 && ch == 0xeb) || (cl == 0x69 && ch == 0x96)) {
-                    type = IDE_ATAPI;
                     /* Delegate to ATAPI module for identification */
                     if (atapi_identify(i, j, count) != 0) continue;
                     /* Copy ATAPI device info to IDE device table */
@@ -135,9 +134,8 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
                     ide_devices[count].model[40] = 0;
                     count++;
                     continue;
-                } else {
-                    continue;
                 }
+                continue;
             }
 
             /* ATA device: read identification data */
@@ -432,14 +430,14 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint64_t lba, uint8_t n
     } else {
         lba_mode  = 0;
         sect      = (lba % 63) + 1;
-        cyl       = (lba + 1 - sect) / (16 * 63);
+        cyl       = (lba + 1 - sect) / ((uint64_t)16 * 63);
         lba_io[0] = sect;
         lba_io[1] = (cyl >> 0) & 0xff;
         lba_io[2] = (cyl >> 8) & 0xff;
         lba_io[3] = 0;
         lba_io[4] = 0;
         lba_io[5] = 0;
-        head      = (lba + 1 - sect) % (16 * 63) / (63);
+        head      = (lba + 1 - sect) % ((uint64_t)16 * 63) / (63);
     }
 
     if (ide_polling(channel, 0) != 0) return 3;

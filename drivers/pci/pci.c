@@ -799,7 +799,7 @@ int pci_enable_msix(pci_device_cache_t *dev, int nvec)
     uint32_t addr_hi = 0;
 
     for (int i = 0; i < nvec; i++) {
-        volatile uint32_t *entry = (volatile uint32_t *)((uintptr_t)dev->msi.msix_table + i * PCI_MSIX_ENTRY_SIZE);
+        volatile uint32_t *entry = (volatile uint32_t *)((uintptr_t)dev->msi.msix_table + (uintptr_t)i * PCI_MSIX_ENTRY_SIZE);
 
         uint32_t msg_data = msi_message_data(dev->msi.msix_vectors[i]);
 
@@ -843,7 +843,7 @@ void pci_disable_msix(pci_device_cache_t *dev)
     /* Mask every entry before any vector can be reused. */
     for (int i = 0; i < dev->msi.msix_nvec; i++) {
         if (dev->msi.msix_table) {
-            volatile uint32_t *entry = (volatile uint32_t *)((uintptr_t)dev->msi.msix_table + i * PCI_MSIX_ENTRY_SIZE);
+            volatile uint32_t *entry = (volatile uint32_t *)((uintptr_t)dev->msi.msix_table + (uintptr_t)i * PCI_MSIX_ENTRY_SIZE);
             entry[PCI_MSIX_ENTRY_VECTOR_CTRL / 4] |= PCI_MSIX_ENTRY_CTRL_MASKBIT;
         }
     }

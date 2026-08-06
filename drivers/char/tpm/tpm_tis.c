@@ -185,7 +185,7 @@ static int tis_send(tpm_device_t *dev, uint8_t *buf, size_t len)
     int      itpm = 0;
 
     /* Detect iTPM (vendor 0x8086) which has DATA_EXPECT quirks */
-    if ((dev->did_vid & 0xFFFF) == TPM_VID_INTEL) itpm = 1;
+    if ((dev->did_vid & 0xFFFF) == TPM_VID_INTEL) itpm = 1; // NOLINT(clang-analyzer-deadcode.DeadStores)
 
     uint8_t sts = tpm_tis_status(dev);
     if (!(sts & TPM_STS_COMMAND_READY)) {

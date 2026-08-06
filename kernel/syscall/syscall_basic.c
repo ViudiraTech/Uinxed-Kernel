@@ -1011,8 +1011,6 @@ int64_t sys_clock_gettime_impl(uint64_t clockid, uint64_t tp, uint64_t arg2, uin
     switch (clockid) {
         case 0 :
         case 5 : /* CLOCK_REALTIME / CLOCK_REALTIME_COARSE */
-            ns = timer_realtime_ns();
-            break;
         case 1 :
         case 4 :
         case 6 : /* CLOCK_MONOTONIC / _RAW / _COARSE */
@@ -1044,14 +1042,11 @@ int64_t sys_clock_getres_impl(uint64_t clockid, uint64_t res, uint64_t arg2, uin
         case 4 :
         case 5 :
         case 6 :
-            ts.tv_sec  = 0;
-            ts.tv_nsec = 1000000;
-            break; /* 1 ms resolution */
         case 2 :
         case 3 :
             ts.tv_sec  = 0;
             ts.tv_nsec = 1000000;
-            break;
+            break; /* 1 ms resolution */
         default :
             return -EINVAL;
     }

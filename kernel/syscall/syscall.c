@@ -1779,7 +1779,7 @@ static int64_t sys_fchdir_stub(uint64_t fd, uint64_t arg1, uint64_t arg2, uint64
 
     const char *root     = proc->root[0] ? proc->root : "/";
     size_t      root_len = strlen(root);
-    if (root_len != 1 && (strncmp(tmp, root, root_len) || (tmp[root_len] && tmp[root_len] != '/'))) {
+    if (root_len != 1 && (strncmp(tmp, root, root_len) != 0 || (tmp[root_len] && tmp[root_len] != '/'))) {
         process_file_put(file);
         return -EPERM;
     }
@@ -1910,17 +1910,10 @@ static int64_t sys_clock_gettime_stub(uint64_t clockid, uint64_t tp, uint64_t ar
         case CLOCK_MONOTONIC_COARSE :
         case CLOCK_BOOTTIME :
         case CLOCK_BOOTTIME_ALARM :
-            /* Monotonic time since boot */
-            ts.tv_sec  = uptime_ns / 1000000000LL;
-            ts.tv_nsec = uptime_ns % 1000000000LL;
-            break;
         case CLOCK_PROCESS_CPUTIME_ID :
         case CLOCK_THREAD_CPUTIME_ID :
-            /* CPU time - approximate with elapsed time */
-            ts.tv_sec  = uptime_ns / 1000000000LL;
-            ts.tv_nsec = uptime_ns % 1000000000LL;
-            break;
         case CLOCK_TAI :
+            /* Monotonic time since boot */
             ts.tv_sec  = uptime_ns / 1000000000LL;
             ts.tv_nsec = uptime_ns % 1000000000LL;
             break;
@@ -2007,7 +2000,7 @@ typedef struct linux_rusage {
 } linux_rusage_t;
 
 #define RUSAGE_SELF     0
-#define RUSAGE_CHILDREN -1
+#define RUSAGE_CHILDREN (-1)
 
 static int64_t sys_getrusage_impl(uint64_t who, uint64_t usage, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -4267,7 +4260,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     /* Build the replacement image against a clean, private set of VMAs. */
     proc->start_brk = PROCESS_HEAP_START;
     proc->heap_brk  = PROCESS_HEAP_START;
-    proc->stack_brk = PROCESS_STACK_BASE - PROCESS_STACK_SIZE;
+    proc->stack_brk = PROCESS_STACK_BASE - (long)PROCESS_STACK_SIZE;
 
     if (setup_process_page_dir(proc)) {
         plogk("syscall: exec of %s failed (page directory setup)\n", kpath);

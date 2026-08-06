@@ -179,7 +179,8 @@ static int extent_collect_node(extfs_handle_t *h, const uint8_t *node, uint16_t 
         }
         previous = indices[i].logical;
         status   = extent_push_metadata(vector, (uint32_t)block);
-        if (status != EOK || (status = extfs_read_block(h->sb, (uint32_t)block, buffer)) != EOK) break;
+        if (status != EOK || (status = extfs_read_block(h->sb, (uint32_t)block, buffer)) != EOK) // NOLINT(bugprone-assignment-in-if-condition)
+            break;
         if (!extent_block_checksum_verify(h, buffer)) {
             plogk("extfs: drive %u: inode %u extent block %llu checksum mismatch\n", h->sb->device.drive, h->inode_no,
                   (unsigned long long)block);
@@ -500,7 +501,10 @@ int extfs_extent_count_blocks(extfs_handle_t *h, uint64_t *blocks)
 {
     extent_vector_t vector;
     int             status = extent_collect(h, &vector);
-    if (status != EOK) return status;
+    if (status != EOK) {
+        extent_vector_destroy(&vector);
+        return status;
+    }
     *blocks = vector.metadata_count;
     for (uint32_t i = 0; i < vector.count; i++) *blocks += vector.items[i].length;
     extent_vector_destroy(&vector);

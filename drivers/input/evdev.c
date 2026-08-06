@@ -1068,12 +1068,12 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
         case EVIOCGKEYCODE_V2 :
         case EVIOCSKEYCODE :
         case EVIOCSKEYCODE_V2 :
-            return -EINVAL;
-
         case EVIOCSFF :
         case EVIOCRMFF :
         case EVIOCGEFFECTS :
             return -EINVAL;
+        default :
+            break;
     }
 
     /* Handle variable-length ioctls by extracting the _IOC_NR */
@@ -1120,6 +1120,8 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
             if (!(_IOC_DIR(request) & _IOC_READ)) return -EINVAL;
             len = _IOC_SIZE(request);
             return evdev_get_state(client, dev, EV_SW, dev->sw_state, SW_CNT, arg, len);
+        default :
+            break;
     }
 
     /* EVIOCGBIT(ev, len) and EVIOCGABS/EVIOCSABS */

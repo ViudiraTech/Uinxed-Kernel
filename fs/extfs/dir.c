@@ -62,7 +62,7 @@ static int extfs_dx_checksum_verify(extfs_handle_t *dir_h, uint32_t logical, con
     memcpy(&limit, block + count_offset, 2);
     memcpy(&count, block + count_offset + 2, 2);
     if (!count || count > limit || count_offset + (uint32_t)limit * 8 + 8 > dir_h->sb->block_size) return 0;
-    const uint8_t *tail = block + count_offset + (uint32_t)limit * 8;
+    const uint8_t *tail = block + count_offset + (size_t)limit * 8;
     uint32_t       reserved, stored;
     memcpy(&reserved, tail, 4);
     memcpy(&stored, tail + 4, 4);
@@ -159,7 +159,8 @@ static int extfs_dir_deindex(extfs_handle_t *dir_h, ext2_inode_t *raw)
 
     for (uint32_t logical = 0; logical < blocks && status == EOK; logical++) {
         uint32_t physical = extfs_map_block(dir_h, logical, 0);
-        if (!physical || (status = extfs_read_block(sb, physical, buffer)) != EOK || !extfs_dir_block_verify(dir_h, logical, buffer)) {
+        if (!physical || (status = extfs_read_block(sb, physical, buffer)) != EOK // NOLINT(bugprone-assignment-in-if-condition)
+            || !extfs_dir_block_verify(dir_h, logical, buffer)) {
             if (status == EOK) status = -EIO;
             break;
         }
@@ -167,8 +168,8 @@ static int extfs_dir_deindex(extfs_handle_t *dir_h, ext2_inode_t *raw)
             ext2_dir_entry_t *dot    = (ext2_dir_entry_t *)buffer;
             ext2_dir_entry_t *dotdot = (ext2_dir_entry_t *)(buffer + dot->rec_len);
             if (!extfs_dirent_valid(sb, dot, 0) || !extfs_dirent_valid(sb, dotdot, dot->rec_len)
-                || (status = extfs_dir_item_push(&items, &count, &capacity, dot)) != EOK
-                || (status = extfs_dir_item_push(&items, &count, &capacity, dotdot)) != EOK)
+                || (status = extfs_dir_item_push(&items, &count, &capacity, dot)) != EOK     // NOLINT(bugprone-assignment-in-if-condition)
+                || (status = extfs_dir_item_push(&items, &count, &capacity, dotdot)) != EOK) // NOLINT(bugprone-assignment-in-if-condition)
                 break;
             continue;
         }
@@ -324,6 +325,7 @@ int extfs_dir_add_entry(extfs_handle_t *dir_h, const char *name, uint32_t ino, u
 
     if (!dir_h || !dir_h->sb || !name || ino == 0) return -EINVAL;
     sb = dir_h->sb;
+    if (sb->block_size < EXT2_MIN_BLOCK_SIZE) return -EINVAL;
     if (ino > sb->es->s_inodes_count) return -EINVAL;
 
     name_len = strlen(name);
@@ -442,11 +444,16 @@ int extfs_dir_add_entry(extfs_handle_t *dir_h, const char *name, uint32_t ino, u
         if (dir_h->ei.i_flags & EXT4_EXTENTS_FL) {
             uint64_t blocks;
             status = extfs_extent_count_blocks(dir_h, &blocks);
-            if (status != EOK || blocks > UINT32_MAX / (sb->block_size / 512)) {
+            if (status != EOK) {
                 free(block_buf);
-                return status != EOK ? status : -EOVERFLOW;
+                return status;
             }
-            raw.i_blocks = (uint32_t)blocks * (sb->block_size / 512);
+            uint32_t sectors_per_block = sb->block_size / 512;
+            if (!sectors_per_block || blocks > UINT32_MAX / sectors_per_block) {
+                free(block_buf);
+                return -EOVERFLOW;
+            }
+            raw.i_blocks = (uint32_t)blocks * sectors_per_block;
         } else {
             raw.i_blocks += sb->block_size / 512;
         }
@@ -474,6 +481,8 @@ int extfs_dir_remove_entry(extfs_handle_t *dir_h, const char *name)
 
     if (!dir_h || !dir_h->sb || !name) return -EINVAL;
     sb = dir_h->sb;
+    if (sb->block_size < EXT2_MIN_BLOCK_SIZE) return -EINVAL;
+    uint32_t block_size = sb->block_size;
 
     name_len = strlen(name);
     if (!name_len) return -EINVAL;
@@ -485,19 +494,19 @@ int extfs_dir_remove_entry(extfs_handle_t *dir_h, const char *name)
     if (deindex_status != EOK) return deindex_status;
 
     uint64_t dir_size = raw.i_size;
-    block_buf         = malloc(sb->block_size);
+    block_buf         = malloc(block_size);
     if (!block_buf) return -ENOMEM;
 
     uint32_t total_offset = 0;
 
     while (total_offset < dir_size) {
-        uint32_t boff      = total_offset % sb->block_size;
+        uint32_t boff      = total_offset % block_size;
         uint32_t prev_boff = UINT32_MAX;
 
         if (boff == 0) {
             phys = extfs_map_block(dir_h, block_num, 0);
             if (phys == 0) {
-                total_offset += sb->block_size;
+                total_offset += block_size;
                 block_num++;
                 continue;
             }
@@ -512,7 +521,7 @@ int extfs_dir_remove_entry(extfs_handle_t *dir_h, const char *name)
             }
         }
 
-        while (boff < sb->block_size && total_offset < dir_size) {
+        while (boff < block_size && total_offset < dir_size) {
             ext2_dir_entry_t *de = (ext2_dir_entry_t *)(block_buf + boff);
             if (!extfs_dirent_valid(sb, de, boff)) {
                 free(block_buf);

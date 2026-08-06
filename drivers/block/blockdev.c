@@ -338,16 +338,11 @@ int blockdev_open_drive(uint8_t drive, blockdev_device_t *device)
 
     if (drive & BLKDEV_AHCI_FLAG) {
         uint8_t idx = drive & BLKDEV_DRIVE_MASK;
-        if (drive & BLKDEV_ATAPI_FLAG)
-            return blockdev_open_ahci_atapi(idx, device);
-        else
-            return blockdev_open_ahci(idx, device);
-    } else {
-        if (drive & BLKDEV_ATAPI_FLAG)
-            return blockdev_open_atapi(drive & BLKDEV_DRIVE_MASK, device);
-        else
-            return blockdev_open_ide(drive & BLKDEV_DRIVE_MASK, device);
+        if (drive & BLKDEV_ATAPI_FLAG) return blockdev_open_ahci_atapi(idx, device);
+        return blockdev_open_ahci(idx, device);
     }
+    if (drive & BLKDEV_ATAPI_FLAG) return blockdev_open_atapi(drive & BLKDEV_DRIVE_MASK, device);
+    return blockdev_open_ide(drive & BLKDEV_DRIVE_MASK, device);
 }
 
 static int parse_uint(const char **cursor, uint32_t *value)
@@ -621,7 +616,7 @@ int blockdev_read_bytes(const blockdev_device_t *device, uint64_t offset, void *
     if (!device) return -EINVAL;
     if (!size) return EOK;
     if (!buffer || !device->sector_size || device->sector_count > UINT64_MAX / device->sector_size) return -EINVAL;
-    if (size > 128 * 1024 * 1024) return -EINVAL;
+    if (size > (size_t)128 * 1024 * 1024) return -EINVAL;
     device_bytes = device->sector_count * device->sector_size;
     if (offset > device_bytes || size > device_bytes - offset) return -EINVAL;
 
@@ -657,7 +652,7 @@ int blockdev_write_bytes(const blockdev_device_t *device, uint64_t offset, const
     if (!size) return EOK;
     if (device->read_only) return -EROFS;
     if (!buffer || !device->sector_size || device->sector_count > UINT64_MAX / device->sector_size) return -EINVAL;
-    if (size > 128 * 1024 * 1024) return -EINVAL;
+    if (size > (size_t)128 * 1024 * 1024) return -EINVAL;
     device_bytes = device->sector_count * device->sector_size;
     if (offset > device_bytes || size > device_bytes - offset) return -EINVAL;
 

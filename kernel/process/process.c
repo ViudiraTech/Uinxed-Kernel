@@ -519,6 +519,7 @@ static void vm_area_free(vm_area_t *vma, uint32_t pid)
 
 static void mmap_list_free(process_t *proc, uint32_t pid)
 {
+    if (!proc) return;
     spin_lock(&proc->mmap_lock);
     vm_area_t *list = proc->mmap_list;
     proc->mmap_list = NULL;
@@ -571,10 +572,10 @@ static void process_rlimit_init(process_t *proc)
     proc->rlimits[PROCESS_RLIMIT_NOFILE].maximum     = PROCESS_MAX_FD;
     proc->rlimits[PROCESS_RLIMIT_NPROC].current      = 4096;
     proc->rlimits[PROCESS_RLIMIT_NPROC].maximum      = 4096;
-    proc->rlimits[PROCESS_RLIMIT_STACK].current      = PROCESS_STACK_SIZE;
-    proc->rlimits[PROCESS_RLIMIT_STACK].maximum      = PROCESS_STACK_SIZE;
-    proc->rlimits[PROCESS_RLIMIT_MEMLOCK].current    = 64 * 1024;
-    proc->rlimits[PROCESS_RLIMIT_MEMLOCK].maximum    = 64 * 1024;
+    proc->rlimits[PROCESS_RLIMIT_STACK].current      = (uint64_t)PROCESS_STACK_SIZE;
+    proc->rlimits[PROCESS_RLIMIT_STACK].maximum      = (uint64_t)PROCESS_STACK_SIZE;
+    proc->rlimits[PROCESS_RLIMIT_MEMLOCK].current    = (uint64_t)64 * 1024;
+    proc->rlimits[PROCESS_RLIMIT_MEMLOCK].maximum    = (uint64_t)64 * 1024;
     proc->rlimits[PROCESS_RLIMIT_SIGPENDING].current = 4096;
     proc->rlimits[PROCESS_RLIMIT_SIGPENDING].maximum = 4096;
     proc->rlimits[PROCESS_RLIMIT_MSGQUEUE].current   = 819200;
@@ -1034,7 +1035,7 @@ int process_resolve_path_at(process_t *proc, int dirfd, const char *path, char *
     if (ret != EOK) return ret;
 
     size_t root_len = strlen(root);
-    if (root_len != 1 && (strncmp(resolved, root, root_len) || (resolved[root_len] && resolved[root_len] != '/'))) return -EPERM;
+    if (root_len != 1 && (strncmp(resolved, root, root_len) != 0 || (resolved[root_len] && resolved[root_len] != '/'))) return -EPERM;
     return EOK;
 }
 
@@ -1151,7 +1152,7 @@ process_t *process_create(const char *name, void (*entry)(void *), void *arg)
     proc->sid         = 0;
     proc->start_brk   = PROCESS_HEAP_START;
     proc->heap_brk    = PROCESS_HEAP_START;
-    proc->stack_brk   = PROCESS_STACK_BASE - PROCESS_STACK_SIZE;
+    proc->stack_brk   = PROCESS_STACK_BASE - (long)PROCESS_STACK_SIZE;
     proc->parent      = init_process;
     proc->exit_code   = 0;
     slist_init(&proc->children);

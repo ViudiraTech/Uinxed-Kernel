@@ -260,7 +260,7 @@ void fbcon_scroll_up(uint32_t top, uint32_t bottom, uint32_t lines)
             color_grid[idx] = fore_color;
             if (bg_grid) bg_grid[idx] = back_color;
         }
-        if (dirty_first_col) {
+        if (dirty_first_col && dirty_last_col) {
             dirty_first_col[r] = 0;
             dirty_last_col[r]  = c_width - 1;
         }
@@ -303,7 +303,7 @@ void fbcon_scroll_down(uint32_t top, uint32_t bottom, uint32_t lines)
             color_grid[idx] = fore_color;
             if (bg_grid) bg_grid[idx] = back_color;
         }
-        if (dirty_first_col) {
+        if (dirty_first_col && dirty_last_col) {
             dirty_first_col[r] = 0;
             dirty_last_col[r]  = c_width - 1;
         }
@@ -366,11 +366,13 @@ void fbcon_erase_display(uint32_t mode)
                     color_grid[base + col] = fore_color;
                     if (bg_grid) bg_grid[base + col] = back_color;
                 }
-                if (dirty_first_col) {
+                if (dirty_first_col && dirty_last_col) {
                     dirty_first_col[r] = 0;
                     dirty_last_col[r]  = c_width - 1;
                 }
             }
+            break;
+        default :
             break;
     }
 }
@@ -408,6 +410,8 @@ void fbcon_erase_line(uint32_t mode, uint32_t y)
                 if (bg_grid) bg_grid[idx] = back_color;
                 fbcon_mark_cell_dirty(y, col);
             }
+            break;
+        default :
             break;
     }
 }
