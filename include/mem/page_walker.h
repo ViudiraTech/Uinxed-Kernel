@@ -11,6 +11,7 @@
 #ifndef PAGE_WALKER_H_
 #define PAGE_WALKER_H_
 
+#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>

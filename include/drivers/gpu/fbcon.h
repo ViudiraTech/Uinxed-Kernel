@@ -12,6 +12,7 @@
 #define INCLUDE_FBCON_H_
 
 #include <libs/std/stdbool.h>
+#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
 /* Initialize framebuffer console */

@@ -12,6 +12,7 @@
 #define INCLUDE_FRAME_H_
 
 #include <kernel/ringlog.h>
+#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <mem/buddy.h>
 #include <sync/spin_lock.h>

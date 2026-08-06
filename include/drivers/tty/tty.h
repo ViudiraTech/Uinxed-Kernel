@@ -12,6 +12,7 @@
 #define INCLUDE_TTY_H_
 
 #include <libs/std/stdbool.h>
+#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
 

@@ -11,6 +11,7 @@
 #ifndef INCLUDE_NET_PACKET_H_
 #define INCLUDE_NET_PACKET_H_
 
+#include <libs/std/stddef.h>
 #include <net/pbuf.h>
 
 typedef net_pbuf_t net_packet_t;

@@ -12,6 +12,7 @@
 #define INCLUDE_VT_ANSI_H_
 
 #include <libs/std/stdbool.h>
+#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
 #define VT_ANSI_TABS 256

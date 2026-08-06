@@ -12,6 +12,7 @@
 #define INCLUDE_SIGNALFD_H_
 
 #include <fs/core/vfs.h>
+#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <proc/task.h>
 #include <sync/signal.h>

@@ -13,6 +13,7 @@
 
 #include <fs/core/vfs.h>
 #include <libs/std/stdbool.h>
+#include <libs/std/stddef.h>
 #include <sync/spin_lock.h>
 
 /* Forward declaration for callback signatures. */

@@ -11,6 +11,7 @@
 #ifndef INCLUDE_NET_TCP_H_
 #define INCLUDE_NET_TCP_H_
 
+#include <libs/std/stddef.h>
 #include <net/abi/inet.h>
 #include <net/ipv4.h>
 #include <net/ipv6.h>

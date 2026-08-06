@@ -11,6 +11,7 @@
 #ifndef INCLUDE_NET_IPV6_H_
 #define INCLUDE_NET_IPV6_H_
 
+#include <libs/std/stddef.h>
 #include <net/netdev.h>
 
 #define IPV6_ADDRESS_LEN      16U

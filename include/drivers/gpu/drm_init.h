@@ -12,6 +12,7 @@
 #define INCLUDE_DRM_DRM_INIT_H_
 
 #include <drivers/gpu/drm_device.h>
+#include <libs/std/stddef.h>
 
 struct vm_area;
 

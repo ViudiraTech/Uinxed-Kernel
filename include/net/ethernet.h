@@ -11,6 +11,7 @@
 #ifndef INCLUDE_NET_ETHERNET_H_
 #define INCLUDE_NET_ETHERNET_H_
 
+#include <libs/std/stddef.h>
 #include <net/netdev.h>
 
 #define ETH_ADDRESS_LEN 6U

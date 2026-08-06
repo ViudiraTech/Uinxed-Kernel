@@ -11,6 +11,7 @@
 #ifndef INCLUDE_NET_ARP_H_
 #define INCLUDE_NET_ARP_H_
 
+#include <libs/std/stddef.h>
 #include <net/netdev.h>
 
 #define ARP_CACHE_CAPACITY    64U

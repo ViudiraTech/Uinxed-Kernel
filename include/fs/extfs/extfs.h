@@ -17,6 +17,7 @@
 
 #include <drivers/block/blockdev.h>
 #include <fs/core/fs_txn.h>
+#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 

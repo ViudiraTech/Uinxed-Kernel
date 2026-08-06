@@ -13,6 +13,7 @@
 
 #include <drivers/block/blockdev.h>
 #include <fs/virtual/tmpfs.h>
+#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
 /*
