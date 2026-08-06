@@ -3,6 +3,19 @@
 
 int main(void)
 {
-    printf("hello world!\n");
+
+    char *argv[] = {
+        "/sbin/init",
+        NULL
+    };
+
+    char *envp[] = {
+        NULL
+    };
+
+    if (execve("/sbin/init", argv, envp) != 0){
+        printf("init startup error.\n");
+    }
+    printf("System paused!\n");
     pause();
 }
