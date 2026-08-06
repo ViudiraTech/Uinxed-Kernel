@@ -11,7 +11,12 @@
 #include <arch/fpu.h>
 #include <libs/std/math.h>
 
-#if !defined(__clang__)
+/* Enable SSE2 for this translation unit so FP code compiles despite the
+ * kernel-wide -mno-sse -mno-sse2 flags.  GCC uses #pragma GCC target;
+ * clang does not implement it and needs #pragma clang attribute instead. */
+#if defined(__clang__)
+#    pragma clang attribute push(__attribute__((target("sse2"))), apply_to = function)
+#elif defined(__GNUC__)
 #    pragma GCC target("sse2")
 #endif
 
@@ -262,3 +267,7 @@ int abs(int x)
 {
     return (x < 0 ? -x : x);
 }
+
+#if defined(__clang__)
+#    pragma clang attribute pop
+#endif
