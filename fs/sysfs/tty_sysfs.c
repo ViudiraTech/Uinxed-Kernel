@@ -8,8 +8,8 @@
  *
  */
 
-#include <drivers/base/device.h>
-#include <drivers/char/tty.h>
+#include <drivers/core/device.h>
+#include <drivers/tty/tty.h>
 #include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>

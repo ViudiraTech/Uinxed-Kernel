@@ -13,7 +13,7 @@
 #include <arch/smp.h>
 #include <cgroup/cgroup.h>
 #include <chipset/common.h>
-#include <drivers/interrupt/apic.h>
+#include <drivers/misc/apic.h>
 #include <kernel/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>

@@ -55,7 +55,7 @@ void virtgpu_vq_fini(struct virtio_gpu_device *vgdev)
 /* Memory barrier helpers                                              */
 /* ------------------------------------------------------------------ */
 
-/* Write memory barrier â€?ensures all preceding stores are globally visible */
+/* Write memory barrier â€“ensures all preceding stores are globally visible */
 static inline void wmb(void)
 {
     __asm__ volatile("sfence" ::: "memory");
@@ -67,7 +67,7 @@ static inline void mb(void)
     __asm__ volatile("mfence" ::: "memory");
 }
 
-/* CPU hint for spin-wait loops â€?improves performance and memory ordering */
+/* CPU hint for spin-wait loops â€“improves performance and memory ordering */
 static inline void cpu_relax(void)
 {
     __asm__ volatile("pause");

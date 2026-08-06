@@ -264,7 +264,7 @@ struct drm_display_mode {
 /* ------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------ */
-/* CRTC helper funcs â€?stored in crtc->helper_private                 */
+/* CRTC helper funcs â€“stored in crtc->helper_private                 */
 /* ------------------------------------------------------------------ */
 
 struct drm_crtc_helper_funcs {
@@ -283,7 +283,7 @@ struct drm_crtc_helper_funcs {
 };
 
 /* ------------------------------------------------------------------ */
-/* Encoder helper funcs â€?stored in encoder->helper_private           */
+/* Encoder helper funcs â€“stored in encoder->helper_private           */
 /* ------------------------------------------------------------------ */
 
 struct drm_encoder_helper_funcs {
@@ -291,7 +291,7 @@ struct drm_encoder_helper_funcs {
 };
 
 /* ------------------------------------------------------------------ */
-/* Connector helper funcs â€?stored in connector->helper_private       */
+/* Connector helper funcs â€“stored in connector->helper_private       */
 /* ------------------------------------------------------------------ */
 
 struct drm_connector_helper_funcs {

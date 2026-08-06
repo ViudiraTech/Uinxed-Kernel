@@ -9,8 +9,8 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/bus/pci.h>
-#include <drivers/interrupt/apic.h>
+#include <drivers/misc/apic.h>
+#include <drivers/pci/pci.h>
 #include <drivers/usb/core/usb.h>
 #include <drivers/usb/host/host.h>
 #include <drivers/usb/host/xhci.h>

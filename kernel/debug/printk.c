@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/char/tty.h>
+#include <drivers/tty/tty.h>
 #include <kernel/printk.h>
 #include <libs/std/stdarg.h>
 #include <libs/std/stddef.h>
@@ -18,7 +18,7 @@
 #include <sync/spin_lock.h>
 
 #ifdef KERNEL_LOG
-#    include <drivers/acpi/acpi.h>
+#    include <drivers/firmware/acpi.h>
 #endif
 
 #define BUF_SIZE 2048 // least 2 bytes (1 byte is for '\0')

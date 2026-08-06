@@ -26,7 +26,7 @@
 #include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */
-/*  Helpers: convert weight â†?"priority" for rbtree ordering            */
+/*  Helpers: convert weight â†’"priority" for rbtree ordering            */
 /* ------------------------------------------------------------------ */
 
 /*

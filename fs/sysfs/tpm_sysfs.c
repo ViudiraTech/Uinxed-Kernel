@@ -8,8 +8,8 @@
  *
  */
 
-#include <drivers/base/device.h>
-#include <drivers/security/tpm.h>
+#include <drivers/char/tpm.h>
+#include <drivers/core/device.h>
 #include <fs/sysfs/sysfs.h>
 #include <fs/sysfs/tpm_sysfs.h>
 #include <kernel/errno.h>

@@ -16,24 +16,27 @@
 #include <cgroup/cgroup.h>
 #include <chipset/common.h>
 #include <chipset/smbios.h>
-#include <drivers/acpi/acpi.h>
-#include <drivers/base/device.h>
-#include <drivers/block/ahci.h>
-#include <drivers/block/ide.h>
-#include <drivers/block/nvme.h>
-#include <drivers/bus/pci.h>
-#include <drivers/char/ps2.h>
-#include <drivers/char/pty.h>
-#include <drivers/char/rtc.h>
-#include <drivers/char/tty.h>
+#include <drivers/ata/ahci.h>
+#include <drivers/ata/ide.h>
+#include <drivers/char/parallel.h>
+#include <drivers/char/serial.h>
+#include <drivers/char/tpm.h>
+#include <drivers/clocksource/tsc.h>
+#include <drivers/core/device.h>
+#include <drivers/firmware/acpi.h>
 #include <drivers/gpu/drm_init.h>
+#include <drivers/gpu/fbcon.h>
+#include <drivers/gpu/klogo.h>
+#include <drivers/gpu/video.h>
+#include <drivers/input/ps2.h>
 #include <drivers/net/e1000.h>
-#include <drivers/ports/parallel.h>
-#include <drivers/ports/serial.h>
-#include <drivers/security/tpm.h>
+#include <drivers/nvme/nvme.h>
+#include <drivers/pci/pci.h>
+#include <drivers/rtc/rtc.h>
 #include <drivers/sound/hda.h>
 #include <drivers/sound/sb16.h>
-#include <drivers/timer/tsc.h>
+#include <drivers/tty/pty.h>
+#include <drivers/tty/tty.h>
 #include <drivers/usb/core/usb.h>
 #include <drivers/usb/host/host.h>
 #include <drivers/virt/virtgpu_drv.h>
@@ -93,9 +96,6 @@
 #include <syscall/signalfd.h>
 #include <syscall/syscall.h>
 #include <syscall/timerfd.h>
-#include <video/fbcon.h>
-#include <video/klogo.h>
-#include <video/video.h>
 
 /* Create init process */
 static void swapper_run_init(void)

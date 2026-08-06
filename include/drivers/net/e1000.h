@@ -11,7 +11,7 @@
 #ifndef INCLUDE_DRIVERS_E1000_H_
 #define INCLUDE_DRIVERS_E1000_H_
 
-#include <drivers/bus/pci.h>
+#include <drivers/pci/pci.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 

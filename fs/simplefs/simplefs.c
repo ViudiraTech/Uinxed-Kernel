@@ -8,8 +8,8 @@
  *
  */
 
+#include <drivers/ata/ide.h>
 #include <drivers/block/blockdev.h>
-#include <drivers/block/ide.h>
 #include <fs/core/vfs.h>
 #include <fs/simplefs/simplefs.h>
 #include <kernel/errno.h>

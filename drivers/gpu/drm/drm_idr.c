@@ -51,7 +51,7 @@ static struct drm_idr_entry *idr_probe(struct drm_idr *idr, uint32_t id)
 
         if (e->id == id) { return e; }
         if (IDR_SLOT_EMPTY(*e)) { return e; }
-        /* Wrapped around â€?table is full and id not present. */
+        /* Wrapped around â€“table is full and id not present. */
         if (idx == ((start + idr->capacity - 1U) & (idr->capacity - 1U))) { break; }
     }
     return NULL;
@@ -170,7 +170,7 @@ int drm_idr_alloc(struct drm_idr *idr, void *ptr, uint32_t start, uint32_t end, 
                 break;
             }
             if (IDR_SLOT_EMPTY(*e)) {
-                /* Found an empty slot â€?claim it. */
+                /* Found an empty slot â€“claim it. */
                 e->id  = id;
                 e->ptr = ptr;
                 idr->count++;

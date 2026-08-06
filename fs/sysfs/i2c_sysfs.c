@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/base/device.h>
+#include <drivers/core/device.h>
 #include <drivers/i2c/i2c.h>
 #include <fs/sysfs/i2c_sysfs.h>
 #include <fs/sysfs/sysfs.h>

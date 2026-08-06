@@ -13,8 +13,8 @@
 #include <arch/smp.h>
 #include <arch/tss.h>
 #include <chipset/common.h>
-#include <drivers/acpi/acpi.h>
-#include <drivers/base/device.h>
+#include <drivers/core/device.h>
+#include <drivers/firmware/acpi.h>
 #include <fs/core/inotify.h>
 #include <fs/core/vfs.h>
 #include <ipc/epoll.h>

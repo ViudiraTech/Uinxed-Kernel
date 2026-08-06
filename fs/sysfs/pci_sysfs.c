@@ -8,8 +8,8 @@
  *
  */
 
-#include <drivers/base/device.h>
-#include <drivers/bus/pci.h>
+#include <drivers/core/device.h>
+#include <drivers/pci/pci.h>
 #include <fs/core/vfs.h>
 #include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>

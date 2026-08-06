@@ -8,11 +8,11 @@
  *
  */
 
-#include <drivers/block/ahci.h>
+#include <drivers/ata/ahci.h>
+#include <drivers/ata/ide.h>
 #include <drivers/block/blockdev.h>
-#include <drivers/block/ide.h>
-#include <drivers/block/nvme.h>
 #include <drivers/block/partition.h>
+#include <drivers/nvme/nvme.h>
 #include <fs/sysfs/block_sysfs.h>
 #include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>

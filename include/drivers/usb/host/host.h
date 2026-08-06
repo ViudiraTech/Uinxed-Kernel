@@ -11,7 +11,7 @@
 #ifndef INCLUDE_USB_HOST_H_
 #define INCLUDE_USB_HOST_H_
 
-#include <drivers/bus/pci.h>
+#include <drivers/pci/pci.h>
 #include <drivers/usb/core/usb.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>

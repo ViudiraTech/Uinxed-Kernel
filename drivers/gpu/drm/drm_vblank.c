@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/acpi/acpi.h>
+#include <drivers/firmware/acpi.h>
 #include <drivers/gpu/drm_device.h>
 #include <drivers/gpu/drm_idr.h>
 #include <drivers/gpu/drm_mode.h>

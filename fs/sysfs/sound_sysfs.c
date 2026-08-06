@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/base/device.h>
+#include <drivers/core/device.h>
 #include <fs/sysfs/sound_sysfs.h>
 #include <fs/sysfs/sysfs.h>
 #include <kernel/audio.h>

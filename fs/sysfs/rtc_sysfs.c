@@ -8,8 +8,8 @@
  *
  */
 
-#include <drivers/base/device.h>
-#include <drivers/char/rtc.h>
+#include <drivers/core/device.h>
+#include <drivers/rtc/rtc.h>
 #include <fs/sysfs/rtc_sysfs.h>
 #include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>

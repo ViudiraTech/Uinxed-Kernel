@@ -9,13 +9,13 @@
  *
  */
 
-#include <drivers/block/ahci.h>
-#include <drivers/block/atapi.h>
+#include <drivers/ata/ahci.h>
+#include <drivers/ata/atapi.h>
+#include <drivers/ata/ide.h>
+#include <drivers/ata/satapi.h>
 #include <drivers/block/blockdev.h>
-#include <drivers/block/ide.h>
-#include <drivers/block/nvme.h>
 #include <drivers/block/partition.h>
-#include <drivers/block/satapi.h>
+#include <drivers/nvme/nvme.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stdlib.h>

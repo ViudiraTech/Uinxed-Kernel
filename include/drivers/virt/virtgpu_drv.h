@@ -15,10 +15,10 @@
 #ifndef INCLUDE_VIRTGPU_DRV_H_
 #define INCLUDE_VIRTGPU_DRV_H_
 
-#include <drivers/bus/pci.h>
 #include <drivers/gpu/drm_device.h>
 #include <drivers/gpu/drm_fourcc.h>
 #include <drivers/gpu/drm_print.h>
+#include <drivers/pci/pci.h>
 #include <drivers/virt/pci.h>
 #include <kernel/errno.h>
 #include <libs/std/stdarg.h>

@@ -96,7 +96,7 @@ static dumb_slot_range_t *dumb_range_alloc_node(void)
         memset(r, 0, sizeof(*r));
         return r;
     }
-    /* Pool exhausted â€?fall back to malloc */
+    /* Pool exhausted â€“fall back to malloc */
     {
         dumb_slot_range_t *r = malloc(sizeof(*r));
         if (r) memset(r, 0, sizeof(*r));
@@ -154,7 +154,7 @@ static uint64_t dumb_offset_alloc(size_t size)
                 /* Found a fit */
                 start = cur->start;
                 if (cur->count == need) {
-                    /* Exact fit â€?remove the node */
+                    /* Exact fit â€“remove the node */
                     *prev = cur->next;
                     dumb_range_free_node(cur);
                 } else {
@@ -176,7 +176,7 @@ static uint64_t dumb_offset_alloc(size_t size)
         }
     }
 
-    /* No free range â€?allocate from the high watermark */
+    /* No free range â€“allocate from the high watermark */
     if (dumb_next_slot + need > DUMB_OFFSET_MAX_SLOTS) {
         spin_unlock(&dumb_alloc_lock);
         return 0; /* out of space */
@@ -243,7 +243,7 @@ static void dumb_offset_free(uint64_t offset, size_t size)
             cur->start = start;
             cur->count += count;
         } else {
-            /* No merge â€?create a new range node */
+            /* No merge â€“create a new range node */
             new_range = dumb_range_alloc_node();
             if (new_range) {
                 new_range->start = start;

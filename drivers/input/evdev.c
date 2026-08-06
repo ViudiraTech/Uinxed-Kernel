@@ -8,8 +8,8 @@
  *
  */
 
-#include <drivers/acpi/acpi.h>
-#include <drivers/base/device.h>
+#include <drivers/core/device.h>
+#include <drivers/firmware/acpi.h>
 #include <drivers/input/evdev.h>
 #include <drivers/input/input_event.h>
 #include <fs/sysfs/input_sysfs.h>

@@ -12,7 +12,7 @@
  *
  */
 
-#include <drivers/base/device.h>
+#include <drivers/core/device.h>
 #include <drivers/gpu/drm.h>
 #include <drivers/gpu/drm_device.h>
 #include <drivers/gpu/drm_fourcc.h>

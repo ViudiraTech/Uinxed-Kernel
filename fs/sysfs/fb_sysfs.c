@@ -8,14 +8,14 @@
  *
  */
 
-#include <drivers/base/device.h>
+#include <drivers/core/device.h>
+#include <drivers/gpu/video.h>
 #include <fs/sysfs/fb_sysfs.h>
 #include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/string.h>
-#include <video/video.h>
 
 static struct bus_type framebuffer_platform_bus = {.name = "platform"};
 static struct device   framebuffer_platform_device;

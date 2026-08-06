@@ -55,7 +55,7 @@ static void test_gem_free(test_gem_object_t *obj)
 }
 
 /* ------------------------------------------------------------------ */
-/* DRM functional test â€?exercises GEM + framebuffer + ioctl           */
+/* DRM functional test â€“exercises GEM + framebuffer + ioctl           */
 /* ------------------------------------------------------------------ */
 
 void drm_run_test(void)

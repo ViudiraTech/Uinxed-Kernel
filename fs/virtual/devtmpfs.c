@@ -9,16 +9,18 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/base/device.h>
-#include <drivers/block/ahci.h>
-#include <drivers/block/atapi.h>
+#include <drivers/ata/ahci.h>
+#include <drivers/ata/atapi.h>
+#include <drivers/ata/ide.h>
 #include <drivers/block/blockdev.h>
-#include <drivers/block/ide.h>
-#include <drivers/block/nvme.h>
 #include <drivers/block/partition.h>
-#include <drivers/char/tty.h>
+#include <drivers/core/device.h>
 #include <drivers/gpu/drm_init.h>
+#include <drivers/gpu/fbdev.h>
+#include <drivers/gpu/video.h>
 #include <drivers/input/evdev.h>
+#include <drivers/nvme/nvme.h>
+#include <drivers/tty/tty.h>
 #include <fs/core/vfs.h>
 #include <fs/virtual/devtmpfs.h>
 #include <fs/virtual/tmpfs.h>
@@ -29,8 +31,6 @@
 #include <mem/alloc.h>
 #include <mem/heap.h>
 #include <sync/spin_lock.h>
-#include <video/fbdev.h>
-#include <video/video.h>
 
 /* ------------------------------------------------------------------ */
 /* Character-device registration table                                 */

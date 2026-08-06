@@ -11,8 +11,8 @@
 #include <arch/cpuid.h>
 #include <arch/smp.h>
 #include <cgroup/cgroup.h>
-#include <drivers/char/tty_core.h>
-#include <drivers/timer/tsc.h>
+#include <drivers/clocksource/tsc.h>
+#include <drivers/tty/tty_core.h>
 #include <fs/core/vfs.h>
 #include <fs/virtual/devtmpfs.h>
 #include <fs/virtual/procfs.h>

@@ -22,14 +22,14 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/bus/pci.h>
-#include <drivers/char/tty.h>
 #include <drivers/gpu/drm.h>
 #include <drivers/gpu/drm_device.h>
 #include <drivers/gpu/drm_fourcc.h>
 #include <drivers/gpu/drm_init.h>
 #include <drivers/gpu/drm_mode.h>
 #include <drivers/gpu/drm_print.h>
+#include <drivers/pci/pci.h>
+#include <drivers/tty/tty.h>
 #include <drivers/virt/pci.h>
 #include <drivers/virt/virtgpu_cmd.h>
 #include <drivers/virt/virtgpu_drv.h>

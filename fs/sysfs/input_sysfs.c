@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/base/device.h>
+#include <drivers/core/device.h>
 #include <fs/sysfs/input_sysfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
