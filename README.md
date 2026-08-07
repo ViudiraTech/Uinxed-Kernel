@@ -1,7 +1,7 @@
 <div align="center">
   <img src="https://github.com/user-attachments/assets/cb3f4ec8-4504-4fe9-b402-8d1588a986a8" height="200" width="200"/>
-  <h1 align="center">Uinxed</h1>
-  <h3 align="center">A UNIX-like x86-64 kernel written from scratch</h3>
+  <h1 align="center">Uinxed-Kernel</h1>
+  <h3 align="center">A UNIX-like x86-64 kernel written from scratch.</h3>
 </div>
 
 <div align="center">
@@ -11,6 +11,8 @@
   <img src="https://img.shields.io/badge/Firmware-UEFI/Legacy-yellow"/>
   <a href="https://deepwiki.com/ViudiraTech/Uinxed-Kernel"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
 </div>
+
+---
 
 ## Overview
 
