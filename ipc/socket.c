@@ -2519,7 +2519,7 @@ static int socket_collect_rights(socket_t *sk, const msghdr_t *kmsg, process_fil
             }
             uint8_t *cmsg_data = CMSG_DATA(cmsg);
             for (size_t i = 0; i < count; i++) {
-                int               fd;
+                int fd;
                 memcpy(&fd, cmsg_data + i * sizeof(fd), sizeof(fd));
                 process_file_t *file = process_fd_get_for_transfer(proc, fd);
                 if (!file) {
