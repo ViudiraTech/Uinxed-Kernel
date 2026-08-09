@@ -224,6 +224,14 @@ menu "Networking support"
       Enable support for Realtek RTL8169/RTL8110S-compatible Gigabit
       Ethernet controllers (10ec:8161/8169 and rebrands).
 
+  config RTL8139
+    bool "Realtek RTL8139 Fast Ethernet support"
+    depends on NET
+    default y
+    help
+      Enable support for Realtek RTL8139-compatible Fast Ethernet
+      controllers (10ec:8129/8139/8138 and rebrands).
+
 endmenu
 
 menu "Device Drivers"

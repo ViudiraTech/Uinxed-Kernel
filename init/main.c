@@ -31,6 +31,7 @@
 #include <drivers/input/ps2.h>
 #include <drivers/net/e1000.h>
 #include <drivers/net/rtl8169.h>
+#include <drivers/net/rtl8139.h>
 #include <drivers/nvme/nvme.h>
 #include <drivers/pci/pci.h>
 #include <drivers/rtc/rtc.h>
@@ -258,6 +259,7 @@ void kernel_entry(void)
     /* Device Drivers */             //
     e1000_init();                    // Intel 8254x Gigabit Ethernet
     rtl8169_init();                  // Realtek RTL8169 Gigabit Ethernet
+    rtl8139_init();                  // Realtek RTL8139 Fast Ethernet
     net_init();                      // Initialize ARP/NDP caches and DHCP client
     sb16_init();                     // Sound Blaster 16
     hda_init();                      // Intel HD Audio
@@ -345,6 +347,7 @@ void kernel_entry(void)
     boot_start_init_before_debug(swapper_run_init, sched_test_init);
     e1000_start_workers();
     rtl8169_start_workers();
+    rtl8139_start_workers();
     usb_host_start_workers();
 
     enable_intr();
