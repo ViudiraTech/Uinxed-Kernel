@@ -22,10 +22,10 @@
 /* PM1 register access via FADT                                       */
 /* ------------------------------------------------------------------ */
 
-static uint16_t pm1a_sts; /* PM1a status register port */
-static uint16_t pm1b_sts; /* PM1b status register port */
-static uint16_t pm1a_en;  /* PM1a enable register port */
-static uint16_t pm1b_en;  /* PM1b enable register port */
+static uint16_t pm1a_sts; // PM1a status register port
+static uint16_t pm1b_sts; // PM1b status register port
+static uint16_t pm1a_en;  // PM1a enable register port
+static uint16_t pm1b_en;  // PM1b enable register port
 
 static void pm1_setup(void)
 {
@@ -121,11 +121,11 @@ static int           gpe_handler_count;
 /* GPE block info decoded from FADT */
 static struct {
         uint16_t block0_addr;
-        uint8_t  block0_len;  /* in bytes */
-        uint8_t  block0_base; /* base GPE number = 0 */
+        uint8_t  block0_len;  // in bytes
+        uint8_t  block0_base; // base GPE number = 0
         uint16_t block1_addr;
-        uint8_t  block1_len;  /* in bytes */
-        uint8_t  block1_base; /* base GPE number */
+        uint8_t  block1_len;  // in bytes
+        uint8_t  block1_base; // base GPE number
 } gpe_blocks;
 
 static void gpe_setup(void)
@@ -197,7 +197,7 @@ int acpi_register_gpe(uint8_t gpe_number, acpi_event_callback_t handler, void *c
 /* SCI interrupt handler                                              */
 /* ------------------------------------------------------------------ */
 
-static uint8_t sci_vector; /* IDT vector of the SCI */
+static uint8_t sci_vector; // IDT vector of the SCI
 
 /* Dispatch pending fixed events */
 static void dispatch_fixed_events(uint16_t sts)
@@ -250,12 +250,16 @@ int acpi_sci_init(void)
     acpi_facp_t *f = get_acpi_facp();
     if (!f) return -1;
 
-    /* Enable SCI-related fixed events.
-     * The power-button enable is set; callers can add more. */
+    /*
+     * Enable SCI-related fixed events.
+     * The power-button enable is set; callers can add more.
+     */
     acpi_pm1_enable_set(ACPI_PM1_EN_PWRBTN);
 
-    /* Map ISA IRQ (FADT->sci_int) to the APIC vector.
-     * Standard PC/AT routing: IRQ n -> vector (0x20 + n). */
+    /*
+     * Map ISA IRQ (FADT->sci_int) to the APIC vector.
+     * Standard PC/AT routing: IRQ n -> vector (0x20 + n).
+     */
     uint8_t irq = f->sci_int;
     if (irq == 0) irq = 9;
     sci_vector = IRQ_0 + irq;

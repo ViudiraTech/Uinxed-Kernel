@@ -28,16 +28,16 @@
 /* ------------------------------------------------------------------ */
 
 typedef enum sysfs_node_type {
-    SYSFS_DIR,      /* kobject directory */
-    SYSFS_ATTR,     /* regular attribute file */
-    SYSFS_BIN_ATTR, /* binary attribute file */
-    SYSFS_SYMLINK,  /* symbolic link */
+    SYSFS_DIR,      // kobject directory
+    SYSFS_ATTR,     // regular attribute file
+    SYSFS_BIN_ATTR, // binary attribute file
+    SYSFS_SYMLINK,  // symbolic link
 } sysfs_node_type_t;
 
 typedef struct sysfs_attr_entry {
         struct attribute *attr;
-        vfs_node_t        vnode; /* VFS node for this file */
-        struct kobject   *kobj;  /* owning kobject */
+        vfs_node_t        vnode; // VFS node for this file
+        struct kobject   *kobj;  // owning kobject
         uint16_t          mode;
 } sysfs_attr_entry_t;
 
@@ -57,9 +57,9 @@ typedef struct sysfs_symlink_entry {
 typedef struct sysfs_node {
         sysfs_node_type_t     type;
         struct kobject       *kobj;
-        struct attribute     *attr;           /* for SYSFS_ATTR */
-        struct bin_attribute *bin_attr;       /* for SYSFS_BIN_ATTR */
-        struct kobject       *symlink_target; /* for SYSFS_SYMLINK */
+        struct attribute     *attr;           // for SYSFS_ATTR
+        struct bin_attribute *bin_attr;       // for SYSFS_BIN_ATTR
+        struct kobject       *symlink_target; // for SYSFS_SYMLINK
         uint16_t              mode;
 } sysfs_node_t;
 
@@ -75,9 +75,9 @@ typedef struct sysfs_open_file {
 /*  Global state                                                       */
 /* ------------------------------------------------------------------ */
 
-static int        sysfs_id;         /* VFS filesystem ID */
-struct kobject   *sysfs_root_kobj;  /* /sys root kobject (global) */
-static vfs_node_t sysfs_root_vnode; /* /sys mount point VFS node */
+static int        sysfs_id;         // VFS filesystem ID
+struct kobject   *sysfs_root_kobj;  // /sys root kobject (global)
+static vfs_node_t sysfs_root_vnode; // /sys mount point VFS node
 struct kobject   *sysfs_dev_char_kobj;
 struct kobject   *sysfs_dev_block_kobj;
 
@@ -273,8 +273,10 @@ static int sysfs_mount(const char *handle, vfs_node_t node)
         sysfs_root_kobj->sd             = node;
         sysfs_root_kobj->state_in_sysfs = 1;
 
-        /* Populate VFS nodes for kobjects that were created
-         * before the filesystem was mounted */
+        /*
+         * Populate VFS nodes for kobjects that were created
+         * before the filesystem was mounted
+         */
         sysfs_populate_dir(sysfs_root_kobj);
     }
 
@@ -384,12 +386,14 @@ static int sysfs_stat(void *file, vfs_node_t node)
             struct kobject *kobj = sn->kobj;
             if (!kobj) break;
 
-            /* sysfs_create_*()/sysfs_remove_*() maintain VFS children
+            /*
+             * sysfs_create_*()/sysfs_remove_*() maintain VFS children
              * eagerly after the filesystem is mounted.  The directory stat
              * callback therefore only needs to perform the initial lazy
              * population.  Rewalking and de-duplicating every kobject and
              * attribute on every pathname component made udev's parallel
-             * attribute scan serialize on the global VFS lock. */
+             * attribute scan serialize on the global VFS lock.
+             */
             if (node->visited) break;
 
             /* Enumerate child kobjects */
@@ -438,7 +442,7 @@ static int sysfs_stat(void *file, vfs_node_t node)
                 for (attr_node = kobj->attributes; attr_node; attr_node = attr_node->next) {
                     sysfs_attr_entry_t *entry = attr_node->data;
                     if (!entry || !entry->attr || !entry->attr->name) continue;
-                    if (entry->vnode) continue; /* already has VFS node */
+                    if (entry->vnode) continue; // already has VFS node
 
                     vfs_node_t file_vn = vfs_node_alloc(node, entry->attr->name);
                     if (!file_vn) continue;
@@ -571,7 +575,7 @@ static size_t sysfs_read(void *file, void *addr, size_t offset, size_t size)
         }
         case SYSFS_DIR :
         case SYSFS_SYMLINK :
-            return 0; /* cannot read a directory */
+            return 0; // cannot read a directory
     }
 
     return 0;
@@ -612,10 +616,12 @@ static int sysfs_file_open(vfs_node_t vnode, uint64_t flags, void **private_data
 
     (void)flags;
     if (!vnode || !private_data || !(sn = vnode->handle)) return -EINVAL; // NOLINT(bugprone-assignment-in-if-condition)
-    /* Directories are valid open-file descriptions.  readdir(2), fstat(2)
+    /*
+     * Directories are valid open-file descriptions.  readdir(2), fstat(2)
      * and *at(2) operations use the vnode itself and do not need a private
      * sysfs stream; rejecting the open here makes libudev unable to inspect
-     * /sys/bus and /sys/class. */
+     * /sys/bus and /sys/class.
+     */
     if (sn->type == SYSFS_DIR) {
         *private_data = NULL;
         return EOK;
@@ -809,8 +815,8 @@ static int sysfs_poll(void *file, size_t events)
 {
     (void)file;
     int revents = 0;
-    if (events & 0x0001) revents |= 0x0001; /* POLLIN */
-    if (events & 0x0004) revents |= 0x0004; /* POLLOUT */
+    if (events & 0x0001) revents |= 0x0001; // POLLIN
+    if (events & 0x0004) revents |= 0x0004; // POLLOUT
     return revents;
 }
 
@@ -869,9 +875,11 @@ int sysfs_create_dir(struct kobject *kobj)
             return -EEXIST;
     }
 
-    /* Mark as in-sysfs even before VFS node creation.
+    /*
+     * Mark as in-sysfs even before VFS node creation.
      * If sysfs is not yet mounted, the VFS node is created
-     * lazily by sysfs_populate_dir when the mount happens. */
+     * lazily by sysfs_populate_dir when the mount happens.
+     */
     kobj->state_in_sysfs = 1;
 
     /* Determine the parent directory VFS node */
@@ -949,7 +957,7 @@ static int sysfs_create_file_mode(struct kobject *dir_kobj, struct kobject *owne
     sysfs_attr_entry_t *entry = calloc(1, sizeof(sysfs_attr_entry_t));
     if (!entry) return -ENOMEM;
 
-    entry->attr  = (struct attribute *)attr; /* const cast ?safe since attr is const in struct */
+    entry->attr  = (struct attribute *)attr; // const cast ?safe since attr is const in struct
     entry->kobj  = owner;
     entry->mode  = mode;
     entry->vnode = NULL;
@@ -1555,9 +1563,11 @@ static void sysfs_populate_dir(struct kobject *kobj)
     }
 }
 
-/* VFS tears down its nodes before invoking ->unmount().  Clear every
+/*
+ * VFS tears down its nodes before invoking ->unmount().  Clear every
  * metadata back-pointer without dereferencing the already-freed vnodes so
- * a later userspace mount can materialize a fresh namespace. */
+ * a later userspace mount can materialize a fresh namespace.
+ */
 static void sysfs_unbind_dir(struct kobject *kobj)
 {
     if (!kobj) return;
@@ -1606,9 +1616,11 @@ int sysfs_init(void)
 
     sysfs_root_kobj->state_in_sysfs = 1;
 
-    /* Create top-level directory kobjects as children of the root.
+    /*
+     * Create top-level directory kobjects as children of the root.
      * Since sysfs isn't mounted yet, sysfs_create_dir will defer
-     * VFS node creation until the mount callback populates them. */
+     * VFS node creation until the mount callback populates them.
+     */
     for (size_t i = 0; i < sizeof(top_level_names) / sizeof(top_level_names[0]); i++) {
         if (!kobject_create_and_add(top_level_names[i], sysfs_root_kobj)) {
             ret = -ENOMEM;
@@ -1616,18 +1628,22 @@ int sysfs_init(void)
         }
     }
 
-    /* cgroup2 is mounted on this kernel-owned sysfs mountpoint.  sysfs is
+    /*
+     * cgroup2 is mounted on this kernel-owned sysfs mountpoint.  sysfs is
      * intentionally read-only to userspace, so the directory must exist in
      * the kernel object tree before OpenRC/elogind attempt mount(2), matching
-     * Linux's /sys/fs/cgroup ABI. */
+     * Linux's /sys/fs/cgroup ABI.
+     */
     struct kobject *fs_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "fs");
     if (!fs_kobj || !kobject_create_and_add("cgroup", fs_kobj)) {
         ret = -ENOMEM;
         goto err_children;
     }
 
-    /* /sys/dev/char and /sys/dev/block hold the major:minor -> device
-     * symlinks that udev uses to resolve a device number to a node. */
+    /*
+     * /sys/dev/char and /sys/dev/block hold the major:minor -> device
+     * symlinks that udev uses to resolve a device number to a node.
+     */
     struct kobject *dev_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "dev");
     if (dev_kobj) {
         sysfs_dev_char_kobj  = kobject_create_and_add("char", dev_kobj);

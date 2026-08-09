@@ -86,9 +86,11 @@ static uint64_t devtmpfs_random_word(void)
         }
     }
 
-    /* xoshiro256**.  The kernel getrandom path can later feed additional
+    /*
+     * xoshiro256**.  The kernel getrandom path can later feed additional
      * hardware/platform entropy into the same state without changing the
-     * character-device ABI. */
+     * character-device ABI.
+     */
     uint64_t result = ((devtmpfs_random_state[1] * 5) << 7 | (devtmpfs_random_state[1] * 5) >> 57) * 9;
     uint64_t t      = devtmpfs_random_state[1] << 17;
     devtmpfs_random_state[2] ^= devtmpfs_random_state[0];
@@ -152,8 +154,10 @@ static int64_t devtmpfs_kmsg_read(void *context, void *private_data, uint64_t fl
     (void)buffer;
     (void)offset;
     (void)size;
-    /* The kernel currently exposes printk output through its consoles.  A
-     * nonblocking kmsg reader observes no queued record rather than EOF. */
+    /*
+     * The kernel currently exposes printk output through its consoles.  A
+     * nonblocking kmsg reader observes no queued record rather than EOF.
+     */
     return -EAGAIN;
 }
 
@@ -170,8 +174,10 @@ static int64_t devtmpfs_kmsg_write(void *context, void *private_data, uint64_t f
     if (!message) return -ENOMEM;
     memcpy(message, buffer, size);
     message[size] = '\0';
-    /* /dev/kmsg writers may prefix a syslog priority as "<n>".  The console
-     * backend has no severity lanes yet, but should not print that framing. */
+    /*
+     * /dev/kmsg writers may prefix a syslog priority as "<n>".  The console
+     * backend has no severity lanes yet, but should not print that framing.
+     */
     char *text = message;
     if (text[0] == '<') {
         char *end = strchr(text, '>');
@@ -706,8 +712,10 @@ static int devtmpfs_create_drm_node(void)
 
     int total = 0;
     if (devtmpfs_register_char_device("/dev/dri/card0", MKDEV(226, 0), MKDEV(226, 0), file_stream, &drm_device) == 0) total++;
-    /* libdrm probes the canonical render node as well. The current kernel
-     * shares the DRM device implementation for this render-only minor. */
+    /*
+     * libdrm probes the canonical render node as well. The current kernel
+     * shares the DRM device implementation for this render-only minor.
+     */
     if (devtmpfs_register_char_device("/dev/dri/renderD128", MKDEV(226, 128), MKDEV(226, 128), file_stream, &drm_device) == 0) total++;
     return total;
 }
@@ -742,8 +750,10 @@ static void devtmpfs_emit_block(devtmpfs_block_walk_fn fn, void *opaque, uint32_
     fn(name, major, minor, device->sector_count * device->sector_size / 1024, opaque);
 }
 
-/* Enumerate every published whole disk plus its partitions.  Minor numbers
- * follow the conventional per-backend layout (hd=3, sd=8, sr=11, nvme=259). */
+/*
+ * Enumerate every published whole disk plus its partitions.  Minor numbers
+ * follow the conventional per-backend layout (hd=3, sd=8, sr=11, nvme=259).
+ */
 static void devtmpfs_walk_block_devices(devtmpfs_block_walk_fn fn, void *opaque)
 {
     for (uint8_t drive = 0; drive < 4; drive++) {
@@ -939,9 +949,11 @@ void devtmpfs_init(void)
         return;
     }
 
-    /* CONFIG_DEVTMPFS_MOUNT semantics: establish /dev as a real devtmpfs
+    /*
+     * CONFIG_DEVTMPFS_MOUNT semantics: establish /dev as a real devtmpfs
      * mount before publishing nodes.  OpenRC/eudev intentionally verify both
-     * the filesystem type and the mount point, not merely the directory. */
+     * the filesystem type and the mount point, not merely the directory.
+     */
     vfs_node_t dev_root = vfs_open("/dev");
     if (!dev_root) {
         plogk("devtmpfs: Cannot open /dev mount point.\n");
@@ -957,8 +969,10 @@ void devtmpfs_init(void)
     status = vfs_mkdir("/dev/pts");
     if (status != EOK && status != -EEXIST) plogk("devtmpfs: Cannot create /dev/pts: %d\n", status);
 
-    /* /dev/shm is a private tmpfs mount with the sticky bit set, matching
-     * the Linux devtmpfs layout (openrc mounts tmpfs there at boot). */
+    /*
+     * /dev/shm is a private tmpfs mount with the sticky bit set, matching
+     * the Linux devtmpfs layout (openrc mounts tmpfs there at boot).
+     */
     status = vfs_mkdir("/dev/shm");
     if (status != EOK && status != -EEXIST) plogk("devtmpfs: Cannot create /dev/shm: %d\n", status);
     vfs_node_t shm_root = vfs_open("/dev/shm");

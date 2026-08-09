@@ -198,7 +198,7 @@ typedef struct {
         int           dir_loaded;
         u8           *runlist_buf;
         u32           runlist_sz;
-        int           is_resident; /* 1 if runlist_buf holds inline resident data */
+        int           is_resident; // 1 if runlist_buf holds inline resident data
 } ntfs_handle_t;
 
 /* ---------- little-endian accessors ---------- */
@@ -3308,10 +3308,10 @@ static void add_dir_entry(vfs_node_t parent, ntfs_mount_t *mnt, u8 *entry, u32 e
     u64 mft_ref = le64(entry);
 
     /* validate FILE_NAME attr fits inside the entry */
-    if (entry_len < 0x52) return; /* need at least: entry_hdr(0x10) + fname_hdr(0x42) */
+    if (entry_len < 0x52) return; // need at least: entry_hdr(0x10) + fname_hdr(0x42)
     fname_attr_t *fna      = (fname_attr_t *)(entry + 0x10);
     u32           fn_bytes = (u32)fna->name_len * 2;
-    if (fn_bytes > 510 || (u32)0x52 + fn_bytes > entry_len) return; /* filename overflow */
+    if (fn_bytes > 510 || (u32)0x52 + fn_bytes > entry_len) return; // filename overflow
 
     u16 *fname16 = utf16_from((u8 *)entry, 0x52, fna->name_len);
     if (!fname16) return;
@@ -3353,8 +3353,10 @@ static void add_dir_entry(vfs_node_t parent, ntfs_mount_t *mnt, u8 *entry, u32 e
         child->handle = ch;
         child->type   = ch->is_dir ? file_dir : (le32((u8 *)&fna->rp_tag) == IO_REPARSE_TAG_SYMLINK ? file_symlink : file_none);
         child->size   = ch->file_size;
-        /* Loaded nodes must use the same synchronous unlink path as newly
-         * created nodes so namespace/metadata failures reach the caller. */
+        /*
+         * Loaded nodes must use the same synchronous unlink path as newly
+         * created nodes so namespace/metadata failures reach the caller.
+         */
         child->flags |= VFS_NODE_DELETE_SYNC;
     } else {
         free(ch->name);
@@ -3422,9 +3424,11 @@ static int ntfs_load_directory(ntfs_handle_t *h, vfs_node_t node)
         off += al;
     }
 
-    /* Use the same validated collector as namespace mutation.  The previous
+    /*
+     * Use the same validated collector as namespace mutation.  The previous
      * ad-hoc root/allocation parser could silently omit valid leaf entries,
-     * leaving files present on disk but absent from the VFS child cache. */
+     * leaving files present on disk but absent from the VFS child cache.
+     */
     status = ntfs_directory_index_collect(mnt, mft, &items, &item_count, NULL);
     if (status < 0) {
         free(mft);
@@ -4497,10 +4501,12 @@ static int ntfs_vfs_stat(void *file, vfs_node_t nd)
     ntfs_handle_t *h = file;
     if (!h || !nd) return -EINVAL;
 
-    /* VFS nodes materialized from a directory index already have a handle, so
+    /*
+     * VFS nodes materialized from a directory index already have a handle, so
      * traversal invokes stat rather than open.  Populate nested directories
      * here as well as regular-file data, otherwise only the mount root gets a
-     * child cache and existing nested files disappear from pathname lookup. */
+     * child cache and existing nested files disappear from pathname lookup.
+     */
     if (h->is_dir && !h->dir_loaded) {
         int status = ntfs_load_directory(h, nd);
         if (status < 0) return status;

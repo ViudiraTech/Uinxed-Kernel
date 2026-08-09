@@ -69,4 +69,4 @@ int64_t sys_mq_getsetattr(int mqdes, const mq_attr_t *newattr, mq_attr_t *oldatt
 
 void posix_mq_init(void);
 
-#endif /* INCLUDE_POSIX_MQ_H_ */
+#endif // INCLUDE_POSIX_MQ_H_

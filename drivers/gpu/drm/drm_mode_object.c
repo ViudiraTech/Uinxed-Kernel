@@ -161,12 +161,14 @@ int drm_object_property_set_value(struct drm_mode_object *obj, struct drm_proper
             spin_unlock(&set->lock);
             return -ENOMEM;
         }
-        set->ids = new_ids; /* realloc() may have freed the old buffer */
+        set->ids = new_ids; // realloc() may have freed the old buffer
         new_vals = realloc(set->values, (size_t)new_cap * sizeof(*new_vals));
         if (!new_vals) {
-            /* ids grew but values did not; leave `capacity` unchanged so
-               indexing stays bounded by values' real size. The extra ids
-               headroom is harmless and will be reused on the next grow. */
+            /*
+             * ids grew but values did not; leave `capacity` unchanged so
+             * indexing stays bounded by values' real size. The extra ids
+             * headroom is harmless and will be reused on the next grow.
+             */
             spin_unlock(&set->lock);
             return -ENOMEM;
         }

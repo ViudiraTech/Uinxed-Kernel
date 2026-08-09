@@ -244,7 +244,7 @@ int buddy_validate(const buddy_allocator_t *allocator)
                 size_t buddy = index ^ units;
                 if (buddy < allocator->page_count && allocator->pages[buddy].state == BUDDY_PAGE_FREE_HEAD
                     && allocator->pages[buddy].order == order)
-                    return -1; /* Coalescing invariant violated. */
+                    return -1; // Coalescing invariant violated.
             }
             previous = node;
             node     = page->next;

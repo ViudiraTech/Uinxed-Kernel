@@ -24,9 +24,11 @@ static bool input_is_keyboard(const input_dev_t *input)
 {
     if (!input || !input_test_bit(EV_KEY, input->evbit)) return false;
 
-    /* Match the same kind of well-known alphanumeric keys that udev's
+    /*
+     * Match the same kind of well-known alphanumeric keys that udev's
      * input_id builtin uses to distinguish a keyboard from a mouse whose
-     * buttons are also reported through EV_KEY. */
+     * buttons are also reported through EV_KEY.
+     */
     return input_test_bit(KEY_Q, input->keybit) && input_test_bit(KEY_A, input->keybit) && input_test_bit(KEY_Z, input->keybit)
            && input_test_bit(KEY_ENTER, input->keybit) && input_test_bit(KEY_SPACE, input->keybit);
 }
@@ -195,10 +197,12 @@ static int input_device_uevent(struct device *device, struct kobj_uevent_env *en
     input_dev_t *input = evdev->input_dev;
     int          ret   = add_uevent_var(env, "PRODUCT=%x/%x/%x/%x", input->id.bustype, input->id.vendor, input->id.product, input->id.version);
     if (ret) return ret;
-    /* libinput consumes these standard udev properties.  The generic
+    /*
+     * libinput consumes these standard udev properties.  The generic
      * input_id builtin cannot infer them reliably from this kernel's compact
      * sysfs capability files, so publish the authoritative device classes at
-     * the source uevent just like Linux input drivers do. */
+     * the source uevent just like Linux input drivers do.
+     */
     ret = add_uevent_var(env, "ID_INPUT=1");
     if (ret) return ret;
     bool keyboard = input_is_keyboard(input);
@@ -257,11 +261,13 @@ int input_sysfs_register_evdev(evdev_t *evdev)
     if (!evdev) return -EINVAL;
     if (evdev->sysfs_device) return EOK;
     if (!input_class_ready) { return EOK; }
-    /* Linux exposes an inputN device containing the identity/capability
+    /*
+     * Linux exposes an inputN device containing the identity/capability
      * files and an eventN child containing the character-device number.
      * libudev resolves /sys/dev/char/13:* back to eventN, while input_id
      * walks through eventN/device to inputN.  Reproducing that topology is
-     * required by libinput's syspath safety check. */
+     * required by libinput's syspath safety check.
+     */
     (void)snprintf(input_name, sizeof(input_name), "input%d", evdev->minor);
     input_device = device_create(&input_class, NULL, 0, evdev, "%s", input_name);
     if (!input_device) return -ENOMEM;

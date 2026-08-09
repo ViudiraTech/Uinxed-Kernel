@@ -21,22 +21,22 @@
 /*  EEVDF constants                                                     */
 /* ------------------------------------------------------------------ */
 
-#define SCHED_NICE_0_LOAD 1024ULL /* weight of nice 0 */
+#define SCHED_NICE_0_LOAD 1024ULL // weight of nice 0
 
 /* ------------------------------------------------------------------ */
 /*  Per-CPU EEVDF runqueue                                              */
 /* ------------------------------------------------------------------ */
 
 typedef struct {
-        rb_root_t timeline;        /* RB-tree sorted by deadline */
-        uint64_t  nr_running;      /* runnable task count */
-        uint64_t  min_vruntime;    /* minimum vruntime (numerical stability) */
-        int64_t   avg_vruntime;    /* weighted sum of (v - min_vr) * weight */
-        uint64_t  avg_load;        /* sum of weights of runnable tasks */
-        task_t   *curr;            /* currently running task */
-        task_t   *idle;            /* idle task for this CPU */
-        uint64_t  reschedule_ipis; /* IPI reschedule counter */
-        uint8_t   online;          /* CPU is online */
+        rb_root_t timeline;        // RB-tree sorted by deadline
+        uint64_t  nr_running;      // runnable task count
+        uint64_t  min_vruntime;    // minimum vruntime (numerical stability)
+        int64_t   avg_vruntime;    // weighted sum of (v - min_vr) * weight
+        uint64_t  avg_load;        // sum of weights of runnable tasks
+        task_t   *curr;            // currently running task
+        task_t   *idle;            // idle task for this CPU
+        uint64_t  reschedule_ipis; // IPI reschedule counter
+        uint8_t   online;          // CPU is online
 } eevdf_rq_t;
 
 /* ------------------------------------------------------------------ */
@@ -44,14 +44,14 @@ typedef struct {
 /* ------------------------------------------------------------------ */
 
 typedef struct {
-        eevdf_rq_t  *rqs;         /* per-CPU runqueues */
-        uint32_t     nr_cpus;     /* number of CPUs */
-        uint64_t     next_pid;    /* next PID to assign */
-        uint64_t     ticks;       /* global tick counter */
-        int          started;     /* 1 once sched_start() has run */
-        spinlock_t   lock;        /* global scheduler lock */
-        ilist_node_t sleep_queue; /* sleeping tasks (ordered by wake_tick) */
-        ilist_node_t timer_queue; /* timed wait-queue tasks (wake on deadline) */
+        eevdf_rq_t  *rqs;         // per-CPU runqueues
+        uint32_t     nr_cpus;     // number of CPUs
+        uint64_t     next_pid;    // next PID to assign
+        uint64_t     ticks;       // global tick counter
+        int          started;     // 1 once sched_start() has run
+        spinlock_t   lock;        // global scheduler lock
+        ilist_node_t sleep_queue; // sleeping tasks (ordered by wake_tick)
+        ilist_node_t timer_queue; // timed wait-queue tasks (wake on deadline)
 } scheduler_t;
 
 /* ------------------------------------------------------------------ */
@@ -125,4 +125,4 @@ void sched_start(void);
 /* Choose the best CPU for a new task (used by task subsystem) */
 uint32_t choose_task_cpu_locked(void);
 
-#endif /* INCLUDE_SCHED_H_ */
+#endif // INCLUDE_SCHED_H_

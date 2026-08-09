@@ -107,4 +107,4 @@ int64_t sys_acct_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t
 int64_t sys_openat2_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 int64_t sys_pidfd_getfd_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 
-#endif /* INCLUDE_SYSCALL_BASIC_H_ */
+#endif // INCLUDE_SYSCALL_BASIC_H_

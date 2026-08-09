@@ -44,9 +44,11 @@ static bool      handoff_in_progress;
  */
 static spinlock_t fbcon_lock;
 
-/* Blink state.  cursor_drawn records where the block cursor currently sits
- * so the next phase flip can restore that cell from the text grid. */
-#define CURSOR_BLINK_INTERVAL ((TIMER_HZ * 2) / 5) /* 400 ms per phase */
+/*
+ * Blink state.  cursor_drawn records where the block cursor currently sits
+ * so the next phase flip can restore that cell from the text grid.
+ */
+#define CURSOR_BLINK_INTERVAL ((TIMER_HZ * 2) / 5) // 400 ms per phase
 
 static uint64_t cursor_last_tick;
 static bool     cursor_phase;
@@ -55,16 +57,18 @@ static uint32_t cursor_drawn_row;
 static uint32_t cursor_drawn_col;
 
 #if BOOT_LOGO
-static uint32_t logo_rows;       /* grid rows covered by the boot logo */
-static uint32_t logo_cover_rows; /* top rows still showing the logo (redraw-protected) */
-static bool     logo_released;   /* true once kernel init handed the screen back */
+static uint32_t logo_rows;       // grid rows covered by the boot logo
+static uint32_t logo_cover_rows; // top rows still showing the logo (redraw-protected)
+static bool     logo_released;   // true once kernel init handed the screen back
 #endif
 
-/* True while a row still sits inside the boot-logo area.  Such rows must
+/*
+ * True while a row still sits inside the boot-logo area.  Such rows must
  * never be repainted from the (blank) text grid, otherwise the logo bitmap
  * drawn on top of them would be erased before the console scrolls over it.
  * After kernel init this count shrinks line by line as scrolling consumes
- * the blank rows, so the logo fades out naturally. */
+ * the blank rows, so the logo fades out naturally.
+ */
 static bool fbcon_row_logo_protected(uint32_t row)
 {
 #if BOOT_LOGO
@@ -84,9 +88,11 @@ static void fbcon_mark_cell_dirty(uint32_t row, uint32_t col)
 }
 
 #if BOOT_LOGO
-/* Reserve the top logo_rows rows for the boot logo.  The console scrolls
+/*
+ * Reserve the top logo_rows rows for the boot logo.  The console scrolls
  * below them; text starts just under the logo.  Once kernel init has handed
- * the screen back (fbcon_release_logo) a late redraw never re-reserves. */
+ * the screen back (fbcon_release_logo) a late redraw never re-reserves.
+ */
 static void fbcon_set_logo_active_locked(bool active)
 {
     if (!active) {
@@ -102,8 +108,10 @@ static void fbcon_set_logo_active_locked(bool active)
     if (vt_ansi_state.y < logo_rows) vt_ansi_state.y = logo_rows;
 }
 
-/* An explicit erase that reaches above the logo reclaims the area for good
- * (like Linux clearing above vc_top); the logo is then wiped by the clear. */
+/*
+ * An explicit erase that reaches above the logo reclaims the area for good
+ * (like Linux clearing above vc_top); the logo is then wiped by the clear.
+ */
 static void fbcon_erase_release_logo_locked(void)
 {
     if (!logo_cover_rows) return;
@@ -111,9 +119,11 @@ static void fbcon_erase_release_logo_locked(void)
     vt_ansi_state.scroll_top = 0;
 }
 
-/* Kernel-init completion: hand the whole screen back to the console without
+/*
+ * Kernel-init completion: hand the whole screen back to the console without
  * touching the logo pixels.  The top rows stay blank (logo still visible)
- * and the first console scrolls cover them line by line. */
+ * and the first console scrolls cover them line by line.
+ */
 static void fbcon_release_logo_locked(void)
 {
     if (!logo_cover_rows) return;
@@ -134,9 +144,11 @@ void fbcon_set_logo_active(bool active)
 #endif
 }
 
-/* Release the boot-logo area at kernel-init completion.  The logo bitmap is
+/*
+ * Release the boot-logo area at kernel-init completion.  The logo bitmap is
  * left untouched; the console merely reclaims the full screen and scrolling
- * gradually covers it, matching Linux fbcon behaviour. */
+ * gradually covers it, matching Linux fbcon behaviour.
+ */
 void fbcon_release_logo(void)
 {
 #if BOOT_LOGO
@@ -268,8 +280,10 @@ void fbcon_scroll_up(uint32_t top, uint32_t bottom, uint32_t lines)
         }
     }
 #if BOOT_LOGO
-    /* A scroll that spans the top of the screen consumes the blank rows
-     * still hiding the logo, so the logo is covered one line at a time. */
+    /*
+     * A scroll that spans the top of the screen consumes the blank rows
+     * still hiding the logo, so the logo is covered one line at a time.
+     */
     if (top == 0 && logo_cover_rows) {
         if (lines >= logo_cover_rows)
             logo_cover_rows = 0;
@@ -317,9 +331,11 @@ void fbcon_erase_display(uint32_t mode)
 {
     if (!text_grid || !color_grid) return;
 #if BOOT_LOGO
-    /* A clear that reaches above the logo reclaims the area just like Linux
+    /*
+     * A clear that reaches above the logo reclaims the area just like Linux
      * (clearing above vc_top releases the logo).  Mode 0 reaches the top
-     * rows only when the cursor sits inside the logo area. */
+     * rows only when the cursor sits inside the logo area.
+     */
     if (logo_cover_rows && (mode == 1 || mode == 2 || mode == 3 || (mode == 0 && cy < logo_cover_rows))) fbcon_erase_release_logo_locked();
 #endif
     switch (mode) {
@@ -499,9 +515,11 @@ void fbcon_init(void)
 
     cx = cy = 0;
 
-    /* The console always owns the full framebuffer grid.  The boot logo is
+    /*
+     * The console always owns the full framebuffer grid.  The boot logo is
      * an overlay on top of the first rows, not a reduction of the console
-     * area; it is reserved (and later reclaimed by scrolling) dynamically. */
+     * area; it is reserved (and later reclaimed by scrolling) dynamically.
+     */
     c_width  = width ? (uint32_t)(width / font_width) : 80;
     c_height = height ? (uint32_t)((height + font_height - 1) / font_height) : 25;
 
@@ -671,10 +689,12 @@ void fbcon_handoff_end(void)
     spin_unlock(&fbcon_lock);
 }
 
-/* Draw a character with per-cell foreground and background color.  The
+/*
+ * Draw a character with per-cell foreground and background color.  The
  * grid uses ceil(height / font_height) rows so the console fills the whole
  * screen; the last row may extend past the physical height and is clipped
- * here. */
+ * here.
+ */
 void fbcon_draw_char_bg(const char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t bg)
 {
     uint32_t draw_rows;
@@ -810,8 +830,10 @@ void fbcon_cursor_tick(uint64_t now_ticks)
         cursor_drawn = false;
     }
 
-    /* Paint the block cursor at the current cursor position (reverse video).
-     * Never paint over the still-visible boot logo. */
+    /*
+     * Paint the block cursor at the current cursor position (reverse video).
+     * Never paint over the still-visible boot logo.
+     */
     if (cursor_phase && vt_ansi_state.cursor_visible && text_grid && color_grid) {
         uint32_t row = vt_ansi_state.y;
         uint32_t col = vt_ansi_state.x;

@@ -81,4 +81,4 @@ void futex_init(void);
 /* Weak default realtime-clock hook (overridable by the syscall clock layer). */
 uint64_t futex_realtime_ticks(void);
 
-#endif /* INCLUDE_FUTEX_H_ */
+#endif // INCLUDE_FUTEX_H_

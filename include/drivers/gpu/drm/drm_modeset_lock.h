@@ -76,4 +76,4 @@ int drm_modeset_backoff(struct drm_modeset_acquire_ctx *ctx);
 /* Lock all KMS modeset locks of @dev under @ctx. Returns 0 or -EDEADLK/-EINTR. */
 int drm_modeset_lock_all_ctx(struct drm_device *dev, struct drm_modeset_acquire_ctx *ctx);
 
-#endif /* INCLUDE_DRM_DRM_MODESET_LOCK_H_ */
+#endif // INCLUDE_DRM_DRM_MODESET_LOCK_H_

@@ -71,4 +71,4 @@ int  fs_txn_commit(fs_txn_t *transaction);
 void fs_txn_abort(fs_txn_t *transaction, int error);
 int  fs_txn_log_error(const fs_txn_log_t *log);
 
-#endif /* INCLUDE_FS_CORE_FS_TXN_H_ */
+#endif // INCLUDE_FS_CORE_FS_TXN_H_

@@ -105,13 +105,13 @@ typedef enum {
 
 /* MSI state stored per device */
 typedef struct {
-        int   msi_cap;                           /* MSI capability offset, 0 if none */
-        int   msix_cap;                          /* MSI-X capability offset, 0 if none */
-        int   msi_nvec;                          /* Number of MSI vectors allocated */
-        int   msix_nvec;                         /* Number of MSI-X vectors allocated */
-        int   msi_vectors[PCI_MAX_MSI_VECTORS];  /* Allocated MSI vectors */
-        int   msix_vectors[PCI_MAX_MSI_VECTORS]; /* Allocated MSI-X vectors */
-        void *msix_table;                        /* Mapped MSI-X table MMIO virtual address */
+        int   msi_cap;                           // MSI capability offset, 0 if none
+        int   msix_cap;                          // MSI-X capability offset, 0 if none
+        int   msi_nvec;                          // Number of MSI vectors allocated
+        int   msix_nvec;                         // Number of MSI-X vectors allocated
+        int   msi_vectors[PCI_MAX_MSI_VECTORS];  // Allocated MSI vectors
+        int   msix_vectors[PCI_MAX_MSI_VECTORS]; // Allocated MSI-X vectors
+        void *msix_table;                        // Mapped MSI-X table MMIO virtual address
 } pci_msi_state_t;
 
 /* PCI cached searching */
@@ -128,7 +128,7 @@ typedef struct pci_device_cache {
         /* *(ecam_ptr | (offset & 0xffc)) = ecam_addr */
         volatile void *ecam_ptr;
 
-        pci_msi_state_t msi; /* MSI/MSI-X state */
+        pci_msi_state_t msi; // MSI/MSI-X state
 } pci_device_cache_t;
 
 typedef struct {

@@ -50,22 +50,22 @@ static spinlock_t gem_name_lock    = {.lock = 0, .rflags = 0};
  */
 
 #define DUMB_OFFSET_SHIFT     12
-#define DUMB_OFFSET_SIZE      (1ULL << DUMB_OFFSET_SHIFT) /* 4096 */
-#define DUMB_OFFSET_BASE      0x100000000ULL              /* 4 GB */
-#define DUMB_OFFSET_SPACE     0x100000000ULL              /* 4 GB space = 1M slots */
+#define DUMB_OFFSET_SIZE      (1ULL << DUMB_OFFSET_SHIFT) // 4096
+#define DUMB_OFFSET_BASE      0x100000000ULL              // 4 GB
+#define DUMB_OFFSET_SPACE     0x100000000ULL              // 4 GB space = 1M slots
 #define DUMB_OFFSET_MAX_SLOTS (DUMB_OFFSET_SPACE >> DUMB_OFFSET_SHIFT)
-#define DUMB_BITMAP_SIZE      (DUMB_OFFSET_MAX_SLOTS / 8) /* 128 KB bitmap */
+#define DUMB_BITMAP_SIZE      (DUMB_OFFSET_MAX_SLOTS / 8) // 128 KB bitmap
 
 /* Slot range in the free list */
 typedef struct dumb_slot_range {
-        uint32_t                start; /* start slot index */
-        uint32_t                count; /* number of contiguous slots */
+        uint32_t                start; // start slot index
+        uint32_t                count; // number of contiguous slots
         struct dumb_slot_range *next;
 } dumb_slot_range_t;
 
 static uint8_t            dumb_bitmap[DUMB_BITMAP_SIZE];
 static dumb_slot_range_t *dumb_free_list;
-static uint32_t           dumb_next_slot; /* high watermark for fresh allocations */
+static uint32_t           dumb_next_slot; // high watermark for fresh allocations
 static spinlock_t         dumb_alloc_lock = {.lock = 0, .rflags = 0};
 
 /* Small pool for slot-range nodes (avoids malloc churn) */
@@ -106,8 +106,10 @@ static dumb_slot_range_t *dumb_range_alloc_node(void)
 
 static void dumb_range_free_node(dumb_slot_range_t *r)
 {
-    /* Pool-allocated nodes cannot be freed individually.
-     * Only malloc'd nodes are returned to the heap. */
+    /*
+     * Pool-allocated nodes cannot be freed individually.
+     * Only malloc'd nodes are returned to the heap.
+     */
     if (r < dumb_range_pool || r >= dumb_range_pool + DUMB_RANGE_POOL_SIZE) { free(r); }
 }
 
@@ -179,7 +181,7 @@ static uint64_t dumb_offset_alloc(size_t size)
     /* No free range –allocate from the high watermark */
     if (dumb_next_slot + need > DUMB_OFFSET_MAX_SLOTS) {
         spin_unlock(&dumb_alloc_lock);
-        return 0; /* out of space */
+        return 0; // out of space
     }
 
     start = dumb_next_slot;
@@ -623,9 +625,11 @@ int drm_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, stru
     drm_gem_object_init(dev, obj, size);
     obj->size = (uint32_t)size;
 
-    /* Allocate a unique mmap offset for this dumb buffer.
+    /*
+     * Allocate a unique mmap offset for this dumb buffer.
      * The offset is page-granular and unique per buffer so that
-     * drm_gem_mmap can later look up the GEM object by offset. */
+     * drm_gem_mmap can later look up the GEM object by offset.
+     */
     obj->mmap_offset = dumb_offset_alloc(size);
     if (!obj->mmap_offset) plogk("drm: dumb mmap offset space exhausted (size=%zu)\n", size);
 
@@ -671,9 +675,11 @@ int drm_gem_dumb_map_offset(struct drm_file *file_priv, struct drm_device *dev, 
     obj = drm_gem_object_lookup(file_priv, handle);
     if (!obj) { return -ENOENT; }
 
-    /* Return the pre-assigned mmap offset. This offset is unique per
+    /*
+     * Return the pre-assigned mmap offset. This offset is unique per
      * buffer and is used by drm_gem_mmap to look up the GEM object
-     * and map its backing memory into userspace. */
+     * and map its backing memory into userspace.
+     */
     *offset = obj->mmap_offset;
 
     drm_gem_object_put(obj);
@@ -714,7 +720,7 @@ static int prime_fd_alloc(struct drm_gem_object *obj, int *fd_out)
         if (!prime_fd_table[i].in_use) {
             prime_fd_table[i].obj    = obj;
             prime_fd_table[i].in_use = 1;
-            *fd_out                  = i + 1; /* fd numbers start at 1 */
+            *fd_out                  = i + 1; // fd numbers start at 1
             obj->prime_fd            = *fd_out;
             drm_gem_object_get(obj);
             spin_unlock(&prime_fd_lock);

@@ -128,8 +128,10 @@ struct virtio_gpu_config {
         uint32_t num_capsets;
 };
 
-/* One synchronous control-queue request.  Multiple requests can be
- * published together and completed after a single device notification. */
+/*
+ * One synchronous control-queue request.  Multiple requests can be
+ * published together and completed after a single device notification.
+ */
 struct virtgpu_vq_command {
         void *cmd;
         int   cmd_size;
@@ -326,7 +328,7 @@ struct virtio_gpu_transfer_3d {
 
 struct virtio_gpu_submit_3d {
         struct virtio_gpu_ctrl_hdr hdr;
-        uint32_t                   size; /* size of command buffer */
+        uint32_t                   size; // size of command buffer
         uint32_t                   padding;
 };
 
@@ -410,7 +412,7 @@ struct virtio_gpu_resp_map_info {
 /* ------------------------------------------------------------------ */
 
 struct drm_virtgpu_map {
-        uint64_t offset; /* mmap offset (in) / virtual addr (out) */
+        uint64_t offset; // mmap offset (in) / virtual addr (out)
         uint32_t handle;
         uint32_t pad;
 };
@@ -418,8 +420,8 @@ struct drm_virtgpu_map {
 struct drm_virtgpu_execbuffer {
         uint32_t flags;
         uint32_t size;
-        uint64_t command;    /* pointer to command buffer */
-        uint64_t bo_handles; /* pointer to BO handle array */
+        uint64_t command;    // pointer to command buffer
+        uint64_t bo_handles; // pointer to BO handle array
         uint32_t num_bo_handles;
         int32_t  fence_fd;
         uint32_t ring_idx;
@@ -497,7 +499,7 @@ struct drm_virtgpu_3d_wait {
 struct drm_virtgpu_get_caps {
         uint32_t cap_set_id;
         uint32_t cap_set_ver;
-        uint64_t addr; /* user-space pointer for capset data */
+        uint64_t addr; // user-space pointer for capset data
         uint32_t size;
         uint32_t pad;
 };
@@ -594,7 +596,7 @@ struct virtio_gpu_context_attachment {
 
 struct virtio_gpu_object {
         struct drm_gem_object base;
-        uint32_t              hw_res_handle; /* host-side resource ID */
+        uint32_t              hw_res_handle; // host-side resource ID
         uint32_t              format;
         uint32_t              width;
         uint32_t              height;
@@ -652,7 +654,7 @@ struct virtio_gpu_device {
         /* Virtqueues: ctrlq (0), cursorq (1) */
         struct vp_virtqueue ctrlq;
         struct vp_virtqueue cursorq;
-        spinlock_t          ctrlq_cmd_lock; /* serialises synchronous batches */
+        spinlock_t          ctrlq_cmd_lock; // serialises synchronous batches
         spinlock_t          cursorq_cmd_lock;
 
         /* Feature flags negotiated */
@@ -801,4 +803,4 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
 /* Framebuffer functions provided by the KMS driver. */
 extern const struct drm_framebuffer_funcs virtgpu_fb_funcs;
 
-#endif /* INCLUDE_VIRTGPU_DRV_H_ */
+#endif // INCLUDE_VIRTGPU_DRV_H_

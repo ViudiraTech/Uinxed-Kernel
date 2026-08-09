@@ -63,8 +63,10 @@ void drm_device_list_remove(struct drm_device *dev)
 
 struct drm_device *drm_get_singleton(void)
 {
-    /* Return the first registered primary device for backward
-     * compatibility. New code should use drm_get_device_by_minor. */
+    /*
+     * Return the first registered primary device for backward
+     * compatibility. New code should use drm_get_device_by_minor.
+     */
     spin_lock(&drm_device_list_lock);
     for (int i = 0; i < DRM_MAX_DEVICES; i++) {
         if (drm_device_list[i]) {
@@ -130,9 +132,11 @@ static void drm_dummy_gem_free_object(struct drm_gem_object *obj)
 
 static struct drm_gem_object *drm_dummy_gem_prime_import(struct drm_device *dev, void *dma_buf)
 {
-    /* For the dummy driver, we can only import buffers that were
+    /*
+     * For the dummy driver, we can only import buffers that were
      * exported by ourselves. The dma_buf pointer is actually a
-     * drm_gem_object pointer. */
+     * drm_gem_object pointer.
+     */
     struct drm_gem_object *obj = (struct drm_gem_object *)dma_buf;
 
     (void)dev;
@@ -310,7 +314,7 @@ static int drm_dummy_kms_setup(struct drm_device *dev)
     memset(&pipeline_connector, 0, sizeof(pipeline_connector));
 
     /* Create primary plane (can only be driven by CRTC 0) */
-    ret = drm_plane_init(dev, &pipeline_primary_plane, 1, /* possible_crtcs = bit 0 */
+    ret = drm_plane_init(dev, &pipeline_primary_plane, 1, // possible_crtcs = bit 0
                          NULL, primary_formats, sizeof(primary_formats) / sizeof(primary_formats[0]), NULL, DRM_PLANE_TYPE_PRIMARY, "primary");
     if (ret) {
         DRM_ERROR("Failed to init primary plane: %d\n", ret);
@@ -444,9 +448,11 @@ int drm_dev_ioctl(void *file, size_t req, void *arg)
     return drm_ioctl(dev, (unsigned int)req, arg, file_priv);
 }
 
-/* tmpfs/devtmpfs per-open bridge. A VFS node is shared by all processes, so
+/*
+ * tmpfs/devtmpfs per-open bridge. A VFS node is shared by all processes, so
  * storing drm_file in node->handle is incorrect: one close could release
- * another client's state. */
+ * another client's state.
+ */
 int drm_dev_open(void *node_ptr, uint64_t flags, void **private_data)
 {
     struct drm_device *dev;
@@ -469,17 +475,21 @@ int drm_dev_open(void *node_ptr, uint64_t flags, void **private_data)
         return ret;
     }
 
-    /* A root compositor opening the primary node is already trusted for
+    /*
+     * A root compositor opening the primary node is already trusted for
      * DRM_AUTH ioctls.  Weston performs GETRESOURCES immediately after the
      * open (before issuing SET_MASTER); leaving this bit clear makes the
      * otherwise valid KMS device look absent to its DRM backend.  Render
-     * nodes intentionally keep the normal unauthenticated state. */
+     * nodes intentionally keep the normal unauthenticated state.
+     */
     vfs_node_t node = (vfs_node_t)node_ptr;
     process_t *proc = process_current();
     if (node && node->name && !strncmp(node->name, "card", 4) && proc && proc->uid == 0) file->authenticated = true;
-    /* drm_send_event() uses this stable device node to wake the VFS poll
+    /*
+     * drm_send_event() uses this stable device node to wake the VFS poll
      * source watched by Weston's epoll loop.  Event readiness itself remains
-     * per-open and is checked through drm_poll(file, ...). */
+     * per-open and is checked through drm_poll(file, ...).
+     */
     file->filp_unused = node;
     *private_data     = file;
     return 0;
@@ -540,9 +550,11 @@ void *drm_dev_mmap(void *file, size_t offset, size_t size, int flags)
     dev = drm_get_singleton();
     if (!dev) return NULL;
 
-    /* Look up the GEM object by the mmap offset that was returned
+    /*
+     * Look up the GEM object by the mmap offset that was returned
      * from MAP_DUMB. Its backing memory is identity-mapped (physical
-     * == virtual) so we can return the pointer directly. */
+     * == virtual) so we can return the pointer directly.
+     */
     obj = drm_gem_object_lookup_by_offset(file_priv, (uint64_t)offset);
     if (!obj) { return NULL; }
 
@@ -571,13 +583,17 @@ void *drm_dev_file_mmap(void *ctx, void *private_data, size_t offset, size_t siz
     obj = drm_gem_object_lookup_by_offset(file_priv, (uint64_t)offset);
     if (!obj || !obj->backing) return NULL;
 
-    /* Store GEM object in VMA for lifetime tracking.
+    /*
+     * Store GEM object in VMA for lifetime tracking.
      * process_munmap will call drm_gem_object_put when the
-     * mapping is torn down. */
+     * mapping is torn down.
+     */
     vma->vm_private_data = obj;
 
-    /* Identity-mapped physical memory: return the backing pointer.
-     * The syscall mmap layer handles PTE creation using this pointer. */
+    /*
+     * Identity-mapped physical memory: return the backing pointer.
+     * The syscall mmap layer handles PTE creation using this pointer.
+     */
     return obj->backing;
 }
 
@@ -652,8 +668,10 @@ int drm_class_registered = 0;
 int drm_init(void)
 {
 #if CONFIG_DRM
-    /* Register core DRM services first.  The software fallback must not
-     * claim card0/renderD128 before a hardware driver probes. */
+    /*
+     * Register core DRM services first.  The software fallback must not
+     * claim card0/renderD128 before a hardware driver probes.
+     */
     if (!drm_class_registered) {
         int ret = class_register(&drm_class);
         if (ret != EOK) return ret;

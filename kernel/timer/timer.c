@@ -67,8 +67,10 @@ INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)
     if (cpu_id == 0) {
         drm_vblank_tick();
 
-        /* Protocol timers only need 10 ms service resolution.  Keep them on
-         * the TIMER_HZ time base, but do not scan every socket at 1000 Hz. */
+        /*
+         * Protocol timers only need 10 ms service resolution.  Keep them on
+         * the TIMER_HZ time base, but do not scan every socket at 1000 Hz.
+         */
         uint64_t now      = sched_ticks();
         uint64_t interval = TIMER_HZ / 100U;
         if (!interval) interval = 1;

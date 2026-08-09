@@ -51,9 +51,11 @@ struct drm_event_vblank {
         __u32            crtc_id;
 };
 
-/* ioctl encoding macros, x86-64 identical to Linux asm-generic/ioctl.h.
+/*
+ * ioctl encoding macros, x86-64 identical to Linux asm-generic/ioctl.h.
  * Guarded with #ifndef so they coexist with input_event.h which also
- * defines them (the project has no single asm/ioctl.h header). */
+ * defines them (the project has no single asm/ioctl.h header).
+ */
 #ifndef _IOC_NRBITS
 #    define _IOC_NRBITS 8
 #endif
@@ -586,4 +588,4 @@ struct drm_prime_handle {
 
 /* Mode setting ioctls begin at 0xa0; defined in drm_mode.h */
 
-#endif /* INCLUDE_DRM_DRM_H_ */
+#endif // INCLUDE_DRM_DRM_H_

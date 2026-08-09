@@ -857,9 +857,11 @@ int64_t sys_mq_timedreceive(int mqdes, char *msg_ptr, size_t msg_len, uint32_t *
     /* Dequeue highest priority message */
     mq_message_t *msg = mq_dequeue(queue);
 
-    /* Clear notification pending flag –a successful receive
-         * means the queue is no longer non-empty, so the notification
-         * condition is cleared. */
+    /*
+     * Clear notification pending flag –a successful receive
+     * means the queue is no longer non-empty, so the notification
+     * condition is cleared.
+     */
     queue->notify_pending = 0;
 
     spin_unlock(&queue->lock);

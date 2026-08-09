@@ -320,9 +320,11 @@ int virtgpu_cmd_update_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_obj
     return virtgpu_ctrl_cmd_batch(vgdev, commands, 2);
 }
 
-/* Full-frame update used by page flips.  A new resource needs
+/*
+ * Full-frame update used by page flips.  A new resource needs
  * TRANSFER -> SET_SCANOUT -> FLUSH ordering; an already-bound resource
- * skips the redundant SET_SCANOUT command. */
+ * skips the redundant SET_SCANOUT command.
+ */
 int virtgpu_cmd_update_scanout_2d(struct virtio_gpu_device *vgdev, int scanout_id, struct virtio_gpu_object *obj, bool set_scanout)
 {
     struct virtio_gpu_transfer_to_host_2d transfer;

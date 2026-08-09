@@ -102,8 +102,10 @@ static int drm_crtc_create_properties(struct drm_device *dev)
 {
     if (!dev) { return -EINVAL; }
 
-    /* MVP stub: standard properties will be created by a future
-     * drm_property_create_range / drm_property_create_object call. */
+    /*
+     * MVP stub: standard properties will be created by a future
+     * drm_property_create_range / drm_property_create_object call.
+     */
     return 0;
 }
 

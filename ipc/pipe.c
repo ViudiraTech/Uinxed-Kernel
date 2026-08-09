@@ -64,9 +64,11 @@ typedef struct pipe_ring {
         wait_queue_t write_wq;
 } pipe_ring_t;
 
-/* One endpoint per open-file description.  fork(2) and dup(2) share the
+/*
+ * One endpoint per open-file description.  fork(2) and dup(2) share the
  * process_file object, so the endpoint is released only after the last
- * descriptor referring to that description is closed. */
+ * descriptor referring to that description is closed.
+ */
 typedef struct pipe_endpoint {
         pipe_ring_t *ring;
         bool         readable;
@@ -284,9 +286,11 @@ static int pipe_file_open(vfs_node_t node, uint64_t flags, void **private_data)
     wait_queue_wake_all(&ring->read_wq);
     wait_queue_wake_all(&ring->write_wq);
 
-    /* Anonymous pipes are born with both endpoints and must not block while
+    /*
+     * Anonymous pipes are born with both endpoints and must not block while
      * pipe2(2) installs them sequentially.  Named FIFOs follow open(2)'s
-     * rendezvous rules. */
+     * rendezvous rules.
+     */
     if (node->parent && !endpoint->readable && endpoint->writable && (flags & O_NONBLOCK)) {
         spin_lock(&ring->lock);
         if (ring->readers == 0) {
@@ -401,9 +405,11 @@ static int64_t pipe_read_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fla
     spin_unlock(&ring->lock);
 
     /* Wake writers that may be waiting for buffer space */
-    /* Linux uses an exclusive writer wait: freeing one pipe-buffer slot
+    /*
+     * Linux uses an exclusive writer wait: freeing one pipe-buffer slot
      * wakes one writer, which may cascade to the next writer if space
-     * remains.  Waking the whole queue creates avoidable scheduler/IPI work. */
+     * remains.  Waking the whole queue creates avoidable scheduler/IPI work.
+     */
     if (wake_writers) wait_queue_wake_one_sync(&ring->write_wq);
     if (node) vfs_poll_notify(node, POLLOUT);
 
@@ -461,8 +467,10 @@ static int64_t pipe_file_read_user(vfs_node_t node, void *private_data, uint64_t
         uint32_t chunk = size < avail ? (uint32_t)size : avail;
         if (pipe_ring_copy_out_user(ring, proc, addr, chunk)) {
             spin_unlock(&ring->lock);
-            /* Fault/COW resolution can allocate or sleep, so it is done only
-             * after dropping the ring lock.  Nothing has been consumed yet. */
+            /*
+             * Fault/COW resolution can allocate or sleep, so it is done only
+             * after dropping the ring lock.  Nothing has been consumed yet.
+             */
             if (!user_access_ok_process(proc, addr, chunk, 1)) return -EFAULT;
             continue;
         }
@@ -502,10 +510,12 @@ static int64_t pipe_write_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fl
         bool     atomic         = size <= PIPE_ATOMIC_SIZE;
         uint32_t wake_threshold = atomic ? (uint32_t)remaining : (uint32_t)(remaining < PIPE_ATOMIC_SIZE ? remaining : PIPE_ATOMIC_SIZE);
 
-        /* PIPE_BUF-sized writes remain atomic.  Larger writes may consume
+        /*
+         * PIPE_BUF-sized writes remain atomic.  Larger writes may consume
          * whatever space is already available (including O_NONBLOCK partial
          * writes), but once the pipe is full we wait for a useful batch of
-         * space instead of bouncing producer/consumer every 512 bytes. */
+         * space instead of bouncing producer/consumer every 512 bytes.
+         */
         while (atomic ? pipe_ring_writable(ring) < (uint32_t)remaining : pipe_ring_writable(ring) == 0) {
             if (ring->closed || ring->readers == 0) {
                 spin_unlock(&ring->lock);
@@ -823,12 +833,16 @@ int64_t sys_pipe2(int pipefd[2], int flags)
         return -ENOMEM;
     }
 
-    /* Hold a construction reference.  Each successfully installed open-file
-     * description consumes one additional node reference. */
+    /*
+     * Hold a construction reference.  Each successfully installed open-file
+     * description consumes one additional node reference.
+     */
     (void)vfs_node_retain(node);
 
-    /* Build fd flags: O_RDONLY for read, O_WRONLY for write,
-     * plus O_CLOEXEC and O_NONBLOCK from the flags argument. */
+    /*
+     * Build fd flags: O_RDONLY for read, O_WRONLY for write,
+     * plus O_CLOEXEC and O_NONBLOCK from the flags argument.
+     */
     uint64_t read_flags  = O_RDONLY | (flags & (O_CLOEXEC | O_NONBLOCK));
     uint64_t write_flags = O_WRONLY | (flags & (O_CLOEXEC | O_NONBLOCK));
 
@@ -882,10 +896,12 @@ static int64_t sys_mknod(const char *path, uint32_t mode, uint64_t dev)
     /* Actually, for FIFO we defer ring creation to the VFS open callback. */
     /* Here we just create the VFS node with type file_pipe. */
 
-    /* Use vfs_mkfile to create the node, then override its type and fsid.
+    /*
+     * Use vfs_mkfile to create the node, then override its type and fsid.
      * We need to manually construct the FIFO node because vfs_mkfile
      * delegates to the parent filesystem's mkfile callback, which would
-     * treat it as a regular file. */
+     * treat it as a regular file.
+     */
     char path_copy[256];
     int  copied = strncpy_from_user(path_copy, path, sizeof(path_copy));
     if (copied < 0) return copied;
@@ -933,7 +949,7 @@ static int64_t sys_mknod(const char *path, uint32_t mode, uint64_t dev)
     node->mode        = mode & 07777;
     node->dev         = dev;
     node->rdev        = dev;
-    node->handle      = NULL; /* ring created in VFS open callback */
+    node->handle      = NULL; // ring created in VFS open callback
     node->permissions = mode & 07777;
 
     if (parent != rootdir) vfs_close(parent);

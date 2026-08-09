@@ -64,4 +64,4 @@ typedef struct {
 int         xhci_ring_init(xhci_ring_t *ring, xhci_trb_t *trbs, uint64_t physical, uint16_t count, bool linked);
 xhci_trb_t *xhci_ring_enqueue(xhci_ring_t *ring, uint64_t parameter, uint32_t status, uint32_t control, uint64_t *physical);
 
-#endif /* INCLUDE_XHCI_H_ */
+#endif // INCLUDE_XHCI_H_

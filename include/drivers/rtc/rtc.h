@@ -19,10 +19,10 @@ typedef struct {
         int tm_min;
         int tm_hour;
         int tm_mday;
-        int tm_mon;  /* 0-11 */
-        int tm_year; /* years since 1900 */
-        int tm_wday; /* 0-6, Sunday=0 */
-        int tm_yday; /* 0-365 */
+        int tm_mon;  // 0-11
+        int tm_year; // years since 1900
+        int tm_wday; // 0-6, Sunday=0
+        int tm_yday; // 0-365
         int tm_isdst;
 } rtc_time_t;
 
@@ -32,8 +32,10 @@ void rtc_get_time(rtc_time_t *t);
 /* Seconds since the Unix epoch for the current CMOS time. */
 uint64_t rtc_since_epoch(void);
 
-/* Register /dev/rtc0 (character device).  The sysfs side (/sys/class/rtc)
- * lives in fs/sysfs/rtc_sysfs.c.  Must be called after devtmpfs is ready. */
+/*
+ * Register /dev/rtc0 (character device).  The sysfs side (/sys/class/rtc)
+ * lives in fs/sysfs/rtc_sysfs.c.  Must be called after devtmpfs is ready.
+ */
 void rtc_vfs_init(void);
 
 #endif // INCLUDE_RTC_H_

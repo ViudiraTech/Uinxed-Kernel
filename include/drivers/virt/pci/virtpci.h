@@ -221,4 +221,4 @@ void *virtqueue_get_buf(struct vp_virtqueue *vq, uint32_t *len);
 void  virtqueue_kick(struct vp_virtqueue *vq);
 int   virtqueue_enable_cb(struct vp_virtqueue *vq);
 
-#endif /* INCLUDE_VIRT_PCI_H_ */
+#endif // INCLUDE_VIRT_PCI_H_

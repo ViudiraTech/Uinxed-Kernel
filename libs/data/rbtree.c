@@ -24,11 +24,12 @@ static void augment_propagate(rb_node_t *node, rb_augment_fn augment, void *data
     }
 }
 
-/* Left rotation:     node                     right
- *                   /    \                    /    \
- *                 left  right     ==>       node    rr
- *                       /   \              /   \
- *                      rl   rr          left   rl
+/*
+ * Left rotation:     node                     right
+ * /    \                    /    \
+ * left  right     ==>       node    rr
+ * /   \              /   \
+ * rl   rr          left   rl
  */
 static void rb_rotate_left(rb_root_t *root, rb_node_t *node, rb_augment_fn augment, void *data)
 {
@@ -55,11 +56,12 @@ static void rb_rotate_left(rb_root_t *root, rb_node_t *node, rb_augment_fn augme
     }
 }
 
-/* Right rotation:       node                 left
- *                      /    \               /    \
- *                   left  right   ==>      ll    node
- *                   /   \                       /   \
- *                  ll   lr                     lr  right
+/*
+ * Right rotation:       node                 left
+ * /    \               /    \
+ * left  right   ==>      ll    node
+ * /   \                       /   \
+ * ll   lr                     lr  right
  */
 static void rb_rotate_right(rb_root_t *root, rb_node_t *node, rb_augment_fn augment, void *data)
 {
@@ -308,8 +310,10 @@ void rb_erase_augmented(rb_root_t *root, rb_node_t *node, rb_augment_fn augment,
     /* Update cached leftmost */
     if (root->leftmost == node) root->leftmost = rb_next(node);
 
-    /* Find the node to actually unlink: if node has two children,
-	 * swap with the in-order successor (which has at most one child) */
+    /*
+     * Find the node to actually unlink: if node has two children,
+     * swap with the in-order successor (which has at most one child)
+     */
     if (node->left && node->right) {
         rb_node_t *successor = rb_subtree_min(node->right);
 

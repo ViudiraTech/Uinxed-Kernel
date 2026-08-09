@@ -141,8 +141,10 @@ static void ide_initialize(uint32_t BAR0, uint32_t BAR1, uint32_t BAR2, uint32_t
             /* ATA device: read identification data */
             ide_read_buffer(i, ATA_REG_DATA, ide_buf, 128);
 
-            /* Validate: word 0 of identify data must be non-zero and non-0xFFFF.
-             * 0x0000 or 0xFFFF indicates floating bus (no device). */
+            /*
+             * Validate: word 0 of identify data must be non-zero and non-0xFFFF.
+             * 0x0000 or 0xFFFF indicates floating bus (no device).
+             */
             {
                 uint16_t sig = *((uint16_t *)ide_buf);
                 if (sig == 0x0000 || sig == 0xffff) {

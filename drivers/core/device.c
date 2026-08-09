@@ -29,9 +29,9 @@
 /*  Global sysfs root kobjects (initialised in sysfs_init)             */
 /* ------------------------------------------------------------------ */
 
-static struct kobject *devices_kobj; /* /sys/devices */
-static struct kobject *bus_kobj;     /* /sys/bus */
-static struct kobject *class_kobj;   /* /sys/class */
+static struct kobject *devices_kobj; // /sys/devices
+static struct kobject *bus_kobj;     // /sys/bus
+static struct kobject *class_kobj;   // /sys/class
 
 /* Forward declarations */
 static struct kobject *sysfs_find_child_kobj(struct kobject *parent, const char *name);
@@ -251,10 +251,12 @@ static ssize_t device_uevent_store(struct device *dev, struct device_attribute *
 
 static DEVICE_ATTR(uevent, 0644, device_uevent_show, device_uevent_store);
 
-/* libudev (and therefore Weston's DRM backend) discovers a class device's
+/*
+ * libudev (and therefore Weston's DRM backend) discovers a class device's
  * character node from the standard sysfs `dev` attribute.  Without this,
  * `/sys/class/drm/card0` exists but udev cannot resolve it to /dev/dri/card0
- * and Weston reports "no drm device found". */
+ * and Weston reports "no drm device found".
+ */
 static ssize_t device_dev_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     (void)attr;
@@ -460,9 +462,11 @@ int device_register(struct device *dev)
 
     if (ret != EOK) return ret;
 
-    /* Publish every property group before the ADD event.  This ordering is
+    /*
+     * Publish every property group before the ADD event.  This ordering is
      * part of the userspace hotplug contract: udev may inspect attributes as
-     * soon as it dequeues the event. */
+     * soon as it dequeues the event.
+     */
     if (dev->bus && dev->bus->dev_groups) {
         ret = sysfs_create_groups(&dev->kobj, dev->bus->dev_groups);
         if (ret != EOK) {
@@ -507,8 +511,10 @@ int device_register(struct device *dev)
 
         /* Try to bind a driver */
         if (dev->bus->match) {
-            /* Full driver matching requires iterating drivers_kset;
-             * for now, probe using bus->probe if set */
+            /*
+             * Full driver matching requires iterating drivers_kset;
+             * for now, probe using bus->probe if set
+             */
             if (dev->bus->probe) { dev->bus->probe(dev); }
         }
     }
@@ -779,8 +785,10 @@ struct device *class_find_device(struct class *cls, struct device *start, const 
     (void)start;
     (void)data;
     (void)match;
-    /* For now, return NULL ?full implementation would
-     * iterate over the class's device list */
+    /*
+     * For now, return NULL ?full implementation would
+     * iterate over the class's device list
+     */
     return NULL;
 }
 
@@ -821,13 +829,17 @@ int device_model_init(void)
     /* Locate the top-level sysfs kobjects created by sysfs_init */
     /* They are children of sysfs_root_kobj */
 
-    /* Wait ?we need sysfs_root_kobj to find these.
+    /*
+     * Wait ?we need sysfs_root_kobj to find these.
      * The kobject_create_and_add calls in sysfs_init already
-     * create them under sysfs_root_kobj. We just need to find them. */
+     * create them under sysfs_root_kobj. We just need to find them.
+     */
 
-    /* For now, we'll find them lazily. The registration functions
+    /*
+     * For now, we'll find them lazily. The registration functions
      * for bus/class will use the extern pointers declared at the
-     * top of this file. They need to be initialised. */
+     * top of this file. They need to be initialised.
+     */
 
     if (sysfs_root_kobj) {
         devices_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "devices");

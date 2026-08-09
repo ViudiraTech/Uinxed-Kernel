@@ -15,4 +15,4 @@
 
 extern uint8_t ascii_font[];
 
-#endif /* INCLUDE_LIBS_GFXS_FONTS_H_ */
+#endif // INCLUDE_LIBS_GFXS_FONTS_H_

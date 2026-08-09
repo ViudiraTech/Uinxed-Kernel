@@ -260,7 +260,7 @@ typedef struct hda_controller {
         /* Streams */
         struct {
                 int               allocated;
-                int               direction; /* 0=playback, 1=capture */
+                int               direction; // 0=playback, 1=capture
                 volatile uint8_t *buf;
                 uint64_t          buf_phys;
                 size_t            buf_size;
@@ -270,8 +270,8 @@ typedef struct hda_controller {
                 int               period_frags;
                 snd_pcm_uframes_t period_frames;
                 snd_pcm_uframes_t total_frames;
-                snd_pcm_uframes_t hw_pos;   /* frames consumed */
-                audio_pcm_file_t *pcm_file; /* owner */
+                snd_pcm_uframes_t hw_pos;   // frames consumed
+                audio_pcm_file_t *pcm_file; // owner
         } streams[HDA_MAX_STREAMS];
 
         /* Audio interface */
@@ -811,7 +811,7 @@ static int hda_setup_stream(int stream_idx, uint32_t format, size_t buf_size, si
         bdl[i].addr_low  = (uint32_t)(frag_phys & 0xFFFFFFFF);
         bdl[i].addr_high = (uint32_t)(frag_phys >> 32);
         bdl[i].length    = (uint32_t)frag_sz;
-        bdl[i].ioc       = 1; /* Interrupt on completion for each fragment */
+        bdl[i].ioc       = 1; // Interrupt on completion for each fragment
     }
 
     sd_write32(stream_idx, SD_CBL, (uint32_t)buf_size);

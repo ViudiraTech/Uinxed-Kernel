@@ -54,9 +54,9 @@ typedef enum {
 typedef struct {
         uint64_t fs_base;
         uint64_t gs_base;
-        void    *fpu_state;       /* 64-byte aligned FXSAVE/XSAVE area */
-        uint8_t  fpu_initialized; /* state contains this thread's FP registers */
-        uint8_t  fpu_active;      /* state is currently live in this CPU */
+        void    *fpu_state;       // 64-byte aligned FXSAVE/XSAVE area
+        uint8_t  fpu_initialized; // state contains this thread's FP registers
+        uint8_t  fpu_active;      // state is currently live in this CPU
 } thread_struct_t;
 
 typedef struct {
@@ -75,12 +75,12 @@ struct task {
         uint64_t           pid;
         uint64_t           tgid;
         task_state_t       state;
-        volatile uint64_t  on_cpu; /* cleared only after switching off this task's stack */
+        volatile uint64_t  on_cpu; // cleared only after switching off this task's stack
         task_context_t     context;
-        thread_struct_t    thread;     /* per-thread arch state (fs_base, gs_base) */
-        rb_node_t          run_node;   /* EEVDF red-black tree node */
-        ilist_node_t       sched_node; /* sleep / wait_queue linkage */
-        ilist_node_t       timer_node; /* timed-waiter linkage (scheduler.timer_queue) */
+        thread_struct_t    thread;     // per-thread arch state (fs_base, gs_base)
+        rb_node_t          run_node;   // EEVDF red-black tree node
+        ilist_node_t       sched_node; // sleep / wait_queue linkage
+        ilist_node_t       timer_node; // timed-waiter linkage (scheduler.timer_queue)
         page_directory_t  *page_directory;
         uint8_t           *kernel_stack;
         uint64_t           time_slice;
@@ -95,21 +95,23 @@ struct task {
         cgroup_t          *cgroup;
         ilist_node_t       cgroup_node;
         /* ---- EEVDF scheduling fields ---- */
-        uint64_t vruntime; /* virtual runtime */
-        uint64_t deadline; /* virtual deadline */
-        int64_t  vlag;     /* virtual lag for placement */
-        uint32_t weight;   /* scheduling weight (NICE_0_LOAD = 1024) */
+        uint64_t vruntime; // virtual runtime
+        uint64_t deadline; // virtual deadline
+        int64_t  vlag;     // virtual lag for placement
+        uint32_t weight;   // scheduling weight (NICE_0_LOAD = 1024)
         /* ---- PI (Priority Inheritance) fields ---- */
-        uint32_t         base_weight; /* original weight before PI boost */
-        uint32_t         pi_weight;   /* effective weight for PI waiter ordering */
-        rb_node_t        pi_node;     /* rbtree node for pi_waiters */
-        struct rt_mutex *blocked_on;  /* mutex this task is blocked on, or NULL */
-        /* Active copy_{to,from}_user() exception fixup.  Keeping this in the
+        uint32_t         base_weight; // original weight before PI boost
+        uint32_t         pi_weight;   // effective weight for PI waiter ordering
+        rb_node_t        pi_node;     // rbtree node for pi_waiters
+        struct rt_mutex *blocked_on;  // mutex this task is blocked on, or NULL
+        /*
+         * Active copy_{to,from}_user() exception fixup.  Keeping this in the
          * task (rather than a CPU global) makes it survive preemption and
-         * keeps simultaneous uaccess operations on different CPUs separate. */
+         * keeps simultaneous uaccess operations on different CPUs separate.
+         */
         uintptr_t      uaccess_fault_resume;
         uint8_t        uaccess_fault_nofault;
-        ptrace_state_t ptrace; /* Linux ptrace state is per-thread */
+        ptrace_state_t ptrace; // Linux ptrace state is per-thread
 };
 
 /* Initialize a wait queue */
@@ -148,8 +150,10 @@ int wait_queue_wait_timed(wait_queue_t *queue, uint64_t deadline_ticks);
 /* Wake one task from a wait queue */
 task_t *wait_queue_wake_one(wait_queue_t *queue);
 
-/* Wake one task with Linux WF_SYNC-like affinity: a fully sleeping wakee may
- * be placed on the waker's CPU to keep producer/consumer cache state local. */
+/*
+ * Wake one task with Linux WF_SYNC-like affinity: a fully sleeping wakee may
+ * be placed on the waker's CPU to keep producer/consumer cache state local.
+ */
 task_t *wait_queue_wake_one_sync(wait_queue_t *queue);
 
 /* Wake every task from a wait queue */
@@ -179,4 +183,4 @@ task_t *pid_find_task(uint64_t pid);
 /* Return the next PID that will be allocated */
 uint64_t task_next_pid(void);
 
-#endif /* INCLUDE_TASK_H_ */
+#endif // INCLUDE_TASK_H_

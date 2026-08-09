@@ -82,9 +82,11 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
 #define CLONE_DETACHED         0x00400000ULL
 #define CLONE_CHILD_SETTID     0x01000000ULL
 #define CLONE_PTHREAD_REQUIRED (CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM)
-/* CLONE_DETACHED has been ignored by Linux since 2.6.2, but musl still sets
+/*
+ * CLONE_DETACHED has been ignored by Linux since 2.6.2, but musl still sets
  * it in pthread_create().  Accepting it as a no-op is required for the Linux
- * clone ABI; rejecting it makes pthread_create return EINVAL. */
+ * clone ABI; rejecting it makes pthread_create return EINVAL.
+ */
 #define CLONE_PTHREAD_ALLOWED \
     (CLONE_PTHREAD_REQUIRED | CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_DETACHED)
 
@@ -608,8 +610,10 @@ static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t a
 
     if (!path) return -EFAULT;
 
-    /* tmpfs does not provide unnamed temporary files yet.  Report this
-     * explicitly so userspace can fall back to a named temporary file. */
+    /*
+     * tmpfs does not provide unnamed temporary files yet.  Report this
+     * explicitly so userspace can fall back to a named temporary file.
+     */
     if ((flags & O_TMPFILE) == O_TMPFILE) return -EOPNOTSUPP;
 
     process_t *proc = process_current();
@@ -735,18 +739,22 @@ static int64_t sys_close_range(uint64_t first, uint64_t last, uint64_t flags, ui
     if (first > last) return -EINVAL;
     if (flags & ~(uint64_t)(CLOSE_RANGE_UNSHARE | CLOSE_RANGE_CLOEXEC)) return -EINVAL;
 
-    /* Uinxed currently keeps one descriptor table per process.  It cannot
+    /*
+     * Uinxed currently keeps one descriptor table per process.  It cannot
      * unshare that table for only the calling thread yet; rejecting the flag
-     * lets libc fall back instead of silently changing other threads' fds. */
+     * lets libc fall back instead of silently changing other threads' fds.
+     */
     if (flags & CLOSE_RANGE_UNSHARE) return -EINVAL;
 
     if (first >= PROCESS_MAX_FD) return EOK;
     uint64_t end = last < (uint64_t)(PROCESS_MAX_FD - 1) ? last : (uint64_t)(PROCESS_MAX_FD - 1);
 
-    /* CLOSE_RANGE_CLOEXEC does not close anything.  Linux userspace uses it
+    /*
+     * CLOSE_RANGE_CLOEXEC does not close anything.  Linux userspace uses it
      * to prepare a child for exec while retaining selected descriptors; in
      * particular OpenRC marks its readiness pipes here and fixes up the one
-     * it passes to the daemon immediately afterwards. */
+     * it passes to the daemon immediately afterwards.
+     */
     if (flags & CLOSE_RANGE_CLOEXEC) {
         spin_lock(&proc->fd_lock);
         for (uint64_t fd = first; fd <= end; fd++) {
@@ -809,9 +817,11 @@ static int64_t sys_write(uint64_t fd, uint64_t buf, uint64_t size, uint64_t arg3
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    /* The VFS fallback still invokes zero-length writes, preserving empty
+    /*
+     * The VFS fallback still invokes zero-length writes, preserving empty
      * datagram semantics without forcing every ordinary write through a
-     * syscall-layer bounce buffer. */
+     * syscall-layer bounce buffer.
+     */
     return process_fd_write_user(proc, (int)fd, (const void *)buf, (size_t)size);
 }
 
@@ -825,19 +835,19 @@ static int64_t sys_arch_prctl(uint64_t code, uint64_t addr, uint64_t arg2, uint6
     task_t *task = current_task();
 
     switch (code) {
-        case 0x1002 : /* ARCH_SET_FS */
+        case 0x1002 : // ARCH_SET_FS
             wrmsr(0xC0000100, addr);
             if (task) task->thread.fs_base = addr;
             return 0;
-        case 0x1003 : { /* ARCH_GET_FS */
+        case 0x1003 : { // ARCH_GET_FS
             uint64_t fs = task ? task->thread.fs_base : 0;
             return copy_to_user((void *)addr, &fs, sizeof(fs));
         }
-        case 0x1004 : /* ARCH_SET_GS */
+        case 0x1004 : // ARCH_SET_GS
             wrmsr(0xC0000101, addr);
             if (task) task->thread.gs_base = addr;
             return 0;
-        case 0x1005 : { /* ARCH_GET_GS */
+        case 0x1005 : { // ARCH_GET_GS
             uint64_t gs = task ? task->thread.gs_base : 0;
             return copy_to_user((void *)addr, &gs, sizeof(gs));
         }
@@ -911,10 +921,12 @@ static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3,
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    /* Linux's ioctl(2) command argument is an unsigned int.  Some libc
+    /*
+     * Linux's ioctl(2) command argument is an unsigned int.  Some libc
      * declarations expose it as int, so read-direction commands such as
      * TIOCGPTN (0x80045430) can arrive sign-extended in the 64-bit syscall
-     * register.  Truncate at the ABI boundary before matching commands. */
+     * register.  Truncate at the ABI boundary before matching commands.
+     */
     return process_fd_ioctl(proc, (int)fd, (size_t)(uint32_t)req, (void *)arg);
 }
 
@@ -957,7 +969,7 @@ static int64_t sys_statx(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_t
     if (!statbuf) return -EFAULT;
     if (flags & ~(uint64_t)(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT | AT_EMPTY_PATH | AT_STATX_SYNC_TYPE)) return -EINVAL;
     if ((flags & AT_STATX_SYNC_TYPE) == AT_STATX_SYNC_TYPE) return -EINVAL;
-    (void)mask; /* All implemented basic fields are returned, as Linux permits. */
+    (void)mask; // All implemented basic fields are returned, as Linux permits.
 
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
@@ -1576,7 +1588,7 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
     /* Handle MS_MOVE: move an existing mount to a new location */
     if (flags & MS_MOVE) {
         vfs_close(node);
-        return -ENOSYS; /* not yet supported */
+        return -ENOSYS; // not yet supported
     }
 
     /* Perform the mount */
@@ -1677,19 +1689,19 @@ static int64_t sys_access_common(int dirfd, uint64_t path, uint64_t mode, uint64
     if (!node) return ret;
 
     /* R_OK=4, W_OK=2, X_OK=1, F_OK=0 */
-    if (mode & 4) { /* R_OK */
+    if (mode & 4) { // R_OK
         if (vfs_access_check(node, VFS_ACCESS_R)) {
             vfs_close(node);
             return -EACCES;
         }
     }
-    if (mode & 2) { /* W_OK */
+    if (mode & 2) { // W_OK
         if (vfs_access_check(node, VFS_ACCESS_W)) {
             vfs_close(node);
             return -EACCES;
         }
     }
-    if (mode & 1) { /* X_OK */
+    if (mode & 1) { // X_OK
         if (vfs_access_check(node, VFS_ACCESS_X)) {
             vfs_close(node);
             return -EACCES;
@@ -2197,12 +2209,12 @@ static int64_t sys_reboot_impl(uint64_t magic, uint64_t magic2, uint64_t cmd, ui
     if (proc->uid != 0) return -EPERM;
 
     switch (cmd) {
-        case 0x00000000 : /* RB_DISABLE_CAD */
-        case 0x89ABCDEF : /* RB_ENABLE_CAD */
+        case 0x00000000 : // RB_DISABLE_CAD
+        case 0x89ABCDEF : // RB_ENABLE_CAD
             /* Ctrl-Alt-Del is not handled specially by the input stack yet. */
             return EOK;
-        case 0x01234567 : /* RB_AUTOBOOT */
-        case 0xA1B2C3D4 : /* RB_RESTART2 */
+        case 0x01234567 : // RB_AUTOBOOT
+        case 0xA1B2C3D4 : // RB_RESTART2
             plogk("syscall: reboot requested.\n");
             disable_intr();
             power_reset();
@@ -2214,17 +2226,17 @@ static int64_t sys_reboot_impl(uint64_t magic, uint64_t magic2, uint64_t cmd, ui
             }
             outb(0xCF9, 0x06);
             break;
-        case 0x4321FEDC : /* RB_POWER_OFF */
+        case 0x4321FEDC : // RB_POWER_OFF
             plogk("syscall: power-off requested.\n");
             disable_intr();
             power_off();
             break;
-        case 0xCDEF0123 : /* RB_HALT_SYSTEM */
+        case 0xCDEF0123 : // RB_HALT_SYSTEM
             plogk("syscall: halt requested.\n");
             disable_intr();
             break;
-        case 0x45584543 : /* RB_KEXEC */
-        case 0xD000FCE2 : /* RB_SW_SUSPEND */
+        case 0x45584543 : // RB_KEXEC
+        case 0xD000FCE2 : // RB_SW_SUSPEND
             return -ENOSYS;
         default :
             return -EINVAL;
@@ -2390,8 +2402,10 @@ static int64_t sys_getrandom_stub(uint64_t buf, uint64_t buflen, uint64_t flags,
         cpuid(0x00000000, &max_leaf, &ebx, &ecx, &edx);
         has_rdrand = false;
         if (max_leaf >= 1) {
-            /* Zero ECX (subleaf) before querying leaf 1, otherwise some CPUs
-             * may return garbage and spuriously claim RDRAND support. */
+            /*
+             * Zero ECX (subleaf) before querying leaf 1, otherwise some CPUs
+             * may return garbage and spuriously claim RDRAND support.
+             */
             cpuid_safe(0x00000001, 0, &eax, &ebx, &ecx, &edx);
             has_rdrand = (ecx & (1U << 30)) != 0;
         }
@@ -2508,10 +2522,12 @@ static int process_rlimit_update(process_t *caller, process_t *target, uint64_t 
     if (!caller || !target || !limit) return -EINVAL;
     if (resource >= PROCESS_RLIMIT_COUNT || limit->rlim_cur > limit->rlim_max) return -EINVAL;
 
-    /* The descriptor table is currently a fixed 1024-entry array.  Userland
+    /*
+     * The descriptor table is currently a fixed 1024-entry array.  Userland
      * daemons such as dbus still legitimately request a larger soft/hard
      * RLIMIT_NOFILE during startup; clamp that request to the real kernel
-     * ceiling instead of returning EPERM to a root process. */
+     * ceiling instead of returning EPERM to a root process.
+     */
     uint64_t current = limit->rlim_cur;
     uint64_t maximum = limit->rlim_max;
     if (resource == PROCESS_RLIMIT_NOFILE) {
@@ -2884,9 +2900,11 @@ static int64_t sys_execveat_stub(uint64_t dirfd, uint64_t path, uint64_t argv, u
             return -EBADF;
         }
         /* We need the path; use the VFS node directly */
-        /* For now, return ENOSYS for empty-path execveat; full
+        /*
+         * For now, return ENOSYS for empty-path execveat; full
          * implementation requires path-from-node which isn't
-         * available. */
+         * available.
+         */
         process_file_put(pf);
         return -ENOSYS;
     }
@@ -2895,8 +2913,10 @@ static int64_t sys_execveat_stub(uint64_t dirfd, uint64_t path, uint64_t argv, u
     if (ret != EOK) return ret;
 
     if (flags & AT_EXECVE_CHECK) {
-        /* AT_EXECVE_CHECK: just check if the file is executable,
-         * don't actually exec. */
+        /*
+         * AT_EXECVE_CHECK: just check if the file is executable,
+         * don't actually exec.
+         */
         vfs_node_t node = vfs_open(kpath);
         if (!node) return -ENOENT;
         vfs_close(node);
@@ -2916,10 +2936,10 @@ static int64_t sys_membarrier_stub(uint64_t cmd, uint64_t flags, uint64_t cpu_id
     /* MEMBARRIER_CMD_QUERY = 0, MEMBARRIER_CMD_GLOBAL = 1 */
     if (flags) return -EINVAL;
     switch (cmd) {
-        case 0 : /* QUERY: return supported commands bitmap */
+        case 0 : // QUERY: return supported commands bitmap
             /* We support GLOBAL (1 << 1) = 2 on SMP, plus the basic bits */
             return (1 << 0) | (1 << 1);
-        case 1 : /* GLOBAL: issue memory barrier on all CPUs */
+        case 1 : // GLOBAL: issue memory barrier on all CPUs
             __asm__ volatile("mfence" ::: "memory");
             return 0;
         default :
@@ -3044,9 +3064,11 @@ static int64_t sys_rseq_impl(uint64_t rseq_base, uint64_t rseq_len, uint64_t fla
     if (rseq_len != sizeof(rseq_layout_t)) return -EINVAL;
     if (!rseq_base) return -EINVAL;
 
-    /* Store the rseq area association. A full implementation would abort
+    /*
+     * Store the rseq area association. A full implementation would abort
      * the rseq critical section on preemption/migration/signal delivery.
-     * For now, just register the area so that glibc initialization succeeds. */
+     * For now, just register the area so that glibc initialization succeeds.
+     */
     (void)rseq_base;
     (void)rseq_len;
 
@@ -3205,7 +3227,7 @@ static int64_t sys_pidfd_open_impl(uint64_t pid_raw, uint64_t flags, uint64_t ar
     }
 
     node->type   = file_stream;
-    node->handle = target; /* caller must process_put in close */
+    node->handle = target; // caller must process_put in close
     node->fsid   = pidfd_fsid;
     node->size   = 0;
     node->mode   = O_RDONLY;
@@ -3260,9 +3282,11 @@ static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, u
         flags = (flags & ~0xffULL) | (exit_signal & 0xff);
     }
 
-    /* For now, support the same subset as our existing clone:
+    /*
+     * For now, support the same subset as our existing clone:
      * CLONE_VM|CLONE_VFORK for vfork, CLONE_THREAD|CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_SYSVSEM for threads,
-     * and basic fork (flags=signal only). */
+     * and basic fork (flags=signal only).
+     */
     uint64_t supported_thread = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM;
 
     bool is_thread = (flags & CLONE_THREAD) != 0;
@@ -3274,9 +3298,11 @@ static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, u
         /* But we're not in the dispatch here; we need to simulate it. */
     }
 
-    /* For a basic fork or vfork, delegate to the existing wrapper.
+    /*
+     * For a basic fork or vfork, delegate to the existing wrapper.
      * Since we can't easily redirect to the dispatch's fork/clone logic
-     * from here, we use the process-level API directly. */
+     * from here, we use the process-level API directly.
+     */
 
     /* Simplify: treat clone3 as clone with flags */
     if (is_thread) {
@@ -3300,7 +3326,7 @@ static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, u
         if (ct) {
             uint64_t  kstack_top = (uint64_t)(child->kernel_stack + PROCESS_KERNEL_STACK);
             uint64_t *kstack     = (uint64_t *)ALIGN_DOWN(kstack_top, 16ULL);
-            kstack -= 4; /* Leave room */
+            kstack -= 4; // Leave room
             *(--kstack)     = (uint64_t)syscall_return;
             ct->context.rsp = (uint64_t)kstack;
             /* Set the user stack pointer via the child's context */
@@ -3343,8 +3369,8 @@ static int64_t sys_process_madvise_impl(uint64_t pidfd, uint64_t iovec, uint64_t
     for (uint64_t i = 0; i < vlen; i++) {
         /* Apply advice per-range. For now, just validate and return success. */
         switch (advice) {
-            case 1 : /* MADV_COLD */
-            case 2 : /* MADV_PAGEOUT */
+            case 1 : // MADV_COLD
+            case 2 : // MADV_PAGEOUT
                 break;
             default :
                 process_put(target);
@@ -3361,7 +3387,7 @@ static int64_t sys_process_madvise_impl(uint64_t pidfd, uint64_t iovec, uint64_t
 
 static int64_t sys_epoll_pwait2_impl(uint64_t epfd, uint64_t events, uint64_t maxevents, uint64_t tsp, uint64_t sigmask, uint64_t sigsetsize)
 {
-    int timeout_ms = -1; /* infinite */
+    int timeout_ms = -1; // infinite
 
     if (tsp) {
         linux_timespec64_t ts;
@@ -3965,8 +3991,10 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
     int   flags = (int)options;
 
     if (!(flags & (WEXITED | WSTOPPED | WCONTINUED)) || (flags & ~(WNOHANG | WEXITED | WSTOPPED | WCONTINUED | WNOWAIT))) return -EINVAL;
-    /* Non-destructive wait snapshots require retained per-child wait events;
-     * reject WNOWAIT until that ABI is available rather than consuming state. */
+    /*
+     * Non-destructive wait snapshots require retained per-child wait events;
+     * reject WNOWAIT until that ABI is available rather than consuming state.
+     */
     if (flags & WNOWAIT) return -EINVAL;
 
     switch ((int)which) {
@@ -4112,10 +4140,12 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     uint8_t *elf_data = NULL;
     size_t   total    = 0;
 
-    /* Linux binfmt_script semantics: replace argv[0] with the interpreter,
+    /*
+     * Linux binfmt_script semantics: replace argv[0] with the interpreter,
      * insert its optional argument as one word, then the script pathname,
      * while preserving the caller's argv[1..].  Resolve at most four nested
-     * interpreters so malformed shebang loops fail deterministically. */
+     * interpreters so malformed shebang loops fail deterministically.
+     */
     for (int depth = 0;; depth++) {
         vfs_node_t node = vfs_open(kpath);
         if (!node) {
@@ -4268,8 +4298,10 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
         return -ENOMEM;
     }
 
-    /* Load ELF into the new page directory BEFORE destroying the old one.
-     * This way, if loading fails, we can restore the old address space. */
+    /*
+     * Load ELF into the new page directory BEFORE destroying the old one.
+     * This way, if loading fails, we can restore the old address space.
+     */
 
     uintptr_t entry = 0;
     uintptr_t rsp   = 0;
@@ -4279,8 +4311,10 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     free_string_array(kenvp);
 
     if (ret) {
-        /* Loading failed. Destroy the new (incomplete) page directory
-         * and its VMAs, then restore the old address space. */
+        /*
+         * Loading failed. Destroy the new (incomplete) page directory
+         * and its VMAs, then restore the old address space.
+         */
         vm_area_t *failed_mmaps = process_mmap_replace(proc, old_mmaps);
         page_destroy_user_space(proc->user_page_dir);
         free(proc->user_page_dir);
@@ -4296,8 +4330,10 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
         return -ENOEXEC;
     }
 
-    /* Loading succeeded: from this point onward exec cannot fail.  Apply
-     * close-on-exec only after the replacement image is known to be valid. */
+    /*
+     * Loading succeeded: from this point onward exec cannot fail.  Apply
+     * close-on-exec only after the replacement image is known to be valid.
+     */
     for (int i = 0; i < PROCESS_MAX_FD; i++) {
         spin_lock(&proc->fd_lock);
         if (proc->fds[i] && (proc->fd_flags[i] & FD_CLOEXEC)) {
@@ -4331,9 +4367,11 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     strncpy(proc->exe_path, kpath, sizeof(proc->exe_path) - 1);
     proc->exe_path[sizeof(proc->exe_path) - 1] = '\0';
 
-    /* Publish exec completion only after CLOEXEC descriptors and the old
+    /*
+     * Publish exec completion only after CLOEXEC descriptors and the old
      * address space have been retired.  This is the release point required
-     * by vfork/posix_spawn. */
+     * by vfork/posix_spawn.
+     */
     process_vfork_complete(proc);
 
     if (frame) {
@@ -4374,12 +4412,14 @@ typedef struct linux_dirent64 {
 #define DT_LNK     10
 #define DT_SOCK    12
 
-/* Map an internal VFS node type to a Linux d_type.  libudev (and therefore
+/*
+ * Map an internal VFS node type to a Linux d_type.  libudev (and therefore
  * Weston's DRM backend) enumerates devices by listing /sys/class/<subsystem>/
  * and only accepts entries whose d_type is DT_DIR or DT_LNK (see
  * relevant_sysfs_subdir() in sd-device).  Reporting a sysfs class symlink
  * (e.g. /sys/class/drm/card0) as DT_REG made the enumeration empty, so
- * find_primary_gpu() found nothing and Weston logged "no drm device found". */
+ * find_primary_gpu() found nothing and Weston logged "no drm device found".
+ */
 static unsigned char vfs_node_to_dtype(uint16_t type)
 {
     if (type & file_dir) return DT_DIR;
@@ -5315,17 +5355,21 @@ int syscall_dispatch(syscall_frame_t *frame)
          */
         int64_t sr_ret = do_rt_sigreturn(frame);
         if (sr_ret != 0) {
-            /* Linux treats a malformed signal frame as a fatal badframe.
+            /*
+             * Linux treats a malformed signal frame as a fatal badframe.
              * Returning to the restorer after a failed sigreturn executes
              * whatever bytes follow its syscall stub and commonly raises
-             * the misleading user #GP seen after Ctrl+C. */
+             * the misleading user #GP seen after Ctrl+C.
+             */
             process_exit(-SIGSEGV);
             return 0;
         }
-        /* Success: frame is fully restored; check pending signals.
+        /*
+         * Success: frame is fully restored; check pending signals.
          * Bypass the normal retval path to avoid overriding frame->rax.
          * Do NOT go through the restart logic since we're restoring
-         * a previous context, not returning from a syscall. */
+         * a previous context, not returning from a syscall.
+         */
         if (frame->cs & 0x3) { signal_deliver_for_process(dispatch_task ? dispatch_task->process : NULL, frame); }
         return 0;
     }
@@ -5359,8 +5403,10 @@ check_signals:
         if (frame->rip != saved_rip) force_iret = true;
 
         if (sig_ret == 1) {
-            /* Process terminated by signal default action
-             * (signal_deliver_if_pending already called process_exit) */
+            /*
+             * Process terminated by signal default action
+             * (signal_deliver_if_pending already called process_exit)
+             */
             task_exit();
             return 0;
         }
@@ -5382,12 +5428,13 @@ check_signals:
                 restart = true;
             } else if (retval == -ERESTARTSYS) {
                 /* Restart only if the handler has SA_RESTART */
-                /* For now check if a user handler was set up:
+                /*
+                 * For now check if a user handler was set up:
                  * if signal_deliver_if_pending set frame->rip to a handler
                  * (frame->rip != saved_rip) and it has SA_RESTART flag,
                  * we could restart. Since we don't track which signal
                  * was the one that interrupted, we need to be conservative.
-                 * 
+                 *
                  * For SIG_DFL or SIG_IGN (no user handler), we always
                  * restart with ERESTARTSYS. With a user handler, the
                  * SA_RESTART flag on that signal determines restart.
@@ -5395,19 +5442,21 @@ check_signals:
                  * We check if frame->rip was changed (handler installed):
                  * - If unchanged: no user handler, so restart
                  * - If changed: user handler installed, need SA_RESTART
-                 *   which we don't have readily available here.
-                 *   For full correctness, we should convert to -EINTR.
+                 * which we don't have readily available here.
+                 * For full correctness, we should convert to -EINTR.
                  */
                 if (frame->rip == saved_rip) {
                     /* No user handler was set up, restart */
                     restart = true;
                 } else {
-                    /* User handler was set up, check SA_RESTART.
+                    /*
+                     * User handler was set up, check SA_RESTART.
                      * Since we cannot easily know which signal interrupted
                      * the syscall without deeper plumbing, we convert to
                      * -EINTR for safety. Full SA_RESTART support requires
                      * passing the signal number from signal_deliver_if_pending
-                     * back to this function. */
+                     * back to this function.
+                     */
                     restart = false;
                 }
             } else if (retval == -ERESTARTNOHAND) {
@@ -5445,9 +5494,11 @@ check_signals:
          */
     }
 
-    /* SYSRET is valid only for the ordinary 64-bit userspace selectors and
+    /*
+     * SYSRET is valid only for the ordinary 64-bit userspace selectors and
      * canonical lower-half addresses.  Full-context restoration paths use
-     * IRETQ so RCX/R11 are restored instead of taking their syscall-ABI role. */
+     * IRETQ so RCX/R11 are restored instead of taking their syscall-ABI role.
+     */
     if (force_iret || frame->cs != 0x33 || frame->ss != 0x2b || frame->rip >= PROCESS_USER_STACK_TOP || frame->rsp >= PROCESS_USER_STACK_TOP)
         return 0;
     return 1;

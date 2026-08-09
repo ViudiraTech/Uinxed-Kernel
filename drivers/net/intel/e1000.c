@@ -113,11 +113,11 @@ typedef struct {
 
 /* These IDs use the legacy RX/TX descriptor and register layout implemented here. */
 static const e1000_id_t e1000_ids[] = {
-    {0x100e, 0                                  }, /* 82540EM, QEMU e1000 */
-    {0x100f, 0                                  }, /* 82545EM */
-    {0x1010, 0                                  }, /* 82546EB */
-    {0x107c, E1000_F_EERD_SMALL                 }, /* 82541PI */
-    {0x10d3, E1000_F_EERD_SMALL | E1000_F_E1000E}, /* 82574L, QEMU e1000e */
+    {0x100e, 0                                  }, // 82540EM, QEMU e1000
+    {0x100f, 0                                  }, // 82545EM
+    {0x1010, 0                                  }, // 82546EB
+    {0x107c, E1000_F_EERD_SMALL                 }, // 82541PI
+    {0x10d3, E1000_F_EERD_SMALL | E1000_F_E1000E}, // 82574L, QEMU e1000e
 };
 
 typedef struct {

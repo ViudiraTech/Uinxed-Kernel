@@ -301,8 +301,10 @@ struct drm_property_blob *drm_property_lookup_blob(struct drm_device *dev, uint3
     return container_of(obj, struct drm_property_blob, base);
 }
 
-/* Return a property blob to userspace. A zero length is the normal size
- * query; otherwise the supplied buffer must hold the whole immutable blob. */
+/*
+ * Return a property blob to userspace. A zero length is the normal size
+ * query; otherwise the supplied buffer must hold the whole immutable blob.
+ */
 int drm_mode_getblob_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_get_blob *req = data;
@@ -334,8 +336,10 @@ int drm_mode_getblob_ioctl(struct drm_device *dev, void *data, struct drm_file *
     return ret;
 }
 
-/* Create an immutable userspace-owned blob. Its initial object reference is
- * owned by this drm_file until DESTROYPROPBLOB or file close. */
+/*
+ * Create an immutable userspace-owned blob. Its initial object reference is
+ * owned by this drm_file until DESTROYPROPBLOB or file close.
+ */
 int drm_mode_createblob_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
     struct drm_mode_create_blob *req = data;

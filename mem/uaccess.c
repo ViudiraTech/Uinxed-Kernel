@@ -50,8 +50,10 @@ static int copy_user_direct(void *dst, const void *src, size_t size, int nofault
     task_t *task = current_task();
     if (!task) return -EFAULT;
 
-    /* Preserve an outer fixup in case an interrupt handler performs uaccess
-     * while a task was interrupted inside another user copy. */
+    /*
+     * Preserve an outer fixup in case an interrupt handler performs uaccess
+     * while a task was interrupted inside another user copy.
+     */
     uintptr_t old_resume        = task->uaccess_fault_resume;
     uint8_t   old_nofault       = task->uaccess_fault_nofault;
     task->uaccess_fault_nofault = nofault != 0;
@@ -200,15 +202,19 @@ static int copy_user_bytes(void *dst, const void *src, size_t size, int to_user)
         void  *kaddr;
         size_t page_left;
 
-        /* Translate once while holding the page-table lock and keep the leaf
+        /*
+         * Translate once while holding the page-table lock and keep the leaf
          * alive through the copy.  The old fast path walked all four page
          * table levels before taking this lock, then immediately walked them
-         * again to close the COW/munmap race. */
+         * again to close the COW/munmap race.
+         */
         spin_lock(&proc->user_page_dir->lock);
         if (!user_translate(proc, user, to_user, &kaddr, &page_left)) {
             spin_unlock(&proc->user_page_dir->lock);
-            /* Fault handling may allocate, copy pages, or shoot down TLBs and
-             * therefore must stay outside the page-table lock. */
+            /*
+             * Fault handling may allocate, copy pages, or shoot down TLBs and
+             * therefore must stay outside the page-table lock.
+             */
             if (to_user && page_resolve_cow_fault(proc, user) == 0) continue;
             if (process_demand_fault(proc, user, to_user, 0) == 0) continue;
             return -EFAULT;
@@ -228,11 +234,13 @@ static int copy_user_bytes(void *dst, const void *src, size_t size, int to_user)
     return 0;
 }
 
-/* Copy through already-present user mappings without invoking the demand or
+/*
+ * Copy through already-present user mappings without invoking the demand or
  * COW fault paths.  Callers that hold an object lock can use this for their
  * common path, drop that lock and fault the range with user_access_ok_process
  * only when this reports EFAULT, then retry without exposing half-committed
- * object state. */
+ * object state.
+ */
 static int copy_user_bytes_process_nofault(process_t *proc, void *dst, const void *src, size_t size, int to_user)
 {
     uintptr_t user = (uintptr_t)(to_user ? dst : src);

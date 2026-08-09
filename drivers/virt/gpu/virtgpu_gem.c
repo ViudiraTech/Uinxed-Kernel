@@ -181,8 +181,10 @@ int virtgpu_gem_dumb_map_offset(struct drm_file *file_priv, struct drm_device *d
     gem_obj = drm_gem_object_lookup(file_priv, handle);
     if (!gem_obj) { return -ENOENT; }
 
-    /* Use the GEM object's backing memory address as the mmap offset.
-     * The core DRM mmap handler (drm_dev_mmap) will look it up. */
+    /*
+     * Use the GEM object's backing memory address as the mmap offset.
+     * The core DRM mmap handler (drm_dev_mmap) will look it up.
+     */
     if (!gem_obj->mmap_offset) {
         drm_gem_object_put(gem_obj);
         return -EINVAL;

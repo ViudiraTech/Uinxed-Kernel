@@ -21,8 +21,10 @@ static int devtmpfs_id = 0;
 /* Mount the tmpfs file system to a specified VFS node */
 int tmpfs_mount(const char *handle, vfs_node_t node)
 {
-    /* tmpfs has no block-device source.  mount(8) conventionally supplies
-     * "tmpfs" as the source operand, which is intentionally ignored. */
+    /*
+     * tmpfs has no block-device source.  mount(8) conventionally supplies
+     * "tmpfs" as the source operand, which is intentionally ignored.
+     */
     (void)handle;
     if (!node) return -EINVAL;
 
@@ -371,7 +373,7 @@ int tmpfs_free(void *handle)
 
 /* Dummy function (placeholder for VFS callbacks not implemented) */
 void tmpfs_dummy(void)
-{ /* Nothing */
+{ // Nothing
 }
 
 /* ------------------------------------------------------------------ */
@@ -550,8 +552,10 @@ void tmpfs_regist(void)
     if (!(tmpfs_id & ERRNO_MASK)) plogk("tmpfs: Filesystem registered (fsid=%d)\n", tmpfs_id);
     if (tmpfs_id & ERRNO_MASK) plogk("tmpfs: Register error.\n");
 
-    /* devtmpfs uses tmpfs storage and device callbacks, but is a distinct
-     * mount type in the userspace ABI (/proc/filesystems and mountinfo). */
+    /*
+     * devtmpfs uses tmpfs storage and device callbacks, but is a distinct
+     * mount type in the userspace ABI (/proc/filesystems and mountinfo).
+     */
     devtmpfs_id = vfs_regist_fs_flags("devtmpfs", &tmpfs_callbacks, VFS_FS_NODEV);
     if (!(devtmpfs_id & ERRNO_MASK)) plogk("devtmpfs: Filesystem registered (fsid=%d)\n", devtmpfs_id);
     if (devtmpfs_id & ERRNO_MASK) plogk("devtmpfs: Register error.\n");

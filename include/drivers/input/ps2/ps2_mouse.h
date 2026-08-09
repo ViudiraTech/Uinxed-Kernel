@@ -43,4 +43,4 @@ int    ps2_mouse_decode_packet(enum ps2_mouse_protocol protocol, const uint8_t *
 void   ps2_mouse_stream_init(struct ps2_mouse_stream *stream, enum ps2_mouse_protocol protocol);
 int    ps2_mouse_stream_byte(struct ps2_mouse_stream *stream, uint8_t byte, struct ps2_mouse_packet *packet);
 
-#endif /* INCLUDE_DRIVERS_PS2_MOUSE_H_ */
+#endif // INCLUDE_DRIVERS_PS2_MOUSE_H_

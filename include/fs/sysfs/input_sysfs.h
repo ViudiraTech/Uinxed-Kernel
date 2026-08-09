@@ -17,4 +17,4 @@ void input_sysfs_init(void);
 int  input_sysfs_register_evdev(evdev_t *evdev);
 void input_sysfs_unregister_evdev(evdev_t *evdev);
 
-#endif /* INCLUDE_DRIVERS_INPUT_SYSFS_H_ */
+#endif // INCLUDE_DRIVERS_INPUT_SYSFS_H_

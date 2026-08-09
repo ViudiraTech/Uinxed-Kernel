@@ -245,8 +245,10 @@ void *mcfg_ecam_addr(mcfg_entry_t *entry, pci_device_reg_t reg)
     uint32_t      bus    = device->bus & 0xff;
     uint32_t      slot   = device->slot & 0x1f;
     uint32_t      func   = device->func & 0x07;
-    /* ECAM address: base + (bus_offset << 20) | (slot << 15) | (func << 12) | offset
-     * The segment is used to select the MCFG entry, not part of the address. */
+    /*
+     * ECAM address: base + (bus_offset << 20) | (slot << 15) | (func << 12) | offset
+     * The segment is used to select the MCFG entry, not part of the address.
+     */
     uintptr_t addr = entry->base_addr
                      + (((bus - entry->start_bus) << 20) // Bus
                         | (slot << 15)                   // Slot
@@ -308,9 +310,11 @@ static void pci_mcfg_write(pci_device_reg_t reg, uint32_t value)
     if (!offset) {
         *ptr = value;
     } else {
-        /* Sub-dword write: RMW to preserve adjacent bytes.
+        /*
+         * Sub-dword write: RMW to preserve adjacent bytes.
          * Note: registers with W1C semantics should be accessed at
-         * their natural alignment to avoid RMW races. */
+         * their natural alignment to avoid RMW races.
+         */
         uint32_t bytes_to_write = 4 - offset;
         uint32_t val_mask       = (uint32_t)(0xffffffff >> (32 - 8 * bytes_to_write));
         uint32_t reg_clear      = val_mask << (8 * offset);
@@ -411,8 +415,10 @@ base_address_register_t get_base_address_register(pci_device_cache_t *device, ui
         write_pci(reg, bar_saved >> 32);
     }
 
-    /* size: region bytes. For 64-bit BARs, the BAR_64BIT_FLAG is set
-     * so iterators know to skip the next BAR register slot. */
+    /*
+     * size: region bytes. For 64-bit BARs, the BAR_64BIT_FLAG is set
+     * so iterators know to skip the next BAR register slot.
+     */
     result.size = region_size;
     if (bar_type == BAR_S64) result.size |= BAR_64BIT_FLAG;
 
@@ -472,9 +478,9 @@ static void msi_vector_init(void)
     }
     msi_initialized = 1;
     int reserved[]  = {
-        0x52, 0x53, 0x54, 0x55, /* IPIs */
-        0x80,                   /* Syscall */
-        0xFF,                   /* Spurious */
+        0x52, 0x53, 0x54, 0x55, // IPIs
+        0x80,                   // Syscall
+        0xFF,                   // Spurious
     };
     for (size_t i = 0; i < sizeof(reserved) / sizeof(reserved[0]); i++) {
         if (reserved[i] >= MSI_VECTOR_MIN && reserved[i] <= MSI_VECTOR_MAX) {
@@ -516,8 +522,10 @@ static void msi_vector_free(int vector)
 /* Compute MSI message address for targeting local APIC */
 static uint32_t msi_message_address(void)
 {
-    /* MSI destination ID is 8 bits wide (bits 19:12 of address).
-     * lapic_id() may return a wider x2APIC ID; mask to 8 bits. */
+    /*
+     * MSI destination ID is 8 bits wide (bits 19:12 of address).
+     * lapic_id() may return a wider x2APIC ID; mask to 8 bits.
+     */
     return MSI_ADDRESS_DEST(lapic_id() & 0xFF);
 }
 
@@ -952,12 +960,13 @@ void pci_device_find(pci_finding_request_t *req) // Notice: the req should be a 
             break;
     }
 
-    /* By the end of the function, you should to do: 
+    /*
+     * By the end of the function, you should to do:
      * 1. Check the response->error
-     * 2. If error is PCI_FINDING_SUCCESS, 
-     *    then response->device should be set to the founded device cache.
-     * 3. If error is PCI_FINDING_NOT_FOUND, 
-     *    then response->device should be set to 0, and you can try to execute `pci_flush_devices_cache()` and then retry this function.
+     * 2. If error is PCI_FINDING_SUCCESS,
+     * then response->device should be set to the founded device cache.
+     * 3. If error is PCI_FINDING_NOT_FOUND,
+     * then response->device should be set to 0, and you can try to execute `pci_flush_devices_cache()` and then retry this function.
      */
 }
 

@@ -30,9 +30,9 @@
 #define RTL8169_MAX_DEVICES       8
 #define RTL8169_RX_COUNT          256
 #define RTL8169_TX_COUNT          256
-#define RTL8169_BUFFER_SIZE       2048 /* multiple of 8, one RX buffer per descriptor */
+#define RTL8169_BUFFER_SIZE       2048 // multiple of 8, one RX buffer per descriptor
 #define RTL8169_MAX_FRAME_SIZE    (RTL8169_MTU + 18)
-#define RTL8169_CRC_LEN           4 /* RX frame length reported by the chip includes CRC */
+#define RTL8169_CRC_LEN           4 // RX frame length reported by the chip includes CRC
 #define RTL8169_WORK_BUDGET       64
 #define RTL8169_TX_RECLAIM_BUDGET 64
 #define RTL8169_RESET_TIMEOUT_US  100000
@@ -42,20 +42,20 @@
  * Access widths follow the datasheet; descriptor arrays must be
  * 256-byte aligned.
  */
-#define RTL8169_REG_IDR0      0x0000 /* MAC address, bytes 0-5 */
-#define RTL8169_REG_TNPDS     0x0020 /* TX descriptor start address, 64-bit (low/high) */
-#define RTL8169_REG_CR        0x0037 /* Command register (byte) */
-#define RTL8169_REG_TPPOLL    0x0038 /* Transmit priority polling (byte) */
-#define RTL8169_REG_IMR       0x003c /* Interrupt mask register (word) */
-#define RTL8169_REG_ISR       0x003e /* Interrupt status register (word, W1C) */
-#define RTL8169_REG_TCR       0x0040 /* Transmit configuration register */
-#define RTL8169_REG_RCR       0x0044 /* Receive configuration register */
-#define RTL8169_REG_9346CR    0x0050 /* 93C46/93C56 command register (byte) */
-#define RTL8169_REG_PHYSTATUS 0x006c /* PHY(GMII/MII/TBI) status register (byte) */
-#define RTL8169_REG_RMS       0x00da /* Receive packet maximum size (word) */
-#define RTL8169_REG_CPLUSCR   0x00e0 /* C+ command register (word) */
-#define RTL8169_REG_RDSAR     0x00e4 /* RX descriptor start address, 64-bit (low/high) */
-#define RTL8169_REG_MTPS      0x00ec /* Max transmit packet size register (byte) */
+#define RTL8169_REG_IDR0      0x0000 // MAC address, bytes 0-5
+#define RTL8169_REG_TNPDS     0x0020 // TX descriptor start address, 64-bit (low/high)
+#define RTL8169_REG_CR        0x0037 // Command register (byte)
+#define RTL8169_REG_TPPOLL    0x0038 // Transmit priority polling (byte)
+#define RTL8169_REG_IMR       0x003c // Interrupt mask register (word)
+#define RTL8169_REG_ISR       0x003e // Interrupt status register (word, W1C)
+#define RTL8169_REG_TCR       0x0040 // Transmit configuration register
+#define RTL8169_REG_RCR       0x0044 // Receive configuration register
+#define RTL8169_REG_9346CR    0x0050 // 93C46/93C56 command register (byte)
+#define RTL8169_REG_PHYSTATUS 0x006c // PHY(GMII/MII/TBI) status register (byte)
+#define RTL8169_REG_RMS       0x00da // Receive packet maximum size (word)
+#define RTL8169_REG_CPLUSCR   0x00e0 // C+ command register (word)
+#define RTL8169_REG_RDSAR     0x00e4 // RX descriptor start address, 64-bit (low/high)
+#define RTL8169_REG_MTPS      0x00ec // Max transmit packet size register (byte)
 
 /* Command register (0x37) */
 #define RTL8169_CR_TE    (1u << 2)
@@ -89,17 +89,17 @@
 #define RTL8169_TCR_MXDMA_UNLIMITED (7u << 8)
 
 /* Receive configuration (0x44) */
-#define RTL8169_RCR_AAP   (1u << 0)  /* accept all packets (promiscuous) */
-#define RTL8169_RCR_APM   (1u << 1)  /* accept physical match */
-#define RTL8169_RCR_AM    (1u << 2)  /* accept multicast */
-#define RTL8169_RCR_AB    (1u << 3)  /* accept broadcast */
-#define RTL8169_RCR_AR    (1u << 4)  /* accept runt */
-#define RTL8169_RCR_AER   (1u << 5)  /* accept error packets */
-#define RTL8169_RCR_MXDMA (7u << 8)  /* unlimited DMA burst */
-#define RTL8169_RCR_RXFTH (7u << 13) /* no FIFO threshold */
+#define RTL8169_RCR_AAP   (1u << 0)  // accept all packets (promiscuous)
+#define RTL8169_RCR_APM   (1u << 1)  // accept physical match
+#define RTL8169_RCR_AM    (1u << 2)  // accept multicast
+#define RTL8169_RCR_AB    (1u << 3)  // accept broadcast
+#define RTL8169_RCR_AR    (1u << 4)  // accept runt
+#define RTL8169_RCR_AER   (1u << 5)  // accept error packets
+#define RTL8169_RCR_MXDMA (7u << 8)  // unlimited DMA burst
+#define RTL8169_RCR_RXFTH (7u << 13) // no FIFO threshold
 
 /* C+ command register (0xe0) */
-#define RTL8169_CPLUS_DAC (1u << 4) /* PCI dual address cycle (64-bit DMA) */
+#define RTL8169_CPLUS_DAC (1u << 4) // PCI dual address cycle (64-bit DMA)
 
 /* 93C46/93C56 command register (0x50) */
 #define RTL8169_9346_UNLOCK 0xc0
@@ -130,18 +130,18 @@ typedef struct {
 } rtl8169_id_t;
 
 static const rtl8169_id_t rtl8169_ids[] = {
-    {0x10ec, 0x8161}, /* RTL8169/RTL8111SC */
-    {0x10ec, 0x8169}, /* RTL8169 */
-    {0x1259, 0xc107}, /* Kontron */
-    {0x1737, 0x1032}, /* Linksys EG1032 */
-    {0x16ec, 0x0116}, /* US Robotics */
+    {0x10ec, 0x8161}, // RTL8169/RTL8111SC
+    {0x10ec, 0x8169}, // RTL8169
+    {0x1259, 0xc107}, // Kontron
+    {0x1737, 0x1032}, // Linksys EG1032
+    {0x16ec, 0x0116}, // US Robotics
 };
 
 typedef struct {
-        uint32_t command;  /* dword0: ownership/status/length */
-        uint32_t vlan;     /* dword1: VLAN tag (unused) */
-        uint32_t low_buf;  /* dword2: low 32 bits of buffer address */
-        uint32_t high_buf; /* dword3: high 32 bits of buffer address */
+        uint32_t command;  // dword0: ownership/status/length
+        uint32_t vlan;     // dword1: VLAN tag (unused)
+        uint32_t low_buf;  // dword2: low 32 bits of buffer address
+        uint32_t high_buf; // dword3: high 32 bits of buffer address
 } __attribute__((packed)) rtl8169_desc_t;
 
 typedef struct rtl8169_device {
@@ -296,7 +296,7 @@ static void rtl8169_read_mac(rtl8169_device_t *device)
     if (!rtl8169_valid_mac(device->mac)) {
         plogk("rtl8169: %04x:%04x: invalid MAC address, using fallback.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
         for (size_t i = 0; i < 6; i++) device->mac[i] = i;
-        device->mac[0] &= ~1u; /* ensure a unicast, locally administered address */
+        device->mac[0] &= ~1u; // ensure a unicast, locally administered address
         device->mac[0] |= 2u;
     }
 }
@@ -344,7 +344,7 @@ static int rtl8169_alloc_dma(rtl8169_device_t *device)
         if (!device->tx_buffer_phys[i]) return -ENOMEM;
         uint32_t cmd = 0;
         if (i == RTL8169_TX_COUNT - 1) cmd |= RTL8169_DESC_EOR;
-        device->tx_ring[i].command  = cmd; /* OWN clear: available */
+        device->tx_ring[i].command  = cmd; // OWN clear: available
         device->tx_ring[i].vlan     = 0;
         device->tx_ring[i].low_buf  = (uint32_t)device->tx_buffer_phys[i];
         device->tx_ring[i].high_buf = (uint32_t)(device->tx_buffer_phys[i] >> 32);
@@ -417,8 +417,10 @@ static size_t rtl8169_tx_reclaim_locked(rtl8169_device_t *device, size_t budget)
         volatile rtl8169_desc_t *desc = &device->tx_ring[device->tx_clean];
         dma_read_barrier();
         if (desc->command & RTL8169_DESC_OWN) break;
-        /* The Tx status descriptor no longer carries the frame length
-         * (bits 27-0 are reserved), so bytes are counted at submit time. */
+        /*
+         * The Tx status descriptor no longer carries the frame length
+         * (bits 27-0 are reserved), so bytes are counted at submit time.
+         */
         device->stats.tx_packets++;
         device->tx_clean = (device->tx_clean + 1) % RTL8169_TX_COUNT;
         device->tx_used--;
@@ -522,7 +524,7 @@ int rtl8169_transmit(rtl8169_device_t *device, const void *packet, size_t length
     volatile rtl8169_desc_t *desc = &device->tx_ring[idx];
     uint32_t                 cmd  = RTL8169_DESC_FS | RTL8169_DESC_LS | ((uint32_t)length & RTL8169_TX_LEN_MASK);
     if (idx == RTL8169_TX_COUNT - 1) cmd |= RTL8169_DESC_EOR;
-    desc->command = cmd; /* OWN clear first so the update is ordered */
+    desc->command = cmd; // OWN clear first so the update is ordered
     dma_write_barrier();
     desc->command |= RTL8169_DESC_OWN;
     dma_write_barrier();
@@ -552,7 +554,7 @@ size_t rtl8169_poll(rtl8169_device_t *device, size_t budget)
         dma_read_barrier();
         if (cmd & RTL8169_DESC_OWN) break;
 
-        uint32_t length   = cmd & RTL8169_RX_LEN_MASK; /* includes the 4-byte CRC */
+        uint32_t length   = cmd & RTL8169_RX_LEN_MASK; // includes the 4-byte CRC
         int      complete = (cmd & RTL8169_DESC_LS) && (cmd & RTL8169_DESC_FS);
         int      good     = complete && !(cmd & RTL8169_RX_ERROR_MASK) && length > RTL8169_CRC_LEN && length <= RTL8169_BUFFER_SIZE
                    && length - RTL8169_CRC_LEN <= RTL8169_MAX_FRAME_SIZE;

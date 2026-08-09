@@ -184,17 +184,17 @@ struct drm_property_set {
         spinlock_t lock;
         uint32_t   count;
         uint32_t   capacity;
-        uint32_t  *ids; /* parallel arrays */
+        uint32_t  *ids; // parallel arrays
         uint64_t  *values;
 };
 
 struct drm_mode_object {
-        uint32_t                 id;   /* userspace-visible object id */
-        uint32_t                 type; /* one of DRM_MODE_OBJECT_* */
+        uint32_t                 id;   // userspace-visible object id
+        uint32_t                 type; // one of DRM_MODE_OBJECT_*
         struct drm_device       *dev;
         int                      refcount;
         spinlock_t               ref_lock;
-        struct drm_property_set *properties; /* optional per-object property set */
+        struct drm_property_set *properties; // optional per-object property set
 };
 
 /* Generic object lookup by id+type. Returns NULL if not found. */
@@ -206,7 +206,7 @@ void drm_mode_object_put(struct drm_mode_object *obj);
 struct drm_property_enum {
         uint64_t     value;
         char         name[DRM_PROP_NAME_LEN];
-        ilist_node_t head; /* in property->enum_list */
+        ilist_node_t head; // in property->enum_list
 };
 
 struct drm_property {
@@ -214,9 +214,9 @@ struct drm_property {
         char                   name[DRM_PROP_NAME_LEN];
         uint32_t               flags;
         uint32_t               num_values;
-        uint64_t              *values;    /* range [lo,hi] / enum values / bitmask values */
-        ilist_node_t           enum_list; /* head of drm_property_enum.head */
-        ilist_node_t           dev_head;  /* node in mode_config.property_list */
+        uint64_t              *values;    // range [lo,hi] / enum values / bitmask values
+        ilist_node_t           enum_list; // head of drm_property_enum.head
+        ilist_node_t           dev_head;  // node in mode_config.property_list
         struct drm_device     *dev;
 };
 
@@ -224,8 +224,8 @@ struct drm_property_blob {
         struct drm_mode_object base;
         void                  *data;
         size_t                 length;
-        ilist_node_t           head_global; /* in mode_config.property_blob_list */
-        ilist_node_t           head_file;   /* optional: in file legacy_blob_list */
+        ilist_node_t           head_global; // in mode_config.property_blob_list
+        ilist_node_t           head_file;   // optional: in file legacy_blob_list
 };
 
 /* ------------------------------------------------------------------ */
@@ -236,14 +236,14 @@ struct drm_display_mode {
         struct drm_mode_object base;
         char                   name[DRM_DISPLAY_MODE_LEN];
         int                    connector_count;
-        ilist_node_t           head; /* in connector->modes */
+        ilist_node_t           head; // in connector->modes
         enum drm_mode_status   status;
 
-        int                      clock; /* kHz */
+        int                      clock; // kHz
         int                      hdisplay, hsync_start, hsync_end, htotal, hskew;
         int                      vdisplay, vsync_start, vsync_end, vtotal, vscan;
         unsigned int             flags;
-        int                      crtc_clock; /* actual scanout clock (after TMDS) */
+        int                      crtc_clock; // actual scanout clock (after TMDS)
         int                      crtc_hdisplay, crtc_hblank_start, crtc_hblank_end;
         int                      crtc_hsync_start, crtc_hsync_end, crtc_htotal;
         int                      crtc_vdisplay, crtc_vblank_start, crtc_vblank_end;
@@ -253,7 +253,7 @@ struct drm_display_mode {
         int                      vrefresh;
         int                      hsync;
         enum hdmi_picture_aspect picture_aspect_ratio;
-        unsigned int             type; /* DRM_MODE_TYPE_* */
+        unsigned int             type; // DRM_MODE_TYPE_*
 
         /* private head for mode_config.usermode_list */
         ilist_node_t usermode_head;
@@ -370,7 +370,7 @@ struct drm_crtc {
         struct drm_gem_object  *cursor_obj;
         struct drm_modeset_lock mutex;
         struct drm_mode_config *mode_config;
-        ilist_node_t            head; /* in mode_config.crtc_list */
+        ilist_node_t            head; // in mode_config.crtc_list
         int                     index;
         spinlock_t              commit_lock;
         struct drm_crtc_state  *state;
@@ -384,7 +384,7 @@ struct drm_crtc {
         int                     cursor_hot_x, cursor_hot_y;
         uint32_t                gamma_size;
         uint16_t               *gamma_store;
-        spinlock_t              spinlock; /* legacy cursor lock */
+        spinlock_t              spinlock; // legacy cursor lock
         void                   *helper_private;
 };
 
@@ -398,13 +398,13 @@ struct drm_plane {
         unsigned int            modifier_count;
         enum drm_plane_type     type;
         unsigned int            zpos_property_default;
-        ilist_node_t            head; /* in mode_config.plane_list (or crtc list) */
+        ilist_node_t            head; // in mode_config.plane_list (or crtc list)
         struct drm_modeset_lock mutex;
         struct drm_plane_state *state;
         char                   *name;
         void                   *helper_private;
-        uint32_t                crtc_id; /* currently attached CRTC (legacy ioctl tracking) */
-        uint32_t                fb_id;   /* currently attached FB (legacy ioctl tracking) */
+        uint32_t                crtc_id; // currently attached CRTC (legacy ioctl tracking)
+        uint32_t                fb_id;   // currently attached FB (legacy ioctl tracking)
 };
 
 struct drm_encoder {
@@ -414,7 +414,7 @@ struct drm_encoder {
         uint32_t                    possible_crtcs;
         uint32_t                    possible_clones;
         struct drm_crtc            *crtc;
-        ilist_node_t                head; /* in mode_config.encoder_list */
+        ilist_node_t                head; // in mode_config.encoder_list
         const struct drm_connector *connector_mask_list_head_unused;
         void                       *helper_private;
 };
@@ -430,9 +430,9 @@ struct drm_connector {
         enum drm_connector_status status;
         struct list_head_unused {
                 void *n;
-        } probed_modes_anchor;                  /* placeholder */
-        ilist_node_t                modes;      /* head of drm_display_mode.head */
-        ilist_node_t                user_modes; /* head of usermode_head */
+        } probed_modes_anchor;                  // placeholder
+        ilist_node_t                modes;      // head of drm_display_mode.head
+        ilist_node_t                user_modes; // head of usermode_head
         struct drm_display_mode    *modes_ptr_array_placeholder;
         uint32_t                    display_info_width_mm, display_info_height_mm;
         uint8_t                    *eld;
@@ -443,7 +443,7 @@ struct drm_connector {
         struct drm_property_blob   *edid_blob;
         struct drm_property_blob   *path_blob;
         struct drm_property_blob   *tile_blob;
-        ilist_node_t                head; /* in mode_config.connector_list */
+        ilist_node_t                head; // in mode_config.connector_list
         struct drm_modeset_lock     mutex;
         enum drm_connector_force    force;
         bool                        override_edid_set;
@@ -460,7 +460,7 @@ struct drm_framebuffer_funcs {
 
 struct drm_framebuffer {
         struct drm_mode_object              base;
-        uint32_t                            format; /* DRM_FORMAT_* fourcc */
+        uint32_t                            format; // DRM_FORMAT_* fourcc
         uint64_t                            modifier;
         unsigned int                        width;
         unsigned int                        height;
@@ -469,11 +469,11 @@ struct drm_framebuffer {
         unsigned int                        hot_x, hot_y;
         struct drm_gem_object              *obj[4];
         unsigned int                        filp_legacy_unused;
-        ilist_node_t                        head;      /* in mode_config.fb_list */
-        ilist_node_t                        filp_head; /* in file fbs list */
+        ilist_node_t                        head;      // in mode_config.fb_list
+        ilist_node_t                        filp_head; // in file fbs list
         const struct drm_framebuffer_funcs *funcs;
         int                                 id;
-        struct drm_file                    *file; /* file that created it (for cleanup) */
+        struct drm_file                    *file; // file that created it (for cleanup)
 };
 
 /* ------------------------------------------------------------------ */
@@ -518,15 +518,15 @@ struct drm_atomic_state {
         uint32_t                       page_flip_event      : 1;
         uint64_t                       commit_seq;
         struct drm_modeset_acquire_ctx acquire_ctx;
-        struct __drm_planes_state     *planes; /* array, indexed by plane index */
-        struct __drm_crtcs_state      *crtcs;  /* array, indexed by crtc index */
+        struct __drm_planes_state     *planes; // array, indexed by plane index
+        struct __drm_crtcs_state      *crtcs;  // array, indexed by crtc index
         int                            num_connector;
         struct drm_connector         **connectors;
         struct drm_connector_state   **connector_states;
         struct drm_private_obj       **private_objs;
         struct drm_private_state     **private_states;
         int                            num_private_objs;
-        void                          *commit_list; /* opaque list head */
+        void                          *commit_list; // opaque list head
 };
 
 /* ------------------------------------------------------------------ */
@@ -540,13 +540,13 @@ struct drm_gem_object {
         spinlock_t         ref_lock;
         uint32_t           handle_count;
         uint32_t           size;
-        void              *backing;     /* allocated backing memory for dumb/prime buffers */
-        uint64_t           mmap_offset; /* offset returned by dumb_map_offset for mmap lookup */
+        void              *backing;     // allocated backing memory for dumb/prime buffers
+        uint64_t           mmap_offset; // offset returned by dumb_map_offset for mmap lookup
         struct drm_mm_node vma_node_placeholder;
-        ilist_node_t       handle_list_node; /* legacy, per-file entries are separate */
-        void              *import_attach;    /* attached dma-buf attachment (for PRIME import) */
-        void              *dma_buf;          /* dma-buf (for PRIME export) */
-        int                prime_fd;         /* assigned PRIME fd, -1 if none */
+        ilist_node_t       handle_list_node; // legacy, per-file entries are separate
+        void              *import_attach;    // attached dma-buf attachment (for PRIME import)
+        void              *dma_buf;          // dma-buf (for PRIME export)
+        int                prime_fd;         // assigned PRIME fd, -1 if none
         struct drm_gem_object_funcs_placeholder {
                 int dummy;
         } funcs_placeholder;
@@ -557,9 +557,9 @@ struct drm_gem_object {
 /* ------------------------------------------------------------------ */
 
 struct drm_mode_config {
-        spinlock_t     mutex; /* global modeset lock */
+        spinlock_t     mutex; // global modeset lock
         spinlock_t     idr_mutex;
-        struct drm_idr object_idr; /* CRTCs/connectors/encoders/planes/fbs/props */
+        struct drm_idr object_idr; // CRTCs/connectors/encoders/planes/fbs/props
         spinlock_t     fb_lock;
         struct drm_idr fb_idr;
         ilist_node_t   fb_list;
@@ -634,8 +634,10 @@ struct drm_mode_config {
 #define DRIVER_SYNCOBJ          BIT5_
 #define DRIVER_SYNCOBJ_TIMELINE BIT6_
 #define DRIVER_GEM_GPUVA        BIT7_
-/* The driver's page-flip callback returns only after scanout has been
- * updated, so completion events do not need a later hardware vblank. */
+/*
+ * The driver's page-flip callback returns only after scanout has been
+ * updated, so completion events do not need a later hardware vblank.
+ */
 #define DRIVER_SYNCHRONOUS_FLIP BIT8_
 
 /* Project-internal feature bit shims (kept local to avoid polluting common.h). */
@@ -733,10 +735,10 @@ struct drm_file {
         bool supports_virtual_audio_unused;
         bool is_control_unused;
 
-        spinlock_t     table_lock; /* protects object_idr / GEM handle table */
-        struct drm_idr object_idr; /* per-file object handles */
+        spinlock_t     table_lock; // protects object_idr / GEM handle table
+        struct drm_idr object_idr; // per-file object handles
 
-        drm_master_t *master; /* current master */
+        drm_master_t *master; // current master
         drm_master_t *is_current_unmatched_unused;
         drm_master_t *render_master_unused;
 
@@ -745,14 +747,14 @@ struct drm_file {
         struct drm_open_hash magiclist;
         drm_magic_t          magic_unused_anchor;
 
-        ilist_node_t head;        /* in device filelist */
-        ilist_node_t fbs_head;    /* head of framebuffer.filp_head for this file */
-        ilist_node_t object_list; /* head of drm_gem_handle_entry.head */
-        ilist_node_t blobs_head;  /* head of user-created drm_property_blob.head_file */
+        ilist_node_t head;        // in device filelist
+        ilist_node_t fbs_head;    // head of framebuffer.filp_head for this file
+        ilist_node_t object_list; // head of drm_gem_handle_entry.head
+        ilist_node_t blobs_head;  // head of user-created drm_property_blob.head_file
 
         struct drm_device *minor_unused;
         void              *driver_priv;
-        void              *filp_unused; /* opaque fs file pointer */
+        void              *filp_unused; // opaque fs file pointer
 
         /* client cap flags */
         uint32_t client_caps;
@@ -762,7 +764,7 @@ struct drm_file {
         spinlock_t             event_lock;
         struct drm_event_node *event_list_head;
         struct drm_event_node *event_list_tail;
-        int                    event_space; /* bytes of pending events */
+        int                    event_space; // bytes of pending events
         wait_queue_t           event_wait;
         bool                   event_closing;
         uint32_t               event_refs;
@@ -777,9 +779,9 @@ struct drm_device {
         void                  *dev_private;
         struct drm_mode_config mode_config;
 
-        spinlock_t   mutex; /* big mode_config lock */
+        spinlock_t   mutex; // big mode_config lock
         spinlock_t   filelist_lock;
-        ilist_node_t filelist; /* head of drm_file.head */
+        ilist_node_t filelist; // head of drm_file.head
 
         struct drm_idr object_idr_unused_legacy;
         spinlock_t     object_idr_lock;
@@ -792,7 +794,7 @@ struct drm_device {
         int        refcount;
         spinlock_t ref_lock;
 
-        void *pdev_unused; /* opaque bus device */
+        void *pdev_unused; // opaque bus device
         void *busid_str;
         char *unique;
         int   unique_len;
@@ -821,11 +823,11 @@ struct drm_device {
 
 struct drm_minor {
         int                index;
-        int                type; /* 0=primary 1=render 2=accel */
+        int                type; // 0=primary 1=render 2=accel
         struct drm_device *dev;
-        void              *kdev_unused; /* opaque devtmpfs device */
+        void              *kdev_unused; // opaque devtmpfs device
         void              *debugfs_root_unused;
-        char              *device_node_name; /* e.g. "card0" */
+        char              *device_node_name; // e.g. "card0"
 };
 
 /* ------------------------------------------------------------------ */
@@ -1014,4 +1016,4 @@ struct drm_property      *drm_property_create_bitmask(struct drm_device *dev, ui
 struct drm_property_blob *drm_property_create_blob(struct drm_device *dev, const void *data, size_t length);
 void                      drm_property_destroy(struct drm_device *dev, struct drm_property *property);
 
-#endif /* INCLUDE_DRM_DRM_DEVICE_H_ */
+#endif // INCLUDE_DRM_DRM_DEVICE_H_

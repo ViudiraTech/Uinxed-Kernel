@@ -93,8 +93,10 @@ static size_t signalfd_vfs_read(void *file, void *addr, size_t offset, size_t si
         }
         if (!block) return (size_t)-1;
 
-        /* Close the check-to-sleep race: install the waiter first, then
-         * recheck the process pending bitmap. */
+        /*
+         * Close the check-to-sleep race: install the waiter first, then
+         * recheck the process pending bitmap.
+         */
         wait_queue_prepare(&ctx->wq);
         if (signal_has_pending_masked(proc, &mask)) wait_queue_wake_all(&ctx->wq);
         wait_queue_sleep();

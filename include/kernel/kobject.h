@@ -130,19 +130,19 @@ struct kset_uevent_ops {
 #define KOBJ_NAME_LEN 64
 
 struct kobject {
-        const char       *name;   /* name in sysfs */
-        struct kobject   *parent; /* parent kobject (NULL = sysfs root) */
-        struct kset      *kset;   /* containing kset */
-        struct kobj_type *ktype;  /* type descriptor */
-        kref_t            kref;   /* reference counter */
+        const char       *name;   // name in sysfs
+        struct kobject   *parent; // parent kobject (NULL = sysfs root)
+        struct kset      *kset;   // containing kset
+        struct kobj_type *ktype;  // type descriptor
+        kref_t            kref;   // reference counter
 
         /* internal */
-        clist_t    children;       /* circular list of child kobjects */
-        clist_t    attributes;     /* circular list of sysfs_attr_entry_t */
-        clist_t    bin_attributes; /* list of sysfs_bin_attr_entry_t */
-        clist_t    symlinks;       /* circular list of sysfs_symlink_entry_t */
-        vfs_node_t sd;             /* sysfs directory VFS node */
-        spinlock_t lock;           /* protects children/attributes/symlinks */
+        clist_t    children;       // circular list of child kobjects
+        clist_t    attributes;     // circular list of sysfs_attr_entry_t
+        clist_t    bin_attributes; // list of sysfs_bin_attr_entry_t
+        clist_t    symlinks;       // circular list of sysfs_symlink_entry_t
+        vfs_node_t sd;             // sysfs directory VFS node
+        spinlock_t lock;           // protects children/attributes/symlinks
 
         unsigned int state_initialized        : 1;
         unsigned int state_in_sysfs           : 1;
@@ -157,9 +157,9 @@ struct kobject {
 /* ------------------------------------------------------------------ */
 
 struct kset {
-        clist_t                       list;      /* circular list of kobject entries */
-        spinlock_t                    list_lock; /* protects list modifications */
-        struct kobject                kobj;      /* embedded kobject (the default parent) */
+        clist_t                       list;      // circular list of kobject entries
+        spinlock_t                    list_lock; // protects list modifications
+        struct kobject                kobj;      // embedded kobject (the default parent)
         const struct kset_uevent_ops *uevent_ops;
         unsigned int                  dynamic : 1;
 };

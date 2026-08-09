@@ -189,8 +189,10 @@ void ptrace_arch_switch(task_t *previous, task_t *next)
     int previous_active = previous && previous->ptrace.debug_regs[7];
     int next_active     = next && next->ptrace.debug_regs[7];
 
-    /* Debug-register accesses serialize execution.  The overwhelmingly
-     * common case has no hardware breakpoints and needs no DR traffic. */
+    /*
+     * Debug-register accesses serialize execution.  The overwhelmingly
+     * common case has no hardware breakpoints and needs no DR traffic.
+     */
     if (!previous_active && !next_active) return;
     if (previous_active) ptrace_debug_save(previous);
     ptrace_debug_restore(next_active ? next : NULL);
@@ -230,7 +232,7 @@ static int ptrace_poke_user(task_t *target, uintptr_t offset, uint64_t value)
         size_t index = (offset - debug_start) / sizeof(uint64_t);
         if (index == 4 || index == 5) return -EIO;
         if (index < 4 && value >= PROCESS_USER_STACK_TOP) return -EIO;
-        if (index == 7 && (value & (1ULL << 13))) return -EIO; /* General detect is kernel-only. */
+        if (index == 7 && (value & (1ULL << 13))) return -EIO; // General detect is kernel-only.
         target->ptrace.debug_regs[index] = value;
         return 0;
     }
@@ -241,7 +243,7 @@ static int ptrace_translate(process_t *proc, uintptr_t addr, bool write, void **
 {
     if (!proc || !proc->user_page_dir || !proc->user_page_dir->table || addr >= PROCESS_USER_STACK_TOP) return -EIO;
 
-    if (write && page_resolve_cow_fault(proc, addr) < 0) { /* Non-COW writable mappings continue through the normal walk. */
+    if (write && page_resolve_cow_fault(proc, addr) < 0) { // Non-COW writable mappings continue through the normal walk.
     }
 
     uint16_t l4i = (addr >> 39) & 0x1ff;

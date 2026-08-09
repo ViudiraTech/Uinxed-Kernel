@@ -13,4 +13,4 @@
 
 void hda_init(void);
 
-#endif /* INCLUDE_SOUND_HDA_H_ */
+#endif // INCLUDE_SOUND_HDA_H_

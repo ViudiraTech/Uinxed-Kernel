@@ -244,7 +244,7 @@ int64_t sys_memfd_create(uint64_t name, uint64_t flags, uint64_t arg2, uint64_t 
     node->mode     = 0600;
     node->owner    = proc->fsuid;
     node->group    = proc->fsgid;
-    node->refcount = 1; /* The initial open file description owns this reference. */
+    node->refcount = 1; // The initial open file description owns this reference.
 
     int fd = process_fd_install(proc, node, O_RDWR | ((flags & MFD_CLOEXEC) ? O_CLOEXEC : 0));
     if (fd < 0) {
@@ -343,11 +343,13 @@ int memfd_map(vfs_node_t node, process_t *proc, uintptr_t addr, size_t length, u
         return -EPERM;
     }
 
-    /* mmap() rounds its length up to a page.  A mapping may therefore cover
+    /*
+     * mmap() rounds its length up to a page.  A mapping may therefore cover
      * the final partial page of a memfd even when the byte length is not
      * page-aligned; Linux exposes the bytes past EOF in that page as zeroes
      * (and callers such as Weston's keymap builder rely on this).  Do not
-     * permit mapping a whole page beyond the rounded EOF. */
+     * permit mapping a whole page beyond the rounded EOF.
+     */
     uint64_t map_limit = ALIGN_UP(file->size, PAGE_4K_SIZE);
     if (offset > map_limit || length > map_limit - offset) {
         spin_unlock(&file->lock);

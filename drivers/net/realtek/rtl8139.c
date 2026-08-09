@@ -28,13 +28,13 @@
 #include <sync/spin_lock.h>
 
 #define RTL8139_MAX_DEVICES       8
-#define RTL8139_TX_COUNT          4 /* four hardware transmit descriptors */
-#define RTL8139_RX_BUF_IDX        2 /* RCR receive ring length: 32K + 16 */
+#define RTL8139_TX_COUNT          4 // four hardware transmit descriptors
+#define RTL8139_RX_BUF_IDX        2 // RCR receive ring length: 32K + 16
 #define RTL8139_RX_BUF_SIZE       (8192u << RTL8139_RX_BUF_IDX)
 #define RTL8139_RX_BUF_FRAMES     ((RTL8139_RX_BUF_SIZE + 16 + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE)
 #define RTL8139_MAX_FRAME_SIZE    (RTL8139_MTU + 18)
-#define RTL8139_CRC_LEN           4  /* RX frame length reported by the chip includes CRC */
-#define RTL8139_ETH_ZLEN          60 /* minimum frame octets without CRC; chip has no auto-pad */
+#define RTL8139_CRC_LEN           4  // RX frame length reported by the chip includes CRC
+#define RTL8139_ETH_ZLEN          60 // minimum frame octets without CRC; chip has no auto-pad
 #define RTL8139_WORK_BUDGET       64
 #define RTL8139_TX_RECLAIM_BUDGET RTL8139_TX_COUNT
 #define RTL8139_RESET_POLL        1000
@@ -43,35 +43,35 @@
  * Register map (RTL8139D datasheet Rev 1.11).
  * The classic RTL8139 exposes these registers through PCI I/O space.
  */
-#define RTL8139_REG_IDR0    0x00 /* MAC address, bytes 0-5 */
-#define RTL8139_REG_MAR0    0x08 /* multicast address filter */
-#define RTL8139_REG_TSD0    0x10 /* transmit status, descriptor 0-3 */
-#define RTL8139_REG_TSAD0   0x20 /* transmit start address, descriptor 0-3 */
-#define RTL8139_REG_RBSTART 0x30 /* receive buffer start address */
-#define RTL8139_REG_CR      0x37 /* command register (byte) */
-#define RTL8139_REG_CAPR    0x38 /* current address of packet read (word) */
-#define RTL8139_REG_CBR     0x3a /* current buffer address (word, read-only) */
-#define RTL8139_REG_IMR     0x3c /* interrupt mask register (word) */
-#define RTL8139_REG_ISR     0x3e /* interrupt status register (word, W1C) */
-#define RTL8139_REG_TCR     0x40 /* transmit configuration register */
-#define RTL8139_REG_RCR     0x44 /* receive configuration register */
-#define RTL8139_REG_9346CR  0x50 /* 93C46 command register (byte) */
-#define RTL8139_REG_BMSR    0x64 /* basic mode status register (word) */
+#define RTL8139_REG_IDR0    0x00 // MAC address, bytes 0-5
+#define RTL8139_REG_MAR0    0x08 // multicast address filter
+#define RTL8139_REG_TSD0    0x10 // transmit status, descriptor 0-3
+#define RTL8139_REG_TSAD0   0x20 // transmit start address, descriptor 0-3
+#define RTL8139_REG_RBSTART 0x30 // receive buffer start address
+#define RTL8139_REG_CR      0x37 // command register (byte)
+#define RTL8139_REG_CAPR    0x38 // current address of packet read (word)
+#define RTL8139_REG_CBR     0x3a // current buffer address (word, read-only)
+#define RTL8139_REG_IMR     0x3c // interrupt mask register (word)
+#define RTL8139_REG_ISR     0x3e // interrupt status register (word, W1C)
+#define RTL8139_REG_TCR     0x40 // transmit configuration register
+#define RTL8139_REG_RCR     0x44 // receive configuration register
+#define RTL8139_REG_9346CR  0x50 // 93C46 command register (byte)
+#define RTL8139_REG_BMSR    0x64 // basic mode status register (word)
 
 /* Command register (0x37) */
-#define RTL8139_CR_BUFE  (1u << 0) /* receive buffer empty */
-#define RTL8139_CR_TE    (1u << 2) /* transmitter enable */
-#define RTL8139_CR_RE    (1u << 3) /* receiver enable */
-#define RTL8139_CR_RESET (1u << 4) /* software reset */
+#define RTL8139_CR_BUFE  (1u << 0) // receive buffer empty
+#define RTL8139_CR_TE    (1u << 2) // transmitter enable
+#define RTL8139_CR_RE    (1u << 3) // receiver enable
+#define RTL8139_CR_RESET (1u << 4) // software reset
 
 /* Interrupt mask / status (0x3c/0x3e) */
-#define RTL8139_ISR_ROK   (1u << 0) /* receive OK */
-#define RTL8139_ISR_RER   (1u << 1) /* receive error */
-#define RTL8139_ISR_TOK   (1u << 2) /* transmit OK */
-#define RTL8139_ISR_TER   (1u << 3) /* transmit error */
-#define RTL8139_ISR_RXOVW (1u << 4) /* receive buffer overflow */
-#define RTL8139_ISR_PUN   (1u << 5) /* packet underrun / link change */
-#define RTL8139_ISR_FOVW  (1u << 6) /* receive FIFO overflow */
+#define RTL8139_ISR_ROK   (1u << 0) // receive OK
+#define RTL8139_ISR_RER   (1u << 1) // receive error
+#define RTL8139_ISR_TOK   (1u << 2) // transmit OK
+#define RTL8139_ISR_TER   (1u << 3) // transmit error
+#define RTL8139_ISR_RXOVW (1u << 4) // receive buffer overflow
+#define RTL8139_ISR_PUN   (1u << 5) // packet underrun / link change
+#define RTL8139_ISR_FOVW  (1u << 6) // receive FIFO overflow
 
 #define RTL8139_INT_MASK \
     (RTL8139_ISR_ROK | RTL8139_ISR_RER | RTL8139_ISR_TOK | RTL8139_ISR_TER | RTL8139_ISR_RXOVW | RTL8139_ISR_PUN | RTL8139_ISR_FOVW)
@@ -79,39 +79,39 @@
 #define RTL8139_WORK_INITIAL (RTL8139_ISR_ROK | RTL8139_ISR_TOK)
 
 /* Transmit configuration (0x40) */
-#define RTL8139_TCR_IFG_NORMAL (3u << 24) /* standard interframe gap */
-#define RTL8139_TCR_MXDMA      6u         /* 1024-byte DMA bursts */
+#define RTL8139_TCR_IFG_NORMAL (3u << 24) // standard interframe gap
+#define RTL8139_TCR_MXDMA      6u         // 1024-byte DMA bursts
 
 /* Receive configuration (0x44) */
-#define RTL8139_RCR_APM   (1u << 1) /* accept physical match */
-#define RTL8139_RCR_AM    (1u << 2) /* accept multicast */
-#define RTL8139_RCR_AB    (1u << 3) /* accept broadcast */
-#define RTL8139_RCR_RXFTH 4u        /* 256-byte RX FIFO threshold */
-#define RTL8139_RCR_MXDMA 6u        /* 1024-byte DMA bursts */
+#define RTL8139_RCR_APM   (1u << 1) // accept physical match
+#define RTL8139_RCR_AM    (1u << 2) // accept multicast
+#define RTL8139_RCR_AB    (1u << 3) // accept broadcast
+#define RTL8139_RCR_RXFTH 4u        // 256-byte RX FIFO threshold
+#define RTL8139_RCR_MXDMA 6u        // 1024-byte DMA bursts
 
 /* 93C46 command register (0x50) */
 #define RTL8139_9346_UNLOCK 0xc0
 #define RTL8139_9346_LOCK   0x00
 
 /* Basic mode status register (0x64) */
-#define RTL8139_BMSR_LINK (1u << 2) /* valid link established */
+#define RTL8139_BMSR_LINK (1u << 2) // valid link established
 
 /* Transmit status descriptor (TSD) bits */
 #define RTL8139_TX_LEN_MASK 0x1fff
-#define RTL8139_TX_OWN      (1u << 13) /* 1 = DMA complete, descriptor available */
-#define RTL8139_TX_TUN      (1u << 14) /* transmit FIFO underrun */
-#define RTL8139_TX_TOK      (1u << 15) /* transmit OK */
-#define RTL8139_TX_OWC      (1u << 29) /* out of window collision */
-#define RTL8139_TX_TABT     (1u << 30) /* transmit aborted */
-#define RTL8139_TX_ERTXTH   8u         /* early transmit threshold: 8 * 32 = 256 bytes */
+#define RTL8139_TX_OWN      (1u << 13) // 1 = DMA complete, descriptor available
+#define RTL8139_TX_TUN      (1u << 14) // transmit FIFO underrun
+#define RTL8139_TX_TOK      (1u << 15) // transmit OK
+#define RTL8139_TX_OWC      (1u << 29) // out of window collision
+#define RTL8139_TX_TABT     (1u << 30) // transmit aborted
+#define RTL8139_TX_ERTXTH   8u         // early transmit threshold: 8 * 32 = 256 bytes
 
 /* Receive packet header status bits (written before each RX frame) */
-#define RTL8139_RX_ROK        (1u << 0) /* receive OK */
-#define RTL8139_RX_FAE        (1u << 1) /* frame alignment error */
-#define RTL8139_RX_CRC        (1u << 2) /* CRC error */
-#define RTL8139_RX_LONG       (1u << 3) /* frame exceeds 4K bytes */
-#define RTL8139_RX_RUNT       (1u << 4) /* runt packet */
-#define RTL8139_RX_ISE        (1u << 5) /* invalid symbol error */
+#define RTL8139_RX_ROK        (1u << 0) // receive OK
+#define RTL8139_RX_FAE        (1u << 1) // frame alignment error
+#define RTL8139_RX_CRC        (1u << 2) // CRC error
+#define RTL8139_RX_LONG       (1u << 3) // frame exceeds 4K bytes
+#define RTL8139_RX_RUNT       (1u << 4) // runt packet
+#define RTL8139_RX_ISE        (1u << 5) // invalid symbol error
 #define RTL8139_RX_ERROR_MASK (RTL8139_RX_FAE | RTL8139_RX_CRC | RTL8139_RX_LONG | RTL8139_RX_RUNT | RTL8139_RX_ISE)
 
 /*
@@ -124,13 +124,13 @@ typedef struct {
 } rtl8139_id_t;
 
 static const rtl8139_id_t rtl8139_ids[] = {
-    {0x10ec, 0x8129}, /* RTL8129 */
-    {0x10ec, 0x8139}, /* RTL8139 / RTL8139D */
-    {0x10ec, 0x8138}, /* RTL8139B */
-    {0x1113, 0x1211}, /* Accton EN-1207D / SMC1211TX */
-    {0x1186, 0x1300}, /* D-Link DFE-538TX */
-    {0x018a, 0x0106}, /* LevelOne FPC-0106Tx */
-    {0x021b, 0x8139}, /* Compaq HNE-300 */
+    {0x10ec, 0x8129}, // RTL8129
+    {0x10ec, 0x8139}, // RTL8139 / RTL8139D
+    {0x10ec, 0x8138}, // RTL8139B
+    {0x1113, 0x1211}, // Accton EN-1207D / SMC1211TX
+    {0x1186, 0x1300}, // D-Link DFE-538TX
+    {0x018a, 0x0106}, // LevelOne FPC-0106Tx
+    {0x021b, 0x8139}, // Compaq HNE-300
 };
 
 typedef struct rtl8139_device {
@@ -261,7 +261,7 @@ static void rtl8139_read_mac(rtl8139_device_t *device)
     if (!rtl8139_valid_mac(device->mac)) {
         plogk("rtl8139: %04x:%04x: invalid MAC address, using fallback.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
         for (size_t i = 0; i < 6; i++) device->mac[i] = i;
-        device->mac[0] &= ~1u; /* ensure a unicast, locally administered address */
+        device->mac[0] &= ~1u; // ensure a unicast, locally administered address
         device->mac[0] |= 2u;
     }
 }
@@ -488,7 +488,7 @@ size_t rtl8139_poll(rtl8139_device_t *device, size_t budget)
         dma_read_barrier();
 
         uint16_t status = hdr & 0xffff;
-        uint32_t length = hdr >> 16; /* includes the 4-byte CRC */
+        uint32_t length = hdr >> 16; // includes the 4-byte CRC
         int      good   = (status & RTL8139_RX_ROK) && !(status & RTL8139_RX_ERROR_MASK) && length > RTL8139_CRC_LEN
                    && length - RTL8139_CRC_LEN <= RTL8139_MAX_FRAME_SIZE;
         size_t frame_length = good ? length - RTL8139_CRC_LEN : 0;

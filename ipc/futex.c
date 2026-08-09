@@ -68,10 +68,10 @@ __attribute__((weak)) uint64_t futex_realtime_ticks(void)
 
 typedef struct futex_entry {
         uintptr_t           key;
-        uint64_t            bitset; /* mask/bitset: classic FUTEX_WAIT_BITSET or futex2 mask */
+        uint64_t            bitset; // mask/bitset: classic FUTEX_WAIT_BITSET or futex2 mask
         wait_queue_t        wq;
         struct futex_entry *next;
-        rt_mutex_t         *pi_mutex; /* non-NULL for PI futex entries */
+        rt_mutex_t         *pi_mutex; // non-NULL for PI futex entries
 } futex_entry_t;
 
 typedef struct futex_bucket {
@@ -360,7 +360,7 @@ int futex_wake(uint32_t *uaddr, int nr_wake, uint64_t bitset)
     }
 
     /*
-     * Do NOT free empty entries here �?a futex_wait caller that was
+     * Do NOT free empty entries here - a futex_wait caller that was
      * just woken may still hold a stale entry pointer and will access
      * it after re-acquiring the bucket lock.  Cleanup is the
      * responsibility of the final waiter (futex_try_cleanup in
@@ -671,7 +671,7 @@ static rt_mutex_t *futex_get_pi_mutex(futex_bucket_t *bucket, uint32_t *uaddr)
 
 /*
  * FUTEX_LOCK_PI: acquire a PI mutex.
- * Userspace fastpath: cmpxchg(*uaddr, 0, tid) �?success.
+ * Userspace fastpath: cmpxchg(*uaddr, 0, tid) - success.
  * Kernel slowpath (this function): block with priority inheritance.
  */
 static int futex_lock_pi(uint32_t *uaddr)
@@ -752,7 +752,7 @@ static int futex_lock_pi(uint32_t *uaddr)
 
 /*
  * FUTEX_UNLOCK_PI: release a PI mutex.
- * Userspace fastpath: cmpxchg(*uaddr, tid, 0) �?success if no waiters.
+ * Userspace fastpath: cmpxchg(*uaddr, tid, 0) - success if no waiters.
  * Kernel slowpath (this function): wake the highest-priority waiter.
  */
 static int futex_unlock_pi(uint32_t *uaddr)
@@ -1130,7 +1130,7 @@ static int futex2_size_bytes(unsigned int size_code)
         case FUTEX2_SIZE_U64 :
             return 8;
         default :
-            return 4; /* FUTEX2_SIZE_U32 */
+            return 4; // FUTEX2_SIZE_U32
     }
 }
 
@@ -1193,7 +1193,7 @@ static int futex2_wait_core(uint64_t uaddr, unsigned int size_code, uint64_t val
     uint64_t        deadline = 0;
     int             ret;
 
-    if (mask == 0) return -EINVAL; /* same as classic bitset == 0 */
+    if (mask == 0) return -EINVAL; // same as classic bitset == 0
 
     uintptr_t key = futex2_key(uaddr, size_code);
     bucket        = &futex_hash[futex_hash_index((uint32_t *)(uintptr_t)key)];
@@ -1201,7 +1201,7 @@ static int futex2_wait_core(uint64_t uaddr, unsigned int size_code, uint64_t val
     if (timeout) {
         ret = futex_read_timespec(timeout, &deadline);
         if (ret) return ret;
-        deadline = futex_deadline(deadline, 1, realtime); /* absolute */
+        deadline = futex_deadline(deadline, 1, realtime); // absolute
     }
 
     spin_lock(&bucket->lock);
@@ -1385,7 +1385,7 @@ int64_t sys_futex_wait(uint64_t uaddr, uint64_t val, uint64_t mask, uint64_t fla
 
     if (flags & ~FUTEX2_VALID_MASK) return -EINVAL;
     if (!futex2_validate_value(size_code, val) || !futex2_validate_value(size_code, mask)) return -EINVAL;
-    if (timeout && clockid != 0 && clockid != 1) return -EINVAL; /* CLOCK_REALTIME / CLOCK_MONOTONIC */
+    if (timeout && clockid != 0 && clockid != 1) return -EINVAL; // CLOCK_REALTIME / CLOCK_MONOTONIC
     if (!uaddr) return -EFAULT;
     if (user_access_ok((void *)(uintptr_t)uaddr, futex2_size_bytes(size_code), 0) == 0) return -EFAULT;
 

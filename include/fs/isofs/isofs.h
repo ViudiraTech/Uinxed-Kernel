@@ -192,4 +192,4 @@ void parse_rock_ridge_inode(void *raw_de, isofs_handle_t *handle, isofs_mount_t 
 void isofs_regist(void);
 void isofs_mount_all(void);
 
-#endif /* INCLUDE_ISOFS_H_ */
+#endif // INCLUDE_ISOFS_H_

@@ -176,14 +176,18 @@ struct drm_crtc_state *drm_atomic_get_crtc_state(struct drm_atomic_state *state,
     /* Copy from existing CRTC state if available */
     if (crtc->state) {
         memcpy(crtc_entry->state, crtc->state, sizeof(*crtc_entry->state));
-        /* Completion events are owned by the commit which allocated them;
-         * cloning the pointer makes state teardown free an armed event. */
+        /*
+         * Completion events are owned by the commit which allocated them;
+         * cloning the pointer makes state teardown free an armed event.
+         */
         crtc_entry->state->event = NULL;
 
-        /* These bits describe changes made by one atomic transaction, not
+        /*
+         * These bits describe changes made by one atomic transaction, not
          * properties of the committed CRTC.  Carrying them into the next
          * transaction makes an ordinary page flip look like a modeset and
-         * causes non-ALLOW_MODESET commits to fail with -EINVAL. */
+         * causes non-ALLOW_MODESET commits to fail with -EINVAL.
+         */
         crtc_entry->state->zpos_changed       = false;
         crtc_entry->state->mode_changed       = false;
         crtc_entry->state->active_changed     = false;
@@ -585,11 +589,13 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
             if (h->atomic_enable) h->atomic_enable(crtc, crtc->state);
         }
         if (s->event) {
-            /* virtio-gpu waits for TRANSFER/SET_SCANOUT/FLUSH responses in
+            /*
+             * virtio-gpu waits for TRANSFER/SET_SCANOUT/FLUSH responses in
              * its page-flip callback.  For such a synchronous driver the
              * commit is already complete here; delaying the event until a
              * synthetic vblank leaves compositors stuck on their first
-             * pending flip if no timer-driven vblank arrives. */
+             * pending flip if no timer-driven vblank arrives.
+             */
             if (dev->driver && (dev->driver->driver_features & DRIVER_SYNCHRONOUS_FLIP)) {
                 s->event->sequence = drm_crtc_vblank_count(crtc);
                 drm_crtc_send_vblank_event(crtc, s->event);
@@ -686,13 +692,15 @@ int drm_atomic_nonblocking_commit(struct drm_atomic_state *state)
         if (ret) return ret;
     }
 
-    /* virtio-gpu's command path is synchronous already: it waits for every
+    /*
+     * virtio-gpu's command path is synchronous already: it waits for every
      * TRANSFER/SET_SCANOUT/FLUSH response before page_flip returns.  Running
      * that work in another task adds no hardware concurrency and creates a
      * lost-wakeup window between the compositor's NONBLOCK ioctl and its
      * subsequent epoll_wait.  Complete it here so the flip event is queued
      * before the ioctl returns; epoll's initial level scan then observes it
-     * even without depending on notification timing. */
+     * even without depending on notification timing.
+     */
     if (state->dev->driver && (state->dev->driver->driver_features & DRIVER_SYNCHRONOUS_FLIP)) { return drm_atomic_commit(state); }
 
     config    = &state->dev->mode_config;

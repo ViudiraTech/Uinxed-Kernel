@@ -91,8 +91,10 @@ static uint64_t evdev_clock_ns(int clock_type)
         return realtime > 0 ? (uint64_t)realtime : 0;
     }
 
-    /* CLOCK_MONOTONIC and CLOCK_BOOTTIME currently share Uinxed's
-     * monotonic timebase, matching clock_gettime() and timerfd. */
+    /*
+     * CLOCK_MONOTONIC and CLOCK_BOOTTIME currently share Uinxed's
+     * monotonic timebase, matching clock_gettime() and timerfd.
+     */
     return timer_monotonic_ns();
 }
 
@@ -274,8 +276,10 @@ static void evdev_pass_values(evdev_client_t *client, const input_event_t *value
         /* Filter check */
         if (__evdev_is_filtered(client, event.type, event.code)) continue;
 
-        /* A client becomes readable only when a non-empty frame is committed.
-         * This is the Linux evdev packet_head/SYN_REPORT contract. */
+        /*
+         * A client becomes readable only when a non-empty frame is committed.
+         * This is the Linux evdev packet_head/SYN_REPORT contract.
+         */
         if (event.type == EV_SYN && event.code == SYN_REPORT) {
             if (client->queue.packet_head == client->queue.head) continue;
             wake = true;
@@ -1138,42 +1142,42 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
     if (_IOC_TYPE(request) != 'E') return -EINVAL;
 
     switch (_IOC_NR(request)) {
-        case 0x06 : /* EVIOCGNAME(len) */
+        case 0x06 : // EVIOCGNAME(len)
             if (!(_IOC_DIR(request) & _IOC_READ)) return -EINVAL;
             len = _IOC_SIZE(request);
             return evdev_copy_string_to_user(arg, dev->name, len);
 
-        case 0x07 : /* EVIOCGPHYS(len) */
+        case 0x07 : // EVIOCGPHYS(len)
             if (!(_IOC_DIR(request) & _IOC_READ)) return -EINVAL;
             len = _IOC_SIZE(request);
             return evdev_copy_string_to_user(arg, dev->phys, len);
 
-        case 0x08 : /* EVIOCGUNIQ(len) */
+        case 0x08 : // EVIOCGUNIQ(len)
             if (!(_IOC_DIR(request) & _IOC_READ)) return -EINVAL;
             len = _IOC_SIZE(request);
             return evdev_copy_string_to_user(arg, dev->uniq, len);
 
-        case 0x09 : /* EVIOCGPROP(len) */
+        case 0x09 : // EVIOCGPROP(len)
             if (!(_IOC_DIR(request) & _IOC_READ)) return -EINVAL;
             len = _IOC_SIZE(request);
             return evdev_copy_bits_to_user(arg, dev->propbit, INPUT_PROP_CNT, len);
 
-        case 0x18 : /* EVIOCGKEY(len) */
+        case 0x18 : // EVIOCGKEY(len)
             if (!(_IOC_DIR(request) & _IOC_READ)) return -EINVAL;
             len = _IOC_SIZE(request);
             return evdev_get_state(client, dev, EV_KEY, dev->key_state, KEY_CNT, arg, len);
 
-        case 0x19 : /* EVIOCGLED(len) */
+        case 0x19 : // EVIOCGLED(len)
             if (!(_IOC_DIR(request) & _IOC_READ)) return -EINVAL;
             len = _IOC_SIZE(request);
             return evdev_get_state(client, dev, EV_LED, dev->led_state, LED_CNT, arg, len);
 
-        case 0x1a : /* EVIOCGSND(len) */
+        case 0x1a : // EVIOCGSND(len)
             if (!(_IOC_DIR(request) & _IOC_READ)) return -EINVAL;
             len = _IOC_SIZE(request);
             return evdev_get_state(client, dev, EV_SND, dev->snd_state, SND_CNT, arg, len);
 
-        case 0x1b : /* EVIOCGSW(len) */
+        case 0x1b : // EVIOCGSW(len)
             if (!(_IOC_DIR(request) & _IOC_READ)) return -EINVAL;
             len = _IOC_SIZE(request);
             return evdev_get_state(client, dev, EV_SW, dev->sw_state, SW_CNT, arg, len);
@@ -1311,9 +1315,11 @@ int evdev_publish_node(evdev_t *evdev)
     char     path[32];
     int      result;
     uint16_t node_type = file_stream;
-    /* Let poll/epoll users identify input fds without relying on the
+    /*
+     * Let poll/epoll users identify input fds without relying on the
      * pathname.  Relative-axis devices are mice/pointers; key-only devices
-     * are keyboards. */
+     * are keyboards.
+     */
     if (test_bit(EV_REL, evdev->input_dev->evbit))
         node_type |= file_mouse;
     else if (test_bit(EV_KEY, evdev->input_dev->evbit))

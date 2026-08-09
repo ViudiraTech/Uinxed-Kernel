@@ -209,8 +209,10 @@ static int stat_node(void *handle, vfs_node_t node)
         node->type = file_dir;
         return populate(node);
     }
-    /* cgroup control files have regular-file offset semantics even though
-     * their contents are generated dynamically. */
+    /*
+     * cgroup control files have regular-file offset semantics even though
+     * their contents are generated dynamically.
+     */
     node->type = file_none;
     return EOK;
 }

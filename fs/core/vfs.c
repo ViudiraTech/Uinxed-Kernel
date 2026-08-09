@@ -171,9 +171,11 @@ int vfs_resolve_path(const char *base, const char *path, char *resolved, size_t 
     size_t out = 1;
 
     if (!base || !path || !resolved || size < 2 || base[0] != '/') return -EINVAL;
-    /* Linux pathname-taking syscalls reject an empty pathname unless the
+    /*
+     * Linux pathname-taking syscalls reject an empty pathname unless the
      * individual syscall explicitly implements AT_EMPTY_PATH.  Treating it as
-     * the base directory made open("") and mkdir("") operate on cwd. */
+     * the base directory made open("") and mkdir("") operate on cwd.
+     */
     if (!path[0]) return -ENOENT;
     resolved[0] = '/';
     resolved[1] = '\0';
@@ -360,10 +362,12 @@ static vfs_node_t vfs_child_find(vfs_node_t parent, const char *name)
                            && !(((vfs_node_t)data)->type & file_delete) && streq(name, ((vfs_node_t)data)->name));
 }
 
-/* Creation must also see entries which are not published yet.  Otherwise two
+/*
+ * Creation must also see entries which are not published yet.  Otherwise two
  * concurrent creators can both pass lookup and hand duplicate names to the
  * backing filesystem.  Deleted entries are deliberately ignored: POSIX
- * permits a name to be reused while an unlinked inode is still open. */
+ * permits a name to be reused while an unlinked inode is still open.
+ */
 static vfs_node_t vfs_child_find_reserved(vfs_node_t parent, const char *name)
 {
     return clist_first(parent->child, data,
@@ -400,9 +404,11 @@ vfs_node_t vfs_node_alloc(vfs_node_t parent, const char *name)
     node->fsid = parent ? parent->fsid : 0;
     node->root = parent ? parent->root : node;
     node->dev  = parent ? parent->dev : 0;
-    /* Virtual filesystems need real inode identity too.  In particular,
+    /*
+     * Virtual filesystems need real inode identity too.  In particular,
      * dynamic linkers use (st_dev, st_ino) to decide whether a shared object
-     * is already loaded.  Zero for every tmpfs node aliases unrelated files. */
+     * is already loaded.  Zero for every tmpfs node aliases unrelated files.
+     */
     node->inode = __atomic_fetch_add(&vfs_next_ino, 1, __ATOMIC_RELAXED);
     if (!node->inode) node->inode = __atomic_fetch_add(&vfs_next_ino, 1, __ATOMIC_RELAXED);
     node->nlink    = 1;
@@ -539,9 +545,11 @@ vfs_node_t vfs_node_retain(vfs_node_t node)
     return node;
 }
 
-/* Resolve the existing parent of a creation pathname.  Creation is deliberately
+/*
+ * Resolve the existing parent of a creation pathname.  Creation is deliberately
  * non-recursive: Linux mkdir/open/link/symlink never manufacture missing parent
- * directories as a side effect. */
+ * directories as a side effect.
+ */
 static int vfs_prepare_create(const char *name, bool allow_trailing_slash, char **storage, char **leaf, vfs_node_t *parent)
 {
     if (!name || !storage || !leaf || !parent) return -EINVAL;
@@ -723,11 +731,13 @@ int vfs_readdir(vfs_node_t dir, size_t index, vfs_dirent_t *entry)
     if (!dir || !entry) return -EINVAL;
 
     spin_lock(&vfs_namespace_lock);
-    /* A pathname open already refreshes the directory.  Refresh once again
+    /*
+     * A pathname open already refreshes the directory.  Refresh once again
      * at the start of an enumeration to pick up dynamic procfs/sysfs entries,
      * but never once per returned entry: sysfs_stat() walks and de-duplicates
      * all children, so doing that from every getdents64 loop iteration turns
-     * udev's parallel tree walk into an O(entries^2) global-spinlock storm. */
+     * udev's parallel tree walk into an O(entries^2) global-spinlock storm.
+     */
     if (index == 0) do_update(dir);
     if (!(dir->type & file_dir)) {
         spin_unlock(&vfs_namespace_lock);
@@ -996,9 +1006,11 @@ static int vfs_mount_id(const char *src, vfs_node_t node, int fsid)
 
     spin_lock(&vfs_namespace_lock);
     if (node->is_mount) {
-        /* OpenRC may discover and mount a nodev filesystem before localmount
+        /*
+         * OpenRC may discover and mount a nodev filesystem before localmount
          * processes the same fstab entry.  This VFS has no mount stacking;
-         * treat an exact same-filesystem mount as an idempotent success. */
+         * treat an exact same-filesystem mount as an idempotent success.
+         */
         bool same_filesystem = node->fsid == (uint16_t)fsid;
         spin_unlock(&vfs_namespace_lock);
         return same_filesystem ? EOK : -EBUSY;
@@ -1051,10 +1063,12 @@ int vfs_mount(const char *src, vfs_node_t node)
 
     if (!node || !(node->type & file_dir)) return -EINVAL;
     for (int i = 1; i < fs_nextid; i++) {
-        /* Anonymous VFS types are implementation details (pipe, socket,
+        /*
+         * Anonymous VFS types are implementation details (pipe, socket,
          * eventfd, ...), not filesystem probes.  A missing mount callback is
          * likewise represented by empty_func and must not hide a disk
-         * filesystem's diagnostic with -ENOSYS. */
+         * filesystem's diagnostic with -ENOSYS.
+         */
         if (!fs_names[i] || fs_callbacks[i]->mount == vfs_empty_callback.mount) continue;
         int status = vfs_mount_id(src, node, i);
         if (status == EOK) return EOK;
@@ -1087,7 +1101,7 @@ static bool vfs_mount_tree_busy_locked(vfs_node_t node, vfs_node_t mount_root)
 {
     if (!node) return false;
     if (node != mount_root && node->is_mount) return true;
-    uint32_t allowed = node == mount_root ? 1 : 0; /* vfs_umount's lookup */
+    uint32_t allowed = node == mount_root ? 1 : 0; // vfs_umount's lookup
     if (node->refcount > allowed) return true;
     for (clist_t link = node->child; link; link = link->next)
         if (link->data && vfs_mount_tree_busy_locked(link->data, mount_root)) return true;
@@ -1325,9 +1339,11 @@ int64_t vfs_file_read_process(vfs_node_t file, void *private_data, uint64_t flag
         size_t legacy_ret = callbackof(file, read)(file->handle, addr, offset, size);
         result            = legacy_ret == (size_t)-1 ? -EIO : (int64_t)legacy_ret;
     }
-    /* A filesystem callback may return a short read, but never more bytes
+    /*
+     * A filesystem callback may return a short read, but never more bytes
      * than the caller supplied.  Enforce the contract before the syscall
-     * layer copies from its bounded bounce buffer. */
+     * layer copies from its bounded bounce buffer.
+     */
     if (result > 0 && (uint64_t)result > size) {
         plogk("vfs: read overrun from %s callback: returned %lld for %lu requested.\n", file->name, (long long)result, (unsigned long)size);
         return -EIO;
@@ -1383,10 +1399,12 @@ int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, cons
 
 #    define VFS_USER_IO_CHUNK 16384
 
-/* Userspace I/O is carried through VFS instead of being unconditionally
+/*
+ * Userspace I/O is carried through VFS instead of being unconditionally
  * bounced by the syscall layer.  Filesystems that understand user buffers
  * (pipes and no-copy devices) can consume them directly; all existing
- * callbacks retain their old semantics through this bounded fallback. */
+ * callbacks retain their old semantics through this bounded fallback.
+ */
 int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, process_t *proc)
 {
     if (!file || (!addr && size)) return -EINVAL;
@@ -1692,8 +1710,10 @@ void vfs_poll_source_close(vfs_poll_source_t *source, uint32_t events)
     for (vfs_poll_subscription_t *sub = subscription; sub; sub = sub->next) sub->subscribed = false;
     spin_unlock(&source->lock);
 
-    /* Close is one-shot.  Detach first so callbacks may safely unsubscribe
-     * other sources, remove epoll items, and drop their file references. */
+    /*
+     * Close is one-shot.  Detach first so callbacks may safely unsubscribe
+     * other sources, remove epoll items, and drop their file references.
+     */
     while (subscription) {
         vfs_poll_subscription_t *next    = subscription->next;
         uint32_t                 matched = events & subscription->events;
@@ -1725,9 +1745,11 @@ int vfs_close(vfs_node_t node)
 
     spin_lock(&vfs_namespace_lock);
 
-    /* Namespace nodes must be closed exactly once for every retained
+    /*
+     * Namespace nodes must be closed exactly once for every retained
      * reference.  Anonymous descriptor nodes deliberately start at zero and
-     * use their first close as the final release. */
+     * use their first close as the final release.
+     */
     if (!node->refcount && node->parent && !(node->type & file_delete)) {
         spin_unlock(&vfs_namespace_lock);
         return -EINVAL;
@@ -1801,8 +1823,10 @@ int vfs_close(vfs_node_t node)
         }
     }
 
-    /* A synchronous unlink has already released the backing inode/blocks.
-     * Never let mapping destruction write stale pages back to that storage. */
+    /*
+     * A synchronous unlink has already released the backing inode/blocks.
+     * Never let mapping destruction write stale pages back to that storage.
+     */
     if (node->mapping && (node->flags & VFS_NODE_DELETE_COMMITTED))
         (void)pagecache_invalidate(node->mapping, 0, UINT64_MAX, PAGECACHE_INVALIDATE_DISCARD_DIRTY);
     vfs_pagecache_destroy(node);
@@ -1892,9 +1916,11 @@ void vfs_namespace_detach(vfs_node_t node)
     node->type |= file_delete;
     spin_unlock(&vfs_namespace_lock);
 
-    /* Detach children through the same deferred-free path.  A temporary
+    /*
+     * Detach children through the same deferred-free path.  A temporary
      * reference keeps each selected child alive after dropping the namespace
-     * lock; open descriptors retain their own references independently. */
+     * lock; open descriptors retain their own references independently.
+     */
     vfs_free_child(node);
 
     spin_lock(&vfs_namespace_lock);
@@ -1926,8 +1952,10 @@ int vfs_delete(vfs_node_t node)
     spin_unlock(&vfs_namespace_lock);
 
     if ((node->flags & VFS_NODE_DELETE_SYNC) && node->parent) {
-        /* Flush while the filesystem object still exists.  Once delete()
-         * succeeds, the callback may have freed its inode and data blocks. */
+        /*
+         * Flush while the filesystem object still exists.  Once delete()
+         * succeeds, the callback may have freed its inode and data blocks.
+         */
         if (node->mapping) {
             status = pagecache_writeback(node->mapping, 0, UINT64_MAX, PAGECACHE_WB_SYNC);
             if (status < 0) goto delete_failed;
@@ -1991,11 +2019,13 @@ int vfs_rename(vfs_node_t node, const char *new)
     }
     vfs_node_t collision = vfs_child_find_reserved(node->parent, new);
     if (collision && collision != node) {
-        /* rename(2) replaces an existing destination atomically.  A number
+        /*
+         * rename(2) replaces an existing destination atomically.  A number
          * of normal userspace writers (notably udev's database and xauth)
          * rely on the write-temp-then-rename pattern.  Treat two names for
          * the same inode as the POSIX no-op case, otherwise retain the
-         * destination while it is removed below. */
+         * destination while it is removed below.
+         */
         bool same_inode
             = collision->handle == node->handle || (collision->fsid == node->fsid && collision->inode && collision->inode == node->inode);
         if (same_inode) {

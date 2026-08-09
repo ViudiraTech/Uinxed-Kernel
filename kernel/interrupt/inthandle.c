@@ -71,9 +71,9 @@ static inline int user_exception(interrupt_frame_t *frame, int sig, int code, co
              * with frame == rbp+8, so:
              *   rdi -> frame-80, rsi -> frame-88, rdx -> frame-112
              */
-            __asm__ volatile("movq %[rdi], -0x50(%[fp])\n" /* saved_rdi = sig */
-                             "movq %[rsi], -0x58(%[fp])\n" /* saved_rsi = siginfo ptr */
-                             "movq %[rdx], -0x70(%[fp])\n" /* saved_rdx = old_mask ptr */
+            __asm__ volatile("movq %[rdi], -0x50(%[fp])\n" // saved_rdi = sig
+                             "movq %[rsi], -0x58(%[fp])\n" // saved_rsi = siginfo ptr
+                             "movq %[rdx], -0x70(%[fp])\n" // saved_rdx = old_mask ptr
                              :
                              : [fp] "r"(frame), [rdi] "r"(sigframe.rdi), [rsi] "r"(sigframe.rsi), [rdx] "r"(sigframe.rdx)
                              : "memory");
@@ -83,13 +83,15 @@ static inline int user_exception(interrupt_frame_t *frame, int sig, int code, co
     return 0;
 }
 
-/* A user #GP usually carries no fault address.  The old one-line report only
+/*
+ * A user #GP usually carries no fault address.  The old one-line report only
  * named the pid, which made an alignment fault in a shared library
  * indistinguishable from a bad selector or a corrupted return frame.  Keep a
  * compact, one-shot crash record with enough information to resolve the RIP
  * against the executable/shared object and inspect the faulting instruction.
  * This is emitted only when a process is about to receive SIGSEGV, so it does
- * not reintroduce the high-volume Weston diagnostics. */
+ * not reintroduce the high-volume Weston diagnostics.
+ */
 static void user_gp_report(interrupt_frame_t *frame, uint64_t error_code)
 {
     process_t *proc = process_current();

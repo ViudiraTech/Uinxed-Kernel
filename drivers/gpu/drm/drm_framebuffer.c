@@ -49,10 +49,12 @@ int drm_framebuffer_init(struct drm_device *dev, struct drm_framebuffer *fb, con
     ret = drm_mode_object_idr_alloc(dev, &fb->base, DRM_MODE_OBJECT_FB);
     if (ret) return ret;
 
-    /* The KMS framebuffer ID exposed to userspace is the mode-object ID.
+    /*
+     * The KMS framebuffer ID exposed to userspace is the mode-object ID.
      * Keep fb_idr keyed by that exact ID so ADDFB/SETCRTC/RMFB all address
      * the same object.  Allocating a second private ID here made SETCRTC
-     * return ENOENT for every framebuffer created by Xorg. */
+     * return ENOENT for every framebuffer created by Xorg.
+     */
     spin_lock(&dev->mode_config.fb_lock);
     ret = drm_idr_alloc_exact(&dev->mode_config.fb_idr, fb, fb->base.id);
     spin_unlock(&dev->mode_config.fb_lock);
@@ -191,9 +193,11 @@ int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_pr
     if (r->pixel_format == DRM_FORMAT_INVALID) { return -EINVAL; }
     if (r->flags & ~(DRM_MODE_FB_INTERLACED | DRM_MODE_FB_MODIFIERS)) return -EINVAL;
 
-    /* This driver intentionally exposes the same scanout formats as Linux
+    /*
+     * This driver intentionally exposes the same scanout formats as Linux
      * virtgpu's 2D plane.  Rejecting unsupported layouts is safer than
-     * creating a framebuffer that the host will later misinterpret. */
+     * creating a framebuffer that the host will later misinterpret.
+     */
     if (r->pixel_format != DRM_FORMAT_XRGB8888 && r->pixel_format != DRM_FORMAT_ARGB8888) return -EINVAL;
 
     /* Validate dimensions against mode_config limits */

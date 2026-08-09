@@ -52,8 +52,10 @@ typedef struct {
         bool        virtual_console;
 } tty_file_endpoint_t;
 
-/* tty0 and tty1 alias VT 1.  The remaining advertised terminals must
- * nevertheless keep independent line-discipline and job-control state. */
+/*
+ * tty0 and tty1 alias VT 1.  The remaining advertised terminals must
+ * nevertheless keep independent line-discipline and job-control state.
+ */
 static tty_file_endpoint_t vt_endpoints[7];
 static tty_file_endpoint_t serial_endpoints[4];
 
@@ -468,21 +470,21 @@ static bool tty_caps_active   = false;
  * scancodes that do not produce a printable character map to 0.
  */
 static const unsigned char tty_keymap[128] = {
-    0,    0,   '1', '2',  '3', '4', '5', '6', '7', '8', /* 0-9 */
-    '9',  '0', '-', '=',  0,   0,   'q', 'w', 'e', 'r', /* 10-19 */
-    't',  'y', 'u', 'i',  'o', 'p', '[', ']', 0,   0,   /* 20-29 */
-    'a',  's', 'd', 'f',  'g', 'h', 'j', 'k', 'l', ';', /* 30-39 */
-    '\'', '`', 0,   '\\', 'z', 'x', 'c', 'v', 'b', 'n', /* 40-49 */
-    'm',  ',', '.', '/',  0,   '*', 0,   ' ', 0,        /* 50-58 */
+    0,    0,   '1', '2',  '3', '4', '5', '6', '7', '8', // 0-9
+    '9',  '0', '-', '=',  0,   0,   'q', 'w', 'e', 'r', // 10-19
+    't',  'y', 'u', 'i',  'o', 'p', '[', ']', 0,   0,   // 20-29
+    'a',  's', 'd', 'f',  'g', 'h', 'j', 'k', 'l', ';', // 30-39
+    '\'', '`', 0,   '\\', 'z', 'x', 'c', 'v', 'b', 'n', // 40-49
+    'm',  ',', '.', '/',  0,   '*', 0,   ' ', 0,        // 50-58
 };
 
 static const unsigned char tty_keymap_shift[128] = {
-    0,   0,   '!', '@', '#', '$', '%', '^', '&', '*', /* 0-9 */
-    '(', ')', '_', '+', 0,   0,   'Q', 'W', 'E', 'R', /* 10-19 */
-    'T', 'Y', 'U', 'I', 'O', 'P', '{', '}', 0,   0,   /* 20-29 */
-    'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':', /* 30-39 */
-    '"', '~', 0,   '|', 'Z', 'X', 'C', 'V', 'B', 'N', /* 40-49 */
-    'M', '<', '>', '?', 0,   '*', 0,   ' ', 0,        /* 50-58 */
+    0,   0,   '!', '@', '#', '$', '%', '^', '&', '*', // 0-9
+    '(', ')', '_', '+', 0,   0,   'Q', 'W', 'E', 'R', // 10-19
+    'T', 'Y', 'U', 'I', 'O', 'P', '{', '}', 0,   0,   // 20-29
+    'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':', // 30-39
+    '"', '~', 0,   '|', 'Z', 'X', 'C', 'V', 'B', 'N', // 40-49
+    'M', '<', '>', '?', 0,   '*', 0,   ' ', 0,        // 50-58
 };
 
 /* Feed a scancode into the TTY line discipline */
@@ -493,19 +495,19 @@ void tty_handle_scancode(uint8_t scancode, bool pressed)
 
     /* Track modifier keys */
     switch (scancode) {
-        case 42 : /* LSHIFT */
-        case 54 : /* RSHIFT */
+        case 42 : // LSHIFT
+        case 54 : // RSHIFT
             tty_shift_pressed = pressed;
             return;
-        case 29 : /* LCTRL */
-        case 97 : /* RCTRL */
+        case 29 : // LCTRL
+        case 97 : // RCTRL
             tty_ctrl_pressed = pressed;
             return;
-        case 58 : /* CAPSLOCK */
+        case 58 : // CAPSLOCK
             if (pressed) tty_caps_active = !tty_caps_active;
             return;
-        case 56 :  /* LALT */
-        case 100 : /* RALT */
+        case 56 :  // LALT
+        case 100 : // RALT
             return;
         default :
             break;
@@ -518,19 +520,19 @@ void tty_handle_scancode(uint8_t scancode, bool pressed)
 
     /* Handle special (non-printable) keys */
     switch (scancode) {
-        case 14 : /* BACKSPACE */
+        case 14 : // BACKSPACE
             ch = '\b';
             break;
-        case 28 : /* ENTER - send CR; canonical mode converts to LF via ICRNL */
+        case 28 : // ENTER - send CR; canonical mode converts to LF via ICRNL
             ch = '\r';
             break;
-        case 15 : /* TAB */
+        case 15 : // TAB
             ch = '\t';
             break;
-        case 57 : /* SPACE */
+        case 57 : // SPACE
             ch = ' ';
             break;
-        case 1 : /* ESC */
+        case 1 : // ESC
             ch = 0x1B;
             break;
         default :
@@ -609,8 +611,10 @@ int tty_console_acquire(struct process *proc, uint64_t flags)
     pid_t pid = (pid_t)proc->task->pid;
     if (pid <= 0 || proc->sid != pid || proc->pgid != pid) return -EPERM;
 
-    /* PID 1 needs console descriptors, but leaving the VT unattached lets
-     * the session leader started by inittab acquire it for job control. */
+    /*
+     * PID 1 needs console descriptors, but leaving the VT unattached lets
+     * the session leader started by inittab acquire it for job control.
+     */
     tty_input_lazy_init();
     return 0;
 }

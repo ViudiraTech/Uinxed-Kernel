@@ -588,8 +588,10 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     DRM_INFO("KMS pipeline: CRTC-%d + primary plane-%d + encoder-%d + connector-%d (%d modes)\n", crtc->base.id, primary->base.id,
              encoder->base.id, connector->base.id, vgdev->num_scanouts > 0 ? vgdev->num_scanouts : 1);
 
-    /* Perform an initial modeset so the display is live immediately.
-     * Failure is non-fatal –the KMS pipeline remains registered. */
+    /*
+     * Perform an initial modeset so the display is live immediately.
+     * Failure is non-fatal –the KMS pipeline remains registered.
+     */
     ret = virtgpu_kms_initial_modeset(vgdev);
     if (ret) { DRM_INFO("Initial modeset deferred (display will activate on first userspace commit)\n"); }
 

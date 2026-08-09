@@ -50,8 +50,10 @@ extern process_t *init_process;
 #define PROCESS_USER_CODE_MAX  0x00007fffffe00000
 #define PROCESS_USER_STACK_TOP PROCESS_STACK_BASE
 
-/* Linux resource-limit ABI indices.  Keep the table process-owned so limits
- * are shared by threads, inherited by fork, and preserved across exec. */
+/*
+ * Linux resource-limit ABI indices.  Keep the table process-owned so limits
+ * are shared by threads, inherited by fork, and preserved across exec.
+ */
 #define PROCESS_RLIMIT_CPU        0
 #define PROCESS_RLIMIT_FSIZE      1
 #define PROCESS_RLIMIT_DATA       2
@@ -110,10 +112,10 @@ typedef struct vm_area {
         vm_flags_t       flags;
         vm_region_type_t type;
         struct vm_area  *next;
-        vfs_node_t       vm_file;         /* owning file (NULL for anonymous) */
-        uint64_t         vm_pgoff;        /* page offset within file */
-        void            *vm_private_data; /* driver-private per-VMA data */
-        bool             vm_pagecache;    /* VMA pins a regular-file cache mapping */
+        vfs_node_t       vm_file;         // owning file (NULL for anonymous)
+        uint64_t         vm_pgoff;        // page offset within file
+        void            *vm_private_data; // driver-private per-VMA data
+        bool             vm_pagecache;    // VMA pins a regular-file cache mapping
 } vm_area_t;
 
 typedef struct process_file {
@@ -125,8 +127,8 @@ typedef struct process_file {
         spinlock_t             lock;
         wait_queue_t           io_wait;
         bool                   io_busy;
-        void                  *private_data; /* per-open-instance driver-private data */
-        bool                   file_opened;  /* file_open succeeded and requires release */
+        void                  *private_data; // per-open-instance driver-private data
+        bool                   file_opened;  // file_open succeeded and requires release
         bool                   descriptors_closed;
         struct vfs_poll_source close_source;
 } process_file_t;
@@ -156,10 +158,12 @@ typedef struct process {
         uintptr_t         stack_brk;
         struct process   *parent;
         slist_t           children;
-        wait_queue_t      child_wait; /* fork/exit/wait condition queue */
-        /* vfork completion is separate from child exit: a successful exec
+        wait_queue_t      child_wait; // fork/exit/wait condition queue
+        /*
+         * vfork completion is separate from child exit: a successful exec
          * releases the parent while the child remains alive.  The condition
-         * and waiter list are both protected by vfork_wait.lock. */
+         * and waiter list are both protected by vfork_wait.lock.
+         */
         wait_queue_t    vfork_wait;
         bool            vfork_done;
         int             exit_code;
@@ -173,9 +177,11 @@ typedef struct process {
         uint16_t        umask;
         uint8_t        *kernel_stack;
         process_file_t *fds[PROCESS_MAX_FD];
-        /* Descriptor flags belong to an fd table entry, not to the shared
+        /*
+         * Descriptor flags belong to an fd table entry, not to the shared
          * open-file description.  At present Linux defines FD_CLOEXEC as the
-         * sole descriptor flag; keep a full byte per slot for ABI growth. */
+         * sole descriptor flag; keep a full byte per slot for ABI growth.
+         */
         uint8_t          fd_flags[PROCESS_MAX_FD];
         spinlock_t       fd_lock;
         process_rlimit_t rlimits[PROCESS_RLIMIT_COUNT];
@@ -188,9 +194,9 @@ typedef struct process {
         pid_t            sid;
         tty_core_t      *controlling_tty;
         char             name[PROCESS_NAME_LEN];
-        char             root[VFS_PATH_MAX];     /* chroot path */
-        char             cwd[VFS_PATH_MAX];      /* current working directory */
-        char             exe_path[VFS_PATH_MAX]; /* executable path (procfs /proc/<pid>/exe) */
+        char             root[VFS_PATH_MAX];     // chroot path
+        char             cwd[VFS_PATH_MAX];      // current working directory
+        char             exe_path[VFS_PATH_MAX]; // executable path (procfs /proc/<pid>/exe)
 } process_t;
 
 /* Initialize the process management subsystem */
@@ -215,8 +221,10 @@ int process_wait(pid_t pid, int *exit_code);
 #define PROCESS_WAIT_STOPPED   0x00000002U
 #define PROCESS_WAIT_CONTINUED 0x00000004U
 
-/* Linux waitpid/wait4 selector semantics.  Returns 0 with *waited_pid == 0
- * for a successful nonblocking poll, or a negative errno. */
+/*
+ * Linux waitpid/wait4 selector semantics.  Returns 0 with *waited_pid == 0
+ * for a successful nonblocking poll, or a negative errno.
+ */
 int  process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_t *waited_pid);
 void process_child_stopped(process_t *child, int signal);
 void process_child_continued(process_t *child);
@@ -268,8 +276,10 @@ process_t *process_fork_status(int *error);
 /* Fork while propagating a Linux ptrace creation event before enqueue. */
 process_t *process_fork_status_event(int *error, uint32_t ptrace_event);
 
-/* Fork with a pre-published vfork completion state.  The state must be set
- * before the child is runnable, otherwise a fast exec/exit can be lost. */
+/*
+ * Fork with a pre-published vfork completion state.  The state must be set
+ * before the child is runnable, otherwise a fast exec/exit can be lost.
+ */
 process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, bool vfork);
 void       process_fork_publish(process_t *child);
 
@@ -296,8 +306,10 @@ int vm_area_insert(process_t *proc, vm_area_t *vma);
 /* Allocate a new virtual memory area in the given process */
 int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flags);
 
-/* Demand-fault a page inside a VM_LAZY mapping: resolve the VMA covering
- * addr, validate permissions, then allocate and map the physical page. */
+/*
+ * Demand-fault a page inside a VM_LAZY mapping: resolve the VMA covering
+ * addr, validate permissions, then allocate and map the physical page.
+ */
 int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec);
 
 /* Unmap a virtual memory area in the given process */
@@ -361,4 +373,4 @@ int             process_file_poll(process_file_t *file, size_t events);
 /* Resolve a pathname against cwd or a directory descriptor. */
 int process_resolve_path_at(process_t *proc, int dirfd, const char *path, char *resolved, size_t size);
 
-#endif /* INCLUDE_PROCESS_H_ */
+#endif // INCLUDE_PROCESS_H_

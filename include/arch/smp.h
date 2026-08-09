@@ -40,9 +40,9 @@ struct task;
 
 /* Per-CPU floating-point state (see <arch/fpu.h>) */
 typedef struct {
-        struct task *fpu_live;       /* task whose FPU state is currently loaded on this CPU */
-        uint8_t      fpu_kernel_cnt; /* nested kernel_fpu_begin() depth */
-        uint8_t      fpu_irq_saved;  /* RFLAGS.IF of the outermost kernel_fpu_begin() */
+        struct task *fpu_live;       // task whose FPU state is currently loaded on this CPU
+        uint8_t      fpu_kernel_cnt; // nested kernel_fpu_begin() depth
+        uint8_t      fpu_irq_saved;  // RFLAGS.IF of the outermost kernel_fpu_begin()
 } fpu_percpu_t;
 
 typedef struct cpu_processor {

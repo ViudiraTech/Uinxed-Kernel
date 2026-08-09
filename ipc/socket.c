@@ -51,7 +51,7 @@ typedef struct sock_bound {
         socket_t     *sk;
         sockaddr_un_t addr;
         uint32_t      addrlen;
-        int           abstract; /* 1 = abstract namespace, 0 = pathname */
+        int           abstract; // 1 = abstract namespace, 0 = pathname
 } sock_bound_t;
 
 static sock_bound_t sock_bound_tab[SOCK_BOUND_MAX];
@@ -173,11 +173,13 @@ static uint32_t sock_buf_write(sock_buf_t *buf, const void *data, uint32_t len)
         uint32_t chunk;
         uint32_t pos = buf->tail;
 
-        /* head == tail is ambiguous: it represents both an empty and a full
+        /*
+         * head == tail is ambiguous: it represents both an empty and a full
          * ring.  Full buffers were handled by the space check above; for an
          * empty ring the writable extent runs to the end of the allocation.
          * Treating the empty case as tail < head produced chunk == 0 and an
-         * infinite loop on the very first socket write. */
+         * infinite loop on the very first socket write.
+         */
         if (pos >= buf->head) {
             chunk = buf->capacity - pos;
         } else {
@@ -290,19 +292,23 @@ static void sock_buf_discard(sock_buf_t *buf, uint32_t len)
 
 static void sock_blocked_register(socket_t *sk, task_t *task)
 {
-    /* The old side table followed by task_block() had a lost-wakeup window:
+    /*
+     * The old side table followed by task_block() had a lost-wakeup window:
      * a peer could wake the task after the socket lock was released but
      * before task_block() changed its state.  Prepare the scheduler wait
      * while the caller still holds the socket lock; wait_queue_sleep() then
-     * atomically observes an early wake and does not sleep. */
+     * atomically observes an early wake and does not sleep.
+     */
     (void)task;
     if (sk) wait_queue_prepare(&sk->waitq);
 }
 
 static void sock_blocked_unregister(socket_t *sk)
 {
-    /* A successful wake removes the task from waitq.  Callers retain this
-     * hook for symmetry with the old implementation. */
+    /*
+     * A successful wake removes the task from waitq.  Callers retain this
+     * hook for symmetry with the old implementation.
+     */
     (void)sk;
 }
 
@@ -328,8 +334,10 @@ static int sock_bound_lookup(const sockaddr_un_t *addr, uint32_t addrlen, int ab
         if (sock_bound_tab[i].abstract != abstract) continue;
 
         if (abstract) {
-            /* Abstract names are byte strings, so their supplied length is
-             * part of the address. */
+            /*
+             * Abstract names are byte strings, so their supplied length is
+             * part of the address.
+             */
             if (sock_bound_tab[i].addrlen == addrlen
                 && memcmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, addrlen - sizeof(uint16_t)) == 0) {
                 *out = sock_bound_tab[i].sk;
@@ -337,10 +345,12 @@ static int sock_bound_lookup(const sockaddr_un_t *addr, uint32_t addrlen, int ab
                 return EOK;
             }
         } else {
-            /* Pathname addresses are identified by sun_path.  Applications
+            /*
+             * Pathname addresses are identified by sun_path.  Applications
              * may use either the minimal sockaddr length or a larger structure
              * containing the same NUL-terminated path, so unlike abstract
-             * names addrlen must not participate in this match. */
+             * names addrlen must not participate in this match.
+             */
             if (strncmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, UNIX_PATH_MAX) == 0) {
                 /* Also verify the saved path length matches */
                 size_t a = strlen(sock_bound_tab[i].addr.sun_path);
@@ -388,10 +398,12 @@ static int sock_bound_add(socket_t *sk, const sockaddr_un_t *addr, uint32_t addr
     /* Find free slot */
     for (int i = 0; i < SOCK_BOUND_MAX; i++) {
         if (sock_bound_tab[i].sk == NULL) {
-            /* Pathname sockaddr lengths commonly omit the trailing NUL.  A
+            /*
+             * Pathname sockaddr lengths commonly omit the trailing NUL.  A
              * reused slot must therefore be cleared before copying, or bytes
              * from the previous address become a fake suffix and make later
-             * connect(2) lookups miss the listener. */
+             * connect(2) lookups miss the listener.
+             */
             memset(&sock_bound_tab[i], 0, sizeof(sock_bound_tab[i]));
             sock_bound_tab[i].sk       = sk;
             sock_bound_tab[i].addrlen  = addrlen;
@@ -536,12 +548,14 @@ static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
     sk->so_error    = 0;
     sk->refcount    = 1;
 
-    /* Every unbound AF_UNIX socket has an unnamed local address.  Linux
+    /*
+     * Every unbound AF_UNIX socket has an unnamed local address.  Linux
      * reports that address as just sa_family_t (length 2); it is not an
      * abstract address and must never consume a slot in the bound-name
      * table.  Initialize it at socket creation so connect(), socketpair(),
      * getsockname(), and datagram sender metadata all share one consistent
-     * representation. */
+     * representation.
+     */
     sk->local_addr.ss_family = AF_UNIX;
     sk->local_addr_len       = sizeof(sa_family_t);
 
@@ -555,8 +569,10 @@ static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
         }
     }
 
-    /* Set polymorphic operations: dgram/seqpacket/stream all route reads and
-     * writes through their type-specific paths. */
+    /*
+     * Set polymorphic operations: dgram/seqpacket/stream all route reads and
+     * writes through their type-specific paths.
+     */
     sk->socket_read  = NULL;
     sk->socket_write = NULL;
     sk->socket_poll  = NULL;
@@ -614,9 +630,11 @@ static void socket_drop_rights(socket_t *sk)
     sk->rights_head = sk->rights_tail = 0;
     spin_unlock(&sk->lock);
 
-    /* A queued SCM_RIGHTS descriptor is an in-flight reference.  Release it
+    /*
+     * A queued SCM_RIGHTS descriptor is an in-flight reference.  Release it
      * outside the socket lock because the final file callback may close a
-     * socket and take socket/VFS locks itself. */
+     * socket and take socket/VFS locks itself.
+     */
     for (size_t i = 0; i < count; i++) process_file_put_transfer(files[i]);
 }
 
@@ -656,8 +674,10 @@ static void socket_free(socket_t *sk)
     /* Remove from bound registry */
     sock_bound_remove(sk);
 
-    /* A pathname socket inode persists after close, as on Linux.  Drop only
-     * the endpoint's retained VFS reference; unlink(2) owns namespace removal. */
+    /*
+     * A pathname socket inode persists after close, as on Linux.  Drop only
+     * the endpoint's retained VFS reference; unlink(2) owns namespace removal.
+     */
     if (sk->bound_node) {
         vfs_close(sk->bound_node);
         sk->bound_node = NULL;
@@ -887,9 +907,11 @@ static int unix_bind(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen)
         /* Check path length */
         if (strnlen_local(path, UNIX_PATH_MAX) >= UNIX_PATH_MAX) return -ENAMETOOLONG;
 
-        /* AF_UNIX pathname ownership follows the filesystem namespace.  An
+        /*
+         * AF_UNIX pathname ownership follows the filesystem namespace.  An
          * existing inode is EADDRINUSE even with SO_REUSEADDR; applications
-         * that own a stale entry must unlink it explicitly. */
+         * that own a stale entry must unlink it explicitly.
+         */
         ret = vfs_mkfile(path);
         if (ret != EOK) {
             if (ret != -EEXIST && ret != -EACCES && ret != -EROFS) plogk("socket: unix bind failed to create %s (%d)\n", path, ret);
@@ -1223,9 +1245,11 @@ static int unix_stream_send_rights(socket_t *sk, const void *buf, size_t len, in
         if (written < chunk) break;
     }
 
-    /* Ancillary descriptors are published under the same lock as the first
+    /*
+     * Ancillary descriptors are published under the same lock as the first
      * bytes of this sendmsg.  The refs in rights[] become owned by the peer's
-     * receive queue only after at least one byte has been accepted. */
+     * receive queue only after at least one byte has been accepted.
+     */
     if (total_written > 0) {
         for (size_t i = 0; i < rights_count; i++) {
             peer->rights[peer->rights_tail] = rights[i];
@@ -1333,10 +1357,12 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
     return ret;
 }
 
-/* SOCK_SEQPACKET preserves record boundaries.  Store each record as a native
+/*
+ * SOCK_SEQPACKET preserves record boundaries.  Store each record as a native
  * 32-bit length followed by its bytes in the peer's private ring.  The ring is
  * protected by peer->lock, so publishing the header and payload is atomic to
- * readers. */
+ * readers.
+ */
 static int unix_seqpacket_send(socket_t *sk, const void *buf, size_t len, int flags)
 {
     const uint32_t header_size = sizeof(uint32_t);
@@ -1384,8 +1410,10 @@ static int unix_seqpacket_send(socket_t *sk, const void *buf, size_t len, int fl
     uint32_t record_len = (uint32_t)len;
     if (sock_buf_write(&peer->recv_buf, &record_len, header_size) != header_size
         || (record_len && sock_buf_write(&peer->recv_buf, buf, record_len) != record_len)) {
-        /* Space was reserved while holding the lock; reaching this path means
-         * ring corruption rather than a short write. */
+        /*
+         * Space was reserved while holding the lock; reaching this path means
+         * ring corruption rather than a short write.
+         */
         spin_unlock(&peer->lock);
         socket_unref(peer);
         return -EIO;
@@ -1647,8 +1675,8 @@ static int socket_poll(socket_t *sk, size_t events)
     switch (sk->state) {
         case SOCK_STATE_LISTENING :
             /* POLLIN = connection waiting */
-            if (sk->accept_queue_len > 0) revents |= 0x001; /* POLLIN */
-            revents |= 0x004;                               /* POLLOUT (always writable for listen) */
+            if (sk->accept_queue_len > 0) revents |= 0x001; // POLLIN
+            revents |= 0x004;                               // POLLOUT (always writable for listen)
             break;
 
         case SOCK_STATE_CONNECTED : {
@@ -1671,14 +1699,14 @@ static int socket_poll(socket_t *sk, size_t events)
             /* DGRAM sockets can always send/recv if bound */
             if (sk->type == SOCK_DGRAM) {
                 if (sock_buf_available(&sk->recv_buf) > 0) revents |= 0x001;
-                revents |= 0x004; /* dgram always writable */
+                revents |= 0x004; // dgram always writable
             } else {
-                revents |= 0x010; /* POLLHUP - not connected */
+                revents |= 0x010; // POLLHUP - not connected
             }
             break;
 
         case SOCK_STATE_DISCONNECTING :
-            revents |= 0x010; /* POLLHUP */
+            revents |= 0x010; // POLLHUP
             if (sock_buf_available(&sk->recv_buf) > 0) revents |= 0x001;
             break;
 
@@ -1687,7 +1715,7 @@ static int socket_poll(socket_t *sk, size_t events)
     }
 
     /* Check error */
-    if (sk->so_error) revents |= 0x008; /* POLLERR */
+    if (sk->so_error) revents |= 0x008; // POLLERR
 
     spin_unlock(&sk->lock);
 
@@ -2227,11 +2255,13 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
     sk = socket_from_fd(fd);
     if (!sk) return -EBADF;
 
-    /* O_NONBLOCK is a property of the open file description, not merely a
+    /*
+     * O_NONBLOCK is a property of the open file description, not merely a
      * flag supplied to sendto(2).  AF_INET and netlink used to fold it into
      * the operation below, while AF_UNIX accidentally ignored it.  Wayland
      * clients set the display socket nonblocking with fcntl(2), so a flush
-     * could otherwise sleep in the kernel instead of returning EAGAIN. */
+     * could otherwise sleep in the kernel instead of returning EAGAIN.
+     */
     if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
 
     if (!buf && len > 0) return -EFAULT;
@@ -2332,8 +2362,10 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr,
     sk = socket_from_fd(fd);
     if (!sk) return -EBADF;
 
-    /* recv(2) is implemented through recvfrom(2) by libc.  Honor the file's
-     * O_NONBLOCK state for AF_UNIX as well as the other socket families. */
+    /*
+     * recv(2) is implemented through recvfrom(2) by libc.  Honor the file's
+     * O_NONBLOCK state for AF_UNIX as well as the other socket families.
+     */
     if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
 
     if (!buf && len) return -EFAULT;
@@ -2498,8 +2530,10 @@ static int socket_collect_rights(socket_t *sk, const msghdr_t *kmsg, process_fil
             }
         }
 
-        /* Linux accepts msg_controllen == cmsg_len for the final header; the
-         * trailing alignment bytes need not be present in the user buffer. */
+        /*
+         * Linux accepts msg_controllen == cmsg_len for the final header; the
+         * trailing alignment bytes need not be present in the user buffer.
+         */
         if (cmsg->cmsg_len == remaining) break;
         size_t step = CMSG_ALIGN(cmsg->cmsg_len);
         if (step > remaining) goto malformed;
@@ -2674,8 +2708,10 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
         return (int64_t)ret;
     }
 
-    /* Xtrans uses recvmsg(2) on accepted local X11 sockets.  Without this,
-     * an O_NONBLOCK X client can sleep forever inside the kernel. */
+    /*
+     * Xtrans uses recvmsg(2) on accepted local X11 sockets.  Without this,
+     * an O_NONBLOCK X client can sleep forever inside the kernel.
+     */
     if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
 
     if (sk->type == SOCK_DGRAM) {
@@ -2726,8 +2762,10 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
         size_t record_len = 0;
         ret               = unix_seqpacket_recv(sk, kbuf, total_len, flags, &msg_flags, &record_len);
         if (ret >= 0 && (flags & MSG_TRUNC)) {
-            /* Scatter only the bytes that fit; recvmsg's return value may
-             * still report the complete record length with MSG_TRUNC. */
+            /*
+             * Scatter only the bytes that fit; recvmsg's return value may
+             * still report the complete record length with MSG_TRUNC.
+             */
             int copied = ret;
             if (copied > 0) {
                 uint8_t *src       = (uint8_t *)kbuf;
@@ -2747,9 +2785,11 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
         ret = unix_stream_recv(sk, kbuf, total_len, flags);
     }
 
-    /* Build connected AF_UNIX ancillary data.  SCM_RIGHTS entries are actual
+    /*
+     * Build connected AF_UNIX ancillary data.  SCM_RIGHTS entries are actual
      * references to the sender's open-file descriptions, not fresh opens of
-     * the vnode; seatd relies on that to hand its DRM fd to Weston. */
+     * the vnode; seatd relies on that to hand its DRM fd to Weston.
+     */
     if (sk->type != SOCK_DGRAM) {
         size_t  control_capacity = kmsg->msg_controllen;
         uint8_t control[CMSG_SPACE(SOCK_RIGHTS_MAX * sizeof(int)) + CMSG_SPACE(sizeof(ucred_t))];
@@ -2785,8 +2825,10 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
                 } else {
                     msg_flags |= MSG_CTRUNC;
                 }
-                /* Drop the in-flight ref.  A successfully installed fd owns
-                 * its own descriptor reference now. */
+                /*
+                 * Drop the in-flight ref.  A successfully installed fd owns
+                 * its own descriptor reference now.
+                 */
                 process_file_put_transfer(received_rights[i]);
             }
 
@@ -2812,8 +2854,10 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
         credentials.gid = peer ? peer->gid : 0;
         spin_unlock(&sk->lock);
 
-        /* SO_PASSCRED applies to connected sockets too.  eudevd's
-         * SOCK_SEQPACKET control channel requires this record. */
+        /*
+         * SO_PASSCRED applies to connected sockets too.  eudevd's
+         * SOCK_SEQPACKET control channel requires this record.
+         */
         if (ret >= 0 && passcred && has_peer && kmsg->msg_control && control_capacity >= control_used
             && control_capacity - control_used >= CMSG_SPACE(sizeof(credentials))) {
             cmsghdr_t *cmsg  = (cmsghdr_t *)(control + control_used);
@@ -3437,7 +3481,7 @@ int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *o
 
         case SO_ERROR :
             ival         = sk->so_error;
-            sk->so_error = 0; /* Clear on read */
+            sk->so_error = 0; // Clear on read
             koptlen      = sizeof(int);
             break;
 

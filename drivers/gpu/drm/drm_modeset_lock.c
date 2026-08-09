@@ -39,9 +39,11 @@
 /* Lock primitives                                                    */
 /* ------------------------------------------------------------------ */
 
-/* Initialize @lock as free and ready for use. The list link is made a valid
+/*
+ * Initialize @lock as free and ready for use. The list link is made a valid
  * empty sentinel so drm_modeset_unlock() can remove it safely even if it was
- * never inserted into a context's held-lock list. */
+ * never inserted into a context's held-lock list.
+ */
 void drm_modeset_lock_init(struct drm_modeset_lock *lock)
 {
     lock->mutex.lock   = 0;
@@ -157,8 +159,10 @@ int drm_modeset_lock_single_interruptible(struct drm_modeset_lock *lock)
     return 0;
 }
 
-/* Return true if @lock is currently held, either by an acquire context or as a
- * bare spinlock. */
+/*
+ * Return true if @lock is currently held, either by an acquire context or as a
+ * bare spinlock.
+ */
 bool drm_modeset_is_locked(struct drm_modeset_lock *lock)
 {
     return lock->ctx != NULL || lock->mutex.lock != 0;
@@ -184,8 +188,10 @@ void drm_modeset_acquire_init(struct drm_modeset_acquire_ctx *ctx, uint32_t flag
     ctx->num_locks      = 0;
 }
 
-/* Finalize @ctx: drop any locks still held. After this the context may be
- * reused by another drm_modeset_acquire_init() or freed. */
+/*
+ * Finalize @ctx: drop any locks still held. After this the context may be
+ * reused by another drm_modeset_acquire_init() or freed.
+ */
 void drm_modeset_acquire_fini(struct drm_modeset_acquire_ctx *ctx)
 {
     drm_modeset_drop_locks(ctx);

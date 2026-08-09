@@ -109,11 +109,11 @@ void drm_run_test(void)
     for (uint32_t y = 0; y < create.height; y++) {
         uint32_t color;
         if (y < create.height / 3) {
-            color = 0xFFFF0000; /* red */
+            color = 0xFFFF0000; // red
         } else if (y < 2 * create.height / 3) {
-            color = 0xFF00FF00; /* green */
+            color = 0xFF00FF00; // green
         } else {
-            color = 0xFF0000FF; /* blue */
+            color = 0xFF0000FF; // blue
         }
         for (uint32_t x = 0; x < create.width; x++) { pixels[y * create.width + x] = color; }
     }

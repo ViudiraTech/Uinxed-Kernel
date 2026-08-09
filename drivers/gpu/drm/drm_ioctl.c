@@ -59,14 +59,18 @@ int drm_ioctl_permit(unsigned int flags, struct drm_file *file_priv)
     }
 
     if (flags & DRM_MASTER) {
-        /* This MVP kernel has no device-level master bookkeeping and
+        /*
+         * This MVP kernel has no device-level master bookkeeping and
          * userspace (weston via libseat's noop launcher) never issues
-         * SET_MASTER.  Any authenticated client is granted master. */
+         * SET_MASTER.  Any authenticated client is granted master.
+         */
         if (!file_priv->authenticated) { return -EACCES; }
     }
 
-    /* DRM_ROOT_ONLY ???no root concept in freestanding kernel;
-     * always deny for safety. */
+    /*
+     * DRM_ROOT_ONLY ???no root concept in freestanding kernel;
+     * always deny for safety.
+     */
     if (flags & DRM_ROOT_ONLY) { return -EACCES; }
 
     return 0;
@@ -269,10 +273,12 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
             return -ENOMEM;
         }
         if (dir & _IOC_WRITE) {
-            /* copy_from_user: kernel and user share the same address
+            /*
+             * copy_from_user: kernel and user share the same address
              * space in this freestanding kernel, but we still make a
              * private copy so the handler cannot scribble on user
-             * memory. */
+             * memory.
+             */
             if (copy_from_user(kdata, user_data, size)) {
                 free(kdata);
                 return -EFAULT;
@@ -285,9 +291,11 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
     /* 5. Search driver ioctls (full cmd match). */
     if (dev->driver->ioctls && dev->driver->num_ioctls > 0) { desc = find_ioctl_desc(cmd, dev->driver->ioctls, dev->driver->num_ioctls); }
 
-    /* 6. Dumb-buffer / PRIME fallback dispatch.
-     *    These are handled separately because the core table has NULL
-     *    func entries and we dispatch through the driver callbacks. */
+    /*
+     * 6. Dumb-buffer / PRIME fallback dispatch.
+     * These are handled separately because the core table has NULL
+     * func entries and we dispatch through the driver callbacks.
+     */
     if (!desc) {
         if (cmd == DRM_IOCTL_MODE_CREATE_DUMB) {
             ret = drm_ioctl_permit(DRM_AUTH, file_priv);

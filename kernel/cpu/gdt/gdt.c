@@ -24,8 +24,10 @@ void init_gdt(void)
     gdt0.entries[2] = 0x00c0920000000000; // Kernel data segment
     gdt0.entries[3] = 0x00a0fa0000000000; // User code segment
     gdt0.entries[4] = 0x00c0f20000000000; // User data segment
-    /* SYSRET requires user SS immediately below user CS.  Keep the legacy
-     * pair for IRET and add a Linux-style data/code pair for SYSRET. */
+    /*
+     * SYSRET requires user SS immediately below user CS.  Keep the legacy
+     * pair for IRET and add a Linux-style data/code pair for SYSRET.
+     */
     gdt0.entries[5] = 0x00c0f20000000000; // SYSRET user data segment
     gdt0.entries[6] = 0x00a0fa0000000000; // SYSRET user code segment
 

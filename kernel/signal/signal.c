@@ -150,10 +150,12 @@ void signal_state_copy(signal_state_t *dst, const signal_state_t *src)
     if (dst != src) spin_lock(&dst->lock);
 
     memcpy(dst->sighand, src->sighand, sizeof(dst->sighand));
-    /* POSIX fork inheritance copies dispositions and the signal mask, but the
+    /*
+     * POSIX fork inheritance copies dispositions and the signal mask, but the
      * child starts with no pending signals and no inherited child-status
      * notification.  Copying the parent's SIGCHLD here made freshly forked
-     * helpers spuriously interrupt their first blocking syscall. */
+     * helpers spuriously interrupt their first blocking syscall.
+     */
     sigemptyset(&dst->pending);
     dst->blocked      = src->restore_mask ? src->saved_mask : src->blocked;
     dst->saved_mask   = 0;
@@ -293,9 +295,11 @@ int signal_send(process_t *proc, int sig, const siginfo_t *info)
 
     spin_unlock(&state->lock);
 
-    /* signalfd consumes blocked signals, so it must be notified when the
+    /*
+     * signalfd consumes blocked signals, so it must be notified when the
      * signal becomes pending.  Waiting until normal return-to-userspace
-     * delivery can never work for the usual (blocked) signalfd mask. */
+     * delivery can never work for the usual (blocked) signalfd mask.
+     */
     if (ret == 0 && newly_pending) signalfd_deliver(proc, sig, info);
 
     bool resumed = false;
@@ -376,12 +380,14 @@ static int signal_setup_frame(syscall_frame_t *frame, int sig, const sigaction_t
     sp -= sizeof(signal_user_frame_t);
     sp &= ~(uint64_t)0xF;
 
-    /* A signal handler is entered as if it had been called: pretcode at RSP
+    /*
+     * A signal handler is entered as if it had been called: pretcode at RSP
      * is its return address.  The AMD64 SysV ABI therefore requires
      * RSP % 16 == 8 at handler entry (the caller's stack was 16-byte aligned
      * before CALL pushed eight bytes).  Entering with RSP % 16 == 0 shifts
      * every aligned local by eight bytes; musl's vfprintf then faults on its
-     * first movaps store. */
+     * first movaps store.
+     */
     sp -= sizeof(uint64_t);
 
     if (sp < stack_limit) return -EFAULT;
@@ -512,10 +518,12 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
         return SIG_DELIV_HANDLED;
     }
 
-    /* Delivery must use the disposition that was selected above.  In
+    /*
+     * Delivery must use the disposition that was selected above.  In
      * particular, SA_RESETHAND changes the persistent disposition as the
      * handler is entered; it must not erase the handler/restorer that belong
-     * to this delivery. */
+     * to this delivery.
+     */
     sigaction_t action = *sa;
 
     /* User handler: save old mask before modifying */
@@ -527,8 +535,10 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
     /* Block additional signals in sa_mask */
     sigorset(&state->blocked, &state->blocked, &action.sa_mask);
 
-    /* SA_RESETHAND affects future deliveries.  Keep using the snapshot above
-     * for the handler that is being installed on the user stack now. */
+    /*
+     * SA_RESETHAND affects future deliveries.  Keep using the snapshot above
+     * for the handler that is being installed on the user stack now.
+     */
     if (action.sa_flags & SA_RESETHAND) {
         sa->sa_handler  = SIG_DFL;
         sa->sa_flags    = 0;
@@ -681,9 +691,11 @@ int signal_deliver_for_process(process_t *proc, syscall_frame_t *frame)
 
     signal_state_t *state = &proc->signal;
 
-    /* The overwhelmingly common return-to-user path has neither pending
+    /*
+     * The overwhelmingly common return-to-user path has neither pending
      * signals nor a temporary mask to restore.  Avoid disabling interrupts
-     * and taking signal.lock for every syscall in that case. */
+     * and taking signal.lock for every syscall in that case.
+     */
     sigset_t pending = __atomic_load_n(&state->pending, __ATOMIC_ACQUIRE);
     sigset_t blocked = __atomic_load_n(&state->blocked, __ATOMIC_RELAXED);
     if (!(pending & ~blocked) && !__atomic_load_n(&state->restore_mask, __ATOMIC_ACQUIRE)) return 0;
@@ -696,9 +708,11 @@ int signal_deliver_for_process(process_t *proc, syscall_frame_t *frame)
 
         if (sig < 0) break;
 
-        /* A tracer observes the signal before normal disposition.  The
+        /*
+         * A tracer observes the signal before normal disposition.  The
          * tracee sleeps outside signal.lock and resumes with either a
-         * replacement signal or zero to suppress delivery. */
+         * replacement signal or zero to suppress delivery.
+         */
         if (ptrace_tracer_pid(current_task()) && sig != SIGKILL) {
             spin_unlock(&state->lock);
             int injected = ptrace_signal_delivery(frame, sig, &info);
@@ -714,22 +728,28 @@ int signal_deliver_for_process(process_t *proc, syscall_frame_t *frame)
             /* Default action terminates process */
             spin_unlock(&state->lock);
             process_exit(-sig);
-            return 1; /* Never reached */
+            return 1; // Never reached
         }
 
         if (ret == SIG_DELIV_HANDLER) {
-            /* User handler set up: deliver ONLY this signal, leave rest pending.
+            /*
+             * User handler set up: deliver ONLY this signal, leave rest pending.
              * The handler will run when we return to userspace; on the next
-             * syscall/interrupt return, remaining signals will be delivered. */
+             * syscall/interrupt return, remaining signals will be delivered.
+             */
             break;
         }
 
-        /* ret == SIG_DELIV_HANDLED: default/ignore action.
-         * Continue loop to clear more pending default/ignore signals. */
+        /*
+         * ret == SIG_DELIV_HANDLED: default/ignore action.
+         * Continue loop to clear more pending default/ignore signals.
+         */
     }
 
-    /* No user handler consumed the deferred mask (for example, the signal
-     * was ignored or used a non-terminating default action). */
+    /*
+     * No user handler consumed the deferred mask (for example, the signal
+     * was ignored or used a non-terminating default action).
+     */
     if (state->restore_mask) {
         state->blocked      = state->saved_mask;
         state->restore_mask = false;
@@ -1114,26 +1134,32 @@ int64_t sys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize)
 
     /* Check if any signal is already pending and unblocked */
     if (signal_has_pending(state)) {
-        /* Keep the temporary mask installed until the return-to-userspace
+        /*
+         * Keep the temporary mask installed until the return-to-userspace
          * signal pass.  Restoring old_blocked here can re-block the signal
-         * that is meant to interrupt sigsuspend before it is delivered. */
+         * that is meant to interrupt sigsuspend before it is delivered.
+         */
         state->saved_mask   = old_blocked;
         state->restore_mask = true;
         spin_unlock(&state->lock);
         return -EINTR;
     }
 
-    /* Atomically prepare to sleep: if a signal_send calls task_wakeup
+    /*
+     * Atomically prepare to sleep: if a signal_send calls task_wakeup
      * between here and wait_queue_sleep(), the wakeup will be recorded
-     * in the wait queue and wait_queue_sleep() will not block. */
+     * in the wait queue and wait_queue_sleep() will not block.
+     */
     wait_queue_prepare(&wq);
     spin_unlock(&state->lock);
 
     /* Sleep (or continue immediately if already woken by a signal) */
     wait_queue_sleep();
 
-    /* A handler frame must restore old_blocked after signal delivery, not
-     * before it.  This is the same deferred-mask rule used by ppoll/pselect. */
+    /*
+     * A handler frame must restore old_blocked after signal delivery, not
+     * before it.  This is the same deferred-mask rule used by ppoll/pselect.
+     */
     spin_lock(&state->lock);
     state->saved_mask   = old_blocked;
     state->restore_mask = true;
@@ -1154,11 +1180,13 @@ static int sigqueue_dequeue_filtered(signal_state_t *state, const sigset_t *filt
 
     while (cur) {
         int sig = cur->info.si_signo;
-        /* sigtimedwait() is specifically meant to synchronously consume
+        /*
+         * sigtimedwait() is specifically meant to synchronously consume
          * signals that the caller has blocked from asynchronous delivery.
          * Filtering blocked signals out here made the usual sigprocmask() +
          * sigtimedwait() sequence impossible: BusyBox init consequently
-         * never observed SIGUSR2/SIGTERM from poweroff/reboot. */
+         * never observed SIGUSR2/SIGTERM from poweroff/reboot.
+         */
         if (sigismember(filter, sig)) {
             memcpy(info, &cur->info, sizeof(siginfo_t));
             if (prev)
@@ -1174,8 +1202,10 @@ static int sigqueue_dequeue_filtered(signal_state_t *state, const sigset_t *filt
         prev = cur;
         cur  = cur->next;
     }
-    /* A standard signal can still be represented only by the pending bitmap
-     * if allocating its optional siginfo queue entry failed. */
+    /*
+     * A standard signal can still be represented only by the pending bitmap
+     * if allocating its optional siginfo queue entry failed.
+     */
     sigset_t ready = state->pending & *filter;
     for (int sig = 1; sig < NSIG; sig++) {
         if (!sigismember(&ready, sig)) continue;
@@ -1257,15 +1287,19 @@ int64_t sys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info, const void *ti
             return -EAGAIN;
         }
 
-        /* A pending signal outside wait_set must retain normal asynchronous
-         * delivery semantics instead of leaving this syscall asleep. */
+        /*
+         * A pending signal outside wait_set must retain normal asynchronous
+         * delivery semantics instead of leaving this syscall asleep.
+         */
         if (signal_has_interrupting_pending(state)) {
             spin_unlock(&state->lock);
             return -EINTR;
         }
 
-        /* Prepare while holding the signal lock so signal_send() cannot
-         * slip between the condition check and installing the wait. */
+        /*
+         * Prepare while holding the signal lock so signal_send() cannot
+         * slip between the condition check and installing the wait.
+         */
         wait_queue_prepare(&wq);
         spin_unlock(&state->lock);
 
@@ -1452,8 +1486,10 @@ int64_t do_rt_sigreturn(syscall_frame_t *frame)
     if (frame->rsp < sizeof(uint64_t)) return -EFAULT;
     if (copy_from_user(&sig_frame, (void *)(frame->rsp - 8), sizeof(signal_user_frame_t))) return -EFAULT;
 
-    /* Never feed arbitrary selectors/non-canonical state to IRETQ: malformed
-     * user frames must become SIGSEGV, not a kernel-mode #GP. */
+    /*
+     * Never feed arbitrary selectors/non-canonical state to IRETQ: malformed
+     * user frames must become SIGSEGV, not a kernel-mode #GP.
+     */
     if (sig_frame.cs != 0x33 || sig_frame.ss != 0x2b || !sig_frame.rip || sig_frame.rip >= PROCESS_USER_STACK_TOP || !sig_frame.rsp
         || sig_frame.rsp >= PROCESS_USER_STACK_TOP)
         return -EINVAL;
@@ -1488,8 +1524,10 @@ int64_t do_rt_sigreturn(syscall_frame_t *frame)
     frame->r14 = sig_frame.r14;
     frame->r15 = sig_frame.r15;
     frame->rip = sig_frame.rip;
-    /* User-visible arithmetic/debug flags plus mandatory bit 1 and IF.
-     * Clear IOPL, NT and VM so IRETQ cannot enter an invalid privilege state. */
+    /*
+     * User-visible arithmetic/debug flags plus mandatory bit 1 and IF.
+     * Clear IOPL, NT and VM so IRETQ cannot enter an invalid privilege state.
+     */
     const uint64_t user_rflags = (1ULL << 0) | (1ULL << 2) | (1ULL << 4) | (1ULL << 6) | (1ULL << 7) | (1ULL << 8) | (1ULL << 9) | (1ULL << 10)
                                  | (1ULL << 11) | (1ULL << 16) | (1ULL << 18) | (1ULL << 21);
     frame->rflags = (sig_frame.rflags & user_rflags) | (1ULL << 1) | (1ULL << 9);

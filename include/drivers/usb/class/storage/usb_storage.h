@@ -42,4 +42,4 @@ void     usb_scsi_build_rw10(uint8_t command[10], bool write, uint32_t lba, uint
 int      usb_scsi_parse_capacity10(const uint8_t response[8], uint64_t *sector_count, uint32_t *sector_size);
 uint32_t usb_scsi_be32(const uint8_t *data);
 
-#endif /* INCLUDE_USB_STORAGE_H_ */
+#endif // INCLUDE_USB_STORAGE_H_

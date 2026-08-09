@@ -61,8 +61,10 @@ void init_heap(void)
 /* Allocate an empty memory */
 void *calloc(size_t nmemb, size_t size)
 {
-    /* A zero-length allocation is meaningless: return NULL so callers never
-     * obtain a dangling zero-size object. */
+    /*
+     * A zero-length allocation is meaningless: return NULL so callers never
+     * obtain a dangling zero-size object.
+     */
     if (nmemb == 0 || size == 0) return 0;
 
     /* Check for multiplication overflow */

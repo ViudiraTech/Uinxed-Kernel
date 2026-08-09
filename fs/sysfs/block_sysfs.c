@@ -238,8 +238,10 @@ static int block_add_partitions(block_sysfs_dev_t *disk)
 /*  Helper: add a single block device                                  */
 /* ------------------------------------------------------------------ */
 
-/* Map a Linux disk/partition name ("sda", "nvme0n1p2", "hdb", "sr1", ...)
- * to the conventional (major, minor) pair used by /sys/dev/block. */
+/*
+ * Map a Linux disk/partition name ("sda", "nvme0n1p2", "hdb", "sr1", ...)
+ * to the conventional (major, minor) pair used by /sys/dev/block.
+ */
 static void block_sysfs_devt(const char *name, uint32_t *major, uint32_t *minor)
 {
     const char *n  = name;
@@ -257,12 +259,12 @@ static void block_sysfs_devt(const char *name, uint32_t *major, uint32_t *minor)
     } else if (!strncmp(n, "nvme", 4)) {
         const char *cursor = n + 4;
         ma                 = 259;
-        while (*cursor >= '0' && *cursor <= '9') cursor++; /* controller */
+        while (*cursor >= '0' && *cursor <= '9') cursor++; // controller
         if (*cursor == 'n') cursor++;
         uint32_t    nsid = (uint32_t)strtol(cursor, NULL, 10);
         const char *part = strchr(cursor, 'p');
         mi               = part ? (nsid << 4) | (uint32_t)strtol(part + 1, NULL, 10) : nsid;
-    } else { /* sdX, sdaa, ... */
+    } else { // sdX, sdaa, ...
         const char *cursor = n + 2;
         uint32_t    index  = 0;
         ma                 = 8;

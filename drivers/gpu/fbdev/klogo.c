@@ -28,9 +28,11 @@ void video_draw_logo(uint32_t count)
 
     saved_logo_count = count;
 
-    /* The console scrolls below the logo while it is on screen.  The logo
+    /*
+     * The console scrolls below the logo while it is on screen.  The logo
      * area is only reclaimed later, via fbcon_release_logo() at the end of
-     * kernel init, and is then covered by normal console scrolling. */
+     * kernel init, and is then covered by normal console scrolling.
+     */
     fbcon_set_logo_active(true);
 
     bmp_t   *logo = (bmp_t *)klogo_data;

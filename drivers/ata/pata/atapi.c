@@ -85,8 +85,10 @@ uint8_t atapi_identify(uint8_t channel, uint8_t drive, uint8_t dev_index)
 
     if (dev_index >= 4) return 0xff;
 
-    /* The device has already been selected and IDENTIFY failed with ATAPI signature.
-     * Now send IDENTIFY PACKET DEVICE to get the full ATAPI identity. */
+    /*
+     * The device has already been selected and IDENTIFY failed with ATAPI signature.
+     * Now send IDENTIFY PACKET DEVICE to get the full ATAPI identity.
+     */
     ide_write(channel, ATA_REG_COMMAND, ATA_CMD_IDENTIFY_PACKET);
     nsleep(10);
 
@@ -180,8 +182,10 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
     uint32_t bus      = channels[channel].base;
     uint8_t  err;
 
-    /* Wait for BSY to clear, then drain any stale DRQ data from previous
-     * commands (QEMU ATAPI emulation sometimes leaves DRQ stuck). */
+    /*
+     * Wait for BSY to clear, then drain any stale DRQ data from previous
+     * commands (QEMU ATAPI emulation sometimes leaves DRQ stuck).
+     */
     {
         int tout = IDE_POLL_RETRY;
         while (tout--) {
@@ -277,8 +281,10 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
         uint16_t *word_buf    = (uint16_t *)buf;
 
         while (transferred < *xfer_len) {
-            /* Poll for data ready instead of IRQ –interrupts may not be
-             * enabled yet when init_ide() runs. */
+            /*
+             * Poll for data ready instead of IRQ –interrupts may not be
+             * enabled yet when init_ide() runs.
+             */
             err = atapi_wait_drq(channel);
             if (err) return err;
 
@@ -304,8 +310,10 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
 
             if (bc == 0) break;
 
-            /* Must read ALL data the device sends to maintain protocol sync.
-             * Only store into buffer if there is room; discard overflow. */
+            /*
+             * Must read ALL data the device sends to maintain protocol sync.
+             * Only store into buffer if there is room; discard overflow.
+             */
             uint16_t words = bc / 2;
             for (uint16_t h = 0; h < words; h++) {
                 uint16_t val = inw(bus);

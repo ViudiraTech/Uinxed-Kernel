@@ -18,4 +18,4 @@ void pipe_init(void);
 int64_t sys_pipe(int pipefd[2]);
 int64_t sys_pipe2(int pipefd[2], int flags);
 
-#endif /* INCLUDE_IPC_PIPE_H_ */
+#endif // INCLUDE_IPC_PIPE_H_

@@ -293,8 +293,10 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
         process_file_put(file);
         return -EFAULT;
     }
-    /* CLOCK_REALTIME changes are not tracked yet, so cancellation cannot be
-     * reported correctly. Reject the flag instead of silently losing it. */
+    /*
+     * CLOCK_REALTIME changes are not tracked yet, so cancellation cannot be
+     * reported correctly. Reject the flag instead of silently losing it.
+     */
     if (flags & TFD_TIMER_CANCEL_ON_SET) {
         process_file_put(file);
         return -EINVAL;
@@ -332,11 +334,13 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
         spin_lock(&ctx->lock);
     }
 
-    /* Reprogramming a timerfd discards expirations from the previous timer.
+    /*
+     * Reprogramming a timerfd discards expirations from the previous timer.
      * libwayland deliberately does not read its timer-heap timerfd: after an
      * EPOLLIN it dispatches due timers and calls timerfd_settime() to arm the
      * next deadline (or disarm it).  Leaving expire_count set makes that fd
-     * permanently readable and traps Weston in an epoll/settime busy loop. */
+     * permanently readable and traps Weston in an epoll/settime busy loop.
+     */
     ctx->expire_count = 0;
     ctx->interval_ns  = interval_ticks;
     if (!value_ticks) {
@@ -415,10 +419,12 @@ void timerfd_tick(void)
                 ctx->expire_count += expirations;
             spin_unlock(&ctx->lock);
             wait_queue_wake_all(&ctx->wq);
-            /* libwayland registers its compositor timerfd in epoll.  A
+            /*
+             * libwayland registers its compositor timerfd in epoll.  A
              * wait-queue wake only reaches a task blocked directly in
              * read(); publish readiness to VFS subscribers so Weston wakes
-            * for its scheduled output repaint. */
+             * for its scheduled output repaint.
+             */
             vfs_poll_notify(ctx->node, 0x001U);
             continue;
         }

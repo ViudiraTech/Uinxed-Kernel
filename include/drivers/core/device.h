@@ -82,9 +82,9 @@ struct class_attribute {
 struct bus_type {
         const char  *name;
         const char  *dev_name;
-        struct kset  subsys;       /* kset for this bus */
-        struct kset *devices_kset; /* kset containing all devices */
-        struct kset *drivers_kset; /* kset containing all drivers */
+        struct kset  subsys;       // kset for this bus
+        struct kset *devices_kset; // kset containing all devices
+        struct kset *drivers_kset; // kset containing all drivers
 
         int (*match)(struct device *dev, struct device_driver *drv);
         int (*uevent)(struct device *dev, struct kobj_uevent_env *env);
@@ -106,7 +106,7 @@ struct bus_type {
 struct device_driver {
         const char      *name;
         struct bus_type *bus;
-        struct kobject   kobj; /* appears under /sys/bus/<bus>/drivers/ */
+        struct kobject   kobj; // appears under /sys/bus/<bus>/drivers/
 
         int (*probe)(struct device *dev);
         int (*remove)(struct device *dev);
@@ -122,16 +122,16 @@ struct device_driver {
 /* ------------------------------------------------------------------ */
 
 struct device {
-        struct kobject        kobj;   /* appears under /sys/devices/ */
-        struct device        *parent; /* parent device (NULL = root) */
-        struct bus_type      *bus;    /* bus the device sits on */
-        struct device_driver *driver; /* driver bound to this device */
-        struct class *class;          /* optional class grouping */
+        struct kobject        kobj;   // appears under /sys/devices/
+        struct device        *parent; // parent device (NULL = root)
+        struct bus_type      *bus;    // bus the device sits on
+        struct device_driver *driver; // driver bound to this device
+        struct class *class;          // optional class grouping
 
-        void       *driver_data; /* private driver data */
-        dev_t       devt;        /* major:minor device number */
-        uint64_t    devid;       /* bus-specific device ID */
-        const char *devnode;     /* optional /dev-relative node name */
+        void       *driver_data; // private driver data
+        dev_t       devt;        // major:minor device number
+        uint64_t    devid;       // bus-specific device ID
+        const char *devnode;     // optional /dev-relative node name
 
         void (*release)(struct device *dev);
 
@@ -148,8 +148,8 @@ struct device {
 struct class
 {
         const char     *name;
-        struct kset     subsys;   /* kset under /sys/class/ */
-        struct kobject *dev_kobj; /* for /sys/class/<name>/devices/ */
+        struct kset     subsys;   // kset under /sys/class/
+        struct kobject *dev_kobj; // for /sys/class/<name>/devices/
 
         int (*dev_uevent)(struct device *dev, struct kobj_uevent_env *env);
         void (*dev_release)(struct device *dev);

@@ -39,7 +39,7 @@ typedef struct {
 typedef struct {
         char  *buf;
         size_t idx;
-        size_t size; /* Buffer size for safe writing, 0 means unlimited */
+        size_t size; // Buffer size for safe writing, 0 means unlimited
 } unsafe_buf_data;
 
 typedef struct {

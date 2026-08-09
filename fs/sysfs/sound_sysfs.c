@@ -128,8 +128,10 @@ void sound_sysfs_init(void)
         card_devs[c] = device_create(&sound_class, NULL, 0, card, "card%u", card->id);
     }
 
-    /* Publish each ALSA-style node name (controlC0, pcmC0D0p, ...) as a
-     * sub-device of its card, matching the /dev/snd/<name> nodes. */
+    /*
+     * Publish each ALSA-style node name (controlC0, pcmC0D0p, ...) as a
+     * sub-device of its card, matching the /dev/snd/<name> nodes.
+     */
     for (size_t n = 0; n < audio_device_node_count(); n++) {
         audio_device_node_t *node = audio_get_device_node(n);
         if (!node || !node->card || node->card->id >= cards) continue;

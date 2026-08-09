@@ -167,4 +167,4 @@ typedef struct __attribute__((packed, aligned(256))) {
         uint8_t  reserved[116];
 } ohci_hcca_t;
 
-#endif /* INCLUDE_OHCI_H_ */
+#endif // INCLUDE_OHCI_H_

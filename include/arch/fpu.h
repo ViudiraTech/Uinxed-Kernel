@@ -15,10 +15,12 @@
 
 struct task;
 
-/* Initialize FPU/SSE/AVX support on the current logical CPU.
+/*
+ * Initialize FPU/SSE/AVX support on the current logical CPU.
  * Detects features via CPUID, programs CR0/CR4/XCR0 and caches the
  * XSAVE/FXSAVE area size.  Must be called on the BSP and on every AP
- * before the scheduler runs FP code on that CPU. */
+ * before the scheduler runs FP code on that CPU.
+ */
 void fpu_init(void);
 
 /* Allocate and release the extended-state area owned by a task. */
@@ -29,34 +31,42 @@ void fpu_task_destroy(struct task *task);
 void fpu_task_clone(struct task *parent, struct task *child);
 void fpu_task_reset(struct task *task);
 
-/* Active save/restore hook for the scheduler.  Saves `prev`'s live FPU
+/*
+ * Active save/restore hook for the scheduler.  Saves `prev`'s live FPU
  * state (if any) into its area and restores `next`'s state, so the
  * incoming task's state is live as soon as it resumes.  Never touches
- * CR0.TS and never relies on #NM. */
+ * CR0.TS and never relies on #NM.
+ */
 void fpu_switch(struct task *prev, struct task *next);
 
-/* Enter/leave a kernel FPU section.  Must be called with interrupts in
+/*
+ * Enter/leave a kernel FPU section.  Must be called with interrupts in
  * any state; IRQs are masked for the whole section so that a context
  * switch can never interrupt FP register use.  Sections may nest.
  * kernel_fpu_begin() saves the current task's live state into its area;
  * kernel_fpu_end() restores it.  A kernel FPU section must never block
- * or sleep. */
+ * or sleep.
+ */
 void kernel_fpu_begin(void);
 void kernel_fpu_end(void);
 
-/* True once fpu_init() enabled SSE in hardware (CR4.OSFXSR set).  Kernel
+/*
+ * True once fpu_init() enabled SSE in hardware (CR4.OSFXSR set).  Kernel
  * SIMD paths (SSE2/AVX/SSE4.2 crc32) must check this before executing any
  * such instruction, otherwise they fault with #UD when FPU/SSE support is
- * disabled by the build configuration. */
+ * disabled by the build configuration.
+ */
 int kernel_sse_available(void);
 
-/* Signal handlers execute in the interrupted task and may freely use
+/*
+ * Signal handlers execute in the interrupted task and may freely use
  * x87/SSE/AVX.  Snapshot the live state into a user-frame staging buffer and
  * restore it on rt_sigreturn.  The restore path sanitizes user-modifiable
- * XSAVE metadata before issuing XRSTOR/FXRSTOR. */
+ * XSAVE metadata before issuing XRSTOR/FXRSTOR.
+ */
 #define FPU_SIGNAL_STATE_MAX 4096U
 size_t fpu_signal_state_size(void);
 int    fpu_signal_save(struct task *task, void *state, size_t capacity);
 int    fpu_signal_restore(struct task *task, const void *state, size_t size);
 
-#endif /* INCLUDE_FPU_H_ */
+#endif // INCLUDE_FPU_H_

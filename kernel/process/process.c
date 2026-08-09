@@ -124,11 +124,13 @@ process_t *process_iterate_get(size_t *pos)
     return NULL;
 }
 
-/* Copy process identifiers while holding the table lock, without handing a
+/*
+ * Copy process identifiers while holding the table lock, without handing a
  * process reference to the caller.  This is used by procfs while the VFS
  * namespace lock is held: dropping a process reference there can run the
  * final process destructor, close files, and recursively acquire the VFS
- * namespace lock. */
+ * namespace lock.
+ */
 size_t process_snapshot_pids(pid_t *pids, size_t capacity)
 {
     if (!pids || !capacity) return 0;
@@ -585,9 +587,11 @@ static void process_rlimit_init(process_t *proc)
         proc->rlimits[i].maximum = PROCESS_RLIM_INFINITY;
     }
 
-    /* Limits backed by fixed kernel tables must report their real ceilings;
+    /*
+     * Limits backed by fixed kernel tables must report their real ceilings;
      * advertising infinity makes libc and applications derive invalid ABI
-     * values (notably sysconf(_SC_OPEN_MAX)). */
+     * values (notably sysconf(_SC_OPEN_MAX)).
+     */
     proc->rlimits[PROCESS_RLIMIT_NOFILE].current     = PROCESS_MAX_FD;
     proc->rlimits[PROCESS_RLIMIT_NOFILE].maximum     = PROCESS_MAX_FD;
     proc->rlimits[PROCESS_RLIMIT_NPROC].current      = 4096;
@@ -620,10 +624,12 @@ void process_file_get(process_file_t *file)
 {
     if (!file) return;
 
-    /* Match Linux's file reference model: transient fd users take an atomic
+    /*
+     * Match Linux's file reference model: transient fd users take an atomic
      * reference while the descriptor-table lock guarantees that the file is
      * still published.  Serialising every read/write against file->lock made
-     * tiny stream I/O pay for a lock unrelated to its actual data path. */
+     * tiny stream I/O pay for a lock unrelated to its actual data path.
+     */
     uint32_t refs = __atomic_load_n(&file->refcount, __ATOMIC_RELAXED);
     while (refs && !__atomic_compare_exchange_n(&file->refcount, &refs, refs + 1, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {}
 }
@@ -751,10 +757,12 @@ process_file_t *process_fd_get(process_t *proc, int fd)
     return file;
 }
 
-/* Linux's fget_light borrows the descriptor-table reference when the table is
+/*
+ * Linux's fget_light borrows the descriptor-table reference when the table is
  * private to the current thread.  In that case no other execution context can
  * remove this process's slot before the syscall returns, so neither the fd
- * table spinlock nor a transient file reference is needed. */
+ * table spinlock nor a transient file reference is needed.
+ */
 static process_file_t *process_fd_get_light(process_t *proc, int fd, bool *borrowed)
 {
     *borrowed = false;
@@ -777,9 +785,11 @@ process_file_t *process_fd_get_for_transfer(process_t *proc, int fd)
 {
     if (!proc || fd < 0 || fd >= PROCESS_MAX_FD) return NULL;
 
-    /* Keep fd_refcount non-zero while SCM_RIGHTS is in flight.  Otherwise the
+    /*
+     * Keep fd_refcount non-zero while SCM_RIGHTS is in flight.  Otherwise the
      * sender closing its original fd would publish POLLHUP and run the
-     * descriptor-close transition before the receiver installs its copy. */
+     * descriptor-close transition before the receiver installs its copy.
+     */
     spin_lock(&proc->fd_lock);
     process_file_t *file = proc->fds[fd];
     process_file_fd_get(file);
@@ -800,8 +810,10 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
     if (!file) return -ENOMEM;
 
     file->node = node;
-    /* O_CLOEXEC is a descriptor creation flag.  It must not be shared by
-     * dup(2) or forked open-file descriptions through file->flags. */
+    /*
+     * O_CLOEXEC is a descriptor creation flag.  It must not be shared by
+     * dup(2) or forked open-file descriptions through file->flags.
+     */
     file->flags       = flags & ~(uint64_t)O_CLOEXEC;
     file->refcount    = 1;
     file->fd_refcount = 1;
@@ -811,12 +823,14 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
     vfs_poll_source_init(&file->close_source);
     if (flags & O_APPEND) file->offset = node->size;
 
-    /* O_PATH descriptors name a VFS object but do not open the object for
+    /*
+     * O_PATH descriptors name a VFS object but do not open the object for
      * I/O.  In particular, do not call a filesystem's file_open callback:
      * sysfs/procfs quite correctly reject ordinary opens of directories,
      * while Linux permits an O_PATH descriptor for those same directories.
      * fstat(2), *at(2), fchdir(2), dup(2) and close(2) operate on the retained
-     * vnode directly. */
+     * vnode directly.
+     */
     if (!(flags & O_PATH)) {
         void *priv = NULL;
         int   ret  = callbackof(node, file_open)(node, file->flags, &priv);
@@ -857,9 +871,11 @@ int process_fd_install_file(process_t *proc, process_file_t *file, uint64_t flag
     uint32_t limit = process_fd_limit(proc);
     for (uint32_t i = 0; i < limit; i++) {
         if (!proc->fds[i]) {
-            /* SCM_RIGHTS and dup(2) share the same open-file description:
+            /*
+             * SCM_RIGHTS and dup(2) share the same open-file description:
              * file offset, status flags and private driver state all remain
-             * shared.  Only FD_CLOEXEC belongs to the new descriptor. */
+             * shared.  Only FD_CLOEXEC belongs to the new descriptor.
+             */
             process_file_fd_get(file);
             proc->fds[i]      = file;
             proc->fd_flags[i] = (flags & O_CLOEXEC) ? FD_CLOEXEC : 0;
@@ -951,10 +967,12 @@ int64_t process_fd_read(process_t *proc, int fd, void *buf, size_t size)
     process_file_t *file = process_fd_get_light(proc, fd, &borrowed);
     if (!file) return -EBADF;
 
-    /* Pipes, like Linux FMODE_STREAM files, have no shared file position.
+    /*
+     * Pipes, like Linux FMODE_STREAM files, have no shared file position.
      * Their ring lock provides the required serialization, so taking the
      * open-file f_pos lock on every small transfer is both redundant and
-     * expensive. */
+     * expensive.
+     */
     bool positionless = (file->node->type & (file_stream | file_pipe)) != 0;
     if (!positionless) process_file_io_lock(file);
 
@@ -1216,9 +1234,11 @@ int process_resolve_path_at(process_t *proc, int dirfd, const char *path, char *
 
     if (path[0] == '/') {
         while (*path == '/') path++;
-        /* The original pathname was non-empty and consisted solely of one or
+        /*
+         * The original pathname was non-empty and consisted solely of one or
          * more separators.  Preserve the process root instead of turning a
-         * valid "/" lookup into the empty-path ENOENT case. */
+         * valid "/" lookup into the empty-path ENOENT case.
+         */
         if (!path[0]) {
             size_t root_len = strlen(root);
             if (root_len + 1 > size) return -ENAMETOOLONG;
@@ -1548,8 +1568,10 @@ void process_exit(int exit_code)
     spin_unlock(&process_table_lock);
     spin_unlock(&scheduler.lock);
 
-    /* Notify parent via SIGCHLD (outside the locks, because signal_notify_child_exit
-     * calls task_wakeup which acquires scheduler.lock, and we have just released it). */
+    /*
+     * Notify parent via SIGCHLD (outside the locks, because signal_notify_child_exit
+     * calls task_wakeup which acquires scheduler.lock, and we have just released it).
+     */
     if (parent) {
         signal_notify_child_exit(parent, (pid_t)current->tgid, exit_code, 0);
         spin_lock(&parent->child_wait.lock);
@@ -1567,8 +1589,10 @@ void process_exit(int exit_code)
 
     process_fd_table_close(proc);
 
-    /* A vfork parent may not resume until the child has either installed a
-     * replacement image or fully released inherited descriptors on exit. */
+    /*
+     * A vfork parent may not resume until the child has either installed a
+     * replacement image or fully released inherited descriptors on exit.
+     */
     process_vfork_complete(proc);
 
     ptrace_exit_notify(exit_code);
@@ -1671,8 +1695,10 @@ int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_
         int        event_status       = 0;
         bool       has_matching_child = false;
 
-        /* Serialize the condition check with child-exit notification.  The
-         * queue lock closes the classic exit-between-check-and-sleep race. */
+        /*
+         * Serialize the condition check with child-exit notification.  The
+         * queue lock closes the classic exit-between-check-and-sleep race.
+         */
         spin_lock(&parent->child_wait.lock);
         spin_lock(&process_table_lock);
         for (slist_node_t *node = parent->children.head; node; node = node->next) {
@@ -1715,10 +1741,12 @@ int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_
             spin_unlock(&process_table_lock);
             spin_unlock(&parent->child_wait.lock);
 
-            /* TASK_ZOMBIE is published before the exiting CPU has switched
+            /*
+             * TASK_ZOMBIE is published before the exiting CPU has switched
              * off the task's kernel stack.  Delay physical destruction until
              * every thread has completed that switch; the PID/status have
-             * already been consumed atomically above. */
+             * already been consumed atomically above.
+             */
             while (process_group_is_on_cpu(zombie)) task_sleep_ticks(1);
             process_put(zombie);
 
@@ -1740,9 +1768,11 @@ int process_wait_select(pid_t selector, int *wait_status, uint32_t options, pid_
         wait_queue_prepare(&parent->child_wait);
         spin_unlock(&parent->child_wait.lock);
 
-        /* Once prepared, signal delivery either observes the waiter in the
+        /*
+         * Once prepared, signal delivery either observes the waiter in the
          * queue or is visible here.  Default-ignored SIGCHLD does not
-         * interrupt wait4; a caught/terminating signal does. */
+         * interrupt wait4; a caught/terminating signal does.
+         */
         spin_lock(&parent->signal.lock);
         bool interrupted = signal_has_interrupting_pending(&parent->signal);
         spin_unlock(&parent->signal.lock);
@@ -1997,7 +2027,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     spin_unlock(&scheduler.lock);
     flush_tlb_all();
 
-    // plogk("process: Forked process %llu from parent %llu\n", child->task->pid, parent->task->pid); it is very noisy
+    /* plogk("process: Forked process %llu from parent %llu\n", child->task->pid, parent->task->pid); it is very noisy */
     return child;
 }
 
@@ -2219,8 +2249,10 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
         return 1;
     }
 
-    /* Anonymous memory is required to read as zero on first use.  Allocate
-     * the complete transaction before publishing either PTEs or the VMA. */
+    /*
+     * Anonymous memory is required to read as zero on first use.  Allocate
+     * the complete transaction before publishing either PTEs or the VMA.
+     */
     size_t allocated = 0;
     for (; allocated < pages; allocated++) {
         frames[allocated] = alloc_frames(1);
@@ -2351,9 +2383,11 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
 
     if (page_map_new_to(proc->user_page_dir, page, frame, pte_flags) < 0) {
         (void)frame_release_range(frame, 1);
-        /* Another thread may have satisfied the same fault while this page
+        /*
+         * Another thread may have satisfied the same fault while this page
          * was being allocated or read.  Accept its mapping if it permits the
-         * original access. */
+         * original access.
+         */
         if (!page_user_accessible(proc->user_page_dir, page, write, exec)) {
             spin_unlock(&proc->mmap_lock);
             goto fail;

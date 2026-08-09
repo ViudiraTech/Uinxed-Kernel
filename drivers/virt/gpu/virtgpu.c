@@ -289,8 +289,10 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
     if (!vgdev) return -EINVAL;
     obj = to_virtio_gpu_object(fb->obj[0]);
 
-    /* Off-screen buffers will be uploaded in full when they are flipped
-     * onto the scanout, so avoid wasting host bandwidth here. */
+    /*
+     * Off-screen buffers will be uploaded in full when they are flipped
+     * onto the scanout, so avoid wasting host bandwidth here.
+     */
     if (obj != vgdev->current_scanout_obj) return 0;
 
     if (fb->format != DRM_FORMAT_XRGB8888 && fb->format != DRM_FORMAT_ARGB8888) return -EINVAL;
@@ -373,8 +375,10 @@ static int virtgpu_ioctl_execbuffer(struct drm_device *dev, void *data, struct d
 
     if (!vfpriv) return -EINVAL;
     if (!args->size || args->size > 65536 || (args->size & 3) || !args->command) { return -EINVAL; }
-    /* Fence-fd and syncobj import/export require kernel sync-file support;
-     * reject them explicitly instead of silently dropping synchronization. */
+    /*
+     * Fence-fd and syncobj import/export require kernel sync-file support;
+     * reject them explicitly instead of silently dropping synchronization.
+     */
     if (args->flags & ~VIRTGPU_EXECBUF_FLAGS) return -EINVAL;
     if (args->flags & (VIRTGPU_EXECBUF_FENCE_FD_IN | VIRTGPU_EXECBUF_FENCE_FD_OUT)) return -EINVAL;
     if (args->syncobj_stride || args->num_in_syncobjs || args->num_out_syncobjs || args->in_syncobjs || args->out_syncobjs) return -EINVAL;
@@ -416,8 +420,10 @@ static int virtgpu_ioctl_execbuffer(struct drm_device *dev, void *data, struct d
         goto out;
     }
 
-    /* Copy command buffer from userspace (in this kernel, userspace
-     * pointers are accessible directly). */
+    /*
+     * Copy command buffer from userspace (in this kernel, userspace
+     * pointers are accessible directly).
+     */
     if (copy_from_user(cmd_buf, (const void *)(uintptr_t)args->command, args->size)) {
         free(cmd_buf);
         cmd_buf = NULL;
@@ -674,8 +680,10 @@ static int virtgpu_ioctl_wait(struct drm_device *dev, void *data, struct drm_fil
     gem_obj = drm_gem_object_lookup(file_priv, args->handle);
     if (!gem_obj) { return -ENOENT; }
 
-    /* Control/3D submissions are fenced and completed synchronously by this
-     * driver, so a successfully looked-up BO is never still busy here. */
+    /*
+     * Control/3D submissions are fenced and completed synchronously by this
+     * driver, so a successfully looked-up BO is never still busy here.
+     */
     drm_gem_object_put(gem_obj);
     return 0;
 }
@@ -937,15 +945,19 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
             return 0;
         }
 
-        /* A 2D resource has an implicit packed row stride.  Accepting an FB
+        /*
+         * A 2D resource has an implicit packed row stride.  Accepting an FB
          * view with a different pitch/offset/dimensions makes the host walk
          * different rows than Xorg/Weston wrote, producing mode-dependent
-         * corruption (640-wide buffers happened to mask it). */
+         * corruption (640-wide buffers happened to mask it).
+         */
         if (fb->width != obj->width || fb->height != obj->height || fb->pitches[0] != obj->stride || fb->offsets[0] || fb->format != obj->format)
             return -EINVAL;
 
-        /* Submit the full flip as one ordered batch and avoid rebinding an
-         * object that is already the active scanout. */
+        /*
+         * Submit the full flip as one ordered batch and avoid rebinding an
+         * object that is already the active scanout.
+         */
         bool layout_changed = !vgdev->current_fb || vgdev->current_fb->width != fb->width || vgdev->current_fb->height != fb->height
                               || vgdev->current_fb->pitches[0] != fb->pitches[0] || vgdev->current_fb->offsets[0] != fb->offsets[0];
         ret = virtgpu_cmd_update_scanout_2d(vgdev, scanout_id, obj, obj != vgdev->current_scanout_obj || old_fb == NULL || layout_changed);
@@ -1075,8 +1087,10 @@ int virtio_gpu_driver_init(void)
     memset(&gpu_config, 0, sizeof(gpu_config));
     vp_read_device_config(vp, &gpu_config, 0, sizeof(gpu_config));
     vgdev->num_scanouts = gpu_config.num_scanouts > 16 ? 16 : (int)gpu_config.num_scanouts;
-    /* capset_index is 32-bit, but an untrusted device must not force an
-     * unbounded probe loop.  The advertised Linux UAPI mask has 64 bits. */
+    /*
+     * capset_index is 32-bit, but an untrusted device must not force an
+     * unbounded probe loop.  The advertised Linux UAPI mask has 64 bits.
+     */
     vgdev->num_capsets = gpu_config.num_capsets > 64 ? 64 : gpu_config.num_capsets;
     for (uint32_t i = 0; i < vgdev->num_capsets; i++) {
         uint32_t id, version, size;
@@ -1158,8 +1172,10 @@ int virtio_gpu_init(void)
  */
 void *virtio_gpu_get_device(void)
 {
-    /* The singleton is stashed in the global registered DRM device.
-     * For now we simply return NULL and let the caller decide. */
+    /*
+     * The singleton is stashed in the global registered DRM device.
+     * For now we simply return NULL and let the caller decide.
+     */
     extern struct drm_device *drm_get_singleton(void);
     struct drm_device        *dev = drm_get_singleton();
 

@@ -150,9 +150,11 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
         dma[i].resp = phys_to_virt(dma[i].resp_phys);
     }
 
-    /* Stack-backed command buffers must remain owned by this caller until
+    /*
+     * Stack-backed command buffers must remain owned by this caller until
      * every response has arrived.  This lock also prevents one CPU from
-     * reaping another CPU's completion. */
+     * reaping another CPU's completion.
+     */
     spin_lock(&vgdev->ctrlq_cmd_lock);
 
     if (count > (uint32_t)vq->num_free / 2) {
@@ -163,8 +165,10 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
     for (uint32_t i = 0; i < count; i++) {
         struct virtio_gpu_ctrl_hdr *request = (struct virtio_gpu_ctrl_hdr *)commands[i].cmd;
 
-        /* A used descriptor only acknowledges queue consumption.  Fence every
-         * synchronous command so its response also proves host processing. */
+        /*
+         * A used descriptor only acknowledges queue consumption.  Fence every
+         * synchronous command so its response also proves host processing.
+         */
         request->flags |= VIRTIO_GPU_FLAG_FENCE;
         spin_lock(&vgdev->fence_lock);
         request->fence_id = vgdev->next_fence_id++;
@@ -293,9 +297,11 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
     dma_cmd = phys_to_virt(dma_phys);
     memcpy(dma_cmd, cmd, (size_t)cmd_size);
     spin_lock(&vgdev->cursorq_cmd_lock);
-    /* Cursorq requests are output-only and have no protocol response.  The
+    /*
+     * Cursorq requests are output-only and have no protocol response.  The
      * preceding resource upload is fenced on controlq; here we only wait for
-     * the device to consume the cursor descriptor before returning. */
+     * the device to consume the cursor descriptor before returning.
+     */
     ret = virtqueue_add(&vgdev->cursorq, dma_cmd, cmd_size, 0);
     if (ret) goto out;
     virtqueue_kick(&vgdev->cursorq);

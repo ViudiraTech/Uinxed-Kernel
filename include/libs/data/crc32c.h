@@ -16,4 +16,4 @@
 
 uint32_t crc32c_update(uint32_t crc, const void *data, size_t size);
 
-#endif /* INCLUDE_LIBS_DATA_CRC32C_H_ */
+#endif // INCLUDE_LIBS_DATA_CRC32C_H_

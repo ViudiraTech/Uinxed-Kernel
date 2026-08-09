@@ -54,4 +54,4 @@ void pi_waiter_remove(task_t *waiter);
 void pi_propagate_chain(task_t *owner);
 void pi_waiter_augment(rb_node_t *node, void *data);
 
-#endif /* INCLUDE_RT_MUTEX_H_ */
+#endif // INCLUDE_RT_MUTEX_H_

@@ -223,8 +223,10 @@ struct socket {
         sock_buf_t recv_buf;
         sock_buf_t send_buf;
 
-        /* Open-file descriptions received through AF_UNIX SCM_RIGHTS.
-         * Each queued entry owns one process_file reference. */
+        /*
+         * Open-file descriptions received through AF_UNIX SCM_RIGHTS.
+         * Each queued entry owns one process_file reference.
+         */
         struct process_file *rights[SOCK_RIGHTS_MAX];
         uint16_t             rights_head;
         uint16_t             rights_tail;
@@ -266,8 +268,8 @@ struct socket {
         int so_error;
 
         /* VFS */
-        struct vfs_node *node;       /* anonymous descriptor node */
-        struct vfs_node *bound_node; /* pathname namespace inode, if any */
+        struct vfs_node *node;       // anonymous descriptor node
+        struct vfs_node *bound_node; // pathname namespace inode, if any
         uint32_t         refcount;
 
         /* Polymorphic operations */
@@ -322,4 +324,4 @@ int64_t sys_recvmmsg(int fd, void *msgvec, uint32_t vlen, int flags, void *timeo
 /* Format the Linux-compatible /proc/net/unix listener/socket table. */
 size_t socket_format_unix_table(char *buffer, size_t capacity);
 
-#endif /* INCLUDE_SOCKET_H_ */
+#endif // INCLUDE_SOCKET_H_

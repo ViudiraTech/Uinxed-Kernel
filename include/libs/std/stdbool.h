@@ -15,4 +15,4 @@
 #define true  1
 #define false 0
 
-#endif /* INCLUDE_STDBOOL_H_ */
+#endif // INCLUDE_STDBOOL_H_

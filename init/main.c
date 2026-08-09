@@ -107,8 +107,10 @@ static void swapper_run_init(void)
     if (!init) panic("Failed to create init process.");
     if (!init->task || init->task->pid != 1) panic("User init did not receive PID 1.");
 
-    /* PID 1 starts with full system credentials.  Login/session services are
-     * responsible for dropping to the configured desktop user later. */
+    /*
+     * PID 1 starts with full system credentials.  Login/session services are
+     * responsible for dropping to the configured desktop user later.
+     */
     init->uid      = 0;
     init->gid      = 0;
     init->fsuid    = 0;
@@ -141,10 +143,12 @@ static void swapper_run_init(void)
         if (cpu_rqs[i].idle) cpu_rqs[i].idle->process = init;
     plogk("swapper/0: Init process (pid=1) ready: %s\n", chosen_path);
 
-    /* Kernel init is complete: hand the full screen back to the console.
+    /*
+     * Kernel init is complete: hand the full screen back to the console.
      * The boot logo is not cleared or redrawn - it stays on screen and the
      * first console scrolls naturally cover it line by line (Linux fbcon
-     * behaviour). */
+     * behaviour).
+     */
     fbcon_release_logo();
     video_start_refresh_worker();
 }

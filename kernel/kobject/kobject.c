@@ -95,9 +95,11 @@ void kobject_init(struct kobject *kobj, struct kobj_type *ktype)
 {
     if (!kobj) return;
 
-    /* NOTE: does NOT zero the struct. The caller is responsible
+    /*
+     * NOTE: does NOT zero the struct. The caller is responsible
      * for providing a pre-zeroed kobject (e.g. via calloc).
-     * Fields that were set before init (like name) are preserved. */
+     * Fields that were set before init (like name) are preserved.
+     */
     kobj->ktype          = ktype;
     kobj->kset           = NULL;
     kobj->parent         = NULL;
@@ -547,7 +549,7 @@ char *kobject_get_path(struct kobject *kobj)
     char           *path;
     size_t          len;
     int             depth;
-    struct kobject *components[32]; /* max path depth */
+    struct kobject *components[32]; // max path depth
 
     if (!kobj) return strdup("(null)");
 
@@ -564,7 +566,7 @@ char *kobject_get_path(struct kobject *kobj)
     for (int i = depth - 1; i >= 0; i--) {
         if (components[i]->name) { len += strlen(components[i]->name) + 1; /* +1 for '/' */ }
     }
-    if (len == 0) len = 1; /* just '/' */
+    if (len == 0) len = 1; // just '/'
 
     path = malloc(len + 1);
     if (!path) return NULL;

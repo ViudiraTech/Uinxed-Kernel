@@ -193,4 +193,4 @@ void    ptrace_tracer_exit(int64_t tracer_pid);
 int64_t ptrace_tracer_pid(const task_t *task);
 void    ptrace_arch_switch(task_t *previous, task_t *next);
 
-#endif /* INCLUDE_PTRACE_H_ */
+#endif // INCLUDE_PTRACE_H_

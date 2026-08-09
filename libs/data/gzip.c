@@ -17,8 +17,10 @@
 
 typedef unsigned char gzip_v16u __attribute__((__vector_size__(16)));
 
-/* SSE2 16-byte copy (movdqu load + store).  Only ever called while a
- * kernel_fpu_begin()/end() section is active. */
+/*
+ * SSE2 16-byte copy (movdqu load + store).  Only ever called while a
+ * kernel_fpu_begin()/end() section is active.
+ */
 __attribute__((target("sse2"))) static void gzip_copy16(uint8_t *dst, const uint8_t *src)
 {
     gzip_v16u v;
@@ -217,8 +219,10 @@ static int inflate_compressed_block_impl(deflate_stream_t *stream, uint8_t *outp
         if (decode_symbol(stream, literal_tree, &symbol) != EOK) return -EINVAL;
 
         if (symbol < 256) {
-            /* Buffer literals and flush 16 at once with one SSE2 store when
-             * the kernel has SSE enabled (otherwise a plain 16-byte copy). */
+            /*
+             * Buffer literals and flush 16 at once with one SSE2 store when
+             * the kernel has SSE enabled (otherwise a plain 16-byte copy).
+             */
             if (*output_offset + literal_count + 1 > output_capacity) return -EOVERFLOW;
             literals[literal_count++] = (uint8_t)symbol;
             if (literal_count == 16) {
@@ -253,8 +257,10 @@ static int inflate_compressed_block_impl(deflate_stream_t *stream, uint8_t *outp
 
         if (!distance) return -EOVERFLOW;
 
-        /* Flush buffered literals first so output offsets are current for
-         * both the distance and the capacity checks below. */
+        /*
+         * Flush buffered literals first so output offsets are current for
+         * both the distance and the capacity checks below.
+         */
         for (size_t k = 0; k < literal_count; k++) output[(*output_offset)++] = literals[k];
         literal_count = 0;
 

@@ -75,4 +75,4 @@ bool drm_rect_clip_scaled(struct drm_rect *src, struct drm_rect *dst, const stru
 /* Returns true if the rectangle has positive area. */
 bool drm_rect_visible(const struct drm_rect *r);
 
-#endif /* INCLUDE_DRM_DRM_RECT_H_ */
+#endif // INCLUDE_DRM_DRM_RECT_H_

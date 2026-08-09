@@ -128,10 +128,12 @@ char *strncpy(char *dest, const char *src, size_t n)
     char  *result = dest;
     size_t i      = 0;
 
-    /* ISO C requires the remainder of the destination field to be padded
+    /*
+     * ISO C requires the remainder of the destination field to be padded
      * with null bytes after the first source terminator.  A large amount of
      * kernel code uses strncpy() for fixed-width ABI and object fields; not
-     * padding here leaves stack/heap bytes embedded in otherwise valid names. */
+     * padding here leaves stack/heap bytes embedded in otherwise valid names.
+     */
     while (i < n && src[i] != '\0') {
         dest[i] = src[i];
         i++;

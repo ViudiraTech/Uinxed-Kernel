@@ -175,9 +175,11 @@ int drm_send_event(struct drm_device *dev, struct drm_pending_vblank_event *e)
     e->file_ref = false;
     spin_unlock(&file_priv->event_lock);
     wait_queue_wake_all(&file_priv->event_wait);
-    /* Weston waits for page-flip completion through epoll on /dev/dri/card0.
+    /*
+     * Weston waits for page-flip completion through epoll on /dev/dri/card0.
      * Waking only event_wait reaches blocking drm_read() callers but leaves
-     * VFS poll subscribers asleep forever, so publish POLLIN as well. */
+     * VFS poll subscribers asleep forever, so publish POLLIN as well.
+     */
     if (file_priv->filp_unused) vfs_poll_notify((vfs_node_t)file_priv->filp_unused, 0x0001);
 
     if (e->destroy)
@@ -226,11 +228,13 @@ int drm_read(struct drm_file *file_priv, char *buf, size_t count, size_t *offset
     copy_size = node->event->length;
     spin_unlock(&file_priv->event_lock);
 
-    /* VFS file_read callbacks receive a kernel bounce buffer from
+    /*
+     * VFS file_read callbacks receive a kernel bounce buffer from
      * sys_read(); the syscall layer performs the single copy_to_user after
      * this function returns.  Treating buf as a user pointer here makes the
      * copy fail, drops the dequeued page-flip event, and leaves Weston
-     * waiting forever for its initial repaint completion. */
+     * waiting forever for its initial repaint completion.
+     */
     memcpy(buf, node->event, copy_size);
     free(node->event);
     free(node);
@@ -249,11 +253,11 @@ unsigned int drm_poll(struct drm_file *file_priv, unsigned int events)
 
     spin_lock(&file_priv->event_lock);
     if (file_priv->event_list_head) {
-        if (events & 0x0001) mask |= 0x0001; /* POLLIN */
-        if (events & 0x0040) mask |= 0x0040; /* POLLRDNORM */
+        if (events & 0x0001) mask |= 0x0001; // POLLIN
+        if (events & 0x0040) mask |= 0x0040; // POLLRDNORM
     }
     /* DRM device is always writable (ioctl-based comms). */
-    if (events & 0x0004) mask |= 0x0004; /* POLLOUT */
+    if (events & 0x0004) mask |= 0x0004; // POLLOUT
     spin_unlock(&file_priv->event_lock);
 
     return mask;

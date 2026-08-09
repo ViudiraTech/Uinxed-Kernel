@@ -128,4 +128,4 @@ static inline size_t uhci_td_decode_length(uint32_t control_status)
     return encoded == 0x7ffU ? 0 : (size_t)encoded + 1;
 }
 
-#endif /* INCLUDE_UHCI_H_ */
+#endif // INCLUDE_UHCI_H_

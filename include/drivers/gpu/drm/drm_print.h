@@ -64,4 +64,4 @@ void drm_dev_printk(const struct drm_device *dev, const char *level, const char 
 #define DRM_DEV_INFO(dev, fmt, ...)  drm_dev_printk(dev, "info", fmt, ##__VA_ARGS__)
 #define DRM_DEV_WARN(dev, fmt, ...)  drm_dev_printk(dev, "warn", fmt, ##__VA_ARGS__)
 
-#endif /* INCLUDE_DRM_DRM_PRINT_H_ */
+#endif // INCLUDE_DRM_DRM_PRINT_H_

@@ -744,8 +744,10 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
             int64_t session = tty->session;
             if (session != current->sid && tty->session == 0 && current->task && current->sid == (pid_t)current->task->pid
                 && current->uid == 0) {
-                /* Unattached tty claimed by a root session leader (this
-                 * kernel has no getty; the shell respawned via setsid). */
+                /*
+                 * Unattached tty claimed by a root session leader (this
+                 * kernel has no getty; the shell respawned via setsid).
+                 */
                 int result = process_ctty_acquire(current, tty, false, NULL, NULL);
                 if (result) return result;
                 session = tty->session;

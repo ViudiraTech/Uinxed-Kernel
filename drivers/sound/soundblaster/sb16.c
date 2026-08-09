@@ -70,7 +70,8 @@ static inline void sb16_outb(uint16_t port, uint8_t val)
 /* DMA channel helpers                                                */
 /* ------------------------------------------------------------------ */
 
-/* Program ISA DMA controller for a transfer.
+/*
+ * Program ISA DMA controller for a transfer.
  * channel: 0-3 for 8-bit, 4-7 for 16-bit (but 4 is cascade)
  * mode: 0x48 = single write, 0x44 = single read
  */
@@ -283,7 +284,7 @@ int sb16_play_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
     if (sb16_set_rate16(dev, dev->sample_rate)) return -1;
 
     uint16_t words = (uint16_t)(size / 2 - 1);
-    uint8_t  d0    = 0x10; /* FIFO threshold */
+    uint8_t  d0    = 0x10; // FIFO threshold
     if (sb16_dsp_write(dev, SB16_DSP_CMD_DMA16_OUT)) return -1;
     if (sb16_dsp_write(dev, d0)) return -1;
     if (sb16_dsp_write(dev, words & 0xFF)) return -1;

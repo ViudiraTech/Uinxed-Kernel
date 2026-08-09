@@ -100,4 +100,4 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64
 /* mincore */
 int sys_mincore(uint64_t addr, uint64_t length, uint64_t vec);
 
-#endif /* INCLUDE_MMAP_H_ */
+#endif // INCLUDE_MMAP_H_

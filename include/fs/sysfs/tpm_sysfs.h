@@ -11,8 +11,10 @@
 #ifndef INCLUDE_TPM_SYSFS_H_
 #define INCLUDE_TPM_SYSFS_H_
 
-/* Register /sys/class/tpm/tpm0 and /sys/class/tpmrm/tpmrm0 with the
- * standard attribute files (version, firmware, caps, pcrs, timeouts). */
+/*
+ * Register /sys/class/tpm/tpm0 and /sys/class/tpmrm/tpmrm0 with the
+ * standard attribute files (version, firmware, caps, pcrs, timeouts).
+ */
 void tpm_sysfs_init(void);
 
 #endif // INCLUDE_TPM_SYSFS_H_

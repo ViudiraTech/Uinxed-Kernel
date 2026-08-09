@@ -39,4 +39,4 @@ void eventfd_init(void);
 /* Get the installed eventfd callback */
 extern vfs_callback_t eventfd_callback_installed;
 
-#endif /* INCLUDE_EVENTFD_H_ */
+#endif // INCLUDE_EVENTFD_H_

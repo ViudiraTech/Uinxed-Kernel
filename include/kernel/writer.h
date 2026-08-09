@@ -15,7 +15,7 @@
 
 struct writer;
 
-/**
+/*
  * A handle of writing a char
  * `uint8_t` is a bool, if != 0 means write success, if == 0 means write failure
  */

@@ -80,4 +80,4 @@
 /* Syscall implementation */
 int64_t sys_fcntl(int fd, int cmd, uint64_t arg);
 
-#endif /* INCLUDE_SYSCALL_FCNTL_H_ */
+#endif // INCLUDE_SYSCALL_FCNTL_H_

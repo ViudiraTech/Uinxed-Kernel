@@ -32,9 +32,9 @@
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-#define NL_RECV_QUEUE_MAX 1024 /* secondary cap; rcvbuf is the primary limit */
-#define NL_BROADCAST_MAX  256  /* bounded per-protocol socket registry */
-#define NL_PROTO_MAX      32   /* NETLINK_MAX rounded up */
+#define NL_RECV_QUEUE_MAX 1024 // secondary cap; rcvbuf is the primary limit
+#define NL_BROADCAST_MAX  256  // bounded per-protocol socket registry
+#define NL_PROTO_MAX      32   // NETLINK_MAX rounded up
 
 #define AF_UNSPEC         0
 #define ARPHRD_ETHER      1
@@ -53,8 +53,8 @@
 /* ------------------------------------------------------------------ */
 
 typedef struct nl_mcast_entry {
-        struct socket *sk;     /* subscriber socket */
-        uint32_t       groups; /* subscribed groups bitmask for this socket */
+        struct socket *sk;     // subscriber socket
+        uint32_t       groups; // subscribed groups bitmask for this socket
 } nl_mcast_entry_t;
 
 /* ------------------------------------------------------------------ */
@@ -413,7 +413,7 @@ static uint32_t nl_alloc_pid(void)
 
     spin_lock(&nl_pid_lock);
     pid = ++nl_pid_counter;
-    if (pid == 0) pid = ++nl_pid_counter; /* never assign 0 (reserved for kernel) */
+    if (pid == 0) pid = ++nl_pid_counter; // never assign 0 (reserved for kernel)
     spin_unlock(&nl_pid_lock);
 
     return pid;
@@ -543,12 +543,14 @@ struct socket *netlink_sock_alloc(uint32_t protocol)
     /* Initialise generic socket fields */
     sk->state    = SOCK_STATE_UNCONNECTED;
     sk->family   = AF_NETLINK;
-    sk->type     = SOCK_DGRAM; /* netlink is datagram-oriented */
+    sk->type     = SOCK_DGRAM; // netlink is datagram-oriented
     sk->protocol = (uint16_t)protocol;
     sk->flags    = 0;
     sk->refcount = 1;
-    /* Generic socket teardown wakes waiters for every family.  Initialise
-     * the common wait queue here as well as in AF_UNIX/INET allocators. */
+    /*
+     * Generic socket teardown wakes waiters for every family.  Initialise
+     * the common wait queue here as well as in AF_UNIX/INET allocators.
+     */
     wait_queue_init(&sk->waitq);
     sk->priv     = ns;
     sk->sndbuf   = NL_SOCK_RECV_BUF_SIZE;
@@ -571,7 +573,7 @@ struct socket *netlink_sock_alloc(uint32_t protocol)
     sk->socket_close = netlink_wrap_close;
 
     /* Initialise netlink-specific fields */
-    ns->nl_pid           = 0; /* unbound */
+    ns->nl_pid           = 0; // unbound
     ns->nl_groups        = 0;
     ns->nl_protocol      = protocol;
     ns->nl_seq           = 0;
@@ -634,7 +636,7 @@ int netlink_bind(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen)
 
     if (ns->nl_bound) {
         spin_unlock(&sk->lock);
-        return -EINVAL; /* already bound */
+        return -EINVAL; // already bound
     }
 
     /* Set or auto-assign port ID */
@@ -653,8 +655,10 @@ int netlink_bind(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen)
         ns->nl_pid = addr->nl_pid;
     }
 
-    /* The protocol registry also owns unicast port IDs, so group-zero
-     * sockets must be present as well. */
+    /*
+     * The protocol registry also owns unicast port IDs, so group-zero
+     * sockets must be present as well.
+     */
     int ret = nl_mcast_subscribe(ns->nl_protocol, sk, addr->nl_groups);
     if (ret != EOK) {
         ns->nl_pid = 0;
@@ -735,10 +739,12 @@ static int nl_queue_datagram(struct socket *sk, const void *data, uint32_t len, 
     spin_unlock(&ns->recv_lock);
 
     if (blocked) task_wakeup(blocked);
-    /* Most netlink consumers, including eudevd, wait through epoll rather
+    /*
+     * Most netlink consumers, including eudevd, wait through epoll rather
      * than blocking directly in recvmsg(2).  Queueing a datagram must publish
      * POLLIN through the socket's VFS poll source; waking only blocked_task
-     * leaves epoll_wait(-1) asleep while uevents accumulate in this queue. */
+     * leaves epoll_wait(-1) asleep while uevents accumulate in this queue.
+     */
     if (sk->node) vfs_poll_notify(sk->node, 0x0001U);
     return EOK;
 }
@@ -754,8 +760,10 @@ static int nl_broadcast_datagram(uint32_t protocol, uint32_t groups, const void 
     if (!data || !len || !groups) return -EINVAL;
     tab = &nl_mcast[protocol];
 
-    /* netlink_close removes the socket under this same lock before freeing
-     * private state, making each table entry stable for the delivery call. */
+    /*
+     * netlink_close removes the socket under this same lock before freeing
+     * private state, making each table entry stable for the delivery call.
+     */
     spin_lock(&tab->lock);
     for (uint32_t i = 0; i < tab->count; i++) {
         if (!tab->entries[i].sk || !(tab->entries[i].groups & groups)) continue;
@@ -795,14 +803,18 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
 
     if (addr && (addrlen < sizeof(sockaddr_nl_t) || addr->nl_family != AF_NETLINK)) return -EINVAL;
 
-    /* NETLINK_KOBJECT_UEVENT deliberately does not carry nlmsghdr.  A
-     * privileged userspace relay may inject the same NUL-separated ABI. */
+    /*
+     * NETLINK_KOBJECT_UEVENT deliberately does not carry nlmsghdr.  A
+     * privileged userspace relay may inject the same NUL-separated ABI.
+     */
     if (ns->nl_protocol == NETLINK_KOBJECT_UEVENT) {
-        /* A nonzero destination port is userspace-to-userspace unicast.
+        /*
+         * A nonzero destination port is userspace-to-userspace unicast.
          * libudev uses this to hand structured "libudev" records from the
          * main udevd process to idle workers.  Those records intentionally do
          * not use the kernel action@/devpath wire format and must not pass
-         * through the privileged raw-uevent validator below. */
+         * through the privileged raw-uevent validator below.
+         */
         if (addr && addr->nl_pid != 0) {
             struct socket *dest = nl_mcast_find_by_pid(ns->nl_protocol, addr->nl_pid);
             if (!dest) return -ECONNREFUSED;
@@ -810,9 +822,11 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
             return ret ? ret : (int)len;
         }
 
-        /* Processed udev notifications use the same structured header and a
+        /*
+         * Processed udev notifications use the same structured header and a
          * multicast destination.  Relay them as userspace messages; the raw
-         * action@/devpath validation is only for synthetic kernel uevents. */
+         * action@/devpath validation is only for synthetic kernel uevents.
+         */
         static const char libudev_prefix[8] = "libudev";
         if (len >= sizeof(libudev_prefix) && memcmp(buf, libudev_prefix, sizeof(libudev_prefix)) == 0) {
             if (sk->uid != 0) return -EPERM;
@@ -960,9 +974,11 @@ int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t
             goto dequeue;
         }
 
-        /* Block current task on this socket.
-                 * Keep recv_lock held while setting blocked_task so that
-                 * netlink_broadcast/unicast can't miss the wakeup. */
+        /*
+         * Block current task on this socket.
+         * Keep recv_lock held while setting blocked_task so that
+         * netlink_broadcast/unicast can't miss the wakeup.
+         */
         ns->blocked_task = current_task();
         spin_unlock(&ns->recv_lock);
         spin_unlock(&sk->lock);
@@ -1052,11 +1068,11 @@ int netlink_poll(struct socket *sk, size_t events)
     spin_lock(&ns->recv_lock);
 
     if (ns->recv_queue_len > 0) {
-        if (events & 0x0001) revents |= 0x0001; /* POLLIN */
+        if (events & 0x0001) revents |= 0x0001; // POLLIN
     }
-    if (sk->so_error && (events & 0x0008)) revents |= 0x0008; /* POLLERR */
+    if (sk->so_error && (events & 0x0008)) revents |= 0x0008; // POLLERR
     /* Netlink sockets are always writable (dgram) */
-    if (events & 0x0004) revents |= 0x0004; /* POLLOUT */
+    if (events & 0x0004) revents |= 0x0004; // POLLOUT
 
     spin_unlock(&ns->recv_lock);
 

@@ -21,7 +21,7 @@
 
 #define FPU_FXSAVE_SIZE     512U
 #define FPU_STATE_ALIGNMENT 64U
-#define FPU_INITIAL_MAX     4096U /* static template cap; see guard in fpu_init() */
+#define FPU_INITIAL_MAX     4096U // static template cap; see guard in fpu_init()
 #define FPU_DEFAULT_FCW     0x037fU
 #define FPU_DEFAULT_MXCSR   0x1f80U
 
@@ -47,9 +47,11 @@ static uint64_t fpu_xstate_mask = XCR0_FPU_MASK;
 static uint8_t  fpu_use_xsave;
 static uint8_t  fpu_use_xsaveopt;
 
-/* Set only when fpu_init() actually enabled SSE in hardware (CR4.OSFXSR).
+/*
+ * Set only when fpu_init() actually enabled SSE in hardware (CR4.OSFXSR).
  * Kernel SIMD paths must check kernel_sse_available() before executing any
- * SSE/AVX/crc32 instruction: with CR4.OSFXSR clear those raise #UD. */
+ * SSE/AVX/crc32 instruction: with CR4.OSFXSR clear those raise #UD.
+ */
 static uint8_t fpu_sse_enabled;
 
 int kernel_sse_available(void)
@@ -66,11 +68,13 @@ size_t fpu_signal_state_size(void)
 #endif
 }
 
-/* Initial (XINIT-style) extended-state template: x87 inits, MXCSR and
+/*
+ * Initial (XINIT-style) extended-state template: x87 inits, MXCSR and
  * zeroed XMM/YMM, with the XSTATE_BV header covering every enabled
  * component.  Built in fpu_init() and XRSTORed whenever a task that has
  * never used the FPU becomes live, so a fresh/exec'd task can never
- * observe another task's register leftovers. */
+ * observe another task's register leftovers.
+ */
 static uint8_t fpu_initial_state[FPU_INITIAL_MAX] __attribute__((aligned(64)));
 
 /* Early-boot (pre-SMP) fallback for the BSP only */
@@ -115,10 +119,10 @@ static void fpu_state_set_initial(void *state)
     memset(state, 0, fpu_save_size);
     *(uint16_t *)state = FPU_DEFAULT_FCW;
     if (fpu_use_xsave) {
-        memset((uint8_t *)state + 4, 0x03, 8); /* XSAVE FTW: 8-bit per tag, empty */
+        memset((uint8_t *)state + 4, 0x03, 8); // XSAVE FTW: 8-bit per tag, empty
         *(uint64_t *)((uint8_t *)state + 512) = fpu_xstate_mask;
     } else {
-        *(uint16_t *)((uint8_t *)state + 4) = 0xFFFF; /* FXSAVE FTW: packed, all empty */
+        *(uint16_t *)((uint8_t *)state + 4) = 0xFFFF; // FXSAVE FTW: packed, all empty
     }
     *(uint32_t *)((uint8_t *)state + 24) = FPU_DEFAULT_MXCSR;
 }
@@ -156,15 +160,17 @@ void fpu_init(void)
 #if CPU_FEATURE_FPU
     uint64_t cr0;
     __asm__ volatile("mov %%cr0, %0" : "=r"(cr0) : : "memory");
-    cr0 &= ~(1ULL << CR0_EM_SHIFT); /* EM = 0 */
-    cr0 |= (1ULL << CR0_MP_SHIFT);  /* MP = 1 */
-    cr0 &= ~(1ULL << CR0_TS_SHIFT); /* TS = 0 (no lazy FPU) */
+    cr0 &= ~(1ULL << CR0_EM_SHIFT); // EM = 0
+    cr0 |= (1ULL << CR0_MP_SHIFT);  // MP = 1
+    cr0 &= ~(1ULL << CR0_TS_SHIFT); // TS = 0 (no lazy FPU)
     __asm__ volatile("mov %0, %%cr0" : : "r"(cr0) : "memory");
 
 #    if CPU_FEATURE_SSE
-    /* CR4.OSFXSR must be set before any SSE instruction executes
+    /*
+     * CR4.OSFXSR must be set before any SSE instruction executes
      * (LDMXCSR and the SSE/AVX instructions themselves raise #UD
-     * otherwise).  This also applies to the XSAVE path. */
+     * otherwise).  This also applies to the XSAVE path.
+     */
     if (cpu_support_sse()) {
         uint64_t cr4;
         __asm__ volatile("mov %%cr4, %0" : "=r"(cr4) : : "memory");
@@ -175,9 +181,11 @@ void fpu_init(void)
     }
 #    endif
 
-    /* Prefer XSAVE/XRSTOR whenever the CPU and XCR0 support it.
+    /*
+     * Prefer XSAVE/XRSTOR whenever the CPU and XCR0 support it.
      * CR4.OSXSAVE must be written before reading the CPUID.1.ECX[27]
-     * OSXSAVE status bit (it reflects current CR4.OSXSAVE). */
+     * OSXSAVE status bit (it reflects current CR4.OSXSAVE).
+     */
     if (cpu_support_xsave() && cpu_xcr0_supports(XCR0_FPU_MASK)) {
         uint64_t xcr0_mask = XCR0_FPU_MASK;
 #    if CPU_FEATURE_AVX
@@ -198,10 +206,12 @@ void fpu_init(void)
             cpuid_count(0x0000000d, 0, &eax, &ebx, &ecx, &edx);
             fpu_save_size = (ebx + FPU_STATE_ALIGNMENT - 1) & ~(FPU_STATE_ALIGNMENT - 1);
 
-            /* The heap is not available this early, so the initial-state
+            /*
+             * The heap is not available this early, so the initial-state
              * template cannot be grown at runtime.  Truncating the area
              * would corrupt every XRSTOR, so refuse to continue on CPUs
-             * whose enabled XSAVE area exceeds the static template. */
+             * whose enabled XSAVE area exceeds the static template.
+             */
             if (fpu_save_size > sizeof(fpu_initial_state))
                 panic("fpu: XSAVE area (%zu B) exceeds the initial-state template (%zu B)\n", fpu_save_size, sizeof(fpu_initial_state));
             cpuid_count(0x0000000d, 1, &eax, &ebx, &ecx, &edx);
@@ -251,9 +261,11 @@ void fpu_task_destroy(struct task *task)
 {
 #if CPU_FEATURE_FPU
     if (!task) return;
-    /* Defensive: if the dying task is still marked live on this CPU,
+    /*
+     * Defensive: if the dying task is still marked live on this CPU,
      * drop the pointer so a later fpu_switch() can never compare
-     * against - or save into - the freed area. */
+     * against - or save into - the freed area.
+     */
     fpu_percpu_t *fp = fpu_percpu();
     if (fp->fpu_live == task) fp->fpu_live = NULL;
     free(task->thread.fpu_state);
@@ -270,10 +282,12 @@ void fpu_task_clone(struct task *parent, struct task *child)
 #if CPU_FEATURE_FPU
     if (!parent || !child || !parent->thread.fpu_state || !child->thread.fpu_state) return;
 
-    /* If the parent is running on this CPU, its newest state is still
+    /*
+     * If the parent is running on this CPU, its newest state is still
      * in the registers; flush it to the area first.  If the parent runs
      * elsewhere (or not at all), its area is already up to date thanks
-     * to active save/restore. */
+     * to active save/restore.
+     */
     fpu_percpu_t *fp = fpu_percpu();
     if (fp->fpu_live == parent) {
         fpu_save(parent->thread.fpu_state);
@@ -303,8 +317,10 @@ void fpu_task_reset(struct task *task)
     fpu_state_set_initial(task->thread.fpu_state);
     task->thread.fpu_initialized = 0;
 
-    /* If the task is live on this CPU, reset the hardware as well so
-     * that the live registers match the (initial) area contents. */
+    /*
+     * If the task is live on this CPU, reset the hardware as well so
+     * that the live registers match the (initial) area contents.
+     */
     fpu_percpu_t *fp = fpu_percpu();
     if (fp->fpu_live == task) {
         fpu_hw_reset_initial();
@@ -394,8 +410,10 @@ int fpu_signal_restore(struct task *task, const void *state, size_t size)
 
     memcpy(task->thread.fpu_state, state, fpu_save_size);
 
-    /* MXCSR reserved bits make FXRSTOR/XRSTOR raise #GP.  Mask them using
-     * the hardware-provided mask from the initial FXSAVE image. */
+    /*
+     * MXCSR reserved bits make FXRSTOR/XRSTOR raise #GP.  Mask them using
+     * the hardware-provided mask from the initial FXSAVE image.
+     */
     uint32_t mxcsr_mask = *(uint32_t *)(fpu_initial_state + 28);
     if (!mxcsr_mask) mxcsr_mask = 0x0000ffbfU;
     *(uint32_t *)((uint8_t *)task->thread.fpu_state + 24) &= mxcsr_mask;
@@ -405,7 +423,7 @@ int fpu_signal_restore(struct task *task, const void *state, size_t size)
         uint64_t *xstate_bv = (uint64_t *)header;
         uint64_t *xcomp_bv  = (uint64_t *)(header + 8);
         *xstate_bv &= fpu_xstate_mask;
-        *xcomp_bv = 0; /* standard, non-compacted XSAVE format */
+        *xcomp_bv = 0; // standard, non-compacted XSAVE format
         memset(header + 16, 0, 48);
     }
 
@@ -434,8 +452,10 @@ void kernel_fpu_begin(void)
 
     if (fp->fpu_kernel_cnt++ == 0) {
         fp->fpu_irq_saved = (uint8_t)if_enabled;
-        /* Save the current task's live state; the kernel owns the FPU
-         * registers until kernel_fpu_end(). */
+        /*
+         * Save the current task's live state; the kernel owns the FPU
+         * registers until kernel_fpu_end().
+         */
         task_t *cur = current_task();
         if (cur && fp->fpu_live == cur && cur->thread.fpu_state) {
             fpu_save(cur->thread.fpu_state);
@@ -453,8 +473,10 @@ void kernel_fpu_end(void)
     fpu_percpu_t *fp = fpu_percpu();
 
     if (--fp->fpu_kernel_cnt == 0) {
-        /* Restore the current task's state (or an initial state for
-         * tasks that never used the FPU). */
+        /*
+         * Restore the current task's state (or an initial state for
+         * tasks that never used the FPU).
+         */
         task_t *cur = current_task();
         if (cur && cur->thread.fpu_state) {
             if (cur->thread.fpu_initialized) {

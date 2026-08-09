@@ -28,7 +28,7 @@ typedef enum {
 typedef struct {
         int32_t  next;
         int32_t  prev;
-        uint32_t tag; /* Caller-owned while the page is allocated/reserved. */
+        uint32_t tag; // Caller-owned while the page is allocated/reserved.
         uint8_t  order;
         uint8_t  state;
         uint16_t reserved;

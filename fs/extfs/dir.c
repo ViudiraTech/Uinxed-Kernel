@@ -174,7 +174,7 @@ static int extfs_dir_deindex(extfs_handle_t *dir_h, ext2_inode_t *raw)
             continue;
         }
         ext4_dir_entry_tail_t *tail = extfs_dir_tail(dir_h, buffer);
-        if (!tail && (sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM)) continue; /* Checksummed internal HTree node. */
+        if (!tail && (sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM)) continue; // Checksummed internal HTree node.
         if (!tail && extfs_dir_is_dx_node(dir_h, buffer)) continue;
         uint32_t offset = 0, limit = sb->block_size - (tail ? sizeof(*tail) : 0);
         while (offset < limit) {

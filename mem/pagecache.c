@@ -193,9 +193,11 @@ static pagecache_page_t *pc_find_locked(pagecache_mapping_t *mapping, uint64_t i
     return NULL;
 }
 
-/* Keep mappings for the many small files compact, but do not let a large
+/*
+ * Keep mappings for the many small files compact, but do not let a large
  * tmpfs file turn every page lookup into a walk over a long collision chain.
- * Growth is best-effort: allocation failure only keeps the old valid table. */
+ * Growth is best-effort: allocation failure only keeps the old valid table.
+ */
 static void pc_grow_hash_locked(pagecache_mapping_t *mapping)
 {
     if (mapping->bucket_count >= PAGECACHE_HASH_MAX_SIZE || mapping->pages < mapping->bucket_count * PAGECACHE_HASH_LOAD) return;
@@ -532,8 +534,10 @@ static void pc_adaptive_readahead(pagecache_mapping_t *mapping, uint64_t first, 
         prefetch_count            = window;
         mapping->readahead_end    = UINT64_MAX - last < window ? UINT64_MAX : last + window;
     } else {
-        /* The current request consumed pages which are already inside the
-         * last prefetched window.  Do not rescan that window on every read. */
+        /*
+         * The current request consumed pages which are already inside the
+         * last prefetched window.  Do not rescan that window on every read.
+         */
         prefetch_count = 0;
     }
     mapping->readahead_last  = last;
@@ -643,8 +647,10 @@ static void pc_sort_sift_down(pagecache_page_t **pages, size_t root, size_t coun
 
 static void pc_sort_pages(pagecache_page_t **pages, size_t count)
 {
-    /* In-place heapsort keeps writeback ordered without the quadratic close
-     * time of insertion sort on files containing tens of thousands of pages. */
+    /*
+     * In-place heapsort keeps writeback ordered without the quadratic close
+     * time of insertion sort on files containing tens of thousands of pages.
+     */
     for (size_t root = count / 2; root; root--) pc_sort_sift_down(pages, root - 1, count);
     for (size_t end = count; end > 1; end--) {
         pagecache_page_t *swap = pages[0];
@@ -892,10 +898,12 @@ size_t pagecache_reclaim(size_t target)
                 pc_unlock(&page->lock);
                 continue;
             }
-            /* A lookup can acquire a reference between the unlocked test
+            /*
+             * A lookup can acquire a reference between the unlocked test
              * above and this page lock.  Publish EVICTING first so no new
              * lookup can succeed, then recheck the references acquired by
-             * lookups which won that race. */
+             * lookups which won that race.
+             */
             __atomic_fetch_or(&page->flags, PC_PAGE_EVICTING, __ATOMIC_RELEASE);
             if (__atomic_load_n(&page->references, __ATOMIC_ACQUIRE)) {
                 __atomic_fetch_and(&page->flags, ~PC_PAGE_EVICTING, __ATOMIC_RELEASE);

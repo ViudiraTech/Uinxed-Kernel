@@ -115,7 +115,7 @@ static const uint8_t *dmi_table_base(size_t *capacity)
     if (!entry || !capacity) return NULL;
     if (*(uint8_t *)entry == 0x5F && ((uint8_t *)entry)[1] == 0x53 && ((uint8_t *)entry)[2] == 0x4D && ((uint8_t *)entry)[3] == 0x33) {
         entry_point_64_t *ep = entry;
-        *capacity            = 0x100000; /* entry points do not carry the length */
+        *capacity            = 0x100000; // entry points do not carry the length
         return (const uint8_t *)phys_to_virt(ep->structure_table_address);
     }
     entry_point_32_t *ep = entry;

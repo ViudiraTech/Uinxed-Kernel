@@ -713,9 +713,11 @@ int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, s
     return 0;
 }
 
-/* Load the system init executable from the already-populated root filesystem.
+/*
+ * Load the system init executable from the already-populated root filesystem.
  * Limine only supplies the initramfs; PID 1 must follow the normal Unix boot
- * contract and execute /sbin/init from that filesystem. */
+ * contract and execute /sbin/init from that filesystem.
+ */
 int elf_loader_load_initial_path(process_t *proc, const char *path, char *const argv[], char *const envp[])
 {
     if (!proc || !path || !path[0]) return -EINVAL;

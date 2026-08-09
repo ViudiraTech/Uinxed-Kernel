@@ -13,4 +13,4 @@
 
 void fb_sysfs_init(void);
 
-#endif /* INCLUDE_FS_SYSFS_FB_SYSFS_H_ */
+#endif // INCLUDE_FS_SYSFS_FB_SYSFS_H_

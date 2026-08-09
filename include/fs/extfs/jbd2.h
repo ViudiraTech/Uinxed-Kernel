@@ -72,4 +72,4 @@ int                         extfs_jbd2_open(struct extfs_sb_info *sb, extfs_jour
 void                        extfs_jbd2_close(extfs_journal_t *journal);
 const fs_txn_backend_ops_t *extfs_jbd2_backend_ops(void);
 
-#endif /* INCLUDE_FS_EXTFS_JBD2_H_ */
+#endif // INCLUDE_FS_EXTFS_JBD2_H_

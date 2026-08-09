@@ -284,8 +284,8 @@ typedef struct ext2_dir_entry {
 /* Per-filesystem superblock info */
 typedef struct extfs_sb_info {
         blockdev_device_t   device;
-        ext2_super_block_t *es;         /* Pointer to on-disk superblock */
-        ext2_group_desc_t  *group_desc; /* Array of group descriptors */
+        ext2_super_block_t *es;         // Pointer to on-disk superblock
+        ext2_group_desc_t  *group_desc; // Array of group descriptors
         uint32_t            block_size;
         uint32_t            blocks_per_group;
         uint32_t            inodes_per_group;
@@ -297,8 +297,8 @@ typedef struct extfs_sb_info {
         uint32_t            s_first_data_block;
         uint32_t            inode_size;
         uint32_t            s_first_ino;
-        uint32_t            gdb_count; /* Group descriptor blocks count */
-        uint32_t            sb_block;  /* Superblock block number */
+        uint32_t            gdb_count; // Group descriptor blocks count
+        uint32_t            sb_block;  // Superblock block number
         uint8_t             log_block_size;
         spinlock_t          lock;
         int                 read_only;
@@ -320,10 +320,10 @@ typedef struct extfs_inode_info {
 
 /* VFS handle stored in node->handle */
 typedef struct extfs_handle {
-        extfs_sb_info_t   *sb;       /* Pointer to superblock info */
-        extfs_inode_info_t ei;       /* In-core inode info */
-        uint32_t           inode_no; /* On-disk inode number */
-        int                owns_sb;  /* Whether this handle owns the sb_info */
+        extfs_sb_info_t   *sb;       // Pointer to superblock info
+        extfs_inode_info_t ei;       // In-core inode info
+        uint32_t           inode_no; // On-disk inode number
+        int                owns_sb;  // Whether this handle owns the sb_info
 } extfs_handle_t;
 
 /*
@@ -385,4 +385,4 @@ int extfs_dir_block_verify(extfs_handle_t *dir_h, uint32_t logical, const void *
 /* extfs.c - registration */
 void extfs_regist(void);
 
-#endif /* INCLUDE_FS_EXTFS_H_ */
+#endif // INCLUDE_FS_EXTFS_H_

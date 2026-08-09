@@ -119,14 +119,14 @@ void power_reset(void)
     if (!facp || !facp->reset_reg.address || !facp->reset_value) return;
 
     generic_address_t *reg = &facp->reset_reg;
-    if (reg->address_space == 1) { /* System I/O */
+    if (reg->address_space == 1) { // System I/O
         if (reg->bit_width <= 8)
             outb((uint16_t)reg->address, facp->reset_value);
         else if (reg->bit_width <= 16)
             outw((uint16_t)reg->address, facp->reset_value);
         else
             outl((uint16_t)reg->address, facp->reset_value);
-    } else if (reg->address_space == 0) { /* System memory */
+    } else if (reg->address_space == 0) { // System memory
         volatile uint8_t *addr = (volatile uint8_t *)phys_to_virt(reg->address);
         if (reg->bit_width <= 8)
             *addr = facp->reset_value;

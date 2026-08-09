@@ -19,8 +19,8 @@
 #include <mem/heap.h>
 
 #define TPM_DEV_MAJOR 10
-#define TPM0_MINOR    224 /* /dev/tpm0  */
-#define TPMRM0_MINOR  225 /* /dev/tpmrm0 */
+#define TPM0_MINOR    224 // /dev/tpm0
+#define TPMRM0_MINOR  225 // /dev/tpmrm0
 
 typedef struct {
         uint8_t command[TPM_BUFSIZE];
@@ -58,8 +58,10 @@ static int64_t tpm_chardev_write(void *ctx, void *private_data, uint64_t flags, 
     if (!state || !tpm || !addr || !size || size > TPM_BUFSIZE) return -EINVAL;
 
     memcpy(state->command, addr, size);
-    /* tpm_transmit() sends the command buffer and returns the response
-     * length in the same buffer (in-place). */
+    /*
+     * tpm_transmit() sends the command buffer and returns the response
+     * length in the same buffer (in-place).
+     */
     rc = tpm_transmit(tpm, state->command, TPM_BUFSIZE, size);
     if (rc < 0) return (int64_t)rc;
 

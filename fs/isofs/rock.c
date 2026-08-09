@@ -19,7 +19,7 @@
 
 static int rock_continue(struct rock_state *rs)
 {
-    int min_de_size = 4; /* offsetof(struct rock_ridge, u) */
+    int min_de_size = 4; // offsetof(struct rock_ridge, u)
 
     free(rs->buffer);
     rs->buffer = NULL;
@@ -29,13 +29,13 @@ static int rock_continue(struct rock_state *rs)
     if ((unsigned)rs->cont_offset > (unsigned)(int)(rs->block_size - min_de_size) || (unsigned)rs->cont_size > rs->block_size
         || (unsigned)(rs->cont_offset + rs->cont_size) > rs->block_size) {
         plogk("rock: corrupted CE entry, extent=%d offset=%d size=%d\n", rs->cont_extent, rs->cont_offset, rs->cont_size);
-        return -5; /* -EIO */
+        return -5; // -EIO
     }
 
     if (++rs->cont_loops >= ISOFS_RR_MAX_CE) return -5;
 
     rs->buffer = malloc(rs->cont_size);
-    if (!rs->buffer) return -12; /* -ENOMEM */
+    if (!rs->buffer) return -12; // -ENOMEM
 
     if (rs->read_block(rs->io_ctx, (uint32_t)rs->cont_extent, rs->buffer, (uint32_t)rs->cont_size) != 0) {
         plogk("rock: unable to read CE block %d\n", rs->cont_extent);

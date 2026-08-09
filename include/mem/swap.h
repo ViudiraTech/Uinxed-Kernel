@@ -87,4 +87,4 @@ void swap_get_stats(swap_stats_t *stats);
 int  swap_format_proc_swaps(char *buf, size_t cap);
 #endif
 
-#endif /* INCLUDE_SWAP_H_ */
+#endif // INCLUDE_SWAP_H_

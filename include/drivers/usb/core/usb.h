@@ -213,4 +213,4 @@ void usb_hid_disconnect(usb_interface_t *interface);
 int  usb_storage_probe(usb_interface_t *interface);
 void usb_storage_disconnect(usb_interface_t *interface);
 
-#endif /* INCLUDE_USB_CORE_H_ */
+#endif // INCLUDE_USB_CORE_H_

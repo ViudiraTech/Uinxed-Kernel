@@ -47,10 +47,10 @@ typedef struct {
         tmpfs_dev_write_t            write;
         tmpfs_dev_poll_t             poll;
         tmpfs_dev_ioctl_t            ioctl;
-        tmpfs_dev_open_t             open;             /* per-open-instance allocation */
-        tmpfs_dev_release_t          release;          /* per-open-instance teardown */
-        tmpfs_dev_descriptor_close_t descriptor_close; /* last fd/dup closed */
-        tmpfs_dev_mmap_t             mmap;             /* per-open-instance mmap (GEM, etc.) */
+        tmpfs_dev_open_t             open;             // per-open-instance allocation
+        tmpfs_dev_release_t          release;          // per-open-instance teardown
+        tmpfs_dev_descriptor_close_t descriptor_close; // last fd/dup closed
+        tmpfs_dev_mmap_t             mmap;             // per-open-instance mmap (GEM, etc.)
         tmpfs_dev_file_read_t        file_read;
         tmpfs_dev_file_write_t       file_write;
         tmpfs_dev_file_read_user_t   file_read_user;
@@ -58,7 +58,7 @@ typedef struct {
         tmpfs_dev_file_poll_t        file_poll;
         tmpfs_dev_file_poll_source_t file_poll_source;
         tmpfs_dev_file_ioctl_t       file_ioctl;
-        tmpfs_dev_destroy_t          destroy; /* final node teardown */
+        tmpfs_dev_destroy_t          destroy; // final node teardown
         void                        *ctx;
 } tmpfs_device_ops_t;
 
@@ -157,9 +157,11 @@ void tmpfs_regist(void);
  */
 int tmpfs_bind_device(vfs_node_t node, uint16_t node_type, const tmpfs_device_ops_t *device);
 
-/* Change the persistent inode type without replacing tmpfs ownership of its
+/*
+ * Change the persistent inode type without replacing tmpfs ownership of its
  * handle.  This is used for namespace-only special files such as AF_UNIX
- * pathname sockets, whose live endpoint is tracked outside the filesystem. */
+ * pathname sockets, whose live endpoint is tracked outside the filesystem.
+ */
 int tmpfs_set_node_type(vfs_node_t node, uint16_t node_type);
 
 #endif // INCLUDE_TMPFS_H_

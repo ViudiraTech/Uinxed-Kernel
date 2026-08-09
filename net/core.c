@@ -31,9 +31,11 @@ static uint32_t            next_ifindex = 1;
 static netdev_lifecycle_fn lifecycle_notifier;
 static void               *lifecycle_context;
 
-/* RFC 1071 checksum accumulation over 16-bit big-endian words.  The running
+/*
+ * RFC 1071 checksum accumulation over 16-bit big-endian words.  The running
  * sum is folded below 2^16 as words are added so the 32-bit accumulator can
- * never wrap: a wrap would corrupt the result because 2^32 ≡ 1 (mod 2^16-1). */
+ * never wrap: a wrap would corrupt the result because 2^32 ≡ 1 (mod 2^16-1).
+ */
 static uint32_t net_checksum_add_words(uint32_t sum, const uint8_t *bytes, size_t length)
 {
     while (length >= 2) {
@@ -46,10 +48,12 @@ static uint32_t net_checksum_add_words(uint32_t sum, const uint8_t *bytes, size_
     return sum;
 }
 
-/* SSE2 fast path: eight 16-bit words per 16-byte vector, byte-swapped by a
+/*
+ * SSE2 fast path: eight 16-bit words per 16-byte vector, byte-swapped by a
  * pair of 16-bit lane shifts (pure SSE2, no SSSE3 required).  Partial sums
  * live in four 32-bit lanes and are folded periodically so no lane can
- * overflow.  Runs inside a kernel_fpu_begin()/end() section. */
+ * overflow.  Runs inside a kernel_fpu_begin()/end() section.
+ */
 typedef unsigned short csum_v8hu __attribute__((__vector_size__(16)));
 typedef unsigned int   csum_v4su __attribute__((__vector_size__(16)));
 

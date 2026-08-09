@@ -137,11 +137,13 @@ void page_fault_handle_frame(page_fault_frame_t *frame)
 
     carry_error_code = 1; // carry error code
 
-    /* copy_{to,from}_user() deliberately accesses the user virtual address
+    /*
+     * copy_{to,from}_user() deliberately accesses the user virtual address
      * through the current hardware page table.  Resolve ordinary demand/COW
      * faults just like a ring-3 access.  A nofault copy, or an invalid range,
      * returns -EFAULT through the assembly fixup instead of panicking the
-     * kernel. */
+     * kernel.
+     */
     task_t *fault_task = current_task();
     if (!us && !reserved && !id && fault_task && fault_task->uaccess_fault_resume && faulting_address
         && faulting_address < PROCESS_USER_STACK_TOP) {
@@ -171,10 +173,12 @@ void page_fault_handle_frame(page_fault_frame_t *frame)
             plogk("#PF (pid=%llu task=%s): addr=0x%016llx rip=0x%016llx rsp=0x%016llx cs=0x%llx err=0x%llx\n", proc->task->pid, proc->task->name,
                   faulting_address, frame->rip, frame->rsp, frame->cs, error_code);
 
-            /* A synchronous fault cannot be deferred.  If SIGSEGV is
+            /*
+             * A synchronous fault cannot be deferred.  If SIGSEGV is
              * blocked (normally because its handler faulted recursively) or
              * ignored, Linux terminates the process instead of retrying the
-             * same faulting instruction forever. */
+             * same faulting instruction forever.
+             */
             if (signal_is_blocked_or_ignored(proc, SIGSEGV)) process_exit(-SIGSEGV);
 
             signal_send_thread(proc->task, SIGSEGV, &info);
@@ -245,8 +249,10 @@ void enable_paging(uintptr_t page_directory_phys)
     __asm__ volatile("mfence\n\t"
                      "mov %0, %%cr3\n\t"
                      "mov %%cr0, %%rax\n\t"
-                     /* PG + WP: supervisor writes to a read-only user PTE
-                      * must fault so copy_to_user() cannot bypass COW. */
+                     /*
+                      * PG + WP: supervisor writes to a read-only user PTE
+                      * must fault so copy_to_user() cannot bypass COW.
+                      */
                      "orl $0x80010000, %%eax\n\t"
                      "mov %%rax, %%cr0\n\t"
                      "jmp 1f\n\t"
@@ -430,9 +436,11 @@ int page_clone_user_cow(page_directory_t *child, page_directory_t *parent)
         if (clone_table_cow(pdpt, phys_to_virt(value & PAGE_4K_MASK), 3)) goto rollback;
     }
 
-    /* Publish write protection only after every child leaf owns a frame
+    /*
+     * Publish write protection only after every child leaf owns a frame
      * reference.  The caller performs one synchronized TLB shootdown before
-     * the child can run, so fork remains cheap without stale writable TLBs. */
+     * the child can run, so fork remains cheap without stale writable TLBs.
+     */
     for (int i = 0; i < 256; i++) {
         uint64_t value = parent->table->entries[i].value;
         if ((value & PTE_PRESENT) && !(value & PTE_HUGE)) mark_parent_table_cow(phys_to_virt(value & PAGE_4K_MASK), 3);
@@ -898,7 +906,7 @@ retry_swap:
             const uint64_t huge_pat = 1ULL << 12;
             int            pat      = (leaf_flags & huge_pat) != 0;
             leaf_flags &= ~(PTE_HUGE | huge_pat);
-            if (pat) leaf_flags |= PTE_HUGE; /* Bit 7 is PAT in a 4 KiB PTE. */
+            if (pat) leaf_flags |= PTE_HUGE; // Bit 7 is PAT in a 4 KiB PTE.
             for (size_t i = 0; i < 512; i++) { first_table->entries[i].value = (old_frame + i * PAGE_4K_SIZE) | leaf_flags; }
         }
 
@@ -1134,10 +1142,10 @@ static void page_enable_global_tlb(void)
 {
     uint32_t eax, ebx, ecx, edx;
     cpuid(1, &eax, &ebx, &ecx, &edx);
-    if (!(edx & (1U << 13))) return; /* CPUID.01H:EDX.PGE */
+    if (!(edx & (1U << 13))) return; // CPUID.01H:EDX.PGE
     uint64_t cr4;
     __asm__ volatile("mov %%cr4, %0" : "=r"(cr4));
-    cr4 |= (1ULL << 7); /* CR4.PGE */
+    cr4 |= (1ULL << 7); // CR4.PGE
     __asm__ volatile("mov %0, %%cr4" : : "r"(cr4) : "memory");
 }
 
@@ -1147,8 +1155,10 @@ void page_init(void)
     page_table_t *kernel_page_table = phys_to_virt(get_cr3());
     kernel_page_dir                 = (page_directory_t) {.table = kernel_page_table};
     current_directory               = &kernel_page_dir;
-    /* Limine built the boot mappings, so retrofit G onto every existing leaf
-     * in the shared kernel half before enabling PGE. */
+    /*
+     * Limine built the boot mappings, so retrofit G onto every existing leaf
+     * in the shared kernel half before enabling PGE.
+     */
     for (size_t i = 256; i < 512; i++) {
         uint64_t entry = kernel_page_table->entries[i].value;
         if (!(entry & PTE_PRESENT)) continue;
@@ -1159,7 +1169,7 @@ void page_init(void)
     }
     uint64_t cr0;
     __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
-    cr0 |= (1ULL << 16); /* CR0.WP, see direct uaccess fault handling above. */
+    cr0 |= (1ULL << 16); // CR0.WP, see direct uaccess fault handling above.
     __asm__ volatile("mov %0, %%cr0" : : "r"(cr0) : "memory");
     page_enable_global_tlb();
     cpu_enable_nx();

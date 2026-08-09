@@ -76,4 +76,4 @@ void uhci_shutdown(void);
 void ohci_shutdown(void);
 void ehci_shutdown(void);
 
-#endif /* INCLUDE_USB_HOST_H_ */
+#endif // INCLUDE_USB_HOST_H_

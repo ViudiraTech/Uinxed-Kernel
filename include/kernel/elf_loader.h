@@ -44,4 +44,4 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
 int elf_loader_load_process_internal(struct process *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[],
                                      uintptr_t *entry_out, uintptr_t *rsp_out, bool acquire_console);
 
-#endif /* INCLUDE_ELF_LOADER_H_ */
+#endif // INCLUDE_ELF_LOADER_H_

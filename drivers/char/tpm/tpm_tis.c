@@ -13,10 +13,12 @@
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 
-/* ======================================================================
- *  TIS MMIO register access helpers
- *  Uses direct volatile access (matching project MMIO patterns)
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TIS MMIO register access helpers
+ * Uses direct volatile access (matching project MMIO patterns)
+ * ======================================================================
+ */
 
 static inline void *tis_reg_addr(tpm_device_t *dev, uint32_t offset)
 {
@@ -43,16 +45,20 @@ static inline void tis_write32(tpm_device_t *dev, uint32_t offset, uint32_t valu
     *(volatile uint32_t *)tis_reg_addr(dev, offset) = value;
 }
 
-/* ======================================================================
- *  TIS status and helper functions
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TIS status and helper functions
+ * ======================================================================
+ */
 
 static uint8_t tpm_tis_status(tpm_device_t *dev)
 {
     uint8_t sts = tis_read8(dev, TIS_REG_STS(dev->locality));
 
-    /* Bits 0,1,5 must be zero on valid read; non-zero usually
-     * means locality was never properly acquired. */
+    /*
+     * Bits 0,1,5 must be zero on valid read; non-zero usually
+     * means locality was never properly acquired.
+     */
     if (sts & TPM_STS_READ_ZERO) return 0;
     return sts;
 }
@@ -83,9 +89,11 @@ static int wait_for_stat(tpm_device_t *dev, uint8_t mask, uint32_t timeout_ms)
     return tpm_poll_timeout(check_status, &ctx, timeout_ms) ? 0 : -1;
 }
 
-/* ======================================================================
- *  TIS locality management
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TIS locality management
+ * ======================================================================
+ */
 
 static int check_locality(tpm_device_t *dev, int l)
 {
@@ -153,9 +161,11 @@ static void tis_cancel(tpm_device_t *dev)
     if (dev->locality >= 0) tpm_tis_ready(dev);
 }
 
-/* ======================================================================
- *  TIS Burst Count
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TIS Burst Count
+ * ======================================================================
+ */
 
 static int get_burstcount(tpm_device_t *dev)
 {
@@ -172,9 +182,11 @@ static int get_burstcount(tpm_device_t *dev)
     }
 }
 
-/* ======================================================================
- *  TIS FIFO send
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TIS FIFO send
+ * ======================================================================
+ */
 
 static int tis_send(tpm_device_t *dev, uint8_t *buf, size_t len)
 {
@@ -223,7 +235,7 @@ static int tis_send(tpm_device_t *dev, uint8_t *buf, size_t len)
             if (!itpm) {
                 plogk("tpm_tis: DATA_EXPECT missing (sts=0x%02x), retrying.\n", sts);
                 tpm_tis_ready(dev);
-                return -1; /* Non-iTPM: treat as hard error, upper layer retries */
+                return -1; // Non-iTPM: treat as hard error, upper layer retries
             }
             /* iTPM: tolerate missing DATA_EXPECT */
         }
@@ -248,9 +260,11 @@ static int tis_send(tpm_device_t *dev, uint8_t *buf, size_t len)
     return 0;
 }
 
-/* ======================================================================
- *  TIS FIFO recv
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TIS FIFO recv
+ * ======================================================================
+ */
 
 static int tis_recv_data(tpm_device_t *dev, uint8_t *buf, size_t count)
 {
@@ -312,9 +326,11 @@ static int tis_recv(tpm_device_t *dev, uint8_t *buf, size_t maxlen)
     return size;
 }
 
-/* ======================================================================
- *  TIS initialization
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TIS initialization
+ * ======================================================================
+ */
 
 static int tis_wait_startup(tpm_device_t *dev)
 {

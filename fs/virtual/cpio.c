@@ -291,11 +291,13 @@ void init_cpio(void)
         }
         if (!strcmp(path, "/.")) continue;
 
-        /* devtmpfs is mounted before the initramfs is unpacked and owns the
+        /*
+         * devtmpfs is mounted before the initramfs is unpacked and owns the
          * complete /dev namespace.  Alpine's minirootfs contains a regular
          * zero-length /dev/null placeholder; attempting to replace the live
          * character device with that file makes tmpfs_adopt_file_data()
-         * reject the device handle with -EINVAL. */
+         * reject the device handle with -EINVAL.
+         */
         if (!strcmp(path, "/dev") || !strncmp(path, "/dev/", 5)) continue;
 
         int status = cpio_install_entry(path, mode, uid, gid, mtime, filedata, filesize, !allocated);

@@ -43,9 +43,11 @@ static volatile uint32_t  smp_tsc_aux_ready;
 spinlock_t                ap_start_lock = {0};
 static spinlock_t         tlb_shootdown_lock;
 
-/* CR3 reloads preserve global translations under CR4.PGE.  Explicit
+/*
+ * CR3 reloads preserve global translations under CR4.PGE.  Explicit
  * flush_tlb_all() requests are stronger: toggling PGE invalidates both
- * global and non-global entries on this logical CPU. */
+ * global and non-global entries on this logical CPU.
+ */
 static inline void flush_local_tlb_all(void)
 {
     uint64_t cr4;
@@ -89,7 +91,8 @@ INTERRUPT_BEGIN static void ipi_halt_handler(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
-    /* CPU halt handling:
+    /*
+     * CPU halt handling:
      * - Stop LAPIC timer
      * - Acknowledge halt request
      * - Enter low-power state (HLT loop)
@@ -105,7 +108,8 @@ INTERRUPT_BEGIN static void ipi_tlb_shootdown_handler(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
-    /* TLB shootdown:
+    /*
+     * TLB shootdown:
      * - Flush entire TLB by reloading CR3
      * - Acknowledge completion to requesting CPU
      */
@@ -123,7 +127,8 @@ INTERRUPT_BEGIN static void ipi_panic_handler(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
-    /* Multi-CPU panic handling:
+    /*
+     * Multi-CPU panic handling:
      * - Stop all execution on this CPU
      * - Enter infinite HLT loop
      */
@@ -181,10 +186,12 @@ uint32_t get_cpu_count(void)
 /* Get the ID of the current CPU */
 uint32_t get_current_cpu_id(void)
 {
-    /* LAPIC ID reads are MMIO in xAPIC mode and particularly expensive under
+    /*
+     * LAPIC ID reads are MMIO in xAPIC mode and particularly expensive under
      * emulation.  IA32_TSC_AUX is core-local and RDTSCP returns it directly,
      * making current_task()/process_current() cheap enough for syscall hot
-     * paths.  Keep the LAPIC lookup as the early-boot/unsupported fallback. */
+     * paths.  Keep the LAPIC lookup as the early-boot/unsupported fallback.
+     */
     if (__atomic_load_n(&smp_tsc_aux_ready, __ATOMIC_ACQUIRE)) {
         uint32_t cpu_id;
         (void)rdtscp(&cpu_id);
@@ -272,7 +279,7 @@ void ap_entry(struct limine_smp_info *info)
     cast.val             = info->extra_argument;
     cpu_processor_t *cpu = (cpu_processor_t *)cast.ptr;
 
-    if (cpu_support_rdtscp()) wrmsr(0xC0000103, cpu->id); /* IA32_TSC_AUX */
+    if (cpu_support_rdtscp()) wrmsr(0xC0000103, cpu->id); // IA32_TSC_AUX
 
     /* Initializing the GDT */
     ap_init_gdt(cpu);
@@ -292,7 +299,8 @@ void ap_entry(struct limine_smp_info *info)
 
     sched_ap_online(cpu->id);
 
-    /* AP scheduler loop:
+    /*
+     * AP scheduler loop:
      * - Enable interrupts for timer and reschedule IPI handling
      * - Enter idle loop with HLT instruction
      * - CPU will wake up on interrupts (timer, IPI, etc.)
@@ -338,7 +346,7 @@ void smp_init(void)
             pointer_cast_t cast;
             cast.ptr = cpus[i].kernel_stack;
             set_kernel_stack(ALIGN_DOWN((uint64_t)cast.val + sizeof(kernel_stack_t), 16ULL));
-            if (cpu_support_rdtscp()) wrmsr(0xC0000103, cpus[i].id); /* IA32_TSC_AUX */
+            if (cpu_support_rdtscp()) wrmsr(0xC0000103, cpus[i].id); // IA32_TSC_AUX
             continue;
         }
         cpus[i].gdt = (gdt_t *)aligned_alloc(16, ALIGN_UP(sizeof(gdt_t), 16));

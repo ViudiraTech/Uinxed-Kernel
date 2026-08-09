@@ -72,4 +72,4 @@ int      usb_hid_decode_report(usb_hid_report_t *report, const uint8_t *data, si
 uint16_t usb_hid_keyboard_keycode(uint16_t usage);
 uint16_t hid_consumer_keycode(uint16_t usage);
 
-#endif /* INCLUDE_USB_HID_H_ */
+#endif // INCLUDE_USB_HID_H_

@@ -38,4 +38,4 @@ struct drm_color_lut_range {
         __u32 end;
 };
 
-#endif /* INCLUDE_DRM_DRM_COLOR_MGMT_H_ */
+#endif // INCLUDE_DRM_DRM_COLOR_MGMT_H_

@@ -124,14 +124,16 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
     dev->driver                 = driver;
     dev->num_crtc               = 0;
     dev->vblank_disable_allowed = true;
-    dev->refcount               = 1; /* caller's reference */
+    dev->refcount               = 1; // caller's reference
 
     /* All spinlocks are zero-initialized by memset above (unlocked state). */
 
     ilist_init(&dev->filelist);
 
-    /* KMS objects attach the standard atomic properties during their
-     * initialisation.  Create those properties before any driver KMS setup. */
+    /*
+     * KMS objects attach the standard atomic properties during their
+     * initialisation.  Create those properties before any driver KMS setup.
+     */
     ret = drm_mode_config_init(dev);
     if (ret) {
         DRM_ERROR("Failed to initialise KMS mode configuration: %d\n", ret);
@@ -253,7 +255,7 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
         if (ret) {
             DRM_ERROR("Failed to register %s: %d\n", path, ret);
         } else {
-            dev->dev_node_card0 = (void *)(uintptr_t)1; /* marker */
+            dev->dev_node_card0 = (void *)(uintptr_t)1; // marker
         }
     }
 
@@ -279,7 +281,7 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
         if (ret) {
             DRM_ERROR("Failed to register %s: %d\n", path, ret);
         } else {
-            dev->dev_node_renderD_unused = (void *)(uintptr_t)1; /* marker */
+            dev->dev_node_renderD_unused = (void *)(uintptr_t)1; // marker
         }
     }
 
@@ -378,9 +380,11 @@ int drm_open(struct drm_device *dev, struct drm_file *file)
 
     if (!dev || !file) { return -EINVAL; }
 
-    /* Acquire a reference to the device for the lifetime of this
+    /*
+     * Acquire a reference to the device for the lifetime of this
      * open file. This prevents the device from being freed while
-     * the file is still open. */
+     * the file is still open.
+     */
     if (!drm_dev_get(dev)) return -ENODEV;
 
     /* Zero-initialize the pre-allocated file struct. */
@@ -442,8 +446,10 @@ void drm_release(struct drm_file *file)
 
     dev = (struct drm_device *)file->minor_unused;
 
-    /* Block new nonblocking commits before framebuffer/GEM teardown and wait
-     * for workers which may still hold raw atomic-state pointers. */
+    /*
+     * Block new nonblocking commits before framebuffer/GEM teardown and wait
+     * for workers which may still hold raw atomic-state pointers.
+     */
     spin_lock(&file->event_lock);
     file->event_closing = true;
     spin_unlock(&file->event_lock);
@@ -480,8 +486,10 @@ void drm_release(struct drm_file *file)
         }
     }
 
-    /* Drop the owning reference for every property blob created by this
-     * file. Atomic states may still hold independent lookup references. */
+    /*
+     * Drop the owning reference for every property blob created by this
+     * file. Atomic states may still hold independent lookup references.
+     */
     while (file->blobs_head.next && file->blobs_head.next != &file->blobs_head) {
         struct drm_property_blob *blob = container_of(file->blobs_head.next, struct drm_property_blob, head_file);
         spin_lock(&file->table_lock);

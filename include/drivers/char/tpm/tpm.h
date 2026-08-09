@@ -15,30 +15,36 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
-/* ======================================================================
- *  TPM hardware addresses and sizes
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TPM hardware addresses and sizes
+ * ======================================================================
+ */
 
 #define TPM_LEGACY_BASE_PHYS 0xFED40000
 #define TPM_BUFSIZE          4096
 #define TPM_HEADER_SIZE      10
 #define TPM_RETRY            50
 
-/* ======================================================================
- *  TPM ACPI start method types
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TPM ACPI start method types
+ * ======================================================================
+ */
 
 #define ACPI_TPM2_START_METHOD                     2
-#define ACPI_TPM2_COMMAND_BUFFER                   6 /* TIS/FIFO */
-#define ACPI_TPM2_COMMAND_BUFFER_WITH_START_METHOD 7 /* CRB with ACPI Start */
-#define ACPI_TPM2_MEMORY_MAPPED                    8 /* CRB MMIO */
+#define ACPI_TPM2_COMMAND_BUFFER                   6 // TIS/FIFO
+#define ACPI_TPM2_COMMAND_BUFFER_WITH_START_METHOD 7 // CRB with ACPI Start
+#define ACPI_TPM2_MEMORY_MAPPED                    8 // CRB MMIO
 #define ACPI_TPM2_COMMAND_BUFFER_WITH_ARM_SMC      11
 #define ACPI_TPM2_COMMAND_BUFFER_WITH_PLUTON       12
 #define ACPI_TPM2_CRB_WITH_ARM_FFA                 13
 
-/* ======================================================================
- *  TPM version and interface type
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TPM version and interface type
+ * ======================================================================
+ */
 
 typedef enum {
     TPM_VERSION_NONE = 0,
@@ -52,17 +58,21 @@ typedef enum {
     TPM_IFACE_CRB  = 2,
 } tpm_interface_t;
 
-/* ======================================================================
- *  TPM flags
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TPM flags
+ * ======================================================================
+ */
 
 #define TPM_FLAG_TPM2 (1 << 0)
 #define TPM_FLAG_TIS  (1 << 1)
 #define TPM_FLAG_CRB  (1 << 2)
 
-/* ======================================================================
- *  TPM vendor IDs (DID_VID register: DID << 16 | VID)
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TPM vendor IDs (DID_VID register: DID << 16 | VID)
+ * ======================================================================
+ */
 
 #define TPM_VID_ATML    0x1114
 #define TPM_VID_INTEL   0x8086
@@ -70,9 +80,11 @@ typedef enum {
 #define TPM_VID_WINBOND 0x1050
 #define TPM_VID_IFX     0x15D1
 
-/* ======================================================================
- *  TPM error/warning codes
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TPM error/warning codes
+ * ======================================================================
+ */
 
 #define TPM_WARN_RETRY          0x800
 #define TPM_WARN_DOING_SELFTEST 0x802
@@ -80,9 +92,11 @@ typedef enum {
 #define TPM_ERR_DISABLED        0x7
 #define TPM_ERR_FAILEDSELFTEST  0x1C
 
-/* ======================================================================
- *  TIS register offsets (locality is shifted left by 12)
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TIS register offsets (locality is shifted left by 12)
+ * ======================================================================
+ */
 
 #define TIS_REG_ACCESS(l)     (0x0000 | ((l) << 12))
 #define TIS_REG_INT_ENABLE(l) (0x0008 | ((l) << 12))
@@ -105,7 +119,7 @@ typedef enum {
 #define TPM_STS_DATA_EXPECT    0x08
 #define TPM_STS_SELFTEST_DONE  0x04
 #define TPM_STS_RESPONSE_RETRY 0x02
-#define TPM_STS_READ_ZERO      0x23 /* bits must be zero on valid read */
+#define TPM_STS_READ_ZERO      0x23 // bits must be zero on valid read
 
 /* TIS access register bits */
 #define TPM_ACCESS_VALID           0x80
@@ -133,9 +147,11 @@ typedef enum {
 #define TPM_TIMEOUT_C     750
 #define TPM_TIMEOUT_D     750
 
-/* ======================================================================
- *  CRB register offsets
- * ====================================================================== */
+/*
+ * ======================================================================
+ * CRB register offsets
+ * ======================================================================
+ */
 
 #define CRB_LOC_STATE_OFFSET   0x000
 #define CRB_LOC_CTRL_OFFSET    0x008
@@ -164,17 +180,21 @@ typedef enum {
 #define CRB_CANCEL_INVOKE           (1 << 0)
 #define CRB_DRV_STS_COMPLETE        (1 << 0)
 
-/* ======================================================================
- *  TPM command tags
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TPM command tags
+ * ======================================================================
+ */
 
 #define TPM_TAG_RQU_COMMAND 0x00C1
 #define TPM2_ST_NO_SESSIONS 0x8001
 #define TPM2_ST_SESSIONS    0x8002
 
-/* ======================================================================
- *  TPM 1.2 command ordinals
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TPM 1.2 command ordinals
+ * ======================================================================
+ */
 
 #define TPM_ORD_GET_CAPABILITY    0x00000065
 #define TPM_ORD_GET_RANDOM        0x00000046
@@ -185,9 +205,11 @@ typedef enum {
 #define TPM_ORD_GET_TICKS         0x000000F1
 #define TPM_ORD_STARTUP           0x00000099
 
-/* ======================================================================
- *  TPM 2.0 command codes
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TPM 2.0 command codes
+ * ======================================================================
+ */
 
 #define TPM2_CC_STARTUP         0x00000144
 #define TPM2_CC_SELF_TEST       0x00000143
@@ -202,9 +224,11 @@ typedef enum {
 #define TPM2_SU_CLEAR 0x0000
 #define TPM2_SU_STATE 0x0001
 
-/* ======================================================================
- *  TPM 2.0 property IDs (for GetCapability)
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TPM 2.0 property IDs (for GetCapability)
+ * ======================================================================
+ */
 
 #define TPM2_PT_FAMILY_INDICATOR   0x00000100
 #define TPM2_PT_LEVEL              0x00000101
@@ -224,9 +248,11 @@ typedef enum {
 /* TPM 2.0 capability types */
 #define TPM2_CAP_TPM_PROPERTIES 0x00000006
 
-/* ======================================================================
- *  TPM 2.0 ACPI table structure
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TPM 2.0 ACPI table structure
+ * ======================================================================
+ */
 
 typedef struct {
         acpi_sdt_header_t header;
@@ -243,9 +269,11 @@ typedef struct {
         uint64_t          log_area_start_address;
 } __attribute__((packed)) tcpa_table_t;
 
-/* ======================================================================
- *  TPM device structure
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TPM device structure
+ * ======================================================================
+ */
 
 typedef struct tpm_device tpm_device_t;
 
@@ -258,17 +286,17 @@ typedef void (*tpm_cancel_fn)(tpm_device_t *dev);
 typedef int (*tpm_ready_fn)(tpm_device_t *dev);
 
 struct tpm_device {
-        tpm_version_t   version;   /* TPM version (1.2 or 2.0) */
-        tpm_interface_t iface;     /* Interface type (TIS or CRB) */
-        void           *mmio_base; /* MMIO base virtual address */
-        int             locality;  /* Current locality (0-4) */
-        uint32_t        timeout_a; /* Timeout A in ms */
-        uint32_t        timeout_b; /* Timeout B in ms */
-        uint32_t        timeout_c; /* Timeout C in ms */
-        uint32_t        timeout_d; /* Timeout D in ms */
-        uint32_t        did_vid;   /* Device ID << 16 | Vendor ID */
-        uint8_t         rid;       /* Revision ID */
-        uint32_t        flags;     /* TPM_FLAG_* */
+        tpm_version_t   version;   // TPM version (1.2 or 2.0)
+        tpm_interface_t iface;     // Interface type (TIS or CRB)
+        void           *mmio_base; // MMIO base virtual address
+        int             locality;  // Current locality (0-4)
+        uint32_t        timeout_a; // Timeout A in ms
+        uint32_t        timeout_b; // Timeout B in ms
+        uint32_t        timeout_c; // Timeout C in ms
+        uint32_t        timeout_d; // Timeout D in ms
+        uint32_t        did_vid;   // Device ID << 16 | Vendor ID
+        uint8_t         rid;       // Revision ID
+        uint32_t        flags;     // TPM_FLAG_*
 
         /* Interface operations */
         tpm_status_fn              status;
@@ -280,30 +308,36 @@ struct tpm_device {
         tpm_ready_fn               ready;
 
         /* CRB-specific */
-        void    *crb_cmd_buf;  /* CRB command buffer */
-        void    *crb_rsp_buf;  /* CRB response buffer */
-        uint32_t crb_cmd_size; /* CRB command buffer size */
-        uint32_t crb_sm;       /* CRB start method */
+        void    *crb_cmd_buf;  // CRB command buffer
+        void    *crb_rsp_buf;  // CRB response buffer
+        uint32_t crb_cmd_size; // CRB command buffer size
+        uint32_t crb_sm;       // CRB start method
 };
 
-/* ======================================================================
- *  TPM public API
- * ====================================================================== */
+/*
+ * ======================================================================
+ * TPM public API
+ * ======================================================================
+ */
 
 /* Initialize TPM subsystem (auto-detection, interface init, startup) */
 int tpm_init(void);
 
-/* Register the TPM character devices (/dev/tpm0, /dev/tpmrm0).  The sysfs
+/*
+ * Register the TPM character devices (/dev/tpm0, /dev/tpmrm0).  The sysfs
  * side (/sys/class/tpm, /sys/class/tpmrm) lives in fs/sysfs/tpm_sysfs.c.
- * Must be called after devtmpfs is ready. */
+ * Must be called after devtmpfs is ready.
+ */
 void tpm_vfs_init(void);
 
 /* Get the global TPM device (NULL if none found) */
 tpm_device_t *tpm_get_device(void);
 
-/* Transmit a command buffer and receive response in-place.
+/*
+ * Transmit a command buffer and receive response in-place.
  * On input, buf contains the command; on output it contains the response.
- * Returns response length on success, negative on error. */
+ * Returns response length on success, negative on error.
+ */
 int tpm_transmit(tpm_device_t *dev, uint8_t *buf, size_t bufsiz, size_t len);
 
 /* High-level TPM 2.0 commands */
@@ -314,16 +348,20 @@ int tpm2_get_property(tpm_device_t *dev, uint32_t property, uint32_t *value);
 /* Get random bytes from TPM. Returns number of bytes read, negative on error. */
 int tpm_get_random(tpm_device_t *dev, uint8_t *out, size_t max);
 
-/* Read a PCR value. digest must be at least 32 bytes for SHA-256.
- * Returns digest size on success, negative on error. */
+/*
+ * Read a PCR value. digest must be at least 32 bytes for SHA-256.
+ * Returns digest size on success, negative on error.
+ */
 int tpm2_pcr_read(tpm_device_t *dev, uint32_t pcr_idx, uint8_t *digest);
 
 /* TPM 1.2 - get random bytes */
 int tpm1_get_random(tpm_device_t *dev, uint8_t *out, size_t max);
 
-/* ======================================================================
- *  Internal helper utilities shared between TIS/CRB modules
- * ====================================================================== */
+/*
+ * ======================================================================
+ * Internal helper utilities shared between TIS/CRB modules
+ * ======================================================================
+ */
 
 /* Busy-wait delay in microseconds (crude, for TPM init timeouts) */
 void tpm_udelay(uint32_t us);
@@ -337,4 +375,4 @@ int tpm_tis_init(tpm_device_t *dev);
 /* CRB module APIs (called from tpm.c) */
 int tpm_crb_init(tpm_device_t *dev);
 
-#endif /* INCLUDE_TPM_H_ */
+#endif // INCLUDE_TPM_H_

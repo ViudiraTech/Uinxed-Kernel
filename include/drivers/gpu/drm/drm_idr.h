@@ -62,4 +62,4 @@ void *drm_idr_replace(struct drm_idr *idr, void *ptr, uint32_t id);
 /* Iterate every entry: fn returns 0 to continue, non-zero to stop. */
 int drm_idr_for_each(struct drm_idr *idr, int (*fn)(uint32_t id, void *ptr, void *data), void *data);
 
-#endif /* INCLUDE_DRM_DRM_IDR_H_ */
+#endif // INCLUDE_DRM_DRM_IDR_H_

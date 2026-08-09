@@ -38,8 +38,10 @@ extern int drm_class_registered;
 void drm_vfs_open_cb(void *parent, const char *name, void *node);
 void drm_vfs_close_cb(void *current);
 
-/* Per-open callbacks used by tmpfs/devtmpfs. DRM state is attached to each
- * file descriptor, never to the shared directory node. */
+/*
+ * Per-open callbacks used by tmpfs/devtmpfs. DRM state is attached to each
+ * file descriptor, never to the shared directory node.
+ */
 int     drm_dev_open(void *node, uint64_t flags, void **private_data);
 void    drm_dev_release(void *node, void *private_data);
 int     drm_dev_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg);
@@ -55,4 +57,4 @@ int    drm_dev_ioctl(void *file, size_t req, void *arg);
 int    drm_dev_poll(void *file, size_t events);
 void  *drm_dev_mmap(void *file, size_t offset, size_t size, int flags);
 
-#endif /* INCLUDE_DRM_DRM_INIT_H_ */
+#endif // INCLUDE_DRM_DRM_INIT_H_

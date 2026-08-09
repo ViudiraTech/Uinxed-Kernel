@@ -56,4 +56,4 @@ void timerfd_init(void);
 /* Account armed timerfds from the scheduler's global tick. */
 void timerfd_tick(void);
 
-#endif /* INCLUDE_TIMERFD_H_ */
+#endif // INCLUDE_TIMERFD_H_

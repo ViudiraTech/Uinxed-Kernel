@@ -30,4 +30,4 @@ size_t evdev_queue_read(evdev_queue_t *queue, input_event_t *events, size_t max_
 void   evdev_queue_flush_type(evdev_queue_t *queue, unsigned int type);
 void   evdev_queue_discard_pending(evdev_queue_t *queue, const input_event_t *syn_dropped);
 
-#endif /* INCLUDE_EVDEV_QUEUE_H_ */
+#endif // INCLUDE_EVDEV_QUEUE_H_

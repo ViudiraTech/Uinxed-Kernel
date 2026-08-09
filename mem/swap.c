@@ -598,4 +598,4 @@ int swap_format_proc_swaps(char *buf, size_t cap)
     return (int)off;
 }
 
-#endif /* !SWAP_TEST_ONLY */
+#endif // !SWAP_TEST_ONLY

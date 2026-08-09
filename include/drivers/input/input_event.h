@@ -17,8 +17,8 @@
  *	Event structure
  */
 typedef struct {
-        uint64_t sec;  /* seconds */
-        uint64_t usec; /* microseconds */
+        uint64_t sec;  // seconds
+        uint64_t usec; // microseconds
         uint16_t type;
         uint16_t code;
         int32_t  value;
@@ -181,11 +181,11 @@ typedef struct {
 #define KEY_MUTE             113
 #define KEY_VOLUMEDOWN       114
 #define KEY_VOLUMEUP         115
-#define KEY_POWER            116 /* SC System Power Down */
+#define KEY_POWER            116 // SC System Power Down
 #define KEY_KPEQUAL          117
 #define KEY_KPPLUSMINUS      118
 #define KEY_PAUSE            119
-#define KEY_SCALE            120 /* AL Compiz Scale (Expose) */
+#define KEY_SCALE            120 // AL Compiz Scale (Expose)
 
 #define KEY_KPCOMMA   121
 #define KEY_HANGEUL   122
@@ -196,40 +196,40 @@ typedef struct {
 #define KEY_RIGHTMETA 126
 #define KEY_COMPOSE   127
 
-#define KEY_STOP           128 /* AC Stop */
+#define KEY_STOP           128 // AC Stop
 #define KEY_AGAIN          129
-#define KEY_PROPS          130 /* AC Properties */
-#define KEY_UNDO           131 /* AC Undo */
+#define KEY_PROPS          130 // AC Properties
+#define KEY_UNDO           131 // AC Undo
 #define KEY_FRONT          132
-#define KEY_COPY           133 /* AC Copy */
-#define KEY_OPEN           134 /* AC Open */
-#define KEY_PASTE          135 /* AC Paste */
-#define KEY_FIND           136 /* AC Search */
-#define KEY_CUT            137 /* AC Cut */
-#define KEY_HELP           138 /* AL Integrated Help Center */
-#define KEY_MENU           139 /* Menu (show menu) */
-#define KEY_CALC           140 /* AL Calculator */
+#define KEY_COPY           133 // AC Copy
+#define KEY_OPEN           134 // AC Open
+#define KEY_PASTE          135 // AC Paste
+#define KEY_FIND           136 // AC Search
+#define KEY_CUT            137 // AC Cut
+#define KEY_HELP           138 // AL Integrated Help Center
+#define KEY_MENU           139 // Menu (show menu)
+#define KEY_CALC           140 // AL Calculator
 #define KEY_SETUP          141
-#define KEY_SLEEP          142 /* SC System Sleep */
-#define KEY_WAKEUP         143 /* System Wake Up */
-#define KEY_FILE           144 /* AL Local Machine Browser */
+#define KEY_SLEEP          142 // SC System Sleep
+#define KEY_WAKEUP         143 // System Wake Up
+#define KEY_FILE           144 // AL Local Machine Browser
 #define KEY_SENDFILE       145
 #define KEY_DELETEFILE     146
 #define KEY_XFER           147
 #define KEY_PROG1          148
 #define KEY_PROG2          149
-#define KEY_WWW            150 /* AL Internet Browser */
+#define KEY_WWW            150 // AL Internet Browser
 #define KEY_MSDOS          151
-#define KEY_COFFEE         152 /* AL Terminal Lock/Screensaver */
+#define KEY_COFFEE         152 // AL Terminal Lock/Screensaver
 #define KEY_SCREENLOCK     KEY_COFFEE
-#define KEY_ROTATE_DISPLAY 153 /* Display orientation for e.g. tablets */
+#define KEY_ROTATE_DISPLAY 153 // Display orientation for e.g. tablets
 #define KEY_DIRECTION      KEY_ROTATE_DISPLAY
 #define KEY_CYCLEWINDOWS   154
 #define KEY_MAIL           155
-#define KEY_BOOKMARKS      156 /* AC Bookmarks */
+#define KEY_BOOKMARKS      156 // AC Bookmarks
 #define KEY_COMPUTER       157
-#define KEY_BACK           158 /* AC Back */
-#define KEY_FORWARD        159 /* AC Forward */
+#define KEY_BACK           158 // AC Back
+#define KEY_FORWARD        159 // AC Forward
 #define KEY_CLOSECD        160
 #define KEY_EJECTCD        161
 #define KEY_EJECTCLOSECD   162
@@ -239,20 +239,20 @@ typedef struct {
 #define KEY_STOPCD         166
 #define KEY_RECORD         167
 #define KEY_REWIND         168
-#define KEY_PHONE          169 /* Media Select Telephone */
+#define KEY_PHONE          169 // Media Select Telephone
 #define KEY_ISO            170
-#define KEY_CONFIG         171 /* AL Consumer Control Configuration */
-#define KEY_HOMEPAGE       172 /* AC Home */
-#define KEY_REFRESH        173 /* AC Refresh */
-#define KEY_EXIT           174 /* AC Exit */
+#define KEY_CONFIG         171 // AL Consumer Control Configuration
+#define KEY_HOMEPAGE       172 // AC Home
+#define KEY_REFRESH        173 // AC Refresh
+#define KEY_EXIT           174 // AC Exit
 #define KEY_MOVE           175
 #define KEY_EDIT           176
 #define KEY_SCROLLUP       177
 #define KEY_SCROLLDOWN     178
 #define KEY_KPLEFTPAREN    179
 #define KEY_KPRIGHTPAREN   180
-#define KEY_NEW            181 /* AC New */
-#define KEY_REDO           182 /* AC Redo/Repeat */
+#define KEY_NEW            181 // AC New
+#define KEY_REDO           182 // AC Redo/Repeat
 
 #define KEY_F13 183
 #define KEY_F14 184
@@ -271,13 +271,13 @@ typedef struct {
 #define KEY_PAUSECD        201
 #define KEY_PROG3          202
 #define KEY_PROG4          203
-#define KEY_DASHBOARD      204 /* AL Dashboard */
+#define KEY_DASHBOARD      204 // AL Dashboard
 #define KEY_SUSPEND        205
-#define KEY_CLOSE          206 /* AC Close */
+#define KEY_CLOSE          206 // AC Close
 #define KEY_PLAY           207
 #define KEY_FASTFORWARD    208
 #define KEY_BASSBOOST      209
-#define KEY_PRINT          210 /* AC Print */
+#define KEY_PRINT          210 // AC Print
 #define KEY_HP             211
 #define KEY_CAMERA         212
 #define KEY_SOUND          213
@@ -286,24 +286,24 @@ typedef struct {
 #define KEY_CHAT           216
 #define KEY_SEARCH         217
 #define KEY_CONNECT        218
-#define KEY_FINANCE        219 /* AL Checkbook/Finance */
+#define KEY_FINANCE        219 // AL Checkbook/Finance
 #define KEY_SPORT          220
 #define KEY_SHOP           221
 #define KEY_ALTERASE       222
-#define KEY_CANCEL         223 /* AC Cancel */
+#define KEY_CANCEL         223 // AC Cancel
 #define KEY_BRIGHTNESSDOWN 224
 #define KEY_BRIGHTNESSUP   225
 #define KEY_MEDIA          226
 
-#define KEY_SWITCHVIDEOMODE 227 /* Cycle between available video outputs (Monitor/LCD/TV-out/etc) */
+#define KEY_SWITCHVIDEOMODE 227 // Cycle between available video outputs (Monitor/LCD/TV-out/etc)
 #define KEY_KBDILLUMTOGGLE  228
 #define KEY_KBDILLUMDOWN    229
 #define KEY_KBDILLUMUP      230
 
-#define KEY_SEND        231 /* AC Send */
-#define KEY_REPLY       232 /* AC Reply */
-#define KEY_FORWARDMAIL 233 /* AC Forward Msg */
-#define KEY_SAVE        234 /* AC Save */
+#define KEY_SEND        231 // AC Send
+#define KEY_REPLY       232 // AC Reply
+#define KEY_FORWARDMAIL 233 // AC Forward Msg
+#define KEY_SAVE        234 // AC Save
 #define KEY_DOCUMENTS   235
 
 #define KEY_BATTERY 236
@@ -314,18 +314,18 @@ typedef struct {
 
 #define KEY_UNKNOWN 240
 
-#define KEY_VIDEO_NEXT       241 /* drive next video source */
-#define KEY_VIDEO_PREV       242 /* drive previous video source */
-#define KEY_BRIGHTNESS_CYCLE 243 /* brightness up, after max is min */
-#define KEY_BRIGHTNESS_AUTO  244 /* Set Auto Brightness: manual brightness control is off, relies on ambient */
+#define KEY_VIDEO_NEXT       241 // drive next video source
+#define KEY_VIDEO_PREV       242 // drive previous video source
+#define KEY_BRIGHTNESS_CYCLE 243 // brightness up, after max is min
+#define KEY_BRIGHTNESS_AUTO  244 // Set Auto Brightness: manual brightness control is off, relies on ambient
 #define KEY_BRIGHTNESS_ZERO  KEY_BRIGHTNESS_AUTO
-#define KEY_DISPLAY_OFF      245 /* display device to off state */
+#define KEY_DISPLAY_OFF      245 // display device to off state
 
-#define KEY_WWAN   246 /* Wireless WAN (LTE, UMTS, GSM, etc.) */
+#define KEY_WWAN   246 // Wireless WAN (LTE, UMTS, GSM, etc.)
 #define KEY_WIMAX  KEY_WWAN
-#define KEY_RFKILL 247 /* Key that controls all radios */
+#define KEY_RFKILL 247 // Key that controls all radios
 
-#define KEY_MICMUTE 248 /* Mute / unmute the microphone */
+#define KEY_MICMUTE 248 // Mute / unmute the microphone
 
 /* Code 255 is reserved for special needs of AT keyboard driver */
 
@@ -396,14 +396,14 @@ typedef struct {
 #define BTN_TOOL_FINGER    0x145
 #define BTN_TOOL_MOUSE     0x146
 #define BTN_TOOL_LENS      0x147
-#define BTN_TOOL_QUINTTAP  0x148 /* Five fingers on trackpad */
+#define BTN_TOOL_QUINTTAP  0x148 // Five fingers on trackpad
 #define BTN_STYLUS3        0x149
 #define BTN_TOUCH          0x14a
 #define BTN_STYLUS         0x14b
 #define BTN_STYLUS2        0x14c
 #define BTN_TOOL_DOUBLETAP 0x14d
 #define BTN_TOOL_TRIPLETAP 0x14e
-#define BTN_TOOL_QUADTAP   0x14f /* Four fingers on trackpad */
+#define BTN_TOOL_QUADTAP   0x14f // Four fingers on trackpad
 
 #define BTN_WHEEL     0x150
 #define BTN_GEAR_DOWN 0x150
@@ -415,56 +415,56 @@ typedef struct {
 #define KEY_CLEAR             0x163
 #define KEY_POWER2            0x164
 #define KEY_OPTION            0x165
-#define KEY_INFO              0x166 /* AL OEM Features/Tips/Tutorial */
+#define KEY_INFO              0x166 // AL OEM Features/Tips/Tutorial
 #define KEY_TIME              0x167
 #define KEY_VENDOR            0x168
 #define KEY_ARCHIVE           0x169
-#define KEY_PROGRAM           0x16a /* Media Select Program Guide */
+#define KEY_PROGRAM           0x16a // Media Select Program Guide
 #define KEY_CHANNEL           0x16b
 #define KEY_FAVORITES         0x16c
 #define KEY_EPG               0x16d
-#define KEY_PVR               0x16e /* Media Select Home */
+#define KEY_PVR               0x16e // Media Select Home
 #define KEY_MHP               0x16f
 #define KEY_LANGUAGE          0x170
 #define KEY_TITLE             0x171
 #define KEY_SUBTITLE          0x172
 #define KEY_ANGLE             0x173
-#define KEY_FULL_SCREEN       0x174 /* AC View Toggle */
-#define KEY_ZOOM              0x174 /* KEY_FULL_SCREEN */
+#define KEY_FULL_SCREEN       0x174 // AC View Toggle
+#define KEY_ZOOM              0x174 // KEY_FULL_SCREEN
 #define KEY_MODE              0x175
 #define KEY_KEYBOARD          0x176
-#define KEY_ASPECT_RATIO      0x177 /* HUTRR37: Aspect ratio */
+#define KEY_ASPECT_RATIO      0x177 // HUTRR37: Aspect ratio
 #define KEY_SCREEN            KEY_ASPECT_RATIO
-#define KEY_PC                0x178 /* Media Select Computer */
-#define KEY_TV                0x179 /* Media Select TV */
-#define KEY_TV2               0x17a /* Media Select Cable */
-#define KEY_VCR               0x17b /* Media Select VCR */
-#define KEY_VCR2              0x17c /* VCR Plus */
-#define KEY_SAT               0x17d /* Media Select Satellite */
+#define KEY_PC                0x178 // Media Select Computer
+#define KEY_TV                0x179 // Media Select TV
+#define KEY_TV2               0x17a // Media Select Cable
+#define KEY_VCR               0x17b // Media Select VCR
+#define KEY_VCR2              0x17c // VCR Plus
+#define KEY_SAT               0x17d // Media Select Satellite
 #define KEY_SAT2              0x17e
-#define KEY_CD                0x17f /* Media Select CD */
-#define KEY_TAPE              0x180 /* Media Select Tape */
+#define KEY_CD                0x17f // Media Select CD
+#define KEY_TAPE              0x180 // Media Select Tape
 #define KEY_RADIO             0x181
-#define KEY_TUNER             0x182 /* Media Select Tuner */
+#define KEY_TUNER             0x182 // Media Select Tuner
 #define KEY_PLAYER            0x183
 #define KEY_TEXT              0x184
-#define KEY_DVD               0x185 /* Media Select DVD */
+#define KEY_DVD               0x185 // Media Select DVD
 #define KEY_AUX               0x186
 #define KEY_MP3               0x187
-#define KEY_AUDIO             0x188 /* AL Audio Browser */
-#define KEY_VIDEO             0x189 /* AL Movie Browser */
+#define KEY_AUDIO             0x188 // AL Audio Browser
+#define KEY_VIDEO             0x189 // AL Movie Browser
 #define KEY_DIRECTORY         0x18a
 #define KEY_LIST              0x18b
-#define KEY_MEMO              0x18c /* Media Select Messages */
+#define KEY_MEMO              0x18c // Media Select Messages
 #define KEY_CALENDAR          0x18d
 #define KEY_RED               0x18e
 #define KEY_GREEN             0x18f
 #define KEY_YELLOW            0x190
 #define KEY_BLUE              0x191
-#define KEY_CHANNELUP         0x192 /* Channel Increment */
-#define KEY_CHANNELDOWN       0x193 /* Channel Decrement */
+#define KEY_CHANNELUP         0x192 // Channel Increment
+#define KEY_CHANNELDOWN       0x193 // Channel Decrement
 #define KEY_FIRST             0x194
-#define KEY_LAST              0x195 /* Recall Last */
+#define KEY_LAST              0x195 // Recall Last
 #define KEY_AB                0x196
 #define KEY_NEXT              0x197
 #define KEY_RESTART           0x198
@@ -475,40 +475,40 @@ typedef struct {
 #define KEY_DIGITS            0x19d
 #define KEY_TEEN              0x19e
 #define KEY_TWEN              0x19f
-#define KEY_VIDEOPHONE        0x1a0 /* Media Select Video Phone */
-#define KEY_GAMES             0x1a1 /* Media Select Games */
-#define KEY_ZOOMIN            0x1a2 /* AC Zoom In */
-#define KEY_ZOOMOUT           0x1a3 /* AC Zoom Out */
-#define KEY_ZOOMRESET         0x1a4 /* AC Zoom */
-#define KEY_WORDPROCESSOR     0x1a5 /* AL Word Processor */
-#define KEY_EDITOR            0x1a6 /* AL Text Editor */
-#define KEY_SPREADSHEET       0x1a7 /* AL Spreadsheet */
-#define KEY_GRAPHICSEDITOR    0x1a8 /* AL Graphics Editor */
-#define KEY_PRESENTATION      0x1a9 /* AL Presentation App */
-#define KEY_DATABASE          0x1aa /* AL Database App */
-#define KEY_NEWS              0x1ab /* AL Newsreader */
-#define KEY_VOICEMAIL         0x1ac /* AL Voicemail */
-#define KEY_ADDRESSBOOK       0x1ad /* AL Contacts/Address Book */
-#define KEY_MESSENGER         0x1ae /* AL Instant Messaging */
-#define KEY_DISPLAYTOGGLE     0x1af /* Turn display (LCD) on and off */
+#define KEY_VIDEOPHONE        0x1a0 // Media Select Video Phone
+#define KEY_GAMES             0x1a1 // Media Select Games
+#define KEY_ZOOMIN            0x1a2 // AC Zoom In
+#define KEY_ZOOMOUT           0x1a3 // AC Zoom Out
+#define KEY_ZOOMRESET         0x1a4 // AC Zoom
+#define KEY_WORDPROCESSOR     0x1a5 // AL Word Processor
+#define KEY_EDITOR            0x1a6 // AL Text Editor
+#define KEY_SPREADSHEET       0x1a7 // AL Spreadsheet
+#define KEY_GRAPHICSEDITOR    0x1a8 // AL Graphics Editor
+#define KEY_PRESENTATION      0x1a9 // AL Presentation App
+#define KEY_DATABASE          0x1aa // AL Database App
+#define KEY_NEWS              0x1ab // AL Newsreader
+#define KEY_VOICEMAIL         0x1ac // AL Voicemail
+#define KEY_ADDRESSBOOK       0x1ad // AL Contacts/Address Book
+#define KEY_MESSENGER         0x1ae // AL Instant Messaging
+#define KEY_DISPLAYTOGGLE     0x1af // Turn display (LCD) on and off
 #define KEY_BRIGHTNESS_TOGGLE KEY_DISPLAYTOGGLE
-#define KEY_SPELLCHECK        0x1b0 /* AL Spell Check */
-#define KEY_LOGOFF            0x1b1 /* AL Logoff */
+#define KEY_SPELLCHECK        0x1b0 // AL Spell Check
+#define KEY_LOGOFF            0x1b1 // AL Logoff
 
 #define KEY_DOLLAR 0x1b2
 #define KEY_EURO   0x1b3
 
-#define KEY_FRAMEBACK      0x1b4 /* Consumer - transport controls */
+#define KEY_FRAMEBACK      0x1b4 // Consumer - transport controls
 #define KEY_FRAMEFORWARD   0x1b5
-#define KEY_CONTEXT_MENU   0x1b6 /* GenDesc - system context menu */
-#define KEY_MEDIA_REPEAT   0x1b7 /* Consumer - transport control */
-#define KEY_10CHANNELSUP   0x1b8 /* 10 channels up (10+) */
-#define KEY_10CHANNELSDOWN 0x1b9 /* 10 channels down (10-) */
-#define KEY_IMAGES         0x1ba /* AL Image Browser */
+#define KEY_CONTEXT_MENU   0x1b6 // GenDesc - system context menu
+#define KEY_MEDIA_REPEAT   0x1b7 // Consumer - transport control
+#define KEY_10CHANNELSUP   0x1b8 // 10 channels up (10+)
+#define KEY_10CHANNELSDOWN 0x1b9 // 10 channels down (10-)
+#define KEY_IMAGES         0x1ba // AL Image Browser
 
-#define KEY_NOTIFICATION_CENTER 0x1bc /* Show/hide the notification center */
-#define KEY_PICKUP_PHONE        0x1bd /* Answer incoming call */
-#define KEY_HANGUP_PHONE        0x1be /* Decline incoming call */
+#define KEY_NOTIFICATION_CENTER 0x1bc // Show/hide the notification center
+#define KEY_PICKUP_PHONE        0x1bd // Answer incoming call
+#define KEY_HANGUP_PHONE        0x1be // Decline incoming call
 
 #define KEY_DEL_EOL  0x1c0
 #define KEY_DEL_EOS  0x1c1
@@ -549,8 +549,8 @@ typedef struct {
 #define KEY_BRL_DOT9  0x1f9
 #define KEY_BRL_DOT10 0x1fa
 
-#define KEY_NUMERIC_0     0x200 /* used by phones, remote controls, */
-#define KEY_NUMERIC_1     0x201 /* and other keypads */
+#define KEY_NUMERIC_0     0x200 // used by phones, remote controls,
+#define KEY_NUMERIC_1     0x201 // and other keypads
 #define KEY_NUMERIC_2     0x202
 #define KEY_NUMERIC_3     0x203
 #define KEY_NUMERIC_4     0x204
@@ -561,15 +561,15 @@ typedef struct {
 #define KEY_NUMERIC_9     0x209
 #define KEY_NUMERIC_STAR  0x20a
 #define KEY_NUMERIC_POUND 0x20b
-#define KEY_NUMERIC_A     0x20c /* Phone key A - HUT Telephony 0xb9 */
+#define KEY_NUMERIC_A     0x20c // Phone key A - HUT Telephony 0xb9
 #define KEY_NUMERIC_B     0x20d
 #define KEY_NUMERIC_C     0x20e
 #define KEY_NUMERIC_D     0x20f
 
 #define KEY_CAMERA_FOCUS 0x210
-#define KEY_WPS_BUTTON   0x211 /* WiFi Protected Setup key */
+#define KEY_WPS_BUTTON   0x211 // WiFi Protected Setup key
 
-#define KEY_TOUCHPAD_TOGGLE 0x212 /* Request switch touchpad on or off */
+#define KEY_TOUCHPAD_TOGGLE 0x212 // Request switch touchpad on or off
 #define KEY_TOUCHPAD_ON     0x213
 #define KEY_TOUCHPAD_OFF    0x214
 
@@ -582,31 +582,31 @@ typedef struct {
 
 #define KEY_ATTENDANT_ON     0x21b
 #define KEY_ATTENDANT_OFF    0x21c
-#define KEY_ATTENDANT_TOGGLE 0x21d /* Attendant call on or off */
-#define KEY_LIGHTS_TOGGLE    0x21e /* Reading light on or off */
+#define KEY_ATTENDANT_TOGGLE 0x21d // Attendant call on or off
+#define KEY_LIGHTS_TOGGLE    0x21e // Reading light on or off
 
-#define KEY_ALS_TOGGLE         0x230 /* Ambient light sensor */
-#define KEY_ROTATE_LOCK_TOGGLE 0x231 /* Display rotation lock */
+#define KEY_ALS_TOGGLE         0x230 // Ambient light sensor
+#define KEY_ROTATE_LOCK_TOGGLE 0x231 // Display rotation lock
 
-#define KEY_BUTTONCONFIG          0x240 /* AL Button Configuration */
-#define KEY_TASKMANAGER           0x241 /* AL Task/Project Manager */
-#define KEY_JOURNAL               0x242 /* AL Log/Journal/Timecard */
-#define KEY_CONTROLPANEL          0x243 /* AL Control Panel */
-#define KEY_APPSELECT             0x244 /* AL Select Task/Application */
-#define KEY_SCREENSAVER           0x245 /* AL Screen Saver */
-#define KEY_VOICECOMMAND          0x246 /* Listening Window Key */
-#define KEY_ASSISTANT             0x247 /* AL Context-aware desktop assistant */
-#define KEY_KBD_LAYOUT_NEXT       0x248 /* AC Next Keyboard Layout Select */
-#define KEY_EMOJI_PICKER          0x249 /* Show/hide emoji picker (HUTRR101) */
-#define KEY_DICTATE               0x24a /* Start or Stop Voice Dictation Session (HUTRR99) */
-#define KEY_CAMERA_ACCESS_ENABLE  0x24b /* Enables programmatic access to camera devices. (HUTRR72) */
-#define KEY_CAMERA_ACCESS_DISABLE 0x24c /* Disables programmatic access to camera devices. (HUTRR72) */
-#define KEY_CAMERA_ACCESS_TOGGLE  0x24d /* Toggles the current state of the camera access control. (HUTRR72) */
+#define KEY_BUTTONCONFIG          0x240 // AL Button Configuration
+#define KEY_TASKMANAGER           0x241 // AL Task/Project Manager
+#define KEY_JOURNAL               0x242 // AL Log/Journal/Timecard
+#define KEY_CONTROLPANEL          0x243 // AL Control Panel
+#define KEY_APPSELECT             0x244 // AL Select Task/Application
+#define KEY_SCREENSAVER           0x245 // AL Screen Saver
+#define KEY_VOICECOMMAND          0x246 // Listening Window Key
+#define KEY_ASSISTANT             0x247 // AL Context-aware desktop assistant
+#define KEY_KBD_LAYOUT_NEXT       0x248 // AC Next Keyboard Layout Select
+#define KEY_EMOJI_PICKER          0x249 // Show/hide emoji picker (HUTRR101)
+#define KEY_DICTATE               0x24a // Start or Stop Voice Dictation Session (HUTRR99)
+#define KEY_CAMERA_ACCESS_ENABLE  0x24b // Enables programmatic access to camera devices. (HUTRR72)
+#define KEY_CAMERA_ACCESS_DISABLE 0x24c // Disables programmatic access to camera devices. (HUTRR72)
+#define KEY_CAMERA_ACCESS_TOGGLE  0x24d // Toggles the current state of the camera access control. (HUTRR72)
 
-#define KEY_ACCESSIBILITY 0x24e /* Toggles the system accessibility bound (HUTRR116) */
+#define KEY_ACCESSIBILITY 0x24e // Toggles the system accessibility bound (HUTRR116)
 
-#define KEY_BRIGHTNESS_MIN 0x250 /* Set Brightness to Minimum */
-#define KEY_BRIGHTNESS_MAX 0x251 /* Set Brightness to Maximum */
+#define KEY_BRIGHTNESS_MIN 0x250 // Set Brightness to Minimum
+#define KEY_BRIGHTNESS_MAX 0x251 // Set Brightness to Maximum
 
 #define KEY_KBDINPUTASSIST_PREV      0x260
 #define KEY_KBDINPUTASSIST_NEXT      0x261
@@ -713,21 +713,21 @@ typedef struct {
 
 #define ABS_RESERVED 0x2e
 
-#define ABS_MT_SLOT        0x2f /* MT slot being modified */
-#define ABS_MT_TOUCH_MAJOR 0x30 /* Major axis of touching ellipse */
-#define ABS_MT_TOUCH_MINOR 0x31 /* Minor axis (omit if circular) */
-#define ABS_MT_WIDTH_MAJOR 0x32 /* Major axis of approaching ellipse */
-#define ABS_MT_WIDTH_MINOR 0x33 /* Minor axis (omit if circular) */
-#define ABS_MT_ORIENTATION 0x34 /* Ellipse orientation */
-#define ABS_MT_POSITION_X  0x35 /* Center X touch position */
-#define ABS_MT_POSITION_Y  0x36 /* Center Y touch position */
-#define ABS_MT_TOOL_TYPE   0x37 /* Type of touching device */
-#define ABS_MT_BLOB_ID     0x38 /* Group a set of packets as a blob */
-#define ABS_MT_TRACKING_ID 0x39 /* Unique ID of initiated contact */
-#define ABS_MT_PRESSURE    0x3a /* Pressure on contact area */
-#define ABS_MT_DISTANCE    0x3b /* Contact hover distance */
-#define ABS_MT_TOOL_X      0x3c /* Center X tool position */
-#define ABS_MT_TOOL_Y      0x3d /* Center Y tool position */
+#define ABS_MT_SLOT        0x2f // MT slot being modified
+#define ABS_MT_TOUCH_MAJOR 0x30 // Major axis of touching ellipse
+#define ABS_MT_TOUCH_MINOR 0x31 // Minor axis (omit if circular)
+#define ABS_MT_WIDTH_MAJOR 0x32 // Major axis of approaching ellipse
+#define ABS_MT_WIDTH_MINOR 0x33 // Minor axis (omit if circular)
+#define ABS_MT_ORIENTATION 0x34 // Ellipse orientation
+#define ABS_MT_POSITION_X  0x35 // Center X touch position
+#define ABS_MT_POSITION_Y  0x36 // Center Y touch position
+#define ABS_MT_TOOL_TYPE   0x37 // Type of touching device
+#define ABS_MT_BLOB_ID     0x38 // Group a set of packets as a blob
+#define ABS_MT_TRACKING_ID 0x39 // Unique ID of initiated contact
+#define ABS_MT_PRESSURE    0x3a // Pressure on contact area
+#define ABS_MT_DISTANCE    0x3b // Contact hover distance
+#define ABS_MT_TOOL_X      0x3c // Center X tool position
+#define ABS_MT_TOOL_Y      0x3d // Center Y tool position
 
 #define ABS_MAX 0x3f
 #define ABS_CNT (ABS_MAX + 1)
@@ -752,8 +752,8 @@ typedef struct {
 #define LED_SCROLLL  0x02
 #define LED_COMPOSE  0x03
 #define LED_KANA     0x04
-#define LED_SLEEP    0x05 /* System suspend LED */
-#define LED_SUSPEND  0x06 /* External power LED */
+#define LED_SLEEP    0x05 // System suspend LED
+#define LED_SUSPEND  0x06 // External power LED
 #define LED_MUTE     0x07
 #define LED_MISC     0x08
 #define LED_MAIL     0x09
@@ -773,24 +773,24 @@ typedef struct {
 /*
  *	Switches
  */
-#define SW_LID                  0x00          /* set = lid shut */
-#define SW_TABLET_MODE          0x01          /* set = tablet mode */
-#define SW_HEADPHONE_INSERT     0x02          /* set = inserted */
-#define SW_RFKILL_ALL           0x03          /* rfkill master switch, type "any" set = radio enabled */
-#define SW_RADIO                SW_RFKILL_ALL /* deprecated */
-#define SW_MICROPHONE_INSERT    0x04          /* set = inserted */
-#define SW_DOCK                 0x05          /* set = plugged into dock */
-#define SW_LINEOUT_INSERT       0x06          /* set = inserted */
-#define SW_JACK_PHYSICAL_INSERT 0x07          /* set = mechanical switch set */
-#define SW_VIDEOOUT_INSERT      0x08          /* set = inserted */
-#define SW_CAMERA_LENS_COVER    0x09          /* set = lens covered */
-#define SW_KEYPAD_SLIDE         0x0a          /* set = keypad slide out */
-#define SW_FRONT_PROXIMITY      0x0b          /* set = front proximity sensor active */
-#define SW_ROTATE_LOCK          0x0c          /* set = rotate locked/disabled */
-#define SW_LINEIN_INSERT        0x0d          /* set = inserted */
-#define SW_MUTE_DEVICE          0x0e          /* set = device disabled */
-#define SW_PEN_INSERTED         0x0f          /* set = pen inserted */
-#define SW_MACHINE_COVER        0x10          /* set = cover closed */
+#define SW_LID                  0x00          // set = lid shut
+#define SW_TABLET_MODE          0x01          // set = tablet mode
+#define SW_HEADPHONE_INSERT     0x02          // set = inserted
+#define SW_RFKILL_ALL           0x03          // rfkill master switch, type "any" set = radio enabled
+#define SW_RADIO                SW_RFKILL_ALL // deprecated
+#define SW_MICROPHONE_INSERT    0x04          // set = inserted
+#define SW_DOCK                 0x05          // set = plugged into dock
+#define SW_LINEOUT_INSERT       0x06          // set = inserted
+#define SW_JACK_PHYSICAL_INSERT 0x07          // set = mechanical switch set
+#define SW_VIDEOOUT_INSERT      0x08          // set = inserted
+#define SW_CAMERA_LENS_COVER    0x09          // set = lens covered
+#define SW_KEYPAD_SLIDE         0x0a          // set = keypad slide out
+#define SW_FRONT_PROXIMITY      0x0b          // set = front proximity sensor active
+#define SW_ROTATE_LOCK          0x0c          // set = rotate locked/disabled
+#define SW_LINEIN_INSERT        0x0d          // set = inserted
+#define SW_MUTE_DEVICE          0x0e          // set = device disabled
+#define SW_PEN_INSERTED         0x0f          // set = pen inserted
+#define SW_MACHINE_COVER        0x10          // set = cover closed
 #define SW_MAX                  0x10
 #define SW_CNT                  (SW_MAX + 1)
 
@@ -971,7 +971,7 @@ typedef struct {
                 ff_constant_effect_t  constant;
                 ff_ramp_effect_t      ramp;
                 ff_periodic_effect_t  periodic;
-                ff_condition_effect_t condition[2]; /* One for each axis */
+                ff_condition_effect_t condition[2]; // One for each axis
                 ff_rumble_effect_t    rumble;
         } u;
 } ff_effect_t;
@@ -987,13 +987,13 @@ typedef struct {
 /*
  *	Input properties
  */
-#define INPUT_PROP_POINTER        0x00 /* needs a pointer */
-#define INPUT_PROP_DIRECT         0x01 /* direct input devices */
-#define INPUT_PROP_BUTTONPAD      0x02 /* has button(s) under pad */
-#define INPUT_PROP_SEMI_MT        0x03 /* touch rectangle only */
-#define INPUT_PROP_TOPBUTTONPAD   0x04 /* softbuttons at top of pad */
-#define INPUT_PROP_POINTING_STICK 0x05 /* is a pointing stick */
-#define INPUT_PROP_ACCELEROMETER  0x06 /* has accelerometer */
+#define INPUT_PROP_POINTER        0x00 // needs a pointer
+#define INPUT_PROP_DIRECT         0x01 // direct input devices
+#define INPUT_PROP_BUTTONPAD      0x02 // has button(s) under pad
+#define INPUT_PROP_SEMI_MT        0x03 // touch rectangle only
+#define INPUT_PROP_TOPBUTTONPAD   0x04 // softbuttons at top of pad
+#define INPUT_PROP_POINTING_STICK 0x05 // is a pointing stick
+#define INPUT_PROP_ACCELEROMETER  0x06 // has accelerometer
 #define INPUT_PROP_MAX            0x1f
 #define INPUT_PROP_CNT            (INPUT_PROP_MAX + 1)
 
@@ -1099,4 +1099,4 @@ typedef struct {
 #define EVIOCSMASK    _IOW('E', 0x93, input_mask_t)
 #define EVIOCSCLOCKID _IOW('E', 0xa0, int32_t)
 
-#endif /* INCLUDE_INPUT_EVENT_H_ */
+#endif // INCLUDE_INPUT_EVENT_H_

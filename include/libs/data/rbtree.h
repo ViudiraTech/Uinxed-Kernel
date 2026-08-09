@@ -56,4 +56,4 @@ rb_node_t *rb_next(rb_node_t *node);
 /* Return 1 if the tree is empty, 0 otherwise */
 int rb_is_empty(rb_root_t *root);
 
-#endif /* INCLUDE_RBTREE_H_ */
+#endif // INCLUDE_RBTREE_H_

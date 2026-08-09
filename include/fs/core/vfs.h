@@ -59,7 +59,7 @@ typedef struct vfs_poll_source {
         vfs_poll_subscription_t *subscribers;
         bool                     closed;
 } vfs_poll_source_t;
-struct vm_area; /* forward declaration for vfs_file_mmap_t */
+struct vm_area; // forward declaration for vfs_file_mmap_t
 
 /* Linux filesystems expose at most 255 bytes in a single pathname component. */
 #define VFS_NAME_MAX 255
@@ -129,7 +129,7 @@ enum {
 };
 
 enum {
-    VFS_FS_NODEV = 1U << 0, /* filesystem has no block-device backing */
+    VFS_FS_NODEV = 1U << 0, // filesystem has no block-device backing
 };
 
 typedef struct vfs_callback {

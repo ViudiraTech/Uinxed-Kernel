@@ -66,4 +66,4 @@ void signalfd_deliver(process_t *proc, int sig, const siginfo_t *source);
 /* Initialize the signalfd subsystem */
 void signalfd_init(void);
 
-#endif /* INCLUDE_SIGNALFD_H_ */
+#endif // INCLUDE_SIGNALFD_H_

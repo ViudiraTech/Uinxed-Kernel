@@ -48,8 +48,10 @@ bool evdev_queue_push(evdev_queue_t *queue, const input_event_t *event)
     queue->head &= mask;
 
     if (queue->head == queue->tail) {
-        /* Preserve the newest event and replace the discarded history with
-         * SYN_DROPPED.  The following SYN_REPORT will commit this frame. */
+        /*
+         * Preserve the newest event and replace the discarded history with
+         * SYN_DROPPED.  The following SYN_REPORT will commit this frame.
+         */
         queue->tail                = (queue->head - 2) & mask;
         queue->buffer[queue->tail] = (input_event_t) {
             .sec   = event->sec,

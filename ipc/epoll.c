@@ -53,8 +53,8 @@ typedef struct epoll_item {
         epoll_data_t            data;
         epoll_instance_t       *epi;
         int                     active;
-        uint32_t                last_revents;     /* previous poll result for edge-triggered */
-        int                     oneshot_disabled; /* EPOLLONESHOT re-arm flag */
+        uint32_t                last_revents;     // previous poll result for edge-triggered
+        int                     oneshot_disabled; // EPOLLONESHOT re-arm flag
         process_file_t         *file;
         vfs_poll_source_t      *event_source;
         vfs_poll_subscription_t subscription;
@@ -111,10 +111,12 @@ static void epoll_item_notify(vfs_poll_subscription_t *subscription, uint32_t ev
         __atomic_fetch_or(&item->pending_events, events, __ATOMIC_RELEASE);
         __atomic_add_fetch(&item->epi->event_generation, 1, __ATOMIC_RELEASE);
         wait_queue_wake_all(&item->epi->wq);
-        /* An epoll fd is itself pollable.  libinput exposes its internal
+        /*
+         * An epoll fd is itself pollable.  libinput exposes its internal
          * epoll fd to Xorg, which then watches it from Xorg's outer epoll.
          * Propagate target readiness to that outer poll source as well as to
-         * threads directly blocked in epoll_wait() on this instance. */
+         * threads directly blocked in epoll_wait() on this instance.
+         */
         if (item->epi->node) vfs_poll_notify(item->epi->node, POLLIN);
     }
 }
@@ -151,7 +153,7 @@ static epoll_item_t *epoll_item_find(epoll_instance_t *epi, int fd)
 static epoll_item_t *epoll_item_add(epoll_instance_t *epi, int fd, process_file_t *file, const epoll_event_t *event)
 {
     if (fd < 0 || fd >= EPOLL_MAX_FDS) return NULL;
-    if (epi->items[fd]) return NULL; /* already present */
+    if (epi->items[fd]) return NULL; // already present
 
     epoll_item_t *item = malloc(sizeof(epoll_item_t));
     if (!item) {
@@ -204,7 +206,7 @@ static int epoll_item_mod(epoll_instance_t *epi, int fd, const epoll_event_t *ev
 
     item->events           = event->events;
     item->data             = event->data;
-    item->oneshot_disabled = 0; /* re-arm after EPOLL_CTL_MOD */
+    item->oneshot_disabled = 0; // re-arm after EPOLL_CTL_MOD
 
     return EOK;
 }
@@ -246,8 +248,10 @@ static int epoll_poll_all(epoll_instance_t *epi)
             item->last_revents &= ~changed;
             uint32_t new_ready = current & ~item->last_revents;
             item->last_revents = current;
-            /* Preserve an edge that was found by an earlier scan but could
-             * not be returned because maxevents was already exhausted. */
+            /*
+             * Preserve an edge that was found by an earlier scan but could
+             * not be returned because maxevents was already exhausted.
+             */
             item->revents |= new_ready;
         } else {
             /* Level-triggered: report all currently ready events */
@@ -260,10 +264,12 @@ static int epoll_poll_all(epoll_instance_t *epi)
     return ready;
 }
 
-/* Check whether an epoll fd is readable without consuming edge state.
+/*
+ * Check whether an epoll fd is readable without consuming edge state.
  * This is used when the epoll fd is itself watched by poll or another epoll
  * instance (libinput's epoll fd inside Xorg's epoll).  Only epoll_wait() may
- * exchange pending_events and advance last_revents. */
+ * exchange pending_events and advance last_revents.
+ */
 static bool epoll_has_ready(epoll_instance_t *epi)
 {
     for (int fd = 0; fd < EPOLL_MAX_FDS; fd++) {
@@ -686,12 +692,14 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
 
             epoll_item_t *item = epoll_item_find(epi, fd);
             if (item) {
-                /* EPOLL_CTL_MOD re-arms the descriptor.  In particular,
+                /*
+                 * EPOLL_CTL_MOD re-arms the descriptor.  In particular,
                  * users such as Xorg add an EPOLLET fd with no read/write
                  * interest and then enable EPOLLIN after data may already
                  * have arrived.  Treat readiness observed during MOD as a
                  * fresh edge; recording it in last_revents here would make
-                 * the following epoll_wait silently consume that edge. */
+                 * the following epoll_wait silently consume that edge.
+                 */
                 item->last_revents = 0;
                 __atomic_store_n(&item->pending_events, current, __ATOMIC_RELEASE);
                 item->revents = current;

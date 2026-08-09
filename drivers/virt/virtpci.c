@@ -69,7 +69,8 @@ static volatile void *vp_map_cap_bar(struct vp_device *dev, struct vp_cap *cap)
         return NULL;
     }
 
-    /* Map the needed pages into the HHDM window.
+    /*
+     * Map the needed pages into the HHDM window.
      * phys_to_virt provides the virtual address (HHDM offset),
      * but the page-table entries may be absent for MMIO regions.
      * page_map_range_to maps phys→virt for contiguously addressed pages.
@@ -78,7 +79,8 @@ static volatile void *vp_map_cap_bar(struct vp_device *dev, struct vp_cap *cap)
      * Without PCD, the CPU caches all MMIO accesses (Write-Back),
      * so writes to device registers never reach the PCI bus and
      * the device never sees status updates, queue configs, or
-     * notify doorbell kicks. */
+     * notify doorbell kicks.
+     */
     map_start = bar_phys & ~(uint64_t)0xfff;
     map_len   = ((bar_phys + cap->offset + cap->length + 0xfff) & ~(uint64_t)0xfff) - map_start;
 
@@ -354,8 +356,10 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
      * Initial chain: free_head →0 →1 →2 →... →num-1
      */
     for (i = 0; i < num; i++) { vq->free_descs[i] = (uint16_t)(i + 1); }
-    /* The last descriptor has no next –its free_descs entry is never
-     * read until it has first been pushed back (which overwrites it). */
+    /*
+     * The last descriptor has no next –its free_descs entry is never
+     * read until it has first been pushed back (which overwrites it).
+     */
 
     /*
      * Program the queue into common config (physical addresses).

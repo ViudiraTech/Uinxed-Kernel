@@ -264,12 +264,14 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         }
         size_t file_offset = (size_t)offset;
 
-        /* memfd mappings need their page-backed implementation for both
+        /*
+         * memfd mappings need their page-backed implementation for both
          * MAP_SHARED and MAP_PRIVATE.  Falling a private memfd mapping back
          * to the generic lazy file path loses its contents because memfd I/O
          * is implemented by the per-open file_read callback.  Wayland maps
          * its received XKB keymap memfd MAP_PRIVATE, so that fallback turns a
-         * valid keymap into an all-zero page. */
+         * valid keymap into an all-zero page.
+         */
         if (memfd_is_node(file->node)) {
             vm_area_t *vma = calloc(1, sizeof(*vma));
             if (!vma) {
@@ -307,9 +309,11 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
             return (int64_t)mmap_addr;
         }
 
-        /* Regular files map the same physical pages used by read/write I/O.
+        /*
+         * Regular files map the same physical pages used by read/write I/O.
          * Private writable mappings use the MM COW bit; shared writable
-         * mappings dirty their cache pages for msync/fsync writeback. */
+         * mappings dirty their cache pages for msync/fsync writeback.
+         */
         if (vfs_cache_mapping_pin(file->node) == EOK) {
             vm_area_t *vma = calloc(1, sizeof(*vma));
             if (!vma) {
@@ -342,9 +346,11 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
             return (int64_t)mmap_addr;
         }
 
-        /* Check if the filesystem has a per-open mmap callback
+        /*
+         * Check if the filesystem has a per-open mmap callback
          * (e.g., DRM GEM mmap). If so, use it to map device
-         * backing pages directly instead of reading file content. */
+         * backing pages directly instead of reading file content.
+         */
         if (callbackof(file->node, file_mmap) != vfs_empty_callback.file_mmap) {
             vm_area_t *vma = calloc(1, sizeof(*vma));
             if (!vma) {
@@ -690,12 +696,14 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64
         return result ? result : (int64_t)old_addr;
     }
 
-    /* A Wayland wl_shm_pool starts small and is grown with
+    /*
+     * A Wayland wl_shm_pool starts small and is grown with
      * mremap(MREMAP_MAYMOVE).  memfd VMAs are eagerly backed by the memfd's
      * physical pages, so extend the mapping in place when the following
      * address range is free.  memfd_map() accounts one VMA per invocation;
      * neutralize the temporary accounting entry because this is still the
-     * same VMA. */
+     * same VMA.
+     */
     if (vma->vm_file && memfd_is_node(vma->vm_file)) {
         uintptr_t extension_start = (uintptr_t)old_addr + old_pages;
         uintptr_t extension_end   = (uintptr_t)old_addr + new_pages;
@@ -725,9 +733,11 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64
             return -ENOMEM;
         }
 
-        /* A private writable mapping may contain COW pages that no longer
+        /*
+         * A private writable mapping may contain COW pages that no longer
          * match the memfd backing.  Moving it by remapping the file would
-         * discard those writes, so only shared memfd VMAs use this fallback. */
+         * discard those writes, so only shared memfd VMAs use this fallback.
+         */
         if (!(vma->flags & VM_SHARED)) {
             spin_unlock(&proc->mmap_lock);
             return -ENOMEM;
@@ -781,8 +791,10 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64
         return (int64_t)target;
     }
 
-    /* Other file, device, and shared-memory VMAs still have no
-     * transactional growth contract. */
+    /*
+     * Other file, device, and shared-memory VMAs still have no
+     * transactional growth contract.
+     */
     if (vma->vm_file || vma->vm_private_data || vma->type == VM_REGION_SHM) {
         spin_unlock(&proc->mmap_lock);
         return -ENOMEM;

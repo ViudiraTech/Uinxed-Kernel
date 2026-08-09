@@ -199,4 +199,4 @@ int64_t sys_msgctl(int msqid, int cmd, void *buf);
 
 void sysv_ipc_init(void);
 
-#endif /* INCLUDE_SYSV_IPC_H_ */
+#endif // INCLUDE_SYSV_IPC_H_

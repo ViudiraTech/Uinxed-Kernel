@@ -132,9 +132,9 @@ typedef struct procfs_file {
 /* ------------------------------------------------------------------ */
 
 typedef enum procfs_sysctl_kind {
-    PROC_SYS_UINT,  /* single unsigned integer */
-    PROC_SYS_STR,   /* NUL-terminated string */
-    PROC_SYS_MULTI, /* space-separated integer vector */
+    PROC_SYS_UINT,  // single unsigned integer
+    PROC_SYS_STR,   // NUL-terminated string
+    PROC_SYS_MULTI, // space-separated integer vector
 } procfs_sysctl_kind_t;
 
 typedef struct procfs_sysctl {
@@ -180,11 +180,13 @@ static void procfs_dummy(void)
 {
 }
 
-/* procfs directory nodes are namespace objects, not disposable directory
+/*
+ * procfs directory nodes are namespace objects, not disposable directory
  * snapshots.  Open file descriptions retain pointers to them, so rebuilding a
  * directory by freeing all children races with read/stat on another CPU.  Keep
  * the bounded PID namespace (PROCESS_TABLE_SIZE) resident and reactivate a
- * node when a PID is reused. */
+ * node when a PID is reused.
+ */
 static vfs_node_t procfs_find_child(vfs_node_t parent, const char *name)
 {
     if (!parent || !name) return NULL;
@@ -459,15 +461,15 @@ static void gen_info_cpuinfo(procfs_file_t *pf)
         uint32_t sets       = cc + 1;
         uint32_t size_kb    = (ways * partitions * line_size * sets) / 1024;
         if (cache_type == 1 || cache_type == 2)
-            l1d_kb = size_kb; /* data / instruction cache */
+            l1d_kb = size_kb; // data / instruction cache
         else if (cache_type == 3)
-            l2_kb = size_kb; /* unified L2 */
+            l2_kb = size_kb; // unified L2
     }
 
     /* CPU frequency */
     uint64_t cpu_hz     = tsc_get_cpu_frequency();
     uint64_t cpu_mhz    = cpu_hz / 1000000;
-    uint64_t cpu_mhz_fp = (cpu_hz % 1000000) / 10000; /* one decimal */
+    uint64_t cpu_mhz_fp = (cpu_hz % 1000000) / 10000; // one decimal
 
     /* BogoMIPS: approx (cpu_hz / 1000000) / 2, same as Linux on x86 */
     uint64_t bogo    = cpu_hz / 2000000;
@@ -1468,9 +1470,11 @@ static void gen_pid_stat(procfs_file_t *pf)
     rss_limit = proc->rlimits[PROCESS_RLIMIT_RSS].current;
     spin_unlock(&proc->rlimit_lock);
 
-    /* Keep all Linux proc_pid_stat fields in their ABI positions.  Unknown
+    /*
+     * Keep all Linux proc_pid_stat fields in their ABI positions.  Unknown
      * accounting values are zero rather than omitted; parsers such as
-     * BusyBox ps expect fields through exit_code (52). */
+     * BusyBox ps expect fields through exit_code (52).
+     */
     int n = snprintf(buf, 1024,
                      "%lld (%s) %c "
                      "%lld %lld %lld %lld %lld %u "
@@ -1641,8 +1645,10 @@ static void procfs_gen_content(procfs_file_t *pf, vfs_node_t node)
 
 static int procfs_mount(const char *handle, vfs_node_t node)
 {
-    /* proc is nodev; Linux accepts a conventional source such as "proc" and
-     * does not interpret it as a backing device. */
+    /*
+     * proc is nodev; Linux accepts a conventional source such as "proc" and
+     * does not interpret it as a backing device.
+     */
     (void)handle;
     if (!node) return -EINVAL;
 
@@ -2023,12 +2029,14 @@ static int procfs_stat(void *file, vfs_node_t node)
             (void)procfs_ensure_child(node, "thread-self", PROCFS_SELF_LINK, 0, 1, file_symlink);
 
             procfs_deactivate_pid_nodes(node);
-            /* procfs_stat() runs under the VFS namespace lock.  Do not take
+            /*
+             * procfs_stat() runs under the VFS namespace lock.  Do not take
              * and then drop process references here: process_put() is allowed
              * to run the final destructor, which closes descriptors and
              * recursively enters the VFS namespace.  A PID-only snapshot is
              * sufficient for constructing /proc/<pid> names and also avoids
-             * repeatedly locking the process table once per entry. */
+             * repeatedly locking the process table once per entry.
+             */
             pid_t *pids = malloc(PROCESS_TABLE_SIZE * sizeof(*pids));
             if (!pids) return -ENOMEM;
             size_t pid_count = process_snapshot_pids(pids, PROCESS_TABLE_SIZE);
@@ -2143,16 +2151,20 @@ static int procfs_stat(void *file, vfs_node_t node)
         case PROCFS_NET_FILE :
         case PROCFS_SYS_FILE :
         case PROCFS_TTY_FILE :
-            /* procfs files are generated pseudo-regular files.  They are
+            /*
+             * procfs files are generated pseudo-regular files.  They are
              * seekable and, most importantly, reads must advance the open
              * file description offset so that readers can observe EOF.
              * file_stream is reserved for unseekable devices (terminals,
-             * pipes, etc.) and would restart every procfs read at offset 0. */
+             * pipes, etc.) and would restart every procfs read at offset 0.
+             */
             node->type = file_none;
-            /* Mount tables are generated as a per-open namespace snapshot.
+            /*
+             * Mount tables are generated as a per-open namespace snapshot.
              * Generating them here would recurse into the VFS namespace lock
              * held by pathname lookup.  Other proc files use the same
-             * per-open path to avoid cross-reader offset/content races. */
+             * per-open path to avoid cross-reader offset/content races.
+             */
             node->size = 0;
             break;
     }
@@ -2201,9 +2213,11 @@ static int64_t procfs_file_write(vfs_node_t node, void *private_data, uint64_t f
         return written == size ? (int64_t)written : -EINVAL;
     }
 
-    /* eudevd writes "0" here before processing each event.  The kernel does
+    /*
+     * eudevd writes "0" here before processing each event.  The kernel does
      * not currently implement OOM scoring, but the Linux control-file ABI
-     * still requires a successful, consuming write. */
+     * still requires a successful, consuming write.
+     */
     if (pf->type == PROCFS_PID_FILE && pf->subtype == PROC_PID_OOM_SCORE_ADJ) return (int64_t)size;
     return -EACCES;
 }
@@ -2243,9 +2257,11 @@ static int procfs_resize(void *current, uint64_t size)
     (void)size;
     procfs_file_t *pf = current;
     if (!pf) return -EINVAL;
-    /* Writable proc control files accept O_TRUNC as part of fopen("w").
+    /*
+     * Writable proc control files accept O_TRUNC as part of fopen("w").
      * Their contents are synthetic, so truncation has no persistent data to
-     * discard. */
+     * discard.
+     */
     if (pf->type == PROCFS_PID_FILE && pf->subtype == PROC_PID_OOM_SCORE_ADJ) return EOK;
     return -EOPNOTSUPP;
 }
@@ -2326,8 +2342,10 @@ static struct vfs_callback procfs_callbacks = {
 
 void procfs_regist(void)
 {
-    /* Linux exposes this filesystem to mount(2) as "proc".  User space
-     * (BusyBox mount, OpenRC and /etc/fstab) consequently passes -t proc. */
+    /*
+     * Linux exposes this filesystem to mount(2) as "proc".  User space
+     * (BusyBox mount, OpenRC and /etc/fstab) consequently passes -t proc.
+     */
     procfs_id = vfs_regist_fs_flags("proc", &procfs_callbacks, VFS_FS_NODEV);
     if (procfs_id & ERRNO_MASK) plogk("procfs: Register error.\n");
     if (!(procfs_id & ERRNO_MASK)) plogk("procfs: Filesystem registered (fsid=%d)\n", procfs_id);

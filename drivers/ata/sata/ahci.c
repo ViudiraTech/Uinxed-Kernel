@@ -428,8 +428,10 @@ void init_ahci(void)
         port->port_mmio = hba_mmio + 0x100 + (size_t)i * 0x80;
         port->port_no   = (uint8_t)i;
 
-        /* PI describes implemented controller ports, not attached devices.
-         * Do not reset and poll a port whose PHY reports no device. */
+        /*
+         * PI describes implemented controller ports, not attached devices.
+         * Do not reset and poll a port whose PHY reports no device.
+         */
         if ((ahci_read32(port->port_mmio, PORT_SSTS) & 0xF) == 0) continue;
 
         /* Allocate per-port memory */

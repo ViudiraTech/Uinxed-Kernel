@@ -96,14 +96,14 @@ static int64_t rtc_dev_read(void *ctx, void *private_data, uint64_t flags, void 
     if (!addr) return -EINVAL;
 
     rtc_read_cmos_time(&t);
-    data[0] = (uint8_t)(t.tm_year); /* year since 1900 */
+    data[0] = (uint8_t)(t.tm_year); // year since 1900
     data[1] = (uint8_t)(t.tm_mon + 1);
     data[2] = (uint8_t)t.tm_mday;
     data[3] = (uint8_t)t.tm_hour;
     data[4] = (uint8_t)t.tm_min;
     data[5] = (uint8_t)t.tm_sec;
     data[6] = (uint8_t)t.tm_wday;
-    data[7] = (uint8_t)((t.tm_year / 100) + 19); /* century */
+    data[7] = (uint8_t)((t.tm_year / 100) + 19); // century
 
     if (size > sizeof(data)) size = sizeof(data);
     memcpy(addr, data, size);
@@ -119,7 +119,7 @@ static int64_t rtc_dev_write(void *ctx, void *private_data, uint64_t flags, cons
     (void)offset;
     (void)size;
     plogk("rtc: rejected write to /dev/rtc0 (RTC is read-only as a byte stream)\n");
-    return -EIO; /* RTC is not writable as a byte stream */
+    return -EIO; // RTC is not writable as a byte stream
 }
 
 static int rtc_dev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t request, void *argument)

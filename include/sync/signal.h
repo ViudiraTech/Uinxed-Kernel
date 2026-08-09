@@ -309,19 +309,21 @@ typedef struct {
         uint64_t r8, r9, r10, r11, r12, r13, r14, r15;
         uint64_t rip, rflags, rsp, cs, ss;
 
-        /* Kernel-private signal ABI payload.  libc only uses pretcode; this
-         * area preserves the interrupted x87/SSE/AVX state across a handler. */
+        /*
+         * Kernel-private signal ABI payload.  libc only uses pretcode; this
+         * area preserves the interrupted x87/SSE/AVX state across a handler.
+         */
         uint32_t fpstate_magic;
         uint32_t fpstate_size;
         uint8_t  fpstate[4096];
 } __attribute__((packed)) signal_user_frame_t;
 
-#define SIGNAL_FPSTATE_MAGIC 0x46505331U /* "FPS1" */
+#define SIGNAL_FPSTATE_MAGIC 0x46505331U // "FPS1"
 
 /* Return values for signal_deliver_one */
-#define SIG_DELIV_HANDLED 0 /* Default/ignore action, no frame change, continue */
-#define SIG_DELIV_TERM    1 /* Process terminated by default action */
-#define SIG_DELIV_HANDLER 2 /* User handler set up, frame modified */
+#define SIG_DELIV_HANDLED 0 // Default/ignore action, no frame change, continue
+#define SIG_DELIV_TERM    1 // Process terminated by default action
+#define SIG_DELIV_HANDLER 2 // User handler set up, frame modified
 
 /* ---------- Signal queue / real-time ---------- */
 
@@ -345,9 +347,11 @@ typedef struct signal_state {
         sigaction_t sighand[SIG_ACTION_NUM];
         sigset_t    pending;
         sigset_t    blocked;
-        /* pselect6/ppoll keep their temporary mask installed until the
+        /*
+         * pselect6/ppoll keep their temporary mask installed until the
          * return-to-userspace signal pass.  A handler frame must restore
-         * the mask that was active before the wait, not the temporary one. */
+         * the mask that was active before the wait, not the temporary one.
+         */
         sigset_t    saved_mask;
         bool        restore_mask;
         sigqueue_t *sigqueue_head;
@@ -413,9 +417,11 @@ int signal_deliver_for_process(process_t *proc, syscall_frame_t *frame);
 /* Check if there is a pending signal that should be delivered */
 int signal_has_pending(signal_state_t *state);
 
-/* True when an unblocked pending signal has a disposition that can actually
+/*
+ * True when an unblocked pending signal has a disposition that can actually
  * interrupt a blocking syscall.  Default-ignored signals (notably SIGCHLD)
- * must not turn a successful wait into EINTR.  Caller holds state->lock. */
+ * must not turn a successful wait into EINTR.  Caller holds state->lock.
+ */
 int signal_has_interrupting_pending(signal_state_t *state);
 
 /* Query a process signal disposition while holding the signal-state lock. */
@@ -460,10 +466,12 @@ void signal_state_copy(signal_state_t *dst, const signal_state_t *src);
 /* Check permissions for sending a signal */
 int signal_check_perm(const process_t *from, const process_t *to);
 
-/* Consume/query pending signals for synchronous interfaces such as
+/*
+ * Consume/query pending signals for synchronous interfaces such as
  * signalfd(2).  These operations intentionally ignore the blocked mask: a
  * caller normally blocks the signals precisely so they can be read through
- * the synchronous interface instead of being delivered to a handler. */
+ * the synchronous interface instead of being delivered to a handler.
+ */
 int  signal_dequeue_masked(process_t *proc, const sigset_t *mask, siginfo_t *info);
 bool signal_has_pending_masked(process_t *proc, const sigset_t *mask);
 
@@ -498,4 +506,4 @@ int64_t sys_setsid(void);
 int64_t sys_getsid(int64_t pid);
 int64_t sys_getpgid(int64_t pid);
 
-#endif /* INCLUDE_SIGNAL_H_ */
+#endif // INCLUDE_SIGNAL_H_

@@ -122,8 +122,10 @@ size_t video_fb_write(void *ctx, const void *addr, size_t offset, size_t size)
     dst = (uint8_t *)buffer + offset;
     memcpy(dst, addr, size);
 
-    /* /dev/fb0 writes are byte ranges.  Convert them to one conservative
-     * rectangle so DRM-backed consoles do not retransmit the whole frame. */
+    /*
+     * /dev/fb0 writes are byte ranges.  Convert them to one conservative
+     * rectangle so DRM-backed consoles do not retransmit the whole frame.
+     */
     if (size) {
         row_bytes = (size_t)info.stride * bytes_per_pixel;
         start_row = offset / row_bytes;
@@ -376,8 +378,10 @@ void video_init(void)
     struct limine_framebuffer *framebuffer = get_framebuffer();
 
     memset(&video_active_info, 0, sizeof(video_active_info));
-    /* Keep color conversion and the later DRM handoff deterministic even on
-     * systems whose firmware does not expose a GOP framebuffer. */
+    /*
+     * Keep color conversion and the later DRM handoff deterministic even on
+     * systems whose firmware does not expose a GOP framebuffer.
+     */
     video_active_info.bpp              = 32;
     video_active_info.memory_model     = 1;
     video_active_info.red_mask_size    = 8;
@@ -531,7 +535,7 @@ void video_switch_to_drm(void *backing, uint32_t w, uint32_t h, uint32_t pitch, 
     buffer                             = (uint32_t *)backing;
     width                              = w;
     height                             = h;
-    stride                             = pitch / sizeof(uint32_t); /* pixels per line */
+    stride                             = pitch / sizeof(uint32_t); // pixels per line
     video_flush_cb                     = flush;
     video_active_info.framebuffer      = backing;
     video_active_info.width            = w;
@@ -550,13 +554,17 @@ void video_switch_to_drm(void *backing, uint32_t w, uint32_t h, uint32_t pitch, 
     video_generation++;
     spin_unlock(&video_state_lock);
 
-    /* Rebuild the fbcon character grid for the new resolution.  When the
-     * resolution is unchanged the grids and cursor state are preserved. */
+    /*
+     * Rebuild the fbcon character grid for the new resolution.  When the
+     * resolution is unchanged the grids and cursor state are preserved.
+     */
     fbcon_resize();
 
     if (old_buffer && old_width == w && old_height == h) {
-        /* Seamless handoff: move the previous frame into the new buffer so
-         * the logo and all boot messages survive without being redrawn. */
+        /*
+         * Seamless handoff: move the previous frame into the new buffer so
+         * the logo and all boot messages survive without being redrawn.
+         */
         if (old_stride == stride) {
             memcpy(buffer, old_buffer, (size_t)stride * h * sizeof(uint32_t));
         } else {

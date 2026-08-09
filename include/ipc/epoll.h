@@ -73,4 +73,4 @@ int64_t sys_epoll_pwait(int epfd, epoll_event_t *events, int maxevents, int time
 
 void epoll_init(void);
 
-#endif /* INCLUDE_EPOLL_H_ */
+#endif // INCLUDE_EPOLL_H_

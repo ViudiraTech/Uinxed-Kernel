@@ -153,4 +153,4 @@ struct rock_state {
  */
 int get_rock_ridge_symlink(void *raw_de, struct isofs_mount *mount, char *buf, int bufsize);
 
-#endif /* ISOFS_ROCK_H_ */
+#endif // ISOFS_ROCK_H_

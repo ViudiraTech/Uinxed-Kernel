@@ -30,4 +30,4 @@ void     ps2_keyboard_decoder_init(ps2_keyboard_decoder_t *decoder);
 int      ps2_keyboard_decode_byte(ps2_keyboard_decoder_t *decoder, uint8_t byte, ps2_key_event_t *event);
 uint16_t ps2_keyboard_keycode_for_scancode(uint16_t scan);
 
-#endif /* INCLUDE_PS2_KEYBOARD_H_ */
+#endif // INCLUDE_PS2_KEYBOARD_H_

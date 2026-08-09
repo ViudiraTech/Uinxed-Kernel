@@ -532,4 +532,4 @@ struct drm_mode_destroy_blob {
 #define DRM_IOCTL_MODE_DESTROYPROPBLOB   DRM_IOWR(0xBE, struct drm_mode_destroy_blob)
 #define DRM_IOCTL_MODE_GETFB2            DRM_IOWR(0xBF, struct drm_mode_get_fb2)
 
-#endif /* INCLUDE_DRM_DRM_MODE_H_ */
+#endif // INCLUDE_DRM_DRM_MODE_H_

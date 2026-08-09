@@ -86,8 +86,10 @@ int blockdev_format_disk_name(char *buffer, size_t size, uint32_t index);
 /* Open a whole disk or a numbered MBR/GPT partition by its Linux name. */
 int blockdev_open_name(const char *name, blockdev_device_t *device);
 
-/* Create a partition view of a parent block device.
- * Copies the parent's ops_id and wraps base_lba/sector_count. */
+/*
+ * Create a partition view of a parent block device.
+ * Copies the parent's ops_id and wraps base_lba/sector_count.
+ */
 int blockdev_open_partition(const blockdev_device_t *parent, uint64_t first_lba, uint64_t sector_count, blockdev_device_t *device);
 
 /* ---- I/O ---- */

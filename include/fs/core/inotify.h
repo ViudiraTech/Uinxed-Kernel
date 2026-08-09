@@ -112,4 +112,4 @@ void     inotify_notify_move(vfs_node_t node, const char *old_name, const char *
 void     inotify_notify_unmount(vfs_node_t mount_root);
 uint32_t inotify_next_cookie(void);
 
-#endif /* INCLUDE_FS_INOTIFY_H_ */
+#endif // INCLUDE_FS_INOTIFY_H_

@@ -89,22 +89,22 @@
 
 /* SB16 device state */
 typedef struct sb16_device {
-        uint16_t base;            /* I/O port base address */
-        uint8_t  irq;             /* IRQ line */
-        uint8_t  dma8;            /* 8-bit DMA channel */
-        uint8_t  dma16;           /* 16-bit DMA channel */
-        uint8_t  detected;        /* Non-zero if card found */
-        uint32_t dma_buffer_phys; /* Physical address of DMA buffer */
-        uint8_t *dma_buffer_virt; /* Virtual address of DMA buffer */
-        uint32_t dma_buffer_size; /* Size of DMA buffer */
-        uint32_t sample_rate;     /* Current sample rate */
-        uint8_t  bits;            /* Sample bit depth */
-        uint8_t  channels;        /* Number of audio channels */
-        uint8_t  volume_left;     /* Cached master volume */
-        uint8_t  volume_right;    /* Cached master volume */
-        uint8_t  input_source;    /* Current input source */
-        int      playing;         /* Non-zero if playback active */
-        int      capturing;       /* Non-zero if capture active */
+        uint16_t base;            // I/O port base address
+        uint8_t  irq;             // IRQ line
+        uint8_t  dma8;            // 8-bit DMA channel
+        uint8_t  dma16;           // 16-bit DMA channel
+        uint8_t  detected;        // Non-zero if card found
+        uint32_t dma_buffer_phys; // Physical address of DMA buffer
+        uint8_t *dma_buffer_virt; // Virtual address of DMA buffer
+        uint32_t dma_buffer_size; // Size of DMA buffer
+        uint32_t sample_rate;     // Current sample rate
+        uint8_t  bits;            // Sample bit depth
+        uint8_t  channels;        // Number of audio channels
+        uint8_t  volume_left;     // Cached master volume
+        uint8_t  volume_right;    // Cached master volume
+        uint8_t  input_source;    // Current input source
+        int      playing;         // Non-zero if playback active
+        int      capturing;       // Non-zero if capture active
 } sb16_device_t;
 
 void sb16_init(void);
@@ -129,4 +129,4 @@ uint8_t sb16_mixer_read(sb16_device_t *dev, uint8_t reg);
 void    sb16_mixer_write(sb16_device_t *dev, uint8_t reg, uint8_t value);
 void    sb16_beep(uint16_t freq, uint32_t ms);
 
-#endif /* INCLUDE_SOUND_SB16_H_ */
+#endif // INCLUDE_SOUND_SB16_H_

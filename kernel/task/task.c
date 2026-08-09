@@ -133,8 +133,10 @@ void task_name_copy(task_t *task, const char *name)
     size_t      i   = 0;
 
     for (; i + 1 < TASK_NAME_LEN && src[i]; i++) task->name[i] = src[i];
-    /* Clear the unused suffix too: task names are copied to fixed-width ABI
-     * fields by procfs/prctl, and must never expose a previous exec name. */
+    /*
+     * Clear the unused suffix too: task names are copied to fixed-width ABI
+     * fields by procfs/prctl, and must never expose a previous exec name.
+     */
     for (; i < TASK_NAME_LEN; i++) task->name[i] = '\0';
 }
 

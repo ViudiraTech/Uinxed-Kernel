@@ -75,4 +75,4 @@ void            ps2_mouse_handle_byte(uint8_t byte);
 bool            ps2_mouse_available(void);
 extern evdev_t *ps2_mouse_evdev;
 
-#endif /* INCLUDE_PS2_H_ */
+#endif // INCLUDE_PS2_H_

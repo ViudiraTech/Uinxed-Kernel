@@ -29,9 +29,11 @@
 #define DRM_S32_MAX                     ((int32_t)0x7fffffff)
 #define DRM_S32_MIN                     (-DRM_S32_MAX - 1)
 
-/* MODE_ID is a blob property, but changing (or merely resubmitting) the
+/*
+ * MODE_ID is a blob property, but changing (or merely resubmitting) the
  * blob object does not necessarily change the hardware mode.  Atomic
- * modeset permission is based on the decoded timing, not the blob ID. */
+ * modeset permission is based on the decoded timing, not the blob ID.
+ */
 static bool drm_atomic_modes_equal(const struct drm_display_mode *a, const struct drm_display_mode *b)
 {
     if (!a || !b) return false;
@@ -467,8 +469,10 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
     crtc->page_flip_target  = 0;
     spin_unlock(&crtc->commit_lock);
 
-    /* Build the event now, but do not arm it until the driver accepted the
-     * flip.  This prevents a failed flip from leaking a completion event. */
+    /*
+     * Build the event now, but do not arm it until the driver accepted the
+     * flip.  This prevents a failed flip from leaking a completion event.
+     */
     if (page_flip->flags & DRM_MODE_PAGE_FLIP_EVENT) {
         e = malloc(sizeof(*e));
         if (!e) {
@@ -502,8 +506,10 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
         if (e) e->sequence = crtc->page_flip_target;
     }
 
-    /* Call the driver's page_flip hook FIRST to push the new FB to hardware.
-     * Only update the plane state after the hardware flip succeeds. */
+    /*
+     * Call the driver's page_flip hook FIRST to push the new FB to hardware.
+     * Only update the plane state after the hardware flip succeeds.
+     */
     if (crtc->helper_private) {
         struct drm_crtc_helper_funcs *h = (struct drm_crtc_helper_funcs *)crtc->helper_private;
         if (h->page_flip) {

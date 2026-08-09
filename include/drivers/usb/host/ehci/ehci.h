@@ -72,8 +72,10 @@
 #define EHCI_PORT_LS_KSTATE (1U << 10)
 #define EHCI_PORT_PTC_SHIFT 3
 #define EHCI_PORT_PTC_MASK  (0x0fU << 3)
-/* Bits 26-27 are controller-specific on some implementations; do not use them
- * to infer speed on a standards-compliant EHCI controller. */
+/*
+ * Bits 26-27 are controller-specific on some implementations; do not use them
+ * to infer speed on a standards-compliant EHCI controller.
+ */
 #define EHCI_PORT_CSC         (1U << 17)
 #define EHCI_PORT_PEC         (1U << 18)
 #define EHCI_PORT_CHANGE_BITS (EHCI_PORT_CSC | EHCI_PORT_PEC)
@@ -172,4 +174,4 @@ typedef struct __attribute__((packed, aligned(32))) {
 
 #define EHCI_FRAME_LIST_SIZE 1024
 
-#endif /* INCLUDE_EHCI_H_ */
+#endif // INCLUDE_EHCI_H_
