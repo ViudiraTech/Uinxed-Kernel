@@ -61,7 +61,7 @@
 #define O_CLOEXEC   0x80000
 #define O_PATH      0x200000
 /* Linux __O_TMPFILE is O_DIRECTORY | (1 << 22). */
-#define O_TMPFILE   0x410000
+#define O_TMPFILE 0x410000
 
 /* Lock types for F_SETLK/F_SETLKW */
 #define F_RDLCK 0

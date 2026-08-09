@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/char/tpm.h>
+#include <drivers/char/tpm/tpm.h>
 #include <drivers/core/device.h>
 #include <fs/virtual/devtmpfs.h>
 #include <kernel/errno.h>

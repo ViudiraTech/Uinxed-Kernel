@@ -11,7 +11,7 @@
 #ifndef INCLUDE_DRIVERS_INPUT_SYSFS_H_
 #define INCLUDE_DRIVERS_INPUT_SYSFS_H_
 
-#include <drivers/input/evdev.h>
+#include <drivers/input/evdev/evdev.h>
 
 void input_sysfs_init(void);
 int  input_sysfs_register_evdev(evdev_t *evdev);

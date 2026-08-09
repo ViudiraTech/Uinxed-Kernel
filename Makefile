@@ -432,19 +432,17 @@ HOST_CC        := $(CC)
 HOST_CFLAGS    := -Wall -Wextra -O2
 
 QEMU           := qemu-system-x86_64
-QEMU_FLAGS     := -machine q35 -m 2048 -smp 4 -bios assets/ovmf-code.fd -serial stdio -device virtio-gpu-pci
+QEMU_FLAGS     := -machine q35 -bios assets/ovmf-code.fd -serial stdio
 
 TOOL_C_SOURCES := $(wildcard tools/*.c)
 TOOL_TARGETS   := $(TOOL_C_SOURCES:%.c=%.elf)
-INITRAMFS      := assets/Limine/initramfs.cpio
-INITRAMFS_SCRIPT := tools/build-alpine-weston-initramfs.sh
 
 # If you want to get more details of `dump_stack`, you need to replace `-O3` with `-O0` or '-Os'.
 # `-fno-optimize-sibling-calls` is for `dump_stack` to work properly.
 CC_FLAGS       := -Wall -Wextra -Wno-unused-function -O3 -g3 -m64 -fpie -ffreestanding -fno-optimize-sibling-calls -fno-stack-protector -fno-omit-frame-pointer -mstackrealign -mno-red-zone -mno-sse -mno-sse2 -mno-mmx -mno-80387 -I include -MMD
 LD_FLAGS       := -nostdlib -pie -T assets/linker.ld -m elf_x86_64
 
-all: info Uinxed-x64.iso
+all: Uinxed-x64.iso
 
 info:
 	$(Q)printf "Uinxed Compiling Script - Apache License Version 2.0.\n\n"
@@ -469,25 +467,19 @@ UxImage: $(TOOL_TARGETS) $(OBJS) $(LIBS)
 	$(Q)printf "  LD      $@\n"
 	$(Q)$(LD) $(LD_FLAGS) -o $@ $(filter-out $(TOOL_TARGETS),$^)
 
-$(INITRAMFS): $(INITRAMFS_SCRIPT)
-	$(Q)printf "  INITRAMFS %s\n" "$@"
-	$(Q)bash "$(CURDIR)/$(INITRAMFS_SCRIPT)" --no-iso
-
-Uinxed-x64.iso: UxImage $(INITRAMFS) assets/Limine/Limine/limine.conf
+Uinxed-x64.iso: info UxImage
 	$(Q)printf "  XORRISO $@\n\n"
 	$(Q)cp -a assets/Limine iso
-	$(Q)cp UxImage iso/EFI/Boot
+	$(Q)cp $(word 2,$^) iso/EFI/Boot
 	$(Q)xorriso -as mkisofs -R -r -J -b Limine/limine-bios-cd.bin -no-emul-boot -boot-load-size 4 -boot-info-table \
                 -hfsplus -apm-block-size 2048 -efi-boot-part --efi-boot-image --protective-msdos-label \
                 --efi-boot Limine/limine-uefi-cd.bin -o $@ iso
 	$(Q)$(RM) -rf iso
-	$(Q)printf "Kernel: UxImage is ready.\n"
+	$(Q)printf "Kernel: $(word 2,$^) is ready.\n"
 	$(Q)printf "Image: $@ is ready.\n"
 	$(Q)printf "Compilation complete.\n"
 
-.PHONY: all info help run clean format check gen.clangd menuconfig initramfs
-
-initramfs: $(INITRAMFS)
+.PHONY: all info help run clean format check gen.clangd menuconfig
 
 help: info
 	$(Q)printf "Uinxed-Kernel Makefile Usage:\n"

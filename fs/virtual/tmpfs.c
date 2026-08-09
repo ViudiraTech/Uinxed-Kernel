@@ -442,8 +442,7 @@ static int64_t tmpfs_file_read_user(vfs_node_t node, void *private_data, uint64_
 {
     tmpfs_file_t *f = node->handle;
     if (!f) return -EINVAL;
-    if (f->device.file_read_user)
-        return f->device.file_read_user(f->device.ctx, private_data, flags, addr, offset, size, proc);
+    if (f->device.file_read_user) return f->device.file_read_user(f->device.ctx, private_data, flags, addr, offset, size, proc);
 
     uint8_t tmp[TMPFS_USER_IO_CHUNK];
     size_t  done = 0;
@@ -464,8 +463,7 @@ static int64_t tmpfs_file_write_user(vfs_node_t node, void *private_data, uint64
 {
     tmpfs_file_t *f = node->handle;
     if (!f) return -EINVAL;
-    if (f->device.file_write_user)
-        return f->device.file_write_user(f->device.ctx, private_data, flags, addr, offset, size, proc);
+    if (f->device.file_write_user) return f->device.file_write_user(f->device.ctx, private_data, flags, addr, offset, size, proc);
 
     if (!size) {
         uint8_t empty = 0;
@@ -513,36 +511,36 @@ static int tmpfs_file_ioctl(vfs_node_t node, void *private_data, uint64_t flags,
 }
 
 static struct vfs_callback tmpfs_callbacks = {
-    .mount        = tmpfs_mount,
-    .unmount      = tmpfs_umount,
-    .open         = (vfs_open_t)tmpfs_dummy,
-    .close        = (vfs_close_t)tmpfs_dummy,
-    .read         = tmpfs_read,
-    .write        = tmpfs_write,
-    .readlink     = (vfs_readlink_t)tmpfs_dummy,
-    .mkdir        = tmpfs_mkdir,
-    .mkfile       = tmpfs_mkfile,
-    .link         = tmpfs_link,
-    .symlink      = tmpfs_symlink,
-    .stat         = tmpfs_stat,
-    .ioctl        = tmpfs_ioctl,
-    .dup          = tmpfs_dup,
-    .poll         = tmpfs_poll,
-    .free         = tmpfs_free,
-    .delete       = tmpfs_delete,
-    .rename       = tmpfs_rename,
-    .file_open    = tmpfs_file_open,
-    .file_release = tmpfs_file_release,
+    .mount                 = tmpfs_mount,
+    .unmount               = tmpfs_umount,
+    .open                  = (vfs_open_t)tmpfs_dummy,
+    .close                 = (vfs_close_t)tmpfs_dummy,
+    .read                  = tmpfs_read,
+    .write                 = tmpfs_write,
+    .readlink              = (vfs_readlink_t)tmpfs_dummy,
+    .mkdir                 = tmpfs_mkdir,
+    .mkfile                = tmpfs_mkfile,
+    .link                  = tmpfs_link,
+    .symlink               = tmpfs_symlink,
+    .stat                  = tmpfs_stat,
+    .ioctl                 = tmpfs_ioctl,
+    .dup                   = tmpfs_dup,
+    .poll                  = tmpfs_poll,
+    .free                  = tmpfs_free,
+    .delete                = tmpfs_delete,
+    .rename                = tmpfs_rename,
+    .file_open             = tmpfs_file_open,
+    .file_release          = tmpfs_file_release,
     .file_descriptor_close = tmpfs_file_descriptor_close,
-    .file_mmap    = tmpfs_file_mmap,
-    .file_read    = tmpfs_file_read,
-    .file_write   = tmpfs_file_write,
-    .file_read_user  = tmpfs_file_read_user,
-    .file_write_user = tmpfs_file_write_user,
-    .file_ioctl   = tmpfs_file_ioctl,
-    .file_poll    = tmpfs_file_poll,
-    .file_poll_source = tmpfs_file_poll_source,
-    .resize       = tmpfs_resize,
+    .file_mmap             = tmpfs_file_mmap,
+    .file_read             = tmpfs_file_read,
+    .file_write            = tmpfs_file_write,
+    .file_read_user        = tmpfs_file_read_user,
+    .file_write_user       = tmpfs_file_write_user,
+    .file_ioctl            = tmpfs_file_ioctl,
+    .file_poll             = tmpfs_file_poll,
+    .file_poll_source      = tmpfs_file_poll_source,
+    .resize                = tmpfs_resize,
 };
 
 /* Register tmpfs with the VFS layer (initialize tmpfs) */

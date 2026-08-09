@@ -8,9 +8,9 @@
  *
  */
 
-#include <drivers/gpu/drm_device.h>
-#include <drivers/gpu/drm_idr.h>
-#include <drivers/gpu/drm_mode.h>
+#include <drivers/gpu/drm/drm_device.h>
+#include <drivers/gpu/drm/drm_idr.h>
+#include <drivers/gpu/drm/drm_mode.h>
 #include <kernel/errno.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

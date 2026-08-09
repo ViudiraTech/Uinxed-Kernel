@@ -8,9 +8,9 @@
  *
  */
 
-#include <drivers/gpu/drm_device.h>
-#include <drivers/gpu/drm_idr.h>
-#include <drivers/gpu/drm_mode.h>
+#include <drivers/gpu/drm/drm_device.h>
+#include <drivers/gpu/drm/drm_idr.h>
+#include <drivers/gpu/drm/drm_mode.h>
 #include <kernel/errno.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -366,7 +366,7 @@ int drm_mode_createblob_ioctl(struct drm_device *dev, void *data, struct drm_fil
 /* A blob may only be destroyed by the file which created it. */
 int drm_mode_destroyblob_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
-    struct drm_mode_destroy_blob *req = data;
+    struct drm_mode_destroy_blob *req  = data;
     struct drm_property_blob     *blob = NULL;
     ilist_node_t                 *node;
 

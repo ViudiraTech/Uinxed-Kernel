@@ -22,21 +22,6 @@ The project aims to build a practical, self-contained kernel with modern design 
 
 > **Current status:** The current development image boots Alpine Linux 3.24 on x86-64 and can bring up the Weston (Wayland) desktop with a working terminal. The PS/2 keyboard/mouse path, evdev consumers, poll/epoll wakeups, and the EEVDF scheduler are under active validation. This remains an experimental kernel; GPU, VirtIO, audio, and parts of the Linux-compatible ABI may still be incomplete.
 
-## Weston Desktop Showcase
-
-The screenshot below shows Alpine Linux running on Uinxed-Kernel with Weston and a Wayland terminal. It also shows the kernel and userspace information reported by `fastfetch`.
-
-<div align="center">
-  <img src="WESTON.png" alt="Weston desktop running on Uinxed-Kernel" width="950"/>
-  <p><em>Alpine Linux 3.24 running Weston (Wayland) on Uinxed-Kernel.</em></p>
-</div>
-
-The current desktop bring-up focuses on keeping the complete input and display path responsive:
-
-- PS/2 IRQs are translated into Linux-style `EV_KEY` / `EV_REL` / `SYN_REPORT` events.
-- evdev clients receive independent queued frames and readiness notifications through the normal VFS poll/epoll path.
-- EEVDF runqueue accounting is rebased correctly, with desktop-oriented timer and latency settings.
-
 ## Core Features
 
 ### Scheduling & Process Management

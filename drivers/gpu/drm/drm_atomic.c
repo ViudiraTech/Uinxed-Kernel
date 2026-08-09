@@ -8,11 +8,11 @@
  *
  */
 
-#include <drivers/gpu/drm_device.h>
-#include <drivers/gpu/drm_idr.h>
-#include <drivers/gpu/drm_mode.h>
-#include <drivers/gpu/drm_modeset_lock.h>
-#include <drivers/gpu/drm_print.h>
+#include <drivers/gpu/drm/drm_device.h>
+#include <drivers/gpu/drm/drm_idr.h>
+#include <drivers/gpu/drm/drm_mode.h>
+#include <drivers/gpu/drm/drm_modeset_lock.h>
+#include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -87,7 +87,7 @@ static void drm_atomic_state_default_clear(struct drm_atomic_state *state)
             struct drm_plane_state *new     = state->planes[i].new_state;
             free(current);
             if (old && old != current) free(old);
-            if (new && new != current && new != old) free(new);
+            if (new &&new != current &&new != old) free(new);
             state->planes[i].state = state->planes[i].old_state = state->planes[i].new_state = NULL;
         }
         free(state->planes);
@@ -103,7 +103,7 @@ static void drm_atomic_state_default_clear(struct drm_atomic_state *state)
             if (current && current->event) free(current->event);
             free(current);
             if (old && old != current) free(old);
-            if (new && new != current && new != old) free(new);
+            if (new &&new != current &&new != old) free(new);
             state->crtcs[i].state = state->crtcs[i].old_state = state->crtcs[i].new_state = NULL;
         }
         free(state->crtcs);
@@ -260,7 +260,7 @@ struct drm_connector_state *drm_atomic_get_connector_state(struct drm_atomic_sta
         struct drm_connector_state **new_states;
 
         new_connectors = malloc(sizeof(*new_connectors) * new_count); // NOLINT(bugprone-sizeof-expression)
-        new_states     = malloc(sizeof(*new_states) * new_count); // NOLINT(bugprone-sizeof-expression)
+        new_states     = malloc(sizeof(*new_states) * new_count);     // NOLINT(bugprone-sizeof-expression)
         if (!new_connectors || !new_states) {
             free(new_connectors);
             free(new_states);
@@ -693,9 +693,7 @@ int drm_atomic_nonblocking_commit(struct drm_atomic_state *state)
      * subsequent epoll_wait.  Complete it here so the flip event is queued
      * before the ioctl returns; epoll's initial level scan then observes it
      * even without depending on notification timing. */
-    if (state->dev->driver && (state->dev->driver->driver_features & DRIVER_SYNCHRONOUS_FLIP)) {
-        return drm_atomic_commit(state);
-    }
+    if (state->dev->driver && (state->dev->driver->driver_features & DRIVER_SYNCHRONOUS_FLIP)) { return drm_atomic_commit(state); }
 
     config    = &state->dev->mode_config;
     file_priv = state->file_priv;

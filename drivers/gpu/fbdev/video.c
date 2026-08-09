@@ -10,10 +10,10 @@
 
 #include <boot/limine.h>
 #include <chipset/common.h>
-#include <drivers/gpu/fbcon.h>
-#include <drivers/gpu/fbdev.h>
-#include <drivers/gpu/klogo.h>
-#include <drivers/gpu/video.h>
+#include <drivers/gpu/fbdev/fbcon.h>
+#include <drivers/gpu/fbdev/fbdev.h>
+#include <drivers/gpu/fbdev/klogo.h>
+#include <drivers/gpu/fbdev/video.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer.h>

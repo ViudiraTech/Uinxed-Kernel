@@ -34,8 +34,8 @@ typedef int64_t (*tmpfs_dev_file_read_t)(void *ctx, void *private_data, uint64_t
 typedef int64_t (*tmpfs_dev_file_write_t)(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
 typedef int64_t (*tmpfs_dev_file_read_user_t)(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size,
                                               struct process *proc);
-typedef int64_t (*tmpfs_dev_file_write_user_t)(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset,
-                                               size_t size, struct process *proc);
+typedef int64_t (*tmpfs_dev_file_write_user_t)(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size,
+                                               struct process *proc);
 typedef int (*tmpfs_dev_file_poll_t)(void *ctx, void *private_data, uint64_t flags, size_t events);
 typedef vfs_poll_source_t *(*tmpfs_dev_file_poll_source_t)(void *ctx, void *private_data);
 typedef int (*tmpfs_dev_file_ioctl_t)(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg);
@@ -43,23 +43,23 @@ typedef void (*tmpfs_dev_destroy_t)(void *ctx);
 
 /* Device operations used to turn a tmpfs node into a device-backed file. */
 typedef struct {
-        tmpfs_dev_read_t       read;
-        tmpfs_dev_write_t      write;
-        tmpfs_dev_poll_t       poll;
-        tmpfs_dev_ioctl_t      ioctl;
-        tmpfs_dev_open_t       open;    /* per-open-instance allocation */
-        tmpfs_dev_release_t    release; /* per-open-instance teardown */
+        tmpfs_dev_read_t             read;
+        tmpfs_dev_write_t            write;
+        tmpfs_dev_poll_t             poll;
+        tmpfs_dev_ioctl_t            ioctl;
+        tmpfs_dev_open_t             open;             /* per-open-instance allocation */
+        tmpfs_dev_release_t          release;          /* per-open-instance teardown */
         tmpfs_dev_descriptor_close_t descriptor_close; /* last fd/dup closed */
-        tmpfs_dev_mmap_t       mmap;    /* per-open-instance mmap (GEM, etc.) */
-        tmpfs_dev_file_read_t  file_read;
-        tmpfs_dev_file_write_t file_write;
-        tmpfs_dev_file_read_user_t  file_read_user;
-        tmpfs_dev_file_write_user_t file_write_user;
-        tmpfs_dev_file_poll_t  file_poll;
+        tmpfs_dev_mmap_t             mmap;             /* per-open-instance mmap (GEM, etc.) */
+        tmpfs_dev_file_read_t        file_read;
+        tmpfs_dev_file_write_t       file_write;
+        tmpfs_dev_file_read_user_t   file_read_user;
+        tmpfs_dev_file_write_user_t  file_write_user;
+        tmpfs_dev_file_poll_t        file_poll;
         tmpfs_dev_file_poll_source_t file_poll_source;
-        tmpfs_dev_file_ioctl_t file_ioctl;
-        tmpfs_dev_destroy_t    destroy; /* final node teardown */
-        void                  *ctx;
+        tmpfs_dev_file_ioctl_t       file_ioctl;
+        tmpfs_dev_destroy_t          destroy; /* final node teardown */
+        void                        *ctx;
 } tmpfs_device_ops_t;
 
 enum tmpfs_type {

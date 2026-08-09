@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/input/ps2_keyboard.h>
+#include <drivers/input/ps2/ps2_keyboard.h>
 
 uint16_t ps2_keyboard_keycode_for_scancode(uint16_t scan)
 {

@@ -150,7 +150,7 @@ static int vma_remove_range(process_t *proc, uintptr_t start, uintptr_t end)
         right->next = vma->next;
         vma->end    = start;
         vma->next   = right;
-        prev = &vma->next;
+        prev        = &vma->next;
     }
     spin_unlock(&proc->mmap_lock);
     return 0;

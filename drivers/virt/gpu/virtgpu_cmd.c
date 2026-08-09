@@ -12,8 +12,8 @@
  *
  */
 
-#include <drivers/virt/virtgpu_drv.h>
-#include <drivers/virt/virtgpu_vq.h>
+#include <drivers/virt/gpu/virtgpu_drv.h>
+#include <drivers/virt/gpu/virtgpu_vq.h>
 #include <mem/alloc.h>
 
 /* ------------------------------------------------------------------ */

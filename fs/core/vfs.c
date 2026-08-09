@@ -356,10 +356,8 @@ static vfs_node_t vfs_child_append(vfs_node_t parent, const char *name, void *ha
 static vfs_node_t vfs_child_find(vfs_node_t parent, const char *name)
 {
     return clist_first(parent->child, data,
-                       !(((vfs_node_t)data)->flags
-                         & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING))
-                           && !(((vfs_node_t)data)->type & file_delete)
-                           && streq(name, ((vfs_node_t)data)->name));
+                       !(((vfs_node_t)data)->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING))
+                           && !(((vfs_node_t)data)->type & file_delete) && streq(name, ((vfs_node_t)data)->name));
 }
 
 /* Creation must also see entries which are not published yet.  Otherwise two
@@ -435,10 +433,8 @@ void set_rootdir(vfs_node_t node)
 vfs_node_t vfs_do_search(vfs_node_t dir, const char *name)
 {
     return clist_first(dir->child, data,
-                       !(((vfs_node_t)data)->flags
-                         & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING))
-                           && !(((vfs_node_t)data)->type & file_delete)
-                           && streq(name, ((vfs_node_t)data)->name));
+                       !(((vfs_node_t)data)->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING))
+                           && !(((vfs_node_t)data)->type & file_delete) && streq(name, ((vfs_node_t)data)->name));
 }
 
 /* Update a file or directory, ensuring it is open and ready */
@@ -652,9 +648,7 @@ int vfs_mkdir_mode(const char *name, uint16_t mode)
     if (status != EOK) return status;
 
     vfs_node_t node = vfs_reserve_child(parent, filename, &status);
-    if (!node) {
-        goto out;
-    }
+    if (!node) { goto out; }
     node->type        = file_dir;
     node->mode        = mode & 07777;
     node->permissions = node->mode;
@@ -694,9 +688,7 @@ int vfs_mkfile_mode(const char *name, uint16_t mode)
     if (status != EOK) return status;
 
     vfs_node_t node = vfs_reserve_child(parent, filename, &status);
-    if (!node) {
-        goto out;
-    }
+    if (!node) { goto out; }
     node->type        = file_none;
     node->mode        = mode & 07777;
     node->permissions = node->mode;
@@ -746,8 +738,7 @@ int vfs_readdir(vfs_node_t dir, size_t index, vfs_dirent_t *entry)
     size_t     visible = 0;
     for (clist_t list = dir->child; list; list = list->next) {
         vfs_node_t candidate = list->data;
-        if (!candidate
-            || (candidate->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING))
+        if (!candidate || (candidate->flags & (VFS_NODE_FINALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_INITIALIZING))
             || (candidate->type & file_delete))
             continue;
         if (visible++ == index) {
@@ -845,9 +836,7 @@ static int vfs_link_internal(const char *name, const char *target_name, bool fol
         goto out_link;
     }
     vfs_node_t node = vfs_reserve_child(parent, filename, &status);
-    if (!node) {
-        goto out_link;
-    }
+    if (!node) { goto out_link; }
     const char *callback_target = target_name;
     char        resolved_target[VFS_PATH_MAX];
     if (follow) {
@@ -896,9 +885,7 @@ int vfs_symlink(const char *name, const char *target_name)
     int        status = vfs_prepare_create(name, false, &path, &filename, &parent);
     if (status != EOK) return status;
     vfs_node_t node = vfs_reserve_child(parent, filename, &status);
-    if (!node) {
-        goto out;
-    }
+    if (!node) { goto out; }
     node->type        = file_symlink;
     node->mode        = 0777;
     node->permissions = 0777;
@@ -1394,14 +1381,13 @@ int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, cons
     return vfs_file_write_process(file, private_data, flags, addr, offset, size, process_current());
 }
 
-#define VFS_USER_IO_CHUNK 16384
+#    define VFS_USER_IO_CHUNK 16384
 
 /* Userspace I/O is carried through VFS instead of being unconditionally
  * bounced by the syscall layer.  Filesystems that understand user buffers
  * (pipes and no-copy devices) can consume them directly; all existing
  * callbacks retain their old semantics through this bounded fallback. */
-int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size,
-                                   process_t *proc)
+int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, process_t *proc)
 {
     if (!file || (!addr && size)) return -EINVAL;
     if (!user_range_ok(addr, size)) return -EFAULT;
@@ -1655,10 +1641,10 @@ void vfs_poll_source_subscribe(vfs_poll_source_t *source, vfs_poll_subscription_
 {
     if (!source || !subscription || !notify) return;
     spin_lock(&source->lock);
-    subscription->notify     = notify;
-    subscription->context    = context;
-    subscription->events     = events;
-    bool closed              = source->closed;
+    subscription->notify  = notify;
+    subscription->context = context;
+    subscription->events  = events;
+    bool closed           = source->closed;
     if (!closed) {
         subscription->next       = source->subscribers;
         subscription->subscribed = true;
@@ -1700,18 +1686,18 @@ void vfs_poll_source_close(vfs_poll_source_t *source, uint32_t events)
     if (!source) return;
 
     spin_lock(&source->lock);
-    source->closed                       = true;
+    source->closed                        = true;
     vfs_poll_subscription_t *subscription = source->subscribers;
-    source->subscribers                  = NULL;
+    source->subscribers                   = NULL;
     for (vfs_poll_subscription_t *sub = subscription; sub; sub = sub->next) sub->subscribed = false;
     spin_unlock(&source->lock);
 
     /* Close is one-shot.  Detach first so callbacks may safely unsubscribe
      * other sources, remove epoll items, and drop their file references. */
     while (subscription) {
-        vfs_poll_subscription_t *next = subscription->next;
-        uint32_t matched              = events & subscription->events;
-        subscription->next            = NULL;
+        vfs_poll_subscription_t *next    = subscription->next;
+        uint32_t                 matched = events & subscription->events;
+        subscription->next               = NULL;
         if (matched) subscription->notify(subscription, matched);
         subscription = next;
     }
@@ -1928,8 +1914,7 @@ int vfs_delete(vfs_node_t node)
 
     do_update(node);
     spin_lock(&vfs_namespace_lock);
-    if ((node->flags & (VFS_NODE_INITIALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_FINALIZING))
-        || (node->type & file_delete)) {
+    if ((node->flags & (VFS_NODE_INITIALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_FINALIZING)) || (node->type & file_delete)) {
         spin_unlock(&vfs_namespace_lock);
         return -ENOENT;
     }
@@ -1992,8 +1977,7 @@ int vfs_rename(vfs_node_t node, const char *new)
     }
 
     spin_lock(&vfs_namespace_lock);
-    if ((node->flags & (VFS_NODE_INITIALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_FINALIZING))
-        || (node->type & file_delete)) {
+    if ((node->flags & (VFS_NODE_INITIALIZING | VFS_NODE_UNLINKING | VFS_NODE_UNLINKED | VFS_NODE_FINALIZING)) || (node->type & file_delete)) {
         spin_unlock(&vfs_namespace_lock);
         free(old);
         free(new_name);
@@ -2012,8 +1996,8 @@ int vfs_rename(vfs_node_t node, const char *new)
          * rely on the write-temp-then-rename pattern.  Treat two names for
          * the same inode as the POSIX no-op case, otherwise retain the
          * destination while it is removed below. */
-        bool same_inode = collision->handle == node->handle
-                          || (collision->fsid == node->fsid && collision->inode && collision->inode == node->inode);
+        bool same_inode
+            = collision->handle == node->handle || (collision->fsid == node->fsid && collision->inode && collision->inode == node->inode);
         if (same_inode) {
             spin_unlock(&vfs_namespace_lock);
             free(old);
@@ -2021,8 +2005,8 @@ int vfs_rename(vfs_node_t node, const char *new)
             return EOK;
         }
 
-        bool source_is_dir = (node->type & file_dir) != 0;
-        bool target_is_dir = (collision->type & file_dir) != 0;
+        bool source_is_dir   = (node->type & file_dir) != 0;
+        bool target_is_dir   = (collision->type & file_dir) != 0;
         int  collision_error = EOK;
         if (source_is_dir && !target_is_dir)
             collision_error = -ENOTDIR;
@@ -2069,7 +2053,7 @@ int vfs_rename(vfs_node_t node, const char *new)
 
     spin_lock(&vfs_namespace_lock);
     free(node->name);
-    node->name  = new_name;
+    node->name = new_name;
     node->flags &= ~VFS_NODE_INITIALIZING;
     if (node->parent) node->parent->visited = 0;
     spin_unlock(&vfs_namespace_lock);

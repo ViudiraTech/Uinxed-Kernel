@@ -8,10 +8,10 @@
  *
  */
 
-#include <drivers/gpu/drm.h>
-#include <drivers/gpu/drm_device.h>
-#include <drivers/gpu/drm_mode.h>
-#include <drivers/gpu/drm_print.h>
+#include <drivers/gpu/drm/drm.h>
+#include <drivers/gpu/drm/drm_device.h>
+#include <drivers/gpu/drm/drm_mode.h>
+#include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>

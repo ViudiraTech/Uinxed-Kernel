@@ -14,14 +14,14 @@
  *
  */
 
-#include <drivers/gpu/drm_fourcc.h>
-#include <drivers/gpu/drm_print.h>
-#include <drivers/gpu/video.h>
-#include <drivers/tty/tty.h>
-#include <drivers/virt/virtgpu_cmd.h>
-#include <drivers/virt/virtgpu_drv.h>
-#include <drivers/virt/virtgpu_gem.h>
-#include <drivers/virt/virtgpu_kms.h>
+#include <drivers/gpu/drm/drm_fourcc.h>
+#include <drivers/gpu/drm/drm_print.h>
+#include <drivers/gpu/fbdev/video.h>
+#include <drivers/tty/tty/tty.h>
+#include <drivers/virt/gpu/virtgpu_cmd.h>
+#include <drivers/virt/gpu/virtgpu_drv.h>
+#include <drivers/virt/gpu/virtgpu_gem.h>
+#include <drivers/virt/gpu/virtgpu_kms.h>
 #include <kernel/errno.h>
 #include <libs/std/stdlib.h>
 #include <mem/alloc.h>

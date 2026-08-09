@@ -401,7 +401,7 @@ int fpu_signal_restore(struct task *task, const void *state, size_t size)
     *(uint32_t *)((uint8_t *)task->thread.fpu_state + 24) &= mxcsr_mask;
 
     if (fpu_use_xsave) {
-        uint8_t  *header   = (uint8_t *)task->thread.fpu_state + 512;
+        uint8_t  *header    = (uint8_t *)task->thread.fpu_state + 512;
         uint64_t *xstate_bv = (uint64_t *)header;
         uint64_t *xcomp_bv  = (uint64_t *)(header + 8);
         *xstate_bv &= fpu_xstate_mask;
@@ -410,7 +410,7 @@ int fpu_signal_restore(struct task *task, const void *state, size_t size)
     }
 
     fpu_restore(task->thread.fpu_state);
-    fp->fpu_live                  = task;
+    fp->fpu_live                 = task;
     task->thread.fpu_initialized = 1;
     task->thread.fpu_active      = 1;
     fpu_restore_irq(if_enabled);

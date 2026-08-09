@@ -10,7 +10,7 @@
 
 #include <chipset/common.h>
 #include <drivers/firmware/acpi.h>
-#include <drivers/misc/apic.h>
+#include <drivers/firmware/apic.h>
 #include <drivers/pci/pci.h>
 #include <kernel/debug.h>
 #include <kernel/printk.h>

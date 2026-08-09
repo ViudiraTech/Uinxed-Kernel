@@ -9,18 +9,18 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/ata/ahci.h>
-#include <drivers/ata/atapi.h>
-#include <drivers/ata/ide.h>
+#include <drivers/ata/pata/atapi.h>
+#include <drivers/ata/pata/ide.h>
+#include <drivers/ata/sata/ahci.h>
 #include <drivers/block/blockdev.h>
 #include <drivers/block/partition.h>
 #include <drivers/core/device.h>
-#include <drivers/gpu/drm_init.h>
-#include <drivers/gpu/fbdev.h>
-#include <drivers/gpu/video.h>
-#include <drivers/input/evdev.h>
+#include <drivers/gpu/drm/drm_init.h>
+#include <drivers/gpu/fbdev/fbdev.h>
+#include <drivers/gpu/fbdev/video.h>
+#include <drivers/input/evdev/evdev.h>
 #include <drivers/nvme/nvme.h>
-#include <drivers/tty/tty.h>
+#include <drivers/tty/tty/tty.h>
 #include <fs/core/vfs.h>
 #include <fs/virtual/devtmpfs.h>
 #include <fs/virtual/tmpfs.h>
@@ -136,8 +136,8 @@ static int64_t devtmpfs_memory_write(void *context, void *private_data, uint64_t
     return device->kind == DEVTMPFS_MEM_FULL ? -ENOSPC : (int64_t)size;
 }
 
-static int64_t devtmpfs_memory_write_user(void *context, void *private_data, uint64_t flags, const void *buffer, size_t offset,
-                                          size_t size, struct process *proc)
+static int64_t devtmpfs_memory_write_user(void *context, void *private_data, uint64_t flags, const void *buffer, size_t offset, size_t size,
+                                          struct process *proc)
 {
     /* Linux's null iterator advances without fetching source bytes. */
     (void)proc;
@@ -560,10 +560,10 @@ static int devtmpfs_create_memory_nodes(void)
     int count = 0;
     for (size_t i = 0; i < sizeof(nodes) / sizeof(nodes[0]); i++) {
         tmpfs_device_ops_t ops = {
-            .file_read  = devtmpfs_memory_read,
-            .file_write = devtmpfs_memory_write,
+            .file_read       = devtmpfs_memory_read,
+            .file_write      = devtmpfs_memory_write,
             .file_write_user = devtmpfs_memory_write_user,
-            .ctx        = &devices[i],
+            .ctx             = &devices[i],
         };
         uint64_t devt = MKDEV(1, nodes[i].minor);
         if (devtmpfs_register_char_device(nodes[i].path, devt, devt, file_stream, &ops) != EOK) continue;

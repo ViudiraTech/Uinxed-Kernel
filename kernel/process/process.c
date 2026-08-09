@@ -11,7 +11,7 @@
 #include <arch/fpu.h>
 #include <arch/smp.h>
 #include <chipset/common.h>
-#include <drivers/tty/tty_core.h>
+#include <drivers/tty/tty/tty_core.h>
 #include <fs/core/inotify.h>
 #include <fs/core/vfs.h>
 #include <ipc/epoll.h>

@@ -278,7 +278,7 @@ static bool epoll_has_ready(epoll_instance_t *epi)
             continue;
         }
 
-        uint32_t pending = __atomic_load_n(&item->pending_events, __ATOMIC_ACQUIRE);
+        uint32_t pending  = __atomic_load_n(&item->pending_events, __ATOMIC_ACQUIRE);
         uint32_t observed = item->last_revents & ~pending;
         if (current & ~observed) return true;
     }
@@ -606,8 +606,8 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
 
     epoll_event_t   ev;
     int64_t         ret;
-    process_file_t *target  = NULL;
-    epoll_item_t   *release = NULL;
+    process_file_t *target        = NULL;
+    epoll_item_t   *release       = NULL;
     bool            publish_ready = false;
 
     if (op == EPOLL_CTL_ADD) {
@@ -638,7 +638,7 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
                 ret = -EEXIST;
                 break;
             }
-            target = NULL;
+            target             = NULL;
             item->event_source = vfs_file_poll_source(item->file->node, item->file->private_data);
             vfs_poll_source_subscribe(item->event_source, &item->subscription, UINT32_MAX, epoll_item_notify, item);
             vfs_poll_source_subscribe(&item->file->close_source, &item->close_subscription, UINT32_MAX, epoll_target_close, item);
@@ -766,8 +766,10 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
         wait_queue_prepare(&epi->wq);
         if (__atomic_load_n(&epi->event_generation, __ATOMIC_ACQUIRE) != generation) wait_queue_wake_all(&epi->wq);
         spin_unlock(&epi->lock);
-        if (deadline) (void)wait_queue_wait_timed(&epi->wq, deadline);
-        else wait_queue_sleep();
+        if (deadline)
+            (void)wait_queue_wait_timed(&epi->wq, deadline);
+        else
+            wait_queue_sleep();
         spin_lock(&epi->lock);
     }
 

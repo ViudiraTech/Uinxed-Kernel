@@ -8,10 +8,10 @@
  *
  */
 
-#include <drivers/usb/host/ehci.h>
+#include <drivers/usb/host/ehci/ehci.h>
 #include <drivers/usb/host/host.h>
-#include <drivers/usb/host/ohci.h>
-#include <drivers/usb/host/uhci.h>
+#include <drivers/usb/host/ohci/ohci.h>
+#include <drivers/usb/host/uhci/uhci.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>

@@ -207,8 +207,8 @@ void signal_exec_reset(process_t *proc)
     for (int i = 0; i < SIG_ACTION_NUM; i++) {
         sig_handler_t cur = state->sighand[i].sa_handler;
         if (cur != SIG_IGN) {
-            state->sighand[i].sa_handler = SIG_DFL;
-            state->sighand[i].sa_flags   = 0;
+            state->sighand[i].sa_handler  = SIG_DFL;
+            state->sighand[i].sa_flags    = 0;
             state->sighand[i].sa_restorer = 0;
             sigemptyset(&state->sighand[i].sa_mask);
         }
@@ -503,9 +503,7 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
     sigaction_t    *sa    = &state->sighand[sig];
 
     /* Check if signal is ignored */
-    if (sa->sa_handler == SIG_IGN) {
-        return SIG_DELIV_HANDLED;
-    }
+    if (sa->sa_handler == SIG_IGN) { return SIG_DELIV_HANDLED; }
 
     /* Check if signal is default */
     if (sa->sa_handler == SIG_DFL) {
@@ -532,8 +530,8 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
     /* SA_RESETHAND affects future deliveries.  Keep using the snapshot above
      * for the handler that is being installed on the user stack now. */
     if (action.sa_flags & SA_RESETHAND) {
-        sa->sa_handler = SIG_DFL;
-        sa->sa_flags   = 0;
+        sa->sa_handler  = SIG_DFL;
+        sa->sa_flags    = 0;
         sa->sa_restorer = 0;
         sigemptyset(&sa->sa_mask);
     }
@@ -794,9 +792,9 @@ void signal_notify_child_status(process_t *parent, int64_t child_pid, int status
 
     signal_state_t *state = &parent->signal;
     spin_lock(&state->lock);
-    sigaction_t *sa = &state->sighand[SIGCHLD];
-    bool      newly_pending = false;
-    siginfo_t info;
+    sigaction_t *sa            = &state->sighand[SIGCHLD];
+    bool         newly_pending = false;
+    siginfo_t    info;
     memset(&info, 0, sizeof(info));
     if (!(sa->sa_flags & SA_NOCLDSTOP)) {
         info.si_signo  = SIGCHLD;
@@ -1456,8 +1454,8 @@ int64_t do_rt_sigreturn(syscall_frame_t *frame)
 
     /* Never feed arbitrary selectors/non-canonical state to IRETQ: malformed
      * user frames must become SIGSEGV, not a kernel-mode #GP. */
-    if (sig_frame.cs != 0x33 || sig_frame.ss != 0x2b || !sig_frame.rip || sig_frame.rip >= PROCESS_USER_STACK_TOP
-        || !sig_frame.rsp || sig_frame.rsp >= PROCESS_USER_STACK_TOP)
+    if (sig_frame.cs != 0x33 || sig_frame.ss != 0x2b || !sig_frame.rip || sig_frame.rip >= PROCESS_USER_STACK_TOP || !sig_frame.rsp
+        || sig_frame.rsp >= PROCESS_USER_STACK_TOP)
         return -EINVAL;
 
     size_t expected_fpstate = fpu_signal_state_size();
@@ -1474,26 +1472,26 @@ int64_t do_rt_sigreturn(syscall_frame_t *frame)
     spin_unlock(&state->lock);
 
     /* Restore all saved registers */
-    frame->rax    = sig_frame.rax;
-    frame->rbx    = sig_frame.rbx;
-    frame->rcx    = sig_frame.rcx;
-    frame->rdx    = sig_frame.rdx;
-    frame->rsi    = sig_frame.rsi;
-    frame->rdi    = sig_frame.rdi;
-    frame->rbp    = sig_frame.rbp;
-    frame->r8     = sig_frame.r8;
-    frame->r9     = sig_frame.r9;
-    frame->r10    = sig_frame.r10;
-    frame->r11    = sig_frame.r11;
-    frame->r12    = sig_frame.r12;
-    frame->r13    = sig_frame.r13;
-    frame->r14    = sig_frame.r14;
-    frame->r15    = sig_frame.r15;
-    frame->rip    = sig_frame.rip;
+    frame->rax = sig_frame.rax;
+    frame->rbx = sig_frame.rbx;
+    frame->rcx = sig_frame.rcx;
+    frame->rdx = sig_frame.rdx;
+    frame->rsi = sig_frame.rsi;
+    frame->rdi = sig_frame.rdi;
+    frame->rbp = sig_frame.rbp;
+    frame->r8  = sig_frame.r8;
+    frame->r9  = sig_frame.r9;
+    frame->r10 = sig_frame.r10;
+    frame->r11 = sig_frame.r11;
+    frame->r12 = sig_frame.r12;
+    frame->r13 = sig_frame.r13;
+    frame->r14 = sig_frame.r14;
+    frame->r15 = sig_frame.r15;
+    frame->rip = sig_frame.rip;
     /* User-visible arithmetic/debug flags plus mandatory bit 1 and IF.
      * Clear IOPL, NT and VM so IRETQ cannot enter an invalid privilege state. */
-    const uint64_t user_rflags = (1ULL << 0) | (1ULL << 2) | (1ULL << 4) | (1ULL << 6) | (1ULL << 7) | (1ULL << 8)
-                                 | (1ULL << 9) | (1ULL << 10) | (1ULL << 11) | (1ULL << 16) | (1ULL << 18) | (1ULL << 21);
+    const uint64_t user_rflags = (1ULL << 0) | (1ULL << 2) | (1ULL << 4) | (1ULL << 6) | (1ULL << 7) | (1ULL << 8) | (1ULL << 9) | (1ULL << 10)
+                                 | (1ULL << 11) | (1ULL << 16) | (1ULL << 18) | (1ULL << 21);
     frame->rflags = (sig_frame.rflags & user_rflags) | (1ULL << 1) | (1ULL << 9);
     frame->rsp    = sig_frame.rsp;
     frame->cs     = 0x33;
@@ -1546,7 +1544,7 @@ int64_t sys_setsid(void)
 {
     process_t *proc = process_current();
     pid_t      sid;
-    int ret = process_setsid(proc, &sid);
+    int        ret = process_setsid(proc, &sid);
     return ret ? ret : (int64_t)sid;
 }
 

@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/gpu/drm_mm.h>
+#include <drivers/gpu/drm/drm_mm.h>
 #include <kernel/errno.h>
 #include <libs/data/rbtree.h>
 #include <libs/std/stdbool.h>

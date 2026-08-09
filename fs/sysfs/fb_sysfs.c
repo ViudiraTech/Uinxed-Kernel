@@ -9,7 +9,7 @@
  */
 
 #include <drivers/core/device.h>
-#include <drivers/gpu/video.h>
+#include <drivers/gpu/fbdev/video.h>
 #include <fs/sysfs/fb_sysfs.h>
 #include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>

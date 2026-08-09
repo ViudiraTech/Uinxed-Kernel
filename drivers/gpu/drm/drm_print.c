@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/gpu/drm_print.h>
+#include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stdarg.h>

@@ -13,10 +13,10 @@
 #endif
 
 #include <drivers/core/device.h>
-#include <drivers/gpu/drm_device.h>
-#include <drivers/gpu/drm_hashtab.h>
-#include <drivers/gpu/drm_init.h>
-#include <drivers/gpu/drm_print.h>
+#include <drivers/gpu/drm/drm_device.h>
+#include <drivers/gpu/drm/drm_hashtab.h>
+#include <drivers/gpu/drm/drm_init.h>
+#include <drivers/gpu/drm/drm_print.h>
 #include <fs/virtual/devtmpfs.h>
 #include <fs/virtual/tmpfs.h>
 #include <kernel/errno.h>
@@ -95,7 +95,7 @@ void drm_minor_free(int type, int index)
 }
 
 /* ------------------------------------------------------------------ */
-/* drm_master type is defined in <drivers/gpu/drm_device.h>           */
+/* drm_master type is defined in <drivers/gpu/drm/drm_device.h>           */
 /* ------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------ */

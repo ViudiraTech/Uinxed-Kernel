@@ -9,11 +9,11 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/gpu/fbcon.h>
-#include <drivers/gpu/klogo.h>
-#include <drivers/gpu/video.h>
-#include <drivers/gpu/vt_ansi.h>
-#include <drivers/tty/tty.h>
+#include <drivers/gpu/fbdev/fbcon.h>
+#include <drivers/gpu/fbdev/klogo.h>
+#include <drivers/gpu/fbdev/video.h>
+#include <drivers/gpu/fbdev/vt_ansi.h>
+#include <drivers/tty/tty/tty.h>
 #include <kernel/timer.h>
 #include <libs/gfxs/fonts.h>
 #include <libs/gfxs/gfx_proc.h>
@@ -560,9 +560,9 @@ void fbcon_init(void)
  */
 void fbcon_resize(void)
 {
-    uint32_t new_cw  = width ? (uint32_t)(width / font_width) : 80;
-    uint32_t new_ch  = height ? (uint32_t)((height + font_height - 1) / font_height) : 25;
-    bool     rebuilt = false;
+    uint32_t  new_cw   = width ? (uint32_t)(width / font_width) : 80;
+    uint32_t  new_ch   = height ? (uint32_t)((height + font_height - 1) / font_height) : 25;
+    bool      rebuilt  = false;
     char     *new_text = NULL, *old_text = NULL;
     uint32_t *new_color = NULL, *new_bg = NULL, *new_first = NULL, *new_last = NULL;
     uint32_t *old_color = NULL, *old_bg = NULL, *old_first = NULL, *old_last = NULL;
@@ -572,11 +572,11 @@ void fbcon_resize(void)
 
     if (new_cw != c_width || new_ch != c_height) {
         size_t cells = (size_t)new_cw * new_ch;
-        new_text  = malloc(cells);
-        new_color = malloc(cells * sizeof(*new_color));
-        new_bg    = malloc(cells * sizeof(*new_bg));
-        new_first = malloc((size_t)new_ch * sizeof(*new_first));
-        new_last  = malloc((size_t)new_ch * sizeof(*new_last));
+        new_text     = malloc(cells);
+        new_color    = malloc(cells * sizeof(*new_color));
+        new_bg       = malloc(cells * sizeof(*new_bg));
+        new_first    = malloc((size_t)new_ch * sizeof(*new_first));
+        new_last     = malloc((size_t)new_ch * sizeof(*new_last));
         if (new_text && new_color && new_bg && new_first && new_last) {
             memset(new_text, ' ', cells);
             for (size_t i = 0; i < cells; i++) {
@@ -593,21 +593,21 @@ void fbcon_resize(void)
             free(new_bg);
             free(new_first);
             free(new_last);
-            new_text = NULL;
+            new_text  = NULL;
             new_color = new_bg = new_first = new_last = NULL;
         }
     }
 
     spin_lock(&fbcon_lock);
     if (new_cw != c_width || new_ch != c_height) {
-        rebuilt = true;
-        old_text  = text_grid;
-        old_color = color_grid;
-        old_bg    = bg_grid;
-        old_first = dirty_first_col;
-        old_last  = dirty_last_col;
-        c_width  = new_cw;
-        c_height = new_ch;
+        rebuilt         = true;
+        old_text        = text_grid;
+        old_color       = color_grid;
+        old_bg          = bg_grid;
+        old_first       = dirty_first_col;
+        old_last        = dirty_last_col;
+        c_width         = new_cw;
+        c_height        = new_ch;
         text_grid       = new_text;
         color_grid      = new_color;
         bg_grid         = new_bg;

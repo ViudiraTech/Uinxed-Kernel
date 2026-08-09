@@ -411,8 +411,7 @@ static void dhcp_advance(dhcp_client_t *client, uint64_t now)
     }
     if ((client->state == DHCP_STATE_SELECTING || client->state == DHCP_STATE_REQUESTING) && now >= client->next_action) {
         if (client->retries >= DHCP_RETRY_LIMIT) {
-            plogk("dhcp: %s: no reply after %u attempts; suspended until the link changes.\n", client->device->name,
-                  (unsigned)DHCP_RETRY_LIMIT);
+            plogk("dhcp: %s: no reply after %u attempts; suspended until the link changes.\n", client->device->name, (unsigned)DHCP_RETRY_LIMIT);
             dhcp_clear_configuration(client);
             client->state       = DHCP_STATE_DORMANT;
             client->next_action = 0;

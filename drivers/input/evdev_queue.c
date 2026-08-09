@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/input/evdev_queue.h>
+#include <drivers/input/evdev/evdev_queue.h>
 #include <kernel/printk.h>
 
 static bool is_power_of_two(unsigned int value)

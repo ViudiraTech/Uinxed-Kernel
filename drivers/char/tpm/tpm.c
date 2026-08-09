@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/char/tpm.h>
+#include <drivers/char/tpm/tpm.h>
 #include <drivers/firmware/acpi.h>
 #include <kernel/printk.h>
 #include <libs/std/stdint.h>

@@ -8,9 +8,9 @@
  *
  */
 
-#include <drivers/ata/ahci.h>
-#include <drivers/ata/atapi.h>
-#include <drivers/ata/ide.h>
+#include <drivers/ata/pata/atapi.h>
+#include <drivers/ata/pata/ide.h>
+#include <drivers/ata/sata/ahci.h>
 #include <drivers/block/blockdev.h>
 #include <fs/core/vfs.h>
 #include <fs/isofs/isofs.h>

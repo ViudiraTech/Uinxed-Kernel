@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/input/ps2.h>
+#include <drivers/input/ps2/ps2.h>
 #include <kernel/printk.h>
 #include <proc/sched.h>
 #include <proc/sched_test.h>

@@ -606,9 +606,9 @@ static void socket_drop_rights(socket_t *sk)
     if (!sk) return;
     spin_lock(&sk->lock);
     while (sk->rights_count > 0 && count < SOCK_RIGHTS_MAX) {
-        files[count++] = sk->rights[sk->rights_head];
+        files[count++]              = sk->rights[sk->rights_head];
         sk->rights[sk->rights_head] = NULL;
-        sk->rights_head = (uint16_t)((sk->rights_head + 1U) % SOCK_RIGHTS_MAX);
+        sk->rights_head             = (uint16_t)((sk->rights_head + 1U) % SOCK_RIGHTS_MAX);
         sk->rights_count--;
     }
     sk->rights_head = sk->rights_tail = 0;
@@ -627,9 +627,9 @@ static size_t socket_take_rights(socket_t *sk, process_file_t **files, size_t ca
 
     spin_lock(&sk->lock);
     while (sk->rights_count > 0 && count < capacity) {
-        files[count++] = sk->rights[sk->rights_head];
+        files[count++]              = sk->rights[sk->rights_head];
         sk->rights[sk->rights_head] = NULL;
-        sk->rights_head = (uint16_t)((sk->rights_head + 1U) % SOCK_RIGHTS_MAX);
+        sk->rights_head             = (uint16_t)((sk->rights_head + 1U) % SOCK_RIGHTS_MAX);
         sk->rights_count--;
     }
     if (sk->rights_count == 0) sk->rights_head = sk->rights_tail = 0;
@@ -1229,7 +1229,7 @@ static int unix_stream_send_rights(socket_t *sk, const void *buf, size_t len, in
     if (total_written > 0) {
         for (size_t i = 0; i < rights_count; i++) {
             peer->rights[peer->rights_tail] = rights[i];
-            peer->rights_tail = (uint16_t)((peer->rights_tail + 1U) % SOCK_RIGHTS_MAX);
+            peer->rights_tail               = (uint16_t)((peer->rights_tail + 1U) % SOCK_RIGHTS_MAX);
             peer->rights_count++;
         }
     }
@@ -2446,8 +2446,8 @@ static void socket_release_rights(process_file_t **rights, size_t rights_count)
 static int socket_collect_rights(socket_t *sk, const msghdr_t *kmsg, process_file_t **rights, size_t *rights_count)
 {
     enum { CONTROL_MAX = 4096 };
-    uint8_t *control;
-    size_t   offset = 0;
+    uint8_t   *control;
+    size_t     offset = 0;
     process_t *proc;
 
     *rights_count = 0;
@@ -2580,9 +2580,9 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
 
 static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec_t *iov, void *kbuf, size_t total_len, int flags)
 {
-    int ret;
-    int msg_flags = 0;
-    int installed_rights[SOCK_RIGHTS_MAX];
+    int    ret;
+    int    msg_flags = 0;
+    int    installed_rights[SOCK_RIGHTS_MAX];
     size_t installed_rights_count = 0;
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
@@ -2751,14 +2751,14 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
      * references to the sender's open-file descriptions, not fresh opens of
      * the vnode; seatd relies on that to hand its DRM fd to Weston. */
     if (sk->type != SOCK_DGRAM) {
-        size_t control_capacity = kmsg->msg_controllen;
+        size_t  control_capacity = kmsg->msg_controllen;
         uint8_t control[CMSG_SPACE(SOCK_RIGHTS_MAX * sizeof(int)) + CMSG_SPACE(sizeof(ucred_t))];
         size_t  control_used = 0;
-        kmsg->msg_controllen    = 0;
+        kmsg->msg_controllen = 0;
         memset(control, 0, sizeof(control));
 
         process_file_t *received_rights[SOCK_RIGHTS_MAX];
-        size_t received_rights_count = 0;
+        size_t          received_rights_count = 0;
         if (ret > 0 && sk->type == SOCK_STREAM && !(flags & MSG_PEEK))
             received_rights_count = socket_take_rights(sk, received_rights, SOCK_RIGHTS_MAX);
 
@@ -2770,14 +2770,14 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
                 while (fit > 0 && CMSG_SPACE(fit * sizeof(int)) > control_capacity) fit--;
             }
 
-            int delivered_fds[SOCK_RIGHTS_MAX];
-            size_t delivered_count = 0;
-            process_t *proc = process_current();
+            int        delivered_fds[SOCK_RIGHTS_MAX];
+            size_t     delivered_count = 0;
+            process_t *proc            = process_current();
             for (size_t i = 0; i < received_rights_count; i++) {
                 if (i < fit && proc) {
                     int newfd = process_fd_install_file(proc, received_rights[i], (flags & MSG_CMSG_CLOEXEC) ? O_CLOEXEC : 0);
                     if (newfd >= 0) {
-                        delivered_fds[delivered_count++] = newfd;
+                        delivered_fds[delivered_count++]           = newfd;
                         installed_rights[installed_rights_count++] = newfd;
                     } else {
                         msg_flags |= MSG_CTRUNC;
@@ -2804,9 +2804,9 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
         int     has_peer;
         ucred_t credentials;
         spin_lock(&sk->lock);
-        socket_t *peer = sk->peer;
-        passcred       = sk->passcred;
-        has_peer       = peer != NULL;
+        socket_t *peer  = sk->peer;
+        passcred        = sk->passcred;
+        has_peer        = peer != NULL;
         credentials.pid = peer ? peer->pid : 0;
         credentials.uid = peer ? peer->uid : 0;
         credentials.gid = peer ? peer->gid : 0;
@@ -2814,8 +2814,8 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
 
         /* SO_PASSCRED applies to connected sockets too.  eudevd's
          * SOCK_SEQPACKET control channel requires this record. */
-        if (ret >= 0 && passcred && has_peer && kmsg->msg_control && control_capacity >= control_used &&
-            control_capacity - control_used >= CMSG_SPACE(sizeof(credentials))) {
+        if (ret >= 0 && passcred && has_peer && kmsg->msg_control && control_capacity >= control_used
+            && control_capacity - control_used >= CMSG_SPACE(sizeof(credentials))) {
             cmsghdr_t *cmsg  = (cmsghdr_t *)(control + control_used);
             cmsg->cmsg_len   = CMSG_LEN(sizeof(credentials));
             cmsg->cmsg_level = SOL_SOCKET;
@@ -2863,12 +2863,12 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
 
 int64_t sys_sendmsg(int fd, const msghdr_t *msg, int flags)
 {
-    socket_t *sk;
-    msghdr_t  kmsg;
-    iovec_t  *iov;
-    void     *kbuf;
-    size_t    total_len;
-    int64_t   ret;
+    socket_t       *sk;
+    msghdr_t        kmsg;
+    iovec_t        *iov;
+    void           *kbuf;
+    size_t          total_len;
+    int64_t         ret;
     process_file_t *rights[SOCK_RIGHTS_MAX];
     size_t          rights_count = 0;
 

@@ -13,7 +13,7 @@
 #include <arch/smp.h>
 #include <cgroup/cgroup.h>
 #include <chipset/common.h>
-#include <drivers/misc/apic.h>
+#include <drivers/firmware/apic.h>
 #include <kernel/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
@@ -333,7 +333,7 @@ static void place_entity(eevdf_rq_t *rq, task_t *task, int initial)
     if (rq->curr && rq->curr->state == TASK_RUNNING && rq->curr != rq->idle) load += rq->curr->weight;
     if (load) {
         uint64_t new_load = load + task->weight;
-        lag = task->vlag;
+        lag               = task->vlag;
         if (new_load > load) lag = lag * (int64_t)new_load / (int64_t)load;
 
         /* Sleeping credit/debt is bounded just as it is in Linux EEVDF.
@@ -1204,8 +1204,8 @@ void sched_tick(void)
 {
     if (!scheduler.started || !cpu_rqs) return;
 
-    uint32_t    cpu_id = get_current_cpu_id();
-    eevdf_rq_t *rq     = &cpu_rqs[cpu_id];
+    uint32_t    cpu_id   = get_current_cpu_id();
+    eevdf_rq_t *rq       = &cpu_rqs[cpu_id];
     task_t     *balanced = NULL;
     bool        preempt  = false;
 

@@ -52,8 +52,8 @@ static int copy_user_direct(void *dst, const void *src, size_t size, int nofault
 
     /* Preserve an outer fixup in case an interrupt handler performs uaccess
      * while a task was interrupted inside another user copy. */
-    uintptr_t old_resume  = task->uaccess_fault_resume;
-    uint8_t   old_nofault = task->uaccess_fault_nofault;
+    uintptr_t old_resume        = task->uaccess_fault_resume;
+    uint8_t   old_nofault       = task->uaccess_fault_nofault;
     task->uaccess_fault_nofault = nofault != 0;
     task->uaccess_fault_resume  = (uintptr_t)__uaccess_copy_fault;
     __asm__ volatile("" ::: "memory");

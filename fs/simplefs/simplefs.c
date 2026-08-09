@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/ata/ide.h>
+#include <drivers/ata/pata/ide.h>
 #include <drivers/block/blockdev.h>
 #include <fs/core/vfs.h>
 #include <fs/simplefs/simplefs.h>

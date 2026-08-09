@@ -26,8 +26,8 @@
  *
  */
 
-#include <drivers/gpu/drm_device.h>
-#include <drivers/gpu/drm_modeset_lock.h>
+#include <drivers/gpu/drm/drm_device.h>
+#include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <kernel/errno.h>
 #include <libs/glist/intrusive_list.h>
 #include <libs/std/stdbool.h>

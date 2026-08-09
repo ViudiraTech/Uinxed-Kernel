@@ -107,9 +107,9 @@ struct task {
         /* Active copy_{to,from}_user() exception fixup.  Keeping this in the
          * task (rather than a CPU global) makes it survive preemption and
          * keeps simultaneous uaccess operations on different CPUs separate. */
-        uintptr_t       uaccess_fault_resume;
-        uint8_t         uaccess_fault_nofault;
-        ptrace_state_t   ptrace;      /* Linux ptrace state is per-thread */
+        uintptr_t      uaccess_fault_resume;
+        uint8_t        uaccess_fault_nofault;
+        ptrace_state_t ptrace; /* Linux ptrace state is per-thread */
 };
 
 /* Initialize a wait queue */

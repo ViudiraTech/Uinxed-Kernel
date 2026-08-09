@@ -12,7 +12,7 @@
 #include <arch/smp.h>
 #include <cgroup/cgroup.h>
 #include <drivers/clocksource/tsc.h>
-#include <drivers/tty/tty_core.h>
+#include <drivers/tty/tty/tty_core.h>
 #include <fs/core/vfs.h>
 #include <fs/virtual/devtmpfs.h>
 #include <fs/virtual/procfs.h>
@@ -271,9 +271,9 @@ static void gen_info_stat(procfs_file_t *pf)
     if (remaining > 0) {
         uint64_t uptime_seconds = timer_monotonic_ns() / TIMER_NSEC_PER_SEC;
         int64_t  realtime       = timer_realtime_ns();
-        uint64_t boot_time      = realtime > 0 && (uint64_t)realtime / TIMER_NSEC_PER_SEC >= uptime_seconds
-                                      ? (uint64_t)realtime / TIMER_NSEC_PER_SEC - uptime_seconds
-                                      : 0;
+        uint64_t boot_time      = realtime > 0 && (uint64_t)realtime / TIMER_NSEC_PER_SEC >= uptime_seconds ?
+                                      (uint64_t)realtime / TIMER_NSEC_PER_SEC - uptime_seconds :
+                                      0;
         n = snprintf(p, remaining, "intr %llu\nctxt %llu\nbtime %llu\nprocesses %llu\nprocs_running %u\nprocs_blocked %u\n", 0ULL, 0ULL,
                      boot_time, scheduler.next_pid, cpu_rqs[0].nr_running + 1, 0U);
         p += n;
@@ -1071,8 +1071,8 @@ static void gen_pid_status(procfs_file_t *pf)
                      "voluntary_ctxt_switches:\t0\n"
                      "nonvoluntary_ctxt_switches:\t0\n",
                      proc->task->name, state_str, (uint64_t)pf->pid, (uint64_t)pf->pid, (uint64_t)ppid, (uint64_t)ptrace_tracer_pid(proc->task),
-                     proc->uid, proc->uid, proc->uid, proc->fsuid, proc->gid, proc->gid, proc->gid, proc->fsgid, 0U, 0U, vmsize / 1024, vmrss / 1024,
-                     vmdata / 1024, vmstack / 1024);
+                     proc->uid, proc->uid, proc->uid, proc->fsuid, proc->gid, proc->gid, proc->gid, proc->fsgid, 0U, 0U, vmsize / 1024,
+                     vmrss / 1024, vmdata / 1024, vmstack / 1024);
 
     pf->content  = buf;
     pf->size     = n < 0 ? 0 : (size_t)n;
@@ -2054,19 +2054,19 @@ static int procfs_stat(void *file, vfs_node_t node)
                     const char *name;
                     int         subtype;
             } pid_tab[] = {
-                {"status",    PROC_PID_STATUS   },
-                {"maps",      PROC_PID_MAPS     },
-                {"cmdline",   PROC_PID_CMDLINE  },
-                {"name",      PROC_PID_NAME     },
-                {"stat",      PROC_PID_STAT     },
-                {"mem",       PROC_PID_MEM      },
-                {"mounts",    PROC_PID_MOUNTS   },
-                {"mountinfo", PROC_PID_MOUNTINFO},
-                {"cgroup",    PROC_PID_CGROUP   },
-                {"comm",      PROC_PID_COMM     },
-                {"statm",     PROC_PID_STATM    },
-                {"limits",    PROC_PID_LIMITS   },
-                {"io",        PROC_PID_IO       },
+                {"status",        PROC_PID_STATUS       },
+                {"maps",          PROC_PID_MAPS         },
+                {"cmdline",       PROC_PID_CMDLINE      },
+                {"name",          PROC_PID_NAME         },
+                {"stat",          PROC_PID_STAT         },
+                {"mem",           PROC_PID_MEM          },
+                {"mounts",        PROC_PID_MOUNTS       },
+                {"mountinfo",     PROC_PID_MOUNTINFO    },
+                {"cgroup",        PROC_PID_CGROUP       },
+                {"comm",          PROC_PID_COMM         },
+                {"statm",         PROC_PID_STATM        },
+                {"limits",        PROC_PID_LIMITS       },
+                {"io",            PROC_PID_IO           },
                 {"oom_score_adj", PROC_PID_OOM_SCORE_ADJ},
             };
             for (size_t i = 0; i < sizeof(pid_tab) / sizeof(pid_tab[0]); i++)

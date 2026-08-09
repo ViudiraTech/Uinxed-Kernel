@@ -10,10 +10,10 @@
 
 #include <arch/smp.h>
 #include <boot/limine.h>
-#include <drivers/gpu/fbcon.h>
-#include <drivers/gpu/klogo.h>
-#include <drivers/gpu/video.h>
-#include <drivers/tty/tty.h>
+#include <drivers/gpu/fbdev/fbcon.h>
+#include <drivers/gpu/fbdev/klogo.h>
+#include <drivers/gpu/fbdev/video.h>
+#include <drivers/tty/tty/tty.h>
 #include <kernel/uinxed.h>
 #include <libs/gfxs/bmp.h>
 

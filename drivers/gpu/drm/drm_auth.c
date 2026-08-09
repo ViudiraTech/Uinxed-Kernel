@@ -8,10 +8,10 @@
  *
  */
 
-#include <drivers/gpu/drm.h>
-#include <drivers/gpu/drm_device.h>
-#include <drivers/gpu/drm_hashtab.h>
-#include <drivers/gpu/drm_print.h>
+#include <drivers/gpu/drm/drm.h>
+#include <drivers/gpu/drm/drm_device.h>
+#include <drivers/gpu/drm/drm_hashtab.h>
+#include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
@@ -21,7 +21,7 @@
 #include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */
-/* drm_master type is defined in <drivers/gpu/drm_device.h>           */
+/* drm_master type is defined in <drivers/gpu/drm/drm_device.h>           */
 /* ------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------ */

@@ -12,7 +12,7 @@
 #include <boot/limine.h>
 #include <chipset/common.h>
 #include <chipset/smbios.h>
-#include <drivers/tty/tty.h>
+#include <drivers/tty/tty/tty.h>
 #include <kernel/debug.h>
 #include <kernel/printk.h>
 #include <kernel/symbols.h>

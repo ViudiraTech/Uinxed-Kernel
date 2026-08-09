@@ -13,12 +13,12 @@
  */
 
 #include <drivers/core/device.h>
-#include <drivers/gpu/drm.h>
-#include <drivers/gpu/drm_device.h>
-#include <drivers/gpu/drm_fourcc.h>
-#include <drivers/gpu/drm_init.h>
-#include <drivers/gpu/drm_mode.h>
-#include <drivers/gpu/drm_print.h>
+#include <drivers/gpu/drm/drm.h>
+#include <drivers/gpu/drm/drm_device.h>
+#include <drivers/gpu/drm/drm_fourcc.h>
+#include <drivers/gpu/drm/drm_init.h>
+#include <drivers/gpu/drm/drm_mode.h>
+#include <drivers/gpu/drm/drm_print.h>
 #include <fs/core/vfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
@@ -481,7 +481,7 @@ int drm_dev_open(void *node_ptr, uint64_t flags, void **private_data)
      * source watched by Weston's epoll loop.  Event readiness itself remains
      * per-open and is checked through drm_poll(file, ...). */
     file->filp_unused = node;
-    *private_data = file;
+    *private_data     = file;
     return 0;
 }
 

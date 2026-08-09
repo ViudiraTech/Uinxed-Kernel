@@ -8,8 +8,8 @@
  *
  */
 
-#include <drivers/ata/ahci.h>
-#include <drivers/ata/ide.h>
+#include <drivers/ata/pata/ide.h>
+#include <drivers/ata/sata/ahci.h>
 #include <drivers/block/blockdev.h>
 #include <drivers/block/partition.h>
 #include <drivers/nvme/nvme.h>

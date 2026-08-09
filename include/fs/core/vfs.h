@@ -103,8 +103,8 @@ typedef int64_t (*vfs_file_read_cb_t)(vfs_node_t node, void *private_data, uint6
 typedef int64_t (*vfs_file_write_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
 typedef int64_t (*vfs_file_read_user_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size,
                                            struct process *proc);
-typedef int64_t (*vfs_file_write_user_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset,
-                                            size_t size, struct process *proc);
+typedef int64_t (*vfs_file_write_user_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size,
+                                            struct process *proc);
 typedef int (*vfs_file_ioctl_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, size_t req, void *arg);
 typedef int (*vfs_file_poll_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, size_t events);
 typedef vfs_poll_source_t *(*vfs_file_poll_source_cb_t)(vfs_node_t node, void *private_data);
@@ -133,38 +133,38 @@ enum {
 };
 
 typedef struct vfs_callback {
-        vfs_mount_t    mount;             // Mount the file system
-        vfs_umount_t   unmount;           // Unmount the file system (virtual file systems do not support unmounting)
-        vfs_open_t     open;              // Open a file handle
-        vfs_close_t    close;             // Close a file handle
-        vfs_read_t     read;              // Read a file
-        vfs_write_t    write;             // Write to a file
-        vfs_readlink_t readlink;          // Read a symbolic link
-        vfs_mk_t       mkdir;             // Create a folder
-        vfs_mk_t       mkfile;            // Create a file
-        vfs_mk_t       link;              // Create a hard link
-        vfs_mk_t       symlink;           // Create a symbolic link
-        vfs_stat_t     stat;              // Check file status information
-        vfs_ioctl_t    ioctl;             // I/O control interface (implemented only by special file systems such as devfs)
-        vfs_dup_t      dup;               // Copy file node
-        vfs_poll_t     poll;              // Polling file status (implemented only for special file systems such as devfs)
-        vfs_free_t     free;              // Release file handle
-        vfs_del_t delete;                 // Delete files or folders
-        vfs_rename_t        rename;       // Rename files or folders
-        vfs_mmap_t          mmap;         // Memory-map a device/file into the process address space
-        vfs_file_open_t     file_open;    // Per-open-instance allocation callback
-        vfs_file_release_t  file_release; // Per-open-instance teardown callback
+        vfs_mount_t    mount;                              // Mount the file system
+        vfs_umount_t   unmount;                            // Unmount the file system (virtual file systems do not support unmounting)
+        vfs_open_t     open;                               // Open a file handle
+        vfs_close_t    close;                              // Close a file handle
+        vfs_read_t     read;                               // Read a file
+        vfs_write_t    write;                              // Write to a file
+        vfs_readlink_t readlink;                           // Read a symbolic link
+        vfs_mk_t       mkdir;                              // Create a folder
+        vfs_mk_t       mkfile;                             // Create a file
+        vfs_mk_t       link;                               // Create a hard link
+        vfs_mk_t       symlink;                            // Create a symbolic link
+        vfs_stat_t     stat;                               // Check file status information
+        vfs_ioctl_t    ioctl;                              // I/O control interface (implemented only by special file systems such as devfs)
+        vfs_dup_t      dup;                                // Copy file node
+        vfs_poll_t     poll;                               // Polling file status (implemented only for special file systems such as devfs)
+        vfs_free_t     free;                               // Release file handle
+        vfs_del_t delete;                                  // Delete files or folders
+        vfs_rename_t                rename;                // Rename files or folders
+        vfs_mmap_t                  mmap;                  // Memory-map a device/file into the process address space
+        vfs_file_open_t             file_open;             // Per-open-instance allocation callback
+        vfs_file_release_t          file_release;          // Per-open-instance teardown callback
         vfs_file_descriptor_close_t file_descriptor_close; // Last descriptor closed
-        vfs_file_mmap_t     file_mmap;    // Per-open mmap callback (for GEM, etc.)
-        vfs_file_read_cb_t  file_read;    // Per-open read callback
-        vfs_file_write_cb_t file_write;   // Per-open write callback
-        vfs_file_read_user_cb_t  file_read_user;  // Direct userspace-buffer read callback
-        vfs_file_write_user_cb_t file_write_user; // Direct userspace-buffer write callback
-        vfs_file_ioctl_cb_t file_ioctl;   // Per-open ioctl callback
-        vfs_file_poll_cb_t  file_poll;    // Per-open poll callback
-        vfs_file_poll_source_cb_t file_poll_source; // Per-open readiness notification source
-        vfs_resize_t        resize;       // Change the persistent file size
-        vfs_sync_t          sync;         // Commit data and metadata to stable storage
+        vfs_file_mmap_t             file_mmap;             // Per-open mmap callback (for GEM, etc.)
+        vfs_file_read_cb_t          file_read;             // Per-open read callback
+        vfs_file_write_cb_t         file_write;            // Per-open write callback
+        vfs_file_read_user_cb_t     file_read_user;        // Direct userspace-buffer read callback
+        vfs_file_write_user_cb_t    file_write_user;       // Direct userspace-buffer write callback
+        vfs_file_ioctl_cb_t         file_ioctl;            // Per-open ioctl callback
+        vfs_file_poll_cb_t          file_poll;             // Per-open poll callback
+        vfs_file_poll_source_cb_t   file_poll_source;      // Per-open readiness notification source
+        vfs_resize_t                resize;                // Change the persistent file size
+        vfs_sync_t                  sync;                  // Commit data and metadata to stable storage
 } *vfs_callback_t;
 
 extern vfs_callback_t fs_callbacks[];
@@ -320,8 +320,7 @@ int  vfs_cache_mark_dirty_range(vfs_node_t file, uint64_t start, uint64_t end);
 /* Per-open operations, falling back to the legacy node callbacks. */
 int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
 int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
-int64_t vfs_file_read_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size,
-                              struct process *proc);
+int64_t vfs_file_read_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, struct process *proc);
 int64_t vfs_file_write_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size,
                                struct process *proc);
 int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size,
@@ -333,15 +332,15 @@ int     vfs_file_poll(vfs_node_t file, void *private_data, uint64_t flags, size_
 int     vfs_mount_is_readonly(vfs_node_t node);
 void    vfs_file_descriptor_close(vfs_node_t file, void *private_data);
 vfs_poll_source_t *vfs_file_poll_source(vfs_node_t file, void *private_data);
-void    vfs_poll_subscribe(vfs_node_t file, vfs_poll_subscription_t *subscription, uint32_t events, vfs_poll_notify_t notify, void *context);
-void    vfs_poll_unsubscribe(vfs_node_t file, vfs_poll_subscription_t *subscription);
-void    vfs_poll_notify(vfs_node_t file, uint32_t events);
-void    vfs_poll_source_init(vfs_poll_source_t *source);
-void    vfs_poll_source_subscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription, uint32_t events, vfs_poll_notify_t notify,
-                                  void *context);
-void    vfs_poll_source_unsubscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription);
-void    vfs_poll_source_notify(vfs_poll_source_t *source, uint32_t events);
-void    vfs_poll_source_close(vfs_poll_source_t *source, uint32_t events);
+void vfs_poll_subscribe(vfs_node_t file, vfs_poll_subscription_t *subscription, uint32_t events, vfs_poll_notify_t notify, void *context);
+void vfs_poll_unsubscribe(vfs_node_t file, vfs_poll_subscription_t *subscription);
+void vfs_poll_notify(vfs_node_t file, uint32_t events);
+void vfs_poll_source_init(vfs_poll_source_t *source);
+void vfs_poll_source_subscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription, uint32_t events, vfs_poll_notify_t notify,
+                               void *context);
+void vfs_poll_source_unsubscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription);
+void vfs_poll_source_notify(vfs_poll_source_t *source, uint32_t events);
+void vfs_poll_source_close(vfs_poll_source_t *source, uint32_t events);
 
 /* Close the file or directory node */
 int vfs_close(vfs_node_t node);

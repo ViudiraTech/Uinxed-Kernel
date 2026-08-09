@@ -7,10 +7,10 @@
  *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
-#include <drivers/input/evdev.h>
-#include <drivers/input/ps2.h>
-#include <drivers/input/ps2_keyboard.h>
-#include <drivers/tty/tty.h>
+#include <drivers/input/evdev/evdev.h>
+#include <drivers/input/ps2/ps2.h>
+#include <drivers/input/ps2/ps2_keyboard.h>
+#include <drivers/tty/tty/tty.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>

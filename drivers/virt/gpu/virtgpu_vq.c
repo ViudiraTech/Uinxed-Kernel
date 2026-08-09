@@ -13,17 +13,17 @@
  */
 
 #include <chipset/common.h>
-#include <drivers/virt/pci.h>
-#include <drivers/virt/virtgpu_drv.h>
-#include <drivers/virt/virtgpu_vq.h>
+#include <drivers/virt/gpu/virtgpu_drv.h>
+#include <drivers/virt/gpu/virtgpu_vq.h>
+#include <drivers/virt/pci/virtpci.h>
 #include <kernel/errno.h>
-#include <mem/alloc.h>
-#include <mem/frame.h>
-#include <mem/hhdm.h>
-#include <mem/heap.h>
-#include <mem/page.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
+#include <mem/alloc.h>
+#include <mem/frame.h>
+#include <mem/heap.h>
+#include <mem/hhdm.h>
+#include <mem/page.h>
 
 /* ------------------------------------------------------------------ */
 /* Virtqueue initialisation / teardown                                 */
@@ -120,12 +120,12 @@ static void virtgpu_mark_queues_broken(struct virtio_gpu_device *vgdev)
  */
 int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_command *commands, uint32_t count)
 {
-    struct vp_virtqueue *vq;
-    uint32_t             submitted = 0;
-    uint32_t             completed = 0;
-    uint32_t             timeout   = 0;
-    uint32_t             len;
-    int                  ret = 0;
+    struct vp_virtqueue        *vq;
+    uint32_t                    submitted = 0;
+    uint32_t                    completed = 0;
+    uint32_t                    timeout   = 0;
+    uint32_t                    len;
+    int                         ret = 0;
     struct virtgpu_dma_command *dma;
 
     if (!vgdev || !commands || count == 0) return -EINVAL;

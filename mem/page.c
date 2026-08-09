@@ -31,7 +31,7 @@
 
 page_directory_t  kernel_page_dir;
 page_directory_t *current_directory = 0;
-static void        page_enable_global_tlb(void);
+static void       page_enable_global_tlb(void);
 
 /*
  * GCC/Clang interrupt functions save only the registers selected by their
@@ -121,12 +121,12 @@ void page_fault_handle_frame(page_fault_frame_t *frame)
     __asm__ volatile("mov %%cr2, %0" : "=r"(faulting_address));
 
     uint64_t    error_code = frame->error_code;
-    uint64_t    present  = error_code & 0x1;  // Page exists, access violated protection
-    uint64_t    rw       = error_code & 0x2;  // Write access
-    uint64_t    us       = error_code & 0x4;  // Fault from user mode
-    uint64_t    reserved = error_code & 0x8;  // Reserved bits were set
-    uint64_t    id       = error_code & 0x10; // Instruction fetch
-    const char *pf_msg   = present ? "Protection" : "NotPresent";
+    uint64_t    present    = error_code & 0x1;  // Page exists, access violated protection
+    uint64_t    rw         = error_code & 0x2;  // Write access
+    uint64_t    us         = error_code & 0x4;  // Fault from user mode
+    uint64_t    reserved   = error_code & 0x8;  // Reserved bits were set
+    uint64_t    id         = error_code & 0x10; // Instruction fetch
+    const char *pf_msg     = present ? "Protection" : "NotPresent";
 
     if (reserved)
         pf_msg = "Reserved";
@@ -168,8 +168,8 @@ void page_fault_handle_frame(page_fault_frame_t *frame)
             info.si_code   = present ? SEGV_ACCERR : SEGV_MAPERR;
             info.si_addr   = (void *)faulting_address;
 
-            plogk("#PF (pid=%llu task=%s): addr=0x%016llx rip=0x%016llx rsp=0x%016llx cs=0x%llx err=0x%llx\n",
-                  proc->task->pid, proc->task->name, faulting_address, frame->rip, frame->rsp, frame->cs, error_code);
+            plogk("#PF (pid=%llu task=%s): addr=0x%016llx rip=0x%016llx rsp=0x%016llx cs=0x%llx err=0x%llx\n", proc->task->pid, proc->task->name,
+                  faulting_address, frame->rip, frame->rsp, frame->cs, error_code);
 
             /* A synchronous fault cannot be deferred.  If SIGSEGV is
              * blocked (normally because its handler faulted recursively) or
@@ -228,8 +228,8 @@ void page_fault_handle_frame(page_fault_frame_t *frame)
         return;
     }
 
-    panic("PAGE_FAULT-%s-Address: 0x%016llx RIP: 0x%016llx RSP: 0x%016llx error: 0x%llx", pf_msg, faulting_address, frame->rip,
-          frame->rsp, error_code);
+    panic("PAGE_FAULT-%s-Address: 0x%016llx RIP: 0x%016llx RSP: 0x%016llx error: 0x%llx", pf_msg, faulting_address, frame->rip, frame->rsp,
+          error_code);
 }
 
 /* Determine whether the page table entry maps a huge page */
@@ -391,8 +391,7 @@ static void mark_parent_table_cow(page_table_t *table, int level)
         page_table_entry_t *entry = &table->entries[i];
         uint64_t            value = __atomic_load_n(&entry->value, __ATOMIC_ACQUIRE);
         if (!(value & PTE_PRESENT)) {
-            if (level == 1 && swap_entry_is_swap(value))
-                __atomic_store_n(&entry->value, cow_leaf_value(value), __ATOMIC_RELEASE);
+            if (level == 1 && swap_entry_is_swap(value)) __atomic_store_n(&entry->value, cow_leaf_value(value), __ATOMIC_RELEASE);
             continue;
         }
         if (level == 1 || (value & PTE_HUGE)) {
@@ -436,8 +435,7 @@ int page_clone_user_cow(page_directory_t *child, page_directory_t *parent)
      * the child can run, so fork remains cheap without stale writable TLBs. */
     for (int i = 0; i < 256; i++) {
         uint64_t value = parent->table->entries[i].value;
-        if ((value & PTE_PRESENT) && !(value & PTE_HUGE))
-            mark_parent_table_cow(phys_to_virt(value & PAGE_4K_MASK), 3);
+        if ((value & PTE_PRESENT) && !(value & PTE_HUGE)) mark_parent_table_cow(phys_to_virt(value & PAGE_4K_MASK), 3);
     }
 
     spin_unlock(&child->lock);

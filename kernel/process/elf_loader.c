@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/tty/tty.h>
+#include <drivers/tty/tty/tty.h>
 #include <fs/core/vfs.h>
 #include <kernel/elf.h>
 #include <kernel/elf_loader.h>
@@ -89,8 +89,7 @@ int elf_loader_parse_elf_info(const uint8_t *data, size_t size, elf_load_info_t 
 }
 
 /* Return the relocated, page-aligned memory range of a PT_LOAD segment. */
-static int elf_segment_range(const Elf64_Phdr *segment, uintptr_t load_bias,
-                             uintptr_t *base_out, uintptr_t *start_out, uintptr_t *end_out)
+static int elf_segment_range(const Elf64_Phdr *segment, uintptr_t load_bias, uintptr_t *base_out, uintptr_t *start_out, uintptr_t *end_out)
 {
     if (segment->memsz == 0) return 0;
     if (segment->vaddr > UINT64_MAX - load_bias) return -1;
@@ -110,14 +109,14 @@ static int elf_segment_range(const Elf64_Phdr *segment, uintptr_t load_bias,
 }
 
 /* Return the permissions for one page covered by one or more PT_LOADs. */
-static int elf_page_attributes(const Elf64_Phdr *phdr, int phnum, uintptr_t load_bias,
-                               uintptr_t va, uint64_t *pte_flags_out, vm_flags_t *vm_flags_out)
+static int elf_page_attributes(const Elf64_Phdr *phdr, int phnum, uintptr_t load_bias, uintptr_t va, uint64_t *pte_flags_out,
+                               vm_flags_t *vm_flags_out)
 {
-    int covered = 0;
-    int readable = 0;
-    int writable = 0;
-    int executable = 0;
-    uintptr_t page_end = va + PAGE_4K_SIZE;
+    int       covered    = 0;
+    int       readable   = 0;
+    int       writable   = 0;
+    int       executable = 0;
+    uintptr_t page_end   = va + PAGE_4K_SIZE;
 
     for (int i = 0; i < phnum; i++) {
         if (phdr[i].type != PT_LOAD || phdr[i].memsz == 0) continue;
@@ -144,7 +143,7 @@ static int elf_page_attributes(const Elf64_Phdr *phdr, int phnum, uintptr_t load
     if (executable) vm_flags |= VM_EXEC;
 
     *pte_flags_out = pte_flags;
-    *vm_flags_out = vm_flags;
+    *vm_flags_out  = vm_flags;
     return 1;
 }
 
@@ -158,9 +157,9 @@ static int insert_elf_vma(process_t *proc, uintptr_t start, uintptr_t end, vm_fl
         return 1;
     }
     vma->start = start;
-    vma->end = end;
+    vma->end   = end;
     vma->flags = flags;
-    vma->type = VM_REGION_MMAP;
+    vma->type  = VM_REGION_MMAP;
     if (vm_area_insert(proc, vma)) {
         plogk("elf_loader: PT_LOAD VMA insert failed at %p\n", (void *)start);
         free(vma);
@@ -171,21 +170,20 @@ static int insert_elf_vma(process_t *proc, uintptr_t start, uintptr_t end, vm_fl
 
 static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr, const uint8_t *data, size_t elf_size, uintptr_t load_bias, int set_brk)
 {
-    const Elf64_Phdr *phdr = (const Elf64_Phdr *)(data + ehdr->e_phoff);
-    uintptr_t lowest_start = UINT64_MAX;
-    uintptr_t highest_end = 0;
+    const Elf64_Phdr *phdr         = (const Elf64_Phdr *)(data + ehdr->e_phoff);
+    uintptr_t         lowest_start = UINT64_MAX;
+    uintptr_t         highest_end  = 0;
 
     for (int i = 0; i < ehdr->e_phnum; i++) {
         if (phdr[i].type != PT_LOAD) continue;
         if (phdr[i].filesz > phdr[i].memsz) return 1;
         if (phdr[i].offset > elf_size || phdr[i].filesz > elf_size - phdr[i].offset) return 1;
         if (phdr[i].align > 1
-            && ((phdr[i].align & (phdr[i].align - 1))
-                || (phdr[i].vaddr & (phdr[i].align - 1)) != (phdr[i].offset & (phdr[i].align - 1))))
+            && ((phdr[i].align & (phdr[i].align - 1)) || (phdr[i].vaddr & (phdr[i].align - 1)) != (phdr[i].offset & (phdr[i].align - 1))))
             return 1;
 
         uintptr_t seg_start, seg_end;
-        int range = elf_segment_range(&phdr[i], load_bias, NULL, &seg_start, &seg_end);
+        int       range = elf_segment_range(&phdr[i], load_bias, NULL, &seg_start, &seg_end);
         if (range < 0) return 1;
         if (range == 0) continue;
         if (seg_start < PROCESS_HEAP_START || seg_end > PROCESS_USER_STACK_TOP) return 1;
@@ -202,7 +200,7 @@ static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr, const uint
      * segment at a time incorrectly treats that normal layout as a collision.
      */
     for (uintptr_t va = lowest_start; va < highest_end; va += PAGE_4K_SIZE) {
-        uint64_t pte_flags;
+        uint64_t   pte_flags;
         vm_flags_t vm_flags;
         if (!elf_page_attributes(phdr, ehdr->e_phnum, load_bias, va, &pte_flags, &vm_flags)) continue;
         (void)vm_flags;
@@ -227,24 +225,24 @@ static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr, const uint
             uintptr_t base;
             if (elf_segment_range(&phdr[i], load_bias, &base, NULL, NULL) <= 0) continue;
             uintptr_t file_start = MAX(va, base);
-            uintptr_t file_end = MIN(va + PAGE_4K_SIZE, base + phdr[i].filesz);
+            uintptr_t file_end   = MIN(va + PAGE_4K_SIZE, base + phdr[i].filesz);
             if (file_start >= file_end) continue;
 
             uintptr_t file_delta = file_start - base;
             if (phdr[i].offset > elf_size || file_delta > elf_size - phdr[i].offset) return 1;
             uint64_t file_offset = phdr[i].offset + file_delta;
-            size_t copy_size = file_end - file_start;
+            size_t   copy_size   = file_end - file_start;
             if (copy_size > elf_size - file_offset) return 1;
             memcpy(page + (file_start - va), data + file_offset, copy_size);
         }
     }
 
     /* Build non-overlapping VMAs, merging pages with identical permissions. */
-    uintptr_t run_start = 0;
-    uintptr_t run_end = 0;
+    uintptr_t  run_start = 0;
+    uintptr_t  run_end   = 0;
     vm_flags_t run_flags = 0;
     for (uintptr_t va = lowest_start; va < highest_end; va += PAGE_4K_SIZE) {
-        uint64_t pte_flags;
+        uint64_t   pte_flags;
         vm_flags_t vm_flags;
         if (!elf_page_attributes(phdr, ehdr->e_phnum, load_bias, va, &pte_flags, &vm_flags)) {
             if (run_start && insert_elf_vma(proc, run_start, run_end, run_flags)) return 1;
@@ -255,12 +253,12 @@ static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr, const uint
 
         if (!run_start) {
             run_start = va;
-            run_end = va + PAGE_4K_SIZE;
+            run_end   = va + PAGE_4K_SIZE;
             run_flags = vm_flags;
         } else if (run_end != va || run_flags != vm_flags) {
             if (insert_elf_vma(proc, run_start, run_end, run_flags)) return 1;
             run_start = va;
-            run_end = va + PAGE_4K_SIZE;
+            run_end   = va + PAGE_4K_SIZE;
             run_flags = vm_flags;
         } else {
             run_end += PAGE_4K_SIZE;
@@ -738,8 +736,8 @@ int elf_loader_load_initial_path(process_t *proc, const char *path, char *const 
         return -EINVAL;
     }
 
-    size_t image_size = (size_t)node->size;
-    uint8_t *image = malloc(image_size);
+    size_t   image_size = (size_t)node->size;
+    uint8_t *image      = malloc(image_size);
     if (!image) {
         plogk("elf_loader: unable to allocate init image (%llu bytes)\n", (unsigned long long)image_size);
         vfs_close(node);
@@ -764,6 +762,8 @@ int elf_loader_load_initial_path(process_t *proc, const char *path, char *const 
         loaded += amount;
     }
     vfs_close(node);
+
+    plogk("elf_loader: init executable found: %s (%llu bytes)\n", path, (unsigned long long)image_size);
 
     int status = elf_loader_load_initial_process(proc, image, image_size, argv, envp);
     free(image);

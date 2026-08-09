@@ -12,9 +12,9 @@
 #include <chipset/common.h>
 #include <drivers/clocksource/tsc.h>
 #include <drivers/firmware/acpi.h>
-#include <drivers/gpu/drm_device.h>
-#include <drivers/misc/apic.h>
-#include <drivers/tty/tty.h>
+#include <drivers/firmware/apic.h>
+#include <drivers/gpu/drm/drm_device.h>
+#include <drivers/tty/tty/tty.h>
 #include <kernel/interrupt.h>
 #include <kernel/printk.h>
 #include <kernel/timer.h>
@@ -24,7 +24,7 @@
 #include <proc/sched.h>
 #include <syscall/timerfd.h>
 
-static int64_t timer_realtime_base_ns;
+static int64_t  timer_realtime_base_ns;
 static uint64_t net_timer_last_tick;
 
 uint64_t timer_monotonic_ns(void)

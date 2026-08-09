@@ -63,6 +63,6 @@ void syscall_init(void);
 void syscall_init_cpu(uint64_t kernel_gs_base);
 void syscall_entry(void);
 void syscall_return(void);
-int syscall_dispatch(syscall_frame_t *frame);
+int  syscall_dispatch(syscall_frame_t *frame);
 
 #endif // INCLUDE_SYSCALL_H_

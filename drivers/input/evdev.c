@@ -10,7 +10,7 @@
 
 #include <drivers/core/device.h>
 #include <drivers/firmware/acpi.h>
-#include <drivers/input/evdev.h>
+#include <drivers/input/evdev/evdev.h>
 #include <drivers/input/input_event.h>
 #include <fs/core/vfs.h>
 #include <fs/sysfs/input_sysfs.h>
@@ -1308,9 +1308,9 @@ uint64_t evdev_devt(const evdev_t *evdev)
 
 int evdev_publish_node(evdev_t *evdev)
 {
-    char                     path[32];
-    int                      result;
-    uint16_t                 node_type = file_stream;
+    char     path[32];
+    int      result;
+    uint16_t node_type = file_stream;
     /* Let poll/epoll users identify input fds without relying on the
      * pathname.  Relative-axis devices are mice/pointers; key-only devices
      * are keyboards. */
@@ -1320,15 +1320,15 @@ int evdev_publish_node(evdev_t *evdev)
         node_type |= file_keyboard;
 
     const tmpfs_device_ops_t ops = {
-        .open       = evdev_dev_open,
-        .release    = evdev_dev_release,
+        .open             = evdev_dev_open,
+        .release          = evdev_dev_release,
         .descriptor_close = evdev_dev_descriptor_close,
-        .file_read  = evdev_dev_read,
-        .file_write = evdev_dev_write,
-        .file_poll  = evdev_dev_poll,
+        .file_read        = evdev_dev_read,
+        .file_write       = evdev_dev_write,
+        .file_poll        = evdev_dev_poll,
         .file_poll_source = evdev_dev_poll_source,
-        .file_ioctl = evdev_dev_ioctl,
-        .ctx        = evdev,
+        .file_ioctl       = evdev_dev_ioctl,
+        .ctx              = evdev,
     };
 
     if (!evdev || !evdev->exist) return -ENODEV;

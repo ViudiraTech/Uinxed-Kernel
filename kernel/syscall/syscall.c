@@ -85,7 +85,7 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
 /* CLONE_DETACHED has been ignored by Linux since 2.6.2, but musl still sets
  * it in pthread_create().  Accepting it as a no-op is required for the Linux
  * clone ABI; rejecting it makes pthread_create return EINVAL. */
-#define CLONE_PTHREAD_ALLOWED                                                                                                            \
+#define CLONE_PTHREAD_ALLOWED \
     (CLONE_PTHREAD_REQUIRED | CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_DETACHED)
 
 #define AT_FDCWD              PROCESS_AT_FDCWD
@@ -4138,7 +4138,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
             free_string_array(kenvp);
             return -ENOMEM;
         }
-        total        = 0;
+        total = 0;
         while (total < node->size) {
             size_t remaining = node->size - total;
             size_t n         = vfs_read(node, elf_data + total, total, remaining);
@@ -4273,7 +4273,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
 
     uintptr_t entry = 0;
     uintptr_t rsp   = 0;
-    int ret = elf_loader_load_user_process(proc, elf_data, total, kargv, kenvp, &entry, &rsp);
+    int       ret   = elf_loader_load_user_process(proc, elf_data, total, kargv, kenvp, &entry, &rsp);
     free(elf_data);
     free_string_array(kargv);
     free_string_array(kenvp);
@@ -5227,10 +5227,10 @@ static inline int is_restart_code(int64_t ret)
 
 int syscall_dispatch(syscall_frame_t *frame)
 {
-    uint64_t num    = frame->rax;
-    int64_t  retval = 0;
+    uint64_t num           = frame->rax;
+    int64_t  retval        = 0;
     task_t  *dispatch_task = current_task();
-    bool     force_iret = dispatch_task && ptrace_tracer_pid(dispatch_task);
+    bool     force_iret    = dispatch_task && ptrace_tracer_pid(dispatch_task);
 
     if (dispatch_task && ptrace_tracer_pid(dispatch_task)) ptrace_syscall_enter(frame, num);
     num = frame->rax;
@@ -5278,8 +5278,8 @@ int syscall_dispatch(syscall_frame_t *frame)
             child->task->context.rsp = (uint64_t)kstack;
             process_fork_publish(child);
         }
-        retval                 = child ? (int64_t)child->task->pid : (int64_t)error;
-        frame->rax             = (uint64_t)retval;
+        retval     = child ? (int64_t)child->task->pid : (int64_t)error;
+        frame->rax = (uint64_t)retval;
         if (child) ptrace_fork_event(frame, event, child->task->pid);
         if (child && vfork) {
             process_vfork_wait(child);
@@ -5448,8 +5448,7 @@ check_signals:
     /* SYSRET is valid only for the ordinary 64-bit userspace selectors and
      * canonical lower-half addresses.  Full-context restoration paths use
      * IRETQ so RCX/R11 are restored instead of taking their syscall-ABI role. */
-    if (force_iret || frame->cs != 0x33 || frame->ss != 0x2b || frame->rip >= PROCESS_USER_STACK_TOP
-        || frame->rsp >= PROCESS_USER_STACK_TOP)
+    if (force_iret || frame->cs != 0x33 || frame->ss != 0x2b || frame->rip >= PROCESS_USER_STACK_TOP || frame->rsp >= PROCESS_USER_STACK_TOP)
         return 0;
     return 1;
 }

@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/gpu/video.h>
+#include <drivers/gpu/fbdev/video.h>
 #include <libs/gfxs/bmp.h>
 
 /* Parse bitmap images and draw them to the screen */

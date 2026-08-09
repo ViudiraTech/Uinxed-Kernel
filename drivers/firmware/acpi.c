@@ -10,7 +10,7 @@
 
 #include <boot/limine.h>
 #include <drivers/firmware/acpi.h>
-#include <drivers/misc/apic.h>
+#include <drivers/firmware/apic.h>
 #include <kernel/printk.h>
 #include <kernel/uinxed.h>
 #include <libs/std/stdint.h>

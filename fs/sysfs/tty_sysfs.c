@@ -9,7 +9,7 @@
  */
 
 #include <drivers/core/device.h>
-#include <drivers/tty/tty.h>
+#include <drivers/tty/tty/tty.h>
 #include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>

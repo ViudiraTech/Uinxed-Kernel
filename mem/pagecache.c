@@ -198,9 +198,7 @@ static pagecache_page_t *pc_find_locked(pagecache_mapping_t *mapping, uint64_t i
  * Growth is best-effort: allocation failure only keeps the old valid table. */
 static void pc_grow_hash_locked(pagecache_mapping_t *mapping)
 {
-    if (mapping->bucket_count >= PAGECACHE_HASH_MAX_SIZE
-        || mapping->pages < mapping->bucket_count * PAGECACHE_HASH_LOAD)
-        return;
+    if (mapping->bucket_count >= PAGECACHE_HASH_MAX_SIZE || mapping->pages < mapping->bucket_count * PAGECACHE_HASH_LOAD) return;
 
     size_t new_count = mapping->bucket_count << 1;
     if (new_count > PAGECACHE_HASH_MAX_SIZE) new_count = PAGECACHE_HASH_MAX_SIZE;
@@ -338,13 +336,13 @@ pagecache_mapping_t *pagecache_mapping_create(void *context, const pagecache_ops
     if (!ops || !ops->read || !__atomic_load_n(&pagecache.initialized, __ATOMIC_ACQUIRE)) return NULL;
     pagecache_mapping_t *mapping = calloc(1, sizeof(*mapping));
     if (!mapping) return NULL;
-    mapping->context    = context;
-    mapping->ops        = *ops;
-    mapping->buckets    = mapping->inline_buckets;
+    mapping->context      = context;
+    mapping->ops          = *ops;
+    mapping->buckets      = mapping->inline_buckets;
     mapping->bucket_count = PAGECACHE_HASH_MIN_SIZE;
-    mapping->size       = size;
-    mapping->flags      = flags;
-    mapping->references = 1;
+    mapping->size         = size;
+    mapping->flags        = flags;
+    mapping->references   = 1;
     pc_lock(&pagecache.lock);
     mapping->global_next = pagecache.mappings;
     if (pagecache.mappings) pagecache.mappings->global_prev = mapping;
@@ -517,8 +515,7 @@ static void pc_adaptive_readahead(pagecache_mapping_t *mapping, uint64_t first, 
     uint32_t prefetch_count = 0;
 
     pc_lock(&mapping->lock);
-    int sequential = mapping->readahead_valid && mapping->readahead_last != UINT64_MAX
-                     && first == mapping->readahead_last + 1;
+    int sequential = mapping->readahead_valid && mapping->readahead_last != UINT64_MAX && first == mapping->readahead_last + 1;
     if (!sequential) {
         mapping->readahead_window = 1;
         mapping->readahead_end    = last;

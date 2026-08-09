@@ -425,8 +425,7 @@ static int64_t pipe_file_read(vfs_node_t node, void *private_data, uint64_t flag
     return pipe_read_common(node, endpoint->ring, flags, addr, size);
 }
 
-static int64_t pipe_file_read_user(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size,
-                                   process_t *proc)
+static int64_t pipe_file_read_user(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, process_t *proc)
 {
     (void)offset;
     pipe_endpoint_t *endpoint = private_data;
@@ -499,10 +498,9 @@ static int64_t pipe_write_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fl
             return total_written ? (int64_t)total_written : -EPIPE;
         }
 
-        size_t   remaining = size - total_written;
-        bool     atomic    = size <= PIPE_ATOMIC_SIZE;
-        uint32_t wake_threshold = atomic ? (uint32_t)remaining
-                                         : (uint32_t)(remaining < PIPE_ATOMIC_SIZE ? remaining : PIPE_ATOMIC_SIZE);
+        size_t   remaining      = size - total_written;
+        bool     atomic         = size <= PIPE_ATOMIC_SIZE;
+        uint32_t wake_threshold = atomic ? (uint32_t)remaining : (uint32_t)(remaining < PIPE_ATOMIC_SIZE ? remaining : PIPE_ATOMIC_SIZE);
 
         /* PIPE_BUF-sized writes remain atomic.  Larger writes may consume
          * whatever space is already available (including O_NONBLOCK partial
@@ -522,8 +520,7 @@ static int64_t pipe_write_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fl
                 spin_unlock(&ring->lock);
                 return total_written ? (int64_t)total_written : -EINTR;
             }
-            if (!ring->write_waiters || wake_threshold < ring->write_wake_threshold)
-                ring->write_wake_threshold = wake_threshold;
+            if (!ring->write_waiters || wake_threshold < ring->write_wake_threshold) ring->write_wake_threshold = wake_threshold;
             ring->write_waiters++;
             wait_queue_prepare(&ring->write_wq);
             spin_unlock(&ring->lock);
@@ -588,8 +585,7 @@ static int64_t pipe_file_write_user(vfs_node_t node, void *private_data, uint64_
 
         size_t   remaining      = size - total_written;
         bool     atomic         = size <= PIPE_ATOMIC_SIZE;
-        uint32_t wake_threshold = atomic ? (uint32_t)remaining
-                                         : (uint32_t)(remaining < PIPE_ATOMIC_SIZE ? remaining : PIPE_ATOMIC_SIZE);
+        uint32_t wake_threshold = atomic ? (uint32_t)remaining : (uint32_t)(remaining < PIPE_ATOMIC_SIZE ? remaining : PIPE_ATOMIC_SIZE);
 
         while (atomic ? pipe_ring_writable(ring) < (uint32_t)remaining : pipe_ring_writable(ring) == 0) {
             if (ring->closed || ring->readers == 0) {
@@ -605,8 +601,7 @@ static int64_t pipe_file_write_user(vfs_node_t node, void *private_data, uint64_
                 spin_unlock(&ring->lock);
                 return total_written ? (int64_t)total_written : -EINTR;
             }
-            if (!ring->write_waiters || wake_threshold < ring->write_wake_threshold)
-                ring->write_wake_threshold = wake_threshold;
+            if (!ring->write_waiters || wake_threshold < ring->write_wake_threshold) ring->write_wake_threshold = wake_threshold;
             ring->write_waiters++;
             wait_queue_prepare(&ring->write_wq);
             spin_unlock(&ring->lock);
@@ -616,13 +611,12 @@ static int64_t pipe_file_write_user(vfs_node_t node, void *private_data, uint64_
             if (!ring->write_waiters) ring->write_wake_threshold = 0;
         }
 
-        uint32_t writable = pipe_ring_writable(ring);
-        uint32_t chunk    = (uint32_t)(remaining < writable ? remaining : writable);
-        const uint8_t *src = (const uint8_t *)addr + total_written;
+        uint32_t       writable = pipe_ring_writable(ring);
+        uint32_t       chunk    = (uint32_t)(remaining < writable ? remaining : writable);
+        const uint8_t *src      = (const uint8_t *)addr + total_written;
         if (pipe_ring_copy_in_user(ring, proc, src, chunk)) {
             spin_unlock(&ring->lock);
-            if (!user_access_ok_process(proc, src, chunk, 0))
-                return total_written ? (int64_t)total_written : -EFAULT;
+            if (!user_access_ok_process(proc, src, chunk, 0)) return total_written ? (int64_t)total_written : -EFAULT;
             continue;
         }
 
@@ -1049,31 +1043,31 @@ void pipe_init(void)
         return;
     }
 
-    cb->mount        = pipe_stub_mount;
-    cb->unmount      = pipe_stub_unmount;
-    cb->open         = pipe_vfs_open;
-    cb->close        = pipe_vfs_close;
-    cb->read         = pipe_vfs_read;
-    cb->write        = pipe_vfs_write;
-    cb->readlink     = pipe_stub_readlink;
-    cb->mkdir        = pipe_stub_mk;
-    cb->mkfile       = pipe_stub_mk;
-    cb->link         = pipe_stub_mk;
-    cb->symlink      = pipe_stub_mk;
-    cb->stat         = pipe_vfs_stat;
-    cb->ioctl        = pipe_stub_ioctl;
-    cb->dup          = pipe_stub_dup;
-    cb->poll         = pipe_vfs_poll;
-    cb->free         = pipe_vfs_free;
-    cb->delete       = pipe_stub_del;
-    cb->rename       = pipe_stub_rename;
-    cb->file_open    = pipe_file_open;
-    cb->file_release = pipe_file_release;
-    cb->file_read    = pipe_file_read;
-    cb->file_write   = pipe_file_write;
+    cb->mount           = pipe_stub_mount;
+    cb->unmount         = pipe_stub_unmount;
+    cb->open            = pipe_vfs_open;
+    cb->close           = pipe_vfs_close;
+    cb->read            = pipe_vfs_read;
+    cb->write           = pipe_vfs_write;
+    cb->readlink        = pipe_stub_readlink;
+    cb->mkdir           = pipe_stub_mk;
+    cb->mkfile          = pipe_stub_mk;
+    cb->link            = pipe_stub_mk;
+    cb->symlink         = pipe_stub_mk;
+    cb->stat            = pipe_vfs_stat;
+    cb->ioctl           = pipe_stub_ioctl;
+    cb->dup             = pipe_stub_dup;
+    cb->poll            = pipe_vfs_poll;
+    cb->free            = pipe_vfs_free;
+    cb->delete          = pipe_stub_del;
+    cb->rename          = pipe_stub_rename;
+    cb->file_open       = pipe_file_open;
+    cb->file_release    = pipe_file_release;
+    cb->file_read       = pipe_file_read;
+    cb->file_write      = pipe_file_write;
     cb->file_read_user  = pipe_file_read_user;
     cb->file_write_user = pipe_file_write_user;
-    cb->file_poll    = pipe_file_poll;
+    cb->file_poll       = pipe_file_poll;
 
     pipe_fsid = vfs_regist(cb);
     if (pipe_fsid < 0) {

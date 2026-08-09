@@ -188,7 +188,7 @@ typedef enum {
 #ifndef SOCK_BUF_SIZE
 #    define SOCK_BUF_SIZE 65536
 #endif
-#define SOCK_BUF_MAX 262144
+#define SOCK_BUF_MAX    262144
 #define SOCK_RIGHTS_MAX 64
 
 typedef struct sock_buf {
