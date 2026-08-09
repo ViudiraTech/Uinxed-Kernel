@@ -15,6 +15,7 @@
 #include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
@@ -32,7 +33,10 @@
  */
 static void drm_plane_create_zpos_property(struct drm_plane *plane, unsigned int zpos)
 {
-    if (!plane) { return; }
+    if (!plane) {
+        plogk("drm_blend: create_zpos_property with NULL plane.\n");
+        return;
+    }
 
     plane->zpos_property_default = zpos;
 }
@@ -47,7 +51,10 @@ static void drm_plane_create_zpos_property(struct drm_plane *plane, unsigned int
  */
 static int drm_plane_create_rotation_property(struct drm_plane *plane, unsigned int rotation)
 {
-    if (!plane) { return -EINVAL; }
+    if (!plane) {
+        plogk("drm_blend: rotation property with NULL plane.\n");
+        return -EINVAL;
+    }
 
     (void)rotation;
 
@@ -65,7 +72,10 @@ static int drm_plane_create_rotation_property(struct drm_plane *plane, unsigned 
  */
 static int drm_plane_create_blend_mode_property(struct drm_plane *plane, unsigned int blend_mode)
 {
-    if (!plane) { return -EINVAL; }
+    if (!plane) {
+        plogk("drm_blend: blend mode property with NULL plane.\n");
+        return -EINVAL;
+    }
 
     (void)blend_mode;
 
@@ -82,7 +92,10 @@ static int drm_plane_create_blend_mode_property(struct drm_plane *plane, unsigne
  */
 static int drm_plane_create_alpha_property(struct drm_plane *plane)
 {
-    if (!plane) { return -EINVAL; }
+    if (!plane) {
+        plogk("drm_blend: alpha property with NULL plane.\n");
+        return -EINVAL;
+    }
 
     /* MVP stub: property creation deferred to drm_property_create_range */
     return 0;

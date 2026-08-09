@@ -12,16 +12,16 @@
 #include <arch/smp.h>
 #include <cgroup/cgroup.h>
 #include <drivers/clocksource/tsc.h>
-#include <drivers/tty/tty/tty_core.h>
+#include <drivers/tty/tty_core.h>
 #include <fs/core/vfs.h>
 #include <fs/virtual/devtmpfs.h>
 #include <fs/virtual/procfs.h>
 #include <ipc/socket.h>
-#include <kernel/cmdline.h>
+#include <kernel/cmdline/cmdline.h>
 #include <kernel/errno.h>
-#include <kernel/module.h>
+#include <kernel/module/module.h>
 #include <kernel/printk.h>
-#include <kernel/timer.h>
+#include <kernel/timer/timer.h>
 #include <kernel/uinxed.h>
 #include <libs/std/stdarg.h>
 #include <libs/std/stddef.h>
@@ -35,7 +35,7 @@
 #include <mem/pagecache.h>
 #include <mem/swap.h>
 #include <net/abi/inet.h>
-#include <net/netdev.h>
+#include <net/core/netdev.h>
 #include <proc/process.h>
 #include <proc/sched.h>
 

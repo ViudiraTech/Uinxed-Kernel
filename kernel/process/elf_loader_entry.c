@@ -8,7 +8,7 @@
  *
  */
 
-#include <kernel/elf_loader.h>
+#include <proc/elf_loader.h>
 #include <libs/std/stdbool.h>
 #include <proc/process.h>
 

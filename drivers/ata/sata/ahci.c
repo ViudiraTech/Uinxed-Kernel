@@ -12,10 +12,10 @@
 #include <drivers/ata/sata/ahci.h>
 #include <drivers/ata/sata/satapi.h>
 #include <drivers/pci/pci.h>
-#include <kernel/debug.h>
+#include <kernel/debug/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <kernel/timer.h>
+#include <kernel/timer/timer.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>

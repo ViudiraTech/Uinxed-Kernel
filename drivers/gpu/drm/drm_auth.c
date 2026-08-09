@@ -13,6 +13,7 @@
 #include <drivers/gpu/drm/drm_hashtab.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -41,12 +42,18 @@ int drm_getmagic(struct drm_device *dev, void *data, struct drm_file *file_priv)
 
     (void)dev;
 
-    if (!data || !file_priv) { return -EINVAL; }
+    if (!data || !file_priv) {
+        plogk("drm: getmagic with invalid args.\n");
+        return -EINVAL;
+    }
 
     auth = (struct drm_auth *)data;
 
     item = malloc(sizeof(*item));
-    if (!item) { return -ENOMEM; }
+    if (!item) {
+        plogk("drm: failed to allocate magic item.\n");
+        return -ENOMEM;
+    }
     memset(item, 0, sizeof(*item));
 
     spin_lock(&file_priv->magic_lock);
@@ -54,6 +61,7 @@ int drm_getmagic(struct drm_device *dev, void *data, struct drm_file *file_priv)
     spin_unlock(&file_priv->magic_lock);
 
     if (drm_ht_insert_item(&file_priv->magiclist, item)) {
+        plogk("drm: failed to insert magic item.\n");
         free(item);
         return -ENOMEM;
     }
@@ -74,12 +82,16 @@ int drm_authmagic(struct drm_device *dev, void *data, struct drm_file *file_priv
 
     (void)dev;
 
-    if (!data || !file_priv) { return -EINVAL; }
+    if (!data || !file_priv) {
+        plogk("drm: authmagic with invalid args.\n");
+        return -EINVAL;
+    }
 
     auth = (struct drm_auth *)data;
 
     spin_lock(&file_priv->magic_lock);
     if (drm_ht_find_item(&file_priv->magiclist, (unsigned long)auth->magic, &item)) {
+        plogk("drm: magic %u not found.\n", auth->magic);
         spin_unlock(&file_priv->magic_lock);
         return -EINVAL;
     }
@@ -101,12 +113,21 @@ int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv
 
     (void)data;
 
-    if (!dev || !file_priv) { return -EINVAL; }
+    if (!dev || !file_priv) {
+        plogk("drm: setmaster with invalid args.\n");
+        return -EINVAL;
+    }
 
-    if (file_priv->master) { return -EINVAL; }
+    if (file_priv->master) {
+        plogk("drm: file already has a master.\n");
+        return -EINVAL;
+    }
 
     master = malloc(sizeof(*master));
-    if (!master) { return -ENOMEM; }
+    if (!master) {
+        plogk("drm: failed to allocate master.\n");
+        return -ENOMEM;
+    }
     memset(master, 0, sizeof(*master));
 
     master->dev      = dev;
@@ -115,6 +136,7 @@ int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv
     /* Spinlock zero-initialized by memset above. */
 
     if (drm_ht_create(&master->magiclist, 4)) {
+        plogk("drm: failed to create master magic table.\n");
         free(master);
         return -ENOMEM;
     }
@@ -137,10 +159,16 @@ int drm_dropmaster(struct drm_device *dev, void *data, struct drm_file *file_pri
     (void)dev;
     (void)data;
 
-    if (!file_priv) { return -EINVAL; }
+    if (!file_priv) {
+        plogk("drm: dropmaster with invalid args.\n");
+        return -EINVAL;
+    }
 
     master = file_priv->master;
-    if (!master) { return -EINVAL; }
+    if (!master) {
+        plogk("drm: no master to drop.\n");
+        return -EINVAL;
+    }
 
     drm_ht_destroy(&master->magiclist);
     free(master);

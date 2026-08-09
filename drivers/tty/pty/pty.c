@@ -10,7 +10,7 @@
 
 #include <drivers/core/device.h>
 #include <drivers/tty/pty/pty.h>
-#include <drivers/tty/tty/tty_core.h>
+#include <drivers/tty/tty_core.h>
 #include <fs/virtual/devtmpfs.h>
 #include <fs/virtual/tmpfs.h>
 #include <kernel/errno.h>

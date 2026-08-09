@@ -10,6 +10,7 @@
 
 #include <arch/fpu.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/data/gzip.h>
 #include <mem/alloc.h>
 #define DEFLATE_MAX_BITS    15
@@ -352,37 +353,65 @@ static int skip_zero_terminated_field(const uint8_t *input, size_t limit, size_t
 
 int gzip_decompress(const uint8_t *input, size_t input_size, uint8_t **output, size_t *output_size)
 {
-    if (!input || !output || !output_size || input_size < 18) return -EINVAL;
+    if (!input || !output || !output_size || input_size < 18) {
+        plogk("gzip: invalid arguments (input %p, output %p, output_size %p, size %zu)\n", input, output, output_size, input_size);
+        return -EINVAL;
+    }
     *output      = 0;
     *output_size = 0;
 
-    if (input[0] != 0x1f || input[1] != 0x8b || input[2] != 8 || (input[3] & 0xe0)) return -EINVAL;
+    if (input[0] != 0x1f || input[1] != 0x8b || input[2] != 8 || (input[3] & 0xe0)) {
+        plogk("gzip: bad magic/header (0x%02x 0x%02x 0x%02x, flags 0x%02x)\n", input[0], input[1], input[2], input[3]);
+        return -EINVAL;
+    }
 
     size_t  offset  = 10;
     size_t  trailer = input_size - 8;
     uint8_t flags   = input[3];
     if (flags & 0x04) {
-        if (offset + 2 > trailer) return -EINVAL;
+        if (offset + 2 > trailer) {
+            plogk("gzip: truncated extra field in header (offset %zu, trailer %zu)\n", offset, trailer);
+            return -EINVAL;
+        }
         size_t extra_size = (size_t)input[offset] | ((size_t)input[offset + 1] << 8);
         offset += 2;
-        if (extra_size > trailer - offset) return -EINVAL;
+        if (extra_size > trailer - offset) {
+            plogk("gzip: extra field size %zu exceeds header trailer.\n", extra_size);
+            return -EINVAL;
+        }
         offset += extra_size;
     }
-    if ((flags & 0x08) && skip_zero_terminated_field(input, trailer, &offset) != EOK) return -EINVAL;
-    if ((flags & 0x10) && skip_zero_terminated_field(input, trailer, &offset) != EOK) return -EINVAL;
+    if ((flags & 0x08) && skip_zero_terminated_field(input, trailer, &offset) != EOK) {
+        plogk("gzip: unterminated file name field in header (offset %zu, trailer %zu)\n", offset, trailer);
+        return -EINVAL;
+    }
+    if ((flags & 0x10) && skip_zero_terminated_field(input, trailer, &offset) != EOK) {
+        plogk("gzip: unterminated comment field in header (offset %zu, trailer %zu)\n", offset, trailer);
+        return -EINVAL;
+    }
     if (flags & 0x02) {
-        if (offset + 2 > trailer) return -EINVAL;
+        if (offset + 2 > trailer) {
+            plogk("gzip: truncated fixed header (offset %zu, trailer %zu)\n", offset, trailer);
+            return -EINVAL;
+        }
         offset += 2;
     }
-    if (offset >= trailer) return -EINVAL;
+    if (offset >= trailer) {
+        plogk("gzip: no deflate data in stream (offset %zu, trailer %zu)\n", offset, trailer);
+        return -EINVAL;
+    }
 
     size_t   expected_size = load_le32(input + input_size - 4);
     uint8_t *result        = malloc(expected_size ? expected_size : 1);
-    if (!result) return -ENOMEM;
+    if (!result) {
+        plogk("gzip: out of memory allocating %zu bytes for output.\n", expected_size);
+        return -ENOMEM;
+    }
 
     size_t actual_size;
     int    status = inflate_data(input + offset, trailer - offset, result, expected_size, &actual_size);
     if (status != EOK || actual_size != expected_size || gzip_crc32(result, actual_size) != load_le32(input + trailer)) {
+        plogk("gzip: corrupt deflate stream (status %d, expected %zu, actual %zu)\n", status, expected_size, actual_size);
         free(result);
         return status != EOK ? status : -EINVAL;
     }

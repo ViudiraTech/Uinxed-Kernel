@@ -11,7 +11,7 @@
 #include <arch/fpu.h>
 #include <arch/smp.h>
 #include <chipset/common.h>
-#include <drivers/tty/tty/tty_core.h>
+#include <drivers/tty/tty_core.h>
 #include <fs/core/inotify.h>
 #include <fs/core/vfs.h>
 #include <ipc/epoll.h>
@@ -20,7 +20,7 @@
 #include <ipc/posix_mq.h>
 #include <ipc/socket.h>
 #include <ipc/sysv_ipc.h>
-#include <kernel/debug.h>
+#include <kernel/debug/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>

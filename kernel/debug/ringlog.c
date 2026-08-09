@@ -9,7 +9,7 @@
  */
 
 #include <kernel/printk.h>
-#include <kernel/ringlog.h>
+#include <kernel/debug/ringlog.h>
 #include <libs/std/string.h>
 
 /* Initialize the ring log buffer */

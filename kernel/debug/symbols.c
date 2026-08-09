@@ -9,7 +9,7 @@
  */
 
 #include <boot/limine.h>
-#include <kernel/symbols.h>
+#include <kernel/debug/symbols.h>
 #include <kernel/uinxed.h>
 #include <libs/std/string.h>
 

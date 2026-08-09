@@ -11,11 +11,15 @@
 #include <chipset/common.h>
 #include <drivers/usb/host/xhci/xhci.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/string.h>
 
 int xhci_ring_init(xhci_ring_t *ring, xhci_trb_t *trbs, uint64_t physical, uint16_t count, bool linked)
 {
-    if (!ring || !trbs || !physical || count < (linked ? 3 : 2) || ((uintptr_t)trbs & 15) || (physical & 15)) return -EINVAL;
+    if (!ring || !trbs || !physical || count < (linked ? 3 : 2) || ((uintptr_t)trbs & 15) || (physical & 15)) {
+        plogk("xhci: ring_init: invalid argument (count=%u, linked=%u)\n", (unsigned)count, (unsigned)linked);
+        return -EINVAL;
+    }
     memset(ring, 0, sizeof(*ring));
     memset(trbs, 0, (size_t)count * sizeof(*trbs));
     ring->trbs     = trbs;
@@ -32,7 +36,10 @@ int xhci_ring_init(xhci_ring_t *ring, xhci_trb_t *trbs, uint64_t physical, uint1
 
 xhci_trb_t *xhci_ring_enqueue(xhci_ring_t *ring, uint64_t parameter, uint32_t status, uint32_t control, uint64_t *physical)
 {
-    if (!ring || !ring->trbs || !ring->linked) return NULL;
+    if (!ring || !ring->trbs || !ring->linked) {
+        plogk("xhci: ring_enqueue: enqueue on invalid ring.\n");
+        return NULL;
+    }
     spin_lock(&ring->lock);
     if (ring->enqueue == ring->count - 1) {
         xhci_trb_t *link = &ring->trbs[ring->count - 1];
@@ -54,7 +61,10 @@ xhci_trb_t *xhci_ring_enqueue(xhci_ring_t *ring, uint64_t parameter, uint32_t st
 
 static void xhci_ring_dequeue(xhci_ring_t *ring, uint16_t index)
 {
-    if (!ring || !ring->trbs || index >= ring->count) return;
+    if (!ring || !ring->trbs || index >= ring->count) {
+        plogk("xhci: ring_dequeue: dequeue out of range (index=%u, count=%u)\n", (unsigned)index, ring ? (unsigned)ring->count : 0);
+        return;
+    }
     spin_lock(&ring->lock);
     if (index < ring->enqueue) {
         xhci_trb_t *trb = &ring->trbs[index];

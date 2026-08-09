@@ -17,7 +17,7 @@
 #include <drivers/gpu/drm/drm_fourcc.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <drivers/gpu/fbdev/video.h>
-#include <drivers/tty/tty/tty.h>
+#include <drivers/tty/tty.h>
 #include <drivers/virt/gpu/virtgpu_cmd.h>
 #include <drivers/virt/gpu/virtgpu_drv.h>
 #include <drivers/virt/gpu/virtgpu_gem.h>

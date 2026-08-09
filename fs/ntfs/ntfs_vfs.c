@@ -16,7 +16,7 @@
 #include <fs/virtual/devtmpfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <kernel/timer.h>
+#include <kernel/timer/timer.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>

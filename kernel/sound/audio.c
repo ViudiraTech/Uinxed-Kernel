@@ -9,10 +9,10 @@
  */
 
 #include <fs/core/vfs.h>
-#include <kernel/audio.h>
+#include <kernel/sound/audio.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <kernel/timer.h>
+#include <kernel/timer/timer.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <proc/uaccess.h>

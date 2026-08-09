@@ -11,8 +11,8 @@
 #define UINXED_MODULE_CORE
 #include <drivers/core/device.h>
 #include <fs/core/vfs.h>
-#include <kernel/kobject.h>
-#include <kernel/module.h>
+#include <kernel/kobject/kobject.h>
+#include <kernel/module/module.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>

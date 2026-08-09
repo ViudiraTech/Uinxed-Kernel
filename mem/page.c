@@ -11,9 +11,9 @@
 #include <arch/cpuid.h>
 #include <arch/smp.h>
 #include <chipset/common.h>
-#include <kernel/debug.h>
+#include <kernel/debug/debug.h>
 #include <kernel/errno.h>
-#include <kernel/interrupt.h>
+#include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

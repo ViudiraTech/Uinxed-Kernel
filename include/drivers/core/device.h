@@ -12,7 +12,7 @@
 #define INCLUDE_DEVICE_H_
 
 #include <fs/sysfs/sysfs.h>
-#include <kernel/kobject.h>
+#include <kernel/kobject/kobject.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 

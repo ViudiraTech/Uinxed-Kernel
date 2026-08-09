@@ -8,10 +8,10 @@
  *
  */
 
-#include <drivers/tty/tty/tty.h>
+#include <drivers/tty/tty.h>
 #include <fs/core/vfs.h>
-#include <kernel/elf.h>
-#include <kernel/elf_loader.h>
+#include <kernel/module/elf.h>
+#include <proc/elf_loader.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stdlib.h>

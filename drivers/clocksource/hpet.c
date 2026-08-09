@@ -12,7 +12,7 @@
 #include <drivers/clocksource/tsc.h>
 #include <drivers/firmware/acpi.h>
 #include <kernel/printk.h>
-#include <kernel/timer.h>
+#include <kernel/timer/timer.h>
 #include <libs/std/stdint.h>
 #include <mem/hhdm.h>
 

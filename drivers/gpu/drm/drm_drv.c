@@ -20,6 +20,7 @@
 #include <fs/virtual/devtmpfs.h>
 #include <fs/virtual/tmpfs.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/glist/intrusive_list.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
@@ -54,6 +55,7 @@ int drm_minor_alloc(int type)
             bm = &drm_minor_bitmap_accel;
             break;
         default :
+            plogk("drm: minor alloc failed: invalid minor type %d\n", type);
             return -EINVAL;
     }
 
@@ -66,6 +68,7 @@ int drm_minor_alloc(int type)
         }
     }
     spin_unlock(&drm_minor_lock);
+    plogk("drm: minor alloc failed: no free indices for minor type %d\n", type);
     return -ENOSPC;
 }
 
@@ -115,10 +118,16 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
     struct drm_minor  *minor;
     int                ret;
 
-    if (!driver) { return NULL; }
+    if (!driver) {
+        plogk("drm: drm_dev_alloc called with NULL driver.\n");
+        return NULL;
+    }
 
     dev = malloc(sizeof(*dev));
-    if (!dev) { return NULL; }
+    if (!dev) {
+        plogk("drm: drm_dev_alloc: out of memory allocating device.\n");
+        return NULL;
+    }
     memset(dev, 0, sizeof(*dev));
 
     dev->driver                 = driver;
@@ -150,6 +159,7 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
     }
     minor = malloc(sizeof(*minor));
     if (!minor) {
+        plogk("drm: drm_dev_alloc: out of memory allocating primary minor.\n");
         drm_minor_free(DRM_MINOR_PRIMARY, primary_idx);
         drm_mode_config_cleanup(dev);
         free(dev);
@@ -178,6 +188,7 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
     }
     minor = malloc(sizeof(*minor));
     if (!minor) {
+        plogk("drm: drm_dev_alloc: out of memory allocating render minor.\n");
         drm_minor_free(DRM_MINOR_RENDER, render_idx);
         free(dev->primary->device_node_name);
         free(dev->primary);
@@ -207,7 +218,10 @@ struct drm_device *drm_dev_alloc(struct drm_driver *driver)
 int drm_dev_register(struct drm_device *dev, uint64_t flags)
 {
     (void)flags;
-    if (!dev) { return -EINVAL; }
+    if (!dev) {
+        plogk("drm: drm_dev_register called with NULL device.\n");
+        return -EINVAL;
+    }
 
     dev->mode_config.min_width  = 0;
     dev->mode_config.min_height = 0;
@@ -378,14 +392,20 @@ int drm_open(struct drm_device *dev, struct drm_file *file)
 {
     int ret;
 
-    if (!dev || !file) { return -EINVAL; }
+    if (!dev || !file) {
+        plogk("drm: open failed: NULL device or file.\n");
+        return -EINVAL;
+    }
 
     /*
      * Acquire a reference to the device for the lifetime of this
      * open file. This prevents the device from being freed while
      * the file is still open.
      */
-    if (!drm_dev_get(dev)) return -ENODEV;
+    if (!drm_dev_get(dev)) {
+        plogk("drm: open failed: device unplugged or gone.\n");
+        return -ENODEV;
+    }
 
     /* Zero-initialize the pre-allocated file struct. */
     memset(file, 0, sizeof(*file));
@@ -420,6 +440,7 @@ int drm_open(struct drm_device *dev, struct drm_file *file)
     if (dev->driver && dev->driver->open) {
         ret = dev->driver->open(dev, file);
         if (ret) {
+            plogk("drm: driver open callback failed (ret=%d)\n", ret);
             spin_lock(&dev->filelist_lock);
             ilist_remove(&file->head);
             dev->open_count--;

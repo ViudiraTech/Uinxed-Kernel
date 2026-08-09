@@ -12,7 +12,7 @@
 #include <drivers/ata/pata/atapi.h>
 #include <drivers/ata/pata/ide.h>
 #include <kernel/printk.h>
-#include <kernel/timer.h>
+#include <kernel/timer/timer.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 

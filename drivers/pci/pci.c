@@ -12,7 +12,7 @@
 #include <drivers/firmware/acpi.h>
 #include <drivers/firmware/apic.h>
 #include <drivers/pci/pci.h>
-#include <kernel/debug.h>
+#include <kernel/debug/debug.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

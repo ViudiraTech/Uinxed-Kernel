@@ -9,6 +9,7 @@
  */
 
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <mem/pagecache.h>
@@ -265,7 +266,10 @@ static int pc_load_locked(pagecache_page_t *page)
 {
     pagecache_mapping_t *mapping = page->mapping;
     if (page->flags & PC_PAGE_UPTODATE) return EOK;
-    if (!mapping->ops.read) return -EIO;
+    if (!mapping->ops.read) {
+        plogk("pagecache: load of page %llu on mapping %p with no read op.\n", (unsigned long long)page->index, mapping);
+        return -EIO;
+    }
 
     uint64_t start = page->index * PAGECACHE_PAGE_SIZE;
     uint64_t limit = __atomic_load_n(&mapping->size, __ATOMIC_ACQUIRE);
@@ -275,6 +279,8 @@ static int pc_load_locked(pagecache_page_t *page)
     int64_t result = count ? mapping->ops.read(mapping->context, page->data, start, count) : 0;
     pc_stat_inc(&pagecache.stats.reads);
     if (result < 0) {
+        plogk("pagecache: read failed (page %llu, offset %llu, count %zu): %lld.\n", (unsigned long long)page->index, (unsigned long long)start,
+              count, (long long)result);
         page->flags |= PC_PAGE_ERROR;
         __atomic_store_n(&mapping->error, (int)result, __ATOMIC_RELEASE);
         return (int)result;
@@ -290,7 +296,10 @@ static int pc_writeback_page_locked(pagecache_page_t *page)
 {
     pagecache_mapping_t *mapping = page->mapping;
     if (!(page->flags & PC_PAGE_DIRTY)) return EOK;
-    if (!mapping->ops.write) return -EROFS;
+    if (!mapping->ops.write) {
+        plogk("pagecache: writeback of dirty page %llu on mapping %p with no write op.\n", (unsigned long long)page->index, mapping);
+        return -EROFS;
+    }
 
     uint64_t start = page->index * PAGECACHE_PAGE_SIZE;
     uint64_t limit = __atomic_load_n(&mapping->size, __ATOMIC_ACQUIRE);
@@ -304,6 +313,8 @@ static int pc_writeback_page_locked(pagecache_page_t *page)
     page->flags &= ~PC_PAGE_WRITEBACK;
     pc_stat_dec(&pagecache.stats.writeback);
     if (result < 0 || (size_t)result != count) {
+        plogk("pagecache: writeback failed for page %llu (offset %llu, count %zu, result %lld)\n", (unsigned long long)page->index,
+              (unsigned long long)start, count, (long long)result);
         int error = result < 0 ? (int)result : -EIO;
         page->flags |= PC_PAGE_ERROR;
         __atomic_store_n(&mapping->error, error, __ATOMIC_RELEASE);
@@ -317,8 +328,14 @@ static int pc_writeback_page_locked(pagecache_page_t *page)
 
 int pagecache_init(const pagecache_allocator_t *allocator, size_t max_pages)
 {
-    if (!allocator || !allocator->alloc || !allocator->free || !max_pages) return -EINVAL;
-    if (__atomic_load_n(&pagecache.initialized, __ATOMIC_ACQUIRE)) return -EBUSY;
+    if (!allocator || !allocator->alloc || !allocator->free || !max_pages) {
+        plogk("pagecache: init with invalid allocator or zero max_pages.\n");
+        return -EINVAL;
+    }
+    if (__atomic_load_n(&pagecache.initialized, __ATOMIC_ACQUIRE)) {
+        plogk("pagecache: init called twice (already initialized)\n");
+        return -EBUSY;
+    }
     memset(&pagecache, 0, sizeof(pagecache));
     pagecache.allocator = *allocator;
     pagecache.max_pages = max_pages;
@@ -335,9 +352,15 @@ void pagecache_shutdown(void)
 
 pagecache_mapping_t *pagecache_mapping_create(void *context, const pagecache_ops_t *ops, uint64_t size, uint32_t flags)
 {
-    if (!ops || !ops->read || !__atomic_load_n(&pagecache.initialized, __ATOMIC_ACQUIRE)) return NULL;
+    if (!ops || !ops->read || !__atomic_load_n(&pagecache.initialized, __ATOMIC_ACQUIRE)) {
+        plogk("pagecache: mapping create with invalid ops or uninitialized cache.\n");
+        return NULL;
+    }
     pagecache_mapping_t *mapping = calloc(1, sizeof(*mapping));
-    if (!mapping) return NULL;
+    if (!mapping) {
+        plogk("pagecache: mapping alloc failed.\n");
+        return NULL;
+    }
     mapping->context      = context;
     mapping->ops          = *ops;
     mapping->buckets      = mapping->inline_buckets;
@@ -389,10 +412,14 @@ static pagecache_page_t *pc_get_page(pagecache_mapping_t *mapping, uint64_t inde
     if (__atomic_load_n(&pagecache.stats.pages, __ATOMIC_RELAXED) >= pagecache.max_pages)
         if (!reclaim || !pagecache_reclaim(1)) return NULL;
     page = calloc(1, sizeof(*page));
-    if (!page) return NULL;
+    if (!page) {
+        plogk("pagecache: page struct alloc failed (mapping %p, index %llu)\n", mapping, (unsigned long long)index);
+        return NULL;
+    }
     page->data = pagecache.allocator.alloc(&page->physical);
     if (!page->data && reclaim && pagecache_reclaim(PAGECACHE_READAHEAD_MIN)) page->data = pagecache.allocator.alloc(&page->physical);
     if (!page->data) {
+        plogk("pagecache: page data alloc failed (mapping %p, index %llu)\n", mapping, (unsigned long long)index);
         free(page);
         return NULL;
     }
@@ -684,6 +711,7 @@ int pagecache_writeback(pagecache_mapping_t *mapping, uint64_t start, uint64_t e
     size_t             slots = capacity;
     pagecache_page_t **pages = (pagecache_page_t **)malloc(slots * sizeof(*pages)); // NOLINT(bugprone-sizeof-expression)
     if (!pages) {
+        plogk("pagecache: writeback array alloc failed for %zu dirty pages.\n", slots);
         pc_unlock(&mapping->lock);
         return -ENOMEM;
     }
@@ -727,6 +755,7 @@ int pagecache_writeback_all(uint32_t flags)
     size_t                slots    = count ? count : 1;
     pagecache_mapping_t **mappings = (pagecache_mapping_t **)malloc(slots * sizeof(*mappings)); // NOLINT(bugprone-sizeof-expression)
     if (!mappings) {
+        plogk("pagecache: writeback_all array alloc failed for %zu mappings.\n", count);
         pc_unlock(&pagecache.lock);
         return -ENOMEM;
     }

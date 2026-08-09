@@ -13,7 +13,7 @@
 #include <drivers/gpu/fbdev/fbcon.h>
 #include <drivers/gpu/fbdev/klogo.h>
 #include <drivers/gpu/fbdev/video.h>
-#include <drivers/tty/tty/tty.h>
+#include <drivers/tty/tty.h>
 #include <kernel/uinxed.h>
 #include <libs/gfxs/bmp.h>
 

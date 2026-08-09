@@ -11,7 +11,7 @@
 #ifndef INCLUDE_SERIAL_H_
 #define INCLUDE_SERIAL_H_
 
-#include <kernel/ringlog.h>
+#include <kernel/debug/ringlog.h>
 #include <libs/std/stdint.h>
 
 /* Register offset */

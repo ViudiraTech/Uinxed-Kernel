@@ -29,6 +29,7 @@
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/glist/intrusive_list.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
@@ -96,6 +97,7 @@ int drm_modeset_lock(struct drm_modeset_lock *lock, struct drm_modeset_acquire_c
     spin_lock(&ctx->ctx_lock);
     ctx->contended_lock = lock;
     spin_unlock(&ctx->ctx_lock);
+    plogk("drm: modeset lock %p contended (owner ctx %p, requester ctx %p); returning -EDEADLK.\n", lock, lock->ctx, ctx);
     return -EDEADLK;
 }
 
@@ -151,6 +153,7 @@ int drm_modeset_lock_single_interruptible(struct drm_modeset_lock *lock)
     if (desired != 0) {
         /* Already held: nothing was claimed, just restore interrupt state. */
         __asm__ volatile("push %0; popfq" ::"r"(rflags));
+        plogk("drm: modeset lock %p already held; returning -EBUSY.\n", lock);
         return -EBUSY;
     }
 
@@ -284,6 +287,7 @@ int drm_modeset_lock_all_ctx(struct drm_device *dev, struct drm_modeset_acquire_
         ret = drm_modeset_lock(&crtc->mutex, ctx);
         if (ret) {
             spin_unlock(&dev->mode_config.mutex);
+            plogk("drm: modeset lock-all aborted on CRTC %u; releasing mode_config mutex, ret=%d\n", crtc->base.id, ret);
             return ret;
         }
     }

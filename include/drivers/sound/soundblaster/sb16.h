@@ -11,7 +11,7 @@
 #ifndef INCLUDE_SOUND_SB16_H_
 #define INCLUDE_SOUND_SB16_H_
 
-#include <kernel/audio.h>
+#include <kernel/sound/audio.h>
 #include <libs/std/stdint.h>
 #include <mem/page.h>
 

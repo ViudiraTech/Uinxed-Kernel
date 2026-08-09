@@ -11,7 +11,7 @@
 #include <fs/extfs/extfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <kernel/timer.h>
+#include <kernel/timer/timer.h>
 #include <libs/data/crc32c.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>

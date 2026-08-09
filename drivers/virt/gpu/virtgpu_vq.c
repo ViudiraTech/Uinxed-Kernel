@@ -17,6 +17,7 @@
 #include <drivers/virt/gpu/virtgpu_vq.h>
 #include <drivers/virt/pci/virtpci.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
@@ -128,21 +129,34 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
     int                         ret = 0;
     struct virtgpu_dma_command *dma;
 
-    if (!vgdev || !commands || count == 0) return -EINVAL;
+    if (!vgdev || !commands || count == 0) {
+        plogk("virtgpu: ctrl_cmd_batch: invalid argument (count=%u)\n", (unsigned)count);
+        return -EINVAL;
+    }
     vq = &vgdev->ctrlq;
-    if (count > (uint32_t)vq->num_max / 2U) return -ENOSPC;
+    if (count > (uint32_t)vq->num_max / 2U) {
+        plogk("virtgpu: ctrl_cmd_batch: command count exceeds ring capacity (count=%u, num_max=%u)\n", (unsigned)count, (unsigned)vq->num_max);
+        return -ENOSPC;
+    }
 
     for (uint32_t i = 0; i < count; i++)
-        if (!commands[i].cmd || !commands[i].resp || commands[i].cmd_size <= 0 || commands[i].resp_size <= 0) return -EINVAL;
+        if (!commands[i].cmd || !commands[i].resp || commands[i].cmd_size <= 0 || commands[i].resp_size <= 0) {
+            plogk("virtgpu: ctrl_cmd_batch: invalid command slot (index=%u)\n", (unsigned)i);
+            return -EINVAL;
+        }
 
     dma = calloc(count, sizeof(*dma));
-    if (!dma) return -ENOMEM;
+    if (!dma) {
+        plogk("virtgpu: ctrl_cmd_batch: dma descriptor allocation failed (count=%u)\n", (unsigned)count);
+        return -ENOMEM;
+    }
     for (uint32_t i = 0; i < count; i++) {
         dma[i].cmd_pages  = (ALIGN_UP((size_t)commands[i].cmd_size, PAGE_4K_SIZE)) / PAGE_4K_SIZE;
         dma[i].resp_pages = (ALIGN_UP((size_t)commands[i].resp_size, PAGE_4K_SIZE)) / PAGE_4K_SIZE;
         dma[i].cmd_phys   = alloc_frames(dma[i].cmd_pages);
         dma[i].resp_phys  = alloc_frames(dma[i].resp_pages);
         if (!dma[i].cmd_phys || !dma[i].resp_phys) {
+            plogk("virtgpu: ctrl_cmd_batch: frame allocation failed (index=%u)\n", (unsigned)i);
             virtgpu_dma_commands_free(dma, count);
             return -ENOMEM;
         }
@@ -158,6 +172,7 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
     spin_lock(&vgdev->ctrlq_cmd_lock);
 
     if (count > (uint32_t)vq->num_free / 2) {
+        plogk("virtgpu: ctrl_cmd_batch: not enough free descriptors (count=%u, num_free=%u)\n", (unsigned)count, (unsigned)vq->num_free);
         ret = -ENOSPC;
         goto out_unlock;
     }
@@ -177,7 +192,10 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
         memcpy(dma[i].cmd, commands[i].cmd, (size_t)commands[i].cmd_size);
         memset(dma[i].resp, 0, (size_t)commands[i].resp_size);
         ret = virtqueue_add_out_in(vq, dma[i].cmd, commands[i].cmd_size, dma[i].resp, commands[i].resp_size);
-        if (ret) break;
+        if (ret) {
+            plogk("virtgpu: ctrl_cmd_batch: queue add failed (index=%u, err=%d)\n", (unsigned)i, ret);
+            break;
+        }
         submitted++;
     }
 
@@ -267,7 +285,10 @@ int virtgpu_ctrl_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size, v
     struct virtio_gpu_ctrl_hdr *hdr;
     int                         ret;
 
-    if (cmd_size <= 0 || resp_size <= 0) { return -EINVAL; }
+    if (cmd_size <= 0 || resp_size <= 0) {
+        plogk("virtgpu: ctrl_cmd: invalid sizes (cmd_size=%d, resp_size=%d)\n", cmd_size, resp_size);
+        return -EINVAL;
+    }
 
     command.cmd       = cmd;
     command.cmd_size  = cmd_size;
@@ -290,10 +311,16 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
     size_t   dma_pages;
     void    *dma_cmd;
 
-    if (!vgdev || !cmd || cmd_size < (int)sizeof(struct virtio_gpu_ctrl_hdr)) return -EINVAL;
+    if (!vgdev || !cmd || cmd_size < (int)sizeof(struct virtio_gpu_ctrl_hdr)) {
+        plogk("virtgpu: cursor_cmd: invalid argument (cmd_size=%d)\n", cmd_size);
+        return -EINVAL;
+    }
     dma_pages = ALIGN_UP((size_t)cmd_size, PAGE_4K_SIZE) / PAGE_4K_SIZE;
     dma_phys  = alloc_frames(dma_pages);
-    if (!dma_phys) return -ENOMEM;
+    if (!dma_phys) {
+        plogk("virtgpu: cursor_cmd: frame allocation failed (pages=%lu)\n", (unsigned long)dma_pages);
+        return -ENOMEM;
+    }
     dma_cmd = phys_to_virt(dma_phys);
     memcpy(dma_cmd, cmd, (size_t)cmd_size);
     spin_lock(&vgdev->cursorq_cmd_lock);
@@ -303,7 +330,10 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
      * the device to consume the cursor descriptor before returning.
      */
     ret = virtqueue_add(&vgdev->cursorq, dma_cmd, cmd_size, 0);
-    if (ret) goto out;
+    if (ret) {
+        plogk("virtgpu: cursor_cmd: queue add failed (err=%d)\n", ret);
+        goto out;
+    }
     virtqueue_kick(&vgdev->cursorq);
     while (!virtqueue_get_buf(&vgdev->cursorq, &len)) {
         cpu_relax();

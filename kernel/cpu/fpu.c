@@ -11,7 +11,7 @@
 #include <arch/cpuid.h>
 #include <arch/fpu.h>
 #include <arch/smp.h>
-#include <kernel/debug.h>
+#include <kernel/debug/debug.h>
 #include <kernel/printk.h>
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>

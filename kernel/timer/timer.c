@@ -14,13 +14,13 @@
 #include <drivers/firmware/acpi.h>
 #include <drivers/firmware/apic.h>
 #include <drivers/gpu/drm/drm_device.h>
-#include <drivers/tty/tty/tty.h>
-#include <kernel/interrupt.h>
+#include <drivers/tty/tty.h>
+#include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
-#include <kernel/timer.h>
+#include <kernel/timer/timer.h>
 #include <libs/std/math.h>
 #include <libs/std/stdint.h>
-#include <net/netdev.h>
+#include <net/core/netdev.h>
 #include <proc/sched.h>
 #include <syscall/timerfd.h>
 

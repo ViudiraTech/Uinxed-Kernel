@@ -12,7 +12,7 @@
 #include <ipc/netlink.h>
 #include <ipc/socket.h>
 #include <kernel/errno.h>
-#include <kernel/kobject.h>
+#include <kernel/kobject/kobject.h>
 #include <kernel/printk.h>
 #include <libs/glist/circular_list.h>
 #include <libs/std/stddef.h>
@@ -21,7 +21,7 @@
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/heap.h>
-#include <net/netdev.h>
+#include <net/core/netdev.h>
 #include <proc/process.h>
 #include <proc/sched.h>
 #include <proc/task.h>

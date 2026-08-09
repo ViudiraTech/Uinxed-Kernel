@@ -15,6 +15,7 @@
 #include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
@@ -44,10 +45,16 @@ int drm_encoder_init(struct drm_device *dev, struct drm_encoder *encoder, void *
 
     (void)name;
 
-    if (!dev || !encoder) { return -EINVAL; }
+    if (!dev || !encoder) {
+        plogk("drm: encoder_init: NULL device or encoder.\n");
+        return -EINVAL;
+    }
 
     ret = drm_mode_object_idr_alloc(dev, &encoder->base, DRM_MODE_OBJECT_ENCODER);
-    if (ret) { return ret; }
+    if (ret) {
+        plogk("drm: encoder id allocation failed (ret=%d)\n", ret);
+        return ret;
+    }
 
     ilist_insert_after(&dev->mode_config.encoder_list, &encoder->head);
 
@@ -79,10 +86,16 @@ int drm_mode_getencoder(struct drm_device *dev, void *data, struct drm_file *fil
     struct drm_mode_object      *obj;
     struct drm_encoder          *encoder;
 
-    if (!dev || !enc_req) { return -EINVAL; }
+    if (!dev || !enc_req) {
+        plogk("drm: getencoder: NULL device or request.\n");
+        return -EINVAL;
+    }
 
     obj = drm_mode_object_find(dev, file_priv, enc_req->encoder_id, DRM_MODE_OBJECT_ENCODER);
-    if (!obj) { return -ENOENT; }
+    if (!obj) {
+        plogk("drm: getencoder: encoder %u not found.\n", enc_req->encoder_id);
+        return -ENOENT;
+    }
     encoder = container_of(obj, struct drm_encoder, base);
 
     enc_req->encoder_type    = encoder->encoder_type;

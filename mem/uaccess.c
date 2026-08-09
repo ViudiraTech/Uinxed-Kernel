@@ -9,6 +9,7 @@
  */
 
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
@@ -217,6 +218,7 @@ static int copy_user_bytes(void *dst, const void *src, size_t size, int to_user)
              */
             if (to_user && page_resolve_cow_fault(proc, user) == 0) continue;
             if (process_demand_fault(proc, user, to_user, 0) == 0) continue;
+            plogk("uaccess: copy %s fault at %p (size %zu, remaining %zu)\n", to_user ? "to_user" : "from_user", (void *)user, size, remaining);
             return -EFAULT;
         }
 

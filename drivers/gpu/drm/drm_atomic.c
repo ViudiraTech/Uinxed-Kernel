@@ -14,6 +14,7 @@
 #include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
@@ -39,7 +40,10 @@ struct drm_atomic_state *drm_atomic_state_alloc(struct drm_device *dev)
     struct drm_mode_config  *config = &dev->mode_config;
 
     state = malloc(sizeof(*state));
-    if (!state) { return NULL; }
+    if (!state) {
+        plogk("drm_atomic: failed to allocate atomic state.\n");
+        return NULL;
+    }
     memset(state, 0, sizeof(*state));
     state->dev = dev;
 
@@ -49,6 +53,7 @@ struct drm_atomic_state *drm_atomic_state_alloc(struct drm_device *dev)
     if (config->num_total_plane > 0) {
         state->planes = malloc(sizeof(*state->planes) * config->num_total_plane);
         if (!state->planes) {
+            plogk("drm_atomic: failed to allocate plane state array (%d planes)\n", config->num_total_plane);
             free(state);
             return NULL;
         }
@@ -59,6 +64,7 @@ struct drm_atomic_state *drm_atomic_state_alloc(struct drm_device *dev)
     if (config->num_crtc > 0) {
         state->crtcs = malloc(sizeof(*state->crtcs) * config->num_crtc);
         if (!state->crtcs) {
+            plogk("drm_atomic: failed to allocate crtc state array (%d crtcs)\n", config->num_crtc);
             free(state->planes);
             free(state);
             return NULL;
@@ -168,7 +174,10 @@ struct drm_crtc_state *drm_atomic_get_crtc_state(struct drm_atomic_state *state,
 
     /* Allocate new CRTC state */
     crtc_entry->state = malloc(sizeof(*crtc_entry->state));
-    if (!crtc_entry->state) { return NULL; }
+    if (!crtc_entry->state) {
+        plogk("drm_atomic: failed to allocate crtc state for crtc %d\n", crtc->index);
+        return NULL;
+    }
     memset(crtc_entry->state, 0, sizeof(*crtc_entry->state));
     crtc_entry->state->crtc = crtc;
     crtc_entry->ptr         = crtc;
@@ -222,7 +231,10 @@ struct drm_plane_state *drm_atomic_get_plane_state(struct drm_atomic_state *stat
         }
     }
 
-    if (idx < 0 || idx >= config->num_total_plane) { return NULL; }
+    if (idx < 0 || idx >= config->num_total_plane) {
+        plogk("drm_atomic: plane %p not found in plane list (idx=%d)\n", (void *)plane, idx);
+        return NULL;
+    }
 
     plane_entry = &state->planes[idx];
 
@@ -230,7 +242,10 @@ struct drm_plane_state *drm_atomic_get_plane_state(struct drm_atomic_state *stat
 
     /* Allocate new plane state */
     plane_entry->state = malloc(sizeof(*plane_entry->state));
-    if (!plane_entry->state) { return NULL; }
+    if (!plane_entry->state) {
+        plogk("drm_atomic: failed to allocate plane state for plane %d\n", idx);
+        return NULL;
+    }
     memset(plane_entry->state, 0, sizeof(*plane_entry->state));
     plane_entry->state->plane = plane;
     plane_entry->ptr          = plane;
@@ -266,6 +281,7 @@ struct drm_connector_state *drm_atomic_get_connector_state(struct drm_atomic_sta
         new_connectors = malloc(sizeof(*new_connectors) * new_count); // NOLINT(bugprone-sizeof-expression)
         new_states     = malloc(sizeof(*new_states) * new_count);     // NOLINT(bugprone-sizeof-expression)
         if (!new_connectors || !new_states) {
+            plogk("drm_atomic: failed to allocate connector state arrays (%zu entries)\n", new_count);
             free(new_connectors);
             free(new_states);
             return NULL;
@@ -283,7 +299,10 @@ struct drm_connector_state *drm_atomic_get_connector_state(struct drm_atomic_sta
 
         /* Allocate new connector state */
         state->connector_states[state->num_connector] = malloc(sizeof(*state->connector_states[0]));
-        if (!state->connector_states[state->num_connector]) { return NULL; }
+        if (!state->connector_states[state->num_connector]) {
+            plogk("drm_atomic: failed to allocate connector state for connector %p\n", (void *)connector);
+            return NULL;
+        }
         memset(state->connector_states[state->num_connector], 0, sizeof(*state->connector_states[0]));
         state->connector_states[state->num_connector]->connector = connector;
 
@@ -364,7 +383,10 @@ int drm_atomic_check_only(struct drm_atomic_state *state)
 
         if (!crtc_state) { continue; }
 
-        if (!state->allow_modeset && (crtc_state->mode_changed || crtc_state->active_changed)) return -EINVAL;
+        if (!state->allow_modeset && (crtc_state->mode_changed || crtc_state->active_changed)) {
+            plogk("drm_atomic: crtc %d mode/active change without allow_modeset.\n", i);
+            return -EINVAL;
+        }
 
         /* If active, a mode must be set */
         if (crtc_state->active) {
@@ -406,16 +428,24 @@ int drm_atomic_check_only(struct drm_atomic_state *state)
                 }
             }
 
-            if (!!plane_state->fb != !!plane_state->crtc) return -EINVAL;
+            if (!!plane_state->fb != !!plane_state->crtc) {
+                plogk("drm_atomic: plane %d fb/crtc presence mismatch.\n", i);
+                return -EINVAL;
+            }
             plane_state->visible = plane_state->fb && plane_state->crtc;
             if (plane_state->fb) {
                 int64_t fb_w = (int64_t)plane_state->fb->width << 16;
                 int64_t fb_h = (int64_t)plane_state->fb->height << 16;
                 if (plane_state->src.x1 < 0 || plane_state->src.y1 < 0 || plane_state->src.x2 <= plane_state->src.x1
                     || plane_state->src.y2 <= plane_state->src.y1 || plane_state->src.x2 > fb_w || plane_state->src.y2 > fb_h
-                    || plane_state->dst.x2 <= plane_state->dst.x1 || plane_state->dst.y2 <= plane_state->dst.y1)
+                    || plane_state->dst.x2 <= plane_state->dst.x1 || plane_state->dst.y2 <= plane_state->dst.y1) {
+                    plogk("drm_atomic: plane %d invalid src/dst rectangle.\n", i);
                     return -EINVAL;
-                if (!(plane_state->plane->possible_crtcs & (1U << plane_state->crtc->index))) return -EINVAL;
+                }
+                if (!(plane_state->plane->possible_crtcs & (1U << plane_state->crtc->index))) {
+                    plogk("drm_atomic: plane %d crtc %d not in possible_crtcs.\n", i, plane_state->crtc->index);
+                    return -EINVAL;
+                }
             }
 
             /* If plane has a CRTC, it must be valid */
@@ -467,7 +497,10 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
             struct drm_crtc_state *s = state->crtcs[i].state;
             if (!s) continue;
             s->event = malloc(sizeof(*s->event));
-            if (!s->event) return -ENOMEM;
+            if (!s->event) {
+                plogk("drm_atomic: failed to allocate flip event for crtc %d\n", i);
+                return -ENOMEM;
+            }
             memset(s->event, 0, sizeof(*s->event));
             s->event->dev               = dev;
             s->event->file_priv         = state->file_priv;
@@ -479,7 +512,10 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
             s->event->event.crtc_id     = state->crtcs[i].ptr->base.id;
             event_crtcs++;
         }
-        if (!event_crtcs) return -EINVAL;
+        if (!event_crtcs) {
+            plogk("drm_atomic: page flip event requested but no crtc states.\n");
+            return -EINVAL;
+        }
     }
 
     /* Program scanout before publishing the new software state. */
@@ -497,18 +533,30 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
         if (!primary_state && crtc->primary) primary_state = crtc->primary->state;
         if (crtc_state->active && primary_state && crtc_state->mode_changed) {
             struct drm_crtc_helper_funcs *h = (struct drm_crtc_helper_funcs *)crtc->helper_private;
-            if (!h || (!h->mode_set && !h->page_flip)) return -ENOSYS;
+            if (!h || (!h->mode_set && !h->page_flip)) {
+                plogk("drm_atomic: crtc %d missing mode_set/page_flip helpers.\n", i);
+                return -ENOSYS;
+            }
             if (h->mode_set)
                 h->mode_set(crtc, primary_state->fb);
             else {
                 ret = h->page_flip(crtc, primary_state->fb, NULL, 0);
-                if (ret) return ret;
+                if (ret) {
+                    plogk("drm_atomic: crtc %d page_flip failed (ret=%d)\n", i, ret);
+                    return ret;
+                }
             }
         } else if (crtc_state->active && primary_state && (!crtc->primary->state || primary_state->fb != crtc->primary->state->fb)) {
             struct drm_crtc_helper_funcs *h = (struct drm_crtc_helper_funcs *)crtc->helper_private;
-            if (!h || !h->page_flip) return -ENOSYS;
+            if (!h || !h->page_flip) {
+                plogk("drm_atomic: crtc %d missing page_flip helper.\n", i);
+                return -ENOSYS;
+            }
             ret = h->page_flip(crtc, primary_state->fb, NULL, 0);
-            if (ret) return ret;
+            if (ret) {
+                plogk("drm_atomic: crtc %d page_flip failed (ret=%d)\n", i, ret);
+                return ret;
+            }
         }
         if (!crtc_state->active && crtc->enabled && crtc->helper_private) {
             struct drm_crtc_helper_funcs *h = (struct drm_crtc_helper_funcs *)crtc->helper_private;
@@ -646,11 +694,15 @@ int drm_atomic_commit(struct drm_atomic_state *state)
     struct drm_device *dev;
     int                ret;
 
-    if (!state || !state->dev) return -EINVAL;
+    if (!state || !state->dev) {
+        plogk("drm_atomic: commit called with NULL state.\n");
+        return -EINVAL;
+    }
     dev = state->dev;
     if (!state->commit_seq) {
         spin_lock(&dev->mode_config.commit_queue_lock);
         if (dev->mode_config.commit_queue_next != dev->mode_config.commit_queue_done) {
+            plogk("drm_atomic: commit queue busy.\n");
             spin_unlock(&dev->mode_config.commit_queue_lock);
             return -EBUSY;
         }
@@ -686,7 +738,10 @@ int drm_atomic_nonblocking_commit(struct drm_atomic_state *state)
     struct drm_file        *file_priv;
     task_t                 *worker;
 
-    if (!state || !state->dev) return -EINVAL;
+    if (!state || !state->dev) {
+        plogk("drm_atomic: nonblocking commit called with NULL state.\n");
+        return -EINVAL;
+    }
     {
         int ret = drm_atomic_check_only(state);
         if (ret) return ret;
@@ -708,6 +763,7 @@ int drm_atomic_nonblocking_commit(struct drm_atomic_state *state)
     if (file_priv) {
         spin_lock(&file_priv->event_lock);
         if (file_priv->event_closing) {
+            plogk("drm_atomic: file closing during nonblocking commit.\n");
             spin_unlock(&file_priv->event_lock);
             return -ENOENT;
         }
@@ -715,6 +771,7 @@ int drm_atomic_nonblocking_commit(struct drm_atomic_state *state)
         spin_unlock(&file_priv->event_lock);
     }
     if (!drm_dev_get(state->dev)) {
+        plogk("drm_atomic: failed to get device reference for nonblocking commit.\n");
         if (file_priv) {
             spin_lock(&file_priv->event_lock);
             file_priv->event_refs--;
@@ -725,6 +782,7 @@ int drm_atomic_nonblocking_commit(struct drm_atomic_state *state)
 
     spin_lock(&config->commit_queue_lock);
     if (config->commit_queue_next != config->commit_queue_done) {
+        plogk("drm_atomic: commit queue busy (nonblocking)\n");
         spin_unlock(&config->commit_queue_lock);
         drm_dev_put(state->dev);
         if (file_priv) {
@@ -740,6 +798,7 @@ int drm_atomic_nonblocking_commit(struct drm_atomic_state *state)
     if (!worker) config->commit_queue_next--;
     spin_unlock(&config->commit_queue_lock);
     if (!worker) {
+        plogk("drm_atomic: failed to create commit worker thread.\n");
         drm_dev_put(state->dev);
         if (file_priv) {
             spin_lock(&file_priv->event_lock);

@@ -16,7 +16,7 @@
 #include <drivers/gpu/fbdev/video.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <kernel/timer.h>
+#include <kernel/timer/timer.h>
 #include <kernel/uinxed.h>
 #include <libs/gfxs/gfx_proc.h>
 #include <libs/std/stdbool.h>

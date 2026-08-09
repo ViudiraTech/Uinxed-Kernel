@@ -11,7 +11,7 @@
 #include <arch/idt.h>
 #include <chipset/common.h>
 #include <drivers/firmware/acpi.h>
-#include <kernel/interrupt.h>
+#include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

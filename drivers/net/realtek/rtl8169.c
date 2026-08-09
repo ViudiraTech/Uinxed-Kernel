@@ -13,16 +13,16 @@
 #include <drivers/firmware/apic.h>
 #include <drivers/net/realtek/rtl8169.h>
 #include <kernel/errno.h>
-#include <kernel/interrupt.h>
+#include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
-#include <kernel/timer.h>
+#include <kernel/timer/timer.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/frame.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
-#include <net/netdev.h>
-#include <net/pbuf.h>
+#include <net/core/netdev.h>
+#include <net/core/pbuf.h>
 #include <proc/sched.h>
 #include <proc/task.h>
 #include <sync/spin_lock.h>
@@ -276,6 +276,7 @@ static int rtl8169_map_bar(rtl8169_device_t *device)
         device->mmio      = (volatile uint8_t *)phys_to_virt(phys);
         return 0;
     }
+    plogk("rtl8169: %04x:%04x: no usable memory BAR found.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
     return -ENODEV;
 }
 
@@ -287,6 +288,7 @@ static int rtl8169_reset(rtl8169_device_t *device)
         if (!(rtl8169_read8(device, RTL8169_REG_CR) & RTL8169_CR_RESET)) return 0;
         usleep(1);
     }
+    plogk("rtl8169: %04x:%04x: reset timed out.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
     return -ETIMEDOUT;
 }
 
@@ -321,9 +323,15 @@ static void rtl8169_free_dma(rtl8169_device_t *device)
 static int rtl8169_alloc_dma(rtl8169_device_t *device)
 {
     device->rx_ring_phys = alloc_frames(1);
-    if (!device->rx_ring_phys) return -ENOMEM;
+    if (!device->rx_ring_phys) {
+        plogk("rtl8169: %04x:%04x: RX descriptor ring allocation failed.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        return -ENOMEM;
+    }
     device->tx_ring_phys = alloc_frames(1);
-    if (!device->tx_ring_phys) return -ENOMEM;
+    if (!device->tx_ring_phys) {
+        plogk("rtl8169: %04x:%04x: TX descriptor ring allocation failed.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        return -ENOMEM;
+    }
     device->rx_ring = (volatile rtl8169_desc_t *)phys_to_virt(device->rx_ring_phys);
     device->tx_ring = (volatile rtl8169_desc_t *)phys_to_virt(device->tx_ring_phys);
     memset((void *)device->rx_ring, 0, PAGE_4K_SIZE);
@@ -331,7 +339,11 @@ static int rtl8169_alloc_dma(rtl8169_device_t *device)
 
     for (size_t i = 0; i < RTL8169_RX_COUNT; i++) {
         device->rx_buffer_phys[i] = alloc_frames(1);
-        if (!device->rx_buffer_phys[i]) return -ENOMEM;
+        if (!device->rx_buffer_phys[i]) {
+            plogk("rtl8169: %04x:%04x: RX buffer allocation failed (index %zu)\n", (unsigned)device->pci->vendor_id,
+                  (unsigned)device->pci->device_id, i);
+            return -ENOMEM;
+        }
         uint32_t cmd = RTL8169_DESC_OWN | RTL8169_BUFFER_SIZE;
         if (i == RTL8169_RX_COUNT - 1) cmd |= RTL8169_DESC_EOR;
         device->rx_ring[i].command  = cmd;
@@ -341,7 +353,11 @@ static int rtl8169_alloc_dma(rtl8169_device_t *device)
     }
     for (size_t i = 0; i < RTL8169_TX_COUNT; i++) {
         device->tx_buffer_phys[i] = alloc_frames(1);
-        if (!device->tx_buffer_phys[i]) return -ENOMEM;
+        if (!device->tx_buffer_phys[i]) {
+            plogk("rtl8169: %04x:%04x: TX buffer allocation failed (index %zu)\n", (unsigned)device->pci->vendor_id,
+                  (unsigned)device->pci->device_id, i);
+            return -ENOMEM;
+        }
         uint32_t cmd = 0;
         if (i == RTL8169_TX_COUNT - 1) cmd |= RTL8169_DESC_EOR;
         device->tx_ring[i].command  = cmd; // OWN clear: available
@@ -398,7 +414,6 @@ static void rtl8169_update_link(rtl8169_device_t *device)
     if (up == device->link_up) return;
     device->link_up = up;
     device->stats.link_changes++;
-    if (!up) plogk("rtl8169: %s: link down.\n", device->netdev.name);
     if (device->netdev_registered) {
         spin_lock(&device->netdev.lock);
         if (up && (device->netdev.flags & NETDEV_F_UP))
@@ -495,6 +510,7 @@ int rtl8169_transmit(rtl8169_device_t *device, const void *packet, size_t length
     if (length > RTL8169_MAX_FRAME_SIZE) {
         device->stats.tx_dropped++;
         device->stats.tx_errors++;
+        plogk("rtl8169: %s: dropping oversize TX frame (%zu bytes)\n", device->netdev.name, length);
         return -EMSGSIZE;
     }
     if (!device->running) return -ENODEV;
@@ -562,6 +578,11 @@ size_t rtl8169_poll(rtl8169_device_t *device, size_t budget)
 
         if (!good) {
             device->stats.rx_errors++;
+            static uint64_t last_log;
+            if (sched_ticks() - last_log >= 1000) {
+                plogk("rtl8169: %s: RX error (cmd=%#x, length=%u)\n", device->netdev.name, (unsigned)cmd, (unsigned)length);
+                last_log = sched_ticks();
+            }
         } else {
             memcpy(frame, phys_to_virt(device->rx_buffer_phys[idx]), frame_length);
         }
@@ -602,13 +623,19 @@ size_t rtl8169_poll(rtl8169_device_t *device, size_t budget)
 static void rtl8169_process_work(rtl8169_device_t *device, uint32_t cause)
 {
     if (cause & RTL8169_ISR_LINKCHG) rtl8169_update_link(device);
-    if (cause & RTL8169_ISR_RER) device->stats.rx_errors++;
+    if (cause & RTL8169_ISR_RER) {
+        device->stats.rx_errors++;
+        plogk("rtl8169: %s: receive error interrupt.\n", device->netdev.name);
+    }
     if (cause & (RTL8169_ISR_RDU | RTL8169_ISR_FOVW)) {
         device->stats.rx_errors++;
         device->stats.rx_overruns++;
         plogk("rtl8169: %s: RX descriptor/FIFO overrun.\n", device->netdev.name);
     }
-    if (cause & RTL8169_ISR_TER) device->stats.tx_errors++;
+    if (cause & RTL8169_ISR_TER) {
+        device->stats.tx_errors++;
+        plogk("rtl8169: %s: transmit error interrupt.\n", device->netdev.name);
+    }
     if (cause & RTL8169_ISR_TDU) {
         device->stats.tx_errors++;
         plogk("rtl8169: %s: TX descriptor unavailable.\n", device->netdev.name);
@@ -764,6 +791,7 @@ static int rtl8169_setup_interrupt(rtl8169_device_t *device)
         if (!rtl8169_irq_slots[slot]) break;
     if (slot == RTL8169_MAX_DEVICES) {
         spin_unlock_irqrestore(&rtl8169_irq_lock, rflags);
+        plogk("rtl8169: %04x:%04x: no free IRQ slot.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
         return -ENOSPC;
     }
     device->irq_slot        = (uint8_t)slot;
@@ -777,6 +805,7 @@ static int rtl8169_setup_interrupt(rtl8169_device_t *device)
         device->using_msi = 1;
         return 0;
     }
+    plogk("rtl8169: %04x:%04x: MSI unavailable, falling back to INTx.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
 
     device->irq = (uint8_t)pci_get_irq(device->pci);
     if (device->irq == 0 || device->irq == 0xff) goto fail;
@@ -802,6 +831,7 @@ fail:
     rflags                  = spin_lock_irqsave(&rtl8169_irq_lock);
     rtl8169_irq_slots[slot] = NULL;
     spin_unlock_irqrestore(&rtl8169_irq_lock, rflags);
+    plogk("rtl8169: %04x:%04x: interrupt setup failed.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
     return -ENODEV;
 }
 
@@ -906,7 +936,10 @@ int rtl8169_probe(pci_device_cache_t *pci)
         if (it->pci == pci) return -EEXIST;
 
     rtl8169_device_t *device = malloc(sizeof(*device));
-    if (!device) return -ENOMEM;
+    if (!device) {
+        plogk("rtl8169: %04x:%04x: device allocation failed.\n", (unsigned)pci->vendor_id, (unsigned)pci->device_id);
+        return -ENOMEM;
+    }
     memset(device, 0, sizeof(*device));
     device->pci           = pci;
     device->device_id     = id->device;
@@ -967,6 +1000,8 @@ int rtl8169_probe(pci_device_cache_t *pci)
         ret   = rtl8169_start_worker(device);
         if (ret) goto fail_linked;
     }
+    plogk("rtl8169: %s: registered (MAC %02x:%02x:%02x:%02x:%02x:%02x, %s, link %s)\n", device->netdev.name, device->mac[0], device->mac[1],
+          device->mac[2], device->mac[3], device->mac[4], device->mac[5], device->using_msi ? "MSI" : "INTx", device->link_up ? "up" : "down");
     return 0;
 
 fail_linked:

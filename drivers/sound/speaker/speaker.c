@@ -1,0 +1,29 @@
+/*
+ *
+ *      speaker.c
+ *      System speakers
+ *
+ *      2024/6/29 By MicroFish
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
+ */
+
+#include <chipset/common.h>
+#include <drivers/sound/speaker/speaker.h>
+
+/* Set the system speaker status */
+void system_speaker(int hertz)
+{
+#if !CONFIG_PCSPKR
+    (void)hertz;
+    return;
+#endif
+    if (!hertz) {
+        outb(0x61, inb(0x61) & 0x0d); // Turn off the onboard buzzer
+    } else {
+        outb(0x43, 0xb6);                      // Send command to set timer 2
+        outb(0x42, hertz & 0xff);              // Send the low byte of the frequency division
+        outb(0x42, hertz >> 8);                // Send the high byte of the frequency division
+        outb(0x61, (inb(0x61) | 0x03) & 0x0f); // Turn on the onboard buzzer
+    }
+}

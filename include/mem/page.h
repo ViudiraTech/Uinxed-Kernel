@@ -11,7 +11,7 @@
 #ifndef INCLUDE_PAGE_H_
 #define INCLUDE_PAGE_H_
 
-#include <kernel/interrupt.h>
+#include <kernel/interrupt/interrupt.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>

@@ -13,9 +13,9 @@
 #include <drivers/ata/pata/ide.h>
 #include <drivers/firmware/apic.h>
 #include <drivers/pci/pci.h>
-#include <kernel/interrupt.h>
+#include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
-#include <kernel/timer.h>
+#include <kernel/timer/timer.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>

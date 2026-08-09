@@ -11,15 +11,15 @@
 #include <ipc/socket.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <kernel/timer.h>
+#include <kernel/timer/timer.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/heap.h>
 #include <net/abi/inet.h>
-#include <net/icmp.h>
-#include <net/netdev.h>
-#include <net/tcp.h>
-#include <net/udp.h>
+#include <net/ipv4/icmp.h>
+#include <net/core/netdev.h>
+#include <net/transport/tcp.h>
+#include <net/transport/udp.h>
 #include <proc/sched.h>
 
 static const struct inet_backend_ops *inet_ops;

@@ -10,6 +10,7 @@
 
 #include <drivers/gpu/drm/drm_mm.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/data/rbtree.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
@@ -130,8 +131,14 @@ int drm_mm_insert_node_in_range(struct drm_mm *mm, struct drm_mm_node *node, uin
     bool                found      = false;
     bool                once;
 
-    if (size == 0) return -EINVAL;
-    if (range_start >= range_end) return -EINVAL;
+    if (size == 0) {
+        plogk("drm_mm: insert: zero size.\n");
+        return -EINVAL;
+    }
+    if (range_start >= range_end) {
+        plogk("drm_mm: insert: invalid range [0x%llx, 0x%llx)\n", (unsigned long long)range_start, (unsigned long long)range_end);
+        return -EINVAL;
+    }
 
     once = (mode & DRM_MM_INSERT_ONCE) != 0;
     mode &= ~DRM_MM_INSERT_MODE_FLAGS;
@@ -196,6 +203,8 @@ found_hole:
     }
 
     spin_unlock(&mm->lock);
+    plogk("drm_mm: insert: no hole for size %llu alignment %llu in range [0x%llx, 0x%llx)\n", (unsigned long long)size,
+          (unsigned long long)alignment, (unsigned long long)range_start, (unsigned long long)range_end);
     return -ENOSPC;
 }
 

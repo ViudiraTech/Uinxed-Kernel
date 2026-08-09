@@ -15,6 +15,7 @@
 #include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
@@ -60,7 +61,10 @@ static struct drm_property *drm_signed_property(struct drm_device *dev, const ch
  */
 int drm_mode_config_init(struct drm_device *dev)
 {
-    if (!dev) { return -EINVAL; }
+    if (!dev) {
+        plogk("drm: mode_config_init called with NULL device.\n");
+        return -EINVAL;
+    }
 
     memset(&dev->mode_config.mutex, 0, sizeof(dev->mode_config.mutex));
     memset(&dev->mode_config.idr_mutex, 0, sizeof(dev->mode_config.idr_mutex));
@@ -184,6 +188,7 @@ int drm_mode_config_init(struct drm_device *dev)
         || !dev->mode_config.prop_src_x || !dev->mode_config.prop_src_y || !dev->mode_config.prop_src_w || !dev->mode_config.prop_src_h
         || !dev->mode_config.prop_crtc_x || !dev->mode_config.prop_crtc_y || !dev->mode_config.prop_crtc_w || !dev->mode_config.prop_crtc_h
         || !dev->mode_config.prop_zpos || !dev->mode_config.prop_alpha || !dev->mode_config.prop_plane_type) {
+        plogk("drm: mode_config_init: core property creation failed, returning -ENOMEM.\n");
         drm_mode_config_cleanup(dev);
         return -ENOMEM;
     }
@@ -373,7 +378,10 @@ int drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *f
 
     (void)file_priv;
 
-    if (!dev || !res) { return -EINVAL; }
+    if (!dev || !res) {
+        plogk("drm: GETRESOURCES with invalid args (dev=%p, res=%p)\n", dev, res);
+        return -EINVAL;
+    }
 
     uint32_t  user_fbs = res->count_fbs, user_crtcs = res->count_crtcs;
     uint32_t  user_connectors = res->count_connectors, user_encoders = res->count_encoders;
@@ -386,6 +394,8 @@ int drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *f
     if (dev->mode_config.num_encoder) encoders = malloc((size_t)dev->mode_config.num_encoder * sizeof(*encoders));
     if ((dev->mode_config.num_fb && !fbs) || (dev->mode_config.num_crtc && !crtcs) || (dev->mode_config.num_connector && !connectors)
         || (dev->mode_config.num_encoder && !encoders)) {
+        plogk("drm: GETRESOURCES allocation failed (num_fb=%d num_crtc=%d num_connector=%d num_encoder=%d), returning -ENOMEM.\n",
+              dev->mode_config.num_fb, dev->mode_config.num_crtc, dev->mode_config.num_connector, dev->mode_config.num_encoder);
         free(fbs);
         free(crtcs);
         free(connectors);
@@ -431,6 +441,8 @@ int drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *f
                     (void *)(uintptr_t)res->encoder_id_ptr, encoders,
                     (size_t)(user_encoders < (uint32_t)dev->mode_config.num_encoder ? user_encoders : (uint32_t)dev->mode_config.num_encoder)
                         * sizeof(*encoders))))) {
+        plogk("drm: GETRESOURCES copy_to_user failed (user_fbs=%u user_crtcs=%u user_connectors=%u user_encoders=%u), returning -EFAULT.\n",
+              user_fbs, user_crtcs, user_connectors, user_encoders);
         free(fbs);
         free(crtcs);
         free(connectors);
@@ -464,7 +476,10 @@ int drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *f
  */
 static int drmm_mode_config_init(struct drm_device *dev)
 {
-    if (!dev) { return -EINVAL; }
+    if (!dev) {
+        plogk("drm: drmm_mode_config_init called with NULL device.\n");
+        return -EINVAL;
+    }
 
     return drm_mode_config_init(dev);
 }

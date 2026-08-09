@@ -13,16 +13,16 @@
 #include <drivers/firmware/apic.h>
 #include <drivers/net/realtek/rtl8139.h>
 #include <kernel/errno.h>
-#include <kernel/interrupt.h>
+#include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
-#include <kernel/timer.h>
+#include <kernel/timer/timer.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/frame.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
-#include <net/netdev.h>
-#include <net/pbuf.h>
+#include <net/core/netdev.h>
+#include <net/core/pbuf.h>
 #include <proc/sched.h>
 #include <proc/task.h>
 #include <sync/spin_lock.h>
@@ -141,7 +141,6 @@ typedef struct rtl8139_device {
         uint8_t                mac[6];
         uint8_t                irq;
         int                    vector;
-        int                    using_msi;
         int                    using_legacy;
         int                    using_direct_legacy;
         int                    running;
@@ -234,7 +233,10 @@ static int rtl8139_valid_mac(const uint8_t mac[6])
 static int rtl8139_get_ioaddr(rtl8139_device_t *device)
 {
     uint32_t port = pci_get_port_base(device->pci);
-    if (!port || port > 0xffff) return -ENODEV;
+    if (!port || port > 0xffff) {
+        plogk("rtl8139: %04x:%04x: no usable I/O port BAR.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        return -ENODEV;
+    }
     device->ioaddr = (uint16_t)port;
     return 0;
 }
@@ -280,13 +282,19 @@ static void rtl8139_free_dma(rtl8139_device_t *device)
 static int rtl8139_alloc_dma(rtl8139_device_t *device)
 {
     device->rx_ring_phys = alloc_frames(RTL8139_RX_BUF_FRAMES);
-    if (!device->rx_ring_phys) return -ENOMEM;
+    if (!device->rx_ring_phys) {
+        plogk("rtl8139: %04x:%04x: RX ring allocation failed.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        return -ENOMEM;
+    }
     device->rx_ring = (volatile uint8_t *)phys_to_virt(device->rx_ring_phys);
     memset((void *)device->rx_ring, 0, (size_t)RTL8139_RX_BUF_FRAMES * PAGE_4K_SIZE);
 
     for (size_t i = 0; i < RTL8139_TX_COUNT; i++) {
         device->tx_buffer_phys[i] = alloc_frames(1);
-        if (!device->tx_buffer_phys[i]) return -ENOMEM;
+        if (!device->tx_buffer_phys[i]) {
+            plogk("rtl8139: %04x:%04x: TX buffer allocation failed.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+            return -ENOMEM;
+        }
     }
     dma_write_barrier();
     return 0;
@@ -335,7 +343,6 @@ static void rtl8139_update_link(rtl8139_device_t *device)
     if (up == device->link_up) return;
     device->link_up = up;
     device->stats.link_changes++;
-    if (!up) plogk("rtl8139: %s: link down.\n", device->netdev.name);
     if (device->netdev_registered) {
         spin_lock(&device->netdev.lock);
         if (up && (device->netdev.flags & NETDEV_F_UP))
@@ -355,8 +362,10 @@ static size_t rtl8139_tx_reclaim_locked(rtl8139_device_t *device, size_t budget)
         if (!(t & RTL8139_TX_OWN)) break;
         if (t & RTL8139_TX_TOK)
             device->stats.tx_packets++;
-        else
+        else {
             device->stats.tx_errors++;
+            plogk("rtl8139: %s: TX descriptor error (status=%#x)\n", device->netdev.name, (unsigned)t);
+        }
         device->tx_clean = (device->tx_clean + 1) % RTL8139_TX_COUNT;
         device->tx_used--;
         reclaimed++;
@@ -428,6 +437,7 @@ int rtl8139_transmit(rtl8139_device_t *device, const void *packet, size_t length
     if (length > RTL8139_MAX_FRAME_SIZE) {
         device->stats.tx_dropped++;
         device->stats.tx_errors++;
+        plogk("rtl8139: %s: dropping oversize TX frame (%zu bytes)\n", device->netdev.name, length);
         return -EMSGSIZE;
     }
     if (!device->running) return -ENODEV;
@@ -495,6 +505,11 @@ size_t rtl8139_poll(rtl8139_device_t *device, size_t budget)
 
         if (!good) {
             device->stats.rx_errors++;
+            static uint64_t last_log;
+            if (sched_ticks() - last_log >= 1000) {
+                plogk("rtl8139: %s: RX error (status=%#x, length=%u)\n", device->netdev.name, (unsigned)status, (unsigned)length);
+                last_log = sched_ticks();
+            }
         } else if (offset + length > RTL8139_RX_BUF_SIZE) {
             uint32_t first = RTL8139_RX_BUF_SIZE - (offset + RTL8139_CRC_LEN);
             memcpy(frame, (const void *)(device->rx_ring + offset + RTL8139_CRC_LEN), first);
@@ -536,7 +551,10 @@ size_t rtl8139_poll(rtl8139_device_t *device, size_t budget)
 static void rtl8139_process_work(rtl8139_device_t *device, uint32_t cause)
 {
     if (cause & RTL8139_ISR_PUN) rtl8139_update_link(device);
-    if (cause & RTL8139_ISR_RER) device->stats.rx_errors++;
+    if (cause & RTL8139_ISR_RER) {
+        device->stats.rx_errors++;
+        plogk("rtl8139: %s: receive error interrupt.\n", device->netdev.name);
+    }
     if (cause & (RTL8139_ISR_RXOVW | RTL8139_ISR_FOVW)) {
         device->stats.rx_errors++;
         device->stats.rx_overruns++;
@@ -545,7 +563,10 @@ static void rtl8139_process_work(rtl8139_device_t *device, uint32_t cause)
         device->cur_rx = rtl8139_read16(device, RTL8139_REG_CBR) % RTL8139_RX_BUF_SIZE;
         rtl8139_write16(device, RTL8139_REG_CAPR, (uint16_t)(device->cur_rx - 16));
     }
-    if (cause & RTL8139_ISR_TER) device->stats.tx_errors++;
+    if (cause & RTL8139_ISR_TER) {
+        device->stats.tx_errors++;
+        plogk("rtl8139: %s: transmit error interrupt.\n", device->netdev.name);
+    }
     if ((cause & RTL8139_RX_INT_MASK) || rtl8139_rx_ready(device)) (void)rtl8139_poll(device, RTL8139_WORK_BUDGET);
 
     uint64_t rflags = spin_lock_irqsave(&device->tx_lock);
@@ -697,20 +718,17 @@ static int rtl8139_setup_interrupt(rtl8139_device_t *device)
         if (!rtl8139_irq_slots[slot]) break;
     if (slot == RTL8139_MAX_DEVICES) {
         spin_unlock_irqrestore(&rtl8139_irq_lock, rflags);
+        plogk("rtl8139: %04x:%04x: no free IRQ slot.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
         return -ENOSPC;
     }
     device->irq_slot        = (uint8_t)slot;
     rtl8139_irq_slots[slot] = device;
     spin_unlock_irqrestore(&rtl8139_irq_lock, rflags);
 
-    pci_msi_init(device->pci);
-    device->vector = pci_enable_msi(device->pci);
-    if (device->vector >= 0) {
-        register_interrupt_handler((uint16_t)device->vector, rtl8139_idt_irq_handlers[slot], 0, 0x8e);
-        device->using_msi = 1;
-        return 0;
-    }
-
+    /*
+     * The RTL8139 is a PCI 2.x-era chip whose config space generally lacks an
+     * MSI capability, so MSI is not attempted here and legacy INTx is used.
+     */
     device->irq = (uint8_t)pci_get_irq(device->pci);
     if (device->irq == 0 || device->irq == 0xff) goto fail;
     if (net_irq_claim_legacy && net_irq_release_legacy) {
@@ -735,12 +753,13 @@ fail:
     rflags                  = spin_lock_irqsave(&rtl8139_irq_lock);
     rtl8139_irq_slots[slot] = NULL;
     spin_unlock_irqrestore(&rtl8139_irq_lock, rflags);
+    plogk("rtl8139: %04x:%04x: interrupt setup failed.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
     return -ENODEV;
 }
 
 static void rtl8139_release_interrupt(rtl8139_device_t *device)
 {
-    if (!device->using_msi && !device->using_legacy) return;
+    if (!device->using_legacy) return;
     if (device->ioaddr) {
         rtl8139_write16(device, RTL8139_REG_IMR, 0);
         rtl8139_write16(device, RTL8139_REG_ISR, 0xffff);
@@ -750,7 +769,6 @@ static void rtl8139_release_interrupt(rtl8139_device_t *device)
     rtl8139_irq_slots[device->irq_slot] = NULL;
     spin_unlock_irqrestore(&rtl8139_irq_lock, rflags);
 
-    if (device->using_msi) pci_disable_msi(device->pci);
     if (device->using_legacy && !device->using_direct_legacy && net_irq_release_legacy)
         net_irq_release_legacy(device->irq, rtl8139_legacy_irq_handlers[device->irq_slot]);
     for (;;) {
@@ -760,7 +778,7 @@ static void rtl8139_release_interrupt(rtl8139_device_t *device)
         if (!active) break;
         __asm__ volatile("pause" ::: "memory");
     }
-    device->using_msi = device->using_legacy = device->using_direct_legacy = 0;
+    device->using_legacy = device->using_direct_legacy = 0;
 }
 
 static int rtl8139_netdev_name(char *name, size_t size)
@@ -840,7 +858,10 @@ int rtl8139_probe(pci_device_cache_t *pci)
         if (it->pci == pci) return -EEXIST;
 
     rtl8139_device_t *device = malloc(sizeof(*device));
-    if (!device) return -ENOMEM;
+    if (!device) {
+        plogk("rtl8139: %04x:%04x: device allocation failed.\n", (unsigned)pci->vendor_id, (unsigned)pci->device_id);
+        return -ENOMEM;
+    }
     memset(device, 0, sizeof(*device));
     device->pci           = pci;
     device->device_id     = id->device;
@@ -900,6 +921,8 @@ int rtl8139_probe(pci_device_cache_t *pci)
         ret   = rtl8139_start_worker(device);
         if (ret) goto fail_linked;
     }
+    plogk("rtl8139: %s: registered (MAC %02x:%02x:%02x:%02x:%02x:%02x, INTx, link %s)\n", device->netdev.name, device->mac[0], device->mac[1],
+          device->mac[2], device->mac[3], device->mac[4], device->mac[5], device->link_up ? "up" : "down");
     return 0;
 
 fail_linked:

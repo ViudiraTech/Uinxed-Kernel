@@ -16,8 +16,8 @@
 #include <boot/limine.h>
 #include <chipset/common.h>
 #include <drivers/firmware/apic.h>
-#include <kernel/debug.h>
-#include <kernel/interrupt.h>
+#include <kernel/debug/debug.h>
+#include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
 #include <kernel/uinxed.h>
 #include <libs/std/stddef.h>

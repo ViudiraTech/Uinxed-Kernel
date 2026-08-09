@@ -10,7 +10,7 @@
 
 #include <chipset/common.h>
 #include <drivers/char/ports/parallel.h>
-#include <kernel/timer.h>
+#include <kernel/timer/timer.h>
 
 log_buffer_t parallel_log;
 

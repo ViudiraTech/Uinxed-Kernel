@@ -15,6 +15,7 @@
 #include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
@@ -30,10 +31,16 @@ int drm_vblank_init(struct drm_device *dev, unsigned int num_crtcs)
     struct drm_vblank_crtc *vblank;
     unsigned int            i;
 
-    if (!dev || num_crtcs == 0) { return -EINVAL; }
+    if (!dev || num_crtcs == 0) {
+        plogk("drm: vblank_init with invalid args (dev=%p, num_crtcs=%u), returning -EINVAL.\n", dev, num_crtcs);
+        return -EINVAL;
+    }
 
     vblank = malloc(sizeof(*vblank) * num_crtcs);
-    if (!vblank) { return -ENOMEM; }
+    if (!vblank) {
+        plogk("drm: vblank_init: array allocation failed (num_crtcs=%u), returning -ENOMEM.\n", num_crtcs);
+        return -ENOMEM;
+    }
     memset(vblank, 0, sizeof(*vblank) * num_crtcs);
 
     for (i = 0; i < num_crtcs; i++) {
@@ -70,11 +77,17 @@ uint32_t drm_crtc_vblank_count(struct drm_crtc *crtc)
     struct drm_device      *dev;
     struct drm_vblank_crtc *vblank;
 
-    if (!crtc || !crtc->dev) { return 0; }
+    if (!crtc || !crtc->dev) {
+        plogk("drm: vblank_count with invalid crtc (crtc=%p), returning 0.\n", crtc);
+        return 0;
+    }
 
     dev = crtc->dev;
 
-    if (crtc->index < 0 || crtc->index >= dev->num_crtc) { return 0; }
+    if (crtc->index < 0 || crtc->index >= dev->num_crtc) {
+        plogk("drm: vblank_count: crtc index %d out of range (num_crtc=%d), returning 0.\n", crtc->index, dev->num_crtc);
+        return 0;
+    }
 
     vblank = &dev->vblank_unused_array[crtc->index];
 
@@ -90,11 +103,17 @@ int drm_crtc_vblank_get(struct drm_crtc *crtc)
     struct drm_device      *dev;
     struct drm_vblank_crtc *vblank;
 
-    if (!crtc || !crtc->dev) { return -EINVAL; }
+    if (!crtc || !crtc->dev) {
+        plogk("drm: vblank_get with invalid crtc (crtc=%p), returning -EINVAL.\n", crtc);
+        return -EINVAL;
+    }
 
     dev = crtc->dev;
 
-    if (crtc->index < 0 || crtc->index >= dev->num_crtc) { return -EINVAL; }
+    if (crtc->index < 0 || crtc->index >= dev->num_crtc) {
+        plogk("drm: vblank_get: crtc index %d out of range (num_crtc=%d), returning -EINVAL.\n", crtc->index, dev->num_crtc);
+        return -EINVAL;
+    }
 
     vblank = &dev->vblank_unused_array[crtc->index];
 
@@ -116,11 +135,17 @@ void drm_crtc_vblank_put(struct drm_crtc *crtc)
     struct drm_device      *dev;
     struct drm_vblank_crtc *vblank;
 
-    if (!crtc || !crtc->dev) { return; }
+    if (!crtc || !crtc->dev) {
+        plogk("drm: vblank_put with invalid crtc (crtc=%p)\n", crtc);
+        return;
+    }
 
     dev = crtc->dev;
 
-    if (crtc->index < 0 || crtc->index >= dev->num_crtc) { return; }
+    if (crtc->index < 0 || crtc->index >= dev->num_crtc) {
+        plogk("drm: vblank_put: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
+        return;
+    }
 
     vblank = &dev->vblank_unused_array[crtc->index];
 
@@ -139,11 +164,17 @@ void drm_crtc_arm_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_
     struct drm_device      *dev;
     struct drm_vblank_crtc *vblank;
 
-    if (!crtc || !crtc->dev || !e) { return; }
+    if (!crtc || !crtc->dev || !e) {
+        plogk("drm: arm_vblank_event with invalid args (crtc=%p, e=%p)\n", crtc, e);
+        return;
+    }
 
     dev = crtc->dev;
 
-    if (crtc->index < 0 || crtc->index >= dev->num_crtc) { return; }
+    if (crtc->index < 0 || crtc->index >= dev->num_crtc) {
+        plogk("drm: arm_vblank_event: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
+        return;
+    }
 
     vblank = &dev->vblank_unused_array[crtc->index];
 
@@ -193,9 +224,14 @@ void drm_crtc_send_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank
     struct drm_vblank_crtc *vblank;
     uint64_t                timestamp;
 
-    if (!e || !e->dev) return;
+    if (!e || !e->dev) {
+        plogk("drm: send_vblank_event with invalid args (e=%p, dev=%p)\n", e, e ? e->dev : NULL);
+        return;
+    }
     if (!crtc) crtc = e->crtc;
     if (!crtc || crtc->index < 0 || crtc->index >= e->dev->num_crtc) {
+        plogk("drm: send_vblank_event: crtc invalid (crtc=%p, index=%d, num_crtc=%d), dropping event.\n", crtc, crtc ? crtc->index : -1,
+              e->dev->num_crtc);
         if (e->vblank_ref && e->crtc) {
             drm_crtc_vblank_put(e->crtc);
             e->vblank_ref = false;
@@ -229,11 +265,17 @@ static void drm_crtc_vblank_off(struct drm_crtc *crtc)
     struct drm_device      *dev;
     struct drm_vblank_crtc *vblank;
 
-    if (!crtc || !crtc->dev) { return; }
+    if (!crtc || !crtc->dev) {
+        plogk("drm: vblank_off with invalid crtc (crtc=%p)\n", crtc);
+        return;
+    }
 
     dev = crtc->dev;
 
-    if (crtc->index < 0 || crtc->index >= dev->num_crtc) { return; }
+    if (crtc->index < 0 || crtc->index >= dev->num_crtc) {
+        plogk("drm: vblank_off: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
+        return;
+    }
 
     vblank = &dev->vblank_unused_array[crtc->index];
 
@@ -252,11 +294,17 @@ static void drm_crtc_vblank_on(struct drm_crtc *crtc)
     struct drm_device      *dev;
     struct drm_vblank_crtc *vblank;
 
-    if (!crtc || !crtc->dev) { return; }
+    if (!crtc || !crtc->dev) {
+        plogk("drm: vblank_on with invalid crtc (crtc=%p)\n", crtc);
+        return;
+    }
 
     dev = crtc->dev;
 
-    if (crtc->index < 0 || crtc->index >= dev->num_crtc) { return; }
+    if (crtc->index < 0 || crtc->index >= dev->num_crtc) {
+        plogk("drm: vblank_on: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
+        return;
+    }
 
     vblank = &dev->vblank_unused_array[crtc->index];
 
@@ -277,7 +325,10 @@ void drm_handle_vblank(struct drm_device *dev, unsigned int pipe)
     struct drm_pending_vblank_event **tail  = &ready;
     struct drm_crtc_helper_funcs     *helpers;
 
-    if (!dev || (int)pipe >= dev->num_crtc) { return; }
+    if (!dev || (int)pipe >= dev->num_crtc) {
+        plogk("drm: handle_vblank with invalid pipe (dev=%p, pipe=%u, num_crtc=%d)\n", dev, pipe, dev ? dev->num_crtc : -1);
+        return;
+    }
 
     vblank = &dev->vblank_unused_array[pipe];
 
@@ -365,19 +416,34 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
     uint32_t                current;
     uint32_t                allowed;
 
-    if (!dev || !vblwait) return -EINVAL;
+    if (!dev || !vblwait) {
+        plogk("drm: WAIT_VBLANK with invalid args (dev=%p, vblwait=%p), returning -EINVAL.\n", dev, vblwait);
+        return -EINVAL;
+    }
     flags   = vblwait->request.type;
     allowed = _DRM_VBLANK_TYPES_MASK | _DRM_VBLANK_FLAGS_MASK | _DRM_VBLANK_HIGH_CRTC_MASK;
-    if (flags & ~allowed) return -EINVAL;
-    if (flags & (_DRM_VBLANK_SIGNAL | _DRM_VBLANK_FLIP)) return -EINVAL;
+    if (flags & ~allowed) {
+        plogk("drm: WAIT_VBLANK: unsupported flags 0x%x, returning -EINVAL.\n", flags);
+        return -EINVAL;
+    }
+    if (flags & (_DRM_VBLANK_SIGNAL | _DRM_VBLANK_FLIP)) {
+        plogk("drm: WAIT_VBLANK: SIGNAL/FLIP not supported (flags=0x%x), returning -EINVAL.\n", flags);
+        return -EINVAL;
+    }
 
     pipe = (flags & _DRM_VBLANK_HIGH_CRTC_MASK) >> _DRM_VBLANK_HIGH_CRTC_SHIFT;
     if ((flags & _DRM_VBLANK_SECONDARY) && !pipe) pipe = 1;
 
-    if (pipe >= (unsigned int)dev->num_crtc) { return -EINVAL; }
+    if (pipe >= (unsigned int)dev->num_crtc) {
+        plogk("drm: WAIT_VBLANK: pipe %u out of range (num_crtc=%d), returning -EINVAL.\n", pipe, dev->num_crtc);
+        return -EINVAL;
+    }
 
     vblank = &dev->vblank_unused_array[pipe];
-    if (!vblank->crtc) return -EINVAL;
+    if (!vblank->crtc) {
+        plogk("drm: WAIT_VBLANK: no CRTC bound to pipe %u, returning -EINVAL.\n", pipe);
+        return -EINVAL;
+    }
 
     spin_lock(&vblank->lock);
     current = vblank->count;
@@ -390,7 +456,10 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
         struct drm_pending_vblank_event *e;
 
         e = malloc(sizeof(*e));
-        if (!e) { return -ENOMEM; }
+        if (!e) {
+            plogk("drm: WAIT_VBLANK: event allocation failed, returning -ENOMEM.\n");
+            return -ENOMEM;
+        }
         memset(e, 0, sizeof(*e));
 
         e->dev               = dev;
@@ -405,6 +474,7 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
 
         if (drm_crtc_vblank_get(e->crtc)) {
             free(e);
+            plogk("drm: WAIT_VBLANK: vblank get failed for crtc %u, returning -EINVAL.\n", e->crtc->base.id);
             return -EINVAL;
         }
         e->vblank_ref = true;
@@ -425,7 +495,10 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
         return 0;
     }
 
-    if (drm_crtc_vblank_get(vblank->crtc)) return -EINVAL;
+    if (drm_crtc_vblank_get(vblank->crtc)) {
+        plogk("drm: WAIT_VBLANK: vblank get failed for pipe %u, returning -EINVAL.\n", pipe);
+        return -EINVAL;
+    }
     for (;;) {
         spin_lock(&vblank->lock);
         current = vblank->count;
@@ -448,7 +521,10 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
 
 void drm_vblank_cancel_pending(struct drm_device *dev, struct drm_file *file_priv)
 {
-    if (!dev || !file_priv || !dev->vblank_unused_array) return;
+    if (!dev || !file_priv || !dev->vblank_unused_array) {
+        plogk("drm: vblank_cancel_pending with invalid args (dev=%p, file_priv=%p)\n", dev, file_priv);
+        return;
+    }
 
     for (int i = 0; i < dev->num_crtc; i++) {
         struct drm_vblank_crtc           *vblank = &dev->vblank_unused_array[i];
@@ -484,7 +560,10 @@ void drm_vblank_cancel_pending(struct drm_device *dev, struct drm_file *file_pri
 
 void drm_vblank_cleanup(struct drm_device *dev)
 {
-    if (!dev || !dev->vblank_unused_array) { return; }
+    if (!dev || !dev->vblank_unused_array) {
+        plogk("drm: vblank_cleanup called without vblank array initialized (dev=%p)\n", dev);
+        return;
+    }
 
     /* Free any pending events */
     {

@@ -20,11 +20,11 @@
 #include <drivers/gpu/fbdev/video.h>
 #include <drivers/input/evdev/evdev.h>
 #include <drivers/nvme/nvme.h>
-#include <drivers/tty/tty/tty.h>
+#include <drivers/tty/tty.h>
 #include <fs/core/vfs.h>
 #include <fs/virtual/devtmpfs.h>
 #include <fs/virtual/tmpfs.h>
-#include <kernel/audio.h>
+#include <kernel/sound/audio.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>

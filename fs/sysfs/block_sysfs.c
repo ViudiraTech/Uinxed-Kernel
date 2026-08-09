@@ -16,7 +16,7 @@
 #include <fs/sysfs/block_sysfs.h>
 #include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>
-#include <kernel/kobject.h>
+#include <kernel/kobject/kobject.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

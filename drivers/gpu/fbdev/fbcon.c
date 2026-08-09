@@ -13,8 +13,8 @@
 #include <drivers/gpu/fbdev/klogo.h>
 #include <drivers/gpu/fbdev/video.h>
 #include <drivers/gpu/fbdev/vt_ansi.h>
-#include <drivers/tty/tty/tty.h>
-#include <kernel/timer.h>
+#include <drivers/tty/tty.h>
+#include <kernel/timer/timer.h>
 #include <libs/gfxs/fonts.h>
 #include <libs/gfxs/gfx_proc.h>
 #include <libs/std/stddef.h>

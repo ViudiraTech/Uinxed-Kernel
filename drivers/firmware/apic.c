@@ -15,7 +15,7 @@
 #include <drivers/firmware/acpi.h>
 #include <drivers/firmware/apic.h>
 #include <kernel/printk.h>
-#include <kernel/timer.h>
+#include <kernel/timer/timer.h>
 #include <kernel/uinxed.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

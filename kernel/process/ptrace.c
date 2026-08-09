@@ -9,6 +9,7 @@
  */
 
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
@@ -221,7 +222,10 @@ static void ptrace_build_user_area(task_t *target, ptrace_user_area_t *area)
 
 static int ptrace_poke_user(task_t *target, uintptr_t offset, uint64_t value)
 {
-    if ((offset & (sizeof(uint64_t) - 1)) || offset >= sizeof(ptrace_user_area_t)) return -EIO;
+    if ((offset & (sizeof(uint64_t) - 1)) || offset >= sizeof(ptrace_user_area_t)) {
+        plogk("ptrace: POKEUSR unaligned or out-of-range offset %lx (pid=%d)\n", (unsigned long)offset, (int)target->pid);
+        return -EIO;
+    }
     if (offset < sizeof(ptrace_user_regs_t)) {
         *(uint64_t *)((uint8_t *)&target->ptrace.regs + offset) = value;
         return 0;
@@ -230,12 +234,22 @@ static int ptrace_poke_user(task_t *target, uintptr_t offset, uint64_t value)
     uintptr_t debug_end   = debug_start + sizeof(target->ptrace.debug_regs);
     if (offset >= debug_start && offset < debug_end) {
         size_t index = (offset - debug_start) / sizeof(uint64_t);
-        if (index == 4 || index == 5) return -EIO;
-        if (index < 4 && value >= PROCESS_USER_STACK_TOP) return -EIO;
-        if (index == 7 && (value & (1ULL << 13))) return -EIO; // General detect is kernel-only.
+        if (index == 4 || index == 5) {
+            plogk("ptrace: POKEUSR reserved debug register index %lu (pid=%d)\n", (unsigned long)index, (int)target->pid);
+            return -EIO;
+        }
+        if (index < 4 && value >= PROCESS_USER_STACK_TOP) {
+            plogk("ptrace: POKEUSR invalid debug register value %lx (pid=%d)\n", (unsigned long)value, (int)target->pid);
+            return -EIO;
+        }
+        if (index == 7 && (value & (1ULL << 13))) { // General detect is kernel-only.
+            plogk("ptrace: POKEUSR general-detect bit rejected (pid=%d)\n", (int)target->pid);
+            return -EIO;
+        }
         target->ptrace.debug_regs[index] = value;
         return 0;
     }
+    plogk("ptrace: POKEUSR offset %lx outside valid ranges (pid=%d)\n", (unsigned long)offset, (int)target->pid);
     return -EIO;
 }
 
@@ -379,11 +393,15 @@ static int ptrace_stop_current(syscall_frame_t *frame, int sig, ptrace_stop_reas
 
 static int ptrace_resume(task_t *target, ptrace_run_mode_t mode, int sig)
 {
-    if (!sig_valid(sig) && sig != 0) return -EIO;
+    if (!sig_valid(sig) && sig != 0) {
+        plogk("ptrace: resume with invalid signal %d (pid=%d)\n", sig, (int)target->pid);
+        return -EIO;
+    }
     ptrace_state_t *state = &target->ptrace;
     spin_lock(&state->lock);
     if (!state->stopped) {
         spin_unlock(&state->lock);
+        plogk("ptrace: resume of non-stopped task (pid=%d)\n", (int)target->pid);
         return -ESRCH;
     }
     state->mode          = mode;
@@ -404,14 +422,24 @@ static int ptrace_attach(task_t *target, process_t *owner, bool seize, uint32_t 
     task_t    *self    = current_task();
     int        ret     = ptrace_access_allowed(current, owner);
     if (ret) return ret;
-    if (!self || target == self || (options & ~PTRACE_O_MASK)) return -EINVAL;
-    if ((options & PTRACE_O_SUSPEND_SECCOMP) && current->uid != 0) return -EPERM;
-    if (target->state == TASK_ZOMBIE) return -ESRCH;
+    if (!self || target == self || (options & ~PTRACE_O_MASK)) {
+        plogk("ptrace: attach invalid args (target=%p, options=%x)\n", (void *)target, (unsigned)options);
+        return -EINVAL;
+    }
+    if ((options & PTRACE_O_SUSPEND_SECCOMP) && current->uid != 0) {
+        plogk("ptrace: attach with SUSPEND_SECCOMP requires root (target=%d)\n", (int)target->pid);
+        return -EPERM;
+    }
+    if (target->state == TASK_ZOMBIE) {
+        plogk("ptrace: attach to zombie (pid=%d)\n", (int)target->pid);
+        return -ESRCH;
+    }
 
     ptrace_state_t *state = &target->ptrace;
     spin_lock(&state->lock);
     if (state->tracer_pid) {
         spin_unlock(&state->lock);
+        plogk("ptrace: attach denied, task %d already traced (tracer=%lld)\n", (int)target->pid, (long long)state->tracer_pid);
         return -EPERM;
     }
     state->tracer_pid = (int64_t)self->pid;
@@ -449,6 +477,7 @@ static int ptrace_copy_regset(task_t *target, uintptr_t note, uintptr_t data, bo
         source      = target->ptrace.fpregs;
         source_size = sizeof(target->ptrace.fpregs);
     } else {
+        plogk("ptrace: GET/SETREGSET with unknown note %lx (pid=%d)\n", (unsigned long)note, (int)target->pid);
         return -EINVAL;
     }
     size_t length = iov.len < source_size ? iov.len : source_size;
@@ -465,7 +494,10 @@ static int64_t ptrace_peek_siginfo(task_t *target, uintptr_t addr, uintptr_t dat
 {
     ptrace_peeksiginfo_args_t args;
     if (copy_from_user(&args, (void *)addr, sizeof(args))) return -EFAULT;
-    if (args.flags & ~PTRACE_PEEKSIGINFO_SHARED || args.nr < 0) return -EINVAL;
+    if (args.flags & ~PTRACE_PEEKSIGINFO_SHARED || args.nr < 0) {
+        plogk("ptrace: PEEKSIGINFO invalid args (flags=%lx, pid=%d)\n", (unsigned long)args.flags, (int)target->pid);
+        return -EINVAL;
+    }
 
     signal_state_t *signals = &target->process->signal;
     spin_lock(&signals->lock);
@@ -521,14 +553,21 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
 {
     task_t    *self    = current_task();
     process_t *current = process_current();
-    if (!self || !current) return -ESRCH;
+    if (!self || !current) {
+        plogk("ptrace: no current task for ptrace request %d\n", request);
+        return -ESRCH;
+    }
 
     if (request == PTRACE_TRACEME) {
-        if (!current->parent || !current->parent->task) return -ESRCH;
+        if (!current->parent || !current->parent->task) {
+            plogk("ptrace: TRACEME with no parent (pid=%d)\n", (int)self->pid);
+            return -ESRCH;
+        }
         ptrace_state_t *state = &self->ptrace;
         spin_lock(&state->lock);
         if (state->tracer_pid) {
             spin_unlock(&state->lock);
+            plogk("ptrace: TRACEME already traced (pid=%d, tracer=%lld)\n", (int)self->pid, (long long)state->tracer_pid);
             return -EPERM;
         }
         state->tracer_pid = (int64_t)current->parent->task->pid;
@@ -539,11 +578,15 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
 
     process_t *owner  = NULL;
     task_t    *target = ptrace_find_task_get(pid, &owner);
-    if (!target) return -ESRCH;
+    if (!target) {
+        plogk("ptrace: target pid %lld not found.\n", (long long)pid);
+        return -ESRCH;
+    }
     int64_t ret = 0;
 
     if (request == PTRACE_ATTACH || request == PTRACE_SEIZE) {
         if (request == PTRACE_SEIZE && addr) {
+            plogk("ptrace: SEIZE with non-null addr %lx (pid=%lld)\n", (unsigned long)addr, (long long)pid);
             process_put(owner);
             return -EIO;
         }
@@ -552,6 +595,7 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
         return ret;
     }
     if (!ptrace_attached_by_current(target)) {
+        plogk("ptrace: task %lld not attached by pid %d\n", (long long)pid, (int)self->pid);
         process_put(owner);
         return -ESRCH;
     }
@@ -562,6 +606,7 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
     bool wait_pending = state->wait_pending;
     spin_unlock(&state->lock);
     if (request != PTRACE_INTERRUPT && request != PTRACE_KILL && (!stopped || wait_pending)) {
+        plogk("ptrace: task %lld not stopped (request=%d, stopped=%d, wait_pending=%d)\n", (long long)pid, request, stopped, wait_pending);
         process_put(owner);
         return -ESRCH;
     }
@@ -581,6 +626,7 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
         }
         case PTRACE_PEEKUSR :
             if ((addr & (sizeof(uint64_t) - 1)) || addr >= sizeof(ptrace_user_area_t)) {
+                plogk("ptrace: PEEKUSR invalid offset %lx (pid=%lld)\n", (unsigned long)addr, (long long)pid);
                 ret = -EIO;
             } else {
                 ptrace_user_area_t area;
@@ -736,9 +782,11 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
             break;
         case PTRACE_SECCOMP_GET_FILTER :
         case PTRACE_SECCOMP_GET_METADATA :
+            plogk("ptrace: SECCOMP filter/metadata requests unsupported (pid=%lld)\n", (long long)pid);
             ret = -EINVAL;
             break;
         default :
+            plogk("ptrace: unknown request %d (pid=%lld, addr=%lx)\n", request, (long long)pid, (unsigned long)addr);
             ret = -EIO;
             break;
     }

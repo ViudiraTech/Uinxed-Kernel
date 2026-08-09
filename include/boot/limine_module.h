@@ -11,7 +11,7 @@
 #ifndef INCLUDE_LIMINE_MODULE_H_
 #define INCLUDE_LIMINE_MODULE_H_
 
-#include <kernel/ringlog.h>
+#include <kernel/debug/ringlog.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 

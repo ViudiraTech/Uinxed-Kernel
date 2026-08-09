@@ -11,7 +11,7 @@
 #include <drivers/core/device.h>
 #include <fs/sysfs/sound_sysfs.h>
 #include <fs/sysfs/sysfs.h>
-#include <kernel/audio.h>
+#include <kernel/sound/audio.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>

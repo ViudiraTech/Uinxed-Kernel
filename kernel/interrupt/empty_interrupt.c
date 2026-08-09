@@ -10,7 +10,7 @@
 
 #include <chipset/common.h>
 #include <drivers/firmware/apic.h>
-#include <kernel/interrupt.h>
+#include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
 
 #define INTERRUPT_HANDLE(id)                                                 \

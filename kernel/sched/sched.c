@@ -14,7 +14,7 @@
 #include <cgroup/cgroup.h>
 #include <chipset/common.h>
 #include <drivers/firmware/apic.h>
-#include <kernel/debug.h>
+#include <kernel/debug/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/data/rbtree.h>
