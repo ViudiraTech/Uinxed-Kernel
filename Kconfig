@@ -216,6 +216,14 @@ menu "Networking support"
       Enable support for Intel 8254x-compatible Gigabit Ethernet
       controllers, including QEMU's e1000 device.
 
+  config RTL8169
+    bool "Realtek RTL8169 Gigabit Ethernet support"
+    depends on NET
+    default y
+    help
+      Enable support for Realtek RTL8169/RTL8110S-compatible Gigabit
+      Ethernet controllers (10ec:8161/8169 and rebrands).
+
 endmenu
 
 menu "Device Drivers"
