@@ -8,6 +8,7 @@
  *
  */
 
+#include <arch/fpu.h>
 #include <chipset/common.h>
 #include <kernel/debug.h>
 #include <kernel/errno.h>
@@ -199,6 +200,7 @@ void signal_exec_reset(process_t *proc)
         if (cur != SIG_IGN) {
             state->sighand[i].sa_handler = SIG_DFL;
             state->sighand[i].sa_flags   = 0;
+            state->sighand[i].sa_restorer = 0;
             sigemptyset(&state->sighand[i].sa_mask);
         }
     }
@@ -412,6 +414,14 @@ static int signal_setup_frame(syscall_frame_t *frame, int sig, const sigaction_t
     sig_frame.cs     = frame->cs;
     sig_frame.ss     = frame->ss;
 
+    size_t fpstate_size = fpu_signal_state_size();
+    if (fpstate_size) {
+        if (fpstate_size > sizeof(sig_frame.fpstate) || fpu_signal_save(current_task(), sig_frame.fpstate, sizeof(sig_frame.fpstate)))
+            return -EFAULT;
+        sig_frame.fpstate_magic = SIGNAL_FPSTATE_MAGIC;
+        sig_frame.fpstate_size  = (uint32_t)fpstate_size;
+    }
+
     /* Write the entire frame to user stack */
     if (copy_to_user((void *)sp, &sig_frame, sizeof(signal_user_frame_t))) return -EFAULT;
 
@@ -497,24 +507,36 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
         return SIG_DELIV_HANDLED;
     }
 
+    /* Delivery must use the disposition that was selected above.  In
+     * particular, SA_RESETHAND changes the persistent disposition as the
+     * handler is entered; it must not erase the handler/restorer that belong
+     * to this delivery. */
+    sigaction_t action = *sa;
+
     /* User handler: save old mask before modifying */
     sigset_t old_mask = state->restore_mask ? state->saved_mask : state->blocked;
 
     /* Block the signal itself unless SA_NODEFER */
-    if (!(sa->sa_flags & SA_NODEFER)) { sigaddset(&state->blocked, sig); }
+    if (!(action.sa_flags & SA_NODEFER)) { sigaddset(&state->blocked, sig); }
 
     /* Block additional signals in sa_mask */
-    sigorset(&state->blocked, &state->blocked, &sa->sa_mask);
+    sigorset(&state->blocked, &state->blocked, &action.sa_mask);
 
-    /* If SA_RESETHAND, reset handler to default before invoking */
-    if (sa->sa_flags & SA_RESETHAND) {
+    /* SA_RESETHAND affects future deliveries.  Keep using the snapshot above
+     * for the handler that is being installed on the user stack now. */
+    if (action.sa_flags & SA_RESETHAND) {
         sa->sa_handler = SIG_DFL;
         sa->sa_flags   = 0;
+        sa->sa_restorer = 0;
+        sigemptyset(&sa->sa_mask);
     }
 
     /* Set up the signal frame on the user stack (saves old_mask for sigreturn) */
-    if (signal_setup_frame(frame, sig, sa, info, old_mask) < 0)
+    if (signal_setup_frame(frame, sig, &action, info, old_mask) < 0) {
         plogk("signal: failed to set up frame for sig %d pid %llu\n", sig, proc->task ? proc->task->pid : 0);
+        sigdelset(&state->pending, sig);
+        return SIG_DELIV_TERM;
+    }
     state->restore_mask = false;
 
     /* Clear pending bit for this signal */
@@ -1381,7 +1403,21 @@ int64_t do_rt_sigreturn(syscall_frame_t *frame)
      * The signal_user_frame_t starts at (user_RSP - 8).
      */
     signal_user_frame_t sig_frame;
+    if (frame->rsp < sizeof(uint64_t)) return -EFAULT;
     if (copy_from_user(&sig_frame, (void *)(frame->rsp - 8), sizeof(signal_user_frame_t))) return -EFAULT;
+
+    /* Never feed arbitrary selectors/non-canonical state to IRETQ: malformed
+     * user frames must become SIGSEGV, not a kernel-mode #GP. */
+    if (sig_frame.cs != 0x33 || sig_frame.ss != 0x2b || !sig_frame.rip || sig_frame.rip >= PROCESS_USER_STACK_TOP
+        || !sig_frame.rsp || sig_frame.rsp >= PROCESS_USER_STACK_TOP)
+        return -EINVAL;
+
+    size_t expected_fpstate = fpu_signal_state_size();
+    if (expected_fpstate) {
+        if (sig_frame.fpstate_magic != SIGNAL_FPSTATE_MAGIC || sig_frame.fpstate_size != expected_fpstate
+            || fpu_signal_restore(current_task(), sig_frame.fpstate, sig_frame.fpstate_size))
+            return -EINVAL;
+    }
 
     /* Restore blocked signal mask */
     signal_state_t *state = &proc->signal;
@@ -1406,10 +1442,14 @@ int64_t do_rt_sigreturn(syscall_frame_t *frame)
     frame->r14    = sig_frame.r14;
     frame->r15    = sig_frame.r15;
     frame->rip    = sig_frame.rip;
-    frame->rflags = sig_frame.rflags;
+    /* User-visible arithmetic/debug flags plus mandatory bit 1 and IF.
+     * Clear IOPL, NT and VM so IRETQ cannot enter an invalid privilege state. */
+    const uint64_t user_rflags = (1ULL << 0) | (1ULL << 2) | (1ULL << 4) | (1ULL << 6) | (1ULL << 7) | (1ULL << 8)
+                                 | (1ULL << 9) | (1ULL << 10) | (1ULL << 11) | (1ULL << 16) | (1ULL << 18) | (1ULL << 21);
+    frame->rflags = (sig_frame.rflags & user_rflags) | (1ULL << 1) | (1ULL << 9);
     frame->rsp    = sig_frame.rsp;
-    frame->cs     = sig_frame.cs;
-    frame->ss     = sig_frame.ss;
+    frame->cs     = 0x33;
+    frame->ss     = 0x2b;
 
     return 0;
 }

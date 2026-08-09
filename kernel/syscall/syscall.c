@@ -5302,9 +5302,12 @@ int syscall_dispatch(syscall_frame_t *frame)
          */
         int64_t sr_ret = do_rt_sigreturn(frame);
         if (sr_ret != 0) {
-            /* Error: could not read sigframe from user stack */
-            frame->rax = (uint64_t)sr_ret;
-            goto check_signals;
+            /* Linux treats a malformed signal frame as a fatal badframe.
+             * Returning to the restorer after a failed sigreturn executes
+             * whatever bytes follow its syscall stub and commonly raises
+             * the misleading user #GP seen after Ctrl+C. */
+            process_exit(-SIGSEGV);
+            return 0;
         }
         /* Success: frame is fully restored; check pending signals.
          * Bypass the normal retval path to avoid overriding frame->rax.

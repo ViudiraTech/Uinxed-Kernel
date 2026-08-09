@@ -11,6 +11,8 @@
 #ifndef INCLUDE_FPU_H_
 #define INCLUDE_FPU_H_
 
+#include <libs/std/stddef.h>
+
 struct task;
 
 /* Initialize FPU/SSE/AVX support on the current logical CPU.
@@ -47,5 +49,14 @@ void kernel_fpu_end(void);
  * such instruction, otherwise they fault with #UD when FPU/SSE support is
  * disabled by the build configuration. */
 int kernel_sse_available(void);
+
+/* Signal handlers execute in the interrupted task and may freely use
+ * x87/SSE/AVX.  Snapshot the live state into a user-frame staging buffer and
+ * restore it on rt_sigreturn.  The restore path sanitizes user-modifiable
+ * XSAVE metadata before issuing XRSTOR/FXRSTOR. */
+#define FPU_SIGNAL_STATE_MAX 4096U
+size_t fpu_signal_state_size(void);
+int    fpu_signal_save(struct task *task, void *state, size_t capacity);
+int    fpu_signal_restore(struct task *task, const void *state, size_t size);
 
 #endif /* INCLUDE_FPU_H_ */

@@ -26,10 +26,11 @@ struct process;
 #define PTE_PWT          (0x1 << 3) /* Page Write-Through */
 #define PTE_PCD          (0x1 << 4) /* Page Cache Disable    */
 #define PTE_HUGE         (0x1 << 7)
+#define PTE_GLOBAL       (0x1 << 8)  /* Retain kernel leaf across CR3 switches */
 #define PTE_COW          (0x1 << 9)  /* Software: private copy-on-write leaf */
 #define PTE_SHARED       (0x1 << 10) /* Software: shared mapping leaf */
 #define PTE_NO_EXECUTE   (((uint64_t)0x1) << 63)
-#define KERNEL_PTE_FLAGS (PTE_PRESENT | PTE_WRITEABLE | PTE_NO_EXECUTE)
+#define KERNEL_PTE_FLAGS (PTE_PRESENT | PTE_WRITEABLE | PTE_GLOBAL | PTE_NO_EXECUTE)
 
 /* MMIO flags: uncacheable and no-execute, required for PCI BAR mappings. */
 #define PTE_MMIO_FLAGS (PTE_PRESENT | PTE_WRITEABLE | PTE_PCD | PTE_NO_EXECUTE)

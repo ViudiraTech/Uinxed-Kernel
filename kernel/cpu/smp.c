@@ -43,6 +43,23 @@ static volatile uint32_t  smp_tsc_aux_ready;
 spinlock_t                ap_start_lock = {0};
 static spinlock_t         tlb_shootdown_lock;
 
+/* CR3 reloads preserve global translations under CR4.PGE.  Explicit
+ * flush_tlb_all() requests are stronger: toggling PGE invalidates both
+ * global and non-global entries on this logical CPU. */
+static inline void flush_local_tlb_all(void)
+{
+    uint64_t cr4;
+    __asm__ volatile("mov %%cr4, %0" : "=r"(cr4));
+    if (cr4 & (1ULL << 7)) {
+        __asm__ volatile("mov %0, %%cr4" : : "r"(cr4 & ~(1ULL << 7)) : "memory");
+        __asm__ volatile("mov %0, %%cr4" : : "r"(cr4) : "memory");
+        return;
+    }
+    uint64_t cr3;
+    __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
+    __asm__ volatile("mov %0, %%cr3" : : "r"(cr3) : "memory");
+}
+
 int smp_handle_nmi(void)
 {
     if (!__atomic_load_n(&smp_ready, __ATOMIC_ACQUIRE) || !tlb_shootdown_ack) return 0;
@@ -51,9 +68,7 @@ int smp_handle_nmi(void)
     uint64_t generation = __atomic_load_n(&tlb_shootdown_generation, __ATOMIC_ACQUIRE);
     if (__atomic_load_n(&tlb_shootdown_ack[cpu_id], __ATOMIC_ACQUIRE) >= generation) return 0;
 
-    uint64_t cr3;
-    __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
-    __asm__ volatile("mov %0, %%cr3" ::"r"(cr3) : "memory");
+    flush_local_tlb_all();
     __atomic_store_n(&tlb_shootdown_ack[cpu_id], generation, __ATOMIC_RELEASE);
     return 1;
 }
@@ -94,9 +109,7 @@ INTERRUPT_BEGIN static void ipi_tlb_shootdown_handler(interrupt_frame_t *frame)
      * - Flush entire TLB by reloading CR3
      * - Acknowledge completion to requesting CPU
      */
-    uint64_t cr3;
-    __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
-    __asm__ volatile("mov %0, %%cr3" ::"r"(cr3) : "memory");
+    flush_local_tlb_all();
     uint32_t cpu_id     = get_current_cpu_id();
     uint64_t generation = __atomic_load_n(&tlb_shootdown_generation, __ATOMIC_ACQUIRE);
     if (tlb_shootdown_ack && cpu_id < cpu_count) __atomic_store_n(&tlb_shootdown_ack[cpu_id], generation, __ATOMIC_RELEASE);
@@ -137,9 +150,7 @@ void send_ipi_cpu(uint32_t cpu_id, uint8_t vector)
 /* Flush TLBs of all CPUs */
 void flush_tlb_all(void)
 {
-    uint64_t cr3;
-    __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
-    __asm__ volatile("mov %0, %%cr3" ::"r"(cr3) : "memory");
+    flush_local_tlb_all();
     if (!__atomic_load_n(&smp_ready, __ATOMIC_ACQUIRE) || cpu_count < 2 || !tlb_shootdown_ack) return;
 
     uint64_t irq_flags  = spin_lock_irqsave(&tlb_shootdown_lock);

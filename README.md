@@ -20,7 +20,22 @@ Uinxed is a monolithic, UNIX-like operating system kernel for x86-64, written fr
 
 The project aims to build a practical, self-contained kernel with modern design principles: an EEVDF scheduler, a unified page cache with swap support, a full VFS with multiple filesystems, a Linux-style networking and socket layer, and a growing set of device drivers. Unimplemented syscalls return `-ENOSYS`, keeping the ABI surface predictable as it grows.
 
-> **Status:** Actively developed. Some subsystems (e.g. GPU, VirtIO, audio) are still works in progress and may be partial or disabled by default.
+> **Current status:** The current development image boots Alpine Linux 3.24 on x86-64 and can bring up the Weston (Wayland) desktop with a working terminal. The PS/2 keyboard/mouse path, evdev consumers, poll/epoll wakeups, and the EEVDF scheduler are under active validation. This remains an experimental kernel; GPU, VirtIO, audio, and parts of the Linux-compatible ABI may still be incomplete.
+
+## Weston Desktop Showcase
+
+The screenshot below shows Alpine Linux running on Uinxed-Kernel with Weston and a Wayland terminal. It also shows the kernel and userspace information reported by `fastfetch`.
+
+<div align="center">
+  <img src="WESTON.png" alt="Weston desktop running on Uinxed-Kernel" width="950"/>
+  <p><em>Alpine Linux 3.24 running Weston (Wayland) on Uinxed-Kernel.</em></p>
+</div>
+
+The current desktop bring-up focuses on keeping the complete input and display path responsive:
+
+- PS/2 IRQs are translated into Linux-style `EV_KEY` / `EV_REL` / `SYN_REPORT` events.
+- evdev clients receive independent queued frames and readiness notifications through the normal VFS poll/epoll path.
+- EEVDF runqueue accounting is rebased correctly, with desktop-oriented timer and latency settings.
 
 ## Core Features
 

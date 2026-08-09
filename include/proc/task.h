@@ -104,6 +104,11 @@ struct task {
         uint32_t         pi_weight;   /* effective weight for PI waiter ordering */
         rb_node_t        pi_node;     /* rbtree node for pi_waiters */
         struct rt_mutex *blocked_on;  /* mutex this task is blocked on, or NULL */
+        /* Active copy_{to,from}_user() exception fixup.  Keeping this in the
+         * task (rather than a CPU global) makes it survive preemption and
+         * keeps simultaneous uaccess operations on different CPUs separate. */
+        uintptr_t       uaccess_fault_resume;
+        uint8_t         uaccess_fault_nofault;
         ptrace_state_t   ptrace;      /* Linux ptrace state is per-thread */
 };
 

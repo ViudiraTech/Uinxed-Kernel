@@ -89,7 +89,23 @@ rm -rf /var/cache/apk/*
 CHROOT_SETUP
 
 printf '[4/7] Configuring automatic root Weston desktop and input permissions\n'
-install -d -m755 "$ROOTFS/etc/udev/rules.d" "$ROOTFS/etc/xdg/weston" "$ROOTFS/usr/local/bin" "$ROOTFS/usr/local/sbin"
+install -d -m755 "$ROOTFS/etc/udev/rules.d" "$ROOTFS/etc/profile.d" "$ROOTFS/etc/xdg/weston" "$ROOTFS/usr/local/bin" "$ROOTFS/usr/local/sbin"
+cat >"$ROOTFS/etc/profile.d/uinxed-prompt.sh" <<'BASH_PROFILE'
+# Debian-style prompt: green user@host, blue working directory.
+# Keep the escape sequences wrapped so bash/readline counts the width correctly.
+if [ -n "${BASH_VERSION:-}" ]; then
+    case $- in
+        *i*)
+            PS1='\[\e[1;32m\]\u@\h\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ '
+            export PS1
+            ;;
+    esac
+fi
+BASH_PROFILE
+cat >"$ROOTFS/usr/local/sbin/start-bash" <<'START_BASH'
+#!/bin/sh
+exec /bin/bash --login
+START_BASH
 cat >"$ROOTFS/etc/fstab" <<'FSTAB'
 proc /proc proc defaults 0 0
 sysfs /sys sysfs defaults 0 0
@@ -117,7 +133,7 @@ background-type=scale-crop
 
 [launcher]
 icon=/usr/share/weston/icon_terminal.png
-path=/usr/bin/weston-terminal
+path=/usr/local/sbin/start-bash-terminal
 
 [launcher]
 icon=/usr/share/weston/icon_terminal.png
@@ -134,10 +150,14 @@ cat >"$ROOTFS/usr/local/sbin/start-fastfetch" <<'START_FASTFETCH'
 #!/bin/sh
 exec /usr/bin/weston-terminal --shell=/usr/local/sbin/fastfetch-shell
 START_FASTFETCH
+cat >"$ROOTFS/usr/local/sbin/start-bash-terminal" <<'START_BASH_TERMINAL'
+#!/bin/sh
+exec /usr/bin/weston-terminal --shell=/usr/local/sbin/start-bash
+START_BASH_TERMINAL
 cat >"$ROOTFS/usr/local/sbin/fastfetch-shell" <<'FASTFETCH_SHELL'
 #!/bin/sh
 /usr/bin/fastfetch
-exec /bin/bash
+exec /bin/bash --login
 FASTFETCH_SHELL
 cat >"$ROOTFS/usr/local/sbin/Xwayland-software" <<'START_XWAYLAND'
 #!/bin/sh
@@ -176,6 +196,7 @@ exec /usr/bin/weston -B drm --renderer=pixman --seat=seat0 \
     --log=/dev/ttyS0
 START_WESTON
 chmod 0755 "$ROOTFS/usr/local/sbin/start-weston-root" "$ROOTFS/usr/local/sbin/start-fastfetch" \
+    "$ROOTFS/usr/local/sbin/start-bash" "$ROOTFS/usr/local/sbin/start-bash-terminal" \
     "$ROOTFS/usr/local/sbin/fastfetch-shell" "$ROOTFS/usr/local/sbin/Xwayland-software"
 
 if grep -q '^tty1::respawn:' "$ROOTFS/etc/inittab"; then

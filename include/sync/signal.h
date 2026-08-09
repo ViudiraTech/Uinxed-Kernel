@@ -308,7 +308,15 @@ typedef struct {
         uint64_t rsi, rdi, rbp;
         uint64_t r8, r9, r10, r11, r12, r13, r14, r15;
         uint64_t rip, rflags, rsp, cs, ss;
+
+        /* Kernel-private signal ABI payload.  libc only uses pretcode; this
+         * area preserves the interrupted x87/SSE/AVX state across a handler. */
+        uint32_t fpstate_magic;
+        uint32_t fpstate_size;
+        uint8_t  fpstate[4096];
 } __attribute__((packed)) signal_user_frame_t;
+
+#define SIGNAL_FPSTATE_MAGIC 0x46505331U /* "FPS1" */
 
 /* Return values for signal_deliver_one */
 #define SIG_DELIV_HANDLED 0 /* Default/ignore action, no frame change, continue */

@@ -12,6 +12,7 @@
 #include <arch/smp.h>
 #include <chipset/common.h>
 #include <kernel/debug.h>
+#include <kernel/errno.h>
 #include <kernel/interrupt.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
@@ -30,6 +31,7 @@
 
 page_directory_t  kernel_page_dir;
 page_directory_t *current_directory = 0;
+static void        page_enable_global_tlb(void);
 
 /*
  * GCC/Clang interrupt functions save only the registers selected by their
@@ -135,6 +137,25 @@ void page_fault_handle_frame(page_fault_frame_t *frame)
 
     carry_error_code = 1; // carry error code
 
+    /* copy_{to,from}_user() deliberately accesses the user virtual address
+     * through the current hardware page table.  Resolve ordinary demand/COW
+     * faults just like a ring-3 access.  A nofault copy, or an invalid range,
+     * returns -EFAULT through the assembly fixup instead of panicking the
+     * kernel. */
+    task_t *fault_task = current_task();
+    if (!us && !reserved && !id && fault_task && fault_task->uaccess_fault_resume && faulting_address
+        && faulting_address < PROCESS_USER_STACK_TOP) {
+        process_t *proc = fault_task->process;
+        if (!fault_task->uaccess_fault_nofault && proc && proc->user_page_dir) {
+            if (present && rw && page_resolve_cow_fault(proc, faulting_address) == 0) return;
+            if (!present && swap_fault(proc->user_page_dir, faulting_address) == 0) return;
+            if (!present && process_demand_fault(proc, faulting_address, rw, 0) == 0) return;
+        }
+        frame->rax = (uint64_t)(int64_t)-EFAULT;
+        frame->rip = fault_task->uaccess_fault_resume;
+        return;
+    }
+
     if (us) {
         process_t *proc = process_current();
         if (proc) {
@@ -224,7 +245,9 @@ void enable_paging(uintptr_t page_directory_phys)
     __asm__ volatile("mfence\n\t"
                      "mov %0, %%cr3\n\t"
                      "mov %%cr0, %%rax\n\t"
-                     "orl $0x80000000, %%eax\n\t"
+                     /* PG + WP: supervisor writes to a read-only user PTE
+                      * must fault so copy_to_user() cannot bypass COW. */
+                     "orl $0x80010000, %%eax\n\t"
                      "mov %%rax, %%cr0\n\t"
                      "jmp 1f\n\t"
                      "1:\n\t"
@@ -233,6 +256,7 @@ void enable_paging(uintptr_t page_directory_phys)
                      :
                      : "r"(cr3_val)
                      : "rax", "memory");
+    page_enable_global_tlb();
 }
 
 /* Clear all entries in a memory page table */
@@ -685,6 +709,7 @@ void free_directory(page_directory_t *dir)
 static int page_map_to_status(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags, int require_empty)
 {
     if (!directory || !directory->table || !frame) return -1;
+    if (((addr >> 39) & 0x1ff) >= 256) flags |= PTE_GLOBAL;
     spin_lock(&directory->lock);
 
     uint64_t l4_index = (((addr >> 39)) & 0x1ff);
@@ -899,6 +924,7 @@ retry_swap:
 void page_map_to_2M(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags)
 {
     if (!directory || !directory->table || !frame) return;
+    if (((addr >> 39) & 0x1ff) >= 256) flags |= PTE_GLOBAL;
     spin_lock(&directory->lock);
 
     uint64_t l4_index = (addr >> 39) & 0x1FF;
@@ -921,6 +947,7 @@ out:
 void page_map_to_1G(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags)
 {
     if (!directory || !directory->table || !frame) return;
+    if (((addr >> 39) & 0x1ff) >= 256) flags |= PTE_GLOBAL;
     spin_lock(&directory->lock);
 
     uint64_t l4_index = (addr >> 39) & 0x1FF;
@@ -1090,11 +1117,52 @@ pat_config_t get_pat_config(void)
     return config;
 }
 
+static void page_mark_global_leaves(page_table_t *table, int level)
+{
+    if (!table || level < 1) return;
+    for (size_t i = 0; i < 512; i++) {
+        page_table_entry_t *entry = &table->entries[i];
+        uint64_t            value = entry->value;
+        if (!(value & PTE_PRESENT)) continue;
+        if (level == 1 || (value & PTE_HUGE)) {
+            entry->value = value | PTE_GLOBAL;
+            continue;
+        }
+        page_mark_global_leaves(phys_to_virt(value & PAGE_4K_MASK), level - 1);
+    }
+}
+
+static void page_enable_global_tlb(void)
+{
+    uint32_t eax, ebx, ecx, edx;
+    cpuid(1, &eax, &ebx, &ecx, &edx);
+    if (!(edx & (1U << 13))) return; /* CPUID.01H:EDX.PGE */
+    uint64_t cr4;
+    __asm__ volatile("mov %%cr4, %0" : "=r"(cr4));
+    cr4 |= (1ULL << 7); /* CR4.PGE */
+    __asm__ volatile("mov %0, %%cr4" : : "r"(cr4) : "memory");
+}
+
 /* Initialize memory page table */
 void page_init(void)
 {
     page_table_t *kernel_page_table = phys_to_virt(get_cr3());
     kernel_page_dir                 = (page_directory_t) {.table = kernel_page_table};
     current_directory               = &kernel_page_dir;
+    /* Limine built the boot mappings, so retrofit G onto every existing leaf
+     * in the shared kernel half before enabling PGE. */
+    for (size_t i = 256; i < 512; i++) {
+        uint64_t entry = kernel_page_table->entries[i].value;
+        if (!(entry & PTE_PRESENT)) continue;
+        if (entry & PTE_HUGE)
+            kernel_page_table->entries[i].value = entry | PTE_GLOBAL;
+        else
+            page_mark_global_leaves(phys_to_virt(entry & PAGE_4K_MASK), 3);
+    }
+    uint64_t cr0;
+    __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
+    cr0 |= (1ULL << 16); /* CR0.WP, see direct uaccess fault handling above. */
+    __asm__ volatile("mov %0, %%cr0" : : "r"(cr0) : "memory");
+    page_enable_global_tlb();
     cpu_enable_nx();
 }

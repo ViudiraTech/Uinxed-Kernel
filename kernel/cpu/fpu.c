@@ -57,6 +57,15 @@ int kernel_sse_available(void)
     return fpu_sse_enabled;
 }
 
+size_t fpu_signal_state_size(void)
+{
+#if CPU_FEATURE_FPU
+    return fpu_save_size;
+#else
+    return 0;
+#endif
+}
+
 /* Initial (XINIT-style) extended-state template: x87 inits, MXCSR and
  * zeroed XMM/YMM, with the XSTATE_BV header covering every enabled
  * component.  Built in fpu_init() and XRSTORed whenever a task that has
@@ -339,6 +348,77 @@ void fpu_switch(struct task *prev, struct task *next)
 #else
     (void)prev;
     (void)next;
+#endif
+}
+
+int fpu_signal_save(struct task *task, void *state, size_t capacity)
+{
+#if CPU_FEATURE_FPU
+    if (!task || !state || !task->thread.fpu_state || capacity < fpu_save_size || fpu_save_size > FPU_SIGNAL_STATE_MAX) return -1;
+
+    uint64_t      if_enabled = fpu_save_irq_and_cli();
+    fpu_percpu_t *fp         = fpu_percpu();
+    if (fp->fpu_kernel_cnt || current_task() != task) {
+        fpu_restore_irq(if_enabled);
+        return -1;
+    }
+
+    if (fp->fpu_live == task) {
+        fpu_save(task->thread.fpu_state);
+        task->thread.fpu_initialized = 1;
+    } else if (!task->thread.fpu_initialized) {
+        fpu_state_set_initial(task->thread.fpu_state);
+    }
+    memcpy(state, task->thread.fpu_state, fpu_save_size);
+    fpu_restore_irq(if_enabled);
+    return 0;
+#else
+    (void)task;
+    (void)state;
+    (void)capacity;
+    return 0;
+#endif
+}
+
+int fpu_signal_restore(struct task *task, const void *state, size_t size)
+{
+#if CPU_FEATURE_FPU
+    if (!task || !state || !task->thread.fpu_state || size != fpu_save_size || size > FPU_SIGNAL_STATE_MAX) return -1;
+
+    uint64_t      if_enabled = fpu_save_irq_and_cli();
+    fpu_percpu_t *fp         = fpu_percpu();
+    if (fp->fpu_kernel_cnt || current_task() != task) {
+        fpu_restore_irq(if_enabled);
+        return -1;
+    }
+
+    memcpy(task->thread.fpu_state, state, fpu_save_size);
+
+    /* MXCSR reserved bits make FXRSTOR/XRSTOR raise #GP.  Mask them using
+     * the hardware-provided mask from the initial FXSAVE image. */
+    uint32_t mxcsr_mask = *(uint32_t *)(fpu_initial_state + 28);
+    if (!mxcsr_mask) mxcsr_mask = 0x0000ffbfU;
+    *(uint32_t *)((uint8_t *)task->thread.fpu_state + 24) &= mxcsr_mask;
+
+    if (fpu_use_xsave) {
+        uint8_t  *header   = (uint8_t *)task->thread.fpu_state + 512;
+        uint64_t *xstate_bv = (uint64_t *)header;
+        uint64_t *xcomp_bv  = (uint64_t *)(header + 8);
+        *xstate_bv &= fpu_xstate_mask;
+        *xcomp_bv = 0; /* standard, non-compacted XSAVE format */
+        memset(header + 16, 0, 48);
+    }
+
+    fpu_restore(task->thread.fpu_state);
+    fp->fpu_live                  = task;
+    task->thread.fpu_initialized = 1;
+    task->thread.fpu_active      = 1;
+    fpu_restore_irq(if_enabled);
+    return 0;
+#else
+    (void)task;
+    (void)state;
+    return size ? -1 : 0;
 #endif
 }
 

@@ -15,7 +15,54 @@
 #include <mem/hhdm.h>
 #include <mem/page.h>
 #include <proc/process.h>
+#include <proc/sched.h>
 #include <proc/uaccess.h>
+
+/*
+ * The active process page table already maps both the kernel and userspace.
+ * Let the CPU and its TLB perform the translation instead of taking the page
+ * table lock and walking four levels in software for every small read/write.
+ * A kernel-mode #PF redirects to the fixup label below when the address cannot
+ * be resolved.  rep movsb is restartable, so ordinary demand/COW faults resume
+ * at the exact byte where they stopped.
+ */
+extern int  __uaccess_copy_direct(void *dst, const void *src, size_t size);
+extern void __uaccess_copy_fault(void);
+
+__asm__(".text\n"
+        ".global __uaccess_copy_direct\n"
+        ".type __uaccess_copy_direct, @function\n"
+        "__uaccess_copy_direct:\n"
+        "cld\n"
+        "movq %rdx, %rcx\n"
+        "rep movsb\n"
+        "xorl %eax, %eax\n"
+        "ret\n"
+        ".size __uaccess_copy_direct, .-__uaccess_copy_direct\n"
+        ".global __uaccess_copy_fault\n"
+        ".type __uaccess_copy_fault, @function\n"
+        "__uaccess_copy_fault:\n"
+        "ret\n"
+        ".size __uaccess_copy_fault, .-__uaccess_copy_fault\n");
+
+static int copy_user_direct(void *dst, const void *src, size_t size, int nofault)
+{
+    task_t *task = current_task();
+    if (!task) return -EFAULT;
+
+    /* Preserve an outer fixup in case an interrupt handler performs uaccess
+     * while a task was interrupted inside another user copy. */
+    uintptr_t old_resume  = task->uaccess_fault_resume;
+    uint8_t   old_nofault = task->uaccess_fault_nofault;
+    task->uaccess_fault_nofault = nofault != 0;
+    task->uaccess_fault_resume  = (uintptr_t)__uaccess_copy_fault;
+    __asm__ volatile("" ::: "memory");
+    int ret = __uaccess_copy_direct(dst, src, size);
+    __asm__ volatile("" ::: "memory");
+    task->uaccess_fault_resume  = old_resume;
+    task->uaccess_fault_nofault = old_nofault;
+    return ret;
+}
 
 int user_range_ok(const void *uaddr, size_t size)
 {
@@ -147,6 +194,9 @@ static int copy_user_bytes(void *dst, const void *src, size_t size, int to_user)
     size_t     remaining;
 
     if (!proc || !proc->user_page_dir || !user_range_ok((const void *)user, size)) return -EFAULT;
+    task_t *task = current_task();
+    if (task && task->process == proc && task->page_directory == proc->user_page_dir)
+        return copy_user_direct(dst, src, size, 0);
     remaining = size;
 
     while (remaining) {
@@ -193,6 +243,9 @@ static int copy_user_bytes_process_nofault(process_t *proc, void *dst, const voi
     size_t    remaining;
 
     if (!proc || !proc->user_page_dir || !user_range_ok((const void *)user, size)) return -EFAULT;
+    task_t *task = current_task();
+    if (task && task->process == proc && task->page_directory == proc->user_page_dir)
+        return copy_user_direct(dst, src, size, 1);
     remaining = size;
 
     while (remaining) {
