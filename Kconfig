@@ -101,7 +101,7 @@ menu "Process management"
 
   config PROCESS_MAX_FD
     int "Maximum file descriptors per process"
-    default 64
+    default 1024
     range 16 1024
     help
       Maximum number of file descriptors each process may open.

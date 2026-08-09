@@ -13,6 +13,7 @@
 #include <kernel/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
@@ -92,6 +93,14 @@ static void sigqueue_flush(signal_state_t *state)
     }
     state->sigqueue_tail  = NULL;
     state->sigqueue_count = 0;
+}
+
+/* Caller holds state->lock. */
+static bool sigqueue_contains(const signal_state_t *state, int sig)
+{
+    for (const sigqueue_t *entry = state->sigqueue_head; entry; entry = entry->next)
+        if (entry->info.si_signo == sig) return true;
+    return false;
 }
 
 /* ---------- Signal state management ---------- */
@@ -495,14 +504,12 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
 
     /* Check if signal is ignored */
     if (sa->sa_handler == SIG_IGN) {
-        sigdelset(&state->pending, sig);
         return SIG_DELIV_HANDLED;
     }
 
     /* Check if signal is default */
     if (sa->sa_handler == SIG_DFL) {
         int ret = signal_handle_default(proc, sig);
-        sigdelset(&state->pending, sig);
         if (ret == 1) return SIG_DELIV_TERM;
         return SIG_DELIV_HANDLED;
     }
@@ -534,13 +541,9 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
     /* Set up the signal frame on the user stack (saves old_mask for sigreturn) */
     if (signal_setup_frame(frame, sig, &action, info, old_mask) < 0) {
         plogk("signal: failed to set up frame for sig %d pid %llu\n", sig, proc->task ? proc->task->pid : 0);
-        sigdelset(&state->pending, sig);
         return SIG_DELIV_TERM;
     }
     state->restore_mask = false;
-
-    /* Clear pending bit for this signal */
-    sigdelset(&state->pending, sig);
 
     return SIG_DELIV_HANDLER;
 }
@@ -601,7 +604,7 @@ static int signal_dequeue(signal_state_t *state, siginfo_t *info)
         sigqueue_t *prev = NULL;
         while (cur) {
             int sig = cur->info.si_signo;
-            if (!sigismember(&state->blocked, sig)) {
+            if (sig_is_rt(sig) && !sigismember(&state->blocked, sig)) {
                 /* Found a deliverable RT signal */
                 memcpy(info, &cur->info, sizeof(siginfo_t));
                 if (prev) {
@@ -612,7 +615,7 @@ static int signal_dequeue(signal_state_t *state, siginfo_t *info)
                 if (cur == state->sigqueue_tail) { state->sigqueue_tail = prev; }
                 state->sigqueue_count--;
                 sigqueue_free(cur);
-                sigdelset(&state->pending, sig);
+                if (!sigqueue_contains(state, sig)) sigdelset(&state->pending, sig);
                 return sig;
             }
             prev = cur;
@@ -644,7 +647,7 @@ static int signal_dequeue(signal_state_t *state, siginfo_t *info)
                 info->si_signo = sig;
                 info->si_code  = SI_USER;
             }
-            sigdelset(&state->pending, sig);
+            if (!sigqueue_contains(state, sig)) sigdelset(&state->pending, sig);
             return sig;
         }
     }
@@ -1153,7 +1156,12 @@ static int sigqueue_dequeue_filtered(signal_state_t *state, const sigset_t *filt
 
     while (cur) {
         int sig = cur->info.si_signo;
-        if (sigismember(filter, sig) && !sigismember(&state->blocked, sig)) {
+        /* sigtimedwait() is specifically meant to synchronously consume
+         * signals that the caller has blocked from asynchronous delivery.
+         * Filtering blocked signals out here made the usual sigprocmask() +
+         * sigtimedwait() sequence impossible: BusyBox init consequently
+         * never observed SIGUSR2/SIGTERM from poweroff/reboot. */
+        if (sigismember(filter, sig)) {
             memcpy(info, &cur->info, sizeof(siginfo_t));
             if (prev)
                 prev->next = cur->next;
@@ -1162,13 +1170,45 @@ static int sigqueue_dequeue_filtered(signal_state_t *state, const sigset_t *filt
             if (cur == state->sigqueue_tail) state->sigqueue_tail = prev;
             state->sigqueue_count--;
             sigqueue_free(cur);
-            sigdelset(&state->pending, sig);
+            if (!sigqueue_contains(state, sig)) sigdelset(&state->pending, sig);
             return sig;
         }
         prev = cur;
         cur  = cur->next;
     }
+    /* A standard signal can still be represented only by the pending bitmap
+     * if allocating its optional siginfo queue entry failed. */
+    sigset_t ready = state->pending & *filter;
+    for (int sig = 1; sig < NSIG; sig++) {
+        if (!sigismember(&ready, sig)) continue;
+        memset(info, 0, sizeof(*info));
+        info->si_signo = sig;
+        info->si_code  = SI_USER;
+        sigdelset(&state->pending, sig);
+        return sig;
+    }
     return 0;
+}
+
+int signal_dequeue_masked(process_t *proc, const sigset_t *mask, siginfo_t *info)
+{
+    if (!proc || !mask || !info) return 0;
+    signal_state_t *state = &proc->signal;
+    spin_lock(&state->lock);
+    int sig = sigqueue_dequeue_filtered(state, mask, info);
+    spin_unlock(&state->lock);
+    return sig;
+}
+
+bool signal_has_pending_masked(process_t *proc, const sigset_t *mask)
+{
+    if (!proc || !mask) return false;
+    signal_state_t *state = &proc->signal;
+    spin_lock(&state->lock);
+    sigset_t ready   = state->pending & *mask;
+    bool     pending = !sigisemptyset(&ready);
+    spin_unlock(&state->lock);
+    return pending;
 }
 
 /*
@@ -1186,48 +1226,56 @@ int64_t sys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info, const void *ti
     sigset_t wait_set;
     if (copy_from_user(&wait_set, set, sizeof(sigset_t))) return -EFAULT;
 
-    if (timeout) {
-        /* Non-blocking poll */
-        spin_lock(&state->lock);
-        siginfo_t found;
-        memset(&found, 0, sizeof(found));
-        int sig = sigqueue_dequeue_filtered(state, &wait_set, &found);
-        spin_unlock(&state->lock);
-        if (!sig) return -EAGAIN;
-        if (info && copy_to_user(info, &found, sizeof(siginfo_t))) return -EFAULT;
-        return sig;
+    bool     timed         = timeout != NULL;
+    uint64_t deadline_tick = 0;
+    if (timed) {
+        timer_timespec_t timeout_ts;
+        uint64_t         timeout_ns;
+        if (copy_from_user(&timeout_ts, timeout, sizeof(timeout_ts))) return -EFAULT;
+        if (!timer_timespec_to_ns(&timeout_ts, &timeout_ns)) return -EINVAL;
+
+        uint64_t now   = sched_ticks();
+        uint64_t ticks = timer_ns_to_ticks_ceil(timeout_ns);
+        deadline_tick  = UINT64_MAX - now < ticks ? UINT64_MAX : now + ticks;
     }
 
-    /* Blocking wait (no timeout): use wait queue for atomic sleep */
     wait_queue_t wq;
     wait_queue_init(&wq);
 
-    spin_lock(&state->lock);
-    siginfo_t found;
-    memset(&found, 0, sizeof(found));
-    int sig = sigqueue_dequeue_filtered(state, &wait_set, &found);
-    if (sig) {
+    for (;;) {
+        siginfo_t found;
+        memset(&found, 0, sizeof(found));
+
+        spin_lock(&state->lock);
+        int sig = sigqueue_dequeue_filtered(state, &wait_set, &found);
+        if (sig) {
+            spin_unlock(&state->lock);
+            if (info && copy_to_user(info, &found, sizeof(siginfo_t))) return -EFAULT;
+            return sig;
+        }
+
+        if (timed && sched_ticks() >= deadline_tick) {
+            spin_unlock(&state->lock);
+            return -EAGAIN;
+        }
+
+        /* A pending signal outside wait_set must retain normal asynchronous
+         * delivery semantics instead of leaving this syscall asleep. */
+        if (signal_has_interrupting_pending(state)) {
+            spin_unlock(&state->lock);
+            return -EINTR;
+        }
+
+        /* Prepare while holding the signal lock so signal_send() cannot
+         * slip between the condition check and installing the wait. */
+        wait_queue_prepare(&wq);
         spin_unlock(&state->lock);
-        if (info && copy_to_user(info, &found, sizeof(siginfo_t))) return -EFAULT;
-        return sig;
+
+        if (timed)
+            (void)wait_queue_wait_timed(&wq, deadline_tick);
+        else
+            wait_queue_sleep();
     }
-
-    /* No matching signals pending; prepare to sleep */
-    wait_queue_prepare(&wq);
-    spin_unlock(&state->lock);
-
-    wait_queue_sleep();
-
-    /* Re-check after wakeup */
-    spin_lock(&state->lock);
-    memset(&found, 0, sizeof(found));
-    sig = sigqueue_dequeue_filtered(state, &wait_set, &found);
-    spin_unlock(&state->lock);
-    if (sig) {
-        if (info && copy_to_user(info, &found, sizeof(siginfo_t))) return -EFAULT;
-        return sig;
-    }
-    return -EINTR;
 }
 
 /*

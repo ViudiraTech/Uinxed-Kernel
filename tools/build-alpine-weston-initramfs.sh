@@ -77,9 +77,10 @@ apk add alpine-base openrc eudev udev-init-scripts dbus \
     mesa-dri-gallium mesa-egl mesa-gbm mesa-gl \
     weston weston-backend-drm weston-shell-desktop weston-terminal weston-clients weston-xwayland xwayland \
     seatd \
-    font-dejavu \
+    font-dejavu capitaine-cursors \
     libinput-tools evtest bash \
     fastfetch htop nano less file \
+    xterm xeyes xclock \
     clang gcc musl-dev binutils make coreutils ${EXTRA_PACKAGES}
 addgroup -S input 2>/dev/null || true
 addgroup -S video 2>/dev/null || true
@@ -130,6 +131,8 @@ locking=false
 panel-position=top
 background-image=/usr/share/weston/background.png
 background-type=scale-crop
+cursor-theme=capitaine-cursors-dark
+cursor-size=24
 
 [launcher]
 icon=/usr/share/weston/icon_terminal.png
@@ -178,6 +181,8 @@ export XDG_VTNR=1
 unset DISPLAY XAUTHORITY
 export WAYLAND_DISPLAY=wayland-0
 export XDG_SESSION_TYPE=wayland
+export XCURSOR_THEME=capitaine-cursors-dark
+export XCURSOR_SIZE=24
 
 # Alpine's libseat package does not include the builtin backend.  Start the
 # packaged seatd daemon explicitly before Weston and use its Unix socket.

@@ -460,6 +460,13 @@ void signal_state_copy(signal_state_t *dst, const signal_state_t *src);
 /* Check permissions for sending a signal */
 int signal_check_perm(const process_t *from, const process_t *to);
 
+/* Consume/query pending signals for synchronous interfaces such as
+ * signalfd(2).  These operations intentionally ignore the blocked mask: a
+ * caller normally blocks the signals precisely so they can be read through
+ * the synchronous interface instead of being delivered to a handler. */
+int  signal_dequeue_masked(process_t *proc, const sigset_t *mask, siginfo_t *info);
+bool signal_has_pending_masked(process_t *proc, const sigset_t *mask);
+
 /* Notify the signal subsystem that a child process exited */
 void signal_notify_child_exit(process_t *parent, int64_t child_pid, int exit_code, int status);
 void signal_notify_child_status(process_t *parent, int64_t child_pid, int status, int code);

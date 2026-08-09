@@ -47,17 +47,11 @@ typedef struct signalfd_siginfo {
         uint8_t  __pad1[28];
 } signalfd_siginfo_t;
 
-#define SIG_PENDING_MAX 16
-
 typedef struct signalfd_ctx {
-        sigset_t           sigmask;
-        uint64_t           flags;
-        spinlock_t         lock;
-        wait_queue_t       wq;
-        signalfd_siginfo_t pending[SIG_PENDING_MAX];
-        int                pending_head;
-        int                pending_tail;
-        int                pending_count;
+        sigset_t     sigmask;
+        uint64_t     flags;
+        spinlock_t   lock;
+        wait_queue_t wq;
 } signalfd_ctx_t;
 
 /* Create or update a signalfd */
@@ -66,7 +60,7 @@ int sys_signalfd(int fd, const void *mask, int flags);
 /* Create or update a signalfd (with flags) */
 int sys_signalfd4(int fd, const void *mask, size_t sizemask, int flags);
 
-/* Queue a newly-pending signal for matching signalfd instances. */
+/* Notify matching signalfd instances that the process pending queue changed. */
 void signalfd_deliver(process_t *proc, int sig, const siginfo_t *source);
 
 /* Initialize the signalfd subsystem */

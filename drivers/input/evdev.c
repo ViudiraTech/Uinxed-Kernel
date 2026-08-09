@@ -18,6 +18,7 @@
 #include <fs/virtual/tmpfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <libs/glist/intrusive_list.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
@@ -82,6 +83,18 @@ static bool       evdev_nodes_ready;
 #define EVDEV_MAJOR 13
 
 static int evdev_ungrab(evdev_t *evdev, evdev_client_t *client);
+
+static uint64_t evdev_clock_ns(int clock_type)
+{
+    if (clock_type == CLOCK_REALTIME) {
+        int64_t realtime = timer_realtime_ns();
+        return realtime > 0 ? (uint64_t)realtime : 0;
+    }
+
+    /* CLOCK_MONOTONIC and CLOCK_BOOTTIME currently share Uinxed's
+     * monotonic timebase, matching clock_gettime() and timerfd. */
+    return timer_monotonic_ns();
+}
 
 static int evdev_dev_open(vfs_node_t node, uint64_t flags, void **private_data)
 {
@@ -202,7 +215,7 @@ static bool __evdev_is_filtered(evdev_client_t *client, unsigned int type, unsig
 
 static void __evdev_queue_syn_dropped(evdev_client_t *client)
 {
-    uint64_t      ns = nano_time();
+    uint64_t      ns = evdev_clock_ns(client->clk_type);
     input_event_t ev;
 
     ev.sec   = ns / 1000000000ULL;
@@ -238,17 +251,19 @@ static bool __pass_event(evdev_client_t *client, const input_event_t *event)
 
 /* ---- evdev_pass_values ---- */
 
-static void evdev_pass_values(evdev_client_t *client, const input_event_t *values, unsigned int count, uint64_t time_ns)
+static void evdev_pass_values(evdev_client_t *client, const input_event_t *values, unsigned int count)
 {
     unsigned int  i;
     bool          wake = false;
     input_event_t event;
+    uint64_t      time_ns;
 
     spin_lock(&client->buffer_lock);
     if (client->revoked) {
         spin_unlock(&client->buffer_lock);
         return;
     }
+    time_ns = evdev_clock_ns(client->clk_type);
     for (i = 0; i < count; i++) {
         event = values[i];
 
@@ -283,11 +298,8 @@ static void evdev_events(input_dev_t *dev, const input_event_t *values, unsigned
     evdev_client_t *client;
     evdev_client_t *grab;
     ilist_node_t   *node;
-    uint64_t        time_ns;
 
     if (!evdev || !evdev->exist) return;
-
-    time_ns = nano_time();
 
     spin_lock(&evdev->client_lock);
 
@@ -299,7 +311,7 @@ static void evdev_events(input_dev_t *dev, const input_event_t *values, unsigned
          * client from being freed (by evdev_fop_release) while
          * we are writing to it.
          */
-        evdev_pass_values(grab, values, count, time_ns);
+        evdev_pass_values(grab, values, count);
         spin_unlock(&evdev->client_lock);
         return;
     }
@@ -307,7 +319,7 @@ static void evdev_events(input_dev_t *dev, const input_event_t *values, unsigned
     /* Distribute to all clients */
     for (node = evdev->client_list.next; node != &evdev->client_list; node = node->next) {
         client = (evdev_client_t *)((uintptr_t)node - offsetof(evdev_client_t, node));
-        evdev_pass_values(client, values, count, time_ns);
+        evdev_pass_values(client, values, count);
     }
 
     spin_unlock(&evdev->client_lock);
@@ -325,7 +337,7 @@ static int evdev_set_clk_type(evdev_client_t *client, int clk_type)
 
     spin_lock(&client->buffer_lock);
     client->clk_type = clk_type;
-    ns               = nano_time();
+    ns               = evdev_clock_ns(client->clk_type);
     dropped          = (input_event_t) {
                  .sec   = ns / 1000000000ULL,
                  .usec  = (ns / 1000ULL) % 1000000ULL,

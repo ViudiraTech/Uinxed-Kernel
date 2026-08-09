@@ -34,7 +34,7 @@ extern process_t *init_process;
 #define PROCESS_MAX_ENVP     64
 #define PROCESS_MAX_CHILDREN 128
 #ifndef PROCESS_MAX_FD
-#    define PROCESS_MAX_FD 64
+#    define PROCESS_MAX_FD 1024
 #endif
 #ifndef PROCESS_KERNEL_STACK
 #    define PROCESS_KERNEL_STACK 0x10000

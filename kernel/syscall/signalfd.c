@@ -27,6 +27,31 @@
 
 static int signalfd_fsid = -1;
 
+static void signalfd_format_info(signalfd_siginfo_t *dest, int sig, const siginfo_t *source)
+{
+    memset(dest, 0, sizeof(*dest));
+    dest->ssi_signo = (uint32_t)sig;
+    if (!source) return;
+    dest->ssi_errno     = source->si_errno;
+    dest->ssi_code      = source->si_code;
+    dest->ssi_pid       = (uint32_t)source->si_pid;
+    dest->ssi_uid       = source->si_uid;
+    dest->ssi_status    = source->si_status;
+    dest->ssi_int       = source->si_int;
+    dest->ssi_ptr       = (uint64_t)(uintptr_t)source->si_ptr;
+    dest->ssi_utime     = (uint64_t)source->si_utime;
+    dest->ssi_stime     = (uint64_t)source->si_stime;
+    dest->ssi_addr      = (uint64_t)(uintptr_t)source->si_addr;
+    dest->ssi_addr_lsb  = (uint16_t)source->si_addr_lsb;
+    dest->ssi_fd        = source->si_fd;
+    dest->ssi_band      = (uint32_t)source->si_band;
+    dest->ssi_tid       = (uint32_t)source->si_tid;
+    dest->ssi_overrun   = (uint32_t)source->si_overrun;
+    dest->ssi_syscall   = source->si_syscall;
+    dest->ssi_call_addr = (uint64_t)(uintptr_t)source->si_call_addr;
+    dest->ssi_arch      = source->si_arch;
+}
+
 /* ---------- VFS callback implementations ---------- */
 
 static void signalfd_vfs_open(void *parent, const char *name, vfs_node_t node)
@@ -48,33 +73,32 @@ static size_t signalfd_vfs_read(void *file, void *addr, size_t offset, size_t si
     if (!ctx) return (size_t)-1;
     if (size < sizeof(signalfd_siginfo_t)) return (size_t)-1;
 
-    spin_lock(&ctx->lock);
+    process_t *proc = process_current();
+    if (!proc) return (size_t)-1;
 
-    if (ctx->pending_count == 0) {
-        if (ctx->flags & SFD_NONBLOCK) {
-            spin_unlock(&ctx->lock);
-            return (size_t)-1;
-        }
-        wait_queue_prepare(&ctx->wq);
-        spin_unlock(&ctx->lock);
-        wait_queue_sleep();
+    for (;;) {
         spin_lock(&ctx->lock);
+        sigset_t mask  = ctx->sigmask;
+        bool     block = !(ctx->flags & SFD_NONBLOCK);
+        spin_unlock(&ctx->lock);
 
-        if (ctx->pending_count == 0) {
-            spin_unlock(&ctx->lock);
-            return (size_t)-1;
+        siginfo_t source;
+        memset(&source, 0, sizeof(source));
+        int sig = signal_dequeue_masked(proc, &mask, &source);
+        if (sig) {
+            signalfd_siginfo_t info;
+            signalfd_format_info(&info, sig, &source);
+            memcpy(addr, &info, sizeof(info));
+            return sizeof(info);
         }
+        if (!block) return (size_t)-1;
+
+        /* Close the check-to-sleep race: install the waiter first, then
+         * recheck the process pending bitmap. */
+        wait_queue_prepare(&ctx->wq);
+        if (signal_has_pending_masked(proc, &mask)) wait_queue_wake_all(&ctx->wq);
+        wait_queue_sleep();
     }
-
-    signalfd_siginfo_t info = ctx->pending[ctx->pending_head];
-    ctx->pending_head       = (ctx->pending_head + 1) % SIG_PENDING_MAX;
-    ctx->pending_count--;
-
-    spin_unlock(&ctx->lock);
-    wait_queue_wake_all(&ctx->wq);
-
-    memcpy(addr, &info, sizeof(info));
-    return sizeof(signalfd_siginfo_t);
 }
 
 static int signalfd_vfs_poll(void *file, size_t events)
@@ -82,11 +106,10 @@ static int signalfd_vfs_poll(void *file, size_t events)
     signalfd_ctx_t *ctx = (signalfd_ctx_t *)file;
     if (!ctx) return 0;
 
-    int revents = 0;
     spin_lock(&ctx->lock);
-    if (ctx->pending_count > 0) revents |= 0x001;
+    sigset_t mask = ctx->sigmask;
     spin_unlock(&ctx->lock);
-    return revents & (int)events;
+    return signal_has_pending_masked(process_current(), &mask) ? (0x001 & (int)events) : 0;
 }
 
 static int64_t signalfd_vfs_file_read(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
@@ -180,11 +203,8 @@ static vfs_node_t signalfd_node_create(sigset_t sigmask, int flags)
     signalfd_ctx_t *ctx = calloc(1, sizeof(signalfd_ctx_t));
     if (!ctx) return NULL;
 
-    ctx->sigmask       = sigmask;
-    ctx->flags         = (uint64_t)(flags & (SFD_NONBLOCK | SFD_CLOEXEC));
-    ctx->pending_head  = 0;
-    ctx->pending_tail  = 0;
-    ctx->pending_count = 0;
+    ctx->sigmask = sigmask;
+    ctx->flags   = (uint64_t)(flags & (SFD_NONBLOCK | SFD_CLOEXEC));
     wait_queue_init(&ctx->wq);
 
     vfs_node_t node = vfs_node_alloc(NULL, "[signalfd]");
@@ -217,6 +237,8 @@ int sys_signalfd4(int fd, const void *mask, size_t sizemask, int flags)
     sigemptyset(&sigmask);
 
     if (copy_from_user(&sigmask, mask, sizeof(sigmask))) return -EFAULT;
+    sigdelset(&sigmask, SIGKILL);
+    sigdelset(&sigmask, SIGSTOP);
 
     if (fd == -1) {
         vfs_node_t node = signalfd_node_create(sigmask, flags);
@@ -251,6 +273,11 @@ int sys_signalfd4(int fd, const void *mask, size_t sizemask, int flags)
     ctx->flags   = (uint64_t)(flags & (SFD_NONBLOCK | SFD_CLOEXEC));
     spin_unlock(&ctx->lock);
 
+    if (signal_has_pending_masked(proc, &sigmask)) {
+        wait_queue_wake_all(&ctx->wq);
+        vfs_poll_notify(file->node, 0x001U);
+    }
+
     process_file_put(file);
     return fd;
 }
@@ -258,6 +285,7 @@ int sys_signalfd4(int fd, const void *mask, size_t sizemask, int flags)
 void signalfd_deliver(process_t *proc, int sig, const siginfo_t *source)
 {
     if (!proc || !sig_valid(sig)) return;
+    (void)source;
 
     spin_lock(&proc->fd_lock);
     for (int i = 0; i < PROCESS_MAX_FD; i++) {
@@ -272,43 +300,6 @@ void signalfd_deliver(process_t *proc, int sig, const siginfo_t *source)
             spin_unlock(&ctx->lock);
             continue;
         }
-
-        if (ctx->pending_count >= SIG_PENDING_MAX) {
-            spin_unlock(&ctx->lock);
-            continue;
-        }
-
-        signalfd_siginfo_t info;
-        memset(&info, 0, sizeof(info));
-        info.ssi_signo = (uint32_t)sig;
-        if (source) {
-            info.ssi_errno     = source->si_errno;
-            info.ssi_code      = source->si_code;
-            info.ssi_pid       = (uint32_t)source->si_pid;
-            info.ssi_uid       = source->si_uid;
-            info.ssi_status    = source->si_status;
-            info.ssi_int       = source->si_int;
-            info.ssi_ptr       = (uint64_t)(uintptr_t)source->si_ptr;
-            info.ssi_utime     = (uint64_t)source->si_utime;
-            info.ssi_stime     = (uint64_t)source->si_stime;
-            info.ssi_addr      = (uint64_t)(uintptr_t)source->si_addr;
-            info.ssi_addr_lsb  = (uint16_t)source->si_addr_lsb;
-            info.ssi_fd        = source->si_fd;
-            info.ssi_band      = (uint32_t)source->si_band;
-            info.ssi_tid       = (uint32_t)source->si_tid;
-            info.ssi_overrun   = (uint32_t)source->si_overrun;
-            info.ssi_syscall   = source->si_syscall;
-            info.ssi_call_addr = (uint64_t)(uintptr_t)source->si_call_addr;
-            info.ssi_arch      = source->si_arch;
-        } else {
-            process_t *sender = process_current();
-            info.ssi_pid      = (uint32_t)(sender && sender->task ? sender->task->tgid : 0);
-            info.ssi_uid      = sender ? sender->uid : 0;
-        }
-
-        ctx->pending[ctx->pending_tail] = info;
-        ctx->pending_tail               = (ctx->pending_tail + 1) % SIG_PENDING_MAX;
-        ctx->pending_count++;
 
         spin_unlock(&ctx->lock);
         wait_queue_wake_all(&ctx->wq);
