@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build an Alpine Weston initramfs for Uinxed and wire it into Limine.
+# Build an Alpine Xfce initramfs for Uinxed and wire it into Limine.
 
 set -Eeuo pipefail
 
@@ -14,7 +14,7 @@ SCRIPT_PATH="$SCRIPT_DIR/$(basename -- "$0")"
 usage() {
     printf '%s\n' \
         "Usage: $0 [--no-iso]" \
-        "Build Alpine Weston as assets/Limine/initramfs.cpio." \
+        "Build Alpine Xfce as assets/Limine/initramfs.cpio." \
         "The script uses sudo automatically when required." \
         "Environment: ALPINE_VERSION, ALPINE_BRANCH, ALPINE_MIRROR, EXTRA_PACKAGES"
 }
@@ -70,27 +70,30 @@ tar --extract --gzip --file "$ARCHIVE" --directory "$ROOTFS"
 install -Dm644 /etc/resolv.conf "$ROOTFS/etc/resolv.conf"
 printf '%s\n%s\n' "$ALPINE_MIRROR/$ALPINE_BRANCH/main" "$ALPINE_MIRROR/$ALPINE_BRANCH/community" >"$ROOTFS/etc/apk/repositories"
 
-printf '[3/7] Installing Weston desktop, Xwayland, applications, and OpenRC\n'
+printf '[3/7] Installing Xfce desktop, Xorg, applications, and OpenRC\n'
 chroot "$ROOTFS" /bin/sh -eux <<CHROOT_SETUP
 apk update
-apk add alpine-base openrc eudev udev-init-scripts dbus \
+apk add alpine-base openrc eudev udev-init-scripts dbus dbus-x11 \
+    xorg-server xinit xauth xf86-input-libinput \
+    xfce4 xfce4-session xfce4-terminal xfce4-screensaver \
     mesa-dri-gallium mesa-egl mesa-gbm mesa-gl \
-    weston weston-backend-drm weston-shell-desktop weston-terminal weston-clients weston-xwayland xwayland \
-    seatd \
     font-dejavu capitaine-cursors \
-    libinput-tools evtest pciutils bash \
+    libinput-tools evtest bash \
     fastfetch htop nano less file \
     xterm xeyes xclock \
     clang gcc musl-dev binutils make coreutils ${EXTRA_PACKAGES}
 addgroup -S input 2>/dev/null || true
 addgroup -S video 2>/dev/null || true
 for service in udev udev-trigger; do rc-update add "\$service" sysinit; done
+rc-update add dbus default
 rc-update del elogind default 2>/dev/null || true
 rm -rf /var/cache/apk/*
 CHROOT_SETUP
 
-printf '[4/7] Configuring automatic root Weston desktop and input permissions\n'
-install -d -m755 "$ROOTFS/etc/udev/rules.d" "$ROOTFS/etc/profile.d" "$ROOTFS/etc/xdg/weston" "$ROOTFS/usr/local/bin" "$ROOTFS/usr/local/sbin"
+printf '[4/7] Configuring automatic root Xfce desktop, Xorg, and input permissions\n'
+install -d -m755 "$ROOTFS/etc/udev/rules.d" "$ROOTFS/etc/profile.d" \
+    "$ROOTFS/etc/X11/xorg.conf.d" "$ROOTFS/etc/xdg/xfce4/xfconf/xfce-perchannel-xml" \
+    "$ROOTFS/usr/local/bin" "$ROOTFS/usr/local/sbin" "$ROOTFS/root/.config/xfce4/xfconf/xfce-perchannel-xml"
 cat >"$ROOTFS/etc/profile.d/uinxed-prompt.sh" <<'BASH_PROFILE'
 # Debian-style prompt: green user@host, blue working directory.
 # Keep the escape sequences wrapped so bash/readline counts the width correctly.
@@ -118,104 +121,138 @@ ACTION!="remove", SUBSYSTEM=="input", KERNEL=="event[0-9]*", ATTRS{name}=="AT Tr
 ACTION!="remove", SUBSYSTEM=="input", KERNEL=="event[0-9]*", ATTRS{name}=="PS/2 Generic Mouse", ENV{ID_INPUT_MOUSE}="1"
 ACTION!="remove", SUBSYSTEM=="drm", KERNEL=="card[0-9]*", ENV{ID_SEAT}="seat0", MODE="0660", GROUP="video", TAG+="seat"
 UDEV_RULES
-cat >"$ROOTFS/etc/xdg/weston/weston.ini" <<'WESTON_INI'
-[core]
-shell=desktop-shell.so
-renderer=pixman
-idle-time=0
-require-input=false
-xwayland=true
+cat >"$ROOTFS/etc/X11/Xwrapper.config" <<'XWRAPPER_CONFIG'
+# Xfce is started automatically as root on tty1 in this development image.
+allowed_users=anybody
+needs_root_rights=yes
+XWRAPPER_CONFIG
+cat >"$ROOTFS/etc/X11/xorg.conf.d/20-uinxed.conf" <<'XORG_CONF'
+Section "Device"
+    Identifier "Uinxed DRM"
+    Driver "modesetting"
+    Option "AccelMethod" "none"
+    Option "SWCursor" "true"
+EndSection
 
-[shell]
-locking=false
-panel-position=top
-background-image=/usr/share/weston/background.png
-background-type=scale-crop
-cursor-theme=capitaine-cursors-dark
-cursor-size=24
+Section "ServerFlags"
+    Option "AutoAddDevices" "true"
+    Option "AutoEnableDevices" "true"
+    Option "DontVTSwitch" "true"
+    Option "BlankTime" "0"
+    Option "StandbyTime" "0"
+    Option "SuspendTime" "0"
+    Option "OffTime" "0"
+EndSection
 
-[launcher]
-icon=/usr/share/weston/icon_terminal.png
-path=/usr/local/sbin/start-bash-terminal
+Section "InputClass"
+    Identifier "Uinxed libinput keyboard"
+    MatchIsKeyboard "on"
+    Driver "libinput"
+EndSection
 
-[launcher]
-icon=/usr/share/weston/icon_terminal.png
-path=/usr/local/sbin/start-fastfetch
-
-[terminal]
-font=DejaVu Sans Mono
-font-size=16
-
-[xwayland]
-path=/usr/local/sbin/Xwayland-software
-WESTON_INI
-cat >"$ROOTFS/usr/local/sbin/start-fastfetch" <<'START_FASTFETCH'
+Section "InputClass"
+    Identifier "Uinxed libinput pointer"
+    MatchIsPointer "on"
+    Driver "libinput"
+EndSection
+XORG_CONF
+cat >"$ROOTFS/root/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml" <<'XFWM4_CONFIG'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfwm4" version="1.0">
+  <property name="general" type="empty">
+    <property name="use_compositing" type="bool" value="false"/>
+    <property name="vblank_mode" type="string" value="none"/>
+  </property>
+</channel>
+XFWM4_CONFIG
+cat >"$ROOTFS/root/.xinitrc" <<'ROOT_XINITRC'
 #!/bin/sh
-exec /usr/bin/weston-terminal --shell=/usr/local/sbin/fastfetch-shell
-START_FASTFETCH
-cat >"$ROOTFS/usr/local/sbin/start-bash-terminal" <<'START_BASH_TERMINAL'
-#!/bin/sh
-exec /usr/bin/weston-terminal --shell=/usr/local/sbin/start-bash
-START_BASH_TERMINAL
-cat >"$ROOTFS/usr/local/sbin/fastfetch-shell" <<'FASTFETCH_SHELL'
-#!/bin/sh
-/usr/bin/fastfetch
-exec /bin/bash --login
-FASTFETCH_SHELL
-cat >"$ROOTFS/usr/local/sbin/Xwayland-software" <<'START_XWAYLAND'
-#!/bin/sh
-# Uinxed's DRM implementation intentionally exposes the dumb-buffer/pixman
-# path used by Weston, not a complete GBM acceleration stack.  Make Xwayland
-# use wl_shm buffers instead of probing glamor/DRI3.
-export XWAYLAND_NO_GLAMOR=1
-exec /usr/bin/Xwayland "$@" -shm -verbose 3
-START_XWAYLAND
-cat >"$ROOTFS/usr/local/sbin/start-weston-root" <<'START_WESTON'
+export XDG_SESSION_TYPE=x11
+export XDG_CURRENT_DESKTOP=XFCE
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
+export LIBGL_ALWAYS_SOFTWARE=1
+unset WAYLAND_DISPLAY
+exec /usr/bin/dbus-run-session -- /usr/bin/startxfce4
+ROOT_XINITRC
+cat >"$ROOTFS/usr/local/sbin/start-xfce-root" <<'START_XFCE'
 #!/bin/sh
 export HOME=/root USER=root LOGNAME=root
-exec </dev/tty1 >/dev/ttyS0 2>&1
+exec </dev/tty1
+if [ -e /dev/ttyS0 ]; then
+    exec >/dev/ttyS0 2>&1
+else
+    exec >/dev/tty1 2>&1
+fi
 install -d -m700 /run/user/0
 export XDG_RUNTIME_DIR=/run/user/0
 export XDG_CONFIG_HOME=/root/.config
+export XDG_DATA_HOME=/root/.local/share
+export XDG_CACHE_HOME=/root/.cache
 export XDG_VTNR=1
-unset DISPLAY XAUTHORITY
-export WAYLAND_DISPLAY=wayland-0
-export XDG_SESSION_TYPE=wayland
+export XDG_SESSION_TYPE=x11
+export XDG_CURRENT_DESKTOP=XFCE
+export LIBGL_ALWAYS_SOFTWARE=1
 export XCURSOR_THEME=capitaine-cursors-dark
 export XCURSOR_SIZE=24
+unset DISPLAY WAYLAND_DISPLAY XAUTHORITY
 
-# Alpine's libseat package does not include the builtin backend.  Start the
-# packaged seatd daemon explicitly before Weston and use its Unix socket.
-if [ ! -e /run/seatd.sock ]; then
-    /usr/bin/seatd -g video >/dev/null 2>&1 &
-    sleep 1
+# Start Xorg directly.  startx creates a transient .serverauth.* file, while
+# this root-only development image has no need for X11 cookie authentication.
+# -ac also avoids making Xorg depend on xauth's locking/rename path.
+XORG_LOG=/var/log/Xorg.0.log
+/usr/bin/Xorg :0 vt1 -keeptty -novtswitch -nolisten tcp -ac -logfile "$XORG_LOG" &
+XORG_PID=$!
+cleanup_xorg() {
+    kill "$XORG_PID" 2>/dev/null || true
+    wait "$XORG_PID" 2>/dev/null || true
+}
+trap cleanup_xorg EXIT INT TERM
+
+attempt=0
+while [ ! -e /tmp/.X11-unix/X0 ] && [ "$attempt" -lt 100 ]; do
+    if ! kill -0 "$XORG_PID" 2>/dev/null; then
+        echo "Xorg exited before creating display :0"
+        cat "$XORG_LOG" 2>/dev/null || true
+        exit 1
+    fi
+    sleep 0.1
+    attempt=$((attempt + 1))
+done
+if [ ! -e /tmp/.X11-unix/X0 ]; then
+    echo "Timed out waiting for Xorg display :0"
+    cat "$XORG_LOG" 2>/dev/null || true
+    exit 1
 fi
-export LIBSEAT_BACKEND=seatd
-export SEATD_SOCK=/run/seatd.sock
-# Disabling VT binding avoids depending on Linux VT switching that this
-# kernel does not implement completely.
-export SEATD_VTBOUND=0
 
-exec /usr/bin/weston -B drm --renderer=pixman --seat=seat0 \
-    --continue-without-input --config=/etc/xdg/weston/weston.ini \
-    --log=/dev/ttyS0
-START_WESTON
-chmod 0755 "$ROOTFS/usr/local/sbin/start-weston-root" "$ROOTFS/usr/local/sbin/start-fastfetch" \
-    "$ROOTFS/usr/local/sbin/start-bash" "$ROOTFS/usr/local/sbin/start-bash-terminal" \
-    "$ROOTFS/usr/local/sbin/fastfetch-shell" "$ROOTFS/usr/local/sbin/Xwayland-software"
+export DISPLAY=:0
+unset XAUTHORITY
+SESSION_LOG=/var/log/xfce-session.log
+: >"$SESSION_LOG"
+echo "Starting Xfce session on DISPLAY=$DISPLAY" >>"$SESSION_LOG"
+# Xorg is already running above.  Run Alpine's Xfce xinitrc directly: it sets
+# DESKTOP_SESSION/XDG_* and prepares the activation environment before it
+# execs xfce4-session.  Calling startxfce4 here would add another xinit layer.
+/usr/bin/dbus-run-session -- /etc/xdg/xfce4/xinitrc >>"$SESSION_LOG" 2>&1
+session_status=$?
+cat "$SESSION_LOG"
+echo "Xfce session exited with status $session_status"
+exit "$session_status"
+START_XFCE
+chmod 0755 "$ROOTFS/root/.xinitrc" "$ROOTFS/usr/local/sbin/start-xfce-root" "$ROOTFS/usr/local/sbin/start-bash"
 
 if grep -q '^tty1::respawn:' "$ROOTFS/etc/inittab"; then
-    sed -i 's#^tty1::respawn:.*#tty1::respawn:/sbin/getty -n -l /usr/local/sbin/start-weston-root 38400 tty1#' "$ROOTFS/etc/inittab"
+    sed -i 's#^tty1::respawn:.*#tty1::respawn:/sbin/getty -n -l /usr/local/sbin/start-xfce-root 38400 tty1#' "$ROOTFS/etc/inittab"
 else
-    printf '%s\n' 'tty1::respawn:/sbin/getty -n -l /usr/local/sbin/start-weston-root 38400 tty1' >>"$ROOTFS/etc/inittab"
+    printf '%s\n' 'tty1::respawn:/sbin/getty -n -l /usr/local/sbin/start-xfce-root 38400 tty1' >>"$ROOTFS/etc/inittab"
 fi
 if grep -q '^#\?ttyS0::respawn:' "$ROOTFS/etc/inittab"; then
-    sed -i 's|^#\?ttyS0::respawn:.*|# ttyS0 is reserved for kernel and Weston logs.|' "$ROOTFS/etc/inittab"
+    sed -i 's|^#\?ttyS0::respawn:.*|# ttyS0 is reserved for kernel and Xorg logs.|' "$ROOTFS/etc/inittab"
 fi
 cat >"$ROOTFS/etc/motd" <<'MOTD'
-Uinxed Alpine Weston rootfs
+Uinxed Alpine Xfce rootfs
 
-Weston starts automatically as root on tty1 with its DRM desktop shell.
+Xorg and Xfce start automatically as root on tty1 with software rendering.
+The original Weston builder is kept in tools/build-alpine-weston-initramfs.sh.
 MOTD
 
 printf '[5/7] Breaking hard links for the Uinxed cpio loader\n'

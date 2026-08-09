@@ -554,9 +554,9 @@ size_t e1000_poll(e1000_device_t *device, size_t budget)
     while (done < budget) {
         uint16_t                  idx    = device->rx_next;
         volatile e1000_rx_desc_t *desc   = &device->rx_ring[idx];
+        dma_read_barrier();
         uint8_t                   status = desc->status;
         if (!(status & E1000_RXD_STAT_DD)) break;
-        dma_read_barrier();
 
         size_t length       = desc->length;
         size_t frame_length = 0;

@@ -194,9 +194,6 @@ static int copy_user_bytes(void *dst, const void *src, size_t size, int to_user)
     size_t     remaining;
 
     if (!proc || !proc->user_page_dir || !user_range_ok((const void *)user, size)) return -EFAULT;
-    task_t *task = current_task();
-    if (task && task->process == proc && task->page_directory == proc->user_page_dir)
-        return copy_user_direct(dst, src, size, 0);
     remaining = size;
 
     while (remaining) {
@@ -243,9 +240,6 @@ static int copy_user_bytes_process_nofault(process_t *proc, void *dst, const voi
     size_t    remaining;
 
     if (!proc || !proc->user_page_dir || !user_range_ok((const void *)user, size)) return -EFAULT;
-    task_t *task = current_task();
-    if (task && task->process == proc && task->page_directory == proc->user_page_dir)
-        return copy_user_direct(dst, src, size, 1);
     remaining = size;
 
     while (remaining) {

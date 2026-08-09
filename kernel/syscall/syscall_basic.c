@@ -829,8 +829,14 @@ int64_t sys_fchdir_impl(uint64_t fd, uint64_t arg1, uint64_t arg2, uint64_t arg3
         process_file_put(pf);
         return -ENOTDIR;
     }
-    /* Best-effort: mark cwd */
-    strncpy(proc->cwd, "[fd]", sizeof(proc->cwd));
+    char path[VFS_PATH_MAX];
+    int  ret = vfs_node_path(pf->node, path, sizeof(path));
+    if (ret != EOK) {
+        process_file_put(pf);
+        return ret;
+    }
+    strncpy(proc->cwd, path, sizeof(proc->cwd) - 1);
+    proc->cwd[sizeof(proc->cwd) - 1] = '\0';
     process_file_put(pf);
     return 0;
 }
@@ -1888,6 +1894,7 @@ int64_t sys_openat2_impl(uint64_t dirfd, uint64_t path, uint64_t how, uint64_t u
     if (copy_from_user(&oh, (const void *)how, sizeof(oh))) return -EFAULT;
 
     if (oh.resolve & ~31ULL) return -EINVAL;
+    if ((oh.flags & O_TMPFILE) == O_TMPFILE) return -EOPNOTSUPP;
 
     /* Delegate to the same logic as openat: open a file by dirfd+path */
     process_t *proc = process_current();

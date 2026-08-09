@@ -88,82 +88,185 @@ int elf_loader_parse_elf_info(const uint8_t *data, size_t size, elf_load_info_t 
     return 0;
 }
 
+/* Return the relocated, page-aligned memory range of a PT_LOAD segment. */
+static int elf_segment_range(const Elf64_Phdr *segment, uintptr_t load_bias,
+                             uintptr_t *base_out, uintptr_t *start_out, uintptr_t *end_out)
+{
+    if (segment->memsz == 0) return 0;
+    if (segment->vaddr > UINT64_MAX - load_bias) return -1;
+
+    uintptr_t base = segment->vaddr + load_bias;
+    if (base > UINT64_MAX - segment->memsz) return -1;
+
+    uintptr_t mem_end = base + segment->memsz;
+    if (mem_end > UINT64_MAX - (PAGE_4K_SIZE - 1)) return -1;
+    uintptr_t end = ALIGN_UP(mem_end, PAGE_4K_SIZE);
+    if (end < mem_end) return -1;
+
+    if (base_out) *base_out = base;
+    if (start_out) *start_out = ALIGN_DOWN(base, PAGE_4K_SIZE);
+    if (end_out) *end_out = end;
+    return 1;
+}
+
+/* Return the permissions for one page covered by one or more PT_LOADs. */
+static int elf_page_attributes(const Elf64_Phdr *phdr, int phnum, uintptr_t load_bias,
+                               uintptr_t va, uint64_t *pte_flags_out, vm_flags_t *vm_flags_out)
+{
+    int covered = 0;
+    int readable = 0;
+    int writable = 0;
+    int executable = 0;
+    uintptr_t page_end = va + PAGE_4K_SIZE;
+
+    for (int i = 0; i < phnum; i++) {
+        if (phdr[i].type != PT_LOAD || phdr[i].memsz == 0) continue;
+
+        uintptr_t seg_start, seg_end;
+        if (elf_segment_range(&phdr[i], load_bias, NULL, &seg_start, &seg_end) <= 0) continue;
+        if (va >= seg_end || page_end <= seg_start) continue;
+
+        covered = 1;
+        if (phdr[i].flags & PF_R) readable = 1;
+        if (phdr[i].flags & PF_W) writable = 1;
+        if (phdr[i].flags & PF_X) executable = 1;
+    }
+
+    if (!covered) return 0;
+
+    uint64_t pte_flags = PTE_USER | PTE_PRESENT;
+    if (writable) pte_flags |= PTE_WRITEABLE;
+    if (!executable) pte_flags |= PTE_NO_EXECUTE;
+
+    vm_flags_t vm_flags = 0;
+    if (readable) vm_flags |= VM_READ;
+    if (writable) vm_flags |= VM_WRITE;
+    if (executable) vm_flags |= VM_EXEC;
+
+    *pte_flags_out = pte_flags;
+    *vm_flags_out = vm_flags;
+    return 1;
+}
+
+static int insert_elf_vma(process_t *proc, uintptr_t start, uintptr_t end, vm_flags_t flags)
+{
+    if (start >= end) return 0;
+
+    vm_area_t *vma = calloc(1, sizeof(*vma));
+    if (!vma) {
+        plogk("elf_loader: PT_LOAD VMA allocation failed at %p\n", (void *)start);
+        return 1;
+    }
+    vma->start = start;
+    vma->end = end;
+    vma->flags = flags;
+    vma->type = VM_REGION_MMAP;
+    if (vm_area_insert(proc, vma)) {
+        plogk("elf_loader: PT_LOAD VMA insert failed at %p\n", (void *)start);
+        free(vma);
+        return 1;
+    }
+    return 0;
+}
+
 static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr, const uint8_t *data, size_t elf_size, uintptr_t load_bias, int set_brk)
 {
-    const Elf64_Phdr *phdr        = (const Elf64_Phdr *)(data + ehdr->e_phoff);
-    uintptr_t         highest_end = 0;
+    const Elf64_Phdr *phdr = (const Elf64_Phdr *)(data + ehdr->e_phoff);
+    uintptr_t lowest_start = UINT64_MAX;
+    uintptr_t highest_end = 0;
 
     for (int i = 0; i < ehdr->e_phnum; i++) {
         if (phdr[i].type != PT_LOAD) continue;
         if (phdr[i].filesz > phdr[i].memsz) return 1;
         if (phdr[i].offset > elf_size || phdr[i].filesz > elf_size - phdr[i].offset) return 1;
         if (phdr[i].align > 1
-            && ((phdr[i].align & (phdr[i].align - 1)) || (phdr[i].vaddr & (phdr[i].align - 1)) != (phdr[i].offset & (phdr[i].align - 1))))
+            && ((phdr[i].align & (phdr[i].align - 1))
+                || (phdr[i].vaddr & (phdr[i].align - 1)) != (phdr[i].offset & (phdr[i].align - 1))))
             return 1;
-        uintptr_t sum = phdr[i].vaddr + load_bias;
-        if (phdr[i].memsz > 0 && sum > UINT64_MAX - phdr[i].memsz) return 1;
-        uintptr_t seg_end = ALIGN_UP(sum + phdr[i].memsz, PAGE_4K_SIZE);
+
+        uintptr_t seg_start, seg_end;
+        int range = elf_segment_range(&phdr[i], load_bias, NULL, &seg_start, &seg_end);
+        if (range < 0) return 1;
+        if (range == 0) continue;
+        if (seg_start < PROCESS_HEAP_START || seg_end > PROCESS_USER_STACK_TOP) return 1;
+        if (seg_start < lowest_start) lowest_start = seg_start;
         if (seg_end > highest_end) highest_end = seg_end;
     }
 
-    for (int i = 0; i < ehdr->e_phnum; i++) {
-        if (phdr[i].type != PT_LOAD) continue;
+    if (lowest_start == UINT64_MAX) return 1;
 
-        uint64_t pte_flags = PTE_USER | PTE_PRESENT;
-        if (phdr[i].flags & PF_W) pte_flags |= PTE_WRITEABLE;
-        if (!(phdr[i].flags & PF_X)) pte_flags |= PTE_NO_EXECUTE;
+    /*
+     * Map each virtual page once, then copy all PT_LOAD portions into it.
+     * ELF files commonly put the end of an R segment and the beginning of
+     * the following RW segment in the same page (GNU_RELRO).  Loading one
+     * segment at a time incorrectly treats that normal layout as a collision.
+     */
+    for (uintptr_t va = lowest_start; va < highest_end; va += PAGE_4K_SIZE) {
+        uint64_t pte_flags;
+        vm_flags_t vm_flags;
+        if (!elf_page_attributes(phdr, ehdr->e_phnum, load_bias, va, &pte_flags, &vm_flags)) continue;
+        (void)vm_flags;
 
-        uintptr_t base = phdr[i].vaddr + load_bias;
-        if (phdr[i].memsz > 0 && base > UINT64_MAX - phdr[i].memsz) return 1;
-        uintptr_t seg_start = ALIGN_DOWN(base, PAGE_4K_SIZE);
-        uintptr_t seg_end   = ALIGN_UP(base + phdr[i].memsz, PAGE_4K_SIZE);
+        uint64_t frame = alloc_frames(1);
+        if (!frame) {
+            plogk("elf_loader: PT_LOAD frame allocation failed at %p\n", (void *)va);
+            return 1;
+        }
 
-        if (seg_start < PROCESS_HEAP_START || seg_end > PROCESS_USER_STACK_TOP) return 1;
+        uint8_t *page = phys_to_virt(frame);
+        memset(page, 0, PAGE_4K_SIZE);
+        if (page_map_new_to(proc->user_page_dir, va, frame, pte_flags)) {
+            (void)frame_release_range(frame, 1);
+            plogk("elf_loader: PT_LOAD page collision at %p\n", (void *)va);
+            return 1;
+        }
 
-        for (uintptr_t va = seg_start; va < seg_end; va += PAGE_4K_SIZE) {
-            uint64_t frame = alloc_frames(1);
-            if (!frame) {
-                plogk("elf_loader: PT_LOAD frame allocation failed at %p\n", (void *)va);
-                return 1;
-            }
+        for (int i = 0; i < ehdr->e_phnum; i++) {
+            if (phdr[i].type != PT_LOAD || phdr[i].filesz == 0) continue;
 
-            uint8_t *page = phys_to_virt(frame);
-            memset(page, 0, PAGE_4K_SIZE);
-
+            uintptr_t base;
+            if (elf_segment_range(&phdr[i], load_bias, &base, NULL, NULL) <= 0) continue;
             uintptr_t file_start = MAX(va, base);
-            uintptr_t file_end   = MIN(va + PAGE_4K_SIZE, base + phdr[i].filesz);
-            if (file_start < file_end) {
-                size_t page_offset = file_start - va;
-                size_t file_offset = phdr[i].offset + file_start - base;
-                if (file_offset + (file_end - file_start) > elf_size) return 1;
-                memcpy(page + page_offset, data + file_offset, file_end - file_start);
-            }
-            if (page_map_new_to(proc->user_page_dir, va, frame, pte_flags)) {
-                (void)frame_release_range(frame, 1);
-                plogk("elf_loader: PT_LOAD page collision at %p\n", (void *)va);
-                return 1;
-            }
-        }
+            uintptr_t file_end = MIN(va + PAGE_4K_SIZE, base + phdr[i].filesz);
+            if (file_start >= file_end) continue;
 
-        vm_flags_t vm_flags = 0;
-        if (phdr[i].flags & PF_R) vm_flags |= VM_READ;
-        if (phdr[i].flags & PF_W) vm_flags |= VM_WRITE;
-        if (phdr[i].flags & PF_X) vm_flags |= VM_EXEC;
-        vm_area_t *vma = calloc(1, sizeof(*vma));
-        if (!vma) {
-            plogk("elf_loader: PT_LOAD VMA allocation failed at %p\n", (void *)seg_start);
-            return 1;
-        }
-        vma->start = seg_start;
-        vma->end   = seg_end;
-        vma->flags = vm_flags;
-        vma->type  = VM_REGION_MMAP;
-        if (vm_area_insert(proc, vma)) {
-            plogk("elf_loader: PT_LOAD VMA insert failed at %p\n", (void *)seg_start);
-            free(vma);
-            return 1;
+            uintptr_t file_delta = file_start - base;
+            if (phdr[i].offset > elf_size || file_delta > elf_size - phdr[i].offset) return 1;
+            uint64_t file_offset = phdr[i].offset + file_delta;
+            size_t copy_size = file_end - file_start;
+            if (copy_size > elf_size - file_offset) return 1;
+            memcpy(page + (file_start - va), data + file_offset, copy_size);
         }
     }
+
+    /* Build non-overlapping VMAs, merging pages with identical permissions. */
+    uintptr_t run_start = 0;
+    uintptr_t run_end = 0;
+    vm_flags_t run_flags = 0;
+    for (uintptr_t va = lowest_start; va < highest_end; va += PAGE_4K_SIZE) {
+        uint64_t pte_flags;
+        vm_flags_t vm_flags;
+        if (!elf_page_attributes(phdr, ehdr->e_phnum, load_bias, va, &pte_flags, &vm_flags)) {
+            if (run_start && insert_elf_vma(proc, run_start, run_end, run_flags)) return 1;
+            run_start = 0;
+            continue;
+        }
+        (void)pte_flags;
+
+        if (!run_start) {
+            run_start = va;
+            run_end = va + PAGE_4K_SIZE;
+            run_flags = vm_flags;
+        } else if (run_end != va || run_flags != vm_flags) {
+            if (insert_elf_vma(proc, run_start, run_end, run_flags)) return 1;
+            run_start = va;
+            run_end = va + PAGE_4K_SIZE;
+            run_flags = vm_flags;
+        } else {
+            run_end += PAGE_4K_SIZE;
+        }
+    }
+    if (run_start && insert_elf_vma(proc, run_start, run_end, run_flags)) return 1;
 
     if (set_brk && highest_end > PROCESS_HEAP_START) proc->start_brk = proc->heap_brk = highest_end;
     return 0;

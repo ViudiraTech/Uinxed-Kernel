@@ -608,6 +608,10 @@ static int64_t sys_open(uint64_t path, uint64_t flags, uint64_t mode, uint64_t a
 
     if (!path) return -EFAULT;
 
+    /* tmpfs does not provide unnamed temporary files yet.  Report this
+     * explicitly so userspace can fall back to a named temporary file. */
+    if ((flags & O_TMPFILE) == O_TMPFILE) return -EOPNOTSUPP;
+
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
@@ -667,6 +671,8 @@ static int64_t sys_openat(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_
     (void)arg4;
     (void)arg5;
     if (!path) return -EFAULT;
+    if ((flags & O_TMPFILE) == O_TMPFILE) return -EOPNOTSUPP;
+
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
@@ -2502,18 +2508,25 @@ static int process_rlimit_update(process_t *caller, process_t *target, uint64_t 
     if (!caller || !target || !limit) return -EINVAL;
     if (resource >= PROCESS_RLIMIT_COUNT || limit->rlim_cur > limit->rlim_max) return -EINVAL;
 
+    /* The descriptor table is currently a fixed 1024-entry array.  Userland
+     * daemons such as dbus still legitimately request a larger soft/hard
+     * RLIMIT_NOFILE during startup; clamp that request to the real kernel
+     * ceiling instead of returning EPERM to a root process. */
+    uint64_t current = limit->rlim_cur;
+    uint64_t maximum = limit->rlim_max;
+    if (resource == PROCESS_RLIMIT_NOFILE) {
+        if (current > PROCESS_MAX_FD) current = PROCESS_MAX_FD;
+        if (maximum > PROCESS_MAX_FD) maximum = PROCESS_MAX_FD;
+    }
+
     spin_lock(&target->rlimit_lock);
     uint64_t old_max = target->rlimits[resource].maximum;
-    if (caller->uid != 0 && limit->rlim_max > old_max) {
+    if (caller->uid != 0 && maximum > old_max) {
         spin_unlock(&target->rlimit_lock);
         return -EPERM;
     }
-    if (resource == PROCESS_RLIMIT_NOFILE && limit->rlim_max > PROCESS_MAX_FD) {
-        spin_unlock(&target->rlimit_lock);
-        return -EPERM;
-    }
-    target->rlimits[resource].current = limit->rlim_cur;
-    target->rlimits[resource].maximum = limit->rlim_max;
+    target->rlimits[resource].current = current;
+    target->rlimits[resource].maximum = maximum;
     spin_unlock(&target->rlimit_lock);
     return EOK;
 }
