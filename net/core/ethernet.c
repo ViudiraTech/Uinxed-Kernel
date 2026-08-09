@@ -11,9 +11,9 @@
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
-#include <net/ipv4/arp.h>
 #include <net/core/endian.h>
 #include <net/core/ethernet.h>
+#include <net/ipv4/arp.h>
 #include <net/ipv4/ipv4.h>
 #include <net/ipv6/ipv6.h>
 

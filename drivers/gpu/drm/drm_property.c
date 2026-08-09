@@ -373,8 +373,9 @@ int drm_mode_getblob_ioctl(struct drm_device *dev, void *data, struct drm_file *
         return -ENOENT;
     }
     if (blob->length > UINT32_MAX) {
+        size_t blob_length = blob->length;
         drm_property_blob_put(blob);
-        plogk("drm_property: GETBLOB: blob %u too large (%zu bytes), returning -E2BIG.\n", req->blob_id, blob->length);
+        plogk("drm_property: GETBLOB: blob %u too large (%zu bytes), returning -E2BIG.\n", req->blob_id, blob_length);
         return -E2BIG;
     }
 

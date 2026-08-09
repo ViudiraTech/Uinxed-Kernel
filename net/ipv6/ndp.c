@@ -19,7 +19,7 @@
 #include <proc/sched.h>
 
 #define NDP_TICKS_PER_SECOND TIMER_HZ
-#define NDP_REACHABLE_TICKS  (30U * TIMER_HZ)
+#define NDP_REACHABLE_TICKS  ((uint64_t)30U * TIMER_HZ)
 #define NDP_RETRY_TICKS      TIMER_HZ
 #define NDP_MAX_RETRIES      3U
 

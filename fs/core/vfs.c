@@ -2060,7 +2060,7 @@ int vfs_rename(vfs_node_t node, const char *new)
 
     if (collision && collision != node) {
         int delete_result = vfs_delete(collision);
-        vfs_close(collision);
+        vfs_close(collision); // NOLINT(clang-analyzer-unix.Malloc) - refcount incremented above guarantees node is live
         if (delete_result != EOK) {
             spin_lock(&vfs_namespace_lock);
             node->flags &= ~VFS_NODE_INITIALIZING;

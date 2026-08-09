@@ -580,6 +580,7 @@ void fbcon_resize(void)
 {
     uint32_t  new_cw   = width ? (uint32_t)(width / font_width) : 80;
     uint32_t  new_ch   = height ? (uint32_t)((height + font_height - 1) / font_height) : 25;
+    bool      dim_changed = false;
     bool      rebuilt  = false;
     char     *new_text = NULL, *old_text = NULL;
     uint32_t *new_color = NULL, *new_bg = NULL, *new_first = NULL, *new_last = NULL;
@@ -589,6 +590,7 @@ void fbcon_resize(void)
     if (!new_ch) new_ch = 1;
 
     if (new_cw != c_width || new_ch != c_height) {
+        dim_changed = true;
         size_t cells = (size_t)new_cw * new_ch;
         new_text     = malloc(cells);
         new_color    = malloc(cells * sizeof(*new_color));
@@ -617,7 +619,7 @@ void fbcon_resize(void)
     }
 
     spin_lock(&fbcon_lock);
-    if (new_cw != c_width || new_ch != c_height) {
+    if (dim_changed) {
         rebuilt         = true;
         old_text        = text_grid;
         old_color       = color_grid;

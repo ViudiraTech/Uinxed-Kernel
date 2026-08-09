@@ -24,9 +24,9 @@
 #include <fs/core/vfs.h>
 #include <fs/virtual/devtmpfs.h>
 #include <fs/virtual/tmpfs.h>
-#include <kernel/sound/audio.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/sound/audio.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/heap.h>

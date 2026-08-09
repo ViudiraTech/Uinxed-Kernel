@@ -473,8 +473,9 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
         e->sequence          = target;
 
         if (drm_crtc_vblank_get(e->crtc)) {
+            uint32_t crtc_id = e->crtc->base.id;
             free(e);
-            plogk("drm: WAIT_VBLANK: vblank get failed for crtc %u, returning -EINVAL.\n", e->crtc->base.id);
+            plogk("drm: WAIT_VBLANK: vblank get failed for crtc %u, returning -EINVAL.\n", crtc_id);
             return -EINVAL;
         }
         e->vblank_ref = true;

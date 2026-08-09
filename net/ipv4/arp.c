@@ -12,14 +12,14 @@
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/string.h>
-#include <net/ipv4/arp.h>
 #include <net/core/endian.h>
 #include <net/core/ethernet.h>
+#include <net/ipv4/arp.h>
 #include <net/ipv4/ipv4.h>
 #include <proc/sched.h>
 
 #define ARP_PACKET_LEN  28U
-#define ARP_TTL_TICKS   (60U * TIMER_HZ)
+#define ARP_TTL_TICKS   ((uint64_t)60U * TIMER_HZ)
 #define ARP_RETRY_TICKS TIMER_HZ
 #define ARP_MAX_RETRIES 3U
 

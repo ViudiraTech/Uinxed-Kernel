@@ -408,8 +408,8 @@ int gzip_decompress(const uint8_t *input, size_t input_size, uint8_t **output, s
         return -ENOMEM;
     }
 
-    size_t actual_size;
-    int    status = inflate_data(input + offset, trailer - offset, result, expected_size, &actual_size);
+    size_t actual_size = 0;
+    int    status      = inflate_data(input + offset, trailer - offset, result, expected_size, &actual_size);
     if (status != EOK || actual_size != expected_size || gzip_crc32(result, actual_size) != load_le32(input + trailer)) {
         plogk("gzip: corrupt deflate stream (status %d, expected %zu, actual %zu)\n", status, expected_size, actual_size);
         free(result);

@@ -14,15 +14,15 @@
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
-#include <net/ipv4/arp.h>
-#include <net/ipv4/dhcp.h>
 #include <net/core/endian.h>
 #include <net/core/ethernet.h>
+#include <net/core/netdev.h>
+#include <net/core/packet.h>
+#include <net/ipv4/arp.h>
+#include <net/ipv4/dhcp.h>
 #include <net/ipv4/ipv4.h>
 #include <net/ipv6/ipv6.h>
 #include <net/ipv6/ndp.h>
-#include <net/core/netdev.h>
-#include <net/core/packet.h>
 #include <net/transport/tcp.h>
 
 static net_device_t       *devices[NETDEV_MAX];

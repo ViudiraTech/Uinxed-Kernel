@@ -12,8 +12,8 @@
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/string.h>
-#include <net/ipv4/dhcp.h>
 #include <net/core/endian.h>
+#include <net/ipv4/dhcp.h>
 #include <net/transport/udp.h>
 
 #define DHCP_SERVER_PORT      67U

@@ -14,8 +14,8 @@
 #include <chipset/smbios.h>
 #include <drivers/tty/tty.h>
 #include <kernel/debug/debug.h>
-#include <kernel/printk.h>
 #include <kernel/debug/symbols.h>
+#include <kernel/printk.h>
 #include <kernel/uinxed.h>
 #include <libs/std/stdarg.h>
 #include <proc/sched.h>

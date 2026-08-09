@@ -205,7 +205,7 @@ static void pc_grow_hash_locked(pagecache_mapping_t *mapping)
 
     size_t new_count = mapping->bucket_count << 1;
     if (new_count > PAGECACHE_HASH_MAX_SIZE) new_count = PAGECACHE_HASH_MAX_SIZE;
-    pagecache_page_t **new_buckets = calloc(new_count, sizeof(*new_buckets));
+    pagecache_page_t **new_buckets = calloc(new_count, sizeof(*new_buckets)); // NOLINT(bugprone-sizeof-expression)
     if (!new_buckets) return;
 
     for (size_t i = 0; i < mapping->bucket_count; i++) {

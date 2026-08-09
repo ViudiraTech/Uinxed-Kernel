@@ -287,8 +287,8 @@ struct drm_connector_state *drm_atomic_get_connector_state(struct drm_atomic_sta
             return NULL;
         }
         if (state->num_connector) {
-            memcpy(new_connectors, state->connectors, sizeof(*new_connectors) * state->num_connector);
-            memcpy(new_states, state->connector_states, sizeof(*new_states) * state->num_connector);
+            memcpy(new_connectors, state->connectors, sizeof(*new_connectors) * state->num_connector); // NOLINT(bugprone-sizeof-expression)
+            memcpy(new_states, state->connector_states, sizeof(*new_states) * state->num_connector);   // NOLINT(bugprone-sizeof-expression)
         }
         free(state->connectors);
         free(state->connector_states);

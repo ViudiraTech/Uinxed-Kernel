@@ -11,9 +11,9 @@
 #define UINXED_MODULE_CORE
 #include <boot/limine.h>
 #include <fs/sysfs/sysfs.h>
-#include <kernel/module/elf.h>
 #include <kernel/errno.h>
 #include <kernel/kobject/kobject.h>
+#include <kernel/module/elf.h>
 #include <kernel/module/module.h>
 #include <kernel/module/module_elf.h>
 #include <kernel/printk.h>

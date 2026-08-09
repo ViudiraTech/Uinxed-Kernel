@@ -10,9 +10,8 @@
 
 #include <drivers/tty/tty.h>
 #include <fs/core/vfs.h>
-#include <kernel/module/elf.h>
-#include <proc/elf_loader.h>
 #include <kernel/errno.h>
+#include <kernel/module/elf.h>
 #include <kernel/printk.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
@@ -21,6 +20,7 @@
 #include <mem/heap.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
+#include <proc/elf_loader.h>
 #include <proc/process.h>
 #include <proc/sched.h>
 #include <proc/uaccess.h>

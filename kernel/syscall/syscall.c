@@ -24,7 +24,6 @@
 #include <ipc/socket.h>
 #include <ipc/sysv_ipc.h>
 #include <kernel/debug/debug.h>
-#include <proc/elf_loader.h>
 #include <kernel/errno.h>
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/module/module.h>
@@ -40,6 +39,7 @@
 #include <mem/heap.h>
 #include <mem/page.h>
 #include <mem/swap.h>
+#include <proc/elf_loader.h>
 #include <proc/process.h>
 #include <proc/ptrace.h>
 #include <proc/sched.h>

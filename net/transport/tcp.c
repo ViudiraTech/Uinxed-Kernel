@@ -28,9 +28,9 @@
 #define TCP_LOCAL_MSS       1460U
 #define TCP_RTO_TICKS       TIMER_HZ
 #define TCP_RTO_MIN         (TIMER_HZ / 5U)
-#define TCP_RTO_MAX         (60U * TIMER_HZ)
+#define TCP_RTO_MAX         ((uint64_t)60U * TIMER_HZ)
 #define TCP_PERSIST_MIN     TIMER_HZ
-#define TCP_TIME_WAIT_TICKS (60U * TIMER_HZ)
+#define TCP_TIME_WAIT_TICKS ((uint64_t)60U * TIMER_HZ)
 
 typedef struct tcp_tx_record {
         struct tcp_tx_record *next;
@@ -1612,13 +1612,15 @@ void tcp_timer(uint64_t now_ticks)
             } else if (now_ticks >= endpoint->persist_deadline) {
                 tcp_emit(endpoint, endpoint->snd_nxt - 1U, endpoint->rcv_nxt, TCP_FLAG_ACK, record->data, 1, 0);
                 endpoint->persist_probes_sent++;
-                endpoint->persist_interval = endpoint->persist_interval > TCP_RTO_MAX / 2U ? TCP_RTO_MAX : endpoint->persist_interval * 2U;
+                uint64_t doubled_ticks = (uint64_t)endpoint->persist_interval * 2U;
+                endpoint->persist_interval = doubled_ticks > TCP_RTO_MAX ? TCP_RTO_MAX : (uint32_t)doubled_ticks;
                 endpoint->persist_deadline = now_ticks + endpoint->persist_interval;
             }
         } else if (!endpoint->peer_window && endpoint->persist_needed && endpoint->persist_deadline && now_ticks >= endpoint->persist_deadline) {
             tcp_emit(endpoint, endpoint->snd_nxt - 1U, endpoint->rcv_nxt, TCP_FLAG_ACK, &endpoint->persist_byte, 1, 0);
             endpoint->persist_probes_sent++;
-            endpoint->persist_interval = endpoint->persist_interval > TCP_RTO_MAX / 2U ? TCP_RTO_MAX : endpoint->persist_interval * 2U;
+            uint64_t doubled_ticks = (uint64_t)endpoint->persist_interval * 2U;
+            endpoint->persist_interval = doubled_ticks > TCP_RTO_MAX ? TCP_RTO_MAX : (uint32_t)doubled_ticks;
             endpoint->persist_deadline = now_ticks + endpoint->persist_interval;
         } else if (record && now_ticks >= record->deadline) {
             uint8_t retry_limit
