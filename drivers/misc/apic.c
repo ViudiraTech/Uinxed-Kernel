@@ -15,6 +15,7 @@
 #include <drivers/firmware/acpi.h>
 #include <drivers/misc/apic.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <kernel/uinxed.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -115,7 +116,7 @@ void local_apic_init(void)
     for (uint64_t start = nano_time(); nano_time() - start < 1000000;);
 
     uint64_t lapic_timer              = (~(uint32_t)0) - lapic_read(LAPIC_REG_TIMER_CURCNT);
-    uint64_t calibrated_timer_initial = (uint64_t)((uint64_t)(lapic_timer * 1000) / 250);
+    uint64_t calibrated_timer_initial = (uint64_t)((uint64_t)(lapic_timer * 1000) / TIMER_HZ);
 
     lapic_write(LAPIC_REG_TIMER, lapic_read(LAPIC_REG_TIMER) | 1 << 17);
     lapic_write(LAPIC_REG_TIMER_INITCNT, calibrated_timer_initial);

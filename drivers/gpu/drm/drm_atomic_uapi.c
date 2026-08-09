@@ -29,6 +29,18 @@
 #define DRM_S32_MAX                     ((int32_t)0x7fffffff)
 #define DRM_S32_MIN                     (-DRM_S32_MAX - 1)
 
+/* MODE_ID is a blob property, but changing (or merely resubmitting) the
+ * blob object does not necessarily change the hardware mode.  Atomic
+ * modeset permission is based on the decoded timing, not the blob ID. */
+static bool drm_atomic_modes_equal(const struct drm_display_mode *a, const struct drm_display_mode *b)
+{
+    if (!a || !b) return false;
+
+    return a->clock == b->clock && a->hdisplay == b->hdisplay && a->hsync_start == b->hsync_start && a->hsync_end == b->hsync_end
+           && a->htotal == b->htotal && a->hskew == b->hskew && a->vdisplay == b->vdisplay && a->vsync_start == b->vsync_start
+           && a->vsync_end == b->vsync_end && a->vtotal == b->vtotal && a->vscan == b->vscan && a->flags == b->flags;
+}
+
 /* ------------------------------------------------------------------ */
 /* Cross-file forward declarations                                     */
 /* ------------------------------------------------------------------ */
@@ -106,7 +118,9 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
             return 0;
         }
         if (prop == config->prop_mode_id) {
-            memset(&s->mode, 0, sizeof(s->mode));
+            struct drm_display_mode new_mode;
+
+            memset(&new_mode, 0, sizeof(new_mode));
             if (value) {
                 struct drm_property_blob *blob = drm_property_lookup_blob(state->dev, (uint32_t)value);
                 struct drm_display_mode  *mode;
@@ -118,10 +132,11 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
                 mode = drm_convert_umode((const struct drm_mode_modeinfo *)blob->data);
                 drm_property_blob_put(blob);
                 if (!mode) return -ENOMEM;
-                memcpy(&s->mode, mode, sizeof(*mode));
+                memcpy(&new_mode, mode, sizeof(new_mode));
                 free(mode);
             }
-            s->mode_changed = true;
+            s->mode_changed = !drm_atomic_modes_equal(&s->mode, &new_mode);
+            memcpy(&s->mode, &new_mode, sizeof(s->mode));
             return 0;
         }
     } else if (obj->type == DRM_MODE_OBJECT_PLANE) {
@@ -477,7 +492,8 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
         e->next              = NULL;
     }
 
-    if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC)) {
+    bool synchronous_flip = dev->driver && (dev->driver->driver_features & DRIVER_SYNCHRONOUS_FLIP);
+    if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !synchronous_flip) {
         ret = drm_crtc_vblank_get(crtc);
         if (ret) goto err_flip;
         spin_lock(&crtc->commit_lock);
@@ -493,32 +509,33 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
         if (h->page_flip) {
             ret = h->page_flip(crtc, fb, e, page_flip->flags);
             if (ret) {
-                if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC)) drm_crtc_vblank_put(crtc);
+                if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !synchronous_flip) drm_crtc_vblank_put(crtc);
                 goto err_flip;
             }
         } else {
             ret = -ENOSYS;
-            if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC)) drm_crtc_vblank_put(crtc);
+            if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !synchronous_flip) drm_crtc_vblank_put(crtc);
             goto err_flip;
         }
     } else {
         ret = -ENOSYS;
-        if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC)) drm_crtc_vblank_put(crtc);
+        if (!(page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !synchronous_flip) drm_crtc_vblank_put(crtc);
         goto err_flip;
     }
 
-    if (page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) {
+    if ((page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) || synchronous_flip) {
         spin_lock(&crtc->commit_lock);
         crtc->page_flip_pending = false;
         spin_unlock(&crtc->commit_lock);
-        if (e) drm_crtc_send_vblank_event(crtc, e);
+        if (e) {
+            e->sequence = drm_crtc_vblank_count(crtc);
+            drm_crtc_send_vblank_event(crtc, e);
+        }
     } else if (e) {
         drm_crtc_arm_vblank_event(crtc, e);
     }
 
     drm_mode_object_put(&crtc->base);
-
-    DRM_DEBUG_KMS("Page flip: CRTC %u -> FB %u (flags=0x%x)\n", page_flip->crtc_id, page_flip->fb_id, page_flip->flags);
 
     return ret;
 

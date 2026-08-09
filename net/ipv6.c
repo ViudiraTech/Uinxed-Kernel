@@ -10,6 +10,7 @@
 
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <net/endian.h>
@@ -21,7 +22,7 @@
 
 #define IPV6_MAX_PAYLOAD              65535U
 #define IPV6_REASSEMBLY_BITMAP_SIZE   ((IPV6_MAX_PAYLOAD + 7U) / 8U)
-#define IPV6_REASSEMBLY_TIMEOUT_TICKS 6000U
+#define IPV6_REASSEMBLY_TIMEOUT_TICKS (60U * TIMER_HZ)
 #define IPV6_MAX_EXTENSION_HEADERS    8U
 #define IPV6_TRANSPORT_SLOTS          4U
 

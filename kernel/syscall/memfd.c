@@ -12,6 +12,7 @@
 #include <kernel/errno.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
+#include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
@@ -241,8 +242,8 @@ int64_t sys_memfd_create(uint64_t name, uint64_t flags, uint64_t arg2, uint64_t 
     node->handle   = file;
     node->type     = file_none;
     node->mode     = 0600;
-    node->owner    = proc->uid;
-    node->group    = proc->gid;
+    node->owner    = proc->fsuid;
+    node->group    = proc->fsgid;
     node->refcount = 1; /* The initial open file description owns this reference. */
 
     int fd = process_fd_install(proc, node, O_RDWR | ((flags & MFD_CLOEXEC) ? O_CLOEXEC : 0));
@@ -335,34 +336,38 @@ int memfd_map(vfs_node_t node, process_t *proc, uintptr_t addr, size_t length, u
 {
     if (!memfd_is_node(node) || !proc || offset > UINT64_MAX - length) return -EINVAL;
     memfd_file_t *file = node->handle;
-    if ((flags & VM_SHARED) && (flags & VM_WRITE)) {
-        spin_lock(&file->lock);
-        if (file->seals & (F_SEAL_WRITE | F_SEAL_FUTURE_WRITE)) {
-            spin_unlock(&file->lock);
-            return -EPERM;
-        }
-        file->writable_mappings++;
+    spin_lock(&file->lock);
+    bool shared_writable = (flags & (VM_SHARED | VM_WRITE)) == (VM_SHARED | VM_WRITE);
+    if (shared_writable && (file->seals & (F_SEAL_WRITE | F_SEAL_FUTURE_WRITE))) {
         spin_unlock(&file->lock);
+        return -EPERM;
     }
 
-    spin_lock(&file->lock);
-    /* The VM has no file-page fault path to turn beyond-EOF access into SIGBUS. */
-    if (offset + length > file->size) {
+    /* mmap() rounds its length up to a page.  A mapping may therefore cover
+     * the final partial page of a memfd even when the byte length is not
+     * page-aligned; Linux exposes the bytes past EOF in that page as zeroes
+     * (and callers such as Weston's keymap builder rely on this).  Do not
+     * permit mapping a whole page beyond the rounded EOF. */
+    uint64_t map_limit = ALIGN_UP(file->size, PAGE_4K_SIZE);
+    if (offset > map_limit || length > map_limit - offset) {
         spin_unlock(&file->lock);
-        if ((flags & VM_SHARED) && (flags & VM_WRITE)) memfd_vma_release(node, flags);
         return -EINVAL;
     }
     for (size_t done = 0; done < length; done += PAGE_4K_SIZE) {
         int ret = memfd_allocate_page(file, (offset + done) / PAGE_4K_SIZE);
         if (ret) {
             spin_unlock(&file->lock);
-            if ((flags & VM_SHARED) && (flags & VM_WRITE)) memfd_vma_release(node, flags);
             return ret;
         }
     }
 
     uint64_t pte_flags = PTE_USER | PTE_PRESENT;
-    if (flags & VM_WRITE) pte_flags |= PTE_WRITEABLE;
+    if (flags & VM_WRITE) {
+        if (flags & VM_SHARED)
+            pte_flags |= PTE_WRITEABLE;
+        else
+            pte_flags |= PTE_COW;
+    }
     if (flags & VM_SHARED) pte_flags |= PTE_SHARED;
     if (!(flags & VM_EXEC)) pte_flags |= PTE_NO_EXECUTE;
     size_t mapped = 0;
@@ -375,6 +380,7 @@ int memfd_map(vfs_node_t node, process_t *proc, uintptr_t addr, size_t length, u
         }
     }
     file->mappings++;
+    if (shared_writable) file->writable_mappings++;
     spin_unlock(&file->lock);
     return EOK;
 
@@ -384,7 +390,6 @@ rollback:
         (void)page_unmap_release(proc->user_page_dir, addr + mapped);
     }
     spin_unlock(&file->lock);
-    if ((flags & VM_SHARED) && (flags & VM_WRITE)) memfd_vma_release(node, flags);
     return -ENOMEM;
 }
 

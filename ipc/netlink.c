@@ -547,6 +547,9 @@ struct socket *netlink_sock_alloc(uint32_t protocol)
     sk->protocol = (uint16_t)protocol;
     sk->flags    = 0;
     sk->refcount = 1;
+    /* Generic socket teardown wakes waiters for every family.  Initialise
+     * the common wait queue here as well as in AF_UNIX/INET allocators. */
+    wait_queue_init(&sk->waitq);
     sk->priv     = ns;
     sk->sndbuf   = NL_SOCK_RECV_BUF_SIZE;
     sk->rcvbuf   = NL_SOCK_RECV_BUF_SIZE;
@@ -732,6 +735,11 @@ static int nl_queue_datagram(struct socket *sk, const void *data, uint32_t len, 
     spin_unlock(&ns->recv_lock);
 
     if (blocked) task_wakeup(blocked);
+    /* Most netlink consumers, including eudevd, wait through epoll rather
+     * than blocking directly in recvmsg(2).  Queueing a datagram must publish
+     * POLLIN through the socket's VFS poll source; waking only blocked_task
+     * leaves epoll_wait(-1) asleep while uevents accumulate in this queue. */
+    if (sk->node) vfs_poll_notify(sk->node, 0x0001U);
     return EOK;
 }
 
@@ -790,6 +798,30 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
     /* NETLINK_KOBJECT_UEVENT deliberately does not carry nlmsghdr.  A
      * privileged userspace relay may inject the same NUL-separated ABI. */
     if (ns->nl_protocol == NETLINK_KOBJECT_UEVENT) {
+        /* A nonzero destination port is userspace-to-userspace unicast.
+         * libudev uses this to hand structured "libudev" records from the
+         * main udevd process to idle workers.  Those records intentionally do
+         * not use the kernel action@/devpath wire format and must not pass
+         * through the privileged raw-uevent validator below. */
+        if (addr && addr->nl_pid != 0) {
+            struct socket *dest = nl_mcast_find_by_pid(ns->nl_protocol, addr->nl_pid);
+            if (!dest) return -ECONNREFUSED;
+            int ret = nl_queue_datagram(dest, buf, (uint32_t)len, ns->nl_pid, addr->nl_groups, sk->uid, sk->gid);
+            return ret ? ret : (int)len;
+        }
+
+        /* Processed udev notifications use the same structured header and a
+         * multicast destination.  Relay them as userspace messages; the raw
+         * action@/devpath validation is only for synthetic kernel uevents. */
+        static const char libudev_prefix[8] = "libudev";
+        if (len >= sizeof(libudev_prefix) && memcmp(buf, libudev_prefix, sizeof(libudev_prefix)) == 0) {
+            if (sk->uid != 0) return -EPERM;
+            uint32_t groups = addr ? addr->nl_groups : ns->nl_groups;
+            if (!groups) return -EINVAL;
+            int ret = nl_broadcast_datagram(ns->nl_protocol, groups, buf, (uint32_t)len, ns->nl_pid, sk->uid, sk->gid);
+            return (ret >= 0 || ret == -ESRCH) ? (int)len : ret;
+        }
+
         size_t nul = 0;
         while (nul < len && ((const char *)buf)[nul]) nul++;
         if (nul == len || nul < 3 || nul >= 128) return -EINVAL;
@@ -812,12 +844,6 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
         (void)action;
 
         if (sk->uid != 0) return -EPERM;
-        if (addr && addr->nl_pid != 0) {
-            struct socket *dest = nl_mcast_find_by_pid(ns->nl_protocol, addr->nl_pid);
-            if (!dest) return -ECONNREFUSED;
-            int ret = nl_queue_datagram(dest, buf, (uint32_t)len, ns->nl_pid, addr->nl_groups, sk->uid, sk->gid);
-            return ret ? ret : (int)len;
-        }
         uint32_t groups = addr ? addr->nl_groups : ns->nl_groups;
         if (!groups) groups = 1U;
         int ret = nl_broadcast_datagram(ns->nl_protocol, groups, buf, (uint32_t)len, ns->nl_pid, sk->uid, sk->gid);

@@ -76,6 +76,7 @@
 #include <kernel/interrupt.h>
 #include <kernel/module.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <kernel/uinxed.h>
 #include <mem/frame.h>
 #include <mem/heap.h>
@@ -97,13 +98,42 @@
 #include <syscall/syscall.h>
 #include <syscall/timerfd.h>
 
+/* Desktop clients may run without privilege and therefore cannot repair
+ * missing or incorrectly extracted shared runtime directories themselves. */
+static void init_runtime_directory(const char *path, uint16_t mode)
+{
+    int status = vfs_mkdir_mode(path, mode);
+    if (status != EOK && status != -EEXIST) {
+        plogk("init: cannot create runtime directory %s: %d\n", path, status);
+        return;
+    }
+    vfs_node_t node = vfs_open_nofollow(path);
+    if (!node || !(node->type & file_dir)) {
+        if (node) vfs_close(node);
+        plogk("init: runtime path %s is not a directory.\n", path);
+        return;
+    }
+    node->owner       = 0;
+    node->group       = 0;
+    node->mode        = mode & 07777;
+    node->permissions = node->mode;
+    vfs_close(node);
+}
+
+static void init_runtime_directories(void)
+{
+    init_runtime_directory("/tmp", 01777);
+    init_runtime_directory("/tmp/.X11-unix", 01777);
+    init_runtime_directory("/tmp/.ICE-unix", 01777);
+    init_runtime_directory("/var", 0755);
+    init_runtime_directory("/var/tmp", 01777);
+    init_runtime_directory("/run", 0755);
+    init_runtime_directory("/run/user", 0755);
+}
+
 /* Create init process */
 static void swapper_run_init(void)
 {
-    lmodule_t *init_mod = get_lmodule("init");
-    if (!init_mod || !init_mod->data || init_mod->size == 0) panic("No working init found.");
-    plogk("swapper/0: Found init module at %p, size %zu bytes.\n", init_mod->data, init_mod->size);
-
     process_t *init = process_create("init", NULL, NULL);
     if (!init) panic("Failed to create init process.");
     if (!init->task || init->task->pid != 1) panic("User init did not receive PID 1.");
@@ -111,14 +141,16 @@ static void swapper_run_init(void)
      * responsible for dropping to the configured desktop user later. */
     init->uid      = 0;
     init->gid      = 0;
+    init->fsuid    = 0;
+    init->fsgid    = 0;
     init_process   = init;
     pid_t init_sid = 0;
     if (process_setsid(init, &init_sid) || init_sid != 1 || init->pgid != 1) { panic("Failed to establish init session."); }
 
-    char *init_argv[] = {"/init", NULL};
-    strncpy(init->exe_path, "/init", sizeof(init->exe_path) - 1);
+    char *init_argv[] = {"/sbin/init", NULL};
+    strncpy(init->exe_path, "/sbin/init", sizeof(init->exe_path) - 1);
     init->exe_path[sizeof(init->exe_path) - 1] = '\0';
-    if (elf_loader_load_initial_process(init, init_mod->data, init_mod->size, init_argv, NULL)) panic("Failed to load init ELF!");
+    if (elf_loader_load_initial_path(init, "/sbin/init", init_argv, NULL)) panic("Failed to load /sbin/init!");
 
     spin_lock(&scheduler.lock);
     enqueue_task(init->task);
@@ -251,6 +283,7 @@ void kernel_entry(void)
                                    //
     /* RAM Filesystem */           //
     init_cpio();                   // Copy In, Copy Out
+    init_runtime_directories();    // Shared X11/Wayland temporary directories
                                    //
     /* Sysfs Population */         //
     ksysfs_init();                 // /sys/kernel/{version,cmdline,hostname,...}
@@ -280,6 +313,7 @@ void kernel_entry(void)
                                    //
     /* Process Management */       //
     sched_init();                  // Preemptive Scheduler
+    timer_realtime_set_ns((int64_t)(rtc_since_epoch() * TIMER_NSEC_PER_SEC)); // Set the realtime clock to the current RTC time
     process_init();                // Process Management
     signal_init();                 // POSIX Signals
     cgroup_init();                 // Unified cgroup hierarchy and pids controller

@@ -10,6 +10,7 @@
 
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <libs/std/string.h>
 #include <net/arp.h>
 #include <net/endian.h>
@@ -18,8 +19,8 @@
 #include <proc/sched.h>
 
 #define ARP_PACKET_LEN  28U
-#define ARP_TTL_TICKS   6000U
-#define ARP_RETRY_TICKS 100U
+#define ARP_TTL_TICKS   (60U * TIMER_HZ)
+#define ARP_RETRY_TICKS TIMER_HZ
 #define ARP_MAX_RETRIES 3U
 
 typedef enum arp_state {

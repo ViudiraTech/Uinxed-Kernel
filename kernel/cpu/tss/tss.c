@@ -28,14 +28,14 @@ void tss_init(void)
     uint64_t access_byte = (((uint64_t)(0x89)) << 40);
     uint64_t limit       = (uint64_t)(sizeof(tss_t) - 1);
 
-    gdt0.entries[5] = (((low_base | mid_base) | limit) | access_byte);
-    gdt0.entries[6] = high_base;
+    gdt0.entries[7] = (((low_base | mid_base) | limit) | access_byte);
+    gdt0.entries[8] = high_base;
     tss0.ist[0]     = ((uint64_t)&tss_stack) + sizeof(tss_stack_t);
 
     plogk("tss: TSS descriptor configured (address = %p, limit = 0x%04x)\n", &tss0, sizeof(tss_t) - 1);
     plogk("tss: IST0 stack = %p\n", tss0.ist[0]);
-    __asm__ volatile("ltr %w[offset]" ::[offset] "rm"((uint16_t)0x28) : "memory");
-    plogk("tss: TR register loaded with selector 0x%04x\n", 0x28);
+    __asm__ volatile("ltr %w[offset]" ::[offset] "rm"((uint16_t)0x38) : "memory");
+    plogk("tss: TR register loaded with selector 0x%04x\n", 0x38);
 }
 
 /* Setting up the kernel stack */

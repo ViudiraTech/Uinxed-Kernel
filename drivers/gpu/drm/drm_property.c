@@ -23,6 +23,8 @@
 #    define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
 #endif
 
+#define DRM_PROPERTY_BLOB_MAX_SIZE (16u * 1024u * 1024u)
+
 /* ------------------------------------------------------------------ */
 /* Internal helpers exported by drm_mode_object.c                     */
 /* ------------------------------------------------------------------ */
@@ -240,6 +242,8 @@ struct drm_property_blob *drm_property_create_blob(struct drm_device *dev, const
 
     blob->data   = buf;
     blob->length = length;
+    ilist_init(&blob->head_global);
+    ilist_init(&blob->head_file);
 
     spin_lock(&dev->mode_config.blob_lock);
     ilist_insert_after(&dev->mode_config.property_blob_list, &blob->head_global);
@@ -295,6 +299,94 @@ struct drm_property_blob *drm_property_lookup_blob(struct drm_device *dev, uint3
     obj = drm_mode_object_find(dev, NULL, id, DRM_MODE_OBJECT_BLOB);
     if (!obj) return NULL;
     return container_of(obj, struct drm_property_blob, base);
+}
+
+/* Return a property blob to userspace. A zero length is the normal size
+ * query; otherwise the supplied buffer must hold the whole immutable blob. */
+int drm_mode_getblob_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
+{
+    struct drm_mode_get_blob *req = data;
+    struct drm_property_blob *blob;
+    uint32_t                  capacity;
+    int                       ret = 0;
+
+    (void)file_priv;
+    if (!dev || !req) return -EINVAL;
+
+    blob = drm_property_lookup_blob(dev, req->blob_id);
+    if (!blob) return -ENOENT;
+    if (blob->length > UINT32_MAX) {
+        drm_property_blob_put(blob);
+        return -E2BIG;
+    }
+
+    capacity    = req->length;
+    req->length = (uint32_t)blob->length;
+    if (capacity) {
+        if (capacity < blob->length) {
+            ret = -EINVAL;
+        } else if (!req->data || copy_to_user((void *)(uintptr_t)req->data, blob->data, blob->length)) {
+            ret = -EFAULT;
+        }
+    }
+
+    drm_property_blob_put(blob);
+    return ret;
+}
+
+/* Create an immutable userspace-owned blob. Its initial object reference is
+ * owned by this drm_file until DESTROYPROPBLOB or file close. */
+int drm_mode_createblob_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
+{
+    struct drm_mode_create_blob *req = data;
+    struct drm_property_blob    *blob;
+    void                        *payload;
+
+    if (!dev || !req || !file_priv) return -EINVAL;
+    if (!req->length || !req->data || req->length > DRM_PROPERTY_BLOB_MAX_SIZE) return -EINVAL;
+
+    payload = malloc(req->length);
+    if (!payload) return -ENOMEM;
+    if (copy_from_user(payload, (const void *)(uintptr_t)req->data, req->length)) {
+        free(payload);
+        return -EFAULT;
+    }
+
+    blob = drm_property_create_blob(dev, payload, req->length);
+    free(payload);
+    if (!blob) return -ENOMEM;
+
+    spin_lock(&file_priv->table_lock);
+    ilist_insert_after(&file_priv->blobs_head, &blob->head_file);
+    spin_unlock(&file_priv->table_lock);
+    req->blob_id = blob->base.id;
+    return 0;
+}
+
+/* A blob may only be destroyed by the file which created it. */
+int drm_mode_destroyblob_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
+{
+    struct drm_mode_destroy_blob *req = data;
+    struct drm_property_blob     *blob = NULL;
+    ilist_node_t                 *node;
+
+    (void)dev;
+    if (!req || !file_priv) return -EINVAL;
+
+    spin_lock(&file_priv->table_lock);
+    for (node = file_priv->blobs_head.next; node && node != &file_priv->blobs_head; node = node->next) {
+        struct drm_property_blob *candidate = container_of(node, struct drm_property_blob, head_file);
+        if (candidate->base.id == req->blob_id) {
+            blob = candidate;
+            ilist_remove(&blob->head_file);
+            break;
+        }
+    }
+    spin_unlock(&file_priv->table_lock);
+
+    if (!blob) return -ENOENT;
+    drm_property_blob_put(blob);
+    return 0;
 }
 
 /* ------------------------------------------------------------------ */

@@ -46,9 +46,18 @@ endmenu
 
 menu "Scheduler"
 
+  config TIMER_HZ
+    int "Periodic timer frequency (Hz)"
+    default 1000
+    range 100 1000
+    help
+      Frequency of the per-CPU local APIC timer. 1000 Hz gives 1 ms
+      scheduler and timer resolution and is the preferred desktop setting.
+      Lower values reduce timer interrupt overhead.
+
   config SCHED_BASE_SLICE
     int "EEVDF base time slice (ticks)"
-    default 4
+    default 2
     range 1 64
     help
       Base time slice for the EEVDF scheduler in timer ticks.
@@ -81,7 +90,7 @@ menu "Scheduler"
 
   config SCHED_LOAD_BALANCE_INTERVAL
     int "Load-balance interval (ticks)"
-    default 16
+    default 8
     range 1 256
     help
       Number of scheduler ticks between per-CPU load-balancing passes.

@@ -12,6 +12,7 @@
 #include <drivers/firmware/acpi.h>
 #include <drivers/input/evdev.h>
 #include <drivers/input/input_event.h>
+#include <fs/core/vfs.h>
 #include <fs/sysfs/input_sysfs.h>
 #include <fs/virtual/devtmpfs.h>
 #include <fs/virtual/tmpfs.h>
@@ -80,6 +81,8 @@ static bool       evdev_nodes_ready;
 
 #define EVDEV_MAJOR 13
 
+static int evdev_ungrab(evdev_t *evdev, evdev_client_t *client);
+
 static int evdev_dev_open(vfs_node_t node, uint64_t flags, void **private_data)
 {
     tmpfs_file_t   *file  = node ? node->handle : NULL;
@@ -99,6 +102,20 @@ static void evdev_dev_release(vfs_node_t node, void *private_data)
 {
     (void)node;
     evdev_fop_release(private_data);
+}
+
+static void evdev_dev_descriptor_close(void *ctx, void *private_data)
+{
+    (void)ctx;
+    evdev_client_t *client = private_data;
+    if (!client) return;
+
+    spin_lock(&client->buffer_lock);
+    client->revoked = true;
+    spin_unlock(&client->buffer_lock);
+    (void)evdev_ungrab(client->evdev, client);
+    wait_queue_wake_all(&client->wait);
+    vfs_poll_source_notify(&client->poll_source, POLLHUP);
 }
 
 static int64_t evdev_dev_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
@@ -121,6 +138,13 @@ static int evdev_dev_poll(void *ctx, void *private_data, uint64_t flags, size_t 
     (void)ctx;
     (void)flags;
     return evdev_fop_poll(private_data, (int)events);
+}
+
+static vfs_poll_source_t *evdev_dev_poll_source(void *ctx, void *private_data)
+{
+    (void)ctx;
+    evdev_client_t *client = private_data;
+    return client ? &client->poll_source : NULL;
 }
 
 static int evdev_dev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t request, void *arg)
@@ -235,11 +259,20 @@ static void evdev_pass_values(evdev_client_t *client, const input_event_t *value
         /* Filter check */
         if (__evdev_is_filtered(client, event.type, event.code)) continue;
 
-        if (__pass_event(client, &event)) wake = true;
+        /* A client becomes readable only when a non-empty frame is committed.
+         * This is the Linux evdev packet_head/SYN_REPORT contract. */
+        if (event.type == EV_SYN && event.code == SYN_REPORT) {
+            if (client->queue.packet_head == client->queue.head) continue;
+            wake = true;
+        }
+        (void)__pass_event(client, &event);
     }
     spin_unlock(&client->buffer_lock);
 
-    if (wake) wait_queue_wake_all(&client->wait);
+    if (wake) {
+        wait_queue_wake_all(&client->wait);
+        vfs_poll_source_notify(&client->poll_source, POLLIN);
+    }
 }
 
 /* ---- evdev_events ---- */
@@ -397,6 +430,7 @@ static void evdev_hangup(evdev_t *evdev)
         spin_lock(&client->buffer_lock);
         spin_unlock(&client->buffer_lock);
         wait_queue_wake_all(&client->wait);
+        vfs_poll_source_notify(&client->poll_source, POLLHUP);
     }
     spin_unlock(&evdev->client_lock);
 }
@@ -422,6 +456,7 @@ evdev_t *evdev_create(input_dev_t *dev)
     evdev->open_count     = 0;
     evdev->minor          = -1;
     evdev->node_published = false;
+    evdev->node           = NULL;
     evdev->registered     = false;
     evdev->sysfs_device   = NULL;
 
@@ -434,6 +469,10 @@ static void evdev_free(evdev_t *evdev)
 
     if (!evdev) return;
     input = evdev->input_dev;
+    if (evdev->node) {
+        vfs_close(evdev->node);
+        evdev->node = NULL;
+    }
     free(evdev);
     if (input && input->release) input->release(input);
 }
@@ -532,6 +571,10 @@ void evdev_unregister(evdev_t *evdev)
         (void)snprintf(path, sizeof(path), "/dev/input/event%d", evdev->minor);
         devtmpfs_unregister_char_device(path);
         evdev->node_published = false;
+        if (evdev->node) {
+            vfs_close(evdev->node);
+            evdev->node = NULL;
+        }
     }
 
     spin_lock(&evdev->input_dev->event_lock);
@@ -749,6 +792,7 @@ evdev_client_t *evdev_fop_open(evdev_t *evdev, int *error)
         return NULL;
     }
     wait_queue_init(&client->wait);
+    vfs_poll_source_init(&client->poll_source);
 
     evdev_attach_client(evdev, client);
 
@@ -768,6 +812,7 @@ void evdev_fop_release(evdev_client_t *client)
 
     evdev = client->evdev;
 
+    vfs_poll_source_close(&client->poll_source, POLLHUP);
     evdev_detach_client(evdev, client);
 
     /* Free event filter masks */
@@ -1217,6 +1262,7 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
             spin_unlock(&client->buffer_lock);
             (void)evdev_ungrab(evdev, client);
             wait_queue_wake_all(&client->wait);
+            vfs_poll_source_notify(&client->poll_source, POLLHUP);
             return EOK;
 
         case EVIOCSCLOCKID :
@@ -1252,12 +1298,23 @@ int evdev_publish_node(evdev_t *evdev)
 {
     char                     path[32];
     int                      result;
+    uint16_t                 node_type = file_stream;
+    /* Let poll/epoll users identify input fds without relying on the
+     * pathname.  Relative-axis devices are mice/pointers; key-only devices
+     * are keyboards. */
+    if (test_bit(EV_REL, evdev->input_dev->evbit))
+        node_type |= file_mouse;
+    else if (test_bit(EV_KEY, evdev->input_dev->evbit))
+        node_type |= file_keyboard;
+
     const tmpfs_device_ops_t ops = {
         .open       = evdev_dev_open,
         .release    = evdev_dev_release,
+        .descriptor_close = evdev_dev_descriptor_close,
         .file_read  = evdev_dev_read,
         .file_write = evdev_dev_write,
         .file_poll  = evdev_dev_poll,
+        .file_poll_source = evdev_dev_poll_source,
         .file_ioctl = evdev_dev_ioctl,
         .ctx        = evdev,
     };
@@ -1265,8 +1322,15 @@ int evdev_publish_node(evdev_t *evdev)
     if (!evdev || !evdev->exist) return -ENODEV;
     if (evdev->node_published) return EOK;
     (void)snprintf(path, sizeof(path), "/dev/input/event%d", evdev->minor);
-    result = devtmpfs_register_char_device(path, evdev_devt(evdev), evdev_devt(evdev), file_stream, &ops);
-    if (result == EOK) evdev->node_published = true;
+    result = devtmpfs_register_char_device(path, evdev_devt(evdev), evdev_devt(evdev), node_type, &ops);
+    if (result == EOK) {
+        evdev->node = vfs_open_nofollow(path);
+        if (!evdev->node) {
+            (void)devtmpfs_unregister_char_device(path);
+            return -ENOENT;
+        }
+        evdev->node_published = true;
+    }
     return result;
 }
 

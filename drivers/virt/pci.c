@@ -26,6 +26,7 @@
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
+#include <mem/frame.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
 
@@ -322,8 +323,10 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
     /* Align to page */
     alloc_size = (alloc_size + 4095) & ~4095;
 
-    vq->queue_mem = malloc(alloc_size);
-    if (!vq->queue_mem) { return -ENOMEM; }
+    vq->queue_page_count = (size_t)alloc_size / PAGE_4K_SIZE;
+    vq->queue_phys       = alloc_frames(vq->queue_page_count);
+    if (!vq->queue_phys) return -ENOMEM;
+    vq->queue_mem = phys_to_virt(vq->queue_phys);
     memset(vq->queue_mem, 0, alloc_size);
 
     vq->desc  = (struct vring_desc *)vq->queue_mem;
@@ -336,7 +339,8 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
     if (!vq->free_descs || !vq->desc_data) {
         free(vq->free_descs);
         free(vq->desc_data);
-        free(vq->queue_mem);
+        free_frames(vq->queue_phys, vq->queue_page_count);
+        vq->queue_mem = NULL;
         return -ENOMEM;
     }
 
@@ -360,9 +364,9 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
      * VirtIO spec §4.1.4.3.1: "The driver MUST write the queue
      * address registers before setting the queue_enable bit."
      */
-    common->queue_desc  = (uintptr_t)virt_any_to_phys((uintptr_t)vq->desc);
-    common->queue_avail = (uintptr_t)virt_any_to_phys((uintptr_t)vq->avail);
-    common->queue_used  = (uintptr_t)virt_any_to_phys((uintptr_t)vq->used);
+    common->queue_desc  = vq->queue_phys + (uintptr_t)((uint8_t *)vq->desc - (uint8_t *)vq->queue_mem);
+    common->queue_avail = vq->queue_phys + (uintptr_t)((uint8_t *)vq->avail - (uint8_t *)vq->queue_mem);
+    common->queue_used  = vq->queue_phys + (uintptr_t)((uint8_t *)vq->used - (uint8_t *)vq->queue_mem);
     compiler_barrier();
     common->queue_enable = 1;
 
@@ -375,7 +379,7 @@ void vp_del_vq(struct vp_virtqueue *vq)
 
     free(vq->free_descs);
     free(vq->desc_data);
-    free(vq->queue_mem);
+    if (vq->queue_phys && vq->queue_page_count) free_frames(vq->queue_phys, vq->queue_page_count);
     memset(vq, 0, sizeof(*vq));
 }
 
@@ -392,9 +396,17 @@ int virtqueue_add(struct vp_virtqueue *vq, void *data, int len, int write)
 {
     uint16_t head;
 
-    if (vq->num_free < 1) { return -ENOSPC; }
+    if (!vq || !data || len <= 0) return -EINVAL;
 
     spin_lock(&vq->lock);
+    if (vq->broken) {
+        spin_unlock(&vq->lock);
+        return -ENODEV;
+    }
+    if (vq->num_free < 1) {
+        spin_unlock(&vq->lock);
+        return -ENOSPC;
+    }
 
     head          = vq->free_head;
     vq->free_head = vq->free_descs[head];
@@ -422,9 +434,17 @@ int virtqueue_add_out_in(struct vp_virtqueue *vq, void *out_data, int out_len, v
 {
     uint16_t head, out_desc, in_desc;
 
-    if (vq->num_free < 2) { return -ENOSPC; }
+    if (!vq || !out_data || !in_data || out_len <= 0 || in_len <= 0) return -EINVAL;
 
     spin_lock(&vq->lock);
+    if (vq->broken) {
+        spin_unlock(&vq->lock);
+        return -ENODEV;
+    }
+    if (vq->num_free < 2) {
+        spin_unlock(&vq->lock);
+        return -ENOSPC;
+    }
 
     head          = vq->free_head;
     out_desc      = head;
@@ -473,21 +493,35 @@ void *virtqueue_get_buf(struct vp_virtqueue *vq, uint32_t *len)
         return NULL;
     }
 
-    head = vq->used->ring[vq->used_idx & (vq->num_max - 1)].id;
+    uint32_t used_head = vq->used->ring[vq->used_idx & (vq->num_max - 1)].id;
     if (len) { *len = vq->used->ring[vq->used_idx & (vq->num_max - 1)].len; }
     vq->used_idx++;
+
+    if (used_head >= (uint32_t)vq->num_max) {
+        spin_unlock(&vq->lock);
+        VP_ERR("Queue %d returned invalid descriptor id %u\n", vq->index, used_head);
+        return NULL;
+    }
+    head = (uint16_t)used_head;
 
     data = vq->desc_data[head];
 
     /* Put descriptors back on free list */
-    do {
-        uint16_t next        = vq->desc[head].flags & VRING_DESC_F_NEXT ? vq->desc[head].next : 0;
-        vq->free_descs[head] = vq->free_head;
-        vq->free_head        = head;
+    uint16_t current = head;
+    for (int released = 0; released < vq->num_max; released++) {
+        uint16_t flags = vq->desc[current].flags;
+        uint16_t next  = vq->desc[current].next;
+        vq->free_descs[current] = vq->free_head;
+        vq->free_head           = current;
         vq->num_free++;
-        if (vq->desc[head].flags & VRING_DESC_F_INDIRECT) { break; }
-        head = next;
-    } while (head);
+        vq->desc_data[current] = NULL;
+        if ((flags & VRING_DESC_F_INDIRECT) || !(flags & VRING_DESC_F_NEXT)) break;
+        if (next >= (uint16_t)vq->num_max) {
+            VP_ERR("Queue %d descriptor %u has invalid next id %u\n", vq->index, current, next);
+            break;
+        }
+        current = next;
+    }
 
     spin_unlock(&vq->lock);
     return data;
@@ -514,7 +548,7 @@ void virtqueue_kick(struct vp_virtqueue *vq)
      * before the driver starts polling the used ring.
      */
     virtio_wmb();
-    *(volatile uint32_t *)((uintptr_t)vp->notify_base + off) = vq->index;
+    *(volatile uint16_t *)((uintptr_t)vp->notify_base + off) = (uint16_t)vq->index;
     virtio_wmb();
 }
 

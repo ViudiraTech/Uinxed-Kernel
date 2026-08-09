@@ -82,8 +82,9 @@ uint64_t tsc_get_cpu_frequency(void)
 uint64_t tsc_nano_time(void)
 {
     uint64_t current_tsc = rdtsc_serialized();
+    if (!tsc_frequency || current_tsc < tsc_boot_value) return 0;
     uint64_t elapsed_tsc = current_tsc - tsc_boot_value;
-    return (elapsed_tsc * 1000000000ULL) / tsc_frequency;
+    return (uint64_t)(((__uint128_t)elapsed_tsc * tsc_ns_ratio) >> 32);
 }
 
 /* Initialize TSC */

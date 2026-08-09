@@ -12,6 +12,7 @@
 #include <fs/core/vfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
@@ -19,7 +20,6 @@
 #include <mem/heap.h>
 #include <proc/process.h>
 #include <proc/sched.h>
-#include <proc/task.h>
 #include <proc/uaccess.h>
 #include <sync/spin_lock.h>
 #include <syscall/syscall.h>
@@ -39,14 +39,14 @@ static int          timerfd_fsid = -1;
 static ilist_node_t timerfd_list;
 static spinlock_t   timerfd_list_lock;
 
-#define TIMERFD_TICK_NS 10000000ULL
+#define TIMERFD_TICK_NS TIMER_TICK_NS
 
 static int timerfd_timespec_to_ticks(const timerfd_timespec_t *ts, uint64_t *ticks)
 {
     if (ts->tv_sec < 0 || ts->tv_nsec < 0 || ts->tv_nsec >= 1000000000LL) return -EINVAL;
-    if ((uint64_t)ts->tv_sec > UINT64_MAX / 100ULL) return -EINVAL;
+    if ((uint64_t)ts->tv_sec > UINT64_MAX / TIMER_HZ) return -EINVAL;
 
-    *ticks = (uint64_t)ts->tv_sec * 100ULL + ((uint64_t)ts->tv_nsec + TIMERFD_TICK_NS - 1) / TIMERFD_TICK_NS;
+    *ticks = (uint64_t)ts->tv_sec * TIMER_HZ + ((uint64_t)ts->tv_nsec + TIMERFD_TICK_NS - 1) / TIMERFD_TICK_NS;
     if (!*ticks && (ts->tv_sec || ts->tv_nsec)) *ticks = 1;
     return EOK;
 }
@@ -54,8 +54,8 @@ static int timerfd_timespec_to_ticks(const timerfd_timespec_t *ts, uint64_t *tic
 static timerfd_timespec_t timerfd_ticks_to_timespec(uint64_t ticks)
 {
     timerfd_timespec_t ts = {
-        .tv_sec  = (int64_t)(ticks / 100ULL),
-        .tv_nsec = (int64_t)((ticks % 100ULL) * TIMERFD_TICK_NS),
+        .tv_sec  = (int64_t)(ticks / TIMER_HZ),
+        .tv_nsec = (int64_t)((ticks % TIMER_HZ) * TIMERFD_TICK_NS),
     };
     return ts;
 }
@@ -239,6 +239,7 @@ static vfs_node_t timerfd_node_create(int clockid, int flags)
     node->fsid   = timerfd_fsid;
     node->size   = 0;
     node->mode   = O_RDONLY;
+    ctx->node    = node;
 
     return node;
 }
@@ -276,11 +277,7 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
     spin_lock(&proc->fd_lock);
     if (fd >= 0 && fd < PROCESS_MAX_FD) {
         file = proc->fds[fd];
-        if (file) {
-            spin_lock(&file->lock);
-            file->refcount++;
-            spin_unlock(&file->lock);
-        }
+        if (file) process_file_get(file);
     }
     spin_unlock(&proc->fd_lock);
 
@@ -335,9 +332,16 @@ int sys_timerfd_settime(int fd, int flags, const void *new_value, void *old_valu
         spin_lock(&ctx->lock);
     }
 
-    ctx->interval_ns = interval_ticks;
+    /* Reprogramming a timerfd discards expirations from the previous timer.
+     * libwayland deliberately does not read its timer-heap timerfd: after an
+     * EPOLLIN it dispatches due timers and calls timerfd_settime() to arm the
+     * next deadline (or disarm it).  Leaving expire_count set makes that fd
+     * permanently readable and traps Weston in an epoll/settime busy loop. */
+    ctx->expire_count = 0;
+    ctx->interval_ns  = interval_ticks;
     if (!value_ticks) {
-        ctx->armed = 0;
+        ctx->deadline_tick = 0;
+        ctx->armed         = 0;
     } else {
         uint64_t now       = sched_ticks();
         ctx->deadline_tick = (flags & TFD_TIMER_ABSTIME) ? value_ticks : now + value_ticks;
@@ -359,11 +363,7 @@ int sys_timerfd_gettime(int fd, void *curr_value)
     spin_lock(&proc->fd_lock);
     if (fd >= 0 && fd < PROCESS_MAX_FD) {
         file = proc->fds[fd];
-        if (file) {
-            spin_lock(&file->lock);
-            file->refcount++;
-            spin_unlock(&file->lock);
-        }
+        if (file) process_file_get(file);
     }
     spin_unlock(&proc->fd_lock);
 
@@ -415,6 +415,11 @@ void timerfd_tick(void)
                 ctx->expire_count += expirations;
             spin_unlock(&ctx->lock);
             wait_queue_wake_all(&ctx->wq);
+            /* libwayland registers its compositor timerfd in epoll.  A
+             * wait-queue wake only reaches a task blocked directly in
+             * read(); publish readiness to VFS subscribers so Weston wakes
+            * for its scheduled output repaint. */
+            vfs_poll_notify(ctx->node, 0x001U);
             continue;
         }
         spin_unlock(&ctx->lock);

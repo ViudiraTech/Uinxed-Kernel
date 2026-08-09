@@ -11,6 +11,7 @@
 #include <ipc/futex.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
@@ -33,14 +34,15 @@
 #endif
 #define FUTEX_HASH_SIZE (1 << FUTEX_HASH_BITS)
 
-#define FUTEX_TICKS_PER_SEC 100
-#define FUTEX_NSEC_PER_TICK (1000000000ULL / FUTEX_TICKS_PER_SEC)
+#define FUTEX_TICKS_PER_SEC TIMER_HZ
+#define FUTEX_NSEC_PER_TICK TIMER_TICK_NS
 
 /* The syscall clock layer may provide the realtime clock in scheduler ticks. */
 #ifndef FUTEX_REALTIME_TICKS
 __attribute__((weak)) uint64_t futex_realtime_ticks(void)
 {
-    return sched_ticks();
+    int64_t ns = timer_realtime_ns();
+    return ns > 0 ? (uint64_t)ns / TIMER_TICK_NS : 0;
 }
 #    define FUTEX_REALTIME_TICKS() futex_realtime_ticks()
 #endif

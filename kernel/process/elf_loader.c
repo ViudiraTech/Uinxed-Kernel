@@ -265,9 +265,8 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
     size_t total = 0;
     while (total < node->size) {
         size_t remaining = node->size - total;
-        size_t to_read   = remaining < 4096 ? remaining : 4096;
-        size_t n         = vfs_read(node, elf_data + total, total, to_read);
-        if (n == 0) break;
+        size_t n         = vfs_read(node, elf_data + total, total, remaining);
+        if (!n || n > remaining) break;
         total += n;
     }
     vfs_close(node);
@@ -611,4 +610,59 @@ int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, s
     if (rsp_out) *rsp_out = user_rsp;
 
     return 0;
+}
+
+/* Load the system init executable from the already-populated root filesystem.
+ * Limine only supplies the initramfs; PID 1 must follow the normal Unix boot
+ * contract and execute /sbin/init from that filesystem. */
+int elf_loader_load_initial_path(process_t *proc, const char *path, char *const argv[], char *const envp[])
+{
+    if (!proc || !path || !path[0]) return -EINVAL;
+
+    vfs_node_t node = vfs_open(path);
+    if (!node) {
+        plogk("elf_loader: init executable not found: %s\n", path);
+        return -ENOENT;
+    }
+    if (node->type & file_dir) {
+        plogk("elf_loader: init path is a directory: %s\n", path);
+        vfs_close(node);
+        return -EISDIR;
+    }
+    if (!node->size || node->size > 64ULL * 1024ULL * 1024ULL) {
+        plogk("elf_loader: init executable has invalid size: %s (%llu bytes)\n", path, (unsigned long long)node->size);
+        vfs_close(node);
+        return -EINVAL;
+    }
+
+    size_t image_size = (size_t)node->size;
+    uint8_t *image = malloc(image_size);
+    if (!image) {
+        plogk("elf_loader: unable to allocate init image (%llu bytes)\n", (unsigned long long)image_size);
+        vfs_close(node);
+        return -ENOMEM;
+    }
+
+    size_t loaded = 0;
+    while (loaded < image_size) {
+        size_t amount = vfs_read(node, image + loaded, loaded, image_size - loaded);
+        if (amount == (size_t)-1 || amount == 0) {
+            plogk("elf_loader: failed to read init executable: %s\n", path);
+            free(image);
+            vfs_close(node);
+            return -EIO;
+        }
+        if (amount > image_size - loaded) {
+            plogk("elf_loader: init executable read overrun: %s\n", path);
+            free(image);
+            vfs_close(node);
+            return -EIO;
+        }
+        loaded += amount;
+    }
+    vfs_close(node);
+
+    int status = elf_loader_load_initial_process(proc, image, image_size, argv, envp);
+    free(image);
+    return status;
 }

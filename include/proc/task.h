@@ -143,6 +143,10 @@ int wait_queue_wait_timed(wait_queue_t *queue, uint64_t deadline_ticks);
 /* Wake one task from a wait queue */
 task_t *wait_queue_wake_one(wait_queue_t *queue);
 
+/* Wake one task with Linux WF_SYNC-like affinity: a fully sleeping wakee may
+ * be placed on the waker's CPU to keep producer/consumer cache state local. */
+task_t *wait_queue_wake_one_sync(wait_queue_t *queue);
+
 /* Wake every task from a wait queue */
 uint64_t wait_queue_wake_all(wait_queue_t *queue);
 

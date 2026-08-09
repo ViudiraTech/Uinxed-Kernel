@@ -136,6 +136,14 @@ static int64_t devtmpfs_memory_write(void *context, void *private_data, uint64_t
     return device->kind == DEVTMPFS_MEM_FULL ? -ENOSPC : (int64_t)size;
 }
 
+static int64_t devtmpfs_memory_write_user(void *context, void *private_data, uint64_t flags, const void *buffer, size_t offset,
+                                          size_t size, struct process *proc)
+{
+    /* Linux's null iterator advances without fetching source bytes. */
+    (void)proc;
+    return devtmpfs_memory_write(context, private_data, flags, buffer, offset, size);
+}
+
 static int64_t devtmpfs_kmsg_read(void *context, void *private_data, uint64_t flags, void *buffer, size_t offset, size_t size)
 {
     (void)context;
@@ -554,6 +562,7 @@ static int devtmpfs_create_memory_nodes(void)
         tmpfs_device_ops_t ops = {
             .file_read  = devtmpfs_memory_read,
             .file_write = devtmpfs_memory_write,
+            .file_write_user = devtmpfs_memory_write_user,
             .ctx        = &devices[i],
         };
         uint64_t devt = MKDEV(1, nodes[i].minor);

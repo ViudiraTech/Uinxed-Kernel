@@ -20,6 +20,23 @@ static bool input_test_bit(unsigned int bit, const uint32_t *bits)
     return bits && ((bits[bit / 32] >> (bit % 32)) & 1U);
 }
 
+static bool input_is_keyboard(const input_dev_t *input)
+{
+    if (!input || !input_test_bit(EV_KEY, input->evbit)) return false;
+
+    /* Match the same kind of well-known alphanumeric keys that udev's
+     * input_id builtin uses to distinguish a keyboard from a mouse whose
+     * buttons are also reported through EV_KEY. */
+    return input_test_bit(KEY_Q, input->keybit) && input_test_bit(KEY_A, input->keybit) && input_test_bit(KEY_Z, input->keybit)
+           && input_test_bit(KEY_ENTER, input->keybit) && input_test_bit(KEY_SPACE, input->keybit);
+}
+
+static bool input_is_mouse(const input_dev_t *input)
+{
+    if (!input || !input_test_bit(EV_REL, input->evbit) || !input_test_bit(EV_KEY, input->evbit)) return false;
+    return input_test_bit(REL_X, input->relbit) && input_test_bit(REL_Y, input->relbit) && input_test_bit(BTN_LEFT, input->keybit);
+}
+
 static evdev_t *input_evdev(struct device *dev)
 {
     return dev ? dev->driver_data : NULL;
@@ -35,6 +52,12 @@ static ssize_t phys_show(struct device *dev, struct device_attribute *attr, char
     (void)attr;
     evdev_t *evdev = input_evdev(dev);
     return sysfs_emit(buf, "%s\n", evdev && evdev->input_dev ? evdev->input_dev->phys : "");
+}
+static ssize_t uniq_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    (void)attr;
+    evdev_t *evdev = input_evdev(dev);
+    return sysfs_emit(buf, "%s\n", evdev && evdev->input_dev ? evdev->input_dev->uniq : "");
 }
 static ssize_t bustype_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -82,9 +105,45 @@ static ssize_t rel_show(struct device *dev, struct device_attribute *attr, char 
     (void)attr;
     return bitmap_show(buf, input_evdev(dev)->input_dev->relbit, (REL_CNT + 31) / 32);
 }
+static ssize_t abs_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    (void)attr;
+    return bitmap_show(buf, input_evdev(dev)->input_dev->absbit, (ABS_CNT + 31) / 32);
+}
+static ssize_t msc_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    (void)attr;
+    return bitmap_show(buf, input_evdev(dev)->input_dev->mscbit, (MSC_CNT + 31) / 32);
+}
+static ssize_t led_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    (void)attr;
+    return bitmap_show(buf, input_evdev(dev)->input_dev->ledbit, (LED_CNT + 31) / 32);
+}
+static ssize_t snd_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    (void)attr;
+    return bitmap_show(buf, input_evdev(dev)->input_dev->sndbit, (SND_CNT + 31) / 32);
+}
+static ssize_t sw_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    (void)attr;
+    return bitmap_show(buf, input_evdev(dev)->input_dev->swbit, (SW_CNT + 31) / 32);
+}
+static ssize_t ff_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    (void)attr;
+    return bitmap_show(buf, input_evdev(dev)->input_dev->ffbit, (FF_CNT + 31) / 32);
+}
+static ssize_t properties_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    (void)attr;
+    return bitmap_show(buf, input_evdev(dev)->input_dev->propbit, (INPUT_PROP_CNT + 31) / 32);
+}
 
 static DEVICE_ATTR(name, 0444, name_show, NULL);
 static DEVICE_ATTR(phys, 0444, phys_show, NULL);
+static DEVICE_ATTR(uniq, 0444, uniq_show, NULL);
 static DEVICE_ATTR(bustype, 0444, bustype_show, NULL);
 static DEVICE_ATTR(vendor, 0444, vendor_show, NULL);
 static DEVICE_ATTR(product, 0444, product_show, NULL);
@@ -92,14 +151,41 @@ static DEVICE_ATTR(version, 0444, version_show, NULL);
 static DEVICE_ATTR(ev, 0444, ev_show, NULL);
 static DEVICE_ATTR(key, 0444, key_show, NULL);
 static DEVICE_ATTR(rel, 0444, rel_show, NULL);
+static DEVICE_ATTR(abs, 0444, abs_show, NULL);
+static DEVICE_ATTR(msc, 0444, msc_show, NULL);
+static DEVICE_ATTR(led, 0444, led_show, NULL);
+static DEVICE_ATTR(snd, 0444, snd_show, NULL);
+static DEVICE_ATTR(sw, 0444, sw_show, NULL);
+static DEVICE_ATTR(ff, 0444, ff_show, NULL);
+static DEVICE_ATTR(properties, 0444, properties_show, NULL);
 
-static struct attribute *input_evdev_attributes[] = {
-    &dev_attr_name.attr,    &dev_attr_phys.attr, &dev_attr_bustype.attr, &dev_attr_vendor.attr, &dev_attr_product.attr,
-    &dev_attr_version.attr, &dev_attr_ev.attr,   &dev_attr_key.attr,     &dev_attr_rel.attr,    NULL,
+/* Keep the flat files for compatibility with early Uinxed user space. */
+static struct attribute *input_compat_attributes[] = {
+    &dev_attr_name.attr,    &dev_attr_phys.attr, &dev_attr_uniq.attr, &dev_attr_bustype.attr, &dev_attr_vendor.attr,     &dev_attr_product.attr,
+    &dev_attr_version.attr, &dev_attr_ev.attr,   &dev_attr_key.attr,  &dev_attr_rel.attr,     &dev_attr_properties.attr, NULL,
 };
 
-static struct attribute_group input_evdev_group = {
-    .attrs = input_evdev_attributes,
+static struct attribute_group input_compat_group = {
+    .attrs = input_compat_attributes,
+};
+
+static struct attribute *input_id_attributes[] = {
+    &dev_attr_bustype.attr, &dev_attr_vendor.attr, &dev_attr_product.attr, &dev_attr_version.attr, NULL,
+};
+
+static struct attribute_group input_id_group = {
+    .name  = "id",
+    .attrs = input_id_attributes,
+};
+
+static struct attribute *input_capability_attributes[] = {
+    &dev_attr_ev.attr,  &dev_attr_key.attr, &dev_attr_rel.attr, &dev_attr_abs.attr, &dev_attr_msc.attr,
+    &dev_attr_led.attr, &dev_attr_snd.attr, &dev_attr_sw.attr,  &dev_attr_ff.attr,  NULL,
+};
+
+static struct attribute_group input_capability_group = {
+    .name  = "capabilities",
+    .attrs = input_capability_attributes,
 };
 
 static int input_device_uevent(struct device *device, struct kobj_uevent_env *env)
@@ -115,11 +201,16 @@ static int input_device_uevent(struct device *device, struct kobj_uevent_env *en
      * the source uevent just like Linux input drivers do. */
     ret = add_uevent_var(env, "ID_INPUT=1");
     if (ret) return ret;
-    if (input_test_bit(EV_KEY, input->evbit)) {
+    bool keyboard = input_is_keyboard(input);
+    bool mouse    = input_is_mouse(input);
+    if (keyboard) {
         ret = add_uevent_var(env, "ID_INPUT_KEYBOARD=1");
         if (ret) return ret;
+    } else if (input_test_bit(EV_KEY, input->evbit) && !mouse) {
+        ret = add_uevent_var(env, "ID_INPUT_KEY=1");
+        if (ret) return ret;
     }
-    if (input_test_bit(EV_REL, input->evbit)) {
+    if (mouse) {
         ret = add_uevent_var(env, "ID_INPUT_MOUSE=1");
         if (ret) return ret;
     }
@@ -132,7 +223,9 @@ static int input_device_uevent(struct device *device, struct kobj_uevent_env *en
 }
 
 static const struct attribute_group *input_dev_groups[] = {
-    &input_evdev_group,
+    &input_compat_group,
+    &input_id_group,
+    &input_capability_group,
     NULL,
 };
 
@@ -156,16 +249,31 @@ void input_sysfs_init(void)
 
 int input_sysfs_register_evdev(evdev_t *evdev)
 {
-    char           name[24];
+    char           input_name[24];
+    char           event_name[24];
+    struct device *input_device;
     struct device *device;
 
     if (!evdev) return -EINVAL;
     if (evdev->sysfs_device) return EOK;
     if (!input_class_ready) { return EOK; }
-    (void)snprintf(name, sizeof(name), "event%d", evdev->minor);
-    device = device_create(&input_class, NULL, evdev_devt(evdev), evdev, "%s", name);
-    if (!device) { return -ENOMEM; }
-    evdev->sysfs_device = device;
+    /* Linux exposes an inputN device containing the identity/capability
+     * files and an eventN child containing the character-device number.
+     * libudev resolves /sys/dev/char/13:* back to eventN, while input_id
+     * walks through eventN/device to inputN.  Reproducing that topology is
+     * required by libinput's syspath safety check. */
+    (void)snprintf(input_name, sizeof(input_name), "input%d", evdev->minor);
+    input_device = device_create(&input_class, NULL, 0, evdev, "%s", input_name);
+    if (!input_device) return -ENOMEM;
+
+    (void)snprintf(event_name, sizeof(event_name), "event%d", evdev->minor);
+    device = device_create(&input_class, input_device, evdev_devt(evdev), evdev, "%s", event_name);
+    if (!device) {
+        device_unregister(input_device);
+        return -ENOMEM;
+    }
+    evdev->sysfs_input_device = input_device;
+    evdev->sysfs_device       = device;
     return EOK;
 }
 
@@ -173,8 +281,11 @@ void input_sysfs_unregister_evdev(evdev_t *evdev)
 {
     struct device *device;
 
-    if (!evdev || !evdev->sysfs_device) return;
+    if (!evdev) return;
     device = evdev->sysfs_device;
-    device_unregister(device);
+    if (device) device_unregister(device);
     evdev->sysfs_device = NULL;
+    device              = evdev->sysfs_input_device;
+    if (device) device_unregister(device);
+    evdev->sysfs_input_device = NULL;
 }

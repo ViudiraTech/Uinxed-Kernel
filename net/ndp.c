@@ -10,6 +10,7 @@
 
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <libs/std/string.h>
 #include <net/endian.h>
 #include <net/ethernet.h>
@@ -17,9 +18,9 @@
 #include <net/ndp.h>
 #include <proc/sched.h>
 
-#define NDP_TICKS_PER_SECOND 100U
-#define NDP_REACHABLE_TICKS  3000U
-#define NDP_RETRY_TICKS      100U
+#define NDP_TICKS_PER_SECOND TIMER_HZ
+#define NDP_REACHABLE_TICKS  (30U * TIMER_HZ)
+#define NDP_RETRY_TICKS      TIMER_HZ
 #define NDP_MAX_RETRIES      3U
 
 #define NDP_OPT_SOURCE_LL 1U

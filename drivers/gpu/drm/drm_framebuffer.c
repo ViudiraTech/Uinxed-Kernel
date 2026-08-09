@@ -34,33 +34,36 @@
  * @fb: framebuffer to initialise
  * @funcs: framebuffer funcs pointer (unused in MVP, kept for API compat)
  *
- * Allocates a framebuffer-specific ID from the fb_idr, allocates a
- * mode-object ID for the base, inserts into the device fb_list, and
- * increments num_fb. Returns 0 on success or a negative errno.
+ * Allocates the public mode-object ID, indexes fb_idr by that same ID,
+ * inserts into the device fb_list, and increments num_fb. Returns 0 on
+ * success or a negative errno.
  */
 int drm_framebuffer_init(struct drm_device *dev, struct drm_framebuffer *fb, const struct drm_framebuffer_funcs *funcs)
 {
-    uint32_t fb_id = 0;
-    int      ret;
+    int ret;
 
     if (!dev || !fb) { return -EINVAL; }
 
     fb->funcs = funcs;
 
-    spin_lock(&dev->mode_config.fb_lock);
-    ret = drm_idr_alloc(&dev->mode_config.fb_idr, fb, 1, 0, &fb_id);
-    spin_unlock(&dev->mode_config.fb_lock);
-    if (ret) { return ret; }
-
     ret = drm_mode_object_idr_alloc(dev, &fb->base, DRM_MODE_OBJECT_FB);
+    if (ret) return ret;
+
+    /* The KMS framebuffer ID exposed to userspace is the mode-object ID.
+     * Keep fb_idr keyed by that exact ID so ADDFB/SETCRTC/RMFB all address
+     * the same object.  Allocating a second private ID here made SETCRTC
+     * return ENOENT for every framebuffer created by Xorg. */
+    spin_lock(&dev->mode_config.fb_lock);
+    ret = drm_idr_alloc_exact(&dev->mode_config.fb_idr, fb, fb->base.id);
+    spin_unlock(&dev->mode_config.fb_lock);
     if (ret) {
-        spin_lock(&dev->mode_config.fb_lock);
-        drm_idr_remove(&dev->mode_config.fb_idr, fb_id);
-        spin_unlock(&dev->mode_config.fb_lock);
+        spin_lock(&dev->mode_config.idr_mutex);
+        drm_idr_remove(&dev->mode_config.object_idr, fb->base.id);
+        spin_unlock(&dev->mode_config.idr_mutex);
         return ret;
     }
 
-    fb->id = (int)fb_id;
+    fb->id = (int)fb->base.id;
 
     ilist_insert_after(&dev->mode_config.fb_list, &fb->head);
     if (fb->file) ilist_insert_after(&fb->file->fbs_head, &fb->filp_head);

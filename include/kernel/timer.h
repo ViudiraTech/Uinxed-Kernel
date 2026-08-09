@@ -15,8 +15,12 @@
 #include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>
 
-#define TIMER_TICK_NS         10000000ULL
-#define TIMER_NSEC_PER_SEC    1000000000ULL
+#define TIMER_NSEC_PER_SEC 1000000000ULL
+#ifndef TIMER_HZ
+#    define TIMER_HZ 1000ULL
+#endif
+#define TIMER_USER_HZ         100ULL
+#define TIMER_TICK_NS         (TIMER_NSEC_PER_SEC / TIMER_HZ)
 #define TIMER_ABSTIME         1
 #define TIMER_CLOCK_REALTIME  0
 #define TIMER_CLOCK_MONOTONIC 1
@@ -45,6 +49,19 @@ static inline bool timer_timespec_to_ns(const timer_timespec_t *ts, uint64_t *ns
 static inline uint64_t timer_ns_to_ticks_ceil(uint64_t ns)
 {
     return ns / TIMER_TICK_NS + (ns % TIMER_TICK_NS != 0);
+}
+
+static inline uint64_t timer_ticks_to_ns(uint64_t ticks)
+{
+    return ticks > UINT64_MAX / TIMER_TICK_NS ? UINT64_MAX : ticks * TIMER_TICK_NS;
+}
+
+static inline uint64_t timer_ticks_to_user_ticks(uint64_t ticks)
+{
+    uint64_t seconds = ticks / TIMER_HZ;
+    uint64_t rest    = ticks % TIMER_HZ;
+    if (seconds > UINT64_MAX / TIMER_USER_HZ) return UINT64_MAX;
+    return seconds * TIMER_USER_HZ + rest * TIMER_USER_HZ / TIMER_HZ;
 }
 
 static inline timer_timespec_t timer_ns_to_timespec(uint64_t ns)
@@ -77,6 +94,7 @@ void msleep(uint64_t ms);
 
 /* Wall-clock time shared by syscalls and persistent filesystem timestamps. */
 int64_t  timer_realtime_ns(void);
+uint64_t timer_monotonic_ns(void);
 void     timer_realtime_set_ns(int64_t nanoseconds);
 uint32_t timer_realtime_seconds32(void);
 

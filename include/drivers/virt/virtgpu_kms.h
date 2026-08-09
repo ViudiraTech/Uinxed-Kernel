@@ -17,7 +17,9 @@
 #define VIRTGPU_MAX_SCANOUTS 16
 
 /* Stride alignment for dumb buffers */
-#define VIRTGPU_STRIDE_ALIGN 64
+/* RESOURCE_CREATE_2D has no stride field: guest backing rows are tightly
+ * packed at width * bytes_per_pixel. */
+#define VIRTGPU_STRIDE_ALIGN 4
 
 /* Default modes (used when host has no display info) */
 #define VIRTGPU_DEFAULT_WIDTH  1024

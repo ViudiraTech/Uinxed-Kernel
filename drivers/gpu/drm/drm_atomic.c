@@ -82,18 +82,13 @@ static void drm_atomic_state_default_clear(struct drm_atomic_state *state)
     /* Free per-plane substates */
     if (state->planes) {
         for (i = 0; i < config->num_total_plane; i++) {
-            if (state->planes[i].state) {
-                free(state->planes[i].state);
-                state->planes[i].state = NULL;
-            }
-            if (state->planes[i].old_state) {
-                free(state->planes[i].old_state);
-                state->planes[i].old_state = NULL;
-            }
-            if (state->planes[i].new_state) {
-                free(state->planes[i].new_state);
-                state->planes[i].new_state = NULL;
-            }
+            struct drm_plane_state *current = state->planes[i].state;
+            struct drm_plane_state *old     = state->planes[i].old_state;
+            struct drm_plane_state *new     = state->planes[i].new_state;
+            free(current);
+            if (old && old != current) free(old);
+            if (new && new != current && new != old) free(new);
+            state->planes[i].state = state->planes[i].old_state = state->planes[i].new_state = NULL;
         }
         free(state->planes);
         state->planes = NULL;
@@ -102,19 +97,14 @@ static void drm_atomic_state_default_clear(struct drm_atomic_state *state)
     /* Free per-CRTC substates */
     if (state->crtcs) {
         for (i = 0; i < config->num_crtc; i++) {
-            if (state->crtcs[i].state) {
-                if (state->crtcs[i].state->event) free(state->crtcs[i].state->event);
-                free(state->crtcs[i].state);
-                state->crtcs[i].state = NULL;
-            }
-            if (state->crtcs[i].old_state) {
-                free(state->crtcs[i].old_state);
-                state->crtcs[i].old_state = NULL;
-            }
-            if (state->crtcs[i].new_state) {
-                free(state->crtcs[i].new_state);
-                state->crtcs[i].new_state = NULL;
-            }
+            struct drm_crtc_state *current = state->crtcs[i].state;
+            struct drm_crtc_state *old     = state->crtcs[i].old_state;
+            struct drm_crtc_state *new     = state->crtcs[i].new_state;
+            if (current && current->event) free(current->event);
+            free(current);
+            if (old && old != current) free(old);
+            if (new && new != current && new != old) free(new);
+            state->crtcs[i].state = state->crtcs[i].old_state = state->crtcs[i].new_state = NULL;
         }
         free(state->crtcs);
         state->crtcs = NULL;
@@ -184,7 +174,23 @@ struct drm_crtc_state *drm_atomic_get_crtc_state(struct drm_atomic_state *state,
     crtc_entry->ptr         = crtc;
 
     /* Copy from existing CRTC state if available */
-    if (crtc->state) { memcpy(crtc_entry->state, crtc->state, sizeof(*crtc_entry->state)); }
+    if (crtc->state) {
+        memcpy(crtc_entry->state, crtc->state, sizeof(*crtc_entry->state));
+        /* Completion events are owned by the commit which allocated them;
+         * cloning the pointer makes state teardown free an armed event. */
+        crtc_entry->state->event = NULL;
+
+        /* These bits describe changes made by one atomic transaction, not
+         * properties of the committed CRTC.  Carrying them into the next
+         * transaction makes an ordinary page flip look like a modeset and
+         * causes non-ALLOW_MODESET commits to fail with -EINVAL. */
+        crtc_entry->state->zpos_changed       = false;
+        crtc_entry->state->mode_changed       = false;
+        crtc_entry->state->active_changed     = false;
+        crtc_entry->state->connectors_changed = false;
+        crtc_entry->state->planes_changed     = false;
+        crtc_entry->state->color_mgmt_changed = false;
+    }
 
     return crtc_entry->state;
 }
@@ -226,7 +232,10 @@ struct drm_plane_state *drm_atomic_get_plane_state(struct drm_atomic_state *stat
     plane_entry->ptr          = plane;
 
     /* Copy from existing plane state if available */
-    if (plane->state) { memcpy(plane_entry->state, plane->state, sizeof(*plane_entry->state)); }
+    if (plane->state) {
+        memcpy(plane_entry->state, plane->state, sizeof(*plane_entry->state));
+        plane_entry->state->zpos_changed = false;
+    }
 
     return plane_entry->state;
 }
@@ -250,16 +259,19 @@ struct drm_connector_state *drm_atomic_get_connector_state(struct drm_atomic_sta
         struct drm_connector       **new_connectors;
         struct drm_connector_state **new_states;
 
-        new_connectors = realloc(state->connectors, sizeof(*new_connectors) * new_count); // NOLINT(bugprone-sizeof-expression)
-        if (!new_connectors) { return NULL; }
-
-        new_states = realloc(state->connector_states, sizeof(*new_states) * new_count); // NOLINT(bugprone-sizeof-expression)
-        if (!new_states) {
-            /* realloc for connectors succeeded but states failed;
-             * revert connectors to old size (realloc with old size). */
-            state->connectors = realloc(new_connectors, sizeof(*new_connectors) * state->num_connector); // NOLINT(bugprone-sizeof-expression)
+        new_connectors = malloc(sizeof(*new_connectors) * new_count); // NOLINT(bugprone-sizeof-expression)
+        new_states     = malloc(sizeof(*new_states) * new_count); // NOLINT(bugprone-sizeof-expression)
+        if (!new_connectors || !new_states) {
+            free(new_connectors);
+            free(new_states);
             return NULL;
         }
+        if (state->num_connector) {
+            memcpy(new_connectors, state->connectors, sizeof(*new_connectors) * state->num_connector);
+            memcpy(new_states, state->connector_states, sizeof(*new_states) * state->num_connector);
+        }
+        free(state->connectors);
+        free(state->connector_states);
 
         state->connectors                       = new_connectors;
         state->connector_states                 = new_states;
@@ -272,7 +284,11 @@ struct drm_connector_state *drm_atomic_get_connector_state(struct drm_atomic_sta
         state->connector_states[state->num_connector]->connector = connector;
 
         /* Copy from existing connector state if available */
-        if (connector->state) { memcpy(state->connector_states[state->num_connector], connector->state, sizeof(*state->connector_states[0])); }
+        if (connector->state) {
+            memcpy(state->connector_states[state->num_connector], connector->state, sizeof(*state->connector_states[0]));
+            state->connector_states[state->num_connector]->link_status_changed = false;
+            state->connector_states[state->num_connector]->crtc_changed        = false;
+        }
 
         state->num_connector++;
         return state->connector_states[state->num_connector - 1];
@@ -475,7 +491,16 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
             }
         }
         if (!primary_state && crtc->primary) primary_state = crtc->primary->state;
-        if (crtc_state->active && primary_state && (!crtc->primary->state || primary_state->fb != crtc->primary->state->fb)) {
+        if (crtc_state->active && primary_state && crtc_state->mode_changed) {
+            struct drm_crtc_helper_funcs *h = (struct drm_crtc_helper_funcs *)crtc->helper_private;
+            if (!h || (!h->mode_set && !h->page_flip)) return -ENOSYS;
+            if (h->mode_set)
+                h->mode_set(crtc, primary_state->fb);
+            else {
+                ret = h->page_flip(crtc, primary_state->fb, NULL, 0);
+                if (ret) return ret;
+            }
+        } else if (crtc_state->active && primary_state && (!crtc->primary->state || primary_state->fb != crtc->primary->state->fb)) {
             struct drm_crtc_helper_funcs *h = (struct drm_crtc_helper_funcs *)crtc->helper_private;
             if (!h || !h->page_flip) return -ENOSYS;
             ret = h->page_flip(crtc, primary_state->fb, NULL, 0);
@@ -500,8 +525,14 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
         if (crtc_entry->ptr->state) {
             struct drm_pending_vblank_event *event = crtc_state->event;
             memcpy(crtc_entry->ptr->state, crtc_state, sizeof(*crtc_state));
-            crtc_entry->ptr->state->event = NULL;
-            crtc_state->event             = event;
+            crtc_entry->ptr->state->event              = NULL;
+            crtc_entry->ptr->state->zpos_changed       = false;
+            crtc_entry->ptr->state->mode_changed       = false;
+            crtc_entry->ptr->state->active_changed     = false;
+            crtc_entry->ptr->state->connectors_changed = false;
+            crtc_entry->ptr->state->planes_changed     = false;
+            crtc_entry->ptr->state->color_mgmt_changed = false;
+            crtc_state->event                          = event;
         }
     }
 
@@ -524,6 +555,7 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
                 plane_entry->ptr->state->alpha            = plane_state->alpha;
                 plane_entry->ptr->state->zpos             = plane_state->zpos;
                 plane_entry->ptr->state->pixel_blend_mode = plane_state->pixel_blend_mode;
+                plane_entry->ptr->state->zpos_changed     = false;
             }
             plane_entry->ptr->fb_id   = plane_state->fb ? plane_state->fb->base.id : 0;
             plane_entry->ptr->crtc_id = plane_state->crtc ? plane_state->crtc->base.id : 0;
@@ -537,8 +569,10 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
 
         if (!conn_state || !connector) { continue; }
 
-        if (conn_state->crtc_changed) {
-            if (connector->state) { connector->state->crtc = conn_state->crtc; }
+        if (connector->state) {
+            if (conn_state->crtc_changed) { connector->state->crtc = conn_state->crtc; }
+            connector->state->link_status_changed = false;
+            connector->state->crtc_changed        = false;
         }
     }
 
@@ -551,7 +585,15 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
             if (h->atomic_enable) h->atomic_enable(crtc, crtc->state);
         }
         if (s->event) {
-            if (crtc->enabled && drm_crtc_vblank_get(crtc) == 0) {
+            /* virtio-gpu waits for TRANSFER/SET_SCANOUT/FLUSH responses in
+             * its page-flip callback.  For such a synchronous driver the
+             * commit is already complete here; delaying the event until a
+             * synthetic vblank leaves compositors stuck on their first
+             * pending flip if no timer-driven vblank arrives. */
+            if (dev->driver && (dev->driver->driver_features & DRIVER_SYNCHRONOUS_FLIP)) {
+                s->event->sequence = drm_crtc_vblank_count(crtc);
+                drm_crtc_send_vblank_event(crtc, s->event);
+            } else if (crtc->enabled && drm_crtc_vblank_get(crtc) == 0) {
                 s->event->vblank_ref = true;
                 s->event->sequence   = (uint64_t)drm_crtc_vblank_count(crtc) + 1;
                 drm_crtc_arm_vblank_event(crtc, s->event);
@@ -643,6 +685,18 @@ int drm_atomic_nonblocking_commit(struct drm_atomic_state *state)
         int ret = drm_atomic_check_only(state);
         if (ret) return ret;
     }
+
+    /* virtio-gpu's command path is synchronous already: it waits for every
+     * TRANSFER/SET_SCANOUT/FLUSH response before page_flip returns.  Running
+     * that work in another task adds no hardware concurrency and creates a
+     * lost-wakeup window between the compositor's NONBLOCK ioctl and its
+     * subsequent epoll_wait.  Complete it here so the flip event is queued
+     * before the ioctl returns; epoll's initial level scan then observes it
+     * even without depending on notification timing. */
+    if (state->dev->driver && (state->dev->driver->driver_features & DRIVER_SYNCHRONOUS_FLIP)) {
+        return drm_atomic_commit(state);
+    }
+
     config    = &state->dev->mode_config;
     file_priv = state->file_priv;
     if (file_priv) {

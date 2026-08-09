@@ -17,8 +17,9 @@
 #include <proc/process.h>
 #include <proc/uaccess.h>
 
-static int user_ptr_range_ok(uintptr_t addr, size_t size)
+int user_range_ok(const void *uaddr, size_t size)
 {
+    uintptr_t addr = (uintptr_t)uaddr;
     if (!size) return 1;
     if (!addr) return 0;
     if (addr >= PROCESS_USER_STACK_TOP) return 0;
@@ -34,9 +35,8 @@ static int check_entry(uint64_t entry, int write)
     return 1;
 }
 
-static int user_translate(uintptr_t uaddr, int write, void **kaddr, size_t *page_left)
+static int user_translate(process_t *proc, uintptr_t uaddr, int write, void **kaddr, size_t *page_left)
 {
-    process_t *proc = process_current();
     if (!proc || !proc->user_page_dir || !proc->user_page_dir->table) return 0;
 
     uint16_t l4i = (uaddr >> 39) & 0x1ff;
@@ -91,43 +91,40 @@ static int user_translate(uintptr_t uaddr, int write, void **kaddr, size_t *page
  * page_resolve_cow_fault() may replace the physical leaf, and also closes the
  * race with another thread resolving the same mapping concurrently.
  */
-static int user_translate_writable(uintptr_t uaddr, void **kaddr, size_t *page_left)
+static int user_translate_writable(process_t *proc, uintptr_t uaddr, void **kaddr, size_t *page_left)
 {
-    if (user_translate(uaddr, 1, kaddr, page_left)) return 1;
+    if (user_translate(proc, uaddr, 1, kaddr, page_left)) return 1;
 
-    process_t *proc = process_current();
     if (!proc || !proc->user_page_dir) return 0;
     if (page_resolve_cow_fault(proc, uaddr) < 0) return 0;
 
-    return user_translate(uaddr, 1, kaddr, page_left);
+    return user_translate(proc, uaddr, 1, kaddr, page_left);
 }
 
-static int user_translate_access(uintptr_t uaddr, int write, void **kaddr, size_t *page_left)
+static int user_translate_access(process_t *proc, uintptr_t uaddr, int write, void **kaddr, size_t *page_left)
 {
     if (write) {
-        if (user_translate_writable(uaddr, kaddr, page_left)) return 1;
-        process_t *proc = process_current();
-        if (proc && process_demand_fault(proc, uaddr, 1, 0) == 0 && user_translate_writable(uaddr, kaddr, page_left)) return 1;
+        if (user_translate_writable(proc, uaddr, kaddr, page_left)) return 1;
+        if (proc && process_demand_fault(proc, uaddr, 1, 0) == 0 && user_translate_writable(proc, uaddr, kaddr, page_left)) return 1;
         return 0;
     }
-    if (user_translate(uaddr, 0, kaddr, page_left)) return 1;
-    process_t *proc = process_current();
-    if (proc && process_demand_fault(proc, uaddr, 0, 0) == 0 && user_translate(uaddr, 0, kaddr, page_left)) return 1;
+    if (user_translate(proc, uaddr, 0, kaddr, page_left)) return 1;
+    if (proc && process_demand_fault(proc, uaddr, 0, 0) == 0 && user_translate(proc, uaddr, 0, kaddr, page_left)) return 1;
     return 0;
 }
 
-int user_access_ok(const void *uaddr, size_t size, int write)
+int user_access_ok_process(process_t *proc, const void *uaddr, size_t size, int write)
 {
     uintptr_t cur = (uintptr_t)uaddr;
     size_t    remaining;
 
-    if (!user_ptr_range_ok(cur, size)) return 0;
+    if (!proc || !user_range_ok(uaddr, size)) return 0;
     remaining = size;
 
     while (remaining) {
         void  *kaddr;
         size_t page_left;
-        if (!user_translate_access(cur, write, &kaddr, &page_left)) return 0;
+        if (!user_translate_access(proc, cur, write, &kaddr, &page_left)) return 0;
         (void)kaddr;
 
         size_t step = remaining < page_left ? remaining : page_left;
@@ -137,6 +134,11 @@ int user_access_ok(const void *uaddr, size_t size, int write)
     return 1;
 }
 
+int user_access_ok(const void *uaddr, size_t size, int write)
+{
+    return user_access_ok_process(process_current(), uaddr, size, write);
+}
+
 static int copy_user_bytes(void *dst, const void *src, size_t size, int to_user)
 {
     uintptr_t  user = (uintptr_t)(to_user ? dst : src);
@@ -144,21 +146,25 @@ static int copy_user_bytes(void *dst, const void *src, size_t size, int to_user)
     process_t *proc = process_current();
     size_t     remaining;
 
-    if (!proc || !proc->user_page_dir || !user_ptr_range_ok(user, size)) return -EFAULT;
+    if (!proc || !proc->user_page_dir || !user_range_ok((const void *)user, size)) return -EFAULT;
     remaining = size;
 
     while (remaining) {
         void  *kaddr;
         size_t page_left;
-        if (!user_translate_access(user, to_user, &kaddr, &page_left)) return -EFAULT;
 
-        /* Keep the leaf mapping alive until the direct-map copy completes.
-         * A concurrent COW or munmap may otherwise release and reuse the
-         * translated frame between the page-table walk and memcpy(). */
+        /* Translate once while holding the page-table lock and keep the leaf
+         * alive through the copy.  The old fast path walked all four page
+         * table levels before taking this lock, then immediately walked them
+         * again to close the COW/munmap race. */
         spin_lock(&proc->user_page_dir->lock);
-        if (!user_translate(user, to_user, &kaddr, &page_left)) {
+        if (!user_translate(proc, user, to_user, &kaddr, &page_left)) {
             spin_unlock(&proc->user_page_dir->lock);
-            continue;
+            /* Fault handling may allocate, copy pages, or shoot down TLBs and
+             * therefore must stay outside the page-table lock. */
+            if (to_user && page_resolve_cow_fault(proc, user) == 0) continue;
+            if (process_demand_fault(proc, user, to_user, 0) == 0) continue;
+            return -EFAULT;
         }
 
         size_t step = remaining < page_left ? remaining : page_left;
@@ -168,6 +174,44 @@ static int copy_user_bytes(void *dst, const void *src, size_t size, int to_user)
             memcpy((void *)kern, kaddr, step);
         }
         spin_unlock(&proc->user_page_dir->lock);
+        user += step;
+        kern += step;
+        remaining -= step;
+    }
+    return 0;
+}
+
+/* Copy through already-present user mappings without invoking the demand or
+ * COW fault paths.  Callers that hold an object lock can use this for their
+ * common path, drop that lock and fault the range with user_access_ok_process
+ * only when this reports EFAULT, then retry without exposing half-committed
+ * object state. */
+static int copy_user_bytes_process_nofault(process_t *proc, void *dst, const void *src, size_t size, int to_user)
+{
+    uintptr_t user = (uintptr_t)(to_user ? dst : src);
+    uintptr_t kern = (uintptr_t)(to_user ? src : dst);
+    size_t    remaining;
+
+    if (!proc || !proc->user_page_dir || !user_range_ok((const void *)user, size)) return -EFAULT;
+    remaining = size;
+
+    while (remaining) {
+        void  *kaddr;
+        size_t page_left;
+
+        spin_lock(&proc->user_page_dir->lock);
+        if (!user_translate(proc, user, to_user, &kaddr, &page_left)) {
+            spin_unlock(&proc->user_page_dir->lock);
+            return -EFAULT;
+        }
+
+        size_t step = remaining < page_left ? remaining : page_left;
+        if (to_user)
+            memcpy(kaddr, (const void *)kern, step);
+        else
+            memcpy((void *)kern, kaddr, step);
+        spin_unlock(&proc->user_page_dir->lock);
+
         user += step;
         kern += step;
         remaining -= step;
@@ -185,14 +229,55 @@ int copy_to_user(void *dst, const void *src, size_t size)
     return copy_user_bytes(dst, src, size, 1);
 }
 
+int copy_from_user_process_nofault(process_t *proc, void *dst, const void *src, size_t size)
+{
+    return copy_user_bytes_process_nofault(proc, dst, src, size, 0);
+}
+
+int copy_to_user_process_nofault(process_t *proc, void *dst, const void *src, size_t size)
+{
+    return copy_user_bytes_process_nofault(proc, dst, src, size, 1);
+}
+
+int strnlen_user(const char *src, size_t max_size)
+{
+    if (!src || !max_size) return -EFAULT;
+
+    char   buffer[256];
+    size_t copied = 0;
+    while (copied < max_size) {
+        size_t count = max_size - copied;
+        if (count > sizeof(buffer)) count = sizeof(buffer);
+        size_t page_left = PAGE_4K_SIZE - (((uintptr_t)src + copied) & (PAGE_4K_SIZE - 1));
+        if (count > page_left) count = page_left;
+        int ret = copy_from_user(buffer, src + copied, count);
+        if (ret) return ret;
+        char *end = memchr(buffer, '\0', count);
+        if (end) return (int)(copied + (size_t)(end - buffer) + 1);
+        copied += count;
+    }
+    return -ENAMETOOLONG;
+}
+
 int strncpy_from_user(char *dst, const char *src, size_t max_size)
 {
     if (!dst || !src || !max_size) return -EFAULT;
 
-    for (size_t i = 0; i < max_size; i++) {
-        int ret = copy_from_user(dst + i, src + i, 1);
+    char   buffer[256];
+    size_t copied = 0;
+    while (copied < max_size) {
+        size_t count = max_size - copied;
+        if (count > sizeof(buffer)) count = sizeof(buffer);
+        size_t page_left = PAGE_4K_SIZE - (((uintptr_t)src + copied) & (PAGE_4K_SIZE - 1));
+        if (count > page_left) count = page_left;
+        int ret = copy_from_user(buffer, src + copied, count);
         if (ret) return ret;
-        if (!dst[i]) return (int)i;
+
+        char  *end    = memchr(buffer, '\0', count);
+        size_t amount = end ? (size_t)(end - buffer) + 1 : count;
+        memcpy(dst + copied, buffer, amount);
+        if (end) return (int)(copied + amount - 1);
+        copied += amount;
     }
     dst[max_size - 1] = '\0';
     return -ENAMETOOLONG;

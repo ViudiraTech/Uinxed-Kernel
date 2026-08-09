@@ -73,3 +73,11 @@ make.log
 *.bak
 *.img
 *.log
+
+# Generated initramfs/rootfs staging artifacts
+/assets/Limine/initramfs.cpio
+/assets/Limine/initramfs.cpio.gz
+/initramfs.cpio
+/initramfs.cpio.gz
+/etc/
+/usr/

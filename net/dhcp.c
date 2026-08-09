@@ -10,6 +10,7 @@
 
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <libs/std/string.h>
 #include <net/dhcp.h>
 #include <net/endian.h>
@@ -19,11 +20,10 @@
 #define DHCP_CLIENT_PORT      68U
 #define DHCP_FIXED_LENGTH     240U
 #define DHCP_PACKET_CAPACITY  576U
-#define DHCP_TICKS_PER_SECOND 100U
+#define DHCP_TICKS_PER_SECOND TIMER_HZ
 #define DHCP_INITIAL_RETRY    DHCP_TICKS_PER_SECOND
 #define DHCP_MAX_RETRY        (16U * DHCP_TICKS_PER_SECOND)
 #define DHCP_RETRY_LIMIT      5U
-#define DHCP_RESTART_DELAY    (30U * DHCP_TICKS_PER_SECOND)
 #define DHCP_DEFAULT_LEASE    3600U
 #define DHCP_MAGIC_COOKIE     0x63825363U
 
@@ -56,6 +56,7 @@ typedef enum dhcp_state {
     DHCP_STATE_RENEWING,
     DHCP_STATE_REBINDING,
     DHCP_STATE_RESTART,
+    DHCP_STATE_DORMANT,
 } dhcp_state_t;
 
 typedef struct dhcp_client {
@@ -410,8 +411,12 @@ static void dhcp_advance(dhcp_client_t *client, uint64_t now)
     }
     if ((client->state == DHCP_STATE_SELECTING || client->state == DHCP_STATE_REQUESTING) && now >= client->next_action) {
         if (client->retries >= DHCP_RETRY_LIMIT) {
-            plogk("dhcp: %s: no reply after %u attempts, restarting.\n", client->device->name, (unsigned)DHCP_RETRY_LIMIT);
-            dhcp_schedule_restart(client, now, (uint64_t)DHCP_RESTART_DELAY);
+            plogk("dhcp: %s: no reply after %u attempts; suspended until the link changes.\n", client->device->name,
+                  (unsigned)DHCP_RETRY_LIMIT);
+            dhcp_clear_configuration(client);
+            client->state       = DHCP_STATE_DORMANT;
+            client->next_action = 0;
+            client->retries     = 0;
             return;
         }
         dhcp_send(client, client->state == DHCP_STATE_SELECTING ? DHCP_DISCOVER : DHCP_REQUEST, 1);

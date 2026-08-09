@@ -132,14 +132,24 @@ static int vma_remove_range(process_t *proc, uintptr_t start, uintptr_t end)
         *right       = *vma;
         right->start = end;
         right->vm_pgoff += (end - vma->start) / PAGE_4K_SIZE;
+        if (right->vm_file) {
+            right->vm_file = vfs_node_retain(vma->vm_file);
+            if (!right->vm_file) {
+                free(right);
+                spin_unlock(&proc->mmap_lock);
+                return -ENOENT;
+            }
+            if (right->vm_pagecache && vfs_cache_mapping_pin(right->vm_file) != EOK) {
+                vfs_close(right->vm_file);
+                free(right);
+                spin_unlock(&proc->mmap_lock);
+                return -EIO;
+            }
+            memfd_vma_retain(right->vm_file, right->flags);
+        }
         right->next = vma->next;
         vma->end    = start;
         vma->next   = right;
-        if (right->vm_file) {
-            right->vm_file->refcount++;
-            if (right->vm_pagecache) (void)vfs_cache_mapping_pin(right->vm_file);
-            memfd_vma_retain(right->vm_file, right->flags);
-        }
         prev = &vma->next;
     }
     spin_unlock(&proc->mmap_lock);
@@ -242,11 +252,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         spin_lock(&proc->fd_lock);
         if ((int64_t)fd < PROCESS_MAX_FD) {
             file = proc->fds[(int)fd];
-            if (file) {
-                spin_lock(&file->lock);
-                file->refcount++;
-                spin_unlock(&file->lock);
-            }
+            if (file) process_file_get(file);
         }
         spin_unlock(&proc->fd_lock);
 
@@ -258,7 +264,13 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         }
         size_t file_offset = (size_t)offset;
 
-        if (memfd_is_node(file->node) && (flags & MAP_SHARED)) {
+        /* memfd mappings need their page-backed implementation for both
+         * MAP_SHARED and MAP_PRIVATE.  Falling a private memfd mapping back
+         * to the generic lazy file path loses its contents because memfd I/O
+         * is implemented by the per-open file_read callback.  Wayland maps
+         * its received XKB keymap memfd MAP_PRIVATE, so that fallback turns a
+         * valid keymap into an all-zero page. */
+        if (memfd_is_node(file->node)) {
             vm_area_t *vma = calloc(1, sizeof(*vma));
             if (!vma) {
                 process_file_put(file);
@@ -268,19 +280,25 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
             vma->end      = mmap_addr + pages;
             vma->flags    = vm_flags;
             vma->type     = VM_REGION_MMAP;
-            vma->vm_file  = file->node;
+            vma->vm_file  = vfs_node_retain(file->node);
             vma->vm_pgoff = offset / PAGE_4K_SIZE;
-            vma->vm_file->refcount++;
+            if (!vma->vm_file) {
+                free(vma);
+                process_file_put(file);
+                return -ENOENT;
+            }
 
             int ret = memfd_map(file->node, proc, mmap_addr, pages, offset, vm_flags);
             if (ret) {
-                vma->vm_file->refcount--;
+                vfs_close(vma->vm_file);
                 free(vma);
                 process_file_put(file);
                 return ret;
             }
             if (vm_area_insert(proc, vma)) {
-                vma->vm_file->refcount--;
+                (void)unmap_physical_pages(proc, mmap_addr, pages);
+                memfd_vma_release(vma->vm_file, vma->flags);
+                vfs_close(vma->vm_file);
                 free(vma);
                 process_file_put(file);
                 return -ENOMEM;
@@ -337,13 +355,17 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
             vma->end      = mmap_addr + pages;
             vma->flags    = vm_flags;
             vma->type     = VM_REGION_MMAP;
-            vma->vm_file  = file->node;
+            vma->vm_file  = vfs_node_retain(file->node);
             vma->vm_pgoff = offset / PAGE_4K_SIZE;
-            vma->vm_file->refcount++; /* VMA holds a reference */
+            if (!vma->vm_file) {
+                free(vma);
+                process_file_put(file);
+                return -ENOENT;
+            }
 
             void *result = callbackof(file->node, file_mmap)(file->node, file->private_data, file_offset, pages, vm_flags, vma);
             if (!result) {
-                vma->vm_file->refcount--;
+                vfs_close(vma->vm_file);
                 free(vma);
                 process_file_put(file);
                 return -ENODEV;
@@ -351,7 +373,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
 
             uintptr_t backing = (uintptr_t)result;
             if (backing & (PAGE_4K_SIZE - 1)) {
-                vma->vm_file->refcount--;
+                vfs_close(vma->vm_file);
                 free(vma);
                 process_file_put(file);
                 return -EINVAL;
@@ -365,7 +387,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
                 if (!retained || page_map_new_to(proc->user_page_dir, mmap_addr + mapped, frame, pte_flags) < 0) {
                     if (retained) (void)frame_release_range(frame, 1);
                     (void)unmap_physical_pages(proc, mmap_addr, mapped);
-                    vma->vm_file->refcount--;
+                    vfs_close(vma->vm_file);
                     free(vma);
                     process_file_put(file);
                     return -ENOMEM;
@@ -374,7 +396,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
 
             if (vm_area_insert(proc, vma)) {
                 (void)unmap_physical_pages(proc, mmap_addr, pages);
-                vma->vm_file->refcount--;
+                vfs_close(vma->vm_file);
                 free(vma);
                 process_file_put(file);
                 return -ENOMEM;
@@ -668,7 +690,99 @@ int64_t sys_mremap(uint64_t old_addr, uint64_t old_len, uint64_t new_len, uint64
         return result ? result : (int64_t)old_addr;
     }
 
-    /* File, device, and shared-memory VMAs have no transactional growth contract yet. */
+    /* A Wayland wl_shm_pool starts small and is grown with
+     * mremap(MREMAP_MAYMOVE).  memfd VMAs are eagerly backed by the memfd's
+     * physical pages, so extend the mapping in place when the following
+     * address range is free.  memfd_map() accounts one VMA per invocation;
+     * neutralize the temporary accounting entry because this is still the
+     * same VMA. */
+    if (vma->vm_file && memfd_is_node(vma->vm_file)) {
+        uintptr_t extension_start = (uintptr_t)old_addr + old_pages;
+        uintptr_t extension_end   = (uintptr_t)old_addr + new_pages;
+        bool      extension_free  = true;
+        for (vm_area_t *other = proc->mmap_list; other; other = other->next) {
+            if (other != vma && extension_start < other->end && extension_end > other->start) {
+                extension_free = false;
+                break;
+            }
+        }
+
+        if (extension_free) {
+            uint64_t file_offset = vma->vm_pgoff * PAGE_4K_SIZE + old_pages;
+            int      result      = memfd_map(vma->vm_file, proc, extension_start, new_pages - old_pages, file_offset, vma->flags);
+            if (!result) {
+                memfd_vma_release(vma->vm_file, vma->flags);
+                vma->end = extension_end;
+                spin_unlock(&proc->mmap_lock);
+                return (int64_t)old_addr;
+            }
+            if (!(flags & MREMAP_MAYMOVE)) {
+                spin_unlock(&proc->mmap_lock);
+                return result;
+            }
+        } else if (!(flags & MREMAP_MAYMOVE)) {
+            spin_unlock(&proc->mmap_lock);
+            return -ENOMEM;
+        }
+
+        /* A private writable mapping may contain COW pages that no longer
+         * match the memfd backing.  Moving it by remapping the file would
+         * discard those writes, so only shared memfd VMAs use this fallback. */
+        if (!(vma->flags & VM_SHARED)) {
+            spin_unlock(&proc->mmap_lock);
+            return -ENOMEM;
+        }
+
+        vfs_node_t vm_file  = vma->vm_file;
+        vm_flags_t vm_flags = vma->flags;
+        uint64_t   vm_pgoff = vma->vm_pgoff;
+        spin_unlock(&proc->mmap_lock);
+
+        uintptr_t target = find_free_vma_range(proc, new_pages);
+        if (!target) return -ENOMEM;
+        int result = memfd_map(vm_file, proc, target, new_pages, vm_pgoff * PAGE_4K_SIZE, vm_flags);
+        if (result) return result;
+
+        spin_lock(&proc->mmap_lock);
+        vma = proc->mmap_list;
+        while (vma && vma->start != (uintptr_t)old_addr) vma = vma->next;
+        bool valid = vma && vma->end == (uintptr_t)old_addr + old_pages && vma->vm_file == vm_file && vma->flags == vm_flags
+                     && vma->vm_pgoff == vm_pgoff;
+        for (vm_area_t *other = proc->mmap_list; valid && other; other = other->next)
+            if (other != vma && target < other->end && target + new_pages > other->start) valid = false;
+
+        if (!valid) {
+            spin_unlock(&proc->mmap_lock);
+            (void)unmap_physical_pages(proc, target, new_pages);
+            memfd_vma_release(vm_file, vm_flags);
+            return -ENOMEM;
+        }
+
+        result = unmap_physical_pages(proc, (uintptr_t)old_addr, old_pages);
+        if (result) {
+            spin_unlock(&proc->mmap_lock);
+            (void)unmap_physical_pages(proc, target, new_pages);
+            memfd_vma_release(vm_file, vm_flags);
+            return result;
+        }
+
+        /* Remove and reinsert the VMA so the process list remains sorted. */
+        vm_area_t **link = &proc->mmap_list;
+        while (*link && *link != vma) link = &(*link)->next;
+        *link      = vma->next;
+        vma->start = target;
+        vma->end   = target + new_pages;
+        link       = &proc->mmap_list;
+        while (*link && (*link)->start < vma->start) link = &(*link)->next;
+        vma->next = *link;
+        *link     = vma;
+        memfd_vma_release(vm_file, vm_flags);
+        spin_unlock(&proc->mmap_lock);
+        return (int64_t)target;
+    }
+
+    /* Other file, device, and shared-memory VMAs still have no
+     * transactional growth contract. */
     if (vma->vm_file || vma->vm_private_data || vma->type == VM_REGION_SHM) {
         spin_unlock(&proc->mmap_lock);
         return -ENOMEM;

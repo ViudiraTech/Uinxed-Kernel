@@ -21,6 +21,7 @@
 #include <kernel/errno.h>
 #include <kernel/module.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <kernel/uinxed.h>
 #include <libs/std/stdarg.h>
 #include <libs/std/stddef.h>
@@ -92,6 +93,7 @@ typedef enum procfs_pid_file_type {
     PROC_PID_STATM,
     PROC_PID_LIMITS,
     PROC_PID_IO,
+    PROC_PID_OOM_SCORE_ADJ,
 } procfs_pid_file_type_t;
 
 typedef enum procfs_type {
@@ -222,7 +224,7 @@ static vfs_node_t procfs_ensure_child(vfs_node_t parent, const char *name, procf
         pf->subtype = subtype;
     }
 
-    child->flags &= ~(VFS_NODE_UNLINKED | VFS_NODE_UNLINKING | VFS_NODE_FINALIZING | VFS_NODE_CLOSED);
+    child->flags &= ~(VFS_NODE_UNLINKED | VFS_NODE_UNLINKING | VFS_NODE_FINALIZING | VFS_NODE_INITIALIZING);
     child->flags |= VFS_NODE_NOCACHE;
     child->type = node_type;
     return child;
@@ -267,8 +269,13 @@ static void gen_info_stat(procfs_file_t *pf)
         }
     }
     if (remaining > 0) {
-        n = snprintf(p, remaining, "intr %llu\nctxt %llu\nbtime %llu\nprocesses %llu\nprocs_running %u\nprocs_blocked %u\n", 0ULL, 0ULL, 0ULL,
-                     scheduler.next_pid, cpu_rqs[0].nr_running + 1, 0U);
+        uint64_t uptime_seconds = timer_monotonic_ns() / TIMER_NSEC_PER_SEC;
+        int64_t  realtime       = timer_realtime_ns();
+        uint64_t boot_time      = realtime > 0 && (uint64_t)realtime / TIMER_NSEC_PER_SEC >= uptime_seconds
+                                      ? (uint64_t)realtime / TIMER_NSEC_PER_SEC - uptime_seconds
+                                      : 0;
+        n = snprintf(p, remaining, "intr %llu\nctxt %llu\nbtime %llu\nprocesses %llu\nprocs_running %u\nprocs_blocked %u\n", 0ULL, 0ULL,
+                     boot_time, scheduler.next_pid, cpu_rqs[0].nr_running + 1, 0U);
         p += n;
     }
 
@@ -514,7 +521,7 @@ static void gen_info_uptime(procfs_file_t *pf)
     char *buf = malloc(128);
     if (!buf) return;
 
-    uint64_t ns       = tsc_nano_time();
+    uint64_t ns       = timer_monotonic_ns();
     uint64_t seconds  = ns / 1000000000ULL;
     uint64_t centisec = (ns % 1000000000ULL) / 10000000ULL;
     uint64_t idle     = seconds;
@@ -1064,7 +1071,7 @@ static void gen_pid_status(procfs_file_t *pf)
                      "voluntary_ctxt_switches:\t0\n"
                      "nonvoluntary_ctxt_switches:\t0\n",
                      proc->task->name, state_str, (uint64_t)pf->pid, (uint64_t)pf->pid, (uint64_t)ppid, (uint64_t)ptrace_tracer_pid(proc->task),
-                     proc->uid, proc->uid, proc->uid, proc->uid, proc->gid, proc->gid, proc->gid, proc->gid, 0U, 0U, vmsize / 1024, vmrss / 1024,
+                     proc->uid, proc->uid, proc->uid, proc->fsuid, proc->gid, proc->gid, proc->gid, proc->fsgid, 0U, 0U, vmsize / 1024, vmrss / 1024,
                      vmdata / 1024, vmstack / 1024);
 
     pf->content  = buf;
@@ -1319,6 +1326,16 @@ static void gen_pid_io(procfs_file_t *pf)
     pf->content  = buf;
     pf->size     = n < 0 ? 0 : (size_t)n;
     pf->capacity = 256;
+}
+
+static void gen_pid_oom_score_adj(procfs_file_t *pf)
+{
+    char *buf = malloc(16);
+    if (!buf) return;
+    int n        = snprintf(buf, 16, "0\n");
+    pf->content  = buf;
+    pf->size     = n < 0 ? 0 : (size_t)n;
+    pf->capacity = 16;
 }
 
 /* Resolve the Linux /proc/<pid>/fd/<n> target for an open file description. */
@@ -1592,6 +1609,9 @@ static void procfs_gen_content(procfs_file_t *pf, vfs_node_t node)
                 case PROC_PID_IO :
                     gen_pid_io(pf);
                     break;
+                case PROC_PID_OOM_SCORE_ADJ :
+                    gen_pid_oom_score_adj(pf);
+                    break;
                 default :
                     break;
             }
@@ -1738,6 +1758,7 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
             if (streq(name, "statm")) subtype = PROC_PID_STATM;
             if (streq(name, "limits")) subtype = PROC_PID_LIMITS;
             if (streq(name, "io")) subtype = PROC_PID_IO;
+            if (streq(name, "oom_score_adj")) subtype = PROC_PID_OOM_SCORE_ADJ;
             if (subtype >= 0) {
                 pf->type    = PROCFS_PID_FILE;
                 pf->pid     = ppf->pid;
@@ -2002,17 +2023,24 @@ static int procfs_stat(void *file, vfs_node_t node)
             (void)procfs_ensure_child(node, "thread-self", PROCFS_SELF_LINK, 0, 1, file_symlink);
 
             procfs_deactivate_pid_nodes(node);
-            size_t     pos = 0;
-            process_t *proc;
-            while ((proc = process_iterate_get(&pos))) {
+            /* procfs_stat() runs under the VFS namespace lock.  Do not take
+             * and then drop process references here: process_put() is allowed
+             * to run the final destructor, which closes descriptors and
+             * recursively enters the VFS namespace.  A PID-only snapshot is
+             * sufficient for constructing /proc/<pid> names and also avoids
+             * repeatedly locking the process table once per entry. */
+            pid_t *pids = malloc(PROCESS_TABLE_SIZE * sizeof(*pids));
+            if (!pids) return -ENOMEM;
+            size_t pid_count = process_snapshot_pids(pids, PROCESS_TABLE_SIZE);
+            for (size_t pos = 0; pos < pid_count; pos++) {
                 char  pid_str[16];
-                pid_t pid = proc->task ? (pid_t)proc->task->tgid : 0;
+                pid_t pid = pids[pos];
                 if (pid > 0) {
                     (void)snprintf(pid_str, sizeof(pid_str), "%llu", (uint64_t)pid);
                     (void)procfs_ensure_child(node, pid_str, PROCFS_PID_DIR, pid, 0, file_dir);
                 }
-                process_put(proc);
             }
+            free(pids);
             break;
         }
         case PROCFS_PID_DIR : {
@@ -2039,6 +2067,7 @@ static int procfs_stat(void *file, vfs_node_t node)
                 {"statm",     PROC_PID_STATM    },
                 {"limits",    PROC_PID_LIMITS   },
                 {"io",        PROC_PID_IO       },
+                {"oom_score_adj", PROC_PID_OOM_SCORE_ADJ},
             };
             for (size_t i = 0; i < sizeof(pid_tab) / sizeof(pid_tab[0]); i++)
                 (void)procfs_ensure_child(node, pid_tab[i].name, PROCFS_PID_FILE, pf->pid, pid_tab[i].subtype, file_none);
@@ -2160,6 +2189,25 @@ static size_t procfs_write(void *file, const void *addr, size_t offset, size_t s
     return size;
 }
 
+static int64_t procfs_file_write(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
+{
+    (void)flags;
+    procfs_file_t *pf = private_data ? private_data : node ? node->handle : NULL;
+    if (!pf || (!addr && size)) return -EINVAL;
+    if (offset != 0) return -EINVAL;
+
+    if (pf->type == PROCFS_SYS_FILE) {
+        size_t written = procfs_write(pf, addr, offset, size);
+        return written == size ? (int64_t)written : -EINVAL;
+    }
+
+    /* eudevd writes "0" here before processing each event.  The kernel does
+     * not currently implement OOM scoring, but the Linux control-file ABI
+     * still requires a successful, consuming write. */
+    if (pf->type == PROCFS_PID_FILE && pf->subtype == PROC_PID_OOM_SCORE_ADJ) return (int64_t)size;
+    return -EACCES;
+}
+
 static int procfs_mkdir(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
@@ -2188,6 +2236,18 @@ static int procfs_rename(void *current, const char *new_name)
     (void)current;
     (void)new_name;
     return -EROFS;
+}
+
+static int procfs_resize(void *current, uint64_t size)
+{
+    (void)size;
+    procfs_file_t *pf = current;
+    if (!pf) return -EINVAL;
+    /* Writable proc control files accept O_TRUNC as part of fopen("w").
+     * Their contents are synthetic, so truncation has no persistent data to
+     * discard. */
+    if (pf->type == PROCFS_PID_FILE && pf->subtype == PROC_PID_OOM_SCORE_ADJ) return EOK;
+    return -EOPNOTSUPP;
 }
 
 static int procfs_free(void *handle)
@@ -2256,6 +2316,8 @@ static struct vfs_callback procfs_callbacks = {
     .file_open    = procfs_file_open,
     .file_release = procfs_file_release,
     .file_read    = procfs_file_read,
+    .file_write   = procfs_file_write,
+    .resize       = procfs_resize,
 };
 
 /* ------------------------------------------------------------------ */

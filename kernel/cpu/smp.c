@@ -39,6 +39,7 @@ static volatile uint64_t  ap_ready_count = 0;
 static volatile uint64_t  tlb_shootdown_generation;
 static volatile uint64_t *tlb_shootdown_ack;
 static volatile uint32_t  smp_ready;
+static volatile uint32_t  smp_tsc_aux_ready;
 spinlock_t                ap_start_lock = {0};
 static spinlock_t         tlb_shootdown_lock;
 
@@ -169,8 +170,18 @@ uint32_t get_cpu_count(void)
 /* Get the ID of the current CPU */
 uint32_t get_current_cpu_id(void)
 {
+    /* LAPIC ID reads are MMIO in xAPIC mode and particularly expensive under
+     * emulation.  IA32_TSC_AUX is core-local and RDTSCP returns it directly,
+     * making current_task()/process_current() cheap enough for syscall hot
+     * paths.  Keep the LAPIC lookup as the early-boot/unsupported fallback. */
+    if (__atomic_load_n(&smp_tsc_aux_ready, __ATOMIC_ACQUIRE)) {
+        uint32_t cpu_id;
+        (void)rdtscp(&cpu_id);
+        if (cpu_id < cpu_count) return cpu_id;
+    }
+    uint64_t current_lapic_id = lapic_id();
     for (size_t i = 0; i < cpu_count; i++)
-        if (cpus[i].lapic_id == lapic_id()) return i;
+        if (cpus[i].lapic_id == current_lapic_id) return i;
     return 0; // Default to CPU 0 if not found
 }
 
@@ -178,10 +189,8 @@ uint32_t get_current_cpu_id(void)
 cpu_processor_t *get_current_cpu(void)
 {
     if (!cpus) return NULL;
-    uint32_t current_lapic_id = lapic_id();
-    for (size_t i = 0; i < cpu_count; i++)
-        if (cpus[i].lapic_id == current_lapic_id) return &cpus[i];
-    return NULL;
+    uint32_t cpu_id = get_current_cpu_id();
+    return cpu_id < cpu_count ? &cpus[cpu_id] : NULL;
 }
 
 /* Initialize the TSS for the AP  */
@@ -195,8 +204,8 @@ static void ap_init_tss(cpu_processor_t *cpu)
     uint64_t access_byte = (((uint64_t)(0x89)) << 40);
     uint64_t limit       = (uint64_t)(sizeof(tss_t) - 1);
 
-    cpu->gdt->entries[5] = (((low_base | mid_base) | limit) | access_byte);
-    cpu->gdt->entries[6] = high_base;
+    cpu->gdt->entries[7] = (((low_base | mid_base) | limit) | access_byte);
+    cpu->gdt->entries[8] = high_base;
     cpu->tss->ist[0]     = ALIGN_DOWN(((uint64_t)cpu->tss_stack) + sizeof(tss_stack_t), 16);
 
     /* Set kernel stack */
@@ -205,7 +214,7 @@ static void ap_init_tss(cpu_processor_t *cpu)
     cpu->tss->rsp[0]        = ALIGN_DOWN((uint64_t)cast.val + sizeof(kernel_stack_t), 16);
     cpu->syscall.kernel_rsp = cpu->tss->rsp[0];
 
-    __asm__ volatile("ltr %w[offset]" ::[offset] "rm"((uint16_t)0x28) : "memory");
+    __asm__ volatile("ltr %w[offset]" ::[offset] "rm"((uint16_t)0x38) : "memory");
 }
 
 /* Initialize the GDT for the AP */
@@ -216,6 +225,8 @@ static void ap_init_gdt(cpu_processor_t *cpu)
     cpu->gdt->entries[2] = 0x00c0920000000000; // Kernel data segment
     cpu->gdt->entries[3] = 0x00a0fa0000000000; // User code segment
     cpu->gdt->entries[4] = 0x00c0f20000000000; // User data segment
+    cpu->gdt->entries[5] = 0x00c0f20000000000; // SYSRET user data segment
+    cpu->gdt->entries[6] = 0x00a0fa0000000000; // SYSRET user code segment
 
     cpu->gdt->pointer = ((gdt_register_t) {
         .size = (uint16_t)(sizeof(gdt_entries_t) - 1),
@@ -249,6 +260,8 @@ void ap_entry(struct limine_smp_info *info)
 
     cast.val             = info->extra_argument;
     cpu_processor_t *cpu = (cpu_processor_t *)cast.ptr;
+
+    if (cpu_support_rdtscp()) wrmsr(0xC0000103, cpu->id); /* IA32_TSC_AUX */
 
     /* Initializing the GDT */
     ap_init_gdt(cpu);
@@ -314,6 +327,7 @@ void smp_init(void)
             pointer_cast_t cast;
             cast.ptr = cpus[i].kernel_stack;
             set_kernel_stack(ALIGN_DOWN((uint64_t)cast.val + sizeof(kernel_stack_t), 16ULL));
+            if (cpu_support_rdtscp()) wrmsr(0xC0000103, cpus[i].id); /* IA32_TSC_AUX */
             continue;
         }
         cpus[i].gdt = (gdt_t *)aligned_alloc(16, ALIGN_UP(sizeof(gdt_t), 16));
@@ -336,6 +350,7 @@ void smp_init(void)
 
     /* Wait for all APs to be ready */
     while (ap_ready_count < cpu_count - 1) __asm__ volatile("pause");
+    if (cpu_support_rdtscp()) __atomic_store_n(&smp_tsc_aux_ready, 1, __ATOMIC_RELEASE);
     __atomic_store_n(&smp_ready, 1, __ATOMIC_RELEASE);
     for (size_t i = 0; i < cpu_count; i++)
         plogk("smp: CPU %03u: tss_stack = %p, kernel_stack = %p\n", cpus[i].id, cpus[i].tss_stack, cpus[i].kernel_stack);

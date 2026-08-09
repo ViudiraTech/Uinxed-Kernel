@@ -15,6 +15,7 @@
 #include <drivers/gpu/drm_device.h>
 #include <drivers/gpu/drm_hashtab.h>
 #include <drivers/gpu/drm_print.h>
+#include <fs/core/vfs.h>
 #include <kernel/errno.h>
 #include <libs/glist/intrusive_list.h>
 #include <libs/std/stdbool.h>
@@ -42,6 +43,7 @@ struct drm_file *drm_file_alloc(struct drm_device *dev)
     drm_idr_init(&file->object_idr);
     ilist_init(&file->fbs_head);
     ilist_init(&file->object_list);
+    ilist_init(&file->blobs_head);
 
     if (drm_ht_create(&file->magiclist, 4)) {
         drm_idr_destroy(&file->object_idr);
@@ -173,6 +175,10 @@ int drm_send_event(struct drm_device *dev, struct drm_pending_vblank_event *e)
     e->file_ref = false;
     spin_unlock(&file_priv->event_lock);
     wait_queue_wake_all(&file_priv->event_wait);
+    /* Weston waits for page-flip completion through epoll on /dev/dri/card0.
+     * Waking only event_wait reaches blocking drm_read() callers but leaves
+     * VFS poll subscribers asleep forever, so publish POLLIN as well. */
+    if (file_priv->filp_unused) vfs_poll_notify((vfs_node_t)file_priv->filp_unused, 0x0001);
 
     if (e->destroy)
         e->destroy(e);
@@ -220,11 +226,12 @@ int drm_read(struct drm_file *file_priv, char *buf, size_t count, size_t *offset
     copy_size = node->event->length;
     spin_unlock(&file_priv->event_lock);
 
-    if (copy_to_user(buf, node->event, copy_size)) {
-        free(node->event);
-        free(node);
-        return -EFAULT;
-    }
+    /* VFS file_read callbacks receive a kernel bounce buffer from
+     * sys_read(); the syscall layer performs the single copy_to_user after
+     * this function returns.  Treating buf as a user pointer here makes the
+     * copy fail, drops the dequeued page-flip event, and leaves Weston
+     * waiting forever for its initial repaint completion. */
+    memcpy(buf, node->event, copy_size);
     free(node->event);
     free(node);
     return (int)copy_size;

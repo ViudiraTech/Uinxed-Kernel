@@ -14,6 +14,7 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <net/abi/inet.h>
+#include <proc/task.h>
 #include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */
@@ -188,6 +189,7 @@ typedef enum {
 #    define SOCK_BUF_SIZE 65536
 #endif
 #define SOCK_BUF_MAX 262144
+#define SOCK_RIGHTS_MAX 64
 
 typedef struct sock_buf {
         uint8_t   *data;
@@ -204,6 +206,7 @@ typedef struct sock_buf {
 
 typedef struct socket    socket_t;
 typedef struct sock_peer sock_peer_t;
+struct process_file;
 
 /* ------------------------------------------------------------------ */
 /*  Socket structure                                                    */
@@ -219,6 +222,13 @@ struct socket {
         /* Buffers */
         sock_buf_t recv_buf;
         sock_buf_t send_buf;
+
+        /* Open-file descriptions received through AF_UNIX SCM_RIGHTS.
+         * Each queued entry owns one process_file reference. */
+        struct process_file *rights[SOCK_RIGHTS_MAX];
+        uint16_t             rights_head;
+        uint16_t             rights_tail;
+        uint16_t             rights_count;
 
         /* Peer */
         socket_t          *peer;
@@ -271,6 +281,9 @@ struct socket {
 
         /* Lock */
         spinlock_t lock;
+
+        /* Race-free wait queue for blocking accept/send/recv operations. */
+        wait_queue_t waitq;
 };
 
 /* ------------------------------------------------------------------ */

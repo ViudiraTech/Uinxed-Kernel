@@ -414,11 +414,12 @@ static int drm_dummy_kms_setup(struct drm_device *dev)
 
 size_t drm_dev_read(void *file, void *addr, size_t offset, size_t size)
 {
-    (void)file;
-    (void)addr;
-    (void)offset;
-    (void)size;
-    return 0;
+    struct drm_file *file_priv = (struct drm_file *)file;
+    size_t           position  = offset;
+
+    if (!file_priv) return (size_t)-1;
+    int ret = drm_read(file_priv, (char *)addr, size, &position);
+    return ret < 0 ? (size_t)-1 : (size_t)ret;
 }
 
 size_t drm_dev_write(void *file, const void *addr, size_t offset, size_t size)
@@ -476,6 +477,10 @@ int drm_dev_open(void *node_ptr, uint64_t flags, void **private_data)
     vfs_node_t node = (vfs_node_t)node_ptr;
     process_t *proc = process_current();
     if (node && node->name && !strncmp(node->name, "card", 4) && proc && proc->uid == 0) file->authenticated = true;
+    /* drm_send_event() uses this stable device node to wake the VFS poll
+     * source watched by Weston's epoll loop.  Event readiness itself remains
+     * per-open and is checked through drm_poll(file, ...). */
+    file->filp_unused = node;
     *private_data = file;
     return 0;
 }
@@ -483,10 +488,8 @@ int drm_dev_open(void *node_ptr, uint64_t flags, void **private_data)
 void drm_dev_release(void *node_ptr, void *private_data)
 {
     (void)node_ptr;
-    if (private_data) {
-        drm_release((struct drm_file *)private_data);
-        free(private_data);
-    }
+    /* drm_release() tears down and frees the drm_file itself. */
+    if (private_data) drm_release((struct drm_file *)private_data);
 }
 
 int drm_dev_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg)
@@ -519,9 +522,7 @@ int drm_dev_file_poll(void *ctx, void *private_data, uint64_t flags, size_t even
 
 int drm_dev_poll(void *file, size_t events)
 {
-    (void)file;
-    (void)events;
-    return 0;
+    return (int)drm_poll((struct drm_file *)file, (unsigned int)events);
 }
 
 void *drm_dev_mmap(void *file, size_t offset, size_t size, int flags)

@@ -58,7 +58,8 @@
 #include <syscall/timerfd.h>
 
 #define SYSCALL_PATH_MAX VFS_PATH_MAX
-#define SYSCALL_IO_CHUNK 4096
+#define SYSCALL_IO_CHUNK 16384
+#define EXEC_STRING_MAX  (PROCESS_STACK_SIZE / 2)
 
 #define SYSCALL_STRINGIFY_INNER(value) #value
 #define SYSCALL_STRINGIFY(value)       SYSCALL_STRINGIFY_INNER(value)
@@ -78,9 +79,14 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
 #define CLONE_SETTLS           0x00080000ULL
 #define CLONE_PARENT_SETTID    0x00100000ULL
 #define CLONE_CHILD_CLEARTID   0x00200000ULL
+#define CLONE_DETACHED         0x00400000ULL
 #define CLONE_CHILD_SETTID     0x01000000ULL
 #define CLONE_PTHREAD_REQUIRED (CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM)
-#define CLONE_PTHREAD_ALLOWED  (CLONE_PTHREAD_REQUIRED | CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)
+/* CLONE_DETACHED has been ignored by Linux since 2.6.2, but musl still sets
+ * it in pthread_create().  Accepting it as a no-op is required for the Linux
+ * clone ABI; rejecting it makes pthread_create return EINVAL. */
+#define CLONE_PTHREAD_ALLOWED                                                                                                            \
+    (CLONE_PTHREAD_REQUIRED | CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_DETACHED)
 
 #define AT_FDCWD              PROCESS_AT_FDCWD
 #define AT_SYMLINK_NOFOLLOW   0x100
@@ -95,6 +101,8 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
 #define STATX_MNT_ID          0x00001000U
 #define STATX_ATTR_MOUNT_ROOT 0x00002000ULL
 #define PIDFD_NONBLOCK        0x800ULL
+#define CLOSE_RANGE_UNSHARE   (1U << 1)
+#define CLOSE_RANGE_CLOEXEC   (1U << 2)
 
 typedef struct {
         int16_t l_type;
@@ -181,20 +189,6 @@ typedef struct {
         uint32_t                stx_dio_read_offset_align;
         uint64_t                __spare3[9];
 } linux_statx_t;
-
-/* Check if the filesystem containing this node is mounted read-only.
- * Walk up to the nearest mount point and inspect its flags. */
-static int vfs_mount_is_readonly(vfs_node_t node)
-{
-    /* Walk up to the mount root */
-    vfs_node_t cur = node;
-    while (cur) {
-        if (cur->is_mount) return (cur->flags & MOUNT_FLAG_RDONLY) != 0;
-        if (cur == cur->parent) break;
-        cur = cur->parent;
-    }
-    return 0;
-}
 
 static int copy_path_from_user(uint64_t upath, char path[SYSCALL_PATH_MAX])
 {
@@ -441,7 +435,7 @@ static int64_t sys_sched_yield(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint
 
 static uint64_t clock_sleep_now_ns(int clockid)
 {
-    uint64_t uptime_ns = sched_ticks() * TIMER_TICK_NS;
+    uint64_t uptime_ns = timer_monotonic_ns();
     if (clockid != TIMER_CLOCK_REALTIME) return uptime_ns;
 
     int64_t realtime_ns = timer_realtime_ns();
@@ -726,7 +720,6 @@ static int64_t sys_openat(uint64_t dirfd, uint64_t path, uint64_t flags, uint64_
 
 static int64_t sys_close_range(uint64_t first, uint64_t last, uint64_t flags, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)flags;
     (void)arg3;
     (void)arg4;
     (void)arg5;
@@ -734,9 +727,31 @@ static int64_t sys_close_range(uint64_t first, uint64_t last, uint64_t flags, ui
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     if (first > last) return -EINVAL;
+    if (flags & ~(uint64_t)(CLOSE_RANGE_UNSHARE | CLOSE_RANGE_CLOEXEC)) return -EINVAL;
+
+    /* Uinxed currently keeps one descriptor table per process.  It cannot
+     * unshare that table for only the calling thread yet; rejecting the flag
+     * lets libc fall back instead of silently changing other threads' fds. */
+    if (flags & CLOSE_RANGE_UNSHARE) return -EINVAL;
+
+    if (first >= PROCESS_MAX_FD) return EOK;
+    uint64_t end = last < (uint64_t)(PROCESS_MAX_FD - 1) ? last : (uint64_t)(PROCESS_MAX_FD - 1);
+
+    /* CLOSE_RANGE_CLOEXEC does not close anything.  Linux userspace uses it
+     * to prepare a child for exec while retaining selected descriptors; in
+     * particular OpenRC marks its readiness pipes here and fixes up the one
+     * it passes to the daemon immediately afterwards. */
+    if (flags & CLOSE_RANGE_CLOEXEC) {
+        spin_lock(&proc->fd_lock);
+        for (uint64_t fd = first; fd <= end; fd++) {
+            if (proc->fds[fd]) proc->fd_flags[fd] |= FD_CLOEXEC;
+        }
+        spin_unlock(&proc->fd_lock);
+        return EOK;
+    }
 
     int status = 0;
-    for (uint64_t fd = first; fd <= last && fd < PROCESS_MAX_FD; fd++) {
+    for (uint64_t fd = first; fd <= end; fd++) {
         int ret = process_fd_close(proc, (int)fd);
         if (ret != EOK && ret != -EBADF) status = ret;
     }
@@ -775,18 +790,7 @@ static int64_t sys_read(uint64_t fd, uint64_t buf, uint64_t size, uint64_t arg3,
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    uint8_t tmp[SYSCALL_IO_CHUNK];
-    size_t  done = 0;
-    while (done < size) {
-        size_t  chunk = (size - done) < sizeof(tmp) ? (size - done) : sizeof(tmp);
-        int64_t ret   = process_fd_read(proc, (int)fd, tmp, chunk);
-        if (ret < 0) return done ? (int64_t)done : ret;
-        if (!ret) break;
-        if (copy_to_user((void *)(buf + done), tmp, (size_t)ret)) return done ? (int64_t)done : -EFAULT;
-        done += (size_t)ret;
-        if ((size_t)ret < chunk) break;
-    }
-    return (int64_t)done;
+    return process_fd_read_user(proc, (int)fd, (void *)buf, (size_t)size);
 }
 
 static int64_t sys_write(uint64_t fd, uint64_t buf, uint64_t size, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -799,28 +803,10 @@ static int64_t sys_write(uint64_t fd, uint64_t buf, uint64_t size, uint64_t arg3
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    /* Check for read-only mount */
-    {
-        process_file_t *pf = process_fd_get(proc, (int)fd);
-        if (pf) {
-            int ro = vfs_mount_is_readonly(pf->node);
-            process_file_put(pf);
-            if (ro) return -EROFS;
-        }
-    }
-
-    uint8_t tmp[SYSCALL_IO_CHUNK];
-    size_t  done = 0;
-    while (done < size) {
-        size_t chunk = (size - done) < sizeof(tmp) ? (size - done) : sizeof(tmp);
-        if (copy_from_user(tmp, (const void *)(buf + done), chunk)) { return done ? (int64_t)done : -EFAULT; }
-        int64_t ret = process_fd_write(proc, (int)fd, tmp, chunk);
-        if (ret < 0) return done ? (int64_t)done : ret;
-        if (!ret) break;
-        done += (size_t)ret;
-        if ((size_t)ret < chunk) break;
-    }
-    return (int64_t)done;
+    /* The VFS fallback still invokes zero-length writes, preserving empty
+     * datagram semantics without forcing every ordinary write through a
+     * syscall-layer bounce buffer. */
+    return process_fd_write_user(proc, (int)fd, (const void *)buf, (size_t)size);
 }
 
 static int64_t sys_arch_prctl(uint64_t code, uint64_t addr, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -919,7 +905,11 @@ static int64_t sys_ioctl(uint64_t fd, uint64_t req, uint64_t arg, uint64_t arg3,
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
 
-    return process_fd_ioctl(proc, (int)fd, (size_t)req, (void *)arg);
+    /* Linux's ioctl(2) command argument is an unsigned int.  Some libc
+     * declarations expose it as int, so read-direction commands such as
+     * TIOCGPTN (0x80045430) can arrive sign-extended in the 64-bit syscall
+     * register.  Truncate at the ABI boundary before matching commands. */
+    return process_fd_ioctl(proc, (int)fd, (size_t)(uint32_t)req, (void *)arg);
 }
 
 static int64_t sys_fstat(uint64_t fd, uint64_t statbuf, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -1214,9 +1204,22 @@ static int64_t sys_rename(uint64_t oldpath, uint64_t newpath, uint64_t arg2, uin
     if (ret != EOK) return ret;
     ret = copy_resolved_path_at(proc, AT_FDCWD, newpath, newname);
     if (ret != EOK) return ret;
-    vfs_node_t node = vfs_open(oldname);
+    vfs_node_t node = vfs_open_nofollow(oldname);
     if (!node) return -ENOENT;
-    ret = vfs_rename(node, path_basename(newname));
+    char oldparent[SYSCALL_PATH_MAX];
+    char newparent[SYSCALL_PATH_MAX];
+    memcpy(oldparent, oldname, sizeof(oldparent));
+    memcpy(newparent, newname, sizeof(newparent));
+    vfs_node_t olddir = vfs_open_parent_of(oldparent);
+    vfs_node_t newdir = vfs_open_parent_of(newparent);
+    if (!olddir || !newdir)
+        ret = -ENOENT;
+    else if (olddir != newdir)
+        ret = -EXDEV;
+    else
+        ret = vfs_rename(node, path_basename(newname));
+    if (olddir) vfs_close(olddir);
+    if (newdir) vfs_close(newdir);
     vfs_close(node);
     return ret;
 }
@@ -1829,11 +1832,7 @@ static int64_t sys_ftruncate_stub(uint64_t fd, uint64_t length, uint64_t arg2, u
     spin_lock(&proc->fd_lock);
     if ((int)fd >= 0 && (int)fd < PROCESS_MAX_FD) {
         file = proc->fds[(int)fd];
-        if (file) {
-            spin_lock(&file->lock);
-            file->refcount++;
-            spin_unlock(&file->lock);
-        }
+        if (file) process_file_get(file);
     }
     spin_unlock(&proc->fd_lock);
     if (!file) return -EBADF;
@@ -1892,8 +1891,7 @@ static int64_t sys_clock_gettime_stub(uint64_t clockid, uint64_t tp, uint64_t ar
     (void)arg5;
     if (!tp) return -EFAULT;
 
-    uint64_t         ticks     = sched_ticks();
-    int64_t          uptime_ns = (int64_t)(ticks * 10000000LL);
+    int64_t          uptime_ns = (int64_t)timer_monotonic_ns();
     linux_timespec_t ts;
 
     switch ((int)clockid) {
@@ -2014,9 +2012,9 @@ static int64_t sys_getrusage_impl(uint64_t who, uint64_t usage, uint64_t arg2, u
     linux_rusage_t ru;
     memset(&ru, 0, sizeof(ru));
     /* Return some approximate usage values */
-    uint64_t ticks   = sched_ticks();
-    ru.ru_utime_sec  = ticks / 100;
-    ru.ru_utime_usec = (ticks % 100) * 10000;
+    uint64_t ns      = timer_monotonic_ns();
+    ru.ru_utime_sec  = ns / TIMER_NSEC_PER_SEC;
+    ru.ru_utime_usec = (ns % TIMER_NSEC_PER_SEC) / 1000;
     ru.ru_minflt     = 0;
     ru.ru_majflt     = 0;
 
@@ -2327,7 +2325,7 @@ static int64_t sys_sysinfo_impl(uint64_t info, uint64_t arg1, uint64_t arg2, uin
 
     linux_sysinfo_t si;
     memset(&si, 0, sizeof(si));
-    si.uptime   = (int64_t)(sched_ticks() / 100);
+    si.uptime   = (int64_t)(timer_monotonic_ns() / TIMER_NSEC_PER_SEC);
     si.mem_unit = 1;
 
     spin_lock(&frame_allocator.lock);
@@ -4032,59 +4030,39 @@ static int64_t sys_waitid_impl(uint64_t which, uint64_t upid, uint64_t infop, ui
     return 0;
 }
 
-static char **copy_argv_from_user(const char *const *uargv, int *out_count)
+static char **copy_argv_from_user(const char *const *uargv, int max_entries, int *out_count)
 {
-    *out_count = 0;
-    if (!uargv) return NULL;
-
-    /* First pass: count the arguments */
-    int   count = 0;
-    char *ubuf;
-    for (int i = 0;; i++) {
-        if (copy_from_user(&ubuf, (void *)&uargv[i], sizeof(char *))) break;
-        if (!ubuf) break;
-        count++;
+    *out_count = -1;
+    if (!uargv) {
+        *out_count = 0;
+        return NULL;
     }
-    if (count == 0) return NULL;
 
-    /* Allocate kernel array of pointers */
-    char **kargv = malloc((count + 1) * sizeof(char *));
+    char **kargv = calloc((size_t)max_entries + 1, sizeof(char *));
     if (!kargv) return NULL;
 
-    /* Second pass: copy each string */
-    int i;
-    for (i = 0; i < count; i++) {
+    for (int i = 0; i <= max_entries; i++) {
         char *ustr;
-        if (copy_from_user(&ustr, (void *)&uargv[i], sizeof(char *))) {
-            kargv[i] = NULL;
-            goto fail;
-        }
-
-        size_t len = 0;
-        char   tmp;
-        do {
-            if (copy_from_user(&tmp, ustr + len, 1)) {
-                kargv[i] = NULL;
-                goto fail;
+        if (copy_from_user(&ustr, (const void *)&uargv[i], sizeof(ustr))) goto fail;
+        if (!ustr) {
+            if (!i) {
+                free(kargv);
+                kargv = NULL;
             }
-            len++;
-        } while (tmp != '\0');
-
-        kargv[i] = malloc(len);
-        if (!kargv[i]) goto fail;
-        if (copy_from_user(kargv[i], ustr, len)) {
-            free(kargv[i]);
-            kargv[i] = NULL;
-            goto fail;
+            *out_count = i;
+            return kargv;
         }
+        if (i == max_entries) goto fail;
+
+        int length = strnlen_user(ustr, EXEC_STRING_MAX);
+        if (length < 1) goto fail;
+        kargv[i] = malloc((size_t)length);
+        if (!kargv[i] || copy_from_user(kargv[i], ustr, (size_t)length)) goto fail;
     }
-    kargv[count] = NULL;
-    *out_count   = count;
-    return kargv;
 
 fail:
-    for (int j = 0; j < i; j++)
-        if (kargv[j]) free(kargv[j]);
+    for (int i = 0; i < max_entries; i++)
+        if (kargv[i]) free(kargv[i]);
     free(kargv);
     return NULL;
 }
@@ -4109,8 +4087,13 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     exec_name[sizeof(exec_name) - 1] = '\0';
 
     int    argc = 0, envc = 0;
-    char **kargv = copy_argv_from_user((const char *const *)argv, &argc);
-    char **kenvp = copy_argv_from_user((const char *const *)envp, &envc);
+    char **kargv = copy_argv_from_user((const char *const *)argv, PROCESS_MAX_ARGV, &argc);
+    char **kenvp = copy_argv_from_user((const char *const *)envp, PROCESS_MAX_ENVP, &envc);
+    if (argc < 0 || envc < 0) {
+        free_string_array(kargv);
+        free_string_array(kenvp);
+        return -EFAULT;
+    }
     (void)envc;
 
     uint8_t *elf_data = NULL;
@@ -4143,12 +4126,10 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
             return -ENOMEM;
         }
         total        = 0;
-        size_t chunk = SYSCALL_IO_CHUNK;
         while (total < node->size) {
             size_t remaining = node->size - total;
-            size_t to_read   = remaining < chunk ? remaining : chunk;
-            size_t n         = vfs_read(node, elf_data + total, total, to_read);
-            if (n == 0) break;
+            size_t n         = vfs_read(node, elf_data + total, total, remaining);
+            if (!n || n > remaining) break;
             total += n;
         }
         vfs_close(node);
@@ -4279,7 +4260,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
 
     uintptr_t entry = 0;
     uintptr_t rsp   = 0;
-    int       ret   = elf_loader_load_user_process(proc, elf_data, total, kargv, kenvp, &entry, &rsp);
+    int ret = elf_loader_load_user_process(proc, elf_data, total, kargv, kenvp, &entry, &rsp);
     free(elf_data);
     free_string_array(kargv);
     free_string_array(kenvp);
@@ -4977,17 +4958,17 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_GETPPID]                = sys_getppid,
     [SYS_GETPGRP]                = sys_getpgrp_wrap,
     [SYS_SETSID]                 = sys_setsid_wrap,
-    [SYS_SETREUID]               = sys_setuid_impl,
-    [SYS_SETREGID]               = sys_setgid_impl,
+    [SYS_SETREUID]               = sys_setreuid_impl,
+    [SYS_SETREGID]               = sys_setregid_impl,
     [SYS_GETGROUPS]              = sys_getgroups_impl,
     [SYS_SETGROUPS]              = sys_setgroups_impl,
-    [SYS_SETRESUID]              = sys_setuid_impl,
+    [SYS_SETRESUID]              = sys_setresuid_impl,
     [SYS_GETRESUID]              = sys_getresuid_impl,
-    [SYS_SETRESGID]              = sys_setgid_impl,
+    [SYS_SETRESGID]              = sys_setresgid_impl,
     [SYS_GETRESGID]              = sys_getresgid_impl,
     [SYS_GETPGID]                = sys_getpgid_wrap,
-    [SYS_SETFSUID]               = sys_setuid_impl,
-    [SYS_SETFSGID]               = sys_setgid_impl,
+    [SYS_SETFSUID]               = sys_setfsuid_impl,
+    [SYS_SETFSGID]               = sys_setfsgid_impl,
     [SYS_GETSID]                 = sys_getsid_wrap,
     [SYS_CAPGET]                 = sys_capget_impl,
     [SYS_CAPSET]                 = sys_capset_impl,
@@ -5231,14 +5212,15 @@ static inline int is_restart_code(int64_t ret)
     return ret == -ERESTARTSYS || ret == -ERESTARTNOINTR || ret == -ERESTARTNOHAND || ret == -ERESTART_RESTARTBLOCK || ret == -ERESTART;
 }
 
-void syscall_dispatch(syscall_frame_t *frame)
+int syscall_dispatch(syscall_frame_t *frame)
 {
     uint64_t num    = frame->rax;
     int64_t  retval = 0;
+    task_t  *dispatch_task = current_task();
+    bool     force_iret = dispatch_task && ptrace_tracer_pid(dispatch_task);
 
-    ptrace_syscall_enter(frame, num);
+    if (dispatch_task && ptrace_tracer_pid(dispatch_task)) ptrace_syscall_enter(frame, num);
     num = frame->rax;
-
     if (num == SYS_CLONE && (frame->rdi & CLONE_THREAD)) {
         uint64_t flags = frame->rdi;
         if ((flags & CLONE_PTHREAD_REQUIRED) != CLONE_PTHREAD_REQUIRED || (flags & ~CLONE_PTHREAD_ALLOWED)) {
@@ -5283,8 +5265,8 @@ void syscall_dispatch(syscall_frame_t *frame)
             child->task->context.rsp = (uint64_t)kstack;
             process_fork_publish(child);
         }
-        retval     = child ? (int64_t)child->task->pid : (int64_t)error;
-        frame->rax = (uint64_t)retval;
+        retval                 = child ? (int64_t)child->task->pid : (int64_t)error;
+        frame->rax             = (uint64_t)retval;
         if (child) ptrace_fork_event(frame, event, child->task->pid);
         if (child && vfork) {
             process_vfork_wait(child);
@@ -5328,15 +5310,18 @@ void syscall_dispatch(syscall_frame_t *frame)
          * Bypass the normal retval path to avoid overriding frame->rax.
          * Do NOT go through the restart logic since we're restoring
          * a previous context, not returning from a syscall. */
-        if (frame->cs & 0x3) { signal_deliver_if_pending(frame); }
-        return;
+        if (frame->cs & 0x3) { signal_deliver_for_process(dispatch_task ? dispatch_task->process : NULL, frame); }
+        return 0;
     }
 
     retval     = syscall_table[num](frame->rdi, frame->rsi, frame->rdx, frame->r10, frame->r8, frame->r9);
     frame->rax = (uint64_t)retval;
 
 check_signals:
-    ptrace_syscall_exit(frame, (int64_t)frame->rax);
+    if (dispatch_task && ptrace_tracer_pid(dispatch_task)) {
+        force_iret = true;
+        ptrace_syscall_exit(frame, (int64_t)frame->rax);
+    }
     retval = (int64_t)frame->rax;
     /*
      * On return to userspace, deliver any pending signals.
@@ -5354,13 +5339,14 @@ check_signals:
     if (frame->cs & 0x3) {
         uint64_t saved_rip = frame->rip;
 
-        int sig_ret = signal_deliver_if_pending(frame);
+        int sig_ret = signal_deliver_for_process(dispatch_task ? dispatch_task->process : NULL, frame);
+        if (frame->rip != saved_rip) force_iret = true;
 
         if (sig_ret == 1) {
             /* Process terminated by signal default action
              * (signal_deliver_if_pending already called process_exit) */
             task_exit();
-            return;
+            return 0;
         }
 
         /* Handle syscall restart if the syscall was interrupted */
@@ -5442,6 +5428,14 @@ check_signals:
          * return value is preserved.
          */
     }
+
+    /* SYSRET is valid only for the ordinary 64-bit userspace selectors and
+     * canonical lower-half addresses.  Full-context restoration paths use
+     * IRETQ so RCX/R11 are restored instead of taking their syscall-ABI role. */
+    if (force_iret || frame->cs != 0x33 || frame->ss != 0x2b || frame->rip >= PROCESS_USER_STACK_TOP
+        || frame->rsp >= PROCESS_USER_STACK_TOP)
+        return 0;
+    return 1;
 }
 
 __attribute__((naked)) void syscall_return(void)
@@ -5462,6 +5456,29 @@ __attribute__((naked)) void syscall_return(void)
                      "popq %rbx\n\t"
                      "popq %rax\n\t"
                      "iretq\n\t");
+}
+
+__attribute__((naked, used)) static void syscall_return_sysret(void)
+{
+    __asm__ volatile("popq %r15\n\t"
+                     "popq %r14\n\t"
+                     "popq %r13\n\t"
+                     "popq %r12\n\t"
+                     "popq %r11\n\t"
+                     "popq %r10\n\t"
+                     "popq %r9\n\t"
+                     "popq %r8\n\t"
+                     "popq %rdi\n\t"
+                     "popq %rsi\n\t"
+                     "popq %rbp\n\t"
+                     "popq %rdx\n\t"
+                     "popq %rcx\n\t"
+                     "popq %rbx\n\t"
+                     "popq %rax\n\t"
+                     "movq 0(%rsp), %rcx\n\t"
+                     "movq 16(%rsp), %r11\n\t"
+                     "movq 24(%rsp), %rsp\n\t"
+                     "sysretq\n\t");
 }
 
 __attribute__((naked)) void syscall_entry(void)
@@ -5496,11 +5513,11 @@ __attribute__((naked)) static void syscall_entry_syscall(void)
                                          "movq %gs:" SYSCALL_STRINGIFY(
                                              SYSCALL_CPU_KERNEL_RSP_OFFSET) ", %rsp\n\t"
                                                                             "cld\n\t"
-                                                                            "pushq $0x23\n\t"
+                                                                            "pushq $0x2B\n\t"
                                                                             "pushq %gs:" SYSCALL_STRINGIFY(
                                                                                 SYSCALL_CPU_USER_RSP_OFFSET) "\n\t"
                                                                                                              "pushq %r11\n\t"
-                                                                                                             "pushq $0x1B\n\t"
+                                                                                                             "pushq $0x33\n\t"
                                                                                                              "pushq %rcx\n\t"
                                                                                                              "pushq %rax\n\t"
                                                                                                              "pushq %rbx\n\t"
@@ -5520,14 +5537,17 @@ __attribute__((naked)) static void syscall_entry_syscall(void)
                                                                                                              "swapgs\n\t"
                                                                                                              "movq %rsp, %rdi\n\t"
                                                                                                              "call syscall_dispatch\n\t"
-                                                                                                             "jmp syscall_return\n\t");
+                                                                                                             "testl %eax, %eax\n\t"
+                                                                                                             "jz syscall_return\n\t"
+                                                                                                             "jmp syscall_return_sysret\n\t");
 }
 
 void syscall_init_cpu(uint64_t kernel_gs_base)
 {
     uint64_t star = rdmsr(0xC0000081);
     star &= 0x00000000FFFFFFFFULL;
-    star |= ((uint64_t)0x08 << 32) | ((uint64_t)0x1B << 48);
+    /* SYSRET adds 16 to STAR[63:48] for CS and 8 for SS. */
+    star |= ((uint64_t)0x08 << 32) | ((uint64_t)0x23 << 48);
     wrmsr(0xC0000081, star);
     wrmsr(0xC0000082, (uint64_t)syscall_entry_syscall);
     wrmsr(0xC0000084, 0x200);

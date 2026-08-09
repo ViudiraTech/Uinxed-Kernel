@@ -236,11 +236,7 @@ int sys_signalfd4(int fd, const void *mask, size_t sizemask, int flags)
     process_file_t *file = NULL;
     if (fd >= 0 && fd < PROCESS_MAX_FD) {
         file = proc->fds[fd];
-        if (file) {
-            spin_lock(&file->lock);
-            file->refcount++;
-            spin_unlock(&file->lock);
-        }
+        if (file) process_file_get(file);
     }
     spin_unlock(&proc->fd_lock);
 
@@ -259,7 +255,7 @@ int sys_signalfd4(int fd, const void *mask, size_t sizemask, int flags)
     return fd;
 }
 
-void signalfd_deliver(process_t *proc, int sig)
+void signalfd_deliver(process_t *proc, int sig, const siginfo_t *source)
 {
     if (!proc || !sig_valid(sig)) return;
 
@@ -285,8 +281,30 @@ void signalfd_deliver(process_t *proc, int sig)
         signalfd_siginfo_t info;
         memset(&info, 0, sizeof(info));
         info.ssi_signo = (uint32_t)sig;
-        info.ssi_pid   = (uint32_t)(proc->task ? proc->task->pid : 0);
-        info.ssi_uid   = proc->uid;
+        if (source) {
+            info.ssi_errno     = source->si_errno;
+            info.ssi_code      = source->si_code;
+            info.ssi_pid       = (uint32_t)source->si_pid;
+            info.ssi_uid       = source->si_uid;
+            info.ssi_status    = source->si_status;
+            info.ssi_int       = source->si_int;
+            info.ssi_ptr       = (uint64_t)(uintptr_t)source->si_ptr;
+            info.ssi_utime     = (uint64_t)source->si_utime;
+            info.ssi_stime     = (uint64_t)source->si_stime;
+            info.ssi_addr      = (uint64_t)(uintptr_t)source->si_addr;
+            info.ssi_addr_lsb  = (uint16_t)source->si_addr_lsb;
+            info.ssi_fd        = source->si_fd;
+            info.ssi_band      = (uint32_t)source->si_band;
+            info.ssi_tid       = (uint32_t)source->si_tid;
+            info.ssi_overrun   = (uint32_t)source->si_overrun;
+            info.ssi_syscall   = source->si_syscall;
+            info.ssi_call_addr = (uint64_t)(uintptr_t)source->si_call_addr;
+            info.ssi_arch      = source->si_arch;
+        } else {
+            process_t *sender = process_current();
+            info.ssi_pid      = (uint32_t)(sender && sender->task ? sender->task->tgid : 0);
+            info.ssi_uid      = sender ? sender->uid : 0;
+        }
 
         ctx->pending[ctx->pending_tail] = info;
         ctx->pending_tail               = (ctx->pending_tail + 1) % SIG_PENDING_MAX;
@@ -294,6 +312,7 @@ void signalfd_deliver(process_t *proc, int sig)
 
         spin_unlock(&ctx->lock);
         wait_queue_wake_all(&ctx->wq);
+        vfs_poll_notify(file->node, 0x001U);
     }
     spin_unlock(&proc->fd_lock);
 }

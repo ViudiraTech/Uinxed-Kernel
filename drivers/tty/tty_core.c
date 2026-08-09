@@ -11,6 +11,7 @@
 #include <drivers/tty/tty_core.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <libs/std/string.h>
 #include <proc/process.h>
 #include <proc/sched.h>
@@ -21,7 +22,7 @@
 #define POLLIN                   0x001
 #define POLLOUT                  0x004
 #define POLLHUP                  0x010
-#define TTY_TICKS_PER_DECISECOND 25
+#define TTY_TICKS_PER_DECISECOND ((TIMER_HZ + 9) / 10)
 #define TTY_INPUT_EOF            1
 
 static void tty_default_termios(struct termios *termios)

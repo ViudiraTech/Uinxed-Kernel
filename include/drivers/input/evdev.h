@@ -13,6 +13,7 @@
 
 #include <drivers/input/evdev_queue.h>
 #include <drivers/input/input_event.h>
+#include <fs/core/vfs.h>
 #include <libs/glist/intrusive_list.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
@@ -68,6 +69,7 @@ typedef struct evdev_client {
         evdev_queue_t queue;       /* packet-aware event ring */
         spinlock_t    buffer_lock; /* protects buffer, head, tail */
         wait_queue_t  wait;        /* wait queue for blocking reads */
+        vfs_poll_source_t poll_source; /* poll/select/epoll waiters for this open */
         struct evdev *evdev;       /* back-pointer to evdev */
         ilist_node_t  node;        /* linkage in evdev->client_list */
         int           clk_type;    /* CLOCK_REALTIME / CLOCK_MONOTONIC / CLOCK_BOOTTIME */
@@ -89,7 +91,9 @@ typedef struct evdev {
         bool            exist;       /* device is alive */
         int             minor;       /* assigned minor number */
         bool            node_published;
+        struct vfs_node *node;
         bool            registered;
+        struct device  *sysfs_input_device;
         struct device  *sysfs_device;
 } evdev_t;
 

@@ -13,12 +13,15 @@
 #include <kernel/interrupt.h>
 #include <kernel/printk.h>
 #include <libs/std/stdint.h>
+#include <libs/std/string.h>
 #include <proc/process.h>
 #include <proc/sched.h>
+#include <proc/task.h>
+#include <proc/uaccess.h>
 #include <sync/signal.h>
 #include <syscall/syscall.h>
 
-void page_fault_handle(interrupt_frame_t *frame, uint64_t error_code);
+void page_fault_entry(void);
 
 #define USER_CS 0x1B
 
@@ -37,7 +40,7 @@ static inline int user_exception(interrupt_frame_t *frame, int sig, int code, co
             info.si_code   = code;
             info.si_addr   = (void *)frame->rip;
 
-            plogk("%s (pid=%llu): %s\n", name, proc->task->pid, msg);
+            if (msg) plogk("%s (pid=%llu): %s\n", name, proc->task->pid, msg);
             signal_send_thread(proc->task, sig, &info);
 
             syscall_frame_t sigframe = {0};
@@ -78,6 +81,73 @@ static inline int user_exception(interrupt_frame_t *frame, int sig, int code, co
         return 1;
     }
     return 0;
+}
+
+/* A user #GP usually carries no fault address.  The old one-line report only
+ * named the pid, which made an alignment fault in a shared library
+ * indistinguishable from a bad selector or a corrupted return frame.  Keep a
+ * compact, one-shot crash record with enough information to resolve the RIP
+ * against the executable/shared object and inspect the faulting instruction.
+ * This is emitted only when a process is about to receive SIGSEGV, so it does
+ * not reintroduce the high-volume Weston diagnostics. */
+static void user_gp_report(interrupt_frame_t *frame, uint64_t error_code)
+{
+    process_t *proc = process_current();
+    task_t    *task = current_task();
+    if (!proc || !task || !frame) return;
+
+    uintptr_t map_start  = 0;
+    uintptr_t map_end    = 0;
+    uint64_t  file_off   = 0;
+    vm_flags_t map_flags = 0;
+    int        map_type  = -1;
+    char       map_name[VFS_NAME_MAX + 1];
+    strcpy(map_name, "[anonymous]");
+
+    spin_lock(&proc->mmap_lock);
+    for (vm_area_t *vma = proc->mmap_list; vma; vma = vma->next) {
+        if (frame->rip < vma->start || frame->rip >= vma->end) continue;
+        map_start = vma->start;
+        map_end   = vma->end;
+        map_flags = vma->flags;
+        map_type  = (int)vma->type;
+        file_off  = vma->vm_pgoff * 4096ULL + (frame->rip - vma->start);
+        if (vma->vm_file && vma->vm_file->name) {
+            strncpy(map_name, vma->vm_file->name, sizeof(map_name) - 1);
+            map_name[sizeof(map_name) - 1] = '\0';
+        }
+        break;
+    }
+    spin_unlock(&proc->mmap_lock);
+
+    uint8_t code[16] = {0};
+    size_t  code_len = 0;
+    while (code_len < sizeof(code) && !copy_from_user(&code[code_len], (const void *)(frame->rip + code_len), 1)) code_len++;
+
+    uint64_t stack[4] = {0};
+    size_t   stack_len = 0;
+    while (stack_len < 4 && !copy_from_user(&stack[stack_len], (const void *)(frame->rsp + stack_len * sizeof(uint64_t)), sizeof(uint64_t)))
+        stack_len++;
+
+    plogk("[exception] #GP pid=%llu tgid=%llu comm=%s process=%s\n", (unsigned long long)task->pid, (unsigned long long)task->tgid,
+          task->name, proc->name);
+    plogk("[exception] exe=%s rip=%p rsp=%p error=0x%llx cs=0x%llx ss=0x%llx rflags=0x%llx\n",
+          proc->exe_path[0] ? proc->exe_path : "[unknown]", (void *)frame->rip, (void *)frame->rsp, (unsigned long long)error_code,
+          (unsigned long long)frame->cs, (unsigned long long)frame->ss, (unsigned long long)frame->rflags);
+    plogk("[exception] gp-source external=%u table=%u selector-index=%llu fsbase=%p fpu-init=%u fpu-active=%u\n",
+          (unsigned)(error_code & 1U), (unsigned)((error_code >> 1) & 3U), (unsigned long long)(error_code >> 3),
+          (void *)task->thread.fs_base, (unsigned)task->thread.fpu_initialized, (unsigned)task->thread.fpu_active);
+    if (map_start) {
+        plogk("[exception] vma=%p-%p %c%c%c%c type=%d file=%s file-offset=0x%llx\n", (void *)map_start, (void *)map_end,
+              (map_flags & VM_READ) ? 'r' : '-', (map_flags & VM_WRITE) ? 'w' : '-', (map_flags & VM_EXEC) ? 'x' : '-',
+              (map_flags & VM_SHARED) ? 's' : 'p', map_type, map_name, (unsigned long long)file_off);
+    } else {
+        plogk("[exception] rip-vma=[unmapped]\n");
+    }
+    plogk("[exception] code[%zu]=%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+          code_len, code[0], code[1], code[2], code[3], code[4], code[5], code[6], code[7], code[8], code[9], code[10], code[11], code[12],
+          code[13], code[14], code[15]);
+    plogk("[exception] stack[%zu]=%p %p %p %p\n", stack_len, (void *)stack[0], (void *)stack[1], (void *)stack[2], (void *)stack[3]);
 }
 
 INTERRUPT_BEGIN static void ISR_0_handle(interrupt_frame_t *frame)
@@ -183,7 +253,8 @@ INTERRUPT_END
 INTERRUPT_BEGIN static void ISR_13_handle(interrupt_frame_t *frame, uint64_t error_code)
 {
     carry_error_code = 1; // carry error code
-    if (user_exception(frame, SIGSEGV, SEGV_ACCERR, "#GP", "Segmentation fault")) return;
+    if (is_user_mode(frame)) user_gp_report(frame, error_code);
+    if (user_exception(frame, SIGSEGV, SEGV_ACCERR, "#GP", NULL)) return;
     panic("Kernel exception: #GP rip=%p cs=0x%llx error=0x%llx", (void *)frame->rip, frame->cs, error_code);
 }
 INTERRUPT_END
@@ -237,7 +308,7 @@ void isr_registe_handle(void)
     register_interrupt_handler(ISR_11, (void *)ISR_11_handle, 0, 0x8e);
     register_interrupt_handler(ISR_12, (void *)ISR_12_handle, 0, 0x8e);
     register_interrupt_handler(ISR_13, (void *)ISR_13_handle, 0, 0x8e);
-    register_interrupt_handler(ISR_14, (void *)page_fault_handle, 0, 0x8e);
+    register_interrupt_handler(ISR_14, (void *)page_fault_entry, 0, 0x8e);
 
     /* ISR 15 CPU reserved */
 

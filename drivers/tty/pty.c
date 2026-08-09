@@ -45,25 +45,27 @@
 #define POLLHUP         0x010
 
 typedef struct pty_pair {
-        spinlock_t   lock;
-        wait_queue_t master_wait;
-        wait_queue_t master_space_wait;
-        tty_core_t   slave_tty;
-        uint8_t      master_buffer[PTY_BUFFER_SIZE];
-        size_t       master_head;
-        size_t       master_tail;
-        size_t       master_count;
-        unsigned int number;
-        unsigned int references;
-        unsigned int slave_opens;
-        bool         master_open;
-        bool         slave_locked;
-        bool         packet_mode;
-        uint8_t      packet_status;
-        bool         master_exclusive;
-        bool         slave_exclusive;
-        vfs_node_t   slave_node;
-        char         slave_path[32];
+        spinlock_t        lock;
+        wait_queue_t      master_wait;
+        wait_queue_t      master_space_wait;
+        vfs_poll_source_t master_poll_source;
+        vfs_poll_source_t slave_poll_source;
+        tty_core_t        slave_tty;
+        uint8_t           master_buffer[PTY_BUFFER_SIZE];
+        size_t            master_head;
+        size_t            master_tail;
+        size_t            master_count;
+        unsigned int      number;
+        unsigned int      references;
+        unsigned int      slave_opens;
+        bool              master_open;
+        bool              slave_locked;
+        bool              packet_mode;
+        uint8_t           packet_status;
+        bool              master_exclusive;
+        bool              slave_exclusive;
+        vfs_node_t        slave_node;
+        char              slave_path[32];
 } pty_pair_t;
 
 typedef enum pty_endpoint_kind {
@@ -140,15 +142,27 @@ static int pty_slave_emit(void *context, const uint8_t *data, size_t size, uint6
         while (pair->master_count == PTY_BUFFER_SIZE && pair->master_open) {
             if (flags & O_NONBLOCK) {
                 spin_unlock(&pair->lock);
+                if (copied) {
+                    wait_queue_wake_all(&pair->master_wait);
+                    vfs_poll_source_notify(&pair->master_poll_source, POLLIN);
+                }
                 return copied ? (int)copied : -EAGAIN;
             }
             wait_queue_prepare(&pair->master_space_wait);
             spin_unlock(&pair->lock);
+            if (copied) {
+                wait_queue_wake_all(&pair->master_wait);
+                vfs_poll_source_notify(&pair->master_poll_source, POLLIN);
+            }
             wait_queue_sleep();
             spin_lock(&pair->lock);
         }
         if (!pair->master_open) {
             spin_unlock(&pair->lock);
+            if (copied) {
+                wait_queue_wake_all(&pair->master_wait);
+                vfs_poll_source_notify(&pair->master_poll_source, POLLIN);
+            }
             return copied ? (int)copied : -EIO;
         }
         pair->master_buffer[pair->master_head] = data[copied++];
@@ -156,7 +170,10 @@ static int pty_slave_emit(void *context, const uint8_t *data, size_t size, uint6
         pair->master_count++;
         spin_unlock(&pair->lock);
     }
-    if (copied) wait_queue_wake_all(&pair->master_wait);
+    if (copied) {
+        wait_queue_wake_all(&pair->master_wait);
+        vfs_poll_source_notify(&pair->master_poll_source, POLLIN);
+    }
     return (int)copied;
 }
 
@@ -174,8 +191,15 @@ static void pty_slave_event(void *context, uint8_t event)
     }
     bool notify = pair->packet_mode && event;
     spin_unlock(&pair->lock);
-    if (notify) wait_queue_wake_all(&pair->master_wait);
-    if (event & TIOCPKT_FLUSHWRITE) wait_queue_wake_all(&pair->master_space_wait);
+    if (notify) {
+        wait_queue_wake_all(&pair->master_wait);
+        vfs_poll_source_notify(&pair->master_poll_source, POLLIN | POLLPRI);
+    }
+    if (event & TIOCPKT_FLUSHWRITE) {
+        wait_queue_wake_all(&pair->master_space_wait);
+        vfs_poll_source_notify(&pair->slave_poll_source, POLLOUT);
+    }
+    if (event & TIOCPKT_START) vfs_poll_source_notify(&pair->slave_poll_source, POLLOUT);
 }
 
 static int64_t pty_master_read(pty_pair_t *pair, uint64_t flags, void *buffer, size_t size)
@@ -215,23 +239,26 @@ static int64_t pty_master_read(pty_pair_t *pair, uint64_t flags, void *buffer, s
     }
     spin_unlock(&pair->lock);
     wait_queue_wake_all(&pair->master_space_wait);
+    vfs_poll_source_notify(&pair->slave_poll_source, POLLOUT);
     return (int64_t)copied;
 }
 
-static int     pty_open(vfs_node_t node, uint64_t flags, void **private_data);
-static void    pty_release(vfs_node_t node, void *private_data);
-static int64_t pty_read(void *context, void *private_data, uint64_t flags, void *address, size_t offset, size_t size);
-static int64_t pty_write(void *context, void *private_data, uint64_t flags, const void *address, size_t offset, size_t size);
-static int     pty_poll(void *context, void *private_data, uint64_t flags, size_t events);
-static int     pty_ioctl(void *context, void *private_data, uint64_t flags, size_t request, void *argument);
+static int                pty_open(vfs_node_t node, uint64_t flags, void **private_data);
+static void               pty_release(vfs_node_t node, void *private_data);
+static int64_t            pty_read(void *context, void *private_data, uint64_t flags, void *address, size_t offset, size_t size);
+static int64_t            pty_write(void *context, void *private_data, uint64_t flags, const void *address, size_t offset, size_t size);
+static int                pty_poll(void *context, void *private_data, uint64_t flags, size_t events);
+static vfs_poll_source_t *pty_poll_source(void *context, void *private_data);
+static int                pty_ioctl(void *context, void *private_data, uint64_t flags, size_t request, void *argument);
 
 static const tmpfs_device_ops_t pty_slave_operations = {
-    .open       = pty_open,
-    .release    = pty_release,
-    .file_read  = pty_read,
-    .file_write = pty_write,
-    .file_poll  = pty_poll,
-    .file_ioctl = pty_ioctl,
+    .open             = pty_open,
+    .release          = pty_release,
+    .file_read        = pty_read,
+    .file_write       = pty_write,
+    .file_poll        = pty_poll,
+    .file_poll_source = pty_poll_source,
+    .file_ioctl       = pty_ioctl,
 };
 
 static int pty_create_slave(pty_pair_t *pair)
@@ -248,10 +275,10 @@ static int pty_create_slave(pty_pair_t *pair)
         return -ENOENT;
     }
     process_t *current = process_current();
-    node->mode         = 0620;
-    node->owner        = current ? current->uid : 0;
-    node->group        = current ? current->gid : 0;
-    pair->slave_node   = node;
+    node->mode       = 0620;
+    node->owner      = current ? current->uid : 0;
+    node->group      = current ? current->gid : 0;
+    pair->slave_node = node;
     return 0;
 }
 
@@ -285,6 +312,8 @@ static int pty_open(vfs_node_t node, uint64_t flags, void **private_data)
         pair->slave_locked = true;
         wait_queue_init(&pair->master_wait);
         wait_queue_init(&pair->master_space_wait);
+        vfs_poll_source_init(&pair->master_poll_source);
+        vfs_poll_source_init(&pair->slave_poll_source);
         static const tty_core_ops_t core_operations
             = {.emit = pty_slave_emit, .event = pty_slave_event, .retain = pty_tty_retain, .release = pty_tty_release};
         tty_core_init(&pair->slave_tty, &core_operations, pair);
@@ -340,6 +369,7 @@ static int pty_open(vfs_node_t node, uint64_t flags, void **private_data)
         endpoint->pair = pair;
         endpoint->kind = PTY_SLAVE;
         tty_core_auto_acquire(&pair->slave_tty, flags);
+        vfs_poll_source_notify(&pair->master_poll_source, POLLOUT);
     } else {
         free(endpoint);
         return -ENODEV;
@@ -361,14 +391,18 @@ static void pty_release(vfs_node_t node, void *private_data)
         pair->master_open = false;
         spin_unlock(&pair->lock);
         spin_unlock(&pty_lifetime_lock);
+        vfs_poll_source_close(&pair->master_poll_source, POLLERR | POLLHUP);
+        vfs_poll_source_close(&pair->slave_poll_source, POLLERR | POLLHUP);
         devtmpfs_unregister_char_device(pair->slave_path);
         wait_queue_wake_all(&pair->master_space_wait);
         tty_core_hangup(&pair->slave_tty);
     } else {
         spin_lock(&pair->lock);
         if (pair->slave_opens) pair->slave_opens--;
+        bool last_slave = pair->slave_opens == 0;
         spin_unlock(&pair->lock);
         wait_queue_wake_all(&pair->master_wait);
+        if (last_slave) vfs_poll_source_notify(&pair->master_poll_source, POLLHUP);
     }
     free(endpoint);
     pty_put(pair);
@@ -381,7 +415,9 @@ static int64_t pty_read(void *context, void *private_data, uint64_t flags, void 
     pty_endpoint_t *endpoint = private_data;
     if (!endpoint) return -EIO;
     if (endpoint->kind == PTY_MASTER) return pty_master_read(endpoint->pair, flags, address, size);
-    return tty_core_read(&endpoint->pair->slave_tty, address, size, flags);
+    int64_t result = tty_core_read(&endpoint->pair->slave_tty, address, size, flags);
+    if (result > 0) vfs_poll_source_notify(&endpoint->pair->master_poll_source, POLLOUT);
+    return result;
 }
 
 static int64_t pty_write(void *context, void *private_data, uint64_t flags, const void *address, size_t offset, size_t size)
@@ -396,7 +432,9 @@ static int64_t pty_write(void *context, void *private_data, uint64_t flags, cons
     bool slave_open = endpoint->pair->slave_opens != 0;
     spin_unlock(&endpoint->pair->lock);
     if (!slave_open) return -EIO;
-    return tty_core_receive(&endpoint->pair->slave_tty, address, size, flags);
+    int64_t result = tty_core_receive(&endpoint->pair->slave_tty, address, size, flags);
+    if (result > 0) vfs_poll_source_notify(&endpoint->pair->slave_poll_source, POLLIN);
+    return result;
 }
 
 static int pty_poll(void *context, void *private_data, uint64_t flags, size_t events)
@@ -426,6 +464,14 @@ static int pty_poll(void *context, void *private_data, uint64_t flags, size_t ev
     if (!pair->slave_opens) result |= POLLHUP;
     spin_unlock(&pair->lock);
     return result;
+}
+
+static vfs_poll_source_t *pty_poll_source(void *context, void *private_data)
+{
+    (void)context;
+    pty_endpoint_t *endpoint = private_data;
+    if (!endpoint || !endpoint->pair) return NULL;
+    return endpoint->kind == PTY_MASTER ? &endpoint->pair->master_poll_source : &endpoint->pair->slave_poll_source;
 }
 
 static unsigned int pty_linux_dev(unsigned int major, unsigned int minor)
@@ -590,12 +636,13 @@ void pty_init(void)
     if (initialized) return;
     initialized                                     = true;
     static const tmpfs_device_ops_t ptmx_operations = {
-        .open       = pty_open,
-        .release    = pty_release,
-        .file_read  = pty_read,
-        .file_write = pty_write,
-        .file_poll  = pty_poll,
-        .file_ioctl = pty_ioctl,
+        .open             = pty_open,
+        .release          = pty_release,
+        .file_read        = pty_read,
+        .file_write       = pty_write,
+        .file_poll        = pty_poll,
+        .file_poll_source = pty_poll_source,
+        .file_ioctl       = pty_ioctl,
     };
     vfs_mkdir("/dev/pts");
     if (!devtmpfs_register_char_device("/dev/ptmx", MKDEV(PTMX_MAJOR, PTMX_MINOR), MKDEV(PTMX_MAJOR, PTMX_MINOR), file_ptmx | file_stream,

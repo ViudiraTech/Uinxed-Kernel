@@ -11,6 +11,7 @@
 #include <ipc/socket.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/heap.h>
@@ -77,7 +78,7 @@ typedef struct inet_core_socket {
 #define INET_POLLOUT       0x004
 #define INET_POLLERR       0x008
 #define INET_POLLHUP       0x010
-#define INET_TICKS_PER_SEC 100U
+#define INET_TICKS_PER_SEC TIMER_HZ
 
 static uint64_t inet_timeval_ticks(const socket_timeval_t *tv)
 {
@@ -883,7 +884,7 @@ static int core_getsockopt(void *context, int level, int option, void *value, ui
         uint64_t         ticks = option == SO_RCVTIMEO ? sock->rcvtimeo_ticks : sock->sndtimeo_ticks;
         socket_timeval_t tv    = {
                .tv_sec  = (int64_t)(ticks / INET_TICKS_PER_SEC),
-               .tv_usec = (int64_t)((ticks % INET_TICKS_PER_SEC) * (1000000U / INET_TICKS_PER_SEC)),
+               .tv_usec = (int64_t)((ticks % INET_TICKS_PER_SEC) * 1000000ULL / INET_TICKS_PER_SEC),
         };
         memcpy(value, &tv, sizeof(tv));
         *length = sizeof(tv);

@@ -130,7 +130,7 @@ static int virtgpu_connector_mode_valid(struct drm_connector *connector, struct 
     (void)connector;
 
     /* Accept all modes up to 8192x8192 */
-    if (mode->hdisplay > 8192 || mode->vdisplay > 8192) { return MODE_BAD; }
+    if (mode->hdisplay <= 0 || mode->vdisplay <= 0 || mode->hdisplay > 8192 || mode->vdisplay > 8192) return MODE_BAD;
     return MODE_OK;
 }
 

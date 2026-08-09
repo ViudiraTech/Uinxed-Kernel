@@ -18,6 +18,7 @@
 #define INCLUDE_VIRT_PCI_H_
 
 #include <drivers/pci/pci.h>
+#include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
@@ -144,11 +145,14 @@ struct vp_virtqueue {
         uint16_t   avail_idx_shadow;
         uint16_t   used_idx;
         spinlock_t lock;
+        bool       broken;
 
         struct vring_desc  *desc;
         struct vring_avail *avail;
         struct vring_used  *used;
         void               *queue_mem;
+        uint64_t            queue_phys;
+        size_t              queue_page_count;
 
         uint16_t *free_descs;
         void    **desc_data;

@@ -13,8 +13,11 @@
 #include <mem/heap.h>
 #include <mem/pagecache.h>
 
-#define PAGECACHE_HASH_BITS     6U
-#define PAGECACHE_HASH_SIZE     (1U << PAGECACHE_HASH_BITS)
+#define PAGECACHE_HASH_MIN_BITS 6U
+#define PAGECACHE_HASH_MAX_BITS 12U
+#define PAGECACHE_HASH_MIN_SIZE (1U << PAGECACHE_HASH_MIN_BITS)
+#define PAGECACHE_HASH_MAX_SIZE (1U << PAGECACHE_HASH_MAX_BITS)
+#define PAGECACHE_HASH_LOAD     4U
 #define PAGECACHE_READAHEAD_MIN 2U
 #define PAGECACHE_READAHEAD_MAX 32U
 
@@ -48,7 +51,9 @@ typedef struct pagecache_page {
 typedef struct pagecache_mapping {
         void                *context;
         pagecache_ops_t      ops;
-        pagecache_page_t    *buckets[PAGECACHE_HASH_SIZE];
+        pagecache_page_t    *inline_buckets[PAGECACHE_HASH_MIN_SIZE];
+        pagecache_page_t   **buckets;
+        size_t               bucket_count;
         pc_lock_t            lock;
         volatile uint64_t    size;
         volatile int         error;
@@ -60,6 +65,7 @@ typedef struct pagecache_mapping {
         volatile uint32_t    dying;
         volatile uint32_t    pins;
         uint64_t             readahead_last;
+        uint64_t             readahead_end;
         uint32_t             readahead_window;
         uint32_t             readahead_valid;
 } pagecache_mapping_t;
@@ -103,12 +109,12 @@ static void pc_unlock(pc_lock_t *lock)
     __atomic_store_n(&lock->value, 0, __ATOMIC_RELEASE);
 }
 
-static inline uint32_t pc_hash(uint64_t index)
+static inline size_t pc_hash(uint64_t index, size_t bucket_count)
 {
     index ^= index >> 33;
     index *= 0xff51afd7ed558ccdULL;
     index ^= index >> 33;
-    return (uint32_t)index & (PAGECACHE_HASH_SIZE - 1);
+    return (size_t)index & (bucket_count - 1);
 }
 
 static inline void pc_stat_inc(uint64_t *value)
@@ -171,8 +177,10 @@ static void pc_touch(pagecache_page_t *page)
         } else {
             page->flags |= PC_PAGE_REFERENCED;
         }
-        pc_lru_remove_locked(page);
-        pc_lru_add_head_locked(page);
+        if (pagecache.lru_head != page) {
+            pc_lru_remove_locked(page);
+            pc_lru_add_head_locked(page);
+        }
     }
     pc_unlock(&pagecache.lock);
     pc_unlock(&page->lock);
@@ -180,9 +188,39 @@ static void pc_touch(pagecache_page_t *page)
 
 static pagecache_page_t *pc_find_locked(pagecache_mapping_t *mapping, uint64_t index)
 {
-    for (pagecache_page_t *page = mapping->buckets[pc_hash(index)]; page; page = page->hash_next)
+    for (pagecache_page_t *page = mapping->buckets[pc_hash(index, mapping->bucket_count)]; page; page = page->hash_next)
         if (page->index == index && !(__atomic_load_n(&page->flags, __ATOMIC_ACQUIRE) & PC_PAGE_EVICTING)) return page;
     return NULL;
+}
+
+/* Keep mappings for the many small files compact, but do not let a large
+ * tmpfs file turn every page lookup into a walk over a long collision chain.
+ * Growth is best-effort: allocation failure only keeps the old valid table. */
+static void pc_grow_hash_locked(pagecache_mapping_t *mapping)
+{
+    if (mapping->bucket_count >= PAGECACHE_HASH_MAX_SIZE
+        || mapping->pages < mapping->bucket_count * PAGECACHE_HASH_LOAD)
+        return;
+
+    size_t new_count = mapping->bucket_count << 1;
+    if (new_count > PAGECACHE_HASH_MAX_SIZE) new_count = PAGECACHE_HASH_MAX_SIZE;
+    pagecache_page_t **new_buckets = calloc(new_count, sizeof(*new_buckets));
+    if (!new_buckets) return;
+
+    for (size_t i = 0; i < mapping->bucket_count; i++) {
+        pagecache_page_t *page = mapping->buckets[i];
+        while (page) {
+            pagecache_page_t *next = page->hash_next;
+            size_t            hash = pc_hash(page->index, new_count);
+            page->hash_next        = new_buckets[hash];
+            new_buckets[hash]      = page;
+            page                   = next;
+        }
+    }
+
+    if (mapping->buckets != mapping->inline_buckets) free(mapping->buckets);
+    mapping->buckets      = new_buckets;
+    mapping->bucket_count = new_count;
 }
 
 static void pc_free_page(pagecache_page_t *page)
@@ -207,7 +245,7 @@ static int pc_unlink_page(pagecache_page_t *page)
 {
     pagecache_mapping_t *mapping = page->mapping;
     pc_lock(&mapping->lock);
-    pagecache_page_t **link = &mapping->buckets[pc_hash(page->index)];
+    pagecache_page_t **link = &mapping->buckets[pc_hash(page->index, mapping->bucket_count)];
     while (*link && *link != page) link = &(*link)->hash_next;
     if (*link != page) {
         pc_unlock(&mapping->lock);
@@ -302,6 +340,8 @@ pagecache_mapping_t *pagecache_mapping_create(void *context, const pagecache_ops
     if (!mapping) return NULL;
     mapping->context    = context;
     mapping->ops        = *ops;
+    mapping->buckets    = mapping->inline_buckets;
+    mapping->bucket_count = PAGECACHE_HASH_MIN_SIZE;
     mapping->size       = size;
     mapping->flags      = flags;
     mapping->references = 1;
@@ -327,6 +367,7 @@ void pagecache_mapping_destroy(pagecache_mapping_t *mapping)
     while (__atomic_load_n(&mapping->references, __ATOMIC_ACQUIRE) != 1) pc_relax();
     (void)pagecache_writeback(mapping, 0, UINT64_MAX, PAGECACHE_WB_SYNC | PAGECACHE_WB_KEEP_ERROR);
     (void)pagecache_invalidate(mapping, 0, UINT64_MAX, PAGECACHE_INVALIDATE_DISCARD_DIRTY);
+    if (mapping->buckets != mapping->inline_buckets) free(mapping->buckets);
     free(mapping);
 }
 
@@ -371,7 +412,8 @@ static pagecache_page_t *pc_get_page(pagecache_mapping_t *mapping, uint64_t inde
         if (accessed) pc_touch(existing);
         return existing;
     }
-    uint32_t bucket          = pc_hash(index);
+    pc_grow_hash_locked(mapping);
+    size_t bucket            = pc_hash(index, mapping->bucket_count);
     page->hash_next          = mapping->buckets[bucket];
     mapping->buckets[bucket] = page;
     mapping->pages++;
@@ -471,28 +513,37 @@ static int pc_readahead_pages(pagecache_mapping_t *mapping, uint64_t first, uint
 
 static void pc_adaptive_readahead(pagecache_mapping_t *mapping, uint64_t first, uint64_t last)
 {
-    uint32_t window;
-    int      sequential;
+    uint64_t prefetch_first = 0;
+    uint32_t prefetch_count = 0;
 
     pc_lock(&mapping->lock);
-    sequential = mapping->readahead_valid && mapping->readahead_last != UINT64_MAX && first == mapping->readahead_last + 1;
-    if (sequential) {
-        window = mapping->readahead_window;
+    int sequential = mapping->readahead_valid && mapping->readahead_last != UINT64_MAX
+                     && first == mapping->readahead_last + 1;
+    if (!sequential) {
+        mapping->readahead_window = 1;
+        mapping->readahead_end    = last;
+    } else if (last >= mapping->readahead_end) {
+        uint32_t window = mapping->readahead_window;
         if (window < PAGECACHE_READAHEAD_MIN)
             window = PAGECACHE_READAHEAD_MIN;
         else if (window < PAGECACHE_READAHEAD_MAX / 2)
             window *= 2;
         else
             window = PAGECACHE_READAHEAD_MAX;
+        mapping->readahead_window = window;
+        prefetch_first            = last + 1;
+        prefetch_count            = window;
+        mapping->readahead_end    = UINT64_MAX - last < window ? UINT64_MAX : last + window;
     } else {
-        window = 1;
+        /* The current request consumed pages which are already inside the
+         * last prefetched window.  Do not rescan that window on every read. */
+        prefetch_count = 0;
     }
-    mapping->readahead_last   = last;
-    mapping->readahead_window = window;
-    mapping->readahead_valid  = 1;
+    mapping->readahead_last  = last;
+    mapping->readahead_valid = 1;
     pc_unlock(&mapping->lock);
 
-    if (sequential && last != UINT64_MAX) (void)pc_readahead_pages(mapping, last + 1, window, 0);
+    if (prefetch_count && last != UINT64_MAX) (void)pc_readahead_pages(mapping, prefetch_first, prefetch_count, 0);
 }
 
 int64_t pagecache_read(pagecache_mapping_t *mapping, void *buffer, uint64_t offset, size_t size)
@@ -579,9 +630,31 @@ int64_t pagecache_write(pagecache_mapping_t *mapping, const void *buffer, uint64
     return (int64_t)done;
 }
 
-static int pc_page_compare(const pagecache_page_t *left, const pagecache_page_t *right)
+static void pc_sort_sift_down(pagecache_page_t **pages, size_t root, size_t count)
 {
-    return left->index < right->index ? -1 : left->index > right->index;
+    for (;;) {
+        size_t child = root * 2 + 1;
+        if (child >= count) return;
+        if (child + 1 < count && pages[child]->index < pages[child + 1]->index) child++;
+        if (pages[root]->index >= pages[child]->index) return;
+        pagecache_page_t *swap = pages[root];
+        pages[root]            = pages[child];
+        pages[child]           = swap;
+        root                   = child;
+    }
+}
+
+static void pc_sort_pages(pagecache_page_t **pages, size_t count)
+{
+    /* In-place heapsort keeps writeback ordered without the quadratic close
+     * time of insertion sort on files containing tens of thousands of pages. */
+    for (size_t root = count / 2; root; root--) pc_sort_sift_down(pages, root - 1, count);
+    for (size_t end = count; end > 1; end--) {
+        pagecache_page_t *swap = pages[0];
+        pages[0]               = pages[end - 1];
+        pages[end - 1]         = swap;
+        pc_sort_sift_down(pages, 0, end - 1);
+    }
 }
 
 int pagecache_writeback(pagecache_mapping_t *mapping, uint64_t start, uint64_t end, uint32_t flags)
@@ -589,19 +662,35 @@ int pagecache_writeback(pagecache_mapping_t *mapping, uint64_t start, uint64_t e
     if (!mapping) return -EINVAL;
     if (end < start) return EOK;
     pc_lock(&mapping->lock);
-    size_t             capacity = mapping->pages;
-    size_t             slots    = capacity ? capacity : 1;
-    pagecache_page_t **pages    = (pagecache_page_t **)malloc(slots * sizeof(*pages)); // NOLINT(bugprone-sizeof-expression)
+    size_t capacity = 0;
+    for (size_t i = 0; i < mapping->bucket_count; i++) {
+        for (pagecache_page_t *page = mapping->buckets[i]; page; page = page->hash_next) {
+            uint64_t page_start = page->index * PAGECACHE_PAGE_SIZE;
+            uint64_t page_end   = page_start + PAGECACHE_PAGE_SIZE - 1;
+            uint32_t state      = __atomic_load_n(&page->flags, __ATOMIC_ACQUIRE);
+            if (page_end >= start && page_start <= end && (state & PC_PAGE_DIRTY) && !(state & PC_PAGE_EVICTING)) capacity++;
+        }
+    }
+    if (!capacity) {
+        pc_unlock(&mapping->lock);
+        int result = mapping->ops.sync && (flags & PAGECACHE_WB_SYNC) ? mapping->ops.sync(mapping->context) : EOK;
+        if (!result && !(flags & PAGECACHE_WB_KEEP_ERROR)) __atomic_store_n(&mapping->error, 0, __ATOMIC_RELEASE);
+        return result;
+    }
+
+    size_t             slots = capacity;
+    pagecache_page_t **pages = (pagecache_page_t **)malloc(slots * sizeof(*pages)); // NOLINT(bugprone-sizeof-expression)
     if (!pages) {
         pc_unlock(&mapping->lock);
         return -ENOMEM;
     }
     size_t count = 0;
-    for (size_t i = 0; i < PAGECACHE_HASH_SIZE; i++) {
+    for (size_t i = 0; i < mapping->bucket_count; i++) {
         for (pagecache_page_t *page = mapping->buckets[i]; page; page = page->hash_next) {
             uint64_t page_start = page->index * PAGECACHE_PAGE_SIZE;
             uint64_t page_end   = page_start + PAGECACHE_PAGE_SIZE - 1;
-            if (page_end >= start && page_start <= end && !(page->flags & PC_PAGE_EVICTING)) {
+            uint32_t state      = __atomic_load_n(&page->flags, __ATOMIC_ACQUIRE);
+            if (count < capacity && page_end >= start && page_start <= end && (state & PC_PAGE_DIRTY) && !(state & PC_PAGE_EVICTING)) {
                 __atomic_add_fetch(&page->references, 1, __ATOMIC_ACQ_REL);
                 pages[count++] = page;
             }
@@ -609,15 +698,7 @@ int pagecache_writeback(pagecache_mapping_t *mapping, uint64_t start, uint64_t e
     }
     pc_unlock(&mapping->lock);
 
-    for (size_t i = 1; i < count; i++) {
-        pagecache_page_t *page = pages[i];
-        size_t            j    = i;
-        while (j && pc_page_compare(page, pages[j - 1]) < 0) {
-            pages[j] = pages[j - 1];
-            j--;
-        }
-        pages[j] = page;
-    }
+    pc_sort_pages(pages, count);
 
     int first_error = EOK;
     for (size_t i = 0; i < count; i++) {
@@ -671,7 +752,7 @@ int pagecache_invalidate(pagecache_mapping_t *mapping, uint64_t start, uint64_t 
     for (;;) {
         pagecache_page_t *victim = NULL;
         pc_lock(&mapping->lock);
-        for (size_t i = 0; i < PAGECACHE_HASH_SIZE && !victim; i++) {
+        for (size_t i = 0; i < mapping->bucket_count && !victim; i++) {
             for (pagecache_page_t *page = mapping->buckets[i]; page; page = page->hash_next) {
                 uint64_t page_start = page->index * PAGECACHE_PAGE_SIZE;
                 uint64_t page_end   = page_start + PAGECACHE_PAGE_SIZE - 1;
@@ -712,7 +793,7 @@ int pagecache_evict(pagecache_mapping_t *mapping, uint64_t start, uint64_t end, 
 
     int dirty = 0;
     pc_lock(&mapping->lock);
-    for (size_t i = 0; i < PAGECACHE_HASH_SIZE && !dirty; i++) {
+    for (size_t i = 0; i < mapping->bucket_count && !dirty; i++) {
         for (pagecache_page_t *page = mapping->buckets[i]; page; page = page->hash_next) {
             uint64_t page_start = page->index * PAGECACHE_PAGE_SIZE;
             uint64_t page_end   = page_start + PAGECACHE_PAGE_SIZE - 1;
@@ -814,14 +895,24 @@ size_t pagecache_reclaim(size_t target)
                 pc_unlock(&page->lock);
                 continue;
             }
+            /* A lookup can acquire a reference between the unlocked test
+             * above and this page lock.  Publish EVICTING first so no new
+             * lookup can succeed, then recheck the references acquired by
+             * lookups which won that race. */
+            __atomic_fetch_or(&page->flags, PC_PAGE_EVICTING, __ATOMIC_RELEASE);
+            if (__atomic_load_n(&page->references, __ATOMIC_ACQUIRE)) {
+                __atomic_fetch_and(&page->flags, ~PC_PAGE_EVICTING, __ATOMIC_RELEASE);
+                pc_unlock(&page->lock);
+                continue;
+            }
             if (page->flags & PC_PAGE_DIRTY) {
+                __atomic_fetch_and(&page->flags, ~PC_PAGE_EVICTING, __ATOMIC_RELEASE);
                 if (!dirty)
                     dirty = page;
                 else
                     pc_unlock(&page->lock);
                 continue;
             }
-            page->flags |= PC_PAGE_EVICTING;
             victim = page;
             break;
         }

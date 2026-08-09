@@ -14,6 +14,7 @@
 #include <kernel/errno.h>
 #include <kernel/kobject.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <kernel/uinxed.h>
 #include <libs/std/stdarg.h>
 #include <libs/std/stddef.h>
@@ -102,9 +103,9 @@ static ssize_t uptime_show(struct kobject *kobj, struct attribute *attr, char *b
 {
     (void)kobj;
     (void)attr;
-    uint64_t ticks = sched_ticks();
-    uint64_t sec   = ticks / 100;
-    uint64_t cs    = ticks % 100;
+    uint64_t ns  = timer_monotonic_ns();
+    uint64_t sec = ns / TIMER_NSEC_PER_SEC;
+    uint64_t cs  = (ns % TIMER_NSEC_PER_SEC) / 10000000ULL;
     return (ssize_t)sysfs_emit(buf, "%llu.%02llu\n", (unsigned long long)sec, (unsigned long long)cs);
 }
 

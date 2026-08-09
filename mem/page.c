@@ -31,14 +31,94 @@
 page_directory_t  kernel_page_dir;
 page_directory_t *current_directory = 0;
 
+/*
+ * GCC/Clang interrupt functions save only the registers selected by their
+ * optimiser.  Their slots therefore cannot be addressed by fixed offsets
+ * from interrupt_frame_t.  Signals need to replace RIP/RSP and several GPRs,
+ * so #PF uses a small assembly entry that defines one stable full frame.
+ */
+typedef struct page_fault_frame {
+        uint64_t r15;
+        uint64_t r14;
+        uint64_t r13;
+        uint64_t r12;
+        uint64_t r11;
+        uint64_t r10;
+        uint64_t r9;
+        uint64_t r8;
+        uint64_t rbp;
+        uint64_t rdi;
+        uint64_t rsi;
+        uint64_t rdx;
+        uint64_t rcx;
+        uint64_t rbx;
+        uint64_t rax;
+        uint64_t error_code;
+        uint64_t rip;
+        uint64_t cs;
+        uint64_t rflags;
+        uint64_t rsp;
+        uint64_t ss;
+} page_fault_frame_t;
+
+_Static_assert(offsetof(page_fault_frame_t, error_code) == 15 * sizeof(uint64_t), "bad #PF frame layout");
+_Static_assert(offsetof(page_fault_frame_t, rip) == 16 * sizeof(uint64_t), "bad #PF iret layout");
+
+void page_fault_handle_frame(page_fault_frame_t *frame) __attribute__((used, noinline));
+
+__asm__(".text\n"
+        ".global page_fault_entry\n"
+        ".type page_fault_entry, @function\n"
+        "page_fault_entry:\n"
+        "cld\n"
+        "pushq %rax\n"
+        "pushq %rbx\n"
+        "pushq %rcx\n"
+        "pushq %rdx\n"
+        "pushq %rsi\n"
+        "pushq %rdi\n"
+        "pushq %rbp\n"
+        "pushq %r8\n"
+        "pushq %r9\n"
+        "pushq %r10\n"
+        "pushq %r11\n"
+        "pushq %r12\n"
+        "pushq %r13\n"
+        "pushq %r14\n"
+        "pushq %r15\n"
+        "movq %rsp, %r12\n"
+        "movq %r12, %rdi\n"
+        "andq $-16, %rsp\n"
+        "call page_fault_handle_frame\n"
+        "movq %r12, %rsp\n"
+        "popq %r15\n"
+        "popq %r14\n"
+        "popq %r13\n"
+        "popq %r12\n"
+        "popq %r11\n"
+        "popq %r10\n"
+        "popq %r9\n"
+        "popq %r8\n"
+        "popq %rbp\n"
+        "popq %rdi\n"
+        "popq %rsi\n"
+        "popq %rdx\n"
+        "popq %rcx\n"
+        "popq %rbx\n"
+        "popq %rax\n"
+        "addq $8, %rsp\n"
+        "iretq\n"
+        ".size page_fault_entry, .-page_fault_entry\n");
+
 /* Page fault handling */
-INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_code)
+void page_fault_handle_frame(page_fault_frame_t *frame)
 {
     disable_intr();
 
     uint64_t faulting_address;
     __asm__ volatile("mov %%cr2, %0" : "=r"(faulting_address));
 
+    uint64_t    error_code = frame->error_code;
     uint64_t    present  = error_code & 0x1;  // Page exists, access violated protection
     uint64_t    rw       = error_code & 0x2;  // Write access
     uint64_t    us       = error_code & 0x4;  // Fault from user mode
@@ -67,10 +147,33 @@ INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_
             info.si_code   = present ? SEGV_ACCERR : SEGV_MAPERR;
             info.si_addr   = (void *)faulting_address;
 
-            plogk("#PF (pid=%llu): Segmentation fault at 0x%016llx\n", proc->task->pid, faulting_address);
+            plogk("#PF (pid=%llu task=%s): addr=0x%016llx rip=0x%016llx rsp=0x%016llx cs=0x%llx err=0x%llx\n",
+                  proc->task->pid, proc->task->name, faulting_address, frame->rip, frame->rsp, frame->cs, error_code);
+
+            /* A synchronous fault cannot be deferred.  If SIGSEGV is
+             * blocked (normally because its handler faulted recursively) or
+             * ignored, Linux terminates the process instead of retrying the
+             * same faulting instruction forever. */
+            if (signal_is_blocked_or_ignored(proc, SIGSEGV)) process_exit(-SIGSEGV);
+
             signal_send_thread(proc->task, SIGSEGV, &info);
 
             syscall_frame_t sigframe = {0};
+            sigframe.rax             = frame->rax;
+            sigframe.rbx             = frame->rbx;
+            sigframe.rcx             = frame->rcx;
+            sigframe.rdx             = frame->rdx;
+            sigframe.rsi             = frame->rsi;
+            sigframe.rdi             = frame->rdi;
+            sigframe.rbp             = frame->rbp;
+            sigframe.r8              = frame->r8;
+            sigframe.r9              = frame->r9;
+            sigframe.r10             = frame->r10;
+            sigframe.r11             = frame->r11;
+            sigframe.r12             = frame->r12;
+            sigframe.r13             = frame->r13;
+            sigframe.r14             = frame->r14;
+            sigframe.r15             = frame->r15;
             sigframe.rip             = frame->rip;
             sigframe.cs              = frame->cs;
             sigframe.rflags          = frame->rflags;
@@ -80,26 +183,33 @@ INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_
             int ret = signal_deliver_if_pending(&sigframe);
             if (ret == 1) task_exit();
 
+            frame->rax    = sigframe.rax;
+            frame->rbx    = sigframe.rbx;
+            frame->rcx    = sigframe.rcx;
+            frame->rdx    = sigframe.rdx;
+            frame->rsi    = sigframe.rsi;
+            frame->rdi    = sigframe.rdi;
+            frame->rbp    = sigframe.rbp;
+            frame->r8     = sigframe.r8;
+            frame->r9     = sigframe.r9;
+            frame->r10    = sigframe.r10;
+            frame->r11    = sigframe.r11;
+            frame->r12    = sigframe.r12;
+            frame->r13    = sigframe.r13;
+            frame->r14    = sigframe.r14;
+            frame->r15    = sigframe.r15;
             frame->rip    = sigframe.rip;
             frame->rflags = sigframe.rflags;
             frame->rsp    = sigframe.rsp;
-
-            /* Propagate signal handler args (see inthandle.c for details) */
-            __asm__ volatile("movq %[rdi], -0x00(%[fp])\n"
-                             "movq %[rsi], -0x08(%[fp])\n"
-                             "movq %[rdx], -0x10(%[fp])\n"
-                             :
-                             : [fp] "r"(frame), [rdi] "r"(sigframe.rdi), [rsi] "r"(sigframe.rsi), [rdx] "r"(sigframe.rdx)
-                             : "memory");
         } else {
             plogk("#PF: user-mode fault at 0x%016llx (err 0x%llx) with no process context\n", faulting_address, error_code);
         }
         return;
     }
 
-    panic("PAGE_FAULT-%s-Address: 0x%016llx", pf_msg, faulting_address);
+    panic("PAGE_FAULT-%s-Address: 0x%016llx RIP: 0x%016llx RSP: 0x%016llx error: 0x%llx", pf_msg, faulting_address, frame->rip,
+          frame->rsp, error_code);
 }
-INTERRUPT_END
 
 /* Determine whether the page table entry maps a huge page */
 int is_huge_page(page_table_entry_t *entry)
@@ -233,24 +343,10 @@ static int clone_table_cow(page_table_t *destination, const page_table_t *source
         }
 
         if (level == 1 || (value & PTE_HUGE)) {
-            uint64_t mask      = leaf_address_mask(level);
-            size_t   count     = leaf_frame_count(level);
-            uint64_t old_frame = value & mask;
-            if (value & PTE_SHARED) {
-                if (frame_retain_range(old_frame, count)) return -1;
-                destination->entries[i].value = value;
-            } else {
-                uint64_t new_frame;
-                if (level == 3)
-                    new_frame = alloc_frames_1G(1);
-                else if (level == 2)
-                    new_frame = alloc_frames_2M(1);
-                else
-                    new_frame = alloc_frames(1);
-                if (!new_frame) return -1;
-                memcpy(phys_to_virt(new_frame), phys_to_virt(old_frame), leaf_frame_count(level) * PAGE_4K_SIZE);
-                destination->entries[i].value = new_frame | (value & ~mask);
-            }
+            uint64_t mask  = leaf_address_mask(level);
+            size_t   count = leaf_frame_count(level);
+            if (frame_retain_range(value & mask, count)) return -1;
+            destination->entries[i].value = cow_leaf_value(value);
             continue;
         }
 
@@ -263,6 +359,24 @@ static int clone_table_cow(page_table_t *destination, const page_table_t *source
         if (clone_table_cow(next, phys_to_virt(value & PAGE_4K_MASK), level - 1)) return -1;
     }
     return 0;
+}
+
+static void mark_parent_table_cow(page_table_t *table, int level)
+{
+    for (int i = 0; i < 512; i++) {
+        page_table_entry_t *entry = &table->entries[i];
+        uint64_t            value = __atomic_load_n(&entry->value, __ATOMIC_ACQUIRE);
+        if (!(value & PTE_PRESENT)) {
+            if (level == 1 && swap_entry_is_swap(value))
+                __atomic_store_n(&entry->value, cow_leaf_value(value), __ATOMIC_RELEASE);
+            continue;
+        }
+        if (level == 1 || (value & PTE_HUGE)) {
+            __atomic_store_n(&entry->value, cow_leaf_value(value), __ATOMIC_RELEASE);
+        } else {
+            mark_parent_table_cow(phys_to_virt(value & PAGE_4K_MASK), level - 1);
+        }
+    }
 }
 
 int page_clone_user_cow(page_directory_t *child, page_directory_t *parent)
@@ -291,6 +405,15 @@ int page_clone_user_cow(page_directory_t *child, page_directory_t *parent)
         page_table_clear(pdpt);
         child->table->entries[i].value = table_frame | (value & ~PAGE_4K_MASK);
         if (clone_table_cow(pdpt, phys_to_virt(value & PAGE_4K_MASK), 3)) goto rollback;
+    }
+
+    /* Publish write protection only after every child leaf owns a frame
+     * reference.  The caller performs one synchronized TLB shootdown before
+     * the child can run, so fork remains cheap without stale writable TLBs. */
+    for (int i = 0; i < 256; i++) {
+        uint64_t value = parent->table->entries[i].value;
+        if ((value & PTE_PRESENT) && !(value & PTE_HUGE))
+            mark_parent_table_cow(phys_to_virt(value & PAGE_4K_MASK), 3);
     }
 
     spin_unlock(&child->lock);

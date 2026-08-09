@@ -384,6 +384,14 @@ static int sysfs_stat(void *file, vfs_node_t node)
             struct kobject *kobj = sn->kobj;
             if (!kobj) break;
 
+            /* sysfs_create_*()/sysfs_remove_*() maintain VFS children
+             * eagerly after the filesystem is mounted.  The directory stat
+             * callback therefore only needs to perform the initial lazy
+             * population.  Rewalking and de-duplicating every kobject and
+             * attribute on every pathname component made udev's parallel
+             * attribute scan serialize on the global VFS lock. */
+            if (node->visited) break;
+
             /* Enumerate child kobjects */
             {
                 clist_t child;
@@ -510,6 +518,7 @@ static int sysfs_stat(void *file, vfs_node_t node)
                     entry->vnode   = sym_vn;
                 }
             }
+            node->visited = 1;
             break;
         }
         case SYSFS_ATTR : {

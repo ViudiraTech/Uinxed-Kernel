@@ -13,6 +13,7 @@
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
+#include <proc/uaccess.h>
 
 int        tmpfs_id    = 0;
 static int devtmpfs_id = 0;
@@ -395,6 +396,13 @@ static void tmpfs_file_release(vfs_node_t node, void *private_data)
     if (f->device.release) f->device.release(node, private_data);
 }
 
+static void tmpfs_file_descriptor_close(vfs_node_t node, void *private_data)
+{
+    tmpfs_file_t *f = node->handle;
+
+    if (f && f->device.descriptor_close) f->device.descriptor_close(f->device.ctx, private_data);
+}
+
 static void *tmpfs_file_mmap(vfs_node_t node, void *private_data, size_t offset, size_t size, int flags, struct vm_area *vma)
 {
     tmpfs_file_t *f = node->handle;
@@ -427,6 +435,57 @@ static int64_t tmpfs_file_write(vfs_node_t node, void *private_data, uint64_t fl
     return (int64_t)tmpfs_write(f, addr, offset, size);
 }
 
+#define TMPFS_USER_IO_CHUNK 16384
+
+static int64_t tmpfs_file_read_user(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size,
+                                    struct process *proc)
+{
+    tmpfs_file_t *f = node->handle;
+    if (!f) return -EINVAL;
+    if (f->device.file_read_user)
+        return f->device.file_read_user(f->device.ctx, private_data, flags, addr, offset, size, proc);
+
+    uint8_t tmp[TMPFS_USER_IO_CHUNK];
+    size_t  done = 0;
+    while (done < size) {
+        size_t  chunk = size - done < sizeof(tmp) ? size - done : sizeof(tmp);
+        int64_t ret   = tmpfs_file_read(node, private_data, flags, tmp, offset + done, chunk);
+        if (ret < 0) return done ? (int64_t)done : ret;
+        if (!ret) break;
+        if (copy_to_user((uint8_t *)addr + done, tmp, (size_t)ret)) return done ? (int64_t)done : -EFAULT;
+        done += (size_t)ret;
+        if ((size_t)ret < chunk) break;
+    }
+    return (int64_t)done;
+}
+
+static int64_t tmpfs_file_write_user(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size,
+                                     struct process *proc)
+{
+    tmpfs_file_t *f = node->handle;
+    if (!f) return -EINVAL;
+    if (f->device.file_write_user)
+        return f->device.file_write_user(f->device.ctx, private_data, flags, addr, offset, size, proc);
+
+    if (!size) {
+        uint8_t empty = 0;
+        return tmpfs_file_write(node, private_data, flags, &empty, offset, 0);
+    }
+
+    uint8_t tmp[TMPFS_USER_IO_CHUNK];
+    size_t  done = 0;
+    while (done < size) {
+        size_t chunk = size - done < sizeof(tmp) ? size - done : sizeof(tmp);
+        if (copy_from_user(tmp, (const uint8_t *)addr + done, chunk)) return done ? (int64_t)done : -EFAULT;
+        int64_t ret = tmpfs_file_write(node, private_data, flags, tmp, offset + done, chunk);
+        if (ret < 0) return done ? (int64_t)done : ret;
+        if (!ret) break;
+        done += (size_t)ret;
+        if ((size_t)ret < chunk) break;
+    }
+    return (int64_t)done;
+}
+
 static int tmpfs_file_poll(vfs_node_t node, void *private_data, uint64_t flags, size_t events)
 {
     tmpfs_file_t *f = node->handle;
@@ -434,6 +493,14 @@ static int tmpfs_file_poll(vfs_node_t node, void *private_data, uint64_t flags, 
     if (!f) return -EINVAL;
     if (f->device.file_poll) return f->device.file_poll(f->device.ctx, private_data, flags, events);
     return tmpfs_poll(f, events);
+}
+
+static vfs_poll_source_t *tmpfs_file_poll_source(vfs_node_t node, void *private_data)
+{
+    tmpfs_file_t *f = node->handle;
+
+    if (!f || !f->device.file_poll_source) return NULL;
+    return f->device.file_poll_source(f->device.ctx, private_data);
 }
 
 static int tmpfs_file_ioctl(vfs_node_t node, void *private_data, uint64_t flags, size_t req, void *arg)
@@ -466,11 +533,15 @@ static struct vfs_callback tmpfs_callbacks = {
     .rename       = tmpfs_rename,
     .file_open    = tmpfs_file_open,
     .file_release = tmpfs_file_release,
+    .file_descriptor_close = tmpfs_file_descriptor_close,
     .file_mmap    = tmpfs_file_mmap,
     .file_read    = tmpfs_file_read,
     .file_write   = tmpfs_file_write,
+    .file_read_user  = tmpfs_file_read_user,
+    .file_write_user = tmpfs_file_write_user,
     .file_ioctl   = tmpfs_file_ioctl,
     .file_poll    = tmpfs_file_poll,
+    .file_poll_source = tmpfs_file_poll_source,
     .resize       = tmpfs_resize,
 };
 

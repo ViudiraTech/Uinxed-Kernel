@@ -66,8 +66,8 @@ int sys_signalfd(int fd, const void *mask, int flags);
 /* Create or update a signalfd (with flags) */
 int sys_signalfd4(int fd, const void *mask, size_t sizemask, int flags);
 
-/* Deliver a signal to all signalfd instances in a process */
-void signalfd_deliver(process_t *proc, int sig);
+/* Queue a newly-pending signal for matching signalfd instances. */
+void signalfd_deliver(process_t *proc, int sig, const siginfo_t *source);
 
 /* Initialize the signalfd subsystem */
 void signalfd_init(void);

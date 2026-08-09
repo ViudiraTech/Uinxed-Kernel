@@ -11,6 +11,7 @@
 #ifndef INCLUDE_NET_TCP_H_
 #define INCLUDE_NET_TCP_H_
 
+#include <kernel/timer.h>
 #include <libs/std/stddef.h>
 #include <net/abi/inet.h>
 #include <net/ipv4.h>
@@ -23,8 +24,8 @@
 #define TCP_TX_SEGMENT_MAX  32U
 #define TCP_OOO_SEGMENT_MAX 16U
 
-#define TCP_KEEPIDLE_DEFAULT_TICKS  720000U
-#define TCP_KEEPINTVL_DEFAULT_TICKS 7500U
+#define TCP_KEEPIDLE_DEFAULT_TICKS  (7200U * TIMER_HZ)
+#define TCP_KEEPINTVL_DEFAULT_TICKS (75U * TIMER_HZ)
 #define TCP_KEEPCNT_DEFAULT         9U
 #define TCP_SYN_RETRIES_DEFAULT     6U
 #define TCP_DATA_RETRIES_DEFAULT    15U

@@ -389,6 +389,7 @@ int drm_open(struct drm_device *dev, struct drm_file *file)
     drm_idr_init(&file->object_idr);
     ilist_init(&file->fbs_head);
     ilist_init(&file->object_list);
+    ilist_init(&file->blobs_head);
 
     ret = drm_ht_create(&file->magiclist, 4);
     if (ret) {
@@ -441,8 +442,22 @@ void drm_release(struct drm_file *file)
 
     dev = (struct drm_device *)file->minor_unused;
 
+    /* Block new nonblocking commits before framebuffer/GEM teardown and wait
+     * for workers which may still hold raw atomic-state pointers. */
+    spin_lock(&file->event_lock);
+    file->event_closing = true;
+    spin_unlock(&file->event_lock);
+
     if (dev) {
         drm_vblank_cancel_pending(dev, file);
+        spin_lock(&file->event_lock);
+        while (file->event_refs) {
+            wait_queue_prepare(&file->event_wait);
+            spin_unlock(&file->event_lock);
+            wait_queue_sleep();
+            spin_lock(&file->event_lock);
+        }
+        spin_unlock(&file->event_lock);
         spin_lock(&dev->filelist_lock);
         ilist_remove(&file->head);
         dev->open_count--;
@@ -463,6 +478,16 @@ void drm_release(struct drm_file *file)
             drm_framebuffer_cleanup(fb);
             free(fb);
         }
+    }
+
+    /* Drop the owning reference for every property blob created by this
+     * file. Atomic states may still hold independent lookup references. */
+    while (file->blobs_head.next && file->blobs_head.next != &file->blobs_head) {
+        struct drm_property_blob *blob = container_of(file->blobs_head.next, struct drm_property_blob, head_file);
+        spin_lock(&file->table_lock);
+        ilist_remove(&blob->head_file);
+        spin_unlock(&file->table_lock);
+        drm_property_blob_put(blob);
     }
 
     /* Release any GEM handles still held by this file. */

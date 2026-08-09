@@ -230,8 +230,9 @@ int signal_check_perm(const process_t *from, const process_t *to)
 
 /* ---------- Signal sending ---------- */
 
-static int signal_send_locked(signal_state_t *state, process_t *proc, int sig, const siginfo_t *info)
+static int signal_send_locked(signal_state_t *state, process_t *proc, int sig, const siginfo_t *info, bool *newly_pending)
 {
+    if (newly_pending) *newly_pending = false;
     /* Standard signals coalesce, but Linux retains the first siginfo. */
     if (!sig_is_rt(sig)) {
         if (sigismember(&state->pending, sig)) { return 0; }
@@ -263,6 +264,7 @@ static int signal_send_locked(signal_state_t *state, process_t *proc, int sig, c
     int queued = state->sigqueue_count < SIGQUEUE_MAX ? sigqueue_push(state, &queue_info) : -ENOMEM;
     if (queued && sig_is_rt(sig)) return -EAGAIN;
     sigaddset(&state->pending, sig);
+    if (newly_pending) *newly_pending = true;
     return 0;
 }
 
@@ -275,9 +277,15 @@ int signal_send(process_t *proc, int sig, const siginfo_t *info)
 
     spin_lock(&state->lock);
 
-    int ret = signal_send_locked(state, proc, sig, info);
+    bool newly_pending;
+    int  ret = signal_send_locked(state, proc, sig, info, &newly_pending);
 
     spin_unlock(&state->lock);
+
+    /* signalfd consumes blocked signals, so it must be notified when the
+     * signal becomes pending.  Waiting until normal return-to-userspace
+     * delivery can never work for the usual (blocked) signalfd mask. */
+    if (ret == 0 && newly_pending) signalfd_deliver(proc, sig, info);
 
     bool resumed = false;
     if (ret == 0 && (sig == SIGCONT || sig == SIGKILL) && proc->task) resumed = task_continue(proc->task) == 0;
@@ -301,9 +309,12 @@ int signal_send_thread(task_t *task, int sig, const siginfo_t *info)
 
     spin_lock(&state->lock);
 
-    int ret = signal_send_locked(state, proc, sig, info);
+    bool newly_pending;
+    int  ret = signal_send_locked(state, proc, sig, info, &newly_pending);
 
     spin_unlock(&state->lock);
+
+    if (ret == 0 && newly_pending) signalfd_deliver(proc, sig, info);
 
     bool resumed = false;
     if (ret == 0 && (sig == SIGCONT || sig == SIGKILL)) resumed = task_continue(task) == 0;
@@ -348,11 +359,19 @@ static int signal_setup_frame(syscall_frame_t *frame, int sig, const sigaction_t
         stack_limit = proc->stack_brk;
     }
 
-    /* Align to 16 bytes, leave 128-byte red zone (x86_64 ABI) */
+    /* Leave the interrupted context's 128-byte red zone intact. */
     sp = (sp - 128) & ~(uint64_t)0xF;
 
     sp -= sizeof(signal_user_frame_t);
     sp &= ~(uint64_t)0xF;
+
+    /* A signal handler is entered as if it had been called: pretcode at RSP
+     * is its return address.  The AMD64 SysV ABI therefore requires
+     * RSP % 16 == 8 at handler entry (the caller's stack was 16-byte aligned
+     * before CALL pushed eight bytes).  Entering with RSP % 16 == 0 shifts
+     * every aligned local by eight bytes; musl's vfprintf then faults on its
+     * first movaps store. */
+    sp -= sizeof(uint64_t);
 
     if (sp < stack_limit) return -EFAULT;
 
@@ -463,9 +482,6 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
 
     signal_state_t *state = &proc->signal;
     sigaction_t    *sa    = &state->sighand[sig];
-
-    /* Deliver to signalfd */
-    signalfd_deliver(proc, sig);
 
     /* Check if signal is ignored */
     if (sa->sa_handler == SIG_IGN) {
@@ -636,12 +652,18 @@ static int signal_dequeue(signal_state_t *state, siginfo_t *info)
  *   0 if no signal was pending, or signal was delivered (continue)
  *   1 if the process was terminated by a signal default action
  */
-int signal_deliver_if_pending(syscall_frame_t *frame)
+int signal_deliver_for_process(process_t *proc, syscall_frame_t *frame)
 {
-    process_t *proc = process_current();
     if (!proc) return 0;
 
     signal_state_t *state = &proc->signal;
+
+    /* The overwhelmingly common return-to-user path has neither pending
+     * signals nor a temporary mask to restore.  Avoid disabling interrupts
+     * and taking signal.lock for every syscall in that case. */
+    sigset_t pending = __atomic_load_n(&state->pending, __ATOMIC_ACQUIRE);
+    sigset_t blocked = __atomic_load_n(&state->blocked, __ATOMIC_RELAXED);
+    if (!(pending & ~blocked) && !__atomic_load_n(&state->restore_mask, __ATOMIC_ACQUIRE)) return 0;
 
     spin_lock(&state->lock);
 
@@ -696,6 +718,11 @@ int signal_deliver_if_pending(syscall_frame_t *frame)
     return 0;
 }
 
+int signal_deliver_if_pending(syscall_frame_t *frame)
+{
+    return signal_deliver_for_process(process_current(), frame);
+}
+
 /* ---------- SIGCHLD notification ---------- */
 
 void signal_notify_child_exit(process_t *parent, int64_t child_pid, int exit_code, int status)
@@ -726,9 +753,12 @@ void signal_notify_child_exit(process_t *parent, int64_t child_pid, int exit_cod
     info.si_uid    = parent->uid;
     info.si_status = exit_code;
 
-    signal_send_locked(state, parent, SIGCHLD, &info);
+    bool newly_pending;
+    signal_send_locked(state, parent, SIGCHLD, &info, &newly_pending);
 
     spin_unlock(&state->lock);
+
+    if (newly_pending) signalfd_deliver(parent, SIGCHLD, &info);
 
     if (parent->task) { task_wakeup(parent->task); }
 }
@@ -740,16 +770,18 @@ void signal_notify_child_status(process_t *parent, int64_t child_pid, int status
     signal_state_t *state = &parent->signal;
     spin_lock(&state->lock);
     sigaction_t *sa = &state->sighand[SIGCHLD];
+    bool      newly_pending = false;
+    siginfo_t info;
+    memset(&info, 0, sizeof(info));
     if (!(sa->sa_flags & SA_NOCLDSTOP)) {
-        siginfo_t info;
-        memset(&info, 0, sizeof(info));
         info.si_signo  = SIGCHLD;
         info.si_code   = code;
         info.si_pid    = child_pid;
         info.si_status = status;
-        signal_send_locked(state, parent, SIGCHLD, &info);
+        signal_send_locked(state, parent, SIGCHLD, &info, &newly_pending);
     }
     spin_unlock(&state->lock);
+    if (newly_pending) signalfd_deliver(parent, SIGCHLD, &info);
     if (parent->task) task_wakeup(parent->task);
 }
 
@@ -1059,7 +1091,11 @@ int64_t sys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize)
 
     /* Check if any signal is already pending and unblocked */
     if (signal_has_pending(state)) {
-        state->blocked = old_blocked;
+        /* Keep the temporary mask installed until the return-to-userspace
+         * signal pass.  Restoring old_blocked here can re-block the signal
+         * that is meant to interrupt sigsuspend before it is delivered. */
+        state->saved_mask   = old_blocked;
+        state->restore_mask = true;
         spin_unlock(&state->lock);
         return -EINTR;
     }
@@ -1073,9 +1109,11 @@ int64_t sys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize)
     /* Sleep (or continue immediately if already woken by a signal) */
     wait_queue_sleep();
 
-    /* Restore old blocked mask */
+    /* A handler frame must restore old_blocked after signal delivery, not
+     * before it.  This is the same deferred-mask rule used by ppoll/pselect. */
     spin_lock(&state->lock);
-    state->blocked = old_blocked;
+    state->saved_mask   = old_blocked;
+    state->restore_mask = true;
     spin_unlock(&state->lock);
 
     return -EINTR;
@@ -1420,7 +1458,7 @@ int64_t sys_setsid(void)
 {
     process_t *proc = process_current();
     pid_t      sid;
-    int        ret = process_setsid(proc, &sid);
+    int ret = process_setsid(proc, &sid);
     return ret ? ret : (int64_t)sid;
 }
 

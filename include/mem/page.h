@@ -150,7 +150,7 @@ pat_config_t get_pat_config(void);
 /* Initialize memory page table */
 void page_init(void);
 
-/* Page-fault handler (invoked by the interrupt dispatcher). */
-INTERRUPT_BEGIN void page_fault_handle(interrupt_frame_t *frame, uint64_t error_code);
+/* Page-fault entry stub (invoked directly by the IDT). */
+void page_fault_entry(void);
 
 #endif // INCLUDE_PAGE_H_

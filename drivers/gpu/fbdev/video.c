@@ -16,6 +16,7 @@
 #include <drivers/gpu/video.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <kernel/uinxed.h>
 #include <libs/gfxs/gfx_proc.h>
 #include <libs/std/stdbool.h>
@@ -311,7 +312,7 @@ static void video_refresh_worker(void *arg)
 
     (void)arg;
     for (;;) {
-        task_sleep_ticks(4);
+        task_sleep_ticks((TIMER_HZ + 59) / 60);
 
         /* Flip the block cursor phase; the frame-diff below flushes it. */
         fbcon_cursor_tick(sched_ticks());
@@ -520,6 +521,7 @@ void video_switch_to_drm(void *backing, uint32_t w, uint32_t h, uint32_t pitch, 
 
     if ((uintptr_t)backing & (PAGE_4K_SIZE - 1) || pitch < w * sizeof(uint32_t) || (pitch & (sizeof(uint32_t) - 1))) return;
 
+    fbcon_handoff_begin();
     spin_lock(&video_state_lock);
     old_buffer = buffer;
     old_width  = width;
@@ -568,6 +570,8 @@ void video_switch_to_drm(void *backing, uint32_t w, uint32_t h, uint32_t pitch, 
         video_redraw_logo();
 #endif
     }
+
+    fbcon_handoff_end();
 
     /* Push the carried-over frame (or the rebuilt one) to the host. */
     video_flush_rect(0, 0, w, h);

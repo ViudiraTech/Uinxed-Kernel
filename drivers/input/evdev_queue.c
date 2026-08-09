@@ -40,6 +40,7 @@ bool evdev_queue_push(evdev_queue_t *queue, const input_event_t *event)
 
     if (!queue || !queue->buffer || !event) return false;
 
+    /* A bare SYN_REPORT with nothing queued does not start a packet. */
     if (event->type == EV_SYN && event->code == SYN_REPORT && queue->packet_head == queue->head) return false;
 
     mask                         = queue->size - 1;
@@ -47,6 +48,8 @@ bool evdev_queue_push(evdev_queue_t *queue, const input_event_t *event)
     queue->head &= mask;
 
     if (queue->head == queue->tail) {
+        /* Preserve the newest event and replace the discarded history with
+         * SYN_DROPPED.  The following SYN_REPORT will commit this frame. */
         queue->tail                = (queue->head - 2) & mask;
         queue->buffer[queue->tail] = (input_event_t) {
             .sec   = event->sec,

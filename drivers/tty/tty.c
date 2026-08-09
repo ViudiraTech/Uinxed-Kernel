@@ -41,9 +41,21 @@ static char           tty_vga_queue[TTY_VGA_QUEUE_SIZE] = {0};
 static size_t         tty_vga_head                      = 0;
 static size_t         tty_vga_tail                      = 0;
 static tty_core_t     console_tty;
+static tty_core_t     virtual_ttys[6];
+static tty_core_t     serial_ttys[4];
 static bool           console_tty_ready;
 static spinlock_t     console_tty_init_lock;
 static spinlock_t     console_emit_lock;
+
+typedef struct {
+        tty_core_t *core;
+        bool        virtual_console;
+} tty_file_endpoint_t;
+
+/* tty0 and tty1 alias VT 1.  The remaining advertised terminals must
+ * nevertheless keep independent line-discipline and job-control state. */
+static tty_file_endpoint_t vt_endpoints[7];
+static tty_file_endpoint_t serial_endpoints[4];
 
 static int tty_should_flush_now(const tty_device_t *tty_device, const char ch, size_t used)
 {
@@ -388,6 +400,24 @@ static int console_emit(void *context, const uint8_t *data, size_t size, uint64_
     return (int)size;
 }
 
+static int inactive_vt_emit(void *context, const uint8_t *data, size_t size, uint64_t flags)
+{
+    (void)context;
+    (void)data;
+    (void)flags;
+    return (int)size;
+}
+
+static int serial_emit(void *context, const uint8_t *data, size_t size, uint64_t flags)
+{
+    (void)flags;
+    static const uint16_t ports[] = {SERIAL_PORT_1, SERIAL_PORT_2, SERIAL_PORT_3, SERIAL_PORT_4};
+    size_t                index   = (size_t)(uintptr_t)context;
+    if (index >= sizeof(ports) / sizeof(ports[0])) return -EINVAL;
+    for (size_t i = 0; i < size; i++) write_serial(ports[index], data[i]);
+    return (int)size;
+}
+
 static void tty_input_lazy_init(void)
 {
     spin_lock(&console_tty_init_lock);
@@ -395,9 +425,21 @@ static void tty_input_lazy_init(void)
         spin_unlock(&console_tty_init_lock);
         return;
     }
-    static const tty_core_ops_t operations = {.emit = console_emit, .event = NULL};
-    tty_core_init(&console_tty, &operations, NULL);
+    static const tty_core_ops_t console_operations  = {.emit = console_emit, .event = NULL};
+    static const tty_core_ops_t inactive_operations = {.emit = inactive_vt_emit, .event = NULL};
+    static const tty_core_ops_t serial_operations   = {.emit = serial_emit, .event = NULL};
+    tty_core_init(&console_tty, &console_operations, NULL);
     tty_core_mark_virtual_console(&console_tty);
+    vt_endpoints[0] = (tty_file_endpoint_t){.core = &console_tty, .virtual_console = true};
+    for (size_t i = 0; i < sizeof(virtual_ttys) / sizeof(virtual_ttys[0]); i++) {
+        tty_core_init(&virtual_ttys[i], &inactive_operations, (void *)(uintptr_t)(i + 1));
+        tty_core_mark_virtual_console(&virtual_ttys[i]);
+        vt_endpoints[i + 1] = (tty_file_endpoint_t){.core = &virtual_ttys[i], .virtual_console = true};
+    }
+    for (size_t i = 0; i < sizeof(serial_ttys) / sizeof(serial_ttys[0]); i++) {
+        tty_core_init(&serial_ttys[i], &serial_operations, (void *)(uintptr_t)i);
+        serial_endpoints[i] = (tty_file_endpoint_t){.core = &serial_ttys[i], .virtual_console = false};
+    }
     console_tty_ready = true;
     spin_unlock(&console_tty_init_lock);
 }
@@ -528,13 +570,35 @@ int tty_dev_poll(void *ctx, size_t events)
     return tty_core_poll(&console_tty, events);
 }
 
+static tty_file_endpoint_t *tty_endpoint_for_node(struct vfs_node *node)
+{
+    if (!node) return NULL;
+    if (streq(node->name, "tty0") || streq(node->name, "tty1")) return &vt_endpoints[0];
+    if (streq(node->name, "tty2")) return &vt_endpoints[1];
+    if (streq(node->name, "tty3")) return &vt_endpoints[2];
+    if (streq(node->name, "tty4")) return &vt_endpoints[3];
+    if (streq(node->name, "tty5")) return &vt_endpoints[4];
+    if (streq(node->name, "tty6")) return &vt_endpoints[5];
+    if (streq(node->name, "tty7")) return &vt_endpoints[6];
+    if (streq(node->name, "ttyS0")) return &serial_endpoints[0];
+    if (streq(node->name, "ttyS1")) return &serial_endpoints[1];
+    if (streq(node->name, "ttyS2")) return &serial_endpoints[2];
+    if (streq(node->name, "ttyS3")) return &serial_endpoints[3];
+    if (streq(node->name, "console")) {
+        tty_device_t *boot = get_boot_tty();
+        if (boot && boot->type == TTY_DEVICE_SERIAL && boot->port < 4) return &serial_endpoints[boot->port];
+        return &vt_endpoints[0];
+    }
+    return NULL;
+}
+
 int tty_dev_file_open(struct vfs_node *node, uint64_t flags, void **private_data)
 {
     tty_input_lazy_init();
-    tty_core_auto_acquire(&console_tty, flags);
-    /* Non-NULL marks aliases that expose Linux virtual-console ioctls. */
-    *private_data
-        = node && (streq(node->name, "tty0") || streq(node->name, "tty1") || streq(node->name, "console")) ? (void *)(uintptr_t)1 : NULL;
+    tty_file_endpoint_t *endpoint = tty_endpoint_for_node(node);
+    if (!endpoint || !endpoint->core) return -ENXIO;
+    tty_core_auto_acquire(endpoint->core, flags);
+    *private_data = endpoint;
     return 0;
 }
 
@@ -554,37 +618,33 @@ int tty_console_acquire(struct process *proc, uint64_t flags)
 int64_t tty_dev_file_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     (void)ctx;
-    (void)private_data;
     (void)offset;
-    tty_input_lazy_init();
-    return tty_core_read(&console_tty, addr, size, flags);
+    tty_file_endpoint_t *endpoint = private_data;
+    return endpoint && endpoint->core ? tty_core_read(endpoint->core, addr, size, flags) : -ENXIO;
 }
 
 int64_t tty_dev_file_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     (void)ctx;
-    (void)private_data;
-    (void)flags;
     (void)offset;
-    tty_input_lazy_init();
-    return tty_core_write(&console_tty, addr, size, flags);
+    tty_file_endpoint_t *endpoint = private_data;
+    return endpoint && endpoint->core ? tty_core_write(endpoint->core, addr, size, flags) : -ENXIO;
 }
 
 int tty_dev_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events)
 {
     (void)ctx;
-    (void)private_data;
     (void)flags;
-    return tty_dev_poll(NULL, events);
+    tty_file_endpoint_t *endpoint = private_data;
+    return endpoint && endpoint->core ? tty_core_poll(endpoint->core, events) : 0;
 }
 
 int tty_dev_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t request, void *arg)
 {
     (void)ctx;
-    (void)private_data;
-    (void)flags;
-    tty_input_lazy_init();
-    return tty_core_ioctl_terminal(&console_tty, flags, request, arg, private_data != NULL);
+    tty_file_endpoint_t *endpoint = private_data;
+    if (!endpoint || !endpoint->core) return -ENXIO;
+    return tty_core_ioctl_terminal(endpoint->core, flags, request, arg, endpoint->virtual_console);
 }
 
 int tty_ctty_file_open(struct vfs_node *node, uint64_t flags, void **private_data)

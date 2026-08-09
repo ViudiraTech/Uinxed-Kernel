@@ -634,6 +634,9 @@ struct drm_mode_config {
 #define DRIVER_SYNCOBJ          BIT5_
 #define DRIVER_SYNCOBJ_TIMELINE BIT6_
 #define DRIVER_GEM_GPUVA        BIT7_
+/* The driver's page-flip callback returns only after scanout has been
+ * updated, so completion events do not need a later hardware vblank. */
+#define DRIVER_SYNCHRONOUS_FLIP BIT8_
 
 /* Project-internal feature bit shims (kept local to avoid polluting common.h). */
 #define BIT0_ (1U << 0)
@@ -644,6 +647,7 @@ struct drm_mode_config {
 #define BIT5_ (1U << 5)
 #define BIT6_ (1U << 6)
 #define BIT7_ (1U << 7)
+#define BIT8_ (1U << 8)
 
 struct drm_ioctl_desc {
         unsigned int cmd;
@@ -744,6 +748,7 @@ struct drm_file {
         ilist_node_t head;        /* in device filelist */
         ilist_node_t fbs_head;    /* head of framebuffer.filp_head for this file */
         ilist_node_t object_list; /* head of drm_gem_handle_entry.head */
+        ilist_node_t blobs_head;  /* head of user-created drm_property_blob.head_file */
 
         struct drm_device *minor_unused;
         void              *driver_priv;
@@ -947,6 +952,9 @@ int drm_set_client_cap(struct drm_device *dev, void *data, struct drm_file *file
 
 /* KMS property ioctl handlers. */
 int                       drm_mode_getproperty_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
+int                       drm_mode_getblob_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
+int                       drm_mode_createblob_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
+int                       drm_mode_destroyblob_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int                       drm_mode_obj_getproperties_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 int                       drm_mode_obj_setproperty_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv);
 struct drm_property      *drm_property_create(struct drm_device *dev, uint32_t flags, const char *name, int num_values);

@@ -25,15 +25,26 @@
 #include <syscall/timerfd.h>
 
 static int64_t timer_realtime_base_ns;
+static uint64_t net_timer_last_tick;
+
+uint64_t timer_monotonic_ns(void)
+{
+    return timer_ticks_to_ns(sched_ticks());
+}
 
 int64_t timer_realtime_ns(void)
 {
-    return (int64_t)(sched_ticks() * TIMER_TICK_NS) + timer_realtime_base_ns;
+    uint64_t monotonic = timer_monotonic_ns();
+    int64_t  base      = __atomic_load_n(&timer_realtime_base_ns, __ATOMIC_ACQUIRE);
+    if (base >= 0 && monotonic > (uint64_t)INT64_MAX - (uint64_t)base) return INT64_MAX;
+    return (int64_t)monotonic + base;
 }
 
 void timer_realtime_set_ns(int64_t nanoseconds)
 {
-    timer_realtime_base_ns = nanoseconds - (int64_t)(sched_ticks() * TIMER_TICK_NS);
+    uint64_t monotonic = timer_monotonic_ns();
+    int64_t  base      = monotonic > (uint64_t)INT64_MAX ? INT64_MIN : nanoseconds - (int64_t)monotonic;
+    __atomic_store_n(&timer_realtime_base_ns, base, __ATOMIC_RELEASE);
 }
 
 uint32_t timer_realtime_seconds32(void)
@@ -48,12 +59,24 @@ INTERRUPT_BEGIN void timer_handle(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
-    tty_deferred_flush();
+    uint32_t cpu_id = get_current_cpu_id();
+    if (cpu_id == 0) tty_deferred_flush();
     send_eoi();
     sched_tick();
     timerfd_tick();
-    if (get_current_cpu_id() == 0) drm_vblank_tick();
-    if (get_current_cpu_id() == 0) net_timer(sched_ticks());
+    if (cpu_id == 0) {
+        drm_vblank_tick();
+
+        /* Protocol timers only need 10 ms service resolution.  Keep them on
+         * the TIMER_HZ time base, but do not scan every socket at 1000 Hz. */
+        uint64_t now      = sched_ticks();
+        uint64_t interval = TIMER_HZ / 100U;
+        if (!interval) interval = 1;
+        if (now - net_timer_last_tick >= interval) {
+            net_timer_last_tick = now;
+            net_timer(now);
+        }
+    }
     /* iretq restores IF; enabling it here would make the saved frame re-entrant. */
 }
 INTERRUPT_END

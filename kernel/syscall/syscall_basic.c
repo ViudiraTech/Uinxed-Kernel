@@ -24,6 +24,8 @@
 #include <proc/task.h>
 #include <proc/uaccess.h>
 #include <sync/signal.h>
+#include <syscall/fcntl.h>
+#include <syscall/memfd.h>
 #include <syscall/syscall.h>
 #include <syscall/syscall_basic.h>
 #include <syscall/syscall_table.h>
@@ -40,6 +42,14 @@ static const char *path_basename_local(const char *path)
     for (const char *p = path; *p; p++)
         if (*p == '/') last = p + 1;
     return last;
+}
+
+static vfs_node_t open_parent_local(char *path)
+{
+    char *slash = strrchr(path, '/');
+    if (!slash || slash == path) return vfs_open("/");
+    *slash = '\0';
+    return vfs_open(path);
 }
 
 /* ======================================================================
@@ -571,15 +581,27 @@ int64_t sys_times_impl(uint64_t tms, uint64_t arg1, uint64_t arg2, uint64_t arg3
     (void)arg4;
     (void)arg5;
     if (!tms) return -EFAULT;
-    int64_t     now = timer_realtime_ns() / 10000000; /* ns → 100Hz ticks */
+    int64_t     now = (int64_t)timer_ticks_to_user_ticks(sched_ticks());
     linux_tms_t buf = {.tms_utime = now, .tms_stime = 0, .tms_cutime = 0, .tms_cstime = 0};
     if (copy_to_user((void *)tms, &buf, sizeof(buf))) return -EFAULT;
     return (int64_t)now;
 }
 
 /* ======================================================================
- *  setuid / setgid / getresuid / getresgid
+ *  process credentials
  * ====================================================================== */
+
+#define CREDENTIAL_ID_UNCHANGED UINT32_MAX
+
+static bool credential_uid_allowed(const process_t *proc, uint32_t uid)
+{
+    return uid == CREDENTIAL_ID_UNCHANGED || proc->uid == 0 || uid == proc->uid || uid == proc->fsuid;
+}
+
+static bool credential_gid_allowed(const process_t *proc, uint32_t gid)
+{
+    return gid == CREDENTIAL_ID_UNCHANGED || proc->uid == 0 || gid == proc->gid || gid == proc->fsgid;
+}
 
 int64_t sys_setuid_impl(uint64_t uid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -590,8 +612,11 @@ int64_t sys_setuid_impl(uint64_t uid, uint64_t arg1, uint64_t arg2, uint64_t arg
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (proc->uid != 0 && (uint32_t)uid != proc->uid) return -EPERM;
-    proc->uid = (uint32_t)uid;
+    uint32_t requested = (uint32_t)uid;
+    if (requested == CREDENTIAL_ID_UNCHANGED) return -EINVAL;
+    if (!credential_uid_allowed(proc, requested)) return -EPERM;
+    proc->uid   = requested;
+    proc->fsuid = requested;
     return 0;
 }
 
@@ -604,9 +629,108 @@ int64_t sys_setgid_impl(uint64_t gid, uint64_t arg1, uint64_t arg2, uint64_t arg
     (void)arg5;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
-    if (proc->uid != 0 && (uint32_t)gid != proc->gid) return -EPERM;
-    proc->gid = (uint32_t)gid;
+    uint32_t requested = (uint32_t)gid;
+    if (requested == CREDENTIAL_ID_UNCHANGED) return -EINVAL;
+    if (!credential_gid_allowed(proc, requested)) return -EPERM;
+    proc->gid   = requested;
+    proc->fsgid = requested;
     return 0;
+}
+
+int64_t sys_setreuid_impl(uint64_t ruid, uint64_t euid, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    uint32_t real = (uint32_t)ruid, effective = (uint32_t)euid;
+    if (!credential_uid_allowed(proc, real) || !credential_uid_allowed(proc, effective)) return -EPERM;
+    /* The current process model has one real/effective UID.  Preserve it
+     * when Linux's -1 sentinel says the effective UID is unchanged. */
+    if (effective != CREDENTIAL_ID_UNCHANGED) {
+        proc->uid   = effective;
+        proc->fsuid = effective;
+    }
+    return 0;
+}
+
+int64_t sys_setregid_impl(uint64_t rgid, uint64_t egid, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    uint32_t real = (uint32_t)rgid, effective = (uint32_t)egid;
+    if (!credential_gid_allowed(proc, real) || !credential_gid_allowed(proc, effective)) return -EPERM;
+    if (effective != CREDENTIAL_ID_UNCHANGED) {
+        proc->gid   = effective;
+        proc->fsgid = effective;
+    }
+    return 0;
+}
+
+int64_t sys_setresuid_impl(uint64_t ruid, uint64_t euid, uint64_t suid, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    uint32_t real = (uint32_t)ruid, effective = (uint32_t)euid, saved = (uint32_t)suid;
+    if (!credential_uid_allowed(proc, real) || !credential_uid_allowed(proc, effective) || !credential_uid_allowed(proc, saved)) return -EPERM;
+    if (effective != CREDENTIAL_ID_UNCHANGED) {
+        proc->uid   = effective;
+        proc->fsuid = effective;
+    }
+    return 0;
+}
+
+int64_t sys_setresgid_impl(uint64_t rgid, uint64_t egid, uint64_t sgid, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    uint32_t real = (uint32_t)rgid, effective = (uint32_t)egid, saved = (uint32_t)sgid;
+    if (!credential_gid_allowed(proc, real) || !credential_gid_allowed(proc, effective) || !credential_gid_allowed(proc, saved)) return -EPERM;
+    if (effective != CREDENTIAL_ID_UNCHANGED) {
+        proc->gid   = effective;
+        proc->fsgid = effective;
+    }
+    return 0;
+}
+
+int64_t sys_setfsuid_impl(uint64_t uid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    uint32_t old = proc->fsuid, requested = (uint32_t)uid;
+    if (requested != CREDENTIAL_ID_UNCHANGED && credential_uid_allowed(proc, requested)) proc->fsuid = requested;
+    return old;
+}
+
+int64_t sys_setfsgid_impl(uint64_t gid, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
+{
+    (void)arg1;
+    (void)arg2;
+    (void)arg3;
+    (void)arg4;
+    (void)arg5;
+    process_t *proc = process_current();
+    if (!proc) return -ESRCH;
+    uint32_t old = proc->fsgid, requested = (uint32_t)gid;
+    if (requested != CREDENTIAL_ID_UNCHANGED && credential_gid_allowed(proc, requested)) proc->fsgid = requested;
+    return old;
 }
 
 int64_t sys_getresuid_impl(uint64_t ruid, uint64_t euid, uint64_t suid, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -743,6 +867,7 @@ int64_t sys_ftruncate_impl(uint64_t fd, uint64_t length, uint64_t arg2, uint64_t
     (void)arg3;
     (void)arg4;
     (void)arg5;
+    if ((int64_t)length < 0) return -EINVAL;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     process_file_t *pf = process_fd_get(proc, (int)fd);
@@ -750,7 +875,15 @@ int64_t sys_ftruncate_impl(uint64_t fd, uint64_t length, uint64_t arg2, uint64_t
         if (pf) process_file_put(pf);
         return -EBADF;
     }
-    int ret = vfs_truncate(pf->node, length);
+    if ((pf->flags & O_ACCMODE) == O_RDONLY) {
+        process_file_put(pf);
+        return -EINVAL;
+    }
+    int ret;
+    if (memfd_is_node(pf->node))
+        ret = memfd_resize(pf->node, length);
+    else
+        ret = vfs_truncate(pf->node, length);
     process_file_put(pf);
     return ret;
 }
@@ -940,17 +1073,31 @@ int64_t sys_getrandom_impl(uint64_t buf, uint64_t buflen, uint64_t flags, uint64
     if (!buf) return -EFAULT;
     if (!buflen) return 0;
     if (buflen > 33554431) return -EINVAL; /* max: 32 MiB - 1 */
-    /* Simple xor-shift PRNG seeded with TSC */
-    static uint64_t seed;
-    if (!seed) seed = timer_realtime_ns();
-    for (uint64_t i = 0; i < buflen; i++) {
-        seed ^= seed << 13;
-        seed ^= seed >> 7;
-        seed ^= seed << 17;
-        uint8_t byte = (uint8_t)(seed & 0xFF);
-        if (copy_to_user((void *)(buf + i), &byte, 1)) return (int64_t)i ? (int64_t)i : -EFAULT;
+
+    static spinlock_t random_lock;
+    static uint64_t   seed;
+    uint8_t           output[256];
+    uint64_t          done = 0;
+    while (done < buflen) {
+        size_t count = buflen - done;
+        if (count > sizeof(output)) count = sizeof(output);
+
+        spin_lock(&random_lock);
+        uint64_t state = seed;
+        if (!state) state = (uint64_t)timer_realtime_ns() ^ sched_ticks() ^ 0x9e3779b97f4a7c15ULL;
+        for (size_t i = 0; i < count; i++) {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            output[i] = (uint8_t)state;
+        }
+        seed = state;
+        spin_unlock(&random_lock);
+
+        if (copy_to_user((void *)(buf + done), output, count)) return done ? (int64_t)done : -EFAULT;
+        done += count;
     }
-    return (int64_t)buflen;
+    return (int64_t)done;
 }
 
 /* ======================================================================
@@ -988,9 +1135,22 @@ int64_t sys_renameat2_impl(uint64_t olddirfd, uint64_t oldpath, uint64_t newdirf
     }
     if (flags & RENAME_EXCHANGE) return -ENOSYS; /* not supported */
 
-    vfs_node_t node = vfs_open(old_resolved);
+    vfs_node_t node = vfs_open_nofollow(old_resolved);
     if (!node) return -ENOENT;
-    ret = vfs_rename(node, path_basename_local(new_resolved));
+
+    char old_parent_path[SYSCALL_PATH_MAX], new_parent_path[SYSCALL_PATH_MAX];
+    memcpy(old_parent_path, old_resolved, sizeof(old_parent_path));
+    memcpy(new_parent_path, new_resolved, sizeof(new_parent_path));
+    vfs_node_t old_dir = open_parent_local(old_parent_path);
+    vfs_node_t new_dir = open_parent_local(new_parent_path);
+    if (!old_dir || !new_dir)
+        ret = -ENOENT;
+    else if (old_dir != new_dir)
+        ret = -EXDEV;
+    else
+        ret = vfs_rename(node, path_basename_local(new_resolved));
+    if (old_dir) vfs_close(old_dir);
+    if (new_dir) vfs_close(new_dir);
     vfs_close(node);
     return ret;
 }
@@ -1011,11 +1171,14 @@ int64_t sys_clock_gettime_impl(uint64_t clockid, uint64_t tp, uint64_t arg2, uin
     switch (clockid) {
         case 0 :
         case 5 : /* CLOCK_REALTIME / CLOCK_REALTIME_COARSE */
+            ns = timer_realtime_ns();
+            break;
         case 1 :
         case 4 :
-        case 6 : /* CLOCK_MONOTONIC / _RAW / _COARSE */
-            ns = timer_realtime_ns();
-            break; /* monotonic ≈ realtime in hobby kernel */
+        case 6 :
+        case 7 : /* CLOCK_MONOTONIC / _RAW / _COARSE / BOOTTIME */
+            ns = (int64_t)timer_monotonic_ns();
+            break;
         case 2 :
         case 3 : /* PROCESS/THREAD_CPUTIME_ID */
             ns = 0;
@@ -1045,8 +1208,8 @@ int64_t sys_clock_getres_impl(uint64_t clockid, uint64_t res, uint64_t arg2, uin
         case 2 :
         case 3 :
             ts.tv_sec  = 0;
-            ts.tv_nsec = 1000000;
-            break; /* 1 ms resolution */
+            ts.tv_nsec = TIMER_TICK_NS;
+            break;
         default :
             return -EINVAL;
     }
@@ -1076,7 +1239,7 @@ int64_t sys_fallocate_impl(uint64_t fd, uint64_t mode, uint64_t offset, uint64_t
 {
     (void)arg4;
     (void)arg5;
-    if (mode & ~3ULL) return -EOPNOTSUPP;
+    if ((int64_t)offset < 0 || (int64_t)len <= 0 || offset > UINT64_MAX - len) return -EINVAL;
     process_t *proc = process_current();
     if (!proc) return -ESRCH;
     process_file_t *pf = process_fd_get(proc, (int)fd);
@@ -1084,13 +1247,27 @@ int64_t sys_fallocate_impl(uint64_t fd, uint64_t mode, uint64_t offset, uint64_t
         if (pf) process_file_put(pf);
         return -EBADF;
     }
+    if ((pf->flags & O_ACCMODE) == O_RDONLY) {
+        process_file_put(pf);
+        return -EBADF;
+    }
+    if (memfd_is_node(pf->node)) {
+        int ret = memfd_fallocate(pf->node, (uint32_t)mode, offset, len);
+        process_file_put(pf);
+        return ret;
+    }
+    if (mode & ~3ULL) {
+        process_file_put(pf);
+        return -EOPNOTSUPP;
+    }
     if (mode & 2) {
         process_file_put(pf);
         return -EOPNOTSUPP;
     } /* FALLOC_FL_PUNCH_HOLE */
-    if (offset + len > pf->node->size) vfs_truncate(pf->node, offset + len);
+    int ret = EOK;
+    if (offset + len > pf->node->size) ret = vfs_truncate(pf->node, offset + len);
     process_file_put(pf);
-    return 0;
+    return ret;
 }
 
 /* ======================================================================

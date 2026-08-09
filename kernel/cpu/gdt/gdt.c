@@ -24,6 +24,10 @@ void init_gdt(void)
     gdt0.entries[2] = 0x00c0920000000000; // Kernel data segment
     gdt0.entries[3] = 0x00a0fa0000000000; // User code segment
     gdt0.entries[4] = 0x00c0f20000000000; // User data segment
+    /* SYSRET requires user SS immediately below user CS.  Keep the legacy
+     * pair for IRET and add a Linux-style data/code pair for SYSRET. */
+    gdt0.entries[5] = 0x00c0f20000000000; // SYSRET user data segment
+    gdt0.entries[6] = 0x00a0fa0000000000; // SYSRET user code segment
 
     gdt0.pointer = ((gdt_register_t) {.size = (uint16_t)(sizeof(gdt_entries_t) - 1), .ptr = &gdt0.entries});
 
@@ -38,6 +42,6 @@ void init_gdt(void)
                      : "memory", "rax");
 
     plogk("gdt: CS reloaded with 0x%04x, DS/ES/FS/GS/SS = 0x%04x\n", 0x8, 0x10);
-    plogk("gdt: GDT initialized at %p (6 entries)\n", &gdt0.entries);
+    plogk("gdt: GDT initialized at %p (10 entries)\n", &gdt0.entries);
     tss_init();
 }

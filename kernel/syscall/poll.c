@@ -74,6 +74,7 @@ typedef struct poll_wait_context poll_wait_context_t;
 typedef struct {
         process_file_t         *file;
         poll_wait_context_t    *context;
+        vfs_poll_source_t      *event_source;
         vfs_poll_subscription_t event_subscription;
         vfs_poll_subscription_t close_subscription;
         bool                    closed;
@@ -157,6 +158,7 @@ static void poll_close_notify(vfs_poll_subscription_t *subscription, uint32_t ev
     (void)events;
     poll_watch_t *watch = subscription->context;
     __atomic_store_n(&watch->closed, true, __ATOMIC_RELEASE);
+    vfs_poll_source_unsubscribe(watch->event_source, &watch->event_subscription);
     __atomic_add_fetch(&watch->context->generation, 1, __ATOMIC_RELEASE);
     wait_queue_wake_all(&watch->context->wq);
 }
@@ -167,7 +169,7 @@ static void poll_watches_release(poll_watch_t *watches, uint64_t nfds)
     for (uint64_t i = 0; i < nfds; i++) {
         poll_watch_t *watch = &watches[i];
         if (!watch->file) continue;
-        vfs_poll_unsubscribe(watch->file->node, &watch->event_subscription);
+        vfs_poll_source_unsubscribe(watch->event_source, &watch->event_subscription);
         vfs_poll_source_unsubscribe(&watch->file->close_source, &watch->close_subscription);
         process_file_put(watch->file);
     }
@@ -196,8 +198,9 @@ static int poll_watches_create(process_t *proc, linux_pollfd_t *fds, uint64_t nf
         poll_watch_t *watch = &watches[i];
         watch->file         = file;
         watch->context      = context;
+        watch->event_source = vfs_file_poll_source(file->node, file->private_data);
         uint32_t events     = ((uint16_t)fds[i].events & POLL_REQUEST_MASK) | POLL_ALWAYS_MASK;
-        vfs_poll_subscribe(file->node, &watch->event_subscription, events, poll_event_notify, watch);
+        vfs_poll_source_subscribe(watch->event_source, &watch->event_subscription, events, poll_event_notify, watch);
         vfs_poll_source_subscribe(&file->close_source, &watch->close_subscription, UINT32_MAX, poll_close_notify, watch);
     }
 
@@ -259,14 +262,10 @@ static int poll_wait(process_t *proc, linux_pollfd_t *fds, uint64_t nfds, poll_t
             wait_queue_wake_all(&context.wq);
         }
 
-        /* Some legacy drivers expose poll state but do not yet emit VFS
-         * notifications.  A one-tick timed recheck preserves correct
-         * blocking semantics for them while event-capable sources wake us
-         * immediately. */
-        uint64_t now           = sched_ticks();
-        uint64_t wait_deadline = saturating_add_u64(now, 1);
-        if (!timeout->infinite && timeout->deadline_tick < wait_deadline) wait_deadline = timeout->deadline_tick;
-        (void)wait_queue_wait_timed(&context.wq, wait_deadline);
+        if (timeout->infinite)
+            wait_queue_sleep();
+        else
+            (void)wait_queue_wait_timed(&context.wq, timeout->deadline_tick);
     }
 
     poll_watches_release(watches, nfds);

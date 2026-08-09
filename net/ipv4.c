@@ -10,6 +10,7 @@
 
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <net/arp.h>
@@ -20,7 +21,7 @@
 #include <net/udp.h>
 #include <proc/sched.h>
 
-#define IPV4_REASSEMBLY_TIMEOUT_TICKS 3000U
+#define IPV4_REASSEMBLY_TIMEOUT_TICKS (30U * TIMER_HZ)
 #define IPV4_MAX_HEADER               60U
 #define IPV4_MAX_PAYLOAD              (UINT16_MAX - IPV4_HEADER_MIN)
 #define IPV4_BITMAP_SIZE              ((IPV4_MAX_PAYLOAD + 7U) / 8U)

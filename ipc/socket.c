@@ -36,21 +36,12 @@
 #ifndef SOCK_ACCEPT_QUEUE_MAX
 #    define SOCK_ACCEPT_QUEUE_MAX 1024
 #endif
-#define SOCK_BLOCKED_MAX    128
 #define SOCK_BOUND_MAX      256
 #define SOCK_SHUT_MASK(how) (1U << (uint32_t)(how))
 
 /* ------------------------------------------------------------------ */
 /*  Blocked-socket tracking ?maps a blocked socket to its task         */
 /* ------------------------------------------------------------------ */
-
-typedef struct sock_blocked {
-        socket_t *sk;
-        task_t   *task;
-} sock_blocked_t;
-
-static sock_blocked_t sock_blocked_tab[SOCK_BLOCKED_MAX];
-static spinlock_t     sock_blocked_lock;
 
 /* ------------------------------------------------------------------ */
 /*  Bound-address registry ?UNIX-domain namespace                      */
@@ -103,6 +94,7 @@ static void socket_inet_event(void *argument, uint32_t events)
 }
 
 static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags);
+static int unix_stream_send_rights(socket_t *sk, const void *buf, size_t len, int flags, process_file_t **rights, size_t rights_count);
 static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags);
 static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sockaddr_un_t *addr, uint32_t addrlen, int flags);
 static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *addr, uint32_t *addrlen, int flags, ucred_t *credentials,
@@ -181,17 +173,24 @@ static uint32_t sock_buf_write(sock_buf_t *buf, const void *data, uint32_t len)
         uint32_t chunk;
         uint32_t pos = buf->tail;
 
-        if (pos >= buf->head && buf->size > 0) {
+        /* head == tail is ambiguous: it represents both an empty and a full
+         * ring.  Full buffers were handled by the space check above; for an
+         * empty ring the writable extent runs to the end of the allocation.
+         * Treating the empty case as tail < head produced chunk == 0 and an
+         * infinite loop on the very first socket write. */
+        if (pos >= buf->head) {
             chunk = buf->capacity - pos;
         } else {
             chunk = buf->head - pos;
         }
+        if (chunk > space) chunk = space;
         if (chunk > len - written) chunk = len - written;
 
         memcpy(buf->data + pos, (const uint8_t *)data + written, chunk);
         written += chunk;
         buf->tail = (pos + chunk) % buf->capacity;
         buf->size += chunk;
+        space -= chunk;
     }
 
     return written;
@@ -291,60 +290,30 @@ static void sock_buf_discard(sock_buf_t *buf, uint32_t len)
 
 static void sock_blocked_register(socket_t *sk, task_t *task)
 {
-    spin_lock(&sock_blocked_lock);
-    for (int i = 0; i < SOCK_BLOCKED_MAX; i++) {
-        if (sock_blocked_tab[i].sk == NULL) {
-            sock_blocked_tab[i].sk   = sk;
-            sock_blocked_tab[i].task = task;
-            spin_unlock(&sock_blocked_lock);
-            return;
-        }
-    }
-    spin_unlock(&sock_blocked_lock);
-    plogk("socket: blocked table overflow.\n");
+    /* The old side table followed by task_block() had a lost-wakeup window:
+     * a peer could wake the task after the socket lock was released but
+     * before task_block() changed its state.  Prepare the scheduler wait
+     * while the caller still holds the socket lock; wait_queue_sleep() then
+     * atomically observes an early wake and does not sleep. */
+    (void)task;
+    if (sk) wait_queue_prepare(&sk->waitq);
 }
 
 static void sock_blocked_unregister(socket_t *sk)
 {
-    spin_lock(&sock_blocked_lock);
-    for (int i = 0; i < SOCK_BLOCKED_MAX; i++) {
-        if (sock_blocked_tab[i].sk == sk) {
-            sock_blocked_tab[i].sk   = NULL;
-            sock_blocked_tab[i].task = NULL;
-            break;
-        }
-    }
-    spin_unlock(&sock_blocked_lock);
+    /* A successful wake removes the task from waitq.  Callers retain this
+     * hook for symmetry with the old implementation. */
+    (void)sk;
 }
 
 static void sock_blocked_wake(socket_t *sk)
 {
-    spin_lock(&sock_blocked_lock);
-    for (int i = 0; i < SOCK_BLOCKED_MAX; i++) {
-        if (sock_blocked_tab[i].sk == sk) {
-            task_t *t                = sock_blocked_tab[i].task;
-            sock_blocked_tab[i].sk   = NULL;
-            sock_blocked_tab[i].task = NULL;
-            spin_unlock(&sock_blocked_lock);
-            if (t) task_wakeup(t);
-            return;
-        }
-    }
-    spin_unlock(&sock_blocked_lock);
+    if (sk) wait_queue_wake_all(&sk->waitq);
 }
 
 static void sock_blocked_wake_all(socket_t *sk)
 {
-    spin_lock(&sock_blocked_lock);
-    for (int i = 0; i < SOCK_BLOCKED_MAX; i++) {
-        if (sock_blocked_tab[i].sk == sk) {
-            task_t *t                = sock_blocked_tab[i].task;
-            sock_blocked_tab[i].sk   = NULL;
-            sock_blocked_tab[i].task = NULL;
-            if (t) task_wakeup(t);
-        }
-    }
-    spin_unlock(&sock_blocked_lock);
+    if (sk) wait_queue_wake_all(&sk->waitq);
 }
 
 /* ------------------------------------------------------------------ */
@@ -357,17 +326,21 @@ static int sock_bound_lookup(const sockaddr_un_t *addr, uint32_t addrlen, int ab
     for (int i = 0; i < SOCK_BOUND_MAX; i++) {
         if (sock_bound_tab[i].sk == NULL) continue;
         if (sock_bound_tab[i].abstract != abstract) continue;
-        if (sock_bound_tab[i].addrlen != addrlen) continue;
 
         if (abstract) {
-            /* Abstract: compare entire path including leading NUL */
-            if (memcmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, addrlen - sizeof(uint16_t)) == 0) {
+            /* Abstract names are byte strings, so their supplied length is
+             * part of the address. */
+            if (sock_bound_tab[i].addrlen == addrlen
+                && memcmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, addrlen - sizeof(uint16_t)) == 0) {
                 *out = sock_bound_tab[i].sk;
                 spin_unlock(&sock_bound_lock);
                 return EOK;
             }
         } else {
-            /* Pathname: compare as NUL-terminated strings */
+            /* Pathname addresses are identified by sun_path.  Applications
+             * may use either the minimal sockaddr length or a larger structure
+             * containing the same NUL-terminated path, so unlike abstract
+             * names addrlen must not participate in this match. */
             if (strncmp(sock_bound_tab[i].addr.sun_path, addr->sun_path, UNIX_PATH_MAX) == 0) {
                 /* Also verify the saved path length matches */
                 size_t a = strlen(sock_bound_tab[i].addr.sun_path);
@@ -415,6 +388,11 @@ static int sock_bound_add(socket_t *sk, const sockaddr_un_t *addr, uint32_t addr
     /* Find free slot */
     for (int i = 0; i < SOCK_BOUND_MAX; i++) {
         if (sock_bound_tab[i].sk == NULL) {
+            /* Pathname sockaddr lengths commonly omit the trailing NUL.  A
+             * reused slot must therefore be cleared before copying, or bytes
+             * from the previous address become a fake suffix and make later
+             * connect(2) lookups miss the listener. */
+            memset(&sock_bound_tab[i], 0, sizeof(sock_bound_tab[i]));
             sock_bound_tab[i].sk       = sk;
             sock_bound_tab[i].addrlen  = addrlen;
             sock_bound_tab[i].abstract = abstract;
@@ -433,7 +411,7 @@ static void sock_bound_remove(socket_t *sk)
     spin_lock(&sock_bound_lock);
     for (int i = 0; i < SOCK_BOUND_MAX; i++) {
         if (sock_bound_tab[i].sk == sk) {
-            sock_bound_tab[i].sk = NULL;
+            memset(&sock_bound_tab[i], 0, sizeof(sock_bound_tab[i]));
             break;
         }
     }
@@ -541,6 +519,7 @@ static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
     sk->type     = type;
     sk->protocol = protocol;
     sk->flags    = 0;
+    wait_queue_init(&sk->waitq);
 
     if (sock_buf_init(&sk->recv_buf, SOCK_BUF_SIZE) != EOK) {
         free(sk);
@@ -556,6 +535,15 @@ static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
     sk->reuseaddr   = 0;
     sk->so_error    = 0;
     sk->refcount    = 1;
+
+    /* Every unbound AF_UNIX socket has an unnamed local address.  Linux
+     * reports that address as just sa_family_t (length 2); it is not an
+     * abstract address and must never consume a slot in the bound-name
+     * table.  Initialize it at socket creation so connect(), socketpair(),
+     * getsockname(), and datagram sender metadata all share one consistent
+     * representation. */
+    sk->local_addr.ss_family = AF_UNIX;
+    sk->local_addr_len       = sizeof(sa_family_t);
 
     /* Set credentials from current process */
     {
@@ -586,6 +574,7 @@ static socket_t *inet_socket_alloc(uint16_t family, uint16_t type, uint16_t prot
     sk->type     = type;
     sk->protocol = protocol;
     sk->flags    = flags;
+    wait_queue_init(&sk->waitq);
     sk->sndbuf   = SOCK_BUF_SIZE;
     sk->rcvbuf   = SOCK_BUF_SIZE;
     sk->rcvlowat = 1;
@@ -607,6 +596,45 @@ static int socket_copy_address_to_user(sockaddr_t *addr, uint32_t *addrlen, cons
     if (copylen && copy_to_user(addr, kaddr, copylen)) return -EFAULT;
     if (copy_to_user(addrlen, &kaddrlen, sizeof(kaddrlen))) return -EFAULT;
     return EOK;
+}
+
+static void socket_drop_rights(socket_t *sk)
+{
+    process_file_t *files[SOCK_RIGHTS_MAX];
+    size_t          count = 0;
+
+    if (!sk) return;
+    spin_lock(&sk->lock);
+    while (sk->rights_count > 0 && count < SOCK_RIGHTS_MAX) {
+        files[count++] = sk->rights[sk->rights_head];
+        sk->rights[sk->rights_head] = NULL;
+        sk->rights_head = (uint16_t)((sk->rights_head + 1U) % SOCK_RIGHTS_MAX);
+        sk->rights_count--;
+    }
+    sk->rights_head = sk->rights_tail = 0;
+    spin_unlock(&sk->lock);
+
+    /* A queued SCM_RIGHTS descriptor is an in-flight reference.  Release it
+     * outside the socket lock because the final file callback may close a
+     * socket and take socket/VFS locks itself. */
+    for (size_t i = 0; i < count; i++) process_file_put_transfer(files[i]);
+}
+
+static size_t socket_take_rights(socket_t *sk, process_file_t **files, size_t capacity)
+{
+    size_t count = 0;
+    if (!sk || !files || capacity == 0) return 0;
+
+    spin_lock(&sk->lock);
+    while (sk->rights_count > 0 && count < capacity) {
+        files[count++] = sk->rights[sk->rights_head];
+        sk->rights[sk->rights_head] = NULL;
+        sk->rights_head = (uint16_t)((sk->rights_head + 1U) % SOCK_RIGHTS_MAX);
+        sk->rights_count--;
+    }
+    if (sk->rights_count == 0) sk->rights_head = sk->rights_tail = 0;
+    spin_unlock(&sk->lock);
+    return count;
 }
 
 static void socket_free(socket_t *sk)
@@ -655,6 +683,7 @@ static void socket_free(socket_t *sk)
     }
 
     /* Free buffers */
+    socket_drop_rights(sk);
     sock_buf_free(&sk->recv_buf);
     sock_buf_free(&sk->send_buf);
 
@@ -989,6 +1018,7 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
     server->protocol = sk->protocol;
     server->flags    = 0;
     server->refcount = 1;
+    wait_queue_init(&server->waitq);
 
     if (sock_buf_init(&server->recv_buf, SOCK_BUF_SIZE) != EOK) {
         plogk("socket: unix stream connect recv buffer allocation failed.\n");
@@ -1074,7 +1104,7 @@ static int unix_accept(socket_t *sk, sockaddr_un_t *addr, uint32_t *addrlen, int
         }
         sock_blocked_register(sk, current_task());
         spin_unlock(&sk->lock);
-        task_block();
+        wait_queue_sleep();
         spin_lock(&sk->lock);
         sock_blocked_unregister(sk);
     }
@@ -1109,7 +1139,7 @@ static int unix_accept(socket_t *sk, sockaddr_un_t *addr, uint32_t *addrlen, int
 /*  UNIX stream send                                                    */
 /* ------------------------------------------------------------------ */
 
-static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags)
+static int unix_stream_send_rights(socket_t *sk, const void *buf, size_t len, int flags, process_file_t **rights, size_t rights_count)
 {
     socket_t *peer;
     int       is_nonblock;
@@ -1148,6 +1178,12 @@ static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags
         return -EPIPE;
     }
 
+    if (rights_count > (size_t)(SOCK_RIGHTS_MAX - peer->rights_count)) {
+        spin_unlock(&peer->lock);
+        socket_unref(peer);
+        return -ENOBUFS;
+    }
+
     while (total_written < len) {
         uint32_t chunk = (uint32_t)(len - total_written);
         uint32_t space = sock_buf_space(&peer->recv_buf);
@@ -1164,7 +1200,7 @@ static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags
             /* Block until peer reads some data */
             sock_blocked_register(sk, current_task());
             spin_unlock(&peer->lock);
-            task_block();
+            wait_queue_sleep();
             spin_lock(&peer->lock);
             sock_blocked_unregister(sk);
 
@@ -1187,6 +1223,17 @@ static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags
         if (written < chunk) break;
     }
 
+    /* Ancillary descriptors are published under the same lock as the first
+     * bytes of this sendmsg.  The refs in rights[] become owned by the peer's
+     * receive queue only after at least one byte has been accepted. */
+    if (total_written > 0) {
+        for (size_t i = 0; i < rights_count; i++) {
+            peer->rights[peer->rights_tail] = rights[i];
+            peer->rights_tail = (uint16_t)((peer->rights_tail + 1U) % SOCK_RIGHTS_MAX);
+            peer->rights_count++;
+        }
+    }
+
     spin_unlock(&peer->lock);
 
     /* Wake the peer if it's blocked on recv */
@@ -1198,6 +1245,11 @@ static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags
     ret = (int)total_written;
     if (ret == 0 && !is_nonblock) ret = -EPIPE;
     return ret;
+}
+
+static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags)
+{
+    return unix_stream_send_rights(sk, buf, len, flags, NULL, 0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1248,7 +1300,7 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
             }
             sock_blocked_register(sk, current_task());
             spin_unlock(&sk->lock);
-            task_block();
+            wait_queue_sleep();
             spin_lock(&sk->lock);
             sock_blocked_unregister(sk);
             peer = sk->peer;
@@ -1324,7 +1376,7 @@ static int unix_seqpacket_send(socket_t *sk, const void *buf, size_t len, int fl
         }
         sock_blocked_register(sk, current_task());
         spin_unlock(&peer->lock);
-        task_block();
+        wait_queue_sleep();
         spin_lock(&peer->lock);
         sock_blocked_unregister(sk);
     }
@@ -1383,7 +1435,7 @@ static int unix_seqpacket_recv(socket_t *sk, void *buf, size_t len, int flags, i
         }
         sock_blocked_register(sk, current_task());
         spin_unlock(&sk->lock);
-        task_block();
+        wait_queue_sleep();
         spin_lock(&sk->lock);
         sock_blocked_unregister(sk);
     }
@@ -1459,7 +1511,7 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
         }
         sock_blocked_register(dest, current_task());
         spin_unlock(&dest->lock);
-        task_block();
+        wait_queue_sleep();
         spin_lock(&dest->lock);
         sock_blocked_unregister(dest);
     }
@@ -1536,7 +1588,7 @@ static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *a
         }
         sock_blocked_register(sk, current_task());
         spin_unlock(&sk->lock);
-        task_block();
+        wait_queue_sleep();
         spin_lock(&sk->lock);
         sock_blocked_unregister(sk);
     }
@@ -1813,6 +1865,7 @@ static int socket_vfs_free(void *handle)
     }
 
     /* Free buffers */
+    socket_drop_rights(sk);
     sock_buf_free(&sk->recv_buf);
     sock_buf_free(&sk->send_buf);
 
@@ -2157,12 +2210,6 @@ int64_t sys_connect(int fd, const sockaddr_t *addr, uint32_t addrlen)
 
     spin_unlock(&sk->lock);
 
-    /* Auto-bind if not already bound */
-    if (sk->local_addr_len == 0) {
-        ret = unix_autobind(sk);
-        if (ret != EOK) return (int64_t)ret;
-    }
-
     ret = unix_stream_connect(sk, &kaddr, addrlen);
 
     return (int64_t)ret;
@@ -2179,6 +2226,13 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
 
     sk = socket_from_fd(fd);
     if (!sk) return -EBADF;
+
+    /* O_NONBLOCK is a property of the open file description, not merely a
+     * flag supplied to sendto(2).  AF_INET and netlink used to fold it into
+     * the operation below, while AF_UNIX accidentally ignored it.  Wayland
+     * clients set the display socket nonblocking with fcntl(2), so a flush
+     * could otherwise sleep in the kernel instead of returning EAGAIN. */
+    if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
 
     if (!buf && len > 0) return -EFAULT;
 
@@ -2208,7 +2262,6 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
                 return -EFAULT;
             }
         }
-        if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
         inet_ret = ops->sendto(sk->priv, inet_buf, len, flags, dest, addrlen);
         free(inet_buf);
         return inet_ret;
@@ -2231,7 +2284,6 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
             free(kbuf_nl);
             return -EFAULT;
         }
-        if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
         int ret_nl = netlink_sendmsg(sk, kbuf_nl, len, nladdr_ptr, addr ? sizeof(nladdr) : 0, flags);
         free(kbuf_nl);
         return (int64_t)ret_nl;
@@ -2280,6 +2332,10 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr,
     sk = socket_from_fd(fd);
     if (!sk) return -EBADF;
 
+    /* recv(2) is implemented through recvfrom(2) by libc.  Honor the file's
+     * O_NONBLOCK state for AF_UNIX as well as the other socket families. */
+    if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
+
     if (!buf && len) return -EFAULT;
     if (!len) return 0;
 
@@ -2295,7 +2351,6 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr,
             inet_buf = malloc(len);
             if (!inet_buf) return -ENOMEM;
         }
-        if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
         inet_ret = ops->recvfrom(sk->priv, inet_buf, len, flags, addr ? (sockaddr_t *)&kaddr : NULL, addr ? &kaddrlen : NULL);
         if (inet_ret > 0 && copy_to_user(buf, inet_buf, (size_t)inet_ret)) inet_ret = -EFAULT;
         if (inet_ret >= 0 && addr) {
@@ -2317,7 +2372,6 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr,
         if ((addr == NULL) != (addrlen == NULL)) return -EFAULT;
         kbuf = malloc(len);
         if (!kbuf) return -ENOMEM;
-        if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
         ret = netlink_recvmsg_kern(sk, kbuf, len, addr ? &sender : NULL, flags, &sender_uid, &sender_gid, &message_flags);
         if (ret > 0) {
             size_t copied = (size_t)ret < len ? (size_t)ret : len;
@@ -2384,10 +2438,88 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr,
 
 /* ---- Internal: sendmsg/recvmsg with kernel buffers ---- */
 
-static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const iovec_t *iov, const void *kbuf, size_t total_len, int flags)
+static void socket_release_rights(process_file_t **rights, size_t rights_count)
+{
+    for (size_t i = 0; i < rights_count; i++) process_file_put_transfer(rights[i]);
+}
+
+static int socket_collect_rights(socket_t *sk, const msghdr_t *kmsg, process_file_t **rights, size_t *rights_count)
+{
+    enum { CONTROL_MAX = 4096 };
+    uint8_t *control;
+    size_t   offset = 0;
+    process_t *proc;
+
+    *rights_count = 0;
+    if (!sk || sk->family != AF_UNIX || kmsg->msg_controllen == 0) return EOK;
+    if (!kmsg->msg_control) return -EFAULT;
+    if (kmsg->msg_controllen > CONTROL_MAX) return -EMSGSIZE;
+
+    control = malloc(kmsg->msg_controllen);
+    if (!control) return -ENOMEM;
+    if (copy_from_user(control, kmsg->msg_control, kmsg->msg_controllen)) {
+        free(control);
+        return -EFAULT;
+    }
+
+    proc = process_current();
+    if (!proc) {
+        free(control);
+        return -ESRCH;
+    }
+
+    while (offset < kmsg->msg_controllen) {
+        size_t remaining = kmsg->msg_controllen - offset;
+        if (remaining < sizeof(cmsghdr_t)) goto malformed;
+
+        cmsghdr_t *cmsg = (cmsghdr_t *)(control + offset);
+        if (cmsg->cmsg_len < CMSG_LEN(0) || cmsg->cmsg_len > remaining) goto malformed;
+
+        if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS) {
+            size_t data_len = cmsg->cmsg_len - CMSG_LEN(0);
+            if (data_len == 0 || data_len % sizeof(int) != 0) goto malformed;
+            size_t count = data_len / sizeof(int);
+            if (count > SOCK_RIGHTS_MAX - *rights_count) {
+                socket_release_rights(rights, *rights_count);
+                *rights_count = 0;
+                free(control);
+                return -EMSGSIZE;
+            }
+            int *fds = (int *)CMSG_DATA(cmsg);
+            for (size_t i = 0; i < count; i++) {
+                process_file_t *file = process_fd_get_for_transfer(proc, fds[i]);
+                if (!file) {
+                    socket_release_rights(rights, *rights_count);
+                    *rights_count = 0;
+                    free(control);
+                    return -EBADF;
+                }
+                rights[(*rights_count)++] = file;
+            }
+        }
+
+        /* Linux accepts msg_controllen == cmsg_len for the final header; the
+         * trailing alignment bytes need not be present in the user buffer. */
+        if (cmsg->cmsg_len == remaining) break;
+        size_t step = CMSG_ALIGN(cmsg->cmsg_len);
+        if (step > remaining) goto malformed;
+        offset += step;
+    }
+
+    free(control);
+    return EOK;
+
+malformed:
+    socket_release_rights(rights, *rights_count);
+    *rights_count = 0;
+    free(control);
+    return -EINVAL;
+}
+
+static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const iovec_t *iov, const void *kbuf, size_t total_len, int flags,
+                               process_file_t **rights, size_t rights_count)
 {
     int ret;
-    (void)fd;
     (void)iov;
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
@@ -2423,7 +2555,11 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
         return (int64_t)netlink_sendmsg(sk, kbuf, total_len, dest, dest ? sizeof(nladdr) : 0, flags);
     }
 
+    /* sendmsg(2) inherits O_NONBLOCK from the open file description. */
+    if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
+
     if (sk->type == SOCK_DGRAM) {
+        if (rights_count) return -EOPNOTSUPP;
         sockaddr_un_t kaddr;
         if (kmsg->msg_name && kmsg->msg_namelen > 0) {
             if (kmsg->msg_namelen > sizeof(sockaddr_un_t)) return -EINVAL;
@@ -2433,9 +2569,10 @@ static int64_t do_sendmsg_kern(int fd, socket_t *sk, const msghdr_t *kmsg, const
             ret = unix_dgram_send(sk, kbuf, total_len, NULL, 0, flags);
         }
     } else if (sk->type == SOCK_SEQPACKET) {
+        if (rights_count) return -EOPNOTSUPP;
         ret = unix_seqpacket_send(sk, kbuf, total_len, flags);
     } else {
-        ret = unix_stream_send(sk, kbuf, total_len, flags);
+        ret = unix_stream_send_rights(sk, kbuf, total_len, flags, rights, rights_count);
     }
 
     return (int64_t)ret;
@@ -2445,7 +2582,8 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
 {
     int ret;
     int msg_flags = 0;
-    (void)fd;
+    int installed_rights[SOCK_RIGHTS_MAX];
+    size_t installed_rights_count = 0;
 
     if (sk->family == AF_INET || sk->family == AF_INET6) {
         const struct inet_backend_ops *ops = inet_backend_get();
@@ -2536,6 +2674,10 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
         return (int64_t)ret;
     }
 
+    /* Xtrans uses recvmsg(2) on accepted local X11 sockets.  Without this,
+     * an O_NONBLOCK X client can sleep forever inside the kernel. */
+    if (socket_fd_nonblock(fd)) flags |= MSG_DONTWAIT;
+
     if (sk->type == SOCK_DGRAM) {
         sockaddr_un_t sender;
         uint32_t      sender_len = sizeof(sender);
@@ -2605,6 +2747,95 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
         ret = unix_stream_recv(sk, kbuf, total_len, flags);
     }
 
+    /* Build connected AF_UNIX ancillary data.  SCM_RIGHTS entries are actual
+     * references to the sender's open-file descriptions, not fresh opens of
+     * the vnode; seatd relies on that to hand its DRM fd to Weston. */
+    if (sk->type != SOCK_DGRAM) {
+        size_t control_capacity = kmsg->msg_controllen;
+        uint8_t control[CMSG_SPACE(SOCK_RIGHTS_MAX * sizeof(int)) + CMSG_SPACE(sizeof(ucred_t))];
+        size_t  control_used = 0;
+        kmsg->msg_controllen    = 0;
+        memset(control, 0, sizeof(control));
+
+        process_file_t *received_rights[SOCK_RIGHTS_MAX];
+        size_t received_rights_count = 0;
+        if (ret > 0 && sk->type == SOCK_STREAM && !(flags & MSG_PEEK))
+            received_rights_count = socket_take_rights(sk, received_rights, SOCK_RIGHTS_MAX);
+
+        if (received_rights_count > 0) {
+            size_t fit = received_rights_count;
+            if (!kmsg->msg_control) {
+                fit = 0;
+            } else {
+                while (fit > 0 && CMSG_SPACE(fit * sizeof(int)) > control_capacity) fit--;
+            }
+
+            int delivered_fds[SOCK_RIGHTS_MAX];
+            size_t delivered_count = 0;
+            process_t *proc = process_current();
+            for (size_t i = 0; i < received_rights_count; i++) {
+                if (i < fit && proc) {
+                    int newfd = process_fd_install_file(proc, received_rights[i], (flags & MSG_CMSG_CLOEXEC) ? O_CLOEXEC : 0);
+                    if (newfd >= 0) {
+                        delivered_fds[delivered_count++] = newfd;
+                        installed_rights[installed_rights_count++] = newfd;
+                    } else {
+                        msg_flags |= MSG_CTRUNC;
+                    }
+                } else {
+                    msg_flags |= MSG_CTRUNC;
+                }
+                /* Drop the in-flight ref.  A successfully installed fd owns
+                 * its own descriptor reference now. */
+                process_file_put_transfer(received_rights[i]);
+            }
+
+            if (delivered_count > 0) {
+                cmsghdr_t *cmsg  = (cmsghdr_t *)(control + control_used);
+                cmsg->cmsg_len   = CMSG_LEN(delivered_count * sizeof(int));
+                cmsg->cmsg_level = SOL_SOCKET;
+                cmsg->cmsg_type  = SCM_RIGHTS;
+                memcpy(CMSG_DATA(cmsg), delivered_fds, delivered_count * sizeof(int));
+                control_used += CMSG_SPACE(delivered_count * sizeof(int));
+            }
+        }
+
+        int     passcred;
+        int     has_peer;
+        ucred_t credentials;
+        spin_lock(&sk->lock);
+        socket_t *peer = sk->peer;
+        passcred       = sk->passcred;
+        has_peer       = peer != NULL;
+        credentials.pid = peer ? peer->pid : 0;
+        credentials.uid = peer ? peer->uid : 0;
+        credentials.gid = peer ? peer->gid : 0;
+        spin_unlock(&sk->lock);
+
+        /* SO_PASSCRED applies to connected sockets too.  eudevd's
+         * SOCK_SEQPACKET control channel requires this record. */
+        if (ret >= 0 && passcred && has_peer && kmsg->msg_control && control_capacity >= control_used &&
+            control_capacity - control_used >= CMSG_SPACE(sizeof(credentials))) {
+            cmsghdr_t *cmsg  = (cmsghdr_t *)(control + control_used);
+            cmsg->cmsg_len   = CMSG_LEN(sizeof(credentials));
+            cmsg->cmsg_level = SOL_SOCKET;
+            cmsg->cmsg_type  = SCM_CREDENTIALS;
+            memcpy(CMSG_DATA(cmsg), &credentials, sizeof(credentials));
+            control_used += CMSG_SPACE(sizeof(credentials));
+        } else if (ret >= 0 && passcred && has_peer) {
+            msg_flags |= MSG_CTRUNC;
+        }
+
+        if (control_used > 0) {
+            if (copy_to_user(kmsg->msg_control, control, control_used)) {
+                process_t *proc = process_current();
+                for (size_t i = 0; proc && i < installed_rights_count; i++) process_fd_close(proc, installed_rights[i]);
+                return -EFAULT;
+            }
+            kmsg->msg_controllen = control_used;
+        }
+    }
+
     if (ret > 0) {
         /* Scatter data to iovecs */
         uint8_t *src       = (uint8_t *)kbuf;
@@ -2612,7 +2843,11 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
         for (size_t i = 0; i < kmsg->msg_iovlen && remaining > 0; i++) {
             size_t chunk = iov[i].iov_len;
             if (chunk > remaining) chunk = remaining;
-            if (copy_to_user(iov[i].iov_base, src, chunk)) return -EFAULT;
+            if (copy_to_user(iov[i].iov_base, src, chunk)) {
+                process_t *proc = process_current();
+                for (size_t j = 0; proc && j < installed_rights_count; j++) process_fd_close(proc, installed_rights[j]);
+                return -EFAULT;
+            }
             src += chunk;
             remaining -= chunk;
         }
@@ -2620,7 +2855,6 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
 
     /* Write back msg_flags */
     kmsg->msg_flags = msg_flags;
-    if (sk->type != SOCK_DGRAM) kmsg->msg_controllen = 0;
 
     return (int64_t)ret;
 }
@@ -2635,6 +2869,8 @@ int64_t sys_sendmsg(int fd, const msghdr_t *msg, int flags)
     void     *kbuf;
     size_t    total_len;
     int64_t   ret;
+    process_file_t *rights[SOCK_RIGHTS_MAX];
+    size_t          rights_count = 0;
 
     sk = socket_from_fd(fd);
     if (!sk) return -EBADF;
@@ -2694,7 +2930,15 @@ int64_t sys_sendmsg(int fd, const msghdr_t *msg, int flags)
         }
     }
 
-    ret = do_sendmsg_kern(fd, sk, &kmsg, iov, kbuf, total_len, flags);
+    int rights_ret = socket_collect_rights(sk, &kmsg, rights, &rights_count);
+    if (rights_ret < 0) {
+        free(kbuf);
+        free(iov);
+        return rights_ret;
+    }
+
+    ret = do_sendmsg_kern(fd, sk, &kmsg, iov, kbuf, total_len, flags, rights, rights_count);
+    if (ret <= 0 && rights_count) socket_release_rights(rights, rights_count);
 
     free(kbuf);
     free(iov);
@@ -3365,7 +3609,7 @@ int64_t sys_sendmmsg(int fd, void *msgvec, uint32_t vlen, int flags)
             }
         }
 
-        ret = do_sendmsg_kern(fd, sk, &kmsg, iov, kbuf, total_len, flags);
+        ret = do_sendmsg_kern(fd, sk, &kmsg, iov, kbuf, total_len, flags, NULL, 0);
 
         free(kbuf);
         free(iov);
@@ -3478,7 +3722,6 @@ int64_t sys_recvmmsg(int fd, void *msgvec, uint32_t vlen, int flags, void *timeo
 
 void socket_init(void)
 {
-    memset(sock_blocked_tab, 0, sizeof(sock_blocked_tab));
     memset(sock_bound_tab, 0, sizeof(sock_bound_tab));
     if (!inet_backend_get()) (void)inet_builtin_backend_register();
 

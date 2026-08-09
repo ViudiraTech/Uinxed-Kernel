@@ -10,6 +10,7 @@
 
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <net/endian.h>
@@ -25,11 +26,11 @@
 #define TCP_EPHEMERAL_FIRST 49152U
 #define TCP_DEFAULT_MSS     536U
 #define TCP_LOCAL_MSS       1460U
-#define TCP_RTO_TICKS       100U
-#define TCP_RTO_MIN         20U
-#define TCP_RTO_MAX         6000U
-#define TCP_PERSIST_MIN     100U
-#define TCP_TIME_WAIT_TICKS 6000U
+#define TCP_RTO_TICKS       TIMER_HZ
+#define TCP_RTO_MIN         (TIMER_HZ / 5U)
+#define TCP_RTO_MAX         (60U * TIMER_HZ)
+#define TCP_PERSIST_MIN     TIMER_HZ
+#define TCP_TIME_WAIT_TICKS (60U * TIMER_HZ)
 
 typedef struct tcp_tx_record {
         struct tcp_tx_record *next;

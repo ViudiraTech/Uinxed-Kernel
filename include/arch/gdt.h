@@ -18,7 +18,7 @@ typedef struct {
         void    *ptr;
 } __attribute__((packed)) gdt_register_t;
 
-typedef uint64_t gdt_entries_t[8];
+typedef uint64_t gdt_entries_t[10];
 
 typedef struct {
         gdt_entries_t  entries;

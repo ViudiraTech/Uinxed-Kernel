@@ -29,6 +29,7 @@
 #define CLOCK_BOOTTIME_ALARM 9
 
 typedef struct timerfd_ctx {
+        vfs_node_t   node;
         uint64_t     clockid;
         uint64_t     flags;
         uint64_t     expire_count;

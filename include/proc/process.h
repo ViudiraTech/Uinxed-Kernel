@@ -168,6 +168,8 @@ typedef struct process {
         bool            wait_continue_pending;
         uint32_t        uid;
         uint32_t        gid;
+        uint32_t        fsuid;
+        uint32_t        fsgid;
         uint16_t        umask;
         uint8_t        *kernel_stack;
         process_file_t *fds[PROCESS_MAX_FD];
@@ -232,6 +234,7 @@ process_t *process_iterate(size_t *pos);
 process_t *process_find_get(pid_t pid);
 void       process_debug_dump_tasks(void);
 process_t *process_iterate_get(size_t *pos);
+size_t     process_snapshot_pids(pid_t *pids, size_t capacity);
 process_t *process_group_iterate_get(size_t *pos, pid_t pgid, pid_t sid);
 task_t    *process_task_find_get(pid_t pid, process_t **owner);
 void       process_put(process_t *proc);
@@ -315,6 +318,9 @@ void process_mmap_destroy_detached(process_t *proc, vm_area_t *list);
 /* Attach an opened VFS node to a file descriptor table */
 int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags);
 
+/* Install another reference to an existing open-file description. */
+int process_fd_install_file(process_t *proc, process_file_t *file, uint64_t flags);
+
 /* Close a file descriptor */
 int process_fd_close(process_t *proc, int fd);
 
@@ -327,6 +333,8 @@ int process_fd_dup2(process_t *proc, int oldfd, int newfd);
 /* Read/write through a file descriptor and update the shared offset */
 int64_t process_fd_read(process_t *proc, int fd, void *buf, size_t size);
 int64_t process_fd_write(process_t *proc, int fd, const void *buf, size_t size);
+int64_t process_fd_read_user(process_t *proc, int fd, void *buf, size_t size);
+int64_t process_fd_write_user(process_t *proc, int fd, const void *buf, size_t size);
 
 /* Move the shared file offset */
 int64_t process_fd_seek(process_t *proc, int fd, int64_t offset, int whence);
@@ -345,6 +353,9 @@ uint32_t process_fd_limit(process_t *proc);
 void            process_file_put(process_file_t *file);
 void            process_file_get(process_file_t *file);
 process_file_t *process_fd_get(process_t *proc, int fd);
+/* Descriptor-like references used while an SCM_RIGHTS fd is in flight. */
+process_file_t *process_fd_get_for_transfer(process_t *proc, int fd);
+void            process_file_put_transfer(process_file_t *file);
 int             process_file_poll(process_file_t *file, size_t events);
 
 /* Resolve a pathname against cwd or a directory descriptor. */

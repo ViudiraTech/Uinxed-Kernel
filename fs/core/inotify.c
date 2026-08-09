@@ -185,6 +185,7 @@ static void inotify_release_append(inotify_watch_t **head, inotify_watch_t *watc
 static void inotify_emit(vfs_node_t target, uint32_t mask, uint32_t cookie, const char *name, bool force_remove)
 {
     if (!target || !(mask & INOTIFY_EVENT_MASK)) return;
+    if (!__atomic_load_n(&inotify_contexts, __ATOMIC_ACQUIRE)) return;
 
     inotify_watch_t *release = NULL;
     spin_lock(&inotify_global_lock);

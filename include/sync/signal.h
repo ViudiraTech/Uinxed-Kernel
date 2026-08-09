@@ -400,6 +400,7 @@ int signal_send_thread(task_t *task, int sig, const siginfo_t *info);
  * Returns 0 if signals delivered (or none pending), 1 if process terminated.
  */
 int signal_deliver_if_pending(syscall_frame_t *frame);
+int signal_deliver_for_process(process_t *proc, syscall_frame_t *frame);
 
 /* Check if there is a pending signal that should be delivered */
 int signal_has_pending(signal_state_t *state);

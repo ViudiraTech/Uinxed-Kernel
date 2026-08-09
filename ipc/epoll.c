@@ -12,6 +12,7 @@
 #include <ipc/epoll.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <kernel/timer.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
@@ -31,7 +32,7 @@
 #ifndef EPOLL_MAX_FDS
 #    define EPOLL_MAX_FDS 1024
 #endif
-#define EPOLL_TICKS_PER_SEC 100
+#define EPOLL_TICKS_PER_SEC TIMER_HZ
 
 /* poll event bits (matching pipe.c) */
 #define POLLIN  0x001
@@ -55,6 +56,7 @@ typedef struct epoll_item {
         uint32_t                last_revents;     /* previous poll result for edge-triggered */
         int                     oneshot_disabled; /* EPOLLONESHOT re-arm flag */
         process_file_t         *file;
+        vfs_poll_source_t      *event_source;
         vfs_poll_subscription_t subscription;
         vfs_poll_subscription_t close_subscription;
         uint32_t                pending_events;
@@ -104,12 +106,16 @@ static uint32_t epoll_map_poll_result(int poll_result, uint32_t requested)
 
 static void epoll_item_notify(vfs_poll_subscription_t *subscription, uint32_t events)
 {
-    (void)events;
     epoll_item_t *item = subscription->context;
     if (__atomic_load_n(&item->active, __ATOMIC_ACQUIRE)) {
         __atomic_fetch_or(&item->pending_events, events, __ATOMIC_RELEASE);
         __atomic_add_fetch(&item->epi->event_generation, 1, __ATOMIC_RELEASE);
         wait_queue_wake_all(&item->epi->wq);
+        /* An epoll fd is itself pollable.  libinput exposes its internal
+         * epoll fd to Xorg, which then watches it from Xorg's outer epoll.
+         * Propagate target readiness to that outer poll source as well as to
+         * threads directly blocked in epoll_wait() on this instance. */
+        if (item->epi->node) vfs_poll_notify(item->epi->node, POLLIN);
     }
 }
 
@@ -119,9 +125,10 @@ static void epoll_target_close(vfs_poll_subscription_t *subscription, uint32_t e
     epoll_item_t *item = subscription->context;
     __atomic_store_n(&item->target_closed, true, __ATOMIC_RELEASE);
     __atomic_fetch_or(&item->pending_events, EPOLLHUP, __ATOMIC_RELEASE);
-    vfs_poll_unsubscribe(item->file->node, &item->subscription);
+    vfs_poll_source_unsubscribe(item->event_source, &item->subscription);
     __atomic_add_fetch(&item->epi->event_generation, 1, __ATOMIC_RELEASE);
     wait_queue_wake_all(&item->epi->wq);
+    if (item->epi->node) vfs_poll_notify(item->epi->node, POLLIN);
 }
 
 /* ------------------------------------------------------------------ */
@@ -239,7 +246,9 @@ static int epoll_poll_all(epoll_instance_t *epi)
             item->last_revents &= ~changed;
             uint32_t new_ready = current & ~item->last_revents;
             item->last_revents = current;
-            item->revents      = new_ready;
+            /* Preserve an edge that was found by an earlier scan but could
+             * not be returned because maxevents was already exhausted. */
+            item->revents |= new_ready;
         } else {
             /* Level-triggered: report all currently ready events */
             item->revents = current;
@@ -249,6 +258,31 @@ static int epoll_poll_all(epoll_instance_t *epi)
     }
 
     return ready;
+}
+
+/* Check whether an epoll fd is readable without consuming edge state.
+ * This is used when the epoll fd is itself watched by poll or another epoll
+ * instance (libinput's epoll fd inside Xorg's epoll).  Only epoll_wait() may
+ * exchange pending_events and advance last_revents. */
+static bool epoll_has_ready(epoll_instance_t *epi)
+{
+    for (int fd = 0; fd < EPOLL_MAX_FDS; fd++) {
+        epoll_item_t *item = epi->items[fd];
+        if (!item || !__atomic_load_n(&item->active, __ATOMIC_ACQUIRE) || item->oneshot_disabled) continue;
+        if (__atomic_load_n(&item->target_closed, __ATOMIC_ACQUIRE) || item->revents) return true;
+
+        int      poll_result = process_file_poll(item->file, (size_t)(item->events | POLLERR | POLLHUP));
+        uint32_t current     = epoll_map_poll_result(poll_result, item->events);
+        if (!(item->events & EPOLLET)) {
+            if (current) return true;
+            continue;
+        }
+
+        uint32_t pending = __atomic_load_n(&item->pending_events, __ATOMIC_ACQUIRE);
+        uint32_t observed = item->last_revents & ~pending;
+        if (current & ~observed) return true;
+    }
+    return false;
 }
 
 /*
@@ -311,7 +345,7 @@ static void epoll_vfs_close(void *current)
 static void epoll_item_release(epoll_item_t *item)
 {
     if (!item) return;
-    vfs_poll_unsubscribe(item->file->node, &item->subscription);
+    vfs_poll_source_unsubscribe(item->event_source, &item->subscription);
     vfs_poll_source_unsubscribe(&item->file->close_source, &item->close_subscription);
     process_file_put(item->file);
     free(item);
@@ -352,7 +386,7 @@ static int epoll_vfs_poll(void *file, size_t events)
     int revents = 0;
 
     spin_lock(&epi->lock);
-    if (epoll_poll_all(epi) > 0) { revents |= POLLIN; }
+    if (epoll_has_ready(epi)) revents |= POLLIN;
     spin_unlock(&epi->lock);
 
     return revents & (int)events;
@@ -494,11 +528,7 @@ static epoll_instance_t *epoll_resolve_fd(int epfd, process_t *proc, process_fil
     process_file_t *file = NULL;
     if (epfd >= 0 && epfd < PROCESS_MAX_FD) {
         file = proc->fds[epfd];
-        if (file) {
-            spin_lock(&file->lock);
-            file->refcount++;
-            spin_unlock(&file->lock);
-        }
+        if (file) process_file_get(file);
     }
     spin_unlock(&proc->fd_lock);
 
@@ -578,6 +608,7 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
     int64_t         ret;
     process_file_t *target  = NULL;
     epoll_item_t   *release = NULL;
+    bool            publish_ready = false;
 
     if (op == EPOLL_CTL_ADD) {
         target = process_fd_get(proc, fd);
@@ -608,7 +639,8 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
                 break;
             }
             target = NULL;
-            vfs_poll_subscribe(item->file->node, &item->subscription, UINT32_MAX, epoll_item_notify, item);
+            item->event_source = vfs_file_poll_source(item->file->node, item->file->private_data);
+            vfs_poll_source_subscribe(item->event_source, &item->subscription, UINT32_MAX, epoll_item_notify, item);
             vfs_poll_source_subscribe(&item->file->close_source, &item->close_subscription, UINT32_MAX, epoll_target_close, item);
 
             /* Poll immediately for initial readiness */
@@ -619,7 +651,11 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
             item->revents        = current;
 
             /* Wake any waiters if this fd is immediately ready */
-            if (item->revents) { wait_queue_wake_all(&epi->wq); }
+            if (item->revents) {
+                __atomic_add_fetch(&epi->event_generation, 1, __ATOMIC_RELEASE);
+                wait_queue_wake_all(&epi->wq);
+                publish_ready = true;
+            }
 
             ret = EOK;
             break;
@@ -650,10 +686,21 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
 
             epoll_item_t *item = epoll_item_find(epi, fd);
             if (item) {
-                item->last_revents = current;
-                item->revents      = current;
+                /* EPOLL_CTL_MOD re-arms the descriptor.  In particular,
+                 * users such as Xorg add an EPOLLET fd with no read/write
+                 * interest and then enable EPOLLIN after data may already
+                 * have arrived.  Treat readiness observed during MOD as a
+                 * fresh edge; recording it in last_revents here would make
+                 * the following epoll_wait silently consume that edge. */
+                item->last_revents = 0;
+                __atomic_store_n(&item->pending_events, current, __ATOMIC_RELEASE);
+                item->revents = current;
 
-                if (item->revents) { wait_queue_wake_all(&epi->wq); }
+                if (item->revents) {
+                    __atomic_add_fetch(&epi->event_generation, 1, __ATOMIC_RELEASE);
+                    wait_queue_wake_all(&epi->wq);
+                    publish_ready = true;
+                }
             }
 
             ret = EOK;
@@ -666,6 +713,7 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
     }
 
     spin_unlock(&epi->lock);
+    if (publish_ready && epi->node) vfs_poll_notify(epi->node, POLLIN);
     if (target) process_file_put(target);
     epoll_item_release(release);
     process_file_put(ep_file);
@@ -718,11 +766,8 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
         wait_queue_prepare(&epi->wq);
         if (__atomic_load_n(&epi->event_generation, __ATOMIC_ACQUIRE) != generation) wait_queue_wake_all(&epi->wq);
         spin_unlock(&epi->lock);
-        if (deadline) {
-            (void)wait_queue_wait_timed(&epi->wq, deadline);
-        } else {
-            wait_queue_sleep();
-        }
+        if (deadline) (void)wait_queue_wait_timed(&epi->wq, deadline);
+        else wait_queue_sleep();
         spin_lock(&epi->lock);
     }
 

@@ -249,7 +249,7 @@ static struct drm_driver virtgpu_drm_driver = {
     .major           = 0,
     .minor           = 1,
     .patchlevel      = 0,
-    .driver_features = DRIVER_MODESET | DRIVER_ATOMIC | DRIVER_GEM | DRIVER_RENDER,
+    .driver_features = DRIVER_MODESET | DRIVER_ATOMIC | DRIVER_GEM | DRIVER_RENDER | DRIVER_SYNCHRONOUS_FLIP,
 
     .open      = virtgpu_open,
     .postclose = virtgpu_postclose,
@@ -937,16 +937,26 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
             return 0;
         }
 
+        /* A 2D resource has an implicit packed row stride.  Accepting an FB
+         * view with a different pitch/offset/dimensions makes the host walk
+         * different rows than Xorg/Weston wrote, producing mode-dependent
+         * corruption (640-wide buffers happened to mask it). */
+        if (fb->width != obj->width || fb->height != obj->height || fb->pitches[0] != obj->stride || fb->offsets[0]
+            || fb->format != obj->format)
+            return -EINVAL;
+
         /* Submit the full flip as one ordered batch and avoid rebinding an
          * object that is already the active scanout. */
-        ret = virtgpu_cmd_update_scanout_2d(vgdev, scanout_id, obj, obj != vgdev->current_scanout_obj);
+        bool layout_changed = !vgdev->current_fb || vgdev->current_fb->width != fb->width || vgdev->current_fb->height != fb->height
+                           || vgdev->current_fb->pitches[0] != fb->pitches[0] || vgdev->current_fb->offsets[0] != fb->offsets[0];
+        ret = virtgpu_cmd_update_scanout_2d(vgdev, scanout_id, obj,
+                                            obj != vgdev->current_scanout_obj || old_fb == NULL || layout_changed);
         if (ret) {
             DRM_ERROR("flip: batched update failed: %d\n", ret);
             return ret;
         }
 
         vgdev->current_scanout_obj = obj;
-        DRM_DEBUG_DRIVER("flip: scanout %d -> resource %u (%ux%u)\n", scanout_id, obj->hw_res_handle, obj->width, obj->height);
     } else {
         /* Disable scanout */
         ret = virtgpu_cmd_set_scanout(vgdev, scanout_id, NULL);

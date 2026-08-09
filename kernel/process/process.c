@@ -124,6 +124,26 @@ process_t *process_iterate_get(size_t *pos)
     return NULL;
 }
 
+/* Copy process identifiers while holding the table lock, without handing a
+ * process reference to the caller.  This is used by procfs while the VFS
+ * namespace lock is held: dropping a process reference there can run the
+ * final process destructor, close files, and recursively acquire the VFS
+ * namespace lock. */
+size_t process_snapshot_pids(pid_t *pids, size_t capacity)
+{
+    if (!pids || !capacity) return 0;
+
+    size_t count = 0;
+    spin_lock(&process_table_lock);
+    for (size_t i = 0; i < PROCESS_TABLE_SIZE && count < capacity; i++) {
+        process_t *proc = process_table[i];
+        if (!proc || !proc->task || proc->task->tgid == 0) continue;
+        pids[count++] = (pid_t)proc->task->tgid;
+    }
+    spin_unlock(&process_table_lock);
+    return count;
+}
+
 void process_debug_dump_tasks(void)
 {
     spin_lock(&process_table_lock);
@@ -600,17 +620,20 @@ void process_file_get(process_file_t *file)
 {
     if (!file) return;
 
-    spin_lock(&file->lock);
-    if (file->refcount > 0) file->refcount++;
-    spin_unlock(&file->lock);
+    /* Match Linux's file reference model: transient fd users take an atomic
+     * reference while the descriptor-table lock guarantees that the file is
+     * still published.  Serialising every read/write against file->lock made
+     * tiny stream I/O pay for a lock unrelated to its actual data path. */
+    uint32_t refs = __atomic_load_n(&file->refcount, __ATOMIC_RELAXED);
+    while (refs && !__atomic_compare_exchange_n(&file->refcount, &refs, refs + 1, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {}
 }
 
 static void process_file_fd_get(process_file_t *file)
 {
     if (!file) return;
     spin_lock(&file->lock);
-    if (file->refcount > 0) {
-        file->refcount++;
+    if (__atomic_load_n(&file->refcount, __ATOMIC_RELAXED) > 0) {
+        __atomic_fetch_add(&file->refcount, 1, __ATOMIC_RELAXED);
         file->fd_refcount++;
     }
     spin_unlock(&file->lock);
@@ -625,10 +648,8 @@ static void process_file_fd_put(process_file_t *file)
     if (closed) file->descriptors_closed = true;
     spin_unlock(&file->lock);
     if (closed) {
-        spin_lock(&file->close_source.lock);
-        file->close_source.closed = true;
-        spin_unlock(&file->close_source.lock);
-        vfs_poll_source_notify(&file->close_source, UINT32_MAX);
+        if (file->file_opened) vfs_file_descriptor_close(file->node, file->private_data);
+        vfs_poll_source_close(&file->close_source, UINT32_MAX);
     }
     process_file_put(file);
 }
@@ -661,14 +682,12 @@ void process_file_put(process_file_t *file)
 {
     if (!file) return;
 
-    spin_lock(&file->lock);
-    if (file->refcount > 1) {
-        file->refcount--;
-        spin_unlock(&file->lock);
-        return;
-    }
-    file->refcount = 0;
-    spin_unlock(&file->lock);
+    uint32_t refs = __atomic_load_n(&file->refcount, __ATOMIC_RELAXED);
+    do {
+        if (!refs) return;
+    } while (!__atomic_compare_exchange_n(&file->refcount, &refs, refs - 1, false, __ATOMIC_RELEASE, __ATOMIC_RELAXED));
+    if (refs != 1) return;
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
 
     inotify_notify(file->node, (file->flags & O_ACCMODE) == O_RDONLY ? IN_CLOSE_NOWRITE : IN_CLOSE_WRITE);
 
@@ -683,14 +702,29 @@ static void process_fd_table_close(process_t *proc)
 {
     if (!proc) return;
 
+    /*
+     * Detach the descriptor table atomically, but never run final-release
+     * callbacks while holding proc->fd_lock.  Dropping the last descriptor
+     * can notify poll/epoll subscribers and close sockets or pipes; those
+     * callbacks are allowed to inspect descriptor state and may take locks
+     * below the fd-table layer.  Running them under fd_lock turns an ordinary
+     * process exit into a self-deadlock (notably when an OpenRC service runner
+     * exits with inherited CLOEXEC/poll descriptors).
+     *
+     * This is the last thread when called from process_exit(), and callers of
+     * process_free() no longer publish the process, so no new descriptors can
+     * be installed after the table has been detached.
+     */
+    process_file_t *files[PROCESS_MAX_FD];
     spin_lock(&proc->fd_lock);
     for (int i = 0; i < PROCESS_MAX_FD; i++) {
-        process_file_t *file = proc->fds[i];
-        proc->fds[i]         = NULL;
-        proc->fd_flags[i]    = 0;
-        process_file_fd_put(file);
+        files[i]          = proc->fds[i];
+        proc->fds[i]      = NULL;
+        proc->fd_flags[i] = 0;
     }
     spin_unlock(&proc->fd_lock);
+
+    for (int i = 0; i < PROCESS_MAX_FD; i++) process_file_fd_put(files[i]);
 }
 
 static void process_fd_table_copy(process_t *child, process_t *parent)
@@ -715,6 +749,47 @@ process_file_t *process_fd_get(process_t *proc, int fd)
     process_file_get(file);
     spin_unlock(&proc->fd_lock);
     return file;
+}
+
+/* Linux's fget_light borrows the descriptor-table reference when the table is
+ * private to the current thread.  In that case no other execution context can
+ * remove this process's slot before the syscall returns, so neither the fd
+ * table spinlock nor a transient file reference is needed. */
+static process_file_t *process_fd_get_light(process_t *proc, int fd, bool *borrowed)
+{
+    *borrowed = false;
+    if (!proc || fd < 0 || fd >= PROCESS_MAX_FD) return NULL;
+
+    if (proc == process_current() && __atomic_load_n(&proc->thread_count, __ATOMIC_ACQUIRE) == 1) {
+        process_file_t *file = __atomic_load_n(&proc->fds[fd], __ATOMIC_ACQUIRE);
+        if (file) *borrowed = true;
+        return file;
+    }
+    return process_fd_get(proc, fd);
+}
+
+static void process_file_put_light(process_file_t *file, bool borrowed)
+{
+    if (!borrowed) process_file_put(file);
+}
+
+process_file_t *process_fd_get_for_transfer(process_t *proc, int fd)
+{
+    if (!proc || fd < 0 || fd >= PROCESS_MAX_FD) return NULL;
+
+    /* Keep fd_refcount non-zero while SCM_RIGHTS is in flight.  Otherwise the
+     * sender closing its original fd would publish POLLHUP and run the
+     * descriptor-close transition before the receiver installs its copy. */
+    spin_lock(&proc->fd_lock);
+    process_file_t *file = proc->fds[fd];
+    process_file_fd_get(file);
+    spin_unlock(&proc->fd_lock);
+    return file;
+}
+
+void process_file_put_transfer(process_file_t *file)
+{
+    process_file_fd_put(file);
 }
 
 int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
@@ -771,6 +846,28 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
     /* Failed to find a free FD slot --release private_data. */
     if (file->file_opened) callbackof(node, file_release)(node, file->private_data);
     free(file);
+    return -EMFILE;
+}
+
+int process_fd_install_file(process_t *proc, process_file_t *file, uint64_t flags)
+{
+    if (!proc || !file) return -EINVAL;
+
+    spin_lock(&proc->fd_lock);
+    uint32_t limit = process_fd_limit(proc);
+    for (uint32_t i = 0; i < limit; i++) {
+        if (!proc->fds[i]) {
+            /* SCM_RIGHTS and dup(2) share the same open-file description:
+             * file offset, status flags and private driver state all remain
+             * shared.  Only FD_CLOEXEC belongs to the new descriptor. */
+            process_file_fd_get(file);
+            proc->fds[i]      = file;
+            proc->fd_flags[i] = (flags & O_CLOEXEC) ? FD_CLOEXEC : 0;
+            spin_unlock(&proc->fd_lock);
+            return (int)i;
+        }
+    }
+    spin_unlock(&proc->fd_lock);
     return -EMFILE;
 }
 
@@ -850,31 +947,43 @@ int process_fd_dup2(process_t *proc, int oldfd, int newfd)
 
 int64_t process_fd_read(process_t *proc, int fd, void *buf, size_t size)
 {
-    process_file_t *file = process_fd_get(proc, fd);
+    bool            borrowed;
+    process_file_t *file = process_fd_get_light(proc, fd, &borrowed);
     if (!file) return -EBADF;
 
-    bool stream = (file->node->type & file_stream) != 0;
-    if (!stream) process_file_io_lock(file);
+    /* Pipes, like Linux FMODE_STREAM files, have no shared file position.
+     * Their ring lock provides the required serialization, so taking the
+     * open-file f_pos lock on every small transfer is both redundant and
+     * expensive. */
+    bool positionless = (file->node->type & (file_stream | file_pipe)) != 0;
+    if (!positionless) process_file_io_lock(file);
 
-    spin_lock(&file->lock);
-    uint64_t flags  = file->flags;
-    size_t   offset = stream ? 0 : file->offset;
-    spin_unlock(&file->lock);
+    uint64_t flags;
+    size_t   offset;
+    if (positionless) {
+        flags  = __atomic_load_n(&file->flags, __ATOMIC_RELAXED);
+        offset = 0;
+    } else {
+        spin_lock(&file->lock);
+        flags  = file->flags;
+        offset = file->offset;
+        spin_unlock(&file->lock);
+    }
 
     if (flags & O_PATH) {
-        if (!stream) process_file_io_unlock(file);
-        process_file_put(file);
+        if (!positionless) process_file_io_unlock(file);
+        process_file_put_light(file, borrowed);
         return -EBADF;
     }
 
     if ((flags & O_ACCMODE) == O_WRONLY) {
-        if (!stream) process_file_io_unlock(file);
-        process_file_put(file);
+        if (!positionless) process_file_io_unlock(file);
+        process_file_put_light(file, borrowed);
         return -EBADF;
     }
 
-    int64_t ret = vfs_file_read(file->node, file->private_data, flags, buf, offset, size);
-    if (!stream) {
+    int64_t ret = vfs_file_read_process(file->node, file->private_data, flags, buf, offset, size, proc);
+    if (!positionless) {
         if (ret >= 0) {
             spin_lock(&file->lock);
             file->offset = offset + (size_t)ret;
@@ -883,38 +992,52 @@ int64_t process_fd_read(process_t *proc, int fd, void *buf, size_t size)
         process_file_io_unlock(file);
     }
 
-    process_file_put(file);
+    process_file_put_light(file, borrowed);
     return ret;
 }
 
 int64_t process_fd_write(process_t *proc, int fd, const void *buf, size_t size)
 {
-    process_file_t *file = process_fd_get(proc, fd);
+    bool            borrowed;
+    process_file_t *file = process_fd_get_light(proc, fd, &borrowed);
     if (!file) return -EBADF;
 
-    bool stream = (file->node->type & file_stream) != 0;
-    if (!stream) process_file_io_lock(file);
+    bool positionless = (file->node->type & (file_stream | file_pipe)) != 0;
+    if (!positionless) process_file_io_lock(file);
 
-    spin_lock(&file->lock);
-    uint64_t flags  = file->flags;
-    size_t   offset = stream ? 0 : file->offset;
-    if (!stream && (flags & O_APPEND)) offset = file->node->size;
-    spin_unlock(&file->lock);
+    uint64_t flags;
+    size_t   offset;
+    if (positionless) {
+        flags  = __atomic_load_n(&file->flags, __ATOMIC_RELAXED);
+        offset = 0;
+    } else {
+        spin_lock(&file->lock);
+        flags  = file->flags;
+        offset = file->offset;
+        if (flags & O_APPEND) offset = file->node->size;
+        spin_unlock(&file->lock);
+    }
 
     if (flags & O_PATH) {
-        if (!stream) process_file_io_unlock(file);
-        process_file_put(file);
+        if (!positionless) process_file_io_unlock(file);
+        process_file_put_light(file, borrowed);
         return -EBADF;
     }
 
     if ((flags & O_ACCMODE) == O_RDONLY) {
-        if (!stream) process_file_io_unlock(file);
-        process_file_put(file);
+        if (!positionless) process_file_io_unlock(file);
+        process_file_put_light(file, borrowed);
         return -EBADF;
     }
 
-    int64_t ret = vfs_file_write(file->node, file->private_data, flags, buf, offset, size);
-    if (!stream) {
+    if (vfs_mount_is_readonly(file->node)) {
+        if (!positionless) process_file_io_unlock(file);
+        process_file_put_light(file, borrowed);
+        return -EROFS;
+    }
+
+    int64_t ret = vfs_file_write_process(file->node, file->private_data, flags, buf, offset, size, proc);
+    if (!positionless) {
         if (ret >= 0) {
             spin_lock(&file->lock);
             file->offset = offset + (size_t)ret;
@@ -923,7 +1046,94 @@ int64_t process_fd_write(process_t *proc, int fd, const void *buf, size_t size)
         process_file_io_unlock(file);
     }
 
-    process_file_put(file);
+    process_file_put_light(file, borrowed);
+    return ret;
+}
+
+int64_t process_fd_read_user(process_t *proc, int fd, void *buf, size_t size)
+{
+    bool            borrowed;
+    process_file_t *file = process_fd_get_light(proc, fd, &borrowed);
+    if (!file) return -EBADF;
+
+    bool positionless = (file->node->type & (file_stream | file_pipe)) != 0;
+    if (!positionless) process_file_io_lock(file);
+
+    uint64_t flags;
+    size_t   offset;
+    if (positionless) {
+        flags  = __atomic_load_n(&file->flags, __ATOMIC_RELAXED);
+        offset = 0;
+    } else {
+        spin_lock(&file->lock);
+        flags  = file->flags;
+        offset = file->offset;
+        spin_unlock(&file->lock);
+    }
+
+    if ((flags & O_PATH) || (flags & O_ACCMODE) == O_WRONLY) {
+        if (!positionless) process_file_io_unlock(file);
+        process_file_put_light(file, borrowed);
+        return -EBADF;
+    }
+
+    int64_t ret = vfs_file_read_user_process(file->node, file->private_data, flags, buf, offset, size, proc);
+    if (!positionless) {
+        if (ret >= 0) {
+            spin_lock(&file->lock);
+            file->offset = offset + (size_t)ret;
+            spin_unlock(&file->lock);
+        }
+        process_file_io_unlock(file);
+    }
+
+    process_file_put_light(file, borrowed);
+    return ret;
+}
+
+int64_t process_fd_write_user(process_t *proc, int fd, const void *buf, size_t size)
+{
+    bool            borrowed;
+    process_file_t *file = process_fd_get_light(proc, fd, &borrowed);
+    if (!file) return -EBADF;
+
+    bool positionless = (file->node->type & (file_stream | file_pipe)) != 0;
+    if (!positionless) process_file_io_lock(file);
+
+    uint64_t flags;
+    size_t   offset;
+    if (positionless) {
+        flags  = __atomic_load_n(&file->flags, __ATOMIC_RELAXED);
+        offset = 0;
+    } else {
+        spin_lock(&file->lock);
+        flags  = file->flags;
+        offset = (flags & O_APPEND) ? file->node->size : file->offset;
+        spin_unlock(&file->lock);
+    }
+
+    if ((flags & O_PATH) || (flags & O_ACCMODE) == O_RDONLY) {
+        if (!positionless) process_file_io_unlock(file);
+        process_file_put_light(file, borrowed);
+        return -EBADF;
+    }
+    if (vfs_mount_is_readonly(file->node)) {
+        if (!positionless) process_file_io_unlock(file);
+        process_file_put_light(file, borrowed);
+        return -EROFS;
+    }
+
+    int64_t ret = vfs_file_write_user_process(file->node, file->private_data, flags, buf, offset, size, proc);
+    if (!positionless) {
+        if (ret >= 0) {
+            spin_lock(&file->lock);
+            file->offset = offset + (size_t)ret;
+            spin_unlock(&file->lock);
+        }
+        process_file_io_unlock(file);
+    }
+
+    process_file_put_light(file, borrowed);
     return ret;
 }
 
@@ -1147,6 +1357,8 @@ process_t *process_create(const char *name, void (*entry)(void *), void *arg)
     proc->task->state = TASK_RUNNING;
     proc->uid         = 1000;
     proc->gid         = 1000;
+    proc->fsuid       = 1000;
+    proc->fsgid       = 1000;
     proc->umask       = 022;
     proc->pgid        = 0;
     proc->sid         = 0;
@@ -1223,6 +1435,8 @@ process_t *process_create_kernel(const char *name, void (*entry)(void *), void *
     proc->task->state = TASK_READY;
     proc->uid         = 0;
     proc->gid         = 0;
+    proc->fsuid       = 0;
+    proc->fsgid       = 0;
     proc->umask       = 022;
     proc->pgid        = 0;
     proc->sid         = 0;
@@ -1647,6 +1861,8 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     child->task->state = TASK_READY;
     child->uid         = parent->uid;
     child->gid         = parent->gid;
+    child->fsuid       = parent->fsuid;
+    child->fsgid       = parent->fsgid;
     child->umask       = parent->umask;
     child->pgid        = parent->pgid;
     child->sid         = parent->sid;
@@ -1718,19 +1934,28 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
             return NULL;
         }
         copy->type            = vma->type;
-        copy->vm_file         = vma->vm_file;
+        copy->vm_file         = vma->vm_file ? vfs_node_retain(vma->vm_file) : NULL;
         copy->vm_pgoff        = vma->vm_pgoff;
         copy->vm_private_data = vma->vm_private_data;
         copy->vm_pagecache    = vma->vm_pagecache;
 
-        /* Bump the file reference if this VMA is file-backed.
-         * The parent already holds a reference; the child needs
-         * its own so the file isn't freed while the child lives. */
-        if (copy->vm_file) copy->vm_file->refcount++;
+        if (vma->vm_file && !copy->vm_file) {
+            free(copy);
+            if (error) *error = -ENOENT;
+            process_free(child);
+            spin_unlock(&parent->mmap_lock);
+            spin_unlock(&scheduler.lock);
+            return NULL;
+        }
         if (copy->vm_file && copy->vm_pagecache) (void)vfs_cache_mapping_pin(copy->vm_file);
         if (copy->vm_file) memfd_vma_retain(copy->vm_file, copy->flags);
         if (copy->type == VM_REGION_SHM && sysv_shm_vma_get(copy->vm_private_data, (uint32_t)child->task->pid)) {
             plogk("process: fork of '%s' failed (SHM VMA lookup)\n", parent->name);
+            if (copy->vm_file) {
+                if (copy->vm_pagecache) vfs_cache_mapping_unpin(copy->vm_file);
+                memfd_vma_release(copy->vm_file, copy->flags);
+                vfs_close(copy->vm_file);
+            }
             free(copy);
             if (error) *error = -ENOMEM;
             process_free(child);
@@ -1780,7 +2005,7 @@ void process_fork_publish(process_t *child)
 {
     if (!child || !child->task || child->task->state != TASK_READY) return;
     spin_lock(&scheduler.lock);
-    enqueue_task(child->task);
+    enqueue_task_initial(child->task);
     spin_unlock(&scheduler.lock);
     request_task_cpu(child->task);
 }

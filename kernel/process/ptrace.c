@@ -860,7 +860,7 @@ int ptrace_signal_delivery(syscall_frame_t *frame, int sig, siginfo_t *info)
 void ptrace_syscall_enter(syscall_frame_t *frame, uint64_t syscall_nr)
 {
     task_t *task = current_task();
-    if (!task) return;
+    if (!task || !ptrace_tracer_pid(task)) return;
     ptrace_state_t *state = &task->ptrace;
     spin_lock(&state->lock);
     state->active_frame = frame;

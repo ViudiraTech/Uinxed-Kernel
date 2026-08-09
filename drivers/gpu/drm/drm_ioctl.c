@@ -200,7 +200,7 @@ static const struct drm_ioctl_desc drm_core_ioctls[] = {
     {DRM_IOCTL_MODE_GETCONNECTOR,      drm_mode_getconnector,            DRM_AUTH             },
     {DRM_IOCTL_MODE_GETPROPERTY,       drm_mode_getproperty_ioctl,       DRM_AUTH             },
     {DRM_IOCTL_MODE_SETPROPERTY,       NULL,                             DRM_MASTER | DRM_AUTH},
-    {DRM_IOCTL_MODE_GETPROPBLOB,       NULL,                             DRM_AUTH             },
+    {DRM_IOCTL_MODE_GETPROPBLOB,       drm_mode_getblob_ioctl,           DRM_AUTH             },
     {DRM_IOCTL_MODE_GETFB,             drm_mode_getfb,                   DRM_MASTER | DRM_AUTH},
     {DRM_IOCTL_MODE_ADDFB,             drm_mode_addfb,                   DRM_MASTER | DRM_AUTH},
     {DRM_IOCTL_MODE_RMFB,              drm_mode_rmfb,                    DRM_MASTER | DRM_AUTH},
@@ -217,6 +217,8 @@ static const struct drm_ioctl_desc drm_core_ioctls[] = {
     {DRM_IOCTL_MODE_OBJ_SETPROPERTY,   drm_mode_obj_setproperty_ioctl,   DRM_MASTER | DRM_AUTH},
     {DRM_IOCTL_MODE_CURSOR2,           drm_mode_cursor2_ioctl,           DRM_AUTH             },
     {DRM_IOCTL_MODE_ATOMIC,            drm_mode_atomic_ioctl,            DRM_MASTER | DRM_AUTH},
+    {DRM_IOCTL_MODE_CREATEPROPBLOB,    drm_mode_createblob_ioctl,        DRM_AUTH             },
+    {DRM_IOCTL_MODE_DESTROYPROPBLOB,   drm_mode_destroyblob_ioctl,       DRM_AUTH             },
     {DRM_IOCTL_MODE_GETFB2,            drm_mode_getfb2_ioctl,            DRM_MASTER | DRM_AUTH},
 };
 
@@ -290,21 +292,24 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
         if (cmd == DRM_IOCTL_MODE_CREATE_DUMB) {
             ret = drm_ioctl_permit(DRM_AUTH, file_priv);
             if (ret) goto out;
-            ret = drm_gem_dumb_create(file_priv, dev, (struct drm_mode_create_dumb *)kdata);
+            ret = dev->driver->dumb_create ? dev->driver->dumb_create(file_priv, dev, (struct drm_mode_create_dumb *)kdata) :
+                                             drm_gem_dumb_create(file_priv, dev, (struct drm_mode_create_dumb *)kdata);
             goto copy_out;
         }
         if (cmd == DRM_IOCTL_MODE_MAP_DUMB) {
             struct drm_mode_map_dumb *args = (struct drm_mode_map_dumb *)kdata;
             ret                            = drm_ioctl_permit(DRM_AUTH, file_priv);
             if (ret) goto out;
-            ret = drm_gem_dumb_map_offset(file_priv, dev, args->handle, &args->offset);
+            ret = dev->driver->dumb_map_offset ? dev->driver->dumb_map_offset(file_priv, dev, args->handle, &args->offset) :
+                                                 drm_gem_dumb_map_offset(file_priv, dev, args->handle, &args->offset);
             goto copy_out;
         }
         if (cmd == DRM_IOCTL_MODE_DESTROY_DUMB) {
             struct drm_mode_destroy_dumb *args = (struct drm_mode_destroy_dumb *)kdata;
             ret                                = drm_ioctl_permit(DRM_AUTH, file_priv);
             if (ret) goto out;
-            ret = drm_gem_dumb_destroy(file_priv, dev, args->handle);
+            ret = dev->driver->dumb_destroy ? dev->driver->dumb_destroy(file_priv, dev, args->handle) :
+                                              drm_gem_dumb_destroy(file_priv, dev, args->handle);
             goto out;
         }
         if (cmd == DRM_IOCTL_PRIME_HANDLE_TO_FD) {

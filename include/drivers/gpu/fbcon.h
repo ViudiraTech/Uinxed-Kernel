@@ -21,6 +21,10 @@ void fbcon_init(void);
 /* Resize fbcon grids after framebuffer dimensions change */
 void fbcon_resize(void);
 
+/* Quiesce framebuffer drawing while video.c changes the backing surface. */
+void fbcon_handoff_begin(void);
+void fbcon_handoff_end(void);
+
 /* Draw a character with per-cell foreground and background color */
 void fbcon_draw_char_bg(const char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t bg);
 

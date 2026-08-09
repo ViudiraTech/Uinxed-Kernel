@@ -61,7 +61,7 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
 
             /* Reference the file for the new slot */
             spin_lock(&file->lock);
-            file->refcount++;
+            __atomic_fetch_add(&file->refcount, 1, __ATOMIC_RELAXED);
             file->fd_refcount++;
             spin_unlock(&file->lock);
 
@@ -98,7 +98,7 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             }
 
             spin_lock(&file->lock);
-            file->refcount++;
+            __atomic_fetch_add(&file->refcount, 1, __ATOMIC_RELAXED);
             file->fd_refcount++;
             spin_unlock(&file->lock);
 
@@ -144,7 +144,8 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             /* Only O_NONBLOCK and O_APPEND can be changed */
             uint64_t settable = O_NONBLOCK | O_APPEND;
             spin_lock(&file->lock);
-            file->flags = (file->flags & ~settable) | (arg & settable);
+            uint64_t current = __atomic_load_n(&file->flags, __ATOMIC_RELAXED);
+            __atomic_store_n(&file->flags, (current & ~settable) | (arg & settable), __ATOMIC_RELAXED);
             spin_unlock(&file->lock);
             result = 0;
             break;

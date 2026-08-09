@@ -13,9 +13,16 @@
 
 #include <libs/std/stddef.h>
 
+struct process;
+
+int user_range_ok(const void *uaddr, size_t size);
 int user_access_ok(const void *uaddr, size_t size, int write);
+int user_access_ok_process(struct process *proc, const void *uaddr, size_t size, int write);
 int copy_from_user(void *dst, const void *src, size_t size);
 int copy_to_user(void *dst, const void *src, size_t size);
+int copy_from_user_process_nofault(struct process *proc, void *dst, const void *src, size_t size);
+int copy_to_user_process_nofault(struct process *proc, void *dst, const void *src, size_t size);
+int strnlen_user(const char *src, size_t max_size);
 int strncpy_from_user(char *dst, const char *src, size_t max_size);
 
 #endif // INCLUDE_UACCESS_H_

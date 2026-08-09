@@ -27,10 +27,11 @@
 #define VFS_NODE_UNLINKED         (1ULL << 60)
 #define VFS_NODE_FINALIZING       (1ULL << 59)
 #define VFS_NODE_UNLINKING        (1ULL << 58)
-#define VFS_NODE_CLOSED           (1ULL << 57)
+#define VFS_NODE_INITIALIZING     (1ULL << 57)
 #define VFS_NODE_NOCACHE          (1ULL << 56)
 #define VFS_NODE_EVENT_DELETE     (1ULL << 55)
 #define VFS_NODE_SWAPFILE         (1ULL << 54)
+#define VFS_NODE_PARENT_RETAINED  (1ULL << 53)
 
 /* Persistent mount attributes kept on the namespace mount-point node. */
 #define MOUNT_FLAG_RDONLY (1ULL << 0)
@@ -41,6 +42,7 @@
 typedef struct vfs_node             *vfs_node_t;
 typedef struct pagecache_mapping     pagecache_mapping_t;
 typedef struct vfs_poll_subscription vfs_poll_subscription_t;
+struct process;
 
 typedef void (*vfs_poll_notify_t)(vfs_poll_subscription_t *subscription, uint32_t events);
 
@@ -59,11 +61,14 @@ typedef struct vfs_poll_source {
 } vfs_poll_source_t;
 struct vm_area; /* forward declaration for vfs_file_mmap_t */
 
+/* Linux filesystems expose at most 255 bytes in a single pathname component. */
+#define VFS_NAME_MAX 255
+
 typedef struct vfs_dirent {
-        const char *name;
-        uint16_t    type;
-        uint64_t    size;
-        uint64_t    inode;
+        char     name[VFS_NAME_MAX + 1];
+        uint16_t type;
+        uint64_t size;
+        uint64_t inode;
 } vfs_dirent_t;
 
 typedef struct vfs_dir {
@@ -93,10 +98,16 @@ typedef void *(*vfs_mmap_t)(void *file, size_t offset, size_t size, int flags);
 typedef void *(*vfs_file_mmap_t)(vfs_node_t node, void *private_data, size_t offset, size_t size, int flags, struct vm_area *vma);
 typedef int (*vfs_file_open_t)(vfs_node_t node, uint64_t flags, void **private_data);
 typedef void (*vfs_file_release_t)(vfs_node_t node, void *private_data);
+typedef void (*vfs_file_descriptor_close_t)(vfs_node_t node, void *private_data);
 typedef int64_t (*vfs_file_read_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
 typedef int64_t (*vfs_file_write_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
+typedef int64_t (*vfs_file_read_user_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size,
+                                           struct process *proc);
+typedef int64_t (*vfs_file_write_user_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset,
+                                            size_t size, struct process *proc);
 typedef int (*vfs_file_ioctl_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, size_t req, void *arg);
 typedef int (*vfs_file_poll_cb_t)(vfs_node_t node, void *private_data, uint64_t flags, size_t events);
+typedef vfs_poll_source_t *(*vfs_file_poll_source_cb_t)(vfs_node_t node, void *private_data);
 
 enum {
     file_none     = 0x1UL,    // No information retrieved
@@ -143,11 +154,15 @@ typedef struct vfs_callback {
         vfs_mmap_t          mmap;         // Memory-map a device/file into the process address space
         vfs_file_open_t     file_open;    // Per-open-instance allocation callback
         vfs_file_release_t  file_release; // Per-open-instance teardown callback
+        vfs_file_descriptor_close_t file_descriptor_close; // Last descriptor closed
         vfs_file_mmap_t     file_mmap;    // Per-open mmap callback (for GEM, etc.)
         vfs_file_read_cb_t  file_read;    // Per-open read callback
         vfs_file_write_cb_t file_write;   // Per-open write callback
+        vfs_file_read_user_cb_t  file_read_user;  // Direct userspace-buffer read callback
+        vfs_file_write_user_cb_t file_write_user; // Direct userspace-buffer write callback
         vfs_file_ioctl_cb_t file_ioctl;   // Per-open ioctl callback
         vfs_file_poll_cb_t  file_poll;    // Per-open poll callback
+        vfs_file_poll_source_cb_t file_poll_source; // Per-open readiness notification source
         vfs_resize_t        resize;       // Change the persistent file size
         vfs_sync_t          sync;         // Commit data and metadata to stable storage
 } *vfs_callback_t;
@@ -229,6 +244,7 @@ vfs_node_t vfs_node_retain(vfs_node_t node);
 
 /* Check file access permissions against the current process */
 int vfs_access_check(vfs_node_t node, uint32_t access_mask);
+int vfs_access_check_process(vfs_node_t node, uint32_t access_mask, struct process *proc);
 
 /* Create a new directory at the specified path */
 int vfs_mkdir(const char *name);
@@ -304,8 +320,19 @@ int  vfs_cache_mark_dirty_range(vfs_node_t file, uint64_t start, uint64_t end);
 /* Per-open operations, falling back to the legacy node callbacks. */
 int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
 int64_t vfs_file_write(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
+int64_t vfs_file_read_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size,
+                              struct process *proc);
+int64_t vfs_file_write_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size,
+                               struct process *proc);
+int64_t vfs_file_read_user_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size,
+                                   struct process *proc);
+int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size,
+                                    struct process *proc);
 int     vfs_file_ioctl(vfs_node_t file, void *private_data, uint64_t flags, size_t req, void *arg);
 int     vfs_file_poll(vfs_node_t file, void *private_data, uint64_t flags, size_t events);
+int     vfs_mount_is_readonly(vfs_node_t node);
+void    vfs_file_descriptor_close(vfs_node_t file, void *private_data);
+vfs_poll_source_t *vfs_file_poll_source(vfs_node_t file, void *private_data);
 void    vfs_poll_subscribe(vfs_node_t file, vfs_poll_subscription_t *subscription, uint32_t events, vfs_poll_notify_t notify, void *context);
 void    vfs_poll_unsubscribe(vfs_node_t file, vfs_poll_subscription_t *subscription);
 void    vfs_poll_notify(vfs_node_t file, uint32_t events);
@@ -314,6 +341,7 @@ void    vfs_poll_source_subscribe(vfs_poll_source_t *source, vfs_poll_subscripti
                                   void *context);
 void    vfs_poll_source_unsubscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription);
 void    vfs_poll_source_notify(vfs_poll_source_t *source, uint32_t events);
+void    vfs_poll_source_close(vfs_poll_source_t *source, uint32_t events);
 
 /* Close the file or directory node */
 int vfs_close(vfs_node_t node);

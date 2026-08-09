@@ -19,6 +19,7 @@
 /* Forward declaration for callback signatures. */
 typedef struct vfs_node *vfs_node_t;
 struct vm_area;
+struct process;
 
 /* Optional device callbacks attached to a tmpfs node. */
 typedef size_t (*tmpfs_dev_read_t)(void *ctx, void *addr, size_t offset, size_t size);
@@ -27,10 +28,16 @@ typedef int (*tmpfs_dev_poll_t)(void *ctx, size_t events);
 typedef int (*tmpfs_dev_ioctl_t)(void *ctx, size_t req, void *arg);
 typedef int (*tmpfs_dev_open_t)(vfs_node_t node, uint64_t flags, void **private_data);
 typedef void (*tmpfs_dev_release_t)(vfs_node_t node, void *private_data);
+typedef void (*tmpfs_dev_descriptor_close_t)(void *ctx, void *private_data);
 typedef void *(*tmpfs_dev_mmap_t)(void *ctx, void *private_data, size_t offset, size_t size, int flags, struct vm_area *vma);
 typedef int64_t (*tmpfs_dev_file_read_t)(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
 typedef int64_t (*tmpfs_dev_file_write_t)(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
+typedef int64_t (*tmpfs_dev_file_read_user_t)(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size,
+                                              struct process *proc);
+typedef int64_t (*tmpfs_dev_file_write_user_t)(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset,
+                                               size_t size, struct process *proc);
 typedef int (*tmpfs_dev_file_poll_t)(void *ctx, void *private_data, uint64_t flags, size_t events);
+typedef vfs_poll_source_t *(*tmpfs_dev_file_poll_source_t)(void *ctx, void *private_data);
 typedef int (*tmpfs_dev_file_ioctl_t)(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg);
 typedef void (*tmpfs_dev_destroy_t)(void *ctx);
 
@@ -42,10 +49,14 @@ typedef struct {
         tmpfs_dev_ioctl_t      ioctl;
         tmpfs_dev_open_t       open;    /* per-open-instance allocation */
         tmpfs_dev_release_t    release; /* per-open-instance teardown */
+        tmpfs_dev_descriptor_close_t descriptor_close; /* last fd/dup closed */
         tmpfs_dev_mmap_t       mmap;    /* per-open-instance mmap (GEM, etc.) */
         tmpfs_dev_file_read_t  file_read;
         tmpfs_dev_file_write_t file_write;
+        tmpfs_dev_file_read_user_t  file_read_user;
+        tmpfs_dev_file_write_user_t file_write_user;
         tmpfs_dev_file_poll_t  file_poll;
+        tmpfs_dev_file_poll_source_t file_poll_source;
         tmpfs_dev_file_ioctl_t file_ioctl;
         tmpfs_dev_destroy_t    destroy; /* final node teardown */
         void                  *ctx;

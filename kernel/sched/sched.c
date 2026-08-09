@@ -42,13 +42,13 @@
 #    define SCHED_LOAD_BALANCE_INTERVAL 8
 #endif
 #ifndef SCHED_BASE_SLICE
-#    define SCHED_BASE_SLICE 2ULL /* 8 ms at the current 250 Hz timer      */
+#    define SCHED_BASE_SLICE 2ULL /* 2 ms at the default 1000 Hz timer     */
 #endif
 #ifndef SCHED_LATENCY
-#    define SCHED_LATENCY 6ULL /* 24 ms target scheduling latency       */
+#    define SCHED_LATENCY 8ULL /* 8 ms target scheduling latency        */
 #endif
 #ifndef SCHED_MIN_GRANULARITY
-#    define SCHED_MIN_GRANULARITY 1ULL /* one 4 ms timer tick                   */
+#    define SCHED_MIN_GRANULARITY 1ULL /* one 1 ms timer tick                 */
 #endif
 #ifndef SCHED_WAKEUP_GRANULARITY
 #    define SCHED_WAKEUP_GRANULARITY 0ULL /* preempt on a strictly earlier VD      */
@@ -133,11 +133,32 @@ static uint64_t calc_delta_fair(uint64_t delta, task_t *task)
     return delta * SCHED_NICE_0_LOAD / task->weight;
 }
 
-/* Compute the weighted-average vruntime of a runqueue */
+static uint64_t add_signed_vruntime(uint64_t base, int64_t offset)
+{
+    if (offset >= 0) return base + (uint64_t)offset;
+    uint64_t magnitude = (uint64_t)(-(offset + 1)) + 1;
+    return magnitude > base ? 0 : base - magnitude;
+}
+
+/*
+ * Compute V, the weighted-average vruntime of every runnable entity.
+ * rq->avg_{vruntime,load} describe the RB tree only; the running entity is
+ * outside that tree and must be folded in explicitly.  Omitting curr makes V
+ * stick near an old value whenever a CPU has only one runnable task.  A task
+ * woken later is then placed far in the future and can remain ineligible for
+ * seconds even though the CPU has runnable work.
+ */
 static uint64_t avg_vruntime(eevdf_rq_t *rq)
 {
-    if (!rq->avg_load) return rq->min_vruntime;
-    return rq->min_vruntime + (uint64_t)(rq->avg_vruntime / (int64_t)rq->avg_load);
+    int64_t  average = rq->avg_vruntime;
+    uint64_t load    = rq->avg_load;
+
+    if (rq->curr && rq->curr->state == TASK_RUNNING && rq->curr != rq->idle) {
+        average += (int64_t)(rq->curr->vruntime - rq->min_vruntime) * (int64_t)rq->curr->weight;
+        load += rq->curr->weight;
+    }
+    if (!load) return rq->min_vruntime;
+    return add_signed_vruntime(rq->min_vruntime, average / (int64_t)load);
 }
 
 /* Scale the base slice by the number of runnable tasks to stay within
@@ -222,6 +243,29 @@ static void update_min_vruntime(rb_node_t *node, void *data)
     node->min_vruntime = min_vr;
 }
 
+/*
+ * rq->avg_vruntime is stored relative to rq->min_vruntime.  Moving the
+ * origin therefore requires rebasing the weighted sum.  The old code merely
+ * assigned min_vruntime in update_curr(); the accumulated error grew on every
+ * timer tick and eventually placed newly forked/woken tasks thousands of
+ * ticks ahead of the active desktop tasks.
+ */
+static void advance_min_vruntime(eevdf_rq_t *rq)
+{
+    uint64_t candidate = UINT64_MAX;
+
+    if (rq->curr && rq->curr->state == TASK_RUNNING && rq->curr != rq->idle) candidate = rq->curr->vruntime;
+    if (rq->timeline.root) {
+        uint64_t queued = rq->timeline.root->min_vruntime;
+        if (candidate == UINT64_MAX || (int64_t)(queued - candidate) < 0) candidate = queued;
+    }
+    if (candidate == UINT64_MAX || (int64_t)(candidate - rq->min_vruntime) <= 0) return;
+
+    uint64_t delta = candidate - rq->min_vruntime;
+    rq->avg_vruntime -= (int64_t)delta * (int64_t)rq->avg_load;
+    rq->min_vruntime = candidate;
+}
+
 /* ------------------------------------------------------------------ */
 /*  EEVDF core: avg_vruntime / avg_load bookkeeping                     */
 /* ------------------------------------------------------------------ */
@@ -253,9 +297,7 @@ static void update_curr(eevdf_rq_t *rq, uint64_t delta_ticks)
     if (!curr || curr == rq->idle) return;
 
     curr->vruntime += calc_delta_fair(delta_ticks, curr);
-
-    /* Update min_vruntime */
-    if ((int64_t)(curr->vruntime - rq->min_vruntime) > 0) rq->min_vruntime = curr->vruntime;
+    advance_min_vruntime(rq);
 }
 
 /* ------------------------------------------------------------------ */
@@ -287,18 +329,22 @@ static void place_entity(eevdf_rq_t *rq, task_t *task, int initial)
 
     /* PLACE_LAG: adjust vruntime based on stored vlag.
 	 * Scale the stored lag to account for the changed load. */
-    if (rq->nr_running > 0) {
-        uint64_t load = rq->avg_load;
-        uint64_t new_load;
-
-        if (rq->curr && rq->curr->state == TASK_RUNNING && rq->curr != rq->idle) load += rq->curr->weight;
-        new_load = load + task->weight;
-
+    uint64_t load = rq->avg_load;
+    if (rq->curr && rq->curr->state == TASK_RUNNING && rq->curr != rq->idle) load += rq->curr->weight;
+    if (load) {
+        uint64_t new_load = load + task->weight;
         lag = task->vlag;
-        if (load && new_load > load) lag = lag * (int64_t)new_load / (int64_t)load;
+        if (new_load > load) lag = lag * (int64_t)new_load / (int64_t)load;
+
+        /* Sleeping credit/debt is bounded just as it is in Linux EEVDF.
+         * This also prevents a stale value surviving a CPU migration from
+         * pushing an otherwise runnable task arbitrarily far into the future. */
+        int64_t lag_limit = (int64_t)(vslice * 2);
+        if (lag > lag_limit) lag = lag_limit;
+        if (lag < -lag_limit) lag = -lag_limit;
     }
 
-    task->vruntime = vruntime - (uint64_t)lag;
+    task->vruntime = add_signed_vruntime(vruntime, -lag);
 
     /* PLACE_DEADLINE_INITIAL: new tasks start with half a slice */
     if (initial) vslice /= 2;
@@ -355,13 +401,6 @@ static task_t *pick_eevdf(eevdf_rq_t *rq)
     /* Fast path: empty runqueue */
     if (rq->nr_running == 0) return rq->idle;
 
-    /* Fast path: only one runnable entity */
-    if (rq->nr_running == 1) {
-        if (curr && curr->state == TASK_RUNNING && curr != rq->idle) return curr;
-        if (rq->timeline.leftmost) return rb_entry(rq->timeline.leftmost, task_t, run_node);
-        return rq->idle;
-    }
-
     /* Current task is only kept if it is still eligible */
     if (curr && (curr->state != TASK_RUNNING || !entity_eligible(rq, curr))) curr = NULL;
 
@@ -397,8 +436,13 @@ static task_t *pick_eevdf(eevdf_rq_t *rq)
         node = node->right;
     }
 
-    /* No eligible entity found; keep current if it is still runnable */
+    /* No eligible entity found; keep current if it is still runnable. */
     if (curr && curr->state == TASK_RUNNING) return curr;
+
+    /* nr_running is authoritative: never idle a CPU while its runqueue is
+     * non-empty.  With exact EEVDF accounting at least one entity is eligible,
+     * but this fallback also makes rounding and transient rebase errors safe. */
+    if (rq->timeline.leftmost) return rb_entry(rq->timeline.leftmost, task_t, run_node);
     return rq->idle;
 }
 
@@ -474,12 +518,17 @@ void enqueue_task_initial(task_t *task)
 
 static void wake_task_locked(task_t *task, int remove_linked_node)
 {
-    if (!task || task->state == TASK_READY || task->state == TASK_RUNNING || task->state == TASK_STOPPED || task->state == TASK_IDLE
-        || task->state == TASK_ZOMBIE) {
-        if (task) {
+    if (!task) return;
+
+    /* A readiness notification can race another wakeup.  Waking an already
+     * runnable task is a normal idempotent operation, not scheduler damage. */
+    if (task->state == TASK_READY || task->state == TASK_RUNNING) return;
+
+    if (task->state == TASK_STOPPED || task->state == TASK_IDLE || task->state == TASK_ZOMBIE) {
+        {
             static uint64_t last_log;
             if (scheduler.ticks - last_log >= 1000) {
-                plogk("sched: spurious wake of task %llu (%s) in state %u\n", task->pid, task->name, task->state);
+                plogk("sched: rejected wake of task %llu (%s) in state %u\n", task->pid, task->name, task->state);
                 last_log = scheduler.ticks;
             }
         }
@@ -603,9 +652,12 @@ static void wake_sleeping_tasks(void)
 static void idle_thread(void *arg)
 {
     (void)arg;
+#if CONFIG_SCHED_DEBUG_DEMO
     uint64_t idle_since = 0;
     int      dumped     = 0;
+#endif
     while (1) {
+#if CONFIG_SCHED_DEBUG_DEMO
         if (get_current_cpu_id() == 0 && !has_ready_task()) {
             if (!idle_since) idle_since = scheduler.ticks;
             if (!dumped && scheduler.ticks - idle_since >= 500) {
@@ -616,6 +668,7 @@ static void idle_thread(void *arg)
             idle_since = 0;
             dumped     = 0;
         }
+#endif
         enable_intr();
         __asm__ volatile("hlt");
         disable_intr();
@@ -726,7 +779,12 @@ void sched_ipi_reschedule(void)
 
     if (!cpu_rqs || cpu_id >= cpu_scheduler_count) return;
     cpu_rqs[cpu_id].reschedule_ipis++;
-    if (scheduler.started && has_ready_task()) sched_yield();
+    if (!scheduler.started) return;
+
+    spin_lock(&scheduler.lock);
+    bool ready = has_ready_task();
+    spin_unlock(&scheduler.lock);
+    if (ready) sched_yield();
 }
 
 uint32_t sched_cpu_count(void)
@@ -763,7 +821,7 @@ int task_set_cpu(task_t *task, uint32_t cpu_id)
 /*  sched_yield �?core context switch entry point                       */
 /* ------------------------------------------------------------------ */
 
-void sched_yield(void)
+static void sched_switch(bool account_runtime)
 {
     spin_lock(&scheduler.lock);
 
@@ -773,7 +831,7 @@ void sched_yield(void)
 
     /* Advance vruntime and re-enqueue the current task if it was running */
     if (prev && prev->state == TASK_RUNNING && prev != rq->idle) {
-        update_curr(rq, 1);
+        if (account_runtime) update_curr(rq, 1);
         update_deadline(rq, prev);
         prev->vlag  = (int64_t)(avg_vruntime(rq) - prev->vruntime);
         prev->state = TASK_READY;
@@ -789,6 +847,7 @@ void sched_yield(void)
             dequeue_entity(rq, next);
             next->state      = TASK_RUNNING;
             next->time_slice = 0;
+            advance_min_vruntime(rq);
         }
         spin_unlock(&scheduler.lock);
         return;
@@ -810,6 +869,7 @@ void sched_yield(void)
 
     __atomic_store_n(&next->on_cpu, 1, __ATOMIC_RELEASE);
     rq->curr = next;
+    advance_min_vruntime(rq);
     update_tss_stack(next);
     /* Retaining CR3 preserves the TLB when switching between threads in
      * the same address space (and for kernel threads). */
@@ -831,6 +891,11 @@ void sched_yield(void)
 
     fpu_switch(prev, next);
     context_switch(&prev->context, &next->context, &prev->on_cpu);
+}
+
+void sched_yield(void)
+{
+    sched_switch(true);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1067,11 +1132,39 @@ task_t *wait_queue_wake_one(wait_queue_t *queue)
     return task;
 }
 
+task_t *wait_queue_wake_one_sync(wait_queue_t *queue)
+{
+    if (!queue) return NULL;
+
+    uint32_t this_cpu = get_current_cpu_id();
+    spin_lock(&scheduler.lock);
+    if (ilist_is_empty(&queue->tasks)) {
+        spin_unlock(&scheduler.lock);
+        return NULL;
+    }
+
+    ilist_node_t *node = queue->tasks.next;
+    task_t       *task = sched_node_to_task(node);
+
+    /* WF_SYNC is an affinity hint, not permission to move a task which is
+     * still completing wait_queue_sleep() on another CPU. */
+    if (task->state == TASK_BLOCKED && !__atomic_load_n(&task->on_cpu, __ATOMIC_ACQUIRE)) task->cpu_id = this_cpu;
+    finish_wait_locked(task, TASK_WAKE_NORMAL);
+    uint32_t target_cpu = task->cpu_id;
+    spin_unlock(&scheduler.lock);
+
+    if (target_cpu != this_cpu) request_task_cpu(task);
+    return task;
+}
+
 uint64_t wait_queue_wake_all(wait_queue_t *queue)
 {
     if (!queue) return 0;
 
-    uint64_t count = 0;
+    uint64_t count       = 0;
+    uint64_t remote_cpus = 0;
+    bool     broadcast   = false;
+    uint32_t this_cpu    = get_current_cpu_id();
 
     spin_lock(&scheduler.lock);
     while (!ilist_is_empty(&queue->tasks)) {
@@ -1079,10 +1172,27 @@ uint64_t wait_queue_wake_all(wait_queue_t *queue)
         task_t       *task = sched_node_to_task(node);
 
         finish_wait_locked(task, TASK_WAKE_NORMAL);
-        request_task_cpu(task);
+        if (task->cpu_id != this_cpu) {
+            if (task->cpu_id < 64)
+                remote_cpus |= 1ULL << task->cpu_id;
+            else
+                broadcast = true;
+        }
         count++;
     }
     spin_unlock(&scheduler.lock);
+
+    /* A reschedule IPI can enter sched_yield() immediately.  Send it only
+     * after dropping scheduler.lock so a remote CPU never spins in its IPI
+     * handler on a lock held by the waking IRQ CPU. */
+    if (scheduler.started) {
+        if (broadcast) {
+            send_ipi_all(IPI_RESCHEDULE);
+        } else {
+            for (uint32_t cpu = 0; cpu < 64; cpu++)
+                if (remote_cpus & (1ULL << cpu)) send_ipi_cpu(cpu, IPI_RESCHEDULE);
+        }
+    }
     return count;
 }
 
@@ -1096,44 +1206,39 @@ void sched_tick(void)
 
     uint32_t    cpu_id = get_current_cpu_id();
     eevdf_rq_t *rq     = &cpu_rqs[cpu_id];
+    task_t     *balanced = NULL;
+    bool        preempt  = false;
 
-    /* CPU 0 handles global tick, sleep queue, and load balancing */
+    /* Runqueue accounting and tree inspection must be serialized with remote
+     * wakeups and migrations.  At 1000 Hz the old unlocked tick path made RB
+     * tree corruption substantially more likely on SMP. */
+    spin_lock(&scheduler.lock);
+
+    /* CPU 0 handles global tick, sleep queue, and load balancing. */
     if (cpu_id == 0) {
-        task_t *balanced = NULL;
-
-        spin_lock(&scheduler.lock);
         scheduler.ticks++;
         wake_sleeping_tasks();
         if ((scheduler.ticks % SCHED_LOAD_BALANCE_INTERVAL) == 0) balanced = balance_ready_queues_locked();
-        spin_unlock(&scheduler.lock);
-        request_task_cpu(balanced);
     }
 
     task_t *curr = rq->curr;
 
     /* Idle task: yield if there is real work */
     if (curr == rq->idle) {
-        if (has_ready_task()) sched_yield();
-        return;
+        preempt = has_ready_task();
+    } else if (curr->state == TASK_RUNNING) {
+        /* Advance vruntime by one tick and test the next eligible deadline. */
+        curr->time_slice++;
+        update_curr(rq, 1);
+        update_deadline(rq, curr);
+        if (curr->time_slice >= SCHED_MIN_GRANULARITY && has_ready_task()) preempt = pick_eevdf(rq) != curr;
     }
 
-    if (curr->state != TASK_RUNNING) return;
-
-    /* Advance vruntime by 1 tick */
-    curr->time_slice++;
-    update_curr(rq, 1);
-
-    /* Check if the current task has exhausted its slice (deadline) */
-    update_deadline(rq, curr);
-
-    /* Minimum granularity: don't preempt within the first tick(s) */
-    if (curr->time_slice < SCHED_MIN_GRANULARITY) return;
-
-    /* Preempt if there is a better candidate */
-    if (has_ready_task()) {
-        task_t *best = pick_eevdf(rq);
-        if (best != curr) sched_yield();
-    }
+    spin_unlock(&scheduler.lock);
+    request_task_cpu(balanced);
+    /* sched_tick() already charged this millisecond.  Reusing the ordinary
+     * yield accounting here used to charge every timer preemption twice. */
+    if (preempt) sched_switch(false);
 }
 
 /* ------------------------------------------------------------------ */

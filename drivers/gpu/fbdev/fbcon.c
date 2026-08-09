@@ -14,6 +14,7 @@
 #include <drivers/gpu/video.h>
 #include <drivers/gpu/vt_ansi.h>
 #include <drivers/tty/tty.h>
+#include <kernel/timer.h>
 #include <libs/gfxs/fonts.h>
 #include <libs/gfxs/gfx_proc.h>
 #include <libs/std/stddef.h>
@@ -33,6 +34,7 @@ static uint32_t *dirty_first_col = 0;
 static uint32_t *dirty_last_col  = 0;
 static uint8_t   full_redraw_pending;
 static uint8_t   redraw_deferred;
+static bool      handoff_in_progress;
 
 /*
  * Serializes all text-grid / framebuffer mutations: tty and printk output
@@ -44,7 +46,7 @@ static spinlock_t fbcon_lock;
 
 /* Blink state.  cursor_drawn records where the block cursor currently sits
  * so the next phase flip can restore that cell from the text grid. */
-#define CURSOR_BLINK_INTERVAL 40 /* scheduler ticks per phase flip */
+#define CURSOR_BLINK_INTERVAL ((TIMER_HZ * 2) / 5) /* 400 ms per phase */
 
 static uint64_t cursor_last_tick;
 static bool     cursor_phase;
@@ -561,49 +563,56 @@ void fbcon_resize(void)
     uint32_t new_cw  = width ? (uint32_t)(width / font_width) : 80;
     uint32_t new_ch  = height ? (uint32_t)((height + font_height - 1) / font_height) : 25;
     bool     rebuilt = false;
+    char     *new_text = NULL, *old_text = NULL;
+    uint32_t *new_color = NULL, *new_bg = NULL, *new_first = NULL, *new_last = NULL;
+    uint32_t *old_color = NULL, *old_bg = NULL, *old_first = NULL, *old_last = NULL;
+
+    if (!new_cw) new_cw = 1;
+    if (!new_ch) new_ch = 1;
 
     if (new_cw != c_width || new_ch != c_height) {
+        size_t cells = (size_t)new_cw * new_ch;
+        new_text  = malloc(cells);
+        new_color = malloc(cells * sizeof(*new_color));
+        new_bg    = malloc(cells * sizeof(*new_bg));
+        new_first = malloc((size_t)new_ch * sizeof(*new_first));
+        new_last  = malloc((size_t)new_ch * sizeof(*new_last));
+        if (new_text && new_color && new_bg && new_first && new_last) {
+            memset(new_text, ' ', cells);
+            for (size_t i = 0; i < cells; i++) {
+                new_color[i] = fore_color;
+                new_bg[i]    = back_color;
+            }
+            for (uint32_t row = 0; row < new_ch; row++) {
+                new_first[row] = new_cw;
+                new_last[row]  = 0;
+            }
+        } else {
+            free(new_text);
+            free(new_color);
+            free(new_bg);
+            free(new_first);
+            free(new_last);
+            new_text = NULL;
+            new_color = new_bg = new_first = new_last = NULL;
+        }
+    }
+
+    spin_lock(&fbcon_lock);
+    if (new_cw != c_width || new_ch != c_height) {
         rebuilt = true;
-
-        free(text_grid);
-        free(color_grid);
-        free(bg_grid);
-        free(dirty_first_col);
-        free(dirty_last_col);
-
-        text_grid       = NULL;
-        color_grid      = NULL;
-        bg_grid         = NULL;
-        dirty_first_col = NULL;
-        dirty_last_col  = NULL;
-
+        old_text  = text_grid;
+        old_color = color_grid;
+        old_bg    = bg_grid;
+        old_first = dirty_first_col;
+        old_last  = dirty_last_col;
         c_width  = new_cw;
         c_height = new_ch;
-
-        text_grid       = calloc((size_t)c_width * c_height, sizeof(char));
-        color_grid      = malloc((size_t)c_width * c_height * sizeof(uint32_t));
-        bg_grid         = malloc((size_t)c_width * c_height * sizeof(uint32_t));
-        dirty_first_col = malloc((size_t)c_height * sizeof(uint32_t));
-        dirty_last_col  = malloc((size_t)c_height * sizeof(uint32_t));
-
-        if (!text_grid || !color_grid || !dirty_first_col || !dirty_last_col) {
-            free(text_grid);
-            free(color_grid);
-            free(bg_grid);
-            free(dirty_first_col);
-            free(dirty_last_col);
-            text_grid       = NULL;
-            color_grid      = NULL;
-            bg_grid         = NULL;
-            dirty_first_col = NULL;
-            dirty_last_col  = NULL;
-        } else {
-            for (uint32_t row = 0; row < c_height; row++) {
-                fbcon_clear_row(row);
-                dirty_first_col[row] = c_width;
-                dirty_last_col[row]  = 0;
-            }
-        }
+        text_grid       = new_text;
+        color_grid      = new_color;
+        bg_grid         = new_bg;
+        dirty_first_col = new_first;
+        dirty_last_col  = new_last;
 
         cx = 0;
         cy = 0;
@@ -628,17 +637,38 @@ void fbcon_resize(void)
     cursor_phase     = false;
     cursor_drawn     = false;
 
-    redraw_deferred = 0;
+    if (rebuilt) full_redraw_pending = 1;
+    uint16_t rows = (uint16_t)c_height;
+    uint16_t cols = (uint16_t)c_width;
+    spin_unlock(&fbcon_lock);
 
-    tty_console_resize((uint16_t)c_height, (uint16_t)c_width);
+    free(old_text);
+    free(old_color);
+    free(old_bg);
+    free(old_first);
+    free(old_last);
+    tty_console_resize(rows, cols);
+}
 
-    /* Only a resolution change invalidates the pixels; when the geometry is
-     * unchanged the caller carries the old frame over instead, so repainting
-     * here would only flash the logo area blank for one frame. */
-    if (rebuilt) {
-        full_redraw_pending = 1;
-        fbcon_flush_screen_updates();
+void fbcon_handoff_begin(void)
+{
+    spin_lock(&fbcon_lock);
+    if (!handoff_in_progress) {
+        handoff_in_progress = true;
+        redraw_deferred++;
     }
+    spin_unlock(&fbcon_lock);
+}
+
+void fbcon_handoff_end(void)
+{
+    spin_lock(&fbcon_lock);
+    if (handoff_in_progress) {
+        handoff_in_progress = false;
+        if (redraw_deferred) redraw_deferred--;
+    }
+    fbcon_flush_screen_updates();
+    spin_unlock(&fbcon_lock);
 }
 
 /* Draw a character with per-cell foreground and background color.  The
@@ -648,11 +678,14 @@ void fbcon_resize(void)
 void fbcon_draw_char_bg(const char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t bg)
 {
     uint32_t draw_rows;
+    uint32_t draw_cols;
     uint32_t row;
 
-    if (!buffer || y >= (uint32_t)height) return;
+    if (!buffer || x >= (uint32_t)width || y >= (uint32_t)height) return;
     draw_rows = font_height;
+    draw_cols = font_width;
     if ((uint64_t)y + font_height > height) draw_rows = (uint32_t)height - y;
+    if ((uint64_t)x + font_width > width) draw_cols = (uint32_t)width - x;
 
     uint8_t *char_font      = ascii_font + (size_t)(uint8_t)c * font_height;
     uint32_t char_base_addr = y * stride + x;
@@ -660,7 +693,7 @@ void fbcon_draw_char_bg(const char c, uint32_t x, uint32_t y, uint32_t fg, uint3
     for (row = 0; row < draw_rows; row++) {
         uint32_t *row_buf  = buffer + char_base_addr + row * stride;
         uint8_t   font_row = char_font[row];
-        for (uint32_t col = 0; col < font_width; col++) row_buf[col] = (font_row & (0x80 >> col)) ? fg : bg;
+        for (uint32_t col = 0; col < draw_cols; col++) row_buf[col] = (font_row & (0x80 >> col)) ? fg : bg;
     }
 }
 
@@ -765,6 +798,7 @@ void fbcon_ansi_write(const uint8_t *buf, size_t len)
 void fbcon_cursor_tick(uint64_t now_ticks)
 {
     spin_lock(&fbcon_lock);
+    if (handoff_in_progress) goto out;
     if (now_ticks - cursor_last_tick < CURSOR_BLINK_INTERVAL) goto out;
     cursor_last_tick = now_ticks;
     cursor_phase     = !cursor_phase;

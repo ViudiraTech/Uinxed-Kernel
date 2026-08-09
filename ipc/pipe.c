@@ -55,6 +55,9 @@ typedef struct pipe_ring {
         uint32_t     capacity;
         uint32_t     readers;
         uint32_t     writers;
+        uint32_t     read_waiters;
+        uint32_t     write_waiters;
+        uint32_t     write_wake_threshold;
         int          closed;
         spinlock_t   lock;
         wait_queue_t read_wq;
@@ -124,6 +127,26 @@ static uint32_t pipe_ring_copy_in(pipe_ring_t *ring, const uint8_t *src, uint32_
 
     if (count > first_chunk) { memcpy(ring->buf, src + first_chunk, count - first_chunk); }
     return count;
+}
+
+static int pipe_ring_copy_out_user(pipe_ring_t *ring, process_t *proc, uint8_t *dst, uint32_t count)
+{
+    uint32_t first_chunk = ring->capacity - ring->tail;
+    if (first_chunk > count) first_chunk = count;
+
+    if (copy_to_user_process_nofault(proc, dst, ring->buf + ring->tail, first_chunk)) return -EFAULT;
+    if (count > first_chunk && copy_to_user_process_nofault(proc, dst + first_chunk, ring->buf, count - first_chunk)) return -EFAULT;
+    return EOK;
+}
+
+static int pipe_ring_copy_in_user(pipe_ring_t *ring, process_t *proc, const uint8_t *src, uint32_t count)
+{
+    uint32_t first_chunk = ring->capacity - ring->head;
+    if (first_chunk > count) first_chunk = count;
+
+    if (copy_from_user_process_nofault(proc, ring->buf + ring->head, src, first_chunk)) return -EFAULT;
+    if (count > first_chunk && copy_from_user_process_nofault(proc, ring->buf, src + first_chunk, count - first_chunk)) return -EFAULT;
+    return EOK;
 }
 
 static pipe_ring_t *pipe_ring_alloc(void)
@@ -360,10 +383,12 @@ static int64_t pipe_read_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fla
             return -EINTR;
         }
         /* prepare wait under lock, then block, re-acquire on wakeup */
+        ring->read_waiters++;
         wait_queue_prepare(&ring->read_wq);
         spin_unlock(&ring->lock);
         wait_queue_sleep();
         spin_lock(&ring->lock);
+        if (ring->read_waiters) ring->read_waiters--;
     }
 
     uint32_t avail = pipe_ring_readable(ring);
@@ -371,11 +396,15 @@ static int64_t pipe_read_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fla
 
     pipe_ring_copy_out(ring, (uint8_t *)addr, chunk);
     pipe_ring_consume(ring, chunk);
+    bool wake_writers = ring->write_waiters != 0 && pipe_ring_writable(ring) >= ring->write_wake_threshold;
 
     spin_unlock(&ring->lock);
 
     /* Wake writers that may be waiting for buffer space */
-    wait_queue_wake_all(&ring->write_wq);
+    /* Linux uses an exclusive writer wait: freeing one pipe-buffer slot
+     * wakes one writer, which may cascade to the next writer if space
+     * remains.  Waking the whole queue creates avoidable scheduler/IPI work. */
+    if (wake_writers) wait_queue_wake_one_sync(&ring->write_wq);
     if (node) vfs_poll_notify(node, POLLOUT);
 
     return (int64_t)chunk;
@@ -394,6 +423,59 @@ static int64_t pipe_file_read(vfs_node_t node, void *private_data, uint64_t flag
     pipe_endpoint_t *endpoint = private_data;
     if (!endpoint || !endpoint->readable) return -EBADF;
     return pipe_read_common(node, endpoint->ring, flags, addr, size);
+}
+
+static int64_t pipe_file_read_user(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size,
+                                   process_t *proc)
+{
+    (void)offset;
+    pipe_endpoint_t *endpoint = private_data;
+    if (!endpoint || !endpoint->readable) return -EBADF;
+    if (!user_range_ok(addr, size)) return -EFAULT;
+    if (!size) return 0;
+
+    pipe_ring_t *ring = endpoint->ring;
+    for (;;) {
+        spin_lock(&ring->lock);
+        while (pipe_ring_readable(ring) == 0) {
+            if (ring->closed || ring->writers == 0) {
+                spin_unlock(&ring->lock);
+                return 0;
+            }
+            if (flags & O_NONBLOCK) {
+                spin_unlock(&ring->lock);
+                return -EAGAIN;
+            }
+            if (pipe_signal_pending()) {
+                spin_unlock(&ring->lock);
+                return -EINTR;
+            }
+            ring->read_waiters++;
+            wait_queue_prepare(&ring->read_wq);
+            spin_unlock(&ring->lock);
+            wait_queue_sleep();
+            spin_lock(&ring->lock);
+            if (ring->read_waiters) ring->read_waiters--;
+        }
+
+        uint32_t avail = pipe_ring_readable(ring);
+        uint32_t chunk = size < avail ? (uint32_t)size : avail;
+        if (pipe_ring_copy_out_user(ring, proc, addr, chunk)) {
+            spin_unlock(&ring->lock);
+            /* Fault/COW resolution can allocate or sleep, so it is done only
+             * after dropping the ring lock.  Nothing has been consumed yet. */
+            if (!user_access_ok_process(proc, addr, chunk, 1)) return -EFAULT;
+            continue;
+        }
+
+        pipe_ring_consume(ring, chunk);
+        bool wake_writers = ring->write_waiters != 0 && pipe_ring_writable(ring) >= ring->write_wake_threshold;
+        spin_unlock(&ring->lock);
+
+        if (wake_writers) wait_queue_wake_one_sync(&ring->write_wq);
+        if (node) vfs_poll_notify(node, POLLOUT);
+        return (int64_t)chunk;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -419,9 +501,14 @@ static int64_t pipe_write_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fl
 
         size_t   remaining = size - total_written;
         bool     atomic    = size <= PIPE_ATOMIC_SIZE;
-        uint32_t needed    = atomic ? (uint32_t)remaining : 1;
+        uint32_t wake_threshold = atomic ? (uint32_t)remaining
+                                         : (uint32_t)(remaining < PIPE_ATOMIC_SIZE ? remaining : PIPE_ATOMIC_SIZE);
 
-        while (pipe_ring_writable(ring) < needed) {
+        /* PIPE_BUF-sized writes remain atomic.  Larger writes may consume
+         * whatever space is already available (including O_NONBLOCK partial
+         * writes), but once the pipe is full we wait for a useful batch of
+         * space instead of bouncing producer/consumer every 512 bytes. */
+        while (atomic ? pipe_ring_writable(ring) < (uint32_t)remaining : pipe_ring_writable(ring) == 0) {
             if (ring->closed || ring->readers == 0) {
                 spin_unlock(&ring->lock);
                 if (!total_written) pipe_raise_sigpipe();
@@ -435,10 +522,15 @@ static int64_t pipe_write_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fl
                 spin_unlock(&ring->lock);
                 return total_written ? (int64_t)total_written : -EINTR;
             }
+            if (!ring->write_waiters || wake_threshold < ring->write_wake_threshold)
+                ring->write_wake_threshold = wake_threshold;
+            ring->write_waiters++;
             wait_queue_prepare(&ring->write_wq);
             spin_unlock(&ring->lock);
             wait_queue_sleep();
             spin_lock(&ring->lock);
+            if (ring->write_waiters) ring->write_waiters--;
+            if (!ring->write_waiters) ring->write_wake_threshold = 0;
         }
 
         uint32_t writable = pipe_ring_writable(ring);
@@ -447,11 +539,12 @@ static int64_t pipe_write_common(vfs_node_t node, pipe_ring_t *ring, uint64_t fl
         pipe_ring_copy_in(ring, src + total_written, chunk);
         pipe_ring_produce(ring, chunk);
         total_written += chunk;
+        bool wake_readers = ring->read_waiters != 0;
 
         spin_unlock(&ring->lock);
 
         /* Wake readers that may be waiting for data */
-        wait_queue_wake_all(&ring->read_wq);
+        if (wake_readers) wait_queue_wake_one_sync(&ring->read_wq);
         if (node) vfs_poll_notify(node, POLLIN);
     }
 
@@ -471,6 +564,78 @@ static int64_t pipe_file_write(vfs_node_t node, void *private_data, uint64_t fla
     pipe_endpoint_t *endpoint = private_data;
     if (!endpoint || !endpoint->writable) return -EBADF;
     return pipe_write_common(node, endpoint->ring, flags, addr, size);
+}
+
+static int64_t pipe_file_write_user(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size,
+                                    process_t *proc)
+{
+    (void)offset;
+    pipe_endpoint_t *endpoint = private_data;
+    if (!endpoint || !endpoint->writable) return -EBADF;
+    if (!user_range_ok(addr, size)) return -EFAULT;
+    if (!size) return 0;
+
+    pipe_ring_t *ring          = endpoint->ring;
+    size_t       total_written = 0;
+
+    while (total_written < size) {
+        spin_lock(&ring->lock);
+        if (ring->closed || ring->readers == 0) {
+            spin_unlock(&ring->lock);
+            if (!total_written) pipe_raise_sigpipe();
+            return total_written ? (int64_t)total_written : -EPIPE;
+        }
+
+        size_t   remaining      = size - total_written;
+        bool     atomic         = size <= PIPE_ATOMIC_SIZE;
+        uint32_t wake_threshold = atomic ? (uint32_t)remaining
+                                         : (uint32_t)(remaining < PIPE_ATOMIC_SIZE ? remaining : PIPE_ATOMIC_SIZE);
+
+        while (atomic ? pipe_ring_writable(ring) < (uint32_t)remaining : pipe_ring_writable(ring) == 0) {
+            if (ring->closed || ring->readers == 0) {
+                spin_unlock(&ring->lock);
+                if (!total_written) pipe_raise_sigpipe();
+                return total_written ? (int64_t)total_written : -EPIPE;
+            }
+            if (flags & O_NONBLOCK) {
+                spin_unlock(&ring->lock);
+                return total_written ? (int64_t)total_written : -EAGAIN;
+            }
+            if (pipe_signal_pending()) {
+                spin_unlock(&ring->lock);
+                return total_written ? (int64_t)total_written : -EINTR;
+            }
+            if (!ring->write_waiters || wake_threshold < ring->write_wake_threshold)
+                ring->write_wake_threshold = wake_threshold;
+            ring->write_waiters++;
+            wait_queue_prepare(&ring->write_wq);
+            spin_unlock(&ring->lock);
+            wait_queue_sleep();
+            spin_lock(&ring->lock);
+            if (ring->write_waiters) ring->write_waiters--;
+            if (!ring->write_waiters) ring->write_wake_threshold = 0;
+        }
+
+        uint32_t writable = pipe_ring_writable(ring);
+        uint32_t chunk    = (uint32_t)(remaining < writable ? remaining : writable);
+        const uint8_t *src = (const uint8_t *)addr + total_written;
+        if (pipe_ring_copy_in_user(ring, proc, src, chunk)) {
+            spin_unlock(&ring->lock);
+            if (!user_access_ok_process(proc, src, chunk, 0))
+                return total_written ? (int64_t)total_written : -EFAULT;
+            continue;
+        }
+
+        pipe_ring_produce(ring, chunk);
+        total_written += chunk;
+        bool wake_readers = ring->read_waiters != 0;
+        spin_unlock(&ring->lock);
+
+        if (wake_readers) wait_queue_wake_one_sync(&ring->read_wq);
+        if (node) vfs_poll_notify(node, POLLIN);
+    }
+
+    return (int64_t)total_written;
 }
 
 /* ------------------------------------------------------------------ */
@@ -906,6 +1071,8 @@ void pipe_init(void)
     cb->file_release = pipe_file_release;
     cb->file_read    = pipe_file_read;
     cb->file_write   = pipe_file_write;
+    cb->file_read_user  = pipe_file_read_user;
+    cb->file_write_user = pipe_file_write_user;
     cb->file_poll    = pipe_file_poll;
 
     pipe_fsid = vfs_regist(cb);

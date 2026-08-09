@@ -18,6 +18,12 @@
 #include <drivers/virt/virtgpu_vq.h>
 #include <kernel/errno.h>
 #include <mem/alloc.h>
+#include <mem/frame.h>
+#include <mem/hhdm.h>
+#include <mem/heap.h>
+#include <mem/page.h>
+#include <libs/std/stdlib.h>
+#include <libs/std/string.h>
 
 /* ------------------------------------------------------------------ */
 /* Virtqueue initialisation / teardown                                 */
@@ -47,6 +53,8 @@ int virtgpu_vq_init(struct virtio_gpu_device *vgdev)
 
 void virtgpu_vq_fini(struct virtio_gpu_device *vgdev)
 {
+    /* Stop device DMA before returning queue pages to the frame allocator. */
+    if (vgdev && vgdev->vp_dev) vp_reset_device(vgdev->vp_dev);
     vp_del_vq(&vgdev->cursorq);
     vp_del_vq(&vgdev->ctrlq);
 }
@@ -73,6 +81,32 @@ static inline void cpu_relax(void)
     __asm__ volatile("pause");
 }
 
+struct virtgpu_dma_command {
+        uint64_t cmd_phys;
+        uint64_t resp_phys;
+        size_t   cmd_pages;
+        size_t   resp_pages;
+        void    *cmd;
+        void    *resp;
+};
+
+static void virtgpu_dma_commands_free(struct virtgpu_dma_command *dma, uint32_t count)
+{
+    if (!dma) return;
+    for (uint32_t i = 0; i < count; i++) {
+        if (dma[i].cmd_phys) free_frames(dma[i].cmd_phys, dma[i].cmd_pages);
+        if (dma[i].resp_phys) free_frames(dma[i].resp_phys, dma[i].resp_pages);
+    }
+    free(dma);
+}
+
+static void virtgpu_mark_queues_broken(struct virtio_gpu_device *vgdev)
+{
+    vp_reset_device(vgdev->vp_dev);
+    vgdev->ctrlq.broken   = true;
+    vgdev->cursorq.broken = true;
+}
+
 /* ------------------------------------------------------------------ */
 /* Synchronous control-queue commands                                  */
 /* ------------------------------------------------------------------ */
@@ -92,12 +126,29 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
     uint32_t             timeout   = 0;
     uint32_t             len;
     int                  ret = 0;
+    struct virtgpu_dma_command *dma;
 
     if (!vgdev || !commands || count == 0) return -EINVAL;
     vq = &vgdev->ctrlq;
+    if (count > (uint32_t)vq->num_max / 2U) return -ENOSPC;
 
     for (uint32_t i = 0; i < count; i++)
         if (!commands[i].cmd || !commands[i].resp || commands[i].cmd_size <= 0 || commands[i].resp_size <= 0) return -EINVAL;
+
+    dma = calloc(count, sizeof(*dma));
+    if (!dma) return -ENOMEM;
+    for (uint32_t i = 0; i < count; i++) {
+        dma[i].cmd_pages  = (ALIGN_UP((size_t)commands[i].cmd_size, PAGE_4K_SIZE)) / PAGE_4K_SIZE;
+        dma[i].resp_pages = (ALIGN_UP((size_t)commands[i].resp_size, PAGE_4K_SIZE)) / PAGE_4K_SIZE;
+        dma[i].cmd_phys   = alloc_frames(dma[i].cmd_pages);
+        dma[i].resp_phys  = alloc_frames(dma[i].resp_pages);
+        if (!dma[i].cmd_phys || !dma[i].resp_phys) {
+            virtgpu_dma_commands_free(dma, count);
+            return -ENOMEM;
+        }
+        dma[i].cmd  = phys_to_virt(dma[i].cmd_phys);
+        dma[i].resp = phys_to_virt(dma[i].resp_phys);
+    }
 
     /* Stack-backed command buffers must remain owned by this caller until
      * every response has arrived.  This lock also prevents one CPU from
@@ -119,7 +170,9 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
         request->fence_id = vgdev->next_fence_id++;
         if (request->fence_id == 0) request->fence_id = vgdev->next_fence_id++;
         spin_unlock(&vgdev->fence_lock);
-        ret = virtqueue_add_out_in(vq, commands[i].cmd, commands[i].cmd_size, commands[i].resp, commands[i].resp_size);
+        memcpy(dma[i].cmd, commands[i].cmd, (size_t)commands[i].cmd_size);
+        memset(dma[i].resp, 0, (size_t)commands[i].resp_size);
+        ret = virtqueue_add_out_in(vq, dma[i].cmd, commands[i].cmd_size, dma[i].resp, commands[i].resp_size);
         if (ret) break;
         submitted++;
     }
@@ -140,11 +193,13 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
         compiler_barrier();
         if (++timeout > 10000000) {
             DRM_ERROR("Timed out waiting for GPU command batch (%u/%u complete)\n", completed, submitted);
+            virtgpu_mark_queues_broken(vgdev);
             ret = -EIO;
             goto out_unlock;
         }
     }
 
+    for (uint32_t i = 0; i < submitted; i++) memcpy(commands[i].resp, dma[i].resp, (size_t)commands[i].resp_size);
     if (submitted != count) goto out_unlock;
 
     for (uint32_t i = 0; i < count; i++) {
@@ -190,6 +245,7 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
 
 out_unlock:
     spin_unlock(&vgdev->ctrlq_cmd_lock);
+    virtgpu_dma_commands_free(dma, count);
     return ret;
 }
 
@@ -226,13 +282,21 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
 {
     uint32_t len, timeout = 0;
     int      ret;
+    uint64_t dma_phys;
+    size_t   dma_pages;
+    void    *dma_cmd;
 
     if (!vgdev || !cmd || cmd_size < (int)sizeof(struct virtio_gpu_ctrl_hdr)) return -EINVAL;
+    dma_pages = ALIGN_UP((size_t)cmd_size, PAGE_4K_SIZE) / PAGE_4K_SIZE;
+    dma_phys  = alloc_frames(dma_pages);
+    if (!dma_phys) return -ENOMEM;
+    dma_cmd = phys_to_virt(dma_phys);
+    memcpy(dma_cmd, cmd, (size_t)cmd_size);
     spin_lock(&vgdev->cursorq_cmd_lock);
     /* Cursorq requests are output-only and have no protocol response.  The
      * preceding resource upload is fenced on controlq; here we only wait for
      * the device to consume the cursor descriptor before returning. */
-    ret = virtqueue_add(&vgdev->cursorq, cmd, cmd_size, 0);
+    ret = virtqueue_add(&vgdev->cursorq, dma_cmd, cmd_size, 0);
     if (ret) goto out;
     virtqueue_kick(&vgdev->cursorq);
     while (!virtqueue_get_buf(&vgdev->cursorq, &len)) {
@@ -241,11 +305,13 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
         if (++timeout > 10000000) {
             struct virtio_gpu_ctrl_hdr *hdr = (struct virtio_gpu_ctrl_hdr *)cmd;
             DRM_ERROR("Timed out waiting for cursor command 0x%04x consumption\n", hdr ? hdr->type : 0);
+            virtgpu_mark_queues_broken(vgdev);
             ret = -EIO;
             goto out;
         }
     }
 out:
     spin_unlock(&vgdev->cursorq_cmd_lock);
+    free_frames(dma_phys, dma_pages);
     return ret;
 }
