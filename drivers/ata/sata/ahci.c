@@ -254,13 +254,13 @@ int ahci_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, void *buffe
 
         int slot = ahci_find_slot(port);
         if (slot < 0) {
-            plogk("ahci: port %u: no free command slot for read at LBA %llu\n", port_idx, (unsigned long long)lba);
+            plogk("ahci: Port %u: no free command slot for read at LBA %llu\n", port_idx, (unsigned long long)lba);
             return -EBUSY;
         }
 
         int ret = ahci_issue_cmd(port, slot, (uint8_t *)&cfis, 0, port->dma_buf_phys, bytes);
         if (ret != 0) {
-            plogk("ahci: port %u: read error at LBA %llu: %d\n", port_idx, (unsigned long long)lba, ret);
+            plogk("ahci: Port %u: read error at LBA %llu: %d\n", port_idx, (unsigned long long)lba, ret);
             return ret;
         }
 
@@ -306,13 +306,13 @@ int ahci_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, const void
 
         int slot = ahci_find_slot(port);
         if (slot < 0) {
-            plogk("ahci: port %u: no free command slot for write at LBA %llu\n", port_idx, (unsigned long long)lba);
+            plogk("ahci: Port %u: no free command slot for write at LBA %llu\n", port_idx, (unsigned long long)lba);
             return -EBUSY;
         }
 
         int ret = ahci_issue_cmd(port, slot, (uint8_t *)&cfis, 1, port->dma_buf_phys, bytes);
         if (ret != 0) {
-            plogk("ahci: port %u: write error at LBA %llu: %d\n", port_idx, (unsigned long long)lba, ret);
+            plogk("ahci: Port %u: write error at LBA %llu: %d\n", port_idx, (unsigned long long)lba, ret);
             return ret;
         }
 
@@ -338,7 +338,7 @@ int ahci_flush_cache(uint8_t drive)
     port = &ahci_ports[ahci_devices[drive].port];
     slot = ahci_find_slot(port);
     if (slot < 0) {
-        plogk("ahci: port %u: no free command slot for cache flush.\n", ahci_devices[drive].port);
+        plogk("ahci: Port %u: no free command slot for cache flush.\n", ahci_devices[drive].port);
         return -EBUSY;
     }
 
@@ -350,7 +350,7 @@ int ahci_flush_cache(uint8_t drive)
     cfis.device  = 1 << 6;
 
     int ret = ahci_issue_cmd(port, slot, (uint8_t *)&cfis, 0, 0, 0);
-    if (ret != 0) plogk("ahci: port %u: cache flush failed: %d\n", ahci_devices[drive].port, ret);
+    if (ret != 0) plogk("ahci: Port %u: cache flush failed: %d\n", ahci_devices[drive].port, ret);
     return ret;
 }
 
@@ -443,7 +443,7 @@ void init_ahci(void)
             if (port->clb_phys) free_frames(port->clb_phys, 1);
             if (port->fb_phys) free_frames(port->fb_phys, 1);
             if (port->ct_phys) free_frames(port->ct_phys, 1);
-            plogk("ahci: port %u command memory allocation failed.\n", i);
+            plogk("ahci: Port %u command memory allocation failed.\n", i);
             continue;
         }
 
@@ -458,17 +458,17 @@ void init_ahci(void)
         /* Per-port DMA buffer */
         port->dma_buf_phys = alloc_frames(SATA_DMA_BUF_PAGES);
         if (!port->dma_buf_phys) {
-            plogk("ahci: port %u DMA buffer phys alloc failed.\n", i);
+            plogk("ahci: Port %u DMA buffer phys alloc failed.\n", i);
             continue;
         }
         port->dma_buf = (uint8_t *)phys_to_virt(port->dma_buf_phys);
         if (!port->dma_buf) {
-            plogk("ahci: port %u DMA buffer virt alloc failed.\n", i);
+            plogk("ahci: Port %u DMA buffer virt alloc failed.\n", i);
             continue;
         }
 
         if (ahci_port_stop(port) != EOK) {
-            plogk("ahci: port %u stop failed.\n", i);
+            plogk("ahci: Port %u stop failed.\n", i);
             continue;
         }
 
@@ -487,20 +487,20 @@ void init_ahci(void)
                 nsleep(1000);
             }
             if ((ssts & 0xF) != HBA_PORT_DET_PRESENT) {
-                plogk("ahci: port %u device detect failed (DET=%u)\n", i, ssts & 0xF);
+                plogk("ahci: Port %u device detect failed (DET=%u)\n", i, ssts & 0xF);
                 ahci_port_stop(port);
                 continue;
             }
         }
 
         if (ahci_port_start(port) != 0) {
-            plogk("ahci: port %u start failed.\n", i);
+            plogk("ahci: Port %u start failed.\n", i);
             continue;
         }
 
         uint32_t sig = ahci_read32(port->port_mmio, PORT_SIG);
         if (sig != SATA_SIG_ATA && sig != SATA_SIG_ATAPI) {
-            plogk("ahci: port %u no device (sig=0x%x)\n", i, sig);
+            plogk("ahci: Port %u no device (sig=0x%x)\n", i, sig);
             ahci_port_stop(port);
             continue;
         }
@@ -515,7 +515,7 @@ void init_ahci(void)
             dev->sector_size = 2048;
             dev->size        = 0;
             ahci_write32(port->port_mmio, PORT_CMD, ahci_read32(port->port_mmio, PORT_CMD) | PORT_CMD_ATAPI);
-            plogk("ahci: port %u: ATAPI optical device detected.\n", i);
+            plogk("ahci: Port %u: ATAPI optical device detected.\n", i);
             ahci_device_count++;
             satapi_count++;
             ahci_port_count++;
@@ -528,7 +528,7 @@ void init_ahci(void)
         dev->port = (uint8_t)ahci_port_count;
 
         if (ahci_port_identify(port, dev) != 0) {
-            plogk("ahci: port %u identify failed.\n", i);
+            plogk("ahci: Port %u identify failed.\n", i);
             ahci_port_stop(port);
             continue;
         }
@@ -537,10 +537,10 @@ void init_ahci(void)
         sata_count++;
         ahci_port_count++;
 
-        plogk("ahci: port %u: SATA drive, %u KiB, model \"%s\"\n", i, (dev->size * 512) / 1024, dev->model);
+        plogk("ahci: Port %u: SATA drive, %u KiB, model \"%s\"\n", i, (dev->size * 512) / 1024, dev->model);
     }
 
-    if (ahci_device_count > 0) { plogk("ahci: %u device(s) found (%u SATA, %u SATAPI)\n", ahci_device_count, sata_count, satapi_count); }
+    if (ahci_device_count > 0) plogk("ahci: %u device(s) found (%u SATA, %u SATAPI)\n", ahci_device_count, sata_count, satapi_count);
 
     ahci_satapi_init();
 }
