@@ -4,7 +4,7 @@
  *      Real-time clock (CMOS) character device
  *
  *      2026/8/6 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -75,9 +75,7 @@ uint64_t rtc_since_epoch(void)
     return rtc_civil_to_epoch(&t);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Character device callbacks                                         */
-/* ------------------------------------------------------------------ */
+/* Character device callbacks */
 
 int64_t rtc_dev_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {

@@ -4,7 +4,7 @@
  *      IPv6 protocol implementation
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -54,6 +54,12 @@ static ipv6_reassembly_t     ipv6_reassembly[IPV6_REASSEMBLY_SLOTS];
 static ipv6_error_hook_t     ipv6_error_hook;
 static spinlock_t            ipv6_lock;
 static spinlock_t            ipv6_reassembly_lock;
+
+/*
+ * Address helpers
+ * Small predicates and constructors for the common IPv6 address
+ * classes. All byte-wise so they are independent of host endianness.
+ */
 
 int ipv6_address_equal(const ipv6_address_t *left, const ipv6_address_t *right)
 {
@@ -157,6 +163,7 @@ static int ipv6_parse_hop_options(const uint8_t *bytes, size_t length)
     return 0;
 }
 
+/* Decode an IPv6 header, walking (and validating) extension headers */
 int net_ipv6_parse(const void *data, size_t length, net_ipv6_packet_t *packet)
 {
     if (!data || !packet || length < IPV6_HEADER_LEN) return -EBADMSG;
@@ -257,6 +264,7 @@ static void ipv6_route_visit(net_device_t *device, void *context)
     }
 }
 
+/* Find an interface that can reach destination, choosing source and next hop */
 int ipv6_route(const ipv6_address_t *destination, net_device_t **device, ipv6_address_t *source, ipv6_address_t *next_hop)
 {
     if (!destination || !device || !source || !next_hop || ipv6_address_is_unspecified(destination) || ipv6_address_is_loopback(destination))
@@ -539,6 +547,8 @@ static int ipv6_dispatch(net_device_t *device, const ipv6_info_t *info, net_pbuf
     return status;
 }
 
+/* Dispatch a decoded IPv6 packet: reassemble fragments if needed, then
+ * hand the payload to the registered transport handler for its protocol */
 int ipv6_input(net_device_t *device, net_pbuf_t *packet)
 {
     if (!device || !packet) goto bad;

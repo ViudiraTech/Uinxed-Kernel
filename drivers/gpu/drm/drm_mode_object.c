@@ -4,7 +4,7 @@
  *      DRM mode object lifecycle and ID management
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -29,9 +29,7 @@
 /* Initial backing-array capacity for a freshly attached property set. */
 #define DRM_OBJECT_PROP_INITIAL_CAPACITY 16u
 
-/* ------------------------------------------------------------------ */
-/* ID allocation and reference counting                               */
-/* ------------------------------------------------------------------ */
+/* ID allocation and reference counting */
 
 /*
  * Allocate a new mode-object ID from the device IDR and initialise the
@@ -128,9 +126,7 @@ struct drm_mode_object *drm_mode_object_find(struct drm_device *dev, struct drm_
     return NULL;
 }
 
-/* ------------------------------------------------------------------ */
-/* Per-object property storage                                        */
-/* ------------------------------------------------------------------ */
+/* Per-object property storage */
 
 /*
  * Store or update @property's value on @obj. If the property is already

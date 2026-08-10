@@ -4,7 +4,7 @@
  *      Device tmpfs population helpers
  *
  *      2026/5/20 By Rainy101112
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -31,9 +31,7 @@
 #include <mem/heap.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/* Character-device registration table                                 */
-/* ------------------------------------------------------------------ */
+/* Character-device registration table */
 
 #define DEVTMPFS_MAX_DEVICES     512
 #define DEVTMPFS_MAX_BLOCK_NODES (PARTITION_MAX_COUNT + 1)
@@ -501,9 +499,7 @@ static int devtmpfs_create_rtc_node(void)
     return 1;
 }
 
-/* ------------------------------------------------------------------ */
-/*  /proc block-device export helpers                                  */
-/* ------------------------------------------------------------------ */
+/* /proc block-device export helpers */
 
 typedef void (*devtmpfs_block_walk_fn)(const char *name, uint32_t major, uint32_t minor, uint64_t blocks, void *opaque);
 

@@ -4,7 +4,7 @@
  *      Peripheral component interconnect standard driver
  *
  *      2025/3/9 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -259,7 +259,7 @@ void *mcfg_ecam_addr(mcfg_entry_t *entry, pci_device_reg_t reg)
     return cast.ptr;
 }
 
-/* Reading values ​​from PCI device registers in Legacy I/O */
+/* Reading values from PCI device registers in Legacy I/O */
 static uint32_t pci_legacy_read(pci_device_reg_t reg)
 {
     pci_device_t *device          = reg.parent->device;
@@ -276,7 +276,7 @@ static uint32_t pci_legacy_read(pci_device_reg_t reg)
     return val;
 }
 
-/* Write values ​​to PCI device registers in Legacy I/O */
+/* Write values to PCI device registers in Legacy I/O */
 static void pci_legacy_write(pci_device_reg_t reg, uint32_t value)
 {
     pci_device_t *device          = reg.parent->device;
@@ -301,7 +301,7 @@ static void pci_legacy_write(pci_device_reg_t reg, uint32_t value)
     spin_unlock(&pci_legacy_lock);
 }
 
-/* Write values ​​to PCI device registers from `pci_device_ecam` */
+/* Write values to PCI device registers from `pci_device_ecam` */
 static void pci_mcfg_write(pci_device_reg_t reg, uint32_t value)
 {
     uint32_t           offset = reg.offset % 4;
@@ -322,7 +322,7 @@ static void pci_mcfg_write(pci_device_reg_t reg, uint32_t value)
     }
 }
 
-/* Reading values ​​from PCI device registers and `pci_device_ecam` */
+/* Reading values from PCI device registers and `pci_device_ecam` */
 static uint32_t pci_mcfg_read(pci_device_reg_t reg)
 {
     uint32_t           offset = reg.offset % 4;
@@ -330,13 +330,13 @@ static uint32_t pci_mcfg_read(pci_device_reg_t reg)
     return *ptr >> (8 * offset);
 }
 
-/* Reading values ​​from PCI device registers */
+/* Reading values from PCI device registers */
 uint32_t read_pci(pci_device_reg_t reg)
 {
     return pci_ops.read(reg);
 }
 
-/* Write values ​​to PCI device registers */
+/* Write values to PCI device registers */
 void write_pci(pci_device_reg_t reg, uint32_t value)
 {
     return pci_ops.write(reg, value);
@@ -457,7 +457,7 @@ uint32_t pci_get_irq(pci_device_cache_t *device)
     return read_pci(reg) & 0xFF;
 }
 
-/* ========== MSI/MSI-X Support ========== */
+/* MSI/MSI-X Support */
 
 /* Available MSI vector tracking */
 #define MSI_VECTOR_MIN       48

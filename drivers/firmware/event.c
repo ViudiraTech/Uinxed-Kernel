@@ -4,7 +4,7 @@
  *      ACPI event subsystem: SCI, fixed events, GPE, power button
  *
  *      2026/7/20 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -18,9 +18,7 @@
 #include <libs/std/string.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/* PM1 register access via FADT                                       */
-/* ------------------------------------------------------------------ */
+/* PM1 register access via FADT */
 
 static uint16_t pm1a_sts; // PM1a status register port
 static uint16_t pm1b_sts; // PM1b status register port
@@ -77,9 +75,7 @@ void acpi_pm1_enable_set(uint16_t bits)
     if (pm1b_en) outw(pm1b_en, bits);
 }
 
-/* ------------------------------------------------------------------ */
-/* Fixed event dispatch table                                         */
-/* ------------------------------------------------------------------ */
+/* Fixed event dispatch table */
 
 #define ACPI_NUM_FIXED_EVENTS 3
 
@@ -103,9 +99,7 @@ int acpi_register_fixed_event(uint8_t event, acpi_event_callback_t handler, void
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* GPE dispatch                                                       */
-/* ------------------------------------------------------------------ */
+/* GPE dispatch */
 
 #define ACPI_MAX_GPE_HANDLERS 32
 
@@ -193,9 +187,7 @@ int acpi_register_gpe(uint8_t gpe_number, acpi_event_callback_t handler, void *c
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* SCI interrupt handler                                              */
-/* ------------------------------------------------------------------ */
+/* SCI interrupt handler */
 
 static uint8_t sci_vector; // IDT vector of the SCI
 
@@ -269,9 +261,7 @@ int acpi_sci_init(void)
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Poll entry (for systems without working SCI routing)               */
-/* ------------------------------------------------------------------ */
+/* Poll entry (for systems without working SCI routing) */
 
 void acpi_event_poll(void)
 {
@@ -285,9 +275,7 @@ void acpi_event_poll(void)
     dispatch_gpes();
 }
 
-/* ------------------------------------------------------------------ */
-/* Default power button callback                                      */
-/* ------------------------------------------------------------------ */
+/* Default power button callback */
 
 static void power_button_handler(void *context)
 {
@@ -296,9 +284,7 @@ static void power_button_handler(void *context)
     power_off();
 }
 
-/* ------------------------------------------------------------------ */
-/* Public initializer                                                 */
-/* ------------------------------------------------------------------ */
+/* Public initializer */
 
 void acpi_event_init(void)
 {

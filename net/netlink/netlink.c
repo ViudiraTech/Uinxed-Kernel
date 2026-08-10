@@ -4,7 +4,7 @@
  *      Netlink socket family (AF_NETLINK) implementation
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -28,9 +28,7 @@
 #include <process/uaccess.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/*  Constants                                                          */
-/* ------------------------------------------------------------------ */
+/* Constants */
 
 #define NL_RECV_QUEUE_MAX 1024 // secondary cap; rcvbuf is the primary limit
 #define NL_BROADCAST_MAX  256  // bounded per-protocol socket registry
@@ -48,18 +46,14 @@
 #define RTN_UNICAST       1U
 #define RTMSG_BUF_SIZE    256U
 
-/* ------------------------------------------------------------------ */
-/*  Multicast group entry                                               */
-/* ------------------------------------------------------------------ */
+/* Multicast group entry */
 
 typedef struct nl_mcast_entry {
         struct socket *sk;     // subscriber socket
         uint32_t       groups; // subscribed groups bitmask for this socket
 } nl_mcast_entry_t;
 
-/* ------------------------------------------------------------------ */
-/*  Per-protocol multicast table                                        */
-/* ------------------------------------------------------------------ */
+/* Per-protocol multicast table */
 
 typedef struct nl_mcast_table {
         nl_mcast_entry_t entries[NL_BROADCAST_MAX];
@@ -69,16 +63,12 @@ typedef struct nl_mcast_table {
 
 static nl_mcast_table_t nl_mcast[NL_PROTO_MAX];
 
-/* ------------------------------------------------------------------ */
-/*  Auto-assigned port ID counter                                       */
-/* ------------------------------------------------------------------ */
+/* Auto-assigned port ID counter */
 
 static uint32_t   nl_pid_counter;
 static spinlock_t nl_pid_lock;
 
-/* ------------------------------------------------------------------ */
-/*  Internal helpers                                                    */
-/* ------------------------------------------------------------------ */
+/* Internal helpers */
 
 static nl_sock_t *nl_sk(struct socket *sk)
 {
@@ -442,9 +432,7 @@ static struct socket *nl_mcast_find_by_pid(uint32_t protocol, uint32_t pid)
     return NULL;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Multicast subscription management                                  */
-/* ------------------------------------------------------------------ */
+/* Multicast subscription management */
 
 static int nl_mcast_subscribe(uint32_t protocol, struct socket *sk, uint32_t groups)
 {
@@ -507,18 +495,14 @@ static void nl_mcast_unsubscribe(uint32_t protocol, struct socket *sk)
     spin_unlock(&tab->lock);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Forward declarations for wrapper functions                          */
-/* ------------------------------------------------------------------ */
+/* Forward declarations for wrapper functions */
 
 static int netlink_wrap_read(struct socket *sk, void *buf, size_t sz, void *addr, uint32_t *addrlen);
 static int netlink_wrap_write(struct socket *sk, const void *buf, size_t sz, const void *addr, uint32_t addrlen);
 static int netlink_wrap_poll(struct socket *sk, size_t events);
 static int netlink_wrap_close(struct socket *sk);
 
-/* ------------------------------------------------------------------ */
-/*  Socket lifecycle                                                   */
-/* ------------------------------------------------------------------ */
+/* Socket lifecycle */
 
 struct socket *netlink_sock_alloc(uint32_t protocol)
 {
@@ -617,9 +601,7 @@ void netlink_close(struct socket *sk)
     free(ns);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Bind                                                               */
-/* ------------------------------------------------------------------ */
+/* Bind */
 
 int netlink_bind(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen)
 {
@@ -779,9 +761,7 @@ static int nl_broadcast_datagram(uint32_t protocol, uint32_t groups, const void 
     return first_error ? first_error : -ESRCH;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Sendmsg                                                            */
-/* ------------------------------------------------------------------ */
+/* Sendmsg */
 
 int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockaddr_nl_t *addr, uint32_t addrlen, int flags)
 {
@@ -903,7 +883,7 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
         return ret ? ret : (int)nlhdr_len;
     }
 
-    /* No destination ?multicast if groups are set, else error */
+    /* No destination — multicast if groups are set, else error */
     if (addrlen == 0 || !addr) {
         /* Send as a request to kernel (pid=0) */
         if (ns->nl_protocol == NETLINK_ROUTE) {
@@ -924,9 +904,7 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
     return (int)nlhdr_len;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Recvmsg                                                            */
-/* ------------------------------------------------------------------ */
+/* Recvmsg */
 
 int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *addr, int flags, uint32_t *sender_uid, uint32_t *sender_gid,
                          int *msg_flags)
@@ -1051,9 +1029,7 @@ int netlink_recvmsg(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *add
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Poll                                                               */
-/* ------------------------------------------------------------------ */
+/* Poll */
 
 int netlink_poll(struct socket *sk, size_t events)
 {
@@ -1071,17 +1047,15 @@ int netlink_poll(struct socket *sk, size_t events)
         if (events & 0x0001) revents |= 0x0001; // POLLIN
     }
     if (sk->so_error && (events & 0x0008)) revents |= 0x0008; // POLLERR
-    /* Netlink sockets are always writable (dgram) */
-    if (events & 0x0004) revents |= 0x0004; // POLLOUT
+                                                              /* Netlink sockets are always writable (dgram) */
+    if (events & 0x0004) revents |= 0x0004;                   // POLLOUT
 
     spin_unlock(&ns->recv_lock);
 
     return revents & (int)events;
 }
 
-/* ------------------------------------------------------------------ */
-/*  setsockopt / getsockopt                                            */
-/* ------------------------------------------------------------------ */
+/* setsockopt / getsockopt */
 
 #define SOL_NETLINK 270
 
@@ -1192,9 +1166,7 @@ int netlink_getsockopt(struct socket *sk, int optname, void *optval, uint32_t *o
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Kernel API: Broadcast                                              */
-/* ------------------------------------------------------------------ */
+/* Kernel API: Broadcast */
 
 int netlink_broadcast(uint32_t protocol, uint32_t group, const void *data, uint32_t len, int flags)
 {
@@ -1202,9 +1174,7 @@ int netlink_broadcast(uint32_t protocol, uint32_t group, const void *data, uint3
     return nl_broadcast_datagram(protocol, group, data, len, 0, 0, 0);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Kernel API: Unicast                                                */
-/* ------------------------------------------------------------------ */
+/* Kernel API: Unicast */
 
 int netlink_unicast(struct socket *sk, const void *data, uint32_t len, int flags)
 {
@@ -1212,9 +1182,7 @@ int netlink_unicast(struct socket *sk, const void *data, uint32_t len, int flags
     return nl_queue_datagram(sk, data, len, 0, 0, 0, 0);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Kernel API: Has listeners                                          */
-/* ------------------------------------------------------------------ */
+/* Kernel API: Has listeners */
 
 int netlink_has_listeners(uint32_t protocol, uint32_t group)
 {
@@ -1236,9 +1204,7 @@ int netlink_has_listeners(uint32_t protocol, uint32_t group)
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Wrapper functions ?match socket_t polymorphic op signatures       */
-/* ------------------------------------------------------------------ */
+/* Wrapper functions — match socket_t polymorphic op signatures */
 
 static int netlink_wrap_read(struct socket *sk, void *buf, size_t sz, void *addr, uint32_t *addrlen)
 {
@@ -1261,9 +1227,7 @@ static int netlink_wrap_close(struct socket *sk)
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Subsystem init                                                     */
-/* ------------------------------------------------------------------ */
+/* Subsystem init */
 
 void netlink_init(void)
 {

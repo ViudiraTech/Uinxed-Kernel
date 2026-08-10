@@ -4,7 +4,7 @@
  *      Kernel limine request
  *
  *      2024/6/23 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

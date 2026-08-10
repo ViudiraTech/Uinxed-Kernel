@@ -4,7 +4,7 @@
  *      Epoll event notification implementation
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -25,9 +25,7 @@
 #include <sync/spin_lock.h>
 #include <syscall/syscall.h>
 
-/* ------------------------------------------------------------------ */
-/*  Constants                                                           */
-/* ------------------------------------------------------------------ */
+/* Constants */
 
 #ifndef EPOLL_MAX_FDS
 #    define EPOLL_MAX_FDS 1024
@@ -40,9 +38,7 @@
 #define POLLERR 0x008
 #define POLLHUP 0x010
 
-/* ------------------------------------------------------------------ */
-/*  Internal structures                                                 */
-/* ------------------------------------------------------------------ */
+/* Internal structures */
 
 typedef struct epoll_instance epoll_instance_t;
 
@@ -73,15 +69,11 @@ typedef struct epoll_instance {
         uint64_t         event_generation;
 } epoll_instance_t;
 
-/* ------------------------------------------------------------------ */
-/*  Static filesystem ID                                                */
-/* ------------------------------------------------------------------ */
+/* Static filesystem ID */
 
 static int epoll_fsid = -1;
 
-/* ------------------------------------------------------------------ */
-/*  Internal helpers                                                    */
-/* ------------------------------------------------------------------ */
+/* Internal helpers */
 
 /*
  * Map a process_fd_poll result (which returns POLLIN/POLLOUT/POLLERR/POLLHUP)
@@ -133,9 +125,7 @@ static void epoll_target_close(vfs_poll_subscription_t *subscription, uint32_t e
     if (item->epi->node) vfs_poll_notify(item->epi->node, POLLIN);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Item operations                                                     */
-/* ------------------------------------------------------------------ */
+/* Item operations */
 
 /*
  * Find an epoll_item by fd.  Must be called with epi->lock held.
@@ -211,9 +201,7 @@ static int epoll_item_mod(epoll_instance_t *epi, int fd, const epoll_event_t *ev
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Polling: check all registered fds for readiness                     */
-/* ------------------------------------------------------------------ */
+/* Polling: check all registered fds for readiness */
 
 /*
  * Poll all registered fds and update their revents.
@@ -323,9 +311,7 @@ static int epoll_collect_events(epoll_instance_t *epi, epoll_event_t *user_event
     return collected;
 }
 
-/* ------------------------------------------------------------------ */
-/*  VFS callbacks                                                       */
-/* ------------------------------------------------------------------ */
+/* VFS callbacks */
 
 static void epoll_vfs_open(void *parent, const char *name, vfs_node_t node)
 {
@@ -417,7 +403,7 @@ static int epoll_vfs_free(void *handle)
     return EOK;
 }
 
-/* ---------- Stubs for unused VFS callbacks ---------- */
+/* Stubs for unused VFS callbacks */
 
 static int epoll_stub_mount(const char *s, vfs_node_t n)
 {
@@ -483,9 +469,7 @@ static int epoll_stub_rename(void *current, const char *new_name)
     return -ENOSYS;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Epoll node creation                                                 */
-/* ------------------------------------------------------------------ */
+/* Epoll node creation */
 
 static vfs_node_t epoll_node_create(void)
 {
@@ -548,9 +532,7 @@ static epoll_instance_t *epoll_resolve_fd(int epfd, process_t *proc, process_fil
     return (epoll_instance_t *)file->node->handle;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Syscall: epoll_create                                               */
-/* ------------------------------------------------------------------ */
+/* Syscall: epoll_create */
 
 int64_t sys_epoll_create(int size)
 {
@@ -571,9 +553,7 @@ int64_t sys_epoll_create(int size)
     return fd;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Syscall: epoll_create1                                              */
-/* ------------------------------------------------------------------ */
+/* Syscall: epoll_create1 */
 
 int64_t sys_epoll_create1(int flags)
 {
@@ -595,9 +575,7 @@ int64_t sys_epoll_create1(int flags)
     return fd;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Syscall: epoll_ctl                                                  */
-/* ------------------------------------------------------------------ */
+/* Syscall: epoll_ctl */
 
 int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
 {
@@ -729,9 +707,7 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Syscall: epoll_wait                                                 */
-/* ------------------------------------------------------------------ */
+/* Syscall: epoll_wait */
 
 int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeout)
 {
@@ -787,9 +763,7 @@ int64_t sys_epoll_wait(int epfd, epoll_event_t *events, int maxevents, int timeo
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Syscall: epoll_pwait                                                */
-/* ------------------------------------------------------------------ */
+/* Syscall: epoll_pwait */
 
 int64_t sys_epoll_pwait(int epfd, epoll_event_t *events, int maxevents, int timeout, const void *sigmask, size_t sigsetsize)
 {
@@ -821,9 +795,7 @@ int64_t sys_epoll_pwait(int epfd, epoll_event_t *events, int maxevents, int time
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Initialization                                                      */
-/* ------------------------------------------------------------------ */
+/* Initialization */
 
 void epoll_init(void)
 {

@@ -4,11 +4,7 @@
  *      VirtIO-GPU command encoding
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
- *
- *  Encodes and submits individual virtio-gpu protocol commands.  Each
- *  function allocates a command buffer, fills in the protocol struct,
- *  sends it via virtgpu_ctrl_cmd, and unpacks the response.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -17,9 +13,7 @@
 #include <kernel/printk.h>
 #include <mem/alloc.h>
 
-/* ------------------------------------------------------------------ */
-/* Display information                                                 */
-/* ------------------------------------------------------------------ */
+/* Display information */
 
 int virtgpu_cmd_get_display_info(struct virtio_gpu_device *vgdev)
 {
@@ -51,9 +45,7 @@ int virtgpu_cmd_get_display_info(struct virtio_gpu_device *vgdev)
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* EDID                                                                */
-/* ------------------------------------------------------------------ */
+/* EDID */
 
 int virtgpu_cmd_get_edid(struct virtio_gpu_device *vgdev, int scanout_id, void *edid, int *edid_size)
 {
@@ -84,9 +76,7 @@ int virtgpu_cmd_get_edid(struct virtio_gpu_device *vgdev, int scanout_id, void *
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Resource creation –2D                                              */
-/* ------------------------------------------------------------------ */
+/* Resource creation — 2D */
 
 int virtgpu_cmd_create_resource_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj)
 {
@@ -110,9 +100,7 @@ int virtgpu_cmd_create_resource_2d(struct virtio_gpu_device *vgdev, struct virti
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/* Resource creation –3D                                              */
-/* ------------------------------------------------------------------ */
+/* Resource creation — 3D */
 
 int virtgpu_cmd_create_resource_3d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct drm_virtgpu_resource_create *rc)
 {
@@ -141,9 +129,7 @@ int virtgpu_cmd_create_resource_3d(struct virtio_gpu_device *vgdev, struct virti
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/* Resource creation –Blob                                           */
-/* ------------------------------------------------------------------ */
+/* Resource creation — Blob */
 
 int virtgpu_cmd_create_blob(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct drm_virtgpu_resource_create_blob *blob)
 {
@@ -179,9 +165,7 @@ int virtgpu_cmd_create_blob(struct virtio_gpu_device *vgdev, struct virtio_gpu_o
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/* Resource destruction                                                */
-/* ------------------------------------------------------------------ */
+/* Resource destruction */
 
 int virtgpu_cmd_unref_resource(struct virtio_gpu_device *vgdev, uint32_t res_id)
 {
@@ -199,9 +183,7 @@ int virtgpu_cmd_unref_resource(struct virtio_gpu_device *vgdev, uint32_t res_id)
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/* Backing management (guest memory attach/detach)                     */
-/* ------------------------------------------------------------------ */
+/* Backing management (guest memory attach/detach) */
 
 int virtgpu_cmd_attach_backing(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj)
 {
@@ -252,9 +234,7 @@ int virtgpu_cmd_detach_backing(struct virtio_gpu_device *vgdev, uint32_t res_id)
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/* Data transfer (2D)                                                  */
-/* ------------------------------------------------------------------ */
+/* Data transfer (2D) */
 
 int virtgpu_cmd_transfer_to_host_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint64_t offset)
 {
@@ -399,9 +379,7 @@ int virtgpu_cmd_update_scanout_2d(struct virtio_gpu_device *vgdev, int scanout_i
     return virtgpu_ctrl_cmd_batch(vgdev, commands, count);
 }
 
-/* ------------------------------------------------------------------ */
-/* Data transfer (3D)                                                  */
-/* ------------------------------------------------------------------ */
+/* Data transfer (3D) */
 
 int virtgpu_cmd_transfer_3d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id,
                             const struct drm_virtgpu_3d_transfer *xf, bool to_host)
@@ -430,9 +408,7 @@ int virtgpu_cmd_transfer_3d(struct virtio_gpu_device *vgdev, struct virtio_gpu_o
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/* Resource flush                                                      */
-/* ------------------------------------------------------------------ */
+/* Resource flush */
 
 int virtgpu_cmd_resource_flush(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, struct virtio_gpu_rect *rect)
 {
@@ -457,9 +433,7 @@ int virtgpu_cmd_resource_flush(struct virtio_gpu_device *vgdev, struct virtio_gp
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/* Scanout                                                             */
-/* ------------------------------------------------------------------ */
+/* Scanout */
 
 int virtgpu_cmd_set_scanout(struct virtio_gpu_device *vgdev, int scanout_id, struct virtio_gpu_object *obj)
 {
@@ -524,9 +498,7 @@ int virtgpu_cmd_set_scanout_blob(struct virtio_gpu_device *vgdev, int scanout_id
     return virtgpu_ctrl_cmd_batch(vgdev, commands, 2);
 }
 
-/* ------------------------------------------------------------------ */
-/* Context management (3D)                                             */
-/* ------------------------------------------------------------------ */
+/* Context management (3D) */
 
 int virtgpu_cmd_ctx_create(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t context_init, const char *debug_name, uint32_t name_len)
 {
@@ -614,9 +586,7 @@ int virtgpu_cmd_ctx_detach_resource(struct virtio_gpu_device *vgdev, uint32_t ct
     return virtgpu_cmd_ctx_resource(vgdev, VIRTIO_GPU_CMD_CTX_DETACH_RESOURCE, ctx_id, resource_id);
 }
 
-/* ------------------------------------------------------------------ */
-/* 3D command submission                                               */
-/* ------------------------------------------------------------------ */
+/* 3D command submission */
 
 int virtgpu_cmd_submit_3d(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint32_t ring_idx, bool use_ring_idx, const void *cmd_data,
                           uint32_t size, struct virtio_gpu_fence *fence)
@@ -651,9 +621,7 @@ int virtgpu_cmd_submit_3d(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/* Capset query                                                        */
-/* ------------------------------------------------------------------ */
+/* Capset query */
 
 int virtgpu_cmd_get_capset_info(struct virtio_gpu_device *vgdev, uint32_t idx, uint32_t *capset_id, uint32_t *max_version, uint32_t *max_size)
 {

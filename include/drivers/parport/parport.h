@@ -4,7 +4,7 @@
  *      Parallel port subsystem (Linux drivers/parport/ analog)
  *
  *      2026/8/10 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -67,7 +67,7 @@ struct parport {
         parport_t *next;
 };
 
-/* ---- registry ---- */
+/* registry */
 int        parport_register_port(const char *name, uint16_t base, int irq, void *private_data);
 void       parport_unregister_port(parport_t *p);
 int        parport_count(void);
@@ -75,7 +75,7 @@ parport_t *parport_get(int index);
 parport_t *parport_find(uint16_t base);
 parport_t *parport_find_by_number(int number);
 
-/* ---- port access ---- */
+/* port access */
 uint8_t parport_read_data(parport_t *p);
 void    parport_write_data(parport_t *p, uint8_t v);
 uint8_t parport_read_status(parport_t *p);
@@ -84,10 +84,10 @@ void    parport_write_control(parport_t *p, uint8_t v);
 void    parport_frob_control(parport_t *p, uint8_t mask, uint8_t v);
 void    parport_data_reverse(parport_t *p, bool reverse);
 
-/* ---- drivers/parport/parport_pc.c ---- */
+/* drivers/parport/parport_pc.c */
 int parport_pc_init(void);
 
-/* ---- drivers/parport/ppdev.c : /dev/parportN ---- */
+/* drivers/parport/ppdev.c : /dev/parportN */
 void ppdev_init(void);
 
 #endif // INCLUDE_PARPORT_H_

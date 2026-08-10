@@ -4,7 +4,7 @@
  *      BSD Socket API implementation ?UNIX domain sockets
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -28,9 +28,7 @@
 #include <sync/spin_lock.h>
 #include <syscall/fcntl.h>
 
-/* ------------------------------------------------------------------ */
-/*  Constants                                                           */
-/* ------------------------------------------------------------------ */
+/* Constants */
 
 #define SOCK_ACCEPT_QUEUE_INIT 16
 #ifndef SOCK_ACCEPT_QUEUE_MAX
@@ -39,13 +37,9 @@
 #define SOCK_BOUND_MAX      256
 #define SOCK_SHUT_MASK(how) (1U << (uint32_t)(how))
 
-/* ------------------------------------------------------------------ */
-/*  Blocked-socket tracking ?maps a blocked socket to its task         */
-/* ------------------------------------------------------------------ */
+/* Blocked-socket tracking — maps a blocked socket to its task */
 
-/* ------------------------------------------------------------------ */
-/*  Bound-address registry ?UNIX-domain namespace                      */
-/* ------------------------------------------------------------------ */
+/* Bound-address registry — UNIX-domain namespace */
 
 typedef struct sock_bound {
         socket_t     *sk;
@@ -57,15 +51,11 @@ typedef struct sock_bound {
 static sock_bound_t sock_bound_tab[SOCK_BOUND_MAX];
 static spinlock_t   sock_bound_lock;
 
-/* ------------------------------------------------------------------ */
-/*  VFS filesystem id for socket nodes                                  */
-/* ------------------------------------------------------------------ */
+/* VFS filesystem id for socket nodes */
 
 static int socket_fsid = -1;
 
-/* ------------------------------------------------------------------ */
-/*  Forward declarations ?internal helpers                             */
-/* ------------------------------------------------------------------ */
+/* Forward declarations — internal helpers */
 
 static void sock_blocked_register(socket_t *sk, task_t *task);
 static void sock_blocked_unregister(socket_t *sk);
@@ -114,9 +104,7 @@ static size_t strnlen_local(const char *s, size_t maxlen)
     return n;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Circular buffer helpers                                             */
-/* ------------------------------------------------------------------ */
+/* Circular buffer helpers */
 
 static int sock_buf_init(sock_buf_t *buf, uint32_t capacity)
 {
@@ -286,9 +274,7 @@ static void sock_buf_discard(sock_buf_t *buf, uint32_t len)
     buf->size -= len;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Blocked-socket tracking                                             */
-/* ------------------------------------------------------------------ */
+/* Blocked-socket tracking */
 
 static void sock_blocked_register(socket_t *sk, task_t *task)
 {
@@ -322,9 +308,7 @@ static void sock_blocked_wake_all(socket_t *sk)
     if (sk) wait_queue_wake_all(&sk->waitq);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Bound-address registry                                              */
-/* ------------------------------------------------------------------ */
+/* Bound-address registry */
 
 static int sock_bound_lookup(const sockaddr_un_t *addr, uint32_t addrlen, int abstract, socket_t **out)
 {
@@ -477,9 +461,7 @@ size_t socket_format_unix_table(char *buffer, size_t capacity)
     return used;
 }
 
-/* ------------------------------------------------------------------ */
-/*  UNIX address parsing                                                */
-/* ------------------------------------------------------------------ */
+/* UNIX address parsing */
 
 static int unix_addr_parse(const sockaddr_un_t *addr, uint32_t addrlen, int *is_abstract)
 {
@@ -504,15 +486,13 @@ static int unix_addr_parse(const sockaddr_un_t *addr, uint32_t addrlen, int *is_
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Socket lifecycle                                                    */
-/* ------------------------------------------------------------------ */
+/* Socket lifecycle */
 
 static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
 {
     socket_t *sk;
 
-    /* Validate family ?Netlink handled by netlink layer */
+    /* Validate family — Netlink handled by netlink layer */
     if (family == AF_NETLINK) {
         sk = netlink_sock_alloc(protocol);
         if (sk) sk->type = type;
@@ -726,9 +706,7 @@ static void socket_unref(socket_t *sk)
     if (sk) socket_free(sk);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Socket fd installation                                              */
-/* ------------------------------------------------------------------ */
+/* Socket fd installation */
 
 int socket_fd_install(socket_t *sk)
 {
@@ -787,11 +765,11 @@ static int socket_fd_nonblock(int fd)
     return nonblock;
 }
 
-/* ------------------------------------------------------------------ */
-/*  socket_from_fd ?find a socket by fd in the current process         */
-/*  NOTE: returns a weak pointer (no refcount bump).                    */
-/*  The caller must ensure the socket stays alive during use.           */
-/* ------------------------------------------------------------------ */
+/*
+ * socket_from_fd — find a socket by fd in the current process
+ * NOTE: returns a weak pointer (no refcount bump).
+ * The caller must ensure the socket stays alive during use.
+ */
 
 socket_t *socket_from_fd(int fd)
 {
@@ -818,9 +796,7 @@ out:
     return sk;
 }
 
-/* ------------------------------------------------------------------ */
-/*  UNIX autobind                                                       */
-/* ------------------------------------------------------------------ */
+/* UNIX autobind */
 
 static int unix_autobind(socket_t *sk)
 {
@@ -882,9 +858,7 @@ static int unix_autobind(socket_t *sk)
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  UNIX bind                                                           */
-/* ------------------------------------------------------------------ */
+/* UNIX bind */
 
 static int unix_bind(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen)
 {
@@ -949,9 +923,7 @@ static int unix_bind(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen)
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  UNIX listen                                                         */
-/* ------------------------------------------------------------------ */
+/* UNIX listen */
 
 static int unix_listen(socket_t *sk, uint32_t backlog)
 {
@@ -962,7 +934,7 @@ static int unix_listen(socket_t *sk, uint32_t backlog)
     spin_lock(&sk->lock);
 
     if (sk->state == SOCK_STATE_LISTENING) {
-        /* Already listening ?just update backlog */
+        /* Already listening — just update backlog */
         if (backlog > SOCK_ACCEPT_QUEUE_MAX) backlog = SOCK_ACCEPT_QUEUE_MAX;
         sk->backlog = backlog;
         spin_unlock(&sk->lock);
@@ -990,9 +962,7 @@ static int unix_listen(socket_t *sk, uint32_t backlog)
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  UNIX stream connect                                                 */
-/* ------------------------------------------------------------------ */
+/* UNIX stream connect */
 
 static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen)
 {
@@ -1095,9 +1065,7 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  UNIX accept                                                         */
-/* ------------------------------------------------------------------ */
+/* UNIX accept */
 
 static int unix_accept(socket_t *sk, sockaddr_un_t *addr, uint32_t *addrlen, int flags)
 {
@@ -1157,9 +1125,7 @@ static int unix_accept(socket_t *sk, sockaddr_un_t *addr, uint32_t *addrlen, int
     return socket_fd_install_flags(client, ((flags & SOCK_CLOEXEC) ? O_CLOEXEC : 0) | ((flags & SOCK_NONBLOCK) ? O_NONBLOCK : 0));
 }
 
-/* ------------------------------------------------------------------ */
-/*  UNIX stream send                                                    */
-/* ------------------------------------------------------------------ */
+/* UNIX stream send */
 
 static int unix_stream_send_rights(socket_t *sk, const void *buf, size_t len, int flags, process_file_t **rights, size_t rights_count)
 {
@@ -1276,9 +1242,7 @@ static int unix_stream_send(socket_t *sk, const void *buf, size_t len, int flags
     return unix_stream_send_rights(sk, buf, len, flags, NULL, 0);
 }
 
-/* ------------------------------------------------------------------ */
-/*  UNIX stream recv                                                    */
-/* ------------------------------------------------------------------ */
+/* UNIX stream recv */
 
 static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
 {
@@ -1489,9 +1453,7 @@ static int unix_seqpacket_recv(socket_t *sk, void *buf, size_t len, int flags, i
     return (int)copied;
 }
 
-/* ------------------------------------------------------------------ */
-/*  UNIX datagram send                                                  */
-/* ------------------------------------------------------------------ */
+/* UNIX datagram send */
 
 static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sockaddr_un_t *addr, uint32_t addrlen, int flags)
 {
@@ -1572,9 +1534,7 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
     return (int)written;
 }
 
-/* ------------------------------------------------------------------ */
-/*  UNIX datagram recv                                                  */
-/* ------------------------------------------------------------------ */
+/* UNIX datagram recv */
 
 static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *addr, uint32_t *addrlen, int flags, ucred_t *credentials,
                            int *message_flags, size_t *record_size)
@@ -1660,9 +1620,7 @@ static int unix_dgram_recv(socket_t *sk, void *buf, size_t len, sockaddr_un_t *a
     return (int)rd;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Socket poll support                                                 */
-/* ------------------------------------------------------------------ */
+/* Socket poll support */
 
 static int socket_poll(socket_t *sk, size_t events)
 {
@@ -1701,7 +1659,7 @@ static int socket_poll(socket_t *sk, size_t events)
                 if (sock_buf_available(&sk->recv_buf) > 0) revents |= 0x001;
                 revents |= 0x004; // dgram always writable
             } else {
-                revents |= 0x010; // POLLHUP - not connected
+                revents |= 0x010; // POLLHUP — not connected
             }
             break;
 
@@ -1722,9 +1680,7 @@ static int socket_poll(socket_t *sk, size_t events)
     return revents & (int)events;
 }
 
-/* ------------------------------------------------------------------ */
-/*  VFS callbacks                                                       */
-/* ------------------------------------------------------------------ */
+/* VFS callbacks */
 
 static size_t socket_vfs_read(void *file, void *addr, size_t offset, size_t size)
 {
@@ -1904,7 +1860,7 @@ static int socket_vfs_free(void *handle)
     return EOK;
 }
 
-/* ---- VFS stubs ---- */
+/* VFS stubs */
 
 static void socket_stub_unmount(void *root)
 {
@@ -2000,11 +1956,9 @@ static void socket_stub_open(void *parent, const char *name, vfs_node_t node)
     (void)node;
 }
 
-/* ------------------------------------------------------------------ */
-/*  System call implementations                                         */
-/* ------------------------------------------------------------------ */
+/* System call implementations */
 
-/* ---- sys_socket ---- */
+/* sys_socket */
 
 int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
 {
@@ -2082,7 +2036,7 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
     return (int64_t)fd;
 }
 
-/* ---- sys_bind ---- */
+/* sys_bind */
 
 int64_t sys_bind(int fd, const sockaddr_t *addr, uint32_t addrlen)
 {
@@ -2125,7 +2079,7 @@ int64_t sys_bind(int fd, const sockaddr_t *addr, uint32_t addrlen)
     return (int64_t)ret;
 }
 
-/* ---- sys_listen ---- */
+/* sys_listen */
 
 int64_t sys_listen(int fd, int backlog)
 {
@@ -2147,7 +2101,7 @@ int64_t sys_listen(int fd, int backlog)
     return (int64_t)ret;
 }
 
-/* ---- sys_accept ---- */
+/* sys_accept */
 
 int64_t sys_accept(int fd, sockaddr_t *addr, uint32_t *addrlen, int flags)
 {
@@ -2193,7 +2147,7 @@ int64_t sys_accept(int fd, sockaddr_t *addr, uint32_t *addrlen, int flags)
     return (int64_t)ret;
 }
 
-/* ---- sys_connect ---- */
+/* sys_connect */
 
 int64_t sys_connect(int fd, const sockaddr_t *addr, uint32_t addrlen)
 {
@@ -2243,7 +2197,7 @@ int64_t sys_connect(int fd, const sockaddr_t *addr, uint32_t addrlen)
     return (int64_t)ret;
 }
 
-/* ---- sys_sendto ---- */
+/* sys_sendto */
 
 int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockaddr_t *addr, uint32_t addrlen)
 {
@@ -2351,7 +2305,7 @@ int64_t sys_sendto(int fd, const void *buf, size_t len, int flags, const sockadd
     return (int64_t)ret;
 }
 
-/* ---- sys_recvfrom ---- */
+/* sys_recvfrom */
 
 int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr, uint32_t *addrlen)
 {
@@ -2468,7 +2422,7 @@ int64_t sys_recvfrom(int fd, void *buf, size_t len, int flags, sockaddr_t *addr,
     return (int64_t)ret;
 }
 
-/* ---- Internal: sendmsg/recvmsg with kernel buffers ---- */
+/* Internal: sendmsg/recvmsg with kernel buffers */
 
 static void socket_release_rights(process_file_t **rights, size_t rights_count)
 {
@@ -2905,7 +2859,7 @@ static int64_t do_recvmsg_kern(int fd, socket_t *sk, msghdr_t *kmsg, const iovec
     return (int64_t)ret;
 }
 
-/* ---- sys_sendmsg ---- */
+/* sys_sendmsg */
 
 int64_t sys_sendmsg(int fd, const msghdr_t *msg, int flags)
 {
@@ -2991,7 +2945,7 @@ int64_t sys_sendmsg(int fd, const msghdr_t *msg, int flags)
     return ret;
 }
 
-/* ---- sys_recvmsg ---- */
+/* sys_recvmsg */
 
 int64_t sys_recvmsg(int fd, msghdr_t *msg, int flags)
 {
@@ -3057,7 +3011,7 @@ int64_t sys_recvmsg(int fd, msghdr_t *msg, int flags)
     return ret;
 }
 
-/* ---- sys_shutdown ---- */
+/* sys_shutdown */
 
 int64_t sys_shutdown(int fd, int how)
 {
@@ -3098,7 +3052,7 @@ int64_t sys_shutdown(int fd, int how)
     return EOK;
 }
 
-/* ---- sys_socketpair ---- */
+/* sys_socketpair */
 
 int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
 {
@@ -3175,7 +3129,7 @@ int64_t sys_socketpair(int domain, int type, int protocol, int sv[2])
     return EOK;
 }
 
-/* ---- sys_getsockname ---- */
+/* sys_getsockname */
 
 int64_t sys_getsockname(int fd, sockaddr_t *addr, uint32_t *addrlen)
 {
@@ -3218,7 +3172,7 @@ int64_t sys_getsockname(int fd, sockaddr_t *addr, uint32_t *addrlen)
     return socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&sk->local_addr, kaddrlen);
 }
 
-/* ---- sys_getpeername ---- */
+/* sys_getpeername */
 
 int64_t sys_getpeername(int fd, sockaddr_t *addr, uint32_t *addrlen)
 {
@@ -3254,7 +3208,7 @@ int64_t sys_getpeername(int fd, sockaddr_t *addr, uint32_t *addrlen)
     return socket_copy_address_to_user(addr, addrlen, (sockaddr_t *)&sk->peer_addr, kaddrlen);
 }
 
-/* ---- sys_setsockopt ---- */
+/* sys_setsockopt */
 
 int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint32_t optlen)
 {
@@ -3399,9 +3353,8 @@ int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint3
 
         case SO_RCVTIMEO :
         case SO_SNDTIMEO :
-            /* Timeouts not implemented in this version */
             spin_unlock(&sk->lock);
-            return -ENOPROTOOPT;
+            return -ENOPROTOOPT; // socket timeouts are not supported
 
         case SO_KEEPALIVE :
         case SO_OOBINLINE :
@@ -3420,7 +3373,7 @@ int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint3
     return EOK;
 }
 
-/* ---- sys_getsockopt ---- */
+/* sys_getsockopt */
 
 int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *optlen)
 {
@@ -3566,7 +3519,7 @@ int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *o
     return EOK;
 }
 
-/* ---- sys_sendmmsg ---- */
+/* sys_sendmmsg */
 
 int64_t sys_sendmmsg(int fd, void *msgvec, uint32_t vlen, int flags)
 {
@@ -3670,7 +3623,7 @@ int64_t sys_sendmmsg(int fd, void *msgvec, uint32_t vlen, int flags)
     return total;
 }
 
-/* ---- sys_recvmmsg ---- */
+/* sys_recvmmsg */
 
 int64_t sys_recvmmsg(int fd, void *msgvec, uint32_t vlen, int flags, void *timeout)
 {
@@ -3762,9 +3715,7 @@ int64_t sys_recvmmsg(int fd, void *msgvec, uint32_t vlen, int flags, void *timeo
     return total;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Subsystem initialization                                            */
-/* ------------------------------------------------------------------ */
+/* Subsystem initialization */
 
 void socket_init(void)
 {

@@ -4,7 +4,7 @@
  *      NVMe 1.4 block device driver header
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -36,31 +36,31 @@ struct blockdev_device;
 #define NVME_REG_ACQ   0x30   // Admin CQ Base Address (64-bit)
 #define NVME_REG_DBS   0x1000 // Doorbell Stride start
 
-/* ---- CAP bits ---- */
+/* CAP bits */
 #define NVME_CAP_MQES(cap)  ((uint32_t)((cap) & 0xFFFF))
 #define NVME_CAP_DSTRD(cap) (((cap) >> 32) & 0xF)
 #define NVME_CAP_TO(cap)    (((cap) >> 24) & 0xFF)
 
-/* ---- CC bits ---- */
+/* CC bits */
 #define NVME_CC_EN           (1ULL << 0)
 #define NVME_CC_IOSQES_SHIFT 16
 #define NVME_CC_IOCQES_SHIFT 20
 
-/* ---- CSTS bits ---- */
+/* CSTS bits */
 #define NVME_CSTS_RDY (1ULL << 0)
 #define NVME_CSTS_CFS (1ULL << 1)
 
-/* ---- Queue entry size exponents (for CC register) ---- */
+/* Queue entry size exponents (for CC register) */
 #define NVME_SQE_SIZE  64
 #define NVME_CQE_SIZE  16
 #define NVME_SQE_SHIFT 6 // log2(64)
 #define NVME_CQE_SHIFT 4 // log2(16)
 
-/* ---- Queue depths ---- */
+/* Queue depths */
 #define NVME_ADMIN_QSIZE 64
 #define NVME_IO_QSIZE    256
 
-/* ---- Limits ---- */
+/* Limits */
 #define NVME_MAX_CONTROLLERS 8
 #define NVME_MAX_NAMESPACES  16
 #define NVME_SECTOR_SIZE     512
@@ -86,23 +86,23 @@ struct blockdev_device;
 #define NVME_NVM_WRITE 0x01
 #define NVME_NVM_READ  0x02
 
-/* ---- Identify CNS values ---- */
+/* Identify CNS values */
 #define NVME_CNS_NAMESPACE  0x00
 #define NVME_CNS_CONTROLLER 0x01
 #define NVME_CNS_NS_LIST    0x02
 
-/* ---- Feature IDs ---- */
+/* Feature IDs */
 #define NVME_FID_NUM_QUEUES     0x07
 #define NVME_FID_IRQ_COALESCING 0x08
 #define NVME_FID_IRQ_CONFIG     0x09
 
-/* ---- CQE Status Field Type (SFT) ---- */
+/* CQE Status Field Type (SFT) */
 #define NVME_SCT_GENERIC          0x0
 #define NVME_SCT_COMMAND_SPECIFIC 0x1
 #define NVME_SCT_MEDIA_ERROR      0x2
 #define NVME_SCT_VENDOR_SPECIFIC  0x7
 
-/* ---- Generic Status Codes ---- */
+/* Generic Status Codes */
 #define NVME_SC_SUCCESS              0x00
 #define NVME_SC_INVALID_OPCODE       0x01
 #define NVME_SC_INVALID_FIELD        0x02
@@ -123,10 +123,10 @@ struct blockdev_device;
 #define NVME_SC_NS_NOT_READY         0x82
 #define NVME_SC_RESERVATION_CONFLICT 0x83
 
-/* ---- PRP ---- */
+/* PRP */
 #define NVME_PRP_ENTRIES_PER_PAGE (PAGE_4K_SIZE / 8)
 
-/* ---- Timeouts ---- */
+/* Timeouts */
 #define NVME_TIMEOUT_MS    5000 // controller enable timeout (ms)
 #define NVME_TIMEOUT_LOOPS 0x400000
 
@@ -170,28 +170,28 @@ _Static_assert(sizeof(nvme_cqe_t) == NVME_CQE_SIZE, "NVMe CQE must be 16 bytes")
 #define NVME_CQE_SC(cqe)    (((cqe)->sfp >> 1) & 0xFF)
 #define NVME_CQE_SCT(cqe)   (((cqe)->sfp >> 9) & 0x7)
 
-/* ---- Identify Controller Data (4096 bytes) ---- */
+/* Identify Controller Data (4096 bytes) */
 /* We only define the critical fields; the rest is padding */
 typedef struct {
-        uint16_t vid;        // 1:0     PCI Vendor ID
-        uint16_t ssvid;      // 3:2     PCI Subsystem Vendor
-        uint8_t  sn[20];     // 23:4    Serial Number (ASCII)
-        uint8_t  mn[40];     // 63:24   Model Number (ASCII)
-        uint8_t  fr[8];      // 71:64   Firmware Revision
-        uint8_t  rab;        // 72      Recommended Arbitration Burst
-        uint8_t  ieee[3];    // 75:73   IEEE OUI Identifier
-        uint8_t  cmic;       // 76      Multi-Path I/O
-        uint8_t  mdts;       // 77      Max Data Transfer Size
-        uint16_t cntlid;     // 79:78   Controller ID
-        uint32_t ver;        // 83:80   NVMe Version
-        uint32_t rtd3r;      // 87:84   RTD3 Resume Latency
-        uint32_t rtd3e;      // 91:88   RTD3 Entry Latency
-        uint32_t oaes;       // 95:92   Optional Async Events
-        uint32_t ctratt;     // 99:96   Controller Attributes
-        uint8_t  rsvd0[12];  // 111:100
-        uint8_t  fguid[16];  // 127:112 FRU GUID
-        uint8_t  rsvd1[128]; // 255:128
-        /* Admin Command Set Attributes */
+        uint16_t vid;         // 1:0     PCI Vendor ID
+        uint16_t ssvid;       // 3:2     PCI Subsystem Vendor
+        uint8_t  sn[20];      // 23:4    Serial Number (ASCII)
+        uint8_t  mn[40];      // 63:24   Model Number (ASCII)
+        uint8_t  fr[8];       // 71:64   Firmware Revision
+        uint8_t  rab;         // 72      Recommended Arbitration Burst
+        uint8_t  ieee[3];     // 75:73   IEEE OUI Identifier
+        uint8_t  cmic;        // 76      Multi-Path I/O
+        uint8_t  mdts;        // 77      Max Data Transfer Size
+        uint16_t cntlid;      // 79:78   Controller ID
+        uint32_t ver;         // 83:80   NVMe Version
+        uint32_t rtd3r;       // 87:84   RTD3 Resume Latency
+        uint32_t rtd3e;       // 91:88   RTD3 Entry Latency
+        uint32_t oaes;        // 95:92   Optional Async Events
+        uint32_t ctratt;      // 99:96   Controller Attributes
+        uint8_t  rsvd0[12];   // 111:100
+        uint8_t  fguid[16];   // 127:112 FRU GUID
+        uint8_t  rsvd1[128];  // 255:128
+                              /* Admin Command Set Attributes */
         uint16_t oacs;        // 257:256 Optional Admin Cmd
         uint8_t  acl;         // 258     Abort Command Limit
         uint8_t  aerl;        // 259     Async Event Req Limit
@@ -229,12 +229,12 @@ typedef struct {
         uint8_t  rsvd4[224];  // 767:544
         uint8_t  subnqn[256]; // 1023:768 Subsystem NVMe Qualified Name
         uint8_t  rsvd5[1024]; // 2047:1024
-        /* Power State Descriptors (32 * 32 bytes) */
-        uint8_t psd[1024]; // 3071:2048
-        uint8_t vs[1024];  // 4095:3072 Vendor Specific
+                              /* Power State Descriptors (32 * 32 bytes) */
+        uint8_t psd[1024];    // 3071:2048
+        uint8_t vs[1024];     // 4095:3072 Vendor Specific
 } __attribute__((packed)) nvme_identify_ctrl_t;
 
-/* ---- Identify Namespace Data (4096 bytes) ---- */
+/* Identify Namespace Data (4096 bytes) */
 typedef struct {
         uint64_t nsze;       // 7:0     Namespace Size (total LBAs)
         uint64_t ncap;       // 15:8    Namespace Capacity
@@ -260,7 +260,7 @@ typedef struct {
         uint8_t  rsvd1[40];  // 103:64
         uint8_t  nguid[16];  // 119:104 Namespace GUID
         uint8_t  eui64[8];   // 127:120 IEEE Extended Unique Identifier
-        /* LBA Format support: 16 entries × 4 bytes */
+                             /* LBA Format support: 16 entries × 4 bytes */
         struct {
                 uint16_t ms; // Metadata Size
                 uint8_t  ds; // LBA Data Size (exponent, 2^ds)
@@ -269,7 +269,7 @@ typedef struct {
         uint8_t rsvd2[3904];
 } __attribute__((packed)) nvme_identify_ns_t;
 
-/* ---- Namespace descriptor ---- */
+/* Namespace descriptor */
 typedef struct nvme_namespace {
         uint32_t nsid;
         uint64_t total_sectors;
@@ -277,7 +277,7 @@ typedef struct nvme_namespace {
         uint8_t  ready;
 } nvme_namespace_t;
 
-/* ---- Queue Pair descriptor ---- */
+/* Queue Pair descriptor */
 typedef struct nvme_queue {
         uint32_t qid;
         uint16_t num_entries;
@@ -306,7 +306,7 @@ typedef struct nvme_queue {
         uint8_t  prp_list_inuse;
 } nvme_queue_t;
 
-/* ---- Controller descriptor ---- */
+/* Controller descriptor */
 typedef struct nvme_controller {
         uint8_t             present;
         uint16_t            id;  // controller index
@@ -343,7 +343,7 @@ int nvme_controller_count(void);
 /* Return controller at index `i` (or NULL) */
 nvme_controller_t *nvme_get_controller(int i);
 
-/* Backend I/O entry points - called through blockdev ops table */
+/* Backend I/O entry points — called through blockdev ops table */
 int nvme_read_sectors(const struct blockdev_device *dev, uint64_t lba, uint32_t count, void *buffer);
 int nvme_write_sectors(const struct blockdev_device *dev, uint64_t lba, uint32_t count, const void *buffer);
 int nvme_flush(const struct blockdev_device *dev);

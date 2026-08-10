@@ -4,7 +4,7 @@
  *      DRM display mode helpers
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -138,7 +138,7 @@ static bool drm_mode_equal(const struct drm_display_mode *mode1, const struct dr
  * Allocates a new drm_display_mode and fills it from the UAPI struct.
  * Note: the caller is responsible for registering the mode object via
  * drm_mode_object_idr_alloc if the mode needs an ID. This function does
- * NOT allocate an ID –it returns a raw struct suitable for probing.
+ * NOT allocate an ID — it returns a raw struct suitable for probing.
  * Returns the new mode or NULL on allocation failure.
  */
 struct drm_display_mode *drm_convert_umode(const struct drm_mode_modeinfo *umode)

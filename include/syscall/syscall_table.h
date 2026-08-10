@@ -4,7 +4,7 @@
  *      System call tables
  *
  *      2026/7/20 By Rainy101112
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

@@ -4,7 +4,7 @@
  *      Built-in bitmap font glyph data
  *
  *      2024/9/16 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

@@ -4,7 +4,7 @@
  *      Doubly circular linked list
  *
  *      2025/11/2 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

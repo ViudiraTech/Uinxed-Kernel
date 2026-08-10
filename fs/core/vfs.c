@@ -4,7 +4,7 @@
  *      Virtual file system
  *
  *      2025/11/2 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -57,7 +57,7 @@ static const char  *fs_names[256];
 static uint32_t     fs_flags[256];
 static int          fs_nextid = 1;
 
-/* Default callback function (does nothing) */
+/* Default callback for filesystem slots with no registered operations */
 static int empty_func(void)
 {
     return -ENOSYS;
@@ -2060,7 +2060,7 @@ int vfs_rename(vfs_node_t node, const char *new)
 
     if (collision && collision != node) {
         int delete_result = vfs_delete(collision);
-        vfs_close(collision); // NOLINT(clang-analyzer-unix.Malloc) - refcount incremented above guarantees node is live
+        vfs_close(collision); // NOLINT(clang-analyzer-unix.Malloc) — refcount incremented above guarantees node is live
         if (delete_result != EOK) {
             spin_lock(&vfs_namespace_lock);
             node->flags &= ~VFS_NODE_INITIALIZING;

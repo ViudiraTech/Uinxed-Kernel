@@ -4,7 +4,7 @@
  *      DRM range allocator (drm_mm)
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -25,7 +25,7 @@ enum drm_mm_insert_mode {
     DRM_MM_INSERT_TOPDOWN = DRM_MM_INSERT_HIGH,
     DRM_MM_INSERT_BEST    = 3, // best-fit search
     DRM_MM_INSERT_ONCE    = 4, // only attempt the first candidate hole
-    DRM_MM_INSERT_EVICT   = 5, // placeholder for color eviction
+    DRM_MM_INSERT_EVICT   = 5, // evict conflicting nodes to make room
 };
 
 #define DRM_MM_INSERT_MODE_FLAGS (DRM_MM_INSERT_ONCE | DRM_MM_INSERT_EVICT)

@@ -4,7 +4,7 @@
  *      IPv4 protocol implementation
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -25,6 +25,13 @@
 #define IPV4_MAX_HEADER               60U
 #define IPV4_MAX_PAYLOAD              (UINT16_MAX - IPV4_HEADER_MIN)
 #define IPV4_BITMAP_SIZE              ((IPV4_MAX_PAYLOAD + 7U) / 8U)
+
+/*
+ * Overview
+ * ipv4.c implements the IPv4 layer: header encode/decode, route
+ * selection, fragmentation and reassembly, and dispatch to the
+ * transport protocols (TCP/UDP/ICMP) through registered handlers.
+ */
 
 typedef struct ipv4_reassembly {
         net_device_t *device;

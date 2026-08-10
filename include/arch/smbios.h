@@ -4,7 +4,7 @@
  *      System management BIOS header file
  *
  *      2025/3/8 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

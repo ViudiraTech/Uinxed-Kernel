@@ -4,7 +4,7 @@
  *      Memory mapping subsystem header file
  *
  *      2026/7/21 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -65,7 +65,7 @@
 #define MCL_FUTURE  0x02
 #define MCL_ONFAULT 0x04
 
-/* ---------- Public API ---------- */
+/* Public API */
 
 /* Full mmap syscall implementation */
 int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t flags, uint64_t fd, uint64_t offset);

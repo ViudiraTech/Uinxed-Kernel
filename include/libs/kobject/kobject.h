@@ -4,7 +4,7 @@
  *      Kernel object model header file
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -18,9 +18,7 @@
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/*  kref ?reference-counting primitive                                */
-/* ------------------------------------------------------------------ */
+/* kref — reference-counting primitive */
 
 typedef struct kref {
         uint32_t refcount;
@@ -72,9 +70,7 @@ static inline uint32_t kref_read(const kref_t *kref)
     return __atomic_load_n(&kref->refcount, __ATOMIC_ACQUIRE);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Forward declarations                                               */
-/* ------------------------------------------------------------------ */
+/* Forward declarations */
 
 struct kobject;
 struct kset;
@@ -90,9 +86,7 @@ struct kobj_uevent_env {
         int   buflen;
 };
 
-/* ------------------------------------------------------------------ */
-/*  kobj_type ?type descriptor for a kobject                          */
-/* ------------------------------------------------------------------ */
+/* kobj_type — type descriptor for a kobject */
 
 struct kobj_type {
         void (*release)(struct kobject *kobj);
@@ -102,9 +96,7 @@ struct kobj_type {
         int (*uevent)(struct kobject *kobj, struct kobj_uevent_env *env);
 };
 
-/* ------------------------------------------------------------------ */
-/*  kset_uevent_ops ?hotplug event callbacks for a kset               */
-/* ------------------------------------------------------------------ */
+/* kset_uevent_ops — hotplug event callbacks for a kset */
 
 enum kobject_action {
     KOBJ_ADD     = 1,
@@ -123,9 +115,7 @@ struct kset_uevent_ops {
         int (*uevent)(struct kobject *kobj, struct kobj_uevent_env *env);
 };
 
-/* ------------------------------------------------------------------ */
-/*  kobject ?the core object-model primitive                          */
-/* ------------------------------------------------------------------ */
+/* kobject — the core object-model primitive */
 
 #define KOBJ_NAME_LEN 64
 
@@ -152,9 +142,7 @@ struct kobject {
         unsigned int uevent_suppress          : 1;
 };
 
-/* ------------------------------------------------------------------ */
-/*  kset ?a collection of kobjects (appears as a sysfs subdirectory)  */
-/* ------------------------------------------------------------------ */
+/* kset — a collection of kobjects (appears as a sysfs subdirectory) */
 
 struct kset {
         clist_t                       list;      // circular list of kobject entries
@@ -164,9 +152,7 @@ struct kset {
         unsigned int                  dynamic : 1;
 };
 
-/* ------------------------------------------------------------------ */
-/*  kobject lifecycle API                                              */
-/* ------------------------------------------------------------------ */
+/* kobject lifecycle API */
 
 /* Initialise a kobject (must be called before kobject_add) */
 void kobject_init(struct kobject *kobj, struct kobj_type *ktype);
@@ -201,9 +187,7 @@ int kobject_move(struct kobject *kobj, struct kobject *new_parent);
 /* Return a pointer to the kobject's name */
 const char *kobject_name(const struct kobject *kobj);
 
-/* ------------------------------------------------------------------ */
-/*  kset lifecycle API                                                 */
-/* ------------------------------------------------------------------ */
+/* kset lifecycle API */
 
 /* Initialise a kset */
 void kset_init(struct kset *kset);
@@ -227,9 +211,7 @@ static inline void kset_put(struct kset *kset)
     if (kset) kobject_put(&kset->kobj);
 }
 
-/* ------------------------------------------------------------------ */
-/*  uevent helpers                                                     */
-/* ------------------------------------------------------------------ */
+/* uevent helpers */
 
 /* Send a KOBJ_ADD uevent for a kobject */
 int kobject_uevent(struct kobject *kobj, enum kobject_action action);

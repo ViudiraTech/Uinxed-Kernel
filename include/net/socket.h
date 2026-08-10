@@ -4,7 +4,7 @@
  *      BSD Socket API definitions header file
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -17,9 +17,7 @@
 #include <process/task.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/*  Address families                                                   */
-/* ------------------------------------------------------------------ */
+/* Address families */
 
 #define AF_UNSPEC  0
 #define AF_UNIX    1
@@ -28,9 +26,7 @@
 #define AF_INET6   10
 #define AF_NETLINK 16
 
-/* ------------------------------------------------------------------ */
-/*  Socket types                                                       */
-/* ------------------------------------------------------------------ */
+/* Socket types */
 
 #define SOCK_STREAM    1
 #define SOCK_DGRAM     2
@@ -39,9 +35,7 @@
 #define SOCK_NONBLOCK  0x800
 #define SOCK_CLOEXEC   0x80000
 
-/* ------------------------------------------------------------------ */
-/*  Socket-level options (SOL_SOCKET)                                   */
-/* ------------------------------------------------------------------ */
+/* Socket-level options (SOL_SOCKET) */
 
 #define SOL_SOCKET  1
 #define SOL_NETLINK 270
@@ -70,9 +64,7 @@
 #define SO_PROTOCOL    38
 #define SO_DOMAIN      39
 
-/* ------------------------------------------------------------------ */
-/*  Message flags                                                      */
-/* ------------------------------------------------------------------ */
+/* Message flags */
 
 #define MSG_OOB          0x0001
 #define MSG_PEEK         0x0002
@@ -92,24 +84,18 @@
 #define MSG_MORE         0x8000
 #define MSG_CMSG_CLOEXEC 0x40000000
 
-/* ------------------------------------------------------------------ */
-/*  Shutdown how                                                       */
-/* ------------------------------------------------------------------ */
+/* Shutdown how */
 
 #define SHUT_RD   0
 #define SHUT_WR   1
 #define SHUT_RDWR 2
 
-/* ------------------------------------------------------------------ */
-/*  CMSG / ancillary data                                              */
-/* ------------------------------------------------------------------ */
+/* CMSG / ancillary data */
 
 #define SCM_RIGHTS      0x01
 #define SCM_CREDENTIALS 0x02
 
-/* ------------------------------------------------------------------ */
-/*  struct sockaddr_un - UNIX domain socket address                     */
-/* ------------------------------------------------------------------ */
+/* struct sockaddr_un — UNIX domain socket address */
 
 #define UNIX_PATH_MAX 108
 
@@ -118,9 +104,7 @@ typedef struct sockaddr_un {
         char     sun_path[UNIX_PATH_MAX];
 } sockaddr_un_t;
 
-/* ------------------------------------------------------------------ */
-/*  struct msghdr - message header for sendmsg/recvmsg                  */
-/* ------------------------------------------------------------------ */
+/* struct msghdr — message header for sendmsg/recvmsg */
 
 typedef struct iovec {
         void  *iov_base;
@@ -149,18 +133,14 @@ typedef struct cmsghdr {
 #define CMSG_DATA(cmsg)     ((void *)((uint8_t *)(cmsg) + sizeof(cmsghdr_t)))
 #define CMSG_FIRSTHDR(mhdr) ((mhdr)->msg_controllen >= sizeof(cmsghdr_t) ? (cmsghdr_t *)(mhdr)->msg_control : NULL)
 
-/* ------------------------------------------------------------------ */
-/*  struct linger                                                      */
-/* ------------------------------------------------------------------ */
+/* struct linger */
 
 typedef struct linger {
         int l_onoff;
         int l_linger;
 } linger_t;
 
-/* ------------------------------------------------------------------ */
-/*  struct ucred - user credentials                                     */
-/* ------------------------------------------------------------------ */
+/* struct ucred — user credentials */
 
 typedef struct ucred {
         uint32_t pid;
@@ -168,9 +148,7 @@ typedef struct ucred {
         uint32_t gid;
 } ucred_t;
 
-/* ------------------------------------------------------------------ */
-/*  Socket state machine                                               */
-/* ------------------------------------------------------------------ */
+/* Socket state machine */
 
 typedef enum {
     SOCK_STATE_FREE,
@@ -181,9 +159,7 @@ typedef enum {
     SOCK_STATE_DISCONNECTING,
 } socket_state_t;
 
-/* ------------------------------------------------------------------ */
-/*  Socket internal buffer                                              */
-/* ------------------------------------------------------------------ */
+/* Socket internal buffer */
 
 #ifndef SOCK_BUF_SIZE
 #    define SOCK_BUF_SIZE 65536
@@ -200,17 +176,13 @@ typedef struct sock_buf {
         spinlock_t lock;
 } sock_buf_t;
 
-/* ------------------------------------------------------------------ */
-/*  Forward declarations                                               */
-/* ------------------------------------------------------------------ */
+/* Forward declarations */
 
 typedef struct socket    socket_t;
 typedef struct sock_peer sock_peer_t;
 struct process_file;
 
-/* ------------------------------------------------------------------ */
-/*  Socket structure                                                    */
-/* ------------------------------------------------------------------ */
+/* Socket structure */
 
 struct socket {
         socket_state_t state;
@@ -288,9 +260,7 @@ struct socket {
         wait_queue_t waitq;
 };
 
-/* ------------------------------------------------------------------ */
-/*  Socket system call interface                                       */
-/* ------------------------------------------------------------------ */
+/* Socket system call interface */
 
 int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol);
 int64_t sys_bind(int fd, const sockaddr_t *addr, uint32_t addrlen);

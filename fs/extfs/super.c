@@ -4,7 +4,7 @@
  *      ext2/ext3/ext4 filesystem - superblock handling
  *
  *      2026/7/29 By JiTianYu391
- *      Copyright © 2026 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2026 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -16,6 +16,13 @@
 #include <libs/util/crc32c.h>
 #include <mem/alloc.h>
 #include <mem/heap.h>
+
+/*
+ * Superblock handling
+ * Reads and validates the on-disk superblock, detects the ext2/3/4
+ * feature set, and provides the block-addressed disk I/O primitives
+ * (optionally routed through the current jbd2 transaction).
+ */
 
 int extfs_detect_version(const ext2_super_block_t *es)
 {

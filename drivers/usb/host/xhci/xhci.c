@@ -4,7 +4,7 @@
  *      PCI xHCI host-controller driver
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -29,6 +29,14 @@
 #include <process/task.h>
 
 #define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
+
+/*
+ * Overview
+ * xHCI is the USB 3.x/2.0/1.1 host controller. All transfers run as
+ * TRBs on ring buffers (one command ring, one event ring, plus a
+ * ring per endpoint); slots represent addressed devices. The driver
+ * submits TRBs, rings the doorbell and processes transfer events.
+ */
 
 static void xhci_usb_device_release(struct device *dev);
 
@@ -204,6 +212,13 @@ static xhci_controller_t *xhci_irq_slots[USB_MAX_CONTROLLERS];
 static size_t             xhci_controller_count;
 static spinlock_t         xhci_irq_lock;
 
+/*
+ * MMIO and DMA helpers
+ * The xHCI register space is memory-mapped; all access goes through
+ * these helpers. DMA buffers are page-frame allocations translated
+ * to virtual addresses for software use.
+ */
+
 static uint32_t xhci_read32(const volatile uint8_t *base, size_t offset)
 {
     return *(volatile const uint32_t *)(base + offset);
@@ -244,6 +259,7 @@ static void xhci_dma_free(uint64_t physical, size_t pages)
     if (physical && pages) free_frames(physical, pages);
 }
 
+/* Poll an MMIO register until a mask matches or the timeout elapses */
 static int xhci_wait_register(volatile uint8_t *base, size_t offset, uint32_t mask, uint32_t value, uint32_t timeout_ms)
 {
     uint64_t deadline = nano_time() + (uint64_t)timeout_ms * 1000000ULL;
@@ -423,6 +439,13 @@ static int xhci_wait_transfer(xhci_transfer_t *transfer, uint32_t timeout_ms)
     return transfer->status;
 }
 
+/*
+ * Transfer submission
+ * Control transfers are encoded as SETUP / DATA / STATUS TRBs on
+ * endpoint 1's ring; bulk and interrupt transfers use their own
+ * endpoint rings. Completion is reported through a transfer event.
+ */
+
 static int xhci_control(usb_device_t *device, const usb_setup_packet_t *setup, void *buffer, size_t length, uint32_t timeout_ms)
 {
     xhci_slot_t *slot = device ? device->hc_private : NULL;
@@ -466,6 +489,7 @@ io_error:
     return -EIO;
 }
 
+/* Submit a bulk/interrupt transfer on an endpoint ring */
 static int xhci_transfer(usb_endpoint_t *usb_endpoint, void *buffer, size_t length, size_t *actual, uint32_t timeout_ms)
 {
     if (!usb_endpoint || !buffer || !length || length > PAGE_4K_SIZE || !usb_endpoint->hc_private) return -EINVAL;
@@ -762,6 +786,12 @@ static int xhci_get_string(usb_device_t *device, uint8_t index, uint16_t languag
     output[characters] = '\0';
     return EOK;
 }
+
+/*
+ * Device enumeration
+ * Reset the port, enable a slot, address the device, then read its
+ * descriptors and register it with the USB core.
+ */
 
 static int xhci_enumerate_port(xhci_controller_t *controller, uint8_t port_id)
 {
@@ -1083,6 +1113,7 @@ static void xhci_release_controller(xhci_controller_t *controller)
     free(controller);
 }
 
+/* Probe a PCI xHCI controller: map BAR0, take ownership, init the rings */
 static int xhci_probe(pci_device_cache_t *pci, uint8_t bus_number)
 {
     int                     result = -EINVAL;

@@ -4,7 +4,7 @@
  *      Fast userspace mutex header file
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -14,9 +14,7 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
-/* ------------------------------------------------------------------ */
-/*  Futex operations                                                   */
-/* ------------------------------------------------------------------ */
+/* Futex operations */
 
 #define FUTEX_WAIT            0
 #define FUTEX_WAKE            1
@@ -39,9 +37,7 @@
 /* 64-bit mask/bitset support (used by classic bitsets and futex2 masks) */
 #define FUTEX_BITSET_MATCH_ANY 0xffffffffffffffffULL
 
-/* ------------------------------------------------------------------ */
-/*  futex2 flags (Linux 6.7+ futex_wake / futex_wait / futex_requeue)  */
-/* ------------------------------------------------------------------ */
+/* futex2 flags (Linux 6.7+ futex_wake / futex_wait / futex_requeue) */
 
 #define FUTEX2_SIZE_U8   0x00
 #define FUTEX2_SIZE_U16  0x01
@@ -62,9 +58,7 @@ struct futex_waitv {
         uint32_t __reserved;
 };
 
-/* ------------------------------------------------------------------ */
-/*  Futex syscall interface                                            */
-/* ------------------------------------------------------------------ */
+/* Futex syscall interface */
 
 int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout, uint32_t *uaddr2, uint32_t val3);
 

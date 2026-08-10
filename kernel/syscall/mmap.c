@@ -4,7 +4,7 @@
  *      Memory mapping subsystem implementation
  *
  *      2026/7/21 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -200,7 +200,7 @@ fail:
     return NULL;
 }
 
-/* ---------- Full mmap syscall implementation ---------- */
+/* Full mmap syscall implementation */
 
 int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t flags, uint64_t fd, uint64_t offset)
 {
@@ -630,7 +630,7 @@ int sys_madvise(uint64_t addr, uint64_t length, uint64_t advice)
     (void)addr;
     (void)length;
     (void)advice;
-    /* madvise is advisory - accept all hints */
+    /* madvise is advisory — accept all hints */
     return EOK;
 }
 

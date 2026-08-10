@@ -4,7 +4,7 @@
  *      TTY driver registry and per-node dispatch
  *
  *      2026/8/10 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -152,9 +152,7 @@ void tty_unregister_driver(tty_driver_t *drv)
     spin_unlock(&tty_driver_lock);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Per-node dispatch                                                  */
-/* ------------------------------------------------------------------ */
+/* Per-node dispatch */
 
 int tty_dispatch_open(struct vfs_node *node, uint64_t flags, void **private_data)
 {

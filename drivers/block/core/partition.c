@@ -4,7 +4,7 @@
  *      MBR and GPT partition table support
  *
  *      2026/7/26 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -28,6 +28,14 @@
 #define GPT_SIGNATURE        "EFI PART"
 #define GPT_REVISION_1_0     0x00010000U
 
+/*
+ * GPT on-disk layout summary
+ * A GPT header records the location and CRC of both the primary and
+ * backup partition-entry arrays. When the primary header is invalid
+ * the backup is tried, and a mismatch between the two is reported
+ * through the degraded flag.
+ */
+
 typedef struct gpt_location {
         uint64_t current_lba;
         uint64_t alternate_lba;
@@ -41,6 +49,13 @@ typedef struct gpt_location {
         uint8_t  disk_guid[16];
         bool     valid;
 } gpt_location_t;
+
+/*
+ * Little-endian access helpers
+ * Partition tables and GPT headers are stored in little-endian byte
+ * order regardless of the host, so all fields are decoded through
+ * these helpers.
+ */
 
 static uint16_t load_le16(const void *pointer)
 {
@@ -77,6 +92,7 @@ static bool guid_is_zero(const uint8_t guid[16])
     return value == 0;
 }
 
+/* Check that [start, start+count) lies within the disk's LBA range */
 static bool range_valid(uint64_t start, uint64_t count, uint64_t limit)
 {
     return count != 0 && start < limit && count <= limit - start;
@@ -92,12 +108,14 @@ static bool mbr_is_extended(uint8_t type)
     return type == 0x05 || type == 0x0F || type == 0x85;
 }
 
+/* Read a single sector, rejecting out-of-range LBAs */
 static int read_sector(const blockdev_device_t *device, uint64_t lba, uint8_t *sector)
 {
     if (lba >= device->sector_count) return -EINVAL;
     return blockdev_read_sectors(device, lba, 1, sector);
 }
 
+/* Copy an arbitrary byte range from the disk, crossing sector boundaries */
 static int read_disk_bytes(const blockdev_device_t *device, uint64_t byte_offset, void *buffer, size_t size, uint8_t *scratch)
 {
     uint8_t *output = buffer;
@@ -119,6 +137,7 @@ static int read_disk_bytes(const blockdev_device_t *device, uint64_t byte_offset
     return EOK;
 }
 
+/* Standard CRC-32 (IEEE 802.3, reflected), used for GPT integrity checks */
 static uint32_t crc32_update(uint32_t crc, const uint8_t *buffer, size_t size)
 {
     for (size_t i = 0; i < size; i++) {
@@ -128,6 +147,7 @@ static uint32_t crc32_update(uint32_t crc, const uint8_t *buffer, size_t size)
     return crc;
 }
 
+/* Compute CRC-32 over a byte range on disk without loading it into RAM */
 static int disk_crc32(const blockdev_device_t *device, uint64_t byte_offset, uint64_t size, uint32_t *result, uint8_t *scratch)
 {
     uint32_t crc = UINT32_MAX;
@@ -148,6 +168,13 @@ static int disk_crc32(const blockdev_device_t *device, uint64_t byte_offset, uin
     *result = crc ^ UINT32_MAX;
     return EOK;
 }
+
+/*
+ * MBR parsing
+ * The MBR holds up to four primary entries; a special "extended"
+ * type points to a chain of EBR sectors that hold logical partitions
+ * numbered from 5 upward.
+ */
 
 static int table_add(partition_table_t *table, const partition_info_t *partition)
 {
@@ -179,6 +206,7 @@ static int validate_mbr_entry(const uint8_t *entry, uint64_t disk_sectors, uint6
     return EOK;
 }
 
+/* Walk a chain of extended-boot-record (EBR) sectors for logical partitions */
 static int parse_ebr_chain(const blockdev_device_t *device, partition_table_t *table, uint64_t extended_start, uint64_t extended_count,
                            uint32_t *next_number, uint8_t *sector)
 {
@@ -247,6 +275,7 @@ static int parse_ebr_chain(const blockdev_device_t *device, partition_table_t *t
     }
 }
 
+/* Parse a primary MBR, collecting the four primary entries plus EBR chains */
 static int parse_mbr(const blockdev_device_t *device, partition_table_t *table, const uint8_t *mbr, uint8_t *sector)
 {
     uint64_t extended_start[MBR_PARTITION_COUNT];
@@ -296,6 +325,9 @@ static int parse_mbr(const blockdev_device_t *device, partition_table_t *table, 
     return table->count ? EOK : -ENOENT;
 }
 
+/* GPT parsing */
+
+/* Read and validate a GPT header at header_lba, filling in location */
 static int validate_gpt_header(const blockdev_device_t *device, uint64_t header_lba, gpt_location_t *location, uint8_t *sector, uint8_t *scratch)
 {
     uint64_t entry_blocks;
@@ -359,6 +391,7 @@ static int validate_gpt_header(const blockdev_device_t *device, uint64_t header_
     return EOK;
 }
 
+/* Encode a Unicode codepoint as UTF-8, appending it to the output buffer */
 static size_t append_utf8(char *output, size_t capacity, size_t used, uint32_t codepoint)
 {
     uint8_t encoded[4];
@@ -388,6 +421,7 @@ static size_t append_utf8(char *output, size_t capacity, size_t used, uint32_t c
     return used + count;
 }
 
+/* Convert a GPT partition name (UTF-16LE, possibly with surrogate pairs) to UTF-8 */
 static void gpt_name_to_utf8(const uint8_t *input, char output[PARTITION_NAME_SIZE])
 {
     size_t used = 0;
@@ -424,6 +458,7 @@ static bool gpt_locations_match(const gpt_location_t *primary, const gpt_locatio
            && primary->entries_crc == backup->entries_crc && !memcmp(primary->disk_guid, backup->disk_guid, 16);
 }
 
+/* Parse the partition-entry array described by a validated GPT header */
 static int parse_gpt_entries(const blockdev_device_t *device, partition_table_t *table, const gpt_location_t *location, uint8_t *scratch)
 {
     uint8_t entry[128];
@@ -465,6 +500,12 @@ static int format_guid(const uint8_t guid[16], char *buffer, size_t size)
     return EOK;
 }
 
+/* Public API */
+
+/* Detect the partition-table format on a disk and populate a partition_table_t.
+ * A protective MBR entry (type 0xEE at LBA 1) selects GPT; otherwise the
+ * classic MBR path is taken. GPT headers are validated by CRC before use,
+ * falling back to the backup header when the primary is damaged. */
 int partition_scan(const blockdev_device_t *device, partition_table_t *table)
 {
     gpt_location_t primary;
@@ -557,6 +598,7 @@ fail:
     return status;
 }
 
+/* Release the dynamic partition array owned by a partition table */
 void partition_table_destroy(partition_table_t *table)
 {
     if (!table) return;
@@ -564,6 +606,7 @@ void partition_table_destroy(partition_table_t *table)
     memset(table, 0, sizeof(*table));
 }
 
+/* Look up a partition by its 1-based number (or GPT entry index) */
 const partition_info_t *partition_find(const partition_table_t *table, uint32_t number)
 {
     if (!table) return NULL;
@@ -572,6 +615,7 @@ const partition_info_t *partition_find(const partition_table_t *table, uint32_t 
     return NULL;
 }
 
+/* Format a partition UUID: canonical GUID for GPT, "disk-signature-N" for MBR */
 int partition_format_uuid(const partition_table_t *table, const partition_info_t *partition, char *buffer, size_t size)
 {
     if (!table || !partition || !buffer) return -EINVAL;

@@ -4,7 +4,7 @@
  *      DRM magic authentication
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -21,19 +21,13 @@
 #include <mem/alloc.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/* drm_master type is defined in <drivers/gpu/drm/drm_device.h>           */
-/* ------------------------------------------------------------------ */
+/* drm_master type is defined in <drivers/gpu/drm/drm_device.h> */
 
-/* ------------------------------------------------------------------ */
-/* Static counter for magic number generation.                         */
-/* ------------------------------------------------------------------ */
+/* Static counter for magic number generation. */
 
 static drm_magic_t magic_counter = 1;
 
-/* ------------------------------------------------------------------ */
-/* drm_getmagic - handle DRM_IOCTL_GET_MAGIC                           */
-/* ------------------------------------------------------------------ */
+/* drm_getmagic — handle DRM_IOCTL_GET_MAGIC */
 
 int drm_getmagic(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
@@ -71,9 +65,7 @@ int drm_getmagic(struct drm_device *dev, void *data, struct drm_file *file_priv)
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_authmagic - handle DRM_IOCTL_AUTH_MAGIC                         */
-/* ------------------------------------------------------------------ */
+/* drm_authmagic — handle DRM_IOCTL_AUTH_MAGIC */
 
 int drm_authmagic(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
@@ -97,15 +89,13 @@ int drm_authmagic(struct drm_device *dev, void *data, struct drm_file *file_priv
     }
     spin_unlock(&file_priv->magic_lock);
 
-    /* Magic found - authenticate this file. */
+    /* Magic found — authenticate this file. */
     file_priv->authenticated = true;
 
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_setmaster - handle DRM_IOCTL_SET_MASTER                         */
-/* ------------------------------------------------------------------ */
+/* drm_setmaster — handle DRM_IOCTL_SET_MASTER */
 
 int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
@@ -148,9 +138,7 @@ int drm_setmaster(struct drm_device *dev, void *data, struct drm_file *file_priv
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_dropmaster - handle DRM_IOCTL_DROP_MASTER                       */
-/* ------------------------------------------------------------------ */
+/* drm_dropmaster — handle DRM_IOCTL_DROP_MASTER */
 
 int drm_dropmaster(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {

@@ -1,14 +1,10 @@
 /*
  *
  *      virtgpu_drv.h
- *      VirtIO-GPU DRM driver ?main header
+ *      VirtIO-GPU DRM driver — main header
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
- *
- *  Defines the virtio-gpu protocol structures, DRM UAPI ioctl codes,
- *  the device / fence / object types, and all function prototypes.
- *  Supports the full 3D (virgl) and blob-resource feature sets.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -29,9 +25,7 @@
 #include <mem/alloc.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/* VirtIO GPU feature bits                                             */
-/* ------------------------------------------------------------------ */
+/* VirtIO GPU feature bits */
 
 #define VIRTIO_GPU_F_VIRGL         0
 #define VIRTIO_GPU_F_EDID          1
@@ -39,9 +33,7 @@
 #define VIRTIO_GPU_F_RESOURCE_BLOB 3
 #define VIRTIO_GPU_F_CONTEXT_INIT  4
 
-/* ------------------------------------------------------------------ */
-/* VirtIO GPU protocol: command types (8-bit)                          */
-/* ------------------------------------------------------------------ */
+/* VirtIO GPU protocol: command types (8-bit) */
 
 enum virtio_gpu_ctrl_type {
     /* 2D commands */
@@ -91,9 +83,7 @@ enum virtio_gpu_ctrl_type {
     VIRTIO_GPU_RESP_ERR_INVALID_PARAMETER   = 0x1205,
 };
 
-/* ------------------------------------------------------------------ */
-/* VirtIO GPU pixel formats (byte-order in memory, little-endian)     */
-/* ------------------------------------------------------------------ */
+/* VirtIO GPU pixel formats (byte-order in memory, little-endian) */
 
 #define VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM 1
 #define VIRTIO_GPU_FORMAT_B8G8R8X8_UNORM 2
@@ -108,9 +98,7 @@ enum virtio_gpu_ctrl_type {
 #define VIRTIO_GPU_FLAG_FENCE         (1U << 0)
 #define VIRTIO_GPU_FLAG_INFO_RING_IDX (1U << 1)
 
-/* ------------------------------------------------------------------ */
-/* VirtIO GPU protocol structures (wire format, little-endian)         */
-/* ------------------------------------------------------------------ */
+/* VirtIO GPU protocol structures (wire format, little-endian) */
 
 struct virtio_gpu_ctrl_hdr {
         uint32_t type;
@@ -367,9 +355,7 @@ struct virtio_gpu_resp_map_info {
 #define VIRTIO_GPU_BLOB_FLAG_USE_SHAREABLE    (1 << 1)
 #define VIRTIO_GPU_BLOB_FLAG_USE_CROSS_DEVICE (1 << 2)
 
-/* ------------------------------------------------------------------ */
-/* DRM UAPI ?ioctl codes (match Linux virtgpu_drm.h exactly)          */
-/* ------------------------------------------------------------------ */
+/* DRM UAPI — ioctl codes (match Linux virtgpu_drm.h exactly) */
 
 #define DRM_VIRTGPU_MAP                  0x01
 #define DRM_VIRTGPU_EXECBUFFER           0x02
@@ -407,9 +393,7 @@ struct virtio_gpu_resp_map_info {
 #define DRM_VIRTGPU_PARAM_EXPLICIT_DEBUG_NAME  8
 #define DRM_VIRTGPU_PARAM_BLOB_ALIGNMENT       9
 
-/* ------------------------------------------------------------------ */
-/* DRM UAPI structs (fixed-width for x86-64 compat)                    */
-/* ------------------------------------------------------------------ */
+/* DRM UAPI structs (fixed-width for x86-64 compat) */
 
 struct drm_virtgpu_map {
         uint64_t offset; // mmap offset (in) / virtual addr (out)
@@ -538,9 +522,7 @@ struct drm_virtgpu_context_init {
 
 #define VIRTGPU_EVENT_FENCE_SIGNALED 0x90000000
 
-/* ------------------------------------------------------------------ */
-/* Internal resource / object types                                    */
-/* ------------------------------------------------------------------ */
+/* Internal resource / object types */
 
 /* Capset IDs (matches virgl/drm virtgpu) */
 #define VIRTGPU_CAPSET_VIRGL            1
@@ -571,9 +553,7 @@ struct virtio_gpu_fpriv {
         spinlock_t context_lock;
 };
 
-/* ------------------------------------------------------------------ */
-/* Fence tracking                                                      */
-/* ------------------------------------------------------------------ */
+/* Fence tracking */
 
 struct virtio_gpu_fence {
         uint64_t             id;
@@ -590,9 +570,7 @@ struct virtio_gpu_context_attachment {
         uint32_t                              ctx_id;
 };
 
-/* ------------------------------------------------------------------ */
-/* GEM object wrapper (virtio-gpu specific)                            */
-/* ------------------------------------------------------------------ */
+/* GEM object wrapper (virtio-gpu specific) */
 
 struct virtio_gpu_object {
         struct drm_gem_object base;
@@ -623,9 +601,7 @@ struct virtio_gpu_object {
         struct virtio_gpu_fence *fence;
 };
 
-/* ------------------------------------------------------------------ */
-/* Display mode from host                                              */
-/* ------------------------------------------------------------------ */
+/* Display mode from host */
 
 struct virtio_gpu_display_mode {
         int                    width;
@@ -643,9 +619,7 @@ struct virtio_gpu_capset_cache {
         void    *data;
 };
 
-/* ------------------------------------------------------------------ */
-/* VirtIO-GPU device instance                                          */
-/* ------------------------------------------------------------------ */
+/* VirtIO-GPU device instance */
 
 struct virtio_gpu_device {
         struct vp_device  *vp_dev;
@@ -691,22 +665,20 @@ struct virtio_gpu_device {
         struct drm_connector     *kms_connector;
 };
 
-/* ------------------------------------------------------------------ */
-/* Function prototypes (defined across the virtgpu_*.c files)          */
-/* ------------------------------------------------------------------ */
+/* Function prototypes (defined across the virtgpu_*.c files) */
 
-/* gpu.c ?driver init / ioctls */
+/* gpu.c — driver init / ioctls */
 int                virtio_gpu_driver_init(void);
 struct drm_device *virtio_gpu_dev_alloc(struct virtio_gpu_device *vgdev);
 
-/* virtgpu_vq.c ?virtqueue helpers */
+/* virtgpu_vq.c — virtqueue helpers */
 int  virtgpu_vq_init(struct virtio_gpu_device *vgdev);
 void virtgpu_vq_fini(struct virtio_gpu_device *vgdev);
 int  virtgpu_ctrl_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size, void *resp, int resp_size, uint64_t *fence_id);
 int  virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_command *commands, uint32_t count);
 int  virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size);
 
-/* virtgpu_cmd.c ?command encoding */
+/* virtgpu_cmd.c — command encoding */
 int virtgpu_cmd_get_display_info(struct virtio_gpu_device *vgdev);
 int virtgpu_cmd_get_edid(struct virtio_gpu_device *vgdev, int scanout_id, void *edid, int *edid_size);
 int virtgpu_cmd_create_resource_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj);
@@ -739,7 +711,7 @@ int virtgpu_cmd_submit_3d(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint
 int virtgpu_cmd_get_capset_info(struct virtio_gpu_device *vgdev, uint32_t idx, uint32_t *capset_id, uint32_t *max_version, uint32_t *max_size);
 int virtgpu_cmd_get_capset(struct virtio_gpu_device *vgdev, uint32_t capset_id, uint32_t version, void *data, uint32_t max_size);
 
-/* virtgpu_gem.c ?GEM management */
+/* virtgpu_gem.c — GEM management */
 struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_t size);
 void                      virtgpu_gem_free_object(struct drm_gem_object *obj);
 int                       virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, struct drm_mode_create_dumb *args);
@@ -747,19 +719,17 @@ int                       virtgpu_gem_dumb_map_offset(struct drm_file *file_priv
 int                       virtgpu_gem_prime_export(struct drm_device *dev, struct drm_gem_object *obj, int *prime_fd);
 struct drm_gem_object    *virtgpu_gem_prime_import(struct drm_device *dev, void *dma_buf);
 
-/* Module initialisation ?called from kernel init after drm_init() */
+/* Module initialisation — called from kernel init after drm_init() */
 int   virtio_gpu_init(void);
 void  virtio_gpu_module_exit(void);
 void *virtio_gpu_get_device(void);
 
-/* virtgpu_kms.c ?KMS display pipeline */
+/* virtgpu_kms.c — KMS display pipeline */
 int  virtgpu_kms_init(struct virtio_gpu_device *vgdev);
 void virtgpu_kms_fini(struct virtio_gpu_device *vgdev);
 int  virtgpu_kms_get_modes(struct drm_connector *connector);
 
-/* ------------------------------------------------------------------ */
-/* DRM fourcc ?VirtIO GPU format translation                          */
-/* ------------------------------------------------------------------ */
+/* DRM fourcc — VirtIO GPU format translation */
 
 /*
  * Convert a DRM fourcc pixel format to the corresponding VirtIO GPU

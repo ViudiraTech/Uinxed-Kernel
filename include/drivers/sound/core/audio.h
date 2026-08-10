@@ -4,7 +4,7 @@
  *      Generic audio subsystem interfaces
  *
  *      2026/7/20 By Rainy101112
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -26,9 +26,7 @@
 #define POLLERR 0x008
 #define POLLHUP 0x010
 
-/* =================================================================== */
-/* ALSA-compatible ioctl numbers                                       */
-/* =================================================================== */
+/* ALSA-compatible ioctl numbers */
 #define SNDRV_PCM_IOCTL_PVERSION      0x80044100
 #define SNDRV_PCM_IOCTL_INFO          0x80044101
 #define SNDRV_PCM_IOCTL_HW_PARAMS     0xC0444111
@@ -82,9 +80,7 @@
 typedef uint64_t snd_pcm_uframes_t;
 typedef int64_t  snd_pcm_sframes_t;
 
-/* =================================================================== */
-/* ALSA data structures (simplified, layout compatible)                */
-/* =================================================================== */
+/* ALSA data structures (simplified, layout compatible) */
 typedef int snd_pcm_state_t;
 
 struct snd_pcm_info {
@@ -175,9 +171,7 @@ struct snd_xferi {
         snd_pcm_uframes_t frames;
 };
 
-/* =================================================================== */
-/* Local audio subsystem types                                         */
-/* =================================================================== */
+/* Local audio subsystem types */
 typedef enum {
     audio_node_control,
     audio_node_pcm_playback,

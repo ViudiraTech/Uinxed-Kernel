@@ -4,25 +4,7 @@
  *      DRM modeset locking (acquire-context based)
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
- *
- *  Adapted from the Linux drm_modeset_lock API (drivers/gpu/drm/drm_modeset_lock.c).
- *
- *  Each drm_modeset_lock wraps a spinlock that is held across the whole
- *  ownership interval (acquire-to-release) and records the owning acquire
- *  context. An acquire context tracks every lock it holds so that atomic
- *  helpers can perform deadlock-aware backoff: when a lock is already owned by
- *  another context, drm_modeset_lock() returns -EDEADLK instead of blocking;
- *  the caller then drops its held locks via drm_modeset_backoff(), acquires the
- *  contended lock, and retries the original acquisition sequence.
- *
- *  Lock ordering: a lock's mutex (lock->mutex) is the outer lock and the
- *  context bookkeeping lock (ctx->ctx_lock) is the innermost lock. ctx->ctx_lock
- *  is never held while acquiring any lock->mutex, and it is never held across a
- *  call that itself acquires it, so the acquisition graph stays acyclic. An
- *  acquire context is owned by a single thread, so its held-lock list is not
- *  modified concurrently; ctx->ctx_lock is nonetheless taken for every
- *  bookkeeping update to keep the contract explicit and future-proof.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -36,9 +18,7 @@
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/* Lock primitives                                                    */
-/* ------------------------------------------------------------------ */
+/* Lock primitives */
 
 /*
  * Initialize @lock as free and ready for use. The list link is made a valid
@@ -171,9 +151,7 @@ bool drm_modeset_is_locked(struct drm_modeset_lock *lock)
     return lock->ctx != NULL || lock->mutex.lock != 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Acquire context                                                    */
-/* ------------------------------------------------------------------ */
+/* Acquire context */
 
 /*
  * Initialize acquire context @ctx. @flags is reserved; bit 0 selects
@@ -258,9 +236,7 @@ int drm_modeset_backoff(struct drm_modeset_acquire_ctx *ctx)
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Device-wide locking                                                */
-/* ------------------------------------------------------------------ */
+/* Device-wide locking */
 
 /*
  * Acquire all KMS modeset locks of @dev under @ctx: the global mode_config

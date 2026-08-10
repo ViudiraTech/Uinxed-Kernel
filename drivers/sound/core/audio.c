@@ -4,7 +4,7 @@
  *      Generic audio subsystem
  *
  *      2026/7/20 By Rainy101112
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -26,9 +26,7 @@ static char                audio_node_names[MAX_NODES][24];
 static size_t              audio_cards_count;
 static size_t              audio_nodes_count;
 
-/* ------------------------------------------------------------------ */
-/* Node name helpers                                                  */
-/* ------------------------------------------------------------------ */
+/* Node name helpers */
 static const char *audio_node_suffix(audio_node_type_t type)
 {
     switch (type) {
@@ -82,9 +80,7 @@ static void audio_fill_info(audio_card_t *card, audio_card_info_t *info)
     info->name[sizeof(info->name) - 1] = '\0';
 }
 
-/* ------------------------------------------------------------------ */
-/* Registration                                                       */
-/* ------------------------------------------------------------------ */
+/* Registration */
 int audio_register_card(const char *name, const audio_pcm_format_t *format, const audio_card_ops_t *ops, void *driver_data)
 {
     audio_card_t *card;
@@ -146,9 +142,7 @@ audio_device_node_t *audio_get_device_node(size_t index)
     return &audio_nodes[index];
 }
 
-/* ================================================================== */
-/*  PCM Ring Buffer                                                    */
-/* ================================================================== */
+/* PCM Ring Buffer */
 int pcm_ring_buffer_init(audio_pcm_file_t *pf, size_t size_frames)
 {
     size_t fb    = (size_t)(pf->fmt.bits / 8) * pf->fmt.channels;
@@ -252,9 +246,7 @@ size_t pcm_ring_buffer_read_frames(audio_pcm_file_t *pf, void *data, size_t fram
     return to_copy;
 }
 
-/* ================================================================== */
-/*  Software additive mixer                                            */
-/* ================================================================== */
+/* Software additive mixer */
 size_t audio_mix_interleaved_s16(int16_t *dst, const int16_t *src, size_t frames, unsigned int channels)
 {
     size_t total = frames * channels;
@@ -267,9 +259,7 @@ size_t audio_mix_interleaved_s16(int16_t *dst, const int16_t *src, size_t frames
     return frames;
 }
 
-/* ================================================================== */
-/*  Per-open instance helpers                                          */
-/* ================================================================== */
+/* Per-open instance helpers */
 static audio_pcm_file_t *audio_pcm_create(audio_device_node_t *node)
 {
     audio_pcm_file_t *pf;
@@ -302,9 +292,7 @@ static void audio_pcm_destroy(audio_pcm_file_t *pf)
     free(pf);
 }
 
-/* ------------------------------------------------------------------ */
-/*  file_open / file_release                                           */
-/* ------------------------------------------------------------------ */
+/* file_open / file_release */
 int audio_file_open(vfs_node_t vnode, uint64_t flags, void **private_data)
 {
     (void)flags;
@@ -327,9 +315,7 @@ void audio_file_release(vfs_node_t node, void *private_data)
     audio_pcm_destroy((audio_pcm_file_t *)private_data);
 }
 
-/* ================================================================== */
-/*  Per-open PCM read/write (file_*)                                  */
-/* ================================================================== */
+/* Per-open PCM read/write (file_*) */
 int64_t audio_file_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     (void)ctx;
@@ -462,9 +448,7 @@ int64_t audio_file_write(void *ctx, void *private_data, uint64_t flags, const vo
     return (int64_t)(ret * fb);
 }
 
-/* ------------------------------------------------------------------ */
-/*  file_poll                                                          */
-/* ------------------------------------------------------------------ */
+/* file_poll */
 int audio_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events)
 {
     (void)ctx;
@@ -494,9 +478,7 @@ int audio_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events
     return revents & (int)events;
 }
 
-/* ================================================================== */
-/*  ALSA-compatible ioctl handler                                      */
-/* ================================================================== */
+/* ALSA-compatible ioctl handler */
 static int audio_hw_params_ioctl(audio_pcm_file_t *pf, struct snd_pcm_hw_params *uarg)
 {
     struct snd_pcm_hw_params params;
@@ -612,9 +594,7 @@ static int audio_sync_ptr_ioctl(audio_pcm_file_t *pf, void *uarg)
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  file_ioctl (ALSA + legacy)                                         */
-/* ------------------------------------------------------------------ */
+/* file_ioctl (ALSA + legacy) */
 int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg)
 {
     (void)flags;
@@ -821,9 +801,7 @@ int audio_file_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, 
     }
 }
 
-/* ================================================================== */
-/*  Legacy device callbacks (backward compat)                          */
-/* ================================================================== */
+/* Legacy device callbacks (backward compat) */
 size_t audio_device_read(void *ctx, void *addr, size_t offset, size_t size)
 {
     audio_device_node_t *node = ctx;

@@ -4,7 +4,7 @@
  *      Linux-compatible input event subsystem header
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -498,10 +498,10 @@ typedef struct {
 #define KEY_DOLLAR 0x1b2
 #define KEY_EURO   0x1b3
 
-#define KEY_FRAMEBACK      0x1b4 // Consumer - transport controls
+#define KEY_FRAMEBACK      0x1b4 // Consumer — transport controls
 #define KEY_FRAMEFORWARD   0x1b5
-#define KEY_CONTEXT_MENU   0x1b6 // GenDesc - system context menu
-#define KEY_MEDIA_REPEAT   0x1b7 // Consumer - transport control
+#define KEY_CONTEXT_MENU   0x1b6 // GenDesc — system context menu
+#define KEY_MEDIA_REPEAT   0x1b7 // Consumer — transport control
 #define KEY_10CHANNELSUP   0x1b8 // 10 channels up (10+)
 #define KEY_10CHANNELSDOWN 0x1b9 // 10 channels down (10-)
 #define KEY_IMAGES         0x1ba // AL Image Browser
@@ -561,7 +561,7 @@ typedef struct {
 #define KEY_NUMERIC_9     0x209
 #define KEY_NUMERIC_STAR  0x20a
 #define KEY_NUMERIC_POUND 0x20b
-#define KEY_NUMERIC_A     0x20c // Phone key A - HUT Telephony 0xb9
+#define KEY_NUMERIC_A     0x20c // Phone key A — HUT Telephony 0xb9
 #define KEY_NUMERIC_B     0x20d
 #define KEY_NUMERIC_C     0x20e
 #define KEY_NUMERIC_D     0x20f

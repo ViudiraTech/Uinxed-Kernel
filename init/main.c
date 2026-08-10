@@ -4,7 +4,7 @@
  *      Uinxed-kernel entry
  *
  *      2024/6/23 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -191,16 +191,16 @@ void kernel_entry(void)
     init_frame();           // Physical Memory Frame
     page_init();            // Standard 4-Level Page Table
     init_heap();            // Standard Memory Heap
-#if CONFIG_SWAP
-    swap_init(); // Anonymous-memory swap area manager
-#endif
-    lmodule_init();      // Limine Kernel Module
-                         //
-    init_serial();       // Standard RS-232 Serial Port (needs the heap)
-    vt_console_init();   // Register vt/drm console drivers (before first printk)
-                         //
-    /* Early Graphics */ //
-    video_init();        // Basic VESA/GOP Video
+#if CONFIG_SWAP             //
+    swap_init();            // Anonymous-memory swap area manager
+#endif                      //
+    lmodule_init();         // Limine Kernel Module
+                            //
+    init_serial();          // Standard RS-232 Serial Port (needs the heap)
+    vt_console_init();      // Register vt/drm console drivers (before first printk)
+                            //
+    /* Early Graphics */    //
+    video_init();           // Basic VESA/GOP Video
     video_info_t fbinfo = video_get_info();
     video_show_boot_logo();
 
@@ -247,94 +247,94 @@ void kernel_entry(void)
     log_buffer_print(&lmodule_log);  //
                                      //
     /* Device Drivers */             //
-#if CONFIG_ATA
-    init_ide();  // ATA / ATAPI
-    init_ahci(); // Advanced Host Controller Interface
-#endif
-#if CONFIG_NVME
-    nvme_init(); // Non-Volatile Memory Express
-#endif
-    block_register_all_disks(); // Publish discovered disks into the gendisk registry
-    net_init();                 // Initialize ARP/NDP caches and DHCP client
-    e1000_init();               // Intel 8254x Gigabit Ethernet
-    rtl8169_init();             // Realtek RTL8169 Gigabit Ethernet
-    rtl8139_init();             // Realtek RTL8139 Fast Ethernet
-    usb_host_pci_scan();        // Discover and init all USB host controllers
-    sb16_init();                // Sound Blaster 16
-    hda_init();                 // Intel HD Audio
-                                //
-    /* Virtual Filesystem */    //
-    init_vfs();                 // Virtual Filesystem
-    tmpfs_regist();             // Temporary File System
-    procfs_regist();            // Process File System
-    sysfs_regist();             // Register sysfs with the VFS layer
-    cgroupfs_regist();          // Unified Control Group File System
+#if CONFIG_ATA                       //
+    init_ide();                      // ATA / ATAPI
+    init_ahci();                     // Advanced Host Controller Interface
+#endif                               //
+#if CONFIG_NVME                      //
+    nvme_init();                     // Non-Volatile Memory Express
+#endif                               //
+    block_register_all_disks();      // Publish discovered disks into the gendisk registry
+    net_init();                      // Initialize ARP/NDP caches and DHCP client
+    e1000_init();                    // Intel 8254x Gigabit Ethernet
+    rtl8169_init();                  // Realtek RTL8169 Gigabit Ethernet
+    rtl8139_init();                  // Realtek RTL8139 Fast Ethernet
+    usb_host_pci_scan();             // Discover and init all USB host controllers
+    sb16_init();                     // Sound Blaster 16
+    hda_init();                      // Intel HD Audio
+                                     //
+    /* Virtual Filesystem */         //
+    init_vfs();                      // Virtual Filesystem
+    tmpfs_regist();                  // Temporary File System
+    procfs_regist();                 // Process File System
+    sysfs_regist();                  // Register sysfs with the VFS layer
+    cgroupfs_regist();               // Unified Control Group File System
 
     if (!get_rootdir()->fsid && vfs_mount(0, get_rootdir()) != EOK) plogk("init: Cannot mount tmpfs to root_dir.\n");
 
     /* Device Model */
-    sysfs_init();                                                             // Create sysfs root kobject and top-level directories
-    module_subsystem_init();                                                  // Loadable kernel module registry and /sys/module
-    device_model_init();                                                      // Initialise the device model (bus/class/device)
-    ppdev_init();                                                             // /dev/parportN character devices
-    chrdev_init();                                                            // Register static character devices
-    devtmpfs_init();                                                          // Device Temporary File System
-    vt_driver_init();                                                         // Register vt/aux tty drivers
-    tty_devices_populate();                                                   // Create /dev/tty*, /dev/ttyS*, /dev/console
-                                                                              //
-    /* RAM Filesystem */                                                      //
-    init_cpio();                                                              // Copy In, Copy Out
-                                                                              //
-    /* Sysfs Population */                                                    //
-    kernel_sysfs_init();                                                      // /sys/kernel/{version,cmdline,hostname,...}
-    pci_sysfs_init();                                                         // /sys/bus/pci/ + /sys/devices/pci*
-    input_sysfs_init();                                                       // /sys/class/input/eventX
-    block_sysfs_init();                                                       // /sys/block/{hdX,sdX,nvme*}
-    tty_sysfs_init();                                                         // /sys/class/tty/
-    net_sysfs_init();                                                         // /sys/class/net/<interface>/
-    fb_sysfs_init();                                                          // /sys/class/graphics/fb0 + platform topology
-    mem_sysfs_init();                                                         // /sys/class/mem/ (null, zero, full, random, urandom)
-    sound_sysfs_init();                                                       // /sys/class/sound/cardN + ALSA node sub-devices
-    tpm_vfs_init();                                                           // /dev/tpm0, /dev/tpmrm0
-    tpm_sysfs_init();                                                         // /sys/class/tpm{,rm}
-    rtc_sysfs_init();                                                         // /sys/class/rtc/rtc0
-    i2c_sysfs_init();                                                         // /sys/bus/i2c + /sys/class/i2c-dev
-    dmi_sysfs_init();                                                         // /sys/class/dmi/id + /sys/firmware/dmi/tables
-                                                                              //
-    /* Filesystem Drivers */                                                  //
-    fatfs_vfs_regist();                                                       // FAT File System
-    isofs_regist();                                                           // ISO 9660 File System
-    ntfs_vfs_regist();                                                        // New Technology File System
-    extfs_regist();                                                           // ext2/ext3/ext4 File System
-                                                                              //
-    /* Process Management */                                                  //
-    sched_init();                                                             // Preemptive Scheduler
-    timer_realtime_set_ns((int64_t)(rtc_since_epoch() * TIMER_NSEC_PER_SEC)); // Set the realtime clock to the current RTC time
-    process_init();                                                           // Process Management
-    signal_init();                                                            // POSIX Signals
-    cgroup_init();                                                            // Unified cgroup hierarchy and pids controller
-    syscall_init();                                                           // Standard System Call
-                                                                              //
-    /* IPC & Event Notification */                                            //
-    pipe_init();                                                              // Pipes
-    epoll_init();                                                             // Epoll
-    eventfd_init();                                                           // Event File Descriptor
-    timerfd_init();                                                           // Timer File Descriptor
-    signalfd_init();                                                          // Signal File Descriptor
-    inotify_init();                                                           // Filesystem Event Notification
-    memfd_init();                                                             // Anonymous Memory File Descriptor
-                                                                              //
-    sysv_ipc_init();                                                          // System V IPC
-    posix_mq_init();                                                          // POSIX Message Queues
-    futex_init();                                                             // Futexes
-                                                                              //
-    netlink_init();                                                           // AF_NETLINK socket family (uevent delivery)
-    socket_init();                                                            // UNIX Domain Sockets
-                                                                              //
-    /* Graphics Stack */                                                      // Initialise before /dev/fb0 snapshots its size
-    drm_init();                                                               // DRM core services
-    if (virtio_gpu_init() != 0)                                               // Prefer VirtIO-GPU for card0/renderD128
-        drm_init_fallback();                                                  // Software fallback only without VirtIO-GPU
+    sysfs_init();                                                  // Create sysfs root kobject and top-level directories
+    module_subsystem_init();                                       // Loadable kernel module registry and /sys/module
+    device_model_init();                                           // Initialise the device model (bus/class/device)
+    ppdev_init();                                                  // /dev/parportN character devices
+    chrdev_init();                                                 // Register static character devices
+    devtmpfs_init();                                               // Device Temporary File System
+    vt_driver_init();                                              // Register vt/aux tty drivers
+    tty_devices_populate();                                        // Create /dev/tty*, /dev/ttyS*, /dev/console
+                                                                   //
+    /* RAM Filesystem */                                           //
+    init_cpio();                                                   // Copy In, Copy Out
+                                                                   //
+    /* Sysfs Population */                                         //
+    kernel_sysfs_init();                                           // /sys/kernel/{version,cmdline,hostname,...}
+    pci_sysfs_init();                                              // /sys/bus/pci/ + /sys/devices/pci*
+    input_sysfs_init();                                            // /sys/class/input/eventX
+    block_sysfs_init();                                            // /sys/block/{hdX,sdX,nvme*}
+    tty_sysfs_init();                                              // /sys/class/tty/
+    net_sysfs_init();                                              // /sys/class/net/<interface>/
+    fb_sysfs_init();                                               // /sys/class/graphics/fb0 + platform topology
+    mem_sysfs_init();                                              // /sys/class/mem/ (null, zero, full, random, urandom)
+    sound_sysfs_init();                                            // /sys/class/sound/cardN + ALSA node sub-devices
+    tpm_vfs_init();                                                // /dev/tpm0, /dev/tpmrm0
+    tpm_sysfs_init();                                              // /sys/class/tpm{,rm}
+    rtc_sysfs_init();                                              // /sys/class/rtc/rtc0
+    i2c_sysfs_init();                                              // /sys/bus/i2c + /sys/class/i2c-dev
+    dmi_sysfs_init();                                              // /sys/class/dmi/id + /sys/firmware/dmi/tables
+                                                                   //
+    /* Filesystem Drivers */                                       //
+    fatfs_vfs_regist();                                            // FAT File System
+    isofs_regist();                                                // ISO 9660 File System
+    ntfs_vfs_regist();                                             // New Technology File System
+    extfs_regist();                                                // ext2/ext3/ext4 File System
+                                                                   //
+    /* Process Management */                                       //
+    sched_init();                                                  // Preemptive Scheduler
+    timer_realtime_set_ns(rtc_since_epoch() * TIMER_NSEC_PER_SEC); // Set realtime clock to current RTC time
+    process_init();                                                // Process Management
+    signal_init();                                                 // POSIX Signals
+    cgroup_init();                                                 // Unified cgroup hierarchy and pids controller
+    syscall_init();                                                // Standard System Call
+                                                                   //
+    /* IPC & Event Notification */                                 //
+    pipe_init();                                                   // Pipes
+    epoll_init();                                                  // Epoll
+    eventfd_init();                                                // Event File Descriptor
+    timerfd_init();                                                // Timer File Descriptor
+    signalfd_init();                                               // Signal File Descriptor
+    inotify_init();                                                // Filesystem Event Notification
+    memfd_init();                                                  // Anonymous Memory File Descriptor
+                                                                   //
+    sysv_ipc_init();                                               // System V IPC
+    posix_mq_init();                                               // POSIX Message Queues
+    futex_init();                                                  // Futexes
+                                                                   //
+    netlink_init();                                                // AF_NETLINK socket family (uevent delivery)
+    socket_init();                                                 // UNIX Domain Sockets
+                                                                   //
+    /* Graphics Stack */                                           // Initialise before /dev/fb0 snapshots its size
+    drm_init();                                                    // DRM core services
+    if (virtio_gpu_init() != 0)                                    // Prefer VirtIO-GPU for card0/renderD128
+        drm_init_fallback();                                       // Software fallback only without VirtIO-GPU
 
     boot_start_init_before_debug(swapper_run_init, sched_test_init);
     e1000_start_workers();

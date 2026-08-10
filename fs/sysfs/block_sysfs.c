@@ -4,7 +4,7 @@
  *      Block device sysfs integration (/sys/block/)
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -23,9 +23,7 @@
 #include <mem/heap.h>
 #include <process/process.h>
 
-/* ------------------------------------------------------------------ */
-/*  Per-block-device wrapper                                           */
-/* ------------------------------------------------------------------ */
+/* Per-block-device wrapper */
 
 typedef struct block_sysfs_dev {
         struct kobject    kobj;
@@ -40,9 +38,7 @@ typedef struct block_sysfs_dev {
 
 static struct kobject *block_root_kobj;
 
-/* ------------------------------------------------------------------ */
-/*  Attribute show functions                                           */
-/* ------------------------------------------------------------------ */
+/* Attribute show functions */
 
 static block_sysfs_dev_t *to_bsd(struct kobject *kobj)
 {
@@ -94,9 +90,7 @@ static ssize_t removable_show(struct kobject *kobj, struct attribute *attr, char
     return (ssize_t)sysfs_emit(buf, "%d\n", to_bsd(kobj)->removable);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Sysfs ops                                                          */
-/* ------------------------------------------------------------------ */
+/* Sysfs ops */
 
 static ssize_t block_attr_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
@@ -133,9 +127,7 @@ static const struct sysfs_ops block_sysfs_ops = {
     .store = block_attr_store,
 };
 
-/* ------------------------------------------------------------------ */
-/*  Attributes and kobj_type                                           */
-/* ------------------------------------------------------------------ */
+/* Attributes and kobj_type */
 
 static struct attribute size_attr        = __ATTR_RO(size);
 static struct attribute sector_size_attr = __ATTR_RO(sector_size);
@@ -232,9 +224,7 @@ static int block_add_partitions(block_sysfs_dev_t *disk)
     return status;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Helper: add a single block device                                  */
-/* ------------------------------------------------------------------ */
+/* Helper: add a single block device */
 
 /*
  * Map a Linux disk/partition name ("sda", "nvme0n1p2", "hdb", "sr1", ...)
@@ -356,9 +346,7 @@ void block_sysfs_unregister_device(block_sysfs_dev_t *handle)
 #endif
 }
 
-/* ------------------------------------------------------------------ */
-/*  Initialization                                                     */
-/* ------------------------------------------------------------------ */
+/* Initialization */
 
 void block_sysfs_init(void)
 {

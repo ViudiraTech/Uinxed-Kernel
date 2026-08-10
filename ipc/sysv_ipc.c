@@ -4,7 +4,7 @@
  *      System V IPC (semaphores, shared memory, message queues) implementation
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -25,9 +25,7 @@
 #include <process/uaccess.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/*  Internal constants                                                  */
-/* ------------------------------------------------------------------ */
+/* Internal constants */
 
 #define SEM_MAX_NSEMS 250
 #define SEM_MAX_SETS  128
@@ -43,9 +41,7 @@
 #define IPC_SEQ_SHIFT 16
 #define IPC_SEQ_MASK  0x0000FFFF
 
-/* ------------------------------------------------------------------ */
-/*  Internal structures                                                 */
-/* ------------------------------------------------------------------ */
+/* Internal structures */
 
 typedef struct sem_array {
         ipc_perm_t    perm;
@@ -110,9 +106,7 @@ typedef struct msg_queue {
         int          deleted;
 } msg_queue_t;
 
-/* ------------------------------------------------------------------ */
-/*  Global IPC namespace                                                */
-/* ------------------------------------------------------------------ */
+/* Global IPC namespace */
 
 static sem_array_t *sem_sets[SEM_MAX_SETS];
 static uint16_t     sem_seq[SEM_MAX_SETS];
@@ -129,9 +123,7 @@ static spinlock_t   msg_global_lock;
 static sem_undo_t *sem_undo_list;
 static spinlock_t  sem_undo_lock;
 
-/* ------------------------------------------------------------------ */
-/*  Common IPC helpers                                                  */
-/* ------------------------------------------------------------------ */
+/* Common IPC helpers */
 
 static int ipc_perm_check(const ipc_perm_t *perm, int mode)
 {
@@ -151,7 +143,7 @@ static int ipc_perm_check(const ipc_perm_t *perm, int mode)
     return -EACCES;
 }
 
-/* ---------- ID allocation helpers ---------- */
+/* ID allocation helpers */
 
 static int ipc_id_alloc(void **table, uint16_t *seq_table, int max, spinlock_t *lock, void *obj)
 {
@@ -202,9 +194,7 @@ static int ipc_id_remove(void **table, uint16_t *seq_table, int max, spinlock_t 
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Semaphore undo helpers                                              */
-/* ------------------------------------------------------------------ */
+/* Semaphore undo helpers */
 
 static sem_undo_t *sem_undo_find(process_t *proc, int semid)
 {
@@ -245,9 +235,7 @@ __attribute__((unused)) static void sem_undo_release_process(process_t *proc)
     spin_unlock(&sem_undo_lock);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Semaphore subsystem                                                 */
-/* ------------------------------------------------------------------ */
+/* Semaphore subsystem */
 
 /*
  *  sys_semget - get or create a semaphore set
@@ -801,9 +789,7 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/*  Shared memory subsystem                                             */
-/* ------------------------------------------------------------------ */
+/* Shared memory subsystem */
 
 int sysv_shm_vma_get(void *identity, uint32_t pid)
 {
@@ -1220,9 +1206,7 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/*  Message queue subsystem                                             */
-/* ------------------------------------------------------------------ */
+/* Message queue subsystem */
 
 /*
  *  sys_msgget - get or create a message queue
@@ -1625,9 +1609,7 @@ int64_t sys_msgctl(int msqid, int cmd, void *buf)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/*  Initialization                                                      */
-/* ------------------------------------------------------------------ */
+/* Initialization */
 
 /*
  *  sysv_ipc_init - initialize all System V IPC subsystems

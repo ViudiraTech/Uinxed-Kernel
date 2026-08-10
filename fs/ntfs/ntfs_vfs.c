@@ -3,9 +3,8 @@
  *      ntfs_vfs.c
  *      New Technology File System
  *
- *      2026/7/25 By MicroFish
- *      2026/7/26 By JiTianYu391: Added NTFS write support.
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      2026/7/26 By MicroFish & JiTianYu391
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -29,6 +28,15 @@ typedef uint32_t u32;
 typedef uint64_t u64;
 typedef int8_t   s8;
 typedef int64_t  s64;
+
+/*
+ * Overview
+ * ntfs_vfs.c is a read/write NTFS implementation. It reads the boot
+ * sector, walks the Master File Table ($MFT), resolves file and
+ * directory records through the index, and maps the data attribute
+ * run list to LCNs. All on-disk structures are accessed through the
+ * packed layout structs below.
+ */
 
 #define magicNTFS 0x202020205346544eULL
 
@@ -58,7 +66,7 @@ typedef int64_t  s64;
 
 #define LCN_HOLE ((s64) - 2)
 
-/* on-disk layout structs —packed because NTFS has no natural alignment */
+/* on-disk layout structs — packed because NTFS has no natural alignment */
 typedef struct ntfs_boot_sector {
         u8  jump[3];
         u64 oem_id;
@@ -201,7 +209,7 @@ typedef struct {
         int           is_resident; // 1 if runlist_buf holds inline resident data
 } ntfs_handle_t;
 
-/* ---------- little-endian accessors ---------- */
+/* little-endian accessors */
 static inline u64 le64(const u8 *p)
 {
     return (u64)p[0] | ((u64)p[1] << 8) | ((u64)p[2] << 16) | ((u64)p[3] << 24) | ((u64)p[4] << 32) | ((u64)p[5] << 40) | ((u64)p[6] << 48)
@@ -337,7 +345,7 @@ static int ntfs_record_pack(ntfs_mount_t *mnt, u8 *record, u32 record_size)
     return 0;
 }
 
-/* ---------- utf16 →utf8 ---------- */
+/* utf16 → utf8 */
 static u16 *utf16_from(const u8 *buf, int ofs, int len)
 {
     if (len <= 0 || len > 255) return NULL;
@@ -1205,7 +1213,7 @@ out:
     return status;
 }
 
-/* ---------- disk I/O helpers ---------- */
+/* disk I/O helpers */
 static int mft_read(ntfs_mount_t *mnt, u64 mft_no, u8 *buf)
 {
     u64 logical_offset;
@@ -1520,7 +1528,7 @@ static int dev_write(ntfs_mount_t *mnt, u64 byte_off, const u8 *buf, size_t size
     return fs_txn_stage_bytes(mnt->active_transaction, byte_off, buf, size, FS_TXN_METADATA);
 }
 
-/* ---------- runlist parser ---------- */
+/* runlist parser */
 static int runlist_parse(u8 *rl, int len, s64 *vcn, s64 *lcn, s64 *run, int max)
 {
     int       off = 0, cnt = 0;
@@ -3302,7 +3310,7 @@ static size_t ntfs_resident_convert(ntfs_handle_t *h, u8 *mft, attr_rec_t *attri
     return size;
 }
 
-/* ---------- directory entry helpers ---------- */
+/* directory entry helpers */
 static void add_dir_entry(vfs_node_t parent, ntfs_mount_t *mnt, u8 *entry, u32 entry_len)
 {
     u64 mft_ref = le64(entry);
@@ -3503,7 +3511,7 @@ static int ntfs_load_file_runlist(ntfs_handle_t *h, vfs_node_t node)
     return 0;
 }
 
-/* ---------- VFS callbacks ---------- */
+/* VFS callbacks */
 static int ntfs_vfs_mount(const char *src, vfs_node_t node)
 {
     int  status;
@@ -3586,7 +3594,7 @@ static int ntfs_vfs_mount(const char *src, vfs_node_t node)
         return -EINVAL;
     }
 
-    /* blocks per cluster for index allocation VCN→LCN mapping */
+    /* blocks per cluster for index allocation VCN → LCN mapping */
     mnt->indx_vcn_per_cluster = mnt->cluster_size / mnt->indx_size;
     if (mnt->indx_vcn_per_cluster == 0) mnt->indx_vcn_per_cluster = 1;
 

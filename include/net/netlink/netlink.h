@@ -4,7 +4,7 @@
  *      Netlink socket family (AF_NETLINK) definitions
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -16,9 +16,7 @@
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/*  Netlink socket address (Linux-compatible)                          */
-/* ------------------------------------------------------------------ */
+/* Netlink socket address (Linux-compatible) */
 
 typedef struct sockaddr_nl {
         uint16_t nl_family; // AF_NETLINK
@@ -27,9 +25,7 @@ typedef struct sockaddr_nl {
         uint32_t nl_groups; // multicast groups mask
 } sockaddr_nl_t;
 
-/* ------------------------------------------------------------------ */
-/*  Netlink message header (16 bytes, 4-byte aligned)                  */
-/* ------------------------------------------------------------------ */
+/* Netlink message header (16 bytes, 4-byte aligned) */
 
 typedef struct nlmsghdr {
         uint32_t nlmsg_len;   // Length of message including header
@@ -48,9 +44,7 @@ typedef struct nlmsghdr {
 #define NLMSG_OK(nlh, len)      ((len) >= (int)sizeof(nlmsghdr_t) && (nlh)->nlmsg_len >= sizeof(nlmsghdr_t) && (nlh)->nlmsg_len <= (uint32_t)(len))
 #define NLMSG_PAYLOAD(nlh, len) ((nlh)->nlmsg_len - NLMSG_ALIGN(NLMSG_HDRLEN))
 
-/* ------------------------------------------------------------------ */
-/*  Netlink message flags                                              */
-/* ------------------------------------------------------------------ */
+/* Netlink message flags */
 
 /* Standard flags */
 #define NLM_F_REQUEST       0x0001 // It is a request message
@@ -72,9 +66,7 @@ typedef struct nlmsghdr {
 #define NLM_F_CREATE  0x0400 // Create if it does not exist
 #define NLM_F_APPEND  0x0800 // Add to end of list
 
-/* ------------------------------------------------------------------ */
-/*  Netlink message types                                              */
-/* ------------------------------------------------------------------ */
+/* Netlink message types */
 
 #define NLMSG_NOOP    0x0001 // No-op, discard
 #define NLMSG_ERROR   0x0002 // Error message
@@ -148,18 +140,14 @@ _Static_assert(sizeof(ifaddrmsg_t) == 8, "Linux ifaddrmsg ABI");
 _Static_assert(sizeof(rtmsg_t) == 12, "Linux rtmsg ABI");
 _Static_assert(sizeof(rtattr_t) == 4, "Linux rtattr ABI");
 
-/* ------------------------------------------------------------------ */
-/*  Netlink error message (follows nlmsghdr)                           */
-/* ------------------------------------------------------------------ */
+/* Netlink error message (follows nlmsghdr) */
 
 typedef struct nlmsgerr {
         int32_t    error;
         nlmsghdr_t msg; // Original message header
 } nlmsgerr_t;
 
-/* ------------------------------------------------------------------ */
-/*  Netlink protocol families                                          */
-/* ------------------------------------------------------------------ */
+/* Netlink protocol families */
 
 #define NETLINK_ROUTE          0  // Routing/device hook
 #define NETLINK_UNUSED         1  // Unused
@@ -198,9 +186,7 @@ typedef struct nl_pktinfo {
         uint32_t group;
 } nl_pktinfo_t;
 
-/* ------------------------------------------------------------------ */
-/*  Netlink socket state ?per-socket private data                     */
-/* ------------------------------------------------------------------ */
+/* Netlink socket state — per-socket private data */
 
 #define NL_SOCK_RECV_BUF_SIZE (128 * 1024) // 128KB default recv buffer
 
@@ -231,9 +217,7 @@ typedef struct nl_sock {
         struct socket *sk;
 } nl_sock_t;
 
-/* ------------------------------------------------------------------ */
-/*  Internal: one queued netlink message                               */
-/* ------------------------------------------------------------------ */
+/* Internal: one queued netlink message */
 
 typedef struct nl_msg {
         uint8_t *data; // complete datagram (not necessarily nlmsghdr-framed)
@@ -245,15 +229,11 @@ typedef struct nl_msg {
         uint32_t refcount; // for potential shared delivery
 } nl_msg_t;
 
-/* ------------------------------------------------------------------ */
-/*  Global multicast table entry                                       */
-/* ------------------------------------------------------------------ */
+/* Global multicast table entry */
 
 #define NL_MAX_MULTICAST_GROUPS 32 // groups 0-31
 
-/* ------------------------------------------------------------------ */
-/*  Kernel netlink API                                                 */
-/* ------------------------------------------------------------------ */
+/* Kernel netlink API */
 
 /* Initialise the netlink subsystem. Must be called before socket_init(). */
 void netlink_init(void);
@@ -290,9 +270,7 @@ int netlink_unicast(struct socket *sk, const void *data, uint32_t len, int flags
  */
 int netlink_has_listeners(uint32_t protocol, uint32_t group);
 
-/* ------------------------------------------------------------------ */
-/*  Internal: socket operations called from ipc/socket.c               */
-/* ------------------------------------------------------------------ */
+/* Internal: socket operations called from ipc/socket.c */
 
 struct socket;
 

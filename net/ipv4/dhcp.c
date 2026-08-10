@@ -4,7 +4,7 @@
  *      DHCP client implementation
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -26,6 +26,13 @@
 #define DHCP_RETRY_LIMIT      5U
 #define DHCP_DEFAULT_LEASE    3600U
 #define DHCP_MAGIC_COOKIE     0x63825363U
+
+/*
+ * Overview
+ * DHCP client: sends DISCOVER/REQUEST over UDP, parses OFFER/ACK
+ * options, and applies the obtained address, netmask, router and
+ * DNS server to the interface, with lease-renewal retry logic.
+ */
 
 #define DHCP_OPT_PAD            0U
 #define DHCP_OPT_NETMASK        1U

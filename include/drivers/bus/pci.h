@@ -4,7 +4,7 @@
  *      Peripheral component interconnect standard driver header file
  *
  *      2025/3/9 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -196,10 +196,10 @@ typedef struct {
 /* Get ECAM address of register */
 void *mcfg_ecam_addr(mcfg_entry_t *entry, pci_device_reg_t reg);
 
-/* Reading values ​​from PCI device registers */
+/* Reading values from PCI device registers */
 uint32_t read_pci(pci_device_reg_t reg);
 
-/* Write values ​​to PCI device registers */
+/* Write values to PCI device registers */
 void write_pci(pci_device_reg_t reg, uint32_t value);
 
 /* Read the value from the PCI device command status register */

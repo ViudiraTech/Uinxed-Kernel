@@ -4,10 +4,7 @@
  *      POSIX termios structures, flags, and TTY/PTY ioctl definitions
  *
  *      2026/7/24 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
- *
- *      Full Linux x86_64 compatible termios definitions.
- *      Covers all standard TTY ioctls and Unix98 PTY ioctls.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -17,18 +14,18 @@
 #include <libs/std/stdint.h>
 
 /*
- * ===================================================================
+ * -------------------------------------------------------------------
  * NCCS ?number of control characters in c_cc array
- * ===================================================================
+ * -------------------------------------------------------------------
  */
 
 #define NCCS 19
 #define NCC  8
 
 /*
- * ===================================================================
+ * -------------------------------------------------------------------
  * c_cc indices (control character positions in termios.c_cc)
- * ===================================================================
+ * -------------------------------------------------------------------
  */
 
 #define VINTR    0  // interrupt (^C)
@@ -62,9 +59,9 @@
 #define _VSUSP  VSUSP
 
 /*
- * ===================================================================
+ * -------------------------------------------------------------------
  * c_iflag ?input mode flags
- * ===================================================================
+ * -------------------------------------------------------------------
  */
 
 #define IGNBRK  0x0001 // Ignore break condition
@@ -73,10 +70,10 @@
 #define PARMRK  0x0008 // Mark parity errors
 #define INPCK   0x0010 // Enable input parity check
 #define ISTRIP  0x0020 // Strip 8th bit
-#define INLCR   0x0040 // Map NL ?CR on input
+#define INLCR   0x0040 // Map NL → CR on input
 #define IGNCR   0x0080 // Ignore CR
-#define ICRNL   0x0100 // Map CR ?NL on input
-#define IUCLC   0x0200 // Map uppercase ?lowercase on input
+#define ICRNL   0x0100 // Map CR → NL on input
+#define IUCLC   0x0200 // Map uppercase → lowercase on input
 #define IXON    0x0400 // Enable XON/XOFF flow control on output
 #define IXANY   0x0800 // Any character restarts output
 #define IXOFF   0x1000 // Enable XON/XOFF flow control on input
@@ -84,15 +81,15 @@
 #define IUTF8   0x4000 // Input is UTF-8
 
 /*
- * ===================================================================
- * c_oflag ?output mode flags
- * ===================================================================
+ * -------------------------------------------------------------------
+ * c_oflag — output mode flags
+ * -------------------------------------------------------------------
  */
 
 #define OPOST  0x0001 // Enable output processing
-#define OLCUC  0x0002 // Map lowercase ?uppercase on output
-#define ONLCR  0x0004 // Map NL ?CR-NL on output
-#define OCRNL  0x0008 // Map CR ?NL on output
+#define OLCUC  0x0002 // Map lowercase → uppercase on output
+#define ONLCR  0x0004 // Map NL → CR-NL on output
+#define OCRNL  0x0008 // Map CR → NL on output
 #define ONOCR  0x0010 // No CR output at column 0
 #define ONLRET 0x0020 // NL performs CR function
 #define OFILL  0x0040 // Use fill characters for delay
@@ -122,9 +119,9 @@
 #define XTABS  TAB3 // Alias for TAB3 (tab expansion)
 
 /*
- * ===================================================================
+ * -------------------------------------------------------------------
  * c_cflag ?control mode flags
- * ===================================================================
+ * -------------------------------------------------------------------
  */
 
 #define CBAUD  0x0000100f // Baud rate mask (legacy)
@@ -183,9 +180,9 @@
 #define CRTSCTS 0x80000000 // RTS/CTS (hardware) flow control
 
 /*
- * ===================================================================
+ * -------------------------------------------------------------------
  * c_lflag ?local mode flags
- * ===================================================================
+ * -------------------------------------------------------------------
  */
 
 #define ISIG    0x00000001 // Enable signal-generating chars
@@ -206,9 +203,9 @@
 #define EXTPROC 0x00010000 // External processing
 
 /*
- * ===================================================================
+ * -------------------------------------------------------------------
  * termios structure (x86_64 ABI, compatible with glibc)
- * ===================================================================
+ * -------------------------------------------------------------------
  */
 
 typedef uint32_t tcflag_t;
@@ -225,9 +222,9 @@ struct termios {
 };
 
 /*
- * ===================================================================
+ * -------------------------------------------------------------------
  * termios2 ?extended termios with separate input/output baud
- * ===================================================================
+ * -------------------------------------------------------------------
  */
 
 struct termios2 {
@@ -242,9 +239,9 @@ struct termios2 {
 };
 
 /*
- * ===================================================================
+ * -------------------------------------------------------------------
  * winsize ?terminal window size
- * ===================================================================
+ * -------------------------------------------------------------------
  */
 
 struct winsize {
@@ -255,57 +252,109 @@ struct winsize {
 };
 
 /*
- * ===================================================================
+ * -------------------------------------------------------------------
  * _IOC macros ?construct ioctl command numbers
- * ===================================================================
+ * -------------------------------------------------------------------
  */
 
-#define _IOC_NRBITS   8
-#define _IOC_TYPEBITS 8
-#define _IOC_SIZEBITS 14
-#define _IOC_DIRBITS  2
+/*
+ * Guarded with #ifndef so they coexist with other headers (e.g. drm.h)
+ * which also define the _IOC macro family.
+ */
+#ifndef _IOC_NRBITS
+#    define _IOC_NRBITS 8
+#endif
+#ifndef _IOC_TYPEBITS
+#    define _IOC_TYPEBITS 8
+#endif
+#ifndef _IOC_SIZEBITS
+#    define _IOC_SIZEBITS 14
+#endif
+#ifndef _IOC_DIRBITS
+#    define _IOC_DIRBITS 2
+#endif
 
-#define _IOC_NRMASK   ((1U << _IOC_NRBITS) - 1)
-#define _IOC_TYPEMASK ((1U << _IOC_TYPEBITS) - 1)
-#define _IOC_SIZEMASK ((1U << _IOC_SIZEBITS) - 1)
-#define _IOC_DIRMASK  ((1U << _IOC_DIRBITS) - 1)
+#ifndef _IOC_NRMASK
+#    define _IOC_NRMASK ((1U << _IOC_NRBITS) - 1)
+#endif
+#ifndef _IOC_TYPEMASK
+#    define _IOC_TYPEMASK ((1U << _IOC_TYPEBITS) - 1)
+#endif
+#ifndef _IOC_SIZEMASK
+#    define _IOC_SIZEMASK ((1U << _IOC_SIZEBITS) - 1)
+#endif
+#ifndef _IOC_DIRMASK
+#    define _IOC_DIRMASK ((1U << _IOC_DIRBITS) - 1)
+#endif
 
-#define _IOC_NRSHIFT   0
-#define _IOC_TYPESHIFT (_IOC_NRSHIFT + _IOC_NRBITS)
-#define _IOC_SIZESHIFT (_IOC_TYPESHIFT + _IOC_TYPEBITS)
-#define _IOC_DIRSHIFT  (_IOC_SIZESHIFT + _IOC_SIZEBITS)
+#ifndef _IOC_NRSHIFT
+#    define _IOC_NRSHIFT 0
+#endif
+#ifndef _IOC_TYPESHIFT
+#    define _IOC_TYPESHIFT (_IOC_NRSHIFT + _IOC_NRBITS)
+#endif
+#ifndef _IOC_SIZESHIFT
+#    define _IOC_SIZESHIFT (_IOC_TYPESHIFT + _IOC_TYPEBITS)
+#endif
+#ifndef _IOC_DIRSHIFT
+#    define _IOC_DIRSHIFT (_IOC_SIZESHIFT + _IOC_SIZEBITS)
+#endif
 
-#define _IOC_NONE  0U
-#define _IOC_WRITE 1U
-#define _IOC_READ  2U
+#ifndef _IOC_NONE
+#    define _IOC_NONE 0U
+#endif
+#ifndef _IOC_WRITE
+#    define _IOC_WRITE 1U
+#endif
+#ifndef _IOC_READ
+#    define _IOC_READ 2U
+#endif
 
-#define _IOC(dir, type, nr, size)                                                                                                \
-    (((unsigned long)(dir) << _IOC_DIRSHIFT) | ((unsigned long)(type) << _IOC_TYPESHIFT) | ((unsigned long)(nr) << _IOC_NRSHIFT) \
-     | ((unsigned long)(size) << _IOC_SIZESHIFT))
+#ifndef _IOC
+#    define _IOC(dir, type, nr, size)                                                                                                \
+        (((unsigned long)(dir) << _IOC_DIRSHIFT) | ((unsigned long)(type) << _IOC_TYPESHIFT) | ((unsigned long)(nr) << _IOC_NRSHIFT) \
+         | ((unsigned long)(size) << _IOC_SIZESHIFT))
+#endif
 
-#define _IO(type, nr)       _IOC(_IOC_NONE, (type), (nr), 0)
-#define _IOR(type, nr, sz)  _IOC(_IOC_READ, (type), (nr), sizeof(sz))
-#define _IOW(type, nr, sz)  _IOC(_IOC_WRITE, (type), (nr), sizeof(sz))
-#define _IOWR(type, nr, sz) _IOC(_IOC_READ | _IOC_WRITE, (type), (nr), sizeof(sz))
+#ifndef _IO
+#    define _IO(type, nr) _IOC(_IOC_NONE, (type), (nr), 0)
+#endif
+#ifndef _IOR
+#    define _IOR(type, nr, sz) _IOC(_IOC_READ, (type), (nr), sizeof(sz))
+#endif
+#ifndef _IOW
+#    define _IOW(type, nr, sz) _IOC(_IOC_WRITE, (type), (nr), sizeof(sz))
+#endif
+#ifndef _IOWR
+#    define _IOWR(type, nr, sz) _IOC(_IOC_READ | _IOC_WRITE, (type), (nr), sizeof(sz))
+#endif
 
 /* Decode an ioctl command number */
-#define _IOC_DIR(cmd)  (((cmd) >> _IOC_DIRSHIFT) & _IOC_DIRMASK)
-#define _IOC_TYPE(cmd) (((cmd) >> _IOC_TYPESHIFT) & _IOC_TYPEMASK)
-#define _IOC_NR(cmd)   (((cmd) >> _IOC_NRSHIFT) & _IOC_NRMASK)
-#define _IOC_SIZE(cmd) (((cmd) >> _IOC_SIZESHIFT) & _IOC_SIZEMASK)
+#ifndef _IOC_DIR
+#    define _IOC_DIR(cmd) (((cmd) >> _IOC_DIRSHIFT) & _IOC_DIRMASK)
+#endif
+#ifndef _IOC_TYPE
+#    define _IOC_TYPE(cmd) (((cmd) >> _IOC_TYPESHIFT) & _IOC_TYPEMASK)
+#endif
+#ifndef _IOC_NR
+#    define _IOC_NR(cmd) (((cmd) >> _IOC_NRSHIFT) & _IOC_NRMASK)
+#endif
+#ifndef _IOC_SIZE
+#    define _IOC_SIZE(cmd) (((cmd) >> _IOC_SIZESHIFT) & _IOC_SIZEMASK)
+#endif
 
 /*
- * ===================================================================
+ * -------------------------------------------------------------------
  * TTY ioctl magic number ('T' = 0x54)
- * ===================================================================
+ * -------------------------------------------------------------------
  */
 
 #define TTY_IOCTL_MAGIC 0x54
 
 /*
- * ===================================================================
+ * -------------------------------------------------------------------
  * Standard TTY ioctls
- * ===================================================================
+ * -------------------------------------------------------------------
  */
 
 /* termios get/set */
@@ -444,9 +493,9 @@ struct vt_stat {
 #define TCSETSF2 _IOW(TTY_IOCTL_MAGIC, 0x2D, struct termios2)
 
 /*
- * ===================================================================
+ * -------------------------------------------------------------------
  * Unix98 PTY-specific ioctls
- * ===================================================================
+ * -------------------------------------------------------------------
  */
 
 #define TIOCGPTN    _IOR(TTY_IOCTL_MAGIC, 48, unsigned int) // Get PTY number
@@ -464,9 +513,9 @@ struct vt_stat {
 #define TIOCGPTPEER _IO(TTY_IOCTL_MAGIC, 0x41)
 
 /*
- * ===================================================================
+ * -------------------------------------------------------------------
  * Modem control line bitmask (for TIOCMGET, TIOCMSET, etc.)
- * ===================================================================
+ * -------------------------------------------------------------------
  */
 
 #define TIOCM_LE  0x0001 // Line enable
@@ -482,9 +531,9 @@ struct vt_stat {
 #define TIOCM_RI  TIOCM_RNG
 
 /*
- * ===================================================================
+ * -------------------------------------------------------------------
  * TIOCPKT packet mode control byte bits (PTY master reads)
- * ===================================================================
+ * -------------------------------------------------------------------
  */
 
 #define TIOCPKT_DATA       0x00 // Normal data follows
@@ -497,9 +546,9 @@ struct vt_stat {
 #define TIOCPKT_IOCTL      0x40 // Slave called an ioctl
 
 /*
- * ===================================================================
+ * -------------------------------------------------------------------
  * Argument values for TCSETS / termios actions
- * ===================================================================
+ * -------------------------------------------------------------------
  */
 
 #define TCSANOW   0 // Change attributes immediately
@@ -507,9 +556,9 @@ struct vt_stat {
 #define TCSAFLUSH 2 // Change after drain, flush pending input
 
 /*
- * ===================================================================
+ * -------------------------------------------------------------------
  * Argument values for TCXONC
- * ===================================================================
+ * -------------------------------------------------------------------
  */
 
 #define TCOOFF 0 // Suspend output
@@ -518,9 +567,9 @@ struct vt_stat {
 #define TCION  3 // Send START character
 
 /*
- * ===================================================================
+ * -------------------------------------------------------------------
  * Argument values for TCFLSH
- * ===================================================================
+ * -------------------------------------------------------------------
  */
 
 #define TCIFLUSH  0 // Flush input queue
@@ -528,9 +577,9 @@ struct vt_stat {
 #define TCIOFLUSH 2 // Flush both queues
 
 /*
- * ===================================================================
+ * -------------------------------------------------------------------
  * Line discipline numbers
- * ===================================================================
+ * -------------------------------------------------------------------
  */
 
 #define N_TTY          0  // Terminal line discipline
@@ -551,9 +600,9 @@ struct vt_stat {
 #define N_HCI          15 // Bluetooth HCI
 
 /*
- * ===================================================================
+ * -------------------------------------------------------------------
  * Linux serial_struct (for TIOCGSERIAL/TIOCSSERIAL compatibility)
- * ===================================================================
+ * -------------------------------------------------------------------
  */
 
 struct serial_struct {

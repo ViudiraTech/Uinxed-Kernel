@@ -4,7 +4,7 @@
  *      Real-time mutex with priority inheritance
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -25,9 +25,7 @@
 #include <sync/rt_mutex.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/*  Helpers: convert weight →"priority" for rbtree ordering            */
-/* ------------------------------------------------------------------ */
+/* Helpers: convert weight → "priority" for rbtree ordering */
 
 /*
  * PI waiters are ordered by weight (higher weight = higher priority).
@@ -50,9 +48,7 @@ void pi_waiter_augment(rb_node_t *node, void *data)
     (void)node;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Priority inheritance / donation                                    */
-/* ------------------------------------------------------------------ */
+/* Priority inheritance / donation */
 
 /*
  * Determine the effective weight that should be donated to @owner
@@ -124,9 +120,7 @@ void pi_waiter_add(task_t *waiter, rt_mutex_t *mutex)
     pi_propagate_chain(mutex->owner);
 }
 
-/* ------------------------------------------------------------------ */
-/*  rt_mutex operations                                                 */
-/* ------------------------------------------------------------------ */
+/* rt_mutex operations */
 
 void rt_mutex_init(rt_mutex_t *mutex, uint32_t *uaddr)
 {

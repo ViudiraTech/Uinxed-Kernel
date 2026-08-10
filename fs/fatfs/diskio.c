@@ -4,7 +4,7 @@
  *      Low level disk I/O module for FatFs over blockdev.
  *
  *      2026/5/22 By Rainy101112
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

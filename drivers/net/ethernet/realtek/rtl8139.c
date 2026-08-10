@@ -4,7 +4,7 @@
  *      Realtek RTL8139 network controller driver
  *
  *      2026/8/9 By Rainy101112
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

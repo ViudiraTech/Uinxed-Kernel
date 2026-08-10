@@ -4,7 +4,7 @@
  *      POSIX signal subsystem header file
  *
  *      2026/7/21 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -16,7 +16,7 @@
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 
-/* ---------- Signal number definitions / Linux compatible ---------- */
+/* Signal number definitions / Linux compatible */
 
 #define SIGHUP    1
 #define SIGINT    2
@@ -58,7 +58,7 @@
 #define SIG_DFL ((sig_handler_t)0)
 #define SIG_IGN ((sig_handler_t)1)
 
-/* ---------- sigset_t / 64-bit bitmap ---------- */
+/* sigset_t / 64-bit bitmap */
 
 typedef uint64_t sigset_t;
 
@@ -116,7 +116,7 @@ static inline int sigset_valid(const sigset_t *set)
     return 1;
 }
 
-/* ---------- Signal handler types ---------- */
+/* Signal handler types */
 
 typedef void (*sig_handler_t)(int);
 
@@ -142,7 +142,7 @@ typedef struct {
 #define SIG_UNBLOCK 1
 #define SIG_SETMASK 2
 
-/* ---------- siginfo_t ---------- */
+/* siginfo_t */
 
 typedef union sigval {
         int   sival_int;
@@ -280,7 +280,7 @@ typedef struct {
 #define POLL_PRI 5
 #define POLL_HUP 6
 
-/* ---------- sigaltstack ---------- */
+/* sigaltstack */
 
 typedef struct {
         void  *ss_sp;
@@ -291,10 +291,10 @@ typedef struct {
 #define SS_ONSTACK 1
 #define SS_DISABLE 2
 
-/* ---------- Signal user-frame (on user stack for sigreturn) ---------- */
+/* Signal user-frame (on user stack for sigreturn) */
 
 typedef struct {
-        /* Handler's return address (restorer trampoline) - bottom of frame */
+        /* Handler's return address (restorer trampoline) — bottom of frame */
         uint64_t pretcode;
 
         /* Signal info passed via RSI */
@@ -325,7 +325,7 @@ typedef struct {
 #define SIG_DELIV_TERM    1 // Process terminated by default action
 #define SIG_DELIV_HANDLER 2 // User handler set up, frame modified
 
-/* ---------- Signal queue / real-time ---------- */
+/* Signal queue / real-time */
 
 #define SIGQUEUE_MAX 32
 
@@ -334,7 +334,7 @@ typedef struct sigqueue {
         struct sigqueue *next;
 } sigqueue_t;
 
-/* ---------- Per-process signal state ---------- */
+/* Per-process signal state */
 
 #define SIG_ACTION_NUM NSIG
 
@@ -369,7 +369,7 @@ typedef struct signal_state {
         int     child_exit_status;
 } signal_state_t;
 
-/* ---------- Default action type ---------- */
+/* Default action type */
 
 typedef enum {
     SIG_DFL_TERM,
@@ -379,7 +379,7 @@ typedef enum {
     SIG_DFL_CONT,
 } sig_dfl_action_t;
 
-/* ---------- Kernel API ---------- */
+/* Kernel API */
 
 /* Initialize the signal subsystem */
 void signal_init(void);
@@ -485,7 +485,7 @@ void signal_notify_child_status(process_t *parent, int64_t child_pid, int status
  */
 int64_t do_rt_sigreturn(syscall_frame_t *frame);
 
-/* ---------- Syscall implementations (called from syscall.c) ---------- */
+/* Syscall implementations (called from syscall.c) */
 
 int64_t sys_kill_impl(int64_t pid, int sig);
 int64_t sys_tkill_impl(int64_t tid, int sig);

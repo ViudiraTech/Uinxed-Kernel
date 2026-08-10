@@ -3,12 +3,9 @@
  *      extfs.h
  *      ext2/ext3/ext4 filesystem driver
  *
- *      Based on Linux ext2 source code.
- *      Adapted for Uinxed-Kernel VFS layer.
  *      2026/7/29 By JiTianYu391
- *
  *      Copyright (C) 1992, 1993 Remy Card, Laboratoire MASI - Institut Blaise Pascal
- *      Copyright © 2026 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2026 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -382,7 +379,7 @@ int extfs_make_empty_dir(extfs_handle_t *dir_h, uint32_t self_ino, uint32_t pare
 int extfs_dir_empty(extfs_handle_t *dir_h);
 int extfs_dir_block_verify(extfs_handle_t *dir_h, uint32_t logical, const void *block);
 
-/* extfs.c - registration */
+/* extfs.c — registration */
 void extfs_regist(void);
 
 #endif // INCLUDE_EXTFS_H_

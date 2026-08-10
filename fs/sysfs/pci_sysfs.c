@@ -4,7 +4,7 @@
  *      PCI bus and device sysfs integration
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -22,9 +22,7 @@
 #include <libs/std/string.h>
 #include <mem/heap.h>
 
-/* ------------------------------------------------------------------ */
-/*  Per-device private data                                            */
-/* ------------------------------------------------------------------ */
+/* Per-device private data */
 
 typedef struct pci_sysfs_dev {
         pci_device_cache_t *cache;
@@ -54,9 +52,7 @@ static int pci_device_uevent(struct device *dev, struct kobj_uevent_env *env)
                           class_code & 0xFF);
 }
 
-/* ------------------------------------------------------------------ */
-/*  PCI bus type                                                       */
-/* ------------------------------------------------------------------ */
+/* PCI bus type */
 
 static struct bus_type pci_bus_type = {
     .name     = "pci",
@@ -64,9 +60,7 @@ static struct bus_type pci_bus_type = {
     .uevent   = pci_device_uevent,
 };
 
-/* ------------------------------------------------------------------ */
-/*  Device attribute show/store functions                              */
-/* ------------------------------------------------------------------ */
+/* Device attribute show/store functions */
 
 static ssize_t pci_vendor_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -153,9 +147,7 @@ static ssize_t pci_modalias_show(struct device *dev, struct device_attribute *at
                                class_code & 0xFF);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Device attributes                                                  */
-/* ------------------------------------------------------------------ */
+/* Device attributes */
 
 static DEVICE_ATTR(vendor, 0444, pci_vendor_show, NULL);
 static DEVICE_ATTR(device, 0444, pci_device_show, NULL);
@@ -181,9 +173,7 @@ static const struct attribute_group *pci_dev_groups[] = {
     NULL,
 };
 
-/* ------------------------------------------------------------------ */
-/*  Device release                                                     */
-/* ------------------------------------------------------------------ */
+/* Device release */
 
 static void pci_dev_release(struct device *dev)
 {
@@ -192,9 +182,7 @@ static void pci_dev_release(struct device *dev)
     free(dev);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Initialization                                                     */
-/* ------------------------------------------------------------------ */
+/* Initialization */
 
 void pci_sysfs_init(void)
 {

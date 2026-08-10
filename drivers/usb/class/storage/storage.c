@@ -4,7 +4,7 @@
  *      USB Mass Storage Bulk-Only Transport and SCSI disk driver
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -26,10 +26,18 @@
 #define USB_MSC_PROTOCOL_BOT  0x50
 #define USB_MSC_REQ_RESET     0xff
 #define USB_MSC_REQ_MAX_LUN   0xfe
-#define USB_MSC_MAX_LUNS      16
-#define USB_MSC_MAX_DISKS     256
-#define USB_MSC_IO_CHUNK      4096
-#define USB_MSC_MAJOR         8
+
+/*
+ * Overview
+ * USB mass-storage (Bulk-Only Transport) driver. It issues CBW
+ * commands over the bulk endpoints, interprets the CSW response,
+ * and exposes the device as a blockdev backed by SCSI-style reads
+ * and writes.
+ */
+#define USB_MSC_MAX_LUNS  16
+#define USB_MSC_MAX_DISKS 256
+#define USB_MSC_IO_CHUNK  4096
+#define USB_MSC_MAJOR     8
 
 typedef struct usb_storage_device usb_storage_device_t;
 

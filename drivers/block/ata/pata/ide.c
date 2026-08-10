@@ -4,7 +4,7 @@
  *      Standard ATA/ATAPI device drivers
  *
  *      2024/7/11 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -290,7 +290,7 @@ uint8_t ide_read(uint8_t channel, uint8_t reg)
 void ide_write(uint8_t channel, uint8_t reg, uint8_t data)
 {
     if (reg > 0x07 && reg < 0x0c) {
-        /* Expanded by ide_write(channel, ATA_REG_CONTROL, 0x80 | channels[channel].nIEN); */
+        /* Control register writes also assert the nIEN interrupt-disable bit */
         outb(channels[channel].ctrl + ATA_REG_CONTROL - 0x0a, 0x80 | channels[channel].nIEN);
     }
     if (reg < 0x08)

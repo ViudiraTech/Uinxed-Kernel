@@ -4,7 +4,7 @@
  *      Linux-compatible swap area management and anonymous-page paging
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -39,11 +39,19 @@
 #define SWAP_HEADER_VERSION   1024
 #define SWAP_HEADER_LAST_PAGE 1028
 
+/*
+ * Swap entry encoding
+ * A non-present PTE tagged with PTE_SWAP encodes a swap device type,
+ * a slot offset and the flags to restore when the page is paged in.
+ * The helpers below pack and unpack that encoding.
+ */
+
 static uint32_t swap_le32(const uint8_t *value)
 {
     return (uint32_t)value[0] | ((uint32_t)value[1] << 8) | ((uint32_t)value[2] << 16) | ((uint32_t)value[3] << 24);
 }
 
+/* Parse the swap header page and report the usable slot count */
 int swap_header_decode(const void *page, size_t bytes, uint64_t backing_pages, swap_header_info_t *info)
 {
     const uint8_t *data = page;

@@ -4,7 +4,7 @@
  *      Timerfd file descriptor implementation
  *
  *      2026/7/21 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -60,7 +60,7 @@ static timerfd_timespec_t timerfd_ticks_to_timespec(uint64_t ticks)
     return ts;
 }
 
-/* ---------- VFS callback implementations ---------- */
+/* VFS callback implementations */
 
 static void timerfd_vfs_open(void *parent, const char *name, vfs_node_t node)
 {
@@ -206,7 +206,7 @@ static int timerfd_stub_mount(const char *s, vfs_node_t n)
     return -ENOSYS;
 }
 
-/* ---------- Public API ---------- */
+/* Public API */
 
 static vfs_node_t timerfd_node_create(int clockid, int flags)
 {

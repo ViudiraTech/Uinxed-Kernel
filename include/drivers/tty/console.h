@@ -4,7 +4,7 @@
  *      Console driver table (Linux kernel/printk/console_cmdline + console_drivers analog)
  *
  *      2026/8/10 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

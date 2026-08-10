@@ -4,7 +4,7 @@
  *      Linker script written for kernel format
  *
  *      2024/6/23 By Rainy101112
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

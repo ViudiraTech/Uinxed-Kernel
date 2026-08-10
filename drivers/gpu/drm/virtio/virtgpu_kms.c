@@ -4,13 +4,7 @@
  *      VirtIO-GPU KMS display pipeline
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
- *
- *  Implements the full KMS pipeline: CRTC, plane, encoder, connector,
- *  atomic commit, page flip, and framebuffer-to-scanout connection.
- *  Display modes are queried from the virtio host via GET_DISPLAY_INFO
- *  (and optionally via EDID). The DRM core calls our helper callbacks
- *  via helper_private pointers stored during init.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -41,9 +35,7 @@ static struct virtio_gpu_object *vgdev_flush_obj;
 
 /* Forward declaration of the page-flip helper defined in gpu.c */
 
-/* ------------------------------------------------------------------ */
-/* Connector helper functions                                         */
-/* ------------------------------------------------------------------ */
+/* Connector helper functions */
 
 static enum drm_connector_status virtgpu_connector_detect(struct drm_connector *connector, bool force)
 {
@@ -194,9 +186,7 @@ static int virtgpu_connector_mode_valid(struct drm_connector *connector, struct 
     return MODE_OK;
 }
 
-/* ------------------------------------------------------------------ */
-/* Encoder helper functions                                           */
-/* ------------------------------------------------------------------ */
+/* Encoder helper functions */
 
 static void virtgpu_encoder_atomic_check(struct drm_encoder *encoder, struct drm_crtc_state *crtc_state, struct drm_connector_state *conn_state)
 {
@@ -205,9 +195,7 @@ static void virtgpu_encoder_atomic_check(struct drm_encoder *encoder, struct drm
     (void)conn_state;
 }
 
-/* ------------------------------------------------------------------ */
-/* CRTC helper functions                                              */
-/* ------------------------------------------------------------------ */
+/* CRTC helper functions */
 
 static void virtgpu_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_framebuffer *fb)
 {
@@ -249,9 +237,7 @@ static void virtgpu_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_s
     vgdev->current_scanout_obj = NULL;
 }
 
-/* ------------------------------------------------------------------ */
-/* Page flip helper for legacy ioctl                                   */
-/* ------------------------------------------------------------------ */
+/* Page flip helper for legacy ioctl */
 
 static int virtgpu_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb, struct drm_pending_vblank_event *event, uint32_t flags)
 {
@@ -271,18 +257,14 @@ static int virtgpu_crtc_page_flip(struct drm_crtc *crtc, struct drm_framebuffer 
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Mode config helpers                                                 */
-/* ------------------------------------------------------------------ */
+/* Mode config helpers */
 
 static const uint32_t virtgpu_formats[] = {
     DRM_FORMAT_XRGB8888,
     DRM_FORMAT_ARGB8888,
 };
 
-/* ------------------------------------------------------------------ */
-/* Initial modeset –enable a framebuffer for immediate display        */
-/* ------------------------------------------------------------------ */
+/* Initial modeset — enable a framebuffer for immediate display */
 
 /*
  * Flush callback invoked by the video subsystem after fbcon draws.
@@ -335,7 +317,7 @@ static int virtgpu_crtc_cursor_move(struct drm_crtc *crtc, int32_t x, int32_t y)
  * defaults to inactive and the screen stays blank until userspace opens
  * the DRM device and commits a mode.
  *
- * Returns 0 on success; negative errno on failure (non-fatal –the KMS
+ * Returns 0 on success; negative errno on failure (non-fatal — the KMS
  * pipeline stays registered and usable from userspace).
  */
 static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
@@ -359,11 +341,11 @@ static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
         if (conn->status == connector_status_connected) break;
     }
     if (!conn) {
-        DRM_INFO("No connected connector –skipping initial modeset\n");
+        DRM_INFO("No connected connector — skipping initial modeset\n");
         return -ENODEV;
     }
 
-    /* 2. Pick a mode –PREFERRED wins, otherwise first probed */
+    /* 2. Pick a mode — PREFERRED wins, otherwise first probed */
     for (node = conn->modes.next; node != &conn->modes; node = node->next) {
         struct drm_display_mode *m = container_of(node, struct drm_display_mode, head);
         if (!fallback) fallback = m;
@@ -374,7 +356,7 @@ static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
     }
     if (!pref) pref = fallback;
     if (!pref) {
-        DRM_INFO("No modes on connector –skipping initial modeset\n");
+        DRM_INFO("No modes on connector — skipping initial modeset\n");
         return -ENODEV;
     }
 
@@ -433,7 +415,7 @@ static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
     ret = virtgpu_page_flip(vgdev, fb, NULL);
     if (ret) {
         DRM_ERROR("Initial modeset page_flip failed: %d\n", ret);
-        /* Don't bail –FB is registered and usable; just not shown */
+        /* Don't bail — FB is registered and usable; just not shown */
     }
 
     /* 6. Update in-kernel CRTC and primary-plane state */
@@ -487,9 +469,7 @@ err_free_obj:
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/* Public init / fini                                                  */
-/* ------------------------------------------------------------------ */
+/* Public init / fini */
 
 int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
 {
@@ -504,7 +484,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     ret = virtgpu_cmd_get_display_info(vgdev);
     if (ret) plogk("virtgpu: Failed to get display info: %d (using defaults)\n", ret);
 
-    /* ---------- Primary plane ---------- */
+    /* Primary plane */
 
     primary = malloc(sizeof(*primary));
     if (!primary) return -ENOMEM;
@@ -527,7 +507,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     primary->state->alpha   = 0xFFFF;
     primary->state->visible = true;
 
-    /* ---------- CRTC (with real helper callbacks) ---------- */
+    /* CRTC (with real helper callbacks) */
 
     crtc = malloc(sizeof(*crtc));
     if (!crtc) return -ENOMEM;
@@ -568,7 +548,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     crtc->state->active = false;
     crtc->state->enable = false;
 
-    /* ---------- Encoder (with helper callbacks) ---------- */
+    /* Encoder (with helper callbacks) */
 
     encoder = malloc(sizeof(*encoder));
     if (!encoder) return -ENOMEM;
@@ -591,7 +571,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     encoder->possible_crtcs = 1;
     encoder->crtc           = crtc;
 
-    /* ---------- Connector (with helper callbacks) ---------- */
+    /* Connector (with helper callbacks) */
 
     connector = malloc(sizeof(*connector));
     if (!connector) return -ENOMEM;
@@ -660,7 +640,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
 
     /*
      * Perform an initial modeset so the display is live immediately.
-     * Failure is non-fatal –the KMS pipeline remains registered.
+     * Failure is non-fatal — the KMS pipeline remains registered.
      */
     ret = virtgpu_kms_initial_modeset(vgdev);
     if (ret) DRM_INFO("Initial modeset deferred (display will activate on first userspace commit)\n");

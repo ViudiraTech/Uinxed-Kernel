@@ -4,7 +4,7 @@
  *      Linux-compatible poll, select, pselect6, and ppoll syscalls
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -25,6 +25,14 @@
 #include <process/uaccess.h>
 #include <sync/signal.h>
 #include <syscall/poll.h>
+
+/*
+ * Overview
+ * poll.c implements poll(2)/select(2)/ppoll(2). It collects the
+ * file descriptors to watch, evaluates each one's readiness through
+ * the VFS poll callback, and blocks in the scheduler until an event
+ * or the timeout expires.
+ */
 
 #define POLLIN     0x0001
 #define POLLPRI    0x0002

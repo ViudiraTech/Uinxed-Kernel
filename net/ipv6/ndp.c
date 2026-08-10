@@ -4,7 +4,7 @@
  *      NDP implementation
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -22,6 +22,14 @@
 #define NDP_REACHABLE_TICKS  ((uint64_t)30U * TIMER_HZ)
 #define NDP_RETRY_TICKS      TIMER_HZ
 #define NDP_MAX_RETRIES      3U
+
+/*
+ * Overview
+ * NDP (Neighbor Discovery Protocol) resolves IPv6 next-hop
+ * addresses to link-layer addresses via Neighbor Solicitation /
+ * Advertisement, and maintains the neighbor cache with reachability
+ * timers and retries.
+ */
 
 #define NDP_OPT_SOURCE_LL 1U
 #define NDP_OPT_TARGET_LL 2U

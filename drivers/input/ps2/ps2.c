@@ -3,11 +3,11 @@
  *      ps2.c
  *      i8042 PS/2 controller transport and IRQ dispatch
  *
- *      2025/9/7 By MicroFish
- *      2026/7/25 Split keyboard/mouse devices by JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      2026/7/25 By MicroFish & JiTianYu391
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
+
 #include <arch/common.h>
 #include <drivers/firmware/apic.h>
 #include <drivers/input/evdev/evdev.h>

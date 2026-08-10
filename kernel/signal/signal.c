@@ -4,7 +4,7 @@
  *      POSIX signal subsystem implementation
  *
  *      2026/7/21 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -29,7 +29,7 @@
 #include <syscall/signalfd.h>
 #include <syscall/syscall.h>
 
-/* ---------- Signal default action table ---------- */
+/* Signal default action table */
 
 static const sig_dfl_action_t sig_default_action_table[NSIG] = {
     [0] = SIG_DFL_TERM,       [SIGHUP] = SIG_DFL_TERM,    [SIGINT] = SIG_DFL_TERM,  [SIGQUIT] = SIG_DFL_CORE, [SIGILL] = SIG_DFL_CORE,
@@ -50,7 +50,7 @@ sig_dfl_action_t signal_default_action(int sig)
     return sig_default_action_table[sig];
 }
 
-/* ---------- Signal queue helpers ---------- */
+/* Signal queue helpers */
 
 static sigqueue_t *sigqueue_alloc(void)
 {
@@ -103,7 +103,7 @@ static bool sigqueue_contains(const signal_state_t *state, int sig)
     return false;
 }
 
-/* ---------- Signal state management ---------- */
+/* Signal state management */
 
 void signal_init(void)
 {
@@ -223,7 +223,7 @@ void signal_exec_reset(process_t *proc)
     spin_unlock(&state->lock);
 }
 
-/* ---------- Permission check ---------- */
+/* Permission check */
 
 int signal_check_perm(const process_t *from, const process_t *to)
 {
@@ -241,7 +241,7 @@ int signal_check_perm(const process_t *from, const process_t *to)
     return -EPERM;
 }
 
-/* ---------- Signal sending ---------- */
+/* Signal sending */
 
 static int signal_send_locked(signal_state_t *state, process_t *proc, int sig, const siginfo_t *info, bool *newly_pending)
 {
@@ -339,7 +339,7 @@ int signal_send_thread(task_t *task, int sig, const siginfo_t *info)
     return ret;
 }
 
-/* ---------- Signal delivery ---------- */
+/* Signal delivery */
 
 /*
  * Prepare a signal frame on the user stack and modify the syscall
@@ -766,7 +766,7 @@ int signal_deliver_if_pending(syscall_frame_t *frame)
     return signal_deliver_for_process(process_current(), frame);
 }
 
-/* ---------- SIGCHLD notification ---------- */
+/* SIGCHLD notification */
 
 void signal_notify_child_exit(process_t *parent, int64_t child_pid, int exit_code, int status)
 {
@@ -828,7 +828,7 @@ void signal_notify_child_status(process_t *parent, int64_t child_pid, int status
     if (parent->task) task_wakeup(parent->task);
 }
 
-/* ---------- Syscall implementations ---------- */
+/* Syscall implementations */
 
 /*
  * sys_kill - Send a signal to a process

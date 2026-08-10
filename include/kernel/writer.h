@@ -4,7 +4,7 @@
  *      Writer interface header file
  *
  *      2026/5/17 By Rainy101112
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -21,7 +21,7 @@ struct writer;
  */
 typedef uint8_t (*write_handler)(struct writer *writer, char ch);
 
-/* A interface of writing a char (May be extended in the future) */
+/* A writer writes a single character; handler returns 0 on failure */
 typedef struct writer {
         void         *data; // Any data
         write_handler handler;

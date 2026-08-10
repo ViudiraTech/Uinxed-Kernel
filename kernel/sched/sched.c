@@ -4,7 +4,7 @@
  *      Kernel EEVDF scheduler
  *
  *      2026/7/21 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -30,9 +30,7 @@
 #include <process/task.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/*  Constants                                                           */
-/* ------------------------------------------------------------------ */
+/* Constants */
 
 /*
  * Build system may pre-define these via -D in the Makefile.
@@ -54,9 +52,7 @@
 #    define SCHED_WAKEUP_GRANULARITY 0ULL // preempt on a strictly earlier VD
 #endif
 
-/* ------------------------------------------------------------------ */
-/*  Global state                                                        */
-/* ------------------------------------------------------------------ */
+/* Global state */
 
 scheduler_t     scheduler;
 eevdf_rq_t     *cpu_rqs;
@@ -66,15 +62,11 @@ static uint8_t  boot_stack_marker;
 static task_t  *ap_boot_tasks;
 static uint32_t next_task_cpu;
 
-/* ------------------------------------------------------------------ */
-/*  Forward declarations                                                */
-/* ------------------------------------------------------------------ */
+/* Forward declarations */
 
 void context_switch(task_context_t *prev, task_context_t *next, volatile uint64_t *prev_on_cpu);
 
-/* ------------------------------------------------------------------ */
-/*  Context switch (naked assembly)                                     */
-/* ------------------------------------------------------------------ */
+/* Context switch (naked assembly) */
 
 __attribute__((naked)) void context_switch(task_context_t *prev __attribute__((unused)), task_context_t *next __attribute__((unused)),
                                            volatile uint64_t *prev_on_cpu __attribute__((unused)))
@@ -103,9 +95,7 @@ __attribute__((naked)) void context_switch(task_context_t *prev __attribute__((u
                      "ret\n\t");
 }
 
-/* ------------------------------------------------------------------ */
-/*  Helpers: container_of variants                                      */
-/* ------------------------------------------------------------------ */
+/* Helpers: container_of variants */
 
 static task_t *sched_node_to_task(ilist_node_t *node)
 {
@@ -122,9 +112,7 @@ static int node_is_linked(const ilist_node_t *node)
     return node->prev && node->next && node->prev != node;
 }
 
-/* ------------------------------------------------------------------ */
-/*  EEVDF core: virtual-time arithmetic                                 */
-/* ------------------------------------------------------------------ */
+/* EEVDF core: virtual-time arithmetic */
 
 /* Convert wall-clock delta to virtual-time delta for a given weight */
 static uint64_t calc_delta_fair(uint64_t delta, task_t *task)
@@ -179,13 +167,13 @@ static uint64_t calc_effective_slice(eevdf_rq_t *rq)
     return slice;
 }
 
-/* ------------------------------------------------------------------ */
-/*  EEVDF core: eligibility check                                       */
-/*                                                                      */
-/*  A task is eligible iff lag >= 0, i.e. its ideal service time       */
-/*  exceeds its actual service time.  In discrete form:                 */
-/*    avg_vruntime >= (vruntime - min_vruntime) * avg_load              */
-/* ------------------------------------------------------------------ */
+/*
+ * EEVDF core: eligibility check
+ * 
+ * A task is eligible iff lag >= 0, i.e. its ideal service time
+ * exceeds its actual service time.  In discrete form:
+ * avg_vruntime >= (vruntime - min_vruntime) * avg_load
+ */
 
 static int entity_eligible_vruntime(eevdf_rq_t *rq, uint64_t vruntime)
 {
@@ -206,9 +194,7 @@ static int entity_eligible(eevdf_rq_t *rq, task_t *task)
     return entity_eligible_vruntime(rq, task->vruntime);
 }
 
-/* ------------------------------------------------------------------ */
-/*  EEVDF core: RB-tree comparison and augmentation                     */
-/* ------------------------------------------------------------------ */
+/* EEVDF core: RB-tree comparison and augmentation */
 
 /* Compare two rb_nodes by their task's deadline (tiebreak: vruntime) */
 static int entity_less(const rb_node_t *a, const rb_node_t *b)
@@ -270,9 +256,7 @@ static void advance_min_vruntime(eevdf_rq_t *rq)
     rq->min_vruntime = candidate;
 }
 
-/* ------------------------------------------------------------------ */
-/*  EEVDF core: avg_vruntime / avg_load bookkeeping                     */
-/* ------------------------------------------------------------------ */
+/* EEVDF core: avg_vruntime / avg_load bookkeeping */
 
 static void avg_vruntime_add(eevdf_rq_t *rq, task_t *task)
 {
@@ -290,9 +274,7 @@ static void avg_vruntime_sub(eevdf_rq_t *rq, task_t *task)
     rq->avg_load -= task->weight;
 }
 
-/* ------------------------------------------------------------------ */
-/*  EEVDF core: update_curr - advance vruntime of the running task      */
-/* ------------------------------------------------------------------ */
+/* EEVDF core: update_curr — advance vruntime of the running task */
 
 static void update_curr(eevdf_rq_t *rq, uint64_t delta_ticks)
 {
@@ -304,9 +286,7 @@ static void update_curr(eevdf_rq_t *rq, uint64_t delta_ticks)
     advance_min_vruntime(rq);
 }
 
-/* ------------------------------------------------------------------ */
-/*  EEVDF core: update_deadline - assign a new deadline slice           */
-/* ------------------------------------------------------------------ */
+/* EEVDF core: update_deadline — assign a new deadline slice */
 
 static void update_deadline(eevdf_rq_t *rq, task_t *task)
 {
@@ -319,9 +299,7 @@ static void update_deadline(eevdf_rq_t *rq, task_t *task)
     task->vlag     = (int64_t)(avg_vruntime(rq) - task->vruntime);
 }
 
-/* ------------------------------------------------------------------ */
-/*  EEVDF core: place_entity - set vruntime/deadline on enqueue         */
-/* ------------------------------------------------------------------ */
+/* EEVDF core: place_entity — set vruntime/deadline on enqueue */
 
 static void place_entity(eevdf_rq_t *rq, task_t *task, int initial)
 {
@@ -360,9 +338,7 @@ static void place_entity(eevdf_rq_t *rq, task_t *task, int initial)
     task->deadline = task->vruntime + vslice;
 }
 
-/* ------------------------------------------------------------------ */
-/*  EEVDF core: enqueue_entity / dequeue_entity                         */
-/* ------------------------------------------------------------------ */
+/* EEVDF core: enqueue_entity / dequeue_entity */
 
 static void enqueue_entity(eevdf_rq_t *rq, task_t *task)
 {
@@ -391,17 +367,17 @@ static void dequeue_entity(eevdf_rq_t *rq, task_t *task)
     if (rq->nr_running) rq->nr_running--;
 }
 
-/* ------------------------------------------------------------------ */
-/*  EEVDF core: pick_eevdf - select the next task to run                */
-/*                                                                      */
-/*  Strategy:                                                           */
-/*    1. If only one task is runnable, return it directly.              */
-/*    2. Check the cached leftmost (earliest deadline).                 */
-/*       If eligible, it wins.                                          */
-/*    3. Otherwise, traverse the rbtree, using the min_vruntime         */
-/*       augmentation to skip subtrees that contain no eligible         */
-/*       entities.                                                      */
-/* ------------------------------------------------------------------ */
+/*
+ * EEVDF core: pick_eevdf — select the next task to run
+ * 
+ * Strategy:
+ * 1. If only one task is runnable, return it directly.
+ * 2. Check the cached leftmost (earliest deadline).
+ * If eligible, it wins.
+ * 3. Otherwise, traverse the rbtree, using the min_vruntime
+ * augmentation to skip subtrees that contain no eligible
+ * entities.
+ */
 
 static task_t *pick_eevdf(eevdf_rq_t *rq)
 {
@@ -442,7 +418,7 @@ static task_t *pick_eevdf(eevdf_rq_t *rq)
             return curr;
         }
 
-        /* Neither left nor current is eligible - go right */
+        /* Neither left nor current is eligible — go right */
         node = node->right;
     }
 
@@ -458,9 +434,7 @@ static task_t *pick_eevdf(eevdf_rq_t *rq)
     return rq->idle;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Per-CPU helpers                                                     */
-/* ------------------------------------------------------------------ */
+/* Per-CPU helpers */
 
 static eevdf_rq_t *local_rq(void)
 {
@@ -510,9 +484,7 @@ static void enqueue_task_on_cpu(task_t *task, uint32_t cpu_id, int initial)
     enqueue_entity(rq, task);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Public API: enqueue_task                                            */
-/* ------------------------------------------------------------------ */
+/* Public API: enqueue_task */
 
 void enqueue_task(task_t *task)
 {
@@ -524,9 +496,7 @@ void enqueue_task_initial(task_t *task)
     enqueue_task_on_cpu(task, task->cpu_id, 1);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Wake / sleep helpers                                                */
-/* ------------------------------------------------------------------ */
+/* Wake / sleep helpers */
 
 static void wake_task_locked(task_t *task, int remove_linked_node)
 {
@@ -580,9 +550,7 @@ static void sleep_task(task_t *task, uint64_t wake_tick)
     ilist_insert_before(&scheduler.sleep_queue, &task->sched_node);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Load balancing                                                      */
-/* ------------------------------------------------------------------ */
+/* Load balancing */
 
 uint32_t choose_task_cpu_locked(void)
 {
@@ -659,9 +627,7 @@ static void wake_sleeping_tasks(void)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/*  Idle thread                                                         */
-/* ------------------------------------------------------------------ */
+/* Idle thread */
 
 static void idle_thread(void *arg)
 {
@@ -690,9 +656,7 @@ static void idle_thread(void *arg)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/*  sched_init - bootstrap the scheduler                                */
-/* ------------------------------------------------------------------ */
+/* sched_init — bootstrap the scheduler */
 
 void sched_init(void)
 {
@@ -765,9 +729,7 @@ void sched_init(void)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/*  AP management                                                       */
-/* ------------------------------------------------------------------ */
+/* AP management */
 
 void sched_ap_online(uint32_t cpu_id)
 {
@@ -806,9 +768,7 @@ uint32_t sched_cpu_count(void)
     return cpu_scheduler_count;
 }
 
-/* ------------------------------------------------------------------ */
-/*  task_set_cpu - migrate a task to a different CPU                    */
-/* ------------------------------------------------------------------ */
+/* task_set_cpu — migrate a task to a different CPU */
 
 int task_set_cpu(task_t *task, uint32_t cpu_id)
 {
@@ -831,9 +791,7 @@ int task_set_cpu(task_t *task, uint32_t cpu_id)
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/*  sched_yield - core context switch entry point                       */
-/* ------------------------------------------------------------------ */
+/* sched_yield — core context switch entry point */
 
 static void sched_switch(bool account_runtime)
 {
@@ -922,9 +880,7 @@ void sched_yield(void)
     sched_switch(true);
 }
 
-/* ------------------------------------------------------------------ */
-/*  sched_start - launch the scheduler on the BSP                       */
-/* ------------------------------------------------------------------ */
+/* sched_start — launch the scheduler on the BSP */
 
 void sched_start(void)
 {
@@ -934,7 +890,7 @@ void sched_start(void)
     enable_intr();
     sched_yield();
 
-    /* swapper/0 resumed - enter idle loop */
+    /* swapper/0 resumed — enter idle loop */
     for (;;) {
         enable_intr();
         __asm__ volatile("hlt");
@@ -943,9 +899,7 @@ void sched_start(void)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/*  task_sleep_ticks - voluntary sleep for N ticks                      */
-/* ------------------------------------------------------------------ */
+/* task_sleep_ticks — voluntary sleep for N ticks */
 
 void task_sleep_ticks(uint64_t ticks)
 {
@@ -969,9 +923,7 @@ void task_sleep_ticks(uint64_t ticks)
     enable_intr();
 }
 
-/* ------------------------------------------------------------------ */
-/*  task_block - block the current task                                 */
-/* ------------------------------------------------------------------ */
+/* task_block — block the current task */
 
 void task_block(void)
 {
@@ -989,9 +941,7 @@ void task_block(void)
     enable_intr();
 }
 
-/* ------------------------------------------------------------------ */
-/*  task_wakeup - wake a blocked or sleeping task                       */
-/* ------------------------------------------------------------------ */
+/* task_wakeup — wake a blocked or sleeping task */
 
 int task_wakeup(task_t *task)
 {
@@ -1022,9 +972,7 @@ int task_continue(task_t *task)
     return continued ? 0 : 1;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Wait queue implementation                                           */
-/* ------------------------------------------------------------------ */
+/* Wait queue implementation */
 
 void wait_queue_init(wait_queue_t *queue)
 {
@@ -1224,9 +1172,7 @@ uint64_t wait_queue_wake_all(wait_queue_t *queue)
     return count;
 }
 
-/* ------------------------------------------------------------------ */
-/*  sched_tick - periodic tick accounting and preemption                */
-/* ------------------------------------------------------------------ */
+/* sched_tick — periodic tick accounting and preemption */
 
 void sched_tick(void)
 {
@@ -1273,18 +1219,14 @@ void sched_tick(void)
     if (preempt) sched_switch(false);
 }
 
-/* ------------------------------------------------------------------ */
-/*  sched_ticks - return the global tick count                          */
-/* ------------------------------------------------------------------ */
+/* sched_ticks — return the global tick count */
 
 uint64_t sched_ticks(void)
 {
     return scheduler.ticks;
 }
 
-/* ------------------------------------------------------------------ */
-/*  task_exit - terminate the current task                              */
-/* ------------------------------------------------------------------ */
+/* task_exit — terminate the current task */
 
 void task_exit(void)
 {
@@ -1313,9 +1255,7 @@ void task_exit(void)
     panic("sched: zombie task resumed after exit.");
 }
 
-/* ------------------------------------------------------------------ */
-/*  current_task - return the task running on this CPU                  */
-/* ------------------------------------------------------------------ */
+/* current_task — return the task running on this CPU */
 
 task_t *current_task(void)
 {

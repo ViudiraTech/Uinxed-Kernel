@@ -4,7 +4,7 @@
  *      Temporary file system
  *
  *      2025/11/3 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -371,14 +371,11 @@ int tmpfs_free(void *handle)
     return EOK;
 }
 
-/* Dummy function (placeholder for VFS callbacks not implemented) */
 void tmpfs_dummy(void)
-{ // Nothing
+{
 }
 
-/* ------------------------------------------------------------------ */
-/* Per-open-instance callbacks --delegate to device ops               */
-/* ------------------------------------------------------------------ */
+/* Per-open-instance callbacks --delegate to device ops */
 
 static int tmpfs_file_open(vfs_node_t node, uint64_t flags, void **private_data)
 {

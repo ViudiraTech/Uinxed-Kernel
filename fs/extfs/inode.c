@@ -4,7 +4,7 @@
  *      ext2/ext3/ext4 filesystem - inode operations and block mapping
  *
  *      2026/7/29 By JiTianYu391
- *      Copyright © 2026 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2026 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -16,6 +16,14 @@
 #include <libs/util/crc32c.h>
 #include <mem/alloc.h>
 #include <mem/heap.h>
+
+/*
+ * Overview
+ * inode.c reads and writes ext2/3/4 on-disk inodes: loading raw
+ * inodes from the inode table, resolving their data blocks through
+ * the direct/indirect pointer scheme (or extents), and updating the
+ * i_blocks counter and timestamps.
+ */
 
 static int extfs_update_i_blocks(extfs_handle_t *h, ext2_inode_t *raw);
 

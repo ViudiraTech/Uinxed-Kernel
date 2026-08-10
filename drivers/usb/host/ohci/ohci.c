@@ -4,7 +4,7 @@
  *      Open Host Controller Interface (OHCI) driver
  *
  *      2026/7/29 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -28,6 +28,14 @@
 #include <process/task.h>
 
 #define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
+
+/*
+ * Overview
+ * OHCI is a USB 1.1 host controller programmed through MMIO. Its
+ * driver keeps static pools of Endpoint Descriptors (EDs) and
+ * General Transfer Descriptors (gTDs); the HCD links EDs onto the
+ * controller's control/bulk and periodic lists.
+ */
 
 #define OHCI_MAX_CONTROLLERS 8
 #define OHCI_MAX_PORTS       15
@@ -244,6 +252,13 @@ static void ohci_fill_td(ohci_gtd_t *td, uint32_t flags, uint32_t buffer, size_t
     td->next_td                = next;
 }
 
+/*
+ * Transfer submission
+ * Control transfers are built as an ED whose TD chain performs
+ * SETUP / DATA / STATUS; bulk and interrupt use gTDs under their
+ * own EDs. Completion is polled from the gTD's done status.
+ */
+
 static int ohci_control(usb_device_t *device, const usb_setup_packet_t *setup, void *buffer, size_t length, uint32_t timeout_ms)
 {
     ohci_controller_t *ctrl = device ? device->hc_private : NULL;
@@ -328,6 +343,7 @@ control_cleanup:
     return status;
 }
 
+/* Bulk/interrupt transfer under an endpoint's ED */
 static int ohci_transfer(usb_endpoint_t *endpoint, void *buffer, size_t length, size_t *actual, uint32_t timeout_ms)
 {
     if (!endpoint || !endpoint->interface || !endpoint->interface->device || (length && !buffer) || length > PAGE_4K_SIZE) return -EINVAL;
@@ -524,6 +540,7 @@ static int ohci_get_string(usb_device_t *device, uint8_t index, uint16_t languag
     return EOK;
 }
 
+/* Reset a port, address the device and register it with the USB core */
 static int ohci_enumerate_port(ohci_controller_t *ctrl, uint8_t port)
 {
     if (!ctrl || port >= ctrl->num_ports) return -EINVAL;

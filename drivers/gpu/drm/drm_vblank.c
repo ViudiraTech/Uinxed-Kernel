@@ -4,7 +4,7 @@
  *      DRM vblank management
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -22,9 +22,7 @@
 #include <mem/alloc.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/* drm_vblank_init: initialize vblank subsystem for @num_crtcs CRTCs   */
-/* ------------------------------------------------------------------ */
+/* drm_vblank_init: initialize vblank subsystem for @num_crtcs CRTCs */
 
 int drm_vblank_init(struct drm_device *dev, unsigned int num_crtcs)
 {
@@ -68,9 +66,7 @@ int drm_vblank_init(struct drm_device *dev, unsigned int num_crtcs)
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_crtc_vblank_count: get vblank count for a CRTC                  */
-/* ------------------------------------------------------------------ */
+/* drm_crtc_vblank_count: get vblank count for a CRTC */
 
 uint32_t drm_crtc_vblank_count(struct drm_crtc *crtc)
 {
@@ -94,9 +90,7 @@ uint32_t drm_crtc_vblank_count(struct drm_crtc *crtc)
     return vblank->count;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_crtc_vblank_get: enable vblank for this CRTC                    */
-/* ------------------------------------------------------------------ */
+/* drm_crtc_vblank_get: enable vblank for this CRTC */
 
 int drm_crtc_vblank_get(struct drm_crtc *crtc)
 {
@@ -126,9 +120,7 @@ int drm_crtc_vblank_get(struct drm_crtc *crtc)
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_crtc_vblank_put: disable vblank for this CRTC                   */
-/* ------------------------------------------------------------------ */
+/* drm_crtc_vblank_put: disable vblank for this CRTC */
 
 void drm_crtc_vblank_put(struct drm_crtc *crtc)
 {
@@ -155,9 +147,7 @@ void drm_crtc_vblank_put(struct drm_crtc *crtc)
     spin_unlock(&vblank->lock);
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_crtc_arm_vblank_event: queue a vblank event to the CRTC         */
-/* ------------------------------------------------------------------ */
+/* drm_crtc_arm_vblank_event: queue a vblank event to the CRTC */
 
 void drm_crtc_arm_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_event *e)
 {
@@ -215,9 +205,7 @@ void drm_crtc_arm_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_
     spin_unlock(&vblank->lock);
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_crtc_send_vblank_event: stamp and send an event to its owner    */
-/* ------------------------------------------------------------------ */
+/* drm_crtc_send_vblank_event: stamp and send an event to its owner */
 
 void drm_crtc_send_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_event *e)
 {
@@ -256,9 +244,7 @@ void drm_crtc_send_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank
     if (drm_send_event(e->dev, e)) free(e);
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_crtc_vblank_off: turn off vblank for a CRTC                     */
-/* ------------------------------------------------------------------ */
+/* drm_crtc_vblank_off: turn off vblank for a CRTC */
 
 static void drm_crtc_vblank_off(struct drm_crtc *crtc)
 {
@@ -285,9 +271,7 @@ static void drm_crtc_vblank_off(struct drm_crtc *crtc)
     spin_unlock(&vblank->lock);
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_crtc_vblank_on: turn on vblank for a CRTC                       */
-/* ------------------------------------------------------------------ */
+/* drm_crtc_vblank_on: turn on vblank for a CRTC */
 
 static void drm_crtc_vblank_on(struct drm_crtc *crtc)
 {
@@ -314,9 +298,7 @@ static void drm_crtc_vblank_on(struct drm_crtc *crtc)
     spin_unlock(&vblank->lock);
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_handle_vblank: handle a vblank interrupt for the given pipe     */
-/* ------------------------------------------------------------------ */
+/* drm_handle_vblank: handle a vblank interrupt for the given pipe */
 
 void drm_handle_vblank(struct drm_device *dev, unsigned int pipe)
 {
@@ -402,9 +384,7 @@ void drm_vblank_tick(void)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_wait_vblank_ioctl: handle DRM_IOCTL_WAIT_VBLANK                  */
-/* ------------------------------------------------------------------ */
+/* drm_wait_vblank_ioctl: handle DRM_IOCTL_WAIT_VBLANK */
 
 int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
@@ -555,9 +535,7 @@ void drm_vblank_cancel_pending(struct drm_device *dev, struct drm_file *file_pri
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_vblank_cleanup: free the vblank array                           */
-/* ------------------------------------------------------------------ */
+/* drm_vblank_cleanup: free the vblank array */
 
 void drm_vblank_cleanup(struct drm_device *dev)
 {

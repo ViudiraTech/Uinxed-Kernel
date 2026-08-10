@@ -4,7 +4,7 @@
  *      sysfs filesystem header file
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -16,17 +16,13 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
-/* ------------------------------------------------------------------ */
-/*  Forward declarations                                               */
-/* ------------------------------------------------------------------ */
+/* Forward declarations */
 
 struct kobject;
 struct kset;
 struct kobj_type;
 
-/* ------------------------------------------------------------------ */
-/*  Core attribute types                                               */
-/* ------------------------------------------------------------------ */
+/* Core attribute types */
 
 struct attribute {
         const char *name;
@@ -48,18 +44,14 @@ struct attribute_group {
         struct bin_attribute **bin_attrs;
 };
 
-/* ------------------------------------------------------------------ */
-/*  Sysfs operations (per-ktype read/write callbacks)                  */
-/* ------------------------------------------------------------------ */
+/* Sysfs operations (per-ktype read/write callbacks) */
 
 struct sysfs_ops {
         ssize_t (*show)(struct kobject *kobj, struct attribute *attr, char *buf);
         ssize_t (*store)(struct kobject *kobj, struct attribute *attr, const char *buf, size_t count);
 };
 
-/* ------------------------------------------------------------------ */
-/*  Convenience attribute macros                                       */
-/* ------------------------------------------------------------------ */
+/* Convenience attribute macros */
 
 #define __stringify_1(x) #x
 #define __stringify(x)   __stringify_1(x)
@@ -80,9 +72,7 @@ struct sysfs_ops {
         .name = NULL \
     }
 
-/* ------------------------------------------------------------------ */
-/*  sysfs buffer helpers (PAGE_SIZE semantics)                         */
-/* ------------------------------------------------------------------ */
+/* sysfs buffer helpers (PAGE_SIZE semantics) */
 
 #define SYSFS_PAGE_SIZE 4096
 
@@ -117,9 +107,7 @@ static inline int sysfs_emit_at(char *buf, int at, const char *fmt, ...)
     return n;
 }
 
-/* ------------------------------------------------------------------ */
-/*  sysfs filesystem API                                               */
-/* ------------------------------------------------------------------ */
+/* sysfs filesystem API */
 
 /* Create / remove a single attribute file under a kobject */
 int  sysfs_create_file(struct kobject *kobj, const struct attribute *attr);
@@ -167,9 +155,7 @@ extern struct kobject *sysfs_dev_block_kobj;
 /* Internal: get the absolute sysfs path of a kobject */
 char *kobject_get_path(struct kobject *kobj);
 
-/* ------------------------------------------------------------------ */
-/*  Device-model convenience macros                                    */
-/* ------------------------------------------------------------------ */
+/* Device-model convenience macros */
 
 #define DEVICE_ATTR(_name, _mode, _show, _store) \
     struct device_attribute dev_attr_##_name = { \

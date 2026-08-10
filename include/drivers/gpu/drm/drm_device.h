@@ -4,7 +4,7 @@
  *      DRM central contract header (device / driver / file / KMS objects)
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -27,9 +27,7 @@
 #include <process/task.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/* Forward declarations                                               */
-/* ------------------------------------------------------------------ */
+/* Forward declarations */
 
 struct drm_device;
 struct drm_file;
@@ -98,9 +96,7 @@ struct drm_vblank_crtc {
 struct drm_private_obj;
 struct drm_private_state;
 
-/* ------------------------------------------------------------------ */
 /* Kernel-internal enums (not UAPI; mirror Linux include/drm/drm_*.h) */
-/* ------------------------------------------------------------------ */
 
 enum drm_mode_status {
     MODE_OK              = 0,
@@ -222,9 +218,7 @@ struct drm_property_blob {
         ilist_node_t           head_file;   // optional: in file legacy_blob_list
 };
 
-/* ------------------------------------------------------------------ */
-/* Display modes                                                      */
-/* ------------------------------------------------------------------ */
+/* Display modes */
 
 struct drm_display_mode {
         struct drm_mode_object base;
@@ -253,13 +247,9 @@ struct drm_display_mode {
         ilist_node_t usermode_head;
 };
 
-/* ------------------------------------------------------------------ */
 /* KMS object forward structures (minimal; full defs in their headers) */
-/* ------------------------------------------------------------------ */
 
-/* ------------------------------------------------------------------ */
-/* CRTC helper funcs –stored in crtc->helper_private                 */
-/* ------------------------------------------------------------------ */
+/* CRTC helper funcs — stored in crtc->helper_private */
 
 struct drm_crtc_helper_funcs {
         /* Called after a mode has been set on the CRTC */
@@ -276,17 +266,13 @@ struct drm_crtc_helper_funcs {
         void (*vblank)(struct drm_crtc *crtc);
 };
 
-/* ------------------------------------------------------------------ */
-/* Encoder helper funcs –stored in encoder->helper_private           */
-/* ------------------------------------------------------------------ */
+/* Encoder helper funcs — stored in encoder->helper_private */
 
 struct drm_encoder_helper_funcs {
         void (*atomic_mode_set)(struct drm_encoder *encoder, struct drm_crtc_state *crtc_state, struct drm_connector_state *conn_state);
 };
 
-/* ------------------------------------------------------------------ */
-/* Connector helper funcs –stored in connector->helper_private       */
-/* ------------------------------------------------------------------ */
+/* Connector helper funcs — stored in connector->helper_private */
 
 struct drm_connector_helper_funcs {
         enum drm_connector_status (*detect)(struct drm_connector *connector, bool force);
@@ -424,7 +410,7 @@ struct drm_connector {
         enum drm_connector_status status;
         struct list_head_unused {
                 void *n;
-        } probed_modes_anchor;                  // placeholder
+        } probed_modes_anchor;
         ilist_node_t                modes;      // head of drm_display_mode.head
         ilist_node_t                user_modes; // head of usermode_head
         struct drm_display_mode    *modes_ptr_array_placeholder;
@@ -470,9 +456,7 @@ struct drm_framebuffer {
         struct drm_file                    *file; // file that created it (for cleanup)
 };
 
-/* ------------------------------------------------------------------ */
-/* Atomic state (forward)                                             */
-/* ------------------------------------------------------------------ */
+/* Atomic state (forward) */
 
 /* Per-plane state entry inside an atomic transaction. */
 struct __drm_planes_state {
@@ -523,9 +507,7 @@ struct drm_atomic_state {
         void                          *commit_list; // opaque list head
 };
 
-/* ------------------------------------------------------------------ */
-/* GEM object                                                         */
-/* ------------------------------------------------------------------ */
+/* GEM object */
 
 struct drm_gem_object {
         struct drm_file   *filp_owner_default_unused;
@@ -546,9 +528,7 @@ struct drm_gem_object {
         } funcs_placeholder;
 };
 
-/* ------------------------------------------------------------------ */
-/* mode_config: the registry of KMS objects                           */
-/* ------------------------------------------------------------------ */
+/* mode_config: the registry of KMS objects */
 
 struct drm_mode_config {
         spinlock_t     mutex; // global modeset lock
@@ -616,9 +596,7 @@ struct drm_mode_config {
         uint64_t     commit_queue_done;
 };
 
-/* ------------------------------------------------------------------ */
-/* Driver                                                             */
-/* ------------------------------------------------------------------ */
+/* Driver */
 
 #define DRIVER_MODESET          BIT0_
 #define DRIVER_ATOMIC           BIT1_
@@ -703,9 +681,7 @@ struct drm_driver {
         uint32_t primary_index_unused;
 };
 
-/* ------------------------------------------------------------------ */
-/* File handle                                                        */
-/* ------------------------------------------------------------------ */
+/* File handle */
 
 /* Event queue entry. */
 struct drm_event_node {
@@ -754,7 +730,7 @@ struct drm_file {
         uint32_t client_caps;
         uint32_t pad;
 
-        /* --- Event queue (vblank, page-flip, etc.) --- */
+        /* Event queue (vblank, page-flip, etc.) */
         spinlock_t             event_lock;
         struct drm_event_node *event_list_head;
         struct drm_event_node *event_list_tail;
@@ -764,9 +740,7 @@ struct drm_file {
         uint32_t               event_refs;
 };
 
-/* ------------------------------------------------------------------ */
-/* Device                                                             */
-/* ------------------------------------------------------------------ */
+/* Device */
 
 struct drm_device {
         struct drm_driver     *driver;
@@ -811,9 +785,7 @@ struct drm_device {
         void *dev_node_renderD_unused;
 };
 
-/* ------------------------------------------------------------------ */
-/* Minor (per-/dev/dri node)                                          */
-/* ------------------------------------------------------------------ */
+/* Minor (per-/dev/dri node) */
 
 struct drm_minor {
         int                index;
@@ -824,9 +796,7 @@ struct drm_minor {
         char              *device_node_name; // e.g. "card0"
 };
 
-/* ------------------------------------------------------------------ */
-/* Minor allocator                                                     */
-/* ------------------------------------------------------------------ */
+/* Minor allocator */
 
 #define DRM_MINOR_PRIMARY 0
 #define DRM_MINOR_RENDER  1
@@ -836,9 +806,7 @@ struct drm_minor {
 int  drm_minor_alloc(int type);
 void drm_minor_free(int type, int index);
 
-/* ------------------------------------------------------------------ */
-/* Generic / lifecycle                                                */
-/* ------------------------------------------------------------------ */
+/* Generic / lifecycle */
 
 /* Allocate and register a new drm_device bound to @driver. */
 struct drm_device *drm_dev_alloc(struct drm_driver *driver);
@@ -992,7 +960,7 @@ int  drm_connector_update_edid_property(struct drm_connector *connector, const u
 /* drm_setversion handler. */
 int drm_setversion(struct drm_device *dev, void *data, struct drm_file *file_priv);
 
-/* --- Internal DRM helpers shared across the DRM core --- */
+/* Internal DRM helpers shared across the DRM core */
 
 int                       drm_atomic_add_affected_planes(struct drm_atomic_state *state, struct drm_crtc *crtc);
 int                       drm_atomic_add_affected_connectors(struct drm_atomic_state *state, struct drm_crtc *crtc);

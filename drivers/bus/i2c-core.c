@@ -4,7 +4,7 @@
  *      I2C bus subsystem core implementation
  *
  *      2026/7/25 By Uinxed
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -18,6 +18,13 @@
 #include <sync/spin_lock.h>
 
 #if CONFIG_I2C
+
+/*
+ * Overview
+ * i2c-core.c is the I2C bus subsystem core: it maintains a registry
+ * of adapters, dispatches master_xfer transactions, and implements
+ * the device binding used by i2c clients.
+ */
 
 static spinlock_t i2c_adapter_lock;
 static clist_t    i2c_adapter_list = 0;

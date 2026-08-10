@@ -4,7 +4,7 @@
  *      Device model header file (bus, device, driver, class)
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -16,18 +16,14 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
-/* ------------------------------------------------------------------ */
-/*  Forward declarations                                               */
-/* ------------------------------------------------------------------ */
+/* Forward declarations */
 
 struct device;
 struct device_driver;
 struct bus_type;
 struct class;
 
-/* ------------------------------------------------------------------ */
-/*  Device type identifiers (major / minor encoding)                   */
-/* ------------------------------------------------------------------ */
+/* Device type identifiers (major / minor encoding) */
 
 typedef uint64_t dev_t;
 
@@ -35,9 +31,7 @@ typedef uint64_t dev_t;
 #define MINOR(dev)    ((uint32_t)((dev) & 0xFFFFF))
 #define MKDEV(ma, mi) ((((uint64_t)(ma) & 0xFFFFF) << 32) | ((uint64_t)(mi) & 0xFFFFF))
 
-/* ------------------------------------------------------------------ */
-/*  Device attribute type (attribute + device-specific show/store)     */
-/* ------------------------------------------------------------------ */
+/* Device attribute type (attribute + device-specific show/store) */
 
 struct device_attribute {
         struct attribute attr;
@@ -45,9 +39,7 @@ struct device_attribute {
         ssize_t (*store)(struct device *dev, struct device_attribute *attr, const char *buf, size_t count);
 };
 
-/* ------------------------------------------------------------------ */
-/*  Bus attribute type                                                 */
-/* ------------------------------------------------------------------ */
+/* Bus attribute type */
 
 struct bus_attribute {
         struct attribute attr;
@@ -55,9 +47,7 @@ struct bus_attribute {
         ssize_t (*store)(struct bus_type *bus, struct bus_attribute *attr, const char *buf, size_t count);
 };
 
-/* ------------------------------------------------------------------ */
-/*  Driver attribute type                                              */
-/* ------------------------------------------------------------------ */
+/* Driver attribute type */
 
 struct driver_attribute {
         struct attribute attr;
@@ -65,9 +55,7 @@ struct driver_attribute {
         ssize_t (*store)(struct device_driver *drv, struct driver_attribute *attr, const char *buf, size_t count);
 };
 
-/* ------------------------------------------------------------------ */
-/*  Class attribute type                                               */
-/* ------------------------------------------------------------------ */
+/* Class attribute type */
 
 struct class_attribute {
         struct attribute attr;
@@ -75,9 +63,7 @@ struct class_attribute {
         ssize_t (*store)(struct class *cls, struct class_attribute *attr, const char *buf, size_t count);
 };
 
-/* ------------------------------------------------------------------ */
-/*  bus_type ?a communication channel between CPUs and devices         */
-/* ------------------------------------------------------------------ */
+/* bus_type — a communication channel between CPUs and devices */
 
 struct bus_type {
         const char  *name;
@@ -99,9 +85,7 @@ struct bus_type {
         const struct attribute_group **drv_groups;
 };
 
-/* ------------------------------------------------------------------ */
-/*  device_driver ?binds to a bus and handles a class of devices       */
-/* ------------------------------------------------------------------ */
+/* device_driver — binds to a bus and handles a class of devices */
 
 struct device_driver {
         const char      *name;
@@ -117,9 +101,7 @@ struct device_driver {
         const struct attribute_group **groups;
 };
 
-/* ------------------------------------------------------------------ */
-/*  device ?represents a physical or virtual device in the system      */
-/* ------------------------------------------------------------------ */
+/* device — represents a physical or virtual device in the system */
 
 struct device {
         struct kobject        kobj;   // appears under /sys/devices/
@@ -141,9 +123,7 @@ struct device {
         int (*uevent)(struct device *dev, struct kobj_uevent_env *env);
 };
 
-/* ------------------------------------------------------------------ */
-/*  class ?groups devices by functional type (e.g. "net", "tty")       */
-/* ------------------------------------------------------------------ */
+/* class — groups devices by functional type (e.g. "net", "tty") */
 
 struct class
 {
@@ -158,18 +138,16 @@ struct class
         const struct attribute_group **dev_groups;
 };
 
-/* ------------------------------------------------------------------ */
-/*  Device model registration API                                      */
-/* ------------------------------------------------------------------ */
+/* Device model registration API */
 
-/* ---- bus ---- */
+/* bus */
 int  bus_register(struct bus_type *bus);
 void bus_unregister(struct bus_type *bus);
 
 int  bus_create_file(struct bus_type *bus, struct bus_attribute *attr);
 void bus_remove_file(struct bus_type *bus, struct bus_attribute *attr);
 
-/* ---- device ---- */
+/* device */
 int  device_register(struct device *dev);
 void device_unregister(struct device *dev);
 
@@ -182,14 +160,14 @@ void device_remove_file(struct device *dev, const struct device_attribute *attr)
 int  device_add_groups(struct device *dev, const struct attribute_group **groups);
 void device_remove_groups(struct device *dev, const struct attribute_group **groups);
 
-/* ---- driver ---- */
+/* driver */
 int  driver_register(struct device_driver *drv);
 void driver_unregister(struct device_driver *drv);
 
 int  driver_create_file(struct device_driver *drv, const struct driver_attribute *attr);
 void driver_remove_file(struct device_driver *drv, const struct driver_attribute *attr);
 
-/* ---- class ---- */
+/* class */
 int  class_register(struct class *cls);
 void class_unregister(struct class *cls);
 
@@ -198,13 +176,11 @@ struct device *class_find_device(struct class *cls, struct device *start, const 
 int  class_create_file(struct class *cls, const struct class_attribute *attr);
 void class_remove_file(struct class *cls, const struct class_attribute *attr);
 
-/* ---- core init ---- */
+/* core init */
 int  device_model_init(void);
 void device_model_exit(void);
 
-/* ------------------------------------------------------------------ */
-/*  Helper: get /sys/devices/... path                                  */
-/* ------------------------------------------------------------------ */
+/* Helper: get /sys/devices/... path */
 
 static inline const char *dev_name(const struct device *dev)
 {

@@ -4,7 +4,7 @@
  *      TCP protocol implementation
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -34,17 +34,18 @@
 
 typedef struct tcp_tx_record {
         struct tcp_tx_record *next;
-        uint32_t              sequence;
-        uint32_t              end_sequence;
+        uint32_t              sequence;     // first byte of the retransmission window
+        uint32_t              end_sequence; // sequence + length + SYN/FIN (one past the last byte)
         uint16_t              length;
         uint8_t               flags;
         uint8_t               retries;
-        uint64_t              deadline;
-        uint64_t              sent_at;
+        uint64_t              deadline; // tick at which retransmission fires
+        uint64_t              sent_at;  // last transmission tick, for RTT sampling
         uint8_t               retransmitted;
         uint8_t               data[];
 } tcp_tx_record_t;
 
+/* Out-of-order segment waiting to be stitched back into the receive stream */
 typedef struct tcp_ooo_record {
         struct tcp_ooo_record *next;
         uint32_t               sequence;
@@ -52,6 +53,13 @@ typedef struct tcp_ooo_record {
         uint8_t                fin;
         uint8_t                data[];
 } tcp_ooo_record_t;
+
+/*
+ * tcp_endpoint_t: per-connection control block
+ * One PCB per socket. Sending and receive windows, retransmission
+ * state, keepalive/persist timers and the accept queue are all kept
+ * here. All fields are guarded by endpoint->lock.
+ */
 
 typedef struct tcp_endpoint {
         uint16_t             family;
@@ -118,6 +126,8 @@ typedef struct tcp_endpoint {
         void                *event_context;
 } tcp_endpoint_t;
 
+/* Globals and sequence helpers */
+
 static tcp_endpoint_t *tcp_table[TCP_ENDPOINT_MAX];
 static spinlock_t      tcp_table_lock;
 static spinlock_t      tcp_iss_lock;
@@ -129,6 +139,7 @@ static int  tcp_emit(tcp_endpoint_t *endpoint, uint32_t sequence, uint32_t ackno
 static int  tcp_autobind(tcp_endpoint_t *endpoint, uint32_t address);
 static void tcp_records_free(tcp_tx_record_t *record);
 
+/* Wraparound-safe 32-bit sequence comparisons */
 static int seq_before(uint32_t a, uint32_t b)
 {
     return (int32_t)(a - b) < 0;
@@ -149,6 +160,7 @@ int net_tcp_seq_after(uint32_t a, uint32_t b)
 
 tcp_state_t net_tcp_state_next(tcp_state_t state, tcp_event_t event)
 {
+    /* A reset or timeout always tears the connection down */
     if (event == TCP_EVENT_RX_RST || event == TCP_EVENT_TIMEOUT) return TCP_CLOSED;
     if (state == TCP_CLOSED && event == TCP_EVENT_ACTIVE_OPEN) return TCP_SYN_SENT;
     if (state == TCP_LISTEN && event == TCP_EVENT_RX_SYN) return TCP_SYN_RECEIVED;
@@ -167,6 +179,7 @@ tcp_state_t net_tcp_state_next(tcp_state_t state, tcp_event_t event)
 
 int net_tcp_parse(const void *data, size_t length, uint32_t source, uint32_t destination, net_tcp_segment_t *segment)
 {
+    /* Decode a TCP header and verify its IPv4 pseudo-header checksum */
     if (!data || !segment || length < TCP_HEADER_LEN) return -EBADMSG;
     const uint8_t *bytes         = data;
     size_t         header_length = (size_t)(bytes[12] >> 4) * 4U;
@@ -187,6 +200,7 @@ int net_tcp_parse(const void *data, size_t length, uint32_t source, uint32_t des
 int net_tcp_parse6(const void *data, size_t length, const struct in6_addr *source, const struct in6_addr *destination,
                    net_tcp_segment_t *segment)
 {
+    /* IPv6 variant: the pseudo-header uses 16-byte addresses */
     if (!data || !source || !destination || !segment || length < TCP_HEADER_LEN) return -EBADMSG;
     const uint8_t        *bytes         = data;
     size_t                header_length = (size_t)(bytes[12] >> 4) * 4U;
@@ -205,11 +219,13 @@ int net_tcp_parse6(const void *data, size_t length, const struct in6_addr *sourc
     return 0;
 }
 
+/* Advertise the current receive window (free space in the RX buffer) */
 static uint16_t tcp_window(const tcp_endpoint_t *endpoint)
 {
     return (uint16_t)(TCP_RX_BUFFER_MAX - endpoint->rx_length - endpoint->ooo_length);
 }
 
+/* Count segments currently queued for retransmission */
 static unsigned tcp_tx_count(const tcp_endpoint_t *endpoint)
 {
     unsigned count = 0;
@@ -217,6 +233,7 @@ static unsigned tcp_tx_count(const tcp_endpoint_t *endpoint)
     return count;
 }
 
+/* Compute the ready-event mask for poll/select (caller holds the lock) */
 static uint32_t tcp_ready_locked(const tcp_endpoint_t *endpoint)
 {
     uint32_t ready = 0;
@@ -233,6 +250,7 @@ static uint32_t tcp_ready_locked(const tcp_endpoint_t *endpoint)
     return ready;
 }
 
+/* Wake the wait queue and fire the event callback, if any */
 static void tcp_notify(tcp_endpoint_t *endpoint, uint32_t events)
 {
     wait_queue_wake_all(&endpoint->wait);
@@ -241,6 +259,7 @@ static void tcp_notify(tcp_endpoint_t *endpoint, uint32_t events)
     if (callback) callback(endpoint, events, context);
 }
 
+/* Mark the connection failed: close it, record the error, drop TX records */
 static void tcp_fail_locked(tcp_endpoint_t *endpoint, int error)
 {
     endpoint->state = TCP_CLOSED;
@@ -251,6 +270,7 @@ static void tcp_fail_locked(tcp_endpoint_t *endpoint, int error)
     endpoint->keepalive_deadline = 0;
 }
 
+/* Generate a monotonically increasing initial sequence number */
 static uint32_t tcp_new_iss(void)
 {
     spin_lock(&tcp_iss_lock);
@@ -292,6 +312,7 @@ static int tcp_insert_locked(tcp_endpoint_t *endpoint)
     return -ENOSPC;
 }
 
+/* Allocate a fresh PCB and insert it into the global table */
 static tcp_endpoint_t *tcp_alloc_locked(void)
 {
     tcp_endpoint_t *endpoint = calloc(1, sizeof(*endpoint));
@@ -335,11 +356,13 @@ tcp_endpoint_t *tcp_open_family(uint16_t family)
     return endpoint;
 }
 
+/* Open a new AF_INET TCP socket */
 tcp_endpoint_t *tcp_open(void)
 {
     return tcp_open_family(AF_INET);
 }
 
+/* Free a chain of transmitted-but-unacked segments */
 static void tcp_records_free(tcp_tx_record_t *record)
 {
     while (record) {
@@ -349,6 +372,7 @@ static void tcp_records_free(tcp_tx_record_t *record)
     }
 }
 
+/* Free a chain of queued out-of-order segments */
 static void tcp_ooo_free(tcp_ooo_record_t *record)
 {
     while (record) {
@@ -358,6 +382,7 @@ static void tcp_ooo_free(tcp_ooo_record_t *record)
     }
 }
 
+/* Close a socket: send FIN on established connections, tear down the PCB */
 void tcp_close(tcp_endpoint_t *endpoint)
 {
     if (!endpoint) return;
@@ -451,6 +476,7 @@ void tcp_close(tcp_endpoint_t *endpoint)
     free(endpoint);
 }
 
+/* Bind a local address/port, or autobind an ephemeral port if port == 0 */
 int tcp_bind(tcp_endpoint_t *endpoint, uint32_t address, uint16_t port)
 {
     if (!endpoint) return -EINVAL;
@@ -488,6 +514,7 @@ int tcp_bind6(tcp_endpoint_t *endpoint, const ipv6_address_t *address, uint16_t 
     return 0;
 }
 
+/* Choose a free ephemeral port in the 49152-65535 range */
 static int tcp_autobind(tcp_endpoint_t *endpoint, uint32_t address)
 {
     if (endpoint->bound) return 0;
@@ -507,6 +534,7 @@ static int tcp_autobind(tcp_endpoint_t *endpoint, uint32_t address)
     return -EADDRINUSE;
 }
 
+/* Put a bound socket into LISTEN state, limiting the accept backlog */
 int tcp_listen(tcp_endpoint_t *endpoint, unsigned backlog)
 {
     if (!endpoint || !endpoint->bound || !backlog) return -EINVAL;
@@ -521,6 +549,7 @@ int tcp_listen(tcp_endpoint_t *endpoint, unsigned backlog)
     return 0;
 }
 
+/* Dequeue the next completed handshake from the listener's accept queue */
 tcp_endpoint_t *tcp_accept(tcp_endpoint_t *endpoint)
 {
     if (!endpoint) return NULL;
@@ -540,6 +569,12 @@ tcp_endpoint_t *tcp_accept(tcp_endpoint_t *endpoint)
     spin_unlock(&endpoint->lock);
     return accepted;
 }
+
+/*
+ * Segment emission
+ * Build a TCP segment, checksum it, and hand it to the IP layer.
+ * When track is set the segment is queued for retransmission.
+ */
 
 static int tcp_emit(tcp_endpoint_t *endpoint, uint32_t sequence, uint32_t acknowledgment, uint8_t flags, const void *data, size_t length,
                     int track)
@@ -617,6 +652,7 @@ static int tcp_emit(tcp_endpoint_t *endpoint, uint32_t sequence, uint32_t acknow
     return 0;
 }
 
+/* Initiate an active open: bind, pick an ISS and send SYN */
 int tcp_connect(tcp_endpoint_t *endpoint, uint32_t address, uint16_t port)
 {
     if (!endpoint || !address || !port) return -EINVAL;
@@ -676,6 +712,7 @@ int tcp_connect6(tcp_endpoint_t *endpoint, const ipv6_address_t *address, uint16
     return status ? status : -EINPROGRESS;
 }
 
+/* Send data, segmenting by the peer MSS and honoring the congestion window */
 int tcp_send(tcp_endpoint_t *endpoint, const void *data, size_t length)
 {
     if (!endpoint || (!data && length)) return -EINVAL;
@@ -726,6 +763,7 @@ int tcp_send(tcp_endpoint_t *endpoint, const void *data, size_t length)
     return sent ? (int)sent : -EAGAIN;
 }
 
+/* Copy received bytes out of the RX buffer, updating the advertised window */
 int tcp_receive(tcp_endpoint_t *endpoint, void *data, size_t capacity)
 {
     if (!endpoint || (!data && capacity)) return -EINVAL;
@@ -746,6 +784,7 @@ int tcp_receive(tcp_endpoint_t *endpoint, void *data, size_t capacity)
     return (int)copied;
 }
 
+/* Initiate graceful shutdown by sending FIN */
 int tcp_shutdown(tcp_endpoint_t *endpoint)
 {
     if (!endpoint) return -EINVAL;
@@ -1343,6 +1382,13 @@ bad:
     return -EBADMSG;
 }
 
+/*
+ * Inbound path
+ * Entry point for TCP segments delivered by the IPv4 layer. Validates
+ * the checksum, matches the 4-tuple to a PCB (or opens a passive
+ * connection on a listener), then feeds ACK / data / FIN handling.
+ */
+
 int tcp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
 {
     (void)device;
@@ -1588,6 +1634,14 @@ bad:
     return -EBADMSG;
 }
 
+/*
+ * Periodic timer
+ * Called once per tick. Drives retransmission with exponential
+ * backoff, zero-window persist probes, keepalive probes and the
+ * TIME_WAIT expiry. Event callbacks are deferred until after the
+ * global table lock is released.
+ */
+
 void tcp_timer(uint64_t now_ticks)
 {
     tcp_endpoint_t      *deferred_ep[TCP_ENDPOINT_MAX];
@@ -1692,6 +1746,7 @@ void tcp_timer(uint64_t now_ticks)
         if (deferred_cb[i]) deferred_cb[i](deferred_ep[i], deferred_ready[i], deferred_ctx[i]);
 }
 
+/* Poll the ready-event mask without blocking (used by select/poll) */
 uint32_t tcp_readiness(tcp_endpoint_t *endpoint)
 {
     if (!endpoint) return TCP_READY_ERROR | TCP_READY_HANGUP;
@@ -1701,6 +1756,7 @@ uint32_t tcp_readiness(tcp_endpoint_t *endpoint)
     return ready;
 }
 
+/* Snapshot socket state and counters for getsockopt / /proc introspection */
 int tcp_get_info(tcp_endpoint_t *endpoint, tcp_endpoint_info_t *info)
 {
     if (!endpoint || !info) return -EINVAL;
@@ -1737,6 +1793,7 @@ int tcp_get_info(tcp_endpoint_t *endpoint, tcp_endpoint_info_t *info)
     return 0;
 }
 
+/* Register a callback invoked on socket state changes, and fire it once immediately */
 void tcp_set_event_callback(tcp_endpoint_t *endpoint, tcp_event_callback_t callback, void *context)
 {
     if (!endpoint) return;

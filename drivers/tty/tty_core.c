@@ -4,7 +4,7 @@
  *      TTY core implementation
  *
  *      2026/7/25 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -24,6 +24,14 @@
 #define POLLHUP                  0x010
 #define TTY_TICKS_PER_DECISECOND ((TIMER_HZ + 9) / 10)
 #define TTY_INPUT_EOF            1
+
+/*
+ * Overview
+ * tty_core.c provides the reusable line-discipline core shared by
+ * serial, VT, and pty drivers: input buffering, canonical line
+ * editing, termios handling, flow control and poll/read/write. The
+ * device-specific part supplies a tty_core_ops_t.
+ */
 
 static void tty_default_termios(struct termios *termios)
 {

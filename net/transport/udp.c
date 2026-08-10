@@ -4,7 +4,7 @@
  *      UDP protocol implementation
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -51,6 +51,13 @@ typedef struct udp_endpoint {
         void                *event_context;
 } udp_endpoint_t;
 
+/*
+ * Overview
+ * Connectionless UDP: each endpoint has a bound local port and a
+ * FIFO of received datagrams. sendto/receive map directly onto the
+ * IP layer; there is no retransmission or ordering.
+ */
+
 static udp_endpoint_t *udp_table[UDP_ENDPOINT_MAX];
 static spinlock_t      udp_table_lock;
 static uint16_t        udp_ephemeral = UDP_EPHEMERAL_FIRST;
@@ -65,6 +72,7 @@ static void udp_notify(udp_endpoint_t *ep, uint32_t events)
     if (callback) callback(ep, events, context);
 }
 
+/* Decode a UDP header and verify the IPv4 pseudo-header checksum */
 int net_udp_parse(const void *data, size_t length, uint32_t source, uint32_t destination, net_udp_datagram_t *datagram)
 {
     if (!data || !datagram || length < UDP_HEADER_LEN) return -EBADMSG;
@@ -315,6 +323,7 @@ int udp_send6(udp_endpoint_t *ep, const void *data, size_t length, const ipv6_ad
     return status == -EINPROGRESS ? (int)length : (status ? status : (int)length);
 }
 
+/* Dequeue the next datagram (or peek without consuming), filling sender info */
 int udp_receive(udp_endpoint_t *ep, void *data, size_t capacity, udp_datagram_t *info, int peek)
 {
     if (!ep || (!data && capacity)) return -EINVAL;
@@ -344,6 +353,7 @@ int udp_receive(udp_endpoint_t *ep, void *data, size_t capacity, udp_datagram_t 
     return (int)copied;
 }
 
+/* UDP datagram input from the IPv4 layer: queue it on the matching endpoint */
 int udp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
 {
     if (!device || !ip || !packet || packet->length < UDP_HEADER_LEN) goto bad;

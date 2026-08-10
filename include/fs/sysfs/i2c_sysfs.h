@@ -4,7 +4,7 @@
  *      I2C bus and i2c-dev sysfs integration header
  *
  *      2026/8/6 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

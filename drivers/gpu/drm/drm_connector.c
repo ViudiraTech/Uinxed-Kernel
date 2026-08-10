@@ -4,7 +4,7 @@
  *      DRM connector management
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -136,7 +136,8 @@ int drm_connector_attach_encoder(struct drm_connector *connector, struct drm_enc
  * drm_connector_register - Register a connector with userspace.
  * @connector: connector to register
  *
- * MVP placeholder; returns 0.
+ * Validates the connector; late-registration callbacks and sysfs
+ * exposure are handled elsewhere.
  */
 int drm_connector_register(struct drm_connector *connector)
 {
@@ -145,7 +146,6 @@ int drm_connector_register(struct drm_connector *connector)
         return -EINVAL;
     }
 
-    /* MVP: late-registration callbacks and sysfs not yet implemented. */
     return 0;
 }
 

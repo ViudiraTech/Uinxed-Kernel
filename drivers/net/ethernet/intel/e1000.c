@@ -4,7 +4,7 @@
  *      Intel e1000/e1000e network controller driver
  *
  *      2026/7/29 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -36,6 +36,14 @@
 #define E1000_TX_RECLAIM_BUDGET 64
 #define E1000_RESET_TIMEOUT_US  100000
 #define E1000_EEPROM_TIMEOUT_US 10000
+
+/*
+ * Overview
+ * Intel 8254x (e1000) gigabit Ethernet driver. A ring of RX/TX
+ * descriptors is set up in DMA memory and programmed through the
+ * device's MMIO BAR; interrupts queue work to a worker task that
+ * feeds received frames into the net stack and reclaims TX rings.
+ */
 
 #define E1000_REG_CTRL     0x0000
 #define E1000_REG_STATUS   0x0008

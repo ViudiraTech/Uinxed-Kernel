@@ -4,7 +4,7 @@
  *      CPUID related operations
  *
  *      2024/8/21 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -240,7 +240,7 @@ int cpu_support_avx512f(void)
     return ((ebx & (1 << 16)) != 0);
 }
 
-/* Safe CPUID wrapper - uses local temporaries to avoid register clobber issues */
+/* Safe CPUID wrapper — uses local temporaries to avoid register clobber issues */
 void cpuid_safe(uint32_t leaf, uint32_t sub, uint32_t *a, uint32_t *b, uint32_t *c, uint32_t *d)
 {
     uint32_t _a, _b, _c, _d;

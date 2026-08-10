@@ -4,7 +4,7 @@
  *      System call dispatch
  *
  *      2026/7/20 By Rainy101112 & JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -1409,7 +1409,7 @@ static int64_t sys_getcwd(uint64_t buf, uint64_t size, uint64_t arg2, uint64_t a
     return copy_to_user((void *)buf, cwd, len) ? -EFAULT : (int64_t)len;
 }
 
-/* ---------- eventfd, timerfd, signalfd wrappers ---------- */
+/* eventfd, timerfd, signalfd wrappers */
 
 static int64_t sys_eventfd_wrap(uint64_t initval, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -1515,7 +1515,7 @@ static int64_t sys_inotify_rm_watch_wrap(uint64_t fd, uint64_t wd, uint64_t arg2
     return sys_inotify_rm_watch((int)fd, (int)wd);
 }
 
-/* ---------- mount / umount2 ---------- */
+/* mount / umount2 */
 
 #define MS_RDONLY      1
 #define MS_NOSUID      2
@@ -1554,11 +1554,11 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
     int path_ret = copy_resolved_path_at(proc, AT_FDCWD, target, tgt);
     if (path_ret != EOK) return path_ret;
 
-    /* Copy source path (optional —can be NULL for virtual filesystems) */
+    /* Copy source path (optional — can be NULL for virtual filesystems) */
     if (source)
         if (strncpy_from_user(src, (const char *)source, sizeof(src)) < 0) return -EFAULT;
 
-    /* Copy filesystem type (optional —can be NULL to let VFS probe) */
+    /* Copy filesystem type (optional — can be NULL to let VFS probe) */
     if (fstype)
         if (strncpy_from_user(fst, (const char *)fstype, sizeof(fst)) < 0) return -EFAULT;
 
@@ -1616,7 +1616,7 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
 
     vfs_close(node);
 
-    /* MS_REC: recursive —ignored for non-bind mounts */
+    /* MS_REC: recursive — ignored for non-bind mounts */
     (void)(flags & MS_REC);
 
     return EOK;
@@ -1636,13 +1636,13 @@ static int64_t sys_umount2(uint64_t target, uint64_t flags, uint64_t arg2, uint6
     if (ret != EOK) return ret;
 
     /* MNT_FORCE: force unmount even if busy (not fully supported) */
-    /* MNT_DETACH: lazy unmount —detach now, cleanup later (not fully supported) */
+    /* MNT_DETACH: lazy unmount — detach now, cleanup later (not fully supported) */
     if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE)) return -EINVAL;
 
     return vfs_umount(tgt);
 }
 
-/* ---------- Extended syscall stubs ---------- */
+/* Extended syscall stubs */
 
 static int64_t sys_stub(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -1940,7 +1940,7 @@ static int64_t sys_clock_gettime_stub(uint64_t clockid, uint64_t tp, uint64_t ar
     return copy_to_user((void *)tp, &ts, sizeof(ts)) ? -EFAULT : EOK;
 }
 
-/* ---------- sysinfo ---------- */
+/* sysinfo */
 
 typedef struct linux_sysinfo {
         int64_t  uptime;
@@ -1959,7 +1959,7 @@ typedef struct linux_sysinfo {
         char     _f[20 - 2 * sizeof(uint64_t) - sizeof(uint32_t)];
 } linux_sysinfo_t;
 
-/* ---------- statfs ---------- */
+/* statfs */
 
 typedef struct linux_statfs {
         int64_t  f_type;
@@ -1987,11 +1987,11 @@ typedef struct linux_statfs {
 #define SOCKFS_MAGIC        0x534f434b
 #define PIPEFS_MAGIC        0x50495045
 
-/* ---------- personality ---------- */
+/* personality */
 
 #define PER_LINUX 0x0000
 
-/* ---------- getrusage ---------- */
+/* getrusage */
 
 typedef struct linux_rusage {
         uint64_t ru_utime_sec;
@@ -2039,7 +2039,7 @@ static int64_t sys_getrusage_impl(uint64_t who, uint64_t usage, uint64_t arg2, u
     return 0;
 }
 
-/* ---------- restart_syscall ---------- */
+/* restart_syscall */
 
 static int64_t sys_restart_syscall(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -2062,7 +2062,7 @@ static int64_t sys_restart_syscall(uint64_t arg0, uint64_t arg1, uint64_t arg2, 
     return 0;
 }
 
-/* ---------- chmod / chown helpers ---------- */
+/* chmod / chown helpers */
 
 static int64_t sys_chmod_common(const char *path, uint64_t mode)
 {
@@ -2210,7 +2210,7 @@ static int64_t sys_reboot_impl(uint64_t magic, uint64_t magic2, uint64_t cmd, ui
     switch (cmd) {
         case 0x00000000 : // RB_DISABLE_CAD
         case 0x89ABCDEF : // RB_ENABLE_CAD
-            /* Ctrl-Alt-Del is not handled specially by the input stack yet. */
+                          /* Ctrl-Alt-Del is not handled specially by the input stack yet. */
             return EOK;
         case 0x01234567 : // RB_AUTOBOOT
         case 0xA1B2C3D4 : // RB_RESTART2
@@ -2935,7 +2935,7 @@ static int64_t sys_membarrier_stub(uint64_t cmd, uint64_t flags, uint64_t cpu_id
     if (flags) return -EINVAL;
     switch (cmd) {
         case 0 : // QUERY: return supported commands bitmap
-            /* We support GLOBAL (1 << 1) = 2 on SMP, plus the basic bits */
+                 /* We support GLOBAL (1 << 1) = 2 on SMP, plus the basic bits */
             return (1 << 0) | (1 << 1);
         case 1 : // GLOBAL: issue memory barrier on all CPUs
             __asm__ volatile("mfence" ::: "memory");
@@ -3038,7 +3038,7 @@ static int64_t sys_pkey_mprotect_stub(uint64_t addr, uint64_t len, uint64_t prot
     return sys_mprotect(addr, len, prot);
 }
 
-/* ---------- rseq (restartable sequences) ---------- */
+/* rseq (restartable sequences) */
 
 typedef struct rseq_layout {
         uint32_t cpu_id_start;
@@ -3079,7 +3079,7 @@ static int64_t sys_rseq_impl(uint64_t rseq_base, uint64_t rseq_len, uint64_t fla
     return 0;
 }
 
-/* ---------- pidfd_open ---------- */
+/* pidfd_open */
 
 static int pidfd_fsid = -1;
 
@@ -3241,7 +3241,7 @@ static int64_t sys_pidfd_open_impl(uint64_t pid_raw, uint64_t flags, uint64_t ar
     return fd;
 }
 
-/* ---------- clone3 ---------- */
+/* clone3 */
 
 typedef struct clone3_args {
         uint64_t flags;
@@ -3337,7 +3337,7 @@ static int64_t sys_clone3_impl(uint64_t cl_args, uint64_t size, uint64_t arg2, u
     return (int64_t)child->task->pid;
 }
 
-/* ---------- process_madvise ---------- */
+/* process_madvise */
 
 static int64_t sys_process_madvise_impl(uint64_t pidfd, uint64_t iovec, uint64_t vlen, uint64_t advice, uint64_t flags, uint64_t arg5)
 {
@@ -3381,7 +3381,7 @@ static int64_t sys_process_madvise_impl(uint64_t pidfd, uint64_t iovec, uint64_t
     return result;
 }
 
-/* ---------- epoll_pwait2 ---------- */
+/* epoll_pwait2 */
 
 static int64_t sys_epoll_pwait2_impl(uint64_t epfd, uint64_t events, uint64_t maxevents, uint64_t tsp, uint64_t sigmask, uint64_t sigsetsize)
 {
@@ -3402,7 +3402,7 @@ static int64_t sys_epoll_pwait2_impl(uint64_t epfd, uint64_t events, uint64_t ma
     return sys_epoll_pwait((int)epfd, (epoll_event_t *)events, (int)maxevents, timeout_ms, (const void *)sigmask, (size_t)sigsetsize);
 }
 
-/* ---------- mmap family wrappers (6-arg syscall -> actual function) ---------- */
+/* mmap family wrappers (6-arg syscall -> actual function) */
 
 static int64_t sys_mprotect_wrap(uint64_t addr, uint64_t length, uint64_t prot, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -3481,7 +3481,7 @@ static int64_t sys_munlockall_wrap(uint64_t arg0, uint64_t arg1, uint64_t arg2, 
     return sys_munlockall();
 }
 
-/* ---------- Signal syscall wrappers ---------- */
+/* Signal syscall wrappers */
 
 static int64_t sys_rt_sigaction_wrap(uint64_t sig, uint64_t act, uint64_t oact, uint64_t sigsetsize, uint64_t arg4, uint64_t arg5)
 {
@@ -3627,7 +3627,7 @@ static int64_t sys_getpgid_wrap(uint64_t pid, uint64_t arg1, uint64_t arg2, uint
     return sys_getpgid((pid_t)pid);
 }
 
-/* ---------- IPC syscall wrappers ---------- */
+/* IPC syscall wrappers */
 
 /* Socket wrappers */
 static int64_t sys_socket_wrap(uint64_t family, uint64_t type, uint64_t protocol, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -3971,7 +3971,7 @@ static int64_t sys_epoll_pwait_wrap(uint64_t epfd, uint64_t events, uint64_t max
     return sys_epoll_pwait((int)epfd, (epoll_event_t *)events, (int)maxevents, (int)timeout, (const void *)sigmask, (size_t)sigsetsize);
 }
 
-/* ---------- waitid wrapper ---------- */
+/* waitid wrapper */
 
 #define P_PID    1
 #define P_PGID   2
@@ -4391,7 +4391,7 @@ static int64_t sys_execve_wrap(uint64_t path, uint64_t argv, uint64_t envp, uint
     return do_execve((const char *)path, (char *const *)argv, (char *const *)envp, NULL);
 }
 
-/* ---------- getdents64 ---------- */
+/* getdents64 */
 
 typedef struct linux_dirent64 {
         uint64_t       d_ino;
@@ -4510,7 +4510,7 @@ static int64_t sys_getdents64_impl(int fd, uint64_t dirent, uint64_t count)
     return (int64_t)written;
 }
 
-/* ---------- writev / readv ---------- */
+/* writev / readv */
 
 static int64_t sys_writev_wrap(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -4623,7 +4623,7 @@ readv_done:
     return total;
 }
 
-/* ---------- chroot ---------- */
+/* chroot */
 
 static int64_t sys_chroot_wrap(uint64_t path, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -4656,7 +4656,7 @@ static int64_t sys_chroot_wrap(uint64_t path, uint64_t arg1, uint64_t arg2, uint
     return 0;
 }
 
-/* ---------- fcntl wrapper ---------- */
+/* fcntl wrapper */
 
 static int64_t sys_fcntl_wrap(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
@@ -4666,7 +4666,7 @@ static int64_t sys_fcntl_wrap(uint64_t fd, uint64_t cmd, uint64_t arg, uint64_t 
     return sys_fcntl((int)fd, (int)cmd, arg);
 }
 
-/* ---------- prctl implementation ---------- */
+/* prctl implementation */
 
 #define PR_SET_PDEATHSIG    1
 #define PR_GET_PDEATHSIG    2
@@ -4715,7 +4715,7 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
         case PR_SET_KEEPCAPS :
             return 0;
         case PR_SET_NAME : {
-            /* Set process name - copy up to 15 bytes */
+            /* Set process name — copy up to 15 bytes */
             if (arg2) {
                 process_t *proc = process_current();
                 if (!proc) return -ESRCH;

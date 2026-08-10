@@ -4,7 +4,7 @@
  *      POSIX Message Queues header file
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -15,9 +15,7 @@
 #include <libs/std/stdint.h>
 #include <sync/signal.h>
 
-/* ------------------------------------------------------------------ */
-/*  POSIX MQ attributes                                                */
-/* ------------------------------------------------------------------ */
+/* POSIX MQ attributes */
 
 #define MQ_MAXMSG_DEFAULT  10
 #define MQ_MSGSIZE_DEFAULT 8192
@@ -27,9 +25,7 @@
 
 #define MQ_NAME_MAX 256
 
-/* ------------------------------------------------------------------ */
-/*  mq_attr structure                                                  */
-/* ------------------------------------------------------------------ */
+/* mq_attr structure */
 
 typedef struct mq_attr {
         int64_t mq_flags;
@@ -39,9 +35,7 @@ typedef struct mq_attr {
         int64_t __pad[4];
 } mq_attr_t;
 
-/* ------------------------------------------------------------------ */
-/*  sigevent structure (for mq_notify)                                  */
-/* ------------------------------------------------------------------ */
+/* sigevent structure (for mq_notify) */
 
 typedef struct sigevent {
         sigval_t sigev_value;
@@ -56,9 +50,7 @@ typedef struct sigevent {
 #define SIGEV_SIGNAL 2
 #define SIGEV_THREAD 3
 
-/* ------------------------------------------------------------------ */
-/*  POSIX MQ syscall interface                                         */
-/* ------------------------------------------------------------------ */
+/* POSIX MQ syscall interface */
 
 int64_t sys_mq_open(const char *name, int oflag, uint32_t mode, mq_attr_t *attr);
 int64_t sys_mq_unlink(const char *name);

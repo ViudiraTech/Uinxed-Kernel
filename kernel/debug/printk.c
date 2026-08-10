@@ -4,7 +4,7 @@
  *      Kernel string printing
  *
  *      2024/6/27 By Rainy101112
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -68,7 +68,7 @@ uint8_t unsafe_buf_write(writer *writer, char c)
     unsafe_buf_data *data = (unsafe_buf_data *)writer->data;
     data->buf[data->idx]  = c;
     ++data->idx;
-    return 1; // Always success? :)
+    return 1; // always succeeds: the unsafe buffer cannot overflow here
 }
 
 /* Handler of safe buf writing with size limit */

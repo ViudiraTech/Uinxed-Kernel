@@ -4,7 +4,7 @@
  *      UART serial core: tty integration for serial ports
  *
  *      2026/8/10 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

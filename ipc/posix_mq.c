@@ -4,7 +4,7 @@
  *      POSIX Message Queue implementation
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -25,16 +25,12 @@
 #include <sync/spin_lock.h>
 #include <syscall/syscall.h>
 
-/* ------------------------------------------------------------------ */
-/*  Local constants (O_EXCL / O_CLOEXEC not defined in syscall.h)       */
-/* ------------------------------------------------------------------ */
+/* Local constants (O_EXCL / O_CLOEXEC not defined in syscall.h) */
 
 #define O_EXCL    0x0080
 #define O_CLOEXEC 0x80000
 
-/* ------------------------------------------------------------------ */
-/*  Internal structures                                                 */
-/* ------------------------------------------------------------------ */
+/* Internal structures */
 
 #define MQ_MAX_QUEUES 64
 
@@ -71,26 +67,20 @@ typedef struct mq_queue {
         int        notify_pending;
 } mq_queue_t;
 
-/* ------------------------------------------------------------------ */
-/*  Global queue registry                                               */
-/* ------------------------------------------------------------------ */
+/* Global queue registry */
 
 static mq_queue_t *mq_registry[MQ_MAX_QUEUES];
 static spinlock_t  mq_registry_lock;
 static int         mq_fsid = -1;
 
-/* ------------------------------------------------------------------ */
-/*  Forward declarations                                                */
-/* ------------------------------------------------------------------ */
+/* Forward declarations */
 
 static mq_queue_t *mq_queue_lookup(const char *name);
 static mq_queue_t *mq_queue_create(const char *name, const mq_attr_t *attr);
 static void        mq_queue_destroy(mq_queue_t *queue);
 static void        mq_notify_signal(mq_queue_t *queue);
 
-/* ------------------------------------------------------------------ */
-/*  Registry helpers                                                    */
-/* ------------------------------------------------------------------ */
+/* Registry helpers */
 
 static mq_queue_t *mq_queue_lookup(const char *name)
 {
@@ -189,9 +179,7 @@ static void mq_queue_destroy(mq_queue_t *queue)
     free(queue);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Message priority insertion (highest priority first)                  */
-/* ------------------------------------------------------------------ */
+/* Message priority insertion (highest priority first) */
 
 static void mq_enqueue(mq_queue_t *queue, mq_message_t *msg)
 {
@@ -240,9 +228,7 @@ static mq_message_t *mq_dequeue(mq_queue_t *queue)
     return msg;
 }
 
-/* ------------------------------------------------------------------ */
-/*  mq_notify signal delivery                                           */
-/* ------------------------------------------------------------------ */
+/* mq_notify signal delivery */
 
 static void mq_notify_signal(mq_queue_t *queue)
 {
@@ -276,9 +262,7 @@ static void mq_notify_signal(mq_queue_t *queue)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/*  VFS callback: close                                                 */
-/* ------------------------------------------------------------------ */
+/* VFS callback: close */
 
 static void mq_vfs_close(void *current)
 {
@@ -313,9 +297,7 @@ static void mq_vfs_close(void *current)
     free(des);
 }
 
-/* ------------------------------------------------------------------ */
-/*  VFS callback: read (delegate to mq_timedreceive)                     */
-/* ------------------------------------------------------------------ */
+/* VFS callback: read (delegate to mq_timedreceive) */
 
 static size_t mq_vfs_read(void *file, void *addr, size_t offset, size_t size)
 {
@@ -354,9 +336,7 @@ static size_t mq_vfs_read(void *file, void *addr, size_t offset, size_t size)
     return copy_size;
 }
 
-/* ------------------------------------------------------------------ */
-/*  VFS callback: write (delegate to mq_timedsend)                       */
-/* ------------------------------------------------------------------ */
+/* VFS callback: write (delegate to mq_timedsend) */
 
 static size_t mq_vfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
@@ -405,9 +385,7 @@ static size_t mq_vfs_write(void *file, const void *addr, size_t offset, size_t s
     return size;
 }
 
-/* ------------------------------------------------------------------ */
-/*  VFS callback: free (release handle)                                  */
-/* ------------------------------------------------------------------ */
+/* VFS callback: free (release handle) */
 
 static int mq_vfs_free(void *handle)
 {
@@ -416,9 +394,7 @@ static int mq_vfs_free(void *handle)
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  VFS callback stubs                                                  */
-/* ------------------------------------------------------------------ */
+/* VFS callback stubs */
 
 static int mq_stub_mount(const char *s, vfs_node_t n)
 {
@@ -498,9 +474,7 @@ static int mq_stub_rename(void *current, const char *new_name)
     return -ENOSYS;
 }
 
-/* ------------------------------------------------------------------ */
-/*  VFS node creation for mq descriptor                                  */
-/* ------------------------------------------------------------------ */
+/* VFS node creation for mq descriptor */
 
 static int mq_des_install(mq_des_t *des)
 {
@@ -528,9 +502,7 @@ static int mq_des_install(mq_des_t *des)
     return fd;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Syscall: mq_open                                                    */
-/* ------------------------------------------------------------------ */
+/* Syscall: mq_open */
 
 int64_t sys_mq_open(const char *name, int oflag, uint32_t mode, mq_attr_t *attr)
 {
@@ -628,9 +600,7 @@ int64_t sys_mq_open(const char *name, int oflag, uint32_t mode, mq_attr_t *attr)
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Syscall: mq_unlink                                                  */
-/* ------------------------------------------------------------------ */
+/* Syscall: mq_unlink */
 
 int64_t sys_mq_unlink(const char *name)
 {
@@ -665,9 +635,7 @@ int64_t sys_mq_unlink(const char *name)
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Look up mq_des from fd                                              */
-/* ------------------------------------------------------------------ */
+/* Look up mq_des from fd */
 
 static mq_des_t *mq_fd_lookup(int mqdes, int *err)
 {
@@ -704,9 +672,7 @@ static mq_des_t *mq_fd_lookup(int mqdes, int *err)
     return des;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Syscall: mq_timedsend                                               */
-/* ------------------------------------------------------------------ */
+/* Syscall: mq_timedsend */
 
 int64_t sys_mq_timedsend(int mqdes, const char *msg_ptr, size_t msg_len, uint32_t msg_prio, const void *abs_timeout)
 {
@@ -798,9 +764,7 @@ int64_t sys_mq_timedsend(int mqdes, const char *msg_ptr, size_t msg_len, uint32_
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Syscall: mq_timedreceive                                            */
-/* ------------------------------------------------------------------ */
+/* Syscall: mq_timedreceive */
 
 int64_t sys_mq_timedreceive(int mqdes, char *msg_ptr, size_t msg_len, uint32_t *msg_prio, const void *abs_timeout)
 {
@@ -858,7 +822,7 @@ int64_t sys_mq_timedreceive(int mqdes, char *msg_ptr, size_t msg_len, uint32_t *
     mq_message_t *msg = mq_dequeue(queue);
 
     /*
-     * Clear notification pending flag –a successful receive
+     * Clear notification pending flag — a successful receive
      * means the queue is no longer non-empty, so the notification
      * condition is cleared.
      */
@@ -893,9 +857,7 @@ int64_t sys_mq_timedreceive(int mqdes, char *msg_ptr, size_t msg_len, uint32_t *
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Syscall: mq_notify                                                  */
-/* ------------------------------------------------------------------ */
+/* Syscall: mq_notify */
 
 int64_t sys_mq_notify(int mqdes, const sigevent_t *notification)
 {
@@ -959,9 +921,7 @@ int64_t sys_mq_notify(int mqdes, const sigevent_t *notification)
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Syscall: mq_getsetattr                                              */
-/* ------------------------------------------------------------------ */
+/* Syscall: mq_getsetattr */
 
 int64_t sys_mq_getsetattr(int mqdes, const mq_attr_t *newattr, mq_attr_t *oldattr)
 {
@@ -1009,9 +969,7 @@ int64_t sys_mq_getsetattr(int mqdes, const mq_attr_t *newattr, mq_attr_t *oldatt
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Initialization                                                      */
-/* ------------------------------------------------------------------ */
+/* Initialization */
 
 void posix_mq_init(void)
 {

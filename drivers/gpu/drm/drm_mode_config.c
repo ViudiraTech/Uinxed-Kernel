@@ -4,7 +4,7 @@
  *      DRM mode configuration initialisation and cleanup
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -470,9 +470,7 @@ int drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *f
  * drmm_mode_config_init - Managed resource wrapper for drm_mode_config_init.
  * @dev: DRM device
  *
- * Calls drm_mode_config_init. In a full implementation this would register
- * a cleanup action with the device resource manager; MVP delegates to the
- * manual cleanup path. Returns 0 on success.
+ * Calls drm_mode_config_init. Returns 0 on success.
  */
 static int drmm_mode_config_init(struct drm_device *dev)
 {

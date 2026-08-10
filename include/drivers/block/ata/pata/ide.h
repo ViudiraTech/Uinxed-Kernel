@@ -4,7 +4,7 @@
  *      Standard ATA/ATAPI device driver header
  *
  *      2024/7/11 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

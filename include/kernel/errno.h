@@ -3,8 +3,8 @@
  *      errno.h
  *      Global error flag variable header file
  *
- *      2025/11/08 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      2025/11/8 By MicroFish
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

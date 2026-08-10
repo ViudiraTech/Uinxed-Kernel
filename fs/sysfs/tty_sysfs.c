@@ -4,7 +4,7 @@
  *      TTY class sysfs integration (/sys/class/tty/)
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -20,9 +20,7 @@
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 
-/* ------------------------------------------------------------------ */
-/*  TTY class                                                          */
-/* ------------------------------------------------------------------ */
+/* TTY class */
 
 static struct class tty_class = {
     .name = "tty",
@@ -42,9 +40,7 @@ static int tty_sysfs_add_device(tty_driver_t *drv, int index, const char *name, 
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Initialization                                                     */
-/* ------------------------------------------------------------------ */
+/* Initialization */
 
 void tty_sysfs_init(void)
 {

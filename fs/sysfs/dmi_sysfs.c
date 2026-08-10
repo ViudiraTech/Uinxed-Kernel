@@ -4,7 +4,7 @@
  *      DMI / SMBIOS firmware data in sysfs
  *
  *      2026/8/6 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -21,9 +21,7 @@
 
 static bool dmi_sysfs_ready;
 
-/* ------------------------------------------------------------------ */
-/*  /sys/class/dmi/id attribute files                                  */
-/* ------------------------------------------------------------------ */
+/* /sys/class/dmi/id attribute files */
 
 static ssize_t str_show(struct device *dev, struct device_attribute *attr, char *buf);
 static ssize_t product_uuid_show(struct device *dev, struct device_attribute *attr, char *buf);
@@ -105,9 +103,7 @@ static const struct attribute_group *dmi_groups[] = {
 
 static struct class dmi_class = {.name = "dmi", .dev_groups = dmi_groups};
 
-/* ------------------------------------------------------------------ */
-/*  /sys/firmware/dmi/tables/DMI binary dump                           */
-/* ------------------------------------------------------------------ */
+/* /sys/firmware/dmi/tables/DMI binary dump */
 
 static const uint8_t *dmi_table_base(size_t *capacity)
 {
@@ -162,9 +158,7 @@ static struct bin_attribute dmi_tables_attr = {
     .read = dmi_tables_read,
 };
 
-/* ------------------------------------------------------------------ */
-/*  Registration                                                       */
-/* ------------------------------------------------------------------ */
+/* Registration */
 
 void dmi_sysfs_init(void)
 {

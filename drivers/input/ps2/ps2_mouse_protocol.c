@@ -4,7 +4,7 @@
  *      PS/2 mouse packet decoder shared by the driver and host tests
  *
  *      2026/7/25 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

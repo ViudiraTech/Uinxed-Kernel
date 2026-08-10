@@ -4,7 +4,7 @@
  *      Pseudoterminal driver
  *
  *      2026/7/25 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -66,6 +66,14 @@ typedef struct pty_pair {
         char              slave_path[32];
 } pty_pair_t;
 
+/*
+ * Overview
+ * A pty_pair links a /dev/ptmx-style master node with its slave tty
+ * (/dev/pts/N). Bytes written to one end appear at the other, with
+ * the master side supporting TIOCPKT packet mode and flow control.
+ * The pair is reference-counted and freed once both ends close.
+ */
+
 typedef enum pty_endpoint_kind {
     PTY_MASTER,
     PTY_SLAVE,
@@ -81,6 +89,7 @@ static spinlock_t  pty_lifetime_lock;
 static uint64_t    pty_ids[(CONFIG_UNIX98_PTY_MAX + 63) / 64];
 static pty_pair_t *pty_pairs[CONFIG_UNIX98_PTY_MAX];
 
+/* Increment the pair's reference count (both endpoints hold a reference) */
 static void pty_get(pty_pair_t *pair)
 {
     spin_lock(&pair->lock);
@@ -88,6 +97,7 @@ static void pty_get(pty_pair_t *pair)
     spin_unlock(&pair->lock);
 }
 
+/* Drop a reference; destroy the pair (and free its pty id) at zero */
 static void pty_put(pty_pair_t *pair)
 {
     bool destroy = false;
@@ -130,6 +140,8 @@ static int pty_allocate_number(void)
     return -ENOSPC;
 }
 
+/* Slave tty output path: copy bytes into the master ring buffer,
+ * blocking (or returning EAGAIN) when the master's buffer is full */
 static int pty_slave_emit(void *context, const uint8_t *data, size_t size, uint64_t flags)
 {
     pty_pair_t *pair   = context;

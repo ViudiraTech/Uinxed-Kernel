@@ -4,7 +4,7 @@
  *      ELF64 process-image loader
  *
  *      2026/7/21 By Rainy101112
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -26,6 +26,13 @@
 #include <process/uaccess.h>
 #include <syscall/fcntl.h>
 #include <syscall/syscall.h>
+
+/*
+ * Overview
+ * elf_loader.c maps a userspace ELF executable into a fresh address
+ * page frames for each LOAD segment and sets up the initial stack
+ * (argv/envp/auxv) for the entry point.
+ */
 
 #define INTERP_LOAD_BASE 0x7f0000000000ULL
 #define INTERP_LOAD_END  0x7f0001000000ULL

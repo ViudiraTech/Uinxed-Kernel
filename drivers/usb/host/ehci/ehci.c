@@ -4,7 +4,7 @@
  *      Enhanced Host Controller Interface (EHCI) driver
  *
  *      2026/7/29 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -28,6 +28,15 @@
 #include <process/task.h>
 
 #define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
+
+/*
+ * Overview
+ * EHCI is the USB 2.0 host controller. It schedules transfers as
+ * Queue Heads (QHs) on a periodic or asynchronous list, each QH
+ * pointing to a chain of Queue Transfer Descriptors (qTDs). The
+ * driver maintains static pools of QHs and qTDs for the endpoints
+ * it serves.
+ */
 
 #define EHCI_MAX_CONTROLLERS 8
 #define EHCI_MAX_PORTS       15
@@ -236,6 +245,13 @@ static void ehci_unschedule_async(ehci_controller_t *ctrl, int qh_index)
     ehci_write32(ctrl->operational, EHCI_OP_ASYNCLISTADDR, 0);
 }
 
+/*
+ * Transfer submission
+ * Control transfers are built as a chain of qTDs under a QH on the
+ * async list (SETUP / DATA / STATUS); bulk and interrupt transfers
+ * use the same qTD mechanism on their own QHs.
+ */
+
 static int ehci_control(usb_device_t *device, const usb_setup_packet_t *setup, void *buffer, size_t length, uint32_t timeout_ms)
 {
     ehci_controller_t *ctrl = device ? device->hc_private : NULL;
@@ -317,6 +333,7 @@ control_cleanup:
     return status;
 }
 
+/* Bulk/interrupt transfer on an endpoint's QH */
 static int ehci_transfer(usb_endpoint_t *endpoint, void *buffer, size_t length, size_t *actual, uint32_t timeout_ms)
 {
     if (!endpoint || !endpoint->interface || !endpoint->interface->device || (length && !buffer) || length > PAGE_4K_SIZE) return -EINVAL;
@@ -518,6 +535,7 @@ static int ehci_get_string(usb_device_t *device, uint8_t index, uint16_t languag
     return EOK;
 }
 
+/* Reset a port, assign an address and register the device with the USB core */
 static int ehci_enumerate_port(ehci_controller_t *ctrl, uint8_t port)
 {
     if (!ctrl || port >= ctrl->num_ports) return -EINVAL;

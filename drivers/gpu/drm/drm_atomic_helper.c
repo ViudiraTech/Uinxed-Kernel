@@ -4,7 +4,7 @@
  *      DRM atomic helper functions
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -20,21 +20,16 @@
 #include <mem/alloc.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/* Locally-defined state structs (forward-declared in drm_device.h)   */
-/* ------------------------------------------------------------------ */
-/* Helper: container_of                                                */
-/* ------------------------------------------------------------------ */
+/*
+ * Locally-defined state structs (forward-declared in drm_device.h)
+ * Helper: container_of
+ */
 
 #define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
 
-/* ------------------------------------------------------------------ */
-/* Forward declarations for cross-file calls                           */
-/* ------------------------------------------------------------------ */
+/* Forward declarations for cross-file calls */
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_helper_check_modeset: check CRTC mode changes            */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_helper_check_modeset: check CRTC mode changes */
 
 static int drm_atomic_helper_check_modeset(struct drm_device *dev, struct drm_atomic_state *state)
 {
@@ -90,9 +85,7 @@ static int drm_atomic_helper_check_modeset(struct drm_device *dev, struct drm_at
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_helper_check_planes: validate plane fb format            */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_helper_check_planes: validate plane fb format */
 
 static int drm_atomic_helper_check_planes(struct drm_device *dev, struct drm_atomic_state *state)
 {
@@ -142,9 +135,7 @@ static int drm_atomic_helper_check_planes(struct drm_device *dev, struct drm_ato
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_helper_commit_modeset_disables: disable CRTCs            */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_helper_commit_modeset_disables: disable CRTCs */
 
 static void drm_atomic_helper_commit_modeset_disables(struct drm_device *dev, struct drm_atomic_state *state)
 {
@@ -165,9 +156,7 @@ static void drm_atomic_helper_commit_modeset_disables(struct drm_device *dev, st
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_helper_commit_modeset_enables: enable CRTCs, set mode    */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_helper_commit_modeset_enables: enable CRTCs, set mode */
 
 static void drm_atomic_helper_commit_modeset_enables(struct drm_device *dev, struct drm_atomic_state *state)
 {
@@ -192,9 +181,7 @@ static void drm_atomic_helper_commit_modeset_enables(struct drm_device *dev, str
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_helper_commit_planes: apply plane fb and coordinates     */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_helper_commit_planes: apply plane fb and coordinates */
 
 static void drm_atomic_helper_commit_planes(struct drm_device *dev, struct drm_atomic_state *state, uint32_t flags)
 {
@@ -226,9 +213,7 @@ static void drm_atomic_helper_commit_planes(struct drm_device *dev, struct drm_a
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_helper_setup_commit: stub                                 */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_helper_setup_commit: stub */
 
 static int drm_atomic_helper_setup_commit(struct drm_atomic_state *state, bool nonblocking)
 {
@@ -237,9 +222,7 @@ static int drm_atomic_helper_setup_commit(struct drm_atomic_state *state, bool n
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_helper_wait_for_vblanks: stub (no vblank yet)            */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_helper_wait_for_vblanks: no vblank support yet */
 
 static void drm_atomic_helper_wait_for_vblanks(struct drm_device *dev, struct drm_atomic_state *state)
 {
@@ -247,9 +230,7 @@ static void drm_atomic_helper_wait_for_vblanks(struct drm_device *dev, struct dr
     (void)state;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_helper_wait_for_flip_done: stub                           */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_helper_wait_for_flip_done: stub */
 
 static int drm_atomic_helper_wait_for_flip_done(struct drm_device *dev, struct drm_atomic_state *state)
 {
@@ -258,9 +239,7 @@ static int drm_atomic_helper_wait_for_flip_done(struct drm_device *dev, struct d
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
 /* drm_atomic_helper_cleanup_planes: free old plane states, put old fbs */
-/* ------------------------------------------------------------------ */
 
 static void drm_atomic_helper_cleanup_planes(struct drm_device *dev, struct drm_atomic_state *state)
 {
@@ -288,9 +267,7 @@ static void drm_atomic_helper_cleanup_planes(struct drm_device *dev, struct drm_
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_helper_commit_tail: default commit tail sequence         */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_helper_commit_tail: default commit tail sequence */
 
 static void drm_atomic_helper_commit_tail(struct drm_atomic_state *state)
 {

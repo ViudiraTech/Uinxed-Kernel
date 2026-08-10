@@ -4,7 +4,7 @@
  *      ext2/ext3/ext4 filesystem - directory operations
  *
  *      2026/7/29 By JiTianYu391
- *      Copyright © 2026 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2026 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -17,6 +17,13 @@
 #include <mem/heap.h>
 
 #define EXT4_FT_DIR_CSUM 0xDEU
+
+/*
+ * Overview
+ * dir.c implements ext2/3/4 directory operations: reading directory
+ * entries, looking up names, and adding/removing entries with the
+ * linear- or htree-style record layout.
+ */
 
 typedef struct ext4_dir_entry_tail {
         uint32_t reserved_zero1;

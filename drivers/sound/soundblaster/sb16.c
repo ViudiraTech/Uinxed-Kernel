@@ -4,7 +4,7 @@
  *      Sound Blaster 16 driver
  *
  *      2026/7/20 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -66,9 +66,7 @@ static inline void sb16_outb(uint16_t port, uint8_t val)
     outb(port, val);
 }
 
-/* ------------------------------------------------------------------ */
-/* DMA channel helpers                                                */
-/* ------------------------------------------------------------------ */
+/* DMA channel helpers */
 
 /*
  * Program ISA DMA controller for a transfer.
@@ -130,9 +128,7 @@ static void sb16_dma_program(uint8_t channel, uint32_t phys_addr, uint32_t size,
     enable_intr();
 }
 
-/* ------------------------------------------------------------------ */
-/* DSP low-level I/O                                                  */
-/* ------------------------------------------------------------------ */
+/* DSP low-level I/O */
 int sb16_dsp_wait_write(sb16_device_t *dev)
 {
     for (int i = 0; i < 10000; i++)
@@ -178,9 +174,7 @@ int sb16_dsp_version(sb16_device_t *dev, uint8_t *major, uint8_t *minor)
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Mixer                                                              */
-/* ------------------------------------------------------------------ */
+/* Mixer */
 uint8_t sb16_mixer_read(sb16_device_t *dev, uint8_t reg)
 {
     sb16_outb(dev->base + SB16_MIXER_ADDR, reg);
@@ -229,9 +223,7 @@ void sb16_set_input_source(sb16_device_t *dev, uint8_t source)
     dev->input_source = source;
 }
 
-/* ------------------------------------------------------------------ */
-/* Sample rate setting                                                */
-/* ------------------------------------------------------------------ */
+/* Sample rate setting */
 int sb16_set_rate8(sb16_device_t *dev, uint16_t rate)
 {
     if (rate < 4000) rate = 4000;
@@ -250,9 +242,7 @@ int sb16_set_rate16(sb16_device_t *dev, uint16_t rate)
     return sb16_dsp_write(dev, rate & 0xFF);
 }
 
-/* ------------------------------------------------------------------ */
-/* Playback                                                           */
-/* ------------------------------------------------------------------ */
+/* Playback */
 int sb16_play_8bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
 {
     if (!dev->detected || !buffer || !size) return -1;
@@ -294,9 +284,7 @@ int sb16_play_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Capture                                                            */
-/* ------------------------------------------------------------------ */
+/* Capture */
 int sb16_capture_8bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
 {
     if (!dev->detected || !buffer || !size) return -1;
@@ -368,9 +356,7 @@ void sb16_stop(sb16_device_t *dev)
     dev->capturing = 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Audio subsystem callbacks                                          */
-/* ------------------------------------------------------------------ */
+/* Audio subsystem callbacks */
 static int sb16_audio_start(audio_card_t *card)
 {
     (void)card;
@@ -544,9 +530,7 @@ static int sb16_audio_get_position(audio_card_t *card, snd_pcm_uframes_t *pos)
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/* Detection and initialization                                       */
-/* ------------------------------------------------------------------ */
+/* Detection and initialization */
 int sb16_detect(sb16_device_t *dev)
 {
     for (size_t i = 0; i < sizeof(sb16_ports) / sizeof(sb16_ports[0]); i++) {

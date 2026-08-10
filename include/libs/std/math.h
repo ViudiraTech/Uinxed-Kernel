@@ -4,7 +4,7 @@
  *      Mathematical library header files
  *
  *      2025/10/7 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

@@ -4,7 +4,7 @@
  *      Linux-compatible filesystem event notification
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -29,6 +29,14 @@ typedef struct inotify_watch {
         int32_t          wd;
         uint32_t         mask;
 } inotify_watch_t;
+
+/*
+ * Overview
+ * inotify.c implements the inotify(7) API: an fd holds a set of
+ * watches on VFS nodes; filesystem events are queued as inotify_event
+ * records and read out through the fd. Events are coalesced when
+ * identical to the tail entry, and overflow is reported once.
+ */
 
 static spinlock_t         inotify_global_lock;
 static inotify_context_t *inotify_contexts;

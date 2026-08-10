@@ -4,7 +4,7 @@
  *      Unified file page cache
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -13,6 +13,14 @@
 #include <libs/std/string.h>
 #include <mem/heap.h>
 #include <mem/pagecache.h>
+
+/*
+ * Overview
+ * pagecache.c caches file pages between a block device and memory,
+ * indexed by (device, inode, page index) in a growable hash table.
+ * It tracks dirty / uptodate / writeback state, performs read-ahead
+ * and reclaims clean pages when the system is low on memory.
+ */
 
 #define PAGECACHE_HASH_MIN_BITS 6U
 #define PAGECACHE_HASH_MAX_BITS 12U

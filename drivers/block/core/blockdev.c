@@ -3,9 +3,8 @@
  *      blockdev.c
  *      Block device abstraction layer
  *
- *      2026/5/18 By Rainy101112
- *      2026/7/23 By JiTianYu391 - VFS-style callback registration
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      2026/7/23 By Rainy101112 & JiTianYu391
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -22,13 +21,21 @@
 #include <libs/std/string.h>
 #include <mem/heap.h>
 
-/* ---- Global ops table ---- */
+/* Global ops table */
 
 static blockdev_ops_t _blk_ops_table[BLOCKDEV_MAX_TYPES];
 blockdev_ops_t       *blk_ops_table = _blk_ops_table;
 static int            blk_next_id   = 0;
 
-/* Default (empty) ops - returns -ENOSYS for everything */
+/*
+ * Overview
+ * blockdev.c is the block-device abstraction shared by IDE, AHCI,
+ * SATA-ATAPI and NVMe. It registers per-driver ops, publishes block
+ * devices, and implements the generic read/write/ioctl entry points
+ * on top of them.
+ */
+
+/* Default (empty) ops — returns -ENOSYS for everything */
 static int blk_empty_read(const struct blockdev_device *dev, uint64_t lba, uint32_t count, void *buf)
 {
     (void)dev;
@@ -93,7 +100,7 @@ int blockdev_register_type(blockdev_ops_t ops)
     return id;
 }
 
-/* ---- IDE backend ops ---- */
+/* IDE backend ops */
 
 #if CONFIG_ATA
 
@@ -141,7 +148,7 @@ static int blk_ide_type_id = -1;
 
 #endif /* CONFIG_ATA */
 
-/* ---- NVMe backend ops (forwarders to nvme.c) ---- */
+/* NVMe backend ops (forwarders to nvme.c) */
 
 #if CONFIG_NVME
 
@@ -155,7 +162,7 @@ static int blk_nvme_type_id = -1;
 
 #endif /* CONFIG_NVME */
 
-/* ---- AHCI backend ops ---- */
+/* AHCI backend ops */
 
 #if CONFIG_ATA
 
@@ -226,7 +233,7 @@ static int blk_ahci_atapi_type_id = -1;
 
 #endif /* CONFIG_ATA */
 
-/* ---- Internal: lazy registration ---- */
+/* Internal: lazy registration */
 
 #if CONFIG_ATA
 static int blk_ide_type(void)
@@ -258,7 +265,7 @@ static int blk_ahci_atapi_type(void)
 }
 #endif
 
-/* ---- Public API ---- */
+/* Public API */
 
 int blockdev_open_ide(uint8_t drive, blockdev_device_t *device)
 {

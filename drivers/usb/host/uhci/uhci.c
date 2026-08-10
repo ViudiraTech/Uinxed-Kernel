@@ -4,7 +4,7 @@
  *      Universal Host Controller Interface (UHCI) driver
  *
  *      2026/7/29 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -28,6 +28,15 @@
 #include <process/task.h>
 
 #define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
+
+/*
+ * Overview
+ * UHCI is the USB 1.1 host controller. It is programmed through I/O
+ * ports and schedules transfers as linked lists of Transfer
+ * Descriptors (TDs) hung off Queue Heads (QHs). The driver keeps a
+ * static pool of TDs/QHs, submits control/bulk transfers on the
+ * async list and interrupt transfers on the periodic frame list.
+ */
 
 #define UHCI_MAX_CONTROLLERS  8
 #define UHCI_RESET_TIMEOUT_MS 100
@@ -274,6 +283,13 @@ static int uhci_wait_chain(uhci_controller_t *ctrl, const int *td_indices, const
     return EOK;
 }
 
+/*
+ * Transfer submission
+ * Control transfers are built as a chain of TDs (SETUP, DATA,
+ * STATUS) on a QH hung from the async list; bulk uses a plain
+ * single-phase TD chain on a QH; interrupt uses the periodic list.
+ */
+
 static int uhci_submit_control(usb_device_t *device, const usb_setup_packet_t *setup, void *buffer, size_t length, uint32_t timeout_ms)
 {
     uhci_controller_t *ctrl = device ? device->hc_private : NULL;
@@ -381,6 +397,7 @@ cleanup:
     return status;
 }
 
+/* Bulk transfer: chain of data TDs, optionally stopping at a short packet */
 static int uhci_submit_bulk(usb_endpoint_t *endpoint, void *buffer, size_t length, size_t *actual, uint32_t timeout_ms)
 {
     if (!endpoint || !endpoint->interface || !endpoint->interface->device || (length && !buffer)) return -EINVAL;
@@ -584,6 +601,7 @@ static void uhci_usb_device_release(struct device *dev)
     free(device);
 }
 
+/* Reset a port, probe the attached device and register it with the USB core */
 static int uhci_enumerate_port(uhci_controller_t *ctrl, uint8_t port)
 {
     if (!ctrl || port >= UHCI_MAX_PORTS) return -EINVAL;

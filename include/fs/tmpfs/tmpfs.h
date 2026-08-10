@@ -4,7 +4,7 @@
  *      Temporary file system header file
  *
  *      2025/11/3 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -142,7 +142,6 @@ int tmpfs_symlink(void *parent, const char *name, vfs_node_t node);
 /* Free resources of a tmpfs file/directory */
 int tmpfs_free(void *handle);
 
-/* Dummy function (placeholder for VFS callbacks not implemented) */
 void tmpfs_dummy(void);
 
 /* Register tmpfs with the VFS layer (initialize tmpfs) */

@@ -4,7 +4,7 @@
  *	    Kernel EEVDF scheduler
  *
  *      2026/7/21 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -17,15 +17,11 @@
 #include <process/task.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/*  EEVDF constants                                                     */
-/* ------------------------------------------------------------------ */
+/* EEVDF constants */
 
 #define SCHED_NICE_0_LOAD 1024ULL // weight of nice 0
 
-/* ------------------------------------------------------------------ */
-/*  Per-CPU EEVDF runqueue                                              */
-/* ------------------------------------------------------------------ */
+/* Per-CPU EEVDF runqueue */
 
 typedef struct {
         rb_root_t timeline;        // RB-tree sorted by deadline
@@ -39,9 +35,7 @@ typedef struct {
         uint8_t   online;          // CPU is online
 } eevdf_rq_t;
 
-/* ------------------------------------------------------------------ */
-/*  Global scheduler state                                              */
-/* ------------------------------------------------------------------ */
+/* Global scheduler state */
 
 typedef struct {
         eevdf_rq_t  *rqs;         // per-CPU runqueues
@@ -54,9 +48,7 @@ typedef struct {
         ilist_node_t timer_queue; // timed wait-queue tasks (wake on deadline)
 } scheduler_t;
 
-/* ------------------------------------------------------------------ */
-/*  External interface (unchanged)                                      */
-/* ------------------------------------------------------------------ */
+/* External interface (unchanged) */
 
 extern scheduler_t scheduler;
 extern eevdf_rq_t *cpu_rqs;

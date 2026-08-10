@@ -4,7 +4,7 @@
  *      Linux-compatible process tracing
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -49,6 +49,14 @@ typedef struct ptrace_user_area {
 _Static_assert(offsetof(ptrace_user_area_t, debug_regs) == PTRACE_USER_DEBUGREG_OFFSET, "Linux x86-64 struct user debug-register offset");
 _Static_assert(sizeof(ptrace_user_area_t) == PTRACE_USER_AREA_SIZE, "Linux x86-64 struct user size");
 
+/*
+ * Overview
+ * ptrace.c implements the x86-64 Linux PTRACE ABI: attaching to a
+ * target task, trapping syscall entry/exit, single-stepping through
+ * the debug registers, and reading/writing the tracee's registers,
+ * memory and FPU state.
+ */
+
 static task_t *ptrace_find_task_get(int64_t pid, process_t **owner)
 {
     if (owner) *owner = NULL;
@@ -64,6 +72,7 @@ void ptrace_state_init(ptrace_state_t *state)
     state->mode = PTRACE_RUN_CONT;
 }
 
+/* Convert a syscall frame into the ptrace user-regs layout */
 void ptrace_regs_from_frame(ptrace_user_regs_t *regs, const syscall_frame_t *frame, uint64_t orig_rax)
 {
     if (!regs || !frame) return;
@@ -391,6 +400,7 @@ static int ptrace_stop_current(syscall_frame_t *frame, int sig, ptrace_stop_reas
     return resume_signal;
 }
 
+/* Resume a stopped tracee (cont or single-step), optionally delivering a signal */
 static int ptrace_resume(task_t *target, ptrace_run_mode_t mode, int sig)
 {
     if (!sig_valid(sig) && sig != 0) {
@@ -416,6 +426,8 @@ static int ptrace_resume(task_t *target, ptrace_run_mode_t mode, int sig)
     return 0;
 }
 
+/* Attach to a target task: validate permissions, mark it as traced and
+ * arrange a stop so the tracer can take control */
 static int ptrace_attach(task_t *target, process_t *owner, bool seize, uint32_t options)
 {
     process_t *current = process_current();
@@ -549,6 +561,7 @@ static int64_t ptrace_get_syscall_info(task_t *target, uintptr_t size, uintptr_t
     return sizeof(info);
 }
 
+/* ptrace(2) entry point: dispatch a request against the target task */
 int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
 {
     task_t    *self    = current_task();

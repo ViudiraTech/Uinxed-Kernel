@@ -4,7 +4,7 @@
  *      sysfs ?the filesystem for exporting kernel objects
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -23,9 +23,7 @@
 #include <mem/heap.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/*  Internal types                                                     */
-/* ------------------------------------------------------------------ */
+/* Internal types */
 
 typedef enum sysfs_node_type {
     SYSFS_DIR,      // kobject directory
@@ -71,9 +69,7 @@ typedef struct sysfs_open_file {
         int             generated;
 } sysfs_open_file_t;
 
-/* ------------------------------------------------------------------ */
-/*  Global state                                                       */
-/* ------------------------------------------------------------------ */
+/* Global state */
 
 static int        sysfs_id;         // VFS filesystem ID
 struct kobject   *sysfs_root_kobj;  // /sys root kobject (global)
@@ -86,9 +82,7 @@ static int  sysfs_stat(void *file, vfs_node_t node);
 static void sysfs_populate_dir(struct kobject *kobj);
 static void sysfs_unbind_dir(struct kobject *kobj);
 
-/* ------------------------------------------------------------------ */
-/*  Internal helpers                                                   */
-/* ------------------------------------------------------------------ */
+/* Internal helpers */
 
 static sysfs_node_t *sysfs_node_alloc(sysfs_node_type_t type)
 {
@@ -213,9 +207,7 @@ static char *sysfs_relative_path(struct kobject *from, struct kobject *target)
     return path;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Content generation (read path for attribute files)                 */
-/* ------------------------------------------------------------------ */
+/* Content generation (read path for attribute files) */
 
 static ssize_t sysfs_gen_attr_content(sysfs_node_t *sn, char **content)
 {
@@ -246,9 +238,7 @@ static ssize_t sysfs_gen_attr_content(sysfs_node_t *sn, char **content)
     return n;
 }
 
-/* ------------------------------------------------------------------ */
-/*  VFS callbacks                                                      */
-/* ------------------------------------------------------------------ */
+/* VFS callbacks */
 
 static int sysfs_mount(const char *handle, vfs_node_t node)
 {
@@ -330,7 +320,7 @@ static void sysfs_open(void *parent_handle, const char *name, vfs_node_t node)
                 return;
             }
 
-            /* Check for binary attribute ?these are set up when created */
+            /* Check for binary attribute — these are set up when created */
             /* Binary files are created proactively, skip here */
 
             sysfs_bin_attr_entry_t *bin_entry = sysfs_find_bin_attr(parent_kobj, name);
@@ -828,9 +818,7 @@ static int sysfs_ioctl(void *file, size_t req, void *arg)
     return -ENOTTY;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Callback table                                                     */
-/* ------------------------------------------------------------------ */
+/* Callback table */
 
 static struct vfs_callback sysfs_callbacks = {
     .mount        = sysfs_mount,
@@ -857,9 +845,7 @@ static struct vfs_callback sysfs_callbacks = {
     .file_write   = sysfs_file_write,
 };
 
-/* ------------------------------------------------------------------ */
-/*  sysfs_create_dir / sysfs_remove_dir                                */
-/* ------------------------------------------------------------------ */
+/* sysfs_create_dir / sysfs_remove_dir */
 
 int sysfs_create_dir(struct kobject *kobj)
 {
@@ -933,9 +919,7 @@ void sysfs_remove_dir(struct kobject *kobj)
     vfs_namespace_detach(vnode);
 }
 
-/* ------------------------------------------------------------------ */
-/*  sysfs_create_file / sysfs_remove_file                              */
-/* ------------------------------------------------------------------ */
+/* sysfs_create_file / sysfs_remove_file */
 
 static int sysfs_create_file_mode(struct kobject *dir_kobj, struct kobject *owner, const struct attribute *attr, uint16_t mode)
 {
@@ -948,7 +932,7 @@ static int sysfs_create_file_mode(struct kobject *dir_kobj, struct kobject *owne
 
     dir_vnode = dir_kobj->sd;
     if (!dir_vnode) {
-        /* Kobject not yet in sysfs ?defer creation */
+        /* Kobject not yet in sysfs — defer creation */
         /* Just track the attribute for later */
         ;
     }
@@ -957,7 +941,7 @@ static int sysfs_create_file_mode(struct kobject *dir_kobj, struct kobject *owne
     sysfs_attr_entry_t *entry = calloc(1, sizeof(sysfs_attr_entry_t));
     if (!entry) return -ENOMEM;
 
-    entry->attr  = (struct attribute *)attr; // const cast ?safe since attr is const in struct
+    entry->attr  = (struct attribute *)attr; // const cast — safe since attr is const in struct
     entry->kobj  = owner;
     entry->mode  = mode;
     entry->vnode = NULL;
@@ -1016,9 +1000,7 @@ void sysfs_remove_file(struct kobject *kobj, const struct attribute *attr)
     free(entry);
 }
 
-/* ------------------------------------------------------------------ */
-/*  sysfs_create_bin_file / sysfs_remove_bin_file                      */
-/* ------------------------------------------------------------------ */
+/* sysfs_create_bin_file / sysfs_remove_bin_file */
 
 static int sysfs_create_bin_file_mode(struct kobject *dir_kobj, struct kobject *owner, const struct bin_attribute *attr, uint16_t mode)
 {
@@ -1083,9 +1065,7 @@ void sysfs_remove_bin_file(struct kobject *kobj, const struct bin_attribute *att
     free(entry);
 }
 
-/* ------------------------------------------------------------------ */
-/*  sysfs_create_symlink / sysfs_remove_symlink                        */
-/* ------------------------------------------------------------------ */
+/* sysfs_create_symlink / sysfs_remove_symlink */
 
 int sysfs_create_symlink(struct kobject *kobj, struct kobject *target, const char *name)
 {
@@ -1177,9 +1157,7 @@ void sysfs_remove_symlink(struct kobject *kobj, const char *name)
     free(entry);
 }
 
-/* ------------------------------------------------------------------ */
-/*  sysfs_create_group / sysfs_remove_group                            */
-/* ------------------------------------------------------------------ */
+/* sysfs_create_group / sysfs_remove_group */
 
 int sysfs_create_group(struct kobject *kobj, const struct attribute_group *grp)
 {
@@ -1321,9 +1299,7 @@ void sysfs_remove_group(struct kobject *kobj, const struct attribute_group *grp)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/*  sysfs_create_groups / sysfs_remove_groups                          */
-/* ------------------------------------------------------------------ */
+/* sysfs_create_groups / sysfs_remove_groups */
 
 int sysfs_create_groups(struct kobject *kobj, const struct attribute_group **groups)
 {
@@ -1350,9 +1326,7 @@ void sysfs_remove_groups(struct kobject *kobj, const struct attribute_group **gr
     for (int i = 0; groups[i]; i++) sysfs_remove_group(kobj, groups[i]);
 }
 
-/* ------------------------------------------------------------------ */
-/*  sysfs_cleanup_kobject_files                                        */
-/* ------------------------------------------------------------------ */
+/* sysfs_cleanup_kobject_files */
 
 void sysfs_cleanup_kobject_files(struct kobject *kobj)
 {
@@ -1417,9 +1391,7 @@ void sysfs_cleanup_kobject_files(struct kobject *kobj)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/*  sysfs_rename_dir                                                   */
-/* ------------------------------------------------------------------ */
+/* sysfs_rename_dir */
 
 int sysfs_rename_dir(struct kobject *kobj, const char *new_name)
 {
@@ -1473,9 +1445,7 @@ int sysfs_move_dir(struct kobject *kobj, struct kobject *new_parent)
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  sysfs_init / sysfs_regist                                          */
-/* ------------------------------------------------------------------ */
+/* sysfs_init / sysfs_regist */
 
 void sysfs_regist(void)
 {
@@ -1606,7 +1576,7 @@ int sysfs_init(void)
 
     if (sysfs_root_kobj) return -EEXIST;
 
-    /* Create the root kobject (only ?mount creates the VFS nodes) */
+    /* Create the root kobject (only — mount creates the VFS nodes) */
     sysfs_root_kobj = calloc(1, sizeof(struct kobject));
     if (!sysfs_root_kobj) return -ENOMEM;
 

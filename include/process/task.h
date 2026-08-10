@@ -4,7 +4,7 @@
  *      Task (thread/process) management header file
  *
  *      2026/7/20 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -94,12 +94,12 @@ struct task {
         ilist_node_t       thread_node;
         cgroup_t          *cgroup;
         ilist_node_t       cgroup_node;
-        /* ---- EEVDF scheduling fields ---- */
-        uint64_t vruntime; // virtual runtime
-        uint64_t deadline; // virtual deadline
-        int64_t  vlag;     // virtual lag for placement
-        uint32_t weight;   // scheduling weight (NICE_0_LOAD = 1024)
-        /* ---- PI (Priority Inheritance) fields ---- */
+        /* EEVDF scheduling fields */
+        uint64_t vruntime;            // virtual runtime
+        uint64_t deadline;            // virtual deadline
+        int64_t  vlag;                // virtual lag for placement
+        uint32_t weight;              // scheduling weight (NICE_0_LOAD = 1024)
+                                      /* PI (Priority Inheritance) fields */
         uint32_t         base_weight; // original weight before PI boost
         uint32_t         pi_weight;   // effective weight for PI waiter ordering
         rb_node_t        pi_node;     // rbtree node for pi_waiters

@@ -4,7 +4,7 @@
  *      System V IPC (semaphores, shared memory, message queues) header file
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -14,9 +14,7 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
-/* ------------------------------------------------------------------ */
-/*  IPC common                                                         */
-/* ------------------------------------------------------------------ */
+/* IPC common */
 
 #define IPC_CREAT   0x0200
 #define IPC_EXCL    0x0400
@@ -42,9 +40,7 @@ typedef struct ipc_perm {
         key_t    key;
 } ipc_perm_t;
 
-/* ------------------------------------------------------------------ */
-/*  Semaphores                                                         */
-/* ------------------------------------------------------------------ */
+/* Semaphores */
 
 #define SEM_UNDO 0x1000
 
@@ -87,9 +83,7 @@ typedef struct seminfo {
         int32_t semaem;
 } seminfo_t;
 
-/* ------------------------------------------------------------------ */
-/*  Shared memory                                                      */
-/* ------------------------------------------------------------------ */
+/* Shared memory */
 
 #define SHM_RDONLY 0x1000
 #define SHM_RND    0x2000
@@ -126,9 +120,7 @@ typedef struct shminfo {
         uint64_t shmall;
 } shminfo_t;
 
-/* ------------------------------------------------------------------ */
-/*  Message queues                                                     */
-/* ------------------------------------------------------------------ */
+/* Message queues */
 
 #define MSG_NOERROR 0x0100
 #define MSG_EXCEPT  0x0200
@@ -174,9 +166,7 @@ typedef struct msginfo {
         int32_t msgseg;
 } msginfo_t;
 
-/* ------------------------------------------------------------------ */
-/*  System V IPC syscall interface                                     */
-/* ------------------------------------------------------------------ */
+/* System V IPC syscall interface */
 
 int64_t sys_semget(key_t key, int nsems, int semflg);
 int64_t sys_semop(int semid, sembuf_t *sops, size_t nsops);

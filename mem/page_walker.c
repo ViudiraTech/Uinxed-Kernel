@@ -4,7 +4,7 @@
  *      Page table walker implementation
  *
  *      2025/10/3 By W9pi3cZ1
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -76,7 +76,7 @@ uint8_t page_walk_execute(page_walk_state_t *state)
         return 0;
     }
 
-    /* L3 lookup - check for 1GB huge page */
+    /* L3 lookup — check for 1GB huge page */
     uint64_t l3_entry;
     if (!page_table_lookup(state->l3_table, state->l3_index, &state->l2_table, &l3_entry)) {
         state->is_valid = 0;
@@ -90,7 +90,7 @@ uint8_t page_walk_execute(page_walk_state_t *state)
         return 1;
     }
 
-    /* L2 lookup - check for 2MB huge page */
+    /* L2 lookup — check for 2MB huge page */
     uint64_t l2_entry;
     if (!page_table_lookup(state->l2_table, state->l2_index, &state->l1_table, &l2_entry)) {
         state->is_valid = 0;
@@ -104,7 +104,7 @@ uint8_t page_walk_execute(page_walk_state_t *state)
         return 1;
     }
 
-    /* L1 lookup - regular 4KB page */
+    /* L1 lookup — regular 4KB page */
     uint64_t l1_entry;
     if (!page_table_lookup(state->l1_table, state->l1_index, 0, &l1_entry)) {
         state->is_valid = 0;
@@ -158,7 +158,7 @@ void update_walk_state_for_next_page(page_walk_state_t *state, uintptr_t next_vi
     }
 }
 
-/* Check range free with state - supports multiple page sizes */
+/* Check range free with state — supports multiple page sizes */
 size_t check_range_free_with_state(page_walk_state_t *state, uintptr_t start, size_t length, size_t desired_size)
 {
     if (!state || !length) return 0;
@@ -171,17 +171,17 @@ size_t check_range_free_with_state(page_walk_state_t *state, uintptr_t start, si
 
     while (free_bytes < length) {
         if (page_walk_execute(state)) {
-            /* Page is mapped - get its size and skip accordingly */
+            /* Page is mapped — get its size and skip accordingly */
             size_t page_size = get_page_size_from_state(state);
             current          = align_up_to_page(current + 1, page_size);
-            free_bytes       = 0; // Reset free bytes count - not contiguous
+            free_bytes       = 0; // Reset free bytes count — not contiguous
 
             /* Reinitialize state for new address */
             page_walk_init(state, state->directory, current);
             continue;
         }
 
-        /* Page is free - determine how much we can advance */
+        /* Page is free — determine how much we can advance */
         size_t current_free = PAGE_4K_SIZE; // At least 4K is free
 
         /* Check if we can use larger pages */

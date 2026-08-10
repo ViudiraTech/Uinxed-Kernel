@@ -4,7 +4,7 @@
  *      Network ABI implementation (inet)
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -80,6 +80,15 @@ typedef struct inet_core_socket {
 #define INET_POLLHUP       0x010
 #define INET_TICKS_PER_SEC TIMER_HZ
 
+/*
+ * Overview
+ * This is the ABI-facing layer of the inet socket family. It wraps
+ * the kernel's tcp/udp/icmp endpoints in an inet_core_socket_t and
+ * translates BSD sockaddr / ioctl / poll semantics for the generic
+ * socket core.
+ */
+
+/* Translate a socket timeval into timer ticks (UINT64_MAX if invalid) */
 static uint64_t inet_timeval_ticks(const socket_timeval_t *tv)
 {
     if (!tv || tv->tv_sec < 0 || tv->tv_usec < 0 || tv->tv_usec >= 1000000) return UINT64_MAX;
@@ -287,6 +296,12 @@ static uint32_t inet_socket_address_size(const inet_core_socket_t *sock)
 {
     return sock->family == AF_INET6 ? sizeof(sockaddr_in6_t) : sizeof(sockaddr_in_t);
 }
+
+/*
+ * Core socket operations
+ * Each core_* function implements one of the socket_core_ops slots
+ * and talks to the wrapped tcp/udp/icmp endpoint.
+ */
 
 static int core_create(int family, int type, int protocol, uint32_t flags, void **context)
 {

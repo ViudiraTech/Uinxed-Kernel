@@ -4,7 +4,7 @@
  *      Standard library
  *
  *      2024/10/2 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -111,7 +111,7 @@ size_t wnumber(writer *writer, num_formatter_t fmter, num_fmt_type type)
             fmter.num = (uint64_t)fmter.num / (uint64_t)fmter.base;
         }
     }
-    if (i > precision) precision = i; // precision = max(precision, i);
+    if (i > precision) precision = i;
 
     size -= precision;
 

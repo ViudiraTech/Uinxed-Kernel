@@ -4,7 +4,7 @@
  *      Virtual console driver (Linux drivers/tty/vt/vt.c analog)
  *
  *      2026/8/10 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -375,9 +375,7 @@ int tty_console_acquire(struct process *proc, uint64_t flags)
 }
 
 #if CONFIG_VT
-/* ------------------------------------------------------------------ */
-/*  Virtual console tty driver (major 4, tty0-ttyN)                    */
-/* ------------------------------------------------------------------ */
+/* Virtual console tty driver (major 4, tty0-ttyN) */
 
 static int vt_slot_for_index(int index)
 {
@@ -453,9 +451,7 @@ static tty_driver_t vt_tty_driver = {
 };
 #endif /* CONFIG_VT */
 
-/* ------------------------------------------------------------------ */
-/*  Auxiliary tty driver (major 5: /dev/tty, /dev/console)             */
-/* ------------------------------------------------------------------ */
+/* Auxiliary tty driver (major 5: /dev/tty, /dev/console) */
 
 static int aux_driver_open(tty_driver_t *drv, int index, uint64_t flags, void **private_data)
 {
@@ -466,7 +462,7 @@ static int aux_driver_open(tty_driver_t *drv, int index, uint64_t flags, void **
     ep = malloc(sizeof(*ep));
     if (!ep) return -ENOMEM;
 
-    if (index == 0) { /* /dev/tty : current controlling terminal */
+    if (index == 0) { // /dev/tty : current controlling terminal
         tty_core_t *ctty = process_ctty_get(process_current());
         if (!ctty) {
             free(ep);
@@ -474,7 +470,7 @@ static int aux_driver_open(tty_driver_t *drv, int index, uint64_t flags, void **
         }
         ep->core            = ctty;
         ep->virtual_console = ctty->is_vt;
-    } else if (index == 1) { /* /dev/console */
+    } else if (index == 1) { // /dev/console
         ep->core = console_get_tty();
         if (!ep->core) {
             free(ep);
@@ -549,9 +545,7 @@ static tty_driver_t aux_tty_driver = {
     .poll        = aux_driver_poll,
 };
 
-/* ------------------------------------------------------------------ */
-/*  Console drivers (output through the framebuffer console)           */
-/* ------------------------------------------------------------------ */
+/* Console drivers (output through the framebuffer console) */
 
 static void vga_console_write(console_t *c, const uint8_t *buf, size_t len)
 {

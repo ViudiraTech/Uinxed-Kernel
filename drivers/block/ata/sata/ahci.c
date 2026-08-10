@@ -4,7 +4,7 @@
  *      AHCI SATA controller driver
  *
  *      2026/7/23 By Rainy101112
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -506,7 +506,7 @@ void init_ahci(void)
         }
 
         if (sig == SATA_SIG_ATAPI) {
-            /* SATAPI device - handled by satapi.c, just register in ahci device table */
+            /* SATAPI device — handled by satapi.c, just register in ahci device table */
             ahci_device_t *dev = &ahci_devices[ahci_device_count];
             memset(dev, 0, sizeof(*dev));
             dev->port        = (uint8_t)ahci_port_count;

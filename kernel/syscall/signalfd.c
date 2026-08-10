@@ -4,7 +4,7 @@
  *      Signalfd file descriptor implementation
  *
  *      2026/7/21 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -52,7 +52,7 @@ static void signalfd_format_info(signalfd_siginfo_t *dest, int sig, const siginf
     dest->ssi_arch      = source->si_arch;
 }
 
-/* ---------- VFS callback implementations ---------- */
+/* VFS callback implementations */
 
 static void signalfd_vfs_open(void *parent, const char *name, vfs_node_t node)
 {
@@ -196,7 +196,7 @@ static int signalfd_stub_mount(const char *s, vfs_node_t n)
     return -ENOSYS;
 }
 
-/* ---------- Public API ---------- */
+/* Public API */
 
 static vfs_node_t signalfd_node_create(sigset_t sigmask, int flags)
 {

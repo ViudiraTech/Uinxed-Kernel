@@ -4,7 +4,7 @@
  *      DRM open hash table (used by magic authentication)
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -17,7 +17,7 @@
 #include <mem/alloc.h>
 
 /*
- * container_of –obtain a pointer to the containing struct from a pointer
+ * container_of — obtain a pointer to the containing struct from a pointer
  * to one of its members. Equivalent to the Linux kernel macro.
  */
 #define container_of(ptr, type, member) ((type *)((uint8_t *)(ptr) - offsetof(type, member)))

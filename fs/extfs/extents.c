@@ -4,7 +4,7 @@
  *      ext4 extent tree validation, mapping and transactional rebuilding
  *
  *      2026/7/29 By JiTianYu391
- *      Copyright © 2026 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2026 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -17,6 +17,14 @@
 
 #define EXT4_EXT_UNWRITTEN 0x8000U
 #define EXT4_EXT_MAX_DEPTH 5U
+
+/*
+ * Overview
+ * extents.c implements the ext4 extent tree used to map file logical
+ * blocks to physical blocks. The tree can be up to EXT4_EXT_MAX_DEPTH
+ * levels of index nodes; this file provides lookup, splitting,
+ * insertion and removal of extents.
+ */
 
 typedef struct ext4_extent_header {
         uint16_t magic;

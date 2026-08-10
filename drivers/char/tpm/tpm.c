@@ -4,7 +4,7 @@
  *      Trusted Platform Module - Core driver
  *
  *      2026/7/23 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -350,7 +350,7 @@ int tpm_init(void)
     tpm2_table_t *tpm2 = (tpm2_table_t *)find_table("TPM2");
     tcpa_table_t *tcpa = (tcpa_table_t *)find_table("TCPA");
 
-    /* --- TPM 2.0 via TPM2 ACPI table --- */
+    /* TPM 2.0 via TPM2 ACPI table */
     if (tpm2) {
         plogk("tpm: Found TPM2 ACPI table at %p\n", tpm2);
         uint32_t method    = tpm2->start_method;
@@ -428,7 +428,7 @@ int tpm_init(void)
         return 0;
     }
 
-    /* --- TPM 1.2 via TCPA ACPI table --- */
+    /* TPM 1.2 via TCPA ACPI table */
     if (tcpa) {
         plogk("tpm: Found TCPA ACPI table at %p\n", tcpa);
         plogk("tpm: Interface: TIS (TPM 1.2)\n");
@@ -458,7 +458,7 @@ int tpm_init(void)
         return 0;
     }
 
-    /* --- Fallback: legacy hardware probe --- */
+    /* Fallback: legacy hardware probe */
     void    *legacy_virt = phys_to_virt(TPM_LEGACY_BASE_PHYS);
     uint32_t did_vid     = tpm_verify_mmio(legacy_virt);
 

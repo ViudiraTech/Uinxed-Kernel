@@ -4,7 +4,7 @@
  *      DRM CRTC management
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -103,8 +103,9 @@ int drm_crtc_init_with_planes(struct drm_device *dev, struct drm_crtc *crtc, str
  * drm_crtc_create_properties - Create the standard CRTC KMS properties.
  * @dev: DRM device
  *
- * Creates ACTIVE, MODE_ID, and OUT_FENCE_PTR properties for all registered
- * CRTCs. In the MVP this is a stub; returns 0.
+ * Placeholder for creating ACTIVE, MODE_ID, and OUT_FENCE_PTR properties
+ * on all registered CRTCs. Property creation is deferred until the
+ * drm_property_create_* infrastructure is wired in.
  */
 static int drm_crtc_create_properties(struct drm_device *dev)
 {
@@ -113,10 +114,6 @@ static int drm_crtc_create_properties(struct drm_device *dev)
         return -EINVAL;
     }
 
-    /*
-     * MVP stub: standard properties will be created by a future
-     * drm_property_create_range / drm_property_create_object call.
-     */
     return 0;
 }
 

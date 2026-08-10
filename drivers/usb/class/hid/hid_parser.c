@@ -4,7 +4,7 @@
  *      USB HID report descriptor and input report decoder
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -12,6 +12,15 @@
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
+
+/*
+ * Overview
+ * hid_parser.c implements the HID report descriptor parser. It
+ * walks the descriptor's main/global/local items, tracking the
+ * current global state and local usage list, and builds a flat
+ * list of input fields with their usage, size and bounds so the
+ * HID core can decode incoming reports.
+ */
 
 #define HID_ITEM_TYPE_MAIN   0
 #define HID_ITEM_TYPE_GLOBAL 1

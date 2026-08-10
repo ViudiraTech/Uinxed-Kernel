@@ -4,7 +4,7 @@
  *      Symmetric multi-processing
  *
  *      2025/7/6 By W9pi3cZ1
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

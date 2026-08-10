@@ -4,7 +4,7 @@
  *      Control group (cgroup) unified hierarchy implementation with PID controller
  *
  *      2026/7/29 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -19,6 +19,13 @@
 #include <process/sched.h>
 #include <process/task.h>
 #include <sync/spin_lock.h>
+
+/*
+ * Overview
+ * cgroup.c implements the unified cgroup v2 hierarchy: a tree of
+ * cgroup nodes, membership tracking of tasks, and the pids/events
+ * controllers exposed through cgroupfs.
+ */
 
 typedef struct cgroup {
         char        *name;

@@ -4,7 +4,7 @@
  *      DRM KMS property creation, lookup, and destruction
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -26,17 +26,13 @@
 
 #define DRM_PROPERTY_BLOB_MAX_SIZE (16u * 1024u * 1024u)
 
-/* ------------------------------------------------------------------ */
-/* Internal helpers exported by drm_mode_object.c                     */
-/* ------------------------------------------------------------------ */
+/* Internal helpers exported by drm_mode_object.c */
 
 /* Allocate a mode-object ID and init the header; see drm_mode_object.c. */
 
 /* Decrement refcount under lock; return true iff it reached zero. */
 
-/* ------------------------------------------------------------------ */
-/* Local helpers                                                      */
-/* ------------------------------------------------------------------ */
+/* Local helpers */
 
 /* Forward declaration: defined later in this file. */
 void drm_property_destroy(struct drm_device *dev, struct drm_property *property);
@@ -79,9 +75,7 @@ static void drm_property_free_enum_list(struct drm_property *prop)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* Property construction                                              */
-/* ------------------------------------------------------------------ */
+/* Property construction */
 
 /*
  * Create and register a new KMS property of @flags with @name and
@@ -238,9 +232,7 @@ struct drm_property *drm_property_create_bitmask(struct drm_device *dev, uint32_
     return prop;
 }
 
-/* ------------------------------------------------------------------ */
-/* Blobs                                                              */
-/* ------------------------------------------------------------------ */
+/* Blobs */
 
 /*
  * Create a property blob wrapping a copy of @data (@length bytes). The blob
@@ -469,9 +461,7 @@ int drm_mode_destroyblob_ioctl(struct drm_device *dev, void *data, struct drm_fi
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Destruction and lookup                                             */
-/* ------------------------------------------------------------------ */
+/* Destruction and lookup */
 
 /*
  * Tear down a property: unlink it from the device property list, free all

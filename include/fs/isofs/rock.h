@@ -4,7 +4,7 @@
  *      Rock Ridge (SUSP) extension structures
  *
  *      2026/7/23 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -13,7 +13,7 @@
 
 #include <libs/std/stdint.h>
 
-/* ─── SUSP / Rock Ridge on‑disk structures ─── */
+/* ─── SUSP / Rock Ridge on-disk structures ─── */
 
 struct SU_SP_s {
         uint8_t magic[2];

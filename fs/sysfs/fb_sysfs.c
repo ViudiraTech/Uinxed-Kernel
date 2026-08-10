@@ -4,7 +4,7 @@
  *      Framebuffer sysfs integration.
  *
  *      2026/8/2 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 

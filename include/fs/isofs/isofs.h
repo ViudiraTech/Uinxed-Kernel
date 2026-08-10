@@ -4,7 +4,7 @@
  *      ISO 9660 filesystem public header
  *
  *      2026/7/23 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -30,7 +30,7 @@
 
 #define ISOFS_INVALID_MODE ((uint16_t) - 1)
 
-/* ─── ISO 9660 on‑disk structures ─── */
+/* ─── ISO 9660 on-disk structures ─── */
 
 typedef struct iso_directory_record {
         uint8_t length;
@@ -97,7 +97,7 @@ typedef struct iso_supplementary_descriptor {
         uint8_t reserved[1856];
 } __attribute__((packed)) iso_supplementary_descriptor_t;
 
-/* ─── ISO 9660 byte‑order read helpers ─── */
+/* ─── ISO 9660 byte-order read helpers ─── */
 
 static inline uint8_t isonum_711(const uint8_t *p)
 {
@@ -146,7 +146,7 @@ static inline uint32_t isonum_733(const uint8_t *p)
 
 uint64_t iso_date_to_unix(const uint8_t *p, int flags);
 
-/* ─── In‑memory mount structure ─── */
+/* ─── In-memory mount structure ─── */
 
 typedef struct isofs_mount {
         blockdev_device_t device;
@@ -166,7 +166,7 @@ typedef struct isofs_mount {
         void *rr_read_ctx;
 } isofs_mount_t;
 
-/* ─── In‑memory file handle ─── */
+/* ─── In-memory file handle ─── */
 
 typedef struct isofs_handle {
         isofs_mount_t          *mount;

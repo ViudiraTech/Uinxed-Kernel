@@ -4,14 +4,7 @@
  *      VirtIO PCI transport layer
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
- *
- *  Implements the virtio-over-PCI transport for all virtio devices in the
- *  system.  Only modern (virtio 1.0+) with PCI capabilities is supported;
- *  legacy-mode devices are not probed.  This file provides MMIO-based
- *  capability discovery, common-config / notify / ISR / device-config
- *  accessors, virtqueue ring setup, feature negotiation, and device
- *  reset/status management.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -30,9 +23,7 @@
 #include <mem/hhdm.h>
 #include <mem/page.h>
 
-/* ------------------------------------------------------------------ */
-/* Capability parsing –walk the PCI vendor-defined capability list    */
-/* ------------------------------------------------------------------ */
+/* Capability parsing — walk the PCI vendor-defined capability list */
 
 /*
  * Return the MMIO virtual address for a given PCI capability.
@@ -65,7 +56,7 @@ static volatile void *vp_map_cap_bar(struct vp_device *dev, struct vp_cap *cap)
      * Map the needed pages into the HHDM window.
      * phys_to_virt provides the virtual address (HHDM offset),
      * but the page-table entries may be absent for MMIO regions.
-     * page_map_range_to maps phys→virt for contiguously addressed pages.
+     * page_map_range_to maps phys → virt for contiguously addressed pages.
      *
      * CRITICAL: MMIO BARs must be mapped uncacheable (PTE_PCD).
      * Without PCD, the CPU caches all MMIO accesses (Write-Back),
@@ -181,9 +172,7 @@ static int vp_scan_caps(struct vp_device *dev)
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Device status management                                            */
-/* ------------------------------------------------------------------ */
+/* Device status management */
 
 void vp_set_status(struct vp_device *dev, uint8_t status)
 {
@@ -203,9 +192,7 @@ void vp_reset_device(struct vp_device *dev)
     vp_get_status(dev);
 }
 
-/* ------------------------------------------------------------------ */
-/* Feature negotiation                                                 */
-/* ------------------------------------------------------------------ */
+/* Feature negotiation */
 
 int vp_negotiate_features(struct vp_device *dev, uint64_t guest_features, uint64_t *negotiated)
 {
@@ -238,9 +225,7 @@ int vp_negotiate_features(struct vp_device *dev, uint64_t guest_features, uint64
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Device configuration space accessors                                */
-/* ------------------------------------------------------------------ */
+/* Device configuration space accessors */
 
 void vp_read_device_config(struct vp_device *dev, void *buf, int offset, int len)
 {
@@ -262,9 +247,7 @@ void vp_write_device_config(struct vp_device *dev, const void *buf, int offset, 
     for (i = 0; i < len; i++) cfg[offset + i] = src[i];
 }
 
-/* ------------------------------------------------------------------ */
-/* Virtqueue ring setup                                                */
-/* ------------------------------------------------------------------ */
+/* Virtqueue ring setup */
 
 /*
  * Allocate and initialise a single virtqueue.
@@ -345,11 +328,11 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
      *   alloc:  head = free_head; free_head = free_descs[head]; num_free--;
      *   free:   free_descs[head] = free_head; free_head = head;  num_free++;
      *
-     * Initial chain: free_head →0 →1 →2 →... →num-1
+     * Initial chain: free_head → 0 → 1 → 2 → ... → num-1
      */
     for (i = 0; i < num; i++) vq->free_descs[i] = (uint16_t)(i + 1);
     /*
-     * The last descriptor has no next –its free_descs entry is never
+     * The last descriptor has no next — its free_descs entry is never
      * read until it has first been pushed back (which overwrites it).
      */
 
@@ -384,9 +367,7 @@ void vp_notify(struct vp_virtqueue *vq)
     (void)vq;
 }
 
-/* ------------------------------------------------------------------ */
-/* Virtqueue submission helpers                                        */
-/* ------------------------------------------------------------------ */
+/* Virtqueue submission helpers */
 
 int virtqueue_add(struct vp_virtqueue *vq, void *data, int len, int write)
 {
@@ -449,13 +430,13 @@ int virtqueue_add_out_in(struct vp_virtqueue *vq, void *out_data, int out_len, v
     vq->free_head = vq->free_descs[in_desc];
     vq->num_free -= 2;
 
-    /* out descriptor: driver →device (device reads) */
+    /* out descriptor: driver → device (device reads) */
     vq->desc[out_desc].addr  = (uint64_t)(uintptr_t)virt_any_to_phys((uintptr_t)out_data);
     vq->desc[out_desc].len   = out_len;
     vq->desc[out_desc].flags = VRING_DESC_F_NEXT;
     vq->desc[out_desc].next  = in_desc;
 
-    /* in descriptor: device →driver (device writes) */
+    /* in descriptor: device → driver (device writes) */
     vq->desc[in_desc].addr  = (uint64_t)(uintptr_t)virt_any_to_phys((uintptr_t)in_data);
     vq->desc[in_desc].len   = in_len;
     vq->desc[in_desc].flags = VRING_DESC_F_WRITE;
@@ -555,9 +536,7 @@ int virtqueue_enable_cb(struct vp_virtqueue *vq)
     return (vq->used->idx != vq->used_idx);
 }
 
-/* ------------------------------------------------------------------ */
-/* Device discovery and lifecycle                                      */
-/* ------------------------------------------------------------------ */
+/* Device discovery and lifecycle */
 
 int vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev)
 {
@@ -615,8 +594,6 @@ void vp_release_device(struct vp_device *dev)
     dev->pci_dev     = NULL;
 }
 
-/* ------------------------------------------------------------------ */
-/* Module entry point –called by the virtio-gpu driver init           */
-/* ------------------------------------------------------------------ */
+/* Module entry point — called by the virtio-gpu driver init */
 
 /* No standalone init/exit here; the GPU driver calls vp_find_device */

@@ -4,7 +4,7 @@
  *      Native JBD2 journal recovery and transaction backend
  *
  *      2026/7/29 By JiTianYu391
- *      Copyright © 2026 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2026 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -28,6 +28,14 @@ typedef struct jbd2_record {
         uint8_t            *data;
         struct jbd2_record *next;
 } jbd2_record_t;
+
+/*
+ * Overview
+ * jbd2.c implements the ext4 journal (JBD2). Metadata writes are
+ * staged into a transaction and written to the journal before the
+ * real blocks are updated, so a crash mid-update can be recovered
+ * by replaying the journal.
+ */
 
 typedef struct jbd2_revoke {
         uint64_t            block;

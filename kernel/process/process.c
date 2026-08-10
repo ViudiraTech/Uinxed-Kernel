@@ -4,7 +4,7 @@
  *      Process management
  *
  *      2026/7/20 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -2027,7 +2027,6 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     spin_unlock(&scheduler.lock);
     flush_tlb_all();
 
-    /* plogk("process: Forked process %llu from parent %llu\n", child->task->pid, parent->task->pid); it is very noisy */
     return child;
 }
 

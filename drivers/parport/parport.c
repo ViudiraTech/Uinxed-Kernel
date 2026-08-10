@@ -4,7 +4,7 @@
  *      Parallel port core (port registry and port access)
  *
  *      2026/8/10 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -37,7 +37,7 @@ int parport_register_port(const char *name, uint16_t base, int irq, void *privat
     p->base         = base;
     p->irq          = irq;
     p->dev          = MKDEV(99, p->number);
-    p->control      = 0x0c; /* INIT and SLCTIN asserted */
+    p->control      = 0x0c; // INIT and SLCTIN asserted
     p->private_data = private_data;
 
     spin_lock(&parport_lock);
@@ -80,7 +80,7 @@ parport_t *parport_get(int index)
 
     spin_lock(&parport_lock);
     for (p = parport_list; p && i < index; p = p->next) i++;
-    if (p) p = p; /* keep address */
+    if (p) p = p; // keep address
     spin_unlock(&parport_lock);
     return p;
 }
@@ -107,7 +107,7 @@ parport_t *parport_find_by_number(int number)
     return p;
 }
 
-/* ---- port access ---- */
+/* port access */
 
 uint8_t parport_read_data(parport_t *p)
 {

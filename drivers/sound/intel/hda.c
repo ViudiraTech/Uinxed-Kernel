@@ -4,7 +4,7 @@
  *      Intel HD Audio driver
  *
  *      2026/7/23 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -287,9 +287,7 @@ typedef struct hda_controller {
 
 static hda_controller_t hda_ctrl;
 
-/* ------------------------------------------------------------------ */
-/* MMIO access helpers                                                */
-/* ------------------------------------------------------------------ */
+/* MMIO access helpers */
 static inline uint32_t hda_read32(uint16_t reg)
 {
     return mmio_read32((void *)((uintptr_t)hda_ctrl.mmio + reg));
@@ -354,9 +352,7 @@ static inline void sd_write8(int stream, uint16_t reg, uint8_t val)
     hda_write8(0x80 + stream * 0x20 + reg, val);
 }
 
-/* ------------------------------------------------------------------ */
-/* BAR size probing                                                   */
-/* ------------------------------------------------------------------ */
+/* BAR size probing */
 static uint32_t hda_read_bar_size(pci_device_cache_t *dev, int bar_idx)
 {
     pci_device_reg_t reg  = {.parent = dev, .offset = (uint16_t)(0x10 + 4 * bar_idx)};
@@ -387,9 +383,7 @@ static uint32_t hda_read_bar_size(pci_device_cache_t *dev, int bar_idx)
     return (~sized + 1) & 0xFFFFFFFF;
 }
 
-/* ------------------------------------------------------------------ */
-/* Verb helpers                                                       */
-/* ------------------------------------------------------------------ */
+/* Verb helpers */
 static inline uint32_t hda_mk_verb(int addr, uint16_t nid, uint32_t verb_id, uint32_t payload)
 {
     return ((uint32_t)(addr & 0xf) << 28) | ((uint32_t)(nid & 0xff) << 20) | (verb_id << 8) | (payload & 0xffff);
@@ -468,9 +462,7 @@ static uint32_t hda_get_verb(int addr, uint16_t nid, uint32_t verb_id, uint32_t 
     return res;
 }
 
-/* ------------------------------------------------------------------ */
-/* Controller reset                                                   */
-/* ------------------------------------------------------------------ */
+/* Controller reset */
 static void hda_reset_controller(void)
 {
     int timeout;
@@ -493,9 +485,7 @@ static void hda_reset_controller(void)
     msleep(2);
 }
 
-/* ------------------------------------------------------------------ */
-/* CORB/RIRB                                                          */
-/* ------------------------------------------------------------------ */
+/* CORB/RIRB */
 static int hda_alloc_corb_rirb(void)
 {
     int      corb_entries = HDA_CORB_ENTRIES;
@@ -554,9 +544,7 @@ static void hda_init_corb_rirb(void)
     hda_ctrl.rirb_rp = 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Codec probing                                                      */
-/* ------------------------------------------------------------------ */
+/* Codec probing */
 static int hda_probe_codec(int addr)
 {
     uint32_t vid = hda_get_param(addr, 0, AC_PAR_VENDOR_ID);
@@ -662,9 +650,7 @@ static int hda_parse_widgets(hda_codec_t *codec)
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Codec configuration                                                */
-/* ------------------------------------------------------------------ */
+/* Codec configuration */
 static void hda_config_codec(hda_codec_t *codec)
 {
     if (codec->dac_nid < 0 && codec->adc_nid < 0) {
@@ -760,9 +746,7 @@ static void hda_config_codec(hda_codec_t *codec)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* Stream DMA with multi-BDL entries                                  */
-/* ------------------------------------------------------------------ */
+/* Stream DMA with multi-BDL entries */
 static int hda_setup_stream(int stream_idx, uint32_t format, size_t buf_size, size_t period_bytes, int direction)
 {
     if (stream_idx >= HDA_MAX_STREAMS || hda_ctrl.streams[stream_idx].allocated) return -EBUSY;
@@ -847,9 +831,7 @@ static void hda_stop_stream(int stream_idx)
     hda_ctrl.streams[stream_idx].allocated = 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Audio subsystem interface                                          */
-/* ------------------------------------------------------------------ */
+/* Audio subsystem interface */
 static int hda_allocate_stream(int direction)
 {
     for (int s = 0; s < HDA_MAX_STREAMS; s++) {
@@ -1147,9 +1129,7 @@ static const audio_card_ops_t hda_audio_ops = {
     .set_params   = hda_audio_set_params,
 };
 
-/* ------------------------------------------------------------------ */
-/* Interrupt handler                                                  */
-/* ------------------------------------------------------------------ */
+/* Interrupt handler */
 static void hda_interrupt_handler(interrupt_frame_t *frame)
 {
     (void)frame;
@@ -1170,7 +1150,7 @@ static void hda_interrupt_handler(interrupt_frame_t *frame)
 
         uint8_t sts = sd_read8(s, SD_STS);
         if (sts & SD_STS_DMA_COMPLETE) {
-            /* DMA completed a BDL entry - update position */
+            /* DMA completed a BDL entry — update position */
             hda_ctrl.streams[s].hw_pos += hda_ctrl.streams[s].buf_size / hda_ctrl.streams[s].period_frags;
 
             if (hda_ctrl.streams[s].hw_pos >= hda_ctrl.streams[s].buf_size) hda_ctrl.streams[s].hw_pos = 0;
@@ -1205,9 +1185,7 @@ static void hda_interrupt_handler(interrupt_frame_t *frame)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* Initialization                                                     */
-/* ------------------------------------------------------------------ */
+/* Initialization */
 void hda_init(void)
 {
 #if !CONFIG_SOUND_HDA

@@ -4,13 +4,7 @@
  *      VirtIO PCI transport layer header
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
- *
- *  Implements the virtio-over-PCI transport as defined by the OASIS
- *  Virtio-PCI spec (virtio 1.0+).  Provides capability-based MMIO
- *  discovery, common-config / notify / ISR / device-config access,
- *  virtqueue setup, and feature negotiation.  This is a "legacy-free"
- *  implementation –only modern (PCI capabilities) mode is supported.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -23,17 +17,13 @@
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/* VirtIO standard PCI vendor / device IDs                             */
-/* ------------------------------------------------------------------ */
+/* VirtIO standard PCI vendor / device IDs */
 
 #define PCI_VENDOR_ID_REDHAT      0x1af4
 #define PCI_DEVICE_ID_VIRTIO_BASE 0x1000
 #define PCI_DEVICE_ID_VIRTIO_GPU  0x1050
 
-/* ------------------------------------------------------------------ */
-/* VirtIO PCI capability types (PCI SIG vendor-defined)                */
-/* ------------------------------------------------------------------ */
+/* VirtIO PCI capability types (PCI SIG vendor-defined) */
 
 #define VIRTIO_PCI_CAP_COMMON_CFG        1
 #define VIRTIO_PCI_CAP_NOTIFY_CFG        2
@@ -43,9 +33,7 @@
 #define VIRTIO_PCI_CAP_SHARED_MEMORY_CFG 8
 #define VIRTIO_PCI_CAP_ADMIN_CFG         9
 
-/* ------------------------------------------------------------------ */
-/* Device status flags (written to common->device_status)              */
-/* ------------------------------------------------------------------ */
+/* Device status flags (written to common->device_status) */
 
 #define VIRTIO_STATUS_RESET       0
 #define VIRTIO_STATUS_ACKNOWLEDGE (1 << 0)
@@ -55,17 +43,13 @@
 #define VIRTIO_STATUS_NEEDS_RESET (1 << 6)
 #define VIRTIO_STATUS_FAILED      (1 << 7)
 
-/* ------------------------------------------------------------------ */
-/* Virtqueue descriptor flags                                          */
-/* ------------------------------------------------------------------ */
+/* Virtqueue descriptor flags */
 
 #define VRING_DESC_F_NEXT     1
 #define VRING_DESC_F_WRITE    2
 #define VRING_DESC_F_INDIRECT 4
 
-/* ------------------------------------------------------------------ */
-/* VirtIO PCI capability header (at BAR + offset, 8 bytes)             */
-/* ------------------------------------------------------------------ */
+/* VirtIO PCI capability header (at BAR + offset, 8 bytes) */
 
 struct vp_cap {
         uint8_t  cap_vndr;
@@ -82,9 +66,7 @@ struct vp_notify_cap {
         uint32_t      notify_off_multiplier;
 } __attribute__((packed));
 
-/* ------------------------------------------------------------------ */
-/* Common configuration structure (MMIO view, at common->offset)       */
-/* ------------------------------------------------------------------ */
+/* Common configuration structure (MMIO view, at common->offset) */
 
 struct vp_common_cfg {
         volatile uint32_t device_feature_select;
@@ -105,9 +87,7 @@ struct vp_common_cfg {
         volatile uint64_t queue_used;
 };
 
-/* ------------------------------------------------------------------ */
-/* Virtqueue ring structures (16-byte descriptor)                      */
-/* ------------------------------------------------------------------ */
+/* Virtqueue ring structures (16-byte descriptor) */
 
 struct vring_desc {
         uint64_t addr;
@@ -133,9 +113,7 @@ struct vring_used {
         struct vring_used_elem ring[];
 };
 
-/* ------------------------------------------------------------------ */
-/* Virtqueue instance                                                  */
-/* ------------------------------------------------------------------ */
+/* Virtqueue instance */
 
 struct vp_virtqueue {
         int        index;
@@ -161,9 +139,7 @@ struct vp_virtqueue {
         uint16_t          notify_off;
 };
 
-/* ------------------------------------------------------------------ */
-/* VirtIO PCI device instance                                           */
-/* ------------------------------------------------------------------ */
+/* VirtIO PCI device instance */
 
 struct vp_device {
         pci_device_cache_t *pci_dev;
@@ -194,9 +170,7 @@ struct vp_device {
         void *private_data;
 };
 
-/* ------------------------------------------------------------------ */
-/* Transport API                                                       */
-/* ------------------------------------------------------------------ */
+/* Transport API */
 
 int     vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev);
 void    vp_release_device(struct vp_device *dev);
@@ -211,9 +185,7 @@ void    vp_notify(struct vp_virtqueue *vq);
 void    vp_read_device_config(struct vp_device *dev, void *buf, int offset, int len);
 void    vp_write_device_config(struct vp_device *dev, const void *buf, int offset, int len);
 
-/* ------------------------------------------------------------------ */
-/* Virtqueue submission / completion helpers                            */
-/* ------------------------------------------------------------------ */
+/* Virtqueue submission / completion helpers */
 
 int   virtqueue_add(struct vp_virtqueue *vq, void *data, int len, int write);
 int   virtqueue_add_out_in(struct vp_virtqueue *vq, void *out_data, int out_len, void *in_data, int in_len);

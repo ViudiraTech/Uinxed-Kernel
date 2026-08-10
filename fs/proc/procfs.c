@@ -4,7 +4,7 @@
  *      Process file system
  *
  *      2026/7/20 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -41,9 +41,7 @@
 
 static int procfs_id;
 
-/* ------------------------------------------------------------------ */
-/*  Internal types                                                     */
-/* ------------------------------------------------------------------ */
+/* Internal types */
 
 typedef enum procfs_info_type {
     PROC_INFO_STAT,
@@ -127,9 +125,7 @@ typedef struct procfs_file {
 
 #define PROCFS_BUF_SIZE 4096
 
-/* ------------------------------------------------------------------ */
-/*  Lightweight sysctl table for /proc/sys                             */
-/* ------------------------------------------------------------------ */
+/* Lightweight sysctl table for /proc/sys */
 
 typedef enum procfs_sysctl_kind {
     PROC_SYS_UINT,  // single unsigned integer
@@ -172,9 +168,7 @@ static procfs_sysctl_t procfs_sysctl_kernel[] = {
 
 #define PROC_SYS_KERNEL 0
 
-/* ------------------------------------------------------------------ */
-/*  Helpers                                                            */
-/* ------------------------------------------------------------------ */
+/* Helpers */
 
 static void procfs_dummy(void)
 {
@@ -244,9 +238,7 @@ static void procfs_deactivate_pid_nodes(vfs_node_t root)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/*  Content generators                                                 */
-/* ------------------------------------------------------------------ */
+/* Content generators */
 
 static void gen_info_stat(procfs_file_t *pf)
 {
@@ -800,9 +792,7 @@ static void gen_tty_ldiscs(procfs_file_t *pf)
     pf->capacity = 256;
 }
 
-/* ------------------------------------------------------------------ */
-/*  /proc/sys sysctl support                                           */
-/* ------------------------------------------------------------------ */
+/* /proc/sys sysctl support */
 
 static procfs_sysctl_t *procfs_sysctl_lookup(int dir, size_t index)
 {
@@ -1639,9 +1629,7 @@ static void procfs_gen_content(procfs_file_t *pf, vfs_node_t node)
     if (node && pf->content && pf->size > 0) node->size = pf->size;
 }
 
-/* ------------------------------------------------------------------ */
-/*  VFS callbacks                                                      */
-/* ------------------------------------------------------------------ */
+/* VFS callbacks */
 
 static int procfs_mount(const char *handle, vfs_node_t node)
 {
@@ -1735,7 +1723,7 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
                     node->type = file_dir;
                     break;
                 }
-                /* Try PID ?numeric directory name */
+                /* Try PID — numeric directory name */
                 char *end;
                 pid_t pid = (pid_t)strtol(name, &end, 10);
                 if (*end == '\0' && process_find(pid)) {
@@ -2306,9 +2294,7 @@ static int procfs_ioctl(void *file, size_t req, void *arg)
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Callback table                                                     */
-/* ------------------------------------------------------------------ */
+/* Callback table */
 
 static struct vfs_callback procfs_callbacks = {
     .mount        = procfs_mount,
@@ -2336,9 +2322,7 @@ static struct vfs_callback procfs_callbacks = {
     .resize       = procfs_resize,
 };
 
-/* ------------------------------------------------------------------ */
-/*  Registration                                                       */
-/* ------------------------------------------------------------------ */
+/* Registration */
 
 void procfs_regist(void)
 {

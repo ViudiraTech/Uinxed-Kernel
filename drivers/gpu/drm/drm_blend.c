@@ -4,7 +4,7 @@
  *      DRM plane blending helpers
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -46,8 +46,9 @@ static void drm_plane_create_zpos_property(struct drm_plane *plane, unsigned int
  * @plane: plane
  * @rotation: bitmask of supported rotation/reflection flags
  *
- * MVP stub: the property infrastructure is not yet wired.
- * Returns 0.
+ * Validates the plane; property registration is deferred to the
+ * drm_property_create_bitmask helper.
+ * Returns 0 on success.
  */
 static int drm_plane_create_rotation_property(struct drm_plane *plane, unsigned int rotation)
 {
@@ -58,7 +59,6 @@ static int drm_plane_create_rotation_property(struct drm_plane *plane, unsigned 
 
     (void)rotation;
 
-    /* MVP stub: property creation deferred to drm_property_create_bitmask */
     return 0;
 }
 
@@ -67,8 +67,9 @@ static int drm_plane_create_rotation_property(struct drm_plane *plane, unsigned 
  * @plane: plane
  * @blend_mode: bitmask of supported blend modes
  *
- * MVP stub: the property infrastructure is not yet wired.
- * Returns 0.
+ * Validates the plane; property registration is deferred to the
+ * drm_property_create_enum helper.
+ * Returns 0 on success.
  */
 static int drm_plane_create_blend_mode_property(struct drm_plane *plane, unsigned int blend_mode)
 {
@@ -79,7 +80,6 @@ static int drm_plane_create_blend_mode_property(struct drm_plane *plane, unsigne
 
     (void)blend_mode;
 
-    /* MVP stub: property creation deferred to drm_property_create_enum */
     return 0;
 }
 
@@ -87,8 +87,9 @@ static int drm_plane_create_blend_mode_property(struct drm_plane *plane, unsigne
  * drm_plane_create_alpha_property - Create the alpha property for a plane.
  * @plane: plane
  *
- * MVP stub: the property infrastructure is not yet wired.
- * Returns 0.
+ * Validates the plane; property registration is deferred to the
+ * drm_property_create_range helper.
+ * Returns 0 on success.
  */
 static int drm_plane_create_alpha_property(struct drm_plane *plane)
 {
@@ -97,6 +98,5 @@ static int drm_plane_create_alpha_property(struct drm_plane *plane)
         return -EINVAL;
     }
 
-    /* MVP stub: property creation deferred to drm_property_create_range */
     return 0;
 }

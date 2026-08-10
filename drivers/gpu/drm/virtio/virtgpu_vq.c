@@ -4,11 +4,7 @@
  *      VirtIO-GPU virtqueue operations
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
- *
- *  Manages the control and cursor virtqueues.  Provides a synchronous
- *  command submission helper (virtgpu_ctrl_cmd) used by all command-
- *  encoding functions.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -26,9 +22,7 @@
 #include <mem/hhdm.h>
 #include <mem/page.h>
 
-/* ------------------------------------------------------------------ */
-/* Virtqueue initialisation / teardown                                 */
-/* ------------------------------------------------------------------ */
+/* Virtqueue initialisation / teardown */
 
 int virtgpu_vq_init(struct virtio_gpu_device *vgdev)
 {
@@ -60,11 +54,9 @@ void virtgpu_vq_fini(struct virtio_gpu_device *vgdev)
     vp_del_vq(&vgdev->ctrlq);
 }
 
-/* ------------------------------------------------------------------ */
-/* Memory barrier helpers                                              */
-/* ------------------------------------------------------------------ */
+/* Memory barrier helpers */
 
-/* Write memory barrier –ensures all preceding stores are globally visible */
+/* Write memory barrier — ensures all preceding stores are globally visible */
 static inline void wmb(void)
 {
     __asm__ volatile("sfence" ::: "memory");
@@ -76,7 +68,7 @@ static inline void mb(void)
     __asm__ volatile("mfence" ::: "memory");
 }
 
-/* CPU hint for spin-wait loops –improves performance and memory ordering */
+/* CPU hint for spin-wait loops — improves performance and memory ordering */
 static inline void cpu_relax(void)
 {
     __asm__ volatile("pause");
@@ -108,9 +100,7 @@ static void virtgpu_mark_queues_broken(struct virtio_gpu_device *vgdev)
     vgdev->cursorq.broken = true;
 }
 
-/* ------------------------------------------------------------------ */
-/* Synchronous control-queue commands                                  */
-/* ------------------------------------------------------------------ */
+/* Synchronous control-queue commands */
 
 /*
  * Publish a group of independent descriptor chains, ring the MMIO

@@ -4,7 +4,7 @@
  *      Pipe and FIFO (named pipe) implementation
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -27,9 +27,7 @@
 #include <syscall/fcntl.h>
 #include <syscall/syscall.h>
 
-/* ------------------------------------------------------------------ */
-/*  Constants                                                           */
-/* ------------------------------------------------------------------ */
+/* Constants */
 
 #ifndef PIPE_BUF_SIZE
 #    define PIPE_BUF_SIZE 65536
@@ -43,9 +41,7 @@
 #define POLLERR 0x008
 #define POLLHUP 0x010
 
-/* ------------------------------------------------------------------ */
-/*  Pipe ring buffer structure                                          */
-/* ------------------------------------------------------------------ */
+/* Pipe ring buffer structure */
 
 typedef struct pipe_ring {
         uint8_t     *buf;
@@ -75,15 +71,11 @@ typedef struct pipe_endpoint {
         bool         writable;
 } pipe_endpoint_t;
 
-/* ------------------------------------------------------------------ */
-/*  Static VFS filesystem ID                                            */
-/* ------------------------------------------------------------------ */
+/* Static VFS filesystem ID */
 
 static int pipe_fsid = -1;
 
-/* ------------------------------------------------------------------ */
-/*  Internal helpers                                                    */
-/* ------------------------------------------------------------------ */
+/* Internal helpers */
 
 static uint32_t pipe_ring_readable(const pipe_ring_t *ring)
 {
@@ -202,9 +194,7 @@ static void pipe_raise_sigpipe(void)
     (void)signal_send(proc, SIGPIPE, &info);
 }
 
-/* ------------------------------------------------------------------ */
-/*  VFS callback: open                                                  */
-/* ------------------------------------------------------------------ */
+/* VFS callback: open */
 
 static void pipe_vfs_open(void *parent, const char *name, vfs_node_t node)
 {
@@ -229,17 +219,17 @@ static void pipe_vfs_open(void *parent, const char *name, vfs_node_t node)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/*  VFS callback: close                                                 */
-/*                                                                      */
-/*  NOTE: The VFS layer calls this callback only when node->refcount    */
-/*  reaches zero, i.e. when the *last* file descriptor referencing      */
-/*  this pipe node is closed.  For anonymous pipes this means both      */
-/*  the read and write ends have been closed.                           */
-/*                                                                      */
-/*  We wake all blocked readers and writers here so that no task        */
-/*  remains stuck on a pipe that will never be serviced again.          */
-/* ------------------------------------------------------------------ */
+/*
+ * VFS callback: close
+ * 
+ * NOTE: The VFS layer calls this callback only when node->refcount
+ * reaches zero, i.e. when the *last* file descriptor referencing
+ * this pipe node is closed.  For anonymous pipes this means both
+ * the read and write ends have been closed.
+ * 
+ * We wake all blocked readers and writers here so that no task
+ * remains stuck on a pipe that will never be serviced again.
+ */
 
 static void pipe_vfs_close(void *current)
 {
@@ -353,9 +343,7 @@ static void pipe_file_release(vfs_node_t node, void *private_data)
     free(endpoint);
 }
 
-/* ------------------------------------------------------------------ */
-/*  VFS callback: read                                                  */
-/* ------------------------------------------------------------------ */
+/* VFS callback: read */
 
 static int64_t pipe_read_common(vfs_node_t node, pipe_ring_t *ring, uint64_t flags, void *addr, size_t size)
 {
@@ -485,9 +473,7 @@ static int64_t pipe_file_read_user(vfs_node_t node, void *private_data, uint64_t
     }
 }
 
-/* ------------------------------------------------------------------ */
-/*  VFS callback: write                                                 */
-/* ------------------------------------------------------------------ */
+/* VFS callback: write */
 
 static int64_t pipe_write_common(vfs_node_t node, pipe_ring_t *ring, uint64_t flags, const void *addr, size_t size)
 {
@@ -642,9 +628,7 @@ static int64_t pipe_file_write_user(vfs_node_t node, void *private_data, uint64_
     return (int64_t)total_written;
 }
 
-/* ------------------------------------------------------------------ */
-/*  VFS callback: poll                                                  */
-/* ------------------------------------------------------------------ */
+/* VFS callback: poll */
 
 static int pipe_vfs_poll(void *file, size_t events)
 {
@@ -688,9 +672,7 @@ static int pipe_file_poll(vfs_node_t node, void *private_data, uint64_t flags, s
     return (revents & (int)events) | (revents & (POLLERR | POLLHUP));
 }
 
-/* ------------------------------------------------------------------ */
-/*  VFS callback: free (release handle resources)                       */
-/* ------------------------------------------------------------------ */
+/* VFS callback: free (release handle resources) */
 
 static int pipe_vfs_free(void *handle)
 {
@@ -701,9 +683,7 @@ static int pipe_vfs_free(void *handle)
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  VFS callback: stat                                                  */
-/* ------------------------------------------------------------------ */
+/* VFS callback: stat */
 
 static int pipe_vfs_stat(void *file, vfs_node_t node)
 {
@@ -717,9 +697,7 @@ static int pipe_vfs_stat(void *file, vfs_node_t node)
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  VFS callback stubs (unused operations for pipe)                     */
-/* ------------------------------------------------------------------ */
+/* VFS callback stubs (unused operations for pipe) */
 
 static int pipe_stub_mount(const char *s, vfs_node_t n)
 {
@@ -778,9 +756,7 @@ static int pipe_stub_rename(void *current, const char *new_name)
     return -ENOSYS;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Pipe node creation (shared by sys_pipe and sys_pipe2)               */
-/* ------------------------------------------------------------------ */
+/* Pipe node creation (shared by sys_pipe and sys_pipe2) */
 
 static vfs_node_t pipe_node_create(pipe_ring_t *ring)
 {
@@ -798,9 +774,7 @@ static vfs_node_t pipe_node_create(pipe_ring_t *ring)
     return node;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Syscall: pipe / pipe2                                               */
-/* ------------------------------------------------------------------ */
+/* Syscall: pipe / pipe2 */
 
 /* Forward declaration */
 int64_t sys_pipe2(int pipefd[2], int flags);
@@ -879,9 +853,7 @@ int64_t sys_pipe2(int pipefd[2], int flags)
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Syscall: mknod / mkfifo (FIFO / named pipe)                         */
-/* ------------------------------------------------------------------ */
+/* Syscall: mknod / mkfifo (FIFO / named pipe) */
 
 static int64_t sys_mknod(const char *path, uint32_t mode, uint64_t dev)
 {
@@ -962,22 +934,22 @@ static int64_t sys_mkfifo(const char *path, uint32_t mode)
     return sys_mknod(path, 0010000 | (mode & 07777), 0);
 }
 
-/* ------------------------------------------------------------------ */
-/*  FIFO open helper                                                    */
-/*                                                                      */
-/*  Called by the syscall layer after vfs_open() has completed for a    */
-/*  FIFO node.  This function blocks the caller until the other end     */
-/*  of the FIFO is also opened, unless O_NONBLOCK was specified.        */
-/*                                                                      */
-/*  Parameters:                                                         */
-/*    node  - the FIFO vfs node (must have type file_pipe)              */
-/*    flags - open flags (O_RDONLY / O_WRONLY / O_NONBLOCK)            */
-/*                                                                      */
-/*  Returns:                                                            */
-/*    EOK    - both ends are now open                                   */
-/*    -EAGAIN - O_NONBLOCK was set and the other end is not open yet    */
-/*    -ENXIO  - O_NONBLOCK | O_WRONLY and no reader exists              */
-/* ------------------------------------------------------------------ */
+/*
+ * FIFO open helper
+ * 
+ * Called by the syscall layer after vfs_open() has completed for a
+ * FIFO node.  This function blocks the caller until the other end
+ * of the FIFO is also opened, unless O_NONBLOCK was specified.
+ * 
+ * Parameters:
+ * node  - the FIFO vfs node (must have type file_pipe)
+ * flags — open flags (O_RDONLY / O_WRONLY / O_NONBLOCK)
+ * 
+ * Returns:
+ * EOK    - both ends are now open
+ * -EAGAIN — O_NONBLOCK was set and the other end is not open yet
+ * -ENXIO  - O_NONBLOCK | O_WRONLY and no reader exists
+ */
 
 static int pipe_open(vfs_node_t node, uint64_t flags)
 {
@@ -1010,7 +982,7 @@ static int pipe_open(vfs_node_t node, uint64_t flags)
      */
     if (flags & O_NONBLOCK) {
         if (is_write && ring->readers == 0) {
-            /* Opening write-only with no readers and O_NONBLOCK ?ENXIO */
+            /* Opening write-only with no readers and O_NONBLOCK — ENXIO */
             ring->writers--;
             spin_unlock(&ring->lock);
             return -ENXIO;
@@ -1047,9 +1019,7 @@ static int pipe_open(vfs_node_t node, uint64_t flags)
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Initialization                                                      */
-/* ------------------------------------------------------------------ */
+/* Initialization */
 
 void pipe_init(void)
 {

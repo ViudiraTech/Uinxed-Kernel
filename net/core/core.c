@@ -4,7 +4,7 @@
  *      Network core functionality
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -30,6 +30,13 @@ static spinlock_t          devices_lock;
 static uint32_t            next_ifindex = 1;
 static netdev_lifecycle_fn lifecycle_notifier;
 static void               *lifecycle_context;
+
+/*
+ * Overview
+ * core.c holds the network stack's global registry: the device
+ * table, device lifecycle notifications, and the checksum helpers
+ * shared by all protocol layers.
+ */
 
 /*
  * RFC 1071 checksum accumulation over 16-bit big-endian words.  The running

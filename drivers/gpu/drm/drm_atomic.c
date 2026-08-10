@@ -4,7 +4,7 @@
  *      DRM atomic modesetting core
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -22,17 +22,14 @@
 #include <process/task.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/* Locally-defined state structs (forward-declared in drm_device.h)   */
-/* ------------------------------------------------------------------ */
-/* Helper: container_of                                                */
-/* ------------------------------------------------------------------ */
+/*
+ * Locally-defined state structs (forward-declared in drm_device.h)
+ * Helper: container_of
+ */
 
 #define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_state_alloc: allocate and initialize an atomic state     */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_state_alloc: allocate and initialize an atomic state */
 
 struct drm_atomic_state *drm_atomic_state_alloc(struct drm_device *dev)
 {
@@ -75,9 +72,7 @@ struct drm_atomic_state *drm_atomic_state_alloc(struct drm_device *dev)
     return state;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_state_default_clear: free all sub-state allocations      */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_state_default_clear: free all sub-state allocations */
 
 static void drm_atomic_state_default_clear(struct drm_atomic_state *state)
 {
@@ -137,9 +132,7 @@ static void drm_atomic_state_default_clear(struct drm_atomic_state *state)
     state->num_connector = 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_state_clear: reset state after default clear             */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_state_clear: reset state after default clear */
 
 static void drm_atomic_state_clear(struct drm_atomic_state *state)
 {
@@ -150,9 +143,7 @@ static void drm_atomic_state_clear(struct drm_atomic_state *state)
     state->duplicated           = 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_state_free: fully release an atomic state                */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_state_free: fully release an atomic state */
 
 void drm_atomic_state_free(struct drm_atomic_state *state)
 {
@@ -162,9 +153,7 @@ void drm_atomic_state_free(struct drm_atomic_state *state)
     free(state);
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_get_crtc_state: get or create CRTC state for @crtc       */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_get_crtc_state: get or create CRTC state for @crtc */
 
 struct drm_crtc_state *drm_atomic_get_crtc_state(struct drm_atomic_state *state, struct drm_crtc *crtc)
 {
@@ -208,9 +197,7 @@ struct drm_crtc_state *drm_atomic_get_crtc_state(struct drm_atomic_state *state,
     return crtc_entry->state;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_get_plane_state: get or create plane state for @plane    */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_get_plane_state: get or create plane state for @plane */
 
 struct drm_plane_state *drm_atomic_get_plane_state(struct drm_atomic_state *state, struct drm_plane *plane)
 {
@@ -259,9 +246,7 @@ struct drm_plane_state *drm_atomic_get_plane_state(struct drm_atomic_state *stat
     return plane_entry->state;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_get_connector_state: get or create connector state       */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_get_connector_state: get or create connector state */
 
 struct drm_connector_state *drm_atomic_get_connector_state(struct drm_atomic_state *state, struct drm_connector *connector)
 {
@@ -318,9 +303,7 @@ struct drm_connector_state *drm_atomic_get_connector_state(struct drm_atomic_sta
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_add_affected_planes: add all planes on @crtc to state    */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_add_affected_planes: add all planes on @crtc to state */
 
 int drm_atomic_add_affected_planes(struct drm_atomic_state *state, struct drm_crtc *crtc)
 {
@@ -343,9 +326,7 @@ int drm_atomic_add_affected_planes(struct drm_atomic_state *state, struct drm_cr
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_add_affected_connectors: add all connectors on @crtc     */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_add_affected_connectors: add all connectors on @crtc */
 
 int drm_atomic_add_affected_connectors(struct drm_atomic_state *state, struct drm_crtc *crtc)
 {
@@ -366,9 +347,7 @@ int drm_atomic_add_affected_connectors(struct drm_atomic_state *state, struct dr
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_check_only: validate the atomic state                    */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_check_only: validate the atomic state */
 
 int drm_atomic_check_only(struct drm_atomic_state *state)
 {
@@ -476,9 +455,7 @@ int drm_atomic_check_only(struct drm_atomic_state *state)
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_atomic_commit: validate and apply the atomic state              */
-/* ------------------------------------------------------------------ */
+/* drm_atomic_commit: validate and apply the atomic state */
 
 static int drm_atomic_commit_tail(struct drm_atomic_state *state)
 {
@@ -662,9 +639,7 @@ static int drm_atomic_commit_tail(struct drm_atomic_state *state)
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Ordered blocking/nonblocking commit dispatch                         */
-/* ------------------------------------------------------------------ */
+/* Ordered blocking/nonblocking commit dispatch */
 
 static void drm_atomic_commit_wait_turn(struct drm_atomic_state *state)
 {

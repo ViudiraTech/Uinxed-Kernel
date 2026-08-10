@@ -4,7 +4,7 @@
  *      Linux-compatible evdev input event subsystem
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -30,7 +30,7 @@
 #include <sync/spin_lock.h>
 #include <syscall/syscall.h>
 
-/* ---- _IOC extraction macros ---- */
+/* _IOC extraction macros */
 
 #define _IOC_DIR(nr)  (((nr) >> _IOC_DIRSHIFT) & _IOC_DIRMASK)
 #define _IOC_TYPE(nr) (((nr) >> _IOC_TYPESHIFT) & _IOC_TYPEMASK)
@@ -42,13 +42,13 @@
 #define _IOC_NRMASK   ((1U << _IOC_NRBITS) - 1)
 #define _IOC_SIZEMASK ((1U << _IOC_SIZEBITS) - 1)
 
-/* ---- poll flags ---- */
+/* poll flags */
 
 #define POLLIN  0x001
 #define POLLOUT 0x004
 #define POLLHUP 0x010
 
-/* ---- bit operations ---- */
+/* bit operations */
 
 static inline void set_bit(unsigned int nr, uint32_t *addr)
 {
@@ -73,7 +73,7 @@ static inline unsigned int roundup_pow_of_two(unsigned int n)
     return r;
 }
 
-/* ---- global state ---- */
+/* global state */
 
 static evdev_t   *evdev_table[EVDEV_MAX_DEVICES];
 static spinlock_t evdev_table_lock  = {0};
@@ -169,7 +169,7 @@ static int evdev_dev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t
     return evdev_fop_ioctl(private_data, (uint32_t)request, arg);
 }
 
-/* ---- evdev_get_mask_cnt ---- */
+/* evdev_get_mask_cnt */
 
 static size_t evdev_get_mask_cnt(unsigned int type)
 {
@@ -181,7 +181,7 @@ static size_t evdev_get_mask_cnt(unsigned int type)
     return (type < EV_CNT) ? counts[type] : 0;
 }
 
-/* ---- evdev_compute_buffer_size ---- */
+/* evdev_compute_buffer_size */
 
 static unsigned int evdev_compute_buffer_size(input_dev_t *dev)
 {
@@ -194,7 +194,7 @@ static unsigned int evdev_compute_buffer_size(input_dev_t *dev)
     return roundup_pow_of_two(n_events);
 }
 
-/* ---- __evdev_is_filtered ---- */
+/* __evdev_is_filtered */
 
 static bool __evdev_is_filtered(evdev_client_t *client, unsigned int type, unsigned int code)
 {
@@ -213,7 +213,7 @@ static bool __evdev_is_filtered(evdev_client_t *client, unsigned int type, unsig
     return mask && !test_bit(code, mask);
 }
 
-/* ---- __evdev_queue_syn_dropped ---- */
+/* __evdev_queue_syn_dropped */
 
 static void __evdev_queue_syn_dropped(evdev_client_t *client)
 {
@@ -229,7 +229,7 @@ static void __evdev_queue_syn_dropped(evdev_client_t *client)
     (void)evdev_queue_push(&client->queue, &ev);
 }
 
-/* ---- __evdev_flush_queue ---- */
+/* __evdev_flush_queue */
 
 /*
  * __evdev_flush_queue - flush queued events of type @type.
@@ -244,14 +244,14 @@ static void __evdev_flush_queue(evdev_client_t *client, unsigned int type)
     evdev_queue_flush_type(&client->queue, type);
 }
 
-/* ---- __pass_event ---- */
+/* __pass_event */
 
 static bool __pass_event(evdev_client_t *client, const input_event_t *event)
 {
     return evdev_queue_push(&client->queue, event);
 }
 
-/* ---- evdev_pass_values ---- */
+/* evdev_pass_values */
 
 static void evdev_pass_values(evdev_client_t *client, const input_event_t *values, unsigned int count)
 {
@@ -294,7 +294,7 @@ static void evdev_pass_values(evdev_client_t *client, const input_event_t *value
     }
 }
 
-/* ---- evdev_events ---- */
+/* evdev_events */
 
 static void evdev_events(input_dev_t *dev, const input_event_t *values, unsigned int count)
 {
@@ -329,7 +329,7 @@ static void evdev_events(input_dev_t *dev, const input_event_t *values, unsigned
     spin_unlock(&evdev->client_lock);
 }
 
-/* ---- evdev_set_clk_type ---- */
+/* evdev_set_clk_type */
 
 static int evdev_set_clk_type(evdev_client_t *client, int clk_type)
 {
@@ -354,7 +354,7 @@ static int evdev_set_clk_type(evdev_client_t *client, int clk_type)
     return EOK;
 }
 
-/* ---- evdev_grab / evdev_ungrab ---- */
+/* evdev_grab / evdev_ungrab */
 
 static int evdev_grab(evdev_t *evdev, evdev_client_t *client)
 {
@@ -380,7 +380,7 @@ static int evdev_ungrab(evdev_t *evdev, evdev_client_t *client)
     return 0;
 }
 
-/* ---- evdev_attach_client / evdev_detach_client ---- */
+/* evdev_attach_client / evdev_detach_client */
 
 static void evdev_attach_client(evdev_t *evdev, evdev_client_t *client)
 {
@@ -397,7 +397,7 @@ static void evdev_detach_client(evdev_t *evdev, evdev_client_t *client)
     spin_unlock(&evdev->client_lock);
 }
 
-/* ---- evdev_open_device / evdev_close_device ---- */
+/* evdev_open_device / evdev_close_device */
 
 static int evdev_open_device(evdev_t *evdev)
 {
@@ -431,7 +431,7 @@ static bool evdev_close_device(evdev_t *evdev)
     return destroy;
 }
 
-/* ---- evdev_hangup ---- */
+/* evdev_hangup */
 
 static void evdev_hangup(evdev_t *evdev)
 {
@@ -451,7 +451,7 @@ static void evdev_hangup(evdev_t *evdev)
     spin_unlock(&evdev->client_lock);
 }
 
-/* ---- evdev_create ---- */
+/* evdev_create */
 
 evdev_t *evdev_create(input_dev_t *dev)
 {
@@ -493,7 +493,7 @@ static void evdev_free(evdev_t *evdev)
     if (input && input->release) input->release(input);
 }
 
-/* ---- evdev_destroy ---- */
+/* evdev_destroy */
 
 void evdev_destroy(evdev_t *evdev)
 {
@@ -512,7 +512,7 @@ void evdev_destroy(evdev_t *evdev)
     if (destroy) evdev_free(evdev);
 }
 
-/* ---- evdev_register ---- */
+/* evdev_register */
 
 int evdev_register(evdev_t *evdev)
 {
@@ -573,7 +573,7 @@ rollback_table:
     return result;
 }
 
-/* ---- evdev_unregister ---- */
+/* evdev_unregister */
 
 void evdev_unregister(evdev_t *evdev)
 {
@@ -610,7 +610,7 @@ void evdev_unregister(evdev_t *evdev)
     if (destroy) evdev_free(evdev);
 }
 
-/* ---- evdev_find_by_minor ---- */
+/* evdev_find_by_minor */
 
 evdev_t *evdev_find_by_minor(int minor)
 {
@@ -625,7 +625,7 @@ evdev_t *evdev_find_by_minor(int minor)
     return evdev;
 }
 
-/* ---- evdev_init ---- */
+/* evdev_init */
 
 void evdev_init(void)
 {
@@ -637,7 +637,7 @@ void evdev_init(void)
     spin_unlock(&evdev_table_lock);
 }
 
-/* ---- event validation and injection ---- */
+/* event validation and injection */
 
 static bool evdev_event_supported(const input_dev_t *dev, unsigned int type, unsigned int code)
 {
@@ -758,14 +758,14 @@ void evdev_inject_event(input_dev_t *dev, uint16_t type, uint16_t code, int32_t 
     evdev_inject_events(dev, &event, 1);
 }
 
-/* ---- evdev_inject_syn ---- */
+/* evdev_inject_syn */
 
 void evdev_inject_syn(input_dev_t *dev)
 {
     evdev_inject_event(dev, EV_SYN, SYN_REPORT, 0);
 }
 
-/* ---- evdev_fop_open ---- */
+/* evdev_fop_open */
 
 evdev_client_t *evdev_fop_open(evdev_t *evdev, int *error)
 {
@@ -816,7 +816,7 @@ evdev_client_t *evdev_fop_open(evdev_t *evdev, int *error)
     return client;
 }
 
-/* ---- evdev_fop_release ---- */
+/* evdev_fop_release */
 
 void evdev_fop_release(evdev_client_t *client)
 {
@@ -844,7 +844,7 @@ void evdev_fop_release(evdev_client_t *client)
     if (destroy) evdev_free(evdev);
 }
 
-/* ---- evdev_fop_read ---- */
+/* evdev_fop_read */
 
 ssize_t evdev_fop_read(evdev_client_t *client, void *buf, size_t count, bool nonblock)
 {
@@ -899,7 +899,7 @@ ssize_t evdev_fop_read(evdev_client_t *client, void *buf, size_t count, bool non
     return (ssize_t)(read_count * sizeof(input_event_t));
 }
 
-/* ---- evdev_fop_write ---- */
+/* evdev_fop_write */
 
 ssize_t evdev_fop_write(evdev_client_t *client, const void *buf, size_t count)
 {
@@ -923,7 +923,7 @@ ssize_t evdev_fop_write(evdev_client_t *client, const void *buf, size_t count)
     return (ssize_t)(n_events * sizeof(input_event_t));
 }
 
-/* ---- evdev_fop_poll ---- */
+/* evdev_fop_poll */
 
 int evdev_fop_poll(evdev_client_t *client, int events)
 {
@@ -946,7 +946,7 @@ int evdev_fop_poll(evdev_client_t *client, int events)
     return revents;
 }
 
-/* ---- evdev_fop_ioctl ---- */
+/* evdev_fop_ioctl */
 
 static int evdev_copy_string_to_user(void *arg, const char *string, size_t maxlen)
 {

@@ -4,7 +4,7 @@
  *      Loadable kernel module registry, linker and lifecycle
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -104,6 +104,13 @@ typedef struct module_internal {
 extern const struct kernel_symbol __start___ksymtab[];
 extern const struct kernel_symbol __stop___ksymtab[];
 
+/*
+ * Globals
+ * module_list is the singly-linked list of loaded modules. All
+ * mutations happen under module_lock; module_operation serializes
+ * load/unload against parameter access.
+ */
+
 static module_internal_t          *module_list;
 static spinlock_t                  module_lock;
 static volatile uint32_t           module_operation;
@@ -120,6 +127,8 @@ static struct attribute module_initsize_attr = {.name = "initsize", .mode = 0444
 static struct attribute *module_attrs[] = {
     &module_state_attr, &module_refcnt_attr, &module_taint_attr, &module_version_attr, &module_coresize_attr, &module_initsize_attr, NULL,
 };
+
+/* Overflow-checked helpers used throughout module metadata parsing */
 
 static int size_add(size_t left, size_t right, size_t *result)
 {
@@ -268,11 +277,18 @@ static void operation_end(void)
     __atomic_store_n(&module_operation, 0, __ATOMIC_RELEASE);
 }
 
+/*
+ * Reference counting
+ * Refcounts are atomic; module_put wakes the unload wait queue when
+ * the count drops to zero so an unloader can proceed safely.
+ */
+
 uint32_t module_refcount(const struct module *module)
 {
     return module ? __atomic_load_n(&module->refcount, __ATOMIC_ACQUIRE) : 0;
 }
 
+/* Try to bump the refcount; fails if the module is being unloaded */
 int try_module_get(struct module *module)
 {
     if (!module || __atomic_load_n(&module->state, __ATOMIC_ACQUIRE) != MODULE_STATE_LIVE) return 0;
@@ -294,6 +310,7 @@ void __module_get(struct module *module)
     if (old == UINT32_MAX) __atomic_store_n(&module->refcount, UINT32_MAX, __ATOMIC_RELEASE);
 }
 
+/* Release a reference; the last put wakes any pending unload */
 void module_put(struct module *module)
 {
     if (!module) return;
@@ -550,6 +567,13 @@ static void release_dependencies(module_internal_t *internal)
     internal->dependencies = NULL;
 }
 
+/*
+ * Section layout and mapping
+ * Sections marked SHF_ALLOC are laid out page-aligned in a single
+ * contiguous virtual region; .init* sections are kept separate so
+ * their pages can be freed after module init runs.
+ */
+
 static int layout_sections(module_internal_t *internal, const module_elf_view_t *view)
 {
     internal->sections = calloc(view->section_count, sizeof(*internal->sections));
@@ -587,6 +611,7 @@ static int layout_sections(module_internal_t *internal, const module_elf_view_t 
     return EOK;
 }
 
+/* Release every page backing the module's mapped region */
 static void unmap_module(module_internal_t *internal)
 {
     if (!internal || !internal->frames) return;
@@ -601,6 +626,7 @@ static void unmap_module(module_internal_t *internal)
     internal->page_count = 0;
 }
 
+/* Allocate frames and map the laid-out sections into the kernel page tables */
 static int map_sections(module_internal_t *internal, const module_elf_view_t *view)
 {
     uintptr_t kernel_base = KERNEL_BASE_ADDRESS;
@@ -645,6 +671,12 @@ static int map_sections(module_internal_t *internal, const module_elf_view_t *vi
     }
     return EOK;
 }
+
+/*
+ * Relocation
+ * Apply x86-64 relocations after mapping, resolving symbols against
+ * the kernel's export table and the module's own definitions.
+ */
 
 static size_t relocation_width(uint32_t type)
 {
@@ -1194,6 +1226,10 @@ static void destroy_internal(module_internal_t *internal)
     free(internal);
 }
 
+/* Public API */
+
+/* Load a kernel module: validate, layout, map, relocate, then run init.
+ * The pipeline is all-or-nothing: any failure destroys the partial state. */
 int module_load(const void *image, size_t size, const char *params, unsigned int flags, const char *name_hint)
 {
 #if !CONFIG_MODULES
@@ -1295,6 +1331,7 @@ out_operation:
 #endif
 }
 
+/* Unload a module by name after dropping its refcount to zero */
 int module_unload(const char *name, unsigned int flags)
 {
 #if !CONFIG_MODULES

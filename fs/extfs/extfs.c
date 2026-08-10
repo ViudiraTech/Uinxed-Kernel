@@ -4,7 +4,7 @@
  *      ext2/ext3/ext4 filesystem - VFS integration
  *
  *      2026/7/29 By JiTianYu391
- *      Copyright © 2026 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2026 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -22,6 +22,14 @@
 #include <mem/heap.h>
 
 static int extfs_id = 0;
+
+/*
+ * Overview
+ * extfs.c is the VFS front-end for the ext2/3/4 inode engine in this
+ * directory: it maps VFS nodes onto extfs handles, converts mode
+ * bits, and implements read/write/lookup through the lower-level
+ * inode/dir/extents/jbd2 helpers.
+ */
 
 static uint16_t extfs_mode_to_vfs(uint16_t mode)
 {

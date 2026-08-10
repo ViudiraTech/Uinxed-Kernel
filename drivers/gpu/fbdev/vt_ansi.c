@@ -4,7 +4,7 @@
  *      Virtual Terminal ANSI
  *
  *      2026/7/27 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -16,6 +16,14 @@ static const uint32_t ansi_palette[16] = {
     0x000000, 0xaa0000, 0x00aa00, 0xaaaa00, 0x0000aa, 0xaa00aa, 0x00aaaa, 0xaaaaaa,
     0x555555, 0xff5555, 0x55ff55, 0xffff55, 0x5555ff, 0xff55ff, 0x55ffff, 0xffffff,
 };
+
+/*
+ * Overview
+ * vt_ansi.c is a small ANSI X3.64 / ECMA-48 parser. It consumes a
+ * byte stream and updates a vt_ansi_state_t (cursor, SGR attributes,
+ * colors, scroll region); the actual framebuffer writes are done by
+ * the vt_ansi_callbacks_t provided by the caller (vt.c).
+ */
 
 static uint32_t vt_ansi_palette(uint8_t idx)
 {
@@ -44,6 +52,7 @@ static uint32_t vt_ansi_fg(const vt_ansi_state_t *s)
     return c;
 }
 
+/* Reset SGR attributes to the terminal default */
 static void vt_ansi_default_attr(vt_ansi_state_t *s)
 {
     s->attrs.intensity         = ANSI_INTENSITY_NORMAL;
@@ -559,6 +568,9 @@ void vt_ansi_init(vt_ansi_state_t *s, uint32_t cols, uint32_t rows)
     memset(&s->saved_attrs, 0, sizeof(s->saved_attrs));
 }
 
+/* Feed one byte into the ANSI parser state machine. Non-ASCII bytes in
+ * normal mode start a UTF-8 sequence (or become '?'); ESC/CSI sequences
+ * are accumulated until complete and then dispatched to the handlers. */
 void vt_ansi_process(vt_ansi_state_t *s, uint8_t c, const vt_ansi_callbacks_t *cb, void *arg)
 {
     (void)arg;

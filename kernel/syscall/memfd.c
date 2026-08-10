@@ -4,7 +4,7 @@
  *      Anonymous page-backed memory files
  *
  *      2026/7/26 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -38,6 +38,14 @@ typedef struct {
         uint32_t   mappings;
         uint32_t   writable_mappings;
 } memfd_file_t;
+
+/*
+ * Overview
+ * memfd implements anonymous memory-backed files (memfd_create).
+ * A memfd_file_t holds a growable page array; reads/writes/truncate
+ * touch it through the VFS, and mmap attaches physical pages to the
+ * caller's page tables. Seals restrict later mutations.
+ */
 
 static int memfd_fsid;
 

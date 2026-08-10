@@ -4,7 +4,7 @@
  *      Kernel object model implementation
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -24,9 +24,7 @@
 #include <net/netlink/netlink.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/*  Static helpers                                                     */
-/* ------------------------------------------------------------------ */
+/* Static helpers */
 
 /* Default release function for dynamically-allocated kobjects */
 static void dynamic_kobj_release(struct kobject *kobj)
@@ -87,9 +85,7 @@ static int kobject_list_add(clist_t *list, void *data)
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  kobject_init                                                       */
-/* ------------------------------------------------------------------ */
+/* kobject_init */
 
 void kobject_init(struct kobject *kobj, struct kobj_type *ktype)
 {
@@ -118,9 +114,7 @@ void kobject_init(struct kobject *kobj, struct kobj_type *ktype)
     kobj->uevent_suppress          = 0;
 }
 
-/* ------------------------------------------------------------------ */
-/*  kobject_set_name                                                   */
-/* ------------------------------------------------------------------ */
+/* kobject_set_name */
 
 int kobject_set_name(struct kobject *kobj, const char *fmt, ...)
 {
@@ -145,9 +139,7 @@ int kobject_set_name(struct kobject *kobj, const char *fmt, ...)
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  kobject_add                                                        */
-/* ------------------------------------------------------------------ */
+/* kobject_add */
 
 int kobject_add(struct kobject *kobj, struct kobject *parent, const char *fmt, ...)
 {
@@ -242,9 +234,7 @@ err_refs:
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/*  kobject_init_and_add                                               */
-/* ------------------------------------------------------------------ */
+/* kobject_init_and_add */
 
 int kobject_init_and_add(struct kobject *kobj, struct kobj_type *ktype, struct kobject *parent, const char *fmt, ...)
 {
@@ -262,9 +252,7 @@ int kobject_init_and_add(struct kobject *kobj, struct kobj_type *ktype, struct k
     return kobject_add(kobj, parent, "%s", namebuf);
 }
 
-/* ------------------------------------------------------------------ */
-/*  kobject_create_and_add                                             */
-/* ------------------------------------------------------------------ */
+/* kobject_create_and_add */
 
 struct kobject *kobject_create_and_add(const char *name, struct kobject *parent)
 {
@@ -285,9 +273,7 @@ struct kobject *kobject_create_and_add(const char *name, struct kobject *parent)
     return kobj;
 }
 
-/* ------------------------------------------------------------------ */
-/*  kobject_get / kobject_put                                          */
-/* ------------------------------------------------------------------ */
+/* kobject_get / kobject_put */
 
 struct kobject *kobject_get(struct kobject *kobj)
 {
@@ -314,9 +300,7 @@ void kobject_put(struct kobject *kobj)
     kref_put(&kobj->kref, kobject_release_internal);
 }
 
-/* ------------------------------------------------------------------ */
-/*  kobject_del                                                        */
-/* ------------------------------------------------------------------ */
+/* kobject_del */
 
 void kobject_del(struct kobject *kobj)
 {
@@ -365,9 +349,7 @@ void kobject_del(struct kobject *kobj)
     kset_put(kset);
 }
 
-/* ------------------------------------------------------------------ */
-/*  kobject_rename                                                     */
-/* ------------------------------------------------------------------ */
+/* kobject_rename */
 
 int kobject_rename(struct kobject *kobj, const char *new_name)
 {
@@ -409,9 +391,7 @@ int kobject_rename(struct kobject *kobj, const char *new_name)
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  kobject_move                                                       */
-/* ------------------------------------------------------------------ */
+/* kobject_move */
 
 int kobject_move(struct kobject *kobj, struct kobject *new_parent)
 {
@@ -479,9 +459,7 @@ int kobject_move(struct kobject *kobj, struct kobject *new_parent)
     return EOK;
 }
 
-/* ------------------------------------------------------------------ */
-/*  kobject_name                                                       */
-/* ------------------------------------------------------------------ */
+/* kobject_name */
 
 const char *kobject_name(const struct kobject *kobj)
 {
@@ -489,9 +467,7 @@ const char *kobject_name(const struct kobject *kobj)
     return kobj->name ? kobj->name : "(unnamed)";
 }
 
-/* ------------------------------------------------------------------ */
-/*  kset_init                                                          */
-/* ------------------------------------------------------------------ */
+/* kset_init */
 
 void kset_init(struct kset *kset)
 {
@@ -501,9 +477,7 @@ void kset_init(struct kset *kset)
     kobject_init(&kset->kobj, &static_kset_ktype);
 }
 
-/* ------------------------------------------------------------------ */
-/*  kset_create_and_add                                                */
-/* ------------------------------------------------------------------ */
+/* kset_create_and_add */
 
 struct kset *kset_create_and_add(const char *name, const struct kset_uevent_ops *uevent_ops, struct kobject *parent_kobj)
 {
@@ -529,9 +503,7 @@ struct kset *kset_create_and_add(const char *name, const struct kset_uevent_ops 
     return kset;
 }
 
-/* ------------------------------------------------------------------ */
-/*  kset_unregister                                                    */
-/* ------------------------------------------------------------------ */
+/* kset_unregister */
 
 void kset_unregister(struct kset *kset)
 {
@@ -540,9 +512,7 @@ void kset_unregister(struct kset *kset)
     kobject_put(&kset->kobj);
 }
 
-/* ------------------------------------------------------------------ */
-/*  kobject_get_path                                                   */
-/* ------------------------------------------------------------------ */
+/* kobject_get_path */
 
 char *kobject_get_path(struct kobject *kobj)
 {
@@ -587,9 +557,7 @@ char *kobject_get_path(struct kobject *kobj)
     return path;
 }
 
-/* ------------------------------------------------------------------ */
-/*  kobject_uevent                                                     */
-/* ------------------------------------------------------------------ */
+/* kobject_uevent */
 
 int kobject_uevent(struct kobject *kobj, enum kobject_action action)
 {
@@ -597,9 +565,7 @@ int kobject_uevent(struct kobject *kobj, enum kobject_action action)
     return kobject_uevent_env(kobj, action, NULL, 0);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Global uevent sequence number                                      */
-/* ------------------------------------------------------------------ */
+/* Global uevent sequence number */
 
 static uint64_t uevent_seqnum;
 
@@ -608,9 +574,7 @@ uint64_t kobject_uevent_seqnum(void)
     return __atomic_load_n(&uevent_seqnum, __ATOMIC_RELAXED);
 }
 
-/* ------------------------------------------------------------------ */
-/*  kobject_uevent_env - build and broadcast the Linux uevent ABI      */
-/* ------------------------------------------------------------------ */
+/* kobject_uevent_env — build and broadcast the Linux uevent ABI */
 
 static const char *const kobject_actions[] = {
     [KOBJ_ADD] = "add",       [KOBJ_REMOVE] = "remove",   [KOBJ_CHANGE] = "change", [KOBJ_MOVE] = "move",

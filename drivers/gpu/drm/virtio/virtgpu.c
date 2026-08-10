@@ -4,20 +4,7 @@
  *      VirtIO-GPU DRM driver (full 3D / render-node / KMS)
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
- *
- *  Industrial-grade virtio-gpu DRM driver implementing:
- *    - KMS display pipeline (CRTC, plane, encoder, connector)
- *    - Render node (/dev/dri/renderD128)
- *    - 3D acceleration (virgl) via context creation + SUBMIT_3D
- *    - Blob resources for modern virgl/virtio-gpu
- *    - PRIME dma-buf export/import
- *    - Capability set query
- *    - DebugFS introspection
- *
- *  Integrates with the existing Uinxed DRM core via drm_dev_alloc /
- *  drm_dev_register and exposes ioctls that are byte-compatible with
- *  the Linux virtgpu UAPI.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -51,9 +38,7 @@
 #    define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
 #endif
 
-/* ------------------------------------------------------------------ */
-/* Ioctl implementation prototypes                                      */
-/* ------------------------------------------------------------------ */
+/* Ioctl implementation prototypes */
 
 static int virtgpu_ioctl_map(struct drm_device *dev, void *data, struct drm_file *file_priv);
 static int virtgpu_ioctl_execbuffer(struct drm_device *dev, void *data, struct drm_file *file_priv);
@@ -70,9 +55,7 @@ static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_pr
                             struct drm_clip_rect *clips, unsigned int num_clips);
 const struct drm_framebuffer_funcs virtgpu_fb_funcs;
 
-/* ------------------------------------------------------------------ */
-/* DRM ioctl table                                                     */
-/* ------------------------------------------------------------------ */
+/* DRM ioctl table */
 
 static const struct drm_ioctl_desc virtgpu_ioctls[] = {
     {DRM_IOCTL_VIRTGPU_MAP,                  virtgpu_ioctl_map,                  DRM_AUTH},
@@ -90,9 +73,7 @@ static const struct drm_ioctl_desc virtgpu_ioctls[] = {
 
 #define VIRTGPU_NUM_IOCTLS (sizeof(virtgpu_ioctls) / sizeof(virtgpu_ioctls[0]))
 
-/* ------------------------------------------------------------------ */
-/* Driver callback implementations                                     */
-/* ------------------------------------------------------------------ */
+/* Driver callback implementations */
 
 static int virtgpu_open(struct drm_device *dev, struct drm_file *file)
 {
@@ -238,9 +219,7 @@ static void virtgpu_release(struct drm_device *dev)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* DRM driver descriptor                                                */
-/* ------------------------------------------------------------------ */
+/* DRM driver descriptor */
 
 static struct drm_driver virtgpu_drm_driver = {
     .name            = "virtgpu",
@@ -269,9 +248,7 @@ static struct drm_driver virtgpu_drm_driver = {
     .dumb_destroy    = drm_gem_dumb_destroy,
 };
 
-/* ------------------------------------------------------------------ */
-/* KMS framebuffer damage                                              */
-/* ------------------------------------------------------------------ */
+/* KMS framebuffer damage */
 
 static int virtgpu_dirty_fb(struct drm_framebuffer *fb, struct drm_file *file_priv, unsigned int flags, unsigned int color,
                             struct drm_clip_rect *clips, unsigned int num_clips)
@@ -330,9 +307,7 @@ const struct drm_framebuffer_funcs virtgpu_fb_funcs = {
     .dirty = virtgpu_dirty_fb,
 };
 
-/* ------------------------------------------------------------------ */
-/* Ioctl: MAP                                                          */
-/* ------------------------------------------------------------------ */
+/* Ioctl: MAP */
 
 static int virtgpu_ioctl_map(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
@@ -357,9 +332,7 @@ static int virtgpu_ioctl_map(struct drm_device *dev, void *data, struct drm_file
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Ioctl: EXECBUFFER (3D command submission)                           */
-/* ------------------------------------------------------------------ */
+/* Ioctl: EXECBUFFER (3D command submission) */
 
 static int virtgpu_ioctl_execbuffer(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
@@ -447,9 +420,7 @@ out:
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/* Ioctl: GETPARAM                                                     */
-/* ------------------------------------------------------------------ */
+/* Ioctl: GETPARAM */
 
 static int virtgpu_ioctl_getparam(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
@@ -491,9 +462,7 @@ static int virtgpu_ioctl_getparam(struct drm_device *dev, void *data, struct drm
     return copy_to_user((void *)(uintptr_t)args->value, &value, sizeof(value)) ? -EFAULT : 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Ioctl: RESOURCE_CREATE (3D resource)                                */
-/* ------------------------------------------------------------------ */
+/* Ioctl: RESOURCE_CREATE (3D resource) */
 
 static int virtgpu_ioctl_resource_create(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
@@ -559,9 +528,7 @@ static int virtgpu_ioctl_resource_create(struct drm_device *dev, void *data, str
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Ioctl: RESOURCE_INFO                                                */
-/* ------------------------------------------------------------------ */
+/* Ioctl: RESOURCE_INFO */
 
 static int virtgpu_ioctl_resource_info(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
@@ -580,9 +547,7 @@ static int virtgpu_ioctl_resource_info(struct drm_device *dev, void *data, struc
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Ioctl: TRANSFER_FROM_HOST / TRANSFER_TO_HOST                        */
-/* ------------------------------------------------------------------ */
+/* Ioctl: TRANSFER_FROM_HOST / TRANSFER_TO_HOST */
 
 static int virtgpu_ioctl_transfer_from_host(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
@@ -665,9 +630,7 @@ static int virtgpu_ioctl_transfer_to_host(struct drm_device *dev, void *data, st
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/* Ioctl: WAIT (fence wait)                                           */
-/* ------------------------------------------------------------------ */
+/* Ioctl: WAIT (fence wait) */
 
 static int virtgpu_ioctl_wait(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
@@ -688,9 +651,7 @@ static int virtgpu_ioctl_wait(struct drm_device *dev, void *data, struct drm_fil
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Ioctl: GET_CAPS                                                     */
-/* ------------------------------------------------------------------ */
+/* Ioctl: GET_CAPS */
 
 static int virtgpu_ioctl_get_caps(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
@@ -751,9 +712,7 @@ static int virtgpu_ioctl_get_caps(struct drm_device *dev, void *data, struct drm
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/* Ioctl: RESOURCE_CREATE_BLOB                                        */
-/* ------------------------------------------------------------------ */
+/* Ioctl: RESOURCE_CREATE_BLOB */
 
 static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
@@ -841,9 +800,7 @@ static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Ioctl: CONTEXT_INIT                                                 */
-/* ------------------------------------------------------------------ */
+/* Ioctl: CONTEXT_INIT */
 
 static int virtgpu_ioctl_context_init(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
@@ -917,9 +874,7 @@ static int virtgpu_ioctl_context_init(struct drm_device *dev, void *data, struct
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Page-flip: switch scanout to a new framebuffer (called from KMS)    */
-/* ------------------------------------------------------------------ */
+/* Page-flip: switch scanout to a new framebuffer (called from KMS) */
 
 int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *fb, struct drm_framebuffer *old_fb)
 {
@@ -978,9 +933,7 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* DebugFS ?simple feature dump                                       */
-/* ------------------------------------------------------------------ */
+/* DebugFS — simple feature dump */
 
 static void virtgpu_debugfs_info(struct virtio_gpu_device *vgdev)
 {
@@ -989,9 +942,7 @@ static void virtgpu_debugfs_info(struct virtio_gpu_device *vgdev)
     plogk("virtgpu: %d scanout(s), ctrlq %d, cursorq %d\n", vgdev->num_scanouts, vgdev->ctrlq.num_max, vgdev->cursorq.num_max);
 }
 
-/* ------------------------------------------------------------------ */
-/* Module init / probe                                                 */
-/* ------------------------------------------------------------------ */
+/* Module init / probe */
 
 int virtio_gpu_driver_init(void)
 {
@@ -1052,7 +1003,7 @@ int virtio_gpu_driver_init(void)
     vgdev->capset_lock.lock       = 0;
 
     /*
-     * VirtIO spec §3.1.1: step 5 ?set FEATURES_OK and verify.
+     * VirtIO spec §3.1.1: step 5 — set FEATURES_OK and verify.
      * DRIVER_OK must be set LAST, after all virtqueues are configured.
      */
     vp_set_status(vp, VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER | VIRTIO_STATUS_FEATURES_OK);
@@ -1076,7 +1027,7 @@ int virtio_gpu_driver_init(void)
     }
 
     /*
-     * VirtIO spec §3.1.1: step 8 ?set DRIVER_OK after queues are ready.
+     * VirtIO spec §3.1.1: step 8 — set DRIVER_OK after queues are ready.
      * Use a write barrier to ensure all virtqueue setup stores are visible
      * to the device before the status write reaches it.
      */
@@ -1129,7 +1080,7 @@ int virtio_gpu_driver_init(void)
     ret = virtgpu_kms_init(vgdev);
     if (ret) {
         DRM_ERROR("KMS init failed: %d (continuing with render only)\n", ret);
-        /* Non-fatal –render node still works */
+        /* Non-fatal — render node still works */
     }
 
     /* Debug info */
@@ -1140,9 +1091,7 @@ int virtio_gpu_driver_init(void)
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* Initialisation hook ?called from kernel init                       */
-/* ------------------------------------------------------------------ */
+/* Initialisation hook — called from kernel init */
 
 /*
  * Called after drm_init() to register the virtio-gpu driver.
@@ -1184,7 +1133,7 @@ void *virtio_gpu_get_device(void)
 }
 
 /*
- * Module exit stub (placeholder for future cleanup).
+ * Module exit stub.
  */
 void virtio_gpu_module_exit(void)
 {

@@ -4,7 +4,7 @@
  *      Fast userspace mutex implementation
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -25,9 +25,7 @@
 #include <sync/rt_mutex.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/*  Constants                                                           */
-/* ------------------------------------------------------------------ */
+/* Constants */
 
 #ifndef FUTEX_HASH_BITS
 #    define FUTEX_HASH_BITS 8
@@ -62,9 +60,7 @@ __attribute__((weak)) uint64_t futex_realtime_ticks(void)
 #define FUTEX_OP_CMP_GT 4
 #define FUTEX_OP_CMP_GE 5
 
-/* ------------------------------------------------------------------ */
-/*  Type definitions                                                    */
-/* ------------------------------------------------------------------ */
+/* Type definitions */
 
 typedef struct futex_entry {
         uintptr_t           key;
@@ -79,15 +75,11 @@ typedef struct futex_bucket {
         spinlock_t     lock;
 } futex_bucket_t;
 
-/* ------------------------------------------------------------------ */
-/*  Static state                                                        */
-/* ------------------------------------------------------------------ */
+/* Static state */
 
 static futex_bucket_t futex_hash[FUTEX_HASH_SIZE];
 
-/* ------------------------------------------------------------------ */
-/*  Internal helpers                                                    */
-/* ------------------------------------------------------------------ */
+/* Internal helpers */
 
 /*
  * Hash a user address into a bucket index.
@@ -264,9 +256,7 @@ static uint64_t futex_deadline(uint64_t ticks, int absolute, int realtime)
     return ticks > UINT64_MAX - now ? UINT64_MAX : now + ticks;
 }
 
-/* ------------------------------------------------------------------ */
-/*  FUTEX_WAIT / FUTEX_WAIT_BITSET                                     */
-/* ------------------------------------------------------------------ */
+/* FUTEX_WAIT / FUTEX_WAIT_BITSET */
 
 /*
  * Wait on a futex.  If *uaddr != val, return -EAGAIN immediately.
@@ -323,9 +313,7 @@ static int futex_wait(uint32_t *uaddr, uint32_t val, uint64_t timeout, uint64_t 
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/*  FUTEX_WAKE / FUTEX_WAKE_BITSET                                     */
-/* ------------------------------------------------------------------ */
+/* FUTEX_WAKE / FUTEX_WAKE_BITSET */
 
 /*
  * Wake up to nr_wake waiters on the futex at uaddr.
@@ -372,9 +360,7 @@ int futex_wake(uint32_t *uaddr, int nr_wake, uint64_t bitset)
     return woken;
 }
 
-/* ------------------------------------------------------------------ */
-/*  FUTEX_REQUEUE / FUTEX_CMP_REQUEUE                                  */
-/* ------------------------------------------------------------------ */
+/* FUTEX_REQUEUE / FUTEX_CMP_REQUEUE */
 
 /*
  * Move a single waiter from wq_src to wq_dst without waking it.
@@ -502,9 +488,7 @@ static int futex_requeue(uint32_t *uaddr, int nr_wake, int nr_requeue, uint32_t 
     return woken;
 }
 
-/* ------------------------------------------------------------------ */
-/*  FUTEX_WAKE_OP                                                      */
-/* ------------------------------------------------------------------ */
+/* FUTEX_WAKE_OP */
 
 /*
  * Decode the val3 encoding for FUTEX_WAKE_OP:
@@ -644,9 +628,7 @@ static int futex_wake_op(uint32_t *uaddr, int nr_wake, int nr_wake2, uint32_t *u
     return woken;
 }
 
-/* ------------------------------------------------------------------ */
-/*  PI futex helpers                                                    */
-/* ------------------------------------------------------------------ */
+/* PI futex helpers */
 
 /*
  * Get or create a rt_mutex for the given futex word.
@@ -943,9 +925,7 @@ static int futex_cmp_requeue_pi(uint32_t *uaddr, int nr_wake, int nr_requeue, ui
     return woken;
 }
 
-/* ------------------------------------------------------------------ */
-/*  sys_futex                                                           */
-/* ------------------------------------------------------------------ */
+/* sys_futex */
 
 /*
  * Futex syscall entry point.
@@ -1043,8 +1023,7 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
         }
 
         case FUTEX_FD :
-            /* File descriptor association not implemented */
-            return -ENOSYS;
+            return -ENOSYS; // FD-based futexes are not supported
 
         case FUTEX_LOCK_PI : {
             if (!uaddr) return -EFAULT;
@@ -1095,9 +1074,7 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
     }
 }
 
-/* ------------------------------------------------------------------ */
-/*  futex2: sys_futex_wake / sys_futex_wait / sys_futex_requeue        */
-/* ------------------------------------------------------------------ */
+/* futex2: sys_futex_wake / sys_futex_wait / sys_futex_requeue */
 
 /*
  * futex2 is the Linux 6.7+ "futex2" syscall family.  Unlike the classic
@@ -1427,9 +1404,7 @@ int64_t sys_futex_requeue(uint64_t waiters, uint64_t flags, uint64_t nr_wake, ui
     return futex2_requeue_core(wv[0].uaddr, size_code0, wv[1].uaddr, size_code1, (int)nr_wake, (int)nr_requeue, wv[0].val);
 }
 
-/* ------------------------------------------------------------------ */
-/*  futex_init                                                          */
-/* ------------------------------------------------------------------ */
+/* futex_init */
 
 /*
  * Initialize the futex hash table.

@@ -4,10 +4,7 @@
  *      VirtIO-GPU GEM object management
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
- *
- *  Implements GEM object allocation, dumb buffer helpers, and PRIME
- *  export/import stubs for the virtio-gpu driver.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -21,9 +18,7 @@
 #include <mem/hhdm.h>
 #include <mem/page.h>
 
-/* ------------------------------------------------------------------ */
-/* Object alloc / free                                                 */
-/* ------------------------------------------------------------------ */
+/* Object alloc / free */
 
 struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_t size)
 {
@@ -110,9 +105,7 @@ void virtgpu_gem_free_object(struct drm_gem_object *gem_obj)
     free(obj);
 }
 
-/* ------------------------------------------------------------------ */
-/* Dumb buffer helpers                                                 */
-/* ------------------------------------------------------------------ */
+/* Dumb buffer helpers */
 
 int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, struct drm_mode_create_dumb *args)
 {
@@ -195,9 +188,7 @@ int virtgpu_gem_dumb_map_offset(struct drm_file *file_priv, struct drm_device *d
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* PRIME export / import (dma-buf)                                     */
-/* ------------------------------------------------------------------ */
+/* PRIME export / import (dma-buf) */
 
 int virtgpu_gem_prime_export(struct drm_device *dev, struct drm_gem_object *obj, int *prime_fd)
 {

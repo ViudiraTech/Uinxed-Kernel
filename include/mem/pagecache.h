@@ -4,7 +4,7 @@
  *      Unified file page cache
  *
  *      2026/7/28 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -100,7 +100,7 @@ uint64_t          pagecache_page_physical(pagecache_page_t *page);
 uint64_t          pagecache_page_index(pagecache_page_t *page);
 void              pagecache_mark_dirty(pagecache_page_t *page);
 
-/* Some shit it is very ugly */
+/* Reclaim pages to free memory and report resulting stats */
 size_t pagecache_reclaim(size_t target);
 void   pagecache_get_stats(pagecache_stats_t *stats);
 

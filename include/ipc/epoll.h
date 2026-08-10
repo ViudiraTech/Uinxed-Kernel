@@ -4,7 +4,7 @@
  *      Epoll event notification header file
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -14,9 +14,7 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
-/* ------------------------------------------------------------------ */
-/*  Epoll constants                                                    */
-/* ------------------------------------------------------------------ */
+/* Epoll constants */
 
 #define EPOLLIN        0x001
 #define EPOLLPRI       0x002
@@ -42,9 +40,7 @@
 
 #define EPOLL_MAX_EVENTS 256
 
-/* ------------------------------------------------------------------ */
-/*  Epoll structures                                                   */
-/* ------------------------------------------------------------------ */
+/* Epoll structures */
 
 typedef union epoll_data {
         void    *ptr;
@@ -61,9 +57,7 @@ typedef struct epoll_event {
 _Static_assert(sizeof(epoll_event_t) == 12, "Linux x86_64 epoll_event must be 12 bytes");
 _Static_assert(__builtin_offsetof(epoll_event_t, data) == 4, "epoll_event.data must start at byte 4");
 
-/* ------------------------------------------------------------------ */
-/*  Epoll syscall interface                                            */
-/* ------------------------------------------------------------------ */
+/* Epoll syscall interface */
 
 int64_t sys_epoll_create(int size);
 int64_t sys_epoll_create1(int flags);

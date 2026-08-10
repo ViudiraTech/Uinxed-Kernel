@@ -4,11 +4,7 @@
  *      DRM subsystem initialization entry point
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
- *
- *  Creates a singleton DRM device, registers it, and exposes
- *  /dev/dri/card0 via devtmpfs. Designed to be called once from
- *  kernel_entry() after VFS/devtmpfs are available.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -28,9 +24,7 @@
 #include <mem/alloc.h>
 #include <process/process.h>
 
-/* ------------------------------------------------------------------ */
-/* Global DRM device list (replaces singleton)                         */
-/* ------------------------------------------------------------------ */
+/* Global DRM device list (replaces singleton) */
 
 #define DRM_MAX_DEVICES 16
 
@@ -98,9 +92,7 @@ struct drm_device *drm_get_device_by_minor(int type, int index)
     return NULL;
 }
 
-/* ------------------------------------------------------------------ */
-/* Dummy driver for the built-in DRM node                              */
-/* ------------------------------------------------------------------ */
+/* Dummy driver for the built-in DRM node */
 
 static int drm_dummy_open(struct drm_device *dev, struct drm_file *file)
 {
@@ -201,18 +193,14 @@ static struct drm_driver drm_dummy_driver = {
     .num_ioctls       = sizeof(drm_dummy_ioctls) / sizeof(drm_dummy_ioctls[0]),
 };
 
-/* ------------------------------------------------------------------ */
-/* KMS pipeline setup for the dummy driver                              */
-/* ------------------------------------------------------------------ */
+/* KMS pipeline setup for the dummy driver */
 
 static struct drm_crtc      pipeline_crtc;
 static struct drm_plane     pipeline_primary_plane;
 static struct drm_encoder   pipeline_encoder;
 static struct drm_connector pipeline_connector;
 
-/* ------------------------------------------------------------------ */
-/* Configurable mode table - data-driven, not hardcoded in logic       */
-/* ------------------------------------------------------------------ */
+/* Configurable mode table — data-driven, not hardcoded in logic */
 
 typedef struct dummy_mode_cfg {
         const char *name;
@@ -412,9 +400,7 @@ static int drm_dummy_kms_setup(struct drm_device *dev)
     return 0;
 }
 
-/* ------------------------------------------------------------------ */
-/* DRM VFS ioctl wrapper                                               */
-/* ------------------------------------------------------------------ */
+/* DRM VFS ioctl wrapper */
 
 size_t drm_dev_read(void *file, void *addr, size_t offset, size_t size)
 {
@@ -563,9 +549,7 @@ void *drm_dev_mmap(void *file, size_t offset, size_t size, int flags)
     return result;
 }
 
-/* ------------------------------------------------------------------ */
-/* DRM per-open mmap callback (VMA-aware GEM mmap)                     */
-/* ------------------------------------------------------------------ */
+/* DRM per-open mmap callback (VMA-aware GEM mmap) */
 
 void *drm_dev_file_mmap(void *ctx, void *private_data, size_t offset, size_t size, int flags, struct vm_area *vma)
 {
@@ -597,9 +581,7 @@ void *drm_dev_file_mmap(void *ctx, void *private_data, size_t offset, size_t siz
     return obj->backing;
 }
 
-/* ------------------------------------------------------------------ */
-/* DRM open / release callbacks for devtmpfs                           */
-/* ------------------------------------------------------------------ */
+/* DRM open / release callbacks for devtmpfs */
 
 /*
  * When userspace opens /dev/dri/card0, tmpfs calls this open callback.
@@ -644,9 +626,7 @@ void drm_vfs_close_cb(void *current)
     node->handle = NULL;
 }
 
-/* ------------------------------------------------------------------ */
-/* DRM class (global, shared by all DRM devices)                       */
-/* ------------------------------------------------------------------ */
+/* DRM class (global, shared by all DRM devices) */
 
 static int drm_device_uevent(struct device *dev, struct kobj_uevent_env *env)
 {
@@ -661,9 +641,7 @@ struct class drm_class = {
 };
 int drm_class_registered = 0;
 
-/* ------------------------------------------------------------------ */
-/* Public init                                                         */
-/* ------------------------------------------------------------------ */
+/* Public init */
 
 int drm_init(void)
 {

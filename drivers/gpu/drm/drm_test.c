@@ -4,7 +4,7 @@
  *      DRM subsystem functional test
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -54,9 +54,7 @@ static void test_gem_free(test_gem_object_t *obj)
     free(obj);
 }
 
-/* ------------------------------------------------------------------ */
-/* DRM functional test –exercises GEM + framebuffer + ioctl           */
-/* ------------------------------------------------------------------ */
+/* DRM functional test — exercises GEM + framebuffer + ioctl */
 
 void drm_run_test(void)
 {

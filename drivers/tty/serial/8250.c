@@ -4,7 +4,7 @@
  *      PC 16550 UART hardware driver
  *
  *      2026/8/10 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -36,11 +36,11 @@ static uint16_t uart8250_base(const uart_port_t *port)
     return (uint16_t)(uintptr_t)port->private_data;
 }
 
-/* ---- uart_ops ---- */
+/* uart_ops */
 
 static int uart8250_startup(uart_port_t *port)
 {
-    outb(uart8250_base(port) + UART8250_REG_IER, 0x01); /* RX data available */
+    outb(uart8250_base(port) + UART8250_REG_IER, 0x01); // RX data available
     return 0;
 }
 
@@ -53,7 +53,7 @@ static void uart8250_set_termios(uart_port_t *port)
 {
     uint16_t base    = uart8250_base(port);
     uint16_t divisor = 115200 / SERIAL_BAUD_RATE;
-    uint8_t  lcr     = 0x03; /* 8 data bits, no parity, 1 stop bit */
+    uint8_t  lcr     = 0x03; // 8 data bits, no parity, 1 stop bit
 
     (void)port;
     outb(base + UART8250_REG_LCR, 0x80);
@@ -88,7 +88,7 @@ static const uart_ops_t uart8250_ops = {
     .console_write = uart8250_console_write,
 };
 
-/* ---- serial console driver ---- */
+/* serial console driver */
 
 static void serial_console_write(console_t *c, const uint8_t *buf, size_t len)
 {
@@ -102,7 +102,7 @@ static tty_core_t *serial_console_get_tty(console_t *c)
     return port ? port->tty : NULL;
 }
 
-/* ---- detection ---- */
+/* detection */
 
 static int uart8250_detect(uint16_t base)
 {
@@ -113,17 +113,17 @@ static int uart8250_detect(uint16_t base)
     outb(base + UART8250_REG_DATA, divisor & 0xff);
     outb(base + UART8250_REG_IER, (divisor >> 8) & 0xff);
     outb(base + UART8250_REG_LCR, 0x03);
-    outb(base + UART8250_REG_FCR, 0xcf); /* FIFO, 14-byte threshold */
+    outb(base + UART8250_REG_FCR, 0xcf); // FIFO, 14-byte threshold
     outb(base + UART8250_REG_MCR, 0x0f);
-    outb(base + UART8250_REG_MCR, 0x1e); /* loopback */
+    outb(base + UART8250_REG_MCR, 0x1e); // loopback
     outb(base + UART8250_REG_DATA, 0xae);
 
     if (inb(base + UART8250_REG_DATA) != 0xae) return 0;
-    outb(base + UART8250_REG_MCR, 0x0f); /* quit loopback */
+    outb(base + UART8250_REG_MCR, 0x0f); // quit loopback
     return 1;
 }
 
-/* ---- IRQ handling ---- */
+/* IRQ handling */
 
 static int uart8250_irq_of(int number)
 {
@@ -162,7 +162,7 @@ INTERRUPT_BEGIN static void uart8250_irq4_handler(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
-/* ---- registration ---- */
+/* registration */
 
 void init_serial(void)
 {

@@ -3,9 +3,8 @@
  *      blockdev.h
  *      Block device abstraction layer
  *
- *      2026/5/18 By Rainy101112
- *      2026/7/23 By JiTianYu391 –VFS-style callback registration
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      2026/7/23 By Rainy101112 & JiTianYu391
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -18,7 +17,7 @@
 
 #define BLOCKDEV_SECTOR_SIZE 512
 
-/* Ops dispatch macro –mirrors VFS callbackof() */
+/* Ops dispatch macro — mirrors VFS callbackof() */
 #define blk_ops(dev, _name_) (blk_ops_table[(dev)->ops_id]->_name_)
 
 /* Forward declaration */
@@ -49,14 +48,14 @@ typedef struct blockdev_device {
         bool     read_only;
 } blockdev_device_t;
 
-/* Global ops table –populated by driver init */
+/* Global ops table — populated by driver init */
 extern blockdev_ops_t *blk_ops_table;
 #define BLOCKDEV_MAX_TYPES 16
 
 /* Register a block device backend. Returns type id (>=1), or negative errno. */
 int blockdev_register_type(blockdev_ops_t ops);
 
-/* ---- Opening devices ---- */
+/* Opening devices */
 
 /* Open an IDE disk (drive 0-3) */
 int blockdev_open_ide(uint8_t drive, blockdev_device_t *device);
@@ -92,7 +91,7 @@ int blockdev_open_name(const char *name, blockdev_device_t *device);
  */
 int blockdev_open_partition(const blockdev_device_t *parent, uint64_t first_lba, uint64_t sector_count, blockdev_device_t *device);
 
-/* ---- I/O ---- */
+/* I/O */
 
 /* Read `count` sectors starting at `lba` into `buffer` */
 int blockdev_read_sectors(const blockdev_device_t *device, uint64_t lba, uint32_t count, void *buffer);

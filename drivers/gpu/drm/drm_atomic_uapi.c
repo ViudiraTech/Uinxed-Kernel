@@ -4,7 +4,7 @@
  *      DRM atomic UAPI entry points
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -22,9 +22,7 @@
 #include <process/uaccess.h>
 #include <sync/spin_lock.h>
 
-/* ------------------------------------------------------------------ */
-/* Helper: container_of                                                */
-/* ------------------------------------------------------------------ */
+/* Helper: container_of */
 
 #define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
 #define DRM_S32_MAX                     ((int32_t)0x7fffffff)
@@ -44,9 +42,7 @@ static bool drm_atomic_modes_equal(const struct drm_display_mode *a, const struc
            && a->vsync_end == b->vsync_end && a->vtotal == b->vtotal && a->vscan == b->vscan && a->flags == b->flags;
 }
 
-/* ------------------------------------------------------------------ */
-/* Cross-file forward declarations                                     */
-/* ------------------------------------------------------------------ */
+/* Cross-file forward declarations */
 
 static bool drm_atomic_object_has_property(struct drm_mode_object *obj, uint32_t property_id, uint64_t *current)
 {
@@ -330,9 +326,7 @@ static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct d
     return -EINVAL;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_mode_atomic_ioctl: handle DRM_IOCTL_MODE_ATOMIC                  */
-/* ------------------------------------------------------------------ */
+/* drm_mode_atomic_ioctl: handle DRM_IOCTL_MODE_ATOMIC */
 
 int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
@@ -508,9 +502,7 @@ out:
     return ret;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_mode_page_flip_ioctl: handle DRM_IOCTL_MODE_PAGE_FLIP            */
-/* ------------------------------------------------------------------ */
+/* drm_mode_page_flip_ioctl: handle DRM_IOCTL_MODE_PAGE_FLIP */
 
 int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
@@ -668,9 +660,7 @@ err_flip:
     return ret ? ret : -EINVAL;
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_mode_cursor_ioctl: handle DRM_IOCTL_MODE_CURSOR                  */
-/* ------------------------------------------------------------------ */
+/* drm_mode_cursor_ioctl: handle DRM_IOCTL_MODE_CURSOR */
 
 static int drm_mode_cursor_common(struct drm_device *dev, struct drm_file *file_priv, struct drm_mode_cursor *cursor, int32_t hot_x,
                                   int32_t hot_y)
@@ -759,9 +749,7 @@ int drm_mode_cursor_ioctl(struct drm_device *dev, void *data, struct drm_file *f
     return drm_mode_cursor_common(dev, file_priv, cursor, 0, 0);
 }
 
-/* ------------------------------------------------------------------ */
-/* drm_mode_cursor2_ioctl: handle DRM_IOCTL_MODE_CURSOR2               */
-/* ------------------------------------------------------------------ */
+/* drm_mode_cursor2_ioctl: handle DRM_IOCTL_MODE_CURSOR2 */
 
 int drm_mode_cursor2_ioctl(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {

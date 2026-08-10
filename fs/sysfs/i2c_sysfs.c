@@ -4,7 +4,7 @@
  *      I2C bus and i2c-dev userspace interface
  *
  *      2026/8/6 By MicroFish
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -65,9 +65,7 @@ static void i2c_adapter_release(struct device *dev)
     free(adev);
 }
 
-/* ------------------------------------------------------------------ */
-/*  i2c-dev character device                                           */
-/* ------------------------------------------------------------------ */
+/* i2c-dev character device */
 
 typedef struct {
         uint16_t slave_addr;
@@ -212,9 +210,7 @@ rdwr_out:
     }
 }
 
-/* ------------------------------------------------------------------ */
-/*  Adapter lifecycle hooks                                            */
-/* ------------------------------------------------------------------ */
+/* Adapter lifecycle hooks */
 
 int i2c_sysfs_adapter_add(struct i2c_adapter *adap)
 {
@@ -294,9 +290,7 @@ void i2c_sysfs_adapter_del(struct i2c_adapter *adap)
 #endif
 }
 
-/* ------------------------------------------------------------------ */
-/*  Registration                                                       */
-/* ------------------------------------------------------------------ */
+/* Registration */
 
 void i2c_sysfs_init(void)
 {

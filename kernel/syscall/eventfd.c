@@ -4,7 +4,7 @@
  *      Eventfd file descriptor implementation
  *
  *      2026/7/21 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -29,7 +29,7 @@
 
 static int eventfd_fsid = -1;
 
-/* ---------- VFS callback implementations ---------- */
+/* VFS callback implementations */
 
 static void eventfd_vfs_open(void *parent, const char *name, vfs_node_t node)
 {
@@ -168,7 +168,7 @@ static int eventfd_vfs_free(void *handle)
     return EOK;
 }
 
-/* ---------- Generic stubs for unused VFS callbacks ---------- */
+/* Generic stubs for unused VFS callbacks */
 static void eventfd_stub_unmount(void *root)
 {
     (void)root;
@@ -225,7 +225,7 @@ static int eventfd_stub_mount(const char *s, vfs_node_t n)
     return -ENOSYS;
 }
 
-/* ---------- Public API ---------- */
+/* Public API */
 
 static vfs_node_t eventfd_node_create(unsigned int initval, int flags)
 {

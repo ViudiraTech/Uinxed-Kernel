@@ -4,7 +4,7 @@
  *      /sys/kernel/ attribute files (version, cmdline, hostname, etc.)
  *
  *      2026/7/23 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -25,13 +25,9 @@
 #include <mem/alloc.h>
 #include <process/sched.h>
 
-/* ------------------------------------------------------------------ */
-/*  Forward reference                                                  */
-/* ------------------------------------------------------------------ */
+/* Forward reference */
 
-/* ------------------------------------------------------------------ */
-/*  Attribute show functions                                           */
-/* ------------------------------------------------------------------ */
+/* Attribute show functions */
 
 static ssize_t version_show(struct kobject *kobj, struct attribute *attr, char *buf)
 {
@@ -110,9 +106,7 @@ static ssize_t uptime_show(struct kobject *kobj, struct attribute *attr, char *b
     return (ssize_t)sysfs_emit(buf, "%llu.%02llu\n", (unsigned long long)sec, (unsigned long long)cs);
 }
 
-/* ------------------------------------------------------------------ */
-/*  Attribute definitions                                              */
-/* ------------------------------------------------------------------ */
+/* Attribute definitions */
 
 static struct attribute version_attr       = __ATTR_RO(version);
 static struct attribute cmdline_attr       = __ATTR_RO(cmdline);
@@ -127,9 +121,7 @@ static struct attribute *kernel_attrs[] = {
     &version_attr, &cmdline_attr, &hostname_attr, &ostype_attr, &osrelease_attr, &uevent_seqnum_attr, &profiling_attr, &uptime_attr, NULL,
 };
 
-/* ------------------------------------------------------------------ */
-/*  Sysfs ops                                                          */
-/* ------------------------------------------------------------------ */
+/* Sysfs ops */
 
 /*
  * Unified show/store that dispatches to the correct function based
@@ -160,9 +152,7 @@ static const struct sysfs_ops kernel_sysfs_ops_dispatch = {
     .store = kernel_attr_store,
 };
 
-/* ------------------------------------------------------------------ */
-/*  Kobj type                                                          */
-/* ------------------------------------------------------------------ */
+/* Kobj type */
 
 static void kernel_kobj_release(struct kobject *kobj)
 {
@@ -176,9 +166,7 @@ static struct kobj_type kernel_ktype = {
     .default_attrs = kernel_attrs,
 };
 
-/* ------------------------------------------------------------------ */
-/*  Initialization                                                     */
-/* ------------------------------------------------------------------ */
+/* Initialization */
 
 void kernel_sysfs_init(void)
 {

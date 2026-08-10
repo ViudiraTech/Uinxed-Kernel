@@ -4,7 +4,7 @@
  *      Linux-compatible evdev input event subsystem header
  *
  *      2026/7/22 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -24,7 +24,7 @@
 struct device;
 struct evdev;
 
-/* ---- evdev internal constants ---- */
+/* evdev internal constants */
 #define EVDEV_MINOR_BASE      64
 #define EVDEV_MINORS          32
 #define EVDEV_MIN_BUFFER_SIZE 64U
@@ -34,7 +34,7 @@ struct evdev;
 /* Maximum number of simultaneous evdev devices */
 #define EVDEV_MAX_DEVICES 32
 
-/* ---- input device descriptor (attached to each evdev) ---- */
+/* input device descriptor (attached to each evdev) */
 /* This represents the physical/virtual input device capabilities */
 typedef struct input_dev {
         char            name[EVDEV_MAX_NAME_LEN];              // device name
@@ -64,7 +64,7 @@ typedef struct input_dev {
         bool exist;                                            // device is alive
 } input_dev_t;
 
-/* ---- evdev client (one per open fd) ---- */
+/* evdev client (one per open fd) */
 typedef struct evdev_client {
         evdev_queue_t     queue;       // packet-aware event ring
         spinlock_t        buffer_lock; // protects buffer, head, tail
@@ -74,13 +74,12 @@ typedef struct evdev_client {
         ilist_node_t      node;        // linkage in evdev->client_list
         int               clk_type;    // CLOCK_REALTIME / CLOCK_MONOTONIC / CLOCK_BOOTTIME
         bool              revoked;     // device access revoked
-        /* Event filter masks */
-        uint32_t *evmasks[EV_CNT];
-        /* Flexible array member (What the hell?) */
-        input_event_t buffer[];
+                                       /* Event filter masks */
+        uint32_t     *evmasks[EV_CNT];
+        input_event_t buffer[]; // flexible array member, grown on demand
 } evdev_client_t;
 
-/* ---- evdev device (one per input device) ---- */
+/* evdev device (one per input device) */
 typedef struct evdev {
         int              open_count;  // number of open clients
         input_dev_t     *input_dev;   // associated input device
@@ -97,7 +96,7 @@ typedef struct evdev {
         struct device   *sysfs_device;
 } evdev_t;
 
-/* ---- Public API ---- */
+/* Public API */
 
 /*
  * Allocate and initialize a new evdev device for the given input_dev.
@@ -127,7 +126,7 @@ int      evdev_publish_nodes(void);
 /* Initialize the evdev subsystem. Called once at boot. */
 void evdev_init(void);
 
-/* ---- Event injection API (called by input device drivers) ---- */
+/* Event injection API (called by input device drivers) */
 
 /*
  * Inject a single event into the evdev subsystem.
@@ -142,7 +141,7 @@ void evdev_inject_events(input_dev_t *dev, const input_event_t *events, size_t c
 /* Inject a SYN_REPORT event to flush the current packet. */
 void evdev_inject_syn(input_dev_t *dev);
 
-/* ---- File operation callbacks (for VFS integration) ---- */
+/* File operation callbacks (for VFS integration) */
 
 /*
  * These are the file_operations callbacks for /dev/input/eventX nodes.

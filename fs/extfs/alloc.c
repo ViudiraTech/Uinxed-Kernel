@@ -4,7 +4,7 @@
  *      ext2/ext3/ext4 filesystem - block and inode allocation
  *
  *      2026/7/29 By JiTianYu391
- *      Copyright © 2026 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2026 ViudiraTech, based on the Apache 2.0 license.
  *
  */
 
@@ -15,6 +15,13 @@
 #include <mem/alloc.h>
 #include <mem/heap.h>
 #include <process/sched.h>
+
+/*
+ * Block and inode allocation
+ * Bitmap-based allocation for data blocks and inode numbers: search
+ * the block/inode bitmaps for a free slot, mark it and update the
+ * on-disk group descriptors.
+ */
 
 static int extfs_test_bit(const uint8_t *bitmap, uint32_t bit)
 {

@@ -4,9 +4,10 @@
  *      PS/2 keyboard input driver
  *
  *      2026/7/25 By JiTianYu391
- *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
+
 #include <drivers/input/evdev/evdev.h>
 #include <drivers/input/ps2/ps2.h>
 #include <drivers/input/ps2/ps2_keyboard.h>
