@@ -244,6 +244,7 @@ static uint8_t ide_print_error(uint32_t drive, uint8_t err)
 /* Initialize IDE */
 void init_ide(void)
 {
+#if CONFIG_ATA
     base_address_register_t bars[6];
     uint32_t                bar_addrs[6];
 
@@ -267,6 +268,7 @@ void init_ide(void)
         bar_addrs[idx] = cast.val;
     }
     ide_initialize(bar_addrs[0], bar_addrs[1], bar_addrs[2], bar_addrs[3], bar_addrs[4]);
+#endif
 }
 
 /* Read a byte of data from the specified register of the IDE device */

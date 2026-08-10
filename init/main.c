@@ -191,9 +191,7 @@ void kernel_entry(void)
     init_frame();           // Physical Memory Frame
     page_init();            // Standard 4-Level Page Table
     init_heap();            // Standard Memory Heap
-#if CONFIG_SWAP             //
     swap_init();            // Anonymous-memory swap area manager
-#endif                      //
     lmodule_init();         // Limine Kernel Module
                             //
     init_serial();          // Standard RS-232 Serial Port (needs the heap)
@@ -247,13 +245,9 @@ void kernel_entry(void)
     log_buffer_print(&lmodule_log);  //
                                      //
     /* Device Drivers */             //
-#if CONFIG_ATA                       //
     init_ide();                      // ATA / ATAPI
     init_ahci();                     // Advanced Host Controller Interface
-#endif                               //
-#if CONFIG_NVME                      //
     nvme_init();                     // Non-Volatile Memory Express
-#endif                               //
     block_register_all_disks();      // Publish discovered disks into the gendisk registry
     net_init();                      // Initialize ARP/NDP caches and DHCP client
     e1000_init();                    // Intel 8254x Gigabit Ethernet

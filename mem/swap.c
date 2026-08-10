@@ -229,9 +229,11 @@ int swap_entry_release_pte(uint64_t pte)
 
 void swap_init(void)
 {
+#    if CONFIG_SWAP
     memset(swap_areas, 0, sizeof(swap_areas));
     swap_lock.lock   = 0;
     swap_lock.rflags = 0;
+#    endif
 }
 
 static int swap_area_alloc(uint8_t *type, swap_area_t **area)

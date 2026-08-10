@@ -773,6 +773,7 @@ int nvme_flush(const struct blockdev_device *dev)
 
 void nvme_init(void)
 {
+#if CONFIG_NVME
     pci_device_cache_t *dev;
     pci_class_request_t nvme_class = {.class_code = 0x010802};
     int                 count      = 0;
@@ -792,6 +793,7 @@ void nvme_init(void)
     nvme_initialised = 1;
 
     if (count > 0) plogk("nvme: %u controller(s) registered.\n", count);
+#endif
 }
 
 int nvme_controller_count(void)

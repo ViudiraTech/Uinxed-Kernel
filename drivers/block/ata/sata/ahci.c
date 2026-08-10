@@ -356,6 +356,7 @@ int ahci_flush_cache(uint8_t drive)
 
 void init_ahci(void)
 {
+#if CONFIG_ATA
     pci_device_find(&ahci_pci_request);
     if (ahci_pci_request.response->error != PCI_FINDING_SUCCESS) return;
 
@@ -543,4 +544,5 @@ void init_ahci(void)
     if (ahci_device_count > 0) plogk("ahci: %u device(s) found (%u SATA, %u SATAPI)\n", ahci_device_count, sata_count, satapi_count);
 
     ahci_satapi_init();
+#endif
 }
