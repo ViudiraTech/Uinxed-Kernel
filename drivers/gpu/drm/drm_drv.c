@@ -245,7 +245,7 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
     /* Register under /sys/class/drm/ (one entry per GPU) */
     if (drm_class_registered && dev->primary) {
         struct device *ddev = device_create(&drm_class, NULL, MKDEV(226, dev->primary->index), dev, "card%d", dev->primary->index);
-        if (ddev) { DRM_INFO("Created /sys/class/drm/%s\n", kobject_name(&ddev->kobj)); }
+        if (ddev) DRM_INFO("Created /sys/class/drm/%s\n", kobject_name(&ddev->kobj));
     }
 
     /* Register /dev/dri/cardN via devtmpfs. */
@@ -308,7 +308,7 @@ int drm_dev_register(struct drm_device *dev, uint64_t flags)
 
 void drm_dev_unregister(struct drm_device *dev)
 {
-    if (!dev) { return; }
+    if (!dev) return;
     drm_dev_put(dev);
 }
 
@@ -463,7 +463,7 @@ void drm_release(struct drm_file *file)
 {
     struct drm_device *dev;
 
-    if (!file) { return; }
+    if (!file) return;
 
     dev = (struct drm_device *)file->minor_unused;
 
@@ -490,9 +490,9 @@ void drm_release(struct drm_file *file)
         dev->open_count--;
         spin_unlock(&dev->filelist_lock);
 
-        if (dev->driver && dev->driver->postclose) { dev->driver->postclose(dev, file); }
+        if (dev->driver && dev->driver->postclose) dev->driver->postclose(dev, file);
 
-        if (dev->open_count == 0 && dev->driver && dev->driver->lastclose) { dev->driver->lastclose(dev); }
+        if (dev->open_count == 0 && dev->driver && dev->driver->lastclose) dev->driver->lastclose(dev);
     } else {
         ilist_remove(&file->head);
     }

@@ -246,7 +246,7 @@ static vfs_node_t timerfd_node_create(int clockid, int flags)
 
 int sys_timerfd_create(int clockid, int flags)
 {
-    if (clockid != CLOCK_REALTIME && clockid != CLOCK_MONOTONIC && clockid != CLOCK_BOOTTIME) { return -EINVAL; }
+    if (clockid != CLOCK_REALTIME && clockid != CLOCK_MONOTONIC && clockid != CLOCK_BOOTTIME) return -EINVAL;
     if (flags & ~(TFD_NONBLOCK | TFD_CLOEXEC)) return -EINVAL;
 
     process_t *proc = process_current();

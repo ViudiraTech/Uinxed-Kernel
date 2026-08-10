@@ -421,7 +421,7 @@ int64_t audio_file_write(void *ctx, void *private_data, uint64_t flags, const vo
             pf->period_size     = 1024;
             pf->start_threshold = 2048;
             pf->avail_min       = 1024;
-            if (pcm_ring_buffer_init(pf, pf->start_threshold * 4) != EOK) { return -ENOMEM; }
+            if (pcm_ring_buffer_init(pf, pf->start_threshold * 4) != EOK) return -ENOMEM;
             pf->period_bytes = pf->period_size * fb;
         }
         pf->state = SNDRV_PCM_STATE_PREPARED;
@@ -455,7 +455,7 @@ int64_t audio_file_write(void *ctx, void *private_data, uint64_t flags, const vo
             pf->state = SNDRV_PCM_STATE_RUNNING;
         }
 
-        if (pf->period_event) { pf->period_event = 0; }
+        if (pf->period_event) pf->period_event = 0;
     }
     spin_unlock(&pf->lock);
     wait_queue_wake_all(&pf->read_wait);

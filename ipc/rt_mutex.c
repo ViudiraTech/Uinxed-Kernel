@@ -83,13 +83,13 @@ void pi_propagate_chain(task_t *owner)
     while (owner) {
         rt_mutex_t *mutex = owner->blocked_on;
         if (!mutex) {
-            if (owner->weight != owner->base_weight) { owner->weight = owner->base_weight; }
+            if (owner->weight != owner->base_weight) owner->weight = owner->base_weight;
             return;
         }
 
         uint32_t new_weight = pi_effective_weight(owner);
 
-        if (new_weight != owner->weight) { owner->weight = new_weight; }
+        if (new_weight != owner->weight) owner->weight = new_weight;
 
         owner = mutex->owner;
     }
@@ -104,7 +104,7 @@ void pi_waiter_remove(task_t *waiter)
     rt_mutex_t *mutex = waiter->blocked_on;
     if (!mutex) return;
 
-    if (!rb_is_empty(&mutex->pi_waiters)) { rb_erase_augmented(&mutex->pi_waiters, &waiter->pi_node, pi_waiter_augment, NULL); }
+    if (!rb_is_empty(&mutex->pi_waiters)) rb_erase_augmented(&mutex->pi_waiters, &waiter->pi_node, pi_waiter_augment, NULL);
 
     waiter->blocked_on = NULL;
 
@@ -203,13 +203,13 @@ int rt_mutex_unlock(rt_mutex_t *mutex, task_t *self)
         pi_waiter_remove(next);
 
         uint32_t old_futex_val = 0;
-        if (mutex->uaddr) { copy_from_user(&old_futex_val, mutex->uaddr, sizeof(old_futex_val)); }
+        if (mutex->uaddr) copy_from_user(&old_futex_val, mutex->uaddr, sizeof(old_futex_val));
 
         task_wakeup(next);
 
         uint32_t new_futex_val = (next->pid & FUTEX_TID_MASK);
-        if (!ilist_is_empty(&mutex->wq.tasks)) { new_futex_val |= FUTEX_WAITERS; }
-        if (mutex->uaddr) { copy_to_user(mutex->uaddr, &new_futex_val, sizeof(new_futex_val)); }
+        if (!ilist_is_empty(&mutex->wq.tasks)) new_futex_val |= FUTEX_WAITERS;
+        if (mutex->uaddr) copy_to_user(mutex->uaddr, &new_futex_val, sizeof(new_futex_val));
     }
 
     return EOK;

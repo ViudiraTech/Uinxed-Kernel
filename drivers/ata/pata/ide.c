@@ -301,7 +301,7 @@ void ide_write(uint8_t channel, uint8_t reg, uint8_t data)
         outb(channels[channel].ctrl + reg - 0x0a, data);
     else if (reg < 0x16)
         outb(channels[channel].bmide + reg - 0x0e, data);
-    if (reg > 0x07 && reg < 0x0c) { outb(channels[channel].ctrl + ATA_REG_CONTROL - 0x0a, channels[channel].nIEN); }
+    if (reg > 0x07 && reg < 0x0c) outb(channels[channel].ctrl + ATA_REG_CONTROL - 0x0a, channels[channel].nIEN);
 }
 
 /* Read multiple words of data from the specified register of the IDE device into the buffer */

@@ -235,7 +235,7 @@ static int mkdir_node(void *parent, const char *name, vfs_node_t node)
     node->mode = 0755;
     node->flags |= VFS_NODE_DELETE_SYNC;
     status = populate(node);
-    if (status != EOK) { cgroup_destroy(cgroup); }
+    if (status != EOK) cgroup_destroy(cgroup);
     return status;
 }
 

@@ -617,7 +617,7 @@ int extfs_dir_read_entries(extfs_handle_t *dir_h, void *buf, size_t bufsize, siz
         }
 
         total_offset += de->rec_len;
-        if (boff + de->rec_len >= sb->block_size) { block_num++; }
+        if (boff + de->rec_len >= sb->block_size) block_num++;
     }
 
     free(block_buf);
@@ -750,7 +750,7 @@ int extfs_dir_empty(extfs_handle_t *dir_h)
         }
 
         total_offset += de->rec_len;
-        if (boff + de->rec_len >= sb->block_size) { block_num++; }
+        if (boff + de->rec_len >= sb->block_size) block_num++;
     }
 
     free(block_buf);

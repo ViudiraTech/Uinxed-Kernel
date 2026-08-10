@@ -44,7 +44,7 @@ int drm_ht_create(struct drm_open_hash *ht, unsigned int order)
         return -ENOMEM;
     }
 
-    for (i = 0; i < ht->size; i++) { ilist_init(&ht->table[i]); }
+    for (i = 0; i < ht->size; i++) ilist_init(&ht->table[i]);
 
     return 0;
 }

@@ -97,7 +97,7 @@ static int init_serial_port(uint16_t port)
     outb(port + SERIAL_REG_DATA, 0xae);                  // Test serial port
 
     /* Check if there is a problem with the serial port */
-    if (inb(port + SERIAL_REG_DATA) != 0xae) { return 0; }
+    if (inb(port + SERIAL_REG_DATA) != 0xae) return 0;
     outb(port + SERIAL_REG_MCR, 0x0f); // Quit loopback mode
     serial_port_ready[index] = 1;
     return 1;

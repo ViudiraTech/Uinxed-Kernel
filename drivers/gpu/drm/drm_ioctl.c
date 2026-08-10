@@ -52,10 +52,10 @@
 
 int drm_ioctl_permit(unsigned int flags, struct drm_file *file_priv)
 {
-    if (!file_priv) { return -EACCES; }
+    if (!file_priv) return -EACCES;
 
     if (flags & DRM_AUTH) {
-        if (!file_priv->authenticated) { return -EACCES; }
+        if (!file_priv->authenticated) return -EACCES;
     }
 
     if (flags & DRM_MASTER) {
@@ -64,14 +64,14 @@ int drm_ioctl_permit(unsigned int flags, struct drm_file *file_priv)
          * userspace (weston via libseat's noop launcher) never issues
          * SET_MASTER.  Any authenticated client is granted master.
          */
-        if (!file_priv->authenticated) { return -EACCES; }
+        if (!file_priv->authenticated) return -EACCES;
     }
 
     /*
      * DRM_ROOT_ONLY ???no root concept in freestanding kernel;
      * always deny for safety.
      */
-    if (flags & DRM_ROOT_ONLY) { return -EACCES; }
+    if (flags & DRM_ROOT_ONLY) return -EACCES;
 
     return 0;
 }
@@ -86,7 +86,7 @@ int drm_get_cap(struct drm_device *dev, void *data, struct drm_file *file_priv)
 
     (void)file_priv;
 
-    if (!dev || !cap) { return -EINVAL; }
+    if (!dev || !cap) return -EINVAL;
 
     switch (cap->capability) {
         case DRM_CAP_DUMB_BUFFER :
@@ -138,7 +138,7 @@ int drm_set_client_cap(struct drm_device *dev, void *data, struct drm_file *file
 
     (void)dev;
 
-    if (!data || !file_priv) { return -EINVAL; }
+    if (!data || !file_priv) return -EINVAL;
 
     switch (cap->capability) {
         case DRM_CLIENT_CAP_STEREO_3D :
@@ -289,7 +289,7 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
     }
 
     /* 5. Search driver ioctls (full cmd match). */
-    if (dev->driver->ioctls && dev->driver->num_ioctls > 0) { desc = find_ioctl_desc(cmd, dev->driver->ioctls, dev->driver->num_ioctls); }
+    if (dev->driver->ioctls && dev->driver->num_ioctls > 0) desc = find_ioctl_desc(cmd, dev->driver->ioctls, dev->driver->num_ioctls);
 
     /*
      * 6. Dumb-buffer / PRIME fallback dispatch.
@@ -345,7 +345,7 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
     }
 
     /* 7. Fall back to core ioctls. */
-    if (!desc) { desc = find_ioctl_desc(cmd, drm_core_ioctls, sizeof(drm_core_ioctls) / sizeof(drm_core_ioctls[0])); }
+    if (!desc) desc = find_ioctl_desc(cmd, drm_core_ioctls, sizeof(drm_core_ioctls) / sizeof(drm_core_ioctls[0]));
 
     if (!desc) {
         ret = -ENOTTY;
@@ -412,7 +412,7 @@ int drm_version(struct drm_device *dev, void *data, struct drm_file *file_priv)
 
     (void)file_priv;
 
-    if (!dev || !data) { return -EINVAL; }
+    if (!dev || !data) return -EINVAL;
 
     ver = (struct drm_version *)data;
 

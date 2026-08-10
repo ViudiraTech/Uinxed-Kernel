@@ -810,7 +810,7 @@ void fbcon_ansi_write(const uint8_t *buf, size_t len)
 {
     spin_lock(&fbcon_lock);
     redraw_deferred++;
-    for (size_t i = 0; i < len; i++) { vt_ansi_process(&vt_ansi_state, buf[i], &vt_ansi_cb, NULL); }
+    for (size_t i = 0; i < len; i++) vt_ansi_process(&vt_ansi_state, buf[i], &vt_ansi_cb, NULL);
     redraw_deferred--;
     fbcon_flush_screen_updates();
     spin_unlock(&fbcon_lock);

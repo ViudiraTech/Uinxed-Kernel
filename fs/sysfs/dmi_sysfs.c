@@ -175,7 +175,7 @@ void dmi_sysfs_init(void)
     if (dmi_sysfs_ready) return;
     if (!smbios_entry()) return;
 
-    if (class_register(&dmi_class) == EOK) { (void)device_create(&dmi_class, NULL, 0, NULL, "id"); }
+    if (class_register(&dmi_class) == EOK) (void)device_create(&dmi_class, NULL, 0, NULL, "id");
 
     firmware_kobj = NULL;
     if (sysfs_root_kobj) {

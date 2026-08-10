@@ -373,9 +373,9 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
 
     /* Allocate atomic state */
     state = drm_atomic_state_alloc(dev);
-    if (!state) { return -ENOMEM; }
+    if (!state) return -ENOMEM;
 
-    if (atomic->flags & DRM_MODE_ATOMIC_ALLOW_MODESET) { state->allow_modeset = 1; }
+    if (atomic->flags & DRM_MODE_ATOMIC_ALLOW_MODESET) state->allow_modeset = 1;
     state->file_priv       = file_priv;
     state->user_data       = atomic->user_data;
     state->page_flip_event = !!(atomic->flags & DRM_MODE_PAGE_FLIP_EVENT);
@@ -468,7 +468,7 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
         }
     }
 
-    if (ret < 0) { goto out; }
+    if (ret < 0) goto out;
 
     /* Test-only or commit */
     if (atomic->flags & DRM_MODE_ATOMIC_TEST_ONLY) {

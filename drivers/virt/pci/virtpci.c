@@ -164,7 +164,7 @@ static int vp_scan_caps(struct vp_device *dev)
             case VIRTIO_PCI_CAP_DEVICE_CFG :
                 dev->device_cap = cap;
                 dev->device_cfg = vp_map_cap_bar(dev, &cap);
-                if (dev->device_cfg) { plogk("virtpci: Device cfg at BAR%u+0x%x (len %u)\n", cap.bar, cap.offset, cap.length); }
+                if (dev->device_cfg) plogk("virtpci: Device cfg at BAR%u+0x%x (len %u)\n", cap.bar, cap.offset, cap.length);
                 break;
             default :
                 break;
@@ -187,12 +187,12 @@ static int vp_scan_caps(struct vp_device *dev)
 
 void vp_set_status(struct vp_device *dev, uint8_t status)
 {
-    if (dev->common) { dev->common->device_status = status; }
+    if (dev->common) dev->common->device_status = status;
 }
 
 uint8_t vp_get_status(struct vp_device *dev)
 {
-    if (!dev->common) { return 0xff; }
+    if (!dev->common) return 0xff;
     return dev->common->device_status;
 }
 
@@ -211,7 +211,7 @@ int vp_negotiate_features(struct vp_device *dev, uint64_t guest_features, uint64
 {
     uint32_t lo, hi;
 
-    if (!dev->common) { return -ENODEV; }
+    if (!dev->common) return -ENODEV;
 
     /* Device features (must be read in two phases) */
     dev->common->device_feature_select = 0;
@@ -232,7 +232,7 @@ int vp_negotiate_features(struct vp_device *dev, uint64_t guest_features, uint64
     dev->common->driver_feature        = hi;
 
     dev->features = ((uint64_t)hi << 32) | lo;
-    if (negotiated) { *negotiated = dev->features; }
+    if (negotiated) *negotiated = dev->features;
 
     plogk("virtpci: Negotiated features: 0x%016llx\n", dev->features);
     return 0;
@@ -248,8 +248,8 @@ void vp_read_device_config(struct vp_device *dev, void *buf, int offset, int len
     uint8_t          *dst = (uint8_t *)buf;
     int               i;
 
-    if (!cfg) { return; }
-    for (i = 0; i < len; i++) { dst[i] = cfg[offset + i]; }
+    if (!cfg) return;
+    for (i = 0; i < len; i++) dst[i] = cfg[offset + i];
 }
 
 void vp_write_device_config(struct vp_device *dev, const void *buf, int offset, int len)
@@ -258,8 +258,8 @@ void vp_write_device_config(struct vp_device *dev, const void *buf, int offset, 
     const uint8_t    *src = (const uint8_t *)buf;
     int               i;
 
-    if (!cfg) { return; }
-    for (i = 0; i < len; i++) { cfg[offset + i] = src[i]; }
+    if (!cfg) return;
+    for (i = 0; i < len; i++) cfg[offset + i] = src[i];
 }
 
 /* ------------------------------------------------------------------ */
@@ -276,7 +276,7 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
     int                            i;
     struct vp_common_cfg volatile *common = dev->common;
 
-    if (!common || index >= common->num_queues) { return -EINVAL; }
+    if (!common || index >= common->num_queues) return -EINVAL;
 
     /* Select the queue */
     common->queue_select = index;
@@ -285,12 +285,12 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
         return -ENODEV;
     }
 
-    if (num > common->queue_size) { num = common->queue_size; }
+    if (num > common->queue_size) num = common->queue_size;
     if (num & (num - 1)) {
         /* round down to power of two */
-        while (num & (num - 1)) { num &= num - 1; }
+        while (num & (num - 1)) num &= num - 1;
     }
-    if (num < 2) { num = 2; }
+    if (num < 2) num = 2;
 
     /*
      * Write the actual queue size back to the device before configuring
@@ -347,7 +347,7 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
      *
      * Initial chain: free_head →0 →1 →2 →... →num-1
      */
-    for (i = 0; i < num; i++) { vq->free_descs[i] = (uint16_t)(i + 1); }
+    for (i = 0; i < num; i++) vq->free_descs[i] = (uint16_t)(i + 1);
     /*
      * The last descriptor has no next –its free_descs entry is never
      * read until it has first been pushed back (which overwrites it).
@@ -371,7 +371,7 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
 
 void vp_del_vq(struct vp_virtqueue *vq)
 {
-    if (!vq) { return; }
+    if (!vq) return;
 
     free(vq->free_descs);
     free(vq->desc_data);
@@ -490,7 +490,7 @@ void *virtqueue_get_buf(struct vp_virtqueue *vq, uint32_t *len)
     }
 
     uint32_t used_head = vq->used->ring[vq->used_idx & (vq->num_max - 1)].id;
-    if (len) { *len = vq->used->ring[vq->used_idx & (vq->num_max - 1)].len; }
+    if (len) *len = vq->used->ring[vq->used_idx & (vq->num_max - 1)].len;
     vq->used_idx++;
 
     if (used_head >= (uint32_t)vq->num_max) {
@@ -533,7 +533,7 @@ void virtqueue_kick(struct vp_virtqueue *vq)
     struct vp_device *vp = vq->vp;
     uint32_t          off;
 
-    if (!vp || !vp->notify_base) { return; }
+    if (!vp || !vp->notify_base) return;
 
     off = vq->notify_off * vp->notify_off_multiplier;
 
@@ -576,7 +576,7 @@ int vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev
         /* Force a re-scan of the PCI bus */
         pci_flush_devices_cache();
         cache = pci_found_device_cache(NULL, req);
-        if (!cache) { return -ENODEV; }
+        if (!cache) return -ENODEV;
     }
 
     dev->pci_dev   = cache;
@@ -588,7 +588,7 @@ int vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev
 
     /* Scan capabilities */
     ret = vp_scan_caps(dev);
-    if (ret) { return ret; }
+    if (ret) return ret;
 
     /* Reset device */
     vp_reset_device(dev);
@@ -605,7 +605,7 @@ int vp_setup_device(struct vp_device *dev)
 
 void vp_release_device(struct vp_device *dev)
 {
-    if (!dev) { return; }
+    if (!dev) return;
 
     vp_reset_device(dev);
     dev->common      = NULL;

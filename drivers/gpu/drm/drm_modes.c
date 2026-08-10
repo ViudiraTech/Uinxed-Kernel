@@ -38,10 +38,10 @@ struct drm_display_mode *drm_mode_create(struct drm_device *dev)
 {
     struct drm_display_mode *mode;
 
-    if (!dev) { return NULL; }
+    if (!dev) return NULL;
 
     mode = malloc(sizeof(*mode));
-    if (!mode) { return NULL; }
+    if (!mode) return NULL;
     memset(mode, 0, sizeof(*mode));
 
     if (drm_mode_object_idr_alloc(dev, &mode->base, DRM_MODE_OBJECT_MODE)) {
@@ -62,7 +62,7 @@ struct drm_display_mode *drm_mode_create(struct drm_device *dev)
  */
 void drm_mode_destroy(struct drm_device *dev, struct drm_display_mode *mode)
 {
-    if (!dev || !mode) { return; }
+    if (!dev || !mode) return;
 
     ilist_remove(&mode->head);
 
@@ -84,7 +84,7 @@ void drm_mode_destroy(struct drm_device *dev, struct drm_display_mode *mode)
  */
 void drm_mode_probed_add(struct drm_connector *connector, struct drm_display_mode *mode)
 {
-    if (!connector || !mode) { return; }
+    if (!connector || !mode) return;
 
     ilist_insert_after(&connector->modes, &mode->head);
     mode->connector_count++;
@@ -104,7 +104,7 @@ void drm_mode_copy(struct drm_display_mode *dst, const struct drm_display_mode *
     struct drm_mode_object base = dst->base;
     ilist_node_t           head = dst->head;
 
-    if (!dst || !src) { return; }
+    if (!dst || !src) return;
 
     memcpy(dst, src, sizeof(*dst));
     dst->base = base;
@@ -121,7 +121,7 @@ void drm_mode_copy(struct drm_display_mode *dst, const struct drm_display_mode *
  */
 static bool drm_mode_equal(const struct drm_display_mode *mode1, const struct drm_display_mode *mode2)
 {
-    if (!mode1 || !mode2) { return false; }
+    if (!mode1 || !mode2) return false;
 
     if (mode1->clock != mode2->clock || mode1->hdisplay != mode2->hdisplay || mode1->vdisplay != mode2->vdisplay || mode1->flags != mode2->flags
         || mode1->type != mode2->type) {
@@ -145,10 +145,10 @@ struct drm_display_mode *drm_convert_umode(const struct drm_mode_modeinfo *umode
 {
     struct drm_display_mode *mode;
 
-    if (!umode) { return NULL; }
+    if (!umode) return NULL;
 
     mode = malloc(sizeof(*mode));
-    if (!mode) { return NULL; }
+    if (!mode) return NULL;
     memset(mode, 0, sizeof(*mode));
 
     mode->clock           = (int)umode->clock;
@@ -183,7 +183,7 @@ struct drm_display_mode *drm_convert_umode(const struct drm_mode_modeinfo *umode
  */
 void drm_convert_to_umode(struct drm_mode_modeinfo *out, const struct drm_display_mode *in)
 {
-    if (!out || !in) { return; }
+    if (!out || !in) return;
 
     memset(out, 0, sizeof(*out));
 
@@ -235,16 +235,16 @@ int drm_mode_vrefresh(const struct drm_display_mode *mode)
     unsigned int num = 1, den = 1;
     uint64_t     clock, total;
 
-    if (mode->htotal == 0 || mode->vtotal == 0) { return 0; }
+    if (mode->htotal == 0 || mode->vtotal == 0) return 0;
 
-    if (mode->flags & DRM_MODE_FLAG_INTERLACE) { num *= 2; }
-    if (mode->flags & DRM_MODE_FLAG_DBLSCAN) { den *= 2; }
-    if (mode->vscan > 1) { den *= (unsigned int)mode->vscan; }
+    if (mode->flags & DRM_MODE_FLAG_INTERLACE) num *= 2;
+    if (mode->flags & DRM_MODE_FLAG_DBLSCAN) den *= 2;
+    if (mode->vscan > 1) den *= (unsigned int)mode->vscan;
 
     clock = (uint64_t)(unsigned int)mode->clock * num;
     total = (uint64_t)(unsigned int)mode->htotal * (unsigned int)mode->vtotal * den;
 
-    if (!total) { return 0; }
+    if (!total) return 0;
 
     return (int)((clock * 1000 + total / 2) / total);
 }
@@ -276,7 +276,7 @@ struct drm_display_mode *drm_mode_duplicate(struct drm_device *dev, const struct
     struct drm_display_mode *nmode;
 
     nmode = drm_mode_create(dev);
-    if (!nmode) { return NULL; }
+    if (!nmode) return NULL;
 
     drm_mode_copy(nmode, mode);
 

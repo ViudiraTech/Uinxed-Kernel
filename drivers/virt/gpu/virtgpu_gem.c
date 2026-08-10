@@ -30,7 +30,7 @@ struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_
     struct virtio_gpu_object *obj;
 
     obj = malloc(sizeof(*obj));
-    if (!obj) { return NULL; }
+    if (!obj) return NULL;
     memset(obj, 0, sizeof(*obj));
     obj->context_lock.lock = 0;
 
@@ -87,7 +87,7 @@ void virtgpu_gem_free_object(struct drm_gem_object *gem_obj)
     struct virtio_gpu_object *obj = to_virtio_gpu_object(gem_obj);
     struct virtio_gpu_device *vgdev;
 
-    if (!obj) { return; }
+    if (!obj) return;
     vgdev = (struct virtio_gpu_device *)gem_obj->dev->dev_private;
 
     /* Release host-side resource */
@@ -132,7 +132,7 @@ int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, 
     size        = args->size;
 
     obj = virtgpu_gem_alloc_object(dev, size);
-    if (!obj) { return -ENOMEM; }
+    if (!obj) return -ENOMEM;
 
     obj->format     = DRM_FORMAT_XRGB8888;
     obj->width      = args->width;
@@ -179,7 +179,7 @@ int virtgpu_gem_dumb_map_offset(struct drm_file *file_priv, struct drm_device *d
 
     (void)dev;
     gem_obj = drm_gem_object_lookup(file_priv, handle);
-    if (!gem_obj) { return -ENOENT; }
+    if (!gem_obj) return -ENOENT;
 
     /*
      * Use the GEM object's backing memory address as the mmap offset.
@@ -209,7 +209,7 @@ struct drm_gem_object *virtgpu_gem_prime_import(struct drm_device *dev, void *dm
 {
     struct drm_gem_object *obj = (struct drm_gem_object *)dma_buf;
 
-    if (!obj || obj->dev != dev) { return NULL; }
+    if (!obj || obj->dev != dev) return NULL;
     drm_gem_object_get(obj);
     return obj;
 }

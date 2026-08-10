@@ -191,7 +191,7 @@ void fpu_init(void)
 #    if CPU_FEATURE_AVX
         if (cpu_support_avx() && cpu_xcr0_supports(XCR0_FPU_MASK | XCR0_AVX_BIT)) xcr0_mask |= XCR0_AVX_BIT;
 #        if CPU_FEATURE_AVX512
-        if (cpu_support_avx512f() && cpu_xcr0_supports(XCR0_FPU_MASK | XCR0_AVX_BIT | XCR0_AVX512_MASK)) { xcr0_mask |= XCR0_AVX512_MASK; }
+        if (cpu_support_avx512f() && cpu_xcr0_supports(XCR0_FPU_MASK | XCR0_AVX_BIT | XCR0_AVX512_MASK)) xcr0_mask |= XCR0_AVX512_MASK;
 #        endif
 #    endif
         uint64_t cr4;

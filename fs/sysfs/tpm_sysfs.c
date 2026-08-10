@@ -139,8 +139,8 @@ void tpm_sysfs_init(void)
     tpm_device_t *tpm = tpm_get_device();
     if (!tpm) return;
 
-    if (class_register(&tpm_class) == EOK) { (void)device_create(&tpm_class, NULL, MKDEV(TPM_DEV_MAJOR, TPM0_MINOR), tpm, "tpm0"); }
-    if (class_register(&tpmrm_class) == EOK) { (void)device_create(&tpmrm_class, NULL, MKDEV(TPM_DEV_MAJOR, TPMRM0_MINOR), tpm, "tpmrm0"); }
+    if (class_register(&tpm_class) == EOK) (void)device_create(&tpm_class, NULL, MKDEV(TPM_DEV_MAJOR, TPM0_MINOR), tpm, "tpm0");
+    if (class_register(&tpmrm_class) == EOK) (void)device_create(&tpmrm_class, NULL, MKDEV(TPM_DEV_MAJOR, TPMRM0_MINOR), tpm, "tpmrm0");
     plogk("tpm_sysfs: /sys/class/tpm/tpm0 and /sys/class/tpmrm/tpmrm0 registered.\n");
 #endif
 }

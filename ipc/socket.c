@@ -669,7 +669,7 @@ static void socket_free(socket_t *sk)
     }
 
     /* Netlink cleanup */
-    if (sk->family == AF_NETLINK && sk->priv) { netlink_close(sk); }
+    if (sk->family == AF_NETLINK && sk->priv) netlink_close(sk);
 
     /* Remove from bound registry */
     sock_bound_remove(sk);
@@ -696,7 +696,7 @@ static void socket_free(socket_t *sk)
     /* Free accept queue */
     if (sk->accept_queue) {
         for (uint32_t i = 0; i < sk->accept_queue_len; i++) {
-            if (sk->accept_queue[i]) { socket_free(sk->accept_queue[i]); }
+            if (sk->accept_queue[i]) socket_free(sk->accept_queue[i]);
         }
         free(sk->accept_queue);
         sk->accept_queue = NULL;
@@ -897,7 +897,7 @@ static int unix_bind(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen)
     if (ret != EOK) return ret;
 
     /* Unnamed address -> autobind */
-    if (addrlen == sizeof(uint16_t)) { return unix_autobind(sk); }
+    if (addrlen == sizeof(uint16_t)) return unix_autobind(sk);
 
     if (!abstract) {
         /* Pathname socket: create VFS entry */
@@ -1136,7 +1136,7 @@ static int unix_accept(socket_t *sk, sockaddr_un_t *addr, uint32_t *addrlen, int
     sk->accept_queue_len--;
 
     /* Shift remaining entries */
-    for (uint32_t i = 0; i < sk->accept_queue_len; i++) { sk->accept_queue[i] = sk->accept_queue[i + 1]; }
+    for (uint32_t i = 0; i < sk->accept_queue_len; i++) sk->accept_queue[i] = sk->accept_queue[i + 1];
     sk->accept_queue[sk->accept_queue_len] = NULL;
 
     spin_unlock(&sk->lock);
@@ -1353,7 +1353,7 @@ static int unix_stream_recv(socket_t *sk, void *buf, size_t len, int flags)
     }
 
     ret = (int)total_read;
-    if (ret == 0 && !(flags & MSG_PEEK) && !(sk->shutdown_mask & SOCK_SHUT_MASK(SHUT_RD))) { return 0; }
+    if (ret == 0 && !(flags & MSG_PEEK) && !(sk->shutdown_mask & SOCK_SHUT_MASK(SHUT_RD))) return 0;
     return ret;
 }
 
@@ -1859,7 +1859,7 @@ static int socket_vfs_free(void *handle)
     }
 
     /* Netlink cleanup */
-    if (sk->family == AF_NETLINK && sk->priv) { netlink_close(sk); }
+    if (sk->family == AF_NETLINK && sk->priv) netlink_close(sk);
 
     /* Remove from bound registry */
     sock_bound_remove(sk);
@@ -1886,7 +1886,7 @@ static int socket_vfs_free(void *handle)
     /* Free accept queue */
     if (sk->accept_queue) {
         for (uint32_t i = 0; i < sk->accept_queue_len; i++) {
-            if (sk->accept_queue[i]) { socket_unref(sk->accept_queue[i]); }
+            if (sk->accept_queue[i]) socket_unref(sk->accept_queue[i]);
         }
         free(sk->accept_queue);
         sk->accept_queue = NULL;
@@ -3088,7 +3088,7 @@ int64_t sys_shutdown(int fd, int how)
     /* Wake blocked tasks */
     sock_blocked_wake_all(sk);
 
-    if (sk->peer) { sock_blocked_wake_all(sk->peer); }
+    if (sk->peer) sock_blocked_wake_all(sk->peer);
 
     spin_unlock(&sk->lock);
 

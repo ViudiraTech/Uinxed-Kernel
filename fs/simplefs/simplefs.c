@@ -543,7 +543,7 @@ static void simplefs_unmount(void *root)
     if (!node || !node->handle) return;
 
     simplefs_vnode_t *vnode = node->handle;
-    if (vnode->owns_fs && vnode->fs) { free(vnode->fs); }
+    if (vnode->owns_fs && vnode->fs) free(vnode->fs);
     free(vnode);
     node->handle = NULL;
 }

@@ -142,7 +142,7 @@ void usb_host_shutdown_all(void)
     xhci_shutdown();
     uint64_t flags = spin_lock_irqsave(&usb_host_lock);
     for (usb_host_t *host = usb_host_list; host; host = host->next) {
-        if (host->running && host->controller_ops && host->controller_ops->host_stop) { host->controller_ops->host_stop(host); }
+        if (host->running && host->controller_ops && host->controller_ops->host_stop) host->controller_ops->host_stop(host);
         host->running = false;
     }
     spin_unlock_irqrestore(&usb_host_lock, flags);

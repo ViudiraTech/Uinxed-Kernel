@@ -95,7 +95,7 @@ static void        mq_notify_signal(mq_queue_t *queue);
 static mq_queue_t *mq_queue_lookup(const char *name)
 {
     for (int i = 0; i < MQ_MAX_QUEUES; i++) {
-        if (mq_registry[i] && strcmp(mq_registry[i]->name, name) == 0) { return mq_registry[i]; }
+        if (mq_registry[i] && strcmp(mq_registry[i]->name, name) == 0) return mq_registry[i];
     }
     return NULL;
 }
@@ -139,8 +139,8 @@ static mq_queue_t *mq_queue_create(const char *name, const mq_attr_t *attr)
     }
 
     /* Clamp to valid ranges */
-    if (queue->attr.mq_maxmsg <= 0 || queue->attr.mq_maxmsg > MQ_MAXMSG_MAX) { queue->attr.mq_maxmsg = MQ_MAXMSG_DEFAULT; }
-    if (queue->attr.mq_msgsize <= 0 || queue->attr.mq_msgsize > MQ_MSGSIZE_MAX) { queue->attr.mq_msgsize = MQ_MSGSIZE_DEFAULT; }
+    if (queue->attr.mq_maxmsg <= 0 || queue->attr.mq_maxmsg > MQ_MAXMSG_MAX) queue->attr.mq_maxmsg = MQ_MAXMSG_DEFAULT;
+    if (queue->attr.mq_msgsize <= 0 || queue->attr.mq_msgsize > MQ_MSGSIZE_MAX) queue->attr.mq_msgsize = MQ_MSGSIZE_DEFAULT;
 
     queue->attr.mq_curmsgs = 0;
     queue->msg_count       = 0;
@@ -217,7 +217,7 @@ static void mq_enqueue(mq_queue_t *queue, mq_message_t *msg)
         prev->next = msg;
         msg->next  = cur;
 
-        if (!cur) { queue->tail = msg; }
+        if (!cur) queue->tail = msg;
     }
 
     queue->msg_count++;
@@ -231,7 +231,7 @@ static mq_message_t *mq_dequeue(mq_queue_t *queue)
 
     mq_message_t *msg = queue->head;
     queue->head       = msg->next;
-    if (!queue->head) { queue->tail = NULL; }
+    if (!queue->head) queue->tail = NULL;
     msg->next = NULL;
 
     queue->msg_count--;
@@ -367,7 +367,7 @@ static size_t mq_vfs_write(void *file, const void *addr, size_t offset, size_t s
     mq_queue_t *queue = des->queue;
 
     /* Validate message size */
-    if (size > (size_t)queue->attr.mq_msgsize) { return (size_t)-1; }
+    if (size > (size_t)queue->attr.mq_msgsize) return (size_t)-1;
 
     spin_lock(&queue->lock);
 
@@ -542,7 +542,7 @@ int64_t sys_mq_open(const char *name, int oflag, uint32_t mode, mq_attr_t *attr)
     if (!name) return -EFAULT;
 
     /* Copy name from user space */
-    if (strncpy_from_user(name_buf, name, sizeof(name_buf)) < 0) { return -EFAULT; }
+    if (strncpy_from_user(name_buf, name, sizeof(name_buf)) < 0) return -EFAULT;
 
     /* Validate name: must start with '/' */
     if (name_buf[0] != '/') return -EINVAL;
@@ -552,7 +552,7 @@ int64_t sys_mq_open(const char *name, int oflag, uint32_t mode, mq_attr_t *attr)
     int       creating = (oflag & O_CREAT);
 
     if (creating && attr) {
-        if (copy_from_user(&kernel_attr, attr, sizeof(mq_attr_t))) { return -EFAULT; }
+        if (copy_from_user(&kernel_attr, attr, sizeof(mq_attr_t))) return -EFAULT;
     }
 
     spin_lock(&mq_registry_lock);
@@ -638,7 +638,7 @@ int64_t sys_mq_unlink(const char *name)
 
     if (!name) return -EFAULT;
 
-    if (strncpy_from_user(name_buf, name, sizeof(name_buf)) < 0) { return -EFAULT; }
+    if (strncpy_from_user(name_buf, name, sizeof(name_buf)) < 0) return -EFAULT;
 
     if (name_buf[0] != '/') return -EINVAL;
 
@@ -731,7 +731,7 @@ int64_t sys_mq_timedsend(int mqdes, const char *msg_ptr, size_t msg_len, uint32_
     /* Parse timeout */
     if (abs_timeout) {
         uint64_t timeout_ticks;
-        if (copy_from_user(&timeout_ticks, abs_timeout, sizeof(uint64_t))) { return -EFAULT; }
+        if (copy_from_user(&timeout_ticks, abs_timeout, sizeof(uint64_t))) return -EFAULT;
         deadline    = timeout_ticks;
         has_timeout = 1;
     }
@@ -764,7 +764,7 @@ int64_t sys_mq_timedsend(int mqdes, const char *msg_ptr, size_t msg_len, uint32_
         wait_queue_sleep();
 
         /* Re-check timeout after wakeup */
-        if (has_timeout && sched_ticks() >= deadline) { return -ETIMEDOUT; }
+        if (has_timeout && sched_ticks() >= deadline) return -ETIMEDOUT;
 
         spin_lock(&queue->lock);
     }
@@ -822,7 +822,7 @@ int64_t sys_mq_timedreceive(int mqdes, char *msg_ptr, size_t msg_len, uint32_t *
     /* Parse timeout */
     if (abs_timeout) {
         uint64_t timeout_ticks;
-        if (copy_from_user(&timeout_ticks, abs_timeout, sizeof(uint64_t))) { return -EFAULT; }
+        if (copy_from_user(&timeout_ticks, abs_timeout, sizeof(uint64_t))) return -EFAULT;
         deadline    = timeout_ticks;
         has_timeout = 1;
     }
@@ -849,7 +849,7 @@ int64_t sys_mq_timedreceive(int mqdes, char *msg_ptr, size_t msg_len, uint32_t *
         wait_queue_sleep();
 
         /* Re-check timeout after wakeup */
-        if (has_timeout && sched_ticks() >= deadline) { return -ETIMEDOUT; }
+        if (has_timeout && sched_ticks() >= deadline) return -ETIMEDOUT;
 
         spin_lock(&queue->lock);
     }
@@ -985,7 +985,7 @@ int64_t sys_mq_getsetattr(int mqdes, const mq_attr_t *newattr, mq_attr_t *oldatt
 
         spin_unlock(&queue->lock);
 
-        if (copy_to_user(oldattr, &attr, sizeof(mq_attr_t))) { return -EFAULT; }
+        if (copy_to_user(oldattr, &attr, sizeof(mq_attr_t))) return -EFAULT;
         return EOK;
     }
 
@@ -994,7 +994,7 @@ int64_t sys_mq_getsetattr(int mqdes, const mq_attr_t *newattr, mq_attr_t *oldatt
         mq_attr_t nattr;
         spin_unlock(&queue->lock);
 
-        if (copy_from_user(&nattr, newattr, sizeof(mq_attr_t))) { return -EFAULT; }
+        if (copy_from_user(&nattr, newattr, sizeof(mq_attr_t))) return -EFAULT;
 
         spin_lock(&des->lock);
         /* Only mq_flags (O_NONBLOCK) can be changed */

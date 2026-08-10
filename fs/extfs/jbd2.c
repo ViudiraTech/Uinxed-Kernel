@@ -408,7 +408,7 @@ static int jbd2_recover(void *context)
     for (;;) {
         uint32_t next;
         status = jbd2_walk_transaction(journal, cursor, sequence, &next, &revokes, 0);
-        if (status != EOK) { break; }
+        if (status != EOK) break;
         cursor = next;
         sequence++;
         if (cursor == journal->start) return -EIO;

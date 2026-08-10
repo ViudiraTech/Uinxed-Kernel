@@ -82,6 +82,6 @@ uint32_t get_year(void)
     uint32_t century = BCD_HEX(read_cmos(CMOS_CUR_CEN));
     uint32_t year    = BCD_HEX(read_cmos(CMOS_CUR_YEAR));
 
-    if (century < 10 || century > 30) { century = (year >= 70) ? 19 : 20; }
+    if (century < 10 || century > 30) century = (year >= 70) ? 19 : 20;
     return century * 100 + year;
 }

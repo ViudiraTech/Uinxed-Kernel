@@ -439,7 +439,7 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         return (int64_t)mmap_addr;
     }
 
-    if (!(flags & MAP_ANONYMOUS)) { return -EBADF; }
+    if (!(flags & MAP_ANONYMOUS)) return -EBADF;
 
     vm_area_t *vma = calloc(1, sizeof(*vma));
     if (!vma) return -ENOMEM;

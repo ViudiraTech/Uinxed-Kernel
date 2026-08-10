@@ -676,7 +676,7 @@ static void ohci_interrupt_handler(void *frame)
             ctrl->pending_ports |= (1ULL << ctrl->num_ports) - 1;
             spin_unlock_irqrestore(&ctrl->lock, flags);
         }
-        if (sts & OHCI_INTR_WDH) { ohci_write32(ctrl, OHCI_HcInterruptStatus, OHCI_INTR_WDH); }
+        if (sts & OHCI_INTR_WDH) ohci_write32(ctrl, OHCI_HcInterruptStatus, OHCI_INTR_WDH);
         if (sts & OHCI_INTR_UE) {
             ohci_write32(ctrl, OHCI_HcInterruptStatus, OHCI_INTR_UE);
             plogk("ohci: Controller error on bus %u\n", ctrl->bus_number);
@@ -831,7 +831,7 @@ static int ohci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     pci_msi_init(pci);
     int msi_vector = pci_enable_msi(pci);
     if (msi_vector >= 0) ctrl->vector = msi_vector;
-    if (ctrl->vector > 0) { register_interrupt_handler((uint16_t)ctrl->vector, ohci_interrupt_handler, 0, 0x8e); }
+    if (ctrl->vector > 0) register_interrupt_handler((uint16_t)ctrl->vector, ohci_interrupt_handler, 0, 0x8e);
 
     ctrl->running     = true;
     ctrl->worker_task = kthread_create("ohci-hub", ohci_worker, ctrl);

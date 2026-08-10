@@ -417,7 +417,7 @@ void drm_crtc_cleanup(struct drm_crtc *crtc)
 {
     struct drm_device *dev;
 
-    if (!crtc) { return; }
+    if (!crtc) return;
 
     dev = crtc->dev;
 
@@ -428,7 +428,7 @@ void drm_crtc_cleanup(struct drm_crtc *crtc)
         drm_idr_remove(&dev->mode_config.object_idr, crtc->base.id);
         spin_unlock(&dev->mode_config.idr_mutex);
 
-        if (dev->mode_config.num_crtc > 0) { dev->mode_config.num_crtc--; }
+        if (dev->mode_config.num_crtc > 0) dev->mode_config.num_crtc--;
     }
 
     free(crtc->gamma_store);

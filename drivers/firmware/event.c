@@ -204,7 +204,7 @@ static void dispatch_fixed_events(uint16_t sts)
 {
     for (int i = 0; i < ACPI_NUM_FIXED_EVENTS; i++) {
         if (sts & fixed_events[i].status_mask) {
-            if (fixed_events[i].handler) { fixed_events[i].handler(fixed_events[i].context); }
+            if (fixed_events[i].handler) fixed_events[i].handler(fixed_events[i].context);
         }
     }
 }
@@ -221,7 +221,7 @@ static void dispatch_gpes(void)
         uint8_t sts = acpi_gpe_status(block);
         if (sts & (1 << bit)) {
             acpi_gpe_status_clear(block, bit);
-            if (gpe_handlers[i].handler) { gpe_handlers[i].handler(gpe_handlers[i].context); }
+            if (gpe_handlers[i].handler) gpe_handlers[i].handler(gpe_handlers[i].context);
         }
     }
 }

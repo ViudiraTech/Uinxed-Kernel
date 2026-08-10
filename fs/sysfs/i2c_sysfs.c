@@ -290,7 +290,7 @@ void i2c_sysfs_adapter_del(struct i2c_adapter *adap)
 
     (void)snprintf(node_path, sizeof(node_path), "/dev/i2c-%d", adap->nr);
     (void)devtmpfs_unregister_char_device(node_path);
-    if (adev) { device_unregister(&adev->dev); }
+    if (adev) device_unregister(&adev->dev);
 #endif
 }
 

@@ -670,7 +670,7 @@ static void ehci_interrupt_handler(void *frame)
             ctrl->pending_ports |= (1ULL << ctrl->num_ports) - 1;
             spin_unlock_irqrestore(&ctrl->lock, flags);
         }
-        if (sts & EHCI_STS_INT) { ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_INT); }
+        if (sts & EHCI_STS_INT) ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_INT);
         if (sts & EHCI_STS_ERR) {
             ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_ERR);
             plogk("ehci: USB error interrupt on bus %u\n", ctrl->bus_number);
@@ -679,7 +679,7 @@ static void ehci_interrupt_handler(void *frame)
             ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_HSE);
             plogk("ehci: Host system error on bus %u\n", ctrl->bus_number);
         }
-        if (sts & EHCI_STS_IAA) { ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_IAA); }
+        if (sts & EHCI_STS_IAA) ehci_write32(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_IAA);
     }
     send_eoi();
 }
@@ -825,7 +825,7 @@ static int ehci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     pci_msi_init(pci);
     int msi_vector = pci_enable_msi(pci);
     if (msi_vector >= 0) ctrl->vector = msi_vector;
-    if (ctrl->vector > 0) { register_interrupt_handler((uint16_t)ctrl->vector, ehci_interrupt_handler, 0, 0x8e); }
+    if (ctrl->vector > 0) register_interrupt_handler((uint16_t)ctrl->vector, ehci_interrupt_handler, 0, 0x8e);
 
     ctrl->running     = true;
     ctrl->worker_task = kthread_create("ehci-hub", ehci_worker, ctrl);

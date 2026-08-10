@@ -191,7 +191,7 @@ static void virtgpu_postclose(struct drm_device *dev, struct drm_file *file)
             struct virtio_gpu_object    *obj   = to_virtio_gpu_object(gem);
             virtgpu_object_detach_context(vgdev, obj, vfpriv->ctx_id);
         }
-        if (vgdev->has_virgl && vfpriv->context_created) { virtgpu_cmd_ctx_destroy(vgdev, vfpriv->ctx_id); }
+        if (vgdev->has_virgl && vfpriv->context_created) virtgpu_cmd_ctx_destroy(vgdev, vfpriv->ctx_id);
         free(vfpriv);
         file->driver_priv = NULL;
     }
@@ -341,7 +341,7 @@ static int virtgpu_ioctl_map(struct drm_device *dev, void *data, struct drm_file
 
     (void)dev;
     obj = drm_gem_object_lookup(file_priv, args->handle);
-    if (!obj) { return -ENOENT; }
+    if (!obj) return -ENOENT;
 
     if (!obj->backing) {
         drm_gem_object_put(obj);
@@ -371,10 +371,10 @@ static int virtgpu_ioctl_execbuffer(struct drm_device *dev, void *data, struct d
     void                          *cmd_buf = NULL;
     int                            ret;
 
-    if (!vgdev->has_virgl) { return -ENOSYS; }
+    if (!vgdev->has_virgl) return -ENOSYS;
 
     if (!vfpriv) return -EINVAL;
-    if (!args->size || args->size > 65536 || (args->size & 3) || !args->command) { return -EINVAL; }
+    if (!args->size || args->size > 65536 || (args->size & 3) || !args->command) return -EINVAL;
     /*
      * Fence-fd and syncobj import/export require kernel sync-file support;
      * reject them explicitly instead of silently dropping synchronization.
@@ -518,7 +518,7 @@ static int virtgpu_ioctl_resource_create(struct drm_device *dev, void *data, str
     }
 
     obj = virtgpu_gem_alloc_object(dev, size);
-    if (!obj) { return -ENOMEM; }
+    if (!obj) return -ENOMEM;
 
     obj->hw_res_handle = virtgpu_resource_id_alloc(vgdev);
     obj->format
@@ -570,7 +570,7 @@ static int virtgpu_ioctl_resource_info(struct drm_device *dev, void *data, struc
 
     (void)dev;
     obj = drm_gem_object_lookup(file_priv, args->bo_handle);
-    if (!obj) { return -ENOENT; }
+    if (!obj) return -ENOENT;
 
     args->size       = (uint32_t)obj->size;
     args->res_handle = ((struct virtio_gpu_object *)obj)->hw_res_handle;
@@ -593,12 +593,12 @@ static int virtgpu_ioctl_transfer_from_host(struct drm_device *dev, void *data, 
     struct virtio_gpu_fpriv        *vfpriv = (struct virtio_gpu_fpriv *)file_priv->driver_priv;
     int                             ret;
 
-    if (!vgdev->has_virgl || !vfpriv) { return -ENOSYS; }
+    if (!vgdev->has_virgl || !vfpriv) return -ENOSYS;
     ret = virtgpu_ensure_context(vgdev, vfpriv);
     if (ret) return ret;
 
     gem_obj = drm_gem_object_lookup(file_priv, args->bo_handle);
-    if (!gem_obj) { return -ENOENT; }
+    if (!gem_obj) return -ENOENT;
 
     obj = to_virtio_gpu_object(gem_obj);
     if (!obj->created_3d && !(obj->created_blob && obj->blob_mem != VIRTIO_GPU_BLOB_MEM_GUEST)) {
@@ -633,7 +633,7 @@ static int virtgpu_ioctl_transfer_to_host(struct drm_device *dev, void *data, st
     int                             ret;
 
     gem_obj = drm_gem_object_lookup(file_priv, args->bo_handle);
-    if (!gem_obj) { return -ENOENT; }
+    if (!gem_obj) return -ENOENT;
 
     obj = to_virtio_gpu_object(gem_obj);
 
@@ -678,7 +678,7 @@ static int virtgpu_ioctl_wait(struct drm_device *dev, void *data, struct drm_fil
 
     if (args->flags & ~VIRTGPU_WAIT_NOWAIT) return -EINVAL;
     gem_obj = drm_gem_object_lookup(file_priv, args->handle);
-    if (!gem_obj) { return -ENOENT; }
+    if (!gem_obj) return -ENOENT;
 
     /*
      * Control/3D submissions are fenced and completed synchronously by this
@@ -706,7 +706,7 @@ static int virtgpu_ioctl_get_caps(struct drm_device *dev, void *data, struct drm
     (void)file_priv;
 
     if (!vgdev->num_capsets) return -ENOSYS;
-    if (!args->addr || !args->size || args->pad) { return -EINVAL; }
+    if (!args->addr || !args->size || args->pad) return -EINVAL;
 
     for (uint32_t i = 0; i < vgdev->num_capsets; i++) {
         if (vgdev->capsets[i].id == args->cap_set_id && args->cap_set_ver <= vgdev->capsets[i].max_version) {
@@ -766,7 +766,7 @@ static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data
     int                                      ret;
     uint32_t                                 handle;
 
-    if (!vgdev->has_resource_blob) { return -EINVAL; }
+    if (!vgdev->has_resource_blob) return -EINVAL;
     if (!args->size || args->size > UINT32_MAX || args->pad || args->pad2 || args->bo_handle || !vfpriv) return -EINVAL;
     if (args->blob_flags & ~(VIRTIO_GPU_BLOB_FLAG_USE_MAPPABLE | VIRTIO_GPU_BLOB_FLAG_USE_SHAREABLE | VIRTIO_GPU_BLOB_FLAG_USE_CROSS_DEVICE))
         return -EINVAL;
@@ -797,7 +797,7 @@ static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data
     if (!guest_blob && (args->blob_flags & VIRTIO_GPU_BLOB_FLAG_USE_MAPPABLE)) return -EINVAL;
 
     obj = virtgpu_gem_alloc_object(dev, args->size);
-    if (!obj) { return -ENOMEM; }
+    if (!obj) return -ENOMEM;
 
     obj->hw_res_handle = virtgpu_resource_id_alloc(vgdev);
     obj->created_blob  = true;
@@ -857,7 +857,7 @@ static int virtgpu_ioctl_context_init(struct drm_device *dev, void *data, struct
     bool                                 seen_capset = false, seen_rings = false, seen_mask = false, seen_name = false;
     int                                  ret;
 
-    if (!vgdev->has_virgl || !vgdev->has_context_init) { return -EINVAL; }
+    if (!vgdev->has_virgl || !vgdev->has_context_init) return -EINVAL;
     if (!vfpriv || args->pad || args->num_params > 4 || (args->num_params && !args->ctx_set_params)) return -EINVAL;
     memset(params, 0, sizeof(params));
     memset(debug_name, 0, sizeof(debug_name));
@@ -970,7 +970,7 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
     } else {
         /* Disable scanout */
         ret = virtgpu_cmd_set_scanout(vgdev, scanout_id, NULL);
-        if (ret) { return ret; }
+        if (ret) return ret;
         vgdev->current_scanout_obj = NULL;
     }
 
@@ -1179,7 +1179,7 @@ void *virtio_gpu_get_device(void)
     extern struct drm_device *drm_get_singleton(void);
     struct drm_device        *dev = drm_get_singleton();
 
-    if (!dev || !dev->dev_private) { return NULL; }
+    if (!dev || !dev->dev_private) return NULL;
     return dev->dev_private;
 }
 

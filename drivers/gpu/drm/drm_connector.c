@@ -288,7 +288,7 @@ void drm_connector_cleanup(struct drm_connector *connector)
 {
     struct drm_device *dev;
 
-    if (!connector) { return; }
+    if (!connector) return;
 
     dev = connector->dev;
 
@@ -305,7 +305,7 @@ void drm_connector_cleanup(struct drm_connector *connector)
         drm_idr_remove(&dev->mode_config.object_idr, connector->base.id);
         spin_unlock(&dev->mode_config.idr_mutex);
 
-        if (dev->mode_config.num_connector > 0) { dev->mode_config.num_connector--; }
+        if (dev->mode_config.num_connector > 0) dev->mode_config.num_connector--;
     }
 
     free(connector->possible_encoders_ids);

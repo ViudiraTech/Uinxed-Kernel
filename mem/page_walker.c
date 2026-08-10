@@ -207,7 +207,7 @@ uintptr_t walk_page_tables_find_free(page_directory_t *directory, uintptr_t star
     if (!directory || !length) return 0;
 
     /* Validate preferred page size */
-    if (preferred_size != PAGE_4K_SIZE && preferred_size != PAGE_2M_SIZE && preferred_size != PAGE_1G_SIZE) { preferred_size = PAGE_4K_SIZE; }
+    if (preferred_size != PAGE_4K_SIZE && preferred_size != PAGE_2M_SIZE && preferred_size != PAGE_1G_SIZE) preferred_size = PAGE_4K_SIZE;
 
     uintptr_t         candidate = align_up_to_page(start, preferred_size);
     page_walk_state_t state;

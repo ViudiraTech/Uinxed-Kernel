@@ -74,7 +74,7 @@ struct drm_file *drm_file_alloc(struct drm_device *dev)
 
 void drm_file_free(struct drm_file *file)
 {
-    if (!file) { return; }
+    if (!file) return;
 
     spin_lock(&file->event_lock);
     file->event_closing = true;

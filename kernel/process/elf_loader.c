@@ -423,7 +423,7 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
             uintptr_t start = iphdr[i].vaddr + load_bias;
             if (entry >= start && entry < start + iphdr[i].memsz) valid_entry = 1;
         }
-        if (valid_entry) { break; }
+        if (valid_entry) break;
     }
     if (!valid_entry) {
         plogk("elf_loader: Interpreter entry %#lx outside any executable segment: %s\n", (unsigned long)(iehdr->e_entry + load_bias),

@@ -5370,7 +5370,7 @@ int syscall_dispatch(syscall_frame_t *frame)
          * Do NOT go through the restart logic since we're restoring
          * a previous context, not returning from a syscall.
          */
-        if (frame->cs & 0x3) { signal_deliver_for_process(dispatch_task ? dispatch_task->process : NULL, frame); }
+        if (frame->cs & 0x3) signal_deliver_for_process(dispatch_task ? dispatch_task->process : NULL, frame);
         return 0;
     }
 
@@ -5464,7 +5464,7 @@ check_signals:
                 restart = (frame->rip == saved_rip);
             } else if (retval == -ERESTART) {
                 /* Legacy ERESTART: restart if SA_RESTART */
-                if (frame->rip == saved_rip) { restart = true; }
+                if (frame->rip == saved_rip) restart = true;
             }
 
             if (restart) {

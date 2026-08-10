@@ -220,7 +220,7 @@ static int tis_send(tpm_device_t *dev, uint8_t *buf, size_t len)
         int chunk = burstcnt;
         if (chunk > (int)(len - count - 1)) chunk = (int)(len - count - 1);
 
-        for (int i = 0; i < chunk; i++) { tis_write8(dev, fifo_offset, buf[count + i]); }
+        for (int i = 0; i < chunk; i++) tis_write8(dev, fifo_offset, buf[count + i]);
         count += chunk;
 
         rc = wait_for_stat(dev, TPM_STS_VALID, dev->timeout_c);
@@ -282,7 +282,7 @@ static int tis_recv_data(tpm_device_t *dev, uint8_t *buf, size_t count)
         int chunk = burstcnt;
         if (chunk > (int)(count - size)) chunk = (int)(count - size);
 
-        for (int i = 0; i < chunk; i++) { buf[size + i] = tis_read8(dev, fifo_offset); }
+        for (int i = 0; i < chunk; i++) buf[size + i] = tis_read8(dev, fifo_offset);
         size += chunk;
     }
     return (int)size;

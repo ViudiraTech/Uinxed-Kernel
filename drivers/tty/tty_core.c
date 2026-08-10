@@ -535,7 +535,7 @@ int64_t tty_core_write(tty_core_t *tty, const void *buffer, size_t size, uint64_
             count  = 2;
         }
         int emitted = tty->ops.emit(tty->context, out, count, flags);
-        if (emitted < 0) { return done ? (int64_t)done : emitted; }
+        if (emitted < 0) return done ? (int64_t)done : emitted;
         if (emitted < (int)count) break;
         done++;
     }

@@ -19,7 +19,7 @@ static const uint32_t ansi_palette[16] = {
 
 static uint32_t vt_ansi_palette(uint8_t idx)
 {
-    if (idx < 16) { return ansi_palette[idx]; }
+    if (idx < 16) return ansi_palette[idx];
     return 0;
 }
 
@@ -867,7 +867,7 @@ csi_exec:
                 }
                 return;
             case 'c' :
-                if (cb && cb->write_response) { cb->write_response("\033[?1;2c", 7); }
+                if (cb && cb->write_response) cb->write_response("\033[?1;2c", 7);
                 return;
             case 'm' :
             default :
@@ -878,7 +878,7 @@ csi_exec:
     if (s->priv == ANSI_priv_gt) {
         switch (c) {
             case 'c' :
-                if (cb && cb->write_response) { cb->write_response("\033[>0;0;0c", 10); }
+                if (cb && cb->write_response) cb->write_response("\033[>0;0;0c", 10);
                 return;
             default :
                 return;
@@ -958,7 +958,7 @@ csi_exec:
             vt_ansi_csi_b(s, cb);
             return;
         case 'c' :
-            if (cb && cb->write_response) { cb->write_response("\033[?1;2c", 7); }
+            if (cb && cb->write_response) cb->write_response("\033[?1;2c", 7);
             return;
         case 'g' :
             if (s->par[0] == 0 && s->x < VT_ANSI_TABS)

@@ -1435,12 +1435,12 @@ static struct drm_display_mode *drm_cvt_mode(struct drm_device *dev, int hdispla
     int                      interlace;
     uint64_t                 tmp;
 
-    if (!hdisplay || !vdisplay) { return NULL; }
+    if (!hdisplay || !vdisplay) return NULL;
 
     drm_mode = drm_mode_create(dev);
-    if (!drm_mode) { return NULL; }
+    if (!drm_mode) return NULL;
 
-    if (!vrefresh) { vrefresh = 60; }
+    if (!vrefresh) vrefresh = 60;
 
     if (interlaced) {
         vfieldrate = vrefresh * 2;
@@ -1464,7 +1464,7 @@ static struct drm_display_mode *drm_cvt_mode(struct drm_device *dev, int hdispla
     }
 
     vmargin = 0;
-    if (margins) { vmargin = vdisplay_rnd * CVT_MARGIN_PERCENTAGE / 1000; }
+    if (margins) vmargin = vdisplay_rnd * CVT_MARGIN_PERCENTAGE / 1000;
 
     drm_mode->vdisplay = vdisplay + 2 * vmargin;
 
@@ -1509,7 +1509,7 @@ static struct drm_display_mode *drm_cvt_mode(struct drm_device *dev, int hdispla
 #define CVT_M_PRIME  (CVT_M_FACTOR * CVT_K_FACTOR / 256)
 #define CVT_C_PRIME  ((CVT_C_FACTOR - CVT_J_FACTOR) * CVT_K_FACTOR / 256 + CVT_J_FACTOR)
         hblank_percentage = CVT_C_PRIME * HV_FACTOR - CVT_M_PRIME * hperiod / 1000;
-        if (hblank_percentage < 20 * HV_FACTOR) { hblank_percentage = 20 * HV_FACTOR; }
+        if (hblank_percentage < 20 * HV_FACTOR) hblank_percentage = 20 * HV_FACTOR;
         hblank = drm_mode->hdisplay * hblank_percentage / (100 * HV_FACTOR - hblank_percentage);
         hblank -= hblank % (2 * CVT_H_GRANULARITY);
         drm_mode->htotal      = drm_mode->hdisplay + hblank;
@@ -1530,7 +1530,7 @@ static struct drm_display_mode *drm_cvt_mode(struct drm_device *dev, int hdispla
         tmp2     = vdisplay_rnd + 2 * vmargin;
         hperiod  = (unsigned int)(tmp1 / (tmp2 * vfieldrate));
         vbilines = CVT_RB_MIN_VBLANK * HV_FACTOR / hperiod + 1;
-        if (vbilines < (CVT_RB_VFPORCH + vsync + CVT_MIN_V_BPORCH)) { vbilines = CVT_RB_VFPORCH + vsync + CVT_MIN_V_BPORCH; }
+        if (vbilines < (CVT_RB_VFPORCH + vsync + CVT_MIN_V_BPORCH)) vbilines = CVT_RB_VFPORCH + vsync + CVT_MIN_V_BPORCH;
         drm_mode->vtotal      = vdisplay_rnd + 2 * vmargin + vbilines;
         drm_mode->htotal      = drm_mode->hdisplay + CVT_RB_H_BLANK;
         drm_mode->hsync_end   = drm_mode->hdisplay + CVT_RB_H_BLANK / 2;
@@ -1599,10 +1599,10 @@ static struct drm_display_mode *drm_gtf_mode_complex(struct drm_device *dev, int
     int                      hsync, hfront_porch, vodd_front_porch_lines;
     unsigned int             tmp1, tmp2;
 
-    if (!hdisplay || !vdisplay) { return NULL; }
+    if (!hdisplay || !vdisplay) return NULL;
 
     drm_mode = drm_mode_create(dev);
-    if (!drm_mode) { return NULL; }
+    if (!drm_mode) return NULL;
 
     hdisplay_rnd = (hdisplay + GTF_CELL_GRAN / 2) / GTF_CELL_GRAN;
     hdisplay_rnd = hdisplay_rnd * GTF_CELL_GRAN;
@@ -1620,7 +1620,7 @@ static struct drm_display_mode *drm_gtf_mode_complex(struct drm_device *dev, int
     }
 
     top_margin = 0;
-    if (margins) { top_margin = (vdisplay_rnd * GTF_MARGIN_PERCENTAGE + 500) / 1000; }
+    if (margins) top_margin = (vdisplay_rnd * GTF_MARGIN_PERCENTAGE + 500) / 1000;
     bottom_margin = top_margin;
 
     interlace = interlaced ? 1 : 0;
@@ -1738,7 +1738,7 @@ static int standard_timing_level(const struct edid *edid)
         }
         return 1;
     }
-    if (edid->revision >= 2) { return 1; }
+    if (edid->revision >= 2) return 1;
     return 0;
 }
 
@@ -1755,7 +1755,7 @@ static bool bad_std_timing(uint8_t a, uint8_t b)
 
 static int drm_mode_hsync(const struct drm_display_mode *mode)
 {
-    if (mode->htotal <= 0) { return 0; }
+    if (mode->htotal <= 0) return 0;
     return DIV_ROUND_CLOSEST(mode->clock, mode->htotal);
 }
 
@@ -1793,7 +1793,7 @@ static struct drm_display_mode *drm_mode_std(struct drm_connector *connector, co
     unsigned int             vfreq        = (t->vfreq_aspect & EDID_TIMING_VFREQ_MASK) >> EDID_TIMING_VFREQ_SHIFT;
     int                      timing_level = standard_timing_level(edid);
 
-    if (bad_std_timing(t->hsize, t->vfreq_aspect)) { return NULL; }
+    if (bad_std_timing(t->hsize, t->vfreq_aspect)) return NULL;
 
     /* According to the EDID spec, the hdisplay = hsize * 8 + 248 */
     hsize = t->hsize * 8 + 248;
@@ -1826,7 +1826,7 @@ static struct drm_display_mode *drm_mode_std(struct drm_connector *connector, co
         ilist_node_t *node = connector->modes.next;
         while (node && node != &connector->modes) {
             m = container_of(node, struct drm_display_mode, head);
-            if (m->hdisplay == hsize && m->vdisplay == vsize && drm_mode_vrefresh(m) == vrefresh_rate) { return NULL; }
+            if (m->hdisplay == hsize && m->vdisplay == vsize && drm_mode_vrefresh(m) == vrefresh_rate) return NULL;
             node = node->next;
         }
     }
@@ -1834,7 +1834,7 @@ static struct drm_display_mode *drm_mode_std(struct drm_connector *connector, co
     /* HDTV hack, part 2 */
     if (hsize == 1366 && vsize == 768 && vrefresh_rate == 60) {
         mode = drm_cvt_mode(dev, 1366, 768, vrefresh_rate, 0, 0, false);
-        if (!mode) { return NULL; }
+        if (!mode) return NULL;
         mode->hdisplay    = 1366;
         mode->hsync_start = mode->hsync_start - 1;
         mode->hsync_end   = mode->hsync_end - 1;
@@ -1844,10 +1844,10 @@ static struct drm_display_mode *drm_mode_std(struct drm_connector *connector, co
     /* check whether it can be found in default mode table */
     if (drm_monitor_supports_rb(edid)) {
         mode = drm_mode_find_dmt(dev, hsize, vsize, vrefresh_rate, true);
-        if (mode) { return mode; }
+        if (mode) return mode;
     }
     mode = drm_mode_find_dmt(dev, hsize, vsize, vrefresh_rate, false);
-    if (mode) { return mode; }
+    if (mode) return mode;
 
     /* okay, generate it */
     switch (timing_level) {
@@ -1886,7 +1886,7 @@ static void drm_mode_do_interlace_quirk(struct drm_display_mode *mode, const str
         {2880, 576 },
     };
 
-    if (!(pt->misc & DRM_EDID_PT_INTERLACED)) { return; }
+    if (!(pt->misc & DRM_EDID_PT_INTERLACED)) return;
 
     for (i = 0; i < (int)ARRAY_SIZE(cea_interlaced); i++) {
         if ((mode->hdisplay == cea_interlaced[i].w) && (mode->vdisplay == cea_interlaced[i].h / 2)) {
@@ -1919,15 +1919,15 @@ static struct drm_display_mode *drm_mode_detailed(struct drm_connector *connecto
     unsigned int vsync_pulse_width = (pt->hsync_vsync_offset_pulse_width_hi & 0x3) << 4 | (pt->vsync_offset_pulse_width_lo & 0xf);
 
     /* ignore tiny modes */
-    if (hactive < 64 || vactive < 64) { return NULL; }
+    if (hactive < 64 || vactive < 64) return NULL;
 
-    if (pt->misc & DRM_EDID_PT_STEREO) { return NULL; }
+    if (pt->misc & DRM_EDID_PT_STEREO) return NULL;
 
     /* it is incorrect if hsync/vsync width is zero */
-    if (!hsync_pulse_width || !vsync_pulse_width) { return NULL; }
+    if (!hsync_pulse_width || !vsync_pulse_width) return NULL;
 
     mode = drm_mode_create(dev);
-    if (!mode) { return NULL; }
+    if (!mode) return NULL;
 
     mode->clock = le16_to_cpu(timing->pixel_clock) * 10;
 
@@ -1942,8 +1942,8 @@ static struct drm_display_mode *drm_mode_detailed(struct drm_connector *connecto
     mode->vtotal      = mode->vdisplay + (int)vblank;
 
     /* Some EDIDs have bogus h/vsync_end values */
-    if (mode->hsync_end > mode->htotal) { mode->hsync_end = mode->htotal; }
-    if (mode->vsync_end > mode->vtotal) { mode->vsync_end = mode->vtotal; }
+    if (mode->hsync_end > mode->htotal) mode->hsync_end = mode->htotal;
+    if (mode->vsync_end > mode->vtotal) mode->vsync_end = mode->vtotal;
 
     drm_mode_do_interlace_quirk(mode, pt);
 
@@ -1970,12 +1970,12 @@ static void do_detailed_mode(const struct detailed_timing *timing, struct detail
 {
     struct drm_display_mode *newmode;
 
-    if (timing->pixel_clock == 0) { return; } /* not a detailed timing descriptor */
+    if (timing->pixel_clock == 0) return; /* not a detailed timing descriptor */
 
     newmode = drm_mode_detailed(closure->connector, timing);
-    if (!newmode) { return; }
+    if (!newmode) return;
 
-    if (closure->preferred) { newmode->type |= DRM_MODE_TYPE_PREFERRED; }
+    if (closure->preferred) newmode->type |= DRM_MODE_TYPE_PREFERRED;
 
     drm_mode_probed_add(closure->connector, newmode);
     closure->modes++;
@@ -1996,7 +1996,7 @@ static int add_detailed_modes(struct drm_connector *connector, const struct edid
         closure.preferred = !!(edid->features & DRM_EDID_FEATURE_PREFERRED_TIMING);
     }
 
-    for (i = 0; i < EDID_DETAILED_TIMINGS; i++) { do_detailed_mode(&edid->detailed_timings[i], &closure); }
+    for (i = 0; i < EDID_DETAILED_TIMINGS; i++) do_detailed_mode(&edid->detailed_timings[i], &closure);
 
     return closure.modes;
 }
@@ -2028,7 +2028,7 @@ static int cea_revision(const uint8_t *cea)
 static uint8_t svd_to_vic(uint8_t svd)
 {
     /* 0-6 bit vic, 7th bit native mode indicator */
-    if ((svd >= 1 && svd <= 64) || (svd >= 129 && svd <= 192)) { return svd & 127; }
+    if ((svd >= 1 && svd <= 64) || (svd >= 129 && svd <= 192)) return svd & 127;
     return svd;
 }
 
@@ -2054,10 +2054,10 @@ static int add_cta_vdb_modes(struct drm_connector *connector, const uint8_t *db,
         uint8_t                  vic = svd_to_vic(svds[i]);
         struct drm_display_mode *newmode;
 
-        if (!drm_valid_cea_vic(vic)) { continue; }
+        if (!drm_valid_cea_vic(vic)) continue;
 
         newmode = drm_display_mode_from_cea_vic(dev, vic);
-        if (!newmode) { break; }
+        if (!newmode) break;
 
         drm_mode_probed_add(connector, newmode);
         modes++;
@@ -2073,20 +2073,20 @@ static int add_hdmi_vsdb_modes(struct drm_connector *connector, const uint8_t *d
     int                modes  = 0, i;
     int                offset = 0, vic_len;
 
-    if (len < 8) { return 0; }
+    if (len < 8) return 0;
 
     /* no HDMI_Video_Present */
-    if (!(db[8] & (1 << 5))) { return 0; }
+    if (!(db[8] & (1 << 5))) return 0;
 
     /* skip optional latency fields */
     if (db[8] & (1 << 7)) {
         offset++;
-        if (db[8] & (1 << 6)) { offset++; }
+        if (db[8] & (1 << 6)) offset++;
     }
 
     /* the declared length is not long enough for the 2 first bytes
      * of additional video format capabilities */
-    if (len < (8 + offset + 2)) { return 0; }
+    if (len < (8 + offset + 2)) return 0;
 
     offset++; /* 3D_Present + reserved */
     vic_len = db[8 + offset] >> 5;
@@ -2095,10 +2095,10 @@ static int add_hdmi_vsdb_modes(struct drm_connector *connector, const uint8_t *d
         uint8_t                  vic = db[9 + offset + i];
         struct drm_display_mode *newmode;
 
-        if (vic == 0 || vic >= ARRAY_SIZE(edid_4k_modes)) { continue; }
+        if (vic == 0 || vic >= ARRAY_SIZE(edid_4k_modes)) continue;
 
         newmode = drm_mode_duplicate(dev, &edid_4k_modes[vic]);
-        if (!newmode) { continue; }
+        if (!newmode) continue;
 
         drm_mode_probed_add(connector, newmode);
         modes++;
@@ -2119,11 +2119,11 @@ static int add_cea_modes(struct drm_connector *connector, const struct edid *edi
         const uint8_t *ext = (const uint8_t *)edid + i * EDID_LENGTH;
         int            d, idx, end;
 
-        if (ext[0] != CEA_EXT) { continue; }
-        if (cea_revision(ext) < 3) { continue; }
+        if (ext[0] != CEA_EXT) continue;
+        if (cea_revision(ext) < 3) continue;
 
         d = ext[2];
-        if (d < 4 || d > 127) { continue; }
+        if (d < 4 || d > 127) continue;
 
         idx = 4;
         end = d;
@@ -2131,7 +2131,7 @@ static int add_cea_modes(struct drm_connector *connector, const struct edid *edi
             int tag = ext[idx] >> 5;
             int len = ext[idx] & 0x1f;
 
-            if (idx + 1 + len > end) { break; }
+            if (idx + 1 + len > end) break;
 
             if (tag == CTA_DB_VIDEO) {
                 modes += add_cta_vdb_modes(connector, &ext[idx], len + 1);
@@ -2150,23 +2150,23 @@ static bool _drm_detect_hdmi_monitor(const struct edid *edid)
 {
     int i;
 
-    if (!edid) { return false; }
+    if (!edid) return false;
 
     for (i = 1; i <= edid->extensions; i++) {
         const uint8_t *ext = (const uint8_t *)edid + i * EDID_LENGTH;
         int            d, idx;
 
-        if (ext[0] != CEA_EXT || cea_revision(ext) < 3) { continue; }
+        if (ext[0] != CEA_EXT || cea_revision(ext) < 3) continue;
 
         d = ext[2];
-        if (d < 4 || d > 127) { continue; }
+        if (d < 4 || d > 127) continue;
 
         idx = 4;
         while (idx < d) {
             int tag = ext[idx] >> 5;
             int len = ext[idx] & 0x1f;
 
-            if (idx + 1 + len > d) { break; }
+            if (idx + 1 + len > d) break;
 
             if (tag == CTA_DB_VENDOR && len >= 5 && (ext[idx + 1] | (ext[idx + 2] << 8) | (ext[idx + 3] << 16)) == HDMI_IEEE_OUI) {
                 return true;
@@ -2182,29 +2182,29 @@ static bool _drm_detect_monitor_audio(const struct edid *edid)
 {
     int i;
 
-    if (!edid) { return false; }
+    if (!edid) return false;
 
     for (i = 1; i <= edid->extensions; i++) {
         const uint8_t *ext = (const uint8_t *)edid + i * EDID_LENGTH;
         int            d, idx;
 
-        if (ext[0] != CEA_EXT) { continue; }
+        if (ext[0] != CEA_EXT) continue;
 
-        if (ext[3] & EDID_BASIC_AUDIO) { return true; }
+        if (ext[3] & EDID_BASIC_AUDIO) return true;
 
-        if (cea_revision(ext) < 3) { continue; }
+        if (cea_revision(ext) < 3) continue;
 
         d = ext[2];
-        if (d < 4 || d > 127) { continue; }
+        if (d < 4 || d > 127) continue;
 
         idx = 4;
         while (idx < d) {
             int tag = ext[idx] >> 5;
             int len = ext[idx] & 0x1f;
 
-            if (idx + 1 + len > d) { break; }
+            if (idx + 1 + len > d) break;
 
-            if (tag == CTA_DB_AUDIO) { return true; }
+            if (tag == CTA_DB_AUDIO) return true;
             idx += 1 + len;
         }
     }
@@ -2223,7 +2223,7 @@ static bool is_display_descriptor(const struct detailed_timing *descriptor, uint
 
 static void monitor_name(const struct detailed_timing *timing, const uint8_t **res)
 {
-    if (is_display_descriptor(timing, EDID_DETAIL_MONITOR_NAME)) { *res = timing->data.other_data.data.str.str; }
+    if (is_display_descriptor(timing, EDID_DETAIL_MONITOR_NAME)) *res = timing->data.other_data.data.str.str;
 }
 
 static int get_monitor_name(const struct edid *edid, char name[13])
@@ -2232,12 +2232,12 @@ static int get_monitor_name(const struct edid *edid, char name[13])
     int            mnl;
     int            i;
 
-    if (!edid || !name) { return 0; }
+    if (!edid || !name) return 0;
 
-    for (i = 0; i < EDID_DETAILED_TIMINGS; i++) { monitor_name(&edid->detailed_timings[i], &edid_name); }
+    for (i = 0; i < EDID_DETAILED_TIMINGS; i++) monitor_name(&edid->detailed_timings[i], &edid_name);
 
     for (mnl = 0; edid_name && mnl < 13; mnl++) {
-        if (edid_name[mnl] == 0x0a) { break; }
+        if (edid_name[mnl] == 0x0a) break;
         name[mnl] = (char)edid_name[mnl];
     }
 
@@ -2256,7 +2256,7 @@ int drm_edid_header_is_valid(const void *_edid)
     int                i, score = 0;
 
     for (i = 0; i < (int)sizeof(edid_header); i++) {
-        if (edid->header[i] == edid_header[i]) { score++; }
+        if (edid->header[i] == edid_header[i]) score++;
     }
 
     return score;
@@ -2268,7 +2268,7 @@ static int edid_block_compute_checksum(const void *_block)
     int            i;
     uint8_t        csum = 0, crc = 0;
 
-    for (i = 0; i < EDID_LENGTH - 1; i++) { csum += block[i]; }
+    for (i = 0; i < EDID_LENGTH - 1; i++) csum += block[i];
     crc = 0x100 - csum;
 
     return crc;
@@ -2279,7 +2279,7 @@ static bool edid_block_is_zero(const void *edid)
     int i;
 
     for (i = 0; i < EDID_LENGTH; i++) {
-        if (((const uint8_t *)edid)[i]) { return false; }
+        if (((const uint8_t *)edid)[i]) return false;
     }
     return true;
 }
@@ -2291,28 +2291,28 @@ static bool edid_block_valid(void *block, int block_num)
     bool         is_base = (block_num == 0);
     int          score;
 
-    if (!block) { return false; }
+    if (!block) return false;
 
     if (is_base) {
         score = drm_edid_header_is_valid(block);
         if (score < 6) {
-            if (edid_block_is_zero(block)) { return false; }
+            if (edid_block_is_zero(block)) return false;
             return false; /* corrupt header */
         }
-        if (score < 8) { memcpy(block, edid_header, sizeof(edid_header)); }
+        if (score < 8) memcpy(block, edid_header, sizeof(edid_header));
     }
 
     if (edid_block_compute_checksum(block) != edid->checksum) {
-        if (edid_block_is_zero(block)) { return false; }
+        if (edid_block_is_zero(block)) return false;
         if (!is_base && block_num >= 0) {
             /* For CEA extension blocks a bad checksum is tolerated. */
-            if (((const uint8_t *)block)[0] == CEA_EXT) { return true; }
+            if (((const uint8_t *)block)[0] == CEA_EXT) return true;
         }
         return false;
     }
 
     if (is_base) {
-        if (edid->version != 1) { return false; }
+        if (edid->version != 1) return false;
     }
 
     return true;
@@ -2322,12 +2322,12 @@ bool drm_edid_is_valid(struct edid *edid)
 {
     int i;
 
-    if (!edid) { return false; }
+    if (!edid) return false;
 
     for (i = 0; i < edid->extensions + 1; i++) {
         void *block = (uint8_t *)edid + i * EDID_LENGTH;
 
-        if (!edid_block_valid(block, i)) { return false; }
+        if (!edid_block_valid(block, i)) return false;
     }
 
     return true;
@@ -2337,10 +2337,10 @@ struct edid *drm_edid_duplicate(const struct edid *edid)
 {
     struct edid *new_edid;
 
-    if (!edid) { return NULL; }
+    if (!edid) return NULL;
 
     new_edid = malloc(edid_size(edid));
-    if (!new_edid) { return NULL; }
+    if (!new_edid) return NULL;
     memcpy(new_edid, edid, edid_size(edid));
 
     return new_edid;
@@ -2354,7 +2354,7 @@ void drm_edid_get_monitor_name(const struct edid *edid, char *name, int bufsize)
 {
     int name_length = 0;
 
-    if (bufsize <= 0) { return; }
+    if (bufsize <= 0) return;
 
     if (edid) {
         char buf[13];
@@ -2367,7 +2367,7 @@ void drm_edid_get_monitor_name(const struct edid *edid, char *name, int bufsize)
 
 void drm_edid_to_display_info(struct drm_connector *connector, const struct edid *edid)
 {
-    if (!connector) { return; }
+    if (!connector) return;
 
     if (!edid) {
         connector->display_info_width_mm  = 0;
@@ -2398,7 +2398,7 @@ int drm_add_edid_modes(struct drm_connector *connector, struct edid *edid)
 {
     int num_modes = 0;
 
-    if (!edid) { return 0; }
+    if (!edid) return 0;
 
     if (!drm_edid_is_valid(edid)) {
         DRM_WARN("[CONNECTOR:%d:%s] EDID invalid.\n", connector->base.id, connector->name);
@@ -2449,7 +2449,7 @@ static int drm_est3_modes(struct drm_connector *connector, const struct detailed
     for (i = 0; i < 6; i++) {
         for (j = 7; j >= 0; j--) {
             m = (i * 8) + (7 - j);
-            if (m >= (int)ARRAY_SIZE(est3_modes)) { break; }
+            if (m >= (int)ARRAY_SIZE(est3_modes)) break;
             if (est[i] & (1 << j)) {
                 mode = drm_mode_find_dmt(connector->dev, est3_modes[m].w, est3_modes[m].h, est3_modes[m].r, est3_modes[m].rb);
                 if (mode) {
@@ -2465,7 +2465,7 @@ static int drm_est3_modes(struct drm_connector *connector, const struct detailed
 
 static void do_established_modes(const struct detailed_timing *timing, struct detailed_mode_closure *closure)
 {
-    if (!is_display_descriptor(timing, EDID_DETAIL_EST_TIMINGS)) { return; }
+    if (!is_display_descriptor(timing, EDID_DETAIL_EST_TIMINGS)) return;
     closure->modes += drm_est3_modes(closure->connector, timing);
 }
 
@@ -2487,7 +2487,7 @@ static int add_established_modes(struct drm_connector *connector, const struct e
         if (est_bits & (1UL << i)) {
             struct drm_display_mode *newmode;
 
-            if (i >= (int)ARRAY_SIZE(edid_est_modes)) { continue; }
+            if (i >= (int)ARRAY_SIZE(edid_est_modes)) continue;
 
             newmode = drm_mode_duplicate(dev, &edid_est_modes[i]);
             if (newmode) {
@@ -2501,7 +2501,7 @@ static int add_established_modes(struct drm_connector *connector, const struct e
      * detailed timing area. */
     {
         int k;
-        for (k = 0; k < EDID_DETAILED_TIMINGS; k++) { do_established_modes(&edid->detailed_timings[k], &closure); }
+        for (k = 0; k < EDID_DETAILED_TIMINGS; k++) do_established_modes(&edid->detailed_timings[k], &closure);
     }
 
     return modes + closure.modes;
@@ -2512,7 +2512,7 @@ static void do_standard_modes(const struct detailed_timing *timing, struct detai
     const struct detailed_non_pixel *data = &timing->data.other_data;
     int                              i;
 
-    if (!is_display_descriptor(timing, EDID_DETAIL_STD_MODES)) { return; }
+    if (!is_display_descriptor(timing, EDID_DETAIL_STD_MODES)) return;
 
     for (i = 0; i < 6; i++) {
         const struct std_timing *std = &data->data.timings[i];
@@ -2552,7 +2552,7 @@ static int add_standard_modes(struct drm_connector *connector, const struct edid
      * timing area. */
     {
         int k;
-        for (k = 0; k < EDID_DETAILED_TIMINGS; k++) { do_standard_modes(&edid->detailed_timings[k], &closure); }
+        for (k = 0; k < EDID_DETAILED_TIMINGS; k++) do_standard_modes(&edid->detailed_timings[k], &closure);
     }
 
     return modes + closure.modes;
@@ -2564,8 +2564,8 @@ static int add_standard_modes(struct drm_connector *connector, const struct edid
 
 static const struct drm_display_mode *cea_mode_for_vic(uint8_t vic)
 {
-    if (vic >= 1 && vic < 1 + (uint8_t)ARRAY_SIZE(edid_cea_modes_1)) { return &edid_cea_modes_1[vic - 1]; }
-    if (vic >= 193 && vic < 193 + (uint8_t)ARRAY_SIZE(edid_cea_modes_193)) { return &edid_cea_modes_193[vic - 193]; }
+    if (vic >= 1 && vic < 1 + (uint8_t)ARRAY_SIZE(edid_cea_modes_1)) return &edid_cea_modes_1[vic - 1];
+    if (vic >= 193 && vic < 193 + (uint8_t)ARRAY_SIZE(edid_cea_modes_193)) return &edid_cea_modes_193[vic - 193];
     return NULL;
 }
 
@@ -2575,10 +2575,10 @@ struct drm_display_mode *drm_display_mode_from_cea_vic(struct drm_device *dev, u
     struct drm_display_mode       *newmode;
 
     cea_mode = cea_mode_for_vic(video_code);
-    if (!cea_mode) { return NULL; }
+    if (!cea_mode) return NULL;
 
     newmode = drm_mode_duplicate(dev, cea_mode);
-    if (!newmode) { return NULL; }
+    if (!newmode) return NULL;
 
     return newmode;
 }
@@ -2594,10 +2594,10 @@ struct drm_display_mode *drm_mode_find_dmt(struct drm_device *dev, int hsize, in
     for (i = 0; i < (int)ARRAY_SIZE(drm_dmt_modes); i++) {
         const struct drm_display_mode *ptr = &drm_dmt_modes[i];
 
-        if (hsize != ptr->hdisplay) { continue; }
-        if (vsize != ptr->vdisplay) { continue; }
-        if (fresh != drm_mode_vrefresh(ptr)) { continue; }
-        if (rb != mode_is_rb(ptr)) { continue; }
+        if (hsize != ptr->hdisplay) continue;
+        if (vsize != ptr->vdisplay) continue;
+        if (fresh != drm_mode_vrefresh(ptr)) continue;
+        if (rb != mode_is_rb(ptr)) continue;
 
         return drm_mode_duplicate(dev, ptr);
     }
@@ -2613,7 +2613,7 @@ static int cea_mode_alternate_clock(const struct drm_display_mode *cea_mode)
 {
     int clock = cea_mode->clock;
 
-    if (drm_mode_vrefresh(cea_mode) % 6 != 0) { return clock; }
+    if (drm_mode_vrefresh(cea_mode) % 6 != 0) return clock;
 
     if (cea_mode->vdisplay == 240 || cea_mode->vdisplay == 480) {
         clock = DIV_ROUND_CLOSEST(clock * 1001, 1000);
@@ -2631,7 +2631,7 @@ static uint8_t cea_num_vics(void)
 
 static uint8_t cea_next_vic(uint8_t vic)
 {
-    if (++vic == 1 + (uint8_t)ARRAY_SIZE(edid_cea_modes_1)) { vic = 193; }
+    if (++vic == 1 + (uint8_t)ARRAY_SIZE(edid_cea_modes_1)) vic = 193;
     return vic;
 }
 
@@ -2650,13 +2650,13 @@ static bool drm_mode_match_flags(const struct drm_display_mode *mode1, const str
 
 static bool drm_mode_match(const struct drm_display_mode *mode1, const struct drm_display_mode *mode2, unsigned int match_flags)
 {
-    if (!mode1 && !mode2) { return true; }
-    if (!mode1 || !mode2) { return false; }
+    if (!mode1 && !mode2) return true;
+    if (!mode1 || !mode2) return false;
 
-    if ((match_flags & 0x1) && !drm_mode_match_timings(mode1, mode2)) { return false; }
-    if ((match_flags & 0x2) && (mode1->clock != mode2->clock)) { return false; }
-    if ((match_flags & 0x4) && !drm_mode_match_flags(mode1, mode2)) { return false; }
-    if ((match_flags & 0x8) && (mode1->picture_aspect_ratio != mode2->picture_aspect_ratio)) { return false; }
+    if ((match_flags & 0x1) && !drm_mode_match_timings(mode1, mode2)) return false;
+    if ((match_flags & 0x2) && (mode1->clock != mode2->clock)) return false;
+    if ((match_flags & 0x4) && !drm_mode_match_flags(mode1, mode2)) return false;
+    if ((match_flags & 0x8) && (mode1->picture_aspect_ratio != mode2->picture_aspect_ratio)) return false;
 
     return true;
 }
@@ -2671,9 +2671,9 @@ uint8_t drm_match_cea_mode(const struct drm_display_mode *to_match)
     unsigned int match_flags = DRM_MODE_MATCH_TIMINGS | DRM_MODE_MATCH_FLAGS;
     uint8_t      vic;
 
-    if (!to_match->clock) { return 0; }
+    if (!to_match->clock) return 0;
 
-    if (to_match->picture_aspect_ratio) { match_flags |= DRM_MODE_MATCH_ASPECT_RATIO; }
+    if (to_match->picture_aspect_ratio) match_flags |= DRM_MODE_MATCH_ASPECT_RATIO;
 
     for (vic = 1; vic < cea_num_vics(); vic = cea_next_vic(vic)) {
         struct drm_display_mode cea_mode;
@@ -2686,9 +2686,9 @@ uint8_t drm_match_cea_mode(const struct drm_display_mode *to_match)
         clock1 = (unsigned int)cea_mode.clock;
         clock2 = (unsigned int)cea_mode_alternate_clock(&cea_mode);
 
-        if (to_match->clock != (int)clock1 && to_match->clock != (int)clock2) { continue; }
+        if (to_match->clock != (int)clock1 && to_match->clock != (int)clock2) continue;
 
-        if (drm_mode_match(to_match, &cea_mode, match_flags)) { return vic; }
+        if (drm_mode_match(to_match, &cea_mode, match_flags)) return vic;
     }
 
     return 0;

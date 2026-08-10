@@ -452,7 +452,7 @@ static uint32_t hda_get_param(int addr, uint16_t nid, int param)
 {
     uint32_t res = 0;
     int      ret = hda_verb_exec(addr, nid, AC_VERB_PARAMETERS, param, &res);
-    if (ret) { plogk("hda: GET_PARAM addr=%d nid=0x%02x param=0x%02x failed: %d\n", addr, nid, param, ret); }
+    if (ret) plogk("hda: GET_PARAM addr=%d nid=0x%02x param=0x%02x failed: %d\n", addr, nid, param, ret);
     return res;
 }
 
@@ -676,7 +676,7 @@ static void hda_config_codec(hda_codec_t *codec)
 
     hda_set_verb(addr, (uint16_t)codec->afg_nid, AC_VERB_SET_POWER_STATE, AC_PWRST_D0);
 
-    if (codec->dac_nid > 0) { hda_set_verb(addr, (uint16_t)codec->dac_nid, AC_VERB_SET_POWER_STATE, AC_PWRST_D0); }
+    if (codec->dac_nid > 0) hda_set_verb(addr, (uint16_t)codec->dac_nid, AC_VERB_SET_POWER_STATE, AC_PWRST_D0);
 
     if (codec->pin_nid > 0) {
         hda_set_verb(addr, (uint16_t)codec->pin_nid, AC_VERB_SET_POWER_STATE, AC_PWRST_D0);
@@ -868,8 +868,8 @@ static int hda_audio_start(audio_card_t *card)
 {
     (void)card;
     spin_lock(&hda_ctrl.lock);
-    if (hda_ctrl.playback_stream >= 0 && hda_ctrl.streams[hda_ctrl.playback_stream].allocated) { hda_start_stream(hda_ctrl.playback_stream); }
-    if (hda_ctrl.capture_stream >= 0 && hda_ctrl.streams[hda_ctrl.capture_stream].allocated) { hda_start_stream(hda_ctrl.capture_stream); }
+    if (hda_ctrl.playback_stream >= 0 && hda_ctrl.streams[hda_ctrl.playback_stream].allocated) hda_start_stream(hda_ctrl.playback_stream);
+    if (hda_ctrl.capture_stream >= 0 && hda_ctrl.streams[hda_ctrl.capture_stream].allocated) hda_start_stream(hda_ctrl.capture_stream);
     spin_unlock(&hda_ctrl.lock);
     return EOK;
 }

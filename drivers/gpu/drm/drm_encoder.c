@@ -118,7 +118,7 @@ void drm_encoder_cleanup(struct drm_encoder *encoder)
 {
     struct drm_device *dev;
 
-    if (!encoder) { return; }
+    if (!encoder) return;
 
     dev = encoder->dev;
 
@@ -129,6 +129,6 @@ void drm_encoder_cleanup(struct drm_encoder *encoder)
         drm_idr_remove(&dev->mode_config.object_idr, encoder->base.id);
         spin_unlock(&dev->mode_config.idr_mutex);
 
-        if (dev->mode_config.num_encoder > 0) { dev->mode_config.num_encoder--; }
+        if (dev->mode_config.num_encoder > 0) dev->mode_config.num_encoder--;
     }
 }

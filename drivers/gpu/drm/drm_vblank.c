@@ -207,7 +207,7 @@ void drm_crtc_arm_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_
     } else {
         struct drm_pending_vblank_event *cur = vblank->event_queue;
 
-        while (cur->next != NULL && cur->next->sequence <= e->sequence) { cur = cur->next; }
+        while (cur->next != NULL && cur->next->sequence <= e->sequence) cur = cur->next;
         e->next   = cur->next;
         cur->next = e;
     }

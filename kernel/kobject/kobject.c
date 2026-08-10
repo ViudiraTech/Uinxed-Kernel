@@ -202,7 +202,7 @@ int kobject_add(struct kobject *kobj, struct kobject *parent, const char *fmt, .
 
     /* Create sysfs directory */
     ret = sysfs_create_dir(kobj);
-    if (ret != EOK) { goto err_parent; }
+    if (ret != EOK) goto err_parent;
 
     /* Create default attributes */
     if (kobj->ktype && kobj->ktype->default_attrs) {
@@ -305,7 +305,7 @@ static void kobject_release_internal(kref_t *kref)
     kobj->state_initialized = 0;
 
     /* Call the type-specific release */
-    if (kobj->ktype && kobj->ktype->release) { kobj->ktype->release(kobj); }
+    if (kobj->ktype && kobj->ktype->release) kobj->ktype->release(kobj);
 }
 
 void kobject_put(struct kobject *kobj)
@@ -331,7 +331,7 @@ void kobject_del(struct kobject *kobj)
     if (kobj->ktype && kobj->ktype->default_attrs) {
         struct attribute **attr;
         for (attr = kobj->ktype->default_attrs; *attr; attr++) {
-            if ((*attr)->name) { sysfs_remove_file(kobj, *attr); }
+            if ((*attr)->name) sysfs_remove_file(kobj, *attr);
         }
     }
 

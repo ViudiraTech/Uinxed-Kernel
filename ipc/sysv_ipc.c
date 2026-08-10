@@ -219,7 +219,7 @@ static void sem_undo_apply(sem_undo_t *u, sem_array_t *sem)
     spin_lock(&sem->lock);
     uint32_t n = u->nsems;
     if (n > sem->nsems) n = sem->nsems;
-    for (uint32_t i = 0; i < n; i++) { sem->values[i] = (uint16_t)((int32_t)sem->values[i] + u->adj[i]); }
+    for (uint32_t i = 0; i < n; i++) sem->values[i] = (uint16_t)((int32_t)sem->values[i] + u->adj[i]);
     spin_unlock(&sem->lock);
 }
 
@@ -337,7 +337,7 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
         free(sem);
         return -ENOMEM;
     }
-    for (uint32_t i = 0; i < (uint32_t)nsems; i++) { wait_queue_init(&sem->waitq[i]); }
+    for (uint32_t i = 0; i < (uint32_t)nsems; i++) wait_queue_init(&sem->waitq[i]);
 
     sem->nsems = (uint32_t)nsems;
     sem->ctime = sched_ticks();
@@ -532,12 +532,12 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
         /* Apply all operations atomically */
         for (size_t i = 0; i < nsops; i++) {
             uint16_t snum = ksops[i].sem_num;
-            if (ksops[i].sem_op > 0 || ksops[i].sem_op < 0) { sem->values[snum] = (uint16_t)((int32_t)sem->values[snum] + ksops[i].sem_op); }
+            if (ksops[i].sem_op > 0 || ksops[i].sem_op < 0) sem->values[snum] = (uint16_t)((int32_t)sem->values[snum] + ksops[i].sem_op);
             /* sem_op == 0: no change to value */
 
-            if (ksops[i].sem_op != 0) { sem->sempid[snum] = proc ? (uint32_t)proc->task->pid : 0; }
+            if (ksops[i].sem_op != 0) sem->sempid[snum] = proc ? (uint32_t)proc->task->pid : 0;
 
-            if (ksops[i].sem_flg & SEM_UNDO) { undo_adj[snum] = (int16_t)(undo_adj[snum] - ksops[i].sem_op); }
+            if (ksops[i].sem_flg & SEM_UNDO) undo_adj[snum] = (int16_t)(undo_adj[snum] - ksops[i].sem_op);
         }
 
         sem->otime = sched_ticks();
@@ -555,13 +555,13 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
                     u->nsems = sem->nsems;
                     u->proc  = proc;
                     u->adj   = malloc(sizeof(int16_t) * sem->nsems);
-                    if (u->adj != NULL) { memset(u->adj, 0, sizeof(int16_t) * sem->nsems); }
+                    if (u->adj != NULL) memset(u->adj, 0, sizeof(int16_t) * sem->nsems);
                     u->next       = sem_undo_list;
                     sem_undo_list = u;
                 }
             }
             if (u != NULL && u->adj != NULL) {
-                for (uint32_t i = 0; i < sem->nsems; i++) { u->adj[i] = (int16_t)(u->adj[i] + undo_adj[i]); }
+                for (uint32_t i = 0; i < sem->nsems; i++) u->adj[i] = (int16_t)(u->adj[i] + undo_adj[i]);
             } else if (u != NULL) {
                 plogk("sysv_ipc: Semtimedop undo tracking lost for semid %d (adj allocation failed)\n", semid);
             }
@@ -570,7 +570,7 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
 
         /* Wake up any waiters */
         for (uint32_t i = 0; i < sem->nsems; i++) {
-            if (sem->values[i] > 0 || sem->semzcnt[i] > 0) { wait_queue_wake_all(&sem->waitq[i]); }
+            if (sem->values[i] > 0 || sem->semzcnt[i] > 0) wait_queue_wake_all(&sem->waitq[i]);
         }
 
         free(undo_adj);
@@ -600,7 +600,7 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
             spin_unlock(&sem->lock);
 
             /* Wake all waiters */
-            for (uint32_t i = 0; i < sem->nsems; i++) { wait_queue_wake_all(&sem->waitq[i]); }
+            for (uint32_t i = 0; i < sem->nsems; i++) wait_queue_wake_all(&sem->waitq[i]);
 
             free(sem->waitq);
             free(sem->semzcnt);
@@ -711,7 +711,7 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
             sem->ctime = sched_ticks();
             spin_unlock(&sem->lock);
 
-            for (uint32_t i = 0; i < sem->nsems; i++) { wait_queue_wake_all(&sem->waitq[i]); }
+            for (uint32_t i = 0; i < sem->nsems; i++) wait_queue_wake_all(&sem->waitq[i]);
             free(vals);
             return 0;
         }
@@ -983,14 +983,14 @@ int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg)
         vaddr = (uintptr_t)shmaddr;
     } else if (shmaddr != NULL) {
         vaddr = (uintptr_t)shmaddr;
-        if (shmflg & SHM_RND) { vaddr &= ~(SHMLBA - 1); }
+        if (shmflg & SHM_RND) vaddr &= ~(SHMLBA - 1);
     } else {
         /* Find a free address: use a simple incrementing allocator */
         static uintptr_t next_shm_addr = SHM_MMAP_BASE;
         spin_lock(&shm_global_lock);
         vaddr = next_shm_addr;
         next_shm_addr += SHM_MMAP_STEP;
-        if (next_shm_addr < SHM_MMAP_BASE) { next_shm_addr = SHM_MMAP_BASE; }
+        if (next_shm_addr < SHM_MMAP_BASE) next_shm_addr = SHM_MMAP_BASE;
         spin_unlock(&shm_global_lock);
     }
     if ((vaddr & (PAGE_4K_SIZE - 1)) || vaddr > UINT64_MAX - seg->size || vaddr + seg->size > PROCESS_USER_STACK_TOP) {
@@ -1047,7 +1047,7 @@ int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg)
 
 rollback:
     for (uint32_t i = 0; i < mapped; i++) (void)page_unmap_release(proc->user_page_dir, vaddr + i * PAGE_4K_SIZE);
-    if (mapped < seg->npages) { (void)frame_release_range(seg->phys_addr + mapped * PAGE_4K_SIZE, seg->npages - mapped); }
+    if (mapped < seg->npages) (void)frame_release_range(seg->phys_addr + mapped * PAGE_4K_SIZE, seg->npages - mapped);
     sysv_shm_vma_put(seg, (uint32_t)proc->task->pid);
     free(vma);
     return -ENOMEM;
@@ -1420,7 +1420,7 @@ int64_t sys_msgrcv(int msqid, void *msgp, size_t msgsz, int64_t msgtyp, int msgf
             msg_msg_t *cur   = q->head;
             while (cur != NULL) {
                 int match = (cur->type <= limit);
-                if (msgflg & MSG_EXCEPT) { match = !match; }
+                if (msgflg & MSG_EXCEPT) match = !match;
                 if (match) {
                     msg = cur;
                     break;
@@ -1452,7 +1452,7 @@ int64_t sys_msgrcv(int msqid, void *msgp, size_t msgsz, int64_t msgtyp, int msgf
 
     /* Remove message from queue */
     *prev_link = msg->next;
-    if (msg == q->tail) { q->tail = prev_node; }
+    if (msg == q->tail) q->tail = prev_node;
     q->qnum--;
     q->cbytes -= msg->size;
     q->rtime = sched_ticks();

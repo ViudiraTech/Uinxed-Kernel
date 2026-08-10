@@ -299,7 +299,7 @@ int virtgpu_ctrl_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size, v
     if (ret) return ret;
 
     hdr = (struct virtio_gpu_ctrl_hdr *)resp;
-    if (fence_id) { *fence_id = hdr->fence_id; }
+    if (fence_id) *fence_id = hdr->fence_id;
     return 0;
 }
 

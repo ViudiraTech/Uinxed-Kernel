@@ -158,7 +158,7 @@ static iso_directory_record_t *isofs_find_entry(isofs_mount_t *mnt, uint32_t dir
         }
 
         if (!(de->flags[0] & 1) || !mnt->hide) {
-            if (dlen > 0 && (int)strlen(name) == dlen && !memcmp(dpnt, name, (size_t)dlen)) { match = 1; }
+            if (dlen > 0 && (int)strlen(name) == dlen && !memcmp(dpnt, name, (size_t)dlen)) match = 1;
         }
 
         if (match) {
@@ -258,7 +258,7 @@ static int isofs_load_directory(vfs_node_t node)
 
         if (mnt->rock_ridge) {
             dlen = get_rock_ridge_filename(de, name_buf, sizeof(name_buf), mnt);
-            if (dlen <= 0) { dlen = isofs_name_translate(de, name_buf, sizeof(name_buf)); }
+            if (dlen <= 0) dlen = isofs_name_translate(de, name_buf, sizeof(name_buf));
         } else {
             dlen = isofs_name_translate(de, name_buf, sizeof(name_buf));
         }

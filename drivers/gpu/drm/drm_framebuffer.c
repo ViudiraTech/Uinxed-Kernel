@@ -320,7 +320,7 @@ int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_pr
     }
 
     ret = drm_framebuffer_init(dev, fb, dev->driver ? dev->driver->fb_funcs : NULL);
-    if (ret) { goto err_cleanup; }
+    if (ret) goto err_cleanup;
 
     r->fb_id = (__u32)fb->base.id;
 
@@ -617,7 +617,7 @@ void drm_framebuffer_cleanup(struct drm_framebuffer *fb)
     struct drm_device *dev;
     int                i;
 
-    if (!fb) { return; }
+    if (!fb) return;
 
     dev = fb->base.dev;
 
@@ -644,7 +644,7 @@ void drm_framebuffer_cleanup(struct drm_framebuffer *fb)
         drm_idr_remove(&dev->mode_config.object_idr, fb->base.id);
         spin_unlock(&dev->mode_config.idr_mutex);
 
-        if (dev->mode_config.num_fb > 0) { dev->mode_config.num_fb--; }
+        if (dev->mode_config.num_fb > 0) dev->mode_config.num_fb--;
     }
 }
 

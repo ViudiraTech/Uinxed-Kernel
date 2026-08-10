@@ -31,7 +31,7 @@ static test_gem_object_t *test_gem_alloc(struct drm_device *dev, size_t sz)
 {
     test_gem_object_t *obj = malloc(sizeof(*obj));
 
-    if (!obj) { return NULL; }
+    if (!obj) return NULL;
 
     memset(obj, 0, sizeof(*obj));
     obj->vaddr = malloc(sz);
@@ -48,7 +48,7 @@ static test_gem_object_t *test_gem_alloc(struct drm_device *dev, size_t sz)
 
 static void test_gem_free(test_gem_object_t *obj)
 {
-    if (!obj) { return; }
+    if (!obj) return;
 
     free(obj->vaddr);
     free(obj);
@@ -115,7 +115,7 @@ void drm_run_test(void)
         } else {
             color = 0xFF0000FF; // blue
         }
-        for (uint32_t x = 0; x < create.width; x++) { pixels[y * create.width + x] = color; }
+        for (uint32_t x = 0; x < create.width; x++) pixels[y * create.width + x] = color;
     }
 
     plogk("drm_test: Pattern written to GEM buffer.\n");

@@ -555,7 +555,7 @@ static void gen_info_loadavg(procfs_file_t *pf)
 
     uint64_t running   = 0;
     uint32_t cpu_count = sched_cpu_count();
-    for (uint32_t i = 0; i < cpu_count; i++) { running += cpu_rqs[i].nr_running; }
+    for (uint32_t i = 0; i < cpu_count; i++) running += cpu_rqs[i].nr_running;
     /* active threads = currently running (one per CPU) + on ready queues */
     uint64_t active  = cpu_count + running;
     uint64_t total   = scheduler.next_pid ? scheduler.next_pid - 1 : 0;
@@ -2117,7 +2117,7 @@ static int procfs_stat(void *file, vfs_node_t node)
         case PROCFS_NET_DIR : {
             static const char *names[] = {"dev", "arp", "route", "tcp", "udp", "unix"};
             node->type                 = file_dir;
-            for (int i = 0; i < 6; i++) { (void)procfs_ensure_child(node, names[i], PROCFS_NET_FILE, 0, i, file_none); }
+            for (int i = 0; i < 6; i++) (void)procfs_ensure_child(node, names[i], PROCFS_NET_FILE, 0, i, file_none);
             break;
         }
         case PROCFS_TTY_DIR : {

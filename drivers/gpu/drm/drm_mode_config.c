@@ -212,7 +212,7 @@ static void __attribute__((unused)) drm_mode_config_cleanup_list(ilist_node_t *l
     while (node && node != list) {
         next = node->next;
         /* The drm_mode_object is the first member, so node == obj pointer */
-        if (cleanup) { cleanup(node); }
+        if (cleanup) cleanup(node);
         node = next;
     }
 
@@ -229,7 +229,7 @@ static void __attribute__((unused)) drm_mode_config_cleanup_list(ilist_node_t *l
  */
 void drm_mode_config_cleanup(struct drm_device *dev)
 {
-    if (!dev) { return; }
+    if (!dev) return;
 
     /* Clean up framebuffers first (they reference GEM objects) */
     {

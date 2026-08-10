@@ -1078,7 +1078,7 @@ void sysfs_remove_bin_file(struct kobject *kobj, const struct bin_attribute *att
 
     sysfs_bin_attr_entry_t *entry = sysfs_find_bin_attr(kobj, attr->attr.name);
     if (!entry || entry->attr != attr) return;
-    if (entry->vnode) { vfs_namespace_detach(entry->vnode); }
+    if (entry->vnode) vfs_namespace_detach(entry->vnode);
     kobj->bin_attributes = clist_delete(kobj->bin_attributes, entry);
     free(entry);
 }
@@ -1335,7 +1335,7 @@ int sysfs_create_groups(struct kobject *kobj, const struct attribute_group **gro
         ret = sysfs_create_group(kobj, groups[i]);
         if (ret != EOK) {
             /* Rollback previously created groups */
-            for (int j = i - 1; j >= 0; j--) { sysfs_remove_group(kobj, groups[j]); }
+            for (int j = i - 1; j >= 0; j--) sysfs_remove_group(kobj, groups[j]);
             return ret;
         }
     }
@@ -1347,7 +1347,7 @@ void sysfs_remove_groups(struct kobject *kobj, const struct attribute_group **gr
 {
     if (!groups) return;
 
-    for (int i = 0; groups[i]; i++) { sysfs_remove_group(kobj, groups[i]); }
+    for (int i = 0; groups[i]; i++) sysfs_remove_group(kobj, groups[i]);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1387,7 +1387,7 @@ void sysfs_cleanup_kobject_files(struct kobject *kobj)
             next                          = node->next;
             sysfs_bin_attr_entry_t *entry = node->data;
             if (!entry) continue;
-            if (entry->vnode) { vfs_namespace_detach(entry->vnode); }
+            if (entry->vnode) vfs_namespace_detach(entry->vnode);
             kobj->bin_attributes = clist_delete(kobj->bin_attributes, entry);
             free(entry);
         }
@@ -1584,7 +1584,7 @@ static void sysfs_unbind_dir(struct kobject *kobj)
         sysfs_symlink_entry_t *entry = node->data;
         if (entry) entry->vnode = NULL;
     }
-    for (clist_t node = kobj->children; node; node = node->next) { sysfs_unbind_dir(node->data); }
+    for (clist_t node = kobj->children; node; node = node->next) sysfs_unbind_dir(node->data);
     kobj->sd = NULL;
 }
 

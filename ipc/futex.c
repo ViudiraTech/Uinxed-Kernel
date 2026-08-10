@@ -791,7 +791,7 @@ static int futex_unlock_pi(uint32_t *uaddr)
         pi_mutex->owner = next_owner;
 
         uint32_t new_val = (next_owner->pid & FUTEX_TID_MASK);
-        if (!ilist_is_empty(&pi_mutex->wq.tasks)) { new_val |= FUTEX_WAITERS; }
+        if (!ilist_is_empty(&pi_mutex->wq.tasks)) new_val |= FUTEX_WAITERS;
         copy_to_user(uaddr, &new_val, sizeof(new_val));
 
         task_wakeup(next_owner);

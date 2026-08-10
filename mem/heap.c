@@ -39,7 +39,7 @@ void init_heap(void)
     if (!memmap_response) krn_halt();
 
     for (uint64_t i = 0; i < memmap_response->entry_count; i++) {
-        if (memmap_response->entries[i]->type == LIMINE_MEMMAP_USABLE) { usable_ram += memmap_response->entries[i]->length; }
+        if (memmap_response->entries[i]->type == LIMINE_MEMMAP_USABLE) usable_ram += memmap_response->entries[i]->length;
     }
 
     if (!KERNEL_HEAP_SIZE && !KERNEL_HEAP_START) {

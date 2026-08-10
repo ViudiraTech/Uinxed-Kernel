@@ -46,14 +46,14 @@ static int drm_atomic_helper_check_modeset(struct drm_device *dev, struct drm_at
         struct __drm_crtcs_state *crtc_entry = &state->crtcs[i];
         struct drm_crtc_state    *crtc_state = crtc_entry->state;
 
-        if (!crtc_state) { continue; }
+        if (!crtc_state) continue;
 
         /* Detect mode changes */
-        if (crtc_state->active_changed) { crtc_state->mode_changed = true; }
+        if (crtc_state->active_changed) crtc_state->mode_changed = true;
 
-        if (crtc_state->mode_changed) { DRM_DEBUG_KMS("CRTC %d: mode changed\n", i); }
+        if (crtc_state->mode_changed) DRM_DEBUG_KMS("CRTC %d: mode changed\n", i);
 
-        if (crtc_state->active_changed) { DRM_DEBUG_KMS("CRTC %d: active changed to %s\n", i, crtc_state->active ? "on" : "off"); }
+        if (crtc_state->active_changed) DRM_DEBUG_KMS("CRTC %d: active changed to %s\n", i, crtc_state->active ? "on" : "off");
     }
 
     /* Check each connector for CRTC changes */
@@ -61,7 +61,7 @@ static int drm_atomic_helper_check_modeset(struct drm_device *dev, struct drm_at
         struct drm_connector_state *conn_state = state->connector_states[i];
         struct drm_connector       *connector  = state->connectors[i];
 
-        if (!conn_state || !connector || !connector->state) { continue; }
+        if (!conn_state || !connector || !connector->state) continue;
 
         if (conn_state->crtc != connector->state->crtc) {
             struct drm_crtc *old_crtc = connector->state->crtc;
@@ -74,7 +74,7 @@ static int drm_atomic_helper_check_modeset(struct drm_device *dev, struct drm_at
                 struct drm_crtc_state *old_crtc_state;
 
                 old_crtc_state = drm_atomic_get_crtc_state(state, old_crtc);
-                if (old_crtc_state) { old_crtc_state->connectors_changed = true; }
+                if (old_crtc_state) old_crtc_state->connectors_changed = true;
             }
 
             /* Mark connectors_changed on new CRTC */
@@ -82,7 +82,7 @@ static int drm_atomic_helper_check_modeset(struct drm_device *dev, struct drm_at
                 struct drm_crtc_state *new_crtc_state;
 
                 new_crtc_state = drm_atomic_get_crtc_state(state, new_crtc);
-                if (new_crtc_state) { new_crtc_state->connectors_changed = true; }
+                if (new_crtc_state) new_crtc_state->connectors_changed = true;
             }
         }
     }
@@ -99,13 +99,13 @@ static int drm_atomic_helper_check_planes(struct drm_device *dev, struct drm_ato
     struct drm_mode_config *config = &dev->mode_config;
     int                     i;
 
-    if (!state->planes) { return 0; }
+    if (!state->planes) return 0;
 
     for (i = 0; i < config->num_total_plane; i++) {
         struct __drm_planes_state *plane_entry = &state->planes[i];
         struct drm_plane_state    *plane_state = plane_entry->state;
 
-        if (!plane_state) { continue; }
+        if (!plane_state) continue;
 
         /* Check fb format compatibility */
         if (plane_state->fb) {
@@ -155,7 +155,7 @@ static void drm_atomic_helper_commit_modeset_disables(struct drm_device *dev, st
         struct __drm_crtcs_state *crtc_entry = &state->crtcs[i];
         struct drm_crtc_state    *crtc_state = crtc_entry->state;
 
-        if (!crtc_state || !crtc_entry->ptr) { continue; }
+        if (!crtc_state || !crtc_entry->ptr) continue;
 
         /* Disable CRTC if active is changing to false */
         if (crtc_state->active_changed && !crtc_state->active) {
@@ -178,14 +178,14 @@ static void drm_atomic_helper_commit_modeset_enables(struct drm_device *dev, str
         struct __drm_crtcs_state *crtc_entry = &state->crtcs[i];
         struct drm_crtc_state    *crtc_state = crtc_entry->state;
 
-        if (!crtc_state || !crtc_entry->ptr) { continue; }
+        if (!crtc_state || !crtc_entry->ptr) continue;
 
         /* Enable CRTC if active is changing to true */
         if (crtc_state->active_changed && crtc_state->active) {
             crtc_entry->ptr->enabled = true;
 
             /* Set mode if mode changed */
-            if (crtc_state->mode_changed) { memcpy(&crtc_entry->ptr->mode, &crtc_state->mode, sizeof(crtc_state->mode)); }
+            if (crtc_state->mode_changed) memcpy(&crtc_entry->ptr->mode, &crtc_state->mode, sizeof(crtc_state->mode));
 
             DRM_DEBUG_KMS("CRTC %d: enabled\n", i);
         }
@@ -203,13 +203,13 @@ static void drm_atomic_helper_commit_planes(struct drm_device *dev, struct drm_a
 
     (void)flags;
 
-    if (!state->planes) { return; }
+    if (!state->planes) return;
 
     for (i = 0; i < config->num_total_plane; i++) {
         struct __drm_planes_state *plane_entry = &state->planes[i];
         struct drm_plane_state    *plane_state = plane_entry->state;
 
-        if (!plane_state || !plane_entry->ptr) { continue; }
+        if (!plane_state || !plane_entry->ptr) continue;
 
         /* Apply new framebuffer if changed */
         if (plane_state->fb) {
@@ -269,7 +269,7 @@ static void drm_atomic_helper_cleanup_planes(struct drm_device *dev, struct drm_
 
     (void)dev;
 
-    if (!state->planes) { return; }
+    if (!state->planes) return;
 
     for (i = 0; i < config->num_total_plane; i++) {
         struct __drm_planes_state *plane_entry = &state->planes[i];

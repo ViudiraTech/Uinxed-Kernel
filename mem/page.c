@@ -890,7 +890,7 @@ retry_swap:
         table_flags |= leaf.value & (PTE_USER | PTE_PWT | PTE_PCD);
 
         if (leaf.size == PAGE_1G_SIZE) {
-            for (size_t i = 0; i < 512; i++) { first_table->entries[i].value = (old_frame + i * PAGE_2M_SIZE) | leaf_flags; }
+            for (size_t i = 0; i < 512; i++) first_table->entries[i].value = (old_frame + i * PAGE_2M_SIZE) | leaf_flags;
 
             size_t        target_2m    = (addr >> 21) & 0x1ff;
             page_table_t *second_table = phys_to_virt(second_table_frame);
@@ -900,14 +900,14 @@ retry_swap:
             int            pat          = (leaf_flags & huge_pat) != 0;
             uint64_t       pte_flags    = leaf_flags & ~(PTE_HUGE | huge_pat);
             if (pat) pte_flags |= PTE_HUGE;
-            for (size_t i = 0; i < 512; i++) { second_table->entries[i].value = (target_frame + i * PAGE_4K_SIZE) | pte_flags; }
+            for (size_t i = 0; i < 512; i++) second_table->entries[i].value = (target_frame + i * PAGE_4K_SIZE) | pte_flags;
             first_table->entries[target_2m].value = second_table_frame | table_flags;
         } else {
             const uint64_t huge_pat = 1ULL << 12;
             int            pat      = (leaf_flags & huge_pat) != 0;
             leaf_flags &= ~(PTE_HUGE | huge_pat);
             if (pat) leaf_flags |= PTE_HUGE; // Bit 7 is PAT in a 4 KiB PTE.
-            for (size_t i = 0; i < 512; i++) { first_table->entries[i].value = (old_frame + i * PAGE_4K_SIZE) | leaf_flags; }
+            for (size_t i = 0; i < 512; i++) first_table->entries[i].value = (old_frame + i * PAGE_4K_SIZE) | leaf_flags;
         }
 
         __atomic_exchange_n(&leaf.entry->value, first_table_frame | table_flags, __ATOMIC_ACQ_REL);

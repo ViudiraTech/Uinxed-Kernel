@@ -68,7 +68,7 @@ static ssize_t speed_show(struct device *dev, struct device_attribute *attribute
     usb_device_t *device        = dev ? dev->driver_data : NULL;
     const char   *speed_table[] = {"0", "1.5", "12", "480", "5000", "10000"};
     const char   *speed         = "0";
-    if (device && device->speed > 0 && device->speed <= USB_SPEED_SUPER_PLUS) { speed = speed_table[device->speed]; }
+    if (device && device->speed > 0 && device->speed <= USB_SPEED_SUPER_PLUS) speed = speed_table[device->speed];
     return sysfs_emit(buffer, "%s\n", speed);
 }
 
@@ -310,7 +310,7 @@ int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t le
 
         temp_result = usb_control_msg(device, USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_DEVICE, USB_REQ_SET_CONFIGURATION, 0U, 0, NULL, 0,
                                       USB_CTRL_TIMEOUT_MS);
-        if (temp_result != EOK) { plogk("usb-core: Failed to reset device configuration: %d\n", temp_result); }
+        if (temp_result != EOK) plogk("usb-core: Failed to reset device configuration: %d\n", temp_result);
         return result;
     }
 

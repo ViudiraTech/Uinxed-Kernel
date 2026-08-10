@@ -1229,7 +1229,7 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
                 return -EINVAL;
         }
 
-        if (!src || cnt == 0) { return evdev_fill_user(arg, 0, len) == EOK ? 0 : -EFAULT; }
+        if (!src || cnt == 0) return evdev_fill_user(arg, 0, len) == EOK ? 0 : -EFAULT;
         return evdev_copy_bits_to_user(arg, src, cnt, len);
     }
 

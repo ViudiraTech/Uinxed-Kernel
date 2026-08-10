@@ -342,19 +342,19 @@ static struct kobj_type class_ktype = {
 
 static struct kobject *get_devices_kobj(void)
 {
-    if (!devices_kobj && sysfs_root_kobj) { devices_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "devices"); }
+    if (!devices_kobj && sysfs_root_kobj) devices_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "devices");
     return devices_kobj;
 }
 
 static struct kobject *get_bus_kobj(void)
 {
-    if (!bus_kobj && sysfs_root_kobj) { bus_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "bus"); }
+    if (!bus_kobj && sysfs_root_kobj) bus_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "bus");
     return bus_kobj;
 }
 
 static struct kobject *get_class_kobj(void)
 {
-    if (!class_kobj && sysfs_root_kobj) { class_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "class"); }
+    if (!class_kobj && sysfs_root_kobj) class_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "class");
     return class_kobj;
 }
 
@@ -515,14 +515,14 @@ int device_register(struct device *dev)
              * Full driver matching requires iterating drivers_kset;
              * for now, probe using bus->probe if set
              */
-            if (dev->bus->probe) { dev->bus->probe(dev); }
+            if (dev->bus->probe) dev->bus->probe(dev);
         }
     }
 
     /* Create symlinks if the device has a class */
     if (dev->class) {
         ret = sysfs_create_symlink(&dev->class->subsys.kobj, &dev->kobj, kobject_name(&dev->kobj));
-        if (ret != EOK) { goto rollback_device_link; }
+        if (ret != EOK) goto rollback_device_link;
         /* /sys/class/<name>/<device>  ?/sys/devices/.../device */
         /* For now just add to the class kset */
     }
@@ -581,7 +581,7 @@ void device_unregister(struct device *dev)
         spin_unlock(&dev->bus->devices_kset->list_lock);
 
         /* Call bus remove if a driver is bound */
-        if (dev->driver && dev->driver->remove) { dev->driver->remove(dev); }
+        if (dev->driver && dev->driver->remove) dev->driver->remove(dev);
         dev->driver = NULL;
     }
 

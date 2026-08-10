@@ -133,7 +133,7 @@ static int tpm2_send_command(tpm_device_t *dev, uint32_t cc, const uint8_t *para
     cpu_to_be16(TPM2_ST_NO_SESSIONS, &cmd_buf[0]);
     cpu_to_be32(10 + param_len, &cmd_buf[2]);
     cpu_to_be32(cc, &cmd_buf[6]);
-    if (params && param_len > 0) { memcpy(&cmd_buf[10], params, param_len); }
+    if (params && param_len > 0) memcpy(&cmd_buf[10], params, param_len);
 
     int rc = tpm_transmit(dev, cmd_buf, sizeof(cmd_buf), 10 + param_len);
     if (rc < 0) return rc;

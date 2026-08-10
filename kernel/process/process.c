@@ -478,7 +478,7 @@ int setup_process_page_dir(process_t *proc)
     page_directory_t *kern_dir  = get_kernel_pagedir();
     page_table_t     *kern_pml4 = kern_dir->table;
 
-    for (int i = 256; i < 512; i++) { pml4->entries[i] = kern_pml4->entries[i]; }
+    for (int i = 256; i < 512; i++) pml4->entries[i] = kern_pml4->entries[i];
 
     proc->kernel_page_dir      = kern_dir;
     proc->user_page_dir        = new_dir;
@@ -1405,7 +1405,7 @@ process_t *process_create(const char *name, void (*entry)(void *), void *arg)
 
     pid_set(proc->task->pid, proc);
 
-    if (proc->parent && proc->parent != proc) { slist_insert_tail(&proc->parent->children, proc); }
+    if (proc->parent && proc->parent != proc) slist_insert_tail(&proc->parent->children, proc);
 
     return proc;
 }
@@ -1482,7 +1482,7 @@ process_t *process_create_kernel(const char *name, void (*entry)(void *), void *
 
     pid_set(proc->task->pid, proc);
 
-    if (proc->parent && proc->parent != proc) { slist_insert_tail(&proc->parent->children, proc); }
+    if (proc->parent && proc->parent != proc) slist_insert_tail(&proc->parent->children, proc);
 
     return proc;
 }

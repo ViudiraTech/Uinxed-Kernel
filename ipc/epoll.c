@@ -309,12 +309,12 @@ static int epoll_collect_events(epoll_instance_t *epi, epoll_event_t *user_event
         ev.events = item->revents;
         ev.data   = item->data;
 
-        if (copy_to_user(&user_events[collected], &ev, sizeof(epoll_event_t))) { return -EFAULT; }
+        if (copy_to_user(&user_events[collected], &ev, sizeof(epoll_event_t))) return -EFAULT;
 
         collected++;
 
         /* Handle EPOLLONESHOT: disable this fd after reporting */
-        if (item->events & EPOLLONESHOT) { item->oneshot_disabled = 1; }
+        if (item->events & EPOLLONESHOT) item->oneshot_disabled = 1;
 
         /* Clear revents for level-triggered; edge-triggered already cleared */
         item->revents = 0;
@@ -584,7 +584,7 @@ int64_t sys_epoll_create1(int flags)
     if (!node) return -ENOMEM;
 
     uint64_t fd_flags = O_RDWR;
-    if (flags & EPOLL_CLOEXEC) { fd_flags |= EPOLL_CLOEXEC; }
+    if (flags & EPOLL_CLOEXEC) fd_flags |= EPOLL_CLOEXEC;
 
     int fd = process_fd_install(proc, node, fd_flags);
     if (fd < 0) {

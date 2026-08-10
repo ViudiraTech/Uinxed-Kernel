@@ -577,7 +577,7 @@ void sb16_beep(uint16_t freq, uint32_t ms)
     if (!buf) return;
 
     uint32_t period = sb16_dev.sample_rate / freq;
-    for (uint32_t i = 0; i < samples; i++) { buf[i] = (i % period) < (period / 2) ? 200 : 55; }
+    for (uint32_t i = 0; i < samples; i++) buf[i] = (i % period) < (period / 2) ? 200 : 55;
 
     sb16_play_8bit(&sb16_dev, buf, buf_size);
 

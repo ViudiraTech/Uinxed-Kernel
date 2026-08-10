@@ -713,7 +713,7 @@ static void uhci_interrupt_handler(void *frame)
         uhci_controller_t *ctrl = uhci_controllers[i];
         if (!ctrl || !ctrl->running) continue;
         uint16_t sts = uhci_readw(ctrl, UHCI_USBSTS);
-        if (sts & UHCI_STS_USBINT) { uhci_writew(ctrl, UHCI_USBSTS, UHCI_STS_USBINT); }
+        if (sts & UHCI_STS_USBINT) uhci_writew(ctrl, UHCI_USBSTS, UHCI_STS_USBINT);
         if (sts & UHCI_STS_ERROR) {
             uhci_writew(ctrl, UHCI_USBSTS, UHCI_STS_ERROR);
             plogk("uhci: USB error interrupt on bus %u\n", ctrl->bus_number);
@@ -723,7 +723,7 @@ static void uhci_interrupt_handler(void *frame)
             uint64_t flags = spin_lock_irqsave(&ctrl->lock);
             for (uint8_t p = 0; p < UHCI_MAX_PORTS; p++) {
                 uint16_t psc = uhci_readw(ctrl, UHCI_PORTSC1 + p * 2);
-                if (psc & (UHCI_PORTSC_CSC | UHCI_PORTSC_PEC)) { ctrl->pending_ports |= 1ULL << p; }
+                if (psc & (UHCI_PORTSC_CSC | UHCI_PORTSC_PEC)) ctrl->pending_ports |= 1ULL << p;
             }
             spin_unlock_irqrestore(&ctrl->lock, flags);
         }
@@ -857,7 +857,7 @@ static int uhci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     pci_msi_init(pci);
     int msi_vector = pci_enable_msi(pci);
     if (msi_vector >= 0) ctrl->vector = msi_vector;
-    if (ctrl->vector > 0) { register_interrupt_handler((uint16_t)ctrl->vector, uhci_interrupt_handler, 0, 0x8e); }
+    if (ctrl->vector > 0) register_interrupt_handler((uint16_t)ctrl->vector, uhci_interrupt_handler, 0, 0x8e);
 
     ctrl->running     = true;
     ctrl->worker_task = kthread_create("uhci-hub", uhci_worker, ctrl);

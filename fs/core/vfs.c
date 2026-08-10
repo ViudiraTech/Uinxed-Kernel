@@ -656,7 +656,7 @@ int vfs_mkdir_mode(const char *name, uint16_t mode)
     if (status != EOK) return status;
 
     vfs_node_t node = vfs_reserve_child(parent, filename, &status);
-    if (!node) { goto out; }
+    if (!node) goto out;
     node->type        = file_dir;
     node->mode        = mode & 07777;
     node->permissions = node->mode;
@@ -696,7 +696,7 @@ int vfs_mkfile_mode(const char *name, uint16_t mode)
     if (status != EOK) return status;
 
     vfs_node_t node = vfs_reserve_child(parent, filename, &status);
-    if (!node) { goto out; }
+    if (!node) goto out;
     node->type        = file_none;
     node->mode        = mode & 07777;
     node->permissions = node->mode;
@@ -846,7 +846,7 @@ static int vfs_link_internal(const char *name, const char *target_name, bool fol
         goto out_link;
     }
     vfs_node_t node = vfs_reserve_child(parent, filename, &status);
-    if (!node) { goto out_link; }
+    if (!node) goto out_link;
     const char *callback_target = target_name;
     char        resolved_target[VFS_PATH_MAX];
     if (follow) {
@@ -895,7 +895,7 @@ int vfs_symlink(const char *name, const char *target_name)
     int        status = vfs_prepare_create(name, false, &path, &filename, &parent);
     if (status != EOK) return status;
     vfs_node_t node = vfs_reserve_child(parent, filename, &status);
-    if (!node) { goto out; }
+    if (!node) goto out;
     node->type        = file_symlink;
     node->mode        = 0777;
     node->permissions = 0777;

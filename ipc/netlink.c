@@ -499,7 +499,7 @@ static void nl_mcast_unsubscribe(uint32_t protocol, struct socket *sk)
     for (uint32_t i = 0; i < tab->count; i++) {
         if (tab->entries[i].sk == sk) {
             /* Remove by shifting remaining entries */
-            if (i < tab->count - 1) { memmove(&tab->entries[i], &tab->entries[i + 1], (tab->count - i - 1) * sizeof(nl_mcast_entry_t)); }
+            if (i < tab->count - 1) memmove(&tab->entries[i], &tab->entries[i + 1], (tab->count - i - 1) * sizeof(nl_mcast_entry_t));
             tab->count--;
             break;
         }

@@ -140,7 +140,7 @@ static struct drm_gem_object *drm_dummy_gem_prime_import(struct drm_device *dev,
     struct drm_gem_object *obj = (struct drm_gem_object *)dma_buf;
 
     (void)dev;
-    if (!obj) { return NULL; }
+    if (!obj) return NULL;
     drm_gem_object_get(obj);
     return obj;
 }
@@ -274,7 +274,7 @@ static int drm_dummy_kms_add_modes(struct drm_device *dev, struct drm_connector 
         struct drm_display_mode *mode;
 
         mode = drm_mode_create(dev);
-        if (!mode) { return -ENOMEM; }
+        if (!mode) return -ENOMEM;
 
         strncpy(mode->name, cfg->name, DRM_DISPLAY_MODE_LEN - 1);
         mode->name[DRM_DISPLAY_MODE_LEN - 1] = '\0';
@@ -556,7 +556,7 @@ void *drm_dev_mmap(void *file, size_t offset, size_t size, int flags)
      * == virtual) so we can return the pointer directly.
      */
     obj = drm_gem_object_lookup_by_offset(file_priv, (uint64_t)offset);
-    if (!obj) { return NULL; }
+    if (!obj) return NULL;
 
     result = obj->backing;
     drm_gem_object_put(obj);
@@ -616,10 +616,10 @@ void drm_vfs_open_cb(void *parent, const char *name, void *node_ptr)
     if (!dev) return;
 
     vfs_node_t node = (vfs_node_t)node_ptr;
-    if (!node) { return; }
+    if (!node) return;
 
     struct drm_file *file = malloc(sizeof(*file));
-    if (!file) { return; }
+    if (!file) return;
 
     memset(file, 0, sizeof(*file));
     int ret = drm_open(dev, file);
@@ -636,7 +636,7 @@ void drm_vfs_close_cb(void *current)
 {
     vfs_node_t node = (vfs_node_t)current;
 
-    if (!node || !node->handle) { return; }
+    if (!node || !node->handle) return;
 
     struct drm_file *file = (struct drm_file *)node->handle;
 

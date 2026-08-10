@@ -115,7 +115,7 @@ static uint32_t pipe_ring_copy_out(pipe_ring_t *ring, uint8_t *dst, uint32_t cou
     if (first_chunk > count) first_chunk = count;
     memcpy(dst, ring->buf + ring->tail, first_chunk);
 
-    if (count > first_chunk) { memcpy(dst + first_chunk, ring->buf, count - first_chunk); }
+    if (count > first_chunk) memcpy(dst + first_chunk, ring->buf, count - first_chunk);
     return count;
 }
 
@@ -127,7 +127,7 @@ static uint32_t pipe_ring_copy_in(pipe_ring_t *ring, const uint8_t *src, uint32_
     if (first_chunk > count) first_chunk = count;
     memcpy(ring->buf + ring->head, src, first_chunk);
 
-    if (count > first_chunk) { memcpy(ring->buf, src + first_chunk, count - first_chunk); }
+    if (count > first_chunk) memcpy(ring->buf, src + first_chunk, count - first_chunk);
     return count;
 }
 
@@ -655,9 +655,9 @@ static int pipe_vfs_poll(void *file, size_t events)
 
     spin_lock(&ring->lock);
 
-    if (pipe_ring_readable(ring) > 0) { revents |= POLLIN; }
-    if (ring->writers == 0 || ring->closed) { revents |= POLLHUP; }
-    if (pipe_ring_writable(ring) > 0 && ring->readers > 0 && !ring->closed) { revents |= POLLOUT; }
+    if (pipe_ring_readable(ring) > 0) revents |= POLLIN;
+    if (ring->writers == 0 || ring->closed) revents |= POLLHUP;
+    if (pipe_ring_writable(ring) > 0 && ring->readers > 0 && !ring->closed) revents |= POLLOUT;
 
     spin_unlock(&ring->lock);
 
@@ -711,7 +711,7 @@ static int pipe_vfs_stat(void *file, vfs_node_t node)
     if (!node) return -EINVAL;
 
     pipe_ring_t *ring = (pipe_ring_t *)node->handle;
-    if (ring) { node->size = ring->size; }
+    if (ring) node->size = ring->size;
     node->type |= file_pipe;
     node->mode = PIPE_DEFAULT_MODE;
     return EOK;

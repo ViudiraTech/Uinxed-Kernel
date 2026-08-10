@@ -438,7 +438,7 @@ uint32_t pci_get_port_base(pci_device_cache_t *device)
     for (int i = 0; i < 6; i++) {
         base_address_register_t bar = get_base_address_register(device, i);
         if (bar.type == input_output) io_port = (uint32_t)(uintptr_t)bar.address;
-        if (bar.size & BAR_64BIT_FLAG) { i++; }
+        if (bar.size & BAR_64BIT_FLAG) i++;
     }
     return io_port;
 }
@@ -575,14 +575,14 @@ void pci_msi_init(pci_device_cache_t *dev)
     if (dev->msi.msi_cap) {
         pci_device_reg_t reg  = {dev, dev->msi.msi_cap + PCI_MSI_FLAGS};
         uint16_t         ctrl = read_pci(reg) & 0xFFFF;
-        if (ctrl & PCI_MSI_FLAGS_ENABLE) { write_pci(reg, ctrl & ~PCI_MSI_FLAGS_ENABLE); }
+        if (ctrl & PCI_MSI_FLAGS_ENABLE) write_pci(reg, ctrl & ~PCI_MSI_FLAGS_ENABLE);
     }
 
     /* Disable MSI-X if left enabled by firmware */
     if (dev->msi.msix_cap) {
         pci_device_reg_t reg  = {dev, dev->msi.msix_cap + PCI_MSIX_FLAGS};
         uint16_t         ctrl = read_pci(reg) & 0xFFFF;
-        if (ctrl & PCI_MSIX_FLAGS_ENABLE) { write_pci(reg, ctrl & ~(PCI_MSIX_FLAGS_ENABLE | PCI_MSIX_FLAGS_MASKALL)); }
+        if (ctrl & PCI_MSIX_FLAGS_ENABLE) write_pci(reg, ctrl & ~(PCI_MSIX_FLAGS_ENABLE | PCI_MSIX_FLAGS_MASKALL));
     }
 }
 

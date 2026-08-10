@@ -838,10 +838,10 @@ free_slot:
     controller->dcbaa[slot_id] = 0;
     if (slot) {
         for (size_t dci = 1; dci < XHCI_MAX_ENDPOINTS; dci++) {
-            if (slot->endpoints[dci].ring_physical) { xhci_dma_free(slot->endpoints[dci].ring_physical, 1); }
+            if (slot->endpoints[dci].ring_physical) xhci_dma_free(slot->endpoints[dci].ring_physical, 1);
         }
-        if (slot->input_context_physical) { xhci_dma_free(slot->input_context_physical, 1); }
-        if (slot->output_context_physical) { xhci_dma_free(slot->output_context_physical, 1); }
+        if (slot->input_context_physical) xhci_dma_free(slot->input_context_physical, 1);
+        if (slot->output_context_physical) xhci_dma_free(slot->output_context_physical, 1);
         free(slot);
     }
     (void)xhci_command(controller, 0, 0, XHCI_TRB_TYPE(XHCI_TRB_DISABLE_SLOT) | ((uint32_t)slot_id << 24), NULL);
@@ -996,10 +996,10 @@ static void xhci_free_scratchpads(xhci_controller_t *controller)
     if (!controller) return;
     if (!controller->scratchpad_array) return;
     for (uint16_t i = 0; i < controller->scratchpad_count; i++) {
-        if (controller->scratchpad_array[i]) { xhci_dma_free(controller->scratchpad_array[i], 1); }
+        if (controller->scratchpad_array[i]) xhci_dma_free(controller->scratchpad_array[i], 1);
     }
     size_t pages = ((size_t)controller->scratchpad_count * sizeof(uint64_t) + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
-    if (controller->scratchpad_array_physical) { xhci_dma_free(controller->scratchpad_array_physical, pages); }
+    if (controller->scratchpad_array_physical) xhci_dma_free(controller->scratchpad_array_physical, pages);
     controller->scratchpad_array          = NULL;
     controller->scratchpad_array_physical = 0;
     controller->scratchpad_count          = 0;

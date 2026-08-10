@@ -32,12 +32,12 @@ int virtgpu_cmd_get_display_info(struct virtio_gpu_device *vgdev)
 
     memset(&resp, 0, sizeof(resp));
     ret = virtgpu_ctrl_cmd(vgdev, &cmd, sizeof(cmd), &resp, sizeof(resp), NULL);
-    if (ret) { return ret; }
+    if (ret) return ret;
 
     vgdev->num_scanouts = 0;
     for (i = 0; i < 16; i++) {
         struct virtio_gpu_display_one *d = &resp.pmodes[i];
-        if (!d->enabled) { continue; }
+        if (!d->enabled) continue;
         vgdev->scanouts[vgdev->num_scanouts].width   = d->r.width;
         vgdev->scanouts[vgdev->num_scanouts].height  = d->r.height;
         vgdev->scanouts[vgdev->num_scanouts].enabled = true;
@@ -72,7 +72,7 @@ int virtgpu_cmd_get_edid(struct virtio_gpu_device *vgdev, int scanout_id, void *
 
     memset(&resp, 0, sizeof(resp));
     ret = virtgpu_ctrl_cmd(vgdev, &cmd, sizeof(cmd), &resp, sizeof(resp), NULL);
-    if (ret) { return ret; }
+    if (ret) return ret;
 
     if (resp.size > 0 && resp.size <= 1024) {
         memcpy(edid, resp.edid, resp.size);
@@ -667,7 +667,7 @@ int virtgpu_cmd_get_capset_info(struct virtio_gpu_device *vgdev, uint32_t idx, u
 
     memset(&resp, 0, sizeof(resp));
     ret = virtgpu_ctrl_cmd(vgdev, &cmd, sizeof(cmd), &resp, sizeof(resp), NULL);
-    if (ret) { return ret; }
+    if (ret) return ret;
 
     *capset_id   = resp.capset_id;
     *max_version = resp.capset_max_version;

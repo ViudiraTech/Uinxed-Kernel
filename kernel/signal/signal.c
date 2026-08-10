@@ -248,7 +248,7 @@ static int signal_send_locked(signal_state_t *state, process_t *proc, int sig, c
     if (newly_pending) *newly_pending = false;
     /* Standard signals coalesce, but Linux retains the first siginfo. */
     if (!sig_is_rt(sig)) {
-        if (sigismember(&state->pending, sig)) { return 0; }
+        if (sigismember(&state->pending, sig)) return 0;
     }
 
     /* Real-time signals: queue up to SIGQUEUE_MAX */
@@ -308,7 +308,7 @@ int signal_send(process_t *proc, int sig, const siginfo_t *info)
 
     if (ret == 0 && !resumed) {
         /* Wake the task if it's blocked */
-        if (proc->task) { task_wakeup(proc->task); }
+        if (proc->task) task_wakeup(proc->task);
     }
 
     return ret;
@@ -398,7 +398,7 @@ static int signal_setup_frame(syscall_frame_t *frame, int sig, const sigaction_t
 
     /* Return address for the handler (restorer trampoline) */
     uint64_t restorer = 0;
-    if ((sa->sa_flags & SA_RESTORER) && sa->sa_restorer) { restorer = sa->sa_restorer; }
+    if ((sa->sa_flags & SA_RESTORER) && sa->sa_restorer) restorer = sa->sa_restorer;
     sig_frame.pretcode = restorer;
 
     /* Copy siginfo */
@@ -509,7 +509,7 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
     sigaction_t    *sa    = &state->sighand[sig];
 
     /* Check if signal is ignored */
-    if (sa->sa_handler == SIG_IGN) { return SIG_DELIV_HANDLED; }
+    if (sa->sa_handler == SIG_IGN) return SIG_DELIV_HANDLED;
 
     /* Check if signal is default */
     if (sa->sa_handler == SIG_DFL) {
@@ -530,7 +530,7 @@ static int signal_deliver_one(syscall_frame_t *frame, int sig, siginfo_t *info)
     sigset_t old_mask = state->restore_mask ? state->saved_mask : state->blocked;
 
     /* Block the signal itself unless SA_NODEFER */
-    if (!(action.sa_flags & SA_NODEFER)) { sigaddset(&state->blocked, sig); }
+    if (!(action.sa_flags & SA_NODEFER)) sigaddset(&state->blocked, sig);
 
     /* Block additional signals in sa_mask */
     sigorset(&state->blocked, &state->blocked, &action.sa_mask);
@@ -620,7 +620,7 @@ static int signal_dequeue(signal_state_t *state, siginfo_t *info)
                 } else {
                     state->sigqueue_head = cur->next;
                 }
-                if (cur == state->sigqueue_tail) { state->sigqueue_tail = prev; }
+                if (cur == state->sigqueue_tail) state->sigqueue_tail = prev;
                 state->sigqueue_count--;
                 sigqueue_free(cur);
                 if (!sigqueue_contains(state, sig)) sigdelset(&state->pending, sig);
@@ -803,7 +803,7 @@ void signal_notify_child_exit(process_t *parent, int64_t child_pid, int exit_cod
 
     if (newly_pending) signalfd_deliver(parent, SIGCHLD, &info);
 
-    if (parent->task) { task_wakeup(parent->task); }
+    if (parent->task) task_wakeup(parent->task);
 }
 
 void signal_notify_child_status(process_t *parent, int64_t child_pid, int status, int code)
@@ -1017,7 +1017,7 @@ int64_t sys_rt_sigaction(int sig, const sigaction_t *act, sigaction_t *oact, siz
         }
 
         /* SA_NOCLDSTOP and SA_NOCLDWAIT only meaningful for SIGCHLD */
-        if (sig != SIGCHLD) { new_sa.sa_flags &= ~(SA_NOCLDSTOP | SA_NOCLDWAIT); }
+        if (sig != SIGCHLD) new_sa.sa_flags &= ~(SA_NOCLDSTOP | SA_NOCLDWAIT);
 
         state->sighand[sig] = new_sa;
     }

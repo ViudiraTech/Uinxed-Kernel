@@ -266,7 +266,7 @@ int input_sysfs_register_evdev(evdev_t *evdev)
 
     if (!evdev) return -EINVAL;
     if (evdev->sysfs_device) return EOK;
-    if (!input_class_ready) { return EOK; }
+    if (!input_class_ready) return EOK;
     /*
      * Linux exposes an inputN device containing the identity/capability
      * files and an eventN child containing the character-device number.

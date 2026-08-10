@@ -61,7 +61,7 @@ int drm_plane_init(struct drm_device *dev, struct drm_plane *plane, uint32_t pos
     }
 
     ret = drm_mode_object_idr_alloc(dev, &plane->base, DRM_MODE_OBJECT_PLANE);
-    if (ret) { return ret; }
+    if (ret) return ret;
 
     drm_modeset_lock_init(&plane->mutex);
 
@@ -349,7 +349,7 @@ void drm_plane_cleanup(struct drm_plane *plane)
 {
     struct drm_device *dev;
 
-    if (!plane) { return; }
+    if (!plane) return;
 
     dev = plane->dev;
 
@@ -360,8 +360,8 @@ void drm_plane_cleanup(struct drm_plane *plane)
         drm_idr_remove(&dev->mode_config.object_idr, plane->base.id);
         spin_unlock(&dev->mode_config.idr_mutex);
 
-        if (dev->mode_config.num_plane > 0) { dev->mode_config.num_plane--; }
-        if (dev->mode_config.num_total_plane > 0) { dev->mode_config.num_total_plane--; }
+        if (dev->mode_config.num_plane > 0) dev->mode_config.num_plane--;
+        if (dev->mode_config.num_total_plane > 0) dev->mode_config.num_total_plane--;
     }
 
     free(plane->format_types);

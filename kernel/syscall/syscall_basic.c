@@ -188,7 +188,7 @@ int64_t sys_capget_impl(uint64_t header, uint64_t data, uint64_t arg2, uint64_t 
     process_t *target = (hdr.pid == 0 || hdr.pid == (int32_t)proc->task->pid) ? proc : process_find_get((pid_t)hdr.pid);
     if (!target) return -ESRCH;
     linux_cap_data_t caps = {0};
-    if (target->uid == 0) { caps.effective = caps.permitted = caps.inheritable = 0xFFFFFFFFu; }
+    if (target->uid == 0) caps.effective = caps.permitted = caps.inheritable = 0xFFFFFFFFu;
     if (target != proc) process_put(target);
     if (data && copy_to_user((void *)data, &caps, sizeof(caps))) return -EFAULT;
     return 0;
@@ -1649,7 +1649,7 @@ int64_t sys_pidfd_send_signal_impl(uint64_t pidfd, uint64_t sig, uint64_t info, 
     process_file_t *pf     = process_fd_get(proc, (int)pidfd);
     process_t      *target = NULL;
 
-    if (pf && pf->node && pf->node->handle) { target = (process_t *)pf->node->handle; }
+    if (pf && pf->node && pf->node->handle) target = (process_t *)pf->node->handle;
     if (!target) {
         /* Fallback: treat pidfd as a raw PID */
         if (pf) process_file_put(pf);
@@ -2016,7 +2016,7 @@ int64_t sys_openat2_impl(uint64_t dirfd, uint64_t path, uint64_t how, uint64_t u
     if (ret) return ret;
 
     vfs_node_t node = vfs_open(resolved);
-    if (!node) { return -ENOENT; }
+    if (!node) return -ENOENT;
 
     (void)oh.resolve; // resolve flags not enforced yet
     return process_fd_install(proc, node, oh.flags);
@@ -2043,7 +2043,7 @@ int64_t sys_pidfd_getfd_impl(uint64_t pidfd, uint64_t targetfd, uint64_t flags, 
     process_file_t *pf     = process_fd_get(proc, (int)pidfd);
     process_t      *target = NULL;
 
-    if (pf && pf->node && pf->node->handle) { target = (process_t *)pf->node->handle; }
+    if (pf && pf->node && pf->node->handle) target = (process_t *)pf->node->handle;
     if (!target) {
         if (pf) process_file_put(pf);
         target = process_find_get((pid_t)pidfd);
