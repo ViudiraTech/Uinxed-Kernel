@@ -8,11 +8,11 @@
  *
  */
 
-#ifndef INCLUDE_boot_process_H_
-#define INCLUDE_boot_process_H_
+#ifndef INCLUDE_BOOT_PROCESS_H_
+#define INCLUDE_BOOT_PROCESS_H_
 
 typedef void (*boot_process_start_t)(void);
 
 void boot_start_init_before_debug(boot_process_start_t start_init, boot_process_start_t start_debug);
 
-#endif // INCLUDE_boot_process_H_
+#endif // INCLUDE_BOOT_PROCESS_H_

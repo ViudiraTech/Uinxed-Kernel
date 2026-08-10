@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_fcntl_H_
-#define INCLUDE_fcntl_H_
+#ifndef INCLUDE_FCNTL_H_
+#define INCLUDE_FCNTL_H_
 
 #include <libs/std/stdint.h>
 
@@ -80,4 +80,4 @@
 /* Syscall implementation */
 int64_t sys_fcntl(int fd, int cmd, uint64_t arg);
 
-#endif // INCLUDE_fcntl_H_
+#endif // INCLUDE_FCNTL_H_

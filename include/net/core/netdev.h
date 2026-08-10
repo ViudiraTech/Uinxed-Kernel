@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_netdev_H_
-#define INCLUDE_netdev_H_
+#ifndef INCLUDE_NETDEV_H_
+#define INCLUDE_NETDEV_H_
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -110,4 +110,4 @@ netdev_t *netdev_find(const char *name);
 void      netdev_get(netdev_t *device);
 void     *netdev_private(netdev_t *device);
 
-#endif
+#endif // INCLUDE_NETDEV_H_

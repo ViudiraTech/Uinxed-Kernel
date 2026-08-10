@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_netlink_H_
-#define INCLUDE_netlink_H_
+#ifndef INCLUDE_NETLINK_H_
+#define INCLUDE_NETLINK_H_
 
 #include <libs/list/circular_list.h>
 #include <libs/std/stddef.h>
@@ -328,4 +328,4 @@ int netlink_setsockopt(struct socket *sk, int optname, const void *optval, uint3
 /* Netlink-specific getsockopt */
 int netlink_getsockopt(struct socket *sk, int optname, void *optval, uint32_t *optlen);
 
-#endif // INCLUDE_netlink_H_
+#endif // INCLUDE_NETLINK_H_

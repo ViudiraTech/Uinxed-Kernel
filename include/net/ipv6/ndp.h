@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_ndp_H_
-#define INCLUDE_ndp_H_
+#ifndef INCLUDE_NDP_H_
+#define INCLUDE_NDP_H_
 
 #include <net/ipv6/ipv6.h>
 
@@ -26,4 +26,4 @@ void ndp_device_up(net_device_t *device);
 void ndp_timer(uint64_t now_ticks);
 void ndp_device_removed(net_device_t *device);
 
-#endif
+#endif // INCLUDE_NDP_H_

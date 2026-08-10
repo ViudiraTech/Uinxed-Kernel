@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_serial_core_H_
-#define INCLUDE_serial_core_H_
+#ifndef INCLUDE_SERIAL_CORE_H_
+#define INCLUDE_SERIAL_CORE_H_
 
 #include <drivers/tty/tty_core.h>
 #include <drivers/tty/tty_driver.h>
@@ -69,4 +69,4 @@ int uart_write(uart_port_t *port, const uint8_t *data, size_t len);
 /* Resolve the tty core backing a serial port (for /dev/console). */
 int serial_tty_core(int index, tty_core_t **core);
 
-#endif // INCLUDE_serial_core_H_
+#endif // INCLUDE_SERIAL_CORE_H_

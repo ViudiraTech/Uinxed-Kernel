@@ -13,4 +13,4 @@
 
 void cgroupfs_regist(void);
 
-#endif
+#endif // INCLUDE_CGROUPFS_H_

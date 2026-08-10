@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_stdarg_H_
-#define INCLUDE_stdarg_H_
+#ifndef INCLUDE_STDARG_H_
+#define INCLUDE_STDARG_H_
 
 typedef __builtin_va_list va_list;
 
@@ -18,4 +18,4 @@ typedef __builtin_va_list va_list;
 #define va_end(ap)         (__builtin_va_end(ap))
 #define va_copy(dest, src) (__builtin_va_copy(dest, src))
 
-#endif // INCLUDE_stdarg_H_
+#endif // INCLUDE_STDARG_H_

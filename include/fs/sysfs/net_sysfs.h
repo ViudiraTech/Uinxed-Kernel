@@ -8,9 +8,9 @@
  *
  */
 
-#ifndef INCLUDE_net_sysfs_H_
-#define INCLUDE_net_sysfs_H_
+#ifndef INCLUDE_NET_SYSFS_H_
+#define INCLUDE_NET_SYSFS_H_
 
 void net_sysfs_init(void);
 
-#endif
+#endif // INCLUDE_NET_SYSFS_H_

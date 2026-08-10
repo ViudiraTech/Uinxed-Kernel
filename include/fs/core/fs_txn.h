@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_fs_txn_H_
-#define INCLUDE_fs_txn_H_
+#ifndef INCLUDE_FS_TXN_H_
+#define INCLUDE_FS_TXN_H_
 
 #include <drivers/block/core/blockdev.h>
 #include <libs/std/stddef.h>
@@ -71,4 +71,4 @@ int  fs_txn_commit(fs_txn_t *transaction);
 void fs_txn_abort(fs_txn_t *transaction, int error);
 int  fs_txn_log_error(const fs_txn_log_t *log);
 
-#endif // INCLUDE_fs_txn_H_
+#endif // INCLUDE_FS_TXN_H_

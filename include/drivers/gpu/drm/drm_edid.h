@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_drm_edid_H_
-#define INCLUDE_drm_edid_H_
+#ifndef INCLUDE_DRM_EDID_H_
+#define INCLUDE_DRM_EDID_H_
 
 #include <drivers/gpu/drm/drm_device.h>
 #include <libs/std/stddef.h>
@@ -306,4 +306,4 @@ bool         drm_edid_is_digital(const struct edid *edid);
 bool         drm_detect_hdmi_monitor(const struct edid *edid);
 bool         drm_detect_monitor_audio(const struct edid *edid);
 
-#endif // INCLUDE_drm_edid_H_
+#endif // INCLUDE_DRM_EDID_H_

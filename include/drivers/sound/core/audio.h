@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_audio_H_
-#define INCLUDE_audio_H_
+#ifndef INCLUDE_AUDIO_H_
+#define INCLUDE_AUDIO_H_
 
 #include <fs/tmpfs/tmpfs.h>
 #include <libs/std/stddef.h>
@@ -295,4 +295,4 @@ void              pcm_ring_buffer_advance_hw(audio_pcm_file_t *pf, snd_pcm_ufram
 /* Mixer helpers */
 size_t audio_mix_interleaved_s16(int16_t *dst, const int16_t *src, size_t frames, unsigned int channels);
 
-#endif // INCLUDE_audio_H_
+#endif // INCLUDE_AUDIO_H_

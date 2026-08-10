@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_packet_H_
-#define INCLUDE_packet_H_
+#ifndef INCLUDE_PACKET_H_
+#define INCLUDE_PACKET_H_
 
 #include <libs/std/stddef.h>
 #include <net/core/pbuf.h>
@@ -23,4 +23,4 @@ void   net_packet_put(net_packet_t *packet);
 void  *net_packet_data(net_packet_t *packet);
 size_t net_packet_length(const net_packet_t *packet);
 
-#endif
+#endif // INCLUDE_PACKET_H_

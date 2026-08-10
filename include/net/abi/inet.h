@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_inet_H_
-#define INCLUDE_inet_H_
+#ifndef INCLUDE_INET_H_
+#define INCLUDE_INET_H_
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -268,4 +268,4 @@ _Static_assert(sizeof(struct sockaddr_storage) == 128, "Linux sockaddr_storage A
 _Static_assert(_Alignof(struct sockaddr_storage) == 8, "Linux sockaddr_storage alignment");
 _Static_assert(sizeof(struct ifreq) == 40, "Linux x86_64 ifreq ABI");
 
-#endif
+#endif // INCLUDE_INET_H_

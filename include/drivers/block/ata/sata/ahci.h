@@ -377,4 +377,4 @@ int  ahci_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, void *buff
 int  ahci_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, const void *buffer);
 int  ahci_flush_cache(uint8_t drive);
 
-#endif
+#endif // INCLUDE_AHCI_H_

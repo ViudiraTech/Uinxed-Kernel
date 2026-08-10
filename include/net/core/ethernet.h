@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_ethernet_H_
-#define INCLUDE_ethernet_H_
+#ifndef INCLUDE_ETHERNET_H_
+#define INCLUDE_ETHERNET_H_
 
 #include <libs/std/stddef.h>
 #include <net/core/netdev.h>
@@ -32,4 +32,4 @@ int net_ethernet_parse(const void *data, size_t length, net_ethernet_frame_t *fr
 int ethernet_input(net_device_t *device, net_pbuf_t *packet);
 int ethernet_output(net_device_t *device, net_pbuf_t *packet, const uint8_t destination[6], uint16_t type);
 
-#endif
+#endif // INCLUDE_ETHERNET_H_

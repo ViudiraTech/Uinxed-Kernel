@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_pty_H_
-#define INCLUDE_pty_H_
+#ifndef INCLUDE_PTY_H_
+#define INCLUDE_PTY_H_
 
 #include <fs/tmpfs/tmpfs.h>
 
@@ -24,4 +24,4 @@
 extern const tmpfs_device_ops_t pty_ptmx_operations;
 #endif
 
-#endif
+#endif // INCLUDE_PTY_H_

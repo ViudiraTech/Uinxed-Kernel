@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_inotify_H_
-#define INCLUDE_inotify_H_
+#ifndef INCLUDE_INOTIFY_H_
+#define INCLUDE_INOTIFY_H_
 
 #include <fs/core/vfs.h>
 #include <libs/std/stdbool.h>
@@ -112,4 +112,4 @@ void     inotify_notify_move(vfs_node_t node, const char *old_name, const char *
 void     inotify_notify_unmount(vfs_node_t mount_root);
 uint32_t inotify_next_cookie(void);
 
-#endif // INCLUDE_inotify_H_
+#endif // INCLUDE_INOTIFY_H_

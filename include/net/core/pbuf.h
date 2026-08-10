@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_pbuf_H_
-#define INCLUDE_pbuf_H_
+#ifndef INCLUDE_PBUF_H_
+#define INCLUDE_PBUF_H_
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -39,4 +39,4 @@ void       *net_pbuf_pull(net_pbuf_t *pbuf, size_t length);
 int         net_pbuf_trim(net_pbuf_t *pbuf, size_t length);
 size_t      net_pbuf_headroom(const net_pbuf_t *pbuf);
 
-#endif
+#endif // INCLUDE_PBUF_H_

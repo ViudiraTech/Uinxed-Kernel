@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_tcp_H_
-#define INCLUDE_tcp_H_
+#ifndef INCLUDE_TCP_H_
+#define INCLUDE_TCP_H_
 
 #include <kernel/timer/timer.h>
 #include <libs/std/stddef.h>
@@ -153,4 +153,4 @@ int             net_tcp_seq_before(uint32_t a, uint32_t b);
 int             net_tcp_seq_after(uint32_t a, uint32_t b);
 tcp_state_t     net_tcp_state_next(tcp_state_t state, tcp_event_t event);
 
-#endif
+#endif // INCLUDE_TCP_H_

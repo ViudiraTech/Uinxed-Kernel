@@ -15,4 +15,4 @@
 
 /* All functions declared in virtgpu_drv.h */
 
-#endif
+#endif // INCLUDE_VIRTGPU_CMD_H_

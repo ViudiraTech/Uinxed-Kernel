@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_tty_core_H_
-#define INCLUDE_tty_core_H_
+#ifndef INCLUDE_TTY_CORE_H_
+#define INCLUDE_TTY_CORE_H_
 
 #include <kernel/termios.h>
 #include <libs/std/stdbool.h>
@@ -82,4 +82,4 @@ void    tty_core_hangup(tty_core_t *tty);
 void    tty_core_flush_input(tty_core_t *tty);
 size_t  tty_core_readable(tty_core_t *tty);
 
-#endif
+#endif // INCLUDE_TTY_CORE_H_

@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_slab_H_
-#define INCLUDE_slab_H_
+#ifndef INCLUDE_SLAB_H_
+#define INCLUDE_SLAB_H_
 
 #include <libs/std/stddef.h>
 
@@ -40,4 +40,4 @@ int   slab_cache_free(slab_cache_t *cache, void *object);
 size_t slab_cache_shrink(slab_cache_t *cache);
 void   slab_cache_get_stats(slab_cache_t *cache, slab_cache_stats_t *stats);
 
-#endif // INCLUDE_slab_H_
+#endif // INCLUDE_SLAB_H_

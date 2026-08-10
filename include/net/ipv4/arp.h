@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_arp_H_
-#define INCLUDE_arp_H_
+#ifndef INCLUDE_ARP_H_
+#define INCLUDE_ARP_H_
 
 #include <libs/std/stddef.h>
 #include <net/core/netdev.h>
@@ -35,4 +35,4 @@ void arp_learn(net_device_t *device, uint32_t ipv4, const uint8_t address[6], ui
 void arp_timer(uint64_t now_ticks);
 void arp_device_removed(net_device_t *device);
 
-#endif
+#endif // INCLUDE_ARP_H_

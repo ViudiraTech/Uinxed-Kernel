@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_input_sysfs_H_
-#define INCLUDE_input_sysfs_H_
+#ifndef INCLUDE_INPUT_SYSFS_H_
+#define INCLUDE_INPUT_SYSFS_H_
 
 #include <drivers/input/evdev/evdev.h>
 
@@ -17,4 +17,4 @@ void input_sysfs_init(void);
 int  input_sysfs_register_evdev(evdev_t *evdev);
 void input_sysfs_unregister_evdev(evdev_t *evdev);
 
-#endif // INCLUDE_input_sysfs_H_
+#endif // INCLUDE_INPUT_SYSFS_H_

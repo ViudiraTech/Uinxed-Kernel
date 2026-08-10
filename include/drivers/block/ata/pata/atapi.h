@@ -112,4 +112,4 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
 uint8_t atapi_read(uint8_t drive, uint32_t lba, uint8_t num_sectors, uint16_t *buf);
 int     atapi_cmd_type(uint8_t opcode);
 
-#endif
+#endif // INCLUDE_ATAPI_H_

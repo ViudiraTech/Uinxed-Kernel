@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_parport_H_
-#define INCLUDE_parport_H_
+#ifndef INCLUDE_PARPORT_H_
+#define INCLUDE_PARPORT_H_
 
 #include <kernel/debug/ringlog.h>
 #include <libs/std/stdbool.h>
@@ -90,4 +90,4 @@ int parport_pc_init(void);
 /* ---- drivers/parport/ppdev.c : /dev/parportN ---- */
 void ppdev_init(void);
 
-#endif // INCLUDE_parport_H_
+#endif // INCLUDE_PARPORT_H_

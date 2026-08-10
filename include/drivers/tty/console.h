@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_console_H_
-#define INCLUDE_console_H_
+#ifndef INCLUDE_CONSOLE_H_
+#define INCLUDE_CONSOLE_H_
 
 #include <drivers/tty/tty.h>
 #include <drivers/tty/tty_core.h>
@@ -64,4 +64,4 @@ tty_core_t *console_get_tty(void);
 /* Derive the legacy {type, port} descriptor used by get_boot_tty(). */
 tty_device_t console_derive_boot_tty(void);
 
-#endif // INCLUDE_console_H_
+#endif // INCLUDE_CONSOLE_H_

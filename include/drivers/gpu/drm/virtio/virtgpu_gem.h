@@ -16,4 +16,4 @@
 /* Helper to convert drm_gem_object to virtio_gpu_object */
 #define to_virtio_gpu_object(obj) ((struct virtio_gpu_object *)(obj))
 
-#endif
+#endif // INCLUDE_VIRTGPU_GEM_H_

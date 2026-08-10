@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_endian_H_
-#define INCLUDE_endian_H_
+#ifndef INCLUDE_ENDIAN_H_
+#define INCLUDE_ENDIAN_H_
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -72,4 +72,4 @@ uint16_t net_checksum_finish(uint32_t sum);
 uint16_t net_checksum(const void *data, size_t length);
 uint16_t net_checksum_ipv4_pseudo(uint32_t source, uint32_t destination, uint8_t protocol, const void *data, size_t length);
 
-#endif
+#endif // INCLUDE_ENDIAN_H_

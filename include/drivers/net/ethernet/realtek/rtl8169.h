@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_rtl8169_H_
-#define INCLUDE_rtl8169_H_
+#ifndef INCLUDE_RTL8169_H_
+#define INCLUDE_RTL8169_H_
 
 #include <drivers/bus/pci.h>
 #include <libs/std/stddef.h>
@@ -68,4 +68,4 @@ typedef void (*net_irq_handler_fn)(void *frame);
 extern int  net_irq_claim_legacy(uint8_t irq, net_irq_handler_fn handler) __attribute__((weak));
 extern void net_irq_release_legacy(uint8_t irq, net_irq_handler_fn handler) __attribute__((weak));
 
-#endif
+#endif // INCLUDE_RTL8169_H_

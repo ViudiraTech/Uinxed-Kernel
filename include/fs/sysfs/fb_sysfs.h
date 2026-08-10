@@ -8,9 +8,9 @@
  *
  */
 
-#ifndef INCLUDE_fb_sysfs_H_
-#define INCLUDE_fb_sysfs_H_
+#ifndef INCLUDE_FB_SYSFS_H_
+#define INCLUDE_FB_SYSFS_H_
 
 void fb_sysfs_init(void);
 
-#endif // INCLUDE_fb_sysfs_H_
+#endif // INCLUDE_FB_SYSFS_H_

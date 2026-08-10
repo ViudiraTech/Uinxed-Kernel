@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_udp_H_
-#define INCLUDE_udp_H_
+#ifndef INCLUDE_UDP_H_
+#define INCLUDE_UDP_H_
 
 #include <libs/std/stddef.h>
 #include <net/abi/inet.h>
@@ -80,4 +80,4 @@ void          udp_set_v6only(udp_endpoint_t *endpoint, int enabled);
 void          udp_set_event_callback(udp_endpoint_t *endpoint, udp_event_callback_t callback, void *context);
 wait_queue_t *udp_wait_queue(udp_endpoint_t *endpoint);
 
-#endif
+#endif // INCLUDE_UDP_H_

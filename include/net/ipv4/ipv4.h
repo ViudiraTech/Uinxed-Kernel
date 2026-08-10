@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_ipv4_H_
-#define INCLUDE_ipv4_H_
+#ifndef INCLUDE_IPV4_H_
+#define INCLUDE_IPV4_H_
 
 #include <libs/std/stddef.h>
 #include <net/core/netdev.h>
@@ -60,4 +60,4 @@ void ipv4_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *qu
 void ipv4_timer(uint64_t now_ticks);
 void ipv4_device_removed(net_device_t *device);
 
-#endif
+#endif // INCLUDE_IPV4_H_

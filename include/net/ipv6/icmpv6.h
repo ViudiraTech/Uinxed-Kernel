@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_icmpv6_H_
-#define INCLUDE_icmpv6_H_
+#ifndef INCLUDE_ICMPV6_H_
+#define INCLUDE_ICMPV6_H_
 
 #include <libs/std/stddef.h>
 #include <net/ipv6/ipv6.h>
@@ -36,4 +36,4 @@ int icmpv6_input(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet
 int icmpv6_error(net_device_t *device, const ipv6_address_t *destination, uint8_t type, uint8_t code, uint32_t value, const void *original,
                  size_t original_length);
 
-#endif
+#endif // INCLUDE_ICMPV6_H_

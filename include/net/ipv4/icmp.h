@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_icmp_H_
-#define INCLUDE_icmp_H_
+#ifndef INCLUDE_ICMP_H_
+#define INCLUDE_ICMP_H_
 
 #include <libs/std/stddef.h>
 #include <net/ipv4/ipv4.h>
@@ -46,4 +46,4 @@ int              icmp_receive(icmp_endpoint_t *endpoint, void *data, size_t capa
 uint32_t         icmp_readiness(icmp_endpoint_t *endpoint);
 void             icmp_set_event_callback(icmp_endpoint_t *endpoint, icmp_event_callback_t callback, void *context);
 
-#endif
+#endif // INCLUDE_ICMP_H_

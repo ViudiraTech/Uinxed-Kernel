@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_drm_fourcc_H_
-#define INCLUDE_drm_fourcc_H_
+#ifndef INCLUDE_DRM_FOURCC_H_
+#define INCLUDE_DRM_FOURCC_H_
 
 #include <drivers/gpu/drm/drm.h>
 
@@ -126,4 +126,4 @@
 #define AFBC_FORMAT_MOD_BLOCK_SIZE_64x4      (3ULL)
 #define AFBC_FORMAT_MOD_BLOCK_SIZE_32x8_64x4 (4ULL)
 
-#endif // INCLUDE_drm_fourcc_H_
+#endif // INCLUDE_DRM_FOURCC_H_

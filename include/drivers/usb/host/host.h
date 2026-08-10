@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_host_H_
-#define INCLUDE_host_H_
+#ifndef INCLUDE_HOST_H_
+#define INCLUDE_HOST_H_
 
 #include <drivers/bus/pci.h>
 #include <drivers/usb/core/usb.h>
@@ -76,4 +76,4 @@ void uhci_shutdown(void);
 void ohci_shutdown(void);
 void ehci_shutdown(void);
 
-#endif // INCLUDE_host_H_
+#endif // INCLUDE_HOST_H_

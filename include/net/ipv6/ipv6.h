@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_ipv6_H_
-#define INCLUDE_ipv6_H_
+#ifndef INCLUDE_IPV6_H_
+#define INCLUDE_IPV6_H_
 
 #include <libs/std/stddef.h>
 #include <net/core/netdev.h>
@@ -91,4 +91,4 @@ void ipv6_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *qu
 void ipv6_timer(uint64_t now_ticks);
 void ipv6_device_removed(net_device_t *device);
 
-#endif
+#endif // INCLUDE_IPV6_H_

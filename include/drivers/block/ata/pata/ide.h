@@ -138,4 +138,4 @@ uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint64_t lba, uint8_t n
 void    ide_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *edi);
 void    ide_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *edi);
 
-#endif
+#endif // INCLUDE_IDE_H_

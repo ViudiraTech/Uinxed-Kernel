@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_pipe_H_
-#define INCLUDE_pipe_H_
+#ifndef INCLUDE_PIPE_H_
+#define INCLUDE_PIPE_H_
 
 #include <libs/std/stdint.h>
 
@@ -18,4 +18,4 @@ void pipe_init(void);
 int64_t sys_pipe(int pipefd[2]);
 int64_t sys_pipe2(int pipefd[2], int flags);
 
-#endif // INCLUDE_pipe_H_
+#endif // INCLUDE_PIPE_H_

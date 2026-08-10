@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_drm_mode_H_
-#define INCLUDE_drm_mode_H_
+#ifndef INCLUDE_DRM_MODE_H_
+#define INCLUDE_DRM_MODE_H_
 
 #include <drivers/gpu/drm/drm.h>
 
@@ -528,4 +528,4 @@ struct drm_mode_destroy_blob {
 #define DRM_IOCTL_MODE_DESTROYPROPBLOB   DRM_IOWR(0xBE, struct drm_mode_destroy_blob)
 #define DRM_IOCTL_MODE_GETFB2            DRM_IOWR(0xBF, struct drm_mode_get_fb2)
 
-#endif // INCLUDE_drm_mode_H_
+#endif // INCLUDE_DRM_MODE_H_

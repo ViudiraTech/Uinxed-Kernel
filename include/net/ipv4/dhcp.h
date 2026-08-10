@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_dhcp_H_
-#define INCLUDE_dhcp_H_
+#ifndef INCLUDE_DHCP_H_
+#define INCLUDE_DHCP_H_
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -41,4 +41,4 @@ void dhcp_device_removed(net_device_t *device);
 /* Parses and validates a BOOTP/DHCP reply for one transaction and client. */
 int dhcp_parse_reply(const void *data, size_t length, uint32_t expected_xid, const uint8_t hardware_address[6], dhcp_reply_t *reply);
 
-#endif
+#endif // INCLUDE_DHCP_H_

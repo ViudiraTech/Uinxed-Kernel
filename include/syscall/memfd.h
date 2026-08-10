@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_memfd_H_
-#define INCLUDE_memfd_H_
+#ifndef INCLUDE_MEMFD_H_
+#define INCLUDE_MEMFD_H_
 
 #include <fs/core/vfs.h>
 #include <libs/std/stddef.h>
@@ -34,4 +34,4 @@ void    memfd_vma_retain(vfs_node_t node, vm_flags_t flags);
 void    memfd_vma_release(vfs_node_t node, vm_flags_t flags);
 int     memfd_vma_protect(vfs_node_t node, vm_flags_t old_flags, vm_flags_t new_flags);
 
-#endif // INCLUDE_memfd_H_
+#endif // INCLUDE_MEMFD_H_

@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_net_H_
-#define INCLUDE_net_H_
+#ifndef INCLUDE_NET_H_
+#define INCLUDE_NET_H_
 
 #include <net/core/endian.h>
 #include <net/core/ethernet.h>
@@ -21,4 +21,4 @@
 #include <net/transport/tcp.h>
 #include <net/transport/udp.h>
 
-#endif
+#endif // INCLUDE_NET_H_

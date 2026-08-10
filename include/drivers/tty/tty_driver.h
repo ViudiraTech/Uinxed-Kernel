@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_tty_driver_H_
-#define INCLUDE_tty_driver_H_
+#ifndef INCLUDE_TTY_DRIVER_H_
+#define INCLUDE_TTY_DRIVER_H_
 
 #include <drivers/tty/tty_core.h>
 #include <fs/core/vfs.h>
@@ -69,4 +69,4 @@ int64_t tty_dispatch_write(void *ctx, void *private_data, uint64_t flags, const 
 int     tty_dispatch_poll(void *ctx, void *private_data, uint64_t flags, size_t events);
 int     tty_dispatch_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req, void *arg);
 
-#endif // INCLUDE_tty_driver_H_
+#endif // INCLUDE_TTY_DRIVER_H_

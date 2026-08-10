@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_drm_mm_H_
-#define INCLUDE_drm_mm_H_
+#ifndef INCLUDE_DRM_MM_H_
+#define INCLUDE_DRM_MM_H_
 
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
@@ -130,4 +130,4 @@ struct drm_mm_node *drm_mm_next(const struct drm_mm_node *node);
 /* Iterate allocated nodes in ascending start order. */
 #define drm_mm_for_each_node(entry, mm) for ((entry) = drm_mm_first(mm); (entry) != NULL; (entry) = drm_mm_next(entry))
 
-#endif // INCLUDE_drm_mm_H_
+#endif // INCLUDE_DRM_MM_H_

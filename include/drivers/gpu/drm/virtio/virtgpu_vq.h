@@ -20,4 +20,4 @@
 #define VIRTGPU_CTRLQ   0
 #define VIRTGPU_CURSORQ 1
 
-#endif
+#endif // INCLUDE_VIRTGPU_VQ_H_

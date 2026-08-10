@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_chrdev_H_
-#define INCLUDE_chrdev_H_
+#ifndef INCLUDE_CHRDEV_H_
+#define INCLUDE_CHRDEV_H_
 
 #include <fs/tmpfs/tmpfs.h>
 #include <libs/std/stdbool.h>
@@ -65,4 +65,4 @@ void memdev_init(void);
 /* drivers/char/kmsg.c - /dev/kmsg */
 void kmsgdev_init(void);
 
-#endif // INCLUDE_chrdev_H_
+#endif // INCLUDE_CHRDEV_H_

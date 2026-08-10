@@ -64,4 +64,4 @@ uint8_t ahci_satapi_test_unit_ready(uint8_t drive);
 uint8_t ahci_satapi_read_capacity(uint8_t drive, uint32_t *lba_size, uint32_t *blk_size);
 int     ahci_satapi_cmd_type(uint8_t opcode);
 
-#endif
+#endif // INCLUDE_SATAPI_H_
