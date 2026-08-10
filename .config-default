@@ -44,22 +44,25 @@ CONFIG_SOCKET_BUF_SIZE=65536
 CONFIG_SOCKET_ACCEPT_QUEUE_MAX=4096
 CONFIG_EPOLL_MAX_FDS=1024
 CONFIG_FUTEX_HASH_BITS=8
-CONFIG_NETLINK=y
 CONFIG_SYSVIPC=y
 CONFIG_POSIX_MQ=y
 
 #
-# Networking support
+# Networking
 #
 CONFIG_NET=y
 CONFIG_INET=y
-CONFIG_E1000=y
-CONFIG_RTL8169=y
-CONFIG_RTL8139=y
+CONFIG_NETLINK=y
 
 #
 # Device Drivers
 #
+
+#
+# Block devices
+#
+CONFIG_ATA=y
+CONFIG_NVME=y
 
 #
 # Character devices
@@ -71,6 +74,10 @@ CONFIG_RTL8139=y
 CONFIG_TTY_DEFAULT_DEV="tty0"
 CONFIG_TTY_BUF_SIZE=4096
 CONFIG_TTY_CORE_BUFFER_SIZE=4096
+
+#
+# Virtual terminal (VT)
+#
 CONFIG_VT=y
 CONFIG_VT_COUNT=64
 CONFIG_UNIX98_PTYS=y
@@ -85,11 +92,11 @@ CONFIG_SERIAL_DATA_BITS=8
 CONFIG_SERIAL_STOP_BITS=1
 
 #
-# Keyboard and mouse
+# Input device support
 #
-CONFIG_ATA=y
-CONFIG_NVME=y
 CONFIG_PS2_KEYBOARD_MOUSE=y
+CONFIG_INPUT_EVDEV=y
+CONFIG_INPUT_EVDEV_BUFSIZE=256
 
 #
 # Parallel port
@@ -97,10 +104,16 @@ CONFIG_PS2_KEYBOARD_MOUSE=y
 CONFIG_PARPORT=y
 
 #
-# Input device support
+# TPM hardware support
 #
-CONFIG_INPUT_EVDEV=y
-CONFIG_INPUT_EVDEV_BUFSIZE=256
+CONFIG_TPM=y
+
+#
+# Network device support
+#
+CONFIG_E1000=y
+CONFIG_RTL8169=y
+CONFIG_RTL8139=y
 
 #
 # USB support
@@ -123,7 +136,6 @@ CONFIG_BOOT_LOGO=y
 # VirtIO drivers
 #
 # CONFIG_VIRTIO is not set
-# CONFIG_VIRTIO_GPU is not set
 
 #
 # Sound card support
@@ -136,11 +148,6 @@ CONFIG_SOUND_HDA=y
 # I2C bus support
 #
 CONFIG_I2C=y
-
-#
-# Security
-#
-CONFIG_TPM=y
 
 #
 # File systems
