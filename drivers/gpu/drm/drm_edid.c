@@ -1435,10 +1435,16 @@ static struct drm_display_mode *drm_cvt_mode(struct drm_device *dev, int hdispla
     int                      interlace;
     uint64_t                 tmp;
 
-    if (!hdisplay || !vdisplay) return NULL;
+    if (!hdisplay || !vdisplay) {
+        DRM_WARN("CVT mode generation with zero dimensions %dx%d\n", hdisplay, vdisplay);
+        return NULL;
+    }
 
     drm_mode = drm_mode_create(dev);
-    if (!drm_mode) return NULL;
+    if (!drm_mode) {
+        DRM_ERROR("Failed to create CVT mode for %dx%d\n", hdisplay, vdisplay);
+        return NULL;
+    }
 
     if (!vrefresh) vrefresh = 60;
 
@@ -1599,10 +1605,16 @@ static struct drm_display_mode *drm_gtf_mode_complex(struct drm_device *dev, int
     int                      hsync, hfront_porch, vodd_front_porch_lines;
     unsigned int             tmp1, tmp2;
 
-    if (!hdisplay || !vdisplay) return NULL;
+    if (!hdisplay || !vdisplay) {
+        DRM_WARN("GTF mode generation with zero dimensions %dx%d\n", hdisplay, vdisplay);
+        return NULL;
+    }
 
     drm_mode = drm_mode_create(dev);
-    if (!drm_mode) return NULL;
+    if (!drm_mode) {
+        DRM_ERROR("Failed to create GTF mode for %dx%d\n", hdisplay, vdisplay);
+        return NULL;
+    }
 
     hdisplay_rnd = (hdisplay + GTF_CELL_GRAN / 2) / GTF_CELL_GRAN;
     hdisplay_rnd = hdisplay_rnd * GTF_CELL_GRAN;
@@ -1919,15 +1931,27 @@ static struct drm_display_mode *drm_mode_detailed(struct drm_connector *connecto
     unsigned int vsync_pulse_width = (pt->hsync_vsync_offset_pulse_width_hi & 0x3) << 4 | (pt->vsync_offset_pulse_width_lo & 0xf);
 
     /* ignore tiny modes */
-    if (hactive < 64 || vactive < 64) return NULL;
+    if (hactive < 64 || vactive < 64) {
+        DRM_WARN("Detailed timing with tiny dimensions %ux%u ignored.\n", hactive, vactive);
+        return NULL;
+    }
 
-    if (pt->misc & DRM_EDID_PT_STEREO) return NULL;
+    if (pt->misc & DRM_EDID_PT_STEREO) {
+        DRM_WARN("Detailed timing with stereo signal ignored.\n");
+        return NULL;
+    }
 
     /* it is incorrect if hsync/vsync width is zero */
-    if (!hsync_pulse_width || !vsync_pulse_width) return NULL;
+    if (!hsync_pulse_width || !vsync_pulse_width) {
+        DRM_WARN("Detailed timing with zero hsync/vsync pulse width ignored.\n");
+        return NULL;
+    }
 
     mode = drm_mode_create(dev);
-    if (!mode) return NULL;
+    if (!mode) {
+        DRM_ERROR("Failed to allocate detailed timing mode.\n");
+        return NULL;
+    }
 
     mode->clock = le16_to_cpu(timing->pixel_clock) * 10;
 
@@ -2054,10 +2078,16 @@ static int add_cta_vdb_modes(struct drm_connector *connector, const uint8_t *db,
         uint8_t                  vic = svd_to_vic(svds[i]);
         struct drm_display_mode *newmode;
 
-        if (!drm_valid_cea_vic(vic)) continue;
+        if (!drm_valid_cea_vic(vic)) {
+            DRM_WARN("CTA VDB advertises an unknown VIC %u\n", vic);
+            continue;
+        }
 
         newmode = drm_display_mode_from_cea_vic(dev, vic);
-        if (!newmode) break;
+        if (!newmode) {
+            DRM_WARN("Failed to add CTA mode for VIC %u\n", vic);
+            break;
+        }
 
         drm_mode_probed_add(connector, newmode);
         modes++;
@@ -2095,10 +2125,16 @@ static int add_hdmi_vsdb_modes(struct drm_connector *connector, const uint8_t *d
         uint8_t                  vic = db[9 + offset + i];
         struct drm_display_mode *newmode;
 
-        if (vic == 0 || vic >= ARRAY_SIZE(edid_4k_modes)) continue;
+        if (vic == 0 || vic >= ARRAY_SIZE(edid_4k_modes)) {
+            DRM_WARN("HDMI VSDB advertises an out-of-range 4K VIC %u\n", vic);
+            continue;
+        }
 
         newmode = drm_mode_duplicate(dev, &edid_4k_modes[vic]);
-        if (!newmode) continue;
+        if (!newmode) {
+            DRM_WARN("Failed to add 4K mode for VIC %u\n", vic);
+            continue;
+        }
 
         drm_mode_probed_add(connector, newmode);
         modes++;
@@ -2296,23 +2332,34 @@ static bool edid_block_valid(void *block, int block_num)
     if (is_base) {
         score = drm_edid_header_is_valid(block);
         if (score < 6) {
-            if (edid_block_is_zero(block)) return false;
+            if (edid_block_is_zero(block)) {
+                DRM_WARN("EDID base block is all zeroes.\n");
+                return false;
+            }
+            DRM_WARN("EDID base block has a corrupt header (%d/8 bytes match)\n", score);
             return false; /* corrupt header */
         }
         if (score < 8) memcpy(block, edid_header, sizeof(edid_header));
     }
 
     if (edid_block_compute_checksum(block) != edid->checksum) {
-        if (edid_block_is_zero(block)) return false;
+        if (edid_block_is_zero(block)) {
+            DRM_WARN("EDID block %d is all zeroes.\n", block_num);
+            return false;
+        }
         if (!is_base && block_num >= 0) {
             /* For CEA extension blocks a bad checksum is tolerated. */
             if (((const uint8_t *)block)[0] == CEA_EXT) return true;
         }
+        DRM_WARN("EDID block %d has a bad checksum.\n", block_num);
         return false;
     }
 
     if (is_base) {
-        if (edid->version != 1) return false;
+        if (edid->version != 1) {
+            DRM_WARN("EDID base block has an unsupported version %u\n", edid->version);
+            return false;
+        }
     }
 
     return true;
@@ -2340,7 +2387,10 @@ struct edid *drm_edid_duplicate(const struct edid *edid)
     if (!edid) return NULL;
 
     new_edid = malloc(edid_size(edid));
-    if (!new_edid) return NULL;
+    if (!new_edid) {
+        DRM_ERROR("Failed to allocate EDID duplicate (%zu bytes)\n", edid_size(edid));
+        return NULL;
+    }
     memcpy(new_edid, edid, edid_size(edid));
 
     return new_edid;
