@@ -11,6 +11,7 @@
 #include <drivers/core/device.h>
 #include <drivers/pci/pci.h>
 #include <fs/core/vfs.h>
+#include <fs/sysfs/pci_sysfs.h>
 #include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>
 #include <kernel/kobject/kobject.h>
@@ -206,7 +207,7 @@ void pci_sysfs_init(void)
     /* Register the PCI bus type */
     ret = bus_register(&pci_bus_type);
     if (ret != EOK) {
-        plogk("pci_sysfs: bus_register(pci) failed: %d\n", ret);
+        plogk("pci_sysfs: Bus_register(pci) failed: %d\n", ret);
         return;
     }
 
@@ -254,7 +255,7 @@ void pci_sysfs_init(void)
 
         ret = device_register(dev);
         if (ret != EOK) {
-            plogk("pci_sysfs: device_register(%s) failed: %d\n", name, ret);
+            plogk("pci_sysfs: Device_register(%s) failed: %d\n", name, ret);
             kobject_put(&dev->kobj);
             continue;
         }
@@ -262,6 +263,6 @@ void pci_sysfs_init(void)
         dev_count++;
     }
 
-    plogk("pci_sysfs: registered %d PCI devices on bus 'pci'\n", dev_count);
+    plogk("pci_sysfs: Registered %d PCI devices on bus 'pci'\n", dev_count);
 #endif
 }

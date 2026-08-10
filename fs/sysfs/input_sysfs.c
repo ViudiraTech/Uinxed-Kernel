@@ -239,15 +239,21 @@ void input_sysfs_init(void)
 {
 #if CONFIG_INPUT_EVDEV
     int result;
+    int devices = 0;
 
     if (input_class_ready) return;
     result = class_register(&input_class);
     if (result != EOK) {
-        plogk("input_sysfs: input class registration failed: %d\n", result);
+        plogk("input_sysfs: Class_register(input) failed: %d\n", result);
         return;
     }
     input_class_ready = true;
-    for (int minor = 0; minor < EVDEV_MAX_DEVICES; minor++) input_sysfs_register_evdev(evdev_find_by_minor(minor));
+    for (int minor = 0; minor < EVDEV_MAX_DEVICES; minor++) {
+        evdev_t *evdev = evdev_find_by_minor(minor);
+        if (!evdev) continue;
+        if (input_sysfs_register_evdev(evdev) == EOK) devices++;
+    }
+    plogk("input_sysfs: %d input device(s) exported to /sys/class/input\n", devices);
 #endif
 }
 

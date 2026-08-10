@@ -187,7 +187,7 @@ static size_t tmpfs_write(void *file, const void *addr, size_t offset, size_t si
 
     if (end > f->capacity || f->data_external) {
         if (tmpfs_make_private_locked(f, end) != EOK) {
-            plogk("tmpfs: grow to %lu bytes failed (out of memory)\n", (unsigned long)end);
+            plogk("tmpfs: Grow to %lu bytes failed (out of memory)\n", (unsigned long)end);
             spin_unlock(&f->data_lock);
             return 0;
         }

@@ -6,10 +6,6 @@
  *      2026/7/22 By JiTianYu391
  *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
- *  Adapted from the Linux drm_hashtab API (drivers/gpu/drm/drm_hashtab.c).
- *  Chained hash table keyed by unsigned long; the table grows as a power
- *  of two fixed at creation time, matching the legacy DRM auth use case.
- *
  */
 
 #ifndef INCLUDE_DRM_DRM_HASHTAB_H_

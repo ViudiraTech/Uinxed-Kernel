@@ -44,7 +44,7 @@ int drm_framebuffer_init(struct drm_device *dev, struct drm_framebuffer *fb, con
     int ret;
 
     if (!dev || !fb) {
-        plogk("drm: framebuffer_init: NULL device or framebuffer.\n");
+        plogk("drm: Framebuffer_init: NULL device or framebuffer.\n");
         return -EINVAL;
     }
 
@@ -52,7 +52,7 @@ int drm_framebuffer_init(struct drm_device *dev, struct drm_framebuffer *fb, con
 
     ret = drm_mode_object_idr_alloc(dev, &fb->base, DRM_MODE_OBJECT_FB);
     if (ret) {
-        plogk("drm: framebuffer mode object id allocation failed (ret=%d)\n", ret);
+        plogk("drm: Framebuffer mode object id allocation failed (ret=%d)\n", ret);
         return ret;
     }
 
@@ -66,7 +66,7 @@ int drm_framebuffer_init(struct drm_device *dev, struct drm_framebuffer *fb, con
     ret = drm_idr_alloc_exact(&dev->mode_config.fb_idr, fb, fb->base.id);
     spin_unlock(&dev->mode_config.fb_lock);
     if (ret) {
-        plogk("drm: framebuffer idr insert failed (ret=%d)\n", ret);
+        plogk("drm: Framebuffer idr insert failed (ret=%d)\n", ret);
         spin_lock(&dev->mode_config.idr_mutex);
         drm_idr_remove(&dev->mode_config.object_idr, fb->base.id);
         spin_unlock(&dev->mode_config.idr_mutex);
@@ -104,7 +104,7 @@ int drm_mode_addfb(struct drm_device *dev, void *data, struct drm_file *file_pri
     int                     ret;
 
     if (!dev || !r) {
-        plogk("drm: addfb: NULL device or request.\n");
+        plogk("drm: Addfb: NULL device or request.\n");
         return -EINVAL;
     }
 
@@ -122,21 +122,21 @@ int drm_mode_addfb(struct drm_device *dev, void *data, struct drm_file *file_pri
     } else if (r->bpp == 8 && r->depth == 8) {
         format = DRM_FORMAT_C8;
     } else {
-        plogk("drm: addfb: unsupported bpp/depth (%u/%u)\n", r->bpp, r->depth);
+        plogk("drm: Addfb: unsupported bpp/depth (%u/%u)\n", r->bpp, r->depth);
         return -EINVAL;
     }
 
     /* Validate dimensions against mode_config limits */
     if (r->width == 0 || r->height == 0) {
-        plogk("drm: addfb: zero width or height (%ux%u)\n", r->width, r->height);
+        plogk("drm: Addfb: zero width or height (%ux%u)\n", r->width, r->height);
         return -EINVAL;
     }
     if (r->width > dev->mode_config.max_width || r->height > dev->mode_config.max_height) {
-        plogk("drm: addfb: size %ux%u exceeds mode_config limits.\n", r->width, r->height);
+        plogk("drm: Addfb: size %ux%u exceeds mode_config limits.\n", r->width, r->height);
         return -EINVAL;
     }
     if (r->handle == 0) {
-        plogk("drm: addfb: zero GEM handle.\n");
+        plogk("drm: Addfb: zero GEM handle.\n");
         return -EINVAL;
     }
 
@@ -144,26 +144,26 @@ int drm_mode_addfb(struct drm_device *dev, void *data, struct drm_file *file_pri
     bpp_bytes = r->bpp / 8;
     min_pitch = r->width * bpp_bytes;
     if (r->pitch < min_pitch) {
-        plogk("drm: addfb: pitch %u too small (min %u)\n", r->pitch, min_pitch);
+        plogk("drm: Addfb: pitch %u too small (min %u)\n", r->pitch, min_pitch);
         return -EINVAL;
     }
 
     /* Look up the GEM object by handle */
     obj = drm_gem_object_lookup(file_priv, r->handle);
     if (!obj) {
-        plogk("drm: addfb: GEM object %u not found.\n", r->handle);
+        plogk("drm: Addfb: GEM object %u not found.\n", r->handle);
         return -ENOENT;
     }
     /* Verify the backing object is large enough */
     if (obj->size < (size_t)r->pitch * r->height) {
-        plogk("drm: addfb: GEM object %u too small for pitch %u height %u\n", r->handle, r->pitch, r->height);
+        plogk("drm: Addfb: GEM object %u too small for pitch %u height %u\n", r->handle, r->pitch, r->height);
         drm_gem_object_put(obj);
         return -EINVAL;
     }
 
     fb = malloc(sizeof(*fb));
     if (!fb) {
-        plogk("drm: addfb: out of memory allocating framebuffer.\n");
+        plogk("drm: Addfb: out of memory allocating framebuffer.\n");
         if (obj) drm_gem_object_put(obj);
         return -ENOMEM;
     }
@@ -218,16 +218,16 @@ int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_pr
     uint32_t                 min_pitch;
 
     if (!dev || !r) {
-        plogk("drm: addfb2: NULL device or request.\n");
+        plogk("drm: Addfb2: NULL device or request.\n");
         return -EINVAL;
     }
 
     if (r->pixel_format == DRM_FORMAT_INVALID) {
-        plogk("drm: addfb2: invalid pixel format.\n");
+        plogk("drm: Addfb2: invalid pixel format.\n");
         return -EINVAL;
     }
     if (r->flags & ~(DRM_MODE_FB_INTERLACED | DRM_MODE_FB_MODIFIERS)) {
-        plogk("drm: addfb2: unsupported flags 0x%x\n", r->flags);
+        plogk("drm: Addfb2: unsupported flags 0x%x\n", r->flags);
         return -EINVAL;
     }
 
@@ -237,34 +237,34 @@ int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_pr
      * creating a framebuffer that the host will later misinterpret.
      */
     if (r->pixel_format != DRM_FORMAT_XRGB8888 && r->pixel_format != DRM_FORMAT_ARGB8888) {
-        plogk("drm: addfb2: unsupported pixel format 0x%x\n", r->pixel_format);
+        plogk("drm: Addfb2: unsupported pixel format 0x%x\n", r->pixel_format);
         return -EINVAL;
     }
 
     /* Validate dimensions against mode_config limits */
     if (r->width == 0 || r->height == 0) {
-        plogk("drm: addfb2: zero width or height (%ux%u)\n", r->width, r->height);
+        plogk("drm: Addfb2: zero width or height (%ux%u)\n", r->width, r->height);
         return -EINVAL;
     }
     if (r->width > dev->mode_config.max_width || r->height > dev->mode_config.max_height) {
-        plogk("drm: addfb2: size %ux%u exceeds mode_config limits.\n", r->width, r->height);
+        plogk("drm: Addfb2: size %ux%u exceeds mode_config limits.\n", r->width, r->height);
         return -EINVAL;
     }
 
     num_planes = 1;
     min_pitch  = r->width * 4;
     if (r->pitches[0] < min_pitch) {
-        plogk("drm: addfb2: pitch %u too small (min %u)\n", r->pitches[0], min_pitch);
+        plogk("drm: Addfb2: pitch %u too small (min %u)\n", r->pitches[0], min_pitch);
         return -EINVAL;
     }
     if (r->flags & DRM_MODE_FB_MODIFIERS) {
         if (r->modifier[0] != DRM_FORMAT_MOD_LINEAR) {
-            plogk("drm: addfb2: unsupported modifier 0x%llx.\n", (unsigned long long)r->modifier[0]);
+            plogk("drm: Addfb2: unsupported modifier 0x%llx\n", (unsigned long long)r->modifier[0]);
             return -EINVAL;
         }
         for (i = 1; i < 4; i++)
             if (r->handles[i] || r->pitches[i] || r->offsets[i] || r->modifier[i]) {
-                plogk("drm: addfb2: auxiliary plane %d not allowed.\n", i);
+                plogk("drm: Addfb2: auxiliary plane %d not allowed.\n", i);
                 return -EINVAL;
             }
     } else {
@@ -274,7 +274,7 @@ int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_pr
 
     fb = malloc(sizeof(*fb));
     if (!fb) {
-        plogk("drm: addfb2: out of memory allocating framebuffer.\n");
+        plogk("drm: Addfb2: out of memory allocating framebuffer.\n");
         return -ENOMEM;
     }
     memset(fb, 0, sizeof(*fb));
@@ -295,14 +295,14 @@ int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_pr
         uint32_t handle = r->handles[i];
 
         if (handle == 0) {
-            plogk("drm: addfb2: zero GEM handle on plane %d\n", i);
+            plogk("drm: Addfb2: zero GEM handle on plane %d\n", i);
             ret = -EINVAL;
             goto err_cleanup;
         }
 
         obj = drm_gem_object_lookup(file_priv, handle);
         if (!obj) {
-            plogk("drm: addfb2: GEM object %u not found on plane %d\n", handle, i);
+            plogk("drm: Addfb2: GEM object %u not found on plane %d\n", handle, i);
             ret = -ENOENT;
             goto err_cleanup;
         }
@@ -310,7 +310,7 @@ int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_pr
         /* Include the plane offset and protect the arithmetic from wrap. */
         if (r->offsets[i] > obj->size
             || (r->height > 0 && ((uint64_t)r->pitches[i] * (r->height - 1) + min_pitch > obj->size - r->offsets[i]))) {
-            plogk("drm: addfb2: GEM object %u too small for pitch %u height %u offset %u\n", handle, r->pitches[i], r->height, r->offsets[i]);
+            plogk("drm: Addfb2: GEM object %u too small for pitch %u height %u offset %u\n", handle, r->pitches[i], r->height, r->offsets[i]);
             drm_gem_object_put(obj);
             ret = -EINVAL;
             goto err_cleanup;
@@ -354,7 +354,7 @@ int drm_mode_rmfb(struct drm_device *dev, void *data, struct drm_file *file_priv
     (void)file_priv;
 
     if (!dev || !data) {
-        plogk("drm: rmfb: NULL device or data.\n");
+        plogk("drm: Rmfb: NULL device or data.\n");
         return -EINVAL;
     }
 
@@ -362,7 +362,7 @@ int drm_mode_rmfb(struct drm_device *dev, void *data, struct drm_file *file_priv
     fb = drm_idr_find(&dev->mode_config.fb_idr, fb_id);
     if (!fb) {
         spin_unlock(&dev->mode_config.fb_lock);
-        plogk("drm: rmfb: framebuffer %u not found.\n", fb_id);
+        plogk("drm: Rmfb: framebuffer %u not found.\n", fb_id);
         return -ENOENT;
     }
 
@@ -375,12 +375,12 @@ int drm_mode_rmfb(struct drm_device *dev, void *data, struct drm_file *file_priv
             struct drm_crtc              *crtc    = plane->state->crtc;
             struct drm_crtc_helper_funcs *helpers = (struct drm_crtc_helper_funcs *)crtc->helper_private;
             if (!helpers || !helpers->page_flip) {
-                plogk("drm: rmfb: crtc %u has no page_flip helper.\n", crtc->base.id);
+                plogk("drm: Rmfb: crtc %u has no page_flip helper.\n", crtc->base.id);
                 return -EBUSY;
             }
             int ret = helpers->page_flip(crtc, NULL, NULL, 0);
             if (ret) {
-                plogk("drm: rmfb: page_flip to NULL fb failed (ret=%d)\n", ret);
+                plogk("drm: Rmfb: page_flip to NULL fb failed (ret=%d)\n", ret);
                 return ret;
             }
         }
@@ -412,7 +412,7 @@ int drm_mode_getfb(struct drm_device *dev, void *data, struct drm_file *file_pri
     (void)file_priv;
 
     if (!dev || !r) {
-        plogk("drm: getfb: NULL device or request.\n");
+        plogk("drm: Getfb: NULL device or request.\n");
         return -EINVAL;
     }
 
@@ -420,7 +420,7 @@ int drm_mode_getfb(struct drm_device *dev, void *data, struct drm_file *file_pri
     fb = drm_idr_find(&dev->mode_config.fb_idr, r->fb_id);
     spin_unlock(&dev->mode_config.fb_lock);
     if (!fb) {
-        plogk("drm: getfb: framebuffer %u not found.\n", r->fb_id);
+        plogk("drm: Getfb: framebuffer %u not found.\n", r->fb_id);
         return -ENOENT;
     }
 
@@ -463,7 +463,7 @@ int drm_mode_getfb(struct drm_device *dev, void *data, struct drm_file *file_pri
     r->handle = 0;
     if (fb->obj[0]) {
         if (drm_gem_handle_create(file_priv, fb->obj[0], &r->handle)) {
-            plogk("drm: getfb: failed to create GEM handle for fb %u\n", r->fb_id);
+            plogk("drm: Getfb: failed to create GEM handle for fb %u\n", r->fb_id);
             return -ENOMEM;
         }
     }
@@ -489,7 +489,7 @@ int drm_mode_dirtyfb(struct drm_device *dev, void *data, struct drm_file *file_p
     int                           ret = 0;
 
     if (!dev || !r) {
-        plogk("drm: dirtyfb: NULL device or request.\n");
+        plogk("drm: Dirtyfb: NULL device or request.\n");
         return -EINVAL;
     }
 
@@ -497,33 +497,33 @@ int drm_mode_dirtyfb(struct drm_device *dev, void *data, struct drm_file *file_p
     fb = drm_idr_find(&dev->mode_config.fb_idr, r->fb_id);
     spin_unlock(&dev->mode_config.fb_lock);
     if (!fb) {
-        plogk("drm: dirtyfb: framebuffer %u not found.\n", r->fb_id);
+        plogk("drm: Dirtyfb: framebuffer %u not found.\n", r->fb_id);
         return -ENOENT;
     }
 
     if ((!r->num_clips) != (!r->clips_ptr)) {
-        plogk("drm: dirtyfb: num_clips %u and clips_ptr 0x%llx mismatch.\n", r->num_clips, (unsigned long long)r->clips_ptr);
+        plogk("drm: Dirtyfb: num_clips %u and clips_ptr 0x%llx mismatch.\n", r->num_clips, (unsigned long long)r->clips_ptr);
         return -EINVAL;
     }
 
     flags = r->flags & DRM_MODE_FB_DIRTY_FLAGS;
     if ((flags & DRM_MODE_FB_DIRTY_ANNOTATE_COPY) && (r->num_clips & 1U)) {
-        plogk("drm: dirtyfb: annotate_copy requires an even number of clips (%u)\n", r->num_clips);
+        plogk("drm: Dirtyfb: annotate_copy requires an even number of clips (%u)\n", r->num_clips);
         return -EINVAL;
     }
 
     if (r->num_clips) {
         if (r->num_clips > DRM_MODE_FB_DIRTY_MAX_CLIPS) {
-            plogk("drm: dirtyfb: too many clips (%u)\n", r->num_clips);
+            plogk("drm: Dirtyfb: too many clips (%u)\n", r->num_clips);
             return -EINVAL;
         }
         clips = malloc((size_t)r->num_clips * sizeof(*clips));
         if (!clips) {
-            plogk("drm: dirtyfb: out of memory allocating %u clips.\n", r->num_clips);
+            plogk("drm: Dirtyfb: out of memory allocating %u clips.\n", r->num_clips);
             return -ENOMEM;
         }
         if (copy_from_user(clips, (const void *)(uintptr_t)r->clips_ptr, (size_t)r->num_clips * sizeof(*clips))) {
-            plogk("drm: dirtyfb: copy_from_user of clips failed.\n");
+            plogk("drm: Dirtyfb: copy_from_user of clips failed.\n");
             free(clips);
             return -EFAULT;
         }
@@ -537,7 +537,7 @@ int drm_mode_dirtyfb(struct drm_device *dev, void *data, struct drm_file *file_p
 
                 if (clips[i].x2 < clips[i].x1 || clips[i].y2 < clips[i].y1 || clips[i + 1].x2 < clips[i + 1].x1
                     || clips[i + 1].y2 < clips[i + 1].y1 || src_w != dst_w || src_h != dst_h) {
-                    plogk("drm: dirtyfb: invalid annotate_copy clip pair at index %u\n", i);
+                    plogk("drm: Dirtyfb: invalid annotate_copy clip pair at index %u\n", i);
                     free(clips);
                     return -EINVAL;
                 }
@@ -548,7 +548,7 @@ int drm_mode_dirtyfb(struct drm_device *dev, void *data, struct drm_file *file_p
     if (fb->funcs && fb->funcs->dirty) {
         ret = fb->funcs->dirty(fb, file_priv, flags, r->color, clips, r->num_clips);
     } else {
-        plogk("drm: dirtyfb: framebuffer %u has no dirty callback.\n", r->fb_id);
+        plogk("drm: Dirtyfb: framebuffer %u has no dirty callback.\n", r->fb_id);
         ret = -ENOSYS;
     }
     free(clips);
@@ -570,7 +570,7 @@ int drm_mode_getfb2_ioctl(struct drm_device *dev, void *data, struct drm_file *f
     struct drm_framebuffer  *fb;
 
     if (!dev || !r) {
-        plogk("drm: getfb2: NULL device or request.\n");
+        plogk("drm: Getfb2: NULL device or request.\n");
         return -EINVAL;
     }
 
@@ -578,7 +578,7 @@ int drm_mode_getfb2_ioctl(struct drm_device *dev, void *data, struct drm_file *f
     fb = drm_idr_find(&dev->mode_config.fb_idr, r->fb_id);
     spin_unlock(&dev->mode_config.fb_lock);
     if (!fb) {
-        plogk("drm: getfb2: framebuffer %u not found.\n", r->fb_id);
+        plogk("drm: Getfb2: framebuffer %u not found.\n", r->fb_id);
         return -ENOENT;
     }
 
@@ -593,7 +593,7 @@ int drm_mode_getfb2_ioctl(struct drm_device *dev, void *data, struct drm_file *f
         r->offsets[i]  = fb->offsets[i];
         if (fb->obj[i]) {
             if (drm_gem_handle_create(file_priv, fb->obj[i], &r->handles[i])) {
-                plogk("drm: getfb2: failed to create GEM handle on plane %d for fb %u\n", i, r->fb_id);
+                plogk("drm: Getfb2: failed to create GEM handle on plane %d for fb %u\n", i, r->fb_id);
                 for (int j = 0; j < i; j++)
                     if (r->handles[j]) drm_gem_handle_delete(file_priv, r->handles[j]);
                 return -ENOMEM;
@@ -664,7 +664,7 @@ struct drm_framebuffer *drm_framebuffer_lookup(struct drm_device *dev, struct dr
     (void)file_priv;
 
     if (!dev) {
-        plogk("drm: framebuffer_lookup: NULL device.\n");
+        plogk("drm: Framebuffer_lookup: NULL device.\n");
         return NULL;
     }
 

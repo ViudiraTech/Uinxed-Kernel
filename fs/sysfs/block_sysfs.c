@@ -427,7 +427,6 @@ void block_sysfs_init(void)
         plogk("block_sysfs: /sys/block/ kobject not found.\n");
         return;
     }
-
     for (uint8_t d = 0; d < 4; d++) {
         if (!ide_devices[d].reserved || ide_devices[d].type != IDE_ATA) continue;
         char name[8];

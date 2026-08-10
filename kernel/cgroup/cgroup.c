@@ -137,10 +137,10 @@ void cgroup_init(void)
     cgroup_lock.lock = 0;
     cgroup_ready     = 1;
     if (cgroup_register_controller("pids", CGROUP_CONTROLLER_PIDS) != EOK) {
-        plogk("cgroup: failed to register pids controller\n");
+        plogk("cgroup: Failed to register pids controller.\n");
         return;
     }
-    plogk("cgroup: unified hierarchy initialized with pids controller\n");
+    plogk("cgroup: Unified hierarchy initialized with pids controller.\n");
 #endif
 }
 

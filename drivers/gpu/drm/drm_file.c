@@ -39,7 +39,7 @@ struct drm_file *drm_file_alloc(struct drm_device *dev)
 
     file = malloc(sizeof(*file));
     if (!file) {
-        plogk("drm: file_alloc: out of memory.\n");
+        plogk("drm: File_alloc: out of memory.\n");
         return NULL;
     }
     memset(file, 0, sizeof(*file));
@@ -124,7 +124,7 @@ int drm_send_event(struct drm_device *dev, struct drm_pending_vblank_event *e)
     struct drm_file       *file_priv;
 
     if (!e) {
-        plogk("drm: send_event: NULL event.\n");
+        plogk("drm: Send_event: NULL event.\n");
         return -EINVAL;
     }
 
@@ -134,7 +134,7 @@ int drm_send_event(struct drm_device *dev, struct drm_pending_vblank_event *e)
         ilist_node_t *head = dev->filelist.next;
         if (!head || head == &dev->filelist) {
             spin_unlock(&dev->filelist_lock);
-            plogk("drm: send_event: no open drm_file to deliver event.\n");
+            plogk("drm: Send_event: no open drm_file to deliver event.\n");
             return -ENOENT;
         }
         file_priv = container_of(head, struct drm_file, head);
@@ -144,14 +144,14 @@ int drm_send_event(struct drm_device *dev, struct drm_pending_vblank_event *e)
     /* Allocate a queue node and copy the event. */
     node = malloc(sizeof(*node));
     if (!node) {
-        plogk("drm: send_event: out of memory allocating event queue node.\n");
+        plogk("drm: Send_event: out of memory allocating event queue node.\n");
         drm_event_release_file_ref(e);
         return -ENOMEM;
     }
 
     node->event = malloc(e->event.base.length);
     if (!node->event) {
-        plogk("drm: send_event: out of memory allocating event payload (%u bytes)\n", e->event.base.length);
+        plogk("drm: Send_event: out of memory allocating event payload (%u bytes)\n", e->event.base.length);
         free(node);
         drm_event_release_file_ref(e);
         return -ENOMEM;
@@ -212,7 +212,7 @@ int drm_read(struct drm_file *file_priv, char *buf, size_t count, size_t *offset
     (void)offset;
 
     if (!file_priv || !buf || count == 0) {
-        plogk("drm: read: invalid arguments.\n");
+        plogk("drm: Read: invalid arguments.\n");
         return -EINVAL;
     }
 
@@ -230,7 +230,7 @@ int drm_read(struct drm_file *file_priv, char *buf, size_t count, size_t *offset
     node = file_priv->event_list_head;
     if (count < node->event->length) {
         spin_unlock(&file_priv->event_lock);
-        plogk("drm: read: buffer too small for event (%zu < %u)\n", count, node->event->length);
+        plogk("drm: Read: buffer too small for event (%zu < %u)\n", count, node->event->length);
         return -EINVAL;
     }
 

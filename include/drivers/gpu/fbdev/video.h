@@ -101,11 +101,11 @@ void video_init(void);
 typedef void (*video_flush_fn_t)(uint32_t x, uint32_t y, uint32_t width, uint32_t height);
 
 /*
- * Switch the console framebuffer to a DRM-backed buffer.
+ * Switch the console framebuffer to an external backing buffer.
  * After this call all fbcon output (printk, tty) renders into @backing
  * and @flush is called after each batch draw to push pixels to the host.
  */
-void video_switch_to_drm(void *backing, uint32_t w, uint32_t h, uint32_t pitch, video_flush_fn_t flush);
+void video_switch_framebuffer(void *backing, uint32_t w, uint32_t h, uint32_t pitch, video_flush_fn_t flush);
 
 /* Publish a damaged rectangle after a batch of framebuffer draws. */
 void video_flush_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h);

@@ -88,7 +88,7 @@ static int extfs_free_bit_in_bitmap(extfs_sb_info_t *sb, uint32_t group, int ino
     }
 
     if (!extfs_test_bit(buf, bit)) {
-        plogk("extfs: drive %u: %s bitmap bit %u not allocated (double free)\n", sb->device.drive, inode_bitmap ? "inode" : "block", bit);
+        plogk("extfs: Drive %u: %s bitmap bit %u not allocated (double free)\n", sb->device.drive, inode_bitmap ? "inode" : "block", bit);
         free(buf);
         return -EINVAL;
     }
@@ -199,7 +199,7 @@ int extfs_alloc_block(extfs_sb_info_t *sb, uint32_t goal, uint32_t *out)
     if (sb->es->s_free_blocks_count == 0) {
         static uint64_t last_log;
         if (sched_ticks() - last_log >= 1000) {
-            plogk("extfs: drive %u: filesystem full (no free blocks)\n", sb->device.drive);
+            plogk("extfs: Drive %u: filesystem full (no free blocks)\n", sb->device.drive);
             last_log = sched_ticks();
         }
         return -ENOSPC;
@@ -239,7 +239,7 @@ int extfs_alloc_block(extfs_sb_info_t *sb, uint32_t goal, uint32_t *out)
 
     static uint64_t last_log;
     if (sched_ticks() - last_log >= 1000) {
-        plogk("extfs: drive %u: block allocation failed, filesystem full.\n", sb->device.drive);
+        plogk("extfs: Drive %u: block allocation failed, filesystem full.\n", sb->device.drive);
         last_log = sched_ticks();
     }
     return -ENOSPC;
@@ -280,7 +280,7 @@ int extfs_alloc_inode(extfs_sb_info_t *sb, uint32_t *out)
     if (sb->es->s_free_inodes_count == 0) {
         static uint64_t last_log;
         if (sched_ticks() - last_log >= 1000) {
-            plogk("extfs: drive %u: inode table exhausted (no free inodes)\n", sb->device.drive);
+            plogk("extfs: Drive %u: inode table exhausted (no free inodes)\n", sb->device.drive);
             last_log = sched_ticks();
         }
         return -ENOSPC;
@@ -310,7 +310,7 @@ int extfs_alloc_inode(extfs_sb_info_t *sb, uint32_t *out)
 
     static uint64_t last_log;
     if (sched_ticks() - last_log >= 1000) {
-        plogk("extfs: drive %u: inode allocation failed, inode table full.\n", sb->device.drive);
+        plogk("extfs: Drive %u: inode allocation failed, inode table full.\n", sb->device.drive);
         last_log = sched_ticks();
     }
     return -ENOSPC;

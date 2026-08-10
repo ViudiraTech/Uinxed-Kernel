@@ -89,12 +89,12 @@ void fb_sysfs_init(void)
     if (framebuffer_sysfs_ready) return;
     status = bus_register(&framebuffer_platform_bus);
     if (status != EOK) {
-        plogk("fb_sysfs: platform bus registration failed: %d\n", status);
+        plogk("fb_sysfs: Platform bus registration failed: %d\n", status);
         return;
     }
     status = class_register(&graphics_class);
     if (status != EOK) {
-        plogk("fb_sysfs: graphics class registration failed: %d\n", status);
+        plogk("fb_sysfs: Graphics class registration failed: %d\n", status);
         bus_unregister(&framebuffer_platform_bus);
         return;
     }
@@ -104,7 +104,7 @@ void fb_sysfs_init(void)
     framebuffer_platform_device.devid = 0;
     if (kobject_set_name(&framebuffer_platform_device.kobj, "virtio-framebuffer") != EOK
         || device_register(&framebuffer_platform_device) != EOK) {
-        plogk("fb_sysfs: physical framebuffer registration failed.\n");
+        plogk("fb_sysfs: Physical framebuffer registration failed.\n");
         class_unregister(&graphics_class);
         bus_unregister(&framebuffer_platform_bus);
         return;
@@ -112,7 +112,7 @@ void fb_sysfs_init(void)
 
     framebuffer_class_device = device_create(&graphics_class, &framebuffer_platform_device, MKDEV(29, 0), NULL, "fb0");
     if (!framebuffer_class_device) {
-        plogk("fb_sysfs: fb0 class device registration failed.\n");
+        plogk("fb_sysfs: Fb0 class device registration failed.\n");
         device_unregister(&framebuffer_platform_device);
         class_unregister(&graphics_class);
         bus_unregister(&framebuffer_platform_bus);

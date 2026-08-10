@@ -529,7 +529,7 @@ static size_t fatfs_vfs_write(void *file, const void *addr, size_t offset, size_
         return 0;
     }
     if (f_sync(&handle->file) != FR_OK) {
-        plogk("fatfs: %s: sync failed\n", handle->path);
+        plogk("fatfs: %s: sync failed.\n", handle->path);
         return 0;
     }
 

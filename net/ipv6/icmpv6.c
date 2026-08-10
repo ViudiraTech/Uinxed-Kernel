@@ -73,7 +73,7 @@ int icmpv6_error(net_device_t *device, const ipv6_address_t *destination, uint8_
     if (quote_length > IPV6_MIN_MTU - IPV6_HEADER_LEN - ICMPV6_HEADER_LEN) quote_length = IPV6_MIN_MTU - IPV6_HEADER_LEN - ICMPV6_HEADER_LEN;
     net_pbuf_t *packet = net_pbuf_alloc(ICMPV6_HEADER_LEN + quote_length, NET_PBUF_HEADROOM);
     if (!packet) {
-        plogk("icmpv6: error message alloc failed (type=%u code=%u).\n", (unsigned)type, (unsigned)code);
+        plogk("icmpv6: Error message alloc failed (type=%u code=%u)\n", (unsigned)type, (unsigned)code);
         return -ENOMEM;
     }
     memset(packet->data, 0, ICMPV6_HEADER_LEN);

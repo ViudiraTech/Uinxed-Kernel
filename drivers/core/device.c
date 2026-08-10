@@ -477,7 +477,7 @@ int device_register(struct device *dev)
     if (dev->class && dev->class->dev_groups) {
         ret = sysfs_create_groups(&dev->kobj, dev->class->dev_groups);
         if (ret != EOK) {
-            plogk("device: class dev_groups failed for %s: %d\n", kobject_name(&dev->kobj), ret);
+            plogk("device: Class dev_groups failed for %s: %d\n", kobject_name(&dev->kobj), ret);
             goto rollback_bus_groups;
         }
     }

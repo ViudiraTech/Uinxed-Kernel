@@ -37,7 +37,6 @@
 #include <drivers/rtc/rtc.h>
 #include <drivers/sound/intel/hda.h>
 #include <drivers/sound/soundblaster/sb16.h>
-#include <drivers/tty/pty/pty.h>
 #include <drivers/tty/tty.h>
 #include <drivers/usb/core/usb.h>
 #include <drivers/usb/host/host.h>
@@ -53,12 +52,15 @@
 #include <fs/sysfs/fb_sysfs.h>
 #include <fs/sysfs/i2c_sysfs.h>
 #include <fs/sysfs/input_sysfs.h>
+#include <fs/sysfs/kernel_sysfs.h>
 #include <fs/sysfs/mem_sysfs.h>
 #include <fs/sysfs/net_sysfs.h>
+#include <fs/sysfs/pci_sysfs.h>
 #include <fs/sysfs/rtc_sysfs.h>
 #include <fs/sysfs/sound_sysfs.h>
 #include <fs/sysfs/sysfs.h>
 #include <fs/sysfs/tpm_sysfs.h>
+#include <fs/sysfs/tty_sysfs.h>
 #include <fs/virtual/cgroupfs.h>
 #include <fs/virtual/cpio.h>
 #include <fs/virtual/devtmpfs.h>
@@ -239,15 +241,16 @@ void kernel_entry(void)
     log_buffer_print(&lmodule_log);  //
                                      //
     /* Device Drivers */             //
+    init_ide();                      // ATA / ATAPI
+    init_ahci();                     // Advanced Host Controller Interface
+    nvme_init();                     // Non-Volatile Memory Express
+    net_init();                      // Initialize ARP/NDP caches and DHCP client
     e1000_init();                    // Intel 8254x Gigabit Ethernet
     rtl8169_init();                  // Realtek RTL8169 Gigabit Ethernet
     rtl8139_init();                  // Realtek RTL8139 Fast Ethernet
-    net_init();                      // Initialize ARP/NDP caches and DHCP client
+    usb_host_pci_scan();             // Discover and init all USB host controllers
     sb16_init();                     // Sound Blaster 16
     hda_init();                      // Intel HD Audio
-    init_ide();                      // ATA / ATAPI
-    nvme_init();                     // Non-Volatile Memory Express
-    init_ahci();                     // Advanced Host Controller Interface
                                      //
     /* Virtual Filesystem */         //
     init_vfs();                      // Virtual Filesystem
@@ -264,14 +267,11 @@ void kernel_entry(void)
     device_model_init();                                                      // Initialise the device model (bus/class/device)
     devtmpfs_init();                                                          // Device Temporary File System
                                                                               //
-    /* USB Subsystem */                                                       //
-    usb_host_pci_scan();                                                      // Discover and init all USB host controllers
-                                                                              //
     /* RAM Filesystem */                                                      //
     init_cpio();                                                              // Copy In, Copy Out
                                                                               //
     /* Sysfs Population */                                                    //
-    ksysfs_init();                                                            // /sys/kernel/{version,cmdline,hostname,...}
+    kernel_sysfs_init();                                                      // /sys/kernel/{version,cmdline,hostname,...}
     pci_sysfs_init();                                                         // /sys/bus/pci/ + /sys/devices/pci*
     input_sysfs_init();                                                       // /sys/class/input/eventX
     block_sysfs_init();                                                       // /sys/block/{hdX,sdX,nvme*}
@@ -282,7 +282,6 @@ void kernel_entry(void)
     sound_sysfs_init();                                                       // /sys/class/sound/cardN + ALSA node sub-devices
     tpm_vfs_init();                                                           // /dev/tpm0, /dev/tpmrm0
     tpm_sysfs_init();                                                         // /sys/class/tpm{,rm}
-    rtc_vfs_init();                                                           // /dev/rtc0
     rtc_sysfs_init();                                                         // /sys/class/rtc/rtc0
     i2c_sysfs_init();                                                         // /sys/bus/i2c + /sys/class/i2c-dev
     dmi_sysfs_init();                                                         // /sys/class/dmi/id + /sys/firmware/dmi/tables
@@ -292,9 +291,6 @@ void kernel_entry(void)
     isofs_regist();                                                           // ISO 9660 File System
     ntfs_vfs_regist();                                                        // New Technology File System
     extfs_regist();                                                           // ext2/ext3/ext4 File System
-                                                                              //
-    /* Terminal Devices */                                                    //
-    pty_init();                                                               // Unix98 pseudo-terminals
                                                                               //
     /* Process Management */                                                  //
     sched_init();                                                             // Preemptive Scheduler

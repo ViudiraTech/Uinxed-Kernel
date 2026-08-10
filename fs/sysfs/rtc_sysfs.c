@@ -76,10 +76,10 @@ void rtc_sysfs_init(void)
 {
 #if CONFIG_SYSFS
     if (class_register(&rtc_class) != EOK) {
-        plogk("rtc_sysfs: class_register(rtc) failed\n");
+        plogk("rtc_sysfs: Class_register(rtc) failed.\n");
         return;
     }
     (void)device_create(&rtc_class, NULL, MKDEV(RTC_DEV_MAJOR, RTC0_MINOR), NULL, "rtc0");
-    plogk("rtc_sysfs: /sys/class/rtc/rtc0 registered\n");
+    plogk("rtc_sysfs: /sys/class/rtc/rtc0 registered.\n");
 #endif
 }

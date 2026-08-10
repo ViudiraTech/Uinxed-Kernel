@@ -152,7 +152,7 @@ void init_ps2(void)
 
     ps2_write_cmd(PS2_CMD_SELF_TEST);
     if (ps2_read_data_timeout(&result) != EOK || result != PS2_RESPONSE_SELFTEST) {
-        plogk("ps/2: controller self-test failed.\n");
+        plogk("ps/2: Controller self-test failed.\n");
         return;
     }
 
@@ -195,5 +195,5 @@ void init_ps2(void)
         ps2_mouse_init();
         register_interrupt_handler(IRQ_12, (void *)ps2_irq, 0, 0x8e);
     }
-    plogk("ps/2: keyboard=%s mouse-port=%s\n", ps2_port1_ok ? "ready" : "unavailable", ps2_port2_ok ? "ready" : "unavailable");
+    plogk("ps/2: Keyboard=%s mouse-port=%s\n", ps2_port1_ok ? "ready" : "unavailable", ps2_port2_ok ? "ready" : "unavailable");
 }

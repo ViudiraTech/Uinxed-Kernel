@@ -417,7 +417,7 @@ int usb_storage_probe(usb_interface_t *interface)
         usb_storage_mode_sense(lun);
         if (usb_storage_register_lun(lun) != EOK) continue;
         storage->lun_count++;
-        plogk("usb-storage: %s: %llu sectors, %u-byte logical blocks%s\n", lun->name, (unsigned long long)lun->sector_count, lun->sector_size,
+        plogk("usb-storage: %s: %llu sectors, %u-byte logical blocks%s.\n", lun->name, (unsigned long long)lun->sector_count, lun->sector_size,
               lun->read_only ? ", read-only" : "");
     }
     if (!storage->lun_count) {

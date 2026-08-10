@@ -182,7 +182,7 @@ static int poll_watches_create(process_t *proc, linux_pollfd_t *fds, uint64_t nf
 {
     poll_watch_t *watches = nfds ? calloc((size_t)nfds, sizeof(*watches)) : NULL;
     if (nfds && !watches) {
-        plogk("poll: watch array alloc failed (nfds=%lu)\n", (unsigned long)nfds);
+        plogk("poll: Watch array alloc failed (nfds=%lu)\n", (unsigned long)nfds);
         return -ENOMEM;
     }
 
@@ -318,11 +318,11 @@ static int64_t do_poll(uint64_t user_fds, uint64_t nfds, poll_timeout_t *timeout
 {
     process_t *proc = process_current();
     if (!proc) {
-        plogk("poll: no current process for poll.\n");
+        plogk("poll: No current process for poll.\n");
         return -ESRCH;
     }
     if (nfds > POLL_NFDS_MAX) {
-        plogk("poll: nfds %lu exceeds limit %llu.\n", (unsigned long)nfds, POLL_NFDS_MAX);
+        plogk("poll: nfds %lu exceeds limit %llu\n", (unsigned long)nfds, POLL_NFDS_MAX);
         return -EINVAL;
     }
     if (nfds && !user_fds) {
@@ -337,7 +337,7 @@ static int64_t do_poll(uint64_t user_fds, uint64_t nfds, poll_timeout_t *timeout
     }
     if (nfds && copy_from_user(fds, (const void *)user_fds, (size_t)nfds * sizeof(*fds))) {
         free(fds);
-        plogk("poll: copy of fd array from user failed (nfds=%lu, fds=%p)\n", (unsigned long)nfds, (const void *)user_fds);
+        plogk("poll: Copy of fd array from user failed (nfds=%lu, fds=%p)\n", (unsigned long)nfds, (const void *)user_fds);
         return -EFAULT;
     }
 
@@ -356,11 +356,11 @@ static int64_t do_select(uint64_t nfds, uint64_t readfds, uint64_t writefds, uin
 {
     process_t *proc = process_current();
     if (!proc) {
-        plogk("poll: select with no current process.\n");
+        plogk("poll: Select with no current process.\n");
         return -ESRCH;
     }
     if (nfds > SELECT_NFDS_MAX) {
-        plogk("poll: select nfds %lu exceeds limit %llu.\n", (unsigned long)nfds, SELECT_NFDS_MAX);
+        plogk("poll: Select nfds %lu exceeds limit %llu\n", (unsigned long)nfds, SELECT_NFDS_MAX);
         return -EINVAL;
     }
 
@@ -375,13 +375,13 @@ static int64_t do_select(uint64_t nfds, uint64_t readfds, uint64_t writefds, uin
     if ((readfds && copy_from_user(in_read, (const void *)readfds, set_size))
         || (writefds && copy_from_user(in_write, (const void *)writefds, set_size))
         || (exceptfds && copy_from_user(in_except, (const void *)exceptfds, set_size))) {
-        plogk("poll: select copy of fd sets from user failed (nfds=%lu)\n", (unsigned long)nfds);
+        plogk("poll: Select copy of fd sets from user failed (nfds=%lu)\n", (unsigned long)nfds);
         return -EFAULT;
     }
 
     linux_pollfd_t *fds = nfds ? calloc((size_t)nfds, sizeof(*fds)) : NULL;
     if (nfds && !fds) {
-        plogk("poll: select fd array alloc failed (nfds=%lu)\n", (unsigned long)nfds);
+        plogk("poll: Select fd array alloc failed (nfds=%lu)\n", (unsigned long)nfds);
         return -ENOMEM;
     }
     for (uint64_t fd = 0; fd < nfds; fd++) {
@@ -443,11 +443,11 @@ int64_t sys_select(uint64_t nfds, uint64_t readfds, uint64_t writefds, uint64_t 
     linux_timeval_t tv = {0};
     if (timeout_ptr) {
         if (copy_from_user(&tv, (const void *)timeout_ptr, sizeof(tv))) {
-            plogk("poll: select timeout copy from user failed (ptr=%p)\n", (const void *)timeout_ptr);
+            plogk("poll: Select timeout copy from user failed (ptr=%p)\n", (const void *)timeout_ptr);
             return -EFAULT;
         }
         if (tv.tv_sec < 0 || tv.tv_usec < 0 || tv.tv_usec >= 1000000) {
-            plogk("poll: select invalid timeout (sec=%ld, usec=%ld)\n", (long)tv.tv_sec, (long)tv.tv_usec);
+            plogk("poll: Select invalid timeout (sec=%ld, usec=%ld)\n", (long)tv.tv_sec, (long)tv.tv_usec);
             return -EINVAL;
         }
     }

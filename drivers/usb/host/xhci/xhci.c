@@ -393,7 +393,7 @@ static int xhci_command(xhci_controller_t *controller, uint64_t parameter, uint3
     xhci_command_wait_t wait = {0};
     spin_lock(&controller->command_lock);
     if (!xhci_ring_enqueue(&controller->command_ring, parameter, status, control, &wait.trb_physical)) {
-        plogk("xhci: command ring full on bus %u\n", controller->bus_number);
+        plogk("xhci: Command ring full on bus %u\n", controller->bus_number);
         spin_unlock(&controller->command_lock);
         return -EIO;
     }
@@ -404,7 +404,7 @@ static int xhci_command(xhci_controller_t *controller, uint64_t parameter, uint3
     if (result == EOK) result = xhci_completion_status(wait.completion_code);
     if (result == EOK && slot_id) *slot_id = wait.slot_id;
     spin_unlock(&controller->command_lock);
-    if (result != EOK) plogk("xhci: command failed on bus %u (%d)\n", controller->bus_number, result);
+    if (result != EOK) plogk("xhci: Command failed on bus %u (%d)\n", controller->bus_number, result);
     return result;
 }
 
@@ -412,7 +412,7 @@ static int xhci_wait_transfer(xhci_transfer_t *transfer, uint32_t timeout_ms)
 {
     int result = xhci_wait_flag(transfer->slot->controller, &transfer->completed, timeout_ms);
     if (result != EOK) {
-        plogk("xhci: transfer timed out on bus %u slot %u\n", transfer->slot->controller->bus_number, transfer->slot->slot_id);
+        plogk("xhci: Transfer timed out on bus %u slot %u\n", transfer->slot->controller->bus_number, transfer->slot->slot_id);
         uint8_t dci = transfer->endpoint ? xhci_endpoint_dci(transfer->endpoint) : 1;
         if (__atomic_load_n(&transfer->slot->pending[dci], __ATOMIC_ACQUIRE) == transfer)
             __atomic_store_n(&transfer->slot->pending[dci], NULL, __ATOMIC_RELEASE);
@@ -432,7 +432,7 @@ static int xhci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
     if (length) {
         transfer.dma_virtual = xhci_dma_alloc(length, &transfer.dma_physical, &transfer.dma_pages);
         if (!transfer.dma_virtual) {
-            plogk("xhci: control transfer DMA allocation failed on bus %u (%zu bytes)\n", slot->controller->bus_number, length);
+            plogk("xhci: Control transfer DMA allocation failed on bus %u (%zu bytes)\n", slot->controller->bus_number, length);
             return -ENOMEM;
         }
         if (!(setup->request_type & USB_DIR_IN)) memcpy(transfer.dma_virtual, buffer, length);
@@ -474,7 +474,7 @@ static int xhci_transfer(usb_endpoint_t *usb_endpoint, void *buffer, size_t leng
     xhci_transfer_t        transfer = {.slot = slot, .endpoint = usb_endpoint, .endpoint_state = endpoint, .length = length, .active = true};
     transfer.dma_virtual            = xhci_dma_alloc(length, &transfer.dma_physical, &transfer.dma_pages);
     if (!transfer.dma_virtual) {
-        plogk("xhci: bulk transfer DMA allocation failed on bus %u (%zu bytes)\n", slot->controller->bus_number, length);
+        plogk("xhci: Bulk transfer DMA allocation failed on bus %u (%zu bytes)\n", slot->controller->bus_number, length);
         return -ENOMEM;
     }
     bool input = (usb_endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK) != 0;
@@ -511,7 +511,7 @@ static int xhci_interrupt_start(usb_endpoint_t *usb_endpoint, size_t length, usb
     transfer->active         = true;
     transfer->dma_virtual    = xhci_dma_alloc(length, &transfer->dma_physical, &transfer->dma_pages);
     if (!transfer->dma_virtual) {
-        plogk("xhci: interrupt transfer DMA allocation failed on bus %u (%zu bytes)\n", transfer->slot->controller->bus_number, length);
+        plogk("xhci: Interrupt transfer DMA allocation failed on bus %u (%zu bytes)\n", transfer->slot->controller->bus_number, length);
         free(transfer);
         return -ENOMEM;
     }
@@ -699,7 +699,7 @@ static int xhci_allocate_slot(xhci_controller_t *controller, uint8_t port_id, ui
 {
     xhci_slot_t *slot = calloc(1, sizeof(*slot));
     if (!slot) {
-        plogk("xhci: slot allocation failed on bus %u\n", controller->bus_number);
+        plogk("xhci: Slot allocation failed on bus %u\n", controller->bus_number);
         return -ENOMEM;
     }
     slot->controller           = controller;
@@ -712,7 +712,7 @@ static int xhci_allocate_slot(xhci_controller_t *controller, uint8_t port_id, ui
     ep0->ring.trbs             = xhci_dma_alloc(PAGE_4K_SIZE, &ep0->ring_physical, NULL);
     if (!slot->output_context || !slot->input_context || !ep0->ring.trbs
         || xhci_ring_init(&ep0->ring, ep0->ring.trbs, ep0->ring_physical, XHCI_RING_TRBS, true) != EOK) {
-        plogk("xhci: slot %u context/ring allocation failed on bus %u\n", slot_id, controller->bus_number);
+        plogk("xhci: Slot %u context/ring allocation failed on bus %u\n", slot_id, controller->bus_number);
         xhci_dma_free(slot->output_context_physical, 1);
         xhci_dma_free(slot->input_context_physical, 1);
         xhci_dma_free(ep0->ring_physical, 1);

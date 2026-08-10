@@ -1287,7 +1287,7 @@ int module_load(const void *image, size_t size, const char *params, unsigned int
     return EOK;
 
 out_destroy:
-    plogk("module: load of \"%s\" failed: %d\n", internal->module->name[0] ? internal->module->name : "(unnamed)", result);
+    plogk("module: Load of \"%s\" failed: %d\n", internal->module->name[0] ? internal->module->name : "(unnamed)", result);
     destroy_internal(internal);
 out_operation:
     operation_end();

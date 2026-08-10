@@ -14,6 +14,7 @@
  *
  */
 
+#include <drivers/gpu/drm/drm_edid.h>
 #include <drivers/gpu/drm/drm_fourcc.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <drivers/gpu/fbdev/video.h>
@@ -23,6 +24,7 @@
 #include <drivers/virt/gpu/virtgpu_gem.h>
 #include <drivers/virt/gpu/virtgpu_kms.h>
 #include <kernel/errno.h>
+#include <kernel/printk.h>
 #include <libs/std/stdlib.h>
 #include <mem/alloc.h>
 
@@ -54,6 +56,61 @@ static enum drm_connector_status virtgpu_connector_detect(struct drm_connector *
     return vgdev->num_scanouts > 0 ? connector_status_connected : connector_status_disconnected;
 }
 
+/*
+ * Fetch the EDID for scanout 0 from the host and, if valid, publish it as
+ * the connector's EDID property blob and add the EDID-derived modes.
+ *
+ * Returns the number of modes added, or 0 if no EDID / invalid EDID.
+ */
+static int virtgpu_connector_get_edid_modes(struct drm_connector *connector)
+{
+    struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)connector->dev->dev_private;
+    struct edid              *edid;
+    int                       edid_size = 0;
+    int                       count     = 0;
+    int                       ret;
+
+    if (!vgdev->has_edid) { return 0; }
+
+    /* The host EDID response is capped at 1024 bytes by the virtio protocol. */
+    edid = malloc(1024);
+    if (!edid) { return 0; }
+
+    ret = virtgpu_cmd_get_edid(vgdev, 0, edid, &edid_size);
+    if (ret || edid_size <= 0) {
+        free(edid);
+        return 0;
+    }
+
+    if (!drm_edid_is_valid(edid)) {
+        plogk("virtgpu: Connector: EDID invalid (%d bytes)\n", edid_size);
+        free(edid);
+        return 0;
+    }
+
+    /* Publish the raw EDID as the connector's EDID property blob. */
+    drm_connector_update_edid_property(connector, (const unsigned char *)edid, (size_t)edid_size);
+    if (connector->edid_blob && connector->edid_blob->data) {
+        /* The blob owns a persistent copy of the EDID bytes. */
+        connector->edid_blob_ptr = (uint8_t *)connector->edid_blob->data;
+    }
+
+    /* Fill in the connector display info derived from the EDID. */
+    drm_edid_to_display_info(connector, edid);
+
+    count = drm_add_edid_modes(connector, edid);
+    if (count > 0) {
+        char name[14];
+
+        drm_edid_get_monitor_name(edid, name, sizeof(name));
+        plogk("virtgpu: Connector: EDID parsed: %d mode(s), monitor=\"%s\", %ux%u mm.\n", count, name[0] ? name : "unknown",
+              connector->display_info_width_mm, connector->display_info_height_mm);
+    }
+
+    free(edid);
+    return count;
+}
+
 static int virtgpu_connector_get_modes(struct drm_connector *connector)
 {
     struct drm_device        *dev   = connector->dev;
@@ -62,6 +119,9 @@ static int virtgpu_connector_get_modes(struct drm_connector *connector)
 
     /* Query display info from host if not already done */
     if (vgdev->num_scanouts == 0) { virtgpu_cmd_get_display_info(vgdev); }
+
+    /* Prefer the real EDID modes when the host provides a valid EDID. */
+    if (virtgpu_connector_get_edid_modes(connector) > 0) { return 0; }
 
     for (i = 0; i < vgdev->num_scanouts && i < VIRTGPU_MAX_SCANOUTS; i++) {
         struct virtio_gpu_display_mode *dm = &vgdev->scanouts[i];
@@ -414,7 +474,7 @@ static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
      */
     vgdev_flush_ctx = vgdev;
     vgdev_flush_obj = obj;
-    video_switch_to_drm(obj->base.backing, w, h, pitch, virtgpu_kms_flush_fb);
+    video_switch_framebuffer(obj->base.backing, w, h, pitch, virtgpu_kms_flush_fb);
 
     /* Update TTY to DRM mode now that the DRM framebuffer is live */
     tty_set_device_type(TTY_DEVICE_DRM);
@@ -442,7 +502,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
 
     /* Query display info from host */
     ret = virtgpu_cmd_get_display_info(vgdev);
-    if (ret) { DRM_ERROR("Failed to get display info: %d (using defaults)\n", ret); }
+    if (ret) { plogk("virtgpu: Failed to get display info: %d (using defaults)\n", ret); }
 
     /* ---------- Primary plane ---------- */
 
@@ -585,8 +645,18 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
 
     drm_connector_register(connector);
 
-    DRM_INFO("KMS pipeline: CRTC-%d + primary plane-%d + encoder-%d + connector-%d (%d modes)\n", crtc->base.id, primary->base.id,
-             encoder->base.id, connector->base.id, vgdev->num_scanouts > 0 ? vgdev->num_scanouts : 1);
+    {
+        /* Count the probed modes actually on the connector. */
+        ilist_node_t *node       = connector->modes.next;
+        int           mode_count = 0;
+
+        while (node && node != &connector->modes) {
+            mode_count++;
+            node = node->next;
+        }
+        DRM_INFO("KMS pipeline: CRTC-%d + primary plane-%d + encoder-%d + connector-%d (%d modes)\n", crtc->base.id, primary->base.id,
+                 encoder->base.id, connector->base.id, mode_count);
+    }
 
     /*
      * Perform an initial modeset so the display is live immediately.

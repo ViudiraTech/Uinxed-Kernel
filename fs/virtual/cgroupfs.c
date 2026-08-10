@@ -290,6 +290,6 @@ void cgroupfs_regist(void)
 {
 #if CONFIG_CGROUP
     cgroupfs_id = vfs_regist_fs_flags("cgroup2", &callbacks, VFS_FS_NODEV);
-    if (cgroupfs_id & ERRNO_MASK) plogk("cgroup2: registration failed (%d)\n", cgroupfs_id);
+    if (cgroupfs_id & ERRNO_MASK) plogk("cgroup2: Registration failed (%d)\n", cgroupfs_id);
 #endif
 }

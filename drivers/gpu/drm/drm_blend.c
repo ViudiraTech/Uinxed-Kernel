@@ -34,7 +34,7 @@
 static void drm_plane_create_zpos_property(struct drm_plane *plane, unsigned int zpos)
 {
     if (!plane) {
-        plogk("drm_blend: create_zpos_property with NULL plane.\n");
+        plogk("drm_blend: Create_zpos_property with NULL plane.\n");
         return;
     }
 
@@ -52,7 +52,7 @@ static void drm_plane_create_zpos_property(struct drm_plane *plane, unsigned int
 static int drm_plane_create_rotation_property(struct drm_plane *plane, unsigned int rotation)
 {
     if (!plane) {
-        plogk("drm_blend: rotation property with NULL plane.\n");
+        plogk("drm_blend: Rotation property with NULL plane.\n");
         return -EINVAL;
     }
 
@@ -73,7 +73,7 @@ static int drm_plane_create_rotation_property(struct drm_plane *plane, unsigned 
 static int drm_plane_create_blend_mode_property(struct drm_plane *plane, unsigned int blend_mode)
 {
     if (!plane) {
-        plogk("drm_blend: blend mode property with NULL plane.\n");
+        plogk("drm_blend: Blend mode property with NULL plane.\n");
         return -EINVAL;
     }
 
@@ -93,7 +93,7 @@ static int drm_plane_create_blend_mode_property(struct drm_plane *plane, unsigne
 static int drm_plane_create_alpha_property(struct drm_plane *plane)
 {
     if (!plane) {
-        plogk("drm_blend: alpha property with NULL plane.\n");
+        plogk("drm_blend: Alpha property with NULL plane.\n");
         return -EINVAL;
     }
 

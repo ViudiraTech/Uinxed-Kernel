@@ -32,13 +32,13 @@ int drm_vblank_init(struct drm_device *dev, unsigned int num_crtcs)
     unsigned int            i;
 
     if (!dev || num_crtcs == 0) {
-        plogk("drm: vblank_init with invalid args (dev=%p, num_crtcs=%u), returning -EINVAL.\n", dev, num_crtcs);
+        plogk("drm: Vblank_init with invalid args (dev=%p, num_crtcs=%u), returning -EINVAL.\n", dev, num_crtcs);
         return -EINVAL;
     }
 
     vblank = malloc(sizeof(*vblank) * num_crtcs);
     if (!vblank) {
-        plogk("drm: vblank_init: array allocation failed (num_crtcs=%u), returning -ENOMEM.\n", num_crtcs);
+        plogk("drm: Vblank_init: array allocation failed (num_crtcs=%u), returning -ENOMEM.\n", num_crtcs);
         return -ENOMEM;
     }
     memset(vblank, 0, sizeof(*vblank) * num_crtcs);
@@ -78,14 +78,14 @@ uint32_t drm_crtc_vblank_count(struct drm_crtc *crtc)
     struct drm_vblank_crtc *vblank;
 
     if (!crtc || !crtc->dev) {
-        plogk("drm: vblank_count with invalid crtc (crtc=%p), returning 0.\n", crtc);
+        plogk("drm: Vblank_count with invalid crtc (crtc=%p), returning 0\n", crtc);
         return 0;
     }
 
     dev = crtc->dev;
 
     if (crtc->index < 0 || crtc->index >= dev->num_crtc) {
-        plogk("drm: vblank_count: crtc index %d out of range (num_crtc=%d), returning 0.\n", crtc->index, dev->num_crtc);
+        plogk("drm: Vblank_count: crtc index %d out of range (num_crtc=%d), returning 0\n", crtc->index, dev->num_crtc);
         return 0;
     }
 
@@ -104,14 +104,14 @@ int drm_crtc_vblank_get(struct drm_crtc *crtc)
     struct drm_vblank_crtc *vblank;
 
     if (!crtc || !crtc->dev) {
-        plogk("drm: vblank_get with invalid crtc (crtc=%p), returning -EINVAL.\n", crtc);
+        plogk("drm: Vblank_get with invalid crtc (crtc=%p), returning -EINVAL.\n", crtc);
         return -EINVAL;
     }
 
     dev = crtc->dev;
 
     if (crtc->index < 0 || crtc->index >= dev->num_crtc) {
-        plogk("drm: vblank_get: crtc index %d out of range (num_crtc=%d), returning -EINVAL.\n", crtc->index, dev->num_crtc);
+        plogk("drm: Vblank_get: crtc index %d out of range (num_crtc=%d), returning -EINVAL.\n", crtc->index, dev->num_crtc);
         return -EINVAL;
     }
 
@@ -136,14 +136,14 @@ void drm_crtc_vblank_put(struct drm_crtc *crtc)
     struct drm_vblank_crtc *vblank;
 
     if (!crtc || !crtc->dev) {
-        plogk("drm: vblank_put with invalid crtc (crtc=%p)\n", crtc);
+        plogk("drm: Vblank_put with invalid crtc (crtc=%p)\n", crtc);
         return;
     }
 
     dev = crtc->dev;
 
     if (crtc->index < 0 || crtc->index >= dev->num_crtc) {
-        plogk("drm: vblank_put: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
+        plogk("drm: Vblank_put: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
         return;
     }
 
@@ -165,14 +165,14 @@ void drm_crtc_arm_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank_
     struct drm_vblank_crtc *vblank;
 
     if (!crtc || !crtc->dev || !e) {
-        plogk("drm: arm_vblank_event with invalid args (crtc=%p, e=%p)\n", crtc, e);
+        plogk("drm: Arm_vblank_event with invalid args (crtc=%p, e=%p)\n", crtc, e);
         return;
     }
 
     dev = crtc->dev;
 
     if (crtc->index < 0 || crtc->index >= dev->num_crtc) {
-        plogk("drm: arm_vblank_event: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
+        plogk("drm: Arm_vblank_event: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
         return;
     }
 
@@ -225,12 +225,12 @@ void drm_crtc_send_vblank_event(struct drm_crtc *crtc, struct drm_pending_vblank
     uint64_t                timestamp;
 
     if (!e || !e->dev) {
-        plogk("drm: send_vblank_event with invalid args (e=%p, dev=%p)\n", e, e ? e->dev : NULL);
+        plogk("drm: Send_vblank_event with invalid args (e=%p, dev=%p)\n", e, e ? e->dev : NULL);
         return;
     }
     if (!crtc) crtc = e->crtc;
     if (!crtc || crtc->index < 0 || crtc->index >= e->dev->num_crtc) {
-        plogk("drm: send_vblank_event: crtc invalid (crtc=%p, index=%d, num_crtc=%d), dropping event.\n", crtc, crtc ? crtc->index : -1,
+        plogk("drm: Send_vblank_event: crtc invalid (crtc=%p, index=%d, num_crtc=%d), dropping event.\n", crtc, crtc ? crtc->index : -1,
               e->dev->num_crtc);
         if (e->vblank_ref && e->crtc) {
             drm_crtc_vblank_put(e->crtc);
@@ -266,14 +266,14 @@ static void drm_crtc_vblank_off(struct drm_crtc *crtc)
     struct drm_vblank_crtc *vblank;
 
     if (!crtc || !crtc->dev) {
-        plogk("drm: vblank_off with invalid crtc (crtc=%p)\n", crtc);
+        plogk("drm: Vblank_off with invalid crtc (crtc=%p)\n", crtc);
         return;
     }
 
     dev = crtc->dev;
 
     if (crtc->index < 0 || crtc->index >= dev->num_crtc) {
-        plogk("drm: vblank_off: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
+        plogk("drm: Vblank_off: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
         return;
     }
 
@@ -295,14 +295,14 @@ static void drm_crtc_vblank_on(struct drm_crtc *crtc)
     struct drm_vblank_crtc *vblank;
 
     if (!crtc || !crtc->dev) {
-        plogk("drm: vblank_on with invalid crtc (crtc=%p)\n", crtc);
+        plogk("drm: Vblank_on with invalid crtc (crtc=%p)\n", crtc);
         return;
     }
 
     dev = crtc->dev;
 
     if (crtc->index < 0 || crtc->index >= dev->num_crtc) {
-        plogk("drm: vblank_on: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
+        plogk("drm: Vblank_on: crtc index %d out of range (num_crtc=%d)\n", crtc->index, dev->num_crtc);
         return;
     }
 
@@ -326,7 +326,7 @@ void drm_handle_vblank(struct drm_device *dev, unsigned int pipe)
     struct drm_crtc_helper_funcs     *helpers;
 
     if (!dev || (int)pipe >= dev->num_crtc) {
-        plogk("drm: handle_vblank with invalid pipe (dev=%p, pipe=%u, num_crtc=%d)\n", dev, pipe, dev ? dev->num_crtc : -1);
+        plogk("drm: Handle_vblank with invalid pipe (dev=%p, pipe=%u, num_crtc=%d)\n", dev, pipe, dev ? dev->num_crtc : -1);
         return;
     }
 
@@ -523,7 +523,7 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
 void drm_vblank_cancel_pending(struct drm_device *dev, struct drm_file *file_priv)
 {
     if (!dev || !file_priv || !dev->vblank_unused_array) {
-        plogk("drm: vblank_cancel_pending with invalid args (dev=%p, file_priv=%p)\n", dev, file_priv);
+        plogk("drm: Vblank_cancel_pending with invalid args (dev=%p, file_priv=%p)\n", dev, file_priv);
         return;
     }
 
@@ -562,7 +562,7 @@ void drm_vblank_cancel_pending(struct drm_device *dev, struct drm_file *file_pri
 void drm_vblank_cleanup(struct drm_device *dev)
 {
     if (!dev || !dev->vblank_unused_array) {
-        plogk("drm: vblank_cleanup called without vblank array initialized (dev=%p)\n", dev);
+        plogk("drm: Vblank_cleanup called without vblank array initialized (dev=%p)\n", dev);
         return;
     }
 

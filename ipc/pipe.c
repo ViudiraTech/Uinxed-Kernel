@@ -155,13 +155,13 @@ static pipe_ring_t *pipe_ring_alloc(void)
 {
     pipe_ring_t *ring = calloc(1, sizeof(pipe_ring_t));
     if (!ring) {
-        plogk("pipe: ring allocation failed.\n");
+        plogk("pipe: Ring allocation failed.\n");
         return NULL;
     }
 
     ring->buf = malloc(PIPE_BUF_SIZE);
     if (!ring->buf) {
-        plogk("pipe: ring buffer allocation failed (%d bytes)\n", PIPE_BUF_SIZE);
+        plogk("pipe: Ring buffer allocation failed (%d bytes)\n", PIPE_BUF_SIZE);
         free(ring);
         return NULL;
     }
@@ -267,7 +267,7 @@ static int pipe_file_open(vfs_node_t node, uint64_t flags, void **private_data)
 
     pipe_endpoint_t *endpoint = calloc(1, sizeof(*endpoint));
     if (!endpoint) {
-        plogk("pipe: endpoint allocation failed.\n");
+        plogk("pipe: Endpoint allocation failed.\n");
         return -ENOMEM;
     }
     endpoint->ring     = ring;
@@ -828,7 +828,7 @@ int64_t sys_pipe2(int pipefd[2], int flags)
     /* Create the VFS node */
     vfs_node_t node = pipe_node_create(ring);
     if (!node) {
-        plogk("pipe: sys_pipe2 node creation failed.\n");
+        plogk("pipe: Sys_pipe2 node creation failed.\n");
         pipe_ring_free(ring);
         return -ENOMEM;
     }

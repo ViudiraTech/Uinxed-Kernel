@@ -282,7 +282,7 @@ void tty_buff_flush(void)
                     tty_vga_flush_locked();
                 } else {
                     /* Bad port number */
-                    plogk("tty: bad VGA console port %u, falling back to %s\n", tty_device->port, TTY_DEFAULT_DEV);
+                    plogk("tty: Bad VGA console port %u, falling back to %s\n", tty_device->port, TTY_DEFAULT_DEV);
                     early_break = 0;
                     boot_tty    = parse_boot_tty_str(TTY_DEFAULT_DEV);
                     tty_device  = &boot_tty;
@@ -305,7 +305,7 @@ void tty_buff_flush(void)
                         break;
                     default :
                         /* Bad port number */
-                        plogk("tty: bad serial console port %u, falling back to %s\n", tty_device->port, TTY_DEFAULT_DEV);
+                        plogk("tty: Bad serial console port %u, falling back to %s\n", tty_device->port, TTY_DEFAULT_DEV);
                         early_break = 0;
                         boot_tty    = parse_boot_tty_str(TTY_DEFAULT_DEV);
                         tty_device  = &boot_tty;

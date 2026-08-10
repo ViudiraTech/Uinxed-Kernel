@@ -228,7 +228,7 @@ static ssize_t sysfs_gen_attr_content(sysfs_node_t *sn, char **content)
 
     char *buf = malloc(SYSFS_PAGE_SIZE);
     if (!buf) {
-        plogk("sysfs: attribute content allocation failed.\n");
+        plogk("sysfs: Attribute content allocation failed.\n");
         return -ENOMEM;
     }
 
@@ -555,7 +555,7 @@ static size_t sysfs_read(void *file, void *addr, size_t offset, size_t size)
             ssize_t length  = sysfs_gen_attr_content(sn, &content);
             if (length < 0) {
                 if (length != -ENODEV && length != -EIO) {
-                    plogk("sysfs: show() for %s failed (%d)\n", sn->attr && sn->attr->name ? sn->attr->name : "?", (int)length);
+                    plogk("sysfs: Show() for %s failed (%d)\n", sn->attr && sn->attr->name ? sn->attr->name : "?", (int)length);
                 }
                 return 0;
             }

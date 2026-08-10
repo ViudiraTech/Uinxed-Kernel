@@ -20,6 +20,8 @@
 #include <drivers/gpu/fbdev/video.h>
 #include <drivers/input/evdev/evdev.h>
 #include <drivers/nvme/nvme.h>
+#include <drivers/rtc/rtc.h>
+#include <drivers/tty/pty/pty.h>
 #include <drivers/tty/tty.h>
 #include <fs/core/vfs.h>
 #include <fs/virtual/devtmpfs.h>
@@ -480,7 +482,7 @@ static int devtmpfs_create_block_node(const char *dev_path, const blockdev_devic
     node->rdev  = rdev;
     node->size  = device->sector_count * device->sector_size;
 
-    if (!is_partition) plogk("devtmpfs: Registered %s as block device.\n", dev_path);
+    if (!is_partition) plogk("devtmpfs: Registered %s as block device (dev=%llu, rdev=%llu)\n", dev_path, dev, rdev);
 
     vfs_close(node);
     return EOK;
@@ -690,6 +692,22 @@ static int devtmpfs_create_tty_nodes(void)
     return count;
 }
 
+#if CONFIG_UNIX98_PTYS
+static int devtmpfs_create_ptmx_node(void)
+{
+    if (devtmpfs_register_char_device("/dev/ptmx", MKDEV(PTMX_MAJOR, PTMX_MINOR), MKDEV(PTMX_MAJOR, PTMX_MINOR), file_ptmx | file_stream,
+                                      &pty_ptmx_operations)
+        != EOK)
+        return 0;
+    vfs_node_t node = vfs_open("/dev/ptmx");
+    if (node) {
+        node->mode = 0666;
+        vfs_close(node);
+    }
+    return 1;
+}
+#endif
+
 static int devtmpfs_create_drm_node(void)
 {
     static const tmpfs_device_ops_t drm_device = {
@@ -718,6 +736,28 @@ static int devtmpfs_create_drm_node(void)
      */
     if (devtmpfs_register_char_device("/dev/dri/renderD128", MKDEV(226, 128), MKDEV(226, 128), file_stream, &drm_device) == 0) total++;
     return total;
+}
+
+#define RTC_DEV_MAJOR 254
+#define RTC0_MINOR    0
+
+static int devtmpfs_create_rtc_node(void)
+{
+    static const tmpfs_device_ops_t rtc_device = {
+        .file_read  = rtc_dev_read,
+        .file_write = rtc_dev_write,
+        .file_ioctl = rtc_dev_ioctl,
+    };
+
+    if (devtmpfs_register_char_device("/dev/rtc0", MKDEV(RTC_DEV_MAJOR, RTC0_MINOR), MKDEV(RTC_DEV_MAJOR, RTC0_MINOR), file_stream, &rtc_device)
+        != EOK)
+        return 0;
+    vfs_node_t node = vfs_open("/dev/rtc0");
+    if (node) {
+        node->mode = 0644;
+        vfs_close(node);
+    }
+    return 1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1068,7 +1108,11 @@ void devtmpfs_init(void)
     total_devices += devtmpfs_create_framebuffer_node();
     total_devices += devtmpfs_create_audio_nodes();
     total_devices += devtmpfs_create_tty_nodes();
+#if CONFIG_UNIX98_PTYS
+    total_devices += devtmpfs_create_ptmx_node();
+#endif
     total_devices += devtmpfs_create_drm_node();
+    total_devices += devtmpfs_create_rtc_node();
 
     /* Conventional process-fd aliases expected by libc and service scripts. */
     status = vfs_symlink("/dev/fd", "/proc/self/fd");

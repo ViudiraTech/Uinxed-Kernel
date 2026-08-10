@@ -49,7 +49,7 @@ int i2c_add_adapter(struct i2c_adapter *adap)
     }
     spin_unlock(&i2c_adapter_lock);
 
-    plogk("i2c: adapter '%s' registered as bus %d\n", adap->name, adap->nr);
+    plogk("i2c: Adapter '%s' registered as bus %d\n", adap->name, adap->nr);
 #    if CONFIG_SYSFS
     (void)i2c_sysfs_adapter_add(adap);
 #    endif
@@ -80,7 +80,7 @@ int i2c_del_adapter(struct i2c_adapter *adap)
 #    if CONFIG_SYSFS
     i2c_sysfs_adapter_del(adap);
 #    endif
-    plogk("i2c: adapter '%s' (bus %d) unregistered.\n", adap->name, adap->nr);
+    plogk("i2c: Adapter '%s' (bus %d) unregistered.\n", adap->name, adap->nr);
     return 0;
 }
 
@@ -148,7 +148,7 @@ int i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
     if (ret < 0 && ret != -EAGAIN && ret != -ENXIO && ret != -EINVAL && ret != -ENODEV) {
         static uint64_t last_log;
         if (sched_ticks() - last_log >= 1000) {
-            plogk("i2c: transfer failed on adapter %s (msg count %d): %d\n", adap->name, num, ret);
+            plogk("i2c: Transfer failed on adapter %s (msg count %d): %d\n", adap->name, num, ret);
             last_log = sched_ticks();
         }
     }

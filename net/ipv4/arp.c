@@ -82,7 +82,7 @@ static int arp_send(net_device_t *device, uint16_t operation, const uint8_t targ
 {
     net_pbuf_t *packet = net_pbuf_alloc(ARP_PACKET_LEN, NET_PBUF_HEADROOM);
     if (!packet) {
-        plogk("arp: %s: request alloc failed (target=%u.%u.%u.%u).\n", device->name, (unsigned)(target_ipv4 >> 24) & 0xff,
+        plogk("arp: %s: Request alloc failed (target=%u.%u.%u.%u)\n", device->name, (unsigned)(target_ipv4 >> 24) & 0xff,
               (unsigned)(target_ipv4 >> 16) & 0xff, (unsigned)(target_ipv4 >> 8) & 0xff, (unsigned)target_ipv4 & 0xff);
         return -ENOMEM;
     }
@@ -218,7 +218,7 @@ int arp_resolve(net_device_t *device, uint32_t ipv4, net_pbuf_t *packet)
     if (!entry) entry = arp_alloc_locked(device, ipv4, now);
     if (entry->pending_count >= ARP_PENDING_PER_ENTRY || !arp_pending_free) {
         spin_unlock(&arp_lock);
-        plogk("arp: %s: pending pool exhausted for %u.%u.%u.%u.\n", device->name, (unsigned)(ipv4 >> 24) & 0xff, (unsigned)(ipv4 >> 16) & 0xff,
+        plogk("arp: %s: Pending pool exhausted for %u.%u.%u.%u\n", device->name, (unsigned)(ipv4 >> 24) & 0xff, (unsigned)(ipv4 >> 16) & 0xff,
               (unsigned)(ipv4 >> 8) & 0xff, (unsigned)ipv4 & 0xff);
         return -ENOBUFS;
     }
@@ -229,8 +229,8 @@ int arp_resolve(net_device_t *device, uint32_t ipv4, net_pbuf_t *packet)
         pending->next    = arp_pending_free;
         arp_pending_free = pending;
         spin_unlock(&arp_lock);
-        plogk("arp: %s: pending packet clone failed (%u.%u.%u.%u).\n", device->name, (unsigned)(ipv4 >> 24) & 0xff,
-              (unsigned)(ipv4 >> 16) & 0xff, (unsigned)(ipv4 >> 8) & 0xff, (unsigned)ipv4 & 0xff);
+        plogk("arp: %s: Pending packet clone failed (%u.%u.%u.%u)\n", device->name, (unsigned)(ipv4 >> 24) & 0xff, (unsigned)(ipv4 >> 16) & 0xff,
+              (unsigned)(ipv4 >> 8) & 0xff, (unsigned)ipv4 & 0xff);
         return -ENOMEM;
     }
     pending->next = NULL;
@@ -283,7 +283,7 @@ void arp_timer(uint64_t now_ticks)
             memset(entry, 0, sizeof(*entry));
         } else if (entry->state == ARP_INCOMPLETE && now_ticks >= entry->retry_at) {
             if (entry->retries >= ARP_MAX_RETRIES) {
-                plogk("arp: %s: neighbor resolution timed out for %u.%u.%u.%u, dropping pending packets.\n",
+                plogk("arp: %s: Neighbor resolution timed out for %u.%u.%u.%u, dropping pending packets.\n",
                       entry->device ? entry->device->name : "?", (unsigned)(entry->ipv4 >> 24) & 0xff, (unsigned)(entry->ipv4 >> 16) & 0xff,
                       (unsigned)(entry->ipv4 >> 8) & 0xff, (unsigned)entry->ipv4 & 0xff);
                 arp_drop_pending_locked(entry);

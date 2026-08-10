@@ -373,7 +373,7 @@ static void enqueue_entity(eevdf_rq_t *rq, task_t *task)
     if (!task || task->state != TASK_READY) {
         static uint64_t last_log;
         if (task && scheduler.ticks - last_log >= 1000) {
-            plogk("sched: refusing to enqueue task %llu (%s) in state %u\n", task->pid, task->name, task->state);
+            plogk("sched: Refusing to enqueue task %llu (%s) in state %u\n", task->pid, task->name, task->state);
             last_log = scheduler.ticks;
         }
         return;
@@ -542,7 +542,7 @@ static void wake_task_locked(task_t *task, int remove_linked_node)
         {
             static uint64_t last_log;
             if (scheduler.ticks - last_log >= 1000) {
-                plogk("sched: rejected wake of task %llu (%s) in state %u\n", task->pid, task->name, task->state);
+                plogk("sched: Rejected wake of task %llu (%s) in state %u\n", task->pid, task->name, task->state);
                 last_log = scheduler.ticks;
             }
         }

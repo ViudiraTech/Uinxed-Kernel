@@ -212,7 +212,7 @@ static int tis_send(tpm_device_t *dev, uint8_t *buf, size_t len)
     while (count < len - 1) {
         burstcnt = get_burstcount(dev);
         if (burstcnt < 0) {
-            plogk("tpm_tis: burst count timeout.\n");
+            plogk("tpm_tis: Burst count timeout.\n");
             tpm_tis_ready(dev);
         }
         return -1;

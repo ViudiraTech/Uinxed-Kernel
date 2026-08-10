@@ -61,7 +61,7 @@ static void wake_demo_thread(void *arg)
 
     task_sleep_ticks(8);
     task_t *task = wait_queue_wake_one(&demo_wait_queue);
-    plogk("sched: wait queue wake_one target task %llu\n", task ? task->pid : 0);
+    plogk("sched: Wait queue wake_one target task %llu\n", task ? task->pid : 0);
 }
 
 static void keyboard_wait_thread(void *arg)
@@ -77,9 +77,9 @@ static void migration_wait_thread(void *arg)
 {
     (void)arg;
 
-    plogk("sched: migration waiter started on task %llu cpu %u\n", current_task()->pid, current_task()->cpu_id);
+    plogk("sched: Migration waiter started on task %llu cpu %u\n", current_task()->pid, current_task()->cpu_id);
     wait_queue_wait(&migration_wait_queue);
-    plogk("sched: migration waiter woke on task %llu cpu %u\n", current_task()->pid, current_task()->cpu_id);
+    plogk("sched: Migration waiter woke on task %llu cpu %u\n", current_task()->pid, current_task()->cpu_id);
 }
 
 static void migration_wake_thread(void *arg)
@@ -89,10 +89,10 @@ static void migration_wake_thread(void *arg)
     task_sleep_ticks(12);
     if (migration_task && sched_cpu_count() > 1) {
         int status = task_set_cpu(migration_task, 1);
-        plogk("sched: migration target task %llu to cpu 1 status %d\n", migration_task->pid, status);
+        plogk("sched: Migration target task %llu to cpu 1 status %d\n", migration_task->pid, status);
     }
     task_t *task = wait_queue_wake_one(&migration_wait_queue);
-    plogk("sched: migration wake target task %llu\n", task ? task->pid : 0);
+    plogk("sched: Migration wake target task %llu\n", task ? task->pid : 0);
 }
 
 static void wake_all_wait_thread(void *arg)

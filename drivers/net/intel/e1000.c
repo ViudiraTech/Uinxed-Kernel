@@ -263,7 +263,7 @@ static int e1000_read_mac(e1000_device_t *device)
     uint32_t ral = e1000_read(device, E1000_REG_RAL0);
     uint32_t rah = e1000_read(device, E1000_REG_RAH0);
     if (!(rah & E1000_RAH_AV)) {
-        plogk("e1000: %04x:%04x: no valid MAC in EEPROM or RA registers.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        plogk("e1000: %04x:%04x: No valid MAC in EEPROM or RA registers.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
         return -ENODEV;
     }
     device->mac[0] = ral;
@@ -273,7 +273,7 @@ static int e1000_read_mac(e1000_device_t *device)
     device->mac[4] = rah;
     device->mac[5] = rah >> 8;
     if (!e1000_valid_mac(device->mac)) {
-        plogk("e1000: %04x:%04x: invalid MAC address from RA registers.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        plogk("e1000: %04x:%04x: Invalid MAC address from RA registers.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
         return -ENODEV;
     }
     return 0;
@@ -286,14 +286,14 @@ static int e1000_map_bar(e1000_device_t *device)
     uint64_t                phys;
 
     if (!bar.address || bar.type != mem_mapping || raw == 0xffffffff || (raw & 1) || (((raw >> 1) & 3) == BAR_Reserved)) {
-        plogk("e1000: %04x:%04x: no usable memory BAR found.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        plogk("e1000: %04x:%04x: No usable memory BAR found.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
         return -ENODEV;
     }
     phys = raw & ~0xfull;
     if (((raw >> 1) & 3) == BAR_S64) {
         uint32_t high = read_bar_n(device->pci, 1);
         if (high == 0xffffffff) {
-            plogk("e1000: %04x:%04x: invalid 64-bit BAR high dword.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+            plogk("e1000: %04x:%04x: Invalid 64-bit BAR high dword.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
             return -ENODEV;
         }
         phys |= (uint64_t)high << 32;
@@ -340,7 +340,7 @@ static int e1000_reset(e1000_device_t *device)
         }
         usleep(1);
     }
-    plogk("e1000: %04x:%04x: reset timed out.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+    plogk("e1000: %04x:%04x: Reset timed out.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
     return -ETIMEDOUT;
 }
 
@@ -462,7 +462,7 @@ static size_t e1000_tx_reclaim_locked(e1000_device_t *device, size_t budget)
         dma_read_barrier();
         if (desc->status & E1000_TXD_ERROR) {
             device->stats.tx_errors++;
-            plogk("e1000: %s: TX descriptor error (status=%#x).\n", device->netdev.name, (unsigned)desc->status);
+            plogk("e1000: %s: TX descriptor error (status=%#x)\n", device->netdev.name, (unsigned)desc->status);
         } else {
             device->stats.tx_packets++;
             device->stats.tx_bytes += desc->length;
@@ -540,7 +540,7 @@ int e1000_transmit(e1000_device_t *device, const void *packet, size_t length)
     if (length > E1000_MAX_FRAME_SIZE) {
         device->stats.tx_dropped++;
         device->stats.tx_errors++;
-        plogk("e1000: %s: dropping oversize TX frame (%zu bytes)\n", device->netdev.name, length);
+        plogk("e1000: %s: Dropping oversize TX frame (%zu bytes)\n", device->netdev.name, length);
         return -EMSGSIZE;
     }
     if (!device->running) return -ENODEV;
@@ -668,7 +668,7 @@ static void e1000_process_work(e1000_device_t *device, uint32_t cause)
     }
     if (cause & E1000_ICR_RXSEQ) {
         device->stats.rx_errors++;
-        plogk("e1000: %s: receive sequence error interrupt.\n", device->netdev.name);
+        plogk("e1000: %s: Receive sequence error interrupt.\n", device->netdev.name);
     }
     if ((cause & E1000_RX_INT_MASK) || e1000_rx_ready(device)) (void)e1000_poll(device, E1000_WORK_BUDGET);
 
@@ -820,7 +820,7 @@ static int e1000_setup_interrupt(e1000_device_t *device)
         if (!e1000_irq_slots[slot]) break;
     if (slot == E1000_MAX_DEVICES) {
         spin_unlock_irqrestore(&e1000_irq_lock, rflags);
-        plogk("e1000: %04x:%04x: no free IRQ slot.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        plogk("e1000: %04x:%04x: No free IRQ slot.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
         return -ENOSPC;
     }
     device->irq_slot      = (uint8_t)slot;
@@ -860,7 +860,7 @@ fail:
     rflags                = spin_lock_irqsave(&e1000_irq_lock);
     e1000_irq_slots[slot] = NULL;
     spin_unlock_irqrestore(&e1000_irq_lock, rflags);
-    plogk("e1000: %04x:%04x: interrupt setup failed.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+    plogk("e1000: %04x:%04x: Interrupt setup failed.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
     return -ENODEV;
 }
 
@@ -949,7 +949,7 @@ int e1000_probe(pci_device_cache_t *pci)
 
     e1000_device_t *device = malloc(sizeof(*device));
     if (!device) {
-        plogk("e1000: %04x:%04x: device allocation failed.\n", (unsigned)pci->vendor_id, (unsigned)pci->device_id);
+        plogk("e1000: %04x:%04x: Device allocation failed.\n", (unsigned)pci->vendor_id, (unsigned)pci->device_id);
         return -ENOMEM;
     }
     memset(device, 0, sizeof(*device));
@@ -1026,7 +1026,7 @@ int e1000_probe(pci_device_cache_t *pci)
         ret   = e1000_start_worker(device);
         if (ret) goto fail_linked;
     }
-    plogk("e1000: %s: registered (MAC %02x:%02x:%02x:%02x:%02x:%02x, %s, link %s)\n", device->netdev.name, device->mac[0], device->mac[1],
+    plogk("e1000: %s: Registered (MAC %02x:%02x:%02x:%02x:%02x:%02x, %s, link %s)\n", device->netdev.name, device->mac[0], device->mac[1],
           device->mac[2], device->mac[3], device->mac[4], device->mac[5], device->using_msi ? "MSI" : "INTx", device->link_up ? "up" : "down");
     return 0;
 
@@ -1035,7 +1035,7 @@ fail_linked:
     if (e1000_device_count) e1000_device_count--;
 
 fail:
-    plogk("e1000: Probe failed during %s (%d).\n", stage, ret);
+    plogk("e1000: Probe failed during %s (%d)\n", stage, ret);
     e1000_destroy(device);
     return ret;
 }
@@ -1073,7 +1073,7 @@ int e1000_start_workers(void)
             continue;
         }
         failed = 1;
-        plogk("e1000: %s: worker startup failed.\n", device->netdev.name);
+        plogk("e1000: %s: Worker startup failed.\n", device->netdev.name);
         *link = device->next;
         e1000_device_count--;
         e1000_destroy(device);

@@ -553,8 +553,8 @@ static int virtgpu_ioctl_resource_create(struct drm_device *dev, void *data, str
     args->bo_handle  = handle;
     args->res_handle = obj->hw_res_handle;
     args->size       = (uint32_t)size;
-    DRM_DEBUG_DRIVER("3D resource created: handle=%u, res_id=%u, %ux%ux%u fmt=0x%x\n", handle, obj->hw_res_handle, args->width, args->height,
-                     args->depth, args->format);
+    plogk("virtgpu: 3D resource created: handle=%u, res_id=%u, %ux%ux%u fmt=0x%x\n", handle, obj->hw_res_handle, args->width, args->height,
+          args->depth, args->format);
     drm_gem_object_put(&obj->base);
     return 0;
 }
@@ -835,8 +835,8 @@ static int virtgpu_ioctl_resource_create_blob(struct drm_device *dev, void *data
 
     args->bo_handle  = handle;
     args->res_handle = obj->hw_res_handle;
-    DRM_DEBUG_DRIVER("Blob resource created: handle=%u, res_id=%u, size=%llu, mem=%u flags=0x%x\n", handle, obj->hw_res_handle, args->size,
-                     args->blob_mem, args->blob_flags);
+    plogk("virtgpu: Blob resource created: handle=%u, res_id=%u, size=%llu, mem=%u flags=0x%x\n", handle, obj->hw_res_handle, args->size,
+          args->blob_mem, args->blob_flags);
     drm_gem_object_put(&obj->base);
     return 0;
 }
@@ -913,7 +913,7 @@ static int virtgpu_ioctl_context_init(struct drm_device *dev, void *data, struct
     spin_unlock(&vfpriv->context_lock);
     if (ret) return ret;
 
-    DRM_DEBUG_DRIVER("Context created: ctx_id=%u capset=%u rings=%u\n", vfpriv->ctx_id, context_init, num_rings);
+    plogk("virtgpu: Context created: ctx_id=%u capset=%u rings=%u\n", vfpriv->ctx_id, context_init, num_rings);
     return 0;
 }
 
@@ -962,7 +962,7 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
                               || vgdev->current_fb->pitches[0] != fb->pitches[0] || vgdev->current_fb->offsets[0] != fb->offsets[0];
         ret = virtgpu_cmd_update_scanout_2d(vgdev, scanout_id, obj, obj != vgdev->current_scanout_obj || old_fb == NULL || layout_changed);
         if (ret) {
-            DRM_ERROR("flip: batched update failed: %d\n", ret);
+            plogk("virtgpu: Flip: batched update failed: %d\n", ret);
             return ret;
         }
 
@@ -984,9 +984,9 @@ int virtgpu_page_flip(struct virtio_gpu_device *vgdev, struct drm_framebuffer *f
 
 static void virtgpu_debugfs_info(struct virtio_gpu_device *vgdev)
 {
-    DRM_INFO("virtgpu: virgl=%d, edid=%d, blob=%d, ctx_init=%d\n", vgdev->has_virgl, vgdev->has_edid, vgdev->has_resource_blob,
-             vgdev->has_context_init);
-    DRM_INFO("virtgpu: %d scanout(s), ctrlq %d, cursorq %d\n", vgdev->num_scanouts, vgdev->ctrlq.num_max, vgdev->cursorq.num_max);
+    plogk("virtgpu: Virgl=%d, edid=%d, blob=%d, ctx_init=%d\n", vgdev->has_virgl, vgdev->has_edid, vgdev->has_resource_blob,
+          vgdev->has_context_init);
+    plogk("virtgpu: %d scanout(s), ctrlq %d, cursorq %d\n", vgdev->num_scanouts, vgdev->ctrlq.num_max, vgdev->cursorq.num_max);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1060,7 +1060,7 @@ int virtio_gpu_driver_init(void)
     {
         uint8_t s = vp_get_status(vp);
         if (!(s & VIRTIO_STATUS_FEATURES_OK)) {
-            DRM_ERROR("Device rejected feature negotiation (status=0x%02x)\n", s);
+            plogk("virtgpu: Device rejected feature negotiation (status=0x%02x)\n", s);
             vp_release_device(vp);
             free(vgdev);
             return -ENODEV;
@@ -1129,13 +1129,13 @@ int virtio_gpu_driver_init(void)
     ret = virtgpu_kms_init(vgdev);
     if (ret) {
         DRM_ERROR("KMS init failed: %d (continuing with render only)\n", ret);
-        /* Non-fatal ?render node still works */
+        /* Non-fatal –render node still works */
     }
 
     /* Debug info */
     virtgpu_debugfs_info(vgdev);
 
-    DRM_INFO("VirtIO GPU driver registered (card/render node, 3D=%d, blob=%d)\n", vgdev->has_virgl, vgdev->has_resource_blob);
+    plogk("virtgpu: VirtIO GPU driver registered (card/render node, 3D=%d, blob=%d)\n", vgdev->has_virgl, vgdev->has_resource_blob);
 
     return 0;
 }
@@ -1158,7 +1158,7 @@ int virtio_gpu_init(void)
     tty_device_t *bt = get_boot_tty();
     if (bt->type == TTY_DEVICE_DRM && !virtio_gpu_get_device()) {
         tty_set_device_type(TTY_DEVICE_VGA);
-        plogk("virtgpu: not available, TTY staying in VGA mode.\n");
+        plogk("virtgpu: Not available, TTY staying in VGA mode.\n");
     }
     return ret;
 #else

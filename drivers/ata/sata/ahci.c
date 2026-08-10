@@ -338,7 +338,7 @@ int ahci_flush_cache(uint8_t drive)
     port = &ahci_ports[ahci_devices[drive].port];
     slot = ahci_find_slot(port);
     if (slot < 0) {
-        plogk("ahci: port %u: no free command slot for cache flush\n", ahci_devices[drive].port);
+        plogk("ahci: port %u: no free command slot for cache flush.\n", ahci_devices[drive].port);
         return -EBUSY;
     }
 
@@ -415,7 +415,7 @@ void init_ahci(void)
     uint32_t cap       = ahci_read32(hba_mmio, HOST_CAP);
     uint32_t max_ports = (cap & 0x1F) + 1;
     if (max_ports > AHCI_MAX_PORTS) max_ports = AHCI_MAX_PORTS;
-    plogk("ahci: CAP=0x%08x, PI=0x%08x, %u ports implemented\n", cap, pi, max_ports);
+    plogk("ahci: CAP=0x%08x, PI=0x%08x, %u ports implemented.\n", cap, pi, max_ports);
 
     ahci_port_count   = 0;
     ahci_device_count = 0;
@@ -443,7 +443,7 @@ void init_ahci(void)
             if (port->clb_phys) free_frames(port->clb_phys, 1);
             if (port->fb_phys) free_frames(port->fb_phys, 1);
             if (port->ct_phys) free_frames(port->ct_phys, 1);
-            plogk("ahci: Port %u command memory allocation failed.\n", i);
+            plogk("ahci: port %u command memory allocation failed.\n", i);
             continue;
         }
 
@@ -458,17 +458,17 @@ void init_ahci(void)
         /* Per-port DMA buffer */
         port->dma_buf_phys = alloc_frames(SATA_DMA_BUF_PAGES);
         if (!port->dma_buf_phys) {
-            plogk("ahci: Port %u DMA buffer phys alloc failed.\n", i);
+            plogk("ahci: port %u DMA buffer phys alloc failed.\n", i);
             continue;
         }
         port->dma_buf = (uint8_t *)phys_to_virt(port->dma_buf_phys);
         if (!port->dma_buf) {
-            plogk("ahci: Port %u DMA buffer virt alloc failed.\n", i);
+            plogk("ahci: port %u DMA buffer virt alloc failed.\n", i);
             continue;
         }
 
         if (ahci_port_stop(port) != EOK) {
-            plogk("ahci: Port %u stop failed.\n", i);
+            plogk("ahci: port %u stop failed.\n", i);
             continue;
         }
 
@@ -487,20 +487,20 @@ void init_ahci(void)
                 nsleep(1000);
             }
             if ((ssts & 0xF) != HBA_PORT_DET_PRESENT) {
-                plogk("ahci: Port %u device detect failed (DET=%u)\n", i, ssts & 0xF);
+                plogk("ahci: port %u device detect failed (DET=%u)\n", i, ssts & 0xF);
                 ahci_port_stop(port);
                 continue;
             }
         }
 
         if (ahci_port_start(port) != 0) {
-            plogk("ahci: Port %u start failed.\n", i);
+            plogk("ahci: port %u start failed.\n", i);
             continue;
         }
 
         uint32_t sig = ahci_read32(port->port_mmio, PORT_SIG);
         if (sig != SATA_SIG_ATA && sig != SATA_SIG_ATAPI) {
-            plogk("ahci: Port %u no device (sig=0x%x)\n", i, sig);
+            plogk("ahci: port %u no device (sig=0x%x)\n", i, sig);
             ahci_port_stop(port);
             continue;
         }
@@ -515,7 +515,7 @@ void init_ahci(void)
             dev->sector_size = 2048;
             dev->size        = 0;
             ahci_write32(port->port_mmio, PORT_CMD, ahci_read32(port->port_mmio, PORT_CMD) | PORT_CMD_ATAPI);
-            plogk("ahci: Port %u: ATAPI optical device detected\n", i);
+            plogk("ahci: port %u: ATAPI optical device detected.\n", i);
             ahci_device_count++;
             satapi_count++;
             ahci_port_count++;
@@ -528,7 +528,7 @@ void init_ahci(void)
         dev->port = (uint8_t)ahci_port_count;
 
         if (ahci_port_identify(port, dev) != 0) {
-            plogk("ahci: Port %u identify failed.\n", i);
+            plogk("ahci: port %u identify failed.\n", i);
             ahci_port_stop(port);
             continue;
         }
@@ -537,7 +537,7 @@ void init_ahci(void)
         sata_count++;
         ahci_port_count++;
 
-        plogk("ahci: Port %u: SATA drive, %u KiB, model \"%s\"\n", i, (dev->size * 512) / 1024, dev->model);
+        plogk("ahci: port %u: SATA drive, %u KiB, model \"%s\"\n", i, (dev->size * 512) / 1024, dev->model);
     }
 
     if (ahci_device_count > 0) { plogk("ahci: %u device(s) found (%u SATA, %u SATAPI)\n", ahci_device_count, sata_count, satapi_count); }

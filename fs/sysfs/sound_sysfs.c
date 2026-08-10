@@ -114,7 +114,7 @@ void sound_sysfs_init(void)
 
     if (sound_class_ready) return;
     if (class_register(&sound_class) != EOK) {
-        plogk("sound_sysfs: class_register(sound) failed\n");
+        plogk("sound_sysfs: Class_register(sound) failed.\n");
         return;
     }
     sound_class_ready = true;

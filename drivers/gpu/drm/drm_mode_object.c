@@ -50,7 +50,7 @@ int drm_mode_object_idr_alloc(struct drm_device *dev, struct drm_mode_object *ob
     ret = drm_idr_alloc(&dev->mode_config.object_idr, obj, 1, 0, &id);
     spin_unlock(&dev->mode_config.idr_mutex);
     if (ret) {
-        plogk("drm: mode object IDR allocation failed (dev=%p, type=%u, ret=%d)\n", dev, type, ret);
+        plogk("drm: Mode object IDR allocation failed (dev=%p, type=%u, ret=%d)\n", dev, type, ret);
         return ret;
     }
 
@@ -144,12 +144,12 @@ int drm_object_property_set_value(struct drm_mode_object *obj, struct drm_proper
     uint32_t                 i;
 
     if (!obj || !property) {
-        plogk("drm: property set value with invalid args (obj=%p, property=%p), returning -EINVAL.\n", obj, property);
+        plogk("drm: Property set value with invalid args (obj=%p, property=%p), returning -EINVAL.\n", obj, property);
         return -EINVAL;
     }
     set = obj->properties;
     if (!set) {
-        plogk("drm: object %p has no property set; cannot set value, returning -EINVAL.\n", obj);
+        plogk("drm: Object %p has no property set; cannot set value, returning -EINVAL.\n", obj);
         return -EINVAL;
     }
 
@@ -169,7 +169,7 @@ int drm_object_property_set_value(struct drm_mode_object *obj, struct drm_proper
 
         if (!new_ids) {
             spin_unlock(&set->lock);
-            plogk("drm: property set grow failed (realloc ids) for object %p, returning -ENOMEM.\n", obj);
+            plogk("drm: Property set grow failed (realloc ids) for object %p, returning -ENOMEM.\n", obj);
             return -ENOMEM;
         }
         set->ids = new_ids; // realloc() may have freed the old buffer
@@ -181,7 +181,7 @@ int drm_object_property_set_value(struct drm_mode_object *obj, struct drm_proper
              * headroom is harmless and will be reused on the next grow.
              */
             spin_unlock(&set->lock);
-            plogk("drm: property set grow failed (realloc values) for object %p, returning -ENOMEM.\n", obj);
+            plogk("drm: Property set grow failed (realloc values) for object %p, returning -ENOMEM.\n", obj);
             return -ENOMEM;
         }
         set->values   = new_vals;
@@ -205,12 +205,12 @@ int drm_object_property_get_value(struct drm_mode_object *obj, struct drm_proper
     uint32_t                 i;
 
     if (!obj || !property || !val_out) {
-        plogk("drm: property get value with invalid args (obj=%p, property=%p, val_out=%p), returning -EINVAL.\n", obj, property, val_out);
+        plogk("drm: Property get value with invalid args (obj=%p, property=%p, val_out=%p), returning -EINVAL.\n", obj, property, val_out);
         return -EINVAL;
     }
     set = obj->properties;
     if (!set) {
-        plogk("drm: object %p has no property set; cannot get value, returning -EINVAL.\n", obj);
+        plogk("drm: Object %p has no property set; cannot get value, returning -EINVAL.\n", obj);
         return -EINVAL;
     }
 
@@ -223,7 +223,7 @@ int drm_object_property_get_value(struct drm_mode_object *obj, struct drm_proper
         }
     }
     spin_unlock(&set->lock);
-    plogk("drm: property %p not attached to object %p, returning -EINVAL.\n", property, obj);
+    plogk("drm: Property %p not attached to object %p, returning -EINVAL.\n", property, obj);
     return -EINVAL;
 }
 
@@ -237,7 +237,7 @@ int drm_object_property_get_value(struct drm_mode_object *obj, struct drm_proper
 int drm_object_attach_property(struct drm_mode_object *obj, struct drm_property *property, uint64_t init_val)
 {
     if (!obj || !property) {
-        plogk("drm: attach property with invalid args (obj=%p, property=%p), returning -EINVAL.\n", obj, property);
+        plogk("drm: Attach property with invalid args (obj=%p, property=%p), returning -EINVAL.\n", obj, property);
         return -EINVAL;
     }
 
@@ -248,20 +248,20 @@ int drm_object_attach_property(struct drm_mode_object *obj, struct drm_property 
 
         set = malloc(sizeof(*set));
         if (!set) {
-            plogk("drm: property set allocation failed for object %p, returning -ENOMEM.\n", obj);
+            plogk("drm: Property set allocation failed for object %p, returning -ENOMEM.\n", obj);
             return -ENOMEM;
         }
         ids = malloc((size_t)DRM_OBJECT_PROP_INITIAL_CAPACITY * sizeof(*ids));
         if (!ids) {
             free(set);
-            plogk("drm: property set ids allocation failed for object %p, returning -ENOMEM.\n", obj);
+            plogk("drm: Property set ids allocation failed for object %p, returning -ENOMEM.\n", obj);
             return -ENOMEM;
         }
         vals = malloc((size_t)DRM_OBJECT_PROP_INITIAL_CAPACITY * sizeof(*vals));
         if (!vals) {
             free(ids);
             free(set);
-            plogk("drm: property set values allocation failed for object %p, returning -ENOMEM.\n", obj);
+            plogk("drm: Property set values allocation failed for object %p, returning -ENOMEM.\n", obj);
             return -ENOMEM;
         }
         memset(set, 0, sizeof(*set));

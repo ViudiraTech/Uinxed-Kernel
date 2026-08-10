@@ -238,13 +238,13 @@ task_t *kthread_create_on_cpu(const char *name, kthread_entry_t entry, void *arg
 
     kthread_bootstrap_t *bootstrap = malloc(sizeof(kthread_bootstrap_t));
     if (!bootstrap) {
-        plogk("task: kthread '%s' bootstrap allocation failed.\n", name ? name : "unnamed");
+        plogk("task: Kthread '%s' bootstrap allocation failed.\n", name ? name : "unnamed");
         return NULL;
     }
 
     task_t *task = task_alloc(name);
     if (!task) {
-        plogk("task: kthread '%s' creation failed.\n", name ? name : "unnamed");
+        plogk("task: Kthread '%s' creation failed.\n", name ? name : "unnamed");
         free(bootstrap);
         return NULL;
     }
@@ -254,7 +254,7 @@ task_t *kthread_create_on_cpu(const char *name, kthread_entry_t entry, void *arg
     bootstrap->arg   = arg;
 
     if (setup_kernel_stack(task, bootstrap)) {
-        plogk("task: kthread '%s' kernel stack setup failed.\n", name ? name : "unnamed");
+        plogk("task: Kthread '%s' kernel stack setup failed.\n", name ? name : "unnamed");
         free(bootstrap);
         task_free(task);
         return NULL;

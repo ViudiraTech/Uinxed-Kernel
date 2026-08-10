@@ -45,7 +45,7 @@ static int memfd_expand_page_array(memfd_file_t *file, size_t count)
 {
     if (count <= file->page_capacity) return EOK;
     if (count > SIZE_MAX / sizeof(*file->pages)) {
-        plogk("memfd: page array count overflow (%lu)\n", (unsigned long)count);
+        plogk("memfd: Page array count overflow (%lu)\n", (unsigned long)count);
         return -EFBIG;
     }
 
@@ -58,13 +58,13 @@ static int memfd_expand_page_array(memfd_file_t *file, size_t count)
         capacity *= 2;
     }
     if (capacity > SIZE_MAX / sizeof(*file->pages)) {
-        plogk("memfd: page array capacity overflow (%lu)\n", (unsigned long)capacity);
+        plogk("memfd: Page array capacity overflow (%lu)\n", (unsigned long)capacity);
         return -EFBIG;
     }
 
     uint64_t *pages = malloc(capacity * sizeof(*pages));
     if (!pages) {
-        plogk("memfd: page array alloc failed (capacity=%lu, file=%p)\n", (unsigned long)capacity, (void *)file);
+        plogk("memfd: Page array alloc failed (capacity=%lu, file=%p)\n", (unsigned long)capacity, (void *)file);
         return -ENOMEM;
     }
     if (file->pages) {
@@ -84,7 +84,7 @@ static int memfd_allocate_page(memfd_file_t *file, size_t index)
     if (!file->pages[index]) {
         file->pages[index] = alloc_frames(1);
         if (!file->pages[index]) {
-            plogk("memfd: frame alloc failed (index=%lu, file=%p)\n", (unsigned long)index, (void *)file);
+            plogk("memfd: Frame alloc failed (index=%lu, file=%p)\n", (unsigned long)index, (void *)file);
             return -ENOMEM;
         }
         memset(phys_to_virt(file->pages[index]), 0, PAGE_4K_SIZE);
@@ -96,19 +96,19 @@ static int memfd_allocate_page(memfd_file_t *file, size_t index)
 static int memfd_resize_locked(memfd_file_t *file, uint64_t size)
 {
     if (file->seals & F_SEAL_WRITE) {
-        plogk("memfd: resize denied (file=%p, size=%lu, seal=write)\n", (void *)file, (unsigned long)size);
+        plogk("memfd: Resize denied (file=%p, size=%lu, seal=write)\n", (void *)file, (unsigned long)size);
         return -EPERM;
     }
     if (size > file->size && (file->seals & F_SEAL_GROW)) {
-        plogk("memfd: grow denied (file=%p, size=%lu, seal=grow)\n", (void *)file, (unsigned long)size);
+        plogk("memfd: Grow denied (file=%p, size=%lu, seal=grow)\n", (void *)file, (unsigned long)size);
         return -EPERM;
     }
     if (size < file->size && (file->seals & F_SEAL_SHRINK)) {
-        plogk("memfd: shrink denied (file=%p, size=%lu, seal=shrink)\n", (void *)file, (unsigned long)size);
+        plogk("memfd: Shrink denied (file=%p, size=%lu, seal=shrink)\n", (void *)file, (unsigned long)size);
         return -EPERM;
     }
     if (size < file->size && file->mappings) {
-        plogk("memfd: shrink denied (file=%p, size=%lu, mappings=%u)\n", (void *)file, (unsigned long)size, file->mappings);
+        plogk("memfd: Shrink denied (file=%p, size=%lu, mappings=%u)\n", (void *)file, (unsigned long)size, file->mappings);
         return -EBUSY;
     }
 
@@ -136,7 +136,7 @@ static int64_t memfd_file_read(vfs_node_t node, void *private_data, uint64_t fla
     (void)flags;
     memfd_file_t *file = node->handle;
     if (!file) {
-        plogk("memfd: read on node without handle (node=%p)\n", (void *)node);
+        plogk("memfd: Read on node without handle (node=%p)\n", (void *)node);
         return -EINVAL;
     }
 
@@ -167,11 +167,11 @@ static int64_t memfd_file_write(vfs_node_t node, void *private_data, uint64_t fl
     (void)flags;
     memfd_file_t *file = node->handle;
     if (!file) {
-        plogk("memfd: write on node without handle (node=%p)\n", (void *)node);
+        plogk("memfd: Write on node without handle (node=%p)\n", (void *)node);
         return -EINVAL;
     }
     if (size > SIZE_MAX - offset) {
-        plogk("memfd: write length overflow (offset=%lu, size=%lu)\n", (unsigned long)offset, (unsigned long)size);
+        plogk("memfd: Write length overflow (offset=%lu, size=%lu)\n", (unsigned long)offset, (unsigned long)size);
         return -EFBIG;
     }
 
@@ -179,12 +179,12 @@ static int64_t memfd_file_write(vfs_node_t node, void *private_data, uint64_t fl
     spin_lock(&file->lock);
     if (file->seals & (F_SEAL_WRITE | F_SEAL_FUTURE_WRITE)) {
         spin_unlock(&file->lock);
-        plogk("memfd: write denied (offset=%lu, size=%lu, seal=write)\n", (unsigned long)offset, (unsigned long)size);
+        plogk("memfd: Write denied (offset=%lu, size=%lu, seal=write)\n", (unsigned long)offset, (unsigned long)size);
         return -EPERM;
     }
     if (end > file->size && (file->seals & F_SEAL_GROW)) {
         spin_unlock(&file->lock);
-        plogk("memfd: write grow denied (offset=%lu, size=%lu, seal=grow)\n", (unsigned long)offset, (unsigned long)size);
+        plogk("memfd: Write grow denied (offset=%lu, size=%lu, seal=grow)\n", (unsigned long)offset, (unsigned long)size);
         return -EPERM;
     }
     for (size_t done = 0; done < size;) {
@@ -195,7 +195,7 @@ static int64_t memfd_file_write(vfs_node_t node, void *private_data, uint64_t fl
         int ret = memfd_allocate_page(file, page);
         if (ret) {
             spin_unlock(&file->lock);
-            if (!done) plogk("memfd: write page alloc failed (offset=%lu, size=%lu, ret=%d)\n", (unsigned long)offset, (unsigned long)size, ret);
+            if (!done) plogk("memfd: Write page alloc failed (offset=%lu, size=%lu, ret=%d)\n", (unsigned long)offset, (unsigned long)size, ret);
             return done ? (int64_t)done : ret;
         }
         memcpy((uint8_t *)phys_to_virt(file->pages[page]) + in_page, (const uint8_t *)addr + done, chunk);
@@ -211,7 +211,7 @@ static int memfd_stat(void *handle, vfs_node_t node)
 {
     memfd_file_t *file = handle;
     if (!file) {
-        plogk("memfd: stat on node without handle (node=%p)\n", (void *)node);
+        plogk("memfd: Stat on node without handle (node=%p)\n", (void *)node);
         return -EINVAL;
     }
     spin_lock(&file->lock);
@@ -256,33 +256,33 @@ int64_t sys_memfd_create(uint64_t name, uint64_t flags, uint64_t arg2, uint64_t 
     (void)arg4;
     (void)arg5;
     if ((flags & ~(uint64_t)(MFD_CLOEXEC | MFD_ALLOW_SEALING)) || !name) {
-        plogk("memfd: create invalid flags (%lx)\n", (unsigned long)flags);
+        plogk("memfd: Create invalid flags (%lx)\n", (unsigned long)flags);
         return -EINVAL;
     }
     if (memfd_fsid <= 0) {
-        plogk("memfd: create before memfd filesystem registered.\n");
+        plogk("memfd: Create before memfd filesystem registered.\n");
         return -ENOSYS;
     }
 
     char memfd_name[MFD_NAME_MAX + 1];
     int  name_len = strncpy_from_user(memfd_name, (const char *)name, sizeof(memfd_name));
     if (name_len == -ENAMETOOLONG) {
-        plogk("memfd: create name too long (name=%p)\n", (void *)name);
+        plogk("memfd: Create name too long (name=%p)\n", (void *)name);
         return -EINVAL;
     }
     if (name_len < 0) {
-        plogk("memfd: create name copy from user failed (name=%p)\n", (void *)name);
+        plogk("memfd: Create name copy from user failed (name=%p)\n", (void *)name);
         return -EFAULT;
     }
 
     process_t *proc = process_current();
     if (!proc) {
-        plogk("memfd: create with no current process.\n");
+        plogk("memfd: Create with no current process.\n");
         return -ESRCH;
     }
     memfd_file_t *file = malloc(sizeof(*file));
     if (!file) {
-        plogk("memfd: create file alloc failed (name_len=%d)\n", name_len);
+        plogk("memfd: Create file alloc failed (name_len=%d)\n", name_len);
         return -ENOMEM;
     }
     memset(file, 0, sizeof(*file));
@@ -294,7 +294,7 @@ int64_t sys_memfd_create(uint64_t name, uint64_t flags, uint64_t arg2, uint64_t 
     vfs_node_t node = vfs_node_alloc(NULL, node_name);
     if (!node) {
         free(file);
-        plogk("memfd: create node alloc failed (name_len=%d)\n", name_len);
+        plogk("memfd: Create node alloc failed (name_len=%d)\n", name_len);
         return -ENOMEM;
     }
     node->fsid     = memfd_fsid;
@@ -309,7 +309,7 @@ int64_t sys_memfd_create(uint64_t name, uint64_t flags, uint64_t arg2, uint64_t 
     if (fd < 0) {
         memfd_free(file);
         vfs_free(node);
-        plogk("memfd: create fd install failed (name_len=%d, ret=%d)\n", name_len, fd);
+        plogk("memfd: Create fd install failed (name_len=%d, ret=%d)\n", name_len, fd);
     }
     return fd;
 }
@@ -357,7 +357,7 @@ int memfd_add_seals(vfs_node_t node, uint32_t seals)
 int memfd_resize(vfs_node_t node, uint64_t size)
 {
     if (!memfd_is_node(node)) {
-        plogk("memfd: resize of non-memfd node (%p)\n", (void *)node);
+        plogk("memfd: Resize of non-memfd node (%p)\n", (void *)node);
         return -EINVAL;
     }
     memfd_file_t *file = node->handle;
@@ -371,27 +371,27 @@ int memfd_resize(vfs_node_t node, uint64_t size)
 int memfd_fallocate(vfs_node_t node, uint32_t mode, uint64_t offset, uint64_t length)
 {
     if (!memfd_is_node(node)) {
-        plogk("memfd: fallocate on non-memfd node (%p)\n", (void *)node);
+        plogk("memfd: Fallocate on non-memfd node (%p)\n", (void *)node);
         return -EOPNOTSUPP;
     }
     if (!length) {
-        plogk("memfd: fallocate with zero length.\n");
+        plogk("memfd: Fallocate with zero length.\n");
         return -EINVAL;
     }
     if (mode & ~(FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE | FALLOC_FL_ZERO_RANGE)) {
-        plogk("memfd: fallocate invalid mode (%x)\n", (unsigned)mode);
+        plogk("memfd: Fallocate invalid mode (%x)\n", (unsigned)mode);
         return -EOPNOTSUPP;
     }
     if ((mode & FALLOC_FL_PUNCH_HOLE) && (!(mode & FALLOC_FL_KEEP_SIZE) || (mode & FALLOC_FL_ZERO_RANGE))) {
-        plogk("memfd: fallocate PUNCH_HOLE requires KEEP_SIZE and no ZERO_RANGE (mode=%x)\n", (unsigned)mode);
+        plogk("memfd: Fallocate PUNCH_HOLE requires KEEP_SIZE and no ZERO_RANGE (mode=%x)\n", (unsigned)mode);
         return -EINVAL;
     }
     if ((mode & FALLOC_FL_ZERO_RANGE) && (mode & FALLOC_FL_PUNCH_HOLE)) {
-        plogk("memfd: fallocate ZERO_RANGE conflicts with PUNCH_HOLE (mode=%x)\n", (unsigned)mode);
+        plogk("memfd: Fallocate ZERO_RANGE conflicts with PUNCH_HOLE (mode=%x)\n", (unsigned)mode);
         return -EINVAL;
     }
     if (offset > UINT64_MAX - length) {
-        plogk("memfd: fallocate offset+length overflow (offset=%lu, length=%lu)\n", (unsigned long)offset, (unsigned long)length);
+        plogk("memfd: Fallocate offset+length overflow (offset=%lu, length=%lu)\n", (unsigned long)offset, (unsigned long)length);
         return -EFBIG;
     }
 
@@ -400,12 +400,12 @@ int memfd_fallocate(vfs_node_t node, uint32_t mode, uint64_t offset, uint64_t le
     spin_lock(&file->lock);
     if (file->seals & F_SEAL_WRITE) {
         spin_unlock(&file->lock);
-        plogk("memfd: fallocate denied (offset=%lu, length=%lu, seal=write)\n", (unsigned long)offset, (unsigned long)length);
+        plogk("memfd: Fallocate denied (offset=%lu, length=%lu, seal=write)\n", (unsigned long)offset, (unsigned long)length);
         return -EPERM;
     }
     if (!(mode & FALLOC_FL_KEEP_SIZE) && end > file->size && (file->seals & F_SEAL_GROW)) {
         spin_unlock(&file->lock);
-        plogk("memfd: fallocate grow denied (offset=%lu, length=%lu, seal=grow)\n", (unsigned long)offset, (unsigned long)length);
+        plogk("memfd: Fallocate grow denied (offset=%lu, length=%lu, seal=grow)\n", (unsigned long)offset, (unsigned long)length);
         return -EPERM;
     }
     for (size_t page = offset / PAGE_4K_SIZE; page <= (end - 1) / PAGE_4K_SIZE; page++) {
@@ -415,7 +415,7 @@ int memfd_fallocate(vfs_node_t node, uint32_t mode, uint64_t offset, uint64_t le
             int ret = memfd_allocate_page(file, page);
             if (ret) {
                 spin_unlock(&file->lock);
-                plogk("memfd: fallocate page alloc failed (offset=%lu, length=%lu, ret=%d)\n", (unsigned long)offset, (unsigned long)length,
+                plogk("memfd: Fallocate page alloc failed (offset=%lu, length=%lu, ret=%d)\n", (unsigned long)offset, (unsigned long)length,
                       ret);
                 return ret;
             }
@@ -431,7 +431,7 @@ int memfd_fallocate(vfs_node_t node, uint32_t mode, uint64_t offset, uint64_t le
 int memfd_map(vfs_node_t node, process_t *proc, uintptr_t addr, size_t length, uint64_t offset, vm_flags_t flags)
 {
     if (!memfd_is_node(node) || !proc || offset > UINT64_MAX - length) {
-        plogk("memfd: map invalid args (node=%p, proc=%p, offset=%lu, length=%lu)\n", (void *)node, (void *)proc, (unsigned long)offset,
+        plogk("memfd: Map invalid args (node=%p, proc=%p, offset=%lu, length=%lu)\n", (void *)node, (void *)proc, (unsigned long)offset,
               (unsigned long)length);
         return -EINVAL;
     }
@@ -440,7 +440,7 @@ int memfd_map(vfs_node_t node, process_t *proc, uintptr_t addr, size_t length, u
     bool shared_writable = (flags & (VM_SHARED | VM_WRITE)) == (VM_SHARED | VM_WRITE);
     if (shared_writable && (file->seals & (F_SEAL_WRITE | F_SEAL_FUTURE_WRITE))) {
         spin_unlock(&file->lock);
-        plogk("memfd: map denied (proc=%p, seal=write)\n", (void *)proc);
+        plogk("memfd: Map denied (proc=%p, seal=write)\n", (void *)proc);
         return -EPERM;
     }
 
@@ -454,7 +454,7 @@ int memfd_map(vfs_node_t node, process_t *proc, uintptr_t addr, size_t length, u
     uint64_t map_limit = ALIGN_UP(file->size, PAGE_4K_SIZE);
     if (offset > map_limit || length > map_limit - offset) {
         spin_unlock(&file->lock);
-        plogk("memfd: map beyond EOF denied (offset=%lu, length=%lu, size=%lu)\n", (unsigned long)offset, (unsigned long)length,
+        plogk("memfd: Map beyond EOF denied (offset=%lu, length=%lu, size=%lu)\n", (unsigned long)offset, (unsigned long)length,
               (unsigned long)file->size);
         return -EINVAL;
     }
@@ -462,7 +462,7 @@ int memfd_map(vfs_node_t node, process_t *proc, uintptr_t addr, size_t length, u
         int ret = memfd_allocate_page(file, (offset + done) / PAGE_4K_SIZE);
         if (ret) {
             spin_unlock(&file->lock);
-            plogk("memfd: map page alloc failed (offset=%lu, length=%lu, ret=%d)\n", (unsigned long)offset, (unsigned long)length, ret);
+            plogk("memfd: Map page alloc failed (offset=%lu, length=%lu, ret=%d)\n", (unsigned long)offset, (unsigned long)length, ret);
             return ret;
         }
     }
@@ -496,7 +496,7 @@ rollback:
         (void)page_unmap_release(proc->user_page_dir, addr + mapped);
     }
     spin_unlock(&file->lock);
-    plogk("memfd: map PTE setup failed, rolled back (offset=%lu, length=%lu)\n", (unsigned long)offset, (unsigned long)length);
+    plogk("memfd: Map PTE setup failed, rolled back (offset=%lu, length=%lu)\n", (unsigned long)offset, (unsigned long)length);
     return -ENOMEM;
 }
 

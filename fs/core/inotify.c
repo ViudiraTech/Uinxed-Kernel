@@ -83,7 +83,7 @@ static int inotify_queue_event(inotify_context_t *context, int32_t wd, uint32_t 
 
     inotify_queue_event_t *queued = calloc(1, sizeof(*queued) + name_size);
     if (!queued) {
-        plogk("inotify: event queue allocation failed, dropping event.\n");
+        plogk("inotify: Event queue allocation failed, dropping event.\n");
         spin_unlock(&context->lock);
         return -ENOMEM;
     }
@@ -524,7 +524,7 @@ int sys_inotify_add_watch(int fd, const char *pathname, uint32_t mask)
         for (inotify_watch_t *entry = current->watches; entry; entry = entry->next) watches++;
     }
     if (watches >= INOTIFY_MAX_USER_WATCHES) {
-        plogk("inotify: watch limit reached (%u)\n", INOTIFY_MAX_USER_WATCHES);
+        plogk("inotify: Watch limit reached (%u)\n", INOTIFY_MAX_USER_WATCHES);
         spin_unlock(&inotify_global_lock);
         process_file_put(file);
         vfs_close(node);
@@ -533,7 +533,7 @@ int sys_inotify_add_watch(int fd, const char *pathname, uint32_t mask)
 
     inotify_watch_t *watch = calloc(1, sizeof(*watch));
     if (!watch) {
-        plogk("inotify: watch allocation failed.\n");
+        plogk("inotify: Watch allocation failed.\n");
         spin_unlock(&inotify_global_lock);
         process_file_put(file);
         vfs_close(node);
@@ -592,6 +592,6 @@ void inotify_init(void)
     callback->file_poll  = inotify_file_poll;
     inotify_fsid         = vfs_regist(callback);
     free(callback);
-    if (inotify_fsid < 0) plogk("inotify: Failed to register VFS callbacks (%d).\n", inotify_fsid);
+    if (inotify_fsid < 0) plogk("inotify: Failed to register VFS callbacks (%d)\n", inotify_fsid);
 }
 #endif

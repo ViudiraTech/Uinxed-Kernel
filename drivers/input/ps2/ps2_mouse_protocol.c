@@ -34,15 +34,15 @@ int ps2_mouse_decode_packet(enum ps2_mouse_protocol protocol, const uint8_t *raw
     uint8_t buttons;
 
     if (!raw || !packet || !ps2_mouse_packet_size(protocol)) {
-        plogk("ps2: decode_packet: invalid argument (protocol=%u)\n", (unsigned)protocol);
+        plogk("ps2: Decode_packet: invalid argument (protocol=%u)\n", (unsigned)protocol);
         return -EINVAL;
     }
     if (!(raw[0] & PS2_MOUSE_PACKET_SYNC)) {
-        plogk("ps2: decode_packet: packet sync byte missing (byte0=0x%x)\n", raw[0]);
+        plogk("ps2: Decode_packet: packet sync byte missing (byte0=0x%x)\n", raw[0]);
         return -EINVAL;
     }
     if (raw[0] & (PS2_MOUSE_PACKET_X_OVERFLOW | PS2_MOUSE_PACKET_Y_OVERFLOW)) {
-        plogk("ps2: decode_packet: axis overflow (byte0=0x%x)\n", raw[0]);
+        plogk("ps2: Decode_packet: axis overflow (byte0=0x%x)\n", raw[0]);
         return -EOVERFLOW;
     }
 
@@ -78,12 +78,12 @@ int ps2_mouse_stream_byte(struct ps2_mouse_stream *stream, uint8_t byte, struct 
     int    result;
 
     if (!stream || !packet) {
-        plogk("ps2: stream_byte: invalid argument.\n");
+        plogk("ps2: Stream_byte: invalid argument.\n");
         return -EINVAL;
     }
     packet_size = ps2_mouse_packet_size(stream->protocol);
     if (!packet_size) {
-        plogk("ps2: stream_byte: unsupported protocol (protocol=%u)\n", (unsigned)stream->protocol);
+        plogk("ps2: Stream_byte: unsupported protocol (protocol=%u)\n", (unsigned)stream->protocol);
         return -EINVAL;
     }
     if (!stream->count && !(byte & PS2_MOUSE_PACKET_SYNC)) return 0;

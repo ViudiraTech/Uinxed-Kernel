@@ -2215,7 +2215,7 @@ static int64_t sys_reboot_impl(uint64_t magic, uint64_t magic2, uint64_t cmd, ui
             return EOK;
         case 0x01234567 : // RB_AUTOBOOT
         case 0xA1B2C3D4 : // RB_RESTART2
-            plogk("syscall: reboot requested.\n");
+            plogk("syscall: Reboot requested.\n");
             disable_intr();
             power_reset();
             for (uint32_t i = 0; i < 100000; i++) {
@@ -2227,12 +2227,12 @@ static int64_t sys_reboot_impl(uint64_t magic, uint64_t magic2, uint64_t cmd, ui
             outb(0xCF9, 0x06);
             break;
         case 0x4321FEDC : // RB_POWER_OFF
-            plogk("syscall: power-off requested.\n");
+            plogk("syscall: Power-off requested.\n");
             disable_intr();
             power_off();
             break;
         case 0xCDEF0123 : // RB_HALT_SYSTEM
-            plogk("syscall: halt requested.\n");
+            plogk("syscall: Halt requested.\n");
             disable_intr();
             break;
         case 0x45584543 : // RB_KEXEC
@@ -4162,7 +4162,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
 
         elf_data = malloc(node->size);
         if (!elf_data) {
-            plogk("syscall: exec of %s failed (image allocation, %llu bytes)\n", kpath, (unsigned long long)node->size);
+            plogk("syscall: Exec of %s failed (image allocation, %llu bytes)\n", kpath, (unsigned long long)node->size);
             vfs_close(node);
             free_string_array(kargv);
             free_string_array(kenvp);
@@ -4215,7 +4215,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
             int    new_argc = 1 + (optional < end ? 1 : 0) + 1 + (argc > 0 ? argc - 1 : 0);
             char **new_argv = calloc((size_t)new_argc + 1, sizeof(char *));
             if (!new_argv) {
-                plogk("syscall: exec of %s failed (shebang argv allocation)\n", kpath);
+                plogk("syscall: Exec of %s failed (shebang argv allocation)\n", kpath);
                 free(elf_data);
                 free_string_array(kargv);
                 free_string_array(kenvp);
@@ -4239,7 +4239,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
             for (int i = 0; i < new_argc; i++)
                 if (!new_argv[i]) allocation_failed = true;
             if (allocation_failed) {
-                plogk("syscall: exec of %s failed (shebang argv element allocation)\n", kpath);
+                plogk("syscall: Exec of %s failed (shebang argv element allocation)\n", kpath);
                 free(elf_data);
                 free_string_array(new_argv);
                 free_string_array(kargv);
@@ -4287,7 +4287,7 @@ static int64_t do_execve(const char *path, char *const argv[], char *const envp[
     proc->stack_brk = PROCESS_STACK_BASE - (long)PROCESS_STACK_SIZE;
 
     if (setup_process_page_dir(proc)) {
-        plogk("syscall: exec of %s failed (page directory setup)\n", kpath);
+        plogk("syscall: Exec of %s failed (page directory setup)\n", kpath);
         (void)process_mmap_replace(proc, old_mmaps);
         proc->start_brk = old_start_brk;
         proc->heap_brk  = old_heap_brk;
@@ -5330,7 +5330,7 @@ int syscall_dispatch(syscall_frame_t *frame)
 
     if (num >= SYS_MAX || !syscall_table[num]) {
         task_t *task = current_task();
-        plogk("syscall: unimplemented syscall %llu from pid %llu (%s)\n", num, task ? task->pid : 0, task ? task->name : "?");
+        plogk("syscall: Unimplemented syscall %llu from pid %llu (%s)\n", num, task ? task->pid : 0, task ? task->name : "?");
         retval     = -ENOSYS;
         frame->rax = (uint64_t)retval;
         goto check_signals;

@@ -71,12 +71,12 @@ static int idr_grow(struct drm_idr *idr)
 
     new_cap = idr->capacity * 2U;
     if (new_cap < idr->capacity || new_cap == 0U) {
-        plogk("drm_idr: grow: capacity overflow (capacity=%u)\n", idr->capacity);
+        plogk("drm_idr: Grow: capacity overflow (capacity=%u)\n", idr->capacity);
         return -ENOMEM;
     }
     new_table = (struct drm_idr_entry *)malloc(new_cap * sizeof(struct drm_idr_entry));
     if (new_table == NULL) {
-        plogk("drm_idr: grow: out of memory for %u entries.\n", new_cap);
+        plogk("drm_idr: Grow: out of memory for %u entries.\n", new_cap);
         return -ENOMEM;
     }
     memset(new_table, 0, new_cap * sizeof(struct drm_idr_entry));
@@ -106,7 +106,7 @@ void drm_idr_init(struct drm_idr *idr)
     memset(idr, 0, sizeof(*idr));
     idr->table = (struct drm_idr_entry *)malloc(IDR_INIT_CAPACITY * sizeof(struct drm_idr_entry));
     if (idr->table == NULL) {
-        plogk("drm_idr: init: out of memory for %u entries.\n", IDR_INIT_CAPACITY);
+        plogk("drm_idr: Init: out of memory for %u entries.\n", IDR_INIT_CAPACITY);
         return;
     }
     memset(idr->table, 0, IDR_INIT_CAPACITY * sizeof(struct drm_idr_entry));
@@ -193,7 +193,7 @@ int drm_idr_alloc(struct drm_idr *idr, void *ptr, uint32_t start, uint32_t end, 
     }
 
     spin_unlock(&idr->lock);
-    plogk("drm_idr: alloc: no free id in range [%u, %u)\n", start, effective_end);
+    plogk("drm_idr: Alloc: no free id in range [%u, %u)\n", start, effective_end);
     return -ENOSPC;
 }
 
@@ -204,7 +204,7 @@ int drm_idr_alloc_exact(struct drm_idr *idr, void *ptr, uint32_t id)
     int                   ret = 0;
 
     if (id == DRM_IDR_INVALID) {
-        plogk("drm_idr: alloc_exact: invalid id.\n");
+        plogk("drm_idr: Alloc_exact: invalid id.\n");
         return -EINVAL;
     }
 
@@ -223,14 +223,14 @@ int drm_idr_alloc_exact(struct drm_idr *idr, void *ptr, uint32_t id)
     if (e == NULL) {
         /* Table is full and id not present. */
         spin_unlock(&idr->lock);
-        plogk("drm_idr: alloc_exact: table full, id %u not present.\n", id);
+        plogk("drm_idr: Alloc_exact: table full, id %u not present.\n", id);
         return -ENOSPC;
     }
 
     if (e->id == id) {
         /* Already occupied. */
         spin_unlock(&idr->lock);
-        plogk("drm_idr: alloc_exact: id %u already in use.\n", id);
+        plogk("drm_idr: Alloc_exact: id %u already in use.\n", id);
         return -EEXIST;
     }
 

@@ -460,7 +460,7 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool fol
 
     if (!str || str[0] != '/') return 0;
     if (symlink_depth > 40) {
-        plogk("vfs: symlink depth exceeded while resolving %s\n", str);
+        plogk("vfs: Symlink depth exceeded while resolving %s\n", str);
         return 0;
     }
     trailing_slash = str[1] != '\0' && str[strlen(str) - 1] == '/';
@@ -471,7 +471,7 @@ static vfs_node_t vfs_open_internal(const char *str, int symlink_depth, bool fol
 
     char *path = strdup(str + 1);
     if (!path) {
-        plogk("vfs: path allocation failed while resolving %s\n", str);
+        plogk("vfs: Path allocation failed while resolving %s\n", str);
         return 0;
     }
 
@@ -667,7 +667,7 @@ int vfs_mkdir_mode(const char *name, uint16_t mode)
     }
     status = callbackof(parent, mkdir)(parent->handle, filename, node);
     if (status != EOK) {
-        plogk("vfs: mkdir %s failed (%d)\n", name, status);
+        plogk("vfs: Mkdir %s failed (%d)\n", name, status);
         vfs_abort_created_node(parent, node);
     } else {
         do_update(node);
@@ -707,7 +707,7 @@ int vfs_mkfile_mode(const char *name, uint16_t mode)
     }
     status = callbackof(parent, mkfile)(parent->handle, filename, node);
     if (status != EOK) {
-        plogk("vfs: mkfile %s failed (%d)\n", name, status);
+        plogk("vfs: Mkfile %s failed (%d)\n", name, status);
         vfs_abort_created_node(parent, node);
     } else {
         vfs_publish_child(node);
@@ -1077,7 +1077,7 @@ int vfs_mount(const char *src, vfs_node_t node)
     {
         char path[VFS_PATH_MAX];
         if (vfs_node_path(node, path, sizeof(path)) != EOK) strcpy(path, "?");
-        plogk("vfs: mount of %s on %s failed: %d\n", src ? src : "(null)", path, last_error);
+        plogk("vfs: Mount of %s on %s failed: %d\n", src ? src : "(null)", path, last_error);
     }
     return last_error;
 }
@@ -1092,7 +1092,7 @@ int vfs_mount_fs(const char *fstype, const char *src, vfs_node_t node)
         return vfs_mount_id(src, node, i);
     }
 
-    plogk("vfs: unknown filesystem type '%s'\n", fstype);
+    plogk("vfs: Unknown filesystem type '%s'\n", fstype);
     return -ENOENT;
 }
 
@@ -1345,7 +1345,7 @@ int64_t vfs_file_read_process(vfs_node_t file, void *private_data, uint64_t flag
      * layer copies from its bounded bounce buffer.
      */
     if (result > 0 && (uint64_t)result > size) {
-        plogk("vfs: read overrun from %s callback: returned %lld for %lu requested.\n", file->name, (long long)result, (unsigned long)size);
+        plogk("vfs: Read overrun from %s callback: returned %lld for %lu requested.\n", file->name, (long long)result, (unsigned long)size);
         return -EIO;
     }
     if (result > 0) inotify_notify(file, IN_ACCESS);
@@ -1375,7 +1375,7 @@ int64_t vfs_file_write_process(vfs_node_t file, void *private_data, uint64_t fla
         if (ret >= 0 && (flags & 0x101000U)) {
             int sync_result = pagecache_writeback(mapping, offset, size ? offset + size - 1 : offset, PAGECACHE_WB_SYNC);
             if (sync_result) {
-                plogk("vfs: writeback of %s failed (%d)\n", file->name, sync_result);
+                plogk("vfs: Writeback of %s failed (%d)\n", file->name, sync_result);
                 ret = sync_result;
             }
         }

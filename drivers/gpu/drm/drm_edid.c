@@ -1,0 +1,2695 @@
+/*
+ *
+ *      drm_edid.c
+ *      DRM EDID parsing: block validation, mode extraction (detailed,
+ *      standard, established and CEA/CTA-861) plus display information.
+ *
+ *      2026/8/10 by MicroFish
+ *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
+ */
+
+#include <drivers/gpu/drm/drm_device.h>
+#include <drivers/gpu/drm/drm_edid.h>
+#include <drivers/gpu/drm/drm_fourcc.h>
+#include <drivers/gpu/drm/drm_idr.h>
+#include <drivers/gpu/drm/drm_mode.h>
+#include <drivers/gpu/drm/drm_modeset_lock.h>
+#include <drivers/gpu/drm/drm_print.h>
+#include <kernel/errno.h>
+#include <kernel/printk.h>
+#include <libs/std/stddef.h>
+#include <libs/std/stdint.h>
+#include <libs/std/string.h>
+#include <mem/alloc.h>
+#include <sync/spin_lock.h>
+
+#ifndef container_of
+#    define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
+#endif
+
+/* ------------------------------------------------------------------ */
+/* Local kernel-helper shims (mirror the few Linux macros we need)     */
+/* ------------------------------------------------------------------ */
+
+#define ARRAY_SIZE(a)           (sizeof(a) / sizeof((a)[0]))
+#define BIT(n)                  (1UL << (n))
+#define BITS_PER_BYTE           8
+#define DIV_ROUND_CLOSEST(a, b) ((((a) + (b) / 2) / (b)))
+#define min(a, b)               ((a) < (b) ? (a) : (b))
+#define max(a, b)               ((a) > (b) ? (a) : (b))
+#define min_t(t, a, b)          ((t)(a) < (t)(b) ? (t)(a) : (t)(b))
+#define max_t(t, a, b)          ((t)(a) > (t)(b) ? (t)(a) : (t)(b))
+#define clamp(v, lo, hi)        (max((lo), min((hi), (v))))
+
+static inline uint16_t le16_to_cpu(uint16_t v)
+{
+    return v;
+}
+
+static inline uint32_t le32_to_cpu(uint32_t v)
+{
+    return v;
+}
+
+/* The kernel is little-endian x86-64; EDID stores multi-byte fields LE. */
+
+/*
+ * DRM_MODE - Convenience macro for defining display modes in the static
+ * mode tables.  Field names match struct drm_display_mode.
+ */
+#define DRM_MODE(nm, t, c, hd, hss, hse, ht, hsk, vd, vss, vse, vt, vs, fl)                                                               \
+    .name = nm, .status = MODE_OK, .type = (t), .clock = (c), .hdisplay = (hd), .hsync_start = (hss), .hsync_end = (hse), .htotal = (ht), \
+    .hskew = (hsk), .vdisplay = (vd), .vsync_start = (vss), .vsync_end = (vse), .vtotal = (vt), .vscan = (vs), .flags = (fl)
+
+#define EDID_EST_TIMINGS      16
+#define EDID_STD_TIMINGS      8
+#define EDID_DETAILED_TIMINGS 4
+
+/* ------------------------------------------------------------------ */
+/* Forward declarations                                               */
+/* ------------------------------------------------------------------ */
+
+static size_t                         edid_size(const struct edid *edid);
+static const struct drm_display_mode *cea_mode_for_vic(uint8_t vic);
+static int                            add_standard_modes(struct drm_connector *connector, const struct edid *edid);
+static int                            add_established_modes(struct drm_connector *connector, const struct edid *edid);
+
+struct minimode {
+        short w;
+        short h;
+        short r;
+        short rb;
+};
+
+static const struct drm_display_mode drm_dmt_modes[] = {
+    /* 0x01 - 640x350@85Hz */
+    {DRM_MODE("640x350", DRM_MODE_TYPE_DRIVER, 31500, 640, 672, 736, 832, 0, 350, 382, 385, 445, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x02 - 640x400@85Hz */
+    {DRM_MODE("640x400", DRM_MODE_TYPE_DRIVER, 31500, 640, 672, 736, 832, 0, 400, 401, 404, 445, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x03 - 720x400@85Hz */
+    {DRM_MODE("720x400", DRM_MODE_TYPE_DRIVER, 35500, 720, 756, 828, 936, 0, 400, 401, 404, 446, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x04 - 640x480@60Hz */
+    {DRM_MODE("640x480", DRM_MODE_TYPE_DRIVER, 25175, 640, 656, 752, 800, 0, 480, 490, 492, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x05 - 640x480@72Hz */
+    {DRM_MODE("640x480", DRM_MODE_TYPE_DRIVER, 31500, 640, 664, 704, 832, 0, 480, 489, 492, 520, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x06 - 640x480@75Hz */
+    {DRM_MODE("640x480", DRM_MODE_TYPE_DRIVER, 31500, 640, 656, 720, 840, 0, 480, 481, 484, 500, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x07 - 640x480@85Hz */
+    {DRM_MODE("640x480", DRM_MODE_TYPE_DRIVER, 36000, 640, 696, 752, 832, 0, 480, 481, 484, 509, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x08 - 800x600@56Hz */
+    {DRM_MODE("800x600", DRM_MODE_TYPE_DRIVER, 36000, 800, 824, 896, 1024, 0, 600, 601, 603, 625, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x09 - 800x600@60Hz */
+    {DRM_MODE("800x600", DRM_MODE_TYPE_DRIVER, 40000, 800, 840, 968, 1056, 0, 600, 601, 605, 628, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x0a - 800x600@72Hz */
+    {DRM_MODE("800x600", DRM_MODE_TYPE_DRIVER, 50000, 800, 856, 976, 1040, 0, 600, 637, 643, 666, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x0b - 800x600@75Hz */
+    {DRM_MODE("800x600", DRM_MODE_TYPE_DRIVER, 49500, 800, 816, 896, 1056, 0, 600, 601, 604, 625, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x0c - 800x600@85Hz */
+    {DRM_MODE("800x600", DRM_MODE_TYPE_DRIVER, 56250, 800, 832, 896, 1048, 0, 600, 601, 604, 631, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x0d - 800x600@120Hz RB */
+    {DRM_MODE("800x600", DRM_MODE_TYPE_DRIVER, 73250, 800, 848, 880, 960, 0, 600, 603, 607, 636, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x0e - 848x480@60Hz */
+    {DRM_MODE("848x480", DRM_MODE_TYPE_DRIVER, 33750, 848, 864, 976, 1088, 0, 480, 486, 494, 517, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x0f - 1024x768@43Hz, interlace */
+    {DRM_MODE("1024x768i", DRM_MODE_TYPE_DRIVER, 44900, 1024, 1032, 1208, 1264, 0, 768, 768, 776, 817, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC | DRM_MODE_FLAG_INTERLACE)},
+    /* 0x10 - 1024x768@60Hz */
+    {DRM_MODE("1024x768", DRM_MODE_TYPE_DRIVER, 65000, 1024, 1048, 1184, 1344, 0, 768, 771, 777, 806, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x11 - 1024x768@70Hz */
+    {DRM_MODE("1024x768", DRM_MODE_TYPE_DRIVER, 75000, 1024, 1048, 1184, 1328, 0, 768, 771, 777, 806, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x12 - 1024x768@75Hz */
+    {DRM_MODE("1024x768", DRM_MODE_TYPE_DRIVER, 78750, 1024, 1040, 1136, 1312, 0, 768, 769, 772, 800, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x13 - 1024x768@85Hz */
+    {DRM_MODE("1024x768", DRM_MODE_TYPE_DRIVER, 94500, 1024, 1072, 1168, 1376, 0, 768, 769, 772, 808, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x14 - 1024x768@120Hz RB */
+    {DRM_MODE("1024x768", DRM_MODE_TYPE_DRIVER, 115500, 1024, 1072, 1104, 1184, 0, 768, 771, 775, 813, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x15 - 1152x864@75Hz */
+    {DRM_MODE("1152x864", DRM_MODE_TYPE_DRIVER, 108000, 1152, 1216, 1344, 1600, 0, 864, 865, 868, 900, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x55 - 1280x720@60Hz */
+    {DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 74250, 1280, 1390, 1430, 1650, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x16 - 1280x768@60Hz RB */
+    {DRM_MODE("1280x768", DRM_MODE_TYPE_DRIVER, 68250, 1280, 1328, 1360, 1440, 0, 768, 771, 778, 790, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x17 - 1280x768@60Hz */
+    {DRM_MODE("1280x768", DRM_MODE_TYPE_DRIVER, 79500, 1280, 1344, 1472, 1664, 0, 768, 771, 778, 798, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x18 - 1280x768@75Hz */
+    {DRM_MODE("1280x768", DRM_MODE_TYPE_DRIVER, 102250, 1280, 1360, 1488, 1696, 0, 768, 771, 778, 805, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x19 - 1280x768@85Hz */
+    {DRM_MODE("1280x768", DRM_MODE_TYPE_DRIVER, 117500, 1280, 1360, 1496, 1712, 0, 768, 771, 778, 809, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x1a - 1280x768@120Hz RB */
+    {DRM_MODE("1280x768", DRM_MODE_TYPE_DRIVER, 140250, 1280, 1328, 1360, 1440, 0, 768, 771, 778, 813, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x1b - 1280x800@60Hz RB */
+    {DRM_MODE("1280x800", DRM_MODE_TYPE_DRIVER, 71000, 1280, 1328, 1360, 1440, 0, 800, 803, 809, 823, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x1c - 1280x800@60Hz */
+    {DRM_MODE("1280x800", DRM_MODE_TYPE_DRIVER, 83500, 1280, 1352, 1480, 1680, 0, 800, 803, 809, 831, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x1d - 1280x800@75Hz */
+    {DRM_MODE("1280x800", DRM_MODE_TYPE_DRIVER, 106500, 1280, 1360, 1488, 1696, 0, 800, 803, 809, 838, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x1e - 1280x800@85Hz */
+    {DRM_MODE("1280x800", DRM_MODE_TYPE_DRIVER, 122500, 1280, 1360, 1496, 1712, 0, 800, 803, 809, 843, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x1f - 1280x800@120Hz RB */
+    {DRM_MODE("1280x800", DRM_MODE_TYPE_DRIVER, 146250, 1280, 1328, 1360, 1440, 0, 800, 803, 809, 847, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x20 - 1280x960@60Hz */
+    {DRM_MODE("1280x960", DRM_MODE_TYPE_DRIVER, 108000, 1280, 1376, 1488, 1800, 0, 960, 961, 964, 1000, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x21 - 1280x960@85Hz */
+    {DRM_MODE("1280x960", DRM_MODE_TYPE_DRIVER, 148500, 1280, 1344, 1504, 1728, 0, 960, 961, 964, 1011, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x22 - 1280x960@120Hz RB */
+    {DRM_MODE("1280x960", DRM_MODE_TYPE_DRIVER, 175500, 1280, 1328, 1360, 1440, 0, 960, 963, 967, 1017, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x23 - 1280x1024@60Hz */
+    {DRM_MODE("1280x1024", DRM_MODE_TYPE_DRIVER, 108000, 1280, 1328, 1440, 1688, 0, 1024, 1025, 1028, 1066, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x24 - 1280x1024@75Hz */
+    {DRM_MODE("1280x1024", DRM_MODE_TYPE_DRIVER, 135000, 1280, 1296, 1440, 1688, 0, 1024, 1025, 1028, 1066, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x25 - 1280x1024@85Hz */
+    {DRM_MODE("1280x1024", DRM_MODE_TYPE_DRIVER, 157500, 1280, 1344, 1504, 1728, 0, 1024, 1025, 1028, 1072, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x26 - 1280x1024@120Hz RB */
+    {DRM_MODE("1280x1024", DRM_MODE_TYPE_DRIVER, 187250, 1280, 1328, 1360, 1440, 0, 1024, 1027, 1034, 1084, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x27 - 1360x768@60Hz */
+    {DRM_MODE("1360x768", DRM_MODE_TYPE_DRIVER, 85500, 1360, 1424, 1536, 1792, 0, 768, 771, 777, 795, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x28 - 1360x768@120Hz RB */
+    {DRM_MODE("1360x768", DRM_MODE_TYPE_DRIVER, 148250, 1360, 1408, 1440, 1520, 0, 768, 771, 776, 813, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x51 - 1366x768@60Hz */
+    {DRM_MODE("1366x768", DRM_MODE_TYPE_DRIVER, 85500, 1366, 1436, 1579, 1792, 0, 768, 771, 774, 798, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x56 - 1366x768@60Hz */
+    {DRM_MODE("1366x768", DRM_MODE_TYPE_DRIVER, 72000, 1366, 1380, 1436, 1500, 0, 768, 769, 772, 800, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x29 - 1400x1050@60Hz RB */
+    {DRM_MODE("1400x1050", DRM_MODE_TYPE_DRIVER, 101000, 1400, 1448, 1480, 1560, 0, 1050, 1053, 1057, 1080, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x2a - 1400x1050@60Hz */
+    {DRM_MODE("1400x1050", DRM_MODE_TYPE_DRIVER, 121750, 1400, 1488, 1632, 1864, 0, 1050, 1053, 1057, 1089, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x2b - 1400x1050@75Hz */
+    {DRM_MODE("1400x1050", DRM_MODE_TYPE_DRIVER, 156000, 1400, 1504, 1648, 1896, 0, 1050, 1053, 1057, 1099, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x2c - 1400x1050@85Hz */
+    {DRM_MODE("1400x1050", DRM_MODE_TYPE_DRIVER, 179500, 1400, 1504, 1656, 1912, 0, 1050, 1053, 1057, 1105, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x2d - 1400x1050@120Hz RB */
+    {DRM_MODE("1400x1050", DRM_MODE_TYPE_DRIVER, 208000, 1400, 1448, 1480, 1560, 0, 1050, 1053, 1057, 1112, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x2e - 1440x900@60Hz RB */
+    {DRM_MODE("1440x900", DRM_MODE_TYPE_DRIVER, 88750, 1440, 1488, 1520, 1600, 0, 900, 903, 909, 926, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x2f - 1440x900@60Hz */
+    {DRM_MODE("1440x900", DRM_MODE_TYPE_DRIVER, 106500, 1440, 1520, 1672, 1904, 0, 900, 903, 909, 934, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x30 - 1440x900@75Hz */
+    {DRM_MODE("1440x900", DRM_MODE_TYPE_DRIVER, 136750, 1440, 1536, 1688, 1936, 0, 900, 903, 909, 942, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x31 - 1440x900@85Hz */
+    {DRM_MODE("1440x900", DRM_MODE_TYPE_DRIVER, 157000, 1440, 1544, 1696, 1952, 0, 900, 903, 909, 948, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x32 - 1440x900@120Hz RB */
+    {DRM_MODE("1440x900", DRM_MODE_TYPE_DRIVER, 182750, 1440, 1488, 1520, 1600, 0, 900, 903, 909, 953, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x53 - 1600x900@60Hz */
+    {DRM_MODE("1600x900", DRM_MODE_TYPE_DRIVER, 108000, 1600, 1624, 1704, 1800, 0, 900, 901, 904, 1000, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x33 - 1600x1200@60Hz */
+    {DRM_MODE("1600x1200", DRM_MODE_TYPE_DRIVER, 162000, 1600, 1664, 1856, 2160, 0, 1200, 1201, 1204, 1250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x34 - 1600x1200@65Hz */
+    {DRM_MODE("1600x1200", DRM_MODE_TYPE_DRIVER, 175500, 1600, 1664, 1856, 2160, 0, 1200, 1201, 1204, 1250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x35 - 1600x1200@70Hz */
+    {DRM_MODE("1600x1200", DRM_MODE_TYPE_DRIVER, 189000, 1600, 1664, 1856, 2160, 0, 1200, 1201, 1204, 1250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x36 - 1600x1200@75Hz */
+    {DRM_MODE("1600x1200", DRM_MODE_TYPE_DRIVER, 202500, 1600, 1664, 1856, 2160, 0, 1200, 1201, 1204, 1250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x37 - 1600x1200@85Hz */
+    {DRM_MODE("1600x1200", DRM_MODE_TYPE_DRIVER, 229500, 1600, 1664, 1856, 2160, 0, 1200, 1201, 1204, 1250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x38 - 1600x1200@120Hz RB */
+    {DRM_MODE("1600x1200", DRM_MODE_TYPE_DRIVER, 268250, 1600, 1648, 1680, 1760, 0, 1200, 1203, 1207, 1271, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x39 - 1680x1050@60Hz RB */
+    {DRM_MODE("1680x1050", DRM_MODE_TYPE_DRIVER, 119000, 1680, 1728, 1760, 1840, 0, 1050, 1053, 1059, 1080, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x3a - 1680x1050@60Hz */
+    {DRM_MODE("1680x1050", DRM_MODE_TYPE_DRIVER, 146250, 1680, 1784, 1960, 2240, 0, 1050, 1053, 1059, 1089, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x3b - 1680x1050@75Hz */
+    {DRM_MODE("1680x1050", DRM_MODE_TYPE_DRIVER, 187000, 1680, 1800, 1976, 2272, 0, 1050, 1053, 1059, 1099, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x3c - 1680x1050@85Hz */
+    {DRM_MODE("1680x1050", DRM_MODE_TYPE_DRIVER, 214750, 1680, 1808, 1984, 2288, 0, 1050, 1053, 1059, 1105, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x3d - 1680x1050@120Hz RB */
+    {DRM_MODE("1680x1050", DRM_MODE_TYPE_DRIVER, 245500, 1680, 1728, 1760, 1840, 0, 1050, 1053, 1059, 1112, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x3e - 1792x1344@60Hz */
+    {DRM_MODE("1792x1344", DRM_MODE_TYPE_DRIVER, 204750, 1792, 1920, 2120, 2448, 0, 1344, 1345, 1348, 1394, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x3f - 1792x1344@75Hz */
+    {DRM_MODE("1792x1344", DRM_MODE_TYPE_DRIVER, 261000, 1792, 1888, 2104, 2456, 0, 1344, 1345, 1348, 1417, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x40 - 1792x1344@120Hz RB */
+    {DRM_MODE("1792x1344", DRM_MODE_TYPE_DRIVER, 333250, 1792, 1840, 1872, 1952, 0, 1344, 1347, 1351, 1423, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x41 - 1856x1392@60Hz */
+    {DRM_MODE("1856x1392", DRM_MODE_TYPE_DRIVER, 218250, 1856, 1952, 2176, 2528, 0, 1392, 1393, 1396, 1439, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x42 - 1856x1392@75Hz */
+    {DRM_MODE("1856x1392", DRM_MODE_TYPE_DRIVER, 288000, 1856, 1984, 2208, 2560, 0, 1392, 1393, 1396, 1500, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x43 - 1856x1392@120Hz RB */
+    {DRM_MODE("1856x1392", DRM_MODE_TYPE_DRIVER, 356500, 1856, 1904, 1936, 2016, 0, 1392, 1395, 1399, 1474, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x52 - 1920x1080@60Hz */
+    {DRM_MODE("1920x1080", DRM_MODE_TYPE_DRIVER, 148500, 1920, 2008, 2052, 2200, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x44 - 1920x1200@60Hz RB */
+    {DRM_MODE("1920x1200", DRM_MODE_TYPE_DRIVER, 154000, 1920, 1968, 2000, 2080, 0, 1200, 1203, 1209, 1235, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x45 - 1920x1200@60Hz */
+    {DRM_MODE("1920x1200", DRM_MODE_TYPE_DRIVER, 193250, 1920, 2056, 2256, 2592, 0, 1200, 1203, 1209, 1245, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x46 - 1920x1200@75Hz */
+    {DRM_MODE("1920x1200", DRM_MODE_TYPE_DRIVER, 245250, 1920, 2056, 2264, 2608, 0, 1200, 1203, 1209, 1255, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x47 - 1920x1200@85Hz */
+    {DRM_MODE("1920x1200", DRM_MODE_TYPE_DRIVER, 281250, 1920, 2064, 2272, 2624, 0, 1200, 1203, 1209, 1262, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x48 - 1920x1200@120Hz RB */
+    {DRM_MODE("1920x1200", DRM_MODE_TYPE_DRIVER, 317000, 1920, 1968, 2000, 2080, 0, 1200, 1203, 1209, 1271, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x49 - 1920x1440@60Hz */
+    {DRM_MODE("1920x1440", DRM_MODE_TYPE_DRIVER, 234000, 1920, 2048, 2256, 2600, 0, 1440, 1441, 1444, 1500, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x4a - 1920x1440@75Hz */
+    {DRM_MODE("1920x1440", DRM_MODE_TYPE_DRIVER, 297000, 1920, 2064, 2288, 2640, 0, 1440, 1441, 1444, 1500, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x4b - 1920x1440@120Hz RB */
+    {DRM_MODE("1920x1440", DRM_MODE_TYPE_DRIVER, 380500, 1920, 1968, 2000, 2080, 0, 1440, 1443, 1447, 1525, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x54 - 2048x1152@60Hz */
+    {DRM_MODE("2048x1152", DRM_MODE_TYPE_DRIVER, 162000, 2048, 2074, 2154, 2250, 0, 1152, 1153, 1156, 1200, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x4c - 2560x1600@60Hz RB */
+    {DRM_MODE("2560x1600", DRM_MODE_TYPE_DRIVER, 268500, 2560, 2608, 2640, 2720, 0, 1600, 1603, 1609, 1646, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x4d - 2560x1600@60Hz */
+    {DRM_MODE("2560x1600", DRM_MODE_TYPE_DRIVER, 348500, 2560, 2752, 3032, 3504, 0, 1600, 1603, 1609, 1658, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x4e - 2560x1600@75Hz */
+    {DRM_MODE("2560x1600", DRM_MODE_TYPE_DRIVER, 443250, 2560, 2768, 3048, 3536, 0, 1600, 1603, 1609, 1672, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x4f - 2560x1600@85Hz */
+    {DRM_MODE("2560x1600", DRM_MODE_TYPE_DRIVER, 505250, 2560, 2768, 3048, 3536, 0, 1600, 1603, 1609, 1682, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)},
+    /* 0x50 - 2560x1600@120Hz RB */
+    {DRM_MODE("2560x1600", DRM_MODE_TYPE_DRIVER, 552750, 2560, 2608, 2640, 2720, 0, 1600, 1603, 1609, 1694, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x57 - 4096x2160@60Hz RB */
+    {DRM_MODE("4096x2160", DRM_MODE_TYPE_DRIVER, 556744, 4096, 4104, 4136, 4176, 0, 2160, 2208, 2216, 2222, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+    /* 0x58 - 4096x2160@59.94Hz RB */
+    {DRM_MODE("4096x2160", DRM_MODE_TYPE_DRIVER, 556188, 4096, 4104, 4136, 4176, 0, 2160, 2208, 2216, 2222, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)},
+};
+
+static const struct drm_display_mode edid_est_modes[] = {
+    {DRM_MODE("800x600", DRM_MODE_TYPE_DRIVER, 40000, 800, 840, 968, 1056, 0, 600, 601, 605, 628, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)}, /* 800x600@60Hz */
+    {DRM_MODE("800x600", DRM_MODE_TYPE_DRIVER, 36000, 800, 824, 896, 1024, 0, 600, 601, 603, 625, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)}, /* 800x600@56Hz */
+    {DRM_MODE("640x480", DRM_MODE_TYPE_DRIVER, 31500, 640, 656, 720, 840, 0, 480, 481, 484, 500, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC)}, /* 640x480@75Hz */
+    {DRM_MODE("640x480", DRM_MODE_TYPE_DRIVER, 31500, 640, 664, 704, 832, 0, 480, 489, 492, 520, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC)}, /* 640x480@72Hz */
+    {DRM_MODE("640x480", DRM_MODE_TYPE_DRIVER, 30240, 640, 704, 768, 864, 0, 480, 483, 486, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC)}, /* 640x480@67Hz */
+    {DRM_MODE("640x480", DRM_MODE_TYPE_DRIVER, 25175, 640, 656, 752, 800, 0, 480, 490, 492, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC)}, /* 640x480@60Hz */
+    {DRM_MODE("720x400", DRM_MODE_TYPE_DRIVER, 35500, 720, 738, 846, 900, 0, 400, 421, 423, 449, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC)}, /* 720x400@88Hz */
+    {DRM_MODE("720x400", DRM_MODE_TYPE_DRIVER, 28320, 720, 738, 846, 900, 0, 400, 412, 414, 449, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)}, /* 720x400@70Hz */
+    {DRM_MODE("1280x1024", DRM_MODE_TYPE_DRIVER, 135000, 1280, 1296, 1440, 1688, 0, 1024, 1025, 1028, 1066, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)}, /* 1280x1024@75Hz */
+    {DRM_MODE("1024x768", DRM_MODE_TYPE_DRIVER, 78750, 1024, 1040, 1136, 1312, 0, 768, 769, 772, 800, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)}, /* 1024x768@75Hz */
+    {DRM_MODE("1024x768", DRM_MODE_TYPE_DRIVER, 75000, 1024, 1048, 1184, 1328, 0, 768, 771, 777, 806, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC)}, /* 1024x768@70Hz */
+    {DRM_MODE("1024x768", DRM_MODE_TYPE_DRIVER, 65000, 1024, 1048, 1184, 1344, 0, 768, 771, 777, 806, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC)}, /* 1024x768@60Hz */
+    {DRM_MODE("1024x768i", DRM_MODE_TYPE_DRIVER, 44900, 1024, 1032, 1208, 1264, 0, 768, 768, 776, 817, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC | DRM_MODE_FLAG_INTERLACE)}, /* 1024x768@43Hz */
+    {DRM_MODE("832x624", DRM_MODE_TYPE_DRIVER, 57284, 832, 864, 928, 1152, 0, 624, 625, 628, 667, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC)}, /* 832x624@75Hz */
+    {DRM_MODE("800x600", DRM_MODE_TYPE_DRIVER, 49500, 800, 816, 896, 1056, 0, 600, 601, 604, 625, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)}, /* 800x600@75Hz */
+    {DRM_MODE("800x600", DRM_MODE_TYPE_DRIVER, 50000, 800, 856, 976, 1040, 0, 600, 637, 643, 666, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)}, /* 800x600@72Hz */
+    {DRM_MODE("1152x864", DRM_MODE_TYPE_DRIVER, 108000, 1152, 1216, 1344, 1600, 0, 864, 865, 868, 900, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC)}, /* 1152x864@75Hz */
+};
+
+static const struct minimode est3_modes[] = {
+    /* byte 6 */
+    {640,  350,  85, 0},
+    {640,  400,  85, 0},
+    {720,  400,  85, 0},
+    {640,  480,  85, 0},
+    {848,  480,  60, 0},
+    {800,  600,  85, 0},
+    {1024, 768,  85, 0},
+    {1152, 864,  75, 0},
+    /* byte 7 */
+    {1280, 768,  60, 1},
+    {1280, 768,  60, 0},
+    {1280, 768,  75, 0},
+    {1280, 768,  85, 0},
+    {1280, 960,  60, 0},
+    {1280, 960,  85, 0},
+    {1280, 1024, 60, 0},
+    {1280, 1024, 85, 0},
+    /* byte 8 */
+    {1360, 768,  60, 0},
+    {1440, 900,  60, 1},
+    {1440, 900,  60, 0},
+    {1440, 900,  75, 0},
+    {1440, 900,  85, 0},
+    {1400, 1050, 60, 1},
+    {1400, 1050, 60, 0},
+    {1400, 1050, 75, 0},
+    /* byte 9 */
+    {1400, 1050, 85, 0},
+    {1680, 1050, 60, 1},
+    {1680, 1050, 60, 0},
+    {1680, 1050, 75, 0},
+    {1680, 1050, 85, 0},
+    {1600, 1200, 60, 0},
+    {1600, 1200, 65, 0},
+    {1600, 1200, 70, 0},
+    /* byte 10 */
+    {1600, 1200, 75, 0},
+    {1600, 1200, 85, 0},
+    {1792, 1344, 60, 0},
+    {1792, 1344, 75, 0},
+    {1856, 1392, 60, 0},
+    {1856, 1392, 75, 0},
+    {1920, 1200, 60, 1},
+    {1920, 1200, 60, 0},
+    /* byte 11 */
+    {1920, 1200, 75, 0},
+    {1920, 1200, 85, 0},
+    {1920, 1440, 60, 0},
+    {1920, 1440, 75, 0},
+};
+
+/* clang-format off */
+
+static const struct drm_display_mode edid_cea_modes_1[] = {
+    /* 1 - 640x480@60Hz 4:3 */
+    {
+     DRM_MODE("640x480", DRM_MODE_TYPE_DRIVER, 25175, 640, 656, 752, 800, 0, 480, 490, 492, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 2 - 720x480@60Hz 4:3 */
+    {
+     DRM_MODE("720x480", DRM_MODE_TYPE_DRIVER, 27000, 720, 736, 798, 858, 0, 480, 489, 495, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 3 - 720x480@60Hz 16:9 */
+    {
+     DRM_MODE("720x480", DRM_MODE_TYPE_DRIVER, 27000, 720, 736, 798, 858, 0, 480, 489, 495, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 4 - 1280x720@60Hz 16:9 */
+    {
+     DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 74250, 1280, 1390, 1430, 1650, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 5 - 1920x1080i@60Hz 16:9 */
+    {
+     DRM_MODE("1920x1080i", DRM_MODE_TYPE_DRIVER, 74250, 1920, 2008, 2052, 2200, 0, 1080, 1084, 1094, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC | DRM_MODE_FLAG_INTERLACE),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 6 - 720(1440)x480i@60Hz 4:3 */
+    {
+     DRM_MODE("720x480i", DRM_MODE_TYPE_DRIVER, 13500, 720, 739, 801, 858, 0, 480, 488, 494, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLCLK),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 7 - 720(1440)x480i@60Hz 16:9 */
+    {
+     DRM_MODE("720x480i", DRM_MODE_TYPE_DRIVER, 13500, 720, 739, 801, 858, 0, 480, 488, 494, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLCLK),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 8 - 720(1440)x240@60Hz 4:3 */
+    {
+     DRM_MODE("720x240", DRM_MODE_TYPE_DRIVER, 13500, 720, 739, 801, 858, 0, 240, 244, 247, 262, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_DBLCLK),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 9 - 720(1440)x240@60Hz 16:9 */
+    {
+     DRM_MODE("720x240", DRM_MODE_TYPE_DRIVER, 13500, 720, 739, 801, 858, 0, 240, 244, 247, 262, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_DBLCLK),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 10 - 2880x480i@60Hz 4:3 */
+    {
+     DRM_MODE("2880x480i", DRM_MODE_TYPE_DRIVER, 54000, 2880, 2956, 3204, 3432, 0, 480, 488, 494, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_INTERLACE),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 11 - 2880x480i@60Hz 16:9 */
+    {
+     DRM_MODE("2880x480i", DRM_MODE_TYPE_DRIVER, 54000, 2880, 2956, 3204, 3432, 0, 480, 488, 494, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_INTERLACE),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 12 - 2880x240@60Hz 4:3 */
+    {
+     DRM_MODE("2880x240", DRM_MODE_TYPE_DRIVER, 54000, 2880, 2956, 3204, 3432, 0, 240, 244, 247, 262, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 13 - 2880x240@60Hz 16:9 */
+    {
+     DRM_MODE("2880x240", DRM_MODE_TYPE_DRIVER, 54000, 2880, 2956, 3204, 3432, 0, 240, 244, 247, 262, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 14 - 1440x480@60Hz 4:3 */
+    {
+     DRM_MODE("1440x480", DRM_MODE_TYPE_DRIVER, 54000, 1440, 1472, 1596, 1716, 0, 480, 489, 495, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 15 - 1440x480@60Hz 16:9 */
+    {
+     DRM_MODE("1440x480", DRM_MODE_TYPE_DRIVER, 54000, 1440, 1472, 1596, 1716, 0, 480, 489, 495, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 16 - 1920x1080@60Hz 16:9 */
+    {
+     DRM_MODE("1920x1080", DRM_MODE_TYPE_DRIVER, 148500, 1920, 2008, 2052, 2200, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 17 - 720x576@50Hz 4:3 */
+    {
+     DRM_MODE("720x576", DRM_MODE_TYPE_DRIVER, 27000, 720, 732, 796, 864, 0, 576, 581, 586, 625, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 18 - 720x576@50Hz 16:9 */
+    {
+     DRM_MODE("720x576", DRM_MODE_TYPE_DRIVER, 27000, 720, 732, 796, 864, 0, 576, 581, 586, 625, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 19 - 1280x720@50Hz 16:9 */
+    {
+     DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 74250, 1280, 1720, 1760, 1980, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 20 - 1920x1080i@50Hz 16:9 */
+    {
+     DRM_MODE("1920x1080i", DRM_MODE_TYPE_DRIVER, 74250, 1920, 2448, 2492, 2640, 0, 1080, 1084, 1094, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC | DRM_MODE_FLAG_INTERLACE),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 21 - 720(1440)x576i@50Hz 4:3 */
+    {
+     DRM_MODE("720x576i", DRM_MODE_TYPE_DRIVER, 13500, 720, 732, 795, 864, 0, 576, 580, 586, 625, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLCLK),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 22 - 720(1440)x576i@50Hz 16:9 */
+    {
+     DRM_MODE("720x576i", DRM_MODE_TYPE_DRIVER, 13500, 720, 732, 795, 864, 0, 576, 580, 586, 625, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLCLK),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 23 - 720(1440)x288@50Hz 4:3 */
+    {
+     DRM_MODE("720x288", DRM_MODE_TYPE_DRIVER, 13500, 720, 732, 795, 864, 0, 288, 290, 293, 312, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_DBLCLK),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 24 - 720(1440)x288@50Hz 16:9 */
+    {
+     DRM_MODE("720x288", DRM_MODE_TYPE_DRIVER, 13500, 720, 732, 795, 864, 0, 288, 290, 293, 312, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_DBLCLK),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 25 - 2880x576i@50Hz 4:3 */
+    {
+     DRM_MODE("2880x576i", DRM_MODE_TYPE_DRIVER, 54000, 2880, 2928, 3180, 3456, 0, 576, 580, 586, 625, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_INTERLACE),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 26 - 2880x576i@50Hz 16:9 */
+    {
+     DRM_MODE("2880x576i", DRM_MODE_TYPE_DRIVER, 54000, 2880, 2928, 3180, 3456, 0, 576, 580, 586, 625, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_INTERLACE),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 27 - 2880x288@50Hz 4:3 */
+    {
+     DRM_MODE("2880x288", DRM_MODE_TYPE_DRIVER, 54000, 2880, 2928, 3180, 3456, 0, 288, 290, 293, 312, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 28 - 2880x288@50Hz 16:9 */
+    {
+     DRM_MODE("2880x288", DRM_MODE_TYPE_DRIVER, 54000, 2880, 2928, 3180, 3456, 0, 288, 290, 293, 312, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 29 - 1440x576@50Hz 4:3 */
+    {
+     DRM_MODE("1440x576", DRM_MODE_TYPE_DRIVER, 54000, 1440, 1464, 1592, 1728, 0, 576, 581, 586, 625, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 30 - 1440x576@50Hz 16:9 */
+    {
+     DRM_MODE("1440x576", DRM_MODE_TYPE_DRIVER, 54000, 1440, 1464, 1592, 1728, 0, 576, 581, 586, 625, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 31 - 1920x1080@50Hz 16:9 */
+    {
+     DRM_MODE("1920x1080", DRM_MODE_TYPE_DRIVER, 148500, 1920, 2448, 2492, 2640, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 32 - 1920x1080@24Hz 16:9 */
+    {
+     DRM_MODE("1920x1080", DRM_MODE_TYPE_DRIVER, 74250, 1920, 2558, 2602, 2750, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 33 - 1920x1080@25Hz 16:9 */
+    {
+     DRM_MODE("1920x1080", DRM_MODE_TYPE_DRIVER, 74250, 1920, 2448, 2492, 2640, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 34 - 1920x1080@30Hz 16:9 */
+    {
+     DRM_MODE("1920x1080", DRM_MODE_TYPE_DRIVER, 74250, 1920, 2008, 2052, 2200, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 35 - 2880x480@60Hz 4:3 */
+    {
+     DRM_MODE("2880x480", DRM_MODE_TYPE_DRIVER, 108000, 2880, 2944, 3192, 3432, 0, 480, 489, 495, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 36 - 2880x480@60Hz 16:9 */
+    {
+     DRM_MODE("2880x480", DRM_MODE_TYPE_DRIVER, 108000, 2880, 2944, 3192, 3432, 0, 480, 489, 495, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 37 - 2880x576@50Hz 4:3 */
+    {
+     DRM_MODE("2880x576", DRM_MODE_TYPE_DRIVER, 108000, 2880, 2928, 3184, 3456, 0, 576, 581, 586, 625, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 38 - 2880x576@50Hz 16:9 */
+    {
+     DRM_MODE("2880x576", DRM_MODE_TYPE_DRIVER, 108000, 2880, 2928, 3184, 3456, 0, 576, 581, 586, 625, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 39 - 1920x1080i@50Hz 16:9 */
+    {
+     DRM_MODE("1920x1080i", DRM_MODE_TYPE_DRIVER, 72000, 1920, 1952, 2120, 2304, 0, 1080, 1126, 1136, 1250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_INTERLACE),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 40 - 1920x1080i@100Hz 16:9 */
+    {
+     DRM_MODE("1920x1080i", DRM_MODE_TYPE_DRIVER, 148500, 1920, 2448, 2492, 2640, 0, 1080, 1084, 1094, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC | DRM_MODE_FLAG_INTERLACE),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 41 - 1280x720@100Hz 16:9 */
+    {
+     DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 148500, 1280, 1720, 1760, 1980, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 42 - 720x576@100Hz 4:3 */
+    {
+     DRM_MODE("720x576", DRM_MODE_TYPE_DRIVER, 54000, 720, 732, 796, 864, 0, 576, 581, 586, 625, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 43 - 720x576@100Hz 16:9 */
+    {
+     DRM_MODE("720x576", DRM_MODE_TYPE_DRIVER, 54000, 720, 732, 796, 864, 0, 576, 581, 586, 625, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 44 - 720(1440)x576i@100Hz 4:3 */
+    {
+     DRM_MODE("720x576i", DRM_MODE_TYPE_DRIVER, 27000, 720, 732, 795, 864, 0, 576, 580, 586, 625, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLCLK),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 45 - 720(1440)x576i@100Hz 16:9 */
+    {
+     DRM_MODE("720x576i", DRM_MODE_TYPE_DRIVER, 27000, 720, 732, 795, 864, 0, 576, 580, 586, 625, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLCLK),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 46 - 1920x1080i@120Hz 16:9 */
+    {
+     DRM_MODE("1920x1080i", DRM_MODE_TYPE_DRIVER, 148500, 1920, 2008, 2052, 2200, 0, 1080, 1084, 1094, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC | DRM_MODE_FLAG_INTERLACE),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 47 - 1280x720@120Hz 16:9 */
+    {
+     DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 148500, 1280, 1390, 1430, 1650, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 48 - 720x480@120Hz 4:3 */
+    {
+     DRM_MODE("720x480", DRM_MODE_TYPE_DRIVER, 54000, 720, 736, 798, 858, 0, 480, 489, 495, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 49 - 720x480@120Hz 16:9 */
+    {
+     DRM_MODE("720x480", DRM_MODE_TYPE_DRIVER, 54000, 720, 736, 798, 858, 0, 480, 489, 495, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 50 - 720(1440)x480i@120Hz 4:3 */
+    {
+     DRM_MODE("720x480i", DRM_MODE_TYPE_DRIVER, 27000, 720, 739, 801, 858, 0, 480, 488, 494, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLCLK),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 51 - 720(1440)x480i@120Hz 16:9 */
+    {
+     DRM_MODE("720x480i", DRM_MODE_TYPE_DRIVER, 27000, 720, 739, 801, 858, 0, 480, 488, 494, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLCLK),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 52 - 720x576@200Hz 4:3 */
+    {
+     DRM_MODE("720x576", DRM_MODE_TYPE_DRIVER, 108000, 720, 732, 796, 864, 0, 576, 581, 586, 625, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 53 - 720x576@200Hz 16:9 */
+    {
+     DRM_MODE("720x576", DRM_MODE_TYPE_DRIVER, 108000, 720, 732, 796, 864, 0, 576, 581, 586, 625, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 54 - 720(1440)x576i@200Hz 4:3 */
+    {
+     DRM_MODE("720x576i", DRM_MODE_TYPE_DRIVER, 54000, 720, 732, 795, 864, 0, 576, 580, 586, 625, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLCLK),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 55 - 720(1440)x576i@200Hz 16:9 */
+    {
+     DRM_MODE("720x576i", DRM_MODE_TYPE_DRIVER, 54000, 720, 732, 795, 864, 0, 576, 580, 586, 625, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLCLK),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 56 - 720x480@240Hz 4:3 */
+    {
+     DRM_MODE("720x480", DRM_MODE_TYPE_DRIVER, 108000, 720, 736, 798, 858, 0, 480, 489, 495, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 57 - 720x480@240Hz 16:9 */
+    {
+     DRM_MODE("720x480", DRM_MODE_TYPE_DRIVER, 108000, 720, 736, 798, 858, 0, 480, 489, 495, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 58 - 720(1440)x480i@240Hz 4:3 */
+    {
+     DRM_MODE("720x480i", DRM_MODE_TYPE_DRIVER, 54000, 720, 739, 801, 858, 0, 480, 488, 494, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLCLK),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_4_3,
+     },
+    /* 59 - 720(1440)x480i@240Hz 16:9 */
+    {
+     DRM_MODE("720x480i", DRM_MODE_TYPE_DRIVER, 54000, 720, 739, 801, 858, 0, 480, 488, 494, 525, 0,
+              DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLCLK),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 60 - 1280x720@24Hz 16:9 */
+    {
+     DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 59400, 1280, 3040, 3080, 3300, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 61 - 1280x720@25Hz 16:9 */
+    {
+     DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 74250, 1280, 3700, 3740, 3960, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 62 - 1280x720@30Hz 16:9 */
+    {
+     DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 74250, 1280, 3040, 3080, 3300, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 63 - 1920x1080@120Hz 16:9 */
+    {
+     DRM_MODE("1920x1080", DRM_MODE_TYPE_DRIVER, 297000, 1920, 2008, 2052, 2200, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 64 - 1920x1080@100Hz 16:9 */
+    {
+     DRM_MODE("1920x1080", DRM_MODE_TYPE_DRIVER, 297000, 1920, 2448, 2492, 2640, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 65 - 1280x720@24Hz 64:27 */
+    {
+     DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 59400, 1280, 3040, 3080, 3300, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 66 - 1280x720@25Hz 64:27 */
+    {
+     DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 74250, 1280, 3700, 3740, 3960, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 67 - 1280x720@30Hz 64:27 */
+    {
+     DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 74250, 1280, 3040, 3080, 3300, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 68 - 1280x720@50Hz 64:27 */
+    {
+     DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 74250, 1280, 1720, 1760, 1980, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 69 - 1280x720@60Hz 64:27 */
+    {
+     DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 74250, 1280, 1390, 1430, 1650, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 70 - 1280x720@100Hz 64:27 */
+    {
+     DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 148500, 1280, 1720, 1760, 1980, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 71 - 1280x720@120Hz 64:27 */
+    {
+     DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 148500, 1280, 1390, 1430, 1650, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 72 - 1920x1080@24Hz 64:27 */
+    {
+     DRM_MODE("1920x1080", DRM_MODE_TYPE_DRIVER, 74250, 1920, 2558, 2602, 2750, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 73 - 1920x1080@25Hz 64:27 */
+    {
+     DRM_MODE("1920x1080", DRM_MODE_TYPE_DRIVER, 74250, 1920, 2448, 2492, 2640, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 74 - 1920x1080@30Hz 64:27 */
+    {
+     DRM_MODE("1920x1080", DRM_MODE_TYPE_DRIVER, 74250, 1920, 2008, 2052, 2200, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 75 - 1920x1080@50Hz 64:27 */
+    {
+     DRM_MODE("1920x1080", DRM_MODE_TYPE_DRIVER, 148500, 1920, 2448, 2492, 2640, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 76 - 1920x1080@60Hz 64:27 */
+    {
+     DRM_MODE("1920x1080", DRM_MODE_TYPE_DRIVER, 148500, 1920, 2008, 2052, 2200, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 77 - 1920x1080@100Hz 64:27 */
+    {
+     DRM_MODE("1920x1080", DRM_MODE_TYPE_DRIVER, 297000, 1920, 2448, 2492, 2640, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 78 - 1920x1080@120Hz 64:27 */
+    {
+     DRM_MODE("1920x1080", DRM_MODE_TYPE_DRIVER, 297000, 1920, 2008, 2052, 2200, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 79 - 1680x720@24Hz 64:27 */
+    {
+     DRM_MODE("1680x720", DRM_MODE_TYPE_DRIVER, 59400, 1680, 3040, 3080, 3300, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 80 - 1680x720@25Hz 64:27 */
+    {
+     DRM_MODE("1680x720", DRM_MODE_TYPE_DRIVER, 59400, 1680, 2908, 2948, 3168, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 81 - 1680x720@30Hz 64:27 */
+    {
+     DRM_MODE("1680x720", DRM_MODE_TYPE_DRIVER, 59400, 1680, 2380, 2420, 2640, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 82 - 1680x720@50Hz 64:27 */
+    {
+     DRM_MODE("1680x720", DRM_MODE_TYPE_DRIVER, 82500, 1680, 1940, 1980, 2200, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 83 - 1680x720@60Hz 64:27 */
+    {
+     DRM_MODE("1680x720", DRM_MODE_TYPE_DRIVER, 99000, 1680, 1940, 1980, 2200, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 84 - 1680x720@100Hz 64:27 */
+    {
+     DRM_MODE("1680x720", DRM_MODE_TYPE_DRIVER, 165000, 1680, 1740, 1780, 2000, 0, 720, 725, 730, 825, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 85 - 1680x720@120Hz 64:27 */
+    {
+     DRM_MODE("1680x720", DRM_MODE_TYPE_DRIVER, 198000, 1680, 1740, 1780, 2000, 0, 720, 725, 730, 825, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 86 - 2560x1080@24Hz 64:27 */
+    {
+     DRM_MODE("2560x1080", DRM_MODE_TYPE_DRIVER, 99000, 2560, 3558, 3602, 3750, 0, 1080, 1084, 1089, 1100, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 87 - 2560x1080@25Hz 64:27 */
+    {
+     DRM_MODE("2560x1080", DRM_MODE_TYPE_DRIVER, 90000, 2560, 3008, 3052, 3200, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 88 - 2560x1080@30Hz 64:27 */
+    {
+     DRM_MODE("2560x1080", DRM_MODE_TYPE_DRIVER, 118800, 2560, 3328, 3372, 3520, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 89 - 2560x1080@50Hz 64:27 */
+    {
+     DRM_MODE("2560x1080", DRM_MODE_TYPE_DRIVER, 185625, 2560, 3108, 3152, 3300, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 90 - 2560x1080@60Hz 64:27 */
+    {
+     DRM_MODE("2560x1080", DRM_MODE_TYPE_DRIVER, 198000, 2560, 2808, 2852, 3000, 0, 1080, 1084, 1089, 1100, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 91 - 2560x1080@100Hz 64:27 */
+    {
+     DRM_MODE("2560x1080", DRM_MODE_TYPE_DRIVER, 371250, 2560, 2778, 2822, 2970, 0, 1080, 1084, 1089, 1250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 92 - 2560x1080@120Hz 64:27 */
+    {
+     DRM_MODE("2560x1080", DRM_MODE_TYPE_DRIVER, 495000, 2560, 3108, 3152, 3300, 0, 1080, 1084, 1089, 1250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 93 - 3840x2160@24Hz 16:9 */
+    {
+     DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 297000, 3840, 5116, 5204, 5500, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 94 - 3840x2160@25Hz 16:9 */
+    {
+     DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 297000, 3840, 4896, 4984, 5280, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 95 - 3840x2160@30Hz 16:9 */
+    {
+     DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 297000, 3840, 4016, 4104, 4400, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 96 - 3840x2160@50Hz 16:9 */
+    {
+     DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 594000, 3840, 4896, 4984, 5280, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 97 - 3840x2160@60Hz 16:9 */
+    {
+     DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 594000, 3840, 4016, 4104, 4400, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 98 - 4096x2160@24Hz 256:135 */
+    {
+     DRM_MODE("4096x2160", DRM_MODE_TYPE_DRIVER, 297000, 4096, 5116, 5204, 5500, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_256_135,
+     },
+    /* 99 - 4096x2160@25Hz 256:135 */
+    {
+     DRM_MODE("4096x2160", DRM_MODE_TYPE_DRIVER, 297000, 4096, 5064, 5152, 5280, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_256_135,
+     },
+    /* 100 - 4096x2160@30Hz 256:135 */
+    {
+     DRM_MODE("4096x2160", DRM_MODE_TYPE_DRIVER, 297000, 4096, 4184, 4272, 4400, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_256_135,
+     },
+    /* 101 - 4096x2160@50Hz 256:135 */
+    {
+     DRM_MODE("4096x2160", DRM_MODE_TYPE_DRIVER, 594000, 4096, 5064, 5152, 5280, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_256_135,
+     },
+    /* 102 - 4096x2160@60Hz 256:135 */
+    {
+     DRM_MODE("4096x2160", DRM_MODE_TYPE_DRIVER, 594000, 4096, 4184, 4272, 4400, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_256_135,
+     },
+    /* 103 - 3840x2160@24Hz 64:27 */
+    {
+     DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 297000, 3840, 5116, 5204, 5500, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 104 - 3840x2160@25Hz 64:27 */
+    {
+     DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 297000, 3840, 4896, 4984, 5280, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 105 - 3840x2160@30Hz 64:27 */
+    {
+     DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 297000, 3840, 4016, 4104, 4400, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 106 - 3840x2160@50Hz 64:27 */
+    {
+     DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 594000, 3840, 4896, 4984, 5280, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 107 - 3840x2160@60Hz 64:27 */
+    {
+     DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 594000, 3840, 4016, 4104, 4400, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 108 - 1280x720@48Hz 16:9 */
+    {
+     DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 90000, 1280, 2240, 2280, 2500, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 109 - 1280x720@48Hz 64:27 */
+    {
+     DRM_MODE("1280x720", DRM_MODE_TYPE_DRIVER, 90000, 1280, 2240, 2280, 2500, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 110 - 1680x720@48Hz 64:27 */
+    {
+     DRM_MODE("1680x720", DRM_MODE_TYPE_DRIVER, 99000, 1680, 2490, 2530, 2750, 0, 720, 725, 730, 750, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 111 - 1920x1080@48Hz 16:9 */
+    {
+     DRM_MODE("1920x1080", DRM_MODE_TYPE_DRIVER, 148500, 1920, 2558, 2602, 2750, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 112 - 1920x1080@48Hz 64:27 */
+    {
+     DRM_MODE("1920x1080", DRM_MODE_TYPE_DRIVER, 148500, 1920, 2558, 2602, 2750, 0, 1080, 1084, 1089, 1125, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 113 - 2560x1080@48Hz 64:27 */
+    {
+     DRM_MODE("2560x1080", DRM_MODE_TYPE_DRIVER, 198000, 2560, 3558, 3602, 3750, 0, 1080, 1084, 1089, 1100, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 114 - 3840x2160@48Hz 16:9 */
+    {
+     DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 594000, 3840, 5116, 5204, 5500, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 115 - 4096x2160@48Hz 256:135 */
+    {
+     DRM_MODE("4096x2160", DRM_MODE_TYPE_DRIVER, 594000, 4096, 5116, 5204, 5500, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_256_135,
+     },
+    /* 116 - 3840x2160@48Hz 64:27 */
+    {
+     DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 594000, 3840, 5116, 5204, 5500, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 117 - 3840x2160@100Hz 16:9 */
+    {
+     DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 1188000, 3840, 4896, 4984, 5280, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 118 - 3840x2160@120Hz 16:9 */
+    {
+     DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 1188000, 3840, 4016, 4104, 4400, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 119 - 3840x2160@100Hz 64:27 */
+    {
+     DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 1188000, 3840, 4896, 4984, 5280, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 120 - 3840x2160@120Hz 64:27 */
+    {
+     DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 1188000, 3840, 4016, 4104, 4400, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 121 - 5120x2160@24Hz 64:27 */
+    {
+     DRM_MODE("5120x2160", DRM_MODE_TYPE_DRIVER, 396000, 5120, 7116, 7204, 7500, 0, 2160, 2168, 2178, 2200, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 122 - 5120x2160@25Hz 64:27 */
+    {
+     DRM_MODE("5120x2160", DRM_MODE_TYPE_DRIVER, 396000, 5120, 6816, 6904, 7200, 0, 2160, 2168, 2178, 2200, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 123 - 5120x2160@30Hz 64:27 */
+    {
+     DRM_MODE("5120x2160", DRM_MODE_TYPE_DRIVER, 396000, 5120, 5784, 5872, 6000, 0, 2160, 2168, 2178, 2200, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 124 - 5120x2160@48Hz 64:27 */
+    {
+     DRM_MODE("5120x2160", DRM_MODE_TYPE_DRIVER, 742500, 5120, 5866, 5954, 6250, 0, 2160, 2168, 2178, 2475, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 125 - 5120x2160@50Hz 64:27 */
+    {
+     DRM_MODE("5120x2160", DRM_MODE_TYPE_DRIVER, 742500, 5120, 6216, 6304, 6600, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 126 - 5120x2160@60Hz 64:27 */
+    {
+     DRM_MODE("5120x2160", DRM_MODE_TYPE_DRIVER, 742500, 5120, 5284, 5372, 5500, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 127 - 5120x2160@100Hz 64:27 */
+    {
+     DRM_MODE("5120x2160", DRM_MODE_TYPE_DRIVER, 1485000, 5120, 6216, 6304, 6600, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+};
+
+static const struct drm_display_mode edid_cea_modes_193[] = {
+    /* 193 - 5120x2160@120Hz 64:27 */
+    {
+     DRM_MODE("5120x2160", DRM_MODE_TYPE_DRIVER, 1485000, 5120, 5284, 5372, 5500, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 194 - 7680x4320@24Hz 16:9 */
+    {
+     DRM_MODE("7680x4320", DRM_MODE_TYPE_DRIVER, 1188000, 7680, 10232, 10408, 11000, 0, 4320, 4336, 4356, 4500, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 195 - 7680x4320@25Hz 16:9 */
+    {
+     DRM_MODE("7680x4320", DRM_MODE_TYPE_DRIVER, 1188000, 7680, 10032, 10208, 10800, 0, 4320, 4336, 4356, 4400, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 196 - 7680x4320@30Hz 16:9 */
+    {
+     DRM_MODE("7680x4320", DRM_MODE_TYPE_DRIVER, 1188000, 7680, 8232, 8408, 9000, 0, 4320, 4336, 4356, 4400, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 197 - 7680x4320@48Hz 16:9 */
+    {
+     DRM_MODE("7680x4320", DRM_MODE_TYPE_DRIVER, 2376000, 7680, 10232, 10408, 11000, 0, 4320, 4336, 4356, 4500, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 198 - 7680x4320@50Hz 16:9 */
+    {
+     DRM_MODE("7680x4320", DRM_MODE_TYPE_DRIVER, 2376000, 7680, 10032, 10208, 10800, 0, 4320, 4336, 4356, 4400, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 199 - 7680x4320@60Hz 16:9 */
+    {
+     DRM_MODE("7680x4320", DRM_MODE_TYPE_DRIVER, 2376000, 7680, 8232, 8408, 9000, 0, 4320, 4336, 4356, 4400, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 200 - 7680x4320@100Hz 16:9 */
+    {
+     DRM_MODE("7680x4320", DRM_MODE_TYPE_DRIVER, 4752000, 7680, 9792, 9968, 10560, 0, 4320, 4336, 4356, 4500, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 201 - 7680x4320@120Hz 16:9 */
+    {
+     DRM_MODE("7680x4320", DRM_MODE_TYPE_DRIVER, 4752000, 7680, 8032, 8208, 8800, 0, 4320, 4336, 4356, 4500, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 202 - 7680x4320@24Hz 64:27 */
+    {
+     DRM_MODE("7680x4320", DRM_MODE_TYPE_DRIVER, 1188000, 7680, 10232, 10408, 11000, 0, 4320, 4336, 4356, 4500, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 203 - 7680x4320@25Hz 64:27 */
+    {
+     DRM_MODE("7680x4320", DRM_MODE_TYPE_DRIVER, 1188000, 7680, 10032, 10208, 10800, 0, 4320, 4336, 4356, 4400, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 204 - 7680x4320@30Hz 64:27 */
+    {
+     DRM_MODE("7680x4320", DRM_MODE_TYPE_DRIVER, 1188000, 7680, 8232, 8408, 9000, 0, 4320, 4336, 4356, 4400, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 205 - 7680x4320@48Hz 64:27 */
+    {
+     DRM_MODE("7680x4320", DRM_MODE_TYPE_DRIVER, 2376000, 7680, 10232, 10408, 11000, 0, 4320, 4336, 4356, 4500, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 206 - 7680x4320@50Hz 64:27 */
+    {
+     DRM_MODE("7680x4320", DRM_MODE_TYPE_DRIVER, 2376000, 7680, 10032, 10208, 10800, 0, 4320, 4336, 4356, 4400, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 207 - 7680x4320@60Hz 64:27 */
+    {
+     DRM_MODE("7680x4320", DRM_MODE_TYPE_DRIVER, 2376000, 7680, 8232, 8408, 9000, 0, 4320, 4336, 4356, 4400, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 208 - 7680x4320@100Hz 64:27 */
+    {
+     DRM_MODE("7680x4320", DRM_MODE_TYPE_DRIVER, 4752000, 7680, 9792, 9968, 10560, 0, 4320, 4336, 4356, 4500, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 209 - 7680x4320@120Hz 64:27 */
+    {
+     DRM_MODE("7680x4320", DRM_MODE_TYPE_DRIVER, 4752000, 7680, 8032, 8208, 8800, 0, 4320, 4336, 4356, 4500, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 210 - 10240x4320@24Hz 64:27 */
+    {
+     DRM_MODE("10240x4320", DRM_MODE_TYPE_DRIVER, 1485000, 10240, 11732, 11908, 12500, 0, 4320, 4336, 4356, 4950, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 211 - 10240x4320@25Hz 64:27 */
+    {
+     DRM_MODE("10240x4320", DRM_MODE_TYPE_DRIVER, 1485000, 10240, 12732, 12908, 13500, 0, 4320, 4336, 4356, 4400, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 212 - 10240x4320@30Hz 64:27 */
+    {
+     DRM_MODE("10240x4320", DRM_MODE_TYPE_DRIVER, 1485000, 10240, 10528, 10704, 11000, 0, 4320, 4336, 4356, 4500, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 213 - 10240x4320@48Hz 64:27 */
+    {
+     DRM_MODE("10240x4320", DRM_MODE_TYPE_DRIVER, 2970000, 10240, 11732, 11908, 12500, 0, 4320, 4336, 4356, 4950, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 214 - 10240x4320@50Hz 64:27 */
+    {
+     DRM_MODE("10240x4320", DRM_MODE_TYPE_DRIVER, 2970000, 10240, 12732, 12908, 13500, 0, 4320, 4336, 4356, 4400, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 215 - 10240x4320@60Hz 64:27 */
+    {
+     DRM_MODE("10240x4320", DRM_MODE_TYPE_DRIVER, 2970000, 10240, 10528, 10704, 11000, 0, 4320, 4336, 4356, 4500, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 216 - 10240x4320@100Hz 64:27 */
+    {
+     DRM_MODE("10240x4320", DRM_MODE_TYPE_DRIVER, 5940000, 10240, 12432, 12608, 13200, 0, 4320, 4336, 4356, 4500, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 217 - 10240x4320@120Hz 64:27 */
+    {
+     DRM_MODE("10240x4320", DRM_MODE_TYPE_DRIVER, 5940000, 10240, 10528, 10704, 11000, 0, 4320, 4336, 4356, 4500, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_64_27,
+     },
+    /* 218 - 4096x2160@100Hz 256:135 */
+    {
+     DRM_MODE("4096x2160", DRM_MODE_TYPE_DRIVER, 1188000, 4096, 4896, 4984, 5280, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_256_135,
+     },
+    /* 219 - 4096x2160@120Hz 256:135 */
+    {
+     DRM_MODE("4096x2160", DRM_MODE_TYPE_DRIVER, 1188000, 4096, 4184, 4272, 4400, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_256_135,
+     },
+};
+
+static const struct drm_display_mode edid_4k_modes[] = {
+    /* 0 - dummy, VICs start at 1 */
+    {},
+    /* 1 - 3840x2160@30Hz */
+    {
+     DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 297000, 3840, 4016, 4104, 4400, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 2 - 3840x2160@25Hz */
+    {
+     DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 297000, 3840, 4896, 4984, 5280, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 3 - 3840x2160@24Hz */
+    {
+     DRM_MODE("3840x2160", DRM_MODE_TYPE_DRIVER, 297000, 3840, 5116, 5204, 5500, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_16_9,
+     },
+    /* 4 - 4096x2160@24Hz (SMPTE) */
+    {
+     DRM_MODE("4096x2160", DRM_MODE_TYPE_DRIVER, 297000, 4096, 5116, 5204, 5500, 0, 2160, 2168, 2178, 2250, 0,
+              DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_PVSYNC),
+     .picture_aspect_ratio = HDMI_PICTURE_ASPECT_256_135,
+     },
+};
+
+/* clang-format on */
+
+/* ------------------------------------------------------------------ */
+/* CVT / GTF modeline generation helpers                               */
+/* ------------------------------------------------------------------ */
+
+/*
+ * drm_cvt_mode - create a modeline based on the CVT algorithm
+ * @dev: drm device
+ * @hdisplay: hdisplay size
+ * @vdisplay: vdisplay size
+ * @vrefresh: vrefresh rate
+ * @reduced: whether to use reduced blanking
+ * @interlaced: whether to compute an interlaced mode
+ * @margins: whether to add margins (borders)
+ *
+ * This function is called to generate the modeline based on CVT algorithm
+ * according to the hdisplay, vdisplay, vrefresh.  Copied from the Linux
+ * DRM core (drm_modes.c).
+ */
+static struct drm_display_mode *drm_cvt_mode(struct drm_device *dev, int hdisplay, int vdisplay, int vrefresh, bool reduced, bool interlaced,
+                                             bool margins)
+{
+#define HV_FACTOR             1000
+#define CVT_MARGIN_PERCENTAGE 18
+#define CVT_H_GRANULARITY     8
+#define CVT_MIN_V_PORCH       3
+#define CVT_MIN_V_BPORCH      6
+#define CVT_CLOCK_STEP        250
+    struct drm_display_mode *drm_mode;
+    unsigned int             vfieldrate, hperiod;
+    int                      hdisplay_rnd, hmargin, vdisplay_rnd, vmargin, vsync;
+    int                      interlace;
+    uint64_t                 tmp;
+
+    if (!hdisplay || !vdisplay) { return NULL; }
+
+    drm_mode = drm_mode_create(dev);
+    if (!drm_mode) { return NULL; }
+
+    if (!vrefresh) { vrefresh = 60; }
+
+    if (interlaced) {
+        vfieldrate = vrefresh * 2;
+    } else {
+        vfieldrate = vrefresh;
+    }
+
+    hdisplay_rnd = hdisplay - (hdisplay % CVT_H_GRANULARITY);
+
+    hmargin = 0;
+    if (margins) {
+        hmargin = hdisplay_rnd * CVT_MARGIN_PERCENTAGE / 1000;
+        hmargin -= hmargin % CVT_H_GRANULARITY;
+    }
+    drm_mode->hdisplay = hdisplay_rnd + 2 * hmargin;
+
+    if (interlaced) {
+        vdisplay_rnd = vdisplay / 2;
+    } else {
+        vdisplay_rnd = vdisplay;
+    }
+
+    vmargin = 0;
+    if (margins) { vmargin = vdisplay_rnd * CVT_MARGIN_PERCENTAGE / 1000; }
+
+    drm_mode->vdisplay = vdisplay + 2 * vmargin;
+
+    interlace = interlaced ? 1 : 0;
+
+    if (!(vdisplay % 3) && ((vdisplay * 4 / 3) == hdisplay)) {
+        vsync = 4;
+    } else if (!(vdisplay % 9) && ((vdisplay * 16 / 9) == hdisplay)) {
+        vsync = 5;
+    } else if (!(vdisplay % 10) && ((vdisplay * 16 / 10) == hdisplay)) {
+        vsync = 6;
+    } else if (!(vdisplay % 4) && ((vdisplay * 5 / 4) == hdisplay)) {
+        vsync = 7;
+    } else if (!(vdisplay % 9) && ((vdisplay * 15 / 9) == hdisplay)) {
+        vsync = 7;
+    } else {
+        vsync = 10;
+    }
+
+    if (!reduced) {
+#define CVT_MIN_VSYNC_BP     550
+#define CVT_HSYNC_PERCENTAGE 8
+        unsigned int hblank_percentage;
+        int          vsyncandback_porch, hblank;
+        int          tmp1, tmp2;
+
+        tmp1    = HV_FACTOR * 1000000 - CVT_MIN_VSYNC_BP * HV_FACTOR * vfieldrate;
+        tmp2    = (vdisplay_rnd + 2 * vmargin + CVT_MIN_V_PORCH) * 2 + interlace;
+        hperiod = (unsigned int)(tmp1 * 2 / (tmp2 * vfieldrate));
+
+        tmp1 = CVT_MIN_VSYNC_BP * HV_FACTOR / hperiod + 1;
+        if (tmp1 < (vsync + CVT_MIN_V_PORCH)) {
+            vsyncandback_porch = vsync + CVT_MIN_V_PORCH;
+        } else {
+            vsyncandback_porch = tmp1;
+        }
+        drm_mode->vtotal = vdisplay_rnd + 2 * vmargin + vsyncandback_porch + CVT_MIN_V_PORCH;
+#define CVT_M_FACTOR 600
+#define CVT_C_FACTOR 40
+#define CVT_K_FACTOR 128
+#define CVT_J_FACTOR 20
+#define CVT_M_PRIME  (CVT_M_FACTOR * CVT_K_FACTOR / 256)
+#define CVT_C_PRIME  ((CVT_C_FACTOR - CVT_J_FACTOR) * CVT_K_FACTOR / 256 + CVT_J_FACTOR)
+        hblank_percentage = CVT_C_PRIME * HV_FACTOR - CVT_M_PRIME * hperiod / 1000;
+        if (hblank_percentage < 20 * HV_FACTOR) { hblank_percentage = 20 * HV_FACTOR; }
+        hblank = drm_mode->hdisplay * hblank_percentage / (100 * HV_FACTOR - hblank_percentage);
+        hblank -= hblank % (2 * CVT_H_GRANULARITY);
+        drm_mode->htotal      = drm_mode->hdisplay + hblank;
+        drm_mode->hsync_end   = drm_mode->hdisplay + hblank / 2;
+        drm_mode->hsync_start = drm_mode->hsync_end - (drm_mode->htotal * CVT_HSYNC_PERCENTAGE) / 100;
+        drm_mode->hsync_start += CVT_H_GRANULARITY - drm_mode->hsync_start % CVT_H_GRANULARITY;
+        drm_mode->vsync_start = drm_mode->vdisplay + CVT_MIN_V_PORCH;
+        drm_mode->vsync_end   = drm_mode->vsync_start + vsync;
+    } else {
+#define CVT_RB_MIN_VBLANK 460
+#define CVT_RB_H_SYNC     32
+#define CVT_RB_H_BLANK    160
+#define CVT_RB_VFPORCH    3
+        int vbilines;
+        int tmp1, tmp2;
+
+        tmp1     = HV_FACTOR * 1000000 - CVT_RB_MIN_VBLANK * HV_FACTOR * vfieldrate;
+        tmp2     = vdisplay_rnd + 2 * vmargin;
+        hperiod  = (unsigned int)(tmp1 / (tmp2 * vfieldrate));
+        vbilines = CVT_RB_MIN_VBLANK * HV_FACTOR / hperiod + 1;
+        if (vbilines < (CVT_RB_VFPORCH + vsync + CVT_MIN_V_BPORCH)) { vbilines = CVT_RB_VFPORCH + vsync + CVT_MIN_V_BPORCH; }
+        drm_mode->vtotal      = vdisplay_rnd + 2 * vmargin + vbilines;
+        drm_mode->htotal      = drm_mode->hdisplay + CVT_RB_H_BLANK;
+        drm_mode->hsync_end   = drm_mode->hdisplay + CVT_RB_H_BLANK / 2;
+        drm_mode->hsync_start = drm_mode->hsync_end - CVT_RB_H_SYNC;
+        drm_mode->vsync_start = drm_mode->vdisplay + CVT_RB_VFPORCH;
+        drm_mode->vsync_end   = drm_mode->vsync_start + vsync;
+    }
+
+    tmp = (uint64_t)drm_mode->htotal;
+    tmp *= HV_FACTOR * 1000;
+    tmp /= hperiod;
+    tmp -= tmp % CVT_CLOCK_STEP;
+    drm_mode->clock = (int)tmp;
+
+    if (interlaced) {
+        drm_mode->vtotal *= 2;
+        drm_mode->flags |= DRM_MODE_FLAG_INTERLACE;
+    }
+
+    drm_mode_set_name(drm_mode);
+    if (reduced) {
+        drm_mode->flags |= (DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC);
+    } else {
+        drm_mode->flags |= (DRM_MODE_FLAG_PVSYNC | DRM_MODE_FLAG_NHSYNC);
+    }
+
+    return drm_mode;
+}
+
+/*
+ * drm_gtf_mode_complex - create the modeline based on the full GTF algorithm
+ * @dev: drm device
+ * @hdisplay: hdisplay size
+ * @vdisplay: vdisplay size
+ * @vrefresh: vrefresh rate.
+ * @interlaced: whether to compute an interlaced mode
+ * @margins: desired margin (borders) size
+ * @GTF_M: extended GTF formula parameters
+ * @GTF_2C: extended GTF formula parameters
+ * @GTF_K: extended GTF formula parameters
+ * @GTF_2J: extended GTF formula parameters
+ *
+ * Copied from the Linux DRM core (drm_modes.c).
+ */
+static struct drm_display_mode *drm_gtf_mode_complex(struct drm_device *dev, int hdisplay, int vdisplay, int vrefresh, bool interlaced,
+                                                     int margins, int GTF_M, int GTF_2C, int GTF_K, int GTF_2J)
+{
+#define GTF_MARGIN_PERCENTAGE 18
+#define GTF_CELL_GRAN         8
+#define GTF_MIN_V_PORCH       1
+#define V_SYNC_RQD            3
+#define H_SYNC_PERCENT        8
+#define MIN_VSYNC_PLUS_BP     550
+#define GTF_C_PRIME           ((((GTF_2C - GTF_2J) * GTF_K / 256) + GTF_2J) / 2)
+#define GTF_M_PRIME           (GTF_K * GTF_M / 256)
+    struct drm_display_mode *drm_mode;
+    unsigned int             hdisplay_rnd, vdisplay_rnd, vfieldrate_rqd;
+    int                      top_margin, bottom_margin;
+    int                      interlace;
+    unsigned int             hfreq_est;
+    int                      vsync_plus_bp;
+    unsigned int             vtotal_lines;
+    int                      left_margin, right_margin;
+    unsigned int             total_active_pixels, ideal_duty_cycle;
+    unsigned int             hblank, total_pixels, pixel_freq;
+    int                      hsync, hfront_porch, vodd_front_porch_lines;
+    unsigned int             tmp1, tmp2;
+
+    if (!hdisplay || !vdisplay) { return NULL; }
+
+    drm_mode = drm_mode_create(dev);
+    if (!drm_mode) { return NULL; }
+
+    hdisplay_rnd = (hdisplay + GTF_CELL_GRAN / 2) / GTF_CELL_GRAN;
+    hdisplay_rnd = hdisplay_rnd * GTF_CELL_GRAN;
+
+    if (interlaced) {
+        vdisplay_rnd = vdisplay / 2;
+    } else {
+        vdisplay_rnd = vdisplay;
+    }
+
+    if (interlaced) {
+        vfieldrate_rqd = vrefresh * 2;
+    } else {
+        vfieldrate_rqd = vrefresh;
+    }
+
+    top_margin = 0;
+    if (margins) { top_margin = (vdisplay_rnd * GTF_MARGIN_PERCENTAGE + 500) / 1000; }
+    bottom_margin = top_margin;
+
+    interlace = interlaced ? 1 : 0;
+
+    tmp1      = (1000000 - MIN_VSYNC_PLUS_BP * vfieldrate_rqd) / 500;
+    tmp2      = (vdisplay_rnd + 2 * top_margin + GTF_MIN_V_PORCH) * 2 + interlace;
+    hfreq_est = (unsigned int)((tmp2 * 1000 * vfieldrate_rqd) / tmp1);
+
+    vsync_plus_bp = MIN_VSYNC_PLUS_BP * hfreq_est / 1000;
+    vsync_plus_bp = (vsync_plus_bp + 500) / 1000;
+    vtotal_lines  = vdisplay_rnd + top_margin + bottom_margin + vsync_plus_bp + GTF_MIN_V_PORCH;
+
+    if (margins) {
+        left_margin = (hdisplay_rnd * GTF_MARGIN_PERCENTAGE + 500) / 1000;
+    } else {
+        left_margin = 0;
+    }
+    right_margin        = left_margin;
+    total_active_pixels = hdisplay_rnd + left_margin + right_margin;
+
+    ideal_duty_cycle = GTF_C_PRIME * 1000 - (GTF_M_PRIME * 1000000 / hfreq_est);
+
+    hblank       = total_active_pixels * ideal_duty_cycle / (100000 - ideal_duty_cycle);
+    hblank       = (hblank + GTF_CELL_GRAN) / (2 * GTF_CELL_GRAN);
+    hblank       = hblank * 2 * GTF_CELL_GRAN;
+    total_pixels = total_active_pixels + hblank;
+    pixel_freq   = total_pixels * hfreq_est / 1000;
+
+    hsync                  = H_SYNC_PERCENT * total_pixels / 100;
+    hsync                  = (hsync + GTF_CELL_GRAN / 2) / GTF_CELL_GRAN;
+    hsync                  = hsync * GTF_CELL_GRAN;
+    hfront_porch           = hblank / 2 - hsync;
+    vodd_front_porch_lines = GTF_MIN_V_PORCH;
+
+    drm_mode->hdisplay    = (int)hdisplay_rnd;
+    drm_mode->hsync_start = (int)hdisplay_rnd + hfront_porch;
+    drm_mode->hsync_end   = drm_mode->hsync_start + hsync;
+    drm_mode->htotal      = (int)total_pixels;
+    drm_mode->vdisplay    = (int)vdisplay_rnd;
+    drm_mode->vsync_start = (int)vdisplay_rnd + vodd_front_porch_lines;
+    drm_mode->vsync_end   = drm_mode->vsync_start + V_SYNC_RQD;
+    drm_mode->vtotal      = (int)vtotal_lines;
+
+    drm_mode->clock = (int)pixel_freq;
+
+    if (interlaced) {
+        drm_mode->vtotal *= 2;
+        drm_mode->flags |= DRM_MODE_FLAG_INTERLACE;
+    }
+
+    drm_mode_set_name(drm_mode);
+    if (GTF_M == 600 && GTF_2C == 80 && GTF_K == 128 && GTF_2J == 40) {
+        drm_mode->flags = DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC;
+    } else {
+        drm_mode->flags = DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC;
+    }
+
+    return drm_mode;
+}
+
+static struct drm_display_mode *drm_gtf_mode(struct drm_device *dev, int hdisplay, int vdisplay, int vrefresh, bool interlaced, int margins)
+{
+    return drm_gtf_mode_complex(dev, hdisplay, vdisplay, vrefresh, interlaced, margins, 600, 80, 128, 40);
+}
+
+static bool mode_is_rb(const struct drm_display_mode *mode)
+{
+    return (mode->htotal - mode->hdisplay) < 140 && (mode->hsync_end - mode->hdisplay) < 72;
+}
+
+/*
+ * Get standard timing level (CVT/GTF/DMT).
+ * 0 = DMT, 1 = GTF, 2 = GTF2, 3 = CVT
+ */
+static int standard_timing_level(const struct edid *edid)
+{
+    if (edid->revision >= 4) {
+        int ret = 3;
+        int i;
+
+        for (i = 0; i < EDID_DETAILED_TIMINGS; i++) {
+            const struct detailed_timing *descriptor = &edid->detailed_timings[i];
+
+            if (!(descriptor->pixel_clock == 0 && descriptor->data.other_data.pad1 == 0
+                  && descriptor->data.other_data.type == EDID_DETAIL_MONITOR_RANGE)) {
+                continue;
+            }
+            switch (descriptor->data.other_data.data.range.flags) {
+                case DRM_EDID_DEFAULT_GTF_SUPPORT_FLAG :
+                    ret = 1;
+                    break;
+                case DRM_EDID_SECONDARY_GTF_SUPPORT_FLAG :
+                    ret = 2;
+                    break;
+                case DRM_EDID_CVT_SUPPORT_FLAG :
+                    ret = 3;
+                    break;
+                default :
+                    break;
+            }
+        }
+        return ret;
+    }
+    if (edid->revision >= 3) {
+        int i;
+
+        for (i = 0; i < EDID_DETAILED_TIMINGS; i++) {
+            const struct detailed_timing *descriptor = &edid->detailed_timings[i];
+
+            if (descriptor->pixel_clock == 0 && descriptor->data.other_data.pad1 == 0
+                && descriptor->data.other_data.type == EDID_DETAIL_MONITOR_RANGE
+                && descriptor->data.other_data.data.range.flags == DRM_EDID_SECONDARY_GTF_SUPPORT_FLAG) {
+                return 2;
+            }
+        }
+        return 1;
+    }
+    if (edid->revision >= 2) { return 1; }
+    return 0;
+}
+
+static bool drm_edid_is_digital_static(const struct edid *edid)
+{
+    return edid->input & DRM_EDID_INPUT_DIGITAL;
+}
+
+/* 0 is reserved.  The spec says 0x01 fill for unused timings. */
+static bool bad_std_timing(uint8_t a, uint8_t b)
+{
+    return (a == 0x00 && b == 0x00) || (a == 0x01 && b == 0x01) || (a == 0x20 && b == 0x20);
+}
+
+static int drm_mode_hsync(const struct drm_display_mode *mode)
+{
+    if (mode->htotal <= 0) { return 0; }
+    return DIV_ROUND_CLOSEST(mode->clock, mode->htotal);
+}
+
+static bool drm_monitor_supports_rb(const struct edid *edid)
+{
+    if (edid->revision >= 4) {
+        int i;
+
+        for (i = 0; i < EDID_DETAILED_TIMINGS; i++) {
+            const struct detailed_timing *descriptor = &edid->detailed_timings[i];
+
+            if (descriptor->pixel_clock == 0 && descriptor->data.other_data.pad1 == 0
+                && descriptor->data.other_data.type == EDID_DETAIL_MONITOR_RANGE
+                && descriptor->data.other_data.data.range.flags == DRM_EDID_CVT_SUPPORT_FLAG
+                && descriptor->data.other_data.data.range.formula.cvt.flags & DRM_EDID_CVT_FLAGS_REDUCED_BLANKING) {
+                return true;
+            }
+        }
+        return false;
+    }
+    return drm_edid_is_digital_static(edid);
+}
+
+/*
+ * Take the standard timing params (in this case width, aspect, and refresh)
+ * and convert them into a real mode using CVT/GTF/DMT.
+ */
+static struct drm_display_mode *drm_mode_std(struct drm_connector *connector, const struct edid *edid, const struct std_timing *t)
+{
+    struct drm_device       *dev = connector->dev;
+    struct drm_display_mode *m, *mode = NULL;
+    int                      hsize, vsize;
+    int                      vrefresh_rate;
+    unsigned int             aspect_ratio = (t->vfreq_aspect & EDID_TIMING_ASPECT_MASK) >> EDID_TIMING_ASPECT_SHIFT;
+    unsigned int             vfreq        = (t->vfreq_aspect & EDID_TIMING_VFREQ_MASK) >> EDID_TIMING_VFREQ_SHIFT;
+    int                      timing_level = standard_timing_level(edid);
+
+    if (bad_std_timing(t->hsize, t->vfreq_aspect)) { return NULL; }
+
+    /* According to the EDID spec, the hdisplay = hsize * 8 + 248 */
+    hsize = t->hsize * 8 + 248;
+    /* vrefresh_rate = vfreq + 60 */
+    vrefresh_rate = vfreq + 60;
+    /* the vdisplay is calculated based on the aspect ratio */
+    if (aspect_ratio == 0) {
+        if (edid->revision < 3) {
+            vsize = hsize;
+        } else {
+            vsize = (hsize * 10) / 16;
+        }
+    } else if (aspect_ratio == 1) {
+        vsize = (hsize * 3) / 4;
+    } else if (aspect_ratio == 2) {
+        vsize = (hsize * 4) / 5;
+    } else {
+        vsize = (hsize * 9) / 16;
+    }
+
+    /* HDTV hack, part 1 */
+    if (vrefresh_rate == 60 && ((hsize == 1360 && vsize == 765) || (hsize == 1368 && vsize == 769))) {
+        hsize = 1366;
+        vsize = 768;
+    }
+
+    /* If this connector already has a mode for this size and refresh rate,
+     * use that instead. */
+    {
+        ilist_node_t *node = connector->modes.next;
+        while (node && node != &connector->modes) {
+            m = container_of(node, struct drm_display_mode, head);
+            if (m->hdisplay == hsize && m->vdisplay == vsize && drm_mode_vrefresh(m) == vrefresh_rate) { return NULL; }
+            node = node->next;
+        }
+    }
+
+    /* HDTV hack, part 2 */
+    if (hsize == 1366 && vsize == 768 && vrefresh_rate == 60) {
+        mode = drm_cvt_mode(dev, 1366, 768, vrefresh_rate, 0, 0, false);
+        if (!mode) { return NULL; }
+        mode->hdisplay    = 1366;
+        mode->hsync_start = mode->hsync_start - 1;
+        mode->hsync_end   = mode->hsync_end - 1;
+        return mode;
+    }
+
+    /* check whether it can be found in default mode table */
+    if (drm_monitor_supports_rb(edid)) {
+        mode = drm_mode_find_dmt(dev, hsize, vsize, vrefresh_rate, true);
+        if (mode) { return mode; }
+    }
+    mode = drm_mode_find_dmt(dev, hsize, vsize, vrefresh_rate, false);
+    if (mode) { return mode; }
+
+    /* okay, generate it */
+    switch (timing_level) {
+        case 0 : /* DMT */
+            break;
+        case 1 : /* GTF */
+            mode = drm_gtf_mode(dev, hsize, vsize, vrefresh_rate, 0, 0);
+            break;
+        case 2 : /* GTF2 - use standard GTF params */
+            mode = drm_gtf_mode(dev, hsize, vsize, vrefresh_rate, 0, 0);
+            break;
+        case 3 : /* CVT */
+            mode = drm_cvt_mode(dev, hsize, vsize, vrefresh_rate, 0, 0, false);
+            break;
+    }
+    return mode;
+}
+
+/*
+ * EDID is delightfully ambiguous about how interlaced modes are to be
+ * encoded.  Our internal representation is of frame height, but some
+ * HDTV detailed timings are encoded as field height.
+ */
+static void drm_mode_do_interlace_quirk(struct drm_display_mode *mode, const struct detailed_pixel_timing *pt)
+{
+    int i;
+    static const struct {
+            int w, h;
+    } cea_interlaced[] = {
+        {1920, 1080},
+        {720,  480 },
+        {1440, 480 },
+        {2880, 480 },
+        {720,  576 },
+        {1440, 576 },
+        {2880, 576 },
+    };
+
+    if (!(pt->misc & DRM_EDID_PT_INTERLACED)) { return; }
+
+    for (i = 0; i < (int)ARRAY_SIZE(cea_interlaced); i++) {
+        if ((mode->hdisplay == cea_interlaced[i].w) && (mode->vdisplay == cea_interlaced[i].h / 2)) {
+            mode->vdisplay *= 2;
+            mode->vsync_start *= 2;
+            mode->vsync_end *= 2;
+            mode->vtotal *= 2;
+            mode->vtotal |= 1;
+        }
+    }
+
+    mode->flags |= DRM_MODE_FLAG_INTERLACE;
+}
+
+/*
+ * Create a new mode from an EDID detailed timing section.
+ */
+static struct drm_display_mode *drm_mode_detailed(struct drm_connector *connector, const struct detailed_timing *timing)
+{
+    struct drm_device                  *dev = connector->dev;
+    struct drm_display_mode            *mode;
+    const struct detailed_pixel_timing *pt                = &timing->data.pixel_data;
+    unsigned int                        hactive           = (pt->hactive_hblank_hi & 0xf0) << 4 | pt->hactive_lo;
+    unsigned int                        vactive           = (pt->vactive_vblank_hi & 0xf0) << 4 | pt->vactive_lo;
+    unsigned int                        hblank            = (pt->hactive_hblank_hi & 0xf) << 8 | pt->hblank_lo;
+    unsigned int                        vblank            = (pt->vactive_vblank_hi & 0xf) << 8 | pt->vblank_lo;
+    unsigned int                        hsync_offset      = (pt->hsync_vsync_offset_pulse_width_hi & 0xc0) << 2 | pt->hsync_offset_lo;
+    unsigned int                        hsync_pulse_width = (pt->hsync_vsync_offset_pulse_width_hi & 0x30) << 4 | pt->hsync_pulse_width_lo;
+    unsigned int                        vsync_offset = (pt->hsync_vsync_offset_pulse_width_hi & 0xc) << 2 | pt->vsync_offset_pulse_width_lo >> 4;
+    unsigned int vsync_pulse_width = (pt->hsync_vsync_offset_pulse_width_hi & 0x3) << 4 | (pt->vsync_offset_pulse_width_lo & 0xf);
+
+    /* ignore tiny modes */
+    if (hactive < 64 || vactive < 64) { return NULL; }
+
+    if (pt->misc & DRM_EDID_PT_STEREO) { return NULL; }
+
+    /* it is incorrect if hsync/vsync width is zero */
+    if (!hsync_pulse_width || !vsync_pulse_width) { return NULL; }
+
+    mode = drm_mode_create(dev);
+    if (!mode) { return NULL; }
+
+    mode->clock = le16_to_cpu(timing->pixel_clock) * 10;
+
+    mode->hdisplay    = (int)hactive;
+    mode->hsync_start = mode->hdisplay + (int)hsync_offset;
+    mode->hsync_end   = mode->hsync_start + (int)hsync_pulse_width;
+    mode->htotal      = mode->hdisplay + (int)hblank;
+
+    mode->vdisplay    = (int)vactive;
+    mode->vsync_start = mode->vdisplay + (int)vsync_offset;
+    mode->vsync_end   = mode->vsync_start + (int)vsync_pulse_width;
+    mode->vtotal      = mode->vdisplay + (int)vblank;
+
+    /* Some EDIDs have bogus h/vsync_end values */
+    if (mode->hsync_end > mode->htotal) { mode->hsync_end = mode->htotal; }
+    if (mode->vsync_end > mode->vtotal) { mode->vsync_end = mode->vtotal; }
+
+    drm_mode_do_interlace_quirk(mode, pt);
+
+    mode->flags |= (pt->misc & DRM_EDID_PT_HSYNC_POSITIVE) ? DRM_MODE_FLAG_PHSYNC : DRM_MODE_FLAG_NHSYNC;
+    mode->flags |= (pt->misc & DRM_EDID_PT_VSYNC_POSITIVE) ? DRM_MODE_FLAG_PVSYNC : DRM_MODE_FLAG_NVSYNC;
+
+    mode->width_mm  = pt->width_mm_lo | (pt->width_height_mm_hi & 0xf0) << 4;
+    mode->height_mm = pt->height_mm_lo | (pt->width_height_mm_hi & 0xf) << 8;
+
+    mode->type = DRM_MODE_TYPE_DRIVER;
+    drm_mode_set_name(mode);
+
+    return mode;
+}
+
+struct detailed_mode_closure {
+        struct drm_connector *connector;
+        const struct edid    *edid;
+        bool                  preferred;
+        int                   modes;
+};
+
+static void do_detailed_mode(const struct detailed_timing *timing, struct detailed_mode_closure *closure)
+{
+    struct drm_display_mode *newmode;
+
+    if (timing->pixel_clock == 0) { return; } /* not a detailed timing descriptor */
+
+    newmode = drm_mode_detailed(closure->connector, timing);
+    if (!newmode) { return; }
+
+    if (closure->preferred) { newmode->type |= DRM_MODE_TYPE_PREFERRED; }
+
+    drm_mode_probed_add(closure->connector, newmode);
+    closure->modes++;
+    closure->preferred = false;
+}
+
+static int add_detailed_modes(struct drm_connector *connector, const struct edid *edid)
+{
+    struct detailed_mode_closure closure = {
+        .connector = connector,
+        .edid      = edid,
+    };
+    int i;
+
+    if (edid->revision >= 4) {
+        closure.preferred = true;
+    } else {
+        closure.preferred = !!(edid->features & DRM_EDID_FEATURE_PREFERRED_TIMING);
+    }
+
+    for (i = 0; i < EDID_DETAILED_TIMINGS; i++) { do_detailed_mode(&edid->detailed_timings[i], &closure); }
+
+    return closure.modes;
+}
+
+/* CTA-861-H Table 60 - CTA Tag Codes */
+#define CTA_DB_AUDIO        1
+#define CTA_DB_VIDEO        2
+#define CTA_DB_VENDOR       3
+#define CTA_DB_SPEAKER      4
+#define CTA_DB_EXTENDED_TAG 7
+
+/* CTA-861-H Table 62 - CTA Extended Tag Codes */
+#define CTA_EXT_DB_VIDEO_CAP           0
+#define CTA_EXT_DB_VENDOR              1
+#define CTA_EXT_DB_HDR_STATIC_METADATA 6
+#define CTA_EXT_DB_420_VIDEO_DATA      14
+#define CTA_EXT_DB_420_VIDEO_CAP_MAP   15
+
+#define EDID_BASIC_AUDIO (1 << 6)
+
+#define HDMI_IEEE_OUI       0x000c03
+#define HDMI_FORUM_IEEE_OUI 0xc45dd8
+
+static int cea_revision(const uint8_t *cea)
+{
+    return cea[1];
+}
+
+static uint8_t svd_to_vic(uint8_t svd)
+{
+    /* 0-6 bit vic, 7th bit native mode indicator */
+    if ((svd >= 1 && svd <= 64) || (svd >= 129 && svd <= 192)) { return svd & 127; }
+    return svd;
+}
+
+static bool drm_valid_cea_vic(uint8_t vic)
+{
+    return cea_mode_for_vic(vic) != NULL;
+}
+
+/* Do we have an HDMI vendor specific data block? */
+static bool cea_db_is_hdmi_vsdb(const uint8_t *db, int len)
+{
+    return (db[0] >> 5) == CTA_DB_VENDOR && len >= 8 && (db[1] | (db[2] << 8) | (db[3] << 16)) == HDMI_IEEE_OUI;
+}
+
+/* CTA-861 Video Data Block (CTA VDB) */
+static int add_cta_vdb_modes(struct drm_connector *connector, const uint8_t *db, int len)
+{
+    struct drm_device *dev   = connector->dev;
+    int                modes = 0, i;
+    const uint8_t     *svds  = db + 1;
+
+    for (i = 0; i < len - 1; i++) {
+        uint8_t                  vic = svd_to_vic(svds[i]);
+        struct drm_display_mode *newmode;
+
+        if (!drm_valid_cea_vic(vic)) { continue; }
+
+        newmode = drm_display_mode_from_cea_vic(dev, vic);
+        if (!newmode) { break; }
+
+        drm_mode_probed_add(connector, newmode);
+        modes++;
+    }
+
+    return modes;
+}
+
+/* Add 4k modes from the HDMI vendor specific block */
+static int add_hdmi_vsdb_modes(struct drm_connector *connector, const uint8_t *db, int len)
+{
+    struct drm_device *dev    = connector->dev;
+    int                modes  = 0, i;
+    int                offset = 0, vic_len;
+
+    if (len < 8) { return 0; }
+
+    /* no HDMI_Video_Present */
+    if (!(db[8] & (1 << 5))) { return 0; }
+
+    /* skip optional latency fields */
+    if (db[8] & (1 << 7)) {
+        offset++;
+        if (db[8] & (1 << 6)) { offset++; }
+    }
+
+    /* the declared length is not long enough for the 2 first bytes
+     * of additional video format capabilities */
+    if (len < (8 + offset + 2)) { return 0; }
+
+    offset++; /* 3D_Present + reserved */
+    vic_len = db[8 + offset] >> 5;
+
+    for (i = 0; i < vic_len && len >= (9 + offset + i); i++) {
+        uint8_t                  vic = db[9 + offset + i];
+        struct drm_display_mode *newmode;
+
+        if (vic == 0 || vic >= ARRAY_SIZE(edid_4k_modes)) { continue; }
+
+        newmode = drm_mode_duplicate(dev, &edid_4k_modes[vic]);
+        if (!newmode) { continue; }
+
+        drm_mode_probed_add(connector, newmode);
+        modes++;
+    }
+
+    return modes;
+}
+
+/*
+ * Parse the EDID CTA extension blocks: iterate the data block collection and
+ * add the Video Data Block (VIC) and HDMI VSDB modes.
+ */
+static int add_cea_modes(struct drm_connector *connector, const struct edid *edid)
+{
+    int modes = 0, i;
+
+    for (i = 1; i <= edid->extensions; i++) {
+        const uint8_t *ext = (const uint8_t *)edid + i * EDID_LENGTH;
+        int            d, idx, end;
+
+        if (ext[0] != CEA_EXT) { continue; }
+        if (cea_revision(ext) < 3) { continue; }
+
+        d = ext[2];
+        if (d < 4 || d > 127) { continue; }
+
+        idx = 4;
+        end = d;
+        while (idx < end) {
+            int tag = ext[idx] >> 5;
+            int len = ext[idx] & 0x1f;
+
+            if (idx + 1 + len > end) { break; }
+
+            if (tag == CTA_DB_VIDEO) {
+                modes += add_cta_vdb_modes(connector, &ext[idx], len + 1);
+            } else if (cea_db_is_hdmi_vsdb(&ext[idx], len + 1)) {
+                modes += add_hdmi_vsdb_modes(connector, &ext[idx], len + 1);
+            }
+
+            idx += 1 + len;
+        }
+    }
+
+    return modes;
+}
+
+static bool _drm_detect_hdmi_monitor(const struct edid *edid)
+{
+    int i;
+
+    if (!edid) { return false; }
+
+    for (i = 1; i <= edid->extensions; i++) {
+        const uint8_t *ext = (const uint8_t *)edid + i * EDID_LENGTH;
+        int            d, idx;
+
+        if (ext[0] != CEA_EXT || cea_revision(ext) < 3) { continue; }
+
+        d = ext[2];
+        if (d < 4 || d > 127) { continue; }
+
+        idx = 4;
+        while (idx < d) {
+            int tag = ext[idx] >> 5;
+            int len = ext[idx] & 0x1f;
+
+            if (idx + 1 + len > d) { break; }
+
+            if (tag == CTA_DB_VENDOR && len >= 5 && (ext[idx + 1] | (ext[idx + 2] << 8) | (ext[idx + 3] << 16)) == HDMI_IEEE_OUI) {
+                return true;
+            }
+            idx += 1 + len;
+        }
+    }
+
+    return false;
+}
+
+static bool _drm_detect_monitor_audio(const struct edid *edid)
+{
+    int i;
+
+    if (!edid) { return false; }
+
+    for (i = 1; i <= edid->extensions; i++) {
+        const uint8_t *ext = (const uint8_t *)edid + i * EDID_LENGTH;
+        int            d, idx;
+
+        if (ext[0] != CEA_EXT) { continue; }
+
+        if (ext[3] & EDID_BASIC_AUDIO) { return true; }
+
+        if (cea_revision(ext) < 3) { continue; }
+
+        d = ext[2];
+        if (d < 4 || d > 127) { continue; }
+
+        idx = 4;
+        while (idx < d) {
+            int tag = ext[idx] >> 5;
+            int len = ext[idx] & 0x1f;
+
+            if (idx + 1 + len > d) { break; }
+
+            if (tag == CTA_DB_AUDIO) { return true; }
+            idx += 1 + len;
+        }
+    }
+
+    return false;
+}
+
+/* ------------------------------------------------------------------ */
+/* Monitor name extraction                                            */
+/* ------------------------------------------------------------------ */
+
+static bool is_display_descriptor(const struct detailed_timing *descriptor, uint8_t type)
+{
+    return descriptor->pixel_clock == 0 && descriptor->data.other_data.pad1 == 0 && descriptor->data.other_data.type == type;
+}
+
+static void monitor_name(const struct detailed_timing *timing, const uint8_t **res)
+{
+    if (is_display_descriptor(timing, EDID_DETAIL_MONITOR_NAME)) { *res = timing->data.other_data.data.str.str; }
+}
+
+static int get_monitor_name(const struct edid *edid, char name[13])
+{
+    const uint8_t *edid_name = NULL;
+    int            mnl;
+    int            i;
+
+    if (!edid || !name) { return 0; }
+
+    for (i = 0; i < EDID_DETAILED_TIMINGS; i++) { monitor_name(&edid->detailed_timings[i], &edid_name); }
+
+    for (mnl = 0; edid_name && mnl < 13; mnl++) {
+        if (edid_name[mnl] == 0x0a) { break; }
+        name[mnl] = (char)edid_name[mnl];
+    }
+
+    return mnl;
+}
+
+/* ------------------------------------------------------------------ */
+/* Block validation and duplication                                   */
+/* ------------------------------------------------------------------ */
+
+static const uint8_t edid_header[] = {0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00};
+
+int drm_edid_header_is_valid(const void *_edid)
+{
+    const struct edid *edid = _edid;
+    int                i, score = 0;
+
+    for (i = 0; i < (int)sizeof(edid_header); i++) {
+        if (edid->header[i] == edid_header[i]) { score++; }
+    }
+
+    return score;
+}
+
+static int edid_block_compute_checksum(const void *_block)
+{
+    const uint8_t *block = _block;
+    int            i;
+    uint8_t        csum = 0, crc = 0;
+
+    for (i = 0; i < EDID_LENGTH - 1; i++) { csum += block[i]; }
+    crc = 0x100 - csum;
+
+    return crc;
+}
+
+static bool edid_block_is_zero(const void *edid)
+{
+    int i;
+
+    for (i = 0; i < EDID_LENGTH; i++) {
+        if (((const uint8_t *)edid)[i]) { return false; }
+    }
+    return true;
+}
+
+/* Validate a base or extension EDID block. */
+static bool edid_block_valid(void *block, int block_num)
+{
+    struct edid *edid    = block;
+    bool         is_base = (block_num == 0);
+    int          score;
+
+    if (!block) { return false; }
+
+    if (is_base) {
+        score = drm_edid_header_is_valid(block);
+        if (score < 6) {
+            if (edid_block_is_zero(block)) { return false; }
+            return false; /* corrupt header */
+        }
+        if (score < 8) { memcpy(block, edid_header, sizeof(edid_header)); }
+    }
+
+    if (edid_block_compute_checksum(block) != edid->checksum) {
+        if (edid_block_is_zero(block)) { return false; }
+        if (!is_base && block_num >= 0) {
+            /* For CEA extension blocks a bad checksum is tolerated. */
+            if (((const uint8_t *)block)[0] == CEA_EXT) { return true; }
+        }
+        return false;
+    }
+
+    if (is_base) {
+        if (edid->version != 1) { return false; }
+    }
+
+    return true;
+}
+
+bool drm_edid_is_valid(struct edid *edid)
+{
+    int i;
+
+    if (!edid) { return false; }
+
+    for (i = 0; i < edid->extensions + 1; i++) {
+        void *block = (uint8_t *)edid + i * EDID_LENGTH;
+
+        if (!edid_block_valid(block, i)) { return false; }
+    }
+
+    return true;
+}
+
+struct edid *drm_edid_duplicate(const struct edid *edid)
+{
+    struct edid *new_edid;
+
+    if (!edid) { return NULL; }
+
+    new_edid = malloc(edid_size(edid));
+    if (!new_edid) { return NULL; }
+    memcpy(new_edid, edid, edid_size(edid));
+
+    return new_edid;
+}
+
+/* ------------------------------------------------------------------ */
+/* Public API                                                         */
+/* ------------------------------------------------------------------ */
+
+void drm_edid_get_monitor_name(const struct edid *edid, char *name, int bufsize)
+{
+    int name_length = 0;
+
+    if (bufsize <= 0) { return; }
+
+    if (edid) {
+        char buf[13];
+        name_length = min(get_monitor_name(edid, buf), bufsize - 1);
+        memcpy(name, buf, (size_t)name_length);
+    }
+
+    name[name_length] = '\0';
+}
+
+void drm_edid_to_display_info(struct drm_connector *connector, const struct edid *edid)
+{
+    if (!connector) { return; }
+
+    if (!edid) {
+        connector->display_info_width_mm  = 0;
+        connector->display_info_height_mm = 0;
+        return;
+    }
+
+    connector->display_info_width_mm  = (uint32_t)edid->width_cm * 10;
+    connector->display_info_height_mm = (uint32_t)edid->height_cm * 10;
+}
+
+bool drm_edid_is_digital(const struct edid *edid)
+{
+    return edid && (edid->input & DRM_EDID_INPUT_DIGITAL);
+}
+
+bool drm_detect_hdmi_monitor(const struct edid *edid)
+{
+    return _drm_detect_hdmi_monitor(edid);
+}
+
+bool drm_detect_monitor_audio(const struct edid *edid)
+{
+    return _drm_detect_monitor_audio(edid);
+}
+
+int drm_add_edid_modes(struct drm_connector *connector, struct edid *edid)
+{
+    int num_modes = 0;
+
+    if (!edid) { return 0; }
+
+    if (!drm_edid_is_valid(edid)) {
+        DRM_WARN("[CONNECTOR:%d:%s] EDID invalid.\n", connector->base.id, connector->name);
+        return 0;
+    }
+
+    /*
+     * EDID spec says modes should be preferred in this order:
+     * - preferred detailed mode
+     * - other detailed modes from base block
+     * - standard timing codes
+     * - established timing codes
+     * - modes inferred from the CTA/HDMI blocks
+     */
+    num_modes += add_detailed_modes(connector, edid);
+    num_modes += add_standard_modes(connector, edid);
+    num_modes += add_established_modes(connector, edid);
+    num_modes += add_cea_modes(connector, edid);
+
+    return num_modes;
+}
+
+/* ------------------------------------------------------------------ */
+/* EDID size helper                                                   */
+/* ------------------------------------------------------------------ */
+
+static size_t edid_size(const struct edid *edid)
+{
+    return (size_t)(edid->extensions + 1) * EDID_LENGTH;
+}
+
+/* ------------------------------------------------------------------ */
+/* Established timing modes                                           */
+/* ------------------------------------------------------------------ */
+
+/*
+ * These more or less come from the DMT spec.  The 720x400 modes are
+ * inferred from historical 80x25 practice.  The 640x480@67 and 832x624@75
+ * modes are old-school Mac modes.
+ */
+
+static int drm_est3_modes(struct drm_connector *connector, const struct detailed_timing *timing)
+{
+    int                      i, j, m, modes = 0;
+    struct drm_display_mode *mode;
+    const uint8_t           *est = ((const uint8_t *)timing) + 6;
+
+    for (i = 0; i < 6; i++) {
+        for (j = 7; j >= 0; j--) {
+            m = (i * 8) + (7 - j);
+            if (m >= (int)ARRAY_SIZE(est3_modes)) { break; }
+            if (est[i] & (1 << j)) {
+                mode = drm_mode_find_dmt(connector->dev, est3_modes[m].w, est3_modes[m].h, est3_modes[m].r, est3_modes[m].rb);
+                if (mode) {
+                    drm_mode_probed_add(connector, mode);
+                    modes++;
+                }
+            }
+        }
+    }
+
+    return modes;
+}
+
+static void do_established_modes(const struct detailed_timing *timing, struct detailed_mode_closure *closure)
+{
+    if (!is_display_descriptor(timing, EDID_DETAIL_EST_TIMINGS)) { return; }
+    closure->modes += drm_est3_modes(closure->connector, timing);
+}
+
+/*
+ * Get established modes from EDID and add them.
+ */
+static int add_established_modes(struct drm_connector *connector, const struct edid *edid)
+{
+    struct drm_device *dev = connector->dev;
+    unsigned long      est_bits
+        = edid->established_timings.t1 | (edid->established_timings.t2 << 8) | ((edid->established_timings.mfg_rsvd & 0x80) << 9);
+    int                          i, modes = 0;
+    struct detailed_mode_closure closure = {
+        .connector = connector,
+        .edid      = edid,
+    };
+
+    for (i = 0; i <= EDID_EST_TIMINGS; i++) {
+        if (est_bits & (1UL << i)) {
+            struct drm_display_mode *newmode;
+
+            if (i >= (int)ARRAY_SIZE(edid_est_modes)) { continue; }
+
+            newmode = drm_mode_duplicate(dev, &edid_est_modes[i]);
+            if (newmode) {
+                drm_mode_probed_add(connector, newmode);
+                modes++;
+            }
+        }
+    }
+
+    /* Some EDIDs have the 3-byte established timings descriptor in the
+     * detailed timing area. */
+    {
+        int k;
+        for (k = 0; k < EDID_DETAILED_TIMINGS; k++) { do_established_modes(&edid->detailed_timings[k], &closure); }
+    }
+
+    return modes + closure.modes;
+}
+
+static void do_standard_modes(const struct detailed_timing *timing, struct detailed_mode_closure *closure)
+{
+    const struct detailed_non_pixel *data = &timing->data.other_data;
+    int                              i;
+
+    if (!is_display_descriptor(timing, EDID_DETAIL_STD_MODES)) { return; }
+
+    for (i = 0; i < 6; i++) {
+        const struct std_timing *std = &data->data.timings[i];
+        struct drm_display_mode *newmode;
+
+        newmode = drm_mode_std(closure->connector, closure->edid, std);
+        if (newmode) {
+            drm_mode_probed_add(closure->connector, newmode);
+            closure->modes++;
+        }
+    }
+}
+
+/*
+ * Get standard modes from EDID and add them.  Standard modes can be
+ * calculated using the appropriate standard (DMT, GTF, or CVT).
+ */
+static int add_standard_modes(struct drm_connector *connector, const struct edid *edid)
+{
+    int                          i, modes = 0;
+    struct detailed_mode_closure closure = {
+        .connector = connector,
+        .edid      = edid,
+    };
+
+    for (i = 0; i < EDID_STD_TIMINGS; i++) {
+        struct drm_display_mode *newmode;
+
+        newmode = drm_mode_std(connector, edid, &edid->standard_timings[i]);
+        if (newmode) {
+            drm_mode_probed_add(connector, newmode);
+            modes++;
+        }
+    }
+
+    /* Some EDIDs have the standard timing descriptor in the detailed
+     * timing area. */
+    {
+        int k;
+        for (k = 0; k < EDID_DETAILED_TIMINGS; k++) { do_standard_modes(&edid->detailed_timings[k], &closure); }
+    }
+
+    return modes + closure.modes;
+}
+
+/* ------------------------------------------------------------------ */
+/* CEA mode tables                                                     */
+/* ------------------------------------------------------------------ */
+
+static const struct drm_display_mode *cea_mode_for_vic(uint8_t vic)
+{
+    if (vic >= 1 && vic < 1 + (uint8_t)ARRAY_SIZE(edid_cea_modes_1)) { return &edid_cea_modes_1[vic - 1]; }
+    if (vic >= 193 && vic < 193 + (uint8_t)ARRAY_SIZE(edid_cea_modes_193)) { return &edid_cea_modes_193[vic - 193]; }
+    return NULL;
+}
+
+struct drm_display_mode *drm_display_mode_from_cea_vic(struct drm_device *dev, uint8_t video_code)
+{
+    const struct drm_display_mode *cea_mode;
+    struct drm_display_mode       *newmode;
+
+    cea_mode = cea_mode_for_vic(video_code);
+    if (!cea_mode) { return NULL; }
+
+    newmode = drm_mode_duplicate(dev, cea_mode);
+    if (!newmode) { return NULL; }
+
+    return newmode;
+}
+
+/* ------------------------------------------------------------------ */
+/* DMT table lookup                                                    */
+/* ------------------------------------------------------------------ */
+
+struct drm_display_mode *drm_mode_find_dmt(struct drm_device *dev, int hsize, int vsize, int fresh, bool rb)
+{
+    int i;
+
+    for (i = 0; i < (int)ARRAY_SIZE(drm_dmt_modes); i++) {
+        const struct drm_display_mode *ptr = &drm_dmt_modes[i];
+
+        if (hsize != ptr->hdisplay) { continue; }
+        if (vsize != ptr->vdisplay) { continue; }
+        if (fresh != drm_mode_vrefresh(ptr)) { continue; }
+        if (rb != mode_is_rb(ptr)) { continue; }
+
+        return drm_mode_duplicate(dev, ptr);
+    }
+
+    return NULL;
+}
+
+/* ------------------------------------------------------------------ */
+/* CEA mode matching (used for alternate clock detection)              */
+/* ------------------------------------------------------------------ */
+
+static int cea_mode_alternate_clock(const struct drm_display_mode *cea_mode)
+{
+    int clock = cea_mode->clock;
+
+    if (drm_mode_vrefresh(cea_mode) % 6 != 0) { return clock; }
+
+    if (cea_mode->vdisplay == 240 || cea_mode->vdisplay == 480) {
+        clock = DIV_ROUND_CLOSEST(clock * 1001, 1000);
+    } else {
+        clock = DIV_ROUND_CLOSEST(clock * 1000, 1001);
+    }
+
+    return clock;
+}
+
+static uint8_t cea_num_vics(void)
+{
+    return 193 + (uint8_t)ARRAY_SIZE(edid_cea_modes_193);
+}
+
+static uint8_t cea_next_vic(uint8_t vic)
+{
+    if (++vic == 1 + (uint8_t)ARRAY_SIZE(edid_cea_modes_1)) { vic = 193; }
+    return vic;
+}
+
+static bool drm_mode_match_timings(const struct drm_display_mode *mode1, const struct drm_display_mode *mode2)
+{
+    return mode1->hdisplay == mode2->hdisplay && mode1->hsync_start == mode2->hsync_start && mode1->hsync_end == mode2->hsync_end
+           && mode1->htotal == mode2->htotal && mode1->hskew == mode2->hskew && mode1->vdisplay == mode2->vdisplay
+           && mode1->vsync_start == mode2->vsync_start && mode1->vsync_end == mode2->vsync_end && mode1->vtotal == mode2->vtotal
+           && mode1->vscan == mode2->vscan;
+}
+
+static bool drm_mode_match_flags(const struct drm_display_mode *mode1, const struct drm_display_mode *mode2)
+{
+    return (mode1->flags & ~DRM_MODE_FLAG_3D_MASK) == (mode2->flags & ~DRM_MODE_FLAG_3D_MASK);
+}
+
+static bool drm_mode_match(const struct drm_display_mode *mode1, const struct drm_display_mode *mode2, unsigned int match_flags)
+{
+    if (!mode1 && !mode2) { return true; }
+    if (!mode1 || !mode2) { return false; }
+
+    if ((match_flags & 0x1) && !drm_mode_match_timings(mode1, mode2)) { return false; }
+    if ((match_flags & 0x2) && (mode1->clock != mode2->clock)) { return false; }
+    if ((match_flags & 0x4) && !drm_mode_match_flags(mode1, mode2)) { return false; }
+    if ((match_flags & 0x8) && (mode1->picture_aspect_ratio != mode2->picture_aspect_ratio)) { return false; }
+
+    return true;
+}
+
+#define DRM_MODE_MATCH_TIMINGS      0x1
+#define DRM_MODE_MATCH_CLOCK        0x2
+#define DRM_MODE_MATCH_FLAGS        0x4
+#define DRM_MODE_MATCH_ASPECT_RATIO 0x8
+
+uint8_t drm_match_cea_mode(const struct drm_display_mode *to_match)
+{
+    unsigned int match_flags = DRM_MODE_MATCH_TIMINGS | DRM_MODE_MATCH_FLAGS;
+    uint8_t      vic;
+
+    if (!to_match->clock) { return 0; }
+
+    if (to_match->picture_aspect_ratio) { match_flags |= DRM_MODE_MATCH_ASPECT_RATIO; }
+
+    for (vic = 1; vic < cea_num_vics(); vic = cea_next_vic(vic)) {
+        struct drm_display_mode cea_mode;
+        unsigned int            clock1, clock2;
+
+        memset(&cea_mode, 0, sizeof(cea_mode));
+        drm_mode_copy(&cea_mode, cea_mode_for_vic(vic));
+
+        /* Check both 60Hz and 59.94Hz */
+        clock1 = (unsigned int)cea_mode.clock;
+        clock2 = (unsigned int)cea_mode_alternate_clock(&cea_mode);
+
+        if (to_match->clock != (int)clock1 && to_match->clock != (int)clock2) { continue; }
+
+        if (drm_mode_match(to_match, &cea_mode, match_flags)) { return vic; }
+    }
+
+    return 0;
+}

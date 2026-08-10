@@ -156,7 +156,7 @@ int ipv4_route(uint32_t destination, net_device_t **device, uint32_t *next_hop)
     if (search.fallback) netdev_put(search.fallback);
     static uint64_t last_log;
     if (sched_ticks() - last_log >= 1000) {
-        plogk("ipv4: no route to %u.%u.%u.%u\n", (unsigned)(destination >> 24) & 0xff, (unsigned)(destination >> 16) & 0xff,
+        plogk("ipv4: No route to %u.%u.%u.%u\n", (unsigned)(destination >> 24) & 0xff, (unsigned)(destination >> 16) & 0xff,
               (unsigned)(destination >> 8) & 0xff, (unsigned)destination & 0xff);
         last_log = sched_ticks();
     }
@@ -177,7 +177,7 @@ static int ipv4_emit_fragment(net_device_t *device, uint32_t next_hop, uint32_t 
 {
     net_pbuf_t *fragment = net_pbuf_alloc(IPV4_HEADER_MIN + length, NET_PBUF_HEADROOM);
     if (!fragment) {
-        plogk("ipv4: %s: fragment alloc failed (dest=%u.%u.%u.%u len=%lu).\n", device->name, (unsigned)(destination >> 24) & 0xff,
+        plogk("ipv4: %s: Fragment alloc failed (dest=%u.%u.%u.%u len=%lu)\n", device->name, (unsigned)(destination >> 24) & 0xff,
               (unsigned)(destination >> 16) & 0xff, (unsigned)(destination >> 8) & 0xff, (unsigned)destination & 0xff, (unsigned long)length);
         return -ENOMEM;
     }
@@ -218,7 +218,7 @@ int ipv4_output(net_device_t *device, uint32_t source, uint32_t destination, uin
     if (!ipv4_source_valid(source) || !next_hop || device->mtu <= IPV4_HEADER_MIN) {
         static uint64_t last_log;
         if (sched_ticks() - last_log >= 1000) {
-            plogk("ipv4: %s: output dropped (source %u.%u.%u.%u, next hop %u.%u.%u.%u)\n", device->name, (unsigned)(source >> 24) & 0xff,
+            plogk("ipv4: %s: Output dropped (source %u.%u.%u.%u, next hop %u.%u.%u.%u)\n", device->name, (unsigned)(source >> 24) & 0xff,
                   (unsigned)(source >> 16) & 0xff, (unsigned)(source >> 8) & 0xff, (unsigned)source & 0xff, (unsigned)(next_hop >> 24) & 0xff,
                   (unsigned)(next_hop >> 16) & 0xff, (unsigned)(next_hop >> 8) & 0xff, (unsigned)next_hop & 0xff);
             last_log = sched_ticks();
@@ -278,7 +278,7 @@ static ipv4_reassembly_t *ipv4_reassembly_find(net_device_t *device, const net_i
     entry->data   = malloc(IPV4_MAX_PAYLOAD);
     entry->bitmap = malloc(IPV4_BITMAP_SIZE);
     if (!entry->data || !entry->bitmap) {
-        plogk("ipv4: %s: reassembly buffer alloc failed (src=%u.%u.%u.%u id=%u).\n", device->name, (unsigned)(ip->source >> 24) & 0xff,
+        plogk("ipv4: %s: Reassembly buffer alloc failed (src=%u.%u.%u.%u id=%u)\n", device->name, (unsigned)(ip->source >> 24) & 0xff,
               (unsigned)(ip->source >> 16) & 0xff, (unsigned)(ip->source >> 8) & 0xff, (unsigned)ip->source & 0xff,
               (unsigned)ip->identification);
         ipv4_reassembly_clear(entry);

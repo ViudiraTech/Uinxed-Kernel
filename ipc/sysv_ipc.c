@@ -284,14 +284,14 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
     /* Allocate new semaphore set */
     sem_array_t *sem = malloc(sizeof(sem_array_t));
     if (sem == NULL) {
-        plogk("sysv_ipc: semget array allocation failed (%u semaphores)\n", (unsigned)nsems);
+        plogk("sysv_ipc: Semget array allocation failed (%u semaphores)\n", (unsigned)nsems);
         return -ENOMEM;
     }
     memset(sem, 0, sizeof(sem_array_t));
 
     sem->values = malloc(sizeof(uint16_t) * (uint32_t)nsems);
     if (sem->values == NULL) {
-        plogk("sysv_ipc: semget values allocation failed.\n");
+        plogk("sysv_ipc: Semget values allocation failed.\n");
         free(sem);
         return -ENOMEM;
     }
@@ -299,7 +299,7 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
 
     sem->sempid = malloc(sizeof(uint32_t) * (uint32_t)nsems);
     if (sem->sempid == NULL) {
-        plogk("sysv_ipc: semget sempid allocation failed.\n");
+        plogk("sysv_ipc: Semget sempid allocation failed.\n");
         free(sem->values);
         free(sem);
         return -ENOMEM;
@@ -308,7 +308,7 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
 
     sem->semcnt = malloc(sizeof(uint32_t) * (uint32_t)nsems);
     if (sem->semcnt == NULL) {
-        plogk("sysv_ipc: semget semcnt allocation failed.\n");
+        plogk("sysv_ipc: Semget semcnt allocation failed.\n");
         free(sem->sempid);
         free(sem->values);
         free(sem);
@@ -318,7 +318,7 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
 
     sem->semzcnt = malloc(sizeof(uint32_t) * (uint32_t)nsems);
     if (sem->semzcnt == NULL) {
-        plogk("sysv_ipc: semget semzcnt allocation failed.\n");
+        plogk("sysv_ipc: Semget semzcnt allocation failed.\n");
         free(sem->semcnt);
         free(sem->sempid);
         free(sem->values);
@@ -329,7 +329,7 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
 
     sem->waitq = malloc(sizeof(wait_queue_t) * (uint32_t)nsems);
     if (sem->waitq == NULL) {
-        plogk("sysv_ipc: semget wait queue allocation failed.\n");
+        plogk("sysv_ipc: Semget wait queue allocation failed.\n");
         free(sem->semzcnt);
         free(sem->semcnt);
         free(sem->sempid);
@@ -563,7 +563,7 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
             if (u != NULL && u->adj != NULL) {
                 for (uint32_t i = 0; i < sem->nsems; i++) { u->adj[i] = (int16_t)(u->adj[i] + undo_adj[i]); }
             } else if (u != NULL) {
-                plogk("sysv_ipc: semtimedop undo tracking lost for semid %d (adj allocation failed)\n", semid);
+                plogk("sysv_ipc: Semtimedop undo tracking lost for semid %d (adj allocation failed)\n", semid);
             }
             spin_unlock(&sem_undo_lock);
         }
@@ -919,7 +919,7 @@ int64_t sys_shmget(key_t key, size_t size, int shmflg)
     /* Allocate physical frames */
     uint64_t phys = alloc_frames(pages);
     if (phys == 0) {
-        plogk("sysv_ipc: shmget frame allocation failed (key %#x, %lu pages)\n", (unsigned)key, (unsigned long)pages);
+        plogk("sysv_ipc: Shmget frame allocation failed (key %#x, %lu pages)\n", (unsigned)key, (unsigned long)pages);
         return -ENOMEM;
     }
 
@@ -930,7 +930,7 @@ int64_t sys_shmget(key_t key, size_t size, int shmflg)
     /* Allocate segment descriptor */
     shm_seg_t *seg = malloc(sizeof(shm_seg_t));
     if (seg == NULL) {
-        plogk("sysv_ipc: shmget segment allocation failed (key %#x)\n", (unsigned)key);
+        plogk("sysv_ipc: Shmget segment allocation failed (key %#x)\n", (unsigned)key);
         free_frames(phys, pages);
         return -ENOMEM;
     }
@@ -1005,7 +1005,7 @@ int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg)
 
     vm_area_t *vma = vm_area_alloc(vaddr, vaddr + seg->size, flags);
     if (!vma) {
-        plogk("sysv_ipc: shmat VMA allocation failed (shmid %d)\n", shmid);
+        plogk("sysv_ipc: Shmat VMA allocation failed (shmid %d)\n", shmid);
         sysv_shm_vma_put(seg, (uint32_t)proc->task->pid);
         return -ENOMEM;
     }
@@ -1019,7 +1019,7 @@ int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg)
     }
 
     if (frame_retain_range(seg->phys_addr, seg->npages)) {
-        plogk("sysv_ipc: shmat frame retain failed (shmid %d)\n", shmid);
+        plogk("sysv_ipc: Shmat frame retain failed (shmid %d)\n", shmid);
         sysv_shm_vma_put(seg, (uint32_t)proc->task->pid);
         free(vma);
         return -ENOMEM;
@@ -1037,7 +1037,7 @@ int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg)
     }
 
     if (vm_area_insert(proc, vma)) {
-        plogk("sysv_ipc: shmat VMA insert failed (shmid %d)\n", shmid);
+        plogk("sysv_ipc: Shmat VMA insert failed (shmid %d)\n", shmid);
         for (uint32_t i = 0; i < seg->npages; i++) (void)page_unmap_release(proc->user_page_dir, vaddr + i * PAGE_4K_SIZE);
         sysv_shm_vma_put(seg, (uint32_t)proc->task->pid);
         free(vma);
@@ -1254,7 +1254,7 @@ int64_t sys_msgget(key_t key, int msgflg)
     /* Allocate new message queue */
     msg_queue_t *q = malloc(sizeof(msg_queue_t));
     if (q == NULL) {
-        plogk("sysv_ipc: msgget queue allocation failed (key %#x)\n", (unsigned)key);
+        plogk("sysv_ipc: Msgget queue allocation failed (key %#x)\n", (unsigned)key);
         return -ENOMEM;
     }
     memset(q, 0, sizeof(msg_queue_t));
@@ -1305,7 +1305,7 @@ int64_t sys_msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg)
     size_t     msg_total = sizeof(msg_msg_t) + msgsz;
     msg_msg_t *msg       = malloc(msg_total);
     if (msg == NULL) {
-        plogk("sysv_ipc: msgsnd buffer allocation failed (msqid %d, %lu bytes)\n", msqid, (unsigned long)msg_total);
+        plogk("sysv_ipc: Msgsnd buffer allocation failed (msqid %d, %lu bytes)\n", msqid, (unsigned long)msg_total);
         return -ENOMEM;
     }
     memset(msg, 0, msg_total);

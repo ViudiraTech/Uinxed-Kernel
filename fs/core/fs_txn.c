@@ -72,12 +72,12 @@ static int fs_txn_write_home(fs_txn_t *transaction, uint32_t required_flags)
         if (!(buffer->flags & required_flags)) continue;
         if (required_flags == FS_TXN_ORDERED_DATA && (buffer->flags & FS_TXN_METADATA)) continue;
         if (!fs_txn_home_block_valid(log, buffer->home_block)) {
-            plogk("fs_txn: write_home block %llu out of range (block_size %u)\n", (unsigned long long)buffer->home_block, log->block_size);
+            plogk("fs_txn: Write_home block %llu out of range (block_size %u)\n", (unsigned long long)buffer->home_block, log->block_size);
             return -EIO;
         }
         int status = blockdev_write_bytes(&log->device, buffer->home_block * (uint64_t)log->block_size, buffer->data, log->block_size);
         if (status != EOK) {
-            plogk("fs_txn: write_home block %llu write failed (drive %u, status %d)\n", (unsigned long long)buffer->home_block,
+            plogk("fs_txn: Write_home block %llu write failed (drive %u, status %d)\n", (unsigned long long)buffer->home_block,
                   log->device.drive, status);
             return status;
         }
@@ -98,7 +98,7 @@ int fs_txn_log_init(fs_txn_log_t *log, const blockdev_device_t *device, uint32_t
 {
     if (!log || !device || !device->sector_size || !device->sector_count || block_size < device->sector_size
         || block_size % device->sector_size) {
-        plogk("fs_txn: log init invalid parameters (drive %u, block_size %u)\n", device ? device->drive : 0, block_size);
+        plogk("fs_txn: Log init invalid parameters (drive %u, block_size %u)\n", device ? device->drive : 0, block_size);
         return -EINVAL;
     }
     memset(log, 0, sizeof(*log));
@@ -122,13 +122,13 @@ int fs_txn_recover(fs_txn_log_t *log)
 {
     int status;
     if (!log) {
-        plogk("fs_txn: recover with NULL log.\n");
+        plogk("fs_txn: Recover with NULL log.\n");
         return -EINVAL;
     }
     fs_txn_claim_log(log);
     status = log->ops && log->ops->recover ? log->ops->recover(log->backend_context) : EOK;
     if (status != EOK) {
-        plogk("fs_txn: recover failed (drive %u, status %d)\n", log->device.drive, status);
+        plogk("fs_txn: Recover failed (drive %u, status %d)\n", log->device.drive, status);
         log->aborted    = 1;
         log->last_error = status;
     }
@@ -139,17 +139,17 @@ int fs_txn_recover(fs_txn_log_t *log)
 int fs_txn_begin(fs_txn_log_t *log, uint32_t credits, fs_txn_t *transaction)
 {
     if (!log || !transaction || !credits) {
-        plogk("fs_txn: begin invalid arguments.\n");
+        plogk("fs_txn: Begin invalid arguments.\n");
         return -EINVAL;
     }
     if (log->device.read_only) {
-        plogk("fs_txn: begin on read-only device (drive %u)\n", log->device.drive);
+        plogk("fs_txn: Begin on read-only device (drive %u)\n", log->device.drive);
         return -EROFS;
     }
     fs_txn_claim_log(log);
     if (log->aborted) {
         int error = log->last_error ? log->last_error : -EROFS;
-        plogk("fs_txn: begin on aborted log (drive %u, last_error %d)\n", log->device.drive, error);
+        plogk("fs_txn: Begin on aborted log (drive %u, last_error %d)\n", log->device.drive, error);
         fs_txn_release_log(log);
         return error;
     }
@@ -166,15 +166,15 @@ int fs_txn_stage(fs_txn_t *transaction, uint64_t home_block, const void *data, u
 {
     fs_txn_buffer_t *buffer;
     if (!transaction || !transaction->active || !data) {
-        plogk("fs_txn: stage invalid arguments.\n");
+        plogk("fs_txn: Stage invalid arguments.\n");
         return -EINVAL;
     }
     if (!(flags & (FS_TXN_METADATA | FS_TXN_ORDERED_DATA))) {
-        plogk("fs_txn: stage invalid flags %#x (home_block %llu)\n", (unsigned)flags, (unsigned long long)home_block);
+        plogk("fs_txn: Stage invalid flags %#x (home_block %llu)\n", (unsigned)flags, (unsigned long long)home_block);
         return -EINVAL;
     }
     if (!fs_txn_home_block_valid(transaction->log, home_block)) {
-        plogk("fs_txn: stage home_block %llu out of range (block_size %u)\n", (unsigned long long)home_block, transaction->log->block_size);
+        plogk("fs_txn: Stage home_block %llu out of range (block_size %u)\n", (unsigned long long)home_block, transaction->log->block_size);
         return -EIO;
     }
 
@@ -185,18 +185,18 @@ int fs_txn_stage(fs_txn_t *transaction, uint64_t home_block, const void *data, u
         return EOK;
     }
     if (transaction->used >= transaction->credits) {
-        plogk("fs_txn: stage credits exhausted (home_block %llu, used %u, credits %u)\n", (unsigned long long)home_block, transaction->used,
+        plogk("fs_txn: Stage credits exhausted (home_block %llu, used %u, credits %u)\n", (unsigned long long)home_block, transaction->used,
               transaction->credits);
         return -ENOSPC;
     }
     buffer = calloc(1, sizeof(*buffer));
     if (!buffer) {
-        plogk("fs_txn: stage buffer allocation failed (home_block %llu)\n", (unsigned long long)home_block);
+        plogk("fs_txn: Stage buffer allocation failed (home_block %llu)\n", (unsigned long long)home_block);
         return -ENOMEM;
     }
     buffer->data = malloc(transaction->log->block_size);
     if (!buffer->data) {
-        plogk("fs_txn: stage data allocation failed (home_block %llu, block_size %u)\n", (unsigned long long)home_block,
+        plogk("fs_txn: Stage data allocation failed (home_block %llu, block_size %u)\n", (unsigned long long)home_block,
               transaction->log->block_size);
         free(buffer);
         return -ENOMEM;
@@ -219,11 +219,11 @@ int fs_txn_read(fs_txn_t *transaction, uint64_t home_block, void *data)
     int              status;
 
     if (!transaction || !transaction->active || !data) {
-        plogk("fs_txn: read invalid arguments.\n");
+        plogk("fs_txn: Read invalid arguments.\n");
         return -EINVAL;
     }
     if (!fs_txn_home_block_valid(transaction->log, home_block)) {
-        plogk("fs_txn: read home_block %llu out of range (block_size %u)\n", (unsigned long long)home_block, transaction->log->block_size);
+        plogk("fs_txn: Read home_block %llu out of range (block_size %u)\n", (unsigned long long)home_block, transaction->log->block_size);
         return -EIO;
     }
     for (buffer = transaction->buffers; buffer; buffer = buffer->next) {
@@ -235,7 +235,7 @@ int fs_txn_read(fs_txn_t *transaction, uint64_t home_block, void *data)
     status = blockdev_read_bytes(&transaction->log->device, home_block * (uint64_t)transaction->log->block_size, data,
                                  transaction->log->block_size);
     if (status != EOK)
-        plogk("fs_txn: read home_block %llu failed (drive %u, status %d)\n", (unsigned long long)home_block, transaction->log->device.drive,
+        plogk("fs_txn: Read home_block %llu failed (drive %u, status %d)\n", (unsigned long long)home_block, transaction->log->device.drive,
               status);
     return status;
 }
@@ -253,14 +253,14 @@ int fs_txn_read_bytes(fs_txn_t *transaction, uint64_t offset, void *data, size_t
 {
     if (!size) return EOK;
     if (!data || !fs_txn_byte_range_valid(transaction, offset, size)) {
-        plogk("fs_txn: read_bytes invalid range (offset %llu, size %zu)\n", (unsigned long long)offset, size);
+        plogk("fs_txn: Read_bytes invalid range (offset %llu, size %zu)\n", (unsigned long long)offset, size);
         return -EINVAL;
     }
     uint8_t *output     = data;
     uint32_t block_size = transaction->log->block_size;
     uint8_t *block      = malloc(block_size);
     if (!block) {
-        plogk("fs_txn: read_bytes block allocation failed (offset %llu, size %zu, block_size %u)\n", (unsigned long long)offset, size,
+        plogk("fs_txn: Read_bytes block allocation failed (offset %llu, size %zu, block_size %u)\n", (unsigned long long)offset, size,
               block_size);
         return -ENOMEM;
     }
@@ -286,14 +286,14 @@ int fs_txn_stage_bytes(fs_txn_t *transaction, uint64_t offset, const void *data,
 {
     if (!size) return EOK;
     if (!data || !fs_txn_byte_range_valid(transaction, offset, size)) {
-        plogk("fs_txn: stage_bytes invalid range (offset %llu, size %zu)\n", (unsigned long long)offset, size);
+        plogk("fs_txn: Stage_bytes invalid range (offset %llu, size %zu)\n", (unsigned long long)offset, size);
         return -EINVAL;
     }
     const uint8_t *input      = data;
     uint32_t       block_size = transaction->log->block_size;
     uint8_t       *block      = malloc(block_size);
     if (!block) {
-        plogk("fs_txn: stage_bytes block allocation failed (offset %llu, size %zu, block_size %u)\n", (unsigned long long)offset, size,
+        plogk("fs_txn: Stage_bytes block allocation failed (offset %llu, size %zu, block_size %u)\n", (unsigned long long)offset, size,
               block_size);
         return -ENOMEM;
     }
@@ -326,7 +326,7 @@ int fs_txn_commit(fs_txn_t *transaction)
     int              status = EOK;
 
     if (!transaction || !transaction->active) {
-        plogk("fs_txn: commit invalid arguments.\n");
+        plogk("fs_txn: Commit invalid arguments.\n");
         return -EINVAL;
     }
     log = transaction->log;
@@ -355,7 +355,7 @@ int fs_txn_commit(fs_txn_t *transaction)
     if (status == EOK && log->ops && transaction->used) status = fs_txn_flush(log);
 
     if (status != EOK) {
-        plogk("fs_txn: commit failed (transaction %u, drive %u, status %d, buffers %u)\n", transaction->transaction_id, log->device.drive,
+        plogk("fs_txn: Commit failed (transaction %u, drive %u, status %d, buffers %u)\n", transaction->transaction_id, log->device.drive,
               status, transaction->used);
         log->aborted    = 1;
         log->last_error = status;
@@ -377,7 +377,7 @@ void fs_txn_abort(fs_txn_t *transaction, int error)
 int fs_txn_log_error(const fs_txn_log_t *log)
 {
     if (!log) {
-        plogk("fs_txn: log_error with NULL log.\n");
+        plogk("fs_txn: Log_error with NULL log.\n");
         return -EINVAL;
     }
     return log->last_error;

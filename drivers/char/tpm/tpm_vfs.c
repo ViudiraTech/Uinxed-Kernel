@@ -127,5 +127,5 @@ void tpm_vfs_init(void)
             vfs_close(node);
         }
     }
-    plogk("tpm: character devices /dev/tpm0 and /dev/tpmrm0 registered\n");
+    plogk("tpm: Character devices /dev/tpm0 and /dev/tpmrm0 registered.\n");
 }

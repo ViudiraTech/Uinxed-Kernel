@@ -51,7 +51,7 @@ static int drm_property_add_enum(struct drm_property *prop, int index, uint64_t 
 
     e = malloc(sizeof(*e));
     if (!e) {
-        plogk("drm_property: enum entry allocation failed, returning -ENOMEM.\n");
+        plogk("drm_property: Enum entry allocation failed, returning -ENOMEM.\n");
         return -ENOMEM;
     }
     memset(e, 0, sizeof(*e));
@@ -94,20 +94,20 @@ struct drm_property *drm_property_create(struct drm_device *dev, uint32_t flags,
     struct drm_property *prop;
 
     if (!dev || !name || num_values < 0) {
-        plogk("drm_property: create with invalid args (dev=%p, name=%p, num_values=%d)\n", dev, name, num_values);
+        plogk("drm_property: Create with invalid args (dev=%p, name=%p, num_values=%d)\n", dev, name, num_values);
         return NULL;
     }
 
     prop = malloc(sizeof(*prop));
     if (!prop) {
-        plogk("drm_property: create %s: property allocation failed.\n", name);
+        plogk("drm_property: Create %s: property allocation failed.\n", name);
         return NULL;
     }
     memset(prop, 0, sizeof(*prop));
 
     if (drm_mode_object_idr_alloc(dev, &prop->base, DRM_MODE_OBJECT_PROPERTY)) {
         free(prop);
-        plogk("drm_property: create %s: mode object IDR allocation failed.\n", name);
+        plogk("drm_property: Create %s: mode object IDR allocation failed.\n", name);
         return NULL;
     }
 
@@ -124,7 +124,7 @@ struct drm_property *drm_property_create(struct drm_device *dev, uint32_t flags,
             drm_idr_remove(&dev->mode_config.object_idr, prop->base.id);
             spin_unlock(&dev->mode_config.idr_mutex);
             free(prop);
-            plogk("drm_property: create %s: values array allocation failed (num_values=%d)\n", name, num_values);
+            plogk("drm_property: Create %s: values array allocation failed (num_values=%d)\n", name, num_values);
             return NULL;
         }
         memset(prop->values, 0, (size_t)num_values * sizeof(uint64_t));
@@ -146,7 +146,7 @@ struct drm_property *drm_property_create_range(struct drm_device *dev, uint32_t 
     struct drm_property *prop;
 
     if (!dev || !name) {
-        plogk("drm_property: create_range with invalid args (dev=%p, name=%p)\n", dev, name);
+        plogk("drm_property: Create_range with invalid args (dev=%p, name=%p)\n", dev, name);
         return NULL;
     }
 
@@ -170,15 +170,15 @@ struct drm_property *drm_property_create_enum(struct drm_device *dev, uint32_t f
     int                  i;
 
     if (!dev || !name) {
-        plogk("drm_property: create_enum with invalid args (dev=%p, name=%p)\n", dev, name);
+        plogk("drm_property: Create_enum with invalid args (dev=%p, name=%p)\n", dev, name);
         return NULL;
     }
     if (num_enums < 0) {
-        plogk("drm_property: create_enum %s: negative num_enums (%d)\n", name, num_enums);
+        plogk("drm_property: Create_enum %s: negative num_enums (%d)\n", name, num_enums);
         return NULL;
     }
     if (num_enums > 0 && !enums) {
-        plogk("drm_property: create_enum %s: enums array missing (num_enums=%d)\n", name, num_enums);
+        plogk("drm_property: Create_enum %s: enums array missing (num_enums=%d)\n", name, num_enums);
         return NULL;
     }
 
@@ -188,7 +188,7 @@ struct drm_property *drm_property_create_enum(struct drm_device *dev, uint32_t f
     for (i = 0; i < num_enums; i++) {
         if (drm_property_add_enum(prop, i, enums[i].value, enums[i].name)) {
             drm_property_destroy(dev, prop);
-            plogk("drm_property: create_enum %s: enum entry %d add failed, rolling back.\n", name, i);
+            plogk("drm_property: Create_enum %s: enum entry %d add failed, rolling back.\n", name, i);
             return NULL;
         }
     }
@@ -208,15 +208,15 @@ struct drm_property *drm_property_create_bitmask(struct drm_device *dev, uint32_
     int                  i, j;
 
     if (!dev || !name) {
-        plogk("drm_property: create_bitmask with invalid args (dev=%p, name=%p)\n", dev, name);
+        plogk("drm_property: Create_bitmask with invalid args (dev=%p, name=%p)\n", dev, name);
         return NULL;
     }
     if (num_enums < 0) {
-        plogk("drm_property: create_bitmask %s: negative num_enums (%d)\n", name, num_enums);
+        plogk("drm_property: Create_bitmask %s: negative num_enums (%d)\n", name, num_enums);
         return NULL;
     }
     if (num_enums > 0 && !enums) {
-        plogk("drm_property: create_bitmask %s: enums array missing (num_enums=%d)\n", name, num_enums);
+        plogk("drm_property: Create_bitmask %s: enums array missing (num_enums=%d)\n", name, num_enums);
         return NULL;
     }
 
@@ -230,7 +230,7 @@ struct drm_property *drm_property_create_bitmask(struct drm_device *dev, uint32_
         if (i >= 32 || !(supported_bits & (1U << i))) continue;
         if (drm_property_add_enum(prop, j, enums[i].value, enums[i].name)) {
             drm_property_destroy(dev, prop);
-            plogk("drm_property: create_bitmask %s: enum entry %d add failed, rolling back.\n", name, i);
+            plogk("drm_property: Create_bitmask %s: enum entry %d add failed, rolling back.\n", name, i);
             return NULL;
         }
         j++;
@@ -254,17 +254,17 @@ struct drm_property_blob *drm_property_create_blob(struct drm_device *dev, const
     void                     *buf = NULL;
 
     if (!dev) {
-        plogk("drm_property: create_blob with NULL device.\n");
+        plogk("drm_property: Create_blob with NULL device.\n");
         return NULL;
     }
     if (length > 0 && !data) {
-        plogk("drm_property: create_blob with NULL data (length=%zu)\n", length);
+        plogk("drm_property: Create_blob with NULL data (length=%zu)\n", length);
         return NULL;
     }
 
     blob = malloc(sizeof(*blob));
     if (!blob) {
-        plogk("drm_property: create_blob: blob allocation failed (length=%zu)\n", length);
+        plogk("drm_property: Create_blob: blob allocation failed (length=%zu)\n", length);
         return NULL;
     }
     memset(blob, 0, sizeof(*blob));
@@ -273,7 +273,7 @@ struct drm_property_blob *drm_property_create_blob(struct drm_device *dev, const
         buf = malloc(length);
         if (!buf) {
             free(blob);
-            plogk("drm_property: create_blob: data buffer allocation failed (length=%zu)\n", length);
+            plogk("drm_property: Create_blob: data buffer allocation failed (length=%zu)\n", length);
             return NULL;
         }
         memcpy(buf, data, length);
@@ -282,7 +282,7 @@ struct drm_property_blob *drm_property_create_blob(struct drm_device *dev, const
     if (drm_mode_object_idr_alloc(dev, &blob->base, DRM_MODE_OBJECT_BLOB)) {
         free(buf);
         free(blob);
-        plogk("drm_property: create_blob: mode object IDR allocation failed (length=%zu)\n", length);
+        plogk("drm_property: Create_blob: mode object IDR allocation failed (length=%zu)\n", length);
         return NULL;
     }
 
@@ -342,7 +342,7 @@ struct drm_property_blob *drm_property_lookup_blob(struct drm_device *dev, uint3
     struct drm_mode_object *obj;
 
     if (!dev) {
-        plogk("drm_property: lookup_blob with NULL device.\n");
+        plogk("drm_property: Lookup_blob with NULL device.\n");
         return NULL;
     }
     obj = drm_mode_object_find(dev, NULL, id, DRM_MODE_OBJECT_BLOB);
@@ -601,7 +601,7 @@ struct drm_property *drm_property_find(struct drm_device *dev, struct drm_file *
     struct drm_mode_object *obj;
 
     if (!dev) {
-        plogk("drm_property: find with NULL device.\n");
+        plogk("drm_property: Find with NULL device.\n");
         return NULL;
     }
     obj = drm_mode_object_find(dev, file_priv, id, DRM_MODE_OBJECT_PROPERTY);

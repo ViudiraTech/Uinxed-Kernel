@@ -98,17 +98,17 @@ static int extfs_valid_dirent(extfs_sb_info_t *sb, ext2_dir_entry_t *de, uint32_
 {
     uint32_t remaining = sb->block_size - offset;
     if (remaining < 8 || de->rec_len < 8 || (de->rec_len & EXT2_DIR_ROUND) || de->rec_len > remaining) {
-        plogk("extfs: drive %u: invalid directory entry at offset %u (inode %u, rec_len %u)\n", sb->device.drive, offset, de->inode,
+        plogk("extfs: Drive %u: invalid directory entry at offset %u (inode %u, rec_len %u)\n", sb->device.drive, offset, de->inode,
               de->rec_len);
         return 0;
     }
     if (de->name_len > de->rec_len - 8) {
-        plogk("extfs: drive %u: invalid directory entry name at offset %u (inode %u, name_len %u)\n", sb->device.drive, offset, de->inode,
+        plogk("extfs: Drive %u: invalid directory entry name at offset %u (inode %u, name_len %u)\n", sb->device.drive, offset, de->inode,
               de->name_len);
         return 0;
     }
     if (de->inode > sb->es->s_inodes_count) {
-        plogk("extfs: drive %u: directory entry %u references out-of-range inode %u\n", sb->device.drive, offset, de->inode);
+        plogk("extfs: Drive %u: directory entry %u references out-of-range inode %u\n", sb->device.drive, offset, de->inode);
         return 0;
     }
     return 1;
@@ -251,8 +251,8 @@ static int extfs_mount(const char *src, vfs_node_t node)
         }
     }
 
-    plogk("extfs: Mounted ext%d volume '%.16s', block size %u, %u groups\n", extfs_detect_version(sb->es), sb->es->s_volume_name, sb->block_size,
-          sb->groups_count);
+    plogk("extfs: Mounted ext%d volume '%.16s', block size %u, %u groups.\n", extfs_detect_version(sb->es), sb->es->s_volume_name,
+          sb->block_size, sb->groups_count);
 
     return EOK;
 }
@@ -732,7 +732,7 @@ static int extfs_delete_impl(void *parent, vfs_node_t node)
     if (status != EOK) return status;
 
     if (!raw.i_links_count) {
-        plogk("extfs: inode %llu has zero link count during unlink (corrupt on-disk state)\n", (unsigned long long)file_h->inode_no);
+        plogk("extfs: Inode %llu has zero link count during unlink (corrupt on-disk state)\n", (unsigned long long)file_h->inode_no);
         return -EIO;
     }
     raw.i_links_count--;

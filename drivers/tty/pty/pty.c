@@ -35,8 +35,6 @@
 #endif
 
 #define PTY_BUFFER_SIZE TTY_CORE_BUFFER_SIZE
-#define PTMX_MAJOR      5
-#define PTMX_MINOR      2
 #define PTS_MAJOR       136
 #define POLLIN          0x001
 #define POLLPRI         0x002
@@ -128,7 +126,7 @@ static int pty_allocate_number(void)
         }
     }
     spin_unlock(&pty_id_lock);
-    plogk("pty: no free pty numbers (limit %d)\n", CONFIG_UNIX98_PTY_MAX);
+    plogk("pty: No free pty numbers (limit %d)\n", CONFIG_UNIX98_PTY_MAX);
     return -ENOSPC;
 }
 
@@ -287,7 +285,7 @@ static int pty_open(vfs_node_t node, uint64_t flags, void **private_data)
     if ((flags & O_PATH) || (flags & O_ACCMODE) == O_ACCMODE) return -EINVAL;
     pty_endpoint_t *endpoint = calloc(1, sizeof(*endpoint));
     if (!endpoint) {
-        plogk("pty: failed to allocate endpoint\n");
+        plogk("pty: Failed to allocate endpoint.\n");
         return -ENOMEM;
     }
 
@@ -303,7 +301,7 @@ static int pty_open(vfs_node_t node, uint64_t flags, void **private_data)
             pty_ids[number / 64] &= ~(1ULL << (number % 64));
             spin_unlock(&pty_id_lock);
             free(endpoint);
-            plogk("pty: failed to allocate pair for /dev/pts/%d\n", number);
+            plogk("pty: Failed to allocate pair for /dev/pts/%d\n", number);
             return -ENOMEM;
         }
         pair->number       = (unsigned int)number;
@@ -323,7 +321,7 @@ static int pty_open(vfs_node_t node, uint64_t flags, void **private_data)
         spin_unlock(&pty_lifetime_lock);
         int result = pty_create_slave(pair);
         if (result) {
-            plogk("pty: failed to create slave node /dev/pts/%u: %d\n", pair->number, result);
+            plogk("pty: Failed to create slave node /dev/pts/%u: %d\n", pair->number, result);
             spin_lock(&pty_lifetime_lock);
             pty_pairs[pair->number] = NULL;
             spin_unlock(&pty_lifetime_lock);
@@ -627,30 +625,14 @@ static int pty_ioctl(void *context, void *private_data, uint64_t flags, size_t r
     }
 }
 
-void pty_init(void)
-{
-#if !CONFIG_UNIX98_PTYS
-    return;
+#if CONFIG_UNIX98_PTYS
+const tmpfs_device_ops_t pty_ptmx_operations = {
+    .open             = pty_open,
+    .release          = pty_release,
+    .file_read        = pty_read,
+    .file_write       = pty_write,
+    .file_poll        = pty_poll,
+    .file_poll_source = pty_poll_source,
+    .file_ioctl       = pty_ioctl,
+};
 #endif
-    static bool initialized;
-    if (initialized) return;
-    initialized                                     = true;
-    static const tmpfs_device_ops_t ptmx_operations = {
-        .open             = pty_open,
-        .release          = pty_release,
-        .file_read        = pty_read,
-        .file_write       = pty_write,
-        .file_poll        = pty_poll,
-        .file_poll_source = pty_poll_source,
-        .file_ioctl       = pty_ioctl,
-    };
-    vfs_mkdir("/dev/pts");
-    if (!devtmpfs_register_char_device("/dev/ptmx", MKDEV(PTMX_MAJOR, PTMX_MINOR), MKDEV(PTMX_MAJOR, PTMX_MINOR), file_ptmx | file_stream,
-                                       &ptmx_operations)) {
-        vfs_node_t node = vfs_open("/dev/ptmx");
-        if (node) {
-            node->mode = 0666;
-            vfs_close(node);
-        }
-    }
-}

@@ -529,13 +529,13 @@ struct socket *netlink_sock_alloc(uint32_t protocol)
 
     sk = calloc(1, sizeof(struct socket));
     if (!sk) {
-        plogk("netlink: socket alloc failed (protocol=%u).\n", (unsigned)protocol);
+        plogk("netlink: Socket alloc failed (protocol=%u)\n", (unsigned)protocol);
         return NULL;
     }
 
     ns = calloc(1, sizeof(nl_sock_t));
     if (!ns) {
-        plogk("netlink: socket state alloc failed (protocol=%u).\n", (unsigned)protocol);
+        plogk("netlink: Socket state alloc failed (protocol=%u)\n", (unsigned)protocol);
         free(sk);
         return NULL;
     }
@@ -648,7 +648,7 @@ int netlink_bind(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen)
         /* Check if PID is already in use */
         struct socket *existing = nl_mcast_find_by_pid(ns->nl_protocol, addr->nl_pid);
         if (existing && existing != sk) {
-            plogk("netlink: bind failed, pid %u already in use.\n", (unsigned)addr->nl_pid);
+            plogk("netlink: Bind failed, pid %u already in use.\n", (unsigned)addr->nl_pid);
             spin_unlock(&sk->lock);
             return -EADDRINUSE;
         }
@@ -700,12 +700,12 @@ static int nl_queue_datagram(struct socket *sk, const void *data, uint32_t len, 
     if (!ns || !data || !len) return -EINVAL;
     msg = nl_msg_alloc(data, len, sender_pid, sender_groups, sender_uid, sender_gid);
     if (!msg) {
-        plogk("netlink: datagram message allocation failed (len=%u)\n", len);
+        plogk("netlink: Datagram message allocation failed (len=%u)\n", len);
         return -ENOMEM;
     }
     node = clist_alloc(msg);
     if (!node) {
-        plogk("netlink: datagram queue node allocation failed (len=%u)\n", len);
+        plogk("netlink: Datagram queue node allocation failed (len=%u)\n", len);
         nl_msg_put(msg);
         return -ENOMEM;
     }
@@ -714,7 +714,7 @@ static int nl_queue_datagram(struct socket *sk, const void *data, uint32_t len, 
     if (ns->recv_queue_len >= ns->recv_queue_max || len > sk->rcvbuf || ns->recv_queue_bytes > sk->rcvbuf - len) {
         static uint64_t last_log;
         if (sched_ticks() - last_log >= 1000) {
-            plogk("netlink: receive queue overflow, dropping datagram (len=%u)\n", len);
+            plogk("netlink: Receive queue overflow, dropping datagram (len=%u)\n", len);
             last_log = sched_ticks();
         }
         ns->overrun = 1;

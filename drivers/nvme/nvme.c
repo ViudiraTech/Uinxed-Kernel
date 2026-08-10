@@ -228,7 +228,7 @@ static int nvme_poll_completion(nvme_queue_t *q, uint32_t expected_cid, nvme_cqe
          */
     }
 
-    plogk("nvme: timeout polling CID %u on queue %u\n", expected_cid, q->qid);
+    plogk("nvme: Timeout polling CID %u on queue %u\n", expected_cid, q->qid);
     return -ETIMEDOUT;
 }
 

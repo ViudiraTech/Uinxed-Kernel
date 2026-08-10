@@ -530,7 +530,7 @@ void *malloc(size_t size)
     void         *result = cache ? cache_alloc_requested(cache, size) : large_alloc(HEAP_MIN_ALIGNMENT, size);
     if (!result) {
         stat_add(&heap.failed_allocations, 1);
-        if (size > size_classes[SIZE_CACHE_COUNT - 1]) plogk("alloc: failed to allocate %llu bytes (heap limit reached)\n", (uint64_t)size);
+        if (size > size_classes[SIZE_CACHE_COUNT - 1]) plogk("alloc: Failed to allocate %llu bytes (heap limit reached)\n", (uint64_t)size);
         return NULL;
     }
     stat_add(&heap.live_allocations, 1);
@@ -549,7 +549,7 @@ void *aligned_alloc(size_t alignment, size_t size)
     if (!result) {
         stat_add(&heap.failed_allocations, 1);
         if (size > size_classes[SIZE_CACHE_COUNT - 1])
-            plogk("alloc: failed to allocate %llu bytes aligned to %llu (heap limit reached)\n", (uint64_t)size, (uint64_t)alignment);
+            plogk("alloc: Failed to allocate %llu bytes aligned to %llu (heap limit reached)\n", (uint64_t)size, (uint64_t)alignment);
         return NULL;
     }
     stat_add(&heap.live_allocations, 1);
@@ -615,7 +615,7 @@ void free(void *pointer)
     size_t owner_index;
     void  *owner;
     if (pointer_owner(pointer, &owner_index, &owner)) {
-        plogk("alloc: invalid free of pointer 0x%016llx (not owned by the heap)\n", (uint64_t)(uintptr_t)pointer);
+        plogk("alloc: Invalid free of pointer 0x%016llx (not owned by the heap)\n", (uint64_t)(uintptr_t)pointer);
         report_error(invalid_free, pointer);
         return;
     }
@@ -625,7 +625,7 @@ void free(void *pointer)
     if (slab->magic == SLAB_MAGIC) {
         int result = cache_free_object(NULL, slab, pointer, &released);
         if (result) {
-            plogk("alloc: free of 0x%016llx rejected (slab integrity check failed, err=%d)\n", (uint64_t)(uintptr_t)pointer, result);
+            plogk("alloc: Free of 0x%016llx rejected (slab integrity check failed, err=%d)\n", (uint64_t)(uintptr_t)pointer, result);
             report_error(result == -2 ? layout_error : invalid_free, pointer);
             return;
         }
@@ -633,7 +633,7 @@ void free(void *pointer)
         large_header_t *large = owner;
         if (large->magic != LARGE_MAGIC || large->cookie != large_cookie(large) || large->state != LARGE_ALLOCATED || large->user != pointer
             || large->page_index != owner_index) {
-            plogk("alloc: free of 0x%016llx rejected (large block header corrupt)\n", (uint64_t)(uintptr_t)pointer);
+            plogk("alloc: Free of 0x%016llx rejected (large block header corrupt)\n", (uint64_t)(uintptr_t)pointer);
             report_error(invalid_free, pointer);
             return;
         }
@@ -642,7 +642,7 @@ void free(void *pointer)
         large->state   = 0;
         large->magic   = 0;
         if (page_free(owner_index, order)) {
-            plogk("alloc: buddy release failed for 0x%016llx (order %u)\n", (uint64_t)(uintptr_t)pointer, order);
+            plogk("alloc: Buddy release failed for 0x%016llx (order %u)\n", (uint64_t)(uintptr_t)pointer, order);
             report_error(layout_error, pointer);
             return;
         }

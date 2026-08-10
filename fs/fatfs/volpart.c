@@ -17,7 +17,7 @@ PARTITION VolToPart[FF_VOLUMES];
 int fatfs_assign_volume(uint8_t volume, uint8_t drive, uint8_t partition)
 {
     if (volume >= FF_VOLUMES) {
-        plogk("fat: assign volume %u out of range (max %u)\n", volume, FF_VOLUMES);
+        plogk("fat: Assign volume %u out of range (max %u)\n", volume, FF_VOLUMES);
         return -EINVAL;
     }
 

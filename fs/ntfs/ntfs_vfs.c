@@ -305,7 +305,7 @@ static int ntfs_record_unpack(ntfs_mount_t *mnt, u8 *record, u32 record_size)
     for (u16 i = 1; i < usa_count; i++) {
         u32 trailer = (size_t)i * mnt->sector_size - sizeof(u16);
         if (le16(record + trailer) != sequence) {
-            plogk("ntfs: drive %u: record checksum mismatch (size %u)\n", mnt->dev.drive, record_size);
+            plogk("ntfs: Drive %u: record checksum mismatch (size %u)\n", mnt->dev.drive, record_size);
             return -EIO;
         }
     }
@@ -1200,7 +1200,7 @@ static int mft_bootstrap_runlist(ntfs_mount_t *mnt)
     }
 
 out:
-    if (status != EOK && status != -ENOMEM) plogk("ntfs: drive %u: MFT data attribute parse failed\n", mnt->dev.drive);
+    if (status != EOK && status != -ENOMEM) plogk("ntfs: Drive %u: MFT data attribute parse failed.\n", mnt->dev.drive);
     free(record);
     return status;
 }
@@ -1220,7 +1220,7 @@ static int mft_read(ntfs_mount_t *mnt, u64 mft_no, u8 *buf)
     } else {
         u64 byte_offset = ((u64)mnt->mft_lcn << mnt->cluster_bits) + logical_offset;
         if (dev_read(mnt, byte_offset, buf, mnt->mft_size) < 0) {
-            plogk("ntfs: drive %u: failed to read MFT record %llu at byte %llu\n", mnt->dev.drive, (unsigned long long)mft_no,
+            plogk("ntfs: Drive %u: failed to read MFT record %llu at byte %llu\n", mnt->dev.drive, (unsigned long long)mft_no,
                   (unsigned long long)byte_offset);
             return -EIO;
         }
@@ -1260,7 +1260,7 @@ static int mft_write(ntfs_mount_t *mnt, u64 mft_no, const u8 *buf)
                 status = -EIO;
         }
     }
-    if (status != EOK) plogk("ntfs: drive %u: MFT record %llu write failed: %d\n", mnt->dev.drive, (unsigned long long)mft_no, status);
+    if (status != EOK) plogk("ntfs: Drive %u: MFT record %llu write failed: %d\n", mnt->dev.drive, (unsigned long long)mft_no, status);
     free(record);
     return status;
 }
@@ -1613,7 +1613,7 @@ static int read_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, u8
     s64 v[256], l[256], r[256];
     int n = runlist_parse(rl, rl_len, v, l, r, 256);
     if (n <= 0) {
-        plogk("ntfs: drive %u: corrupt runlist in read path\n", mnt->dev.drive);
+        plogk("ntfs: Drive %u: corrupt runlist in read path.\n", mnt->dev.drive);
         return 0;
     }
     if (!size || offset >= max_size) return 0;
@@ -1654,7 +1654,7 @@ static int read_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, u8
             if (to_read > max_cl) to_read = max_cl;
             s64 byte_off = (found_lcn << mnt->cluster_bits) + cl_off;
             if (dev_read(mnt, (u64)byte_off, buf + done, (size_t)to_read) < 0) {
-                plogk("ntfs: drive %u: block read failed at byte %llu (%llu bytes)\n", mnt->dev.drive, (unsigned long long)byte_off,
+                plogk("ntfs: Drive %u: block read failed at byte %llu (%llu bytes)\n", mnt->dev.drive, (unsigned long long)byte_off,
                       (unsigned long long)(size - done));
                 return done > 0 ? (int)done : -EIO;
             }
@@ -1673,7 +1673,7 @@ static s64 write_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, c
     if (!mnt || !buf || !size || offset > max_size || size > max_size - offset) return -EINVAL;
     n = runlist_parse(rl, rl_len, v, l, r, 256);
     if (n <= 0) {
-        plogk("ntfs: drive %u: corrupt runlist in write path\n", mnt->dev.drive);
+        plogk("ntfs: Drive %u: corrupt runlist in write path.\n", mnt->dev.drive);
         return -EIO;
     }
 
@@ -1693,7 +1693,7 @@ static s64 write_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, c
             }
         }
         if (run_lcn < 0 || run_lcn >= mnt->nr_clusters) {
-            plogk("ntfs: drive %u: write target LCN %lld out of range (nr_clusters=%llu)\n", mnt->dev.drive, (long long)run_lcn,
+            plogk("ntfs: Drive %u: write target LCN %lld out of range (nr_clusters=%llu)\n", mnt->dev.drive, (long long)run_lcn,
                   (unsigned long long)mnt->nr_clusters);
             return done ? (s64)done : -EIO;
         }
@@ -1702,11 +1702,11 @@ static s64 write_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, c
         size_t chunk          = (size_t)(run_end - (s64)position);
         if (chunk > size - done) chunk = size - done;
         if ((u64)run_lcn + (cluster_offset + chunk + mnt->cluster_size - 1) / mnt->cluster_size > (u64)mnt->nr_clusters) {
-            plogk("ntfs: drive %u: write overruns volume end at LCN %lld\n", mnt->dev.drive, (long long)run_lcn);
+            plogk("ntfs: Drive %u: write overruns volume end at LCN %lld\n", mnt->dev.drive, (long long)run_lcn);
             return done ? (s64)done : -EIO;
         }
         if (dev_write(mnt, ((u64)run_lcn << mnt->cluster_bits) + cluster_offset, buf + done, chunk) < 0) {
-            plogk("ntfs: drive %u: block write failed at LCN %lld\n", mnt->dev.drive, (long long)run_lcn);
+            plogk("ntfs: Drive %u: block write failed at LCN %lld\n", mnt->dev.drive, (long long)run_lcn);
             return done ? (s64)done : -EIO;
         }
         done += chunk;
@@ -3604,7 +3604,7 @@ static int ntfs_vfs_mount(const char *src, vfs_node_t node)
         return status;
     }
 
-    if (ntfs_prepare_write(mnt) < 0) plogk("ntfs: volume mounted with write path disabled.\n");
+    if (ntfs_prepare_write(mnt) < 0) plogk("ntfs: Volume mounted with write path disabled.\n");
 
     ntfs_handle_t *root_h = calloc(1, sizeof(ntfs_handle_t));
     if (!root_h) {
@@ -3641,7 +3641,7 @@ static void ntfs_vfs_unmount(void *root)
     if (!h) return;
     if (h->mnt->dirty_owned) {
         int status = ntfs_clear_owned_dirty(h->mnt);
-        if (status != EOK) plogk("ntfs: sync failed; volume dirty flag was preserved.\n");
+        if (status != EOK) plogk("ntfs: Sync failed; volume dirty flag was preserved.\n");
     }
     free(h->runlist_buf);
     free(h->mnt->upcase);
@@ -3695,7 +3695,7 @@ static size_t ntfs_vfs_write_locked(ntfs_handle_t *h, const void *addr, size_t o
     mft = malloc(h->mnt->mft_size);
     if (!mft) return 0;
     if (mft_read(h->mnt, h->mft_no, mft) < 0 || le32(mft) != MFT_MAGIC) {
-        plogk("ntfs: drive %u: MFT read failed or bad magic for record %llu during write.\n", h->mnt->dev.drive, (unsigned long long)h->mft_no);
+        plogk("ntfs: Drive %u: MFT read failed or bad magic for record %llu during write.\n", h->mnt->dev.drive, (unsigned long long)h->mft_no);
         free(mft);
         return 0;
     }
@@ -3709,7 +3709,7 @@ static size_t ntfs_vfs_write_locked(ntfs_handle_t *h, const void *addr, size_t o
         if (type == AT_END) break;
         if (length < 24 || attr_offset + length > h->mnt->mft_size) break;
         if (type == AT_ATTRIBUTE_LIST) {
-            plogk("ntfs: drive %u: write of record %llu with unsupported ATTRIBUTE_LIST.\n", h->mnt->dev.drive, (unsigned long long)h->mft_no);
+            plogk("ntfs: Drive %u: write of record %llu with unsupported ATTRIBUTE_LIST.\n", h->mnt->dev.drive, (unsigned long long)h->mft_no);
             free(mft);
             return 0;
         }
@@ -3718,7 +3718,7 @@ static size_t ntfs_vfs_write_locked(ntfs_handle_t *h, const void *addr, size_t o
             u64 write_end = (u64)offset + size;
 
             if (flags & (ATTR_IS_COMPRESSED | ATTR_IS_ENCRYPTED | ATTR_IS_SPARSE)) {
-                plogk("ntfs: drive %u: write to record %llu with unsupported attribute flags 0x%04x\n", h->mnt->dev.drive,
+                plogk("ntfs: Drive %u: write to record %llu with unsupported attribute flags 0x%04x\n", h->mnt->dev.drive,
                       (unsigned long long)h->mft_no, flags);
                 free(mft);
                 return 0;
@@ -3731,7 +3731,7 @@ static size_t ntfs_vfs_write_locked(ntfs_handle_t *h, const void *addr, size_t o
                 s64 written;
 
                 if (length < 64 || le64((u8 *)&attribute->d.nres.lowest_vcn) != 0) {
-                    plogk("ntfs: drive %u: corrupt non-resident attribute in record %llu (corrupt runlist)\n", h->mnt->dev.drive,
+                    plogk("ntfs: Drive %u: corrupt non-resident attribute in record %llu (corrupt runlist)\n", h->mnt->dev.drive,
                           (unsigned long long)h->mft_no);
                     free(mft);
                     return 0;
@@ -3740,7 +3740,7 @@ static size_t ntfs_vfs_write_locked(ntfs_handle_t *h, const void *addr, size_t o
                 data_size        = le64((u8 *)&attribute->d.nres.data_size);
                 initialized_size = le64((u8 *)&attribute->d.nres.init_size);
                 if (mapping_offset < 64 || mapping_offset >= length || initialized_size > data_size) {
-                    plogk("ntfs: drive %u: invalid attribute layout in record %llu\n", h->mnt->dev.drive, (unsigned long long)h->mft_no);
+                    plogk("ntfs: Drive %u: invalid attribute layout in record %llu\n", h->mnt->dev.drive, (unsigned long long)h->mft_no);
                     free(mft);
                     return 0;
                 }
@@ -4862,7 +4862,7 @@ int ntfs_vfs_regist(void)
 {
     int id = vfs_regist_fs("ntfs", &ntfs_cb);
     if (id & ERRNO_MASK) {
-        plogk("ntfs: failed to register filesystem.\n");
+        plogk("ntfs: Failed to register filesystem.\n");
         return -EINVAL;
     }
     plogk("ntfs: Filesystem registered (id=%d)\n", id);

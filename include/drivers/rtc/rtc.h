@@ -11,6 +11,7 @@
 #ifndef INCLUDE_RTC_H_
 #define INCLUDE_RTC_H_
 
+#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
 /* Linux rtc_time ABI (x86-64). */
@@ -32,10 +33,9 @@ void rtc_get_time(rtc_time_t *t);
 /* Seconds since the Unix epoch for the current CMOS time. */
 uint64_t rtc_since_epoch(void);
 
-/*
- * Register /dev/rtc0 (character device).  The sysfs side (/sys/class/rtc)
- * lives in fs/sysfs/rtc_sysfs.c.  Must be called after devtmpfs is ready.
- */
-void rtc_vfs_init(void);
+/* Character-device callbacks bound to /dev/rtc0 by devtmpfs. */
+int64_t rtc_dev_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size);
+int64_t rtc_dev_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size);
+int     rtc_dev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t request, void *argument);
 
 #endif // INCLUDE_RTC_H_

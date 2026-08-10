@@ -132,11 +132,11 @@ int drm_mm_insert_node_in_range(struct drm_mm *mm, struct drm_mm_node *node, uin
     bool                once;
 
     if (size == 0) {
-        plogk("drm_mm: insert: zero size.\n");
+        plogk("drm_mm: Insert: zero size.\n");
         return -EINVAL;
     }
     if (range_start >= range_end) {
-        plogk("drm_mm: insert: invalid range [0x%llx, 0x%llx)\n", (unsigned long long)range_start, (unsigned long long)range_end);
+        plogk("drm_mm: Insert: invalid range [0x%llx, 0x%llx)\n", (unsigned long long)range_start, (unsigned long long)range_end);
         return -EINVAL;
     }
 
@@ -203,7 +203,7 @@ found_hole:
     }
 
     spin_unlock(&mm->lock);
-    plogk("drm_mm: insert: no hole for size %llu alignment %llu in range [0x%llx, 0x%llx)\n", (unsigned long long)size,
+    plogk("drm_mm: Insert: no hole for size %llu alignment %llu in range [0x%llx, 0x%llx)\n", (unsigned long long)size,
           (unsigned long long)alignment, (unsigned long long)range_start, (unsigned long long)range_end);
     return -ENOSPC;
 }

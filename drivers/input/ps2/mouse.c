@@ -87,7 +87,7 @@ void ps2_mouse_handle_byte(uint8_t byte)
     if (result == 1)
         ps2_mouse_report(&packet);
     else if (result < 0)
-        plogk("ps/2: mouse packet decode error: %d\n", result);
+        plogk("ps/2: Mouse packet decode error: %d\n", result);
 }
 
 bool ps2_mouse_available(void)
@@ -106,17 +106,17 @@ void ps2_mouse_init(void)
     ps2_mouse_ready = false;
     result          = ps2_send_device_command(true, PS2_DEV_RESET);
     if (result != EOK) {
-        plogk("ps/2: mouse reset command failed: %d.\n", result);
+        plogk("ps/2: Mouse reset command failed: %d\n", result);
         return;
     }
     result = ps2_read_data_timeout(&response);
     if (result != EOK || response != PS2_RESPONSE_RESET_OK) {
-        plogk("ps/2: mouse self-test response failed: status=%d response=0x%02x.\n", result, response);
+        plogk("ps/2: Mouse self-test response failed: status=%d response=0x%02x\n", result, response);
         return;
     }
     result = ps2_read_data_timeout(&id);
     if (result != EOK) {
-        plogk("ps/2: mouse device ID read failed: %d.\n", result);
+        plogk("ps/2: Mouse device ID read failed: %d\n", result);
         return;
     }
     if (ps2_send_device_command(true, PS2_DEV_DISABLE_REPORT) != EOK) return;
@@ -159,14 +159,14 @@ void ps2_mouse_init(void)
     ps2_mouse_evdev = evdev_create(&ps2_mouse_dev);
     if (!ps2_mouse_evdev) {
         (void)ps2_send_device_command(true, PS2_DEV_DISABLE_REPORT);
-        plogk("evdev: unable to allocate PS/2 mouse device.\n");
+        plogk("evdev: Unable to allocate PS/2 mouse device.\n");
         return;
     }
     if (evdev_register(ps2_mouse_evdev) != EOK) {
         evdev_destroy(ps2_mouse_evdev);
         ps2_mouse_evdev = NULL;
         (void)ps2_send_device_command(true, PS2_DEV_DISABLE_REPORT);
-        plogk("evdev: unable to register PS/2 mouse device.\n");
+        plogk("evdev: Unable to register PS/2 mouse device.\n");
         return;
     }
     ps2_mouse_ready = true;

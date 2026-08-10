@@ -6,12 +6,6 @@
  *      2026/7/22 By JiTianYu391
  *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
- *  Adapted from the Linux DRM core type definitions (include/drm/drm_*.h).
- *  This is the single source of truth for cross-module type layout; every
- *  KMS object header includes it. Pointers to user-space / file-system /
- *  bus objects are intentionally opaque (void *) so the DRM core remains
- *  independent of the rest of the kernel.
- *
  */
 
 #ifndef INCLUDE_DRM_DRM_DEVICE_H_
@@ -1011,6 +1005,10 @@ void                      drm_mode_destroy(struct drm_device *dev, struct drm_di
 void                      drm_mode_probed_add(struct drm_connector *connector, struct drm_display_mode *mode);
 struct drm_display_mode  *drm_convert_umode(const struct drm_mode_modeinfo *umode);
 void                      drm_convert_to_umode(struct drm_mode_modeinfo *out, const struct drm_display_mode *in);
+void                      drm_mode_copy(struct drm_display_mode *dst, const struct drm_display_mode *src);
+int                       drm_mode_vrefresh(const struct drm_display_mode *mode);
+void                      drm_mode_set_name(struct drm_display_mode *mode);
+struct drm_display_mode  *drm_mode_duplicate(struct drm_device *dev, const struct drm_display_mode *mode);
 struct drm_property      *drm_property_create_bitmask(struct drm_device *dev, uint32_t flags, const char *name,
                                                       const struct drm_mode_property_enum *enums, int num_enums, uint32_t supported_bits);
 struct drm_property_blob *drm_property_create_blob(struct drm_device *dev, const void *data, size_t length);

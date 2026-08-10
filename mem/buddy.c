@@ -163,13 +163,13 @@ int buddy_free(buddy_allocator_t *allocator, size_t index, unsigned order)
     size_t units = order_units(order);
     if ((index & (units - 1)) || units > allocator->page_count - index) return -1;
     if (allocator->pages[index].state != BUDDY_PAGE_ALLOC_HEAD || allocator->pages[index].order != order) {
-        plogk("buddy: invalid free at page 0x%llx order %u (state %u, stored order %u)\n", (uint64_t)index, order, allocator->pages[index].state,
+        plogk("buddy: Invalid free at page 0x%llx order %u (state %u, stored order %u)\n", (uint64_t)index, order, allocator->pages[index].state,
               allocator->pages[index].order);
         return -1;
     }
     for (size_t i = 1; i < units; i++) {
         if (allocator->pages[index + i].state != BUDDY_PAGE_ALLOC_TAIL) {
-            plogk("buddy: corrupted block at page 0x%llx order %u (tail page 0x%llx state %u)\n", (uint64_t)index, order, (uint64_t)(index + i),
+            plogk("buddy: Corrupted block at page 0x%llx order %u (tail page 0x%llx state %u)\n", (uint64_t)index, order, (uint64_t)(index + i),
                   allocator->pages[index + i].state);
             return -1;
         }

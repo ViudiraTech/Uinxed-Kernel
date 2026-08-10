@@ -11,6 +11,7 @@
 #include <drivers/core/device.h>
 #include <drivers/tty/tty.h>
 #include <fs/sysfs/sysfs.h>
+#include <fs/sysfs/tty_sysfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
@@ -35,33 +36,36 @@ void tty_sysfs_init(void)
 {
 #if CONFIG_SYSFS
     int ret;
+    int devices = 0;
 
     ret = class_register(&tty_class);
     if (ret != EOK) {
-        plogk("tty_sysfs: class_register(tty) failed: %d\n", ret);
+        plogk("tty_sysfs: Class_register(tty) failed: %d\n", ret);
         return;
     }
 
     /* Register standard TTY devices */
     /* tty0-7 ?virtual consoles */
-    device_create(&tty_class, NULL, MKDEV(4, 0), NULL, "tty0");
-    device_create(&tty_class, NULL, MKDEV(4, 1), NULL, "tty1");
-    device_create(&tty_class, NULL, MKDEV(4, 2), NULL, "tty2");
-    device_create(&tty_class, NULL, MKDEV(4, 3), NULL, "tty3");
-    device_create(&tty_class, NULL, MKDEV(4, 4), NULL, "tty4");
-    device_create(&tty_class, NULL, MKDEV(4, 5), NULL, "tty5");
-    device_create(&tty_class, NULL, MKDEV(4, 6), NULL, "tty6");
-    device_create(&tty_class, NULL, MKDEV(4, 7), NULL, "tty7");
+    if (device_create(&tty_class, NULL, MKDEV(4, 0), NULL, "tty0")) devices++;
+    if (device_create(&tty_class, NULL, MKDEV(4, 1), NULL, "tty1")) devices++;
+    if (device_create(&tty_class, NULL, MKDEV(4, 2), NULL, "tty2")) devices++;
+    if (device_create(&tty_class, NULL, MKDEV(4, 3), NULL, "tty3")) devices++;
+    if (device_create(&tty_class, NULL, MKDEV(4, 4), NULL, "tty4")) devices++;
+    if (device_create(&tty_class, NULL, MKDEV(4, 5), NULL, "tty5")) devices++;
+    if (device_create(&tty_class, NULL, MKDEV(4, 6), NULL, "tty6")) devices++;
+    if (device_create(&tty_class, NULL, MKDEV(4, 7), NULL, "tty7")) devices++;
 
     /* ttyS0-3 ?serial ports */
-    device_create(&tty_class, NULL, MKDEV(4, 64), NULL, "ttyS0");
-    device_create(&tty_class, NULL, MKDEV(4, 65), NULL, "ttyS1");
-    device_create(&tty_class, NULL, MKDEV(4, 66), NULL, "ttyS2");
-    device_create(&tty_class, NULL, MKDEV(4, 67), NULL, "ttyS3");
+    if (device_create(&tty_class, NULL, MKDEV(4, 64), NULL, "ttyS0")) devices++;
+    if (device_create(&tty_class, NULL, MKDEV(4, 65), NULL, "ttyS1")) devices++;
+    if (device_create(&tty_class, NULL, MKDEV(4, 66), NULL, "ttyS2")) devices++;
+    if (device_create(&tty_class, NULL, MKDEV(4, 67), NULL, "ttyS3")) devices++;
 
     /* Auxiliary tty devices */
-    device_create(&tty_class, NULL, MKDEV(5, 0), NULL, "tty");
-    device_create(&tty_class, NULL, MKDEV(5, 1), NULL, "console");
-    device_create(&tty_class, NULL, MKDEV(5, 2), NULL, "ptmx");
+    if (device_create(&tty_class, NULL, MKDEV(5, 0), NULL, "tty")) devices++;
+    if (device_create(&tty_class, NULL, MKDEV(5, 1), NULL, "console")) devices++;
+    if (device_create(&tty_class, NULL, MKDEV(5, 2), NULL, "ptmx")) devices++;
+
+    plogk("tty_sysfs: %d tty device(s) exported to /sys/class/tty\n", devices);
 #endif
 }

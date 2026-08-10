@@ -321,7 +321,7 @@ int sb16_capture_8bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
         }
         usleep(10);
     }
-    if (!got_ack) plogk("sb16: capture DMA ack timeout (8-bit, size=%u)\n", size);
+    if (!got_ack) plogk("sb16: Capture DMA ack timeout (8-bit, size=%u)\n", size);
 
     memcpy(buffer, dev->dma_buffer_virt, size);
     dev->capturing = 1;
@@ -354,7 +354,7 @@ int sb16_capture_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
         }
         usleep(10);
     }
-    if (!got_ack) plogk("sb16: capture DMA ack timeout (16-bit, size=%u)\n", size);
+    if (!got_ack) plogk("sb16: Capture DMA ack timeout (16-bit, size=%u)\n", size);
 
     memcpy(buffer, dev->dma_buffer_virt, size);
     dev->capturing = 1;
@@ -423,13 +423,13 @@ static size_t sb16_audio_write(audio_card_t *card, const void *addr, size_t offs
 
     if (card->format.bits == 16) {
         if (sb16_play_16bit(dev, (uint8_t *)addr, (uint32_t)chunk)) {
-            plogk("sb16: playback start failed (chunk=%zu, bits=%u)\n", chunk, card->format.bits);
+            plogk("sb16: Playback start failed (chunk=%zu, bits=%u)\n", chunk, card->format.bits);
             spin_unlock(&sb16_lock);
             return 0;
         }
     } else {
         if (sb16_play_8bit(dev, (uint8_t *)addr, (uint32_t)chunk)) {
-            plogk("sb16: playback start failed (chunk=%zu, bits=%u)\n", chunk, card->format.bits);
+            plogk("sb16: Playback start failed (chunk=%zu, bits=%u)\n", chunk, card->format.bits);
             spin_unlock(&sb16_lock);
             return 0;
         }
@@ -452,13 +452,13 @@ static size_t sb16_audio_read(audio_card_t *card, void *addr, size_t offset, siz
 
     if (card->format.bits == 16) {
         if (sb16_capture_16bit(dev, (uint8_t *)addr, (uint32_t)chunk)) {
-            plogk("sb16: capture start failed (chunk=%zu, bits=%u)\n", chunk, card->format.bits);
+            plogk("sb16: Capture start failed (chunk=%zu, bits=%u)\n", chunk, card->format.bits);
             spin_unlock(&sb16_lock);
             return 0;
         }
     } else {
         if (sb16_capture_8bit(dev, (uint8_t *)addr, (uint32_t)chunk)) {
-            plogk("sb16: capture start failed (chunk=%zu, bits=%u)\n", chunk, card->format.bits);
+            plogk("sb16: Capture start failed (chunk=%zu, bits=%u)\n", chunk, card->format.bits);
             spin_unlock(&sb16_lock);
             return 0;
         }

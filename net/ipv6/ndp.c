@@ -138,7 +138,7 @@ static int ndp_send(net_device_t *device, const ipv6_address_t *source, const ip
     size_t      length = target ? 32U : 16U;
     net_pbuf_t *packet = net_pbuf_alloc(length, NET_PBUF_HEADROOM);
     if (!packet) {
-        plogk("ndp: %s: message alloc failed (type=%u).\n", device->name, (unsigned)type);
+        plogk("ndp: %s: Message alloc failed (type=%u)\n", device->name, (unsigned)type);
         return -ENOMEM;
     }
     memset(packet->data, 0, length);
@@ -214,7 +214,7 @@ int ndp_resolve(net_device_t *device, const ipv6_address_t *address, net_pbuf_t 
     if (!entry) entry = ndp_alloc_locked(device, address, now);
     if (entry->pending_count >= NDP_PENDING_PER_ENTRY || !ndp_pending_free) {
         spin_unlock(&ndp_lock);
-        plogk("ndp: %s: pending pool exhausted for neighbor.\n", device->name);
+        plogk("ndp: %s: Pending pool exhausted for neighbor.\n", device->name);
         return -ENOBUFS;
     }
     ndp_pending_t *pending = ndp_pending_free;
@@ -224,7 +224,7 @@ int ndp_resolve(net_device_t *device, const ipv6_address_t *address, net_pbuf_t 
         pending->next    = ndp_pending_free;
         ndp_pending_free = pending;
         spin_unlock(&ndp_lock);
-        plogk("ndp: %s: pending packet clone failed.\n", device->name);
+        plogk("ndp: %s: Pending packet clone failed.\n", device->name);
         return -ENOMEM;
     }
     pending->next = NULL;
@@ -419,7 +419,7 @@ void ndp_timer(uint64_t now_ticks)
             memset(entry, 0, sizeof(*entry));
         } else if (entry->state == NDP_INCOMPLETE && now_ticks >= entry->retry_at) {
             if (entry->retries >= NDP_MAX_RETRIES) {
-                plogk("ndp: %s: neighbor resolution timed out, dropping pending packets.\n", entry->device ? entry->device->name : "?");
+                plogk("ndp: %s: Neighbor resolution timed out, dropping pending packets.\n", entry->device ? entry->device->name : "?");
                 ndp_drop_pending_locked(entry);
                 memset(entry, 0, sizeof(*entry));
             } else {

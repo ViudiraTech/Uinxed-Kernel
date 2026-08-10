@@ -56,7 +56,7 @@ int drm_plane_init(struct drm_device *dev, struct drm_plane *plane, uint32_t pos
     (void)name;
 
     if (!dev || !plane || !formats || format_count == 0) {
-        plogk("drm: plane_init with invalid args (dev=%p, plane=%p, formats=%p, format_count=%u)\n", dev, plane, formats, format_count);
+        plogk("drm: Plane_init with invalid args (dev=%p, plane=%p, formats=%p, format_count=%u)\n", dev, plane, formats, format_count);
         return -EINVAL;
     }
 
@@ -80,7 +80,7 @@ int drm_plane_init(struct drm_device *dev, struct drm_plane *plane, uint32_t pos
         spin_lock(&dev->mode_config.idr_mutex);
         drm_idr_remove(&dev->mode_config.object_idr, plane->base.id);
         spin_unlock(&dev->mode_config.idr_mutex);
-        plogk("drm: plane %u format_types allocation failed (count=%u), returning -ENOMEM.\n", plane->base.id, format_count);
+        plogk("drm: Plane %u format_types allocation failed (count=%u), returning -ENOMEM.\n", plane->base.id, format_count);
         return -ENOMEM;
     }
     memcpy(plane->format_types, formats, (size_t)format_count * sizeof(uint32_t));
@@ -97,7 +97,7 @@ int drm_plane_init(struct drm_device *dev, struct drm_plane *plane, uint32_t pos
         spin_lock(&dev->mode_config.idr_mutex);
         drm_idr_remove(&dev->mode_config.object_idr, plane->base.id);
         spin_unlock(&dev->mode_config.idr_mutex);
-        plogk("drm: plane %u name allocation failed, returning -ENOMEM.\n", plane->base.id);
+        plogk("drm: Plane %u name allocation failed, returning -ENOMEM.\n", plane->base.id);
         return -ENOMEM;
     }
 
@@ -118,7 +118,7 @@ int drm_plane_init(struct drm_device *dev, struct drm_plane *plane, uint32_t pos
     if (!ret) ret = drm_object_attach_property(&plane->base, dev->mode_config.prop_alpha, UINT16_MAX);
     if (!ret) ret = drm_object_attach_property(&plane->base, dev->mode_config.prop_plane_type, type);
     if (ret) {
-        plogk("drm: plane %u attach_property failed (ret=%d), cleaning up plane.\n", plane->base.id, ret);
+        plogk("drm: Plane %u attach_property failed (ret=%d), cleaning up plane.\n", plane->base.id, ret);
         drm_plane_cleanup(plane);
         return ret;
     }

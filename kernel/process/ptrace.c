@@ -394,14 +394,14 @@ static int ptrace_stop_current(syscall_frame_t *frame, int sig, ptrace_stop_reas
 static int ptrace_resume(task_t *target, ptrace_run_mode_t mode, int sig)
 {
     if (!sig_valid(sig) && sig != 0) {
-        plogk("ptrace: resume with invalid signal %d (pid=%d)\n", sig, (int)target->pid);
+        plogk("ptrace: Resume with invalid signal %d (pid=%d)\n", sig, (int)target->pid);
         return -EIO;
     }
     ptrace_state_t *state = &target->ptrace;
     spin_lock(&state->lock);
     if (!state->stopped) {
         spin_unlock(&state->lock);
-        plogk("ptrace: resume of non-stopped task (pid=%d)\n", (int)target->pid);
+        plogk("ptrace: Resume of non-stopped task (pid=%d)\n", (int)target->pid);
         return -ESRCH;
     }
     state->mode          = mode;
@@ -423,15 +423,15 @@ static int ptrace_attach(task_t *target, process_t *owner, bool seize, uint32_t 
     int        ret     = ptrace_access_allowed(current, owner);
     if (ret) return ret;
     if (!self || target == self || (options & ~PTRACE_O_MASK)) {
-        plogk("ptrace: attach invalid args (target=%p, options=%x)\n", (void *)target, (unsigned)options);
+        plogk("ptrace: Attach invalid args (target=%p, options=%x)\n", (void *)target, (unsigned)options);
         return -EINVAL;
     }
     if ((options & PTRACE_O_SUSPEND_SECCOMP) && current->uid != 0) {
-        plogk("ptrace: attach with SUSPEND_SECCOMP requires root (target=%d)\n", (int)target->pid);
+        plogk("ptrace: Attach with SUSPEND_SECCOMP requires root (target=%d)\n", (int)target->pid);
         return -EPERM;
     }
     if (target->state == TASK_ZOMBIE) {
-        plogk("ptrace: attach to zombie (pid=%d)\n", (int)target->pid);
+        plogk("ptrace: Attach to zombie (pid=%d)\n", (int)target->pid);
         return -ESRCH;
     }
 
@@ -439,7 +439,7 @@ static int ptrace_attach(task_t *target, process_t *owner, bool seize, uint32_t 
     spin_lock(&state->lock);
     if (state->tracer_pid) {
         spin_unlock(&state->lock);
-        plogk("ptrace: attach denied, task %d already traced (tracer=%lld)\n", (int)target->pid, (long long)state->tracer_pid);
+        plogk("ptrace: Attach denied, task %d already traced (tracer=%lld)\n", (int)target->pid, (long long)state->tracer_pid);
         return -EPERM;
     }
     state->tracer_pid = (int64_t)self->pid;
@@ -554,7 +554,7 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
     task_t    *self    = current_task();
     process_t *current = process_current();
     if (!self || !current) {
-        plogk("ptrace: no current task for ptrace request %d\n", request);
+        plogk("ptrace: No current task for ptrace request %d\n", request);
         return -ESRCH;
     }
 
@@ -579,7 +579,7 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
     process_t *owner  = NULL;
     task_t    *target = ptrace_find_task_get(pid, &owner);
     if (!target) {
-        plogk("ptrace: target pid %lld not found.\n", (long long)pid);
+        plogk("ptrace: Target pid %lld not found.\n", (long long)pid);
         return -ESRCH;
     }
     int64_t ret = 0;
@@ -595,7 +595,7 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
         return ret;
     }
     if (!ptrace_attached_by_current(target)) {
-        plogk("ptrace: task %lld not attached by pid %d\n", (long long)pid, (int)self->pid);
+        plogk("ptrace: Task %lld not attached by pid %d\n", (long long)pid, (int)self->pid);
         process_put(owner);
         return -ESRCH;
     }
@@ -606,7 +606,7 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
     bool wait_pending = state->wait_pending;
     spin_unlock(&state->lock);
     if (request != PTRACE_INTERRUPT && request != PTRACE_KILL && (!stopped || wait_pending)) {
-        plogk("ptrace: task %lld not stopped (request=%d, stopped=%d, wait_pending=%d)\n", (long long)pid, request, stopped, wait_pending);
+        plogk("ptrace: Task %lld not stopped (request=%d, stopped=%d, wait_pending=%d)\n", (long long)pid, request, stopped, wait_pending);
         process_put(owner);
         return -ESRCH;
     }
@@ -786,7 +786,7 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
             ret = -EINVAL;
             break;
         default :
-            plogk("ptrace: unknown request %d (pid=%lld, addr=%lx)\n", request, (long long)pid, (unsigned long)addr);
+            plogk("ptrace: Unknown request %d (pid=%lld, addr=%lx)\n", request, (long long)pid, (unsigned long)addr);
             ret = -EIO;
             break;
     }

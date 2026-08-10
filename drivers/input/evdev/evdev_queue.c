@@ -63,7 +63,7 @@ bool evdev_queue_push(evdev_queue_t *queue, const input_event_t *event)
         queue->packet_head = queue->tail;
         if (!queue->overflow_reported) {
             queue->overflow_reported = true;
-            plogk("evdev: client event queue overflow, events dropped\n");
+            plogk("evdev: Client event queue overflow, events dropped.\n");
         }
     }
 

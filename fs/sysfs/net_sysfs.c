@@ -43,7 +43,7 @@ static ssize_t address_show(struct device *device, struct device_attribute *attr
     net_device_t *netdev = to_netdev(device);
     (void)attr;
     if (!netdev) {
-        plogk("net_sysfs: address_show on %s without netdev.\n", device ? device->kobj.name : "?");
+        plogk("net_sysfs: Address_show on %s without netdev.\n", device ? device->kobj.name : "?");
         return -ENODEV;
     }
     spin_lock(&netdev->lock);
@@ -58,7 +58,7 @@ static ssize_t mtu_show(struct device *device, struct device_attribute *attr, ch
     uint32_t      mtu;
     (void)attr;
     if (!netdev) {
-        plogk("net_sysfs: mtu_show on %s without netdev.\n", device ? device->kobj.name : "?");
+        plogk("net_sysfs: Mtu_show on %s without netdev.\n", device ? device->kobj.name : "?");
         return -ENODEV;
     }
     spin_lock(&netdev->lock);
@@ -73,7 +73,7 @@ static ssize_t operstate_show(struct device *device, struct device_attribute *at
     uint32_t      flags;
     (void)attr;
     if (!netdev) {
-        plogk("net_sysfs: operstate_show on %s without netdev.\n", device ? device->kobj.name : "?");
+        plogk("net_sysfs: Operstate_show on %s without netdev.\n", device ? device->kobj.name : "?");
         return -ENODEV;
     }
     spin_lock(&netdev->lock);
@@ -89,7 +89,7 @@ static ssize_t flags_show(struct device *device, struct device_attribute *attr, 
     uint32_t      flags = 0;
     (void)attr;
     if (!netdev) {
-        plogk("net_sysfs: flags_show on %s without netdev.\n", device ? device->kobj.name : "?");
+        plogk("net_sysfs: Flags_show on %s without netdev.\n", device ? device->kobj.name : "?");
         return -ENODEV;
     }
     spin_lock(&netdev->lock);
@@ -113,7 +113,7 @@ static ssize_t ifindex_show(struct device *device, struct device_attribute *attr
     net_device_t *netdev = to_netdev(device);
     (void)attr;
     if (!netdev) {
-        plogk("net_sysfs: ifindex_show on %s without netdev.\n", device ? device->kobj.name : "?");
+        plogk("net_sysfs: Ifindex_show on %s without netdev.\n", device ? device->kobj.name : "?");
         return -ENODEV;
     }
     return sysfs_emit(buf, "%u\n", netdev->ifindex);
@@ -125,7 +125,7 @@ static ssize_t statistic_show(struct device *device, struct device_attribute *at
     net_device_t  *netdev = to_netdev(device);
     uint64_t       value;
     if (!netdev) {
-        plogk("net_sysfs: statistic_show on %s without netdev.\n", device ? device->kobj.name : "?");
+        plogk("net_sysfs: Statistic_show on %s without netdev.\n", device ? device->kobj.name : "?");
         return -ENODEV;
     }
     netdev_get_stats(netdev, &stats);
@@ -192,7 +192,7 @@ static int net_device_uevent(struct device *device, struct kobj_uevent_env *env)
 {
     net_device_t *netdev = to_netdev(device);
     if (!netdev) {
-        plogk("net_sysfs: uevent on %s without netdev.\n", device ? device->kobj.name : "?");
+        plogk("net_sysfs: Uevent on %s without netdev.\n", device ? device->kobj.name : "?");
         return -ENODEV;
     }
     int ret = add_uevent_var(env, "INTERFACE=%s", netdev->name);
@@ -211,8 +211,8 @@ static struct class net_class = {.name = "net", .dev_uevent = net_device_uevent,
 static void net_sysfs_publish(net_device_t *netdev, void *context)
 {
     struct device *device;
-    int            slot = -1;
-    (void)context;
+    int            slot  = -1;
+    int           *count = (int *)context;
     if (!net_class_ready || !netdev || !netdev->registered) return;
     spin_lock(&net_devices_lock);
     for (size_t i = 0; i < NETDEV_MAX; i++) {
@@ -222,8 +222,9 @@ static void net_sysfs_publish(net_device_t *netdev, void *context)
         }
         if (!net_devices[i].netdev && slot < 0) slot = (int)i;
     }
+
     if (slot < 0) {
-        plogk("net_sysfs: publish %s failed, slot table full (max %d)\n", netdev->name, NETDEV_MAX);
+        plogk("net_sysfs: Publish %s failed, slot table full (max %d)\n", netdev->name, NETDEV_MAX);
         spin_unlock(&net_devices_lock);
         return;
     }
@@ -231,16 +232,17 @@ static void net_sysfs_publish(net_device_t *netdev, void *context)
     spin_unlock(&net_devices_lock);
     device = device_create(&net_class, NULL, 0, netdev, "%s", netdev->name);
     if (!device) {
-        plogk("net_sysfs: device_create failed for %s\n", netdev->name);
+        plogk("net_sysfs: Device_create failed for %s\n", netdev->name);
         goto clear_slot;
     }
     spin_lock(&net_devices_lock);
     if (net_devices[slot].netdev == netdev && netdev->registered) {
         net_devices[slot].device = device;
         spin_unlock(&net_devices_lock);
+        if (count) (*count)++;
         return;
     }
-    plogk("net_sysfs: publish %s lost race, unregistering device.\n", netdev->name);
+    plogk("net_sysfs: Publish %s lost race, unregistering device.\n", netdev->name);
     spin_unlock(&net_devices_lock);
     device_unregister(device);
 
@@ -285,15 +287,17 @@ void net_sysfs_init(void)
 #if !CONFIG_NET || !CONFIG_SYSFS
     return;
 #endif
+    int devices = 0;
     if (net_class_ready) return;
     if (class_register(&net_class) != EOK) {
-        plogk("net_sysfs: class_register failed.\n");
+        plogk("net_sysfs: Class_register(net) failed.\n");
         return;
     }
     net_class_ready = 1;
     if (netdev_set_lifecycle_notifier(net_sysfs_lifecycle, NULL) != EOK) {
-        plogk("net_sysfs: lifecycle notifier registration failed.\n");
+        plogk("net_sysfs: Lifecycle notifier registration failed.\n");
         return;
     }
-    netdev_iterate(net_sysfs_publish, NULL);
+    netdev_iterate(net_sysfs_publish, &devices);
+    plogk("net_sysfs: %d network device(s) exported to /sys/class/net\n", devices);
 }

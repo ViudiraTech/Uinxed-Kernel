@@ -346,19 +346,19 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
 
     vfs_node_t node = vfs_open(resolved_path);
     if (!node) {
-        plogk("elf_loader: interpreter not found: %s\n", interp_path);
+        plogk("elf_loader: Interpreter not found: %s\n", interp_path);
         return -1;
     }
 
     if (node->size == 0 || node->size > 0x400000) {
-        plogk("elf_loader: interpreter invalid size: %s\n", interp_path);
+        plogk("elf_loader: Interpreter invalid size: %s\n", interp_path);
         vfs_close(node);
         return -1;
     }
 
     uint8_t *elf_data = malloc(node->size);
     if (!elf_data) {
-        plogk("elf_loader: interpreter image allocation failed (%llu bytes): %s\n", (unsigned long long)node->size, interp_path);
+        plogk("elf_loader: Interpreter image allocation failed (%llu bytes): %s\n", (unsigned long long)node->size, interp_path);
         vfs_close(node);
         return -1;
     }
@@ -373,14 +373,14 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
     vfs_close(node);
 
     if (total < sizeof(Elf64_Ehdr)) {
-        plogk("elf_loader: interpreter truncated (%lu bytes): %s\n", (unsigned long)total, interp_path);
+        plogk("elf_loader: Interpreter truncated (%lu bytes): %s\n", (unsigned long)total, interp_path);
         free(elf_data);
         return -1;
     }
 
     Elf64_Ehdr *iehdr = NULL;
     if (validate_elf(elf_data, total, &iehdr)) {
-        plogk("elf_loader: invalid interpreter ELF: %s\n", interp_path);
+        plogk("elf_loader: Invalid interpreter ELF: %s\n", interp_path);
         free(elf_data);
         return -1;
     }
@@ -396,14 +396,14 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
         if (end > image_end) image_end = end;
     }
     if (image_start == UINT64_MAX || image_end <= image_start) {
-        plogk("elf_loader: interpreter has no PT_LOAD segment: %s\n", interp_path);
+        plogk("elf_loader: Interpreter has no PT_LOAD segment: %s\n", interp_path);
         free(elf_data);
         return -1;
     }
 
     uintptr_t interp_base = find_free_range(proc, INTERP_LOAD_BASE, INTERP_LOAD_END, image_end - image_start);
     if (!interp_base) {
-        plogk("elf_loader: no free space for interpreter.\n");
+        plogk("elf_loader: No free space for interpreter.\n");
         free(elf_data);
         return -1;
     }
@@ -411,7 +411,7 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
     uintptr_t load_bias = compute_load_bias(iehdr, elf_data, interp_base);
 
     if (load_elf_segments(proc, iehdr, elf_data, total, load_bias, 0)) {
-        plogk("elf_loader: failed to load interpreter segments.\n");
+        plogk("elf_loader: Failed to load interpreter segments.\n");
         free(elf_data);
         return -1;
     }
@@ -426,7 +426,7 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
         if (valid_entry) { break; }
     }
     if (!valid_entry) {
-        plogk("elf_loader: interpreter entry %#lx outside any executable segment: %s\n", (unsigned long)(iehdr->e_entry + load_bias),
+        plogk("elf_loader: Interpreter entry %#lx outside any executable segment: %s\n", (unsigned long)(iehdr->e_entry + load_bias),
               interp_path);
         free(elf_data);
         return -1;
@@ -627,7 +627,7 @@ int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, s
     if (acquire_console) {
         vfs_node_t console = vfs_open("/dev/console");
         if (!console) {
-            plogk("elf_loader: PID 1 cannot open /dev/console.\n");
+            plogk("elf_loader: PID 1 cannot open /dev/console\n");
             return 1;
         }
 
@@ -673,7 +673,7 @@ int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, s
         }
     }
     if (!valid_entry) {
-        plogk("elf_loader: entry point not within any loaded segment.\n");
+        plogk("elf_loader: Entry point not within any loaded segment.\n");
         return 1;
     }
 
@@ -724,16 +724,16 @@ int elf_loader_load_initial_path(process_t *proc, const char *path, char *const 
 
     vfs_node_t node = vfs_open(path);
     if (!node) {
-        plogk("elf_loader: init executable not found: %s\n", path);
+        plogk("elf_loader: Init executable not found: %s\n", path);
         return -ENOENT;
     }
     if (node->type & file_dir) {
-        plogk("elf_loader: init path is a directory: %s\n", path);
+        plogk("elf_loader: Init path is a directory: %s\n", path);
         vfs_close(node);
         return -EISDIR;
     }
     if (!node->size || node->size > 64ULL * 1024ULL * 1024ULL) {
-        plogk("elf_loader: init executable has invalid size: %s (%llu bytes)\n", path, (unsigned long long)node->size);
+        plogk("elf_loader: Init executable has invalid size: %s (%llu bytes)\n", path, (unsigned long long)node->size);
         vfs_close(node);
         return -EINVAL;
     }
@@ -741,7 +741,7 @@ int elf_loader_load_initial_path(process_t *proc, const char *path, char *const 
     size_t   image_size = (size_t)node->size;
     uint8_t *image      = malloc(image_size);
     if (!image) {
-        plogk("elf_loader: unable to allocate init image (%llu bytes)\n", (unsigned long long)image_size);
+        plogk("elf_loader: Unable to allocate init image (%llu bytes)\n", (unsigned long long)image_size);
         vfs_close(node);
         return -ENOMEM;
     }
@@ -750,13 +750,13 @@ int elf_loader_load_initial_path(process_t *proc, const char *path, char *const 
     while (loaded < image_size) {
         size_t amount = vfs_read(node, image + loaded, loaded, image_size - loaded);
         if (amount == (size_t)-1 || amount == 0) {
-            plogk("elf_loader: failed to read init executable: %s\n", path);
+            plogk("elf_loader: Failed to read init executable: %s\n", path);
             free(image);
             vfs_close(node);
             return -EIO;
         }
         if (amount > image_size - loaded) {
-            plogk("elf_loader: init executable read overrun: %s\n", path);
+            plogk("elf_loader: Init executable read overrun: %s\n", path);
             free(image);
             vfs_close(node);
             return -EIO;
@@ -765,7 +765,7 @@ int elf_loader_load_initial_path(process_t *proc, const char *path, char *const 
     }
     vfs_close(node);
 
-    plogk("elf_loader: init executable found: %s (%llu bytes)\n", path, (unsigned long long)image_size);
+    plogk("elf_loader: Init executable found: %s (%llu bytes)\n", path, (unsigned long long)image_size);
 
     int status = elf_loader_load_initial_process(proc, image, image_size, argv, envp);
     free(image);

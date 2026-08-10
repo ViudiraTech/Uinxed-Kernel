@@ -276,7 +276,7 @@ static int rtl8169_map_bar(rtl8169_device_t *device)
         device->mmio      = (volatile uint8_t *)phys_to_virt(phys);
         return 0;
     }
-    plogk("rtl8169: %04x:%04x: no usable memory BAR found.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+    plogk("rtl8169: %04x:%04x: No usable memory BAR found.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
     return -ENODEV;
 }
 
@@ -288,7 +288,7 @@ static int rtl8169_reset(rtl8169_device_t *device)
         if (!(rtl8169_read8(device, RTL8169_REG_CR) & RTL8169_CR_RESET)) return 0;
         usleep(1);
     }
-    plogk("rtl8169: %04x:%04x: reset timed out.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+    plogk("rtl8169: %04x:%04x: Reset timed out.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
     return -ETIMEDOUT;
 }
 
@@ -296,7 +296,7 @@ static void rtl8169_read_mac(rtl8169_device_t *device)
 {
     for (size_t i = 0; i < 6; i++) device->mac[i] = rtl8169_read8(device, RTL8169_REG_IDR0 + (uint32_t)i);
     if (!rtl8169_valid_mac(device->mac)) {
-        plogk("rtl8169: %04x:%04x: invalid MAC address, using fallback.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        plogk("rtl8169: %04x:%04x: Invalid MAC address, using fallback.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
         for (size_t i = 0; i < 6; i++) device->mac[i] = i;
         device->mac[0] &= ~1u; // ensure a unicast, locally administered address
         device->mac[0] |= 2u;
@@ -510,7 +510,7 @@ int rtl8169_transmit(rtl8169_device_t *device, const void *packet, size_t length
     if (length > RTL8169_MAX_FRAME_SIZE) {
         device->stats.tx_dropped++;
         device->stats.tx_errors++;
-        plogk("rtl8169: %s: dropping oversize TX frame (%zu bytes)\n", device->netdev.name, length);
+        plogk("rtl8169: %s: Dropping oversize TX frame (%zu bytes)\n", device->netdev.name, length);
         return -EMSGSIZE;
     }
     if (!device->running) return -ENODEV;
@@ -625,7 +625,7 @@ static void rtl8169_process_work(rtl8169_device_t *device, uint32_t cause)
     if (cause & RTL8169_ISR_LINKCHG) rtl8169_update_link(device);
     if (cause & RTL8169_ISR_RER) {
         device->stats.rx_errors++;
-        plogk("rtl8169: %s: receive error interrupt.\n", device->netdev.name);
+        plogk("rtl8169: %s: Receive error interrupt.\n", device->netdev.name);
     }
     if (cause & (RTL8169_ISR_RDU | RTL8169_ISR_FOVW)) {
         device->stats.rx_errors++;
@@ -634,7 +634,7 @@ static void rtl8169_process_work(rtl8169_device_t *device, uint32_t cause)
     }
     if (cause & RTL8169_ISR_TER) {
         device->stats.tx_errors++;
-        plogk("rtl8169: %s: transmit error interrupt.\n", device->netdev.name);
+        plogk("rtl8169: %s: Transmit error interrupt.\n", device->netdev.name);
     }
     if (cause & RTL8169_ISR_TDU) {
         device->stats.tx_errors++;
@@ -791,7 +791,7 @@ static int rtl8169_setup_interrupt(rtl8169_device_t *device)
         if (!rtl8169_irq_slots[slot]) break;
     if (slot == RTL8169_MAX_DEVICES) {
         spin_unlock_irqrestore(&rtl8169_irq_lock, rflags);
-        plogk("rtl8169: %04x:%04x: no free IRQ slot.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        plogk("rtl8169: %04x:%04x: No free IRQ slot.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
         return -ENOSPC;
     }
     device->irq_slot        = (uint8_t)slot;
@@ -831,7 +831,7 @@ fail:
     rflags                  = spin_lock_irqsave(&rtl8169_irq_lock);
     rtl8169_irq_slots[slot] = NULL;
     spin_unlock_irqrestore(&rtl8169_irq_lock, rflags);
-    plogk("rtl8169: %04x:%04x: interrupt setup failed.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+    plogk("rtl8169: %04x:%04x: Interrupt setup failed.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
     return -ENODEV;
 }
 
@@ -937,7 +937,7 @@ int rtl8169_probe(pci_device_cache_t *pci)
 
     rtl8169_device_t *device = malloc(sizeof(*device));
     if (!device) {
-        plogk("rtl8169: %04x:%04x: device allocation failed.\n", (unsigned)pci->vendor_id, (unsigned)pci->device_id);
+        plogk("rtl8169: %04x:%04x: Device allocation failed.\n", (unsigned)pci->vendor_id, (unsigned)pci->device_id);
         return -ENOMEM;
     }
     memset(device, 0, sizeof(*device));
@@ -1000,7 +1000,7 @@ int rtl8169_probe(pci_device_cache_t *pci)
         ret   = rtl8169_start_worker(device);
         if (ret) goto fail_linked;
     }
-    plogk("rtl8169: %s: registered (MAC %02x:%02x:%02x:%02x:%02x:%02x, %s, link %s)\n", device->netdev.name, device->mac[0], device->mac[1],
+    plogk("rtl8169: %s: Registered (MAC %02x:%02x:%02x:%02x:%02x:%02x, %s, link %s)\n", device->netdev.name, device->mac[0], device->mac[1],
           device->mac[2], device->mac[3], device->mac[4], device->mac[5], device->using_msi ? "MSI" : "INTx", device->link_up ? "up" : "down");
     return 0;
 
@@ -1047,7 +1047,7 @@ int rtl8169_start_workers(void)
             continue;
         }
         failed = 1;
-        plogk("rtl8169: %s: worker startup failed.\n", device->netdev.name);
+        plogk("rtl8169: %s: Worker startup failed.\n", device->netdev.name);
         *link = device->next;
         rtl8169_device_count--;
         rtl8169_destroy(device);

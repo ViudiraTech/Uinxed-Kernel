@@ -62,7 +62,7 @@ static struct drm_property *drm_signed_property(struct drm_device *dev, const ch
 int drm_mode_config_init(struct drm_device *dev)
 {
     if (!dev) {
-        plogk("drm: mode_config_init called with NULL device.\n");
+        plogk("drm: Mode_config_init called with NULL device.\n");
         return -EINVAL;
     }
 
@@ -188,7 +188,7 @@ int drm_mode_config_init(struct drm_device *dev)
         || !dev->mode_config.prop_src_x || !dev->mode_config.prop_src_y || !dev->mode_config.prop_src_w || !dev->mode_config.prop_src_h
         || !dev->mode_config.prop_crtc_x || !dev->mode_config.prop_crtc_y || !dev->mode_config.prop_crtc_w || !dev->mode_config.prop_crtc_h
         || !dev->mode_config.prop_zpos || !dev->mode_config.prop_alpha || !dev->mode_config.prop_plane_type) {
-        plogk("drm: mode_config_init: core property creation failed, returning -ENOMEM.\n");
+        plogk("drm: Mode_config_init: core property creation failed, returning -ENOMEM.\n");
         drm_mode_config_cleanup(dev);
         return -ENOMEM;
     }
@@ -477,7 +477,7 @@ int drm_mode_getresources(struct drm_device *dev, void *data, struct drm_file *f
 static int drmm_mode_config_init(struct drm_device *dev)
 {
     if (!dev) {
-        plogk("drm: drmm_mode_config_init called with NULL device.\n");
+        plogk("drm: Drmm_mode_config_init called with NULL device.\n");
         return -EINVAL;
     }
 

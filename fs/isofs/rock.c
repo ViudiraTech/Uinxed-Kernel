@@ -28,7 +28,7 @@ static int rock_continue(struct rock_state *rs)
 
     if ((unsigned)rs->cont_offset > (unsigned)(int)(rs->block_size - min_de_size) || (unsigned)rs->cont_size > rs->block_size
         || (unsigned)(rs->cont_offset + rs->cont_size) > rs->block_size) {
-        plogk("rock: corrupted CE entry, extent=%d offset=%d size=%d\n", rs->cont_extent, rs->cont_offset, rs->cont_size);
+        plogk("rock: Corrupted CE entry, extent=%d offset=%d size=%d\n", rs->cont_extent, rs->cont_offset, rs->cont_size);
         return -5; // -EIO
     }
 
@@ -38,7 +38,7 @@ static int rock_continue(struct rock_state *rs)
     if (!rs->buffer) return -12; // -ENOMEM
 
     if (rs->read_block(rs->io_ctx, (uint32_t)rs->cont_extent, rs->buffer, (uint32_t)rs->cont_size) != 0) {
-        plogk("rock: unable to read CE block %d\n", rs->cont_extent);
+        plogk("rock: Unable to read CE block %d\n", rs->cont_extent);
         free(rs->buffer);
         rs->buffer = NULL;
         return -5;

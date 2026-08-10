@@ -259,7 +259,7 @@ int udp_send(udp_endpoint_t *ep, const void *data, size_t length, uint32_t desti
     if (status) return status;
     net_pbuf_t *packet = net_pbuf_alloc(UDP_HEADER_LEN + length, NET_PBUF_HEADROOM);
     if (!packet) {
-        plogk("udp: send alloc failed (dest=%u.%u.%u.%u:%u len=%lu).\n", (unsigned)(destination >> 24) & 0xff,
+        plogk("udp: Send alloc failed (dest=%u.%u.%u.%u:%u len=%lu)\n", (unsigned)(destination >> 24) & 0xff,
               (unsigned)(destination >> 16) & 0xff, (unsigned)(destination >> 8) & 0xff, (unsigned)destination & 0xff, (unsigned)port,
               (unsigned long)length);
         netdev_put(device);
@@ -294,12 +294,11 @@ int udp_send6(udp_endpoint_t *ep, const void *data, size_t length, const ipv6_ad
     if (!ipv6_address_is_unspecified(&ep->local_address6)) source = ep->local_address6;
     net_pbuf_t *packet = net_pbuf_alloc(UDP_HEADER_LEN + length, NET_PBUF_HEADROOM);
     if (!packet) {
-        plogk("udp: send6 alloc failed (dest=%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x:%u len=%lu).\n",
-              (unsigned)net_read_be16(destination->bytes), (unsigned)net_read_be16(destination->bytes + 2),
-              (unsigned)net_read_be16(destination->bytes + 4), (unsigned)net_read_be16(destination->bytes + 6),
-              (unsigned)net_read_be16(destination->bytes + 8), (unsigned)net_read_be16(destination->bytes + 10),
-              (unsigned)net_read_be16(destination->bytes + 12), (unsigned)net_read_be16(destination->bytes + 14), (unsigned)port,
-              (unsigned long)length);
+        plogk("udp: Send6 alloc failed (dest=%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x:%u len=%lu)\n", (unsigned)net_read_be16(destination->bytes),
+              (unsigned)net_read_be16(destination->bytes + 2), (unsigned)net_read_be16(destination->bytes + 4),
+              (unsigned)net_read_be16(destination->bytes + 6), (unsigned)net_read_be16(destination->bytes + 8),
+              (unsigned)net_read_be16(destination->bytes + 10), (unsigned)net_read_be16(destination->bytes + 12),
+              (unsigned)net_read_be16(destination->bytes + 14), (unsigned)port, (unsigned long)length);
         netdev_put(device);
         return -ENOMEM;
     }
@@ -374,7 +373,7 @@ int udp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
     if (target->queue_length >= UDP_RX_QUEUE_MAX || payload_length > UDP_RX_BYTES_MAX - target->queue_bytes) {
         static uint64_t last_log;
         if (sched_ticks() - last_log >= 1000) {
-            plogk("udp: %s: rx queue overflow, dropping datagram from %u.%u.%u.%u:%u\n", device->name, (unsigned)(ip->source >> 24) & 0xff,
+            plogk("udp: %s: RX queue overflow, dropping datagram from %u.%u.%u.%u:%u\n", device->name, (unsigned)(ip->source >> 24) & 0xff,
                   (unsigned)(ip->source >> 16) & 0xff, (unsigned)(ip->source >> 8) & 0xff, (unsigned)ip->source & 0xff, (unsigned)source_port);
             last_log = sched_ticks();
         }
@@ -385,7 +384,7 @@ int udp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
     }
     udp_packet_t *queued = malloc(sizeof(*queued) + payload_length);
     if (!queued) {
-        plogk("udp: rx queue alloc failed (src=%u.%u.%u.%u:%u len=%lu).\n", (unsigned)(ip->source >> 24) & 0xff,
+        plogk("udp: RX queue alloc failed (src=%u.%u.%u.%u:%u len=%lu)\n", (unsigned)(ip->source >> 24) & 0xff,
               (unsigned)(ip->source >> 16) & 0xff, (unsigned)(ip->source >> 8) & 0xff, (unsigned)ip->source & 0xff, (unsigned)source_port,
               (unsigned long)payload_length);
         spin_unlock(&target->lock);
@@ -450,7 +449,7 @@ int udp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
     if (target->queue_length >= UDP_RX_QUEUE_MAX || payload_length > UDP_RX_BYTES_MAX - target->queue_bytes) {
         static uint64_t last_log6;
         if (sched_ticks() - last_log6 >= 1000) {
-            plogk("udp: %s: rx6 queue overflow, dropping datagram.\n", device->name);
+            plogk("udp: %s: RX6 queue overflow, dropping datagram.\n", device->name);
             last_log6 = sched_ticks();
         }
         spin_unlock(&target->lock);
@@ -460,7 +459,7 @@ int udp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
     }
     udp_packet_t *queued = malloc(sizeof(*queued) + payload_length);
     if (!queued) {
-        plogk("udp: rx6 queue alloc failed (src=%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x:%u len=%lu).\n",
+        plogk("udp: RX6 queue alloc failed (src=%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x:%u len=%lu)\n",
               (unsigned)net_read_be16(ip->source.bytes), (unsigned)net_read_be16(ip->source.bytes + 2),
               (unsigned)net_read_be16(ip->source.bytes + 4), (unsigned)net_read_be16(ip->source.bytes + 6),
               (unsigned)net_read_be16(ip->source.bytes + 8), (unsigned)net_read_be16(ip->source.bytes + 10),

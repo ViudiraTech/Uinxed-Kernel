@@ -303,14 +303,14 @@ void i2c_sysfs_init(void)
 #if CONFIG_SYSFS
     if (i2c_sysfs_ready) return;
     if (bus_register(&i2c_bus_type) != EOK) {
-        plogk("i2c_sysfs: bus_register(i2c) failed\n");
+        plogk("i2c_sysfs: Bus_register(i2c) failed.\n");
         return;
     }
     if (class_register(&i2c_dev_class) != EOK) {
-        plogk("i2c_sysfs: class_register(i2c-dev) failed\n");
+        plogk("i2c_sysfs: Class_register(i2c-dev) failed.\n");
         return;
     }
     i2c_sysfs_ready = true;
-    plogk("i2c_sysfs: i2c bus and i2c-dev class registered\n");
+    plogk("i2c_sysfs: I2c bus and i2c-dev class registered.\n");
 #endif
 }

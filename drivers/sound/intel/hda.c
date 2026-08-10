@@ -481,14 +481,14 @@ static void hda_reset_controller(void)
     hda_write32(GCTL, hda_read32(GCTL) & ~AZX_GCTL_RESET);
     timeout = 200;
     while ((hda_read32(GCTL) & AZX_GCTL_RESET) && timeout--) usleep(500);
-    if (timeout <= 0) plogk("hda: Timeout waiting for CRST=0.\n");
+    if (timeout <= 0) plogk("hda: Timeout waiting for CRST=0\n");
 
     usleep(2000);
 
     hda_write32(GCTL, hda_read32(GCTL) | AZX_GCTL_RESET);
     timeout = 200;
     while (!(hda_read32(GCTL) & AZX_GCTL_RESET) && timeout--) usleep(500);
-    if (timeout <= 0) plogk("hda: Timeout waiting for CRST=1.\n");
+    if (timeout <= 0) plogk("hda: Timeout waiting for CRST=1\n");
 
     msleep(2);
 }
@@ -601,7 +601,7 @@ static int hda_parse_widgets(hda_codec_t *codec)
     }
 
     if (codec->afg_nid < 1) {
-        plogk("hda: Codec #%d has no AFG\n", codec->addr);
+        plogk("hda: Codec #%d has no AFG.\n", codec->addr);
         return -ENODEV;
     }
 
@@ -610,7 +610,7 @@ static int hda_parse_widgets(hda_codec_t *codec)
     uint16_t widget_total = (uint16_t)(node_count & 0xffff);
     int      count        = (int)widget_total;
     if (count <= 0) {
-        plogk("hda: Codec #%d has no widgets\n", codec->addr);
+        plogk("hda: Codec #%d has no widgets.\n", codec->addr);
         return -ENODEV;
     }
 
@@ -780,7 +780,7 @@ static int hda_setup_stream(int stream_idx, uint32_t format, size_t buf_size, si
     size_t   total     = ALIGN_UP(buf_size + bdl_bytes, PAGE_4K_SIZE);
     uint64_t frame     = alloc_frames(total / PAGE_4K_SIZE);
     if (!frame) {
-        plogk("hda: stream %u DMA buffer allocation failed (%zu bytes)\n", stream_idx, buf_size);
+        plogk("hda: Stream %u DMA buffer allocation failed (%zu bytes)\n", stream_idx, buf_size);
         return -ENOMEM;
     }
 
@@ -898,7 +898,7 @@ static int hda_audio_drain(audio_card_t *card)
             usleep(10);
         }
         if (timeout < 0) {
-            plogk("hda: playback stream %d drain timed out (LPIB=0x%x)\n", hda_ctrl.playback_stream,
+            plogk("hda: Playback stream %d drain timed out (LPIB=0x%x)\n", hda_ctrl.playback_stream,
                   sd_read32(hda_ctrl.playback_stream, SD_LPIB));
         }
         hda_stop_stream(hda_ctrl.playback_stream);
@@ -1023,12 +1023,12 @@ static int hda_audio_set_params(audio_card_t *card, const audio_pcm_format_t *fm
     if (ps >= 0) {
         int err = hda_setup_stream(ps, fmt_val, buffer_bytes, period_bytes, 0);
         if (err) {
-            plogk("hda: playback stream %d setup failed: %d\n", ps, err);
+            plogk("hda: Playback stream %d setup failed: %d\n", ps, err);
             spin_unlock(&hda_ctrl.lock);
             return err;
         }
     } else {
-        plogk("hda: no playback stream available\n");
+        plogk("hda: No playback stream available.\n");
         spin_unlock(&hda_ctrl.lock);
         return ps;
     }
@@ -1051,9 +1051,9 @@ static int hda_audio_set_params(audio_card_t *card, const audio_pcm_format_t *fm
         int cs = hda_allocate_stream(1);
         if (cs >= 0) {
             int err = hda_setup_stream(cs, fmt_val, buffer_bytes, period_bytes, 1);
-            if (err) plogk("hda: capture stream %d setup failed: %d\n", cs, err);
+            if (err) plogk("hda: Capture stream %d setup failed: %d\n", cs, err);
         } else {
-            plogk("hda: no capture stream available\n");
+            plogk("hda: No capture stream available.\n");
         }
     }
 
@@ -1195,11 +1195,11 @@ static void hda_interrupt_handler(interrupt_frame_t *frame)
         }
 
         if (sts & SD_STS_FIFO_ERROR) {
-            plogk("hda: stream %d FIFO error (sts=0x%02x)\n", s, sts);
+            plogk("hda: Stream %d FIFO error (sts=0x%02x)\n", s, sts);
             sd_write8(s, SD_STS, SD_STS_FIFO_ERROR);
         }
         if (sts & SD_STS_DESC_ERROR) {
-            plogk("hda: stream %d descriptor error (sts=0x%02x)\n", s, sts);
+            plogk("hda: Stream %d descriptor error (sts=0x%02x)\n", s, sts);
             sd_write8(s, SD_STS, SD_STS_DESC_ERROR);
         }
     }
@@ -1303,7 +1303,7 @@ void hda_init(void)
         return;
     }
     hda_init_corb_rirb();
-    plogk("hda: CORB/RIRB configured, %d entries each\n", hda_ctrl.corb_entries);
+    plogk("hda: CORB/RIRB configured, %d entries each.\n", hda_ctrl.corb_entries);
 
     register_interrupt_handler(IRQ_0 + irq, hda_interrupt_handler, 0, 0x8e);
     hda_write32(INTCTL, AZX_INT_GLOBAL_EN | AZX_INT_CTRL_EN);
@@ -1341,7 +1341,7 @@ void hda_init(void)
     }
 
     if (hda_ctrl.num_codecs == 0) {
-        plogk("hda: HDA controller initialized, no codecs present (STATESTS=0x%04x).\n", state_sts);
+        plogk("hda: HDA controller initialized, no codecs present (STATESTS=0x%04x)\n", state_sts);
         return;
     }
 

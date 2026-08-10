@@ -497,7 +497,7 @@ int64_t tty_core_write(tty_core_t *tty, const void *buffer, size_t size, uint64_
     size_t         done  = 0;
 
     if (!tty->ops.emit) {
-        plogk("tty: write to a tty without an output backend\n");
+        plogk("tty: Write to a tty without an output backend.\n");
         return -EIO;
     }
     if (!size) return 0;

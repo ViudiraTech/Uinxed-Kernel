@@ -227,7 +227,7 @@ void page_fault_handle_frame(page_fault_frame_t *frame)
             frame->rflags = sigframe.rflags;
             frame->rsp    = sigframe.rsp;
         } else {
-            plogk("#PF: user-mode fault at 0x%016llx (err 0x%llx) with no process context\n", faulting_address, error_code);
+            plogk("#PF: User-mode fault at 0x%016llx (err 0x%llx) with no process context.\n", faulting_address, error_code);
         }
         return;
     }

@@ -58,16 +58,16 @@ void ps2_keyboard_init(void)
     ps2_keyboard_decoder_init(&ps2kbd_decoder);
     ps2_keyboard_evdev = evdev_create(&ps2_keyboard_dev);
     if (!ps2_keyboard_evdev) {
-        plogk("evdev: unable to allocate keyboard device.\n");
+        plogk("evdev: Unable to allocate keyboard device.\n");
         return;
     }
     if (evdev_register(ps2_keyboard_evdev) != EOK) {
         evdev_destroy(ps2_keyboard_evdev);
         ps2_keyboard_evdev = NULL;
-        plogk("evdev: unable to register keyboard device.\n");
+        plogk("evdev: Unable to register keyboard device.\n");
         return;
     }
-    plogk("evdev: keyboard registered as event%d\n", ps2_keyboard_evdev->minor);
+    plogk("evdev: Keyboard registered as event%d\n", ps2_keyboard_evdev->minor);
 }
 
 void ps2_keyboard_handle_byte(uint8_t byte)

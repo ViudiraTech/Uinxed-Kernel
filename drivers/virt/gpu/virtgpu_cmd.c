@@ -45,9 +45,9 @@ int virtgpu_cmd_get_display_info(struct virtio_gpu_device *vgdev)
         vgdev->num_scanouts++;
     }
 
-    DRM_INFO("Display info: %d scanout(s)\n", vgdev->num_scanouts);
+    plogk("virtgpu: Display info: %d scanout(s)\n", vgdev->num_scanouts);
     for (i = 0; i < vgdev->num_scanouts && i < 16; i++)
-        DRM_INFO("  scanout[%d]: %ux%u\n", i, vgdev->scanouts[i].width, vgdev->scanouts[i].height);
+        plogk("virtgpu:   Scanout[%d]: %ux%u\n", i, vgdev->scanouts[i].width, vgdev->scanouts[i].height);
     return 0;
 }
 
@@ -62,7 +62,7 @@ int virtgpu_cmd_get_edid(struct virtio_gpu_device *vgdev, int scanout_id, void *
     int                         ret;
 
     if (!vgdev->has_edid) {
-        plogk("virtgpu: get_edid: device does not support EDID.\n");
+        plogk("virtgpu: Get_edid: device does not support EDID.\n");
         return -ENOSYS;
     }
 
@@ -99,7 +99,7 @@ int virtgpu_cmd_create_resource_2d(struct virtio_gpu_device *vgdev, struct virti
     cmd.resource_id = obj->hw_res_handle;
     cmd.format      = virtgpu_drm_format_to_virtio(obj->format);
     if (!cmd.format) {
-        plogk("virtgpu: create_resource_2d: unsupported format (format=%u)\n", (unsigned)obj->format);
+        plogk("virtgpu: Create_resource_2d: unsupported format (format=%u)\n", (unsigned)obj->format);
         return -EINVAL;
     }
     cmd.width  = obj->width;
@@ -153,13 +153,13 @@ int virtgpu_cmd_create_blob(struct virtio_gpu_device *vgdev, struct virtio_gpu_o
     int                                     ret;
 
     if (!vgdev || !obj || !blob || (!!obj->num_entries != !!obj->entries)) {
-        plogk("virtgpu: create_blob: invalid argument (num_entries=%u)\n", obj ? (unsigned)obj->num_entries : 0);
+        plogk("virtgpu: Create_blob: invalid argument (num_entries=%u)\n", obj ? (unsigned)obj->num_entries : 0);
         return -EINVAL;
     }
     cmd_size = sizeof(*cmd) + (size_t)obj->num_entries * sizeof(*obj->entries);
     cmd      = malloc(cmd_size);
     if (!cmd) {
-        plogk("virtgpu: create_blob: command allocation failed (size=%lu)\n", (unsigned long)cmd_size);
+        plogk("virtgpu: Create_blob: command allocation failed (size=%lu)\n", (unsigned long)cmd_size);
         return -ENOMEM;
     }
     memset(cmd, 0, cmd_size);
@@ -211,14 +211,14 @@ int virtgpu_cmd_attach_backing(struct virtio_gpu_device *vgdev, struct virtio_gp
     int                                        ret, cmd_size;
 
     if (!obj->num_entries || !obj->entries) {
-        plogk("virtgpu: attach_backing: no backing entries.\n");
+        plogk("virtgpu: Attach_backing: no backing entries.\n");
         return -EINVAL;
     }
 
     cmd_size = sizeof(*cmd) + obj->num_entries * sizeof(struct virtio_gpu_mem_entry);
     cmd      = malloc(cmd_size);
     if (!cmd) {
-        plogk("virtgpu: attach_backing: command allocation failed (size=%d)\n", cmd_size);
+        plogk("virtgpu: Attach_backing: command allocation failed (size=%d)\n", cmd_size);
         return -ENOMEM;
     }
 
@@ -284,11 +284,11 @@ int virtgpu_cmd_transfer_to_host_2d_rect(struct virtio_gpu_device *vgdev, struct
 
     if (!vgdev || !obj || !xf || !xf->box.w || !xf->box.h || xf->box.z || xf->box.d > 1 || xf->box.x >= obj->width || xf->box.y >= obj->height
         || xf->box.w > obj->width - xf->box.x || xf->box.h > obj->height - xf->box.y || xf->level || xf->stride || xf->layer_stride) {
-        plogk("virtgpu: transfer_to_host_2d_rect: invalid transfer box.\n");
+        plogk("virtgpu: Transfer_to_host_2d_rect: invalid transfer box.\n");
         return -EINVAL;
     }
     if ((uint64_t)xf->offset + (uint64_t)(xf->box.h - 1) * obj->stride + (uint64_t)xf->box.w * 4 > obj->base.size) {
-        plogk("virtgpu: transfer_to_host_2d_rect: transfer out of bounds (offset=%u, size=%u)\n", (unsigned)xf->offset,
+        plogk("virtgpu: Transfer_to_host_2d_rect: transfer out of bounds (offset=%u, size=%u)\n", (unsigned)xf->offset,
               (unsigned)obj->base.size);
         return -EINVAL;
     }
@@ -315,7 +315,7 @@ int virtgpu_cmd_update_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_obj
     struct virtio_gpu_rect                damage;
 
     if (!vgdev || !obj) {
-        plogk("virtgpu: update_2d: invalid argument.\n");
+        plogk("virtgpu: Update_2d: invalid argument.\n");
         return -EINVAL;
     }
 
@@ -363,7 +363,7 @@ int virtgpu_cmd_update_scanout_2d(struct virtio_gpu_device *vgdev, int scanout_i
     uint32_t                              count = 0;
 
     if (!vgdev || !obj) {
-        plogk("virtgpu: update_scanout_2d: invalid argument.\n");
+        plogk("virtgpu: Update_scanout_2d: invalid argument.\n");
         return -EINVAL;
     }
 
@@ -496,7 +496,7 @@ int virtgpu_cmd_set_scanout_blob(struct virtio_gpu_device *vgdev, int scanout_id
     struct virtgpu_vq_command          commands[2];
 
     if (!vgdev || !obj || !obj->created_blob || !obj->width || !obj->height || !obj->stride) {
-        plogk("virtgpu: set_scanout_blob: invalid argument (created_blob=%u)\n", obj ? (unsigned)obj->created_blob : 0);
+        plogk("virtgpu: Set_scanout_blob: invalid argument (created_blob=%u)\n", obj ? (unsigned)obj->created_blob : 0);
         return -EINVAL;
     }
     memset(&scanout, 0, sizeof(scanout));
@@ -509,7 +509,7 @@ int virtgpu_cmd_set_scanout_blob(struct virtio_gpu_device *vgdev, int scanout_id
     scanout.height      = obj->height;
     scanout.format      = virtgpu_drm_format_to_virtio(obj->format);
     if (!scanout.format) {
-        plogk("virtgpu: set_scanout_blob: unsupported format (format=%u)\n", (unsigned)obj->format);
+        plogk("virtgpu: Set_scanout_blob: unsupported format (format=%u)\n", (unsigned)obj->format);
         return -EINVAL;
     }
     scanout.strides[0] = obj->stride;
@@ -538,7 +538,7 @@ int virtgpu_cmd_ctx_create(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uin
     cmd.hdr.type   = VIRTIO_GPU_CMD_CTX_CREATE;
     cmd.hdr.ctx_id = ctx_id;
     if (name_len >= sizeof(cmd.debug_name)) {
-        plogk("virtgpu: ctx_create: debug name too long (name_len=%u, max=%lu)\n", (unsigned)name_len, (unsigned long)sizeof(cmd.debug_name));
+        plogk("virtgpu: Ctx_create: debug name too long (name_len=%u, max=%lu)\n", (unsigned)name_len, (unsigned long)sizeof(cmd.debug_name));
         return -EINVAL;
     }
     cmd.nlen         = name_len;
@@ -627,7 +627,7 @@ int virtgpu_cmd_submit_3d(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint
 
     cmd = malloc(sizeof(*cmd) + size);
     if (!cmd) {
-        plogk("virtgpu: submit_3d: command allocation failed (size=%u)\n", (unsigned)size);
+        plogk("virtgpu: Submit_3d: command allocation failed (size=%u)\n", (unsigned)size);
         return -ENOMEM;
     }
 
@@ -684,7 +684,7 @@ int virtgpu_cmd_get_capset(struct virtio_gpu_device *vgdev, uint32_t capset_id, 
     resp_size = sizeof(struct virtio_gpu_resp_capset) + max_size;
     resp      = malloc(resp_size);
     if (!resp) {
-        plogk("virtgpu: get_capset: response allocation failed (size=%d)\n", resp_size);
+        plogk("virtgpu: Get_capset: response allocation failed (size=%d)\n", resp_size);
         return -ENOMEM;
     }
 

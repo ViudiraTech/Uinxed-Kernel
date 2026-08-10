@@ -95,13 +95,20 @@ void drm_mode_probed_add(struct drm_connector *connector, struct drm_display_mod
  * @dst: destination mode
  * @src: source mode
  *
- * Copies all fields of the display mode from src to dst using memcpy.
+ * Copies all fields of the display mode from src to dst using memcpy,
+ * while preserving the destination's mode object identity (base) and its
+ * position in any list (head).
  */
-static void drm_mode_copy(struct drm_display_mode *dst, const struct drm_display_mode *src)
+void drm_mode_copy(struct drm_display_mode *dst, const struct drm_display_mode *src)
 {
+    struct drm_mode_object base = dst->base;
+    ilist_node_t           head = dst->head;
+
     if (!dst || !src) { return; }
 
     memcpy(dst, src, sizeof(*dst));
+    dst->base = base;
+    dst->head = head;
 }
 
 /*
@@ -215,4 +222,63 @@ static void drm_mode_debug_printmodeline(const struct drm_display_mode *mode)
 
     DRM_DEBUG_KMS("modeline \"%s\": %d %d %d %d %d %d %d %d %d 0x%x 0x%x\n", mode->name, mode->clock, mode->hdisplay, mode->hsync_start,
                   mode->hsync_end, mode->htotal, mode->vdisplay, mode->vsync_start, mode->vsync_end, mode->vtotal, mode->flags, mode->type);
+}
+
+/*
+ * drm_mode_vrefresh - Get the vrefresh of a mode.
+ * @mode: mode
+ *
+ * Returns the mode's vrefresh rate in Hz, rounded to the nearest integer.
+ */
+int drm_mode_vrefresh(const struct drm_display_mode *mode)
+{
+    unsigned int num = 1, den = 1;
+    uint64_t     clock, total;
+
+    if (mode->htotal == 0 || mode->vtotal == 0) { return 0; }
+
+    if (mode->flags & DRM_MODE_FLAG_INTERLACE) { num *= 2; }
+    if (mode->flags & DRM_MODE_FLAG_DBLSCAN) { den *= 2; }
+    if (mode->vscan > 1) { den *= (unsigned int)mode->vscan; }
+
+    clock = (uint64_t)(unsigned int)mode->clock * num;
+    total = (uint64_t)(unsigned int)mode->htotal * (unsigned int)mode->vtotal * den;
+
+    if (!total) { return 0; }
+
+    return (int)((clock * 1000 + total / 2) / total);
+}
+
+/*
+ * drm_mode_set_name - Set the name on a mode.
+ * @mode: name will be set in this mode
+ *
+ * Set the name of @mode to a standard format which is <hdisplay>x<vdisplay>
+ * with an optional 'i' suffix for interlaced modes.
+ */
+void drm_mode_set_name(struct drm_display_mode *mode)
+{
+    bool interlaced = !!(mode->flags & DRM_MODE_FLAG_INTERLACE);
+
+    snprintf(mode->name, DRM_DISPLAY_MODE_LEN, "%dx%d%s", mode->hdisplay, mode->vdisplay, interlaced ? "i" : "");
+}
+
+/*
+ * drm_mode_duplicate - Allocate and duplicate an existing mode.
+ * @dev: drm_device to allocate the duplicated mode for
+ * @mode: mode to duplicate
+ *
+ * Allocate a new mode, copy the existing mode into it, and return a pointer
+ * to it.  Used to create new instances of established modes.
+ */
+struct drm_display_mode *drm_mode_duplicate(struct drm_device *dev, const struct drm_display_mode *mode)
+{
+    struct drm_display_mode *nmode;
+
+    nmode = drm_mode_create(dev);
+    if (!nmode) { return NULL; }
+
+    drm_mode_copy(nmode, mode);
+
+    return nmode;
 }

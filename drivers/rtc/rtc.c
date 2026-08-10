@@ -9,18 +9,13 @@
  */
 
 #include <chipset/cmos.h>
-#include <drivers/core/device.h>
 #include <drivers/rtc/rtc.h>
-#include <fs/virtual/devtmpfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/termios.h>
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <proc/uaccess.h>
-
-#define RTC_DEV_MAJOR 254
-#define RTC0_MINOR    0
 
 #define RTC_RD_TIME  _IOR('p', 0x09, rtc_time_t)
 #define RTC_SET_TIME _IOW('p', 0x0a, rtc_time_t)
@@ -84,7 +79,7 @@ uint64_t rtc_since_epoch(void)
 /*  Character device callbacks                                         */
 /* ------------------------------------------------------------------ */
 
-static int64_t rtc_dev_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
+int64_t rtc_dev_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     rtc_time_t t;
     uint8_t    data[8];
@@ -110,7 +105,7 @@ static int64_t rtc_dev_read(void *ctx, void *private_data, uint64_t flags, void 
     return (int64_t)size;
 }
 
-static int64_t rtc_dev_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
+int64_t rtc_dev_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     (void)ctx;
     (void)private_data;
@@ -118,11 +113,11 @@ static int64_t rtc_dev_write(void *ctx, void *private_data, uint64_t flags, cons
     (void)addr;
     (void)offset;
     (void)size;
-    plogk("rtc: rejected write to /dev/rtc0 (RTC is read-only as a byte stream)\n");
+    plogk("rtc: Rejected write to /dev/rtc0 (RTC is read-only as a byte stream)\n");
     return -EIO; // RTC is not writable as a byte stream
 }
 
-static int rtc_dev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t request, void *argument)
+int rtc_dev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t request, void *argument)
 {
     rtc_time_t t;
     int        valid;
@@ -140,7 +135,7 @@ static int rtc_dev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t r
             valid = t.tm_sec >= 0 && t.tm_sec <= 59 && t.tm_min >= 0 && t.tm_min <= 59 && t.tm_hour >= 0 && t.tm_hour <= 23 && t.tm_mday >= 1
                     && t.tm_mday <= 31 && t.tm_mon >= 0 && t.tm_mon <= 11 && t.tm_year >= 70;
             if (!valid) {
-                plogk("rtc: rejected RTC_SET_TIME with invalid time (y=%d m=%d d=%d h=%d min=%d s=%d)\n", t.tm_year, t.tm_mon + 1, t.tm_mday,
+                plogk("rtc: Rejected RTC_SET_TIME with invalid time (y=%d m=%d d=%d h=%d min=%d s=%d)\n", t.tm_year, t.tm_mon + 1, t.tm_mday,
                       t.tm_hour, t.tm_min, t.tm_sec);
                 return -EINVAL;
             }
@@ -149,23 +144,4 @@ static int rtc_dev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t r
         default :
             return -ENOTTY;
     }
-}
-
-void rtc_vfs_init(void)
-{
-    static const tmpfs_device_ops_t rtc_ops = {
-        .file_read  = rtc_dev_read,
-        .file_write = rtc_dev_write,
-        .file_ioctl = rtc_dev_ioctl,
-    };
-
-    if (devtmpfs_register_char_device("/dev/rtc0", MKDEV(RTC_DEV_MAJOR, RTC0_MINOR), MKDEV(RTC_DEV_MAJOR, RTC0_MINOR), file_stream, &rtc_ops)
-        == 0) {
-        vfs_node_t node = vfs_open("/dev/rtc0");
-        if (node) {
-            node->mode = 0644;
-            vfs_close(node);
-        }
-    }
-    plogk("rtc: /dev/rtc0 registered\n");
 }

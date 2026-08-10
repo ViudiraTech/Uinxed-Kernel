@@ -319,7 +319,7 @@ int extfs_write_data(extfs_handle_t *h, const void *buf, uint64_t offset, size_t
 
         if (inblock > 0 || chunk < sb->block_size) {
             if (extfs_read_block(sb, phys, block_buf) != EOK) {
-                plogk("extfs: read of inode %llu failed at block %u\n", (unsigned long long)h->inode_no, phys);
+                plogk("extfs: Read of inode %llu failed at block %u\n", (unsigned long long)h->inode_no, phys);
                 break;
             }
         }
@@ -460,7 +460,7 @@ int extfs_release_xattr_block(extfs_handle_t *h)
         memcpy(&refcount, buffer + 4, sizeof(refcount));
         memcpy(&blocks, buffer + 8, sizeof(blocks));
         if (magic != 0xEA020000U || !refcount || blocks != 1) {
-            plogk("extfs: drive %u: inode %u xattr block %llu has invalid header (magic 0x%x)\n", sb->device.drive, h->inode_no,
+            plogk("extfs: Drive %u: inode %u xattr block %llu has invalid header (magic 0x%x)\n", sb->device.drive, h->inode_no,
                   (unsigned long long)block, magic);
             status = -EIO;
         }
@@ -474,7 +474,7 @@ int extfs_release_xattr_block(extfs_handle_t *h)
         checksum          = crc32c_update(checksum, &zero, sizeof(zero));
         checksum          = crc32c_update(checksum, buffer + 20, sb->block_size - 20);
         if (stored != checksum) {
-            plogk("extfs: drive %u: inode %u xattr block %llu checksum mismatch\n", sb->device.drive, h->inode_no, (unsigned long long)block);
+            plogk("extfs: Drive %u: inode %u xattr block %llu checksum mismatch.\n", sb->device.drive, h->inode_no, (unsigned long long)block);
             status = -EIO;
         }
     }

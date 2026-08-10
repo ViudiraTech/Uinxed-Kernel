@@ -748,7 +748,7 @@ int socket_fd_install_flags(socket_t *sk, uint64_t fd_flags)
 
     node = vfs_node_alloc(NULL, "[socket]");
     if (!node) {
-        plogk("socket: socket VFS node allocation failed.\n");
+        plogk("socket: Socket VFS node allocation failed.\n");
         return -ENOMEM;
     }
 
@@ -914,13 +914,13 @@ static int unix_bind(socket_t *sk, const sockaddr_un_t *addr, uint32_t addrlen)
          */
         ret = vfs_mkfile(path);
         if (ret != EOK) {
-            if (ret != -EEXIST && ret != -EACCES && ret != -EROFS) plogk("socket: unix bind failed to create %s (%d)\n", path, ret);
+            if (ret != -EEXIST && ret != -EACCES && ret != -EROFS) plogk("socket: Unix bind failed to create %s (%d)\n", path, ret);
             return ret == -EEXIST ? -EADDRINUSE : ret;
         }
 
         file_node = vfs_open(path);
         if (!file_node) {
-            plogk("socket: unix bind could not open %s after creation.\n", path);
+            plogk("socket: Unix bind could not open %s after creation.\n", path);
             return -EIO;
         }
         ret = tmpfs_set_node_type(file_node, file_socket);
@@ -976,7 +976,7 @@ static int unix_listen(socket_t *sk, uint32_t backlog)
 
     sk->accept_queue = calloc(backlog, sizeof(socket_t *));
     if (!sk->accept_queue) {
-        plogk("socket: unix listen accept queue allocation failed (backlog %u)\n", (unsigned)backlog);
+        plogk("socket: Unix listen accept queue allocation failed (backlog %u)\n", (unsigned)backlog);
         sk->state = SOCK_STATE_UNCONNECTED;
         spin_unlock(&sk->lock);
         return -ENOMEM;
@@ -1029,7 +1029,7 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
     /* Create a new server-side socket */
     socket_t *server = calloc(1, sizeof(socket_t));
     if (!server) {
-        plogk("socket: unix stream connect server socket allocation failed.\n");
+        plogk("socket: Unix stream connect server socket allocation failed.\n");
         spin_unlock(&listener->lock);
         return -ENOMEM;
     }
@@ -1043,13 +1043,13 @@ static int unix_stream_connect(socket_t *sk, const sockaddr_un_t *addr, uint32_t
     wait_queue_init(&server->waitq);
 
     if (sock_buf_init(&server->recv_buf, SOCK_BUF_SIZE) != EOK) {
-        plogk("socket: unix stream connect recv buffer allocation failed.\n");
+        plogk("socket: Unix stream connect recv buffer allocation failed.\n");
         free(server);
         spin_unlock(&listener->lock);
         return -ENOMEM;
     }
     if (sock_buf_init(&server->send_buf, SOCK_BUF_SIZE) != EOK) {
-        plogk("socket: unix stream connect send buffer allocation failed.\n");
+        plogk("socket: Unix stream connect send buffer allocation failed.\n");
         sock_buf_free(&server->recv_buf);
         free(server);
         spin_unlock(&listener->lock);
@@ -1565,7 +1565,7 @@ static int unix_dgram_send(socket_t *sk, const void *buf, size_t len, const sock
     if (dest->node) vfs_poll_notify(dest->node, 0x001);
 
     if (written < (uint32_t)len) {
-        plogk("socket: unix datagram send short write (%u of %u bytes)\n", (unsigned)written, (unsigned)len);
+        plogk("socket: Unix datagram send short write (%u of %u bytes)\n", (unsigned)written, (unsigned)len);
         return -EIO;
     }
 
@@ -2049,7 +2049,7 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
         if (ret < 0) return ret;
         sk = inet_socket_alloc(sock_family, sock_type, (uint16_t)protocol, extra_flags, context);
         if (!sk) {
-            plogk("socket: sys_socket inet allocation failed (family=%d type=%d)\n", sock_family, sock_type);
+            plogk("socket: Sys_socket inet allocation failed (family=%d type=%d)\n", sock_family, sock_type);
             ops->close(context);
             return -ENOMEM;
         }
@@ -2067,7 +2067,7 @@ int64_t sys_socket(uint32_t family, uint32_t type, uint32_t protocol)
 
     sk = socket_alloc(sock_family, sock_type, (uint16_t)protocol);
     if (!sk) {
-        plogk("socket: sys_socket unix allocation failed (family=%d type=%d)\n", sock_family, sock_type);
+        plogk("socket: Sys_socket unix allocation failed (family=%d type=%d)\n", sock_family, sock_type);
         return -ENOMEM;
     }
 
@@ -2174,7 +2174,7 @@ int64_t sys_accept(int fd, sockaddr_t *addr, uint32_t *addrlen, int flags)
         if (ret < 0) return ret;
         accepted = inet_socket_alloc(sk->family, sk->type, sk->protocol, flags & SOCK_NONBLOCK, context);
         if (!accepted) {
-            plogk("socket: sys_accept inet allocation failed (family=%d)\n", sk->family);
+            plogk("socket: Sys_accept inet allocation failed (family=%d)\n", sk->family);
             ops->close(context);
             return -ENOMEM;
         }

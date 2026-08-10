@@ -62,7 +62,7 @@ int ethernet_output(net_device_t *device, net_pbuf_t *packet, const uint8_t dest
     if (!device || !packet || !destination || !ethernet_address_valid(device->address) || !ethernet_address_valid(destination)) return -EINVAL;
     uint8_t *header = net_pbuf_push(packet, ETH_HEADER_LEN);
     if (!header) {
-        plogk("ethernet: %s: output header push failed (%d bytes).\n", device->name, ETH_HEADER_LEN);
+        plogk("ethernet: %s: Output header push failed (%d bytes)\n", device->name, ETH_HEADER_LEN);
         return -ENOBUFS;
     }
     memcpy(header, destination, ETH_ADDRESS_LEN);

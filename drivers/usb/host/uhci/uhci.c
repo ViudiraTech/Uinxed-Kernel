@@ -404,7 +404,7 @@ static int uhci_submit_bulk(usb_endpoint_t *endpoint, void *buffer, size_t lengt
     bool     input                       = (endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK) != 0;
     uint8_t  endpoint_number             = endpoint->descriptor.endpoint_address & USB_ENDPOINT_NUMBER_MASK;
     if (!dma_buffer || dma_physical > UINT32_MAX || dma_physical + length - 1 > UINT32_MAX) {
-        plogk("uhci: transfer DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
+        plogk("uhci: Transfer DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
         goto cleanup_bulk;
     }
     if (!input) memcpy(dma_buffer, buffer, length);

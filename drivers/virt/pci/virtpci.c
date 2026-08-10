@@ -31,14 +31,6 @@
 #include <mem/page.h>
 
 /* ------------------------------------------------------------------ */
-/* Logging prefix                                                      */
-/* ------------------------------------------------------------------ */
-
-#define VP_LOG(fmt, ...) plogk("vp: " fmt, ##__VA_ARGS__)
-#define VP_ERR(fmt, ...) plogk("vp: [error] " fmt, ##__VA_ARGS__)
-#define VP_DBG(fmt, ...) plogk("vp: [debug] " fmt, ##__VA_ARGS__)
-
-/* ------------------------------------------------------------------ */
 /* Capability parsing –walk the PCI vendor-defined capability list    */
 /* ------------------------------------------------------------------ */
 
@@ -65,7 +57,7 @@ static volatile void *vp_map_cap_bar(struct vp_device *dev, struct vp_cap *cap)
     }
 
     if (!bar_phys) {
-        VP_ERR("BAR %u for device %04x:%04x has null address\n", cap->bar, dev->vendor_id, dev->device_id);
+        plogk("virtpci: BAR %u for device %04x:%04x has null address.\n", cap->bar, dev->vendor_id, dev->device_id);
         return NULL;
     }
 
@@ -100,7 +92,7 @@ static int vp_scan_caps(struct vp_device *dev)
     cap_off    = read_pci(reg) & 0xfc;
 
     if (!cap_off) {
-        VP_ERR("No PCI capabilities found (not a modern virtio device)\n");
+        plogk("virtpci: No PCI capabilities found (not a modern virtio device)\n");
         return -ENODEV;
     }
 
@@ -139,7 +131,7 @@ static int vp_scan_caps(struct vp_device *dev)
                 dev->common     = vp_map_cap_bar(dev, &cap);
                 if (dev->common) {
                     found_common = 1;
-                    VP_DBG("common cfg at BAR%u+0x%x (len %u)\n", cap.bar, cap.offset, cap.length);
+                    plogk("virtpci: Common cfg at BAR%u+0x%x (len %u)\n", cap.bar, cap.offset, cap.length);
                 }
                 break;
 
@@ -156,7 +148,7 @@ static int vp_scan_caps(struct vp_device *dev)
                 dev->notify_base           = vp_map_cap_bar(dev, &cap);
                 dev->notify_off_multiplier = ndata;
                 found_notify               = 1;
-                VP_DBG("notify cfg at BAR%u+0x%x (mult %u)\n", cap.bar, cap.offset, ndata);
+                plogk("virtpci: Notify cfg at BAR%u+0x%x (mult %u)\n", cap.bar, cap.offset, ndata);
                 break;
             }
 
@@ -165,14 +157,14 @@ static int vp_scan_caps(struct vp_device *dev)
                 dev->isr     = vp_map_cap_bar(dev, &cap);
                 if (dev->isr) {
                     found_isr = 1;
-                    VP_DBG("isr cfg at BAR%u+0x%x\n", cap.bar, cap.offset);
+                    plogk("virtpci: Isr cfg at BAR%u+0x%x\n", cap.bar, cap.offset);
                 }
                 break;
 
             case VIRTIO_PCI_CAP_DEVICE_CFG :
                 dev->device_cap = cap;
                 dev->device_cfg = vp_map_cap_bar(dev, &cap);
-                if (dev->device_cfg) { VP_DBG("device cfg at BAR%u+0x%x (len %u)\n", cap.bar, cap.offset, cap.length); }
+                if (dev->device_cfg) { plogk("virtpci: Device cfg at BAR%u+0x%x (len %u)\n", cap.bar, cap.offset, cap.length); }
                 break;
             default :
                 break;
@@ -182,7 +174,7 @@ static int vp_scan_caps(struct vp_device *dev)
     }
 
     if (!found_common || !found_notify || !found_isr) {
-        VP_ERR("Missing required capabilities (common=%d notify=%d isr=%d)\n", found_common, found_notify, found_isr);
+        plogk("virtpci: Missing required capabilities (common=%d notify=%d isr=%d)\n", found_common, found_notify, found_isr);
         return -ENODEV;
     }
 
@@ -227,7 +219,7 @@ int vp_negotiate_features(struct vp_device *dev, uint64_t guest_features, uint64
     dev->common->device_feature_select = 1;
     hi                                 = dev->common->device_feature;
 
-    VP_DBG("Device features: 0x%016llx\n", ((uint64_t)hi << 32) | lo);
+    plogk("virtpci: Device features: 0x%016llx\n", ((uint64_t)hi << 32) | lo);
 
     /* Mask with guest-requested features */
     lo &= (uint32_t)(guest_features);
@@ -242,7 +234,7 @@ int vp_negotiate_features(struct vp_device *dev, uint64_t guest_features, uint64
     dev->features = ((uint64_t)hi << 32) | lo;
     if (negotiated) { *negotiated = dev->features; }
 
-    VP_DBG("Negotiated features: 0x%016llx\n", dev->features);
+    plogk("virtpci: Negotiated features: 0x%016llx\n", dev->features);
     return 0;
 }
 
@@ -289,7 +281,7 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
     /* Select the queue */
     common->queue_select = index;
     if (!common->queue_size) {
-        VP_ERR("Queue %d size is 0\n", index);
+        plogk("virtpci: Queue %d size is 0\n", index);
         return -ENODEV;
     }
 
@@ -503,7 +495,7 @@ void *virtqueue_get_buf(struct vp_virtqueue *vq, uint32_t *len)
 
     if (used_head >= (uint32_t)vq->num_max) {
         spin_unlock(&vq->lock);
-        VP_ERR("Queue %d returned invalid descriptor id %u\n", vq->index, used_head);
+        plogk("virtpci: Queue %d returned invalid descriptor id %u\n", vq->index, used_head);
         return NULL;
     }
     head = (uint16_t)used_head;
@@ -521,7 +513,7 @@ void *virtqueue_get_buf(struct vp_virtqueue *vq, uint32_t *len)
         vq->desc_data[current] = NULL;
         if ((flags & VRING_DESC_F_INDIRECT) || !(flags & VRING_DESC_F_NEXT)) break;
         if (next >= (uint16_t)vq->num_max) {
-            VP_ERR("Queue %d descriptor %u has invalid next id %u\n", vq->index, current, next);
+            plogk("virtpci: Queue %d descriptor %u has invalid next id %u\n", vq->index, current, next);
             break;
         }
         current = next;
@@ -591,8 +583,8 @@ int vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev
     dev->vendor_id = vendor_id;
     dev->device_id = device_id;
 
-    VP_DBG("Found device %04x:%04x at %04x:%02x:%02x.%01x\n", vendor_id, device_id, cache->device->domain, cache->device->bus,
-           cache->device->slot, cache->device->func);
+    plogk("virtpci: Found device %04x:%04x at %04x:%02x:%02x.%01x\n", vendor_id, device_id, cache->device->domain, cache->device->bus,
+          cache->device->slot, cache->device->func);
 
     /* Scan capabilities */
     ret = vp_scan_caps(dev);

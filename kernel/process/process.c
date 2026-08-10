@@ -149,7 +149,7 @@ size_t process_snapshot_pids(pid_t *pids, size_t capacity)
 void process_debug_dump_tasks(void)
 {
     spin_lock(&process_table_lock);
-    plogk("task-dump: begin\n");
+    plogk("task-dump: Begin\n");
     for (size_t i = 1; i < PROCESS_TABLE_SIZE; i++) {
         process_t *proc = process_table[i];
         if (!proc) continue;
@@ -160,7 +160,7 @@ void process_debug_dump_tasks(void)
                   task->cpu_id, task->on_cpu, task->wait_queue, task->wake_reason, task->wake_tick);
         }
     }
-    plogk("task-dump: end\n");
+    plogk("task-dump: End\n");
     spin_unlock(&process_table_lock);
 }
 
@@ -1340,7 +1340,7 @@ process_t *process_create(const char *name, void (*entry)(void *), void *arg)
 
     process_t *proc = calloc(1, sizeof(process_t));
     if (!proc) {
-        plogk("process: process '%s' creation failed (control block OOM).\n", name ? name : "?");
+        plogk("process: Process '%s' creation failed (control block OOM)\n", name ? name : "?");
         return NULL;
     }
 
@@ -1414,13 +1414,13 @@ process_t *process_create_kernel(const char *name, void (*entry)(void *), void *
 {
     process_t *proc = calloc(1, sizeof(process_t));
     if (!proc) {
-        plogk("process: kernel process '%s' creation failed (control block OOM)\n", name ? name : "?");
+        plogk("process: Kernel process '%s' creation failed (control block OOM)\n", name ? name : "?");
         return NULL;
     }
 
     proc->kernel_stack = malloc(PROCESS_KERNEL_STACK);
     if (!proc->kernel_stack) {
-        plogk("process: kernel process '%s' kernel stack allocation failed (%d bytes)\n", name ? name : "?", PROCESS_KERNEL_STACK);
+        plogk("process: Kernel process '%s' kernel stack allocation failed (%d bytes)\n", name ? name : "?", PROCESS_KERNEL_STACK);
         free(proc);
         return NULL;
     }
@@ -1437,7 +1437,7 @@ process_t *process_create_kernel(const char *name, void (*entry)(void *), void *
         }
     }
     if (!task) {
-        plogk("process: kernel process '%s' task allocation failed.\n", name ? name : "?");
+        plogk("process: Kernel process '%s' task allocation failed.\n", name ? name : "?");
         free(proc->kernel_stack);
         free(proc);
         return NULL;
@@ -1864,7 +1864,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
 
     process_t *child = calloc(1, sizeof(process_t));
     if (!child) {
-        plogk("process: fork of '%s' failed (control block OOM)\n", parent->name);
+        plogk("process: Fork of '%s' failed (control block OOM)\n", parent->name);
         if (error) *error = -ENOMEM;
         spin_unlock(&parent->mmap_lock);
         spin_unlock(&scheduler.lock);
@@ -1874,7 +1874,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     int     task_error = EOK;
     task_t *child_task = task_alloc_status(parent->task->name, &task_error);
     if (!child_task) {
-        plogk("process: fork of '%s' failed (task allocation, errno %d)\n", parent->name, task_error);
+        plogk("process: Fork of '%s' failed (task allocation, errno %d)\n", parent->name, task_error);
         if (error) *error = task_error;
         free(child);
         spin_unlock(&parent->mmap_lock);
@@ -1908,7 +1908,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     memcpy(child->exe_path, parent->exe_path, sizeof(child->exe_path));
     child->kernel_stack = malloc(PROCESS_KERNEL_STACK);
     if (!child->kernel_stack) {
-        plogk("process: fork of '%s' failed (kernel stack OOM).\n", parent->name);
+        plogk("process: Fork of '%s' failed (kernel stack OOM)\n", parent->name);
         if (error) *error = -ENOMEM;
         task_free(child_task);
         free(child);
@@ -1936,7 +1936,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     child->vfork_done = !vfork;
 
     if (setup_process_page_dir(child)) {
-        plogk("process: fork of '%s' failed (page directory setup)\n", parent->name);
+        plogk("process: Fork of '%s' failed (page directory setup)\n", parent->name);
         if (error) *error = -ENOMEM;
         process_free(child);
         spin_unlock(&parent->mmap_lock);
@@ -1945,7 +1945,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     }
 
     if (page_clone_user_cow(child->user_page_dir, parent->user_page_dir)) {
-        plogk("process: fork of '%s' failed (user pages COW clone)\n", parent->name);
+        plogk("process: Fork of '%s' failed (user pages COW clone)\n", parent->name);
         if (error) *error = -ENOMEM;
         process_free(child);
         spin_unlock(&parent->mmap_lock);
@@ -1956,7 +1956,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
     for (vm_area_t *vma = parent->mmap_list; vma; vma = vma->next) {
         vm_area_t *copy = vm_area_alloc(vma->start, vma->end, vma->flags);
         if (!copy) {
-            plogk("process: fork of '%s' failed (VMA copy OOM)\n", parent->name);
+            plogk("process: Fork of '%s' failed (VMA copy OOM)\n", parent->name);
             if (error) *error = -ENOMEM;
             process_free(child);
             spin_unlock(&parent->mmap_lock);
@@ -1980,7 +1980,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         if (copy->vm_file && copy->vm_pagecache) (void)vfs_cache_mapping_pin(copy->vm_file);
         if (copy->vm_file) memfd_vma_retain(copy->vm_file, copy->flags);
         if (copy->type == VM_REGION_SHM && sysv_shm_vma_get(copy->vm_private_data, (uint32_t)child->task->pid)) {
-            plogk("process: fork of '%s' failed (SHM VMA lookup)\n", parent->name);
+            plogk("process: Fork of '%s' failed (SHM VMA lookup)\n", parent->name);
             if (copy->vm_file) {
                 if (copy->vm_pagecache) vfs_cache_mapping_unpin(copy->vm_file);
                 memfd_vma_release(copy->vm_file, copy->flags);
@@ -1995,7 +1995,7 @@ process_t *process_fork_status_event_mode(int *error, uint32_t ptrace_event, boo
         }
 
         if (vm_area_insert(child, copy)) {
-            plogk("process: fork of '%s' failed (VMA insert)\n", parent->name);
+            plogk("process: Fork of '%s' failed (VMA insert)\n", parent->name);
             if (copy->vm_file) {
                 if (copy->vm_pagecache) vfs_cache_mapping_unpin(copy->vm_file);
                 memfd_vma_release(copy->vm_file, copy->flags);
@@ -2144,13 +2144,13 @@ task_t *process_clone_thread(syscall_frame_t *frame, uintptr_t child_stack, uint
     int     task_error = EOK;
     task_t *child      = task_alloc_status(current->name, &task_error);
     if (!child) {
-        plogk("process: thread clone of '%s' failed (task allocation, errno %d)\n", current->name, task_error);
+        plogk("process: Thread clone of '%s' failed (task allocation, errno %d)\n", current->name, task_error);
         if (error) *error = task_error;
         return NULL;
     }
     child->kernel_stack = malloc(TASK_KERNEL_STACK);
     if (!child->kernel_stack) {
-        plogk("process: thread clone of '%s' failed (kernel stack OOM)\n", current->name);
+        plogk("process: Thread clone of '%s' failed (kernel stack OOM)\n", current->name);
         task_free(child);
         if (error) *error = -ENOMEM;
         return NULL;

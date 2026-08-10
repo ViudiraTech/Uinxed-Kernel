@@ -71,7 +71,7 @@ uint8_t page_walk_execute(page_walk_state_t *state)
         return 0;
     }
     if (is_huge_page(&state->l4_table->entries[state->l4_index])) {
-        plogk("page_walk: illegal L4 huge-page entry for virtual address 0x%016llx (page table corruption)\n", (uint64_t)state->virtual_addr);
+        plogk("page_walk: Illegal L4 huge-page entry for virtual address 0x%016llx (page table corruption)\n", (uint64_t)state->virtual_addr);
         state->is_valid = 0;
         return 0;
     }

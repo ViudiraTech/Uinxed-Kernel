@@ -169,7 +169,7 @@ int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, 
 
     args->handle = handle;
     drm_gem_object_put(&obj->base);
-    DRM_DEBUG_DRIVER("Dumb buffer created: %ux%u, pitch=%u, size=%llu, handle=%u\n", args->width, args->height, args->pitch, args->size, handle);
+    plogk("virtgpu: Dumb buffer created: %ux%u, pitch=%u, size=%llu, handle=%u\n", args->width, args->height, args->pitch, args->size, handle);
     return 0;
 }
 

@@ -234,7 +234,7 @@ static int rtl8139_get_ioaddr(rtl8139_device_t *device)
 {
     uint32_t port = pci_get_port_base(device->pci);
     if (!port || port > 0xffff) {
-        plogk("rtl8139: %04x:%04x: no usable I/O port BAR.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        plogk("rtl8139: %04x:%04x: No usable I/O port BAR.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
         return -ENODEV;
     }
     device->ioaddr = (uint16_t)port;
@@ -253,7 +253,7 @@ static int rtl8139_reset(rtl8139_device_t *device)
     for (uint32_t i = 0; i < RTL8139_RESET_POLL; i++) {
         if (!(rtl8139_read8(device, RTL8139_REG_CR) & RTL8139_CR_RESET)) return 0;
     }
-    plogk("rtl8139: %04x:%04x: reset bit did not clear, continuing.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+    plogk("rtl8139: %04x:%04x: Reset bit did not clear, continuing.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
     return 0;
 }
 
@@ -261,7 +261,7 @@ static void rtl8139_read_mac(rtl8139_device_t *device)
 {
     for (size_t i = 0; i < 6; i++) device->mac[i] = rtl8139_read8(device, RTL8139_REG_IDR0 + (uint32_t)i);
     if (!rtl8139_valid_mac(device->mac)) {
-        plogk("rtl8139: %04x:%04x: invalid MAC address, using fallback.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        plogk("rtl8139: %04x:%04x: Invalid MAC address, using fallback.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
         for (size_t i = 0; i < 6; i++) device->mac[i] = i;
         device->mac[0] &= ~1u; // ensure a unicast, locally administered address
         device->mac[0] |= 2u;
@@ -437,7 +437,7 @@ int rtl8139_transmit(rtl8139_device_t *device, const void *packet, size_t length
     if (length > RTL8139_MAX_FRAME_SIZE) {
         device->stats.tx_dropped++;
         device->stats.tx_errors++;
-        plogk("rtl8139: %s: dropping oversize TX frame (%zu bytes)\n", device->netdev.name, length);
+        plogk("rtl8139: %s: Dropping oversize TX frame (%zu bytes)\n", device->netdev.name, length);
         return -EMSGSIZE;
     }
     if (!device->running) return -ENODEV;
@@ -553,7 +553,7 @@ static void rtl8139_process_work(rtl8139_device_t *device, uint32_t cause)
     if (cause & RTL8139_ISR_PUN) rtl8139_update_link(device);
     if (cause & RTL8139_ISR_RER) {
         device->stats.rx_errors++;
-        plogk("rtl8139: %s: receive error interrupt.\n", device->netdev.name);
+        plogk("rtl8139: %s: Receive error interrupt.\n", device->netdev.name);
     }
     if (cause & (RTL8139_ISR_RXOVW | RTL8139_ISR_FOVW)) {
         device->stats.rx_errors++;
@@ -565,7 +565,7 @@ static void rtl8139_process_work(rtl8139_device_t *device, uint32_t cause)
     }
     if (cause & RTL8139_ISR_TER) {
         device->stats.tx_errors++;
-        plogk("rtl8139: %s: transmit error interrupt.\n", device->netdev.name);
+        plogk("rtl8139: %s: Transmit error interrupt.\n", device->netdev.name);
     }
     if ((cause & RTL8139_RX_INT_MASK) || rtl8139_rx_ready(device)) (void)rtl8139_poll(device, RTL8139_WORK_BUDGET);
 
@@ -718,7 +718,7 @@ static int rtl8139_setup_interrupt(rtl8139_device_t *device)
         if (!rtl8139_irq_slots[slot]) break;
     if (slot == RTL8139_MAX_DEVICES) {
         spin_unlock_irqrestore(&rtl8139_irq_lock, rflags);
-        plogk("rtl8139: %04x:%04x: no free IRQ slot.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+        plogk("rtl8139: %04x:%04x: No free IRQ slot.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
         return -ENOSPC;
     }
     device->irq_slot        = (uint8_t)slot;
@@ -753,7 +753,7 @@ fail:
     rflags                  = spin_lock_irqsave(&rtl8139_irq_lock);
     rtl8139_irq_slots[slot] = NULL;
     spin_unlock_irqrestore(&rtl8139_irq_lock, rflags);
-    plogk("rtl8139: %04x:%04x: interrupt setup failed.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
+    plogk("rtl8139: %04x:%04x: Interrupt setup failed.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
     return -ENODEV;
 }
 
@@ -859,7 +859,7 @@ int rtl8139_probe(pci_device_cache_t *pci)
 
     rtl8139_device_t *device = malloc(sizeof(*device));
     if (!device) {
-        plogk("rtl8139: %04x:%04x: device allocation failed.\n", (unsigned)pci->vendor_id, (unsigned)pci->device_id);
+        plogk("rtl8139: %04x:%04x: Device allocation failed.\n", (unsigned)pci->vendor_id, (unsigned)pci->device_id);
         return -ENOMEM;
     }
     memset(device, 0, sizeof(*device));
@@ -921,7 +921,7 @@ int rtl8139_probe(pci_device_cache_t *pci)
         ret   = rtl8139_start_worker(device);
         if (ret) goto fail_linked;
     }
-    plogk("rtl8139: %s: registered (MAC %02x:%02x:%02x:%02x:%02x:%02x, INTx, link %s)\n", device->netdev.name, device->mac[0], device->mac[1],
+    plogk("rtl8139: %s: Registered (MAC %02x:%02x:%02x:%02x:%02x:%02x, INTx, link %s)\n", device->netdev.name, device->mac[0], device->mac[1],
           device->mac[2], device->mac[3], device->mac[4], device->mac[5], device->link_up ? "up" : "down");
     return 0;
 
@@ -968,7 +968,7 @@ int rtl8139_start_workers(void)
             continue;
         }
         failed = 1;
-        plogk("rtl8139: %s: worker startup failed.\n", device->netdev.name);
+        plogk("rtl8139: %s: Worker startup failed.\n", device->netdev.name);
         *link = device->next;
         rtl8139_device_count--;
         rtl8139_destroy(device);

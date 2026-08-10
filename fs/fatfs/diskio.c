@@ -42,7 +42,7 @@ static DRESULT fatfs_open_drive(BYTE pdrv)
     if (pdrv >= FF_VOLUMES) return RES_PARERR;
     if (fatfs_bound[pdrv]) return RES_OK;
     if (blockdev_open_drive(pdrv, &fatfs_devices[pdrv]) != EOK) {
-        plogk("fatfs: drive %u: block device open failed.\n", pdrv);
+        plogk("fatfs: Drive %u: block device open failed.\n", pdrv);
         return RES_NOTRDY;
     }
 
@@ -68,7 +68,7 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
     if (disk_status(pdrv) & STA_NOINIT) return RES_NOTRDY;
 
     if (blockdev_read_sectors(&fatfs_devices[pdrv], sector, count, buff) != EOK) {
-        plogk("fatfs: drive %u: sector read failed at %llu (count %u)\n", pdrv, (unsigned long long)sector, count);
+        plogk("fatfs: Drive %u: sector read failed at %llu (count %u)\n", pdrv, (unsigned long long)sector, count);
         return RES_ERROR;
     }
 
@@ -82,7 +82,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
     if (disk_status(pdrv) & STA_NOINIT) return RES_NOTRDY;
 
     if (blockdev_write_sectors(&fatfs_devices[pdrv], sector, count, buff) != EOK) {
-        plogk("fatfs: drive %u: sector write failed at %llu (count %u)\n", pdrv, (unsigned long long)sector, count);
+        plogk("fatfs: Drive %u: sector write failed at %llu (count %u)\n", pdrv, (unsigned long long)sector, count);
         return RES_ERROR;
     }
 

@@ -1,6 +1,6 @@
 /*
  *
- *      ksysfs.c
+ *      kernel_sysfs.c
  *      /sys/kernel/ attribute files (version, cmdline, hostname, etc.)
  *
  *      2026/7/23 By JiTianYu391
@@ -9,6 +9,7 @@
  */
 
 #include <fs/core/vfs.h>
+#include <fs/sysfs/kernel_sysfs.h>
 #include <fs/sysfs/sysfs.h>
 #include <kernel/cmdline/cmdline.h>
 #include <kernel/errno.h>
@@ -179,7 +180,7 @@ static struct kobj_type kernel_ktype = {
 /*  Initialization                                                     */
 /* ------------------------------------------------------------------ */
 
-void ksysfs_init(void)
+void kernel_sysfs_init(void)
 {
 #if CONFIG_SYSFS
     struct kobject *kernel_kobj = NULL;
@@ -197,7 +198,7 @@ void ksysfs_init(void)
     }
 
     if (!kernel_kobj) {
-        plogk("ksysfs: /sys/kernel/ kobject not found.\n");
+        plogk("kernel_sysfs: /sys/kernel/ kobject not found.\n");
         return;
     }
 
@@ -210,5 +211,7 @@ void ksysfs_init(void)
         for (attr = kernel_ktype.default_attrs; *attr; attr++)
             if ((*attr)->name) sysfs_create_file(kernel_kobj, *attr);
     }
+
+    plogk("kernel_sysfs: /sys/kernel/ registered.\n");
 #endif
 }

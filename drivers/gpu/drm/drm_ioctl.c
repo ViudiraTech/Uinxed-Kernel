@@ -250,7 +250,7 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
     int                          ret;
 
     if (!dev || !dev->driver || !file_priv) {
-        plogk("drm: ioctl 0x%x on invalid device/file state\n", cmd);
+        plogk("drm: Ioctl 0x%x on invalid device/file state.\n", cmd);
         return -EINVAL;
     }
 
@@ -269,7 +269,7 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
     if (size > 0) {
         kdata = malloc(size);
         if (!kdata) {
-            plogk("drm: ioctl 0x%x buffer allocation failed (%u bytes)\n", cmd, size);
+            plogk("drm: Ioctl 0x%x buffer allocation failed (%u bytes)\n", cmd, size);
             return -ENOMEM;
         }
         if (dir & _IOC_WRITE) {
@@ -355,7 +355,7 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
     /* 8. Permission check + dispatch. */
     ret = drm_ioctl_permit(desc->flags, file_priv);
     if (ret) {
-        plogk("drm: ioctl 0x%x flags 0x%x DENIED: master=%d auth=%d\n", cmd, desc->flags, file_priv->master != NULL, file_priv->authenticated);
+        plogk("drm: Ioctl 0x%x flags 0x%x DENIED: master=%d auth=%d\n", cmd, desc->flags, file_priv->master != NULL, file_priv->authenticated);
         goto out;
     }
 

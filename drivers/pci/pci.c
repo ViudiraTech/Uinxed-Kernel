@@ -644,7 +644,7 @@ int pci_enable_msi_range(pci_device_cache_t *dev, int nvec)
     }
     spin_unlock_irqrestore(&msi_lock, rflags);
     if (found < 0) {
-        plogk("pci: %04x:%02x:%02x.%01x: no contiguous MSI vectors available for %d vector(s)\n", dev->device->domain, dev->device->bus,
+        plogk("pci: %04x:%02x:%02x.%01x: no contiguous MSI vectors available for %d vector(s).\n", dev->device->domain, dev->device->bus,
               dev->device->slot, dev->device->func, allocated_nvec);
         return -1;
     }
@@ -736,14 +736,14 @@ static int msix_map_table(pci_device_cache_t *dev, int nvec)
     int      bir          = table_info & PCI_MSIX_TABLE_BIR;
     uint32_t table_offset = table_info & PCI_MSIX_TABLE_OFFSET;
     if (bir >= 6) {
-        plogk("pci: %04x:%02x:%02x.%01x: MSI-X table BIR %d out of range\n", dev->device->domain, dev->device->bus, dev->device->slot,
+        plogk("pci: %04x:%02x:%02x.%01x: MSI-X table BIR %d out of range.\n", dev->device->domain, dev->device->bus, dev->device->slot,
               dev->device->func, bir);
         return -1;
     }
 
     base_address_register_t bar = get_base_address_register(dev, bir);
     if (!bar.address || bar.type != mem_mapping) {
-        plogk("pci: %04x:%02x:%02x.%01x: MSI-X BAR %d is not a memory BAR\n", dev->device->domain, dev->device->bus, dev->device->slot,
+        plogk("pci: %04x:%02x:%02x.%01x: MSI-X BAR %d is not a memory BAR.\n", dev->device->domain, dev->device->bus, dev->device->slot,
               dev->device->func, bir);
         return -1;
     }
@@ -954,7 +954,7 @@ void pci_device_find(pci_finding_request_t *req) // Notice: the req should be a 
             *req->response = pci_device_finding(0, req);
             break;
         default :
-            plogk("pci: unknown finding type %d\n", req->type);
+            plogk("pci: Unknown finding type %d\n", req->type);
             req->response->device = 0;
             req->response->error  = PCI_FINDING_ERROR;
             break;
@@ -986,7 +986,7 @@ void pci_device_find_next(pci_finding_request_t *request, volatile pci_finding_r
                 *next_response = pci_device_finding(response->device->next, request);
                 break;
             default :
-                plogk("pci: unknown finding type %d\n", request->type);
+                plogk("pci: Unknown finding type %d\n", request->type);
                 next_response->device = 0;
                 next_response->error  = PCI_FINDING_ERROR;
                 break;

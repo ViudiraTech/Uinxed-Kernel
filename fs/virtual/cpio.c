@@ -219,7 +219,7 @@ void init_cpio(void)
     if (type == COMPRESSION_GZIP) {
         int status = gzip_decompress(module->data, module->size, &archive, &size);
         if (status != EOK) {
-            plogk("cpio: gzip decompression failed: %d\n", status);
+            plogk("cpio: Gzip decompression failed: %d\n", status);
             return;
         }
         allocated = true;
@@ -302,7 +302,7 @@ void init_cpio(void)
 
         int status = cpio_install_entry(path, mode, uid, gid, mtime, filedata, filesize, !allocated);
         if (status == -EOPNOTSUPP) {
-            plogk("cpio: Skipping unsupported entry %s (mode %o).\n", path, mode);
+            plogk("cpio: Skipping unsupported entry %s (mode %o)\n", path, mode);
             continue;
         }
         if (status != EOK) {

@@ -14,6 +14,7 @@
 #include <drivers/gpu/fbdev/fbdev.h>
 #include <drivers/gpu/fbdev/klogo.h>
 #include <drivers/gpu/fbdev/video.h>
+#include <drivers/tty/tty.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
@@ -502,7 +503,7 @@ void video_flush_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 }
 
 /*
- * video_switch_to_drm ?redirect fbcon output to a DRM GEM backing buffer.
+ * video_switch_framebuffer - redirect fbcon output to a DRM GEM backing buffer.
  *
  * After this call all printk / tty output renders into the DRM buffer
  * instead of the boot-time Limine framebuffer.  The @flush callback is
@@ -514,7 +515,7 @@ void video_flush_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
  * continues on the DRM surface and the logo is eventually covered by
  * normal scrolling after fbcon_release_logo().
  */
-void video_switch_to_drm(void *backing, uint32_t w, uint32_t h, uint32_t pitch, video_flush_fn_t flush)
+void video_switch_framebuffer(void *backing, uint32_t w, uint32_t h, uint32_t pitch, video_flush_fn_t flush)
 {
     uint32_t *old_buffer;
     uint64_t  old_width;
@@ -525,7 +526,9 @@ void video_switch_to_drm(void *backing, uint32_t w, uint32_t h, uint32_t pitch, 
 
     if ((uintptr_t)backing & (PAGE_4K_SIZE - 1) || pitch < w * sizeof(uint32_t) || (pitch & (sizeof(uint32_t) - 1))) return;
 
+    tty_buff_flush();
     fbcon_handoff_begin();
+
     spin_lock(&video_state_lock);
     old_buffer = buffer;
     old_width  = width;
@@ -584,5 +587,5 @@ void video_switch_to_drm(void *backing, uint32_t w, uint32_t h, uint32_t pitch, 
     /* Push the carried-over frame (or the rebuilt one) to the host. */
     video_flush_rect(0, 0, w, h);
 
-    plogk("video: switched console to DRM framebuffer %ux%u stride=%u\n", w, h, (uint32_t)stride);
+    plogk("video: Switched to framebuffer %ux%u stride=%u\n", w, h, (uint32_t)stride);
 }

@@ -631,13 +631,13 @@ int drm_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, stru
      * drm_gem_mmap can later look up the GEM object by offset.
      */
     obj->mmap_offset = dumb_offset_alloc(size);
-    if (!obj->mmap_offset) plogk("drm: dumb mmap offset space exhausted (size=%zu)\n", size);
+    if (!obj->mmap_offset) plogk("drm: Dumb mmap offset space exhausted (size=%zu)\n", size);
 
     /* Allocate backing memory for the dumb buffer */
     if (size > 0) {
         obj->backing = aligned_alloc(4096, size);
         if (!obj->backing) {
-            plogk("drm: dumb buffer backing allocation failed (size=%zu)\n", size);
+            plogk("drm: Dumb buffer backing allocation failed (size=%zu)\n", size);
             free(obj);
             return -ENOMEM;
         }

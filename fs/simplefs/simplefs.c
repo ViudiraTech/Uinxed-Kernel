@@ -56,7 +56,7 @@ static int simplefs_disk_read_bytes(const simplefs_handle_t *fs, uint64_t offset
 {
     int status = blockdev_read_bytes(&fs->device, offset, buffer, size);
     if (status != EOK)
-        plogk("simplefs: drive %u: block read failed at byte %llu (size %u): %d\n", fs->device.drive, (unsigned long long)offset, (unsigned)size,
+        plogk("simplefs: Drive %u: block read failed at byte %llu (size %u): %d\n", fs->device.drive, (unsigned long long)offset, (unsigned)size,
               status);
     return status;
 }
@@ -65,7 +65,7 @@ static int simplefs_disk_write_bytes(const simplefs_handle_t *fs, uint64_t offse
 {
     int status = blockdev_write_bytes(&fs->device, offset, buffer, size);
     if (status != EOK)
-        plogk("simplefs: drive %u: block write failed at byte %llu (size %u): %d\n", fs->device.drive, (unsigned long long)offset,
+        plogk("simplefs: Drive %u: block write failed at byte %llu (size %u): %d\n", fs->device.drive, (unsigned long long)offset,
               (unsigned)size, status);
     return status;
 }

@@ -198,6 +198,6 @@ void dmi_sysfs_init(void)
     }
 
     dmi_sysfs_ready = true;
-    plogk("dmi: /sys/class/dmi/id and /sys/firmware/dmi/tables registered\n");
+    plogk("dmi_sysfs: /sys/class/dmi/id and /sys/firmware/dmi/tables registered.\n");
 #endif
 }

@@ -255,14 +255,14 @@ static int ehci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
     void    *setup_dma = ehci_dma_alloc(sizeof(*setup), &setup_physical);
     void    *data_dma  = NULL;
     if (!setup_dma || setup_physical > UINT32_MAX) {
-        plogk("ehci: control DMA allocation failed on bus %u\n", ctrl->bus_number);
+        plogk("ehci: Control DMA allocation failed on bus %u\n", ctrl->bus_number);
         goto control_cleanup;
     }
     memcpy(setup_dma, setup, sizeof(*setup));
     if (length) {
         data_dma = ehci_dma_alloc(length, &data_physical);
         if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) {
-            plogk("ehci: control data DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
+            plogk("ehci: Control data DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
             goto control_cleanup;
         }
         if (!input) memcpy(data_dma, buffer, length);
@@ -335,7 +335,7 @@ static int ehci_transfer(usb_endpoint_t *endpoint, void *buffer, size_t length, 
     uint64_t data_physical = 0;
     void    *data_dma      = ehci_dma_alloc(length, &data_physical);
     if (!data_dma || data_physical > UINT32_MAX || data_physical + length - 1 > UINT32_MAX) {
-        plogk("ehci: transfer DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
+        plogk("ehci: Transfer DMA allocation failed on bus %u (%zu bytes)\n", ctrl->bus_number, length);
         goto transfer_cleanup;
     }
     if (!input) memcpy(data_dma, buffer, length);
@@ -843,7 +843,7 @@ static int ehci_probe(pci_device_cache_t *pci, uint8_t bus_number)
         }
     }
 
-    plogk("ehci: Controller at MMIO %p, bus usb%u, %u ports\n", (void *)bar.address, bus_number, ctrl->num_ports);
+    plogk("ehci: Controller at MMIO %p, bus usb%u, %u ports.\n", (void *)bar.address, bus_number, ctrl->num_ports);
     return EOK;
 }
 

@@ -214,7 +214,7 @@ static vfs_node_t timerfd_node_create(int clockid, int flags)
 
     timerfd_ctx_t *ctx = calloc(1, sizeof(timerfd_ctx_t));
     if (!ctx) {
-        plogk("timerfd: context allocation failed.\n");
+        plogk("timerfd: Context allocation failed.\n");
         return NULL;
     }
 
@@ -229,7 +229,7 @@ static vfs_node_t timerfd_node_create(int clockid, int flags)
 
     vfs_node_t node = vfs_node_alloc(NULL, "[timerfd]");
     if (!node) {
-        plogk("timerfd: node allocation failed.\n");
+        plogk("timerfd: Node allocation failed.\n");
         free(ctx);
         return NULL;
     }

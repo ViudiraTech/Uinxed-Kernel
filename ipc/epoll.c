@@ -157,7 +157,7 @@ static epoll_item_t *epoll_item_add(epoll_instance_t *epi, int fd, process_file_
 
     epoll_item_t *item = malloc(sizeof(epoll_item_t));
     if (!item) {
-        plogk("epoll: item allocation failed (fd %d)\n", fd);
+        plogk("epoll: Item allocation failed (fd %d)\n", fd);
         return NULL;
     }
     memset(item, 0, sizeof(epoll_item_t));
@@ -493,7 +493,7 @@ static vfs_node_t epoll_node_create(void)
 
     epoll_instance_t *epi = malloc(sizeof(epoll_instance_t));
     if (!epi) {
-        plogk("epoll: instance allocation failed.\n");
+        plogk("epoll: Instance allocation failed.\n");
         return NULL;
     }
     memset(epi, 0, sizeof(epoll_instance_t));
@@ -504,7 +504,7 @@ static vfs_node_t epoll_node_create(void)
 
     vfs_node_t node = vfs_node_alloc(NULL, "[epoll]");
     if (!node) {
-        plogk("epoll: node allocation failed.\n");
+        plogk("epoll: Node allocation failed.\n");
         free(epi);
         return NULL;
     }
@@ -855,7 +855,7 @@ void epoll_init(void)
 
     epoll_fsid = vfs_regist(cb);
     if (epoll_fsid < 0) {
-        plogk("epoll: Failed to register VFS callback (err=%d).\n", epoll_fsid);
+        plogk("epoll: Failed to register VFS callback (err=%d)\n", epoll_fsid);
         free(cb);
         return;
     }

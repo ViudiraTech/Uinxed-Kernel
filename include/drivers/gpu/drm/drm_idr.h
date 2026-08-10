@@ -6,11 +6,6 @@
  *      2026/7/22 By JiTianYu391
  *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
- *  Faithful subset of the Linux IDR API used by the DRM subsystem for
- *  mode-object and GEM-handle IDs. Backed by an open-addressing hash
- *  table for O(1) lookup/insert/remove; IDs are allocated monotonically
- *  above a caller-supplied lower bound.
- *
  */
 
 #ifndef INCLUDE_DRM_DRM_IDR_H_
