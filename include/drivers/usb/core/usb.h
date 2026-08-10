@@ -8,10 +8,10 @@
  *
  */
 
-#ifndef INCLUDE_USB_CORE_H_
-#define INCLUDE_USB_CORE_H_
+#ifndef INCLUDE_usb_H_
+#define INCLUDE_usb_H_
 
-#include <drivers/core/device.h>
+#include <drivers/base/device.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -213,4 +213,4 @@ void usb_hid_disconnect(usb_interface_t *interface);
 int  usb_storage_probe(usb_interface_t *interface);
 void usb_storage_disconnect(usb_interface_t *interface);
 
-#endif // INCLUDE_USB_CORE_H_
+#endif // INCLUDE_usb_H_

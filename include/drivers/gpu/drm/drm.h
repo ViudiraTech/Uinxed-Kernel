@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_DRM_DRM_H_
-#define INCLUDE_DRM_DRM_H_
+#ifndef INCLUDE_drm_H_
+#define INCLUDE_drm_H_
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -583,4 +583,4 @@ struct drm_prime_handle {
 
 /* Mode setting ioctls begin at 0xa0; defined in drm_mode.h */
 
-#endif // INCLUDE_DRM_DRM_H_
+#endif // INCLUDE_drm_H_

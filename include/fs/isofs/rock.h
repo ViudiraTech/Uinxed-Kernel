@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef ISOFS_ROCK_H_
-#define ISOFS_ROCK_H_
+#ifndef INCLUDE_rock_H_
+#define INCLUDE_rock_H_
 
 #include <libs/std/stdint.h>
 
@@ -153,4 +153,4 @@ struct rock_state {
  */
 int get_rock_ridge_symlink(void *raw_de, struct isofs_mount *mount, char *buf, int bufsize);
 
-#endif // ISOFS_ROCK_H_
+#endif // INCLUDE_rock_H_

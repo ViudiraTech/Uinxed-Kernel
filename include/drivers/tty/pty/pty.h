@@ -8,10 +8,10 @@
  *
  */
 
-#ifndef INCLUDE_DRIVERS_PTY_H_
-#define INCLUDE_DRIVERS_PTY_H_
+#ifndef INCLUDE_pty_H_
+#define INCLUDE_pty_H_
 
-#include <fs/virtual/tmpfs.h>
+#include <fs/tmpfs/tmpfs.h>
 
 #define PTMX_MAJOR 5
 #define PTMX_MINOR 2

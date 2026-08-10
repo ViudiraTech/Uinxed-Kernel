@@ -19,8 +19,8 @@
 #include <mem/hhdm.h>
 #include <mem/page.h>
 #include <mem/pagecache.h>
-#include <proc/process.h>
-#include <proc/uaccess.h>
+#include <process/process.h>
+#include <process/uaccess.h>
 #include <sync/spin_lock.h>
 
 #define VFS_ACCESS_R 4

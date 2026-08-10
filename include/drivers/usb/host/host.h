@@ -8,10 +8,10 @@
  *
  */
 
-#ifndef INCLUDE_USB_HOST_H_
-#define INCLUDE_USB_HOST_H_
+#ifndef INCLUDE_host_H_
+#define INCLUDE_host_H_
 
-#include <drivers/pci/pci.h>
+#include <drivers/bus/pci.h>
 #include <drivers/usb/core/usb.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
@@ -76,4 +76,4 @@ void uhci_shutdown(void);
 void ohci_shutdown(void);
 void ehci_shutdown(void);
 
-#endif // INCLUDE_USB_HOST_H_
+#endif // INCLUDE_host_H_

@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/core/device.h>
+#include <drivers/base/device.h>
 #include <drivers/gpu/fbdev/video.h>
 #include <fs/sysfs/fb_sysfs.h>
 #include <fs/sysfs/sysfs.h>

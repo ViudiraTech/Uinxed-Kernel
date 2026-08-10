@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_NET_ICMP_H_
-#define INCLUDE_NET_ICMP_H_
+#ifndef INCLUDE_icmp_H_
+#define INCLUDE_icmp_H_
 
 #include <libs/std/stddef.h>
 #include <net/ipv4/ipv4.h>

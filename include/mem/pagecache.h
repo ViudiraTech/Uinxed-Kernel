@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_FS_PAGECACHE_H_
-#define INCLUDE_FS_PAGECACHE_H_
+#ifndef INCLUDE_pagecache_H_
+#define INCLUDE_pagecache_H_
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -104,4 +104,4 @@ void              pagecache_mark_dirty(pagecache_page_t *page);
 size_t pagecache_reclaim(size_t target);
 void   pagecache_get_stats(pagecache_stats_t *stats);
 
-#endif // INCLUDE_FS_PAGECACHE_H_
+#endif // INCLUDE_pagecache_H_

@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_NET_IPV4_H_
-#define INCLUDE_NET_IPV4_H_
+#ifndef INCLUDE_ipv4_H_
+#define INCLUDE_ipv4_H_
 
 #include <libs/std/stddef.h>
 #include <net/core/netdev.h>

@@ -19,6 +19,8 @@ CompileFlags:
     - "-mno-mmx"
     - "-mno-80387"
     - "-I${workspaceFolder}/include"
+    - "-include"
+    - "${workspaceFolder}/include/kernel/config.h"
     - "-MMD"
 
 Diagnostics:

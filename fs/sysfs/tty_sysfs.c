@@ -8,8 +8,8 @@
  *
  */
 
-#include <drivers/core/device.h>
-#include <drivers/tty/tty.h>
+#include <drivers/base/device.h>
+#include <drivers/tty/tty_driver.h>
 #include <fs/sysfs/sysfs.h>
 #include <fs/sysfs/tty_sysfs.h>
 #include <kernel/errno.h>
@@ -28,6 +28,20 @@ static struct class tty_class = {
     .name = "tty",
 };
 
+typedef struct {
+        struct class *cls;
+        int           devices;
+} tty_sysfs_ctx_t;
+
+static int tty_sysfs_add_device(tty_driver_t *drv, int index, const char *name, void *opaque)
+{
+    tty_sysfs_ctx_t *ctx   = opaque;
+    uint32_t         minor = drv->minor_start + (uint32_t)index;
+
+    if (device_create(ctx->cls, NULL, MKDEV(drv->major, minor), NULL, name)) ctx->devices++;
+    return 0;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Initialization                                                     */
 /* ------------------------------------------------------------------ */
@@ -35,8 +49,8 @@ static struct class tty_class = {
 void tty_sysfs_init(void)
 {
 #if CONFIG_SYSFS
-    int ret;
-    int devices = 0;
+    int             ret;
+    tty_sysfs_ctx_t ctx;
 
     ret = class_register(&tty_class);
     if (ret != EOK) {
@@ -44,28 +58,13 @@ void tty_sysfs_init(void)
         return;
     }
 
-    /* Register standard TTY devices */
-    /* tty0-7 ?virtual consoles */
-    if (device_create(&tty_class, NULL, MKDEV(4, 0), NULL, "tty0")) devices++;
-    if (device_create(&tty_class, NULL, MKDEV(4, 1), NULL, "tty1")) devices++;
-    if (device_create(&tty_class, NULL, MKDEV(4, 2), NULL, "tty2")) devices++;
-    if (device_create(&tty_class, NULL, MKDEV(4, 3), NULL, "tty3")) devices++;
-    if (device_create(&tty_class, NULL, MKDEV(4, 4), NULL, "tty4")) devices++;
-    if (device_create(&tty_class, NULL, MKDEV(4, 5), NULL, "tty5")) devices++;
-    if (device_create(&tty_class, NULL, MKDEV(4, 6), NULL, "tty6")) devices++;
-    if (device_create(&tty_class, NULL, MKDEV(4, 7), NULL, "tty7")) devices++;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.cls = &tty_class;
+    tty_for_each_registered(tty_sysfs_add_device, &ctx);
 
-    /* ttyS0-3 ?serial ports */
-    if (device_create(&tty_class, NULL, MKDEV(4, 64), NULL, "ttyS0")) devices++;
-    if (device_create(&tty_class, NULL, MKDEV(4, 65), NULL, "ttyS1")) devices++;
-    if (device_create(&tty_class, NULL, MKDEV(4, 66), NULL, "ttyS2")) devices++;
-    if (device_create(&tty_class, NULL, MKDEV(4, 67), NULL, "ttyS3")) devices++;
+    /* Auxiliary tty device exported by the pty subsystem. */
+    if (device_create(&tty_class, NULL, MKDEV(5, 2), NULL, "ptmx")) ctx.devices++;
 
-    /* Auxiliary tty devices */
-    if (device_create(&tty_class, NULL, MKDEV(5, 0), NULL, "tty")) devices++;
-    if (device_create(&tty_class, NULL, MKDEV(5, 1), NULL, "console")) devices++;
-    if (device_create(&tty_class, NULL, MKDEV(5, 2), NULL, "ptmx")) devices++;
-
-    plogk("tty_sysfs: %d tty device(s) exported to /sys/class/tty\n", devices);
+    plogk("tty_sysfs: %d tty device(s) exported to /sys/class/tty\n", ctx.devices);
 #endif
 }

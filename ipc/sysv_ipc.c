@@ -19,10 +19,10 @@
 #include <mem/frame.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
-#include <proc/process.h>
-#include <proc/sched.h>
-#include <proc/task.h>
-#include <proc/uaccess.h>
+#include <process/process.h>
+#include <process/sched.h>
+#include <process/task.h>
+#include <process/uaccess.h>
 #include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */

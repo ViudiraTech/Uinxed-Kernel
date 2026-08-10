@@ -18,7 +18,7 @@
 #include <net/ipv6/icmpv6.h>
 #include <net/ipv6/ipv6.h>
 #include <net/ipv6/ndp.h>
-#include <proc/sched.h>
+#include <process/sched.h>
 
 #define IPV6_MAX_PAYLOAD              65535U
 #define IPV6_REASSEMBLY_BITMAP_SIZE   ((IPV6_MAX_PAYLOAD + 7U) / 8U)

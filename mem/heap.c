@@ -8,8 +8,8 @@
  *
  */
 
+#include <arch/common.h>
 #include <boot/limine.h>
-#include <chipset/common.h>
 #include <kernel/uinxed.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

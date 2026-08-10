@@ -8,26 +8,26 @@
  *
  */
 
+#include <arch/common.h>
 #include <arch/fpu.h>
 #include <arch/gdt.h>
 #include <arch/smp.h>
 #include <cgroup/cgroup.h>
-#include <chipset/common.h>
 #include <drivers/firmware/apic.h>
 #include <kernel/debug/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/data/rbtree.h>
-#include <libs/glist/intrusive_list.h>
+#include <libs/list/intrusive_list.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
+#include <libs/util/rbtree.h>
 #include <mem/heap.h>
 #include <mem/page.h>
-#include <proc/process.h>
-#include <proc/sched.h>
-#include <proc/task.h>
+#include <process/process.h>
+#include <process/sched.h>
+#include <process/task.h>
 #include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */

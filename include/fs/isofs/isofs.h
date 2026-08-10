@@ -11,7 +11,7 @@
 #ifndef INCLUDE_ISOFS_H_
 #define INCLUDE_ISOFS_H_
 
-#include <drivers/block/blockdev.h>
+#include <drivers/block/core/blockdev.h>
 #include <libs/std/stdint.h>
 
 #define ISOFS_BLOCK_SIZE   2048

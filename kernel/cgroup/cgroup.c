@@ -11,13 +11,13 @@
 #include <cgroup/cgroup.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/glist/circular_list.h>
+#include <libs/list/circular_list.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
-#include <proc/sched.h>
-#include <proc/task.h>
+#include <process/sched.h>
+#include <process/task.h>
 #include <sync/spin_lock.h>
 
 typedef struct cgroup {

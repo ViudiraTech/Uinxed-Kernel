@@ -8,13 +8,13 @@
  *
  */
 
-#include <chipset/common.h>
-#include <drivers/pci/pci.h>
+#include <arch/common.h>
+#include <drivers/bus/pci.h>
+#include <drivers/sound/core/audio.h>
 #include <drivers/sound/intel/hda.h>
 #include <kernel/errno.h>
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
-#include <kernel/sound/audio.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

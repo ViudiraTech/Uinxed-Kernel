@@ -18,10 +18,10 @@
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/heap.h>
-#include <proc/process.h>
-#include <proc/sched.h>
-#include <proc/task.h>
-#include <proc/uaccess.h>
+#include <process/process.h>
+#include <process/sched.h>
+#include <process/task.h>
+#include <process/uaccess.h>
 #include <sync/signal.h>
 #include <sync/spin_lock.h>
 #include <syscall/fcntl.h>

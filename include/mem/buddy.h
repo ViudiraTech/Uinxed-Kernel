@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_MEM_BUDDY_H_
-#define INCLUDE_MEM_BUDDY_H_
+#ifndef INCLUDE_buddy_H_
+#define INCLUDE_buddy_H_
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -66,4 +66,4 @@ unsigned buddy_order_for_units(size_t count);
 /* Expensive structural validation intended for boot checks and tests. */
 int buddy_validate(const buddy_allocator_t *allocator);
 
-#endif // INCLUDE_MEM_BUDDY_H_
+#endif // INCLUDE_buddy_H_

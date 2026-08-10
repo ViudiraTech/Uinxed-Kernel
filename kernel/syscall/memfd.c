@@ -19,7 +19,7 @@
 #include <mem/heap.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
-#include <proc/uaccess.h>
+#include <process/uaccess.h>
 #include <sync/spin_lock.h>
 #include <syscall/fcntl.h>
 #include <syscall/memfd.h>

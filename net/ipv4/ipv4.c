@@ -19,7 +19,7 @@
 #include <net/ipv4/ipv4.h>
 #include <net/transport/tcp.h>
 #include <net/transport/udp.h>
-#include <proc/sched.h>
+#include <process/sched.h>
 
 #define IPV4_REASSEMBLY_TIMEOUT_TICKS ((uint64_t)30U * TIMER_HZ)
 #define IPV4_MAX_HEADER               60U

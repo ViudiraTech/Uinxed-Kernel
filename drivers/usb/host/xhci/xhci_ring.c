@@ -8,7 +8,7 @@
  *
  */
 
-#include <chipset/common.h>
+#include <arch/common.h>
 #include <drivers/usb/host/xhci/xhci.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>

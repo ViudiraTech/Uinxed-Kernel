@@ -8,22 +8,20 @@
  *
  */
 
-#include <drivers/ata/pata/ide.h>
-#include <drivers/ata/sata/ahci.h>
-#include <drivers/block/blockdev.h>
-#include <drivers/block/partition.h>
-#include <drivers/nvme/nvme.h>
+#include <drivers/block/core/blockdev.h>
+#include <drivers/block/core/gendisk.h>
+#include <drivers/block/core/partition.h>
 #include <fs/sysfs/block_sysfs.h>
 #include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>
-#include <kernel/kobject/kobject.h>
 #include <kernel/printk.h>
+#include <libs/kobject/kobject.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
-#include <proc/process.h>
+#include <process/process.h>
 
 /* ------------------------------------------------------------------ */
 /*  Per-block-device wrapper                                           */
@@ -302,50 +300,6 @@ static void block_sysfs_dev_unpublish(block_sysfs_dev_t *bsd)
     if (sysfs_dev_block_kobj) sysfs_remove_symlink(sysfs_dev_block_kobj, link);
 }
 
-static int block_add_one(struct kobject *parent, const char *name, uint8_t drive, int type, void *ns_ptr)
-{
-    block_sysfs_dev_t *bsd;
-    blockdev_device_t  bdev;
-    int                ret;
-
-    memset(&bdev, 0, sizeof(bdev));
-
-    switch (type) {
-        case 0 :
-            ret = blockdev_open_ide(drive, &bdev);
-            break;
-        case 1 :
-            ret = blockdev_open_ahci(drive, &bdev);
-            break;
-        case 2 :
-            ret = blockdev_open_nvme(ns_ptr, &bdev);
-            break;
-        default :
-            return -EINVAL;
-    }
-
-    if (ret != EOK) return ret;
-
-    bsd = calloc(1, sizeof(*bsd));
-    if (!bsd) return -ENOMEM;
-
-    memcpy(&bsd->bdev, &bdev, sizeof(bdev));
-    strncpy(bsd->name, name, sizeof(bsd->name) - 1);
-    bsd->valid = 1;
-
-    kobject_init(&bsd->kobj, &block_ktype);
-    ret = kobject_add(&bsd->kobj, parent, "%s", name);
-    if (ret != EOK) {
-        kobject_put(&bsd->kobj);
-        return ret;
-    }
-    kobject_uevent(&bsd->kobj, KOBJ_ADD);
-    block_sysfs_dev_publish(bsd);
-    ret = block_add_partitions(bsd);
-    if (ret != EOK && ret != -ENOENT) plogk("block_sysfs: Cannot scan partitions on %s: %d\n", name, ret);
-    return EOK;
-}
-
 int block_sysfs_register_device(const char *name, const blockdev_device_t *device, bool removable, block_sysfs_dev_t **handle)
 {
 #if CONFIG_SYSFS
@@ -427,32 +381,11 @@ void block_sysfs_init(void)
         plogk("block_sysfs: /sys/block/ kobject not found.\n");
         return;
     }
-    for (uint8_t d = 0; d < 4; d++) {
-        if (!ide_devices[d].reserved || ide_devices[d].type != IDE_ATA) continue;
-        char name[8];
-        (void)snprintf(name, sizeof(name), "hd%c", 'a' + d);
-        block_add_one(block_root_kobj, name, d, 0, NULL);
-        count++;
-    }
-
-    for (uint8_t d = 0; d < AHCI_MAX_DEVICES; d++) {
-        if (!ahci_devices[d].reserved || ahci_devices[d].type != AHCI_DEV_SATA) continue;
-        char name[16];
-        if (blockdev_format_disk_name(name, sizeof(name), d) != EOK) continue;
-        block_add_one(block_root_kobj, name, d, 1, NULL);
-        count++;
-    }
-
-    for (int c = 0; c < nvme_controller_count(); c++) {
-        nvme_controller_t *ctrl = nvme_get_controller(c);
-        if (!ctrl || !ctrl->initialised) continue;
-        for (uint32_t ns = 0; ns < ctrl->num_namespaces; ns++) {
-            if (!ctrl->namespaces[ns].ready) continue;
-            char name[24];
-            (void)snprintf(name, sizeof(name), "nvme%dn%u", ctrl->id, ctrl->namespaces[ns].nsid);
-            block_add_one(block_root_kobj, name, (uint8_t)ctrl->id, 2, &ctrl->namespaces[ns]);
-            count++;
-        }
+    for (int i = 0; i < block_disk_count(); i++) {
+        gendisk_t         *disk = block_get_disk(i);
+        block_sysfs_dev_t *handle;
+        if (!disk) continue;
+        if (block_sysfs_register_device(disk->name, &disk->device, false, &handle) == EOK) count++;
     }
 
     plogk("block_sysfs: %d block devices exported to /sys/block/\n", count);

@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_NET_ABI_INET_H_
-#define INCLUDE_NET_ABI_INET_H_
+#ifndef INCLUDE_inet_H_
+#define INCLUDE_inet_H_
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

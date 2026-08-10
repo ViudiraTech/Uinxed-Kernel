@@ -8,14 +8,14 @@
  *
  */
 
-#ifndef INCLUDE_FS_INOTIFY_H_
-#define INCLUDE_FS_INOTIFY_H_
+#ifndef INCLUDE_inotify_H_
+#define INCLUDE_inotify_H_
 
 #include <fs/core/vfs.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
-#include <proc/task.h>
+#include <process/task.h>
 #include <sync/spin_lock.h>
 
 #define IN_ACCESS        0x00000001U
@@ -112,4 +112,4 @@ void     inotify_notify_move(vfs_node_t node, const char *old_name, const char *
 void     inotify_notify_unmount(vfs_node_t mount_root);
 uint32_t inotify_next_cookie(void);
 
-#endif // INCLUDE_FS_INOTIFY_H_
+#endif // INCLUDE_inotify_H_

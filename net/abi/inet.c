@@ -8,7 +8,6 @@
  *
  */
 
-#include <ipc/socket.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
@@ -18,9 +17,10 @@
 #include <net/abi/inet.h>
 #include <net/core/netdev.h>
 #include <net/ipv4/icmp.h>
+#include <net/socket.h>
 #include <net/transport/tcp.h>
 #include <net/transport/udp.h>
-#include <proc/sched.h>
+#include <process/sched.h>
 
 static const struct inet_backend_ops *inet_ops;
 

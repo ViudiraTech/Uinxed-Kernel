@@ -12,10 +12,10 @@
  *
  */
 
-#ifndef INCLUDE_FS_EXTFS_H_
-#define INCLUDE_FS_EXTFS_H_
+#ifndef INCLUDE_extfs_H_
+#define INCLUDE_extfs_H_
 
-#include <drivers/block/blockdev.h>
+#include <drivers/block/core/blockdev.h>
 #include <fs/core/fs_txn.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -385,4 +385,4 @@ int extfs_dir_block_verify(extfs_handle_t *dir_h, uint32_t logical, const void *
 /* extfs.c - registration */
 void extfs_regist(void);
 
-#endif // INCLUDE_FS_EXTFS_H_
+#endif // INCLUDE_extfs_H_

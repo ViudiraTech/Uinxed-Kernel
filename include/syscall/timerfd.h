@@ -12,9 +12,9 @@
 #define INCLUDE_TIMERFD_H_
 
 #include <fs/core/vfs.h>
-#include <libs/glist/intrusive_list.h>
+#include <libs/list/intrusive_list.h>
 #include <libs/std/stdint.h>
-#include <proc/task.h>
+#include <process/task.h>
 #include <sync/spin_lock.h>
 
 #define TFD_CLOEXEC             (1 << 19)

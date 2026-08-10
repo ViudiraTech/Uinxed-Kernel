@@ -11,8 +11,8 @@
 #include <fs/extfs/extfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/data/crc32c.h>
 #include <libs/std/string.h>
+#include <libs/util/crc32c.h>
 #include <mem/alloc.h>
 #include <mem/heap.h>
 

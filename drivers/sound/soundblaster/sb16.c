@@ -8,9 +8,9 @@
  *
  */
 
-#include <chipset/common.h>
-#include <chipset/dma.h>
-#include <drivers/pci/pci.h>
+#include <arch/common.h>
+#include <arch/dma.h>
+#include <drivers/bus/pci.h>
 #include <drivers/sound/soundblaster/sb16.h>
 #include <kernel/errno.h>
 #include <kernel/interrupt/interrupt.h>

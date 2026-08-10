@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_NET_PACKET_H_
-#define INCLUDE_NET_PACKET_H_
+#ifndef INCLUDE_packet_H_
+#define INCLUDE_packet_H_
 
 #include <libs/std/stddef.h>
 #include <net/core/pbuf.h>

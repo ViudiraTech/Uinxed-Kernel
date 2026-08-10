@@ -9,11 +9,11 @@
  */
 
 #define UINXED_MODULE_CORE
-#include <drivers/core/device.h>
+#include <drivers/base/device.h>
 #include <fs/core/vfs.h>
-#include <kernel/kobject/kobject.h>
 #include <kernel/module/module.h>
 #include <kernel/printk.h>
+#include <libs/kobject/kobject.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/frame.h>

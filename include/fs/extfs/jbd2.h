@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_FS_EXTFS_JBD2_H_
-#define INCLUDE_FS_EXTFS_JBD2_H_
+#ifndef INCLUDE_jbd2_H_
+#define INCLUDE_jbd2_H_
 
 #include <fs/core/fs_txn.h>
 #include <libs/std/stdint.h>
@@ -72,4 +72,4 @@ int                         extfs_jbd2_open(struct extfs_sb_info *sb, extfs_jour
 void                        extfs_jbd2_close(extfs_journal_t *journal);
 const fs_txn_backend_ops_t *extfs_jbd2_backend_ops(void);
 
-#endif // INCLUDE_FS_EXTFS_JBD2_H_
+#endif // INCLUDE_jbd2_H_

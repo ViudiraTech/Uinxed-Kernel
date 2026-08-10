@@ -8,9 +8,9 @@
  *
  */
 
+#include <arch/common.h>
 #include <arch/cpuid.h>
 #include <boot/limine.h>
-#include <chipset/common.h>
 #include <kernel/printk.h>
 #include <kernel/uinxed.h>
 #include <mem/hhdm.h>

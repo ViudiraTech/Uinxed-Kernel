@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_SYSCALL_POLL_H_
-#define INCLUDE_SYSCALL_POLL_H_
+#ifndef INCLUDE_poll_H_
+#define INCLUDE_poll_H_
 
 #include <libs/std/stdint.h>
 
@@ -18,4 +18,4 @@ int64_t sys_select(uint64_t nfds, uint64_t readfds, uint64_t writefds, uint64_t 
 int64_t sys_pselect6(uint64_t nfds, uint64_t readfds, uint64_t writefds, uint64_t exceptfds, uint64_t timeout, uint64_t sigmask);
 int64_t sys_ppoll(uint64_t fds, uint64_t nfds, uint64_t timeout, uint64_t sigmask, uint64_t sigsetsize, uint64_t arg5);
 
-#endif // INCLUDE_SYSCALL_POLL_H_
+#endif // INCLUDE_poll_H_

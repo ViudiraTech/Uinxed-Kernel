@@ -13,9 +13,9 @@
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
 #include <libs/std/string.h>
-#include <proc/process.h>
-#include <proc/sched.h>
-#include <proc/uaccess.h>
+#include <process/process.h>
+#include <process/sched.h>
+#include <process/uaccess.h>
 #include <sync/signal.h>
 #include <syscall/fcntl.h>
 

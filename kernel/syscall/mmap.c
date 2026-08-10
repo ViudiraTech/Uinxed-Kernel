@@ -22,9 +22,9 @@
 #include <mem/hhdm.h>
 #include <mem/page.h>
 #include <mem/page_walker.h>
-#include <proc/process.h>
-#include <proc/sched.h>
-#include <proc/uaccess.h>
+#include <process/process.h>
+#include <process/sched.h>
+#include <process/uaccess.h>
 #include <sync/spin_lock.h>
 #include <syscall/memfd.h>
 #include <syscall/mmap.h>

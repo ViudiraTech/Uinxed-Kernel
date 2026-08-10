@@ -8,12 +8,12 @@
  *
  */
 
+#include <arch/common.h>
 #include <arch/smp.h>
-#include <chipset/common.h>
-#include <drivers/clocksource/tsc.h>
 #include <drivers/firmware/acpi.h>
 #include <drivers/firmware/apic.h>
 #include <drivers/gpu/drm/drm_device.h>
+#include <drivers/time/tsc.h>
 #include <drivers/tty/tty.h>
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
@@ -21,7 +21,7 @@
 #include <libs/std/math.h>
 #include <libs/std/stdint.h>
 #include <net/core/netdev.h>
-#include <proc/sched.h>
+#include <process/sched.h>
 #include <syscall/timerfd.h>
 
 static int64_t  timer_realtime_base_ns;

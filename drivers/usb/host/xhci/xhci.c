@@ -8,9 +8,9 @@
  *
  */
 
-#include <chipset/common.h>
+#include <arch/common.h>
+#include <drivers/bus/pci.h>
 #include <drivers/firmware/apic.h>
-#include <drivers/pci/pci.h>
 #include <drivers/usb/core/usb.h>
 #include <drivers/usb/host/host.h>
 #include <drivers/usb/host/xhci/xhci.h>
@@ -25,8 +25,8 @@
 #include <mem/heap.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
-#include <proc/sched.h>
-#include <proc/task.h>
+#include <process/sched.h>
+#include <process/task.h>
 
 #define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
 

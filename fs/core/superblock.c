@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/block/blockdev.h>
+#include <drivers/block/core/blockdev.h>
 #include <fs/core/superblock.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>

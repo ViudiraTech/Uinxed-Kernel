@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef PAGE_WALKER_H_
-#define PAGE_WALKER_H_
+#ifndef INCLUDE_page_walker_H_
+#define INCLUDE_page_walker_H_
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -108,4 +108,4 @@ size_t check_range_free_with_state(page_walk_state_t *state, uintptr_t start, si
 /* Find a free virtual memory range of specified length with preferred page size */
 uintptr_t walk_page_tables_find_free(page_directory_t *directory, uintptr_t start, size_t length, size_t preferred_size);
 
-#endif // PAGE_WALKER_H_
+#endif // INCLUDE_page_walker_H_

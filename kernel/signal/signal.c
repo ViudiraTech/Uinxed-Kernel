@@ -8,8 +8,8 @@
  *
  */
 
+#include <arch/common.h>
 #include <arch/fpu.h>
-#include <chipset/common.h>
 #include <kernel/debug/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
@@ -19,11 +19,11 @@
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
-#include <proc/process.h>
-#include <proc/ptrace.h>
-#include <proc/sched.h>
-#include <proc/task.h>
-#include <proc/uaccess.h>
+#include <process/process.h>
+#include <process/ptrace.h>
+#include <process/sched.h>
+#include <process/task.h>
+#include <process/uaccess.h>
 #include <sync/signal.h>
 #include <sync/spin_lock.h>
 #include <syscall/signalfd.h>

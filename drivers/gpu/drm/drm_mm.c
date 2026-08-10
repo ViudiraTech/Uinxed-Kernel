@@ -11,10 +11,10 @@
 #include <drivers/gpu/drm/drm_mm.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/data/rbtree.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
+#include <libs/util/rbtree.h>
 #include <mem/alloc.h>
 #include <sync/spin_lock.h>
 

@@ -8,10 +8,10 @@
  *
  */
 
-#ifndef INCLUDE_SOUND_SB16_H_
-#define INCLUDE_SOUND_SB16_H_
+#ifndef INCLUDE_sb16_H_
+#define INCLUDE_sb16_H_
 
-#include <kernel/sound/audio.h>
+#include <drivers/sound/core/audio.h>
 #include <libs/std/stdint.h>
 #include <mem/page.h>
 
@@ -129,4 +129,4 @@ uint8_t sb16_mixer_read(sb16_device_t *dev, uint8_t reg);
 void    sb16_mixer_write(sb16_device_t *dev, uint8_t reg, uint8_t value);
 void    sb16_beep(uint16_t freq, uint32_t ms);
 
-#endif // INCLUDE_SOUND_SB16_H_
+#endif // INCLUDE_sb16_H_

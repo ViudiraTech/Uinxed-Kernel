@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_NET_ENDIAN_H_
-#define INCLUDE_NET_ENDIAN_H_
+#ifndef INCLUDE_endian_H_
+#define INCLUDE_endian_H_
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

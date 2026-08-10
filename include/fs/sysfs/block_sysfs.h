@@ -11,7 +11,7 @@
 #ifndef INCLUDE_BLOCK_SYSFS_H_
 #define INCLUDE_BLOCK_SYSFS_H_
 
-#include <drivers/block/blockdev.h>
+#include <drivers/block/core/blockdev.h>
 #include <libs/std/stdbool.h>
 
 typedef struct block_sysfs_dev block_sysfs_dev_t;

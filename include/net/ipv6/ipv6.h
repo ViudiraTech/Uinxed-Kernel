@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_NET_IPV6_H_
-#define INCLUDE_NET_IPV6_H_
+#ifndef INCLUDE_ipv6_H_
+#define INCLUDE_ipv6_H_
 
 #include <libs/std/stddef.h>
 #include <net/core/netdev.h>

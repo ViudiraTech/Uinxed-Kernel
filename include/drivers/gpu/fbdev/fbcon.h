@@ -25,6 +25,9 @@ void fbcon_resize(void);
 void fbcon_handoff_begin(void);
 void fbcon_handoff_end(void);
 
+/* True once the fbcon text grid is allocated and safe to render into. */
+bool fbcon_is_ready(void);
+
 /* Draw a character with per-cell foreground and background color */
 void fbcon_draw_char_bg(const char c, uint32_t x, uint32_t y, uint32_t fg, uint32_t bg);
 

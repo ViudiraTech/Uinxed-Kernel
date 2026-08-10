@@ -8,13 +8,13 @@
  *
  */
 
-#ifndef INCLUDE_DRM_DRM_MM_H_
-#define INCLUDE_DRM_DRM_MM_H_
+#ifndef INCLUDE_drm_mm_H_
+#define INCLUDE_drm_mm_H_
 
-#include <libs/data/rbtree.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
+#include <libs/util/rbtree.h>
 #include <sync/spin_lock.h>
 
 /* Allocation policy for drm_mm_insert_node_in_range(). */
@@ -130,4 +130,4 @@ struct drm_mm_node *drm_mm_next(const struct drm_mm_node *node);
 /* Iterate allocated nodes in ascending start order. */
 #define drm_mm_for_each_node(entry, mm) for ((entry) = drm_mm_first(mm); (entry) != NULL; (entry) = drm_mm_next(entry))
 
-#endif // INCLUDE_DRM_DRM_MM_H_
+#endif // INCLUDE_drm_mm_H_

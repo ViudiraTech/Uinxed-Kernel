@@ -8,11 +8,11 @@
  *
  */
 
-#include <drivers/core/device.h>
+#include <drivers/base/device.h>
 #include <drivers/tty/pty/pty.h>
 #include <drivers/tty/tty_core.h>
-#include <fs/virtual/devtmpfs.h>
-#include <fs/virtual/tmpfs.h>
+#include <fs/devtmpfs/devtmpfs.h>
+#include <fs/tmpfs/tmpfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/termios.h>
@@ -20,9 +20,9 @@
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
-#include <proc/process.h>
-#include <proc/task.h>
-#include <proc/uaccess.h>
+#include <process/process.h>
+#include <process/task.h>
+#include <process/uaccess.h>
 #include <sync/signal.h>
 #include <sync/spin_lock.h>
 #include <syscall/fcntl.h>
@@ -31,7 +31,7 @@
 #    define CONFIG_UNIX98_PTYS 1
 #endif
 #ifndef CONFIG_UNIX98_PTY_MAX
-#    define CONFIG_UNIX98_PTY_MAX 64
+#    define CONFIG_UNIX98_PTY_MAX 4096
 #endif
 
 #define PTY_BUFFER_SIZE TTY_CORE_BUFFER_SIZE

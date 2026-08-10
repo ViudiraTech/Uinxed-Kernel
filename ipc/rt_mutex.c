@@ -11,17 +11,17 @@
 #include <ipc/futex.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/data/rbtree.h>
-#include <libs/glist/intrusive_list.h>
+#include <libs/list/intrusive_list.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
+#include <libs/util/rbtree.h>
 #include <mem/alloc.h>
-#include <proc/process.h>
-#include <proc/sched.h>
-#include <proc/task.h>
-#include <proc/uaccess.h>
+#include <process/process.h>
+#include <process/sched.h>
+#include <process/task.h>
+#include <process/uaccess.h>
 #include <sync/rt_mutex.h>
 #include <sync/spin_lock.h>
 

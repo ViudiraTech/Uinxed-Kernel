@@ -8,8 +8,8 @@
  *
  */
 
+#include <arch/common.h>
 #include <boot/limine.h>
-#include <chipset/common.h>
 #include <drivers/gpu/fbdev/fbcon.h>
 #include <drivers/gpu/fbdev/fbdev.h>
 #include <drivers/gpu/fbdev/klogo.h>
@@ -19,7 +19,7 @@
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
 #include <kernel/uinxed.h>
-#include <libs/gfxs/gfx_proc.h>
+#include <libs/gfx/gfx_proc.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
@@ -27,10 +27,10 @@
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/page.h>
-#include <proc/process.h>
-#include <proc/sched.h>
-#include <proc/task.h>
-#include <proc/uaccess.h>
+#include <process/process.h>
+#include <process/sched.h>
+#include <process/task.h>
+#include <process/uaccess.h>
 #include <sync/spin_lock.h>
 
 /* Active scanout state.  The backing is replaced once when KMS takes over. */

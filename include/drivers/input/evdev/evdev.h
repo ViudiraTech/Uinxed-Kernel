@@ -14,11 +14,11 @@
 #include <drivers/input/evdev/evdev_queue.h>
 #include <drivers/input/input_event.h>
 #include <fs/core/vfs.h>
-#include <libs/glist/intrusive_list.h>
+#include <libs/list/intrusive_list.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
-#include <proc/task.h>
+#include <process/task.h>
 #include <sync/spin_lock.h>
 
 struct device;

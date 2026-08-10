@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_NET_NDP_H_
-#define INCLUDE_NET_NDP_H_
+#ifndef INCLUDE_ndp_H_
+#define INCLUDE_ndp_H_
 
 #include <net/ipv6/ipv6.h>
 

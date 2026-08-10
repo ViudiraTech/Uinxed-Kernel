@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_NET_DHCP_H_
-#define INCLUDE_NET_DHCP_H_
+#ifndef INCLUDE_dhcp_H_
+#define INCLUDE_dhcp_H_
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

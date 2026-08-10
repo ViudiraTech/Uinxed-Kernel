@@ -8,7 +8,7 @@
  *
  */
 
-#include <chipset/common.h>
+#include <arch/common.h>
 #include <drivers/sound/speaker/speaker.h>
 
 /* Set the system speaker status */

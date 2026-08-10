@@ -8,8 +8,8 @@
  *
  */
 
-#include <drivers/ata/pata/ide.h>
-#include <drivers/block/blockdev.h>
+#include <drivers/block/ata/pata/ide.h>
+#include <drivers/block/core/blockdev.h>
 #include <fs/core/vfs.h>
 #include <fs/fatfs/fatfs_disk.h>
 #include <fs/fatfs/fatfs_vfs.h>

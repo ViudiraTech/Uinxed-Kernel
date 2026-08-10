@@ -9,11 +9,11 @@
  *
  */
 
-#include <drivers/block/blockdev.h>
+#include <drivers/block/core/blockdev.h>
 #include <fs/core/fs_txn.h>
 #include <fs/core/vfs.h>
+#include <fs/devtmpfs/devtmpfs.h>
 #include <fs/ntfs/ntfs_vfs.h>
-#include <fs/virtual/devtmpfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>

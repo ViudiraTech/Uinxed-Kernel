@@ -8,8 +8,8 @@
  *
  */
 
-#include <chipset/smbios.h>
-#include <drivers/core/device.h>
+#include <arch/smbios.h>
+#include <drivers/base/device.h>
 #include <fs/sysfs/dmi_sysfs.h>
 #include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>

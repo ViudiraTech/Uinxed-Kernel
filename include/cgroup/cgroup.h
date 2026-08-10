@@ -11,7 +11,7 @@
 #ifndef INCLUDE_CGROUP_H_
 #define INCLUDE_CGROUP_H_
 
-#include <libs/glist/intrusive_list.h>
+#include <libs/list/intrusive_list.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 

@@ -9,8 +9,8 @@
  */
 
 #include <libs/std/stdbool.h>
-#include <proc/elf_loader.h>
-#include <proc/process.h>
+#include <process/elf_loader.h>
+#include <process/process.h>
 
 int elf_loader_load_user_process(process_t *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[],
                                  uintptr_t *entry_out, uintptr_t *rsp_out)

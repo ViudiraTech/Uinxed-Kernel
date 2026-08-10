@@ -8,12 +8,12 @@
  *
  */
 
+#include <arch/common.h>
 #include <arch/cpuid.h>
 #include <arch/fpu.h>
 #include <arch/smp.h>
 #include <arch/tss.h>
-#include <chipset/common.h>
-#include <drivers/core/device.h>
+#include <drivers/base/device.h>
 #include <drivers/firmware/acpi.h>
 #include <fs/core/inotify.h>
 #include <fs/core/vfs.h>
@@ -21,7 +21,6 @@
 #include <ipc/futex.h>
 #include <ipc/pipe.h>
 #include <ipc/posix_mq.h>
-#include <ipc/socket.h>
 #include <ipc/sysv_ipc.h>
 #include <kernel/debug/debug.h>
 #include <kernel/errno.h>
@@ -39,12 +38,13 @@
 #include <mem/heap.h>
 #include <mem/page.h>
 #include <mem/swap.h>
-#include <proc/elf_loader.h>
-#include <proc/process.h>
-#include <proc/ptrace.h>
-#include <proc/sched.h>
-#include <proc/task.h>
-#include <proc/uaccess.h>
+#include <net/socket.h>
+#include <process/elf_loader.h>
+#include <process/process.h>
+#include <process/ptrace.h>
+#include <process/sched.h>
+#include <process/task.h>
+#include <process/uaccess.h>
 #include <sync/signal.h>
 #include <syscall/eventfd.h>
 #include <syscall/fcntl.h>
@@ -1986,7 +1986,6 @@ typedef struct linux_statfs {
 #define NTFS_SB_MAGIC       0x5346544e
 #define SOCKFS_MAGIC        0x534f434b
 #define PIPEFS_MAGIC        0x50495045
-#define SIMPLEFS_MAGIC      0x53494d50
 
 /* ---------- personality ---------- */
 
@@ -2262,7 +2261,7 @@ static int64_t linux_statfs_type(vfs_node_t node)
     if (!name) {
         if (node && (node->type & file_socket)) return SOCKFS_MAGIC;
         if (node && (node->type & file_pipe)) return PIPEFS_MAGIC;
-        return SIMPLEFS_MAGIC;
+        return 0;
     }
     if (streq(name, "tmpfs") || streq(name, "devtmpfs")) return TMPFS_MAGIC;
     if (streq(name, "sysfs")) return SYSFS_MAGIC;
@@ -2272,7 +2271,6 @@ static int64_t linux_statfs_type(vfs_node_t node)
     if (streq(name, "extfs")) return EXT4_SUPER_MAGIC;
     if (streq(name, "fatfs")) return MSDOS_SUPER_MAGIC;
     if (streq(name, "ntfs")) return NTFS_SB_MAGIC;
-    if (streq(name, "simplefs")) return SIMPLEFS_MAGIC;
     return SOCKFS_MAGIC;
 }
 
@@ -4758,10 +4756,10 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
     }
 }
 
-#ifndef CONFIG_MODULE_MAX_SIZE_MIB
-#    define CONFIG_MODULE_MAX_SIZE_MIB 64
+#ifndef CONFIG_MODULE_MAX_SIZE
+#    define CONFIG_MODULE_MAX_SIZE 64
 #endif
-#define SYSCALL_MODULE_MAX_SIZE ((size_t)CONFIG_MODULE_MAX_SIZE_MIB * 1024U * 1024U)
+#define SYSCALL_MODULE_MAX_SIZE ((size_t)CONFIG_MODULE_MAX_SIZE * 1024U * 1024U)
 
 static int copy_module_params(uint64_t user_params, char params[MODULE_PARAM_MAX])
 {

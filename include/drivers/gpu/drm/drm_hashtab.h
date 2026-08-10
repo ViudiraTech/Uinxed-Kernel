@@ -8,10 +8,10 @@
  *
  */
 
-#ifndef INCLUDE_DRM_DRM_HASHTAB_H_
-#define INCLUDE_DRM_DRM_HASHTAB_H_
+#ifndef INCLUDE_drm_hashtab_H_
+#define INCLUDE_drm_hashtab_H_
 
-#include <libs/glist/intrusive_list.h>
+#include <libs/list/intrusive_list.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
@@ -44,4 +44,4 @@ int drm_ht_find_item(struct drm_open_hash *ht, unsigned long key, struct drm_has
 /* Remove @item from the table. Returns 0 or -EINVAL. */
 int drm_ht_remove_item(struct drm_open_hash *ht, struct drm_hash_item *item);
 
-#endif // INCLUDE_DRM_DRM_HASHTAB_H_
+#endif // INCLUDE_drm_hashtab_H_

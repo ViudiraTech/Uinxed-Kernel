@@ -11,8 +11,8 @@
 #ifndef INCLUDE_VFS_H_
 #define INCLUDE_VFS_H_
 
-#include <libs/glist/circular_list.h>
-#include <libs/glist/intrusive_list.h>
+#include <libs/list/circular_list.h>
+#include <libs/list/intrusive_list.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

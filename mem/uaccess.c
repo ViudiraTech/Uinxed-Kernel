@@ -15,9 +15,9 @@
 #include <libs/std/string.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
-#include <proc/process.h>
-#include <proc/sched.h>
-#include <proc/uaccess.h>
+#include <process/process.h>
+#include <process/sched.h>
+#include <process/uaccess.h>
 
 /*
  * The active process page table already maps both the kernel and userspace.

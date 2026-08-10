@@ -8,10 +8,10 @@
  *
  */
 
+#include <arch/common.h>
 #include <arch/cpuid.h>
 #include <arch/idt.h>
 #include <boot/limine.h>
-#include <chipset/common.h>
 #include <drivers/firmware/acpi.h>
 #include <drivers/firmware/apic.h>
 #include <kernel/printk.h>
@@ -128,6 +128,8 @@ void io_apic_init(void)
     ioapic_routing_t *ioapic_router[] = {
         &(ioapic_routing_t) {IRQ_0,  0 }, // Timer IRQ_0 = 32
         &(ioapic_routing_t) {IRQ_1,  1 }, // Keyboard IRQ_1 = 33
+        &(ioapic_routing_t) {IRQ_3,  3 }, // Serial COM2/COM4 IRQ_3 = 35
+        &(ioapic_routing_t) {IRQ_4,  4 }, // Serial COM1/COM3 IRQ_4 = 36
         &(ioapic_routing_t) {IRQ_12, 12}, // Mouse IRQ_12 = 44
         &(ioapic_routing_t) {IRQ_14, 14}, // IDE0 IRQ_14 = 46
         &(ioapic_routing_t) {IRQ_15, 15}, // IDE1 IRQ_15 = 47

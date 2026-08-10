@@ -8,45 +8,52 @@
  *
  */
 
+#include <arch/common.h>
 #include <arch/cpuid.h>
 #include <arch/fpu.h>
 #include <arch/gdt.h>
+#include <arch/smbios.h>
 #include <arch/smp.h>
 #include <boot/limine_module.h>
 #include <cgroup/cgroup.h>
-#include <chipset/common.h>
-#include <chipset/smbios.h>
-#include <drivers/ata/pata/ide.h>
-#include <drivers/ata/sata/ahci.h>
-#include <drivers/char/ports/parallel.h>
-#include <drivers/char/ports/serial.h>
+#include <drivers/base/device.h>
+#include <drivers/block/ata/pata/ide.h>
+#include <drivers/block/ata/sata/ahci.h>
+#include <drivers/block/core/gendisk.h>
+#include <drivers/block/nvme/nvme.h>
+#include <drivers/bus/pci.h>
+#include <drivers/char/chrdev.h>
 #include <drivers/char/tpm/tpm.h>
-#include <drivers/clocksource/tsc.h>
-#include <drivers/core/device.h>
 #include <drivers/firmware/acpi.h>
 #include <drivers/gpu/drm/drm_init.h>
+#include <drivers/gpu/drm/virtio/virtgpu_drv.h>
 #include <drivers/gpu/fbdev/fbcon.h>
 #include <drivers/gpu/fbdev/klogo.h>
 #include <drivers/gpu/fbdev/video.h>
 #include <drivers/input/ps2/ps2.h>
-#include <drivers/net/intel/e1000.h>
-#include <drivers/net/realtek/rtl8139.h>
-#include <drivers/net/realtek/rtl8169.h>
-#include <drivers/nvme/nvme.h>
-#include <drivers/pci/pci.h>
-#include <drivers/rtc/rtc.h>
+#include <drivers/net/ethernet/intel/e1000.h>
+#include <drivers/net/ethernet/realtek/rtl8139.h>
+#include <drivers/net/ethernet/realtek/rtl8169.h>
+#include <drivers/parport/parport.h>
 #include <drivers/sound/intel/hda.h>
 #include <drivers/sound/soundblaster/sb16.h>
+#include <drivers/time/rtc.h>
+#include <drivers/time/tsc.h>
+#include <drivers/tty/serial/8250.h>
 #include <drivers/tty/tty.h>
+#include <drivers/tty/tty_driver.h>
 #include <drivers/usb/core/usb.h>
 #include <drivers/usb/host/host.h>
-#include <drivers/virt/gpu/virtgpu_drv.h>
+#include <fs/cgroup/cgroupfs.h>
 #include <fs/core/inotify.h>
 #include <fs/core/vfs.h>
+#include <fs/cpio/cpio.h>
+#include <fs/devtmpfs/devtmpfs.h>
 #include <fs/extfs/extfs.h>
 #include <fs/fatfs/fatfs_vfs.h>
 #include <fs/isofs/isofs.h>
 #include <fs/ntfs/ntfs_vfs.h>
+#include <fs/proc/procfs.h>
 #include <fs/sysfs/block_sysfs.h>
 #include <fs/sysfs/dmi_sysfs.h>
 #include <fs/sysfs/fb_sysfs.h>
@@ -61,17 +68,11 @@
 #include <fs/sysfs/sysfs.h>
 #include <fs/sysfs/tpm_sysfs.h>
 #include <fs/sysfs/tty_sysfs.h>
-#include <fs/virtual/cgroupfs.h>
-#include <fs/virtual/cpio.h>
-#include <fs/virtual/devtmpfs.h>
-#include <fs/virtual/procfs.h>
-#include <fs/virtual/tmpfs.h>
+#include <fs/tmpfs/tmpfs.h>
 #include <ipc/epoll.h>
 #include <ipc/futex.h>
-#include <ipc/netlink.h>
 #include <ipc/pipe.h>
 #include <ipc/posix_mq.h>
-#include <ipc/socket.h>
 #include <ipc/sysv_ipc.h>
 #include <kernel/cmdline/cmdline.h>
 #include <kernel/debug/debug.h>
@@ -88,11 +89,13 @@
 #include <mem/swap.h>
 #include <net/core/netdev.h>
 #include <net/ipv4/dhcp.h>
-#include <proc/boot_process.h>
-#include <proc/elf_loader.h>
-#include <proc/process.h>
-#include <proc/sched.h>
-#include <proc/sched_test.h>
+#include <net/netlink/netlink.h>
+#include <net/socket.h>
+#include <process/boot_process.h>
+#include <process/elf_loader.h>
+#include <process/process.h>
+#include <process/sched.h>
+#include <process/sched_test.h>
 #include <sync/signal.h>
 #include <sync/spin_lock.h>
 #include <syscall/eventfd.h>
@@ -184,18 +187,20 @@ void kernel_entry(void)
     /* CPU Features */
     fpu_init();             // Floating-Point Unit / Streaming SIMD Extensions
                             //
-    /* Early Platform */    //
-    init_serial();          // Standard RS-232 Serial Port
-                            //
     /* Memory Management */ //
     init_frame();           // Physical Memory Frame
     page_init();            // Standard 4-Level Page Table
     init_heap();            // Standard Memory Heap
-    swap_init();            // Anonymous-memory swap area manager
-    lmodule_init();         // Limine Kernel Module
-                            //
-    /* Early Graphics */    //
-    video_init();           // Basic VESA/GOP Video
+#if CONFIG_SWAP
+    swap_init(); // Anonymous-memory swap area manager
+#endif
+    lmodule_init();      // Limine Kernel Module
+                         //
+    init_serial();       // Standard RS-232 Serial Port (needs the heap)
+    vt_console_init();   // Register vt/drm console drivers (before first printk)
+                         //
+    /* Early Graphics */ //
+    video_init();        // Basic VESA/GOP Video
     video_info_t fbinfo = video_get_info();
     video_show_boot_logo();
 
@@ -221,13 +226,14 @@ void kernel_entry(void)
     init_gdt();                      // Global Descriptor Table
     init_idt();                      // Interrupt Descriptor Table
     isr_registe_handle();            //
+    serial_irq_install();            // Serial IRQ handlers (must follow init_idt)
                                      //
     /* Platform Discovery */         //
     acpi_init();                     // Advanced Configuration and Power Interface
     tpm_init();                      // Trusted Platform Module
     tsc_init();                      // Time Stamp Counter
     smp_init();                      // Symmetric Multiprocessing
-    parallel_init();                 // IEEE 1284 Parallel Port
+    parport_pc_init();               // PC Parallel Port (SPP)
                                      //
     print_memory_map();              //
     log_buffer_print(&frame_log);    //
@@ -241,23 +247,28 @@ void kernel_entry(void)
     log_buffer_print(&lmodule_log);  //
                                      //
     /* Device Drivers */             //
-    init_ide();                      // ATA / ATAPI
-    init_ahci();                     // Advanced Host Controller Interface
-    nvme_init();                     // Non-Volatile Memory Express
-    net_init();                      // Initialize ARP/NDP caches and DHCP client
-    e1000_init();                    // Intel 8254x Gigabit Ethernet
-    rtl8169_init();                  // Realtek RTL8169 Gigabit Ethernet
-    rtl8139_init();                  // Realtek RTL8139 Fast Ethernet
-    usb_host_pci_scan();             // Discover and init all USB host controllers
-    sb16_init();                     // Sound Blaster 16
-    hda_init();                      // Intel HD Audio
-                                     //
-    /* Virtual Filesystem */         //
-    init_vfs();                      // Virtual Filesystem
-    tmpfs_regist();                  // Temporary File System
-    procfs_regist();                 // Process File System
-    sysfs_regist();                  // Register sysfs with the VFS layer
-    cgroupfs_regist();               // Unified Control Group File System
+#if CONFIG_ATA
+    init_ide();  // ATA / ATAPI
+    init_ahci(); // Advanced Host Controller Interface
+#endif
+#if CONFIG_NVME
+    nvme_init(); // Non-Volatile Memory Express
+#endif
+    block_register_all_disks(); // Publish discovered disks into the gendisk registry
+    net_init();                 // Initialize ARP/NDP caches and DHCP client
+    e1000_init();               // Intel 8254x Gigabit Ethernet
+    rtl8169_init();             // Realtek RTL8169 Gigabit Ethernet
+    rtl8139_init();             // Realtek RTL8139 Fast Ethernet
+    usb_host_pci_scan();        // Discover and init all USB host controllers
+    sb16_init();                // Sound Blaster 16
+    hda_init();                 // Intel HD Audio
+                                //
+    /* Virtual Filesystem */    //
+    init_vfs();                 // Virtual Filesystem
+    tmpfs_regist();             // Temporary File System
+    procfs_regist();            // Process File System
+    sysfs_regist();             // Register sysfs with the VFS layer
+    cgroupfs_regist();          // Unified Control Group File System
 
     if (!get_rootdir()->fsid && vfs_mount(0, get_rootdir()) != EOK) plogk("init: Cannot mount tmpfs to root_dir.\n");
 
@@ -265,7 +276,11 @@ void kernel_entry(void)
     sysfs_init();                                                             // Create sysfs root kobject and top-level directories
     module_subsystem_init();                                                  // Loadable kernel module registry and /sys/module
     device_model_init();                                                      // Initialise the device model (bus/class/device)
+    ppdev_init();                                                             // /dev/parportN character devices
+    chrdev_init();                                                            // Register static character devices
     devtmpfs_init();                                                          // Device Temporary File System
+    vt_driver_init();                                                         // Register vt/aux tty drivers
+    tty_devices_populate();                                                   // Create /dev/tty*, /dev/ttyS*, /dev/console
                                                                               //
     /* RAM Filesystem */                                                      //
     init_cpio();                                                              // Copy In, Copy Out

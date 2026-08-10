@@ -8,10 +8,10 @@
  *
  */
 
-#ifndef INCLUDE_DRM_DRM_MODESET_LOCK_H_
-#define INCLUDE_DRM_DRM_MODESET_LOCK_H_
+#ifndef INCLUDE_drm_modeset_lock_H_
+#define INCLUDE_drm_modeset_lock_H_
 
-#include <libs/glist/intrusive_list.h>
+#include <libs/list/intrusive_list.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
@@ -71,4 +71,4 @@ int drm_modeset_backoff(struct drm_modeset_acquire_ctx *ctx);
 /* Lock all KMS modeset locks of @dev under @ctx. Returns 0 or -EDEADLK/-EINTR. */
 int drm_modeset_lock_all_ctx(struct drm_device *dev, struct drm_modeset_acquire_ctx *ctx);
 
-#endif // INCLUDE_DRM_DRM_MODESET_LOCK_H_
+#endif // INCLUDE_drm_modeset_lock_H_

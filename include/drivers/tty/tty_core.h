@@ -8,17 +8,19 @@
  *
  */
 
-#ifndef INCLUDE_DRIVERS_TTY_CORE_H_
-#define INCLUDE_DRIVERS_TTY_CORE_H_
+#ifndef INCLUDE_tty_core_H_
+#define INCLUDE_tty_core_H_
 
 #include <kernel/termios.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
-#include <proc/task.h>
+#include <process/task.h>
 #include <sync/spin_lock.h>
 
-#define TTY_CORE_BUFFER_SIZE 4096
+#ifndef TTY_CORE_BUFFER_SIZE
+#    define TTY_CORE_BUFFER_SIZE 4096
+#endif
 
 typedef struct tty_core tty_core_t;
 

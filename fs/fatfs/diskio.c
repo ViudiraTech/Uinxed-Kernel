@@ -8,7 +8,7 @@
  *
  */
 
-#include <drivers/block/blockdev.h>
+#include <drivers/block/core/blockdev.h>
 #include <fs/fatfs/fatfs_disk.h>
 #include <fs/fatfs/ff.h>
 #include <fs/fatfs/ffdiskio.h>

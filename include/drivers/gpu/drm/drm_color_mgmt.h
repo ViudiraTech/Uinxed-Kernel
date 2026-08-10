@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_DRM_DRM_COLOR_MGMT_H_
-#define INCLUDE_DRM_DRM_COLOR_MGMT_H_
+#ifndef INCLUDE_drm_color_mgmt_H_
+#define INCLUDE_drm_color_mgmt_H_
 
 #include <drivers/gpu/drm/drm.h>
 
@@ -36,4 +36,4 @@ struct drm_color_lut_range {
         __u32 end;
 };
 
-#endif // INCLUDE_DRM_DRM_COLOR_MGMT_H_
+#endif // INCLUDE_drm_color_mgmt_H_

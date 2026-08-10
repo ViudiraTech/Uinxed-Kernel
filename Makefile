@@ -32,8 +32,22 @@ ifneq ($(CONFIG_TTY_DEFAULT_DEV),)
   C_CONFIG += -DTTY_DEFAULT_DEV=\"$(CONFIG_TTY_DEFAULT_DEV)\"
 endif
 
+ifeq ($(CONFIG_VT), y)
+  C_CONFIG += -DCONFIG_VT=1
+else
+  C_CONFIG += -DCONFIG_VT=0
+endif
+
+ifneq ($(CONFIG_VT_COUNT),)
+  C_CONFIG += -DCONFIG_VT_COUNT=$(CONFIG_VT_COUNT)
+endif
+
 ifneq ($(CONFIG_TTY_BUF_SIZE),)
   C_CONFIG += -DTTY_BUF_SIZE=$(CONFIG_TTY_BUF_SIZE)
+endif
+
+ifneq ($(CONFIG_TTY_CORE_BUFFER_SIZE),)
+  C_CONFIG += -DTTY_CORE_BUFFER_SIZE=$(CONFIG_TTY_CORE_BUFFER_SIZE)
 endif
 
 ifeq ($(CONFIG_UNIX98_PTYS),)
@@ -244,6 +258,24 @@ else
   C_CONFIG += -DCONFIG_PARPORT=0
 endif
 
+ifeq ($(CONFIG_ATA), y)
+  C_CONFIG += -DCONFIG_ATA=1
+else
+  C_CONFIG += -DCONFIG_ATA=0
+endif
+
+ifeq ($(CONFIG_NVME), y)
+  C_CONFIG += -DCONFIG_NVME=1
+else
+  C_CONFIG += -DCONFIG_NVME=0
+endif
+
+ifeq ($(CONFIG_SWAP), y)
+  C_CONFIG += -DCONFIG_SWAP=1
+else
+  C_CONFIG += -DCONFIG_SWAP=0
+endif
+
 ifeq ($(CONFIG_INPUT_EVDEV), y)
   C_CONFIG += -DCONFIG_INPUT_EVDEV=1
 else
@@ -356,6 +388,12 @@ else
   C_CONFIG += -DCONFIG_SYSFS=0
 endif
 
+ifeq ($(CONFIG_DEVTMPFS_MOUNT), y)
+  C_CONFIG += -DCONFIG_DEVTMPFS_MOUNT=1
+else
+  C_CONFIG += -DCONFIG_DEVTMPFS_MOUNT=0
+endif
+
 ifeq ($(CONFIG_UEVENT_HELPER), y)
   C_CONFIG += -DCONFIG_UEVENT_HELPER=1
 else
@@ -417,7 +455,7 @@ else
 endif
 
 ifneq ($(CONFIG_MODULE_MAX_SIZE),)
-  C_CONFIG += -DCONFIG_MODULE_MAX_SIZE_MIB=$(CONFIG_MODULE_MAX_SIZE)
+  C_CONFIG += -DCONFIG_MODULE_MAX_SIZE=$(CONFIG_MODULE_MAX_SIZE)
 endif
 
 C_SOURCES      := $(shell find * -name "*.c" -not -path "tools/*" -not -path "assets/*")
@@ -439,7 +477,7 @@ TOOL_TARGETS   := $(TOOL_C_SOURCES:%.c=%.elf)
 
 # If you want to get more details of `dump_stack`, you need to replace `-O3` with `-O0` or '-Os'.
 # `-fno-optimize-sibling-calls` is for `dump_stack` to work properly.
-CC_FLAGS       := -Wall -Wextra -Wno-unused-function -O3 -g3 -m64 -fpie -ffreestanding -fno-optimize-sibling-calls -fno-stack-protector -fno-omit-frame-pointer -mstackrealign -mno-red-zone -mno-sse -mno-sse2 -mno-mmx -mno-80387 -I include -MMD
+CC_FLAGS       := -Wall -Wextra -Wno-unused-function -O3 -g3 -m64 -fpie -ffreestanding -fno-optimize-sibling-calls -fno-stack-protector -fno-omit-frame-pointer -mstackrealign -mno-red-zone -mno-sse -mno-sse2 -mno-mmx -mno-80387 -I include -include kernel/config.h -MMD
 LD_FLAGS       := -nostdlib -pie -T assets/linker.ld -m elf_x86_64
 
 all: Uinxed-x64.iso

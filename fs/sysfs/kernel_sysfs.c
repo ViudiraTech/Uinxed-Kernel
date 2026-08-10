@@ -13,17 +13,17 @@
 #include <fs/sysfs/sysfs.h>
 #include <kernel/cmdline/cmdline.h>
 #include <kernel/errno.h>
-#include <kernel/kobject/kobject.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
 #include <kernel/uinxed.h>
+#include <libs/kobject/kobject.h>
 #include <libs/std/stdarg.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
-#include <proc/sched.h>
+#include <process/sched.h>
 
 /* ------------------------------------------------------------------ */
 /*  Forward reference                                                  */

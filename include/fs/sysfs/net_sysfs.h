@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_DRIVERS_NET_SYSFS_H_
-#define INCLUDE_DRIVERS_NET_SYSFS_H_
+#ifndef INCLUDE_net_sysfs_H_
+#define INCLUDE_net_sysfs_H_
 
 void net_sysfs_init(void);
 

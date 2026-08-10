@@ -8,11 +8,11 @@
  *
  */
 
-#include <drivers/ata/pata/ide.h>
-#include <drivers/block/blockdev.h>
+#include <drivers/block/ata/pata/ide.h>
+#include <drivers/block/core/blockdev.h>
 #include <fs/core/vfs.h>
+#include <fs/devtmpfs/devtmpfs.h>
 #include <fs/extfs/extfs.h>
-#include <fs/virtual/devtmpfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
@@ -1105,6 +1105,7 @@ static struct vfs_callback extfs_callbacks = {
 
 void extfs_regist(void)
 {
+#if CONFIG_EXTFS
     extfs_id = vfs_regist_fs("extfs", &extfs_callbacks);
     if (extfs_id & ERRNO_MASK) {
         plogk("extfs: Register error.\n");
@@ -1112,6 +1113,7 @@ void extfs_regist(void)
     }
     plogk("extfs: Filesystem registered (fsid=%d)\n", extfs_id);
 
+#    if CONFIG_ATA
     for (uint8_t drive = 0; drive < 4; drive++) {
         extfs_sb_info_t   sb;
         blockdev_device_t device;
@@ -1121,4 +1123,6 @@ void extfs_regist(void)
             extfs_free_super(&sb);
         }
     }
+#    endif
+#endif
 }

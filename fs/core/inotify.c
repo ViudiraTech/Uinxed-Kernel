@@ -14,8 +14,8 @@
 #include <kernel/termios.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
-#include <proc/process.h>
-#include <proc/uaccess.h>
+#include <process/process.h>
+#include <process/uaccess.h>
 #include <sync/signal.h>
 #include <syscall/fcntl.h>
 

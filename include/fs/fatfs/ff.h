@@ -415,4 +415,4 @@ typedef char TCHAR;
 }
 #endif
 
-#endif // FF_DEFINED
+#endif // INCLUDE_ff_H_

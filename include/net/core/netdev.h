@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_NET_NETDEV_H_
-#define INCLUDE_NET_NETDEV_H_
+#ifndef INCLUDE_netdev_H_
+#define INCLUDE_netdev_H_
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

@@ -8,14 +8,14 @@
  *
  */
 
-#ifndef INCLUDE_NET_UDP_H_
-#define INCLUDE_NET_UDP_H_
+#ifndef INCLUDE_udp_H_
+#define INCLUDE_udp_H_
 
 #include <libs/std/stddef.h>
 #include <net/abi/inet.h>
 #include <net/ipv4/ipv4.h>
 #include <net/ipv6/ipv6.h>
-#include <proc/task.h>
+#include <process/task.h>
 
 #define UDP_ENDPOINT_MAX 128U
 #define UDP_RX_QUEUE_MAX 64U

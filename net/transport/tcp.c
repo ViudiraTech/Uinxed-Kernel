@@ -15,7 +15,7 @@
 #include <mem/heap.h>
 #include <net/core/endian.h>
 #include <net/transport/tcp.h>
-#include <proc/sched.h>
+#include <process/sched.h>
 
 #define TCP_HEADER_LEN      20U
 #define TCP_FLAG_FIN        0x01U

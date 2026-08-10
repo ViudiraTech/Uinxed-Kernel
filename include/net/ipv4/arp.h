@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_NET_ARP_H_
-#define INCLUDE_NET_ARP_H_
+#ifndef INCLUDE_arp_H_
+#define INCLUDE_arp_H_
 
 #include <libs/std/stddef.h>
 #include <net/core/netdev.h>

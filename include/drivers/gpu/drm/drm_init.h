@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_DRM_DRM_INIT_H_
-#define INCLUDE_DRM_DRM_INIT_H_
+#ifndef INCLUDE_drm_init_H_
+#define INCLUDE_drm_init_H_
 
 #include <drivers/gpu/drm/drm_device.h>
 #include <libs/std/stddef.h>
@@ -57,4 +57,4 @@ int    drm_dev_ioctl(void *file, size_t req, void *arg);
 int    drm_dev_poll(void *file, size_t events);
 void  *drm_dev_mmap(void *file, size_t offset, size_t size, int flags);
 
-#endif // INCLUDE_DRM_DRM_INIT_H_
+#endif // INCLUDE_drm_init_H_

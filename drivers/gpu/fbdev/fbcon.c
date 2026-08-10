@@ -8,15 +8,15 @@
  *
  */
 
-#include <chipset/common.h>
+#include <arch/common.h>
 #include <drivers/gpu/fbdev/fbcon.h>
 #include <drivers/gpu/fbdev/klogo.h>
 #include <drivers/gpu/fbdev/video.h>
 #include <drivers/gpu/fbdev/vt_ansi.h>
 #include <drivers/tty/tty.h>
 #include <kernel/timer/timer.h>
-#include <libs/gfxs/fonts.h>
-#include <libs/gfxs/gfx_proc.h>
+#include <libs/gfx/fonts.h>
+#include <libs/gfx/gfx_proc.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
@@ -691,6 +691,16 @@ void fbcon_handoff_end(void)
     spin_unlock(&fbcon_lock);
 }
 
+bool fbcon_is_ready(void)
+{
+    bool ready;
+
+    spin_lock(&fbcon_lock);
+    ready = text_grid != NULL && color_grid != NULL;
+    spin_unlock(&fbcon_lock);
+    return ready;
+}
+
 /*
  * Draw a character with per-cell foreground and background color.  The
  * grid uses ceil(height / font_height) rows so the console fills the whole
@@ -809,10 +819,12 @@ static const vt_ansi_callbacks_t vt_ansi_cb = {
 void fbcon_ansi_write(const uint8_t *buf, size_t len)
 {
     spin_lock(&fbcon_lock);
+    if (!text_grid || !color_grid) goto out;
     redraw_deferred++;
     for (size_t i = 0; i < len; i++) vt_ansi_process(&vt_ansi_state, buf[i], &vt_ansi_cb, NULL);
     redraw_deferred--;
     fbcon_flush_screen_updates();
+out:
     spin_unlock(&fbcon_lock);
 }
 

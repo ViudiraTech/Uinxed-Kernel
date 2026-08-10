@@ -8,14 +8,14 @@
  *
  */
 
-#include <drivers/core/device.h>
-#include <drivers/pci/pci.h>
+#include <drivers/base/device.h>
+#include <drivers/bus/pci.h>
 #include <fs/core/vfs.h>
 #include <fs/sysfs/pci_sysfs.h>
 #include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>
-#include <kernel/kobject/kobject.h>
 #include <kernel/printk.h>
+#include <libs/kobject/kobject.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>

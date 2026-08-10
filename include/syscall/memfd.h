@@ -8,13 +8,13 @@
  *
  */
 
-#ifndef INCLUDE_SYSCALL_MEMFD_H_
-#define INCLUDE_SYSCALL_MEMFD_H_
+#ifndef INCLUDE_memfd_H_
+#define INCLUDE_memfd_H_
 
 #include <fs/core/vfs.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
-#include <proc/process.h>
+#include <process/process.h>
 
 #define MFD_CLOEXEC       0x0001U
 #define MFD_ALLOW_SEALING 0x0002U
@@ -34,4 +34,4 @@ void    memfd_vma_retain(vfs_node_t node, vm_flags_t flags);
 void    memfd_vma_release(vfs_node_t node, vm_flags_t flags);
 int     memfd_vma_protect(vfs_node_t node, vm_flags_t old_flags, vm_flags_t new_flags);
 
-#endif // INCLUDE_SYSCALL_MEMFD_H_
+#endif // INCLUDE_memfd_H_

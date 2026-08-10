@@ -16,7 +16,7 @@
 #include <net/core/ethernet.h>
 #include <net/ipv6/icmpv6.h>
 #include <net/ipv6/ndp.h>
-#include <proc/sched.h>
+#include <process/sched.h>
 
 #define NDP_TICKS_PER_SECOND TIMER_HZ
 #define NDP_REACHABLE_TICKS  ((uint64_t)30U * TIMER_HZ)

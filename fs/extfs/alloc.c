@@ -14,7 +14,7 @@
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 #include <mem/heap.h>
-#include <proc/sched.h>
+#include <process/sched.h>
 
 static int extfs_test_bit(const uint8_t *bitmap, uint32_t bit)
 {

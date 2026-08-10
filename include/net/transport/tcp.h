@@ -8,15 +8,15 @@
  *
  */
 
-#ifndef INCLUDE_NET_TCP_H_
-#define INCLUDE_NET_TCP_H_
+#ifndef INCLUDE_tcp_H_
+#define INCLUDE_tcp_H_
 
 #include <kernel/timer/timer.h>
 #include <libs/std/stddef.h>
 #include <net/abi/inet.h>
 #include <net/ipv4/ipv4.h>
 #include <net/ipv6/ipv6.h>
-#include <proc/task.h>
+#include <process/task.h>
 
 #define TCP_ENDPOINT_MAX    128U
 #define TCP_ACCEPT_MAX      16U

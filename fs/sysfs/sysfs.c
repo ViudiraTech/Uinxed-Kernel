@@ -11,9 +11,9 @@
 #include <fs/core/vfs.h>
 #include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>
-#include <kernel/kobject/kobject.h>
 #include <kernel/printk.h>
-#include <libs/glist/circular_list.h>
+#include <libs/kobject/kobject.h>
+#include <libs/list/circular_list.h>
 #include <libs/std/stdarg.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

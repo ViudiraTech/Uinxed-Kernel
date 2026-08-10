@@ -8,12 +8,12 @@
  *
  */
 
-#include <drivers/core/device.h>
+#include <drivers/base/device.h>
+#include <drivers/sound/core/audio.h>
 #include <fs/sysfs/sound_sysfs.h>
 #include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <kernel/sound/audio.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>

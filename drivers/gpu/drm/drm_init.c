@@ -12,7 +12,7 @@
  *
  */
 
-#include <drivers/core/device.h>
+#include <drivers/base/device.h>
 #include <drivers/gpu/drm/drm.h>
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/gpu/drm/drm_fourcc.h>
@@ -26,7 +26,7 @@
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
-#include <proc/process.h>
+#include <process/process.h>
 
 /* ------------------------------------------------------------------ */
 /* Global DRM device list (replaces singleton)                         */

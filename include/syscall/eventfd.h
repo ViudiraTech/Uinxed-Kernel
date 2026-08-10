@@ -13,7 +13,7 @@
 
 #include <fs/core/vfs.h>
 #include <libs/std/stdint.h>
-#include <proc/task.h>
+#include <process/task.h>
 #include <sync/spin_lock.h>
 
 #define EFD_SEMAPHORE (1 << 0)

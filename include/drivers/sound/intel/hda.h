@@ -8,9 +8,9 @@
  *
  */
 
-#ifndef INCLUDE_SOUND_HDA_H_
-#define INCLUDE_SOUND_HDA_H_
+#ifndef INCLUDE_hda_H_
+#define INCLUDE_hda_H_
 
 void hda_init(void);
 
-#endif // INCLUDE_SOUND_HDA_H_
+#endif // INCLUDE_hda_H_

@@ -15,7 +15,7 @@
 #include <drivers/gpu/fbdev/video.h>
 #include <drivers/tty/tty.h>
 #include <kernel/uinxed.h>
-#include <libs/gfxs/bmp.h>
+#include <libs/gfx/bmp.h>
 
 /* Saved CPU count so the logo can be redrawn after a framebuffer switch */
 static uint32_t saved_logo_count = 0;

@@ -12,13 +12,13 @@
 #include <boot/limine.h>
 #include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>
-#include <kernel/kobject/kobject.h>
 #include <kernel/module/elf.h>
 #include <kernel/module/module.h>
 #include <kernel/module/module_elf.h>
 #include <kernel/printk.h>
 #include <kernel/uinxed.h>
-#include <libs/glist/circular_list.h>
+#include <libs/kobject/kobject.h>
+#include <libs/list/circular_list.h>
 #include <libs/std/math.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
@@ -30,7 +30,7 @@
 #include <mem/heap.h>
 #include <mem/page.h>
 #include <mem/page_walker.h>
-#include <proc/task.h>
+#include <process/task.h>
 #include <sync/spin_lock.h>
 
 #ifndef CONFIG_MODULES
@@ -45,11 +45,11 @@
 #ifndef CONFIG_MODULE_SIG_FORCE
 #    define CONFIG_MODULE_SIG_FORCE 0
 #endif
-#ifndef CONFIG_MODULE_MAX_SIZE_MIB
-#    define CONFIG_MODULE_MAX_SIZE_MIB 64
+#ifndef CONFIG_MODULE_MAX_SIZE
+#    define CONFIG_MODULE_MAX_SIZE 64
 #endif
 
-#define MODULE_MAX_SIZE         ((size_t)CONFIG_MODULE_MAX_SIZE_MIB * 1024U * 1024U)
+#define MODULE_MAX_SIZE         ((size_t)CONFIG_MODULE_MAX_SIZE * 1024U * 1024U)
 #define MODULE_VADDR_OFFSET     0x20000000ULL
 #define MODULE_VADDR_LIMIT      0x78000000ULL
 #define MODULE_MAX_DEPENDENCIES 256

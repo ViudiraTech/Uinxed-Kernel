@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_NET_NET_H_
-#define INCLUDE_NET_NET_H_
+#ifndef INCLUDE_net_H_
+#define INCLUDE_net_H_
 
 #include <net/core/endian.h>
 #include <net/core/ethernet.h>

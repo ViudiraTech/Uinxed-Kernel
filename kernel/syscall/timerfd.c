@@ -18,9 +18,9 @@
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
-#include <proc/process.h>
-#include <proc/sched.h>
-#include <proc/uaccess.h>
+#include <process/process.h>
+#include <process/sched.h>
+#include <process/uaccess.h>
 #include <sync/spin_lock.h>
 #include <syscall/syscall.h>
 #include <syscall/timerfd.h>

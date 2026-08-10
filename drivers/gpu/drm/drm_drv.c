@@ -12,16 +12,16 @@
 #    define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
 #endif
 
-#include <drivers/core/device.h>
+#include <drivers/base/device.h>
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/gpu/drm/drm_hashtab.h>
 #include <drivers/gpu/drm/drm_init.h>
 #include <drivers/gpu/drm/drm_print.h>
-#include <fs/virtual/devtmpfs.h>
-#include <fs/virtual/tmpfs.h>
+#include <fs/devtmpfs/devtmpfs.h>
+#include <fs/tmpfs/tmpfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/glist/intrusive_list.h>
+#include <libs/list/intrusive_list.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

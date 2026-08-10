@@ -14,8 +14,8 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
-#include <proc/process.h>
-#include <proc/uaccess.h>
+#include <process/process.h>
+#include <process/uaccess.h>
 #include <sync/spin_lock.h>
 #include <syscall/fcntl.h>
 #include <syscall/memfd.h>

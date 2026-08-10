@@ -14,7 +14,7 @@
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
-#include <proc/sched.h>
+#include <process/sched.h>
 #include <sync/spin_lock.h>
 
 static input_dev_t            ps2_keyboard_dev;

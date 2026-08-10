@@ -14,7 +14,7 @@
 #include <net/core/endian.h>
 #include <net/ipv6/icmpv6.h>
 #include <net/ipv6/ndp.h>
-#include <proc/sched.h>
+#include <process/sched.h>
 
 #define ICMPV6_HEADER_LEN 8U
 

@@ -8,8 +8,8 @@
  *
  */
 
+#include <arch/common.h>
 #include <arch/idt.h>
-#include <chipset/common.h>
 #include <drivers/firmware/acpi.h>
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>

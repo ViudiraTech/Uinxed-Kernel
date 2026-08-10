@@ -15,7 +15,7 @@
 #include <net/core/endian.h>
 #include <net/ipv4/icmp.h>
 #include <net/transport/udp.h>
-#include <proc/sched.h>
+#include <process/sched.h>
 
 #define UDP_HEADER_LEN      8U
 #define UDP_EPHEMERAL_FIRST 49152U

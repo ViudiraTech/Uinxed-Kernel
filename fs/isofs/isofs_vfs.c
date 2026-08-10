@@ -8,10 +8,10 @@
  *
  */
 
-#include <drivers/ata/pata/atapi.h>
-#include <drivers/ata/pata/ide.h>
-#include <drivers/ata/sata/ahci.h>
-#include <drivers/block/blockdev.h>
+#include <drivers/block/ata/pata/atapi.h>
+#include <drivers/block/ata/pata/ide.h>
+#include <drivers/block/ata/sata/ahci.h>
+#include <drivers/block/core/blockdev.h>
 #include <fs/core/vfs.h>
 #include <fs/isofs/isofs.h>
 #include <fs/isofs/rock.h>
@@ -734,6 +734,7 @@ void isofs_mount_all(void)
 
     uint8_t sr_idx = 0;
 
+#if CONFIG_ATA
     for (uint8_t drive = 0; drive < 4; drive++) {
         if (!atapi_devices[drive].reserved || atapi_devices[drive].type != IDE_ATAPI) continue;
 
@@ -801,4 +802,5 @@ void isofs_mount_all(void)
         vfs_close(node);
         sr_idx++;
     }
+#endif
 }

@@ -13,7 +13,7 @@
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
-#include <proc/process.h>
+#include <process/process.h>
 
 /* mmap protection flags */
 #define PROT_NONE  0x0

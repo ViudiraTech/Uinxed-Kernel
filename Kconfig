@@ -29,18 +29,34 @@ menu "Processor type and features"
     help
       Enable Advanced Vector Extensions (AVX / AVX2) instruction set support.
 
+  config CPU_FEATURE_AVX512
+    bool "AVX-512 support"
+    depends on CPU_FEATURE_AVX
+    default n
+    help
+      Enable AVX-512 state preservation and usage on capable CPUs.
+      Most current CPUs do not support AVX-512.
+
 endmenu
 
 menu "Memory management"
 
   config KERNEL_HEAP_MAX_SIZE
     int "Maximum kernel heap size (MiB)"
-    default 256
+    default 512
     range 16 4096
     help
       Maximum size of the kernel heap in megabytes. The kernel heap is
       used for kmalloc(), internal kernel data structures, and driver
       allocations. Lower this on memory-constrained VMs.
+
+  config SWAP
+    bool "Swap area manager"
+    default y
+    help
+      Anonymous-memory swap area manager used to back overcommit and
+      reclaimable anonymous pages. Disable on memory-constrained or
+      diskless systems.
 
 endmenu
 
@@ -116,14 +132,14 @@ menu "Process management"
 
   config PROCESS_KERNEL_STACK_SIZE
     int "Kernel stack size per process (bytes)"
-    default 65536
+    default 32768
     range 4096 262144
     help
       Size of the kernel-mode stack allocated for each process.
 
   config PROCESS_USER_STACK_SIZE
     int "Default user stack size (bytes)"
-    default 4194304
+    default 8388608
     range 1048576 67108864
     help
       Default user-space stack size for newly created processes.
@@ -150,7 +166,7 @@ menu "IPC (Inter-Process Communication)"
 
   config SOCKET_ACCEPT_QUEUE_MAX
     int "Maximum socket listen backlog"
-    default 1024
+    default 4096
     range 16 4096
     help
       Maximum number of pending connections on a listening socket.
@@ -171,13 +187,6 @@ menu "IPC (Inter-Process Communication)"
       Number of bits for the futex hash table.
       A value of 8 gives 256 buckets.
 
-  config NETLINK
-    bool "Netlink socket support (AF_NETLINK)"
-    default y
-    help
-      Enable AF_NETLINK socket family for kernel-userspace
-      communication. Required for uevent/hotplug delivery.
-
   config SYSVIPC
     bool "System V IPC support"
     default y
@@ -193,7 +202,7 @@ menu "IPC (Inter-Process Communication)"
 
 endmenu
 
-menu "Networking support"
+menu "Networking"
 
   config NET
     bool "Networking support"
@@ -208,287 +217,347 @@ menu "Networking support"
     help
       Enable the IPv4 protocol family and Internet sockets.
 
-  config E1000
-    bool "Intel E1000 Gigabit Ethernet support"
-    depends on NET
+  config NETLINK
+    bool "Netlink socket support (AF_NETLINK)"
     default y
     help
-      Enable support for Intel 8254x-compatible Gigabit Ethernet
-      controllers, including QEMU's e1000 device.
-
-  config RTL8169
-    bool "Realtek RTL8169 Gigabit Ethernet support"
-    depends on NET
-    default y
-    help
-      Enable support for Realtek RTL8169/RTL8110S-compatible Gigabit
-      Ethernet controllers (10ec:8161/8169 and rebrands).
-
-  config RTL8139
-    bool "Realtek RTL8139 Fast Ethernet support"
-    depends on NET
-    default y
-    help
-      Enable support for Realtek RTL8139-compatible Fast Ethernet
-      controllers (10ec:8129/8139/8138 and rebrands).
+      Enable AF_NETLINK socket family for kernel-userspace
+      communication. Required for uevent/hotplug delivery.
 
 endmenu
 
 menu "Device Drivers"
 
-menu "Character devices"
+  menu "Block devices"
 
-  menu "Teletype devices"
-
-    config TTY_DEFAULT_DEV
-      string "Default TTY device name"
-      default "tty0"
-      help
-        Specifies the default teletype device used when no device is
-        explicitly set by boot parameters.
-
-    config TTY_BUF_SIZE
-      int "TTY line buffer size"
-      default 4096
-      range 256 16384
-      help
-        Buffer size for temporarily storing input and output data in
-        the teletype driver.
-
-    config UNIX98_PTYS
-      bool "Unix98 pseudoterminal support"
+    config ATA
+      bool "ATA/SATA (IDE and AHCI) support"
       default y
       help
-        Provides /dev/ptmx and dynamically allocated /dev/pts/N
-        pseudoterminals.
+        Enable the ATA/SATA storage subsystem: PATA (IDE) and AHCI
+        host controllers, including ATAPI optical drives. Disable to
+        trim legacy parallel-ATA support.
+
+    config NVME
+      bool "NVMe support"
+      default y
+      help
+        Enable the NVMe storage subsystem for PCIe solid-state drives.
+
+  endmenu
+
+  menu "Character devices"
+
+    menu "Teletype devices"
+
+      config TTY_DEFAULT_DEV
+        string "Default TTY device name"
+        default "tty0"
+        help
+          Specifies the default teletype device used when no device is
+          explicitly set by boot parameters.
+
+      config TTY_BUF_SIZE
+        int "TTY line buffer size"
+        default 4096
+        range 256 16384
+        help
+          Buffer size for temporarily storing input and output data in
+          the teletype driver.
+
+      config TTY_CORE_BUFFER_SIZE
+        int "TTY line-discipline input buffer size"
+        default 4096
+        range 1024 16384
+        help
+          Per-terminal input buffer used by the N_TTY line discipline
+          for read/receive buffering, and by each Unix98 pty pair.
+          Lower values reduce memory on systems with many terminals.
+
+      menu "Virtual terminal (VT)"
+
+        config VT
+          bool "Virtual terminal support"
+          default y
+          help
+            Enable virtual terminals (/dev/tty0 through /dev/ttyN) driven
+            by the framebuffer console and keyboard. Each VT carries an
+            independent line discipline and job-control state.
+            Disable for headless or serial-only systems; the framebuffer
+            console output path is preserved in either case.
+
+        config VT_COUNT
+          int "Number of virtual terminals (counting tty0)"
+          depends on VT
+          default 64
+          range 1 64
+          help
+            Number of virtual terminal devices, including /dev/tty0
+            (so 64 yields /dev/tty0 through /dev/tty63). Each VT reserves
+            a line-discipline input buffer.
+
+      endmenu
+
+      config UNIX98_PTYS
+        bool "Unix98 pseudoterminal support"
+        default y
+        help
+          Provides /dev/ptmx and dynamically allocated /dev/pts/N
+          pseudoterminals.
 
     config UNIX98_PTY_MAX
       int "Maximum Unix98 pseudoterminals"
       depends on UNIX98_PTYS
-      default 64
-      range 1 256
-      help
-        Maximum number of simultaneous pseudoterminal pairs.
+      default 4096
+      range 1 4096
+        help
+          Maximum number of simultaneous pseudoterminal pairs.
+
+    endmenu
+
+    menu "Serial port devices"
+
+      config SERIAL
+        bool "Serial port (RS-232) support"
+        default y
+        help
+          Enables the RS-232 serial port driver for console and
+          debug output.
+
+      config SERIAL_BAUD_RATE
+        int "Serial port baud rate"
+        depends on SERIAL
+        default 9600
+        range 9600 115200
+        help
+          Default baud rate used by the RS-232 serial port driver.
+
+      config SERIAL_DATA_BITS
+        int "Serial port data bits"
+        depends on SERIAL
+        default 8
+        range 5 8
+        help
+          Number of data bits per character for the serial port device.
+
+      config SERIAL_STOP_BITS
+        int "Serial port stop bits"
+        depends on SERIAL
+        default 1
+        range 1 2
+        help
+          Number of stop bits per character for the serial port device.
+
+    endmenu
+
+    menu "Input device support"
+
+      config PS2_KEYBOARD_MOUSE
+        bool "PS/2 keyboard and mouse driver"
+        default y
+        help
+          PS/2 keyboard and mouse driver via i8042 controller.
+          Disable for headless or USB-only systems.
+
+      config INPUT_EVDEV
+        bool "Event interface (evdev)"
+        default y
+        help
+          Linux-compatible evdev input event subsystem, providing
+          /dev/input/eventX character devices.
+
+      config INPUT_EVDEV_BUFSIZE
+        int "evdev client buffer size (power of 2)"
+        default 256
+        depends on INPUT_EVDEV
+        range 64 4096
+        help
+          Size of the per-client evdev event ring buffer, must be
+          a power of 2.
+
+    endmenu
+
+    menu "Parallel port"
+
+      config PARPORT
+        bool "IEEE 1284 parallel port support"
+        default y
+        help
+          Parallel port (LPT) driver. Enable for legacy printer or
+          device access.
+
+    endmenu
+
+    menu "TPM hardware support"
+
+      config TPM
+        bool "Trusted Platform Module (TPM 2.0) support"
+        default y
+        help
+          TPM 2.0 support (TIS and CRB interfaces) for measured boot,
+          key sealing, and remote attestation.
+
+    endmenu
 
   endmenu
 
-  menu "Serial port devices"
+  menu "Network device support"
 
-    config SERIAL
-      bool "Serial port (RS-232) support"
+    config E1000
+      bool "Intel E1000 Gigabit Ethernet support"
+      depends on NET
       default y
       help
-        Enables the RS-232 serial port driver for console and
-        debug output.
+        Enable support for Intel 8254x-compatible Gigabit Ethernet
+        controllers, including QEMU's e1000 device.
 
-    config SERIAL_BAUD_RATE
-      int "Serial port baud rate"
-      depends on SERIAL
-      default 9600
-      range 9600 115200
-      help
-        Default baud rate used by the RS-232 serial port driver.
-
-    config SERIAL_DATA_BITS
-      int "Serial port data bits"
-      depends on SERIAL
-      default 8
-      range 5 8
-      help
-        Number of data bits per character for the serial port device.
-
-    config SERIAL_STOP_BITS
-      int "Serial port stop bits"
-      depends on SERIAL
-      default 1
-      range 1 2
-      help
-        Number of stop bits per character for the serial port device.
-
-  endmenu
-
-  menu "Keyboard and mouse"
-
-    config PS2_KEYBOARD_MOUSE
-      bool "PS/2 keyboard and mouse driver"
+    config RTL8169
+      bool "Realtek RTL8169 Gigabit Ethernet support"
+      depends on NET
       default y
       help
-        PS/2 keyboard and mouse driver via i8042 controller.
-        Disable for headless or USB-only systems.
+        Enable support for Realtek RTL8169/RTL8110S-compatible Gigabit
+        Ethernet controllers (10ec:8161/8169 and rebrands).
 
-  endmenu
-
-  menu "Parallel port"
-
-    config PARPORT
-      bool "IEEE 1284 parallel port support"
+    config RTL8139
+      bool "Realtek RTL8139 Fast Ethernet support"
+      depends on NET
       default y
       help
-        Parallel port (LPT) driver. Enable for legacy printer or
-        device access.
+        Enable support for Realtek RTL8139-compatible Fast Ethernet
+        controllers (10ec:8129/8139/8138 and rebrands).
 
   endmenu
 
-endmenu
+  menu "USB support"
 
-menu "Input device support"
+    config USB
+      bool "USB host-side support"
+      default y
+      help
+        Enable the USB host core and USB device model integration.
 
-  config INPUT_EVDEV
-    bool "Event interface (evdev)"
-    default y
-    help
-      Linux-compatible evdev input event subsystem, providing
-      /dev/input/eventX character devices.
+    config USB_UHCI
+      bool "UHCI (Universal HCI) host controller support"
+      depends on USB
+      default n
+      help
+        Enable PCI UHCI controllers for USB 1.x Full/Low-Speed devices.
+        Only needed on legacy chipsets; modern systems use EHCI/xHCI.
 
-  config INPUT_EVDEV_BUFSIZE
-    int "evdev client buffer size (power of 2)"
-    default 256
-    depends on INPUT_EVDEV
-    range 64 4096
-    help
-      Size of the per-client evdev event ring buffer, must be
-      a power of 2.
+    config USB_OHCI
+      bool "OHCI (Open HCI) host controller support"
+      depends on USB
+      default n
+      help
+        Enable PCI OHCI controllers for USB 1.x Full/Low-Speed devices.
+        Only needed on legacy chipsets; modern systems use EHCI/xHCI.
 
-endmenu
+    config USB_EHCI
+      bool "EHCI (Enhanced HCI) host controller support"
+      depends on USB
+      default y
+      help
+        Enable PCI EHCI controllers for USB 2.0 High-Speed devices.
 
-menu "USB support"
+    config USB_XHCI
+      bool "xHCI (eXtensible HCI) host controller support"
+      depends on USB
+      default y
+      help
+        Enable PCI xHCI controllers for USB 2.0 and USB 3.x devices.
 
-  config USB
-    bool "USB host-side support"
-    default y
-    help
-      Enable the USB host core and USB device model integration.
+    config USB_HID
+      bool "USB HID support"
+      depends on (USB_UHCI || USB_OHCI || USB_EHCI || USB_XHCI) && INPUT_EVDEV
+      default y
+      help
+        Enable report-descriptor based USB keyboard, mouse, controller,
+        and consumer-control input devices through evdev.
 
-  config USB_UHCI
-    bool "UHCI (Universal HCI) host controller support"
-    depends on USB
-    default y
-    help
-      Enable PCI UHCI controllers for USB 1.x Full/Low-Speed devices.
+    config USB_STORAGE
+      bool "USB Mass Storage support"
+      depends on (USB_UHCI || USB_OHCI || USB_EHCI || USB_XHCI)
+      default y
+      help
+        Enable Bulk-Only Transport devices using the SCSI transparent
+        command set, including removable disk and partition nodes.
 
-  config USB_OHCI
-    bool "OHCI (Open HCI) host controller support"
-    depends on USB
-    default y
-    help
-      Enable PCI OHCI controllers for USB 1.x Full/Low-Speed devices.
+  endmenu
 
-  config USB_EHCI
-    bool "EHCI (Enhanced HCI) host controller support"
-    depends on USB
-    default y
-    help
-      Enable PCI EHCI controllers for USB 2.0 High-Speed devices.
+  menu "Graphics support"
 
-  config USB_XHCI
-    bool "xHCI (eXtensible HCI) host controller support"
-    depends on USB
-    default y
-    help
-      Enable PCI xHCI controllers for USB 2.0 and USB 3.x devices.
+    config DRM
+      bool "Direct Rendering Manager (DRM) subsystem"
+      default y
+      help
+        Enable the DRM subsystem providing /dev/dri/card0 for GPU
+        device access and Kernel Mode Setting (KMS).
 
-  config USB_HID
-    bool "USB HID support"
-    depends on (USB_UHCI || USB_OHCI || USB_EHCI || USB_XHCI) && INPUT_EVDEV
-    default y
-    help
-      Enable report-descriptor based USB keyboard, mouse, controller,
-      and consumer-control input devices through evdev.
+    config BOOT_LOGO
+      bool "Boot logo"
+      default y
+      help
+        Displays CPU logos at the top of the screen during kernel
+        startup. The number of logos adjusts to the detected CPU count.
 
-  config USB_STORAGE
-    bool "USB Mass Storage support"
-    depends on (USB_UHCI || USB_OHCI || USB_EHCI || USB_XHCI)
-    default y
-    help
-      Enable Bulk-Only Transport devices using the SCSI transparent
-      command set, including removable disk and partition nodes.
+  endmenu
 
-endmenu
+  menu "VirtIO drivers"
 
-menu "Graphics support"
+    config VIRTIO
+      bool "VirtIO PCI transport layer"
+      default n
+      help
+        Enable the VirtIO PCI transport layer, providing generic
+        MMIO-based capability discovery and virtqueue management.
 
-  config DRM
-    bool "Direct Rendering Manager (DRM) subsystem"
-    default y
-    help
-      Enable the DRM subsystem providing /dev/dri/card0 for GPU
-      device access and Kernel Mode Setting (KMS).
+    config VIRTIO_GPU
+      bool "VirtIO GPU DRM driver"
+      depends on DRM && VIRTIO
+      default n
+      help
+        VirtIO-GPU DRM driver for paravirtualised GPU devices.
+        Provides KMS display pipeline, render node, and optional
+        3D acceleration via virgl context protocol.
 
-  config BOOT_LOGO
-    bool "Boot logo"
-    default y
-    help
-      Displays CPU logos at the top of the screen during kernel
-      startup. The number of logos adjusts to the detected CPU count.
+  endmenu
 
-endmenu
+  menu "Sound card support"
 
-menu "VirtIO drivers"
+    config SOUND_HDA
+      bool "Intel HD Audio (HDA) driver"
+      default y
+      help
+        Intel High Definition Audio driver for HDA-compatible
+        audio controllers found on most modern x86 systems.
 
-  config VIRTIO
-    bool "VirtIO PCI transport layer"
-    default n
-    help
-      Enable the VirtIO PCI transport layer, providing generic
-      MMIO-based capability discovery and virtqueue management.
+    config SOUND_SB16
+      bool "Sound Blaster 16 / ESS AudioDrive driver"
+      default n
+      help
+        Sound Blaster 16 and ESS AudioDrive PCI audio driver.
+        Enable for legacy ISA/PCI SB16-compatible sound cards.
 
-  config VIRTIO_GPU
-    bool "VirtIO GPU DRM driver"
-    depends on DRM && VIRTIO
-    default n
-    help
-      VirtIO-GPU DRM driver for paravirtualised GPU devices.
-      Provides KMS display pipeline, render node, and optional
-      3D acceleration via virgl context protocol.
+    config PCSPKR
+      bool "PC speaker (buzzer) support"
+      default n
+      help
+        PC internal speaker support via PIT channel 2 for basic
+        beep functionality.
 
-endmenu
+  endmenu
 
-menu "Sound card support"
+  menu "I2C bus support"
 
-  config SOUND_HDA
-    bool "Intel HD Audio (HDA) driver"
-    default y
-    help
-      Intel High Definition Audio driver for HDA-compatible
-      audio controllers found on most modern x86 systems.
+    config I2C
+      bool "I2C subsystem"
+      default y
+      help
+        Enable the I2C bus subsystem including adapter registration,
+        bus transfer API, and SMBus protocol emulation.
 
-  config SOUND_SB16
-    bool "Sound Blaster 16 / ESS AudioDrive driver"
-    default n
-    help
-      Sound Blaster 16 and ESS AudioDrive PCI audio driver.
-      Enable for legacy ISA/PCI SB16-compatible sound cards.
-
-  config PCSPKR
-    bool "PC speaker (buzzer) support"
-    default n
-    help
-      PC internal speaker support via PIT channel 2 for basic
-      beep functionality.
-
-endmenu
-
-menu "I2C bus support"
-
-  config I2C
-    bool "I2C subsystem"
-    default y
-    help
-      Enable the I2C bus subsystem including adapter registration,
-      bus transfer API, and SMBus protocol emulation.
-
-endmenu
-
-menu "Security"
-
-  config TPM
-    bool "Trusted Platform Module (TPM 2.0) support"
-    default y
-    help
-      TPM 2.0 support (TIS and CRB interfaces) for measured boot,
-      key sealing, and remote attestation.
-
-endmenu
+  endmenu
 
 endmenu
 
@@ -530,6 +599,14 @@ menu "File systems"
     help
       Broadcast kernel object events (add/remove/change/move) to
       userspace via netlink KOBJECT_UEVENT protocol.
+
+  config DEVTMPFS_MOUNT
+    bool "Automatically mount devtmpfs at /dev"
+    default y
+    help
+      Mount devtmpfs on /dev during boot so kernel-populated device
+      nodes appear automatically. Disable to leave /dev managed by
+      userspace (e.g. udev/mdev mounting devtmpfs itself).
 
   config NTFS_FS
     bool "NTFS filesystem support (read-only)"
@@ -625,12 +702,5 @@ menu "Kernel debugging"
     help
       Creates kernel threads that exercise preemption, sleep, wait
       queues, SMP placement, migration, and balancing at boot time.
-
-  config GENERATE_SYMBOLS
-    bool "Generate kernel symbol table"
-    default n
-    help
-      Generate a kernel symbol table at build time for use
-      by dump_stack() and backtrace resolution.
 
 endmenu

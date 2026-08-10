@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_NET_PBUF_H_
-#define INCLUDE_NET_PBUF_H_
+#ifndef INCLUDE_pbuf_H_
+#define INCLUDE_pbuf_H_
 
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

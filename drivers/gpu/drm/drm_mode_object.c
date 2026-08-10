@@ -17,7 +17,7 @@
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
-#include <proc/uaccess.h>
+#include <process/uaccess.h>
 #include <sync/spin_lock.h>
 
 #ifndef container_of

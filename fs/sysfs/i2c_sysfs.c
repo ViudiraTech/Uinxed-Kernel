@@ -8,11 +8,11 @@
  *
  */
 
-#include <drivers/core/device.h>
-#include <drivers/i2c/i2c.h>
+#include <drivers/base/device.h>
+#include <drivers/bus/i2c.h>
+#include <fs/devtmpfs/devtmpfs.h>
 #include <fs/sysfs/i2c_sysfs.h>
 #include <fs/sysfs/sysfs.h>
-#include <fs/virtual/devtmpfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stdbool.h>
@@ -20,7 +20,7 @@
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/heap.h>
-#include <proc/uaccess.h>
+#include <process/uaccess.h>
 
 #define I2C_DEV_MAJOR 89
 

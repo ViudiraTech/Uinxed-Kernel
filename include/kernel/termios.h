@@ -11,8 +11,8 @@
  *
  */
 
-#ifndef INCLUDE_KERNEL_TERMIOS_H_
-#define INCLUDE_KERNEL_TERMIOS_H_
+#ifndef INCLUDE_termios_H_
+#define INCLUDE_termios_H_
 
 #include <libs/std/stdint.h>
 
@@ -610,4 +610,4 @@ _Static_assert(sizeof(struct termios) == 36, "Linux x86_64 termios size");
 _Static_assert(sizeof(struct termios2) == 44, "Linux x86_64 termios2 size");
 _Static_assert(sizeof(struct winsize) == 8, "Linux winsize size");
 
-#endif // INCLUDE_KERNEL_TERMIOS_H_
+#endif // INCLUDE_termios_H_

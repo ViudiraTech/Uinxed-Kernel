@@ -8,9 +8,9 @@
  *
  */
 
+#include <arch/common.h>
 #include <arch/fpu.h>
 #include <arch/smp.h>
-#include <chipset/common.h>
 #include <drivers/tty/tty_core.h>
 #include <fs/core/inotify.h>
 #include <fs/core/vfs.h>
@@ -18,7 +18,6 @@
 #include <ipc/futex.h>
 #include <ipc/pipe.h>
 #include <ipc/posix_mq.h>
-#include <ipc/socket.h>
 #include <ipc/sysv_ipc.h>
 #include <kernel/debug/debug.h>
 #include <kernel/errno.h>
@@ -31,10 +30,11 @@
 #include <mem/heap.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
-#include <proc/process.h>
-#include <proc/ptrace.h>
-#include <proc/sched.h>
-#include <proc/uaccess.h>
+#include <net/socket.h>
+#include <process/process.h>
+#include <process/ptrace.h>
+#include <process/sched.h>
+#include <process/uaccess.h>
 #include <sync/spin_lock.h>
 #include <syscall/fcntl.h>
 #include <syscall/memfd.h>

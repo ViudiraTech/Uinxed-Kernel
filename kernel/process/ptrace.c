@@ -16,11 +16,11 @@
 #include <libs/std/string.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
-#include <proc/process.h>
-#include <proc/ptrace.h>
-#include <proc/sched.h>
-#include <proc/task.h>
-#include <proc/uaccess.h>
+#include <process/process.h>
+#include <process/ptrace.h>
+#include <process/sched.h>
+#include <process/task.h>
+#include <process/uaccess.h>
 #include <syscall/syscall.h>
 
 #define AUDIT_ARCH_X86_64   0xc000003eU

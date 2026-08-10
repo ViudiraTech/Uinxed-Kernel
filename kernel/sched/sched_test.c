@@ -10,8 +10,8 @@
 
 #include <drivers/input/ps2/ps2.h>
 #include <kernel/printk.h>
-#include <proc/sched.h>
-#include <proc/sched_test.h>
+#include <process/sched.h>
+#include <process/sched_test.h>
 
 #if SCHED_DEBUG_DEMO
 static volatile uint64_t preempt_demo_sink;

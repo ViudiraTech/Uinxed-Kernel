@@ -8,7 +8,7 @@
  *      Copyright © 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
-#include <chipset/common.h>
+#include <arch/common.h>
 #include <drivers/firmware/apic.h>
 #include <drivers/input/evdev/evdev.h>
 #include <drivers/input/ps2/ps2.h>

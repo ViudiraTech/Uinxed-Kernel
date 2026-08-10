@@ -8,25 +8,25 @@
  *
  */
 
-#include <drivers/core/device.h>
+#include <drivers/base/device.h>
 #include <drivers/firmware/acpi.h>
 #include <drivers/input/evdev/evdev.h>
 #include <drivers/input/input_event.h>
 #include <fs/core/vfs.h>
+#include <fs/devtmpfs/devtmpfs.h>
 #include <fs/sysfs/input_sysfs.h>
-#include <fs/virtual/devtmpfs.h>
-#include <fs/virtual/tmpfs.h>
+#include <fs/tmpfs/tmpfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
-#include <libs/glist/intrusive_list.h>
+#include <libs/list/intrusive_list.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
-#include <proc/task.h>
-#include <proc/uaccess.h>
+#include <process/task.h>
+#include <process/uaccess.h>
 #include <sync/spin_lock.h>
 #include <syscall/syscall.h>
 

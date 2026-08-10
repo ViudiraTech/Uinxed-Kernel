@@ -8,9 +8,9 @@
  *
  */
 
+#include <drivers/base/device.h>
 #include <drivers/char/tpm/tpm.h>
-#include <drivers/core/device.h>
-#include <fs/virtual/devtmpfs.h>
+#include <fs/devtmpfs/devtmpfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stdbool.h>

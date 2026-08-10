@@ -20,10 +20,10 @@
 #include <mem/heap.h>
 #include <mem/hhdm.h>
 #include <mem/page.h>
-#include <proc/elf_loader.h>
-#include <proc/process.h>
-#include <proc/sched.h>
-#include <proc/uaccess.h>
+#include <process/elf_loader.h>
+#include <process/process.h>
+#include <process/sched.h>
+#include <process/uaccess.h>
 #include <syscall/fcntl.h>
 #include <syscall/syscall.h>
 

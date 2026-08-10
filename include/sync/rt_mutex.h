@@ -11,10 +11,10 @@
 #ifndef INCLUDE_RT_MUTEX_H_
 #define INCLUDE_RT_MUTEX_H_
 
-#include <libs/data/rbtree.h>
-#include <libs/glist/intrusive_list.h>
+#include <libs/list/intrusive_list.h>
 #include <libs/std/stdint.h>
-#include <proc/task.h>
+#include <libs/util/rbtree.h>
+#include <process/task.h>
 #include <sync/spin_lock.h>
 
 /* Futex word flags for PI mutex (Linux-compatible) */

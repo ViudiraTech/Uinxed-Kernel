@@ -19,8 +19,8 @@
 #    define PTE_SHARED     (1ULL << 10)
 #    define PTE_NO_EXECUTE (1ULL << 63)
 #else
-#    include <chipset/common.h>
-#    include <drivers/block/blockdev.h>
+#    include <arch/common.h>
+#    include <drivers/block/core/blockdev.h>
 #    include <fs/core/vfs.h>
 #    include <kernel/errno.h>
 #    include <kernel/printk.h>
@@ -31,7 +31,7 @@
 #    include <mem/heap.h>
 #    include <mem/hhdm.h>
 #    include <mem/page.h>
-#    include <proc/process.h>
+#    include <process/process.h>
 #    include <sync/spin_lock.h>
 #endif
 

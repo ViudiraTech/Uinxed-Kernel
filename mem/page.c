@@ -8,9 +8,9 @@
  *
  */
 
+#include <arch/common.h>
 #include <arch/cpuid.h>
 #include <arch/smp.h>
-#include <chipset/common.h>
 #include <kernel/debug/debug.h>
 #include <kernel/errno.h>
 #include <kernel/interrupt/interrupt.h>
@@ -24,8 +24,8 @@
 #include <mem/hhdm.h>
 #include <mem/page.h>
 #include <mem/swap.h>
-#include <proc/process.h>
-#include <proc/sched.h>
+#include <process/process.h>
+#include <process/sched.h>
 #include <sync/signal.h>
 #include <syscall/syscall.h>
 

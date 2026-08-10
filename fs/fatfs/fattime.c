@@ -8,7 +8,7 @@
  *
  */
 
-#include <chipset/cmos.h>
+#include <arch/cmos.h>
 #include <fs/fatfs/ff.h>
 
 DWORD get_fattime(void)

@@ -8,8 +8,8 @@
  *
  */
 
-#ifndef INCLUDE_DRM_DRM_DEVICE_H_
-#define INCLUDE_DRM_DRM_DEVICE_H_
+#ifndef INCLUDE_drm_device_H_
+#define INCLUDE_drm_device_H_
 
 #include <drivers/gpu/drm/drm.h>
 #include <drivers/gpu/drm/drm_color_mgmt.h>
@@ -20,11 +20,11 @@
 #include <drivers/gpu/drm/drm_mode.h>
 #include <drivers/gpu/drm/drm_modeset_lock.h>
 #include <drivers/gpu/drm/drm_rect.h>
-#include <libs/glist/intrusive_list.h>
+#include <libs/list/intrusive_list.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
-#include <proc/task.h>
+#include <process/task.h>
 #include <sync/spin_lock.h>
 
 /* ------------------------------------------------------------------ */
@@ -1014,4 +1014,4 @@ struct drm_property      *drm_property_create_bitmask(struct drm_device *dev, ui
 struct drm_property_blob *drm_property_create_blob(struct drm_device *dev, const void *data, size_t length);
 void                      drm_property_destroy(struct drm_device *dev, struct drm_property *property);
 
-#endif // INCLUDE_DRM_DRM_DEVICE_H_
+#endif // INCLUDE_drm_device_H_
