@@ -3,6 +3,7 @@ CompileFlags:
   Add:
     - "-Wall"
     - "-Wextra"
+    - "-Wno-unused-function"
     - "-O3"
     - "-g3"
     - "-m64"
@@ -13,6 +14,10 @@ CompileFlags:
     - "-fno-omit-frame-pointer"
     - "-mstackrealign"
     - "-mno-red-zone"
+    - "-mno-sse"
+    - "-mno-sse2"
+    - "-mno-mmx"
+    - "-mno-80387"
     - "-I${workspaceFolder}/include"
     - "-MMD"
 
