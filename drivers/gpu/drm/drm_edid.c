@@ -1906,9 +1906,7 @@ static void drm_mode_do_interlace_quirk(struct drm_display_mode *mode, const str
     mode->flags |= DRM_MODE_FLAG_INTERLACE;
 }
 
-/*
- * Create a new mode from an EDID detailed timing section.
- */
+/* Create a new mode from an EDID detailed timing section. */
 static struct drm_display_mode *drm_mode_detailed(struct drm_connector *connector, const struct detailed_timing *timing)
 {
     struct drm_device                  *dev = connector->dev;
@@ -2502,9 +2500,7 @@ static void do_established_modes(const struct detailed_timing *timing, struct de
     closure->modes += drm_est3_modes(closure->connector, timing);
 }
 
-/*
- * Get established modes from EDID and add them.
- */
+/* Get established modes from EDID and add them. */
 static int add_established_modes(struct drm_connector *connector, const struct edid *edid)
 {
     struct drm_device *dev = connector->dev;

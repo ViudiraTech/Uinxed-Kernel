@@ -822,7 +822,7 @@ int64_t sys_mq_timedreceive(int mqdes, char *msg_ptr, size_t msg_len, uint32_t *
     mq_message_t *msg = mq_dequeue(queue);
 
     /*
-     * Clear notification pending flag — a successful receive
+     * Clear notification pending flag - a successful receive
      * means the queue is no longer non-empty, so the notification
      * condition is cleared.
      */

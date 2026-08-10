@@ -294,7 +294,7 @@ typedef struct {
 /* Signal user-frame (on user stack for sigreturn) */
 
 typedef struct {
-        /* Handler's return address (restorer trampoline) — bottom of frame */
+        /* Handler's return address (restorer trampoline) - bottom of frame */
         uint64_t pretcode;
 
         /* Signal info passed via RSI */

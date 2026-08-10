@@ -506,7 +506,7 @@ void init_ahci(void)
         }
 
         if (sig == SATA_SIG_ATAPI) {
-            /* SATAPI device — handled by satapi.c, just register in ahci device table */
+            /* SATAPI device - handled by satapi.c, just register in ahci device table */
             ahci_device_t *dev = &ahci_devices[ahci_device_count];
             memset(dev, 0, sizeof(*dev));
             dev->port        = (uint8_t)ahci_port_count;

@@ -574,7 +574,7 @@ uint64_t kobject_uevent_seqnum(void)
     return __atomic_load_n(&uevent_seqnum, __ATOMIC_RELAXED);
 }
 
-/* kobject_uevent_env — build and broadcast the Linux uevent ABI */
+/* kobject_uevent_env - build and broadcast the Linux uevent ABI */
 
 static const char *const kobject_actions[] = {
     [KOBJ_ADD] = "add",       [KOBJ_REMOVE] = "remove",   [KOBJ_CHANGE] = "change", [KOBJ_MOVE] = "move",

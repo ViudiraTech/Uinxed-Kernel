@@ -102,7 +102,7 @@ uintptr_t walk_page_tables(page_directory_t *directory, uintptr_t virtual_addr);
 /* Efficiently update state to next page */
 void update_walk_state_for_next_page(page_walk_state_t *state, uintptr_t next_virtual);
 
-/* Check range free with state — supports multiple page sizes */
+/* Check range free with state - supports multiple page sizes */
 size_t check_range_free_with_state(page_walk_state_t *state, uintptr_t start, size_t length, size_t desired_size);
 
 /* Find a free virtual memory range of specified length with preferred page size */

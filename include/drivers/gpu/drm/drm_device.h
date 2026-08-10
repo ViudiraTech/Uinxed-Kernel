@@ -249,7 +249,7 @@ struct drm_display_mode {
 
 /* KMS object forward structures (minimal; full defs in their headers) */
 
-/* CRTC helper funcs — stored in crtc->helper_private */
+/* CRTC helper funcs - stored in crtc->helper_private */
 
 struct drm_crtc_helper_funcs {
         /* Called after a mode has been set on the CRTC */
@@ -266,13 +266,13 @@ struct drm_crtc_helper_funcs {
         void (*vblank)(struct drm_crtc *crtc);
 };
 
-/* Encoder helper funcs — stored in encoder->helper_private */
+/* Encoder helper funcs - stored in encoder->helper_private */
 
 struct drm_encoder_helper_funcs {
         void (*atomic_mode_set)(struct drm_encoder *encoder, struct drm_crtc_state *crtc_state, struct drm_connector_state *conn_state);
 };
 
-/* Connector helper funcs — stored in connector->helper_private */
+/* Connector helper funcs - stored in connector->helper_private */
 
 struct drm_connector_helper_funcs {
         enum drm_connector_status (*detect)(struct drm_connector *connector, bool force);

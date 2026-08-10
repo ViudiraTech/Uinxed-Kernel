@@ -911,9 +911,7 @@ int64_t sys_kill_impl(int64_t pid, int sig)
     }
 }
 
-/*
- * sys_tkill - Send a signal to a specific thread
- */
+/* sys_tkill - Send a signal to a specific thread */
 int64_t sys_tkill_impl(int64_t tid, int sig)
 {
     if (!sig_valid(sig)) return -EINVAL;
@@ -943,9 +941,7 @@ int64_t sys_tkill_impl(int64_t tid, int sig)
     return ret;
 }
 
-/*
- * sys_tgkill - Send a signal to a specific thread in a specific process
- */
+/* sys_tgkill - Send a signal to a specific thread in a specific process */
 int64_t sys_tgkill(int64_t tgid, int64_t tid, int sig)
 {
     if (!sig_valid(sig)) return -EINVAL;
@@ -980,9 +976,7 @@ int64_t sys_tgkill(int64_t tgid, int64_t tid, int sig)
     return ret;
 }
 
-/*
- * sys_rt_sigaction - Examine and change a signal action
- */
+/* sys_rt_sigaction - Examine and change a signal action */
 int64_t sys_rt_sigaction(int sig, const sigaction_t *act, sigaction_t *oact, size_t sigsetsize)
 {
     if (!sig_valid(sig)) return -EINVAL;
@@ -1026,9 +1020,7 @@ int64_t sys_rt_sigaction(int sig, const sigaction_t *act, sigaction_t *oact, siz
     return 0;
 }
 
-/*
- * sys_rt_sigprocmask - Examine and change blocked signals
- */
+/* sys_rt_sigprocmask - Examine and change blocked signals */
 int64_t sys_rt_sigprocmask(int how, const sigset_t *set, sigset_t *oset, size_t sigsetsize)
 {
     if (sigsetsize != sizeof(sigset_t)) return -EINVAL;
@@ -1078,9 +1070,7 @@ int64_t sys_rt_sigprocmask(int how, const sigset_t *set, sigset_t *oset, size_t 
     return 0;
 }
 
-/*
- * sys_rt_sigpending - Examine pending signals
- */
+/* sys_rt_sigpending - Examine pending signals */
 int64_t sys_rt_sigpending(sigset_t *set, size_t sigsetsize)
 {
     if (sigsetsize != sizeof(sigset_t)) return -EINVAL;
@@ -1239,9 +1229,7 @@ bool signal_has_pending_masked(process_t *proc, const sigset_t *mask)
     return pending;
 }
 
-/*
- * sys_rt_sigtimedwait - Synchronously wait for queued signals
- */
+/* sys_rt_sigtimedwait - Synchronously wait for queued signals */
 int64_t sys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info, const void *timeout, size_t sigsetsize)
 {
     if (sigsetsize != sizeof(sigset_t)) return -EINVAL;
@@ -1310,9 +1298,7 @@ int64_t sys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info, const void *ti
     }
 }
 
-/*
- * sys_sigaltstack - Set or get the alternate signal stack
- */
+/* sys_sigaltstack - Set or get the alternate signal stack */
 int64_t sys_sigaltstack(const stack_t *ss, stack_t *oss)
 {
     process_t *proc = process_current();
@@ -1380,9 +1366,7 @@ int64_t sys_pause(void)
     return -EINTR;
 }
 
-/*
- * sys_rt_sigqueueinfo - Queue a signal with data
- */
+/* sys_rt_sigqueueinfo - Queue a signal with data */
 int64_t sys_rt_sigqueueinfo(int64_t pid, int sig, siginfo_t *info)
 {
     if (!sig_valid(sig)) return -EINVAL;
@@ -1414,9 +1398,7 @@ int64_t sys_rt_sigqueueinfo(int64_t pid, int sig, siginfo_t *info)
     return ret;
 }
 
-/*
- * sys_rt_tgsigqueueinfo - Queue a signal with data to a specific thread
- */
+/* sys_rt_tgsigqueueinfo - Queue a signal with data to a specific thread */
 int64_t sys_rt_tgsigqueueinfo(int64_t tgid, int64_t tid, int sig, siginfo_t *info)
 {
     if (!sig_valid(sig)) return -EINVAL;
@@ -1556,18 +1538,14 @@ int64_t sys_rt_sigreturn(void)
     return -ENOSYS;
 }
 
-/*
- * sys_setpgid - Set process group ID
- */
+/* sys_setpgid - Set process group ID */
 int64_t sys_setpgid(int64_t pid, int64_t pgid)
 {
     process_t *cur = process_current();
     return process_setpgid(cur, pid, pgid);
 }
 
-/*
- * sys_getpgrp - Get process group ID
- */
+/* sys_getpgrp - Get process group ID */
 int64_t sys_getpgrp(void)
 {
     process_t *proc = process_current();
@@ -1575,9 +1553,7 @@ int64_t sys_getpgrp(void)
     return (int64_t)proc->pgid;
 }
 
-/*
- * sys_setsid - Create a new session
- */
+/* sys_setsid - Create a new session */
 int64_t sys_setsid(void)
 {
     process_t *proc = process_current();
@@ -1586,9 +1562,7 @@ int64_t sys_setsid(void)
     return ret ? ret : (int64_t)sid;
 }
 
-/*
- * sys_getsid - Get session ID
- */
+/* sys_getsid - Get session ID */
 int64_t sys_getsid(int64_t pid)
 {
     if (pid == 0) {
@@ -1602,9 +1576,7 @@ int64_t sys_getsid(int64_t pid)
     return sid;
 }
 
-/*
- * sys_getpgid - Get process group ID
- */
+/* sys_getpgid - Get process group ID */
 int64_t sys_getpgid(int64_t pid)
 {
     if (pid == 0) {

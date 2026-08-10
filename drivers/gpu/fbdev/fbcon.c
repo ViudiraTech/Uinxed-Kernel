@@ -570,7 +570,7 @@ void fbcon_init(void)
 }
 
 /*
- * fbcon_resize — reallocate text/color/dirty grids after a framebuffer
+ * fbcon_resize - reallocate text/color/dirty grids after a framebuffer
  * switch changes the screen dimensions.  Preserves the font size but
  * recalculates the character grid.  When the resolution is unchanged the
  * existing grids and cursor state are kept so a seamless buffer handoff

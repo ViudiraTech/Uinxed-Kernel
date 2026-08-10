@@ -320,7 +320,7 @@ static void sysfs_open(void *parent_handle, const char *name, vfs_node_t node)
                 return;
             }
 
-            /* Check for binary attribute — these are set up when created */
+            /* Check for binary attribute - these are set up when created */
             /* Binary files are created proactively, skip here */
 
             sysfs_bin_attr_entry_t *bin_entry = sysfs_find_bin_attr(parent_kobj, name);
@@ -932,7 +932,7 @@ static int sysfs_create_file_mode(struct kobject *dir_kobj, struct kobject *owne
 
     dir_vnode = dir_kobj->sd;
     if (!dir_vnode) {
-        /* Kobject not yet in sysfs — defer creation */
+        /* Kobject not yet in sysfs - defer creation */
         /* Just track the attribute for later */
         ;
     }
@@ -941,7 +941,7 @@ static int sysfs_create_file_mode(struct kobject *dir_kobj, struct kobject *owne
     sysfs_attr_entry_t *entry = calloc(1, sizeof(sysfs_attr_entry_t));
     if (!entry) return -ENOMEM;
 
-    entry->attr  = (struct attribute *)attr; // const cast — safe since attr is const in struct
+    entry->attr  = (struct attribute *)attr; // const cast - safe since attr is const in struct
     entry->kobj  = owner;
     entry->mode  = mode;
     entry->vnode = NULL;
@@ -1576,7 +1576,7 @@ int sysfs_init(void)
 
     if (sysfs_root_kobj) return -EEXIST;
 
-    /* Create the root kobject (only — mount creates the VFS nodes) */
+    /* Create the root kobject (only - mount creates the VFS nodes) */
     sysfs_root_kobj = calloc(1, sizeof(struct kobject));
     if (!sysfs_root_kobj) return -ENOMEM;
 

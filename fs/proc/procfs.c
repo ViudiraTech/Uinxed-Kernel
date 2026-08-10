@@ -1723,7 +1723,7 @@ static void procfs_open(void *parent, const char *name, vfs_node_t node)
                     node->type = file_dir;
                     break;
                 }
-                /* Try PID — numeric directory name */
+                /* Try PID - numeric directory name */
                 char *end;
                 pid_t pid = (pid_t)strtol(name, &end, 10);
                 if (*end == '\0' && process_find(pid)) {

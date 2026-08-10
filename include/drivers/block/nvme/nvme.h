@@ -343,7 +343,7 @@ int nvme_controller_count(void);
 /* Return controller at index `i` (or NULL) */
 nvme_controller_t *nvme_get_controller(int i);
 
-/* Backend I/O entry points — called through blockdev ops table */
+/* Backend I/O entry points - called through blockdev ops table */
 int nvme_read_sectors(const struct blockdev_device *dev, uint64_t lba, uint32_t count, void *buffer);
 int nvme_write_sectors(const struct blockdev_device *dev, uint64_t lba, uint32_t count, const void *buffer);
 int nvme_flush(const struct blockdev_device *dev);

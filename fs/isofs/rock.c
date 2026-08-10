@@ -347,9 +347,7 @@ out:
     return (int)(rpnt - buf);
 }
 
-/*
- * Translate an ISO 9660 "8.3 with version" filename to a readable form.
- */
+/* Translate an ISO 9660 "8.3 with version" filename to a readable form. */
 int isofs_name_translate(void *raw_de, char *out, int bufsize)
 {
     struct iso_directory_record *de  = raw_de;

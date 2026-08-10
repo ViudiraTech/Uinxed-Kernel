@@ -200,7 +200,7 @@ static struct drm_plane     pipeline_primary_plane;
 static struct drm_encoder   pipeline_encoder;
 static struct drm_connector pipeline_connector;
 
-/* Configurable mode table — data-driven, not hardcoded in logic */
+/* Configurable mode table - data-driven, not hardcoded in logic */
 
 typedef struct dummy_mode_cfg {
         const char *name;

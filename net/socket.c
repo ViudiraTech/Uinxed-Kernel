@@ -37,9 +37,9 @@
 #define SOCK_BOUND_MAX      256
 #define SOCK_SHUT_MASK(how) (1U << (uint32_t)(how))
 
-/* Blocked-socket tracking — maps a blocked socket to its task */
+/* Blocked-socket tracking - maps a blocked socket to its task */
 
-/* Bound-address registry — UNIX-domain namespace */
+/* Bound-address registry - UNIX-domain namespace */
 
 typedef struct sock_bound {
         socket_t     *sk;
@@ -55,7 +55,7 @@ static spinlock_t   sock_bound_lock;
 
 static int socket_fsid = -1;
 
-/* Forward declarations — internal helpers */
+/* Forward declarations - internal helpers */
 
 static void sock_blocked_register(socket_t *sk, task_t *task);
 static void sock_blocked_unregister(socket_t *sk);
@@ -492,7 +492,7 @@ static socket_t *socket_alloc(uint16_t family, uint16_t type, uint16_t protocol)
 {
     socket_t *sk;
 
-    /* Validate family — Netlink handled by netlink layer */
+    /* Validate family - Netlink handled by netlink layer */
     if (family == AF_NETLINK) {
         sk = netlink_sock_alloc(protocol);
         if (sk) sk->type = type;
@@ -766,7 +766,7 @@ static int socket_fd_nonblock(int fd)
 }
 
 /*
- * socket_from_fd — find a socket by fd in the current process
+ * socket_from_fd - find a socket by fd in the current process
  * NOTE: returns a weak pointer (no refcount bump).
  * The caller must ensure the socket stays alive during use.
  */
@@ -934,7 +934,7 @@ static int unix_listen(socket_t *sk, uint32_t backlog)
     spin_lock(&sk->lock);
 
     if (sk->state == SOCK_STATE_LISTENING) {
-        /* Already listening — just update backlog */
+        /* Already listening - just update backlog */
         if (backlog > SOCK_ACCEPT_QUEUE_MAX) backlog = SOCK_ACCEPT_QUEUE_MAX;
         sk->backlog = backlog;
         spin_unlock(&sk->lock);
@@ -1659,7 +1659,7 @@ static int socket_poll(socket_t *sk, size_t events)
                 if (sock_buf_available(&sk->recv_buf) > 0) revents |= 0x001;
                 revents |= 0x004; // dgram always writable
             } else {
-                revents |= 0x010; // POLLHUP — not connected
+                revents |= 0x010; // POLLHUP - not connected
             }
             break;
 

@@ -13,9 +13,7 @@
 
 #include <libs/std/stdint.h>
 
-/*
- *	Event structure
- */
+/* Event structure */
 typedef struct {
         uint64_t sec;  // seconds
         uint64_t usec; // microseconds
@@ -26,9 +24,7 @@ typedef struct {
 
 #define EV_VERSION 0x010001
 
-/*
- *	Event types
- */
+/* Event types */
 #define EV_SYN       0x00
 #define EV_KEY       0x01
 #define EV_REL       0x02
@@ -44,9 +40,7 @@ typedef struct {
 #define EV_MAX       0x1f
 #define EV_CNT       (EV_MAX + 1)
 
-/*
- *	Sync events
- */
+/* Sync events */
 #define SYN_REPORT    0
 #define SYN_CONFIG    1
 #define SYN_MT_REPORT 2
@@ -498,10 +492,10 @@ typedef struct {
 #define KEY_DOLLAR 0x1b2
 #define KEY_EURO   0x1b3
 
-#define KEY_FRAMEBACK      0x1b4 // Consumer — transport controls
+#define KEY_FRAMEBACK      0x1b4 // Consumer - transport controls
 #define KEY_FRAMEFORWARD   0x1b5
-#define KEY_CONTEXT_MENU   0x1b6 // GenDesc — system context menu
-#define KEY_MEDIA_REPEAT   0x1b7 // Consumer — transport control
+#define KEY_CONTEXT_MENU   0x1b6 // GenDesc - system context menu
+#define KEY_MEDIA_REPEAT   0x1b7 // Consumer - transport control
 #define KEY_10CHANNELSUP   0x1b8 // 10 channels up (10+)
 #define KEY_10CHANNELSDOWN 0x1b9 // 10 channels down (10-)
 #define KEY_IMAGES         0x1ba // AL Image Browser
@@ -561,7 +555,7 @@ typedef struct {
 #define KEY_NUMERIC_9     0x209
 #define KEY_NUMERIC_STAR  0x20a
 #define KEY_NUMERIC_POUND 0x20b
-#define KEY_NUMERIC_A     0x20c // Phone key A — HUT Telephony 0xb9
+#define KEY_NUMERIC_A     0x20c // Phone key A - HUT Telephony 0xb9
 #define KEY_NUMERIC_B     0x20d
 #define KEY_NUMERIC_C     0x20e
 #define KEY_NUMERIC_D     0x20f
@@ -660,9 +654,7 @@ typedef struct {
 #define KEY_MAX 0x2ff
 #define KEY_CNT (KEY_MAX + 1)
 
-/*
- *	Relative axes
- */
+/* Relative axes */
 #define REL_X             0x00
 #define REL_Y             0x01
 #define REL_Z             0x02
@@ -679,9 +671,7 @@ typedef struct {
 #define REL_MAX           0x0f
 #define REL_CNT           (REL_MAX + 1)
 
-/*
- *	Absolute axes
- */
+/* Absolute axes */
 #define ABS_X          0x00
 #define ABS_Y          0x01
 #define ABS_Z          0x02
@@ -732,9 +722,7 @@ typedef struct {
 #define ABS_MAX 0x3f
 #define ABS_CNT (ABS_MAX + 1)
 
-/*
- *	Misc events
- */
+/* Misc events */
 #define MSC_SERIAL    0x00
 #define MSC_PULSELED  0x01
 #define MSC_GESTURE   0x02
@@ -744,9 +732,7 @@ typedef struct {
 #define MSC_MAX       0x07
 #define MSC_CNT       (MSC_MAX + 1)
 
-/*
- *	LEDs
- */
+/* LEDs */
 #define LED_NUML     0x00
 #define LED_CAPSL    0x01
 #define LED_SCROLLL  0x02
@@ -761,18 +747,14 @@ typedef struct {
 #define LED_MAX      0x0f
 #define LED_CNT      (LED_MAX + 1)
 
-/*
- *	Sounds
- */
+/* Sounds */
 #define SND_CLICK 0x00
 #define SND_BELL  0x01
 #define SND_TONE  0x02
 #define SND_MAX   0x07
 #define SND_CNT   (SND_MAX + 1)
 
-/*
- *	Switches
- */
+/* Switches */
 #define SW_LID                  0x00          // set = lid shut
 #define SW_TABLET_MODE          0x01          // set = tablet mode
 #define SW_HEADPHONE_INSERT     0x02          // set = inserted
@@ -794,9 +776,7 @@ typedef struct {
 #define SW_MAX                  0x10
 #define SW_CNT                  (SW_MAX + 1)
 
-/*
- *	Bus types
- */
+/* Bus types */
 #define BUS_PCI         0x01
 #define BUS_ISAPNP      0x02
 #define BUS_USB         0x03
@@ -822,18 +802,14 @@ typedef struct {
 #define BUS_AMD_SFH     0x20
 #define BUS_SDW         0x21
 
-/*
- *	MT_TOOL types
- */
+/* MT_TOOL types */
 #define MT_TOOL_FINGER 0x00
 #define MT_TOOL_PEN    0x01
 #define MT_TOOL_PALM   0x02
 #define MT_TOOL_DIAL   0x0a
 #define MT_TOOL_MAX    0x0f
 
-/*
- *	Device IDs
- */
+/* Device IDs */
 typedef struct {
         uint16_t bustype;
         uint16_t vendor;
@@ -846,9 +822,7 @@ typedef struct {
 #define ID_PRODUCT 2
 #define ID_VERSION 3
 
-/*
- *	Absolute axis description
- */
+/* Absolute axis description */
 typedef struct {
         int32_t value;
         int32_t minimum;
@@ -858,9 +832,7 @@ typedef struct {
         int32_t resolution;
 } input_absinfo_t;
 
-/*
- *	Keymap entry
- */
+/* Keymap entry */
 typedef struct {
         uint8_t  flags;
         uint8_t  len;
@@ -871,18 +843,14 @@ typedef struct {
 
 #define INPUT_KEYMAP_BY_INDEX (1 << 0)
 
-/*
- *	Device event mask
- */
+/* Device event mask */
 typedef struct {
         uint32_t type;
         uint32_t codes_size;
         uint64_t codes_ptr;
 } input_mask_t;
 
-/*
- *	Force feedback
- */
+/* Force feedback */
 #define FF_RUMBLE     0x50
 #define FF_PERIODIC   0x51
 #define FF_CONSTANT   0x52
@@ -900,9 +868,7 @@ typedef struct {
 #define FF_STATUS_STOPPED 0x00
 #define FF_STATUS_PLAYING 0x01
 
-/*
- *	Force feedback effect structures
- */
+/* Force feedback effect structures */
 typedef struct {
         uint16_t delay;
         uint16_t length;
@@ -976,17 +942,13 @@ typedef struct {
         } u;
 } ff_effect_t;
 
-/*
- *	Repeat settings
- */
+/* Repeat settings */
 #define REP_DELAY  0x00
 #define REP_PERIOD 0x01
 #define REP_MAX    0x01
 #define REP_CNT    (REP_MAX + 1)
 
-/*
- *	Input properties
- */
+/* Input properties */
 #define INPUT_PROP_POINTER        0x00 // needs a pointer
 #define INPUT_PROP_DIRECT         0x01 // direct input devices
 #define INPUT_PROP_BUTTONPAD      0x02 // has button(s) under pad
@@ -997,16 +959,12 @@ typedef struct {
 #define INPUT_PROP_MAX            0x1f
 #define INPUT_PROP_CNT            (INPUT_PROP_MAX + 1)
 
-/*
- *	Clock IDs for EVIOCSCLOCKID
- */
+/* Clock IDs for EVIOCSCLOCKID */
 #define CLOCK_REALTIME  0
 #define CLOCK_MONOTONIC 1
 #define CLOCK_BOOTTIME  7
 
-/*
- *	IOC macros
- */
+/* IOC macros */
 #ifndef _IOC_NRBITS
 #    define _IOC_NRBITS 8
 #endif
@@ -1061,9 +1019,7 @@ typedef struct {
 #    define _IOWR(type, nr, size) _IOC(_IOC_READ | _IOC_WRITE, (type), (nr), sizeof(size))
 #endif
 
-/*
- *	EVIOC ioctl definitions
- */
+/* EVIOC ioctl definitions */
 #define EVIOCGVERSION    _IOR('E', 0x01, int32_t)
 #define EVIOCGID         _IOR('E', 0x02, input_id_t)
 #define EVIOCGREP        _IOR('E', 0x03, uint32_t[2])

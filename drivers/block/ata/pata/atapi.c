@@ -211,7 +211,7 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
         }
     }
 
-    /* Select device and disable IRQ — we use polling, not interrupts. */
+    /* Select device and disable IRQ - we use polling, not interrupts. */
     ide_irq_invoked        = 0;
     channels[channel].nIEN = 0x02;
     ide_write(channel, ATA_REG_CONTROL, 0x02);
@@ -282,7 +282,7 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
 
         while (transferred < *xfer_len) {
             /*
-             * Poll for data ready instead of IRQ — interrupts may not be
+             * Poll for data ready instead of IRQ - interrupts may not be
              * enabled yet when init_ide() runs.
              */
             err = atapi_wait_drq(channel);

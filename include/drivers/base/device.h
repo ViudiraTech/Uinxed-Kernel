@@ -63,7 +63,7 @@ struct class_attribute {
         ssize_t (*store)(struct class *cls, struct class_attribute *attr, const char *buf, size_t count);
 };
 
-/* bus_type — a communication channel between CPUs and devices */
+/* bus_type - a communication channel between CPUs and devices */
 
 struct bus_type {
         const char  *name;
@@ -85,7 +85,7 @@ struct bus_type {
         const struct attribute_group **drv_groups;
 };
 
-/* device_driver — binds to a bus and handles a class of devices */
+/* device_driver - binds to a bus and handles a class of devices */
 
 struct device_driver {
         const char      *name;
@@ -101,7 +101,7 @@ struct device_driver {
         const struct attribute_group **groups;
 };
 
-/* device — represents a physical or virtual device in the system */
+/* device - represents a physical or virtual device in the system */
 
 struct device {
         struct kobject        kobj;   // appears under /sys/devices/
@@ -123,7 +123,7 @@ struct device {
         int (*uevent)(struct device *dev, struct kobj_uevent_env *env);
 };
 
-/* class — groups devices by functional type (e.g. "net", "tty") */
+/* class - groups devices by functional type (e.g. "net", "tty") */
 
 struct class
 {

@@ -630,7 +630,7 @@ int sys_madvise(uint64_t addr, uint64_t length, uint64_t advice)
     (void)addr;
     (void)length;
     (void)advice;
-    /* madvise is advisory — accept all hints */
+    /* madvise is advisory - accept all hints */
     return EOK;
 }
 

@@ -163,7 +163,7 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
         }
 
         case F_GETLK : {
-            /* Advisory file locking — not supported, always return success */
+            /* Advisory file locking - not supported, always return success */
             if (arg) {
                 /* Write back an unlocked lock struct */
                 struct {
@@ -187,12 +187,12 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
         case F_SETOWN :
         case F_GETOWN :
         case F_SETOWN_EX :
-            /* Non-blocking / blocking lock — no-op (no mandatory locking) */
+            /* Non-blocking / blocking lock - no-op (no mandatory locking) */
             result = 0;
             break;
 
         case F_GETOWN_EX : {
-            /* Get owner (struct f_owner_ex) — return empty */
+            /* Get owner (struct f_owner_ex) - return empty */
             if (arg) {
                 struct {
                         int32_t type;

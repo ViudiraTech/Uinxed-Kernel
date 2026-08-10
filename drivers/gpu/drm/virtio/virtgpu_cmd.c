@@ -76,7 +76,7 @@ int virtgpu_cmd_get_edid(struct virtio_gpu_device *vgdev, int scanout_id, void *
     return 0;
 }
 
-/* Resource creation — 2D */
+/* Resource creation - 2D */
 
 int virtgpu_cmd_create_resource_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj)
 {
@@ -100,7 +100,7 @@ int virtgpu_cmd_create_resource_2d(struct virtio_gpu_device *vgdev, struct virti
     return ret;
 }
 
-/* Resource creation — 3D */
+/* Resource creation - 3D */
 
 int virtgpu_cmd_create_resource_3d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct drm_virtgpu_resource_create *rc)
 {
@@ -129,7 +129,7 @@ int virtgpu_cmd_create_resource_3d(struct virtio_gpu_device *vgdev, struct virti
     return ret;
 }
 
-/* Resource creation — Blob */
+/* Resource creation - Blob */
 
 int virtgpu_cmd_create_blob(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, const struct drm_virtgpu_resource_create_blob *blob)
 {

@@ -18,7 +18,7 @@
 #include <libs/std/stdint.h>
 #include <sync/spin_lock.h>
 
-/* kref — reference-counting primitive */
+/* kref - reference-counting primitive */
 
 typedef struct kref {
         uint32_t refcount;
@@ -86,7 +86,7 @@ struct kobj_uevent_env {
         int   buflen;
 };
 
-/* kobj_type — type descriptor for a kobject */
+/* kobj_type - type descriptor for a kobject */
 
 struct kobj_type {
         void (*release)(struct kobject *kobj);
@@ -96,7 +96,7 @@ struct kobj_type {
         int (*uevent)(struct kobject *kobj, struct kobj_uevent_env *env);
 };
 
-/* kset_uevent_ops — hotplug event callbacks for a kset */
+/* kset_uevent_ops - hotplug event callbacks for a kset */
 
 enum kobject_action {
     KOBJ_ADD     = 1,
@@ -115,7 +115,7 @@ struct kset_uevent_ops {
         int (*uevent)(struct kobject *kobj, struct kobj_uevent_env *env);
 };
 
-/* kobject — the core object-model primitive */
+/* kobject - the core object-model primitive */
 
 #define KOBJ_NAME_LEN 64
 
@@ -142,7 +142,7 @@ struct kobject {
         unsigned int uevent_suppress          : 1;
 };
 
-/* kset — a collection of kobjects (appears as a sysfs subdirectory) */
+/* kset - a collection of kobjects (appears as a sysfs subdirectory) */
 
 struct kset {
         clist_t                       list;      // circular list of kobject entries

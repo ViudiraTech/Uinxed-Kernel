@@ -1,7 +1,7 @@
 /*
  *
  *      syscall_basic.c
- *      Basic syscall implementations — upgrading stubs to real code
+ *      Basic syscall implementations - upgrading stubs to real code
  *
  *      2025 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -273,7 +273,7 @@ int64_t sys_getpriority_impl(uint64_t which, uint64_t who, uint64_t arg2, uint64
     (void)arg4;
     (void)arg5;
     if (which > 2) return -EINVAL;
-    return 20; // default nice value: 0 → return 20
+    return 20; // default nice value: 0 -> return 20
 }
 
 int64_t sys_setpriority_impl(uint64_t which, uint64_t who, uint64_t niceval, uint64_t arg3, uint64_t arg4, uint64_t arg5)
@@ -996,7 +996,7 @@ int64_t sys_getxattr_impl(uint64_t path, uint64_t name, uint64_t value, uint64_t
     (void)size;
     (void)arg4;
     (void)arg5;
-    return -ENODATA; // no xattrs → name not found
+    return -ENODATA; // no xattrs -> name not found
 }
 
 int64_t sys_removexattr_impl(uint64_t path, uint64_t name, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)

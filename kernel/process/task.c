@@ -37,9 +37,7 @@ static uint32_t pid_hash_index(uint64_t pid)
     return (uint32_t)(pid & PID_HASH_MASK);
 }
 
-/*
- * Register a task for PID-based lookup.
- */
+/* Register a task for PID-based lookup. */
 static void pid_hash_add(task_t *task, pid_entry_t *entry)
 {
     uint32_t idx = pid_hash_index(task->pid);
@@ -49,9 +47,7 @@ static void pid_hash_add(task_t *task, pid_entry_t *entry)
     pid_hash[idx] = entry;
 }
 
-/*
- * Remove a task from the PID hash table.
- */
+/* Remove a task from the PID hash table. */
 static pid_entry_t *pid_hash_remove(task_t *task)
 {
     uint32_t      idx      = pid_hash_index(task->pid);
@@ -68,9 +64,7 @@ static pid_entry_t *pid_hash_remove(task_t *task)
     return NULL;
 }
 
-/*
- * Find a task by PID.
- */
+/* Find a task by PID. */
 task_t *pid_find_task(uint64_t pid)
 {
     uint32_t idx  = pid_hash_index(pid);

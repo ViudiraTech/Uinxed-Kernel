@@ -81,9 +81,7 @@ static futex_bucket_t futex_hash[FUTEX_HASH_SIZE];
 
 /* Internal helpers */
 
-/*
- * Hash a user address into a bucket index.
- */
+/* Hash a user address into a bucket index. */
 static inline uint32_t futex_hash_index(uint32_t *uaddr)
 {
     return ((uintptr_t)uaddr >> 2) & (FUTEX_HASH_SIZE - 1);
@@ -409,9 +407,7 @@ static int futex_requeue(uint32_t *uaddr, int nr_wake, int nr_requeue, uint32_t 
     if (nr_wake < 0) nr_wake = 0;
     if (nr_requeue < 0) nr_requeue = 0;
 
-    /*
-     * Lock both buckets in address order to avoid deadlock.
-     */
+    /* Lock both buckets in address order to avoid deadlock. */
     if (bucket1 < bucket2) {
         spin_lock(&bucket1->lock);
         spin_lock(&bucket2->lock);
@@ -561,9 +557,7 @@ static int futex_wake_op(uint32_t *uaddr, int nr_wake, int nr_wake2, uint32_t *u
     if (nr_wake < 0) nr_wake = 0;
     if (nr_wake2 < 0) nr_wake2 = 0;
 
-    /*
-     * Lock both buckets in address order to avoid deadlock.
-     */
+    /* Lock both buckets in address order to avoid deadlock. */
     if (bucket1 < bucket2) {
         spin_lock(&bucket1->lock);
         spin_lock(&bucket2->lock);
@@ -789,9 +783,7 @@ static int futex_unlock_pi(uint32_t *uaddr)
     return EOK;
 }
 
-/*
- * FUTEX_TRYLOCK_PI: non-blocking attempt to acquire a PI mutex.
- */
+/* FUTEX_TRYLOCK_PI: non-blocking attempt to acquire a PI mutex. */
 static int futex_trylock_pi(uint32_t *uaddr)
 {
     task_t *self = current_task();

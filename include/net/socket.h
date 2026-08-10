@@ -95,7 +95,7 @@
 #define SCM_RIGHTS      0x01
 #define SCM_CREDENTIALS 0x02
 
-/* struct sockaddr_un — UNIX domain socket address */
+/* struct sockaddr_un - UNIX domain socket address */
 
 #define UNIX_PATH_MAX 108
 
@@ -104,7 +104,7 @@ typedef struct sockaddr_un {
         char     sun_path[UNIX_PATH_MAX];
 } sockaddr_un_t;
 
-/* struct msghdr — message header for sendmsg/recvmsg */
+/* struct msghdr - message header for sendmsg/recvmsg */
 
 typedef struct iovec {
         void  *iov_base;
@@ -140,7 +140,7 @@ typedef struct linger {
         int l_linger;
 } linger_t;
 
-/* struct ucred — user credentials */
+/* struct ucred - user credentials */
 
 typedef struct ucred {
         uint32_t pid;

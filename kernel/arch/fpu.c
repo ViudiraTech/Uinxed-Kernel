@@ -147,7 +147,7 @@ static inline void fpu_restore_irq(uint64_t if_enabled)
     if (if_enabled) __asm__ volatile("sti");
 }
 
-/* fpu_init — detect features and enable the FPU on this CPU */
+/* fpu_init - detect features and enable the FPU on this CPU */
 
 void fpu_init(void)
 {
@@ -329,7 +329,7 @@ void fpu_task_reset(struct task *task)
 #endif
 }
 
-/* fpu_switch — active save/restore on context switch */
+/* fpu_switch - active save/restore on context switch */
 
 void fpu_switch(struct task *prev, struct task *next)
 {
@@ -434,7 +434,7 @@ int fpu_signal_restore(struct task *task, const void *state, size_t size)
 #endif
 }
 
-/* kernel_fpu_begin/end — explicit kernel FPU sections */
+/* kernel_fpu_begin/end - explicit kernel FPU sections */
 
 void kernel_fpu_begin(void)
 {

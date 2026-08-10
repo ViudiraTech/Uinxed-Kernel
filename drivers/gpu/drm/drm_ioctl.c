@@ -46,7 +46,7 @@
 
 /* KMS getfb2 (drm_framebuffer.c) */
 
-/* drm_ioctl_permit — check auth / master flags against file_priv */
+/* drm_ioctl_permit - check auth / master flags against file_priv */
 
 int drm_ioctl_permit(unsigned int flags, struct drm_file *file_priv)
 {
@@ -66,7 +66,7 @@ int drm_ioctl_permit(unsigned int flags, struct drm_file *file_priv)
     }
 
     /*
-     * DRM_ROOT_ONLY — no root concept in freestanding kernel;
+     * DRM_ROOT_ONLY - no root concept in freestanding kernel;
      * always deny for safety.
      */
     if (flags & DRM_ROOT_ONLY) return -EACCES;
@@ -74,7 +74,7 @@ int drm_ioctl_permit(unsigned int flags, struct drm_file *file_priv)
     return 0;
 }
 
-/* drm_get_cap / drm_set_client_cap — handlers */
+/* drm_get_cap / drm_set_client_cap - handlers */
 
 int drm_get_cap(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
@@ -164,7 +164,7 @@ int drm_set_client_cap(struct drm_device *dev, void *data, struct drm_file *file
     return 0;
 }
 
-/* drm_ioctl — dispatch an ioctl command to the registered handler */
+/* drm_ioctl - dispatch an ioctl command to the registered handler */
 
 /* Built-in core ioctls that are always available. */
 static const struct drm_ioctl_desc drm_core_ioctls[] = {
@@ -220,7 +220,7 @@ static const struct drm_ioctl_desc drm_core_ioctls[] = {
     {DRM_IOCTL_MODE_GETFB2,            drm_mode_getfb2_ioctl,            DRM_MASTER | DRM_AUTH},
 };
 
-/* ioctl descriptor lookup — full command match */
+/* ioctl descriptor lookup - full command match */
 
 static const struct drm_ioctl_desc *find_ioctl_desc(unsigned int cmd, const struct drm_ioctl_desc *table, int count)
 {
@@ -229,7 +229,7 @@ static const struct drm_ioctl_desc *find_ioctl_desc(unsigned int cmd, const stru
     return NULL;
 }
 
-/* drm_ioctl — validated dispatch */
+/* drm_ioctl - validated dispatch */
 
 int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct drm_file *file_priv)
 {
@@ -366,7 +366,7 @@ out:
     return ret;
 }
 
-/* drm_version — handle DRM_IOCTL_VERSION */
+/* drm_version - handle DRM_IOCTL_VERSION */
 
 static int drm_version_copy_string(uint64_t user_ptr, uint64_t capacity, uint64_t *length, const char *value)
 {
@@ -432,7 +432,7 @@ int drm_version(struct drm_device *dev, void *data, struct drm_file *file_priv)
     return 0;
 }
 
-/* drm_setversion — handle DRM_IOCTL_SET_VERSION (accept any version) */
+/* drm_setversion - handle DRM_IOCTL_SET_VERSION (accept any version) */
 
 int drm_setversion(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {

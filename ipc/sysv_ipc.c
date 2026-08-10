@@ -237,9 +237,7 @@ __attribute__((unused)) static void sem_undo_release_process(process_t *proc)
 
 /* Semaphore subsystem */
 
-/*
- *  sys_semget - get or create a semaphore set
- */
+/* sys_semget - get or create a semaphore set */
 int64_t sys_semget(key_t key, int nsems, int semflg)
 {
     if (nsems < 0 || nsems > SEM_MAX_NSEMS) return -EINVAL;
@@ -354,17 +352,13 @@ int64_t sys_semget(key_t key, int nsems, int semflg)
     return id;
 }
 
-/*
- *  sys_semop - perform semaphore operations atomically
- */
+/* sys_semop - perform semaphore operations atomically */
 int64_t sys_semop(int semid, sembuf_t *sops, size_t nsops)
 {
     return sys_semtimedop(semid, sops, nsops, NULL);
 }
 
-/*
- *  sys_semtimedop - timed semaphore operations
- */
+/* sys_semtimedop - timed semaphore operations */
 int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *timeout)
 {
     if (nsops == 0 || nsops > SEMOPM) return -EINVAL;
@@ -567,9 +561,7 @@ int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *time
     }
 }
 
-/*
- *  sys_semctl - semaphore control operations
- */
+/* sys_semctl - semaphore control operations */
 int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
 {
     sem_array_t *sem = (sem_array_t *)ipc_id_lookup((void **)sem_sets, sem_seq, SEM_MAX_SETS, &sem_global_lock, semid);
@@ -867,9 +859,7 @@ void sysv_shm_vma_put(void *identity, uint32_t pid)
     }
 }
 
-/*
- *  sys_shmget - get or create a shared memory segment
- */
+/* sys_shmget - get or create a shared memory segment */
 int64_t sys_shmget(key_t key, size_t size, int shmflg)
 {
     if (size > SHM_SIZE_MAX) return -EINVAL;
@@ -951,9 +941,7 @@ int64_t sys_shmget(key_t key, size_t size, int shmflg)
     return id;
 }
 
-/*
- *  sys_shmat - attach shared memory segment
- */
+/* sys_shmat - attach shared memory segment */
 int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg)
 {
     process_t *proc = process_current();
@@ -1039,9 +1027,7 @@ rollback:
     return -ENOMEM;
 }
 
-/*
- *  sys_shmdt - detach shared memory segment
- */
+/* sys_shmdt - detach shared memory segment */
 int64_t sys_shmdt(const void *shmaddr)
 {
     if (shmaddr == NULL) return -EINVAL;
@@ -1066,9 +1052,7 @@ int64_t sys_shmdt(const void *shmaddr)
     return process_unmap_complete_range(proc, vaddr, length);
 }
 
-/*
- *  sys_shmctl - shared memory control operations
- */
+/* sys_shmctl - shared memory control operations */
 int64_t sys_shmctl(int shmid, int cmd, void *buf)
 {
     shm_seg_t *seg = (shm_seg_t *)ipc_id_lookup((void **)shm_segs, shm_seq, SHM_MAX_SEGS, &shm_global_lock, shmid);
@@ -1208,9 +1192,7 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
 
 /* Message queue subsystem */
 
-/*
- *  sys_msgget - get or create a message queue
- */
+/* sys_msgget - get or create a message queue */
 int64_t sys_msgget(key_t key, int msgflg)
 {
     /* Search for existing queue by key */
@@ -1266,9 +1248,7 @@ int64_t sys_msgget(key_t key, int msgflg)
     return id;
 }
 
-/*
- *  sys_msgsnd - send a message to a queue
- */
+/* sys_msgsnd - send a message to a queue */
 int64_t sys_msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg)
 {
     if (msgsz > MSGMAX) return -EINVAL;
@@ -1352,9 +1332,7 @@ int64_t sys_msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg)
     return 0;
 }
 
-/*
- *  sys_msgrcv - receive a message from a queue
- */
+/* sys_msgrcv - receive a message from a queue */
 int64_t sys_msgrcv(int msqid, void *msgp, size_t msgsz, int64_t msgtyp, int msgflg)
 {
     if (msgp == NULL) return -EFAULT;
@@ -1474,9 +1452,7 @@ int64_t sys_msgrcv(int msqid, void *msgp, size_t msgsz, int64_t msgtyp, int msgf
     return (int64_t)copy_size;
 }
 
-/*
- *  sys_msgctl - message queue control operations
- */
+/* sys_msgctl - message queue control operations */
 int64_t sys_msgctl(int msqid, int cmd, void *buf)
 {
     msg_queue_t *q = (msg_queue_t *)ipc_id_lookup((void **)msg_queues, msg_seq, MSG_MAX_QUEUES, &msg_global_lock, msqid);
@@ -1611,9 +1587,7 @@ int64_t sys_msgctl(int msqid, int cmd, void *buf)
 
 /* Initialization */
 
-/*
- *  sysv_ipc_init - initialize all System V IPC subsystems
- */
+/* sysv_ipc_init - initialize all System V IPC subsystems */
 void sysv_ipc_init(void)
 {
 #if CONFIG_SYSVIPC

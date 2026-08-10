@@ -270,7 +270,7 @@ static struct kobj_type device_ktype = {
 
 static void bus_release_internal(struct kobject *kobj)
 {
-    /* Bus types are typically static — nothing to free */
+    /* Bus types are typically static - nothing to free */
     (void)kobj;
 }
 
@@ -505,11 +505,11 @@ int device_register(struct device *dev)
     if (dev->class) {
         ret = sysfs_create_symlink(&dev->class->subsys.kobj, &dev->kobj, kobject_name(&dev->kobj));
         if (ret != EOK) goto rollback_device_link;
-        /* /sys/class/<name>/<device> — /sys/devices/.../device */
+        /* /sys/class/<name>/<device> - /sys/devices/.../device */
         /* For now just add to the class kset */
     }
 
-    /* /sys/dev/char/<major>:<minor> — /sys/devices/...  (udev device-node map) */
+    /* /sys/dev/char/<major>:<minor> - /sys/devices/...  (udev device-node map) */
     if (dev->devt && sysfs_dev_char_kobj) {
         char dev_link[24];
         (void)snprintf(dev_link, sizeof(dev_link), "%u:%u", MAJOR(dev->devt), MINOR(dev->devt));
@@ -764,7 +764,7 @@ struct device *class_find_device(struct class *cls, struct device *start, const 
     (void)data;
     (void)match;
     /*
-     * For now, return NULL — full implementation would
+     * For now, return NULL - full implementation would
      * iterate over the class's device list
      */
     return NULL;
@@ -804,7 +804,7 @@ int device_model_init(void)
     /* They are children of sysfs_root_kobj */
 
     /*
-     * Wait — we need sysfs_root_kobj to find these.
+     * Wait - we need sysfs_root_kobj to find these.
      * The kobject_create_and_add calls in sysfs_init already
      * create them under sysfs_root_kobj. We just need to find them.
      */

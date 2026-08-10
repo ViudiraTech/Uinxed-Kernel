@@ -66,7 +66,7 @@ typedef int64_t  s64;
 
 #define LCN_HOLE ((s64) - 2)
 
-/* on-disk layout structs — packed because NTFS has no natural alignment */
+/* on-disk layout structs - packed because NTFS has no natural alignment */
 typedef struct ntfs_boot_sector {
         u8  jump[3];
         u64 oem_id;
@@ -345,7 +345,7 @@ static int ntfs_record_pack(ntfs_mount_t *mnt, u8 *record, u32 record_size)
     return 0;
 }
 
-/* utf16 → utf8 */
+/* utf16 -> utf8 */
 static u16 *utf16_from(const u8 *buf, int ofs, int len)
 {
     if (len <= 0 || len > 255) return NULL;
@@ -3594,7 +3594,7 @@ static int ntfs_vfs_mount(const char *src, vfs_node_t node)
         return -EINVAL;
     }
 
-    /* blocks per cluster for index allocation VCN → LCN mapping */
+    /* blocks per cluster for index allocation VCN -> LCN mapping */
     mnt->indx_vcn_per_cluster = mnt->cluster_size / mnt->indx_size;
     if (mnt->indx_vcn_per_cluster == 0) mnt->indx_vcn_per_cluster = 1;
 

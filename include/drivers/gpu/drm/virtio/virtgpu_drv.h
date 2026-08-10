@@ -1,7 +1,7 @@
 /*
  *
  *      virtgpu_drv.h
- *      VirtIO-GPU DRM driver — main header
+ *      VirtIO-GPU DRM driver - main header
  *
  *      2026/7/23 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
@@ -355,7 +355,7 @@ struct virtio_gpu_resp_map_info {
 #define VIRTIO_GPU_BLOB_FLAG_USE_SHAREABLE    (1 << 1)
 #define VIRTIO_GPU_BLOB_FLAG_USE_CROSS_DEVICE (1 << 2)
 
-/* DRM UAPI — ioctl codes (match Linux virtgpu_drm.h exactly) */
+/* DRM UAPI - ioctl codes (match Linux virtgpu_drm.h exactly) */
 
 #define DRM_VIRTGPU_MAP                  0x01
 #define DRM_VIRTGPU_EXECBUFFER           0x02
@@ -667,18 +667,18 @@ struct virtio_gpu_device {
 
 /* Function prototypes (defined across the virtgpu_*.c files) */
 
-/* gpu.c — driver init / ioctls */
+/* gpu.c - driver init / ioctls */
 int                virtio_gpu_driver_init(void);
 struct drm_device *virtio_gpu_dev_alloc(struct virtio_gpu_device *vgdev);
 
-/* virtgpu_vq.c — virtqueue helpers */
+/* virtgpu_vq.c - virtqueue helpers */
 int  virtgpu_vq_init(struct virtio_gpu_device *vgdev);
 void virtgpu_vq_fini(struct virtio_gpu_device *vgdev);
 int  virtgpu_ctrl_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size, void *resp, int resp_size, uint64_t *fence_id);
 int  virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_command *commands, uint32_t count);
 int  virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size);
 
-/* virtgpu_cmd.c — command encoding */
+/* virtgpu_cmd.c - command encoding */
 int virtgpu_cmd_get_display_info(struct virtio_gpu_device *vgdev);
 int virtgpu_cmd_get_edid(struct virtio_gpu_device *vgdev, int scanout_id, void *edid, int *edid_size);
 int virtgpu_cmd_create_resource_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj);
@@ -711,7 +711,7 @@ int virtgpu_cmd_submit_3d(struct virtio_gpu_device *vgdev, uint32_t ctx_id, uint
 int virtgpu_cmd_get_capset_info(struct virtio_gpu_device *vgdev, uint32_t idx, uint32_t *capset_id, uint32_t *max_version, uint32_t *max_size);
 int virtgpu_cmd_get_capset(struct virtio_gpu_device *vgdev, uint32_t capset_id, uint32_t version, void *data, uint32_t max_size);
 
-/* virtgpu_gem.c — GEM management */
+/* virtgpu_gem.c - GEM management */
 struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_t size);
 void                      virtgpu_gem_free_object(struct drm_gem_object *obj);
 int                       virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, struct drm_mode_create_dumb *args);
@@ -719,17 +719,17 @@ int                       virtgpu_gem_dumb_map_offset(struct drm_file *file_priv
 int                       virtgpu_gem_prime_export(struct drm_device *dev, struct drm_gem_object *obj, int *prime_fd);
 struct drm_gem_object    *virtgpu_gem_prime_import(struct drm_device *dev, void *dma_buf);
 
-/* Module initialisation — called from kernel init after drm_init() */
+/* Module initialisation - called from kernel init after drm_init() */
 int   virtio_gpu_init(void);
 void  virtio_gpu_module_exit(void);
 void *virtio_gpu_get_device(void);
 
-/* virtgpu_kms.c — KMS display pipeline */
+/* virtgpu_kms.c - KMS display pipeline */
 int  virtgpu_kms_init(struct virtio_gpu_device *vgdev);
 void virtgpu_kms_fini(struct virtio_gpu_device *vgdev);
 int  virtgpu_kms_get_modes(struct drm_connector *connector);
 
-/* DRM fourcc — VirtIO GPU format translation */
+/* DRM fourcc - VirtIO GPU format translation */
 
 /*
  * Convert a DRM fourcc pixel format to the corresponding VirtIO GPU

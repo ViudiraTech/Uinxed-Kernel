@@ -16,7 +16,7 @@
 
 ## Overview
 
-Uinxed is a monolithic, UNIX-like operating system kernel for x86-64, written from scratch in C. It boots through the [Limine](https://limine-bootloader.org/) bootloader in both UEFI and Legacy mode, brings up all cores via SMP, and implements a Linux-compatible syscall ABI (Linux 6.12 x86-64 numbering, syscalls 0–462).
+Uinxed is a monolithic, UNIX-like operating system kernel for x86-64, written from scratch in C. It boots through the [Limine](https://limine-bootloader.org/) bootloader in both UEFI and Legacy mode, brings up all cores via SMP, and implements a Linux-compatible syscall ABI (Linux 6.12 x86-64 numbering, syscalls 0-462).
 
 The project aims to build a practical, self-contained kernel with modern design principles: an EEVDF scheduler, a unified page cache with swap support, a full VFS with multiple filesystems, a Linux-style networking and socket layer, and a growing set of device drivers. Unimplemented syscalls return `-ENOSYS`, keeping the ABI surface predictable as it grows.
 
@@ -49,7 +49,7 @@ The project aims to build a practical, self-contained kernel with modern design 
 - Linux `AF_INET` / `AF_INET6` socket ABI (`SOCK_DGRAM` / `SOCK_STREAM`), a DHCP client, and `/proc/net` / `/sys/class/net` views
 
 ### ABI & IPC
-- Linux x86-64 syscall ABI (Linux 6.12 numbering, 0–462)
+- Linux x86-64 syscall ABI (Linux 6.12 numbering, 0-462)
 - `AF_UNIX`, `AF_NETLINK`, `AF_INET`, `AF_INET6` sockets
 - pipes, `epoll`, `eventfd`, `timerfd`, `signalfd`, `memfd`, POSIX message queues, and System V IPC
 - futexes with Priority Inheritance; `mmap` / `munmap` / `mremap` backed by the page cache
@@ -74,20 +74,20 @@ Limine (UEFI/Legacy)
         ▼
 ┌────────────────────────────┐     ┌──────────────────────────────┐
 │ Early init                 │────▶│ Platform & drivers          │
-│ FPU/SSE → serial → alloc   │     │ ACPI → SMP → PCI → storage  │
-│ paging → heap → modules    │     │ net → audio → input → USB   │
+│ FPU/SSE -> serial -> alloc   │     │ ACPI -> SMP -> PCI -> storage  │
+│ paging -> heap -> modules    │     │ net -> audio -> input -> USB   │
 └────────────────────────────┘     └──────────────────────────────┘
         │                                     │
         ▼                                     ▼
 ┌────────────────────────────┐     ┌──────────────────────────────┐
 │ VFS & filesystems          │     │ Kernel services              │
-│ tmpfs/procfs/sysfs → FAT   │     │ scheduler → processes → IPC  │
-│ ext/NTFS/ISO9660           │     │ syscalls → signals → cgroups │
+│ tmpfs/procfs/sysfs -> FAT   │     │ scheduler -> processes -> IPC  │
+│ ext/NTFS/ISO9660           │     │ syscalls -> signals -> cgroups │
 └────────────────────────────┘     └──────────────────────────────┘
         │                                     │
         └────────────────┬────────────────────┘
                          ▼
-              sched_start() → init (PID 1)
+              sched_start() -> init (PID 1)
 ```
 
 ## Getting Started
@@ -194,14 +194,14 @@ For other LSP servers, adapt your configuration from the Makefile.
 
 Log output is sent to the boot console. By default it goes to the screen (`tty0`, set via `kernel_cmdline: console=tty0` in `assets/Limine/Limine/limine.conf`). To capture logs over a serial port:
 
-1. Change `kernel_cmdline` in `limine.conf` to `console=ttyS0` (or `ttyS1`–`ttyS3`).
+1. Change `kernel_cmdline` in `limine.conf` to `console=ttyS0` (or `ttyS1`-`ttyS3`).
 2. Rebuild and run. `make run` already attaches QEMU's serial output to your terminal (`-serial stdio`).
 
-The `console=` parameter accepts `tty0` (VGA screen) and `ttyS0`–`ttyS3` (serial ports). Note that the screen console buffers output and may drop data if the VGA queue overflows or the kernel hangs mid-boot; a serial console is the reliable way to debug hangs. `plogk` debug messages are compiled in only when `CONFIG_KERNEL_LOG` is enabled.
+The `console=` parameter accepts `tty0` (VGA screen) and `ttyS0`-`ttyS3` (serial ports). Note that the screen console buffers output and may drop data if the VGA queue overflows or the kernel hangs mid-boot; a serial console is the reliable way to debug hangs. `plogk` debug messages are compiled in only when `CONFIG_KERNEL_LOG` is enabled.
 
 **Are all Linux syscalls implemented?**
 
-No. The syscall table follows Linux 6.12 x86-64 numbering (syscalls 0–462), but only a subset is implemented. Unimplemented syscalls return `-ENOSYS` instead of crashing, and the set grows as the project develops.
+No. The syscall table follows Linux 6.12 x86-64 numbering (syscalls 0-462), but only a subset is implemented. Unimplemented syscalls return `-ENOSYS` instead of crashing, and the set grows as the project develops.
 
 **Why isn't a driver I expected working (e.g. VirtIO-GPU, SB16)?**
 
@@ -209,7 +209,7 @@ Some subsystems are disabled by default in Kconfig. For example, `VIRTIO` and `V
 
 **Can I run this on real hardware?**
 
-Yes, but treat it as an experimental kernel. Follow the physical-hardware steps above, and prefer disposable machines or test disks — filesystem drivers (especially the NTFS writer) are not yet safe for important data.
+Yes, but treat it as an experimental kernel. Follow the physical-hardware steps above, and prefer disposable machines or test disks - filesystem drivers (especially the NTFS writer) are not yet safe for important data.
 
 ## Contributing
 
@@ -223,11 +223,11 @@ Contributions are welcome! Follow these steps:
 
 ### Submit an Issue
 
-Encountering a bug? File an issue — we welcome them all. A few guidelines:
+Encountering a bug? File an issue - we welcome them all. A few guidelines:
 
 1. **Describe the problem in as much detail as possible.** Logs and code snippets go a long way toward understanding what happened.
 2. **Just be polite.** A respectful report gets solved smoothly; hostility helps nobody.
-3. **No need to be overly formal.** Casual is fine — we are partners in making this project better.
+3. **No need to be overly formal.** Casual is fine - we are partners in making this project better.
 4. **Your native language is welcome.** You may write in any language, but keep in mind that typos can confuse translation tools.
 
 ## Referenced Projects

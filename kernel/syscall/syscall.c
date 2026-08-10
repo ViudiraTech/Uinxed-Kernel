@@ -1554,11 +1554,11 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
     int path_ret = copy_resolved_path_at(proc, AT_FDCWD, target, tgt);
     if (path_ret != EOK) return path_ret;
 
-    /* Copy source path (optional — can be NULL for virtual filesystems) */
+    /* Copy source path (optional - can be NULL for virtual filesystems) */
     if (source)
         if (strncpy_from_user(src, (const char *)source, sizeof(src)) < 0) return -EFAULT;
 
-    /* Copy filesystem type (optional — can be NULL to let VFS probe) */
+    /* Copy filesystem type (optional - can be NULL to let VFS probe) */
     if (fstype)
         if (strncpy_from_user(fst, (const char *)fstype, sizeof(fst)) < 0) return -EFAULT;
 
@@ -1616,7 +1616,7 @@ static int64_t sys_mount(uint64_t source, uint64_t target, uint64_t fstype, uint
 
     vfs_close(node);
 
-    /* MS_REC: recursive — ignored for non-bind mounts */
+    /* MS_REC: recursive - ignored for non-bind mounts */
     (void)(flags & MS_REC);
 
     return EOK;
@@ -1636,7 +1636,7 @@ static int64_t sys_umount2(uint64_t target, uint64_t flags, uint64_t arg2, uint6
     if (ret != EOK) return ret;
 
     /* MNT_FORCE: force unmount even if busy (not fully supported) */
-    /* MNT_DETACH: lazy unmount — detach now, cleanup later (not fully supported) */
+    /* MNT_DETACH: lazy unmount - detach now, cleanup later (not fully supported) */
     if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE)) return -EINVAL;
 
     return vfs_umount(tgt);
@@ -4715,7 +4715,7 @@ static int64_t sys_prctl_impl(uint64_t option, uint64_t arg2, uint64_t arg3, uin
         case PR_SET_KEEPCAPS :
             return 0;
         case PR_SET_NAME : {
-            /* Set process name — copy up to 15 bytes */
+            /* Set process name - copy up to 15 bytes */
             if (arg2) {
                 process_t *proc = process_current();
                 if (!proc) return -ESRCH;
@@ -5255,9 +5255,7 @@ static syscall_fn_t syscall_table[SYS_MAX] = {
     [SYS_FCHMODAT2]              = sys_fchmodat2_impl,
 };
 
-/*
- * Helper: check if a return value is a kernel-internal restart code.
- */
+/* Helper: check if a return value is a kernel-internal restart code. */
 static inline int is_restart_code(int64_t ret)
 {
     return ret == -ERESTARTSYS || ret == -ERESTARTNOINTR || ret == -ERESTARTNOHAND || ret == -ERESTART_RESTARTBLOCK || ret == -ERESTART;

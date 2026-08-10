@@ -186,7 +186,7 @@ typedef struct nl_pktinfo {
         uint32_t group;
 } nl_pktinfo_t;
 
-/* Netlink socket state — per-socket private data */
+/* Netlink socket state - per-socket private data */
 
 #define NL_SOCK_RECV_BUF_SIZE (128 * 1024) // 128KB default recv buffer
 

@@ -127,9 +127,7 @@ static void epoll_target_close(vfs_poll_subscription_t *subscription, uint32_t e
 
 /* Item operations */
 
-/*
- * Find an epoll_item by fd.  Must be called with epi->lock held.
- */
+/* Find an epoll_item by fd.  Must be called with epi->lock held. */
 static epoll_item_t *epoll_item_find(epoll_instance_t *epi, int fd)
 {
     if (fd < 0 || fd >= EPOLL_MAX_FDS) return NULL;
@@ -343,9 +341,7 @@ static void epoll_item_release(epoll_item_t *item)
     free(item);
 }
 
-/*
- * epoll does not support read(); return -EINVAL.
- */
+/* epoll does not support read(); return -EINVAL. */
 static size_t epoll_vfs_read(void *file, void *addr, size_t offset, size_t size)
 {
     (void)file;
@@ -355,9 +351,7 @@ static size_t epoll_vfs_read(void *file, void *addr, size_t offset, size_t size)
     return (size_t)-1;
 }
 
-/*
- * epoll does not support write(); return -EINVAL.
- */
+/* epoll does not support write(); return -EINVAL. */
 static size_t epoll_vfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
     (void)file;
@@ -367,9 +361,7 @@ static size_t epoll_vfs_write(void *file, const void *addr, size_t offset, size_
     return (size_t)-1;
 }
 
-/*
- * Poll callback: report POLLIN if any registered fd is ready.
- */
+/* Poll callback: report POLLIN if any registered fd is ready. */
 static int epoll_vfs_poll(void *file, size_t events)
 {
     epoll_instance_t *epi = (epoll_instance_t *)file;
@@ -384,9 +376,7 @@ static int epoll_vfs_poll(void *file, size_t events)
     return revents & (int)events;
 }
 
-/*
- * Free the epoll instance and all its items.
- */
+/* Free the epoll instance and all its items. */
 static int epoll_vfs_free(void *handle)
 {
     epoll_instance_t *epi = (epoll_instance_t *)handle;

@@ -141,7 +141,7 @@
 #define ATA_IDENT_COMMANDSETS  164
 #define ATA_IDENT_MAX_LBA_EXT  200
 
-/* FIS Register — Host to Device (20 bytes = 5 DWORDS) */
+/* FIS Register - Host to Device (20 bytes = 5 DWORDS) */
 typedef struct {
         uint8_t fis_type;
         uint8_t pmport : 4;
@@ -164,7 +164,7 @@ typedef struct {
         uint8_t rsv1[4];
 } __attribute__((packed)) fis_reg_h2d_t;
 
-/* FIS Register — Device to Host */
+/* FIS Register - Device to Host */
 typedef struct {
         uint8_t fis_type;
         uint8_t pmport : 4;

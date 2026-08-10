@@ -97,7 +97,7 @@ void video_start_refresh_worker(void);
 /* Initialize Video */
 void video_init(void);
 
-/* Flush callback type — pushes one damaged framebuffer rectangle to host. */
+/* Flush callback type - pushes one damaged framebuffer rectangle to host. */
 typedef void (*video_flush_fn_t)(uint32_t x, uint32_t y, uint32_t width, uint32_t height);
 
 /*

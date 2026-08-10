@@ -25,7 +25,7 @@
 #include <sync/rt_mutex.h>
 #include <sync/spin_lock.h>
 
-/* Helpers: convert weight → "priority" for rbtree ordering */
+/* Helpers: convert weight -> "priority" for rbtree ordering */
 
 /*
  * PI waiters are ordered by weight (higher weight = higher priority).

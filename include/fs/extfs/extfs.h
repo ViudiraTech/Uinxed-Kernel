@@ -20,59 +20,45 @@
 
 typedef struct extfs_journal extfs_journal_t;
 
-/*
- * Special inode numbers
- */
+/* Special inode numbers */
 #define EXT2_BAD_INO            1
 #define EXT2_ROOT_INO           2
 #define EXT2_BOOT_LOADER_INO    5
 #define EXT2_UNDEL_DIR_INO      6
 #define EXT2_GOOD_OLD_FIRST_INO 11
 
-/*
- * Block sizes
- */
+/* Block sizes */
 #define EXT2_MIN_BLOCK_SIZE     1024
 #define EXT2_MAX_BLOCK_SIZE     65536
 #define EXT2_MIN_BLOCK_LOG_SIZE 10
 #define EXT2_MAX_BLOCK_LOG_SIZE 16
 
-/*
- * Constants relative to data blocks
- */
+/* Constants relative to data blocks */
 #define EXT2_NDIR_BLOCKS 12
 #define EXT2_IND_BLOCK   EXT2_NDIR_BLOCKS
 #define EXT2_DIND_BLOCK  (EXT2_IND_BLOCK + 1)
 #define EXT2_TIND_BLOCK  (EXT2_DIND_BLOCK + 1)
 #define EXT2_N_BLOCKS    (EXT2_TIND_BLOCK + 1)
 
-/*
- * Directory entry sizes
- */
+/* Directory entry sizes */
 #define EXT2_DIR_PAD               4
 #define EXT2_DIR_ROUND             (EXT2_DIR_PAD - 1)
 #define EXT2_DIR_REC_LEN(name_len) (((name_len) + 8 + EXT2_DIR_ROUND) & ~EXT2_DIR_ROUND)
 #define EXT2_MAX_REC_LEN           ((1 << 16) - 1)
 #define EXT2_NAME_LEN              255
 
-/*
- * File system states
- */
+/* File system states */
 #define EXT2_VALID_FS 0x0001
 #define EXT2_ERROR_FS 0x0002
 
-/*
- * Revision levels
- */
+/* Revision levels */
 #define EXT2_GOOD_OLD_REV        0
 #define EXT2_DYNAMIC_REV         1
 #define EXT2_CURRENT_REV         EXT2_GOOD_OLD_REV
 #define EXT2_MAX_SUPP_REV        EXT2_DYNAMIC_REV
 #define EXT2_GOOD_OLD_INODE_SIZE 128
 
-/*
- * Feature flags
- */
+/* Feature flags */
 #define EXT2_FEATURE_INCOMPAT_FILETYPE    0x0002
 #define EXT3_FEATURE_INCOMPAT_RECOVER     0x0004
 #define EXT3_FEATURE_INCOMPAT_JOURNAL_DEV 0x0008
@@ -108,9 +94,7 @@ typedef struct extfs_journal extfs_journal_t;
 #define EXT3_FEATURE_COMPAT_HAS_JOURNAL   0x0004
 #define EXT4_FEATURE_COMPAT_SPARSE_SUPER2 0x0200
 
-/*
- * Directory file types
- */
+/* Directory file types */
 #define EXT2_FT_UNKNOWN  0
 #define EXT2_FT_REG_FILE 1
 #define EXT2_FT_DIR      2
@@ -120,9 +104,7 @@ typedef struct extfs_journal extfs_journal_t;
 #define EXT2_FT_SOCK     6
 #define EXT2_FT_SYMLINK  7
 
-/*
- * Inode mode bits
- */
+/* Inode mode bits */
 #define EXT2_S_IFSOCK 0xC000
 #define EXT2_S_IFLNK  0xA000
 #define EXT2_S_IFREG  0x8000
@@ -153,9 +135,7 @@ typedef struct extfs_journal extfs_journal_t;
 #define EXT4_BG_BLOCK_UNINIT 0x0002U
 #define EXT4_BG_INODE_ZEROED 0x0004U
 
-/*
- * On-disk structures
- */
+/* On-disk structures */
 
 /* Super block - 1024 bytes at byte offset 1024 */
 typedef struct ext2_super_block {
@@ -274,9 +254,7 @@ typedef struct ext2_dir_entry {
         char     name[EXT2_NAME_LEN];
 } __attribute__((packed)) ext2_dir_entry_t;
 
-/*
- * In-memory structures
- */
+/* In-memory structures */
 
 /* Per-filesystem superblock info */
 typedef struct extfs_sb_info {
@@ -323,9 +301,7 @@ typedef struct extfs_handle {
         int                owns_sb;  // Whether this handle owns the sb_info
 } extfs_handle_t;
 
-/*
- * Function prototypes
- */
+/* Function prototypes */
 
 /* super.c */
 int  extfs_read_super(extfs_sb_info_t *sb, const blockdev_device_t *device);
@@ -379,7 +355,7 @@ int extfs_make_empty_dir(extfs_handle_t *dir_h, uint32_t self_ino, uint32_t pare
 int extfs_dir_empty(extfs_handle_t *dir_h);
 int extfs_dir_block_verify(extfs_handle_t *dir_h, uint32_t logical, const void *block);
 
-/* extfs.c — registration */
+/* extfs.c - registration */
 void extfs_regist(void);
 
 #endif // INCLUDE_EXTFS_H_

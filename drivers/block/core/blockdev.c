@@ -35,7 +35,7 @@ static int            blk_next_id   = 0;
  * on top of them.
  */
 
-/* Default (empty) ops — returns -ENOSYS for everything */
+/* Default (empty) ops - returns -ENOSYS for everything */
 static int blk_empty_read(const struct blockdev_device *dev, uint64_t lba, uint32_t count, void *buf)
 {
     (void)dev;

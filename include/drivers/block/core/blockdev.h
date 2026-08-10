@@ -17,7 +17,7 @@
 
 #define BLOCKDEV_SECTOR_SIZE 512
 
-/* Ops dispatch macro — mirrors VFS callbackof() */
+/* Ops dispatch macro - mirrors VFS callbackof() */
 #define blk_ops(dev, _name_) (blk_ops_table[(dev)->ops_id]->_name_)
 
 /* Forward declaration */
@@ -48,7 +48,7 @@ typedef struct blockdev_device {
         bool     read_only;
 } blockdev_device_t;
 
-/* Global ops table — populated by driver init */
+/* Global ops table - populated by driver init */
 extern blockdev_ops_t *blk_ops_table;
 #define BLOCKDEV_MAX_TYPES 16
 

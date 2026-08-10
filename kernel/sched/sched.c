@@ -274,7 +274,7 @@ static void avg_vruntime_sub(eevdf_rq_t *rq, task_t *task)
     rq->avg_load -= task->weight;
 }
 
-/* EEVDF core: update_curr — advance vruntime of the running task */
+/* EEVDF core: update_curr - advance vruntime of the running task */
 
 static void update_curr(eevdf_rq_t *rq, uint64_t delta_ticks)
 {
@@ -286,7 +286,7 @@ static void update_curr(eevdf_rq_t *rq, uint64_t delta_ticks)
     advance_min_vruntime(rq);
 }
 
-/* EEVDF core: update_deadline — assign a new deadline slice */
+/* EEVDF core: update_deadline - assign a new deadline slice */
 
 static void update_deadline(eevdf_rq_t *rq, task_t *task)
 {
@@ -299,7 +299,7 @@ static void update_deadline(eevdf_rq_t *rq, task_t *task)
     task->vlag     = (int64_t)(avg_vruntime(rq) - task->vruntime);
 }
 
-/* EEVDF core: place_entity — set vruntime/deadline on enqueue */
+/* EEVDF core: place_entity - set vruntime/deadline on enqueue */
 
 static void place_entity(eevdf_rq_t *rq, task_t *task, int initial)
 {
@@ -368,7 +368,7 @@ static void dequeue_entity(eevdf_rq_t *rq, task_t *task)
 }
 
 /*
- * EEVDF core: pick_eevdf — select the next task to run
+ * EEVDF core: pick_eevdf - select the next task to run
  * 
  * Strategy:
  * 1. If only one task is runnable, return it directly.
@@ -418,7 +418,7 @@ static task_t *pick_eevdf(eevdf_rq_t *rq)
             return curr;
         }
 
-        /* Neither left nor current is eligible — go right */
+        /* Neither left nor current is eligible - go right */
         node = node->right;
     }
 
@@ -656,7 +656,7 @@ static void idle_thread(void *arg)
     }
 }
 
-/* sched_init — bootstrap the scheduler */
+/* sched_init - bootstrap the scheduler */
 
 void sched_init(void)
 {
@@ -768,7 +768,7 @@ uint32_t sched_cpu_count(void)
     return cpu_scheduler_count;
 }
 
-/* task_set_cpu — migrate a task to a different CPU */
+/* task_set_cpu - migrate a task to a different CPU */
 
 int task_set_cpu(task_t *task, uint32_t cpu_id)
 {
@@ -791,7 +791,7 @@ int task_set_cpu(task_t *task, uint32_t cpu_id)
     return 0;
 }
 
-/* sched_yield — core context switch entry point */
+/* sched_yield - core context switch entry point */
 
 static void sched_switch(bool account_runtime)
 {
@@ -880,7 +880,7 @@ void sched_yield(void)
     sched_switch(true);
 }
 
-/* sched_start — launch the scheduler on the BSP */
+/* sched_start - launch the scheduler on the BSP */
 
 void sched_start(void)
 {
@@ -890,7 +890,7 @@ void sched_start(void)
     enable_intr();
     sched_yield();
 
-    /* swapper/0 resumed — enter idle loop */
+    /* swapper/0 resumed - enter idle loop */
     for (;;) {
         enable_intr();
         __asm__ volatile("hlt");
@@ -899,7 +899,7 @@ void sched_start(void)
     }
 }
 
-/* task_sleep_ticks — voluntary sleep for N ticks */
+/* task_sleep_ticks - voluntary sleep for N ticks */
 
 void task_sleep_ticks(uint64_t ticks)
 {
@@ -923,7 +923,7 @@ void task_sleep_ticks(uint64_t ticks)
     enable_intr();
 }
 
-/* task_block — block the current task */
+/* task_block - block the current task */
 
 void task_block(void)
 {
@@ -941,7 +941,7 @@ void task_block(void)
     enable_intr();
 }
 
-/* task_wakeup — wake a blocked or sleeping task */
+/* task_wakeup - wake a blocked or sleeping task */
 
 int task_wakeup(task_t *task)
 {
@@ -1172,7 +1172,7 @@ uint64_t wait_queue_wake_all(wait_queue_t *queue)
     return count;
 }
 
-/* sched_tick — periodic tick accounting and preemption */
+/* sched_tick - periodic tick accounting and preemption */
 
 void sched_tick(void)
 {
@@ -1219,14 +1219,14 @@ void sched_tick(void)
     if (preempt) sched_switch(false);
 }
 
-/* sched_ticks — return the global tick count */
+/* sched_ticks - return the global tick count */
 
 uint64_t sched_ticks(void)
 {
     return scheduler.ticks;
 }
 
-/* task_exit — terminate the current task */
+/* task_exit - terminate the current task */
 
 void task_exit(void)
 {
@@ -1255,7 +1255,7 @@ void task_exit(void)
     panic("sched: zombie task resumed after exit.");
 }
 
-/* current_task — return the task running on this CPU */
+/* current_task - return the task running on this CPU */
 
 task_t *current_task(void)
 {

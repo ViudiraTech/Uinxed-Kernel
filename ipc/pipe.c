@@ -943,11 +943,11 @@ static int64_t sys_mkfifo(const char *path, uint32_t mode)
  * 
  * Parameters:
  * node  - the FIFO vfs node (must have type file_pipe)
- * flags — open flags (O_RDONLY / O_WRONLY / O_NONBLOCK)
+ * flags - open flags (O_RDONLY / O_WRONLY / O_NONBLOCK)
  * 
  * Returns:
  * EOK    - both ends are now open
- * -EAGAIN — O_NONBLOCK was set and the other end is not open yet
+ * -EAGAIN - O_NONBLOCK was set and the other end is not open yet
  * -ENXIO  - O_NONBLOCK | O_WRONLY and no reader exists
  */
 
@@ -969,20 +969,16 @@ static int pipe_open(vfs_node_t node, uint64_t flags)
         ring->writers++;
     }
 
-    /*
-     * If both ends are now open, we are done.
-     */
+    /* If both ends are now open, we are done. */
     if (ring->readers > 0 && ring->writers > 0) {
         spin_unlock(&ring->lock);
         return EOK;
     }
 
-    /*
-     * O_NONBLOCK: return immediately.
-     */
+    /* O_NONBLOCK: return immediately. */
     if (flags & O_NONBLOCK) {
         if (is_write && ring->readers == 0) {
-            /* Opening write-only with no readers and O_NONBLOCK — ENXIO */
+            /* Opening write-only with no readers and O_NONBLOCK - ENXIO */
             ring->writers--;
             spin_unlock(&ring->lock);
             return -ENXIO;
@@ -991,9 +987,7 @@ static int pipe_open(vfs_node_t node, uint64_t flags)
         return -EAGAIN;
     }
 
-    /*
-     * Block until the other end opens or the pipe is closed.
-     */
+    /* Block until the other end opens or the pipe is closed. */
     while (ring->readers == 0 || ring->writers == 0) {
         if (ring->closed) {
             if (is_read) ring->readers--;

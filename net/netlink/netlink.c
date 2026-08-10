@@ -883,7 +883,7 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
         return ret ? ret : (int)nlhdr_len;
     }
 
-    /* No destination — multicast if groups are set, else error */
+    /* No destination - multicast if groups are set, else error */
     if (addrlen == 0 || !addr) {
         /* Send as a request to kernel (pid=0) */
         if (ns->nl_protocol == NETLINK_ROUTE) {
@@ -1204,7 +1204,7 @@ int netlink_has_listeners(uint32_t protocol, uint32_t group)
     return 0;
 }
 
-/* Wrapper functions — match socket_t polymorphic op signatures */
+/* Wrapper functions - match socket_t polymorphic op signatures */
 
 static int netlink_wrap_read(struct socket *sk, void *buf, size_t sz, void *addr, uint32_t *addrlen)
 {

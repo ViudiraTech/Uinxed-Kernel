@@ -70,10 +70,10 @@
 #define PARMRK  0x0008 // Mark parity errors
 #define INPCK   0x0010 // Enable input parity check
 #define ISTRIP  0x0020 // Strip 8th bit
-#define INLCR   0x0040 // Map NL → CR on input
+#define INLCR   0x0040 // Map NL -> CR on input
 #define IGNCR   0x0080 // Ignore CR
-#define ICRNL   0x0100 // Map CR → NL on input
-#define IUCLC   0x0200 // Map uppercase → lowercase on input
+#define ICRNL   0x0100 // Map CR -> NL on input
+#define IUCLC   0x0200 // Map uppercase -> lowercase on input
 #define IXON    0x0400 // Enable XON/XOFF flow control on output
 #define IXANY   0x0800 // Any character restarts output
 #define IXOFF   0x1000 // Enable XON/XOFF flow control on input
@@ -82,14 +82,14 @@
 
 /*
  * -------------------------------------------------------------------
- * c_oflag — output mode flags
+ * c_oflag - output mode flags
  * -------------------------------------------------------------------
  */
 
 #define OPOST  0x0001 // Enable output processing
-#define OLCUC  0x0002 // Map lowercase → uppercase on output
-#define ONLCR  0x0004 // Map NL → CR-NL on output
-#define OCRNL  0x0008 // Map CR → NL on output
+#define OLCUC  0x0002 // Map lowercase -> uppercase on output
+#define ONLCR  0x0004 // Map NL -> CR-NL on output
+#define OCRNL  0x0008 // Map CR -> NL on output
 #define ONOCR  0x0010 // No CR output at column 0
 #define ONLRET 0x0020 // NL performs CR function
 #define OFILL  0x0040 // Use fill characters for delay

@@ -1150,7 +1150,7 @@ static void hda_interrupt_handler(interrupt_frame_t *frame)
 
         uint8_t sts = sd_read8(s, SD_STS);
         if (sts & SD_STS_DMA_COMPLETE) {
-            /* DMA completed a BDL entry — update position */
+            /* DMA completed a BDL entry - update position */
             hda_ctrl.streams[s].hw_pos += hda_ctrl.streams[s].buf_size / hda_ctrl.streams[s].period_frags;
 
             if (hda_ctrl.streams[s].hw_pos >= hda_ctrl.streams[s].buf_size) hda_ctrl.streams[s].hw_pos = 0;
