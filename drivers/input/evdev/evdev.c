@@ -410,9 +410,9 @@ static int evdev_open_device(evdev_t *evdev)
     }
     if (evdev->open_count == 0) {
         /*
-		 * input_open_device would go here.
-		 * For now, just count opens.
-		 */
+         * input_open_device would go here.
+         * For now, just count opens.
+         */
     }
     evdev->open_count++;
 out:

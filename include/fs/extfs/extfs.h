@@ -4,8 +4,8 @@
  *      ext2/ext3/ext4 filesystem driver
  *
  *      2026/7/29 By JiTianYu391
- *      Copyright (C) 1992, 1993 Remy Card, Laboratoire MASI - Institut Blaise Pascal
  *      Copyright (C) 2026 ViudiraTech, based on the Apache 2.0 license.
+ *      Copyright (C) 1992, 1993 Remy Card, Laboratoire MASI - Institut Blaise Pascal
  *
  */
 

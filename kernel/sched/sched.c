@@ -169,7 +169,7 @@ static uint64_t calc_effective_slice(eevdf_rq_t *rq)
 
 /*
  * EEVDF core: eligibility check
- * 
+ *
  * A task is eligible iff lag >= 0, i.e. its ideal service time
  * exceeds its actual service time.  In discrete form:
  * avg_vruntime >= (vruntime - min_vruntime) * avg_load
@@ -369,7 +369,7 @@ static void dequeue_entity(eevdf_rq_t *rq, task_t *task)
 
 /*
  * EEVDF core: pick_eevdf - select the next task to run
- * 
+ *
  * Strategy:
  * 1. If only one task is runnable, return it directly.
  * 2. Check the cached leftmost (earliest deadline).

@@ -277,7 +277,7 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
 
     /*
      * Write the actual queue size back to the device before configuring
-     * the rest of the queue.  VirtIO spec §4.1.4.3.1: "The driver MAY
+     * the rest of the queue.  VirtIO spec 4.1.4.3.1: "The driver MAY
      * write a smaller value to inform the device that it will use fewer
      * descriptors."  QEMU requires this for correct operation.
      */
@@ -340,7 +340,7 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
      * Program the queue into common config (physical addresses).
      * Write barrier before queue_enable: the device must see the
      * descriptor/avail/used addresses before the enable flag.
-     * VirtIO spec §4.1.4.3.1: "The driver MUST write the queue
+     * VirtIO spec 4.1.4.3.1: "The driver MUST write the queue
      * address registers before setting the queue_enable bit."
      */
     common->queue_desc  = vq->queue_phys + (uintptr_t)((uint8_t *)vq->desc - (uint8_t *)vq->queue_mem);
@@ -519,7 +519,7 @@ void virtqueue_kick(struct vp_virtqueue *vq)
     off = vq->notify_off * vp->notify_off_multiplier;
 
     /*
-     * VirtIO spec §4.1.4.4: A write barrier is required before the MMIO
+     * VirtIO spec 4.1.4.4: A write barrier is required before the MMIO
      * doorbell write to ensure descriptor/avail writes are visible to the
      * device. A second barrier after ensures the store reaches the fabric
      * before the driver starts polling the used ring.

@@ -19,7 +19,7 @@
 /* ATAPI device instances */
 atapi_device_t atapi_devices[4];
 
-/* ─── ATAPI status polling ─── */
+/* ATAPI status polling */
 static uint8_t atapi_wait_busy(uint8_t channel)
 {
     uint8_t status;
@@ -58,7 +58,7 @@ static uint8_t atapi_wait_drq(uint8_t channel)
     return 3;
 }
 
-/* ─── ATAPI command type classification ─── */
+/* ATAPI command type classification */
 int atapi_cmd_type(uint8_t opcode)
 {
     switch (opcode) {
@@ -78,7 +78,7 @@ int atapi_cmd_type(uint8_t opcode)
     }
 }
 
-/* ─── Parse ATAPI identify data (called after ATAPI signature detected) ─── */
+/* Parse ATAPI identify data (called after ATAPI signature detected) */
 uint8_t atapi_identify(uint8_t channel, uint8_t drive, uint8_t dev_index)
 {
     int k;
@@ -158,7 +158,7 @@ uint8_t atapi_identify(uint8_t channel, uint8_t drive, uint8_t dev_index)
     return 0;
 }
 
-/* ─── ATAPI soft reset ─── */
+/* ATAPI soft reset */
 void atapi_soft_reset(uint8_t drive)
 {
     uint8_t channel = atapi_devices[drive].channel;
@@ -174,7 +174,7 @@ void atapi_soft_reset(uint8_t drive)
     atapi_wait_busy(channel);
 }
 
-/* ─── Core ATAPI packet send function ─── */
+/* Core ATAPI packet send function */
 uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit, uint8_t direction, void *buf, size_t *xfer_len)
 {
     uint32_t channel  = atapi_devices[drive].channel;
@@ -343,14 +343,14 @@ uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit
     return 0;
 }
 
-/* ─── TEST UNIT READY ─── */
+/* TEST UNIT READY */
 uint8_t atapi_test_unit_ready(uint8_t drive)
 {
     uint8_t cdb[ATAPI_CDB_LEN] = {GPCMD_TEST_UNIT_READY, 0, 0, 0, 0, 0};
     return atapi_send_packet(drive, cdb, 0, ATAPI_PROT_NODATA, NULL, NULL);
 }
 
-/* ─── INQUIRY ─── */
+/* INQUIRY */
 uint8_t atapi_inquiry(uint8_t drive, void *buf)
 {
     uint8_t cdb[ATAPI_CDB_LEN] = {GPCMD_INQUIRY, 0, 0, 0, 36, 0};
@@ -358,7 +358,7 @@ uint8_t atapi_inquiry(uint8_t drive, void *buf)
     return atapi_send_packet(drive, cdb, 36, ATAPI_PROT_PIO, buf, &len);
 }
 
-/* ─── READ CAPACITY ─── */
+/* READ CAPACITY */
 uint8_t atapi_read_capacity(uint8_t drive, uint32_t *lba_size, uint32_t *blk_size)
 {
     uint8_t cdb[ATAPI_CDB_LEN] = {GPCMD_READ_CAPACITY, 0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -378,7 +378,7 @@ uint8_t atapi_read_capacity(uint8_t drive, uint32_t *lba_size, uint32_t *blk_siz
     return 0;
 }
 
-/* ─── REQUEST SENSE ─── */
+/* REQUEST SENSE */
 uint8_t atapi_request_sense(uint8_t drive, uint8_t *sense_key, uint8_t *asc, uint8_t *ascq)
 {
     uint8_t cdb[ATAPI_CDB_LEN] = {GPCMD_REQUEST_SENSE, 0, 0, 0, SCSI_SENSE_BUFFER_SIZE, 0};
@@ -399,7 +399,7 @@ uint8_t atapi_request_sense(uint8_t drive, uint8_t *sense_key, uint8_t *asc, uin
     return 0;
 }
 
-/* ─── START STOP UNIT (eject/load) ─── */
+/* START STOP UNIT (eject/load) */
 uint8_t atapi_start_stop(uint8_t drive, uint8_t start, uint8_t loej)
 {
     uint8_t cdb[ATAPI_CDB_LEN] = {
@@ -408,7 +408,7 @@ uint8_t atapi_start_stop(uint8_t drive, uint8_t start, uint8_t loej)
     return atapi_send_packet(drive, cdb, 0, ATAPI_PROT_NODATA, NULL, NULL);
 }
 
-/* ─── Read sectors from ATAPI device (READ 12) ─── */
+/* Read sectors from ATAPI device (READ 12) */
 uint8_t atapi_read(uint8_t drive, uint32_t lba, uint8_t num_sectors, uint16_t *buf)
 {
     uint32_t blk_size = atapi_devices[drive].blk_size;

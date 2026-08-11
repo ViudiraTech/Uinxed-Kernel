@@ -260,7 +260,7 @@ typedef struct {
         uint8_t  rsvd1[40];  // 103:64
         uint8_t  nguid[16];  // 119:104 Namespace GUID
         uint8_t  eui64[8];   // 127:120 IEEE Extended Unique Identifier
-                             /* LBA Format support: 16 entries × 4 bytes */
+                             /* LBA Format support: 16 entries x 4 bytes */
         struct {
                 uint16_t ms; // Metadata Size
                 uint8_t  ds; // LBA Data Size (exponent, 2^ds)

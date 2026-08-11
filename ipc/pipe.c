@@ -221,12 +221,12 @@ static void pipe_vfs_open(void *parent, const char *name, vfs_node_t node)
 
 /*
  * VFS callback: close
- * 
+ *
  * NOTE: The VFS layer calls this callback only when node->refcount
  * reaches zero, i.e. when the *last* file descriptor referencing
  * this pipe node is closed.  For anonymous pipes this means both
  * the read and write ends have been closed.
- * 
+ *
  * We wake all blocked readers and writers here so that no task
  * remains stuck on a pipe that will never be serviced again.
  */
@@ -936,15 +936,15 @@ static int64_t sys_mkfifo(const char *path, uint32_t mode)
 
 /*
  * FIFO open helper
- * 
+ *
  * Called by the syscall layer after vfs_open() has completed for a
  * FIFO node.  This function blocks the caller until the other end
  * of the FIFO is also opened, unless O_NONBLOCK was specified.
- * 
+ *
  * Parameters:
  * node  - the FIFO vfs node (must have type file_pipe)
  * flags - open flags (O_RDONLY / O_WRONLY / O_NONBLOCK)
- * 
+ *
  * Returns:
  * EOK    - both ends are now open
  * -EAGAIN - O_NONBLOCK was set and the other end is not open yet

@@ -41,7 +41,7 @@ static void               *lifecycle_context;
 /*
  * RFC 1071 checksum accumulation over 16-bit big-endian words.  The running
  * sum is folded below 2^16 as words are added so the 32-bit accumulator can
- * never wrap: a wrap would corrupt the result because 2^32 ≡ 1 (mod 2^16-1).
+ * never wrap: a wrap would corrupt the result because 2^32 == 1 (mod 2^16-1).
  */
 static uint32_t net_checksum_add_words(uint32_t sum, const uint8_t *bytes, size_t length)
 {

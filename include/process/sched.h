@@ -1,7 +1,7 @@
 /*
  *
  *      sched.h
- *	    Kernel EEVDF scheduler
+ *      Kernel EEVDF scheduler
  *
  *      2026/7/21 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.

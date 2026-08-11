@@ -23,7 +23,7 @@
 
 static int isofs_fs_id = 0;
 
-/* ─── Block device I/O helpers ─── */
+/* Block device I/O helpers */
 
 static int isofs_read_block(isofs_mount_t *mnt, uint32_t block, void *buf, uint32_t size)
 {
@@ -48,14 +48,14 @@ static int isofs_read_bytes(isofs_mount_t *mnt, uint64_t offset, void *buf, uint
     return status;
 }
 
-/* ─── ISO date helper ─── */
+/* ISO date helper */
 
 static uint64_t iso_date_from_de(const uint8_t *d, int high_sierra)
 {
     return iso_date_to_unix(d, high_sierra ? ISO_DATE_HIGH_SIERRA : 0);
 }
 
-/* ─── Mount/dismount ─── */
+/* Mount/dismount */
 
 static void isofs_mount_destroy(isofs_mount_t *mnt)
 {
@@ -71,9 +71,9 @@ static void isofs_handle_destroy(isofs_handle_t *h)
     free(h);
 }
 
-/* ─── Parse a drive specifier: "sr0", "sr1", ... ─── */
+/* Parse a drive specifier: "sr0", "sr1", ... */
 
-/* ─── Scan directory records to find a child by name ─── */
+/* Scan directory records to find a child by name */
 
 static iso_directory_record_t *isofs_find_entry(isofs_mount_t *mnt, uint32_t dir_block, uint64_t dir_size, const char *name, uint32_t *out_block,
                                                 uint32_t *out_offset)
@@ -177,7 +177,7 @@ static iso_directory_record_t *isofs_find_entry(isofs_mount_t *mnt, uint32_t dir
     return NULL;
 }
 
-/* ─── Read directory entries into the VFS child list ─── */
+/* Read directory entries into the VFS child list */
 
 static int isofs_load_directory(vfs_node_t node)
 {
@@ -324,7 +324,7 @@ static int isofs_load_directory(vfs_node_t node)
     return EOK;
 }
 
-/* ─── Read symlink target (delegates to Rock Ridge parser) ─── */
+/* Read symlink target (delegates to Rock Ridge parser) */
 
 static int isofs_read_symlink(isofs_handle_t *h, char *buf, size_t bufsize)
 {
@@ -332,7 +332,7 @@ static int isofs_read_symlink(isofs_handle_t *h, char *buf, size_t bufsize)
     return get_rock_ridge_symlink(h->raw_de, h->mount, buf, (int)bufsize);
 }
 
-/* ─── VFS callbacks ─── */
+/* VFS callbacks */
 
 static int isofs_vfs_mount(const char *src, vfs_node_t node)
 {

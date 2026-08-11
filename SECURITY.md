@@ -7,7 +7,7 @@ Uinxed is currently under active development, Security updates are provided for 
 |   Version   |     Supported      |
 | -------     | ------------------ |
 | old_version | :x:                |
-| ≥ 0.1.1     | :white_check_mark: |
+| >= 0.1.1     | :white_check_mark: |
 
 ## Reporting a Vulnerability
 

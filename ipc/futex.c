@@ -975,16 +975,16 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
             if (user_access_ok(uaddr2, sizeof(uint32_t), 0) == 0) return -EFAULT;
 
             /*
-         * val   = nr_wake
-         * val3  = nr_requeue  (in Linux, val3 is actually the
-         *                      uaddr2 comparison value, but for
-         *                      plain REQUEUE, nr_requeue is in
-         *                      the upper bits of val.  Here we
-         *                      use val3 to carry nr_requeue.)
-         *
-         * Linux convention: val = nr_wake, utime = nr_requeue.
-         * In our syscall signature, timeout carries nr_requeue.
-         */
+             * val   = nr_wake
+             * val3  = nr_requeue  (in Linux, val3 is actually the
+             *                      uaddr2 comparison value, but for
+             *                      plain REQUEUE, nr_requeue is in
+             *                      the upper bits of val.  Here we
+             *                      use val3 to carry nr_requeue.)
+             *
+             * Linux convention: val = nr_wake, utime = nr_requeue.
+             * In our syscall signature, timeout carries nr_requeue.
+             */
             return futex_requeue(uaddr, (int)val, (int)timeout, uaddr2, val3, 0);
         }
 
@@ -994,10 +994,10 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
             if (user_access_ok(uaddr2, sizeof(uint32_t), 0) == 0) return -EFAULT;
 
             /*
-         * val   = nr_wake
-         * val3  = expected value at uaddr2
-         * timeout = nr_requeue
-         */
+             * val   = nr_wake
+             * val3  = expected value at uaddr2
+             * timeout = nr_requeue
+             */
             return futex_requeue(uaddr, (int)val, (int)timeout, uaddr2, val3, 1);
         }
 
@@ -1007,10 +1007,10 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
             if (user_access_ok(uaddr2, sizeof(uint32_t), 1) == 0) return -EFAULT;
 
             /*
-         * val   = nr_wake
-         * val3  = encoded operation
-         * timeout = nr_wake2
-         */
+             * val   = nr_wake
+             * val3  = encoded operation
+             * timeout = nr_wake2
+             */
             return futex_wake_op(uaddr, (int)val, (int)timeout, uaddr2, val3);
         }
 

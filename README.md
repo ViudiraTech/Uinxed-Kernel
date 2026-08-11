@@ -70,24 +70,25 @@ The kernel boots through Limine, which hands off to `kernel_entry()` in `init/ma
 
 ```
 Limine (UEFI/Legacy)
-        │
-        ▼
-┌────────────────────────────┐     ┌──────────────────────────────┐
-│ Early init                 │────▶│ Platform & drivers          │
-│ FPU/SSE -> serial -> alloc   │     │ ACPI -> SMP -> PCI -> storage  │
-│ paging -> heap -> modules    │     │ net -> audio -> input -> USB   │
-└────────────────────────────┘     └──────────────────────────────┘
-        │                                     │
-        ▼                                     ▼
-┌────────────────────────────┐     ┌──────────────────────────────┐
-│ VFS & filesystems          │     │ Kernel services              │
-│ tmpfs/procfs/sysfs -> FAT   │     │ scheduler -> processes -> IPC  │
-│ ext/NTFS/ISO9660           │     │ syscalls -> signals -> cgroups │
-└────────────────────────────┘     └──────────────────────────────┘
-        │                                     │
-        └────────────────┬────────────────────┘
-                         ▼
-              sched_start() -> init (PID 1)
+               |
+               v
++------------------------------+     +-------------------------------+
+| Early init                   |---->| Platform & drivers            |
+| FPU/SSE -> serial -> alloc   |     | ACPI -> SMP -> PCI -> storage |
+| paging -> heap -> modules    |     | net -> audio -> input -> USB  |
++------------------------------+     +-------------------------------+
+               |                                    |
+               v                                    v
++------------------------------+     +-------------------------------+
+| VFS & filesystems            |     | Kernel services               |
+| tmpfs/procfs/sysfs -> FAT    |     | scheduler -> processes -> IPC |
+| ext/NTFS/ISO9660             |     | syscalls -> signals -> cgroups|
++------------------------------+     +-------------------------------+
+               |                                    |
+               +-----------------+------------------+
+                                 |
+                                 v
+                   sched_start() -> init (PID 1)
 ```
 
 ## Getting Started
@@ -149,29 +150,29 @@ Both modes also work via [Ventoy](https://www.ventoy.net/): copy the ISO onto th
 
 ```
 Uinxed-Kernel/
-├── assets/           # Static resource files (bootloader, init userspace, linker script)
-├── boot/             # Boot related
-├── docs/             # Related documents
-├── drivers/          # Device drivers
-├── fs/               # File systems
-├── include/          # Header files
-├── init/             # Kernel entry
-├── ipc/              # Inter-process communication
-├── kernel/           # Kernel core
-├── libs/             # Library files
-├── mem/              # Memory management
-├── net/              # Networking stack
-├── tools/            # Host-side tools
-├── .clang-format     # Formatting configuration
-├── .clang-tidy       # Static analysis configuration
-├── .clangd_template  # Clangd configuration template
-├── .config-default   # Default configuration options
-├── .gitignore        # Ignore rules
-├── Kconfig           # Kernel configuration
-├── LICENSE           # Open source license
-├── Makefile          # Build script
-├── README.md         # Project introduction
-└── SECURITY.md       # Security policy
+|-- assets/           # Static resource files (bootloader, init userspace, linker script)
+|-- boot/             # Boot related
+|-- docs/             # Related documents
+|-- drivers/          # Device drivers
+|-- fs/               # File systems
+|-- include/          # Header files
+|-- init/             # Kernel entry
+|-- ipc/              # Inter-process communication
+|-- kernel/           # Kernel core
+|-- libs/             # Library files
+|-- mem/              # Memory management
+|-- net/              # Networking stack
+|-- tools/            # Host-side tools
+|-- .clang-format     # Formatting configuration
+|-- .clang-tidy       # Static analysis configuration
+|-- .clangd_template  # Clangd configuration template
+|-- .config-default   # Default configuration options
+|-- .gitignore        # Ignore rules
+|-- Kconfig           # Kernel configuration
+|-- LICENSE           # Open source license
+|-- Makefile          # Build script
+|-- README.md         # Project introduction
+`-- SECURITY.md       # Security policy
 ```
 
 ## FAQ

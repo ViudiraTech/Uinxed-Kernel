@@ -1,5 +1,5 @@
 /*
- * 
+ *
  *      tmpfs.h
  *      Temporary file system header file
  *

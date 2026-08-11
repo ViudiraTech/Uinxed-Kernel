@@ -1003,7 +1003,7 @@ int virtio_gpu_driver_init(void)
     vgdev->capset_lock.lock       = 0;
 
     /*
-     * VirtIO spec §3.1.1: step 5 - set FEATURES_OK and verify.
+     * VirtIO spec 3.1.1: step 5 - set FEATURES_OK and verify.
      * DRIVER_OK must be set LAST, after all virtqueues are configured.
      */
     vp_set_status(vp, VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER | VIRTIO_STATUS_FEATURES_OK);
@@ -1027,7 +1027,7 @@ int virtio_gpu_driver_init(void)
     }
 
     /*
-     * VirtIO spec §3.1.1: step 8 - set DRIVER_OK after queues are ready.
+     * VirtIO spec 3.1.1: step 8 - set DRIVER_OK after queues are ready.
      * Use a write barrier to ensure all virtqueue setup stores are visible
      * to the device before the status write reaches it.
      */

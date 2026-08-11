@@ -49,14 +49,14 @@ typedef struct {
 #define SYN_CNT       (SYN_MAX + 1)
 
 /*
- *	Keys and buttons
+ * Keys and buttons
  *
- *	Most of the keys/buttons are modeled after USB HUT 1.12
- *	(see http://www.usb.org/developers/hidpage).
- *	Abbreviations in the comments:
- *	AC - Application Control
- *	AL - Application Launch Button
- *	SC - System Control
+ * Most of the keys/buttons are modeled after USB HUT 1.12
+ * (see http://www.usb.org/developers/hidpage).
+ * Abbreviations in the comments:
+ * AC - Application Control
+ * AL - Application Launch Button
+ * SC - System Control
  */
 
 #define KEY_RESERVED   0

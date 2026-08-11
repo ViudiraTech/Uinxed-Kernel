@@ -1,5 +1,5 @@
 /*
- * 
+ *
  *      tmpfs.c
  *      Temporary file system
  *

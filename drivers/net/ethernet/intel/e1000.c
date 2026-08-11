@@ -854,7 +854,7 @@ static int e1000_setup_interrupt(e1000_device_t *device)
          * this kernel may be built without a shared legacy-IRQ dispatcher.
          * Install an exclusive fallback route so the device is not rejected
          * before its RX worker can start.
-        */
+         */
         device->vector = IRQ_0 + device->irq;
         register_interrupt_handler((uint16_t)device->vector, e1000_idt_irq_handlers[slot], 0, 0x8e);
         ioapic_routing_t routing = {(uint8_t)device->vector, device->irq};

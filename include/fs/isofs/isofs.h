@@ -30,7 +30,7 @@
 
 #define ISOFS_INVALID_MODE ((uint16_t) - 1)
 
-/* ─── ISO 9660 on-disk structures ─── */
+/* ISO 9660 on-disk structures */
 
 typedef struct iso_directory_record {
         uint8_t length;
@@ -97,7 +97,7 @@ typedef struct iso_supplementary_descriptor {
         uint8_t reserved[1856];
 } __attribute__((packed)) iso_supplementary_descriptor_t;
 
-/* ─── ISO 9660 byte-order read helpers ─── */
+/* ISO 9660 byte-order read helpers */
 
 static inline uint8_t isonum_711(const uint8_t *p)
 {
@@ -139,14 +139,14 @@ static inline uint32_t isonum_733(const uint8_t *p)
     return isonum_731(p);
 }
 
-/* ─── ISO date conversion ─── */
+/* ISO date conversion */
 
 #define ISO_DATE_HIGH_SIERRA (1 << 0)
 #define ISO_DATE_LONG_FORM   (1 << 1)
 
 uint64_t iso_date_to_unix(const uint8_t *p, int flags);
 
-/* ─── In-memory mount structure ─── */
+/* In-memory mount structure */
 
 typedef struct isofs_mount {
         blockdev_device_t device;
@@ -166,7 +166,7 @@ typedef struct isofs_mount {
         void *rr_read_ctx;
 } isofs_mount_t;
 
-/* ─── In-memory file handle ─── */
+/* In-memory file handle */
 
 typedef struct isofs_handle {
         isofs_mount_t          *mount;
@@ -181,13 +181,13 @@ typedef struct isofs_handle {
         int                     owns_mount;
 } isofs_handle_t;
 
-/* ─── Rock Ridge / name translation ─── */
+/* Rock Ridge / name translation */
 
 int  isofs_name_translate(void *raw_de, char *out, int bufsize);
 int  get_rock_ridge_filename(void *raw_de, char *out, int bufsize, isofs_mount_t *mount);
 void parse_rock_ridge_inode(void *raw_de, isofs_handle_t *handle, isofs_mount_t *mount);
 
-/* ─── API ─── */
+/* API */
 
 void isofs_regist(void);
 void isofs_mount_all(void);

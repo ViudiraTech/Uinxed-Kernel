@@ -13,7 +13,7 @@
 
 #include <libs/std/stdint.h>
 
-/* ─── SUSP / Rock Ridge on-disk structures ─── */
+/* SUSP / Rock Ridge on-disk structures */
 
 struct SU_SP_s {
         uint8_t magic[2];
@@ -85,7 +85,7 @@ struct RR_ZF_s {
         uint8_t real_size[8];
 } __attribute__((packed));
 
-/* ─── TF flags ─── */
+/* TF flags */
 
 #define TF_CREATE     1
 #define TF_MODIFY     2
@@ -93,7 +93,7 @@ struct RR_ZF_s {
 #define TF_ATTRIBUTES 8
 #define TF_LONG_FORM  128
 
-/* ─── RR flags ─── */
+/* RR flags */
 
 #define RR_PX 1
 #define RR_PN 2
@@ -104,7 +104,7 @@ struct RR_ZF_s {
 #define RR_RE 64
 #define RR_TF 128
 
-/* ─── Rock Ridge record header ─── */
+/* Rock Ridge record header */
 
 struct rock_ridge {
         uint8_t signature[2];
@@ -126,7 +126,7 @@ struct rock_ridge {
         } u;
 } __attribute__((packed));
 
-/* ─── Rock Ridge parser state ─── */
+/* Rock Ridge parser state */
 
 struct rock_state {
         void    *buffer;

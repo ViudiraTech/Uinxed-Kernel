@@ -46,7 +46,7 @@ volatile uint8_t *hba_mmio = 0;
 ahci_port_state_t ahci_ports[AHCI_MAX_PORTS];
 static int        ahci_port_count = 0;
 
-/* ─── MMIO helpers ─── */
+/* MMIO helpers */
 
 uint32_t ahci_read32(volatile uint8_t *base, uint32_t reg)
 {
@@ -58,7 +58,7 @@ void ahci_write32(volatile uint8_t *base, uint32_t reg, uint32_t val)
     mmio_write32((uint32_t *)(base + reg), val);
 }
 
-/* ─── Slot finder ─── */
+/* Slot finder */
 
 static int ahci_find_slot(ahci_port_state_t *port)
 {
@@ -70,7 +70,7 @@ static int ahci_find_slot(ahci_port_state_t *port)
     return -1;
 }
 
-/* ─── Port start / stop ─── */
+/* Port start / stop */
 
 static int ahci_port_stop(ahci_port_state_t *port)
 {
@@ -119,7 +119,7 @@ static int ahci_port_start(ahci_port_state_t *port)
     return 0;
 }
 
-/* ─── Issue a command ─── */
+/* Issue a command */
 #define ATA_CMD_FIS_DWORDS 5
 
 static int ahci_issue_cmd(ahci_port_state_t *port, int slot, uint8_t *cfis, int write, uint64_t buf_phys, uint32_t byte_count)
@@ -166,7 +166,7 @@ static int ahci_issue_cmd(ahci_port_state_t *port, int slot, uint8_t *cfis, int 
     return 0;
 }
 
-/* ─── Identify device (SATA only after signature check) ─── */
+/* Identify device (SATA only after signature check) */
 
 static int ahci_port_identify(ahci_port_state_t *port, ahci_device_t *dev)
 {
@@ -218,7 +218,7 @@ static int ahci_port_identify(ahci_port_state_t *port, ahci_device_t *dev)
     return 0;
 }
 
-/* ─── SATA read/write ─── */
+/* SATA read/write */
 
 #define SATA_DMA_BUF_PAGES   8
 #define SATA_DMA_MAX_SECTORS (SATA_DMA_BUF_PAGES * 4096 / 512)
@@ -324,7 +324,7 @@ int ahci_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, const void
     return 0;
 }
 
-/* ─── AHCI initialization ─── */
+/* AHCI initialization */
 
 int ahci_flush_cache(uint8_t drive)
 {
