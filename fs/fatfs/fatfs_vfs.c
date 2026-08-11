@@ -389,7 +389,7 @@ static int fatfs_vfs_mount(const char *src, vfs_node_t node)
 
     node->handle  = handle;
     node->type    = file_dir;
-    node->blksz   = 512;
+    node->blksz   = handle->mount->fs.ssize;
     node->visited = 0;
     if (fatfs_load_directory(node) != EOK) {
         f_closedir(&handle->dir);

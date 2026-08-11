@@ -230,7 +230,7 @@
  */
 
 #define FF_MIN_SS 512
-#define FF_MAX_SS 512
+#define FF_MAX_SS 4096
 /*
  * This set of options configures the range of sector size to be supported. (512,
  * 1024, 2048 or 4096) Always set both 512 for most systems, generic memory card and
@@ -240,13 +240,13 @@
  * GET_SECTOR_SIZE command.
  */
 
-#define FF_LBA64 0
+#define FF_LBA64 1
 /*
  * This option switches support for 64-bit LBA. (0:Disable or 1:Enable)
  * To enable the 64-bit LBA, also exFAT needs to be enabled. (FF_FS_EXFAT == 1)
  */
 
-#define FF_MIN_GPT 0x10000000
+#define FF_MIN_GPT 0x100000000
 /*
  * Minimum number of sectors to switch GPT as partitioning format in f_mkfs() and
  * f_fdisk(). 2^32 sectors maximum. This option has no effect when FF_LBA64 == 0.
