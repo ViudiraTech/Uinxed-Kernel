@@ -20,10 +20,6 @@
 #include <process/uaccess.h>
 #include <sync/spin_lock.h>
 
-#ifndef container_of
-#    define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
-#endif
-
 /* External helper from drm_property.c */
 
 /* Initial backing-array capacity for a freshly attached property set. */

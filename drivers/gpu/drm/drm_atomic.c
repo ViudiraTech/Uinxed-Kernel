@@ -27,8 +27,6 @@
  * Helper: container_of
  */
 
-#define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
-
 /* drm_atomic_state_alloc: allocate and initialize an atomic state */
 
 struct drm_atomic_state *drm_atomic_state_alloc(struct drm_device *dev)

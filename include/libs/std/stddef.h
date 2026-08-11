@@ -28,6 +28,10 @@ typedef typeof(nullptr) nullptr_t;
 #undef offsetof
 #define offsetof(s, m) __builtin_offsetof(s, m)
 
+#ifndef container_of
+#    define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
+#endif
+
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ > 201710L
 #    undef unreachable
 #    define unreachable()             __builtin_unreachable()

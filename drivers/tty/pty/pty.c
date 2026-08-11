@@ -26,6 +26,7 @@
 #include <sync/signal.h>
 #include <sync/spin_lock.h>
 #include <syscall/fcntl.h>
+#include <syscall/poll.h>
 
 #ifndef CONFIG_UNIX98_PTYS
 #    define CONFIG_UNIX98_PTYS 1
@@ -36,11 +37,6 @@
 
 #define PTY_BUFFER_SIZE TTY_CORE_BUFFER_SIZE
 #define PTS_MAJOR       136
-#define POLLIN          0x001
-#define POLLPRI         0x002
-#define POLLOUT         0x004
-#define POLLERR         0x008
-#define POLLHUP         0x010
 
 typedef struct pty_pair {
         spinlock_t        lock;

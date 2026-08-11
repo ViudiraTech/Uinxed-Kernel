@@ -14,6 +14,10 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
+/* Character-device numbers for the CMOS RTC. */
+#define RTC_DEV_MAJOR 254
+#define RTC0_MINOR    0
+
 /* Linux rtc_time ABI (x86-64). */
 typedef struct {
         int tm_sec;

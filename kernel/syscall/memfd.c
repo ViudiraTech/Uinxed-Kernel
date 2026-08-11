@@ -24,10 +24,6 @@
 #include <syscall/fcntl.h>
 #include <syscall/memfd.h>
 
-#define FALLOC_FL_KEEP_SIZE  0x01U
-#define FALLOC_FL_PUNCH_HOLE 0x02U
-#define FALLOC_FL_ZERO_RANGE 0x10U
-
 typedef struct {
         spinlock_t lock;
         uint64_t  *pages;

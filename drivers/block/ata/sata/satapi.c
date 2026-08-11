@@ -22,7 +22,6 @@
 #include <mem/hhdm.h>
 
 #define SATAPI_CDB_LEN   16
-#define CFL_DWORDS       5
 #define SATAPI_DMA_BYTES (8u * 4096u)
 
 ahci_satapi_device_t ahci_satapi_devices[AHCI_MAX_DEVICES];

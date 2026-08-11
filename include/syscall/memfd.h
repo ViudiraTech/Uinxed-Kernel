@@ -22,6 +22,11 @@
 
 #define MFD_NAME_MAX 249
 
+/* fallocate(2) mode flags supported by memfd-backed files */
+#define FALLOC_FL_KEEP_SIZE  0x01U
+#define FALLOC_FL_PUNCH_HOLE 0x02U
+#define FALLOC_FL_ZERO_RANGE 0x10U
+
 void    memfd_init(void);
 int64_t sys_memfd_create(uint64_t name, uint64_t flags, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5);
 int     memfd_is_node(vfs_node_t node);

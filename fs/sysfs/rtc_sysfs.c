@@ -16,9 +16,6 @@
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 
-#define RTC_DEV_MAJOR 254
-#define RTC0_MINOR    0
-
 static ssize_t rtc_date_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
     rtc_time_t t;

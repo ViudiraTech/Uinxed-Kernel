@@ -20,10 +20,6 @@
 #include <mem/alloc.h>
 #include <sync/spin_lock.h>
 
-#ifndef container_of
-#    define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
-#endif
-
 /* Internal helper from drm_mode_object.c */
 
 /*

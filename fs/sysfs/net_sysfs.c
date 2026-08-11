@@ -23,8 +23,6 @@
 #define IFF_UP        0x0001U
 #define IFF_BROADCAST 0x0002U
 #define IFF_RUNNING   0x0040U
-#define ARPHRD_ETHER  1U
-
 static int net_class_ready;
 static struct {
         net_device_t  *netdev;

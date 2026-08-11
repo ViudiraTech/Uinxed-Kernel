@@ -17,10 +17,6 @@
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 
-#define TPM_DEV_MAJOR 10
-#define TPM0_MINOR    224
-#define TPMRM0_MINOR  225
-
 static tpm_device_t *tpm_dev_from(struct device *dev)
 {
     return dev ? dev->driver_data : NULL;

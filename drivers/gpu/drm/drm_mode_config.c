@@ -23,13 +23,6 @@
 #include <process/uaccess.h>
 #include <sync/spin_lock.h>
 
-#ifndef container_of
-#    define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
-#endif
-
-#define DRM_S32_MAX ((int32_t)0x7fffffff)
-#define DRM_S32_MIN (-DRM_S32_MAX - 1)
-
 /* Internal helpers from drm_property.c */
 
 static struct drm_property *drm_object_property(struct drm_device *dev, const char *name, uint32_t object_type)

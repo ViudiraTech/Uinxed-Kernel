@@ -18,6 +18,7 @@
 #include <kernel/interrupt/interrupt.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
+#include <libs/std/stddef.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>
@@ -27,8 +28,6 @@
 #include <mem/page.h>
 #include <process/sched.h>
 #include <process/task.h>
-
-#define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
 
 /*
  * Overview

@@ -15,12 +15,6 @@
 #include <libs/std/string.h>
 #include <mem/alloc.h>
 
-/*
- * container_of - obtain a pointer to the containing struct from a pointer
- * to one of its members. Equivalent to the Linux kernel macro.
- */
-#define container_of(ptr, type, member) ((type *)((uint8_t *)(ptr) - offsetof(type, member)))
-
 /* Linux hash_long multiplier for 64-bit keys. */
 #define HT_HASH_MULT 0x9e370001UL
 

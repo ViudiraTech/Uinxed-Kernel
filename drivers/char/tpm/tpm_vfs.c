@@ -18,10 +18,6 @@
 #include <libs/std/string.h>
 #include <mem/heap.h>
 
-#define TPM_DEV_MAJOR 10
-#define TPM0_MINOR    224 // /dev/tpm0
-#define TPMRM0_MINOR  225 // /dev/tpmrm0
-
 typedef struct {
         uint8_t command[TPM_BUFSIZE];
         uint8_t response[TPM_BUFSIZE];

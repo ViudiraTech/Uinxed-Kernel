@@ -20,10 +20,6 @@
 #include <mem/alloc.h>
 #include <sync/spin_lock.h>
 
-#ifndef container_of
-#    define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
-#endif
-
 /* Global GEM name table (simple counter-based) */
 
 #define GEM_MAX_NAMES 1024

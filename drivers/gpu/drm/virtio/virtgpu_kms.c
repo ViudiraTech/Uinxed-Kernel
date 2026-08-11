@@ -19,17 +19,13 @@
 #include <drivers/tty/tty.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
+#include <libs/std/stddef.h>
 #include <libs/std/stdlib.h>
 #include <mem/alloc.h>
 
 /* Static context for the DRM-flush callback (set during initial modeset) */
 static struct virtio_gpu_device *vgdev_flush_ctx;
 static struct virtio_gpu_object *vgdev_flush_obj;
-
-/* container_of helper (not yet in a shared kernel header) */
-#ifndef container_of
-#    define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
-#endif
 
 /* Extern declarations for DRM core helpers used here */
 

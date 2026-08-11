@@ -25,6 +25,7 @@
 #include <sync/signal.h>
 #include <sync/spin_lock.h>
 #include <syscall/fcntl.h>
+#include <syscall/poll.h>
 #include <syscall/syscall.h>
 
 /* Constants */
@@ -34,12 +35,6 @@
 #endif
 #define PIPE_ATOMIC_SIZE  4096
 #define PIPE_DEFAULT_MODE 0644
-
-/* poll event bits */
-#define POLLIN  0x001
-#define POLLOUT 0x004
-#define POLLERR 0x008
-#define POLLHUP 0x010
 
 /* Pipe ring buffer structure */
 

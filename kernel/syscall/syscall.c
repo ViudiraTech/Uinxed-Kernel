@@ -57,7 +57,6 @@
 #include <syscall/syscall_table.h>
 #include <syscall/timerfd.h>
 
-#define SYSCALL_PATH_MAX VFS_PATH_MAX
 #define SYSCALL_IO_CHUNK 16384
 #define EXEC_STRING_MAX  (PROCESS_STACK_SIZE / 2)
 
@@ -91,14 +90,6 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
     (CLONE_PTHREAD_REQUIRED | CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_DETACHED)
 
 #define AT_FDCWD              PROCESS_AT_FDCWD
-#define AT_SYMLINK_NOFOLLOW   0x100
-#define AT_EACCESS            0x200
-#define AT_REMOVEDIR          0x200
-#define AT_SYMLINK_FOLLOW     0x400
-#define AT_NO_AUTOMOUNT       0x800
-#define AT_EMPTY_PATH         0x1000
-#define AT_STATX_SYNC_TYPE    0x6000
-#define AT_STATX_DONT_SYNC    0x4000
 #define STATX_BASIC_STATS     0x000007ffU
 #define STATX_MNT_ID          0x00001000U
 #define STATX_ATTR_MOUNT_ROOT 0x00002000ULL
@@ -135,16 +126,6 @@ typedef struct {
         char machine[65];
         char domainname[65];
 } linux_utsname_t;
-
-typedef struct {
-        int64_t tv_sec;
-        int64_t tv_nsec;
-} linux_timespec_t;
-
-typedef struct {
-        int64_t tv_sec;
-        int64_t tv_usec;
-} linux_timeval_t;
 
 typedef struct {
         int64_t  tv_sec;
@@ -1863,18 +1844,6 @@ static int64_t sys_ftruncate_stub(uint64_t fd, uint64_t length, uint64_t arg2, u
     process_file_put(file);
     return result;
 }
-
-#define CLOCK_REALTIME           0
-#define CLOCK_MONOTONIC          1
-#define CLOCK_PROCESS_CPUTIME_ID 2
-#define CLOCK_THREAD_CPUTIME_ID  3
-#define CLOCK_MONOTONIC_RAW      4
-#define CLOCK_REALTIME_COARSE    5
-#define CLOCK_MONOTONIC_COARSE   6
-#define CLOCK_BOOTTIME           7
-#define CLOCK_REALTIME_ALARM     8
-#define CLOCK_BOOTTIME_ALARM     9
-#define CLOCK_TAI                11
 
 static int64_t sys_clock_settime_impl(uint64_t clockid, uint64_t tp, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {

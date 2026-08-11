@@ -18,10 +18,8 @@
 #include <process/uaccess.h>
 #include <sync/signal.h>
 #include <syscall/fcntl.h>
+#include <syscall/poll.h>
 
-#define POLLIN                   0x001
-#define POLLOUT                  0x004
-#define POLLHUP                  0x010
 #define TTY_TICKS_PER_DECISECOND ((TIMER_HZ + 9) / 10)
 #define TTY_INPUT_EOF            1
 

@@ -20,10 +20,6 @@
 #include <process/uaccess.h>
 #include <sync/spin_lock.h>
 
-#ifndef container_of
-#    define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
-#endif
-
 #define DRM_PROPERTY_BLOB_MAX_SIZE (16u * 1024u * 1024u)
 
 /* Internal helpers exported by drm_mode_object.c */

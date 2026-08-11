@@ -13,6 +13,9 @@
 
 #include <drivers/gpu/drm/drm.h>
 
+#define DRM_S32_MAX ((int32_t)0x7fffffff)
+#define DRM_S32_MIN (-DRM_S32_MAX - 1)
+
 #define DRM_CONNECTOR_NAME_LEN 32
 #define DRM_DISPLAY_MODE_LEN   32
 #define DRM_PROP_NAME_LEN      32

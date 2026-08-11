@@ -23,6 +23,7 @@
 #include <process/task.h>
 #include <process/uaccess.h>
 #include <sync/spin_lock.h>
+#include <syscall/poll.h>
 #include <syscall/syscall.h>
 
 /* Constants */
@@ -31,12 +32,6 @@
 #    define EPOLL_MAX_FDS 1024
 #endif
 #define EPOLL_TICKS_PER_SEC TIMER_HZ
-
-/* poll event bits (matching pipe.c) */
-#define POLLIN  0x001
-#define POLLOUT 0x004
-#define POLLERR 0x008
-#define POLLHUP 0x010
 
 /* Internal structures */
 

@@ -11,10 +11,12 @@
 #ifndef INCLUDE_SYSCALL_H_
 #define INCLUDE_SYSCALL_H_
 
+#include <fs/core/vfs.h>
 #include <libs/std/stdint.h>
 #include <syscall/syscall_table.h>
 
-#define SYSCALL_VECTOR 0x80
+#define SYSCALL_VECTOR   0x80
+#define SYSCALL_PATH_MAX VFS_PATH_MAX
 
 typedef struct linux_timespec64 {
         int64_t tv_sec;

@@ -25,8 +25,6 @@
  * Helper: container_of
  */
 
-#define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
-
 /* Forward declarations for cross-file calls */
 
 /* drm_atomic_helper_check_modeset: check CRTC mode changes */

@@ -40,7 +40,6 @@ int           ahci_device_count = 0;
 volatile uint8_t *hba_mmio = 0;
 
 /* Per-port state */
-#define CFL_DWORDS 5
 
 ahci_port_state_t ahci_ports[AHCI_MAX_PORTS];
 static int        ahci_port_count = 0;

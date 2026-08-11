@@ -23,10 +23,6 @@
 #include <process/uaccess.h>
 #include <sync/spin_lock.h>
 
-#ifndef container_of
-#    define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
-#endif
-
 /* Internal helpers from drm_mode_object.c and drm_property.c */
 
 /*

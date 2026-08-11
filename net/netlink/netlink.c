@@ -35,7 +35,6 @@
 #define NL_PROTO_MAX      32   // NETLINK_MAX rounded up
 
 #define AF_UNSPEC         0
-#define ARPHRD_ETHER      1
 #define IF_OPER_DOWN      2U
 #define IF_OPER_UP        6U
 #define RT_TABLE_MAIN     254U

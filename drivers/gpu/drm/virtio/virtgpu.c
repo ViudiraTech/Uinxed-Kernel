@@ -34,10 +34,6 @@
 #include <mem/heap.h>
 #include <process/uaccess.h>
 
-#ifndef container_of
-#    define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
-#endif
-
 /* Ioctl implementation prototypes */
 
 static int virtgpu_ioctl_map(struct drm_device *dev, void *data, struct drm_file *file_priv);

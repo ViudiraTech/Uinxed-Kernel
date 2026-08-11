@@ -22,12 +22,6 @@
 #include <process/uaccess.h>
 #include <sync/spin_lock.h>
 
-/* Helper: container_of */
-
-#define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
-#define DRM_S32_MAX                     ((int32_t)0x7fffffff)
-#define DRM_S32_MIN                     (-DRM_S32_MAX - 1)
-
 /*
  * MODE_ID is a blob property, but changing (or merely resubmitting) the
  * blob object does not necessarily change the hardware mode.  Atomic

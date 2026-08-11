@@ -16,15 +16,10 @@
 #include <libs/std/stdint.h>
 #include <process/task.h>
 #include <sync/spin_lock.h>
+#include <syscall/poll.h>
 
 #define AUDIO_MAX_CARDS 4
 #define AUDIO_NAME_MAX  32
-
-/* Poll event flags (Linux-compatible) */
-#define POLLIN  0x001
-#define POLLOUT 0x004
-#define POLLERR 0x008
-#define POLLHUP 0x010
 
 /* ALSA-compatible ioctl numbers */
 #define SNDRV_PCM_IOCTL_PVERSION      0x80044100

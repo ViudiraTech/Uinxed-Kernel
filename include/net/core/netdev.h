@@ -17,6 +17,8 @@
 #include <net/core/pbuf.h>
 #include <sync/spin_lock.h>
 
+#define ARPHRD_ETHER 1U
+
 #define NETDEV_NAME_MAX 16U
 #define NETDEV_MAX      16U
 #define NETDEV_MTU_MIN  576U

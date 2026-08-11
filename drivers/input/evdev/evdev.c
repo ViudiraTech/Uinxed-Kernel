@@ -28,6 +28,7 @@
 #include <process/task.h>
 #include <process/uaccess.h>
 #include <sync/spin_lock.h>
+#include <syscall/poll.h>
 #include <syscall/syscall.h>
 
 /* _IOC extraction macros */
@@ -41,12 +42,6 @@
 #define _IOC_TYPEMASK ((1U << _IOC_TYPEBITS) - 1)
 #define _IOC_NRMASK   ((1U << _IOC_NRBITS) - 1)
 #define _IOC_SIZEMASK ((1U << _IOC_SIZEBITS) - 1)
-
-/* poll flags */
-
-#define POLLIN  0x001
-#define POLLOUT 0x004
-#define POLLHUP 0x010
 
 /* bit operations */
 

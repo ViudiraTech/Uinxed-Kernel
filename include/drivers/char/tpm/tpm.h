@@ -26,6 +26,11 @@
 #define TPM_HEADER_SIZE      10
 #define TPM_RETRY            50
 
+/* Character-device numbers for the TPM. */
+#define TPM_DEV_MAJOR 10
+#define TPM0_MINOR    224 // /dev/tpm0
+#define TPMRM0_MINOR  225 // /dev/tpmrm0
+
 /*
  * ======================================================================
  * TPM ACPI start method types

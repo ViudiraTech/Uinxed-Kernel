@@ -478,9 +478,6 @@ static int devtmpfs_create_drm_node(void)
     return total;
 }
 
-#define RTC_DEV_MAJOR 254
-#define RTC0_MINOR    0
-
 static int devtmpfs_create_rtc_node(void)
 {
     static const tmpfs_device_ops_t rtc_device = {

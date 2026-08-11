@@ -29,8 +29,6 @@
 #include <syscall/syscall.h>
 #include <syscall/syscall_basic.h>
 
-#define SYSCALL_PATH_MAX VFS_PATH_MAX
-
 /*
  * ======================================================================
  * Helper: extract basename from a path

@@ -68,6 +68,16 @@
 #define F_WRLCK 1
 #define F_UNLCK 2
 
+/* Path resolution flags for *at() syscalls */
+#define AT_SYMLINK_NOFOLLOW 0x100
+#define AT_EACCESS          0x200
+#define AT_REMOVEDIR        0x200
+#define AT_SYMLINK_FOLLOW   0x400
+#define AT_NO_AUTOMOUNT     0x800
+#define AT_EMPTY_PATH       0x1000
+#define AT_STATX_SYNC_TYPE  0x6000
+#define AT_STATX_DONT_SYNC  0x4000
+
 /* Owner types for F_SETOWN_EX/F_GETOWN_EX */
 #define F_OWNER_TID  0
 #define F_OWNER_PID  1

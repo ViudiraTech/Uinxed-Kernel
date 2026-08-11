@@ -12,6 +12,7 @@
 #define INCLUDE_TIMERFD_H_
 
 #include <fs/core/vfs.h>
+#include <kernel/timer/timer.h>
 #include <libs/list/intrusive_list.h>
 #include <libs/std/stdint.h>
 #include <process/task.h>
@@ -21,12 +22,6 @@
 #define TFD_NONBLOCK            (1 << 11)
 #define TFD_TIMER_ABSTIME       (1 << 0)
 #define TFD_TIMER_CANCEL_ON_SET (1 << 1)
-
-#define CLOCK_REALTIME       0
-#define CLOCK_MONOTONIC      1
-#define CLOCK_BOOTTIME       7
-#define CLOCK_REALTIME_ALARM 8
-#define CLOCK_BOOTTIME_ALARM 9
 
 typedef struct timerfd_ctx {
         vfs_node_t   node;

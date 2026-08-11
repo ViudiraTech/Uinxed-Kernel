@@ -26,6 +26,9 @@
 #define AHCI_DEV_PM     3
 #define AHCI_DEV_SATAPI 4
 
+/* Number of 32-bit words in a command header's CFIS: 5 = 20 bytes. */
+#define CFL_DWORDS 5
+
 /* Port constants */
 #define AHCI_MAX_PORTS   32
 #define AHCI_MAX_DEVICES 32

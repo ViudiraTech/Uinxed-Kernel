@@ -959,11 +959,6 @@ typedef struct {
 #define INPUT_PROP_MAX            0x1f
 #define INPUT_PROP_CNT            (INPUT_PROP_MAX + 1)
 
-/* Clock IDs for EVIOCSCLOCKID */
-#define CLOCK_REALTIME  0
-#define CLOCK_MONOTONIC 1
-#define CLOCK_BOOTTIME  7
-
 /* IOC macros */
 #ifndef _IOC_NRBITS
 #    define _IOC_NRBITS 8
