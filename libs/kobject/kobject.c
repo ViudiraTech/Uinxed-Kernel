@@ -534,7 +534,7 @@ char *kobject_get_path(struct kobject *kobj)
     /* Calculate total length */
     len = 0;
     for (int i = depth - 1; i >= 0; i--) {
-        if (components[i]->name) { len += strlen(components[i]->name) + 1; /* +1 for '/' */ }
+        if (components[i]->name) len += strlen(components[i]->name) + 1; // +1 for '/'
     }
     if (len == 0) len = 1; // just '/'
 

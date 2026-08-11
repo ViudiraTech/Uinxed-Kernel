@@ -11,13 +11,10 @@
 #include <fs/fatfs/ff.h>
 
 #if FF_USE_LFN != 0 // This module will be blanked if in non-LFN configuration
-
 #    define MERGE2(a, b)   a##b
 #    define CVTBL(tbl, cp) MERGE2(tbl, cp)
 
-/*------------------------------------------------------------------------*/
-/* Code Conversion Tables                                                 */
-/*------------------------------------------------------------------------*/
+/* Code Conversion Tables */
 
 #    if FF_CODE_PAGE == 932 || FF_CODE_PAGE == 0 // Japanese
 static const WCHAR uni2oem932[] = {              // Unicode --> Shift_JIS pairs
@@ -14112,6 +14109,7 @@ static const WCHAR uc437[] = { // CP437(U.S.) to Unicode conversion table
     0x03B1, 0x00DF, 0x0393, 0x03C0, 0x03A3, 0x03C3, 0x00B5, 0x03C4, 0x03A6, 0x0398, 0x03A9, 0x03B4, 0x221E, 0x03C6, 0x03B5, 0x2229,
     0x2261, 0x00B1, 0x2265, 0x2264, 0x2320, 0x2321, 0x00F7, 0x2248, 0x00B0, 0x2219, 0x00B7, 0x221A, 0x207F, 0x00B2, 0x25A0, 0x00A0};
 #    endif
+
 #    if FF_CODE_PAGE == 720 || FF_CODE_PAGE == 0
 static const WCHAR uc720[] = { // CP720(Arabic) to Unicode conversion table
     0x0000, 0x0000, 0x00E9, 0x00E2, 0x0000, 0x00E0, 0x0000, 0x00E7, 0x00EA, 0x00EB, 0x00E8, 0x00EF, 0x00EE, 0x0000, 0x0000, 0x0000,
@@ -14123,6 +14121,7 @@ static const WCHAR uc720[] = { // CP720(Arabic) to Unicode conversion table
     0x0636, 0x0637, 0x0638, 0x0639, 0x063A, 0x0641, 0x00B5, 0x0642, 0x0643, 0x0644, 0x0645, 0x0646, 0x0647, 0x0648, 0x0649, 0x064A,
     0x2261, 0x064B, 0x064C, 0x064D, 0x064E, 0x064F, 0x0650, 0x2248, 0x00B0, 0x2219, 0x00B7, 0x221A, 0x207F, 0x00B2, 0x25A0, 0x00A0};
 #    endif
+
 #    if FF_CODE_PAGE == 737 || FF_CODE_PAGE == 0
 static const WCHAR uc737[] = { // CP737(Greek) to Unicode conversion table
     0x0391, 0x0392, 0x0393, 0x0394, 0x0395, 0x0396, 0x0397, 0x0398, 0x0399, 0x039A, 0x039B, 0x039C, 0x039D, 0x039E, 0x039F, 0x03A0,
@@ -14134,6 +14133,7 @@ static const WCHAR uc737[] = { // CP737(Greek) to Unicode conversion table
     0x03C9, 0x03AC, 0x03AD, 0x03AE, 0x03CA, 0x03AF, 0x03CC, 0x03CD, 0x03CB, 0x03CE, 0x0386, 0x0388, 0x0389, 0x038A, 0x038C, 0x038E,
     0x038F, 0x00B1, 0x2265, 0x2264, 0x03AA, 0x03AB, 0x00F7, 0x2248, 0x00B0, 0x2219, 0x00B7, 0x221A, 0x207F, 0x00B2, 0x25A0, 0x00A0};
 #    endif
+
 #    if FF_CODE_PAGE == 771 || FF_CODE_PAGE == 0
 static const WCHAR uc771[] = { // CP771(KBL) to Unicode conversion table
     0x0410, 0x0411, 0x0412, 0x0413, 0x0414, 0x0415, 0x0416, 0x0417, 0x0418, 0x0419, 0x041A, 0x041B, 0x041C, 0x041D, 0x041E, 0x041F,
@@ -14145,6 +14145,7 @@ static const WCHAR uc771[] = { // CP771(KBL) to Unicode conversion table
     0x0440, 0x0441, 0x0442, 0x0443, 0x0444, 0x0445, 0x0446, 0x0447, 0x0448, 0x0449, 0x044A, 0x044B, 0x044C, 0x044D, 0x044E, 0x044F,
     0x0118, 0x0119, 0x0116, 0x0117, 0x012E, 0x012F, 0x0160, 0x0161, 0x0172, 0x0173, 0x016A, 0x016B, 0x017D, 0x017E, 0x25A0, 0x00A0};
 #    endif
+
 #    if FF_CODE_PAGE == 775 || FF_CODE_PAGE == 0
 static const WCHAR uc775[] = { // CP775(Baltic) to Unicode conversion table
     0x0106, 0x00FC, 0x00E9, 0x0101, 0x00E4, 0x0123, 0x00E5, 0x0107, 0x0142, 0x0113, 0x0156, 0x0157, 0x012B, 0x0179, 0x00C4, 0x00C5,
@@ -14156,6 +14157,7 @@ static const WCHAR uc775[] = { // CP775(Baltic) to Unicode conversion table
     0x00D3, 0x00DF, 0x014C, 0x0143, 0x00F5, 0x00D5, 0x00B5, 0x0144, 0x0136, 0x0137, 0x013B, 0x013C, 0x0146, 0x0112, 0x0145, 0x2019,
     0x00AD, 0x00B1, 0x201C, 0x00BE, 0x00B6, 0x00A7, 0x00F7, 0x201E, 0x00B0, 0x2219, 0x00B7, 0x00B9, 0x00B3, 0x00B2, 0x25A0, 0x00A0};
 #    endif
+
 #    if FF_CODE_PAGE == 850 || FF_CODE_PAGE == 0
 static const WCHAR uc850[] = { // CP850(Latin 1) to Unicode conversion table
     0x00C7, 0x00FC, 0x00E9, 0x00E2, 0x00E4, 0x00E0, 0x00E5, 0x00E7, 0x00EA, 0x00EB, 0x00E8, 0x00EF, 0x00EE, 0x00EC, 0x00C4, 0x00C5,
@@ -14167,6 +14169,7 @@ static const WCHAR uc850[] = { // CP850(Latin 1) to Unicode conversion table
     0x00D3, 0x00DF, 0x00D4, 0x00D2, 0x00F5, 0x00D5, 0x00B5, 0x00FE, 0x00DE, 0x00DA, 0x00DB, 0x00D9, 0x00FD, 0x00DD, 0x00AF, 0x00B4,
     0x00AD, 0x00B1, 0x2017, 0x00BE, 0x00B6, 0x00A7, 0x00F7, 0x00B8, 0x00B0, 0x00A8, 0x00B7, 0x00B9, 0x00B3, 0x00B2, 0x25A0, 0x00A0};
 #    endif
+
 #    if FF_CODE_PAGE == 852 || FF_CODE_PAGE == 0
 static const WCHAR uc852[] = { // CP852(Latin 2) to Unicode conversion table
     0x00C7, 0x00FC, 0x00E9, 0x00E2, 0x00E4, 0x016F, 0x0107, 0x00E7, 0x0142, 0x00EB, 0x0150, 0x0151, 0x00EE, 0x0179, 0x00C4, 0x0106,
@@ -14178,6 +14181,7 @@ static const WCHAR uc852[] = { // CP852(Latin 2) to Unicode conversion table
     0x00D3, 0x00DF, 0x00D4, 0x0143, 0x0144, 0x0148, 0x0160, 0x0161, 0x0154, 0x00DA, 0x0155, 0x0170, 0x00FD, 0x00DD, 0x0163, 0x00B4,
     0x00AD, 0x02DD, 0x02DB, 0x02C7, 0x02D8, 0x00A7, 0x00F7, 0x00B8, 0x00B0, 0x00A8, 0x02D9, 0x0171, 0x0158, 0x0159, 0x25A0, 0x00A0};
 #    endif
+
 #    if FF_CODE_PAGE == 855 || FF_CODE_PAGE == 0
 static const WCHAR uc855[] = { // CP855(Cyrillic) to Unicode conversion table
     0x0452, 0x0402, 0x0453, 0x0403, 0x0451, 0x0401, 0x0454, 0x0404, 0x0455, 0x0405, 0x0456, 0x0406, 0x0457, 0x0407, 0x0458, 0x0408,
@@ -14189,6 +14193,7 @@ static const WCHAR uc855[] = { // CP855(Cyrillic) to Unicode conversion table
     0x042F, 0x0440, 0x0420, 0x0441, 0x0421, 0x0442, 0x0422, 0x0443, 0x0423, 0x0436, 0x0416, 0x0432, 0x0412, 0x044C, 0x042C, 0x2116,
     0x00AD, 0x044B, 0x042B, 0x0437, 0x0417, 0x0448, 0x0428, 0x044D, 0x042D, 0x0449, 0x0429, 0x0447, 0x0427, 0x00A7, 0x25A0, 0x00A0};
 #    endif
+
 #    if FF_CODE_PAGE == 857 || FF_CODE_PAGE == 0
 static const WCHAR uc857[] = { // CP857(Turkish) to Unicode conversion table
     0x00C7, 0x00FC, 0x00E9, 0x00E2, 0x00E4, 0x00E0, 0x00E5, 0x00E7, 0x00EA, 0x00EB, 0x00E8, 0x00EF, 0x00EE, 0x0131, 0x00C4, 0x00C5,
@@ -14200,6 +14205,7 @@ static const WCHAR uc857[] = { // CP857(Turkish) to Unicode conversion table
     0x00D3, 0x00DF, 0x00D4, 0x00D2, 0x00F5, 0x00D5, 0x00B5, 0x0000, 0x00D7, 0x00DA, 0x00DB, 0x00D9, 0x00EC, 0x00FF, 0x00AF, 0x00B4,
     0x00AD, 0x00B1, 0x0000, 0x00BE, 0x00B6, 0x00A7, 0x00F7, 0x00B8, 0x00B0, 0x00A8, 0x00B7, 0x00B9, 0x00B3, 0x00B2, 0x25A0, 0x00A0};
 #    endif
+
 #    if FF_CODE_PAGE == 860 || FF_CODE_PAGE == 0
 static const WCHAR uc860[] = { // CP860(Portuguese) to Unicode conversion table
     0x00C7, 0x00FC, 0x00E9, 0x00E2, 0x00E3, 0x00E0, 0x00C1, 0x00E7, 0x00EA, 0x00CA, 0x00E8, 0x00CD, 0x00D4, 0x00EC, 0x00C3, 0x00C2,
@@ -14211,6 +14217,7 @@ static const WCHAR uc860[] = { // CP860(Portuguese) to Unicode conversion table
     0x03B1, 0x00DF, 0x0393, 0x03C0, 0x03A3, 0x03C3, 0x00B5, 0x03C4, 0x03A6, 0x0398, 0x03A9, 0x03B4, 0x221E, 0x03C6, 0x03B5, 0x2229,
     0x2261, 0x00B1, 0x2265, 0x2264, 0x2320, 0x2321, 0x00F7, 0x2248, 0x00B0, 0x2219, 0x00B7, 0x221A, 0x207F, 0x00B2, 0x25A0, 0x00A0};
 #    endif
+
 #    if FF_CODE_PAGE == 861 || FF_CODE_PAGE == 0
 static const WCHAR uc861[] = { // CP861(Icelandic) to Unicode conversion table
     0x00C7, 0x00FC, 0x00E9, 0x00E2, 0x00E4, 0x00E0, 0x00E6, 0x00E7, 0x00EA, 0x00EB, 0x00E8, 0x00D0, 0x00F0, 0x00DE, 0x00C4, 0x00C5,
@@ -14222,6 +14229,7 @@ static const WCHAR uc861[] = { // CP861(Icelandic) to Unicode conversion table
     0x03B1, 0x00DF, 0x0393, 0x03C0, 0x03A3, 0x03C3, 0x00B5, 0x03C4, 0x03A6, 0x0398, 0x03A9, 0x03B4, 0x221E, 0x03C6, 0x03B5, 0x2229,
     0x2261, 0x00B1, 0x2265, 0x2264, 0x2320, 0x2321, 0x00F7, 0x2248, 0x00B0, 0x2219, 0x00B7, 0x221A, 0x207F, 0x00B2, 0x25A0, 0x00A0};
 #    endif
+
 #    if FF_CODE_PAGE == 862 || FF_CODE_PAGE == 0
 static const WCHAR uc862[] = { // CP862(Hebrew) to Unicode conversion table
     0x05D0, 0x05D1, 0x05D2, 0x05D3, 0x05D4, 0x05D5, 0x05D6, 0x05D7, 0x05D8, 0x05D9, 0x05DA, 0x05DB, 0x05DC, 0x05DD, 0x05DE, 0x05DF,
@@ -14233,6 +14241,7 @@ static const WCHAR uc862[] = { // CP862(Hebrew) to Unicode conversion table
     0x03B1, 0x00DF, 0x0393, 0x03C0, 0x03A3, 0x03C3, 0x00B5, 0x03C4, 0x03A6, 0x0398, 0x03A9, 0x03B4, 0x221E, 0x03C6, 0x03B5, 0x2229,
     0x2261, 0x00B1, 0x2265, 0x2264, 0x2320, 0x2321, 0x00F7, 0x2248, 0x00B0, 0x2219, 0x00B7, 0x221A, 0x207F, 0x00B2, 0x25A0, 0x00A0};
 #    endif
+
 #    if FF_CODE_PAGE == 863 || FF_CODE_PAGE == 0
 static const WCHAR uc863[] = { // CP863(Canadian French) to Unicode conversion table
     0x00C7, 0x00FC, 0x00E9, 0x00E2, 0x00C2, 0x00E0, 0x00B6, 0x00E7, 0x00EA, 0x00EB, 0x00E8, 0x00EF, 0x00EE, 0x00EC, 0x2017, 0x00C0,
@@ -14244,6 +14253,7 @@ static const WCHAR uc863[] = { // CP863(Canadian French) to Unicode conversion t
     0x03B1, 0x00DF, 0x0393, 0x03C0, 0x03A3, 0x03C3, 0x00B5, 0x03C4, 0x03A6, 0x0398, 0x03A9, 0x03B4, 0x221E, 0x03C6, 0x03B5, 0x2219,
     0x2261, 0x00B1, 0x2265, 0x2264, 0x2320, 0x2321, 0x00F7, 0x2248, 0x00B0, 0x2219, 0x00B7, 0x221A, 0x207F, 0x00B2, 0x25A0, 0x00A0};
 #    endif
+
 #    if FF_CODE_PAGE == 864 || FF_CODE_PAGE == 0
 static const WCHAR uc864[] = { // CP864(Arabic) to Unicode conversion table
     0x00B0, 0x00B7, 0x2219, 0x221A, 0x2592, 0x2500, 0x2502, 0x253C, 0x2524, 0x252C, 0x251C, 0x2534, 0x2510, 0x250C, 0x2514, 0x2518,
@@ -14255,6 +14265,7 @@ static const WCHAR uc864[] = { // CP864(Arabic) to Unicode conversion table
     0x0640, 0xFED3, 0xFED7, 0xFEDB, 0xFEDF, 0xFEE3, 0xFEE7, 0xFEEB, 0xFEED, 0xFEEF, 0xFEF3, 0xFEBD, 0xFECC, 0xFECE, 0xFECD, 0xFEE1,
     0xFE7D, 0x0651, 0xFEE5, 0xFEE9, 0xFEEC, 0xFEF0, 0xFEF2, 0xFED0, 0xFED5, 0xFEF5, 0xFEF6, 0xFEDD, 0xFED9, 0xFEF1, 0x25A0, 0x0000};
 #    endif
+
 #    if FF_CODE_PAGE == 865 || FF_CODE_PAGE == 0
 static const WCHAR uc865[] = { // CP865(Nordic) to Unicode conversion table
     0x00C7, 0x00FC, 0x00E9, 0x00E2, 0x00E4, 0x00E0, 0x00E5, 0x00E7, 0x00EA, 0x00EB, 0x00E8, 0x00EF, 0x00EE, 0x00EC, 0x00C4, 0x00C5,
@@ -14266,6 +14277,7 @@ static const WCHAR uc865[] = { // CP865(Nordic) to Unicode conversion table
     0x03B1, 0x00DF, 0x0393, 0x03C0, 0x03A3, 0x03C3, 0x00B5, 0x03C4, 0x03A6, 0x0398, 0x03A9, 0x03B4, 0x221E, 0x03C6, 0x03B5, 0x2229,
     0x2261, 0x00B1, 0x2265, 0x2264, 0x2320, 0x2321, 0x00F7, 0x2248, 0x00B0, 0x2219, 0x00B7, 0x221A, 0x207F, 0x00B2, 0x25A0, 0x00A0};
 #    endif
+
 #    if FF_CODE_PAGE == 866 || FF_CODE_PAGE == 0
 static const WCHAR uc866[] = { // CP866(Russian) to Unicode conversion table
     0x0410, 0x0411, 0x0412, 0x0413, 0x0414, 0x0415, 0x0416, 0x0417, 0x0418, 0x0419, 0x041A, 0x041B, 0x041C, 0x041D, 0x041E, 0x041F,
@@ -14277,6 +14289,7 @@ static const WCHAR uc866[] = { // CP866(Russian) to Unicode conversion table
     0x0440, 0x0441, 0x0442, 0x0443, 0x0444, 0x0445, 0x0446, 0x0447, 0x0448, 0x0449, 0x044A, 0x044B, 0x044C, 0x044D, 0x044E, 0x044F,
     0x0401, 0x0451, 0x0404, 0x0454, 0x0407, 0x0457, 0x040E, 0x045E, 0x00B0, 0x2219, 0x00B7, 0x221A, 0x2116, 0x00A4, 0x25A0, 0x00A0};
 #    endif
+
 #    if FF_CODE_PAGE == 869 || FF_CODE_PAGE == 0
 static const WCHAR uc869[] = { // CP869(Greek 2) to Unicode conversion table
     0x00B7, 0x00B7, 0x00B7, 0x00B7, 0x00B7, 0x00B7, 0x0386, 0x00B7, 0x00B7, 0x00AC, 0x00A6, 0x2018, 0x2019, 0x0388, 0x2015, 0x0389,
@@ -14289,65 +14302,51 @@ static const WCHAR uc869[] = { // CP869(Greek 2) to Unicode conversion table
     0x00AD, 0x00B1, 0x03C5, 0x03C6, 0x03C7, 0x00A7, 0x03C8, 0x0385, 0x00B0, 0x00A8, 0x03C9, 0x03CB, 0x03B0, 0x03CE, 0x25A0, 0x00A0};
 #    endif
 
-/*------------------------------------------------------------------------*/
-/* OEM <==> Unicode Conversions for Static Code Page Configuration with   */
-/* SBCS Fixed Code Page                                                   */
-/*------------------------------------------------------------------------*/
+/* OEM <==> Unicode Conversions for Static Code Page Configuration with SBCS Fixed Code Page */
 
 #    if FF_CODE_PAGE != 0 && FF_CODE_PAGE < 900
-WCHAR ff_uni2oem( // Returns OEM code character, zero on error
-    DWORD uni,    // UTF-16 encoded character to be converted
-    WORD  cp      // Code page for the conversion
-)
+
+/* Returns OEM code character, zero on error */
+WCHAR ff_uni2oem(DWORD uni, WORD cp)
 {
     WCHAR        c = 0;
     const WCHAR *p = CVTBL(uc, FF_CODE_PAGE);
 
     if (uni < 0x80) { // ASCII?
         c = (WCHAR)uni;
-
     } else {                                       // Non-ASCII
         if (uni < 0x10000 && cp == FF_CODE_PAGE) { // Is it in BMP and valid code page?
             for (c = 0; c < 0x80 && uni != p[c]; c++);
             c = (c + 0x80) & 0xFF;
         }
     }
-
     return c;
 }
 
-WCHAR ff_oem2uni( // Returns Unicode character in UTF-16, zero on error
-    WCHAR oem,    // OEM code to be converted
-    WORD  cp      // Code page for the conversion
-)
+/* Returns Unicode character in UTF-16, zero on error */
+WCHAR ff_oem2uni(WCHAR oem, WORD cp)
 {
     WCHAR        c = 0;
     const WCHAR *p = CVTBL(uc, FF_CODE_PAGE);
 
     if (oem < 0x80) { // ASCII?
         c = oem;
-
     } else {                      // Extended char
         if (cp == FF_CODE_PAGE) { // Is it a valid code page?
             if (oem < 0x100) c = p[oem - 0x80];
         }
     }
-
     return c;
 }
 
 #    endif
 
-/*------------------------------------------------------------------------*/
-/* OEM <==> Unicode Conversions for Static Code Page Configuration with   */
-/* DBCS Fixed Code Page                                                   */
-/*------------------------------------------------------------------------*/
+/* OEM <==> Unicode Conversions for Static Code Page Configuration with DBCS Fixed Code Page */
 
 #    if FF_CODE_PAGE >= 900
-WCHAR ff_uni2oem( // Returns OEM code character, zero on error
-    DWORD uni,    // UTF-16 encoded character to be converted
-    WORD  cp      // Code page for the conversion
-)
+
+/* Returns OEM code character, zero on error */
+WCHAR ff_uni2oem(DWORD uni, WORD cp)
 {
     const WCHAR *p;
     WCHAR        c = 0, uc;
@@ -14355,7 +14354,6 @@ WCHAR ff_uni2oem( // Returns OEM code character, zero on error
 
     if (uni < 0x80) { // ASCII?
         c = (WCHAR)uni;
-
     } else {                                       // Non-ASCII
         if (uni < 0x10000 && cp == FF_CODE_PAGE) { // Is it in BMP and valid code page?
             uc = (WCHAR)uni;
@@ -14374,14 +14372,11 @@ WCHAR ff_uni2oem( // Returns OEM code character, zero on error
             if (n != 0) c = p[i * 2 + 1];
         }
     }
-
     return c;
 }
 
-WCHAR ff_oem2uni( // Returns Unicode character in UTF-16, zero on error
-    WCHAR oem,    // OEM code to be converted
-    WORD  cp      // Code page for the conversion
-)
+/* Returns Unicode character in UTF-16, zero on error */
+WCHAR ff_oem2uni(WCHAR oem, WORD cp)
 {
     const WCHAR *p;
     WCHAR        c = 0;
@@ -14389,7 +14384,6 @@ WCHAR ff_oem2uni( // Returns Unicode character in UTF-16, zero on error
 
     if (oem < 0x80) { // ASCII?
         c = oem;
-
     } else {                      // Extended char
         if (cp == FF_CODE_PAGE) { // Is it valid code page?
             p  = CVTBL(oem2uni, FF_CODE_PAGE);
@@ -14407,14 +14401,12 @@ WCHAR ff_oem2uni( // Returns Unicode character in UTF-16, zero on error
             if (n != 0) c = p[i * 2 + 1];
         }
     }
-
     return c;
 }
+
 #    endif
 
-/*------------------------------------------------------------------------*/
-/* OEM <==> Unicode Conversions for Dynamic Code Page Configuration       */
-/*------------------------------------------------------------------------*/
+/* OEM <==> Unicode Conversions for Dynamic Code Page Configuration */
 
 #    if FF_CODE_PAGE == 0
 
@@ -14422,10 +14414,8 @@ static const WORD         cp_code[] = {437, 720, 737, 771, 775, 850, 852, 855, 8
 static const WCHAR *const cp_table[]
     = {uc437, uc720, uc737, uc771, uc775, uc850, uc852, uc855, uc857, uc860, uc861, uc862, uc863, uc864, uc865, uc866, uc869, 0};
 
-WCHAR ff_uni2oem( // Returns OEM code character, zero on error
-    DWORD uni,    // UTF-16 encoded character to be converted
-    WORD  cp      // Code page for the conversion
-)
+/* Returns OEM code character, zero on error */
+WCHAR ff_uni2oem(DWORD uni, WORD cp)
 {
     const WCHAR *p;
     WCHAR        c = 0, uc;
@@ -14433,7 +14423,6 @@ WCHAR ff_uni2oem( // Returns OEM code character, zero on error
 
     if (uni < 0x80) { // ASCII?
         c = (WCHAR)uni;
-
     } else {                 // Non-ASCII
         if (uni < 0x10000) { // Is it in BMP?
             uc = (WCHAR)uni;
@@ -14480,14 +14469,11 @@ WCHAR ff_uni2oem( // Returns OEM code character, zero on error
             }
         }
     }
-
     return c;
 }
 
-WCHAR ff_oem2uni( // Returns Unicode character in UTF-16, zero on error
-    WCHAR oem,    // OEM code to be converted (DBC if >=0x100)
-    WORD  cp      // Code page for the conversion
-)
+/* Returns Unicode character in UTF-16, zero on error */
+WCHAR ff_oem2uni(WCHAR oem, WORD cp)
 {
     const WCHAR *p;
     WCHAR        c = 0;
@@ -14495,7 +14481,6 @@ WCHAR ff_oem2uni( // Returns Unicode character in UTF-16, zero on error
 
     if (oem < 0x80) { // ASCII?
         c = oem;
-
     } else { // Extended char
         p = 0;
         if (cp < 900) {                                            // SBCS
@@ -14538,18 +14523,15 @@ WCHAR ff_oem2uni( // Returns Unicode character in UTF-16, zero on error
             }
         }
     }
-
     return c;
 }
+
 #    endif
 
-/*------------------------------------------------------------------------*/
-/* Unicode Up-case Conversion                                             */
-/*------------------------------------------------------------------------*/
+/* Unicode Up-case Conversion */
 
-DWORD ff_wtoupper( // Returns up-converted code point
-    DWORD uni      // Unicode code point to be up-converted
-)
+/* Returns up-converted code point */
+DWORD ff_wtoupper(DWORD uni)
 {
     const WORD       *p;
     WORD              uc, bc, nc, cmd;
@@ -14582,7 +14564,6 @@ DWORD ff_wtoupper( // Returns up-converted code point
         0x0430, 0x0320, 0x0450, 0x0710, 0x0460, 0x0122, 0x048A, 0x0136, 0x04C1, 0x010E, 0x04CF, 0x0001, 0x04C0, 0x04D0, 0x0144,
         /* Armenian */
         0x0561, 0x0426,
-
         0x0000 // EOT
     };
     static const WORD cvt2[] = {
@@ -14610,10 +14591,8 @@ DWORD ff_wtoupper( // Returns up-converted code point
         0x2D00, 0x0826,
         /* Full-width */
         0xFF41, 0x031A,
-
         0x0000 // EOT
     };
-
     if (uni < 0x10000) { // Is it in BMP?
         uc = (WORD)uni;
         p  = uc < 0x1000 ? cvt1 : cvt2;
@@ -14661,7 +14640,6 @@ DWORD ff_wtoupper( // Returns up-converted code point
         }
         uni = uc;
     }
-
     return uni;
 }
 

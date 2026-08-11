@@ -107,14 +107,6 @@ _Static_assert(sizeof(syscall_frame_t) == 20 * sizeof(uint64_t), "syscall frame 
 #define CLOSE_RANGE_CLOEXEC   (1U << 2)
 
 typedef struct {
-        int16_t l_type;
-        int16_t l_whence;
-        int64_t l_start;
-        int64_t l_len;
-        int32_t l_pid;
-} linux_flock_t;
-
-typedef struct {
         uint64_t st_dev;
         uint64_t st_ino;
         uint64_t st_nlink;

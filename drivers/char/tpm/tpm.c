@@ -32,7 +32,7 @@ tpm_device_t *tpm_get_device(void)
 void tpm_udelay(uint32_t us)
 {
     uint64_t target = nano_time() + (uint64_t)us * 1000ULL;
-    while (nano_time() < target) { __asm__ volatile("pause" ::: "memory"); }
+    while (nano_time() < target) __asm__ volatile("pause" ::: "memory");
 }
 
 int tpm_poll_timeout(int (*check)(void *ctx), void *ctx, uint32_t timeout_ms)

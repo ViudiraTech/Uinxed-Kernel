@@ -11,19 +11,11 @@
 #ifndef INCLUDE_ffconf_H_
 #define INCLUDE_ffconf_H_
 
-/*
- * ---------------------------------------------------------------------------
- * Configurations of FatFs Module
- * ---------------------------------------------------------------------------
- */
+/* Configurations of FatFs Module */
 
 #define FFCONF_DEF 80386 // Revision ID
 
-/*
- * ---------------------------------------------------------------------------
- * Function Configurations
- * ---------------------------------------------------------------------------
- */
+/* Function Configurations */
 
 #define FF_FS_READONLY 0
 /*
@@ -98,11 +90,7 @@
  * 3: Unicode in UTF-8
  */
 
-/*
- * ---------------------------------------------------------------------------
- * Locale and Namespace Configurations
- * ---------------------------------------------------------------------------
- */
+/* Locale and Namespace Configurations */
 
 #define FF_CODE_PAGE 0
 /*
@@ -196,11 +184,7 @@
  * When FF_FS_EXFAT == 0 or FF_FS_RPATH == 0, this option has no effect.
  */
 
-/*
- * ---------------------------------------------------------------------------
- * Drive/Volume Configurations
- * ---------------------------------------------------------------------------
- */
+/* Drive/Volume Configurations */
 
 #define FF_VOLUMES 8
 /* Number of volumes (logical drives) to be used. (1-10) */
@@ -259,11 +243,7 @@
  * the disk_ioctl().
  */
 
-/*
- * ---------------------------------------------------------------------------
- * System Configurations
- * ---------------------------------------------------------------------------
- */
+/* System Configurations */
 
 #define FF_FS_TINY 1
 /*

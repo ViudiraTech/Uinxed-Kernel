@@ -20,22 +20,6 @@
 #    define KERNEL_LOG 1
 #endif
 
-typedef enum {
-    OFLOW_AT_FMTARG,
-    OFLOW_AT_FMTSTR,
-} overflow_kind_t;
-
-typedef struct {
-        uint64_t size;       // The size of the buff to write
-        char    *buff;       // The buff to write
-        char    *last_write; // The last write position
-} fmt_arg_t;
-
-typedef struct {
-        overflow_kind_t kind; // The kind of overflow
-        fmt_arg_t      *arg;  // The argument that overflow
-} overflow_signal_t;
-
 typedef struct {
         char  *buf;
         size_t idx;
