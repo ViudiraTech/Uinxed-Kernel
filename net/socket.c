@@ -1,7 +1,7 @@
 /*
  *
  *      socket.c
- *      BSD Socket API implementation ?UNIX domain sockets
+ *      BSD Socket API implementation - UNIX domain sockets
  *
  *      2026/7/22 By JiTianYu391
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.

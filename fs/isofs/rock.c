@@ -122,7 +122,7 @@ out:
     return status;
 }
 
-/* ---- NM (alternate name) record collection ---- */
+/* NM (alternate name) record collection */
 
 typedef struct {
         char *out;
@@ -191,7 +191,7 @@ int isofs_rr_filename(void *raw_de, char *out, int bufsize, isofs_mount_t *mount
     return status == 1 ? ctx.used : status;
 }
 
-/* ---- SL (symlink) chain handling ---- */
+/* SL (symlink) chain handling */
 
 typedef struct {
         isofs_handle_t *handle;

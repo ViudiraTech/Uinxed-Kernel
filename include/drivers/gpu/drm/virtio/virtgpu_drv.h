@@ -736,8 +736,8 @@ int  virtgpu_kms_get_modes(struct drm_connector *connector);
  * format constant.  On little-endian x86 the byte-order-in-memory
  * names used by the VirtIO spec map as follows:
  *
- *   DRM_FORMAT_XRGB8888 ?VIRTIO_GPU_FORMAT_B8G8R8X8_UNORM  (2)
- *   DRM_FORMAT_ARGB8888 ?VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM  (1)
+ *   DRM_FORMAT_XRGB8888 -> VIRTIO_GPU_FORMAT_B8G8R8X8_UNORM  (2)
+ *   DRM_FORMAT_ARGB8888 -> VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM  (1)
  * Scanout only exposes the two Linux virtgpu 2D plane formats.  Other
  * formats need a negotiated 3D path and must not be silently reinterpreted.
  *

@@ -14,11 +14,7 @@
 #include <libs/std/string.h>
 #include <mem/hhdm.h>
 
-/*
- * ======================================================================
- * CRB MMIO register access helpers
- * ======================================================================
- */
+/* CRB MMIO register access helpers */
 
 static inline void *crb_reg_addr(tpm_device_t *dev, uint32_t offset)
 {
@@ -35,11 +31,7 @@ static inline void crb_write32(tpm_device_t *dev, uint32_t offset, uint32_t valu
     *(volatile uint32_t *)crb_reg_addr(dev, offset) = value;
 }
 
-/*
- * ======================================================================
- * CRB register polling
- * ======================================================================
- */
+/* CRB register polling */
 
 typedef struct crb_reg32_ctx {
         tpm_device_t *dev;
@@ -67,11 +59,7 @@ static int crb_wait_reg32(tpm_device_t *dev, uint32_t offset, uint32_t mask, uin
     return tpm_poll_timeout(check_reg32, &ctx, timeout_ms) ? 0 : -1;
 }
 
-/*
- * ======================================================================
- * CRB status
- * ======================================================================
- */
+/* CRB status */
 
 static uint8_t crb_status(tpm_device_t *dev)
 {
@@ -80,11 +68,7 @@ static uint8_t crb_status(tpm_device_t *dev)
     return 0;
 }
 
-/*
- * ======================================================================
- * CRB cmdReady / goIdle (standard CRB: methods 7, 8)
- * ======================================================================
- */
+/* CRB cmdReady / goIdle (standard CRB: methods 7, 8) */
 
 static int crb_cmd_ready(tpm_device_t *dev)
 {
@@ -98,11 +82,7 @@ static int crb_go_idle(tpm_device_t *dev)
     return crb_wait_reg32(dev, CRB_CTRL_REQ_OFFSET, CRB_CTRL_REQ_GO_IDLE, 0, dev->timeout_c);
 }
 
-/*
- * ======================================================================
- * CRB locality management (standard CRB: methods 7, 8)
- * ======================================================================
- */
+/* CRB locality management (standard CRB: methods 7, 8) */
 
 static int crb_request_locality(tpm_device_t *dev, int l)
 {
@@ -143,22 +123,14 @@ static void crb_nop_rel_locality(tpm_device_t *dev, int l)
     dev->locality = -1;
 }
 
-/*
- * ======================================================================
- * CRB cancel
- * ======================================================================
- */
+/* CRB cancel */
 
 static void crb_cancel(tpm_device_t *dev)
 {
     crb_write32(dev, CRB_CTRL_CANCEL_OFFSET, CRB_CANCEL_INVOKE);
 }
 
-/*
- * ======================================================================
- * CRB send
- * ======================================================================
- */
+/* CRB send */
 
 static int crb_send(tpm_device_t *dev, uint8_t *buf, size_t len)
 {
@@ -180,11 +152,7 @@ static int crb_send(tpm_device_t *dev, uint8_t *buf, size_t len)
     return 0;
 }
 
-/*
- * ======================================================================
- * CRB recv
- * ======================================================================
- */
+/* CRB recv */
 
 static int crb_recv(tpm_device_t *dev, uint8_t *buf, size_t maxlen)
 {
@@ -226,11 +194,7 @@ static int crb_recv(tpm_device_t *dev, uint8_t *buf, size_t maxlen)
     return expected;
 }
 
-/*
- * ======================================================================
- * CRB initialization
- * ======================================================================
- */
+/* CRB initialization */
 
 int tpm_crb_init(tpm_device_t *dev)
 {

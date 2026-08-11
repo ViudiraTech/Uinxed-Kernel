@@ -13,20 +13,12 @@
 
 #include <libs/std/stdint.h>
 
-/*
- * -------------------------------------------------------------------
- * NCCS ?number of control characters in c_cc array
- * -------------------------------------------------------------------
- */
+/* NCCS - number of control characters in c_cc array */
 
 #define NCCS 19
 #define NCC  8
 
-/*
- * -------------------------------------------------------------------
- * c_cc indices (control character positions in termios.c_cc)
- * -------------------------------------------------------------------
- */
+/* c_cc indices (control character positions in termios.c_cc) */
 
 #define VINTR    0  // interrupt (^C)
 #define VQUIT    1  // quit (^\)
@@ -58,11 +50,7 @@
 #define _VSTOP  VSTOP
 #define _VSUSP  VSUSP
 
-/*
- * -------------------------------------------------------------------
- * c_iflag ?input mode flags
- * -------------------------------------------------------------------
- */
+/* c_iflag - input mode flags */
 
 #define IGNBRK  0x0001 // Ignore break condition
 #define BRKINT  0x0002 // Send SIGINT on break
@@ -80,11 +68,7 @@
 #define IMAXBEL 0x2000 // Ring bell when input queue is full
 #define IUTF8   0x4000 // Input is UTF-8
 
-/*
- * -------------------------------------------------------------------
- * c_oflag - output mode flags
- * -------------------------------------------------------------------
- */
+/* c_oflag - output mode flags */
 
 #define OPOST  0x0001 // Enable output processing
 #define OLCUC  0x0002 // Map lowercase -> uppercase on output
@@ -118,11 +102,7 @@
 #define FF1    0x8000
 #define XTABS  TAB3 // Alias for TAB3 (tab expansion)
 
-/*
- * -------------------------------------------------------------------
- * c_cflag ?control mode flags
- * -------------------------------------------------------------------
- */
+/* c_cflag - control mode flags */
 
 #define CBAUD  0x0000100f // Baud rate mask (legacy)
 #define B0     0x00000000 // Hang up
@@ -179,11 +159,7 @@
 #define CMSPAR  0x40000000 // Mark/space parity
 #define CRTSCTS 0x80000000 // RTS/CTS (hardware) flow control
 
-/*
- * -------------------------------------------------------------------
- * c_lflag ?local mode flags
- * -------------------------------------------------------------------
- */
+/* c_lflag - local mode flags */
 
 #define ISIG    0x00000001 // Enable signal-generating chars
 #define ICANON  0x00000002 // Canonical input (line editing)
@@ -202,11 +178,7 @@
 #define IEXTEN  0x00008000 // Enable implementation-defined input processing
 #define EXTPROC 0x00010000 // External processing
 
-/*
- * -------------------------------------------------------------------
- * termios structure (x86_64 ABI, compatible with glibc)
- * -------------------------------------------------------------------
- */
+/* termios structure (x86_64 ABI, compatible with glibc) */
 
 typedef uint32_t tcflag_t;
 typedef uint8_t  cc_t;
@@ -221,11 +193,7 @@ struct termios {
         cc_t     c_cc[NCCS]; // control characters
 };
 
-/*
- * -------------------------------------------------------------------
- * termios2 ?extended termios with separate input/output baud
- * -------------------------------------------------------------------
- */
+/* termios2 - extended termios with separate input/output baud */
 
 struct termios2 {
         tcflag_t c_iflag;
@@ -238,11 +206,7 @@ struct termios2 {
         speed_t  c_ospeed; // output baud rate
 };
 
-/*
- * -------------------------------------------------------------------
- * winsize ?terminal window size
- * -------------------------------------------------------------------
- */
+/* winsize - terminal window size */
 
 struct winsize {
         uint16_t ws_row;    // rows, in characters
@@ -251,11 +215,7 @@ struct winsize {
         uint16_t ws_ypixel; // vertical size, pixels
 };
 
-/*
- * -------------------------------------------------------------------
- * _IOC macros ?construct ioctl command numbers
- * -------------------------------------------------------------------
- */
+/* _IOC macros - construct ioctl command numbers */
 
 /*
  * Guarded with #ifndef so they coexist with other headers (e.g. drm.h)
@@ -343,19 +303,11 @@ struct winsize {
 #    define _IOC_SIZE(cmd) (((cmd) >> _IOC_SIZESHIFT) & _IOC_SIZEMASK)
 #endif
 
-/*
- * -------------------------------------------------------------------
- * TTY ioctl magic number ('T' = 0x54)
- * -------------------------------------------------------------------
- */
+/* TTY ioctl magic number ('T' = 0x54) */
 
 #define TTY_IOCTL_MAGIC 0x54
 
-/*
- * -------------------------------------------------------------------
- * Standard TTY ioctls
- * -------------------------------------------------------------------
- */
+/* Standard TTY ioctls */
 
 /* termios get/set */
 #define TCGETS  0x5401
@@ -492,11 +444,7 @@ struct vt_stat {
 #define TCSETSW2 _IOW(TTY_IOCTL_MAGIC, 0x2C, struct termios2)
 #define TCSETSF2 _IOW(TTY_IOCTL_MAGIC, 0x2D, struct termios2)
 
-/*
- * -------------------------------------------------------------------
- * Unix98 PTY-specific ioctls
- * -------------------------------------------------------------------
- */
+/* Unix98 PTY-specific ioctls */
 
 #define TIOCGPTN    _IOR(TTY_IOCTL_MAGIC, 48, unsigned int) // Get PTY number
 #define TIOCSPTLCK  _IOW(TTY_IOCTL_MAGIC, 49, int)          // Lock/unlock PTY
@@ -512,11 +460,7 @@ struct vt_stat {
 #define TIOCGEXCL   _IOR(TTY_IOCTL_MAGIC, 0x40, int) // Get exclusive mode
 #define TIOCGPTPEER _IO(TTY_IOCTL_MAGIC, 0x41)
 
-/*
- * -------------------------------------------------------------------
- * Modem control line bitmask (for TIOCMGET, TIOCMSET, etc.)
- * -------------------------------------------------------------------
- */
+/* Modem control line bitmask (for TIOCMGET, TIOCMSET, etc.) */
 
 #define TIOCM_LE  0x0001 // Line enable
 #define TIOCM_DTR 0x0002 // Data terminal ready
@@ -530,11 +474,7 @@ struct vt_stat {
 #define TIOCM_CD  TIOCM_CAR
 #define TIOCM_RI  TIOCM_RNG
 
-/*
- * -------------------------------------------------------------------
- * TIOCPKT packet mode control byte bits (PTY master reads)
- * -------------------------------------------------------------------
- */
+/* TIOCPKT packet mode control byte bits (PTY master reads) */
 
 #define TIOCPKT_DATA       0x00 // Normal data follows
 #define TIOCPKT_FLUSHREAD  0x01 // Slave read queue flushed
@@ -545,42 +485,26 @@ struct vt_stat {
 #define TIOCPKT_DOSTOP     0x20 // software flow control enabled
 #define TIOCPKT_IOCTL      0x40 // Slave called an ioctl
 
-/*
- * -------------------------------------------------------------------
- * Argument values for TCSETS / termios actions
- * -------------------------------------------------------------------
- */
+/* Argument values for TCSETS / termios actions */
 
 #define TCSANOW   0 // Change attributes immediately
 #define TCSADRAIN 1 // Change after all output has drained
 #define TCSAFLUSH 2 // Change after drain, flush pending input
 
-/*
- * -------------------------------------------------------------------
- * Argument values for TCXONC
- * -------------------------------------------------------------------
- */
+/* Argument values for TCXONC */
 
 #define TCOOFF 0 // Suspend output
 #define TCOON  1 // Resume output
 #define TCIOFF 2 // Send STOP character
 #define TCION  3 // Send START character
 
-/*
- * -------------------------------------------------------------------
- * Argument values for TCFLSH
- * -------------------------------------------------------------------
- */
+/* Argument values for TCFLSH */
 
 #define TCIFLUSH  0 // Flush input queue
 #define TCOFLUSH  1 // Flush output queue
 #define TCIOFLUSH 2 // Flush both queues
 
-/*
- * -------------------------------------------------------------------
- * Line discipline numbers
- * -------------------------------------------------------------------
- */
+/* Line discipline numbers */
 
 #define N_TTY          0  // Terminal line discipline
 #define N_SLIP         1  // Serial Line IP
@@ -599,11 +523,7 @@ struct vt_stat {
 #define N_SYNC_PPP     14 // Synchronous PPP
 #define N_HCI          15 // Bluetooth HCI
 
-/*
- * -------------------------------------------------------------------
- * Linux serial_struct (for TIOCGSERIAL/TIOCSSERIAL compatibility)
- * -------------------------------------------------------------------
- */
+/* Linux serial_struct (for TIOCGSERIAL/TIOCSSERIAL compatibility) */
 
 struct serial_struct {
         int            type;

@@ -23,11 +23,7 @@ tpm_device_t *tpm_get_device(void)
     return g_tpm_available ? &g_tpm_device : NULL;
 }
 
-/*
- * ======================================================================
- * Timeout and delay helpers (HPET-based for accuracy)
- * ======================================================================
- */
+/* Timeout and delay helpers (HPET-based for accuracy) */
 
 void tpm_udelay(uint32_t us)
 {
@@ -48,11 +44,7 @@ int tpm_poll_timeout(int (*check)(void *ctx), void *ctx, uint32_t timeout_ms)
     }
 }
 
-/*
- * ======================================================================
- * Endianness helpers (inlined, no dependency on external libraries)
- * ======================================================================
- */
+/* Endianness helpers (inlined, no dependency on external libraries) */
 
 static uint16_t be16_to_cpu(uint16_t x)
 {
@@ -80,11 +72,7 @@ static void cpu_to_be32(uint32_t x, uint8_t out[4])
     out[3] = x & 0xFF;
 }
 
-/*
- * ======================================================================
- * Common transmit function
- * ======================================================================
- */
+/* Common transmit function */
 
 int tpm_transmit(tpm_device_t *dev, uint8_t *buf, size_t bufsiz, size_t len)
 {
@@ -119,11 +107,7 @@ int tpm_transmit(tpm_device_t *dev, uint8_t *buf, size_t bufsiz, size_t len)
     return -1;
 }
 
-/*
- * ======================================================================
- * TPM 2.0: build and send a command (no sessions)
- * ======================================================================
- */
+/* TPM 2.0: build and send a command (no sessions) */
 
 static int tpm2_send_command(tpm_device_t *dev, uint32_t cc, const uint8_t *params, uint32_t param_len, uint8_t *rsp_buf, size_t rsp_buf_size)
 {
@@ -152,11 +136,7 @@ static int tpm2_send_command(tpm_device_t *dev, uint32_t cc, const uint8_t *para
     return (int)data_len;
 }
 
-/*
- * ======================================================================
- * TPM 2.0 Startup
- * ======================================================================
- */
+/* TPM 2.0 Startup */
 
 static int tpm2_startup(tpm_device_t *dev)
 {
@@ -165,11 +145,7 @@ static int tpm2_startup(tpm_device_t *dev)
     return tpm2_send_command(dev, TPM2_CC_STARTUP, params, 2, NULL, 0);
 }
 
-/*
- * ======================================================================
- * TPM 2.0 GetCapability (property read)
- * ======================================================================
- */
+/* TPM 2.0 GetCapability (property read) */
 
 int tpm2_get_property(tpm_device_t *dev, uint32_t property, uint32_t *value)
 {
@@ -198,11 +174,7 @@ int tpm2_get_property(tpm_device_t *dev, uint32_t property, uint32_t *value)
     return -1;
 }
 
-/*
- * ======================================================================
- * TPM GetRandom (v2.0 + v1.2)
- * ======================================================================
- */
+/* TPM GetRandom (v2.0 + v1.2) */
 
 int tpm_get_random(tpm_device_t *dev, uint8_t *out, size_t max)
 {
@@ -226,11 +198,7 @@ int tpm_get_random(tpm_device_t *dev, uint8_t *out, size_t max)
     return -1;
 }
 
-/*
- * ======================================================================
- * TPM 2.0 PCR Read
- * ======================================================================
- */
+/* TPM 2.0 PCR Read */
 
 int tpm2_pcr_read(tpm_device_t *dev, uint32_t pcr_idx, uint8_t *digest)
 {
@@ -269,11 +237,7 @@ int tpm2_pcr_read(tpm_device_t *dev, uint32_t pcr_idx, uint8_t *digest)
     return -1;
 }
 
-/*
- * ======================================================================
- * TPM 1.2 GetRandom
- * ======================================================================
- */
+/* TPM 1.2 GetRandom */
 
 int tpm1_get_random(tpm_device_t *dev, uint8_t *out, size_t max)
 {
@@ -300,11 +264,7 @@ int tpm1_get_random(tpm_device_t *dev, uint8_t *out, size_t max)
     return -1;
 }
 
-/*
- * ======================================================================
- * Log TPM capabilities after successful init
- * ======================================================================
- */
+/* Log TPM capabilities after successful init */
 
 static void tpm_log_capabilities(tpm_device_t *dev)
 {
@@ -319,11 +279,7 @@ static void tpm_log_capabilities(tpm_device_t *dev)
     }
 }
 
-/*
- * ======================================================================
- * Hardware probe: read DID/VID from MMIO at legacy address
- * ======================================================================
- */
+/* Hardware probe: read DID/VID from MMIO at legacy address */
 
 static uint32_t tpm_verify_mmio(void *virt_addr)
 {
@@ -333,11 +289,7 @@ static uint32_t tpm_verify_mmio(void *virt_addr)
     return val;
 }
 
-/*
- * ======================================================================
- * Main TPM initialization
- * ======================================================================
- */
+/* Main TPM initialization */
 
 int tpm_init(void)
 {

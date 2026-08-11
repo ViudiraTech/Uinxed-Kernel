@@ -22,22 +22,14 @@
 #include <mem/page_walker.h>
 #include <sync/spin_lock.h>
 
-/*
- * ================================================================
- * Global state
- * ================================================================
- */
+/* Global state */
 
 static nvme_controller_t nvme_controllers[NVME_MAX_CONTROLLERS];
 static int               nvme_ctrl_count;
 static int               nvme_initialised;
 static uintptr_t         nvme_mmio_search_base = 0xffffd00000000000ULL;
 
-/*
- * ================================================================
- * MMIO helpers
- * ================================================================
- */
+/* MMIO helpers */
 
 static inline uint64_t nvme_read64(const volatile void *addr, size_t offset)
 {
@@ -59,11 +51,7 @@ static inline void nvme_write64(const volatile void *addr, size_t offset, uint64
     mmio_write64((void *)((uintptr_t)addr + offset), val);
 }
 
-/*
- * ================================================================
- * Doorbell access
- * ================================================================
- */
+/* Doorbell access */
 
 static volatile uint32_t *nvme_sq_doorbell(nvme_controller_t *ctrl, uint32_t qid)
 {
@@ -79,11 +67,7 @@ static volatile uint32_t *nvme_cq_doorbell(nvme_controller_t *ctrl, uint32_t qid
     return (volatile uint32_t *)base;
 }
 
-/*
- * ================================================================
- * CAP register field extraction
- * ================================================================
- */
+/* CAP register field extraction */
 
 static uint32_t nvme_cap_mqes(uint64_t cap)
 {
@@ -102,11 +86,7 @@ static uint32_t nvme_cap_to(uint64_t cap)
     return to;
 }
 
-/*
- * ================================================================
- * Queue memory management
- * ================================================================
- */
+/* Queue memory management */
 
 static int nvme_alloc_queue(nvme_queue_t *q, uint32_t qid, uint16_t num_entries, nvme_controller_t *ctrl)
 {
@@ -175,11 +155,7 @@ static void nvme_free_queue(nvme_queue_t *q)
     }
 }
 
-/*
- * ================================================================
- * Completion polling
- * ================================================================
- */
+/* Completion polling */
 
 static int nvme_poll_completion(nvme_queue_t *q, uint32_t expected_cid, nvme_cqe_t *out)
 {
@@ -225,11 +201,7 @@ static int nvme_poll_completion(nvme_queue_t *q, uint32_t expected_cid, nvme_cqe
     return -ETIMEDOUT;
 }
 
-/*
- * ================================================================
- * Admin command submission
- * ================================================================
- */
+/* Admin command submission */
 
 static int nvme_admin_cmd(nvme_controller_t *ctrl, uint8_t opc, uint32_t nsid, uint64_t prp1, uint64_t prp2, uint32_t cdw10, uint32_t cdw11,
                           uint32_t cdw12, nvme_cqe_t *result)
@@ -256,12 +228,10 @@ static int nvme_admin_cmd(nvme_controller_t *ctrl, uint8_t opc, uint32_t nsid, u
 }
 
 /*
- * ================================================================
  * PRP list construction
  *
  * Because alloc_frames() returns physically contiguous pages,
  * the PRP list is a linear walk of page-aligned addresses.
- * ================================================================
  */
 
 static int nvme_build_prp(nvme_queue_t *q, uint64_t dma_phys, uint32_t byte_count, uint64_t *prp1_out, uint64_t *prp2_out)
@@ -315,11 +285,7 @@ static int nvme_build_prp(nvme_queue_t *q, uint64_t dma_phys, uint32_t byte_coun
     return EOK;
 }
 
-/*
- * ================================================================
- * Controller initialisation
- * ================================================================
- */
+/* Controller initialisation */
 
 static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
 {
@@ -386,7 +352,7 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
     /* This driver completes commands by polling. Keep legacy INTx masked. */
     nvme_write32(ctrl->regs, NVME_REG_INTMS, 0xFFFFFFFF);
 
-    /* ---- Disable controller ---- */
+    /* Disable controller */
     {
         nvme_write32(ctrl->regs, NVME_REG_CC, 0); // CC.EN = 0
         uint64_t timeout = (uint64_t)nvme_cap_to(cap) * NVME_TIMEOUT_LOOPS;
@@ -398,7 +364,7 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
         }
     }
 
-    /* ---- Allocate admin queues ---- */
+    /* Allocate admin queues */
     {
         uint16_t aq_entries = NVME_ADMIN_QSIZE;
         if (aq_entries > ctrl->max_qsize) aq_entries = (uint16_t)ctrl->max_qsize;
@@ -410,7 +376,7 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
         }
     }
 
-    /* ---- Program admin queue registers ---- */
+    /* Program admin queue registers */
     {
         uint32_t aqa_val = (uint32_t)((ctrl->admin_q.num_entries - 1) & 0xFFF) | ((uint32_t)((ctrl->admin_q.num_entries - 1) & 0xFFF) << 16);
         nvme_write32(ctrl->regs, NVME_REG_AQA, aqa_val);
@@ -419,7 +385,7 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
         compiler_barrier();
     }
 
-    /* ---- Enable controller ---- */
+    /* Enable controller */
     {
         uint32_t cc_val = NVME_CC_EN | (NVME_SQE_SHIFT << NVME_CC_IOSQES_SHIFT) | (NVME_CQE_SHIFT << NVME_CC_IOCQES_SHIFT);
         nvme_write32(ctrl->regs, NVME_REG_CC, cc_val);
@@ -433,7 +399,7 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
         }
     }
 
-    /* ---- Set Features: Number of Queues ---- */
+    /* Set Features: Number of Queues */
     /* Request 1 I/O SQ + 1 I/O CQ */
     {
         nvme_cqe_t cqe;
@@ -446,7 +412,7 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
 
     plogk("nvme: controller %u: Admin queue configured, %u entries.\n", ctrl_id, ctrl->admin_q.num_entries);
 
-    /* ---- Create polling I/O queue pair 1 ---- */
+    /* Create polling I/O queue pair 1 */
     {
         uint16_t   io_entries = NVME_IO_QSIZE;
         nvme_cqe_t cqe;
@@ -463,7 +429,7 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
         if (ret) goto err_io;
     }
 
-    /* ---- Identify Controller ---- */
+    /* Identify Controller */
     {
         uint64_t ident_phys = alloc_frames(1);
         if (!ident_phys) {
@@ -503,7 +469,7 @@ static int nvme_controller_init(pci_device_cache_t *pci_dev, uint16_t ctrl_id)
         free_frames(ident_phys, 1);
     }
 
-    /* ---- Identify each namespace ---- */
+    /* Identify each namespace */
     for (uint32_t ns_idx = 0; ns_idx < ctrl->num_namespaces; ns_idx++) {
         uint32_t   nsid = ns_idx + 1;
         nvme_cqe_t cqe;
@@ -559,11 +525,7 @@ err_io:
     goto err_admin;
 }
 
-/*
- * ================================================================
- * I/O command submission
- * ================================================================
- */
+/* I/O command submission */
 
 static int nvme_do_io(nvme_controller_t *ctrl, uint8_t opc, uint32_t nsid, uint64_t prp1, uint64_t prp2, uint64_t slba, uint16_t nlb)
 {
@@ -595,11 +557,7 @@ static int nvme_do_io(nvme_controller_t *ctrl, uint8_t opc, uint32_t nsid, uint6
     return ret;
 }
 
-/*
- * ================================================================
- * Backend I/O entry points (called via blockdev ops table)
- * ================================================================
- */
+/* Backend I/O entry points (called via blockdev ops table) */
 
 int nvme_read_sectors(const struct blockdev_device *dev, uint64_t lba, uint32_t count, void *buffer)
 {
@@ -765,11 +723,7 @@ int nvme_flush(const struct blockdev_device *dev)
     return nvme_do_io(ctrl, NVME_NVM_FLUSH, ns->nsid, 0, 0, 0, 0);
 }
 
-/*
- * ================================================================
- * Public API
- * ================================================================
- */
+/* Public API */
 
 void nvme_init(void)
 {
