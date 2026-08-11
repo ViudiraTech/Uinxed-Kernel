@@ -1,3 +1,13 @@
+/*
+ *
+ *      ffconf.h
+ *      Configurations of FatFs Module
+ *
+ *      2026/5/18 By Rainy101112
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
+ */
+
 #ifndef INCLUDE_ffconf_H_
 #define INCLUDE_ffconf_H_
 

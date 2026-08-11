@@ -20,11 +20,9 @@
 #include <process/task.h>
 #include <sync/signal.h>
 
-typedef struct tty_core tty_core_t;
-
+typedef struct tty_core      tty_core_t;
 typedef struct syscall_frame syscall_frame_t;
-
-typedef int64_t pid_t;
+typedef int64_t              pid_t;
 
 extern process_t *init_process;
 

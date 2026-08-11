@@ -1,7 +1,11 @@
 /*
- * -----------------------------------------------------------------------
- * Low level disk interface modlue include file   (C)ChaN, 2025
- * -----------------------------------------------------------------------
+ *
+ *      ffdiskio.h
+ *      Low level disk interface modlue include file
+ *
+ *      2026/5/18 By Rainy101112
+ *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
+ *
  */
 
 #ifndef _DISKIO_DEFINED

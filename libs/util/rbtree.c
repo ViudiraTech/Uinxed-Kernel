@@ -22,11 +22,11 @@ static void augment_propagate(rb_node_t *node, rb_augment_fn augment, void *data
 }
 
 /*
- * Left rotation:     node                     right
- * /    \                    /    \
- * left  right     ==>       node    rr
- * /   \              /   \
- * rl   rr          left   rl
+ * Left rotation: node          right
+ *                /  \          /  \
+ *             left  right ==> node rr
+ *                   /  \      /  \
+ *                  rl   rr  left  rl
  */
 static void rb_rotate_left(rb_root_t *root, rb_node_t *node, rb_augment_fn augment, void *data)
 {

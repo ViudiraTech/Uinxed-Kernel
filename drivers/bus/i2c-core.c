@@ -3,7 +3,7 @@
  *      i2c-core.c
  *      I2C bus subsystem core implementation
  *
- *      2026/7/25 By Uinxed
+ *      2026/7/25 By MicroFish
  *      Copyright (C) 2020 ViudiraTech, based on the Apache 2.0 license.
  *
  */
