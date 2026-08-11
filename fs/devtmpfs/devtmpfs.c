@@ -21,6 +21,7 @@
 #include <drivers/sound/core/audio.h>
 #include <drivers/time/rtc.h>
 #include <drivers/tty/pty/pty.h>
+#include <drivers/tty/tty_driver.h>
 #include <fs/core/vfs.h>
 #include <fs/devtmpfs/devtmpfs.h>
 #include <fs/tmpfs/tmpfs.h>
@@ -725,6 +726,7 @@ void devtmpfs_init(void)
 
     total_devices += evdev_publish_nodes();
     total_devices += chrdev_populate();
+    total_devices += tty_devices_populate();
     total_devices += devtmpfs_create_framebuffer_node();
     total_devices += devtmpfs_create_audio_nodes();
 #if CONFIG_UNIX98_PTYS

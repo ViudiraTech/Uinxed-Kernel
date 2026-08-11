@@ -289,11 +289,11 @@ menu "Device Drivers"
         config VT_COUNT
           int "Number of virtual terminals (counting tty0)"
           depends on VT
-          default 64
+          default 8
           range 1 64
           help
             Number of virtual terminal devices, including /dev/tty0
-            (so 64 yields /dev/tty0 through /dev/tty63). Each VT reserves
+            (so 8 yields /dev/tty0 through /dev/tty7). Each VT reserves
             a line-discipline input buffer.
 
       endmenu

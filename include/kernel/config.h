@@ -207,7 +207,7 @@
 #endif
 
 #ifndef CONFIG_VT_COUNT
-#    define CONFIG_VT_COUNT 64
+#    define CONFIG_VT_COUNT 8
 #endif
 
 #ifndef CPU_FEATURE_AVX

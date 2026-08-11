@@ -373,6 +373,7 @@ void block_sysfs_init(void)
         gendisk_t         *disk = block_get_disk(i);
         block_sysfs_dev_t *handle;
         if (!disk) continue;
+        if (!disk->scan_partitions) continue;
         if (block_sysfs_register_device(disk->name, &disk->device, false, &handle) == EOK) count++;
     }
 

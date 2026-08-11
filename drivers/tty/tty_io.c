@@ -89,8 +89,6 @@ int tty_register_driver(tty_driver_t *drv)
     drv->next       = tty_driver_list;
     tty_driver_list = drv;
     spin_unlock(&tty_driver_lock);
-
-    plogk("tty_io: Registered tty driver \"%s\" (major %u, %u minors).\n", drv->name, drv->major, drv->num);
     return 0;
 }
 

@@ -272,9 +272,8 @@ void kernel_entry(void)
     device_model_init();                                           // Initialise the device model (bus/class/device)
     ppdev_init();                                                  // /dev/parportN character devices
     chrdev_init();                                                 // Register static character devices
-    devtmpfs_init();                                               // Device Temporary File System
     vt_driver_init();                                              // Register vt/aux tty drivers
-    tty_devices_populate();                                        // Create /dev/tty*, /dev/ttyS*, /dev/console
+    devtmpfs_init();                                               // Device Temporary File System
                                                                    //
     /* RAM Filesystem */                                           //
     init_cpio();                                                   // Copy In, Copy Out

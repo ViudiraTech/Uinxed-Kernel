@@ -39,7 +39,7 @@ tty_device_t *boot_tty_ptr = 0;
 #    define CONFIG_VT 1
 #endif
 #ifndef CONFIG_VT_COUNT
-#    define CONFIG_VT_COUNT 64
+#    define CONFIG_VT_COUNT 8
 #endif
 #define VT_TTY_COUNT CONFIG_VT_COUNT
 
