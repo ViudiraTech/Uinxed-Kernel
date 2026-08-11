@@ -50,7 +50,7 @@
  * f_findnext(). (0:Disable, 1:Enable 2:Enable with matching altname[] too)
  */
 
-#define FF_USE_MKFS 0
+#define FF_USE_MKFS 1
 /* This option switches f_mkfs(). (0:Disable or 1:Enable) */
 
 #define FF_USE_FASTSEEK 0
@@ -104,7 +104,7 @@
  * ---------------------------------------------------------------------------
  */
 
-#define FF_CODE_PAGE 932
+#define FF_CODE_PAGE 0
 /*
  * This option specifies the OEM code page to be used on the target system.
  * Incorrect code page setting can cause a file open failure.
@@ -154,7 +154,7 @@
  * ff_memfree() exemplified in ffsystem.c, need to be added to the project.
  */
 
-#define FF_LFN_UNICODE 0
+#define FF_LFN_UNICODE 2
 /*
  * This option switches the character encoding on the API when LFN is enabled.
  *
@@ -265,7 +265,7 @@
  * ---------------------------------------------------------------------------
  */
 
-#define FF_FS_TINY 0
+#define FF_FS_TINY 1
 /*
  * This option switches tiny buffer configuration. (0:Normal or 1:Tiny)
  * At the tiny configuration, size of file object (FIL) is reduced FF_MAX_SS bytes.
@@ -273,7 +273,7 @@
  * buffer in the filesystem object (FATFS) is used for the file data transfer.
  */
 
-#define FF_FS_EXFAT 0
+#define FF_FS_EXFAT 1
 /*
  * This option switches support for exFAT filesystem. (0:Disable or 1:Enable)
  * To enable exFAT, also LFN needs to be enabled. (FF_USE_LFN >= 1)
@@ -313,7 +313,7 @@
  * bit1=1: Do not trust last allocated cluster number in the FSINFO.
  */
 
-#define FF_FS_LOCK 0
+#define FF_FS_LOCK 64
 /*
  * The option FF_FS_LOCK switches file lock function to control duplicated file open
  * and illegal operation to open objects. This option must be 0 when FF_FS_READONLY
@@ -326,7 +326,7 @@
  * lock control is independent of re-entrancy.
  */
 
-#define FF_FS_REENTRANT 0
+#define FF_FS_REENTRANT 1
 #define FF_FS_TIMEOUT   1000
 /*
  * The option FF_FS_REENTRANT switches the re-entrancy (thread safe) of the FatFs

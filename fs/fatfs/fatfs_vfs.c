@@ -57,6 +57,12 @@ static int fatfs_result_to_errno(FRESULT res)
             return -ENODEV;
         case FR_WRITE_PROTECTED :
             return -EROFS;
+        case FR_LOCKED :
+            return -EBUSY;
+        case FR_TOO_MANY_OPEN_FILES :
+            return -EMFILE;
+        case FR_NOT_ENOUGH_CORE :
+            return -ENOMEM;
         default :
             return -EIO;
     }
@@ -482,13 +488,10 @@ static size_t fatfs_vfs_read(void *file, void *addr, size_t offset, size_t size)
 
     if (!handle || !addr || handle->is_dir) return 0;
     if (!handle->opened || handle->open_mode != (FA_READ | FA_OPEN_EXISTING)) {
-        res = f_open(&handle->file, handle->path, FA_READ | FA_OPEN_EXISTING);
-        if (res != FR_OK) {
-            plogk("fatfs: %s: open for read failed: %d\n", handle->path, res);
+        if (fatfs_prepare_file_handle(handle, FA_READ | FA_OPEN_EXISTING) != EOK) {
+            plogk("fatfs: %s: open for read failed.\n", handle->path);
             return 0;
         }
-        handle->opened    = 1;
-        handle->open_mode = FA_READ | FA_OPEN_EXISTING;
     }
 
     res = f_lseek(&handle->file, offset);
@@ -708,6 +711,7 @@ static struct vfs_callback fatfs_vfs_callbacks = {
 void fatfs_vfs_regist(void)
 {
 #if CONFIG_FAT_FS
+    f_setcp(936); // Default active code page (GBK) for SFN
     fatfs_vfs_id = vfs_regist_fs("fatfs", &fatfs_vfs_callbacks);
     if (fatfs_vfs_id & ERRNO_MASK) plogk("fatfs: Register error.\n");
     if (!(fatfs_vfs_id & ERRNO_MASK)) plogk("fatfs: Filesystem registered (fsid=%d)\n", fatfs_vfs_id);
