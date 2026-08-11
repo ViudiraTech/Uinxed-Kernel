@@ -21,6 +21,5 @@ DWORD get_fattime(void)
     DWORD sec  = get_sec_hex();
 
     if (year < 1980) year = 1980;
-
     return ((year - 1980) << 25) | (mon << 21) | (day << 16) | (hour << 11) | (min << 5) | (sec / 2);
 }
