@@ -335,7 +335,7 @@ int64_t strtol(const char *str, char **endptr, int base)
     acc = any = 0;
     if (base < 2 || base > 36) goto noconv;
 
-    cutoff = neg ? (unsigned long)-(LONG_MIN + LONG_MAX) + LONG_MAX : LONG_MAX;
+    cutoff = neg ? (uint64_t)LONG_MAX + 1 : (uint64_t)LONG_MAX;
     cutlim = cutoff % base;
     cutoff /= base;
 

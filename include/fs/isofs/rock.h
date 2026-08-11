@@ -128,7 +128,7 @@ struct rock_ridge {
 
 /* Rock Ridge parser state */
 
-struct rock_state {
+typedef struct isofs_rr_state {
         void    *buffer;
         uint8_t *chr;
         int      len;
@@ -143,7 +143,7 @@ struct rock_state {
         /* callbacks for block I/O */
         int (*read_block)(void *ctx, uint32_t block, void *buf, uint32_t size);
         void *io_ctx;
-};
+} isofs_rr_state_t;
 
 /*
  * Read the full symlink target from a directory record's SL entries.
@@ -151,6 +151,6 @@ struct rock_state {
  * `buf`/`bufsize` receive the reconstructed path.
  * Returns the number of bytes written (excluding NUL), or negative on error.
  */
-int get_rock_ridge_symlink(void *raw_de, struct isofs_mount *mount, char *buf, int bufsize);
+int isofs_rr_symlink(void *raw_de, struct isofs_mount *mount, char *buf, int bufsize);
 
 #endif // INCLUDE_ROCK_H_

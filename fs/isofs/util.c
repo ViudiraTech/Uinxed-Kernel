@@ -24,7 +24,6 @@ static uint64_t mktime64(int year, int month, int day, int hour, int min, int se
     int      y;
 
     for (y = 1970; y < year; y++) total += (uint64_t)(is_leap_year(y) ? 366 : 365) * 86400;
-
     for (int m = 1; m < month; m++) {
         int dim = days_in_month[m - 1];
         if (m == 2 && is_leap_year(year)) dim = 29;
@@ -39,7 +38,7 @@ static uint64_t mktime64(int year, int month, int day, int hour, int min, int se
     return total;
 }
 
-uint64_t iso_date_to_unix(const uint8_t *p, int flags)
+uint64_t isofs_date_to_unix(const uint8_t *p, int flags)
 {
     int      year, month, day, hour, minute, second, tz;
     uint64_t ts;
@@ -63,9 +62,7 @@ uint64_t iso_date_to_unix(const uint8_t *p, int flags)
     }
 
     if (year < 0) return 0;
-
     ts = mktime64(year + 1900, month, day, hour, minute, second);
-
     if (tz >= -52 && tz <= 52) ts -= (int64_t)tz * 15 * 60;
 
     return ts;

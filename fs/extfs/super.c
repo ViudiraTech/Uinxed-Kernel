@@ -9,7 +9,7 @@
  */
 
 #include <fs/extfs/extfs.h>
-#include <fs/extfs/jbd2.h>
+#include <fs/extfs/extfs_jnl.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/string.h>
@@ -21,7 +21,7 @@
  * Superblock handling
  * Reads and validates the on-disk superblock, detects the ext2/3/4
  * feature set, and provides the block-addressed disk I/O primitives
- * (optionally routed through the current jbd2 transaction).
+ * (optionally routed through the current journal transaction).
  */
 
 int extfs_detect_version(const ext2_super_block_t *es)
@@ -551,12 +551,12 @@ int extfs_read_super(extfs_sb_info_t *sb, const blockdev_device_t *device)
 
     const fs_txn_backend_ops_t *journal_ops = 0;
     if (sb->es->s_feature_compat & EXT3_FEATURE_COMPAT_HAS_JOURNAL) {
-        status = extfs_jbd2_open(sb, &sb->journal);
+        status = extfs_jnl_open(sb, &sb->journal);
         if (status != EOK) {
             extfs_free_super(sb);
             return status;
         }
-        journal_ops = extfs_jbd2_backend_ops();
+        journal_ops = extfs_jnl_backend_ops();
     } else if (sb->es->s_feature_incompat & EXT3_FEATURE_INCOMPAT_RECOVER) {
         extfs_free_super(sb);
         return -EINVAL;
@@ -569,7 +569,7 @@ int extfs_read_super(extfs_sb_info_t *sb, const blockdev_device_t *device)
     }
     sb->transaction_log_initialized = 1;
 
-    /* Linux loads and replays JBD2 before exposing the root inode. */
+    /* Replay the journal before exposing the root inode. */
     status = fs_txn_recover(&sb->transaction_log);
     if (status != EOK) {
         extfs_free_super(sb);
@@ -591,7 +591,7 @@ void extfs_free_super(extfs_sb_info_t *sb)
 {
     if (!sb) return;
     if (sb->transaction_log_initialized) fs_txn_log_destroy(&sb->transaction_log);
-    if (sb->journal) extfs_jbd2_close(sb->journal);
+    if (sb->journal) extfs_jnl_close(sb->journal);
     if (sb->group_desc) free(sb->group_desc);
     if (sb->es) free(sb->es);
     blockdev_release(&sb->device);

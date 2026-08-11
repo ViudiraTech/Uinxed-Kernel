@@ -144,7 +144,7 @@ static inline uint32_t isonum_733(const uint8_t *p)
 #define ISO_DATE_HIGH_SIERRA (1 << 0)
 #define ISO_DATE_LONG_FORM   (1 << 1)
 
-uint64_t iso_date_to_unix(const uint8_t *p, int flags);
+uint64_t isofs_date_to_unix(const uint8_t *p, int flags);
 
 /* In-memory mount structure */
 
@@ -183,13 +183,12 @@ typedef struct isofs_handle {
 
 /* Rock Ridge / name translation */
 
-int  isofs_name_translate(void *raw_de, char *out, int bufsize);
-int  get_rock_ridge_filename(void *raw_de, char *out, int bufsize, isofs_mount_t *mount);
-void parse_rock_ridge_inode(void *raw_de, isofs_handle_t *handle, isofs_mount_t *mount);
+int  isofs_rr_translate_name(void *raw_de, char *out, int bufsize);
+int  isofs_rr_filename(void *raw_de, char *out, int bufsize, isofs_mount_t *mount);
+void isofs_rr_parse_inode(void *raw_de, isofs_handle_t *handle, isofs_mount_t *mount);
 
 /* API */
 
 void isofs_regist(void);
-void isofs_mount_all(void);
 
 #endif // INCLUDE_ISOFS_H_

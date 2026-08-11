@@ -1,0 +1,118 @@
+Uinxed-Kernel
+Third-Party Notices
+===================
+
+This file contains attribution and license notices for third-party
+software and resources distributed with or incorporated into the
+Uinxed-Kernel project. The project itself is licensed under the
+Apache License 2.0 (see LICENSE), and each third-party component below
+remains under its own license.
+
+Components
+----------
+
+1. OVMF (Open Virtual Machine Firmware)
+   Path:      assets/ovmf-code.fd
+   Upstream:  https://github.com/tianocore/edk2
+   License:   BSD 2-Clause Plus Patent License
+   Copyright (c) 2017, Intel Corporation. All rights reserved.
+
+2. Limine bootloader
+   Path:      assets/Limine/ & include/boot/limine.h
+   Upstream:  https://limine-bootloader.org/  (https://github.com/limine-bootloader/limine)
+   License:   0BSD
+   Copyright (C) 2019-2024 mintsuki and contributors.
+
+3. FatFs - Generic FAT Filesystem Module
+   Path:      fs/fatfs/ & include/fs/fatfs
+   Upstream:  http://elm-chan.org/fsw/ff/
+   License:   FatFs custom BSD-style license
+   Copyright (C) 2025, ChaN, all right reserved.
+
+4. 8x8 dot-matrix bitmap font
+   Path:      libs/gfx/fonts.c
+   Origin:    Public-domain 8x8 bitmap font data (public-domain style,
+              no attribution or license obligations).
+
+-----------------------------------------------------------------------
+1. OVMF / EDK2 - BSD 2-Clause Plus Patent License
+-----------------------------------------------------------------------
+
+Copyright (c) 2017, Intel Corporation. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+Subject to the terms and conditions of this license, each copyright holder
+and contributor hereby grants to those receiving rights under this license a
+perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+(except for failure to satisfy the conditions of this license) patent license
+to make, have made, use, offer to sell, sell, import, and otherwise transfer
+this software, where such license applies only to those patent claims,
+already acquired or hereafter acquired, licensable by such copyright holder
+or contributor that are necessarily infringed by their contribution(s) alone
+or by combination of their contribution(s) with the work to which such
+contribution(s) was submitted. If any entity institutes patent litigation
+against any entity alleging that such entity's contribution, or software
+incorporating such entity's contribution, constitutes direct or contributory
+patent infringement, then any patent licenses granted to such entity under
+this license for that contribution shall terminate as of the date such
+litigation is filed.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-----------------------------------------------------------------------
+2. Limine bootloader - 0BSD License
+-----------------------------------------------------------------------
+
+Copyright (C) 2019-2024 mintsuki and contributors.
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE.
+
+-----------------------------------------------------------------------
+3. FatFs - FatFs License
+-----------------------------------------------------------------------
+
+Copyright (C) 2025, ChaN, all right reserved.
+
+FatFs module is an open source software. Redistribution and use of FatFs in
+source and binary forms, with or without modification, are permitted provided
+that the following condition is met:
+
+1. Redistributions of source code must retain the above copyright notice,
+   this condition and the following disclaimer.
+
+This software is provided by the copyright holder and contributors "AS IS"
+and any warranties related to this software are DISCLAIMED.
+The copyright owner or contributors be NOT LIABLE for any damages caused
+by use of this software.
+
+-----------------------------------------------------------------------
+4. 8x8 dot-matrix bitmap font
+-----------------------------------------------------------------------
+
+The glyph data in libs/gfx/fonts.c is taken from widely redistributed
+public-domain 8x8 bitmap fonts. It is provided without warranty and
+without any license obligations.

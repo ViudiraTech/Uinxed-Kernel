@@ -8,6 +8,12 @@
  *
  */
 
+/*
+ * -----------------------------------------------------------------------
+ * Low level disk interface module for FatFs  (C)ChaN, 2025
+ * -----------------------------------------------------------------------
+ */
+
 #include <drivers/block/core/blockdev.h>
 #include <fs/fatfs/fatfs_disk.h>
 #include <fs/fatfs/ff.h>

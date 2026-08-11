@@ -8,6 +8,13 @@
  *
  */
 
+/*
+ * This header is based on the Limine boot protocol header from the
+ * Limine bootloader project (https://limine-bootloader.org/),
+ * Copyright (C) 2019-2024 mintsuki and contributors, released under
+ * the 0BSD license.
+ */
+
 #ifndef INCLUDE_LIMINE_H_
 #define INCLUDE_LIMINE_H_
 

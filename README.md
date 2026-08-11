@@ -169,8 +169,9 @@ Uinxed-Kernel/
 |-- .config-default   # Default configuration options
 |-- .gitignore        # Ignore rules
 |-- Kconfig           # Kernel configuration
-|-- LICENSE           # Open source license
+|-- LICENSE           # Open source license (Apache 2.0)
 |-- Makefile          # Build script
+|-- NOTICE            # Third-party notices and license texts
 |-- README.md         # Project introduction
 `-- SECURITY.md       # Security policy
 ```
@@ -231,16 +232,15 @@ Encountering a bug? File an issue - we welcome them all. A few guidelines:
 3. **No need to be overly formal.** Casual is fine - we are partners in making this project better.
 4. **Your native language is welcome.** You may write in any language, but keep in mind that typos can confuse translation tools.
 
-## Referenced Projects
-
-- [Hurlex-Kernel](http://wiki.0xffffff.org/)
-- [CoolPotOS](https://github.com/plos-clan/CoolPotOS)
-
 ## License & Disclaimer
 
 ### License
 
-This project is licensed under the Apache 2.0 License. See [LICENSE](LICENSE) for details.
+This project is licensed under the [Apache License 2.0](LICENSE).
+
+This distribution includes third-party software, each under its own license. Full attribution and license texts are collected in [NOTICE](NOTICE).
+
+Parts of the codebase reference and reimplement Linux kernel interfaces for interoperability. These are independent implementations of public interfaces and specifications; they do not contain Linux kernel source code.
 
 ### Disclaimer
 

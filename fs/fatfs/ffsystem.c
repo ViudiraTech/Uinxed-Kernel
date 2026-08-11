@@ -8,6 +8,10 @@
  *
  */
 
+/*------------------------------------------------------------------------*/
+/* A Sample Code of User Provided OS Dependent Functions for FatFs        */
+/*------------------------------------------------------------------------*/
+
 #include <fs/fatfs/ff.h>
 #include <kernel/errno.h>
 #include <process/sched.h>

@@ -28,7 +28,7 @@ static int extfs_id = 0;
  * extfs.c is the VFS front-end for the ext2/3/4 inode engine in this
  * directory: it maps VFS nodes onto extfs handles, converts mode
  * bits, and implements read/write/lookup through the lower-level
- * inode/dir/extents/jbd2 helpers.
+ * inode/dir/extents/journal helpers.
  */
 
 static uint16_t extfs_mode_to_vfs(uint16_t mode)

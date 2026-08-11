@@ -8,9 +8,6 @@
  *
  */
 
-#include <drivers/block/ata/pata/atapi.h>
-#include <drivers/block/ata/pata/ide.h>
-#include <drivers/block/ata/sata/ahci.h>
 #include <drivers/block/core/blockdev.h>
 #include <fs/core/vfs.h>
 #include <fs/isofs/isofs.h>
@@ -52,7 +49,7 @@ static int isofs_read_bytes(isofs_mount_t *mnt, uint64_t offset, void *buf, uint
 
 static uint64_t iso_date_from_de(const uint8_t *d, int high_sierra)
 {
-    return iso_date_to_unix(d, high_sierra ? ISO_DATE_HIGH_SIERRA : 0);
+    return isofs_date_to_unix(d, high_sierra ? ISO_DATE_HIGH_SIERRA : 0);
 }
 
 /* Mount/dismount */
@@ -75,8 +72,8 @@ static void isofs_handle_destroy(isofs_handle_t *h)
 
 /* Scan directory records to find a child by name */
 
-static iso_directory_record_t *isofs_find_entry(isofs_mount_t *mnt, uint32_t dir_block, uint64_t dir_size, const char *name, uint32_t *out_block,
-                                                uint32_t *out_offset)
+static iso_directory_record_t *isofs_lookup_record(isofs_mount_t *mnt, uint32_t dir_block, uint64_t dir_size, const char *name,
+                                                   uint32_t *out_block, uint32_t *out_offset)
 {
     uint8_t *buf;
     uint32_t block_size = mnt->block_size;
@@ -145,14 +142,14 @@ static iso_directory_record_t *isofs_find_entry(isofs_mount_t *mnt, uint32_t dir
         }
 
         if (mnt->rock_ridge) {
-            int rr_len = get_rock_ridge_filename(de, rr_name, sizeof(rr_name), mnt);
+            int rr_len = isofs_rr_filename(de, rr_name, sizeof(rr_name), mnt);
             if (rr_len > 0) {
                 dpnt = rr_name;
                 dlen = rr_len;
             }
         } else {
             char xbuf[256];
-            dlen = isofs_name_translate(de, xbuf, sizeof(xbuf));
+            dlen = isofs_rr_translate_name(de, xbuf, sizeof(xbuf));
             dpnt = xbuf;
             memcpy(rr_name, xbuf, dlen + 1);
         }
@@ -257,10 +254,10 @@ static int isofs_load_directory(vfs_node_t node)
         int  is_dir = (de->flags[0] & 2) != 0;
 
         if (mnt->rock_ridge) {
-            dlen = get_rock_ridge_filename(de, name_buf, sizeof(name_buf), mnt);
-            if (dlen <= 0) dlen = isofs_name_translate(de, name_buf, sizeof(name_buf));
+            dlen = isofs_rr_filename(de, name_buf, sizeof(name_buf), mnt);
+            if (dlen <= 0) dlen = isofs_rr_translate_name(de, name_buf, sizeof(name_buf));
         } else {
-            dlen = isofs_name_translate(de, name_buf, sizeof(name_buf));
+            dlen = isofs_rr_translate_name(de, name_buf, sizeof(name_buf));
         }
 
         if (dlen == 0) {
@@ -300,7 +297,7 @@ static int isofs_load_directory(vfs_node_t node)
         ch->raw_de = (iso_directory_record_t *)ch->raw_de_buf;
 
         /* parse Rock Ridge if available */
-        if (mnt->rock_ridge && ch->raw_de) parse_rock_ridge_inode(ch->raw_de, ch, mnt);
+        if (mnt->rock_ridge && ch->raw_de) isofs_rr_parse_inode(ch->raw_de, ch, mnt);
 
         if (mnt->cruft) ch->size &= 0x00ffffff;
 
@@ -329,7 +326,7 @@ static int isofs_load_directory(vfs_node_t node)
 static int isofs_read_symlink(isofs_handle_t *h, char *buf, size_t bufsize)
 {
     if (!h || !h->is_symlink || !h->raw_de || !h->mount) return -EINVAL;
-    return get_rock_ridge_symlink(h->raw_de, h->mount, buf, (int)bufsize);
+    return isofs_rr_symlink(h->raw_de, h->mount, buf, (int)bufsize);
 }
 
 /* VFS callbacks */
@@ -486,7 +483,7 @@ static int isofs_vfs_mount(const char *src, vfs_node_t node)
     pri_copy = NULL;
 
     /* Parse Rock Ridge for root */
-    if (mnt->rock_ridge && root_h->raw_de) parse_rock_ridge_inode(root_h->raw_de, root_h, mnt);
+    if (mnt->rock_ridge && root_h->raw_de) isofs_rr_parse_inode(root_h->raw_de, root_h, mnt);
 
     /* Fill VFS node */
     node->handle     = root_h;
@@ -503,7 +500,6 @@ static int isofs_vfs_mount(const char *src, vfs_node_t node)
         node->handle = NULL;
         return -EIO;
     }
-
     return EOK;
 }
 
@@ -520,7 +516,7 @@ static void isofs_vfs_open(void *parent, const char *name, vfs_node_t node)
     if (!p || !p->mount || !p->is_dir) return;
 
     /* search the parent directory for this child's record */
-    iso_directory_record_t *de = isofs_find_entry(p->mount, p->first_extent, p->size, name, NULL, NULL);
+    iso_directory_record_t *de = isofs_lookup_record(p->mount, p->first_extent, p->size, name, NULL, NULL);
     if (!de) return;
 
     isofs_handle_t *h = calloc(1, sizeof(isofs_handle_t));
@@ -536,8 +532,7 @@ static void isofs_vfs_open(void *parent, const char *name, vfs_node_t node)
     h->raw_de_buf   = (uint8_t *)de;
     h->raw_de       = de;
 
-    if (p->mount->rock_ridge) parse_rock_ridge_inode(de, h, p->mount);
-
+    if (p->mount->rock_ridge) isofs_rr_parse_inode(de, h, p->mount);
     if (p->mount->cruft) h->size &= 0x00ffffff;
 
     node->handle = h;
@@ -723,84 +718,6 @@ void isofs_regist(void)
     if (isofs_fs_id & ERRNO_MASK) {
         plogk("isofs: Register error.\n");
         return;
-    }
-#endif
-}
-
-void isofs_mount_all(void)
-{
-    vfs_node_t root = get_rootdir();
-    if (!root || !root->fsid) return;
-
-    uint8_t sr_idx = 0;
-
-#if CONFIG_ATA
-    for (uint8_t drive = 0; drive < 4; drive++) {
-        if (!atapi_devices[drive].reserved || atapi_devices[drive].type != IDE_ATAPI) continue;
-
-        char       path[32];
-        char       src[16];
-        vfs_node_t node;
-
-        (void)snprintf(path, sizeof(path), "/mnt/cdrom%u", (unsigned)sr_idx);
-        (void)snprintf(src, sizeof(src), "sr%u", (unsigned)sr_idx);
-
-        int mkdir_status = vfs_mkdir(path);
-        if (mkdir_status != EOK && mkdir_status != -EEXIST) {
-            sr_idx++;
-            continue;
-        }
-        node = vfs_open(path);
-        if (!node) {
-            sr_idx++;
-            continue;
-        }
-        if (node->is_mount) {
-            vfs_close(node);
-            sr_idx++;
-            continue;
-        }
-
-        if (vfs_mount_fs("isofs", src, node) == EOK)
-            plogk("isofs: Auto-mounted %s at %s\n", src, path);
-        else
-            plogk("isofs: Failed to auto-mount %s (no media or invalid ISO)\n", src);
-        vfs_close(node);
-        sr_idx++;
-    }
-
-    for (int d = 0; d < AHCI_MAX_DEVICES; d++) {
-        if (!ahci_devices[d].reserved || ahci_devices[d].type != AHCI_DEV_SATAPI) continue;
-
-        char       path[32];
-        char       src[16];
-        vfs_node_t node;
-
-        (void)snprintf(path, sizeof(path), "/mnt/cdrom%u", (unsigned)sr_idx);
-        (void)snprintf(src, sizeof(src), "sr%u", (unsigned)sr_idx);
-
-        int mkdir_status = vfs_mkdir(path);
-        if (mkdir_status != EOK && mkdir_status != -EEXIST) {
-            sr_idx++;
-            continue;
-        }
-        node = vfs_open(path);
-        if (!node) {
-            sr_idx++;
-            continue;
-        }
-        if (node->is_mount) {
-            vfs_close(node);
-            sr_idx++;
-            continue;
-        }
-
-        if (vfs_mount_fs("isofs", src, node) == EOK)
-            plogk("isofs: Auto-mounted %s at %s\n", src, path);
-        else
-            plogk("isofs: Failed to auto-mount %s (no media or invalid ISO)\n", src);
-        vfs_close(node);
-        sr_idx++;
     }
 #endif
 }
