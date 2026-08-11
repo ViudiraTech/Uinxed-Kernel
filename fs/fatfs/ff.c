@@ -1514,7 +1514,7 @@ static DWORD create_chain(FFOBJID *obj, DWORD clst)
             }
         }
         res = put_fat(fs, ncl, 0xFFFFFFFF);                          // Mark the new cluster 'EOC'
-        if (res == FR_OK && clst != 0) res = put_fat(fs, clst, ncl); /* Link it from the previous one if needed */
+        if (res == FR_OK && clst != 0) res = put_fat(fs, clst, ncl); // Link it from the previous one if needed
     }
 
     if (res == FR_OK) { // Update allocation information if the function succeeded
@@ -2008,7 +2008,7 @@ static FRESULT load_obj_xdir(DIR *dp, const FFOBJID *obj)
     dp->blk_ofs     = obj->c_ofs;
 
     res = dir_sdi(dp, dp->blk_ofs);        // Goto object's entry block
-    if (res == FR_OK) res = load_xdir(dp); /* Load the object's entry block */
+    if (res == FR_OK) res = load_xdir(dp); // Load the object's entry block
     return res;
 }
 #    endif
@@ -2108,7 +2108,7 @@ static FRESULT dir_read(DIR *dp, int vol)
                 if (et == ET_FILEDIR) {                                               // Start of the file entry block?
                     dp->blk_ofs = dp->dptr;                                           // Get location of the block
                     res         = load_xdir(dp);                                      // Load the entry block
-                    if (res == FR_OK) dp->obj.attr = fs->dirbuf[XDIR_Attr] & AM_MASK; /* Get attribute */
+                    if (res == FR_OK) dp->obj.attr = fs->dirbuf[XDIR_Attr] & AM_MASK; // Get attribute
                     break;
                 }
             }
@@ -3083,7 +3083,7 @@ static UINT check_fs(FATFS *fs, LBA_t sect)
 #endif
     b = fs->win[BS_JmpBoot];
     if (b == 0xEB || b == 0xE9 || b == 0xE8) { // Valid JumpBoot code? (short jump, near jump or near call)
-        if (sign == 0xAA55 && !memcmp(fs->win + BS_FilSysType32, "FAT32   ", 8)) return 0; /* It is an FAT32 VBR */
+        if (sign == 0xAA55 && !memcmp(fs->win + BS_FilSysType32, "FAT32   ", 8)) return 0; // It is an FAT32 VBR
         /* FAT volumes created in the early MS-DOS era lack BS_55AA and BS_FilSysType, so FAT VBR needs to be identified without them. */
         w = ld_16(fs->win + BPB_BytsPerSec);
         b = fs->win[BPB_SecPerClus];
@@ -3840,7 +3840,7 @@ FRESULT f_sync(FIL *fp)
 #    if FF_FS_EXFAT
             if (fs->fs_type == FS_EXFAT) {
                 res = fill_first_frag(&fp->obj);                                         // Fill first fragment on the FAT if needed
-                if (res == FR_OK) res = fill_last_frag(&fp->obj, fp->clust, 0xFFFFFFFF); /* Fill last fragment on the FAT if needed */
+                if (res == FR_OK) res = fill_last_frag(&fp->obj, fp->clust, 0xFFFFFFFF); // Fill last fragment on the FAT if needed
                 if (res == FR_OK) {
                     DIR dj;
                     DEF_NAMEBUFF
@@ -4400,7 +4400,7 @@ FRESULT f_findfirst(DIR *dp, FILINFO *fno, const TCHAR *path, const TCHAR *patte
 
     dp->pat = pattern;                           // Save pointer to pattern string
     res     = f_opendir(dp, path);               // Open the target directory
-    if (res == FR_OK) res = f_findnext(dp, fno); /* Find the first item */
+    if (res == FR_OK) res = f_findnext(dp, fno); // Find the first item
     return res;
 }
 
