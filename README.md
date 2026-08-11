@@ -41,7 +41,7 @@ The project aims to build a practical, self-contained kernel with modern design 
 ### VFS & Filesystems
 - UNIX-style virtual filesystem with mount points, inode-like nodes, and a callback-based driver interface
 - tmpfs as the default root filesystem; procfs, sysfs, devtmpfs, cpio, and cgroupfs for virtual views
-- FAT12/16/32 (via FatFS with 64-bit LBA and variable sector sizes), ext2/ext3/ext4, NTFS (with write support), and ISO 9660 (with Rock Ridge)
+- FAT12/16/32/exFAT (via FatFS with 64-bit LBA and variable sector sizes), ext2/ext3/ext4, NTFS (with write support), and ISO 9660 (with Rock Ridge)
 
 ### Networking
 - In-house protocol stack: Ethernet, ARP, IPv4/IPv6, ICMP/ICMPv6, NDP, UDP, and TCP
