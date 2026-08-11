@@ -14,7 +14,6 @@
 #include <kernel/printk.h>
 #include <libs/kobject/kobject.h>
 #include <libs/list/circular_list.h>
-#include <libs/std/stdarg.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>

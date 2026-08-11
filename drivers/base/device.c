@@ -17,7 +17,6 @@
 #include <libs/list/circular_list.h>
 #include <libs/std/stdarg.h>
 #include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>
 #include <libs/std/string.h>
 #include <mem/alloc.h>

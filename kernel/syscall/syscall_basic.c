@@ -28,7 +28,6 @@
 #include <syscall/memfd.h>
 #include <syscall/syscall.h>
 #include <syscall/syscall_basic.h>
-#include <syscall/syscall_table.h>
 
 #define SYSCALL_PATH_MAX VFS_PATH_MAX
 

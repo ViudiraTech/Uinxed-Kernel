@@ -9,7 +9,6 @@
  */
 
 #include <drivers/gpu/drm/drm_rect.h>
-#include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>

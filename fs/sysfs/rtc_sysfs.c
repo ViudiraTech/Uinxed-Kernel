@@ -14,7 +14,6 @@
 #include <fs/sysfs/sysfs.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
-#include <libs/std/stdint.h>
 #include <libs/std/string.h>
 
 #define RTC_DEV_MAJOR 254

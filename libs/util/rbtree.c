@@ -9,7 +9,6 @@
  */
 
 #include <libs/std/stddef.h>
-#include <libs/std/stdint.h>
 #include <libs/util/rbtree.h>
 
 /* Internal helpers */

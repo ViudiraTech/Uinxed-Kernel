@@ -11,7 +11,6 @@
 #include <arch/common.h>
 #include <drivers/bus/pci.h>
 #include <drivers/bus/virtpci.h>
-#include <kernel/debug/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>

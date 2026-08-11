@@ -17,7 +17,6 @@
 #include <kernel/timer/timer.h>
 #include <kernel/uinxed.h>
 #include <libs/kobject/kobject.h>
-#include <libs/std/stdarg.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 #include <libs/std/stdlib.h>

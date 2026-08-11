@@ -10,7 +10,6 @@
 
 #include <arch/common.h>
 #include <arch/fpu.h>
-#include <kernel/debug/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>

@@ -13,7 +13,6 @@
 #include <drivers/gpu/drm/drm_init.h>
 #include <drivers/gpu/drm/drm_mode.h>
 #include <drivers/gpu/drm/drm_print.h>
-#include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

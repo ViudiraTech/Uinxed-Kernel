@@ -12,7 +12,6 @@
 #include <drivers/block/ata/sata/ahci.h>
 #include <drivers/block/ata/sata/satapi.h>
 #include <drivers/bus/pci.h>
-#include <kernel/debug/debug.h>
 #include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/timer/timer.h>
