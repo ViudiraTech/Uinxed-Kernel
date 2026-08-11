@@ -41,19 +41,20 @@ The project aims to build a practical, self-contained kernel with modern design 
 ### VFS & Filesystems
 - UNIX-style virtual filesystem with mount points, inode-like nodes, and a callback-based driver interface
 - tmpfs as the default root filesystem; procfs, sysfs, devtmpfs, cpio, and cgroupfs for virtual views
-- FAT12/16/32 (via the FatFS library), ext2/ext3/ext4, NTFS (with write support), and ISO 9660 (with Rock Ridge)
+- FAT12/16/32 (via FatFS with 64-bit LBA and variable sector sizes), ext2/ext3/ext4, NTFS (with write support), and ISO 9660 (with Rock Ridge)
 
 ### Networking
 - In-house protocol stack: Ethernet, ARP, IPv4/IPv6, ICMP/ICMPv6, NDP, UDP, and TCP
-- Intel e1000/e1000e driver (82540EM, 82545EM, 82546EB, 82541PI, 82574L) and a generic network-device abstraction
+- Ethernet NIC drivers: Intel e1000/e1000e (82540EM, 82545EM, 82546EB, 82541PI, 82574L) and Realtek RTL8139/RTL8169, behind a generic network-device abstraction
 - Linux `AF_INET` / `AF_INET6` socket ABI (`SOCK_DGRAM` / `SOCK_STREAM`), a DHCP client, and `/proc/net` / `/sys/class/net` views
 
 ### ABI & IPC
 - Linux x86-64 syscall ABI (Linux 6.12 numbering, 0-462)
 - `AF_UNIX`, `AF_NETLINK`, `AF_INET`, `AF_INET6` sockets
 - pipes, `epoll`, `eventfd`, `timerfd`, `signalfd`, `memfd`, POSIX message queues, and System V IPC
-- futexes with Priority Inheritance; `mmap` / `munmap` / `mremap` backed by the page cache
-- POSIX termios and Linux TTY ioctls, including Unix98 PTYs
+- futexes with Priority Inheritance plus the futex2 syscalls (`futex_wait` / `futex_wake` / `futex_requeue`); `mmap` / `munmap` / `mremap` backed by the page cache
+- inotify for filesystem event notification
+- POSIX termios and Linux TTY ioctls, including Unix98 PTYs and multiple virtual terminals (VTs, default 8)
 - Loadable kernel modules via `init_module` / `finit_module` / `delete_module`
 
 ### Drivers
@@ -150,30 +151,31 @@ Both modes also work via [Ventoy](https://www.ventoy.net/): copy the ISO onto th
 
 ```
 Uinxed-Kernel/
-|-- assets/           # Static resource files (bootloader, init userspace, linker script)
-|-- boot/             # Boot related
-|-- docs/             # Related documents
-|-- drivers/          # Device drivers
-|-- fs/               # File systems
-|-- include/          # Header files
-|-- init/             # Kernel entry
-|-- ipc/              # Inter-process communication
-|-- kernel/           # Kernel core
-|-- libs/             # Library files
-|-- mem/              # Memory management
-|-- net/              # Networking stack
-|-- tools/            # Host-side tools
-|-- .clang-format     # Formatting configuration
-|-- .clang-tidy       # Static analysis configuration
+|-- assets/           # Build and boot resources
+|-- boot/             # Boot protocol structures and interfaces
+|-- docs/             # Project documentation and technical notes
+|-- drivers/          # Hardware drivers and device support
+|-- fs/               # File system implementations and VFS components
+|-- include/          # Kernel headers and public interfaces
+|-- init/             # Kernel entry and initialization routines
+|-- ipc/              # Inter-process communication mechanisms
+|-- kernel/           # Core kernel subsystems and runtime services
+|-- libs/             # Internal kernel libraries and utility functions
+|-- mem/              # Memory management subsystem
+|-- net/              # Network stack and protocol implementations
+|-- scripts/          # Build, configuration, and maintenance scripts
+|-- tools/            # Development, debugging, and auxiliary tools
 |-- .clangd_template  # Clangd configuration template
-|-- .config-default   # Default configuration options
-|-- .gitignore        # Ignore rules
-|-- Kconfig           # Kernel configuration
-|-- LICENSE           # Open source license (Apache 2.0)
-|-- Makefile          # Build script
-|-- NOTICE            # Third-party notices and license texts
-|-- README.md         # Project introduction
-`-- SECURITY.md       # Security policy
+|-- .clang-format     # Code formatting configuration
+|-- .clang-tidy       # Static analysis configuration
+|-- .config-default   # Default kernel configuration
+|-- .gitignore        # Git ignore rules
+|-- Kconfig           # Kernel configuration system
+|-- LICENSE           # Project license (Apache License 2.0)
+|-- Makefile          # Build system
+|-- NOTICE            # Third-party licenses and attribution notices
+|-- README.md         # Project overview and introduction
+`-- SECURITY.md       # Security policy and vulnerability reporting
 ```
 
 ## FAQ
