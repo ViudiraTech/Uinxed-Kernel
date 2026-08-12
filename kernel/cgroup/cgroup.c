@@ -45,6 +45,7 @@ static spinlock_t cgroup_lock;
 static int        cgroup_ready;
 static uint64_t   registered_controllers;
 
+/* Parse an unsigned decimal string, rejecting trailing garbage */
 static int parse_u64(const char *value, size_t size, uint64_t *result)
 {
     uint64_t n = 0;
@@ -63,6 +64,7 @@ static int parse_u64(const char *value, size_t size, uint64_t *result)
     return EOK;
 }
 
+/* Return whether the given cgroup is an ancestor of the other */
 static int is_descendant(cgroup_t *cgroup, cgroup_t *ancestor)
 {
     for (; cgroup; cgroup = cgroup->parent)
@@ -70,16 +72,19 @@ static int is_descendant(cgroup_t *cgroup, cgroup_t *ancestor)
     return 0;
 }
 
+/* Whether the pids controller limits this cgroup (the root is never limited) */
 static int pids_available_locked(cgroup_t *cg)
 {
     return cg == &root_cgroup || (cg->parent->subtree_control & CGROUP_CONTROLLER_PIDS);
 }
 
+/* Count one pids.max exhaustion event on this cgroup */
 static void record_pids_max_event_locked(cgroup_t *cg)
 {
     cg->pids_events_max++;
 }
 
+/* Charge one task to the cgroup and its ancestors, enforcing pids.max */
 static int charge_locked(cgroup_t *cgroup)
 {
     for (cgroup_t *cg = cgroup; cg; cg = cg->parent) {
@@ -92,12 +97,14 @@ static int charge_locked(cgroup_t *cgroup)
     return EOK;
 }
 
+/* Release one task's charge from the cgroup and its ancestors */
 static void uncharge_locked(cgroup_t *cgroup)
 {
     for (cgroup_t *cg = cgroup; cg; cg = cg->parent)
         if (cg->pids_current) cg->pids_current--;
 }
 
+/* Find a task by PID, descending into child cgroups */
 static task_t *find_task_locked(cgroup_t *cg, uint64_t pid)
 {
     for (ilist_node_t *node = cg->tasks.next; node != &cg->tasks; node = node->next) {
@@ -111,6 +118,7 @@ static task_t *find_task_locked(cgroup_t *cg, uint64_t pid)
     return NULL;
 }
 
+/* Move a task into a cgroup, charging and enforcing pids.max on the way */
 static int attach_task_locked(cgroup_t *target, task_t *task)
 {
     cgroup_t *old = task->cgroup;
@@ -133,6 +141,7 @@ static int attach_task_locked(cgroup_t *target, task_t *task)
     return EOK;
 }
 
+/* Set up the root cgroup and register the pids controller */
 void cgroup_init(void)
 {
 #if CONFIG_CGROUP
@@ -151,6 +160,7 @@ void cgroup_init(void)
 #endif
 }
 
+/* Register a controller id; only the pids controller is currently supported */
 int cgroup_register_controller(const char *name, uint64_t id)
 {
     if (!name || !name[0] || id == 0 || (id & (id - 1))) return -EINVAL;
@@ -170,6 +180,7 @@ cgroup_t *cgroup_root(void)
     return cgroup_ready ? &root_cgroup : NULL;
 }
 
+/* Take a reference on a cgroup, refusing to resurrect a dying one */
 cgroup_t *cgroup_get(cgroup_t *cg)
 {
     if (!cg) return NULL;
@@ -183,6 +194,7 @@ cgroup_t *cgroup_get(cgroup_t *cg)
     return cg;
 }
 
+/* Drop a cgroup reference, freeing it once the last dying reference is gone */
 void cgroup_put(cgroup_t *cg)
 {
     int release = 0;
@@ -196,6 +208,7 @@ void cgroup_put(cgroup_t *cg)
     }
 }
 
+/* Attach a newly forked task to its parent's cgroup */
 int cgroup_task_fork(task_t *task, task_t *parent)
 {
     cgroup_t *target;
@@ -213,6 +226,7 @@ int cgroup_task_fork(task_t *task, task_t *parent)
     return status;
 }
 
+/* Detach a task from its cgroup as it exits */
 void cgroup_task_exit(task_t *task)
 {
     if (!task || !task->cgroup || !cgroup_ready) return;
@@ -225,6 +239,7 @@ void cgroup_task_exit(task_t *task)
     spin_unlock(&cgroup_lock);
 }
 
+/* Move an existing task into the target cgroup */
 int cgroup_attach_task(cgroup_t *target, task_t *task)
 {
     int status;
@@ -236,6 +251,7 @@ int cgroup_attach_task(cgroup_t *target, task_t *task)
     return status;
 }
 
+/* Create a child cgroup under parent, rejecting duplicate names */
 int cgroup_create(cgroup_t *parent, const char *name, cgroup_t **result)
 {
     cgroup_t *cg;
@@ -274,6 +290,7 @@ int cgroup_create(cgroup_t *parent, const char *name, cgroup_t **result)
     return EOK;
 }
 
+/* Destroy an empty cgroup, refusing to remove the root or a busy subtree */
 int cgroup_destroy(cgroup_t *cg)
 {
     int release;
@@ -294,6 +311,7 @@ int cgroup_destroy(cgroup_t *cg)
     return EOK;
 }
 
+/* Apply a whitespace-separated list of +pids/-pids control operations */
 int cgroup_set_subtree_control(cgroup_t *cg, const char *value, size_t size)
 {
     uint64_t next;
@@ -343,6 +361,7 @@ int cgroup_set_subtree_control(cgroup_t *cg, const char *value, size_t size)
     return EOK;
 }
 
+/* Set pids.max, accepting the literal string "max" for an unlimited value */
 int cgroup_set_pids_max(cgroup_t *cg, const char *value, size_t size)
 {
     uint64_t limit;
@@ -364,6 +383,7 @@ int cgroup_set_pids_max(cgroup_t *cg, const char *value, size_t size)
     return EOK;
 }
 
+/* Move the task with the given PID (or the current task if 0) into this cgroup */
 int cgroup_move_pid(cgroup_t *cg, const char *value, size_t size)
 {
     uint64_t pid;
@@ -395,6 +415,7 @@ uint64_t cgroup_subtree_control(cgroup_t *cg)
     return cg ? cg->subtree_control : 0;
 }
 
+/* Whether the pids controller is usable on this cgroup */
 int cgroup_pids_available(cgroup_t *cg)
 {
     int available;
@@ -410,17 +431,20 @@ int cgroup_is_root(cgroup_t *cg)
     return cg == &root_cgroup;
 }
 
+/* Format the cgroup.controllers file for this cgroup */
 int cgroup_show_controllers(cgroup_t *cg, char *buf, size_t size)
 {
     uint64_t available = cg == &root_cgroup ? registered_controllers : cg->parent->subtree_control;
     return snprintf(buf, size, "%s", available & CGROUP_CONTROLLER_PIDS ? "pids\n" : "");
 }
 
+/* Format the cgroup.subtree_control file for this cgroup */
 int cgroup_show_subtree_control(cgroup_t *cg, char *buf, size_t size)
 {
     return snprintf(buf, size, "%s", cg->subtree_control & CGROUP_CONTROLLER_PIDS ? "pids\n" : "");
 }
 
+/* Format the cgroup.procs file, listing the PIDs of member tasks */
 int cgroup_show_procs(cgroup_t *cg, char *buf, size_t size)
 {
     size_t at = 0;
@@ -440,6 +464,7 @@ int cgroup_show_procs(cgroup_t *cg, char *buf, size_t size)
     return (int)(at < size ? at : size);
 }
 
+/* Format the cgroup.events file for this cgroup */
 int cgroup_show_events(cgroup_t *cg, char *buf, size_t size)
 {
     int populated;
@@ -449,6 +474,7 @@ int cgroup_show_events(cgroup_t *cg, char *buf, size_t size)
     return snprintf(buf, size, "populated %d\n", populated);
 }
 
+/* Format the pids.current file for this cgroup */
 int cgroup_show_pids_current(cgroup_t *cg, char *buf, size_t size)
 {
     uint64_t current;
@@ -459,6 +485,7 @@ int cgroup_show_pids_current(cgroup_t *cg, char *buf, size_t size)
     return snprintf(buf, size, "%llu\n", current);
 }
 
+/* Format the pids.max file, printing "max" for an unlimited value */
 int cgroup_show_pids_max(cgroup_t *cg, char *buf, size_t size)
 {
     uint64_t limit;
@@ -469,6 +496,7 @@ int cgroup_show_pids_max(cgroup_t *cg, char *buf, size_t size)
     return limit == CGROUP_PIDS_MAX ? snprintf(buf, size, "max\n") : snprintf(buf, size, "%llu\n", limit);
 }
 
+/* Format the pids.events file, reporting pids.max exceedances */
 int cgroup_show_pids_events(cgroup_t *cg, char *buf, size_t size)
 {
     uint64_t events;
@@ -479,6 +507,7 @@ int cgroup_show_pids_events(cgroup_t *cg, char *buf, size_t size)
     return snprintf(buf, size, "max %llu\n", events);
 }
 
+/* Format the full path of a cgroup, relative to the root hierarchy */
 int cgroup_format_path(cgroup_t *cg, char *buf, size_t size)
 {
     if (!cg || !buf || size < 2) return -EINVAL;
@@ -507,6 +536,7 @@ int cgroup_format_path(cgroup_t *cg, char *buf, size_t size)
     return (int)length;
 }
 
+/* Count the cgroups in this subtree, including the given one */
 static uint64_t cgroup_count_locked(cgroup_t *cg)
 {
     uint64_t count = 1;
@@ -514,6 +544,7 @@ static uint64_t cgroup_count_locked(cgroup_t *cg)
     return count;
 }
 
+/* Format the /proc/cgroups file for the unified hierarchy */
 int cgroup_format_proc_cgroups(char *buf, size_t size)
 {
     if (!buf || !size) return -EINVAL;

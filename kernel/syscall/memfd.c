@@ -493,7 +493,6 @@ int memfd_map(vfs_node_t node, process_t *proc, uintptr_t addr, size_t length, u
     if (shared_writable) file->writable_mappings++;
     spin_unlock(&file->lock);
     return EOK;
-
 rollback:
     while (mapped) {
         mapped -= PAGE_4K_SIZE;

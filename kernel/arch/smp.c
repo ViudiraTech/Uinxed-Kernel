@@ -62,6 +62,7 @@ static inline void flush_local_tlb_all(void)
     __asm__ volatile("mov %0, %%cr3" : : "r"(cr3) : "memory");
 }
 
+/* Handle an NMI on this CPU, flushing the local TLB if a shootdown is pending */
 int smp_handle_nmi(void)
 {
     if (!__atomic_load_n(&smp_ready, __ATOMIC_ACQUIRE) || !tlb_shootdown_ack) return 0;
@@ -91,12 +92,6 @@ INTERRUPT_BEGIN static void ipi_halt_handler(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
-    /*
-     * CPU halt handling:
-     * - Stop LAPIC timer
-     * - Acknowledge halt request
-     * - Enter low-power state (HLT loop)
-     */
     lapic_timer_stop();
     send_eoi();
     while (1) __asm__ volatile("hlt");
@@ -108,11 +103,6 @@ INTERRUPT_BEGIN static void ipi_tlb_shootdown_handler(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
-    /*
-     * TLB shootdown:
-     * - Flush entire TLB by reloading CR3
-     * - Acknowledge completion to requesting CPU
-     */
     flush_local_tlb_all();
     uint32_t cpu_id     = get_current_cpu_id();
     uint64_t generation = __atomic_load_n(&tlb_shootdown_generation, __ATOMIC_ACQUIRE);
@@ -127,11 +117,6 @@ INTERRUPT_BEGIN static void ipi_panic_handler(interrupt_frame_t *frame)
 {
     (void)frame;
     disable_intr();
-    /*
-     * Multi-CPU panic handling:
-     * - Stop all execution on this CPU
-     * - Enter infinite HLT loop
-     */
     send_eoi();
     while (1) __asm__ volatile("hlt");
 }
@@ -211,7 +196,7 @@ cpu_processor_t *get_current_cpu(void)
     return cpu_id < cpu_count ? &cpus[cpu_id] : NULL;
 }
 
-/* Initialize the TSS for the AP  */
+/* Initialize the TSS for the AP */
 static void ap_init_tss(cpu_processor_t *cpu)
 {
     compiler_barrier();
@@ -269,7 +254,7 @@ void ap_entry(struct limine_smp_info *info)
     fpu_init();
     cpu_enable_nx();
 
-    /* load page table */
+    /* Load the page table */
     page_directory_t *krnl_pagedir = get_kernel_pagedir();
     pointer_cast_t    cast;
     cast.ptr = krnl_pagedir->table;
@@ -299,12 +284,7 @@ void ap_entry(struct limine_smp_info *info)
 
     sched_ap_online(cpu->id);
 
-    /*
-     * AP scheduler loop:
-     * - Enable interrupts for timer and reschedule IPI handling
-     * - Enter idle loop with HLT instruction
-     * - CPU will wake up on interrupts (timer, IPI, etc.)
-     */
+    /* Enter the AP idle loop; interrupts (timer, IPI) wake it for scheduling */
     sched_ap_start(cpu->id);
 }
 
@@ -324,7 +304,7 @@ void smp_init(void)
     if (!cpus || !tlb_shootdown_ack) panic("smp: Cannot allocate CPU state.");
     plogk("smp: Found %d CPUs.\n", cpu_count);
 
-    /* Init BootStrap Processor */
+    /* Initialize the per-CPU state of every processor, with special handling for the BSP */
     for (uint32_t i = 0; i < cpu_count; i++) {
         struct limine_smp_info *cpu = smp->cpus[i];
         cpus[i].id                  = i;

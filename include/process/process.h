@@ -158,8 +158,10 @@ typedef struct process {
         struct process   *parent;
         slist_t           children;
         wait_queue_t      child_wait; // fork/exit/wait condition queue
+
         /* Persistent queue for pause/sigsuspend; never points into a syscall stack. */
         wait_queue_t signal_wait;
+
         /*
          * vfork completion is separate from child exit: a successful exec
          * releases the parent while the child remains alive.  The condition
@@ -180,6 +182,7 @@ typedef struct process {
         uint16_t        umask;
         uint8_t        *kernel_stack;
         process_file_t *fds[PROCESS_MAX_FD];
+
         /*
          * Descriptor flags belong to an fd table entry, not to the shared
          * open-file description.  At present Linux defines FD_CLOEXEC as the
@@ -190,6 +193,7 @@ typedef struct process {
         process_rlimit_t rlimits[PROCESS_RLIMIT_COUNT];
         spinlock_t       rlimit_lock;
         signal_state_t   signal;
+
         /*
          * Linux interval timers are process-wide.  Element 0 stores an
          * absolute scheduler deadline for ITIMER_REAL; elements 1 and 2

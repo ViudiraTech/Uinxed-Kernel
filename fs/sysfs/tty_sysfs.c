@@ -42,6 +42,7 @@ static int tty_sysfs_add_device(tty_driver_t *drv, int index, const char *name, 
 
 /* Initialization */
 
+/* Export every registered tty device to /sys/class/tty/. */
 void tty_sysfs_init(void)
 {
 #if CONFIG_SYSFS

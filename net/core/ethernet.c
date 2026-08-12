@@ -19,12 +19,14 @@
 
 const uint8_t ethernet_broadcast_address[ETH_ADDRESS_LEN] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
+/* Return 1 if the MAC address is not the all-zeros address. */
 static int ethernet_address_valid(const uint8_t address[ETH_ADDRESS_LEN])
 {
     static const uint8_t zero[ETH_ADDRESS_LEN];
     return memcmp(address, zero, ETH_ADDRESS_LEN) != 0;
 }
 
+/* Parse an Ethernet frame header, exposing the ethertype and payload. */
 int net_ethernet_parse(const void *data, size_t length, net_ethernet_frame_t *frame)
 {
     if (!data || !frame || length < ETH_HEADER_LEN) return -EBADMSG;
@@ -35,6 +37,7 @@ int net_ethernet_parse(const void *data, size_t length, net_ethernet_frame_t *fr
     return 0;
 }
 
+/* Filter a frame by destination MAC, then dispatch it by ethertype. */
 int ethernet_input(net_device_t *device, net_pbuf_t *packet)
 {
     if (!device || !packet || packet->length <= ETH_HEADER_LEN) {
@@ -57,6 +60,7 @@ int ethernet_input(net_device_t *device, net_pbuf_t *packet)
     return -EPROTONOSUPPORT;
 }
 
+/* Prepend an Ethernet header and transmit the frame via netdev_tx. */
 int ethernet_output(net_device_t *device, net_pbuf_t *packet, const uint8_t destination[6], uint16_t type)
 {
     if (!device || !packet || !destination || !ethernet_address_valid(device->address) || !ethernet_address_valid(destination)) return -EINVAL;

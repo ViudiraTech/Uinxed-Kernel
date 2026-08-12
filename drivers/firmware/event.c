@@ -24,6 +24,7 @@ static uint16_t pm1b_sts; // PM1b status register port
 static uint16_t pm1a_en;  // PM1a enable register port
 static uint16_t pm1b_en;  // PM1b enable register port
 
+/* Decode the PM1 event/enable block addresses from the FADT. */
 static void pm1_setup(void)
 {
     acpi_facp_t *f = get_acpi_facp();
@@ -193,11 +194,9 @@ static uint8_t sci_vector; // IDT vector of the SCI
 /* Dispatch pending fixed events */
 static void dispatch_fixed_events(uint16_t sts)
 {
-    for (int i = 0; i < ACPI_NUM_FIXED_EVENTS; i++) {
-        if (sts & fixed_events[i].status_mask) {
+    for (int i = 0; i < ACPI_NUM_FIXED_EVENTS; i++)
+        if (sts & fixed_events[i].status_mask)
             if (fixed_events[i].handler) fixed_events[i].handler(fixed_events[i].context);
-        }
-    }
 }
 
 /* Dispatch pending GPEs */

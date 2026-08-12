@@ -67,9 +67,16 @@ typedef struct {
         int32_t  value;
 } usb_hid_event_t;
 
-int      usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, usb_hid_report_t *report);
-int      usb_hid_decode_report(usb_hid_report_t *report, const uint8_t *data, size_t length, usb_hid_event_t *events, size_t event_capacity);
+/* Parse an HID report descriptor into field/application tables. */
+int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, usb_hid_report_t *report);
+
+/* Decode one input report into a list of evdev events. */
+int usb_hid_decode_report(usb_hid_report_t *report, const uint8_t *data, size_t length, usb_hid_event_t *events, size_t event_capacity);
+
+/* Map a keyboard usage index to an evdev KEY_* code. */
 uint16_t usb_hid_keyboard_keycode(uint16_t usage);
+
+/* Map a consumer-control usage to an evdev KEY_* code. */
 uint16_t hid_consumer_keycode(uint16_t usage);
 
 #endif // INCLUDE_USB_HID_H_

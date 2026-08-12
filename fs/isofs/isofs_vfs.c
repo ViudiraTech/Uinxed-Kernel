@@ -22,6 +22,7 @@ static int isofs_fs_id = 0;
 
 /* Block device I/O helpers */
 
+/* Read a block from the volume, clamped to the mount block size. */
 static int isofs_read_block(isofs_mount_t *mnt, uint32_t block, void *buf, uint32_t size)
 {
     uint64_t offset = (uint64_t)block * mnt->block_size;
@@ -37,6 +38,7 @@ static int isofs_rr_read_block(void *ctx, uint32_t block, void *buf, uint32_t si
     return isofs_read_block((isofs_mount_t *)ctx, block, buf, size);
 }
 
+/* Read an arbitrary byte range from the volume. */
 static int isofs_read_bytes(isofs_mount_t *mnt, uint64_t offset, void *buf, uint32_t size)
 {
     int status = blockdev_read_bytes(&mnt->device, offset, buf, size);
@@ -47,6 +49,7 @@ static int isofs_read_bytes(isofs_mount_t *mnt, uint64_t offset, void *buf, uint
 
 /* ISO date helper */
 
+/* Convert a directory-record date to a Unix timestamp. */
 static uint64_t iso_date_from_de(const uint8_t *d, int high_sierra)
 {
     return isofs_date_to_unix(d, high_sierra ? ISO_DATE_HIGH_SIERRA : 0);
@@ -54,12 +57,14 @@ static uint64_t iso_date_from_de(const uint8_t *d, int high_sierra)
 
 /* Mount/dismount */
 
+/* Free a mount structure. */
 static void isofs_mount_destroy(isofs_mount_t *mnt)
 {
     if (!mnt) return;
     free(mnt);
 }
 
+/* Free a handle, releasing the mount when it is the last owner. */
 static void isofs_handle_destroy(isofs_handle_t *h)
 {
     if (!h) return;
@@ -72,6 +77,7 @@ static void isofs_handle_destroy(isofs_handle_t *h)
 
 /* Scan directory records to find a child by name */
 
+/* Find a child record by name, returning a copy of the record. */
 static iso_directory_record_t *isofs_lookup_record(isofs_mount_t *mnt, uint32_t dir_block, uint64_t dir_size, const char *name,
                                                    uint32_t *out_block, uint32_t *out_offset)
 {
@@ -176,6 +182,7 @@ static iso_directory_record_t *isofs_lookup_record(isofs_mount_t *mnt, uint32_t 
 
 /* Read directory entries into the VFS child list */
 
+/* Materialize a directory's records as VFS child nodes. */
 static int isofs_load_directory(vfs_node_t node)
 {
     isofs_handle_t *h = node ? node->handle : NULL;
@@ -323,6 +330,7 @@ static int isofs_load_directory(vfs_node_t node)
 
 /* Read symlink target (delegates to Rock Ridge parser) */
 
+/* Read a symlink target, delegating to the Rock Ridge parser. */
 static int isofs_read_symlink(isofs_handle_t *h, char *buf, size_t bufsize)
 {
     if (!h || !h->is_symlink || !h->raw_de || !h->mount) return -EINVAL;
@@ -331,6 +339,7 @@ static int isofs_read_symlink(isofs_handle_t *h, char *buf, size_t bufsize)
 
 /* VFS callbacks */
 
+/* Mount an ISO 9660 volume, parsing its volume and root descriptors. */
 static int isofs_vfs_mount(const char *src, vfs_node_t node)
 {
     if (!src || !node) return -EINVAL;
@@ -475,7 +484,7 @@ static int isofs_vfs_mount(const char *src, vfs_node_t node)
     if (root_h->raw_de_buf) memcpy(root_h->raw_de_buf, root_de, sizeof(pri->root_directory_record));
     root_h->raw_de = (iso_directory_record_t *)root_h->raw_de_buf;
 
-    /* Root directory record timestamp --save before freeing PVD copy */
+    /* Root directory record timestamp, saved before freeing the PVD copy. */
     uint64_t root_ts = iso_date_from_de(root_de->date, 0);
 
     /* PVD copy no longer needed */
@@ -508,6 +517,7 @@ static void isofs_vfs_unmount(void *root)
     isofs_handle_destroy(root);
 }
 
+/* Bind a child VFS node to its directory record. */
 static void isofs_vfs_open(void *parent, const char *name, vfs_node_t node)
 {
     if (!parent || !node || !node->parent || node->handle) return;
@@ -553,6 +563,7 @@ static void isofs_vfs_close(void *current)
     (void)current;
 }
 
+/* Read file data from the extent backing the record. */
 static size_t isofs_vfs_read(void *file, void *addr, size_t offset, size_t size)
 {
     isofs_handle_t *h = file;
@@ -578,6 +589,7 @@ static size_t isofs_vfs_write(void *file, const void *addr, size_t offset, size_
     return 0;
 }
 
+/* Read a symlink target through the handle's record. */
 static size_t isofs_vfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t size)
 {
     isofs_handle_t *h = node ? node->handle : NULL;
@@ -617,6 +629,7 @@ static int isofs_vfs_no_link(void *parent, const char *name, vfs_node_t node)
     return -EROFS;
 }
 
+/* Load a directory's children on first stat. */
 static int isofs_vfs_stat(void *file, vfs_node_t node)
 {
     isofs_handle_t *h = file;
@@ -634,6 +647,7 @@ static int isofs_vfs_ioctl(void *file, size_t req, void *arg)
     return -ENOTTY;
 }
 
+/* Duplicate a VFS node with its metadata. */
 static vfs_node_t isofs_vfs_dup(vfs_node_t node)
 {
     vfs_node_t copy;
@@ -663,6 +677,7 @@ static int isofs_vfs_poll(void *file, size_t events)
     return (int)events;
 }
 
+/* Free a handle and its record copy. */
 static int isofs_vfs_free(void *handle)
 {
     isofs_handle_t *h = handle;
@@ -710,6 +725,7 @@ static struct vfs_callback isofs_callbacks = {
     .rename   = isofs_vfs_rename,
 };
 
+/* Register the isofs filesystem with the VFS layer. */
 void isofs_regist(void)
 {
 #if CONFIG_ISO9660_FS

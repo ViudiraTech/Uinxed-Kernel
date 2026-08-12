@@ -71,6 +71,7 @@ typedef struct {
         bool     has_usage_maximum;
 } hid_local_state_t;
 
+/* Assemble a little-endian unsigned item value from raw bytes. */
 static uint32_t hid_unsigned_value(const uint8_t *data, size_t size)
 {
     uint32_t value = 0;
@@ -79,6 +80,7 @@ static uint32_t hid_unsigned_value(const uint8_t *data, size_t size)
     return value;
 }
 
+/* Sign-extend an item value according to its byte size. */
 static int32_t hid_signed_value(const uint8_t *data, size_t size)
 {
     uint32_t value = hid_unsigned_value(data, size);
@@ -89,6 +91,7 @@ static int32_t hid_signed_value(const uint8_t *data, size_t size)
     return (int32_t)value;
 }
 
+/* Usage-page of a local item: 32-bit values carry it explicitly. */
 static uint16_t hid_local_usage_page(uint32_t value, size_t size, uint16_t global_page)
 {
     return size == 4 ? (uint16_t)(value >> 16) : global_page;
@@ -99,6 +102,7 @@ static void hid_local_reset(hid_local_state_t *local)
     memset(local, 0, sizeof(*local));
 }
 
+/* Resolve a field's usage for an index, expanding usage ranges. */
 static uint16_t hid_field_usage(const usb_hid_field_t *field, size_t index)
 {
     if (index < field->usage_count) return field->usages[index];
@@ -109,6 +113,7 @@ static uint16_t hid_field_usage(const usb_hid_field_t *field, size_t index)
     return field->usage_count ? field->usages[field->usage_count - 1] : 0;
 }
 
+/* Resolve a field's usage page for an index. */
 static uint16_t hid_field_usage_page(const usb_hid_field_t *field, size_t index)
 {
     if (index < field->usage_count) return field->usage_pages[index];
@@ -116,6 +121,7 @@ static uint16_t hid_field_usage_page(const usb_hid_field_t *field, size_t index)
     return field->usage_page;
 }
 
+/* Record one input field from the current global and local state. */
 static int hid_add_input_field(usb_hid_report_t *report, const hid_global_state_t *global, const hid_local_state_t *local, uint8_t application,
                                uint8_t flags)
 {
@@ -158,6 +164,7 @@ static int hid_add_input_field(usb_hid_report_t *report, const hid_global_state_
     return EOK;
 }
 
+/* Parse a HID report descriptor into the fields and applications list. */
 int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, usb_hid_report_t *report)
 {
     hid_global_state_t globals[5] = {0};
@@ -339,6 +346,7 @@ int usb_hid_parse_report_descriptor(const uint8_t *descriptor, size_t length, us
     return EOK;
 }
 
+/* Map a keyboard usage index to an evdev KEY_* code. */
 uint16_t usb_hid_keyboard_keycode(uint16_t usage)
 {
     static const uint16_t keycodes[256] = {
@@ -382,6 +390,7 @@ uint16_t usb_hid_keyboard_keycode(uint16_t usage)
     return usage < sizeof(keycodes) / sizeof(keycodes[0]) ? keycodes[usage] : 0;
 }
 
+/* Map a consumer-control usage to an evdev KEY_* code. */
 uint16_t hid_consumer_keycode(uint16_t usage)
 {
     switch (usage) {
@@ -430,6 +439,7 @@ uint16_t hid_consumer_keycode(uint16_t usage)
     }
 }
 
+/* Extract a bit field from the report data at the given bit offset. */
 static uint32_t hid_extract_bits(const uint8_t *data, size_t length, uint16_t bit_offset, uint8_t bit_size)
 {
     uint32_t value = 0;
@@ -442,6 +452,7 @@ static uint32_t hid_extract_bits(const uint8_t *data, size_t length, uint16_t bi
     return value;
 }
 
+/* Convert a raw field value to signed when the logical range is signed. */
 static int32_t hid_field_value(const usb_hid_field_t *field, uint32_t value)
 {
     if (field->logical_minimum >= 0 || field->report_size == 32 || field->report_size == 0) return (int32_t)value;
@@ -450,6 +461,7 @@ static int32_t hid_field_value(const usb_hid_field_t *field, uint32_t value)
     return (int32_t)value;
 }
 
+/* True when value appears in the array. */
 static bool hid_array_contains(const uint32_t *values, size_t count, uint32_t value)
 {
     for (size_t i = 0; i < count; i++)
@@ -457,12 +469,14 @@ static bool hid_array_contains(const uint32_t *values, size_t count, uint32_t va
     return false;
 }
 
+/* Append one decoded event, skipping invalid codes and full buffers. */
 static void hid_emit(usb_hid_event_t *events, size_t capacity, size_t *count, uint8_t application, uint16_t type, uint16_t code, int32_t value)
 {
     if (!type || (type == EV_KEY && !code) || *count >= capacity) return;
     events[(*count)++] = (usb_hid_event_t) {.application = application, .type = type, .code = code, .value = value};
 }
 
+/* Decode an array field: emit key changes against the previous state. */
 static void hid_decode_array(usb_hid_field_t *field, const uint32_t *values, size_t value_count, usb_hid_event_t *events, size_t capacity,
                              size_t *count)
 {
@@ -481,6 +495,7 @@ static void hid_decode_array(usb_hid_field_t *field, const uint32_t *values, siz
     memcpy(field->previous, values, value_count * sizeof(values[0]));
 }
 
+/* Decode one variable field element into an evdev event. */
 static void hid_decode_variable(usb_hid_field_t *field, size_t index, int32_t value, usb_hid_event_t *events, size_t capacity, size_t *count)
 {
     uint16_t usage      = hid_field_usage(field, index);
@@ -546,6 +561,7 @@ static void hid_decode_variable(usb_hid_field_t *field, size_t index, int32_t va
     hid_emit(events, capacity, count, field->application, type, code, value);
 }
 
+/* Decode one input report into a list of evdev events. */
 int usb_hid_decode_report(usb_hid_report_t *report, const uint8_t *data, size_t length, usb_hid_event_t *events, size_t event_capacity)
 {
     uint8_t report_id   = 0;

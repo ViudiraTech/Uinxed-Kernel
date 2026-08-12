@@ -67,6 +67,7 @@ static inline void net_write_be32(void *ptr, uint32_t value)
     p[3]       = (uint8_t)value;
 }
 
+/* Incremental internet checksum helpers. */
 uint32_t net_checksum_add(uint32_t sum, const void *data, size_t length);
 uint16_t net_checksum_finish(uint32_t sum);
 uint16_t net_checksum(const void *data, size_t length);

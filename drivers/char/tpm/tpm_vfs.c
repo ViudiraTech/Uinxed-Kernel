@@ -26,6 +26,7 @@ typedef struct {
         bool    has_response;
 } tpm_chardev_state_t;
 
+/* Allocate per-open state for a TPM character device. */
 static int tpm_chardev_open(vfs_node_t node, uint64_t flags, void **private_data)
 {
     (void)node;
@@ -36,12 +37,14 @@ static int tpm_chardev_open(vfs_node_t node, uint64_t flags, void **private_data
     return 0;
 }
 
+/* Free the per-open state of a TPM character device. */
 static void tpm_chardev_release(vfs_node_t node, void *private_data)
 {
     (void)node;
     free(private_data);
 }
 
+/* Submit a command and stage the response for the subsequent read(). */
 static int64_t tpm_chardev_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     tpm_chardev_state_t *state = private_data;
@@ -68,6 +71,7 @@ static int64_t tpm_chardev_write(void *ctx, void *private_data, uint64_t flags, 
     return (int64_t)size;
 }
 
+/* Return buffered response data staged by the last write(). */
 static int64_t tpm_chardev_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     tpm_chardev_state_t *state = private_data;
@@ -84,6 +88,7 @@ static int64_t tpm_chardev_read(void *ctx, void *private_data, uint64_t flags, v
     return (int64_t)actual;
 }
 
+/* No ioctls are supported on the TPM character device. */
 static int tpm_chardev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t request, void *argument)
 {
     (void)ctx;
@@ -94,6 +99,7 @@ static int tpm_chardev_ioctl(void *ctx, void *private_data, uint64_t flags, size
     return -ENOTTY;
 }
 
+/* Register /dev/tpm0 and /dev/tpmrm0 if a TPM is present. */
 void tpm_vfs_init(void)
 {
     static const tmpfs_device_ops_t tpm_ops = {

@@ -24,11 +24,9 @@
 #define NDP_MAX_RETRIES      3U
 
 /*
- * Overview
- * NDP (Neighbor Discovery Protocol) resolves IPv6 next-hop
- * addresses to link-layer addresses via Neighbor Solicitation /
- * Advertisement, and maintains the neighbor cache with reachability
- * timers and retries.
+ * NDP (Neighbor Discovery Protocol) resolves IPv6 next-hop addresses to
+ * link-layer addresses via Neighbor Solicitation / Advertisement, and
+ * maintains the neighbor cache with reachability timers and retries.
  */
 
 #define NDP_OPT_SOURCE_LL 1U
@@ -66,12 +64,14 @@ static ndp_pending_t *ndp_pending_free;
 static uint8_t        ndp_pool_initialized;
 static spinlock_t     ndp_lock;
 
+/* Return 1 if the MAC is a valid unicast (non-multicast, non-zero). */
 static int ndp_mac_unicast(const uint8_t mac[6])
 {
     static const uint8_t zero[6];
     return mac && !(mac[0] & 1U) && memcmp(mac, zero, sizeof(zero)) != 0;
 }
 
+/* Convert a lifetime in seconds to an expiry tick count, saturating. */
 static uint64_t ndp_lifetime(uint64_t now, uint32_t seconds)
 {
     if (seconds == UINT32_MAX) return UINT64_MAX;
@@ -88,6 +88,7 @@ void ndp_init(void)
     ndp_pool_initialized = 1;
 }
 
+/* Populate the pending-entry free list once (caller holds ndp_lock). */
 static void ndp_pool_init_locked(void)
 {
     if (!ndp_pool_initialized) {
@@ -99,6 +100,7 @@ static void ndp_pool_init_locked(void)
     }
 }
 
+/* Look up a neighbor cache entry for the device/address pair. */
 static ndp_entry_t *ndp_find_locked(net_device_t *device, const ipv6_address_t *address)
 {
     for (unsigned i = 0; i < NDP_CACHE_CAPACITY; i++)
@@ -107,6 +109,7 @@ static ndp_entry_t *ndp_find_locked(net_device_t *device, const ipv6_address_t *
     return NULL;
 }
 
+/* Free an entry's queued packets and return the pending slots to the pool. */
 static void ndp_drop_pending_locked(ndp_entry_t *entry)
 {
     while (entry->head) {
@@ -121,6 +124,7 @@ static void ndp_drop_pending_locked(ndp_entry_t *entry)
     entry->pending_count = 0;
 }
 
+/* Reuse the least-recently-updated slot for a new incomplete entry. */
 static ndp_entry_t *ndp_alloc_locked(net_device_t *device, const ipv6_address_t *address, uint64_t now)
 {
     ndp_entry_t *slot = NULL;
@@ -140,6 +144,7 @@ static ndp_entry_t *ndp_alloc_locked(net_device_t *device, const ipv6_address_t 
     return slot;
 }
 
+/* Build and transmit an NDP message, optionally including a target option. */
 static int ndp_send(net_device_t *device, const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t type, uint32_t flags,
                     const ipv6_address_t *target, uint8_t option_type)
 {
@@ -169,6 +174,7 @@ static int ndp_send(net_device_t *device, const ipv6_address_t *source, const ip
     return status;
 }
 
+/* Send a Neighbor Solicitation for target to its solicited-node multicast. */
 static int ndp_neighbor_solicit(net_device_t *device, const ipv6_address_t *target)
 {
     ipv6_address_t source, destination;
@@ -177,6 +183,7 @@ static int ndp_neighbor_solicit(net_device_t *device, const ipv6_address_t *targ
     return ndp_send(device, &source, &destination, ICMPV6_NEIGHBOR_SOLICIT, 0, target, NDP_OPT_SOURCE_LL);
 }
 
+/* Record a MAC/address mapping and flush any packets queued on its resolution. */
 void ndp_learn(net_device_t *device, const ipv6_address_t *address, const uint8_t mac[6], uint64_t now_ticks)
 {
     if (!device || !ipv6_address_is_unicast(address) || ipv6_address_is_loopback(address) || !ndp_mac_unicast(mac)) return;
@@ -205,6 +212,7 @@ void ndp_learn(net_device_t *device, const ipv6_address_t *address, const uint8_
     }
 }
 
+/* Resolve address to a MAC and transmit the packet, queueing it if unresolved. */
 int ndp_resolve(net_device_t *device, const ipv6_address_t *address, net_pbuf_t *packet)
 {
     if (!device || !address || !packet || !ipv6_address_is_unicast(address) || ipv6_address_is_loopback(address)) return -EINVAL;
@@ -254,6 +262,7 @@ int ndp_resolve(net_device_t *device, const ipv6_address_t *address, net_pbuf_t 
     return -EINPROGRESS;
 }
 
+/* Ask the local routers for an advertisement via the all-routers multicast. */
 int ndp_router_solicit(net_device_t *device)
 {
     if (!device) return -EINVAL;
@@ -266,6 +275,7 @@ int ndp_router_solicit(net_device_t *device)
     return ndp_send(device, &source, &all_routers, ICMPV6_ROUTER_SOLICIT, 0, NULL, NDP_OPT_SOURCE_LL);
 }
 
+/* Derive the link-local address, set the MTU, and solicit a router. */
 void ndp_device_up(net_device_t *device)
 {
     if (!device) return;
@@ -276,6 +286,7 @@ void ndp_device_up(net_device_t *device)
     ndp_router_solicit(device);
 }
 
+/* Parse source/target link-layer address options, rejecting duplicates. */
 static int ndp_parse_options(const uint8_t *options, size_t length, const uint8_t **source_ll, const uint8_t **target_ll)
 {
     while (length) {
@@ -295,11 +306,13 @@ static int ndp_parse_options(const uint8_t *options, size_t length, const uint8_
     return 0;
 }
 
+/* True if target is one of the device's own addresses. */
 static int ndp_target_is_local(net_device_t *device, const ipv6_address_t *target)
 {
     return !memcmp(target->bytes, device->ipv6_link_local, 16) || !memcmp(target->bytes, device->ipv6_address, 16);
 }
 
+/* Handle Neighbor Solicitation/Advertisement, learning and replying as needed. */
 static int ndp_neighbor_input(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
 {
     uint8_t type = packet->data[0];
@@ -333,6 +346,7 @@ static int ndp_neighbor_input(net_device_t *device, const ipv6_info_t *ip, net_p
     return 0;
 }
 
+/* Apply a Router Advertisement: default router, prefix, and MTU. */
 static int ndp_router_advert(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
 {
     if (packet->length < 16 || packet->data[1] || !ipv6_address_is_link_local(&ip->source)) return -EBADMSG;
@@ -395,6 +409,7 @@ static int ndp_router_advert(net_device_t *device, const ipv6_info_t *ip, net_pb
     return 0;
 }
 
+/* Dispatch an inbound NDP message to its specific handler. */
 int ndp_input(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
 {
     if (!device || !ip || !packet || ip->hop_limit != 255 || packet->length < 8) goto bad;
@@ -414,6 +429,7 @@ bad:
     return -EBADMSG;
 }
 
+/* Age cache entries and retry (or drop) unresolved pending resolutions. */
 void ndp_timer(uint64_t now_ticks)
 {
     ipv6_timer(now_ticks);
@@ -442,6 +458,7 @@ void ndp_timer(uint64_t now_ticks)
     }
 }
 
+/* Drop all cache and pending state belonging to the removed device. */
 void ndp_device_removed(net_device_t *device)
 {
     ipv6_device_removed(device);

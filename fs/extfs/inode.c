@@ -27,6 +27,7 @@
 
 static int extfs_update_i_blocks(extfs_handle_t *h, ext2_inode_t *raw);
 
+/* Allocate a handle for an inode, loading its cached metadata. */
 extfs_handle_t *extfs_alloc_handle(extfs_sb_info_t *sb, uint32_t ino)
 {
     extfs_handle_t *h;
@@ -46,6 +47,7 @@ extfs_handle_t *extfs_alloc_handle(extfs_sb_info_t *sb, uint32_t ino)
     return h;
 }
 
+/* Load an inode's block pointers and flags into the handle. */
 int extfs_load_inode(extfs_handle_t *h)
 {
     ext2_inode_t raw;
@@ -66,6 +68,7 @@ int extfs_load_inode(extfs_handle_t *h)
     return EOK;
 }
 
+/* Write the handle's cached inode metadata back to disk. */
 int extfs_flush_inode(extfs_handle_t *h)
 {
     ext2_inode_t raw;
@@ -85,6 +88,7 @@ int extfs_flush_inode(extfs_handle_t *h)
     return extfs_write_inode_raw(h->sb, h->inode_no, &raw);
 }
 
+/* Map a logical block through extents or the indirect pointer scheme. */
 uint32_t extfs_map_block(extfs_handle_t *h, uint32_t logical, int create)
 {
     if (!h || !h->sb) return 0;
@@ -234,6 +238,7 @@ uint32_t extfs_map_block(extfs_handle_t *h, uint32_t logical, int create)
     return 0;
 }
 
+/* Read a byte range from an inode's data blocks. */
 int extfs_read_data(extfs_handle_t *h, void *buf, uint64_t offset, size_t size)
 {
     extfs_sb_info_t *sb;
@@ -292,6 +297,7 @@ int extfs_read_data(extfs_handle_t *h, void *buf, uint64_t offset, size_t size)
     return (int)done;
 }
 
+/* Write a byte range to an inode, extending and updating its size. */
 int extfs_write_data(extfs_handle_t *h, const void *buf, uint64_t offset, size_t size)
 {
     extfs_sb_info_t *sb;
@@ -371,6 +377,7 @@ int extfs_write_data(extfs_handle_t *h, const void *buf, uint64_t offset, size_t
     return (int)done;
 }
 
+/* Free all data and indirect blocks owned by an inode. */
 void extfs_free_inode_blocks(extfs_handle_t *h)
 {
     if (!h || !h->sb) return;
@@ -448,6 +455,7 @@ void extfs_free_inode_blocks(extfs_handle_t *h)
     }
 }
 
+/* Drop an inode's external xattr block, honoring its refcount. */
 int extfs_release_xattr_block(extfs_handle_t *h)
 {
     if (!h || !h->sb) return -EINVAL;
@@ -508,6 +516,7 @@ int extfs_release_xattr_block(extfs_handle_t *h)
     return status;
 }
 
+/* Whether an indirect block contains no pointers. */
 static int extfs_block_array_empty(const uint32_t *blocks, uint32_t count)
 {
     for (uint32_t i = 0; i < count; i++)
@@ -567,6 +576,7 @@ static int extfs_free_branch_range(extfs_sb_info_t *sb, uint32_t block, uint32_t
     return status;
 }
 
+/* Free the indirect blocks covering logical blocks [first, last). */
 static int extfs_truncate_block_tree(extfs_handle_t *h, uint64_t first, uint64_t last)
 {
     extfs_sb_info_t *sb   = h->sb;
@@ -607,6 +617,7 @@ static int extfs_truncate_block_tree(extfs_handle_t *h, uint64_t first, uint64_t
     return EOK;
 }
 
+/* Count the blocks owned by an indirect subtree. */
 static int extfs_count_branch(extfs_sb_info_t *sb, uint32_t block, uint32_t depth, uint64_t *blocks)
 {
     uint32_t *entries;
@@ -630,6 +641,7 @@ static int extfs_count_branch(extfs_sb_info_t *sb, uint32_t block, uint32_t dept
     return status;
 }
 
+/* Recompute and store the inode's allocated 512-byte sector count. */
 static int extfs_update_i_blocks(extfs_handle_t *h, ext2_inode_t *raw)
 {
     uint64_t blocks = 0;
@@ -654,6 +666,7 @@ static int extfs_update_i_blocks(extfs_handle_t *h, ext2_inode_t *raw)
     return EOK;
 }
 
+/* Truncate or extend an inode to the given byte size. */
 int extfs_truncate(extfs_handle_t *h, uint64_t size)
 {
     extfs_sb_info_t *sb;

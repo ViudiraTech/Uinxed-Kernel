@@ -18,19 +18,18 @@
 #define PI_DIV_2      (float64_t)1.5707963267
 #define LONG_LONG_MAX (0x7FFFFFFFFFFFFFFFLL)
 #define LONG_LONG_MIN (-0x7FFFFFFFFFFFFFFFLL - 1)
-/* Fixed-width integer limits are defined in <stdint.h>. */
-#define UINT64_MIN (0x0000000000000000ULL)
-#define UINT32_MIN (0x00000000UL)
-#define UINT16_MIN (0x0000U)
-#define UINT8_MIN  (0x00U)
-#define SHRT_MAX   (0x7FFF)
-#define SHRT_MIN   (-0x7FFF - 1)
-#define INT_MAX    (0x7FFFFFFF)
-#define INT_MIN    (-0x7FFFFFFF - 1)
-#define UINT_MAX   (0xFFFFFFFFU)
-#define UINT_MIN   (0x00000000U)
-#define LONG_MAX   (0x7FFFFFFFFFFFFFFFL)
-#define LONG_MIN   (-0x7FFFFFFFFFFFFFFFL - 1)
+#define UINT64_MIN    (0x0000000000000000ULL)
+#define UINT32_MIN    (0x00000000UL)
+#define UINT16_MIN    (0x0000U)
+#define UINT8_MIN     (0x00U)
+#define SHRT_MAX      (0x7FFF)
+#define SHRT_MIN      (-0x7FFF - 1)
+#define INT_MAX       (0x7FFFFFFF)
+#define INT_MIN       (-0x7FFFFFFF - 1)
+#define UINT_MAX      (0xFFFFFFFFU)
+#define UINT_MIN      (0x00000000U)
+#define LONG_MAX      (0x7FFFFFFFFFFFFFFFL)
+#define LONG_MIN      (-0x7FFFFFFFFFFFFFFFL - 1)
 
 #define FORCE_EVAL(x)                                         \
     do {                                                      \

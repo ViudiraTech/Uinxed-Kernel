@@ -41,6 +41,7 @@ typedef struct tty_dispatch {
         void         *drv_data;
 } tty_dispatch_t;
 
+/* Invoke cb for every registered tty device. */
 void tty_for_each_registered(int (*cb)(tty_driver_t *drv, int index, const char *name, void *opaque), void *opaque)
 {
     tty_registered_device_t *dev;
@@ -50,6 +51,7 @@ void tty_for_each_registered(int (*cb)(tty_driver_t *drv, int index, const char 
     spin_unlock(&tty_driver_lock);
 }
 
+/* Find the driver that owns a given device number range. */
 tty_driver_t *tty_driver_for_dev(uint32_t major, uint32_t minor)
 {
     tty_driver_t *drv;
@@ -63,6 +65,7 @@ tty_driver_t *tty_driver_for_dev(uint32_t major, uint32_t minor)
     return drv;
 }
 
+/* Register one tty device (driver + index) under a node name. */
 int tty_register_device(tty_driver_t *drv, int index, const char *node_name)
 {
     tty_registered_device_t *dev;
@@ -81,6 +84,7 @@ int tty_register_device(tty_driver_t *drv, int index, const char *node_name)
     return 0;
 }
 
+/* Add a tty driver to the registry. */
 int tty_register_driver(tty_driver_t *drv)
 {
     if (!drv || !drv->name) return -EINVAL;
@@ -127,6 +131,7 @@ int tty_devices_populate(void)
     return count;
 }
 
+/* Remove a driver and free all of its registered devices. */
 void tty_unregister_driver(tty_driver_t *drv)
 {
     tty_driver_t            **link;
@@ -152,6 +157,7 @@ void tty_unregister_driver(tty_driver_t *drv)
 
 /* Per-node dispatch */
 
+/* open(2): bind the node to its driver and call the driver's open. */
 int tty_dispatch_open(struct vfs_node *node, uint64_t flags, void **private_data)
 {
     tty_driver_t   *drv;

@@ -11,11 +11,13 @@
 #include <drivers/input/evdev/evdev_queue.h>
 #include <kernel/printk.h>
 
+/* Ring masks require the buffer size to be a power of two. */
 static bool is_power_of_two(unsigned int value)
 {
     return value && !(value & (value - 1));
 }
 
+/* Initialize an empty packet queue over the given ring buffer. */
 bool evdev_queue_init(evdev_queue_t *queue, input_event_t *buffer, unsigned int size)
 {
     if (!queue || !buffer || size < 4 || !is_power_of_two(size)) return false;
@@ -34,6 +36,7 @@ bool evdev_queue_has_packet(const evdev_queue_t *queue)
     return queue && queue->packet_head != queue->tail;
 }
 
+/* Queue one event, committing the frame when a SYN_REPORT arrives. */
 bool evdev_queue_push(evdev_queue_t *queue, const input_event_t *event)
 {
     unsigned int mask;
@@ -74,6 +77,7 @@ bool evdev_queue_push(evdev_queue_t *queue, const input_event_t *event)
     return false;
 }
 
+/* Drain committed packets into the caller's buffer, up to max_events. */
 size_t evdev_queue_read(evdev_queue_t *queue, input_event_t *events, size_t max_events)
 {
     size_t       count = 0;
@@ -90,6 +94,7 @@ size_t evdev_queue_read(evdev_queue_t *queue, input_event_t *events, size_t max_
     return count;
 }
 
+/* Compact the queue, dropping events of type (mask applications). */
 void evdev_queue_flush_type(evdev_queue_t *queue, unsigned int type)
 {
     unsigned int index;
@@ -121,6 +126,7 @@ void evdev_queue_flush_type(evdev_queue_t *queue, unsigned int type)
     queue->head = head;
 }
 
+/* Drop the uncommitted frame and enqueue a SYN_DROPPED in its place. */
 void evdev_queue_discard_pending(evdev_queue_t *queue, const input_event_t *syn_dropped)
 {
     if (!queue || !syn_dropped || queue->head == queue->tail) return;

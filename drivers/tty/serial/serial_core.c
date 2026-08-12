@@ -19,6 +19,7 @@ static bool           serial_cores_inited;
 
 static tty_file_endpoint_t serial_endpoints[UART_MAX_PORTS];
 
+/* tty_core emit callback: push bytes out through the UART. */
 static int serial_tty_emit(void *context, const uint8_t *data, size_t size, uint64_t flags)
 {
     uart_port_t *port = context;
@@ -27,6 +28,7 @@ static int serial_tty_emit(void *context, const uint8_t *data, size_t size, uint
     return port->ops->tx_write(port, data, size);
 }
 
+/* Initialize the tty cores of all present serial ports (once). */
 static void serial_cores_init(void)
 {
     if (serial_cores_inited || !serial_uart_driver) return;
@@ -41,6 +43,7 @@ static void serial_cores_init(void)
     serial_cores_inited = true;
 }
 
+/* tty open: start the port and acquire the tty core. */
 static int serial_tty_open(tty_driver_t *drv, int index, uint64_t flags, void **private_data)
 {
     uart_port_t *port;
@@ -56,6 +59,7 @@ static int serial_tty_open(tty_driver_t *drv, int index, uint64_t flags, void **
     return 0;
 }
 
+/* tty release: shut the port down. */
 static int serial_tty_release(tty_driver_t *drv, int index, void *private_data)
 {
     uart_port_t *port;
@@ -67,6 +71,7 @@ static int serial_tty_release(tty_driver_t *drv, int index, void *private_data)
     return 0;
 }
 
+/* tty read: read from the serial tty core. */
 static int64_t serial_tty_read(tty_driver_t *drv, int index, void *private_data, uint64_t flags, void *addr, size_t size)
 {
     tty_file_endpoint_t *ep = private_data;
@@ -75,6 +80,7 @@ static int64_t serial_tty_read(tty_driver_t *drv, int index, void *private_data,
     return ep && ep->core ? tty_core_read(ep->core, addr, size, flags) : -ENXIO;
 }
 
+/* tty write: write to the serial tty core. */
 static int64_t serial_tty_write(tty_driver_t *drv, int index, void *private_data, uint64_t flags, const void *addr, size_t size)
 {
     tty_file_endpoint_t *ep = private_data;
@@ -83,6 +89,7 @@ static int64_t serial_tty_write(tty_driver_t *drv, int index, void *private_data
     return ep && ep->core ? tty_core_write(ep->core, addr, size, flags) : -ENXIO;
 }
 
+/* tty ioctl: forward to the terminal ioctl handler. */
 static int serial_tty_ioctl(tty_driver_t *drv, int index, void *private_data, uint64_t flags, size_t req, void *arg)
 {
     tty_file_endpoint_t *ep = private_data;
@@ -92,6 +99,7 @@ static int serial_tty_ioctl(tty_driver_t *drv, int index, void *private_data, ui
     return tty_core_ioctl_terminal(ep->core, flags, req, arg, ep->virtual_console);
 }
 
+/* tty poll: report the serial tty core's readiness. */
 static int serial_tty_poll(tty_driver_t *drv, int index, void *private_data, uint64_t flags, size_t events)
 {
     tty_file_endpoint_t *ep = private_data;
@@ -101,6 +109,7 @@ static int serial_tty_poll(tty_driver_t *drv, int index, void *private_data, uin
     return ep && ep->core ? tty_core_poll(ep->core, events) : 0;
 }
 
+/* Register a UART driver with the tty subsystem. */
 void uart_register_driver(uart_driver_t *drv)
 {
     if (!drv) return;
@@ -121,6 +130,7 @@ void uart_register_driver(uart_driver_t *drv)
     tty_register_driver(&drv->tty_drv);
 }
 
+/* Publish one serial port as a /dev/ttyS<N> device. */
 int uart_add_port(uart_driver_t *drv, uart_port_t *port)
 {
     char name[16];
@@ -132,6 +142,7 @@ int uart_add_port(uart_driver_t *drv, uart_port_t *port)
     return tty_register_device(&drv->tty_drv, port->number, name);
 }
 
+/* Queue one received byte and feed it to the tty core. */
 void uart_insert_char(uart_port_t *port, uint8_t ch)
 {
     if (!port) return;
@@ -145,12 +156,14 @@ void uart_insert_char(uart_port_t *port, uint8_t ch)
     if (port->tty) tty_core_receive(port->tty, &ch, 1, O_NONBLOCK);
 }
 
+/* Transmit bytes through the port's hardware ops. */
 int uart_write(uart_port_t *port, const uint8_t *data, size_t len)
 {
     if (!port || !port->ops || !port->ops->tx_write) return -EIO;
     return port->ops->tx_write(port, data, len);
 }
 
+/* Look up the tty core for a serial port without opening it. */
 int serial_tty_core(int index, tty_core_t **core)
 {
     if (!core || !serial_uart_driver || index < 0 || index >= serial_uart_driver->nr) return -ENXIO;

@@ -215,6 +215,7 @@ static inline void e1000_write_flush(e1000_device_t *device)
     (void)e1000_read(device, E1000_REG_STATUS);
 }
 
+/* Look up the supported-device table for this PCI vendor/device pair. */
 static const e1000_id_t *e1000_match(uint16_t vendor, uint16_t device)
 {
     if (vendor != E1000_VENDOR_INTEL) return NULL;
@@ -223,6 +224,7 @@ static const e1000_id_t *e1000_match(uint16_t vendor, uint16_t device)
     return NULL;
 }
 
+/* Reject multicast, broadcast, and all-zero MAC addresses. */
 static int e1000_valid_mac(const uint8_t mac[6])
 {
     uint8_t any = 0;
@@ -234,6 +236,7 @@ static int e1000_valid_mac(const uint8_t mac[6])
     return any != 0 && all != 0xff && !(mac[0] & 1);
 }
 
+/* Read one EEPROM word, polling the EERD done bit for up to a timeout. */
 static int e1000_eeprom_read(e1000_device_t *device, uint8_t word, uint16_t *value)
 {
     uint32_t done       = (device->features & E1000_F_EERD_SMALL) ? (1u << 1) : (1u << 4);
@@ -252,6 +255,7 @@ static int e1000_eeprom_read(e1000_device_t *device, uint8_t word, uint16_t *val
     return -ETIMEDOUT;
 }
 
+/* Read the MAC from EEPROM, falling back to the receive-address registers. */
 static int e1000_read_mac(e1000_device_t *device)
 {
     uint16_t words[3];
@@ -287,6 +291,7 @@ static int e1000_read_mac(e1000_device_t *device)
     return 0;
 }
 
+/* Map the MMIO BAR and store its physical address for register access. */
 static int e1000_map_bar(e1000_device_t *device)
 {
     base_address_register_t bar = get_base_address_register(device->pci, 0);
@@ -329,6 +334,7 @@ static int e1000_map_bar(e1000_device_t *device)
     return 0;
 }
 
+/* Software-reset the controller and wait for the reset bit to clear. */
 static int e1000_reset(e1000_device_t *device)
 {
     e1000_write(device, E1000_REG_IMC, 0xffffffff);
@@ -352,6 +358,7 @@ static int e1000_reset(e1000_device_t *device)
     return -ETIMEDOUT;
 }
 
+/* Release all ring and buffer pages and reset the DMA pointers. */
 static void e1000_free_dma(e1000_device_t *device)
 {
     for (size_t i = 0; i < E1000_RX_COUNT; i++) {
@@ -369,6 +376,7 @@ static void e1000_free_dma(e1000_device_t *device)
     device->tx_ring                             = NULL;
 }
 
+/* Allocate the RX/TX descriptor rings and their DMA buffers. */
 static int e1000_alloc_dma(e1000_device_t *device)
 {
     device->rx_ring_phys = alloc_frames(1);
@@ -409,6 +417,7 @@ static int e1000_alloc_dma(e1000_device_t *device)
     return 0;
 }
 
+/* Program the MAC into RAL/RAH and clear the multicast table. */
 static void e1000_program_mac(e1000_device_t *device)
 {
     uint32_t ral
@@ -419,6 +428,7 @@ static void e1000_program_mac(e1000_device_t *device)
     for (size_t i = 0; i < 128; i++) e1000_write(device, E1000_REG_MTA + (uint32_t)i * 4, 0);
 }
 
+/* Point the controller at the descriptor rings and enable RX/TX. */
 static void e1000_program_rings(e1000_device_t *device)
 {
     e1000_write(device, E1000_REG_RDBAL, (uint32_t)device->rx_ring_phys);
@@ -444,6 +454,7 @@ static void e1000_program_rings(e1000_device_t *device)
     e1000_write_flush(device);
 }
 
+/* Refresh link status and mirror NETDEV_F_RUNNING accordingly. */
 static void e1000_update_link(e1000_device_t *device)
 {
     int up = !!(e1000_read(device, E1000_REG_STATUS) & E1000_STATUS_LU);
@@ -460,6 +471,7 @@ static void e1000_update_link(e1000_device_t *device)
     }
 }
 
+/* Reap completed TX descriptors, updating stats, up to a budget. */
 static size_t e1000_tx_reclaim_locked(e1000_device_t *device, size_t budget)
 {
     size_t reclaimed = 0;
@@ -482,12 +494,14 @@ static size_t e1000_tx_reclaim_locked(e1000_device_t *device, size_t budget)
     return reclaimed;
 }
 
+/* True when the next RX descriptor holds a completed frame. */
 static int e1000_rx_ready_locked(e1000_device_t *device)
 {
     dma_read_barrier();
     return !!(device->rx_ring[device->rx_next].status & E1000_RXD_STAT_DD);
 }
 
+/* Locked wrapper around e1000_rx_ready_locked(). */
 static int e1000_rx_ready(e1000_device_t *device)
 {
     uint64_t rflags = spin_lock_irqsave(&device->rx_lock);
@@ -496,12 +510,14 @@ static int e1000_rx_ready(e1000_device_t *device)
     return ready;
 }
 
+/* True when a used TX descriptor has been completed by the device. */
 static int e1000_tx_ready_locked(e1000_device_t *device)
 {
     dma_read_barrier();
     return device->tx_used && !!(device->tx_ring[device->tx_clean].status & E1000_TXD_STAT_DD);
 }
 
+/* Locked wrapper around e1000_tx_ready_locked(). */
 static int e1000_tx_ready(e1000_device_t *device)
 {
     uint64_t rflags = spin_lock_irqsave(&device->tx_lock);
@@ -510,6 +526,7 @@ static int e1000_tx_ready(e1000_device_t *device)
     return ready;
 }
 
+/* netdev open callback: the device is usable once initialized. */
 static int e1000_net_open(net_device_t *netdev)
 {
     e1000_device_t *device = netdev_private(netdev);
@@ -517,11 +534,13 @@ static int e1000_net_open(net_device_t *netdev)
     return 0;
 }
 
+/* netdev stop callback (no per-open state to tear down). */
 static void e1000_net_stop(net_device_t *netdev)
 {
     (void)netdev;
 }
 
+/* netdev transmit callback: forward the pbuf to the TX ring. */
 static int e1000_net_xmit(net_device_t *netdev, net_pbuf_t *packet)
 {
     e1000_device_t *device = netdev_private(netdev);
@@ -529,6 +548,7 @@ static int e1000_net_xmit(net_device_t *netdev, net_pbuf_t *packet)
     return e1000_transmit(device, packet->data, packet->length);
 }
 
+/* Only the driver's fixed MTU is supported. */
 static int e1000_net_set_mtu(net_device_t *netdev, uint32_t mtu)
 {
     (void)netdev;
@@ -542,6 +562,7 @@ static const netdev_ops_t e1000_netdev_ops = {
     .set_mtu = e1000_net_set_mtu,
 };
 
+/* Queue one frame on the TX ring and kick the controller. */
 int e1000_transmit(e1000_device_t *device, const void *packet, size_t length)
 {
     if (!device || !packet || length == 0) return -EINVAL;
@@ -564,6 +585,7 @@ int e1000_transmit(e1000_device_t *device, const void *packet, size_t length)
         spin_unlock_irqrestore(&device->tx_lock, rflags);
         return -ENETDOWN;
     }
+
     /* Keep one descriptor unused so equal head and tail always means empty. */
     if (device->tx_used == E1000_TX_COUNT - 1) {
         device->stats.tx_busy++;
@@ -587,6 +609,7 @@ int e1000_transmit(e1000_device_t *device, const void *packet, size_t length)
     return 0;
 }
 
+/* Process completed RX descriptors, delivering frames to the net stack. */
 size_t e1000_poll(e1000_device_t *device, size_t budget)
 {
     size_t  done = 0;
@@ -666,6 +689,7 @@ size_t e1000_poll(e1000_device_t *device, size_t budget)
     return done;
 }
 
+/* Handle one batch of interrupt causes: link, RX, and TX completion. */
 static void e1000_process_work(e1000_device_t *device, uint32_t cause)
 {
     if (cause & E1000_ICR_LSC) e1000_update_link(device);
@@ -685,6 +709,7 @@ static void e1000_process_work(e1000_device_t *device, uint32_t cause)
     spin_unlock_irqrestore(&device->tx_lock, rflags);
 }
 
+/* Worker task: drains interrupt work and re-enables the interrupt mask. */
 static void e1000_worker(void *arg)
 {
     e1000_device_t *device = arg;
@@ -732,6 +757,7 @@ static void e1000_worker(void *arg)
     }
 }
 
+/* Spawn the device worker task if it is not already running. */
 static int e1000_start_worker(e1000_device_t *device)
 {
     if (device->worker_started) return 0;
@@ -754,6 +780,7 @@ static int e1000_start_worker(e1000_device_t *device)
     return 0;
 }
 
+/* ISR body: read the cause, mask further interrupts, and wake the worker. */
 static void e1000_interrupt_device(e1000_device_t *device)
 {
     uint32_t cause = e1000_read(device, E1000_REG_ICR);
@@ -770,6 +797,7 @@ static void e1000_interrupt_device(e1000_device_t *device)
     spin_unlock_irqrestore(&device->work_lock, rflags);
 }
 
+/* Shared IRQ entry: route to the device registered in this slot. */
 static void e1000_interrupt_slot(size_t slot, void *frame)
 {
     (void)frame;
@@ -820,6 +848,7 @@ static void *const e1000_idt_irq_handlers[E1000_MAX_DEVICES] = {
     (void *)e1000_idt_interrupt_4, (void *)e1000_idt_interrupt_5, (void *)e1000_idt_interrupt_6, (void *)e1000_idt_interrupt_7,
 };
 
+/* Claim an IRQ slot and set up MSI (or INTx) delivery for the device. */
 static int e1000_setup_interrupt(e1000_device_t *device)
 {
     uint64_t rflags = spin_lock_irqsave(&e1000_irq_lock);
@@ -863,7 +892,6 @@ static int e1000_setup_interrupt(e1000_device_t *device)
     }
     device->using_legacy = 1;
     return 0;
-
 fail:
     rflags                = spin_lock_irqsave(&e1000_irq_lock);
     e1000_irq_slots[slot] = NULL;
@@ -872,6 +900,7 @@ fail:
     return -ENODEV;
 }
 
+/* Tear down IRQ delivery and wait for in-flight ISRs to finish. */
 static void e1000_release_interrupt(e1000_device_t *device)
 {
     if (!device->using_msi && !device->using_legacy) return;
@@ -896,6 +925,7 @@ static void e1000_release_interrupt(e1000_device_t *device)
     device->using_msi = device->using_legacy = device->using_direct_legacy = 0;
 }
 
+/* Stop, unregister, and free the device and all its resources. */
 static void e1000_destroy(e1000_device_t *device)
 {
     if (!device) return;
@@ -947,6 +977,7 @@ static void e1000_destroy(e1000_device_t *device)
     free(device);
 }
 
+/* Probe and fully initialize one e1000 PCI device. */
 int e1000_probe(pci_device_cache_t *pci)
 {
     if (!pci || e1000_device_count >= E1000_MAX_DEVICES) return -ENOSPC;
@@ -1037,17 +1068,16 @@ int e1000_probe(pci_device_cache_t *pci)
     plogk("e1000: %s: Registered (MAC %02x:%02x:%02x:%02x:%02x:%02x, %s, link %s)\n", device->netdev.name, device->mac[0], device->mac[1],
           device->mac[2], device->mac[3], device->mac[4], device->mac[5], device->using_msi ? "MSI" : "INTx", device->link_up ? "up" : "down");
     return 0;
-
 fail_linked:
     if (e1000_devices == device) e1000_devices = device->next;
     if (e1000_device_count) e1000_device_count--;
-
 fail:
     plogk("e1000: Probe failed during %s (%d)\n", stage, ret);
     e1000_destroy(device);
     return ret;
 }
 
+/* Probe all e1000 devices present in the PCI device cache. */
 int e1000_init(void)
 {
 #if !CONFIG_E1000
@@ -1063,6 +1093,7 @@ int e1000_init(void)
     return found ? found : -ENODEV;
 }
 
+/* Start the worker task of every registered device. */
 int e1000_start_workers(void)
 {
 #if !CONFIG_E1000
@@ -1089,6 +1120,7 @@ int e1000_start_workers(void)
     return started ? started : (failed ? -ENOMEM : -ENODEV);
 }
 
+/* Shut down and destroy every registered device. */
 void e1000_shutdown(void)
 {
     while (e1000_devices) {

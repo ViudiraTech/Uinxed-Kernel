@@ -235,12 +235,14 @@ static int futex_read_timespec(uint64_t timeout_ptr, uint64_t *ticks)
     return 0;
 }
 
+/* Return the current tick count on the selected clock. */
 static uint64_t futex_clock_ticks(int realtime)
 {
     if (realtime) return FUTEX_REALTIME_TICKS();
     return sched_ticks();
 }
 
+/* Convert a relative/absolute timeout to an absolute scheduler-tick deadline. */
 static uint64_t futex_deadline(uint64_t ticks, int absolute, int realtime)
 {
     uint64_t now = sched_ticks();
@@ -493,6 +495,8 @@ static int futex_requeue(uint32_t *uaddr, int nr_wake, int nr_requeue, uint32_t 
  *   bits 12-15: op     (4-bit operation code)
  *   bits 0-11:  cmparg (12-bit comparison argument)
  */
+
+/* Apply the FUTEX_WAKE_OP arithmetic/logic operation to the old value. */
 static uint32_t futex_wake_op_apply(uint32_t old_val, uint32_t op, uint32_t oparg)
 {
     switch (op) {
@@ -511,6 +515,7 @@ static uint32_t futex_wake_op_apply(uint32_t old_val, uint32_t op, uint32_t opar
     }
 }
 
+/* Evaluate the FUTEX_WAKE_OP comparison between the old value and cmparg. */
 static int futex_wake_op_cmp(uint32_t old_val, uint32_t cmp, uint32_t cmparg)
 {
     int32_t s_old = (int32_t)old_val;
@@ -1013,7 +1018,6 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
              */
             return futex_wake_op(uaddr, (int)val, (int)timeout, uaddr2, val3);
         }
-
         case FUTEX_FD :
             return -ENOSYS; // FD-based futexes are not supported
 
@@ -1060,7 +1064,6 @@ int64_t sys_futex(uint32_t *uaddr, int futex_op, uint32_t val, uint64_t timeout,
 
             return futex_lock_pi(uaddr);
         }
-
         default :
             return -EINVAL;
     }
@@ -1310,7 +1313,6 @@ static int futex2_requeue_core(uint64_t uaddr, unsigned int size_code1, uint64_t
             }
         }
     }
-
 requeue_done:
     /* Remove entries left empty by wake/requeue. */
     while ((entry = futex2_find_key(bucket1, key1)) != NULL)

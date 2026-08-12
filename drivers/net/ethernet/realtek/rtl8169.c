@@ -230,6 +230,7 @@ static inline void rtl8169_write_flush(rtl8169_device_t *device)
     (void)rtl8169_read32(device, RTL8169_REG_PHYSTATUS);
 }
 
+/* Look up the supported-device table for this PCI vendor/device pair. */
 static const rtl8169_id_t *rtl8169_match(uint16_t vendor, uint16_t device)
 {
     for (size_t i = 0; i < sizeof(rtl8169_ids) / sizeof(rtl8169_ids[0]); i++)
@@ -237,6 +238,7 @@ static const rtl8169_id_t *rtl8169_match(uint16_t vendor, uint16_t device)
     return NULL;
 }
 
+/* Reject multicast, broadcast, and all-zero MAC addresses. */
 static int rtl8169_valid_mac(const uint8_t mac[6])
 {
     uint8_t any = 0;
@@ -248,6 +250,7 @@ static int rtl8169_valid_mac(const uint8_t mac[6])
     return any != 0 && all != 0xff && !(mac[0] & 1);
 }
 
+/* Map the first usable memory BAR and store its physical address. */
 static int rtl8169_map_bar(rtl8169_device_t *device)
 {
     for (uint32_t bar = 0; bar < 6; bar++) {
@@ -280,6 +283,7 @@ static int rtl8169_map_bar(rtl8169_device_t *device)
     return -ENODEV;
 }
 
+/* Software-reset the controller and wait for the reset bit to clear. */
 static int rtl8169_reset(rtl8169_device_t *device)
 {
     rtl8169_write8(device, RTL8169_REG_CR, RTL8169_CR_RESET);
@@ -292,6 +296,7 @@ static int rtl8169_reset(rtl8169_device_t *device)
     return -ETIMEDOUT;
 }
 
+/* Read the MAC from IDR0-5, substituting a unicast fallback if invalid. */
 static void rtl8169_read_mac(rtl8169_device_t *device)
 {
     for (size_t i = 0; i < 6; i++) device->mac[i] = rtl8169_read8(device, RTL8169_REG_IDR0 + (uint32_t)i);
@@ -303,6 +308,7 @@ static void rtl8169_read_mac(rtl8169_device_t *device)
     }
 }
 
+/* Release all ring and buffer pages and reset the DMA pointers. */
 static void rtl8169_free_dma(rtl8169_device_t *device)
 {
     for (size_t i = 0; i < RTL8169_RX_COUNT; i++) {
@@ -320,6 +326,7 @@ static void rtl8169_free_dma(rtl8169_device_t *device)
     device->tx_ring                             = NULL;
 }
 
+/* Allocate the RX/TX descriptor rings and their DMA buffers. */
 static int rtl8169_alloc_dma(rtl8169_device_t *device)
 {
     device->rx_ring_phys = alloc_frames(1);
@@ -369,6 +376,7 @@ static int rtl8169_alloc_dma(rtl8169_device_t *device)
     return 0;
 }
 
+/* Program the descriptor bases and TX/RX configuration registers. */
 static void rtl8169_program_hw(rtl8169_device_t *device)
 {
     rtl8169_write16(device, RTL8169_REG_IMR, 0);
@@ -408,6 +416,7 @@ static void rtl8169_program_hw(rtl8169_device_t *device)
     rtl8169_write_flush(device);
 }
 
+/* Refresh link status and mirror NETDEV_F_RUNNING accordingly. */
 static void rtl8169_update_link(rtl8169_device_t *device)
 {
     int up = !!(rtl8169_read8(device, RTL8169_REG_PHYSTATUS) & RTL8169_PHYSTATUS_LINKSTS);
@@ -424,6 +433,7 @@ static void rtl8169_update_link(rtl8169_device_t *device)
     }
 }
 
+/* Reap completed TX descriptors, updating stats, up to a budget. */
 static size_t rtl8169_tx_reclaim_locked(rtl8169_device_t *device, size_t budget)
 {
     size_t reclaimed = 0;
@@ -444,12 +454,14 @@ static size_t rtl8169_tx_reclaim_locked(rtl8169_device_t *device, size_t budget)
     return reclaimed;
 }
 
+/* True when the next RX descriptor has been returned by the device. */
 static int rtl8169_rx_ready_locked(rtl8169_device_t *device)
 {
     dma_read_barrier();
     return !(device->rx_ring[device->rx_next].command & RTL8169_DESC_OWN);
 }
 
+/* Locked wrapper around rtl8169_rx_ready_locked(). */
 static int rtl8169_rx_ready(rtl8169_device_t *device)
 {
     uint64_t rflags = spin_lock_irqsave(&device->rx_lock);
@@ -458,12 +470,14 @@ static int rtl8169_rx_ready(rtl8169_device_t *device)
     return ready;
 }
 
+/* True when the oldest used TX descriptor has been completed. */
 static int rtl8169_tx_ready_locked(rtl8169_device_t *device)
 {
     dma_read_barrier();
     return device->tx_used && !(device->tx_ring[device->tx_clean].command & RTL8169_DESC_OWN);
 }
 
+/* Locked wrapper around rtl8169_tx_ready_locked(). */
 static int rtl8169_tx_ready(rtl8169_device_t *device)
 {
     uint64_t rflags = spin_lock_irqsave(&device->tx_lock);
@@ -472,6 +486,7 @@ static int rtl8169_tx_ready(rtl8169_device_t *device)
     return ready;
 }
 
+/* netdev open callback: the device is usable once initialized. */
 static int rtl8169_net_open(net_device_t *netdev)
 {
     rtl8169_device_t *device = netdev_private(netdev);
@@ -479,11 +494,13 @@ static int rtl8169_net_open(net_device_t *netdev)
     return 0;
 }
 
+/* netdev stop callback (no per-open state to tear down). */
 static void rtl8169_net_stop(net_device_t *netdev)
 {
     (void)netdev;
 }
 
+/* netdev transmit callback: forward the pbuf to the TX ring. */
 static int rtl8169_net_xmit(net_device_t *netdev, net_pbuf_t *packet)
 {
     rtl8169_device_t *device = netdev_private(netdev);
@@ -491,6 +508,7 @@ static int rtl8169_net_xmit(net_device_t *netdev, net_pbuf_t *packet)
     return rtl8169_transmit(device, packet->data, packet->length);
 }
 
+/* Only the driver's fixed MTU is supported. */
 static int rtl8169_net_set_mtu(net_device_t *netdev, uint32_t mtu)
 {
     (void)netdev;
@@ -504,6 +522,7 @@ static const netdev_ops_t rtl8169_netdev_ops = {
     .set_mtu = rtl8169_net_set_mtu,
 };
 
+/* Queue one frame on the TX ring and kick the DMA engine. */
 int rtl8169_transmit(rtl8169_device_t *device, const void *packet, size_t length)
 {
     if (!device || !packet || length == 0) return -EINVAL;
@@ -526,6 +545,7 @@ int rtl8169_transmit(rtl8169_device_t *device, const void *packet, size_t length
         spin_unlock_irqrestore(&device->tx_lock, rflags);
         return -ENETDOWN;
     }
+
     /* Keep one descriptor unused so equal head and tail always means empty. */
     if (device->tx_used == RTL8169_TX_COUNT - 1) {
         device->stats.tx_busy++;
@@ -552,6 +572,7 @@ int rtl8169_transmit(rtl8169_device_t *device, const void *packet, size_t length
     return 0;
 }
 
+/* Drain completed RX descriptors, delivering frames to the net stack. */
 size_t rtl8169_poll(rtl8169_device_t *device, size_t budget)
 {
     size_t  done = 0;
@@ -620,6 +641,7 @@ size_t rtl8169_poll(rtl8169_device_t *device, size_t budget)
     return done;
 }
 
+/* Handle one batch of interrupt causes: link, RX, and TX completion. */
 static void rtl8169_process_work(rtl8169_device_t *device, uint32_t cause)
 {
     if (cause & RTL8169_ISR_LINKCHG) rtl8169_update_link(device);
@@ -647,6 +669,7 @@ static void rtl8169_process_work(rtl8169_device_t *device, uint32_t cause)
     spin_unlock_irqrestore(&device->tx_lock, rflags);
 }
 
+/* Worker task: drains interrupt work and re-enables the interrupt mask. */
 static void rtl8169_worker(void *arg)
 {
     rtl8169_device_t *device = arg;
@@ -694,6 +717,7 @@ static void rtl8169_worker(void *arg)
     }
 }
 
+/* Spawn the device worker task if it is not already running. */
 static int rtl8169_start_worker(rtl8169_device_t *device)
 {
     if (device->worker_started) return 0;
@@ -716,6 +740,7 @@ static int rtl8169_start_worker(rtl8169_device_t *device)
     return 0;
 }
 
+/* ISR body: read the cause, mask further interrupts, and wake the worker. */
 static void rtl8169_interrupt_device(rtl8169_device_t *device)
 {
     uint16_t status = rtl8169_read16(device, RTL8169_REG_ISR);
@@ -733,6 +758,7 @@ static void rtl8169_interrupt_device(rtl8169_device_t *device)
     spin_unlock_irqrestore(&device->work_lock, rflags);
 }
 
+/* Shared IRQ entry: route to the device registered in this slot. */
 static void rtl8169_interrupt_slot(size_t slot, void *frame)
 {
     (void)frame;
@@ -783,6 +809,7 @@ static void *const rtl8169_idt_irq_handlers[RTL8169_MAX_DEVICES] = {
     (void *)rtl8169_idt_interrupt_4, (void *)rtl8169_idt_interrupt_5, (void *)rtl8169_idt_interrupt_6, (void *)rtl8169_idt_interrupt_7,
 };
 
+/* Claim an IRQ slot and set up MSI (or INTx) delivery for the device. */
 static int rtl8169_setup_interrupt(rtl8169_device_t *device)
 {
     uint64_t rflags = spin_lock_irqsave(&rtl8169_irq_lock);
@@ -826,7 +853,6 @@ static int rtl8169_setup_interrupt(rtl8169_device_t *device)
     }
     device->using_legacy = 1;
     return 0;
-
 fail:
     rflags                  = spin_lock_irqsave(&rtl8169_irq_lock);
     rtl8169_irq_slots[slot] = NULL;
@@ -835,6 +861,7 @@ fail:
     return -ENODEV;
 }
 
+/* Tear down IRQ delivery and wait for in-flight ISRs to finish. */
 static void rtl8169_release_interrupt(rtl8169_device_t *device)
 {
     if (!device->using_msi && !device->using_legacy) return;
@@ -860,6 +887,7 @@ static void rtl8169_release_interrupt(rtl8169_device_t *device)
     device->using_msi = device->using_legacy = device->using_direct_legacy = 0;
 }
 
+/* Pick the first free ethN name not claimed by another device. */
 static int rtl8169_netdev_name(char *name, size_t size)
 {
     for (unsigned i = 0; i < NETDEV_MAX; i++) {
@@ -878,6 +906,7 @@ static int rtl8169_netdev_name(char *name, size_t size)
     return -ENOSPC;
 }
 
+/* Stop, unregister, and free the device and all its resources. */
 static void rtl8169_destroy(rtl8169_device_t *device)
 {
     if (!device) return;
@@ -927,6 +956,7 @@ static void rtl8169_destroy(rtl8169_device_t *device)
     free(device);
 }
 
+/* Probe and fully initialize one RTL8169 PCI device. */
 int rtl8169_probe(pci_device_cache_t *pci)
 {
     if (!pci || rtl8169_device_count >= RTL8169_MAX_DEVICES) return -ENOSPC;
@@ -1003,17 +1033,16 @@ int rtl8169_probe(pci_device_cache_t *pci)
     plogk("rtl8169: %s: Registered (MAC %02x:%02x:%02x:%02x:%02x:%02x, %s, link %s)\n", device->netdev.name, device->mac[0], device->mac[1],
           device->mac[2], device->mac[3], device->mac[4], device->mac[5], device->using_msi ? "MSI" : "INTx", device->link_up ? "up" : "down");
     return 0;
-
 fail_linked:
     if (rtl8169_devices == device) rtl8169_devices = device->next;
     if (rtl8169_device_count) rtl8169_device_count--;
-
 fail:
     plogk("rtl8169: Probe failed during %s (%d)\n", stage, ret);
     rtl8169_destroy(device);
     return ret;
 }
 
+/* Probe all RTL8169 devices present in the PCI device cache. */
 int rtl8169_init(void)
 {
 #if !CONFIG_RTL8169
@@ -1029,6 +1058,7 @@ int rtl8169_init(void)
     return found ? found : -ENODEV;
 }
 
+/* Start the worker task of every registered device. */
 int rtl8169_start_workers(void)
 {
 #if !CONFIG_RTL8169
@@ -1055,6 +1085,7 @@ int rtl8169_start_workers(void)
     return started ? started : (failed ? -ENOMEM : -ENODEV);
 }
 
+/* Shut down and destroy every registered device. */
 void rtl8169_shutdown(void)
 {
     while (rtl8169_devices) {

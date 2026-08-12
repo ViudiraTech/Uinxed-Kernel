@@ -11,6 +11,7 @@
 #ifndef INCLUDE_SCHED_TEST_H_
 #define INCLUDE_SCHED_TEST_H_
 
+/* Initialize and run the scheduler debug demo. */
 void sched_test_init(void);
 
 #endif // INCLUDE_SCHED_TEST_H_

@@ -68,6 +68,7 @@ static const struct drm_ioctl_desc virtgpu_ioctls[] = {
 
 /* Driver callback implementations */
 
+/* Open a file: allocate per-file state and assign a context id. */
 static int virtgpu_open(struct drm_device *dev, struct drm_file *file)
 {
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
@@ -87,6 +88,7 @@ static int virtgpu_open(struct drm_device *dev, struct drm_file *file)
     return 0;
 }
 
+/* Lazily create the 3D context if it has not been created yet. */
 static int virtgpu_ensure_context(struct virtio_gpu_device *vgdev, struct virtio_gpu_fpriv *vfpriv)
 {
     int ret = 0;
@@ -102,6 +104,7 @@ static int virtgpu_ensure_context(struct virtio_gpu_device *vgdev, struct virtio
     return ret;
 }
 
+/* Bind a resource to a context, tracking the attachment locally. */
 int virtgpu_object_attach_context(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id)
 {
     struct virtio_gpu_context_attachment *attachment;
@@ -129,6 +132,7 @@ int virtgpu_object_attach_context(struct virtio_gpu_device *vgdev, struct virtio
     return ret;
 }
 
+/* Unbind a resource from a context and drop the local attachment. */
 int virtgpu_object_detach_context(struct virtio_gpu_device *vgdev, struct virtio_gpu_object *obj, uint32_t ctx_id)
 {
     struct virtio_gpu_context_attachment **link;
@@ -151,11 +155,13 @@ int virtgpu_object_detach_context(struct virtio_gpu_device *vgdev, struct virtio
     return ret;
 }
 
+/* Release contexts and attachments owned by this file. */
 static void virtgpu_postclose(struct drm_device *dev, struct drm_file *file)
 {
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
 
     /* Release any contexts owned by this file */
+
     if (file->driver_priv) {
         struct virtio_gpu_fpriv *vfpriv = (struct virtio_gpu_fpriv *)file->driver_priv;
         ilist_node_t            *node;
@@ -171,6 +177,7 @@ static void virtgpu_postclose(struct drm_device *dev, struct drm_file *file)
     }
 }
 
+/* Disable the scanout when the last client closes. */
 static void virtgpu_lastclose(struct drm_device *dev)
 {
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
@@ -179,6 +186,7 @@ static void virtgpu_lastclose(struct drm_device *dev)
     virtgpu_cmd_set_scanout(vgdev, 0, NULL);
 }
 
+/* Tear down the device and release all driver resources. */
 static void virtgpu_release(struct drm_device *dev)
 {
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
@@ -1116,7 +1124,6 @@ void *virtio_gpu_get_device(void)
 {
     /*
      * The singleton is stashed in the global registered DRM device.
-     * For now we simply return NULL and let the caller decide.
      */
     extern struct drm_device *drm_get_singleton(void);
     struct drm_device        *dev = drm_get_singleton();

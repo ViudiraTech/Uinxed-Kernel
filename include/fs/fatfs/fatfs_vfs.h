@@ -11,7 +11,10 @@
 #ifndef INCLUDE_FATFS_VFS_H_
 #define INCLUDE_FATFS_VFS_H_
 
-int  fatfs_vfs_mount_volume(const char *src, const char *path);
+/* Mount a FatFs volume at a VFS path. */
+int fatfs_vfs_mount_volume(const char *src, const char *path);
+
+/* Register the fatfs filesystem with the VFS layer. */
 void fatfs_vfs_regist(void);
 
 #endif // INCLUDE_FATFS_VFS_H_

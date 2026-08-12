@@ -358,6 +358,7 @@ void drm_handle_vblank(struct drm_device *dev, unsigned int pipe)
     }
 }
 
+/* Timer-driven vblank tick used to emulate vblank interrupts. */
 void drm_vblank_tick(void)
 {
     extern struct drm_device *drm_get_singleton(void);
@@ -513,6 +514,7 @@ int drm_wait_vblank_ioctl(struct drm_device *dev, void *data, struct drm_file *f
     return 0;
 }
 
+/* Drop all pending vblank events owned by @file_priv. */
 void drm_vblank_cancel_pending(struct drm_device *dev, struct drm_file *file_priv)
 {
     if (!dev || !file_priv || !dev->vblank_unused_array) {

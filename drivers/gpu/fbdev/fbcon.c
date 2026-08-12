@@ -79,6 +79,7 @@ static bool fbcon_row_logo_protected(uint32_t row)
 #endif
 }
 
+/* Mark a single grid cell as dirty so it is repainted on the next flush. */
 static void fbcon_mark_cell_dirty(uint32_t row, uint32_t col)
 {
     if (!dirty_first_col || !dirty_last_col || row >= c_height || col >= c_width) return;
@@ -158,6 +159,7 @@ void fbcon_release_logo(void)
 #endif
 }
 
+/* Fill a full grid row with blanks and the current fore/back colors. */
 static void fbcon_clear_row(uint32_t row)
 {
     if (!text_grid || !color_grid || row >= c_height) return;
@@ -170,6 +172,7 @@ static void fbcon_clear_row(uint32_t row)
     }
 }
 
+/* Repaint one column range of a row from the grid into the framebuffer. */
 static void fbcon_redraw_row_range(uint32_t row, uint32_t first_col, uint32_t last_col)
 {
     if (!text_grid || !color_grid || row >= c_height) return;
@@ -183,6 +186,7 @@ static void fbcon_redraw_row_range(uint32_t row, uint32_t first_col, uint32_t la
     }
 }
 
+/* Redraw all dirty rows and merge their damage into one screen refresh. */
 static void fbcon_flush_dirty_rows(void)
 {
     uint32_t damage_x1 = (uint32_t)width;
@@ -219,6 +223,7 @@ static void fbcon_flush_dirty_rows(void)
     if (damaged) video_flush_rect(damage_x1, damage_y1, damage_x2 - damage_x1, damage_y2 - damage_y1);
 }
 
+/* Force a full redraw of every row from the grid into the framebuffer. */
 static void fbcon_redraw_screen(void)
 {
     if (!text_grid || !color_grid) return;
@@ -232,6 +237,7 @@ static void fbcon_redraw_screen(void)
     }
 }
 
+/* Fill the area below the last text row with the background color. */
 static void fbcon_clear_uncovered_bottom(void)
 {
     if (!buffer) return;
@@ -491,6 +497,7 @@ void fbcon_delete_chars(uint32_t x, uint32_t y, uint32_t n, uint32_t cols)
     for (uint32_t col = x; col < cols; col++) fbcon_mark_cell_dirty(y, col);
 }
 
+/* Deferred screen update: full repaint or just the dirty rows. */
 static void fbcon_flush_screen_updates(void)
 {
     if (redraw_deferred) return;

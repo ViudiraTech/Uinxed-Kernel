@@ -20,7 +20,7 @@ void bitmap_init(bitmap_t *bitmap, uint8_t *buffer, size_t size)
     memset(buffer, 0, size);
 }
 
-/* Get memory bitmap */
+/* Return the value of the bit at index. */
 int bitmap_get(const bitmap_t *bitmap, size_t index)
 {
     size_t word_index = index / 8;
@@ -28,7 +28,7 @@ int bitmap_get(const bitmap_t *bitmap, size_t index)
     return (bitmap->buffer[word_index] >> bit_index) & 1;
 }
 
-/* Setting the memory bitmap */
+/* Set the bit at index to the given value. */
 void bitmap_set(bitmap_t *bitmap, size_t index, int value)
 {
     size_t word_index = index / 8;
@@ -39,14 +39,14 @@ void bitmap_set(bitmap_t *bitmap, size_t index, int value)
         bitmap->buffer[word_index] &= ~((size_t)1 << bit_index);
 }
 
-/* Fill the memory bitmap */
+/* Fill the entire bitmap with the given value. */
 void bitmap_fill(bitmap_t *bitmap, int value)
 {
     uint8_t fill_val = (value) ? 0xff : 0x00;
     memset(bitmap->buffer, fill_val, (bitmap->length + 7) / 8);
 }
 
-/* Set the memory bitmap range */
+/* Set every bit in [start, end) to the given value. */
 void bitmap_set_range(bitmap_t *bitmap, size_t start, size_t end, int value)
 {
     if (start >= end || start >= bitmap->length) return;
@@ -68,7 +68,7 @@ void bitmap_set_range(bitmap_t *bitmap, size_t start, size_t end, int value)
     }
 }
 
-/* Memory bitmap search range */
+/* Find a run of length consecutive bits all equal to value. */
 size_t bitmap_find_range(const bitmap_t *bitmap, size_t length, int value)
 {
     size_t  count = 0, start_index = 0;
@@ -98,7 +98,7 @@ size_t bitmap_find_range(const bitmap_t *bitmap, size_t length, int value)
     return (size_t)-1;
 }
 
-/* Check memory bitmap range value */
+/* Return whether every bit in [start, end) equals value. */
 int bitmap_range_all(const bitmap_t *bitmap, size_t start, size_t end, int value)
 {
     if (start >= bitmap->length) return 0;

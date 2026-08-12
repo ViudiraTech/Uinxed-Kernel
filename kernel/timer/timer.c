@@ -29,11 +29,13 @@
 static int64_t  timer_realtime_base_ns;
 static uint64_t net_timer_last_tick;
 
+/* Return the current monotonic time in nanoseconds */
 uint64_t timer_monotonic_ns(void)
 {
     return timer_ticks_to_ns(sched_ticks());
 }
 
+/* Return the realtime clock in nanoseconds, saturating at INT64_MAX */
 int64_t timer_realtime_ns(void)
 {
     uint64_t monotonic = timer_monotonic_ns();
@@ -42,6 +44,7 @@ int64_t timer_realtime_ns(void)
     return (int64_t)monotonic + base;
 }
 
+/* Set the realtime clock to an absolute nanosecond value */
 void timer_realtime_set_ns(int64_t nanoseconds)
 {
     uint64_t monotonic = timer_monotonic_ns();
@@ -49,6 +52,7 @@ void timer_realtime_set_ns(int64_t nanoseconds)
     __atomic_store_n(&timer_realtime_base_ns, base, __ATOMIC_RELEASE);
 }
 
+/* Return the realtime clock as a clamped 32-bit seconds value */
 uint32_t timer_realtime_seconds32(void)
 {
     int64_t  nanoseconds = timer_realtime_ns();

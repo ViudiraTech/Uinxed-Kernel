@@ -61,38 +61,45 @@ static spinlock_t            ipv6_reassembly_lock;
  * classes. All byte-wise so they are independent of host endianness.
  */
 
+/* Byte-wise equality of two IPv6 addresses. */
 int ipv6_address_equal(const ipv6_address_t *left, const ipv6_address_t *right)
 {
     return left && right && !memcmp(left->bytes, right->bytes, IPV6_ADDRESS_LEN);
 }
 
+/* True if the address is all zeros (::). */
 int ipv6_address_is_unspecified(const ipv6_address_t *address)
 {
     static const ipv6_address_t zero;
     return address && ipv6_address_equal(address, &zero);
 }
 
+/* True if the address is ::1. */
 int ipv6_address_is_loopback(const ipv6_address_t *address)
 {
     static const uint8_t loopback[IPV6_ADDRESS_LEN] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
     return address && !memcmp(address->bytes, loopback, sizeof(loopback));
 }
 
+/* True if the first byte is 0xff. */
 int ipv6_address_is_multicast(const ipv6_address_t *address)
 {
     return address && address->bytes[0] == 0xff;
 }
 
+/* True if the address is in the fe80::/10 link-local range. */
 int ipv6_address_is_link_local(const ipv6_address_t *address)
 {
     return address && address->bytes[0] == 0xfe && (address->bytes[1] & 0xc0U) == 0x80U;
 }
 
+/* True if the address is neither unspecified nor multicast. */
 int ipv6_address_is_unicast(const ipv6_address_t *address)
 {
     return address && !ipv6_address_is_unspecified(address) && !ipv6_address_is_multicast(address);
 }
 
+/* Derive the fe80::/64 link-local address from a MAC (EUI-64, flipped U/L bit). */
 void ipv6_link_local_from_mac(ipv6_address_t *address, const uint8_t mac[6])
 {
     if (!address || !mac) return;
@@ -109,6 +116,7 @@ void ipv6_link_local_from_mac(ipv6_address_t *address, const uint8_t mac[6])
     address->bytes[15] = mac[5];
 }
 
+/* Build the ff02::1:ffxx:xxxx solicited-node multicast for an address. */
 void ipv6_solicited_node(const ipv6_address_t *address, ipv6_address_t *multicast)
 {
     if (!address || !multicast) return;
@@ -120,6 +128,7 @@ void ipv6_solicited_node(const ipv6_address_t *address, ipv6_address_t *multicas
     memcpy(multicast->bytes + 13, address->bytes + 13, 3);
 }
 
+/* Map an IPv6 multicast address to the 33:33:xx:xx:xx:xx Ethernet MAC. */
 void ipv6_multicast_ethernet(const ipv6_address_t *address, uint8_t mac[6])
 {
     if (!address || !mac) return;
@@ -128,6 +137,7 @@ void ipv6_multicast_ethernet(const ipv6_address_t *address, uint8_t mac[6])
     memcpy(mac + 2, address->bytes + 12, 4);
 }
 
+/* Compute the IPv6 pseudo-header checksum for a transport segment. */
 uint16_t net_checksum_ipv6_pseudo(const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol, const void *data,
                                   size_t length)
 {
@@ -141,6 +151,7 @@ uint16_t net_checksum_ipv6_pseudo(const ipv6_address_t *source, const ipv6_addre
     return net_checksum_finish(net_checksum_add(net_checksum_add(0, pseudo, sizeof(pseudo)), data, length));
 }
 
+/* Validate hop-by-hop options, rejecting unknown or malformed ones. */
 static int ipv6_parse_hop_options(const uint8_t *bytes, size_t length)
 {
     size_t offset = 2;
@@ -222,6 +233,7 @@ int net_ipv6_parse(const void *data, size_t length, net_ipv6_packet_t *packet)
     return 0;
 }
 
+/* True if the two addresses share the first prefix bits. */
 static int ipv6_prefix_matches(const uint8_t left[16], const uint8_t right[16], unsigned prefix)
 {
     unsigned bytes = prefix / 8U;
@@ -231,6 +243,7 @@ static int ipv6_prefix_matches(const uint8_t left[16], const uint8_t right[16], 
     return !bits || !((left[bytes] ^ right[bytes]) & (uint8_t)(0xffU << (8U - bits)));
 }
 
+/* True for destinations reachable on the local link (link-local or local multicast). */
 static int ipv6_destination_link_scope(const ipv6_address_t *address)
 {
     return ipv6_address_is_link_local(address) || (ipv6_address_is_multicast(address) && (address->bytes[1] & 0x0fU) <= 2U);
@@ -242,6 +255,7 @@ typedef struct ipv6_route_search {
         net_device_t         *router;
 } ipv6_route_search_t;
 
+/* Candidate selection for IPv6 route lookup: direct interface or default router. */
 static void ipv6_route_visit(net_device_t *device, void *context)
 {
     ipv6_route_search_t *search = context;
@@ -265,6 +279,7 @@ static void ipv6_route_visit(net_device_t *device, void *context)
 }
 
 /* Find an interface that can reach destination, choosing source and next hop */
+/* Choose the device, source address, and next hop for a destination. */
 int ipv6_route(const ipv6_address_t *destination, net_device_t **device, ipv6_address_t *source, ipv6_address_t *next_hop)
 {
     if (!destination || !device || !source || !next_hop || ipv6_address_is_unspecified(destination) || ipv6_address_is_loopback(destination))
@@ -293,6 +308,7 @@ int ipv6_route(const ipv6_address_t *destination, net_device_t **device, ipv6_ad
     return 0;
 }
 
+/* Transmit a packet, prepending the IPv6 header and resolving the next hop. */
 int ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol, uint8_t hop_limit,
                 net_pbuf_t *packet)
 {
@@ -360,6 +376,7 @@ int ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_a
     return status;
 }
 
+/* Register/unregister the input handler for a transport protocol. */
 int ipv6_set_transport_handler(uint8_t protocol, ipv6_transport_input_t handler)
 {
     if (!protocol || protocol == IPV6_NEXT_ICMP) return -EINVAL;
@@ -392,6 +409,7 @@ int ipv6_set_transport_handler(uint8_t protocol, ipv6_transport_input_t handler)
     return 0;
 }
 
+/* True if destination is one of this device's addresses or a local multicast. */
 static int ipv6_is_local(const net_device_t *device, const ipv6_address_t *destination)
 {
     if (!memcmp(destination->bytes, device->ipv6_link_local, 16) || !memcmp(destination->bytes, device->ipv6_address, 16)) return 1;
@@ -409,6 +427,7 @@ static int ipv6_is_local(const net_device_t *device, const ipv6_address_t *desti
     return 0;
 }
 
+/* Release a reassembly entry's buffers and reset it. */
 static void ipv6_reassembly_clear(ipv6_reassembly_t *entry)
 {
     free(entry->data);
@@ -416,6 +435,7 @@ static void ipv6_reassembly_clear(ipv6_reassembly_t *entry)
     memset(entry, 0, sizeof(*entry));
 }
 
+/* Find or allocate a reassembly slot for this fragment stream. */
 static ipv6_reassembly_t *ipv6_reassembly_find(net_device_t *device, const net_ipv6_packet_t *ip, uint64_t now)
 {
     ipv6_reassembly_t *slot = NULL;
@@ -449,6 +469,7 @@ static ipv6_reassembly_t *ipv6_reassembly_find(net_device_t *device, const net_i
     return slot;
 }
 
+/* Insert a fragment and return a reassembled packet once the stream is complete. */
 static net_pbuf_t *ipv6_reassemble(net_device_t *device, const net_ipv6_packet_t *ip, uint64_t now, int *status)
 {
     net_pbuf_t *complete = NULL;
@@ -525,6 +546,7 @@ out:
     return complete;
 }
 
+/* Hand an IPv6 payload to its transport handler, generating ICMPv6 errors if needed. */
 static int ipv6_dispatch(net_device_t *device, const ipv6_info_t *info, net_pbuf_t *packet, const void *quoted, size_t quote_length)
 {
     if (info->protocol == IPV6_NEXT_ICMP) return icmpv6_input(device, info, packet);
@@ -594,6 +616,7 @@ bad:
     return -EBADMSG;
 }
 
+/* Register the callback invoked when an ICMPv6 error is reported upward. */
 int ipv6_set_error_hook(ipv6_error_hook_t hook)
 {
     spin_lock(&ipv6_lock);
@@ -606,6 +629,7 @@ int ipv6_set_error_hook(ipv6_error_hook_t hook)
     return 0;
 }
 
+/* Translate an ICMPv6 error into the hook's errno and deliver it upward. */
 void ipv6_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *quoted, size_t quoted_length)
 {
     if (!quoted || quoted_length < IPV6_HEADER_LEN) return;
@@ -649,6 +673,7 @@ void ipv6_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *qu
     if (hook) hook(protocol, &source, &destination, bytes + offset, quoted_length - offset, error, type == ICMPV6_PACKET_TOO_BIG ? mtu : 0);
 }
 
+/* Expire stale reassembly entries, reporting reassembly-timeout ICMPv6 errors. */
 void ipv6_timer(uint64_t now_ticks)
 {
     for (unsigned i = 0; i < IPV6_REASSEMBLY_SLOTS; i++) {
@@ -671,6 +696,7 @@ void ipv6_timer(uint64_t now_ticks)
     }
 }
 
+/* Drop all reassembly state for the removed device. */
 void ipv6_device_removed(net_device_t *device)
 {
     if (!device) return;

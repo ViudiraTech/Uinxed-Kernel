@@ -45,12 +45,14 @@ static uint32_t           inotify_cookie;
 static int inotify_fsid = -1;
 #endif
 
+/* Length of a name field, padded to 4-byte alignment. */
 static size_t inotify_name_size(const char *name)
 {
     if (!name || !name[0]) return 0;
     return (strlen(name) + 1U + 3U) & ~(size_t)3U;
 }
 
+/* Coalesce an event that is identical to the current queue tail. */
 static bool inotify_events_equal(const inotify_queue_event_t *queued, int32_t wd, uint32_t mask, uint32_t cookie, const char *name,
                                  size_t name_size)
 {
@@ -60,6 +62,7 @@ static bool inotify_events_equal(const inotify_queue_event_t *queued, int32_t wd
     return memcmp(queued->event.name, name, strlen(name) + 1U) == 0;
 }
 
+/* Queue an event record, reporting overflow once when the queue is full. */
 static int inotify_queue_event(inotify_context_t *context, int32_t wd, uint32_t mask, uint32_t cookie, const char *name)
 {
     if (!context) return -EINVAL;
@@ -117,6 +120,7 @@ static int inotify_queue_event(inotify_context_t *context, int32_t wd, uint32_t 
     return EOK;
 }
 
+/* Check whether the current process has a pending signal. */
 static bool inotify_signal_pending(void)
 {
 #ifdef INOTIFY_HOST_TEST
@@ -127,6 +131,7 @@ static bool inotify_signal_pending(void)
 #endif
 }
 
+/* Drain queued events into the caller's buffer, blocking when empty. */
 static int64_t inotify_read_events(inotify_context_t *context, uint64_t flags, void *buffer, size_t size)
 {
     if (!context || (!buffer && size)) return -EINVAL;
@@ -174,6 +179,7 @@ static int64_t inotify_read_events(inotify_context_t *context, uint64_t flags, v
     return (int64_t)copied;
 }
 
+/* Close and free a chain of watches scheduled for removal. */
 static void inotify_release_watches(inotify_watch_t *watches)
 {
     while (watches) {
@@ -184,12 +190,14 @@ static void inotify_release_watches(inotify_watch_t *watches)
     }
 }
 
+/* Link a watch onto the deferred release list. */
 static void inotify_release_append(inotify_watch_t **head, inotify_watch_t *watch)
 {
     watch->release_next = *head;
     *head               = watch;
 }
 
+/* Deliver an event to every matching watch on the target node. */
 static void inotify_emit(vfs_node_t target, uint32_t mask, uint32_t cookie, const char *name, bool force_remove)
 {
     if (!target || !(mask & INOTIFY_EVENT_MASK)) return;
@@ -220,9 +228,11 @@ static void inotify_emit(vfs_node_t target, uint32_t mask, uint32_t cookie, cons
     inotify_release_watches(release);
 }
 
+/* Notify watches on a node (and its parent, for child events). */
 void inotify_notify(vfs_node_t node, uint32_t mask)
 {
     if (!node) return;
+
     /* The normal data path has no watches; skip both node and parent walks. */
     if (!__atomic_load_n(&inotify_contexts, __ATOMIC_ACQUIRE)) return;
     uint32_t type_mask = (node->type & file_dir) ? IN_ISDIR : 0;
@@ -256,12 +266,14 @@ void inotify_notify(vfs_node_t node, uint32_t mask)
     }
 }
 
+/* Report creation of a child in the parent directory. */
 void inotify_notify_create(vfs_node_t parent, vfs_node_t node)
 {
     if (!parent || !node) return;
     inotify_emit(parent, IN_CREATE | ((node->type & file_dir) ? IN_ISDIR : 0), 0, node->name, false);
 }
 
+/* Report deletion of a node in its parent directory and on itself. */
 void inotify_notify_delete(vfs_node_t node)
 {
     if (!node) return;
@@ -270,6 +282,7 @@ void inotify_notify_delete(vfs_node_t node)
     inotify_emit(node, IN_DELETE_SELF | type_mask, 0, NULL, true);
 }
 
+/* Allocate a unique cookie linking MOVED_FROM/MOVED_TO events. */
 uint32_t inotify_next_cookie(void)
 {
     uint32_t cookie = __atomic_add_fetch(&inotify_cookie, 1, __ATOMIC_RELAXED);
@@ -277,6 +290,7 @@ uint32_t inotify_next_cookie(void)
     return cookie;
 }
 
+/* Report a rename with paired moved-from/moved-to events. */
 void inotify_notify_move(vfs_node_t node, const char *old_name, const char *new_name)
 {
     if (!node || !node->parent || !old_name || !new_name) return;
@@ -287,6 +301,7 @@ void inotify_notify_move(vfs_node_t node, const char *old_name, const char *new_
     inotify_emit(node, IN_MOVE_SELF | type_mask, 0, NULL, false);
 }
 
+/* Report unmount of a tree and drop every watch beneath it. */
 void inotify_notify_unmount(vfs_node_t mount_root)
 {
     if (!mount_root) return;
@@ -311,6 +326,7 @@ void inotify_notify_unmount(vfs_node_t mount_root)
 }
 
 #ifndef INOTIFY_HOST_TEST
+/* VFS read callback for the inotify file descriptor. */
 static int64_t inotify_file_read(vfs_node_t node, void *private_data, uint64_t flags, void *address, size_t offset, size_t size)
 {
     (void)private_data;
@@ -318,6 +334,7 @@ static int64_t inotify_file_read(vfs_node_t node, void *private_data, uint64_t f
     return inotify_read_events((inotify_context_t *)node->handle, flags, address, size);
 }
 
+/* VFS poll callback for the inotify file descriptor. */
 static int inotify_file_poll(vfs_node_t node, void *private_data, uint64_t flags, size_t events)
 {
     (void)private_data;
@@ -331,6 +348,7 @@ static int inotify_file_poll(vfs_node_t node, void *private_data, uint64_t flags
     return ready & (int)events;
 }
 
+/* VFS ioctl callback; only FIONREAD is implemented. */
 static int inotify_file_ioctl(vfs_node_t node, void *private_data, uint64_t flags, size_t request, void *argument)
 {
     (void)private_data;
@@ -344,6 +362,7 @@ static int inotify_file_ioctl(vfs_node_t node, void *private_data, uint64_t flag
     return copy_to_user(argument, &bytes, sizeof(bytes)) ? -EFAULT : EOK;
 }
 
+/* Mark the context closed and wake any blocked readers. */
 static void inotify_close(void *handle)
 {
     inotify_context_t *context = (inotify_context_t *)handle;
@@ -354,6 +373,7 @@ static void inotify_close(void *handle)
     wait_queue_wake_all(&context->wait_queue);
 }
 
+/* Final release: drop watches, pending events and the context itself. */
 static int inotify_free(void *handle)
 {
     inotify_context_t *context = (inotify_context_t *)handle;
@@ -378,6 +398,7 @@ static int inotify_free(void *handle)
     return EOK;
 }
 
+/* Create an anonymous VFS node backed by a new inotify context. */
 static vfs_node_t inotify_node_create(int *error)
 {
     if (error) *error = -ENOMEM;
@@ -419,6 +440,7 @@ static vfs_node_t inotify_node_create(int *error)
     return node;
 }
 
+/* Resolve an fd to its inotify context, retaining the file reference. */
 static inotify_context_t *inotify_context_get(int fd, process_file_t **file_out)
 {
     process_t *process = process_current();
@@ -433,6 +455,7 @@ static inotify_context_t *inotify_context_get(int fd, process_file_t **file_out)
     return (inotify_context_t *)file->node->handle;
 }
 
+/* inotify_init1(2): create an inotify instance and return its fd. */
 int sys_inotify_init1(int flags)
 {
     if (flags & ~(IN_CLOEXEC | IN_NONBLOCK)) return -EINVAL;
@@ -446,11 +469,13 @@ int sys_inotify_init1(int flags)
     return fd;
 }
 
+/* inotify_init(2) is init1 with no flags. */
 int sys_inotify_init(void)
 {
     return sys_inotify_init1(0);
 }
 
+/* Allocate a watch descriptor not currently in use. */
 static int32_t inotify_allocate_wd(inotify_context_t *context)
 {
     int32_t candidate = context->next_watch_descriptor;
@@ -472,6 +497,7 @@ static int32_t inotify_allocate_wd(inotify_context_t *context)
     return -1;
 }
 
+/* inotify_add_watch(2): add or modify a watch on a path. */
 int sys_inotify_add_watch(int fd, const char *pathname, uint32_t mask)
 {
     if (!pathname) return -EFAULT;
@@ -567,6 +593,7 @@ int sys_inotify_add_watch(int fd, const char *pathname, uint32_t mask)
     return result;
 }
 
+/* inotify_rm_watch(2): remove a watch and report IN_IGNORED. */
 int sys_inotify_rm_watch(int fd, int wd)
 {
     process_file_t    *file    = NULL;
@@ -591,6 +618,7 @@ int sys_inotify_rm_watch(int fd, int wd)
     return EOK;
 }
 
+/* Register the inotify VFS callbacks at kernel init. */
 void inotify_init(void)
 {
     vfs_callback_t callback = calloc(1, sizeof(*callback));

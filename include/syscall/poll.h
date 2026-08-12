@@ -38,6 +38,7 @@ typedef struct {
 #define POLLMSG    0x0400
 #define POLLRDHUP  0x2000
 
+/* Poll and select syscall implementations. */
 int64_t sys_poll(uint64_t fds, uint64_t nfds, uint64_t timeout, uint64_t arg3, uint64_t arg4, uint64_t arg5);
 int64_t sys_select(uint64_t nfds, uint64_t readfds, uint64_t writefds, uint64_t exceptfds, uint64_t timeout, uint64_t arg5);
 int64_t sys_pselect6(uint64_t nfds, uint64_t readfds, uint64_t writefds, uint64_t exceptfds, uint64_t timeout, uint64_t sigmask);

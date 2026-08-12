@@ -53,8 +53,10 @@ __attribute__((used, section(".limine_requests"))) volatile struct limine_hhdm_r
     .revision = 0,
 };
 
-__attribute__((used, section(".limine_requests"))) volatile struct limine_kernel_address_request kernel_address_request
-    = {.id = LIMINE_KERNEL_ADDRESS_REQUEST, .revision = 0};
+__attribute__((used, section(".limine_requests"))) volatile struct limine_kernel_address_request kernel_address_request = {
+    .id       = LIMINE_KERNEL_ADDRESS_REQUEST,
+    .revision = 0,
+};
 
 __attribute__((used, section(".limine_requests"))) volatile struct limine_entry_point_request entry_point_request = {
     .id       = LIMINE_ENTRY_POINT_REQUEST,
@@ -62,7 +64,9 @@ __attribute__((used, section(".limine_requests"))) volatile struct limine_entry_
     .entry    = &kernel_entry,
 };
 
-__attribute__((used, section(".limine_requests"))) volatile struct limine_module_request module_request
-    = {.id = LIMINE_MODULE_REQUEST, .revision = 0};
+__attribute__((used, section(".limine_requests"))) volatile struct limine_module_request module_request = {
+    .id       = LIMINE_MODULE_REQUEST,
+    .revision = 0,
+};
 
 __attribute__((used, section(".limine_requests_end"))) LIMINE_REQUESTS_END_MARKER

@@ -389,6 +389,7 @@ static inline uint32_t hda_mk_verb(int addr, uint16_t nid, uint32_t verb_id, uin
     return ((uint32_t)(addr & 0xf) << 28) | ((uint32_t)(nid & 0xff) << 20) | (verb_id << 8) | (payload & 0xffff);
 }
 
+/* Queue one verb command in the CORB, advancing the write pointer. */
 static int hda_send_corb(uint32_t cmd)
 {
     uint16_t wp     = hda_read16(CORBWP) & 0xFF;
@@ -400,6 +401,7 @@ static int hda_send_corb(uint32_t cmd)
     return 0;
 }
 
+/* Wait for and collect the RIRB response for a codec, with timeout. */
 static int hda_get_resp_rirb(int addr, uint32_t *res)
 {
     int timeout = 50000;
@@ -429,6 +431,7 @@ static int hda_get_resp_rirb(int addr, uint32_t *res)
     return -EIO;
 }
 
+/* Execute one verb and track the outstanding command count. */
 static int hda_verb_exec(int addr, uint16_t nid, uint32_t verb_id, uint32_t payload, uint32_t *res)
 {
     int aidx = addr;
@@ -442,6 +445,7 @@ static int hda_verb_exec(int addr, uint16_t nid, uint32_t verb_id, uint32_t payl
     return hda_get_resp_rirb(addr, res);
 }
 
+/* Read one codec parameter verb, logging failures. */
 static uint32_t hda_get_param(int addr, uint16_t nid, int param)
 {
     uint32_t res = 0;
@@ -450,11 +454,13 @@ static uint32_t hda_get_param(int addr, uint16_t nid, int param)
     return res;
 }
 
+/* Fire-and-forget verb write. */
 static void hda_set_verb(int addr, uint16_t nid, uint32_t verb_id, uint32_t payload)
 {
     hda_verb_exec(addr, nid, verb_id, payload, NULL);
 }
 
+/* Execute a verb and return its response. */
 static uint32_t hda_get_verb(int addr, uint16_t nid, uint32_t verb_id, uint32_t payload)
 {
     uint32_t res = 0;
@@ -509,6 +515,7 @@ static int hda_alloc_corb_rirb(void)
     return 0;
 }
 
+/* Program the CORB/RIRB base addresses and start their DMA engines. */
 static void hda_init_corb_rirb(void)
 {
     int timeout;
@@ -562,6 +569,7 @@ static int hda_probe_codec(int addr)
     return 0;
 }
 
+/* Enumerate the codec's widget tree and locate DAC/ADC/pin nodes. */
 static int hda_parse_widgets(hda_codec_t *codec)
 {
     codec->afg_nid   = -1;
@@ -727,6 +735,7 @@ static void hda_config_codec(hda_codec_t *codec)
     /* Configure ADC for capture if available */
     if (codec->adc_nid > 0 && codec->pin_nid > 0) {
         hda_set_verb(addr, (uint16_t)codec->adc_nid, AC_VERB_SET_POWER_STATE, AC_PWRST_D0);
+
         /* Route pin to ADC */
         int      cur_nid = codec->adc_nid;
         uint32_t clen    = hda_get_param(addr, (uint16_t)cur_nid, AC_PAR_CONNLIST_LEN);
@@ -808,6 +817,7 @@ static int hda_setup_stream(int stream_idx, uint32_t format, size_t buf_size, si
     return 0;
 }
 
+/* Start DMA on a stream and enable its interrupts. */
 static void hda_start_stream(int stream_idx)
 {
     if (stream_idx >= HDA_MAX_STREAMS || !hda_ctrl.streams[stream_idx].allocated) return;
@@ -821,6 +831,7 @@ static void hda_start_stream(int stream_idx)
     hda_ctrl.streams[stream_idx].running = 1;
 }
 
+/* Stop DMA on a stream and release its descriptor. */
 static void hda_stop_stream(int stream_idx)
 {
     if (stream_idx >= HDA_MAX_STREAMS || !hda_ctrl.streams[stream_idx].allocated) return;
@@ -832,6 +843,7 @@ static void hda_stop_stream(int stream_idx)
 }
 
 /* Audio subsystem interface */
+/* Find a free stream descriptor for the given direction. */
 static int hda_allocate_stream(int direction)
 {
     for (int s = 0; s < HDA_MAX_STREAMS; s++) {
@@ -846,6 +858,7 @@ static int hda_allocate_stream(int direction)
     return -EBUSY;
 }
 
+/* audio callback: start both allocated streams. */
 static int hda_audio_start(audio_card_t *card)
 {
     (void)card;
@@ -856,6 +869,7 @@ static int hda_audio_start(audio_card_t *card)
     return EOK;
 }
 
+/* audio callback: stop both streams. */
 static int hda_audio_stop(audio_card_t *card)
 {
     (void)card;
@@ -866,9 +880,11 @@ static int hda_audio_stop(audio_card_t *card)
     return EOK;
 }
 
+/* audio callback: wait for playback DMA to finish before stopping. */
 static int hda_audio_drain(audio_card_t *card)
 {
     (void)card;
+
     /* Wait for all pending DMA to complete */
     spin_lock(&hda_ctrl.lock);
     if (hda_ctrl.playback_stream >= 0 && hda_ctrl.streams[hda_ctrl.playback_stream].running) {
@@ -889,6 +905,7 @@ static int hda_audio_drain(audio_card_t *card)
     return EOK;
 }
 
+/* audio callback: copy a chunk into the playback DMA buffer. */
 static size_t hda_audio_write(audio_card_t *card, const void *addr, size_t offset, size_t size)
 {
     (void)card;
@@ -910,6 +927,7 @@ static size_t hda_audio_write(audio_card_t *card, const void *addr, size_t offse
     return to_copy;
 }
 
+/* audio callback: copy a chunk out of the capture DMA buffer. */
 static size_t hda_audio_read(audio_card_t *card, void *addr, size_t offset, size_t size)
 {
     (void)card;
@@ -931,6 +949,7 @@ static size_t hda_audio_read(audio_card_t *card, void *addr, size_t offset, size
     return to_copy;
 }
 
+/* audio callback: validate and store the PCM format. */
 static int hda_audio_set_format(audio_card_t *card, const audio_pcm_format_t *format)
 {
     if (!card || !format) return -EINVAL;
@@ -945,6 +964,7 @@ static int hda_audio_set_format(audio_card_t *card, const audio_pcm_format_t *fo
     return EOK;
 }
 
+/* audio callback: program format verbs and set up the DMA streams. */
 static int hda_audio_set_params(audio_card_t *card, const audio_pcm_format_t *fmt, size_t buffer_bytes, size_t period_bytes)
 {
     if (!card || !fmt) return -EINVAL;
@@ -1043,6 +1063,7 @@ static int hda_audio_set_params(audio_card_t *card, const audio_pcm_format_t *fm
     return EOK;
 }
 
+/* audio callback: write DAC gain for left and right channels. */
 static int hda_audio_set_volume(audio_card_t *card, const audio_volume_t *volume)
 {
     if (!card || !volume) return -EINVAL;
@@ -1060,6 +1081,7 @@ static int hda_audio_set_volume(audio_card_t *card, const audio_volume_t *volume
     return EOK;
 }
 
+/* audio callback: read DAC gain from the first available codec. */
 static int hda_audio_get_volume(audio_card_t *card, audio_volume_t *volume)
 {
     if (!card || !volume) return -EINVAL;
@@ -1081,6 +1103,7 @@ static int hda_audio_get_volume(audio_card_t *card, audio_volume_t *volume)
     return EOK;
 }
 
+/* audio callback: report the hardware playback position in frames. */
 static int hda_audio_get_position(audio_card_t *card, snd_pcm_uframes_t *pos)
 {
     (void)card;
@@ -1096,6 +1119,7 @@ static int hda_audio_get_position(audio_card_t *card, snd_pcm_uframes_t *pos)
     return EOK;
 }
 
+/* audio callback: report free space left in the playback buffer. */
 static int hda_audio_get_avail(audio_card_t *card, size_t *avail)
 {
     (void)card;

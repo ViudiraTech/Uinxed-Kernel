@@ -165,11 +165,10 @@ int drm_send_event(struct drm_device *dev, struct drm_pending_vblank_event *e)
             free(e);
         return 0;
     }
-    if (file_priv->event_list_tail) {
+    if (file_priv->event_list_tail)
         file_priv->event_list_tail->next = node;
-    } else {
+    else
         file_priv->event_list_head = node;
-    }
     file_priv->event_list_tail = node;
     file_priv->event_space += (int)e->event.base.length;
     if (e->file_ref && file_priv->event_refs) file_priv->event_refs--;

@@ -97,11 +97,19 @@ typedef struct inotify_context {
         bool                    closed;
 } inotify_context_t;
 
-int sys_inotify_init(void);
+/* inotify_init1(2): create an inotify instance and return its fd. */
 int sys_inotify_init1(int flags);
+
+/* inotify_init(2) is init1 with no flags. */
+int sys_inotify_init(void);
+
+/* inotify_add_watch(2): add or modify a watch on a path. */
 int sys_inotify_add_watch(int fd, const char *pathname, uint32_t mask);
+
+/* inotify_rm_watch(2): remove a watch and report IN_IGNORED. */
 int sys_inotify_rm_watch(int fd, int wd);
 
+/* Register the inotify VFS callbacks at kernel init. */
 void inotify_init(void);
 
 /* VFS event producers. Events are emitted only after the operation commits. */

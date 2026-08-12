@@ -321,7 +321,8 @@ static int copy_user_bytes_process_nofault(process_t *proc, void *dst, const voi
     return 0;
 }
 
-/* Pipe callbacks are entered from the current process.  For the common
+/*
+ * Pipe callbacks are entered from the current process.  For the common
  * single-threaded case proc->task is the running task, so avoid another
  * current_task()/RDTSCP lookup while installing the fault fixup.  Fall back
  * to the fully generic implementation for multithreaded or foreign targets.

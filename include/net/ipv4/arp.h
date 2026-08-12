@@ -26,6 +26,7 @@ typedef struct net_arp_packet {
         uint16_t operation;
 } net_arp_packet_t;
 
+/* ARP packet processing and cache maintenance. */
 void arp_init(void);
 int  net_arp_parse(const void *data, size_t length, net_arp_packet_t *arp);
 int  arp_input(net_device_t *device, net_pbuf_t *packet);

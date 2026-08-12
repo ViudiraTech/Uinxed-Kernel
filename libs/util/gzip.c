@@ -58,11 +58,13 @@ static const uint8_t distance_extra[30] = {
     0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13,
 };
 
+/* Read a little-endian 32-bit value. */
 static uint32_t load_le32(const uint8_t *data)
 {
     return (uint32_t)data[0] | ((uint32_t)data[1] << 8) | ((uint32_t)data[2] << 16) | ((uint32_t)data[3] << 24);
 }
 
+/* Read count bits from the deflate stream, MSB-first per block. */
 static int read_bits(deflate_stream_t *stream, unsigned int count, uint32_t *value)
 {
     while (stream->bit_count < count) {
@@ -77,6 +79,7 @@ static int read_bits(deflate_stream_t *stream, unsigned int count, uint32_t *val
     return EOK;
 }
 
+/* Discard the partial bits so the next read starts on a byte boundary. */
 static void align_to_byte(deflate_stream_t *stream)
 {
     unsigned int discard = stream->bit_count & 7U;
@@ -84,6 +87,7 @@ static void align_to_byte(deflate_stream_t *stream)
     stream->bit_count -= discard;
 }
 
+/* Build a canonical Huffman table from code lengths. */
 static int build_huffman(deflate_huffman_t *tree, const uint8_t *lengths, size_t symbol_count)
 {
     uint16_t offsets[DEFLATE_MAX_BITS + 1];
@@ -110,6 +114,7 @@ static int build_huffman(deflate_huffman_t *tree, const uint8_t *lengths, size_t
     return EOK;
 }
 
+/* Decode one symbol by walking the canonical code tree bit by bit. */
 static int decode_symbol(deflate_stream_t *stream, const deflate_huffman_t *tree, uint16_t *symbol)
 {
     unsigned int code  = 0;
@@ -133,6 +138,7 @@ static int decode_symbol(deflate_stream_t *stream, const deflate_huffman_t *tree
     return -EINVAL;
 }
 
+/* Build the fixed literal and distance trees defined by RFC 1951. */
 static int build_fixed_trees(deflate_huffman_t *literal_tree, deflate_huffman_t *distance_tree)
 {
     uint8_t literal_lengths[288];
@@ -148,6 +154,7 @@ static int build_fixed_trees(deflate_huffman_t *literal_tree, deflate_huffman_t 
     return build_huffman(distance_tree, distance_lengths, 32);
 }
 
+/* Read the code-length table and build dynamic literal/distance trees. */
 static int build_dynamic_trees(deflate_stream_t *stream, deflate_huffman_t *literal_tree, deflate_huffman_t *distance_tree)
 {
     static const uint8_t code_order[19]   = {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
@@ -208,6 +215,7 @@ static int build_dynamic_trees(deflate_stream_t *stream, deflate_huffman_t *lite
     return build_huffman(distance_tree, lengths + literal_count, distance_count);
 }
 
+/* Decompress one Huffman-coded block, emitting literals and LZ77 matches. */
 static int inflate_compressed_block_impl(deflate_stream_t *stream, uint8_t *output, size_t output_capacity, size_t *output_offset,
                                          const deflate_huffman_t *literal_tree, const deflate_huffman_t *distance_tree)
 {
@@ -279,6 +287,7 @@ static int inflate_compressed_block_impl(deflate_stream_t *stream, uint8_t *outp
     }
 }
 
+/* Run the compressed block with the FPU enabled for SSE2 copies. */
 static int inflate_compressed_block(deflate_stream_t *stream, uint8_t *output, size_t output_capacity, size_t *output_offset,
                                     const deflate_huffman_t *literal_tree, const deflate_huffman_t *distance_tree)
 {
@@ -288,6 +297,7 @@ static int inflate_compressed_block(deflate_stream_t *stream, uint8_t *output, s
     return status;
 }
 
+/* Copy an uncompressed (stored) block, verifying its length and inverse. */
 static int inflate_stored_block(deflate_stream_t *stream, uint8_t *output, size_t output_capacity, size_t *output_offset)
 {
     uint32_t length;
@@ -304,6 +314,7 @@ static int inflate_stored_block(deflate_stream_t *stream, uint8_t *output, size_
     return EOK;
 }
 
+/* Inflate a raw deflate stream block by block until the final marker. */
 static int inflate_data(const uint8_t *input, size_t input_size, uint8_t *output, size_t output_capacity, size_t *output_size)
 {
     deflate_stream_t stream  = {.data = input, .size = input_size};
@@ -333,6 +344,7 @@ static int inflate_data(const uint8_t *input, size_t input_size, uint8_t *output
     return EOK;
 }
 
+/* Compute the standard CRC-32 over data (gzip trailer checksum). */
 static uint32_t gzip_crc32(const uint8_t *data, size_t size)
 {
     uint32_t crc = UINT32_MAX;
@@ -343,6 +355,7 @@ static uint32_t gzip_crc32(const uint8_t *data, size_t size)
     return crc ^ UINT32_MAX;
 }
 
+/* Advance past a null-terminated header field within the trailer limit. */
 static int skip_zero_terminated_field(const uint8_t *input, size_t limit, size_t *offset)
 {
     while (*offset < limit && input[*offset]) (*offset)++;

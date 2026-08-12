@@ -1321,7 +1321,6 @@ int module_load(const void *image, size_t size, const char *params, unsigned int
     }
     operation_end();
     return EOK;
-
 out_destroy:
     plogk("module: Load of \"%s\" failed: %d\n", internal->module->name[0] ? internal->module->name : "(unnamed)", result);
     destroy_internal(internal);
@@ -1389,6 +1388,7 @@ out:
 #endif
 }
 
+/* Format the /proc/modules listing for all loaded modules */
 size_t module_format_proc(char *buffer, size_t size)
 {
     if (!buffer || !size) return 0;
@@ -1425,6 +1425,7 @@ size_t module_format_proc(char *buffer, size_t size)
     return written;
 }
 
+/* Install the module signature verifier; only possible before any module loads */
 int module_set_signature_verifier(module_signature_verifier_t verifier)
 {
     if (!verifier) return -EINVAL;
@@ -1438,6 +1439,7 @@ int module_set_signature_verifier(module_signature_verifier_t verifier)
     return EOK;
 }
 
+/* Initialize the module registry and locate the sysfs module object */
 void module_subsystem_init(void)
 {
     memset(&module_lock, 0, sizeof(module_lock));

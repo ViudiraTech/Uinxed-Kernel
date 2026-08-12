@@ -26,6 +26,7 @@ typedef struct test_gem_object {
         size_t                size;
 } test_gem_object_t;
 
+/* Allocate a test GEM object with backing buffer. */
 static test_gem_object_t *test_gem_alloc(struct drm_device *dev, size_t sz)
 {
     test_gem_object_t *obj = malloc(sizeof(*obj));
@@ -45,6 +46,7 @@ static test_gem_object_t *test_gem_alloc(struct drm_device *dev, size_t sz)
     return obj;
 }
 
+/* Free a test GEM object. */
 static void test_gem_free(test_gem_object_t *obj)
 {
     if (!obj) return;

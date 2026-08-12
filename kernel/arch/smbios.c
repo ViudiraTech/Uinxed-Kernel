@@ -45,7 +45,7 @@ static const header_t *find_smbios_type(uint8_t target_type)
     return 0;
 }
 
-/* Parsing table string */
+/* Fetch the string at the given index from the structure's string area */
 static const char *smbios_get_string(const header_t *hdr, int index)
 {
     if (!hdr || !index) return "";

@@ -91,6 +91,7 @@ static void extfs_jnl_put_be32(void *address, uint32_t value)
     p[3]       = (uint8_t)value;
 }
 
+/* Update a legacy CRC32 over the journal in big-endian byte order. */
 static uint32_t extfs_jnl_crc32_be(uint32_t crc, const void *data, size_t size)
 {
     const uint8_t *bytes = data;
@@ -101,12 +102,14 @@ static uint32_t extfs_jnl_crc32_be(uint32_t crc, const void *data, size_t size)
     return crc;
 }
 
+/* Advance to the next journal block, wrapping at the usable end. */
 static uint32_t extfs_jnl_next_block(const extfs_journal_t *journal, uint32_t block)
 {
     block++;
     return block >= journal->usable_end ? journal->first : block;
 }
 
+/* Read or write one journal block through the journal inode's mapping. */
 static int extfs_jnl_logical_io(extfs_journal_t *journal, uint32_t logical, void *data, int write)
 {
     uint32_t physical;
@@ -128,6 +131,7 @@ static int extfs_jnl_write(extfs_journal_t *journal, uint32_t logical, void *dat
     return extfs_jnl_logical_io(journal, logical, data, 1);
 }
 
+/* Write the journal superblock, updating its checksum when enabled. */
 static int extfs_jnl_write_super(extfs_journal_t *journal, uint32_t start, uint32_t sequence)
 {
     extfs_jnl_superblock_t *super = (extfs_jnl_superblock_t *)journal->super_buffer;
@@ -159,12 +163,14 @@ static void extfs_jnl_free_records(extfs_journal_t *journal)
     journal->record_count = 0;
 }
 
+/* Size of one descriptor tag for the journal's feature set. */
 static size_t extfs_jnl_tag_size(const extfs_journal_t *journal)
 {
     if (journal->incompat & EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V3) return 16;
     return (journal->incompat & EXTFS_JNL_FEATURE_INCOMPAT_64BIT) ? 12 : 8;
 }
 
+/* Parse a descriptor tag into home block, flags and checksum. */
 static int extfs_jnl_parse_tag(extfs_journal_t *journal, const uint8_t *tag, uint64_t *home, uint32_t *flags, uint32_t *checksum)
 {
     *home = extfs_jnl_get_be32(tag);
@@ -180,6 +186,7 @@ static int extfs_jnl_parse_tag(extfs_journal_t *journal, const uint8_t *tag, uin
     return *home < journal->sb->blocks_count ? EOK : -EIO;
 }
 
+/* Compute the CRC32C checksum of a journaled data block. */
 static uint32_t extfs_jnl_data_checksum(extfs_journal_t *journal, uint32_t sequence, const void *data)
 {
     uint8_t be_sequence[4];
@@ -188,6 +195,7 @@ static uint32_t extfs_jnl_data_checksum(extfs_journal_t *journal, uint32_t seque
     return crc32c_update(checksum, data, journal->block_size);
 }
 
+/* Validate a commit block's magic, type, sequence and checksum. */
 static int extfs_jnl_verify_commit(extfs_journal_t *journal, uint8_t *block, uint32_t sequence)
 {
     if (extfs_jnl_get_be32(block) != EXTFS_JNL_MAGIC_NUMBER || extfs_jnl_get_be32(block + 4) != EXTFS_JNL_COMMIT_BLOCK
@@ -206,6 +214,7 @@ static int extfs_jnl_verify_commit(extfs_journal_t *journal, uint8_t *block, uin
     return EOK;
 }
 
+/* Verify the descriptor block tail checksum. */
 static int extfs_jnl_verify_descriptor(extfs_journal_t *journal, uint8_t *block)
 {
     if (!(journal->incompat & (EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V2 | EXTFS_JNL_FEATURE_INCOMPAT_CSUM_V3))) return EOK;
@@ -356,6 +365,7 @@ static int extfs_jnl_walk_transaction(extfs_journal_t *journal, uint32_t start, 
     return status;
 }
 
+/* Recompute the legacy v1 transaction checksum over descriptor and data blocks. */
 static int extfs_jnl_v1_transaction_checksum(extfs_journal_t *journal, uint32_t start, uint32_t end, uint32_t sequence, uint32_t *result)
 {
     uint8_t *block  = malloc(journal->block_size);
@@ -454,6 +464,7 @@ out:
     return status;
 }
 
+/* Begin a journal transaction, checking the ring has space. */
 static int extfs_jnl_begin(void *context, uint32_t transaction_id, uint32_t buffers)
 {
     extfs_journal_t *journal = context;
@@ -469,6 +480,7 @@ static int extfs_jnl_begin(void *context, uint32_t transaction_id, uint32_t buff
     return required < journal->usable_end - journal->first ? EOK : -ENOSPC;
 }
 
+/* Stage one metadata block for the current transaction. */
 static int extfs_jnl_log_block(void *context, uint32_t transaction_id, uint64_t home_block, const void *data, uint32_t flags)
 {
     extfs_journal_t    *journal = context;
@@ -494,6 +506,7 @@ static int extfs_jnl_log_block(void *context, uint32_t transaction_id, uint64_t 
     return EOK;
 }
 
+/* Append the descriptor, data and commit blocks to the journal ring. */
 static int extfs_jnl_commit(void *context, uint32_t transaction_id)
 {
     extfs_journal_t    *journal    = context;
@@ -589,6 +602,7 @@ out:
     return status;
 }
 
+/* Advance the journal sequence past a fully committed transaction. */
 static int extfs_jnl_checkpoint(void *context, uint32_t transaction_id)
 {
     extfs_journal_t *journal = context;
@@ -601,6 +615,7 @@ static int extfs_jnl_checkpoint(void *context, uint32_t transaction_id)
     return status;
 }
 
+/* Record the abort error in the journal superblock and drop staged blocks. */
 static void extfs_jnl_abort(void *context, uint32_t transaction_id, int error)
 {
     extfs_journal_t        *journal = context;
@@ -621,6 +636,7 @@ static const fs_txn_backend_ops_t extfs_jnl_ops = {
     .abort      = extfs_jnl_abort,
 };
 
+/* Open and validate the journal inode, reading its superblock. */
 int extfs_jnl_open(struct extfs_sb_info *sb, extfs_journal_t **out)
 {
     extfs_journal_t        *journal;
@@ -701,6 +717,7 @@ int extfs_jnl_open(struct extfs_sb_info *sb, extfs_journal_t **out)
     return EOK;
 }
 
+/* Release all journal resources. */
 void extfs_jnl_close(extfs_journal_t *journal)
 {
     if (!journal) return;
@@ -710,6 +727,7 @@ void extfs_jnl_close(extfs_journal_t *journal)
     free(journal);
 }
 
+/* Expose the journal transaction backend operations. */
 const fs_txn_backend_ops_t *extfs_jnl_backend_ops(void)
 {
     return &extfs_jnl_ops;

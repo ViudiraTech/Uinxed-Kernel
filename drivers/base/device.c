@@ -424,22 +424,20 @@ int device_register(struct device *dev)
 
     /* Set the parent kobject */
     struct kobject *parent = NULL;
-    if (dev->parent) {
+    if (dev->parent)
         parent = &dev->parent->kobj;
-    } else {
+    else
         parent = get_devices_kobj();
-    }
 
     if (!parent) return -ENOENT;
 
     /* An explicit device name (for example a PCI BDF) is authoritative. */
-    if (dev->kobj.name) {
+    if (dev->kobj.name)
         ret = kobject_add(&dev->kobj, parent, "%s", dev->kobj.name);
-    } else if (dev->bus && dev->bus->dev_name) {
+    else if (dev->bus && dev->bus->dev_name)
         ret = kobject_add(&dev->kobj, parent, "%s%llu", dev->bus->dev_name, dev->devid);
-    } else {
+    else
         ret = kobject_add(&dev->kobj, parent, "device%llu", dev->devid);
-    }
 
     if (ret != EOK) return ret;
 
@@ -500,12 +498,10 @@ int device_register(struct device *dev)
         }
     }
 
-    /* Create symlinks if the device has a class */
+    /* Class link: /sys/class/<name>/<device> -> /sys/devices/... */
     if (dev->class) {
         ret = sysfs_create_symlink(&dev->class->subsys.kobj, &dev->kobj, kobject_name(&dev->kobj));
         if (ret != EOK) goto rollback_device_link;
-        /* /sys/class/<name>/<device> - /sys/devices/.../device */
-        /* For now just add to the class kset */
     }
 
     /* /sys/dev/char/<major>:<minor> - /sys/devices/...  (udev device-node map) */
@@ -517,7 +513,6 @@ int device_register(struct device *dev)
 
     kobject_uevent(&dev->kobj, KOBJ_ADD);
     return EOK;
-
 rollback_device_link:
     if (dev->class && dev->parent) sysfs_remove_symlink(&dev->kobj, "device");
 rollback_bus_device:
@@ -570,6 +565,7 @@ void device_unregister(struct device *dev)
     kobject_put(&dev->kobj);
 }
 
+/* Create and register a class device whose name is formatted from fmt. */
 struct device *device_create(struct class *cls, struct device *parent, dev_t devt, void *drvdata, const char *fmt, ...)
 {
     struct device *dev;
@@ -794,26 +790,14 @@ struct device_driver *bus_find_driver_by_name(struct bus_type *bus, const char *
     return NULL;
 }
 
-/* device_model_init */
-
+/* Initialize the device model, resolving the top-level sysfs kobjects. */
 int device_model_init(void)
 {
 #if CONFIG_SYSFS
-    /* Locate the top-level sysfs kobjects created by sysfs_init */
-    /* They are children of sysfs_root_kobj */
-
     /*
-     * Wait - we need sysfs_root_kobj to find these.
-     * The kobject_create_and_add calls in sysfs_init already
-     * create them under sysfs_root_kobj. We just need to find them.
+     * The top-level sysfs kobjects are children of sysfs_root_kobj.
+     * Registration helpers also resolve them lazily via get_*_kobj().
      */
-
-    /*
-     * For now, we'll find them lazily. The registration functions
-     * for bus/class will use the extern pointers declared at the
-     * top of this file. They need to be initialised.
-     */
-
     if (sysfs_root_kobj) {
         devices_kobj = sysfs_find_child_kobj(sysfs_root_kobj, "devices");
         bus_kobj     = sysfs_find_child_kobj(sysfs_root_kobj, "bus");

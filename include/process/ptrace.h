@@ -173,12 +173,14 @@ typedef struct ptrace_state {
         uint8_t              fpregs[512] __attribute__((aligned(16)));
 } ptrace_state_t;
 
+/* State and register helpers. */
 void ptrace_state_init(ptrace_state_t *state);
 void ptrace_regs_from_frame(ptrace_user_regs_t *regs, const syscall_frame_t *frame, uint64_t orig_rax);
 void ptrace_regs_to_frame(syscall_frame_t *frame, const ptrace_user_regs_t *regs);
 int  ptrace_wait_status(int sig, uint32_t event);
 int  ptrace_syscall_stop_signal(uint32_t options);
 
+/* Syscall entry and tracer event hooks. */
 int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data);
 int64_t ptrace_wait_event(int64_t pid, int *status, int options);
 int     ptrace_signal_delivery(syscall_frame_t *frame, int sig, siginfo_t *info);

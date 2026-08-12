@@ -279,6 +279,7 @@ static uint32_t tcp_new_iss(void)
     return iss;
 }
 
+/* True if the IPv4 local address/port pair is already bound. */
 static int tcp_port_used_locked(uint32_t address, uint16_t port, const tcp_endpoint_t *ignore)
 {
     for (unsigned i = 0; i < TCP_ENDPOINT_MAX; i++) {
@@ -289,6 +290,7 @@ static int tcp_port_used_locked(uint32_t address, uint16_t port, const tcp_endpo
     return 0;
 }
 
+/* True if the IPv6 local address/port pair is already bound. */
 static int tcp_port_used6_locked(const ipv6_address_t *address, uint16_t port, const tcp_endpoint_t *ignore)
 {
     for (unsigned i = 0; i < TCP_ENDPOINT_MAX; i++) {
@@ -301,6 +303,7 @@ static int tcp_port_used6_locked(const ipv6_address_t *address, uint16_t port, c
     return 0;
 }
 
+/* Insert a PCB into the first free global table slot. */
 static int tcp_insert_locked(tcp_endpoint_t *endpoint)
 {
     for (unsigned i = 0; i < TCP_ENDPOINT_MAX; i++) {
@@ -912,6 +915,7 @@ int tcp_get_option(tcp_endpoint_t *endpoint, tcp_option_t option, uint32_t *valu
     return status;
 }
 
+/* Strip already-acked bytes (and SYN) from the head record. */
 static void tcp_trim_acked_record(tcp_tx_record_t *record, uint32_t acknowledgment)
 {
     uint32_t consumed = acknowledgment - record->sequence;
@@ -928,6 +932,7 @@ static void tcp_trim_acked_record(tcp_tx_record_t *record, uint32_t acknowledgme
     }
 }
 
+/* Process an ACK: drop completed records, update RTT, and grow cwnd. */
 static void tcp_ack_records(tcp_endpoint_t *endpoint, uint32_t acknowledgment)
 {
     uint32_t newly_acked = acknowledgment - endpoint->snd_una;
@@ -980,6 +985,7 @@ static void tcp_ack_records(tcp_endpoint_t *endpoint, uint32_t acknowledgment)
     }
 }
 
+/* Extract the MSS option from a TCP header, clamping to sane bounds. */
 static uint16_t tcp_parse_mss(const uint8_t *tcp, size_t header_length)
 {
     size_t offset = TCP_HEADER_LEN;
@@ -1001,6 +1007,7 @@ static uint16_t tcp_parse_mss(const uint8_t *tcp, size_t header_length)
     return TCP_DEFAULT_MSS;
 }
 
+/* Insert an out-of-order segment into the sorted OOO queue. */
 static int tcp_queue_ooo(tcp_endpoint_t *endpoint, uint32_t sequence, const uint8_t *data, size_t length, int fin)
 {
     if ((!length && !fin) || endpoint->ooo_count >= TCP_OOO_SEGMENT_MAX || length > UINT16_MAX
@@ -1032,6 +1039,7 @@ static int tcp_queue_ooo(tcp_endpoint_t *endpoint, uint32_t sequence, const uint
     return 0;
 }
 
+/* Advance the state machine on a received FIN. */
 static void tcp_received_fin(tcp_endpoint_t *endpoint)
 {
     endpoint->rcv_nxt++;
@@ -1045,6 +1053,7 @@ static void tcp_received_fin(tcp_endpoint_t *endpoint)
     }
 }
 
+/* Move contiguous OOO segments into the RX buffer once their sequence is next. */
 static void tcp_drain_ooo(tcp_endpoint_t *endpoint)
 {
     while (endpoint->ooo_head && endpoint->ooo_head->sequence == endpoint->rcv_nxt) {
@@ -1063,6 +1072,7 @@ static void tcp_drain_ooo(tcp_endpoint_t *endpoint)
     }
 }
 
+/* Match an IPv4 4-tuple to a PCB, also returning any matching listener. */
 static tcp_endpoint_t *tcp_lookup_locked(const ipv4_info_t *ip, uint16_t source_port, uint16_t destination_port, tcp_endpoint_t **listener)
 {
     *listener = NULL;
@@ -1079,6 +1089,7 @@ static tcp_endpoint_t *tcp_lookup_locked(const ipv4_info_t *ip, uint16_t source_
     return NULL;
 }
 
+/* Match an IPv6 4-tuple to a PCB, also returning any matching listener. */
 static tcp_endpoint_t *tcp_lookup6_locked(const ipv6_info_t *ip, uint16_t source_port, uint16_t destination_port, tcp_endpoint_t **listener)
 {
     *listener = NULL;
@@ -1095,6 +1106,7 @@ static tcp_endpoint_t *tcp_lookup6_locked(const ipv6_info_t *ip, uint16_t source
     return NULL;
 }
 
+/* Send an RST reply for a segment that matched no connection. */
 static int tcp_reset_reply(const ipv4_info_t *ip, uint16_t source_port, uint16_t destination_port, uint32_t sequence, uint32_t acknowledgment,
                            uint8_t flags, size_t payload_length)
 {
@@ -1110,6 +1122,7 @@ static int tcp_reset_reply(const ipv4_info_t *ip, uint16_t source_port, uint16_t
     return tcp_emit(&temporary, 0, ack, TCP_FLAG_RST | TCP_FLAG_ACK, NULL, 0, 0);
 }
 
+/* Create a SYN_RECEIVED child for an IPv4 SYN on a listener. */
 static int tcp_passive_open(tcp_endpoint_t *listener, const ipv4_info_t *ip, uint16_t source_port, uint32_t sequence, uint16_t peer_mss)
 {
     unsigned pending = 0;
@@ -1156,6 +1169,7 @@ static int tcp_passive_open(tcp_endpoint_t *listener, const ipv4_info_t *ip, uin
     return status;
 }
 
+/* Create a SYN_RECEIVED child for an IPv6 SYN on a listener. */
 static int tcp_passive_open6(tcp_endpoint_t *listener, const ipv6_info_t *ip, uint16_t source_port, uint32_t sequence, uint16_t peer_mss)
 {
     unsigned pending = 0;

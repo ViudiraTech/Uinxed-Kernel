@@ -38,7 +38,10 @@ int block_unregister_disk(const char *name);
 /* Discover and register every disk exposed by the storage backends. */
 void block_register_all_disks(void);
 
-int        block_disk_count(void);
+/* Return the number of registered disks */
+int block_disk_count(void);
+
+/* Return the disk at the given index, or NULL */
 gendisk_t *block_get_disk(int index);
 
 /* Partition iteration shared by devtmpfs, sysfs and procfs. */

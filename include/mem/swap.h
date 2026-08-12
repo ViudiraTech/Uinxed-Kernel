@@ -60,6 +60,7 @@ typedef struct swap_stats {
         uint32_t areas;
 } swap_stats_t;
 
+/* Swap-file header and swap-entry PTE encoding. */
 int      swap_header_decode(const void *page, size_t bytes, uint64_t backing_pages, swap_header_info_t *info);
 uint64_t swap_entry_encode(uint32_t type, uint64_t offset, uint64_t pte_flags);
 int      swap_entry_is_swap(uint64_t pte);
@@ -67,6 +68,7 @@ uint32_t swap_entry_type(uint64_t pte);
 uint64_t swap_entry_offset(uint64_t pte);
 uint64_t swap_entry_pte_flags(uint64_t pte);
 
+/* Slot bitmap management with cluster hinting. */
 int      swap_slot_map_init(swap_slot_map_t *map, uint64_t *bitmap, uint32_t *refs, uint64_t slots);
 uint64_t swap_slot_alloc(swap_slot_map_t *map);
 int      swap_slot_retain(swap_slot_map_t *map, uint64_t slot);
@@ -76,6 +78,7 @@ uint32_t swap_slot_refs(const swap_slot_map_t *map, uint64_t slot);
 #ifndef SWAP_TEST_ONLY
 #    include <mem/page.h>
 
+/* Lifecycle, swap files, reclaim, and fault handling. */
 void swap_init(void);
 int  swap_activate_path(const char *path, uint32_t flags);
 int  swap_deactivate_path(const char *path);

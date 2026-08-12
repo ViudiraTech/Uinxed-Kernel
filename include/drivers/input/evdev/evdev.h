@@ -34,8 +34,7 @@ struct evdev;
 /* Maximum number of simultaneous evdev devices */
 #define EVDEV_MAX_DEVICES 32
 
-/* input device descriptor (attached to each evdev) */
-/* This represents the physical/virtual input device capabilities */
+/* Input device descriptor (attached to each evdev). */
 typedef struct input_dev {
         char            name[EVDEV_MAX_NAME_LEN];              // device name
         char            phys[EVDEV_MAX_NAME_LEN];              // physical path
@@ -74,7 +73,8 @@ typedef struct evdev_client {
         ilist_node_t      node;        // linkage in evdev->client_list
         int               clk_type;    // CLOCK_REALTIME / CLOCK_MONOTONIC / CLOCK_BOOTTIME
         bool              revoked;     // device access revoked
-                                       /* Event filter masks */
+
+        /* Event filter masks */
         uint32_t     *evmasks[EV_CNT];
         input_event_t buffer[]; // flexible array member, grown on demand
 } evdev_client_t;
@@ -119,9 +119,15 @@ void evdev_unregister(evdev_t *evdev);
 
 /* Find an evdev by minor number. Returns NULL if not found. */
 evdev_t *evdev_find_by_minor(int minor);
+
+/* Return the device number (dev_t) for an evdev. */
 uint64_t evdev_devt(const evdev_t *evdev);
-int      evdev_publish_node(evdev_t *evdev);
-int      evdev_publish_nodes(void);
+
+/* Create the /dev/input/eventN node for a single evdev. */
+int evdev_publish_node(evdev_t *evdev);
+
+/* Create all registered evdev device nodes. */
+int evdev_publish_nodes(void);
 
 /* Initialize the evdev subsystem. Called once at boot. */
 void evdev_init(void);

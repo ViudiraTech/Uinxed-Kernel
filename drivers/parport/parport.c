@@ -20,6 +20,7 @@ static parport_t *parport_list;
 static spinlock_t parport_lock;
 static int        parport_next_number;
 
+/* Register a parallel port in the global list, rejecting duplicates. */
 int parport_register_port(const char *name, uint16_t base, int irq, void *private_data)
 {
     parport_t *p;
@@ -49,6 +50,7 @@ int parport_register_port(const char *name, uint16_t base, int irq, void *privat
     return 0;
 }
 
+/* Remove a port from the global list and free it. */
 void parport_unregister_port(parport_t *p)
 {
     parport_t **link;
@@ -62,6 +64,7 @@ void parport_unregister_port(parport_t *p)
     free(p);
 }
 
+/* Return the number of registered parallel ports. */
 int parport_count(void)
 {
     int        count = 0;
@@ -73,6 +76,7 @@ int parport_count(void)
     return count;
 }
 
+/* Return the port at the given list index, or NULL. */
 parport_t *parport_get(int index)
 {
     parport_t *p;
@@ -85,6 +89,7 @@ parport_t *parport_get(int index)
     return p;
 }
 
+/* Look up a registered port by its I/O base address. */
 parport_t *parport_find(uint16_t base)
 {
     parport_t *p;
@@ -96,6 +101,7 @@ parport_t *parport_find(uint16_t base)
     return p;
 }
 
+/* Look up a registered port by its numeric id. */
 parport_t *parport_find_by_number(int number)
 {
     parport_t *p;

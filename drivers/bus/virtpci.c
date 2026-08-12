@@ -141,7 +141,6 @@ static int vp_scan_caps(struct vp_device *dev)
                 plogk("virtpci: Notify cfg at BAR%u+0x%x (mult %u)\n", cap.bar, cap.offset, ndata);
                 break;
             }
-
             case VIRTIO_PCI_CAP_ISR_CFG :
                 dev->isr_cap = cap;
                 dev->isr     = vp_map_cap_bar(dev, &cap);
@@ -150,7 +149,6 @@ static int vp_scan_caps(struct vp_device *dev)
                     plogk("virtpci: Isr cfg at BAR%u+0x%x\n", cap.bar, cap.offset);
                 }
                 break;
-
             case VIRTIO_PCI_CAP_DEVICE_CFG :
                 dev->device_cap = cap;
                 dev->device_cfg = vp_map_cap_bar(dev, &cap);
@@ -173,17 +171,20 @@ static int vp_scan_caps(struct vp_device *dev)
 
 /* Device status management */
 
+/* Write the device status register. */
 void vp_set_status(struct vp_device *dev, uint8_t status)
 {
     if (dev->common) dev->common->device_status = status;
 }
 
+/* Read the device status register. */
 uint8_t vp_get_status(struct vp_device *dev)
 {
     if (!dev->common) return 0xff;
     return dev->common->device_status;
 }
 
+/* Reset the device by setting the RESET status and reading it back. */
 void vp_reset_device(struct vp_device *dev)
 {
     vp_set_status(dev, VIRTIO_STATUS_RESET);
@@ -193,6 +194,7 @@ void vp_reset_device(struct vp_device *dev)
 
 /* Feature negotiation */
 
+/* Negotiate a feature set with the device and store the result. */
 int vp_negotiate_features(struct vp_device *dev, uint64_t guest_features, uint64_t *negotiated)
 {
     uint32_t lo, hi;
@@ -226,6 +228,7 @@ int vp_negotiate_features(struct vp_device *dev, uint64_t guest_features, uint64
 
 /* Device configuration space accessors */
 
+/* Read len bytes from the device configuration space. */
 void vp_read_device_config(struct vp_device *dev, void *buf, int offset, int len)
 {
     volatile uint8_t *cfg = dev->device_cfg;
@@ -236,6 +239,7 @@ void vp_read_device_config(struct vp_device *dev, void *buf, int offset, int len
     for (i = 0; i < len; i++) dst[i] = cfg[offset + i];
 }
 
+/* Write len bytes into the device configuration space. */
 void vp_write_device_config(struct vp_device *dev, const void *buf, int offset, int len)
 {
     volatile uint8_t *cfg = dev->device_cfg;
@@ -351,6 +355,7 @@ int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *
     return 0;
 }
 
+/* Tear down a virtqueue and release its memory. */
 void vp_del_vq(struct vp_virtqueue *vq)
 {
     if (!vq) return;
@@ -361,6 +366,7 @@ void vp_del_vq(struct vp_virtqueue *vq)
     memset(vq, 0, sizeof(*vq));
 }
 
+/* Placeholder for queue notification (not yet wired to the device). */
 void vp_notify(struct vp_virtqueue *vq)
 {
     (void)vq;
@@ -368,6 +374,7 @@ void vp_notify(struct vp_virtqueue *vq)
 
 /* Virtqueue submission helpers */
 
+/* Queue a single descriptor into the available ring. */
 int virtqueue_add(struct vp_virtqueue *vq, void *data, int len, int write)
 {
     uint16_t head;
@@ -406,6 +413,7 @@ int virtqueue_add(struct vp_virtqueue *vq, void *data, int len, int write)
     return 0;
 }
 
+/* Queue an out descriptor chained to an in descriptor. */
 int virtqueue_add_out_in(struct vp_virtqueue *vq, void *out_data, int out_len, void *in_data, int in_len)
 {
     uint16_t head, out_desc, in_desc;
@@ -455,6 +463,7 @@ int virtqueue_add_out_in(struct vp_virtqueue *vq, void *out_data, int out_len, v
     return 0;
 }
 
+/* Pop a used buffer from the used ring, releasing its descriptors. */
 void *virtqueue_get_buf(struct vp_virtqueue *vq, uint32_t *len)
 {
     void    *data;
@@ -508,6 +517,7 @@ static inline void virtio_wmb(void)
     __asm__ volatile("sfence" ::: "memory");
 }
 
+/* Ring the notification doorbell so the device processes the queue. */
 void virtqueue_kick(struct vp_virtqueue *vq)
 {
     struct vp_device *vp = vq->vp;
@@ -528,6 +538,7 @@ void virtqueue_kick(struct vp_virtqueue *vq)
     virtio_wmb();
 }
 
+/* Re-enable completion callbacks, returning 1 if one is already pending. */
 int virtqueue_enable_cb(struct vp_virtqueue *vq)
 {
     vq->avail->flags &= ~((volatile uint16_t)1);
@@ -537,6 +548,7 @@ int virtqueue_enable_cb(struct vp_virtqueue *vq)
 
 /* Device discovery and lifecycle */
 
+/* Locate a virtio PCI device, map its capabilities and reset it. */
 int vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev)
 {
     pci_device_cache_t  *cache;
@@ -574,6 +586,7 @@ int vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev
     return 0;
 }
 
+/* Advertise ACKNOWLEDGE and DRIVER status to the device. */
 int vp_setup_device(struct vp_device *dev)
 {
     /* Set ACKNOWLEDGE + DRIVER status */
@@ -581,6 +594,7 @@ int vp_setup_device(struct vp_device *dev)
     return 0;
 }
 
+/* Reset the device and drop all capability mappings. */
 void vp_release_device(struct vp_device *dev)
 {
     if (!dev) return;
@@ -592,7 +606,3 @@ void vp_release_device(struct vp_device *dev)
     dev->notify_base = NULL;
     dev->pci_dev     = NULL;
 }
-
-/* Module entry point - called by the virtio-gpu driver init */
-
-/* No standalone init/exit here; the GPU driver calls vp_find_device */

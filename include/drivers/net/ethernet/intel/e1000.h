@@ -53,11 +53,18 @@ int e1000_transmit(e1000_device_t *device, const void *packet, size_t length);
 /* Poll completed receive descriptors from task context. */
 size_t e1000_poll(e1000_device_t *device, size_t budget);
 
-int                  e1000_link_up(const e1000_device_t *device);
-const uint8_t       *e1000_mac_address(const e1000_device_t *device);
+/* True if the device link is up. */
+int e1000_link_up(const e1000_device_t *device);
+
+/* Return the device MAC address (6 bytes). */
+const uint8_t *e1000_mac_address(const e1000_device_t *device);
+
+/* Return a snapshot of device statistics. */
 const e1000_stats_t *e1000_get_stats(const e1000_device_t *device);
-e1000_device_t      *e1000_first_device(void);
-e1000_device_t      *e1000_next_device(e1000_device_t *device);
+
+/* Iterate registered e1000 devices in probe order. */
+e1000_device_t *e1000_first_device(void);
+e1000_device_t *e1000_next_device(e1000_device_t *device);
 
 /* Legacy IRQ hooks must provide shared dispatch; MSI is used otherwise. */
 typedef void (*net_irq_handler_fn)(void *frame);

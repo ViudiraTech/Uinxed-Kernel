@@ -212,6 +212,7 @@ static inline void rtl8139_write_flush(rtl8139_device_t *device)
     (void)rtl8139_read8(device, RTL8139_REG_CR);
 }
 
+/* Look up the supported-device table for this PCI vendor/device pair. */
 static const rtl8139_id_t *rtl8139_match(uint16_t vendor, uint16_t device)
 {
     for (size_t i = 0; i < sizeof(rtl8139_ids) / sizeof(rtl8139_ids[0]); i++)
@@ -219,6 +220,7 @@ static const rtl8139_id_t *rtl8139_match(uint16_t vendor, uint16_t device)
     return NULL;
 }
 
+/* Reject multicast, broadcast, and all-zero MAC addresses. */
 static int rtl8139_valid_mac(const uint8_t mac[6])
 {
     uint8_t any = 0;
@@ -230,6 +232,7 @@ static int rtl8139_valid_mac(const uint8_t mac[6])
     return any != 0 && all != 0xff && !(mac[0] & 1);
 }
 
+/* Resolve the device's I/O port BAR into a usable base address. */
 static int rtl8139_get_ioaddr(rtl8139_device_t *device)
 {
     uint32_t port = pci_get_port_base(device->pci);
@@ -241,6 +244,7 @@ static int rtl8139_get_ioaddr(rtl8139_device_t *device)
     return 0;
 }
 
+/* Software-reset the chip, tolerating implementations that never clear the bit. */
 static int rtl8139_reset(rtl8139_device_t *device)
 {
     rtl8139_write8(device, RTL8139_REG_CR, RTL8139_CR_RESET);
@@ -250,13 +254,13 @@ static int rtl8139_reset(rtl8139_device_t *device)
      * implementations (e.g. QEMU) keep the bit asserted indefinitely, so
      * poll for a bounded time and continue regardless.
      */
-    for (uint32_t i = 0; i < RTL8139_RESET_POLL; i++) {
+    for (uint32_t i = 0; i < RTL8139_RESET_POLL; i++)
         if (!(rtl8139_read8(device, RTL8139_REG_CR) & RTL8139_CR_RESET)) return 0;
-    }
     plogk("rtl8139: %04x:%04x: Reset bit did not clear, continuing.\n", (unsigned)device->pci->vendor_id, (unsigned)device->pci->device_id);
     return 0;
 }
 
+/* Read the MAC from IDR0-5, substituting a unicast fallback if invalid. */
 static void rtl8139_read_mac(rtl8139_device_t *device)
 {
     for (size_t i = 0; i < 6; i++) device->mac[i] = rtl8139_read8(device, RTL8139_REG_IDR0 + (uint32_t)i);
@@ -268,6 +272,7 @@ static void rtl8139_read_mac(rtl8139_device_t *device)
     }
 }
 
+/* Release the RX ring and all TX buffer pages. */
 static void rtl8139_free_dma(rtl8139_device_t *device)
 {
     for (size_t i = 0; i < RTL8139_TX_COUNT; i++) {
@@ -279,6 +284,7 @@ static void rtl8139_free_dma(rtl8139_device_t *device)
     device->rx_ring      = NULL;
 }
 
+/* Allocate the RX ring and the four TX DMA buffers. */
 static int rtl8139_alloc_dma(rtl8139_device_t *device)
 {
     device->rx_ring_phys = alloc_frames(RTL8139_RX_BUF_FRAMES);
@@ -300,6 +306,7 @@ static int rtl8139_alloc_dma(rtl8139_device_t *device)
     return 0;
 }
 
+/* Write the MAC, receive ring base, and TX/RX configuration registers. */
 static void rtl8139_program_hw(rtl8139_device_t *device)
 {
     rtl8139_write16(device, RTL8139_REG_IMR, 0);
@@ -337,6 +344,7 @@ static void rtl8139_program_hw(rtl8139_device_t *device)
     rtl8139_write_flush(device);
 }
 
+/* Refresh link status and mirror NETDEV_F_RUNNING accordingly. */
 static void rtl8139_update_link(rtl8139_device_t *device)
 {
     int up = !!(rtl8139_read16(device, RTL8139_REG_BMSR) & RTL8139_BMSR_LINK);
@@ -353,6 +361,7 @@ static void rtl8139_update_link(rtl8139_device_t *device)
     }
 }
 
+/* Reap completed TX descriptors, updating stats, up to a budget. */
 static size_t rtl8139_tx_reclaim_locked(rtl8139_device_t *device, size_t budget)
 {
     size_t reclaimed = 0;
@@ -373,11 +382,13 @@ static size_t rtl8139_tx_reclaim_locked(rtl8139_device_t *device, size_t budget)
     return reclaimed;
 }
 
+/* True while the chip reports received data still in the ring. */
 static int rtl8139_rx_ready_locked(rtl8139_device_t *device)
 {
     return !(rtl8139_read8(device, RTL8139_REG_CR) & RTL8139_CR_BUFE);
 }
 
+/* Locked wrapper around rtl8139_rx_ready_locked(). */
 static int rtl8139_rx_ready(rtl8139_device_t *device)
 {
     uint64_t rflags = spin_lock_irqsave(&device->rx_lock);
@@ -386,11 +397,13 @@ static int rtl8139_rx_ready(rtl8139_device_t *device)
     return ready;
 }
 
+/* True when the oldest used TX descriptor has been completed. */
 static int rtl8139_tx_ready_locked(rtl8139_device_t *device)
 {
     return device->tx_used && (rtl8139_read32(device, RTL8139_REG_TSD0 + (uint32_t)device->tx_clean * 4) & RTL8139_TX_OWN);
 }
 
+/* Locked wrapper around rtl8139_tx_ready_locked(). */
 static int rtl8139_tx_ready(rtl8139_device_t *device)
 {
     uint64_t rflags = spin_lock_irqsave(&device->tx_lock);
@@ -399,6 +412,7 @@ static int rtl8139_tx_ready(rtl8139_device_t *device)
     return ready;
 }
 
+/* netdev open callback: the device is usable once initialized. */
 static int rtl8139_net_open(net_device_t *netdev)
 {
     rtl8139_device_t *device = netdev_private(netdev);
@@ -406,11 +420,13 @@ static int rtl8139_net_open(net_device_t *netdev)
     return 0;
 }
 
+/* netdev stop callback (no per-open state to tear down). */
 static void rtl8139_net_stop(net_device_t *netdev)
 {
     (void)netdev;
 }
 
+/* netdev transmit callback: forward the pbuf to the TX ring. */
 static int rtl8139_net_xmit(net_device_t *netdev, net_pbuf_t *packet)
 {
     rtl8139_device_t *device = netdev_private(netdev);
@@ -418,6 +434,7 @@ static int rtl8139_net_xmit(net_device_t *netdev, net_pbuf_t *packet)
     return rtl8139_transmit(device, packet->data, packet->length);
 }
 
+/* Only the driver's fixed MTU is supported. */
 static int rtl8139_net_set_mtu(net_device_t *netdev, uint32_t mtu)
 {
     (void)netdev;
@@ -431,6 +448,7 @@ static const netdev_ops_t rtl8139_netdev_ops = {
     .set_mtu = rtl8139_net_set_mtu,
 };
 
+/* Queue one frame on the TX ring and kick the DMA engine. */
 int rtl8139_transmit(rtl8139_device_t *device, const void *packet, size_t length)
 {
     if (!device || !packet || length == 0) return -EINVAL;
@@ -478,6 +496,7 @@ int rtl8139_transmit(rtl8139_device_t *device, const void *packet, size_t length
     return 0;
 }
 
+/* Drain received frames from the ring, delivering them to the net stack. */
 size_t rtl8139_poll(rtl8139_device_t *device, size_t budget)
 {
     size_t  done = 0;
@@ -548,6 +567,7 @@ size_t rtl8139_poll(rtl8139_device_t *device, size_t budget)
     return done;
 }
 
+/* Handle one batch of interrupt causes: link, RX, and TX completion. */
 static void rtl8139_process_work(rtl8139_device_t *device, uint32_t cause)
 {
     if (cause & RTL8139_ISR_PUN) rtl8139_update_link(device);
@@ -574,6 +594,7 @@ static void rtl8139_process_work(rtl8139_device_t *device, uint32_t cause)
     spin_unlock_irqrestore(&device->tx_lock, rflags);
 }
 
+/* Worker task: drains interrupt work and re-enables the interrupt mask. */
 static void rtl8139_worker(void *arg)
 {
     rtl8139_device_t *device = arg;
@@ -621,6 +642,7 @@ static void rtl8139_worker(void *arg)
     }
 }
 
+/* Spawn the device worker task if it is not already running. */
 static int rtl8139_start_worker(rtl8139_device_t *device)
 {
     if (device->worker_started) return 0;
@@ -643,6 +665,7 @@ static int rtl8139_start_worker(rtl8139_device_t *device)
     return 0;
 }
 
+/* ISR body: read the cause, mask further interrupts, and wake the worker. */
 static void rtl8139_interrupt_device(rtl8139_device_t *device)
 {
     uint16_t status = rtl8139_read16(device, RTL8139_REG_ISR);
@@ -660,6 +683,7 @@ static void rtl8139_interrupt_device(rtl8139_device_t *device)
     spin_unlock_irqrestore(&device->work_lock, rflags);
 }
 
+/* Shared IRQ entry: route to the device registered in this slot. */
 static void rtl8139_interrupt_slot(size_t slot, void *frame)
 {
     (void)frame;
@@ -710,6 +734,7 @@ static void *const rtl8139_idt_irq_handlers[RTL8139_MAX_DEVICES] = {
     (void *)rtl8139_idt_interrupt_4, (void *)rtl8139_idt_interrupt_5, (void *)rtl8139_idt_interrupt_6, (void *)rtl8139_idt_interrupt_7,
 };
 
+/* Claim an IRQ slot and route legacy INTx delivery for the device. */
 static int rtl8139_setup_interrupt(rtl8139_device_t *device)
 {
     uint64_t rflags = spin_lock_irqsave(&rtl8139_irq_lock);
@@ -748,7 +773,6 @@ static int rtl8139_setup_interrupt(rtl8139_device_t *device)
     }
     device->using_legacy = 1;
     return 0;
-
 fail:
     rflags                  = spin_lock_irqsave(&rtl8139_irq_lock);
     rtl8139_irq_slots[slot] = NULL;
@@ -757,6 +781,7 @@ fail:
     return -ENODEV;
 }
 
+/* Tear down IRQ delivery and wait for in-flight ISRs to finish. */
 static void rtl8139_release_interrupt(rtl8139_device_t *device)
 {
     if (!device->using_legacy) return;
@@ -781,6 +806,7 @@ static void rtl8139_release_interrupt(rtl8139_device_t *device)
     device->using_legacy = device->using_direct_legacy = 0;
 }
 
+/* Pick the first free ethN name not claimed by another device. */
 static int rtl8139_netdev_name(char *name, size_t size)
 {
     for (unsigned i = 0; i < NETDEV_MAX; i++) {
@@ -799,6 +825,7 @@ static int rtl8139_netdev_name(char *name, size_t size)
     return -ENOSPC;
 }
 
+/* Stop, unregister, and free the device and all its resources. */
 static void rtl8139_destroy(rtl8139_device_t *device)
 {
     if (!device) return;
@@ -849,6 +876,7 @@ static void rtl8139_destroy(rtl8139_device_t *device)
     free(device);
 }
 
+/* Probe and fully initialize one RTL8139 PCI device. */
 int rtl8139_probe(pci_device_cache_t *pci)
 {
     if (!pci || rtl8139_device_count >= RTL8139_MAX_DEVICES) return -ENOSPC;
@@ -924,17 +952,16 @@ int rtl8139_probe(pci_device_cache_t *pci)
     plogk("rtl8139: %s: Registered (MAC %02x:%02x:%02x:%02x:%02x:%02x, INTx, link %s)\n", device->netdev.name, device->mac[0], device->mac[1],
           device->mac[2], device->mac[3], device->mac[4], device->mac[5], device->link_up ? "up" : "down");
     return 0;
-
 fail_linked:
     if (rtl8139_devices == device) rtl8139_devices = device->next;
     if (rtl8139_device_count) rtl8139_device_count--;
-
 fail:
     plogk("rtl8139: Probe failed during %s (%d)\n", stage, ret);
     rtl8139_destroy(device);
     return ret;
 }
 
+/* Probe all RTL8139 devices present in the PCI device cache. */
 int rtl8139_init(void)
 {
 #if !CONFIG_RTL8139
@@ -950,6 +977,7 @@ int rtl8139_init(void)
     return found ? found : -ENODEV;
 }
 
+/* Start the worker task of every registered device. */
 int rtl8139_start_workers(void)
 {
 #if !CONFIG_RTL8139
@@ -976,6 +1004,7 @@ int rtl8139_start_workers(void)
     return started ? started : (failed ? -ENOMEM : -ENODEV);
 }
 
+/* Shut down and destroy every registered device. */
 void rtl8139_shutdown(void)
 {
     while (rtl8139_devices) {

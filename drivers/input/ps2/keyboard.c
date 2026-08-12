@@ -30,6 +30,7 @@ static void set_bit(unsigned int bit, uint32_t *bits)
     bits[bit / 32] |= 1U << (bit % 32);
 }
 
+/* Initialize and register the PS/2 keyboard input device. */
 void ps2_keyboard_init(void)
 {
     memset(&ps2_keyboard_dev, 0, sizeof(ps2_keyboard_dev));
@@ -71,6 +72,7 @@ void ps2_keyboard_init(void)
     plogk("evdev: Keyboard registered as event%d\n", ps2_keyboard_evdev->minor);
 }
 
+/* Decode one scancode byte and inject the resulting evdev/tty events. */
 void ps2_keyboard_handle_byte(uint8_t byte)
 {
     input_event_t   events[6];
@@ -97,6 +99,7 @@ void ps2_keyboard_handle_byte(uint8_t byte)
     wait_queue_wake_one(&ps2kbd_event_wait);
 }
 
+/* Block until at least one keyboard event has been reported. */
 int ps2kbd_wait_events(void)
 {
     for (;;) {

@@ -24,11 +24,22 @@ typedef struct {
         input_event_t *buffer;
 } evdev_queue_t;
 
-bool   evdev_queue_init(evdev_queue_t *queue, input_event_t *buffer, unsigned int size);
-bool   evdev_queue_has_packet(const evdev_queue_t *queue);
-bool   evdev_queue_push(evdev_queue_t *queue, const input_event_t *event);
+/* Initialize a queue over @buffer with @size event slots. */
+bool evdev_queue_init(evdev_queue_t *queue, input_event_t *buffer, unsigned int size);
+
+/* True if a complete packet (ending in SYN_REPORT) is available. */
+bool evdev_queue_has_packet(const evdev_queue_t *queue);
+
+/* Append one event; returns false if the buffer overflows. */
+bool evdev_queue_push(evdev_queue_t *queue, const input_event_t *event);
+
+/* Pop up to @max_events events, stopping at a packet boundary. */
 size_t evdev_queue_read(evdev_queue_t *queue, input_event_t *events, size_t max_events);
-void   evdev_queue_flush_type(evdev_queue_t *queue, unsigned int type);
-void   evdev_queue_discard_pending(evdev_queue_t *queue, const input_event_t *syn_dropped);
+
+/* Drop events of the given type from the queue. */
+void evdev_queue_flush_type(evdev_queue_t *queue, unsigned int type);
+
+/* Discard the partial packet and inject the SYN_DROPPED event. */
+void evdev_queue_discard_pending(evdev_queue_t *queue, const input_event_t *syn_dropped);
 
 #endif // INCLUDE_EVDEV_QUEUE_H_

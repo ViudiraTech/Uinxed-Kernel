@@ -12,12 +12,14 @@
 #include <process/elf_loader.h>
 #include <process/process.h>
 
+/* Load a regular userspace process image from memory */
 int elf_loader_load_user_process(process_t *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[],
                                  uintptr_t *entry_out, uintptr_t *rsp_out)
 {
     return elf_loader_load_process_internal(proc, elf_data, elf_size, argv, envp, entry_out, rsp_out, false);
 }
 
+/* Load the init image as PID 1, acquiring the console on its standard descriptors */
 int elf_loader_load_initial_process(process_t *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[])
 {
     if (!proc || !proc->task || proc->task->pid != 1) return 1;

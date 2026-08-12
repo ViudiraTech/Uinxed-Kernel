@@ -27,10 +27,9 @@
 #define IPV4_BITMAP_SIZE              ((IPV4_MAX_PAYLOAD + 7U) / 8U)
 
 /*
- * Overview
- * ipv4.c implements the IPv4 layer: header encode/decode, route
- * selection, fragmentation and reassembly, and dispatch to the
- * transport protocols (TCP/UDP/ICMP) through registered handlers.
+ * ipv4.c implements the IPv4 layer: header encode/decode, route selection,
+ * fragmentation and reassembly, and dispatch to the transport protocols
+ * (TCP/UDP/ICMP) through registered handlers.
  */
 
 typedef struct ipv4_reassembly {
@@ -58,21 +57,25 @@ static spinlock_t        ipv4_reassembly_lock;
 static ipv4_error_hook_t ipv4_error_hook;
 static spinlock_t        ipv4_hook_lock;
 
+/* True if the address is in the 224.0.0.0/4 multicast range. */
 static int ipv4_is_multicast(uint32_t address)
 {
     return (address & 0xf0000000U) == 0xe0000000U;
 }
 
+/* True if address is the device's directed subnet broadcast address. */
 static int ipv4_is_directed_broadcast(const net_device_t *device, uint32_t address)
 {
     return device->ipv4_netmask && device->ipv4_netmask != UINT32_MAX && address == (device->ipv4_address | ~device->ipv4_netmask);
 }
 
+/* True if address is a legitimate unicast source (non-zero, non-broadcast). */
 static int ipv4_source_valid(uint32_t address)
 {
     return address && address != UINT32_MAX && !ipv4_is_multicast(address) && (address >> 24) != 127U;
 }
 
+/* Decode and validate an IPv4 header, exposing fragments and payload. */
 int net_ipv4_parse(const void *data, size_t length, net_ipv4_packet_t *packet)
 {
     if (!data || !packet || length < IPV4_HEADER_MIN) return -EBADMSG;
@@ -105,6 +108,7 @@ typedef struct ipv4_route_search {
         unsigned      prefix;
 } ipv4_route_search_t;
 
+/* Count the leading one bits of a netmask. */
 static unsigned ipv4_prefix_length(uint32_t mask)
 {
     unsigned length = 0;
@@ -115,6 +119,7 @@ static unsigned ipv4_prefix_length(uint32_t mask)
     return length;
 }
 
+/* Candidate selection for route lookup: direct, gateway, then fallback. */
 static void ipv4_route_visit(net_device_t *device, void *context)
 {
     ipv4_route_search_t *search = context;
@@ -137,6 +142,7 @@ static void ipv4_route_visit(net_device_t *device, void *context)
     }
 }
 
+/* Choose the device and next hop for a destination, taking a device ref. */
 int ipv4_route(uint32_t destination, net_device_t **device, uint32_t *next_hop)
 {
     if (!device || !next_hop || !destination || ipv4_is_multicast(destination) || (destination >> 24) == 127U) return -EINVAL;
@@ -170,6 +176,7 @@ int ipv4_route(uint32_t destination, net_device_t **device, uint32_t *next_hop)
     return -ENETUNREACH;
 }
 
+/* Draw a monotonically varying IP identification value. */
 static uint16_t ipv4_next_id(void)
 {
     spin_lock(&ipv4_id_lock);
@@ -179,6 +186,7 @@ static uint16_t ipv4_next_id(void)
     return id;
 }
 
+/* Build one IPv4 fragment with the given flags/offset and transmit it. */
 static int ipv4_emit_fragment(net_device_t *device, uint32_t next_hop, uint32_t source, uint32_t destination, uint8_t protocol, uint8_t ttl,
                               uint16_t id, uint16_t flags_offset, const uint8_t *data, size_t length)
 {
@@ -205,6 +213,7 @@ static int ipv4_emit_fragment(net_device_t *device, uint32_t next_hop, uint32_t 
     return status;
 }
 
+/* Transmit a packet, fragmenting by MTU and resolving the next hop. */
 int ipv4_output(net_device_t *device, uint32_t source, uint32_t destination, uint8_t protocol, uint8_t ttl, net_pbuf_t *packet)
 {
     if (!packet || !destination || packet->length > IPV4_MAX_PAYLOAD || ipv4_is_multicast(destination) || (destination >> 24) == 127U)
@@ -258,6 +267,7 @@ int ipv4_output(net_device_t *device, uint32_t source, uint32_t destination, uin
     return result;
 }
 
+/* Release a reassembly entry's buffers and reset it. */
 static void ipv4_reassembly_clear(ipv4_reassembly_t *entry)
 {
     free(entry->data);
@@ -265,6 +275,7 @@ static void ipv4_reassembly_clear(ipv4_reassembly_t *entry)
     memset(entry, 0, sizeof(*entry));
 }
 
+/* Find or allocate a reassembly slot for this fragment stream. */
 static ipv4_reassembly_t *ipv4_reassembly_find(net_device_t *device, const net_ipv4_packet_t *ip, uint64_t now)
 {
     ipv4_reassembly_t *free_entry = NULL;
@@ -301,6 +312,7 @@ static ipv4_reassembly_t *ipv4_reassembly_find(net_device_t *device, const net_i
     return entry;
 }
 
+/* Insert a fragment and return a reassembled packet once the stream is complete. */
 static net_pbuf_t *ipv4_reassemble(net_device_t *device, const net_ipv4_packet_t *ip, const uint8_t *header, uint64_t now, uint8_t *quote,
                                    size_t *quote_length)
 {
@@ -373,6 +385,7 @@ out:
     return complete;
 }
 
+/* Hand an IPv4 payload to its transport handler, generating ICMP errors if needed. */
 static int ipv4_dispatch(net_device_t *device, const ipv4_info_t *info, net_pbuf_t *packet, const void *quoted, size_t quoted_length,
                          int may_error)
 {
@@ -393,6 +406,7 @@ static int ipv4_dispatch(net_device_t *device, const ipv4_info_t *info, net_pbuf
     return status;
 }
 
+/* Process an inbound IPv4 packet: validate, reassemble, and dispatch. */
 int ipv4_input(net_device_t *device, net_pbuf_t *packet)
 {
     if (!device || !packet) goto bad;
@@ -436,6 +450,7 @@ bad:
     return -EBADMSG;
 }
 
+/* Register the callback invoked when an ICMP error is reported upward. */
 int ipv4_set_error_hook(ipv4_error_hook_t hook)
 {
     spin_lock(&ipv4_hook_lock);
@@ -448,6 +463,7 @@ int ipv4_set_error_hook(ipv4_error_hook_t hook)
     return 0;
 }
 
+/* Translate an ICMP error into the hook's errno and deliver it upward. */
 void ipv4_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *quoted, size_t quoted_length)
 {
     if (!quoted || quoted_length < IPV4_HEADER_MIN) return;
@@ -474,6 +490,7 @@ void ipv4_control_error(uint8_t type, uint8_t code, uint32_t mtu, const void *qu
         hook(bytes[9], net_read_be32(bytes + 12), net_read_be32(bytes + 16), bytes + header_length, quoted_length - header_length, error, mtu);
 }
 
+/* Expire stale reassembly entries, reporting reassembly-timeout ICMP errors. */
 void ipv4_timer(uint64_t now_ticks)
 {
     for (unsigned i = 0; i < IPV4_REASSEMBLY_SLOTS; i++) {
@@ -498,6 +515,7 @@ void ipv4_timer(uint64_t now_ticks)
     }
 }
 
+/* Drop all reassembly state for the removed device. */
 void ipv4_device_removed(net_device_t *device)
 {
     if (!device) return;

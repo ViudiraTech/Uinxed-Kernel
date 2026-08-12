@@ -217,7 +217,7 @@ void mcfg_init(mcfg_info_t *mcfg)
             .write = pci_mcfg_write,
         };
     } else {
-        /* Never be executed, because it will be checked before this functions */
+        /* Unreachable: mcfg is validated before this function is called. */
         panic("pci: mcfg is unexpectedly empty.");
     }
 };
@@ -307,9 +307,9 @@ static void pci_mcfg_write(pci_device_reg_t reg, uint32_t value)
     uint32_t           offset = reg.offset % 4;
     volatile uint32_t *ptr    = (volatile uint32_t *)(reg.parent->ecam_ptr + (reg.offset & 0xffc));
 
-    if (!offset) {
+    if (!offset)
         *ptr = value;
-    } else {
+    else {
         /*
          * Sub-dword write: RMW to preserve adjacent bytes.
          * Note: registers with W1C semantics should be accessed at
@@ -401,11 +401,10 @@ base_address_register_t get_base_address_register(pci_device_cache_t *device, ui
         probe |= (uint64_t)read_pci(reg) << 32;
     }
 
-    if (result.type == mem_mapping) {
+    if (result.type == mem_mapping)
         region_size = (uint32_t)(~(probe & ~0b1111ULL) + 1);
-    } else {
+    else
         region_size = ~(probe & ~0b11) + 1;
-    }
 
     /* Restore original BAR value */
     reg.offset = 0x10 + 4 * bar;
@@ -422,11 +421,10 @@ base_address_register_t get_base_address_register(pci_device_cache_t *device, ui
     result.size = region_size;
     if (bar_type == BAR_S64) result.size |= BAR_64BIT_FLAG;
 
-    if (result.type == mem_mapping) {
+    if (result.type == mem_mapping)
         result.address = (void *)phys_to_virt(bar_full & ~0b1111ULL);
-    } else {
+    else
         result.address = (void *)(uintptr_t)(bar_full & ~0b11);
-    }
 
     return result;
 }
@@ -935,8 +933,8 @@ static void add_to_usable_list(pci_finding_request_t *req)
     pci_usable.count++;
 }
 
-/* Finding PCI devices */
-void pci_device_find(pci_finding_request_t *req) // Notice: the req should be a global variable
+/* Find a PCI device matching the request. Note: req must persist (global). */
+void pci_device_find(pci_finding_request_t *req)
 {
     pci_finding_response_iter_t *response = malloc(sizeof(pci_finding_response_iter_t));
     req->response                         = response;
@@ -961,12 +959,9 @@ void pci_device_find(pci_finding_request_t *req) // Notice: the req should be a 
     }
 
     /*
-     * By the end of the function, you should to do:
-     * 1. Check the response->error
-     * 2. If error is PCI_FINDING_SUCCESS,
-     * then response->device should be set to the founded device cache.
-     * 3. If error is PCI_FINDING_NOT_FOUND,
-     * then response->device should be set to 0, and you can try to execute `pci_flush_devices_cache()` and then retry this function.
+     * Response contract: error holds the outcome. On PCI_FINDING_SUCCESS,
+     * device points at the matched cache; on PCI_FINDING_NOT_FOUND the
+     * caller may flush the device cache and retry the find.
      */
 }
 
@@ -1259,11 +1254,10 @@ int pci_bar_iterator_next(pci_bar_iterator_t *iter)
     iter->valid         = 1;
 
     /* Skip the next BAR slot if current is 64-bit */
-    if (iter->current_value.size & BAR_64BIT_FLAG) {
+    if (iter->current_value.size & BAR_64BIT_FLAG)
         iter->current_bar += 2;
-    } else {
+    else
         iter->current_bar += 1;
-    }
 
     return 1;
 }

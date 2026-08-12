@@ -38,9 +38,16 @@ struct ps2_mouse_stream {
         size_t                  count;
 };
 
+/* Number of bytes in a packet of the given protocol. */
 size_t ps2_mouse_packet_size(enum ps2_mouse_protocol protocol);
-int    ps2_mouse_decode_packet(enum ps2_mouse_protocol protocol, const uint8_t *raw, struct ps2_mouse_packet *packet);
-void   ps2_mouse_stream_init(struct ps2_mouse_stream *stream, enum ps2_mouse_protocol protocol);
-int    ps2_mouse_stream_byte(struct ps2_mouse_stream *stream, uint8_t byte, struct ps2_mouse_packet *packet);
+
+/* Decode a complete packet; returns 0 on success or a negative errno. */
+int ps2_mouse_decode_packet(enum ps2_mouse_protocol protocol, const uint8_t *raw, struct ps2_mouse_packet *packet);
+
+/* Reset a streaming packet assembler. */
+void ps2_mouse_stream_init(struct ps2_mouse_stream *stream, enum ps2_mouse_protocol protocol);
+
+/* Assemble bytes into packets, emitting @packet when one completes. */
+int ps2_mouse_stream_byte(struct ps2_mouse_stream *stream, uint8_t byte, struct ps2_mouse_packet *packet);
 
 #endif // INCLUDE_PS2_MOUSE_H_

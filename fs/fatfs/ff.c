@@ -1175,12 +1175,10 @@ static DWORD get_fat(FFOBJID *obj, DWORD clst)
                 wc |= fs->win[bc % SS(fs)] << 8;             // Merge 2nd byte of the entry
                 val = (clst & 1) ? (wc >> 4) : (wc & 0xFFF); // Adjust bit position
                 break;
-
             case FS_FAT16 :
                 if (move_window(fs, fs->fatbase + (clst / (SS(fs) / 2))) != FR_OK) break;
                 val = ld_16(fs->win + clst * 2 % SS(fs)); // Simple WORD array
                 break;
-
             case FS_FAT32 :
                 if (move_window(fs, fs->fatbase + (clst / (SS(fs) / 4))) != FR_OK) break;
                 val = ld_32(fs->win + clst * 4 % SS(fs)) & 0x0FFFFFFF; // Simple DWORD array but mask out upper 4 bits
@@ -5032,7 +5030,6 @@ FRESULT f_getlabel(const TCHAR *path, TCHAR *label, DWORD *vsn)
                 case FS_EXFAT :
                     di = BPB_VolIDEx;
                     break;
-
                 case FS_FAT32 :
                     di = BS_VolID32;
                     break;
@@ -5660,7 +5657,6 @@ FRESULT f_mkfs(const TCHAR *path, const MKFS_PARM *opt, void *work, UINT len)
                     ch = si++; // Fill the short run
                     if (--j == 0) st = 0;
                     break;
-
                 default :
                     ch = (WCHAR)j;
                     si += (WCHAR)j; // Number of chars to skip

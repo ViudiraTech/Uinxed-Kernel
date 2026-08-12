@@ -31,6 +31,7 @@ typedef struct {
 static spinlock_t mem_random_lock;
 static uint64_t   mem_random_state[4];
 
+/* Return one xoshiro256** word, seeding lazily from rdtsc. */
 static uint64_t mem_random_word(void)
 {
     spin_lock(&mem_random_lock);
@@ -58,6 +59,7 @@ static uint64_t mem_random_word(void)
     return result;
 }
 
+/* Read handler for /dev/null, zero, full and random. */
 static int64_t mem_read(void *ctx, void *private_data, uint64_t flags, void *buffer, size_t offset, size_t size)
 {
     mem_memory_device_t *device = ctx;
@@ -82,6 +84,7 @@ static int64_t mem_read(void *ctx, void *private_data, uint64_t flags, void *buf
     return (int64_t)(out - (uint8_t *)buffer);
 }
 
+/* Write handler; /dev/full rejects writes with -ENOSPC. */
 static int64_t mem_write(void *ctx, void *private_data, uint64_t flags, const void *buffer, size_t offset, size_t size)
 {
     mem_memory_device_t *device = ctx;
@@ -93,6 +96,7 @@ static int64_t mem_write(void *ctx, void *private_data, uint64_t flags, const vo
     return device->kind == MEM_MEM_FULL ? -ENOSPC : (int64_t)size;
 }
 
+/* User-mode read path for the zero/null devices. */
 static int64_t mem_read_user(void *ctx, void *private_data, uint64_t flags, void *buffer, size_t offset, size_t size, struct process *proc)
 {
     mem_memory_device_t *device = ctx;
@@ -106,6 +110,7 @@ static int64_t mem_read_user(void *ctx, void *private_data, uint64_t flags, void
     return (int64_t)size;
 }
 
+/* User-mode write path, delegated to mem_write(). */
 static int64_t mem_write_user(void *ctx, void *private_data, uint64_t flags, const void *buffer, size_t offset, size_t size,
                               struct process *proc)
 {
@@ -130,6 +135,7 @@ static const struct {
     {.name = "urandom", .minor = 9, .mode = 0666},
 };
 
+/* Register the standard memory character devices. */
 void memdev_init(void)
 {
     for (size_t i = 0; i < sizeof(mem_nodes) / sizeof(mem_nodes[0]); i++) {

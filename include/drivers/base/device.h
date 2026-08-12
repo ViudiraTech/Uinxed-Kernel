@@ -140,47 +140,56 @@ struct class
 
 /* Device model registration API */
 
-/* bus */
+/* Register/unregister a bus with the device model */
 int  bus_register(struct bus_type *bus);
 void bus_unregister(struct bus_type *bus);
 
+/* Create/remove an attribute file on a bus */
 int  bus_create_file(struct bus_type *bus, struct bus_attribute *attr);
 void bus_remove_file(struct bus_type *bus, struct bus_attribute *attr);
 
-/* device */
+/* Register/unregister a device */
 int  device_register(struct device *dev);
 void device_unregister(struct device *dev);
 
+/* Create and register a device with a formatted name, or NULL on failure */
 struct device *device_create(struct class *cls, struct device *parent, dev_t devt, void *drvdata, const char *fmt, ...);
-void           device_destroy(struct class *cls, dev_t devt);
 
+/* Unregister and destroy a device created by device_create */
+void device_destroy(struct class *cls, dev_t devt);
+
+/* Create/remove an attribute file on a device */
 int  device_create_file(struct device *dev, const struct device_attribute *attr);
 void device_remove_file(struct device *dev, const struct device_attribute *attr);
 
+/* Add/remove attribute groups on a device */
 int  device_add_groups(struct device *dev, const struct attribute_group **groups);
 void device_remove_groups(struct device *dev, const struct attribute_group **groups);
 
-/* driver */
+/* Register/unregister a driver */
 int  driver_register(struct device_driver *drv);
 void driver_unregister(struct device_driver *drv);
 
+/* Create/remove an attribute file on a driver */
 int  driver_create_file(struct device_driver *drv, const struct driver_attribute *attr);
 void driver_remove_file(struct device_driver *drv, const struct driver_attribute *attr);
 
-/* class */
+/* Register/unregister a device class */
 int  class_register(struct class *cls);
 void class_unregister(struct class *cls);
 
+/* Find a device in a class by a caller-supplied match function */
 struct device *class_find_device(struct class *cls, struct device *start, const void *data, int (*match)(struct device *, const void *));
 
+/* Create/remove an attribute file on a class */
 int  class_create_file(struct class *cls, const struct class_attribute *attr);
 void class_remove_file(struct class *cls, const struct class_attribute *attr);
 
-/* core init */
+/* Initialize/teardown the device model */
 int  device_model_init(void);
 void device_model_exit(void);
 
-/* Helper: get /sys/devices/... path */
+/* Helper: get a device's sysfs name (kobject name) */
 
 static inline const char *dev_name(const struct device *dev)
 {

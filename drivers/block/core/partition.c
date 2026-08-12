@@ -176,6 +176,7 @@ static int disk_crc32(const blockdev_device_t *device, uint64_t byte_offset, uin
  * numbered from 5 upward.
  */
 
+/* Add a partition to the table, rejecting duplicates, overlaps and overflows. */
 static int table_add(partition_table_t *table, const partition_info_t *partition)
 {
     if (partition->number > PARTITION_MAX_COUNT) return EOK;
@@ -194,6 +195,7 @@ static int table_add(partition_table_t *table, const partition_info_t *partition
     return EOK;
 }
 
+/* Validate one MBR entry's status and LBA range. */
 static int validate_mbr_entry(const uint8_t *entry, uint64_t disk_sectors, uint64_t *start, uint64_t *count)
 {
     uint8_t status = entry[0];
@@ -450,6 +452,7 @@ static void gpt_name_to_utf8(const uint8_t *input, char output[PARTITION_NAME_SI
     output[used] = '\0';
 }
 
+/* Compare the primary and backup GPT headers for consistency. */
 static bool gpt_locations_match(const gpt_location_t *primary, const gpt_location_t *backup)
 {
     return primary->current_lba == backup->alternate_lba && primary->alternate_lba == backup->current_lba
@@ -585,12 +588,10 @@ int partition_scan(const blockdev_device_t *device, partition_table_t *table)
         status = parse_gpt_entries(device, table, &backup, scratch);
         if (status != EOK) goto fail;
     }
-
 success:
     free(sector);
     free(scratch);
     return EOK;
-
 fail:
     free(sector);
     free(scratch);

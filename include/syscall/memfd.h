@@ -27,16 +27,21 @@
 #define FALLOC_FL_PUNCH_HOLE 0x02U
 #define FALLOC_FL_ZERO_RANGE 0x10U
 
+/* Subsystem lifecycle and the memfd_create syscall. */
 void    memfd_init(void);
 int64_t sys_memfd_create(uint64_t name, uint64_t flags, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5);
-int     memfd_is_node(vfs_node_t node);
-int     memfd_get_seals(vfs_node_t node, uint32_t *seals);
-int     memfd_add_seals(vfs_node_t node, uint32_t seals);
-int     memfd_resize(vfs_node_t node, uint64_t size);
-int     memfd_fallocate(vfs_node_t node, uint32_t mode, uint64_t offset, uint64_t length);
-int     memfd_map(vfs_node_t node, process_t *proc, uintptr_t addr, size_t length, uint64_t offset, vm_flags_t flags);
-void    memfd_vma_retain(vfs_node_t node, vm_flags_t flags);
-void    memfd_vma_release(vfs_node_t node, vm_flags_t flags);
-int     memfd_vma_protect(vfs_node_t node, vm_flags_t old_flags, vm_flags_t new_flags);
+
+/* Sealing, resize, and fallocate on memfd-backed nodes. */
+int memfd_is_node(vfs_node_t node);
+int memfd_get_seals(vfs_node_t node, uint32_t *seals);
+int memfd_add_seals(vfs_node_t node, uint32_t seals);
+int memfd_resize(vfs_node_t node, uint64_t size);
+int memfd_fallocate(vfs_node_t node, uint32_t mode, uint64_t offset, uint64_t length);
+
+/* VMA integration for file-backed mappings. */
+int  memfd_map(vfs_node_t node, process_t *proc, uintptr_t addr, size_t length, uint64_t offset, vm_flags_t flags);
+void memfd_vma_retain(vfs_node_t node, vm_flags_t flags);
+void memfd_vma_release(vfs_node_t node, vm_flags_t flags);
+int  memfd_vma_protect(vfs_node_t node, vm_flags_t old_flags, vm_flags_t new_flags);
 
 #endif // INCLUDE_MEMFD_H_

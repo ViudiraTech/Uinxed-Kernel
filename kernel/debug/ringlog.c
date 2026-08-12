@@ -35,11 +35,10 @@ void log_buffer_write(log_buffer_t *log, const char *fmt, ...)
 
     log->head = (log->head + 1) % LOG_BUFFER_SIZE;
 
-    if (log->count == LOG_BUFFER_SIZE) {
+    if (log->count == LOG_BUFFER_SIZE)
         log->tail = (log->tail + 1) % LOG_BUFFER_SIZE;
-    } else {
+    else
         log->count++;
-    }
 }
 
 /* Printing ring log buffer */

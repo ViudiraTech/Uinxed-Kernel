@@ -47,6 +47,7 @@ typedef struct elf_source {
         size_t         window_size;
 } elf_source_t;
 
+/* Read from the ELF source (memory buffer or VFS node), using the window when useful */
 static int elf_source_read(elf_source_t *source, size_t offset, void *buffer, size_t size)
 {
     if (!source || (!buffer && size) || offset > source->size || size > source->size - offset) return -1;
@@ -84,6 +85,7 @@ static int elf_source_read(elf_source_t *source, size_t offset, void *buffer, si
     return 0;
 }
 
+/* Validate the ELF header fields relevant to a process image */
 static int validate_ehdr(const Elf64_Ehdr *ehdr, size_t size)
 {
     if (!ehdr || size < sizeof(Elf64_Ehdr)) return -1;
@@ -97,6 +99,7 @@ static int validate_ehdr(const Elf64_Ehdr *ehdr, size_t size)
     return 0;
 }
 
+/* Validate the image and return its ELF header */
 static int validate_elf(const uint8_t *data, size_t size, Elf64_Ehdr **ehdr_out)
 {
     if (!data || size < sizeof(Elf64_Ehdr)) return -1;
@@ -106,6 +109,7 @@ static int validate_elf(const uint8_t *data, size_t size, Elf64_Ehdr **ehdr_out)
     return 0;
 }
 
+/* Extract entry point, program headers, interpreter and TLS metadata from the image */
 int elf_loader_parse_elf_info(const uint8_t *data, size_t size, elf_load_info_t *info)
 {
     memset(info, 0, sizeof(*info));
@@ -208,6 +212,7 @@ static int elf_page_attributes(const Elf64_Phdr *phdr, int phnum, uintptr_t load
     return 1;
 }
 
+/* Record a non-overlapping VMA for a loaded PT_LOAD range */
 static int insert_elf_vma(process_t *proc, uintptr_t start, uintptr_t end, vm_flags_t flags)
 {
     if (start >= end) return 0;
@@ -331,6 +336,7 @@ static int load_elf_segments_source(process_t *proc, const Elf64_Ehdr *ehdr, con
     return 0;
 }
 
+/* Map all PT_LOAD segments of a memory-backed image and build their VMAs */
 static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr, const uint8_t *data, size_t elf_size, uintptr_t load_bias, int set_brk)
 {
     const Elf64_Phdr *phdr   = (const Elf64_Phdr *)(data + ehdr->e_phoff);
@@ -338,6 +344,7 @@ static int load_elf_segments(process_t *proc, const Elf64_Ehdr *ehdr, const uint
     return load_elf_segments_source(proc, ehdr, phdr, &source, load_bias, set_brk);
 }
 
+/* Translate a user virtual address to a directly writable kernel pointer */
 static void *user_ptr(process_t *proc, uintptr_t addr)
 {
     page_table_t *l4  = proc->user_page_dir->table;
@@ -355,6 +362,7 @@ static void *user_ptr(process_t *proc, uintptr_t addr)
     return (uint8_t *)phys_to_virt(l1e & PAGE_4K_MASK) + (addr & (PAGE_4K_SIZE - 1));
 }
 
+/* Copy to user memory, resolving demand-fault pages as needed */
 static int write_user(process_t *proc, uintptr_t dst, const void *src, size_t size)
 {
     const uint8_t *in = src;
@@ -372,6 +380,7 @@ static int write_user(process_t *proc, uintptr_t dst, const void *src, size_t si
     return 0;
 }
 
+/* Find a free page-aligned range of the requested size in the mmap region */
 static uintptr_t find_free_range(process_t *proc, uintptr_t start, uintptr_t end, size_t size)
 {
     uintptr_t addr  = ALIGN_UP(start, PAGE_4K_SIZE);
@@ -391,6 +400,7 @@ static uintptr_t find_free_range(process_t *proc, uintptr_t start, uintptr_t end
     return 0;
 }
 
+/* Compute the load bias that places the image's lowest PT_LOAD at the chosen base */
 static uintptr_t compute_load_bias(const Elf64_Ehdr *ehdr, const Elf64_Phdr *phdr, uintptr_t chosen_base)
 {
     if (ehdr->e_type == ET_DYN) {
@@ -406,6 +416,7 @@ static uintptr_t compute_load_bias(const Elf64_Ehdr *ehdr, const Elf64_Phdr *phd
     return 0;
 }
 
+/* Load a dynamic linker and return its relocated base and entry point */
 int elf_loader_load_interpreter(struct process *proc, const char *interp_path, Elf64_Addr *base_out, Elf64_Addr *entry_out)
 {
     char resolved_path[VFS_PATH_MAX];
@@ -506,6 +517,7 @@ int elf_loader_load_interpreter(struct process *proc, const char *interp_path, E
     return 0;
 }
 
+/* Count the entries in a NULL-terminated string array */
 static int count_string_array(char *const arr[])
 {
     if (!arr) return 0;
@@ -514,6 +526,7 @@ static int count_string_array(char *const arr[])
     return count;
 }
 
+/* Total byte size of the strings in a NULL-terminated array, including terminators */
 static size_t string_array_size(char *const arr[])
 {
     if (!arr) return 0;
@@ -522,6 +535,7 @@ static size_t string_array_size(char *const arr[])
     return total;
 }
 
+/* Build the initial user stack: argv/envp/auxv vectors and the strings they point to */
 static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t phnum, uint16_t phentsize, uintptr_t interp_base,
                                   uintptr_t main_entry, char *const argv[], char *const envp[])
 {
@@ -625,6 +639,7 @@ static uintptr_t setup_user_stack(process_t *proc, uintptr_t phdr_addr, uint16_t
     return base_rsp;
 }
 
+/* Trampoline that enters the user image with a clean register file via IRETQ */
 __attribute__((naked)) static void user_process_enter(void)
 {
     __asm__ volatile("xorl %eax, %eax\n\t"
@@ -640,6 +655,7 @@ __attribute__((naked)) static void user_process_enter(void)
                      "iretq\n\t");
 }
 
+/* Load a memory-backed ELF into the process: map segments, set up the stack and registers */
 int elf_loader_load_process_internal(process_t *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[],
                                      uintptr_t *entry_out, uintptr_t *rsp_out, bool acquire_console)
 {

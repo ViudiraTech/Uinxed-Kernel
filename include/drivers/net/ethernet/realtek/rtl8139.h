@@ -53,11 +53,18 @@ int rtl8139_transmit(rtl8139_device_t *device, const void *packet, size_t length
 /* Poll completed receive frames from task context. */
 size_t rtl8139_poll(rtl8139_device_t *device, size_t budget);
 
-int                    rtl8139_link_up(const rtl8139_device_t *device);
-const uint8_t         *rtl8139_mac_address(const rtl8139_device_t *device);
+/* True if the device link is up. */
+int rtl8139_link_up(const rtl8139_device_t *device);
+
+/* Return the device MAC address (6 bytes). */
+const uint8_t *rtl8139_mac_address(const rtl8139_device_t *device);
+
+/* Return a snapshot of device statistics. */
 const rtl8139_stats_t *rtl8139_get_stats(const rtl8139_device_t *device);
-rtl8139_device_t      *rtl8139_first_device(void);
-rtl8139_device_t      *rtl8139_next_device(rtl8139_device_t *device);
+
+/* Iterate registered RTL8139 devices in probe order. */
+rtl8139_device_t *rtl8139_first_device(void);
+rtl8139_device_t *rtl8139_next_device(rtl8139_device_t *device);
 
 /* Legacy IRQ hooks must provide shared dispatch; MSI is used otherwise. */
 #ifndef NET_IRQ_HANDLER_FN_TYPEDEF

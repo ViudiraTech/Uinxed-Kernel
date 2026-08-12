@@ -52,13 +52,20 @@ typedef struct sigevent {
 
 /* POSIX MQ syscall interface */
 
+/* Open or create a message queue. */
 int64_t sys_mq_open(const char *name, int oflag, uint32_t mode, mq_attr_t *attr);
+/* Remove a named message queue. */
 int64_t sys_mq_unlink(const char *name);
+/* Send a message, blocking until abs_timeout. */
 int64_t sys_mq_timedsend(int mqdes, const char *msg_ptr, size_t msg_len, uint32_t msg_prio, const void *abs_timeout);
+/* Receive a message, blocking until abs_timeout. */
 int64_t sys_mq_timedreceive(int mqdes, char *msg_ptr, size_t msg_len, uint32_t *msg_prio, const void *abs_timeout);
+/* Register a notification for message arrival. */
 int64_t sys_mq_notify(int mqdes, const sigevent_t *notification);
+/* Get or set queue attributes. */
 int64_t sys_mq_getsetattr(int mqdes, const mq_attr_t *newattr, mq_attr_t *oldattr);
 
+/* Initialize the POSIX MQ subsystem. */
 void posix_mq_init(void);
 
 #endif // INCLUDE_POSIX_MQ_H_

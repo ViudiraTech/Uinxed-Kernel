@@ -24,6 +24,7 @@
 
 /* Internal helpers from drm_property.c */
 
+/* Create an atomic object-type property for the given object type. */
 static struct drm_property *drm_object_property(struct drm_device *dev, const char *name, uint32_t object_type)
 {
     struct drm_property *prop = drm_property_create(dev, DRM_MODE_PROP_OBJECT | DRM_MODE_PROP_ATOMIC, name, 1);
@@ -31,6 +32,7 @@ static struct drm_property *drm_object_property(struct drm_device *dev, const ch
     return prop;
 }
 
+/* Create an atomic signed-range property. */
 static struct drm_property *drm_signed_property(struct drm_device *dev, const char *name, int32_t min, int32_t max)
 {
     struct drm_property *prop = drm_property_create(dev, DRM_MODE_PROP_SIGNED_RANGE | DRM_MODE_PROP_ATOMIC, name, 2);
@@ -40,8 +42,6 @@ static struct drm_property *drm_signed_property(struct drm_device *dev, const ch
     }
     return prop;
 }
-
-/* Forward declarations of cleanup functions from sibling compilation units. */
 
 /*
  * drm_mode_config_init - Initialise the mode configuration for a DRM device.

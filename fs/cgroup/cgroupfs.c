@@ -38,6 +38,7 @@ typedef struct {
 
 static int cgroupfs_id;
 
+/* Allocate a cgroupfs handle, taking a reference on the cgroup. */
 static cgroupfs_node_t *new_handle(cgroupfs_type_t type, cgroup_t *cgroup)
 {
     cgroupfs_node_t *handle = calloc(1, sizeof(*handle));
@@ -53,6 +54,7 @@ static cgroupfs_node_t *new_handle(cgroupfs_type_t type, cgroup_t *cgroup)
     return handle;
 }
 
+/* Add a virtual control file to the given cgroup directory. */
 static int add_file(vfs_node_t parent, const char *name, cgroupfs_type_t type, uint16_t mode)
 {
     vfs_node_t node = vfs_node_alloc(parent, name);
@@ -70,6 +72,7 @@ static int add_file(vfs_node_t parent, const char *name, cgroupfs_type_t type, u
     return EOK;
 }
 
+/* Populate a directory with the default cgroup2 control files. */
 static int populate(vfs_node_t dir)
 {
     static const struct {
@@ -114,6 +117,7 @@ static int mount_cgroup2(const char *src, vfs_node_t node)
     return populate(node);
 }
 
+/* Render the contents of a control file into the caller's buffer. */
 static int render(cgroupfs_node_t *node, char *buf, size_t size)
 {
     if (!node->cgroup) return -ENOENT;
@@ -139,6 +143,7 @@ static int render(cgroupfs_node_t *node, char *buf, size_t size)
     }
 }
 
+/* Read from a control file into the given buffer. */
 static int64_t file_read(vfs_node_t vnode, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     char buf[CGROUPFS_BUFSIZE];
@@ -154,6 +159,7 @@ static int64_t file_read(vfs_node_t vnode, void *private_data, uint64_t flags, v
     return (int64_t)size;
 }
 
+/* Apply a write to a control file. */
 static int64_t file_write(vfs_node_t vnode, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     cgroupfs_node_t *node = vnode->handle;
@@ -175,6 +181,7 @@ static int64_t file_write(vfs_node_t vnode, void *private_data, uint64_t flags, 
     return status == EOK ? (int64_t)size : status;
 }
 
+/* Legacy read callback for the VFS adapter. */
 static size_t legacy_read(void *handle, void *addr, size_t offset, size_t size)
 {
     char buf[CGROUPFS_BUFSIZE];
@@ -185,6 +192,7 @@ static size_t legacy_read(void *handle, void *addr, size_t offset, size_t size)
     return size;
 }
 
+/* Legacy write callback for the VFS adapter. */
 static size_t legacy_write(void *handle, const void *addr, size_t offset, size_t size)
 {
     cgroupfs_node_t *node = handle;
@@ -201,6 +209,7 @@ static size_t legacy_write(void *handle, const void *addr, size_t offset, size_t
     return status == EOK ? size : (size_t)-1;
 }
 
+/* Report the node type; populate directories lazily on stat. */
 static int stat_node(void *handle, vfs_node_t node)
 {
     cgroupfs_node_t *cn = handle;
@@ -217,6 +226,7 @@ static int stat_node(void *handle, vfs_node_t node)
     return EOK;
 }
 
+/* Create a child cgroup directory. */
 static int mkdir_node(void *parent, const char *name, vfs_node_t node)
 {
     cgroupfs_node_t *pn = parent;
@@ -239,6 +249,7 @@ static int mkdir_node(void *parent, const char *name, vfs_node_t node)
     return status;
 }
 
+/* Reject file creation; control files are fixed. */
 static int readonly_create(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
@@ -247,6 +258,7 @@ static int readonly_create(void *parent, const char *name, vfs_node_t node)
     return -EROFS;
 }
 
+/* Destroy a cgroup directory. */
 static int delete_node(void *parent, vfs_node_t node)
 {
     cgroupfs_node_t *cn = node->handle;
@@ -258,6 +270,7 @@ static int delete_node(void *parent, vfs_node_t node)
     return status;
 }
 
+/* Release the cgroup reference and free the handle. */
 static int free_handle(void *handle)
 {
     cgroupfs_node_t *node = handle;
@@ -265,6 +278,8 @@ static int free_handle(void *handle)
     free(node);
     return EOK;
 }
+
+/* Rename is not supported for control files. */
 static int no_rename(void *handle, const char *name)
 {
     (void)handle;
@@ -286,6 +301,7 @@ static struct vfs_callback callbacks = {
     .file_write = file_write,
 };
 
+/* Register the cgroup2 filesystem with the VFS layer. */
 void cgroupfs_regist(void)
 {
 #if CONFIG_CGROUP

@@ -101,15 +101,34 @@ typedef struct {
 
 extern atapi_device_t atapi_devices[4];
 
+/* Parse ATAPI identify data (called after the ATAPI signature is detected) */
 uint8_t atapi_identify(uint8_t channel, uint8_t drive, uint8_t dev_index);
-void    atapi_soft_reset(uint8_t drive);
+
+/* Soft reset the ATAPI device */
+void atapi_soft_reset(uint8_t drive);
+
+/* Send a TEST UNIT READY command */
 uint8_t atapi_test_unit_ready(uint8_t drive);
+
+/* Send an INQUIRY command, filling buf with the standard inquiry data */
 uint8_t atapi_inquiry(uint8_t drive, void *buf);
+
+/* Send READ CAPACITY, returning the LBA count and block size */
 uint8_t atapi_read_capacity(uint8_t drive, uint32_t *lba_size, uint32_t *blk_size);
+
+/* Send REQUEST SENSE, returning the sense key and ASC/ASCQ */
 uint8_t atapi_request_sense(uint8_t drive, uint8_t *sense_key, uint8_t *asc, uint8_t *ascq);
+
+/* Send START STOP UNIT (load/eject) */
 uint8_t atapi_start_stop(uint8_t drive, uint8_t start, uint8_t loej);
+
+/* Core ATAPI packet send: executes the caller-provided CDB */
 uint8_t atapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit, uint8_t direction, void *buf, size_t *xfer_len);
+
+/* Read sectors from an ATAPI device using READ(12) */
 uint8_t atapi_read(uint8_t drive, uint32_t lba, uint8_t num_sectors, uint16_t *buf);
-int     atapi_cmd_type(uint8_t opcode);
+
+/* Classify a SCSI opcode as misc/read/write/read-cd */
+int atapi_cmd_type(uint8_t opcode);
 
 #endif // INCLUDE_ATAPI_H_

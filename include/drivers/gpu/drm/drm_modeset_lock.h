@@ -45,6 +45,7 @@ void drm_modeset_lock_init(struct drm_modeset_lock *lock);
 /* Acquire @lock under @ctx. Returns 0, -EDEADLK, or -EINTR (interruptible). */
 int drm_modeset_lock(struct drm_modeset_lock *lock, struct drm_modeset_acquire_ctx *ctx);
 
+/* Interruptible variant of drm_modeset_lock(). */
 int drm_modeset_lock_interruptible(struct drm_modeset_lock *lock, struct drm_modeset_acquire_ctx *ctx);
 
 /* Release @lock. */

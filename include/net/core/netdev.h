@@ -85,8 +85,11 @@ struct net_device {
         spinlock_t          lock;
 };
 
-void          net_init(void);
-void          net_timer(uint64_t now_ticks);
+/* Network stack init and periodic timer. */
+void net_init(void);
+void net_timer(uint64_t now_ticks);
+
+/* Device registry and lookup. */
 int           netdev_register(net_device_t *device);
 int           netdev_unregister(net_device_t *device);
 net_device_t *netdev_get_by_name(const char *name);
@@ -94,19 +97,22 @@ net_device_t *netdev_get_default(void);
 void          netdev_iterate(netdev_iter_fn callback, void *context);
 int           netdev_set_lifecycle_notifier(netdev_lifecycle_fn callback, void *context);
 void          netdev_put(net_device_t *device);
-int           netdev_set_up(net_device_t *device, int up);
-int           netdev_set_mtu(net_device_t *device, uint32_t mtu);
-int           netdev_configure_ipv4(net_device_t *device, uint32_t address, uint32_t netmask, uint32_t gateway);
-int           netdev_configure_dns(net_device_t *device, const uint32_t *servers, size_t count);
-size_t        netdev_get_dns_servers(net_device_t *device, uint32_t *servers, size_t capacity);
-int           netdev_udp_broadcast(net_device_t *device, uint32_t source, uint16_t source_port, uint16_t destination_port, const void *data,
-                                   size_t length);
-void          netdev_get_stats(net_device_t *device, netdev_stats_t *stats);
+
+/* Device configuration. */
+int    netdev_set_up(net_device_t *device, int up);
+int    netdev_set_mtu(net_device_t *device, uint32_t mtu);
+int    netdev_configure_ipv4(net_device_t *device, uint32_t address, uint32_t netmask, uint32_t gateway);
+int    netdev_configure_dns(net_device_t *device, const uint32_t *servers, size_t count);
+size_t netdev_get_dns_servers(net_device_t *device, uint32_t *servers, size_t capacity);
+int    netdev_udp_broadcast(net_device_t *device, uint32_t source, uint16_t source_port, uint16_t destination_port, const void *data,
+                            size_t length);
+void   netdev_get_stats(net_device_t *device, netdev_stats_t *stats);
 
 /* RX consumes packet on every return path. TX does not consume packet. */
 int netdev_rx(net_device_t *device, net_pbuf_t *packet);
 int netdev_tx(net_device_t *device, net_pbuf_t *packet);
 
+/* Driver-facing init and accessors. */
 int       netdev_init(netdev_t *device, const char *name, const netdev_ops_t *ops, void *private_data);
 netdev_t *netdev_find(const char *name);
 void      netdev_get(netdev_t *device);

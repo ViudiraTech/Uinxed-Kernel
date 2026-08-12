@@ -75,6 +75,7 @@ static void itimer_real_link_locked(process_t *proc)
     itimer_real_head         = proc;
 }
 
+/* Return the remaining time and interval for one interval timer */
 void signal_itimer_get(process_t *proc, unsigned int which, uint64_t *remaining, uint64_t *interval)
 {
     if (!proc || which > 2) return;
@@ -84,6 +85,7 @@ void signal_itimer_get(process_t *proc, unsigned int which, uint64_t *remaining,
     spin_unlock(&itimer_lock);
 }
 
+/* Set one interval timer, returning its previous value */
 void signal_itimer_set(process_t *proc, unsigned int which, uint64_t value, uint64_t interval, uint64_t *old_remaining, uint64_t *old_interval)
 {
     if (!proc || which > 2) return;
@@ -107,6 +109,7 @@ void signal_itimer_set(process_t *proc, unsigned int which, uint64_t value, uint
     spin_unlock(&itimer_lock);
 }
 
+/* Fire due ITIMER_REAL timers, sending SIGALRM and re-arming interval timers */
 void signal_itimer_real_tick(uint64_t now)
 {
     spin_lock(&itimer_lock);
@@ -161,6 +164,7 @@ void signal_itimer_cancel(process_t *proc)
     spin_unlock(&itimer_lock);
 }
 
+/* Return the default disposition for a signal number */
 sig_dfl_action_t signal_default_action(int sig)
 {
     if (!sig_valid(sig)) return SIG_DFL_TERM;
@@ -255,6 +259,7 @@ void signal_state_init(signal_state_t *state)
     state->child_exit_pending = 0;
 }
 
+/* Release all queued signal data */
 void signal_state_free(signal_state_t *state)
 {
     if (!state) return;
@@ -263,6 +268,7 @@ void signal_state_free(signal_state_t *state)
     spin_unlock(&state->lock);
 }
 
+/* Copy signal state into a forked child per POSIX fork inheritance rules */
 void signal_state_copy(signal_state_t *dst, const signal_state_t *src)
 {
     if (!dst || !src) return;
@@ -294,6 +300,7 @@ void signal_state_copy(signal_state_t *dst, const signal_state_t *src)
     spin_unlock(&((signal_state_t *)src)->lock);
 }
 
+/* Flush all pending signals for a process */
 void signal_flush(process_t *proc)
 {
     if (!proc) return;
@@ -434,6 +441,7 @@ int signal_send(process_t *proc, int sig, const siginfo_t *info)
     return ret;
 }
 
+/* Send a signal to a specific thread within a process */
 int signal_send_thread(task_t *task, int sig, const siginfo_t *info)
 {
     if (!task || !task->process) return -ESRCH;
@@ -588,7 +596,6 @@ static int signal_handle_default(process_t *proc, int sig)
     switch (action) {
         case SIG_DFL_IGN :
             return 0;
-
         case SIG_DFL_STOP :
             if (proc->task) {
                 spin_lock(&scheduler.lock);
@@ -598,14 +605,11 @@ static int signal_handle_default(process_t *proc, int sig)
                 if (stopped) process_child_stopped(proc, sig);
             }
             return 0;
-
         case SIG_DFL_CONT :
             return 0;
-
         case SIG_DFL_TERM :
         case SIG_DFL_CORE :
             return 1;
-
         default :
             return 0;
     }
@@ -690,6 +694,7 @@ int signal_has_pending(signal_state_t *state)
     return !sigisemptyset(&ready);
 }
 
+/* Whether a pending, unblocked signal would interrupt a blocking syscall */
 int signal_has_interrupting_pending(signal_state_t *state)
 {
     if (!state) return 0;
@@ -708,6 +713,7 @@ int signal_has_interrupting_pending(signal_state_t *state)
     return 0;
 }
 
+/* Whether a signal is currently blocked or ignored for a process */
 bool signal_is_blocked_or_ignored(process_t *proc, int sig)
 {
     if (!proc || !sig_valid(sig)) return false;
@@ -1330,6 +1336,7 @@ static int sigqueue_dequeue_filtered(signal_state_t *state, const sigset_t *filt
     return 0;
 }
 
+/* Dequeue one signal matching the mask, or 0 if nothing matches; caller holds state->lock */
 int signal_dequeue_masked(process_t *proc, const sigset_t *mask, siginfo_t *info)
 {
     if (!proc || !mask || !info) return 0;
@@ -1340,6 +1347,7 @@ int signal_dequeue_masked(process_t *proc, const sigset_t *mask, siginfo_t *info
     return sig;
 }
 
+/* Whether a signal matching the mask is pending for the process */
 bool signal_has_pending_masked(process_t *proc, const sigset_t *mask)
 {
     if (!proc || !mask) return false;
@@ -1708,6 +1716,7 @@ int64_t sys_getpgid(int64_t pid)
     return pgid;
 }
 
+/* Send a signal to every process in a process group (optionally a session) */
 static int signal_send_group(int64_t pgid, int64_t sid, int sig, process_t *sender, int code)
 {
     if (pgid <= 0 || sig < 0 || sig >= NSIG) return -EINVAL;

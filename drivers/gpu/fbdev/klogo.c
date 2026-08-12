@@ -61,6 +61,7 @@ void video_clear_logo(void)
     video_draw_rect((position_t) {0, 0}, (position_t) {width - 1, KLOGO_AREA_HEIGHT - 1}, 0x00000000);
 }
 
+/* Show the boot logo on the boot console, honoring the CPU count limit. */
 void video_show_boot_logo(void)
 {
 #if BOOT_LOGO

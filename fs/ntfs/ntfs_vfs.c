@@ -244,11 +244,13 @@ static inline void put_le64(u8 *p, u64 value)
     put_le32(p + sizeof(u32), (u32)(value >> 32));
 }
 
+/* Current time as a Windows 100ns FILETIME since 1601. */
 static u64 ntfs_current_filetime(void)
 {
     return ((u64)timer_realtime_seconds32() + 11644473600ULL) * 10000000ULL;
 }
 
+/* Update the standard-information and file-name timestamps in a record. */
 static int ntfs_record_touch(u8 *record, u32 record_size, int data_changed)
 {
     if (!record || record_size < 48 || le32(record) != MFT_MAGIC) return -EIO;
@@ -283,6 +285,7 @@ static int ntfs_record_touch(u8 *record, u32 record_size, int data_changed)
     return EOK;
 }
 
+/* Validate the update-sequence-array layout of a record. */
 static int ntfs_record_layout(ntfs_mount_t *mnt, u8 *record, u32 record_size, u16 *usa_offset, u16 *usa_count)
 {
     u32 usa_end;
@@ -299,6 +302,7 @@ static int ntfs_record_layout(ntfs_mount_t *mnt, u8 *record, u32 record_size, u1
     return 0;
 }
 
+/* Verify and restore the USA-replaced bytes when reading a record. */
 static int ntfs_record_unpack(ntfs_mount_t *mnt, u8 *record, u32 record_size)
 {
     u16 usa_offset;
@@ -324,6 +328,7 @@ static int ntfs_record_unpack(ntfs_mount_t *mnt, u8 *record, u32 record_size)
     return 0;
 }
 
+/* Apply the USA substitution and sequence number before writing a record. */
 static int ntfs_record_pack(ntfs_mount_t *mnt, u8 *record, u32 record_size)
 {
     u16 usa_offset;
@@ -355,6 +360,7 @@ static u16 *utf16_from(const u8 *buf, int ofs, int len)
     return out;
 }
 
+/* Convert a UTF-16 string to a freshly allocated UTF-8 string. */
 static char *utf8_from_utf16(const u16 *u, int len)
 {
     if (len <= 0 || !u) return strdup("");
@@ -434,6 +440,7 @@ static u16 ntfs_upcase_char(ntfs_mount_t *mnt, u16 value)
     return value;
 }
 
+/* Case-insensitive comparison of two UTF-16 names using the upcase table. */
 static int ntfs_utf16_compare(ntfs_mount_t *mnt, const u16 *left, u8 left_length, const u16 *right, u8 right_length)
 {
     u8 common = left_length < right_length ? left_length : right_length;
@@ -449,6 +456,7 @@ static int ntfs_utf16_compare(ntfs_mount_t *mnt, const u16 *left, u8 left_length
     return 0;
 }
 
+/* Convert a UTF-8 name to UTF-16, validating legal NTFS file-name characters. */
 static int ntfs_utf16_from_utf8(const char *source, u16 **name, u8 *name_length, int filename)
 {
     u16 *result;
@@ -506,7 +514,6 @@ static int ntfs_utf16_from_utf8(const char *source, u16 **name, u8 *name_length,
     *name        = result;
     *name_length = (u8)count;
     return 0;
-
 too_long:
     free(result);
     return -ENAMETOOLONG;
@@ -520,6 +527,7 @@ static int ntfs_name_from_utf8(const char *source, u16 **name, u8 *name_length)
     return ntfs_utf16_from_utf8(source, name, name_length, 1);
 }
 
+/* Insert an entry into a resident $I30 index root. */
 static int ntfs_index_root_insert(ntfs_mount_t *mnt, u8 *record, u64 file_reference, u64 parent_reference, const u16 *name, u8 name_length,
                                   u32 file_attributes, u64 data_size, u64 allocated_size)
 {
@@ -631,6 +639,7 @@ static int ntfs_index_root_insert(ntfs_mount_t *mnt, u8 *record, u64 file_refere
     return 0;
 }
 
+/* Remove an entry from a resident $I30 index root. */
 static int ntfs_index_root_remove(ntfs_mount_t *mnt, u8 *record, u64 file_reference, const u16 *name, u8 name_length)
 {
     attr_rec_t *attribute = NULL;
@@ -713,6 +722,7 @@ static int ntfs_index_root_remove(ntfs_mount_t *mnt, u8 *record, u64 file_refere
     return 0;
 }
 
+/* Replace a file-name attribute value in a record. */
 static int ntfs_file_name_replace(ntfs_mount_t *mnt, u8 *record, u64 parent_reference, const u16 *old_name, u8 old_length, const u16 *new_name,
                                   u8 new_length)
 {
@@ -773,6 +783,7 @@ static int ntfs_file_name_replace(ntfs_mount_t *mnt, u8 *record, u64 parent_refe
 static u32 ntfs_resident_attribute(u8 *record, u32 offset, u32 type, u16 instance, const u16 *attribute_name, u8 attribute_name_length,
                                    const u8 *value, u32 value_length);
 
+/* Append a file-name attribute to a record. */
 static int ntfs_file_name_add(ntfs_mount_t *mnt, u8 *record, u64 parent_reference, const u16 *name, u8 name_length, u32 file_attributes,
                               u64 data_size)
 {
@@ -813,6 +824,7 @@ static int ntfs_file_name_add(ntfs_mount_t *mnt, u8 *record, u64 parent_referenc
     return 0;
 }
 
+/* Remove a file-name attribute matching the given parent and name. */
 static int ntfs_file_name_remove(ntfs_mount_t *mnt, u8 *record, u64 parent_reference, const u16 *name, u8 name_length)
 {
     u32 bytes_in_use;
@@ -851,6 +863,7 @@ static int ntfs_file_name_remove(ntfs_mount_t *mnt, u8 *record, u64 parent_refer
     return -ENOENT;
 }
 
+/* Locate the unnamed $Bitmap attribute of MFT record 0. */
 static int ntfs_mft_bitmap_attribute(ntfs_mount_t *mnt, u8 *record, attr_rec_t **result)
 {
     u32 offset;
@@ -876,6 +889,7 @@ static int ntfs_mft_bitmap_attribute(ntfs_mount_t *mnt, u8 *record, attr_rec_t *
     return -EIO;
 }
 
+/* Read one byte of the $MFT bitmap attribute. */
 static int ntfs_mft_bitmap_read_byte(ntfs_mount_t *mnt, attr_rec_t *attribute, u64 byte_offset, u8 *value)
 {
     u32 length = le32((u8 *)&attribute->length);
@@ -895,6 +909,7 @@ static int ntfs_mft_bitmap_read_byte(ntfs_mount_t *mnt, attr_rec_t *attribute, u
     return 0;
 }
 
+/* Find the first free record number in the $MFT bitmap. */
 static int ntfs_mft_bitmap_find_free(ntfs_mount_t *mnt, u64 *record_number)
 {
     u8         *record;
@@ -926,6 +941,7 @@ out:
     return status;
 }
 
+/* Mark a record allocated or free in the $MFT bitmap. */
 static int ntfs_mft_bitmap_set(ntfs_mount_t *mnt, u64 record_number, int allocated)
 {
     u8         *record;
@@ -962,6 +978,7 @@ out:
     return status;
 }
 
+/* Write a resident attribute at an offset, returning the next offset. */
 static u32 ntfs_resident_attribute(u8 *record, u32 offset, u32 type, u16 instance, const u16 *attribute_name, u8 attribute_name_length,
                                    const u8 *value, u32 value_length)
 {
@@ -981,6 +998,7 @@ static u32 ntfs_resident_attribute(u8 *record, u32 offset, u32 type, u16 instanc
     return offset + length;
 }
 
+/* Build a new MFT record for a file or directory. */
 static int ntfs_build_file_record(ntfs_mount_t *mnt, u8 *record, u64 record_number, u16 sequence, u64 parent_reference, const u16 *name,
                                   u8 name_length, int directory)
 {
@@ -1044,6 +1062,7 @@ static int ntfs_build_file_record(ntfs_mount_t *mnt, u8 *record, u64 record_numb
     return 0;
 }
 
+/* Build a symlink MFT record carrying a reparse-point attribute. */
 static int ntfs_build_symlink_record(ntfs_mount_t *mnt, u8 *record, u64 record_number, u16 sequence, u64 parent_reference, const u16 *name,
                                      u8 name_length, const u16 *target, u8 target_length, int relative)
 {
@@ -1148,6 +1167,7 @@ static int read_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, u8
 static s64 write_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, const u8 *buf, size_t size, u64 max_size);
 static int runlist_parse(u8 *rl, int len, s64 *vcn, s64 *lcn, s64 *run, int max);
 
+/* Parse the $MFT data runlist from the raw MFT record at its boot LCN. */
 static int mft_bootstrap_runlist(ntfs_mount_t *mnt)
 {
     u8 *record;
@@ -1206,7 +1226,6 @@ static int mft_bootstrap_runlist(ntfs_mount_t *mnt)
         }
         offset += length;
     }
-
 out:
     if (status != EOK && status != -ENOMEM) plogk("ntfs: Drive %u: MFT data attribute parse failed.\n", mnt->dev.drive);
     free(record);
@@ -1214,6 +1233,7 @@ out:
 }
 
 /* disk I/O helpers */
+/* Read and unpack one MFT record. */
 static int mft_read(ntfs_mount_t *mnt, u64 mft_no, u8 *buf)
 {
     u64 logical_offset;
@@ -1236,6 +1256,7 @@ static int mft_read(ntfs_mount_t *mnt, u64 mft_no, u8 *buf)
     return ntfs_record_unpack(mnt, buf, mnt->mft_size);
 }
 
+/* Pack and write one MFT record, mirroring the first records when required. */
 static int mft_write(ntfs_mount_t *mnt, u64 mft_no, const u8 *buf)
 {
     u64 byte_off;
@@ -1273,6 +1294,7 @@ static int mft_write(ntfs_mount_t *mnt, u64 mft_no, const u8 *buf)
     return status;
 }
 
+/* Load the volume bitmap runlist from $Bitmap (record 6). */
 static int ntfs_load_bitmap_runlist(ntfs_mount_t *mnt)
 {
     u8 *record;
@@ -1322,12 +1344,12 @@ static int ntfs_load_bitmap_runlist(ntfs_mount_t *mnt)
         }
         offset += length;
     }
-
 out:
     free(record);
     return status;
 }
 
+/* Load the Unicode upcase table from $UpCase (record 10). */
 static int ntfs_load_upcase(ntfs_mount_t *mnt)
 {
     u8 *record;
@@ -1386,6 +1408,7 @@ out:
     return status;
 }
 
+/* Enable writes by validating the volume information and loading write data. */
 static int ntfs_prepare_write(ntfs_mount_t *mnt)
 {
     u8 *record;
@@ -1420,12 +1443,12 @@ static int ntfs_prepare_write(ntfs_mount_t *mnt)
         }
         offset += length;
     }
-
 out:
     free(record);
     return status;
 }
 
+/* Set or clear the volume's dirty flag in $Volume. */
 static int ntfs_set_volume_dirty(ntfs_mount_t *mnt, int dirty)
 {
     u8 *record;
@@ -1461,12 +1484,12 @@ static int ntfs_set_volume_dirty(ntfs_mount_t *mnt, int dirty)
         }
         offset += length;
     }
-
 out:
     free(record);
     return status;
 }
 
+/* Clear the dirty flag previously set by this mount. */
 static int ntfs_clear_owned_dirty(ntfs_mount_t *mnt)
 {
     int status;
@@ -1482,6 +1505,7 @@ static int ntfs_clear_owned_dirty(ntfs_mount_t *mnt)
     return status;
 }
 
+/* Begin a transaction, setting the dirty flag first if needed. */
 static int ntfs_transaction_begin(ntfs_mount_t *mnt, fs_txn_t *transaction, u32 credits)
 {
     int status;
@@ -1495,6 +1519,7 @@ static int ntfs_transaction_begin(ntfs_mount_t *mnt, fs_txn_t *transaction, u32 
     return status;
 }
 
+/* Commit or abort the active transaction and clear the dirty flag. */
 static int ntfs_transaction_finish(ntfs_mount_t *mnt, fs_txn_t *transaction, int status)
 {
     if (!mnt || !transaction || mnt->active_transaction != transaction) return -EINVAL;
@@ -1514,6 +1539,7 @@ static int ntfs_transaction_finish(ntfs_mount_t *mnt, fs_txn_t *transaction, int
     return status;
 }
 
+/* Device read, honoring the active transaction. */
 static int dev_read(ntfs_mount_t *mnt, u64 byte_off, u8 *buf, size_t size)
 {
     if (!mnt || !buf || byte_off > UINT64_MAX - size) return -EINVAL;
@@ -1521,6 +1547,7 @@ static int dev_read(ntfs_mount_t *mnt, u64 byte_off, u8 *buf, size_t size)
     return fs_txn_read_bytes(mnt->active_transaction, byte_off, buf, size);
 }
 
+/* Device write, staged through the active transaction. */
 static int dev_write(ntfs_mount_t *mnt, u64 byte_off, const u8 *buf, size_t size)
 {
     if (!mnt || !buf || mnt->dev.read_only || byte_off > UINT64_MAX - size) return mnt && mnt->dev.read_only ? -EROFS : -EINVAL;
@@ -1529,6 +1556,7 @@ static int dev_write(ntfs_mount_t *mnt, u64 byte_off, const u8 *buf, size_t size
 }
 
 /* runlist parser */
+/* Decode a runlist into vcn/lcn/run triples, handling sparse runs. */
 static int runlist_parse(u8 *rl, int len, s64 *vcn, s64 *lcn, s64 *run, int max)
 {
     int       off = 0, cnt = 0;
@@ -1590,6 +1618,7 @@ static int runlist_unsigned_bytes(u64 value)
     return bytes;
 }
 
+/* Encode lcn/run triples back into runlist byte form. */
 static int runlist_encode(const s64 *lcn, const s64 *run, int count, u8 *out, u32 capacity)
 {
     s64 previous_lcn = 0;
@@ -1616,6 +1645,7 @@ static int runlist_encode(const s64 *lcn, const s64 *run, int count, u8 *out, u3
     return (int)offset;
 }
 
+/* Read a byte range through a runlist, zero-filling sparse holes. */
 static int read_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, u8 *buf, size_t size, u64 max_size)
 {
     s64 v[256], l[256], r[256];
@@ -1672,6 +1702,7 @@ static int read_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, u8
     return (int)done;
 }
 
+/* Write a byte range through a runlist, bounding every LCN to the volume. */
 static s64 write_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, const u8 *buf, size_t size, u64 max_size)
 {
     s64    v[256], l[256], r[256];
@@ -1743,6 +1774,7 @@ static int zero_by_runlist(ntfs_mount_t *mnt, u8 *rl, int rl_len, u64 offset, u6
     return 0;
 }
 
+/* Allocate contiguous free clusters from the volume bitmap. */
 static int bitmap_find_free(ntfs_mount_t *mnt, u64 count, s64 *extent_lcn, s64 *extent_length, int *extent_count)
 {
     u8  byte      = 0;
@@ -1770,6 +1802,7 @@ static int bitmap_find_free(ntfs_mount_t *mnt, u64 count, s64 *extent_lcn, s64 *
     return 0;
 }
 
+/* Set or clear cluster extents in the volume bitmap with rollback on failure. */
 static int bitmap_change_extents(ntfs_mount_t *mnt, const s64 *extent_lcn, const s64 *extent_length, int extent_count, int allocated)
 {
     typedef struct bitmap_byte {
@@ -1825,7 +1858,6 @@ static int bitmap_change_extents(ntfs_mount_t *mnt, const s64 *extent_lcn, const
     }
     status = 0;
     goto out;
-
 rollback:
     while (committed) {
         committed--;
@@ -1837,6 +1869,7 @@ out:
     return status;
 }
 
+/* Zero the clusters covered by a set of extents. */
 static int zero_extents(ntfs_mount_t *mnt, const s64 *extent_lcn, const s64 *extent_length, int extent_count)
 {
     u8 *zeros = calloc(1, mnt->cluster_size);
@@ -1858,6 +1891,7 @@ static u32 ntfs_index_vcn_size(const ntfs_mount_t *mnt)
     return mnt->indx_size < mnt->cluster_size ? mnt->indx_size : mnt->cluster_size;
 }
 
+/* Stage index clusters for reclamation once the namespace change commits. */
 static int ntfs_index_reclaim_stage(ntfs_mount_t *mnt, const s64 *lcn, const s64 *length, int count)
 {
     if (!mnt || !lcn || !length || count <= 0 || count > 256) return -EINVAL;
@@ -1887,6 +1921,7 @@ static void ntfs_index_reclaim_abort(ntfs_mount_t *mnt)
     if (mnt) mnt->index_reclaim_count = 0;
 }
 
+/* Move index entries out of a full index root into a nonresident allocation. */
 static int ntfs_index_root_promote(ntfs_mount_t *mnt, u8 *record, u64 file_reference, u64 parent_reference, const u16 *name, u8 name_length,
                                    u32 file_attributes, u64 data_size, u64 allocated_size)
 {
@@ -2103,6 +2138,7 @@ static int ntfs_index_allocation_split(ntfs_mount_t *mnt, u8 *record, u8 *block,
                                        u64 parent_reference, const u16 *name, u8 name_length, u32 file_attributes, u64 data_size,
                                        u64 allocated_size);
 
+/* Insert an entry into the nonresident $I30 index allocation. */
 static int ntfs_index_allocation_insert(ntfs_mount_t *mnt, u8 *record, u64 file_reference, u64 parent_reference, const u16 *name, u8 name_length,
                                         u32 file_attributes, u64 data_size, u64 allocated_size)
 {
@@ -2232,6 +2268,7 @@ out:
     return status;
 }
 
+/* Split a full index block into two blocks and link them into the root. */
 static int ntfs_index_allocation_split(ntfs_mount_t *mnt, u8 *record, u8 *block, u64 child_vcn, u32 insert_offset, u64 file_reference,
                                        u64 parent_reference, const u16 *name, u8 name_length, u32 file_attributes, u64 data_size,
                                        u64 allocated_size)
@@ -2462,6 +2499,7 @@ out:
     return status;
 }
 
+/* Insert a directory entry, promoting to a nonresident index when full. */
 static int ntfs_directory_index_insert(ntfs_mount_t *mnt, u8 *record, u64 file_reference, u64 parent_reference, const u16 *name, u8 name_length,
                                        u32 file_attributes, u64 data_size, u64 allocated_size)
 {
@@ -2681,6 +2719,7 @@ static int ntfs_index_collect_header(ntfs_index_item_t **items, u32 *count, u32 
     return -EIO;
 }
 
+/* Flatten every entry of a directory index into an item list. */
 static int ntfs_directory_index_collect(ntfs_mount_t *mnt, u8 *record, ntfs_index_item_t **result, u32 *result_count,
                                         ntfs_index_attributes_t *result_attributes)
 {
@@ -2741,7 +2780,6 @@ static int ntfs_directory_index_collect(ntfs_mount_t *mnt, u8 *record, ntfs_inde
     if (result_attributes) *result_attributes = attributes;
     free(block);
     return 0;
-
 corrupt:
     status = -EIO;
 out:
@@ -2957,7 +2995,6 @@ static int ntfs_index_try_collapse(ntfs_mount_t *mnt, u8 *record)
     memcpy(record, copy, mnt->mft_size);
     status = 1;
     goto out;
-
 corrupt:
     status = -EIO;
 out:
@@ -2966,6 +3003,7 @@ out:
     return status;
 }
 
+/* Remove a directory entry from the index, collapsing it when sparse. */
 static int ntfs_directory_index_remove(ntfs_mount_t *mnt, u8 *record, u64 file_reference, const u16 *name, u8 name_length)
 {
     attr_rec_t *root = NULL, *allocation = NULL;
@@ -3102,6 +3140,7 @@ out:
     return status;
 }
 
+/* Extend a nonresident data attribute, allocating clusters as needed. */
 static size_t ntfs_nonresident_grow(ntfs_handle_t *h, u8 *mft, attr_rec_t *attribute, u32 length, u16 mapping_offset, u64 offset,
                                     const u8 *buffer, size_t size, u64 data_size, u64 initialized_size)
 {
@@ -3213,6 +3252,7 @@ static size_t ntfs_nonresident_grow(ntfs_handle_t *h, u8 *mft, attr_rec_t *attri
     return size;
 }
 
+/* Convert a resident data attribute to a nonresident runlist-backed one. */
 static size_t ntfs_resident_convert(ntfs_handle_t *h, u8 *mft, attr_rec_t *attribute, u32 old_length, u16 value_offset, u32 value_length,
                                     u64 offset, const u8 *buffer, size_t size)
 {
@@ -3311,6 +3351,7 @@ static size_t ntfs_resident_convert(ntfs_handle_t *h, u8 *mft, attr_rec_t *attri
 }
 
 /* directory entry helpers */
+/* Materialize one directory index entry as a VFS child node. */
 static void add_dir_entry(vfs_node_t parent, ntfs_mount_t *mnt, u8 *entry, u32 entry_len)
 {
     u64 mft_ref = le64(entry);
@@ -3372,6 +3413,7 @@ static void add_dir_entry(vfs_node_t parent, ntfs_mount_t *mnt, u8 *entry, u32 e
     }
 }
 
+/* Materialize a directory's index entries as VFS children. */
 static int ntfs_load_directory(ntfs_handle_t *h, vfs_node_t node)
 {
     ntfs_mount_t      *mnt        = h->mnt;
@@ -3451,6 +3493,7 @@ static int ntfs_load_directory(ntfs_handle_t *h, vfs_node_t node)
     return 0;
 }
 
+/* Load a file's data runlist (or resident data) into the handle. */
 static int ntfs_load_file_runlist(ntfs_handle_t *h, vfs_node_t node)
 {
     ntfs_mount_t *mnt = h->mnt;
@@ -3512,6 +3555,7 @@ static int ntfs_load_file_runlist(ntfs_handle_t *h, vfs_node_t node)
 }
 
 /* VFS callbacks */
+/* Mount an NTFS volume from its boot sector and MFT. */
 static int ntfs_vfs_mount(const char *src, vfs_node_t node)
 {
     int  status;
@@ -3660,6 +3704,7 @@ static void ntfs_vfs_unmount(void *root)
     free(h);
 }
 
+/* Lazily load a node's runlist or directory children. */
 static void ntfs_vfs_open(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
@@ -3677,6 +3722,7 @@ static void ntfs_vfs_close(void *current)
     (void)current;
 }
 
+/* Read from a file, handling resident data and runlist extents. */
 static size_t ntfs_vfs_read(void *file, void *addr, size_t offset, size_t size)
 {
     ntfs_handle_t *h = file;
@@ -3692,6 +3738,7 @@ static size_t ntfs_vfs_read(void *file, void *addr, size_t offset, size_t size)
     return r > 0 ? (size_t)r : 0;
 }
 
+/* Write to a file without the transaction wrapper. */
 static size_t ntfs_vfs_write_locked(ntfs_handle_t *h, const void *addr, size_t offset, size_t size)
 {
     u8 *mft;
@@ -3827,6 +3874,7 @@ static size_t ntfs_vfs_write_locked(ntfs_handle_t *h, const void *addr, size_t o
     return 0;
 }
 
+/* Resize a file without the transaction wrapper. */
 static int ntfs_vfs_resize_locked(ntfs_handle_t *h, u64 size)
 {
     u8 *mft;
@@ -4009,6 +4057,7 @@ static int ntfs_vfs_resize_locked(ntfs_handle_t *h, u64 size)
     return -EIO;
 }
 
+/* VFS write callback wrapped in a transaction. */
 static size_t ntfs_vfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
     ntfs_handle_t *h = file;
@@ -4041,6 +4090,7 @@ static size_t ntfs_vfs_write(void *file, const void *addr, size_t offset, size_t
     return written;
 }
 
+/* VFS resize callback wrapped in a transaction. */
 static int ntfs_vfs_resize(void *file, u64 size)
 {
     ntfs_handle_t *h = file;
@@ -4069,6 +4119,7 @@ static int ntfs_vfs_resize(void *file, u64 size)
     return status;
 #endif
 }
+/* Read a symlink target from the record's reparse-point attribute. */
 static size_t ntfs_vfs_readlink(vfs_node_t n, void *a, size_t o, size_t s)
 {
     ntfs_handle_t *handle;
@@ -4119,6 +4170,7 @@ out:
     return copied;
 }
 
+/* Create a file or directory record and link it into the parent index. */
 static int ntfs_namespace_create_locked(ntfs_handle_t *parent, const char *source_name, vfs_node_t node, int directory)
 {
     ntfs_mount_t  *mnt;
@@ -4204,6 +4256,7 @@ out:
     return status;
 }
 
+/* Create a namespace entry inside a transaction. */
 static int ntfs_namespace_create(ntfs_handle_t *parent, const char *name, vfs_node_t node, int directory)
 {
     int status;
@@ -4234,6 +4287,7 @@ static int ntfs_namespace_create(ntfs_handle_t *parent, const char *name, vfs_no
     return status;
 }
 
+/* Add a second file-name attribute and index entry for an inode. */
 static int ntfs_namespace_hardlink_locked(ntfs_handle_t *parent, ntfs_handle_t *target, const char *source_name, vfs_node_t node)
 {
     ntfs_mount_t  *mnt;
@@ -4351,6 +4405,7 @@ static int ntfs_namespace_hardlink(ntfs_handle_t *parent, ntfs_handle_t *target,
 #endif
 }
 
+/* Create a symlink record and register its reparse-point index entry. */
 static int ntfs_namespace_symlink_locked(ntfs_handle_t *parent, const char *source_name, const char *source_target, vfs_node_t node)
 {
     ntfs_mount_t  *mnt;
@@ -4504,6 +4559,7 @@ static int ntfs_vfs_symlink(void *p, const char *target_name, vfs_node_t node)
     if (!node || !node->name) return -EINVAL;
     return ntfs_namespace_symlink(p, node->name, target_name, node);
 }
+/* Refresh a node's size and lazily load its children or runlist. */
 static int ntfs_vfs_stat(void *file, vfs_node_t nd)
 {
     ntfs_handle_t *h = file;
@@ -4536,6 +4592,7 @@ static int ntfs_vfs_ioctl(void *f, size_t r, void *a)
     return -ENOTTY;
 }
 
+/* Free a handle; the shared mount is released on unmount. */
 static int ntfs_vfs_free(void *handle)
 {
     ntfs_handle_t *h = handle;
@@ -4547,6 +4604,7 @@ static int ntfs_vfs_free(void *handle)
     return 0;
 }
 
+/* Unlink a file or directory, freeing its extents and index blocks. */
 static int ntfs_vfs_delete(void *p, vfs_node_t n)
 {
     ntfs_handle_t *parent = p;
@@ -4724,6 +4782,7 @@ unlock:
     free(parent_record);
     return status;
 }
+/* Rename a file's directory entry and file-name attribute. */
 static int ntfs_vfs_rename(void *c, const char *nn)
 {
     ntfs_handle_t *child = c;
@@ -4866,6 +4925,7 @@ static struct vfs_callback ntfs_cb = {
     .rename   = ntfs_vfs_rename,
 };
 
+/* Register the ntfs filesystem with the VFS layer. */
 int ntfs_vfs_regist(void)
 {
     int id = vfs_regist_fs("ntfs", &ntfs_cb);

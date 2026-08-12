@@ -136,9 +136,9 @@ struct cvt_timing {
 
 struct detailed_non_pixel {
         uint8_t pad1;
-        uint8_t type; /* ff=serial, fe=string, fd=monitor range, fc=monitor name
-                         fb=color point data, fa=standard timing data,
-                         f9=undefined, f8=mfg. reserved */
+        uint8_t type; // ff=serial, fe=string, fd=monitor range, fc=monitor name
+                      // fb=color point data, fa=standard timing data,
+                      // f9=undefined, f8=mfg. reserved
         uint8_t pad2;
         union {
                 struct detailed_data_string        str;
@@ -289,20 +289,32 @@ static inline const char *drm_edid_decode_mfg_id(uint16_t mfg_id, char vend[4])
     ((((uint32_t)(vend_chr_0) - '@') & 0x1f) << 26 | (((uint32_t)(vend_chr_1) - '@') & 0x1f) << 21 \
      | (((uint32_t)(vend_chr_2) - '@') & 0x1f) << 16 | ((product_id) & 0xffff))
 
+/* Look up a DMT timing by resolution and refresh rate, or NULL. */
 struct drm_display_mode *drm_mode_find_dmt(struct drm_device *dev, int hsize, int vsize, int fresh, bool rb);
 
+/* Build a display mode from a CEA VIC code, or NULL. */
 struct drm_display_mode *drm_display_mode_from_cea_vic(struct drm_device *dev, uint8_t video_code);
 
+/* Map a display mode to its CEA VIC code, or 0 if not a CEA mode. */
 uint8_t drm_match_cea_mode(const struct drm_display_mode *to_match);
 
-int          drm_edid_header_is_valid(const void *edid);
-bool         drm_edid_is_valid(struct edid *edid);
+/* Validate the 8-byte EDID header; 0 when valid. */
+int drm_edid_header_is_valid(const void *edid);
+/* Validate a complete 128-byte EDID block. */
+bool drm_edid_is_valid(struct edid *edid);
+/* Duplicate an EDID block, or NULL on allocation failure. */
 struct edid *drm_edid_duplicate(const struct edid *edid);
-void         drm_edid_get_monitor_name(const struct edid *edid, char *name, int bufsize);
-void         drm_edid_to_display_info(struct drm_connector *connector, const struct edid *edid);
-int          drm_add_edid_modes(struct drm_connector *connector, struct edid *edid);
-bool         drm_edid_is_digital(const struct edid *edid);
-bool         drm_detect_hdmi_monitor(const struct edid *edid);
-bool         drm_detect_monitor_audio(const struct edid *edid);
+/* Fill @name with the monitor name string from @edid. */
+void drm_edid_get_monitor_name(const struct edid *edid, char *name, int bufsize);
+/* Populate connector display information from @edid. */
+void drm_edid_to_display_info(struct drm_connector *connector, const struct edid *edid);
+/* Parse @edid and add its modes to @connector; returns the count added. */
+int drm_add_edid_modes(struct drm_connector *connector, struct edid *edid);
+/* True if @edid describes a digital display. */
+bool drm_edid_is_digital(const struct edid *edid);
+/* True if @edid carries HDMI sink information. */
+bool drm_detect_hdmi_monitor(const struct edid *edid);
+/* True if @edid declares audio support. */
+bool drm_detect_monitor_audio(const struct edid *edid);
 
 #endif // INCLUDE_DRM_EDID_H_

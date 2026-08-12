@@ -22,11 +22,6 @@
 #include <process/task.h>
 #include <sync/spin_lock.h>
 
-/*
- * Locally-defined state structs (forward-declared in drm_device.h)
- * Helper: container_of
- */
-
 /* drm_atomic_state_alloc: allocate and initialize an atomic state */
 
 struct drm_atomic_state *drm_atomic_state_alloc(struct drm_device *dev)
@@ -251,9 +246,8 @@ struct drm_connector_state *drm_atomic_get_connector_state(struct drm_atomic_sta
     int i;
 
     /* Check if connector already in state */
-    for (i = 0; i < state->num_connector; i++) {
+    for (i = 0; i < state->num_connector; i++)
         if (state->connectors[i] == connector) return state->connector_states[i];
-    }
 
     /* Grow arrays */
     {
@@ -662,6 +656,7 @@ static void drm_atomic_commit_finish_turn(struct drm_device *dev)
     wait_queue_wake_all(&dev->mode_config.commit_queue_wait);
 }
 
+/* Validate and apply an atomic state, then free it. */
 int drm_atomic_commit(struct drm_atomic_state *state)
 {
     struct drm_device *dev;
@@ -688,6 +683,7 @@ int drm_atomic_commit(struct drm_atomic_state *state)
     return ret;
 }
 
+/* Worker task that performs a queued nonblocking commit. */
 static void drm_atomic_nonblock_worker(void *arg)
 {
     struct drm_atomic_state *state     = (struct drm_atomic_state *)arg;
@@ -705,6 +701,7 @@ static void drm_atomic_nonblock_worker(void *arg)
     drm_dev_put(dev);
 }
 
+/* Queue a nonblocking commit, or complete it synchronously for sync-flip drivers. */
 int drm_atomic_nonblocking_commit(struct drm_atomic_state *state)
 {
     struct drm_mode_config *config;

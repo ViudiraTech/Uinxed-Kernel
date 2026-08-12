@@ -33,6 +33,7 @@ typedef struct {
 slab_cache_t *slab_cache_create(const char *name, size_t object_size, size_t alignment, slab_ctor_t ctor, slab_dtor_t dtor);
 int           slab_cache_destroy(slab_cache_t *cache);
 
+/* Allocate/free an object from a cache, invoking ctor/dtor on first use. */
 void *slab_cache_alloc(slab_cache_t *cache);
 int   slab_cache_free(slab_cache_t *cache, void *object);
 

@@ -53,11 +53,18 @@ int rtl8169_transmit(rtl8169_device_t *device, const void *packet, size_t length
 /* Poll completed receive descriptors from task context. */
 size_t rtl8169_poll(rtl8169_device_t *device, size_t budget);
 
-int                    rtl8169_link_up(const rtl8169_device_t *device);
-const uint8_t         *rtl8169_mac_address(const rtl8169_device_t *device);
+/* True if the device link is up. */
+int rtl8169_link_up(const rtl8169_device_t *device);
+
+/* Return the device MAC address (6 bytes). */
+const uint8_t *rtl8169_mac_address(const rtl8169_device_t *device);
+
+/* Return a snapshot of device statistics. */
 const rtl8169_stats_t *rtl8169_get_stats(const rtl8169_device_t *device);
-rtl8169_device_t      *rtl8169_first_device(void);
-rtl8169_device_t      *rtl8169_next_device(rtl8169_device_t *device);
+
+/* Iterate registered RTL8169 devices in probe order. */
+rtl8169_device_t *rtl8169_first_device(void);
+rtl8169_device_t *rtl8169_next_device(rtl8169_device_t *device);
 
 /* Legacy IRQ hooks must provide shared dispatch; MSI is used otherwise. */
 #ifndef NET_IRQ_HANDLER_FN_TYPEDEF

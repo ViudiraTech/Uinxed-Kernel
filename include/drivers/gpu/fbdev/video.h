@@ -31,8 +31,8 @@ typedef struct {
         uint32_t *framebuffer;       // Frame buffer
         uint32_t  cx, cy;            // The character position of the current cursor
         uint32_t  c_width, c_height; // Screen character width and height
-        uint64_t  width;             // Screen length
-        uint64_t  height;            // Screen width
+        uint64_t  width;             // Screen width
+        uint64_t  height;            // Screen height
         uint64_t  stride;            // Frame buffer line spacing
         uint32_t  fore_color;        // Foreground color
         uint32_t  back_color;        // Background color

@@ -36,6 +36,7 @@ typedef struct ext4_dir_entry_tail {
 static int      extfs_dirent_valid(extfs_sb_info_t *sb, ext2_dir_entry_t *de, uint32_t offset);
 static uint32_t extfs_dir_rec_len(uint32_t name_len);
 
+/* Derive the per-directory checksum seed from its inode. */
 static uint32_t extfs_dir_checksum_seed(extfs_handle_t *dir_h)
 {
     ext2_inode_t raw;
@@ -44,6 +45,7 @@ static uint32_t extfs_dir_checksum_seed(extfs_handle_t *dir_h)
     return crc32c_update(checksum, &raw.i_generation, sizeof(raw.i_generation));
 }
 
+/* Locate the directory checksum tail, validating its markers. */
 static ext4_dir_entry_tail_t *extfs_dir_tail(extfs_handle_t *dir_h, const void *block)
 {
     if (!(dir_h->sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM)) return 0;
@@ -52,6 +54,7 @@ static ext4_dir_entry_tail_t *extfs_dir_tail(extfs_handle_t *dir_h, const void *
     return tail;
 }
 
+/* Verify the checksum of an HTree index block. */
 static int extfs_dx_checksum_verify(extfs_handle_t *dir_h, uint32_t logical, const uint8_t *block)
 {
     uint32_t count_offset;
@@ -81,6 +84,7 @@ static int extfs_dx_checksum_verify(extfs_handle_t *dir_h, uint32_t logical, con
     return checksum == stored;
 }
 
+/* Whether a block is a plausible HTree index node. */
 static int extfs_dir_is_dx_node(extfs_handle_t *dir_h, const uint8_t *block)
 {
     ext2_dir_entry_t *fake = (ext2_dir_entry_t *)block;
@@ -91,6 +95,7 @@ static int extfs_dir_is_dx_node(extfs_handle_t *dir_h, const uint8_t *block)
     return count && count <= limit && 8 + (uint32_t)limit * 8 <= dir_h->sb->block_size;
 }
 
+/* Verify a directory block, covering linear and HTree checksums. */
 int extfs_dir_block_verify(extfs_handle_t *dir_h, uint32_t logical, const void *block)
 {
     if (!(dir_h->sb->es->s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM)) return 1;
@@ -136,6 +141,7 @@ typedef struct extfs_dir_item {
         char     name[EXT2_NAME_LEN];
 } extfs_dir_item_t;
 
+/* Append a directory entry to the item vector, growing it as needed. */
 static int extfs_dir_item_push(extfs_dir_item_t **items, uint32_t *count, uint32_t *capacity, const ext2_dir_entry_t *entry)
 {
     if (*count == *capacity) {
@@ -241,6 +247,7 @@ static uint32_t extfs_dir_rec_len(uint32_t name_len)
     return EXT2_DIR_REC_LEN(name_len);
 }
 
+/* Validate a directory entry's length and inode reference. */
 static int extfs_dirent_valid(extfs_sb_info_t *sb, ext2_dir_entry_t *de, uint32_t offset)
 {
     uint32_t remaining = sb->block_size - offset;
@@ -261,6 +268,7 @@ static int extfs_dirent_valid(extfs_sb_info_t *sb, ext2_dir_entry_t *de, uint32_
     return 1;
 }
 
+/* Look up a name in a directory, returning its inode number. */
 int extfs_dir_lookup(extfs_handle_t *dir_h, const char *name, uint32_t *ino)
 {
     extfs_sb_info_t *sb;
@@ -320,6 +328,7 @@ int extfs_dir_lookup(extfs_handle_t *dir_h, const char *name, uint32_t *ino)
     return found ? EOK : -ENOENT;
 }
 
+/* Add a name to a directory, reusing a free slot or extending the file. */
 int extfs_dir_add_entry(extfs_handle_t *dir_h, const char *name, uint32_t ino, uint8_t file_type)
 {
     extfs_sb_info_t *sb;
@@ -476,6 +485,7 @@ int extfs_dir_add_entry(extfs_handle_t *dir_h, const char *name, uint32_t ino, u
     return EOK;
 }
 
+/* Remove a name from a directory, merging it into the previous entry. */
 int extfs_dir_remove_entry(extfs_handle_t *dir_h, const char *name)
 {
     extfs_sb_info_t *sb;
@@ -560,6 +570,7 @@ int extfs_dir_remove_entry(extfs_handle_t *dir_h, const char *name)
     return found ? EOK : -ENOENT;
 }
 
+/* Serialize directory entries into the fixed VFS record layout. */
 int extfs_dir_read_entries(extfs_handle_t *dir_h, void *buf, size_t bufsize, size_t *done)
 {
     extfs_sb_info_t *sb;
@@ -632,6 +643,7 @@ int extfs_dir_read_entries(extfs_handle_t *dir_h, void *buf, size_t bufsize, siz
     return EOK;
 }
 
+/* Initialize a new directory inode with "." and ".." entries. */
 int extfs_make_empty_dir(extfs_handle_t *dir_h, uint32_t self_ino, uint32_t parent_ino)
 {
     extfs_sb_info_t *sb;
@@ -703,6 +715,7 @@ int extfs_make_empty_dir(extfs_handle_t *dir_h, uint32_t self_ino, uint32_t pare
     return EOK;
 }
 
+/* Check whether a directory contains only "." and "..". */
 int extfs_dir_empty(extfs_handle_t *dir_h)
 {
     extfs_sb_info_t *sb;

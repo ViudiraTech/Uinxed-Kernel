@@ -31,6 +31,7 @@ static int extfs_id = 0;
  * inode/dir/extents/journal helpers.
  */
 
+/* Map an ext2 mode type to the VFS node type. */
 static uint16_t extfs_mode_to_vfs(uint16_t mode)
 {
     switch (mode & 0xF000) {
@@ -51,6 +52,7 @@ static uint16_t extfs_mode_to_vfs(uint16_t mode)
     }
 }
 
+/* Fill a VFS node from its on-disk inode. */
 static void extfs_fill_node(vfs_node_t node, extfs_handle_t *h)
 {
     extfs_sb_info_t *sb = h->sb;
@@ -72,12 +74,14 @@ static void extfs_fill_node(vfs_node_t node, extfs_handle_t *h)
     if ((raw.i_mode & 0xF000) == EXT2_S_IFREG) node->size = node->realsize = ((uint64_t)raw.i_dir_acl << 32) | raw.i_size;
 }
 
+/* Return the extfs handle bound to a VFS node. */
 static extfs_handle_t *extfs_get_handle(vfs_node_t node)
 {
     if (!node || !node->handle) return 0;
     return (extfs_handle_t *)node->handle;
 }
 
+/* Initialize the timestamps and (for ext4) an empty extent root. */
 static void extfs_init_new_inode(extfs_sb_info_t *sb, ext2_inode_t *raw)
 {
     uint32_t now = timer_realtime_seconds32();
@@ -92,6 +96,7 @@ static void extfs_init_new_inode(extfs_sb_info_t *sb, ext2_inode_t *raw)
     memcpy(raw->i_block, header, sizeof(header));
 }
 
+/* Refresh an inode's ctime (and optionally mtime) on disk. */
 static int extfs_touch_inode(extfs_sb_info_t *sb, uint32_t ino, int modify)
 {
     ext2_inode_t raw;
@@ -122,6 +127,7 @@ static int extfs_valid_dirent(extfs_sb_info_t *sb, ext2_dir_entry_t *de, uint32_
     return 1;
 }
 
+/* Materialize the children of a directory into the VFS node tree. */
 static int extfs_load_directory(vfs_node_t node)
 {
     extfs_handle_t  *h = extfs_get_handle(node);
@@ -183,6 +189,7 @@ static int extfs_load_directory(vfs_node_t node)
     return EOK;
 }
 
+/* Mount an ext volume, opening the backing device and root inode. */
 static int extfs_mount(const char *src, vfs_node_t node)
 {
     extfs_sb_info_t  *sb;
@@ -265,6 +272,7 @@ static int extfs_mount(const char *src, vfs_node_t node)
     return EOK;
 }
 
+/* Release the superblock and root handle on unmount. */
 static void extfs_unmount(void *root)
 {
     vfs_node_t      node = root;
@@ -288,6 +296,7 @@ static void extfs_unmount(void *root)
     node->handle = 0;
 }
 
+/* Bind a child VFS node to its on-disk inode. */
 static void extfs_open(void *parent, const char *name, vfs_node_t node)
 {
     extfs_handle_t *parent_h;
@@ -314,6 +323,7 @@ static void extfs_close(void *current)
     (void)current;
 }
 
+/* Read file data through the inode block mapper. */
 static size_t extfs_read_file(void *file, void *addr, size_t offset, size_t size)
 {
     extfs_handle_t *h = file;
@@ -322,6 +332,7 @@ static size_t extfs_read_file(void *file, void *addr, size_t offset, size_t size
     return r > 0 ? (size_t)r : 0;
 }
 
+/* Write file data inside a journal transaction. */
 static size_t extfs_write_file(void *file, const void *addr, size_t offset, size_t size)
 {
     extfs_handle_t *h = file;
@@ -341,6 +352,7 @@ static size_t extfs_write_file(void *file, const void *addr, size_t offset, size
     return status == EOK ? (size_t)written : 0;
 }
 
+/* Resize a file inside a journal transaction. */
 static int extfs_resize(void *file, uint64_t size)
 {
     extfs_handle_t *h = file;
@@ -360,6 +372,7 @@ static int extfs_resize(void *file, uint64_t size)
     return status;
 }
 
+/* Flush the inode and device, downgrading the volume to read-only on failure. */
 static int extfs_sync(void *file, int data_only)
 {
     extfs_handle_t *h = file;
@@ -371,6 +384,7 @@ static int extfs_sync(void *file, int data_only)
     return status;
 }
 
+/* Read a symlink target, handling the fast and slow inode layouts. */
 static size_t extfs_readlink_file(vfs_node_t node, void *addr, size_t offset, size_t size)
 {
     extfs_handle_t  *h;
@@ -397,6 +411,7 @@ static size_t extfs_readlink_file(vfs_node_t node, void *addr, size_t offset, si
     return status > 0 ? (size_t)status : 0;
 }
 
+/* Create a directory inode and link it into the parent. */
 static int extfs_mkdir_impl(void *parent, const char *name, vfs_node_t node)
 {
     extfs_handle_t  *dir_h;
@@ -489,6 +504,7 @@ static int extfs_mkdir_impl(void *parent, const char *name, vfs_node_t node)
     return EOK;
 }
 
+/* Create a regular file inode and link it into the parent. */
 static int extfs_mkfile_impl(void *parent, const char *name, vfs_node_t node)
 {
     extfs_handle_t  *dir_h;
@@ -545,6 +561,7 @@ static int extfs_mkfile_impl(void *parent, const char *name, vfs_node_t node)
     return EOK;
 }
 
+/* Create a hard link to an existing inode within the same volume. */
 static int extfs_link_impl(void *parent, const char *target_name, vfs_node_t node)
 {
     extfs_handle_t  *dir_h;
@@ -623,12 +640,12 @@ static int extfs_link_impl(void *parent, const char *target_name, vfs_node_t nod
     node->handle = new_h;
     extfs_fill_node(node, new_h);
     status = EOK;
-
 out:
     vfs_close(target);
     return status;
 }
 
+/* Create a symlink inode, using the fast layout for short targets. */
 static int extfs_symlink_impl(void *parent, const char *name, vfs_node_t node)
 {
     extfs_handle_t  *dir_h;
@@ -716,6 +733,7 @@ static int extfs_symlink_impl(void *parent, const char *name, vfs_node_t node)
     return EOK;
 }
 
+/* Unlink a file, freeing its inode when the link count reaches zero. */
 static int extfs_delete_impl(void *parent, vfs_node_t node)
 {
     extfs_handle_t  *dir_h;
@@ -767,6 +785,7 @@ static int extfs_delete_impl(void *parent, vfs_node_t node)
     return extfs_touch_inode(sb, dir_h->inode_no, 1);
 }
 
+/* Remove an empty directory, freeing its inode and blocks. */
 static int extfs_rmdir_impl(void *parent, const char *name)
 {
     extfs_handle_t  *dir_h;
@@ -851,6 +870,7 @@ static int extfs_rmdir_impl(void *parent, const char *name)
     free(child_h);
     return EOK;
 }
+/* Rename a directory entry within the same directory. */
 static int extfs_rename_impl(void *current, const char *new_name)
 {
     vfs_node_t       node = current;
@@ -898,6 +918,7 @@ static int extfs_rename_impl(void *current, const char *new_name)
     return extfs_touch_inode(sb, parent_h->inode_no, 1);
 }
 
+/* Commit a mutation transaction, aborting it on failure. */
 static int extfs_finish_mutation(extfs_sb_info_t *sb, fs_txn_t *transaction, int status)
 {
     if (status != EOK) {
@@ -907,6 +928,7 @@ static int extfs_finish_mutation(extfs_sb_info_t *sb, fs_txn_t *transaction, int
     return extfs_transaction_commit(sb, transaction);
 }
 
+/* VFS callback: create a directory inside a transaction. */
 static int extfs_mkdir_cb(void *parent, const char *name, vfs_node_t node)
 {
     extfs_handle_t *h = node ? extfs_get_handle(node->parent) : 0;
@@ -921,6 +943,7 @@ static int extfs_mkdir_cb(void *parent, const char *name, vfs_node_t node)
     return status;
 }
 
+/* VFS callback: create a regular file inside a transaction. */
 static int extfs_mkfile_cb(void *parent, const char *name, vfs_node_t node)
 {
     extfs_handle_t *h = node ? extfs_get_handle(node->parent) : 0;
@@ -935,6 +958,7 @@ static int extfs_mkfile_cb(void *parent, const char *name, vfs_node_t node)
     return status;
 }
 
+/* VFS callback: create a hard link inside a transaction. */
 static int extfs_link_cb(void *parent, const char *name, vfs_node_t node)
 {
     extfs_handle_t *h = node ? extfs_get_handle(node->parent) : 0;
@@ -949,6 +973,7 @@ static int extfs_link_cb(void *parent, const char *name, vfs_node_t node)
     return status;
 }
 
+/* VFS callback: create a symlink inside a transaction. */
 static int extfs_symlink_cb(void *parent, const char *name, vfs_node_t node)
 {
     extfs_handle_t *h = node ? extfs_get_handle(node->parent) : 0;
@@ -963,6 +988,7 @@ static int extfs_symlink_cb(void *parent, const char *name, vfs_node_t node)
     return status;
 }
 
+/* VFS callback: unlink a file or directory inside a transaction. */
 static int extfs_delete(void *parent, vfs_node_t node)
 {
     extfs_handle_t *h = extfs_get_handle(parent);
@@ -980,6 +1006,7 @@ static int extfs_delete(void *parent, vfs_node_t node)
     return status;
 }
 
+/* VFS callback: remove an empty directory inside a transaction. */
 static int extfs_rmdir(void *parent, const char *name)
 {
     extfs_handle_t *h = extfs_get_handle(parent);
@@ -994,6 +1021,7 @@ static int extfs_rmdir(void *parent, const char *name)
     return status;
 }
 
+/* VFS callback: rename inside a transaction. */
 static int extfs_rename_cb(void *current, const char *new_name)
 {
     vfs_node_t      node = current;
@@ -1013,6 +1041,7 @@ static int extfs_rename_cb(void *current, const char *new_name)
     return status;
 }
 
+/* Refresh a VFS node from its on-disk inode. */
 static int extfs_stat(void *file, vfs_node_t node)
 {
     extfs_handle_t *h = file;
@@ -1029,6 +1058,7 @@ static int extfs_ioctl_cb(void *file, size_t req, void *arg)
     return -ENOTTY;
 }
 
+/* Duplicate a VFS node with a fresh handle to the same inode. */
 static vfs_node_t extfs_dup(vfs_node_t node)
 {
     vfs_node_t      copy;
@@ -1072,6 +1102,7 @@ static int extfs_poll(void *file, size_t events)
     return (int)events;
 }
 
+/* Free a handle allocated by extfs_alloc_handle. */
 static int extfs_free(void *handle)
 {
     extfs_handle_t *h = handle;
@@ -1080,6 +1111,7 @@ static int extfs_free(void *handle)
     return EOK;
 }
 
+/* Reject link/symlink operations that the VFS layer resolves itself. */
 static int extfs_no_link(void *parent, const char *name, vfs_node_t node)
 {
     (void)parent;
@@ -1111,6 +1143,7 @@ static struct vfs_callback extfs_callbacks = {
     .sync     = extfs_sync,
 };
 
+/* Register the extfs filesystem and probe IDE disks for volumes. */
 void extfs_regist(void)
 {
 #if CONFIG_EXTFS

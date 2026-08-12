@@ -76,6 +76,7 @@ size_t tty_dev_read(void *ctx, void *addr, size_t offset, size_t size);
 /* Poll TTY device for write readiness */
 int tty_dev_poll(void *ctx, size_t events);
 
+/* Validate that a session leader may take the console as its controlling tty. */
 int tty_console_acquire(struct process *proc, uint64_t flags);
 
 /* Feed a scancode from a keyboard into the TTY input line discipline */

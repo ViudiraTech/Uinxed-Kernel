@@ -82,6 +82,7 @@ static void        mq_notify_signal(mq_queue_t *queue);
 
 /* Registry helpers */
 
+/* Find a queue by name in the global registry. */
 static mq_queue_t *mq_queue_lookup(const char *name)
 {
     for (int i = 0; i < MQ_MAX_QUEUES; i++) {
@@ -90,6 +91,7 @@ static mq_queue_t *mq_queue_lookup(const char *name)
     return NULL;
 }
 
+/* Allocate a queue in a free registry slot with the given attributes. */
 static mq_queue_t *mq_queue_create(const char *name, const mq_attr_t *attr)
 {
     mq_queue_t *queue;
@@ -149,6 +151,7 @@ static mq_queue_t *mq_queue_create(const char *name, const mq_attr_t *attr)
     return queue;
 }
 
+/* Free a queue, its messages, and its registry slot. */
 static void mq_queue_destroy(mq_queue_t *queue)
 {
     if (!queue) return;
@@ -181,6 +184,7 @@ static void mq_queue_destroy(mq_queue_t *queue)
 
 /* Message priority insertion (highest priority first) */
 
+/* Insert a message into the priority-ordered queue (highest first). */
 static void mq_enqueue(mq_queue_t *queue, mq_message_t *msg)
 {
     if (!queue->head) {
@@ -212,7 +216,7 @@ static void mq_enqueue(mq_queue_t *queue, mq_message_t *msg)
     queue->attr.mq_curmsgs = queue->msg_count;
 }
 
-/* Dequeue the highest priority message (always at head) */
+/* Remove and return the highest-priority message (always at head). */
 static mq_message_t *mq_dequeue(mq_queue_t *queue)
 {
     if (!queue->head) return NULL;
@@ -230,6 +234,7 @@ static mq_message_t *mq_dequeue(mq_queue_t *queue)
 
 /* mq_notify signal delivery */
 
+/* Deliver the registered mq_notify signal to the notified task, once. */
 static void mq_notify_signal(mq_queue_t *queue)
 {
     task_t *task;
@@ -264,6 +269,7 @@ static void mq_notify_signal(mq_queue_t *queue)
 
 /* VFS callback: close */
 
+/* Close a descriptor, releasing its queue reference at the last close. */
 static void mq_vfs_close(void *current)
 {
     mq_des_t *des = (mq_des_t *)current;
@@ -387,9 +393,9 @@ static size_t mq_vfs_write(void *file, const void *addr, size_t offset, size_t s
 
 /* VFS callback: free (release handle) */
 
+/* Free is handled by mq_vfs_close; nothing to do here. */
 static int mq_vfs_free(void *handle)
 {
-    /* Free is handled by mq_vfs_close */
     (void)handle;
     return EOK;
 }
@@ -476,6 +482,7 @@ static int mq_stub_rename(void *current, const char *new_name)
 
 /* VFS node creation for mq descriptor */
 
+/* Install a message-queue descriptor as a VFS file in the current process. */
 static int mq_des_install(mq_des_t *des)
 {
     process_t *proc = process_current();
@@ -637,6 +644,7 @@ int64_t sys_mq_unlink(const char *name)
 
 /* Look up mq_des from fd */
 
+/* Resolve a message-queue descriptor from an fd in the current process. */
 static mq_des_t *mq_fd_lookup(int mqdes, int *err)
 {
     process_t *proc = process_current();

@@ -121,6 +121,7 @@ static uint64_t calc_delta_fair(uint64_t delta, task_t *task)
     return delta * SCHED_NICE_0_LOAD / task->weight;
 }
 
+/* Add a signed offset to vruntime, saturating at zero on the low end */
 static uint64_t add_signed_vruntime(uint64_t base, int64_t offset)
 {
     if (offset >= 0) return base + (uint64_t)offset;
@@ -457,6 +458,7 @@ static void update_tss_stack(task_t *task)
     }
 }
 
+/* Mark the current task blocked; it is already outside the EEVDF timeline */
 void sched_dequeue_current(void)
 {
     eevdf_rq_t *rq   = local_rq();
@@ -566,6 +568,7 @@ static int has_ready_task(void)
     return local_rq()->nr_running > 0;
 }
 
+/* Steal the least urgent task from the busiest runqueue onto the idlest */
 static task_t *balance_ready_queues_locked(void)
 {
     if (cpu_scheduler_count < 2) return NULL;
@@ -594,6 +597,7 @@ static task_t *balance_ready_queues_locked(void)
     return task;
 }
 
+/* Wake sleeping tasks and timed wait-queue tasks whose deadlines have expired */
 static void wake_sleeping_tasks(void)
 {
     ilist_node_t *node = scheduler.sleep_queue.next;
@@ -629,6 +633,7 @@ static void wake_sleeping_tasks(void)
 
 /* Idle thread */
 
+/* Per-CPU idle loop: halt until an interrupt, then yield to real work */
 static void idle_thread(void *arg)
 {
     (void)arg;
@@ -960,6 +965,7 @@ int task_wakeup(task_t *task)
     return 0;
 }
 
+/* Resume a stopped task, reporting whether it was actually continued */
 int task_continue(task_t *task)
 {
     if (!task) return 1;
@@ -983,6 +989,7 @@ void wait_queue_init(wait_queue_t *queue)
     queue->lock.rflags = 0;
 }
 
+/* Block the current task on a wait queue, preparing and sleeping in one call */
 void wait_queue_wait(wait_queue_t *queue)
 {
     if (!queue) {
@@ -1085,6 +1092,7 @@ int wait_queue_wait_timed(wait_queue_t *queue, uint64_t deadline_ticks)
     return curr->wake_reason == TASK_WAKE_TIMEOUT ? -ETIMEDOUT : 0;
 }
 
+/* Wake one task from the queue, returning it */
 task_t *wait_queue_wake_one(wait_queue_t *queue)
 {
     if (!queue) return NULL;
@@ -1104,6 +1112,7 @@ task_t *wait_queue_wake_one(wait_queue_t *queue)
     return task;
 }
 
+/* Wake one task, preferring to run it synchronously on the current CPU */
 task_t *wait_queue_wake_one_sync(wait_queue_t *queue)
 {
     if (!queue) return NULL;

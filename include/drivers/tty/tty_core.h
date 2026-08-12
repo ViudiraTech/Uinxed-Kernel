@@ -64,22 +64,55 @@ struct tty_core {
         bool           hung_up;
 };
 
-void    tty_core_init(tty_core_t *tty, const tty_core_ops_t *ops, void *context);
-void    tty_core_mark_virtual_console(tty_core_t *tty);
-bool    tty_core_graphics_mode(tty_core_t *tty);
+/* Initialize a tty core with default termios and the device's ops. */
+void tty_core_init(tty_core_t *tty, const tty_core_ops_t *ops, void *context);
+
+/* Mark the tty as a virtual console, enabling VT ioctls. */
+void tty_core_mark_virtual_console(tty_core_t *tty);
+
+/* True when this VT is in KD_GRAPHICS mode. */
+bool tty_core_graphics_mode(tty_core_t *tty);
+
+/* Return the current keyboard translation mode (K_UNICODE, K_RAW, ...). */
 uint8_t tty_core_keyboard_mode(tty_core_t *tty);
-void    tty_core_retain(tty_core_t *tty);
-void    tty_core_release(tty_core_t *tty);
-void    tty_core_auto_acquire(tty_core_t *tty, uint64_t flags);
-void    tty_core_set_winsize(tty_core_t *tty, uint16_t rows, uint16_t cols);
+
+/* Take a reference on the underlying device via ops.retain. */
+void tty_core_retain(tty_core_t *tty);
+
+/* Drop a reference on the underlying device via ops.release. */
+void tty_core_release(tty_core_t *tty);
+
+/* Adopt this tty as the session leader's controlling tty when appropriate. */
+void tty_core_auto_acquire(tty_core_t *tty, uint64_t flags);
+
+/* Update the window size and signal SIGWINCH to the foreground group. */
+void tty_core_set_winsize(tty_core_t *tty, uint16_t rows, uint16_t cols);
+
+/* Feed received bytes through the line discipline (editing, flow, ISIG). */
 int64_t tty_core_receive(tty_core_t *tty, const uint8_t *data, size_t size, uint64_t flags);
+
+/* Read from the input queue, honoring canonical/raw and VMIN/VTIME. */
 int64_t tty_core_read(tty_core_t *tty, void *buffer, size_t size, uint64_t flags);
+
+/* Write output through the device emit callback, applying OPOST. */
 int64_t tty_core_write(tty_core_t *tty, const void *buffer, size_t size, uint64_t flags);
-int     tty_core_ioctl(tty_core_t *tty, uint64_t flags, size_t request, void *user_arg);
-int     tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, void *user_arg, bool virtual_console);
-int     tty_core_poll(tty_core_t *tty, size_t events);
-void    tty_core_hangup(tty_core_t *tty);
-void    tty_core_flush_input(tty_core_t *tty);
-size_t  tty_core_readable(tty_core_t *tty);
+
+/* Dispatch terminal ioctls for a tty. */
+int tty_core_ioctl(tty_core_t *tty, uint64_t flags, size_t request, void *user_arg);
+
+/* Terminal ioctl dispatch; virtual_console also enables the VT ioctls. */
+int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, void *user_arg, bool virtual_console);
+
+/* Report poll readiness from the input queue and output state. */
+int tty_core_poll(tty_core_t *tty, size_t events);
+
+/* Hang up the tty: detach processes, signal SIGHUP/SIGCONT, wake all. */
+void tty_core_hangup(tty_core_t *tty);
+
+/* Flush the input queue and wake all waiters. */
+void tty_core_flush_input(tty_core_t *tty);
+
+/* Number of input bytes a read can return right now (FIONREAD). */
+size_t tty_core_readable(tty_core_t *tty);
 
 #endif // INCLUDE_TTY_CORE_H_

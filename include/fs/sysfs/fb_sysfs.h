@@ -11,6 +11,7 @@
 #ifndef INCLUDE_FB_SYSFS_H_
 #define INCLUDE_FB_SYSFS_H_
 
+/* Register the framebuffer class device on the platform bus. */
 void fb_sysfs_init(void);
 
 #endif // INCLUDE_FB_SYSFS_H_

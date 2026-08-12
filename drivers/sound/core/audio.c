@@ -42,6 +42,7 @@ static const char *audio_node_suffix(audio_node_type_t type)
     return "unknownC%u";
 }
 
+/* Allocate the next device-node slot and bind the card's tmpfs ops. */
 static int audio_add_node(audio_card_t *card, audio_node_type_t type)
 {
     audio_device_node_t *node;
@@ -70,6 +71,7 @@ static int audio_add_node(audio_card_t *card, audio_node_type_t type)
     return EOK;
 }
 
+/* Fill the userspace card-info structure from the card's state. */
 static void audio_fill_info(audio_card_t *card, audio_card_info_t *info)
 {
     info->card        = card->id;
@@ -114,7 +116,6 @@ int audio_register_card(const char *name, const audio_pcm_format_t *format, cons
     audio_cards_count++;
     plogk("audio: Registered card%u: %s\n", card->id, card->name);
     return (int)card->id;
-
 rollback:
     audio_nodes_count = node_base;
     memset(card, 0, sizeof(*card));
@@ -182,6 +183,7 @@ static size_t frame_bytes(const audio_pcm_format_t *fmt)
     return (size_t)(fmt->bits / 8) * fmt->channels;
 }
 
+/* Number of recorded frames available for the application. */
 snd_pcm_sframes_t pcm_ring_buffer_avail(audio_pcm_file_t *pf)
 {
     snd_pcm_uframes_t hw  = pf->hw_ptr;
@@ -190,6 +192,7 @@ snd_pcm_sframes_t pcm_ring_buffer_avail(audio_pcm_file_t *pf)
     return (snd_pcm_sframes_t)(hw - app);
 }
 
+/* Free frame capacity left in the ring. */
 snd_pcm_sframes_t pcm_ring_buffer_space(audio_pcm_file_t *pf)
 {
     return (snd_pcm_sframes_t)(pf->boundary - pcm_ring_buffer_avail(pf) - 1);
@@ -200,6 +203,7 @@ void pcm_ring_buffer_advance_hw(audio_pcm_file_t *pf, snd_pcm_uframes_t frames)
     pf->hw_ptr = (pf->hw_ptr + frames) % pf->boundary;
 }
 
+/* Copy frames into the ring from the application pointer, wrapping as needed. */
 size_t pcm_ring_buffer_write_frames(audio_pcm_file_t *pf, const void *data, size_t frames)
 {
     size_t fb      = frame_bytes(&pf->fmt);
@@ -223,6 +227,7 @@ size_t pcm_ring_buffer_write_frames(audio_pcm_file_t *pf, const void *data, size
     return to_copy;
 }
 
+/* Copy recorded frames out of the ring from the hardware pointer. */
 size_t pcm_ring_buffer_read_frames(audio_pcm_file_t *pf, void *data, size_t frames)
 {
     size_t fb      = frame_bytes(&pf->fmt);
@@ -260,6 +265,7 @@ size_t audio_mix_interleaved_s16(int16_t *dst, const int16_t *src, size_t frames
 }
 
 /* Per-open instance helpers */
+/* Allocate and initialize the per-open PCM file state. */
 static audio_pcm_file_t *audio_pcm_create(audio_device_node_t *node)
 {
     audio_pcm_file_t *pf;
@@ -281,6 +287,7 @@ static audio_pcm_file_t *audio_pcm_create(audio_device_node_t *node)
     return pf;
 }
 
+/* Tear down a PCM file and release its ring buffer. */
 static void audio_pcm_destroy(audio_pcm_file_t *pf)
 {
     if (!pf) return;
@@ -479,6 +486,7 @@ int audio_file_poll(void *ctx, void *private_data, uint64_t flags, size_t events
 }
 
 /* ALSA-compatible ioctl handler */
+/* SNDRV_PCM_IOCTL_HW_PARAMS: validate and apply the hardware format. */
 static int audio_hw_params_ioctl(audio_pcm_file_t *pf, struct snd_pcm_hw_params *uarg)
 {
     struct snd_pcm_hw_params params;
@@ -547,6 +555,7 @@ static int audio_hw_params_ioctl(audio_pcm_file_t *pf, struct snd_pcm_hw_params 
     return copy_to_user(uarg, &params, sizeof(params)) ? -EFAULT : EOK;
 }
 
+/* SNDRV_PCM_IOCTL_SW_PARAMS: apply the software (threshold) parameters. */
 static int audio_sw_params_ioctl(audio_pcm_file_t *pf, void *uarg)
 {
     struct snd_pcm_sw_params sp;
@@ -560,6 +569,7 @@ static int audio_sw_params_ioctl(audio_pcm_file_t *pf, void *uarg)
     return EOK;
 }
 
+/* SNDRV_PCM_IOCTL_STATUS: report the current stream state and pointers. */
 static int audio_status_ioctl(audio_pcm_file_t *pf, void *uarg)
 {
     struct snd_pcm_status st;
@@ -575,6 +585,7 @@ static int audio_status_ioctl(audio_pcm_file_t *pf, void *uarg)
     return copy_to_user(uarg, &st, sizeof(st)) ? -EFAULT : EOK;
 }
 
+/* SNDRV_PCM_IOCTL_SYNC_PTR: return the status snapshot, if requested. */
 static int audio_sync_ptr_ioctl(audio_pcm_file_t *pf, void *uarg)
 {
     struct snd_pcm_sync_ptr sp;
@@ -842,6 +853,7 @@ size_t audio_device_read(void *ctx, void *addr, size_t offset, size_t size)
     return ret;
 }
 
+/* Legacy device write: stream frames through a transient PCM file. */
 size_t audio_device_write(void *ctx, const void *addr, size_t offset, size_t size)
 {
     audio_device_node_t *node = ctx;
@@ -866,6 +878,7 @@ size_t audio_device_write(void *ctx, const void *addr, size_t offset, size_t siz
     return ret;
 }
 
+/* Legacy device poll: playback is writable, other nodes are always ready. */
 int audio_device_poll(void *ctx, size_t events)
 {
     audio_device_node_t *node = ctx;
@@ -874,6 +887,7 @@ int audio_device_poll(void *ctx, size_t events)
     return (int)(events & (POLLIN | POLLOUT));
 }
 
+/* Legacy device ioctl: dispatch through a transient PCM file. */
 int audio_device_ioctl(void *ctx, size_t req, void *arg)
 {
     audio_device_node_t *node = ctx;

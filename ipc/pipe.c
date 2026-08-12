@@ -97,6 +97,7 @@ static int pipe_fsid = -1;
 static inline void pipe_poll_notify(vfs_node_t node, uint32_t events)
 {
     if (!node) return;
+
     /* Call the source primitive directly: it performs the single subscriber
      * check itself, avoiding the wrapper and a duplicate atomic load. */
     vfs_poll_source_notify(&node->poll_source, events);
@@ -176,6 +177,7 @@ static int pipe_ring_copy_in_user(pipe_ring_t *ring, process_t *proc, const uint
     return EOK;
 }
 
+/* Allocate a ring buffer with the default capacity. */
 static pipe_ring_t *pipe_ring_alloc(void)
 {
     pipe_ring_t *ring = calloc(1, sizeof(pipe_ring_t));
@@ -191,6 +193,7 @@ static pipe_ring_t *pipe_ring_alloc(void)
         return NULL;
     }
     ring->capacity = PIPE_BUF_SIZE;
+
     /* The configured ring size is power-of-two by default.  Keep a safe
      * modulo-free path for custom non-power-of-two configurations too. */
     ring->index_mask = (ring->capacity && !(ring->capacity & (ring->capacity - 1))) ? ring->capacity - 1 : 0;
@@ -206,6 +209,7 @@ static pipe_ring_t *pipe_ring_alloc(void)
     return ring;
 }
 
+/* Free a ring buffer and its backing store. */
 static void pipe_ring_free(pipe_ring_t *ring)
 {
     if (!ring) return;
@@ -213,12 +217,14 @@ static void pipe_ring_free(pipe_ring_t *ring)
     free(ring);
 }
 
+/* True if the current process has a pending signal that may interrupt the wait. */
 static bool pipe_signal_pending(void)
 {
     process_t *proc = process_current();
     return proc && signal_has_pending(&proc->signal);
 }
 
+/* Deliver SIGPIPE to the current process (writing to a closed pipe). */
 static void pipe_raise_sigpipe(void)
 {
     process_t *proc = process_current();
@@ -897,10 +903,6 @@ static int64_t sys_mknod(const char *path, uint32_t mode, uint64_t dev)
 
     /* Only support FIFO creation through mknod */
     if ((mode & 0170000) != 0010000) return -EINVAL;
-
-    /* Allocate a pipe ring for the FIFO (will be filled on open) */
-    /* Actually, for FIFO we defer ring creation to the VFS open callback. */
-    /* Here we just create the VFS node with type file_pipe. */
 
     /*
      * Use vfs_mkfile to create the node, then override its type and fsid.

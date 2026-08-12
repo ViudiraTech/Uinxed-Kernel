@@ -146,6 +146,7 @@ size_t video_fb_write(void *ctx, const void *addr, size_t offset, size_t size)
     return size;
 }
 
+/* Return the framebuffer byte size, validating the geometry. */
 static size_t video_fb_size(const video_info_t *info)
 {
     size_t bytes_per_pixel = (info->bpp + 7U) / 8U;
@@ -154,6 +155,7 @@ static size_t video_fb_size(const video_info_t *info)
     return (size_t)(info->stride * info->height * bytes_per_pixel);
 }
 
+/* Fill a fbdev var screeninfo structure from the active video info. */
 static fbdev_var_screeninfo_t video_fb_var(const video_info_t *info)
 {
     fbdev_var_screeninfo_t var;
@@ -191,6 +193,7 @@ static fbdev_var_screeninfo_t video_fb_var(const video_info_t *info)
     return var;
 }
 
+/* Reject var-screeninfo requests that do not match the active mode. */
 static int video_fb_validate_mode(const video_info_t *info, const fbdev_var_screeninfo_t *requested)
 {
     fbdev_var_screeninfo_t current  = video_fb_var(info);
@@ -295,6 +298,7 @@ int video_fb_ioctl(void *ctx, size_t req, void *arg)
     }
 }
 
+/* Map the framebuffer into a userspace virtual memory area (mmap /dev/fb0). */
 void *video_fb_mmap(void *ctx, void *private_data, size_t offset, size_t size, int flags, struct vm_area *vma)
 {
     video_info_t info    = video_get_info();
@@ -311,6 +315,7 @@ void *video_fb_mmap(void *ctx, void *private_data, size_t offset, size_t size, i
     return (uint8_t *)buffer + offset;
 }
 
+/* Refresh worker: blinks the cursor and flushes pending frame damage. */
 static void video_refresh_worker(void *arg)
 {
     (void)arg;
@@ -338,6 +343,7 @@ static void video_refresh_worker(void *arg)
     }
 }
 
+/* Start the background video refresh worker thread. */
 void video_start_refresh_worker(void)
 {
     spin_lock(&video_state_lock);
@@ -355,8 +361,8 @@ void video_start_refresh_worker(void)
 void video_init(void)
 {
     struct limine_framebuffer *framebuffer = get_framebuffer();
-
     memset(&video_active_info, 0, sizeof(video_active_info));
+
     /*
      * Keep color conversion and the later DRM handoff deterministic even on
      * systems whose firmware does not expose a GOP framebuffer.
@@ -369,6 +375,7 @@ void video_init(void)
     video_active_info.green_mask_shift = 8;
     video_active_info.blue_mask_size   = 8;
     video_active_info.blue_mask_shift  = 0;
+
     if (!framebuffer) {
         buffer = NULL;
         width = height = stride = 0;
@@ -447,7 +454,7 @@ uint32_t video_get_pixel(uint32_t x, uint32_t y)
     return (buffer)[y * stride + x];
 }
 
-/* Iterate over a area on the screen and run a callback function in each iteration */
+/* Iterate over an area on the screen and run a callback in each iteration */
 void video_invoke_area(position_t p0, position_t p1, void (*callback)(position_t p))
 {
     position_t p;
@@ -479,6 +486,7 @@ void video_draw_rect(position_t p0, position_t p1, uint32_t color)
     video_flush_rect(x0, y0, x1 - x0 + 1, y1 - y0 + 1);
 }
 
+/* Merge a damage rectangle into the box pending on the next flush. */
 void video_flush_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
     spin_lock(&video_state_lock);

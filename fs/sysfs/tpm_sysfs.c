@@ -129,6 +129,7 @@ static const struct attribute_group *tpm_dev_groups[] = {
 static struct class tpm_class   = {.name = "tpm", .dev_groups = tpm_dev_groups};
 static struct class tpmrm_class = {.name = "tpmrm"};
 
+/* Register the TPM class devices. */
 void tpm_sysfs_init(void)
 {
 #if CONFIG_SYSFS

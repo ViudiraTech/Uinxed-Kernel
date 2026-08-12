@@ -298,9 +298,9 @@ int virtgpu_cmd_update_2d(struct virtio_gpu_device *vgdev, struct virtio_gpu_obj
         return -EINVAL;
     }
 
-    if (rect) {
+    if (rect)
         damage = *rect;
-    } else {
+    else {
         damage.x      = 0;
         damage.y      = 0;
         damage.width  = obj->width;
@@ -418,9 +418,9 @@ int virtgpu_cmd_resource_flush(struct virtio_gpu_device *vgdev, struct virtio_gp
     memset(&cmd, 0, sizeof(cmd));
     cmd.hdr.type    = VIRTIO_GPU_CMD_RESOURCE_FLUSH;
     cmd.resource_id = obj->hw_res_handle;
-    if (rect) {
+    if (rect)
         cmd.r = *rect;
-    } else {
+    else {
         cmd.r.x      = 0;
         cmd.r.y      = 0;
         cmd.r.width  = obj->width;
@@ -451,9 +451,8 @@ int virtgpu_cmd_set_scanout(struct virtio_gpu_device *vgdev, int scanout_id, str
         r.y      = 0;
         r.width  = obj->width;
         r.height = obj->height;
-    } else {
+    } else
         memset(&r, 0, sizeof(r));
-    }
     cmd.r = r;
 
     memset(&resp, 0, sizeof(resp));
@@ -562,6 +561,7 @@ int virtgpu_cmd_move_cursor(struct virtio_gpu_device *vgdev, uint32_t scanout_id
     return virtgpu_cursor_cmd(vgdev, &cmd, sizeof(cmd));
 }
 
+/* Shared encoding for the CTX_ATTACH_RESOURCE / CTX_DETACH_RESOURCE commands. */
 static int virtgpu_cmd_ctx_resource(struct virtio_gpu_device *vgdev, uint32_t type, uint32_t ctx_id, uint32_t resource_id)
 {
     struct virtio_gpu_ctx_resource cmd;

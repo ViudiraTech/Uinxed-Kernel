@@ -321,7 +321,6 @@ int drm_mode_addfb2(struct drm_device *dev, void *data, struct drm_file *file_pr
     r->fb_id = (__u32)fb->base.id;
 
     return 0;
-
 err_cleanup:
     for (i = 0; i < 4; i++) {
         if (fb->obj[i]) {

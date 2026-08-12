@@ -795,7 +795,7 @@ static int64_t sys_write_task(task_t *task, uint64_t fd, uint64_t buf, uint64_t 
      * The VFS fallback still invokes zero-length writes, preserving empty
      * datagram semantics without forcing every ordinary write through a
      * syscall-layer bounce buffer.
-    */
+     */
     return process_fd_write_user(proc, (int)fd, (const void *)buf, (size_t)size);
 }
 
@@ -4096,7 +4096,6 @@ static char **copy_argv_from_user(const char *const *uargv, int max_entries, int
         }
         *total_bytes += (size_t)length;
     }
-
 fail:
     for (int i = 0; i < max_entries; i++)
         if (kargv[i]) free(kargv[i]);
@@ -4357,6 +4356,7 @@ static int64_t do_execve_resolved(const char *path, vfs_node_t initial_node, cha
 
     if (ret) {
         plogk("syscall: Exec of %s rejected by ELF loader (%llu bytes, magic=%u)\n", kpath, (unsigned long long)image_size, image_magic);
+
         /*
          * Loading failed. Destroy the new (incomplete) page directory
          * and its VMAs, then restore the old address space.
@@ -4620,7 +4620,6 @@ static int64_t sys_writev_wrap(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint6
         if ((size_t)n < vec[i].iov_len) break;
     }
 writev_done:
-
     if (alloc) free(vec);
     return total;
 }
@@ -4674,7 +4673,6 @@ static int64_t sys_readv_wrap(uint64_t fd, uint64_t iov, uint64_t iovcnt, uint64
         if (!n || (size_t)n < vec[i].iov_len) break;
     }
 readv_done:
-
     if (alloc) free(vec);
     return total;
 }
@@ -5457,7 +5455,7 @@ int syscall_dispatch(syscall_frame_t *frame)
          *
          * After restoration, check for pending signals (the old
          * blocked mask was restored, which may unblock signals).
-     */
+         */
         int64_t sr_ret = do_rt_sigreturn(frame);
         if (sr_ret != 0) {
             /*
@@ -5481,7 +5479,6 @@ int syscall_dispatch(syscall_frame_t *frame)
 
     retval     = syscall_table[num](frame->rdi, frame->rsi, frame->rdx, frame->r10, frame->r8, frame->r9);
     frame->rax = (uint64_t)retval;
-
 check_signals:
     if (traced) {
         force_iret = true;

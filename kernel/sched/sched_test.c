@@ -24,6 +24,7 @@ static volatile uint32_t wake_all_woken;
 
 #    define WAKE_ALL_TEST_WAITERS 24
 
+/* Demo thread that logs a few sleep-ticks iterations */
 static void scheduler_demo_thread(void *arg)
 {
     const char *name = (const char *)arg;
@@ -34,6 +35,7 @@ static void scheduler_demo_thread(void *arg)
     }
 }
 
+/* Demo thread that burns CPU in chunks to exercise preemption */
 static void preempt_demo_thread(void *arg)
 {
     const char *name = (const char *)arg;
@@ -46,6 +48,7 @@ static void preempt_demo_thread(void *arg)
     plogk("sched: %s busy loop done.\n", name);
 }
 
+/* Demo thread that blocks on the shared wait queue */
 static void wait_demo_thread(void *arg)
 {
     const char *name = (const char *)arg;
@@ -55,6 +58,7 @@ static void wait_demo_thread(void *arg)
     plogk("sched: %s woke at tick %llu on task %llu cpu %u\n", name, sched_ticks(), current_task()->pid, current_task()->cpu_id);
 }
 
+/* Demo thread that wakes one task off the shared wait queue */
 static void wake_demo_thread(void *arg)
 {
     (void)arg;
@@ -64,6 +68,7 @@ static void wake_demo_thread(void *arg)
     plogk("sched: Wait queue wake_one target task %llu\n", task ? task->pid : 0);
 }
 
+/* Demo thread that blocks waiting for a keyboard input event */
 static void keyboard_wait_thread(void *arg)
 {
     (void)arg;
@@ -73,6 +78,7 @@ static void keyboard_wait_thread(void *arg)
     plogk("init: Keyboard waiter received an input event.\n");
 }
 
+/* Demo thread that blocks on the migration wait queue */
 static void migration_wait_thread(void *arg)
 {
     (void)arg;
@@ -82,6 +88,7 @@ static void migration_wait_thread(void *arg)
     plogk("sched: Migration waiter woke on task %llu cpu %u\n", current_task()->pid, current_task()->cpu_id);
 }
 
+/* Demo thread that migrates the waiter to CPU 1 and wakes it */
 static void migration_wake_thread(void *arg)
 {
     (void)arg;
@@ -95,6 +102,7 @@ static void migration_wake_thread(void *arg)
     plogk("sched: Migration wake target task %llu\n", task ? task->pid : 0);
 }
 
+/* One waiter among many that prepares on the shared wake-all queue */
 static void wake_all_wait_thread(void *arg)
 {
     (void)arg;
@@ -105,6 +113,7 @@ static void wake_all_wait_thread(void *arg)
     __atomic_add_fetch(&wake_all_woken, 1, __ATOMIC_RELEASE);
 }
 
+/* Demo thread that wakes all waiters and reports pass/fail */
 static void wake_all_test_thread(void *arg)
 {
     (void)arg;
@@ -117,6 +126,7 @@ static void wake_all_test_thread(void *arg)
     plogk("sched: wake_all test %s (%llu/%u waiters)\n", count == WAKE_ALL_TEST_WAITERS ? "passed" : "failed", count, WAKE_ALL_TEST_WAITERS);
 }
 
+/* Demo thread that burns CPU and yields to exercise load balancing */
 static void balance_demo_thread(void *arg)
 {
     const char *name = (const char *)arg;
@@ -128,6 +138,7 @@ static void balance_demo_thread(void *arg)
     }
 }
 
+/* Spawn the scheduler demo threads and keep the init thread alive */
 static void kernel_init_thread(void *arg)
 {
     (void)arg;
@@ -157,6 +168,7 @@ static void kernel_init_thread(void *arg)
 }
 #endif
 
+/* Start the scheduler debug demos when SCHED_DEBUG_DEMO is enabled */
 void sched_test_init(void)
 {
 #if SCHED_DEBUG_DEMO

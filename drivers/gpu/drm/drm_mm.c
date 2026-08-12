@@ -182,7 +182,6 @@ int drm_mm_insert_node_in_range(struct drm_mm *mm, struct drm_mm_node *node, uin
                 best_start = aligned;
                 goto found_hole;
         }
-
 next_hole:
         if (!entry) break;
         if (once && found) break;

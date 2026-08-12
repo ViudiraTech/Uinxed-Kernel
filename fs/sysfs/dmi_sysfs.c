@@ -160,6 +160,7 @@ static struct bin_attribute dmi_tables_attr = {
 
 /* Registration */
 
+/* Register the DMI class and firmware tables in sysfs. */
 void dmi_sysfs_init(void)
 {
 #if CONFIG_SYSFS

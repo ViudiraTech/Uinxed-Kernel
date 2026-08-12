@@ -18,6 +18,8 @@ struct vm_area;
 
 /* Initialize the DRM subsystem and create /dev/dri/card0. */
 int drm_init(void);
+
+/* Fallback DRM initialization when no GPU driver can be probed. */
 int drm_init_fallback(void);
 
 /* Run the DRM subsystem functional self-test. */
@@ -25,9 +27,13 @@ void drm_run_test(void);
 
 /* Return the singleton DRM device, or NULL before init. */
 struct drm_device *drm_get_singleton(void);
+
+/* Look up a registered device by minor type and index. */
 struct drm_device *drm_get_device_by_minor(int type, int index);
-void               drm_device_list_add(struct drm_device *dev);
-void               drm_device_list_remove(struct drm_device *dev);
+
+/* Add or remove a device from the global device list. */
+void drm_device_list_add(struct drm_device *dev);
+void drm_device_list_remove(struct drm_device *dev);
 
 /* DRM device-class registration state (defined in drm_init.c). */
 struct class;

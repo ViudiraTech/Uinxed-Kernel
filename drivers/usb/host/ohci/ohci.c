@@ -102,6 +102,7 @@ static inline void ohci_write32(ohci_controller_t *ctrl, uint8_t reg, uint32_t v
     mmio_write32((uint32_t *)(ctrl->mmio_base + reg), value);
 }
 
+/* Allocate zeroed DMA memory and return its physical address. */
 static void *ohci_dma_alloc(size_t size, uint64_t *physical)
 {
     size_t   count   = (size + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
@@ -113,12 +114,14 @@ static void *ohci_dma_alloc(size_t size, uint64_t *physical)
     return memory;
 }
 
+/* Release DMA memory allocated by ohci_dma_alloc(). */
 static void ohci_dma_free(uint64_t physical, size_t size)
 {
     size_t count = (size + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
     if (physical && count) free_frames(physical, count);
 }
 
+/* Claim a free endpoint-descriptor slot from the static pool. */
 static int ohci_find_free_ed(ohci_controller_t *ctrl)
 {
     for (int i = 0; i < OHCI_NUM_ED; i++) {
@@ -130,6 +133,7 @@ static int ohci_find_free_ed(ohci_controller_t *ctrl)
     return -1;
 }
 
+/* Return an endpoint-descriptor slot to the pool. */
 static void ohci_free_ed(ohci_controller_t *ctrl, int index)
 {
     if (index < 0 || index >= OHCI_NUM_ED) return;
@@ -137,6 +141,7 @@ static void ohci_free_ed(ohci_controller_t *ctrl, int index)
     memset(ctrl->eds[index].virtual, 0, sizeof(ohci_ed_t));
 }
 
+/* Claim a free transfer-descriptor slot from the static pool. */
 static int ohci_find_free_td(ohci_controller_t *ctrl)
 {
     for (int i = 0; i < OHCI_NUM_TD; i++) {
@@ -148,6 +153,7 @@ static int ohci_find_free_td(ohci_controller_t *ctrl)
     return -1;
 }
 
+/* Return a transfer-descriptor slot to the pool. */
 static void ohci_free_td(ohci_controller_t *ctrl, int index)
 {
     if (index < 0 || index >= OHCI_NUM_TD) return;
@@ -155,16 +161,19 @@ static void ohci_free_td(ohci_controller_t *ctrl, int index)
     memset(ctrl->tds[index].virtual, 0, sizeof(ohci_gtd_t));
 }
 
+/* Spin until the controller's IO is exclusively owned by a transfer. */
 static void ohci_io_lock(ohci_controller_t *ctrl)
 {
     while (__atomic_test_and_set(&ctrl->io_busy, __ATOMIC_ACQUIRE)) __asm__ volatile("pause");
 }
 
+/* Release the exclusive IO lock. */
 static void ohci_io_unlock(ohci_controller_t *ctrl)
 {
     __atomic_clear(&ctrl->io_busy, __ATOMIC_RELEASE);
 }
 
+/* Translate a gTD condition code into a completion status. */
 static int ohci_td_result(const ohci_gtd_t *td, bool allow_short)
 {
     uint32_t condition = (td->control & OHCI_TD_CC_MASK) >> OHCI_TD_CC_SHIFT;
@@ -196,6 +205,7 @@ static int ohci_td_result(const ohci_gtd_t *td, bool allow_short)
     }
 }
 
+/* Wait for a single gTD to finish, with timeout. */
 static int ohci_wait_td(ohci_controller_t *ctrl, ohci_gtd_t *td, bool allow_short, uint32_t timeout_ms)
 {
     uint64_t deadline = nano_time() + (uint64_t)timeout_ms * 1000000ULL;
@@ -208,6 +218,7 @@ static int ohci_wait_td(ohci_controller_t *ctrl, ohci_gtd_t *td, bool allow_shor
     }
 }
 
+/* Wait for every control-transfer gTD to complete, in order. */
 static int ohci_wait_control(ohci_controller_t *ctrl, const int *td_indices, size_t count, size_t data_position, bool input, uint32_t timeout_ms)
 {
     uint64_t deadline = nano_time() + (uint64_t)timeout_ms * 1000000ULL;
@@ -227,6 +238,7 @@ static int ohci_wait_control(ohci_controller_t *ctrl, const int *td_indices, siz
     return EOK;
 }
 
+/* Compute the bytes actually transferred from the gTD's current pointer. */
 static size_t ohci_td_actual(const ohci_gtd_t *td, uint32_t buffer_start, size_t requested)
 {
     if (!requested || !td->current_buffer_pointer) return requested;
@@ -235,6 +247,7 @@ static size_t ohci_td_actual(const ohci_gtd_t *td, uint32_t buffer_start, size_t
     return current - buffer_start;
 }
 
+/* Build an ED control dword from the endpoint's address and speed. */
 static uint32_t ohci_ed_control(const usb_device_t *device, uint8_t endpoint, uint16_t max_packet)
 {
     uint32_t control
@@ -243,6 +256,7 @@ static uint32_t ohci_ed_control(const usb_device_t *device, uint8_t endpoint, ui
     return control;
 }
 
+/* Populate a gTD with its flags, buffer range, and next link. */
 static void ohci_fill_td(ohci_gtd_t *td, uint32_t flags, uint32_t buffer, size_t length, uint32_t next)
 {
     td->control                = flags | ((uint32_t)OHCI_TD_CC_NOT_ACCESSED << OHCI_TD_CC_SHIFT);
@@ -331,7 +345,6 @@ static int ohci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
         size_t actual = ohci_td_actual(ctrl->tds[td_indices[data_position]].virtual, (uint32_t)data_physical, length);
         memcpy(buffer, data_dma, actual);
     }
-
 control_cleanup:
     if (ed_index >= 0) ohci_free_ed(ctrl, ed_index);
     for (size_t i = 0; i < td_count; i++)
@@ -395,7 +408,6 @@ static int ohci_transfer(usb_endpoint_t *endpoint, void *buffer, size_t length, 
         if (actual) *actual = transferred;
         if (input && transferred) memcpy(buffer, data_dma, transferred);
     }
-
 transfer_cleanup:
     if (ed_index >= 0) ohci_free_ed(ctrl, ed_index);
     if (data_index >= 0) ohci_free_td(ctrl, data_index);
@@ -405,6 +417,7 @@ transfer_cleanup:
     return status;
 }
 
+/* Register a periodic interrupt-IN transfer for the worker to service. */
 static int ohci_interrupt_start(usb_endpoint_t *endpoint, size_t length, usb_interrupt_complete_t complete, void *context)
 {
     if (!endpoint || !endpoint->interface || !endpoint->interface->device || !length || length > PAGE_4K_SIZE || !complete) return -EINVAL;
@@ -444,6 +457,7 @@ static int ohci_interrupt_start(usb_endpoint_t *endpoint, size_t length, usb_int
     return -ENOSPC;
 }
 
+/* Unregister a periodic transfer and wait out any running callback. */
 static void ohci_interrupt_stop(usb_endpoint_t *endpoint)
 {
     ohci_periodic_transfer_t *transfer = endpoint ? endpoint->hc_private : NULL;
@@ -460,6 +474,7 @@ static void ohci_interrupt_stop(usb_endpoint_t *endpoint)
     free(transfer);
 }
 
+/* Initialize per-endpoint state before it is used. */
 static int ohci_configure_endpoint(usb_endpoint_t *endpoint)
 {
     if (!endpoint) return -EINVAL;
@@ -467,6 +482,7 @@ static int ohci_configure_endpoint(usb_endpoint_t *endpoint)
     return EOK;
 }
 
+/* Reset the endpoint's data-toggle state after a stall. */
 static int ohci_clear_halt(usb_endpoint_t *endpoint)
 {
     if (!endpoint) return -EINVAL;
@@ -474,6 +490,7 @@ static int ohci_clear_halt(usb_endpoint_t *endpoint)
     return EOK;
 }
 
+/* Stop every interrupt transfer of a device before it goes away. */
 static void ohci_disable_device(usb_device_t *device)
 {
     if (!device) return;
@@ -492,6 +509,7 @@ static const usb_hcd_ops_t ohci_hcd_ops = {
     .disable_device     = ohci_disable_device,
 };
 
+/* Perform the OHCI port reset sequence. */
 static int ohci_port_reset(ohci_controller_t *ctrl, uint8_t port)
 {
     if (!ctrl || port >= ctrl->num_ports) return -EINVAL;
@@ -511,17 +529,20 @@ static int ohci_port_reset(ohci_controller_t *ctrl, uint8_t port)
     return (portsc & OHCI_PORT_CCS) ? EOK : -ENODEV;
 }
 
+/* Classify a port's device speed from the status dword. */
 static usb_speed_t ohci_port_speed(uint32_t portsc)
 {
     return (portsc & OHCI_PORT_LSDA) ? USB_SPEED_LOW : USB_SPEED_FULL;
 }
 
+/* Device-model release callback: free the usb_device. */
 static void ohci_usb_device_release(struct device *dev)
 {
     usb_device_t *device = container_of(dev, usb_device_t, dev);
     free(device);
 }
 
+/* Fetch and convert a device string descriptor to ASCII. */
 static int ohci_get_string(usb_device_t *device, uint8_t index, uint16_t language, char *output, size_t capacity)
 {
     uint8_t descriptor[128];
@@ -619,6 +640,7 @@ fail: {
 }
 }
 
+/* Tear down the device currently attached to a port. */
 static void ohci_disconnect_port(ohci_controller_t *ctrl, uint8_t port)
 {
     if (!ctrl || port >= ctrl->num_ports) return;
@@ -628,6 +650,7 @@ static void ohci_disconnect_port(ohci_controller_t *ctrl, uint8_t port)
     usb_remove_device(device);
 }
 
+/* Poll every due periodic transfer and deliver its results. */
 static void ohci_service_periodic(ohci_controller_t *ctrl)
 {
     uint64_t now = nano_time();
@@ -650,6 +673,7 @@ static void ohci_service_periodic(ohci_controller_t *ctrl)
     }
 }
 
+/* Hub worker: handle port changes, enumerate devices, poll periodic. */
 static void ohci_worker(void *argument)
 {
     ohci_controller_t *ctrl = argument;
@@ -678,6 +702,7 @@ static void ohci_worker(void *argument)
     }
 }
 
+/* ISR: acknowledge status bits and flag port-change work. */
 static void ohci_interrupt_handler(void *frame)
 {
     (void)frame;
@@ -705,12 +730,14 @@ static void ohci_interrupt_handler(void *frame)
     send_eoi();
 }
 
+/* host_ops: controller is already running after probe. */
 static int ohci_host_start(usb_host_t *host)
 {
     (void)host;
     return EOK;
 }
 
+/* host_ops: reset the controller and disable its interrupts. */
 static void ohci_host_stop(usb_host_t *host)
 {
     ohci_controller_t *ctrl = container_of(host, ohci_controller_t, hcd);
@@ -722,12 +749,14 @@ static void ohci_host_stop(usb_host_t *host)
     ohci_write32(ctrl, OHCI_HcInterruptDisable, OHCI_INTR_MIE);
 }
 
+/* host_ops: reset a port. */
 static int ohci_port_reset_hcd(usb_host_t *host, uint8_t port)
 {
     ohci_controller_t *ctrl = container_of(host, ohci_controller_t, hcd);
     return ohci_port_reset(ctrl, port);
 }
 
+/* host_ops: report the speed of a port. */
 static int ohci_port_speed_hcd(usb_host_t *host, uint8_t port)
 {
     ohci_controller_t *ctrl = container_of(host, ohci_controller_t, hcd);
@@ -735,6 +764,7 @@ static int ohci_port_speed_hcd(usb_host_t *host, uint8_t port)
     return ohci_port_speed(ohci_read32(ctrl, OHCI_HcRhPortStatus + port * 4));
 }
 
+/* host_ops: report whether a port has a device connected. */
 static int ohci_port_connected_hcd(usb_host_t *host, uint8_t port)
 {
     ohci_controller_t *ctrl = container_of(host, ohci_controller_t, hcd);
@@ -750,6 +780,7 @@ static usb_host_controller_ops_t ohci_controller_ops = {
     .port_connected = ohci_port_connected_hcd,
 };
 
+/* Probe an OHCI PCI device: reset, allocate pools, and start. */
 static int ohci_probe(pci_device_cache_t *pci, uint8_t bus_number)
 {
     base_address_register_t bar = get_base_address_register(pci, 0);
@@ -875,6 +906,7 @@ void ohci_start_workers(void)
 #endif
 }
 
+/* Probe every OHCI controller in the PCI device cache. */
 void ohci_init(void)
 {
 #if !CONFIG_USB_OHCI

@@ -36,14 +36,21 @@ typedef struct {
         Elf64_Addr pt_dynamic_vaddr;
 } elf_load_info_t;
 
+/* Load an ELF image from memory or a VFS node into a user process. */
 int elf_loader_load_user_process(struct process *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[],
                                  uintptr_t *entry_out, uintptr_t *rsp_out);
 int elf_loader_load_user_node(struct process *proc, struct vfs_node *node, char *const argv[], char *const envp[], uintptr_t *entry_out,
                               uintptr_t *rsp_out);
+
+/* Load the first userspace process at boot. */
 int elf_loader_load_initial_process(struct process *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[]);
 int elf_loader_load_initial_path(struct process *proc, const char *path, char *const argv[], char *const envp[]);
+
+/* Parse ELF headers and locate the dynamic linker. */
 int elf_loader_parse_elf_info(const uint8_t *elf_data, size_t elf_size, elf_load_info_t *info);
 int elf_loader_load_interpreter(struct process *proc, const char *interp_path, Elf64_Addr *base_out, Elf64_Addr *entry_out);
+
+/* Common loading core shared by the wrappers above. */
 int elf_loader_load_process_internal(struct process *proc, const uint8_t *elf_data, size_t elf_size, char *const argv[], char *const envp[],
                                      uintptr_t *entry_out, uintptr_t *rsp_out, bool acquire_console);
 

@@ -38,6 +38,7 @@ static struct kobj_type dynamic_kobj_ktype = {
     .default_attrs = NULL,
 };
 
+/* Release a dynamically-allocated kset and its child list. */
 static void dynamic_kset_release(struct kobject *kobj)
 {
     struct kset *kset = (struct kset *)((char *)kobj - offsetof(struct kset, kobj));
@@ -45,11 +46,13 @@ static void dynamic_kset_release(struct kobject *kobj)
     free(kset);
 }
 
+/* Release hook for statically-allocated ksets: nothing to do. */
 static void static_kset_release(struct kobject *kobj)
 {
     (void)kobj;
 }
 
+/* Fallback subsystem name for ksets in uevents. */
 static const char *kset_uevent_name(struct kobject *kobj)
 {
     return kobj && kobj->name ? kobj->name : "kset";
@@ -65,11 +68,13 @@ static struct kobj_type static_kset_ktype = {
     .uevent_name = kset_uevent_name,
 };
 
+/* Accept non-empty names that contain no path separators. */
 static int kobject_name_valid(const char *name)
 {
     return name && name[0] && !strchr(name, '/');
 }
 
+/* Append data to a circular linked list, creating the node as needed. */
 static int kobject_list_add(clist_t *list, void *data)
 {
     clist_t node = clist_alloc(data);
@@ -211,7 +216,6 @@ int kobject_add(struct kobject *kobj, struct kobject *parent, const char *fmt, .
     }
 
     return EOK;
-
 err_parent:
     if (kobj->parent) {
         spin_lock(&kobj->parent->lock);
@@ -281,6 +285,7 @@ struct kobject *kobject_get(struct kobject *kobj)
     return kobj;
 }
 
+/* Final release path: detach from sysfs, free the name, run the ktype. */
 static void kobject_release_internal(kref_t *kref)
 {
     struct kobject *kobj = (struct kobject *)((char *)kref - offsetof(struct kobject, kref));
@@ -587,6 +592,7 @@ const char *kobject_action_name(enum kobject_action action)
     return kobject_actions[action];
 }
 
+/* Map a uevent action name to its enum value. */
 int kobject_action_type(const char *name, enum kobject_action *action)
 {
     if (!name || !action) return -EINVAL;
@@ -599,6 +605,7 @@ int kobject_action_type(const char *name, enum kobject_action *action)
     return -EINVAL;
 }
 
+/* Append a formatted KEY=value variable to a uevent environment. */
 int add_uevent_var(struct kobj_uevent_env *env, const char *fmt, ...)
 {
     va_list args;
@@ -621,6 +628,7 @@ int add_uevent_var(struct kobj_uevent_env *env, const char *fmt, ...)
     return EOK;
 }
 
+/* Return the nearest kset in the object's ancestry, if any. */
 static struct kset *kobject_uevent_kset(struct kobject *kobj)
 {
     for (struct kobject *cursor = kobj; cursor; cursor = cursor->parent)
@@ -628,6 +636,7 @@ static struct kset *kobject_uevent_kset(struct kobject *kobj)
     return NULL;
 }
 
+/* Drop the first MODALIAS variable from a uevent environment. */
 static void zap_modalias_env(struct kobj_uevent_env *env)
 {
     for (int i = 0; i < env->envp_idx; i++) {
@@ -639,6 +648,7 @@ static void zap_modalias_env(struct kobj_uevent_env *env)
     }
 }
 
+/* Serialize a uevent into the "action@devpath" plus environment wire format. */
 static int kobject_uevent_message(struct kobj_uevent_env *env, const char *action, const char *devpath, uint8_t **message, uint32_t *message_len)
 {
     size_t header_len;
@@ -756,7 +766,6 @@ int kobject_uevent_env(struct kobject *kobj, enum kobject_action action, char *e
     if (ret) goto out;
     ret = netlink_broadcast(NETLINK_KOBJECT_UEVENT, 1U, message, message_len, 0);
     if (ret >= 0 || ret == -ESRCH || ret == -ECONNREFUSED || ret == -ENOBUFS) ret = EOK;
-
 out:
     free(message);
     free(devpath);
@@ -764,6 +773,7 @@ out:
     return ret;
 }
 
+/* Accept a canonical 36-char UUID string with dashes at the fixed offsets. */
 static int synth_uuid_valid(const char *uuid)
 {
     if (!uuid || strlen(uuid) != 36) return 0;
@@ -777,6 +787,7 @@ static int synth_uuid_valid(const char *uuid)
     return 1;
 }
 
+/* Trigger a uevent from a sysfs "action [uuid]" write. */
 int kobject_synth_uevent(struct kobject *kobj, const char *buf, size_t count)
 {
     enum kobject_action action;

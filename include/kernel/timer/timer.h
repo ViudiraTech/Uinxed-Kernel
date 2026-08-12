@@ -99,10 +99,10 @@ static inline bool timer_sleep_duration(const timer_timespec_t *request, uint64_
 /* Nanosecond-based delay function */
 void nsleep(uint64_t ns);
 
-/* Millisecond-based delay functions */
+/* Microsecond-based delay function */
 void usleep(uint64_t us);
 
-/* Millisecond-based delay functions */
+/* Millisecond-based delay function */
 void msleep(uint64_t ms);
 
 /* Wall-clock time shared by syscalls and persistent filesystem timestamps. */

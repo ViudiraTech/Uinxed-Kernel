@@ -38,25 +38,25 @@ spinlock_t plogk_lock = {
 /* Kernel print string */
 void printk(const char *format, ...)
 {
-    spin_lock(&printk_lock); // Lock
+    spin_lock(&printk_lock);
     va_list args;
     va_start(args, format);
     vwprintf(&tty_writer, format, args);
     va_end(args);
-    spin_unlock(&printk_lock); // Unlock
+    spin_unlock(&printk_lock);
 }
 
 /* Kernel print log */
 void plogk(const char *format, ...)
 {
 #if KERNEL_LOG
-    spin_lock(&plogk_lock); // Lock
+    spin_lock(&plogk_lock);
     printk("[%5d.%06d] ", nano_time() / 1000000000, (nano_time() / 1000) % 1000000);
     va_list args;
     va_start(args, format);
     vwprintf(&tty_writer, format, args);
     va_end(args);
-    spin_unlock(&plogk_lock); // Unlock
+    spin_unlock(&plogk_lock);
 #else
     (void)format;
 #endif
@@ -378,7 +378,6 @@ void wfmt_arg(writer *writer, args_fmter *fmter, va_list args)
                 }
                 break;
             case 's' :
-
                 /* Right align */
                 if (!(num_flag.left)) {
                     while (write_counter < num_fmter.size - str_len) {

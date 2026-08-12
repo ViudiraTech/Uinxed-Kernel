@@ -30,6 +30,7 @@
 
 _Static_assert(sizeof(cpio_newc_header_t) == CPIO_HEADER_SIZE, "newc header layout mismatch");
 
+/* Detect the compression format from the archive magic bytes. */
 static compression_type_t get_compression_type(const void *data, size_t size)
 {
     if (!data || size < 4) return COMPRESSION_UNKNOWN;
@@ -45,6 +46,7 @@ static compression_type_t get_compression_type(const void *data, size_t size)
     return COMPRESSION_UNKNOWN;
 }
 
+/* Parse a fixed-width hexadecimal field from a newc header. */
 static bool cpio_read_hex(const char *text, size_t count, uint32_t *result)
 {
     uint32_t value = 0;
@@ -66,6 +68,7 @@ static bool cpio_read_hex(const char *text, size_t count, uint32_t *result)
     return true;
 }
 
+/* Advance an archive offset by amount, keeping it 4-byte aligned. */
 static bool cpio_advance_aligned(size_t *offset, size_t amount, size_t limit)
 {
     size_t next;
@@ -115,6 +118,7 @@ static bool cpio_make_path(const char *archive_name, size_t namesize, char path[
     return true;
 }
 
+/* Create every intermediate directory of a path. */
 static int cpio_ensure_parents(char *path)
 {
     for (char *slash = strchr(path + 1, '/'); slash; slash = strchr(slash + 1, '/')) {
@@ -126,6 +130,7 @@ static int cpio_ensure_parents(char *path)
     return EOK;
 }
 
+/* Apply archive mode, ownership and timestamp to a VFS node. */
 static void cpio_set_metadata(vfs_node_t node, uint32_t mode, uint32_t uid, uint32_t gid, uint32_t mtime)
 {
     node->mode = node->permissions = (uint16_t)(mode & 07777);
@@ -134,6 +139,7 @@ static void cpio_set_metadata(vfs_node_t node, uint32_t mode, uint32_t uid, uint
     node->createtime = node->readtime = node->writetime = mtime;
 }
 
+/* Compute the newc CRC variant checksum over the file data. */
 static uint32_t cpio_data_checksum(const uint8_t *data, size_t size)
 {
     uint32_t checksum = 0;
@@ -141,6 +147,7 @@ static uint32_t cpio_data_checksum(const uint8_t *data, size_t size)
     return checksum;
 }
 
+/* Install one archive entry (dir, symlink or regular file) into the VFS. */
 static int cpio_install_entry(char *path, uint32_t mode, uint32_t uid, uint32_t gid, uint32_t mtime, const uint8_t *filedata, size_t filesize,
                               bool zero_copy)
 {
@@ -199,6 +206,7 @@ static int cpio_install_entry(char *path, uint32_t mode, uint32_t uid, uint32_t 
     return status;
 }
 
+/* Extract the initramfs module into the VFS as the root filesystem. */
 void init_cpio(void)
 {
     lmodule_t *module = get_lmodule("initramfs");

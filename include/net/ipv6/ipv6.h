@@ -67,10 +67,12 @@ typedef int (*ipv6_transport_input_t)(net_device_t *device, const ipv6_info_t *i
 typedef void (*ipv6_error_hook_t)(uint8_t protocol, const ipv6_address_t *source, const ipv6_address_t *destination, const void *transport,
                                   size_t transport_length, int error, uint32_t mtu);
 
+/* IPv6 packet parsing and pseudo-header checksum. */
 int      net_ipv6_parse(const void *data, size_t length, net_ipv6_packet_t *packet);
 uint16_t net_checksum_ipv6_pseudo(const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol, const void *data,
                                   size_t length);
 
+/* Address classification and derived-address helpers. */
 int  ipv6_address_equal(const ipv6_address_t *left, const ipv6_address_t *right);
 int  ipv6_address_is_unspecified(const ipv6_address_t *address);
 int  ipv6_address_is_loopback(const ipv6_address_t *address);
@@ -81,6 +83,7 @@ void ipv6_link_local_from_mac(ipv6_address_t *address, const uint8_t mac[6]);
 void ipv6_solicited_node(const ipv6_address_t *address, ipv6_address_t *multicast);
 void ipv6_multicast_ethernet(const ipv6_address_t *address, uint8_t mac[6]);
 
+/* IPv6 input, output, and routing. */
 int  ipv6_input(net_device_t *device, net_pbuf_t *packet);
 int  ipv6_output(net_device_t *device, const ipv6_address_t *source, const ipv6_address_t *destination, uint8_t protocol, uint8_t hop_limit,
                  net_pbuf_t *packet);

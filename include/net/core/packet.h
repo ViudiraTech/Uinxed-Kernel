@@ -17,6 +17,7 @@
 typedef net_pbuf_t net_packet_t;
 typedef void (*net_packet_release_t)(void *context, void *data);
 
+/* Wrap external data in a packet, or access an existing one. */
 int    net_packet_init_external(net_packet_t *packet, void *data, size_t length, net_packet_release_t release, void *context);
 void   net_packet_get(net_packet_t *packet);
 void   net_packet_put(net_packet_t *packet);

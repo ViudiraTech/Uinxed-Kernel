@@ -260,7 +260,7 @@ INTERRUPT_BEGIN static void ISR_13_handle(interrupt_frame_t *frame, uint64_t err
 }
 INTERRUPT_END
 
-/* ISR 14 will be define by pagine program */
+/* ISR 14 (#PF) is handled by the paging subsystem */
 
 /* ISR 15 CPU reserved */
 

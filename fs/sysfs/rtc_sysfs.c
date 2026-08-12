@@ -68,6 +68,7 @@ static const struct attribute_group *rtc_groups[] = {
 
 static struct class rtc_class = {.name = "rtc", .dev_groups = rtc_groups};
 
+/* Register the RTC class and its rtc0 device. */
 void rtc_sysfs_init(void)
 {
 #if CONFIG_SYSFS

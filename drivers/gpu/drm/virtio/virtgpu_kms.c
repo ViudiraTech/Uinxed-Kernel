@@ -27,12 +27,9 @@ static struct virtio_gpu_device *vgdev_flush_ctx;
 static struct virtio_gpu_object *vgdev_flush_obj;
 static volatile uint64_t         vgdev_flush_active;
 
-/* Extern declarations for DRM core helpers used here */
-
-/* Forward declaration of the page-flip helper defined in gpu.c */
-
 /* Connector helper functions */
 
+/* Report connection status: a VM GPU is present whenever scanouts exist. */
 static enum drm_connector_status virtgpu_connector_detect(struct drm_connector *connector, bool force)
 {
     struct drm_device        *dev   = connector->dev;
@@ -99,6 +96,7 @@ static int virtgpu_connector_get_edid_modes(struct drm_connector *connector)
     return count;
 }
 
+/* Fill the connector mode list from host display info or EDID. */
 static int virtgpu_connector_get_modes(struct drm_connector *connector)
 {
     struct drm_device        *dev   = connector->dev;
@@ -173,6 +171,7 @@ static int virtgpu_connector_get_modes(struct drm_connector *connector)
     return 0;
 }
 
+/* Accept any mode within the host's 8192x8192 scanout limit. */
 static int virtgpu_connector_mode_valid(struct drm_connector *connector, struct drm_display_mode *mode)
 {
     (void)connector;
@@ -184,6 +183,7 @@ static int virtgpu_connector_mode_valid(struct drm_connector *connector, struct 
 
 /* Encoder helper functions */
 
+/* The encoder imposes no extra atomic constraints. */
 static void virtgpu_encoder_atomic_check(struct drm_encoder *encoder, struct drm_crtc_state *crtc_state, struct drm_connector_state *conn_state)
 {
     (void)encoder;
@@ -193,6 +193,7 @@ static void virtgpu_encoder_atomic_check(struct drm_encoder *encoder, struct drm
 
 /* CRTC helper functions */
 
+/* On modeset, push the new framebuffer to the scanout. */
 static void virtgpu_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_framebuffer *fb)
 {
     struct drm_device        *dev   = crtc->dev;
@@ -201,6 +202,7 @@ static void virtgpu_crtc_atomic_flush(struct drm_crtc *crtc, struct drm_framebuf
     if (fb) virtgpu_page_flip(vgdev, fb, NULL);
 }
 
+/* Enable the CRTC output and deliver any pending vblank event. */
 static void virtgpu_crtc_atomic_enable(struct drm_crtc *crtc, struct drm_crtc_state *old_state)
 {
     struct drm_device        *dev   = crtc->dev;
@@ -219,6 +221,7 @@ static void virtgpu_crtc_atomic_enable(struct drm_crtc *crtc, struct drm_crtc_st
     }
 }
 
+/* Disable the CRTC scanout and drop the current framebuffer. */
 static void virtgpu_crtc_atomic_disable(struct drm_crtc *crtc, struct drm_crtc_state *old_state)
 {
     struct drm_device        *dev   = crtc->dev;
@@ -292,6 +295,7 @@ static void virtgpu_kms_flush_fb(uint32_t x, uint32_t y, uint32_t width, uint32_
     __atomic_store_n(&vgdev_flush_active, 0, __ATOMIC_RELEASE);
 }
 
+/* Set or clear the hardware cursor for the CRTC. */
 static int virtgpu_crtc_cursor_set(struct drm_crtc *crtc, struct drm_gem_object *gem, uint32_t width, uint32_t height, int32_t hot_x,
                                    int32_t hot_y)
 {
@@ -316,6 +320,7 @@ static int virtgpu_crtc_cursor_set(struct drm_crtc *crtc, struct drm_gem_object 
     return ret;
 }
 
+/* Move the hardware cursor to a new position. */
 static int virtgpu_crtc_cursor_move(struct drm_crtc *crtc, int32_t x, int32_t y)
 {
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)crtc->dev->dev_private;
@@ -474,7 +479,6 @@ static int virtgpu_kms_initial_modeset(struct virtio_gpu_device *vgdev)
 
     DRM_INFO("Initial modeset: %ux%u fb=%u crtc=%u\n", w, h, fb->base.id, crtc ? crtc->base.id : 0);
     return 0;
-
 err_free_obj:
     virtgpu_gem_free_object(&obj->base);
     return ret;
@@ -482,6 +486,7 @@ err_free_obj:
 
 /* Public init / fini */
 
+/* Set up the full KMS pipeline: plane, CRTC, encoder and connector. */
 int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
 {
     struct drm_device    *dev = vgdev->drm_dev;
@@ -659,6 +664,7 @@ int virtgpu_kms_init(struct virtio_gpu_device *vgdev)
     return 0;
 }
 
+/* Disable the scanout when the KMS pipeline is torn down. */
 void virtgpu_kms_fini(struct virtio_gpu_device *vgdev)
 {
     virtgpu_cmd_set_scanout(vgdev, 0, NULL);

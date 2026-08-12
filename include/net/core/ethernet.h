@@ -28,6 +28,7 @@ typedef struct net_ethernet_frame {
         size_t         payload_len;
 } net_ethernet_frame_t;
 
+/* Ethernet frame parse/dispatch and transmit. */
 int net_ethernet_parse(const void *data, size_t length, net_ethernet_frame_t *frame);
 int ethernet_input(net_device_t *device, net_pbuf_t *packet);
 int ethernet_output(net_device_t *device, net_pbuf_t *packet, const uint8_t destination[6], uint16_t type);

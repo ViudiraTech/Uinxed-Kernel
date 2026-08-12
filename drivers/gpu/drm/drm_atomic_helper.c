@@ -20,13 +20,6 @@
 #include <mem/alloc.h>
 #include <sync/spin_lock.h>
 
-/*
- * Locally-defined state structs (forward-declared in drm_device.h)
- * Helper: container_of
- */
-
-/* Forward declarations for cross-file calls */
-
 /* drm_atomic_helper_check_modeset: check CRTC mode changes */
 
 static int drm_atomic_helper_check_modeset(struct drm_device *dev, struct drm_atomic_state *state)
@@ -123,11 +116,10 @@ static int drm_atomic_helper_check_planes(struct drm_device *dev, struct drm_ato
         }
 
         /* Determine visibility */
-        if (plane_state->fb && plane_state->crtc) {
+        if (plane_state->fb && plane_state->crtc)
             plane_state->visible = true;
-        } else {
+        else
             plane_state->visible = false;
-        }
     }
 
     return 0;

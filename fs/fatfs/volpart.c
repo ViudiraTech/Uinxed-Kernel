@@ -14,6 +14,7 @@
 
 PARTITION VolToPart[FF_VOLUMES];
 
+/* Map a FatFs logical volume to a physical drive and partition. */
 int fatfs_assign_volume(uint8_t volume, uint8_t drive, uint8_t partition)
 {
     if (volume >= FF_VOLUMES) {
@@ -26,6 +27,7 @@ int fatfs_assign_volume(uint8_t volume, uint8_t drive, uint8_t partition)
     return EOK;
 }
 
+/* Clear every volume mapping. */
 void fatfs_reset_volumes(void)
 {
     for (uint8_t i = 0; i < FF_VOLUMES; i++) {

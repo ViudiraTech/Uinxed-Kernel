@@ -81,6 +81,7 @@ static const struct attribute_group *framebuffer_groups[] = {
 
 static struct class graphics_class = {.name = "graphics", .dev_groups = framebuffer_groups};
 
+/* Register the framebuffer class device on the platform bus. */
 void fb_sysfs_init(void)
 {
 #if CONFIG_SYSFS

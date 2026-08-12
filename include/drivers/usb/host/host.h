@@ -54,15 +54,31 @@ typedef struct usb_host {
 extern usb_host_t *usb_host_list;
 extern spinlock_t  usb_host_lock;
 
-int         usb_host_register(usb_host_t *host);
-int         usb_host_unregister(usb_host_t *host);
-int         usb_host_allocate_bus_number(void);
-void        usb_host_pci_scan(void);
-void        usb_host_start_workers(void);
-void        usb_host_shutdown_all(void);
+/* Add a host controller to the global list, rejecting duplicate buses. */
+int usb_host_register(usb_host_t *host);
+
+/* Remove a host controller from the global list. */
+int usb_host_unregister(usb_host_t *host);
+
+/* Allocate the next unique USB bus number. */
+int usb_host_allocate_bus_number(void);
+
+/* Probe the PCI bus for all supported USB host controllers. */
+void usb_host_pci_scan(void);
+
+/* Start every registered controller and its hub worker. */
+void usb_host_start_workers(void);
+
+/* Stop and tear down every registered controller. */
+void usb_host_shutdown_all(void);
+
+/* Look up a host controller by its bus number. */
 usb_host_t *usb_host_find_by_bus(uint8_t bus_number);
+
+/* Look up the index-th host controller of a given type. */
 usb_host_t *usb_host_find_by_type(usb_host_type_t type, int index);
 
+/* Per-controller PCI probing and driver entry points. */
 void uhci_init(void);
 void ohci_init(void);
 void ehci_init(void);

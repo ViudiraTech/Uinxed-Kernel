@@ -11,6 +11,7 @@
 #ifndef INCLUDE_NTFS_VFS_H_
 #define INCLUDE_NTFS_VFS_H_
 
+/* Register the ntfs filesystem with the VFS layer. */
 int ntfs_vfs_regist(void);
 
 #endif // INCLUDE_NTFS_VFS_H_

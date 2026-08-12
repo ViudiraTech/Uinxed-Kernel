@@ -13,6 +13,7 @@
 
 typedef void (*boot_process_start_t)(void);
 
+/* Run the init and debug startup callbacks. */
 void boot_start_init_before_debug(boot_process_start_t start_init, boot_process_start_t start_debug);
 
 #endif // INCLUDE_BOOT_PROCESS_H_

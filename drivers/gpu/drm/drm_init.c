@@ -32,6 +32,7 @@
 static struct drm_device *drm_device_list[DRM_MAX_DEVICES];
 static spinlock_t         drm_device_list_lock = {.lock = 0, .rflags = 0};
 
+/* Register a device in the global DRM device list. */
 void drm_device_list_add(struct drm_device *dev)
 {
     spin_lock(&drm_device_list_lock);
@@ -44,6 +45,7 @@ void drm_device_list_add(struct drm_device *dev)
     spin_unlock(&drm_device_list_lock);
 }
 
+/* Remove a device from the global DRM device list. */
 void drm_device_list_remove(struct drm_device *dev)
 {
     spin_lock(&drm_device_list_lock);
@@ -74,6 +76,7 @@ struct drm_device *drm_get_singleton(void)
     return NULL;
 }
 
+/* Look up a registered device by its minor type and index. */
 struct drm_device *drm_get_device_by_minor(int type, int index)
 {
     spin_lock(&drm_device_list_lock);
@@ -252,6 +255,7 @@ static const dummy_mode_cfg_t dummy_modes[] = {
      },
 };
 
+/* Add the configurable mode table to the dummy connector. */
 static int drm_dummy_kms_add_modes(struct drm_device *dev, struct drm_connector *connector)
 {
     unsigned int i;
@@ -287,6 +291,7 @@ static int drm_dummy_kms_add_modes(struct drm_device *dev, struct drm_connector 
     return 0;
 }
 
+/* Build the software-only KMS pipeline: plane, CRTC, encoder, connector. */
 static int drm_dummy_kms_setup(struct drm_device *dev)
 {
     static const uint32_t primary_formats[] = {
@@ -403,6 +408,7 @@ static int drm_dummy_kms_setup(struct drm_device *dev)
 
 /* DRM VFS ioctl wrapper */
 
+/* VFS read callback: deliver pending DRM events to the caller. */
 size_t drm_dev_read(void *file, void *addr, size_t offset, size_t size)
 {
     struct drm_file *file_priv = (struct drm_file *)file;
@@ -422,6 +428,7 @@ size_t drm_dev_write(void *file, const void *addr, size_t offset, size_t size)
     return 0;
 }
 
+/* VFS ioctl callback: dispatch to the DRM ioctl handler. */
 int drm_dev_ioctl(void *file, size_t req, void *arg)
 {
     struct drm_device *dev;
@@ -522,6 +529,7 @@ int drm_dev_poll(void *file, size_t events)
     return (int)drm_poll((struct drm_file *)file, (unsigned int)events);
 }
 
+/* Legacy VFS mmap callback: map the GEM backing memory by offset. */
 void *drm_dev_mmap(void *file, size_t offset, size_t size, int flags)
 {
     struct drm_device     *dev;
@@ -615,6 +623,7 @@ void drm_vfs_open_cb(void *parent, const char *name, void *node_ptr)
     node->handle = file;
 }
 
+/* Release the per-open drm_file bound to the node's handle. */
 void drm_vfs_close_cb(void *current)
 {
     vfs_node_t node = (vfs_node_t)current;
@@ -644,6 +653,7 @@ int drm_class_registered = 0;
 
 /* Public init */
 
+/* Register the DRM device class once at kernel startup. */
 int drm_init(void)
 {
 #if CONFIG_DRM
@@ -662,6 +672,7 @@ int drm_init(void)
 #endif
 }
 
+/* Allocate and register the software fallback DRM device. */
 int drm_init_fallback(void)
 {
 #if CONFIG_DRM

@@ -69,6 +69,7 @@ static void vt_ansi_default_attr(vt_ansi_state_t *s)
     s->bg_color.fg             = s->bg_color.bg;
 }
 
+/* Clamp the cursor into the screen (or scroll region) and clear wrap. */
 static void vt_ansi_gotoxy(vt_ansi_state_t *s, int new_x, int new_y)
 {
     uint32_t min_y = s->origin_mode ? s->scroll_top : 0;
@@ -96,6 +97,7 @@ static void vt_ansi_gotoxay(vt_ansi_state_t *s, int new_x, int new_y)
     vt_ansi_gotoxy(s, new_x, s->origin_mode ? (int)(s->scroll_top + new_y) : new_y);
 }
 
+/* Draw one character applying the active SGR attributes (blink/bold). */
 static void vt_ansi_put_char(const vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb, char c)
 {
     if (cb && cb->draw_char) {
@@ -119,6 +121,7 @@ static void vt_ansi_put_char(const vt_ansi_state_t *s, const vt_ansi_callbacks_t
     }
 }
 
+/* Line feed: scroll the region when the cursor hits scroll_bottom. */
 static void vt_ansi_lf(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
 {
     s->x = 0;
@@ -130,6 +133,7 @@ static void vt_ansi_lf(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
     s->wrap_next = false;
 }
 
+/* Reverse index: scroll the region down when at the top. */
 static void vt_ansi_ri(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
 {
     if (s->y == s->scroll_top) {
@@ -227,6 +231,7 @@ static void vt_ansi_csi_z(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
     s->wrap_next = false;
 }
 
+/* Write the decimal representation of v into p, returning the end. */
 static char *vt_ansi_utoa(uint32_t v, char *p)
 {
     char tmp[12], *t = tmp;
@@ -240,6 +245,7 @@ static char *vt_ansi_utoa(uint32_t v, char *p)
     return p;
 }
 
+/* CSI b (REP): repeat the last printed character n times. */
 static void vt_ansi_csi_b(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
 {
     if (!s->last_char) return;
@@ -271,6 +277,7 @@ typedef struct rgb {
         uint8_t r, g, b;
 } rgb_t;
 
+/* Map a 256-color palette index to its RGB components. */
 static void vt_ansi_rgb_from_256_color(uint8_t i, rgb_t *c)
 {
     if (i < 16) {
@@ -325,6 +332,7 @@ static int vt_ansi_t416_color(vt_ansi_state_t *s, int i, int is_fg)
     return i;
 }
 
+/* CSI m (SGR): apply the parameter list to the character attributes. */
 static void vt_ansi_sgr(vt_ansi_state_t *s, const vt_ansi_callbacks_t *cb)
 {
     (void)cb;
@@ -472,6 +480,7 @@ static void vt_ansi_hl(vt_ansi_state_t *s, bool set, const vt_ansi_callbacks_t *
     }
 }
 
+/* DEC private mode set/reset (?h / ?l). */
 static void vt_ansi_dec_hl(vt_ansi_state_t *s, bool set, const vt_ansi_callbacks_t *cb)
 {
     for (uint32_t i = 0; i <= s->npar; i++) {
@@ -511,6 +520,7 @@ static void vt_ansi_dec_hl(vt_ansi_state_t *s, bool set, const vt_ansi_callbacks
     }
 }
 
+/* Initialize or reset the ANSI parser state for the given grid size. */
 void vt_ansi_init(vt_ansi_state_t *s, uint32_t cols, uint32_t rows)
 {
     uint32_t default_fg = s->default_fg ? s->default_fg : 0xaaaaaa;
@@ -568,9 +578,11 @@ void vt_ansi_init(vt_ansi_state_t *s, uint32_t cols, uint32_t rows)
     memset(&s->saved_attrs, 0, sizeof(s->saved_attrs));
 }
 
-/* Feed one byte into the ANSI parser state machine. Non-ASCII bytes in
+/*
+ * Feed one byte into the ANSI parser state machine.  Non-ASCII bytes in
  * normal mode start a UTF-8 sequence (or become '?'); ESC/CSI sequences
- * are accumulated until complete and then dispatched to the handlers. */
+ * are accumulated until complete and then dispatched to the handlers.
+ */
 void vt_ansi_process(vt_ansi_state_t *s, uint8_t c, const vt_ansi_callbacks_t *cb, void *arg)
 {
     (void)arg;
@@ -616,7 +628,6 @@ void vt_ansi_process(vt_ansi_state_t *s, uint8_t c, const vt_ansi_callbacks_t *c
         }
         c = '?';
     }
-
 process_byte:
     switch (s->state) {
         case ANSI_normal :
@@ -672,7 +683,6 @@ process_byte:
                     }
                     return;
             }
-
         case ANSI_esc :
             s->state = ANSI_normal;
             switch (c) {
@@ -741,12 +751,10 @@ process_byte:
                 default :
                     return;
             }
-
         case ANSI_charset_g0 :
         case ANSI_charset_g1 :
             s->state = ANSI_normal;
             return;
-
         case ANSI_esc_hash :
             s->state = ANSI_normal;
             if (c == '8') {
@@ -754,7 +762,6 @@ process_byte:
                 s->wrap_next = false;
             }
             return;
-
         case ANSI_csi :
             s->state = ANSI_csi_getpars;
             switch (c) {
@@ -769,7 +776,6 @@ process_byte:
             }
             s->priv = ANSI_priv_ecma;
             goto csi_getpars;
-
         case ANSI_csi_getpars :
 csi_getpars:
             switch (c) {
@@ -791,12 +797,10 @@ csi_getpars:
                 return;
             }
             goto csi_exec;
-
         case ANSI_csi_ignore :
             if (c >= ' ' && c <= '?') return;
             s->state = ANSI_normal;
             return;
-
         case ANSI_osc :
             switch (c) {
                 case 'P' :
@@ -821,7 +825,6 @@ csi_getpars:
                     s->state = ANSI_normal;
                     return;
             }
-
         case ANSI_osc_string :
             if (s->osc_esc) {
                 s->osc_esc = false;
@@ -839,21 +842,18 @@ csi_getpars:
                 return;
             }
             return;
-
         case ANSI_sos_pm_apc :
             if (c == 0x9C) {
                 s->state = ANSI_normal;
                 return;
             }
             return;
-
         default :
             s->state = ANSI_normal;
             return;
     }
 
     return;
-
 csi_exec:
     s->state = ANSI_normal;
 

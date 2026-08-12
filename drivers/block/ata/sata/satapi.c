@@ -111,6 +111,7 @@ static int satapi_issue_packet(ahci_port_state_t *port, int slot, const uint8_t 
 
 /* Public API */
 
+/* Register SATAPI devices discovered by the AHCI probe. */
 void ahci_satapi_init(void)
 {
     ahci_satapi_device_count = 0;
@@ -148,6 +149,7 @@ void ahci_satapi_init(void)
     }
 }
 
+/* Read sectors from a SATAPI device via READ(12). */
 int ahci_satapi_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, void *buffer)
 {
     if (drive >= AHCI_MAX_DEVICES || !ahci_satapi_devices[drive].reserved) return -ENODEV;
@@ -194,6 +196,7 @@ int ahci_satapi_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, void
     return 0;
 }
 
+/* Send a raw ATAPI packet command over AHCI. */
 uint8_t ahci_satapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit, uint8_t direction, void *buf, size_t *xfer_len)
 {
     if (drive >= AHCI_MAX_DEVICES || !ahci_satapi_devices[drive].reserved) return 0xFF;
@@ -219,12 +222,14 @@ uint8_t ahci_satapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte
     return (uint8_t)(ret != 0 ? 0xFF : 0);
 }
 
+/* TEST UNIT READY */
 uint8_t ahci_satapi_test_unit_ready(uint8_t drive)
 {
     uint8_t cdb[SATAPI_CDB_LEN] = {GPCMD_TEST_UNIT_READY, 0, 0, 0, 0, 0};
     return ahci_satapi_send_packet(drive, cdb, 0, SATAPI_PROT_NODATA, NULL, NULL);
 }
 
+/* READ CAPACITY */
 uint8_t ahci_satapi_read_capacity(uint8_t drive, uint32_t *lba_size, uint32_t *blk_size)
 {
     uint8_t cdb[SATAPI_CDB_LEN] = {GPCMD_READ_CAPACITY, 0, 0, 0, 0, 0, 0, 0, 0, 0};
@@ -243,6 +248,7 @@ uint8_t ahci_satapi_read_capacity(uint8_t drive, uint32_t *lba_size, uint32_t *b
     return 0;
 }
 
+/* Classify an ATAPI opcode by its data-transfer type. */
 int ahci_satapi_cmd_type(uint8_t opcode)
 {
     switch (opcode) {

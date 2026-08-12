@@ -50,28 +50,62 @@
 #define PS2_DEV_SET_SAMPLE_RATE 0xf3
 #define PS2_DEV_GET_ID          0xf2
 
-int     wait_ps2_read(void);
-int     wait_ps2_write(void);
-uint8_t ps2_read_data(void);
-uint8_t ps2_read_status(void);
-uint8_t ps2_read_config(void);
-void    ps2_write_data(uint8_t data);
-void    ps2_write_cmd(uint8_t cmd);
-void    ps2_write_config(uint8_t config);
+/* Poll the data port; returns the byte read or -1 on timeout. */
+int wait_ps2_read(void);
 
-int  ps2_read_data_timeout(uint8_t *data);
-int  ps2_send_device_command(bool second_port, uint8_t command);
-int  ps2_send_device_data(bool second_port, uint8_t data);
+/* Poll until the write buffer is free; returns -1 on timeout. */
+int wait_ps2_write(void);
+
+/* Read one byte from the PS/2 data port. */
+uint8_t ps2_read_data(void);
+
+/* Read the controller status register. */
+uint8_t ps2_read_status(void);
+
+/* Read the controller configuration byte. */
+uint8_t ps2_read_config(void);
+
+/* Write one byte to the PS/2 data port. */
+void ps2_write_data(uint8_t data);
+
+/* Issue a command byte to the i8042 controller. */
+void ps2_write_cmd(uint8_t cmd);
+
+/* Write the controller configuration byte. */
+void ps2_write_config(uint8_t config);
+
+/* Read data with a timeout; returns 0 on success or a negative errno. */
+int ps2_read_data_timeout(uint8_t *data);
+
+/* Send a device command through the selected port. */
+int ps2_send_device_command(bool second_port, uint8_t command);
+
+/* Send raw data to the selected port. */
+int ps2_send_device_data(bool second_port, uint8_t data);
+
+/* True if the given PS/2 port exists and is usable. */
 bool ps2_port_available(bool second_port);
+
+/* Probe and initialize the i8042 controller and attached devices. */
 void init_ps2(void);
 
-void            ps2_keyboard_init(void);
-void            ps2_keyboard_handle_byte(uint8_t scancode);
+/* Initialize the PS/2 keyboard and register its evdev device. */
+void ps2_keyboard_init(void);
+
+/* Feed one scancode byte to the keyboard decoder. */
+void ps2_keyboard_handle_byte(uint8_t scancode);
+
+/* Block until keyboard events are ready (worker loop helper). */
 int             ps2kbd_wait_events(void);
 extern evdev_t *ps2_keyboard_evdev;
 
-void            ps2_mouse_init(void);
-void            ps2_mouse_handle_byte(uint8_t byte);
+/* Initialize the PS/2 mouse and register its evdev device. */
+void ps2_mouse_init(void);
+
+/* Feed one PS/2 packet byte to the mouse decoder. */
+void ps2_mouse_handle_byte(uint8_t byte);
+
+/* True if a PS/2 mouse was detected on the aux port. */
 bool            ps2_mouse_available(void);
 extern evdev_t *ps2_mouse_evdev;
 

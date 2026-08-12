@@ -328,6 +328,7 @@ static void epoll_vfs_close(void *current)
     spin_unlock(&epi->lock);
 }
 
+/* Unsubscribe from the target's poll sources and free the item. */
 static void epoll_item_release(epoll_item_t *item)
 {
     if (!item) return;
@@ -457,6 +458,7 @@ static int epoll_stub_rename(void *current, const char *new_name)
 
 /* Epoll node creation */
 
+/* Allocate an epoll instance and wrap it in a VFS node. */
 static vfs_node_t epoll_node_create(void)
 {
     if (epoll_fsid < 0) return NULL;
@@ -678,7 +680,6 @@ int64_t sys_epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
             ret = EOK;
             break;
         }
-
         default :
             ret = -EINVAL;
             break;

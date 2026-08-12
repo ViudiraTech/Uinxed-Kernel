@@ -52,7 +52,10 @@ int tty_register_driver(tty_driver_t *drv);
 /* Register a tty driver and publish only the given index as <name>. */
 int tty_register_device(tty_driver_t *drv, int index, const char *node_name);
 
-void          tty_unregister_driver(tty_driver_t *drv);
+/* Remove a tty driver and unregister its /dev nodes. */
+void tty_unregister_driver(tty_driver_t *drv);
+
+/* Look up the tty driver owning a given (major, minor) device. */
 tty_driver_t *tty_driver_for_dev(uint32_t major, uint32_t minor);
 
 /* Iterate every published tty device (used by /sys/class/tty). */

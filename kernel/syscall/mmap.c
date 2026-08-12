@@ -91,6 +91,7 @@ static int vma_range_overlaps(process_t *proc, uintptr_t start, uintptr_t end)
     return 0;
 }
 
+/* Remove or split VMAs overlapping the range, releasing their backing files */
 static int vma_remove_range(process_t *proc, uintptr_t start, uintptr_t end)
 {
     spin_lock(&proc->mmap_lock);
@@ -165,6 +166,7 @@ static int unmap_physical_pages(process_t *proc, uintptr_t start, size_t length)
     return EOK;
 }
 
+/* Split a VMA at an address, retaining backing references on both halves */
 static vm_area_t *vma_split_locked(process_t *proc, vm_area_t *vma, uintptr_t split)
 {
     if (split <= vma->start || split >= vma->end) return vma;
@@ -189,7 +191,6 @@ static vm_area_t *vma_split_locked(process_t *proc, vm_area_t *vma, uintptr_t sp
     right->next = vma->next;
     vma->next   = right;
     return right;
-
 fail_backing:
     if (right->vm_file) memfd_vma_release(right->vm_file, right->flags);
     if (right->vm_file && right->vm_pagecache) vfs_cache_mapping_unpin(right->vm_file);
@@ -451,7 +452,6 @@ int64_t sys_mmap_pgoff(uint64_t addr, uint64_t length, uint64_t prot, uint64_t f
         free(vma);
         return -ENOMEM;
     }
-
 vma_done:
     return (int64_t)mmap_addr;
 }

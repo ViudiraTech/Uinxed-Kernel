@@ -15,9 +15,16 @@
 #include <fs/fatfs/ff.h>
 #include <libs/std/stdint.h>
 
-int  fatfs_bind_device(uint8_t drive, const blockdev_device_t *device);
+/* Bind a block device to a FatFs physical drive. */
+int fatfs_bind_device(uint8_t drive, const blockdev_device_t *device);
+
+/* Unbind a FatFs physical drive, invalidating its ready state. */
 void fatfs_unbind_device(uint8_t drive);
-int  fatfs_assign_volume(uint8_t volume, uint8_t drive, uint8_t partition);
+
+/* Map a FatFs logical volume to a physical drive and partition. */
+int fatfs_assign_volume(uint8_t volume, uint8_t drive, uint8_t partition);
+
+/* Clear every volume mapping. */
 void fatfs_reset_volumes(void);
 
 #endif // INCLUDE_FATFS_DISK_H_

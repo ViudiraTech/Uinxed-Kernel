@@ -20,6 +20,7 @@
 #define RTC_RD_TIME  _IOR('p', 0x09, rtc_time_t)
 #define RTC_SET_TIME _IOW('p', 0x0a, rtc_time_t)
 
+/* Read the current time from the CMOS clock into a rtc_time_t. */
 static void rtc_read_cmos_time(rtc_time_t *t)
 {
     t->tm_sec   = (int)BCD_HEX(read_cmos(CMOS_CUR_SEC));
@@ -33,6 +34,7 @@ static void rtc_read_cmos_time(rtc_time_t *t)
     t->tm_isdst = 0;
 }
 
+/* Program the CMOS clock from a validated rtc_time_t. */
 static void rtc_write_cmos_time(const rtc_time_t *t)
 {
     write_cmos(CMOS_CUR_SEC, HEX_BCD((uint8_t)t->tm_sec));
@@ -63,11 +65,13 @@ static uint64_t rtc_civil_to_epoch(const rtc_time_t *t)
     return days * 86400ULL + (uint64_t)t->tm_hour * 3600ULL + (uint64_t)t->tm_min * 60ULL + (uint64_t)t->tm_sec;
 }
 
+/* Fill the caller's rtc_time_t with the current CMOS time. */
 void rtc_get_time(rtc_time_t *t)
 {
     if (t) rtc_read_cmos_time(t);
 }
 
+/* Return the current CMOS time as seconds since the Unix epoch. */
 uint64_t rtc_since_epoch(void)
 {
     rtc_time_t t;

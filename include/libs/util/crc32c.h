@@ -14,6 +14,7 @@
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
+/* Continue a CRC32C (Castagnoli) checksum over data. */
 uint32_t crc32c_update(uint32_t crc, const void *data, size_t size);
 
 #endif // INCLUDE_CRC32C_H_

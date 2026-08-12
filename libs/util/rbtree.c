@@ -13,6 +13,7 @@
 
 /* Internal helpers */
 
+/* Recompute the augmented value up the chain to the root. */
 static void augment_propagate(rb_node_t *node, rb_augment_fn augment, void *data)
 {
     while (node) {
@@ -234,17 +235,20 @@ static rb_node_t *rb_subtree_min(rb_node_t *node)
 
 /* Public API */
 
+/* Initialize an empty red-black tree. */
 void rb_init_root(rb_root_t *root)
 {
     root->root     = NULL;
     root->leftmost = NULL;
 }
 
+/* Return the smallest node in the tree, or NULL when empty. */
 rb_node_t *rb_first(rb_root_t *root)
 {
     return root->leftmost;
 }
 
+/* Return the in-order successor of node, or NULL at the last node. */
 rb_node_t *rb_next(rb_node_t *node)
 {
     /* If right subtree exists, return leftmost of right subtree */
@@ -264,6 +268,7 @@ int rb_is_empty(rb_root_t *root)
     return root->root == NULL;
 }
 
+/* Insert a node and restore red-black and augmentation invariants. */
 void rb_insert_augmented(rb_root_t *root, rb_node_t *node, rb_less_fn less, rb_augment_fn augment, void *data)
 {
     rb_node_t **link   = &root->root;
@@ -297,6 +302,7 @@ void rb_insert_augmented(rb_root_t *root, rb_node_t *node, rb_less_fn less, rb_a
     if (augment) augment_propagate(node, augment, data);
 }
 
+/* Remove a node and restore red-black and augmentation invariants. */
 void rb_erase_augmented(rb_root_t *root, rb_node_t *node, rb_augment_fn augment, void *data)
 {
     rb_node_t *child, *rebalance_parent;

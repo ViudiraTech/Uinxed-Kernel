@@ -120,6 +120,7 @@ static void pty_tty_release(void *context)
     pty_put(context);
 }
 
+/* Allocate the next free pty number from the id bitmap. */
 static int pty_allocate_number(void)
 {
     spin_lock(&pty_id_lock);
@@ -183,6 +184,7 @@ static int pty_slave_emit(void *context, const uint8_t *data, size_t size, uint6
     return (int)copied;
 }
 
+/* tty_core event callback: forward flow-control and status events. */
 static void pty_slave_event(void *context, uint8_t event)
 {
     pty_pair_t *pair = context;
@@ -208,6 +210,7 @@ static void pty_slave_event(void *context, uint8_t event)
     if (event & TIOCPKT_START) vfs_poll_source_notify(&pair->slave_poll_source, POLLOUT);
 }
 
+/* Read data written by the slave, honoring packet mode and blocking. */
 static int64_t pty_master_read(pty_pair_t *pair, uint64_t flags, void *buffer, size_t size)
 {
     uint8_t *output = buffer;
@@ -267,6 +270,7 @@ static const tmpfs_device_ops_t pty_slave_operations = {
     .file_ioctl       = pty_ioctl,
 };
 
+/* Register and open the /dev/pts/N node for a pty pair. */
 static int pty_create_slave(pty_pair_t *pair)
 {
     tmpfs_device_ops_t operations = pty_slave_operations;
@@ -288,6 +292,7 @@ static int pty_create_slave(pty_pair_t *pair)
     return 0;
 }
 
+/* open(2): allocate a pair for ptmx, or bind to an existing pts node. */
 static int pty_open(vfs_node_t node, uint64_t flags, void **private_data)
 {
     if ((flags & O_PATH) || (flags & O_ACCMODE) == O_ACCMODE) return -EINVAL;
@@ -384,6 +389,7 @@ static int pty_open(vfs_node_t node, uint64_t flags, void **private_data)
     return 0;
 }
 
+/* close(2): release an endpoint and drop its reference on the pair. */
 static void pty_release(vfs_node_t node, void *private_data)
 {
     (void)node;
@@ -414,6 +420,7 @@ static void pty_release(vfs_node_t node, void *private_data)
     pty_put(pair);
 }
 
+/* read(2): master reads the ring, slave reads through the tty core. */
 static int64_t pty_read(void *context, void *private_data, uint64_t flags, void *address, size_t offset, size_t size)
 {
     (void)context;
@@ -426,6 +433,7 @@ static int64_t pty_read(void *context, void *private_data, uint64_t flags, void 
     return result;
 }
 
+/* write(2): slave writes via the tty core, master feeds the input queue. */
 static int64_t pty_write(void *context, void *private_data, uint64_t flags, const void *address, size_t offset, size_t size)
 {
     (void)context;
@@ -443,6 +451,7 @@ static int64_t pty_write(void *context, void *private_data, uint64_t flags, cons
     return result;
 }
 
+/* poll(2): report readiness from the ring buffer or the tty core. */
 static int pty_poll(void *context, void *private_data, uint64_t flags, size_t events)
 {
     (void)context;
@@ -472,6 +481,7 @@ static int pty_poll(void *context, void *private_data, uint64_t flags, size_t ev
     return result;
 }
 
+/* Return the poll source matching the endpoint's role. */
 static vfs_poll_source_t *pty_poll_source(void *context, void *private_data)
 {
     (void)context;
@@ -480,11 +490,13 @@ static vfs_poll_source_t *pty_poll_source(void *context, void *private_data)
     return endpoint->kind == PTY_MASTER ? &endpoint->pair->master_poll_source : &endpoint->pair->slave_poll_source;
 }
 
+/* Encode a device number in the Linux dev_t layout. */
 static unsigned int pty_linux_dev(unsigned int major, unsigned int minor)
 {
     return (minor & 0xff) | (major << 8) | ((minor & ~0xff) << 12);
 }
 
+/* Handle the TIOC[SG]EXCL / TIOC[SN]XCL exclusive-access ioctls. */
 static int pty_exclusive_ioctl(pty_pair_t *pair, bool master, size_t request, void *argument)
 {
     int value;
@@ -501,6 +513,7 @@ static int pty_exclusive_ioctl(pty_pair_t *pair, bool master, size_t request, vo
     return 0;
 }
 
+/* Send a job-control signal to the slave's foreground process group. */
 static int pty_signal_slave(pty_pair_t *pair, int signal)
 {
     if (signal != SIGINT && signal != SIGQUIT && signal != SIGTSTP) return -EINVAL;
@@ -510,6 +523,7 @@ static int pty_signal_slave(pty_pair_t *pair, int signal)
     return pgid > 0 ? signal_send_pgrp(pgid, signal) : 0;
 }
 
+/* Master-side ioctls: pty control plus passthrough to the tty core. */
 static int pty_master_ioctl(pty_pair_t *pair, uint64_t flags, size_t request, void *argument)
 {
     int          value;
@@ -598,6 +612,7 @@ static int pty_master_ioctl(pty_pair_t *pair, uint64_t flags, size_t request, vo
     }
 }
 
+/* ioctl(2): dispatch master-only requests and pass the rest to the tty. */
 static int pty_ioctl(void *context, void *private_data, uint64_t flags, size_t request, void *argument)
 {
     (void)context;

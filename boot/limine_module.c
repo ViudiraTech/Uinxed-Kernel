@@ -18,7 +18,7 @@ lmodule_t     lmodule[128];
 log_buffer_t  lmodule_log;
 static size_t lmodule_count = 0;
 
-/* Extract filename from module path */
+/* Extract the base module name from its loader-provided path. */
 static void extract_name(const char *input, char *output, size_t output_size)
 {
     if (!input || !output || !output_size) return;
@@ -34,7 +34,7 @@ static void extract_name(const char *input, char *output, size_t output_size)
     output[len] = '\0';
 }
 
-/* Find resource modules by module name */
+/* Look up a loaded resource module by name. */
 lmodule_t *get_lmodule(const char *lmodule_name)
 {
     if (!lmodule_name) return 0;
@@ -43,7 +43,7 @@ lmodule_t *get_lmodule(const char *lmodule_name)
     return 0;
 }
 
-/* Initialize the passed-in resource module list */
+/* Record all modules handed over by the bootloader. */
 void lmodule_init(void)
 {
     if (!module_request.response || !module_request.response->module_count) return;

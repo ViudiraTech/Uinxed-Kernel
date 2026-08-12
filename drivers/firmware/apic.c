@@ -113,6 +113,7 @@ void local_apic_init(void)
     lapic_write(LAPIC_REG_TIMER_DIV, 11);
     lapic_write(LAPIC_REG_TIMER_INITCNT, ~((uint32_t)0));
 
+    /* Let the counter free-run for 1 ms to calibrate the timer frequency. */
     for (uint64_t start = nano_time(); nano_time() - start < 1000000;);
 
     uint64_t lapic_timer              = (~(uint32_t)0) - lapic_read(LAPIC_REG_TIMER_CURCNT);

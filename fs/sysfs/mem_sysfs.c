@@ -33,6 +33,7 @@ static const struct {
     {"urandom", 9},
 };
 
+/* Publish the standard memory character devices under /sys/class/mem/. */
 void mem_sysfs_init(void)
 {
 #if CONFIG_SYSFS

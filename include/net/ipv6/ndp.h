@@ -17,6 +17,7 @@
 #define NDP_PENDING_PER_ENTRY 8U
 #define NDP_PENDING_TOTAL     128U
 
+/* NDP packet processing, neighbor cache, and router discovery. */
 void ndp_init(void);
 int  ndp_input(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet);
 int  ndp_resolve(net_device_t *device, const ipv6_address_t *address, net_pbuf_t *packet);

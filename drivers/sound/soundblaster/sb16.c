@@ -129,6 +129,7 @@ static void sb16_dma_program(uint8_t channel, uint32_t phys_addr, uint32_t size,
 }
 
 /* DSP low-level I/O */
+/* Wait until the DSP write port is ready for a command. */
 int sb16_dsp_wait_write(sb16_device_t *dev)
 {
     for (int i = 0; i < 10000; i++)
@@ -136,6 +137,7 @@ int sb16_dsp_wait_write(sb16_device_t *dev)
     return -1;
 }
 
+/* Write one command byte to the DSP. */
 int sb16_dsp_write(sb16_device_t *dev, uint8_t cmd)
 {
     if (sb16_dsp_wait_write(dev)) return -1;
@@ -143,6 +145,7 @@ int sb16_dsp_write(sb16_device_t *dev, uint8_t cmd)
     return 0;
 }
 
+/* Read one response byte from the DSP. */
 int sb16_dsp_read(sb16_device_t *dev, uint8_t *val)
 {
     for (int i = 0; i < 10000; i++) {
@@ -154,6 +157,7 @@ int sb16_dsp_read(sb16_device_t *dev, uint8_t *val)
     return -1;
 }
 
+/* Pulse the DSP reset line and verify the 0xAA self-test byte. */
 int sb16_dsp_reset(sb16_device_t *dev)
 {
     sb16_outb(dev->base + SB16_DSP_RESET, 1);
@@ -166,6 +170,7 @@ int sb16_dsp_reset(sb16_device_t *dev)
     return (val == 0xAA) ? 0 : -1;
 }
 
+/* Query the DSP version via the version command. */
 int sb16_dsp_version(sb16_device_t *dev, uint8_t *major, uint8_t *minor)
 {
     if (sb16_dsp_write(dev, SB16_DSP_CMD_VERSION)) return -1;
@@ -181,24 +186,28 @@ uint8_t sb16_mixer_read(sb16_device_t *dev, uint8_t reg)
     return sb16_inb(dev->base + SB16_MIXER_DATA);
 }
 
+/* Write one byte to a mixer register. */
 void sb16_mixer_write(sb16_device_t *dev, uint8_t reg, uint8_t value)
 {
     sb16_outb(dev->base + SB16_MIXER_ADDR, reg);
     sb16_outb(dev->base + SB16_MIXER_DATA, value);
 }
 
+/* Set the master volume through the mixer. */
 void sb16_set_master_volume(sb16_device_t *dev, uint8_t left, uint8_t right)
 {
     sb16_mixer_write(dev, SB16_MIXER_MASTER_L, left);
     sb16_mixer_write(dev, SB16_MIXER_MASTER_R, right);
 }
 
+/* Set the DAC (PCM) volume through the mixer. */
 void sb16_set_dac_volume(sb16_device_t *dev, uint8_t left, uint8_t right)
 {
     sb16_mixer_write(dev, SB16_MIXER_DAC_L, left);
     sb16_mixer_write(dev, SB16_MIXER_DAC_R, right);
 }
 
+/* Select the mixer input source (mic, CD, or line). */
 void sb16_set_input_source(sb16_device_t *dev, uint8_t source)
 {
     uint8_t l = 0, r = 0;
@@ -233,6 +242,7 @@ int sb16_set_rate8(sb16_device_t *dev, uint16_t rate)
     return sb16_dsp_write(dev, tc);
 }
 
+/* Set the 16-bit sample rate via the DSP. */
 int sb16_set_rate16(sb16_device_t *dev, uint16_t rate)
 {
     if (rate < 4000) rate = 4000;
@@ -262,6 +272,7 @@ int sb16_play_8bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
     return 0;
 }
 
+/* Play one 16-bit DMA buffer through the DSP. */
 int sb16_play_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
 {
     if (!dev->detected || !buffer || !size) return -1;
@@ -316,6 +327,7 @@ int sb16_capture_8bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
     return 0;
 }
 
+/* Capture one 16-bit DMA buffer from the DSP. */
 int sb16_capture_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
 {
     if (!dev->detected || !buffer || !size) return -1;
@@ -349,6 +361,7 @@ int sb16_capture_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size)
     return 0;
 }
 
+/* Halt any active DMA transfer and clear the device flags. */
 void sb16_stop(sb16_device_t *dev)
 {
     sb16_dsp_write(dev, SB16_DSP_CMD_HALT_DMA);
@@ -375,6 +388,7 @@ static int sb16_audio_start(audio_card_t *card)
     return EOK;
 }
 
+/* audio callback: stop playback/capture. */
 static int sb16_audio_stop(audio_card_t *card)
 {
     (void)card;
@@ -384,6 +398,7 @@ static int sb16_audio_stop(audio_card_t *card)
     return EOK;
 }
 
+/* audio callback: let the current buffer finish, then stop. */
 static int sb16_audio_drain(audio_card_t *card)
 {
     (void)card;
@@ -396,6 +411,7 @@ static int sb16_audio_drain(audio_card_t *card)
     return EOK;
 }
 
+/* audio callback: play one DMA-sized chunk of PCM data. */
 static size_t sb16_audio_write(audio_card_t *card, const void *addr, size_t offset, size_t size)
 {
     sb16_device_t *dev = card->driver_data;
@@ -425,6 +441,7 @@ static size_t sb16_audio_write(audio_card_t *card, const void *addr, size_t offs
     return chunk;
 }
 
+/* audio callback: capture one DMA-sized chunk of PCM data. */
 static size_t sb16_audio_read(audio_card_t *card, void *addr, size_t offset, size_t size)
 {
     sb16_device_t *dev = card->driver_data;
@@ -454,6 +471,7 @@ static size_t sb16_audio_read(audio_card_t *card, void *addr, size_t offset, siz
     return chunk;
 }
 
+/* audio callback: validate and store the PCM format. */
 static int sb16_audio_set_format(audio_card_t *card, const audio_pcm_format_t *format)
 {
     sb16_device_t *dev;
@@ -475,6 +493,7 @@ static int sb16_audio_set_format(audio_card_t *card, const audio_pcm_format_t *f
     return EOK;
 }
 
+/* audio callback: re-apply the format (buffers are fixed). */
 static int sb16_audio_set_params(audio_card_t *card, const audio_pcm_format_t *fmt, size_t buffer_bytes, size_t period_bytes)
 {
     sb16_device_t *dev = card->driver_data;
@@ -487,6 +506,7 @@ static int sb16_audio_set_params(audio_card_t *card, const audio_pcm_format_t *f
     return sb16_audio_set_format(card, fmt);
 }
 
+/* audio callback: write master and DAC volume. */
 static int sb16_audio_set_volume(audio_card_t *card, const audio_volume_t *volume)
 {
     sb16_device_t *dev;
@@ -504,6 +524,7 @@ static int sb16_audio_set_volume(audio_card_t *card, const audio_volume_t *volum
     return EOK;
 }
 
+/* audio callback: read the master volume from the mixer. */
 static int sb16_audio_get_volume(audio_card_t *card, audio_volume_t *volume)
 {
     sb16_device_t *dev;
@@ -525,6 +546,7 @@ static int sb16_audio_get_position(audio_card_t *card, snd_pcm_uframes_t *pos)
 {
     (void)card;
     if (!pos) return -EINVAL;
+
     /* SB16 has no hardware position register; approximate via state */
     *pos = 0;
     return EOK;
@@ -550,6 +572,7 @@ int sb16_detect(sb16_device_t *dev)
     return -1;
 }
 
+/* Play a short square-wave beep through the DAC. */
 void sb16_beep(uint16_t freq, uint32_t ms)
 {
     if (!sb16_dev.detected) return;

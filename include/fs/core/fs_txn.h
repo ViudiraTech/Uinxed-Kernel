@@ -58,17 +58,38 @@ typedef struct fs_txn {
         int              active;
 } fs_txn_t;
 
-int  fs_txn_log_init(fs_txn_log_t *log, const blockdev_device_t *device, uint32_t block_size, const fs_txn_backend_ops_t *ops,
-                     void *backend_context);
+/* Initialize a transaction log bound to a block device. */
+int fs_txn_log_init(fs_txn_log_t *log, const blockdev_device_t *device, uint32_t block_size, const fs_txn_backend_ops_t *ops,
+                    void *backend_context);
+
+/* Tear down a transaction log and release its device reference. */
 void fs_txn_log_destroy(fs_txn_log_t *log);
-int  fs_txn_recover(fs_txn_log_t *log);
-int  fs_txn_begin(fs_txn_log_t *log, uint32_t credits, fs_txn_t *transaction);
-int  fs_txn_stage(fs_txn_t *transaction, uint64_t home_block, const void *data, uint32_t flags);
-int  fs_txn_read(fs_txn_t *transaction, uint64_t home_block, void *data);
-int  fs_txn_stage_bytes(fs_txn_t *transaction, uint64_t offset, const void *data, size_t size, uint32_t flags);
-int  fs_txn_read_bytes(fs_txn_t *transaction, uint64_t offset, void *data, size_t size);
-int  fs_txn_commit(fs_txn_t *transaction);
+
+/* Run backend recovery for the log. */
+int fs_txn_recover(fs_txn_log_t *log);
+
+/* Begin a new transaction on the log. */
+int fs_txn_begin(fs_txn_log_t *log, uint32_t credits, fs_txn_t *transaction);
+
+/* Stage a whole block for later write-out by the transaction. */
+int fs_txn_stage(fs_txn_t *transaction, uint64_t home_block, const void *data, uint32_t flags);
+
+/* Read a whole block, honoring data staged by the transaction. */
+int fs_txn_read(fs_txn_t *transaction, uint64_t home_block, void *data);
+
+/* Stage a byte range, reading the surrounding home blocks first. */
+int fs_txn_stage_bytes(fs_txn_t *transaction, uint64_t offset, const void *data, size_t size, uint32_t flags);
+
+/* Read a byte range through the transaction. */
+int fs_txn_read_bytes(fs_txn_t *transaction, uint64_t offset, void *data, size_t size);
+
+/* Commit the transaction and write the metadata to its home blocks. */
+int fs_txn_commit(fs_txn_t *transaction);
+
+/* Abort the transaction, recording the given error. */
 void fs_txn_abort(fs_txn_t *transaction, int error);
-int  fs_txn_log_error(const fs_txn_log_t *log);
+
+/* Return the last error recorded on the log. */
+int fs_txn_log_error(const fs_txn_log_t *log);
 
 #endif // INCLUDE_FS_TXN_H_

@@ -24,6 +24,7 @@
 static gendisk_t *gendisk_list;
 static spinlock_t gendisk_lock;
 
+/* Register a disk under /dev/<name>, optionally scanning its partitions. */
 int block_register_disk(const char *name, uint32_t major, uint32_t minor, const blockdev_device_t *device, bool scan_partitions,
                         bool use_p_separator)
 {
@@ -48,6 +49,7 @@ int block_register_disk(const char *name, uint32_t major, uint32_t minor, const 
     return 0;
 }
 
+/* Unregister a disk previously added by block_register_disk(). */
 int block_unregister_disk(const char *name)
 {
     gendisk_t **link;
@@ -71,6 +73,7 @@ int block_unregister_disk(const char *name)
     return status;
 }
 
+/* Return the number of registered disks. */
 int block_disk_count(void)
 {
     gendisk_t *disk;
@@ -82,6 +85,7 @@ int block_disk_count(void)
     return count;
 }
 
+/* Return the disk at the given index, or NULL. */
 gendisk_t *block_get_disk(int index)
 {
     gendisk_t *disk;
@@ -93,6 +97,7 @@ gendisk_t *block_get_disk(int index)
     return disk;
 }
 
+/* Invoke cb for each partition of a disk. */
 static void gendisk_walk_partitions(const gendisk_t *disk, block_partition_cb_t cb, void *opaque)
 {
     partition_table_t table;
@@ -119,6 +124,7 @@ static void gendisk_walk_partitions(const gendisk_t *disk, block_partition_cb_t 
     partition_table_destroy(&table);
 }
 
+/* Invoke cb for every partition on all registered disks. */
 void block_foreach_partition(block_partition_cb_t cb, void *opaque)
 {
     gendisk_t *disk;

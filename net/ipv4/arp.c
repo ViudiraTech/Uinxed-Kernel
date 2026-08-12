@@ -67,17 +67,20 @@ int net_arp_parse(const void *data, size_t length, net_arp_packet_t *arp)
     return 0;
 }
 
+/* Return 1 if the address is a valid unicast IPv4 target for ARP. */
 static int arp_ipv4_unicast(uint32_t address)
 {
     return address && address != UINT32_MAX && (address >> 24) != 127U && (address >> 28) != 14U;
 }
 
+/* Return 1 if the MAC address is a valid unicast (non-multicast, non-zero). */
 static int arp_mac_unicast(const uint8_t address[ETH_ADDRESS_LEN])
 {
     static const uint8_t zero[ETH_ADDRESS_LEN];
     return !(address[0] & 1U) && memcmp(address, zero, sizeof(zero)) != 0;
 }
 
+/* Build and transmit an ARP request/reply on the given device. */
 static int arp_send(net_device_t *device, uint16_t operation, const uint8_t target_address[ETH_ADDRESS_LEN], uint32_t target_ipv4)
 {
     net_pbuf_t *packet = net_pbuf_alloc(ARP_PACKET_LEN, NET_PBUF_HEADROOM);
@@ -110,6 +113,7 @@ void arp_init(void)
     arp_pending_initialized = 1;
 }
 
+/* Populate the pending-entry free list once (caller holds arp_lock). */
 static void arp_pool_init_locked(void)
 {
     if (!arp_pending_initialized) {
@@ -121,6 +125,7 @@ static void arp_pool_init_locked(void)
     }
 }
 
+/* Look up a cache entry for the device/address pair. */
 static arp_entry_t *arp_find_locked(net_device_t *device, uint32_t ipv4)
 {
     for (unsigned i = 0; i < ARP_CACHE_CAPACITY; i++)
@@ -128,6 +133,7 @@ static arp_entry_t *arp_find_locked(net_device_t *device, uint32_t ipv4)
     return NULL;
 }
 
+/* Free an entry's queued packets and return the pending slots to the pool. */
 static void arp_drop_pending_locked(arp_entry_t *entry)
 {
     while (entry->head) {
@@ -142,6 +148,7 @@ static void arp_drop_pending_locked(arp_entry_t *entry)
     entry->pending_count = 0;
 }
 
+/* Reuse the least-recently-updated slot for a new incomplete entry. */
 static arp_entry_t *arp_alloc_locked(net_device_t *device, uint32_t ipv4, uint64_t now)
 {
     arp_entry_t *oldest = NULL;
@@ -161,6 +168,7 @@ static arp_entry_t *arp_alloc_locked(net_device_t *device, uint32_t ipv4, uint64
     return oldest;
 }
 
+/* Record a MAC/IPv4 mapping and flush any packets queued on its resolution. */
 void arp_learn(net_device_t *device, uint32_t ipv4, const uint8_t address[ETH_ADDRESS_LEN], uint64_t now_ticks)
 {
     if (!device || !arp_ipv4_unicast(ipv4) || !address || !arp_mac_unicast(address)) return;
@@ -190,6 +198,7 @@ void arp_learn(net_device_t *device, uint32_t ipv4, const uint8_t address[ETH_AD
     }
 }
 
+/* Send an ARP request for the given IPv4 address. */
 int arp_request(net_device_t *device, uint32_t ipv4)
 {
     static const uint8_t empty[ETH_ADDRESS_LEN];
@@ -197,6 +206,7 @@ int arp_request(net_device_t *device, uint32_t ipv4)
     return arp_send(device, 1, empty, ipv4);
 }
 
+/* Resolve ipv4 to a MAC and transmit the packet, queueing it if unresolved. */
 int arp_resolve(net_device_t *device, uint32_t ipv4, net_pbuf_t *packet)
 {
     if (!device || !packet || !ipv4) return -EINVAL;
@@ -252,6 +262,7 @@ int arp_resolve(net_device_t *device, uint32_t ipv4, net_pbuf_t *packet)
     return -EINPROGRESS;
 }
 
+/* Process an incoming ARP packet: learn the sender and reply to requests. */
 int arp_input(net_device_t *device, net_pbuf_t *packet)
 {
     if (!device || !packet || packet->length < ARP_PACKET_LEN) goto bad;
@@ -270,6 +281,7 @@ bad:
     return -EBADMSG;
 }
 
+/* Age cache entries and retry (or drop) unresolved pending resolutions. */
 void arp_timer(uint64_t now_ticks)
 {
     ipv4_timer(now_ticks);
@@ -300,6 +312,7 @@ void arp_timer(uint64_t now_ticks)
     }
 }
 
+/* Drop all cache and pending state belonging to the removed device. */
 void arp_device_removed(net_device_t *device)
 {
     ipv4_device_removed(device);

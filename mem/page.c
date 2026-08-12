@@ -298,6 +298,7 @@ page_directory_t *get_current_directory(void)
     return current_directory;
 }
 
+/* Return the address mask for a leaf mapping at the given level. */
 static uint64_t leaf_address_mask(int level)
 {
     if (level == 3) return PAGE_1G_MASK;
@@ -305,6 +306,7 @@ static uint64_t leaf_address_mask(int level)
     return PAGE_4K_MASK;
 }
 
+/* Return the number of 4 KiB frames backing a leaf at the given level. */
 static size_t leaf_frame_count(int level)
 {
     if (level == 3) return PAGE_1G_SIZE / PAGE_4K_SIZE;
@@ -312,12 +314,14 @@ static size_t leaf_frame_count(int level)
     return 1;
 }
 
+/* Convert a writable leaf to COW unless it is explicitly shared. */
 static uint64_t cow_leaf_value(uint64_t value)
 {
     if ((value & PTE_WRITEABLE) && !(value & PTE_SHARED)) return (value & ~PTE_WRITEABLE) | PTE_COW;
     return value;
 }
 
+/* Release every frame referenced by a page table subtree. */
 static void destroy_table(page_table_t *table, int level)
 {
     for (int i = 0; i < 512; i++) {
@@ -341,6 +345,7 @@ static void destroy_table(page_table_t *table, int level)
     (void)frame_release_range((uint64_t)virt_to_phys((uint64_t)table) & PAGE_4K_MASK, 1);
 }
 
+/* Release the lower half (user space) of a page directory. */
 static void destroy_user_entries(page_directory_t *directory)
 {
     page_table_t *pml4 = directory->table;
@@ -360,6 +365,7 @@ static void destroy_user_entries(page_directory_t *directory)
     }
 }
 
+/* Copy a table subtree for fork, retaining frames and COW-marking leaves. */
 static int clone_table_cow(page_table_t *destination, const page_table_t *source, int level)
 {
     for (int i = 0; i < 512; i++) {
@@ -391,6 +397,7 @@ static int clone_table_cow(page_table_t *destination, const page_table_t *source
     return 0;
 }
 
+/* COW-mark every writable leaf in the parent's table subtree. */
 static void mark_parent_table_cow(page_table_t *table, int level)
 {
     for (int i = 0; i < 512; i++) {
@@ -408,6 +415,7 @@ static void mark_parent_table_cow(page_table_t *table, int level)
     }
 }
 
+/* Copy the parent's user space into a fresh child directory under COW. */
 int page_clone_user_cow(page_directory_t *child, page_directory_t *parent)
 {
     if (!child || !child->table || !parent || !parent->table || child == parent) return -1;
@@ -449,7 +457,6 @@ int page_clone_user_cow(page_directory_t *child, page_directory_t *parent)
     spin_unlock(&child->lock);
     spin_unlock(&parent->lock);
     return 0;
-
 rollback:
     destroy_user_entries(child);
     spin_unlock(&child->lock);
@@ -466,6 +473,7 @@ typedef struct {
         uintptr_t           base;
 } cow_fault_leaf_t;
 
+/* Locate the leaf mapping covering addr, filling in its frame and size. */
 static int find_cow_leaf(page_directory_t *directory, uintptr_t addr, cow_fault_leaf_t *leaf)
 {
     if (((addr >> 39) & 0x1ff) >= 256) return -1;
@@ -508,6 +516,7 @@ static int find_cow_leaf(page_directory_t *directory, uintptr_t addr, cow_fault_
     return (leaf->value & PTE_PRESENT) ? 0 : -1;
 }
 
+/* Return the 4 KiB PTE for addr, or NULL if any upper level is huge/absent. */
 static page_table_entry_t *find_4k_pte(page_directory_t *directory, uintptr_t addr)
 {
     if (!directory || !directory->table || ((addr >> 39) & 0x1ff) >= 256) return NULL;
@@ -524,6 +533,7 @@ static page_table_entry_t *find_4k_pte(page_directory_t *directory, uintptr_t ad
     return &table->entries[(addr >> 12) & 0x1ff];
 }
 
+/* Report whether addr falls in a writable VMA (mmap_lock held). */
 static int process_vma_writable_locked(process_t *proc, uintptr_t addr)
 {
     vm_area_t *vma = proc->mmap_list;
@@ -531,6 +541,7 @@ static int process_vma_writable_locked(process_t *proc, uintptr_t addr)
     return vma && vma->start <= addr && addr < vma->end && (vma->flags & VM_WRITE);
 }
 
+/* Resolve a copy-on-write fault: unshare or make the frame writable. */
 int page_resolve_cow_fault(process_t *proc, uintptr_t addr)
 {
     page_directory_t *directory = proc ? proc->user_page_dir : NULL;
@@ -623,6 +634,7 @@ int page_resolve_cow_fault(process_t *proc, uintptr_t addr)
     }
 }
 
+/* Tear down the user half of a page directory and release its frames. */
 void page_destroy_user_space(page_directory_t *directory)
 {
     if (!directory || !directory->table) return;
@@ -712,6 +724,7 @@ void free_directory(page_directory_t *dir)
     free(dir);
 }
 
+/* Map addr to frame, creating upper levels as needed; rollback on failure. */
 static int page_map_to_status(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags, int require_empty)
 {
     if (!directory || !directory->table || !frame) return -1;
@@ -775,7 +788,6 @@ static int page_map_to_status(page_directory_t *directory, uint64_t addr, uint64
     flush_tlb(addr);
     spin_unlock(&directory->lock);
     return 0;
-
 rollback:
     while (created_count) {
         created_count--;
@@ -792,11 +804,13 @@ void page_map_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uin
     (void)page_map_to_status(directory, addr, frame, flags, 0);
 }
 
+/* Map addr to frame, failing if the leaf is already mapped. */
 int page_map_new_to(page_directory_t *directory, uint64_t addr, uint64_t frame, uint64_t flags)
 {
     return page_map_to_status(directory, addr, frame, flags, 1);
 }
 
+/* Check that addr is user-accessible with the given permissions. */
 int page_user_accessible(page_directory_t *directory, uintptr_t addr, int write, int exec)
 {
     if (!directory || !directory->table) return 0;
@@ -808,6 +822,7 @@ int page_user_accessible(page_directory_t *directory, uintptr_t addr, int write,
     return accessible;
 }
 
+/* Remove the 4 KiB mapping at addr and return its frame, or 0 if unmapped. */
 uint64_t page_unmap(page_directory_t *directory, uint64_t addr)
 {
     if (!directory || !directory->table) return 0;
@@ -835,16 +850,15 @@ uint64_t page_unmap(page_directory_t *directory, uint64_t addr)
     flush_tlb(addr);
     spin_unlock(&directory->lock);
     return l1e & PAGE_4K_MASK;
-
 not_mapped:
     spin_unlock(&directory->lock);
     return 0;
 }
 
+/* Unmap addr and release its backing frame (splitting huge pages as needed). */
 int page_unmap_release(page_directory_t *directory, uint64_t addr)
 {
     if (!directory || !directory->table || ((addr >> 39) & 0x1ff) >= 256) return -1;
-
 retry_swap:
     spin_lock(&directory->lock);
     page_table_entry_t *swap_pte   = find_4k_pte(directory, addr);
@@ -1123,6 +1137,7 @@ pat_config_t get_pat_config(void)
     return config;
 }
 
+/* Set the G flag on every leaf in the subtree so it survives CR3 switches. */
 static void page_mark_global_leaves(page_table_t *table, int level)
 {
     if (!table || level < 1) return;
@@ -1138,6 +1153,7 @@ static void page_mark_global_leaves(page_table_t *table, int level)
     }
 }
 
+/* Enable global TLB entries (CR4.PGE) if the CPU supports them. */
 static void page_enable_global_tlb(void)
 {
     uint32_t eax, ebx, ecx, edx;

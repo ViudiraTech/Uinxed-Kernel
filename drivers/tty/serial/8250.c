@@ -37,17 +37,20 @@ static uint16_t uart8250_base(const uart_port_t *port)
 
 /* uart_ops */
 
+/* Enable RX interrupts (data available) on the port. */
 static int uart8250_startup(uart_port_t *port)
 {
     outb(uart8250_base(port) + UART8250_REG_IER, 0x01); // RX data available
     return 0;
 }
 
+/* Disable all UART interrupts. */
 static void uart8250_shutdown(uart_port_t *port)
 {
     outb(uart8250_base(port) + UART8250_REG_IER, 0x00);
 }
 
+/* Program the baud-rate divisor and line control. */
 static void uart8250_set_termios(uart_port_t *port)
 {
     uint16_t base    = uart8250_base(port);
@@ -61,6 +64,7 @@ static void uart8250_set_termios(uart_port_t *port)
     outb(base + UART8250_REG_LCR, lcr);
 }
 
+/* Write bytes to the UART, waiting for the transmitter to be ready. */
 static int uart8250_tx_write(uart_port_t *port, const uint8_t *data, size_t len)
 {
     uint16_t base = uart8250_base(port);
@@ -89,12 +93,14 @@ static const uart_ops_t uart8250_ops = {
 
 /* serial console driver */
 
+/* Console write callback: forward to the underlying UART port. */
 static void serial_console_write(console_t *c, const uint8_t *buf, size_t len)
 {
     uart_port_t *port = c->data;
     if (port) uart8250_console_write(port, buf, len);
 }
 
+/* Resolve the serial tty core for /dev/console without opening ttyS<N>. */
 static tty_core_t *serial_console_get_tty(console_t *c)
 {
     uart_port_t *port = c->data;
@@ -109,6 +115,7 @@ static tty_core_t *serial_console_get_tty(console_t *c)
 
 /* detection */
 
+/* Probe a UART base port with a loopback byte test. */
 static int uart8250_detect(uint16_t base)
 {
     uint16_t divisor = 115200 / SERIAL_BAUD_RATE;
@@ -130,12 +137,14 @@ static int uart8250_detect(uint16_t base)
 
 /* IRQ handling */
 
+/* Map a port index to its shared legacy IRQ line. */
 static int uart8250_irq_of(int number)
 {
     /* COM1/COM3 share IRQ4, COM2/COM4 share IRQ3. */
     return (number == 0 || number == 2) ? 4 : 3;
 }
 
+/* Drain received bytes from every present port sharing this IRQ. */
 static void uart8250_service(int line_irq)
 {
     for (int i = 0; i < UART_MAX_PORTS; i++) {
@@ -151,6 +160,7 @@ static void uart8250_service(int line_irq)
     }
 }
 
+/* IRQ3 handler: service COM2/COM4. */
 INTERRUPT_BEGIN static void uart8250_irq3_handler(interrupt_frame_t *frame)
 {
     (void)frame;
@@ -159,6 +169,7 @@ INTERRUPT_BEGIN static void uart8250_irq3_handler(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
+/* IRQ4 handler: service COM1/COM3. */
 INTERRUPT_BEGIN static void uart8250_irq4_handler(interrupt_frame_t *frame)
 {
     (void)frame;
@@ -169,6 +180,7 @@ INTERRUPT_END
 
 /* registration */
 
+/* Detect the legacy COM ports and register them with the serial core. */
 void init_serial(void)
 {
 #if !CONFIG_SERIAL
@@ -203,6 +215,7 @@ void init_serial(void)
     log_buffer_write(&serial_log, "serial: %d port(s) available.\n", detected);
 }
 
+/* Install IRQ handlers for the legacy COM lines in use. */
 void serial_irq_install(void)
 {
 #if !CONFIG_SERIAL

@@ -162,6 +162,7 @@ static void poll_watches_release(poll_watch_t *watches, uint64_t nfds)
     free(watches);
 }
 
+/* Create watches for every fd and subscribe to their event sources */
 static int poll_watches_create(process_t *proc, linux_pollfd_t *fds, uint64_t nfds, bool invalid_is_error, poll_wait_context_t *context,
                                poll_watch_t **result)
 {
@@ -197,6 +198,7 @@ static int poll_watches_create(process_t *proc, linux_pollfd_t *fds, uint64_t nf
     return EOK;
 }
 
+/* Evaluate readiness of every watched fd and count the ready ones */
 static int poll_scan(linux_pollfd_t *fds, poll_watch_t *watches, uint64_t nfds)
 {
     int ready = 0;
@@ -222,6 +224,7 @@ static int poll_scan(linux_pollfd_t *fds, poll_watch_t *watches, uint64_t nfds)
     return ready;
 }
 
+/* Wait for fd events or timeout, sleeping until a subscription fires */
 static int poll_wait(process_t *proc, linux_pollfd_t *fds, uint64_t nfds, poll_timeout_t *timeout, bool invalid_is_error)
 {
     poll_wait_context_t context;
@@ -299,6 +302,7 @@ static int copy_sigmask(uint64_t address, uint64_t size, sigset_t *mask)
     return copy_from_user(mask, (const void *)address, sizeof(*mask)) ? -EFAULT : EOK;
 }
 
+/* Core poll(2) implementation: install the sigmask guard, wait and copy results back */
 static int64_t do_poll(uint64_t user_fds, uint64_t nfds, poll_timeout_t *timeout, const sigset_t *mask)
 {
     process_t *proc = process_current();
@@ -337,6 +341,7 @@ static int64_t do_poll(uint64_t user_fds, uint64_t nfds, poll_timeout_t *timeout
     return ret;
 }
 
+/* Core select(2) implementation built on the poll machinery */
 static int64_t do_select(uint64_t nfds, uint64_t readfds, uint64_t writefds, uint64_t exceptfds, poll_timeout_t *timeout, const sigset_t *mask)
 {
     process_t *proc = process_current();

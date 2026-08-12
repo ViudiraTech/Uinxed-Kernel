@@ -56,6 +56,7 @@ static devtmpfs_entry_t devtmpfs_table[DEVTMPFS_MAX_DEVICES];
 static spinlock_t       devtmpfs_lock = {.lock = 0, .rflags = 0};
 static bool             devtmpfs_table_inited;
 
+/* Initialize the device registration table once. */
 static void devtmpfs_table_init(void)
 {
     if (devtmpfs_table_inited) return;
@@ -63,6 +64,7 @@ static void devtmpfs_table_init(void)
     devtmpfs_table_inited = true;
 }
 
+/* Register a character or block device node under /dev. */
 int devtmpfs_register_char_device(const char *path, uint64_t dev, uint64_t rdev, uint16_t node_type, const tmpfs_device_ops_t *ops)
 {
     vfs_node_t node;
@@ -144,6 +146,7 @@ int devtmpfs_register_char_device(const char *path, uint64_t dev, uint64_t rdev,
     return 0;
 }
 
+/* Unregister a device node and remove it from the namespace. */
 int devtmpfs_unregister_char_device(const char *path)
 {
     int slot = -1;
@@ -177,24 +180,28 @@ int devtmpfs_unregister_char_device(const char *path)
     return 0;
 }
 
+/* tmpfs device callback: read from a block device. */
 static size_t devtmpfs_block_read(void *context, void *buffer, size_t offset, size_t size)
 {
     blockdev_device_t *device = context;
     return blockdev_read_bytes(device, offset, buffer, size) == EOK ? size : 0;
 }
 
+/* tmpfs device callback: write to a block device. */
 static size_t devtmpfs_block_write(void *context, const void *buffer, size_t offset, size_t size)
 {
     blockdev_device_t *device = context;
     return blockdev_write_bytes(device, offset, buffer, size) == EOK ? size : 0;
 }
 
+/* Release the retained device reference held by a block node. */
 static void devtmpfs_block_destroy(void *context)
 {
     blockdev_release(context);
     free(context);
 }
 
+/* Open a block device node, returning a retained device descriptor. */
 int devtmpfs_open_block_device(const char *path, blockdev_device_t *device)
 {
     vfs_node_t node;
@@ -220,6 +227,7 @@ int devtmpfs_open_block_device(const char *path, blockdev_device_t *device)
     return EOK;
 }
 
+/* Register one block device node bound to a retained device descriptor. */
 static int devtmpfs_register_one_block(const char *path, const blockdev_device_t *device, uint64_t dev, uint64_t rdev)
 {
     blockdev_device_t *context;
@@ -254,6 +262,7 @@ static int devtmpfs_register_one_block(const char *path, const blockdev_device_t
     return EOK;
 }
 
+/* Register a whole disk plus its partitions, tracking the created paths. */
 int devtmpfs_register_block_device(const char *path, const blockdev_device_t *device, uint64_t dev, uint64_t rdev, bool scan_partitions,
                                    devtmpfs_block_registration_t **registration)
 {
@@ -293,6 +302,7 @@ int devtmpfs_register_block_device(const char *path, const blockdev_device_t *de
     return EOK;
 }
 
+/* Unregister every node tracked by a block device registration. */
 void devtmpfs_unregister_block_device(devtmpfs_block_registration_t *registration)
 {
     if (!registration) return;
@@ -303,6 +313,7 @@ void devtmpfs_unregister_block_device(devtmpfs_block_registration_t *registratio
     free(registration);
 }
 
+/* Create a block device node for the given device descriptor. */
 static int devtmpfs_create_block_node(const char *dev_path, const blockdev_device_t *device, uint64_t dev, uint64_t rdev, bool is_partition)
 {
     static const tmpfs_device_ops_t block_ops = {
@@ -354,6 +365,7 @@ static int devtmpfs_create_block_node(const char *dev_path, const blockdev_devic
     return EOK;
 }
 
+/* Create the device node for a single partition. */
 static void devtmpfs_create_partition_node(const char *dev_prefix, bool use_p_separator, const blockdev_device_t *parent, uint64_t dev,
                                            uint64_t rdev_base, const partition_info_t *partition)
 {
@@ -369,6 +381,7 @@ static void devtmpfs_create_partition_node(const char *dev_prefix, bool use_p_se
               (unsigned long long)partition->sector_count, partition->name[0] ? ", name " : "", partition->name);
 }
 
+/* Create device nodes for every partition of a disk. */
 static int devtmpfs_create_partitions(const char *dev_prefix, bool use_p_separator, const blockdev_device_t *device, uint64_t dev,
                                       uint64_t rdev_base)
 {
@@ -388,6 +401,7 @@ static int devtmpfs_create_partitions(const char *dev_prefix, bool use_p_separat
     return count;
 }
 
+/* Register the /dev/fb0 framebuffer device node. */
 static int devtmpfs_create_framebuffer_node(void)
 {
     static const tmpfs_device_ops_t fb_device = {
@@ -414,6 +428,7 @@ static int devtmpfs_create_framebuffer_node(void)
     return 0;
 }
 
+/* Register all audio card device nodes under /dev/snd. */
 static int devtmpfs_create_audio_nodes(void)
 {
     int count = 0;
@@ -433,6 +448,7 @@ static int devtmpfs_create_audio_nodes(void)
 }
 
 #if CONFIG_UNIX98_PTYS
+/* Register the /dev/ptmx pseudo-terminal master node. */
 static int devtmpfs_create_ptmx_node(void)
 {
     if (devtmpfs_register_char_device("/dev/ptmx", MKDEV(PTMX_MAJOR, PTMX_MINOR), MKDEV(PTMX_MAJOR, PTMX_MINOR), file_ptmx | file_stream,
@@ -448,6 +464,7 @@ static int devtmpfs_create_ptmx_node(void)
 }
 #endif
 
+/* Register the DRM card and render device nodes. */
 static int devtmpfs_create_drm_node(void)
 {
     static const tmpfs_device_ops_t drm_device = {
@@ -478,6 +495,7 @@ static int devtmpfs_create_drm_node(void)
     return total;
 }
 
+/* Register the /dev/rtc0 real-time clock device node. */
 static int devtmpfs_create_rtc_node(void)
 {
     static const tmpfs_device_ops_t rtc_device = {
@@ -506,6 +524,7 @@ typedef struct {
         void                  *opaque;
 } devtmpfs_partition_walk_t;
 
+/* Adapter from the gendisk partition iterator to the block walk callback. */
 static void devtmpfs_partition_walk_cb(const gendisk_t *disk, const char *part_name, uint32_t major, uint32_t minor, uint64_t blocks,
                                        void *opaque)
 {
@@ -531,6 +550,7 @@ static void devtmpfs_walk_block_devices(devtmpfs_block_walk_fn fn, void *opaque)
     block_foreach_partition(devtmpfs_partition_walk_cb, &ctx);
 }
 
+/* Map a disk name prefix to the conventional device class. */
 static const char *devtmpfs_block_class(const char *name)
 {
     if (!strncmp(name, "sd", 2)) return "sd";
@@ -553,15 +573,15 @@ typedef struct {
         size_t                 seen_count;
 } devtmpfs_devices_ctx_t;
 
+/* Emit one line per unique block major for /proc/devices. */
 static void devtmpfs_devices_block(const char *name, uint32_t major, uint32_t minor, uint64_t blocks, void *opaque)
 {
     devtmpfs_devices_ctx_t *ctx = opaque;
     const char             *cls = devtmpfs_block_class(name);
     (void)minor;
     (void)blocks;
-    for (size_t i = 0; i < ctx->seen_count; i++) {
+    for (size_t i = 0; i < ctx->seen_count; i++)
         if (ctx->seen[i].major == major) return;
-    }
     if (ctx->seen_count >= sizeof(ctx->seen) / sizeof(ctx->seen[0])) return;
     ctx->seen[ctx->seen_count].major = major;
     strncpy(ctx->seen[ctx->seen_count].cls, cls, sizeof(ctx->seen[0].cls) - 1);
@@ -619,6 +639,7 @@ typedef struct {
         size_t off;
 } devtmpfs_block_file_ctx_t;
 
+/* Emit one line per disk or partition for /proc/partitions. */
 static void devtmpfs_partitions_block(const char *name, uint32_t major, uint32_t minor, uint64_t blocks, void *opaque)
 {
     devtmpfs_block_file_ctx_t *ctx = opaque;
@@ -639,6 +660,7 @@ int devtmpfs_format_proc_partitions(char *buf, size_t cap)
     return (int)ctx.off;
 }
 
+/* Emit a zeroed per-disk counter line for /proc/diskstats. */
 static void devtmpfs_diskstats_block(const char *name, uint32_t major, uint32_t minor, uint64_t blocks, void *opaque)
 {
     devtmpfs_block_file_ctx_t *ctx = opaque;
@@ -659,6 +681,7 @@ int devtmpfs_format_proc_diskstats(char *buf, size_t cap)
     return (int)ctx.off;
 }
 
+/* Populate /dev with the registered device nodes. */
 void devtmpfs_init(void)
 {
     int status;

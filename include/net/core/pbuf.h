@@ -29,14 +29,17 @@ typedef struct net_pbuf {
         uint8_t external;
 } net_pbuf_t;
 
+/* Allocation and lifecycle. */
 net_pbuf_t *net_pbuf_alloc(size_t payload_length, size_t headroom);
 net_pbuf_t *net_pbuf_from(const void *data, size_t length, size_t headroom);
 net_pbuf_t *net_pbuf_clone(const net_pbuf_t *pbuf, size_t headroom);
 void        net_pbuf_ref(net_pbuf_t *pbuf);
 void        net_pbuf_free(net_pbuf_t *pbuf);
-void       *net_pbuf_push(net_pbuf_t *pbuf, size_t length);
-void       *net_pbuf_pull(net_pbuf_t *pbuf, size_t length);
-int         net_pbuf_trim(net_pbuf_t *pbuf, size_t length);
-size_t      net_pbuf_headroom(const net_pbuf_t *pbuf);
+
+/* Data region manipulation (push/pull to add or consume headers). */
+void  *net_pbuf_push(net_pbuf_t *pbuf, size_t length);
+void  *net_pbuf_pull(net_pbuf_t *pbuf, size_t length);
+int    net_pbuf_trim(net_pbuf_t *pbuf, size_t length);
+size_t net_pbuf_headroom(const net_pbuf_t *pbuf);
 
 #endif // INCLUDE_PBUF_H_

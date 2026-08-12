@@ -189,7 +189,10 @@ struct drm_mode_object {
 /* Generic object lookup by id+type. Returns NULL if not found. */
 struct drm_mode_object *drm_mode_object_find(struct drm_device *dev, struct drm_file *file_priv, uint32_t id, uint32_t type);
 
+/* Increment the object reference count. */
 void drm_mode_object_get(struct drm_mode_object *obj);
+
+/* Drop a reference; frees the object when it reaches zero. */
 void drm_mode_object_put(struct drm_mode_object *obj);
 
 struct drm_property_enum {
@@ -802,7 +805,10 @@ struct drm_minor {
 #define DRM_MINOR_ACCEL   2
 #define DRM_MAX_MINOR     64
 
-int  drm_minor_alloc(int type);
+/* Allocate a free /dev/dri minor of the given type. */
+int drm_minor_alloc(int type);
+
+/* Release a previously allocated minor. */
 void drm_minor_free(int type, int index);
 
 /* Generic / lifecycle */

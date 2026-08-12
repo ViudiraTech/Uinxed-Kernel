@@ -36,8 +36,7 @@ static bool drm_atomic_modes_equal(const struct drm_display_mode *a, const struc
            && a->vsync_end == b->vsync_end && a->vtotal == b->vtotal && a->vscan == b->vscan && a->flags == b->flags;
 }
 
-/* Cross-file forward declarations */
-
+/* Look up the current value of a property on an object, if present. */
 static bool drm_atomic_object_has_property(struct drm_mode_object *obj, uint32_t property_id, uint64_t *current)
 {
     struct drm_property_set *set   = obj ? obj->properties : NULL;
@@ -56,6 +55,7 @@ static bool drm_atomic_object_has_property(struct drm_mode_object *obj, uint32_t
     return found;
 }
 
+/* Validate a property value against the property's type and range. */
 static int drm_atomic_validate_property(struct drm_device *dev, struct drm_mode_object *obj, struct drm_property *prop, uint64_t value)
 {
     uint64_t current;
@@ -122,6 +122,7 @@ static int drm_atomic_validate_property(struct drm_device *dev, struct drm_mode_
     return 0;
 }
 
+/* Apply one UAPI property write to the atomic state. */
 static int drm_atomic_set_uapi_property(struct drm_atomic_state *state, struct drm_file *file_priv, struct drm_mode_object *obj,
                                         struct drm_property *prop, uint64_t value)
 {
@@ -486,7 +487,6 @@ int drm_mode_atomic_ioctl(struct drm_device *dev, void *data, struct drm_file *f
             offset += count_props[i];
         }
     }
-
 out:
     if (state) drm_atomic_state_free(state);
     free(objs);
@@ -643,7 +643,6 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev, void *data, struct drm_file
     drm_mode_object_put(&crtc->base);
 
     return ret;
-
 err_flip:
     spin_lock(&crtc->commit_lock);
     crtc->page_flip_pending = false;
@@ -656,6 +655,7 @@ err_flip:
 
 /* drm_mode_cursor_ioctl: handle DRM_IOCTL_MODE_CURSOR */
 
+/* Shared implementation for the CURSOR and CURSOR2 ioctls. */
 static int drm_mode_cursor_common(struct drm_device *dev, struct drm_file *file_priv, struct drm_mode_cursor *cursor, int32_t hot_x,
                                   int32_t hot_y)
 {
@@ -730,7 +730,6 @@ static int drm_mode_cursor_common(struct drm_device *dev, struct drm_file *file_
         crtc->x = cursor->x;
         crtc->y = cursor->y;
     }
-
 out:
     if (new_obj) drm_gem_object_put(new_obj);
     drm_mode_object_put(base);

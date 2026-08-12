@@ -80,12 +80,14 @@ static uint8_t fpu_initial_state[FPU_INITIAL_MAX] __attribute__((aligned(64)));
 /* Early-boot (pre-SMP) fallback for the BSP only */
 static fpu_percpu_t fpu_early_percpu;
 
+/* Return the per-CPU FPU state, falling back to the early-boot area pre-SMP */
 static fpu_percpu_t *fpu_percpu(void)
 {
     cpu_processor_t *cpu = get_current_cpu();
     return cpu ? &cpu->fpu : &fpu_early_percpu;
 }
 
+/* Save live FPU/SSE/AVX state, using XSAVE if the feature is active */
 static inline void fpu_save(void *state)
 {
     if (fpu_use_xsave) {
@@ -101,6 +103,7 @@ static inline void fpu_save(void *state)
     }
 }
 
+/* Restore FPU/SSE/AVX state, using XRSTOR if the feature is active */
 static inline void fpu_restore(const void *state)
 {
     if (fpu_use_xsave) {
@@ -134,6 +137,7 @@ static void fpu_hw_reset_initial(void)
     fpu_restore(fpu_initial_state);
 }
 
+/* Save the interrupt flag and disable interrupts, returning whether they were enabled */
 static inline uint64_t fpu_save_irq_and_cli(void)
 {
     uint64_t rflags;
@@ -142,13 +146,13 @@ static inline uint64_t fpu_save_irq_and_cli(void)
     return (rflags >> 9) & 1ULL;
 }
 
+/* Re-enable interrupts if they were enabled when fpu_save_irq_and_cli() ran */
 static inline void fpu_restore_irq(uint64_t if_enabled)
 {
     if (if_enabled) __asm__ volatile("sti");
 }
 
 /* fpu_init - detect features and enable the FPU on this CPU */
-
 void fpu_init(void)
 {
     fpu_percpu_t *fp   = fpu_percpu();
@@ -330,7 +334,6 @@ void fpu_task_reset(struct task *task)
 }
 
 /* fpu_switch - active save/restore on context switch */
-
 void fpu_switch(struct task *prev, struct task *next)
 {
 #if CPU_FEATURE_FPU

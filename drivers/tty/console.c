@@ -24,6 +24,7 @@ static console_t *console_active;
 static spinlock_t console_lock;
 static bool       console_cmdline_parsed;
 
+/* Parse one console= argument into a name, index, and options. */
 static void console_cmdline_add(const char *arg)
 {
     console_cmdline_t *cc;
@@ -53,6 +54,7 @@ static void console_cmdline_add(const char *arg)
     console_cmdline_count++;
 }
 
+/* Scan the kernel command line for console= entries (once). */
 void console_cmdline_parse(void)
 {
     const char *cmdline;
@@ -75,14 +77,15 @@ void console_cmdline_parse(void)
     free(copy);
 }
 
+/* True when a console was requested by name/index on the command line. */
 static bool console_matches_cmdline(const console_t *c)
 {
-    for (int i = 0; i < console_cmdline_count; i++) {
+    for (int i = 0; i < console_cmdline_count; i++)
         if (streq(console_cmdline[i].name, c->name) && console_cmdline[i].index == (int)c->index) return true;
-    }
     return false;
 }
 
+/* Add a console to the registry, applying command-line enablement. */
 int register_console(console_t *c)
 {
     console_t *cur;
@@ -131,6 +134,7 @@ int register_console(console_t *c)
     return 0;
 }
 
+/* Remove a console from the registry. */
 void unregister_console(console_t *c)
 {
     console_t **link;
@@ -144,6 +148,7 @@ void unregister_console(console_t *c)
     spin_unlock(&console_lock);
 }
 
+/* Deliver a buffer to every enabled console. */
 void console_write_all(const uint8_t *buf, size_t len)
 {
     console_t *c;
@@ -154,11 +159,11 @@ void console_write_all(const uint8_t *buf, size_t len)
      * console layer from its write path.
      */
     if (!buf || !len) return;
-    for (c = console_list; c; c = c->next) {
+    for (c = console_list; c; c = c->next)
         if ((c->flags & CON_ENABLED) && c->write) c->write(c, buf, len);
-    }
 }
 
+/* Return the active (preferred) console, or the first enabled one. */
 console_t *console_get_active(void)
 {
     console_t *c = NULL;
@@ -174,12 +179,14 @@ console_t *console_get_active(void)
     return c;
 }
 
+/* Return the active console's tty core, if it provides one. */
 tty_core_t *console_get_tty(void)
 {
     console_t *c = console_get_active();
     return c && c->get_tty ? c->get_tty(c) : NULL;
 }
 
+/* Derive the boot tty device type from the active console. */
 tty_device_t console_derive_boot_tty(void)
 {
     tty_device_t dev = {.type = TTY_DEVICE_VGA, .port = 0};

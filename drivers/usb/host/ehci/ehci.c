@@ -105,6 +105,7 @@ static inline void ehci_write32(volatile uint8_t *base, size_t offset, uint32_t 
     *(volatile uint32_t *)(base + offset) = value;
 }
 
+/* Allocate zeroed DMA memory and return its physical address. */
 static void *ehci_dma_alloc(size_t size, uint64_t *physical)
 {
     size_t   count   = (size + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
@@ -116,12 +117,14 @@ static void *ehci_dma_alloc(size_t size, uint64_t *physical)
     return memory;
 }
 
+/* Release DMA memory allocated by ehci_dma_alloc(). */
 static void ehci_dma_free(uint64_t physical, size_t size)
 {
     size_t count = (size + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
     if (physical && count) free_frames(physical, count);
 }
 
+/* Poll a register until the masked bits match value, with timeout. */
 static int ehci_wait_register(volatile uint8_t *base, size_t offset, uint32_t mask, uint32_t value, uint32_t timeout_ms)
 {
     uint64_t deadline = nano_time() + (uint64_t)timeout_ms * 1000000ULL;
@@ -132,6 +135,7 @@ static int ehci_wait_register(volatile uint8_t *base, size_t offset, uint32_t ma
     return EOK;
 }
 
+/* Claim a free queue-head slot from the static pool. */
 static int ehci_find_free_qh(ehci_controller_t *ctrl)
 {
     for (int i = 0; i < EHCI_NUM_QH; i++) {
@@ -143,6 +147,7 @@ static int ehci_find_free_qh(ehci_controller_t *ctrl)
     return -1;
 }
 
+/* Return a queue-head slot to the pool. */
 static void ehci_free_qh(ehci_controller_t *ctrl, int index)
 {
     if (index < 0 || index >= EHCI_NUM_QH) return;
@@ -150,6 +155,7 @@ static void ehci_free_qh(ehci_controller_t *ctrl, int index)
     memset(ctrl->qhs[index].virtual, 0, sizeof(ehci_qh_t));
 }
 
+/* Claim a free qTD slot from the static pool. */
 static int ehci_find_free_qtd(ehci_controller_t *ctrl)
 {
     for (int i = 0; i < EHCI_NUM_QTD; i++) {
@@ -161,6 +167,7 @@ static int ehci_find_free_qtd(ehci_controller_t *ctrl)
     return -1;
 }
 
+/* Return a qTD slot to the pool. */
 static void ehci_free_qtd(ehci_controller_t *ctrl, int index)
 {
     if (index < 0 || index >= EHCI_NUM_QTD) return;
@@ -168,16 +175,19 @@ static void ehci_free_qtd(ehci_controller_t *ctrl, int index)
     memset(ctrl->qtds[index].virtual, 0, sizeof(ehci_qtd_t));
 }
 
+/* Spin until the controller's IO is exclusively owned by a transfer. */
 static void ehci_io_lock(ehci_controller_t *ctrl)
 {
     while (__atomic_test_and_set(&ctrl->io_busy, __ATOMIC_ACQUIRE)) __asm__ volatile("pause");
 }
 
+/* Release the exclusive IO lock. */
 static void ehci_io_unlock(ehci_controller_t *ctrl)
 {
     __atomic_clear(&ctrl->io_busy, __ATOMIC_RELEASE);
 }
 
+/* Translate a qTD token into a completion status. */
 static int ehci_qtd_result(const ehci_qtd_t *qtd)
 {
     uint32_t token = qtd->token;
@@ -189,6 +199,7 @@ static int ehci_qtd_result(const ehci_qtd_t *qtd)
     return EOK;
 }
 
+/* Wait for every qTD in a chain to complete, in order. */
 static int ehci_wait_chain(ehci_controller_t *ctrl, const int *qtd_indices, size_t count, uint32_t timeout_ms)
 {
     uint64_t deadline = nano_time() + (uint64_t)timeout_ms * 1000000ULL;
@@ -207,6 +218,7 @@ static int ehci_wait_chain(ehci_controller_t *ctrl, const int *qtd_indices, size
     return EOK;
 }
 
+/* Populate a qTD with the token, buffer, and next-link fields. */
 static void ehci_fill_qtd(ehci_qtd_t *qtd, uint32_t pid, uint32_t toggle, uint32_t buffer, size_t length, uint32_t next, bool ioc)
 {
     qtd->next_qtd     = next;
@@ -217,12 +229,14 @@ static void ehci_fill_qtd(ehci_qtd_t *qtd, uint32_t pid, uint32_t toggle, uint32
     for (size_t i = 1; i < 5; i++) qtd->buffer[i] = 0;
 }
 
+/* Build a QH endpoint-characteristics dword from the endpoint. */
 static uint32_t ehci_qh_characteristics(const usb_device_t *device, uint8_t endpoint, uint16_t max_packet)
 {
     return (uint32_t)device->address << EHCI_QH_FA_SHIFT | (uint32_t)endpoint << EHCI_QH_EN_SHIFT | EHCI_QH_EPS_HIGH | EHCI_QH_DTC
            | ((uint32_t)max_packet << EHCI_QH_MPL_SHIFT) | EHCI_QH_H;
 }
 
+/* Put a QH on the async list and wait for the controller to start. */
 static int ehci_schedule_async(ehci_controller_t *ctrl, int qh_index)
 {
     ehci_qh_t *qh       = ctrl->qhs[qh_index].virtual;
@@ -234,6 +248,7 @@ static int ehci_schedule_async(ehci_controller_t *ctrl, int qh_index)
     return ehci_wait_register(ctrl->operational, EHCI_OP_USBSTS, EHCI_STS_ASS, EHCI_STS_ASS, 100);
 }
 
+/* Remove a QH from the async list. */
 static void ehci_unschedule_async(ehci_controller_t *ctrl, int qh_index)
 {
     ctrl->qhs[qh_index].virtual->next_qtd = EHCI_QTD_NEXT_TERMINATE;
@@ -321,7 +336,6 @@ static int ehci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
         else
             memcpy(buffer, data_dma, length - remaining);
     }
-
 control_cleanup:
     if (qh_index >= 0) ehci_free_qh(ctrl, qh_index);
     for (size_t i = 0; i < qtd_count; i++)
@@ -380,7 +394,6 @@ static int ehci_transfer(usb_endpoint_t *endpoint, void *buffer, size_t length, 
         if (actual) *actual = transferred;
         if (input && transferred) memcpy(buffer, data_dma, transferred);
     }
-
 transfer_cleanup:
     if (qh_index >= 0) ehci_free_qh(ctrl, qh_index);
     if (qtd_index >= 0) ehci_free_qtd(ctrl, qtd_index);
@@ -389,6 +402,7 @@ transfer_cleanup:
     return status;
 }
 
+/* Register a periodic interrupt-IN transfer for the worker to service. */
 static int ehci_interrupt_start(usb_endpoint_t *endpoint, size_t length, usb_interrupt_complete_t complete, void *context)
 {
     if (!endpoint || !endpoint->interface || !endpoint->interface->device || !length || length > PAGE_4K_SIZE || !complete) return -EINVAL;
@@ -430,6 +444,7 @@ static int ehci_interrupt_start(usb_endpoint_t *endpoint, size_t length, usb_int
     return -ENOSPC;
 }
 
+/* Unregister a periodic transfer and wait out any running callback. */
 static void ehci_interrupt_stop(usb_endpoint_t *endpoint)
 {
     ehci_periodic_transfer_t *transfer = endpoint ? endpoint->hc_private : NULL;
@@ -446,6 +461,7 @@ static void ehci_interrupt_stop(usb_endpoint_t *endpoint)
     free(transfer);
 }
 
+/* Initialize per-endpoint state before it is used. */
 static int ehci_configure_endpoint(usb_endpoint_t *endpoint)
 {
     if (!endpoint) return -EINVAL;
@@ -453,6 +469,7 @@ static int ehci_configure_endpoint(usb_endpoint_t *endpoint)
     return EOK;
 }
 
+/* Reset the endpoint's data-toggle state after a stall. */
 static int ehci_clear_halt(usb_endpoint_t *endpoint)
 {
     if (!endpoint) return -EINVAL;
@@ -460,6 +477,7 @@ static int ehci_clear_halt(usb_endpoint_t *endpoint)
     return EOK;
 }
 
+/* Stop every interrupt transfer of a device before it goes away. */
 static void ehci_disable_device(usb_device_t *device)
 {
     if (!device) return;
@@ -478,6 +496,7 @@ static const usb_hcd_ops_t ehci_hcd_ops = {
     .disable_device     = ehci_disable_device,
 };
 
+/* Perform the EHCI port reset sequence and check for a high-speed device. */
 static int ehci_port_reset(ehci_controller_t *ctrl, uint8_t port)
 {
     if (port >= ctrl->num_ports) return -EINVAL;
@@ -505,18 +524,21 @@ static int ehci_port_reset(ehci_controller_t *ctrl, uint8_t port)
     return EOK;
 }
 
+/* EHCI ports only serve high-speed devices. */
 static usb_speed_t ehci_port_speed_type(uint32_t portsc)
 {
     (void)portsc;
     return USB_SPEED_HIGH;
 }
 
+/* Device-model release callback: free the usb_device. */
 static void ehci_usb_device_release(struct device *dev)
 {
     usb_device_t *device = container_of(dev, usb_device_t, dev);
     free(device);
 }
 
+/* Fetch and convert a device string descriptor to ASCII. */
 static int ehci_get_string(usb_device_t *device, uint8_t index, uint16_t language, char *output, size_t capacity)
 {
     uint8_t descriptor[128];
@@ -614,6 +636,7 @@ fail: {
 }
 }
 
+/* Tear down the device currently attached to a port. */
 static void ehci_disconnect_port(ehci_controller_t *ctrl, uint8_t port)
 {
     if (!ctrl || port >= ctrl->num_ports) return;
@@ -623,6 +646,7 @@ static void ehci_disconnect_port(ehci_controller_t *ctrl, uint8_t port)
     usb_remove_device(device);
 }
 
+/* Poll every due periodic transfer and deliver its results. */
 static void ehci_service_periodic(ehci_controller_t *ctrl)
 {
     uint64_t now = nano_time();
@@ -644,6 +668,7 @@ static void ehci_service_periodic(ehci_controller_t *ctrl)
     }
 }
 
+/* Hub worker: handle port changes, enumerate devices, poll periodic. */
 static void ehci_worker(void *argument)
 {
     ehci_controller_t *ctrl = argument;
@@ -673,6 +698,7 @@ static void ehci_worker(void *argument)
     }
 }
 
+/* ISR: acknowledge status bits and flag port-change work. */
 static void ehci_interrupt_handler(void *frame)
 {
     (void)frame;
@@ -701,12 +727,14 @@ static void ehci_interrupt_handler(void *frame)
     send_eoi();
 }
 
+/* host_ops: controller is already running after probe. */
 static int ehci_host_start(usb_host_t *host)
 {
     (void)host;
     return EOK;
 }
 
+/* host_ops: stop the controller and its interrupts. */
 static void ehci_host_stop(usb_host_t *host)
 {
     ehci_controller_t *ctrl = container_of(host, ehci_controller_t, hcd);
@@ -715,12 +743,14 @@ static void ehci_host_stop(usb_host_t *host)
     ehci_write32(ctrl->operational, EHCI_OP_USBINTR, 0);
 }
 
+/* host_ops: reset a port. */
 static int ehci_port_reset_hcd(usb_host_t *host, uint8_t port)
 {
     ehci_controller_t *ctrl = container_of(host, ehci_controller_t, hcd);
     return ehci_port_reset(ctrl, port);
 }
 
+/* host_ops: report the speed of a port. */
 static int ehci_port_speed_hcd(usb_host_t *host, uint8_t port)
 {
     ehci_controller_t *ctrl = container_of(host, ehci_controller_t, hcd);
@@ -729,6 +759,7 @@ static int ehci_port_speed_hcd(usb_host_t *host, uint8_t port)
     return ehci_port_speed_type(ehci_read32(ctrl->operational, offset));
 }
 
+/* host_ops: report whether a port has a device connected. */
 static int ehci_port_connected_hcd(usb_host_t *host, uint8_t port)
 {
     ehci_controller_t *ctrl = container_of(host, ehci_controller_t, hcd);
@@ -745,6 +776,7 @@ static usb_host_controller_ops_t ehci_controller_ops = {
     .port_connected = ehci_port_connected_hcd,
 };
 
+/* Probe an EHCI PCI device: reset, allocate pools, and start. */
 static int ehci_probe(pci_device_cache_t *pci, uint8_t bus_number)
 {
     base_address_register_t bar = get_base_address_register(pci, 0);
@@ -864,6 +896,7 @@ static int ehci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     return EOK;
 }
 
+/* Probe every EHCI controller in the PCI device cache. */
 void ehci_init(void)
 {
 #if !CONFIG_USB_EHCI

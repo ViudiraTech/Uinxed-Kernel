@@ -167,6 +167,7 @@ static struct kobj_type kernel_ktype = {
 
 /* Initialization */
 
+/* Attach the kernel attribute files to /sys/kernel/. */
 void kernel_sysfs_init(void)
 {
 #if CONFIG_SYSFS

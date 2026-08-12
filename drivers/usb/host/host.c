@@ -20,6 +20,7 @@ usb_host_t     *usb_host_list;
 spinlock_t      usb_host_lock;
 static uint16_t usb_host_next_bus_number = 1;
 
+/* Allocate the next unique USB bus number. */
 int usb_host_allocate_bus_number(void)
 {
     uint64_t flags = spin_lock_irqsave(&usb_host_lock);
@@ -32,6 +33,7 @@ int usb_host_allocate_bus_number(void)
     return bus_number;
 }
 
+/* Add a host controller to the global list, rejecting duplicate buses. */
 int usb_host_register(usb_host_t *host)
 {
     if (!host || !host->bus_number) return -EINVAL;
@@ -49,6 +51,7 @@ int usb_host_register(usb_host_t *host)
     return EOK;
 }
 
+/* Remove a host controller from the global list. */
 int usb_host_unregister(usb_host_t *host)
 {
     if (!host) return -EINVAL;
@@ -66,6 +69,7 @@ int usb_host_unregister(usb_host_t *host)
     return -ENODEV;
 }
 
+/* Look up a host controller by its bus number. */
 usb_host_t *usb_host_find_by_bus(uint8_t bus_number)
 {
     uint64_t flags = spin_lock_irqsave(&usb_host_lock);
@@ -79,6 +83,7 @@ usb_host_t *usb_host_find_by_bus(uint8_t bus_number)
     return NULL;
 }
 
+/* Look up the index-th host controller of a given type. */
 usb_host_t *usb_host_find_by_type(usb_host_type_t type, int index)
 {
     uint64_t flags = spin_lock_irqsave(&usb_host_lock);
@@ -96,6 +101,7 @@ usb_host_t *usb_host_find_by_type(usb_host_type_t type, int index)
     return NULL;
 }
 
+/* Return the number of registered host controllers. */
 static int usb_host_get_count(void)
 {
     uint64_t flags = spin_lock_irqsave(&usb_host_lock);
@@ -106,6 +112,7 @@ static int usb_host_get_count(void)
     return count;
 }
 
+/* Probe the PCI bus for all supported USB host controllers. */
 void usb_host_pci_scan(void)
 {
     plogk("usb-host: Scanning PCI for USB host controllers...\n");
@@ -116,6 +123,7 @@ void usb_host_pci_scan(void)
     plogk("usb-host: Found %d controller(s)\n", usb_host_get_count());
 }
 
+/* Start every registered controller and its hub worker. */
 void usb_host_start_workers(void)
 {
     uint64_t flags = spin_lock_irqsave(&usb_host_lock);
@@ -136,6 +144,7 @@ void usb_host_start_workers(void)
     ehci_start_workers();
 }
 
+/* Shut down every registered host controller. */
 void usb_host_shutdown_all(void)
 {
     xhci_shutdown();

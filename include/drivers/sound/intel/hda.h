@@ -11,6 +11,7 @@
 #ifndef INCLUDE_HDA_H_
 #define INCLUDE_HDA_H_
 
+/* Probe and initialize the Intel HD Audio controller. */
 void hda_init(void);
 
 #endif // INCLUDE_HDA_H_

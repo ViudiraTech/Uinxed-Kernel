@@ -19,7 +19,7 @@
 xsdt_t *xsdt = 0;
 rsdt_t *rsdt = 0;
 
-/* Find the corresponding ACPI table in XSDT */
+/* Find an ACPI table by signature in the RSDT or XSDT. */
 void *find_table(const char *name)
 {
     int use_xsdt = xsdt != 0;

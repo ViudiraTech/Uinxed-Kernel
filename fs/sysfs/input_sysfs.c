@@ -235,6 +235,7 @@ static const struct attribute_group *input_dev_groups[] = {
 
 static struct class input_class = {.name = "input", .dev_uevent = input_device_uevent, .dev_groups = input_dev_groups};
 
+/* Register the input class and publish every evdev device. */
 void input_sysfs_init(void)
 {
 #if CONFIG_INPUT_EVDEV
@@ -257,6 +258,7 @@ void input_sysfs_init(void)
 #endif
 }
 
+/* Publish an evdev device as inputN with an eventN child. */
 int input_sysfs_register_evdev(evdev_t *evdev)
 {
     char           input_name[24];
@@ -289,6 +291,7 @@ int input_sysfs_register_evdev(evdev_t *evdev)
     return EOK;
 }
 
+/* Remove an evdev device's sysfs devices. */
 void input_sysfs_unregister_evdev(evdev_t *evdev)
 {
     struct device *device;

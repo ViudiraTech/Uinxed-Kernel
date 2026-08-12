@@ -30,6 +30,7 @@ static spinlock_t i2c_adapter_lock;
 static clist_t    i2c_adapter_list = 0;
 static int        i2c_adapter_next_nr;
 
+/* Register an I2C adapter, assigning it the next free bus number. */
 int i2c_add_adapter(struct i2c_adapter *adap)
 {
     if (!adap || !adap->algo || !adap->algo->master_xfer) return -EINVAL;
@@ -63,6 +64,7 @@ int i2c_add_adapter(struct i2c_adapter *adap)
     return 0;
 }
 
+/* Unregister an adapter, refusing to do so while it is still in use. */
 int i2c_del_adapter(struct i2c_adapter *adap)
 {
     if (!adap) return -EINVAL;
@@ -91,6 +93,7 @@ int i2c_del_adapter(struct i2c_adapter *adap)
     return 0;
 }
 
+/* Look up an adapter by bus number, taking a reference on it. */
 struct i2c_adapter *i2c_get_adapter(int nr)
 {
     struct i2c_adapter *result = 0;
@@ -108,6 +111,7 @@ struct i2c_adapter *i2c_get_adapter(int nr)
     return result;
 }
 
+/* Drop a reference taken by i2c_get_adapter(). */
 void i2c_put_adapter(struct i2c_adapter *adap)
 {
     if (!adap) return;
@@ -117,16 +121,19 @@ void i2c_put_adapter(struct i2c_adapter *adap)
     spin_unlock(&i2c_adapter_lock);
 }
 
+/* Lock an adapter for the duration of a transfer. */
 void i2c_lock_bus(struct i2c_adapter *adap)
 {
     if (adap) spin_lock(&adap->bus_lock);
 }
 
+/* Unlock an adapter previously locked with i2c_lock_bus(). */
 void i2c_unlock_bus(struct i2c_adapter *adap)
 {
     if (adap) spin_unlock(&adap->bus_lock);
 }
 
+/* Run master_xfer, retrying transient -EAGAIN failures. */
 static int __i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
 {
     int ret, try;
@@ -139,6 +146,7 @@ static int __i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int nu
     return ret;
 }
 
+/* Perform a multi-message I2C transfer on an adapter. */
 int i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
 {
     int ret;
@@ -163,6 +171,7 @@ int i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
     return ret < 0 ? ret : num;
 }
 
+/* Emulate an SMBus protocol as raw I2C messages via __i2c_transfer(). */
 static int32_t i2c_smbus_xfer_emulated(struct i2c_adapter *adap, uint16_t addr, int read_write, uint8_t command, int protocol,
                                        union i2c_smbus_data *data)
 {
@@ -182,7 +191,6 @@ static int32_t i2c_smbus_xfer_emulated(struct i2c_adapter *adap, uint16_t addr, 
             msg[0].buf   = &dummy;
             nmsgs        = 1;
             break;
-
         case I2C_SMBUS_BYTE :
             msg[0].addr  = addr;
             msg[0].flags = (read_write == I2C_SMBUS_READ) ? I2C_M_RD : 0;
@@ -190,7 +198,6 @@ static int32_t i2c_smbus_xfer_emulated(struct i2c_adapter *adap, uint16_t addr, 
             msg[0].buf   = &data->byte;
             nmsgs        = 1;
             break;
-
         case I2C_SMBUS_BYTE_DATA :
             if (read_write == I2C_SMBUS_READ) {
                 msg[0].addr  = addr;
@@ -211,7 +218,6 @@ static int32_t i2c_smbus_xfer_emulated(struct i2c_adapter *adap, uint16_t addr, 
                 nmsgs        = 1;
             }
             break;
-
         case I2C_SMBUS_WORD_DATA :
             if (read_write == I2C_SMBUS_READ) {
                 msg[0].addr  = addr;
@@ -234,7 +240,6 @@ static int32_t i2c_smbus_xfer_emulated(struct i2c_adapter *adap, uint16_t addr, 
                 nmsgs        = 1;
             }
             break;
-
         case I2C_SMBUS_BLOCK_DATA :
             if (read_write == I2C_SMBUS_READ) {
                 msg[0].addr  = addr;
@@ -262,7 +267,6 @@ static int32_t i2c_smbus_xfer_emulated(struct i2c_adapter *adap, uint16_t addr, 
                 nmsgs        = 1;
             }
             break;
-
         case I2C_SMBUS_I2C_BLOCK_DATA :
             if (read_write == I2C_SMBUS_READ) {
                 uint8_t len = data->block[0];
@@ -288,7 +292,6 @@ static int32_t i2c_smbus_xfer_emulated(struct i2c_adapter *adap, uint16_t addr, 
                 nmsgs        = 1;
             }
             break;
-
         default :
             return -EOPNOTSUPP;
     }

@@ -28,10 +28,9 @@
 #define DHCP_MAGIC_COOKIE     0x63825363U
 
 /*
- * Overview
- * DHCP client: sends DISCOVER/REQUEST over UDP, parses OFFER/ACK
- * options, and applies the obtained address, netmask, router and
- * DNS server to the interface, with lease-renewal retry logic.
+ * DHCP client: sends DISCOVER/REQUEST over UDP, parses OFFER/ACK options,
+ * and applies the obtained address, netmask, router and DNS server to the
+ * interface, with lease-renewal retry logic.
  */
 
 #define DHCP_OPT_PAD            0U
@@ -85,27 +84,32 @@ static udp_endpoint_t *dhcp_endpoint;
 static spinlock_t      dhcp_lock;
 static uint32_t        xid_sequence = 0x55495844U;
 
+/* Convert a lease duration in seconds to scheduler ticks. */
 static uint64_t dhcp_seconds_to_ticks(uint32_t seconds)
 {
     return (uint64_t)seconds * DHCP_TICKS_PER_SECOND;
 }
 
+/* Compute a deadline tick count from now + delay, saturating on overflow. */
 static uint64_t dhcp_deadline(uint64_t now, uint64_t delay)
 {
     return delay > UINT64_MAX - now ? UINT64_MAX : now + delay;
 }
 
+/* Exponential backoff delay for a retry count, capped at the maximum. */
 static uint64_t dhcp_retry_delay(uint8_t retries)
 {
     uint64_t delay = DHCP_INITIAL_RETRY << (retries > 4 ? 4 : retries);
     return delay > (uint64_t)DHCP_MAX_RETRY ? (uint64_t)DHCP_MAX_RETRY : delay;
 }
 
+/* Bump the retry counter, capped at the configured limit. */
 static void dhcp_count_retry(dhcp_client_t *client)
 {
     if (client->retries < DHCP_RETRY_LIMIT) client->retries++;
 }
 
+/* Infer a classful default netmask when the server sends none. */
 static uint32_t dhcp_default_netmask(uint32_t address)
 {
     uint8_t first = (uint8_t)(address >> 24);
@@ -114,6 +118,7 @@ static uint32_t dhcp_default_netmask(uint32_t address)
     return 0xffffff00U;
 }
 
+/* Generate a transaction ID mixed from the clock, device, and prior value. */
 static uint32_t dhcp_new_xid(dhcp_client_t *client, uint64_t now)
 {
     xid_sequence = xid_sequence * 1664525U + 1013904223U + (uint32_t)now + client->device->ifindex;
@@ -121,6 +126,7 @@ static uint32_t dhcp_new_xid(dhcp_client_t *client, uint64_t now)
     return xid_sequence ? xid_sequence : ++xid_sequence;
 }
 
+/* Parse DHCP options into the reply struct, rejecting malformed input. */
 static int dhcp_parse_options(const uint8_t *options, size_t length, dhcp_reply_t *reply)
 {
     size_t offset = 0;
@@ -184,6 +190,7 @@ static int dhcp_parse_options(const uint8_t *options, size_t length, dhcp_reply_
     return ended && reply->message_type ? 0 : -EBADMSG;
 }
 
+/* Validate a DHCP reply packet against the expected transaction and client. */
 int dhcp_parse_reply(const void *data, size_t length, uint32_t expected_xid, const uint8_t hardware_address[6], dhcp_reply_t *reply)
 {
     if (!data || !hardware_address || !reply || length < DHCP_FIXED_LENGTH) return -EBADMSG;
@@ -196,6 +203,7 @@ int dhcp_parse_reply(const void *data, size_t length, uint32_t expected_xid, con
     return dhcp_parse_options(packet + DHCP_FIXED_LENGTH, length - DHCP_FIXED_LENGTH, reply);
 }
 
+/* Append one TLV option to the packet, returning the new offset. */
 static size_t dhcp_add_option(uint8_t *packet, size_t offset, uint8_t code, const void *value, uint8_t length)
 {
     packet[offset++] = code;
@@ -204,6 +212,7 @@ static size_t dhcp_add_option(uint8_t *packet, size_t offset, uint8_t code, cons
     return offset + length;
 }
 
+/* Build and transmit a DHCP message, broadcast or unicast to the server. */
 static int dhcp_send(dhcp_client_t *client, uint8_t message_type, int broadcast)
 {
     uint8_t packet[DHCP_PACKET_CAPACITY];
@@ -248,6 +257,7 @@ static int dhcp_send(dhcp_client_t *client, uint8_t message_type, int broadcast)
     return status < 0 ? status : 0;
 }
 
+/* Drop the address/DNS configuration obtained from the server. */
 static void dhcp_clear_configuration(dhcp_client_t *client)
 {
     netdev_configure_ipv4(client->device, 0, 0, 0);
@@ -255,6 +265,7 @@ static void dhcp_clear_configuration(dhcp_client_t *client)
     client->lease_expiry = client->renewal_at = client->rebinding_at = 0;
 }
 
+/* Enter the SELECTING state and broadcast a DISCOVER. */
 static void dhcp_begin_discovery(dhcp_client_t *client, uint64_t now)
 {
     client->state             = DHCP_STATE_SELECTING;
@@ -267,6 +278,7 @@ static void dhcp_begin_discovery(dhcp_client_t *client, uint64_t now)
     dhcp_count_retry(client);
 }
 
+/* Clear the lease and restart discovery after the given delay. */
 static void dhcp_schedule_restart(dhcp_client_t *client, uint64_t now, uint64_t delay)
 {
     dhcp_clear_configuration(client);
@@ -275,6 +287,7 @@ static void dhcp_schedule_restart(dhcp_client_t *client, uint64_t now, uint64_t 
     client->retries     = 0;
 }
 
+/* Configure the interface from an ACK and enter the BOUND state. */
 static int dhcp_apply_lease(dhcp_client_t *client, const dhcp_reply_t *reply, uint64_t now)
 {
     uint32_t address = reply->offered_address ? reply->offered_address : client->device->ipv4_address;
@@ -305,6 +318,7 @@ static int dhcp_apply_lease(dhcp_client_t *client, const dhcp_reply_t *reply, ui
     return 0;
 }
 
+/* Locate a client by transaction ID and hardware address. */
 static dhcp_client_t *dhcp_find_client(uint32_t xid, const uint8_t hardware_address[6])
 {
     for (unsigned i = 0; i < NETDEV_MAX; i++)
@@ -312,6 +326,7 @@ static dhcp_client_t *dhcp_find_client(uint32_t xid, const uint8_t hardware_addr
     return NULL;
 }
 
+/* Drain UDP datagrams and drive OFFER/ACK/NAK state transitions. */
 static void dhcp_receive_replies(uint64_t now)
 {
     uint8_t        packet[DHCP_PACKET_CAPACITY];
@@ -352,6 +367,7 @@ static void dhcp_receive_replies(uint64_t now)
     }
 }
 
+/* Attach a client record to each broadcast-capable device, once. */
 static void dhcp_track_device(net_device_t *device, void *context)
 {
     (void)context;
@@ -375,6 +391,7 @@ static void dhcp_track_device(net_device_t *device, void *context)
     spin_unlock(&dhcp_lock);
 }
 
+/* Advance the client state machine: link, discovery, renewal, and expiry. */
 static void dhcp_advance(dhcp_client_t *client, uint64_t now)
 {
     int running = (client->device->flags & (NETDEV_F_UP | NETDEV_F_RUNNING)) == (NETDEV_F_UP | NETDEV_F_RUNNING);
@@ -450,6 +467,7 @@ void dhcp_init(void)
     }
 }
 
+/* Periodic tick: track devices, process replies, and advance each client. */
 void dhcp_timer(uint64_t now_ticks)
 {
     if (!dhcp_endpoint) return;
@@ -461,6 +479,7 @@ void dhcp_timer(uint64_t now_ticks)
     spin_unlock(&dhcp_lock);
 }
 
+/* Release the client record and its device reference on removal. */
 void dhcp_device_removed(net_device_t *device)
 {
     if (!device) return;

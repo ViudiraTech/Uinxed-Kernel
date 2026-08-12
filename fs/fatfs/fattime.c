@@ -11,6 +11,7 @@
 #include <arch/cmos.h>
 #include <fs/fatfs/ff.h>
 
+/* FatFs timestamp callback: current time encoded as a FAT timestamp. */
 DWORD get_fattime(void)
 {
     DWORD year = get_year();

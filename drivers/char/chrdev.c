@@ -20,6 +20,7 @@
 static cdev_t    *chrdev_list;
 static spinlock_t chrdev_lock;
 
+/* Register a character device range, creating nodes under /dev. */
 int cdev_add(const char *dir, const char *name, uint32_t major, uint32_t minor, uint32_t count, uint16_t node_type, uint16_t mode,
              const tmpfs_device_ops_t *ops)
 {
@@ -45,6 +46,7 @@ int cdev_add(const char *dir, const char *name, uint32_t major, uint32_t minor, 
     return 0;
 }
 
+/* Unregister a character device by its /dev path. */
 int cdev_del(const char *path)
 {
     char     full[96];
@@ -72,6 +74,7 @@ int cdev_del(const char *path)
     return status;
 }
 
+/* Find the cdev covering a given major/minor pair. */
 cdev_t *chrdev_lookup(uint32_t major, uint32_t minor)
 {
     cdev_t *cdev;
@@ -85,6 +88,7 @@ cdev_t *chrdev_lookup(uint32_t major, uint32_t minor)
     return cdev;
 }
 
+/* Create device nodes for every registered character device. */
 int chrdev_populate(void)
 {
     int     count = 0;
@@ -128,6 +132,7 @@ int chrdev_populate(void)
     return count;
 }
 
+/* Initialize the character device subsystems (mem, kmsg). */
 void chrdev_init(void)
 {
     memdev_init();

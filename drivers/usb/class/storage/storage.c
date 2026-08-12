@@ -71,21 +71,25 @@ static int        usb_storage_type = -1;
 static bool       usb_storage_disk_ids[USB_MSC_MAX_DISKS];
 static spinlock_t usb_storage_disk_lock;
 
+/* Read a big-endian 64-bit value from a SCSI response. */
 static uint64_t usb_scsi_be64(const uint8_t *data)
 {
     return (uint64_t)usb_scsi_be32(data) << 32 | usb_scsi_be32(data + 4);
 }
 
+/* Spin until this storage device is exclusively owned by a command. */
 static void usb_storage_lock(usb_storage_device_t *storage)
 {
     while (__atomic_test_and_set(&storage->io_busy, __ATOMIC_ACQUIRE)) __asm__ volatile("pause");
 }
 
+/* Release the exclusive command lock. */
 static void usb_storage_unlock(usb_storage_device_t *storage)
 {
     __atomic_clear(&storage->io_busy, __ATOMIC_RELEASE);
 }
 
+/* Transfer one bulk message, reporting the actual byte count. */
 static int usb_storage_bulk(usb_endpoint_t *endpoint, void *buffer, size_t length, size_t *actual)
 {
     size_t transferred = 0;
@@ -94,6 +98,7 @@ static int usb_storage_bulk(usb_endpoint_t *endpoint, void *buffer, size_t lengt
     return status;
 }
 
+/* Bulk transfer that must move exactly length bytes. */
 static int usb_storage_bulk_exact(usb_endpoint_t *endpoint, void *buffer, size_t length)
 {
     size_t actual = 0;
@@ -102,6 +107,7 @@ static int usb_storage_bulk_exact(usb_endpoint_t *endpoint, void *buffer, size_t
     return actual == length ? EOK : -EREMOTEIO;
 }
 
+/* Reset the mass-storage interface and clear both bulk endpoint halts. */
 static int usb_storage_reset(usb_storage_device_t *storage)
 {
     int status     = usb_control_msg(storage->interface->device, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE, USB_MSC_REQ_RESET, 0,
@@ -113,6 +119,7 @@ static int usb_storage_reset(usb_storage_device_t *storage)
     return out_status;
 }
 
+/* Run a full CBW/CSW command cycle; caller must hold the storage lock. */
 static int usb_storage_command_locked(usb_storage_device_t *storage, uint8_t lun, const void *command, uint8_t command_length, void *data,
                                       uint32_t data_length, bool input)
 {
@@ -170,12 +177,12 @@ static int usb_storage_command_locked(usb_storage_device_t *storage, uint8_t lun
         return -EIO;
     }
     status = -EPROTO;
-
 recover:
     (void)usb_storage_reset(storage);
     return status;
 }
 
+/* Locked wrapper around usb_storage_command_locked() with a liveness check. */
 static int usb_storage_command(usb_storage_lun_t *lun, const void *command, uint8_t command_length, void *data, uint32_t data_length, bool input)
 {
     usb_storage_device_t *storage = lun->storage;
@@ -190,6 +197,7 @@ static int usb_storage_command(usb_storage_lun_t *lun, const void *command, uint
     return status;
 }
 
+/* Issue REQUEST SENSE to clear the device's check condition. */
 static int usb_storage_request_sense(usb_storage_lun_t *lun)
 {
     uint8_t command[6] = {0x03, 0, 0, 0, 18, 0};
@@ -197,6 +205,7 @@ static int usb_storage_request_sense(usb_storage_lun_t *lun)
     return usb_storage_command(lun, command, sizeof(command), response, sizeof(response), true);
 }
 
+/* Poll TEST UNIT READY until the device reports ready. */
 static int usb_storage_wait_ready(usb_storage_lun_t *lun)
 {
     uint8_t command[6] = {0};
@@ -209,6 +218,7 @@ static int usb_storage_wait_ready(usb_storage_lun_t *lun)
     return -ENOMEDIUM;
 }
 
+/* Query the device capacity, falling back to the 16-byte command. */
 static int usb_storage_capacity(usb_storage_lun_t *lun)
 {
     uint8_t command10[10] = {0x25};
@@ -232,6 +242,7 @@ static int usb_storage_capacity(usb_storage_lun_t *lun)
     return EOK;
 }
 
+/* Read the mode page to detect a read-only device. */
 static void usb_storage_mode_sense(usb_storage_lun_t *lun)
 {
     uint8_t command[6] = {0x1a, 0, 0x3f, 0, 4, 0};
@@ -239,6 +250,7 @@ static void usb_storage_mode_sense(usb_storage_lun_t *lun)
     if (usb_storage_command(lun, command, sizeof(command), response, sizeof(response), true) == EOK) lun->read_only = (response[2] & 0x80) != 0;
 }
 
+/* Build a 16-byte READ(16)/WRITE(16) SCSI command. */
 static void usb_scsi_build_rw16(uint8_t command[16], bool write, uint64_t lba, uint32_t blocks)
 {
     memset(command, 0, 16);
@@ -250,6 +262,7 @@ static void usb_scsi_build_rw16(uint8_t command[16], bool write, uint64_t lba, u
     command[13] = (uint8_t)blocks;
 }
 
+/* Read or write a block range, chunking and choosing the SCSI command. */
 static int usb_storage_rw(const blockdev_device_t *device, uint64_t lba, uint32_t count, void *buffer, bool write)
 {
     usb_storage_lun_t *lun = device ? device->backend_data : NULL;
@@ -292,6 +305,7 @@ static int usb_storage_write(const blockdev_device_t *device, uint64_t lba, uint
     return usb_storage_rw(device, lba, count, (void *)buffer, true);
 }
 
+/* Flush the device cache with SYNCHRONIZE CACHE. */
 static int usb_storage_flush(const blockdev_device_t *device)
 {
     usb_storage_lun_t *lun         = device ? device->backend_data : NULL;
@@ -301,12 +315,14 @@ static int usb_storage_flush(const blockdev_device_t *device)
     return usb_storage_command(lun, command, sizeof(command), NULL, 0, false);
 }
 
+/* Take a reference on the storage device while the blockdev is in use. */
 static void usb_storage_retain(const blockdev_device_t *device)
 {
     usb_storage_lun_t *lun = device ? device->backend_data : NULL;
     if (lun && lun->storage) __atomic_add_fetch(&lun->storage->references, 1, __ATOMIC_RELAXED);
 }
 
+/* Drop a reference, freeing the storage device at zero. */
 static void usb_storage_release(const blockdev_device_t *device)
 {
     usb_storage_lun_t *lun = device ? device->backend_data : NULL;
@@ -321,6 +337,7 @@ static struct blockdev_ops usb_storage_ops = {
     .release       = usb_storage_release,
 };
 
+/* Claim the next free sdN disk name and its /dev node. */
 static int usb_storage_allocate_name(char *name, size_t size, uint16_t *disk_index)
 {
     spin_lock(&usb_storage_disk_lock);
@@ -342,6 +359,7 @@ static int usb_storage_allocate_name(char *name, size_t size, uint16_t *disk_ind
     return -ENOSPC;
 }
 
+/* Release a claimed disk index. */
 static void usb_storage_release_name(uint16_t index)
 {
     if (index >= USB_MSC_MAX_DISKS) return;
@@ -350,6 +368,7 @@ static void usb_storage_release_name(uint16_t index)
     spin_unlock(&usb_storage_disk_lock);
 }
 
+/* Publish a LUN as a block device and register its sysfs entry. */
 static int usb_storage_register_lun(usb_storage_lun_t *lun)
 {
     char path[32];
@@ -370,7 +389,6 @@ static int usb_storage_register_lun(usb_storage_lun_t *lun)
     if (status != EOK) goto fail_devtmpfs;
     lun->registered = true;
     return EOK;
-
 fail_devtmpfs:
     devtmpfs_unregister_block_device(lun->devtmpfs);
     lun->devtmpfs = NULL;
@@ -379,6 +397,7 @@ fail_name:
     return status;
 }
 
+/* Remove a LUN's block device, sysfs entry, and disk name. */
 static void usb_storage_unregister_lun(usb_storage_lun_t *lun)
 {
     if (!lun->registered) return;
@@ -390,6 +409,7 @@ static void usb_storage_unregister_lun(usb_storage_lun_t *lun)
     lun->registered = false;
 }
 
+/* Probe a bulk-only mass-storage interface and register its LUNs. */
 int usb_storage_probe(usb_interface_t *interface)
 {
 #if CONFIG_USB_STORAGE
@@ -441,6 +461,7 @@ int usb_storage_probe(usb_interface_t *interface)
 #endif
 }
 
+/* Disconnect: mark offline, unregister LUNs, and release the device. */
 void usb_storage_disconnect(usb_interface_t *interface)
 {
 #if CONFIG_USB_STORAGE

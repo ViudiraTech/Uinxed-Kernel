@@ -42,6 +42,7 @@ static int pi_waiter_less(const rb_node_t *a, const rb_node_t *b)
     return ta->pid > tb->pid;
 }
 
+/* rbtree augment callback (no per-node augmentation is maintained). */
 void pi_waiter_augment(rb_node_t *node, void *data)
 {
     (void)data;
@@ -132,6 +133,7 @@ void rt_mutex_init(rt_mutex_t *mutex, uint32_t *uaddr)
     rb_init_root(&mutex->pi_waiters);
 }
 
+/* Try to acquire the mutex without blocking. */
 int rt_mutex_trylock(rt_mutex_t *mutex, task_t *self)
 {
     if (!mutex || !self) return -EINVAL;
@@ -145,6 +147,7 @@ int rt_mutex_trylock(rt_mutex_t *mutex, task_t *self)
     return EOK;
 }
 
+/* Acquire the mutex, blocking with priority inheritance on contention. */
 int rt_mutex_lock(rt_mutex_t *mutex, task_t *self)
 {
     if (!mutex || !self) return -EINVAL;
@@ -182,6 +185,7 @@ int rt_mutex_lock(rt_mutex_t *mutex, task_t *self)
     }
 }
 
+/* Release the mutex, waking the highest-priority waiter as the new owner. */
 int rt_mutex_unlock(rt_mutex_t *mutex, task_t *self)
 {
     if (!mutex || !self) return -EINVAL;
@@ -209,6 +213,7 @@ int rt_mutex_unlock(rt_mutex_t *mutex, task_t *self)
     return EOK;
 }
 
+/* Remove and return the highest-priority waiter from the PI tree. */
 task_t *rt_mutex_wake_top_waiter(rt_mutex_t *mutex)
 {
     if (!mutex) return NULL;

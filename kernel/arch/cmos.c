@@ -22,7 +22,7 @@ uint8_t read_cmos(uint8_t p)
     /* Read the value in the CMOS data register */
     data = inb(cmos_data);
 
-    /* Send 0x80 to the CMOS index register, probably to reset or terminate the read signal */
+    /* Set bit 7 (NMI disable) on the index port to terminate the access */
     outb(cmos_index, 0x80);
     return data;
 }
@@ -36,7 +36,7 @@ void write_cmos(uint8_t p, uint8_t data)
     /* Write data to CMOS data register */
     outb(cmos_data, data);
 
-    /* Send 0x80 to the CMOS index register, probably to reset or terminate the read signal */
+    /* Set bit 7 (NMI disable) on the index port to terminate the access */
     outb(cmos_index, 0x80);
 }
 

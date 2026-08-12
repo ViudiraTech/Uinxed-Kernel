@@ -59,6 +59,7 @@ static int64_t kmsg_write(void *ctx, void *private_data, uint64_t flags, const v
     return (int64_t)size;
 }
 
+/* Register the /dev/kmsg character device. */
 void kmsgdev_init(void)
 {
     static const tmpfs_device_ops_t ops = {

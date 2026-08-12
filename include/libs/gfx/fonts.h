@@ -13,6 +13,7 @@
 
 #include <libs/std/stdint.h>
 
+/* Built-in 8x16 ASCII bitmap glyph data */
 extern uint8_t ascii_font[];
 
 #endif // INCLUDE_FONTS_H_

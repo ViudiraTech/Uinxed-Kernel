@@ -168,11 +168,13 @@ typedef struct msginfo {
 
 /* System V IPC syscall interface */
 
+/* Semaphore operations. */
 int64_t sys_semget(key_t key, int nsems, int semflg);
 int64_t sys_semop(int semid, sembuf_t *sops, size_t nsops);
 int64_t sys_semtimedop(int semid, sembuf_t *sops, size_t nsops, const void *timeout);
 int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg);
 
+/* Shared memory operations. */
 int64_t sys_shmget(key_t key, size_t size, int shmflg);
 int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg);
 int64_t sys_shmdt(const void *shmaddr);
@@ -182,11 +184,13 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf);
 int  sysv_shm_vma_get(void *identity, uint32_t pid);
 void sysv_shm_vma_put(void *identity, uint32_t pid);
 
+/* Message queue operations. */
 int64_t sys_msgget(key_t key, int msgflg);
 int64_t sys_msgsnd(int msqid, const void *msgp, size_t msgsz, int msgflg);
 int64_t sys_msgrcv(int msqid, void *msgp, size_t msgsz, int64_t msgtyp, int msgflg);
 int64_t sys_msgctl(int msqid, int cmd, void *buf);
 
+/* Initialize the System V IPC subsystem. */
 void sysv_ipc_init(void);
 
 #endif // INCLUDE_SYSV_IPC_H_

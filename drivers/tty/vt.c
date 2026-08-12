@@ -65,6 +65,7 @@ static spinlock_t console_emit_lock;
 static tty_file_endpoint_t vt_endpoints[VT_TTY_COUNT - 1];
 #endif
 
+/* Queue one output byte, dropping the oldest byte on overflow. */
 static void tty_vga_queue_push(char ch)
 {
     size_t next = (tty_vga_head + 1) % TTY_VGA_QUEUE_SIZE;
@@ -87,6 +88,7 @@ static size_t tty_vga_queue_used(void)
     return (tty_vga_head + TTY_VGA_QUEUE_SIZE - tty_vga_tail) % TTY_VGA_QUEUE_SIZE;
 }
 
+/* Drain the queued output through fbcon; caller holds the flush lock. */
 static void tty_vga_flush_locked(void)
 {
     size_t out = 0;
@@ -153,6 +155,7 @@ void tty_buff_flush(void)
     spin_unlock(&tty_flush_spinlock);
 }
 
+/* Flush only the queued VGA output (used while the console tty is held). */
 void tty_deferred_flush(void)
 {
     spin_lock(&tty_flush_spinlock);
@@ -197,6 +200,7 @@ void tty_print_str(const char *str)
     }
 }
 
+/* tty_core emit: forward output to the console buffer. */
 static int console_emit(void *context, const uint8_t *data, size_t size, uint64_t flags)
 {
     (void)context;
@@ -208,6 +212,7 @@ static int console_emit(void *context, const uint8_t *data, size_t size, uint64_
     return (int)size;
 }
 
+/* tty_core emit for non-current virtual consoles: drop the output. */
 static int inactive_vt_emit(void *context, const uint8_t *data, size_t size, uint64_t flags)
 {
     (void)context;
@@ -216,6 +221,7 @@ static int inactive_vt_emit(void *context, const uint8_t *data, size_t size, uin
     return (int)size;
 }
 
+/* Create the console tty core and the virtual-ttys (once). */
 static void vt_input_init(void)
 {
     spin_lock(&console_tty_init_lock);
@@ -239,12 +245,14 @@ static void vt_input_init(void)
     spin_unlock(&console_tty_init_lock);
 }
 
+/* Propagate a framebuffer size change to the console tty's winsize. */
 void tty_console_resize(uint16_t rows, uint16_t cols)
 {
     vt_input_init();
     tty_core_set_winsize(&console_tty, rows, cols);
 }
 
+/* Legacy device write: output to the console tty core. */
 size_t tty_dev_write(void *ctx, const void *addr, size_t offset, size_t size)
 {
     (void)ctx;
@@ -347,6 +355,7 @@ void tty_handle_scancode(uint8_t scancode, bool pressed)
 }
 #endif /* CONFIG_VT */
 
+/* Legacy device read: read from the console tty core. */
 size_t tty_dev_read(void *ctx, void *addr, size_t offset, size_t size)
 {
     (void)ctx;
@@ -356,6 +365,7 @@ size_t tty_dev_read(void *ctx, void *addr, size_t offset, size_t size)
     return result < 0 ? 0 : (size_t)result;
 }
 
+/* Legacy device poll: report the console tty's readiness. */
 int tty_dev_poll(void *ctx, size_t events)
 {
     (void)ctx;
@@ -363,6 +373,7 @@ int tty_dev_poll(void *ctx, size_t events)
     return tty_core_poll(&console_tty, events);
 }
 
+/* Validate that a session leader may acquire the console. */
 int tty_console_acquire(struct process *proc, uint64_t flags)
 {
     if (!proc || !proc->task || (flags & (O_NOCTTY | O_PATH)) || (flags & O_ACCMODE) == O_WRONLY) return -EINVAL;
@@ -377,11 +388,13 @@ int tty_console_acquire(struct process *proc, uint64_t flags)
 #if CONFIG_VT
 /* Virtual console tty driver (major 4, tty0-ttyN) */
 
+/* Map a ttyN index to a virtual-console slot (tty0/tty1 share VT 1). */
 static int vt_slot_for_index(int index)
 {
     return (index <= 1) ? 0 : index - 1;
 }
 
+/* tty driver open: bind the node to its virtual-console endpoint. */
 static int vt_driver_open(tty_driver_t *drv, int index, uint64_t flags, void **private_data)
 {
     int slot;
@@ -402,6 +415,7 @@ static int vt_driver_release(tty_driver_t *drv, int index, void *private_data)
     return 0;
 }
 
+/* tty driver read from the virtual-console core. */
 static int64_t vt_driver_read(tty_driver_t *drv, int index, void *private_data, uint64_t flags, void *addr, size_t size)
 {
     tty_file_endpoint_t *ep = private_data;
@@ -410,6 +424,7 @@ static int64_t vt_driver_read(tty_driver_t *drv, int index, void *private_data, 
     return ep && ep->core ? tty_core_read(ep->core, addr, size, flags) : -ENXIO;
 }
 
+/* tty driver write to the virtual-console core. */
 static int64_t vt_driver_write(tty_driver_t *drv, int index, void *private_data, uint64_t flags, const void *addr, size_t size)
 {
     tty_file_endpoint_t *ep = private_data;
@@ -418,6 +433,7 @@ static int64_t vt_driver_write(tty_driver_t *drv, int index, void *private_data,
     return ep && ep->core ? tty_core_write(ep->core, addr, size, flags) : -ENXIO;
 }
 
+/* tty driver ioctl for a virtual console. */
 static int vt_driver_ioctl(tty_driver_t *drv, int index, void *private_data, uint64_t flags, size_t req, void *arg)
 {
     tty_file_endpoint_t *ep = private_data;
@@ -427,6 +443,7 @@ static int vt_driver_ioctl(tty_driver_t *drv, int index, void *private_data, uin
     return tty_core_ioctl_terminal(ep->core, flags, req, arg, ep->virtual_console);
 }
 
+/* tty driver poll for a virtual console. */
 static int vt_driver_poll(tty_driver_t *drv, int index, void *private_data, uint64_t flags, size_t events)
 {
     tty_file_endpoint_t *ep = private_data;
@@ -453,6 +470,7 @@ static tty_driver_t vt_tty_driver = {
 
 /* Auxiliary tty driver (major 5: /dev/tty, /dev/console) */
 
+/* Open /dev/tty (controlling tty) or /dev/console. */
 static int aux_driver_open(tty_driver_t *drv, int index, uint64_t flags, void **private_data)
 {
     tty_file_endpoint_t *ep;
@@ -486,6 +504,7 @@ static int aux_driver_open(tty_driver_t *drv, int index, uint64_t flags, void **
     return 0;
 }
 
+/* Release an aux tty endpoint and its retained core. */
 static int aux_driver_release(tty_driver_t *drv, int index, void *private_data)
 {
     tty_file_endpoint_t *ep = private_data;
@@ -496,6 +515,7 @@ static int aux_driver_release(tty_driver_t *drv, int index, void *private_data)
     return 0;
 }
 
+/* Read from the resolved aux tty core. */
 static int64_t aux_driver_read(tty_driver_t *drv, int index, void *private_data, uint64_t flags, void *addr, size_t size)
 {
     tty_file_endpoint_t *ep = private_data;
@@ -504,6 +524,7 @@ static int64_t aux_driver_read(tty_driver_t *drv, int index, void *private_data,
     return ep && ep->core ? tty_core_read(ep->core, addr, size, flags) : -ENXIO;
 }
 
+/* Write to the resolved aux tty core. */
 static int64_t aux_driver_write(tty_driver_t *drv, int index, void *private_data, uint64_t flags, const void *addr, size_t size)
 {
     tty_file_endpoint_t *ep = private_data;
@@ -512,6 +533,7 @@ static int64_t aux_driver_write(tty_driver_t *drv, int index, void *private_data
     return ep && ep->core ? tty_core_write(ep->core, addr, size, flags) : -ENXIO;
 }
 
+/* Forward ioctls to the resolved aux tty core. */
 static int aux_driver_ioctl(tty_driver_t *drv, int index, void *private_data, uint64_t flags, size_t req, void *arg)
 {
     tty_file_endpoint_t *ep = private_data;
@@ -521,6 +543,7 @@ static int aux_driver_ioctl(tty_driver_t *drv, int index, void *private_data, ui
     return tty_core_ioctl_terminal(ep->core, flags, req, arg, ep->virtual_console);
 }
 
+/* Poll the resolved aux tty core. */
 static int aux_driver_poll(tty_driver_t *drv, int index, void *private_data, uint64_t flags, size_t events)
 {
     tty_file_endpoint_t *ep = private_data;
@@ -547,6 +570,7 @@ static tty_driver_t aux_tty_driver = {
 
 /* Console drivers (output through the framebuffer console) */
 
+/* Console write: queue output to the framebuffer console. */
 static void vga_console_write(console_t *c, const uint8_t *buf, size_t len)
 {
     /*
@@ -592,6 +616,7 @@ void vt_console_init(void)
     (void)register_console(&drm_console);
 }
 
+/* Register the vt and aux tty drivers with their /dev nodes. */
 void vt_driver_init(void)
 {
 #if CONFIG_VT

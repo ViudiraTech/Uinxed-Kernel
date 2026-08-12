@@ -198,7 +198,6 @@ static int i2c_dev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t r
             }
             ret = i2c_transfer(adap, kmsgs, (int)data.nmsgs);
             if (ret >= 0) ret = (int)data.nmsgs;
-
 rdwr_out:
             for (uint32_t j = 0; j < i; j++) free(bufs[j]);
             free(bufs);
@@ -212,6 +211,7 @@ rdwr_out:
 
 /* Adapter lifecycle hooks */
 
+/* Publish an i2c adapter as a sysfs device and /dev/i2c-N node. */
 int i2c_sysfs_adapter_add(struct i2c_adapter *adap)
 {
     i2c_adapter_dev_t *adev;
@@ -263,6 +263,7 @@ int i2c_sysfs_adapter_add(struct i2c_adapter *adap)
 #endif
 }
 
+/* Remove an i2c adapter from sysfs and devtmpfs. */
 void i2c_sysfs_adapter_del(struct i2c_adapter *adap)
 {
     i2c_adapter_dev_t *adev = NULL;
@@ -292,6 +293,7 @@ void i2c_sysfs_adapter_del(struct i2c_adapter *adap)
 
 /* Registration */
 
+/* Register the i2c bus and i2c-dev class. */
 void i2c_sysfs_init(void)
 {
 #if CONFIG_SYSFS

@@ -58,6 +58,7 @@ int buddy_init(buddy_allocator_t *allocator, buddy_page_t *metadata, size_t page
     return 0;
 }
 
+/* Push a block onto the head of its order's free list. */
 static void list_add(buddy_allocator_t *allocator, size_t index, unsigned order)
 {
     buddy_page_t *page = &allocator->pages[index];
@@ -73,6 +74,7 @@ static void list_add(buddy_allocator_t *allocator, size_t index, unsigned order)
     allocator->free_pages += order_units(order);
 }
 
+/* Unlink a block from its order's free list. */
 static void list_remove(buddy_allocator_t *allocator, size_t index, unsigned order)
 {
     buddy_page_t *page = &allocator->pages[index];

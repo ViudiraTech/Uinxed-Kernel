@@ -40,8 +40,6 @@
 #include <syscall/memfd.h>
 #include <syscall/syscall.h>
 
-/* Pipe init extern declaration */
-
 #ifndef PROCESS_TABLE_SIZE
 #    define PROCESS_TABLE_SIZE 4096
 #endif
@@ -854,7 +852,7 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
             file->private_data = priv;
             file->file_opened  = true;
         } else if (ret != -ENOSYS) {
-            /* Real error from the callback --abort. */
+            /* Real error from the callback; abort. */
             free(file);
             return ret;
         }
@@ -873,7 +871,7 @@ int process_fd_install(process_t *proc, vfs_node_t node, uint64_t flags)
     }
     spin_unlock(&proc->fd_lock);
 
-    /* Failed to find a free FD slot --release private_data. */
+    /* No free FD slot; release the open-file state. */
     if (file->file_opened) callbackof(node, file_release)(node, file->private_data);
     free(file);
     return -EMFILE;
@@ -2406,7 +2404,6 @@ int process_mmap(process_t *proc, uintptr_t addr, size_t length, vm_flags_t flag
     spin_unlock(&proc->mmap_lock);
     free(frames);
     return 0;
-
 rollback_frames:
     for (size_t i = 0; i < allocated; i++)
         if (frames[i]) (void)frame_release_range(frames[i], 1);
@@ -2496,11 +2493,9 @@ int process_demand_fault(process_t *proc, uintptr_t addr, int write, int exec)
     spin_unlock(&proc->mmap_lock);
     if (vm_file) vfs_close(vm_file);
     return 0;
-
 fail_frame_locked:
     spin_unlock(&proc->mmap_lock);
     (void)frame_release_range(frame, 1);
-
 fail:
     if (vm_file) vfs_close(vm_file);
     return -1;

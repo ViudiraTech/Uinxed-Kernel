@@ -68,8 +68,13 @@ typedef struct extfs_jnl_superblock {
         uint8_t            user_uuids[16 * 48];
 } __attribute__((packed)) extfs_jnl_superblock_t;
 
-int                         extfs_jnl_open(struct extfs_sb_info *sb, extfs_journal_t **journal);
-void                        extfs_jnl_close(extfs_journal_t *journal);
+/* Open (or recover) the journal for a filesystem. */
+int extfs_jnl_open(struct extfs_sb_info *sb, extfs_journal_t **journal);
+
+/* Close a journal and release its transaction log. */
+void extfs_jnl_close(extfs_journal_t *journal);
+
+/* Return the fs_txn backend ops driving the journal. */
 const fs_txn_backend_ops_t *extfs_jnl_backend_ops(void);
 
 #endif // INCLUDE_EXTFS_JNL_H_

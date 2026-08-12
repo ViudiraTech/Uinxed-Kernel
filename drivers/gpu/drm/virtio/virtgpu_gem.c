@@ -20,6 +20,7 @@
 
 /* Object alloc / free */
 
+/* Allocate a GEM object backed by physically contiguous frames. */
 struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_t size)
 {
     struct virtio_gpu_object *obj;
@@ -77,6 +78,7 @@ struct virtio_gpu_object *virtgpu_gem_alloc_object(struct drm_device *dev, size_
     return obj;
 }
 
+/* Release the host resource and free the GEM object. */
 void virtgpu_gem_free_object(struct drm_gem_object *gem_obj)
 {
     struct virtio_gpu_object *obj = to_virtio_gpu_object(gem_obj);
@@ -107,6 +109,7 @@ void virtgpu_gem_free_object(struct drm_gem_object *gem_obj)
 
 /* Dumb buffer helpers */
 
+/* Create a dumb-buffer backed by a host-side 2D resource. */
 int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, struct drm_mode_create_dumb *args)
 {
     struct virtio_gpu_device *vgdev = (struct virtio_gpu_device *)dev->dev_private;
@@ -166,6 +169,7 @@ int virtgpu_gem_dumb_create(struct drm_file *file_priv, struct drm_device *dev, 
     return 0;
 }
 
+/* Return the mmap offset for a dumb-buffer handle. */
 int virtgpu_gem_dumb_map_offset(struct drm_file *file_priv, struct drm_device *dev, uint32_t handle, uint64_t *offset)
 {
     struct drm_gem_object *gem_obj;
@@ -190,12 +194,14 @@ int virtgpu_gem_dumb_map_offset(struct drm_file *file_priv, struct drm_device *d
 
 /* PRIME export / import (dma-buf) */
 
+/* Export a GEM object as a PRIME dma-buf fd. */
 int virtgpu_gem_prime_export(struct drm_device *dev, struct drm_gem_object *obj, int *prime_fd)
 {
     (void)obj;
     return drm_gem_prime_handle_to_fd(dev, NULL, 0, DRM_PRIME_CAP_EXPORT, prime_fd);
 }
 
+/* Import a dma-buf as a GEM object owned by this device. */
 struct drm_gem_object *virtgpu_gem_prime_import(struct drm_device *dev, void *dma_buf)
 {
     struct drm_gem_object *obj = (struct drm_gem_object *)dma_buf;

@@ -32,10 +32,9 @@ static netdev_lifecycle_fn lifecycle_notifier;
 static void               *lifecycle_context;
 
 /*
- * Overview
- * core.c holds the network stack's global registry: the device
- * table, device lifecycle notifications, and the checksum helpers
- * shared by all protocol layers.
+ * core.c holds the network stack's global registry: the device table,
+ * device lifecycle notifications, and the checksum helpers shared by all
+ * protocol layers.
  */
 
 /*
@@ -101,22 +100,26 @@ uint32_t net_checksum_add(uint32_t sum, const void *data, size_t length)
         sse_ok      = kernel_sse_available() != 0 && cpu_support_sse2() != 0;
         sse_checked = 1;
     }
+
     /* FPU-section overhead only pays off for buffers of at least a few vectors */
     if (sse_ok && length >= 128) return net_checksum_add_sse2(sum, data, length);
     return net_checksum_add_words(sum, data, length);
 }
 
+/* Fold a partial sum down to a 16-bit one's-complement result. */
 uint16_t net_checksum_finish(uint32_t sum)
 {
     while (sum >> 16) sum = (sum & 0xffffU) + (sum >> 16);
     return (uint16_t)~sum;
 }
 
+/* Compute the RFC 1071 checksum of a buffer. */
 uint16_t net_checksum(const void *data, size_t length)
 {
     return net_checksum_finish(net_checksum_add(0, data, length));
 }
 
+/* Compute the IPv4 pseudo-header checksum for a transport segment. */
 uint16_t net_checksum_ipv4_pseudo(uint32_t source, uint32_t destination, uint8_t protocol, const void *data, size_t length)
 {
     uint8_t pseudo[12];
@@ -128,6 +131,7 @@ uint16_t net_checksum_ipv4_pseudo(uint32_t source, uint32_t destination, uint8_t
     return net_checksum_finish(net_checksum_add(net_checksum_add(0, pseudo, sizeof(pseudo)), data, length));
 }
 
+/* Allocate a packet buffer with room for a protocol header in the headroom. */
 net_pbuf_t *net_pbuf_alloc(size_t payload_length, size_t headroom)
 {
     if (payload_length > NET_PBUF_MAX_SIZE || headroom > NET_PBUF_MAX_SIZE || payload_length > NET_PBUF_MAX_SIZE - headroom) {
@@ -153,6 +157,7 @@ net_pbuf_t *net_pbuf_alloc(size_t payload_length, size_t headroom)
     return pbuf;
 }
 
+/* Wrap a driver-owned buffer as a packet that calls release when freed. */
 int net_packet_init_external(net_packet_t *packet, void *data, size_t length, net_packet_release_t release, void *context)
 {
     if (!packet || (!data && length)) return -EINVAL;
@@ -185,6 +190,7 @@ size_t net_packet_length(const net_packet_t *packet)
     return packet ? packet->length : 0;
 }
 
+/* Create a packet buffer containing a copy of data with the given headroom. */
 net_pbuf_t *net_pbuf_from(const void *data, size_t length, size_t headroom)
 {
     if (!data && length) return NULL;
@@ -198,12 +204,14 @@ net_pbuf_t *net_pbuf_clone(const net_pbuf_t *pbuf, size_t headroom)
     return pbuf ? net_pbuf_from(pbuf->data, pbuf->length, headroom) : NULL;
 }
 
+/* Take a reference on a packet buffer. */
 void net_pbuf_ref(net_pbuf_t *pbuf)
 {
     if (!pbuf) return;
     __sync_add_and_fetch(&pbuf->refs, 1);
 }
 
+/* Release a reference on a packet buffer, freeing it when none remain. */
 void net_pbuf_free(net_pbuf_t *pbuf)
 {
     if (!pbuf) return;
@@ -221,6 +229,7 @@ size_t net_pbuf_headroom(const net_pbuf_t *pbuf)
     return pbuf ? (size_t)(pbuf->data - pbuf->storage) : 0;
 }
 
+/* Prepend a header by moving the data pointer back within the headroom. */
 void *net_pbuf_push(net_pbuf_t *pbuf, size_t length)
 {
     if (!pbuf || length > net_pbuf_headroom(pbuf)) return NULL;
@@ -229,6 +238,7 @@ void *net_pbuf_push(net_pbuf_t *pbuf, size_t length)
     return pbuf->data;
 }
 
+/* Strip a header by advancing the data pointer. */
 void *net_pbuf_pull(net_pbuf_t *pbuf, size_t length)
 {
     if (!pbuf || length > pbuf->length) return NULL;
@@ -237,6 +247,7 @@ void *net_pbuf_pull(net_pbuf_t *pbuf, size_t length)
     return pbuf->data;
 }
 
+/* Truncate the packet to the given length. */
 int net_pbuf_trim(net_pbuf_t *pbuf, size_t length)
 {
     if (!pbuf || length > pbuf->length) return -EINVAL;
@@ -255,6 +266,7 @@ void net_timer(uint64_t now_ticks)
     ndp_timer(now_ticks);
 }
 
+/* Register a device in the global table, assigning it a unique ifindex. */
 int netdev_register(net_device_t *device)
 {
     if (!device || !device->ops || !device->ops->xmit || !device->name[0] || device->mtu < NETDEV_MTU_MIN || device->mtu > NETDEV_MTU_MAX)
@@ -285,6 +297,7 @@ int netdev_register(net_device_t *device)
     return 0;
 }
 
+/* Initialize a driver-owned device structure with the given name and ops. */
 int netdev_init(netdev_t *device, const char *name, const netdev_ops_t *ops, void *private_data)
 {
     if (!device || !name || !name[0] || !ops || !ops->xmit || strlen(name) >= NETDEV_NAME_MAX) return -EINVAL;
@@ -312,6 +325,7 @@ void *netdev_private(netdev_t *device)
     return device ? device->driver_data : NULL;
 }
 
+/* Unregister a device, stopping it and notifying protocol layers. */
 int netdev_unregister(net_device_t *device)
 {
     if (!device) return -EINVAL;
@@ -343,6 +357,7 @@ int netdev_unregister(net_device_t *device)
     return 0;
 }
 
+/* Take a reference on a registered device while holding the table lock. */
 static net_device_t *device_get_locked(net_device_t *device)
 {
     if (!device || !device->registered) return NULL;
@@ -352,6 +367,7 @@ static net_device_t *device_get_locked(net_device_t *device)
     return device;
 }
 
+/* Look up a registered device by name and take a reference on it. */
 net_device_t *netdev_get_by_name(const char *name)
 {
     if (!name) return NULL;
@@ -367,6 +383,7 @@ net_device_t *netdev_get_by_name(const char *name)
     return result;
 }
 
+/* Return the first device that is up and running, or NULL if none. */
 net_device_t *netdev_get_default(void)
 {
     spin_lock(&devices_lock);
@@ -381,6 +398,7 @@ net_device_t *netdev_get_default(void)
     return result;
 }
 
+/* Invoke callback for a snapshot of all registered devices, outside the table lock. */
 void netdev_iterate(netdev_iter_fn callback, void *context)
 {
     if (!callback) return;
@@ -396,6 +414,7 @@ void netdev_iterate(netdev_iter_fn callback, void *context)
     }
 }
 
+/* Register a callback invoked on device registration/unregistration. */
 int netdev_set_lifecycle_notifier(netdev_lifecycle_fn callback, void *context)
 {
     spin_lock(&devices_lock);
@@ -409,6 +428,7 @@ int netdev_set_lifecycle_notifier(netdev_lifecycle_fn callback, void *context)
     return 0;
 }
 
+/* Drop a device reference acquired by netdev_get_*. */
 void netdev_put(net_device_t *device)
 {
     if (!device) return;
@@ -417,6 +437,7 @@ void netdev_put(net_device_t *device)
     spin_unlock(&device->lock);
 }
 
+/* Bring the device up or down, invoking the driver's open/stop hooks. */
 int netdev_set_up(net_device_t *device, int up)
 {
     if (!device || !device->registered) return -ENODEV;
@@ -437,6 +458,7 @@ int netdev_set_up(net_device_t *device, int up)
     return 0;
 }
 
+/* Change the device MTU through the driver, if it supports it. */
 int netdev_set_mtu(net_device_t *device, uint32_t mtu)
 {
     if (!device || mtu < NETDEV_MTU_MIN || mtu > NETDEV_MTU_MAX) return -EINVAL;
@@ -448,6 +470,7 @@ int netdev_set_mtu(net_device_t *device, uint32_t mtu)
     return 0;
 }
 
+/* Assign the device an IPv4 address, netmask, and gateway. */
 int netdev_configure_ipv4(net_device_t *device, uint32_t address, uint32_t netmask, uint32_t gateway)
 {
     if (!device || !device->registered) return -ENODEV;
@@ -461,6 +484,7 @@ int netdev_configure_ipv4(net_device_t *device, uint32_t address, uint32_t netma
     return 0;
 }
 
+/* Set the device's DNS server list. */
 int netdev_configure_dns(net_device_t *device, const uint32_t *servers, size_t count)
 {
     if (!device || !device->registered) return -ENODEV;
@@ -472,6 +496,7 @@ int netdev_configure_dns(net_device_t *device, const uint32_t *servers, size_t c
     return 0;
 }
 
+/* Copy the device's DNS server list, returning the number configured. */
 size_t netdev_get_dns_servers(net_device_t *device, uint32_t *servers, size_t capacity)
 {
     if (!device || (!servers && capacity)) return 0;
@@ -488,6 +513,7 @@ size_t netdev_get_dns_servers(net_device_t *device, uint32_t *servers, size_t ca
     return count;
 }
 
+/* Send a UDP datagram to the IPv4 broadcast address on a device. */
 int netdev_udp_broadcast(net_device_t *device, uint32_t source, uint16_t source_port, uint16_t destination_port, const void *data, size_t length)
 {
     enum { UDP_HEADER_LENGTH = 8 };
@@ -523,6 +549,7 @@ int netdev_udp_broadcast(net_device_t *device, uint32_t source, uint16_t source_
     return status;
 }
 
+/* Snapshot the device's packet statistics. */
 void netdev_get_stats(net_device_t *device, netdev_stats_t *stats)
 {
     if (!device || !stats) return;
@@ -541,6 +568,7 @@ void net_init(void)
     dhcp_init();
 }
 
+/* Deliver a received packet up the protocol stack, updating stats. */
 int netdev_rx(net_device_t *device, net_pbuf_t *packet)
 {
     if (!packet) return -EINVAL;
@@ -561,6 +589,7 @@ int netdev_rx(net_device_t *device, net_pbuf_t *packet)
     return status;
 }
 
+/* Hand a packet to the driver for transmission, updating stats. */
 int netdev_tx(net_device_t *device, net_pbuf_t *packet)
 {
     if (!device || !packet) return -EINVAL;

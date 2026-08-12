@@ -20,41 +20,14 @@
 #include <mem/alloc.h>
 #include <process/uaccess.h>
 
-/* Forward declarations for all ioctl handler functions. */
-
-/* auth (drm_auth.c) */
-
-/* GEM (drm_gem.c) */
-
-/* KMS CRTC (drm_crtc.c) */
-
-/* KMS encoder (drm_encoder.c) */
-
-/* KMS connector (drm_connector.c) */
-
-/* KMS plane (drm_plane.c) */
-
-/* KMS framebuffer (drm_framebuffer.c) */
-
-/* KMS cursor / page-flip / atomic (drm_atomic_uapi.c) */
-
-/* KMS vblank (drm_vblank.c) */
-
-/* KMS resources (drm_mode_config.c) */
-
-/* KMS property (drm_property.c) */
-
-/* KMS getfb2 (drm_framebuffer.c) */
-
 /* drm_ioctl_permit - check auth / master flags against file_priv */
 
 int drm_ioctl_permit(unsigned int flags, struct drm_file *file_priv)
 {
     if (!file_priv) return -EACCES;
 
-    if (flags & DRM_AUTH) {
+    if (flags & DRM_AUTH)
         if (!file_priv->authenticated) return -EACCES;
-    }
 
     if (flags & DRM_MASTER) {
         /*
@@ -356,11 +329,9 @@ int drm_ioctl(struct drm_device *dev, unsigned int cmd, void *user_data, struct 
     }
 
     ret = desc->func(dev, kdata, file_priv);
-
 copy_out:
     /* 9. Copy results back to user if the ioctl reads data. */
     if (ret == 0 && kdata && (dir & _IOC_READ) && copy_to_user(user_data, kdata, size)) ret = -EFAULT;
-
 out:
     free(kdata);
     return ret;
@@ -368,6 +339,7 @@ out:
 
 /* drm_version - handle DRM_IOCTL_VERSION */
 
+/* Copy a driver string into the user-provided version buffer. */
 static int drm_version_copy_string(uint64_t user_ptr, uint64_t capacity, uint64_t *length, const char *value)
 {
     size_t full_length;

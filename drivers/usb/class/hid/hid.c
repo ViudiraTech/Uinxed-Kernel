@@ -45,6 +45,7 @@ static void hid_set_bit(unsigned int bit, uint32_t *bitmap)
     bitmap[bit / 32] |= 1U << (bit % 32);
 }
 
+/* Resolve the usage for a report index, falling back to a range scan. */
 static uint16_t hid_usage_at(const usb_hid_field_t *field, size_t index)
 {
     if (index < field->usage_count) return field->usages[index];
@@ -53,6 +54,7 @@ static uint16_t hid_usage_at(const usb_hid_field_t *field, size_t index)
     return 0;
 }
 
+/* Resolve the usage page for a report index. */
 static uint16_t hid_usage_page_at(const usb_hid_field_t *field, size_t index)
 {
     if (index < field->usage_count) return field->usage_pages[index];
@@ -60,6 +62,7 @@ static uint16_t hid_usage_page_at(const usb_hid_field_t *field, size_t index)
     return field->usage_page;
 }
 
+/* Advertise one key in the input device's capability bitmaps. */
 static void hid_enable_key(input_dev_t *input, uint16_t keycode)
 {
     if (!keycode || keycode >= KEY_CNT) return;
@@ -67,6 +70,7 @@ static void hid_enable_key(input_dev_t *input, uint16_t keycode)
     hid_set_bit(keycode, input->keybit);
 }
 
+/* Advertise an axis usage as relative or absolute with its range. */
 static void hid_enable_axis(input_dev_t *input, const usb_hid_field_t *field, uint16_t usage)
 {
     bool     relative = (field->flags & USB_HID_MAIN_RELATIVE) != 0;
@@ -110,6 +114,7 @@ static void hid_enable_axis(input_dev_t *input, const usb_hid_field_t *field, ui
     }
 }
 
+/* Derive each input device's evdev capabilities from the report fields. */
 static void hid_build_capabilities(usb_hid_device_t *hid)
 {
     for (size_t field_index = 0; field_index < hid->report.field_count; field_index++) {
@@ -147,6 +152,7 @@ static void hid_build_capabilities(usb_hid_device_t *hid)
     }
 }
 
+/* Pick a human-readable name from the HID application usage. */
 static const char *hid_application_name(const usb_hid_application_t *application)
 {
     if (application->usage_page == 0x01) {
@@ -159,6 +165,7 @@ static const char *hid_application_name(const usb_hid_application_t *application
     return "USB HID Device";
 }
 
+/* Create and register an evdev device for each HID application. */
 static int hid_register_inputs(usb_hid_device_t *hid)
 {
     hid->application_count = hid->report.application_count;
@@ -188,6 +195,7 @@ static int hid_register_inputs(usb_hid_device_t *hid)
     return EOK;
 }
 
+/* Tear down and free all registered HID input devices. */
 static void hid_unregister_inputs(usb_hid_device_t *hid)
 {
     for (size_t i = 0; i < hid->application_count; i++) {
@@ -203,6 +211,7 @@ static void hid_unregister_inputs(usb_hid_device_t *hid)
     }
 }
 
+/* Interrupt-IN completion: decode the report and inject evdev events. */
 static void hid_interrupt_complete(usb_endpoint_t *endpoint, const void *data, size_t length, int status, void *context)
 {
     (void)endpoint;
@@ -223,6 +232,7 @@ static void hid_interrupt_complete(usb_endpoint_t *endpoint, const void *data, s
         if (touched[i]) evdev_inject_syn(hid->input[i]);
 }
 
+/* Extract the report-descriptor length from the interface's extra data. */
 static int hid_report_descriptor_length(const usb_interface_t *interface, uint16_t *report_length)
 {
     size_t         length;
@@ -240,6 +250,7 @@ static int hid_report_descriptor_length(const usb_interface_t *interface, uint16
     return -ENOENT;
 }
 
+/* Probe a HID interface: fetch the report and start interrupt input. */
 int usb_hid_probe(usb_interface_t *interface)
 {
 #if CONFIG_USB_HID
@@ -283,7 +294,6 @@ int usb_hid_probe(usb_interface_t *interface)
     }
     result = usb_interrupt_start(endpoint, packet_size, hid_interrupt_complete, hid);
     if (result == EOK) return EOK;
-
 fail_registered:
     hid->running           = false;
     interface->driver_data = NULL;
@@ -301,6 +311,7 @@ fail:
 #endif
 }
 
+/* Disconnect a HID interface, stopping input and freeing the device. */
 void usb_hid_disconnect(usb_interface_t *interface)
 {
 #if CONFIG_USB_HID

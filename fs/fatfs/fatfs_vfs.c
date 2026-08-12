@@ -38,6 +38,7 @@ typedef struct fatfs_handle {
         int            owns_mount;
 } fatfs_handle_t;
 
+/* Map a FatFs result code to a kernel errno. */
 static int fatfs_result_to_errno(FRESULT res)
 {
     switch (res) {
@@ -68,6 +69,7 @@ static int fatfs_result_to_errno(FRESULT res)
     }
 }
 
+/* Close any open FatFs object and free the handle. */
 static void fatfs_handle_destroy(fatfs_handle_t *handle)
 {
     if (!handle) return;
@@ -88,6 +90,7 @@ static void fatfs_handle_destroy(fatfs_handle_t *handle)
     free(handle);
 }
 
+/* Join a parent path and a component into a FatFs path. */
 static char *fatfs_join_path(const char *base, const char *name)
 {
     size_t base_len;
@@ -110,6 +113,7 @@ static char *fatfs_join_path(const char *base, const char *name)
     return path;
 }
 
+/* Query FatFs stat data for a path into the handle. */
 static int fatfs_fill_info(fatfs_handle_t *handle, const char *path)
 {
     FRESULT res;
@@ -119,6 +123,7 @@ static int fatfs_fill_info(fatfs_handle_t *handle, const char *path)
     return fatfs_result_to_errno(res);
 }
 
+/* Copy the handle's stat data into a VFS node. */
 static void fatfs_apply_info(vfs_node_t node, fatfs_handle_t *handle)
 {
     node->size        = handle->is_dir ? 0 : handle->info.fsize;
@@ -127,6 +132,7 @@ static void fatfs_apply_info(vfs_node_t node, fatfs_handle_t *handle)
     node->permissions = (handle->info.fattrib & AM_RDO) ? 0444 : 0666;
 }
 
+/* Drop a directory's cached children so they are re-read from disk. */
 static void fatfs_invalidate_directory(vfs_node_t node)
 {
     if (!node) return;
@@ -136,6 +142,7 @@ static void fatfs_invalidate_directory(vfs_node_t node)
     node->visited = 0;
 }
 
+/* Build the renamed path by replacing the last component. */
 static char *fatfs_rename_target(const char *path, const char *new_name)
 {
     char  *target;
@@ -157,6 +164,7 @@ static char *fatfs_rename_target(const char *path, const char *new_name)
     return target;
 }
 
+/* Re-query the node's stat data and refresh its VFS fields. */
 static int fatfs_refresh_node(vfs_node_t node)
 {
     fatfs_handle_t *handle = node ? node->handle : 0;
@@ -168,6 +176,7 @@ static int fatfs_refresh_node(vfs_node_t node)
     return EOK;
 }
 
+/* Open the FatFs file object with the given access mode. */
 static int fatfs_prepare_file_handle(fatfs_handle_t *handle, BYTE mode)
 {
     FRESULT res;
@@ -186,6 +195,7 @@ static int fatfs_prepare_file_handle(fatfs_handle_t *handle, BYTE mode)
     return EOK;
 }
 
+/* Attach a new FatFs handle to a VFS node using its parent's mount. */
 static int fatfs_attach_new_node(vfs_node_t node)
 {
     fatfs_handle_t *parent;
@@ -211,6 +221,7 @@ static int fatfs_attach_new_node(vfs_node_t node)
     return EOK;
 }
 
+/* Create a directory or file through FatFs and bind it to the node. */
 static int fatfs_create_path(vfs_node_t node, BYTE mode, int is_dir)
 {
     fatfs_handle_t *handle = node ? node->handle : 0;
@@ -246,6 +257,7 @@ static int fatfs_create_path(vfs_node_t node, BYTE mode, int is_dir)
     return EOK;
 }
 
+/* Materialize a directory's entries as VFS child nodes. */
 static int fatfs_load_directory(vfs_node_t node)
 {
     fatfs_handle_t *handle = node ? node->handle : 0;
@@ -311,6 +323,7 @@ static int fatfs_load_directory(vfs_node_t node)
     return EOK;
 }
 
+/* Mount a FatFs volume, binding a block device or volume specifier. */
 static int fatfs_vfs_mount(const char *src, vfs_node_t node)
 {
     fatfs_mount_t  *mount;
@@ -409,6 +422,7 @@ static void fatfs_vfs_unmount(void *root)
     fatfs_handle_destroy(root);
 }
 
+/* Open a child node's FatFs file or directory object. */
 static int fatfs_open_child(vfs_node_t node)
 {
     fatfs_handle_t *parent = node->parent ? node->parent->handle : 0;
@@ -480,6 +494,7 @@ static void fatfs_vfs_close(void *current)
     handle->opened = 0;
 }
 
+/* Read from a FatFs file at the given offset. */
 static size_t fatfs_vfs_read(void *file, void *addr, size_t offset, size_t size)
 {
     fatfs_handle_t *handle     = file;
@@ -508,6 +523,7 @@ static size_t fatfs_vfs_read(void *file, void *addr, size_t offset, size_t size)
     return read_count;
 }
 
+/* Write to a FatFs file at the given offset, syncing afterwards. */
 static size_t fatfs_vfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
     fatfs_handle_t *handle  = file;
@@ -542,6 +558,7 @@ static size_t fatfs_vfs_write(void *file, const void *addr, size_t offset, size_
     return written;
 }
 
+/* Truncate a FatFs file to the given size. */
 static int fatfs_vfs_resize(void *file, uint64_t size)
 {
     fatfs_handle_t *handle = file;
@@ -556,6 +573,7 @@ static int fatfs_vfs_resize(void *file, uint64_t size)
     return EOK;
 }
 
+/* Flush the open FatFs file to disk. */
 static int fatfs_vfs_sync(void *file, int data_only)
 {
     (void)data_only;
@@ -600,6 +618,7 @@ static int fatfs_vfs_no_link(void *parent, const char *name, vfs_node_t node)
     return -EPERM;
 }
 
+/* Refresh a node's stat data and load directories on demand. */
 static int fatfs_vfs_stat(void *file, vfs_node_t node)
 {
     fatfs_handle_t *handle = file;
@@ -618,6 +637,7 @@ static int fatfs_vfs_ioctl(void *file, size_t req, void *arg)
     return -ENOTTY;
 }
 
+/* Duplicate a VFS node sharing its parent's mount. */
 static vfs_node_t fatfs_vfs_dup(vfs_node_t node)
 {
     vfs_node_t copy;
@@ -647,6 +667,7 @@ static int fatfs_vfs_free(void *handle)
     return EOK;
 }
 
+/* Unlink a FatFs file. */
 static int fatfs_vfs_delete(void *parent, vfs_node_t node)
 {
     fatfs_handle_t *handle = node ? node->handle : 0;
@@ -660,6 +681,7 @@ static int fatfs_vfs_delete(void *parent, vfs_node_t node)
     return EOK;
 }
 
+/* Rename a FatFs file within the same directory. */
 static int fatfs_vfs_rename(void *current, const char *new_name)
 {
     fatfs_handle_t *handle = current;
@@ -708,6 +730,7 @@ static struct vfs_callback fatfs_vfs_callbacks = {
     .sync     = fatfs_vfs_sync,
 };
 
+/* Register the fatfs filesystem with the VFS layer. */
 void fatfs_vfs_regist(void)
 {
 #if CONFIG_FAT_FS
@@ -718,6 +741,7 @@ void fatfs_vfs_regist(void)
 #endif
 }
 
+/* Mount a FatFs volume at a VFS path. */
 int fatfs_vfs_mount_volume(const char *src, const char *path)
 {
     vfs_node_t node;

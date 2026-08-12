@@ -80,24 +80,42 @@ union i2c_smbus_data {
         uint8_t  block[I2C_SMBUS_BLOCK_MAX + 2];
 };
 
+/* Register an I2C adapter with the subsystem */
 int i2c_add_adapter(struct i2c_adapter *adap);
+
+/* Unregister an I2C adapter */
 int i2c_del_adapter(struct i2c_adapter *adap);
+
+/* Execute a sequence of I2C messages on an adapter */
 int i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num);
 
+/* Get an adapter by number, taking a reference */
 struct i2c_adapter *i2c_get_adapter(int nr);
-void                i2c_put_adapter(struct i2c_adapter *adap);
 
+/* Release a reference taken by i2c_get_adapter */
+void i2c_put_adapter(struct i2c_adapter *adap);
+
+/* Lock/unlock the adapter bus */
 void i2c_lock_bus(struct i2c_adapter *adap);
 void i2c_unlock_bus(struct i2c_adapter *adap);
 
+/* SMBus byte commands */
 int32_t i2c_smbus_read_byte(const struct i2c_client *client);
 int32_t i2c_smbus_write_byte(const struct i2c_client *client, uint8_t value);
+
+/* SMBus byte-data commands (byte at a command register) */
 int32_t i2c_smbus_read_byte_data(const struct i2c_client *client, uint8_t command);
 int32_t i2c_smbus_write_byte_data(const struct i2c_client *client, uint8_t command, uint8_t value);
+
+/* SMBus word-data commands */
 int32_t i2c_smbus_read_word_data(const struct i2c_client *client, uint8_t command);
 int32_t i2c_smbus_write_word_data(const struct i2c_client *client, uint8_t command, uint16_t value);
+
+/* SMBus block-data commands (device-supplied length) */
 int32_t i2c_smbus_read_block_data(const struct i2c_client *client, uint8_t command, uint8_t *values);
 int32_t i2c_smbus_write_block_data(const struct i2c_client *client, uint8_t command, uint8_t length, const uint8_t *values);
+
+/* SMBus I2C-block commands (caller-supplied length) */
 int32_t i2c_smbus_read_i2c_block_data(const struct i2c_client *client, uint8_t command, uint8_t length, uint8_t *values);
 int32_t i2c_smbus_write_i2c_block_data(const struct i2c_client *client, uint8_t command, uint8_t length, const uint8_t *values);
 

@@ -173,6 +173,7 @@ static int rr_visit_name(const struct rock_ridge *entry, isofs_rr_state_t *state
     }
 }
 
+/* Collect the Rock Ridge alternate (NM) name of a record. */
 int isofs_rr_filename(void *raw_de, char *out, int bufsize, isofs_mount_t *mount)
 {
     isofs_rr_state_t             state;
@@ -238,6 +239,7 @@ static void rr_measure_sl(const struct rock_ridge *entry, rr_inode_ctx_t *ctx)
     }
 }
 
+/* RRIP visitor collecting symlink size and child-link metadata. */
 static int rr_visit_inode(const struct rock_ridge *entry, isofs_rr_state_t *state, void *opaque)
 {
     rr_inode_ctx_t *ctx = opaque;
@@ -266,6 +268,7 @@ static int rr_visit_inode(const struct rock_ridge *entry, isofs_rr_state_t *stat
     }
 }
 
+/* Apply Rock Ridge metadata (size, symlink, relocation) to a handle. */
 void isofs_rr_parse_inode(void *raw_de, isofs_handle_t *handle, isofs_mount_t *mount)
 {
     isofs_rr_state_t             state;
@@ -291,6 +294,7 @@ typedef struct {
         char *end;
 } rr_symlink_ctx_t;
 
+/* RRIP visitor reconstructing the symlink target into the output buffer. */
 static int rr_visit_symlink(const struct rock_ridge *entry, isofs_rr_state_t *state, void *opaque)
 {
     rr_symlink_ctx_t *ctx = opaque;
@@ -357,6 +361,7 @@ static int rr_visit_symlink(const struct rock_ridge *entry, isofs_rr_state_t *st
     }
 }
 
+/* Reconstruct a symlink target from an SL chain into a buffer. */
 int isofs_rr_symlink(void *raw_de, isofs_mount_t *mount, char *buf, int bufsize)
 {
     isofs_rr_state_t             state;

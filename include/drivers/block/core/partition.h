@@ -50,9 +50,16 @@ typedef struct partition_table {
         bool                   hybrid;
 } partition_table_t;
 
-int                     partition_scan(const blockdev_device_t *device, partition_table_t *table);
-void                    partition_table_destroy(partition_table_t *table);
+/* Detect the partition-table format on a disk (MBR or GPT) and populate the table */
+int partition_scan(const blockdev_device_t *device, partition_table_t *table);
+
+/* Release the dynamic partition array owned by a partition table */
+void partition_table_destroy(partition_table_t *table);
+
+/* Look up a partition by its 1-based number (or GPT entry index) */
 const partition_info_t *partition_find(const partition_table_t *table, uint32_t number);
-int                     partition_format_uuid(const partition_table_t *table, const partition_info_t *partition, char *buffer, size_t size);
+
+/* Format a partition UUID: canonical GUID for GPT, "disk-signature-N" for MBR */
+int partition_format_uuid(const partition_table_t *table, const partition_info_t *partition, char *buffer, size_t size);
 
 #endif // INCLUDE_PARTITION_H_

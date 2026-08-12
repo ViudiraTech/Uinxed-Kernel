@@ -106,6 +106,7 @@ static struct device *sound_create_node(struct device *parent, audio_card_t *car
     return dev;
 }
 
+/* Export every sound card and its ALSA-style nodes to /sys/class/sound/. */
 void sound_sysfs_init(void)
 {
 #if CONFIG_SYSFS

@@ -188,28 +188,57 @@ typedef struct usb_device {
 
 extern struct bus_type usb_bus_type;
 
-int  usb_core_init(void);
-int  usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t length);
+/* Register the usb bus type with the device model (once). */
+int usb_core_init(void);
+
+/* Bring up a device: parse the configuration, set it, and probe interfaces. */
+int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t length);
+
+/* Mark a device offline and disconnect its class drivers. */
 void usb_disconnect_device(usb_device_t *device);
+
+/* Fully tear down a device and unregister its model entries. */
 void usb_remove_device(usb_device_t *device);
 
-int  usb_control_msg(usb_device_t *device, uint8_t request_type, uint8_t request, uint16_t value, uint16_t index, void *buffer, uint16_t length,
-                     uint32_t timeout_ms);
-int  usb_bulk_msg(usb_endpoint_t *endpoint, void *buffer, size_t length, size_t *actual, uint32_t timeout_ms);
-int  usb_interrupt_start(usb_endpoint_t *endpoint, size_t length, usb_interrupt_complete_t complete, void *context);
+/* Issue one control transfer to the HCD. */
+int usb_control_msg(usb_device_t *device, uint8_t request_type, uint8_t request, uint16_t value, uint16_t index, void *buffer, uint16_t length,
+                    uint32_t timeout_ms);
+
+/* Perform one bulk transfer on an endpoint. */
+int usb_bulk_msg(usb_endpoint_t *endpoint, void *buffer, size_t length, size_t *actual, uint32_t timeout_ms);
+
+/* Begin periodic interrupt-IN polling on an endpoint. */
+int usb_interrupt_start(usb_endpoint_t *endpoint, size_t length, usb_interrupt_complete_t complete, void *context);
+
+/* Stop periodic interrupt polling on an endpoint. */
 void usb_interrupt_stop(usb_endpoint_t *endpoint);
-int  usb_clear_halt(usb_endpoint_t *endpoint);
 
+/* Clear an endpoint stall via CLEAR_FEATURE, then reset the HCD state. */
+int usb_clear_halt(usb_endpoint_t *endpoint);
+
+/* Find an endpoint of the given transfer type and direction. */
 usb_endpoint_t *usb_find_endpoint(usb_interface_t *interface, uint8_t transfer_type, bool input);
-const uint8_t  *usb_find_extra_descriptor(const usb_interface_t *interface, uint8_t descriptor_type, size_t *length);
 
-int      usb_get_string_descriptor(usb_device_t *device, uint8_t index, uint16_t language, char *output, size_t capacity);
-int      usb_read_config_descriptor(usb_device_t *device, uint8_t **config_out, uint16_t *length_out);
+/* Locate a descriptor of the given type in an interface's extra data. */
+const uint8_t *usb_find_extra_descriptor(const usb_interface_t *interface, uint8_t descriptor_type, size_t *length);
+
+/* Fetch a string descriptor and convert it to ASCII. */
+int usb_get_string_descriptor(usb_device_t *device, uint8_t index, uint16_t language, char *output, size_t capacity);
+
+/* Fetch the full configuration descriptor into a malloc'd buffer. */
+int usb_read_config_descriptor(usb_device_t *device, uint8_t **config_out, uint16_t *length_out);
+
+/* Read a little-endian 16-bit value (USB wire format). */
 uint16_t usb_get_le16(const void *address);
-int      usb_add_config_descriptor(usb_device_t *device, uint8_t *configuration, uint16_t length);
 
+/* Parse a configuration descriptor into the device's interfaces/endpoints. */
+int usb_add_config_descriptor(usb_device_t *device, uint8_t *configuration, uint16_t length);
+
+/* HID class driver entry points, called by the core on probe/disconnect. */
 int  usb_hid_probe(usb_interface_t *interface);
 void usb_hid_disconnect(usb_interface_t *interface);
+
+/* Mass-storage class driver entry points, called by the core on probe/disconnect. */
 int  usb_storage_probe(usb_interface_t *interface);
 void usb_storage_disconnect(usb_interface_t *interface);
 

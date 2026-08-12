@@ -43,6 +43,7 @@ typedef struct icmp_endpoint {
 static icmp_endpoint_t *icmp_table[ICMP_ENDPOINT_MAX];
 static spinlock_t       icmp_table_lock;
 
+/* Allocate an ICMP endpoint and register it in the global table. */
 icmp_endpoint_t *icmp_open(void)
 {
     icmp_endpoint_t *endpoint = calloc(1, sizeof(*endpoint));
@@ -60,6 +61,7 @@ icmp_endpoint_t *icmp_open(void)
     return NULL;
 }
 
+/* Unregister and free an endpoint, draining its queued packets. */
 void icmp_close(icmp_endpoint_t *endpoint)
 {
     if (!endpoint) return;
@@ -79,6 +81,7 @@ void icmp_close(icmp_endpoint_t *endpoint)
     free(endpoint);
 }
 
+/* Bind the endpoint to a local address for RX filtering. */
 int icmp_bind(icmp_endpoint_t *endpoint, uint32_t address)
 {
     if (!endpoint) return -EINVAL;
@@ -88,6 +91,7 @@ int icmp_bind(icmp_endpoint_t *endpoint, uint32_t address)
     return 0;
 }
 
+/* Restrict the endpoint to a single remote address. */
 int icmp_connect(icmp_endpoint_t *endpoint, uint32_t address)
 {
     if (!endpoint || !address) return -EINVAL;
@@ -97,6 +101,7 @@ int icmp_connect(icmp_endpoint_t *endpoint, uint32_t address)
     return 0;
 }
 
+/* Drop the remote-address restriction (revert to connected-to-any). */
 int icmp_disconnect(icmp_endpoint_t *endpoint)
 {
     if (!endpoint) return -EINVAL;
@@ -106,6 +111,7 @@ int icmp_disconnect(icmp_endpoint_t *endpoint)
     return 0;
 }
 
+/* Send an ICMP payload to destination, routing through the IPv4 layer. */
 int icmp_send(icmp_endpoint_t *endpoint, const void *data, size_t length, uint32_t destination, uint8_t ttl)
 {
     if (!endpoint || (!data && length)) return -EINVAL;
@@ -130,6 +136,7 @@ int icmp_send(icmp_endpoint_t *endpoint, const void *data, size_t length, uint32
     return status == -EINPROGRESS ? (int)length : (status ? status : (int)length);
 }
 
+/* Dequeue (or peek) the next queued ICMP datagram, filling its source. */
 int icmp_receive(icmp_endpoint_t *endpoint, void *data, size_t capacity, uint32_t *source, int peek)
 {
     if (!endpoint || (!data && capacity)) return -EINVAL;
@@ -153,6 +160,7 @@ int icmp_receive(icmp_endpoint_t *endpoint, void *data, size_t capacity, uint32_
     return (int)copied;
 }
 
+/* Report the endpoint's current read/write readiness mask. */
 uint32_t icmp_readiness(icmp_endpoint_t *endpoint)
 {
     if (!endpoint) return 0;
@@ -162,6 +170,7 @@ uint32_t icmp_readiness(icmp_endpoint_t *endpoint)
     return events;
 }
 
+/* Install the event callback and fire it once with current readiness. */
 void icmp_set_event_callback(icmp_endpoint_t *endpoint, icmp_event_callback_t callback, void *context)
 {
     if (!endpoint) return;
@@ -172,6 +181,7 @@ void icmp_set_event_callback(icmp_endpoint_t *endpoint, icmp_event_callback_t ca
     if (callback) callback(endpoint, icmp_readiness(endpoint), context);
 }
 
+/* Queue a received ICMP message to every matching endpoint. */
 static void icmp_deliver(const ipv4_info_t *ip, const net_pbuf_t *packet)
 {
     size_t length = IPV4_HEADER_MIN + packet->length;
@@ -221,11 +231,13 @@ static void icmp_deliver(const ipv4_info_t *ip, const net_pbuf_t *packet)
     spin_unlock(&icmp_table_lock);
 }
 
+/* True for ICMP error types that must not themselves trigger an error reply. */
 static int icmp_is_error(uint8_t type)
 {
     return type == ICMP_DEST_UNREACHABLE || type == 4U || type == 5U || type == ICMP_TIME_EXCEEDED || type == 12U;
 }
 
+/* Handle an inbound ICMP message: echo replies, delivery, and errors. */
 int icmp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet)
 {
     if (!device || !ip || !packet || packet->length < ICMP_HEADER_LEN || net_checksum(packet->data, packet->length) != 0) goto bad;
@@ -254,6 +266,7 @@ bad:
     return -EBADMSG;
 }
 
+/* Send an ICMP error message quoting the offending IP packet. */
 int icmp_error_mtu(net_device_t *device, uint32_t destination, uint8_t type, uint8_t code, uint16_t mtu, const void *original,
                    size_t original_length)
 {
@@ -284,6 +297,7 @@ int icmp_error_mtu(net_device_t *device, uint32_t destination, uint8_t type, uin
     return status;
 }
 
+/* Send an ICMP error without an MTU field. */
 int icmp_error(net_device_t *device, uint32_t destination, uint8_t type, uint8_t code, const void *original, size_t original_length)
 {
     return icmp_error_mtu(device, destination, type, code, 0, original, original_length);

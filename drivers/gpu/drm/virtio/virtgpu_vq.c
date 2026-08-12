@@ -74,6 +74,7 @@ static inline void cpu_relax(void)
     __asm__ volatile("pause");
 }
 
+/* DMA-safe staging buffers for one control-queue command. */
 struct virtgpu_dma_command {
         uint64_t cmd_phys;
         uint64_t resp_phys;
@@ -83,6 +84,7 @@ struct virtgpu_dma_command {
         void    *resp;
 };
 
+/* Free the DMA staging buffers allocated for a command batch. */
 static void virtgpu_dma_commands_free(struct virtgpu_dma_command *dma, uint32_t count)
 {
     if (!dma) return;
@@ -93,6 +95,7 @@ static void virtgpu_dma_commands_free(struct virtgpu_dma_command *dma, uint32_t 
     free(dma);
 }
 
+/* Mark both queues dead and reset the device after a fatal error. */
 static void virtgpu_mark_queues_broken(struct virtio_gpu_device *vgdev)
 {
     vp_reset_device(vgdev->vp_dev);
@@ -120,6 +123,7 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
         CTRL_LOG_BAD_FENCE,
     } log_reason
         = CTRL_LOG_NONE;
+
     struct vp_virtqueue        *vq;
     uint32_t                    submitted = 0;
     uint32_t                    completed = 0;
@@ -218,9 +222,11 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
         }
 
         if (++timeout > 10000000) {
-            /* A completion can race the first empty observation. Reap once
+            /*
+             * A completion can race the first empty observation. Reap once
              * more before declaring the device dead so a valid response does
-             * not strand its descriptor chain. */
+             * not strand its descriptor chain.
+             */
             if (virtqueue_get_buf(vq, &len)) {
                 completed++;
                 timeout = 0;
@@ -282,10 +288,10 @@ int virtgpu_ctrl_cmd_batch(struct virtio_gpu_device *vgdev, struct virtgpu_vq_co
             break;
         }
     }
-
 out_unlock:
     spin_unlock(&vgdev->ctrlq_cmd_lock);
     virtgpu_dma_commands_free(dma, count);
+
     /*
      * printk ultimately damages and flushes the DRM-backed console.  Never
      * print while owning ctrlq_cmd_lock: doing so recursively submits another
@@ -345,6 +351,7 @@ int virtgpu_ctrl_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size, v
     return 0;
 }
 
+/* Submit an output-only cursor command to the cursor queue. */
 int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
 {
     uint32_t len;
@@ -369,9 +376,13 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
     }
     dma_cmd = phys_to_virt(dma_phys);
     memcpy(dma_cmd, cmd, (size_t)cmd_size);
-    /* See the control queue: a synchronous queue owner must not yield while
-     * its stack-backed command remains in flight. */
+
+    /*
+     * As on the control queue, a synchronous queue owner must not yield while
+     * its stack-backed command remains in flight.
+     */
     spin_lock(&vgdev->cursorq_cmd_lock);
+
     /*
      * Cursorq requests are output-only and have no protocol response.  The
      * preceding resource upload is fenced on controlq; here we only wait for
@@ -401,6 +412,7 @@ int virtgpu_cursor_cmd(struct virtio_gpu_device *vgdev, void *cmd, int cmd_size)
 out:
     spin_unlock(&vgdev->cursorq_cmd_lock);
     free_frames(dma_phys, dma_pages);
+
     /* Logging can flush fbcon through controlq, so release cursorq first. */
     if (queue_error) plogk("virtgpu: Cursor_cmd: queue add failed (err=%d)\n", queue_error);
     if (timed_out) plogk("virtgpu: Timed out waiting for cursor command 0x%04x consumption.\n", timeout_type);

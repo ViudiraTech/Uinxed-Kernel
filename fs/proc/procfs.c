@@ -190,6 +190,7 @@ static vfs_node_t procfs_find_child(vfs_node_t parent, const char *name)
     return NULL;
 }
 
+/* Allocate a procfs file description. */
 static procfs_file_t *procfs_file_alloc(procfs_type_t type, pid_t pid, int subtype)
 {
     procfs_file_t *pf = calloc(1, sizeof(procfs_file_t));
@@ -200,6 +201,7 @@ static procfs_file_t *procfs_file_alloc(procfs_type_t type, pid_t pid, int subty
     return pf;
 }
 
+/* Get or create a child node, re-binding its procfs description. */
 static vfs_node_t procfs_ensure_child(vfs_node_t parent, const char *name, procfs_type_t type, pid_t pid, int subtype, uint16_t node_type)
 {
     vfs_node_t child = procfs_find_child(parent, name);
@@ -225,6 +227,7 @@ static vfs_node_t procfs_ensure_child(vfs_node_t parent, const char *name, procf
     return child;
 }
 
+/* Hide PID directory nodes whose process has exited. */
 static void procfs_deactivate_pid_nodes(vfs_node_t root)
 {
     if (!root) return;
@@ -1484,6 +1487,7 @@ static void gen_pid_stat(procfs_file_t *pf)
     pf->capacity = 1024;
 }
 
+/* Dispatch content generation to the file's type handler. */
 static void procfs_gen_content(procfs_file_t *pf, vfs_node_t node)
 {
     if (pf->content) return;
@@ -1650,6 +1654,7 @@ static int procfs_mount(const char *handle, vfs_node_t node)
     return EOK;
 }
 
+/* Free the root procfs description on unmount. */
 static void procfs_umount(void *root)
 {
     procfs_file_t *pf = root;
@@ -1658,6 +1663,7 @@ static void procfs_umount(void *root)
     free(pf);
 }
 
+/* Bind a child VFS node to its procfs file description. */
 static void procfs_open(void *parent, const char *name, vfs_node_t node)
 {
     node->flags |= VFS_NODE_NOCACHE;
@@ -1858,6 +1864,7 @@ static void procfs_close(void *current)
     (void)current;
 }
 
+/* Resolve a procfs symlink (self, fd, exe, cwd, root) to its target. */
 static size_t procfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t size)
 {
     procfs_file_t *pf = node ? node->handle : NULL;
@@ -1928,6 +1935,7 @@ static size_t procfs_readlink(vfs_node_t node, void *addr, size_t offset, size_t
     return actual;
 }
 
+/* Snapshot a file's generated content into a per-open description. */
 static int procfs_file_open(vfs_node_t node, uint64_t flags, void **private_data)
 {
     (void)flags;
@@ -1956,6 +1964,7 @@ static void procfs_file_release(vfs_node_t node, void *private_data)
     free(snapshot);
 }
 
+/* Read from a snapshot, regenerating content if it was never produced. */
 static int64_t procfs_file_read(vfs_node_t node, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     (void)flags;
@@ -1968,6 +1977,7 @@ static int64_t procfs_file_read(vfs_node_t node, void *private_data, uint64_t fl
     return (int64_t)actual;
 }
 
+/* Populate a node's type and children for stat/enumeration. */
 static int procfs_stat(void *file, vfs_node_t node)
 {
     node->flags |= VFS_NODE_NOCACHE;
@@ -2158,6 +2168,7 @@ static int procfs_stat(void *file, vfs_node_t node)
     return EOK;
 }
 
+/* Legacy read callback serving the generated content. */
 static size_t procfs_read(void *file, void *addr, size_t offset, size_t size)
 {
     procfs_file_t *pf = file;
@@ -2172,6 +2183,7 @@ static size_t procfs_read(void *file, void *addr, size_t offset, size_t size)
     return actual;
 }
 
+/* Legacy write callback, applying sysctl values. */
 static size_t procfs_write(void *file, const void *addr, size_t offset, size_t size)
 {
     procfs_file_t *pf = file;
@@ -2188,6 +2200,7 @@ static size_t procfs_write(void *file, const void *addr, size_t offset, size_t s
     return size;
 }
 
+/* Write to a proc control file through its description. */
 static int64_t procfs_file_write(vfs_node_t node, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     (void)flags;
@@ -2239,6 +2252,7 @@ static int procfs_rename(void *current, const char *new_name)
     return -EROFS;
 }
 
+/* Accept O_TRUNC on writable control files; nothing to discard. */
 static int procfs_resize(void *current, uint64_t size)
 {
     (void)size;
@@ -2253,6 +2267,7 @@ static int procfs_resize(void *current, uint64_t size)
     return -EOPNOTSUPP;
 }
 
+/* Free a procfs file description and its generated content. */
 static int procfs_free(void *handle)
 {
     procfs_file_t *pf = handle;
@@ -2262,6 +2277,7 @@ static int procfs_free(void *handle)
     return EOK;
 }
 
+/* Duplicate a node sharing the original procfs description. */
 static vfs_node_t procfs_dup(vfs_node_t node)
 {
     vfs_node_t copy   = vfs_node_alloc(node->parent, node->name);
@@ -2323,6 +2339,7 @@ static struct vfs_callback procfs_callbacks = {
 
 /* Registration */
 
+/* Register the proc filesystem with the VFS layer. */
 void procfs_regist(void)
 {
     /*

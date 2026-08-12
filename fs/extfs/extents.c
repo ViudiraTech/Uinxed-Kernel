@@ -69,6 +69,7 @@ typedef struct extent_child {
         uint32_t block;
 } extent_child_t;
 
+/* Append an extent to the vector, growing it as needed. */
 static int extent_push(extent_vector_t *vector, extent_item_t item)
 {
     if (vector->count == vector->capacity) {
@@ -82,6 +83,7 @@ static int extent_push(extent_vector_t *vector, extent_item_t item)
     return EOK;
 }
 
+/* Record an index-node block so it can be freed on rebuild. */
 static int extent_push_metadata(extent_vector_t *vector, uint32_t block)
 {
     if (vector->metadata_count == vector->metadata_capacity) {
@@ -95,6 +97,7 @@ static int extent_push_metadata(extent_vector_t *vector, uint32_t block)
     return EOK;
 }
 
+/* Validate an extent tree header against its node capacity. */
 static int extent_header_valid(extfs_sb_info_t *sb, const ext4_extent_header_t *header, uint16_t expected_depth, int root)
 {
     uint16_t capacity
@@ -139,6 +142,7 @@ static void extent_block_checksum_set(extfs_handle_t *h, uint8_t *block)
     memcpy(block + tail, &checksum, sizeof(checksum));
 }
 
+/* Flatten one extent tree node into the vector, validating every entry. */
 static int extent_collect_node(extfs_handle_t *h, const uint8_t *node, uint16_t depth, int root, extent_vector_t *vector)
 {
     ext4_extent_header_t *header = (ext4_extent_header_t *)node;
@@ -202,6 +206,7 @@ static int extent_collect_node(extfs_handle_t *h, const uint8_t *node, uint16_t 
     return status;
 }
 
+/* Flatten the complete extent tree of an inode. */
 static int extent_collect(extfs_handle_t *h, extent_vector_t *vector)
 {
     memset(vector, 0, sizeof(*vector));
@@ -220,6 +225,7 @@ static void extent_vector_destroy(extent_vector_t *vector)
     memset(vector, 0, sizeof(*vector));
 }
 
+/* Sort extents by logical block and merge adjacent contiguous runs. */
 static void extent_sort_and_merge(extent_vector_t *vector)
 {
     for (uint32_t i = 1; i < vector->count; i++) {
@@ -278,6 +284,7 @@ static int extent_alloc_node(extfs_handle_t *h, uint32_t *block, uint8_t **buffe
     return *buffer ? EOK : -ENOMEM;
 }
 
+/* Rebuild the extent tree from a vector, freeing the old index nodes. */
 static int extent_rebuild(extfs_handle_t *h, extent_vector_t *vector)
 {
     uint16_t root_capacity = (sizeof(h->ei.i_data) - sizeof(ext4_extent_header_t)) / sizeof(ext4_extent_t);
@@ -387,7 +394,6 @@ static int extent_rebuild(extfs_handle_t *h, extent_vector_t *vector)
         indices[i].logical = children[i].logical;
         indices[i].leaf_lo = children[i].block;
     }
-
 replace:
     for (uint32_t i = 0; i < vector->metadata_count; i++) extfs_free_block(h->sb, vector->metadata[i]);
     free(children);
@@ -400,6 +406,7 @@ fail:
     return status;
 }
 
+/* Map a logical block through the extent tree, allocating on demand. */
 uint32_t extfs_extent_map_block(extfs_handle_t *h, uint32_t logical, int create)
 {
     extent_vector_t vector;
@@ -460,6 +467,7 @@ uint32_t extfs_extent_map_block(extfs_handle_t *h, uint32_t logical, int create)
     return physical;
 }
 
+/* Free the extent space covering logical blocks [first, last). */
 int extfs_extent_remove_space(extfs_handle_t *h, uint32_t first, uint32_t last)
 {
     extent_vector_t old, replacement;
@@ -505,6 +513,7 @@ int extfs_extent_free_all(extfs_handle_t *h)
     return extfs_extent_remove_space(h, 0, UINT32_MAX);
 }
 
+/* Count the data and index blocks owned by the extent tree. */
 int extfs_extent_count_blocks(extfs_handle_t *h, uint64_t *blocks)
 {
     extent_vector_t vector;

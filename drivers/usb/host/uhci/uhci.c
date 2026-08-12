@@ -133,6 +133,7 @@ static inline void uhci_writel(uhci_controller_t *ctrl, uint8_t reg, uint32_t va
     outl(ctrl->io_base + reg, value);
 }
 
+/* Allocate zeroed DMA memory and return its physical address. */
 static void *uhci_dma_alloc(size_t size, uint64_t *physical)
 {
     size_t   count   = (size + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
@@ -144,12 +145,14 @@ static void *uhci_dma_alloc(size_t size, uint64_t *physical)
     return memory;
 }
 
+/* Release DMA memory allocated by uhci_dma_alloc(). */
 static void uhci_dma_free(uint64_t physical, size_t size)
 {
     size_t count = (size + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
     if (physical && count) free_frames(physical, count);
 }
 
+/* Claim a free transfer-descriptor slot from the static pool. */
 static int uhci_find_free_td(uhci_controller_t *ctrl)
 {
     uint64_t flags = spin_lock_irqsave(&ctrl->td_lock);
@@ -164,6 +167,7 @@ static int uhci_find_free_td(uhci_controller_t *ctrl)
     return -1;
 }
 
+/* Return a transfer-descriptor slot to the pool. */
 static void uhci_free_td(uhci_controller_t *ctrl, int index)
 {
     if (index < 0 || index >= UHCI_NUM_TD) return;
@@ -173,6 +177,7 @@ static void uhci_free_td(uhci_controller_t *ctrl, int index)
     spin_unlock_irqrestore(&ctrl->td_lock, flags);
 }
 
+/* Claim a free queue-head slot from the static pool. */
 static int uhci_find_free_qh(uhci_controller_t *ctrl)
 {
     uint64_t flags = spin_lock_irqsave(&ctrl->lock);
@@ -187,6 +192,7 @@ static int uhci_find_free_qh(uhci_controller_t *ctrl)
     return -1;
 }
 
+/* Return a queue-head slot to the pool. */
 static void uhci_free_qh(uhci_controller_t *ctrl, int index)
 {
     if (index < 0 || index >= UHCI_NUM_QH) return;
@@ -196,6 +202,7 @@ static void uhci_free_qh(uhci_controller_t *ctrl, int index)
     spin_unlock_irqrestore(&ctrl->lock, flags);
 }
 
+/* Link a QH into the async queue with a self-terminated element. */
 static void uhci_add_async_qh(uhci_controller_t *ctrl, uhci_qh_phys_t *qh)
 {
     (void)ctrl;
@@ -206,16 +213,19 @@ static void uhci_add_async_qh(uhci_controller_t *ctrl, uhci_qh_phys_t *qh)
     dma_write_barrier();
 }
 
+/* Spin until the controller's IO is exclusively owned by a transfer. */
 static void uhci_io_lock(uhci_controller_t *ctrl)
 {
     while (__atomic_test_and_set(&ctrl->io_busy, __ATOMIC_ACQUIRE)) __asm__ volatile("pause");
 }
 
+/* Release the exclusive IO lock. */
 static void uhci_io_unlock(uhci_controller_t *ctrl)
 {
     __atomic_clear(&ctrl->io_busy, __ATOMIC_RELEASE);
 }
 
+/* Translate a TD control/status dword into a completion status. */
 static int uhci_td_result(const uhci_td_t *td)
 {
     uint32_t status = td->control_status;
@@ -227,6 +237,7 @@ static int uhci_td_result(const uhci_td_t *td)
     return EOK;
 }
 
+/* Point every periodic frame at the given QH. */
 static void uhci_schedule_qh(uhci_controller_t *ctrl, int qh_index)
 {
     uint32_t link = (uint32_t)ctrl->qhs[qh_index].physical | UHCI_LINK_QH;
@@ -234,6 +245,7 @@ static void uhci_schedule_qh(uhci_controller_t *ctrl, int qh_index)
     dma_write_barrier();
 }
 
+/* Detach a QH from the periodic frame list. */
 static void uhci_unschedule_qh(uhci_controller_t *ctrl, int qh_index)
 {
     ctrl->qhs[qh_index].virtual->element_link = UHCI_LINK_TERMINATE;
@@ -243,6 +255,7 @@ static void uhci_unschedule_qh(uhci_controller_t *ctrl, int qh_index)
     msleep(2);
 }
 
+/* Build a TD control/status dword from the device speed. */
 static uint32_t uhci_td_flags(const usb_device_t *device, bool short_packet)
 {
     uint32_t flags = UHCI_TD_ACTIVE | UHCI_TD_ERROR_COUNT;
@@ -251,12 +264,14 @@ static uint32_t uhci_td_flags(const usb_device_t *device, bool short_packet)
     return flags;
 }
 
+/* Encode the TD token word for a transfer phase. */
 static uint32_t uhci_token(uint8_t pid, uint8_t address, uint8_t endpoint, uint8_t toggle, size_t length)
 {
     return (uint32_t)pid | ((uint32_t)address << UHCI_TOKEN_DEVADDR_SHIFT) | ((uint32_t)endpoint << UHCI_TOKEN_ENDP_SHIFT)
            | ((uint32_t)(toggle & 1) << UHCI_TOKEN_TOGGLE_SHIFT) | (uhci_td_encode_length(length) << UHCI_TOKEN_MAXLEN_SHIFT);
 }
 
+/* Wait for a chain of TDs to complete, optionally stopping at a short packet. */
 static int uhci_wait_chain(uhci_controller_t *ctrl, const int *td_indices, const size_t *packet_lengths, size_t count, uint32_t timeout_ms,
                            bool stop_on_short, size_t *actual)
 {
@@ -386,7 +401,6 @@ static int uhci_submit_control(usb_device_t *device, const usb_setup_packet_t *s
         else
             memcpy(buffer, data_dma, actual);
     }
-
 cleanup:
     if (qh_index >= 0) uhci_free_qh(ctrl, qh_index);
     for (size_t i = 0; i < td_count; i++) uhci_free_td(ctrl, td_indices[i]);
@@ -468,7 +482,6 @@ static int uhci_submit_bulk(usb_endpoint_t *endpoint, void *buffer, size_t lengt
         if (actual) *actual = transferred;
         if (input && transferred) memcpy(buffer, dma_buffer, transferred);
     }
-
 cleanup_bulk:
     if (qh_index >= 0) uhci_free_qh(ctrl, qh_index);
     for (size_t i = 0; i < allocated; i++) uhci_free_td(ctrl, td_indices[i]);
@@ -477,6 +490,7 @@ cleanup_bulk:
     return status;
 }
 
+/* Register a periodic interrupt-IN transfer for the worker to service. */
 static int uhci_submit_interrupt(usb_endpoint_t *endpoint, size_t length, usb_interrupt_complete_t complete, void *context)
 {
     if (!endpoint || !endpoint->interface || !endpoint->interface->device || !length || length > PAGE_4K_SIZE || !complete) return -EINVAL;
@@ -515,6 +529,7 @@ static int uhci_submit_interrupt(usb_endpoint_t *endpoint, size_t length, usb_in
     return -ENOSPC;
 }
 
+/* Unregister a periodic transfer and wait out any running callback. */
 static void uhci_interrupt_stop(usb_endpoint_t *endpoint)
 {
     uhci_periodic_transfer_t *transfer = endpoint ? endpoint->hc_private : NULL;
@@ -531,6 +546,7 @@ static void uhci_interrupt_stop(usb_endpoint_t *endpoint)
     free(transfer);
 }
 
+/* Initialize per-endpoint state before it is used. */
 static int uhci_configure_endpoint(usb_endpoint_t *endpoint)
 {
     if (!endpoint) return -EINVAL;
@@ -538,6 +554,7 @@ static int uhci_configure_endpoint(usb_endpoint_t *endpoint)
     return EOK;
 }
 
+/* Reset the endpoint's data-toggle state after a stall. */
 static int uhci_clear_halt(usb_endpoint_t *endpoint)
 {
     if (!endpoint) return -EINVAL;
@@ -545,6 +562,7 @@ static int uhci_clear_halt(usb_endpoint_t *endpoint)
     return EOK;
 }
 
+/* Stop every interrupt transfer of a device before it goes away. */
 static void uhci_disable_device(usb_device_t *device)
 {
     if (!device) return;
@@ -563,6 +581,7 @@ static const usb_hcd_ops_t uhci_hcd_ops = {
     .disable_device     = uhci_disable_device,
 };
 
+/* Perform the UHCI port reset sequence. */
 static int uhci_port_reset(uhci_controller_t *ctrl, uint8_t port)
 {
     if (port >= UHCI_MAX_PORTS) return -EINVAL;
@@ -589,11 +608,13 @@ static int uhci_port_reset(uhci_controller_t *ctrl, uint8_t port)
     return -ETIMEDOUT;
 }
 
+/* Classify a port's device speed from the status word. */
 static usb_speed_t uhci_port_speed(uint16_t portsc)
 {
     return (portsc & UHCI_PORTSC_LSDA) ? USB_SPEED_LOW : USB_SPEED_FULL;
 }
 
+/* Device-model release callback: free the usb_device. */
 static void uhci_usb_device_release(struct device *dev)
 {
     usb_device_t *device = container_of(dev, usb_device_t, dev);
@@ -665,6 +686,7 @@ fail: {
 }
 }
 
+/* Tear down the device currently attached to a port. */
 static void uhci_disconnect_port(uhci_controller_t *ctrl, uint8_t port)
 {
     if (!ctrl || port >= UHCI_MAX_PORTS) return;
@@ -674,6 +696,7 @@ static void uhci_disconnect_port(uhci_controller_t *ctrl, uint8_t port)
     usb_remove_device(device);
 }
 
+/* Poll every due periodic transfer and deliver its results. */
 static void uhci_service_periodic(uhci_controller_t *ctrl)
 {
     uint64_t now = nano_time();
@@ -695,6 +718,7 @@ static void uhci_service_periodic(uhci_controller_t *ctrl)
     }
 }
 
+/* Hub worker: handle port changes, enumerate devices, poll periodic. */
 static void uhci_worker(void *argument)
 {
     uhci_controller_t *ctrl = argument;
@@ -723,6 +747,7 @@ static void uhci_worker(void *argument)
     }
 }
 
+/* ISR: acknowledge status bits and flag port-change work. */
 static void uhci_interrupt_handler(void *frame)
 {
     (void)frame;
@@ -752,6 +777,7 @@ static void uhci_interrupt_handler(void *frame)
     send_eoi();
 }
 
+/* host_ops: controller is already running after probe. */
 static int uhci_host_start(usb_host_t *host)
 {
     uhci_controller_t *ctrl = container_of(host, uhci_controller_t, hcd);
@@ -759,6 +785,7 @@ static int uhci_host_start(usb_host_t *host)
     return EOK;
 }
 
+/* host_ops: stop the controller and its interrupts. */
 static void uhci_host_stop(usb_host_t *host)
 {
     uhci_controller_t *ctrl = container_of(host, uhci_controller_t, hcd);
@@ -767,12 +794,14 @@ static void uhci_host_stop(usb_host_t *host)
     uhci_writew(ctrl, UHCI_USBINTR, 0);
 }
 
+/* host_ops: reset a port. */
 static int uhci_port_reset_hcd(usb_host_t *host, uint8_t port)
 {
     uhci_controller_t *ctrl = container_of(host, uhci_controller_t, hcd);
     return uhci_port_reset(ctrl, port);
 }
 
+/* host_ops: report the speed of a port. */
 static int uhci_port_speed_hcd(usb_host_t *host, uint8_t port)
 {
     uhci_controller_t *ctrl = container_of(host, uhci_controller_t, hcd);
@@ -781,6 +810,7 @@ static int uhci_port_speed_hcd(usb_host_t *host, uint8_t port)
     return (portsc & UHCI_PORTSC_LSDA) ? USB_SPEED_LOW : USB_SPEED_FULL;
 }
 
+/* host_ops: report whether a port has a device connected. */
 static int uhci_port_connected_hcd(usb_host_t *host, uint8_t port)
 {
     uhci_controller_t *ctrl = container_of(host, uhci_controller_t, hcd);
@@ -796,6 +826,7 @@ static usb_host_controller_ops_t uhci_controller_ops = {
     .port_connected = uhci_port_connected_hcd,
 };
 
+/* Probe a UHCI PCI device: reset, allocate pools, and start. */
 static int uhci_probe(pci_device_cache_t *pci, uint8_t bus_number)
 {
     uint16_t io_base = (uint16_t)pci_get_port_base(pci);
@@ -898,6 +929,7 @@ static int uhci_probe(pci_device_cache_t *pci, uint8_t bus_number)
     return EOK;
 }
 
+/* Probe every UHCI controller in the PCI device cache. */
 void uhci_init(void)
 {
 #if !CONFIG_USB_UHCI

@@ -52,6 +52,7 @@ typedef struct ppdev_file {
         bool       exclusive;
 } ppdev_file_t;
 
+/* read(2): return the current port status byte. */
 static int64_t ppdev_read(void *ctx, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size)
 {
     ppdev_file_t *file = private_data;
@@ -65,6 +66,7 @@ static int64_t ppdev_read(void *ctx, void *private_data, uint64_t flags, void *a
     return 1;
 }
 
+/* write(2): push each byte of the buffer to the port data register. */
 static int64_t ppdev_write(void *ctx, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size)
 {
     ppdev_file_t  *file = private_data;
@@ -86,6 +88,7 @@ static int ppdev_poll(void *ctx, void *private_data, uint64_t flags, size_t even
     return (int)(events & 0x005);
 }
 
+/* Claim exclusive port access unless another client already owns it. */
 static int ppdev_claim(ppdev_file_t *file, bool force)
 {
     parport_t *p = file->port;
@@ -98,6 +101,7 @@ static int ppdev_claim(ppdev_file_t *file, bool force)
     return 0;
 }
 
+/* Release the port claim if this client still holds it. */
 static int ppdev_release(ppdev_file_t *file)
 {
     parport_t *p = file->port;
@@ -110,6 +114,7 @@ static int ppdev_release(ppdev_file_t *file)
     return 0;
 }
 
+/* ioctl(2): dispatch the Linux-compatible PP* ioctl family. */
 static int ppdev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t request, void *arg)
 {
     ppdev_file_t *file = private_data;
@@ -183,6 +188,7 @@ static int ppdev_ioctl(void *ctx, void *private_data, uint64_t flags, size_t req
     }
 }
 
+/* open(2): bind the device minor to a registered parallel port. */
 static int ppdev_open(struct vfs_node *node, uint64_t open_flags, void **private_data)
 {
     ppdev_file_t *file;
@@ -200,6 +206,7 @@ static int ppdev_open(struct vfs_node *node, uint64_t open_flags, void **private
     return 0;
 }
 
+/* close(2): drop any claim and free the per-open state. */
 static void ppdev_release_node(struct vfs_node *node, void *private_data)
 {
     ppdev_file_t *file = private_data;
@@ -218,6 +225,7 @@ static const tmpfs_device_ops_t ppdev_operations = {
     .file_ioctl = ppdev_ioctl,
 };
 
+/* Create a /dev/parportN node for every registered port. */
 void ppdev_init(void)
 {
     char name[16];

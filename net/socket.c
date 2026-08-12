@@ -106,6 +106,7 @@ static size_t strnlen_local(const char *s, size_t maxlen)
 
 /* Circular buffer helpers */
 
+/* Initialize a ring buffer with the given capacity (clamped to SOCK_BUF_MAX). */
 static int sock_buf_init(sock_buf_t *buf, uint32_t capacity)
 {
     if (capacity > SOCK_BUF_MAX) capacity = SOCK_BUF_MAX;
@@ -121,6 +122,7 @@ static int sock_buf_init(sock_buf_t *buf, uint32_t capacity)
     return EOK;
 }
 
+/* Release the ring buffer's backing allocation and reset it. */
 static void sock_buf_free(sock_buf_t *buf)
 {
     if (!buf) return;
@@ -134,18 +136,21 @@ static void sock_buf_free(sock_buf_t *buf)
     buf->capacity = 0;
 }
 
+/* Return the number of bytes currently in the buffer. */
 static uint32_t sock_buf_available(sock_buf_t *buf)
 {
     if (!buf || !buf->data) return 0;
     return buf->size;
 }
 
+/* Return the number of free bytes in the buffer. */
 static uint32_t sock_buf_space(sock_buf_t *buf)
 {
     if (!buf || !buf->data) return 0;
     return buf->capacity - buf->size;
 }
 
+/* Append up to len bytes to the ring, returning the count written. */
 static uint32_t sock_buf_write(sock_buf_t *buf, const void *data, uint32_t len)
 {
     uint32_t written;
@@ -186,6 +191,7 @@ static uint32_t sock_buf_write(sock_buf_t *buf, const void *data, uint32_t len)
     return written;
 }
 
+/* Consume up to len bytes from the ring, returning the count read. */
 static uint32_t sock_buf_read(sock_buf_t *buf, void *data, uint32_t len)
 {
     uint32_t rd;
@@ -216,6 +222,7 @@ static uint32_t sock_buf_read(sock_buf_t *buf, void *data, uint32_t len)
     return rd;
 }
 
+/* Copy up to len bytes from the ring without consuming them. */
 static uint32_t sock_buf_peek(sock_buf_t *buf, void *data, uint32_t len)
 {
     uint32_t pk;
@@ -247,6 +254,7 @@ static uint32_t sock_buf_peek(sock_buf_t *buf, void *data, uint32_t len)
     return pk;
 }
 
+/* Copy bytes at an offset into the ring without consuming them. */
 static uint32_t sock_buf_peek_at(sock_buf_t *buf, uint32_t offset, void *data, uint32_t len)
 {
     if (!buf || !buf->data || offset > buf->size) return 0;
@@ -266,6 +274,7 @@ static uint32_t sock_buf_peek_at(sock_buf_t *buf, uint32_t offset, void *data, u
     return copied;
 }
 
+/* Drop up to len bytes from the head of the ring. */
 static void sock_buf_discard(sock_buf_t *buf, uint32_t len)
 {
     if (!buf || !buf->data) return;
@@ -594,6 +603,7 @@ static int socket_copy_address_to_user(sockaddr_t *addr, uint32_t *addrlen, cons
     return EOK;
 }
 
+/* Release all queued SCM_RIGHTS descriptors on a socket. */
 static void socket_drop_rights(socket_t *sk)
 {
     process_file_t *files[SOCK_RIGHTS_MAX];
@@ -618,6 +628,7 @@ static void socket_drop_rights(socket_t *sk)
     for (size_t i = 0; i < count; i++) process_file_put_transfer(files[i]);
 }
 
+/* Dequeue up to capacity queued SCM_RIGHTS descriptors. */
 static size_t socket_take_rights(socket_t *sk, process_file_t **files, size_t capacity)
 {
     size_t count = 0;
@@ -696,11 +707,13 @@ static void socket_free(socket_t *sk)
     free(sk);
 }
 
+/* Take a reference on a socket. */
 static void socket_ref(socket_t *sk)
 {
     if (sk) sk->refcount++;
 }
 
+/* Drop a reference on a socket, freeing it when none remain. */
 static void socket_unref(socket_t *sk)
 {
     if (sk) socket_free(sk);
@@ -790,7 +803,6 @@ socket_t *socket_from_fd(int fd)
     if (file->node->type != file_socket) goto out;
 
     sk = (socket_t *)file->node->handle;
-
 out:
     spin_unlock(&proc->fd_lock);
     return sk;
@@ -1202,9 +1214,7 @@ static int unix_stream_send_rights(socket_t *sk, const void *buf, size_t len, in
 
         if (chunk > space) chunk = space;
 
-        /* For SEQPACKET, write the entire message or nothing? */
-        /* We'll write as much as we can; upper layer handles boundaries */
-
+        /* Write as much as we can; the upper layer handles message boundaries. */
         uint32_t written = sock_buf_write(&peer->recv_buf, (const uint8_t *)buf + total_written, chunk);
         total_written += written;
 
@@ -1652,7 +1662,6 @@ static int socket_poll(socket_t *sk, size_t events)
             if (!p || p->state == SOCK_STATE_DISCONNECTING) revents |= 0x010;
             break;
         }
-
         case SOCK_STATE_UNCONNECTED :
             /* DGRAM sockets can always send/recv if bound */
             if (sk->type == SOCK_DGRAM) {
@@ -1662,12 +1671,10 @@ static int socket_poll(socket_t *sk, size_t events)
                 revents |= 0x010; // POLLHUP - not connected
             }
             break;
-
         case SOCK_STATE_DISCONNECTING :
             revents |= 0x010; // POLLHUP
             if (sock_buf_available(&sk->recv_buf) > 0) revents |= 0x001;
             break;
-
         default :
             break;
     }
@@ -2498,7 +2505,6 @@ static int socket_collect_rights(socket_t *sk, const msghdr_t *kmsg, process_fil
 
     free(control);
     return EOK;
-
 malformed:
     socket_release_rights(rights, *rights_count);
     *rights_count = 0;
@@ -3259,7 +3265,6 @@ int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint3
             }
             sk->reuseaddr = ival ? 1 : 0;
             break;
-
         case SO_SNDBUF :
             if (optlen < sizeof(int)) {
                 spin_unlock(&sk->lock);
@@ -3276,7 +3281,6 @@ int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint3
             if ((uint32_t)ival > SOCK_BUF_MAX) ival = SOCK_BUF_MAX;
             sk->sndbuf = (uint32_t)ival;
             break;
-
         case SO_RCVBUF :
             if (optlen < sizeof(int)) {
                 spin_unlock(&sk->lock);
@@ -3293,7 +3297,6 @@ int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint3
             if ((uint32_t)ival > SOCK_BUF_MAX) ival = SOCK_BUF_MAX;
             sk->rcvbuf = (uint32_t)ival;
             break;
-
         case SO_LINGER :
             if (optlen < sizeof(linger_t)) {
                 spin_unlock(&sk->lock);
@@ -3306,7 +3309,6 @@ int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint3
             sk->linger_on   = linger.l_onoff ? 1 : 0;
             sk->linger_time = (uint32_t)linger.l_linger;
             break;
-
         case SO_PASSCRED :
             if (optlen < sizeof(int)) {
                 spin_unlock(&sk->lock);
@@ -3318,7 +3320,6 @@ int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint3
             }
             sk->passcred = ival ? 1 : 0;
             break;
-
         case SO_RCVLOWAT :
             if (optlen < sizeof(int)) {
                 spin_unlock(&sk->lock);
@@ -3334,7 +3335,6 @@ int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint3
             }
             sk->rcvlowat = (uint32_t)ival;
             break;
-
         case SO_SNDLOWAT :
             if (optlen < sizeof(int)) {
                 spin_unlock(&sk->lock);
@@ -3350,12 +3350,10 @@ int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint3
             }
             sk->sndlowat = (uint32_t)ival;
             break;
-
         case SO_RCVTIMEO :
         case SO_SNDTIMEO :
             spin_unlock(&sk->lock);
             return -ENOPROTOOPT; // socket timeouts are not supported
-
         case SO_KEEPALIVE :
         case SO_OOBINLINE :
         case SO_BROADCAST :
@@ -3363,7 +3361,6 @@ int64_t sys_setsockopt(int fd, int level, int optname, const void *optval, uint3
         case SO_DONTROUTE :
             /* Silently ignore for UNIX sockets */
             break;
-
         default :
             spin_unlock(&sk->lock);
             return -ENOPROTOOPT;
@@ -3423,43 +3420,35 @@ int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *o
             ival    = (int)sk->type;
             koptlen = sizeof(int);
             break;
-
         case SO_DOMAIN :
             ival    = (int)sk->family;
             koptlen = sizeof(int);
             break;
-
         case SO_PROTOCOL :
             ival    = (int)sk->protocol;
             koptlen = sizeof(int);
             break;
-
         case SO_ERROR :
             ival         = sk->so_error;
             sk->so_error = 0; // Clear on read
             koptlen      = sizeof(int);
             break;
-
         case SO_ACCEPTCONN :
             ival    = (sk->state == SOCK_STATE_LISTENING) ? 1 : 0;
             koptlen = sizeof(int);
             break;
-
         case SO_SNDBUF :
             ival    = (int)sk->sndbuf;
             koptlen = sizeof(int);
             break;
-
         case SO_RCVBUF :
             ival    = (int)sk->rcvbuf;
             koptlen = sizeof(int);
             break;
-
         case SO_REUSEADDR :
             ival    = sk->reuseaddr;
             koptlen = sizeof(int);
             break;
-
         case SO_LINGER :
             linger.l_onoff  = sk->linger_on ? 1 : 0;
             linger.l_linger = (int)sk->linger_time;
@@ -3468,7 +3457,6 @@ int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *o
             if (copy_to_user(optval, &linger, sizeof(linger_t))) return -EFAULT;
             if (copy_to_user(optlen, &koptlen, sizeof(uint32_t))) return -EFAULT;
             return EOK;
-
         case SO_PASSCRED :
             ival    = sk->passcred;
             koptlen = sizeof(int);
@@ -3491,17 +3479,14 @@ int64_t sys_getsockopt(int fd, int level, int optname, void *optval, uint32_t *o
             if (copy_to_user(optlen, &koptlen, sizeof(uint32_t))) return -EFAULT;
             return EOK;
         }
-
         case SO_RCVLOWAT :
             ival    = (int)sk->rcvlowat;
             koptlen = sizeof(int);
             break;
-
         case SO_SNDLOWAT :
             ival    = (int)sk->sndlowat;
             koptlen = sizeof(int);
             break;
-
         case SO_RCVTIMEO :
         case SO_SNDTIMEO :
         default :

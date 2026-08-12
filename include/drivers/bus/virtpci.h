@@ -170,27 +170,55 @@ struct vp_device {
         void *private_data;
 };
 
-/* Transport API */
+/* Find a VirtIO PCI device by vendor/device ID and fill in dev */
+int vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev);
 
-int     vp_find_device(uint16_t vendor_id, uint16_t device_id, struct vp_device *dev);
-void    vp_release_device(struct vp_device *dev);
-void    vp_reset_device(struct vp_device *dev);
-int     vp_setup_device(struct vp_device *dev);
-int     vp_negotiate_features(struct vp_device *dev, uint64_t guest_features, uint64_t *negotiated);
-void    vp_set_status(struct vp_device *dev, uint8_t status);
+/* Release all resources held by a device */
+void vp_release_device(struct vp_device *dev);
+
+/* Reset the device (clear status and re-initialize) */
+void vp_reset_device(struct vp_device *dev);
+
+/* Map the transport capabilities and set up the device for use */
+int vp_setup_device(struct vp_device *dev);
+
+/* Negotiate guest and device feature sets, returning the agreed mask */
+int vp_negotiate_features(struct vp_device *dev, uint64_t guest_features, uint64_t *negotiated);
+
+/* Write the device status register */
+void vp_set_status(struct vp_device *dev, uint8_t status);
+
+/* Read the device status register */
 uint8_t vp_get_status(struct vp_device *dev);
-int     vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *vq);
-void    vp_del_vq(struct vp_virtqueue *vq);
-void    vp_notify(struct vp_virtqueue *vq);
-void    vp_read_device_config(struct vp_device *dev, void *buf, int offset, int len);
-void    vp_write_device_config(struct vp_device *dev, const void *buf, int offset, int len);
 
-/* Virtqueue submission / completion helpers */
+/* Set up a virtqueue of `num` descriptors at the given index */
+int vp_setup_vq(struct vp_device *dev, int index, int num, struct vp_virtqueue *vq);
 
-int   virtqueue_add(struct vp_virtqueue *vq, void *data, int len, int write);
-int   virtqueue_add_out_in(struct vp_virtqueue *vq, void *out_data, int out_len, void *in_data, int in_len);
+/* Tear down a virtqueue previously set up with vp_setup_vq */
+void vp_del_vq(struct vp_virtqueue *vq);
+
+/* Notify the device that new descriptors are available */
+void vp_notify(struct vp_virtqueue *vq);
+
+/* Read `len` bytes of device configuration space */
+void vp_read_device_config(struct vp_device *dev, void *buf, int offset, int len);
+
+/* Write `len` bytes of device configuration space */
+void vp_write_device_config(struct vp_device *dev, const void *buf, int offset, int len);
+
+/* Add a single buffer to a virtqueue */
+int virtqueue_add(struct vp_virtqueue *vq, void *data, int len, int write);
+
+/* Add an out-only buffer followed by an in-only buffer to a virtqueue */
+int virtqueue_add_out_in(struct vp_virtqueue *vq, void *out_data, int out_len, void *in_data, int in_len);
+
+/* Pop a used buffer from a virtqueue, returning its data and length */
 void *virtqueue_get_buf(struct vp_virtqueue *vq, uint32_t *len);
-void  virtqueue_kick(struct vp_virtqueue *vq);
-int   virtqueue_enable_cb(struct vp_virtqueue *vq);
+
+/* Kick the device to process queued buffers */
+void virtqueue_kick(struct vp_virtqueue *vq);
+
+/* Enable the interrupt callback for a virtqueue */
+int virtqueue_enable_cb(struct vp_virtqueue *vq);
 
 #endif // INCLUDE_VIRTPCI_H_

@@ -146,6 +146,7 @@ int sysfs_rename_dir(struct kobject *kobj, const char *new_name);
 /* Internal: move a kobject directory below a new parent. */
 int sysfs_move_dir(struct kobject *kobj, struct kobject *new_parent);
 
+/* The root kobject of the sysfs tree. */
 extern struct kobject *sysfs_root_kobj;
 
 /* /sys/dev/{char,block} : major:minor symlink directories used by udev. */

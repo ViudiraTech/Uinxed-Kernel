@@ -57,6 +57,7 @@ typedef struct udp_endpoint_info {
         int            connected;
 } udp_endpoint_info_t;
 
+/* UDP endpoint lifecycle and socket-like operations. */
 udp_endpoint_t *udp_open(void);
 udp_endpoint_t *udp_open_family(uint16_t family);
 void            udp_close(udp_endpoint_t *endpoint);
@@ -68,11 +69,13 @@ int             udp_disconnect(udp_endpoint_t *endpoint);
 int             udp_send(udp_endpoint_t *endpoint, const void *data, size_t length, uint32_t destination, uint16_t port);
 int udp_send6(udp_endpoint_t *endpoint, const void *data, size_t length, const ipv6_address_t *destination, uint16_t port, uint8_t hop_limit);
 int udp_receive(udp_endpoint_t *endpoint, void *data, size_t capacity, udp_datagram_t *info, int peek);
-int udp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet);
-int udp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet);
-int net_udp_parse(const void *data, size_t length, uint32_t source, uint32_t destination, net_udp_datagram_t *datagram);
-int net_udp_parse6(const void *data, size_t length, const struct in6_addr *source, const struct in6_addr *destination,
-                   net_udp_datagram_t *datagram);
+
+/* Protocol entry points, packet parsing, and endpoint introspection. */
+int           udp_input(net_device_t *device, const ipv4_info_t *ip, net_pbuf_t *packet);
+int           udp_input6(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet);
+int           net_udp_parse(const void *data, size_t length, uint32_t source, uint32_t destination, net_udp_datagram_t *datagram);
+int           net_udp_parse6(const void *data, size_t length, const struct in6_addr *source, const struct in6_addr *destination,
+                             net_udp_datagram_t *datagram);
 uint16_t      udp_local_port(const udp_endpoint_t *endpoint);
 uint32_t      udp_readiness(udp_endpoint_t *endpoint);
 int           udp_get_info(udp_endpoint_t *endpoint, udp_endpoint_info_t *info);

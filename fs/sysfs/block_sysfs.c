@@ -181,6 +181,7 @@ static struct kobj_type partition_ktype = {
     .uevent        = block_kobj_uevent,
 };
 
+/* Publish the partitions of a disk as child kobjects. */
 static int block_add_partitions(block_sysfs_dev_t *disk)
 {
     partition_table_t table;
@@ -268,6 +269,7 @@ static void block_sysfs_devt(const char *name, uint32_t *major, uint32_t *minor)
     *minor = mi;
 }
 
+/* Create the /sys/dev/block major:minor symlink for a device. */
 static void block_sysfs_dev_publish(block_sysfs_dev_t *bsd)
 {
     uint32_t               major, minor;
@@ -290,6 +292,7 @@ static void block_sysfs_dev_unpublish(block_sysfs_dev_t *bsd)
     if (sysfs_dev_block_kobj) sysfs_remove_symlink(sysfs_dev_block_kobj, link);
 }
 
+/* Register a whole disk under /sys/block/ with its partitions. */
 int block_sysfs_register_device(const char *name, const blockdev_device_t *device, bool removable, block_sysfs_dev_t **handle)
 {
 #if CONFIG_SYSFS
@@ -326,6 +329,7 @@ int block_sysfs_register_device(const char *name, const blockdev_device_t *devic
 #endif
 }
 
+/* Remove a disk and its partitions from sysfs. */
 void block_sysfs_unregister_device(block_sysfs_dev_t *handle)
 {
 #if CONFIG_SYSFS
@@ -348,6 +352,7 @@ void block_sysfs_unregister_device(block_sysfs_dev_t *handle)
 
 /* Initialization */
 
+/* Export every registered disk to /sys/block/. */
 void block_sysfs_init(void)
 {
 #if CONFIG_SYSFS

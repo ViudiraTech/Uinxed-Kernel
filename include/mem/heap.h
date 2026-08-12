@@ -21,7 +21,7 @@ extern uint64_t KERNEL_HEAP_SIZE;  // Kernel heap size
 /* Initialize the memory heap */
 void init_heap(void);
 
-/* Allocate an empty memory */
+/* Allocate and zero memory */
 void *calloc(size_t nmemb, size_t size);
 
 #endif // INCLUDE_HEAP_H_

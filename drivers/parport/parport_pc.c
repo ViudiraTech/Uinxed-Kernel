@@ -56,6 +56,7 @@ static int parport_pc_detect(uint16_t base)
     return inb(base + PARPORT_CONTROL_REG) == (orig ^ 0x0c);
 }
 
+/* Probe the legacy parallel-port bases and register any that respond. */
 int parport_pc_init(void)
 {
     static const uint16_t legacy_bases[] = {0x378, 0x278, 0x3bc};

@@ -41,6 +41,7 @@ static void extfs_clear_bit(uint8_t *bitmap, uint32_t bit)
 static int extfs_initialize_block_bitmap(extfs_sb_info_t *sb, uint32_t group, uint8_t *bitmap);
 static int extfs_initialize_inode_bitmap(extfs_sb_info_t *sb, uint32_t group, uint8_t *bitmap);
 
+/* Find a free bit in a block/inode bitmap, initializing it if needed. */
 static int extfs_alloc_bit_from_bitmap(extfs_sb_info_t *sb, uint32_t group, int inode_bitmap, uint32_t bitmap_block, uint32_t total_bits,
                                        uint32_t start, uint32_t *out)
 {
@@ -82,6 +83,7 @@ static int extfs_alloc_bit_from_bitmap(extfs_sb_info_t *sb, uint32_t group, int 
     return -ENOSPC;
 }
 
+/* Clear a bit in a block/inode bitmap, detecting double frees. */
 static int extfs_free_bit_in_bitmap(extfs_sb_info_t *sb, uint32_t group, int inode_bitmap, uint32_t bitmap_block, uint32_t bit)
 {
     uint8_t *buf;
@@ -106,6 +108,7 @@ static int extfs_free_bit_in_bitmap(extfs_sb_info_t *sb, uint32_t group, int ino
     return status;
 }
 
+/* Number of valid data blocks in a group (the last group may be short). */
 static uint32_t extfs_blocks_in_group(extfs_sb_info_t *sb, uint32_t group)
 {
     uint64_t first = (uint64_t)sb->s_first_data_block + (uint64_t)group * sb->blocks_per_group;
@@ -115,6 +118,7 @@ static uint32_t extfs_blocks_in_group(extfs_sb_info_t *sb, uint32_t group)
     return remaining < sb->blocks_per_group ? (uint32_t)remaining : sb->blocks_per_group;
 }
 
+/* Number of valid inodes in a group (the last group may be short). */
 static uint32_t extfs_inodes_in_group(extfs_sb_info_t *sb, uint32_t group)
 {
     uint64_t first = (uint64_t)group * sb->inodes_per_group;
@@ -131,6 +135,7 @@ static int extfs_is_power(uint32_t value, uint32_t base)
     return value == 1;
 }
 
+/* Whether a group carries a superblock backup for sparse-super layouts. */
 static int extfs_group_has_super(extfs_sb_info_t *sb, uint32_t group)
 {
     if (sb->es->s_feature_compat & EXT4_FEATURE_COMPAT_SPARSE_SUPER2) {
@@ -148,6 +153,7 @@ static void extfs_mark_group_block(extfs_sb_info_t *sb, uint32_t group, uint8_t 
     if (physical >= first && physical < first + sb->blocks_per_group) extfs_set_bit(bitmap, (uint32_t)(physical - first));
 }
 
+/* Rebuild a block bitmap, marking metadata blocks as allocated. */
 static int extfs_initialize_block_bitmap(extfs_sb_info_t *sb, uint32_t group, uint8_t *bitmap)
 {
     memset(bitmap, 0, sb->block_size);
@@ -170,6 +176,7 @@ static int extfs_initialize_block_bitmap(extfs_sb_info_t *sb, uint32_t group, ui
     return extfs_update_bitmap_checksum(sb, group, 0, bitmap);
 }
 
+/* Rebuild an inode bitmap, zeroing the inode table if not yet done. */
 static int extfs_initialize_inode_bitmap(extfs_sb_info_t *sb, uint32_t group, uint8_t *bitmap)
 {
     if (!(sb->group_desc[group].bg_flags & EXT4_BG_INODE_ZEROED)) {
@@ -195,6 +202,7 @@ static int extfs_initialize_inode_bitmap(extfs_sb_info_t *sb, uint32_t group, ui
     return extfs_update_bitmap_checksum(sb, group, 1, bitmap);
 }
 
+/* Allocate a data block, preferring the group around the goal block. */
 int extfs_alloc_block(extfs_sb_info_t *sb, uint32_t goal, uint32_t *out)
 {
     uint32_t group, i, bit;
@@ -252,6 +260,7 @@ int extfs_alloc_block(extfs_sb_info_t *sb, uint32_t goal, uint32_t *out)
     return -ENOSPC;
 }
 
+/* Free a data block back to its group bitmap. */
 void extfs_free_block(extfs_sb_info_t *sb, uint32_t block)
 {
     uint32_t group, bit;
@@ -276,6 +285,7 @@ void extfs_free_block(extfs_sb_info_t *sb, uint32_t block)
     if (status != EOK && sb->active_transaction) sb->active_transaction->error = status;
 }
 
+/* Allocate an inode number from the first group with a free slot. */
 int extfs_alloc_inode(extfs_sb_info_t *sb, uint32_t *out)
 {
     uint32_t i;
@@ -323,6 +333,7 @@ int extfs_alloc_inode(extfs_sb_info_t *sb, uint32_t *out)
     return -ENOSPC;
 }
 
+/* Free an inode number back to its group bitmap. */
 void extfs_free_inode(extfs_sb_info_t *sb, uint32_t ino)
 {
     uint32_t group, bit;
@@ -347,6 +358,7 @@ void extfs_free_inode(extfs_sb_info_t *sb, uint32_t ino)
     if (status != EOK && sb->active_transaction) sb->active_transaction->error = status;
 }
 
+/* Adjust the used-directory counter of an inode's group. */
 int extfs_adjust_used_dirs(extfs_sb_info_t *sb, uint32_t ino, int delta)
 {
     if (!sb || !sb->es || !ino) return -EINVAL;
@@ -361,6 +373,7 @@ int extfs_adjust_used_dirs(extfs_sb_info_t *sb, uint32_t ino, int delta)
     return extfs_write_group_desc(sb, group, &sb->group_desc[group]);
 }
 
+/* Sum the free-block counters across all groups. */
 uint32_t extfs_count_free_blocks(extfs_sb_info_t *sb)
 {
     uint32_t i, count = 0;
@@ -371,6 +384,7 @@ uint32_t extfs_count_free_blocks(extfs_sb_info_t *sb)
     return count;
 }
 
+/* Sum the free-inode counters across all groups. */
 uint32_t extfs_count_free_inodes(extfs_sb_info_t *sb)
 {
     uint32_t i, count = 0;

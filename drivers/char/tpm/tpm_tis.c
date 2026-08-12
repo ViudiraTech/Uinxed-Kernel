@@ -13,10 +13,7 @@
 #include <libs/std/stdint.h>
 #include <libs/std/string.h>
 
-/*
- * TIS MMIO register access helpers
- * Uses direct volatile access (matching project MMIO patterns)
- */
+/* TIS MMIO register access helpers (direct volatile access) */
 
 static inline void *tis_reg_addr(tpm_device_t *dev, uint32_t offset)
 {

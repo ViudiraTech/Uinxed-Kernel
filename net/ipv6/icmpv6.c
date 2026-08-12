@@ -18,11 +18,13 @@
 
 #define ICMPV6_HEADER_LEN 8U
 
+/* True for ICMPv6 error messages (type < 128). */
 static int icmpv6_is_error(uint8_t type)
 {
     return type < 128U;
 }
 
+/* Handle an inbound ICMPv6 message: echo, NDP dispatch, and error delivery. */
 int icmpv6_input(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet)
 {
     if (!device || !ip || !packet || packet->length < ICMPV6_HEADER_LEN
@@ -54,6 +56,7 @@ bad:
     return -EBADMSG;
 }
 
+/* Send an ICMPv6 error message quoting the offending IPv6 packet. */
 int icmpv6_error(net_device_t *device, const ipv6_address_t *destination, uint8_t type, uint8_t code, uint32_t value, const void *original,
                  size_t original_length)
 {

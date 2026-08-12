@@ -337,6 +337,8 @@ int     vfs_file_poll(vfs_node_t file, void *private_data, uint64_t flags, size_
 int     vfs_mount_is_readonly(vfs_node_t node);
 void    vfs_file_descriptor_close(vfs_node_t file, void *private_data);
 vfs_poll_source_t *vfs_file_poll_source(vfs_node_t file, void *private_data);
+
+/* Readiness-notification subscriptions on a node or a raw poll source. */
 void vfs_poll_subscribe(vfs_node_t file, vfs_poll_subscription_t *subscription, uint32_t events, vfs_poll_notify_t notify, void *context);
 void vfs_poll_unsubscribe(vfs_node_t file, vfs_poll_subscription_t *subscription);
 void vfs_poll_notify(vfs_node_t file, uint32_t events);

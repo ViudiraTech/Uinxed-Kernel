@@ -1680,11 +1680,13 @@ static struct drm_display_mode *edid_gtf_mode_complex(struct drm_device *dev, in
     return drm_mode;
 }
 
+/* GTF mode with the standard timing parameters. */
 static struct drm_display_mode *edid_gtf_mode(struct drm_device *dev, int hdisplay, int vdisplay, int vrefresh, bool interlaced, int margins)
 {
     return edid_gtf_mode_complex(dev, hdisplay, vdisplay, vrefresh, interlaced, margins, 600, 80, 128, 40);
 }
 
+/* True if the mode uses the DMT reduced-blanking timings. */
 static bool mode_uses_reduced_blanking(const struct drm_display_mode *mode)
 {
     return (mode->htotal - mode->hdisplay) < 140 && (mode->hsync_end - mode->hdisplay) < 72;
@@ -1758,6 +1760,7 @@ static int mode_hsync_khz(const struct drm_display_mode *mode)
     return DIV_ROUND_CLOSEST(mode->clock, mode->htotal);
 }
 
+/* True if the monitor advertises CVT reduced-blanking support. */
 static bool monitor_caps_reduced_blanking(const struct edid *edid)
 {
     if (edid->revision >= 4) {
@@ -1975,6 +1978,7 @@ struct detailed_mode_closure {
         int                   modes;
 };
 
+/* Add one detailed timing descriptor to the connector as a mode. */
 static void collect_detailed_mode(const struct detailed_timing *timing, struct detailed_mode_closure *closure)
 {
     struct drm_display_mode *newmode;
@@ -1991,6 +1995,7 @@ static void collect_detailed_mode(const struct detailed_timing *timing, struct d
     closure->preferred = false;
 }
 
+/* Collect modes from the four detailed timing descriptors. */
 static int collect_detailed_modes(struct drm_connector *connector, const struct edid *edid)
 {
     struct detailed_mode_closure closure = {
@@ -2167,6 +2172,7 @@ static int collect_cta_modes(struct drm_connector *connector, const struct edid 
     return modes;
 }
 
+/* Scan the CTA extension blocks for an HDMI vendor-specific data block. */
 static bool scan_cta_for_hdmi(const struct edid *edid)
 {
     int i;
@@ -2189,9 +2195,7 @@ static bool scan_cta_for_hdmi(const struct edid *edid)
 
             if (idx + 1 + len > d) break;
 
-            if (tag == CTA_DB_VENDOR && len >= 5 && (ext[idx + 1] | (ext[idx + 2] << 8) | (ext[idx + 3] << 16)) == HDMI_IEEE_OUI) {
-                return true;
-            }
+            if (tag == CTA_DB_VENDOR && len >= 5 && (ext[idx + 1] | (ext[idx + 2] << 8) | (ext[idx + 3] << 16)) == HDMI_IEEE_OUI) return true;
             idx += 1 + len;
         }
     }
@@ -2199,6 +2203,7 @@ static bool scan_cta_for_hdmi(const struct edid *edid)
     return false;
 }
 
+/* Scan the CTA extension blocks for basic audio capability. */
 static bool scan_cta_for_audio(const struct edid *edid)
 {
     int i;
@@ -2272,9 +2277,8 @@ int drm_edid_header_is_valid(const void *_edid)
     const struct edid *edid = _edid;
     int                i, score = 0;
 
-    for (i = 0; i < (int)sizeof(edid_header); i++) {
+    for (i = 0; i < (int)sizeof(edid_header); i++)
         if (edid->header[i] == edid_header[i]) score++;
-    }
 
     return score;
 }
@@ -2295,9 +2299,8 @@ static bool block_is_blank(const void *edid)
 {
     int i;
 
-    for (i = 0; i < EDID_LENGTH; i++) {
+    for (i = 0; i < EDID_LENGTH; i++)
         if (((const uint8_t *)edid)[i]) return false;
-    }
     return true;
 }
 
@@ -2346,6 +2349,7 @@ static bool validate_edid_block(void *block, int block_num)
     return true;
 }
 
+/* Validate the base block and every extension block. */
 bool drm_edid_is_valid(struct edid *edid)
 {
     int i;
@@ -2361,6 +2365,7 @@ bool drm_edid_is_valid(struct edid *edid)
     return true;
 }
 
+/* Duplicate an EDID blob into a fresh allocation. */
 struct edid *drm_edid_duplicate(const struct edid *edid)
 {
     struct edid *new_edid;
@@ -2379,6 +2384,7 @@ struct edid *drm_edid_duplicate(const struct edid *edid)
 
 /* Public API */
 
+/* Copy the monitor name from the EDID into the caller's buffer. */
 void drm_edid_get_monitor_name(const struct edid *edid, char *name, int bufsize)
 {
     int name_length = 0;
@@ -2394,6 +2400,7 @@ void drm_edid_get_monitor_name(const struct edid *edid, char *name, int bufsize)
     name[name_length] = '\0';
 }
 
+/* Fill the connector's physical display dimensions from the EDID. */
 void drm_edid_to_display_info(struct drm_connector *connector, const struct edid *edid)
 {
     if (!connector) return;
@@ -2465,6 +2472,7 @@ static size_t edid_size(const struct edid *edid)
  * modes are old-school Mac modes.
  */
 
+/* Add the modes from an EST_TIMINGS descriptor bitmask. */
 static int est3_modes_from_descriptor(struct drm_connector *connector, const struct detailed_timing *timing)
 {
     int                      i, j, m, modes = 0;
@@ -2520,8 +2528,10 @@ static int collect_established_modes(struct drm_connector *connector, const stru
         }
     }
 
-    /* Some EDIDs have the 3-byte established timings descriptor in the
-     * detailed timing area. */
+    /*
+     * Some EDIDs have the 3-byte established timings descriptor in the
+     * detailed timing area.
+     */
     {
         int k;
         for (k = 0; k < EDID_DETAILED_TIMINGS; k++) collect_est3_descriptor(&edid->detailed_timings[k], &closure);
@@ -2571,8 +2581,10 @@ static int collect_standard_modes(struct drm_connector *connector, const struct 
         }
     }
 
-    /* Some EDIDs have the standard timing descriptor in the detailed
-     * timing area. */
+    /*
+     * Some EDIDs have the standard timing descriptor in the detailed
+     * timing area.
+     */
     {
         int k;
         for (k = 0; k < EDID_DETAILED_TIMINGS; k++) collect_std_descriptor(&edid->detailed_timings[k], &closure);
@@ -2590,6 +2602,7 @@ static const struct drm_display_mode *cta_mode_for_vic(uint8_t vic)
     return NULL;
 }
 
+/* Duplicate the CEA mode table entry for the given video code. */
 struct drm_display_mode *drm_display_mode_from_cea_vic(struct drm_device *dev, uint8_t video_code)
 {
     const struct drm_display_mode *cea_mode;
@@ -2683,6 +2696,7 @@ static bool modes_match(const struct drm_display_mode *mode1, const struct drm_d
 #define MODES_MATCH_FLAGS        0x4
 #define MODES_MATCH_ASPECT_RATIO 0x8
 
+/* Find the CEA video code matching the given mode timings. */
 uint8_t drm_match_cea_mode(const struct drm_display_mode *to_match)
 {
     unsigned int match_flags = MODES_MATCH_TIMINGS | MODES_MATCH_FLAGS;

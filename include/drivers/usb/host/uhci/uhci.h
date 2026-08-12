@@ -117,11 +117,13 @@ typedef struct __attribute__((packed, aligned(16))) {
 #define UHCI_LINK_DEPTH     (1U << 2)
 #define UHCI_LINK_MASK      0xfffffff0U
 
+/* Encode a transfer length: 0 maps to the 0x7ff "unlimited" marker. */
 static inline uint32_t uhci_td_encode_length(size_t length)
 {
     return length ? (uint32_t)(length - 1) & 0x7ffU : 0x7ffU;
 }
 
+/* Decode a transfer length field; 0x7ff means "unlimited" (0 bytes). */
 static inline size_t uhci_td_decode_length(uint32_t control_status)
 {
     uint32_t encoded = control_status & UHCI_TD_ACTLEN_MASK;

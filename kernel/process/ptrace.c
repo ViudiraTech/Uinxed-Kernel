@@ -65,6 +65,7 @@ static task_t *ptrace_find_task_get(int64_t pid, process_t **owner)
     return process_task_find_get((pid_t)pid, owner);
 }
 
+/* Initialize a tracee's ptrace state to the default run/continue mode */
 void ptrace_state_init(ptrace_state_t *state)
 {
     if (!state) return;
@@ -100,6 +101,7 @@ void ptrace_regs_from_frame(ptrace_user_regs_t *regs, const syscall_frame_t *fra
     regs->ss       = frame->ss;
 }
 
+/* Write user-visible registers back into a syscall frame, fixing selectors and flags */
 void ptrace_regs_to_frame(syscall_frame_t *frame, const ptrace_user_regs_t *regs)
 {
     if (!frame || !regs) return;
@@ -142,6 +144,7 @@ int64_t ptrace_tracer_pid(const task_t *task)
     return __atomic_load_n(&task->ptrace.tracer_pid, __ATOMIC_ACQUIRE);
 }
 
+/* Check that the tracer may inspect or modify the tracee */
 static int ptrace_access_allowed(process_t *tracer, process_t *tracee)
 {
     if (!tracer || !tracee || tracer == tracee) return -EPERM;
@@ -150,6 +153,7 @@ static int ptrace_access_allowed(process_t *tracer, process_t *tracee)
     return 0;
 }
 
+/* Whether the current task is the tracer of the target */
 static int ptrace_attached_by_current(task_t *target)
 {
     task_t *current = current_task();
@@ -167,6 +171,7 @@ static void ptrace_fpu_restore(const void *area)
     __asm__ volatile("fxrstor64 (%0)" : : "r"(area) : "memory");
 }
 
+/* Save the current hardware debug registers into a task */
 static void ptrace_debug_save(task_t *task)
 {
     if (!task) return;
@@ -178,6 +183,7 @@ static void ptrace_debug_save(task_t *task)
     __asm__ volatile("mov %%dr7, %0" : "=r"(task->ptrace.debug_regs[7]));
 }
 
+/* Restore a task's debug registers into the hardware, or clear them if none */
 static void ptrace_debug_restore(const task_t *task)
 {
     uint64_t dr0 = task ? task->ptrace.debug_regs[0] : 0;
@@ -208,6 +214,7 @@ void ptrace_arch_switch(task_t *previous, task_t *next)
     ptrace_debug_restore(next_active ? next : NULL);
 }
 
+/* Populate the Linux x86-64 struct user layout for a tracee */
 static void ptrace_build_user_area(task_t *target, ptrace_user_area_t *area)
 {
     memset(area, 0, sizeof(*area));
@@ -229,6 +236,7 @@ static void ptrace_build_user_area(task_t *target, ptrace_user_area_t *area)
     }
 }
 
+/* Write a 64-bit value into a tracee's struct user area (PTRACE_POKEUSR) */
 static int ptrace_poke_user(task_t *target, uintptr_t offset, uint64_t value)
 {
     if ((offset & (sizeof(uint64_t) - 1)) || offset >= sizeof(ptrace_user_area_t)) {
@@ -262,6 +270,7 @@ static int ptrace_poke_user(task_t *target, uintptr_t offset, uint64_t value)
     return -EIO;
 }
 
+/* Map a user address to a kernel pointer, handling COW and huge-page walks */
 static int ptrace_translate(process_t *proc, uintptr_t addr, bool write, void **mapped, size_t *available)
 {
     if (!proc || !proc->user_page_dir || !proc->user_page_dir->table || addr >= PROCESS_USER_STACK_TOP) return -EIO;
@@ -305,6 +314,7 @@ static int ptrace_translate(process_t *proc, uintptr_t addr, bool write, void **
     return 0;
 }
 
+/* Read or write a buffer in the tracee's address space */
 static int ptrace_access_vm(process_t *proc, uintptr_t addr, void *buffer, size_t size, bool write)
 {
     uint8_t *bytes = buffer;
@@ -326,6 +336,7 @@ static int ptrace_access_vm(process_t *proc, uintptr_t addr, void *buffer, size_
     return 0;
 }
 
+/* Send SIGCHLD to the tracer so it can wait() for the tracee's stop */
 static void ptrace_notify_tracer(task_t *tracee)
 {
     int64_t tracer_pid = ptrace_tracer_pid(tracee);
@@ -348,6 +359,7 @@ static void ptrace_notify_tracer(task_t *tracee)
     process_put(tracer);
 }
 
+/* Stop the current task and publish a ptrace event, sleeping until the tracer resumes it */
 static int ptrace_stop_current(syscall_frame_t *frame, int sig, ptrace_stop_reason_t reason, uint32_t event, uint64_t msg, const siginfo_t *info)
 {
     task_t *task = current_task();
@@ -476,6 +488,7 @@ static int ptrace_attach(task_t *target, process_t *owner, bool seize, uint32_t 
     return ret;
 }
 
+/* Copy a regset between the tracee state and user memory (PTRACE_GET/SETREGSET) */
 static int ptrace_copy_regset(task_t *target, uintptr_t note, uintptr_t data, bool write)
 {
     ptrace_iovec_t iov;
@@ -502,6 +515,7 @@ static int ptrace_copy_regset(task_t *target, uintptr_t note, uintptr_t data, bo
     return copy_to_user((void *)data, &iov, sizeof(iov)) ? -EFAULT : 0;
 }
 
+/* Copy queued siginfo entries to user memory (PTRACE_PEEKSIGINFO) */
 static int64_t ptrace_peek_siginfo(task_t *target, uintptr_t addr, uintptr_t data)
 {
     ptrace_peeksiginfo_args_t args;
@@ -529,6 +543,7 @@ static int64_t ptrace_peek_siginfo(task_t *target, uintptr_t addr, uintptr_t dat
     return copied;
 }
 
+/* Fill the ptrace_syscall_info structure for PTRACE_GET_SYSCALL_INFO */
 static int64_t ptrace_get_syscall_info(task_t *target, uintptr_t size, uintptr_t data)
 {
     ptrace_syscall_info_t info;
@@ -808,6 +823,7 @@ int64_t sys_ptrace(int request, int64_t pid, uintptr_t addr, uintptr_t data)
     return ret;
 }
 
+/* Locate a tracee with pending events for the tracer to wait on */
 static task_t *ptrace_wait_target_get(task_t *tracer, int64_t pid, process_t **owner, bool *exists)
 {
     *owner  = NULL;
@@ -850,6 +866,7 @@ static task_t *ptrace_wait_target_get(task_t *tracer, int64_t pid, process_t **o
     return NULL;
 }
 
+/* Implement the ptrace wait path, blocking until a tracee event is pending */
 int64_t ptrace_wait_event(int64_t pid, int *status, int options)
 {
     task_t *self = current_task();
@@ -882,7 +899,6 @@ int64_t ptrace_wait_event(int64_t pid, int *status, int options)
         }
         spin_unlock(&state->lock);
         process_put(owner);
-
 wait_again:
         if (options & PTRACE_WAIT_WNOHANG) return 0;
         signal_state_t *signals = &self->process->signal;
@@ -894,6 +910,7 @@ wait_again:
     }
 }
 
+/* Let a tracer intercept a signal before normal delivery; returns the signal to deliver */
 int ptrace_signal_delivery(syscall_frame_t *frame, int sig, siginfo_t *info)
 {
     task_t *task = current_task();
@@ -920,6 +937,7 @@ int ptrace_signal_delivery(syscall_frame_t *frame, int sig, siginfo_t *info)
     return injected;
 }
 
+/* Notify the tracer at syscall entry when PTRACE_O_TRACESYSGOOD tracing is active */
 void ptrace_syscall_enter(syscall_frame_t *frame, uint64_t syscall_nr)
 {
     task_t *task = current_task();
@@ -943,6 +961,7 @@ void ptrace_syscall_enter(syscall_frame_t *frame, uint64_t syscall_nr)
     }
 }
 
+/* Notify the tracer at syscall exit when single-stepping syscalls */
 void ptrace_syscall_exit(syscall_frame_t *frame, int64_t result)
 {
     task_t *task = current_task();
@@ -958,6 +977,7 @@ void ptrace_syscall_exit(syscall_frame_t *frame, int64_t result)
     }
 }
 
+/* Report an exec event to the tracer if PTRACE_O_TRACEEXEC is set */
 void ptrace_exec_event(syscall_frame_t *frame)
 {
     task_t *task = current_task();
@@ -969,6 +989,7 @@ void ptrace_exec_event(syscall_frame_t *frame)
     ptrace_stop_current(frame, SIGTRAP, event ? PTRACE_STOP_EVENT : PTRACE_STOP_SIGNAL, event ? PTRACE_EVENT_EXEC : 0, task->pid, NULL);
 }
 
+/* Report an exit event to the tracer before the tracee is destroyed */
 void ptrace_exit_event(int exit_code)
 {
     task_t *task = current_task();
@@ -991,6 +1012,7 @@ void ptrace_exit_event(int exit_code)
     ptrace_stop_current(frame, SIGTRAP, PTRACE_STOP_EVENT, PTRACE_EVENT_EXIT, (uint64_t)(uint32_t)exit_code, NULL);
 }
 
+/* Publish the final exit status of a traced task and wake the tracer */
 void ptrace_exit_notify(int exit_code)
 {
     task_t *task = current_task();
@@ -1012,6 +1034,7 @@ void ptrace_exit_notify(int exit_code)
     ptrace_notify_tracer(task);
 }
 
+/* Map a ptrace event to the PTRACE_O_TRACE* option that enables it */
 static uint32_t ptrace_event_option(uint32_t event)
 {
     switch (event) {
@@ -1028,6 +1051,7 @@ static uint32_t ptrace_event_option(uint32_t event)
     }
 }
 
+/* Inherit tracing on a forked child when the tracer watches the event; returns whether the child is stopped */
 bool ptrace_fork_child(task_t *parent, task_t *child, uint32_t event)
 {
     if (!parent || !child || !ptrace_tracer_pid(parent)) return false;
@@ -1059,6 +1083,7 @@ bool ptrace_fork_child(task_t *parent, task_t *child, uint32_t event)
     return true;
 }
 
+/* Report a fork/vfork/clone event to the tracer of the parent */
 void ptrace_fork_event(syscall_frame_t *frame, uint32_t event, uint64_t child_pid)
 {
     task_t *task = current_task();
@@ -1071,6 +1096,7 @@ void ptrace_fork_event(syscall_frame_t *frame, uint32_t event, uint64_t child_pi
     if (enabled) ptrace_stop_current(frame, SIGTRAP, PTRACE_STOP_EVENT, event, child_pid, NULL);
 }
 
+/* Release every tracee of a dying tracer, optionally killing them with SIGKILL */
 void ptrace_tracer_exit(int64_t tracer_pid)
 {
     if (tracer_pid <= 0) return;

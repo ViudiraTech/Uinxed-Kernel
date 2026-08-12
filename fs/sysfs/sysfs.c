@@ -790,10 +790,8 @@ static vfs_node_t sysfs_dup(vfs_node_t node)
     }
 
     return copy;
-
 err_new_sn:
     sysfs_node_free(new_sn);
-
 err_copy:
     if (copy->parent) copy->parent->child = clist_delete(copy->parent->child, copy);
     vfs_free(copy);
@@ -1041,7 +1039,6 @@ static int sysfs_create_bin_file_mode(struct kobject *dir_kobj, struct kobject *
     entry->vnode    = file_vn;
 
     return EOK;
-
 err_entry:
     dir_kobj->bin_attributes = clist_delete(dir_kobj->bin_attributes, entry);
     free(entry);
@@ -1127,7 +1124,6 @@ int sysfs_create_symlink(struct kobject *kobj, struct kobject *target, const cha
     }
 
     return EOK;
-
 err_entry:
     kobj->symlinks = clist_delete(kobj->symlinks, entry);
     kobject_put(entry->target);
@@ -1246,7 +1242,6 @@ int sysfs_create_group(struct kobject *kobj, const struct attribute_group *grp)
     free(created_attrs);
     free(created_bin_attrs);
     return EOK;
-
 err_group:
     while (attr_count) sysfs_remove_file(target_kobj, created_attrs[--attr_count]);
     while (bin_count) sysfs_remove_bin_file(target_kobj, created_bin_attrs[--bin_count]);
@@ -1624,7 +1619,6 @@ int sysfs_init(void)
     }
 
     return EOK;
-
 err_children:
     while (sysfs_root_kobj->children) {
         struct kobject *child = sysfs_root_kobj->children->data;

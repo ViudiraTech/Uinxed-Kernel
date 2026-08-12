@@ -112,7 +112,10 @@ typedef struct {
         void (*write_response)(const char *buf, size_t len);
 } vt_ansi_callbacks_t;
 
+/* Initialize an ANSI terminal state for a @cols x @rows grid. */
 void vt_ansi_init(vt_ansi_state_t *state, uint32_t cols, uint32_t rows);
+
+/* Feed one byte through the ANSI parser, invoking @cb for terminal effects. */
 void vt_ansi_process(vt_ansi_state_t *state, uint8_t c, const vt_ansi_callbacks_t *cb, void *arg);
 
 static inline void vt_ansi_set_default_colors(vt_ansi_state_t *s, uint32_t fg, uint32_t bg)

@@ -184,6 +184,7 @@ static void pci_dev_release(struct device *dev)
 
 /* Initialization */
 
+/* Register the PCI bus type and publish every cached device. */
 void pci_sysfs_init(void)
 {
 #if CONFIG_SYSFS

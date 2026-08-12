@@ -257,9 +257,8 @@ static struct drm_gem_object *gem_find_by_name(uint32_t name)
 {
     int i;
 
-    for (i = 0; i < GEM_MAX_NAMES; i++) {
+    for (i = 0; i < GEM_MAX_NAMES; i++)
         if (gem_name_table[i].name == name && gem_name_table[i].obj) return gem_name_table[i].obj;
-    }
     return NULL;
 }
 
@@ -272,9 +271,8 @@ static int gem_alloc_name(struct drm_gem_object *obj, uint32_t *name_out)
     spin_lock(&gem_name_lock);
 
     /* Find free slot */
-    for (i = 0; i < GEM_MAX_NAMES; i++) {
+    for (i = 0; i < GEM_MAX_NAMES; i++)
         if (gem_name_table[i].obj == NULL) break;
-    }
 
     if (i >= GEM_MAX_NAMES) {
         spin_unlock(&gem_name_lock);
@@ -666,6 +664,7 @@ static struct {
 
 static spinlock_t prime_fd_lock = {.lock = 0, .rflags = 0};
 
+/* Allocate a PRIME fd slot for the object and take a reference. */
 static int prime_fd_alloc(struct drm_gem_object *obj, int *fd_out)
 {
     int i;
@@ -688,6 +687,7 @@ static int prime_fd_alloc(struct drm_gem_object *obj, int *fd_out)
     return -ENOMEM;
 }
 
+/* Look up a PRIME fd and return the object with a new reference. */
 static struct drm_gem_object *prime_fd_lookup(int fd)
 {
     struct drm_gem_object *obj = NULL;
@@ -705,6 +705,7 @@ static struct drm_gem_object *prime_fd_lookup(int fd)
     return obj;
 }
 
+/* Release a PRIME fd slot. */
 void drm_gem_prime_fd_free(int fd)
 {
     int idx = fd - 1;
@@ -775,6 +776,7 @@ int drm_gem_prime_fd_to_handle(struct drm_device *dev, struct drm_file *file_pri
     return 0;
 }
 
+/* Allocate a mmap offset slot for the GEM object. */
 int drm_gem_create_mmap_offset(struct drm_gem_object *obj)
 {
     if (!obj || !obj->size) return -EINVAL;

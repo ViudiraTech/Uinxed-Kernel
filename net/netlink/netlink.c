@@ -69,12 +69,14 @@ static spinlock_t nl_pid_lock;
 
 /* Internal helpers */
 
+/* Fetch the private netlink state attached to a socket. */
 static nl_sock_t *nl_sk(struct socket *sk)
 {
     if (!sk || !sk->priv) return NULL;
     return (nl_sock_t *)sk->priv;
 }
 
+/* Allocate a refcounted message with a copy of the payload. */
 static nl_msg_t *nl_msg_alloc(const void *data, uint32_t len, uint32_t sender_pid, uint32_t sender_groups, uint32_t sender_uid,
                               uint32_t sender_gid)
 {
@@ -101,6 +103,7 @@ static nl_msg_t *nl_msg_alloc(const void *data, uint32_t len, uint32_t sender_pi
     return msg;
 }
 
+/* Free a message and its payload. */
 static void nl_msg_free(nl_msg_t *msg)
 {
     if (!msg) return;
@@ -108,6 +111,7 @@ static void nl_msg_free(nl_msg_t *msg)
     free(msg);
 }
 
+/* Drop a reference on a message, freeing it at zero. */
 static void nl_msg_put(nl_msg_t *msg)
 {
     if (!msg) return;
@@ -136,11 +140,13 @@ typedef struct rtnl_device_info {
         uint32_t ifindex;
 } rtnl_device_info_t;
 
+/* Convert a 32-bit value to network byte order. */
 static uint32_t rtnl_be32(uint32_t value)
 {
     return __builtin_bswap32(value);
 }
 
+/* Count the one bits in a netmask to derive the prefix length. */
 static uint8_t rtnl_prefix_length(uint32_t mask)
 {
     uint8_t length = 0;
@@ -151,6 +157,7 @@ static uint8_t rtnl_prefix_length(uint32_t mask)
     return length;
 }
 
+/* Map kernel netdev flags to the userspace IFF_* interface flags. */
 static uint32_t rtnl_interface_flags(uint32_t flags)
 {
     uint32_t result = 0;
@@ -160,6 +167,7 @@ static uint32_t rtnl_interface_flags(uint32_t flags)
     return result;
 }
 
+/* Append an rtattr to the buffer, padding and checking capacity. */
 static int rtnl_add_attr(uint8_t *buffer, uint32_t capacity, uint32_t *length, uint16_t type, const void *data, uint16_t data_length)
 {
     uint32_t attr_length = RTA_LENGTH(data_length);
@@ -174,6 +182,7 @@ static int rtnl_add_attr(uint8_t *buffer, uint32_t capacity, uint32_t *length, u
     return EOK;
 }
 
+/* Queue a nlmsghdr to a socket's receive queue. */
 static int rtnl_queue_message(struct socket *sk, uint16_t type, uint16_t flags, uint32_t seq, const void *payload, uint32_t payload_length)
 {
     uint32_t length = NLMSG_LENGTH(payload_length);
@@ -191,6 +200,7 @@ static int rtnl_queue_message(struct socket *sk, uint16_t type, uint16_t flags, 
     return result;
 }
 
+/* Queue an NLMSG_ERROR reply echoing the offending request header. */
 static int rtnl_queue_error(struct socket *sk, const nlmsghdr_t *request, int error)
 {
     nlmsgerr_t response;
@@ -200,6 +210,7 @@ static int rtnl_queue_error(struct socket *sk, const nlmsghdr_t *request, int er
     return rtnl_queue_message(sk, NLMSG_ERROR, 0, request->nlmsg_seq, &response, sizeof(response));
 }
 
+/* Copy a device's configuration into a lock-free info snapshot. */
 static void rtnl_snapshot_device(net_device_t *device, rtnl_device_info_t *info)
 {
     spin_lock(&device->lock);
@@ -214,6 +225,7 @@ static void rtnl_snapshot_device(net_device_t *device, rtnl_device_info_t *info)
     spin_unlock(&device->lock);
 }
 
+/* Emit one RTM_NEWLINK message describing a device. */
 static void rtnl_emit_link(net_device_t *device, void *opaque)
 {
     rtnl_dump_context_t *context                 = opaque;
@@ -243,6 +255,7 @@ static void rtnl_emit_link(net_device_t *device, void *opaque)
     if (!context->error) context->emitted++;
 }
 
+/* Emit one RTM_NEWADDR message for a device's IPv4 address. */
 static void rtnl_emit_address(net_device_t *device, void *opaque)
 {
     rtnl_dump_context_t *context                 = opaque;
@@ -270,6 +283,7 @@ static void rtnl_emit_address(net_device_t *device, void *opaque)
     if (!context->error) context->emitted++;
 }
 
+/* Emit one RTM_NEWROUTE message for a connected or default route. */
 static int rtnl_emit_one_route(rtnl_dump_context_t *context, const rtnl_device_info_t *info, int is_default)
 {
     uint8_t  payload[RTMSG_BUF_SIZE] = {0};
@@ -295,6 +309,7 @@ static int rtnl_emit_one_route(rtnl_dump_context_t *context, const rtnl_device_i
     return rtnl_queue_message(context->sk, RTM_NEWROUTE, context->multipart ? NLM_F_MULTI : 0, context->seq, payload, length);
 }
 
+/* Emit route messages for a device that matches the dump request. */
 static void rtnl_emit_routes(net_device_t *device, void *opaque)
 {
     rtnl_dump_context_t *context = opaque;
@@ -318,6 +333,7 @@ static void rtnl_emit_routes(net_device_t *device, void *opaque)
     }
 }
 
+/* Extract destination/interface filters from a GETROUTE request. */
 static int rtnl_parse_route_request(const nlmsghdr_t *request, rtnl_dump_context_t *context)
 {
     uint32_t payload_length = NLMSG_PAYLOAD(request, 0);
@@ -342,6 +358,7 @@ static int rtnl_parse_route_request(const nlmsghdr_t *request, rtnl_dump_context
     return EOK;
 }
 
+/* Serve one RTM_GETLINK/GETADDR/GETROUTE request, dumping matching data. */
 static int rtnl_handle_request(struct socket *sk, const nlmsghdr_t *request)
 {
     if (!(request->nlmsg_flags & NLM_F_REQUEST)) return rtnl_queue_error(sk, request, -EINVAL);
@@ -602,6 +619,7 @@ void netlink_close(struct socket *sk)
 
 /* Bind */
 
+/* Bind a netlink socket: set its port ID and multicast group subscription. */
 int netlink_bind(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen)
 {
     nl_sock_t *ns;
@@ -654,6 +672,7 @@ int netlink_bind(struct socket *sk, const sockaddr_nl_t *addr, uint32_t addrlen)
     return EOK;
 }
 
+/* Return the socket's bound port ID and groups. */
 int netlink_getsockname(struct socket *sk, sockaddr_nl_t *addr)
 {
     nl_sock_t *ns;
@@ -670,6 +689,7 @@ int netlink_getsockname(struct socket *sk, sockaddr_nl_t *addr)
     return EOK;
 }
 
+/* Enqueue a datagram on a socket, enforcing limits and waking waiters. */
 static int nl_queue_datagram(struct socket *sk, const void *data, uint32_t len, uint32_t sender_pid, uint32_t sender_groups, uint32_t sender_uid,
                              uint32_t sender_gid)
 {
@@ -730,6 +750,7 @@ static int nl_queue_datagram(struct socket *sk, const void *data, uint32_t len, 
     return EOK;
 }
 
+/* Deliver a datagram to every socket subscribed to the given groups. */
 static int nl_broadcast_datagram(uint32_t protocol, uint32_t groups, const void *data, uint32_t len, uint32_t sender_pid, uint32_t sender_uid,
                                  uint32_t sender_gid)
 {
@@ -762,6 +783,7 @@ static int nl_broadcast_datagram(uint32_t protocol, uint32_t groups, const void 
 
 /* Sendmsg */
 
+/* Send a netlink message: route requests, unicast, or multicast delivery. */
 int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockaddr_nl_t *addr, uint32_t addrlen, int flags)
 {
     nl_sock_t *ns;
@@ -905,6 +927,7 @@ int netlink_sendmsg(struct socket *sk, const void *buf, size_t len, const sockad
 
 /* Recvmsg */
 
+/* Receive the next datagram, blocking if empty unless MSG_DONTWAIT. */
 int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *addr, int flags, uint32_t *sender_uid, uint32_t *sender_gid,
                          int *msg_flags)
 {
@@ -965,7 +988,6 @@ int netlink_recvmsg_kern(struct socket *sk, void *buf, size_t len, sockaddr_nl_t
         ns->blocked_task = NULL;
         spin_unlock(&sk->lock);
     }
-
 dequeue:
     /* Get the first message */
     {
@@ -1009,6 +1031,7 @@ dequeue:
     return (flags & MSG_TRUNC) ? (int)full_len : (int)copy_len;
 }
 
+/* recvmsg entry point that copies the sender address out to user space. */
 int netlink_recvmsg(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *addr, uint32_t *addrlen, int flags)
 {
     sockaddr_nl_t sender;
@@ -1030,6 +1053,7 @@ int netlink_recvmsg(struct socket *sk, void *buf, size_t len, sockaddr_nl_t *add
 
 /* Poll */
 
+/* Report the socket's readable/writable/error poll status. */
 int netlink_poll(struct socket *sk, size_t events)
 {
     nl_sock_t *ns;
@@ -1046,8 +1070,9 @@ int netlink_poll(struct socket *sk, size_t events)
         if (events & 0x0001) revents |= 0x0001; // POLLIN
     }
     if (sk->so_error && (events & 0x0008)) revents |= 0x0008; // POLLERR
-                                                              /* Netlink sockets are always writable (dgram) */
-    if (events & 0x0004) revents |= 0x0004;                   // POLLOUT
+
+    /* Netlink sockets are always writable (dgram) */
+    if (events & 0x0004) revents |= 0x0004; // POLLOUT
 
     spin_unlock(&ns->recv_lock);
 
@@ -1058,6 +1083,7 @@ int netlink_poll(struct socket *sk, size_t events)
 
 #define SOL_NETLINK 270
 
+/* Apply a netlink socket option, mostly membership toggles. */
 int netlink_setsockopt(struct socket *sk, int optname, const void *optval, uint32_t optlen)
 {
     nl_sock_t *ns;
@@ -1092,7 +1118,6 @@ int netlink_setsockopt(struct socket *sk, int optname, const void *optval, uint3
             spin_unlock(&sk->lock);
             return ret;
         }
-
         case NETLINK_NO_ENOBUFS :
         case NETLINK_BROADCAST_ERROR :
         case NETLINK_PKTINFO :
@@ -1107,22 +1132,22 @@ int netlink_setsockopt(struct socket *sk, int optname, const void *optval, uint3
                 ns->packet_info = ival != 0;
             spin_unlock(&sk->lock);
             return EOK;
-
         case NETLINK_CAP_ACK :
             /* Accept but ignore */
             return EOK;
-
         default :
             return -ENOPROTOOPT;
     }
 }
 
+/* True if the socket asked for NETLINK_PKTINFO control messages. */
 int netlink_packet_info_enabled(struct socket *sk)
 {
     nl_sock_t *ns = nl_sk(sk);
     return ns ? ns->packet_info : 0;
 }
 
+/* Read a netlink socket option into user space. */
 int netlink_getsockopt(struct socket *sk, int optname, void *optval, uint32_t *optlen)
 {
     nl_sock_t *ns;
@@ -1140,22 +1165,18 @@ int netlink_getsockopt(struct socket *sk, int optname, void *optval, uint32_t *o
             ival    = ns->packet_info;
             koptlen = sizeof(int);
             break;
-
         case NETLINK_BROADCAST_ERROR :
             ival    = ns->broadcast_error;
             koptlen = sizeof(int);
             break;
-
         case NETLINK_NO_ENOBUFS :
             ival    = ns->no_enobufs;
             koptlen = sizeof(int);
             break;
-
         case NETLINK_LISTEN_ALL_NSID :
             ival    = 0;
             koptlen = sizeof(int);
             break;
-
         default :
             return -ENOPROTOOPT;
     }
@@ -1183,6 +1204,7 @@ int netlink_unicast(struct socket *sk, const void *data, uint32_t len, int flags
 
 /* Kernel API: Has listeners */
 
+/* Return 1 if any socket is subscribed to the given group. */
 int netlink_has_listeners(uint32_t protocol, uint32_t group)
 {
     nl_mcast_table_t *tab;

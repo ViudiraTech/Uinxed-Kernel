@@ -14,6 +14,7 @@
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 
+/* Initialize a TRB ring, installing a LINK TRB when the ring is linked. */
 int xhci_ring_init(xhci_ring_t *ring, xhci_trb_t *trbs, uint64_t physical, uint16_t count, bool linked)
 {
     if (!ring || !trbs || !physical || count < (linked ? 3 : 2) || ((uintptr_t)trbs & 15) || (physical & 15)) {
@@ -34,6 +35,7 @@ int xhci_ring_init(xhci_ring_t *ring, xhci_trb_t *trbs, uint64_t physical, uint1
     return EOK;
 }
 
+/* Append a TRB, wrapping through the LINK entry when the ring is full. */
 xhci_trb_t *xhci_ring_enqueue(xhci_ring_t *ring, uint64_t parameter, uint32_t status, uint32_t control, uint64_t *physical)
 {
     if (!ring || !ring->trbs || !ring->linked) {
@@ -59,6 +61,7 @@ xhci_trb_t *xhci_ring_enqueue(xhci_ring_t *ring, uint64_t parameter, uint32_t st
     return trb;
 }
 
+/* Clear a completed TRB slot so the controller may reuse it. */
 static void xhci_ring_dequeue(xhci_ring_t *ring, uint16_t index)
 {
     if (!ring || !ring->trbs || index >= ring->count) {

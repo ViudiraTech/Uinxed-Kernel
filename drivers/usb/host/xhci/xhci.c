@@ -241,6 +241,7 @@ static void xhci_write64(volatile uint8_t *base, size_t offset, uint64_t value)
     xhci_write32(base, offset + 4, (uint32_t)(value >> 32));
 }
 
+/* Allocate zeroed DMA memory and return its physical address. */
 static void *xhci_dma_alloc(size_t size, uint64_t *physical, size_t *pages)
 {
     size_t   count   = (size + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
@@ -253,6 +254,7 @@ static void *xhci_dma_alloc(size_t size, uint64_t *physical, size_t *pages)
     return memory;
 }
 
+/* Release DMA memory allocated by xhci_dma_alloc(). */
 static void xhci_dma_free(uint64_t physical, size_t pages)
 {
     if (physical && pages) free_frames(physical, pages);
@@ -269,28 +271,33 @@ static int xhci_wait_register(volatile uint8_t *base, size_t offset, uint32_t ma
     return EOK;
 }
 
+/* Pointer to a dword-aligned output context entry. */
 static uint32_t *xhci_output_context(xhci_slot_t *slot, uint8_t dci)
 {
     return (uint32_t *)((uint8_t *)slot->output_context + (size_t)dci * slot->controller->context_size);
 }
 
+/* Pointer to an input context entry (offset by the control context). */
 static uint32_t *xhci_input_context(xhci_slot_t *slot, uint8_t dci)
 {
     return (uint32_t *)((uint8_t *)slot->input_context + (size_t)(dci + 1) * slot->controller->context_size);
 }
 
+/* Map an endpoint address to its xHCI device-context index. */
 static uint8_t xhci_endpoint_dci(const usb_endpoint_t *endpoint)
 {
     uint8_t number = endpoint->descriptor.endpoint_address & USB_ENDPOINT_NUMBER_MASK;
     return (uint8_t)(number * 2 + !!(endpoint->descriptor.endpoint_address & USB_ENDPOINT_DIR_MASK));
 }
 
+/* Ring the doorbell to notify the controller of new ring work. */
 static void xhci_ring_doorbell(xhci_controller_t *controller, uint8_t slot_id, uint8_t endpoint_id)
 {
     dma_write_barrier();
     controller->doorbells[slot_id] = endpoint_id;
 }
 
+/* Translate an xHCI completion code into an errno. */
 static int xhci_completion_status(uint8_t completion_code)
 {
     switch (completion_code) {
@@ -304,6 +311,7 @@ static int xhci_completion_status(uint8_t completion_code)
     }
 }
 
+/* Enqueue one periodic transfer TRB and ring the endpoint doorbell. */
 static int xhci_submit_periodic(xhci_transfer_t *transfer)
 {
     uint64_t physical;
@@ -319,6 +327,7 @@ static int xhci_submit_periodic(xhci_transfer_t *transfer)
     return EOK;
 }
 
+/* Resolve a transfer event to its pending transfer and report it. */
 static void xhci_handle_transfer_event(xhci_controller_t *controller, const xhci_trb_t *event)
 {
     uint8_t slot_id = event->control >> 24;
@@ -343,6 +352,7 @@ static void xhci_handle_transfer_event(xhci_controller_t *controller, const xhci
     }
 }
 
+/* Dispatch one event-ring entry by its TRB type. */
 static void xhci_handle_event(xhci_controller_t *controller, const xhci_trb_t *event)
 {
     uint8_t type = (event->control & XHCI_TRB_TYPE_MASK) >> XHCI_TRB_TYPE_SHIFT;
@@ -366,6 +376,7 @@ static void xhci_handle_event(xhci_controller_t *controller, const xhci_trb_t *e
     }
 }
 
+/* Drain the event ring and re-arm the interrupter. */
 static void xhci_process_events(xhci_controller_t *controller)
 {
     uint64_t flags = spin_lock_irqsave(&controller->event_lock);
@@ -388,6 +399,7 @@ static void xhci_process_events(xhci_controller_t *controller)
     spin_unlock_irqrestore(&controller->event_lock, flags);
 }
 
+/* Poll the event ring until a completion flag is set or a timeout hits. */
 static int xhci_wait_flag(xhci_controller_t *controller, volatile bool *completed, uint32_t timeout_ms)
 {
     uint64_t deadline = nano_time() + (uint64_t)timeout_ms * 1000000ULL;
@@ -403,6 +415,7 @@ static int xhci_wait_flag(xhci_controller_t *controller, volatile bool *complete
     return EOK;
 }
 
+/* Submit one command TRB and wait for its completion event. */
 static int xhci_command(xhci_controller_t *controller, uint64_t parameter, uint32_t status, uint32_t control, uint8_t *slot_id)
 {
     xhci_command_wait_t wait = {0};
@@ -423,6 +436,7 @@ static int xhci_command(xhci_controller_t *controller, uint64_t parameter, uint3
     return result;
 }
 
+/* Wait for a transfer to complete, stopping the endpoint on timeout. */
 static int xhci_wait_transfer(xhci_transfer_t *transfer, uint32_t timeout_ms)
 {
     int result = xhci_wait_flag(transfer->slot->controller, &transfer->completed, timeout_ms);
@@ -480,7 +494,6 @@ static int xhci_control(usb_device_t *device, const usb_setup_packet_t *setup, v
     if (result == EOK && length && (setup->request_type & USB_DIR_IN)) memcpy(buffer, transfer.dma_virtual, length);
     xhci_dma_free(transfer.dma_physical, transfer.dma_pages);
     return result;
-
 io_error:
     endpoint->ring.enqueue = saved_enqueue;
     endpoint->ring.cycle   = saved_cycle;
@@ -517,6 +530,7 @@ static int xhci_transfer(usb_endpoint_t *usb_endpoint, void *buffer, size_t leng
     return result;
 }
 
+/* Register a periodic interrupt-IN transfer and submit its first TRB. */
 static int xhci_interrupt_start(usb_endpoint_t *usb_endpoint, size_t length, usb_interrupt_complete_t complete, void *context)
 {
     if (!usb_endpoint || !usb_endpoint->hc_private || !length || length > PAGE_4K_SIZE || !complete) return -EINVAL;
@@ -548,6 +562,7 @@ static int xhci_interrupt_start(usb_endpoint_t *usb_endpoint, size_t length, usb
     return result;
 }
 
+/* Stop and free a periodic transfer. */
 static void xhci_interrupt_stop(usb_endpoint_t *usb_endpoint)
 {
     xhci_endpoint_state_t *endpoint = usb_endpoint ? usb_endpoint->hc_private : NULL;
@@ -566,6 +581,7 @@ static void xhci_interrupt_stop(usb_endpoint_t *usb_endpoint)
     free(transfer);
 }
 
+/* Map a USB transfer type to the xHCI endpoint-context type. */
 static uint8_t xhci_endpoint_type(const usb_endpoint_t *endpoint)
 {
     uint8_t transfer = endpoint->descriptor.attributes & USB_ENDPOINT_XFERTYPE_MASK;
@@ -576,6 +592,7 @@ static uint8_t xhci_endpoint_type(const usb_endpoint_t *endpoint)
     return 4;
 }
 
+/* Convert the descriptor interval to the xHCI bInterval exponent. */
 static uint8_t xhci_endpoint_interval(const usb_endpoint_t *endpoint)
 {
     uint8_t     interval = endpoint->descriptor.interval;
@@ -591,6 +608,7 @@ static uint8_t xhci_endpoint_interval(const usb_endpoint_t *endpoint)
     return exponent + 3;
 }
 
+/* Allocate an endpoint ring and configure the endpoint context. */
 static int xhci_configure_endpoint(usb_endpoint_t *usb_endpoint)
 {
     if (!usb_endpoint || !usb_endpoint->interface || !usb_endpoint->interface->device) return -EINVAL;
@@ -632,13 +650,13 @@ static int xhci_configure_endpoint(usb_endpoint_t *usb_endpoint)
     if (result != EOK) goto fail;
     usb_endpoint->hc_private = endpoint;
     return EOK;
-
 fail:
     xhci_dma_free(endpoint->ring_physical, 1);
     memset(endpoint, 0, sizeof(*endpoint));
     return result;
 }
 
+/* Stop and free an endpoint's periodic transfer. */
 static void xhci_disable_endpoint(usb_endpoint_t *usb_endpoint)
 {
     xhci_endpoint_state_t *endpoint = usb_endpoint ? usb_endpoint->hc_private : NULL;
@@ -646,6 +664,7 @@ static void xhci_disable_endpoint(usb_endpoint_t *usb_endpoint)
     xhci_interrupt_stop(usb_endpoint);
 }
 
+/* Reset an endpoint and set its dequeue pointer after a stall. */
 static int xhci_clear_halt(usb_endpoint_t *usb_endpoint)
 {
     if (!usb_endpoint || !usb_endpoint->hc_private) return -EINVAL;
@@ -661,6 +680,7 @@ static int xhci_clear_halt(usb_endpoint_t *usb_endpoint)
                         XHCI_TRB_TYPE(XHCI_TRB_SET_TR_DEQUEUE) | ((uint32_t)dci << 16) | ((uint32_t)slot->slot_id << 24), NULL);
 }
 
+/* Device teardown is handled per-slot by the disconnect path. */
 static void xhci_disable_device(usb_device_t *device)
 {
     (void)device;
@@ -677,6 +697,7 @@ static const usb_hcd_ops_t xhci_hcd_ops = {
     .disable_device     = xhci_disable_device,
 };
 
+/* Perform the xHCI port reset sequence. */
 static int xhci_port_reset(xhci_controller_t *controller, uint8_t port_id)
 {
     size_t   offset = XHCI_OP_PORTS + (size_t)(port_id - 1) * XHCI_PORT_STRIDE;
@@ -693,6 +714,7 @@ static int xhci_port_reset(xhci_controller_t *controller, uint8_t port_id)
     return (status & XHCI_PORT_CCS) && (status & XHCI_PORT_PED) ? EOK : -ENODEV;
 }
 
+/* Map the port speed code to a USB speed. */
 static usb_speed_t xhci_usb_speed(uint32_t port_status)
 {
     switch ((port_status & XHCI_PORT_SPEED_MASK) >> XHCI_PORT_SPEED_SHIFT) {
@@ -711,6 +733,7 @@ static usb_speed_t xhci_usb_speed(uint32_t port_status)
     }
 }
 
+/* Default endpoint-0 max packet size for a given speed. */
 static uint16_t xhci_ep0_packet_size(usb_speed_t speed)
 {
     if (speed == USB_SPEED_SUPER || speed == USB_SPEED_SUPER_PLUS) return 512;
@@ -718,6 +741,7 @@ static uint16_t xhci_ep0_packet_size(usb_speed_t speed)
     return 8;
 }
 
+/* Allocate a slot's contexts and endpoint-0 ring. */
 static int xhci_allocate_slot(xhci_controller_t *controller, uint8_t port_id, uint8_t slot_id, xhci_slot_t **result)
 {
     xhci_slot_t *slot = calloc(1, sizeof(*slot));
@@ -748,6 +772,7 @@ static int xhci_allocate_slot(xhci_controller_t *controller, uint8_t port_id, ui
     return EOK;
 }
 
+/* Program the input context and issue ADDRESS DEVICE. */
 static int xhci_address_slot(xhci_slot_t *slot, usb_speed_t speed)
 {
     memset(slot->input_context, 0, PAGE_4K_SIZE);
@@ -769,6 +794,7 @@ static int xhci_address_slot(xhci_slot_t *slot, usb_speed_t speed)
                         XHCI_TRB_TYPE(XHCI_TRB_ADDRESS_DEVICE) | ((uint32_t)slot->slot_id << 24), NULL);
 }
 
+/* Fetch and convert a device string descriptor to ASCII. */
 static int xhci_get_string(usb_device_t *device, uint8_t index, uint16_t language, char *output, size_t capacity)
 {
     uint8_t descriptor[128];
@@ -852,7 +878,6 @@ static int xhci_enumerate_port(xhci_controller_t *controller, uint8_t port_id)
     if (result == EOK) result = usb_add_device(device, configuration, header.total_length);
     free(configuration);
     if (result == EOK) return EOK;
-
 remove_device:
     usb_disconnect_device(device);
     for (size_t i = 0; i < device->interface_count; i++) {
@@ -866,9 +891,8 @@ free_slot:
     controller->slots[slot_id] = NULL;
     controller->dcbaa[slot_id] = 0;
     if (slot) {
-        for (size_t dci = 1; dci < XHCI_MAX_ENDPOINTS; dci++) {
+        for (size_t dci = 1; dci < XHCI_MAX_ENDPOINTS; dci++)
             if (slot->endpoints[dci].ring_physical) xhci_dma_free(slot->endpoints[dci].ring_physical, 1);
-        }
         if (slot->input_context_physical) xhci_dma_free(slot->input_context_physical, 1);
         if (slot->output_context_physical) xhci_dma_free(slot->output_context_physical, 1);
         free(slot);
@@ -877,6 +901,7 @@ free_slot:
     return result;
 }
 
+/* Find the slot currently bound to a root port. */
 static xhci_slot_t *xhci_slot_on_port(xhci_controller_t *controller, uint8_t port_id)
 {
     for (uint16_t slot = 1; slot <= controller->max_slots; slot++)
@@ -884,6 +909,7 @@ static xhci_slot_t *xhci_slot_on_port(xhci_controller_t *controller, uint8_t por
     return NULL;
 }
 
+/* Device-model release callback: free the slot. */
 static void xhci_usb_device_release(struct device *dev)
 {
     usb_device_t *usb  = container_of(dev, usb_device_t, dev);
@@ -891,6 +917,7 @@ static void xhci_usb_device_release(struct device *dev)
     free(slot);
 }
 
+/* Disconnect a port's device, disable its slot, and free it. */
 static void xhci_disconnect_port(xhci_controller_t *controller, uint8_t port_id)
 {
     xhci_slot_t *slot = xhci_slot_on_port(controller, port_id);
@@ -929,6 +956,7 @@ static void xhci_disconnect_port(xhci_controller_t *controller, uint8_t port_id)
     device_unregister(&device->dev);
 }
 
+/* Handle a port's change bits: connect, disconnect, or reset. */
 static void xhci_service_port(xhci_controller_t *controller, uint8_t port_id)
 {
     size_t   offset = XHCI_OP_PORTS + (size_t)(port_id - 1) * XHCI_PORT_STRIDE;
@@ -944,6 +972,7 @@ static void xhci_service_port(xhci_controller_t *controller, uint8_t port_id)
     }
 }
 
+/* Hub worker: service pending port changes. */
 static void xhci_worker(void *argument)
 {
     xhci_controller_t *controller = argument;
@@ -962,6 +991,7 @@ static void xhci_worker(void *argument)
     }
 }
 
+/* ISR: acknowledge event/port interrupts and drain the event ring. */
 static void xhci_interrupt_slot(size_t index, void *frame)
 {
     (void)frame;
@@ -999,6 +1029,7 @@ static const xhci_irq_handler_t xhci_irq_handlers[USB_MAX_CONTROLLERS] = {
     xhci_interrupt_4, xhci_interrupt_5, xhci_interrupt_6, xhci_interrupt_7,
 };
 
+/* Claim ownership from the BIOS via the xHCI extended-capability handoff. */
 static int xhci_take_ownership(xhci_controller_t *controller)
 {
     uint32_t hccparams = xhci_read32(controller->capability, XHCI_CAP_HCCPARAMS1);
@@ -1020,13 +1051,13 @@ static int xhci_take_ownership(xhci_controller_t *controller)
     return EOK;
 }
 
+/* Release the scratchpad buffers and their pointer array. */
 static void xhci_free_scratchpads(xhci_controller_t *controller)
 {
     if (!controller) return;
     if (!controller->scratchpad_array) return;
-    for (uint16_t i = 0; i < controller->scratchpad_count; i++) {
+    for (uint16_t i = 0; i < controller->scratchpad_count; i++)
         if (controller->scratchpad_array[i]) xhci_dma_free(controller->scratchpad_array[i], 1);
-    }
     size_t pages = ((size_t)controller->scratchpad_count * sizeof(uint64_t) + PAGE_4K_SIZE - 1) / PAGE_4K_SIZE;
     if (controller->scratchpad_array_physical) xhci_dma_free(controller->scratchpad_array_physical, pages);
     controller->scratchpad_array          = NULL;
@@ -1034,6 +1065,7 @@ static void xhci_free_scratchpads(xhci_controller_t *controller)
     controller->scratchpad_count          = 0;
 }
 
+/* Allocate the controller's scratchpad buffers. */
 static int xhci_allocate_scratchpads(xhci_controller_t *controller, uint32_t hcsparams2)
 {
     controller->scratchpad_count = (uint16_t)(((hcsparams2 >> 27) & 0x1f) << 5) | ((hcsparams2 >> 21) & 0x1f);
@@ -1054,6 +1086,7 @@ static int xhci_allocate_scratchpads(xhci_controller_t *controller, uint32_t hcs
     return EOK;
 }
 
+/* Claim an IRQ slot and enable MSI (or MSI-X) delivery. */
 static int xhci_setup_interrupt(xhci_controller_t *controller)
 {
     uint64_t flags = spin_lock_irqsave(&xhci_irq_lock);
@@ -1086,6 +1119,7 @@ static int xhci_setup_interrupt(xhci_controller_t *controller)
     return EOK;
 }
 
+/* Stop the controller and free all of its resources. */
 static void xhci_release_controller(xhci_controller_t *controller)
 {
     if (!controller) return;
@@ -1197,7 +1231,6 @@ static int xhci_probe(pci_device_cache_t *pci, uint8_t bus_number)
         }
     }
     return EOK;
-
 fail:
     xhci_release_controller(controller);
     return result;
@@ -1206,6 +1239,7 @@ invalid:
     return result;
 }
 
+/* Probe every xHCI controller in the PCI device cache. */
 void xhci_init(void)
 {
 #if !CONFIG_USB_XHCI
@@ -1229,6 +1263,7 @@ void xhci_init(void)
     }
 }
 
+/* Start the hub worker task of every registered controller. */
 void xhci_start_workers(void)
 {
 #if !CONFIG_USB_XHCI
@@ -1245,6 +1280,7 @@ void xhci_start_workers(void)
     }
 }
 
+/* Stop every xHCI controller. */
 void xhci_shutdown(void)
 {
 #if CONFIG_USB_XHCI

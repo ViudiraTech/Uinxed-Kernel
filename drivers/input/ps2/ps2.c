@@ -19,6 +19,7 @@
 static bool ps2_port1_ok;
 static bool ps2_port2_ok;
 
+/* Poll the status register until the controller has data for us. */
 int wait_ps2_read(void)
 {
     for (size_t i = 0; i < 10000; i++)
@@ -26,6 +27,7 @@ int wait_ps2_read(void)
     return -ETIMEDOUT;
 }
 
+/* Poll the status register until the controller can accept a byte. */
 int wait_ps2_write(void)
 {
     for (size_t i = 0; i < 10000; i++)
@@ -38,6 +40,7 @@ uint8_t ps2_read_status(void)
     return inb(PS2_STATUS_PORT);
 }
 
+/* Read one data byte, timing out if nothing arrives in time. */
 int ps2_read_data_timeout(uint8_t *data)
 {
     if (!data) return -EINVAL;
@@ -75,6 +78,7 @@ void ps2_write_config(uint8_t config)
     ps2_write_data(config);
 }
 
+/* Forward one byte to a PS/2 device (through port 2 if requested). */
 static int ps2_write_device_byte(bool second_port, uint8_t byte)
 {
     if (second_port) {
@@ -86,6 +90,7 @@ static int ps2_write_device_byte(bool second_port, uint8_t byte)
     return EOK;
 }
 
+/* Send a command and wait for the device ACK, retrying on 0xfe. */
 int ps2_send_device_command(bool second_port, uint8_t command)
 {
     uint8_t response;
@@ -107,11 +112,13 @@ int ps2_send_device_data(bool second_port, uint8_t data)
 {
     return ps2_send_device_command(second_port, data);
 }
+
 bool ps2_port_available(bool second_port)
 {
     return second_port ? ps2_port2_ok : ps2_port1_ok;
 }
 
+/* IRQ handler: dispatch incoming bytes to the keyboard or mouse driver. */
 INTERRUPT_BEGIN static void ps2_irq(interrupt_frame_t *frame)
 {
     uint8_t status;
@@ -131,6 +138,7 @@ INTERRUPT_BEGIN static void ps2_irq(interrupt_frame_t *frame)
 }
 INTERRUPT_END
 
+/* Probe and initialize the i8042 controller and its ports. */
 void init_ps2(void)
 {
 #if !CONFIG_PS2_KEYBOARD_MOUSE

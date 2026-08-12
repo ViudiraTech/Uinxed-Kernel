@@ -52,10 +52,9 @@ typedef struct udp_endpoint {
 } udp_endpoint_t;
 
 /*
- * Overview
- * Connectionless UDP: each endpoint has a bound local port and a
- * FIFO of received datagrams. sendto/receive map directly onto the
- * IP layer; there is no retransmission or ordering.
+ * Connectionless UDP: each endpoint has a bound local port and a FIFO of
+ * received datagrams. sendto/receive map directly onto the IP layer; there
+ * is no retransmission or ordering.
  */
 
 static udp_endpoint_t *udp_table[UDP_ENDPOINT_MAX];
@@ -64,6 +63,7 @@ static uint16_t        udp_ephemeral = UDP_EPHEMERAL_FIRST;
 
 static int udp_autobind(udp_endpoint_t *ep);
 
+/* Wake waiters and fire the event callback for the endpoint. */
 static void udp_notify(udp_endpoint_t *ep, uint32_t events)
 {
     wait_queue_wake_all(&ep->wait);
@@ -108,6 +108,7 @@ int net_udp_parse6(const void *data, size_t length, const struct in6_addr *sourc
     return 0;
 }
 
+/* True if the IPv4 local address/port pair is already bound. */
 static int udp_port_used_locked(uint32_t address, uint16_t port, const udp_endpoint_t *ignore)
 {
     for (unsigned i = 0; i < UDP_ENDPOINT_MAX; i++) {
@@ -118,6 +119,7 @@ static int udp_port_used_locked(uint32_t address, uint16_t port, const udp_endpo
     return 0;
 }
 
+/* Allocate an endpoint and register it in the global table. */
 udp_endpoint_t *udp_open_family(uint16_t family)
 {
     udp_endpoint_t *ep = calloc(1, sizeof(*ep));
@@ -137,11 +139,13 @@ udp_endpoint_t *udp_open_family(uint16_t family)
     return NULL;
 }
 
+/* Open a new AF_INET UDP endpoint. */
 udp_endpoint_t *udp_open(void)
 {
     return udp_open_family(AF_INET);
 }
 
+/* Unregister and free an endpoint, draining its queued datagrams. */
 void udp_close(udp_endpoint_t *ep)
 {
     if (!ep) return;
@@ -162,6 +166,7 @@ void udp_close(udp_endpoint_t *ep)
     free(ep);
 }
 
+/* Bind the endpoint to a local address/port, or autobind if port is zero. */
 int udp_bind(udp_endpoint_t *ep, uint32_t address, uint16_t port)
 {
     if (!ep) return -EINVAL;
@@ -182,6 +187,7 @@ int udp_bind(udp_endpoint_t *ep, uint32_t address, uint16_t port)
     return 0;
 }
 
+/* Bind an AF_INET6 endpoint to a local address/port. */
 int udp_bind6(udp_endpoint_t *ep, const ipv6_address_t *address, uint16_t port)
 {
     if (!ep || !address || ep->family != AF_INET6) return -EINVAL;
@@ -191,6 +197,7 @@ int udp_bind6(udp_endpoint_t *ep, const ipv6_address_t *address, uint16_t port)
     return status;
 }
 
+/* Choose a free ephemeral port in the 49152-65535 range. */
 static int udp_autobind(udp_endpoint_t *ep)
 {
     if (ep->bound) return 0;
@@ -209,6 +216,7 @@ static int udp_autobind(udp_endpoint_t *ep)
     return -EADDRINUSE;
 }
 
+/* Set a fixed remote IPv4 address/port for the endpoint. */
 int udp_connect(udp_endpoint_t *ep, uint32_t address, uint16_t port)
 {
     if (!ep || !address || !port) return -EINVAL;
@@ -222,6 +230,7 @@ int udp_connect(udp_endpoint_t *ep, uint32_t address, uint16_t port)
     return 0;
 }
 
+/* Set a fixed remote IPv6 address/port for the endpoint. */
 int udp_connect6(udp_endpoint_t *ep, const ipv6_address_t *address, uint16_t port)
 {
     if (!ep || !address || ep->family != AF_INET6 || ipv6_address_is_unspecified(address) || !port) return -EINVAL;
@@ -241,6 +250,7 @@ int udp_connect6(udp_endpoint_t *ep, const ipv6_address_t *address, uint16_t por
     return 0;
 }
 
+/* Clear the fixed remote address (revert to unconnected). */
 int udp_disconnect(udp_endpoint_t *ep)
 {
     if (!ep) return -EINVAL;
@@ -252,6 +262,7 @@ int udp_disconnect(udp_endpoint_t *ep)
     return 0;
 }
 
+/* Send a UDP datagram to destination:port via the IPv4 layer. */
 int udp_send(udp_endpoint_t *ep, const void *data, size_t length, uint32_t destination, uint16_t port)
 {
     if (!ep || (!data && length)) return -EINVAL;
@@ -287,6 +298,7 @@ int udp_send(udp_endpoint_t *ep, const void *data, size_t length, uint32_t desti
     return status == -EINPROGRESS ? (int)length : (status ? status : (int)length);
 }
 
+/* Send a UDP datagram to an IPv6 destination via the IPv6 layer. */
 int udp_send6(udp_endpoint_t *ep, const void *data, size_t length, const ipv6_address_t *destination, uint16_t port, uint8_t hop_limit)
 {
     if (!ep || (!data && length) || ep->family != AF_INET6 || length > UINT16_MAX - UDP_HEADER_LEN) return -EINVAL;
@@ -507,11 +519,13 @@ bad:
     return -EBADMSG;
 }
 
+/* Return the endpoint's bound local port. */
 uint16_t udp_local_port(const udp_endpoint_t *endpoint)
 {
     return endpoint ? endpoint->local_port : 0;
 }
 
+/* Report the endpoint's current read/write readiness mask. */
 uint32_t udp_readiness(udp_endpoint_t *endpoint)
 {
     if (!endpoint) return UDP_READY_ERROR;
@@ -521,6 +535,7 @@ uint32_t udp_readiness(udp_endpoint_t *endpoint)
     return events;
 }
 
+/* Snapshot endpoint state for getsockname/getpeername-style queries. */
 int udp_get_info(udp_endpoint_t *endpoint, udp_endpoint_info_t *info)
 {
     if (!endpoint || !info) return -EINVAL;
@@ -539,6 +554,7 @@ int udp_get_info(udp_endpoint_t *endpoint, udp_endpoint_info_t *info)
     return 0;
 }
 
+/* Install the event callback and fire it once with current readiness. */
 void udp_set_event_callback(udp_endpoint_t *endpoint, udp_event_callback_t callback, void *context)
 {
     if (!endpoint) return;
@@ -549,6 +565,7 @@ void udp_set_event_callback(udp_endpoint_t *endpoint, udp_event_callback_t callb
     if (callback) callback(endpoint, udp_readiness(endpoint), context);
 }
 
+/* Toggle IPv6-only mode for a dual-stack endpoint. */
 void udp_set_v6only(udp_endpoint_t *endpoint, int enabled)
 {
     if (!endpoint) return;
@@ -557,6 +574,7 @@ void udp_set_v6only(udp_endpoint_t *endpoint, int enabled)
     spin_unlock(&endpoint->lock);
 }
 
+/* Return the endpoint's wait queue for blocking on readiness. */
 wait_queue_t *udp_wait_queue(udp_endpoint_t *endpoint)
 {
     return endpoint ? &endpoint->wait : NULL;

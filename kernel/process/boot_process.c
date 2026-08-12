@@ -10,6 +10,7 @@
 
 #include <process/boot_process.h>
 
+/* Run the init and debug-start hooks at boot */
 void boot_start_init_before_debug(boot_process_start_t start_init, boot_process_start_t start_debug)
 {
     if (start_init) start_init();

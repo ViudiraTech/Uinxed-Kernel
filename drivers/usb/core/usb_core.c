@@ -21,6 +21,7 @@
 struct bus_type usb_bus_type = {.name = "usb", .dev_name = NULL};
 static bool     usb_core_ready;
 
+/* Read a little-endian 16-bit value from a USB descriptor. */
 uint16_t usb_get_le16(const void *address)
 {
     const uint8_t *bytes = address;
@@ -91,6 +92,7 @@ static struct attribute *usb_device_attributes[] = {
 static const struct attribute_group  usb_device_group    = {.attrs = usb_device_attributes};
 static const struct attribute_group *usb_device_groups[] = {&usb_device_group, NULL};
 
+/* Register the usb bus type (once). */
 int usb_core_init(void)
 {
     if (usb_core_ready) return EOK;
@@ -99,6 +101,7 @@ int usb_core_init(void)
     return result;
 }
 
+/* Issue one control transfer to the HCD. */
 int usb_control_msg(usb_device_t *device, uint8_t request_type, uint8_t request, uint16_t value, uint16_t index, void *buffer, uint16_t length,
                     uint32_t timeout_ms)
 {
@@ -114,6 +117,7 @@ int usb_control_msg(usb_device_t *device, uint8_t request_type, uint8_t request,
     return device->hcd_ops->control(device, &setup, buffer, length, timeout_ms);
 }
 
+/* Perform one bulk transfer on an endpoint. */
 int usb_bulk_msg(usb_endpoint_t *endpoint, void *buffer, size_t length, size_t *actual, uint32_t timeout_ms)
 {
     if (actual) *actual = 0;
@@ -123,6 +127,7 @@ int usb_bulk_msg(usb_endpoint_t *endpoint, void *buffer, size_t length, size_t *
     return device->hcd_ops->transfer(endpoint, buffer, length, actual, timeout_ms);
 }
 
+/* Begin periodic interrupt-IN polling on an endpoint. */
 int usb_interrupt_start(usb_endpoint_t *endpoint, size_t length, usb_interrupt_complete_t complete, void *context)
 {
     if (!endpoint || !endpoint->interface || !endpoint->interface->device || !complete || !length) return -EINVAL;
@@ -131,6 +136,7 @@ int usb_interrupt_start(usb_endpoint_t *endpoint, size_t length, usb_interrupt_c
     return device->hcd_ops->interrupt_start(endpoint, length, complete, context);
 }
 
+/* Stop periodic interrupt polling on an endpoint. */
 void usb_interrupt_stop(usb_endpoint_t *endpoint)
 {
     if (!endpoint || !endpoint->interface || !endpoint->interface->device) return;
@@ -138,6 +144,7 @@ void usb_interrupt_stop(usb_endpoint_t *endpoint)
     if (device->hcd_ops && device->hcd_ops->interrupt_stop) device->hcd_ops->interrupt_stop(endpoint);
 }
 
+/* Clear an endpoint stall via CLEAR_FEATURE, then reset the HCD state. */
 int usb_clear_halt(usb_endpoint_t *endpoint)
 {
     if (!endpoint || !endpoint->interface || !endpoint->interface->device) return -EINVAL;
@@ -149,6 +156,7 @@ int usb_clear_halt(usb_endpoint_t *endpoint)
     return device->hcd_ops->clear_halt(endpoint);
 }
 
+/* Find an endpoint of the given transfer type and direction. */
 usb_endpoint_t *usb_find_endpoint(usb_interface_t *interface, uint8_t transfer_type, bool input)
 {
     if (!interface) return NULL;
@@ -161,6 +169,7 @@ usb_endpoint_t *usb_find_endpoint(usb_interface_t *interface, uint8_t transfer_t
     return NULL;
 }
 
+/* Locate a descriptor of the given type in an interface's extra data. */
 const uint8_t *usb_find_extra_descriptor(const usb_interface_t *interface, uint8_t descriptor_type, size_t *length)
 {
     if (length) *length = 0;
@@ -180,6 +189,7 @@ const uint8_t *usb_find_extra_descriptor(const usb_interface_t *interface, uint8
     return NULL;
 }
 
+/* Parse a configuration descriptor into interfaces and endpoints. */
 static int usb_parse_configuration(usb_device_t *device, const uint8_t *buffer, size_t length)
 {
     usb_interface_t *interface = NULL;
@@ -223,6 +233,7 @@ static int usb_parse_configuration(usb_device_t *device, const uint8_t *buffer, 
     return device->interface_count ? EOK : -EINVAL;
 }
 
+/* Register the device and its interfaces with the driver model. */
 static int usb_register_device_model(usb_device_t *device)
 {
     int result;
@@ -251,6 +262,7 @@ static int usb_register_device_model(usb_device_t *device)
     return EOK;
 }
 
+/* Disable the endpoints configured so far during a failed add. */
 static void usb_cleanup_endpoints(usb_device_t *device, size_t up_to_interface, size_t up_to_endpoint)
 {
     for (size_t i = 0; i <= up_to_interface && i < device->interface_count; i++) {
@@ -264,6 +276,7 @@ static void usb_cleanup_endpoints(usb_device_t *device, size_t up_to_interface, 
     }
 }
 
+/* Bring up a device: parse, configure endpoints, and probe interfaces. */
 int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t length)
 {
     if (!usb_core_ready || !device || !device->connected || !device->hcd_ops) return -EINVAL;
@@ -324,6 +337,7 @@ int usb_add_device(usb_device_t *device, const uint8_t *configuration, size_t le
     return EOK;
 }
 
+/* Mark a device offline and disconnect its class drivers. */
 void usb_disconnect_device(usb_device_t *device)
 {
     if (!device || !device->connected) return;
@@ -339,6 +353,7 @@ void usb_disconnect_device(usb_device_t *device)
     if (device->hcd_ops && device->hcd_ops->disable_device) device->hcd_ops->disable_device(device);
 }
 
+/* Fetch a string descriptor and convert it to ASCII. */
 int usb_get_string_descriptor(usb_device_t *device, uint8_t index, uint16_t language, char *output, size_t capacity)
 {
     uint8_t descriptor[USB_MAX_STRING_DESC_SIZE];
@@ -356,6 +371,7 @@ int usb_get_string_descriptor(usb_device_t *device, uint8_t index, uint16_t lang
     return EOK;
 }
 
+/* Fetch the full configuration descriptor into a malloc'd buffer. */
 int usb_read_config_descriptor(usb_device_t *device, uint8_t **config_out, uint16_t *length_out)
 {
     if (!device || !config_out || !length_out) return -EINVAL;
@@ -379,6 +395,7 @@ int usb_read_config_descriptor(usb_device_t *device, uint8_t **config_out, uint1
     return EOK;
 }
 
+/* Fully tear down a device and unregister its model entries. */
 void usb_remove_device(usb_device_t *device)
 {
     if (!device) return;

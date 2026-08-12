@@ -115,13 +115,13 @@ void init_frame(void)
                      (frame_allocator.usable_frames * 4096) >> 10);
 }
 
+/* Allocate count frames aligned to 2^alignment_order pages. */
 static uint64_t alloc_frames_aligned(size_t count, unsigned alignment_order, bool reclaim)
 {
     if (!count) return 0;
     unsigned order = buddy_order_for_units(count);
     if (order > BUDDY_MAX_ORDER) return 0;
     if (alignment_order > order) order = alignment_order;
-
 retry:
     spin_lock(&frame_allocator.lock);
     size_t frame_index = buddy_alloc(&frame_allocator.buddy, order);
@@ -148,6 +148,7 @@ uint64_t alloc_frames(size_t count)
     return alloc_frames_aligned(count, 0, true);
 }
 
+/* Allocate frames without attempting swap reclaim. */
 uint64_t alloc_frames_noreclaim(size_t count)
 {
     return alloc_frames_aligned(count, 0, false);
@@ -167,6 +168,7 @@ uint64_t alloc_frames_1G(size_t count)
     return alloc_frames_aligned(count * 262144, 18, true);
 }
 
+/* Bump the reference count of an allocated frame range. */
 int frame_retain_range(uint64_t addr, size_t count)
 {
     if (!addr || !count || (addr & (PAGE_4K_SIZE - 1))) return -1;
@@ -191,6 +193,7 @@ int frame_retain_range(uint64_t addr, size_t count)
     return 0;
 }
 
+/* Drop a reference from a frame range, freeing frames at zero. */
 int frame_release_range(uint64_t addr, size_t count)
 {
     if (!addr || !count || (addr & (PAGE_4K_SIZE - 1))) return -1;
@@ -224,6 +227,7 @@ int frame_release_range(uint64_t addr, size_t count)
     return 0;
 }
 
+/* Return the reference count of a single frame. */
 uint32_t frame_refcount(uint64_t addr)
 {
     if (!addr || (addr & (PAGE_4K_SIZE - 1))) return 0;
@@ -234,6 +238,7 @@ uint32_t frame_refcount(uint64_t addr)
     return __atomic_load_n(&page->tag, __ATOMIC_ACQUIRE);
 }
 
+/* Snapshot frame allocator statistics. */
 void frame_get_stats(frame_stats_t *stats)
 {
     if (!stats) return;
@@ -246,6 +251,7 @@ void frame_get_stats(frame_stats_t *stats)
     spin_unlock_irqrestore(&frame_allocator.lock, rflags);
 }
 
+/* Validate the underlying buddy allocator and frame counters. */
 int frame_validate(void)
 {
     uint64_t rflags = spin_lock_irqsave(&frame_allocator.lock);

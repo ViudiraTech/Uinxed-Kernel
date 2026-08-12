@@ -125,6 +125,7 @@ static spinlock_t  sem_undo_lock;
 
 /* Common IPC helpers */
 
+/* Check the current process's permission to access the IPC object. */
 static int ipc_perm_check(const ipc_perm_t *perm, int mode)
 {
     process_t *proc = process_current();
@@ -145,6 +146,7 @@ static int ipc_perm_check(const ipc_perm_t *perm, int mode)
 
 /* ID allocation helpers */
 
+/* Allocate an IPC id from a free table slot, with a rotating sequence. */
 static int ipc_id_alloc(void **table, uint16_t *seq_table, int max, spinlock_t *lock, void *obj)
 {
     spin_lock(lock);
@@ -162,6 +164,7 @@ static int ipc_id_alloc(void **table, uint16_t *seq_table, int max, spinlock_t *
     return -ENOSPC;
 }
 
+/* Look up an IPC object by id, verifying its sequence still matches. */
 static void *ipc_id_lookup(void **table, uint16_t *seq_table, int max, spinlock_t *lock, int id)
 {
     int idx = id & IPC_ID_MASK;
@@ -178,6 +181,7 @@ static void *ipc_id_lookup(void **table, uint16_t *seq_table, int max, spinlock_
     return obj;
 }
 
+/* Remove an IPC object from the table, verifying its sequence matches. */
 static int ipc_id_remove(void **table, uint16_t *seq_table, int max, spinlock_t *lock, int id)
 {
     int idx = id & IPC_ID_MASK;
@@ -196,6 +200,7 @@ static int ipc_id_remove(void **table, uint16_t *seq_table, int max, spinlock_t 
 
 /* Semaphore undo helpers */
 
+/* Find the undo record for a process/semaphore pair. */
 static sem_undo_t *sem_undo_find(process_t *proc, int semid)
 {
     sem_undo_t *u;
@@ -204,6 +209,7 @@ static sem_undo_t *sem_undo_find(process_t *proc, int semid)
     return NULL;
 }
 
+/* Replay a process's adjustments onto the semaphore values. */
 static void sem_undo_apply(sem_undo_t *u, sem_array_t *sem)
 {
     spin_lock(&sem->lock);
@@ -728,7 +734,6 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
             spin_unlock(&sem->lock);
             return (int64_t)cnt;
         }
-
         case IPC_INFO :
         case SEM_INFO : {
             if (arg == 0) return -EFAULT;
@@ -775,7 +780,6 @@ int64_t sys_semctl(int semid, int semnum, int cmd, uint64_t arg)
             if (copy_to_user((void *)arg, &ds, sizeof(semid_ds_t)) != 0) return -EFAULT;
             return ((int)s->perm.seq << IPC_SEQ_SHIFT) | idx;
         }
-
         default :
             return -EINVAL;
     }
@@ -1018,7 +1022,6 @@ int64_t sys_shmat(int shmid, const void *shmaddr, int shmflg)
         return -ENOMEM;
     }
     return (int64_t)vaddr;
-
 rollback:
     for (uint32_t i = 0; i < mapped; i++) (void)page_unmap_release(proc->user_page_dir, vaddr + i * PAGE_4K_SIZE);
     if (mapped < seg->npages) (void)frame_release_range(seg->phys_addr + mapped * PAGE_4K_SIZE, seg->npages - mapped);
@@ -1134,7 +1137,6 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
             spin_unlock(&seg->lock);
             return 0;
         }
-
         case IPC_INFO :
         case SHM_INFO : {
             if (buf == NULL) return -EFAULT;
@@ -1184,7 +1186,6 @@ int64_t sys_shmctl(int shmid, int cmd, void *buf)
             if (copy_to_user(buf, &ds, sizeof(shmid_ds_t)) != 0) return -EFAULT;
             return ((int)s->perm.seq << IPC_SEQ_SHIFT) | idx;
         }
-
         default :
             return -EINVAL;
     }
@@ -1528,7 +1529,6 @@ int64_t sys_msgctl(int msqid, int cmd, void *buf)
             if (copy_to_user(buf, &ds, sizeof(msqid_ds_t)) != 0) return -EFAULT;
             return 0;
         }
-
         case IPC_INFO :
         case MSG_INFO : {
             if (buf == NULL) return -EFAULT;
@@ -1579,7 +1579,6 @@ int64_t sys_msgctl(int msqid, int cmd, void *buf)
             if (copy_to_user(buf, &ds, sizeof(msqid_ds_t)) != 0) return -EFAULT;
             return ((int)mq->perm.seq << IPC_SEQ_SHIFT) | idx;
         }
-
         default :
             return -EINVAL;
     }

@@ -13,11 +13,13 @@
 
 static int days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
+/* Whether a year is a leap year in the Gregorian calendar. */
 static int is_leap_year(int year)
 {
     return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
 }
 
+/* Convert a civil calendar date to a Unix timestamp. */
 static uint64_t mktime64(int year, int month, int day, int hour, int min, int sec)
 {
     uint64_t total = 0;
@@ -38,6 +40,7 @@ static uint64_t mktime64(int year, int month, int day, int hour, int min, int se
     return total;
 }
 
+/* Decode an ISO 9660 seven-byte or long-form date into a Unix timestamp. */
 uint64_t isofs_date_to_unix(const uint8_t *p, int flags)
 {
     int      year, month, day, hour, minute, second, tz;

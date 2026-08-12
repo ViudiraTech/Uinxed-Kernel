@@ -34,6 +34,7 @@ typedef struct dhcp_reply {
         uint8_t  has_rebinding;
 } dhcp_reply_t;
 
+/* DHCP client lifecycle and periodic state machine. */
 void dhcp_init(void);
 void dhcp_timer(uint64_t now_ticks);
 void dhcp_device_removed(net_device_t *device);

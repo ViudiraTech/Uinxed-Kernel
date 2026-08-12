@@ -61,7 +61,10 @@ typedef struct {
         spinlock_t  lock;
 } xhci_ring_t;
 
-int         xhci_ring_init(xhci_ring_t *ring, xhci_trb_t *trbs, uint64_t physical, uint16_t count, bool linked);
+/* Initialize a TRB ring, installing a LINK TRB when the ring is linked. */
+int xhci_ring_init(xhci_ring_t *ring, xhci_trb_t *trbs, uint64_t physical, uint16_t count, bool linked);
+
+/* Append a TRB, wrapping through the LINK entry when the ring is full. */
 xhci_trb_t *xhci_ring_enqueue(xhci_ring_t *ring, uint64_t parameter, uint32_t status, uint32_t control, uint64_t *physical);
 
 #endif // INCLUDE_XHCI_H_

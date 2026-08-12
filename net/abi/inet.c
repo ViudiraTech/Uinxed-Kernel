@@ -81,11 +81,9 @@ typedef struct inet_core_socket {
 #define INET_TICKS_PER_SEC TIMER_HZ
 
 /*
- * Overview
- * This is the ABI-facing layer of the inet socket family. It wraps
- * the kernel's tcp/udp/icmp endpoints in an inet_core_socket_t and
- * translates BSD sockaddr / ioctl / poll semantics for the generic
- * socket core.
+ * This is the ABI-facing layer of the inet socket family. It wraps the
+ * kernel's tcp/udp/icmp endpoints in an inet_core_socket_t and translates
+ * BSD sockaddr / ioctl / poll semantics for the generic socket core.
  */
 
 /* Translate a socket timeval into timer ticks (UINT64_MAX if invalid) */
@@ -103,6 +101,7 @@ static int inet_timed_out(uint64_t deadline)
     return deadline && sched_ticks() >= deadline;
 }
 
+/* Forward TCP endpoint events to the socket wait queue and poll callback. */
 static void inet_tcp_event(tcp_endpoint_t *endpoint, uint32_t events, void *context)
 {
     (void)endpoint;
@@ -122,6 +121,7 @@ static void inet_tcp_event(tcp_endpoint_t *endpoint, uint32_t events, void *cont
     if (callback) callback(argument, poll_events);
 }
 
+/* Forward UDP endpoint events to the socket wait queue and poll callback. */
 static void inet_udp_event(udp_endpoint_t *endpoint, uint32_t events, void *context)
 {
     (void)endpoint;
@@ -140,6 +140,7 @@ static void inet_udp_event(udp_endpoint_t *endpoint, uint32_t events, void *cont
     if (callback) callback(argument, poll_events);
 }
 
+/* Forward ICMP endpoint events to the socket wait queue and poll callback. */
 static void inet_icmp_event(icmp_endpoint_t *endpoint, uint32_t events, void *context)
 {
     (void)endpoint;
@@ -156,6 +157,7 @@ static void inet_icmp_event(icmp_endpoint_t *endpoint, uint32_t events, void *co
     if (callback) callback(argument, poll_events);
 }
 
+/* Snapshot the current event generation for later change detection. */
 static uint64_t inet_event_snapshot(inet_core_socket_t *sock)
 {
     spin_lock(&sock->event_lock);
@@ -164,6 +166,7 @@ static uint64_t inet_event_snapshot(inet_core_socket_t *sock)
     return generation;
 }
 
+/* Block until the event generation advances, a wake fires, or the deadline passes. */
 static int inet_event_wait(inet_core_socket_t *sock, uint64_t generation, uint64_t deadline)
 {
     spin_lock(&sock->event_lock);
@@ -178,6 +181,7 @@ static int inet_event_wait(inet_core_socket_t *sock, uint64_t generation, uint64
     return EOK;
 }
 
+/* Drain pending TCP data into the socket RX buffer. */
 static int inet_tcp_fill(inet_core_socket_t *sock)
 {
     if (!sock->rx_data || sock->rx_length >= TCP_RX_BUFFER_MAX) return 0;
@@ -196,12 +200,14 @@ static uint32_t abi_be32(uint32_t value)
     return __builtin_bswap32(value);
 }
 
+/* True if the IPv6 address is the all-zeros unspecified address. */
 static int inet6_is_any(const struct in6_addr *address)
 {
     static const uint8_t zero[16];
     return memcmp(address->s6_addr, zero, sizeof(zero)) == 0;
 }
 
+/* True if the address is an IPv4-mapped IPv6 address (::ffff:a.b.c.d). */
 static int inet6_is_mapped(const struct in6_addr *address)
 {
     static const uint8_t prefix[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
@@ -214,6 +220,7 @@ static uint32_t inet6_mapped_ipv4(const struct in6_addr *address)
            | address->s6_addr[15];
 }
 
+/* Parse a sockaddr into the transport's native address/port form (v4 or mapped v6). */
 static int inet_address(inet_core_socket_t *sock, const struct sockaddr *addr, uint32_t length, uint32_t *address, uint16_t *port,
                         ipv6_address_t *address6, uint32_t *scope_id, int binding, int *native6)
 {
@@ -251,6 +258,7 @@ static int inet_address(inet_core_socket_t *sock, const struct sockaddr *addr, u
     return EOK;
 }
 
+/* Build an AF_INET sockaddr in network byte order. */
 static void inet_make_address(sockaddr_in_t *addr, uint32_t address, uint16_t port)
 {
     memset(addr, 0, sizeof(*addr));
@@ -259,6 +267,7 @@ static void inet_make_address(sockaddr_in_t *addr, uint32_t address, uint16_t po
     addr->sin_port        = abi_be16(port);
 }
 
+/* Build an AF_INET6 sockaddr, mapping the v4 address into ::ffff:a.b.c.d. */
 static void inet6_make_address(sockaddr_in6_t *addr, uint32_t address, uint16_t port, uint32_t scope_id)
 {
     memset(addr, 0, sizeof(*addr));
@@ -275,6 +284,7 @@ static void inet6_make_address(sockaddr_in6_t *addr, uint32_t address, uint16_t 
     }
 }
 
+/* Build an AF_INET6 sockaddr from a native (non-mapped) IPv6 address. */
 static void inet6_make_native_address(sockaddr_in6_t *addr, const ipv6_address_t *address, uint16_t port, uint32_t scope_id)
 {
     memset(addr, 0, sizeof(*addr));
@@ -370,6 +380,7 @@ static void core_close(void *context)
     free(sock);
 }
 
+/* Bind the endpoint to a local address/port. */
 static int core_bind(void *context, const struct sockaddr *addr, uint32_t length)
 {
     inet_core_socket_t *sock = context;
@@ -404,6 +415,7 @@ static int core_bind(void *context, const struct sockaddr *addr, uint32_t length
     return ret;
 }
 
+/* Connect the endpoint, blocking a non-NONBLOCK stream socket until done. */
 static int core_connect(void *context, const struct sockaddr *addr, uint32_t length, uint32_t flags)
 {
     inet_core_socket_t *sock = context;
@@ -471,6 +483,7 @@ static int core_connect(void *context, const struct sockaddr *addr, uint32_t len
     return ret;
 }
 
+/* Put the stream socket into LISTEN state with the given backlog. */
 static int core_listen(void *context, int backlog)
 {
     inet_core_socket_t *sock = context;
@@ -487,6 +500,7 @@ static int core_listen(void *context, int backlog)
     return ret;
 }
 
+/* Accept a pending connection, blocking a non-NONBLOCK listener until one arrives. */
 static int core_accept(void *context, void **accepted, struct sockaddr *addr, uint32_t *addrlen, uint32_t flags)
 {
     inet_core_socket_t *listener = context;
@@ -557,6 +571,7 @@ static int core_accept(void *context, void **accepted, struct sockaddr *addr, ui
     return EOK;
 }
 
+/* Send data, looping for streams until fully sent or the timeout elapses. */
 static int core_sendto(void *context, const void *buf, size_t len, int flags, const struct sockaddr *addr, uint32_t addrlen)
 {
     inet_core_socket_t *sock = context;
@@ -607,6 +622,7 @@ static int core_sendto(void *context, const void *buf, size_t len, int flags, co
     return ret;
 }
 
+/* Receive data, honoring MSG_PEEK/MSG_WAITALL and the receive timeout. */
 static int core_recvfrom(void *context, void *buf, size_t len, int flags, struct sockaddr *addr, uint32_t *addrlen)
 {
     inet_core_socket_t *sock = context;
@@ -669,6 +685,7 @@ static int core_recvfrom(void *context, void *buf, size_t len, int flags, struct
     return ret;
 }
 
+/* Shut down sending on a stream socket; receive shutdown is unsupported. */
 static int core_shutdown(void *context, int how)
 {
     inet_core_socket_t *sock = context;
@@ -677,6 +694,7 @@ static int core_shutdown(void *context, int how)
     return tcp_shutdown(sock->endpoint.tcp);
 }
 
+/* Return the socket's bound local address. */
 static int core_getsockname(void *context, struct sockaddr *addr, uint32_t *addrlen)
 {
     inet_core_socket_t *sock     = context;
@@ -704,6 +722,7 @@ static int core_getsockname(void *context, struct sockaddr *addr, uint32_t *addr
     return EOK;
 }
 
+/* Return the remote peer address of a connected socket. */
 static int core_getpeername(void *context, struct sockaddr *addr, uint32_t *addrlen)
 {
     inet_core_socket_t *sock = context;
@@ -719,6 +738,7 @@ static int core_getpeername(void *context, struct sockaddr *addr, uint32_t *addr
     return EOK;
 }
 
+/* Apply a socket option, validating family/level/type-specific constraints. */
 static int core_setsockopt(void *context, int level, int option, const void *value, uint32_t length)
 {
     inet_core_socket_t *sock = context;
@@ -829,6 +849,7 @@ static int core_setsockopt(void *context, int level, int option, const void *val
     }
 }
 
+/* Query a socket option value into the caller's buffer. */
 static int core_getsockopt(void *context, int level, int option, void *value, uint32_t *length)
 {
     inet_core_socket_t *sock = context;
@@ -934,6 +955,7 @@ static int core_getsockopt(void *context, int level, int option, void *value, ui
     return EOK;
 }
 
+/* Compute the subset of the requested poll events that is currently ready. */
 static int core_poll(void *context, size_t events)
 {
     inet_core_socket_t *sock  = context;
@@ -965,6 +987,7 @@ static int core_poll(void *context, size_t events)
     return ready & ((int)events | INET_POLLERR | INET_POLLHUP);
 }
 
+/* Install the callback invoked when endpoint readiness changes. */
 static void core_set_event_callback(void *context, void (*callback)(void *argument, uint32_t events), void *argument)
 {
     inet_core_socket_t *sock = context;
@@ -974,12 +997,14 @@ static void core_set_event_callback(void *context, void (*callback)(void *argume
     spin_unlock(&sock->event_lock);
 }
 
+/* Resolve the device named in an ifreq, or the default device if unnamed. */
 static net_device_t *core_ifreq_device(ifreq_t *ifr)
 {
     ifr->ifr_name[IFNAMSIZ - 1] = '\0';
     return ifr->ifr_name[0] ? netdev_get_by_name(ifr->ifr_name) : netdev_get_default();
 }
 
+/* Handle SIOCGIFxxx / SIOCSIFxxx ioctls against a network device. */
 static int core_ioctl(void *context, size_t request, struct ifreq *ifr)
 {
     (void)context;
@@ -1041,6 +1066,7 @@ static int core_ioctl(void *context, size_t request, struct ifreq *ifr)
     return ret;
 }
 
+/* Format the routing or interface statistics table for /proc. */
 static size_t core_proc_read(enum inet_proc_file file, char *buf, size_t capacity)
 {
     net_device_t *dev = netdev_get_default();

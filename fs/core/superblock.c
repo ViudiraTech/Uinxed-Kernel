@@ -14,6 +14,7 @@
 #include <kernel/printk.h>
 #include <mem/heap.h>
 
+/* Validate the on-disk superblock fields. */
 int superblock_valid(const superblock_disk_t *sb)
 {
     if (!sb) {
@@ -71,6 +72,7 @@ int superblock_valid(const superblock_disk_t *sb)
     return EOK;
 }
 
+/* Read and validate the superblock from a drive. */
 int superblock_read(uint8_t drive, superblock_disk_t *sb)
 {
     blockdev_device_t device;
@@ -94,6 +96,7 @@ int superblock_read(uint8_t drive, superblock_disk_t *sb)
     return superblock_valid(sb);
 }
 
+/* Write a validated superblock to a drive. */
 int superblock_write(uint8_t drive, const superblock_disk_t *sb)
 {
     blockdev_device_t device;
@@ -115,6 +118,7 @@ int superblock_write(uint8_t drive, const superblock_disk_t *sb)
     return status;
 }
 
+/* Probe a drive for a valid superblock without keeping it open. */
 int superblock_probe(uint8_t drive)
 {
     superblock_disk_t sb;

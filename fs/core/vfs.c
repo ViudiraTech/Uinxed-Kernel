@@ -56,6 +56,7 @@ int vfs_access_check(vfs_node_t node, uint32_t access_mask)
     return vfs_access_check_process(node, access_mask, process_current());
 }
 
+/* Change a node's permission bits on behalf of a specific process. */
 int vfs_chmod_process(vfs_node_t node, uint16_t mode, process_t *proc)
 {
     if (!node || !proc) return -EINVAL;
@@ -101,6 +102,7 @@ static char *pathtok(char **sp)
     return s;
 }
 
+/* Allocate a pagecache frame, reclaiming from the cache when the reserve dips. */
 static void *vfs_page_alloc(uint64_t *physical)
 {
     size_t reserve = frame_allocator.origin_frames / 32;
@@ -150,12 +152,14 @@ static int vfs_page_sync_backend(void *context)
     return callbackof(node, sync)(node->handle, 0);
 }
 
+/* Whether the node can be served through the page cache. */
 static bool vfs_pagecache_eligible(vfs_node_t node)
 {
     return node && (node->type & ~file_delete) == file_none && !(node->flags & VFS_NODE_NOCACHE) && node->handle
            && callbackof(node, read) != vfs_empty_callback.read;
 }
 
+/* Look up a node's cache mapping, creating it on demand. */
 static pagecache_mapping_t *vfs_pagecache_mapping(vfs_node_t node, int create)
 {
     pagecache_mapping_t *mapping = __atomic_load_n(&node->mapping, __ATOMIC_ACQUIRE);
@@ -225,6 +229,7 @@ int vfs_resolve_path(const char *base, const char *path, char *resolved, size_t 
     return EOK;
 }
 
+/* Reconstruct the absolute path of a node into the caller's buffer. */
 int vfs_node_path(vfs_node_t node, char *path, size_t size)
 {
     size_t     len = 0;
@@ -284,6 +289,7 @@ static char *vfs_node_absolute_path(vfs_node_t node)
     return path;
 }
 
+/* Resolve a symlink node to its absolute target path. */
 static char *vfs_resolve_link_path(vfs_node_t node)
 {
     char       *path;
@@ -392,6 +398,7 @@ static vfs_node_t vfs_child_find_reserved(vfs_node_t parent, const char *name)
                            && streq(name, ((vfs_node_t)data)->name));
 }
 
+/* Check whether the directory still has children that can be seen. */
 static bool vfs_directory_has_visible_children(vfs_node_t node)
 {
     for (clist_t child = node ? node->child : NULL; child; child = child->next) {
@@ -590,6 +597,7 @@ vfs_node_t vfs_open_nofollow_checked(const char *str, int *error)
     return node;
 }
 
+/* Retain a node reference, refusing nodes already finalizing. */
 vfs_node_t vfs_node_retain(vfs_node_t node)
 {
     if (!node) return NULL;
@@ -668,6 +676,7 @@ static int vfs_prepare_create(const char *name, bool allow_trailing_slash, char 
     return EOK;
 }
 
+/* Remove an unpublished node after a failed creation. */
 static void vfs_abort_created_node(vfs_node_t parent, vfs_node_t node)
 {
     if (!parent || !node) return;
@@ -678,6 +687,7 @@ static void vfs_abort_created_node(vfs_node_t parent, vfs_node_t node)
     vfs_free(node);
 }
 
+/* Reserve a child name to serialize concurrent creators. */
 static vfs_node_t vfs_reserve_child(vfs_node_t parent, const char *name, int *status)
 {
     if (status) *status = -ENOMEM;
@@ -694,6 +704,7 @@ static vfs_node_t vfs_reserve_child(vfs_node_t parent, const char *name, int *st
     return node;
 }
 
+/* Make a reserved child visible to concurrent lookups. */
 static void vfs_publish_child(vfs_node_t node)
 {
     spin_lock(&vfs_namespace_lock);
@@ -729,7 +740,6 @@ int vfs_mkdir_mode(const char *name, uint16_t mode)
         vfs_publish_child(node);
         inotify_notify_create(parent, node);
     }
-
 out:
     vfs_close(parent);
     free(path);
@@ -768,7 +778,6 @@ int vfs_mkfile_mode(const char *name, uint16_t mode)
         vfs_publish_child(node);
         inotify_notify_create(parent, node);
     }
-
 out:
     vfs_close(parent);
     free(path);
@@ -878,6 +887,7 @@ int vfs_closedir(vfs_dir_t dir)
     return status;
 }
 
+/* Create a hard link, optionally following the final symlink component. */
 static int vfs_link_internal(const char *name, const char *target_name, bool follow)
 {
     if (!target_name || !target_name[0]) return -ENOENT;
@@ -920,7 +930,6 @@ static int vfs_link_internal(const char *name, const char *target_name, bool fol
         vfs_publish_child(node);
         inotify_notify_create(parent, node);
     }
-
 out_link:
     vfs_close(parent);
     vfs_close(target);
@@ -973,7 +982,6 @@ int vfs_symlink(const char *name, const char *target_name)
         vfs_publish_child(node);
         inotify_notify_create(parent, node);
     }
-
 out:
     vfs_close(parent);
     free(path);
@@ -992,6 +1000,7 @@ int vfs_regist_fs(const char *name, vfs_callback_t callback)
     return vfs_regist_fs_flags(name, callback, 0);
 }
 
+/* Register a filesystem callback, filling NULL fields with empty_func. */
 int vfs_regist_fs_flags(const char *name, vfs_callback_t callback, uint32_t flags)
 {
     if (!callback) return -EINVAL;
@@ -1025,6 +1034,7 @@ int vfs_regist_fs_flags(const char *name, vfs_callback_t callback, uint32_t flag
     return id;
 }
 
+/* Format the registered filesystem table for /proc/filesystems. */
 size_t vfs_format_filesystems(char *buffer, size_t capacity)
 {
     if (!buffer || !capacity) return 0;
@@ -1045,12 +1055,14 @@ size_t vfs_format_filesystems(char *buffer, size_t capacity)
     return used;
 }
 
+/* Return the name registered for a filesystem id. */
 const char *vfs_filesystem_name(uint16_t fsid)
 {
     if (!fsid || fsid >= (uint16_t)fs_nextid) return NULL;
     return fs_names[fsid];
 }
 
+/* Mount one named filesystem type onto a directory node. */
 static int vfs_mount_id(const char *src, vfs_node_t node, int fsid)
 {
     uint16_t old_fsid;
@@ -1152,6 +1164,7 @@ int vfs_mount_fs(const char *fstype, const char *src, vfs_node_t node)
 }
 
 /* Unmount a file system from a directory */
+/* Check whether the mount tree still holds references or nested mounts. */
 static bool vfs_mount_tree_busy_locked(vfs_node_t node, vfs_node_t mount_root)
 {
     if (!node) return false;
@@ -1163,6 +1176,7 @@ static bool vfs_mount_tree_busy_locked(vfs_node_t node, vfs_node_t mount_root)
     return false;
 }
 
+/* Unmount the filesystem mounted at path. */
 int vfs_umount(const char *path)
 {
     vfs_node_t node = vfs_open(path);
@@ -1253,6 +1267,7 @@ static size_t vfs_mount_escape(char *output, size_t capacity, const char *input)
     return used;
 }
 
+/* Format the mount flag options into the output buffer. */
 static size_t vfs_mount_options(char *output, size_t capacity, const vfs_node_t node)
 {
     size_t used = 0;
@@ -1273,6 +1288,7 @@ static size_t vfs_mount_options(char *output, size_t capacity, const vfs_node_t 
     return used;
 }
 
+/* Find the nearest enclosing mount id above the node. */
 static uint64_t vfs_parent_mount_id(vfs_node_t node)
 {
     for (vfs_node_t parent = node ? node->parent : NULL; parent; parent = parent->parent)
@@ -1280,6 +1296,7 @@ static uint64_t vfs_parent_mount_id(vfs_node_t node)
     return node && node->mount_id ? node->mount_id : 0;
 }
 
+/* Emit one mount table line per mount in the subtree. */
 static void vfs_format_mount_subtree(vfs_node_t node, char *buffer, size_t capacity, size_t *used, bool mountinfo,
                                      vfs_mount_format_scratch_t *scratch)
 {
@@ -1306,6 +1323,7 @@ static void vfs_format_mount_subtree(vfs_node_t node, char *buffer, size_t capac
         vfs_format_mount_subtree((vfs_node_t)child->data, buffer, capacity, used, mountinfo, scratch);
 }
 
+/* Format the full mount table for /proc/mounts or /proc/self/mountinfo. */
 size_t vfs_format_mount_table(char *buffer, size_t capacity, bool mountinfo)
 {
     if (!buffer || !capacity) return 0;
@@ -1377,6 +1395,7 @@ size_t vfs_write(vfs_node_t file, const void *addr, size_t offset, size_t size)
     return (size_t)ret;
 }
 
+/* Read from a file node as a specific process, enforcing its permissions. */
 int64_t vfs_file_read_process(vfs_node_t file, void *private_data, uint64_t flags, void *addr, size_t offset, size_t size, process_t *proc)
 {
     if (!file || !addr) return -EINVAL;
@@ -1412,6 +1431,7 @@ int64_t vfs_file_read(vfs_node_t file, void *private_data, uint64_t flags, void 
     return vfs_file_read_process(file, private_data, flags, addr, offset, size, process_current());
 }
 
+/* Write to a file node as a specific process, enforcing its permissions. */
 int64_t vfs_file_write_process(vfs_node_t file, void *private_data, uint64_t flags, const void *addr, size_t offset, size_t size,
                                process_t *proc)
 {
@@ -1566,6 +1586,7 @@ int64_t vfs_file_write_user_process(vfs_node_t file, void *private_data, uint64_
     return (int64_t)done;
 }
 
+/* Check whether the node's mount subtree is read-only. */
 int vfs_mount_is_readonly(vfs_node_t node)
 {
     for (vfs_node_t current = node; current; current = current->parent) {
@@ -1575,6 +1596,7 @@ int vfs_mount_is_readonly(vfs_node_t node)
     return 0;
 }
 
+/* Flush all cached data for the file to stable storage. */
 int vfs_fsync(vfs_node_t file, int data_only)
 {
     if (!file) return -EINVAL;
@@ -1586,6 +1608,7 @@ int vfs_fsync(vfs_node_t file, int data_only)
     return EOK;
 }
 
+/* Write back a byte range of the file. */
 int vfs_writeback_range(vfs_node_t file, uint64_t start, uint64_t end, int data_only)
 {
     if (!file || end < start) return -EINVAL;
@@ -1596,11 +1619,13 @@ int vfs_writeback_range(vfs_node_t file, uint64_t start, uint64_t end, int data_
     return EOK;
 }
 
+/* Write back every dirty page in the system page cache. */
 int vfs_sync_all(void)
 {
     return pagecache_writeback_all(PAGECACHE_WB_SYNC);
 }
 
+/* Truncate or extend a regular file to the given size. */
 int vfs_truncate(vfs_node_t file, uint64_t size)
 {
     if (!file) return -EINVAL;
@@ -1622,6 +1647,7 @@ int vfs_truncate(vfs_node_t file, uint64_t size)
     return result;
 }
 
+/* Drop cached pages in a byte range, optionally discarding dirty data. */
 int vfs_invalidate_pages(vfs_node_t file, uint64_t start, uint64_t end, int discard_dirty)
 {
     if (!file) return -EINVAL;
@@ -1630,6 +1656,7 @@ int vfs_invalidate_pages(vfs_node_t file, uint64_t start, uint64_t end, int disc
     return pagecache_invalidate(mapping, start, end, discard_dirty ? PAGECACHE_INVALIDATE_DISCARD_DIRTY : 0);
 }
 
+/* Evict cached pages in a byte range, optionally writing them back first. */
 int vfs_drop_pages(vfs_node_t file, uint64_t start, uint64_t end, int writeback)
 {
     if (!file || end < start) return -EINVAL;
@@ -1638,6 +1665,7 @@ int vfs_drop_pages(vfs_node_t file, uint64_t start, uint64_t end, int writeback)
     return pagecache_evict(mapping, start, end, writeback ? PAGECACHE_EVICT_WRITEBACK : 0);
 }
 
+/* Prefetch a byte range into the page cache. */
 int vfs_readahead(vfs_node_t file, uint64_t offset, size_t size)
 {
     if (!file) return -EINVAL;
@@ -1646,6 +1674,7 @@ int vfs_readahead(vfs_node_t file, uint64_t offset, size_t size)
     return mapping ? pagecache_readahead(mapping, offset, size) : -EOPNOTSUPP;
 }
 
+/* Pin the file's cache mapping so it survives eviction. */
 int vfs_cache_mapping_pin(vfs_node_t file)
 {
     if (!file) return -EINVAL;
@@ -1664,6 +1693,7 @@ void vfs_cache_mapping_unpin(vfs_node_t file)
     if (file && file->mapping) pagecache_mapping_unpin(file->mapping);
 }
 
+/* Map a cached page to a physical frame for userspace DMA. */
 int vfs_cache_map_page(vfs_node_t file, uint64_t index, int dirty, uint64_t *physical)
 {
     if (!file || !physical) return -EINVAL;
@@ -1682,6 +1712,7 @@ int vfs_cache_map_page(vfs_node_t file, uint64_t index, int dirty, uint64_t *phy
     return result;
 }
 
+/* Mark every cached page in a byte range as dirty. */
 int vfs_cache_mark_dirty_range(vfs_node_t file, uint64_t start, uint64_t end)
 {
     if (!file || end < start || !file->mapping) return -EINVAL;
@@ -1704,6 +1735,7 @@ int vfs_cache_mark_dirty_range(vfs_node_t file, uint64_t start, uint64_t end)
     return EOK;
 }
 
+/* Forward an ioctl to the file's callback. */
 int vfs_file_ioctl(vfs_node_t file, void *private_data, uint64_t flags, size_t req, void *arg)
 {
     if (!file) return -EINVAL;
@@ -1714,6 +1746,7 @@ int vfs_file_ioctl(vfs_node_t file, void *private_data, uint64_t flags, size_t r
     return callbackof(file, ioctl)(file->handle, req, arg);
 }
 
+/* Poll a file for readiness of the given events. */
 int vfs_file_poll(vfs_node_t file, void *private_data, uint64_t flags, size_t events)
 {
     if (!file) return -EINVAL;
@@ -1747,6 +1780,7 @@ void vfs_poll_source_init(vfs_poll_source_t *source)
     memset(source, 0, sizeof(*source));
 }
 
+/* Register a subscription, notifying immediately if the source is closed. */
 void vfs_poll_source_subscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription, uint32_t events, vfs_poll_notify_t notify,
                                void *context)
 {
@@ -1768,6 +1802,7 @@ void vfs_poll_source_subscribe(vfs_poll_source_t *source, vfs_poll_subscription_
     if (closed) notify(subscription, UINT32_MAX);
 }
 
+/* Remove a subscription from the source. */
 void vfs_poll_source_unsubscribe(vfs_poll_source_t *source, vfs_poll_subscription_t *subscription)
 {
     if (!source || !subscription) return;
@@ -1780,6 +1815,7 @@ void vfs_poll_source_unsubscribe(vfs_poll_source_t *source, vfs_poll_subscriptio
     spin_unlock(&source->lock);
 }
 
+/* Deliver matching events to every subscribed poll waiter. */
 void vfs_poll_source_notify(vfs_poll_source_t *source, uint32_t events)
 {
     if (!source) return;
@@ -1792,6 +1828,7 @@ void vfs_poll_source_notify(vfs_poll_source_t *source, uint32_t events)
     spin_unlock(&source->lock);
 }
 
+/* Close the source, waking all subscribers exactly once. */
 void vfs_poll_source_close(vfs_poll_source_t *source, uint32_t events)
 {
     if (!source) return;
@@ -1943,6 +1980,7 @@ int vfs_close(vfs_node_t node)
     return EOK;
 }
 
+/* Unlink a node from its parent, deferring the final free. */
 int vfs_namespace_unlink(vfs_node_t node)
 {
     if (!node || node == rootdir) return -EINVAL;
@@ -1986,6 +2024,7 @@ int vfs_namespace_unlink(vfs_node_t node)
     return EOK;
 }
 
+/* Detach a node and its children from the namespace for deferred free. */
 void vfs_namespace_detach(vfs_node_t node)
 {
     if (!node || node == rootdir) return;
@@ -2072,7 +2111,6 @@ int vfs_delete(vfs_node_t node)
     spin_unlock(&vfs_namespace_lock);
     if (release_now) return vfs_close(node);
     return EOK;
-
 delete_failed:
     spin_lock(&vfs_namespace_lock);
     node->flags &= ~VFS_NODE_UNLINKING;
@@ -2185,6 +2223,7 @@ int vfs_rename(vfs_node_t node, const char *new)
     return EOK;
 }
 
+/* Move a node to a new parent directory within the same filesystem. */
 int vfs_move(vfs_node_t node, vfs_node_t new_parent, const char *new)
 {
     if (!node || !new_parent || !new || !new[0] || strchr(new, '/') || streq(new, ".") || streq(new, "..")) return -EINVAL;

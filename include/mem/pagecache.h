@@ -68,7 +68,7 @@ typedef struct {
         uint64_t dirty_evicted;
 } pagecache_stats_t;
 
-/* Init and cleanup shit */
+/* Init and cleanup */
 int  pagecache_init(const pagecache_allocator_t *allocator, size_t max_pages);
 void pagecache_shutdown(void);
 

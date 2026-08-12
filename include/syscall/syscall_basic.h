@@ -13,6 +13,7 @@
 
 #include <libs/std/stdint.h>
 
+/* Generic 6-argument syscall implementations shared by the dispatch table. */
 int64_t sys_getitimer_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 int64_t sys_setitimer_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);
 int64_t sys_alarm_impl(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t);

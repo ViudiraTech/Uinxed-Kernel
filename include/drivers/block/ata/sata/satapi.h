@@ -57,12 +57,22 @@ typedef struct {
 extern ahci_satapi_device_t ahci_satapi_devices[AHCI_MAX_DEVICES];
 extern int                  ahci_satapi_device_count;
 
-/* AHCI SATAPI API */
-void    ahci_satapi_init(void);
-int     ahci_satapi_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, void *buffer);
+/* Initialize AHCI SATAPI devices */
+void ahci_satapi_init(void);
+
+/* Read `numsects` sectors from an AHCI SATAPI drive */
+int ahci_satapi_read_sectors(uint8_t drive, uint8_t numsects, uint32_t lba, void *buffer);
+
+/* Execute a SCSI CDB packet on an AHCI SATAPI drive */
 uint8_t ahci_satapi_send_packet(uint8_t drive, const uint8_t *cdb, uint16_t byte_limit, uint8_t direction, void *buf, size_t *xfer_len);
+
+/* Send a TEST UNIT READY command */
 uint8_t ahci_satapi_test_unit_ready(uint8_t drive);
+
+/* Send READ CAPACITY, returning the LBA count and block size */
 uint8_t ahci_satapi_read_capacity(uint8_t drive, uint32_t *lba_size, uint32_t *blk_size);
-int     ahci_satapi_cmd_type(uint8_t opcode);
+
+/* Classify a SCSI opcode as misc/read/write/read-cd */
+int ahci_satapi_cmd_type(uint8_t opcode);
 
 #endif // INCLUDE_SATAPI_H_

@@ -24,6 +24,7 @@
  * (optionally routed through the current journal transaction).
  */
 
+/* Detect the ext2/3/4 revision from the superblock feature set. */
 int extfs_detect_version(const ext2_super_block_t *es)
 {
     const uint32_t ext4_compat   = EXT4_FEATURE_COMPAT_SPARSE_SUPER2;
@@ -45,6 +46,7 @@ static uint64_t extfs_block_offset(extfs_sb_info_t *sb, uint32_t block)
     return (uint64_t)block * sb->block_size;
 }
 
+/* Raw byte read, routed through the active transaction when one exists. */
 static int extfs_disk_read(extfs_sb_info_t *sb, uint64_t offset, void *buf, size_t size)
 {
     uint8_t *out = buf;
@@ -87,6 +89,7 @@ static void extfs_super_put_u32(ext2_super_block_t *super, size_t offset, uint32
     memcpy((uint8_t *)super + offset, &value, sizeof(value));
 }
 
+/* Update a CRC-16-CCITT checksum over the given data. */
 static uint16_t extfs_crc16(uint16_t crc, const void *data, size_t size)
 {
     const uint8_t *bytes = data;
@@ -97,6 +100,7 @@ static uint16_t extfs_crc16(uint16_t crc, const void *data, size_t size)
     return crc;
 }
 
+/* Compute a group descriptor checksum for the enabled feature set. */
 static uint16_t extfs_group_desc_checksum(extfs_sb_info_t *sb, uint32_t group, const ext2_group_desc_t *desc)
 {
     const uint8_t *bytes           = (const uint8_t *)desc;
@@ -120,6 +124,7 @@ static uint16_t extfs_group_desc_checksum(extfs_sb_info_t *sb, uint32_t group, c
     return result;
 }
 
+/* Whether the inode's extra field reserves room for the upper checksum. */
 static int extfs_inode_has_checksum_hi(extfs_sb_info_t *sb, const uint8_t *inode)
 {
     uint16_t extra = 0;
@@ -128,6 +133,7 @@ static int extfs_inode_has_checksum_hi(extfs_sb_info_t *sb, const uint8_t *inode
     return extra >= 4;
 }
 
+/* Compute the metadata_csum checksum over an inode, zeroing its fields. */
 static uint32_t extfs_inode_checksum(extfs_sb_info_t *sb, uint32_t ino, uint8_t *inode)
 {
     uint16_t checksum_lo, checksum_hi = 0;
@@ -148,6 +154,7 @@ static uint32_t extfs_inode_checksum(extfs_sb_info_t *sb, uint32_t ino, uint8_t 
     return checksum;
 }
 
+/* Refresh a block or inode bitmap checksum in the group descriptor. */
 int extfs_update_bitmap_checksum(extfs_sb_info_t *sb, uint32_t group, int inode_bitmap, const void *bitmap)
 {
     if (!sb || !bitmap || group >= sb->groups_count) return -EINVAL;
@@ -165,6 +172,7 @@ int extfs_update_bitmap_checksum(extfs_sb_info_t *sb, uint32_t group, int inode_
     return EOK;
 }
 
+/* Raw byte write, staged through the active transaction when one exists. */
 static int extfs_disk_write(extfs_sb_info_t *sb, uint64_t offset, const void *buf, size_t size)
 {
     const uint8_t *input = buf;
@@ -203,6 +211,7 @@ static int extfs_disk_write(extfs_sb_info_t *sb, uint64_t offset, const void *bu
     return status;
 }
 
+/* Read one metadata block, honoring the active transaction. */
 int extfs_read_block(extfs_sb_info_t *sb, uint32_t phys_block, void *buf)
 {
     if (!sb || !sb->es || !buf || phys_block >= sb->blocks_count) {
@@ -215,6 +224,7 @@ int extfs_read_block(extfs_sb_info_t *sb, uint32_t phys_block, void *buf)
     return extfs_disk_read(sb, extfs_block_offset(sb, phys_block), buf, sb->block_size);
 }
 
+/* Stage a metadata block write through the active transaction. */
 int extfs_write_block(extfs_sb_info_t *sb, uint32_t phys_block, const void *buf)
 {
     if (!sb || !sb->es || !buf || sb->read_only) return sb && sb->read_only ? -EROFS : -EINVAL;
@@ -234,6 +244,7 @@ int extfs_write_block(extfs_sb_info_t *sb, uint32_t phys_block, const void *buf)
     return extfs_disk_write(sb, extfs_block_offset(sb, phys_block), buf, sb->block_size);
 }
 
+/* Stage an ordered data block write through the active transaction. */
 int extfs_write_data_block(extfs_sb_info_t *sb, uint32_t phys_block, const void *buf)
 {
     if (!sb || !sb->es || !buf || sb->read_only) return sb && sb->read_only ? -EROFS : -EINVAL;
@@ -253,6 +264,7 @@ int extfs_write_data_block(extfs_sb_info_t *sb, uint32_t phys_block, const void 
     return blockdev_write_bytes(&sb->device, extfs_block_offset(sb, phys_block), buf, sb->block_size);
 }
 
+/* Begin a transaction, making it the volume's active one. */
 int extfs_transaction_begin(extfs_sb_info_t *sb, fs_txn_t *transaction, uint32_t credits)
 {
     int status;
@@ -263,6 +275,7 @@ int extfs_transaction_begin(extfs_sb_info_t *sb, fs_txn_t *transaction, uint32_t
     return status;
 }
 
+/* Commit the active transaction, downgrading to read-only on failure. */
 int extfs_transaction_commit(extfs_sb_info_t *sb, fs_txn_t *transaction)
 {
     if (!sb || !transaction || sb->active_transaction != transaction) return -EINVAL;
@@ -272,6 +285,7 @@ int extfs_transaction_commit(extfs_sb_info_t *sb, fs_txn_t *transaction)
     return status;
 }
 
+/* Abort a transaction and reload the allocator counters it changed. */
 void extfs_transaction_abort(extfs_sb_info_t *sb, fs_txn_t *transaction, int error)
 {
     if (!sb || !transaction || sb->active_transaction != transaction) return;
@@ -298,6 +312,7 @@ void extfs_transaction_abort(extfs_sb_info_t *sb, fs_txn_t *transaction, int err
     }
 }
 
+/* Read a raw inode, verifying its metadata_csum when enabled. */
 int extfs_read_inode_raw(extfs_sb_info_t *sb, uint32_t ino, ext2_inode_t *raw)
 {
     uint32_t group, offset, block;
@@ -331,6 +346,7 @@ int extfs_read_inode_raw(extfs_sb_info_t *sb, uint32_t ino, ext2_inode_t *raw)
     return status;
 }
 
+/* Write a raw inode, preserving extra fields and the checksum. */
 int extfs_write_inode_raw(extfs_sb_info_t *sb, uint32_t ino, const ext2_inode_t *raw)
 {
     uint32_t group, offset, block;
@@ -371,6 +387,7 @@ int extfs_write_inode_raw(extfs_sb_info_t *sb, uint32_t ino, const ext2_inode_t 
     return status;
 }
 
+/* Read one group descriptor from the descriptor table. */
 int extfs_read_group_desc(extfs_sb_info_t *sb, uint32_t group, ext2_group_desc_t *desc)
 {
     uint32_t desc_block, desc_offset;
@@ -385,6 +402,7 @@ int extfs_read_group_desc(extfs_sb_info_t *sb, uint32_t group, ext2_group_desc_t
     return extfs_disk_read(sb, byte_offset, desc, sb->desc_size);
 }
 
+/* Write one group descriptor, refreshing its checksum. */
 int extfs_write_group_desc(extfs_sb_info_t *sb, uint32_t group, const ext2_group_desc_t *desc)
 {
     uint32_t desc_block, desc_offset;
@@ -402,6 +420,7 @@ int extfs_write_group_desc(extfs_sb_info_t *sb, uint32_t group, const ext2_group
     return extfs_disk_write(sb, byte_offset, &copy, sb->desc_size);
 }
 
+/* Read, validate and fully initialize the volume's superblock state. */
 int extfs_read_super(extfs_sb_info_t *sb, const blockdev_device_t *device)
 {
     int      status;
@@ -579,6 +598,7 @@ int extfs_read_super(extfs_sb_info_t *sb, const blockdev_device_t *device)
     return EOK;
 }
 
+/* Write the superblock, refreshing its checksum when enabled. */
 int extfs_write_super(extfs_sb_info_t *sb)
 {
     if (!sb || !sb->es) return -EINVAL;
@@ -587,6 +607,7 @@ int extfs_write_super(extfs_sb_info_t *sb)
     return extfs_disk_write(sb, 1024, sb->es, sizeof(ext2_super_block_t));
 }
 
+/* Release every resource owned by the superblock state. */
 void extfs_free_super(extfs_sb_info_t *sb)
 {
     if (!sb) return;

@@ -16,6 +16,7 @@
 #define PS2_MOUSE_PACKET_X_OVERFLOW 0x40
 #define PS2_MOUSE_PACKET_Y_OVERFLOW 0x80
 
+/* Return the packet byte length for the given mouse protocol. */
 size_t ps2_mouse_packet_size(enum ps2_mouse_protocol protocol)
 {
     switch (protocol) {
@@ -29,6 +30,7 @@ size_t ps2_mouse_packet_size(enum ps2_mouse_protocol protocol)
     }
 }
 
+/* Validate and decode one raw mouse packet into button and axis values. */
 int ps2_mouse_decode_packet(enum ps2_mouse_protocol protocol, const uint8_t *raw, struct ps2_mouse_packet *packet)
 {
     uint8_t buttons;
@@ -72,6 +74,7 @@ void ps2_mouse_stream_init(struct ps2_mouse_stream *stream, enum ps2_mouse_proto
     *stream = (struct ps2_mouse_stream) {.protocol = protocol};
 }
 
+/* Accumulate bytes until a full packet is assembled, then decode it. */
 int ps2_mouse_stream_byte(struct ps2_mouse_stream *stream, uint8_t byte, struct ps2_mouse_packet *packet)
 {
     size_t packet_size;

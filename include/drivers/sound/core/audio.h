@@ -251,10 +251,16 @@ typedef struct {
         tmpfs_device_ops_t tmpfs_ops;
 } audio_device_node_t;
 
-int           audio_register_card(const char *name, const audio_pcm_format_t *format, const audio_card_ops_t *ops, void *driver_data);
-audio_card_t *audio_get_card(uint32_t card);
-size_t        audio_card_count(void);
+/* Register an audio card with the subsystem; returns a card index. */
+int audio_register_card(const char *name, const audio_pcm_format_t *format, const audio_card_ops_t *ops, void *driver_data);
 
+/* Look up a registered card by index, or NULL. */
+audio_card_t *audio_get_card(uint32_t card);
+
+/* Number of registered audio cards. */
+size_t audio_card_count(void);
+
+/* Enumerate the /dev/snd/xxx device nodes. */
 size_t               audio_device_node_count(void);
 audio_device_node_t *audio_get_device_node(size_t index);
 

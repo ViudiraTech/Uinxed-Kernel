@@ -16,6 +16,7 @@
 #include <mem/heap.h>
 #include <process/sched.h>
 
+/* Wait until the log is idle, then mark it active. */
 static void fs_txn_claim_log(fs_txn_log_t *log)
 {
     for (;;) {
@@ -30,6 +31,7 @@ static void fs_txn_claim_log(fs_txn_log_t *log)
     }
 }
 
+/* Mark the log as no longer active. */
 static void fs_txn_release_log(fs_txn_log_t *log)
 {
     spin_lock(&log->lock);
@@ -37,6 +39,7 @@ static void fs_txn_release_log(fs_txn_log_t *log)
     spin_unlock(&log->lock);
 }
 
+/* Free all staged buffers of a transaction. */
 static void fs_txn_release_buffers(fs_txn_t *transaction)
 {
     fs_txn_buffer_t *buffer = transaction->buffers;
@@ -50,12 +53,14 @@ static void fs_txn_release_buffers(fs_txn_t *transaction)
     transaction->tail    = 0;
 }
 
+/* Flush the device, mapping -EOPNOTSUPP through unchanged. */
 static int fs_txn_flush(fs_txn_log_t *log)
 {
     int status = blockdev_flush(&log->device);
     return status == EOK ? EOK : (status == -EOPNOTSUPP ? -EOPNOTSUPP : -EIO);
 }
 
+/* Check that home_block lies within the device. */
 static int fs_txn_home_block_valid(const fs_txn_log_t *log, uint64_t home_block)
 {
     if (!log || !log->device.sector_size || log->block_size < log->device.sector_size || log->block_size % log->device.sector_size) return 0;
@@ -63,6 +68,7 @@ static int fs_txn_home_block_valid(const fs_txn_log_t *log, uint64_t home_block)
     return home_block < log->device.sector_count / sectors_per_block;
 }
 
+/* Write staged buffers matching required_flags to their home blocks. */
 static int fs_txn_write_home(fs_txn_t *transaction, uint32_t required_flags)
 {
     fs_txn_buffer_t *buffer;
@@ -85,6 +91,7 @@ static int fs_txn_write_home(fs_txn_t *transaction, uint32_t required_flags)
     return EOK;
 }
 
+/* Release the transaction's buffers and mark the log inactive. */
 static void fs_txn_finish(fs_txn_t *transaction)
 {
     fs_txn_log_t *log = transaction->log;
@@ -93,6 +100,7 @@ static void fs_txn_finish(fs_txn_t *transaction)
     fs_txn_release_log(log);
 }
 
+/* Initialize a transaction log bound to a block device. */
 int fs_txn_log_init(fs_txn_log_t *log, const blockdev_device_t *device, uint32_t block_size, const fs_txn_backend_ops_t *ops,
                     void *backend_context)
 {
@@ -111,6 +119,7 @@ int fs_txn_log_init(fs_txn_log_t *log, const blockdev_device_t *device, uint32_t
     return EOK;
 }
 
+/* Tear down a transaction log and release its device reference. */
 void fs_txn_log_destroy(fs_txn_log_t *log)
 {
     if (!log) return;
@@ -118,6 +127,7 @@ void fs_txn_log_destroy(fs_txn_log_t *log)
     memset(log, 0, sizeof(*log));
 }
 
+/* Run backend recovery for the log. */
 int fs_txn_recover(fs_txn_log_t *log)
 {
     int status;
@@ -136,6 +146,7 @@ int fs_txn_recover(fs_txn_log_t *log)
     return status;
 }
 
+/* Begin a new transaction on the log. */
 int fs_txn_begin(fs_txn_log_t *log, uint32_t credits, fs_txn_t *transaction)
 {
     if (!log || !transaction || !credits) {
@@ -162,6 +173,7 @@ int fs_txn_begin(fs_txn_log_t *log, uint32_t credits, fs_txn_t *transaction)
     return EOK;
 }
 
+/* Stage a whole block for later write-out by the transaction. */
 int fs_txn_stage(fs_txn_t *transaction, uint64_t home_block, const void *data, uint32_t flags)
 {
     fs_txn_buffer_t *buffer;
@@ -213,6 +225,7 @@ int fs_txn_stage(fs_txn_t *transaction, uint64_t home_block, const void *data, u
     return EOK;
 }
 
+/* Read a whole block, honoring data staged by the transaction. */
 int fs_txn_read(fs_txn_t *transaction, uint64_t home_block, void *data)
 {
     fs_txn_buffer_t *buffer;
@@ -240,6 +253,7 @@ int fs_txn_read(fs_txn_t *transaction, uint64_t home_block, void *data)
     return status;
 }
 
+/* Check a byte-range request against the device size. */
 static int fs_txn_byte_range_valid(fs_txn_t *transaction, uint64_t offset, size_t size)
 {
     if (!transaction || !transaction->active || !transaction->log || offset > UINT64_MAX - size) return 0;
@@ -249,6 +263,7 @@ static int fs_txn_byte_range_valid(fs_txn_t *transaction, uint64_t offset, size_
     return offset <= device_size && size <= device_size - offset;
 }
 
+/* Read a byte range through the transaction. */
 int fs_txn_read_bytes(fs_txn_t *transaction, uint64_t offset, void *data, size_t size)
 {
     if (!size) return EOK;
@@ -282,6 +297,7 @@ int fs_txn_read_bytes(fs_txn_t *transaction, uint64_t offset, void *data, size_t
     return EOK;
 }
 
+/* Stage a byte range, reading the surrounding home blocks first. */
 int fs_txn_stage_bytes(fs_txn_t *transaction, uint64_t offset, const void *data, size_t size, uint32_t flags)
 {
     if (!size) return EOK;
@@ -319,6 +335,7 @@ int fs_txn_stage_bytes(fs_txn_t *transaction, uint64_t offset, const void *data,
     return EOK;
 }
 
+/* Commit the transaction and write the metadata to its home blocks. */
 int fs_txn_commit(fs_txn_t *transaction)
 {
     fs_txn_buffer_t *buffer;
@@ -365,6 +382,7 @@ int fs_txn_commit(fs_txn_t *transaction)
     return status;
 }
 
+/* Abort the transaction, recording the given error. */
 void fs_txn_abort(fs_txn_t *transaction, int error)
 {
     if (!transaction || !transaction->active) return;
@@ -374,6 +392,7 @@ void fs_txn_abort(fs_txn_t *transaction, int error)
     fs_txn_finish(transaction);
 }
 
+/* Return the last error recorded on the log. */
 int fs_txn_log_error(const fs_txn_log_t *log)
 {
     if (!log) {

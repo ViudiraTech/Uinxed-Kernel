@@ -13,11 +13,13 @@
 #include <kernel/printk.h>
 #include <libs/std/string.h>
 
+/* Read a big-endian 32-bit value from a SCSI response. */
 uint32_t usb_scsi_be32(const uint8_t *buffer)
 {
     return (uint32_t)buffer[0] << 24 | (uint32_t)buffer[1] << 16 | (uint32_t)buffer[2] << 8 | buffer[3];
 }
 
+/* Fill a Bulk-Only Transport command wrapper from a SCSI command. */
 int usb_msc_build_cbw(usb_msc_cbw_t *cbw, uint32_t tag, uint8_t lun, const void *command, uint8_t command_length, uint32_t transfer_length,
                       bool input)
 {
@@ -36,6 +38,7 @@ int usb_msc_build_cbw(usb_msc_cbw_t *cbw, uint32_t tag, uint8_t lun, const void 
     return EOK;
 }
 
+/* Build a 10-byte READ(10)/WRITE(10) SCSI command. */
 void usb_scsi_build_rw10(uint8_t command[10], bool write, uint32_t lba, uint16_t blocks, bool fua)
 {
     memset(command, 0, 10);
@@ -49,6 +52,7 @@ void usb_scsi_build_rw10(uint8_t command[10], bool write, uint32_t lba, uint16_t
     command[8] = (uint8_t)blocks;
 }
 
+/* Decode a READ CAPACITY(10) response into sectors and block size. */
 int usb_scsi_parse_capacity10(const uint8_t response[8], uint64_t *sector_count, uint32_t *sector_size)
 {
     if (!response || !sector_count || !sector_size) {

@@ -73,6 +73,7 @@ int cpu_supports_nx(void)
     return ((edx & (1 << 20)) != 0);
 }
 
+/* Enable the NX bit in EFER if the CPU supports it, returning whether it is active */
 int cpu_enable_nx(void)
 {
     if (!cpu_supports_nx()) return 0;
@@ -80,6 +81,7 @@ int cpu_enable_nx(void)
     return (rdmsr(MSR_IA32_EFER) & EFER_NXE) != 0;
 }
 
+/* Check whether the NX bit is currently enabled */
 int cpu_nx_enabled(void)
 {
     return cpu_supports_nx() && (rdmsr(MSR_IA32_EFER) & EFER_NXE) != 0;

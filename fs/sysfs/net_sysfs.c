@@ -243,7 +243,6 @@ static void net_sysfs_publish(net_device_t *netdev, void *context)
     plogk("net_sysfs: Publish %s lost race, unregistering device.\n", netdev->name);
     spin_unlock(&net_devices_lock);
     device_unregister(device);
-
 clear_slot:
     spin_lock(&net_devices_lock);
     if (net_devices[slot].netdev == netdev) {
@@ -280,6 +279,7 @@ static void net_sysfs_lifecycle(net_device_t *netdev, netdev_lifecycle_event_t e
         net_sysfs_unpublish(netdev);
 }
 
+/* Export every registered network device to /sys/class/net/. */
 void net_sysfs_init(void)
 {
 #if !CONFIG_NET || !CONFIG_SYSFS

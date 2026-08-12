@@ -27,6 +27,7 @@ static void set_bit(unsigned int bit, uint32_t *bits)
     bits[bit / 32] |= 1U << (bit % 32);
 }
 
+/* Ask the device for its protocol ID byte. */
 static int ps2_mouse_read_id(uint8_t *id)
 {
     int result = ps2_send_device_command(true, PS2_DEV_GET_ID);
@@ -34,6 +35,7 @@ static int ps2_mouse_read_id(uint8_t *id)
     return ps2_read_data_timeout(id);
 }
 
+/* Send one sample-rate byte to the device. */
 static int ps2_mouse_set_rate(uint8_t rate)
 {
     int result = ps2_send_device_command(true, PS2_DEV_SET_SAMPLE_RATE);
@@ -41,6 +43,7 @@ static int ps2_mouse_set_rate(uint8_t rate)
     return ps2_send_device_data(true, rate);
 }
 
+/* Probe the protocol by setting the magic rate sequence for expected_id. */
 static int ps2_mouse_negotiate(const uint8_t rates[3], uint8_t expected_id)
 {
     uint8_t id;
@@ -52,6 +55,7 @@ static int ps2_mouse_negotiate(const uint8_t rates[3], uint8_t expected_id)
     return id == expected_id ? EOK : -ENODEV;
 }
 
+/* Emit a button event only when its state changed since the last report. */
 static void ps2_mouse_append_button(input_event_t *events, size_t *count, uint16_t code, bool value, bool *previous)
 {
     if (*previous == value) return;
@@ -59,6 +63,7 @@ static void ps2_mouse_append_button(input_event_t *events, size_t *count, uint16
     events[(*count)++] = (input_event_t) {.type = EV_KEY, .code = code, .value = value ? 1 : 0};
 }
 
+/* Convert one decoded mouse packet into evdev events and inject them. */
 static void ps2_mouse_report(const struct ps2_mouse_packet *packet)
 {
     input_event_t events[9];
@@ -78,6 +83,7 @@ static void ps2_mouse_report(const struct ps2_mouse_packet *packet)
     evdev_inject_events(&ps2_mouse_dev, events, count);
 }
 
+/* Feed one byte into the mouse packet stream and report complete packets. */
 void ps2_mouse_handle_byte(uint8_t byte)
 {
     struct ps2_mouse_packet packet;
@@ -96,6 +102,7 @@ bool ps2_mouse_available(void)
     return ps2_mouse_ready;
 }
 
+/* Reset the mouse, negotiate the best protocol, and register the evdev. */
 void ps2_mouse_init(void)
 {
     static const uint8_t wheel_rates[]    = {200, 100, 80};

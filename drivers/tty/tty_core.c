@@ -31,6 +31,7 @@
  * device-specific part supplies a tty_core_ops_t.
  */
 
+/* Initialize a default termios with a standard cooked-mode configuration. */
 static void tty_default_termios(struct termios *termios)
 {
     memset(termios, 0, sizeof(*termios));
@@ -49,6 +50,7 @@ static void tty_default_termios(struct termios *termios)
     termios->c_cc[VSUSP]  = 26;
 }
 
+/* Initialize a tty core with default termios and the device's ops. */
 void tty_core_init(tty_core_t *tty, const tty_core_ops_t *ops, void *context)
 {
     memset(tty, 0, sizeof(*tty));
@@ -101,6 +103,7 @@ void tty_core_release(tty_core_t *tty)
     if (tty && tty->ops.release) tty->ops.release(tty->context);
 }
 
+/* True when the current process's controlling tty is this one. */
 static bool tty_current_associated(tty_core_t *tty, process_t *current)
 {
     tty_core_t *ctty  = process_ctty_get(current);
@@ -109,6 +112,7 @@ static bool tty_current_associated(tty_core_t *tty, process_t *current)
     return match;
 }
 
+/* Block background processes, sending the signal and returning an error. */
 static int tty_job_control_check(tty_core_t *tty, int signal)
 {
     process_t *current = process_current();
@@ -126,6 +130,7 @@ static int tty_job_control_check(tty_core_t *tty, int signal)
     return -ERESTARTSYS;
 }
 
+/* True when the process has a pending (unblocked) signal. */
 static bool tty_signal_pending(process_t *current)
 {
     if (!current) return false;
@@ -135,6 +140,7 @@ static bool tty_signal_pending(process_t *current)
     return pending;
 }
 
+/* Prepare an interruptible wait, releasing the tty lock while sleeping. */
 static bool tty_prepare_interruptible_wait(tty_core_t *tty, wait_queue_t *queue)
 {
     process_t *current = process_current();
@@ -155,6 +161,7 @@ static bool tty_prepare_interruptible_wait(tty_core_t *tty, wait_queue_t *queue)
     return true;
 }
 
+/* Make this tty the session leader's controlling tty when appropriate. */
 void tty_core_auto_acquire(tty_core_t *tty, uint64_t flags)
 {
     process_t *current = process_current();
@@ -172,6 +179,7 @@ void tty_core_auto_acquire(tty_core_t *tty, uint64_t flags)
     process_ctty_acquire(current, tty, false, NULL, NULL);
 }
 
+/* Update the window size and signal SIGWINCH to the foreground group. */
 void tty_core_set_winsize(tty_core_t *tty, uint16_t rows, uint16_t cols)
 {
     if (!tty) return;
@@ -185,16 +193,19 @@ void tty_core_set_winsize(tty_core_t *tty, uint16_t rows, uint16_t cols)
     if (changed && foreground_pgid > 0 && session > 0) signal_send_pgrp_session(foreground_pgid, session, SIGWINCH);
 }
 
+/* True when ch equals the configured control character at index. */
 static bool tty_cc_matches(const struct termios *termios, size_t index, uint8_t ch)
 {
     return termios->c_cc[index] != 0 && ch == termios->c_cc[index];
 }
 
+/* True when ch ends a canonical line (newline or configured EOL). */
 static bool tty_is_delimiter(const struct termios *termios, uint8_t ch)
 {
     return ch == '\n' || tty_cc_matches(termios, VEOL, ch) || tty_cc_matches(termios, VEOL2, ch);
 }
 
+/* Echo one character back, applying the ECHOCTL caret expansion. */
 static void tty_echo(tty_core_t *tty, uint8_t ch, tcflag_t lflag)
 {
     uint8_t out[2];
@@ -210,18 +221,21 @@ static void tty_echo(tty_core_t *tty, uint8_t ch, tcflag_t lflag)
     tty->ops.emit(tty->context, out, count, O_NONBLOCK);
 }
 
+/* Echo the backspace-space-backspace erase sequence (ECHOE). */
 static void tty_echo_erase(tty_core_t *tty)
 {
     static const uint8_t erase[] = {'\b', ' ', '\b'};
     if (tty->ops.emit) tty->ops.emit(tty->context, erase, sizeof(erase), O_NONBLOCK);
 }
 
+/* Reset all input-buffer state; caller must hold the tty lock. */
 static void tty_flush_input_locked(tty_core_t *tty)
 {
     tty->input_head = tty->input_tail = tty->input_count = 0;
     tty->canon_ready = tty->edit_count = tty->eof_count = 0;
 }
 
+/* Flush the input queue and wake all waiters. */
 void tty_core_flush_input(tty_core_t *tty)
 {
     spin_lock(&tty->lock);
@@ -231,6 +245,7 @@ void tty_core_flush_input(tty_core_t *tty)
     wait_queue_wake_all(&tty->read_wait);
 }
 
+/* Store one input byte; marker tags EOF bytes in canonical mode. */
 static bool tty_put_locked(tty_core_t *tty, uint8_t ch, uint8_t marker)
 {
     if (tty->input_count == TTY_CORE_BUFFER_SIZE) return false;
@@ -242,6 +257,7 @@ static bool tty_put_locked(tty_core_t *tty, uint8_t ch, uint8_t marker)
     return true;
 }
 
+/* Send a signal to the tty's foreground process group. */
 static void tty_signal_foreground(tty_core_t *tty, int signal)
 {
     spin_lock(&tty->lock);
@@ -251,6 +267,7 @@ static void tty_signal_foreground(tty_core_t *tty, int signal)
     if (pgid > 0 && sid > 0) signal_send_pgrp_session(pgid, sid, signal);
 }
 
+/* Feed received bytes through the line discipline (editing, flow, ISIG). */
 int64_t tty_core_receive(tty_core_t *tty, const uint8_t *data, size_t size, uint64_t flags)
 {
     size_t accepted = 0;
@@ -411,6 +428,7 @@ retry_character:;
     return (int64_t)accepted;
 }
 
+/* True when a read can make progress under the current termios. */
 static bool tty_read_ready_locked(tty_core_t *tty, size_t target)
 {
     if (tty->hung_up) return tty->input_count != 0;
@@ -419,6 +437,7 @@ static bool tty_read_ready_locked(tty_core_t *tty, size_t target)
     return tty->input_count >= target;
 }
 
+/* Sleep on the read queue until data, deadline, or a signal arrives. */
 static bool tty_wait(tty_core_t *tty, uint64_t deadline)
 {
     if (!tty_prepare_interruptible_wait(tty, &tty->read_wait)) return false;
@@ -429,6 +448,7 @@ static bool tty_wait(tty_core_t *tty, uint64_t deadline)
     return !tty_signal_pending(process_current());
 }
 
+/* Read from the input queue, honoring canonical/raw and VMIN/VTIME. */
 int64_t tty_core_read(tty_core_t *tty, void *buffer, size_t size, uint64_t flags)
 {
     uint8_t *out    = buffer;
@@ -497,6 +517,7 @@ int64_t tty_core_read(tty_core_t *tty, void *buffer, size_t size, uint64_t flags
     return (int64_t)copied;
 }
 
+/* Write output through the device emit callback, applying OPOST. */
 int64_t tty_core_write(tty_core_t *tty, const void *buffer, size_t size, uint64_t flags)
 {
     const uint8_t *input = buffer;
@@ -548,6 +569,7 @@ int64_t tty_core_write(tty_core_t *tty, const void *buffer, size_t size, uint64_
     return (int64_t)done;
 }
 
+/* Number of input bytes a read can return right now (FIONREAD). */
 size_t tty_core_readable(tty_core_t *tty)
 {
     spin_lock(&tty->lock);
@@ -557,11 +579,13 @@ size_t tty_core_readable(tty_core_t *tty)
     return value;
 }
 
+/* True for ioctls that only virtual consoles may service. */
 static bool tty_is_vt_ioctl(size_t request)
 {
     return (request >= KDGETLED && request <= KDSKBMODE) || (request >= VT_OPENQRY && request <= VT_DISALLOCATE);
 }
 
+/* Dispatch terminal ioctls: termios, winsize, VT, and job control. */
 int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, void *user_arg, bool virtual_console)
 {
     struct termios termios;
@@ -829,11 +853,13 @@ int tty_core_ioctl_terminal(tty_core_t *tty, uint64_t flags, size_t request, voi
     }
 }
 
+/* Terminal ioctl dispatch for a virtual-console tty. */
 int tty_core_ioctl(tty_core_t *tty, uint64_t flags, size_t request, void *user_arg)
 {
     return tty_core_ioctl_terminal(tty, flags, request, user_arg, tty && tty->is_vt);
 }
 
+/* Report poll readiness from the input queue and output state. */
 int tty_core_poll(tty_core_t *tty, size_t events)
 {
     int result = 0;
@@ -845,6 +871,7 @@ int tty_core_poll(tty_core_t *tty, size_t events)
     return result;
 }
 
+/* Hang up the tty: detach processes, signal SIGHUP/SIGCONT, wake all. */
 void tty_core_hangup(tty_core_t *tty)
 {
     tty_core_retain(tty);

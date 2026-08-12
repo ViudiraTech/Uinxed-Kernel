@@ -10,6 +10,7 @@
 
 #include <drivers/input/ps2/ps2_keyboard.h>
 
+/* Map a translated scan-set-1 scancode to an evdev KEY_* code. */
 uint16_t ps2_keyboard_keycode_for_scancode(uint16_t scan)
 {
     if (scan >= 0x01 && scan <= 0x53) return scan;
@@ -59,6 +60,7 @@ uint16_t ps2_keyboard_keycode_for_scancode(uint16_t scan)
     }
 }
 
+/* Reset the decoder to a clean state. */
 void ps2_keyboard_decoder_init(ps2_keyboard_decoder_t *decoder)
 {
     if (!decoder) return;
@@ -66,6 +68,7 @@ void ps2_keyboard_decoder_init(ps2_keyboard_decoder_t *decoder)
     decoder->extended    = false;
 }
 
+/* Decode a plain (non-prefix) scancode byte into a key event. */
 static int ps2_keyboard_decode_key(ps2_keyboard_decoder_t *decoder, uint8_t byte, ps2_key_event_t *event)
 {
     uint16_t scan;
@@ -85,6 +88,7 @@ static int ps2_keyboard_decode_key(ps2_keyboard_decoder_t *decoder, uint8_t byte
     return 1;
 }
 
+/* Feed one scancode byte to the decoder, producing events on complete keys. */
 int ps2_keyboard_decode_byte(ps2_keyboard_decoder_t *decoder, uint8_t byte, ps2_key_event_t *event)
 {
     static const uint8_t pause_sequence[] = {0xe1, 0x1d, 0x45, 0xe1, 0x9d, 0xc5};

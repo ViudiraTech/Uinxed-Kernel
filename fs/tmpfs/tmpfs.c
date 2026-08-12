@@ -82,6 +82,7 @@ int tmpfs_mkfile(void *parent, const char *name, vfs_node_t node)
     return tmpfs_mk(parent, name, node, 0);
 }
 
+/* Create a hard link sharing the target's inode. */
 int tmpfs_link(void *parent, const char *target_name, vfs_node_t node)
 {
     (void)parent;
@@ -164,6 +165,7 @@ size_t tmpfs_read(void *file, void *addr, size_t offset, size_t size)
     return actual;
 }
 
+/* Grow the file's page array to hold at least count frames. */
 static int tmpfs_expand_page_array_locked(tmpfs_file_t *f, size_t count)
 {
     if (count <= f->page_capacity) return EOK;
@@ -191,6 +193,7 @@ static int tmpfs_expand_page_array_locked(tmpfs_file_t *f, size_t count)
     return EOK;
 }
 
+/* Allocate and zero a data frame, seeding it from the external buffer. */
 static int tmpfs_allocate_page_locked(tmpfs_file_t *f, size_t index)
 {
     int status = tmpfs_expand_page_array_locked(f, index + 1);
@@ -254,6 +257,7 @@ static size_t tmpfs_write(void *file, const void *addr, size_t offset, size_t si
     return done;
 }
 
+/* Resize a file, freeing frames beyond the new end. */
 int tmpfs_resize(void *file, uint64_t size)
 {
     tmpfs_file_t *f = file;
@@ -281,6 +285,7 @@ int tmpfs_resize(void *file, uint64_t size)
     return EOK;
 }
 
+/* Back a file with an external buffer, releasing any cached frames. */
 int tmpfs_adopt_file_data(vfs_node_t node, const void *data, size_t size)
 {
     tmpfs_file_t *f;
@@ -341,6 +346,7 @@ int tmpfs_rename(void *current, const char *new_name)
     return EOK;
 }
 
+/* Move a file, which only requires renaming it. */
 static int tmpfs_move(void *current, void *new_parent, const char *new_name)
 {
     (void)new_parent;
@@ -451,7 +457,7 @@ void tmpfs_dummy(void)
 {
 }
 
-/* Per-open-instance callbacks --delegate to device ops */
+/* Per-open-instance callbacks, delegating to the device ops. */
 
 static int tmpfs_file_open(vfs_node_t node, uint64_t flags, void **private_data)
 {
@@ -637,6 +643,7 @@ void tmpfs_regist(void)
     if (devtmpfs_id & ERRNO_MASK) plogk("devtmpfs: Register error.\n");
 }
 
+/* Bind device operations to a tmpfs file node. */
 int tmpfs_bind_device(vfs_node_t node, uint16_t node_type, const tmpfs_device_ops_t *device)
 {
     tmpfs_file_t *handle;
@@ -651,6 +658,7 @@ int tmpfs_bind_device(vfs_node_t node, uint16_t node_type, const tmpfs_device_op
     return EOK;
 }
 
+/* Override a regular file's reported node type. */
 int tmpfs_set_node_type(vfs_node_t node, uint16_t node_type)
 {
     if (!node || !node->handle) return -EINVAL;

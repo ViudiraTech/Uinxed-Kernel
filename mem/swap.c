@@ -46,6 +46,7 @@
  * The helpers below pack and unpack that encoding.
  */
 
+/* Read a little-endian 32-bit value from a byte buffer. */
 static uint32_t swap_le32(const uint8_t *value)
 {
     return (uint32_t)value[0] | ((uint32_t)value[1] << 8) | ((uint32_t)value[2] << 16) | ((uint32_t)value[3] << 24);
@@ -67,27 +68,32 @@ int swap_header_decode(const void *page, size_t bytes, uint64_t backing_pages, s
     return 0;
 }
 
+/* Pack a swap device type, slot offset and PTE flags into a swap entry. */
 uint64_t swap_entry_encode(uint32_t type, uint64_t offset, uint64_t pte_flags)
 {
     uint64_t preserve = pte_flags & (PTE_WRITEABLE | PTE_USER | PTE_COW | PTE_SHARED | PTE_NO_EXECUTE);
     return PTE_SWAP | preserve | (((uint64_t)type & SWAP_TYPE_MASK) << SWAP_TYPE_SHIFT) | ((offset & SWAP_OFFSET_MASK) << SWAP_OFFSET_SHIFT);
 }
 
+/* Report whether a non-present PTE encodes a valid swap entry. */
 int swap_entry_is_swap(uint64_t pte)
 {
     return !(pte & PTE_PRESENT) && (pte & PTE_SWAP) && swap_entry_offset(pte) != 0;
 }
 
+/* Extract the swap device type from an entry. */
 uint32_t swap_entry_type(uint64_t pte)
 {
     return (uint32_t)((pte >> SWAP_TYPE_SHIFT) & SWAP_TYPE_MASK);
 }
 
+/* Extract the slot offset from an entry. */
 uint64_t swap_entry_offset(uint64_t pte)
 {
     return (pte >> SWAP_OFFSET_SHIFT) & SWAP_OFFSET_MASK;
 }
 
+/* Extract the PTE flags preserved in an entry. */
 uint64_t swap_entry_pte_flags(uint64_t pte)
 {
     return pte & (PTE_WRITEABLE | PTE_USER | PTE_COW | PTE_SHARED | PTE_NO_EXECUTE);
@@ -112,6 +118,7 @@ static void swap_slot_set(swap_slot_map_t *map, uint64_t slot, int used)
         map->bitmap[slot / 64] &= ~mask;
 }
 
+/* Bind a slot bitmap and refcount array to a swap slot map. */
 int swap_slot_map_init(swap_slot_map_t *map, uint64_t *bitmap, uint32_t *refs, uint64_t slots)
 {
     if (!map || !bitmap || !refs || slots < 1) return -1;
@@ -124,6 +131,7 @@ int swap_slot_map_init(swap_slot_map_t *map, uint64_t *bitmap, uint32_t *refs, u
     return 0;
 }
 
+/* Reserve a free slot, advancing the cluster cursor; 0 if none remain. */
 uint64_t swap_slot_alloc(swap_slot_map_t *map)
 {
     if (!map || !map->slots) return 0;
@@ -143,6 +151,7 @@ uint64_t swap_slot_alloc(swap_slot_map_t *map)
     return 0;
 }
 
+/* Add a reference to a used slot. */
 int swap_slot_retain(swap_slot_map_t *map, uint64_t slot)
 {
     if (!swap_slot_valid(map, slot) || !swap_slot_used(map, slot) || !map->refs[slot] || map->refs[slot] == UINT32_MAX) return -1;
@@ -150,6 +159,7 @@ int swap_slot_retain(swap_slot_map_t *map, uint64_t slot)
     return 0;
 }
 
+/* Drop a reference to a slot, freeing it when the count reaches zero. */
 int swap_slot_release(swap_slot_map_t *map, uint64_t slot)
 {
     if (!swap_slot_valid(map, slot) || !swap_slot_used(map, slot) || !map->refs[slot]) return -1;
@@ -187,6 +197,7 @@ typedef struct swap_area {
 static swap_area_t swap_areas[SWAP_MAX_AREAS];
 static spinlock_t  swap_lock;
 
+/* Transfer one swap page between a slot and its block or file backend. */
 static int swap_area_io(const swap_area_t *area, uint64_t slot, void *buffer, int write)
 {
     if (!area || !area->active || !slot || slot > area->slots.slots) return -EINVAL;
@@ -206,6 +217,7 @@ static swap_area_t *swap_area_for_type(uint32_t type)
     return type < SWAP_MAX_AREAS && swap_areas[type].active ? &swap_areas[type] : NULL;
 }
 
+/* Retain or release the slot referenced by a swap entry. */
 static int swap_area_retain_entry(uint64_t pte, int retain)
 {
     if (!swap_entry_is_swap(pte)) return -EINVAL;
@@ -236,6 +248,7 @@ void swap_init(void)
 #    endif
 }
 
+/* Reserve an unused swap area slot and its type index. */
 static int swap_area_alloc(uint8_t *type, swap_area_t **area)
 {
     spin_lock(&swap_lock);
@@ -252,6 +265,7 @@ static int swap_area_alloc(uint8_t *type, swap_area_t **area)
     return -EPERM;
 }
 
+/* Decode the swap header and allocate the area's slot tracking tables. */
 static int swap_area_setup_slots(swap_area_t *area, uint64_t pages, const uint8_t header[SWAP_PAGE_SIZE])
 {
     swap_header_info_t info;
@@ -270,6 +284,7 @@ static int swap_area_setup_slots(swap_area_t *area, uint64_t pages, const uint8_
     return EOK;
 }
 
+/* Bring a swap file or partition online as a backing area. */
 int swap_activate_path(const char *path, uint32_t flags)
 {
     if (!path || !*path || (flags & ~(SWAP_FLAG_PREFER | SWAP_FLAG_PRIO_MASK | SWAP_FLAG_DISCARD))) return -EINVAL;
@@ -345,13 +360,13 @@ int swap_activate_path(const char *path, uint32_t flags)
     area->active   = true;
     spin_unlock(&swap_lock);
     return EOK;
-
 fail:
     memset(area, 0, sizeof(*area));
     plogk("swap: Failed to activate %s: %d\n", path, result);
     return result;
 }
 
+/* Return the 4 KiB PTE for a user address, or NULL if not leaf-present. */
 static page_table_entry_t *swap_pte_lookup(page_directory_t *directory, uintptr_t address)
 {
     if (!directory || !directory->table || ((address >> 39) & 0x1ff) >= 256) return NULL;
@@ -368,6 +383,7 @@ static page_table_entry_t *swap_pte_lookup(page_directory_t *directory, uintptr_
     return &table->entries[(address >> 12) & 0x1ff];
 }
 
+/* Page in the swapped-out frame at address and restore its PTE. */
 int swap_fault(page_directory_t *directory, uintptr_t address)
 {
     if (!directory) return -EINVAL;
@@ -420,6 +436,7 @@ int swap_fault(page_directory_t *directory, uintptr_t address)
     return result;
 }
 
+/* Page out a single user frame to the highest-priority active area. */
 static int swap_out_page(page_directory_t *directory, uintptr_t address)
 {
     swap_area_t *best = NULL;
@@ -476,6 +493,7 @@ static int swap_out_page(page_directory_t *directory, uintptr_t address)
     return result;
 }
 
+/* Reclaim up to target anonymous frames by paging them out. */
 int swap_reclaim(size_t target)
 {
     size_t     reclaimed = 0;
@@ -496,6 +514,7 @@ int swap_reclaim(size_t target)
     return (int)reclaimed;
 }
 
+/* Page in every frame of type held by one address-space subtree. */
 static int swapoff_area_in(page_directory_t *directory, page_table_t *table, int level, uintptr_t base, uint32_t type)
 {
     uint64_t shift = level == 4 ? 39 : (level == 3 ? 30 : (level == 2 ? 21 : 12));
@@ -516,6 +535,7 @@ static int swapoff_area_in(page_directory_t *directory, page_table_t *table, int
     return EOK;
 }
 
+/* Take a swap area offline after faulting all of its pages back in. */
 int swap_deactivate_path(const char *path)
 {
     if (!path) return -EINVAL;
@@ -565,6 +585,7 @@ int swap_deactivate_path(const char *path)
     return EOK;
 }
 
+/* Snapshot usage counters across all active swap areas. */
 void swap_get_stats(swap_stats_t *stats)
 {
     if (!stats) return;

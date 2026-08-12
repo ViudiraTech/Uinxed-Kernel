@@ -107,26 +107,64 @@ typedef struct sb16_device {
         int      capturing;       // Non-zero if capture active
 } sb16_device_t;
 
+/* Detect and initialize the Sound Blaster 16 card. */
 void sb16_init(void);
 
-int     sb16_detect(sb16_device_t *dev);
-int     sb16_dsp_reset(sb16_device_t *dev);
-int     sb16_dsp_version(sb16_device_t *dev, uint8_t *major, uint8_t *minor);
-int     sb16_dsp_wait_write(sb16_device_t *dev);
-int     sb16_dsp_write(sb16_device_t *dev, uint8_t cmd);
-int     sb16_dsp_read(sb16_device_t *dev, uint8_t *val);
-int     sb16_set_rate8(sb16_device_t *dev, uint16_t rate);
-int     sb16_set_rate16(sb16_device_t *dev, uint16_t rate);
-int     sb16_play_8bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
-int     sb16_play_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
-int     sb16_capture_8bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
-int     sb16_capture_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
-void    sb16_stop(sb16_device_t *dev);
-void    sb16_set_master_volume(sb16_device_t *dev, uint8_t left, uint8_t right);
-void    sb16_set_dac_volume(sb16_device_t *dev, uint8_t left, uint8_t right);
-void    sb16_set_input_source(sb16_device_t *dev, uint8_t source);
+/* Probe for an SB16 at the configured base port; 0 if found. */
+int sb16_detect(sb16_device_t *dev);
+
+/* Reset the DSP; returns 0 on success. */
+int sb16_dsp_reset(sb16_device_t *dev);
+
+/* Query the DSP version. */
+int sb16_dsp_version(sb16_device_t *dev, uint8_t *major, uint8_t *minor);
+
+/* Wait until the DSP write buffer is free. */
+int sb16_dsp_wait_write(sb16_device_t *dev);
+
+/* Write a command byte to the DSP. */
+int sb16_dsp_write(sb16_device_t *dev, uint8_t cmd);
+
+/* Read a response byte from the DSP. */
+int sb16_dsp_read(sb16_device_t *dev, uint8_t *val);
+
+/* Set an 8-bit DAC sample rate. */
+int sb16_set_rate8(sb16_device_t *dev, uint16_t rate);
+
+/* Set a 16-bit DAC sample rate. */
+int sb16_set_rate16(sb16_device_t *dev, uint16_t rate);
+
+/* Play a buffer through 8-bit single-cycle DMA. */
+int sb16_play_8bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
+
+/* Play a buffer through 16-bit single-cycle DMA. */
+int sb16_play_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
+
+/* Capture into an 8-bit DMA buffer. */
+int sb16_capture_8bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
+
+/* Capture into a 16-bit DMA buffer. */
+int sb16_capture_16bit(sb16_device_t *dev, uint8_t *buffer, uint32_t size);
+
+/* Halt the current playback or capture operation. */
+void sb16_stop(sb16_device_t *dev);
+
+/* Set the master volume (0-255 per channel). */
+void sb16_set_master_volume(sb16_device_t *dev, uint8_t left, uint8_t right);
+
+/* Set the DAC volume. */
+void sb16_set_dac_volume(sb16_device_t *dev, uint8_t left, uint8_t right);
+
+/* Select the recording input source. */
+void sb16_set_input_source(sb16_device_t *dev, uint8_t source);
+
+/* Read a mixer register. */
 uint8_t sb16_mixer_read(sb16_device_t *dev, uint8_t reg);
-void    sb16_mixer_write(sb16_device_t *dev, uint8_t reg, uint8_t value);
-void    sb16_beep(uint16_t freq, uint32_t ms);
+
+/* Write a mixer register. */
+void sb16_mixer_write(sb16_device_t *dev, uint8_t reg, uint8_t value);
+
+/* Play a system-speaker beep at @freq Hz for @ms milliseconds. */
+void sb16_beep(uint16_t freq, uint32_t ms);
 
 #endif // INCLUDE_SB16_H_

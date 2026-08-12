@@ -118,6 +118,7 @@ static void pc_unlock(pc_lock_t *lock)
     __atomic_store_n(&lock->value, 0, __ATOMIC_RELEASE);
 }
 
+/* Hash a page index into a bucket of the given (power-of-two) table. */
 static inline size_t pc_hash(uint64_t index, size_t bucket_count)
 {
     index ^= index >> 33;
@@ -136,6 +137,7 @@ static inline void pc_stat_dec(uint64_t *value)
     __atomic_sub_fetch(value, 1, __ATOMIC_RELAXED);
 }
 
+/* Unlink a page from the global LRU list. */
 static void pc_lru_remove_locked(pagecache_page_t *page)
 {
     if (page->lru_prev)
@@ -149,6 +151,7 @@ static void pc_lru_remove_locked(pagecache_page_t *page)
     page->lru_prev = page->lru_next = NULL;
 }
 
+/* Link a page at the head (most recently used) of the LRU list. */
 static void pc_lru_add_head_locked(pagecache_page_t *page)
 {
     page->lru_prev = NULL;
@@ -158,6 +161,7 @@ static void pc_lru_add_head_locked(pagecache_page_t *page)
     if (!pagecache.lru_tail) pagecache.lru_tail = page;
 }
 
+/* Link a page at the tail (least recently used) of the LRU list. */
 static void pc_lru_add_tail_locked(pagecache_page_t *page)
 {
     page->lru_next = NULL;
@@ -167,6 +171,7 @@ static void pc_lru_add_tail_locked(pagecache_page_t *page)
     if (!pagecache.lru_head) pagecache.lru_head = page;
 }
 
+/* Mark a page as referenced and move it to the head of the LRU. */
 static void pc_touch(pagecache_page_t *page)
 {
     pc_lock(&page->lock);
@@ -195,6 +200,7 @@ static void pc_touch(pagecache_page_t *page)
     pc_unlock(&page->lock);
 }
 
+/* Look up a non-evicting page by index under the mapping lock. */
 static pagecache_page_t *pc_find_locked(pagecache_mapping_t *mapping, uint64_t index)
 {
     for (pagecache_page_t *page = mapping->buckets[pc_hash(index, mapping->bucket_count)]; page; page = page->hash_next)
@@ -232,6 +238,7 @@ static void pc_grow_hash_locked(pagecache_mapping_t *mapping)
     mapping->bucket_count = new_count;
 }
 
+/* Release a page's data and bookkeeping, updating statistics. */
 static void pc_free_page(pagecache_page_t *page)
 {
     if (page->flags & PC_PAGE_READAHEAD) pc_stat_dec(&pagecache.stats.readahead_pages);
@@ -250,6 +257,7 @@ static void pc_free_page(pagecache_page_t *page)
     free(page);
 }
 
+/* Remove a page from its mapping's hash table and the global LRU. */
 static int pc_unlink_page(pagecache_page_t *page)
 {
     pagecache_mapping_t *mapping = page->mapping;
@@ -270,6 +278,7 @@ static int pc_unlink_page(pagecache_page_t *page)
     return EOK;
 }
 
+/* Read a page's backing data into memory unless already uptodate. */
 static int pc_load_locked(pagecache_page_t *page)
 {
     pagecache_mapping_t *mapping = page->mapping;
@@ -300,6 +309,7 @@ static int pc_load_locked(pagecache_page_t *page)
     return EOK;
 }
 
+/* Push a dirty page to the backing store and clear its dirty state. */
 static int pc_writeback_page_locked(pagecache_page_t *page)
 {
     pagecache_mapping_t *mapping = page->mapping;
@@ -526,6 +536,7 @@ void pagecache_mark_dirty(pagecache_page_t *page)
     page->flags |= PC_PAGE_UPTODATE | PC_PAGE_REFERENCED;
 }
 
+/* Prefetch count pages starting at first, returning the first error if strict. */
 static int pc_readahead_pages(pagecache_mapping_t *mapping, uint64_t first, uint32_t count, int strict)
 {
     if (__atomic_load_n(&mapping->pins, __ATOMIC_ACQUIRE)) return EOK;
@@ -546,6 +557,7 @@ static int pc_readahead_pages(pagecache_mapping_t *mapping, uint64_t first, uint
     return EOK;
 }
 
+/* Adjust the readahead window based on observed sequential access. */
 static void pc_adaptive_readahead(pagecache_mapping_t *mapping, uint64_t first, uint64_t last)
 {
     uint64_t prefetch_first = 0;
@@ -612,6 +624,7 @@ int64_t pagecache_read(pagecache_mapping_t *mapping, void *buffer, uint64_t offs
     return (int64_t)done;
 }
 
+/* Grow the mapping size up to end, in the face of concurrent writers. */
 static void pc_extend_size(pagecache_mapping_t *mapping, uint64_t end)
 {
     uint64_t old = __atomic_load_n(&mapping->size, __ATOMIC_ACQUIRE);
@@ -666,6 +679,7 @@ int64_t pagecache_write(pagecache_mapping_t *mapping, const void *buffer, uint64
     return (int64_t)done;
 }
 
+/* Restore the max-heap property at root during heapsort. */
 static void pc_sort_sift_down(pagecache_page_t **pages, size_t root, size_t count)
 {
     for (;;) {

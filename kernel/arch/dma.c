@@ -42,7 +42,7 @@ void dma_start(uint8_t mode, uint8_t channel, uint32_t *address, uint32_t size)
     /* Setting up DMA channels */
     outb(MASK_REG[channel], 0x04 | (channel % 4));
 
-    /* Unmask the DMA channel */
+    /* Clear the byte-pointer flip-flop so 16-bit port accesses read the low byte first */
     outb(CLEAR_REG[channel], 0x00);
 
     /* Send the specified pattern to DMA */
@@ -59,7 +59,7 @@ void dma_start(uint8_t mode, uint8_t channel, uint32_t *address, uint32_t size)
     outb(COUNT_PORT[channel], LOW_BYTE(size));
     outb(COUNT_PORT[channel], HIGH_BYTE(size));
 
-    /* So enable DMA_channel */
+    /* Re-enable the DMA channel */
     outb(MASK_REG[channel], (channel % 4));
     enable_intr();
 }

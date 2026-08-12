@@ -122,6 +122,7 @@ static const size_t size_classes[] = {16, 32, 64, 96, 128, 192, 256, 384, 512, 7
 #define SIZE_CACHE_COUNT (sizeof(size_classes) / sizeof(size_classes[0]))
 static slab_cache_t size_caches[SIZE_CACHE_COUNT];
 
+/* Round value up to the next multiple of alignment. */
 static size_t align_up_size(size_t value, size_t alignment)
 {
     if (value > SIZE_MAX - (alignment - 1)) return SIZE_MAX;
@@ -133,16 +134,19 @@ static int valid_alignment(size_t alignment)
     return alignment && !(alignment & (alignment - 1));
 }
 
+/* Derive the guard cookie for an object header. */
 static uint32_t object_cookie(const slab_object_header_t *object)
 {
     return (uint32_t)(((uintptr_t)object >> 4) ^ heap.cookie ^ 0xa55a31c7U);
 }
 
+/* Derive the guard cookie for a slab header. */
 static uint64_t slab_cookie(const slab_header_t *slab)
 {
     return ((uint64_t)(uintptr_t)slab ^ (uint64_t)heap.cookie ^ 0x91e10da5c79e7b1dULL);
 }
 
+/* Derive the guard cookie for a large block header. */
 static uint64_t large_cookie(const large_header_t *header)
 {
     return ((uint64_t)(uintptr_t)header ^ (uint64_t)heap.cookie ^ 0xd6e8feb86659fd93ULL);
@@ -164,6 +168,7 @@ static void stat_sub(size_t *value, size_t amount)
     __atomic_sub_fetch(value, amount, __ATOMIC_RELAXED);
 }
 
+/* Cap the buddy order to fit the requested number of pages. */
 static unsigned heap_max_order(size_t pages)
 {
     unsigned order = buddy_order_for_units(pages);
@@ -197,6 +202,7 @@ static int page_free(size_t index, unsigned order)
     return result;
 }
 
+/* Insert a slab into the head of the given cache list. */
 static void list_insert(slab_cache_t *cache, slab_header_t *slab, unsigned list)
 {
     slab_header_t **head;
@@ -220,6 +226,7 @@ static void list_insert(slab_cache_t *cache, slab_header_t *slab, unsigned list)
     (*count)++;
 }
 
+/* Unlink a slab from its cache list. */
 static void list_remove(slab_cache_t *cache, slab_header_t *slab)
 {
     slab_header_t **head;
@@ -278,6 +285,7 @@ static int cache_layout(slab_cache_t *cache)
     return 0;
 }
 
+/* Populate a slab cache and pick its slab order. */
 static int cache_init(slab_cache_t *cache, const char *name, size_t size, size_t alignment, slab_ctor_t ctor, slab_dtor_t dtor, int dynamic)
 {
     if (!cache || !size || !valid_alignment(alignment) || alignment < sizeof(void *) || alignment > PAGE_4K_SIZE) return -1;
@@ -515,6 +523,7 @@ int heap_init(uint8_t *address, size_t size)
     return 0;
 }
 
+/* Install the handler invoked when a heap error is detected. */
 void heap_onerror(error_handler handler)
 {
     heap.onerror = handler;
@@ -707,11 +716,13 @@ slab_cache_t *slab_cache_create(const char *name, size_t object_size, size_t ali
     return cache;
 }
 
+/* Allocate one object from a slab cache. */
 void *slab_cache_alloc(slab_cache_t *cache)
 {
     return cache_alloc_requested(cache, cache ? cache->object_size : 0);
 }
 
+/* Return an object to its originating slab cache. */
 int slab_cache_free(slab_cache_t *cache, void *object)
 {
     if (!cache || !object) return -1;
@@ -753,6 +764,7 @@ int slab_cache_destroy(slab_cache_t *cache)
     return 0;
 }
 
+/* Snapshot the accounting counters of a slab cache. */
 void slab_cache_get_stats(slab_cache_t *cache, slab_cache_stats_t *stats)
 {
     if (!cache || !stats) return;
@@ -769,6 +781,7 @@ void slab_cache_get_stats(slab_cache_t *cache, slab_cache_stats_t *stats)
     spin_unlock_irqrestore(&cache->lock, rflags);
 }
 
+/* Snapshot the global heap usage counters. */
 void heap_get_stats(heap_stats_t *stats)
 {
     if (!stats) return;
@@ -784,6 +797,7 @@ void heap_get_stats(heap_stats_t *stats)
     stats->failed_allocations = __atomic_load_n(&heap.failed_allocations, __ATOMIC_RELAXED);
 }
 
+/* Verify the invariants of a single slab list. */
 static int validate_list(slab_cache_t *cache, slab_header_t *head, unsigned expected_list, size_t expected_count)
 {
     size_t         count    = 0;

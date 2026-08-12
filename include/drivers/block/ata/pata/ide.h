@@ -126,16 +126,37 @@ extern ide_channel_registers_t channels[2];
 extern ide_device_t            ide_devices[4];
 extern volatile uint8_t        ide_irq_invoked;
 
-void    init_ide(void);
-int     ide_wait_irq(void);
+/* Detect and initialize the IDE controllers and their drives */
+void init_ide(void);
+
+/* Wait for the IDE IRQ to fire, returning 0 on success or -1 on timeout */
+int ide_wait_irq(void);
+
+/* Read a byte from a register of an IDE channel */
 uint8_t ide_read(uint8_t channel, uint8_t reg);
-void    ide_write(uint8_t channel, uint8_t reg, uint8_t data);
-void    ide_read_buffer(uint8_t channel, uint8_t reg, uint8_t *buffer, uint32_t quads);
+
+/* Write a byte to a register of an IDE channel */
+void ide_write(uint8_t channel, uint8_t reg, uint8_t data);
+
+/* Read multiple 32-bit words from an IDE register into the buffer */
+void ide_read_buffer(uint8_t channel, uint8_t reg, uint8_t *buffer, uint32_t quads);
+
+/* Poll the IDE status register until the device is ready (optionally error-checked) */
 uint8_t ide_polling(uint8_t channel, uint32_t advanced_check);
-void    ide_soft_reset(uint8_t drive);
+
+/* Soft reset the ATA device */
+void ide_soft_reset(uint8_t drive);
+
+/* Flush the drive's write cache */
 uint8_t ide_flush_cache(uint8_t drive);
+
+/* Perform a PIO read or write on an ATA drive */
 uint8_t ide_ata_access(uint8_t direction, uint8_t drive, uint64_t lba, uint8_t numsects, uint16_t *edi);
-void    ide_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *edi);
-void    ide_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *edi);
+
+/* Read multiple sectors from an IDE device (ATA or ATAPI) */
+void ide_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *edi);
+
+/* Write multiple sectors to an IDE device */
+void ide_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, uint16_t *edi);
 
 #endif // INCLUDE_IDE_H_

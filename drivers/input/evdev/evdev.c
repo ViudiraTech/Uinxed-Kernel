@@ -224,15 +224,9 @@ static void __evdev_queue_syn_dropped(evdev_client_t *client)
     (void)evdev_queue_push(&client->queue, &ev);
 }
 
-/* __evdev_flush_queue */
-
 /*
- * __evdev_flush_queue - flush queued events of type @type.
- * Caller must hold client->buffer_lock.
- *
- * This compacts the ring buffer by removing all events that match
- * the newly-installed filter mask.  After flushing, a SYN_DROPPED
- * is inserted to inform userspace that events were dropped.
+ * Compact the ring buffer by removing all events that match the newly
+ * installed filter mask.  Caller must hold client->buffer_lock.
  */
 static void __evdev_flush_queue(evdev_client_t *client, unsigned int type)
 {
@@ -552,7 +546,6 @@ int evdev_register(evdev_t *evdev)
     }
 
     return 0;
-
 rollback_sysfs:
     input_sysfs_unregister_evdev(evdev);
 rollback_binding:
@@ -1094,7 +1087,6 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
 
             return copy_to_user(arg, &version, sizeof(version)) ? -EFAULT : EOK;
         }
-
         case EVIOCGID :
             return copy_to_user(arg, &dev->id, sizeof(dev->id)) ? -EFAULT : EOK;
 
@@ -1119,7 +1111,6 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
             evdev_inject_events(dev, events, 2);
             return EOK;
         }
-
         case EVIOCGKEYCODE :
         case EVIOCGKEYCODE_V2 :
         case EVIOCSKEYCODE :
@@ -1265,7 +1256,6 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
                 return evdev_grab(evdev, client);
             else
                 return evdev_ungrab(evdev, client);
-
         case EVIOCREVOKE :
             if ((uintptr_t)arg) return -EINVAL;
             spin_lock(&client->buffer_lock);
@@ -1275,7 +1265,6 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
             wait_queue_wake_all(&client->wait);
             vfs_poll_source_notify(&client->poll_source, POLLHUP);
             return EOK;
-
         case EVIOCSCLOCKID :
             if (copy_from_user(&ival, arg, sizeof(ival))) return -EFAULT;
             return evdev_set_clk_type(client, ival);
@@ -1293,7 +1282,6 @@ int evdev_fop_ioctl(evdev_client_t *client, uint32_t request, void *arg)
             if (copy_from_user(&mask, arg, sizeof(mask))) return -EFAULT;
             return evdev_set_mask(client, &mask);
         }
-
         default :
             return -EINVAL;
     }
@@ -1310,6 +1298,7 @@ int evdev_publish_node(evdev_t *evdev)
     char     path[32];
     int      result;
     uint16_t node_type = file_stream;
+
     /*
      * Let poll/epoll users identify input fds without relying on the
      * pathname.  Relative-axis devices are mice/pointers; key-only devices

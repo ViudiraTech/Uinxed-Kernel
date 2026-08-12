@@ -31,9 +31,16 @@ typedef struct superblock_disk {
         char     volume_name[SUPERBLOCK_NAME_LENGTH];
 } __attribute__((packed)) superblock_disk_t;
 
-int superblock_read(uint8_t drive, superblock_disk_t *sb);
-int superblock_write(uint8_t drive, const superblock_disk_t *sb);
+/* Validate the on-disk superblock fields. */
 int superblock_valid(const superblock_disk_t *sb);
+
+/* Read and validate the superblock from a drive. */
+int superblock_read(uint8_t drive, superblock_disk_t *sb);
+
+/* Write a validated superblock to a drive. */
+int superblock_write(uint8_t drive, const superblock_disk_t *sb);
+
+/* Probe a drive for a valid superblock without keeping it open. */
 int superblock_probe(uint8_t drive);
 
 #endif // INCLUDE_SUPERBLOCK_H_

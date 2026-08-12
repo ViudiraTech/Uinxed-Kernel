@@ -350,10 +350,6 @@ typedef struct {
 extern ahci_device_t ahci_devices[AHCI_MAX_DEVICES];
 extern int           ahci_device_count;
 
-/* AHCI MMIO helpers (shared with satapi) */
-uint32_t ahci_read32(volatile uint8_t *base, uint32_t reg);
-void     ahci_write32(volatile uint8_t *base, uint32_t reg, uint32_t val);
-
 /* HBA MMIO base (shared with satapi) */
 extern volatile uint8_t *hba_mmio;
 
@@ -374,10 +370,22 @@ typedef struct {
 
 extern ahci_port_state_t ahci_ports[AHCI_MAX_PORTS];
 
-/* AHCI SATA API */
+/* Read a 32-bit AHCI register relative to the HBA MMIO base */
+uint32_t ahci_read32(volatile uint8_t *base, uint32_t reg);
+
+/* Write a 32-bit AHCI register relative to the HBA MMIO base */
+void ahci_write32(volatile uint8_t *base, uint32_t reg, uint32_t val);
+
+/* Initialize all AHCI controllers on the PCI bus */
 void init_ahci(void);
-int  ahci_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, void *buffer);
-int  ahci_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, const void *buffer);
-int  ahci_flush_cache(uint8_t drive);
+
+/* Read `numsects` sectors from an AHCI ATA drive */
+int ahci_read_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, void *buffer);
+
+/* Write `numsects` sectors to an AHCI ATA drive */
+int ahci_write_sectors(uint8_t drive, uint8_t numsects, uint64_t lba, const void *buffer);
+
+/* Flush the drive's write cache */
+int ahci_flush_cache(uint8_t drive);
 
 #endif // INCLUDE_AHCI_H_

@@ -66,8 +66,10 @@ int blockdev_open_nvme(void *ns, blockdev_device_t *device);
 /* Open an ATAPI CD/DVD drive */
 int blockdev_open_atapi(uint8_t drive, blockdev_device_t *device);
 
-/* Open an AHCI ATA or ATAPI drive by raw index */
+/* Open an AHCI SATA (ATA) drive by raw index */
 int blockdev_open_ahci(uint8_t drive, blockdev_device_t *device);
+
+/* Open an AHCI SATAPI (CD/DVD) drive by raw index */
 int blockdev_open_ahci_atapi(uint8_t drive, blockdev_device_t *device);
 
 /* Open a drive by encoded ID (see BLKDEV_AHCI_FLAG / BLKDEV_ATAPI_FLAG) */

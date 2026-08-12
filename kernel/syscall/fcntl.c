@@ -149,7 +149,6 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             result = 0;
             break;
         }
-
         case F_ADD_SEALS :
             result = memfd_add_seals(file->node, (uint32_t)arg);
             break;
@@ -180,7 +179,6 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             result = 0;
             break;
         }
-
         case F_SETLK :
         case F_SETLKW :
         case F_SETOWN :
@@ -205,12 +203,10 @@ int64_t sys_fcntl(int fd, int cmd, uint64_t arg)
             result = 0;
             break;
         }
-
         case F_SETSIG :
         case F_GETSIG :
             result = 0;
             break;
-
         default :
             result = -EINVAL;
             break;

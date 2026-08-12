@@ -74,6 +74,7 @@ static struct blockdev_ops blk_empty_ops = {
     .release       = blk_empty_reference,
 };
 
+/* Register a block backend ops table, returning its type id. */
 int blockdev_register_type(blockdev_ops_t ops)
 {
     if (!ops) return -EINVAL;
@@ -267,6 +268,7 @@ static int blk_ahci_atapi_type(void)
 
 /* Public API */
 
+/* Open an IDE ATA drive and fill in a blockdev handle. */
 int blockdev_open_ide(uint8_t drive, blockdev_device_t *device)
 {
 #if CONFIG_ATA
@@ -289,6 +291,7 @@ int blockdev_open_ide(uint8_t drive, blockdev_device_t *device)
 #endif
 }
 
+/* Open an NVMe namespace and fill in a blockdev handle. */
 int blockdev_open_nvme(void *ns, blockdev_device_t *device)
 {
 #if CONFIG_NVME
@@ -314,6 +317,7 @@ int blockdev_open_nvme(void *ns, blockdev_device_t *device)
 #endif
 }
 
+/* Open a legacy PATA ATAPI drive and fill in a blockdev handle. */
 int blockdev_open_atapi(uint8_t drive, blockdev_device_t *device)
 {
 #if CONFIG_ATA
@@ -336,6 +340,7 @@ int blockdev_open_atapi(uint8_t drive, blockdev_device_t *device)
 #endif
 }
 
+/* Open an AHCI SATA drive and fill in a blockdev handle. */
 int blockdev_open_ahci(uint8_t drive, blockdev_device_t *device)
 {
 #if CONFIG_ATA
@@ -358,6 +363,7 @@ int blockdev_open_ahci(uint8_t drive, blockdev_device_t *device)
 #endif
 }
 
+/* Open an AHCI SATAPI drive and fill in a blockdev handle. */
 int blockdev_open_ahci_atapi(uint8_t drive, blockdev_device_t *device)
 {
 #if CONFIG_ATA
@@ -380,6 +386,7 @@ int blockdev_open_ahci_atapi(uint8_t drive, blockdev_device_t *device)
 #endif
 }
 
+/* Open a drive by its flat numeric identifier (see BLKDEV_*_FLAG). */
 int blockdev_open_drive(uint8_t drive, blockdev_device_t *device)
 {
     if (!device) return -EINVAL;
@@ -405,6 +412,7 @@ int blockdev_open_drive(uint8_t drive, blockdev_device_t *device)
 #endif
 }
 
+/* Parse a leading unsigned decimal integer, advancing the cursor. */
 static int parse_uint(const char **cursor, uint32_t *value)
 {
     const char *position = *cursor;
@@ -422,6 +430,7 @@ static int parse_uint(const char **cursor, uint32_t *value)
     return EOK;
 }
 
+/* Parse /dev/sdX, hdX, srX, nvme or ide names into drive/partition ids. */
 static int parse_device_name(const char *name, uint8_t *drive, uint32_t *partition, uint32_t *nvme_nsid)
 {
     const char *cursor;
@@ -510,11 +519,13 @@ static int parse_device_name(const char *name, uint8_t *drive, uint32_t *partiti
     return -EINVAL;
 }
 
+/* Parse a disk name into a drive id and optional partition number. */
 int blockdev_parse_name(const char *name, uint8_t *drive, uint32_t *partition)
 {
     return parse_device_name(name, drive, partition, NULL);
 }
 
+/* Format a zero-based disk index into a /dev/sdX style name. */
 int blockdev_format_disk_name(char *buffer, size_t size, uint32_t index)
 {
     char     suffix[8];
@@ -536,6 +547,7 @@ int blockdev_format_disk_name(char *buffer, size_t size, uint32_t index)
     return EOK;
 }
 
+/* Parse a disk name that must not refer to a partition. */
 int blockdev_parse_drive(const char *name, uint8_t *drive)
 {
     uint32_t partition;
@@ -545,6 +557,7 @@ int blockdev_parse_drive(const char *name, uint8_t *drive)
     return partition == 0 ? EOK : -EINVAL;
 }
 
+/* Open a block device by name, resolving partitions when requested. */
 int blockdev_open_name(const char *name, blockdev_device_t *device)
 {
     partition_table_t       table;
@@ -622,6 +635,7 @@ int blockdev_open_name(const char *name, blockdev_device_t *device)
     return status;
 }
 
+/* Derive a partition view over a parent device. */
 int blockdev_open_partition(const blockdev_device_t *parent, uint64_t first_lba, uint64_t sector_count, blockdev_device_t *device)
 {
     if (!parent || !device) return -EINVAL;
@@ -678,7 +692,6 @@ int blockdev_read_bytes(const blockdev_device_t *device, uint64_t offset, void *
     uint64_t start_sector;
     uint32_t sector_count;
     uint8_t *scratch;
-
     uint64_t device_bytes;
 
     if (!device) return -EINVAL;
@@ -713,7 +726,6 @@ int blockdev_write_bytes(const blockdev_device_t *device, uint64_t offset, const
     uint64_t start_sector;
     uint32_t sector_count;
     uint8_t *scratch;
-
     uint64_t device_bytes;
 
     if (!device) return -EINVAL;

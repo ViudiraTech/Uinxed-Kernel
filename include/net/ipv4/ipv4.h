@@ -51,6 +51,7 @@ typedef struct net_ipv4_packet {
         size_t         payload_len;
 } net_ipv4_packet_t;
 
+/* IPv4 parse, forwarding, and routing. */
 int  net_ipv4_parse(const void *data, size_t length, net_ipv4_packet_t *packet);
 int  ipv4_input(net_device_t *device, net_pbuf_t *packet);
 int  ipv4_output(net_device_t *device, uint32_t source, uint32_t destination, uint8_t protocol, uint8_t ttl, net_pbuf_t *packet);

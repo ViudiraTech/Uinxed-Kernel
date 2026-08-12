@@ -32,6 +32,7 @@
 #define ICMPV6_REASSEMBLY_TIMEOUT  1U
 #define ICMPV6_BAD_NEXT_HEADER     1U
 
+/* ICMPv6 input and error generation. */
 int icmpv6_input(net_device_t *device, const ipv6_info_t *ip, net_pbuf_t *packet);
 int icmpv6_error(net_device_t *device, const ipv6_address_t *destination, uint8_t type, uint8_t code, uint32_t value, const void *original,
                  size_t original_length);

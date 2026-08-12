@@ -34,6 +34,7 @@ static uint64_t   drm_minor_bitmap_render;
 static uint64_t   drm_minor_bitmap_accel;
 static spinlock_t drm_minor_lock = {.lock = 0, .rflags = 0};
 
+/* Allocate the lowest free minor index of the given type. */
 int drm_minor_alloc(int type)
 {
     uint64_t *bm;
@@ -66,6 +67,7 @@ int drm_minor_alloc(int type)
     return -ENOSPC;
 }
 
+/* Release a minor index back to the type bitmap. */
 void drm_minor_free(int type, int index)
 {
     uint64_t *bm;
@@ -479,6 +481,7 @@ void drm_release(struct drm_file *file)
             free(fb);
         }
     }
+
     /*
      * Drop the owning reference for every property blob created by this
      * file. Atomic states may still hold independent lookup references.

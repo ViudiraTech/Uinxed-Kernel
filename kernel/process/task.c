@@ -86,6 +86,7 @@ typedef struct {
         void           *arg;
 } kthread_bootstrap_t;
 
+/* Bootstrap a kthread: free the bootstrap record, run the entry, then exit */
 static void kthread_trampoline(kthread_bootstrap_t *bootstrap)
 {
     kthread_entry_t entry = bootstrap->entry;
@@ -96,6 +97,7 @@ static void kthread_trampoline(kthread_bootstrap_t *bootstrap)
     task_exit();
 }
 
+/* Allocate a kernel stack and seed the initial context for a kthread */
 static int setup_kernel_stack(task_t *task, kthread_bootstrap_t *bootstrap)
 {
     task->kernel_stack = malloc(TASK_KERNEL_STACK);
@@ -202,6 +204,7 @@ task_t *task_alloc(const char *name)
     return task_alloc_status(name, NULL);
 }
 
+/* Destroy a task, releasing its PID entry, kernel stack and FPU state */
 void task_free(task_t *task)
 {
     if (!task) return;
@@ -225,6 +228,7 @@ uint64_t task_next_pid(void)
     return pid;
 }
 
+/* Create a kthread pinned to a specific CPU and queue it for scheduling */
 task_t *kthread_create_on_cpu(const char *name, kthread_entry_t entry, void *arg, uint32_t cpu_id)
 {
     if (!entry) return NULL;
