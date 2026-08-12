@@ -9,7 +9,6 @@
  */
 
 #include <drivers/gpu/drm/virtio/virtgpu_drv.h>
-#include <drivers/gpu/drm/virtio/virtgpu_vq.h>
 #include <kernel/printk.h>
 #include <mem/alloc.h>
 

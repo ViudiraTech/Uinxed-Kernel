@@ -17,7 +17,6 @@
 #include <drivers/gpu/drm/drm_fourcc.h>
 #include <drivers/gpu/drm/drm_print.h>
 #include <kernel/errno.h>
-#include <libs/std/stdarg.h>
 #include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>

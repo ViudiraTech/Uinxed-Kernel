@@ -11,7 +11,6 @@
 #include <drivers/gpu/drm/drm_edid.h>
 #include <drivers/gpu/drm/drm_fourcc.h>
 #include <drivers/gpu/drm/drm_print.h>
-#include <drivers/gpu/drm/virtio/virtgpu_cmd.h>
 #include <drivers/gpu/drm/virtio/virtgpu_drv.h>
 #include <drivers/gpu/drm/virtio/virtgpu_gem.h>
 #include <drivers/gpu/drm/virtio/virtgpu_kms.h>

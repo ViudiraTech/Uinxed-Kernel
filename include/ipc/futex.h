@@ -11,7 +11,6 @@
 #ifndef INCLUDE_FUTEX_H_
 #define INCLUDE_FUTEX_H_
 
-#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
 /* Futex operations */

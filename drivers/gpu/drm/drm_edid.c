@@ -10,7 +10,6 @@
 
 #include <drivers/gpu/drm/drm_device.h>
 #include <drivers/gpu/drm/drm_edid.h>
-#include <drivers/gpu/drm/drm_fourcc.h>
 #include <drivers/gpu/drm/drm_idr.h>
 #include <drivers/gpu/drm/drm_mode.h>
 #include <drivers/gpu/drm/drm_modeset_lock.h>

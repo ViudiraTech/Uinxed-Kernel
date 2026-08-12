@@ -13,7 +13,6 @@
 
 #include <drivers/gpu/drm/drm.h>
 #include <drivers/gpu/drm/drm_color_mgmt.h>
-#include <drivers/gpu/drm/drm_fourcc.h>
 #include <drivers/gpu/drm/drm_hashtab.h>
 #include <drivers/gpu/drm/drm_idr.h>
 #include <drivers/gpu/drm/drm_mm.h>

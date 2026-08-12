@@ -13,7 +13,6 @@
 
 #include <kernel/printk.h>
 #include <libs/std/stdarg.h>
-#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
 struct drm_device;

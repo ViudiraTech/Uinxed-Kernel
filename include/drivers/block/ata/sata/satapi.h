@@ -11,6 +11,7 @@
 #ifndef INCLUDE_SATAPI_H_
 #define INCLUDE_SATAPI_H_
 
+#include <drivers/block/ata/sata/ahci.h>
 #include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 

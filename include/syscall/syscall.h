@@ -13,7 +13,6 @@
 
 #include <fs/core/vfs.h>
 #include <libs/std/stdint.h>
-#include <syscall/syscall_table.h>
 
 #define SYSCALL_VECTOR   0x80
 #define SYSCALL_PATH_MAX VFS_PATH_MAX

@@ -12,7 +12,6 @@
 #define INCLUDE_CHRDEV_H_
 
 #include <fs/tmpfs/tmpfs.h>
-#include <libs/std/stdbool.h>
 #include <libs/std/stdint.h>
 
 /*

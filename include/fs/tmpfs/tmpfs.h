@@ -12,7 +12,6 @@
 #define INCLUDE_TMPFS_H_
 
 #include <fs/core/vfs.h>
-#include <libs/std/stdbool.h>
 #include <libs/std/stddef.h>
 #include <sync/spin_lock.h>
 

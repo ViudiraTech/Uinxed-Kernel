@@ -8,7 +8,6 @@
  *
  */
 
-#include <drivers/usb/host/ehci/ehci.h>
 #include <drivers/usb/host/host.h>
 #include <drivers/usb/host/ohci/ohci.h>
 #include <drivers/usb/host/uhci/uhci.h>

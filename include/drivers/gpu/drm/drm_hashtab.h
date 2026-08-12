@@ -12,7 +12,6 @@
 #define INCLUDE_DRM_HASHTAB_H_
 
 #include <libs/list/intrusive_list.h>
-#include <libs/std/stddef.h>
 #include <libs/std/stdint.h>
 
 struct drm_hash_item {
